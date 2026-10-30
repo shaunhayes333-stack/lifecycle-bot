@@ -310,6 +310,13 @@ object HostCircuitInterceptor : Interceptor {
             noteScopedOutcome8179(provider, 599, now)
             throw uhe
         }
+        // V5.0.8441 — a reply an inner interceptor made itself (HeliusRateGate8191's 599, the Helius credit budget's 429) is
+        // no observation of the host: recorded, its 599 counted toward the 3-in-60 s server trip and its 429 climbed the rate
+        // ladder, so the app's own pacing put the host's lane in a cool-down. Returned untouched, nothing recorded.
+        if (isSyntheticBlock(response)) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HOST_CIRCUIT_INNER_SYNTHETIC_NOT_RECORDED_8441") } catch (_: Throwable) {}
+            return response
+        }
         state.nxStreak8136.set(0)
         noteScopedOutcome8179(provider, response.code, now)
 

@@ -76,6 +76,13 @@ object DiagnosisBrief8438 {
     fun birthFault8440(launched: Long, resolved: Long, noAnswer: Long): Boolean =
         launched >= 100L && resolved * 20L < launched && noAnswer * 2L >= launched
 
+    /** Pure (V5.0.8441): the Cortex is starved when fewer than half of at least 200 due label marks were priced. */
+    fun labelsStarved8441(due: Long, priced: Long): Boolean = due >= 200L && priced * 2L < due
+
+    /** Pure (V5.0.8441): supply reads are starved when under half of at least 200 asks resolve, or locks outnumber asks. */
+    fun supplyStarved8441(requested: Long, resolved: Long, locked: Long): Boolean =
+        (requested >= 200L && resolved * 2L < requested) || (locked >= 200L && locked > requested)
+
     /** Pure: the live book's money verdict. */
     fun moneyVerdict8438(n: Int, expectancySol: Double): String = when {
         n < 10 -> "UNPROVEN"
@@ -135,6 +142,8 @@ object DiagnosisBrief8438 {
                 .append(" expectancy=").append("%+.4f".format(s.expectancySol)).append(" SOL/trade (canonical chain-finalised, this governor window)\n")
             if (v == "LOSING") fixes += Fix8438(-s.expectancySol * s.canonicalN * 1000.0, "LOSING",
                 "live book losing: n=${s.canonicalN} exp=${"%+.4f".format(s.expectancySol)} SOL -> per-lane rows in C (BLEEDING_LIVE) and the exits in E")
+            // V5.0.8441 — trade quality: how runner-style entries ended (bought the top / gave the gain back / won).
+            sb.append("               entry quality ").append(com.lifecyclebot.engine.truth.RunnerFunnel8297.outcomesLine8297()).append('\n')
         }
 
         section(sb, "C EDGE") {
@@ -219,6 +228,21 @@ object DiagnosisBrief8438 {
                 "falling-hour record not being saved (failed=$failed ok=0) -> FallingHourCohort8418.persist / LearningPersistence.saveTogetherVerified8386")
             if (stalled) fixes += Fix8438(d[0].toDouble(), "FAULT",
                 "downtime label recovery queued ${d[0]} fetched 0 -> DowntimeRecovery8430.drain8430 / SolanaOhlcvFeed6916.providerSlotWait7809")
+            // V5.0.8441 — the Cortex grades only labels that got a mark. 8439 (3.2 h): assessed 18571, graded 24; label marks
+            // due 9657, priced 1254 (13%), lost noSource 4168 / late 2231. A lost label is not a loss: the forward means in C
+            // count priced (surviving) coins only, and nothing reaches the proven-setup bar the live door asks for.
+            val g = com.lifecyclebot.engine.cortex.Cortex7885.grading8441()
+            val lm = ForwardReturnLabeler7731.labelMarks8441()
+            val started = PipelineHealthCollector.sessionStartedAtMs7250()
+            val hours = ((if (started > 0L) nowMs - started else 0L) / 3_600_000.0).coerceAtLeast(1.0 / 60.0)
+            val starved = labelsStarved8441(lm[0], lm[1])
+            sb.append("               cortex assessed=").append(g[0]).append(" graded=").append(g[1]).append(" (").append("%.1f".format(g[1] / hours))
+                .append("/h) pendingLabels=").append(g[2]).append(" lost=").append(g[3])
+                .append(" | label marks due=").append(lm[0]).append(" priced=").append(lm[1])
+                .append(if (lm[0] > 0L) " (${lm[1] * 100 / lm[0]}%)" else "").append(" noSource=").append(lm[2]).append(" late=").append(lm[3])
+                .append(if (starved) " [FAULT labels unpriced]" else "").append('\n')
+            if (starved) fixes += Fix8438((lm[0] - lm[1]) / 10.0, "FAULT",
+                "Cortex grading starved: ${lm[0] - lm[1]} of ${lm[0]} due label marks unpriced (noSource=${lm[2]} late=${lm[3]}), graded ${g[1]} of ${g[0]} assessed -> ForwardReturnLabeler7731.fetchOffWatchMarks7737 / KeylessMarks8359 lane; token states go stale when the loop is slow (A RUN)")
         }
 
         section(sb, "G INPUTS") {
@@ -235,6 +259,18 @@ object DiagnosisBrief8438 {
             // fault is the walks no rung answered (3379 of 5335), named by rpcRoute8359's per-host fails[].
             if (birthFault) fixes += Fix8438(noAnswer / 10.0, "FAULT",
                 "birth walks unanswered by every RPC rung ($noAnswer of $launched): ${sc[2]} sniper-scoped coins stay undated -> rpcRoute8359 keyless fails[] / TokenBirthHydrator7441.fetchPage")
+            // V5.0.8441 — discovery: how many intakes were new coins, and whether the mint supply (the market cap's other half)
+            // could be read for them. 8439: supply resolved 767 of 5622, all rungs locked 11669, declined locally 4260.
+            val (newN, repeatN) = com.lifecyclebot.engine.truth.DiscoveryRate7984.session8441()
+            val sup = com.lifecyclebot.engine.truth.OnChainSupplyAuthority7075.counts8441()
+            val supplyStarved = supplyStarved8441(sup[0], sup[1], sup[2])
+            sb.append("               discovery new=").append(newN).append(" repeat=").append(repeatN)
+                .append(" (newShare ").append(com.lifecyclebot.engine.truth.DiscoveryRate7984.newSharePct7984(newN, repeatN)).append("%)")
+                .append(" | supply resolved=").append(sup[1]).append('/').append(sup[0]).append(" allRungsLocked=").append(sup[2])
+                .append(" declinedLocally=").append(sup[3]).append(" noSupply=").append(sup[4])
+                .append(if (supplyStarved) " [FAULT supply starved]" else "").append('\n')
+            if (supplyStarved) fixes += Fix8438((sup[0] - sup[1]) / 10.0, "FAULT",
+                "mint supply unread for discovered coins (resolved ${sup[1]} of ${sup[0]}, locked ${sup[2]}): no market cap, so mcap-banded lanes cannot place them -> rpcRoute8359 unsupported8441 / OnChainSupplyAuthority7075 status")
             if (try { com.lifecyclebot.network.PumpFunWS.keyedStreamDenied8439() } catch (_: Throwable) { false }) {
                 sb.append("               PumpPortal: keyed trade stream DENIED (the wallet linked to the API key holds < 0.02 SOL) — launch creates still arrive free; per-coin trade tapes do not\n")
                 fixes += Fix8438(150.0, "OWNER_ACTION",

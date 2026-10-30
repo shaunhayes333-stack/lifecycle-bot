@@ -36,8 +36,13 @@ object HeliusCreditMeterInterceptor7881 : Interceptor {
         // a 429 (no network, no credits). Callers already treat a 429 as "back off / use the next source".
         val tier8066 = try { HeliusCreditEconomy7881.tierFor(host, req.url.encodedPath, methods) } catch (_: Throwable) { null }
         // V5.0.8094 — plan credits exhausted: non-execution calls are answered locally while latched.
+        // V5.0.8441 — both local answers carry X-AATE-Synthetic: HostCircuitInterceptor (outside this one) and HealthAwareHttp
+        // read an untagged 429 as Helius refusing, so the app's own budget armed a 30 s - 5 min host cool-down and an ApiBackoff
+        // lockout on "helius" (8439: helius 4xx=18, last_err AATE_HELIUS_BUDGET_8066; supply locked7345=11669) and every
+        // budget-allowed read behind it was refused too.
         if (tier8066 != null && HeliusCreditEconomy7881.budgetGated8066(tier8066) && HeliusCreditEconomy7881.exhaustedGate8094()) {
             return Response.Builder().request(req).protocol(okhttp3.Protocol.HTTP_1_1).code(429).message("AATE_HELIUS_EXHAUSTED_8094")
+                .header(HostCircuitInterceptor.SYNTHETIC_HEADER_6969, "1")
                 .body("{\"error\":{\"code\":429,\"message\":\"AATE_HELIUS_EXHAUSTED_8094\"}}".toResponseBody("application/json".toMediaType()))
                 .build()
         }
@@ -46,6 +51,7 @@ object HeliusCreditMeterInterceptor7881 : Interceptor {
         if (!HeliusCreditEconomy7881.authorizeWire8397(host, req.url.encodedPath, methods,
                 req.tag(HeliusCreditEconomy7881.Reservation8386::class.java))) {
             return Response.Builder().request(req).protocol(okhttp3.Protocol.HTTP_1_1).code(429).message("AATE_HELIUS_BUDGET_8066")
+                .header(HostCircuitInterceptor.SYNTHETIC_HEADER_6969, "1")
                 .body("{\"error\":{\"code\":429,\"message\":\"AATE_HELIUS_BUDGET_8066\"}}".toResponseBody("application/json".toMediaType())).build()
         }
         val resp = chain.proceed(req)

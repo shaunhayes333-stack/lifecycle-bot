@@ -369,6 +369,10 @@ object TokenBirthHydrator7441 {
             HealthAwareHttp.execute(http, req, host = rpcLabel8439(rpc)).use { resp ->
                 if (!resp.isSuccessful) { com.lifecyclebot.network.KeylessRpc8359.afterCall8359(rpc, resp.code); return null }
                 val root8359 = JSONObject(resp.body?.string() ?: return null)
+                // V5.0.8441 — publicnode refuses this indexed method without a key; learned once, its rung leaves the ladder.
+                root8359.optJSONObject("error")?.let { e ->
+                    com.lifecyclebot.network.KeylessRpc8359.noteRpcError8441(rpc, "getSignaturesForAddress", e.optInt("code", -1), e.optString("message"))
+                }
                 com.lifecyclebot.network.KeylessRpc8359.afterCall8359(rpc, resp.code, root8359.optJSONObject("error")?.optInt("code", -1) ?: 0)
                 root8359.optJSONArray("result")
             }

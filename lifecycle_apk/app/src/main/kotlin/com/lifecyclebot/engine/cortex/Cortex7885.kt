@@ -592,6 +592,8 @@ object Cortex7885 {
     fun gradeBookSize8169(): Long = try { synchronized(this) { (gradeBook8144.size() + gradeBook8144.tradeCount()).toLong() } } catch (_: Throwable) { 0L }
     fun calibrationLine8169(): String = synchronized(this) { "slope=${calibration.line()}" }
     private fun counterSum8169(prefix: String): Long = counters.entries.filter { it.key.startsWith(prefix) }.sumOf { it.value.get() }
+    /** V5.0.8441 — DiagnosisBrief8438 F LEARNING: [assessed, graded, pendingLabels, lostLabels] this process. */
+    fun grading8441(): LongArray = longArrayOf(assessed.get(), graded.get(), pending.size.toLong(), counterSum8169("LABEL_LOST_"))
     fun hygieneLine8169(): String =
         "lateVoterRead=${counterSum8169("LABEL_HYGIENE_LATE_VOTER_READ_8169")} lateFirstPrice=${counterSum8169("LABEL_HYGIENE_LATE_FIRST_PRICE_8153")} " +
             "repeat=${counterSum8169("LABEL_HYGIENE_REPEAT")} unexec=${counterSum8169("LABEL_HYGIENE_UNEXECUTABLE")} seen[R/N/S]=" +
@@ -1396,8 +1398,15 @@ object Cortex7885 {
             gradeBook8144.markLost(id)
         }
         try { LanePlaybook7907.dropPending8144(mint, labelLane, decisionAtMs8372 = p.atMs) } catch (_: Throwable) {}
-        inc("LABEL_LOST_${reason.take(24)}_8187")
+        inc("LABEL_LOST_${lostKey8441(reason)}_8187")
     }
+
+    /**
+     * Pure (V5.0.8441): the counter key for a lost label. take(24) cut every deadline reason to "OBSERVATION_DEADLINE_OBS" /
+     * "_VAL" (8439: 1438 / 373), so which evidence status was missing could not be read.
+     */
+    fun lostKey8441(reason: String): String =
+        reason.replace("OBSERVATION_DEADLINE_", "DEADLINE_").replace("OBSERVED_ONLY_", "").take(32)
 
     private val observationTerminals8395 = java.util.concurrent.ConcurrentHashMap<String,String>()
     private const val OBSERVATION_TERMINAL_PREFIX_8395 = "CORTEX_OBSERVATION_TERMINAL_8395|"

@@ -61,6 +61,9 @@ object DiscoveryRate7984 {
     fun newSharePct7984(newN: Long, repeatN: Long): Int =
         if (newN + repeatN <= 0L) 0 else (newN * 100 / (newN + repeatN)).toInt()
 
+    /** V5.0.8441 — DiagnosisBrief8438 G INPUTS: (new mints, repeat intakes) this session. */
+    fun session8441(): Pair<Long, Long> = newTotal.get() to repeatTotal.get()
+
     fun line7984(nowMs: Long = System.currentTimeMillis()): String {
         val (n10, r10) = synchronized(this) { prune(nowMs); newTimes.size.toLong() to repeatTimes.size.toLong() }
         return "last10m new=$n10 repeat=$r10 newShare=${newSharePct7984(n10, r10)}% · session new=${newTotal.get()} repeat=${repeatTotal.get()} newShare=${newSharePct7984(newTotal.get(), repeatTotal.get())}% echo8292=${echoTotal8292.get()}"

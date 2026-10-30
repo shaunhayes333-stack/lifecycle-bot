@@ -460,6 +460,9 @@ object OnChainSupplyAuthority7075 {
         val m = message.lowercase()
         return when {
             code == -32429 || code == -32005 || code == -32097 || code == 429 -> "RATE_LIMITED"
+            // V5.0.8441 — "-32602 Indexed requests require a personal token" (publicnode) is the node refusing the call, not
+            // the mint lacking a supply: it was written down as NO_SUPPLY for six hours and stopped the ladder there.
+            com.lifecyclebot.network.KeylessRpc8359.capabilityRefusal8441(code, message) -> "TRANSPORT"
             m.contains("could not find") || m.contains("not found") -> "NOT_FOUND_YET"
             code == -32602 -> "NO_SUPPLY"
             else -> "TRANSPORT"
@@ -537,6 +540,7 @@ object OnChainSupplyAuthority7075 {
             // A JSON-RPC error object is the provider declining, not a statement
             // that the mint has no supply. -32429/-32005 are rate limits.
             json.optJSONObject("error")?.let { err ->
+                com.lifecyclebot.network.KeylessRpc8359.noteRpcError8441(url, "getTokenSupply", err.optInt("code", 0), err.optString("message", ""))
                 com.lifecyclebot.network.KeylessRpc8359.afterCall8359(url, 0, err.optInt("code", 0))
                 return classifyRpcError7809(err.optInt("code", 0), err.optString("message", ""))
             }
@@ -614,4 +618,7 @@ object OnChainSupplyAuthority7075 {
             "sat7116=${skippedSaturated.get()} cd7116=${skippedCooldown.get()} locked7345=${skippedProviderLocked7345.get()} " +
             "negCached7116=${skippedNegative.get()} cooling7116=${retryNotBefore.size} " +
             "notVisibleYet7809=${notFoundYet7809.get()}"
+
+    /** V5.0.8441 — DiagnosisBrief8438 G INPUTS: [requested, resolved, allRungsLocked, declinedLocally, noSupply]. */
+    fun counts8441(): LongArray = longArrayOf(requested.get(), fetched.get(), skippedProviderLocked7345.get(), declinedLocally.get(), noSupply.get())
 }

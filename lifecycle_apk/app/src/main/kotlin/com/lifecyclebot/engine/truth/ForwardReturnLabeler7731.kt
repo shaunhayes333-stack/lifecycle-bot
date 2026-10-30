@@ -1924,6 +1924,10 @@ object ForwardReturnLabeler7731 {
         }
     }
 
+    /** V5.0.8441 — DiagnosisBrief8438 F LEARNING: [due, priced, lostNoSource, lostLate] for the 5-minute label marks. */
+    fun labelMarks8441(): LongArray = longArrayOf(labelDue8418.get(),
+        labelPricedDex8418.get() + labelPricedCurve8418.get() + labelPricedTape8418.get(), labelLostNoSource8418.get(), labelLostLate8418.get())
+
     private fun labelMarksLine8418(): String = com.lifecyclebot.engine.cortex.CortexLabelFeed8291.labelMarksLine8418(
         labelDue8418.get(), labelPricedDex8418.get(), labelPricedCurve8418.get(), labelPricedTape8418.get(),
         labelLostNoSource8418.get(), labelLostLate8418.get(), try { KeylessMarks8359.labelCounts8418() } catch (_: Throwable) { null }) +

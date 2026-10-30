@@ -264,6 +264,35 @@ object KeylessRpc8359 {
     /** The market-read ladder: [ladder] re-ordered for [method] with the live governors. */
     fun marketLadder8359(ladder: List<String>, method: String, nowMs: Long = System.currentTimeMillis()): List<String> =
         order8359(ladder, route8359(method), { u -> governor8359(host8359(u)).open8359(nowMs) })
+            .let { l -> l.filterNot { isUnsupported8441(it, method, nowMs) }.ifEmpty { l } }
+
+    // ── V5.0.8441 §A_NODE_THAT_CANNOT_SERVE_THE_METHOD ──
+    // 8439 (3.2 h): publicnode answered -32602 "Indexed requests require a personal token" — it serves no indexed method
+    // (getSignaturesForAddress, getTokenLargestAccounts, ...) without a key. It sat second in every market ladder: 3553 calls,
+    // 74 ok. A capability refusal is learned per host and method and that rung leaves the ladder for [UNSUPPORTED_MS_8441].
+    private const val UNSUPPORTED_MS_8441 = 6 * 60 * 60_000L
+    private val unsupported8441 = ConcurrentHashMap<String, Long>()
+
+    /** Pure: an RPC error that says the node does not serve this method for us (never a statement about the account). */
+    fun capabilityRefusal8441(code: Int, message: String): Boolean {
+        val m = message.lowercase()
+        return code == -32601 || m.contains("personal token") || m.contains("indexed requests") ||
+            m.contains("method not found") || m.contains("method is not available") || m.contains("not supported")
+    }
+
+    /** After an RPC error from [url] for [method]: true when it was a capability refusal (now remembered). */
+    fun noteRpcError8441(url: String, method: String, code: Int, message: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (!capabilityRefusal8441(code, message)) return false
+        val h = host8359(url)
+        if (h.isBlank() || h.contains("helius")) return false
+        if (unsupported8441.size > 256) unsupported8441.entries.removeIf { it.value <= nowMs }
+        unsupported8441["$h|$method"] = nowMs + UNSUPPORTED_MS_8441
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("KEYLESS_RPC_METHOD_UNSUPPORTED_8441") } catch (_: Throwable) {}
+        return true
+    }
+
+    private fun isUnsupported8441(url: String, method: String, nowMs: Long): Boolean =
+        (unsupported8441["${host8359(url)}|$method"] ?: 0L) > nowMs
 
     /** The ladder label convention ("helius", else rpc_<host>) shared with the curve / supply readers. */
     fun label8359(url: String): String {
@@ -305,6 +334,7 @@ object KeylessRpc8359 {
                     val err = j.optJSONObject("error")
                     if (err != null) {
                         why8418 = RpcOutcome8418.rpcErrorKey8418(label, err.optInt("code", -1), err.optString("message"))
+                        noteRpcError8441(url, method, err.optInt("code", -1), err.optString("message"))
                         afterCall8359(url, r.code, err.optInt("code", -1)); return@use null
                     }
                     afterCall8359(url, r.code)
@@ -332,12 +362,13 @@ object KeylessRpc8359 {
                     .takeIf { it.isNotEmpty() }?.joinToString(" ", " fails[", "]") { "${it.key}=${it.value.get()}" }.orEmpty()
         }.ifBlank { "-" }
         val saved = keylessCounts.values.sumOf { it.ok.get() } + cacheHits.get()
+        val unsupported = unsupported8441.entries.filter { it.value > nowMs }.joinToString(",") { it.key }.ifBlank { "-" }
         return "rpcRoute8359[keyless{$k}, helius{calls=${heliusCalls.get()}}, paid{calls=${otherPaidCalls.get()}}, " +
-            "cacheHits=${cacheHits.get()}, governorSkips=${governorSkips.get()}, creditsSaved≈$saved]"
+            "cacheHits=${cacheHits.get()}, governorSkips=${governorSkips.get()}, creditsSaved≈$saved, unsupported8441{$unsupported}]"
     }
 
     internal fun resetForTests8359() {
-        governors.clear(); keylessCounts.clear(); heliusCalls.set(0L); otherPaidCalls.set(0L); cacheHits.set(0L)
+        governors.clear(); keylessCounts.clear(); heliusCalls.set(0L); otherPaidCalls.set(0L); cacheHits.set(0L); unsupported8441.clear()
         governorSkips.set(0L); bestSlot = 0L; bestSlotAtMs = 0L
     }
 }
