@@ -600,10 +600,20 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            // V5.0.8465 — a job's recorded conclusion can lag its completion in the API (8461 / 8462: the gate read
+            // "job build concluded null" with every build step and the smoke test green, so no ACCEPTED APK was
+            // published). Poll for a recorded conclusion (up to ~20 min) before judging; the checks are unchanged.
+            const sleep = ms => new Promise(r => setTimeout(r, ms));
             const need = async (runId, jobName, steps) => {
-              const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun,
-                { ...context.repo, run_id: runId, per_page: 100 });
-              const job = jobs.find(j => j.name === jobName);
+              let job = null;
+              for (let i = 0; i < 40; i++) {
+                const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun,
+                  { ...context.repo, run_id: runId, per_page: 100 });
+                job = jobs.find(j => j.name === jobName);
+                if (job && job.status === 'completed' && job.conclusion) break;
+                core.info(`waiting for ${jobName} in run ${runId}: ${job ? job.status + '/' + job.conclusion : 'missing'}`);
+                await sleep(30000);
+              }
               if (!job) throw new Error(`job ${jobName} missing from run ${runId}`);
               if (job.conclusion !== 'success') throw new Error(`job ${jobName} concluded ${job.conclusion}`);
               for (const name of steps) {
@@ -624,10 +634,17 @@ jobs:
               'Release upgrade over the previous APK on an emulator',
               'Require runtime acceptance for this main commit',
             ]);
-            const { data } = await github.rest.actions.listWorkflowRuns({
-              ...context.repo, workflow_id: 'runtime-test.yml', head_sha: context.sha, per_page: 20 });
-            const run = data.workflow_runs.filter(r => r.head_sha === context.sha && r.status === 'completed')
-              .sort((a, b) => b.id - a.id)[0];
+            // V5.0.8465 — the smoke test may still be running when the build finishes: wait for it (up to ~60 min).
+            let run = null;
+            for (let i = 0; i < 120; i++) {
+              const { data } = await github.rest.actions.listWorkflowRuns({
+                ...context.repo, workflow_id: 'runtime-test.yml', head_sha: context.sha, per_page: 20 });
+              const runs = data.workflow_runs.filter(r => r.head_sha === context.sha).sort((a, b) => b.id - a.id);
+              run = runs.find(r => r.status === 'completed') || null;
+              if (run || runs.length === 0) break;
+              core.info(`waiting for Runtime Smoke Test ${runs[0].id}: ${runs[0].status}`);
+              await sleep(30000);
+            }
             if (!run || run.conclusion !== 'success') {
               core.setFailed(`Runtime Smoke Test for ${context.sha}: ${run ? run.conclusion : 'none'}`);
               return;
