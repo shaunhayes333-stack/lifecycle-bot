@@ -112,7 +112,9 @@ object ForwardReturnLabeler7731 {
     private const val OFFWATCH_FETCH_GAP_MS_7737 = 10_000L
     // superseded by V5.0.8442 — 150 a batch (was 90): ~370 label reads/min mature plus the open shadow tickets' marks
     // (noteShadowWanted8442); five DexScreener calls every 10 s is 30/min of a 270/min host budget that used ~112/min in 8439.
-    private const val OFFWATCH_BATCH_7737 = 150
+    // superseded by V5.0.8455 — 300 a batch: every tracked coin's path is read continuously (trackPath8455), ~2,800 coins at a
+    // time; ten DexScreener calls every 10 s is 60/min of the 270/min host budget.
+    private const val OFFWATCH_BATCH_7737 = 300
     private const val OFFWATCH_DEX_CHUNK_8405 = 30
 
     // ── V5.0.8442 §SHADOW_TICKETS_SHARE_THE_LABEL_MARKS ──
@@ -1760,6 +1762,13 @@ object ForwardReturnLabeler7731 {
 
     private fun liveMark8454(m: LabelMark8386?): Boolean = m != null && liveMark8454(m.source, m.independentBasis)
 
+    /** V5.0.8455 — a tracked coin's price path is refreshed at least this often between its horizons. */
+    const val PATH_REFRESH_MS_8455 = 60_000L
+
+    /** Pure (V5.0.8455): is a tracked coin (decided at [atMs], last priced at [lastPxAtMs]) due a continuous path read? */
+    fun trackPath8455(lastPxAtMs: Long, atMs: Long, nowMs: Long): Boolean =
+        nowMs - maxOf(lastPxAtMs, atMs) >= PATH_REFRESH_MS_8455
+
     // ── V5.0.8337 (10e) — runner lanes grade on the 60-minute slot or the last 7997 checkpoint, not the 5-minute slot ──
     //
     // A runner lane (MOONSHOT / SHITCOIN / EXPRESS / PROJECT_SNIPER) holds through the hour, so its 5-minute label is not its
@@ -2448,6 +2457,11 @@ object ForwardReturnLabeler7731 {
                 else if (dueAtHorizon7737(o, age)) dueUnpriced7737.add(o.mint to com.lifecyclebot.engine.cortex.CortexLabelFeed8291.offWatchKey8291(rank8291, if (o.done60) o.atMs + H240_MS_7731 else o.atMs))
                 // V5.0.8013 — a followed coin's due checkpoint asks for an off-watch mark too.
                 else if (checkpointDue8013(o, age)) dueUnpriced7737.add(o.mint to com.lifecyclebot.engine.cortex.CortexLabelFeed8291.offWatchKey8291(rank8291, o.atMs + CK_MS_7997[o.ck7997]))
+                // V5.0.8455 — owner: "everything is meant to be tracked from discovery until disposal". Between horizons an
+                // unpriced coin was not asked at all, so its path (peak, dip, the stop it hit) went unseen and its label could
+                // find no source when it fell due (8450: noSource=160, late=55). Every tracked coin without a current price is
+                // asked continuously, at the lowest rank (after every due read), longest-unpriced first.
+                else if (trackPath8455(o.lastPxAtMs, o.atMs, nowMs)) dueUnpriced7737.add(o.mint to com.lifecyclebot.engine.cortex.CortexLabelFeed8291.offWatchKey8291(9, maxOf(o.lastPxAtMs, o.atMs)))
                 continue
             }
             val mark8386 = observed8386 ?: continue

@@ -14,8 +14,8 @@ class Aate8405ForwardOutcomeCoverageTest {
 
     @Test fun capacity_covers_the_horizon_demand() {
         assertTrue(lab.contains("private const val OFFWATCH_FETCH_GAP_MS_7737 = 10_000L"))
-        // superseded by V5.0.8442 — 150 a batch (was 90): capacity raised for the label reads plus open shadow tickets
-        assertTrue(lab.contains("private const val OFFWATCH_BATCH_7737 = 150"))
+        // superseded by V5.0.8442 — 150 a batch (was 90); V5.0.8455 — 300: continuous path reads for every tracked coin
+        assertTrue(lab.contains("private const val OFFWATCH_BATCH_7737 = 300"))
         assertTrue(lab.contains("private const val OFFWATCH_DEX_CHUNK_8405 = 30"))
         // a missed mint is re-asked inside the 1-minute horizon's grace, not after it
         assertTrue(lab.contains("private const val OFFWATCH_RETRY_MS_7809 = 30_000L"))
