@@ -92,10 +92,15 @@ object DowntimeRecovery8430 {
         // V5.0.8435 — 8434 (5.4 min): queued=150 fetched=0. The provider's own call interval rarely reads exactly zero at the
         // labeler's tick, so "waitMs > 0 -> return" never fetched. A cooldown (429 / dead source) still defers; a short interval
         // gap is slept on the fetch thread instead.
-        if (wait.cooldown || wait.waitMs > MAX_SLOT_SLEEP_MS_8435) return
-        // V5.0.8439 — learning yields to live reads: fetch only while the GeckoTerminal host bucket is full.
-        if (!(try { com.lifecyclebot.network.GeckoHostBudget8382.spare8439(nowMs) } catch (_: Throwable) { false })) { yielded8439.incrementAndGet(); return }
-        val sleepMs8435 = wait.waitMs.coerceAtLeast(0L)
+        // V5.0.8439 — learning yields to live reads on GeckoTerminal (10 calls a minute): it is used only while its bucket is full.
+        // V5.0.8456 — otherwise the same 1-minute candles come from Birdeye inside its own CU budget (BirdeyeBudgetGate),
+        // never skipped: 8450 queued=82 fetched=0 yieldedToLive=71 while Birdeye sat at 7.6 % of its daily CU — every label a
+        // restart interrupted was lost. Owner: "there isn't meant to be a lost mark ever".
+        val gecko8456 = !wait.cooldown && wait.waitMs <= MAX_SLOT_SLEEP_MS_8435 &&
+            (try { com.lifecyclebot.network.GeckoHostBudget8382.spare8439(nowMs) } catch (_: Throwable) { false })
+        val birdeye8456 = !gecko8456 && (try { com.lifecyclebot.engine.BirdeyeBudgetGate.canAfford(1) } catch (_: Throwable) { false })
+        if (!gecko8456 && !birdeye8456) { yielded8439.incrementAndGet(); return }
+        val sleepMs8435 = if (gecko8456) wait.waitMs.coerceAtLeast(0L) else 0L
         if (!fetching.compareAndSet(false, true)) return
         val mint = synchronized(queue) { queue.firstOrNull()?.also { queue.remove(it) } }
         if (mint == null) { fetching.set(false); return }
@@ -106,7 +111,9 @@ object DowntimeRecovery8430 {
             Thread({
                 try {
                     if (sleepMs8435 > 0L) try { Thread.sleep(sleepMs8435) } catch (_: InterruptedException) {}
-                    val cs = try { com.lifecyclebot.network.SolanaOhlcvFeed6916.fetchCandles6916(mint, "1m", CANDLES_8430) } catch (_: Throwable) { emptyList() }
+                    val cs = if (gecko8456) try { com.lifecyclebot.network.SolanaOhlcvFeed6916.fetchCandles6916(mint, "1m", CANDLES_8430) } catch (_: Throwable) { emptyList() }
+                        else try { birdeyeCandles8456(mint) } catch (_: Throwable) { emptyList() }
+                    if (!gecko8456) birdeyeFetches8456.incrementAndGet()
                     if (cs.isEmpty()) empty.incrementAndGet() else fetched.incrementAndGet()
                     candles[mint] = cs
                     if (candles.size > 400) candles.keys.take(100).forEach { candles.remove(it) }
@@ -117,12 +124,23 @@ object DowntimeRecovery8430 {
 
     @Volatile private var inFlight8430 = ""
 
+    private val birdeyeFetches8456 = AtomicLong(0)
+
+    /** V5.0.8456 — the downtime window's 1-minute candles from Birdeye (the configured key, else the shipped one). */
+    private fun birdeyeCandles8456(mint: String): List<Candle> {
+        val key = try {
+            com.lifecyclebot.engine.BotService.instance?.applicationContext?.let { com.lifecyclebot.data.ConfigStore.load(it).birdeyeApiKey }
+        } catch (_: Throwable) { null }?.takeIf { it.isNotBlank() } ?: com.lifecyclebot.data.DefaultKeys.BIRDEYE
+        if (key.isBlank()) return emptyList()
+        return com.lifecyclebot.network.BirdeyeApi(key).getCandles(mint, "1m", CANDLES_8430)
+    }
+
     /** V5.0.8438 — DiagnosisBrief8438: (queued, fetched, recovered, gaveUp). */
     fun counts8438(): LongArray = longArrayOf(queue.size.toLong(), fetched.get(), recovered.get(), gaveUp.get(), empty.get(), yielded8439.get())
 
     fun statusLine8430(): String =
         "downtimeRecovery8430[queued=${queue.size} fetched=${fetched.get()} empty=${empty.get()} recovered=${recovered.get()} " +
-            "gaveUp=${gaveUp.get()} yieldedToLive8439=${yielded8439.get()} cap=$MAX_MINTS_PER_BOOT_8430 mints/${RECOVERY_WINDOW_MS_8430 / 60_000L}m]"
+            "gaveUp=${gaveUp.get()} yieldedToLive8439=${yielded8439.get()} birdeye8456=${birdeyeFetches8456.get()} cap=$MAX_MINTS_PER_BOOT_8430 mints/${RECOVERY_WINDOW_MS_8430 / 60_000L}m]"
 
     internal fun seedForTest8430(mint: String, cs: List<Candle>) { candles[mint] = cs }
     internal fun resetForTest8430() { candles.clear(); attempted.clear(); queue.clear(); fetching.set(false); lastFetchMs = 0L; fetched.set(0); empty.set(0); recovered.set(0); gaveUp.set(0) }
