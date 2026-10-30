@@ -571,7 +571,7 @@ class Executor(
         val entryScore: Double,
         val source: String,
     )
-    // V5.0.8450 — concurrent: the shadow check runs on a worker (BotService.dispatchShadowPositions8450) while the loop opens.
+    // V5.0.8450 — concurrent: opens, the shadow check and the report read it from different threads.
     private val shadowPositions = java.util.concurrent.ConcurrentHashMap<String, ShadowPosition>()
     private val MAX_SHADOW_POSITIONS = 60  // V5.0.7320: 20 -> 60 (8 small fields each)
     // V5.0.7320 — last observed mark per shadow mint, so an evicted position is

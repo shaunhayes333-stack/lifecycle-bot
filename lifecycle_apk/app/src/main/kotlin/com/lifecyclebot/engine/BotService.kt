@@ -1546,28 +1546,6 @@ class BotService : Service() {
         try { com.lifecyclebot.engine.truth.ExploreShadow8347.flushOnStop8418() } catch (_: Throwable) {}   // V5.0.8418 — forced book flush on stop
     }
 
-    /**
-     * V5.0.8450 — the shadow book's position check (marks, stops, closes and their learning fanout for up to 60 shadow
-     * positions) ran synchronously on the bot-loop thread every cycle. It now runs on a worker, one at a time; a cycle
-     * that finds the previous check still running skips it (the next cycle checks again). Executor.shadowPositions is
-     * concurrent since 8450, so the loop's shadow opens and this check never race.
-     */
-    private val shadowPositionsInFlight8450 = AtomicBoolean(false)
-
-    private fun dispatchShadowPositions8450(tokenStatesCopy: Map<String, com.lifecyclebot.data.TokenState>) {
-        if (!shadowPositionsInFlight8450.compareAndSet(false, true)) {
-            try { PipelineHealthCollector.labelInc("SHADOW_POSITIONS_SKIPPED_IN_FLIGHT_8450") } catch (_: Throwable) {}
-            return
-        }
-        try {
-            scope.launch(kotlinx.coroutines.Dispatchers.Default + CoroutineName("shadow-positions-8450")) {
-                try { executor.checkShadowPositions(tokenStatesCopy) }
-                catch (e: Exception) { ErrorLogger.debug("BotService", "Shadow position check error: ${e.message}") }
-                finally { shadowPositionsInFlight8450.set(false) }
-            }
-        } catch (_: Throwable) { shadowPositionsInFlight8450.set(false) }
-    }
-
     private fun requestSellOffLoop7288(
         ts: com.lifecyclebot.data.TokenState,
         reason: String,
@@ -22586,7 +22564,7 @@ if (hotExitHandledSweep) {
                     dispatchLearningTicks8020(tokenStatesCopy, nowShadow7307)  // V5.0.8020 — off the trading loop
                     try { markProgress("POST_SUPERVISOR/SHADOW_POSITIONS") } catch (_: Throwable) {}
                     // V5.0.7809 — moved after the label ticks: a shadow-position exception no longer skips label bookout.
-                    dispatchShadowPositions8450(tokenStatesCopy)   // V5.0.8450 — off the trading loop
+                    executor.checkShadowPositions(tokenStatesCopy)
                     try { markProgress("POST_SUPERVISOR/SHADOW_EVIDENCE_DISPATCH") } catch (_: Throwable) {}
                     dispatchShadowEvidenceTicks8372(tokenStatesCopy)
                 } catch (e: Exception) {

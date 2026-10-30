@@ -9,7 +9,7 @@ import java.io.File
 /**
  * V5.0.8450 — the bot loop ran a steady 30-35 s a cycle on 8446 while the cycle body exceeded 5 s only 4 times: it was
  * sleeping ~30 s (the LLM tuner's old pollSeconds ceiling, persisted in the config). The sleep is clamped to 3..8 s and
- * the tuner's ceiling is 8 s; the shadow-position check leaves the loop thread; the per-cycle trade count takes no lock.
+ * the tuner's ceiling is 8 s; the per-cycle trade count takes no lock.
  */
 class Aate8450LoopCadenceTest {
     private fun src(p: String) = File("src/main/kotlin/com/lifecyclebot/$p").readText()
@@ -26,14 +26,11 @@ class Aate8450LoopCadenceTest {
         assertTrue(LlmParameterTuner.isAllowedKey("pollSeconds"))
     }
 
-    @Test fun shadowPositionsAreCheckedOffTheLoopOneAtATime() {
+    @Test fun theShadowMapIsConcurrentAndTheTradeCountTakesNoLock() {
+        // V5.0.8451 — the 8450 worker offload of checkShadowPositions was withdrawn after 8449/8450 runtime failures; the check
+        // runs on the loop again. The concurrent map and the lock-free per-cycle count stay.
         val bs = src("engine/BotService.kt")
-        val loopBlock = bs.substring(bs.indexOf("dispatchLearningTicks8020(tokenStatesCopy, nowShadow7307)"), bs.indexOf("// HOT MODE SWITCH"))
-        assertTrue(loopBlock.contains("dispatchShadowPositions8450(tokenStatesCopy)"))
-        assertFalse("not called on the loop thread", loopBlock.contains("executor.checkShadowPositions("))
-        val helper = bs.substring(bs.indexOf("private fun dispatchShadowPositions8450("), bs.indexOf("private fun requestSellOffLoop7288("))
-        assertTrue(helper.contains("shadowPositionsInFlight8450.compareAndSet(false, true)"))
-        assertTrue(helper.contains("finally { shadowPositionsInFlight8450.set(false) }"))
+        assertTrue(bs.contains("executor.checkShadowPositions(tokenStatesCopy)"))
         assertTrue(src("engine/Executor.kt").contains("private val shadowPositions = java.util.concurrent.ConcurrentHashMap<String, ShadowPosition>()"))
         assertFalse(bs.contains("val tradeCount = synchronized(status.tokens)"))
     }
