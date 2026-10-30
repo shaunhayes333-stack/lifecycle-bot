@@ -291,6 +291,13 @@ object PipelineHealthCollector {
     /** V5.0.8440 — DiagnosisBrief8438: the average bot-loop cycle this process (ms; 0 before the first cycle). */
     fun avgCycleMs8440(): Long = cycleCount.get().let { n -> if (n > 0L) totalCycleMs.get() / n else 0L }
 
+    /** V5.0.8448 — the mean of the recent cycle samples (ms; 0 before the first cycle). HandoffReceiverTasks8153 lifetimes. */
+    fun recentAvgCycleMs8448(): Long {
+        var sum = 0L; var n = 0L
+        for (v in recentCycleMsSamples) { sum += v; n++ }
+        return if (n > 0L) sum / n else 0L
+    }
+
     /** V5.9.915 — recent executions ring (BUY/SELL with size + mode + reason). */
     data class ExecRecord(
         val tsMs: Long,

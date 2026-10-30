@@ -72,6 +72,17 @@ object HandoffReceiverTasks8153 {
     const val TASK_TTL_MS_8153 = 45_000L
     /** ... and never longer than this from its creation, however often it is refreshed. */
     const val TASK_MAX_AGE_MS_8153 = 180_000L
+
+    /**
+     * Pure (V5.0.8448): a task's validity window — [TASK_TTL_MS_8153], or three recent bot-loop cycles when the loop is
+     * slower than that, never past [TASK_MAX_AGE_MS_8153]. A scheduled receiver evaluation runs on the token's next
+     * cycle; at 24-30 s a cycle (8439 / 8441, a token processed every ~2 cycles) a 45 s window closed before it could:
+     * 8439 SCHEDULED_NO_FDG_VERDICT=66, STALE_NOT_SCHEDULED=125; 8441 44 scheduled, 28 evaluated.
+     */
+    internal fun ttlFor8448(recentCycleMs: Long): Long =
+        maxOf(TASK_TTL_MS_8153, 3L * recentCycleMs.coerceAtLeast(0L)).coerceAtMost(TASK_MAX_AGE_MS_8153)
+
+    private fun ttl8448(): Long = ttlFor8448(try { PipelineHealthCollector.recentAvgCycleMs8448() } catch (_: Throwable) { 0L })
     /** A settled task for the same lane is not re-opened inside this window by a repeat of the same hand-off. */
     internal const val SETTLED_HOLD_MS_8153 = 120_000L
     internal const val SAME_READ_SLACK_MS_8153 = 5_000L
@@ -147,10 +158,10 @@ object HandoffReceiverTasks8153 {
         // V5.0.8190 — a newer hand-off replacing a still-pending task carries its lineage (the receivers already tried);
         // it is counted CARRIED, not as a refusal of the old version.
         if (prior != null && prior.pending && nowMs <= prior.validUntilMs) {
-            return Task8153(mint, l, canon8153(from), reason.take(80), version, nowMs, nowMs + TASK_TTL_MS_8153, evidenceAtMs,
+            return Task8153(mint, l, canon8153(from), reason.take(80), version, nowMs, nowMs + ttl8448(), evidenceAtMs,
                 tried = prior.tried - l, carriedFrom8190 = if (prior.version > 0L) prior.version else -1L)
         }
-        return Task8153(mint, l, canon8153(from), reason.take(80), version, nowMs, nowMs + TASK_TTL_MS_8153, evidenceAtMs)
+        return Task8153(mint, l, canon8153(from), reason.take(80), version, nowMs, nowMs + ttl8448(), evidenceAtMs)
     }
 
     /**
@@ -184,7 +195,7 @@ object HandoffReceiverTasks8153 {
     fun refresh8153(t: Task8153, lane: String, version: Long, candidateValid: Boolean, evidenceAtMs: Long, nowMs: Long): Task8153 {
         if (!t.pending || t.lane != canon8153(lane) || !candidateValid) return t
         if (nowMs > t.validUntilMs || evidenceAtMs <= t.refreshedAtMs) return t
-        val until = minOf(nowMs + TASK_TTL_MS_8153, t.createdAtMs + TASK_MAX_AGE_MS_8153)
+        val until = minOf(nowMs + ttl8448(), t.createdAtMs + TASK_MAX_AGE_MS_8153)
         return t.copy(validUntilMs = maxOf(t.validUntilMs, until), refreshedAtMs = evidenceAtMs,
             version = if (version > 0L) maxOf(version, t.version) else t.version)
     }
@@ -252,7 +263,7 @@ object HandoffReceiverTasks8153 {
     fun reopen8419(t: Task8153?, features: Set<String>, nowMs: Long): Task8153? {
         if (t == null || t.pending || t.outcome != Outcome8153.DEFERRED_DATA || !t.verdict.startsWith(SPENT_PREFIX_8419)) return null
         if (nowMs < t.settledAtMs || !FdgReceipt8397.answers(t.missingFeatures8397, features)) return null
-        val until = minOf(nowMs + TASK_TTL_MS_8153, t.createdAtMs + TASK_MAX_AGE_MS_8153)
+        val until = minOf(nowMs + ttl8448(), t.createdAtMs + TASK_MAX_AGE_MS_8153)
         if (until <= nowMs) return null
         return t.copy(outcome = Outcome8153.PENDING, verdict = "", settledAtMs = 0L, lastBlock = "", validUntilMs = until,
             scheduledAtMs = 0L, schedules = 0, dataDeferredAtMs8397 = 0L, missingFeatures8397 = emptySet(), dataRetryAtMs8397 = 0L)
@@ -291,7 +302,7 @@ object HandoffReceiverTasks8153 {
         // V5.0.8419 — the refusing lane's FDG data wait does not travel: the next receiver has not asked for anything yet
         // (its own FDG receipt sets its own wait); the claim's evidence (from / reason / version / lineage) does.
         return t.copy(lane = next, tried = tried, verdict = "TRANSFERRED_FROM_${t.lane}:${reason.take(40)}",
-            validUntilMs = minOf(nowMs + TASK_TTL_MS_8153, t.createdAtMs + TASK_MAX_AGE_MS_8153),
+            validUntilMs = minOf(nowMs + ttl8448(), t.createdAtMs + TASK_MAX_AGE_MS_8153),
             scheduledAtMs = 0L, schedules = 0, lastBlock = "",
             dataDeferredAtMs8397 = 0L, missingFeatures8397 = emptySet(), dataRetryAtMs8397 = 0L)
     }
@@ -303,7 +314,7 @@ object HandoffReceiverTasks8153 {
     /** Scheduling is not strategy judgement. Same cooldown/evidence cannot extend the absolute task budget. */
     internal fun suspendForScheduler8394(t: Task8153, untilMs: Long, nowMs: Long): Task8153 {
         if (!t.pending || untilMs <= nowMs || nowMs > t.validUntilMs || untilMs <= t.schedulerUntil8394) return t
-        val end = minOf(untilMs + TASK_TTL_MS_8153, t.createdAtMs + TASK_MAX_AGE_MS_8153)
+        val end = minOf(untilMs + ttl8448(), t.createdAtMs + TASK_MAX_AGE_MS_8153)
         return t.copy(validUntilMs = maxOf(t.validUntilMs, end), schedulerUntil8394 = untilMs,
             lastBlock = "SCHEDULING_DEFER_8394:SUPERVISOR_BACKOFF")
     }
@@ -372,7 +383,7 @@ object HandoffReceiverTasks8153 {
      */
     fun resumeOnState8330(t: Task8153?, installed: Boolean, nowMs: Long): Task8153? {
         if (t == null || !installed || !awaitsState8330(t)) return null
-        val until = minOf(nowMs + TASK_TTL_MS_8153, t.createdAtMs + TASK_MAX_AGE_MS_8153)
+        val until = minOf(nowMs + ttl8448(), t.createdAtMs + TASK_MAX_AGE_MS_8153)
         if (until <= nowMs) return null
         return t.copy(lastBlock = "", validUntilMs = maxOf(t.validUntilMs, until))
     }
@@ -441,7 +452,7 @@ object HandoffReceiverTasks8153 {
         if (t == null || !awaitsHydration8343(t)) return null
         if (t.dataDeferredAtMs8397 > 0L && (nowMs <= t.dataDeferredAtMs8397 ||
                 !FdgReceipt8397.answers(t.missingFeatures8397, setOf("liq")))) return null
-        val until = minOf(nowMs + TASK_TTL_MS_8153, t.createdAtMs + TASK_MAX_AGE_MS_8153)
+        val until = minOf(nowMs + ttl8448(), t.createdAtMs + TASK_MAX_AGE_MS_8153)
         if (until <= nowMs) return null
         return t.copy(lastBlock = "", validUntilMs = maxOf(t.validUntilMs, until), dataDeferredAtMs8397 = 0L,
             missingFeatures8397 = emptySet(), dataRetryAtMs8397 = 0L)
@@ -465,7 +476,7 @@ object HandoffReceiverTasks8153 {
                 !FdgReceipt8397.answers(t.missingFeatures8397, features)) t else {
                 resumed = true
                 t.copy(lastBlock = "",
-                    validUntilMs = maxOf(t.validUntilMs, minOf(nowMs + TASK_TTL_MS_8153, t.createdAtMs + TASK_MAX_AGE_MS_8153)),
+                    validUntilMs = maxOf(t.validUntilMs, minOf(nowMs + ttl8448(), t.createdAtMs + TASK_MAX_AGE_MS_8153)),
                     dataDeferredAtMs8397 = 0L, missingFeatures8397 = emptySet(), dataRetryAtMs8397 = 0L)
             }
         }
