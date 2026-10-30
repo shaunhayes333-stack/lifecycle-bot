@@ -128,7 +128,8 @@ object Cortex7885 {
     // for its own label; it is marked lost only when that label is lost too, or when it is evicted.
     private val superseded8443 = ConcurrentHashMap<String, Pending>()
     private const val MAX_SUPERSEDED_8443 = 4_000
-    private const val SUPERSEDED_MAX_AGE_MS_8443 = 2L * 3_600_000L
+    // superseded by V5.0.8447 — 90 minutes, pending's own reach (DEAD_PENDING_MS_8144; was 2 h): no label arrives later.
+    private const val SUPERSEDED_MAX_AGE_MS_8443 = 90L * 60_000L
     private val supersededKept8443 = AtomicLong(0)
     private val supersededEvicted8443 = AtomicLong(0)
 
@@ -148,6 +149,12 @@ object Cortex7885 {
         superseded8443["$key|${old.atMs}"] = old
         supersededKept8443.incrementAndGet()
         if (superseded8443.size <= MAX_SUPERSEDED_8443 && supersededKept8443.get() % 64L != 0L) return
+        evictSupersededNow8447(nowMs)
+    }
+
+    /** Under the Cortex monitor: evict the stale / over-cap superseded episodes, each marked lost in the grade book. */
+    private fun evictSupersededNow8447(nowMs: Long) {
+        if (superseded8443.isEmpty()) return
         for (id in evictSuperseded8443(superseded8443.mapValues { it.value.atMs }, nowMs, MAX_SUPERSEDED_8443, SUPERSEDED_MAX_AGE_MS_8443)) {
             val p = superseded8443.remove(id) ?: continue
             val k = id.substringBeforeLast('|')
@@ -541,6 +548,7 @@ object Cortex7885 {
         if (!force && nowMs - lastDeadPrune8144 < 60_000L) return
         lastDeadPrune8144 = nowMs
         pairedPending8401.entries.removeIf { nowMs - it.value.atMs > DEAD_PENDING_MS_8144 }
+        synchronized(this) { evictSupersededNow8447(nowMs) }   // V5.0.8447 — same 90-minute reach as pending
         val before = pending.size
         for ((key, p) in pending.entries) if (nowMs - p.atMs > DEAD_PENDING_MS_8144) {
             synchronized(this) {
@@ -1080,8 +1088,10 @@ object Cortex7885 {
             val p = pending[key]?.takeIf { it.atMs == at } ?: pairedPending8401[id] ?: graded8006[id]?.p
             p?.let { Triple(key, detachPending8386(it), false) }
         }.orEmpty()
-        val pairedIds8417 = pairedPending8401.keys.toSet()
-        val awaitingHour8417 = if (episodes8401 == null) pairedPending8401.entries
+        // V5.0.8447 — superseded episodes (8443) are saved as paired rows: a restart restores each one beside the newer
+        // decision (pairedPending8401) or as the lane's pending when no newer one survived, and its own label still finds it.
+        val pairedIds8417 = pairedPending8401.keys.toSet() + superseded8443.keys
+        val awaitingHour8417 = if (episodes8401 == null) (pairedPending8401.entries + superseded8443.entries)
             .filter { persistablePending8144(it.value.atMs, now8144) }
             .map { Triple(it.key.substringBeforeLast('|'), detachPending8386(it.value), false) } else emptyList()
         val rows8372 = (ordinary.map { Triple(it.key, detachPending8386(it.value), false) } + awaitingHour8417 + forwardRows8401 +
