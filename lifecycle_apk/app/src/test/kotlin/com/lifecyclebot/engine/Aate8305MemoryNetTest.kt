@@ -87,7 +87,12 @@ class Aate8305MemoryNetTest {
         assertEquals(json, r.body!!.string())
         assertEquals(0L, HttpBodyCap8305.refusedTotal8305())
         assertEquals(0L, HttpBodyCap8305.inFlightBytes8305())
-        assertTrue(HttpBodyCap8305.line8305(), HttpBodyCap8305.line8305().contains("read=1"))
+        // superseded by V5.0.8467 — the counters are process-wide and a background read from another test's thread can land in
+        // this window (8465 CI: read=2 with a publicnode 0KB entry beside this body); the read is measured when THIS body is
+        // listed by its host and path.
+        val line = HttpBodyCap8305.line8305()
+        assertTrue(line, line.contains("api.dexscreener.com/latest"))
+        assertFalse(line, line.contains("read=0"))
     }
 
     @Test fun aDeclaredOversizeLengthIsRefusedBeforeAnyByteIsRead() {
