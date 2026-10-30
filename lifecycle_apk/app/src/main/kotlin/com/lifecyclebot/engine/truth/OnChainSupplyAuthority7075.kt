@@ -296,6 +296,7 @@ object OnChainSupplyAuthority7075 {
         val gate = inFlight.computeIfAbsent(mint) { AtomicBoolean(false) }
         if (!gate.compareAndSet(false, true)) return
         requested.incrementAndGet()
+        if (enqueueBatch8445(mint, gate)) return   // V5.0.8445 — 100 mint accounts per read
         val submitted = try {
             pool.execute { resolveOnce7116(mint, gate) }
             true
@@ -311,6 +312,103 @@ object OnChainSupplyAuthority7075 {
             skippedSaturated.incrementAndGet()
             retryNotBefore[mint] = System.currentTimeMillis() + COOLDOWN_MS
             gate.set(false)
+        }
+    }
+
+    // ── V5.0.8445 §ONE_READ_FOR_A_HUNDRED_SUPPLIES ──
+    // 8441 (10 min): 1,300 supply asks, 52 resolved; 8439: 767 of 5,622. Every mint was one getTokenSupply, one at a time on
+    // two threads, against keyless nodes allowing ~30 calls / 10 s for everything and a paced Helius budget. A mint account
+    // holds the supply and decimals itself, and getMultipleAccounts reads 100 of them in one call (jsonParsed: the same record
+    // MintSupply8418.fromAccountInfoResult8418 already accepts from OnChainMintAuthorityProof7248). A batch answer that is
+    // not an initialised mint falls back to that mint's own getTokenSupply; no answer at all is a local retry, not evidence.
+    const val BATCH_KEYS_8445 = 100
+    private const val MAX_BATCH_QUEUED_8445 = 2_000
+    private val batch8445 = java.util.concurrent.ConcurrentHashMap<String, AtomicBoolean>()
+    private val batchRunning8445 = AtomicBoolean(false)
+    private val batchCalls8445 = AtomicLong(0L)
+    private val batchResolved8445 = AtomicLong(0L)
+    private val batchUnanswered8445 = AtomicLong(0L)
+    private val batchFallback8445 = AtomicLong(0L)
+
+    private fun enqueueBatch8445(mint: String, gate: AtomicBoolean): Boolean {
+        if (batch8445.size >= MAX_BATCH_QUEUED_8445) return false
+        batch8445[mint] = gate
+        if (batchRunning8445.compareAndSet(false, true)) try { pool.execute { drainBatch8445() } } catch (_: Throwable) {
+            batchRunning8445.set(false)
+            batch8445.remove(mint)
+            return false
+        }
+        return true
+    }
+
+    private fun drainBatch8445() {
+        try {
+            while (true) {
+                val mints = batch8445.keys.take(BATCH_KEYS_8445)
+                if (mints.isEmpty()) break
+                readBatch8445(mints)
+            }
+        } finally {
+            batchRunning8445.set(false)
+            if (batch8445.isNotEmpty() && batchRunning8445.compareAndSet(false, true)) try { pool.execute { drainBatch8445() } } catch (_: Throwable) {
+                batchRunning8445.set(false)
+            }
+        }
+    }
+
+    /** Pure (V5.0.8445): one getMultipleAccounts `value` entry as the single-account result MintSupply8418 parses. */
+    fun accountResult8445(context: JSONObject?, value: Any?): JSONObject? =
+        if (value == null || value == JSONObject.NULL || value !is JSONObject) null
+        else JSONObject().put("context", context ?: JSONObject()).put("value", value)
+
+    private fun readBatch8445(mints: List<String>) {
+        val params = org.json.JSONArray().put(org.json.JSONArray(mints))
+            .put(JSONObject().put("encoding", "jsonParsed").put("commitment", "confirmed"))
+        batchCalls8445.incrementAndGet()
+        val result = try { com.lifecyclebot.network.KeylessRpc8359.post8359(http, "getMultipleAccounts", params, "supply-batch-8445") } catch (_: Throwable) { null }
+        val values = result?.optJSONArray("value")
+        val context = result?.optJSONObject("context")
+        val now = System.currentTimeMillis()
+        for ((i, mint) in mints.withIndex()) {
+            val gate = batch8445.remove(mint) ?: continue
+            var handedOff = false
+            try {
+                if (values == null) {
+                    batchUnanswered8445.incrementAndGet()
+                    retryNotBefore[mint] = now + DECLINED_LOCAL_RETRY_MS_8272
+                    continue
+                }
+                val one = accountResult8445(context, values.opt(i))
+                if (one == null) {
+                    notFoundYet7809.incrementAndGet()
+                    retryNotBefore[mint] = now + NOT_FOUND_RETRY_MS_7809
+                    continue
+                }
+                val s = MintSupply8418.fromAccountInfoResult8418(mint, one, now)
+                if (s == null) {
+                    // Not an initialised SPL / Token-2022 mint in this answer: getTokenSupply states why on its own.
+                    batchFallback8445.incrementAndGet()
+                    handedOff = try { pool.execute { resolveOnce7116(mint, gate) }; true } catch (_: Throwable) { false }
+                    if (!handedOff) retryNotBefore[mint] = now + COOLDOWN_MS
+                    continue
+                }
+                MintSupply8418.accept8418(s, notifyMetrics = false)
+                val whole = MintSupply8418.wholeOrZero8418(mint).takeIf { it > 0.0 } ?: s.wholeTokens
+                if (!whole.isFinite() || whole <= 0.0) { retryNotBefore[mint] = now + COOLDOWN_MS; continue }
+                resolved[mint] = whole
+                retryNotBefore.remove(mint)
+                fetched.incrementAndGet()
+                batchResolved8445.incrementAndGet()
+                try {
+                    PipelineHealthCollector.labelInc("ONCHAIN_SUPPLY_RESOLVED_7075")
+                    if (TokenMetricsAuthority7069.acceptOnChainSupply7075(mint, whole)) {
+                        corrections.incrementAndGet()
+                        PipelineHealthCollector.labelInc("ONCHAIN_SUPPLY_CORRECTED_INFERENCE_7075")
+                    }
+                } catch (_: Throwable) {}
+            } finally {
+                if (!handedOff) gate.set(false)
+            }
         }
     }
 
@@ -617,7 +715,9 @@ object OnChainSupplyAuthority7075 {
             "rl7116=${rateLimited.get()} tx7116=${transportError.get()} dec7116=${declinedLocally.get()} " +
             "sat7116=${skippedSaturated.get()} cd7116=${skippedCooldown.get()} locked7345=${skippedProviderLocked7345.get()} " +
             "negCached7116=${skippedNegative.get()} cooling7116=${retryNotBefore.size} " +
-            "notVisibleYet7809=${notFoundYet7809.get()}"
+            "notVisibleYet7809=${notFoundYet7809.get()} " +
+            "batch8445[calls=${batchCalls8445.get()} resolved=${batchResolved8445.get()} unanswered=${batchUnanswered8445.get()} " +
+            "fallback=${batchFallback8445.get()} queued=${batch8445.size}]"
 
     /** V5.0.8441 — DiagnosisBrief8438 G INPUTS: [requested, resolved, allRungsLocked, declinedLocally, noSupply]. */
     fun counts8441(): LongArray = longArrayOf(requested.get(), fetched.get(), skippedProviderLocked7345.get(), declinedLocally.get(), noSupply.get())

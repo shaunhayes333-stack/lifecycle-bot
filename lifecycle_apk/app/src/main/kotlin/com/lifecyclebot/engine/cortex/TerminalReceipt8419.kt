@@ -27,8 +27,11 @@ object TerminalReceipt8419 {
     fun needsSnapshot8419(pendingAtMs: Long?, atMs: Long, paired: Boolean): Boolean =
         paired || (pendingAtMs != null && pendingAtMs == atMs)
 
-    /** Pure: the receipt row written on its own for an episode the Cortex does not hold. */
-    fun directReceipt8419(decisionId: String, reason: String, atMs: Long): String =
+    /**
+     * Pure: the receipt row written on its own. V5.0.8445 — also for an episode the Cortex held ([held]): its in-memory
+     * removal is already applied and rides the next regular Cortex save (see Cortex7885.observationUnavailable8395).
+     */
+    fun directReceipt8419(decisionId: String, reason: String, atMs: Long, held: Boolean = false): String =
         org.json.JSONObject().put("decisionId", decisionId).put("reason", reason)
-            .put("disposition", "EPISODE_NOT_HELD_8419").put("at", atMs).toString()
+            .put("disposition", if (held) "EPISODE_RELEASED_8445" else "EPISODE_NOT_HELD_8419").put("at", atMs).toString()
 }
