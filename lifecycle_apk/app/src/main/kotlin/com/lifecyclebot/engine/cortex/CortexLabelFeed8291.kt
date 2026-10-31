@@ -70,7 +70,7 @@ object CortexLabelFeed8291 {
         val s = source.orEmpty().uppercase()
         return when {
             s == "CURVE_ACCOUNT" || s.startsWith("PUMP_CURVE") -> "CURVE"
-            s.startsWith("CURVE_") -> "TAPE"
+            s.startsWith("CURVE_") || s.startsWith("TAPE_") -> "TAPE"   // V5.0.8475 — the coin's own trade tape
             else -> "DEX"
         }
     }

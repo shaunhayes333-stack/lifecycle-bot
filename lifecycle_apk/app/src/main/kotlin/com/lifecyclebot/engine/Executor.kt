@@ -20055,6 +20055,13 @@ class Executor(
                 buyTerminalRecorded = true
                 buyAttemptTrace4576("TERMINAL_FAIL", reason)
                 ExecutionAttemptLease.terminalFail(buyLease.key, "BUY", ts.mint, ts.symbol, reason, buyLeaseProcessor)
+                // V5.0.8475 — the owning lane's buy ended without a position: its claim and sealed intent on this mint version
+                // leave with it, so the next lane FDG approved takes the coin on its next pass instead of reading
+                // OWNED_BY_<lane>_7868 until the version turns (8471: SHITCOIN lost 18 approvals to a MOONSHOT that bought none).
+                try {
+                    val failed8475 = attemptId.ifBlank { ExecutableOpenGate.recentAllowedAttemptIdAnyLane(ts.mint, "LIVE").orEmpty() }
+                    ExecutableOpenGate.releaseFailedBuy8475(failed8475, ts.mint, reason)
+                } catch (_: Throwable) {}
             }
         }
         fun buyTerminalOk(reason: String) {
@@ -28056,8 +28063,24 @@ class Executor(
             val currentValueEstimate = actualBalanceUi * (getActualPrice(ts))
             val isDeepLoss = entryValueSol > 0 && currentValueEstimate < entryValueSol * 0.01 // Worth < 1% of entry
             val isDust = actualBalanceUi < 1.0 || currentValueEstimate < 0.001 // Less than 1 token or < 0.001 SOL
-            
-            if (isDust && isDeepLoss) {
+            // V5.0.8475 — the value estimate above reads the current mark; a dust-route quote adopted as the mark (Candy, 8471)
+            // made a 152k-token, -10 % holding read as worthless and latched it unroutable. The venue's own reserves (curve /
+            // pool, chain-read) decide: a bag they price at >= 0.001 SOL is not dust, and its sell goes on to route by venue.
+            val reserveProceeds8475 = try {
+                val raw8475 = java.math.BigDecimal.valueOf(actualBalanceUi).movePointRight(actualDecimals).toBigInteger()
+                com.lifecyclebot.engine.truth.HeldHotMarkAuthority7419.venueReserveSellEstimate(ts.mint, raw8475, actualDecimals,
+                    com.lifecyclebot.engine.WalletManager.lastKnownSolPrice)?.proceedsSol
+            } catch (_: Throwable) { null }
+            val dustRefuted8475 = isDust && isDeepLoss && reserveProceeds8475 != null && reserveProceeds8475 >= 0.001
+            if (dustRefuted8475) {
+                try {
+                    PipelineHealthCollector.labelInc("DUST_REFUTED_BY_VENUE_RESERVE_8475")
+                    ForensicLogger.lifecycle("DUST_REFUTED_BY_VENUE_RESERVE_8475",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} balance=${"%.4f".format(actualBalanceUi)} markValueSol=${"%.6f".format(currentValueEstimate)} reserveSol=${"%.6f".format(reserveProceeds8475)} action=sell_by_venue")
+                } catch (_: Throwable) {}
+            }
+
+            if (isDust && isDeepLoss && !dustRefuted8475) {
                 // V5.9.72 CRITICAL FIX: previously this branch called
                 // tradeId.closed(-100%) and returned CONFIRMED — claiming a
                 // sell that never happened. The tokens remained in the

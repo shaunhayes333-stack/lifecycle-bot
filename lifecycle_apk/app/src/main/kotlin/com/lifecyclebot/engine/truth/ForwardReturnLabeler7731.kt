@@ -1065,6 +1065,7 @@ object ForwardReturnLabeler7731 {
         // stage (was "UNKNOWN"). The Cortex forecasters read the same signature ([signature8051]).
         val sig8051 = signature8051(ts, l)
         val score8051 = if (score >= 0) score else ts.entryScore.toInt()
+        notePendingMint8475(ts.mint, nowMs)
         pending[key] = Obs(ts.mint, ts.symbol, cell, sourceFamily(ts.source), l, admitted, score8051, sig8051.first, regime, sig8051.second, px, cost.coerceIn(0.0, 60.0), nowMs)
             .also {
                 it.honest8366 = true  // V5.0.8366
@@ -1928,6 +1929,14 @@ object ForwardReturnLabeler7731 {
                 independentBasis = accepted != null && (accepted.source == "ACCOUNT" || accepted.source == "FRAME") && accepted.atMs == o.observedAtMs))
         } catch (_: Exception) {}
         offWatchMarks7737[mint]?.let { candidates.add(LabelMark8386(mint, "", it.first, it.second, nowMs, "OFFWATCH")) }
+        // V5.0.8475 — the coin's own tape (Helius program curve tape, PumpSwap pooled prints, PumpPortal frames): an executed
+        // print is a chain-exact mark. 8471: tape prints priced 6 labels while the tape taped thousands.
+        try {
+            val tp = TradeTape8100.lastPrint8360(mint)
+            val solUsd = com.lifecyclebot.engine.WalletManager.freshSolPrice8163(nowMs)
+            if (tp != null && solUsd.isFinite() && solUsd > 0.0)
+                candidates.add(LabelMark8386(mint, "", tp.first * solUsd, tp.second, nowMs, TAPE_MARK_SOURCE_8475, independentBasis = true))
+        } catch (_: Throwable) {}
         // A bare loop price has no timestamp. It may only reuse the matching state observation, never this read's clock.
         try {
             val px = priceFor(mint)
@@ -1943,6 +1952,30 @@ object ForwardReturnLabeler7731 {
         typedMark8386(mint, priceFor, nowMs)?.usd
 
     private fun eligible8386(o: Obs): Boolean = LabelEvidence8386.eligible(o.basis8386.mark, o.lastMark8386)
+
+    // ── V5.0.8475 — the mints with a forward label pending (for the Helius program tape's care filter) and the tape mark ──
+    /** The source of a label mark taken from the coin's own trade tape (markFamily8418: TAPE). */
+    const val TAPE_MARK_SOURCE_8475 = "TAPE_LAST_PRINT_8475"
+    /** A pending mint is kept this long after its last observation: the longest horizon (60 min) and its grace. */
+    private const val PENDING_MINT_MS_8475 = 70L * 60_000L
+    private const val MAX_PENDING_MINTS_8475 = 8_000
+    private val pendingMints8475 = ConcurrentHashMap<String, Long>()
+
+    private fun notePendingMint8475(mint: String, nowMs: Long) {
+        if (mint.isBlank()) return
+        pendingMints8475[mint] = nowMs + PENDING_MINT_MS_8475
+        if (pendingMints8475.size > MAX_PENDING_MINTS_8475) prunePendingMints8475(nowMs)
+    }
+
+    private fun prunePendingMints8475(nowMs: Long) {
+        pendingMints8475.entries.removeIf { it.value <= nowMs }
+        if (pendingMints8475.size > MAX_PENDING_MINTS_8475)
+            pendingMints8475.entries.sortedBy { it.value }.take(pendingMints8475.size - MAX_PENDING_MINTS_8475).forEach { pendingMints8475.remove(it.key) }
+    }
+
+    /** HeliusCurveTape8354.cares8354: does [mint] have a forward label pending (its reads come from the tape)? */
+    fun isPendingMint8475(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean = (pendingMints8475[mint] ?: 0L) > nowMs
+    private fun pendingMintCount8475(): Int = pendingMints8475.size
 
     private val curvePriced8062 = AtomicLong(0)
 
@@ -2012,7 +2045,7 @@ object ForwardReturnLabeler7731 {
         labelLostNoSource8418.get(), labelLostLate8418.get(), try { KeylessMarks8359.labelCounts8418() } catch (_: Throwable) { null }) +
         " " + lostByVenueLine8474() +   // V5.0.8474
         " " + DowntimeRecovery8430.statusLine8430() +   // V5.0.8430
-        " " + LabelClock8442.statusLine8442() + " shadowWanted8442=${shadowWanted8442.size}" +   // V5.0.8442
+        " " + LabelClock8442.statusLine8442() + " shadowWanted8442=${shadowWanted8442.size} pendingMints8475=${pendingMintCount8475()}" +   // V5.0.8442 / 8475
         " flat8454[awaitingLive=${flatAwaitingLive8454.get()} liveBooked=${flatLiveBooked8454.get()}]"   // V5.0.8454
 
     /** Pure: a horizon label may book only from a mark at most the lost-mark grace past it. */
@@ -2472,6 +2505,7 @@ object ForwardReturnLabeler7731 {
     }
 
     private fun tickOnce8442(priceFor0: (String) -> Double?, nowMs: Long) {
+        prunePendingMints8475(nowMs)
         drainForwardOutcomes8404()
         pairedRestore8401?.let { raw ->
             // V5.0.8418 §PAIRED_RESTORE_BOUNDED — 0e5412fb7 returned here until the restore succeeded, so one corrupt blob (or a

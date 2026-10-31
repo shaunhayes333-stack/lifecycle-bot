@@ -93,10 +93,17 @@ object HeliusCurveTape8354 {
     fun decide8354(
         pumpPortalOn: Boolean, level: Int, inFallbackHold: Boolean, affordable: Boolean, enhancedOk: Boolean, sharedUp: Boolean,
     ): Pair<Source8354, Transport8354> = when {
-        pumpPortalOn -> Source8354.PUMPPORTAL to Transport8354.NONE
+        // superseded by V5.0.8475 — owner: "lean on the data we are already getting from helius". PumpPortal delivering no longer
+        // switches the program tape OFF (was `pumpPortalOn -> PUMPPORTAL / NONE`): PumpPortal streams only its subscribed coins,
+        // the program subscription decodes every trade on every curve — the reserves the labeler, the held marks and the
+        // launch desks read for coins no stream was asked for. The byte governor and the credit budget still bound it.
         inFallbackHold || !affordable || level >= LEVEL_PER_MINT_8354 -> Source8354.HELIUS_PER_MINT to Transport8354.NONE
         level == LEVEL_ENHANCED_8354 && enhancedOk -> Source8354.HELIUS_PROGRAM to Transport8354.ENHANCED
         sharedUp -> Source8354.HELIUS_PROGRAM to Transport8354.LOGS
+        // V5.0.8475 — the logs transport needs the shared socket; without it the tape sat at level 1 with NO transport for the
+        // whole run (8471: transport=NONE fallback=NO_TRANSPORT enhancedSub=NONE logsSub=NONE while enhancedWs=OK) and nothing
+        // ever stepped it back up (the level moves only while bytes flow). Enhanced, under its byte governor, carries it then.
+        enhancedOk -> Source8354.HELIUS_PROGRAM to Transport8354.ENHANCED
         else -> Source8354.HELIUS_PER_MINT to Transport8354.NONE
     }
 
@@ -181,7 +188,9 @@ object HeliusCurveTape8354 {
         val held = mint in heldSet || (try { PumpFunWS.caresAbout8354(mint, nowMs) } catch (_: Throwable) { false })
         val watched = try { watch?.invoke(mint) == true } catch (_: Throwable) { false }
         val near = mint in nearSet || (try { com.lifecyclebot.engine.DataPipeline8191.nearDecision8191(mint, nowMs) } catch (_: Throwable) { false })
-        return keep8354(held, watched, false, near, askedNow(mint, nowMs))
+        // V5.0.8475 — a coin with a forward label pending keeps its prints: its 5-minute / hour reads come from this tape.
+        val labelled = try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.isPendingMint8475(mint, nowMs) } catch (_: Throwable) { false }
+        return keep8354(held, watched, false, near, askedNow(mint, nowMs) || labelled)
     }
 
     /**
@@ -304,9 +313,11 @@ object HeliusCurveTape8354 {
                 ev.virtualSol.isFinite() && ev.virtualSol > 0.0 && ev.virtualTokens.isFinite() && ev.virtualTokens > 0.0)) {
             malformed.incrementAndGet(); return false
         }
-        if (!cares8354(mint, nowMs)) { dropped.incrementAndGet(); return false }
-        // What the PumpPortal frame wrote: the curve's reserves (price, real SOL, the 8346 liquidity tick).
+        // V5.0.8475 — the curve's reserves are written for EVERY decoded trade, before the care filter: they are the price,
+        // real SOL and liquidity tick of that coin (bounded store, 60-min TTL). 8471 dropped 1,828 of 2,368 decoded prints
+        // and their reserves with them, while the labeler lost 1,519 marks for want of a source.
         try { com.lifecyclebot.engine.truth.CurveReserves7951.noteFrame7951(mint, ev.virtualSol, ev.virtualTokens) } catch (_: Throwable) {}
+        if (!cares8354(mint, nowMs)) { dropped.incrementAndGet(); return false }
         val priceSol = ev.virtualSol / ev.virtualTokens
         if (!priceSol.isFinite() || priceSol <= 0.0) { malformed.incrementAndGet(); return false }
         val key = com.lifecyclebot.engine.truth.LaunchEvidence8136.dedupKey8136(mint, sig, ev.user, ev.isBuy, ev.sol, ev.virtualSol, ev.virtualTokens)

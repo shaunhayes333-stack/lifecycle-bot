@@ -1054,6 +1054,23 @@ object ExecutableOpenGate {
         }
     }
 
+    /**
+     * V5.0.8475 — a LIVE buy attempt ended terminally with nothing bought: its per-version claim, sealed intent, ticket and
+     * allowed-attempt index are released, so another lane's FDG allow on the same candidate version seals its own intent at
+     * once. Only the named attempt's rows go (as revokeAttempt6514); other attempts and paper bookkeeping are untouched.
+     */
+    fun releaseFailedBuy8475(attemptId: String, mint: String, reason: String) {
+        if (attemptId.isBlank()) return
+        val hadIntent = activeExecutionIntents6519.values.any { it.attemptId == attemptId }
+        val hadClaim = executableBuyClaim6487.values.any { it == attemptId || it.startsWith("$attemptId:") }
+        revokeAttempt6514(attemptId, mint, "")
+        if (hadIntent || hadClaim) try {
+            PipelineHealthCollector.labelInc("LIVE_FAILED_BUY_RELEASED_8475")
+            ForensicLogger.lifecycle("LIVE_FAILED_BUY_RELEASED_8475",
+                "attemptId=$attemptId mint=${mint.take(10)} reason=${reason.take(60)} intent=$hadIntent claim=$hadClaim action=next_lane_may_seal")
+        } catch (_: Throwable) {}
+    }
+
     fun releaseAttemptNonTerminal6514(attemptId: String, mint: String, lane: String, reason: String) {
         // V5.0.6548 §P0-A — retain the ticket + allowedAttempts[mint] entry
         // so the immutable authority stays owned across the retry window.

@@ -143,11 +143,16 @@ class Aate8354CurveTapeTest {
 
     @Test fun theDecisionPrefersTheEnhancedProgramStreamThenLogsThenPerMint() {
         val d = HeliusCurveTape8354
-        assertEquals(Source8354.PUMPPORTAL to Transport8354.NONE, d.decide8354(pumpPortalOn = true, level = 0, inFallbackHold = false, affordable = true, enhancedOk = true, sharedUp = true))
+        // superseded by V5.0.8475 — owner: lean on Helius. PumpPortal delivering no longer switches the program tape off
+        // (was PUMPPORTAL / NONE): PumpPortal streams only its subscribed coins; the program tape decodes every curve trade.
+        assertEquals(Source8354.HELIUS_PROGRAM to Transport8354.ENHANCED, d.decide8354(pumpPortalOn = true, level = 0, inFallbackHold = false, affordable = true, enhancedOk = true, sharedUp = true))
         assertEquals(Source8354.HELIUS_PROGRAM to Transport8354.ENHANCED, d.decide8354(false, 0, false, true, enhancedOk = true, sharedUp = true))
         assertEquals(Source8354.HELIUS_PROGRAM to Transport8354.LOGS, d.decide8354(false, 0, false, true, enhancedOk = false, sharedUp = true))
         assertEquals(Source8354.HELIUS_PROGRAM to Transport8354.LOGS, d.decide8354(false, 1, false, true, enhancedOk = true, sharedUp = true))   // enhanced was too heavy: logs only
-        assertEquals(Source8354.HELIUS_PER_MINT to Transport8354.NONE, d.decide8354(false, 1, false, true, enhancedOk = true, sharedUp = false))
+        // superseded by V5.0.8475 — logs wanted but no shared socket: Enhanced (under its byte governor) carries the tape rather
+        // than nothing (8471: transport=NONE the whole run); was HELIUS_PER_MINT / NONE.
+        assertEquals(Source8354.HELIUS_PROGRAM to Transport8354.ENHANCED, d.decide8354(false, 1, false, true, enhancedOk = true, sharedUp = false))
+        assertEquals(Source8354.HELIUS_PER_MINT to Transport8354.NONE, d.decide8354(false, 1, false, true, enhancedOk = false, sharedUp = false))
         assertEquals(Source8354.HELIUS_PER_MINT to Transport8354.NONE, d.decide8354(false, 2, false, true, enhancedOk = true, sharedUp = true))
         assertEquals(Source8354.HELIUS_PER_MINT to Transport8354.NONE, d.decide8354(false, 0, inFallbackHold = true, affordable = true, enhancedOk = true, sharedUp = true))
         assertEquals(Source8354.HELIUS_PER_MINT to Transport8354.NONE, d.decide8354(false, 0, false, affordable = false, enhancedOk = true, sharedUp = true))

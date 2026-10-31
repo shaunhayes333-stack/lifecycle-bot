@@ -459,12 +459,44 @@ object HeldHotMarkAuthority7419 {
         } catch (_: Throwable) { jup8435 = "JUP_EXCEPTION"; null }
         if (q != null && quoteMatchesHolding(q, bare, rawQty)) {
             val px = sellQuotePriceUsd7876(q.outAmount, rawQty, decimals, solUsd) ?: run { miss8435(mint, "JUP_PRICE_INVALID_SOLUSD"); return null }
+            // V5.0.8475 — a quote routed through dust is not a price. 8471 Candy (SHITCOIN, 152k tokens, pool mark 2.0e-5 USD,
+            // -10 %): Jupiter answered an out-amount worth 1.258e-12 USD per token; that became the executable mark, PnL read
+            // -100 %, the dust test called the bag worthless, the tracker closed it DUST_UNROUTABLE, 44 emergency exits were
+            // refused as a broken basis and the "stuck exit" froze every other live buy. The venue's own reserves (the curve
+            // account / the pool, read on chain) price the holding; a quote under a tenth of that estimate is replaced by it,
+            // and with no reserve read a quote under a twentieth of the fresh venue risk mark is refused outright.
+            val reserve8475 = venueReserveSellEstimate(bare, rawQty, decimals, solUsd)
+            if (reserve8475 != null && dustRouteQuote8475(px, reserve8475.priceUsd, DUST_ROUTE_VS_RESERVE_8475)) {
+                dustRouteReplaced8475.incrementAndGet()
+                try { PipelineHealthCollector.labelInc("HELD_QUOTE_DUST_ROUTE_REPLACED_BY_RESERVE_8475") } catch (_: Throwable) {}
+                return reserve8475
+            }
+            if (reserve8475 == null) {
+                val risk8475 = try { CanonicalPriceMarkRegistry6522.heldRiskMark(bare) } catch (_: Throwable) { null }
+                val riskFresh8475 = risk8475 != null && observedAt - risk8475.timestampMs in 0L..DUST_ROUTE_MARK_MAX_AGE_MS_8475 &&
+                    LabelEvidence8386.independentSource8418(risk8475.source)
+                if (riskFresh8475 && dustRouteQuote8475(px, risk8475!!.priceUsd.value.toDouble(), DUST_ROUTE_VS_MARK_8475)) {
+                    dustRouteRefused8475.incrementAndGet()
+                    miss8435(mint, "JUP_DUST_ROUTE")
+                    return null
+                }
+            }
             return SellEstimate(px, java.math.BigDecimal.valueOf(q.outAmount).movePointLeft(9).toDouble(),
                 observedAt, "JUPITER_HELD_SELL_QUOTE_8189")
         }
         if (q != null) jup8435 = "JUP_QTY_MISMATCH"
         return venueReserveSellEstimate(bare, rawQty, decimals, solUsd) ?: run { miss8435(mint, "${jup8435}_NO_FRESH_RESERVE"); null }
     }
+
+    /** Pure (V5.0.8475): is a sell quote at [quotePx] a dust route against the venue's own [referencePx]? (under 1/[factor]) */
+    fun dustRouteQuote8475(quotePx: Double, referencePx: Double, factor: Double): Boolean =
+        quotePx.isFinite() && referencePx.isFinite() && referencePx > 0.0 && factor > 1.0 && quotePx < referencePx / factor
+    internal const val DUST_ROUTE_VS_RESERVE_8475 = 10.0
+    internal const val DUST_ROUTE_VS_MARK_8475 = 20.0
+    internal const val DUST_ROUTE_MARK_MAX_AGE_MS_8475 = 60_000L
+    private val dustRouteReplaced8475 = java.util.concurrent.atomic.AtomicLong(0)
+    private val dustRouteRefused8475 = java.util.concurrent.atomic.AtomicLong(0)
+    fun dustRouteLine8475(): String = "dustRoute8475[replacedByReserve=${dustRouteReplaced8475.get()} refused=${dustRouteRefused8475.get()}]"
 
     // V5.0.8435 — 8434: heldQuote asked=78 ok=0 noRoute=78 for the one live holding, while route read READY. "noRoute" lumped a
     // Jupiter null, a thrown call, a quantity mismatch, an unknown SOL price and a missing reserve read into one number. The
