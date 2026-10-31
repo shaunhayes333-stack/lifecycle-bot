@@ -15,7 +15,9 @@ class Aate8020ExitTruthTest {
         assertTrue(core.contains("LifecycleHold8065.defer8065(ts, reason)"))
         // V5.0.8379 — + the launch window: four holds (lifecycle, launch window, runner, basis break) each withdraw the stamp.
         assertTrue(core.contains("LaunchWindow8379.defer8379(ts, reason)"))
-        assertTrue(core.split("ExitTelemetryStamper6732.withdrawDeferred7809(ts.mint, ts.position.positionId)").size == 5)
+        // superseded by V5.0.8489 — + the venue-refuted stop hold (StopMarkConfirm8418.stopRefutedByVenue8489): five holds withdraw it.
+        assertTrue(core.contains("StopMarkConfirm8418.stopRefutedByVenue8489(ts, reason)"))
+        assertTrue(core.split("ExitTelemetryStamper6732.withdrawDeferred7809(ts.mint, ts.position.positionId)").size == 6)
     }
 
     @Test fun aRedRunnerHoldNeedsATapeThatSaysTheRunStands() {
