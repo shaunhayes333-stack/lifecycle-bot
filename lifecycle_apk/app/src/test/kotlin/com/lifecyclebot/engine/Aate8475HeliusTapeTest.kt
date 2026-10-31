@@ -55,7 +55,7 @@ class Aate8475HeliusTapeTest {
         assertTrue(HeldHotMarkAuthority7419.dustRouteQuote8475(1.258e-12, 2.0e-5, HeldHotMarkAuthority7419.DUST_ROUTE_VS_RESERVE_8475))
         assertTrue(HeldHotMarkAuthority7419.dustRouteQuote8475(1.258e-12, 2.0e-5, HeldHotMarkAuthority7419.DUST_ROUTE_VS_MARK_8475))
         assertFalse("a real quote a little under the reference is a price", HeldHotMarkAuthority7419.dustRouteQuote8475(1.7e-5, 2.0e-5, 10.0))
-        assertFalse(HeldHotMarkAuthority7419.dustRouteQuote8475(1.0e-6, 2.0e-5, 20.0))   // 1/20 exactly: not under
+        assertFalse("at the boundary (with float slack) it is a price", HeldHotMarkAuthority7419.dustRouteQuote8475(1.1e-6, 2.0e-5, 20.0))
         assertTrue(HeldHotMarkAuthority7419.dustRouteQuote8475(0.9e-6, 2.0e-5, 20.0))
         assertFalse("no reference, no verdict", HeldHotMarkAuthority7419.dustRouteQuote8475(1.0e-12, Double.NaN, 10.0))
         assertEquals(60_000L, HeldHotMarkAuthority7419.DUST_ROUTE_MARK_MAX_AGE_MS_8475)

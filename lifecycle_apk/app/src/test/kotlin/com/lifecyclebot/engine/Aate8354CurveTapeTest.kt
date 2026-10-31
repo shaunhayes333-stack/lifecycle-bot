@@ -86,7 +86,10 @@ class Aate8354CurveTapeTest {
     @Test fun anUnwantedMintIsDroppedNotStoredAndAnAskedMintIsKeptOnTheTapeWithItsReserves() {
         val stranger = ChainLaunchFeed8179.decodeTradeEvent8179(tradeEventBytes(OTHER, true, 1_000_000_000L, 30_000_000_000_000L, 36_000_000_000L, 900_000_000_000_000L))!!
         assertFalse(HeliusCurveTape8354.onTradeEvent8354(stranger, "sigStranger8354", t0))
-        assertFalse(CurveReserves7951.known7951(OTHER))
+        // superseded by V5.0.8475 — owner: lean on the Helius data already arriving. The stranger's print is still dropped (not
+        // taped, counted dropped=1), but its curve RESERVES are kept for every decoded trade: they are the price, real SOL and
+        // liquidity tick the labeler, the held marks and the launch desks read (was assertFalse(known7951(OTHER))).
+        assertTrue(CurveReserves7951.known7951(OTHER))
         assertTrue(TradeTape8100.prints8128(OTHER, t0, 600_000L).isEmpty())
         assertTrue(HeliusCurveTape8354.statusLine8354(t0).contains("dropped=1"))
         // the evaluated coin asked for its tape (watchForSetup8191 routes here while PumpPortal is off)
