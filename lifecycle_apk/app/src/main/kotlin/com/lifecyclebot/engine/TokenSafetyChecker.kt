@@ -1119,6 +1119,10 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         // out is the existing rugcheck TIMEOUT outcome (penalty / PENDING_REVIEW
         // in live) and the report re-checks on its normal staleness.
         val startedAt7819 = System.currentTimeMillis()
+        // V5.0.8471 — a fresh mint RugCheck has not indexed answers 400 {"error":"not found"} (or 404): that was retried three
+        // times as a failure on every safety pass and filed as a timeout. It is now one ask, then re-asked after a minute;
+        // the live door judges such a coin on our own on-chain proofs (PreTradeHardGate.chainProvenRugcheckSubstitute8471).
+        if (RugcheckScore8399.notIndexedRecently8471(mint, startedAt7819)) return null
 
         repeat(maxRetries) { attempt ->
             if (attempt > 0 && rugcheckBudgetSpent7819(startedAt7819)) {
@@ -1126,7 +1130,12 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                 return null
             }
             try {
-                val body = get(url)
+                val (code8471, raw8471) = getWithCode8471(url)
+                if (RugcheckScore8399.notIndexed8471(code8471, raw8471)) {
+                    RugcheckScore8399.noteNotIndexed8471(mint, System.currentTimeMillis())
+                    return null
+                }
+                val body = raw8471.takeIf { code8471 in 200..299 }
                 if (body != null) {
                     val json = JSONObject(body)
                     if (json.has("score") || json.has("score_normalised")) {
@@ -1242,18 +1251,16 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         }
     }
 
-    private fun get(url: String): String? = try {
+    /** V5.0.8471 — the HTTP status with the body (-1 when the call failed): RugCheck's not-indexed answer is a 400 / 404. */
+    private fun getWithCode8471(url: String): Pair<Int, String?> = try {
         val req = Request.Builder()
             .url(url)
             .header("User-Agent", "AATE/1.0")
             .header("Accept", "application/json")
             .build()
-
-        http.newCall(req).execute().use { resp ->
-            if (resp.isSuccessful) resp.body?.string() else null
-        }
+        http.newCall(req).execute().use { resp -> resp.code to resp.body?.string() }
     } catch (_: Exception) {
-        null
+        -1 to null
     }
 
     private fun post(url: String, body: String): String? = try {

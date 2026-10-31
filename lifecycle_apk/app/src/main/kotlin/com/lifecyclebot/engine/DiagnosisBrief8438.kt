@@ -276,6 +276,8 @@ object DiagnosisBrief8438 {
                 fixes += Fix8438(150.0, "OWNER_ACTION",
                     "fund the wallet linked to the PumpPortal API key with >= 0.02 SOL (it is the key's own wallet, not the trading wallet): the per-coin trade tape (buy pressure, shape) for pump launches comes from it")
             }
+            // V5.0.8471 — RugCheck: reports with findings, fresh mints it has not indexed, and its number beside its findings.
+            sb.append("               ").append(try { RugcheckScore8399.statusLine8471() } catch (_: Throwable) { "rugcheck8471[-]" }).append('\n')
             val gas = try { com.lifecyclebot.perps.crypto.MultiChainMemeLane7962.gasBlockedPositive8438() } catch (_: Throwable) { emptyList() }
             if (gas.isNotEmpty()) {
                 sb.append("               crypto: positive EVM lanes held in SHADOW for want of gas: ").append(gas.joinToString(", ")).append('\n')

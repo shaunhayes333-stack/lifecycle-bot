@@ -252,6 +252,30 @@ object PreTradeHardGate {
         val fatal = fatalNeedles.firstOrNull { text.contains(it) }
         if (fatal != null) return block(ts, "FATAL_WALLET_RISK_TEXT", fatal)
 
-        return allowWithPendingProof(ts, pendingProofs.distinct(), callSite)
+        // V5.0.8471 — owner: "trade whatever we can trade safely using the safety tools we have built".
+        val pending8471 = chainProvenRugcheckSubstitute8471(pendingProofs.distinct(), safety.mintAuthorityDisabled == true,
+            topHolder, tokenMapLiquidity.executable || curveExitSafe8319)
+        return allowWithPendingProof(ts, pending8471, callSite)
     }
+
+    /**
+     * Pure (V5.0.8471). RugCheck answers a fresh mint it has not indexed with 400 "not found" (and a slow report times out):
+     * no findings, which this gate filed as a critical pending proof, so no fresh launch could be bought live (8470: 50 buy
+     * attempts, 0 buys, all DEFERRED_DATA_SAFETY_PROOF_8270). When RugCheck has no findings, our own on-chain proofs are the
+     * rug proof, all of them required: mint authority revoked [mintRevoked], freeze revoked with no hostile Token-2022
+     * extension (re-read on chain above, FreezeAuthorityHardBlock7238, or this gate already refused), holder concentration
+     * read and under the fatal limit [topHolderPct], and an exit we can sell into [executableExit] (a routable token map or
+     * an exit-safe active curve). The RugCheck item then stays a size penalty, not a refusal; any other
+     * missing proof still defers, and a RugCheck report with findings is judged by them upstream.
+     */
+    internal fun chainProvenRugcheckSubstitute8471(pending: List<String>, mintRevoked: Boolean, topHolderPct: Double,
+                                                   executableExit: Boolean): List<String> {
+        if (pending.none { it.startsWith(RUGCHECK_PENDING_8471) }) return pending
+        val proven = mintRevoked && topHolderPct >= 0.0 && topHolderPct < TOP_HOLDER_FATAL_PCT && executableExit
+        if (!proven) return pending
+        try { PipelineHealthCollector.labelInc("RUGCHECK_NO_FINDINGS_CHAIN_PROVEN_8471") } catch (_: Throwable) {}
+        return pending.map { if (it.startsWith(RUGCHECK_PENDING_8471)) "RUGCHECK_NO_FINDINGS_CHAIN_PROVEN_8471:" + it.substringAfter(':') else it }
+    }
+
+    private const val RUGCHECK_PENDING_8471 = "RUGCHECK_PENDING_OR_UNKNOWN:"
 }

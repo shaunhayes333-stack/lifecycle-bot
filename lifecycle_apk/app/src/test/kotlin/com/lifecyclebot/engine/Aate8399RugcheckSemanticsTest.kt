@@ -9,18 +9,21 @@ class Aate8399RugcheckSemanticsTest {
     private fun j(s: String) = JSONObject(s)
 
     @Test fun riskZeroIsTheCleanestTokenNotAConfirmedRug() {
-        assertEquals(100, RugcheckScore8399.safety8399(j("""{"score_normalised":0}""")))
-        assertEquals(95, RugcheckScore8399.safety8399(j("""{"score_normalised":5}""")))       // RugCheck "Good"
-        assertEquals(70, RugcheckScore8399.safety8399(j("""{"score_normalised":30}""")))
-        assertEquals(40, RugcheckScore8399.safety8399(j("""{"score_normalised":60}""")))      // danger band -> risky, not clean
+        // superseded by V5.0.8471 — owner: RugCheck's number is low = bad token, high = good; the app safety equals it (was 0 -> 100, 5 -> 95, 30 -> 70, 60 -> 40: the number read as a risk).
+        assertEquals(0, RugcheckScore8399.safety8399(j("""{"score_normalised":0}""")))
+        assertEquals(5, RugcheckScore8399.safety8399(j("""{"score_normalised":5}""")))
+        assertEquals(30, RugcheckScore8399.safety8399(j("""{"score_normalised":30}""")))
+        assertEquals(60, RugcheckScore8399.safety8399(j("""{"score_normalised":60}""")))
     }
 
     @Test fun maximalRiskIsTheConfirmedRugAndOneIsNeverProduced() {
         assertEquals(99.0, RugcheckScore8399.CONFIRMED_RISK_8399, 0.0)
         assertEquals(100.0, RugcheckScore8399.RAW_SCORE_DIVISOR_8399, 0.0)       // raw 1000 ("Good" ceiling) -> risk 10
-        assertEquals(0, RugcheckScore8399.safety8399(j("""{"score_normalised":100}""")))
-        assertEquals(0, RugcheckScore8399.safety8399(j("""{"score_normalised":99}""")))
-        assertEquals(2, RugcheckScore8399.safety8399(j("""{"score_normalised":98}""")))      // 1 stays the app's pending marker
+        // superseded by V5.0.8471 — owner: RugCheck's number is low = bad token, high = good; the app safety equals it: the top is the cleanest, the bottom (0 / 1) the confirmed floor (was 100 -> 0, 99 -> 0, 98 -> 2).
+        assertEquals(100, RugcheckScore8399.safety8399(j("""{"score_normalised":100}""")))
+        assertEquals(99, RugcheckScore8399.safety8399(j("""{"score_normalised":99}""")))
+        assertEquals(0, RugcheckScore8399.safety8399(j("""{"score_normalised":1}""")))      // 1 stays the app's pending marker
+        assertEquals(2, RugcheckScore8399.safety8399(j("""{"score_normalised":2}""")))
         for (r in 0..100) assertNotEquals("risk $r must not read as pending", 1, RugcheckScore8399.safety8399(r.toDouble()))
     }
 
@@ -31,9 +34,10 @@ class Aate8399RugcheckSemanticsTest {
     }
 
     @Test fun rawScoreFallsBackThroughTheGoodBandAndRuggedIsHard() {
-        assertEquals(95, RugcheckScore8399.safety8399(j("""{"score":500}""")))                 // raw < 1000 ≈ Good
         // superseded by V5.0.8418 — the raw score is an uncapped sum; raw-only reads very risky (2), never the confirmed ceiling.
-        assertEquals(2, RugcheckScore8399.safety8399(j("""{"score":20000}""")))
+        // superseded by V5.0.8471 — a raw-only score has no stated range under the owner's reading: UNKNOWN (was 500 -> 95, 20000 -> 2).
+        assertEquals(-1, RugcheckScore8399.safety8399(j("""{"score":500}""")))
+        assertEquals(-1, RugcheckScore8399.safety8399(j("""{"score":20000}""")))
         assertTrue(RugcheckScore8399.ruggedFlag8399(j("""{"score_normalised":0,"rugged":true}""")))
         assertFalse(RugcheckScore8399.ruggedFlag8399(j("""{"score_normalised":0}""")))
     }
