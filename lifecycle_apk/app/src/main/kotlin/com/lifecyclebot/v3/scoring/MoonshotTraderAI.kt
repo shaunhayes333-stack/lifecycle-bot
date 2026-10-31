@@ -1590,6 +1590,8 @@ object MoonshotTraderAI {
             // never reached TradeLessonRecorder.recordTrade → StrategyTrustAI.recordTrade.
             try {
                 // V4 lessons use canonical net economics and one position identity (8491).
+                val mfePct = if (pos.peakPnlPct > 0.0) pos.peakPnlPct else pnlPct.coerceAtLeast(0.0)
+                val maePct = pnlPct.coerceAtMost(0.0)
                 // V5.9.305: Feed AdaptiveLearningEngine for pattern matching (V5.9.301 patterns)
                 val label = when {
                     pnlPct >= 100.0 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.GOOD_RUNNER

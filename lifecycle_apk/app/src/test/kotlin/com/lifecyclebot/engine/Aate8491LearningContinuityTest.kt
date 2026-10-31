@@ -3,6 +3,7 @@ package com.lifecyclebot.engine
 import com.lifecyclebot.data.TokenState
 import com.lifecyclebot.engine.cortex.*
 import com.lifecyclebot.engine.truth.*
+import com.lifecyclebot.engine.lab.*
 import com.lifecyclebot.v3.V3EngineManager
 import com.lifecyclebot.v3.bridge.V3Adapter
 import com.lifecyclebot.v3.scoring.EducationSubLayerAI
@@ -12,6 +13,21 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class Aate8491LearningContinuityTest {
+    @Test fun labExitKeepsExactMintCoverageAfterCandidateEviction() {
+        val now = 100_000L
+        val pos = LabPosition("lab8492", "strategy", "TOKEN", "heldMint", LabAssetClass.MEME, 1.0, 0.1, 1_000L)
+        val mark = LabelMark8386(pos.mint, "", 1.2, now - 1_000L, now, "OFFWATCH")
+        assertEquals(1.2, LlmLabEngine.exitPrice8492(pos, emptyList(), mark, now)!!, 0.0)
+        assertNull(LlmLabEngine.exitPrice8492(pos, emptyList(), mark.copy(mint = "otherMint"), now))
+        assertNull(LlmLabEngine.exitPrice8492(pos, emptyList(), mark.copy(observedAtMs = now - 15_001L), now))
+        assertNull(LlmLabEngine.exitPrice8492(pos, emptyList(), mark.copy(observedAtMs = now + 1L), now))
+        assertNull(LlmLabEngine.exitPrice8492(pos, emptyList(), mark.copy(source = "TOKEN_STATE"), now))
+        val tick = LlmLabEngine.LabUniverseTick("TOKEN", pos.mint, LabAssetClass.MEME, 1.1, 70, "BULL", now)
+        assertEquals(1.1, LlmLabEngine.exitPrice8492(pos, listOf(tick), null, now)!!, 0.0)
+        assertNull(LlmLabEngine.exitPrice8492(pos, listOf(tick.copy(mint = "sameSymbolDifferentMint")), null, now))
+        assertNull(LlmLabEngine.exitPrice8492(pos, listOf(tick.copy(observedAtMs8492 = 0L)), null, now))
+    }
+
     private fun outcome(mint: String, position: String) = EducationSubLayerAI.TradeOutcomeData(
         mint = mint, symbol = "TOKEN", tokenName = "TOKEN", pnlPct = 20.0, holdTimeMinutes = 5.0,
         entryTimeMs = 1000L, exitReason = "TARGET", entryPhase = "BASE", tradingMode = "MOONSHOT",
@@ -221,5 +237,24 @@ class Aate8491LearningContinuityTest {
                 "MOONSHOT", "RUNNER_CAPTURE", "SIZE_UP", "revert on loss", symbolicChecked = false))
             assertEquals(1.0, AsyncStrategyLab.reviewedSizeBias("MOONSHOT", 70, "TREND"), 0.0)
         } finally { AsyncStrategyLab.reset() }
+    }
+
+    @Test fun failedLessonCheckpointRetriesWithoutTeachingTwice() {
+        TradeLessonRecorder.clear(); StrategyTrustAI.clear()
+        try {
+            val e = event("PAPER")
+            val seal = entry("PAPER")
+            assertFalse(TradeLessonRecorder.acceptCanonicalMeme8492(e, seal) { false })
+            assertEquals(1, TradeLessonRecorder.getTotalLessons())
+            var persisted = ""
+            assertTrue(TradeLessonRecorder.acceptCanonicalMeme8492(e, seal) { id -> persisted = id; true })
+            assertEquals("MEME:PAPER:position8491", persisted)
+            assertEquals(1, TradeLessonRecorder.getTotalLessons())
+            val state = TradeLessonRecorder.exportState()
+            TradeLessonRecorder.clear(); StrategyTrustAI.clear()
+            TradeLessonRecorder.importState(state)
+            assertTrue(TradeLessonRecorder.acceptCanonicalMeme8492(e, seal) { true })
+            assertEquals(1, TradeLessonRecorder.getTotalLessons())
+        } finally { TradeLessonRecorder.clear(); StrategyTrustAI.clear(); CrossTalkFusionEngine.clear() }
     }
 }

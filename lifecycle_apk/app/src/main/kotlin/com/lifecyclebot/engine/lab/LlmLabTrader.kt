@@ -88,7 +88,7 @@ object LlmLabTrader {
 
     fun checkExit(pos: LabPosition, currentPrice: Double) {
         if (!com.lifecyclebot.engine.LiveNoPaper8184.paperManageAllowed8184("LLM_LAB")) return // V5.0.8184 — frozen while LIVE
-        if (currentPrice <= 0) return
+        if (!currentPrice.isFinite() || currentPrice <= 0) return
         if (pos.entryPrice <= 0.0) {
             // V5.9.733 — entryPrice corruption guard. Cannot compute pnl
             // from a zero/negative entry. Close at entry with zero pnl so

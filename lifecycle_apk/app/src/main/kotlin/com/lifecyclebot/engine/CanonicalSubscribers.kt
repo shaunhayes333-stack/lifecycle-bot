@@ -80,7 +80,6 @@ object CanonicalSubscribers {
         if (registered) return
         synchronized(this) {
             if (registered) return
-            com.lifecyclebot.v4.meta.TradeLessonRecorder.ensureCanonicalMeme8491()
             registered = true
 
             // FluidLearningAI mirror — simplest signature.

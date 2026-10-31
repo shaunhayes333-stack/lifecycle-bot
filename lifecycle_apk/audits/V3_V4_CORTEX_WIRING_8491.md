@@ -160,6 +160,7 @@ Local source repairs pending compilation and device acceptance:
 - Remove compulsory wallet-percentage sizing floors; preserve route-cost minimums, concentration caps and the existing final loss-budget proof. V3 receives mode-specific measured payoff and live drawdown.
 - Keep entry component scores with the immutable position seal, so later rescoring or process restart cannot replace the votes being graded.
 - Use one canonical meme terminal writer for V4 lessons with immutable entry context, verified net economics, stable position identity and mode-isolated trust. Retire the executor/specialist duplicate lesson writers. Unknown historical context and slippage stay explicitly unobserved.
+- V4 lessons use the existing retryable canonical settlement consumer. A missing dependency or refused lesson checkpoint stays unacknowledged; ACK follows a verified local lesson save. The lesson snapshot is captured inside the SQLite transaction to avoid racing periodic saves.
 - Rebuild V4 strategy trust from locally restored lessons, with duplicate IDs rejected and recency ordered by settlement time.
 - Keep late settlement scores under position identity so replay cannot overwrite a newer same-mint candidate; missing sealed votes never borrow the newer decision.
 - Apply account-mode filtering to the symbol-specific cross-talk path read by Cortex, and resolve lane aliases in meme trust sizing.
@@ -172,3 +173,9 @@ Local source repairs pending compilation and device acceptance:
 - Cancel splash animation listeners before cancelling animations, preventing cancellation from restarting them. The prior ANR is observed; its complete cause is not proven by this source fix alone.
 
 No historical trade deletion, learning reset, live trade or blanket loosening of safety gates is part of this repair. The source map is not proof of live profitability. No claim is made that every one of the 283 query functions flagged by the heuristic unread-output scan needs wiring: that list also includes diagnostics, legacy alternatives and internally consumed helpers.
+
+### 8492 CI follow-up
+
+The first release compilation found four unresolved excursion references in the Moonshot/ShitCoin adaptive-learning feature builders after removal of their duplicate V4 writers. Their existing local feature calculations are retained; V4 lessons still come only from the canonical terminal consumer.
+
+Lab open positions now request exact-mint off-watch marks through the existing shared label fetch lane and evaluate exits even when the candidate universe is empty. Fresh observed marks can service an evicted position; timestamped candidate prices remain an exact-mint fallback. Stale, future, missing, wrong-mint and unobserved fallback prices do not close an experiment. Added regression coverage for candidate eviction and mint/time identity. These changes do not enable live Lab execution.

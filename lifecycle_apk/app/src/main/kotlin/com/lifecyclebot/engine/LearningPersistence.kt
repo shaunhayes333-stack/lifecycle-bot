@@ -390,6 +390,31 @@ object LearningPersistence {
     /** V5.9.1321 — public KV load (delegates to internal blob get). */
     fun load(key: String): String? = getBlob(key)
 
+    /** Capture inside the same DB transaction as periodic saves; never commit an older detached lesson snapshot. */
+    fun checkpointTradeLesson8492(lessonId: String): Boolean {
+        val d = db ?: return false
+        if (!restoreComplete8086 || importAwaitingRestart8086 || lessonId.isBlank() ||
+            Looper.getMainLooper()?.thread == Thread.currentThread() || d.inTransaction()) return false
+        return try {
+            d.beginTransaction()
+            try {
+                if (writeRefused8086("TRADE_LESSONS")) false else {
+                    val json = com.lifecyclebot.v4.meta.TradeLessonRecorder.exportState()
+                    val rows = org.json.JSONObject(json).optJSONArray("lessons")
+                    if (rows == null || (0 until rows.length()).none { rows.optJSONObject(it)?.optString("id") == lessonId }) false
+                    else {
+                        writeRow8086(d, "TRADE_LESSONS", json, System.currentTimeMillis())
+                        d.setTransactionSuccessful()
+                        true
+                    }
+                }
+            } finally { d.endTransaction() }
+        } catch (e: Exception) {
+            ErrorLogger.warn(TAG, "V4 lesson checkpoint retry: ${e.javaClass.simpleName}")
+            false
+        }
+    }
+
     enum class Commit8090 { COMMITTED, ALREADY_COMMITTED, RETRY }
 
     /** A terminal reward and its receipt commit together. Never acknowledge an async or failed write. */

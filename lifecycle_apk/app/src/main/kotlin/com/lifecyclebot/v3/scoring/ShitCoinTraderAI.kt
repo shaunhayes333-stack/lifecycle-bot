@@ -684,6 +684,8 @@ object ShitCoinTraderAI {
             // leaving the trust dashboard with all 50%/UNTESTED for SHITCOIN despite hundreds of trades.
             try {
                 // V4 lessons use canonical net economics and one position identity (8491).
+                val mfePct = if (pos.peakPnlPct > 0.0) pos.peakPnlPct else pnlPct.coerceAtLeast(0.0)
+                val maePct = pnlPct.coerceAtMost(0.0)
                 // Feed AdaptiveLearningEngine for V5.9.301 pattern matching
                 val label = when {
                     pnlPct >= 100.0 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.GOOD_RUNNER

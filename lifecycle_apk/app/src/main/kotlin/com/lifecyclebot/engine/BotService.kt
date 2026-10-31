@@ -18068,6 +18068,7 @@ class BotService : Service() {
                     price = price,
                     score = score,
                     regime = regime,
+                    observedAtMs8492 = if (price == ts.lastPrice) ts.lastPriceUpdate else 0L,
                 ))
             }
             fun pushTick(symbol: String, mint: String, asset: com.lifecyclebot.engine.lab.LabAssetClass, price: Double) {

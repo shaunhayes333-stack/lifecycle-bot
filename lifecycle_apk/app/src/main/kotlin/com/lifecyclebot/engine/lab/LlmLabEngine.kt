@@ -209,6 +209,7 @@ object LlmLabEngine {
         val price: Double,
         val score: Int,        // 0..100 — composite AATE score for the symbol
         val regime: String,    // "BULL" | "BEAR" | "CHOP" | "ANY"
+        val observedAtMs8492: Long = 0L,
     )
 
     // ────────────────────────────────────────────────────────────────────────
@@ -576,27 +577,36 @@ Reply with just the JSON object, nothing else.
     // ────────────────────────────────────────────────────────────────────────
     // 2. Evaluation cycle — fast, no LLM
     // ────────────────────────────────────────────────────────────────────────
-    private fun runEvaluationCycle(universe: List<LabUniverseTick>) {
-        if (universe.isEmpty()) return
+    internal fun exitPrice8492(pos: LabPosition, universe: List<LabUniverseTick>,
+        mark: com.lifecyclebot.engine.truth.LabelMark8386?, nowMs: Long): Double? {
+        val solana = pos.asset == LabAssetClass.MEME || pos.asset == LabAssetClass.ANY
+        if (solana && mark != null && mark.mint == pos.mint && mark.known() &&
+            nowMs - mark.observedAtMs in 0L..com.lifecyclebot.engine.truth.CandidateMarkFresh8094.FRESH_MS_8094 &&
+            com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.liveMark8454(mark.source, mark.independentBasis)) return mark.usd
+        val tick = universe.firstOrNull { it.mint == pos.mint } ?: return null
+        if (!tick.price.isFinite() || tick.price <= 0.0) return null
+        if (solana && (tick.observedAtMs8492 <= 0L ||
+            nowMs - tick.observedAtMs8492 !in 0L..com.lifecyclebot.engine.truth.CandidateMarkFresh8094.FRESH_MS_8094)) return null
+        return tick.price
+    }
 
-        // Update existing positions (TP/SL/timeout sweep).
-        // V5.9.733 — STRICT MINT MATCH. Operator journal showed COPIUM
-        // logging +53,936% with LAB_TAKE_PROFIT and PBTC +13,626% — both
-        // Pump.fun-style names where MULTIPLE distinct mints share the
-        // same ticker. Previous logic fell back to symbol match if the
-        // mint didn't appear in the universe, which silently swapped in
-        // a different token's price and produced phantom 500x prints.
-        // Mint is the only safe key — symbol fallback removed entirely.
-        // If the position's mint isn't in this universe tick batch, just
-        // skip; we'll catch it on the next cycle.
+    private fun runEvaluationCycle(universe: List<LabUniverseTick>) {
+        // Held Lab experiments retain exact-mint exit coverage after candidate-cap/watchlist eviction.
+        // Use the existing off-watch fetch lane; no synchronous provider calls or fabricated close price.
+        val now = System.currentTimeMillis()
         val openPositions = LlmLabStore.allPositions()
         for (pos in openPositions) {
-            val tick = universe.firstOrNull { it.mint == pos.mint }
-            val live = tick?.price ?: continue
+            val solana = pos.asset == LabAssetClass.MEME || pos.asset == LabAssetClass.ANY
+            val mark = if (solana) {
+                com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.noteShadowWanted8442(pos.mint, now + 120_000L)
+                com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.typedMark8386(pos.mint, { null }, now)
+            } else null
+            val live = exitPrice8492(pos, universe, mark, now) ?: continue
             LlmLabTrader.checkExit(pos, live)
         }
 
         // Maybe open a new position for ACTIVE strategies that don't have one.
+        if (universe.isEmpty()) return
         if (LlmLabStore.allPositions().size >= MAX_OPEN_POSITIONS) return
         val active = LlmLabStore.activeStrategies()
         if (active.isEmpty()) return

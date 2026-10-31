@@ -43,8 +43,6 @@ object TradeLessonRecorder {
     // All lessons (master list)
     private val allLessons = mutableListOf<TradeLesson>()
 
-    private val canonicalMemeRegistered8491 = java.util.concurrent.atomic.AtomicBoolean(false)
-
     /** Both prices must describe the same sell order. Entry-to-exit return is not slippage. */
     internal fun observedSlippage8491(expectedExit: Double?, actualExit: Double): Double? =
         expectedExit?.takeIf { it.isFinite() && it > 0.0 && actualExit.isFinite() && actualExit > 0.0 }
@@ -62,15 +60,30 @@ object TradeLessonRecorder {
         }.toString()
     }
 
-    fun ensureCanonicalMeme8491() {
-        if (!canonicalMemeRegistered8491.compareAndSet(false, true)) return
-        com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.subscribe { e ->
-            if (com.lifecyclebot.engine.truth.LearningEpoch8164.preEpoch8164(e.settledAtMs)) return@subscribe
-            if (!com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.isCleanForLearning7807(e)) return@subscribe
-            val entry = com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.snapshot(e.positionId) ?: return@subscribe
-            val lesson = canonicalMemeLesson8491(e, entry) ?: return@subscribe
-            record(lesson)
+    /** Existing canonical bus owns startup registration, proof gates, retry and durable ACKs. */
+    fun onCanonicalMeme8492(env: com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.Envelope): Boolean {
+        fun exclude(reason: String): Boolean {
+            com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.exclude("V4TradeLesson8492", env.tradeId, reason)
+            return false
         }
+        if (env.assetClassTag != "SOLANA_TOKEN") return exclude("V4_NOT_MEME_8492")
+        if (!com.lifecyclebot.engine.LearningPersistence.restoreComplete8086()) return false
+        val e = com.lifecyclebot.engine.truth.CanonicalFinalityPersistence6486.durableEventForPosition7459(env.positionId) ?: return false
+        if (e.mint != env.mint || !e.mode.equals(env.mode, true)) return exclude("V4_TERMINAL_IDENTITY_MISMATCH_8492")
+        if (!com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.isCleanForLearning7807(e)) return exclude("V4_UNCLEAN_TERMINAL_8492")
+        val entry = com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.snapshot(e.positionId) ?: return false
+        if (canonicalMemeLesson8491(e, entry) == null) return exclude("V4_UNSUPPORTED_TERMINAL_8492")
+        return acceptCanonicalMeme8492(e, entry, com.lifecyclebot.engine.LearningPersistence::checkpointTradeLesson8492)
+    }
+
+    internal fun acceptCanonicalMeme8492(
+        e: com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Event,
+        entry: com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.Snapshot,
+        persist: (String) -> Boolean,
+    ): Boolean {
+        val lesson = canonicalMemeLesson8491(e, entry) ?: return false
+        record(lesson)
+        return persist(lesson.id)
     }
 
     /** One immutable position, one mode, one terminal net result. No mutable watchlist reads. */

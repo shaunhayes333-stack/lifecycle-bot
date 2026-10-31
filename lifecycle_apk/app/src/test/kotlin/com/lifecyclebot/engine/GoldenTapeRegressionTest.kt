@@ -4617,7 +4617,7 @@ class GoldenTapeRegressionTest {
     fun asyncStrategyLab4251ReviewedBiasIsO1HotPathCache() {
         val lab = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AsyncStrategyLab.kt").readText()
         assertTrue("V5.0.4251: reviewedSizeBias must be O(1) hot-path cache read, not synchronized proposal scan", lab.contains("reviewedBiasByLane") && lab.contains("FDG/Executor sizing") && lab.contains("never synchronize or scan proposal history here"))
-        assertTrue("V5.0.4251: reviewed bias cache must rebuild only on review/import/reset", lab.contains("rebuildReviewedBiasCache()") && lab.contains("accepted[idx] = reviewed") && lab.contains("reviewedBiasByLane.clear()"))
+        assertTrue("Reviewed bias generations must publish atomically after submission/review/import/reset", lab.contains("rebuildReviewedBiasCache()") && lab.contains("accepted[idx] = reviewed") && lab.contains("reviewedBiasByLane = next.toMap()") && lab.contains("reviewedBiasByLane = emptyMap()"))
         assertFalse("V5.0.4251: reviewedSizeBias must not synchronize on accepted", lab.contains("fun reviewedSizeBias(lane: String, score: Int, regime: String): Double = synchronized"))
     }
 
