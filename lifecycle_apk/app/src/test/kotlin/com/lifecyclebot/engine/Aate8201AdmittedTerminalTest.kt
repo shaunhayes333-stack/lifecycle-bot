@@ -14,8 +14,10 @@ class Aate8201AdmittedTerminalTest {
     @Test fun admittedCandidatesAreNotReVetoedByLanePriorSetupReads() {
         val body = gate.substringAfter("val admittedJudged8201 = candidateSpecificAdmission8136")
         // each 8094 lane-prior re-read is guarded by the admission judgement
-        assertTrue(body.contains("if (!admittedJudged8201 && !cellOrKindProven8094(ts, l8059, nowMs)) (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.timingNegative8094"))
-        assertTrue(body.contains("if (proven8059 == null && !admittedJudged8201 && !cellOrKindProven8094(ts, l8059, nowMs)) (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.pickedSetupNegative8094"))
+        // superseded by V5.0.8468 — the shared-setup timing / picked-setup reads also stand down for a coin the lane's own brain
+        // qualifies on a trigger proven at the lane's horizon (LaneTrigger8468); the tactic read below is unchanged.
+        assertTrue(body.contains("if (!admittedJudged8201 && !trigger8468 && !cellOrKindProven8094(ts, l8059, nowMs)) (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.timingNegative8094"))
+        assertTrue(body.contains("if (proven8059 == null && !admittedJudged8201 && !trigger8468 && !cellOrKindProven8094(ts, l8059, nowMs)) (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.pickedSetupNegative8094"))
         assertTrue(body.contains("if (proven8059 == null && !admittedJudged8201 && !cellOrKindProven8094(ts, l8059, nowMs)) (try { com.lifecyclebot.engine.learning.TacticSwitcher.losingTacticFor8094"))
         assertTrue(body.contains("ADMITTED_SPECIFIC_DUPLICATE_VETO_STOOD_DOWN_8201_"))
         // the judgement is the candidate-specific admission only; a generic-prior ADMIT still meets every later gate

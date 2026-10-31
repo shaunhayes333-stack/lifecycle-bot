@@ -49,11 +49,14 @@ class Aate8392StopNeverInsideCostTest {
     @Test fun theHoldLayerNeverTradesAStopInsideTheTripAndHoldsTheGradedWindow() {
         val treasury = HoldingLogicLayer.getHoldParams("TREASURY")
         assertTrue("TREASURY stop ${treasury.stopLossPct}", treasury.stopLossPct <= -FieldManual7715.laneStopPct8392("TREASURY") + 1e-9)
-        assertTrue(treasury.maxHoldTimeMs >= CortexLabelHygiene8144.executableHorizonMs8392(false))
+        // superseded by V5.0.8468 — the desk holds its own clock and the Cortex grades it on that same clock
+        // (was treasury.maxHoldTimeMs >= executableHorizonMs8392(false), the 60-minute window).
+        assertEquals(treasury.maxHoldTimeMs, CortexLabelHygiene8144.horizonMsFor8468("TREASURY", false))
         assertTrue(treasury.maxHoldTimeMs < HoldingLogicLayer.getHoldParams("STANDARD").maxHoldTimeMs)
         // superseded by V5.0.8418 — MANIPULATED is a runner lane with its own documented hold (LaneHolds8418): no 15-minute
         // PUMP_DUMP cap (was assertEquals(15 * 60 * 1000L, ...)); the clock never binds a green runner.
-        assertEquals(4L * 60 * 60 * 1000L, HoldingLogicLayer.getHoldParams("MANIPULATED").maxHoldTimeMs)
+        // superseded by V5.0.8468 — PUMP_DUMP's 15-minute clock again until the position is promoted (+50 %), then the runner contract.
+        assertEquals(15L * 60 * 1000L, HoldingLogicLayer.getHoldParams("MANIPULATED").maxHoldTimeMs)
         assertEquals(-20.0, HoldingLogicLayer.getHoldParams("MANIPULATED").stopLossPct, 0.0)
         // the live doctrine floor is the same number
         assertEquals(FieldManual7715.laneStopPct8392("QUALITY"), ExitDoctrine8169.doctrinePct8169("QUALITY"), 1e-9)

@@ -59,6 +59,8 @@ object RunnerPlan8153 {
         val verifiedPeakPct: Double = 0.0,
         /** V5.0.8252 — CandidateAdmission8136 admitted this entry on the runner-grab edge: the explicit RUNNER_ENTRY intent. */
         val runnerEntryAdmitted: Boolean = false,
+        /** V5.0.8468 — a fast contract lane (RunnerExitProfile7277.contractLane8468): its sealed style alone does not make it a runner. */
+        val contractLane8468: Boolean = false,
     )
 
     /** Pure: is [style] a style the router knows (not blank, not UNKNOWN)? */
@@ -76,6 +78,16 @@ object RunnerPlan8153 {
     /** Pure: the one runner classification of a position. */
     fun plan8153(e: Evidence8153): Plan8153 = when {
         !e.laneHostsRunners -> Plan8153.SCALP
+        // V5.0.8468 — a fast contract lane exits on its own designed contract until it proves it runs (LaneExitContract8468): the
+        // style router seals pump coins BREAKOUT_RUNNER / REACCUMULATION, so a sealed style alone made every fast-lane buy a
+        // runner from entry. It is a runner at entry only on a proven runner setup (the runner-grab admission / proven grab
+        // cell), and is promoted at the contract bar (+50 % verified peak) or by a latched structure promotion.
+        e.contractLane8468 -> when {
+            e.runnerEntryAdmitted || e.grabbedAtEntry -> Plan8153.RUNNER_SEALED
+            e.promotedLatched || (e.verifiedPeakPct.isFinite() && e.verifiedPeakPct >= RunnerExitProfile7277.CONTRACT_PROMOTE_PEAK_PCT_8468 &&
+                e.verifiedPeakPct < BAD_UNITS_PCT_8153) -> Plan8153.RUNNER_PROMOTED
+            else -> Plan8153.SCALP
+        }
         sealedRunner8153(e.sealedStyle, e.sealedStrategy) -> Plan8153.RUNNER_SEALED
         // V5.0.8252 — an admission on the runner-grab edge IS the runner intent: a sealed scalp style does not demote it.
         e.runnerEntryAdmitted -> Plan8153.RUNNER_SEALED

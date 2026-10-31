@@ -409,6 +409,8 @@ object ForwardReturnLabeler7731 {
         @Volatile var entryLiq7997 = 0.0
         /** V5.0.8063 — the coin's kind at the decision: "VENUE/NARRATIVE" (memes), blank for cross-asset rows. */
         @Volatile var kind8063: String = ""
+        /** V5.0.8468 — the lane's OWN native brain qualified this coin at the decision (its trigger fired); not persisted. */
+        @Volatile var nativeTrigger8468 = false
         /** V5.0.8080 — the label on the LONG-HOLD exit family (the setup books grade each setup on its own family). */
         @Volatile var bookedLongNet8080 = Double.NaN
         @Volatile var bookedLongGross8080 = Double.NaN
@@ -562,6 +564,13 @@ object ForwardReturnLabeler7731 {
     fun stageKey7928(lane: String, stage: String) = "STAGE|${lane.trim().uppercase()}|${stage.trim().uppercase()}"
     /** V5.0.8019 — lane x cap band across every source and age: the record that says "this lane loses under $10k". */
     fun bandKey8019(lane: String, mcapUsd: Double) = "BAND|${lane.trim().uppercase()}|${mcapBand(mcapUsd)}"
+    /**
+     * V5.0.8468 — the lane's own trigger record: every coin the lane's native brain qualified (OwnershipChain8364.nativeEligible8364
+     * at the decision), whatever the shared setup menu called it. Never pruned (a lane aggregate, like LANE|).
+     */
+    fun triggerKey8468(lane: String) = "TRIGGER|${lane.trim().uppercase()}|NATIVE"
+    /** V5.0.8468 — LiveEdgeGate7877 / LaneTrigger8468: [lane]'s trigger record (local + hive), or null. */
+    fun laneTriggerStat8468(lane: String): CellStat? = cellStat(triggerKey8468(lane))
     /** V5.0.8019 — LiveEdgeGate7877: the lane's 60-minute record in [ts]'s cap band (local + hive). */
     fun bandStatFor8019(ts: TokenState, lane: String): CellStat? = cellStat(bandKey8019(lane, TrustedMcap8019.mcap8019(ts)))
     private fun keysOf7928(o: Obs): List<String> {
@@ -572,7 +581,9 @@ object ForwardReturnLabeler7731 {
         val pseudo = o.lane.startsWith("PLANWAIT_") || o.lane.startsWith("PLANADMIT_")
         // UNKNOWN is not a measured lifecycle stage. Never teach a catch-all
         // STAGE|lane|UNKNOWN that later refuses legitimate classified strategies.
-        val withStage = if (o.stage.isBlank() || o.stage.equals("UNKNOWN", true) || pseudo) base else base + stageKey7928(o.lane, o.stage)
+        val staged = if (o.stage.isBlank() || o.stage.equals("UNKNOWN", true) || pseudo) base else base + stageKey7928(o.lane, o.stage)
+        // V5.0.8468 — the lane's own trigger record: coins its native brain qualified, graded like every label.
+        val withStage = if (o.nativeTrigger8468 && !pseudo) staged + triggerKey8468(o.lane) else staged
         // V5.0.8063 — the coin's kind: lane x venue x cap band, and lane x narrative.
         val k = o.kind8063.split('/')
         if (pseudo || k.size != 2 || k[0].isBlank()) return withStage
@@ -1070,6 +1081,7 @@ object ForwardReturnLabeler7731 {
                 it.feats7972 = try { SpecialistMiner7972.features7972(ts, l, nowMs) } catch (_: Throwable) { emptyList() }
                 it.entryLiq7997 = if (ts.lastLiquidityUsd.isFinite() && ts.lastLiquidityUsd > 0.0) ts.lastLiquidityUsd else 0.0
                 it.kind8063 = try { kindOf8063(ts) } catch (_: Throwable) { "" }
+                it.nativeTrigger8468 = try { com.lifecyclebot.engine.OwnershipChain8364.nativeEligible8364(ts.mint, l) == true } catch (_: Throwable) { false }
             }
         lastSeenAt[key] = nowMs
         // V5.0.7883 — the lane's trade shape (tokenomics, timing, flow) at this decision.
@@ -1102,7 +1114,7 @@ object ForwardReturnLabeler7731 {
     private fun pruneCells() {
         // Drop the thinnest non-aggregate cells so the table stays bounded.
         val victims = cells.entries
-            .filter { !it.key.startsWith("AGG|") && !it.key.startsWith("LANE|") && !it.key.startsWith("SRC|") && !it.key.startsWith("STAGE|") }
+            .filter { !it.key.startsWith("AGG|") && !it.key.startsWith("LANE|") && !it.key.startsWith("SRC|") && !it.key.startsWith("STAGE|") && !it.key.startsWith("TRIGGER|") }
             .sortedBy { synchronized(it.value) { it.value.n60 + it.value.n15 } }
             .take(MAX_CELLS_7731 / 10)
         victims.forEach { cells.remove(it.key, it.value) }

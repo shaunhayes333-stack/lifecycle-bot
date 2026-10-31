@@ -2700,7 +2700,7 @@ object Cortex7885 {
     private fun evictPastHorizon8324(nowMs: Long): Int {
         val before = graded8006.size
         graded8006.entries.removeIf { e ->
-            !CortexLabelHygiene8144.revisionCounts8144(runnerHorizon8144(e.value.p.a.lane), nowMs - e.value.atMs) &&
+            !CortexLabelHygiene8144.revisionCountsFor8468(e.value.p.a.lane, runnerHorizon8144(e.value.p.a.lane), nowMs - e.value.atMs) &&
                 !outcomeBook8372.awaitingShadowFor(e.key)
         }
         val n = before - graded8006.size
@@ -2718,7 +2718,7 @@ object Cortex7885 {
         val id = "$key|$decisionAtMs8371"
         val r = gradeBook8144.decision(id) ?: run { inc("REVISION_DECISION_MISSING_8371"); return }
         if (r.outcomeSource8372 == "SHADOW_EXIT") { inc("FORWARD_REVISION_AFTER_SHADOW_8372"); return }
-        val exec = CortexLabelHygiene8144.revisionCounts8144(runnerHorizon8144(r.lane),
+        val exec = CortexLabelHygiene8144.revisionCountsFor8468(r.lane, runnerHorizon8144(r.lane),
             (proof8395?.observedAtMs ?: System.currentTimeMillis()) - r.atMs)
         val oldNet = CortexOutcomeProof8395.decode8395(r.revisedOutcomeProof8395.ifBlank { r.firstOutcomeProof8395 })?.netPct ?: r.observedNetPct
         val mayReviseCalibration = exec && r.graded && r.executablePct.isFinite() && oldNet.isFinite()
@@ -2786,7 +2786,7 @@ object Cortex7885 {
                 return
             }
             // V5.0.8144 — the observed record follows every horizon; the books only revise inside the lane's executable hold.
-            val exec8144 = CortexLabelHygiene8144.revisionCounts8144(runnerHorizon8144(g.p.a.lane),
+            val exec8144 = CortexLabelHygiene8144.revisionCountsFor8468(g.p.a.lane, runnerHorizon8144(g.p.a.lane),
                 (proof8395?.observedAtMs ?: System.currentTimeMillis()) - g.p.atMs)
             val now8395 = System.currentTimeMillis()
             val result8395 = gradeBook8144.labelOutcome8395(id,newNet,newGross,CortexLabelHygiene8144.executablePct8144(newNet,lat8144),exec8144,

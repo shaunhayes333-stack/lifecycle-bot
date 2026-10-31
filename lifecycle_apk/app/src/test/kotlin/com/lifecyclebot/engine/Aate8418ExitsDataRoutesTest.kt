@@ -69,12 +69,16 @@ class Aate8418ExitsDataRoutesTest {
     // ── 3. holds: runner lanes keep the trail, every named lane has its own documented hold ──
 
     @Test fun runnerLanesAreNotForceSoldByAShortClock() {
+        // superseded by V5.0.8468 (strategy audit fix 1) — a fast contract lane runs its own specialist clock and trail until the
+        // position is promoted (+50 % verified peak); the runner trail and the green-runner clock exemption take over then
+        // (was: EXPRESS / MANIPULATED >= 4 h and EXPRESS trail >= 35 from entry; clockBinds8418("EXPRESS", "EXPRESS", 12.0) false).
         val express = HoldingLogicLayer.getHoldParams("EXPRESS")
-        assertTrue("EXPRESS max hold ${express.maxHoldTimeMs}", express.maxHoldTimeMs >= 4L * 3_600_000L)
-        assertTrue("EXPRESS trail ${express.trailingStopPct}", express.trailingStopPct >= 35.0)
-        assertTrue(HoldingLogicLayer.getHoldParams("MANIPULATED").maxHoldTimeMs >= 4L * 3_600_000L)
-        // a green runner is owned by the trail, never by a clock; a red or flat one still has its clock
-        assertFalse(LaneHolds8418.clockBinds8418("EXPRESS", "EXPRESS", 12.0))
+        assertEquals(30L * 60_000L, express.maxHoldTimeMs)
+        assertEquals(10.0, express.trailingStopPct, 0.0)
+        assertEquals(15L * 60_000L, HoldingLogicLayer.getHoldParams("MANIPULATED").maxHoldTimeMs)
+        // a green PROMOTED runner is owned by the trail, never by a clock; an unpromoted one, or a red / flat one, has its clock
+        assertTrue(LaneHolds8418.clockBinds8418("EXPRESS", "EXPRESS", 12.0, 20.0))
+        assertFalse(LaneHolds8418.clockBinds8418("EXPRESS", "EXPRESS", 12.0, 60.0))
         assertFalse(LaneHolds8418.clockBinds8418("PUMP_SNIPER", "MOONSHOT", 0.5))
         assertTrue(LaneHolds8418.clockBinds8418("EXPRESS", "EXPRESS", -3.0))
         assertTrue(LaneHolds8418.clockBinds8418("EXPRESS", "EXPRESS", Double.NaN))
@@ -91,9 +95,10 @@ class Aate8418ExitsDataRoutesTest {
             val p = HoldingLogicLayer.getHoldParams(lane)
             assertEquals(lane, p.mode); assertEquals(lane, h.maxHoldMs, p.maxHoldTimeMs.coerceAtMost(h.maxHoldMs))
         }
-        // TREASURY / CASHGEN hold the 60-minute graded window, not MARKET_MAKER's 30 minutes
-        assertEquals(60L * 60_000L, HoldingLogicLayer.getHoldParams("TREASURY").maxHoldTimeMs)
-        assertEquals(60L * 60_000L, HoldingLogicLayer.getHoldParams("CASHGEN").maxHoldTimeMs)
+        // superseded by V5.0.8468 (strategy audit fix 2) — TREASURY / CASHGEN run CashGenerationAI's own 45-minute clock and are
+        // graded on it (was the 60-minute graded window: assertEquals(60L * 60_000L, ...)).
+        assertEquals(45L * 60_000L, HoldingLogicLayer.getHoldParams("TREASURY").maxHoldTimeMs)
+        assertEquals(45L * 60_000L, HoldingLogicLayer.getHoldParams("CASHGEN").maxHoldTimeMs)
         assertNull(LaneHolds8418.holdFor8418("UNKNOWN_DESK"))
         assertEquals(4L * 3_600_000L, HoldingLogicLayer.getHoldParams("UNKNOWN_DESK").maxHoldTimeMs)
     }

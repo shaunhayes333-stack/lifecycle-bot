@@ -33800,9 +33800,12 @@ if (hotExitHandledSweep) {
         // ═══════════════════════════════════════════════════════════════════
         // ☠️ MANIPULATED EXIT CHECK
         // Hard 4-minute time exit — manipulators have already left
+        // superseded by V5.0.8468 — the lane's own exit runs until the position is promoted (+50 % verified peak), whatever
+        // style the router sealed (was `&& TradeExitContract8077.longHold(ts) != true`: a pump coin sealed BREAKOUT_RUNNER /
+        // REACCUMULATION skipped MANIPULATED's designed exit entirely; LaneExitContract8468).
         // ═══════════════════════════════════════════════════════════════════
         if (com.lifecyclebot.v3.scoring.ManipulatedTraderAI.hasPosition(ts.mint, ts.position.isPaperPosition) &&
-            TradeExitContract8077.longHold(ts) != true) {
+            !RunnerExitProfile7277.runnerExits8468("MANIPULATED", ts.position.peakGainPct)) {
             val currentPrice = resolveLivePrice(ts)
             val exitSignal = com.lifecyclebot.v3.scoring.ManipulatedTraderAI.checkExit(ts.mint, currentPrice, isPaper = ts.position.isPaperPosition)
             // V5.9.170 — firehose learning feedback.

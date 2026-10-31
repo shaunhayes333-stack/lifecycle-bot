@@ -652,7 +652,10 @@ object LiveEdgeGate7877 {
             // positive realised live closes (RegressionRestore8298); until then the 8114 doors bind for an admission too.
             val admittedJudged8201 = candidateSpecificAdmission8136 && RegressionRestore8298.specificStandDownEarned8298(l8059, nowMs)
             if (candidateSpecificAdmission8136 && !admittedJudged8201) RegressionRestore8298.note8298("ADMITTED_8114_DOORS_BIND", l8059)
-            if (!admittedJudged8201 && !cellOrKindProven8094(ts, l8059, nowMs)) (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.timingNegative8094(ts, l8059, nowMs) } catch (_: Throwable) { null })?.let { at ->
+            // V5.0.8468 — the lane's own brain qualifies this coin and that trigger's record is proven at the lane's horizon
+            // (LaneTrigger8468): the shared setup menu's timing / picked-setup reads and the proven-only door stand down for it.
+            val trigger8468 = try { LaneTrigger8468.admits8468(ts, l8059) } catch (_: Throwable) { false }
+            if (!admittedJudged8201 && !trigger8468 && !cellOrKindProven8094(ts, l8059, nowMs)) (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.timingNegative8094(ts, l8059, nowMs) } catch (_: Throwable) { null })?.let { at ->
                 val r8094 = "TIMING_RECORD_NEGATIVE_8094"
                 if (!Rehearsal8339.doorBindsNow8342(r8094, l8059)) return@let
                 try { PipelineHealthCollector.labelInc("${r8094}_${l8059}_$at") } catch (_: Throwable) {}
@@ -663,7 +666,7 @@ object LiveEdgeGate7877 {
             val proven8059 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetup8056(ts, l8059, nowMs) } catch (_: Throwable) { null }
             // V5.0.8094 — no fired setup is proven and the classified setup's own label record is losing (12+ labels,
             // mean + SE < 0, no runner-tail exemption): refused. A proven fired setup is the strategy instead (multi-strategy).
-            if (proven8059 == null && !admittedJudged8201 && !cellOrKindProven8094(ts, l8059, nowMs)) (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.pickedSetupNegative8094(ts, l8059, nowMs) } catch (_: Throwable) { null })?.let { neg ->
+            if (proven8059 == null && !admittedJudged8201 && !trigger8468 && !cellOrKindProven8094(ts, l8059, nowMs)) (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.pickedSetupNegative8094(ts, l8059, nowMs) } catch (_: Throwable) { null })?.let { neg ->
                 val r8094 = "PICKED_SETUP_RECORD_NEGATIVE_8094"
                 if (!Rehearsal8339.doorBindsNow8342(r8094, l8059)) return@let
                 try { PipelineHealthCollector.labelInc("${r8094}_${l8059}_$neg") } catch (_: Throwable) {}
@@ -814,6 +817,30 @@ object LiveEdgeGate7877 {
         (runupPct.isFinite() && runupPct >= 80.0 && currentVsPeak.isFinite() && currentVsPeak >= 0.88) ||
             (change5mPct.isFinite() && change5mPct >= 100.0)
 
+    /**
+     * Pure (V5.0.8468 — strategy audit fix 4, entry timing): the tighter chase bound for a RUNNER lane past its launch window.
+     * Lifetime live runner-lane book: 16 of 30 buys were LOSS_BOUGHT_TOP, because [chasing8065] only refuses a coin 80 %+ off
+     * its low within 12 % of its high (or +100 % in 5 minutes): a coin 40-79 % into its pump, at its high, passed. Now a
+     * runner lane also waits for the pullback when the coin is 40 %+ off its low within 8 % of its high, or +60 % in 5 minutes.
+     */
+    fun chasingRunner8468(runupPct: Double, currentVsPeak: Double, change5mPct: Double): Boolean =
+        (runupPct.isFinite() && runupPct >= 40.0 && currentVsPeak.isFinite() && currentVsPeak >= 0.92) ||
+            (change5mPct.isFinite() && change5mPct >= 60.0)
+
+    /**
+     * Pure (V5.0.8468): does the runner bound apply? A runner lane, unless the coin's PROVEN launch age is inside the launch
+     * window (LaunchLifecycle8136.LAUNCH_WINDOW_MS): a launch is bought on its own tape bound (early-buyers bar: +60 % off the
+     * first print, within 20 % of the peak) in its first minutes. An unknown age is not a launch (nothing is assumed).
+     */
+    fun runnerChaseApplies8468(runnerLane: Boolean, launchAgeMs: Long?): Boolean =
+        runnerLane && !(launchAgeMs != null && launchAgeMs in 0L..LaunchLifecycle8136.LAUNCH_WINDOW_MS)
+
+    /** Pure (V5.0.8468): a lane that buys on a followed wallet's timing (copy / whale / insider): judged by its own record, not this bound. */
+    fun followsWallet8468(lane: String?): Boolean {
+        val l = lane?.trim()?.uppercase().orEmpty()
+        return listOf("COPY", "WHALE", "INSIDER", "SHARK").any { l.contains(it) }
+    }
+
     /** V5.0.8063 — a 30+ label kind book (lane x venue x cap band, or lane x narrative) for [ts] reads mean - SE > 0. */
     /**
      * V5.0.8094 — this token's own graded cell (source x lane x cap band x age band) or its kind (venue x cap band, narrative)
@@ -951,7 +978,13 @@ object LiveEdgeGate7877 {
         ts: TokenState, lane: String, runupFromLowPct: Double, currentVsPeak: Double,
         nowMs: Long, admittedJudged: Boolean = false,
     ): String? {
-        if (!chasing8065(runupFromLowPct, currentVsPeak, ts.lastPriceChange5m)) return null
+        // V5.0.8468 — a runner lane past its launch window also refuses the tighter 40 % / 8 % / +60 %-in-5m bound (chasingRunner8468).
+        val spike8065 = chasing8065(runupFromLowPct, currentVsPeak, ts.lastPriceChange5m)
+        val runner8468 = !spike8065 && runnerChaseApplies8468(
+            (try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false }) && !followsWallet8468(lane),
+            try { CanonicalTokenBirthTime7440.launchAgeMs7767(ts, nowMs) } catch (_: Throwable) { null },
+        ) && chasingRunner8468(runupFromLowPct, currentVsPeak, ts.lastPriceChange5m)
+        if (!spike8065 && !runner8468) return null
         // superseded by V5.0.8418 — an active RunnerPlay8018 re-entry ticket no longer exempts the coin from the chase rule
         // (8373 / 8397 restored the 8114 exemption): DIRECTIVE_LEDGER #10 (owner fix block 8337 FIX 6b) keeps the chase
         // exemption for an EARLY run that is also a grab only. A re-entry ticket is +100% over its decision price by
@@ -974,6 +1007,10 @@ object LiveEdgeGate7877 {
             return null
         }
         chaseRefused8065.incrementAndGet()
+        if (runner8468) {
+            try { PipelineHealthCollector.labelInc("CHASING_RUNUP_8468_$lane") } catch (_: Throwable) {}
+            return "CHASING_RUNUP_8468"
+        }
         try { PipelineHealthCollector.labelInc("CHASING_SPIKE_8065_$lane") } catch (_: Throwable) {}
         return "CHASING_SPIKE_8065"
     }
@@ -1022,6 +1059,8 @@ object LiveEdgeGate7877 {
     private fun measuredEdge8060(ts: TokenState, lane: String, nowMs: Long): Boolean {
         val st = try { ForwardReturnLabeler7731.cellStatFor(ts, lane, nowMs) } catch (_: Throwable) { null }
         val ok = LiveAdmissionProof8290.cellSurvives8290(st, lane, nowMs) ||   // V5.0.8290
+            // V5.0.8468 — the lane's own brain qualifies the coin and that trigger is proven at the lane's horizon (LaneTrigger8468).
+            (try { LaneTrigger8468.admits8468(ts, lane) } catch (_: Throwable) { false }) ||
             // V5.0.8063 — or the coin's kind has proven it pays in this lane (venue x cap band, or narrative).
             kindProven8063(ts, lane) ||
             (try { com.lifecyclebot.engine.RunnerGrab7967.cellBeatsLane7970(ts, lane, nowMs) } catch (_: Throwable) { false }) ||
@@ -1201,7 +1240,10 @@ object LiveEdgeGate7877 {
     /** Pure. V5.0.7995 — a cell whose labels pay +5% net or better is planned at once (no plan wait). */
     fun cellSkipsPlanWait7995(n: Int, meanPct: Double): Boolean = cellEarnsLive7994(n, meanPct) && meanPct >= 5.0
 
-    fun watchLine7994(): String = "watched=${watched7994.get()} cleared=${cleared7994.get()} planWaitSkipped7995=${planSkips7995.get()} auditStoodDown8006=${standDown8006.get()} cortexCleared8016=${cortexCleared8016.get()} provenSetupCleared8056=${provenSetupCleared8056.get()} provenOnly8059[admitted=${provenOnlyAdmitted8059.get()} viaMeasuredEdge8060=${measuredEdgeAdmitted8060.get()} kindProven8063=${kindProven8063.get()} bootRecovery8074[${try { LiveBootRecovery8074.statusLine() } catch (_: Throwable) { "-" }}] chaseRefused8065=${chaseRefused8065.get()} liveTruth8064[${try { LiveTruth8064.statusLine() } catch (_: Throwable) { "-" }}] refused=${provenOnlyRefused8059.get()}] bandRefused8019=${bandRefused8019.get()} priorsCleared8019=${priorsCleared8019.get()} bar=n>=$WATCH_MIN_N_7994,mean>=0"
+    /** V5.0.8468 — the lanes whose own-trigger record the watch line reports. */
+    private val TRIGGER_LANES_8468 = listOf("MOONSHOT", "SHITCOIN", "EXPRESS", "MANIPULATED", "PROJECT_SNIPER", "DIP_HUNTER", "CORE", "CASHGEN", "QUALITY", "BLUECHIP")
+
+    fun watchLine7994(): String = "watched=${watched7994.get()} cleared=${cleared7994.get()} planWaitSkipped7995=${planSkips7995.get()} auditStoodDown8006=${standDown8006.get()} cortexCleared8016=${cortexCleared8016.get()} provenSetupCleared8056=${provenSetupCleared8056.get()} provenOnly8059[admitted=${provenOnlyAdmitted8059.get()} viaMeasuredEdge8060=${measuredEdgeAdmitted8060.get()} kindProven8063=${kindProven8063.get()} bootRecovery8074[${try { LiveBootRecovery8074.statusLine() } catch (_: Throwable) { "-" }}] chaseRefused8065=${chaseRefused8065.get()} liveTruth8064[${try { LiveTruth8064.statusLine() } catch (_: Throwable) { "-" }}] refused=${provenOnlyRefused8059.get()}] ${try { LaneTrigger8468.statusLine8468(TRIGGER_LANES_8468) } catch (_: Throwable) { "laneTrigger8468[-]" }} bandRefused8019=${bandRefused8019.get()} priorsCleared8019=${priorsCleared8019.get()} bar=n>=$WATCH_MIN_N_7994,mean>=0"
 
     private fun liveRefusalCore7970(ts: TokenState, lane: String, paper: Boolean, nowMs: Long,
                                     candidateSpecificAdmission8136: Boolean = false, genericNative8211: Boolean = false,

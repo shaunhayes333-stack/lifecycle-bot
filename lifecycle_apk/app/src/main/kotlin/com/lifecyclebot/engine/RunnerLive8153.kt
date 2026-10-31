@@ -79,6 +79,7 @@ object RunnerLive8153 {
             laneHostsRunners = hosts, sealedStyle = style, sealedStrategy = strategy, grabbedAtEntry = grabbed,
             promotedLatched = book.promoted8153(key8153(ts)), verifiedPeakPct = pos.peakGainPct,
             runnerEntryAdmitted = runnerAdmit,
+            contractLane8468 = RunnerExitProfile7277.contractLane8468(pos.tradingMode),
         )
     }
 

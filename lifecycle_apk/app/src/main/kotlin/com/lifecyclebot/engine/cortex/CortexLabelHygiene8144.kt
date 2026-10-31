@@ -118,6 +118,17 @@ object CortexLabelHygiene8144 {
     /** Pure: does a revision [ageMs] after the decision still describe a hold the lane actually runs? */
     fun revisionCounts8144(runnerLane: Boolean, ageMs: Long): Boolean = ageMs in 0L..executableHorizonMs8144(runnerLane)
 
+    /**
+     * Pure (V5.0.8468): the hold [lane] actually runs — a non-runner desk is graded on its own clock (LaneHolds8418.deskHorizonMs8468:
+     * TREASURY / CASHGEN 45 min) instead of the 60-minute default its exits used to be bent to; runner / hour-graded lanes unchanged.
+     */
+    fun horizonMsFor8468(lane: String?, runnerLane: Boolean): Long =
+        if (runnerLane) executableHorizonMs8144(true)
+        else com.lifecyclebot.engine.LaneHolds8418.deskHorizonMs8468(lane) ?: executableHorizonMs8144(false)
+
+    /** Pure (V5.0.8468): [revisionCounts8144] on [lane]'s own hold. */
+    fun revisionCountsFor8468(lane: String?, runnerLane: Boolean, ageMs: Long): Boolean = ageMs in 0L..horizonMsFor8468(lane, runnerLane)
+
     /** Pure: the executable value of a net label — the unmeasured-latency haircut applies until the lane's fills are measured. */
     fun executablePct8144(netPct: Double, latencyMeasured: Boolean): Double = when {
         !netPct.isFinite() -> Double.NaN

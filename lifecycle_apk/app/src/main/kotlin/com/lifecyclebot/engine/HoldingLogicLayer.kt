@@ -369,7 +369,8 @@ object HoldingLogicLayer {
             
             // V5.0.8419 — a runner lane's trail is RunnerTrail8419's (GreenFloor8363: 65 % of the peak PRICE with the owner's 8337 3a
             // rule beneath), armed by its own rule and never multiplied by the patience; the table trail below is for the other desks.
-            val runnerLane8419 = RunnerTrail8419.runnerLane8419(mode, learningLane8384)
+            // V5.0.8468 — a fast contract lane is on the runner trail only once promoted (RunnerExitProfile7277.runnerExits8468).
+            val runnerLane8419 = RunnerTrail8419.runnerLaneAt8468(mode, learningLane8384, position.peakGainPct)
             val runnerLevel8419 = if (runnerLane8419) RunnerTrail8419.holdLayerLevelFor8419(ts, mode, learningLane8384) else null
             if (runnerLevel8419 != null && currentPnlPct <= runnerLevel8419.levelPct) {
                 return HoldEvaluation(
@@ -415,7 +416,7 @@ object HoldingLogicLayer {
             }
 
             // V5.2: Fluid max hold time exceeded (layer-specific, learning-aware)
-            if (holdTimeMinutes > tunedFluidMaxHold7455 && LaneHolds8418.clockBinds8418(mode, learningLane8384, currentPnlPct)) {   // V5.0.8418 — not on a green runner
+            if (holdTimeMinutes > tunedFluidMaxHold7455 && LaneHolds8418.clockBinds8418(mode, learningLane8384, currentPnlPct, position.peakGainPct)) {   // V5.0.8418 — not on a green runner
                 return HoldEvaluation(
                     action = HoldAction.EXIT_NOW,
                     reason = "Fluid hold time exceeded: ${holdTimeMinutes}min > ${tunedFluidMaxHold7455.toInt()}min [$layer] tune×${"%.2f".format(holdMult7455)}",
@@ -425,7 +426,7 @@ object HoldingLogicLayer {
             }
             
             // Legacy max hold time fallback
-            if (holdTimeMs > maxHoldTimeMs6091 && LaneHolds8418.clockBinds8418(mode, learningLane8384, currentPnlPct)) {   // V5.0.8418 — not on a green runner
+            if (holdTimeMs > maxHoldTimeMs6091 && LaneHolds8418.clockBinds8418(mode, learningLane8384, currentPnlPct, position.peakGainPct)) {   // V5.0.8418 — not on a green runner
                 return HoldEvaluation(
                     action = HoldAction.EXIT_NOW,
                     reason = "Max hold time exceeded: ${holdTimeMinutes}min > ${maxHoldTimeMs6091 / 60000}min ssiPatience=${"%.2f".format(ssiExitPatience6091)}",
@@ -757,8 +758,11 @@ object HoldingLogicLayer {
         // (MARKET_MAKER clocked out at 30 min while its coins were labelled +229 % over the hour). Runner mandates keep their
         // own specialist clocks (MICRO_CAP 12 h, PUMP_DUMP 15 min): a wider window there is not evidence, it is a different desk.
         val stop8392 = try { com.lifecyclebot.engine.truth.FieldManual7715.laneStopPct8392(lane) } catch (_: Throwable) { mandate.invalidationPct }
-        val hold8392 = if (mandate.runner) base.maxHoldTimeMs
-            else maxOf(base.maxHoldTimeMs, com.lifecyclebot.engine.cortex.CortexLabelHygiene8144.executableHorizonMs8392(false))
+        // superseded by V5.0.8468 — a non-runner desk runs its own sub-trader's clock (LaneHolds8418: CASHGEN 45 min, QUALITY 60 min,
+        // BLUECHIP 8 h) and the Cortex grades it on that clock (CortexLabelHygiene8144.horizonMsFor8468); 8392 raised every desk to
+        // the grader's 60-minute window (was `if (mandate.runner) base.maxHoldTimeMs else maxOf(base.maxHoldTimeMs,
+        // CortexLabelHygiene8144.executableHorizonMs8392(false))`).
+        val hold8392 = base.maxHoldTimeMs
         return base.copy(mode = lane, targetProfitPct = mandate.expectedGrossPct,
             stopLossPct = -maxOf(-base.stopLossPct, stop8392), maxHoldTimeMs = hold8392, allowModeSwitch = true)
     }

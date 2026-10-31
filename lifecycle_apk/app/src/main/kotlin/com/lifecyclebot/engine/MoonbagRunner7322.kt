@@ -59,7 +59,7 @@ object MoonbagRunner7322 {
 
     /** Pure decision. [bankedAtPeak] is the peak stored at banking, or null if not banked. */
     fun decide(lane: String, reason: String, pnlPct: Double, peakPct: Double, bankedAtPeak: Double?): Action {
-        if (!RunnerExitProfile7277.isRunnerLane(lane)) return Action.PASS
+        if (!RunnerExitProfile7277.runnerExits8468(lane, peakPct)) return Action.PASS   // V5.0.8468 — a contract lane only once promoted
         if (!Tier1Deference8141.holdMayAct8141(reason)) return Action.PASS  // V5.0.8141 — tier 1 is never banked or held
         if (!isGivebackExit(reason)) return Action.PASS
         if (!pnlPct.isFinite() || pnlPct <= 0.0) return Action.PASS

@@ -364,6 +364,8 @@ class Aate8144CortexTest {
         val pb = src("engine/cortex/LanePlaybook7907.kt")
         assertTrue(pb.contains("?: (try { validAlternative8144(ts, laneRaw, nowMs) } catch (_: Throwable) { null })  // V5.0.8144"))
         assertTrue(pb.contains("if (setup == null || alt8144 != null) null else synchronized(this) {"))
-        assertTrue(pb.contains("CortexLabelHygiene8144.revisionCounts8144(runnerHorizonLane8144(g.lane), System.currentTimeMillis() - g.atMs)"))
+        // superseded by V5.0.8468 — the same revision gate on the lane's own hold (a desk's own clock, LaneHolds8418)
+        // (was revisionCounts8144(runnerHorizonLane8144(g.lane), System.currentTimeMillis() - g.atMs)).
+        assertTrue(pb.contains("CortexLabelHygiene8144.revisionCountsFor8468(g.lane, runnerHorizonLane8144(g.lane), System.currentTimeMillis() - g.atMs)"))
     }
 }

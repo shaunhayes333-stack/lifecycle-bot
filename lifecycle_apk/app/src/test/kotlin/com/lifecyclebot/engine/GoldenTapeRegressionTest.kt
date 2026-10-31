@@ -15401,7 +15401,9 @@ class GoldenTapeRegressionTest {
         assertTrue(hold.contains("LiveStrategyTuner.adjustmentForPosition8384(learningLane8384, position.isPaperPosition)"))
         // V5.0.8392 — the specialist hold stop is never inside the lane's round trip, and a non-runner desk holds the window the Cortex grades
         assertTrue(hold.contains("FieldManual7715.mandateFor(lane)") && hold.contains("stopLossPct = -maxOf(-base.stopLossPct, stop8392)"))
-        assertTrue(hold.contains("else maxOf(base.maxHoldTimeMs, com.lifecyclebot.engine.cortex.CortexLabelHygiene8144.executableHorizonMs8392(false))"))
+        // superseded by V5.0.8468 — a non-runner desk runs its own sub-trader's clock (LaneHolds8418) and is graded on it
+        // (CortexLabelHygiene8144.horizonMsFor8468), no longer raised to the 60-minute window (was `else maxOf(base.maxHoldTimeMs, ...)`).
+        assertTrue(hold.contains("val hold8392 = base.maxHoldTimeMs"))
         assertFalse(hold.contains("maxOf(base.stopLossPct, -mandate.invalidationPct)"))
         assertTrue(pivot.contains("synchronized(pos)") && pivot.contains("switchSlotFree8384") && pivot.contains("switchAllowed8384"))
         assertTrue(pivot.contains("ForwardOutcomeModel.forecast(evidenceLane") && pivot.contains("hiveBiasFor(evidenceLane)"))

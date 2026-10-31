@@ -49,7 +49,8 @@ object PeakDrawdownLock {
         if (currentPnlPct >= peakPnlPct) return false  // currently at/above peak
         // superseded by V5.0.8419 — on a RUNNER lane the 7282 ratchet (peak +500 % -> lock +418 %) sat inside the owner's
         // runner trail (35 % under the peak PRICE, ledger #34 / V5.0.8370): the lock fires at RunnerTrail8419's level there.
-        if (RunnerExitProfile7277.isRunnerLane(lane)) return RunnerTrail8419.lockFires8419(peakPnlPct, currentPnlPct)
+        // V5.0.8468 — a fast contract lane (EXPRESS, SHITCOIN, ...) keeps its own give-back curve until it is promoted.
+        if (RunnerExitProfile7277.runnerExits8468(lane, peakPnlPct)) return RunnerTrail8419.lockFires8419(peakPnlPct, currentPnlPct)
         val drawdownFrac = (peakPnlPct - currentPnlPct) / peakPnlPct
         return drawdownFrac >= triggerFracForPeak(peakPnlPct, lane)
     }

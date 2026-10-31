@@ -18,7 +18,9 @@ class Aate8419RunnerTrailTest {
 
     @Test fun theOldHoldLayerArithmeticReproducesTheReportedTwentyTwoPointSevenFive() {
         // HoldingLogicLayer :214 before 8419: LaneHolds8418.trailFor8418(EXPRESS, 35) x patience floored at 0.65.
-        val tablePoints = LaneHolds8418.trailFor8418("EXPRESS", "EXPRESS", 10.0)
+        // superseded by V5.0.8468 — the runner floor binds a fast contract lane only once promoted (peak +50 %): read at +100 %
+        // (was trailFor8418("EXPRESS", "EXPRESS", 10.0) == 35 from entry).
+        val tablePoints = LaneHolds8418.trailFor8418("EXPRESS", "EXPRESS", 10.0, 100.0)
         assertEquals(35.0, tablePoints, eps)
         val patienceFloor = 0.65
         assertEquals(22.75, tablePoints * patienceFloor, eps)
@@ -39,7 +41,10 @@ class Aate8419RunnerTrailTest {
         // Runner lane: never 22.75 whatever the patience says.
         assertEquals(70.0, RunnerTrail8419.holdLayerTrailPoints8419("EXPRESS", "EXPRESS", 35.0, 0.65, 100.0), eps)
         assertEquals(210.0, RunnerTrail8419.holdLayerTrailPoints8419("STANDARD", "SHITCOIN", 8.0, 0.65, 500.0), eps)
-        assertEquals(35.0, RunnerTrail8419.holdLayerTrailPoints8419("EXPRESS", "EXPRESS", 35.0, 0.65, Double.NaN), eps)
+        // superseded by V5.0.8468 — with no peak a runner lane reads the 35-point floor (MOONSHOT); an unpromoted fast contract lane
+        // trails on its own table x patience (was holdLayerTrailPoints8419("EXPRESS", "EXPRESS", 35.0, 0.65, NaN) == 35).
+        assertEquals(35.0, RunnerTrail8419.holdLayerTrailPoints8419("MOONSHOT", "MOONSHOT", 35.0, 0.65, Double.NaN), eps)
+        assertEquals(6.5, RunnerTrail8419.holdLayerTrailPoints8419("EXPRESS", "EXPRESS", 10.0, 0.65, 30.0), eps)
         // Scalp desk: unchanged table x patience.
         assertEquals(1.95, RunnerTrail8419.holdLayerTrailPoints8419("TREASURY", "TREASURY", 3.0, 0.65, 100.0), eps)
         assertEquals(5.0, RunnerTrail8419.holdLayerTrailPoints8419("BLUECHIP", "BLUECHIP", 5.0, 1.0, 100.0), eps)
@@ -78,7 +83,9 @@ class Aate8419RunnerTrailTest {
         assertEquals(40.0, RunnerTrail8419.tickLockLevel8419("SHITCOIN", 100.0, 91.0), eps)
         assertEquals(91.0, RunnerTrail8419.tickLockLevel8419("TREASURY", 100.0, 91.0), eps)
         assertEquals(91.0, RunnerTrail8419.tickLockLevel8419("", 100.0, 91.0), eps)
-        assertEquals(26.0, RunnerTrail8419.tickLockLevel8419("EXPRESS", 30.0, 26.0) + 14.0, eps)   // +30 peak: floor 12
+        // superseded by V5.0.8468 — a +30 peak runner reads floor 12 (MOONSHOT); EXPRESS under its +50 promotion keeps its own level.
+        assertEquals(26.0, RunnerTrail8419.tickLockLevel8419("MOONSHOT", 30.0, 26.0) + 14.0, eps)   // +30 peak: floor 12
+        assertEquals(26.0, RunnerTrail8419.tickLockLevel8419("EXPRESS", 30.0, 26.0), eps)
     }
 
     @Test fun everyLayerReadsTheOneAuthority() {
@@ -87,7 +94,9 @@ class Aate8419RunnerTrailTest {
         assertTrue(hold.contains("RunnerTrail8419.holdLayerLevelFor8419(ts, mode, learningLane8384)"))
         assertTrue(hold.contains("if (diamondHandsMode6091 && !runnerLane8419 && position.peakGainPct >= 150.0)"))
         assertFalse(hold.contains("LaneHolds8418.trailFor8418(mode, learningLane8384, params.trailingStopPct) * ssiExitPatience6091"))
-        assertTrue(src("engine/PeakDrawdownLock.kt").contains("if (RunnerExitProfile7277.isRunnerLane(lane)) return RunnerTrail8419.lockFires8419(peakPnlPct, currentPnlPct)"))
+        // superseded by V5.0.8468 — the same runner-trail lock, on a runner POSITION: a fast contract lane only once promoted
+        // (was isRunnerLane(lane)).
+        assertTrue(src("engine/PeakDrawdownLock.kt").contains("if (RunnerExitProfile7277.runnerExits8468(lane, peakPnlPct)) return RunnerTrail8419.lockFires8419(peakPnlPct, currentPnlPct)"))
         assertTrue(src("engine/Executor.kt").contains("if (PeakDrawdownLock.settleLock8419(ts, peakPnlPct, curPnlPct)) {"))
         val fluid = src("v3/scoring/FluidLearningAI.kt")
         assertTrue(fluid.contains("return com.lifecyclebot.engine.RunnerTrail8419.tickLockLevel8419(lane, peakPnlPct, out)"))

@@ -9049,7 +9049,8 @@ class Executor(
                 // first time (the same bank the sell door already applies to live
                 // give-back exits) and the moonbag rides on the lane's own exits;
                 // once banked this block stands aside. Non-runner lanes unchanged.
-                val runnerLane7349 = try { RunnerExitProfile7277.isRunnerLane(ts.position.tradingMode) } catch (_: Throwable) { false }
+                // V5.0.8468 — a fast contract lane banks a moonbag only once promoted (RunnerExitProfile7277.runnerExits8468).
+                val runnerLane7349 = try { RunnerExitProfile7277.runnerExits8468(ts.position.tradingMode, ts.position.peakGainPct) } catch (_: Throwable) { false }
                 val runnerKey7349 = ts.position.positionId.ifBlank { ts.mint }
                 val runnerBanked7349 = runnerLane7349 && MoonbagRunner7322.bankedPeakFor(runnerKey7349) != null
                 if (runnerBanked7349) {
@@ -9990,7 +9991,8 @@ class Executor(
 
         run {
             val lane7353 = ts.position.tradingMode
-            val runner7353 = try { RunnerExitProfile7277.isRunnerLane(lane7353) } catch (_: Throwable) { true }
+            // V5.0.8468 — a fast contract lane is culled flat like any desk until promoted (its design is a quick exit).
+            val runner7353 = try { RunnerExitProfile7277.runnerExits8468(lane7353, ts.position.peakGainPct) } catch (_: Throwable) { true }
             // V5.0.7706 — live: 30-minute minimum and a +3% peak is life, not flat.
             val live7706 = !ts.position.isPaperPosition
             if (live7706 && ts.position.peakGainPct >= LIVE_CULL_PEAK_EXEMPT_PCT_7706) {
@@ -22693,6 +22695,8 @@ class Executor(
     private fun liveHoldDelayIfNeeded(ts: TokenState, reason: String): LiveHoldDelay? {
         if (reason.startsWith("RECONCILER_REQUEUE", ignoreCase = true)) return null
         if (ts.position.isPaperPosition) return null
+        // V5.0.8468 — a fast lane's own designed exit before promotion is not held by a style min-hold (LaneExitContract8468).
+        if (try { LaneExitContract8468.acts8468(ts, reason) } catch (_: Throwable) { false }) return null
         val pos = ts.position
         if (pos.entryTime <= 0L || pos.qtyToken <= 0.0) return null
         val now = System.currentTimeMillis()
@@ -22761,6 +22765,8 @@ class Executor(
 
     private fun liveProfitDustExitShouldDefer(ts: TokenState, reason: String): Boolean {
         if (ts.position.isPaperPosition) return false
+        // V5.0.8468 — a fast lane's own designed exit before promotion is not deferred as tiny profit (LaneExitContract8468).
+        if (try { LaneExitContract8468.acts8468(ts, reason) } catch (_: Throwable) { false }) return false
         val pos = ts.position
         if (!pos.isOpen || pos.entryPrice <= 0.0) return false
         val intent = classifyLiveExitIntent(ts, reason)
@@ -24818,6 +24824,8 @@ class Executor(
         // V5.0.8141 — tier 1 is never held by the moonbag / tail bag, on any lane, paper or live (TOKEN_FROZEN,
         // LIQUIDITY_PULLED were only ranks 1-2 of ProtectiveExitClass7807 when spelled its way).
         if (Tier1Deference8141.tier1(requestReason)) return tier1PassesMoonbag8141(ts, requestReason)
+        // V5.0.8468 — a fast lane's own designed exit before promotion sells whole: no moonbag / tail bag (LaneExitContract8468).
+        if (try { LaneExitContract8468.acts8468(ts, requestReason) } catch (_: Throwable) { false }) return null
         if (!ts.position.isPaperPosition) tailBagGate8034(ts, requestReason, wallet, walletSol)?.let { return it }
         // V5.0.7349 — paper is no longer excluded; see moonbagWouldAct7349.
         // V5.0.7807 — B2: a class 1-3 exit (lane-aware: only structural / catastrophe on

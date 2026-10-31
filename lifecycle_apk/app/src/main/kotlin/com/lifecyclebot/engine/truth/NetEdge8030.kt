@@ -564,6 +564,9 @@ object NetEdge8030 {
         if (try { com.lifecyclebot.engine.ExitTruthArbiter8144.protective8144(reason) } catch (_: Throwable) { false }) return false
         // V5.0.8363 — a profit lock / give-back / trail is protective (ProfitLock8363, the one classification): never held.
         if (try { com.lifecyclebot.engine.ProfitLock8363.profitLock8363(reason) } catch (_: Throwable) { false }) return false
+        // V5.0.8468 — a fast lane's own designed exit (momentum death, time exit, take-profit, ...) before promotion acts:
+        // holding a fading +3 % for cost + 1 % rode it down to the stop (LaneExitContract8468).
+        if (try { com.lifecyclebot.engine.LaneExitContract8468.acts8468(ts, reason) } catch (_: Throwable) { false }) return false
         val structural = structural8030(reason)
         if (structural) return false
         try { OnChainDepth8038.request8038(ts) } catch (_: Throwable) {}

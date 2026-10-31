@@ -2217,7 +2217,7 @@ object LanePlaybook7907 {
         synchronized(this) {
             val g = graded7997["$mint|${labelLane.trim().uppercase()}"] ?: return
             // V5.0.8144 — a revision past the lane's executable hold horizon is not a return the strategy can bank.
-            if (!CortexLabelHygiene8144.revisionCounts8144(runnerHorizonLane8144(g.lane), System.currentTimeMillis() - g.atMs)) {
+            if (!CortexLabelHygiene8144.revisionCountsFor8468(g.lane, runnerHorizonLane8144(g.lane), System.currentTimeMillis() - g.atMs)) {
                 try { PipelineHealthCollector.labelInc("SETUP_REVISION_PAST_EXEC_HORIZON_8144") } catch (_: Throwable) {}
                 return
             }
@@ -2245,7 +2245,7 @@ object LanePlaybook7907 {
                 if (!terminal) PipelineHealthCollector.labelInc("SETUP_FORWARD_AFTER_SHADOW_OBSERVED_ONLY_8372")
                 return@synchronized terminal
             }
-            if (!CortexLabelHygiene8144.revisionCounts8144(runnerHorizonLane8144(g.decision.lane), nowMs - g.decision.atMs)) {
+            if (!CortexLabelHygiene8144.revisionCountsFor8468(g.decision.lane, runnerHorizonLane8144(g.decision.lane), nowMs - g.decision.atMs)) {
                 PipelineHealthCollector.labelInc("SETUP_EXACT_REVISION_PAST_HORIZON_8372")
                 return@synchronized false
             }

@@ -35,6 +35,10 @@ object RunnerTrail8419 {
     fun runnerLane8419(mode: String?, owner: String?): Boolean =
         RunnerExitProfile7277.isRunnerLane(mode) || RunnerExitProfile7277.isRunnerLane(owner)
 
+    /** Pure (V5.0.8468): is a position managed as [mode], owned by [owner], at verified peak [peakPct] on the runner contract? */
+    fun runnerLaneAt8468(mode: String?, owner: String?, peakPct: Double): Boolean =
+        RunnerExitProfile7277.runnerExits8468(mode, peakPct) || RunnerExitProfile7277.runnerExits8468(owner, peakPct)
+
     /** Pure: the trail level (gross %) at [peakPct]: 65 % of the peak price. NaN for no peak. */
     fun trailLevelPct8419(peakPct: Double): Double =
         if (peakPct.isFinite() && peakPct > 0.0) GreenFloor8363.trail8370(peakPct) else Double.NaN
@@ -70,7 +74,8 @@ object RunnerTrail8419 {
      * (35 x 0.65 = 22.75). With no peak yet a runner reads the 35-point table floor (nothing is armed anyway).
      */
     fun holdLayerTrailPoints8419(mode: String, owner: String, tablePct: Double, patience: Double, peakPct: Double): Double {
-        if (!runnerLane8419(mode, owner)) return LaneHolds8418.trailFor8418(mode, owner, tablePct) * patience
+        // V5.0.8468 — a fast contract lane trails on its own table until promoted (RunnerExitProfile7277.runnerExits8468).
+        if (!runnerLaneAt8468(mode, owner, peakPct)) return LaneHolds8418.trailFor8418(mode, owner, tablePct, peakPct) * patience
         val pts = pointsUnderPeak8419(peakPct)
         return if (pts.isFinite()) pts else GIVE_BACK_PRICE_PCT_8419
     }
@@ -83,7 +88,7 @@ object RunnerTrail8419 {
      * never sits above the runner exit level (the lock is min(level, floor8370)); a non-runner lane keeps its level.
      */
     fun tickLockLevel8419(lane: String?, peakPct: Double, levelPct: Double): Double {
-        if (!RunnerExitProfile7277.isRunnerLane(lane)) return levelPct
+        if (!RunnerExitProfile7277.runnerExits8468(lane, peakPct)) return levelPct   // V5.0.8468 — promoted runners only
         val floor = exitLevelPct8419(peakPct, Double.NaN)
         if (!floor.isFinite()) return levelPct
         val out = if (levelPct.isFinite()) minOf(levelPct, floor) else floor
@@ -95,8 +100,8 @@ object RunnerTrail8419 {
 
     /** HoldingLogicLayer: the runner exit level of [ts] (its confirmed peak, its priced round trip), or null (not a runner lane / not armed). */
     fun holdLayerLevelFor8419(ts: TokenState, mode: String, owner: String): Level8419? {
-        if (!runnerLane8419(mode, owner)) return null
         val peak = ts.position.peakGainPct
+        if (!runnerLaneAt8468(mode, owner, peak)) return null   // V5.0.8468 — a contract lane only once promoted
         if (!peak.isFinite() || peak <= 0.0) return null
         val floor = try { GreenFloor8363.floorFor8363(ts) } catch (_: Throwable) { Double.NaN }
         if (!floor.isFinite()) return null

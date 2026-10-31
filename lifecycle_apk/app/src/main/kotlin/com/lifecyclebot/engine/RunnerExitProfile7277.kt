@@ -50,6 +50,29 @@ object RunnerExitProfile7277 {
     }
 
     /**
+     * V5.0.8468 — the fast lanes that have their own designed exit contract (LaneExitContract8468). They can host a runner,
+     * but a position in one is managed as a runner only once it is promoted ([runnerExits8468]); MOONSHOT and the ensemble /
+     * copy lanes keep the runner contract from entry.
+     */
+    private val CONTRACT_LANE_KEYS_8468 = arrayOf("EXPRESS", "MANIPULATED", "MANIP", "SHITCOIN", "PROJECT_SNIPER", "DIP_HUNTER")
+
+    /** The verified peak that proves a contract-lane position is running: from here the runner contract owns it. */
+    const val CONTRACT_PROMOTE_PEAK_PCT_8468 = 50.0
+
+    fun contractLane8468(lane: String?): Boolean {
+        val s = lane?.trim()?.uppercase() ?: return false
+        if (s.isBlank() || s.contains("MOONSHOT")) return false
+        return CONTRACT_LANE_KEYS_8468.any { s.contains(it) }
+    }
+
+    /**
+     * Pure: does the runner exit contract (35 % trail of the peak price, no clock while green, runner give-back curve,
+     * moonbag) own a position on [lane] at verified peak [peakPct]? A runner lane yes; a contract lane only once promoted.
+     */
+    fun runnerExits8468(lane: String?, peakPct: Double): Boolean =
+        isRunnerLane(lane) && (!contractLane8468(lane) || (peakPct.isFinite() && peakPct >= CONTRACT_PROMOTE_PEAK_PCT_8468))
+
+    /**
      * V5.0.7695 §A_PROFIT_LOCK_THAT_SELLS_AT_MINUS_FIVE_IS_NOT_A_PROFIT_LOCK.
      *
      * V5.0.7386 set this to `false` on every lane — "the sliding profit locks

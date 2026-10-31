@@ -90,7 +90,8 @@ class Aate8094ClosedPositionAndPretradeTest {
         // Multi-strategy: every fired setup is evaluated and the best proven one is the strategy; the losing-record
         // refusal only applies when no fired setup is proven.
         assertTrue(pb.contains("val candidates = matchedSetups8083(ts, lane, nowMs)"))
-        assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("if (proven8059 == null && !admittedJudged8201 && !cellOrKindProven8094(ts, l8059, nowMs)) (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.pickedSetupNegative8094(ts, l8059, nowMs)"))
+        // superseded by V5.0.8468 — a proven lane trigger (LaneTrigger8468) also stands the picked-setup read down.
+        assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("if (proven8059 == null && !admittedJudged8201 && !trigger8468 && !cellOrKindProven8094(ts, l8059, nowMs)) (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.pickedSetupNegative8094(ts, l8059, nowMs)"))
         assertTrue(pb.contains("val setup = selectedSetup8094(ts, lane, nowMs)"))
         // In-flight cold starts share the 3-coin budget; a mint holding a place keeps it.
         val g8094 = com.lifecyclebot.engine.truth.LiveEdgeGate7877
