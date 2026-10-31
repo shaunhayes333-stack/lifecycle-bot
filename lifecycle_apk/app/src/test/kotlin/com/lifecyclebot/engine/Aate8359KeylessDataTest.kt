@@ -30,10 +30,12 @@ class Aate8359KeylessDataTest {
     private val publicnode = "https://solana-rpc.publicnode.com"
 
     @Test fun marketReadsAreKeylessFirstAndExecutionReadsStayOnHelius() {
-        for (m in listOf("getAccountInfo", "getMultipleAccounts", "getTokenSupply", "getTokenLargestAccounts",
+        for (m in listOf("getAccountInfo", "getMultipleAccounts", "getTokenSupply",
             "getSignaturesForAddress", "getBalance", "getTokenAccountsByOwner", "getTransaction")) {
             assertEquals(m, Route8359.MARKET, KeylessRpc8359.route8359(m))
         }
+        // superseded (8481): the live buy's holder proof reads Helius first (8480: holders-7379 transport=68)
+        assertEquals(Route8359.EXECUTION, KeylessRpc8359.route8359("getTokenLargestAccounts"))
         // the owner's wallet and our own transactions are execution truth
         for (m in listOf("getBalance", "getTokenAccountsByOwner", "getTransaction", "getSignaturesForAddress")) {
             assertEquals(m, Route8359.EXECUTION, KeylessRpc8359.route8359(m, ownWallet = true))

@@ -49,7 +49,7 @@ object OnChainHolderConcentration7379 {
     private val cache = ConcurrentHashMap<String, Cached>()
     private val missAt = ConcurrentHashMap<String, Long>()
     private const val TTL_MS = 10 * 60_000L
-    private const val MISS_RETRY_MS = 60_000L
+    private const val MISS_RETRY_MS = 15_000L   // a buy's 3 deferrals in 5 min each get a fresh read (was 60 s: one read for all three)
 
     fun top10Pct(mint: String): Double? {
         if (mint.isBlank()) return null

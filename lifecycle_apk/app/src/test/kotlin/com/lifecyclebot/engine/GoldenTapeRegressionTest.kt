@@ -15298,8 +15298,9 @@ class GoldenTapeRegressionTest {
                 lt.contains("recordSetup8083(e.mint, lane8083, e.netReturnPct, e.settledAtMs, e.positionId)"))
         val gate = f("engine/truth/LiveEdgeGate7877.kt")
         assertTrue("cold-start budget consumes only confirmed fills",
+            // superseded (8480): the cold-start admit went with the proven-only door; its confirmed-fill bookkeeping stays
             gate.contains("coldPending8092") && gate.contains("COLD_PENDING_MS_8092") &&
-                gate.contains("LIVE_COLD_START_CONFIRMED_8092") && gate.contains("coldPendingSweep8092(nowMs)"))
+                gate.contains("LIVE_COLD_START_CONFIRMED_8092"))
         // superseded (8480, owner directive "no evidence is not proven bad"): the proven-only step (and its cold-start exemption) is removed
         assertFalse(gate.contains("coldStartAdmits8080("))
         val ticket = f("engine/RunnerTicket8073.kt")

@@ -53,8 +53,11 @@ object KeylessRpc8359 {
         "getAsset", "getAssetBatch", "searchAssets", "getAssetsByOwner", "getAssetsByCreator", "getAssetsByAuthority",
         "getAssetsByGroup", "getSignaturesForAsset", "getTokenAccounts", "getTransactionsForAddress", "getProgramAccounts",
     )
+    // getTokenLargestAccounts is no longer a market method: it is the holder-distribution proof the live buy waits on, publicnode
+    // refuses it (indexed) and api.mainnet-beta is slow on it, so inside the 5 s holder call budget it failed before Helius was
+    // reached (8480: holders-7379 transport=68 of 183; 5 of 6 MOONSHOT tickets died DEFERRED_DATA_SAFETY_PROOF_8270). Helius first.
     private val MARKET_METHODS_8359 = setOf(
-        "getAccountInfo", "getMultipleAccounts", "getTokenSupply", "getTokenLargestAccounts", "getSignaturesForAddress",
+        "getAccountInfo", "getMultipleAccounts", "getTokenSupply", "getSignaturesForAddress",
         "getTransaction", "getParsedTransaction", "getBalance", "getTokenAccountsByOwner", "getBlockTime",
     )
 
