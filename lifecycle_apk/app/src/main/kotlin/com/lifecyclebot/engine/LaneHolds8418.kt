@@ -49,9 +49,9 @@ object LaneHolds8418 {
         "CORE" to LaneHold8418("STANDARD", 4L * HOUR_MS, RUNNER_TRAIL_FLOOR_PCT_8418,
             "ensemble of the runner lanes (7389): STANDARD's 4 h clock, runner trail"),
         // Non-runner desks — their own sub-trader's clock (V5.0.8468), graded on that clock.
-        "TREASURY" to LaneHold8418("MARKET_MAKER", 45L * MIN_MS, 3.0,
-            "range-reversion scalp desk: CashGenerationAI's 45-minute clock, 3-point trail, MARKET_MAKER's 5/8% scale-outs"),
-        "CASHGEN" to LaneHold8418("MARKET_MAKER", 45L * MIN_MS, 3.0,
+        "TREASURY" to LaneHold8418("MARKET_MAKER", 45L * MIN_MS, 6.0,
+            "range-reversion desk: CashGenerationAI's 45-minute clock, 6-point trail, MARKET_MAKER's 12/20% scale-outs (8485: was 3 / 5,8)"),
+        "CASHGEN" to LaneHold8418("MARKET_MAKER", 45L * MIN_MS, 6.0,
             "cash-generation scalp desk: same contract as TREASURY (same mandate, FieldManual7715 TREASURY_LANE)"),
         "QUALITY" to LaneHold8418("BLUE_CHIP", HOUR_MS, 5.0,
             "established-token desk: QualityTraderAI's 60-minute hold, BLUE_CHIP's 5-point trail"),

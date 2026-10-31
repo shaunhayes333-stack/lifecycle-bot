@@ -73,7 +73,7 @@ object QualityTraderAI {
     private const val MAX_CONCURRENT_POSITIONS = 100    // V5.9.613: no hidden quality lane choke
     
     // Take profit / Stop loss - FLUID (adapts as bot learns)
-    private const val TAKE_PROFIT_BOOTSTRAP = 15.0      // 15% at start
+    private const val TAKE_PROFIT_BOOTSTRAP = 25.0      // 8485: trade-1 target (was 15)
     private const val TAKE_PROFIT_MATURE = 50.0         // 50% when experienced
     // V5.9.189: Tighter SL for better risk:reward
     // TP is 15-50%, SL must be < half of TP. -6% bootstrap → -8% mature (not -12%!)

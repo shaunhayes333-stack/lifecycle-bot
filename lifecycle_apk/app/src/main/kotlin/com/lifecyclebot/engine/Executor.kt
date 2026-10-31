@@ -3563,6 +3563,7 @@ class Executor(
             mint = ts.mint, symbol = ts.symbol,
             reason = com.lifecyclebot.engine.sell.SellReasonClassifier
                 .fromChainConsumption8081(reason, fullConsumed8081),
+            trigger = reason,
             requestedFractionBps = partialBps8081,
             confirmedWalletRaw = proof.preTokenRaw7835, decimals = proof.decimals,
             slippageBps = 0, emergencyDrain = fullConsumed8081,
@@ -29085,6 +29086,7 @@ class Executor(
                         // when fraction=10_000 + drain=true; they must be
                         // promoted to HARD_STOP / RUG_DRAIN here.
                         reason = com.lifecyclebot.engine.sell.SellReasonClassifier.fullExitFromString(reason),
+                        trigger = reason,
                         requestedFractionBps = 10_000,    // liveSell is full-balance path
                         confirmedWalletRaw = preTokenRaw.max(java.math.BigInteger.ONE),
                         decimals = decimals,
@@ -29452,6 +29454,7 @@ class Executor(
                     mint = ts.mint,
                     symbol = ts.symbol,
                     reason = com.lifecyclebot.engine.sell.SellReasonClassifier.fullExitFromString(finalSellReason),
+                    trigger = finalSellReason,
                     requestedFractionBps = 10_000,
                     confirmedWalletRaw = preTokenRawFinal,
                     decimals = decFinal,

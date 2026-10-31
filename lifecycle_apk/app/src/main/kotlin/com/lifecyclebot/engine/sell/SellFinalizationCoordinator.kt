@@ -301,7 +301,7 @@ object SellFinalizationCoordinator {
                         grossProceedsSol = sellSolReceived, exitFeesSol = settlementFees8391,
                         solUsdAtExit = liveSolUsd8094(),
                         performanceFeeSol8391 = performanceFee8391,
-                        confirmedSignature8422 = sellSig, exitReason8422 = intent.reason.name,
+                        confirmedSignature8422 = sellSig, exitReason8422 = intent.trigger.ifBlank { intent.reason.name },   // the journal names the exit's own trigger
                     )
                     if (!partial) {
                         val whole7835 = com.lifecyclebot.engine.truth.WholePositionEconomics7835.from(

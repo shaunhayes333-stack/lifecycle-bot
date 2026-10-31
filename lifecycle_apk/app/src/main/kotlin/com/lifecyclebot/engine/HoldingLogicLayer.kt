@@ -124,7 +124,7 @@ object HoldingLogicLayer {
         "LONG_HOLD" to ModeHoldParams("LONG_HOLD", 500.0, -30.0, 20.0, 7 * 24 * 60 * 60 * 1000L, true, listOf(100.0, 250.0, 500.0)),
         "DIAMOND_HANDS" to ModeHoldParams("DIAMOND_HANDS", 5000.0, -35.0, 35.0, 30 * 24 * 60 * 60 * 1000L, false, listOf(250.0, 1000.0, 2500.0)),
         "BLUE_CHIP" to ModeHoldParams("BLUE_CHIP", 100.0, -10.0, 5.0, 30 * 24 * 60 * 60 * 1000L, false, listOf(50.0, 100.0)),
-        "CYCLIC" to ModeHoldParams("CYCLIC", 25.0, -12.0, 6.0, 60 * 60 * 1000L, true, listOf(15.0, 25.0)),
+        "CYCLIC" to ModeHoldParams("CYCLIC", 40.0, -12.0, 10.0, 60 * 60 * 1000L, true, listOf(20.0, 40.0)),   // 8485: was 25 / 15,25 / trail 6
         "SLEEPER" to ModeHoldParams("SLEEPER", 300.0, -35.0, 20.0, 48 * 60 * 60 * 1000L, true, listOf(100.0, 200.0, 400.0)),
         "NICHE" to ModeHoldParams("NICHE", 150.0, -25.0, 12.0, 8 * 60 * 60 * 1000L, true, listOf(75.0, 150.0)),
         "PRESALE_SNIPE" to ModeHoldParams("PRESALE_SNIPE", 100.0, -7.0, 15.0, 10 * 60 * 1000L, true, listOf(50.0, 100.0)),  // V5.9.690: SL -7% matches ShitCoin — the -2% bootstrap early-exit fires first
@@ -135,7 +135,7 @@ object HoldingLogicLayer {
         "WHALE_FOLLOW" to ModeHoldParams("WHALE_FOLLOW", 50.0, -15.0, 8.0, 2 * 60 * 60 * 1000L, true, listOf(25.0, 50.0)),
         "INSIDER_SHARK" to ModeHoldParams("INSIDER_SHARK", 400.0, -20.0, 24.0, 12 * 60 * 60 * 1000L, true, listOf(50.0, 150.0, 400.0)),
         "PUMP_DUMP" to ModeHoldParams("PUMP_DUMP", 40.0, -20.0, 8.0, 15 * 60 * 1000L, false, listOf(20.0, 40.0)),
-        "MARKET_MAKER" to ModeHoldParams("MARKET_MAKER", 8.0, -5.0, 3.0, 30 * 60 * 1000L, false, listOf(5.0, 8.0)),
+        "MARKET_MAKER" to ModeHoldParams("MARKET_MAKER", 20.0, -8.0, 6.0, 30 * 60 * 1000L, false, listOf(12.0, 20.0)),   // 8485: was 8 / -5 / trail 3 / 5,8
         "LIQUIDATION_HUNTER" to ModeHoldParams("LIQUIDATION_HUNTER", 80.0, -25.0, 12.0, 4 * 60 * 60 * 1000L, true, listOf(40.0, 80.0)),
     )
     
@@ -381,7 +381,13 @@ object HoldingLogicLayer {
                 )
             }
             // Trailing stop (after profit achieved)
-            if (!runnerLane8419 && position.peakGainPct > targetProfit6091 * 0.5) {
+            // 8485: armed only once peak minus the trail still clears the round trip + 1 % — a 3-point trail armed at +4 %
+            // sold MARKET_MAKER positions at +1..2 % gross, a net loss on a ~3.3 % curve round trip.
+            val trailCost8485 = try {
+                com.lifecyclebot.engine.truth.NetEdge8030.costPct8030(learningLane8384, position.costSol, ts.lastLiquidityUsd, ts.mint, ts.lastMcap)
+            } catch (_: Throwable) { Double.NaN }
+            val trailArm8485 = maxOf(targetProfit6091 * 0.5, if (trailCost8485.isFinite()) trailCost8485 + trailingStopPct6091 + 1.0 else 0.0)
+            if (!runnerLane8419 && position.peakGainPct > trailArm8485) {
                 val trailingStop = position.peakGainPct - trailingStopPct6091
                 if (currentPnlPct < trailingStop) {
                     return HoldEvaluation(

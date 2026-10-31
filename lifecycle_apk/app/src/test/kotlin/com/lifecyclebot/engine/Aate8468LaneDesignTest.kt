@@ -122,7 +122,9 @@ class Aate8468LaneDesignTest {
         assertEquals("hour-graded / runner lanes unchanged", CortexLabelHygiene8144.executableHorizonMs8392(true), CortexLabelHygiene8144.horizonMsFor8468("QUALITY", true))
         assertEquals(60L * minute, CortexLabelHygiene8144.horizonMsFor8468("STANDARD", false))
         assertFalse(CortexLabelHygiene8144.revisionCountsFor8468("CASHGEN", false, 50L * minute))
-        assertTrue(CortexLabelHygiene8144.revisionCountsFor8468("STANDARD", false, 50L * minute))
+        // superseded (8485): the Cortex grades the 5-minute read for every lane — revisions count up to 10 minutes
+        assertFalse(CortexLabelHygiene8144.revisionCountsFor8468("STANDARD", false, 50L * minute))
+        assertTrue(CortexLabelHygiene8144.revisionCountsFor8468("MOONSHOT", true, 9L * minute))
         val cx = src("engine/cortex/Cortex7885.kt")
         assertEquals(3, Regex("CortexLabelHygiene8144\\.revisionCountsFor8468\\(").findAll(cx).count())
         assertTrue(src("engine/HoldingLogicLayer.kt").contains("val hold8392 = base.maxHoldTimeMs"))

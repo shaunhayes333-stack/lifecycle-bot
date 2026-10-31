@@ -126,8 +126,16 @@ object CortexLabelHygiene8144 {
         if (runnerLane) executableHorizonMs8144(true)
         else com.lifecyclebot.engine.LaneHolds8418.deskHorizonMs8468(lane) ?: executableHorizonMs8144(false)
 
-    /** Pure (V5.0.8468): [revisionCounts8144] on [lane]'s own hold. */
-    fun revisionCountsFor8468(lane: String?, runnerLane: Boolean, ageMs: Long): Boolean = ageMs in 0L..horizonMsFor8468(lane, runnerLane)
+    /**
+     * The Cortex and the lane playbook grade THE read the bot trades on: the 5-minute spike-credited label, with revisions
+     * counted only up to [GRADE_READ_MS] after the decision (as 7947-8143 did, when it separated winners). Since 8144 runner
+     * lanes were graded on a 6 h hold and every other lane on 60 min — a hold the bot never runs — and in every report since
+     * 8302 no lane's STRONG reads were profitable. The hold horizons above still drive the shadow books and the hold layer.
+     * [lane] / [runnerLane] are kept for the call sites; the read is the same for every lane.
+     */
+    const val GRADE_READ_MS = 10L * 60_000L
+    @Suppress("UNUSED_PARAMETER")
+    fun revisionCountsFor8468(lane: String?, runnerLane: Boolean, ageMs: Long): Boolean = ageMs in 0L..GRADE_READ_MS
 
     /** Pure: the executable value of a net label — the unmeasured-latency haircut applies until the lane's fills are measured. */
     fun executablePct8144(netPct: Double, latencyMeasured: Boolean): Double = when {

@@ -108,6 +108,14 @@ object StopMarkConfirm8418 {
             if (breached) awaitSince8419.remove(key) else awaitSince8419[key] = nowMs
             return breached
         }
+        // V5.0.8485 — Jupiter is not the only executable answer. When its quote is missing (429 / no route), the coin's own
+        // pool or curve reserves, chain-read within the last 20 s, price what selling this bag returns now. Same rule as the
+        // quote: a breach confirms at any age; a refutation counts only from a read made at or after the ask.
+        reserveVerdict8485(ts, asked, nowMs, thresholdPct)?.let { breached ->
+            try { PipelineHealthCollector.labelInc(if (breached) "STOP_MARK_CONFIRMED_VENUE_RESERVE_8485" else "STOP_MARK_REFUTED_VENUE_RESERVE_8485") } catch (_: Throwable) {}
+            if (breached) awaitSince8419.remove(key) else awaitSince8419[key] = nowMs
+            return breached
+        }
         if (awaitExpired8419(asked, nowMs)) {
             try { PipelineHealthCollector.labelInc("STOP_MARK_UNCONFIRMED_FIRES_ON_MARK_8419") } catch (_: Throwable) {}
             try {
@@ -123,6 +131,19 @@ object StopMarkConfirm8418 {
         } catch (_: Throwable) {}
         try { PipelineHealthCollector.labelInc("STOP_MARK_AWAITING_EXECUTABLE_8418") } catch (_: Throwable) {}
         return false
+    }
+
+    /** V5.0.8485 — the venue-reserve leg: null when no fresh pool / curve read exists (or it pre-dates the ask unbreached). */
+    private fun reserveVerdict8485(ts: TokenState, askedAtMs: Long, nowMs: Long, thresholdPct: Double): Boolean? {
+        val pos = ts.position
+        if (pos.qtyToken <= 0.0 || pos.entryPrice <= 0.0) return null
+        return try {
+            val dec = com.lifecyclebot.engine.truth.MintDecimalsAuthority6392.get(ts.mint) ?: ts.tokenMap.decimals ?: return null
+            val raw = java.math.BigDecimal.valueOf(pos.qtyToken).movePointRight(dec).toBigInteger()
+            val est = com.lifecyclebot.engine.truth.HeldHotMarkAuthority7419.venueReserveSellEstimate(
+                ts.mint, raw, dec, WalletManager.lastKnownSolPrice, nowMs) ?: return null
+            quoteVerdict8419(est.priceUsd, est.observedAtMs, askedAtMs, pos.entryPrice, thresholdPct)
+        } catch (_: Throwable) { null }
     }
 
     internal fun resetForTest8419() { awaitSince8419.clear() }

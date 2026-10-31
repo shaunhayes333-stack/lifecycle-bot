@@ -82,7 +82,7 @@ object ManipulatedTraderAI {
     // reality: give the stop room to survive normal manipulation volatility, and pull
     // the target IN so a winner banks before the fast reversal these tokens always do.
     // Net reward:risk stays favourable (+14 / -11 ≈ 1.27:1) but is now ACHIEVABLE.
-    private const val TAKE_PROFIT_PCT = 14.0                   // bank the bounce before the dump (was 25 — unreachable)
+    private const val TAKE_PROFIT_PCT = 20.0                   // 8485: was 14 (25 had been unreachable inside the 4-minute ride)
     private const val STOP_LOSS_PCT = -11.0                    // survive normal pump noise (was -5 — noise-tight)
     private const val FORCE_EXIT_MINUTES = 4.0                 // Hard 4-minute time exit
     private const val TRAILING_STOP_ACTIVATION_PCT = 7.0       // activate trail earlier — lock the bounce (was 10)

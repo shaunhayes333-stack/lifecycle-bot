@@ -49,8 +49,10 @@ object Cortex7885 {
     /** Pure: is a revision at [horizonMs] the hour outcome (not an intermediate 15-minute checkpoint)? */
     internal fun hourGradeDue8415(horizonMs: Long): Boolean = horizonMs >= HOUR_GRADE_MIN_MS_8415
 
+    // Every lane is graded on the 5-minute read (CortexLabelHygiene8144.GRADE_READ_MS): no decision defers to the hour.
+    @Suppress("UNUSED_PARAMETER")
     private fun hourDeferred8415(p: Pending, accepted: Boolean, authority: Boolean, late: Boolean, lateRead: Boolean): Boolean =
-        deferHourRule8415(runnerHorizon8144(p.a.lane), accepted, authority, late, lateRead)
+        deferHourRule8415(false, accepted, authority, late, lateRead)
     private const val MAX_PENDING = 8_000
     private const val MAX_ASSESS_CACHE = 4_000
     /**
@@ -2106,7 +2108,7 @@ object Cortex7885 {
     private const val LOST_SWEEP_EVERY_MS_8144 = 120_000L
     private val gradeBook8144 = CortexGradeBook8144().also { b ->
         b.execOffset8187 = { l -> execOffsetByLane8187[l] ?: 0.0 }  // V5.0.8187
-        b.runnerLane8322 = { l -> runnerHorizon8144(l) }             // V5.0.8322 — runner lanes graded on their hold
+        b.runnerLane8322 = { false }             // every lane scored on the 5-minute read (was: runner lanes on their 6 h hold, 8322)
     }
     private val wfCache8144 = HashMap<String, Pair<Long, CortexWalkForward8144.Result8144>>()
     private val pendingCtx8144 = ConcurrentHashMap<String, DecisionCtx8144>()
@@ -2743,9 +2745,9 @@ object Cortex7885 {
         inc(if (exec) "REVISION_GRADE_ONLY_8324" else "REVISION_GRADE_ONLY_PAST_HORIZON_8324")
     }
 
+    @Suppress("UNUSED_PARAMETER")
     private fun awaitsHourGrade8417(id: String, record: CortexGradeRecord8144?): Boolean =
-        deferredHour8415.contains(id) || (record != null && record.graded && record.modelContribution8395.isBlank() &&
-            runnerHorizon8144(record.lane) && record.executablePct.isFinite())
+        deferredHour8415.contains(id)   // decisions deferred before the 5-minute read was restored still finish at their hour
 
     /** ForwardReturnLabeler7731.revise7997: use the original observation timestamp, never just mint + lane. */
     fun reviseLabel8006(mint: String, labelLane: String, oldNet: Double, newNet: Double, oldGross: Double, newGross: Double,

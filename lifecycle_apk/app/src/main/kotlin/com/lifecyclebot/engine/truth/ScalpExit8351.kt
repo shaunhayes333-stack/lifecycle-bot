@@ -13,8 +13,8 @@ import java.util.concurrent.ConcurrentHashMap
  * Offered through the per-tick arbitration (ExitTruthArbiterLive8144.Tick8144), so protective exits still outrank it.
  */
 object ScalpExit8351 {
-    const val TP1_PCT_8351 = 15.0
-    const val TP2_PCT_8351 = 30.0
+    const val TP1_PCT_8351 = 20.0   // 8485: was 15
+    const val TP2_PCT_8351 = 40.0   // 8485: was 30
     const val FLOOR_ARM_PCT_8351 = 10.0
     const val CLOCK_MS_8351 = 10 * 60_000L
 

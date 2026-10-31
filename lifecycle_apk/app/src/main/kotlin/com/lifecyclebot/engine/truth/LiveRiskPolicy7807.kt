@@ -970,11 +970,11 @@ object LiveRiskPolicy7807 {
         // V5.0.7948 — one drawdown authority (CapitalDrawdown7948): marked live equity of
         // the whole wallet vs its rolling-24h peak, the same number KillSwitch reports.
         // The free cash passed here is sizing input; a sealed in-flight buy is not a loss.
-        val dd = CapitalDrawdown7948.observePct7948(
-            CapitalDrawdown7948.liveMarkedEquitySol7948(
-                try { com.lifecyclebot.engine.BotService.status.walletSol } catch (_: Throwable) { walletSol }),
-            nowMs,
-        ) / 100.0
+        val markedEquity = CapitalDrawdown7948.liveMarkedEquitySol7948(
+            try { com.lifecyclebot.engine.BotService.status.walletSol } catch (_: Throwable) { walletSol })
+        // The account peak is still observed (kill switch, external-flow rebases); sizing reads THIS session's drawdown.
+        CapitalDrawdown7948.observePct7948(markedEquity, nowMs)
+        val dd = CapitalDrawdown7948.sizingDrawdownPct(markedEquity) / 100.0
         val ll = laneLive(effectiveLane7811)
         val plan = try { TradePlan7739.freshPlan7783(mint) } catch (_: Throwable) { null }
         val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }

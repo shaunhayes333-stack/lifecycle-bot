@@ -75,7 +75,7 @@ object BlueChipTraderAI {
     // Mature: Wider targets (let quality plays develop)
     // V5.0.6303 — bluechip TP ceiling raised so runners stop getting cut at
     // +25% on assets that routinely double in a week.
-    private const val TAKE_PROFIT_BOOTSTRAP = 12.0     // was 10.0
+    private const val TAKE_PROFIT_BOOTSTRAP = 25.0     // 8485: trade-1 target (was 12)
     private const val TAKE_PROFIT_MATURE = 80.0        // was 25.0 — bluechips can run
     // V5.0.7389 — a -4% stop on an 8h swing lane stopped out on ordinary $1M+
     // meme noise before the swing began. Sized to the lane's volatility.

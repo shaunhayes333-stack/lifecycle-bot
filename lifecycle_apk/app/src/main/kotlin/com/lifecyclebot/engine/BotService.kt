@@ -15401,6 +15401,14 @@ class BotService : Service() {
                 (try { SpecialistElection8136.gateReasonOf8153(ts.mint, lane) } catch (_: Throwable) { null }) ?: "LANE_CYCLE_NOT_ALLOWED")
         }
 
+    /**
+     * Names a lane-cycle gate return that recorded nothing (8483: PRIMARY_GATED_UNNAMED=453). A counter only — never
+     * SpecialistElection8136.noteGateReason8144, whose named reasons end a waiting hand-off task (HandoffReceiverTasks8153).
+     */
+    private fun laneGateCount(reason: String, lane: String) {
+        try { PipelineHealthCollector.labelInc("LANE_GATE_${reason}_${lane.uppercase()}") } catch (_: Throwable) {}
+    }
+
     private val RESCUE_EXCLUDED_8031 = setOf("CORE", "CYCLIC")
 
     private fun laneEvaluationAllowed7951(ts: com.lifecyclebot.data.TokenState, lane: String, primaryLane: String): Boolean {
@@ -15538,7 +15546,7 @@ class BotService : Service() {
             // FDG/intent, so all-lanes-enabled was cosmetic. Keep true rug-prone
             // stage as hard safety; otherwise let the lane express intent and let
             // FDG/sizing handle risk.
-            if (metricFit.stage == TokenMetricStageRouter.Stage.RUG_PRONE) return false
+            if (metricFit.stage == TokenMetricStageRouter.Stage.RUG_PRONE) { laneGateCount("STAGE_RUG_PRONE", l); return false }
         }
         // V5.0.6533 — trunk is causal after quarantine/rug safety, before specialist ownership.
         if (ExecutionAuthorityPolicy6533.isTrunkLane(l)) return true
@@ -15682,6 +15690,7 @@ class BotService : Service() {
             try {
                 PipelineHealthCollector.labelInc(if (specialistEvaluationAllowed6600) "MEME_DESK_CANONICAL_PRIMARY_6599_$l" else "MEME_DESK_QUALIFIED_CONTRIBUTOR_ONLY_6599_$l")
             } catch (_: Throwable) {}
+            if (!specialistEvaluationAllowed6600) laneGateCount(if (!designatedDeskQualified6599) "DESK_NOT_QUALIFIED_6599" else "NO_PRIMARY_RESCUE_OR_NATIVE_SLOT", l)
             return specialistEvaluationAllowed6600
         }
         // V5.0.7389 — per-lane owner proof at each lane's designed floor. One
@@ -15734,15 +15743,18 @@ class BotService : Service() {
         if (l.equals(primaryLane, ignoreCase = true)) {
             if (l in setOf("QUALITY", "BLUECHIP") && !qualityLaneProofOk(l)) {
                 try { ForensicLogger.lifecycle("QUALITY_PRIMARY_PROOF_REJECTED", "lane=$l symbol=${ts.symbol} mint=${ts.mint.take(10)} liq=${ts.lastLiquidityUsd.toInt()} mcap=${ts.lastMcap.toInt()} src=${ts.lastPriceSource.ifBlank { ts.source }} holder=${ts.safety.topHolderPct}") } catch (_: Throwable) {}
+                laneGateCount("QUALITY_PRIMARY_PROOF_REJECTED", l)
                 return false
             }
             // V5.0.6047 — TREASURY uses permissive cashGenProofOk (scalp/compounder role)
             if (l in setOf("TREASURY", "CASHGEN") && !cashGenProofOk()) {
                 try { ForensicLogger.lifecycle("CASHGEN_TREASURY_PRIMARY_PROOF_REJECTED_6047", "lane=$l symbol=${ts.symbol} mint=${ts.mint.take(10)} liq=${ts.lastLiquidityUsd.toInt()} mcap=${ts.lastMcap.toInt()} src=${ts.lastPriceSource.ifBlank { ts.source }}") } catch (_: Throwable) {}
+                laneGateCount("CASHGEN_PRIMARY_PROOF_REJECTED", l)
                 return false
             }
             if (catastrophicPaperLowScoreSpecialistBleed(ts, l)) {
                 try { ForensicLogger.lifecycle("LANE_PRIMARY_SUPPRESSED_CATASTROPHIC_PAPER_BLEED", "lane=$l symbol=${ts.symbol} mint=${ts.mint.take(10)} score=${ts.lastV3Score ?: ts.entryScore.toInt()}") } catch (_: Throwable) {}
+                laneGateCount("PRIMARY_PAPER_BLEED_SUPPRESSED", l)
                 return false
             }
             val learnedFloorDelta6491 = try { LiveProbabilityEngine.learnedEntryFloorDelta6491(l) } catch (_: Throwable) { 0 }
@@ -15753,6 +15765,7 @@ class BotService : Service() {
                     PipelineHealthCollector.labelInc("LANE_LOCAL_LEARNED_FLOOR_READ_ONLY_6491_$l")
                     ForensicLogger.lifecycle("LANE_LOCAL_LEARNED_FLOOR_READ_ONLY_6491", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$l score=$score6491 floor=$learnedFloor6491 delta=$learnedFloorDelta6491 action=lane_local_selectivity_not_pause")
                 } catch (_: Throwable) {}
+                laneGateCount("PRIMARY_LEARNED_SCORE_FLOOR", l)
                 return false
             }
             return true
@@ -32336,6 +32349,8 @@ if (hotExitHandledSweep) {
                                 val explicitReason6533 = v3Fdg6533.blockReason ?: authResult.reason
                                 try {
                                     PipelineHealthCollector.labelInc("V3_EXECUTE_EXPLICIT_REJECT_6533")
+                                    // Which door overrode V3's EXECUTE (its forward record is GateOutcome8418's row of the same key).
+                                    PipelineHealthCollector.labelInc("V3_EXECUTE_REJECTED_BY_" + com.lifecyclebot.engine.truth.FdgGate8365.gateKey8392(explicitReason6533.orEmpty()).take(48))
                                     if (v3Fdg6533.canExecute()) PipelineHealthCollector.labelInc("V3_ALLOW_EXPLICIT_REJECT_NO_INTENT_6533")
                                     ForensicLogger.lifecycle("V3_EXECUTE_EXPLICIT_REJECT_6533", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$cyclePrimaryLane reason=$explicitReason6533 version=$v3CandidateVersion6533")
                                 } catch (_: Throwable) {}

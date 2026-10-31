@@ -51,8 +51,9 @@ object CortexRefusalTruth8269 {
         val start = xs[cut].atMs
         val end = xs.last().atMs
         val sameWindow = rivals.filter { it.netPct.isFinite() && it.atMs in start..end }
-        if (relative && sameWindow.size < 6) return false
-        if (sameWindow.size >= 6) {
+        // Same rule as CortexScoreboard7885.refuseProven: without same-window rivals there is no separation to prove.
+        if (sameWindow.size < 6) return false
+        run {
             val rest = CortexWalkForward8144.stat8144(sameWindow.map { it.netPct })
             if (!rest.se.isFinite() ||
                 !(heldOut.mean + heldOut.se < rest.mean - rest.se - ABSOLUTE_MARGIN_PCT)) return false

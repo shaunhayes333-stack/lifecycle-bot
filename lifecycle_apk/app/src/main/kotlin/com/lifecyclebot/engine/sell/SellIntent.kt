@@ -40,6 +40,8 @@ data class SellIntent(
     /** Cost basis from the buy tx. Used for proportional PnL. */
     val entrySolSpent: Double,
     val entryTokenRaw: BigInteger,
+    /** The exit's own trigger (e.g. RAPID_CATASTROPHE_STOP), kept beside the drain class [reason] for the journal. */
+    val trigger: String = "",
 ) {
     init {
         require(mint.isNotBlank())                  { "mint blank" }
@@ -82,6 +84,7 @@ data class SellIntent(
             emergencyDrain: Boolean,
             entrySolSpent: Double,
             entryTokenRaw: BigInteger,
+            trigger: String = "",
         ): SellIntent {
             val rawSell = confirmedWalletRaw
                 .multiply(BigInteger.valueOf(requestedFractionBps.toLong()))
@@ -101,6 +104,7 @@ data class SellIntent(
                 emergencyDrain = emergencyDrain,
                 entrySolSpent = entrySolSpent,
                 entryTokenRaw = entryTokenRaw,
+                trigger = trigger.trim().take(96),
             )
         }
     }

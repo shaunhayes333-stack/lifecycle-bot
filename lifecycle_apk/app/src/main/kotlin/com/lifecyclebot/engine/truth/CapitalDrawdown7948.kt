@@ -62,6 +62,30 @@ object CapitalDrawdown7948 {
 
     fun currentPeak7948(): Peak7948 = peak7948
 
+    // ── sizing drawdown: this session only ──
+    // The account peak above is persisted across restarts on purpose (the kill switch must not be reset by a restart). Sizing
+    // read the same peak, so losses booked by earlier builds cut every new trade to 0.35x (8483: equityPeak 0.3827 vs 0.25 SOL,
+    // RISK_BUDGET_DRAWDOWN binding, every order promoted back up to the route minimum). Sizing now measures drawdown from
+    // the higher of this session's starting equity and its highs since — never above the account peak, which already carries
+    // the deposit / withdrawal rebases — so a loss THIS session still shrinks size and an old one does not.
+    @Volatile private var sessionHighSol = 0.0
+
+    /** Pure: drawdown % of [equitySol] from [sessionHigh] capped by the account peak [accountPeak] (0 = none). */
+    fun sessionDrawdownPct(equitySol: Double, sessionHigh: Double, accountPeak: Double): Double {
+        if (!equitySol.isFinite() || equitySol <= 0.0) return 0.0
+        val high = maxOf(if (sessionHigh.isFinite()) sessionHigh else 0.0, equitySol)
+        val ref = if (accountPeak.isFinite() && accountPeak > 0.0) minOf(accountPeak, high) else high
+        if (!(ref > 0.0)) return 0.0
+        return ((ref - equitySol) / ref * 100.0).coerceIn(0.0, 100.0)
+    }
+
+    /** LiveRiskPolicy7807 sizing: this session's drawdown of [equitySol] (records the session high). */
+    fun sizingDrawdownPct(equitySol: Double): Double {
+        if (!equitySol.isFinite() || equitySol <= 0.0) return 0.0
+        val high = synchronized(this) { if (equitySol > sessionHighSol) sessionHighSol = equitySol; sessionHighSol }
+        return sessionDrawdownPct(equitySol, high, peak7948.peakSol)
+    }
+
     /** An explicitly requested clean learning/proof run starts a NEW risk comparison
      * window without deleting chain-confirmed losses or economic history. Reset
      * in-memory valuation/flow observations too, otherwise the next observation
@@ -69,6 +93,7 @@ object CapitalDrawdown7948 {
     @Synchronized fun reanchorExplicitRun8093(equitySol: Double, nowMs: Long = System.currentTimeMillis()): Boolean {
         if (!equitySol.isFinite() || equitySol <= 0.0) return false
         peak7948 = Peak7948(equitySol, nowMs)
+        sessionHighSol = equitySol
         try { PeakLedger8188.noteReanchor8188(equitySol, nowMs) } catch (_: Throwable) {}  // V5.0.8188
         pending7986 = null
         prevRev7986 = -1L

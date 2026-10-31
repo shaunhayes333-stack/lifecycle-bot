@@ -208,7 +208,8 @@ class Aate8322CortexSignalTest {
         assertEquals(listOf(80.0), back.executableSeries("MOONSHOT", null, strong))
         assertEquals(t0 + 240 * minute, back.decision(run)!!.revisedAvailableAtMs)
         val cx = src("engine/cortex/Cortex7885.kt")
-        assertTrue(cx.contains("b.runnerLane8322 = { l -> runnerHorizon8144(l) }"))
+        // superseded (8485): every lane is scored on the 5-minute read
+        assertTrue(cx.contains("b.runnerLane8322 = { false }"))
         // The shared revision path replaces the exact original calibration contribution at its original weight.
         val revision = cx.substringAfter("private fun reviseModelsLocked8372(").substringBefore("fun progressiveLine8006()")
         assertTrue(revision.contains("val a = g.p.a; val oldNet = g.net; val oldGross = g.gross; val wasWitnessed = g.witnessed8324"))

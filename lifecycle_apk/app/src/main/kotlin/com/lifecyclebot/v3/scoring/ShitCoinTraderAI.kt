@@ -88,10 +88,10 @@ object ShitCoinTraderAI {
     // Bootstrap TP=8% → at 25% progress lerp gives ~10% TP vs -5% SL.
     // That's achievable on momentum entries (break-even ~39% win rate, target 45%).
     // Mature TP=20%: known-good patterns run further. Expert (via FluidLearning 1.0) = 20%.
-    private const val TAKE_PROFIT_BOOTSTRAP = 12.0    // V5.9.194: 8% too tight — token must move 12% from entry
-    private const val TAKE_PROFIT_MATURE = 20.0       // V5.9: 20% — proven patterns can run further
-    private const val STOP_LOSS_BOOTSTRAP = -8.0      // V5.9.449: revert V5.9.446 → V5.9.316/build-1941 value
-    private const val STOP_LOSS_MATURE = -6.0         // V5.9.449: revert V5.9.446 → V5.9.316/build-1941 value
+    private const val TAKE_PROFIT_BOOTSTRAP = 25.0    // 8485: trade-1 target (was 12)
+    private const val TAKE_PROFIT_MATURE = 40.0       // 8485: was 20
+    private const val STOP_LOSS_BOOTSTRAP = -10.0     // 8485: was -8; fresh launches swing 15-30 %, the target is now 25 %
+    private const val STOP_LOSS_MATURE = -10.0        // 8485: was -6 (tightened with maturity, a third of a 20 % target)
     private const val TRAILING_STOP_PCT = 8.0         // Tighter trailing for volatile moves
     // V5.2: REMOVED max hold time - ShitCoins can moon anytime, let them run!
     private const val FLAT_EXIT_MINUTES = 8           // V5.9.197: 6→8 mins — allow runs more time to develop

@@ -34,8 +34,10 @@ class Aate8351TuneLanesTest {
 
     @Test fun scalpExitLadderStopFloorAndClock() {
         assertEquals("SCALP_HARD_STOP_8351", ScalpExit8351.decide8351(-7.0, 0.0, 1_000, 0, 10.0, 6.0)?.second)   // stop 6 %
-        assertEquals(0.5 to "SCALP_TAKE_PROFIT_8351_T1", ScalpExit8351.decide8351(16.0, 16.0, 1_000, 0, 10.0, 6.0))
-        assertEquals(1.0 to "SCALP_TAKE_PROFIT_8351_T2", ScalpExit8351.decide8351(31.0, 31.0, 1_000, 1, 10.0, 6.0))
+        // superseded (8485, owner: "everything needs bigger win targets"): the scalp tiers are +20 / +40 (were +15 / +30)
+        assertNull(ScalpExit8351.decide8351(16.0, 16.0, 1_000, 0, 10.0, 6.0))
+        assertEquals(0.5 to "SCALP_TAKE_PROFIT_8351_T1", ScalpExit8351.decide8351(21.0, 21.0, 1_000, 0, 10.0, 6.0))
+        assertEquals(1.0 to "SCALP_TAKE_PROFIT_8351_T2", ScalpExit8351.decide8351(41.0, 41.0, 1_000, 1, 10.0, 6.0))
         assertEquals("SCALP_PROFIT_LOCK_8351", ScalpExit8351.decide8351(6.0, 14.0, 1_000, 0, 10.0, 6.0)?.second)  // floor 7
         assertEquals("SCALP_TIME_8351", ScalpExit8351.decide8351(2.0, 4.0, 11 * 60_000L, 0, 10.0, 6.0)?.second)
         assertNull(ScalpExit8351.decide8351(2.0, 4.0, 60_000L, 0, 10.0, 6.0))

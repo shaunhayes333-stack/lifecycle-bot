@@ -74,8 +74,8 @@ object DipHunterAI {
     // Exit targets - FLUID (adapt as bot learns)
     // Bootstrap: Tighter exits (secure small wins while learning)
     // Mature: Let winners run (20-50% recovery targets)
-    private const val TARGET_RECOVERY_BOOTSTRAP = 12.0   // 12% recovery target at start
-    private const val TARGET_RECOVERY_MATURE = 25.0      // 25% recovery when experienced
+    private const val TARGET_RECOVERY_BOOTSTRAP = 20.0   // 8485: trade-1 target (was 12)
+    private const val TARGET_RECOVERY_MATURE = 35.0      // 8485: was 25
     private const val STOP_LOSS_BOOTSTRAP = -12.0        // 12% stop at start (tighter)
     private const val STOP_LOSS_MATURE = -18.0           // 18% stop when experienced (wider, let it breathe)
     private const val MAX_HOLD_HOURS = 6.0               // 6 hour max hold

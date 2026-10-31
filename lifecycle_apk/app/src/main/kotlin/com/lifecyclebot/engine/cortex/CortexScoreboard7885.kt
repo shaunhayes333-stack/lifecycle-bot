@@ -64,7 +64,11 @@ class CortexScoreboard7885 {
         fun refuseProven(refuse: CortexLedger7885.Stat, rest: CortexLedger7885.Stat, runnerLane: Boolean, minN: Int): Boolean {
             if (refuse.n < minN) return false
             if (refuse.mean() + se(refuse) >= -PROOF_MARGIN_PCT) return false
-            if (rest.n >= minN && refuse.mean() >= rest.mean() - PROOF_MARGIN_PCT) return false
+            // A refusal is a PREDICTION: the coins refused must read measurably below the lane's other reads. With too few of
+            // those to compare against, a negative REFUSE column only says the lane loses everywhere (8483: EXPRESS refuse
+            // n77 -8.1 % with no STRONG reads vetoed live entries while every lane was INSUFFICIENT) — no refusal power.
+            if (rest.n < minN) return false
+            if (refuse.mean() >= rest.mean() - PROOF_MARGIN_PCT) return false
             if (runnerLane && refuse.runnerRate() >= TAIL_RUNNER_RATE) return false
             return true
         }

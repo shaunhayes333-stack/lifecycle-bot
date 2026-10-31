@@ -61,13 +61,14 @@ object CashGenerationAI {
     private const val WIN_STREAK_SCALE = 0.15         // V5.6.6: NEW - 15% bonus per consecutive win (up to 5)
 
     // Exit strategy - V5.6.6: Dynamic TP/SL that Treasury controls
-    private const val TAKE_PROFIT_PCT_PAPER = 4.0     // V5.6.6: Raised from 3.5 - bigger targets in paper
-    private const val TAKE_PROFIT_PCT_LIVE = 3.0      // V5.6.6: Raised from 2.5
-    private const val TAKE_PROFIT_MIN_PCT = 2.5       // V5.6.6: Floor for defensive mode
-    private const val TAKE_PROFIT_PCT = 4.0           // V5.6.6: Raised from 3.5 - default target
-    private const val TAKE_PROFIT_MAX_PCT = 20.0      // V5.9.200: 8→20 — don't cap genuine runners at 8%
-    private const val STOP_LOSS_PCT = -5.0            // V5.6.6: Slightly wider from -4.0
-    private const val TRAILING_STOP_PCT = 2.0         // V5.6.6: Wider trailing from 1.5
+    private const val TAKE_PROFIT_PCT_PAPER = 15.0  // 8485: owner — "everything needs bigger win targets, 3% is bullshit"; trade-1 targets, cost ~3.3% a curve round trip
+    private const val TAKE_PROFIT_PCT_LIVE = 15.0
+    private const val TAKE_PROFIT_MIN_PCT = 10.0      // defensive mode floor (was 2.5)
+    private const val TAKE_PROFIT_PCT = 15.0
+    private const val TAKE_PROFIT_MAX_PCT = 40.0      // was 20
+    private const val STOP_LOSS_PCT = -8.0            // was -5: a -5 % stop sat 1.7 points past a 3.3 % round trip
+    private const val TRAILING_STOP_PCT = 8.0         // was 2: give-back from the high, armed above TRAIL_ARM_PCT
+    private const val TRAIL_ARM_PCT = 12.0            // was a bare 5.0 at both call sites
     private const val MAX_HOLD_MINUTES = 45           // V5.6.6: Extended from 30 - let winners run
     private const val REENTRY_COOLDOWN_MS = 5_000L
 
@@ -1309,7 +1310,7 @@ object CashGenerationAI {
             return ExitSignal.STOP_LOSS
         }
 
-        if (pnlPct > 5.0 && currentPrice <= pos.trailingStop) {
+        if (pnlPct > TRAIL_ARM_PCT && currentPrice <= pos.trailingStop) {
             return ExitSignal.TRAILING_STOP
         }
 
@@ -1428,7 +1429,7 @@ object CashGenerationAI {
             return ExitSignal.STOP_LOSS
         }
 
-        if (pnlPct > 5.0 && currentPrice <= pos.trailingStop) {
+        if (pnlPct > TRAIL_ARM_PCT && currentPrice <= pos.trailingStop) {
             ErrorLogger.info(TAG, "💰 TREASURY TRAIL HIT: ${pos.symbol} | +${pnlPct.fmt(1)}%")
             return ExitSignal.TRAILING_STOP
         }

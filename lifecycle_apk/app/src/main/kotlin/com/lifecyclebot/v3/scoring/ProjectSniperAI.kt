@@ -62,9 +62,9 @@ object ProjectSniperAI {
     
     // Exit parameters - TIGHT for launch plays
     private const val STOP_LOSS_PCT = -12.0            // Abort if down 12%
-    private const val TAKE_PROFIT_1_PCT = 15.0         // First extract at 15%
-    private const val TAKE_PROFIT_2_PCT = 35.0         // Second extract at 35%
-    private const val TAKE_PROFIT_3_PCT = 75.0         // Final extract at 75%
+    private const val TAKE_PROFIT_1_PCT = 25.0         // 8485: first extract (was 15)
+    private const val TAKE_PROFIT_2_PCT = 50.0         // 8485: was 35
+    private const val TAKE_PROFIT_3_PCT = 100.0        // 8485: was 75
     private const val MOONSHOT_PCT = 150.0             // Let it run if mooning
     
     // Daily limits
