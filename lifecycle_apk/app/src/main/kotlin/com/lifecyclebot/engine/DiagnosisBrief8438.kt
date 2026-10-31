@@ -26,6 +26,11 @@ import com.lifecyclebot.engine.truth.ForwardReturnLabeler7731
  * (itself a defect to fix) and the rest of the brief still renders.
  */
 object DiagnosisBrief8438 {
+    /** V5.0.8473 — the meme lanes whose stage records the brief prints, and the stages (tag) in lifecycle order. */
+    private val WHERE_LANES_8473 = listOf("SHITCOIN", "MOONSHOT", "EXPRESS", "PROJECT_SNIPER", "MANIPULATED", "DIP_HUNTER")
+    private val STAGES_8473 = listOf("FRESH_LAUNCH" to "LAUNCH", "BASE_START" to "BASE", "CONTROLLED_MARKUP" to "BREAKOUT",
+        "MID_ACCUMULATION" to "PULLBACK", "PEAK_EXHAUSTION" to "PEAK", "DUMPING" to "DUMP")
+
     const val TITLE_8438 = "===== DIAGNOSIS BRIEF (§8438) — read this first ====="
 
     /** One fix-queue entry: [weight] orders the queue (money-like units), [text] says what and where. */
@@ -185,6 +190,19 @@ object DiagnosisBrief8438 {
                 if (v == "BLEEDING_LIVE" && ls != null) fixes += Fix8438(-ls.expectancySol * ls.canonicalN * 1000.0, "BLEEDING",
                     "$lane live closes n${ls.canonicalN} exp ${"%+.4f".format(ls.expectancySol)} SOL -> its exits (ExitProfile7955 / laneHolds8418) and entry setups (LanePlaybook7907)")
             }
+            // V5.0.8473 — WHERE in the coin's life each lane's buys pay, and WHICH discovery sources find coins that pay.
+            sb.append("               where it pays — stage records (5-min net n/mean/run):\n")
+            for (lane in WHERE_LANES_8473) {
+                val cellsLine = STAGES_8473.joinToString("  ") { (stage, tag) ->
+                    val st = try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.stageStatFor7928(lane, stage) } catch (_: Throwable) { null }
+                    if (st == null || st.n60 == 0) "$tag -" else "$tag n${st.n60}/${pct(st.meanNet60Pct)}/r${(st.runnerRate60 * 100).toInt()}%"
+                }
+                sb.append("                 ").append(lane.padEnd(15)).append(cellsLine).append('\n')
+            }
+            val sources = try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.sourceStats8473(10) } catch (_: Throwable) { emptyList() }
+            sb.append("               discovery sources (5-min net n/mean/wr/run): ")
+                .append(sources.joinToString(" · ") { "${it.key.removePrefix("SRC|").take(22)} n${it.n60}/${pct(it.meanNet60Pct)}/wr${(it.winRate60 * 100).toInt()}%/r${(it.runnerRate60 * 100).toInt()}%" }.ifBlank { "-" })
+                .append('\n')
         }
 
         section(sb, "D DOORS") {

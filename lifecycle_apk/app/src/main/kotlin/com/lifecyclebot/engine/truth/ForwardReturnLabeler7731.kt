@@ -2735,6 +2735,10 @@ object ForwardReturnLabeler7731 {
     fun stageStatFor7928(lane: String, stage: String): CellStat? =
         if (stage.equals("UNKNOWN", true) || stage.isBlank()) null else cellStat(stageKey7928(lane, stage))
 
+    /** V5.0.8473 — every discovery-source family's record (local + hive), most-labelled first: which scanners find coins that pay. */
+    fun sourceStats8473(limit: Int): List<CellStat> =
+        cells.keys.toList().filter { it.startsWith("SRC|") }.mapNotNull { cellStat(it) }.sortedByDescending { it.n60 }.take(limit)
+
     /** V5.0.8169 — a key's local record since the grading epoch (no hive), the only record a loss pattern may refuse on. */
     private fun freshStat8169(key: String): CellStat? {
         syncEpoch8169()

@@ -132,10 +132,21 @@ object TokenMetricStageRouter {
             ageMin <= 3.0 && lifecycleEarly7401 &&
             (hist.size < 5 || currentVsPeak >= 0.88) &&
             liq >= 800.0 && sp <= 65.0 && acute5m7425 > -12.0
+        // V5.0.8473 §THE_CHART_NOT_THE_CLOCK — owner: "its not buying or discovering tokens in the right part of the chart /
+        // token life cycle". The bands above left the two best entries without a stage: a coin AT its high early in a move
+        // (markup needs 8 % under the high, exhaustion +70 %) and a tight base after the first 12 minutes or with an unread
+        // launch age (8471: 55,765 UNKNOWN stagings; age=0m peakPos 0.96-1.00 runup 1-31 % bp 66-100 all UNKNOWN), so the
+        // launch / markup desks were never routed them and no stage record was ever booked for them. The chart's own
+        // position names them now — on real history (5+ prints) and an observed book (bp / sp read, not the 50 / 50 default).
+        val chart8473 = chartStage8473(prices.size, ts.buyPressureObservedAtMs8084 > 0L, ageMin, currentVsPeak, runup, dd, bp, sp,
+            acute5m7425, liq)
+        val baseAnyAge8473 = chart8473 == Stage.BASE_START
+        val breakout8473 = chart8473 == Stage.CONTROLLED_MARKUP
         // V5.0.8316 — no clean metric stage (bp / chg / shape never arrived): a young coin's OWN executed prints name the
         // stage (TapeStage8316: dumping / exhausted on a sell-dominated tape off its peak, a build on early buying), so the
         // sheet's reclaim rule can stop a buy into a dump and the launch lanes buy builds. No prints: UNKNOWN as before.
-        val tape8316 = if (rugProne || lifecycleFade7401 || peakExhaustion || dumping || baseStart || midAccum || markup || freshLaunch) null
+        val tape8316 = if (rugProne || lifecycleFade7401 || peakExhaustion || dumping || baseStart || midAccum || markup || freshLaunch ||
+            baseAnyAge8473 || breakout8473) null
             else com.lifecyclebot.engine.truth.TapeStage8316.stageFromTape8316(ts.mint, ageMin, now)
         val stage = when {
             rugProne -> Stage.RUG_PRONE
@@ -147,10 +158,15 @@ object TokenMetricStageRouter {
             midAccum -> Stage.MID_ACCUMULATION
             markup -> Stage.CONTROLLED_MARKUP
             freshLaunch -> Stage.FRESH_LAUNCH
+            breakout8473 -> Stage.CONTROLLED_MARKUP   // V5.0.8473 — an early breakout at its high
+            baseAnyAge8473 -> Stage.BASE_START        // V5.0.8473 — a tight base near its high, buyers in control, any age
             else -> tape8316?.stage ?: Stage.UNKNOWN
         }
         Snapshot(stage, ageMin, currentVsPeak, if (tape8316 != null) maxOf(dd, tape8316.offPeakPct) else dd, runup, bp, sp, liq, mcap, mcapToLiq, top,
-            reasonFor(stage, rugProne, peakExhaustion, dumping, baseStart, midAccum, markup, freshLaunch) + (tape8316?.let { " ${it.compact}" } ?: ""))
+            reasonFor(stage, rugProne, peakExhaustion, dumping, baseStart || baseAnyAge8473, midAccum, markup || breakout8473, freshLaunch) +
+                (if (breakout8473 && stage == Stage.CONTROLLED_MARKUP && !markup) " breakoutAtHigh8473" else "") +
+                (if (baseAnyAge8473 && stage == Stage.BASE_START && !baseStart) " baseAnyAge8473" else "") +
+                (tape8316?.let { " ${it.compact}" } ?: ""))
     } catch (t: Throwable) {
         Snapshot(Stage.UNKNOWN, 999.0, 0.0, 0.0, 0.0, 50.0, 50.0, 0.0, 0.0, 9999.0, -1.0, "stage_error=${t.javaClass.simpleName}")
     }
@@ -211,6 +227,26 @@ object TokenMetricStageRouter {
     }
 
     private const val REROUTE_MIN_N_7940 = 50
+    /** V5.0.8473 — the history prints a chart-position stage needs (fewer reads every coin as "at its high, flat"). */
+    private const val CHART_MIN_PRINTS_8473 = 5
+
+    /**
+     * Pure (V5.0.8473): the stage a coin's chart position names when the age-gated bands do not — an early breakout AT its
+     * high (+15..70 % off the local low, within 8 % of the high: CONTROLLED_MARKUP) or a tight base near its high past the
+     * launch window or of unread age (<= 15 % range, <= 12 % off the high: BASE_START). Both need real history
+     * ([prints] >= CHART_MIN_PRINTS_8473), an observed book ([bookObserved]; a 50 / 50 default is no reading) with buyers in
+     * control, no acute 5-minute drop and survivable liquidity. Null: no chart stage.
+     */
+    fun chartStage8473(prints: Int, bookObserved: Boolean, ageMin: Double, currentVsPeak: Double, runupPct: Double, ddPct: Double,
+                       bp: Double, sp: Double, change5mPct: Double, liqUsd: Double): Stage? {
+        if (prints < CHART_MIN_PRINTS_8473 || !bookObserved || !(change5mPct > -8.0)) return null
+        if (currentVsPeak > 0.92 && runupPct > 15.0 && runupPct < 70.0 && bp >= 55.0 && sp <= 50.0 && liqUsd >= 6_000.0)
+            return Stage.CONTROLLED_MARKUP
+        val pastLaunch = !(ageMin.isFinite() && ageMin <= 12.0)
+        if (pastLaunch && runupPct <= 15.0 && ddPct <= 12.0 && currentVsPeak >= 0.88 && bp >= 54.0 && sp <= 50.0 && liqUsd >= 3_000.0)
+            return Stage.BASE_START
+        return null
+    }
     private val TRUNK_LANES_7940 = setOf("STANDARD", "CORE", "V3")
 
     /** Older liquid tokens with an UNKNOWN chart stage must not inherit a
@@ -272,7 +308,14 @@ object TokenMetricStageRouter {
                     else -> "SHITCOIN"
                 }
             }
-            Stage.BASE_START -> if (s.liquidityUsd >= 8_000.0 && s.buyPressurePct >= 58.0) "PROJECT_SNIPER" else "SHITCOIN"
+            // V5.0.8473 — a base past the launch window (or of unread age) is a re-accumulation: the sniper's window is gone;
+            // a small cap stays with SHITCOIN, a grown one goes to MOONSHOT (the next leg is its play).
+            Stage.BASE_START -> when {
+                s.ageMin.isFinite() && s.ageMin <= 12.0 ->
+                    if (s.liquidityUsd >= 8_000.0 && s.buyPressurePct >= 58.0) "PROJECT_SNIPER" else "SHITCOIN"
+                s.marketCapUsd >= 150_000.0 -> "MOONSHOT"
+                else -> "SHITCOIN"
+            }
             Stage.MID_ACCUMULATION -> if (s.liquidityUsd >= 20_000.0) "BLUECHIP" else "QUALITY"
             Stage.CONTROLLED_MARKUP -> "MOONSHOT"
             Stage.DUMPING -> "DIP_HUNTER"
@@ -333,7 +376,8 @@ object TokenMetricStageRouter {
      */
     val LANE_STAGE_SHEET_7928: Map<Stage, Set<String>> = mapOf(
         Stage.FRESH_LAUNCH to setOf("SHITCOIN", "PROJECT_SNIPER", "EXPRESS", "MOONSHOT", "STANDARD", "CORE", "V3"),
-        Stage.BASE_START to setOf("SHITCOIN", "PROJECT_SNIPER", "EXPRESS", "STANDARD", "CORE", "V3"),
+        // V5.0.8473 — MOONSHOT plays a re-accumulation base (the stage records still decide, judgeStage7928).
+        Stage.BASE_START to setOf("SHITCOIN", "PROJECT_SNIPER", "EXPRESS", "MOONSHOT", "STANDARD", "CORE", "V3"),
         Stage.MID_ACCUMULATION to setOf("QUALITY", "BLUECHIP", "TREASURY", "DIP_HUNTER", "STANDARD", "CORE", "V3"),
         Stage.CONTROLLED_MARKUP to setOf("MOONSHOT", "QUALITY", "STANDARD", "CORE", "V3"),
     )
