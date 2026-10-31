@@ -103,10 +103,13 @@ object FlatChart8027 {
      * AUTH_PRESEAL_FLATLINE_8027_8304 — every one a range the desk exists to trade. Pure on the tape's executed prints.
      */
     const val DEAD_TAPE_MAX_PRINTS_8476 = 3
-    fun deadTapePrints8476(executedPrints: Int): Boolean = executedPrints < DEAD_TAPE_MAX_PRINTS_8476
-    private fun deadTape8476(mint: String, nowMs: Long): Boolean = try {
-        val executed = com.lifecyclebot.engine.truth.TradeTape8100.prints8128(mint, nowMs, FLAT_WINDOW_MS).count { !it.priceOnly }
-        val dead = deadTapePrints8476(executed)
+    // A live tape trades across the window, not in one burst: 8483 bought COLORS / ANON, flat for hours, on the one candle
+    // whose few prints cleared the 3-print bar. The prints must fall in at least [DEAD_TAPE_MAX_PRINTS_8476] distinct minutes.
+    fun deadTapePrints8476(executedPrints: Int, distinctMinutes: Int = DEAD_TAPE_MAX_PRINTS_8476): Boolean =
+        executedPrints < DEAD_TAPE_MAX_PRINTS_8476 || distinctMinutes < DEAD_TAPE_MAX_PRINTS_8476
+    internal fun deadTape8476(mint: String, nowMs: Long): Boolean = try {
+        val exec = com.lifecyclebot.engine.truth.TradeTape8100.prints8128(mint, nowMs, FLAT_WINDOW_MS).filter { !it.priceOnly }
+        val dead = deadTapePrints8476(exec.size, exec.map { it.atMs / 60_000L }.distinct().size)
         if (!dead) try { PipelineHealthCollector.labelInc("FLATLINE_WAIVED_TRADES_FLOWING_8476") } catch (_: Throwable) {}
         dead
     } catch (_: Throwable) { true }

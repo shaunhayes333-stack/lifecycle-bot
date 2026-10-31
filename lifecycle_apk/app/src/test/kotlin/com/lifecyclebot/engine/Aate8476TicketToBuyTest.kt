@@ -40,7 +40,9 @@ class Aate8476TicketToBuyTest {
         assertEquals(3, FlatChart8027.DEAD_TAPE_MAX_PRINTS_8476)
         val f = src("engine/FlatChart8027.kt")
         assertEquals("both the live refusal and the pre-seal verdict", 2, Regex("flatCandles8076\\(bars, now, nowMs\\) && deadTape8476\\(ts\\.mint, nowMs\\)").findAll(f).count())
-        assertTrue(f.contains("prints8128(mint, nowMs, FLAT_WINDOW_MS).count { !it.priceOnly }"))
+        // superseded (8484): executed prints AND the minutes they span (one burst candle is not a live tape)
+        assertTrue(f.contains("prints8128(mint, nowMs, FLAT_WINDOW_MS).filter { !it.priceOnly }"))
+        assertTrue(f.contains("deadTapePrints8476(exec.size, exec.map { it.atMs / 60_000L }.distinct().size)"))
     }
 
     @Test fun aDegradedJupiterBuilderSendsCurveBuysPumpFirstThroughSender() {

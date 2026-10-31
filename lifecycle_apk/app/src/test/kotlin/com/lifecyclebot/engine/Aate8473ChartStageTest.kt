@@ -2,6 +2,7 @@ package com.lifecyclebot.engine
 
 import com.lifecyclebot.engine.TokenMetricStageRouter.Stage
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -38,6 +39,12 @@ class Aate8473ChartStageTest {
         assertNull("default book", TokenMetricStageRouter.chartStage8473(8, false, nan, 1.0, 24.0, 0.0, 100.0, 0.0, 5.0, 58_224.0))
         assertNull("an acute drop", TokenMetricStageRouter.chartStage8473(8, true, nan, 1.0, 24.0, 0.0, 100.0, 0.0, -9.0, 58_224.0))
         assertNull(TokenMetricStageRouter.chartStage8473(8, true, nan, 1.0, 24.0, 0.0, 100.0, 0.0, nan, 58_224.0))
+        // 8484: a coin frozen for hours is not a base (8483 bought COLORS / ANON as BASE_START) — no live tape, no chart stage
+        assertNull(TokenMetricStageRouter.chartStage8473(8, true, nan, 0.98, 1.0, 2.0, 80.0, 20.0, 0.5, 70_295.0, tapeLive = false))
+        assertNull(TokenMetricStageRouter.chartStage8473(8, true, nan, 0.96, 31.0, 4.0, 66.0, 33.0, 2.0, 16_138.0, tapeLive = false))
+        // one burst candle is not a live tape: prints must span three distinct minutes
+        assertTrue(FlatChart8027.deadTapePrints8476(6, 1))
+        assertFalse(FlatChart8027.deadTapePrints8476(6, 3))
     }
 
     @Test fun theRouterUsesItAfterTheCleanBandsAndRoutesItToThePlay() {

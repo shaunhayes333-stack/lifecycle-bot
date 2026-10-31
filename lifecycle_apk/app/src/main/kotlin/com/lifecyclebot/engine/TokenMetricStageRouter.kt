@@ -139,7 +139,7 @@ object TokenMetricStageRouter {
         // launch / markup desks were never routed them and no stage record was ever booked for them. The chart's own
         // position names them now — on real history (5+ prints) and an observed book (bp / sp read, not the 50 / 50 default).
         val chart8473 = chartStage8473(prices.size, ts.buyPressureObservedAtMs8084 > 0L, ageMin, currentVsPeak, runup, dd, bp, sp,
-            acute5m7425, liq)
+            acute5m7425, liq, tapeLive = !(try { FlatChart8027.deadTape8476(ts.mint, now) } catch (_: Throwable) { true }))
         val baseAnyAge8473 = chart8473 == Stage.BASE_START
         val breakout8473 = chart8473 == Stage.CONTROLLED_MARKUP
         // V5.0.8316 — no clean metric stage (bp / chg / shape never arrived): a young coin's OWN executed prints name the
@@ -238,8 +238,10 @@ object TokenMetricStageRouter {
      * control, no acute 5-minute drop and survivable liquidity. Null: no chart stage.
      */
     fun chartStage8473(prints: Int, bookObserved: Boolean, ageMin: Double, currentVsPeak: Double, runupPct: Double, ddPct: Double,
-                       bp: Double, sp: Double, change5mPct: Double, liqUsd: Double): Stage? {
-        if (prints < CHART_MIN_PRINTS_8473 || !bookObserved || !(change5mPct > -8.0)) return null
+                       bp: Double, sp: Double, change5mPct: Double, liqUsd: Double, tapeLive: Boolean = true): Stage? {
+        // [tapeLive]: trades across the last minutes (FlatChart8027.deadTape8476). A coin frozen for hours is "near its high
+        // with no drawdown" by construction: 8483 staged COLORS / ANON (flat since 16:00, $19-21k) BASE_START and MOONSHOT bought.
+        if (prints < CHART_MIN_PRINTS_8473 || !bookObserved || !(change5mPct > -8.0) || !tapeLive) return null
         if (currentVsPeak > 0.92 && runupPct > 15.0 && runupPct < 70.0 && bp >= 55.0 && sp <= 50.0 && liqUsd >= 6_000.0)
             return Stage.CONTROLLED_MARKUP
         val pastLaunch = !(ageMin.isFinite() && ageMin <= 12.0)
