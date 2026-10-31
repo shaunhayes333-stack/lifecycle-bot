@@ -655,6 +655,8 @@ object LiveEdgeGate7877 {
             // V5.0.8468 — the lane's own brain qualifies this coin and that trigger's record is proven at the lane's horizon
             // (LaneTrigger8468): the shared setup menu's timing / picked-setup reads and the proven-only door stand down for it.
             val trigger8468 = try { LaneTrigger8468.admits8468(ts, l8059) } catch (_: Throwable) { false }
+            // ... and it is measured evidence: it clears watch-first's UNMEASURED thin-cell wait only (a measured-negative cell still binds).
+            if (trigger8468) auditedAdmission8076 = true
             if (!admittedJudged8201 && !trigger8468 && !cellOrKindProven8094(ts, l8059, nowMs)) (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.timingNegative8094(ts, l8059, nowMs) } catch (_: Throwable) { null })?.let { at ->
                 val r8094 = "TIMING_RECORD_NEGATIVE_8094"
                 if (!Rehearsal8339.doorBindsNow8342(r8094, l8059)) return@let
@@ -1007,11 +1009,8 @@ object LiveEdgeGate7877 {
             return null
         }
         chaseRefused8065.incrementAndGet()
-        if (runner8468) {
-            try { PipelineHealthCollector.labelInc("CHASING_RUNUP_8468_$lane") } catch (_: Throwable) {}
-            return "CHASING_RUNUP_8468"
-        }
-        try { PipelineHealthCollector.labelInc("CHASING_SPIKE_8065_$lane") } catch (_: Throwable) {}
+        // V5.0.8468 — the same chase terminal (FDG class, rehearsal, taxonomy, tail audit read it), counted apart.
+        try { PipelineHealthCollector.labelInc(if (runner8468) "CHASING_RUNUP_8468_$lane" else "CHASING_SPIKE_8065_$lane") } catch (_: Throwable) {}
         return "CHASING_SPIKE_8065"
     }
 

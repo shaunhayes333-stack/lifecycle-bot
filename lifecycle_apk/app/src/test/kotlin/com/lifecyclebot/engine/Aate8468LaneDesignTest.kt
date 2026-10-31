@@ -156,6 +156,7 @@ class Aate8468LaneDesignTest {
         assertTrue("never pruned", frl.contains("!it.key.startsWith(\"TRIGGER|\")"))
         val gate = src("engine/truth/LiveEdgeGate7877.kt")
         assertTrue(gate.substringAfter("private fun measuredEdge8060(").take(600).contains("LaneTrigger8468.admits8468(ts, lane)"))
+        assertTrue("it clears watch-first's unmeasured thin-cell wait only", gate.contains("if (trigger8468) auditedAdmission8076 = true"))
         // the realised-loss tactic refusal still binds a proven trigger
         assertTrue(gate.contains("if (proven8059 == null && !admittedJudged8201 && !cellOrKindProven8094(ts, l8059, nowMs)) (try { com.lifecyclebot.engine.learning.TacticSwitcher.losingTacticFor8094(ts, l8059)"))
     }
@@ -183,6 +184,6 @@ class Aate8468LaneDesignTest {
         val chase = src("engine/truth/LiveEdgeGate7877.kt").substringAfter("internal fun chaseRefusal8397(").substringBefore("    /**")
         assertTrue(chase.contains("&& !followsWallet8468(lane)"))
         assertTrue(chase.contains("if (!spike8065 && !runner8468) return null"))
-        assertTrue(chase.contains("return \"CHASING_RUNUP_8468\""))
+        assertTrue("one chase terminal, counted apart", chase.contains("if (runner8468) \"CHASING_RUNUP_8468_${'$'}lane\" else \"CHASING_SPIKE_8065_${'$'}lane\""))
     }
 }
