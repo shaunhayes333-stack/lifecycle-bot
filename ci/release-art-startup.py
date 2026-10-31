@@ -155,8 +155,16 @@ def drive_to_first_loop(log_path, ui_name):
                 if title in {"Set Your PIN", "Confirm PIN", "Enter PIN"} and title not in pin_stages:
                     # Public fixture for this fresh, disposable emulator only.
                     # Exercise the actual UI; no production auth bypass or app-data edit.
-                    for key in ("key1", "key2", "key3", "key4", "keyOk"):
-                        node = next(n for n in nodes if n.get("resource-id", "").endswith("/" + key))
+                    # V5.0.8479 — the UI dump can show the security title before the keypad has rendered (8478 main, run
+                    # 41188395322: StopIteration on key1 right after the upgraded launch, "bad color buffer handle" on the
+                    # emulator). A missing key is a retry of the dump on the next pass, never a verdict on the release.
+                    keys = [next((n for n in nodes if n.get("resource-id", "").endswith("/" + key)), None)
+                            for key in ("key1", "key2", "key3", "key4", "keyOk")]
+                    if any(k is None for k in keys):
+                        print("PIN keypad not yet rendered for", title, "; retrying UI", flush=True)
+                        time.sleep(2)
+                        continue
+                    for node in keys:
                         tap(node)
                         time.sleep(0.2)
                     pin_stages.add(title)
