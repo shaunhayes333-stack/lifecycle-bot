@@ -453,6 +453,11 @@ object HeldHotMarkAuthority7419 {
         if (bare.isBlank() || bare.contains('|') || rawQty.signum() <= 0 || rawQty.bitLength() > 62 || decimals !in 0..18) { miss8435(mint, "BAD_INPUT"); return null }
         val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
         val observedAt = System.currentTimeMillis()
+        // V5.0.8486 — the coin's own pool / curve reserves (chain-read through Helius, batched) price the holding first.
+        // 8483: Jupiter answered 148 of 1,386 held asks (429s); the reserves were read and used only after it failed. A fresh
+        // reserve read is the executable price at the venue the position sells on; Jupiter is asked only when none is fresh,
+        // and the read is topped up in the background so it stays fresh.
+        reserveFirst8486(bare, rawQty, decimals, solUsd, observedAt)?.let { return it }
         var jup8435 = "JUP_NULL"
         val q = try {
             quoteApi7876.getQuote(bare, com.lifecyclebot.network.JupiterApi.SOL_MINT, rawQty.toLong(), 300)
@@ -487,6 +492,20 @@ object HeldHotMarkAuthority7419 {
         if (q != null) jup8435 = "JUP_QTY_MISMATCH"
         return venueReserveSellEstimate(bare, rawQty, decimals, solUsd) ?: run { miss8435(mint, "${jup8435}_NO_FRESH_RESERVE"); null }
     }
+
+    /** Reserve-first leg of [quoteSellEstimate]: a fresh pool / curve read (no miss counted — Jupiter is still to be asked). */
+    private fun reserveFirst8486(mint: String, rawQty: java.math.BigInteger, decimals: Int, solUsd: Double, nowMs: Long): SellEstimate? {
+        val est = venueReserveSellEstimate(mint, rawQty, decimals, solUsd, nowMs, countMiss = false) ?: return null
+        reserveFirst8486.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("HELD_MARK_RESERVE_FIRST_8486") } catch (_: Throwable) {}
+        if (nowMs - est.observedAtMs > RESERVE_TOPUP_MS_8486) {
+            try { com.lifecyclebot.engine.BotService.status.tokens[mint]?.let { OnChainDepth8038.request8038(it, RESERVE_TOPUP_MS_8486) } } catch (_: Throwable) {}
+        }
+        return est
+    }
+    private const val RESERVE_TOPUP_MS_8486 = 8_000L
+    private val reserveFirst8486 = java.util.concurrent.atomic.AtomicLong(0)
+    fun reserveFirstLine8486(): String = "reserveFirst8486=${reserveFirst8486.get()}"
 
     /** Pure (V5.0.8475): is a sell quote at [quotePx] a dust route against the venue's own [referencePx]? (under 1/[factor]) */
     fun dustRouteQuote8475(quotePx: Double, referencePx: Double, factor: Double): Boolean =
@@ -531,7 +550,7 @@ object HeldHotMarkAuthority7419 {
         venueReserveSellEstimate(mint, rawQty, decimals, solUsd, nowMs)?.priceUsd
 
     internal fun venueReserveSellEstimate(mint: String, rawQty: java.math.BigInteger, decimals: Int, solUsd: Double,
-                                          nowMs: Long = System.currentTimeMillis()): SellEstimate? {
+                                          nowMs: Long = System.currentTimeMillis(), countMiss: Boolean = true): SellEstimate? {
         if (decimals !in 0..18 || rawQty.signum() <= 0 || !solUsd.isFinite() || solUsd <= 20.0 || solUsd >= 5_000.0) return null
         val tokens = java.math.BigDecimal(rawQty).movePointLeft(decimals).toDouble()
         if (!tokens.isFinite() || tokens <= 0.0) return null
@@ -544,8 +563,10 @@ object HeldHotMarkAuthority7419 {
             else -> null
         }
         if (outSol == null) {
-            reserveMisses8198.incrementAndGet()
-            try { PipelineHealthCollector.labelInc("HELD_MARK_NO_ROUTE_NO_RESERVE_8198") } catch (_: Throwable) {}
+            if (countMiss) {
+                reserveMisses8198.incrementAndGet()
+                try { PipelineHealthCollector.labelInc("HELD_MARK_NO_ROUTE_NO_RESERVE_8198") } catch (_: Throwable) {}
+            }
             try { com.lifecyclebot.engine.BotService.status.tokens[mint]?.let { OnChainDepth8038.request8038(it, RESERVE_MARK_MAX_AGE_MS_8198) } } catch (_: Throwable) {}
             return null
         }

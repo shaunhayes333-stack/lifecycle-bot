@@ -194,6 +194,8 @@ object ExitRegret7752 {
                 if (isStopFamily7925(p.family)) byLane.getOrPut("${p.lane}|STOP") { Agg() }.add(p.realizedPct, hold, after)
                 // V5.0.7948 — the lane's ordinary (non-catastrophic) stops on their own: their room is learned apart from rug exits.
                 if (isStopFamily7925(p.family) && !isCatastrophicFamily7948(p.family)) byLane.getOrPut("${p.lane}|$ORDINARY_STOP_7948") { Agg() }.add(p.realizedPct, hold, after)
+                // V5.0.8486 — the lane's PROFIT exits on their own: each lane's targets learn from its own sells.
+                if (isProfitFamily7888(p.family)) byLane.getOrPut("${p.lane}|$PROFIT_8486") { Agg() }.add(p.realizedPct, hold, after)
             }
             pending.remove(id)
             recorded.incrementAndGet()
@@ -389,19 +391,40 @@ object ExitRegret7752 {
         f.contains("PROFIT") || f.contains("TRAIL") || f.contains("TAKE") || f.startsWith("TP") ||
             f.contains("PEAK") || f.contains("BANK") || f.contains("GIVEBACK") || f.contains("TARGET")
 
-    /** LIVE target multiplier from profit-exit regret (1.0 = no evidence either way). */
-    fun profitMultFor7888(): Double = try {
+    /**
+     * LIVE target multiplier from profit-exit regret (1.0 = no evidence either way).
+     * V5.0.8486 — per lane and in proportion: [lane]'s own profit exits once it has [REGRET_MIN_N_7877] of them (else all
+     * lanes'), and targets widen by the measured gap the hold beat the sale (+10 % target per point, up to
+     * [PROFIT_MULT_MAX_8486]) — as the 7948 stop room does — instead of the 7877 step that needed the price +5 % after the
+     * sale and stopped at 1.5x. Sales into a drop still tighten (0.9x). Every target stays a learned, moving number.
+     */
+    fun profitMultFor7888(lane: String? = null): Double = try {
         ensureLoaded()
         val r = synchronized(this) {
-            val parts = byFamily.entries.filter { isProfitFamily7888(it.key) && it.value.n > 0 }.map { it.value }
-            if (parts.isEmpty()) null else {
-                val m = Agg()
-                for (p in parts) { m.n += p.n; m.sumRealized += p.sumRealized; m.sumHold += p.sumHold; m.sumAfter += p.sumAfter; m.holdBeat += p.holdBeat }
-                read(m)
+            val own = lane?.let { read(byLane["${CanonicalLaneIdentity6506.canonical(it)}|$PROFIT_8486"]) }
+            if (own != null && own.n >= REGRET_MIN_N_7877) own else {
+                val parts = byFamily.entries.filter { isProfitFamily7888(it.key) && it.value.n > 0 }.map { it.value }
+                if (parts.isEmpty()) null else {
+                    val m = Agg()
+                    for (p in parts) { m.n += p.n; m.sumRealized += p.sumRealized; m.sumHold += p.sumHold; m.sumAfter += p.sumAfter; m.holdBeat += p.holdBeat }
+                    read(m)
+                }
             }
         }
-        stopMult7877(r)
+        profitMult8486(r)
     } catch (_: Throwable) { 1.0 }
+
+    private const val PROFIT_8486 = "PROFIT"
+    const val PROFIT_MULT_MAX_8486 = 1.8
+
+    /** Pure (V5.0.8486): the target multiplier a profit-exit regret read justifies. */
+    fun profitMult8486(r: Read7877?): Double {
+        val base = stopMult7877(r)
+        if (r == null || r.n < REGRET_MIN_N_7877) return base
+        val gap = r.meanHold - r.meanRealized
+        if (!gap.isFinite() || gap <= 0.0 || r.holdBeatShare < 0.40 || !(r.meanAfter > 0.0)) return base
+        return maxOf(base, (1.0 + gap / ROOM_PER_POINT_7948).coerceIn(1.0, PROFIT_MULT_MAX_8486))
+    }
 
     /** The underwater time-stop horizon for [lane]: extended when underwater exits were followed by recovery. */
     fun underwaterHoldMs(lane: String, defaultMs: Long): Long = try {

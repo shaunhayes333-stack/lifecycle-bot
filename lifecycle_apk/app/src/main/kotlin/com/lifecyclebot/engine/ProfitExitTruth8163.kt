@@ -75,6 +75,18 @@ object ProfitExitTruth8163 {
         val cost = basis(ts, raw)
         if (cost == null) return refused(ts, "MISSING_CONFIRMED_SLICE_BASIS", releaseLocks)
         val slip = com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason)
+        // V5.0.8486 — the coin's own pool / curve reserves (chain-read, fresh) answer first; a sale they say clears the slice
+        // cost needs no Jupiter call (8483: 148 of 1,386 Jupiter asks answered). A reserve read that does not clear, or none,
+        // still asks Jupiter, whose routing can beat the single venue.
+        val reserveOut8486 = preflightProceeds(null, ts.mint, raw) {
+            CanonicalPositionAuthority6441.getPosition(ts.position.positionId)?.let { com.lifecyclebot.engine.truth.HeldHotMarkAuthority7419
+                .venueReserveSellEstimate(ts.mint, BigInteger.valueOf(raw), it.quantityScale, WalletManager.lastKnownSolPrice, countMiss = false) }
+        }
+        if (reserveOut8486 != null && clears(cost, reserveOut8486, expectedSlip8189(ts, slip), CostMeter8151.sellLegFixedSol8151())) {
+            PipelineHealthCollector.labelInc("PROFIT_EXIT_RESERVE_FIRST_8486")
+            reconcileMark8237(ts, raw, reserveOut8486)
+            return true
+        }
         val quote = try { jupiter.getQuote(inputMint = ts.mint, outputMint = JupiterApi.SOL_MINT, amountRaw = raw, slippageBps = slip) }
             catch (_: Exception) { null }
         if (quote != null && !com.lifecyclebot.engine.truth.HeldHotMarkAuthority7419.quoteMatchesHolding(quote, ts.mint, BigInteger.valueOf(raw)))

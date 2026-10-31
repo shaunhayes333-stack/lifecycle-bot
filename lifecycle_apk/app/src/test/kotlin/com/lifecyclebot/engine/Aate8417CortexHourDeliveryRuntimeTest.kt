@@ -88,30 +88,12 @@ class Aate8417CortexHourDeliveryRuntimeTest {
                     assertTrue("receipt exists only after database checkpoint", cortex.deliverForwardOutcome8404(d))
                 }
                 deliver(5, frozen)
-                assertEquals("five-minute result does not train an hour lane", "", book.decision(id)!!.modelContribution8395)
-                assertTrue("original prediction must survive its first receipt", paired.containsKey(id))
-                for (minutes in listOf(15)) {
-                    val next = requireNotNull(cortex.freezeForwardOutcome8404("hour-delivery8417", "QUALITY", at))
-                    assertEquals(0, org.json.JSONObject(ForwardCheckpoint8401.unpack(next)).getJSONArray("unpaired8401").length())
-                    deliver(minutes, next)
-                    assertEquals("intermediate observation is not an hour model grade", "", book.decision(id)!!.modelContribution8395)
-                }
-                val pairedSnapshot = cortex.checkpointForward8401(setOf(id))
-                assertEquals(0, org.json.JSONObject(ForwardCheckpoint8401.unpack(pairedSnapshot)).getJSONArray("unpaired8401").length())
-                val saved = requireNotNull(LearningPersistence.load("CORTEX_PENDING_7920"))
-                assertTrue("the receipt transaction also owns the deferred prediction", saved.contains("\"paired8417\":true"))
-                pending.remove(key); paired.remove(id); deferred.remove(id)
-                book.decode(requireNotNull(LearningPersistence.load("CORTEX_GRADES_8144")))
-                cortex.javaClass.declaredMethods.single { it.name == "restorePending" && it.parameterCount == 2 }
-                    .apply { isAccessible = true }.invoke(cortex, saved, System.currentTimeMillis())
-                val restored = requireNotNull(cortex.freezeForwardOutcome8404("hour-delivery8417", "QUALITY", at))
-                deliver(30, restored)
-                assertTrue("restart must retain the original through another intermediate receipt", paired.containsKey(id))
-                deliver(60, requireNotNull(cortex.freezeForwardOutcome8404("hour-delivery8417", "QUALITY", at))) // identical return, different due horizon: still needs its first model grade
-                assertEquals(id, book.decision(id)!!.modelContribution8395)
+                // superseded by V5.0.8485 — every lane is graded on the 5-minute read (CortexLabelHygiene8144.GRADE_READ_MS),
+                // as 7947-8143 did when it separated winners; the hour deferral pinned here (8415/8417) left every hour-lane
+                // book unprofitable in every report since 8302. The 5-minute receipt now makes the one model contribution.
+                assertEquals("the five-minute result trains the lane", id, book.decision(id)!!.modelContribution8395)
                 assertEquals(4.0, book.decision(id)!!.predictedEdgePct, 0.0)
-                assertFalse(paired.containsKey(id))
-                assertFalse(deferred.contains(id))
+                assertFalse("nothing deferred to the hour", deferred.contains(id))
             } finally {
                 pool.submit {}.get(10, java.util.concurrent.TimeUnit.SECONDS)
                 pending.remove(key)

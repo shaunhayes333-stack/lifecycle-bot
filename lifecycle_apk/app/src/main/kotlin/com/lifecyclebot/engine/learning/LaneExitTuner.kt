@@ -559,7 +559,7 @@ object LaneExitTuner {
         // V5.0.7888 — in LIVE, profit exits that were followed by the price running on
         // widen the targets (ExitRegret7752.profitMultFor7888), as 7877 did for stops.
         if (com.lifecyclebot.engine.LearningEnvironment7835.mode() == "PAPER") base7888
-        else (base7888 * com.lifecyclebot.engine.truth.ExitRegret7752.profitMultFor7888()).coerceIn(TP_MIN, TP_REGRET_MAX_7888)
+        else (base7888 * com.lifecyclebot.engine.truth.ExitRegret7752.profitMultFor7888(lane)).coerceIn(TP_MIN, TP_REGRET_MAX_7888)
     } catch (_: Throwable) { 1.0 }
 
     fun getSlMult(lane: String): Double = try {

@@ -34,6 +34,7 @@ object StopMarkConfirm8418 {
     private const val AWAIT_MAX_MS_8419 = 15_000L
     private const val REASK_GAP_MS_8419 = 5_000L
     private const val MAX_AWAITS_8419 = 2_048
+    private const val RESERVE_ASK_MS_8486 = 3_000L   // a pending stop asks the venue for a read no older than this
     private val awaitSince8419 = ConcurrentHashMap<String, Long>()   // mint|entryTime -> when the executable price was first asked
 
     /** Pure: is a mark from [source] (pool [markPool]) on the basis of a position entered on [entryPool]? */
@@ -100,19 +101,19 @@ object StopMarkConfirm8418 {
         if (awaitSince8419.size > MAX_AWAITS_8419) awaitSince8419.entries.removeIf { nowMs - it.value > 10L * 60_000L }
         awaitSince8419.putIfAbsent(key, nowMs)
         val asked = awaitSince8419[key] ?: nowMs
+        // V5.0.8485/8486 — the coin's own pool or curve reserves (chain-read within the last 20 s) answer first: they price what
+        // selling this bag at its venue returns now, and they do not 429. Jupiter's quote is the second answer. Same rule as the
+        // quote: a breach confirms at any age; a refutation counts only from a read made at or after the ask.
+        reserveVerdict8485(ts, asked, nowMs, thresholdPct)?.let { breached ->
+            try { PipelineHealthCollector.labelInc(if (breached) "STOP_MARK_CONFIRMED_VENUE_RESERVE_8485" else "STOP_MARK_REFUTED_VENUE_RESERVE_8485") } catch (_: Throwable) {}
+            if (breached) awaitSince8419.remove(key) else awaitSince8419[key] = nowMs
+            return breached
+        }
         val exec = try { com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.getExecutablePriceIfFresh7301(ts.mint) } catch (_: Throwable) { null }
         val execAt = try { com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.executableObservedAtMs7884(ts.mint) } catch (_: Throwable) { 0L }
         quoteVerdict8419(exec, execAt, asked, pos.entryPrice, thresholdPct)?.let { breached ->
             try { PipelineHealthCollector.labelInc(if (breached) "STOP_MARK_CONFIRMED_EXECUTABLE_8418" else "STOP_MARK_REFUTED_EXECUTABLE_8418") } catch (_: Throwable) {}
             // refuted: the market said "not breached" at execAt; only a NEWER quote may answer the next ask
-            if (breached) awaitSince8419.remove(key) else awaitSince8419[key] = nowMs
-            return breached
-        }
-        // V5.0.8485 — Jupiter is not the only executable answer. When its quote is missing (429 / no route), the coin's own
-        // pool or curve reserves, chain-read within the last 20 s, price what selling this bag returns now. Same rule as the
-        // quote: a breach confirms at any age; a refutation counts only from a read made at or after the ask.
-        reserveVerdict8485(ts, asked, nowMs, thresholdPct)?.let { breached ->
-            try { PipelineHealthCollector.labelInc(if (breached) "STOP_MARK_CONFIRMED_VENUE_RESERVE_8485" else "STOP_MARK_REFUTED_VENUE_RESERVE_8485") } catch (_: Throwable) {}
             if (breached) awaitSince8419.remove(key) else awaitSince8419[key] = nowMs
             return breached
         }
@@ -125,6 +126,7 @@ object StopMarkConfirm8418 {
             awaitSince8419.remove(key)
             return true
         }
+        try { com.lifecyclebot.engine.truth.OnChainDepth8038.request8038(ts, RESERVE_ASK_MS_8486) } catch (_: Throwable) {}
         try {
             val dec = com.lifecyclebot.engine.truth.MintDecimalsAuthority6392.get(ts.mint) ?: ts.tokenMap.decimals ?: 6
             com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.requestExecutableQuote7301(ts.mint, dec, minGapMs = REASK_GAP_MS_8419)
@@ -141,7 +143,7 @@ object StopMarkConfirm8418 {
             val dec = com.lifecyclebot.engine.truth.MintDecimalsAuthority6392.get(ts.mint) ?: ts.tokenMap.decimals ?: return null
             val raw = java.math.BigDecimal.valueOf(pos.qtyToken).movePointRight(dec).toBigInteger()
             val est = com.lifecyclebot.engine.truth.HeldHotMarkAuthority7419.venueReserveSellEstimate(
-                ts.mint, raw, dec, WalletManager.lastKnownSolPrice, nowMs) ?: return null
+                ts.mint, raw, dec, WalletManager.lastKnownSolPrice, nowMs, countMiss = false) ?: return null
             quoteVerdict8419(est.priceUsd, est.observedAtMs, askedAtMs, pos.entryPrice, thresholdPct)
         } catch (_: Throwable) { null }
     }
