@@ -503,7 +503,7 @@ object Cortex7885 {
 
     private fun assessWaitLine8324(): String {
         val n = assessWaitN8324.get()
-        return "snapshot8386[g=$snapshotGeneration8386 wait=${snapshotWaitMs8386}ms hold=${snapshotHoldMs8386}ms encode=${snapshotEncodeMs8386}ms db=${snapshotDbMs8386}ms] assessLockWait8324[mean=${if (n > 0) "%.1f".format(assessWaitNanos8324.get() / n / 1e6) else "-"}ms max=${"%.0f".format(assessWaitMaxNanos8324.get() / 1e6)}ms n=$n]"
+        return "snapshot8386[g=$snapshotGeneration8386 wait=${snapshotWaitMs8386}ms hold=${snapshotHoldMs8386}ms encode=${snapshotEncodeMs8386}ms db=${snapshotDbMs8386}ms parts8491=$snapshotParts8491] assessLockWait8324[mean=${if (n > 0) "%.1f".format(assessWaitNanos8324.get() / n / 1e6) else "-"}ms max=${"%.0f".format(assessWaitMaxNanos8324.get() / 1e6)}ms n=$n]"
     }
 
     // ── V5.0.8291 §CORE_VOTERS — the voters seated in a lane are never abstained by the read budget ──
@@ -2030,6 +2030,7 @@ object Cortex7885 {
     @Volatile private var snapshotHoldMs8386 = 0L
     @Volatile private var snapshotEncodeMs8386 = 0L
     @Volatile private var snapshotDbMs8386 = 0L
+    @Volatile private var snapshotParts8491 = "-"
 
     private fun snapshotEncoder8386(periodic: Boolean): (() -> MutableMap<String, String>)? {
         val started = System.nanoTime()
@@ -2074,10 +2075,19 @@ object Cortex7885 {
                 // The typed streaming builder emits p/g8013 and the generation directly.
                 // Do not inflate the entire pending graph three times merely to add/check keys.
                 // JSON objects validate each row when constructed; round-trip tests pin the full wire contract.
+                val booksAt8491 = System.nanoTime()
                 out[PENDING_PERSIST_KEY] = pend()
+                val pendAt8491 = System.nanoTime()
                 out[GRADES_KEY_8144] = gradesEncoded8418 ?: grades?.encode().orEmpty()
+                val gradesAt8491 = System.nanoTime()
                 out.putAll(receipts)
                 snapshotEncodeMs8386 = (System.nanoTime() - encodeAt) / 1_000_000
+                // V5.0.8491 — where the encode time and bytes go (5.0.8490 device: encode=168,394 ms; field: 221 s), so the
+                // dominant part is fixed at its source instead of guessed: books / pending graph / grade book, ms and KB.
+                snapshotParts8491 = "books=${(booksAt8491 - encodeAt) / 1_000_000}ms/${(out[PERSIST_KEY]?.length ?: 0) / 1024}KB " +
+                    "pending=${(pendAt8491 - booksAt8491) / 1_000_000}ms/${(out[PENDING_PERSIST_KEY]?.length ?: 0) / 1024}KB " +
+                    "grades=${(gradesAt8491 - pendAt8491) / 1_000_000}ms/${(out[GRADES_KEY_8144]?.length ?: 0) / 1024}KB${if (gradesEncoded8418 != null) "(inLock)" else ""} " +
+                    "receipts=${receipts.size}"
                 out
             }
             encode

@@ -45,14 +45,23 @@ object LiquidityExitPathAI {
         return (2.0 * oneLegImpact).coerceAtMost(100.0)
     }
 
+    /** Pure (V5.0.8491): the USD size of the planned entry; [FALLBACK_PLANNED_USD_8491] when either input is unknown. */
+    internal fun plannedUsd8491(ticketSol: Double, solUsd: Double): Double =
+        if (ticketSol.isFinite() && ticketSol > 0.0 && solUsd.isFinite() && solUsd > 0.0) ticketSol * solUsd else FALLBACK_PLANNED_USD_8491
+    internal const val FALLBACK_PLANNED_USD_8491 = 75.0
+
     fun score(candidate: CandidateSnapshot, @Suppress("UNUSED_PARAMETER") ctx: TradingContext): ScoreComponent {
         return try {
             val liq = candidate.liquidityUsd
             if (liq <= 0.0) return ScoreComponent("LiquidityExitPathAI", 0, "NO_LIQ_DATA")
 
-            // Meme-trader plans ~\$50 per entry at paper defaults; use a conservative
-            // \$75 to surface slippage on shallow pools even for large entries.
-            val plannedUsd = 75.0
+            // V5.0.8491 — the round trip is priced at the ticket the bot actually trades (NetEdge8030.entryTicket8151 x SOL/USD,
+            // ~\$3-4 on the current wallet), not a fixed \$75: 20x too big an assumed order read most small pools as
+            // "slippage eats the TP" and scored real, fillable entries -6..-20. \$75 remains only when the ticket or SOL
+            // price is unknown (conservative).
+            val plannedUsd = plannedUsd8491(
+                try { com.lifecyclebot.engine.truth.NetEdge8030.entryTicket8151() } catch (_: Throwable) { Double.NaN },
+                try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { Double.NaN })
             val slipPct = estimateRoundTripSlippagePct(plannedUsd, liq)
             val targetTp = DEFAULT_TP_PCT
 

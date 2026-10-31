@@ -604,7 +604,8 @@ object NetEdge8030 {
     /** V5.0.8151 — the entry is costed at the last live ticket that actually sealed (TradeVerifier), else the default. */
     // Pre-size evaluations use the configured preview notional promoted only within
     // current wallet capacity. Another mint's last sealed ticket is never input.
-    private fun entryTicket8151(): Double = try {
+    // V5.0.8491 — internal: V3 LiquidityExitPathAI prices its round trip at this same ticket (was a fixed \$75).
+    internal fun entryTicket8151(): Double = try {
         if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) paperTicket8399()
         else admissionQuoteSize8212(DEFAULT_TICKET_SOL,
             (com.lifecyclebot.engine.BotService.status.walletSol - LiveSpendReserveAuthority7255.RESERVE_SOL).coerceAtLeast(0.0),
