@@ -110,8 +110,12 @@ object StopLatencyCore8153 {
     }
 
     /** Pure: the hot plan only serves an emergency FULL exit (a partial keeps the planner's fraction contract). */
+    // V5.0.8487 — every FULL exit, not only an emergency: a normal stop / time / fluid exit sat in the planner's serial
+    // whole-wallet read + re-read (8484 live: NORM balance stage avg 66 s, max 132 s) while the same position's proven
+    // holding was warm. [emergency] is kept for the call site; the sizing rule (min canonical remaining, wallet) is unchanged.
+    @Suppress("UNUSED_PARAMETER")
     fun fastPlanEligible8153(emergency: Boolean, fraction: Double?, processor: String): Boolean =
-        emergency && fraction == null && !processor.contains("PARTIAL", ignoreCase = true)
+        fraction == null && !processor.contains("PARTIAL", ignoreCase = true)
 
     /**
      * Pure: background prewarm reads per tick. It yields to any emergency still working toward its broadcast (one

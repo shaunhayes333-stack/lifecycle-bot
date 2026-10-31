@@ -172,7 +172,15 @@ object StopLatencyWiring8153 {
      * null for a non-emergency exit or when nothing answered positive — the caller then keeps its legacy read.
      */
     fun hotPathBalances8153(wallet: SolanaWallet, mint: String, reason: String? = null): Map<String, CanonicalTokenAmount>? {
-        if (mint.isBlank() || !emergencyNow8153(mint, reason)) return null
+        if (mint.isBlank()) return null
+        if (!emergencyNow8153(mint, reason)) {
+            // V5.0.8487 — a non-emergency sell takes the warm proven holding when one is usable (no read issued; spent by any
+            // order signed for the mint since), else its legacy read as before.
+            if (try { com.lifecyclebot.engine.truth.WalletTokenAccountStateAuthority7253.isFrozen(mint) } catch (_: Throwable) { true }) return null
+            val p = provenHolding8153(mint) ?: return null
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("STOP_LATENCY_NORMAL_PROVEN_HOLDING_8487") } catch (_: Throwable) {}
+            return try { mapOf(mint to CanonicalTokenAmount(p.raw, p.decimals)) } catch (_: Throwable) { null }
+        }
         // An issuer-frozen account is never routed from here: the legacy path's frozen hand-off owns it.
         if (try { com.lifecyclebot.engine.truth.WalletTokenAccountStateAuthority7253.isFrozen(mint) } catch (_: Throwable) { true }) return null
         val p = emergencyHolding8153(wallet, mint) ?: return null

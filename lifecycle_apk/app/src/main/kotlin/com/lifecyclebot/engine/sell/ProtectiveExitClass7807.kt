@@ -55,9 +55,12 @@ object ProtectiveExitClass7807 {
     /** B4 — start rung when the route has no emergency slippage of its own. */
     private const val DEFAULT_EMERGENCY_START_BPS_7807 = 1_500
     /** B1 — normal (non-emergency) retry / coalesce windows are capped here. */
-    private const val NORMAL_RETRY_CAP_MS_7807 = 15_000L
-    /** B1 — emergency retry cadence: 2 s, 3 s, 5 s, 8 s, then every 10 s. */
-    private val EMERGENCY_RETRY_LADDER_MS_7807 = longArrayOf(2_000L, 3_000L, 5_000L, 8_000L, 10_000L)
+    // V5.0.8487 — owner: stops, buys and exits within 2 s. A failed attempt's retry was the bulk of trigger->broadcast
+    // (8484 live: NORM redispatchGap avg 27.7 s, HARD_STOP p95 138 s). Normal retries cap at 5 s (was 15 s); the
+    // emergency ladder starts at 1 s: 1, 2, 3, 5, then every 8 s (was 2, 3, 5, 8, 10).
+    private const val NORMAL_RETRY_CAP_MS_7807 = 5_000L
+    /** B1 — emergency retry cadence: 1 s, 2 s, 3 s, 5 s, then every 8 s. */
+    private val EMERGENCY_RETRY_LADDER_MS_7807 = longArrayOf(1_000L, 2_000L, 3_000L, 5_000L, 8_000L)
 
     /**
      * B3 — map an exit reason into the hierarchy. Every existing emergency

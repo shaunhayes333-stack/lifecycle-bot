@@ -71,18 +71,19 @@ class Aate7807ProtectiveExitPolicyTest {
 
     // ── B1 — retry cadence ─────────────────────────────────────────────────
     @Test fun emergency_retry_cadence_is_2_3_5_8_then_10s_forever_and_normal_caps_at_15s() {
-        assertEquals(listOf(2_000L, 3_000L, 5_000L, 8_000L, 10_000L, 10_000L, 10_000L),
+        // superseded by V5.0.8487 — owner: exits within 2 s; emergency 1/2/3/5 then 8 s, normal capped at 5 s (was 2/3/5/8/10, 15 s)
+        assertEquals(listOf(1_000L, 2_000L, 3_000L, 5_000L, 8_000L, 8_000L, 8_000L),
             (1..7).map { ProtectiveExitClass7807.retryDelayMs("STRICT_SL_-8", it, 60_000L) })
-        assertEquals(15_000L, ProtectiveExitClass7807.retryDelayMs("TAKE_PROFIT_25", 1, 60_000L))
-        assertEquals(10_000L, ProtectiveExitClass7807.retryDelayMs("TAKE_PROFIT_25", 1, 10_000L))
-        assertEquals(10_000L, ProtectiveExitClass7807.emergencyRetryDelayMs(500))
+        assertEquals(5_000L, ProtectiveExitClass7807.retryDelayMs("TAKE_PROFIT_25", 1, 60_000L))
+        assertEquals(4_000L, ProtectiveExitClass7807.retryDelayMs("TAKE_PROFIT_25", 1, 4_000L))
+        assertEquals(8_000L, ProtectiveExitClass7807.emergencyRetryDelayMs(500))
     }
 
     @Test fun risk_clock_redispatch_uses_the_emergency_ladder_for_stops() {
         val k = ProtectiveExitScheduler6450.TriggerKind.STOP_LOSS
-        assertEquals(2_000L, ProtectiveExitScheduler6450.redispatchIntervalMs7807(k, 1))
-        assertEquals(10_000L, ProtectiveExitScheduler6450.redispatchIntervalMs7807(ProtectiveExitScheduler6450.TriggerKind.CATASTROPHE, 9))
-        assertEquals(15_000L, ProtectiveExitScheduler6450.redispatchIntervalMs7807(ProtectiveExitScheduler6450.TriggerKind.TAKE_PROFIT, 1))
+        assertEquals(1_000L, ProtectiveExitScheduler6450.redispatchIntervalMs7807(k, 1))
+        assertEquals(8_000L, ProtectiveExitScheduler6450.redispatchIntervalMs7807(ProtectiveExitScheduler6450.TriggerKind.CATASTROPHE, 9))
+        assertEquals(5_000L, ProtectiveExitScheduler6450.redispatchIntervalMs7807(ProtectiveExitScheduler6450.TriggerKind.TAKE_PROFIT, 1))
     }
 
     @Test fun emergency_on_a_soft_lease_does_not_wait_out_the_soft_backoff() {

@@ -27,11 +27,12 @@ class Aate8419ReviewTest {
         val ts = heldOffBasis("Aate8419StopMint1111111111111111111111111111")
         val t0 = 60_000L
         assertFalse("first ask: wait", StopMarkConfirm8418.confirmed8418(ts, -30.0, -25.0, paper = false, nowMs = t0))
-        assertFalse("still inside the bound", StopMarkConfirm8418.confirmed8418(ts, -30.0, -25.0, paper = false, nowMs = t0 + 14_999L))
-        assertTrue("no answer in 15 s: the stop fires on its mark", StopMarkConfirm8418.confirmed8418(ts, -30.0, -25.0, paper = false, nowMs = t0 + 15_000L))
+        // superseded by V5.0.8487 — the bound is 5 s (was 15 s): the venue reserves answer first, and exits must land in seconds
+        assertFalse("still inside the bound", StopMarkConfirm8418.confirmed8418(ts, -30.0, -25.0, paper = false, nowMs = t0 + 4_999L))
+        assertTrue("no answer in 5 s: the stop fires on its mark", StopMarkConfirm8418.confirmed8418(ts, -30.0, -25.0, paper = false, nowMs = t0 + 5_000L))
         assertTrue("paper is never gated", StopMarkConfirm8418.confirmed8418(ts, -30.0, -25.0, paper = true, nowMs = t0))
-        assertTrue(StopMarkConfirm8418.awaitExpired8419(1_000L, 16_000L))
-        assertFalse(StopMarkConfirm8418.awaitExpired8419(1_000L, 15_999L))
+        assertTrue(StopMarkConfirm8418.awaitExpired8419(1_000L, 6_000L))
+        assertFalse(StopMarkConfirm8418.awaitExpired8419(1_000L, 5_999L))
         assertFalse("no ask yet", StopMarkConfirm8418.awaitExpired8419(0L, 999_999L))
     }
 

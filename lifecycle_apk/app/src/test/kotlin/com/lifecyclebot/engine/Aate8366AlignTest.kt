@@ -71,7 +71,8 @@ class Aate8366AlignTest {
         assertNull(ScalpStop8363.decide8363(-9.0, 0.0, 70_000L, 0, 15.0, 7.0, 4.1, 2.9))
         assertEquals("SCALP_HARD_STOP_8351", ScalpStop8363.decide8363(-11.2, 0.0, 70_000L, 0, 15.0, 7.0, 4.1, 2.9)?.second)
         // the ladder and the clock are decide8351's
-        assertEquals("SCALP_TAKE_PROFIT_8351_T1", ScalpStop8363.decide8363(16.0, 16.0, 20_000L, 0, 15.0, 7.0, 4.1, 2.9)?.second)
+        // superseded by V5.0.8485 — scalp T1 is +20 % (was +15 %)
+        assertEquals("SCALP_TAKE_PROFIT_8351_T1", ScalpStop8363.decide8363(21.0, 21.0, 20_000L, 0, 15.0, 7.0, 4.1, 2.9)?.second)
         assertEquals("SCALP_TIME_8351", ScalpStop8363.decide8363(1.0, 2.0, ScalpExit8351.CLOCK_MS_8351, 0, 15.0, 7.0, 4.1, 2.9)?.second)
     }
 

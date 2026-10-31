@@ -301,11 +301,13 @@ class Aate8153StopLatencyTest {
         assertEquals(newer, StopLatencyCore8153.newestUsable8153(listOf(older, newer, null), 30_000L, 0L, false))
         assertEquals(newer, StopLatencyCore8153.newestUsable8153(listOf(older, newer), 30_000L, 22_000L, false))
         assertNull(StopLatencyCore8153.newestUsable8153(listOf(older, newer), 30_000L, 26_000L, false))
-        // Only an emergency FULL exit takes the hot plan.
+        // superseded by V5.0.8487 — every FULL exit takes the hot plan (a normal exit waited 66 s avg on the serial read);
+        // a partial keeps the planner's fraction contract.
         assertTrue(StopLatencyCore8153.fastPlanEligible8153(true, null, "JUPITER_ULTRA_METIS"))
         assertFalse(StopLatencyCore8153.fastPlanEligible8153(true, 0.5, "JUPITER_ULTRA_METIS"))
         assertFalse(StopLatencyCore8153.fastPlanEligible8153(true, null, "JupiterPartial"))
-        assertFalse(StopLatencyCore8153.fastPlanEligible8153(false, null, "JUPITER_ULTRA_METIS"))
+        assertTrue(StopLatencyCore8153.fastPlanEligible8153(false, null, "JUPITER_ULTRA_METIS"))
+        assertFalse(StopLatencyCore8153.fastPlanEligible8153(false, 0.5, "JUPITER_ULTRA_METIS"))
         // The proof cache keeps the newest positive read only.
         StopLatencyCore8153.record8153(mint, proof(5, atMs = 1_000L))
         StopLatencyCore8153.record8153(mint, proof(3, atMs = 500L))

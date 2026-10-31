@@ -174,7 +174,8 @@ class Aate8363ExitsTest {
         assertNull(ScalpStop8363.decide8363(-10.0, 0.0, 61_000L, 0, 15.0, 6.0, 4.1, 2.9))
         assertEquals("SCALP_HARD_STOP_8351", ScalpStop8363.decide8363(-12.0, 0.0, 61_000L, 0, 15.0, 6.0, 4.1, 2.9)?.second)
         // The profit ladder is unchanged, warmup or not.
-        assertEquals(0.5 to "SCALP_TAKE_PROFIT_8351_T1", ScalpStop8363.decide8363(16.0, 16.0, 5_000L, 0, 15.0, 6.0, 4.1, 2.9))
+        // superseded by V5.0.8485 — scalp T1 is +20 % (was +15 %)
+        assertEquals(0.5 to "SCALP_TAKE_PROFIT_8351_T1", ScalpStop8363.decide8363(21.0, 21.0, 5_000L, 0, 15.0, 6.0, 4.1, 2.9))
         val se = src("engine/truth/ScalpExit8351.kt")
         assertTrue(se.contains("com.lifecyclebot.engine.ScalpStop8363.decide8363(g, maxOf(peak, g), nowMs - pos.entryTime, tier, st.stopPct, st.costPct,"))
         assertTrue(se.contains("// superseded by V5.0.8363"))

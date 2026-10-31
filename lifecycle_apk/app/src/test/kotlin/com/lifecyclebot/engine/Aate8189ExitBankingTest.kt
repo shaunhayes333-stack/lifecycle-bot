@@ -247,7 +247,8 @@ class Aate8189ExitBankingTest {
         assertTrue(t.clears(slice, out, t.expectedSlippageBps8189(2.5, 6, 500), 0.000205))
         assertFalse("a quote that does not clear cost still refuses", t.clears(slice, (0.0176 * 1e9).toLong(), t.expectedSlippageBps8189(null, 0, 500), 0.000205))
         val p = src("engine/ProfitExitTruth8163.kt")
-        assertEquals(3, p.split("expectedSlip8189(ts, slip)").size - 1)
+        // superseded by V5.0.8486 — the reserve-first preflight charges the same realistic slippage (3 -> 4 uses)
+        assertEquals(4, p.split("expectedSlip8189(ts, slip)").size - 1)
         assertTrue("the quote / transaction minOut stays at the cap", p.contains("amountRaw = raw, slippageBps = slip)"))
         assertTrue(src("engine/truth/CostLedger7962.kt").contains("fun sellSidePct8189(laneRaw: String?): Pair<Double, Int>?"))
     }

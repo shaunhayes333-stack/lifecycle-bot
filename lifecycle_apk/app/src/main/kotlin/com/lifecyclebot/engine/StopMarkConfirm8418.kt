@@ -31,7 +31,7 @@ object StopMarkConfirm8418 {
     private const val BYPASS_AGE_MS_8418 = 10_000L
     private val CHAIN_8418 = listOf("CURVE_RPC", "CURVE_ACCOUNT", "VAULT", "POOL_STATE", "ONCHAIN", "LOCKED_VENUE", "EXEC_QUOTE", "JUPITER_QUOTE", "EXECUTABLE")
     // V5.0.8419
-    private const val AWAIT_MAX_MS_8419 = 15_000L
+    private const val AWAIT_MAX_MS_8419 = 5_000L   // V5.0.8487: was 15 s — the venue reserves answer first now
     private const val REASK_GAP_MS_8419 = 5_000L
     private const val MAX_AWAITS_8419 = 2_048
     private const val RESERVE_ASK_MS_8486 = 3_000L   // a pending stop asks the venue for a read no older than this
