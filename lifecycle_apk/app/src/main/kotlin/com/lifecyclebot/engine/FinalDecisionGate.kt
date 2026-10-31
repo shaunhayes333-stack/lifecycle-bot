@@ -6451,6 +6451,11 @@ object FinalDecisionGate {
                     )
                 } catch (_: Throwable) {}
                 risk.sizeSol
+            } else if ("TRADE_ONE_RISK_SIZE_8489" in risk.labels && risk.sizeSol > riskSized) {
+                // V5.0.8489 — the risk authority's trade-1 size (lane cap, depth, hard loss, tradeable cash bound inside it)
+                // replaces a smaller lane proposal; the configured wallet cap below still binds.
+                try { PipelineHealthCollector.labelInc("FDG_TRADE_ONE_RISK_SIZE_8489") } catch (_: Throwable) {}
+                risk.sizeSol
             } else minOf(riskSized, risk.sizeSol)
         }
         if (!riskSized.isFinite() || riskSized <= 0.0) return TicketExec8304.fdgSizeZero8304(lane, if (depthCap <= 0.0) "DEPTH_UNKNOWN" else "RISK_SIZED_ZERO")

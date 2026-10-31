@@ -250,7 +250,8 @@ object DiagnosisBrief8438 {
             sb.append("               buys start->broadcast n=").append(bn).append(" avg=").append(if (bn > 0) "${bavg}ms" else "-")
                 .append(" max=").append(if (bn > 0) "${bmax}ms" else "-").append(" slowest=").append(slow)
                 .append(if (bn > 0 && bavg > 2_000L) " [FAULT >2 s]" else "").append('\n')
-            sb.append("               ").append(com.lifecyclebot.engine.truth.BuyStageTiming.statusLine()).append('\n')
+            sb.append("               ").append(com.lifecyclebot.engine.truth.BuyStageTiming.statusLine())
+                .append(' ').append(try { com.lifecyclebot.network.JupiterLatency.statusLine() } catch (_: Throwable) { "jupiterLatency8489=-" }).append('\n')
             if (bn > 0 && bavg > 2_000L) fixes += Fix8438(bavg / 100.0, "FAULT",
                 "live buy start->broadcast avg ${bavg} ms (max ${bmax}); slowest step $slow -> BuyStageTiming / Executor.prepareJupiterBuy8090 / tryPumpPortalBuy")
         }

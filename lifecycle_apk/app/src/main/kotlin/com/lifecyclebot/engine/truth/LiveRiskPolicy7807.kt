@@ -439,6 +439,13 @@ object LiveRiskPolicy7807 {
         return (budget / lossFrac).coerceIn(0.0, equitySol)
     }
 
+    /**
+     * Pure (V5.0.8489): trade-1 risk share of equity at the stop — the lane budget, or half the account's hard per-trade
+     * loss cap when that is larger (small accounts: 0.25 SOL -> 4 %, 1 SOL+ -> 2 %; the lane budget is 1.5 %).
+     */
+    fun tradeOneRiskFrac8489(laneBaseRiskFrac: Double, equitySol: Double): Double =
+        maxOf(laneBaseRiskFrac, hardPerTradeRiskCapFrac(equitySol) * 0.5)
+
     /** Executable-minimum rule: open at the minimum only if its loss at the stop fits the hard cap. */
     /** Pure. V5.0.7987 — share of equity one executable-minimum order may take: 30% at <= 0.25 SOL, 15% at >= 1 SOL. */
     fun smallAccountMinShare7987(equitySol: Double): Double {
@@ -588,6 +595,13 @@ object LiveRiskPolicy7807 {
         /** V5.0.8326 — retired compatibility mode admitted this candidate (8114 decision): route-minimum promotion as at 8114. */
         /** V5.0.8329 — the candidate's mint (EntryEconomics8329.promotionReasonRefusal8329 reads its setup record / plan); "" for pure callers. */
         val mint8329: String = "",
+        /**
+         * V5.0.8489 — trade-1 sizing (owner: "trade 1 mindset"): the base risk at the stop scales with a small account
+         * ([tradeOneRiskFrac8489]) and an unproven lane's own risk size is not clamped back to the upstream proposal.
+         * Lane cap, depth, hard loss at the stop, tradeable cash and every loss shrink still bind. Runtime only; pure
+         * callers keep the lane budget.
+         */
+        val tradeOneRisk8489: Boolean = false,
     )
 
     /** V5.0.8094 — how a proven candidate's size was reached (diagnostics; null for an unproven candidate). */
@@ -706,9 +720,11 @@ object LiveRiskPolicy7807 {
         if (moonMult < 1.0) labels += "MOONSHOT_NO_PLAN_SIZE_7807"
         val total = (Kelly8365.oneShrink8365(shrink, admMult, ddMult, moonMult, costMult) * growth).coerceIn(TOTAL_FLOOR_7807, MAX_GROWTH_MULT_7807)  // V5.0.8365
 
-        var size = sizeFromInvalidation(i.equitySol, b.baseRiskFrac, total, stop, cost0)
+        val baseRisk8489 = if (i.tradeOneRisk8489) tradeOneRiskFrac8489(b.baseRiskFrac, i.equitySol) else b.baseRiskFrac
+        if (baseRisk8489 > b.baseRiskFrac + 1e-12) labels += "TRADE_ONE_RISK_SIZE_8489"
+        var size = sizeFromInvalidation(i.equitySol, baseRisk8489, total, stop, cost0)
         val cost1 = if (size > 0.0) costAtSizePct8153(i, size) else cost0
-        size = sizeFromInvalidation(i.equitySol, b.baseRiskFrac, total, stop, cost1)
+        size = sizeFromInvalidation(i.equitySol, baseRisk8489, total, stop, cost1)
         val laneCap = i.equitySol * b.maxPositionEquityFrac
         // V5.0.8337 — the impact cap is sized on the depth the trade moves (an active curve's virtual reserve), not real SOL.
         val impactLiq8337 = FieldManual7715.depthUsdForImpact8337(i.mint8329, i.liquidityUsd, i.solUsd)
@@ -736,7 +752,7 @@ object LiveRiskPolicy7807 {
         // V5.0.8094 — an ordinary request is still clamped to the upstream proposal; an APPROVED proven target may
         // exceed the proposal up to its own Kelly size, never above its external ceiling (depth, curve, wallet share).
         val upstreamCeil8094 = LiveSizeTarget8094.upstreamCeiling8094(i.upstreamSol, kellySol, i.compoundingCeilingSol8094)
-        if (upstreamCeil8094 > 0.0 && size > upstreamCeil8094) size = upstreamCeil8094
+        if (upstreamCeil8094 > 0.0 && size > upstreamCeil8094 && !i.tradeOneRisk8489) size = upstreamCeil8094
         val sizing8094 = if (i.edgeKellyFrac8057 > 0.0) {
             val hardLoss8094 = i.equitySol * hardPerTradeRiskCapFrac(i.equitySol) / ((stop + cost1) / 100.0).coerceAtLeast(0.005)
             val raw8094 = i.equitySol * i.edgeKellyFrac8057
@@ -1031,6 +1047,7 @@ object LiveRiskPolicy7807 {
             recentLive8296 = try { LiveConfidence8296.recentFor8296(effectiveLane7811) } catch (_: Throwable) { null },
             admissionProven8319 = proofGross8232 != null,
             mint8329 = mint,  // V5.0.8329
+            tradeOneRisk8489 = true,  // V5.0.8489
         )
     }
 

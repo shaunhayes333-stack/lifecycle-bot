@@ -203,6 +203,26 @@ class JupiterApi(
         outputMint: String,
         amountRaw: Long,
         slippageBps: Int,
+    ): SwapQuote = timedQuote8489 { getQuoteUntimed8489(inputMint, outputMint, amountRaw, slippageBps) }
+
+    /** V5.0.8489 — every quote is timed into JupiterLatency (the route choice reads it). */
+    private inline fun timedQuote8489(block: () -> SwapQuote): SwapQuote {
+        val t0 = System.currentTimeMillis()
+        try {
+            val q = block()
+            try { JupiterLatency.record(System.currentTimeMillis() - t0, true) } catch (_: Throwable) {}
+            return q
+        } catch (e: Exception) {
+            try { JupiterLatency.record(System.currentTimeMillis() - t0, false, e.message) } catch (_: Throwable) {}
+            throw e
+        }
+    }
+
+    private fun getQuoteUntimed8489(
+        inputMint: String,
+        outputMint: String,
+        amountRaw: Long,
+        slippageBps: Int,
     ): SwapQuote {
         require(inputMint.isNotBlank()) { "inputMint blank" }
         require(outputMint.isNotBlank()) { "outputMint blank" }
@@ -247,6 +267,14 @@ class JupiterApi(
      * escalation loop can still try non-RFQ routes (Metis).
      */
     fun getQuoteWithTaker(
+        inputMint: String,
+        outputMint: String,
+        amountRaw: Long,
+        slippageBps: Int,
+        taker: String,
+    ): SwapQuote = timedQuote8489 { getQuoteWithTakerUntimed8489(inputMint, outputMint, amountRaw, slippageBps, taker) }
+
+    private fun getQuoteWithTakerUntimed8489(
         inputMint: String,
         outputMint: String,
         amountRaw: Long,

@@ -148,5 +148,70 @@ object StopMarkConfirm8418 {
         } catch (_: Throwable) { null }
     }
 
+    // ── V5.0.8489 — every price-based loss stop is checked against the coin's own pool / curve before it sells ──
+    // 8488 live: 2gTbp2 STRICT_SL_-4 sold at +2.7 % on chain; 3qjBR3 RUNNER_HARD_STOP_7967_-99PCT fired on a mark of
+    // 6.5e-8 USD against a 1.38e-4 entry (the coin was ~-7 %). A stop whose fresh venue-reserve read prices the bag well
+    // above its own trigger (better than half the stop's depth, or green when no depth is named) is a bad mark: it holds,
+    // asks for a new read, and fires on the next tick once the venue agrees. No fresh read = no refusal (unchanged).
+    private const val VENUE_STOP_READ_MAX_AGE_MS_8489 = 8_000L   // held reads are topped up past 8 s (HeldHotMarkAuthority7419)
+    private val STOP_PCT_8489 = Regex("-(\\d+(?:\\.\\d+)?)")
+
+    /** Pure: is [reason] a price-driven loss stop (not a rug / drain / freeze / liquidity / manual exit)? */
+    fun priceLossStop8489(reason: String): Boolean {
+        val r = reason.uppercase()
+        if (r.contains("RUG") || r.contains("DRAIN") || r.contains("FREEZE") || r.contains("FROZEN") || r.contains("LIQUIDITY") ||
+            r.contains("HONEYPOT") || r.contains("DEV_DUMP") || r.contains("DEV_SELL") || r.contains("MANUAL") || r.contains("KILL") ||
+            r.contains("SHUTDOWN") || r.contains("CANNOT_SELL") || r.contains("LP_") || r.contains("MINT_AUTH")) return false
+        if (r.contains("PROFIT") || r.contains("TRAIL") || r.contains("TAKE") || r.contains("PEAK")) return false
+        return (try { com.lifecyclebot.engine.sell.ProtectiveExitClass7807.of(reason) == com.lifecyclebot.engine.sell.ProtectiveExitClass7807.Priority.HARD_SL } catch (_: Throwable) { false }) || r.contains("CATASTROPH") || r.contains("GAP_GUARD") ||
+            r.contains("_STOP") || r.contains("STOP_") || r.contains("FLOOR")
+    }
+
+    /** Pure: the stop depth named in [reason] (e.g. STRICT_SL_-4 -> -4.0), or null. */
+    fun stopDepthPct8489(reason: String): Double? =
+        STOP_PCT_8489.findAll(reason).lastOrNull()?.groupValues?.get(1)?.toDoubleOrNull()?.let { -it }?.takeIf { it < 0.0 && it >= -100.0 }
+
+    /** Pure: does an executable [venuePnlPct] refute a stop of depth [depthPct] (null = unnamed)? */
+    fun venueRefutes8489(venuePnlPct: Double, depthPct: Double?): Boolean {
+        if (!venuePnlPct.isFinite()) return false
+        return if (depthPct != null) venuePnlPct > depthPct * 0.5 else venuePnlPct >= 0.0
+    }
+
+    /** The bag's executable PnL % from a venue-reserve read no older than [maxAgeMs]; null when none. */
+    private fun venuePnlPct8489(ts: TokenState, nowMs: Long = System.currentTimeMillis(), maxAgeMs: Long = VENUE_STOP_READ_MAX_AGE_MS_8489): Double? {
+        val pos = ts.position
+        if (pos.qtyToken <= 0.0 || pos.entryPrice <= 0.0) return null
+        return try {
+            val dec = com.lifecyclebot.engine.truth.MintDecimalsAuthority6392.get(ts.mint) ?: ts.tokenMap.decimals ?: return null
+            val raw = java.math.BigDecimal.valueOf(pos.qtyToken).movePointRight(dec).toBigInteger()
+            val est = com.lifecyclebot.engine.truth.HeldHotMarkAuthority7419.venueReserveSellEstimate(
+                ts.mint, raw, dec, WalletManager.lastKnownSolPrice, nowMs, countMiss = false) ?: return null
+            if (nowMs - est.observedAtMs > maxAgeMs) return null
+            (est.priceUsd / pos.entryPrice - 1.0) * 100.0
+        } catch (_: Throwable) { null }
+    }
+
+    /** Executor.requestSellCore7948: true when a fresh venue read refutes this live loss stop (it holds this tick). */
+    fun stopRefutedByVenue8489(ts: TokenState, reason: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (ts.position.isPaperPosition || !ts.position.isOpen || !priceLossStop8489(reason)) return false
+        val pnl = venuePnlPct8489(ts, nowMs)
+        if (pnl == null) {
+            try { com.lifecyclebot.engine.truth.OnChainDepth8038.request8038(ts, RESERVE_ASK_MS_8486) } catch (_: Throwable) {}
+            return false
+        }
+        val depth = stopDepthPct8489(reason)
+        if (!venueRefutes8489(pnl, depth)) {
+            try { PipelineHealthCollector.labelInc("STOP_CONFIRMED_BY_VENUE_8489") } catch (_: Throwable) {}
+            return false
+        }
+        try {
+            PipelineHealthCollector.labelInc("STOP_REFUTED_BY_VENUE_8489")
+            ForensicLogger.lifecycle("STOP_REFUTED_BY_VENUE_8489",
+                "mint=${ts.mint.take(10)} reason=${reason.take(60)} venuePnl=${"%.1f".format(pnl)} depth=${depth ?: "-"} markSource=${ts.lastPriceSource} action=hold_bad_mark_reask")
+        } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.truth.OnChainDepth8038.request8038(ts, RESERVE_ASK_MS_8486) } catch (_: Throwable) {}
+        return true
+    }
+
     internal fun resetForTest8419() { awaitSince8419.clear() }
 }

@@ -69,7 +69,7 @@ class Aate8418RouteTest {
         // the fresh-buy choice (liveBuy) is the 8369 helper, counted on every eligible buy
         assertTrue(ex.contains("Costs8369.noteBuyRoute8369(ts.mint, if (jupiterFirst8369) \"JUPITER\" else \"PUMPPORTAL\")"))
         val fn = ex.substring(ex.indexOf("private fun shouldTryPumpDirectFirst6099"), ex.indexOf("Executor v3 — SecurityGuard integrated"))
-        assertTrue(fn.contains("Costs8369.sellPumpFirst8418(pumpFirst, jupiterOk8390, Costs8369.cachedJupiterQuotes8369(ts.mint))"))
+        assertTrue(fn.contains("Costs8369.sellPumpFirst8418(pumpFirst, jupiterOk8390 && !jupiterSlow8489, Costs8369.cachedJupiterQuotes8369(ts.mint))") /* superseded by V5.0.8489 — a slow Jupiter is not admitted first */)
         assertTrue(ex.contains("return shouldTryPumpDirectFirst6099(ts, \"EXIT\").also { Costs8369.noteSellFirstRoute8418(it) }"))
         assertTrue(ex.contains("Costs8369.notePumpSell8418(labelTag)"))
     }

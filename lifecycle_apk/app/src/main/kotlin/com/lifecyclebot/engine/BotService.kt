@@ -1059,6 +1059,14 @@ class BotService : Service() {
         return ExitProfile7955.applyTrail7955(plan7955, stop, peakPnlPct, costPct)
     }
 
+    /** V5.0.8489 — the tick profit lock arms its full give-back floor at half the lane's learned target (hold target x tpMult). */
+    private fun tickLockArm8489(ts: com.lifecyclebot.data.TokenState): Double = try {
+        val lane = ts.position.tradingMode
+        val target = HoldingLogicLayer.getHoldParams(lane).targetProfitPct
+        val mult = try { com.lifecyclebot.engine.learning.LaneExitTuner.getTpMult(lane) } catch (_: Throwable) { 1.0 }
+        (target * mult * 0.5).takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+    } catch (_: Throwable) { 0.0 }
+
     /** V5.0.7935 — a plan that banked its first target trails the remainder under structure. */
     private fun planTrailsRemainder7935(ts: com.lifecyclebot.data.TokenState): Boolean = try {
         com.lifecyclebot.engine.truth.TradePlan7739.planFor(ts.mint, ts.position.entryTime)?.firstTargetTaken == true
@@ -13896,7 +13904,7 @@ class BotService : Service() {
                                     // its arm peak). Only a plan that already banked its first target and
                                     // trails the rest under structure owns the lock.
                                     val runnerLockDeferred7277 = planTrailsRemainder7935(ts)
-                                    val lockedFloor = if (runnerLockDeferred7277) Double.NaN else try {
+                                    val lockedFloor0 = if (runnerLockDeferred7277) Double.NaN else try {
                                         fluidStop7928(ts,
                                             modeDefaultStop = 20.0,
                                             currentPnlPct = pnlPctNow,
@@ -13906,6 +13914,15 @@ class BotService : Service() {
                                             lane = ts.position.tradingMode,  // V5.0.7267 — learned give-back band
                                         )
                                     } catch (_: Throwable) { Double.NaN }
+                                    // V5.0.8489 — below half the lane's (learned) target the lock only holds break-even + 1 %: 8488 EYqygb
+                                    // (QUALITY, target 25-30 %) was sold by "peak13_now10" at +3.9 % on chain. Above the arm the learned
+                                    // give-back lock applies as before.
+                                    val lockArm8489 = tickLockArm8489(ts)
+                                    val lockedFloor = if (!lockedFloor0.isNaN() && peakPct < lockArm8489) {
+                                        val be8489 = planCostPct7766(ts) + 1.0
+                                        if (lockedFloor0 > be8489) try { PipelineHealthCollector.labelInc("TICK_LOCK_BELOW_ARM_BREAKEVEN_8489") } catch (_: Throwable) {}
+                                        minOf(lockedFloor0, be8489)
+                                    } else lockedFloor0
                                     // V5.0.7277 — a runner lane's give-back lock waits for a
                                     // +50% peak; "peak14 now11" is not a runner outcome.
                                     // V5.0.7392 — the lock remembers the highest floor it earned.

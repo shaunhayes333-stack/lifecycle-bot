@@ -182,9 +182,32 @@ object OnChainDepth8038 {
             ?.let { depthUsd8038(it.quoteSol, solUsd()) } ?: Double.NaN
 
     private fun pools(ts: TokenState): List<String> =
-        listOf(ts.lastPricePoolAddr, ts.pairAddress, ts.tokenMap.poolAddress, ts.tokenMap.pairAddress)
+        (listOf(ts.lastPricePoolAddr, ts.pairAddress, ts.tokenMap.poolAddress, ts.tokenMap.pairAddress) + listOfNotNull(derivedSolPool8489(ts.mint)))
             .map { it.trim() }.filter { BASE58.matches(it) && it != ts.mint }.distinct()
             .filter { p -> unsupported[p]?.let { System.currentTimeMillis() - it > UNSUPPORTED_RETRY_MS } ?: true }
+
+    // V5.0.8489 — every meme coin trades against SOL, so a pump.fun coin's pool is a function of its mint: the canonical
+    // PumpSwap TOKEN/WSOL pool PDA (GradTicks8018.canonicalPool8144). 8488 live: SHITCOIN deferred 1,025 times on
+    // LANE_LIQ_UNHYDRATED (LiquidityTruth stillUnknown=1,145) because no pair address had been fetched for the coin, so
+    // the depth read was never asked. A curve that is still active is read through its own curve account instead.
+    private val derivedPool8489 = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private fun derivedSolPool8489(mint: String): String? {
+        if (mint.isBlank()) return null
+        val pumpOrigin = mint.endsWith("pump", ignoreCase = true) ||
+            (try { com.lifecyclebot.network.PumpCurveKeys7269.keyFor(mint) } catch (_: Throwable) { null }) != null
+        if (!pumpOrigin) return null
+        val graduated = try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(mint) } catch (_: Throwable) { false }
+        val curveActive = !graduated && (try { CurveReserves7951.known7951(mint) } catch (_: Throwable) { false })
+        if (curveActive) return null
+        derivedPool8489[mint]?.let { return it }
+        val p = try { com.lifecyclebot.network.GradTicks8018.canonicalPool8144(mint) } catch (_: Throwable) { null } ?: return null
+        if (derivedPool8489.size > 4_000) derivedPool8489.clear()
+        derivedPool8489[mint] = p
+        derivedPools8489.incrementAndGet()
+        return p
+    }
+    private val derivedPools8489 = AtomicLong(0)
+    fun derivedPoolLine8489(): String = "derivedSolPool8489=${derivedPools8489.get()}"
 
     /** Ask for a read of [ts]'s pool in the background (LiveEdgeGate, exits). Returns immediately. */
     fun request8038(ts: TokenState, maxAgeMs: Long = FRESH_MS) {
@@ -566,7 +589,12 @@ object OnChainDepth8038 {
             (try { com.lifecyclebot.network.PumpCurveKeys7269.keyFor(mint) } catch (_: Throwable) { null }) != null ||
             (try { CurveReserves7951.known7951(mint) } catch (_: Throwable) { false })
         if (!graduated && curveCoin) needCurve8039(mint, nowMs)
-        if (!curveDue8039(poolAsked8047[mint] ?: 0L, nowMs) || pools(ts).isEmpty()) return
+        if (!curveDue8039(poolAsked8047[mint] ?: 0L, nowMs)) return
+        if (pools(ts).isEmpty()) {
+            // V5.0.8489 — a non-pump coin with no known pool: one batched pair read (30 mints a call) names its SOL pool.
+            if (!curveCoin) try { com.lifecyclebot.engine.DexBatchLane8287.enqueue8287(mint) } catch (_: Throwable) {}
+            return
+        }
         poolAsked8047[mint] = nowMs
         if (poolAsked8047.size > 6_000) poolAsked8047.entries.removeIf { nowMs - it.value > 10 * CURVE_RETRY_MS }
         poolDepthAsked8047.incrementAndGet()

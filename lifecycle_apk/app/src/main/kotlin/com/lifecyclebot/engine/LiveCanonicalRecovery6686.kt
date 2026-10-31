@@ -607,8 +607,16 @@ object LiveCanonicalRecovery6686 {
                 px != null && px.isFinite() && px > 0.0 && (p.lastPriceUpdateMs ?: 0L) > 0L && now - (p.lastPriceUpdateMs ?: 0L) <= ADOPTION_MARK_MAX_AGE_MS_7706
             }?.currentPriceUsd
         } catch (_: Throwable) { null }
-        val priceUsd = tsMark ?: trackerMark
         val solUsd = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        // V5.0.8489 — the venue's own reserves price the adoption first. 8488 live: 3qjBR3 was re-adopted at a mark of
+        // 6.5e-8 USD (the coin traded ~1.3e-4), so the bot's own tokens carried cost 0.000016 SOL and their sale booked
+        // +0.032 SOL / +200,880 % — a win that never happened. A fresh pool / curve read is what the bag sells for.
+        val reservePx8489 = try {
+            com.lifecyclebot.engine.truth.HeldHotMarkAuthority7419.venueReserveSellEstimate(mint, amount.raw, amount.decimals, solUsd, now, countMiss = false)
+                ?.priceUsd?.takeIf { it.isFinite() && it > 0.0 }
+        } catch (_: Throwable) { null }
+        if (reservePx8489 != null) try { PipelineHealthCollector.labelInc("LIVE_WALLET_ADOPTION_AT_VENUE_RESERVE_8489") } catch (_: Throwable) {}
+        val priceUsd = reservePx8489 ?: tsMark ?: trackerMark
         if (priceUsd == null || !solUsd.isFinite() || solUsd <= 0.0) {
             adoptionAwaitingMark7706.incrementAndGet()
             try { PipelineHealthCollector.labelInc("LIVE_WALLET_ADOPTION_AWAITING_MARK_7706") } catch (_: Throwable) {}
@@ -642,7 +650,7 @@ object LiveCanonicalRecovery6686 {
             ForensicLogger.lifecycle(
                 "LIVE_WALLET_HOLDING_ADOPTED_AT_MARK_7706",
                 "mint=${mint.take(12)} qty=$qty priceUsd=$priceUsd valueUsd=${"%.2f".format(valueUsd)} costSol=${"%.5f".format(costSol)} " +
-                    "markSource=${if (tsMark != null) "token_state" else "wallet_tracker"} lane=WALLET_RECOVERED action=open_canonical_live_position_at_observed_mark_exits_apply",
+                    "markSource=${if (reservePx8489 != null) "venue_reserve" else if (tsMark != null) "token_state" else "wallet_tracker"} lane=WALLET_RECOVERED action=open_canonical_live_position_at_observed_mark_exits_apply",
             )
         } catch (_: Throwable) {}
         return Basis(

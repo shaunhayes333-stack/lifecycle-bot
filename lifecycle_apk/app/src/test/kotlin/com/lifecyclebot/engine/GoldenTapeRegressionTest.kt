@@ -11653,7 +11653,7 @@ class GoldenTapeRegressionTest {
         val mv = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/MissingMarkExitVeto6835.kt").readText()
         assertFalse(mv.contains("exitReason.startsWith(\"CATASTROPHIC_HARD_BACKSTOP\") ||\n            exitReason.startsWith(\"UNIVERSAL_PEAK_LOCK\")"))
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue(ex.contains("val hardFloor = if (runnerLane7335 && fluidStopNegative < hardFloorRaw7335) {"))
+        assertTrue(ex.contains("val hardFloor = laneHeldStop8489(runnerLane7335, metrics6725?.healthTier, fluidStopNegative, hardFloorRaw7335)") /* superseded by V5.0.8489 — healthy / neutral coins also keep the lane stop */)
         assertTrue(ex.contains("SWEEP_TP_DECLINED_RUNNER_LANE_7335"))
         val fl = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/FluidLearningAI.kt").readText()
         assertTrue(fl.contains("kotlin.math.min(continuousLockTight7335, band)"))

@@ -223,6 +223,6 @@ object LiquidityTruth8037 {
     }
 
     fun statusLine(): String =
-        "curveReal=${curveRealApplied8046.get()} curveCapEstimateNotWritten8418=${curveCapDerived8164.get()} capFromPrice8317=${capFromPrice8317.get()} chainApplied=${chainApplied.get()} hydrated=${hydrated.get()} stillUnknown=${stillUnknown.get()} " +
+        "curveReal=${curveRealApplied8046.get()} curveCapEstimateNotWritten8418=${curveCapDerived8164.get()} capFromPrice8317=${capFromPrice8317.get()} chainApplied=${chainApplied.get()} hydrated=${hydrated.get()} stillUnknown=${stillUnknown.get()} ${try { OnChainDepth8038.derivedPoolLine8489() } catch (_: Throwable) { "-" }} " +
             "intakeCapDerivedRefused8418=${capDerivedRefused8418.get()} intakeLowered8418=${intakeLowered8418.get()} rule=chain vaults / curve account first (§8038), then tick, then observed (token map, curve reserves); a newer real observation replaces an older one up or down; a cap is never a depth (§8418)"
 }

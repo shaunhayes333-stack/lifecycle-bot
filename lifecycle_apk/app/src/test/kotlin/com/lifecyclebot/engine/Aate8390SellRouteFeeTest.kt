@@ -12,7 +12,7 @@ class Aate8390SellRouteFeeTest {
         val fn = e.substring(e.indexOf("private fun shouldTryPumpDirectFirst6099"), e.indexOf("Executor v3 — SecurityGuard integrated"))
         assertTrue(fn.contains("Route8144.JUPITER"))
         // superseded by V5.0.8418 — the same rule plus a bounded-probe "no route" answer, through one pure helper (Aate8418RouteTest)
-        assertTrue(fn.contains("Costs8369.sellPumpFirst8418(pumpFirst, jupiterOk8390, Costs8369.cachedJupiterQuotes8369(ts.mint))"))
+        assertTrue(fn.contains("Costs8369.sellPumpFirst8418(pumpFirst, jupiterOk8390 && !jupiterSlow8489, Costs8369.cachedJupiterQuotes8369(ts.mint))") /* superseded by V5.0.8489 — a slow Jupiter is not admitted first */)
         assertTrue(fn.contains("return pumpFirst8418"))
         assertTrue(fn.contains("SELL_JUPITER_FIRST_QUOTED_FEE_8391_"))
         // every ordinary exit decides through this one function; the PumpPortal rescue legs stay

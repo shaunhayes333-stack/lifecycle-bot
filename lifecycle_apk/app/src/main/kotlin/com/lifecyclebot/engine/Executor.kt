@@ -276,7 +276,11 @@ private fun shouldTryPumpDirectFirst6099(ts: TokenState, label: String): Boolean
     } catch (_: Throwable) {}
     try { PipelineHealthCollector.labelInc("SELL_ROUTE_PRIORITY_${priority.name}_6099") } catch (_: Throwable) {}
     // V5.0.8418 — PumpPortal first only when Jupiter has no route (endpoint not admitting it, or the bounded quote probe said no route).
-    val pumpFirst8418 = Costs8369.sellPumpFirst8418(pumpFirst, jupiterOk8390, Costs8369.cachedJupiterQuotes8369(ts.mint))
+    // V5.0.8489 — while Jupiter is slow (JupiterLatency: recent median quote > 1.5 s, mostly failing, or a 429 in 30 s) a
+    // pump-venue coin sells through its own venue route first; Jupiter stays the rescue after it.
+    val jupiterSlow8489 = pumpFirst && (try { com.lifecyclebot.network.JupiterLatency.slow() } catch (_: Throwable) { false })
+    if (jupiterSlow8489) try { PipelineHealthCollector.labelInc("SELL_VENUE_FIRST_JUPITER_SLOW_8489_$label") } catch (_: Throwable) {}
+    val pumpFirst8418 = Costs8369.sellPumpFirst8418(pumpFirst, jupiterOk8390 && !jupiterSlow8489, Costs8369.cachedJupiterQuotes8369(ts.mint))
     if (label != "EXIT") Costs8369.noteSellFirstRoute8418(pumpFirst8418)  // EXIT is counted once by exitPumpFirst8189
     return pumpFirst8418
 }
@@ -2774,6 +2778,12 @@ class Executor(
                 if (st == null) 0 else st.successes.get() + st.failures4xx.get() + st.failures5xx.get() + st.networkErrors.get())
         } catch (_: Throwable) { false }
         if (degraded8476) try { PipelineHealthCollector.labelInc("BUY_PUMP_FIRST_JUPITER_DEGRADED_8476") } catch (_: Throwable) {}
+        // V5.0.8489 — a slow Jupiter (8488: buy quote avg 2.0 s, max 8.7 s) sends a PumpPortal-routable buy venue-first too.
+        if (try { com.lifecyclebot.network.JupiterLatency.slow() } catch (_: Throwable) { false }) {
+            try { PipelineHealthCollector.labelInc("BUY_VENUE_FIRST_JUPITER_SLOW_8489") } catch (_: Throwable) {}
+            try { Costs8369.noteBuyRoute8369(ts.mint, "PUMPPORTAL") } catch (_: Throwable) {}
+            return false
+        }
         val jupiterFirst8369 = Costs8369.jupiterFirstForBuy8369(venue, quotes8369, CostMeter8151.aggregatorTriedRecently8151(ts.mint), Costs8369.jupiterBuysFailing8369(), Costs8369.pumpBuysLanding8418(), degraded8476)
         try { Costs8369.noteBuyRoute8369(ts.mint, if (jupiterFirst8369) "JUPITER" else "PUMPPORTAL") } catch (_: Throwable) {}
         if (!jupiterFirst8369) return false
@@ -2819,6 +2829,31 @@ class Executor(
                 "fraction=${"%.3f".format(fraction)} proceeds=${"%.6f".format(proceedsSol)} fixedFee=${"%.6f".format(fixed)} action=keep_inventory")
         } catch (_: Throwable) {}
         return true
+    }
+
+    /**
+     * V5.0.8489 — the strict stop is never tighter than the lane's own stop on a runner lane (V5.0.7335) nor on a healthy /
+     * neutral coin: the predicted-slippage pull-in turned a -8..-10 % lane stop into STRICT_SL_-4 (8488: QUALITY 2gTbp2)
+     * while measured fills slip ~0.5 %. A deteriorating coin (weakening / dying / rug-like) keeps the tighter stop.
+     */
+    private fun laneHeldStop8489(runnerLane: Boolean, tier: com.lifecyclebot.engine.truth.CanonicalTokenMetricsSnapshot6725.HealthTier?,
+                                 laneStop: Double, metricStop: Double): Double {
+        val healthy = tier == null || tier == com.lifecyclebot.engine.truth.CanonicalTokenMetricsSnapshot6725.HealthTier.HEALTHY_RUNNER ||
+            tier == com.lifecyclebot.engine.truth.CanonicalTokenMetricsSnapshot6725.HealthTier.HEALTHY_STABLE ||
+            tier == com.lifecyclebot.engine.truth.CanonicalTokenMetricsSnapshot6725.HealthTier.NEUTRAL
+        if (!((runnerLane || healthy) && laneStop < metricStop)) return metricStop
+        try { PipelineHealthCollector.labelInc(if (runnerLane) "RUNNER_STOP_HELD_AT_LANE_STOP_7335" else "STOP_HELD_AT_LANE_STOP_8489") } catch (_: Throwable) {}
+        return laneStop
+    }
+
+    /** V5.0.8489 — a live position on [ts]'s mint is already open (runtime or canonical) with tokens. */
+    private fun liveMintAlreadyHeld8489(ts: TokenState): Boolean {
+        val p = ts.position
+        if (p.isOpen && !p.isPaperPosition && p.qtyToken > 0.0) return true
+        return try {
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.firstOpenForMint(ts.mint)
+                ?.let { it.mode.equals("live", ignoreCase = true) && it.remainingQtyRaw.signum() > 0 } == true
+        } catch (_: Throwable) { false }
     }
 
     private fun recalcBuyPlanForProcessor(
@@ -9626,10 +9661,7 @@ class Executor(
             // noise. A runner lane's stop is never tighter than its own
             // configured (fluid) stop; the runner floor and rug exits still act.
             val runnerLane7335 = try { RunnerExitProfile7277.isRunnerLane(pos.tradingMode) } catch (_: Throwable) { false }
-            val hardFloor = if (runnerLane7335 && fluidStopNegative < hardFloorRaw7335) {
-                try { PipelineHealthCollector.labelInc("RUNNER_STOP_HELD_AT_LANE_STOP_7335") } catch (_: Throwable) {}
-                fluidStopNegative
-            } else hardFloorRaw7335
+            val hardFloor = laneHeldStop8489(runnerLane7335, metrics6725?.healthTier, fluidStopNegative, hardFloorRaw7335)
             val pnlPctNowVerdict6038 = OpenPnlSanity.inspectPosition(pos, currentPrice, "Executor.dynamic_stop_6038/${ts.symbol}/${ts.mint.take(8)}", emit = true, mint = ts.mint)
             val pnlPctNow = if (pnlPctNowVerdict6038.ok) pnlPctNowVerdict6038.pnlPct else 0.0
             if (currentPrice > 0.0 && pnlPctNow <= hardFloor) {
@@ -20045,6 +20077,19 @@ class Executor(
             } catch (_: Throwable) {}
             return false
         }
+        // V5.0.8489 — one live position per mint, enforced at the send. 8488 live: EXPRESS bought 3qjBR3 while a QUALITY
+        // ticket for the same mint was held; the QUALITY buy landed after the EXPRESS position opened, its open was
+        // suppressed as a duplicate (DUPLICATE_OPEN_SUPPRESSED), and its 23.6k tokens sat in the wallet with no cost until
+        // they were re-adopted and sold as a +200,880 % "win". The authorizer checks open books when the ticket is cut;
+        // this checks again when the order is about to be sent.
+        if (liveMintAlreadyHeld8489(ts)) {
+            try {
+                ExecutionAttemptLease.releaseNonTerminal(buyLease.key, "BUY", ts.mint, ts.symbol, "MINT_ALREADY_HELD_8489")
+                PipelineHealthCollector.labelInc("LIVE_BUY_REFUSED_MINT_ALREADY_HELD_8489")
+                ForensicLogger.lifecycle("LIVE_BUY_REFUSED_MINT_ALREADY_HELD_8489", "mint=${ts.mint.take(10)} lane=$buyLeaseProcessor held=${ts.position.tradingMode}")
+            } catch (_: Throwable) {}
+            return false
+        }
         var buyTerminalRecorded = false
         // V5.0.7733 — the signature of the transaction this attempt sent, once it exists.
         var broadcastSig7733: String? = null
@@ -23416,7 +23461,12 @@ class Executor(
             com.lifecyclebot.engine.sell.SellRouteEndpoint8144.peek8144(ts.mint, com.lifecyclebot.engine.sell.SellRouteEndpoint8144.Route8144.JUPITER,
                 System.currentTimeMillis()) == com.lifecyclebot.engine.sell.SellRouteEndpoint8144.Admit8144.ALLOWED
         } catch (_: Throwable) { true }
-        return com.lifecyclebot.engine.sell.StopRoute8189.jupiterFirst8189(reason, routable)
+        // V5.0.8489 — a slow Jupiter is not "routable first" for a coin whose own venue route (PumpPortal: curve / PumpSwap) can sell it.
+        val slowWithVenue8489 = routable && (try { com.lifecyclebot.network.JupiterLatency.slow() } catch (_: Throwable) { false }) &&
+            sellRoutePriorityFromBuyRoute6099(ts) == SellRoutePriority6099.PUMP_FIRST &&
+            !(try { com.lifecyclebot.engine.sell.MemeVenueRouter.isPumpRouteInvalid(ts.mint) } catch (_: Throwable) { false })
+        if (slowWithVenue8489) try { PipelineHealthCollector.labelInc("STOP_VENUE_FIRST_JUPITER_SLOW_8489") } catch (_: Throwable) {}
+        return com.lifecyclebot.engine.sell.StopRoute8189.jupiterFirst8189(reason, routable && !slowWithVenue8489)
     }
 
     /** V5.0.8189 — liveSellInScope7314's PumpPortal-first decision: never ahead of the aggregator for a stop. */
@@ -23599,6 +23649,13 @@ class Executor(
         // V5.0.8019 — a price-driven exit on a mark 1000x from the entry is a broken basis, not a move.
         if (try { BasisBreak8019.refuses8019(ts, reason, getActualPrice(ts)) } catch (_: Throwable) { false }) {
             try { DecisionReasons8031.hold8031(ts, "BASIS_BREAK_8019", reason) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.withdrawDeferred7809(ts.mint, ts.position.positionId) } catch (_: Throwable) {}
+            return SellResult.FAILED_RETRYABLE
+        }
+        // V5.0.8489 — a price-based loss stop whose fresh pool / curve read prices the bag well above its trigger is a bad
+        // mark (8488: STRICT_SL_-4 sold at +2.7 %, RUNNER_HARD_STOP -99 % on a coin at -7 %): it holds this tick.
+        if (try { StopMarkConfirm8418.stopRefutedByVenue8489(ts, reason) } catch (_: Throwable) { false }) {
+            try { DecisionReasons8031.hold8031(ts, "STOP_REFUTED_BY_VENUE_8489", reason) } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.withdrawDeferred7809(ts.mint, ts.position.positionId) } catch (_: Throwable) {}
             return SellResult.FAILED_RETRYABLE
         }
