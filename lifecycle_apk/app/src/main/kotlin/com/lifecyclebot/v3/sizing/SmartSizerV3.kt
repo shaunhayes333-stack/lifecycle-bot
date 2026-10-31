@@ -296,7 +296,7 @@ class SmartSizerV3(
         // - Apply 0.5x multiplier for probe trades
         // - This makes probes truly tiny (learning, not risking)
         // ═══════════════════════════════════════════════════════════════════
-        val probeMult = if (band == DecisionBand.EXECUTE_SMALL) {
+        val probeMult = if (band == DecisionBand.EXECUTE_SMALL && !isLive) {
             0.50  // Probe trades are half the normal EXECUTE_SMALL size
         } else {
             1.00
@@ -451,24 +451,9 @@ class SmartSizerV3(
             // this be" when the conversion is unavailable.
             routableMinSol7951(Double.NaN) // V5.0.7951 — price-independent cost floor
         }
-        val liveNoDustFloor6269 = (tradeable * LIVE_FLOOR_WALLET_PCT_7127)
-            .coerceIn(routableMinSol7127, LIVE_FLOOR_CEILING_SOL_7127)
-        // V5.0.7697 §FEWER_LARGER_HIGHER_CONVICTION — see LiveConcentrationDoctrine7697.
-        //
-        // The 0.05 SOL ceiling above was written so "a funded wallet sizes
-        // exactly as it did before"; on the operator's 0.1-0.3 SOL wallet it
-        // meant every live fill was a five-dollar ticket, spread across every
-        // lane. The doctrine's position size (tradeable / slots) is now the
-        // live floor when it is larger. The routable minimum, the share guard
-        // (lifted to the same share below) and MAX_POSITION_SOL still bound it.
-        val concentrationFloor7697 = if (isLive) try {
-            // V5.0.7706 — the doctrine applies the routable minimum itself.
-            com.lifecyclebot.engine.truth.LiveConcentrationDoctrine7697.positionSol(tradeable, routableMinSol7127)
-        } catch (_: Throwable) { 0.0 } else 0.0
-        val liveFloorEff7697 = if (isLive && concentrationFloor7697 > liveNoDustFloor6269) {
-            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_CONCENTRATION_FLOOR_APPLIED_7697") } catch (_: Throwable) {}
-            concentrationFloor7697
-        } else liveNoDustFloor6269
+        // V5.0.8491 — a preferred concentration is not a routing minimum. Preserve
+        // the risk-sized order when it can route; final lane sizing may grow it on proven edge.
+        val liveFloorEff7697 = routableMinSol7127
         // V5.0.7142 — refuse on the ROUTABLE minimum, clamp on the percentage.
         //
         // 7127's own comment states the intent exactly: "The hard block REMAINS,

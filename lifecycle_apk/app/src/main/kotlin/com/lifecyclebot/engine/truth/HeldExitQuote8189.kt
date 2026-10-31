@@ -156,8 +156,8 @@ object HeldExitQuote8189 {
      */
     fun quoteNow8189(mint: String, nowMs: Long = System.currentTimeMillis()): Quote8189? {
         val pos = try {
-            (CanonicalPositionAuthority6441.firstOpenForMint(mint) ?: CanonicalPositionAuthority6441.firstOpenForMint(bare8189(mint)))
-                ?.takeIf { it.mode.equals("live", true) }
+            (CanonicalPositionAuthority6441.firstOpenForMint(mint, "live") ?:
+                CanonicalPositionAuthority6441.firstOpenForMint(bare8189(mint), "live"))
         } catch (_: Throwable) { null } ?: return null
         fresh8189(mint, nowMs)?.takeIf { it.rawQty == pos.remainingQtyRaw }?.let { return it }
         val w = walletRead8189(pos.mint, nowMs)

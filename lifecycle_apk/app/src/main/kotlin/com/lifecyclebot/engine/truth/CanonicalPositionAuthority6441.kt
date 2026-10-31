@@ -1483,6 +1483,11 @@ object CanonicalPositionAuthority6441 {
         it.mint == mint && isOpenLifecycleWithQty6743(it)
     }
 
+    /** Executable ownership must never be inferred from an opposite-mode holding. */
+    fun hasOpenMint(mint: String, mode: String): Boolean = positions.values.any {
+        it.mint == mint && it.mode.equals(mode, ignoreCase = true) && isOpenLifecycleWithQty6743(it)
+    }
+
     /**
      * V5.0.6658 §HOT_LOOP_UNCHOKE (operator Feb 2026):
      *   > "processTokenCycle stalls >30s. Sweep openPositions() calls
@@ -1507,11 +1512,15 @@ object CanonicalPositionAuthority6441 {
      * `openPositions().firstOrNull { it.mint == mint }` — the same
      * authority (`isEconomicallyValidOpen6631`) decides validity.
      */
-    fun firstOpenForMint(mint: String): Position? {
+    fun firstOpenForMint(mint: String): Position? = firstOpenForMint(mint, null)
+
+    /** Look up one mint without allowing PAPER to mask a LIVE row (or vice versa). */
+    fun firstOpenForMint(mint: String, mode: String?): Position? {
         if (mint.isBlank()) return null
         val values = positions.values
         for (p in values) {
             if (p.mint != mint) continue
+            if (mode != null && !p.mode.equals(mode, ignoreCase = true)) continue
             if (isOpenLifecycleWithQty6743(p)) return p
         }
         return null

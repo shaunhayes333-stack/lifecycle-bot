@@ -42,6 +42,24 @@ object LaneInputTruth8236 {
         v3 = ts.lastV3Score != null,
     )
 
+    internal fun fresh8491(atMs: Long, nowMs: Long): Boolean = atMs > 0L && nowMs - atMs in 0L..120_000L
+
+    internal fun buyPressure8491(ts: TokenState, nowMs: Long): Double? {
+        ts.lastBuyPressurePct.takeIf {
+            fresh8491(ts.buyPressureObservedAtMs8084, nowMs) && it.isFinite() && it in 0.0..100.0
+        }?.let { return it }
+        return try { com.lifecyclebot.engine.truth.TradeTape8100.read8100(ts.mint, nowMs)?.bp }
+            catch (_: Throwable) { null }
+    }
+
+    internal fun change5m8491(ts: TokenState, nowMs: Long): Double? {
+        ts.lastPriceChange5m.takeIf {
+            fresh8491(ts.priceChangeObservedAtMs8084, nowMs) && it.isFinite()
+        }?.let { return it }
+        return try { com.lifecyclebot.engine.truth.TradeTape8100.read8100(ts.mint, nowMs)?.chg?.first }
+            catch (_: Throwable) { null }
+    }
+
     private val MCAP_RULES = listOf("MCAP_TOO_LOW", "MCAP TOO LOW", "MCAP_TOO_LOW_", "MCAP=UNKNOWN")
     private val MOMENTUM_RULES = listOf("NO_CONTINUATION", "NO_MOMENTUM", "MOMENTUM_TOO_LOW", "WEAK_MOMENTUM:", "MOM=")
     private val V3_RULES = listOf("NEUTRAL_MOMENTUM", "BALANCED_BOOK", "WEAK_MOMENTUM_", "NO_CONFIRMED_SCALP_SETUP")

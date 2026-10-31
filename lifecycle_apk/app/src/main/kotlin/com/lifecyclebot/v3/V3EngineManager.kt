@@ -45,6 +45,10 @@ import java.util.concurrent.atomic.AtomicInteger
  * - Fail closed and log clearly
  */
 object V3EngineManager {
+    internal fun observedPayoff8491(avgWinPct: Double, avgLossPct: Double): Double =
+        if (avgWinPct.isFinite() && avgWinPct > 0.0 && avgLossPct.isFinite() && kotlin.math.abs(avgLossPct) > 0.0)
+            (avgWinPct / kotlin.math.abs(avgLossPct)).coerceIn(0.0, 5.0) else 1.0
+
 
     private const val TAG = "V3Engine"
 
@@ -468,7 +472,11 @@ object V3EngineManager {
                 tradeableSol = (walletSol - reserveSol).coerceAtLeast(0.0)
             )
 
-            val risk = PortfolioRiskState(recentDrawdownPct = 0.0)
+            val drawdown = if (currentContext.mode == V3BotMode.LIVE) try {
+                val equity = com.lifecyclebot.engine.truth.CapitalDrawdown7948.liveMarkedEquitySol7948(walletSol)
+                com.lifecyclebot.engine.truth.CapitalDrawdown7948.sizingDrawdownPct(equity)
+            } catch (_: Exception) { 0.0 } else 0.0
+            val risk = PortfolioRiskState(recentDrawdownPct = drawdown)
 
             // V5.9.929 — wire LearningStore self-correction metrics so the
             // DecisionEngine penalty (DecisionEngine.kt:77-78) on falseBlockRate +
@@ -481,13 +489,14 @@ object V3EngineManager {
             // place that can compute them. Fail-open: any throw → both stay 0.0
             // and we behave exactly like V5.9.928.
             val storeMetrics = try { learningStore?.computeMetrics() } catch (_: Throwable) { null }
+            val book = com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.snapshot(
+                com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.MEME,
+                if (currentContext.mode == V3BotMode.LIVE) "live" else "paper",
+            )
             val learningMetrics = com.lifecyclebot.v3.learning.LearningMetrics(
-                classifiedTrades = recentTradeCount,
-                last20WinRatePct = recentWinRate,
-                payoffRatio = run {  // V5.9.187b: avgWin / 8% SL proxy
-                    val avgWin = try { com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats().avgWinPct } catch (_: Exception) { 0.0 }
-                    if (avgWin > 0.0) (avgWin / 8.0).coerceIn(0.5, 5.0) else 1.0
-                },
+                classifiedTrades = if (book.ready) book.decisive else 0,
+                last20WinRatePct = if (book.ready && book.decisive > 0) book.winRate else 50.0,
+                payoffRatio = observedPayoff8491(book.avgWinPct, book.avgLossPct),
                 falseBlockRatePct = storeMetrics?.falseBlockRatePct ?: 0.0,
                 missedWinnerRatePct = storeMetrics?.missedWinnerRatePct ?: 0.0,
             )

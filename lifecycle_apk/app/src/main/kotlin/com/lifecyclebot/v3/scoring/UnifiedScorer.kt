@@ -262,37 +262,10 @@ class UnifiedScorer(
 
             val weight = (educationWeight * metaCogTrust * sharpeTrust).coerceIn(0.5, 1.6)
 
-            // V5.9.363: Polarity self-heal — STRENGTHENED (was V5.9.353).
-            // OLD threshold: required smoothedAccuracy ≥ 0.55 AND expectancyPct ≤ -2.0%.
-            // That meant a layer like "DrawdownCi 71% dir / -0.2%" never flipped
-            // because the negative expectancy was too small — and yet it was
-            // genuinely anti-correlated with profit. After 4000 trades the bot
-            // had 90.8% accuracy but 26% WR; layers were "right about direction"
-            // and "wrong about money" simultaneously. We now flip on profit
-            // alone: 30+ trades AND ANY negative mean PnL → invert the score.
-            // Direction-accuracy is no longer required — what matters is whether
-            // following this layer's vote MAKES OR LOSES money.
-            val (flippedValue, flipTag) = try {
-                val maturity = EducationSubLayerAI.getLayerMaturity(layerName)
-                // V5.9.721-FIX: Gate polarity flip behind system-WR >= 30%.
-                // When system WR < 30%, ALL layers have negative expectancy simultaneously
-                // (bad market / bad entries, not individual layer anti-correlation).
-                // Flipping every layer in that state inverts correctly-signed signals
-                // and creates a self-reinforcing death spiral: more flips → more rugs
-                // → worse WR → more flips. Only allow when the system is at least
-                // marginally profitable so a layer's negative expectancy is genuinely
-                // anti-correlated, not just "everything is losing right now."
-                val systemWr = try {
-                    val ls = com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats()
-                    if (ls.totalSells > 0) ls.totalWins.toDouble() / ls.totalSells else 0.0
-                } catch (_: Throwable) { 0.0 }
-                val anticorrelated = systemWr >= 0.30 &&
-                    maturity.trades >= 30 &&
-                    maturity.expectancyPct < -0.3   // V5.9.363 (WR-gated per V5.9.721)
-                if (anticorrelated && comp.value != 0) {
-                    -comp.value to " [FLIP exp=${"%.1f".format(maturity.expectancyPct)}% sysWR=${(systemWr*100).toInt()}%]"
-                } else comp.value to ""
-            } catch (_: Exception) { comp.value to "" }
+            // A correctly bearish voter also sees losing trades. Its PnL mean cannot
+            // justify reversing the vote; measured directional trust already scales it.
+            val flippedValue = comp.value
+            val flipTag = ""
 
             val newValue = (flippedValue * weight).toInt()
             if (comp.value != 0 && (newValue != comp.value || flipTag.isNotEmpty())) {
@@ -413,7 +386,7 @@ class UnifiedScorer(
             // prediction with the actual outcome on close.
             try {
                 val learningRecord = SyntheticComponentAccountability.annotate(finalCard.components + shadowOuterRing, candidate, "CLASSIC")
-                EducationSubLayerAI.recordEntryScores(candidate.mint, learningRecord, candidate)
+                EducationSubLayerAI.recordEntryScores(candidate.mint, learningRecord, candidate, ctx.mode.name)
             } catch (_: Exception) {}
 
             // Also expose the shadow layers to LayerHealthTracker so UI layer
@@ -874,7 +847,7 @@ class UnifiedScorer(
             }
 
             val finalCard = ScoreCard(extras)
-            try { EducationSubLayerAI.recordEntryScores(candidate.mint, SyntheticComponentAccountability.annotate(finalCard.components, candidate, "MODERN"), candidate) } catch (_: Exception) {}
+            try { EducationSubLayerAI.recordEntryScores(candidate.mint, SyntheticComponentAccountability.annotate(finalCard.components, candidate, "MODERN"), candidate, ctx.mode.name) } catch (_: Exception) {}
             try { com.lifecyclebot.engine.LearningLifecycleBus.scorerComponents("MODERN", candidate, finalCard.components) } catch (_: Exception) {}
 
             try {
@@ -884,6 +857,7 @@ class UnifiedScorer(
                 CrossTalkFusionEngine.publish(
                     AATESignal(
                         source    = "UnifiedScorerV3",
+                        evidenceMode8491 = ctx.mode.name,
                         market    = "MEME",
                         symbol    = candidate.symbol,
                         confidence = normConf,
@@ -901,7 +875,7 @@ class UnifiedScorer(
         } catch (e: Exception) {
             Log.w("UnifiedScorer", "modernScore error: ${e.message}")
             val fallbackCard = ScoreCard(v59123CappedComponents)
-            try { EducationSubLayerAI.recordEntryScores(candidate.mint, SyntheticComponentAccountability.annotate(fallbackCard.components, candidate, "MODERN_FALLBACK"), candidate) } catch (_: Exception) {}
+            try { EducationSubLayerAI.recordEntryScores(candidate.mint, SyntheticComponentAccountability.annotate(fallbackCard.components, candidate, "MODERN_FALLBACK"), candidate, ctx.mode.name) } catch (_: Exception) {}
             try { com.lifecyclebot.engine.LearningLifecycleBus.scorerComponents("MODERN_FALLBACK", candidate, fallbackCard.components) } catch (_: Exception) {}
             fallbackCard
         }
@@ -1177,27 +1151,10 @@ class UnifiedScorer(
         val phase3Classic = phase2Classic.map { symmetricTrust(it, isOuter = false) }
         val phase3Outer   = phase2Outer.map   { symmetricTrust(it, isOuter = true) }
 
-        // ─── PHASE 4: POLARITY SELF-HEAL (CLASSIC V5.9.363 + V5.9.721 WR guard) ───
-        val systemWr = try {
-            val ls = com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats()
-            if (ls.totalSells > 0) ls.totalWins.toDouble() / ls.totalSells else 0.0
-        } catch (_: Throwable) { 0.0 }
-        fun polarityFlip(c: ScoreComponent): ScoreComponent {
-            if (c.value == 0) return c
-            return try {
-                val layerName = try { EducationSubLayerAI.componentNameToLayer(c.name) } catch (_: Exception) { c.name }
-                val maturity = EducationSubLayerAI.getLayerMaturity(layerName)
-                val anticorrelated = systemWr >= 0.30 &&
-                    maturity.trades >= 30 &&
-                    maturity.expectancyPct < -0.3
-                if (anticorrelated) {
-                    c.copy(value = -c.value,
-                        reason = "${c.reason} [FLIP exp=${"%.1f".format(maturity.expectancyPct)}% sysWR=${(systemWr * 100).toInt()}%]")
-                } else c
-            } catch (_: Exception) { c }
-        }
-        val phase4Classic = phase3Classic.map { polarityFlip(it) }
-        val phase4Outer   = phase3Outer.map   { polarityFlip(it) }
+        // Preserve signal direction. Real directional accuracy, MetaCog and Sharpe
+        // already shape strength; average trade PnL is not signed signal correlation.
+        val phase4Classic = phase3Classic
+        val phase4Outer = phase3Outer
 
         // ─── PHASE 5: SOFT PENALTY CAP — noisy cluster (CLASSIC V5.8) ───────
         val softNames = setOf("holders", "narrative", "social", "holdtime")
@@ -1379,7 +1336,7 @@ class UnifiedScorer(
             // V5.0.7809 — fresh-launch tape evidence reaches the UNIFIED total
             // (it was CLASSIC-only); added after the gates exactly as CLASSIC adds it.
             val finalCard = ScoreCard(moeComponents)
-            try { EducationSubLayerAI.recordEntryScores(candidate.mint, SyntheticComponentAccountability.annotate(finalCard.components, candidate, "UNIFIED"), candidate) } catch (_: Exception) {}
+            try { EducationSubLayerAI.recordEntryScores(candidate.mint, SyntheticComponentAccountability.annotate(finalCard.components, candidate, "UNIFIED"), candidate, ctx.mode.name) } catch (_: Exception) {}
             try { com.lifecyclebot.engine.LearningLifecycleBus.scorerComponents("UNIFIED", candidate, finalCard.components) } catch (_: Exception) {}
 
             // CrossTalk publish (existing behavior — fan-out the unified score)
@@ -1390,6 +1347,7 @@ class UnifiedScorer(
                 CrossTalkFusionEngine.publish(
                     AATESignal(
                         source    = "UnifiedScorerV3-UNIFIED",
+                        evidenceMode8491 = ctx.mode.name,
                         market    = "MEME",
                         symbol    = candidate.symbol,
                         confidence = normConf,
@@ -1406,7 +1364,7 @@ class UnifiedScorer(
         } catch (e: Exception) {
             Log.w("UnifiedScorer", "unifiedScore error: ${e.message}")
             val fallbackCard = ScoreCard(allBase)
-            try { EducationSubLayerAI.recordEntryScores(candidate.mint, SyntheticComponentAccountability.annotate(fallbackCard.components, candidate, "UNIFIED_FALLBACK"), candidate) } catch (_: Exception) {}
+            try { EducationSubLayerAI.recordEntryScores(candidate.mint, SyntheticComponentAccountability.annotate(fallbackCard.components, candidate, "UNIFIED_FALLBACK"), candidate, ctx.mode.name) } catch (_: Exception) {}
             try { com.lifecyclebot.engine.LearningLifecycleBus.scorerComponents("UNIFIED_FALLBACK", candidate, fallbackCard.components) } catch (_: Exception) {}
             fallbackCard
         }

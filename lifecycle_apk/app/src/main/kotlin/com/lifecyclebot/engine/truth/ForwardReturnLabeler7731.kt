@@ -1907,6 +1907,18 @@ object ForwardReturnLabeler7731 {
         return freshest
     }
 
+    /**
+     * A due label must be covered by a MARKET observation, not simply a fresh-looking token-state/registry copy.
+     * Several writers re-stamp a cached price with the current clock; allowing that timestamp to satisfy the
+     * pair-lane freshness check suppresses the very independent fetch needed to grade the forward outcome.
+     * This is a local, cached read only (no provider request); missing evidence remains unknown.
+     */
+    fun independentMarkAt8418(mint: String, nowMs: Long = System.currentTimeMillis()): Long {
+        if (mint.isBlank()) return 0L
+        val mark = typedMark8386(mint, { null }, nowMs)
+        return if (liveMark8454(mark)) mark?.observedAtMs ?: 0L else 0L
+    }
+
     internal fun typedMark8386(mint: String, priceFor: (String) -> Double?, nowMs: Long): LabelMark8386? {
         val candidates = ArrayList<LabelMark8386>(6)
         try {

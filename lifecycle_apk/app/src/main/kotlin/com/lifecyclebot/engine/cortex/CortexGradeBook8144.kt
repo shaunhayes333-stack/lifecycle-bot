@@ -688,7 +688,10 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
 
     // ── encoding (control separators never occur in cleaned text) ──
     private fun clean(s: String): String = s.filterNot { it == FS || it == RS }
-    private fun num(v: Double): String = if (v.isFinite()) "%.4f".format(java.util.Locale.US, v) else ""
+    // Persistence is a numerical wire format, not a display. Rounding changed the
+    // frozen outcomes while their proofs retained full precision, and Formatter
+    // allocated once per scalar across the entire restored grade book.
+    private fun num(v: Double): String = if (v.isFinite()) v.toString() else ""
     private fun dbl(s: String?): Double = s?.toDoubleOrNull() ?: Double.NaN
 
     private fun encodeOne(r: CortexGradeRecord8144): String = listOf(

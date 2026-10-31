@@ -70,7 +70,9 @@ object StrategyTrustAI {
     )
 
     // V5.9.217: Normalize legacy strategy name aliases to canonical enum names
-    private fun normalizeStrategy(name: String): String = when (name) {
+    internal fun normalizeStrategy(name: String): String = if (name.startsWith("PAPER::")) {
+        "PAPER::" + normalizeStrategy(name.removePrefix("PAPER::"))
+    } else when (name) {
         "BLUECHIP"   -> "BLUE_CHIP"   // old displayName.uppercase() path
         "DIPHUNTER"  -> "DIP_HUNTER"  // old displayName.uppercase() path
         "DIP HUNTER" -> "DIP_HUNTER"
@@ -102,9 +104,11 @@ object StrategyTrustAI {
         trustRecords.putIfAbsent(strategy, createDefaultRecord(strategy))
         val history = tradeHistory.getOrPut(strategy) { mutableListOf() }
         synchronized(history) {
+            if (history.any { it.id == normalizedLesson.id }) return
             history.add(normalizedLesson)
             // Keep only recent window
             if (history.size > RECENT_WINDOW * 2) {
+                history.sortBy { it.timestamp }
                 val excess = history.size - RECENT_WINDOW * 2
                 repeat(excess) { history.removeAt(0) }
             }
@@ -112,9 +116,10 @@ object StrategyTrustAI {
         recalculateTrust(strategy)
 
         // Publish to CrossTalk
-        val record = trustRecords[lesson.strategy] ?: return
+        val record = trustRecords[strategy] ?: return
         CrossTalkFusionEngine.publish(AATESignal(
             source = TAG,
+            evidenceMode8491 = if (strategy.startsWith("PAPER::")) "PAPER" else "LIVE",
             market = lesson.market,
             symbol = lesson.symbol,
             confidence = record.trustScore,
@@ -131,7 +136,7 @@ object StrategyTrustAI {
     private fun recalculateTrust(strategy: String) {
         val history = tradeHistory[strategy] ?: return
         val recent = synchronized(history) {
-            history.takeLast(RECENT_WINDOW).toList()
+            history.sortedBy { it.timestamp }.takeLast(RECENT_WINDOW)
         }
 
         if (recent.size < MIN_TRADES_FOR_TRUST) {
@@ -168,27 +173,28 @@ object StrategyTrustAI {
         val drawdownSlope = if (recent.size > 1) -maxDrawdown / recent.size else 0.0
 
         // 4. MAE/MFE analysis
-        val avgMAE = recent.map { it.maePct }.average().takeIf { !it.isNaN() } ?: 0.0
-        val avgMFE = recent.map { it.mfePct }.average().takeIf { !it.isNaN() } ?: 0.0
+        val avgMAE = recent.filter { it.maeObserved8491 && it.maePct.isFinite() }.map { it.maePct }.average().takeIf { !it.isNaN() } ?: 0.0
+        val avgMFE = recent.filter { it.mfeObserved8491 && it.mfePct.isFinite() }.map { it.mfePct }.average().takeIf { !it.isNaN() } ?: 0.0
 
         // 5. False positive rate (trades that immediately went -2% or worse)
-        val falsePositives = recent.count { it.maePct < -2.0 && it.outcomePct < 0 }
-        val falsePositiveRate = falsePositives.toDouble() / recent.size
+        val observedMae = recent.filter { it.maeObserved8491 && it.maePct.isFinite() }
+        val falsePositives = observedMae.count { it.maePct < -2.0 && it.outcomePct < 0 }
+        val falsePositiveRate = if (observedMae.isNotEmpty()) falsePositives.toDouble() / observedMae.size else 0.5
 
         // 6. Regime fit — how well does strategy perform in current regime
         val currentRegime = CrossTalkFusionEngine.getSnapshot()?.globalRiskMode
         val regimeTrades = if (currentRegime != null) {
-            recent.filter { it.entryRegime == currentRegime }
-        } else recent
+            recent.filter { it.entryContextObserved8491 && it.entryRegime == currentRegime }
+        } else emptyList()
         val regimeFit = if (regimeTrades.size >= 5) {
             regimeTrades.count { it.outcomePct > 0 }.toDouble() / regimeTrades.size
         } else 0.5
 
         // 7. Execution quality
-        val executionQuality = recent.map { it.executionConfidence }.average().takeIf { !it.isNaN() } ?: 0.5
+        val executionQuality = recent.filter { it.entryContextObserved8491 }.map { it.executionConfidence }.average().takeIf { !it.isNaN() } ?: 0.5
 
         // 8. Slippage damage
-        val slippageDamage = recent.map { it.slippagePct }.sum()
+        val slippageDamage = recent.filter { it.slippageObserved8491 && it.slippagePct.isFinite() }.sumOf { it.slippagePct }
 
         // 9. Hold time efficiency
         val winHolds = recent.filter { it.outcomePct > 0 }.map { it.holdSec }
@@ -201,17 +207,7 @@ object StrategyTrustAI {
 
         // 10. Time-of-day performance
         val todPerf = mutableMapOf<String, Double>()
-        recent.groupBy { trade ->
-            val hour = java.util.Calendar.getInstance().apply {
-                timeInMillis = trade.timestamp
-            }.get(java.util.Calendar.HOUR_OF_DAY)
-            when (hour) {
-                in 0..7 -> "ASIA"
-                in 8..12 -> "LONDON"
-                in 13..20 -> "NY"
-                else -> "OFF_HOURS"
-            }
-        }.forEach { (session, trades) ->
+        recent.filter { it.entryContextObserved8491 }.groupBy { it.entrySession.name }.forEach { (session, trades) ->
             if (trades.size >= 3) {
                 todPerf[session] = trades.count { it.outcomePct > 0 }.toDouble() / trades.size
             }
@@ -269,22 +265,22 @@ object StrategyTrustAI {
     // ═══════════════════════════════════════════════════════════════════════
 
     fun getTrustScore(strategy: String): Double {
-        trustRecords.putIfAbsent(strategy, createDefaultRecord(strategy))
-        return trustRecords[strategy]?.trustScore ?: 0.5
+        trustRecords.putIfAbsent(normalizeStrategy(strategy), createDefaultRecord(normalizeStrategy(strategy)))
+        return trustRecords[normalizeStrategy(strategy)]?.trustScore ?: 0.5
     }
 
     fun getTrustLevel(strategy: String): TrustLevel {
-        trustRecords.putIfAbsent(strategy, createDefaultRecord(strategy))
+        trustRecords.putIfAbsent(normalizeStrategy(strategy), createDefaultRecord(normalizeStrategy(strategy)))
         // V5.9.368 — honour quarantine window: while active, hide DISTRUSTED
         // verdicts so new trades can fire and rebuild a clean baseline.
-        val until = quarantineUntilMs[strategy] ?: 0L
+        val until = quarantineUntilMs[normalizeStrategy(strategy)] ?: 0L
         if (until > System.currentTimeMillis()) {
-            val rec = trustRecords[strategy]
+            val rec = trustRecords[normalizeStrategy(strategy)]
             if (rec?.trustLevel == TrustLevel.DISTRUSTED) {
                 return TrustLevel.UNTESTED
             }
         }
-        return trustRecords[strategy]?.trustLevel ?: TrustLevel.UNTESTED
+        return trustRecords[normalizeStrategy(strategy)]?.trustLevel ?: TrustLevel.UNTESTED
     }
 
     /**
@@ -294,7 +290,7 @@ object StrategyTrustAI {
      */
     fun setQuarantine(strategy: String, durationMs: Long, reason: String = "user_request") {
         val until = System.currentTimeMillis() + durationMs
-        quarantineUntilMs[strategy] = until
+        quarantineUntilMs[normalizeStrategy(strategy)] = until
         ErrorLogger.info(
             TAG,
             "🛡️ QUARANTINE SET: $strategy for ${durationMs / 3_600_000L}h (until $until) — reason=$reason"
@@ -302,13 +298,13 @@ object StrategyTrustAI {
     }
 
     fun isQuarantined(strategy: String): Boolean =
-        (quarantineUntilMs[strategy] ?: 0L) > System.currentTimeMillis()
+        (quarantineUntilMs[normalizeStrategy(strategy)] ?: 0L) > System.currentTimeMillis()
 
     fun getQuarantineUntil(strategy: String): Long? =
-        quarantineUntilMs[strategy]?.takeIf { it > System.currentTimeMillis() }
+        quarantineUntilMs[normalizeStrategy(strategy)]?.takeIf { it > System.currentTimeMillis() }
 
     fun getTrustRecord(strategy: String): StrategyTrustRecord? =
-        trustRecords[strategy]
+        trustRecords[normalizeStrategy(strategy)]
 
     fun getAllTrustScores(): Map<String, StrategyTrustRecord> =
         trustRecords.toMap()
@@ -374,7 +370,17 @@ object StrategyTrustAI {
     }
 
     fun restoreTrustRecord(record: StrategyTrustRecord) {
-        trustRecords[record.strategyName] = record
+        val strategy = normalizeStrategy(record.strategyName)
+        // A downloaded aggregate must not replace trust just rebuilt from the
+        // device's actual settled lessons, including its separate PAPER book.
+        val history = tradeHistory[strategy]
+        if (history != null && synchronized(history) { history.isNotEmpty() }) return
+        if (!record.trustScore.isFinite() || record.trustScore !in 0.0..1.0) return
+        trustRecords.compute(strategy) { _, existing ->
+            if (existing != null && existing.trustLevel != TrustLevel.UNTESTED &&
+                existing.lastUpdated > record.lastUpdated) existing
+            else record.copy(strategyName = strategy)
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════

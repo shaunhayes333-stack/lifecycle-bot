@@ -6105,7 +6105,7 @@ class BotService : Service() {
                 com.lifecyclebot.v3.ExecuteResult(
                     success = false, error = "MINT_OCCUPANCY_${admission6464.name}_6464",
                 )
-            } else if (!existingLayer6373.isNullOrBlank()) {
+            } else if (isPaper && !existingLayer6373.isNullOrBlank()) {
                 try {
                     PipelineHealthCollector.labelInc("V3_EXEC_SAME_MINT_PREEMPT_6373")
                     PipelineHealthCollector.onGate("EXEC_GATE", ts.symbol, false, "V3_SAME_MINT_ALREADY_OPEN_6373 existing=$existingLayer6373")
@@ -26292,7 +26292,9 @@ if (hotExitHandledSweep) {
                 // only hydrate; when the first pass already opened it, a second
                 // cycle just trips the same-mint dedupe (68 on 5.0.7277).
                 val alreadyOpen7278 = try {
-                    com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.firstOpenForMint(mint) != null
+                    com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.firstOpenForMint(
+                        mint, if (RuntimeModeAuthority.isLive()) "live" else "paper",
+                    ) != null
                 } catch (_: Throwable) { false }
                 if (status.running && !alreadyOpen7278 && fastLaneSemaphore7277.tryAcquire()) {
                     held7925 = true
@@ -26353,7 +26355,9 @@ if (hotExitHandledSweep) {
         // preserved — the same isEconomicallyValidOpen6631 authority
         // decides membership.
         val canonicalOpen6647 = try {
-            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.firstOpenForMint(mint)
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.firstOpenForMint(
+                mint, if (RuntimeModeAuthority.isLive()) "live" else "paper",
+            )
         } catch (_: Throwable) { null }
         if (canonicalOpen6647 != null) {
             try {

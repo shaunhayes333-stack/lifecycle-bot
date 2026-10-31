@@ -30,7 +30,7 @@ object AsyncStrategyLab {
 
     private const val MAX_ACCEPTED = 80
     private val accepted = CopyOnWriteArrayList<LabHypothesis>()
-    private val reviewedBiasByLane = ConcurrentHashMap<String, Double>()  // V5.0.4251 — O(1) hot-path read cache
+    @Volatile private var reviewedBiasByLane: Map<String, Double> = emptyMap()  // V5.0.4251 — O(1) hot-path read cache
 
     fun submitBackgroundHypothesis(
         provider: Provider,
@@ -60,6 +60,7 @@ object AsyncStrategyLab {
             accepted.removeAll { it.id == id }
             accepted.add(h)
             while (accepted.size > MAX_ACCEPTED) accepted.removeAt(0)
+            rebuildReviewedBiasCache()
         }
         return true
     }
@@ -154,7 +155,7 @@ object AsyncStrategyLab {
         } catch (_: Throwable) { 1.0 }
     }
 
-    fun reset() { synchronized(accepted) { accepted.clear() }; reviewedBiasByLane.clear() }
+    fun reset() { synchronized(accepted) { accepted.clear(); reviewedBiasByLane = emptyMap() } }
 
     fun exportState(): String = synchronized(accepted) {
         val arr = JSONArray()
@@ -205,7 +206,7 @@ object AsyncStrategyLab {
 
     private fun rebuildReviewedBiasCache() {
         try {
-            reviewedBiasByLane.clear()
+            val next = mutableMapOf<String, Double>()
             val grouped = accepted.asSequence()
                 .filter { it.backgroundOnly && it.symbolicChecked }
                 .filter { !looksHotPath(it.proposal) && !looksHotPath(it.expectedMetric) && !looksHotPath(it.rollbackCondition) }
@@ -220,8 +221,9 @@ object AsyncStrategyLab {
                         else -> 1.0
                     }
                 }
-                reviewedBiasByLane[lane] = bias.coerceIn(0.60, 1.55)
+                next[lane] = bias.coerceIn(0.60, 1.55)
             }
+            reviewedBiasByLane = next.toMap()
         } catch (_: Throwable) {}
     }
 

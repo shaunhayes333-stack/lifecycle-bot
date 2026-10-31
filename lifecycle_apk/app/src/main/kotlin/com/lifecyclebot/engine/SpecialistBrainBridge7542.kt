@@ -209,7 +209,8 @@ object SpecialistBrainBridge7542 {
     // volatility, holder/bundle state and Treasury meta fields, allowing a
     // 2.5-second stale ALLOW/VETO to survive a fast lifecycle change.
     private fun fp(ts:TokenState,paper:Boolean,residents8168:Set<String>)=listOf(
-        ts.mint,paper,ts.history.size,
+        ts.mint,paper,ts.history.size,ts.buyPressureObservedAtMs8084,ts.priceChangeObservedAtMs8084,
+        com.lifecyclebot.engine.truth.FeatureRevision8283.revision8283(ts.mint),
         residents8168.hashCode(),
         if(ts.lastPrice>0)(kotlin.math.ln(ts.lastPrice)*10000).toLong()else 0L,
         ts.lastMcap.toLong(),ts.lastLiquidityUsd.toLong(),
@@ -279,7 +280,9 @@ object SpecialistBrainBridge7542 {
         val vols=hist.filter{!it.synthetic}.map{it.vol}.filter{it.isFinite()&&it>0};val recent=vols.takeLast(3).takeIf{it.isNotEmpty()}?.average()?:0.0;val prior=vols.dropLast(minOf(3,vols.size)).takeLast(5).takeIf{it.isNotEmpty()}?.average()?:0.0;val volVs=if(recent>0&&prior>0)recent/prior else 1.0
         val high=max(price,prices.maxOrNull()?:price)
         val ageMin=try{com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts)}catch(_:Throwable){null}?:ts.safety.tokenAgeMinutes.takeIf{it>=0}?:((now-ts.addedToWatchlistAt).coerceAtLeast(0)/60000.0)
-        val bp=ts.lastBuyPressurePct.takeIf{it.isFinite()}?:50.0
+        val observedBp8491 = LaneInputTruth8236.buyPressure8491(ts, now)
+        val observedChange8491 = LaneInputTruth8236.change5m8491(ts, now)
+        val bp = observedBp8491 ?: 50.0
         // V5.0.7551 — TokenState.momentum is a centered 0..100 SCORE (50=flat),
         // not a signed percentage move. Native BlueChip/ShitCoin/Express/Manip/
         // CashGen APIs all document/use momentum as signed %. Feeding score=50
@@ -293,7 +296,7 @@ object SpecialistBrainBridge7542 {
         // launch hour, else the 1 h change, the history move, the move since the create price, a 5 m change; else UNOBSERVED.
         val cont8348 = ContinuationRead8348.read8348(ts, histMomentumPct7551, prices.size, ageMin,
             if (prices.size < 2) ExpressMomentum8190.sinceLaunchPct8190(ts, ageMin) else null, now)
-        val mom = ts.lastPriceChange5m.takeIf { it.isFinite() && kotlin.math.abs(it) > 0.000001 }
+        val mom = observedChange8491
             ?: (if (prices.size < 2 && cont8348.source == ContinuationRead8348.Source8348.FROM_TAPE) cont8348.pct else histMomentumPct7551)   // V5.0.8348 — a young coin's tape, not a flat 0.0 on no history
         // V5.0.7555 — Express has two directional inputs by design:
         // broad momentum + acute 5m change. Feed the authoritative 1h drift
@@ -338,7 +341,7 @@ object SpecialistBrainBridge7542 {
         if (owns7828("QUALITY")) out["QUALITY"]=try{val x=QualityTraderAI.evaluate(ts.mint,ts.symbol,price,ts.lastMcap,ts.lastLiquidityUsd,bp.toInt(),ageMin,holders,top,v3,false);op("QUALITY",x.shouldEnter,x.qualityScore,x.qualityScore,x.positionSizeSol,x.reason,"LIQUIDITY_DEPTH_QUALITY","quality_native_entry","quality_native_exit",1.35,0.95,1.15,setOf("QUALITY_DEPTH","HOLDER_DISTRIBUTION","V3"))}catch(t:Throwable){err("QUALITY",t)}
         if (owns7828("BLUECHIP")) out["BLUECHIP"]=try{val x=BlueChipTraderAI.evaluate(ts.mint,ts.symbol,price,ts.lastMcap,ts.lastLiquidityUsd,top,bp,v3,v3c,mom,vol);op("BLUECHIP",x.shouldEnter,if(x.entryScore>0)x.entryScore else x.confidence,x.confidence,x.positionSizeSol,x.reason,"MAINSTREAM_CRYPTO_SWING","bluechip_native_swing","bluechip_native_exit",2.1,1.0,1.35,setOf("BLUECHIP_DEPTH","MCAP_LIQ_SANITY","SWING"))}catch(t:Throwable){err("BLUECHIP",t)}
         if (owns7828("SHITCOIN")) out["SHITCOIN"]=try{val x=ShitCoinTraderAI.evaluate(mint=ts.mint,symbol=ts.symbol,currentPrice=price,marketCapUsd=ts.lastMcap,liquidityUsd=ts.lastLiquidityUsd,topHolderPct=top,buyPressurePct=bp,momentum=mom,volatility=vol,tokenAgeMinutes=ageMin,launchPlatform=platform,devWallet=ts.tokenMap.creatorOrDevWallet.ifBlank{null},bundlePct=bundle,socialScore=try{ts.sentiment.score.toInt().coerceIn(0,100)}catch(_:Throwable){0},hasWebsite=socialMeta7556?.website?.isNotBlank()==true,hasTwitter=socialMeta7556?.twitter?.isNotBlank()==true,hasTelegram=socialMeta7556?.telegram?.isNotBlank()==true,hasGithub=false,isDexBoosted=boosted,dexTrendingRank=if(trending)1 else 0,graduationProgress=ts.meta.curveProgress.coerceIn(0.0,100.0),recordEducationScores=true,tokenState8077=ts);op("SHITCOIN",x.shouldEnter,if(x.entryScore>0)x.entryScore else x.confidence,x.confidence,x.positionSizeSol,x.reason,"VOLUME_IGNITION_SCALP","shitcoin_native_meme_entry","shitcoin_native_exit",0.9,0.8,1.0,setOf("MEME_EDGE","BUNDLE","SOCIAL_CACHE","GRADUATION")).let{onLaneBar7948(it,ShitCoinTraderAI.getFluidScoreThreshold(),ShitCoinTraderAI.getFluidConfidenceThreshold())}}catch(t:Throwable){err("SHITCOIN",t)}
-        if (owns7828("EXPRESS")) out["EXPRESS"]=try{val x=ShitCoinExpress.evaluate(ts.mint,ts.symbol,price,ts.lastMcap,ts.lastLiquidityUsd,expressMomentum7555,bp,volVs,ts.lastPriceChange5m,trending,boosted,ageMin);op("EXPRESS",x.shouldRide,x.confidence,x.confidence,x.positionSizeSol,x.reason,"VOLUME_IGNITION_SCALP","express_native_${x.rideType.name.lowercase()}","express_native_exit",0.55,0.75,0.95,setOf("EXPRESS","MOMENTUM_1H","PRICE_5M","VOLUME_ACCELERATION"))}catch(t:Throwable){err("EXPRESS",t)}
+        if (owns7828("EXPRESS")) out["EXPRESS"]=try{val x=ShitCoinExpress.evaluate(ts.mint,ts.symbol,price,ts.lastMcap,ts.lastLiquidityUsd,expressMomentum7555,bp,volVs,observedChange8491 ?: 0.0,trending,boosted,ageMin);op("EXPRESS",x.shouldRide,x.confidence,x.confidence,x.positionSizeSol,x.reason,"VOLUME_IGNITION_SCALP","express_native_${x.rideType.name.lowercase()}","express_native_exit",0.55,0.75,0.95,setOf("EXPRESS","MOMENTUM_1H","PRICE_5M","VOLUME_ACCELERATION"))}catch(t:Throwable){err("EXPRESS",t)}
         if (owns7828("MOONSHOT")) out["MOONSHOT"]=try{val x=MoonshotTraderAI.scoreToken(ts.mint,ts.symbol,ts.lastMcap,ts.lastLiquidityUsd,ts.meta.volScore.toInt().coerceIn(0,100),bp,rug,v3.toDouble(),v3c.toDouble(),launch?.phase?.name?:ts.phase,paper,runner);op("MOONSHOT",x.eligible,x.score,x.confidence.toInt(),x.suggestedSizeSol,x.rejectReason.ifBlank{"MOONSHOT_NATIVE_ALLOW"},"DIAMOND_HANDS_RUNNER","moonshot_native_runner","moonshot_native_runner_exit",2.8,0.92,1.55,setOf("MOONSHOT","RUNNER","LAUNCH_PHASE","MFE_TRAIL"))}catch(t:Throwable){err("MOONSHOT",t)}
         if (owns7828("PROJECT_SNIPER")) out["PROJECT_SNIPER"]=try{val x=ProjectSniperAI.assessTarget(ts,price);op("PROJECT_SNIPER",x.shouldEngage,x.confidence,x.confidence,x.positionSizeSol,x.reason,"DEGEN_MICRO_SNIPE","sniper_native_pre_ignition","sniper_native_fast_exit",0.45,0.55,0.85,setOf("SNIPER","LAUNCH_PHASE","BUYER_BREADTH","DEV_FLOW"))}catch(t:Throwable){err("PROJECT_SNIPER",t)}
         if (owns7828("DIP_HUNTER")) out["DIP_HUNTER"]=try{val x=DipHunterAI.evaluate(ts.mint,ts.symbol,price,high,ts.lastMcap,ts.lastLiquidityUsd,bp,volVs,ageMin/60.0,holders,null,devSelling,bounce);op("DIP_HUNTER",x.shouldBuy,x.confidence,x.confidence,x.positionSizeSol,x.reason,"PANIC_REVERSION_BOUNCE","dip_native_reclaim","dip_native_recovery_exit",1.25,x.dipQuality.sizeMult.coerceIn(0.3,1.15),1.05,setOf("DIP_RECLAIM","BOUNCE","VOLUME_RETURN"))}catch(t:Throwable){err("DIP_HUNTER",t)}
@@ -362,7 +365,8 @@ object SpecialistBrainBridge7542 {
         // V5.0.8236 — every specialist: a native rule that fired on an unobserved input (mcap $0, momentum 0 with no
         // price change observed, buy pressure at its 50 default, no price history, V3 never scored) is a DEFER, not a
         // refusal. Not gradeable: the veto audit grades refusals, and this one was never a judgement of the coin.
-        val inputs8236 = LaneInputTruth8236.observed8236(ts, prices.size)
+        val inputs8236 = LaneInputTruth8236.observed8236(ts, prices.size).copy(
+            buyPressure = observedBp8491 != null, momentum = observedChange8491 != null || prices.size >= 2 || cont8348.observed)
         for ((lane, o) in out.toList()) {
             if (o.eligible || !o.authoritative) continue
             val defer8236 = LaneInputTruth8236.deferFor8236(lane, o.reason, inputs8236) ?: continue
@@ -370,7 +374,7 @@ object SpecialistBrainBridge7542 {
         }
         // V5.0.8348 — a momentum mandate that fired on an UNOBSERVED continuation defers (whatever buy pressure says); an
         // observed read below the bar refuses. Before the grab-lane review so the deferral is remembered for hydration.
-        ContinuationRead8348.reviewMomentum8348(out, cont8348.observed, ContinuationRead8348.momentumObserved8348(ts.lastPriceChange5m, ts.priceChangeObservedAtMs8084, prices.size, cont8348))
+        ContinuationRead8348.reviewMomentum8348(out, cont8348.observed, observedChange8491 != null || prices.size >= 2 || cont8348.source == ContinuationRead8348.Source8348.FROM_TAPE)
         // V5.0.8343 — the grab lane: a forming runner refused only on a lane MANDATE is re-asked on its own legs (hard safety,
         // exit-safe venue, forming-run evidence, economics at the route minimum, chase cap; live: the evidence hold's door);
         // UNHYDRATED_DEFER refusals are remembered for the hydration re-evaluation. Safety / rug / dev refusals are never re-asked.

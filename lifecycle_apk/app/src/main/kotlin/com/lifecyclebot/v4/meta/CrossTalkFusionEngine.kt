@@ -102,7 +102,8 @@ object CrossTalkFusionEngine {
         // trimmed when the global queue exceeded 500 and stopped if its head
         // was fresh, so a noisy source could grow the bus without bound.
         signalBuffer.removeIf { now - it.timestamp >= SIGNAL_TTL_MS }
-        val sameSource = signalBuffer.filter { it.source == signal.source }
+        val sameSource = signalBuffer.filter { it.source == signal.source &&
+            it.evidenceMode8491.equals(signal.evidenceMode8491, true) }
         if (sameSource.size >= MAX_SIGNALS_PER_SOURCE) {
             sameSource.sortedBy { it.timestamp }
                 .take(sameSource.size - MAX_SIGNALS_PER_SOURCE + 1)
@@ -116,9 +117,20 @@ object CrossTalkFusionEngine {
     // FUSE — Aggregate all signals into a snapshot
     // ═══════════════════════════════════════════════════════════════════════
 
+    private fun mode8491(): String = if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE"
+
+    internal fun signalVisible8491(signal: AATESignal, mode: String, nowMs: Long): Boolean =
+        nowMs - signal.timestamp in 0L until SIGNAL_TTL_MS &&
+            (signal.evidenceMode8491.isBlank() || signal.evidenceMode8491.equals(mode, true))
+
+    internal fun trustForMode8491(records: Map<String, StrategyTrustRecord>, mode: String): Map<String, Double> =
+        records.filterKeys { it.startsWith("PAPER::") == mode.equals("PAPER", true) }
+            .mapKeys { it.key.removePrefix("PAPER::") }.mapValues { it.value.trustScore }
+
     fun fuse(): CrossTalkSnapshot {
         val now = System.currentTimeMillis()
-        val liveSignals = signalBuffer.filter { now - it.timestamp < SIGNAL_TTL_MS }
+        val mode = mode8491()
+        val liveSignals = signalBuffer.filter { signalVisible8491(it, mode, now) }
 
         // 1. Determine global risk mode
         val regime = crossMarketRegimeAI?.getCurrentRegime() ?: GlobalRiskMode.RISK_ON
@@ -138,10 +150,7 @@ object CrossTalkFusionEngine {
         }
 
         // 3. Aggregate strategy trust scores
-        val strategyTrust = mutableMapOf<String, Double>()
-        strategyTrustAI?.getAllTrustScores()?.forEach { (strategy, record) ->
-            strategyTrust[strategy] = record.trustScore
-        }
+        val strategyTrust = trustForMode8491(strategyTrustAI?.getAllTrustScores().orEmpty(), mode)
 
         // 4. Build narrative map
         val narrativeMap = mutableMapOf<String, Double>()
@@ -234,7 +243,8 @@ object CrossTalkFusionEngine {
             portfolioHeat = portfolioHeat,
             killFlags = killFlags,
             perMarketCaps = perMarketCaps,
-            timestamp = now
+            timestamp = now,
+            evidenceMode8491 = mode
         )
 
         currentSnapshot.set(snapshot)
@@ -248,7 +258,7 @@ object CrossTalkFusionEngine {
     fun getSnapshot(): CrossTalkSnapshot? {
         val now = System.currentTimeMillis()
         val cached = currentSnapshot.get()
-        if (cached != null && now - cached.timestamp < SIGNAL_TTL_MS) return cached
+        if (cached != null && cached.evidenceMode8491 == mode8491() && now - cached.timestamp < SIGNAL_TTL_MS) return cached
 
         // Expired or never fused. fuse() only reads already-computed state
         // (atomic getters plus one pass over the TTL-bounded signal queue), so
@@ -259,26 +269,27 @@ object CrossTalkFusionEngine {
             return try { fuse() } catch (_: Throwable) { null }
         }
         // Never hand back a snapshot past its TTL.
-        return currentSnapshot.get()?.takeIf { System.currentTimeMillis() - it.timestamp < SIGNAL_TTL_MS }
+        return currentSnapshot.get()?.takeIf { it.evidenceMode8491 == mode8491() && System.currentTimeMillis() - it.timestamp < SIGNAL_TTL_MS }
     }
 
     fun getLatestSignal(source: String): AATESignal? {
         val signal = latestBySource[source] ?: return null
-        if (System.currentTimeMillis() - signal.timestamp >= SIGNAL_TTL_MS) {
-            latestBySource.remove(source, signal)
-            return null
-        }
-        return signal
+        val mode = mode8491()
+        val now = System.currentTimeMillis()
+        return signal.takeIf { signalVisible8491(it, mode, now) }
+            ?: signalBuffer.filter { it.source == source && signalVisible8491(it, mode, now) }.maxByOrNull { it.timestamp }
     }
 
     fun getSignalsForMarket(market: String): List<AATESignal> {
         val now = System.currentTimeMillis()
-        return signalBuffer.filter { it.market == market && now - it.timestamp < SIGNAL_TTL_MS }
+        val mode = mode8491()
+        return signalBuffer.filter { it.market == market && signalVisible8491(it, mode, now) }
     }
 
     fun getSignalsForSymbol(symbol: String): List<AATESignal> {
         val now = System.currentTimeMillis()
-        return signalBuffer.filter { it.symbol == symbol && now - it.timestamp < SIGNAL_TTL_MS }
+        val mode = mode8491()
+        return signalBuffer.filter { it.symbol == symbol && signalVisible8491(it, mode, now) }
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -320,7 +331,8 @@ object CrossTalkFusionEngine {
         return try {
             val snapshot = getSnapshot() ?: return 1.0
             val trustMult = lane?.trim()?.takeIf { it.isNotBlank() }?.let { l ->
-                snapshot.strategyTrust[l] ?: snapshot.strategyTrust[l.uppercase()]
+                snapshot.strategyTrust[StrategyTrustAI.normalizeStrategy(l)]
+                    ?: snapshot.strategyTrust[StrategyTrustAI.normalizeStrategy(l.uppercase())]
             }?.let { trust ->
                 when {
                     trust < 0.2 -> 0.80
@@ -364,7 +376,7 @@ object CrossTalkFusionEngine {
         val vetoes = mutableListOf<String>()
 
         // Strategy trust multiplier
-        val trustMult = snapshot.strategyTrust[strategy]?.let { trust ->
+        val trustMult = snapshot.strategyTrust[StrategyTrustAI.normalizeStrategy(strategy)]?.let { trust ->
             when {
                 trust < 0.2 -> { vetoes.add("STRATEGY_DISTRUSTED:$strategy"); 0.0 }
                 trust < 0.4 -> 0.5

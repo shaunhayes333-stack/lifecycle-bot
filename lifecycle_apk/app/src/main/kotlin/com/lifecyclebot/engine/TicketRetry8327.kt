@@ -286,8 +286,10 @@ object TicketRetry8327 {
     private fun runtimeRefusal8330(h: Hold8327, r: Resume8330): String? {
         val ticket = try { ExecutableOpenGate.ticketForAttempt(h.attemptId) } catch (_: Throwable) { null }
         val ts = try { HandoffRoute8180.tokenFor8180(r.mint) } catch (_: Throwable) { null } ?: return "TOKEN_STATE_MISSING"
-        val held = (try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.hasOpenMint(r.mint) } catch (_: Throwable) { true }) ||
-            ts.position.isOpen || ts.position.pendingVerify || ts.position.qtyToken > 0.0
+        val retryMode = if (ticket?.mode.equals("LIVE", true)) "live" else "paper"
+        val sameModeRuntime = ts.position.isPaperPosition == (retryMode == "paper")
+        val held = (try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.hasOpenMint(r.mint, retryMode) } catch (_: Throwable) { true }) ||
+            (sameModeRuntime && (ts.position.isOpen || ts.position.pendingVerify || ts.position.qtyToken > 0.0))
         val inFlight = (try { com.lifecyclebot.network.SignedTxLedger8085.unresolvedFor(r.mint, "BUY") } catch (_: Throwable) { null }) != null ||
             (try { com.lifecyclebot.network.SignedTxLedger8085.attemptSpent8418(h.attemptId) } catch (_: Throwable) { null }) != null  // V5.0.8418 — confirmed too
         // V5.0.8476 — a held ticket's authorization runs to the end of its hold (heldUntil8476), not the 45-second seal clock.

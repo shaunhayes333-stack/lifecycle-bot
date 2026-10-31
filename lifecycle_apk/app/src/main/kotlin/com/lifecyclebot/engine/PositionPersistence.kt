@@ -414,7 +414,11 @@ object PositionPersistence {
                 layer = restoredLayer,
                 sizeSol = saved.costSol
             )
-            try { EmergentGuardrails.registerPosition(mint, saved.symbol, restoredLayer, saved.costSol) } catch (_: Throwable) {}
+            // EmergentGuardrails is the legacy PAPER projection. A restored LIVE lot
+            // must not open PAPER occupancy or mask a genuine PAPER position.
+            if (saved.isPaperPosition) try {
+                EmergentGuardrails.registerPosition(mint, saved.symbol, restoredLayer, saved.costSol)
+            } catch (_: Throwable) {}
             try {
                 com.lifecyclebot.v4.meta.PortfolioHeatAI.addPosition(
                     id = mint,

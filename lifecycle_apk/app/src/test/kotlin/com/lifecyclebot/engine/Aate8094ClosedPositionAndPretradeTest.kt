@@ -45,7 +45,7 @@ class Aate8094ClosedPositionAndPretradeTest {
         val core = exec.substringAfter("private fun requestSellCore7948(").substringBefore("LifecycleHold8065.defer8065")
         assertTrue(core.contains("if (retireClosedRuntimePosition8094(ts, reason)) return SellResult.ALREADY_CLOSED"))
         val helper = exec.substringAfter("private fun retireClosedRuntimePosition8094").substringBefore("    /**")
-        assertTrue(helper.contains("firstOpenForMint(mint)"))
+        assertTrue(helper.contains("firstOpenForMint(mint, \"live\")"))
         assertTrue(helper.contains("walletZeroProvenAt8094("))           // wallet-balance proof, not a tracker row
     }
 

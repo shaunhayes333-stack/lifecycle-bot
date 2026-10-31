@@ -683,32 +683,7 @@ object ShitCoinTraderAI {
             // Without this, ShitCoin closes never reached TradeLessonRecorder → StrategyTrustAI,
             // leaving the trust dashboard with all 50%/UNTESTED for SHITCOIN despite hundreds of trades.
             try {
-                val mfePct = if (pos.peakPnlPct > 0.0) pos.peakPnlPct else pnlPct.coerceAtLeast(0.0)
-                val maePct = pnlPct.coerceAtMost(0.0)
-                val lessonCtx = com.lifecyclebot.v4.meta.TradeLessonRecorder.TradeLessonContext(
-                    strategy = "SHITCOIN",
-                    market = "MEME",
-                    symbol = pos.symbol,
-                    entryRegime = com.lifecyclebot.v4.meta.GlobalRiskMode.RISK_ON,
-                    entrySession = com.lifecyclebot.v4.meta.SessionContext.OFF_HOURS,
-                    trustScore = 0.5, fragilityScore = 0.3,
-                    narrativeHeat = 0.5, portfolioHeat = 0.3,
-                    leverageUsed = 1.0, executionConfidence = 0.6,
-                    leadSource = null, expectedDelaySec = null,
-                    expectedFillPrice = pos.entryPrice,
-                    executionRoute = if (pos.isPaper) "PAPER" else "JUPITER_V6",
-                    captureTime = pos.entryTime
-                )
-                com.lifecyclebot.v4.meta.TradeLessonRecorder.completeLesson(
-                    context = lessonCtx,
-                    outcomePct = pnlPct,
-                    mfePct = mfePct,
-                    maePct = maePct,
-                    holdSec = ((System.currentTimeMillis() - pos.entryTime) / 1000).toInt(),
-                    exitReason = exitReason.name,
-                    actualFillPrice = exitPrice
-                )
-
+                // V4 lessons use canonical net economics and one position identity (8491).
                 // Feed AdaptiveLearningEngine for V5.9.301 pattern matching
                 val label = when {
                     pnlPct >= 100.0 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.GOOD_RUNNER

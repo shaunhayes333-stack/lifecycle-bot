@@ -82,6 +82,8 @@ object EntryStrategySnapshot6450 {
         val candidateVersion8090: Long = 0L,
         val mode8090: String = "unknown",
         val runnerEntry: Boolean = false,
+        val educationScores8491: String = "",
+        val v4EntryContext8491: String = "",
     )
 
     private val snapshots = ConcurrentHashMap<String, Snapshot>() // positionId -> Snapshot
@@ -148,6 +150,8 @@ object EntryStrategySnapshot6450 {
                 .put("mcap", snap.entryMarketCapUsd).put("at", snap.entryTimestampMs)
                 .put("threshold", snap.entryThresholdSnapshot).put("regime", snap.entryMarketRegime)
                 .put("snapshotId", snap.entryPolicySnapshotId).put("tacticVersion", snap.entryTacticVersion)
+                .put("educationScores8491", snap.educationScores8491)
+                .put("v4EntryContext8491", snap.v4EntryContext8491)
                 .put("v3", snap.v3Components).put("brain", snap.brainConsensusVerdict)
                 .put("brainConfidence", snap.brainConsensusConfidence).put("brainObjections", snap.brainConsensusObjections)
                 .put("policyAuthority", snap.policyAuthority).put("policyProbability", snap.policyProbability)
@@ -227,6 +231,8 @@ object EntryStrategySnapshot6450 {
             entryMarketCapUsd = j.optDouble("mcap", 0.0), entryTimestampMs = j.optLong("at", 0L),
             entryThresholdSnapshot = j.optString("threshold", ""), entryMarketRegime = j.optString("regime", ""),
             entryPolicySnapshotId = j.optString("snapshotId", positionId), entryTacticVersion = j.optString("tacticVersion", ""),
+            educationScores8491 = j.optString("educationScores8491", ""),
+            v4EntryContext8491 = j.optString("v4EntryContext8491", ""),
             v3Components = j.optString("v3", ""), brainConsensusVerdict = j.optString("brain", "UNKNOWN"),
             brainConsensusConfidence = j.optDouble("brainConfidence", 0.0), brainConsensusObjections = j.optString("brainObjections", ""),
             policyAuthority = j.optString("policyAuthority", "BOOTSTRAP"), policyProbability = j.optDouble("policyProbability", 0.5),

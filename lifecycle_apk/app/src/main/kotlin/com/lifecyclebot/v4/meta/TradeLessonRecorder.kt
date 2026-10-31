@@ -43,6 +43,69 @@ object TradeLessonRecorder {
     // All lessons (master list)
     private val allLessons = mutableListOf<TradeLesson>()
 
+    private val canonicalMemeRegistered8491 = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /** Both prices must describe the same sell order. Entry-to-exit return is not slippage. */
+    internal fun observedSlippage8491(expectedExit: Double?, actualExit: Double): Double? =
+        expectedExit?.takeIf { it.isFinite() && it > 0.0 && actualExit.isFinite() && actualExit > 0.0 }
+            ?.let { kotlin.math.abs(actualExit - it) / it * 100.0 }
+
+    /** Called at entry, before an asynchronous execution can change the token/context. */
+    fun captureMemeEntry8491(mint: String, symbol: String, lane: String, mode: String, price: Double): String {
+        val c = liveContext6859(lane, "MEME", symbol, mint, price, System.currentTimeMillis(),
+            executionRoute = if (mode.equals("PAPER", true)) "PAPER" else "LIVE")
+        return org.json.JSONObject().apply {
+            put("symbol", symbol); put("regime", c.entryRegime.name); put("session", c.entrySession.name)
+            put("trust", c.trustScore); put("fragility", c.fragilityScore); put("narrative", c.narrativeHeat)
+            put("heat", c.portfolioHeat); put("execution", c.executionConfidence)
+            put("capturedAt", c.captureTime)
+        }.toString()
+    }
+
+    fun ensureCanonicalMeme8491() {
+        if (!canonicalMemeRegistered8491.compareAndSet(false, true)) return
+        com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.subscribe { e ->
+            if (com.lifecyclebot.engine.truth.LearningEpoch8164.preEpoch8164(e.settledAtMs)) return@subscribe
+            if (!com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.isCleanForLearning7807(e)) return@subscribe
+            val entry = com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.snapshot(e.positionId) ?: return@subscribe
+            val lesson = canonicalMemeLesson8491(e, entry) ?: return@subscribe
+            record(lesson)
+        }
+    }
+
+    /** One immutable position, one mode, one terminal net result. No mutable watchlist reads. */
+    internal fun canonicalMemeLesson8491(
+        e: com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Event,
+        entry: com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.Snapshot,
+    ): TradeLesson? {
+        if (entry.assetClassTag != "SOLANA_TOKEN" || entry.positionId != e.positionId || entry.mint != e.mint) return null
+        val mode = e.mode.uppercase()
+        if (mode !in setOf("LIVE", "PAPER")) return null
+        if (entry.mode8090.uppercase() in setOf("LIVE", "PAPER") && !entry.mode8090.equals(mode, true)) return null
+        if (e.assetClassTag.isNotBlank() && e.assetClassTag != "SOLANA_TOKEN") return null
+        if (e.economicFinality !in if (mode == "LIVE") setOf("LIVE_FINALIZED", "LIVE_RECONCILED") else setOf("PAPER_SIMULATED")) return null
+        if (!e.netReturnPct.isFinite()) return null
+        val c = try { org.json.JSONObject(entry.v4EntryContext8491) } catch (_: Exception) { null }
+        val observed = c != null && c.optLong("capturedAt") > 0L
+        fun value(key: String): Double = c?.optDouble(key, 0.5)?.takeIf { it.isFinite() } ?: 0.5
+        return TradeLesson(
+            id = "MEME:$mode:${e.positionId}", strategy = entry.entryLane, market = "MEME",
+            symbol = c?.optString("symbol")?.takeIf { it.isNotBlank() } ?: e.mint,
+            entryRegime = try { GlobalRiskMode.valueOf(c?.optString("regime").orEmpty()) } catch (_: Exception) { GlobalRiskMode.RISK_ON },
+            entrySession = try { SessionContext.valueOf(c?.optString("session").orEmpty()) } catch (_: Exception) { SessionContext.OFF_HOURS },
+            trustScore = value("trust"), fragilityScore = value("fragility"), narrativeHeat = value("narrative"),
+            portfolioHeat = value("heat"), leverageUsed = 1.0, executionConfidence = value("execution"),
+            leadSource = null, expectedDelaySec = null, outcomePct = e.netReturnPct,
+            mfePct = e.mfePct.takeIf { it.isFinite() } ?: 0.0, maePct = e.maePct.takeIf { it.isFinite() } ?: 0.0,
+            mfeObserved8491 = e.mfePct.isFinite(), maeObserved8491 = e.maePct.isFinite(),
+            holdSec = (e.holdingTimeMs.coerceAtLeast(0L) / 1000L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+            exitReason = e.exitReason, expectedFillPrice = entry.entryPriceUsd,
+            // This event has net economics and excursions, not a sell quote/fill pair.
+            actualFillPrice = 0.0, slippagePct = 0.0, executionRoute = mode,
+            timestamp = e.settledAtMs, entryContextObserved8491 = observed, slippageObserved8491 = false,
+        )
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
     // RECORD — Full causal chain capture
     // ═══════════════════════════════════════════════════════════════════════
@@ -68,6 +131,7 @@ object TradeLessonRecorder {
         val isPaperEvidence7803 = paperEvidence7803(lesson)
         val routedLesson7803 = normalizeLessonMode7803(lesson)
         synchronized(allLessons) {
+            if (allLessons.any { it.id == routedLesson7803.id }) return
             allLessons.add(routedLesson7803)
             if (allLessons.size > MAX_LESSONS_PER_LANE * 6) allLessons.removeAt(0)
         }
@@ -176,10 +240,11 @@ object TradeLessonRecorder {
         maePct: Double,
         holdSec: Int,
         exitReason: String,
-        actualFillPrice: Double
+        actualFillPrice: Double,
+        expectedExitFillPrice8491: Double? = null,
     ) {
         val lesson = TradeLesson(
-            id = "LESSON_${System.currentTimeMillis()}",
+            id = "LESSON:${context.executionRoute}:${context.market}:${context.strategy}:${context.symbol}:${context.captureTime}",
             strategy = context.strategy,
             market = context.market,
             symbol = context.symbol,
@@ -200,10 +265,10 @@ object TradeLessonRecorder {
             exitReason = exitReason,
             expectedFillPrice = context.expectedFillPrice,
             actualFillPrice = actualFillPrice,
-            slippagePct = if (context.expectedFillPrice > 0) {
-                kotlin.math.abs(actualFillPrice - context.expectedFillPrice) / context.expectedFillPrice * 100
-            } else 0.0,
-            executionRoute = context.executionRoute
+            slippagePct = observedSlippage8491(expectedExitFillPrice8491, actualFillPrice) ?: 0.0,
+            executionRoute = context.executionRoute,
+            slippageObserved8491 = observedSlippage8491(expectedExitFillPrice8491, actualFillPrice) != null,
+            entryContextObserved8491 = context.entryContextObserved8491
         )
         record(lesson)
     }
@@ -225,7 +290,8 @@ object TradeLessonRecorder {
         val expectedDelaySec: Int?,
         val executionRoute: String,
         val expectedFillPrice: Double,
-        val captureTime: Long
+        val captureTime: Long,
+        val entryContextObserved8491: Boolean = false,
     )
 
     /**
@@ -269,7 +335,7 @@ object TradeLessonRecorder {
             CrossTalkFusionEngine.currentSession6859()
         } catch (_: Throwable) { SessionContext.OFF_HOURS }
         val trust = try {
-            StrategyTrustAI.getAllTrustScores()[strategy]?.trustScore ?: 0.5
+            StrategyTrustAI.getTrustScore(if (executionRoute.uppercase().contains("PAPER")) "PAPER::$strategy" else strategy)
         } catch (_: Throwable) { 0.5 }
         val fragility = try {
             LiquidityFragilityAI.getFragilityScoreFor(mint, symbol)
@@ -360,7 +426,10 @@ object TradeLessonRecorder {
             val lessons = client.loadRecentTradeLessons(limit = 500)
             lessons.forEach { rawLesson ->
                 val lesson = normalizeLessonMode7803(rawLesson)
-                synchronized(allLessons) { allLessons.add(lesson) }
+                val added = synchronized(allLessons) {
+                    if (allLessons.any { it.id == lesson.id }) false else { allLessons.add(lesson); true }
+                }
+                if (!added) return@forEach
                 addToLane(strategyLane, lesson.strategy, lesson)
                 addToLane(regimeLane, lessonLaneKey7803(lesson, lesson.entryRegime.name), lesson)
                 addToLane(executionLane, lessonLaneKey7803(lesson, lesson.executionRoute), lesson)
@@ -447,6 +516,10 @@ object TradeLessonRecorder {
                 o.put("slippagePct", lesson.slippagePct)
                 o.put("executionRoute", lesson.executionRoute)
                 o.put("timestamp", lesson.timestamp)
+                o.put("entryContextObserved8491", lesson.entryContextObserved8491)
+                o.put("slippageObserved8491", lesson.slippageObserved8491)
+                o.put("maeObserved8491", lesson.maeObserved8491)
+                o.put("mfeObserved8491", lesson.mfeObserved8491)
                 arr.put(o)
             }
             val root = org.json.JSONObject()
@@ -494,14 +567,22 @@ object TradeLessonRecorder {
                         slippagePct = o.optDouble("slippagePct", 0.0),
                         executionRoute = o.optString("executionRoute", "UNKNOWN"),
                         timestamp = o.optLong("timestamp", System.currentTimeMillis()),
+                        entryContextObserved8491 = o.optBoolean("entryContextObserved8491", false),
+                        slippageObserved8491 = o.optBoolean("slippageObserved8491", false),
+                        maeObserved8491 = o.optBoolean("maeObserved8491", false),
+                        mfeObserved8491 = o.optBoolean("mfeObserved8491", false),
                     )
                 } catch (_: Throwable) { continue }
                 val normalizedLesson7803 = normalizeLessonMode7803(lesson)
 
-                synchronized(allLessons) {
-                    allLessons.add(normalizedLesson7803)
-                    if (allLessons.size > MAX_LESSONS_PER_LANE * 6) allLessons.removeAt(0)
+                val added8491 = synchronized(allLessons) {
+                    if (allLessons.any { it.id == normalizedLesson7803.id }) false else {
+                        allLessons.add(normalizedLesson7803)
+                        if (allLessons.size > MAX_LESSONS_PER_LANE * 6) allLessons.removeAt(0)
+                        true
+                    }
                 }
+                if (!added8491) continue
                 // Rebuild per-lane indexes
                 addToLane(strategyLane, normalizedLesson7803.strategy, normalizedLesson7803)
                 addToLane(regimeLane, lessonLaneKey7803(normalizedLesson7803, normalizedLesson7803.entryRegime.name), normalizedLesson7803)
@@ -514,6 +595,8 @@ object TradeLessonRecorder {
                 }
                 addToLane(leverageLane, lessonLaneKey7803(normalizedLesson7803, levKey), normalizedLesson7803)
                 if (normalizedLesson7803.leadSource != null) addToLane(rotationLane, lessonLaneKey7803(normalizedLesson7803, normalizedLesson7803.leadSource), normalizedLesson7803)
+                // Local persistence must rebuild the same trust history without a network/Turso dependency.
+                StrategyTrustAI.recordTrade(normalizedLesson7803)
                 restored++
             }
             ErrorLogger.info(TAG, "importState: restored $restored lessons from blob")

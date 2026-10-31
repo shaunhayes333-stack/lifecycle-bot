@@ -34,7 +34,7 @@ object ForcedCloseSlotSweeper6468 {
     fun sweep(): Int {
         sweeps.incrementAndGet()
         val canonicalMints: Set<String> = try {
-            CanonicalPositionAuthority6441.openPositions().map { it.mint }.toSet()
+            CanonicalPositionAuthority6441.openPositions().map { "${it.mode.lowercase()}|${it.mint}" }.toSet()
         } catch (_: Throwable) { return 0 }
         val occupancyEntries = try {
             CanonicalMintOccupancyRegistry6464.snapshotEntries()
@@ -43,9 +43,8 @@ object ForcedCloseSlotSweeper6468 {
         for (entry in occupancyEntries) {
             if (entry.occupancy != CanonicalMintOccupancyRegistry6464.Occupancy.OPEN &&
                 entry.occupancy != CanonicalMintOccupancyRegistry6464.Occupancy.PENDING_EXIT) continue
-            // CanonicalPositionAuthority contains both modes. A mint still
-            // represented by an active canonical position must retain its slot.
-            if (entry.mint in canonicalMints) continue
+            // A PAPER lot cannot justify preserving a stale LIVE slot (or vice versa).
+            if ("${entry.mode.lowercase()}|${entry.mint}" in canonicalMints) continue
             CanonicalMintOccupancyRegistry6464.markClosed(entry.mode, entry.mint)
             released++
             try {

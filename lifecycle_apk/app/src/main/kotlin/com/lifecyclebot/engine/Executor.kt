@@ -2851,8 +2851,8 @@ class Executor(
         val p = ts.position
         if (p.isOpen && !p.isPaperPosition && p.qtyToken > 0.0) return true
         return try {
-            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.firstOpenForMint(ts.mint)
-                ?.let { it.mode.equals("live", ignoreCase = true) && it.remainingQtyRaw.signum() > 0 } == true
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.firstOpenForMint(ts.mint, "live")
+                ?.let { it.remainingQtyRaw.signum() > 0 } == true
         } catch (_: Throwable) { false }
     }
 
@@ -13948,6 +13948,8 @@ class Executor(
             entryTimestampMs = System.currentTimeMillis(),
             entryThresholdSnapshot = policy,
             entryPolicySnapshotId = "${intent.attemptId}:7871", entryTacticVersion = "6568",
+            educationScores8491 = com.lifecyclebot.v3.scoring.EducationSubLayerAI.entryScoresJson8491(intent.mint, intent.mode),
+            v4EntryContext8491 = com.lifecyclebot.v4.meta.TradeLessonRecorder.captureMemeEntry8491(intent.mint, ts?.symbol.orEmpty(), lane, intent.mode, ts?.lastPrice ?: 0.0),
             v3Components = "score=${ts?.lastV3Score ?: intent.effectiveEntryScore7256};phase=${ts?.phase.orEmpty()}",
             policyAuthority = policyField6568(policy, "policyAuthority").ifBlank { "BOOTSTRAP" },
             entryLiquidityUsd = intent.liquidityUsd.takeIf { it > 0.0 } ?: (ts?.lastLiquidityUsd ?: 0.0),
@@ -15766,6 +15768,8 @@ class Executor(
                     entryThresholdSnapshot = paperPolicySnapshot,
                     entryMarketRegime = try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "NORMAL" },
                     entryPolicySnapshotId = "$pid6450:6568", entryTacticVersion = "6568",
+                    educationScores8491 = com.lifecyclebot.v3.scoring.EducationSubLayerAI.entryScoresJson8491(ts.mint, "paper"),
+                    v4EntryContext8491 = com.lifecyclebot.v4.meta.TradeLessonRecorder.captureMemeEntry8491(ts.mint, ts.symbol, entryLane6450, "PAPER", effectivePrice),
                     v3Components = "score=${ts.lastV3Score ?: score.toInt()};confidence=${ts.lastV3Confidence ?: 0};phase=${ts.phase}",
                     brainConsensusVerdict = policyField6568(paperPolicySnapshot, "brainConsensus"),
                     brainConsensusConfidence = if (ts.lastConsensusObjections.isEmpty()) 1.0 else (1.0 / (1.0 + ts.lastConsensusObjections.size)),
@@ -21859,6 +21863,8 @@ class Executor(
                             entryThresholdSnapshot = ts.position.entryPolicySnapshot,
                             entryMarketRegime = entryEvidence7863.regime,
                             entryPolicySnapshotId = "$pidLive6486:6568", entryTacticVersion = "6568",
+                            educationScores8491 = entryEvidence7863.educationScores8491,
+                            v4EntryContext8491 = entryEvidence7863.v4EntryContext8491,
                             v3Components = entryEvidence7863.v3,
                             brainConsensusVerdict = policyField6568(ts.position.entryPolicySnapshot, "brainConsensus"),
                             brainConsensusConfidence = entryEvidence7863.consensusConfidence,
@@ -22036,7 +22042,9 @@ class Executor(
                                 "mint=${verifyMint.take(10)} qty=${verifiedQty.fmt(4)} sol=${"%.4f".format(sol)} proof=${proof.source}",
                             )
                         } catch (_: Throwable) {}
-                        EmergentGuardrails.registerPosition(verifyTradeMint, verifyTradeSymbol, verifyCurrentLayer, sol)
+                        // LIVE ownership is canonical + wallet-proven. The legacy
+                        // EmergentGuardrails registry is PAPER-only and opening it
+                        // here also falsely marked PAPER occupancy as OPEN.
                         try {
                             com.lifecyclebot.engine.GlobalTradeRegistry.registerPosition(
                                 mint = verifyTradeMint,
@@ -23585,8 +23593,7 @@ class Executor(
             val pos = ts.position
             if (!pos.isOpen || pos.isPaperPosition) return false
             val mint = ts.mint
-            val openLive = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.firstOpenForMint(mint)
-                ?.takeIf { it.mode.equals("live", true) }
+            val openLive = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.firstOpenForMint(mint, "live")
             if (openLive != null) return false
             val closedAt = maxOf(
                 com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.lastClosedLiveAtMs8094(mint),
@@ -26984,29 +26991,7 @@ class Executor(
         }
         fun paperSellLearningTailB8395() {
 
-        // V5.9.9: Feed meme paper trade into V4 TradeLessonRecorder → StrategyTrustAI
-        try {
-            val tradingMode = ts.position.tradingMode.ifBlank { "STANDARD" }
-            // V5.0.6859 — real causal context instead of literals. The old block
-            // stamped entryRegime=RISK_ON, entrySession=OFF_HOURS, trustScore=0.5,
-            // fragilityScore=0.3 and portfolioHeat=0.3 on EVERY lesson, so the
-            // regime-fit, execution-quality and narrative-persistence memory lanes
-            // this recorder exists to keep separate had nothing to separate.
-            val lessonCtx = com.lifecyclebot.v4.meta.TradeLessonRecorder.liveContext6859(
-                strategy = tradingMode, market = "MEME", symbol = tradeId.symbol,
-                mint = tradeId.mint,
-                expectedFillPrice = ts.position.entryPrice,
-                captureTime = ts.position.entryTime,
-            )
-            com.lifecyclebot.v4.meta.TradeLessonRecorder.completeLesson(
-                context = lessonCtx, outcomePct = pnlP,
-                mfePct = if (ts.position.highestPrice > 0 && ts.position.entryPrice > 0)
-                    ((ts.position.highestPrice - ts.position.entryPrice) / ts.position.entryPrice * 100) else pnlP.coerceAtLeast(0.0),
-                maePct = pnlP.coerceAtMost(0.0),
-                holdSec = ((System.currentTimeMillis() - ts.position.entryTime) / 1000).toInt(),
-                exitReason = reason, actualFillPrice = price
-            )
-        } catch (_: Exception) {}
+        // V4 lesson is emitted once by the canonical finalized-trade subscriber (8491).
         
         if (reason.lowercase().contains("distribution")) {
             FinalDecisionGate.recordDistributionExit(tradeId.mint)
@@ -27370,6 +27355,7 @@ class Executor(
                 entryCostSol = pos.costSol,
                 pnlSol = pnl,
                 executionMode = if (pos.isPaperPosition) "paper" else "live",
+                positionId8491 = pos.positionId,
                 proofState = "canonical_finalized",
                 economicEventId = durableEventId6643,
             )
@@ -29625,7 +29611,7 @@ class Executor(
             recordTrade(ts, trade)
             security.recordTrade(trade)
             
-            EmergentGuardrails.unregisterPosition(tradeId.mint)
+            // Do not clear a PAPER projection when closing a LIVE position.
             // V5.9.385 — live-path close: release the scanner eviction guard.
             try {
                 com.lifecyclebot.engine.GlobalTradeRegistry.closePosition(tradeId.mint)
@@ -30058,29 +30044,7 @@ class Executor(
         TradeLifecycle.classified(tradeId.mint, classificationLive, if (isScratchTradeLive) null else shouldLearnAsWin)
         TradeLifecycle.clearProposalTracking(tradeId.mint)
 
-        // V5.9.9: Feed meme trade into V4 TradeLessonRecorder → StrategyTrustAI
-        try {
-            val tradingMode = ts.position.tradingMode.ifBlank { "STANDARD" }
-            // V5.0.6859 — real causal context instead of literals. The old block
-            // stamped entryRegime=RISK_ON, entrySession=OFF_HOURS, trustScore=0.5,
-            // fragilityScore=0.3 and portfolioHeat=0.3 on EVERY lesson, so the
-            // regime-fit, execution-quality and narrative-persistence memory lanes
-            // this recorder exists to keep separate had nothing to separate.
-            val lessonCtx = com.lifecyclebot.v4.meta.TradeLessonRecorder.liveContext6859(
-                strategy = tradingMode, market = "MEME", symbol = tradeId.symbol,
-                mint = tradeId.mint,
-                expectedFillPrice = ts.position.entryPrice,
-                captureTime = ts.position.entryTime,
-            )
-            com.lifecyclebot.v4.meta.TradeLessonRecorder.completeLesson(
-                context = lessonCtx, outcomePct = pnlP,
-                mfePct = if (ts.position.highestPrice > 0 && ts.position.entryPrice > 0)
-                    ((ts.position.highestPrice - ts.position.entryPrice) / ts.position.entryPrice * 100) else pnlP.coerceAtLeast(0.0),
-                maePct = pnlP.coerceAtMost(0.0),
-                holdSec = ((System.currentTimeMillis() - ts.position.entryTime) / 1000).toInt(),
-                exitReason = reason, actualFillPrice = exitPrice
-            )
-        } catch (_: Exception) {}
+        // V4 lesson is emitted once by the canonical finalized-trade subscriber (8491).
         
         if (reason.lowercase().contains("distribution")) {
             FinalDecisionGate.recordDistributionExit(tradeId.mint)
@@ -30415,6 +30379,7 @@ class Executor(
                 entryCostSol = pos.costSol,
                 pnlSol = pnl,
                 executionMode = if (pos.isPaperPosition) "paper" else "live",
+                positionId8491 = pos.positionId,
                 proofState = "canonical_finalized",
             )
             

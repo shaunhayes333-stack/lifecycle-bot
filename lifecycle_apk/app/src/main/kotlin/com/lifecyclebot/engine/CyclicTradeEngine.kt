@@ -190,7 +190,7 @@ object CyclicTradeEngine {
     fun evaluateCandidate7542(ts:TokenState,isLive:Boolean):CandidateOpinion7542{
         if(!EnabledTraderAuthority.isEnabled(EnabledTraderAuthority.Trader.CYCLIC))return CandidateOpinion7542(false,0,0,"CYCLIC_DISABLED")
         if(isInPosition)return CandidateOpinion7542(false,0,0,"CYCLIC_RING_POSITION_ACTIVE")
-        if(ts.position.isOpen||com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.hasOpenMint(ts.mint))return CandidateOpinion7542(false,0,0,"POSITION_ALREADY_OPEN")
+        if((ts.position.isOpen && ts.position.isPaperPosition != isLive)||com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.hasOpenMint(ts.mint,if(isLive)"live" else "paper"))return CandidateOpinion7542(false,0,0,"POSITION_ALREADY_OPEN")
         val age=ts.lastPriceUpdate.takeIf{it>0L}?.let{(System.currentTimeMillis()-it).coerceAtLeast(0L)}
         if(ts.lastPrice<=0.0||age==null||age>90_000L){try{com.lifecyclebot.engine.truth.CandidateMarkFresh8094.ensureFresh8094(ts)}catch(_:Throwable){};return CandidateOpinion7542(false,0,0,"PRICE_NOT_FRESH")}
         if(!cyclicEntrySellabilityGuard6097(ts,"native_brain_7542",isLive))return CandidateOpinion7542(false,0,0,"SELLABILITY_REJECT")
@@ -814,9 +814,9 @@ object CyclicTradeEngine {
         val best = tokens.values
             .filter { ts ->
                 val tokenScore = (ts.lastV3Score ?: ts.entryScore.toInt()).toDouble()
-                !ts.position.isOpen
+                !(ts.position.isOpen && ts.position.isPaperPosition != isLiveMode)
                     && !com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.isOpen(if (isLiveMode) "live" else "paper", ts.mint)
-                    && !com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.hasOpenMint(ts.mint)
+                    && !com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.hasOpenMint(ts.mint, if (isLiveMode) "live" else "paper")
                     && resolveCyclicPrice(ts, executor, 0.0, "candidate", requireFresh = true).ok
                     && cyclicEntrySellabilityGuard6097(ts, "candidate", isLiveMode)
                     && tokenScore >= effectiveMinScore
@@ -884,9 +884,9 @@ object CyclicTradeEngine {
                 val probePick = tokens.values
                     .filter { ts ->
                         val tScore = (ts.lastV3Score ?: ts.entryScore.toInt()).toDouble()
-                        !ts.position.isOpen
+                        !(ts.position.isOpen && ts.position.isPaperPosition != isLiveMode)
                             && !com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.isOpen(if (isLiveMode) "live" else "paper", ts.mint)
-                            && !com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.hasOpenMint(ts.mint)
+                            && !com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.hasOpenMint(ts.mint, if (isLiveMode) "live" else "paper")
                             && resolveCyclicPrice(ts, executor, 0.0, "probe", requireFresh = true).ok
                             && cyclicEntrySellabilityGuard6097(ts, "probe", isLiveMode)
                             && tScore >= probeFloor
