@@ -48,13 +48,14 @@ class Aate8418ExitsDataRoutesTest {
     private fun j(s: String) = JSONObject(s)
 
     @Test fun aHighRawRugcheckSumReadsRiskyNotNeutral() {
-        // superseded by V5.0.8471 — owner: RugCheck's number is low = bad token, high = good; a raw-only `score` has no stated
-        // range under that reading and is UNKNOWN (-1), never neutral and never a confirmed rug (was 500 -> 95, 5000 -> 2..14
-        // refused by MOONSHOT, 20000 -> 2, 3000 -> 40..70). The report's findings and our chain proofs decide such a coin.
-        assertEquals(-1, RugcheckScore8399.safety8399(j("""{"score":500}""")))
-        assertEquals(-1, RugcheckScore8399.safety8399(j("""{"score":5000}""")))
-        assertEquals(-1, RugcheckScore8399.safety8399(j("""{"score":20000}""")))
-        assertEquals(-1, RugcheckScore8399.safety8399(j("""{"score":3000}""")))
+        // superseded by V5.0.8472 — 8471's high-is-good reading reverted on the owner's live data (clean reports averaged score_normalised 1.0, 2+-danger reports 65.5).
+        assertEquals(95, RugcheckScore8399.safety8399(j("""{"score":500}""")))       // good
+        val r5000 = RugcheckScore8399.safety8399(j("""{"score":5000}"""))
+        assertTrue("raw 5000 (danger) was a neutral 50; now $r5000", r5000 in 2..14)
+        assertNotNull(MoonshotTraderAI.rugcheckRefusal8418(r5000))
+        assertEquals(2, RugcheckScore8399.safety8399(j("""{"score":20000}""")))
+        val r3000 = RugcheckScore8399.safety8399(j("""{"score":3000}"""))
+        assertTrue("raw 3000 elevated: $r3000", r3000 in 40..70)
         // monotone: more raw risk never reads safer
         var prev = 101
         for (raw in listOf(0, 500, 999, 1_000, 2_000, 2_500, 4_999, 5_000, 9_000, 50_000)) {

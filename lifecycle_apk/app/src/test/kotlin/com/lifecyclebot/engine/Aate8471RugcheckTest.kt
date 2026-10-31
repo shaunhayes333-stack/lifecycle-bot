@@ -18,13 +18,15 @@ class Aate8471RugcheckTest {
     private fun src(rel: String) = File("src/main/kotlin/com/lifecyclebot/$rel").readText()
     private val mint = "Mint8471AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAApump"
 
-    @Test fun rugchecksNumberReadsHighIsGood() {
-        assertEquals(100, RugcheckScore8399.safety8399(j("""{"score_normalised":100}""")))
-        assertEquals(80, RugcheckScore8399.safety8399(j("""{"score_normalised":80}""")))
-        assertEquals(10, RugcheckScore8399.safety8399(j("""{"score_normalised":10}""")))
-        assertEquals("the bottom is the confirmed floor", 0, RugcheckScore8399.safety8399(j("""{"score_normalised":0}""")))
-        assertEquals(20.0, RugcheckScore8399.risk8399(j("""{"score_normalised":80}""")), 1e-9)
-        assertTrue("a raw-only score is unknown", RugcheckScore8399.risk8399(j("""{"score":500}""")).isNaN())
+    // superseded by V5.0.8472 — 8471 read RugCheck's number as high = good; the owner's live 8471 log showed reports with no
+    // findings averaging score_normalised 1.0 and 2+-danger reports 65.5, so the number is a RISK score again (low = clean).
+    @Test fun rugchecksNumberIsARiskScoreOnTheOwnersLiveData() {
+        assertEquals(99, RugcheckScore8399.safety8399(j("""{"score_normalised":1}""")))     // a clean report in the 8471 log
+        assertEquals(35, RugcheckScore8399.safety8399(j("""{"score_normalised":65}""")))    // the 2+-danger reports' average
+        assertEquals(0, RugcheckScore8399.safety8399(j("""{"score_normalised":100}""")))
+        assertEquals(1.0, RugcheckScore8399.risk8399(j("""{"score_normalised":1}""")), 1e-9)
+        assertTrue(RugcheckScore8399.statusLine8471().contains("read=high-is-risk"))
+        assertFalse(File("src/main/kotlin/com/lifecyclebot/engine/RugcheckScore8399.kt").readText().contains("read=high-is-good"))
     }
 
     @Test fun theReportsOwnFindingsCapTheNumber() {
@@ -34,15 +36,15 @@ class Aate8471RugcheckTest {
         assertEquals(35, RugcheckScore8399.findingsSafety8471(1, 0))
         assertEquals(20, RugcheckScore8399.findingsSafety8471(2, 5))
         assertEquals(8, RugcheckScore8399.findingsSafety8471(4, 0))
-        val report = j("""{"mint":"$mint","score_normalised":95,"risks":[{"name":"Freeze Authority still enabled","level":"danger"},
+        val report = j("""{"mint":"$mint","score_normalised":5,"risks":[{"name":"Freeze Authority still enabled","level":"danger"},
             {"name":"Mutable metadata","level":"warn"},{"name":"Top 10 holders high ownership","level":"danger"}]}""")
         assertEquals(2 to 1, RugcheckScore8399.findingCounts8471(report))
-        assertEquals("two dangers cap a high number", 20, RugcheckScore8399.reportSafety8418(report, mint))
+        assertEquals("two dangers cap a clean-looking number", 20, RugcheckScore8399.reportSafety8418(report, mint))
         assertEquals(20, RugcheckScore8399.safety8399(report))
         assertEquals("a clean report keeps its number", 88,
-            RugcheckScore8399.reportSafety8418(j("""{"mint":"$mint","score_normalised":88,"risks":[]}"""), mint))
+            RugcheckScore8399.reportSafety8418(j("""{"mint":"$mint","score_normalised":12,"risks":[]}"""), mint))
         assertEquals("rugged is a confirmed rug whatever the number", 0,
-            RugcheckScore8399.reportSafety8418(j("""{"mint":"$mint","rugged":true,"score_normalised":100,"risks":[]}"""), mint))
+            RugcheckScore8399.reportSafety8418(j("""{"mint":"$mint","rugged":true,"score_normalised":0,"risks":[]}"""), mint))
         assertEquals(null, RugcheckScore8399.findingCounts8471(j("""{"score_normalised":50}""")))
         assertTrue(RugcheckScore8399.statusLine8471().startsWith("rugcheck8471[reports="))
     }

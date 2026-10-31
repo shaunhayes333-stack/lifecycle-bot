@@ -21,30 +21,29 @@ class Aate8418IntakeUnknownIsNotBadTest {
     // ── 1. HARD_RUG: only real rug evidence confirms a rug ─────────────────────────────────────────────────────────
 
     @Test fun aRawOnlyRugcheckScoreIsVeryRiskyNeverTheConfirmedCeiling() {
+        // superseded by V5.0.8472 — 8471's high-is-good reading reverted on the owner's live data (clean reports averaged score_normalised 1.0, 2+-danger reports 65.5).
         // The raw score is an uncapped risk sum; /100 approximates the 0..100 scale and must not reach "confirmed".
-        // superseded by V5.0.8471 — owner: RugCheck's number is low = bad token, high = good; the app safety equals it; a raw-only score is UNKNOWN, never a confirmed rug (was 20000 -> 2, 9900 -> 2, 500 -> 95, normalised 100 -> 0).
-        assertEquals(-1, RugcheckScore8399.safety8399(j("""{"score":20000}""")))
-        assertEquals(-1, RugcheckScore8399.safety8399(j("""{"score":9900}""")))
-        assertEquals(-1, RugcheckScore8399.safety8399(j("""{"score":500}""")))
-        assertEquals(100, RugcheckScore8399.safety8399(j("""{"score_normalised":100}""")))
+        assertEquals(2, RugcheckScore8399.safety8399(j("""{"score":20000}""")))
+        assertEquals(2, RugcheckScore8399.safety8399(j("""{"score":9900}""")))
+        assertEquals(95, RugcheckScore8399.safety8399(j("""{"score":500}""")))
+        // The provider's own normalised ceiling is unchanged.
+        assertEquals(0, RugcheckScore8399.safety8399(j("""{"score_normalised":100}""")))
         assertEquals(98.0, RugcheckScore8399.RAW_ONLY_MAX_RISK_8418, 0.0)
     }
 
     @Test fun onlyACompleteReportAboutThisMintConfirmsARug() {
+        // superseded by V5.0.8472 — 8471's high-is-good reading reverted on the owner's live data (clean reports averaged score_normalised 1.0, 2+-danger reports 65.5).
         // Real rug evidence stays a confirmed rug (0).
         assertEquals(0, RugcheckScore8399.reportSafety8418(j("""{"mint":"$mine","rugged":true,"score_normalised":0,"risks":[]}"""), mine))
-        // superseded by V5.0.8471 — owner: RugCheck's number is low = bad token, high = good; the app safety equals it; a named danger finding caps it (V5.0.8471 findingsSafety8471) — was 0 for both rows below.
-        assertEquals(35, RugcheckScore8399.reportSafety8418(j("""{"mint":"$mine","score_normalised":100,"risks":[{"name":"x","level":"danger"}]}"""), mine))
-        assertEquals(99, RugcheckScore8399.reportSafety8418(j("""{"score_normalised":99,"risks":[]}"""), mine))
-        assertEquals(0, RugcheckScore8399.reportSafety8418(j("""{"score_normalised":1,"risks":[]}"""), mine))
+        assertEquals(0, RugcheckScore8399.reportSafety8418(j("""{"mint":"$mine","score_normalised":100,"risks":[{"name":"x","level":"danger"}]}"""), mine))
+        assertEquals(0, RugcheckScore8399.reportSafety8418(j("""{"score_normalised":99,"risks":[]}"""), mine))
         // Unknown: no answer, or an answer about another mint, is unfetched (-1), never a rug.
         assertEquals(-1, RugcheckScore8399.reportSafety8418(null, mine))
         assertEquals(-1, RugcheckScore8399.reportSafety8418(j("""{"mint":"Other8418","rugged":true,"score_normalised":100,"risks":[]}"""), mine))
         // A score-only answer at the ceiling cannot name a finding: very risky (2), not a permanent confirmed-rug ban.
-        // superseded by V5.0.8471 — owner: RugCheck's number is low = bad token, high = good; the app safety equals it (was: score-only 100 -> 2, 5 -> 95); a score-only bottom still reads very risky (2), not a confirmed ban.
-        assertEquals(100, RugcheckScore8399.reportSafety8418(j("""{"mint":"$mine","score_normalised":100}"""), mine))
-        assertEquals(2, RugcheckScore8399.reportSafety8418(j("""{"mint":"$mine","score_normalised":0}"""), mine))
-        assertEquals(5, RugcheckScore8399.reportSafety8418(j("""{"mint":"$mine","score_normalised":5,"risks":[]}"""), mine))
+        assertEquals(2, RugcheckScore8399.reportSafety8418(j("""{"mint":"$mine","score_normalised":100}"""), mine))
+        // Ordinary scores are untouched.
+        assertEquals(95, RugcheckScore8399.reportSafety8418(j("""{"mint":"$mine","score_normalised":5,"risks":[]}"""), mine))
         assertEquals(-1, RugcheckScore8399.reportSafety8418(j("""{"mint":"$mine","risks":[]}"""), mine))
     }
 

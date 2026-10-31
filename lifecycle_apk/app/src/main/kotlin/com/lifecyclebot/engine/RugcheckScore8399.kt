@@ -18,11 +18,11 @@ import org.json.JSONObject
  * safety = 100 - risk; risk ≥ 99 -> 0 (confirmed), so the value 1 never comes from the provider and stays the pending
  * marker; absent / malformed -> -1 (unfetched = pending downstream, never a refusal).
  *
- * superseded by V5.0.8471 — owner: "low rug check number means bad token. high number means good" (RugCheck's swagger,
- * https://api.rugcheck.xyz/swagger/index.html). The provider's normalised score IS the safety score: 0 worst, 100 best;
- * this app's risk is 100 - it, so the app safety equals the provider's number (≤ 1 -> 0, confirmed bottom). A raw-only
- * `score` (no normalised value) has no stated range and is UNKNOWN. The report's own findings still bind whatever the
- * number says: `rugged` is 0, and a report naming danger-level risks is capped by [findingsSafety8471].
+ * V5.0.8471 read the provider's number the other way (high = good). superseded by V5.0.8472 — RESTORED to the risk
+ * reading above on the owner's own live data: the 8471 log (rugcheck8471 line, 97 min) shows reports with NO findings
+ * averaging score_normalised 1.0 and reports with 2+ danger findings averaging 65.5, and the flipped reading hard-blocked
+ * 20 coins as confirmed rugs (SAFETY/HARD=Rugcheck=20) — clean coins scoring ~1. Kept from 8471: the report's own findings
+ * cap the number ([findingsSafety8471]: `rugged` 0, danger / warn ceilings), whatever it says.
  */
 object RugcheckScore8399 {
     const val CONFIRMED_RISK_8399 = 99.0
@@ -30,22 +30,36 @@ object RugcheckScore8399 {
     /** V5.0.8418 — the highest risk a raw-only (unnormalised) report can carry: very risky (safety 2), not confirmed. */
     const val RAW_ONLY_MAX_RISK_8418 = 98.0
 
-    /**
-     * This app's risk 0..100 (NaN when absent) from the provider's normalised score.
-     * superseded by V5.0.8471 — the provider's `score_normalised` is a SAFETY score (owner: low = bad token, high = good):
-     * risk = 100 - it (was the score itself, read as a risk). A raw-only `score` is UNKNOWN (was mapped through the raw risk
-     * bands 1000 / 2500 / 5000 of 8418).
-     */
+    /** The provider's risk 0..100 (NaN when absent), from `score_normalised`, `scoreNormalized`, or raw `score`. */
     fun risk8399(json: JSONObject?): Double {
         if (json == null) return Double.NaN
-        val s = when {
+        val r = when {
             json.has("score_normalised") -> json.optDouble("score_normalised", Double.NaN)
             json.has("scoreNormalized") -> json.optDouble("scoreNormalized", Double.NaN)
+            // V5.0.8418 — the raw score is an uncapped risk SUM: /100 is an approximation of the 0..100 scale, so a raw-only
+            // report can read very risky but never reaches the confirmed ceiling (raw 20,000 was a "confirmed rug").
+            json.has("score") -> rawRisk8418(json.optDouble("score", Double.NaN))
             else -> Double.NaN
         }
-        return if (s.isNaN() || s < 0) Double.NaN else 100.0 - s.coerceIn(0.0, 100.0)
+        return if (r.isNaN() || r < 0) Double.NaN else r.coerceIn(0.0, 100.0)
     }
 
+    /**
+     * Pure (V5.0.8418 §RAW_SCORE_BANDS): the provider's raw (unnormalised, uncapped) risk SUM placed on the 0..100 risk scale
+     * by RugCheck's own raw bands (< 1000 good, 1000..2500 low, 2500..5000 elevated, >= 5000 danger — the ExternalAlphaFeeds
+     * bands of 6411), not by a linear divide: raw / 100 read raw 5000 (danger) as risk 50 = safety 50, the app's NEUTRAL
+     * default. Raw >= 5000 lands at the top of the app's very-risky band (risk 98 = safety 2: refused by MOONSHOT, penalised
+     * by the ladders); it never reaches the confirmed ceiling (99) — only `rugged` or a complete normalised report does.
+     * NaN for absent / negative.
+     */
+    private fun rawRisk8418(raw: Double): Double = when {
+        raw.isNaN() || raw < 0.0 -> Double.NaN
+        raw < 1_000.0 -> raw / RAW_SCORE_DIVISOR_8399                                      // 0..10
+        raw < 2_500.0 -> 10.0 + (raw - 1_000.0) / 1_500.0 * 20.0                           // 10..30
+        raw < RAW_DANGER_8418 -> 30.0 + (raw - 2_500.0) / 2_500.0 * 30.0                   // 30..60
+        else -> RAW_ONLY_MAX_RISK_8418                                                       // 98 = safety 2
+    }
+    private const val RAW_DANGER_8418 = 5_000.0
 
     /** The app's safety score: -1 unfetched, 0 confirmed rug, 2..100 otherwise (1 is reserved as the pending marker). */
     fun safety8399(risk: Double): Int = when {
@@ -153,6 +167,6 @@ object RugcheckScore8399 {
         val cm = if (cleanN8471 > 0) "%.1f".format(cleanSum8471 / cleanN8471) else "-"
         val dm = if (dangerN8471 > 0) "%.1f".format(dangerSum8471 / dangerN8471) else "-"
         "rugcheck8471[reports=${findingsN8471.get()} notIndexed=${notIndexedN8471.get()} scoreNormalised clean=n$cleanN8471/$cm " +
-            "danger2+=n$dangerN8471/$dm read=high-is-good]"
+            "danger2+=n$dangerN8471/$dm read=high-is-risk]"
     }
 }
