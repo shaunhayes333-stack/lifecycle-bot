@@ -89,12 +89,22 @@ object Costs8369 {
     // first. With PumpPortal unmeasured or failing too (5.0.8416: 1/7) Jupiter stays first. [recentlyTried] is reported only.
     @Suppress("UNUSED_PARAMETER")
     fun jupiterFirstForBuy8369(venue: String, jupiterQuotes: Boolean?, recentlyTried: Boolean, jupiterLandFailing: Boolean,
-                               pumpLandsOk: Boolean = false): Boolean {
+                               pumpLandsOk: Boolean = false, builderDegraded: Boolean = false): Boolean {
         if (venue == "PUMPSWAP" || venue == "RAYDIUM") return true
         if (jupiterQuotes == false) return false
+        // V5.0.8476 — owner: Helius Sender first, it is faster and more reliable. A curve coin's buy is built by PumpPortal's
+        // local trade API (no Jupiter) and sent through Helius Sender while Jupiter's swap builder is degraded (8089: 5xx) or
+        // its recent success rate is poor (8471: jupiter sr=16 %, 4xx 14 / 5xx 18 / net 13 — buys timed out building).
+        if (builderDegraded) return false
         // An aggregate landing rate is not proof that this mint has no Jupiter route.
         return true
     }
+
+    /** Pure (V5.0.8476): is Jupiter's swap builder too unreliable to build a curve coin's buy right now? */
+    fun jupiterBuilderDegraded8476(swapBuildDegraded: Boolean, successRate: Double, samples: Int): Boolean =
+        swapBuildDegraded || (samples >= JUPITER_HEALTH_MIN_SAMPLES_8476 && successRate.isFinite() && successRate < JUPITER_HEALTH_MIN_RATE_8476)
+    const val JUPITER_HEALTH_MIN_SAMPLES_8476 = 5
+    const val JUPITER_HEALTH_MIN_RATE_8476 = 0.5
 
     /**
      * V5.0.8418 — pure: does a sell go PumpPortal FIRST? Only for a pump-routed position ([pumpPriority]) when Jupiter has no

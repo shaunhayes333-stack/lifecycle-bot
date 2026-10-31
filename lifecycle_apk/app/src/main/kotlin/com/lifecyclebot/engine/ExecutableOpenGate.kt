@@ -843,6 +843,10 @@ object ExecutableOpenGate {
             // floor when cycles are healthy.
             com.lifecyclebot.engine.truth.AdaptiveTicketTtl6626.paperTicketTtlMs6626()
         else LIVE_EXECUTION_TICKET_TTL_MS
+        // V5.0.8476 — a ticket TicketRetry8327 holds for a transient stop (safety proof, reserve read, route) stays live until
+        // its hold ends; the seal clock alone let the hold outlive the ticket (resume -> TICKET_GONE).
+        val heldUntil8476 = try { TicketRetry8327.heldUntil8476(ticket.attemptId, now) } catch (_: Throwable) { null }
+        if (heldUntil8476 != null && now < heldUntil8476 && now - ticket.createdAtMs >= 0L) return true
         return now - ticket.createdAtMs in 0..ttl && (ticket.expiresAtMs6613 <= 0L || now < ticket.expiresAtMs6613)
     }
 

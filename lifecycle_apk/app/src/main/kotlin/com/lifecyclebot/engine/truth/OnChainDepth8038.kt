@@ -393,6 +393,13 @@ object OnChainDepth8038 {
         val observedAt8174 = if (curveReal8046 != null) try { CurveReserves7951.readingAtMs8173(ts.mint) } catch (_: Throwable) { null } else null
         if (observedAt8174 != null && !LaunchCohort8173.reserveFresh8174(observedAt8174, nowMs)) {
             try { needCurve8039(ts.mint, nowMs, approved8385 = true) } catch (_: Throwable) {}
+            // V5.0.8476 — the approved buy reads the curve account NOW (one bounded getMultipleAccounts on the RPC ladder,
+            // written to CurveReserves7951 by the fan-out) instead of deferring to a refresh queue that drains at most once
+            // every 10 s: 8471 MOONSHOT lost 2 tickets as CURVE_RESERVES_STALE_DEFER_8174_RETRY_EXPIRED while the coin traded.
+            try {
+                com.lifecyclebot.network.ParallelMarkFanout7088.curvePrices7392(listOf(ts.mint))
+                PipelineHealthCollector.labelInc("CURVE_RESERVES_INLINE_READ_8476")
+            } catch (_: Throwable) {}
             val refreshedAt8174 = try { CurveReserves7951.readingAtMs8173(ts.mint) } catch (_: Throwable) { null }
             if (!LaunchCohort8173.reserveFresh8174(refreshedAt8174, System.currentTimeMillis())) {
                 try { needCurve8039(ts.mint, nowMs) } catch (_: Throwable) {}

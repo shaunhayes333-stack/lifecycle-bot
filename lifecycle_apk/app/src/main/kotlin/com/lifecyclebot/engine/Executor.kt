@@ -2766,7 +2766,15 @@ class Executor(
         // goes Jupiter first whenever Jupiter quotes the mint; PumpPortal only when it has no route (Costs8369).
         val graduatedPool8369 = venue == "PUMPSWAP" || venue == "RAYDIUM"
         val quotes8369 = if (graduatedPool8369) null else costJupiterQuotes8369(ts)
-        val jupiterFirst8369 = Costs8369.jupiterFirstForBuy8369(venue, quotes8369, CostMeter8151.aggregatorTriedRecently8151(ts.mint), Costs8369.jupiterBuysFailing8369(), Costs8369.pumpBuysLanding8418())
+        // V5.0.8476 — a degraded Jupiter builder sends a curve coin's buy PumpPortal-first (built locally, sent via Helius Sender).
+        val degraded8476 = try {
+            val st = ApiHealthMonitor.snapshot()["jupiter"]
+            Costs8369.jupiterBuilderDegraded8476(com.lifecyclebot.network.JupiterApi.swapBuildDegraded8089(),
+                st?.successRate() ?: 1.0,
+                if (st == null) 0 else st.successes.get() + st.failures4xx.get() + st.failures5xx.get() + st.networkErrors.get())
+        } catch (_: Throwable) { false }
+        if (degraded8476) try { PipelineHealthCollector.labelInc("BUY_PUMP_FIRST_JUPITER_DEGRADED_8476") } catch (_: Throwable) {}
+        val jupiterFirst8369 = Costs8369.jupiterFirstForBuy8369(venue, quotes8369, CostMeter8151.aggregatorTriedRecently8151(ts.mint), Costs8369.jupiterBuysFailing8369(), Costs8369.pumpBuysLanding8418(), degraded8476)
         try { Costs8369.noteBuyRoute8369(ts.mint, if (jupiterFirst8369) "JUPITER" else "PUMPPORTAL") } catch (_: Throwable) {}
         if (!jupiterFirst8369) return false
         try {
@@ -20852,6 +20860,9 @@ class Executor(
             val deepUnsupportedAmm4559 = srcUpperForRoute.contains("METEORA") || srcUpperForRoute.contains("ORCA")
             val pumpPortalAutoEligible4559 = !deepUnsupportedAmm4559 && (
                 com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(ts.mint) ||
+                    // V5.0.8476 — a coin on an ACTIVE pump.fun curve is PumpPortal-routable whatever scanner found it (its key is
+                    // remembered from the curve read / tape); the source test alone sent DEX_BOOSTED curve coins to Jupiter.
+                    (try { com.lifecyclebot.network.PumpCurveKeys7269.keyFor(ts.mint) != null && !com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(ts.mint) } catch (_: Throwable) { false }) ||
                     srcUpperForRoute.contains("PUMP_PORTAL") ||
                     srcUpperForRoute.contains("PUMP_FUN_NEW") ||
                     srcUpperForRoute.contains("PUMP_FUN") ||

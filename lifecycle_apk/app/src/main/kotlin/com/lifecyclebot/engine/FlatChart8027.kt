@@ -60,7 +60,7 @@ object FlatChart8027 {
         val peak = bars.map { maxOf(it.highUsd, it.priceUsd) }.sortedDescending().let { if (it.size >= 2) it[1] else it[0] }
         val why = when {
             deadRunner8027(peak, now) -> { deadRefused.incrementAndGet(); "DEAD_RUNNER_8027" }
-            flatCandles8076(bars, now, nowMs) -> {
+            flatCandles8076(bars, now, nowMs) && deadTape8476(ts.mint, nowMs) -> {
                 flatRefused.incrementAndGet(); "FLATLINE_8027"
             }
             // V5.0.8036 — USDP (CASHGEN, entry "$204M"): a market cap climbing $140M -> $250M in a straight line
@@ -92,10 +92,24 @@ object FlatChart8027 {
         val peak = bars.map { maxOf(it.highUsd, it.priceUsd) }.sortedDescending().let { if (it.size >= 2) it[1] else it[0] }
         return when {
             deadRunner8027(peak, now) -> "DEAD_RUNNER_8027"
-            flatCandles8076(bars, now, nowMs) -> "FLATLINE_8027"
+            flatCandles8076(bars, now, nowMs) && deadTape8476(ts.mint, nowMs) -> "FLATLINE_8027"
             else -> null
         }
     }
+
+    /**
+     * V5.0.8476 — a flat chart is DEAD only when nothing trades on it: a coin with executed prints flowing inside a 2 % range
+     * is a base (the scalp and accumulation desks' own setup), not a flatline. 8471: CASHGEN's 14 sealed tickets all died
+     * AUTH_PRESEAL_FLATLINE_8027_8304 — every one a range the desk exists to trade. Pure on the tape's executed prints.
+     */
+    const val DEAD_TAPE_MAX_PRINTS_8476 = 3
+    fun deadTapePrints8476(executedPrints: Int): Boolean = executedPrints < DEAD_TAPE_MAX_PRINTS_8476
+    private fun deadTape8476(mint: String, nowMs: Long): Boolean = try {
+        val executed = com.lifecyclebot.engine.truth.TradeTape8100.prints8128(mint, nowMs, FLAT_WINDOW_MS).count { !it.priceOnly }
+        val dead = deadTapePrints8476(executed)
+        if (!dead) try { PipelineHealthCollector.labelInc("FLATLINE_WAIVED_TRADES_FLOWING_8476") } catch (_: Throwable) {}
+        dead
+    } catch (_: Throwable) { true }
 
     // ── V5.0.8036 — fake charts ──
     private const val CLIMB_WINDOW_MS_8036 = 60L * 60_000L

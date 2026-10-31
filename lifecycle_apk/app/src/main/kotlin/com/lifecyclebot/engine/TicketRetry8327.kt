@@ -101,6 +101,17 @@ object TicketRetry8327 {
         return null
     }
 
+    /**
+     * V5.0.8476 — the wall-clock end of [attemptId]'s active retry hold, or null when it is not held. ExecutableOpenGate.ticketLive
+     * keeps a held ticket alive until then: a LIVE ticket lived 45 s while a hold ran up to 90 s, so a deferral that cleared
+     * after 45 s resumed to TICKET_GONE / AUTHORIZATION_EXPIRED_8385 (8418 log: SAFETY_PROOF_PENDING_DEFERRED_8270_RESUME_REFUSED_TICKET_GONE).
+     */
+    fun heldUntil8476(attemptId: String, nowMs: Long = System.currentTimeMillis()): Long? {
+        val h = held8327[attemptId] ?: return null
+        val until = h.firstMs + HOLD_TTL_MS_8327
+        return if (nowMs in h.firstMs..until) until else null
+    }
+
     /** TicketExec8304.onStage8304 EXEC: a held ticket executed. */
     fun onExec8327(attemptId: String) {
         reserveWaits8385.remove(attemptId)
@@ -279,7 +290,10 @@ object TicketRetry8327 {
             ts.position.isOpen || ts.position.pendingVerify || ts.position.qtyToken > 0.0
         val inFlight = (try { com.lifecyclebot.network.SignedTxLedger8085.unresolvedFor(r.mint, "BUY") } catch (_: Throwable) { null }) != null ||
             (try { com.lifecyclebot.network.SignedTxLedger8085.attemptSpent8418(h.attemptId) } catch (_: Throwable) { null }) != null  // V5.0.8418 — confirmed too
-        if (ticket != null && ticket.expiresAtMs6613 > 0L && System.currentTimeMillis() >= ticket.expiresAtMs6613) return "AUTHORIZATION_EXPIRED_8385"
+        // V5.0.8476 — a held ticket's authorization runs to the end of its hold (heldUntil8476), not the 45-second seal clock.
+        val now8476 = System.currentTimeMillis()
+        val expiry8476 = ticket?.expiresAtMs6613?.takeIf { it > 0L }?.let { e -> heldUntil8476(h.attemptId, now8476)?.let { maxOf(e, it) } ?: e }
+        if (ticket != null && expiry8476 != null && now8476 >= expiry8476) return "AUTHORIZATION_EXPIRED_8385"
         val wait8385 = reserveWaits8385[h.attemptId]
         if (wait8385 != null && (ticket?.mint != wait8385.mint || ticket.mode != wait8385.mode || ticket.candidateVersion != wait8385.version)) return "RESERVE_WAIT_SUPERSEDED_8385"
         val versionIntent = if (ticket == null) false else try {
