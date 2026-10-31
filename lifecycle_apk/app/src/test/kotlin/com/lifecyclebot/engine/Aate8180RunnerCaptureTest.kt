@@ -247,8 +247,9 @@ class Aate8180RunnerCaptureTest {
         assertEquals(listOf("shape:UNKNOWN", "tape:UNKNOWN"), f.inputsFor8180(listOf("shape:UNKNOWN", "tape:UNKNOWN", " ")))
         assertTrue(f.inputsFor8180(emptyList()).isEmpty())
         val gate = src("engine/truth/LiveEdgeGate7877.kt")
-        val defer = gate.substringAfter("private fun dataDefer8136(").substringBefore("private const val DATA_DEFER_REASON_8136")
-        assertTrue(defer.contains("DataDeferFetch8180.request8180(ts, missing, nowMs)"))
+        // superseded (8480, owner directive "no evidence is not proven bad"): the gate's own data defer went with the proven-only door; the fetch-on-defer stays in the admission path
+        assertFalse(gate.contains("private fun dataDefer8136("))
+        assertTrue(gate.contains("DataDeferFetch8180.request8180(ts, missing, nowMs)"))
     }
 
     // ── 5. a judgement cell veto answers to the veto audit ──

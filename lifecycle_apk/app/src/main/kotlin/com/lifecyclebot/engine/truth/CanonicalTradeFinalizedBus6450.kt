@@ -268,6 +268,9 @@ object CanonicalTradeFinalizedBus6450 {
             // Keep rich persistence/subscribers exactly-once, but continue into
             // the canonical 6464 projection below in case the first projection
             // failed after the rich finalization had already been claimed.
+            // A projection the 6464 bus already holds did not fail: re-projecting it was refused there and counted as a
+            // sell-finality redispatch on a terminal sell (pipeline report: SELL_FINALITY_REDISPATCH 118).
+            if (CanonicalFinalizedTradeBus6464.seen(event.positionId)) return false
         }
         val economicInvalid6495 = economicInvalidReason6495(event)
         if (economicInvalid6495 == null && event.netRealizedPnlSol <= 0.0 &&

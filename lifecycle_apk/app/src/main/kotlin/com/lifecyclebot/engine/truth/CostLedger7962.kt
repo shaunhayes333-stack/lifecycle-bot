@@ -369,7 +369,6 @@ object CostLedger7962 {
             catch (_: Throwable) { FieldManual7715.BASE_ROUND_TRIP_COST_PCT_7715 }
     }
 
-    private fun receiptMeasured8418(): Boolean = try { com.lifecyclebot.engine.RealisedSlip8418.receiptMeasured8418() } catch (_: Throwable) { false }
 
     /** The lane's typical live ticket (median SOL spent), the size admission is judged at. */
     private fun laneTicketSol(l: String): Double = median7962(rowsOf(l).map { it[1] })
@@ -400,9 +399,9 @@ object CostLedger7962 {
     fun liveRefusal7962(ts: TokenState, laneRaw: String): String? = try {
         ensureSubscribed()
         val l = lane(laneRaw)
-        // V5.0.8418 — the mark-based cost refuses only until receipts measure the trip (then NetEdge8030 judges on receipts).
-        val measuredCost = com.lifecyclebot.engine.RoundTrip8418.markLift8418(
-            measuredCostPct7962(l, laneTicketSol(l)) ?: earlyCostFloor7962(rowsOf(l).map { it[0] }), receiptMeasured8418())
+        // The lane's measured all-in round trip selects: an expected move that does not clear it is refused. It went through
+        // RoundTrip8418.markLift8418 (a stub returning null), so COST_EXCEEDS_EDGE never fired on a measured cost.
+        val measuredCost = measuredCostPct7962(l, laneTicketSol(l)) ?: earlyCostFloor7962(rowsOf(l).map { it[0] })
         if (measuredCost == null) {
             priorOnly.incrementAndGet()
             null

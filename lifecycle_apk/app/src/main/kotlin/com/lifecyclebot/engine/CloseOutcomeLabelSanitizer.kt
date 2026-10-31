@@ -30,8 +30,10 @@ object CloseOutcomeLabelSanitizer {
         val v = inspect(row)
         if (!v.dirty || v.canonicalReason == row.reason) return row
         if (emit) emitRewrite(row, v)
-        // V5.0.8237 — the outcome label replaces the reason; the trigger survives beside it (first rewrite wins).
-        return row.copy(reason = v.canonicalReason, originalExitReason = row.originalExitReason.ifBlank { row.reason })
+        // The exit reason stays the trigger that fired (owner: "exit reasons must match the trigger"). The outcome label used
+        // to replace it (pipeline report: CLOSE_OUTCOME_LABEL_REWRITTEN=28); learners already exclude the row through
+        // [inspect] / [isDirtyForTraining], so the rewrite only hid which trigger sold at the wrong side of the entry.
+        return row
     }
 
     fun inspect(t: Trade): LabelVerdict {
@@ -83,11 +85,11 @@ object CloseOutcomeLabelSanitizer {
 
     private fun emitRewrite(t: Trade, v: LabelVerdict) {
         try { PipelineHealthCollector.labelInc("TRAINING_ROW_EXCLUDED_REASON_${v.dirtyReason}") } catch (_: Throwable) {}
-        try { PipelineHealthCollector.labelInc("CLOSE_OUTCOME_LABEL_REWRITTEN") } catch (_: Throwable) {}
+        try { PipelineHealthCollector.labelInc("CLOSE_OUTCOME_TRIGGER_MISMATCH_KEPT") } catch (_: Throwable) {}
         try {
             ForensicLogger.lifecycle(
-                "CLOSE_OUTCOME_LABEL_REWRITTEN",
-                "version=$VERSION mint=${t.mint.take(10)} side=${t.side} mode=${t.mode} lane=${t.tradingMode} pnl=${"%.2f".format(t.pnlPct)} old=${t.reason.take(64)} new=${v.canonicalReason} dirty=${v.dirtyReason} proof=${t.proofState}",
+                "CLOSE_OUTCOME_TRIGGER_MISMATCH_KEPT",
+                "version=$VERSION mint=${t.mint.take(10)} side=${t.side} mode=${t.mode} lane=${t.tradingMode} pnl=${"%.2f".format(t.pnlPct)} trigger=${t.reason.take(64)} outcome=${v.canonicalReason} dirty=${v.dirtyReason} proof=${t.proofState}",
             )
         } catch (_: Throwable) {}
     }

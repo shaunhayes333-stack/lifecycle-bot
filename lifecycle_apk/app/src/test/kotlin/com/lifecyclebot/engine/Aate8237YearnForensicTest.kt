@@ -52,7 +52,8 @@ class Aate8237YearnForensicTest {
 
     @Test fun theOriginalExitReasonSurvivesTheOutcomeLabel() {
         val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CloseOutcomeLabelSanitizer.kt").readText()
-        assertTrue(src.contains("originalExitReason = row.originalExitReason.ifBlank { row.reason }"))
+        // superseded (8480, owner: "exit reasons must match the trigger"): the reason is never replaced, so the trigger is the reason
+        assertTrue(src.contains("if (emit) emitRewrite(row, v)\n") && !src.contains("row.copy(reason = v.canonicalReason"))
         val exe = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(exe.contains("EntryMcapReconcile8237.reconciled8237(entryMarketSnapshot.marketCapUsd, entryMarketSnapshot.priceUsd, verifiedEntryPrice)"))
         assertTrue(exe.contains("entryMcap = com.lifecyclebot.engine.truth.EntryMcapReconcile8237.reconciled8237(ts.position.entryMcap, oldEntry, proofEntryUsd)"))

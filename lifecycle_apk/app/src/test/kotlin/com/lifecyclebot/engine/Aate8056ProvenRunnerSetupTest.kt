@@ -31,13 +31,11 @@ class Aate8056ProvenRunnerSetupTest {
 class Aate8059ProvenOnlyLiveTest {
     @Test fun gateIsFirstAndLiveOnly() {
         val g = File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveEdgeGate7877.kt").readText()
-        val gate = g.indexOf("return \"LIVE_PROVEN_SETUP_ONLY_8059\"")
-        val watch = g.indexOf("watchFirst7994(ts, lane, nowMs, auditedAdmission8076 || candidateSpecificAdmission8136 || genericNative8211, candidateVersion, admission8136)")
-        assertTrue(gate in 1 until watch)
+        // superseded (8480, owner directive "no evidence is not proven bad"): the door is removed; live is still gated by the measured-negative doors
+        assertFalse(g.contains("return \"LIVE_PROVEN_SETUP_ONLY_8059\""))
+        assertTrue(g.indexOf("watchFirst7994(ts, lane, nowMs, candidateVersion, admission8136)") > 0)
         assertTrue(g.contains("if (!paper || rehearsal8393) {\n            val l8059"))
-        val audit = g.indexOf("Cortex7885.ownLaneVetoRefusesWinners8076(\"LIVE_PROVEN_SETUP_ONLY_8059\", l8059)")
-        assertTrue(audit in 1 until gate)
-        assertTrue(g.substring(audit, gate).contains("if (!auditedAdmission8076 && Rehearsal8339.doorBindsNow8342("))
+        assertTrue(g.contains("val r8094 = \"TACTIC_RECORD_LOSING_8094\""))
     }
 }
 

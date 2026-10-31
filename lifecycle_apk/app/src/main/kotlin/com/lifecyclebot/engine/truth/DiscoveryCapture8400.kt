@@ -84,7 +84,7 @@ object DiscoveryCapture8400 {
         bump(byHow, how)
         if (how == UNRESOLVED || how == CHAIN_READ_QUEUED) bump(missingBySource, where.take(40))
         if (how == UNRESOLVED) bump(unresolvedWhy8439, missWhy8439(ts.lastPrice, ts.lastPriceSource,
-            try { MintSupply8418.wholeOrZero8418(ts.mint) } catch (_: Throwable) { 0.0 }) + "@" + ts.source.ifBlank { "?" }.take(24))
+            try { OnChainSupplyAuthority7075.supplyOf7075(ts.mint) } catch (_: Throwable) { 0.0 }) + "@" + ts.source.ifBlank { "?" }.take(24))
         try {
             PipelineHealthCollector.labelInc("DISCOVERY_MCAP_${how}_8400")
             if (how == UNRESOLVED || how == CHAIN_READ_QUEUED) PipelineHealthCollector.labelInc("DISCOVERY_MCAP_MISSING_8400_${where.take(40)}")

@@ -168,7 +168,9 @@ class Aate8329EntryEconomicsTest {
         val ne = src("engine/truth/NetEdge8030.kt")
         // superseded by V5.0.8418 — the measured median still lifts the model, but only until realised slippage is receipt-
         // measured (RoundTrip8418.markLift8418; behaviour in Aate8418RoundTripTest).
-        assertTrue(ne.contains("try { CostLedger7962.measuredMedianPct8329(lane, 2) } catch (_: Throwable) { null }, receipts8418) ?: return model"))
+        // superseded (8480, owner: "use measured cost per lane") — the admission reads the measured median directly; the
+        // markLift8418 stub (always null) had dropped it, so entries were judged on the 3.78 % model.
+        assertTrue(ne.contains("val measured = (try { CostLedger7962.measuredMedianPct8329(lane, 2) } catch (_: Throwable) { null }) ?: return model"))
         assertTrue(ne.contains("return maxOf(model, measured)"))
         assertTrue("the 8114 core's economic refusal reads the cost truth", ne.contains("val cost = preTradeCostPct8329(lane, entryTicket8151(), liquidity8037(ts), ts.mint, ts.lastMcap)"))
         assertTrue("exits keep the model (wins are not capped)", ne.contains("val rt = costPct8030(lane, sizeSol, liquidityUsd, mint, mcapUsd)"))

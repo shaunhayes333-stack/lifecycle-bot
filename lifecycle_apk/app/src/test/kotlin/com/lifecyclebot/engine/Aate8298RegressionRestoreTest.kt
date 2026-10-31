@@ -49,10 +49,8 @@ class Aate8298RegressionRestoreTest {
         // the chase rule stands down on the earned judgement only; an unearned admission is refused and its terminal named
         val chase = gate.substringAfter("internal fun chaseRefusal8397(", "")
             .substringBefore("private fun developingRunGrab8117(", "")
-        val admittedStandDown = chase.substringAfter("if (!provenCell && admittedJudged) {", "")
-            .substringBefore("chaseRefused8065.incrementAndGet()", "")
-        assertTrue(admittedStandDown.contains("ADMITTED_SPECIFIC_DUPLICATE_VETO_STOOD_DOWN_8201_CHASE_"))
-        assertTrue(admittedStandDown.contains("return null"))
+        // superseded (8480): label-record chase stand-downs removed (they read survivors with labels lost: LOSS_BOUGHT_TOP=13)
+        assertFalse(chase.contains("ADMITTED_SPECIFIC_DUPLICATE_VETO_STOOD_DOWN_8201_CHASE_"))
         assertTrue(chase.contains("return \"CHASING_SPIKE_8065\""))
         val chaseCall = gate.substringAfter("if (snap8065 != null) chaseRefusal8397(", "")
             .substringBefore("// Keep watch-first", "")

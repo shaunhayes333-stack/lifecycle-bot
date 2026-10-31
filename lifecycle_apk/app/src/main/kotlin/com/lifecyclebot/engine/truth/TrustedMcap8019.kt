@@ -60,7 +60,10 @@ object TrustedMcap8019 {
             try { MintSupply8418.stamp8418(ts) } catch (_: Throwable) {}
             return verified
         }
-        return 0.0
+        // A chain read the supply authority resolved but the mint-record store did not keep (getTokenSupply answer with no
+        // record) is still the chain's supply; the authority never re-asks a resolved mint, so reading only the store left the
+        // coin NO_VERIFIED_SUPPLY for good (pipeline report: NO_VERIFIED_SUPPLY=515).
+        return try { OnChainSupplyAuthority7075.supplyOf7075(ts.mint) } catch (_: Throwable) { 0.0 }
     }
 
     /**

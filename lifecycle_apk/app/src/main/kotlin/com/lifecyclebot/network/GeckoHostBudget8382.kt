@@ -60,23 +60,6 @@ object GeckoHostBudget8382 : Interceptor {
         bucket.noteLimited8287(nowMs, retryAfterMs)
     }
 
-    /**
-     * V5.0.8439 — true when the bucket is full: no live candle / trade read is waiting on this host. Learning-only readers
-     * (DowntimeRecovery8430) fetch only then. 8438 (204 s): decision=26/9 — the label recovery took 10 of those 26 tokens
-     * (all empty) while live chart reads were refused 9 times.
-     */
-    fun spare8439(nowMs: Long = System.currentTimeMillis()): Boolean =
-        bucket.pausedLeftMs8287(nowMs) <= 0L && bucket.tokens8287(nowMs) >= BURST_8382 - 0.01
-
-    /**
-     * V5.0.8457 — DowntimeRecovery8430's one-a-minute trickle. Superseded by V5.0.8458: 8457 asked for 3 tokens, which is
-     * [BURST_8382] (a full bucket, the same test as [spare8439]), so the trickle never fired (8457: trickle8457=0 fetched=0
-     * yieldedToLive=94 with tokens=1.7). One whole token for this call, not paused: one call a minute is a tenth of the host.
-     */
-    fun trickle8457(nowMs: Long = System.currentTimeMillis()): Boolean =
-        bucket.pausedLeftMs8287(nowMs) <= 0L && bucket.tokens8287(nowMs) >= TRICKLE_TOKENS_8458 - 0.01
-    const val TRICKLE_TOKENS_8458 = 1.0
-
     /** geckoHost8382[perMin=10 tokens=.. decision=taken/refused bulk=taken/refused provider429=.. pausedLeftMs=..] */
     fun statusLine8382(nowMs: Long = System.currentTimeMillis()): String =
         "geckoHost8382[perMin=$PER_MIN_8382 tokens=${"%.1f".format(bucket.tokens8287(nowMs))} decision=${takenDecision.get()}/${refusedDecision.get()} " +

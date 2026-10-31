@@ -185,7 +185,8 @@ class Aate8136AdmissionRecordTest {
         assertTrue(helper.indexOf("floorFromAdmission8136(ts, lane, waitFloor, candidateVersion, candidateAdmission)?.let { return it }") in 0 until helper.indexOf("ladderProven7932(ts)"))
         assertTrue(fdg.contains("recordLaneAdmission7932(ts, lane, waitFloor.coerceIn(0.0, 100.0), false, candidateVersion)"))
         val gate = src("engine/truth/LiveEdgeGate7877.kt")
-        assertTrue(gate.indexOf("dataDefer8136(ts, l8059, setup8083, nowMs)") in 1 until gate.indexOf("return \"LIVE_PROVEN_SETUP_ONLY_8059\""))
+        // superseded (8480, owner directive "no evidence is not proven bad"): the proven-only door and its data defer are removed (CandidateAdmission8136 still defers on missing data)
+        assertFalse(gate.contains("dataDefer8136("))
         // superseded by V5.0.8342 — the assessment's ledger source names the book: LIVE in a live runtime, PAPER_REHEARSAL in a paper
         // one (8336 rehearsal files paper assessments too, and they must never read as live evidence).
         assertTrue(gate.contains("CandidateAdmission8136.noteVerdict8136(Rehearsal8339.assessmentSource8342(paper8342), verdict.name, reason)"))

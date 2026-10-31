@@ -374,12 +374,16 @@ object ExecutionSpineAcceptanceWindow6647 {
         )
     }
 
-    private fun activeModeOpenCount7809(open: List<CanonicalPositionAuthority6441.Position>): Long {
+    private fun activeModeOpenCount7809(open: List<CanonicalPositionAuthority6441.Position>, nowMs: Long = System.currentTimeMillis()): Long {
         val activeMode = try {
             if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) "paper" else "live"
         } catch (_: Throwable) { return open.size.toLong() }
-        return open.count { it.mode.equals(activeMode, ignoreCase = true) }.toLong()
+        // A position opened inside the last exit cycle has not had a tick to be evaluated in yet (8479 smoke: AAVE opened
+        // 0.39 s before the window closed and failed it as OPEN_WITHOUT_EXIT_EVALUATION). It is owed an evaluation next window.
+        return open.count { it.mode.equals(activeMode, ignoreCase = true) && nowMs - it.openedAtMs >= EXIT_CYCLE_GRACE_MS }.toLong()
     }
+
+    private const val EXIT_CYCLE_GRACE_MS = 15_000L
 
     /** Returns null while the mandatory window is still warming. */
     fun closeCompletedWindow(nowMs: Long = System.currentTimeMillis()): ExecutionSpineAcceptance6647.Result? {
@@ -482,7 +486,7 @@ object ExecutionSpineAcceptanceWindow6647 {
                 // canonicalExitTokenSnapshot6512 manages only the active mode), so a
                 // retained PAPER row in a LIVE runtime (or vice versa) is never
                 // exit-evaluated and must not demand an exit evaluation here.
-                canonicalOpen = activeModeOpenCount7809(canonicalOpenPositions),
+                canonicalOpen = activeModeOpenCount7809(canonicalOpenPositions, nowMs),
                 exitEvaluations = (end.exitEvaluations - start.exitEvaluations).coerceAtLeast(0L),
                 supervisorForcedLeaseReleases = delta("SUPERVISOR_LEASE_FORCE_RELEASED"),
                 cashDeltaSol = reconciledDelta(forensic?.cashSol),

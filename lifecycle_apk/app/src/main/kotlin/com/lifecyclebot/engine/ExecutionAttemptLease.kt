@@ -31,7 +31,20 @@ object ExecutionAttemptLease {
         val mint: String,
         val symbol: String = "",
         val createdAtMs: Long = System.currentTimeMillis(),
+        val failedAtMs: Long = 0L,
     )
+
+    /**
+     * A BUY's failure count outlives its backoff for this long, so the backoff escalates per mint (5 s, 15 s, 45 s, 5 min).
+     * The count was pruned the moment each backoff ended and deleted on every non-network failure (slippage 6001, no route),
+     * so every retry of a mint started again at failure 1: the ladder never reached its cap.
+     */
+    private const val BUY_FAILURE_MEMORY_MS = 10 * 60_000L
+    /** From this many failures the mint's backoff binds every processor (a changed route no longer resets the cap). */
+    private const val BUY_CAP_FAILURES = 4
+
+    private fun remembered(st: State, nowMs: Long): Boolean =
+        st.side.equals("BUY", true) && st.failures > 0 && nowMs - st.failedAtMs < BUY_FAILURE_MEMORY_MS
 
     private val states = ConcurrentHashMap<String, State>()
 
@@ -54,7 +67,7 @@ object ExecutionAttemptLease {
         states.entries.removeIf { e ->
             val st = e.value
             val expiry = maxOf(st.activeUntilMs, st.backoffUntilMs)
-            val expired = expiry <= nowMs
+            val expired = expiry <= nowMs && !remembered(st, nowMs)
             if (expired) {
                 pruned++
                 emit(
@@ -73,7 +86,7 @@ object ExecutionAttemptLease {
     fun visibleNegativeTtlCount(): Int {
         val n = now()
         pruneExpired(n)
-        return states.values.count { maxOf(it.activeUntilMs, it.backoffUntilMs) - n < 0L }
+        return states.values.count { maxOf(it.activeUntilMs, it.backoffUntilMs) - n < 0L && !remembered(it, n) }
     }
 
     /**
@@ -150,7 +163,7 @@ object ExecutionAttemptLease {
                 emit("EXEC_DUPLICATE_SUPPRESSED", side, mint, symbol, "processor=$processor active=${st.lastProcessor} ttlMs=${st.activeUntilMs - n}")
                 return Verdict(false, existingKey, "ACTIVE_LEASE", st.activeUntilMs - n)
             }
-            if (st.backoffUntilMs > n && st.lastProcessor.equals(processor, true)) {
+            if (st.backoffUntilMs > n && (st.lastProcessor.equals(processor, true) || st.failures >= BUY_CAP_FAILURES)) {
                 emit("EXEC_RETRY_BACKOFF_ACTIVE", side, mint, symbol, "processor=$processor failures=${st.failures} ttlMs=${st.backoffUntilMs - n} last=${st.lastReason}")
                 return Verdict(false, existingKey, "BACKOFF_ACTIVE", st.backoffUntilMs - n)
             }
@@ -196,7 +209,7 @@ object ExecutionAttemptLease {
         pruneExpired(n)
         val old = states[key]
         val failures = (old?.failures ?: 0) + 1
-        if (!isRetryableTerminal(reason)) {
+        if (!isRetryableTerminal(reason) && !side.equals("BUY", true)) {
             states.remove(key)
             emit("${side.uppercase()}_TERMINAL_FAIL", side, mint, symbol, "reason=$reason processor=$processor failures=$failures backoffMs=0 deterministic=true")
             emit("EXEC_LEASE_CLEARED", side, mint, symbol, "terminal=FAIL_NO_BACKOFF reason=$reason")
@@ -211,6 +224,7 @@ object ExecutionAttemptLease {
                 lastProcessor = processor,
                 lastReason = reason,
                 symbol = symbol,
+                failedAtMs = n,
             )
         }
         emit("${side.uppercase()}_TERMINAL_FAIL", side, mint, symbol, "reason=$reason processor=$processor failures=$failures backoffMs=$backoff")

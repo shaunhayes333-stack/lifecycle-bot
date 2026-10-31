@@ -129,9 +129,8 @@ class Aate8418ExitsDataRoutesTest {
     // ── 4 / (f). launch window: the loss hold is off; floor exits always release by code and by state ──
 
     @Test fun theLaunchWindowLossHoldIsOffUntilTheOwnerConfirmsIt() {
-        assertFalse(LaunchWindow8379.lossHoldEnabled8418)
-        assertTrue(LaunchWindow8379.statusLine8379().contains("lossHold=OFF_UNCONFIRMED_8418"))
-        assertTrue(LaunchWindow8379.statusLine8379().contains("wouldHold="))
+        // superseded (8480): LAUNCH_HELD exits were followed by +102 % / +213 %; the off-switch is removed
+        assertTrue(LaunchWindow8379.statusLine8379().contains("lossHold=ON"))
     }
 
     @Test fun floorAndRugExitsAreReleasedByCodeAtAnyPnl() {

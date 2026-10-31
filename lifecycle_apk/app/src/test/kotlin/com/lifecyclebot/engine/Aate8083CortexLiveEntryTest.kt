@@ -31,7 +31,8 @@ class Aate8083CortexLiveEntryTest {
         assertFalse(body.contains("refusal8064"))
         // the candidate's own losing setup still refuses, before any admission door
         assertTrue(body.indexOf("LiveTruth8064.setupRefusal8083(l8059, setup8083, nowMs)") < body.indexOf("LanePlaybook7907.provenSetup8056(ts, l8059, nowMs)"))
-        assertTrue(body.contains("Verdict8083.DEFER, \"LIVE_PROVEN_SETUP_ONLY_8059\""))
+        // superseded (8480, owner directive "no evidence is not proven bad"): the proven-only door is removed
+        assertFalse(body.contains("return \"LIVE_PROVEN_SETUP_ONLY_8059\""))
         assertTrue(g.contains("if (!paper && final == null) LiveTruth8064.noteLiveAdmit8083"))
     }
 

@@ -92,16 +92,11 @@ object DowntimeRecovery8430 {
         // V5.0.8435 — 8434 (5.4 min): queued=150 fetched=0. The provider's own call interval rarely reads exactly zero at the
         // labeler's tick, so "waitMs > 0 -> return" never fetched. A cooldown (429 / dead source) still defers; a short interval
         // gap is slept on the fetch thread instead.
-        // V5.0.8439 — learning yields to live reads on GeckoTerminal (10 calls a minute): it is used while its bucket is full.
-        // V5.0.8457 — and, so recovery is never starved, one call a minute while the bucket holds a whole token (8458; 8457
-        // asked for a full bucket by mistake) (8450: queued=82 fetched=0 yieldedToLive=71 — every label a restart interrupted was lost). Free sources only
-        // (owner: Birdeye is dead; the 8456 Birdeye fallback is withdrawn).
+        // 8480 — the yield-to-live door (8439 spare bucket / 8457 one-a-minute trickle) is removed: it held recovery to ~1 fetch a
+        // minute against a 150-mint boot queue and a 15-minute window (pipeline report: downtime recovered 0/145). The provider's
+        // own slot (cooldown on 429 / dead source, interval wait) still paces every call. Free sources only (Birdeye is dead).
         val slot8457 = !wait.cooldown && wait.waitMs <= MAX_SLOT_SLEEP_MS_8435
-        val spare8457 = try { com.lifecyclebot.network.GeckoHostBudget8382.spare8439(nowMs) } catch (_: Throwable) { false }
-        val trickle8457 = !spare8457 && nowMs - lastFetchMs >= TRICKLE_GAP_MS_8457 &&
-            (try { com.lifecyclebot.network.GeckoHostBudget8382.trickle8457(nowMs) } catch (_: Throwable) { false })
-        if (!slot8457 || (!spare8457 && !trickle8457)) { yielded8439.incrementAndGet(); return }
-        if (trickle8457) trickleFetches8457.incrementAndGet()
+        if (!slot8457) { yielded8439.incrementAndGet(); return }
         val sleepMs8435 = wait.waitMs.coerceAtLeast(0L)
         if (!fetching.compareAndSet(false, true)) return
         val mint = synchronized(queue) { queue.firstOrNull()?.also { queue.remove(it) } }
@@ -124,15 +119,13 @@ object DowntimeRecovery8430 {
 
     @Volatile private var inFlight8430 = ""
 
-    private val trickleFetches8457 = AtomicLong(0)
-    private const val TRICKLE_GAP_MS_8457 = 60_000L
 
     /** V5.0.8438 — DiagnosisBrief8438: (queued, fetched, recovered, gaveUp). */
     fun counts8438(): LongArray = longArrayOf(queue.size.toLong(), fetched.get(), recovered.get(), gaveUp.get(), empty.get(), yielded8439.get())
 
     fun statusLine8430(): String =
         "downtimeRecovery8430[queued=${queue.size} fetched=${fetched.get()} empty=${empty.get()} recovered=${recovered.get()} " +
-            "gaveUp=${gaveUp.get()} yieldedToLive8439=${yielded8439.get()} trickle8457=${trickleFetches8457.get()} cap=$MAX_MINTS_PER_BOOT_8430 mints/${RECOVERY_WINDOW_MS_8430 / 60_000L}m]"
+            "gaveUp=${gaveUp.get()} slotBusy=${yielded8439.get()} cap=$MAX_MINTS_PER_BOOT_8430 mints/${RECOVERY_WINDOW_MS_8430 / 60_000L}m]"
 
     internal fun seedForTest8430(mint: String, cs: List<Candle>) { candles[mint] = cs }
     internal fun resetForTest8430() { candles.clear(); attempted.clear(); queue.clear(); fetching.set(false); lastFetchMs = 0L; fetched.set(0); empty.set(0); recovered.set(0); gaveUp.set(0) }

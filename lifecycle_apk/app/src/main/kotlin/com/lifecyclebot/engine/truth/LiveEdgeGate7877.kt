@@ -540,7 +540,6 @@ object LiveEdgeGate7877 {
         ts: TokenState, lane: String, paper: Boolean, nowMs: Long, candidateVersion: Long,
         candidateAdmission: CandidateAdmission8136.Decision8136?,
     ): String? {
-        var auditedAdmission8076 = false
         var candidateSpecificAdmission8136 = false
         var resolvedAdmission: CandidateAdmission8136.Decision8136? = null
         var genericNative8211 = false   // 8213: read by liveRefusalCore7970 outside the live block; false in paper
@@ -655,8 +654,6 @@ object LiveEdgeGate7877 {
             // V5.0.8468 — the lane's own brain qualifies this coin and that trigger's record is proven at the lane's horizon
             // (LaneTrigger8468): the shared setup menu's timing / picked-setup reads and the proven-only door stand down for it.
             val trigger8468 = try { LaneTrigger8468.admits8468(ts, l8059) } catch (_: Throwable) { false }
-            // ... and it is measured evidence: it clears watch-first's UNMEASURED thin-cell wait only (a measured-negative cell still binds).
-            if (trigger8468) auditedAdmission8076 = true
             if (!admittedJudged8201 && !trigger8468 && !cellOrKindProven8094(ts, l8059, nowMs)) (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.timingNegative8094(ts, l8059, nowMs) } catch (_: Throwable) { null })?.let { at ->
                 val r8094 = "TIMING_RECORD_NEGATIVE_8094"
                 if (!Rehearsal8339.doorBindsNow8342(r8094, l8059)) return@let
@@ -698,28 +695,9 @@ object LiveEdgeGate7877 {
             // carry live money.
             // V5.0.8072 — or a runner ticket: a small capped budget of unproven buys in the best honest-label group
             // (graduated PumpSwap coins at $10k-$100k), held on the lifecycle rules (RunnerTicket8073).
-            if (proven8059 == null && !measuredEdge8060(ts, l8059, nowMs) && !candidateSpecificAdmission8136 && !genericNative8211 &&
-                !(try { com.lifecyclebot.engine.RunnerTicket8073.admits8073(ts, nowMs) } catch (_: Throwable) { false }) &&
-                !runnerForming8113(ts, nowMs) && !shadowAuditAdmits8113(ts, l8059) &&
-                !coldStartAdmits8080(ts, l8059, nowMs)) {
-                auditedAdmission8076 = try {
-                    com.lifecyclebot.engine.cortex.Cortex7885.ownLaneVetoRefusesWinners8076("LIVE_PROVEN_SETUP_ONLY_8059", l8059) ||
-                        com.lifecyclebot.engine.cortex.Cortex7885.overrulesEdgeRefusal(ts, l8059, "LIVE_PROVEN_SETUP_ONLY_8059")
-                } catch (_: Throwable) { false }
-                if (!auditedAdmission8076 && Rehearsal8339.doorBindsNow8342("LIVE_PROVEN_SETUP_ONLY_8059", l8059)) {
-                    // V5.0.8136 — a coin the playbook could not classify (DATA_INCOMPLETE) has not been judged yet: it
-                    // DEFERS on its data (bounded window), it is not filed in the proven-only refusal population.
-                    dataDefer8136(ts, l8059, setup8083, nowMs)?.let { r8136 -> observeTail7996(ts, lane, r8136, nowMs); return r8136 }
-                    provenOnlyRefused8059.incrementAndGet()
-                    try { PipelineHealthCollector.labelInc("LIVE_PROVEN_SETUP_ONLY_8059_$l8059") } catch (_: Throwable) {}
-                    // V5.0.8083 — DEFER, not a verdict on the token: no validated positive evidence YET for this exact
-                    // candidate. Recovery path: its setup / cell / Cortex setup cell proving out on graded labels.
-                    recordAssessment8083(ts, l8059, setup8083, Verdict8083.DEFER, "LIVE_PROVEN_SETUP_ONLY_8059", prior8083?.sizeFactor ?: 1.0, nowMs)
-                    observeTail7996(ts, lane, "LIVE_PROVEN_SETUP_ONLY_8059", nowMs)
-                    return "LIVE_PROVEN_SETUP_ONLY_8059"
-                }
-                try { PipelineHealthCollector.labelInc("LIVE_PROVEN_SETUP_AUDIT_CLEARED_8076_$l8059") } catch (_: Throwable) {}
-            }
+            // The proven-only door (LIVE_PROVEN_SETUP_ONLY_8059) is removed: it refused every coin without a proven-positive
+            // record, and with labels lost (35 % priced) "no evidence" read as "proven bad" for every lane. A lane trades from
+            // its educated base; the measured-negative doors above (picked setup / timing / tactic record losing) still bind.
             if (candidateSpecificAdmission8136) try { PipelineHealthCollector.labelInc("LIVE_CANDIDATE_ADMISSION_CLEARED_PROVEN_ONLY_8161_$l8059") } catch (_: Throwable) {}
             if (genericNative8211) try { PipelineHealthCollector.labelInc("LIVE_GENERIC_NATIVE_ECONOMIC_ADMIT_8211_$l8059") } catch (_: Throwable) {}
             provenOnlyAdmitted8059.incrementAndGet()
@@ -747,7 +725,7 @@ object LiveEdgeGate7877 {
             // Keep watch-first on the same immutable admission snapshot as the preceding live checks.
             // 8213: the same qualified native admission also clears an UNMEASURED thin-cell wait.
             // A measured-negative band/cell and every other watch refusal still bind in watchFirst7994.
-            watchFirst7994(ts, lane, nowMs, auditedAdmission8076 || candidateSpecificAdmission8136 || genericNative8211, candidateVersion, admission8136)?.let {
+            watchFirst7994(ts, lane, nowMs, candidateVersion, admission8136)?.let {
                 if (!Rehearsal8339.doorBindsNow8342(it, l8059)) return@let
                 if (candidateSpecificAdmission8136) admittedTerminal8201(ts, lane, it, candidateVersion)
                 observeTail7996(ts, lane, it, nowMs); return it
@@ -776,34 +754,6 @@ object LiveEdgeGate7877 {
         } catch (_: Throwable) {}
         return why
     }
-
-    /**
-     * V5.0.8136 §DATA_INCOMPLETE_IS_A_DEFER. At the proven-only door a coin whose setup classification is DATA_INCOMPLETE
-     * (core inputs unobserved: no candles / tape / change yet) was refused as LIVE_PROVEN_SETUP_ONLY_8059 beside coins
-     * measured short of proof, and graded in that refusal's population. It now defers under its own reason while its
-     * inputs are re-fetched (LanePlaybook7907.requestInputs8085, TradePlan7739 bars incl. the local executed tape), for a
-     * bounded window (CandidateAdmission8136.deferBudget8136); once that window is spent the ordinary refusal stands.
-     * Still a refusal: no live money moves on missing data.
-     */
-    private fun dataDefer8136(ts: TokenState, lane: String, setup: String?, nowMs: Long): String? {
-        val missing = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.dataIncomplete8136(ts, lane, nowMs) } catch (_: Throwable) { null } ?: return null
-        if (!CandidateAdmission8136.deferBudgetFor8144(ts.mint, missing, nowMs)) return null  // V5.0.8144 — coalesced per mint + missing feature
-        // V5.0.8180 — the deferral asks for what it waits for (it only spent budget: TZERO +1,884% waited, nothing fetched).
-        try { com.lifecyclebot.engine.DataDeferFetch8180.request8180(ts, missing, nowMs) } catch (_: Throwable) {}
-        val r = DATA_DEFER_REASON_8136
-        dataDeferred8136.incrementAndGet()
-        try { PipelineHealthCollector.labelInc("${r}_$lane") } catch (_: Throwable) {}
-        recordAssessment8083(ts, lane, setup, Verdict8083.DEFER, r, 1.0, nowMs)
-        try {
-            if (com.lifecyclebot.engine.ForensicEmitRateLimiter6356.shouldEmit("LIVE_DATA_DEFER_8136", "$lane|${ts.mint}")) {
-                ForensicLogger.lifecycle(r, "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=$lane missing=${missing.joinToString(",").take(120)}")
-            }
-        } catch (_: Throwable) {}
-        return r
-    }
-
-    private const val DATA_DEFER_REASON_8136 = "DATA_INCOMPLETE_DEFER_8136"
-    private val dataDeferred8136 = AtomicLong(0)
 
     private val measuredEdgeAdmitted8060 = AtomicLong(0)
 
@@ -860,12 +810,6 @@ object LiveEdgeGate7877 {
         return lb > 0.55
     }
 
-    /** V5.0.8097 — CHASING_SPIKE_8065 stands down where its own ladder replays prove it refuses runners. */
-    internal fun spikeRuleRefusesRunners8097(ts: TokenState, lane: String, nowMs: Long): Boolean {
-        val proven = try { TailHunter7996.refusalTailProven8094(ts, lane, "CHASING_SPIKE_8065", nowMs) } catch (_: Throwable) { false }
-        if (proven) try { PipelineHealthCollector.labelInc("CHASING_SPIKE_STOOD_DOWN_TAIL_PROVEN_8097_$lane") } catch (_: Throwable) {}
-        return proven
-    }
 
     // V5.0.8290 — every "proven" read below is LiveAdmissionProof8290's: not OUTLIER_SUSPECT, and the executable mean past
     // the lane's realised shortfall (0 outside LIVE). The win-rate proof reads the same shifted mean.
@@ -932,30 +876,6 @@ object LiveEdgeGate7877 {
         return mint in live || live.size < COLD_BUDGET_8080
     }
 
-    private fun coldStartAdmits8080(ts: TokenState, lane: String, nowMs: Long): Boolean {
-        // Held shadow and paper must not reserve the live cold-start budget.
-        if (FdgGate8365.shadowOnly8393() || FdgGate8365.paperContext8393() == true) return false
-        val setup = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.coldStartSetup8080(ts, lane, nowMs) } catch (_: Throwable) { null } ?: return false
-        synchronized(coldAdmits8080) {
-            coldAdmits8080.entries.removeIf { nowMs - it.value >= COLD_WINDOW_MS_8080 }
-            coldPendingSweep8092(nowMs)
-            // V5.0.8092 — only CONFIRMED fills consume the 3-mint/6h budget. A pending attempt of
-            // this mint is already in flight; a failed attempt releases after the pending window.
-            // V5.0.8094 entry repair — in-flight attempts count against the 3-coin budget too (8092 let any number of
-            // unconfirmed cold starts run at once), and a mint already in flight keeps its place on re-evaluation.
-            if (!coldBudgetOpen8094(coldAdmits8080, coldPending8092, ts.mint, nowMs)) {
-                try { PipelineHealthCollector.labelInc("LIVE_COLD_START_BUDGET_SPENT_8080") } catch (_: Throwable) {}
-                return false
-            }
-            coldPending8092.putIfAbsent(ts.mint, nowMs)
-        }
-        try {
-            PipelineHealthCollector.labelInc("LIVE_COLD_START_SETUP_ADMIT_8080_$lane")
-            ForensicLogger.lifecycle("LIVE_COLD_START_SETUP_ADMIT_8080", "mint=${ts.mint.take(10)} lane=$lane setup=$setup")
-        } catch (_: Throwable) {}
-        return true
-    }
-
     /**
      * V5.0.8113 §THE_RUN_IS_THE_PROOF. 5.0.8111: Zeo +1,707% missed on LIVE_PROVEN_SETUP_ONLY_8059. A run the bot confirms
      * live — a RunnerPlay8018 re-entry ticket (+100% over its decision price inside 4 h, chart firming or standing with
@@ -993,7 +913,7 @@ object LiveEdgeGate7877 {
         // definition; it waits for its pullback (8115: 8113 bought 34fph3 on a ticket at +1,238%). Counted, not exempted.
         if (try { com.lifecyclebot.engine.RunnerPlay8018.ticketActive8018(ts.mint, nowMs) } catch (_: Throwable) { false })
             try { PipelineHealthCollector.labelInc("CHASE_RUNNER_TICKET_NOT_EXEMPT_8418_$lane") } catch (_: Throwable) {}
-        if (developingRunGrab8117(ts, runupFromLowPct, nowMs) || spikeRuleRefusesRunners8097(ts, lane, nowMs)) return null
+        if (developingRunGrab8117(ts, runupFromLowPct, nowMs)) return null
         // V5.0.8418 — the grab lane's own admit (RunnerGrabLane8343: full safety, exit-safe venue, forming run, 1.5x at the
         // grab size, the 8329 chase cap) is the 8117 developing run too: still early by the same bound, it is bought on the
         // way up. 8416: 435 live grab-lane admits, 0 buys — a forming run is "up 80% off its low near its high" by definition.
@@ -1002,12 +922,10 @@ object LiveEdgeGate7877 {
             try { PipelineHealthCollector.labelInc("CHASE_STOOD_DOWN_GRAB_LANE_EARLY_8418_$lane") } catch (_: Throwable) {}
             return null
         }
-        val provenCell = cellOrKindProven8094(ts, lane, nowMs)
-        if (provenCell && SelectionDoors8310.labelStandsDownChase8310(lane)) return null
-        if (!provenCell && admittedJudged) {
-            try { PipelineHealthCollector.labelInc("ADMITTED_SPECIFIC_DUPLICATE_VETO_STOOD_DOWN_8201_CHASE_$lane") } catch (_: Throwable) {}
-            return null
-        }
+        // The label-record stand-downs (a proven cell / kind, a candidate-specific admission, the rule's own tail audit) are
+        // removed: with 35 % of labels priced, the lost labels are mostly coins that died, so those records read survivors and
+        // waved tops through (pipeline report: FDG_ADMIT -29.1 % forward, runnerAdmits LOSS_BOUGHT_TOP=13). Only a run the bot
+        // confirms early (the 8117 / 8418 early-run bound) is bought on the way up.
         chaseRefused8065.incrementAndGet()
         // V5.0.8468 — the same chase terminal (FDG class, rehearsal, taxonomy, tail audit read it), counted apart.
         try { PipelineHealthCollector.labelInc(if (runner8468) "CHASING_RUNUP_8468_$lane" else "CHASING_SPIKE_8065_$lane") } catch (_: Throwable) {}
@@ -1103,7 +1021,7 @@ object LiveEdgeGate7877 {
         n >= BAND_MIN_N_8019 && meanPct.isFinite() && sePct.isFinite() && meanPct + sePct < 0.0
 
     private fun watchFirst7994(
-        ts: TokenState, lane: String, nowMs: Long, auditedAdmission8076: Boolean = false, candidateVersion: Long = 0L,
+        ts: TokenState, lane: String, nowMs: Long, candidateVersion: Long = 0L,
         candidateAdmission: CandidateAdmission8136.Decision8136? = null,
     ): String? {
         // V5.0.8072 — a runner ticket is the deliberate unproven buy: it is not watched first.
@@ -1159,7 +1077,9 @@ object LiveEdgeGate7877 {
             st == null || st.n60 < WATCH_MIN_N_7994 -> "WATCH_FIRST_7994_THIN_CELL"
             else -> "WATCH_FIRST_7994_CELL_NEGATIVE"
         }
-        if (auditedAdmission8076 && why == "WATCH_FIRST_7994_THIN_CELL") {
+        // A thin cell (too few labels to measure) is no evidence either way: it no longer holds the coin (it was released only
+        // by an audited admission). A band or cell MEASURED negative still refuses below.
+        if (why == "WATCH_FIRST_7994_THIN_CELL") {
             cleared7994.incrementAndGet(); notePositive7975(ts.mint, nowMs)
             return null
         }
@@ -1405,7 +1325,7 @@ object LiveEdgeGate7877 {
         "bar=cellN>=$CELL_MIN_N&&mean-se>+$LIVE_MARGIN_PCT%|laneProven runner=bestCohort(mean-se>$RUNNER_MARGIN_PCT%) " +
             "admit=[${allowed.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}] " +
             "refuse=[${refused.entries.sortedByDescending { it.value.get() }.take(8).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}]" +
-            " dataDefer8136=${dataDeferred8136.get()} watchReleased8153=${watchReleased8153.get()} " +
+            " watchReleased8153=${watchReleased8153.get()} " +
             RegressionRestore8298.statusLine8298() +  // V5.0.8298
             " " + (try { LiveAdmissionProof8290.statusLine8290() } catch (_: Throwable) { "proof8290[-]" }) +
             " " + (try { SelectionDoors8310.statusLine8310() } catch (_: Throwable) { "selection8310[-]" }) +  // V5.0.8310

@@ -3,6 +3,7 @@ package com.lifecyclebot.engine
 import com.lifecyclebot.engine.truth.LaneScoreAdmission7308
 import com.lifecyclebot.engine.HandoffReceiverTasks8153.Block8153
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -33,7 +34,8 @@ class Aate8161AdmissionContinuityTest {
 
         assertTrue(gate.contains("val admission8136 = try { CandidateAdmission8136.assess8136(ts, l8059, nowMs, candidateVersion)"))
         assertTrue(gate.contains("candidateSpecificAdmission8136 = admission8136?.specific == true"))
-        assertTrue(gate.contains("!measuredEdge8060(ts, l8059, nowMs) && !candidateSpecificAdmission8136"))
+        // superseded (8480, owner: "no evidence is not proven bad"): the proven-only door this admission cleared is removed
+        assertFalse(gate.contains("return \"LIVE_PROVEN_SETUP_ONLY_8059\""))
         assertTrue(gate.contains("if (candidateSpecificAdmission8136 && !provenNegativeRefusal8136(prior)"))
         assertTrue(gate.contains("if (candidateSpecificAdmission8136 && !v.allow && !provenNegativeRefusal8136(v.why))"))
 

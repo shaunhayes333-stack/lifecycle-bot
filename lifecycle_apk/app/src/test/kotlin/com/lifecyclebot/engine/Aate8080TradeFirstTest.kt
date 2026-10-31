@@ -69,9 +69,9 @@ class Aate8080TradeFirstTest {
 
     @Test fun coldStartSitsInsideTheProvenOnlyDoorAndBeforeEveryLaterGate() {
         val g = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveEdgeGate7877.kt").readText()
-        val door = g.indexOf("!coldStartAdmits8080(ts, l8059, nowMs)) {")
-        assertTrue(door > 0)
-        assertTrue(door < g.indexOf("return \"LIVE_PROVEN_SETUP_ONLY_8059\""))
+        // superseded (8480, owner directive "no evidence is not proven bad"): the proven-only door and its cold-start exemption are removed together
+        assertFalse(g.contains("coldStartAdmits8080("))
+        assertFalse(g.contains("return \"LIVE_PROVEN_SETUP_ONLY_8059\""))
         // the proven-losing exact setup is still refused after any admission door
         assertTrue(g.contains("LanePlaybook7907.provenLosingNamedSetupRefusal(l8079, boundSetup)"))
     }

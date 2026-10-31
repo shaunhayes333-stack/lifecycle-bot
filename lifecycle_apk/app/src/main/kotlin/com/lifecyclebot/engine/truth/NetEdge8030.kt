@@ -217,10 +217,10 @@ object NetEdge8030 {
      */
     fun preTradeCostPct8329(lane: String, sizeSol: Double, liquidityUsd: Double, mint: String = "", mcapUsd: Double = 0.0): Double {
         val model = costPct8030(lane, sizeSol, liquidityUsd, mint, mcapUsd)
-        // V5.0.8418 — the mark-based median lifts only until realised slippage is receipt-measured (RoundTrip8418.markLift8418).
-        val receipts8418 = try { com.lifecyclebot.engine.RealisedSlip8418.receiptMeasured8418() } catch (_: Throwable) { false }
-        val measured = com.lifecyclebot.engine.RoundTrip8418.markLift8418(
-            try { CostLedger7962.measuredMedianPct8329(lane, 2) } catch (_: Throwable) { null }, receipts8418) ?: return model
+        // The admission reads the lane's MEASURED round trip (owner: "use measured cost per lane"). It went through
+        // RoundTrip8418.markLift8418, a stub that always returns null, so entries were judged on the 3.78 % model while live
+        // trips measured 6.8-8.8 % (pipeline report). Exits and labels keep the coin's itemised trip ([costPct8030]).
+        val measured = (try { CostLedger7962.measuredMedianPct8329(lane, 2) } catch (_: Throwable) { null }) ?: return model
         if (measured > model) {
             measuredLifts8329.incrementAndGet()
             try { PipelineHealthCollector.labelInc("COST_TRUTH_MEASURED_LIFTS_MODEL_8329_${lane.uppercase().take(16)}") } catch (_: Throwable) {}

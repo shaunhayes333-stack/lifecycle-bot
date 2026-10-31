@@ -156,7 +156,8 @@ class Aate8468LaneDesignTest {
         assertTrue("never pruned", frl.contains("!it.key.startsWith(\"TRIGGER|\")"))
         val gate = src("engine/truth/LiveEdgeGate7877.kt")
         assertTrue(gate.substringAfter("private fun measuredEdge8060(").take(600).contains("LaneTrigger8468.admits8468(ts, lane)"))
-        assertTrue("it clears watch-first's unmeasured thin-cell wait only", gate.contains("if (trigger8468) auditedAdmission8076 = true"))
+        // superseded (8480, owner directive "no evidence is not proven bad"): the thin-cell wait no longer binds anyone, so the trigger needs no release from it
+        assertTrue(gate.contains("if (why == \"WATCH_FIRST_7994_THIN_CELL\") {"))
         // the realised-loss tactic refusal still binds a proven trigger
         assertTrue(gate.contains("if (proven8059 == null && !admittedJudged8201 && !cellOrKindProven8094(ts, l8059, nowMs)) (try { com.lifecyclebot.engine.learning.TacticSwitcher.losingTacticFor8094(ts, l8059)"))
     }

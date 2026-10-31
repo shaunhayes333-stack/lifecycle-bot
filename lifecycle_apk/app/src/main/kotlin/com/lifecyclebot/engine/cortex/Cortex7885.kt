@@ -1077,6 +1077,13 @@ object Cortex7885 {
 
     private fun pendingSnapshot8076(episodes8401: Set<String>?): () -> String = pendingSnapshot8076(episodes8401, null)
 
+    /**
+     * A voter's frozen edges are written only when they differ from its table edges: the restore already reads the table
+     * when the entry is null, and ~400 voters x 5 edges on every pending / graded row was most of CORTEX_PENDING (~41 MB).
+     */
+    private fun storedEdges(id: String, e: DoubleArray?): Any =
+        if (e != null && CortexVoters7885.edgesFor(id)?.contentEquals(e) == true) org.json.JSONObject.NULL else jsonNumbers(e)
+
     private fun pendingSnapshot8076(episodes8401: Set<String>?, generation8403: Long?): () -> String {
         val now8144 = System.currentTimeMillis()
         val ordinary = if (episodes8401 == null) pending.entries
@@ -1119,7 +1126,7 @@ object Cortex7885 {
                         ids.put(dict.getOrPut(a.ids[i]) { dict.size }); xs.put(jsonNumber(r))
                         pr.put(jsonNumber(a.prediction8076?.preds?.getOrNull(i)))
                         pw.put(jsonNumber(a.prediction8076?.pWins?.getOrNull(i)))
-                        frozenEdges8372.put(jsonNumbers(a.edges.getOrNull(i)))
+                        frozenEdges8372.put(storedEdges(a.ids[i], a.edges.getOrNull(i)))
                     }
                 }
                 // All decision-time context must survive a process restart unchanged.
@@ -1238,7 +1245,7 @@ object Cortex7885 {
         for (i in a.ids.indices) {
             val raw = a.raws.getOrNull(i) ?: continue
             if (!raw.isFinite()) continue
-            ids.put(dict.getOrPut(a.ids[i]) { dict.size }); xs.put(jsonNumber(raw)); ee.put(jsonNumbers(a.edges.getOrNull(i)))
+            ids.put(dict.getOrPut(a.ids[i]) { dict.size }); xs.put(jsonNumber(raw)); ee.put(storedEdges(a.ids[i], a.edges.getOrNull(i)))
             pr.put(jsonNumber(g.trace.preds.getOrNull(i))); pw.put(jsonNumber(g.trace.pWins.getOrNull(i)))
             sc.put(g.trace.scoreAt?.getOrNull(i) ?: -1)
             repeat(4) { rs.put(jsonNumber(g.trace.scales?.getOrNull(i * 4 + it))) }

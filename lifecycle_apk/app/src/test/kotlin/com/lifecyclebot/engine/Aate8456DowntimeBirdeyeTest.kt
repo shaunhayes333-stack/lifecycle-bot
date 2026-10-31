@@ -15,14 +15,10 @@ class Aate8456DowntimeBirdeyeTest {
     @Test fun recoveryTricklesOnFreeGeckoAndNeverCallsBirdeye() {
         val d = File("src/main/kotlin/com/lifecyclebot/engine/truth/DowntimeRecovery8430.kt").readText()
         val drain = d.substring(d.indexOf("fun drain8430("), d.indexOf("@Volatile private var inFlight8430"))
-        assertTrue(drain.contains("GeckoHostBudget8382.spare8439(nowMs)"))
-        assertTrue(drain.contains("com.lifecyclebot.network.GeckoHostBudget8382.trickle8457(nowMs)"))
-        assertTrue(drain.contains("nowMs - lastFetchMs >= TRICKLE_GAP_MS_8457"))
+        // Superseded (8480): the spare-bucket / trickle yield is removed (pipeline report: recovered 0/145); the provider slot paces it.
+        assertFalse(drain.contains("spare8439") || drain.contains("trickle8457"))
+        assertTrue(drain.contains("val slot8457 = !wait.cooldown && wait.waitMs <= MAX_SLOT_SLEEP_MS_8435"))
         assertFalse("no Birdeye in recovery", d.contains("BirdeyeApi(") || d.contains("BirdeyeBudgetGate"))
-        assertTrue(DowntimeRecovery8430.statusLine8430().contains("trickle8457="))
-        val g = File("src/main/kotlin/com/lifecyclebot/network/GeckoHostBudget8382.kt").readText()
-        // superseded by V5.0.8458 — one whole token (8457's 3.0 was the full burst: the trickle never fired)
-        assertTrue(g.contains("bucket.tokens8287(nowMs) >= TRICKLE_TOKENS_8458 - 0.01"))
-        assertTrue(com.lifecyclebot.network.GeckoHostBudget8382.TRICKLE_TOKENS_8458 < com.lifecyclebot.network.GeckoHostBudget8382.BURST_8382)
+        assertTrue(DowntimeRecovery8430.statusLine8430().contains("slotBusy="))
     }
 }

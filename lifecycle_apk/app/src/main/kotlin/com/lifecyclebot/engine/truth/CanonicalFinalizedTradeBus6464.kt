@@ -397,6 +397,9 @@ object CanonicalFinalizedTradeBus6464 {
 
     fun canonicalUnique(): Int = canonicalSeen.size
 
+    /** Has the bus already accepted this terminal (tradeId)? */
+    fun seen(tradeId: String): Boolean = tradeId.isNotBlank() && canonicalSeen.containsKey(tradeId)
+
     /** Unique completed positions, never predicate-read or replay counters. */
     fun terminalEnvelopes7863(mode: String, sinceMs: Long = 0L): List<Envelope> =
         canonicalSeen.values.asSequence().filter {

@@ -96,13 +96,6 @@ object SelectionDoors8310 {
         return null
     }
 
-    /** D4 — may a label-only cell / kind proof stand the spike-chase rule down in [lane]? Not while its live closes lose. */
-    fun labelStandsDownChase8310(lane: String): Boolean {
-        if (!laneLosing8310(lane)) return true
-        refuse8310("CHASE_LABEL_STANDDOWN_REFUSED_8310", lane)
-        return false
-    }
-
     // ── D1: the runner-ticket record ──
 
     /** RunnerTicket8073.admits8073, last check before issuing: may a ticket be issued now? Consumes the probe slot. */

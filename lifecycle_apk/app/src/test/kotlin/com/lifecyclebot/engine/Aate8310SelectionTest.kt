@@ -133,8 +133,8 @@ class Aate8310SelectionTest {
         assertTrue(gate.contains("SelectionDoors8310.admitRefusal8310(ts, l8059, setup8083, nowMs)"))
         val chase = gate.substringAfter("internal fun chaseRefusal8397(", "")
             .substringBefore("private fun developingRunGrab8117(", "")
-        assertTrue(chase.contains("val provenCell = cellOrKindProven8094(ts, lane, nowMs)"))
-        assertTrue(chase.contains("if (provenCell && SelectionDoors8310.labelStandsDownChase8310(lane)) return null"))
+        // superseded (8480): label-record chase stand-downs removed (they read survivors with labels lost: LOSS_BOUGHT_TOP=13)
+        assertFalse(chase.contains("labelStandsDownChase8310"))
         assertTrue(chase.contains("return \"CHASING_SPIKE_8065\""))
         // the admit refusal sits after the proven-only door and before the chase rule
         assertTrue(gate.indexOf("SelectionDoors8310.admitRefusal8310") > gate.indexOf("provenOnlyAdmitted8059.incrementAndGet()"))

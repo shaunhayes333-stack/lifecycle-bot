@@ -40,8 +40,9 @@ class Aate8439OpenItemsTest {
 
     @Test fun labelRecoveryYieldsTheCandleBudgetToLiveReads() {
         val d = src("engine/truth/DowntimeRecovery8430.kt")
-        assertTrue(d.contains("GeckoHostBudget8382.spare8439(nowMs)"))
-        assertTrue(com.lifecyclebot.engine.truth.DowntimeRecovery8430.statusLine8430().contains("yieldedToLive8439="))
+        // Superseded (8480): recovery no longer yields a non-full bucket to live reads (recovered 0/145); the provider slot paces it.
+        assertFalse(d.contains("GeckoHostBudget8382.spare8439(nowMs)"))
+        assertTrue(com.lifecyclebot.engine.truth.DowntimeRecovery8430.statusLine8430().contains("slotBusy="))
         assertEquals(6, com.lifecyclebot.engine.truth.DowntimeRecovery8430.counts8438().size)
     }
 

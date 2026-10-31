@@ -1299,7 +1299,6 @@ object ForwardReturnLabeler7731 {
     fun launchWindowEnd8379(lane: String, birthAgeMs: Long, decidedAtMs: Long): Long {
         val l = try { CanonicalLaneIdentity6506.desk8392(lane) } catch (_: Throwable) { lane.trim().uppercase() }
         if (l !in com.lifecyclebot.engine.LaunchWindow8379.LANES_8379) return 0L
-        if (!com.lifecyclebot.engine.LaunchWindow8379.lossHoldEnabled8418) return 0L   // V5.0.8418 — labels grade the stop live trades
         if (birthAgeMs !in 0L until com.lifecyclebot.engine.LaunchWindow8379.TOKEN_AGE_MS_8379) return 0L
         return decidedAtMs + maxOf(com.lifecyclebot.engine.LaunchWindow8379.minHoldMs8379(), com.lifecyclebot.engine.LaunchWindow8379.TOKEN_AGE_MS_8379 - birthAgeMs)
     }
@@ -1944,7 +1943,12 @@ object ForwardReturnLabeler7731 {
             if (px != null && ts != null && ts.mint == mint && ts.lastPrice == px)
                 candidates.add(LabelMark8386(mint, ts.lastPriceDex, px, ts.lastPriceUpdate, nowMs, "TOKEN_STATE"))
         } catch (_: Exception) {}
-        return candidates.filter { it.known() && nowMs - it.observedAtMs in 0L..MARK_MAX_AGE_MS_7731 }
+        // A market read (curve account / tape print / off-watch fetch / independent basis) outranks a re-stamped copy: token-state
+        // and registry copies are stamped "now" by dozens of writers, so newest-first picked the cached entry price over a real
+        // print and the label read flat (8479 report: rebased flat8322=632, flatLostMarks=266). A copy is used only when no
+        // market read is in age.
+        val fresh = candidates.filter { it.known() && nowMs - it.observedAtMs in 0L..MARK_MAX_AGE_MS_7731 }
+        return (fresh.filter { liveMark8454(it) }.takeIf { it.isNotEmpty() } ?: fresh)
             .maxWithOrNull(compareBy<LabelMark8386> { it.observedAtMs }.thenBy { it.independentBasis })
     }
 
@@ -2577,6 +2581,8 @@ object ForwardReturnLabeler7731 {
                 continue
             }
             if (mark8386.observedAtMs <= o.lastPxAtMs) continue // a cache read is not a new path event
+            // nor is a copy re-stamped with a new clock: a non-market mark repeating the last price observed nothing new
+            if (!liveMark8454(mark8386) && o.lastPxAtMs > 0L && px == o.lastPx) continue
             // V5.0.8167 — validate before rebasing or deleting the observation. The chain witness: a mark the coin's own active bonding curve contradicts is a basis error, not a
             // move. Rejecting it must leave the entry basis and rebase eligibility unchanged.
             if (curveContradicts8165(o.mint, px, nowMs, mark8386.observedAtMs)) {

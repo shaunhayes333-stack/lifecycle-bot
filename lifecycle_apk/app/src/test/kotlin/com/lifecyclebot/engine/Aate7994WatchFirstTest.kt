@@ -16,9 +16,9 @@ class Aate7994WatchFirstTest {
         val g = File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveEdgeGate7877.kt").readText()
         val live = g.substringAfter("if (!paper) {\n            val l8059").substringBefore("val why = liveRefusalCore7970(")
         // V5.0.8201 — the watch-first refusal is still the gate's last live return (and names an admitted candidate's terminal).
-        val wf = live.substringAfter("watchFirst7994(ts, lane, nowMs, auditedAdmission8076 || candidateSpecificAdmission8136 || genericNative8211, candidateVersion, admission8136)?.let {")
+        val wf = live.substringAfter("watchFirst7994(ts, lane, nowMs, candidateVersion, admission8136)?.let {")
         assertTrue(wf.contains("observeTail7996(ts, lane, it, nowMs); return it"))
-        val watch = g.indexOf("watchFirst7994(ts, lane, nowMs, auditedAdmission8076 || candidateSpecificAdmission8136 || genericNative8211, candidateVersion, admission8136)")
+        val watch = g.indexOf("watchFirst7994(ts, lane, nowMs, candidateVersion, admission8136)")
         assertTrue(watch in 1 until g.indexOf("val why = liveRefusalCore7970(ts, lane, paper, nowMs, candidateSpecificAdmission8136, genericNative8211, resolvedAdmission)"))
     }
 }

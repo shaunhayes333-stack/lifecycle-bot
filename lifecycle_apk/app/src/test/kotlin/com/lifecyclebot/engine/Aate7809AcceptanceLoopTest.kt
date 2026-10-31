@@ -102,7 +102,10 @@ class Aate7809AcceptanceLoopTest {
         assertFalse("repairable rows must stay in scope", exclusions.contains("BUS_PUBLISH_FAILED"))
         assertFalse("unexplained rows must stay in scope", exclusions.contains("UNKNOWN"))
         val spine = src("engine/truth/ExecutionSpineAcceptance6647.kt")
-        assertTrue(spine.contains("canonicalOpen = activeModeOpenCount7809(canonicalOpenPositions)"))
+        // Superseded (8480): the count also takes the window clock, so a position opened inside the last exit cycle is owed
+        // its evaluation next window instead of failing this one (8479 smoke: opened 0.39 s before close).
+        assertTrue(spine.contains("canonicalOpen = activeModeOpenCount7809(canonicalOpenPositions, nowMs)"))
+        assertTrue(spine.contains("nowMs - it.openedAtMs >= EXIT_CYCLE_GRACE_MS"))
         assertTrue(spine.contains("phantomSizedInWindow7809"))
         val entry = src("engine/truth/CanonicalAssetEntryContract6551.kt")
         assertTrue(entry.contains("LIVE_DISPATCH_IN_FLIGHT_WITHIN_CONFIRM_BUDGET_7809"))

@@ -15300,8 +15300,8 @@ class GoldenTapeRegressionTest {
         assertTrue("cold-start budget consumes only confirmed fills",
             gate.contains("coldPending8092") && gate.contains("COLD_PENDING_MS_8092") &&
                 gate.contains("LIVE_COLD_START_CONFIRMED_8092") && gate.contains("coldPendingSweep8092(nowMs)"))
-        assertTrue("the cold-start door is still consulted in the proven-only live step",
-            gate.contains("!coldStartAdmits8080(ts, l8059, nowMs)) {"))
+        // superseded (8480, owner directive "no evidence is not proven bad"): the proven-only step (and its cold-start exemption) is removed
+        assertFalse(gate.contains("coldStartAdmits8080("))
         val ticket = f("engine/RunnerTicket8073.kt")
         assertTrue("a runner ticket confirms only against a canonical live position",
             ticket.contains("fun confirm8092(positionId: String, mint: String,") &&
@@ -15505,7 +15505,8 @@ class GoldenTapeRegressionTest {
         assertFalse(src8392("engine/truth/ScalpExit8351.kt").contains("mandateFor(lane).invalidationPct"))
         assertFalse(src8392("engine/ExitDoctrine8169.kt").contains("FieldManual7715.mandateFor(lane).invalidationPct"))
         // the shadow books run the hold the Cortex grades
-        assertTrue(src8392("engine/truth/EvidenceShadow8344.kt").contains("OTHER_TIMEOUT_MS_8344 = com.lifecyclebot.engine.cortex.CortexLabelHygiene8144.executableHorizonMs8392(false)"))
+        // superseded (8480): the evidence shadow runs the lane's own hold, the same horizon the Cortex grades it on (8468)
+        assertTrue(src8392("engine/truth/EvidenceShadow8344.kt").contains("com.lifecyclebot.engine.cortex.CortexLabelHygiene8144.horizonMsFor8468(lane, runner), advisoryEntry8393)"))
         assertTrue(src8392("engine/truth/ExploreShadow8347.kt").contains("OTHER_TIMEOUT_MS_8347 = com.lifecyclebot.engine.cortex.CortexLabelHygiene8144.executableHorizonMs8392(false)"))
         assertTrue("8392: a niche/timing choice is a preference, not a veto, on a lane-wide proven lane",
             gate.contains("val final = core ?: hold ?: niche ?: wait") && gate.contains("EvidenceHold8336.laneWideProven8392(l, nowMs)"))

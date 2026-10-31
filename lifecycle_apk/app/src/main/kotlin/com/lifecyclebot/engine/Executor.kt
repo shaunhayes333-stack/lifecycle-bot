@@ -31104,9 +31104,11 @@ class Executor(
         var refresh7688 = 0
         while (JupiterApi.retryableSlippageSimulation7688(simErr) && refresh7688 < 2) {
             refresh7688++
-            // No transaction has been signed/submitted. Refresh the whole
-            // quote/build pair at the same tolerance and input amount.
-            val slip7688 = executionQuote7688.raw.optInt("slippageBps", buyBaseSlippage).coerceIn(1, 500)
+            // No transaction has been signed/submitted. Refresh the whole quote/build pair one rung UP the ladder (Jupiter
+            // 6001 = SlippageToleranceExceeded): it re-quoted at the same tolerance, so the ladder never escalated inside one
+            // buy intent and both refreshes failed the same way.
+            val cur7688 = executionQuote7688.raw.optInt("slippageBps", buyBaseSlippage)
+            val slip7688 = (slippageLadder.firstOrNull { it > cur7688 } ?: slippageLadder.last()).coerceIn(1, 500)
             PipelineHealthCollector.labelInc("LIVE_BUY_SLIPPAGE_REQUOTE_7688")
             LiveTradeLogStore.log(tradeKey, ts.mint, ts.symbol, "BUY",
                 LiveTradeLogStore.Phase.BUY_QUOTE_TRY,

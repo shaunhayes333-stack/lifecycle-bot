@@ -30,7 +30,7 @@ import java.util.concurrent.atomic.AtomicLong
  * it overrides ledger #13 RAPID_FLUID_STOP and #29 backstops, and the -22 / -25 % "catastrophic" lines), and the evidence
  * does not show holding to -35 % beats stopping: the 8379 commit's sample (246 live buys < 1 h old, 25 later runners sold by
  * rapid stops) counts the runners a stop sold but not the losers the hold would have ridden to -35 %; the only post-8379
- * report (5.0.8416, 3.7 h) shows held=0, no LAUNCH / LAUNCH_HELD after-exit cohort and one OTHER stop. So [lossHoldEnabled8418]
+ * report (5.0.8416, 3.7 h) shows held=0, no LAUNCH / LAUNCH_HELD after-exit cohort and one OTHER stop. So the hold switch
  * is false: every exit is released. The window still evaluates each loss exit and counts what it WOULD have held
  * (`wouldHold`), and marks the mint so ExitRegret7752's after-exit horizons grade those stopped exits as the LAUNCH_HELD
  * cohort (realised stop vs the price 5 / 15 / 60 min later) — the evidence the owner needs to turn it back on.
@@ -38,8 +38,10 @@ import java.util.concurrent.atomic.AtomicLong
  * reason code ([FLOOR_EXIT_CODES_8418], ProtectiveExitClass7807 STRUCTURAL) and by the pool's own state, never held.
  */
 object LaunchWindow8379 {
-    /** V5.0.8418 — the owner's switch for the loss hold. Off: unconfirmed and unproven (see above). */
-    @Volatile internal var lossHoldEnabled8418: Boolean = false
+    // superseded (8480): the off-switch (lossHoldEnabled8418) is removed. The evidence it waited for arrived: LAUNCH_HELD
+    // exits (the stops this window would have held) were followed by +102 % / +213 % (pipeline report). A launch-window
+    // runner-lane position is managed on its runner rules: loss noise above the floor is held; floor / rug / structural /
+    // collapsed-metrics exits are released exactly as before.
 
     /**
      * V5.0.8418 — the liquidity / rug floor exits by their reason CODE (the code the exit door stamps, matched as the
@@ -69,7 +71,6 @@ object LaunchWindow8379 {
         return liquidityUsd.isFinite() && liquidityUsd > 0.0 && liquidityUsd < NON_CURVE_FLOOR_USD_8418
     }
 
-    private val wouldHold8418 = AtomicLong(0)
 
     val LANES_8379: Set<String> = setOf("MOONSHOT", "SHITCOIN", "EXPRESS")
     const val TOKEN_AGE_MS_8379 = 30L * 60_000L
@@ -158,12 +159,6 @@ object LaunchWindow8379 {
         }
         heldMints[ts.mint] = nowMs   // ExitRegret7752 LAUNCH_HELD cohort: exits the window holds, or (switch off) would hold
         if (heldMints.size > 500) heldMints.entries.removeIf { nowMs - it.value > 6L * 3_600_000L }
-        if (!lossHoldEnabled8418) {
-            wouldHold8418.incrementAndGet()
-            heldReasons.computeIfAbsent(com.lifecyclebot.engine.truth.ExitRegret7752.family(reason)) { AtomicLong() }.incrementAndGet()
-            try { PipelineHealthCollector.labelInc("LAUNCH_WINDOW_WOULD_HOLD_RELEASED_8418") } catch (_: Throwable) {}
-            return null
-        }
         held.incrementAndGet()
         heldReasons.computeIfAbsent(com.lifecyclebot.engine.truth.ExitRegret7752.family(reason)) { AtomicLong() }.incrementAndGet()
         try { PipelineHealthCollector.labelInc(HOLD_LABEL_8379) } catch (_: Throwable) {}
@@ -177,12 +172,12 @@ object LaunchWindow8379 {
     }
 
     fun statusLine8379(): String =
-        "launchWindow8379[lossHold=${if (lossHoldEnabled8418) "ON" else "OFF_UNCONFIRMED_8418"} held=${held.get()} wouldHold=${wouldHold8418.get()} (after-exit: LAUNCH_HELD cohort) labelsGraded=${try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.windowGraded8379() } catch (_: Throwable) { -1L }} floor=-${FLOOR_PCT_8379.toInt()}% window<${TOKEN_AGE_MS_8379 / 60_000L}m/min${MIN_HOLD_MS_8379 / 60_000L}m " +
+        "launchWindow8379[lossHold=ON held=${held.get()} (after-exit: LAUNCH_HELD cohort) labelsGraded=${try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.windowGraded8379() } catch (_: Throwable) { -1L }} floor=-${FLOOR_PCT_8379.toInt()}% window<${TOKEN_AGE_MS_8379 / 60_000L}m/min${MIN_HOLD_MS_8379 / 60_000L}m " +
             "heldBy=${heldReasons.entries.sortedByDescending { it.value.get() }.take(6).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }} " +
             "released=${released.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}]"
 
     /** ForwardReturnLabeler7731: the window's minimum position age (labels grade the same window). */
     fun minHoldMs8379(): Long = MIN_HOLD_MS_8379
 
-    internal fun resetForTest8379() { held.set(0); wouldHold8418.set(0); released.clear(); heldReasons.clear(); heldMints.clear() }
+    internal fun resetForTest8379() { held.set(0); released.clear(); heldReasons.clear(); heldMints.clear() }
 }

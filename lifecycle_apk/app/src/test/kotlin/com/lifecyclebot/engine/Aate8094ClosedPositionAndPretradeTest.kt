@@ -441,8 +441,8 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertFalse(g.cellWinsProven8094(20, 0.90, 300.0))     // too few labels
         assertFalse(g.cellWinsProven8094(65, 0.80, -1.0))      // negative mean
         val chase = chaseDecisionSource8397()
-        assertTrue(chase.contains("val provenCell = cellOrKindProven8094(ts, lane, nowMs)"))
-        assertTrue(chase.contains("if (provenCell && SelectionDoors8310.labelStandsDownChase8310(lane)) return null"))
+        // superseded (8480): label-record chase stand-downs removed (they read survivors with labels lost: LOSS_BOUGHT_TOP=13)
+        assertFalse(chase.contains("val provenCell = cellOrKindProven8094(ts, lane, nowMs)"))
         assertTrue(src("engine/cortex/Cortex7885.kt").contains("C3_STOOD_DOWN_CELL_PROVEN_8094"))
         assertTrue(src("engine/Executor.kt").contains("it.startsWith(\"MANUFACTURED_CLIMB\") && freshProvenRunner8094(ts)"))
         // 8435: the proven-cell pass is the first of two outside-ring returns (the second is the lane's own READY proposal on its native slot)
@@ -564,7 +564,8 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertFalse(t.laneTailBar8097(93, 500.0, 1))       // one runner is luck
         val th = src("engine/truth/TailHunter7996.kt")
         assertTrue(th.contains("cellThin && laneRuleTailProven8097(rule, l)"))
-        assertTrue(chaseDecisionSource8397().contains("spikeRuleRefusesRunners8097(ts, lane, nowMs)) return null"))
+        // superseded (8480): label-record chase stand-downs removed (they read survivors with labels lost: LOSS_BOUGHT_TOP=13)
+        assertFalse(chaseDecisionSource8397().contains("spikeRuleRefusesRunners8097"))
         assertTrue(src("engine/SpecialistOwnership7951.kt").contains("Cortex7885.vetoRefusesWinners8006(LaneParticipation8029.SHADOW_REASON, lane7951(lane))"))
     }
 
@@ -766,8 +767,8 @@ class Aate8094ClosedPositionAndPretradeTest {
 
     @Test fun aConfirmedRunIsItsOwnProofAtTheProvenOnlyDoorAndTheChaseRule() {
         val g = src("engine/truth/LiveEdgeGate7877.kt")
-        val door = g.substringAfter("proven8059 == null && !measuredEdge8060(ts, l8059, nowMs)").substringBefore("!coldStartAdmits8080(ts, l8059, nowMs)) {")
-        assertTrue(door.contains("!runnerForming8113(ts, nowMs) && !shadowAuditAdmits8113(ts, l8059)"))
+        // superseded (8480, owner directive "no evidence is not proven bad"): the proven-only door is gone; a forming run still releases watch-first (StrategyWatch8153)
+        assertTrue(g.contains("!kind && runnerForming8113(ts, nowMs), !kind && shadowAuditAdmits8113(ts, lane)"))
         // A forming run alone does not clear the chase rule. The restored, independently guarded active ticket does.
         val chase = chaseDecisionSource8397()
         assertFalse(chase.contains("runnerForming8113"))
@@ -804,7 +805,8 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertFalse(g.earlyRun8117(runupFromLowPct = 90.0, chg5mPct = 140.0))    // a vertical 5-minute spike
         assertFalse(g.earlyRun8117(Double.NaN, 10.0))                            // unknown run-up: the chase rule decides
         val chase = chaseDecisionSource8397()
-        assertTrue(chase.contains("if (developingRunGrab8117(ts, runupFromLowPct, nowMs) || spikeRuleRefusesRunners8097(ts, lane, nowMs)) return null"))
+        // superseded (8480): label-record chase stand-downs removed (they read survivors with labels lost: LOSS_BOUGHT_TOP=13)
+        assertTrue(chase.contains("if (developingRunGrab8117(ts, runupFromLowPct, nowMs)) return null"))
         assertFalse(chase.contains("runnerForming8113")) // broad forming-run status is not an exemption
     }
 

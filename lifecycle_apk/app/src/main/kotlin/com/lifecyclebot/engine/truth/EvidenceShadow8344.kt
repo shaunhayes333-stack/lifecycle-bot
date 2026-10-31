@@ -40,7 +40,6 @@ object EvidenceShadow8344 {
     // V5.0.8392 — the shadow runs the hold the Cortex grades (CortexLabelHygiene8144 executable horizon: 6 h runner, 60 min
     // other). 5.0.8390: TREASURY coins were labelled +229 % over the 60-min hold while the shadow clocked out at 30 min.
     private val RUNNER_TIMEOUT_MS_8344 = com.lifecyclebot.engine.cortex.CortexLabelHygiene8144.executableHorizonMs8392(true)
-    private val OTHER_TIMEOUT_MS_8344 = com.lifecyclebot.engine.cortex.CortexLabelHygiene8144.executableHorizonMs8392(false)
     private const val REOPEN_GAP_MS_8344 = 15 * 60_000L
     private const val MAX_CLOSES_PER_LANE_8344 = 300
     private const val PREFS_8344 = "aate_evidence_shadow_8344"
@@ -264,11 +263,8 @@ object EvidenceShadow8344 {
      */
     @Synchronized fun open8344(ts: TokenState, lane: String, nowMs: Long = System.currentTimeMillis(), source: String = SOURCE_DECISION_8345, advisoryEntry8393: Boolean = false) {
         try {
-            val pressure8397 = com.lifecyclebot.engine.MemoryGuard7977.pressure8144()
-            if (pressure8397 == com.lifecyclebot.engine.RetentionPolicy8136.Pressure.HARD ||
-                pressure8397 == com.lifecyclebot.engine.RetentionPolicy8136.Pressure.CRITICAL) {
-                skip8345(lane, "SHADOW_CAPACITY_PRESSURE_8397"); return
-            }
+            // The heap-pressure door (SHADOW_CAPACITY_PRESSURE_8397) is removed: the heap read HARD all run (89-100 %), so it
+            // refused every open (pipeline report: evidenceShadow opened=0). An open is ~1 KB under the fixed MAX_OPEN_8344 cap.
             val mint = ts.mint
             if (mint.isBlank()) return
             val key = episodeKey8417(mint, lane)
@@ -299,7 +295,7 @@ object EvidenceShadow8344 {
             // V5.0.8364 — booked at the decision mark plus the lane's decision-to-fill chase (ShadowFill8364), as a live buy fills
             val fillPx8364 = ShadowFill8364.laneEntryPx8364(px, lane)
             val pos8355 = Pos8344(mint, CanonicalLaneIdentity6506.desk8392(lane), fillPx8364, nowMs, if (cost.isFinite()) cost else 7.0, stop.coerceIn(3.0, 40.0), arm,
-                if (runner) RUNNER_TIMEOUT_MS_8344 else OTHER_TIMEOUT_MS_8344, advisoryEntry8393)
+                com.lifecyclebot.engine.cortex.CortexLabelHygiene8144.horizonMsFor8468(lane, runner), advisoryEntry8393)   // the lane's own hold
             // V5.0.8366 — the live buy lands at its route's measured rate (deterministic per mint x lane x decision time); an
             // unlanded entry is no trade, booked as the failed-tx fee alone
             val unlanded8366 = try { ShadowAlign8366.unlandedEntryFeePct8366("$mint|$lane|$nowMs|EVIDENCE", mint, nowMs) } catch (_: Throwable) { null }
@@ -452,7 +448,7 @@ object EvidenceShadow8344 {
             }
             return pending
         }
-        val runner = p.timeoutMs >= RUNNER_TIMEOUT_MS_8344
+        val runner = try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(p.lane) } catch (_: Throwable) { p.timeoutMs >= RUNNER_TIMEOUT_MS_8344 }
         if (!p.hold8366 && fresh != null && ShadowAlign8366.holdPromotes8366(g, p.peakPct)) { p.hold8366 = true; p.dirty8355 = true }
         val why: String? = if (p.hold8366) {
             val d = if (fresh != null) ShadowAlign8366.holdExit8366(g, p.peakPct, p.taken8366, nowMs - p.atMs, nowMs - p.peakAt8366, p.costPct) else null
@@ -486,7 +482,9 @@ object EvidenceShadow8344 {
                 else -> null
             }
         }
-        if (why == null || why == "SOLD_OUT" || why == "LOST_MARK" || fresh == null) return why
+        // A triggered exit on a tick no source priced (TIMEOUT with no fresh mark) waits for the next observed mark after the sell
+        // latency, as ExploreShadow8347 and a live sell do; it was booked on the stale last price. Never-priced ends LOST_MARK.
+        if (why == null || why == "SOLD_OUT" || why == "LOST_MARK") return why
         requestSlice8394(p, 1.0, why, nowMs)
         return WAIT_8366
     }
