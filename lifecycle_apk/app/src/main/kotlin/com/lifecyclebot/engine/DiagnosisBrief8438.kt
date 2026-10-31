@@ -100,7 +100,16 @@ object DiagnosisBrief8438 {
 
     private fun pct(v: Double): String = if (v.isFinite()) "%+.1f%%".format(v) else "-"
     private fun stat(s: ForwardReturnLabeler7731.CellStat?): String =
-        if (s == null || s.n60 == 0) "n0" else "n${s.n60}/${pct(s.meanNet60Pct)}/wr${(s.winRate60 * 100).toInt()}%/run${(s.runnerRate60 * 100).toInt()}%"
+        if (s == null || s.n60 == 0) "n0" else "n${s.n60}/${pct(s.meanNet60Pct)}/wr${(s.winRate60 * 100).toInt()}%/run${(s.runnerRate60 * 100).toInt()}%" +
+            (if (s.lost > 0) "/cov${(s.resolvedShare * 100).toInt()}%" else "")   // V5.0.8474 — the share of its labels that were priced
+
+    /**
+     * Pure (V5.0.8474): may a cohort's record be read as evidence? 8471: refused60 n568 against 12,202 lost (4 % priced),
+     * admitted60 n1300 against 4,364 lost (23 %): the "refused coins run more" CONFLICT and every door verdict sat on the few
+     * coins that stayed priced — the survivors. Below [MIN_COVERAGE_8474] the record is not a verdict.
+     */
+    fun covered8474(s: ForwardReturnLabeler7731.CellStat?): Boolean = s != null && s.resolvedShare >= MIN_COVERAGE_8474
+    const val MIN_COVERAGE_8474 = 0.5
 
     private inline fun section(sb: StringBuilder, name: String, body: () -> Unit) {
         try { body() } catch (t: Throwable) {
@@ -154,16 +163,21 @@ object DiagnosisBrief8438 {
         section(sb, "C EDGE") {
             val adm = ForwardReturnLabeler7731.aggregate8438(true)
             val ref = ForwardReturnLabeler7731.aggregate8438(false)
-            val separates = adm != null && ref != null && adm.n60 >= 30 && ref.n60 >= 30 && adm.meanNet60Pct > ref.meanNet60Pct
+            // V5.0.8474 — no verdict from a cohort whose labels were mostly lost (covered8474).
+            val coveredBoth8474 = covered8474(adm) && covered8474(ref)
+            val separates = coveredBoth8474 && adm != null && ref != null && adm.n60 >= 30 && ref.n60 >= 30 && adm.meanNet60Pct > ref.meanNet60Pct
             // V5.0.8439 — 8438: admitted +38.3% run16% vs refused -57.5% run35%: the refused side held MORE runners, which a
             // mean comparison hides (and a -57.5% mean with 35% runners is below what its own runners allow: a mixed book).
             val runnerConflict = separates && adm!!.runnerRate60 + 0.05 < ref!!.runnerRate60
             sb.append("  C EDGE       forward 5-min executable net of what the bot saw: admitted[").append(stat(adm)).append("] refused[").append(stat(ref))
                 .append("] -> ").append(when {
+                    !coveredBoth8474 && adm != null && ref != null -> "UNRELIABLE: most labels lost (no verdict until coverage >= ${(MIN_COVERAGE_8474 * 100).toInt()}%)"
                     runnerConflict -> "CONFLICT means separate but the REFUSED side holds more runners"
                     separates -> "doors SEPARATE winners from losers"
                     else -> "doors do NOT separate (or thin)"
                 }).append('\n')
+            if (!coveredBoth8474 && adm != null && ref != null) fixes += Fix8438(10_000.0, "FAULT",
+                "label coverage too low to judge anything (admitted ${(adm.resolvedShare * 100).toInt()}%, refused ${(ref.resolvedShare * 100).toInt()}% priced): every Cortex / door / cell verdict reads survivors -> F LEARNING labelMarks8418 lost{noSource, late}, offWatch7737 limiterRetry8474")
             if (runnerConflict) fixes += Fix8438((ref!!.runnerRate60 - adm!!.runnerRate60) * 1000.0, "CONFLICT",
                 "refused coins run more often than admitted ones (run ${(ref.runnerRate60 * 100).toInt()}% vs ${(adm.runnerRate60 * 100).toInt()}%) -> the doors refuse runners at entry; D DOORS + Runner capture (§8017) funnel8297 name which")
             sb.append("               lane            fwd(n/mean/wr/run)          qualified fdg(allow/block) ticket exec | live closes | verdict\n")

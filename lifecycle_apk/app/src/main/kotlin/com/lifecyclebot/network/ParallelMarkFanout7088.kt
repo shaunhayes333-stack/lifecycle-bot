@@ -203,7 +203,8 @@ object ParallelMarkFanout7088 {
             "DEXSCREENER" to {
                 safe {
                     val acc = HashMap<String, Double>(wanted.size)
-                    wanted.chunked(30).forEach { c -> acc.putAll(dexClient7088.batchPriceFetch(c)) }
+                    // V5.0.8474 — wait for the shared limiter slot (as the held-mark batch does) instead of an empty batch.
+                    wanted.chunked(30).forEach { c -> acc.putAll(dexClient7088.batchPriceFetch(c, FANOUT_SLOT_WAIT_MS_8474)) }
                     acc
                 }
             },
@@ -609,6 +610,8 @@ object ParallelMarkFanout7088 {
     // again on the next rung (Helius included) and again on every pass. A node answering at a fresh slot that the
     // account does not exist is an answer: the walk stops for that mint, and the mint is not curve-read again for
     // [NO_CURVE_TTL_MS_8458] unless a curve key is announced for it (PumpCurveKeys7269.keyFor).
+    /** V5.0.8474 — the fan-out's DexScreener batches wait this long for the shared limiter slot. */
+    private const val FANOUT_SLOT_WAIT_MS_8474 = 200L
     const val NO_CURVE_TTL_MS_8458 = 30L * 60_000L
     private const val NO_CURVE_MAX_8458 = 4_000
     private val noCurve8458 = ConcurrentHashMap<String, Long>()

@@ -29,12 +29,16 @@ import java.util.concurrent.atomic.AtomicLong
 object LaneTrigger8468 {
     private const val MIN_N_8468 = 30
     private const val HOUR_MIN_N_8468 = 40
+    /** V5.0.8474 — the share of the trigger record's labels that must have been priced for it to prove anything. */
+    private const val MIN_COVERAGE_8474 = 0.5
 
     private val admitted8468 = ConcurrentHashMap<String, AtomicLong>()
 
     /** Pure: does [st] prove the lane's own trigger pays at the lane's horizon ([hourGraded])? */
     fun proven8468(hourGraded: Boolean, st: ForwardReturnLabeler7731.CellStat?): Boolean {
         if (st == null || st.outlierSuspect8185) return false
+        // V5.0.8474 — a record whose labels were mostly lost holds only the survivors (dead coins drop out): not proof.
+        if (st.resolvedShare < MIN_COVERAGE_8474) return false
         return if (hourGraded) {
             st.n240 >= HOUR_MIN_N_8468 && st.meanNet240Pct.isFinite() && st.meanNet240Pct > 0.0 && !st.outlierFlag8322
         } else {
