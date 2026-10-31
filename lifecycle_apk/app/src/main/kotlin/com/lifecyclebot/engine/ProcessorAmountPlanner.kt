@@ -197,7 +197,16 @@ object ProcessorAmountPlanner {
         if (!requestedUiQty.isFinite() || requestedUiQty <= 0.0) return null
         // V5.0.8237 — one balance proof per exit attempt, reused across route retries while fresh (invalidated on any
         // registered / ended sell for the mint). Same read, same downstream checks; not repeated per retry.
-        val first8020 = SellBalanceProof8237.accounts8237(ts.mint, System.currentTimeMillis()) {
+        // V5.0.8488 — the warm proven holding (StopLatencyWiring8153: a wallet read of this mint younger than its TTL, spent by
+        // any order signed for it since) answers first for EVERY exit, partial or full: 8484 live, a normal / partial exit's
+        // serial whole-wallet read + re-read held the balance stage 66 s on average. Same downstream sizing and checks.
+        val warm8488 = try {
+            if (com.lifecyclebot.engine.truth.WalletTokenAccountStateAuthority7253.isFrozen(ts.mint)) null
+            else com.lifecyclebot.engine.sell.StopLatencyWiring8153.provenHolding8153(ts.mint)
+                ?.let { mapOf(ts.mint to com.lifecyclebot.engine.truth.CanonicalTokenAmount(it.raw, it.decimals)) }
+        } catch (_: Throwable) { null }
+        if (warm8488 != null) try { PipelineHealthCollector.labelInc("SELL_BALANCE_WARM_PROOF_8488") } catch (_: Throwable) {}
+        val first8020 = warm8488 ?: SellBalanceProof8237.accounts8237(ts.mint, System.currentTimeMillis()) {
             try { wallet.getTokenAccountsWithDecimalsBounded() } catch (e: Exception) {
                 ErrorLogger.warn("ProcessorAmountPlanner", "BALANCE_UNKNOWN ${ts.symbol}: token-account read failed: ${e.message}")
                 null

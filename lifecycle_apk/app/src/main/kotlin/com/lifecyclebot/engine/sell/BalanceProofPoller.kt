@@ -32,7 +32,7 @@ import java.util.concurrent.atomic.AtomicReference
  * Backoff schedule is owned by BalanceProofWaitState.backoffFor(attempt).
  */
 object BalanceProofPoller {
-    private const val TICK_INTERVAL_MS: Long = 2_000L
+    private const val TICK_INTERVAL_MS: Long = 1_000L   // V5.0.8488: was 2 s
     private val jobRef = AtomicReference<Job?>(null)
     @Volatile private var wallet: SolanaWallet? = null
     @Volatile private var paperMode: Boolean = true
@@ -265,7 +265,8 @@ object BalanceProofPoller {
      * entry or enrichment work. True when it was dispatched.
      */
     private fun emergencyResell8144(mint: String, reason: String): Boolean {
-        if (!SellRouteFinality8144.bypassesQueue8144(reason)) return false
+        // V5.0.8488 — every exit whose proof is ready sells now on its own dispatcher; a discretionary exit went back through
+        // PendingSellQueue and waited for the next bot-loop tick (avg cycle 9.4 s in 8484). CloseLease still single-flights it.
         val handoff = CloseLease.emergencyHandoff8087 ?: return false
         return try {
             handoff(mint, reason)

@@ -442,6 +442,16 @@ object SellAmountAuthority {
             multiProviderHeld8144(mint)?.let { return it }
         }
 
+        // V5.0.8488 — the warm proven holding (no read issued) for every exit class before the whole-wallet read: a proof
+        // wait polled that read on backoff while the same mint's holding was proven seconds earlier.
+        try {
+            if (!com.lifecyclebot.engine.truth.WalletTokenAccountStateAuthority7253.isFrozen(mint)) {
+                StopLatencyWiring8153.provenHolding8153(mint)?.let { p ->
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BALANCE_PROOF_WARM_HOLDING_8488") } catch (_: Throwable) {}
+                    return Resolution.Confirmed(p.raw, p.decimals, Source.BALANCE_PROOF_POLLER)
+                }
+            }
+        } catch (_: Throwable) {}
         val normal = resolve(mint, wallet)
         if (normal is Resolution.Confirmed || normal is Resolution.Zero) return normal
         multiProviderHeld8144(mint)?.let { return it }   // V5.0.8144

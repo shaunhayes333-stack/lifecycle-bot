@@ -64,7 +64,8 @@ class Aate8094EmergencyExitDeterminismTest {
     // Unavailable balance proof: an emergency sells from the last complete snapshot; a partial snapshot proves nothing.
     @Test fun unavailableBalanceProofDoesNotBlockAnEmergencyOrFakeAZero() {
         val x = src("engine/Executor.kt")
-        assertTrue(x.contains("preSellGuard(ts.mint, ts.symbol ?: \"?\", if (emergency8094) null else wallet)"))
+        // superseded by V5.0.8488 — a warm proven holding also skips the guard's zero-only wallet read
+        assertTrue(x.contains("preSellGuard(ts.mint, ts.symbol ?: \"?\", if (emergency8094 || warm8488) null else wallet)"))
         val sa = src("engine/sell/SellAmountAuthority.kt")
         assertTrue(sa.contains("fun emergencyWalletSnapshotBalance7730(mint: String, reason: String)"))
         assertTrue(sa.contains("WalletSnapshotCompleteness7140.isLastPartial()"))

@@ -51,8 +51,10 @@ object BalanceProofWaitState {
 
     /** Backoff schedule per spec: 2s, 5s, 10s, 20s, 30s, then 30s cap. */
     fun backoffFor(attempt: Int): Long {
-        val table = longArrayOf(2_000L, 5_000L, 10_000L, 20_000L, 30_000L)
-        return if (attempt < table.size) table[attempt] else 30_000L
+        // V5.0.8488 — was 2, 5, 10, 20, 30 s (five polls = 67 s: the 8484 HARD_STOP queue avg 68 s). Each poll is one bounded
+        // owner read for a mint whose exit already fired.
+        val table = longArrayOf(1_000L, 2_000L, 3_000L, 5_000L, 8_000L)
+        return if (attempt < table.size) table[attempt] else 8_000L
     }
 
     fun priorityFor(reason: String): Int {
@@ -79,6 +81,8 @@ object BalanceProofWaitState {
         // attempt=10 while Doctor reported close_lease_blocking=1. Release any
         // residual lease before/while entering wait state.
         try { CloseLease.release(mint, "BALANCE_PROOF_WAIT_NO_ACTIVE_CLOSE") } catch (_: Throwable) {}
+        // V5.0.8488 — a fired exit parked here is queue time; name it (8484: HARD_STOP queue avg 68 s with no cause recorded).
+        try { com.lifecyclebot.engine.truth.ExitStageTiming7876.noteQueueCause8087(mint, "BALANCE_PROOF_WAIT_" + reason.substringBefore(':').take(24)) } catch (_: Throwable) {}
         val now = System.currentTimeMillis()
         val newPriority = priorityFor(reason)
         val existing = waits[mint]

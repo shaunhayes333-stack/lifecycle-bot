@@ -241,7 +241,8 @@ class Aate8094ClosedPositionAndPretradeTest {
         val lease = src("engine/sell/CloseLease.kt")
         assertTrue(lease.contains("if (waiting8094 == null && ProtectiveExitClass7807.isEmergency(leaseReason8094)) scheduleEmergencyRetry8094("))
         val x = src("engine/Executor.kt")
-        assertTrue(x.contains("preSellGuard(ts.mint, ts.symbol ?: \"?\", if (emergency8094) null else wallet)"))
+        // superseded by V5.0.8488 — a warm proven holding also skips the guard's zero-only wallet read
+        assertTrue(x.contains("preSellGuard(ts.mint, ts.symbol ?: \"?\", if (emergency8094 || warm8488) null else wallet)"))
         assertTrue(x.contains("if (!com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(reason)) run {  // V5.0.8094"))
     }
 

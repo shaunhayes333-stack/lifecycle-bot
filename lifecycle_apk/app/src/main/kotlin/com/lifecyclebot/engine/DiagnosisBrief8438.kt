@@ -244,6 +244,15 @@ object DiagnosisBrief8438 {
                 "emergency exit ${t2b} ms trigger->broadcast; top pre-route cause ${pre.firstOrNull()?.first ?: "-"} -> SellRouteSpine8144 preRoute8435 names the sell row; Executor.doSell / liveSellInScope7314 early returns")
             if (asked >= 10L && ok == 0L) fixes += Fix8438(asked.toDouble(), "CONFLICT",
                 "held positions have no executable sell quote (asked=$asked ok=0) -> heldQuote8189 missBy8435; HeldHotMarkAuthority7419.quoteSellEstimate")
+            // V5.0.8488 — live buys timed per step (target: start -> broadcast within 2 s).
+            val (bn, bavg, bmax) = com.lifecyclebot.engine.truth.BuyStageTiming.startToBroadcast()
+            val slow = com.lifecyclebot.engine.truth.BuyStageTiming.slowestStep()
+            sb.append("               buys start->broadcast n=").append(bn).append(" avg=").append(if (bn > 0) "${bavg}ms" else "-")
+                .append(" max=").append(if (bn > 0) "${bmax}ms" else "-").append(" slowest=").append(slow)
+                .append(if (bn > 0 && bavg > 2_000L) " [FAULT >2 s]" else "").append('\n')
+            sb.append("               ").append(com.lifecyclebot.engine.truth.BuyStageTiming.statusLine()).append('\n')
+            if (bn > 0 && bavg > 2_000L) fixes += Fix8438(bavg / 100.0, "FAULT",
+                "live buy start->broadcast avg ${bavg} ms (max ${bmax}); slowest step $slow -> BuyStageTiming / Executor.prepareJupiterBuy8090 / tryPumpPortalBuy")
         }
 
         section(sb, "F LEARNING") {

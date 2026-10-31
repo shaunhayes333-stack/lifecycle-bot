@@ -357,6 +357,10 @@ object LiveTradeLogStore {
         // transaction's first submission (SignedTxLedger8085.transition SUBMIT_ATTEMPTED), so a slow quote,
         // build or sign is inside the sample instead of hiding after it.
         // V5.0.7876 — per-stage live exit timing (trigger stamped by ExitTelemetryStamper6732).
+        // V5.0.8488 — live buy timing per step (BuyStageTiming); measurement only.
+        if (side == "BUY" && modeTag == "LIVE") {
+            try { com.lifecyclebot.engine.truth.BuyStageTiming.onPhase(mint, phase.name) } catch (_: Throwable) {}
+        }
         if (side == "SELL" && modeTag == "LIVE") {
             try { com.lifecyclebot.engine.truth.ExitStageTiming7876.onPhase(mint, phase.name) } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.sell.SellRouteSpine8144.notePhaseText8435(mint, phase.name, message) } catch (_: Throwable) {}  // V5.0.8435 — the attempt's cause

@@ -23836,7 +23836,10 @@ class Executor(
             // V5.0.8094 — an emergency does not pay a whole-wallet read (up to ~11 s on a failing RPC) before SELL_START:
             // the tracker / ledger close checks still run, and liveSell's own balance read catches a real zero.
             val emergency8094 = com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(reason)
-            val closeGuard = try { com.lifecyclebot.engine.sell.LivePositionCloseAuthority.preSellGuard(ts.mint, ts.symbol ?: "?", if (emergency8094) null else wallet) } catch (_: Throwable) { null }
+            // V5.0.8488 — nor does any exit whose holding is already proven warm (positive, newer than every order for the
+            // mint): the guard's wallet read only looks for a zero, which that proof rules out.
+            val warm8488 = !emergency8094 && (try { com.lifecyclebot.engine.sell.StopLatencyWiring8153.provenHolding8153(ts.mint) != null } catch (_: Throwable) { false })
+            val closeGuard = try { com.lifecyclebot.engine.sell.LivePositionCloseAuthority.preSellGuard(ts.mint, ts.symbol ?: "?", if (emergency8094 || warm8488) null else wallet) } catch (_: Throwable) { null }
             if (closeGuard?.blocked == true) {
                 try { ForensicLogger.lifecycle("REQUEST_SELL_SUPPRESSED_CLOSE_AUTHORITY", "mint=${ts.mint.take(10)} symbol=${ts.symbol} guard=${closeGuard.reason} state=${closeGuard.state}") } catch (_: Throwable) {}
                 if (closeGuard.state == com.lifecyclebot.engine.sell.LivePositionCloseAuthority.State.CLOSED || closeGuard.state == com.lifecyclebot.engine.sell.LivePositionCloseAuthority.State.CLOSING_CONFIRMED) {
@@ -23849,6 +23852,7 @@ class Executor(
                     return SellResult.ALREADY_CLOSED
                 }
                 try { SellDecisionMatrixReport.recordPreSellDefer(ts.mint, ts.symbol ?: "?", requestReason, "CLOSE_AUTHORITY_WAIT") } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.truth.ExitStageTiming7876.noteQueueCause8087(ts.mint, "CLOSE_AUTHORITY_${closeGuard.reason.take(32)}") } catch (_: Throwable) {}   // V5.0.8488
                 return SellResult.WAITING_BALANCE_PROOF
             }
         }
@@ -30928,6 +30932,9 @@ class Executor(
         )
         // V5.0.3959 — Jupiter quote must never be silent/disabled. Always try it;
         // transient provider errors fail only this quote attempt/candidate.
+        // V5.0.8488 — the SOL balance plan is read once per buy (it was re-read from RPC on every slippage rung), and a
+        // rate-limited / unreachable Jupiter ends the ladder: more slippage cannot answer a 429.
+        var buyPlan8488: ProcessorAmountPlanner.BuyPlan? = null
         for (slip in slippageLadder) {
             buyPhase("QUOTE_REQUESTED")
             LiveTradeLogStore.log(
@@ -30937,7 +30944,7 @@ class Executor(
                 slippageBps = slip, solAmount = sol, traderTag = "MEME",
             )
             try {
-                val jupiterBuyPlan = recalcBuyPlanForProcessor(
+                val jupiterBuyPlan = buyPlan8488 ?: (recalcBuyPlanForProcessor(
                     ts = ts,
                     wallet = wallet,
                     processor = "JUPITER_ULTRA_METIS_BUY",
@@ -30946,7 +30953,7 @@ class Executor(
                     jitoTipLamports = effectiveJitoTipLamports(c, urgent = false),
                     tradeKey = tradeKey,
                     traderTag = "MEME",
-                ) ?: throw Exception("BUY_BALANCE_PLAN_UNAVAILABLE")
+                ) ?: throw Exception("BUY_BALANCE_PLAN_UNAVAILABLE")).also { buyPlan8488 = it }
                 jq7325 = getQuoteWithSlippageGuard(
                     JupiterApi.SOL_MINT, ts.mint, jupiterBuyPlan.lamports,
                     slip.coerceAtMost(500), jupiterBuyPlan.solAmount,
@@ -30973,6 +30980,10 @@ class Executor(
                     "Quote ${slip}bps FAILED: ${msg.take(80)}",
                     slippageBps = slip, traderTag = "MEME",
                 )
+                if (com.lifecyclebot.engine.truth.BuyStageTiming.quoteUnreachable(msg)) {
+                    try { PipelineHealthCollector.labelInc("BUY_QUOTE_LADDER_ENDED_UNREACHABLE_8488") } catch (_: Throwable) {}
+                    break
+                }
                 Thread.sleep(250)
             }
         }
