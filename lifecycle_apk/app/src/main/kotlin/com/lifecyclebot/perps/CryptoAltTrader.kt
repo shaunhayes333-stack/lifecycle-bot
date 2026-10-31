@@ -616,7 +616,9 @@ object CryptoAltTrader {
                 val pos = if (persisted.id == cp.positionId) persisted else persisted.copy(id = cp.positionId)
                 if (positions.putIfAbsent(pos.id, pos) != null) return@forEach
                 if (pos.isSpot) spotPositions[pos.id] = pos else leveragePositions[pos.id] = pos
-                com.lifecyclebot.engine.WalletPositionLock.recordOpen("CryptoAlt", pos.sizeSol)
+                // Only LIVE positions hold live wallet exposure: paper crypto books trade beside LIVE, and their paper sizes
+                // filled the live CryptoAlt cap (8480: every live crypto entry refused CRYPTO_LIVE_REFUSED_WALLET_LOCK_7977).
+                if (!pos.isPaper) com.lifecyclebot.engine.WalletPositionLock.recordOpen("CryptoAlt", pos.sizeSol)
                 rehydratedCount++
             }
             if (rehydratedCount > 0) {
@@ -3965,7 +3967,7 @@ object CryptoAltTrader {
         // learning drift and preventing clean maturity/threshold adaptation. Fire
         // only after the paper debit or live execution has actually committed.
         try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.onTradeStart() } catch (_: Throwable) {}
-        com.lifecyclebot.engine.WalletPositionLock.recordOpen("CryptoAlt", canonicalFinalSize6570)
+        if (!position.isPaper) com.lifecyclebot.engine.WalletPositionLock.recordOpen("CryptoAlt", canonicalFinalSize6570)
 
         // V5.9.320: After a successful LIVE leveraged open, look up the Flash.trade
         // position key so we can close it properly via the Flash close-position endpoint.
@@ -4869,7 +4871,7 @@ object CryptoAltTrader {
         // V5.9.171 — clear from local orphan store since capital is being
         // returned to the paper wallet via creditUnifiedPaperSol below.
         try { com.lifecyclebot.collective.LocalOrphanStore.clear(positionId) } catch (_: Exception) {}
-        com.lifecyclebot.engine.WalletPositionLock.recordClose("CryptoAlt", pos.sizeSol)
+        if (!pos.isPaper) com.lifecyclebot.engine.WalletPositionLock.recordClose("CryptoAlt", pos.sizeSol)
 
         // V5.9.721-FIX: FAST SHUTDOWN PATH — skip all heavy AI learning on bot stop.
         // CryptoAltTrader.closeAllPositions() passes "USER_STOP". Running 44-layer
