@@ -45,7 +45,8 @@ class Aate8060MeasuredEdgeTest {
         assertTrue(com.lifecyclebot.engine.truth.LiveEdgeGate7877.cellProven8060(211, 5.0, 1.5))
         assertFalse(com.lifecyclebot.engine.truth.LiveEdgeGate7877.cellProven8060(20, 9.0, 1.0))
         assertFalse(com.lifecyclebot.engine.truth.LiveEdgeGate7877.cellProven8060(100, 1.0, 2.0))
+        // superseded (8480): the proven-only door that read this bar is removed; the measured edge still feeds the gate
         assertTrue(File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveEdgeGate7877.kt").readText()
-            .contains("proven8059 == null && !measuredEdge8060(ts, l8059, nowMs)"))
+            .contains("measuredEdge8060(ts, l8059, nowMs) || (try { com.lifecyclebot.engine.RunnerTicket8073.admits8073(ts, nowMs) }"))
     }
 }
