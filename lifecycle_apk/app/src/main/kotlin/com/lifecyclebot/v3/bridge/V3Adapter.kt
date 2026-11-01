@@ -128,10 +128,14 @@ object V3Adapter {
         // V5.0.7384 — observed liquidity (tick, then token map); a curve token's
         // pair poll reads 0 and V3 rejected it as ZERO_LIQUIDITY.
         val liquidityUsd = com.lifecyclebot.engine.TokenMapAuthority.observedLiquidityUsd(ts).coerceAtLeast(0.0)
-        val marketCapUsd = ts.lastMcap.coerceAtLeast(0.0)
-        val buyPressurePct = meta.pressScore.coerceIn(0.0, 100.0)
+        val marketCapUsd = ts.lastMcap.takeIf { it.isFinite() && it > 0.0 }
+            ?: ts.tokenMap.marketCap?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+        val buyPressurePct = observedPressure8491(ts, now)
+            ?: meta.pressScore.takeIf { it.isFinite() }?.coerceIn(0.0, 100.0) ?: 50.0
+        val tapeVolume = observedVolumes8491(ts.mint, now)
         val holders = ts.peakHolderCount.takeIf { it > 0 }
-        val topHolderPct = safety.topHolderPct.takeIf { it > 0.0 }?.coerceIn(0.0, 100.0)
+        val topHolderPct = safety.topHolderPct.takeIf { it.isFinite() && it > 0.0 }
+            ?: ts.tokenMap.topHolderConcentrationPct?.takeIf { it.isFinite() && it in 0.0..100.0 }
         val bundledPct = safety.firstBlockSupplyPct.takeIf { it > 0.0 }?.coerceIn(0.0, 100.0)
 
         return CandidateSnapshot(
@@ -146,8 +150,8 @@ object V3Adapter {
             // V5.0.7403 — never convert a score back into fake market data.
             // Outer-ring arb models treat these fields as observed USD volume.
             // Use provider token-map volume only; unknown stays zero/neutral.
-            volume1mUsd = ts.tokenMap.volume5mUsd?.takeIf { it.isFinite() && it > 0.0 }?.div(4.0) ?: 0.0,
-            volume5mUsd = ts.tokenMap.volume5mUsd?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0,
+            volume1mUsd = tapeVolume.first,
+            volume5mUsd = ts.tokenMap.volume5mUsd?.takeIf { it.isFinite() && it > 0.0 } ?: tapeVolume.second,
             holders = holders,
             topHolderPct = topHolderPct,
             bundledPct = bundledPct,
@@ -316,12 +320,32 @@ object V3Adapter {
      * pressure needs a recent candle with real buy/sell counts, momentum needs
      * 8 prices, volume needs 3 candles with volume.
      */
-    internal fun dataKnowledge7327(ts: TokenState): DataKnowledge7327 {
+    internal fun freshObservation8491(atMs: Long, nowMs: Long): Boolean =
+        atMs > 0L && nowMs - atMs in 0L..120_000L
+
+    internal fun observedPressure8491(ts: TokenState, nowMs: Long): Double? =
+        com.lifecyclebot.engine.LaneInputTruth8236.buyPressure8491(ts, nowMs)
+
+    /** Executed prints only: a five-minute total cannot be relabelled as one-minute volume. */
+    private fun observedVolumes8491(mint: String, nowMs: Long): Pair<Double, Double> {
+        val solUsd = com.lifecyclebot.engine.WalletManager.freshSolPrice8163(nowMs)
+        if (!solUsd.isFinite() || solUsd <= 0.0) return 0.0 to 0.0
+        val prints = com.lifecyclebot.engine.truth.TradeTape8100.prints8128(mint, nowMs, 300_000L)
+            .filter { it.sol.isFinite() && it.sol > 0.0 && !it.priceOnly }
+        return prints.filter { nowMs - it.atMs in 0L..60_000L }.sumOf { it.sol } * solUsd to
+            prints.sumOf { it.sol } * solUsd
+    }
+
+    internal fun dataKnowledge7327(ts: TokenState, nowMs: Long = System.currentTimeMillis()): DataKnowledge7327 {
         val hist = try { ts.history.toList() } catch (_: Exception) { emptyList() }
         val recent = hist.takeLast(5)
-        val bp = recent.any { (it.buysH1 + it.sellsH1 + it.buys24h + it.sells24h) > 0 }
-        val mom = hist.count { it.priceUsd > 0.0 } >= 8
-        val vol = hist.count { it.vol > 0.0 } >= 3
+        val bp = observedPressure8491(ts, nowMs) != null || recent.any {
+            freshObservation8491(it.ts, nowMs) && (it.buysH1 + it.sellsH1 + it.buys24h + it.sells24h) > 0
+        }
+        val mom = (com.lifecyclebot.engine.LaneInputTruth8236.change5m8491(ts, nowMs) != null) ||
+            (hist.count { it.priceUsd.isFinite() && it.priceUsd > 0.0 } >= 8 &&
+                hist.lastOrNull()?.let { freshObservation8491(it.ts, nowMs) } == true)
+        val vol = hist.count { !it.synthetic && it.vol.isFinite() && it.vol > 0.0 && freshObservation8491(it.ts, nowMs) } >= 3
         return DataKnowledge7327(bp, mom, vol)
     }
 
@@ -342,12 +366,22 @@ object V3Adapter {
         extras["momentumKnown"] = known.momentum
         extras["volumeKnown"] = known.volume
         extras["dataCompleteness"] = known.completeness
+        extras["lane"] = com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(ts.position.tradingMode)
+        // Provider changes survive a cold candle cache. They remain price momentum, never buy pressure.
+        val now = System.currentTimeMillis()
+        val observedChange = com.lifecyclebot.engine.LaneInputTruth8236.change5m8491(ts, now)
+        val hasMomentumHistory = ts.history.count { it.priceUsd.isFinite() && it.priceUsd > 0.0 } >= 8 &&
+            ts.history.lastOrNull()?.let { freshObservation8491(it.ts, now) } == true
+        extras["momentumScore"] = if (known.momentum && hasMomentumHistory) meta.momScore else null
+        extras["priceMomentumPct"] = observedChange
+        val momentumScore = (extras["momentumScore"] as? Double) ?: 50.0
+        val pressure = observedPressure8491(ts, now) ?: meta.pressScore
 
-        extras["rsiOversold"] = known.momentum && meta.rsi < 30.0
-        extras["momentumUp"] = known.momentum && meta.momScore > 55.0
-        extras["momentumWeak"] = known.momentum && meta.momScore < 35.0
-        extras["higherLows"] = known.momentum && !meta.lowerHighs
-        extras["pumpBuilding"] = known.buyPressure && known.momentum && meta.pressScore > 65.0 && meta.momScore > 60.0
+        extras["rsiOversold"] = hasMomentumHistory && known.momentum && meta.rsi < 30.0
+        extras["momentumUp"] = known.momentum && (if (hasMomentumHistory) momentumScore > 55.0 else (observedChange ?: 0.0) > 0.0)
+        extras["momentumWeak"] = known.momentum && (if (hasMomentumHistory) momentumScore < 35.0 else (observedChange ?: 0.0) < 0.0)
+        extras["higherLows"] = known.momentum && ts.history.size >= 8 && !meta.lowerHighs
+        extras["pumpBuilding"] = known.buyPressure && known.momentum && pressure > 65.0 && momentumScore > 60.0
 
         extras["liquidityDraining"] = meta.breakdown
         extras["volumeExpanding"] = known.volume && meta.volScore > 60.0

@@ -19,7 +19,9 @@ class Aate7551NativeMomentumUnitNormalizationTest {
         val block=b.substringAfter("val bp=").substringBefore("val v3=")
         assertFalse(block.contains("ts.momentum?.takeIf"))
         assertTrue(block.contains("val histMomentumPct7551"))
-        assertTrue(block.contains("val mom = ts.lastPriceChange5m"))
+        // superseded by V5.0.8492 — the 5 m change is read only when freshly observed (provider or executed tape)
+        assertTrue(block.contains("val mom = observedChange8491"))
+        assertTrue(src("engine/LaneInputTruth8236.kt").contains("fresh8491(ts.priceChangeObservedAtMs8084, nowMs) && it.isFinite()"))
         assertTrue(block.contains("((last - first) / first) * 100.0"))
     }
 

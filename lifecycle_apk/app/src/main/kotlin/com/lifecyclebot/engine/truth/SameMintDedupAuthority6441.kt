@@ -4,6 +4,7 @@ import com.lifecyclebot.engine.ForensicLogger
 import com.lifecyclebot.engine.PipelineHealthCollector
 import com.lifecyclebot.engine.EmergentGuardrails
 import com.lifecyclebot.engine.GlobalTradeRegistry
+import com.lifecyclebot.engine.RuntimeModeAuthority
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
@@ -62,21 +63,25 @@ object SameMintDedupAuthority6441 {
 
     fun shouldCreateEntryCandidate(mint: String, source: String, nowMs: Long = System.currentTimeMillis()): Decision {
         rawCandidates.incrementAndGet()
+        val mode = if (RuntimeModeAuthority.isLive()) "live" else "paper"
         val openLayer6446 = try { EmergentGuardrails.getPositionLayer(mint).orEmpty() } catch (_: Throwable) { "" }
         val registryOpen6446 = try { GlobalTradeRegistry.hasOpenPosition(mint) } catch (_: Throwable) { false }
-        if (CanonicalPositionAuthority6441.hasOpenMint(mint) || openLayer6446.isNotBlank() || registryOpen6446) {
+        // PAPER's legacy registries cannot veto LIVE intake. The canonical
+        // mode-qualified lot is the LIVE holding authority.
+        val legacyPaperBlock = mode == "paper" && (openLayer6446.isNotBlank() || registryOpen6446)
+        if (CanonicalPositionAuthority6441.hasOpenMint(mint, mode) || legacyPaperBlock) {
             blocks.incrementAndGet()
             try {
                 PipelineHealthCollector.labelInc("SAME_MINT_BLOCK_OPEN_6441")
-                if (openLayer6446.isNotBlank()) PipelineHealthCollector.labelInc("SAME_MINT_BLOCK_OPEN_EMERGENT_6446")
-                if (registryOpen6446) PipelineHealthCollector.labelInc("SAME_MINT_BLOCK_OPEN_REGISTRY_6446")
+                if (mode == "paper" && openLayer6446.isNotBlank()) PipelineHealthCollector.labelInc("SAME_MINT_BLOCK_OPEN_EMERGENT_6446")
+                if (mode == "paper" && registryOpen6446) PipelineHealthCollector.labelInc("SAME_MINT_BLOCK_OPEN_REGISTRY_6446")
             } catch (_: Throwable) {}
             return Decision.BLOCK
         }
         // Re-entry lockout: recently closed positions (canonical) can't
         // be re-opened within REENTRY_COOLDOWN_MS.
         val recentlyClosed = CanonicalPositionAuthority6441.closedPositions().any {
-            it.mint == mint && (nowMs - it.lastMutationMs) < REENTRY_COOLDOWN_MS
+            it.mint == mint && it.mode.equals(mode, true) && (nowMs - it.lastMutationMs) < REENTRY_COOLDOWN_MS
         }
         if (recentlyClosed) {
             lockouts.incrementAndGet()

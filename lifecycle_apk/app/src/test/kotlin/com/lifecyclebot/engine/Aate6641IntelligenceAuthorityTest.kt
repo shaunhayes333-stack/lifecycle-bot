@@ -24,7 +24,8 @@ class Aate6641IntelligenceAuthorityTest {
     @Test fun crosstalk_rejects_stale_snapshots_and_bounds_each_source() {
         val src = java.io.File("src/main/kotlin/com/lifecyclebot/v4/meta/CrossTalkFusionEngine.kt").readText()
         // V5.0.6826 — getSnapshot() re-fuses an expired cache and never hands back a snapshot past its TTL.
-        assertTrue(src.contains("return currentSnapshot.get()?.takeIf { System.currentTimeMillis() - it.timestamp < SIGNAL_TTL_MS }"))
+        // superseded by V5.0.8492 — the cached snapshot must also be from the current evidence mode (paper never masks live)
+        assertTrue(src.contains("if (cached != null && cached.evidenceMode8491 == mode8491() && now - cached.timestamp < SIGNAL_TTL_MS) return cached"))
         assertTrue(src.contains("sameSource.size >= MAX_SIGNALS_PER_SOURCE"))
         assertTrue(src.contains("val snapshot = getSnapshot() ?: return GatedScore("))
     }

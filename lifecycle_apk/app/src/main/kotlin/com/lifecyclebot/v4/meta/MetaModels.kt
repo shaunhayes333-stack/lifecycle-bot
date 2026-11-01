@@ -80,7 +80,8 @@ data class AATESignal(
     val rotationTarget: String? = null,     // Where capital should rotate to
     val executionConfidence: Double? = null, // 0.0 - 1.0 execution quality
     val riskFlags: List<String> = emptyList(), // ["HIGH_CORRELATION", "THIN_LIQUIDITY", "LIQUIDATION_PROXIMITY"]
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    val evidenceMode8491: String = ""
 )
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -99,7 +100,8 @@ data class CrossTalkSnapshot(
     val portfolioHeat: Double,                   // 0.0 (cold) - 1.0 (max correlated exposure)
     val killFlags: List<String>,                 // Hard vetoes: ["NO_LEVERAGE", "NO_MEME", "NO_NEW_ENTRIES"]
     val perMarketCaps: Map<String, MarketCap>,   // Per-market confidence/size/leverage caps
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    val evidenceMode8491: String = ""
 )
 
 data class LeadLagLink(
@@ -154,7 +156,11 @@ data class TradeLesson(
     val actualFillPrice: Double,
     val slippagePct: Double,
     val executionRoute: String,         // "JUPITER_V6", "DIRECT_DEX", etc.
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    val entryContextObserved8491: Boolean = false,
+    val slippageObserved8491: Boolean = false,
+    val mfeObserved8491: Boolean = false,
+    val maeObserved8491: Boolean = false
 )
 
 // ═══════════════════════════════════════════════════════════════════════════

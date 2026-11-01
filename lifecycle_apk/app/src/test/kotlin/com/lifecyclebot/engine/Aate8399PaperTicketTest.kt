@@ -21,7 +21,9 @@ class Aate8399PaperTicketTest {
     @Test fun admissionAndCostPreviewUseThePaperTicketInPaperMode() {
         val root = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth")
         val netEdge = root.resolve("NetEdge8030.kt").readText()
-        assertTrue(netEdge.contains("if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) paperTicket8399()"))
+        // V5.0.8492 — the mode is a parameter (event-local) defaulting to the runtime mode
+        assertTrue(netEdge.contains("internal fun entryTicket8151(paperMode: Boolean = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()): Double = try {"))
+        assertTrue(netEdge.contains("if (paperMode) paperTicket8399()"))
         val admission = root.resolve("CandidateAdmission8136.kt").readText()
         assertTrue(admission.contains("""else if (mode == "PAPER" && !(proposedSizeSol.isFinite() && proposedSizeSol > 0.0)) try { com.lifecyclebot.engine.truth.NetEdge8030.paperTicket8399() }"""))
     }

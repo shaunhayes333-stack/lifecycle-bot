@@ -27,8 +27,9 @@ class Aate6658HotLoopUnchokeTest {
         // targeted accelerator, not the full-list scan the operator flagged.
         val prelude = bot.substring(cycleStart, cycleStart + 4000)
         assertTrue(
-            "processTokenCycle must call firstOpenForMint(mint) rather than openPositions().firstOrNull",
-            prelude.contains("CanonicalPositionAuthority6441.firstOpenForMint(mint)"),
+            "processTokenCycle must use a mode-qualified targeted lookup rather than a full scan",
+            prelude.contains("CanonicalPositionAuthority6441.firstOpenForMint(") &&
+                prelude.contains("if (RuntimeModeAuthority.isLive()) \"live\" else \"paper\""),
         )
         // Strip the code comments (// … end of line) so we don't match ourselves
         // — the change-log inside the fix references the old scan by name.

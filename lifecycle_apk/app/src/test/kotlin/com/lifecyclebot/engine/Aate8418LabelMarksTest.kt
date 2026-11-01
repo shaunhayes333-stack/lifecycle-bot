@@ -75,7 +75,8 @@ class Aate8418LabelMarksTest {
         val asked = mapOf("ASKED" to now - 3_000L, "ASKED_LONG_AGO" to now - 40_000L)
         val ask = KeylessMarks8359.labelLaneAsk8418(listOf("SHADOW", "FRESH", "OLD", "ASKED", "ASKED_LONG_AGO", "NEVER", "EXTRA"),
             setOf("SHADOW"), { marks[it] ?: 0L }, { asked[it] ?: 0L }, now, 20_000L, 3)
-        assertEquals(listOf("OLD", "ASKED_LONG_AGO", "NEVER"), ask)
+        // A stale shadow-held mint still needs an answer; provider enqueue coalesces duplicates.
+        assertEquals(listOf("SHADOW", "OLD", "ASKED_LONG_AGO"), ask)
     }
 
     @Test fun aLaneAnswerBecomesTheLabelersObservedMarkAndNothingIsInvented() {
@@ -88,6 +89,10 @@ class Aate8418LabelMarksTest {
         val got = ForwardReturnLabeler7731.observedMark8372(label, System.currentTimeMillis())
         assertNotNull(got)
         assertEquals(0.0042, got!!.first, 0.0)
+        assertEquals("a genuinely fetched market mark satisfies the due-label lane", got.second,
+            ForwardReturnLabeler7731.independentMarkAt8418(label, System.currentTimeMillis()))
+        assertEquals("an unseen mint cannot suppress an independent market fetch", 0L,
+            ForwardReturnLabeler7731.independentMarkAt8418(other, System.currentTimeMillis()))
         assertNull("a mint no label wants is not stored", ForwardReturnLabeler7731.observedMark8372(other, System.currentTimeMillis()))
         assertEquals(1L, KeylessMarks8359.labelCounts8418()[2])
         // an unpriced / invalid answer leaves no mark; an older answer never replaces a newer one

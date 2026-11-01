@@ -111,8 +111,12 @@ class Aate7803ResidentPipelineArchitectureTest {
         assertTrue(adaptive.contains("environment != TradeEnvironment.LIVE"))
         assertTrue(adaptive.contains("learnFromTrade(features, outcome.environment)"))
         assertTrue(education.contains("adaptiveEnvironment7803"))
-        assertTrue(shitcoin.contains("executionRoute = if (pos.isPaper) \"PAPER\" else \"JUPITER_V6\""))
-        assertTrue(moonshot.contains("executionRoute = if (pos.isPaperMode) \"PAPER\" else \"JUPITER_V6\""))
+        assertFalse("Native projections must not duplicate canonical V4 lessons", shitcoin.contains("TradeLessonRecorder.completeLesson("))
+        assertFalse("Native projections must not duplicate canonical V4 lessons", moonshot.contains("TradeLessonRecorder.completeLesson("))
+        assertTrue(src("engine/truth/CanonicalFinalizedTradeBus6464.kt").contains("\"V4TradeLesson8492\""))
+        assertTrue(src("engine/truth/FinalizedBusConsumerBridge6465.kt").contains("TradeLessonRecorder.onCanonicalMeme8492(env)"))
+        assertTrue(tradeLessons.contains("LearningPersistence::checkpointTradeLesson8492"))
+        assertTrue(tradeLessons.contains("executionRoute = mode"))
     }
 
     @Test fun sniperElectionAndNativeTraderSharePreIgnitionWindow() {

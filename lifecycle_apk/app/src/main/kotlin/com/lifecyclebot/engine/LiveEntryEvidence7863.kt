@@ -9,6 +9,8 @@ internal data class LiveEntryEvidence7863(
     val v3: String, val consensusConfidence: Double, val objections: String, val meta: String,
     val contributions: String, val velocity: Double, val buyPressure: Double, val sellPressure: Double,
     val holderPct: Double, val rug: String,
+    val educationScores8491: String = "",
+    val v4EntryContext8491: String = "",
 ) {
     companion object {
         fun capture(ts: TokenState, intent: ExecutableOpenGate.ExecutionIntent): LiveEntryEvidence7863 {
@@ -26,6 +28,8 @@ internal data class LiveEntryEvidence7863(
                 ts.meta.volScore, ts.lastBuyPressurePct, ts.lastSellPressurePct,
                 ts.topHolderPct ?: ts.safety.topHolderPct,
                 "rug=${ts.safety.rugcheckStatus};hard=${ts.safety.hardBlockReasons.joinToString("+").take(120)}",
+                com.lifecyclebot.v3.scoring.EducationSubLayerAI.entryScoresJson8491(ts.mint, intent.mode),
+                com.lifecyclebot.v4.meta.TradeLessonRecorder.captureMemeEntry8491(ts.mint, ts.symbol, lane, intent.mode, ts.lastPrice),
             )
         }
     }

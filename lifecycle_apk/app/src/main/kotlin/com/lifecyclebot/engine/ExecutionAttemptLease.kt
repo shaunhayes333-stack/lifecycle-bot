@@ -1,6 +1,7 @@
 package com.lifecyclebot.engine
 
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * V5.0.3895 — deterministic per-mint/per-side execution lease + retry backoff.
@@ -47,10 +48,12 @@ object ExecutionAttemptLease {
         st.side.equals("BUY", true) && st.failures > 0 && nowMs - st.failedAtMs < BUY_FAILURE_MEMORY_MS
 
     private val states = ConcurrentHashMap<String, State>()
+    /** A lease is an individual attempt, not a reusable processor identity. */
+    private val leaseSequence = AtomicLong(0L)
 
     private fun now() = System.currentTimeMillis()
     private fun key(generation: Long, mode: String, side: String, mint: String, processor: String): String =
-        "${generation}:${mode.uppercase()}:${side.uppercase()}:${mint}:${processor.uppercase()}"
+        "${generation}:${mode.uppercase()}:${side.uppercase()}:${mint}:${processor.uppercase()}:${leaseSequence.incrementAndGet()}"
 
     private fun baseKey(generation: Long, mode: String, side: String, mint: String): String =
         "${generation}:${mode.uppercase()}:${side.uppercase()}:${mint}"
@@ -144,6 +147,7 @@ object ExecutionAttemptLease {
         }
     }
 
+    @Synchronized
     fun acquire(
         side: String,
         mint: String,

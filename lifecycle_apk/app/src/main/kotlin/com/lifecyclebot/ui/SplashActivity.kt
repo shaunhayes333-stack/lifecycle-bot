@@ -54,6 +54,9 @@ class SplashActivity : AppCompatActivity() {
     
     private val particles = mutableListOf<View>()
     private val particleAnimators = mutableListOf<AnimatorSet>()
+    private val repeatingAnimators = mutableListOf<Animator>()
+    private val uiHandler = Handler(Looper.getMainLooper())
+    private var animationsStopped = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -93,6 +96,7 @@ class SplashActivity : AppCompatActivity() {
             repeatCount = ValueAnimator.INFINITE
             interpolator = AccelerateDecelerateInterpolator()
         }
+        repeatingAnimators.add(glowPulse)
         glowPulse.start()
 
         // V5.9.1045 — operator V5.9.1044 dump's top ANR offender:
@@ -114,11 +118,13 @@ class SplashActivity : AppCompatActivity() {
             repeatCount = ValueAnimator.INFINITE
             interpolator = AccelerateDecelerateInterpolator()
         }
+        repeatingAnimators.add(scalePulseX)
         scalePulseX.start()
+        repeatingAnimators.add(scalePulseY)
         scalePulseY.start()
 
         // Delayed fade-in for tagline
-        Handler(Looper.getMainLooper()).postDelayed({
+        uiHandler.postDelayed({
             val taglineFade = AlphaAnimation(0f, 1f).apply {
                 duration = 600L
                 fillAfter = true
@@ -128,7 +134,7 @@ class SplashActivity : AppCompatActivity() {
         }, 1200L)
 
         // Delayed fade-in for version
-        Handler(Looper.getMainLooper()).postDelayed({
+        uiHandler.postDelayed({
             val versionFade = AlphaAnimation(0f, 1f).apply {
                 duration = 400L
                 fillAfter = true
@@ -141,7 +147,7 @@ class SplashActivity : AppCompatActivity() {
         // V5.9.713: use fast duration when coming back from a kill/re-auth cycle
         val isFastMode = intent.getBooleanExtra(EXTRA_FAST_MODE, false)
         val splashMs   = if (isFastMode) SPLASH_DURATION_FAST else SPLASH_DURATION
-        Handler(Looper.getMainLooper()).postDelayed({
+        uiHandler.postDelayed({
             stopParticleAnimation()
             startActivity(Intent(this, MainActivity::class.java))
             overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
@@ -171,7 +177,7 @@ class SplashActivity : AppCompatActivity() {
     private fun startBootProgress7031() {
         val track = findViewById<View>(R.id.splashBootTrack) ?: return
         val stage = findViewById<TextView>(R.id.tvSplashStage) ?: return
-        val handler = Handler(Looper.getMainLooper())
+        val handler = uiHandler
         val tick = object : Runnable {
             override fun run() {
                 if (isFinishing || isDestroyed) return
@@ -249,7 +255,7 @@ class SplashActivity : AppCompatActivity() {
                     override fun onAnimationRepeat(animation: Animator) {}
                     override fun onAnimationEnd(animation: Animator) {
                         // Restart animation for continuous effect
-                        if (!isFinishing) {
+                        if (!animationsStopped && !isFinishing && !isDestroyed) {
                             val newAngle = Random.nextDouble(0.0, 2 * Math.PI)
                             val newStartX = centerX + (cos(newAngle) * radius).toFloat()
                             val newStartY = centerY + (sin(newAngle) * radius).toFloat()
@@ -272,13 +278,17 @@ class SplashActivity : AppCompatActivity() {
     }
     
     private fun stopParticleAnimation() {
-        particleAnimators.forEach { it.cancel() }
+        animationsStopped = true
+        particleAnimators.forEach { it.removeAllListeners(); it.cancel() }
+        repeatingAnimators.forEach { it.cancel() }
+        repeatingAnimators.clear()
         particleAnimators.clear()
     }
 
     override fun onDestroy() {
-        super.onDestroy()
+        uiHandler.removeCallbacksAndMessages(null)
         stopParticleAnimation()
+        super.onDestroy()
     }
 
     @android.annotation.SuppressLint("MissingSuperCall")

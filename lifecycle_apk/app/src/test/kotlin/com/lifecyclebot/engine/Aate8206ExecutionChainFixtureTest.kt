@@ -2,6 +2,9 @@ package com.lifecyclebot.engine
 
 import com.lifecyclebot.engine.truth.*
 import java.math.BigInteger
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -24,6 +27,41 @@ class Aate8206ExecutionChainFixtureTest {
         CanonicalReceiptStore6394.clearForTest(); PositionLotLedger6394.clearForTest()
         SingleSellStateMachine6394.clearForTest(); ExecutionTicketAuthority6394.clearForTest()
         ExecutionAttemptLease.forceReleaseForMint(mint, "test_cleanup")
+    }
+
+    @Test fun simultaneousLiveLaneClaimsHaveExactlyOneOwner() {
+        val workers = 12
+        val executor = Executors.newFixedThreadPool(workers)
+        val ready = CountDownLatch(workers)
+        val go = CountDownLatch(1)
+        try {
+            val claims = (0 until workers).map { laneIndex ->
+                executor.submit<Boolean> {
+                    ready.countDown()
+                    if (!go.await(5, TimeUnit.SECONDS)) error("claim start timed out")
+                    ExecutionAttemptLease.acquire("BUY", mint, "SYM", "LANE_$laneIndex", "LIVE", version, 20_000L).allowed
+                }
+            }
+            assertTrue("all competing lanes must start", ready.await(5, TimeUnit.SECONDS))
+            go.countDown()
+            assertEquals("atomic same-mint LIVE claim", 1, claims.count { it.get(10, TimeUnit.SECONDS) })
+        } finally {
+            go.countDown()
+            executor.shutdownNow()
+            ExecutionAttemptLease.forceReleaseForMint(mint, "concurrent_claim_test_end")
+        }
+    }
+
+    @Test fun lateTerminalCallbackCannotReleaseNewAttemptOnSameProcessor() {
+        val first = ExecutionAttemptLease.acquire("BUY", mint, "SYM", "MOONSHOT", "LIVE", version)
+        assertTrue(first.allowed)
+        ExecutionAttemptLease.releaseNonTerminal(first.key, "BUY", mint, "SYM", "RETRY_AFTER_NONTERMINAL")
+        val second = ExecutionAttemptLease.acquire("BUY", mint, "SYM", "MOONSHOT", "LIVE", version)
+        assertTrue(second.allowed)
+        assertNotEquals("each claim must own a unique release identity", first.key, second.key)
+        ExecutionAttemptLease.terminalOk(first.key, "BUY", mint, "SYM", "STALE_CALLBACK")
+        assertTrue("late completion must not clear the newer attempt", ExecutionAttemptLease.isActiveKey6514(second.key))
+        ExecutionAttemptLease.forceReleaseForMint(mint, "late_callback_test_end")
     }
 
     private fun receipt(sig: String, m: String = mint, postOwner: Long = 9_800_000L, received: Long = 1_000L) = CanonicalExecutionReceipt6394(

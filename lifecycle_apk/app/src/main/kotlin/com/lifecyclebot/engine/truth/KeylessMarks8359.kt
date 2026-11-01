@@ -114,12 +114,13 @@ object KeylessMarks8359 {
      * those), no observed mark fresher than [staleMs], not asked within [staleMs]; in the given (most urgent first) order, at
      * most [cap].
      */
-    fun labelLaneAsk8418(label: List<String>, shadowWanted: Set<String>, markAtMs: (String) -> Long, askedAtMs: (String) -> Long,
+    fun labelLaneAsk8418(label: List<String>, @Suppress("UNUSED_PARAMETER") shadowWanted: Set<String>, markAtMs: (String) -> Long, askedAtMs: (String) -> Long,
                          nowMs: Long, staleMs: Long, cap: Int): List<String> {
         val out = ArrayList<String>()
         for (m in label) {
             if (out.size >= cap) break
-            if (m in shadowWanted) continue
+            // A shadow subscription is not a successful fetch. Both readers use the
+            // coalesced pair lane; only a real fresh mark suppresses a due label.
             val markAt = markAtMs(m)
             if (markAt > 0L && nowMs - markAt in 0L..staleMs) continue
             val askedAt = askedAtMs(m)
@@ -233,10 +234,9 @@ object KeylessMarks8359 {
     private fun shadowCurvePass8359(nowMs: Long): Boolean {
         val want = wantedMints8359(nowMs)
         if (want.isEmpty()) return false
-        val tokens = try { com.lifecyclebot.engine.BotService.status.tokens } catch (_: Throwable) { null } ?: return false
         val stale = want.filter { m ->
-            val ts = try { tokens[m] } catch (_: Throwable) { null }
-            ts == null || ts.lastPriceUpdate <= 0L || nowMs - ts.lastPriceUpdate > STALE_MS_8359
+            val observed = try { ForwardReturnLabeler7731.independentMarkAt8418(m, nowMs) } catch (_: Throwable) { 0L }
+            observed <= 0L || nowMs - observed > STALE_MS_8359
         }
         if (stale.isNotEmpty()) laneQueued.addAndGet(CandidateMarkFresh8094.requestLane8359(stale, nowMs).toLong())
         val curveDue = wantedCurves8359(nowMs).any { nowMs - (lastCurveMarkMs[it] ?: 0L) > STALE_MS_8359 && it in stale }
@@ -254,11 +254,10 @@ object KeylessMarks8359 {
     private fun tickLabel8418(nowMs: Long): Boolean {
         val label = labelMints8418(nowMs)
         if (label.isEmpty()) return false
-        val tokens = try { com.lifecyclebot.engine.BotService.status.tokens } catch (_: Throwable) { null }
         val markAt: (String) -> Long = { m ->
-            val obs = try { ForwardReturnLabeler7731.observedMark8372(m, nowMs)?.second } catch (_: Throwable) { null } ?: 0L
-            val ts = try { tokens?.get(m)?.lastPriceUpdate } catch (_: Throwable) { null } ?: 0L
-            maxOf(obs, ts)
+            // V5.0.8489 diagnosis: token-state and registry timestamps can be re-stamped without a new trade/quote.
+            // Only an independent market mark covers the forward label's pair-lane request.
+            try { ForwardReturnLabeler7731.independentMarkAt8418(m, nowMs) } catch (_: Throwable) { 0L }
         }
         val ask = labelLaneAsk8418(label, wanted.keys.filter { (wanted[it] ?: 0L) > nowMs }.toHashSet(), markAt,
             { m -> labelLaneAskedAt8418[m] ?: 0L }, nowMs, STALE_MS_8359, MAX_LABEL_LANE_PER_TICK_8418)

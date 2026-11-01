@@ -4617,7 +4617,7 @@ class GoldenTapeRegressionTest {
     fun asyncStrategyLab4251ReviewedBiasIsO1HotPathCache() {
         val lab = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AsyncStrategyLab.kt").readText()
         assertTrue("V5.0.4251: reviewedSizeBias must be O(1) hot-path cache read, not synchronized proposal scan", lab.contains("reviewedBiasByLane") && lab.contains("FDG/Executor sizing") && lab.contains("never synchronize or scan proposal history here"))
-        assertTrue("V5.0.4251: reviewed bias cache must rebuild only on review/import/reset", lab.contains("rebuildReviewedBiasCache()") && lab.contains("accepted[idx] = reviewed") && lab.contains("reviewedBiasByLane.clear()"))
+        assertTrue("Reviewed bias generations must publish atomically after submission/review/import/reset", lab.contains("rebuildReviewedBiasCache()") && lab.contains("accepted[idx] = reviewed") && lab.contains("reviewedBiasByLane = next.toMap()") && lab.contains("reviewedBiasByLane = emptyMap()"))
         assertFalse("V5.0.4251: reviewedSizeBias must not synchronize on accepted", lab.contains("fun reviewedSizeBias(lane: String, score: Int, regime: String): Double = synchronized"))
     }
 
@@ -11542,10 +11542,10 @@ class GoldenTapeRegressionTest {
     @Test
     fun V5_0_7327_unmeasured_inputs_are_not_scored_as_signals() {
         val ad = java.io.File("src/main/kotlin/com/lifecyclebot/v3/bridge/V3Adapter.kt").readText()
-        assertTrue(ad.contains("extras[\"higherLows\"] = known.momentum && !meta.lowerHighs"))
+        assertTrue(ad.contains("extras[\"higherLows\"] = known.momentum && ts.history.size >= 8 && !meta.lowerHighs"))   // V5.0.8492 — only on a real price history
         assertFalse(ad.contains("extras[\"higherLows\"] = !meta.lowerHighs"))
         assertTrue(ad.contains("extras[\"dataCompleteness\"] = known.completeness"))
-        assertTrue(ad.contains("internal fun dataKnowledge7327(ts: TokenState): DataKnowledge7327"))
+        assertTrue(ad.contains("internal fun dataKnowledge7327(ts: TokenState, nowMs: Long = System.currentTimeMillis()): DataKnowledge7327"))   // V5.0.8492 — freshness is judged at nowMs
         val sm = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ScoringModules.kt").readText()
         assertTrue(sm.contains("reasons += \"Buy pressure NO_DATA\""))
         assertTrue(sm.contains("!bpKnown && !momKnown -> { reasons += \"Momentum NO_DATA\"; 0 }"))
@@ -13132,7 +13132,10 @@ class GoldenTapeRegressionTest {
         // read-only preflight (the file's own rule: change them in one commit).
         val sizer = java.io.File("src/main/kotlin/com/lifecyclebot/v3/sizing/SmartSizerV3.kt").readText()
         // 7706: the doctrine applies the routable minimum itself.
-        assertTrue(sizer.contains("com.lifecyclebot.engine.truth.LiveConcentrationDoctrine7697.positionSol(tradeable, routableMinSol7127)"))
+        // superseded by V5.0.8492 (2026-10-14 directive: never size up for a target) — the live floor is the ROUTABLE
+        // minimum; the doctrine's concentration size no longer inflates a risk-sized order. The share guard still lifts.
+        assertTrue(sizer.contains("val liveFloorEff7697 = routableMinSol7127"))
+        assertFalse(sizer.contains("LiveConcentrationDoctrine7697.positionSol(tradeable, routableMinSol7127)"))
         assertEquals(2, Regex(Regex.escape("com.lifecyclebot.engine.truth.LiveConcentrationDoctrine7697.share(tradeable)")).findAll(sizer).count())
         assertTrue(sizer.contains("val safeShareCap7142 = tradeable * shareGuardEff7697"))
         assertTrue(sizer.contains("val safeShareCap = tradeable * shareGuard7697"))

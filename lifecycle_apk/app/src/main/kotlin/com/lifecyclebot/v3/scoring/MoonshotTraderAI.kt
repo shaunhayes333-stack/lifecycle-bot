@@ -1589,34 +1589,9 @@ object MoonshotTraderAI {
             // Without this, 46/47 strategies showed [UNTESTED] because Moonshot/ShitCoin closes
             // never reached TradeLessonRecorder.recordTrade → StrategyTrustAI.recordTrade.
             try {
-                val strategyName = "MOONSHOT_${pos.spaceMode.name}"
+                // V4 lessons use canonical net economics and one position identity (8491).
                 val mfePct = if (pos.peakPnlPct > 0.0) pos.peakPnlPct else pnlPct.coerceAtLeast(0.0)
                 val maePct = pnlPct.coerceAtMost(0.0)
-                // V5.0.6859 — real causal context instead of literals. Every field
-                // below used to be a constant (RISK_ON / OFF_HOURS / 0.5 / 0.3 / 0.5
-                // / 0.3 / 1.0 / 0.6), so every moonshot lesson ever recorded claimed
-                // the same market conditions. StrategyTrustAI reads this corpus and
-                // the collective/Turso sync ships it to the network hive, so the
-                // constants propagated outward too.
-                val lessonCtx = com.lifecyclebot.v4.meta.TradeLessonRecorder.liveContext6859(
-                    strategy = strategyName,
-                    market = "MEME",
-                    symbol = pos.symbol,
-                    mint = pos.mint,
-                    expectedFillPrice = pos.entryPrice,
-                    captureTime = pos.entryTime,
-                    executionRoute = if (pos.isPaperMode) "PAPER" else "JUPITER_V6",
-                )
-                com.lifecyclebot.v4.meta.TradeLessonRecorder.completeLesson(
-                    context = lessonCtx,
-                    outcomePct = pnlPct,
-                    mfePct = mfePct,
-                    maePct = maePct,
-                    holdSec = ((System.currentTimeMillis() - pos.entryTime) / 1000).toInt(),
-                    exitReason = exitReason.name,
-                    actualFillPrice = exitPrice
-                )
-
                 // V5.9.305: Feed AdaptiveLearningEngine for pattern matching (V5.9.301 patterns)
                 val label = when {
                     pnlPct >= 100.0 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.GOOD_RUNNER

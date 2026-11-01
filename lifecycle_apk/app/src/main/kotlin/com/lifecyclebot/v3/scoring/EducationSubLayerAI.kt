@@ -442,10 +442,9 @@ object EducationSubLayerAI {
         // V5.9.1154 — intentionally exclude drifting fields (pnl/hold mins).
         // They change while stale close paths replay the same position and were
         // the reason V5.9.1152 still allowed one trade to monopolize learning.
-        val reason = outcome.exitReason.uppercase().take(48)
-        val mode = outcome.tradingMode.uppercase().take(32)
+        if (outcome.positionId8491.isNotBlank()) return "${outcome.executionMode.lowercase()}:${outcome.positionId8491}"
         val entryBucket = if (outcome.entryTimeMs > 1_000_000_000_000L) outcome.entryTimeMs else 0L
-        return "${outcome.mint}:$entryBucket"
+        return "${entrySnapshotKey8491(outcome.mint, outcome.executionMode)}:$entryBucket"
     }
 
     private fun shouldProcessOutcomeOnce(outcome: TradeOutcomeData): Boolean {
@@ -496,6 +495,14 @@ object EducationSubLayerAI {
         // with the real entry-time features instead of bailing to "no data".
         val candidate: com.lifecyclebot.v3.scanner.CandidateSnapshot? = null,
     )
+    internal fun entrySnapshotKey8491(mint: String, mode: String): String = "${mode.trim().lowercase()}:$mint"
+    private fun outcomeSnapshotKey8491(outcome: TradeOutcomeData): String =
+        if (outcome.positionId8491.isBlank()) entrySnapshotKey8491(outcome.mint, outcome.executionMode)
+        else "${outcome.executionMode.trim().lowercase()}:position:${outcome.positionId8491}"
+
+    internal fun outcomeEntryScores8491(outcome: TradeOutcomeData): Map<String, Int> =
+        pendingEntryScores[outcomeSnapshotKey8491(outcome)]?.scores.orEmpty()
+    private fun currentEntryMode8491(): String = if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive()) "live" else "paper"
     private val pendingEntryScores = ConcurrentHashMap<String, EntryScoreSnapshot>()
     // V5.0.7403 — causal context frozen alongside the score snapshot.
     private val pendingEntryMarketRegime7403 = ConcurrentHashMap<String, String>()
@@ -518,8 +525,10 @@ object EducationSubLayerAI {
         mint: String,
         components: List<ScoreComponent>,
         candidate: com.lifecyclebot.v3.scanner.CandidateSnapshot?,
+        executionMode: String = currentEntryMode8491(),
     ) {
         if (mint.isBlank() || components.isEmpty()) return
+        val snapshotKey = entrySnapshotKey8491(mint, executionMode)
         // Garbage-collect stale snapshots occasionally (cheap bounded sweep)
         if (pendingEntryScores.size > 500) {
             val cutoff = System.currentTimeMillis() - REAL_ACCURACY_EXPIRY_MS
@@ -536,15 +545,26 @@ object EducationSubLayerAI {
         // grade the score that actually drove the BUY. Fail-open — if the registry
         // isn't reachable we keep the old overwrite behaviour (never break scoring).
         val positionOpen = try {
-            com.lifecyclebot.engine.GlobalTradeRegistry.hasOpenPosition(mint)
+            // A PAPER position must not freeze the LIVE entry's V3 feature snapshot (nor vice versa).
+            // The legacy registry is not mode-qualified; the canonical inventory is.
+            val mode = executionMode
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.hasOpenMint(mint, mode)
         } catch (_: Throwable) { false }
-        if (positionOpen && pendingEntryScores.containsKey(mint)) {
+        if (positionOpen && pendingEntryScores.containsKey(snapshotKey)) {
             // A live position already has its entry snapshot frozen — do not clobber it.
             return
         }
-        pendingEntryScores[mint] = EntryScoreSnapshot(map, candidate = candidate)
+        // Specialist-only stamps augment the same fresh decision; they must not erase
+        // the full V3 feature snapshot needed by close-time learners.
+        val prior = pendingEntryScores[snapshotKey]?.takeIf {
+            candidate == null && System.currentTimeMillis() - it.timestamp in 0L..30_000L
+        }
+        pendingEntryScores[snapshotKey] = EntryScoreSnapshot(
+            scores = if (prior != null) prior.scores + map else map,
+            candidate = candidate ?: prior?.candidate,
+        )
         try {
-            pendingEntryMarketRegime7403[mint] = MarketRegimeAI.getCurrentRegime().name
+            pendingEntryMarketRegime7403[snapshotKey] = MarketRegimeAI.getCurrentRegime().name
         } catch (_: Throwable) {}
     }
 
@@ -554,7 +574,37 @@ object EducationSubLayerAI {
      * its own voter (about 50 of them were only ever summed into one score).
      */
     fun peekEntryScores7895(mint: String): Map<String, Int>? =
-        pendingEntryScores[mint]?.takeIf { System.currentTimeMillis() - it.timestamp <= 10 * 60_000L }?.scores
+        pendingEntryScores[entrySnapshotKey8491(mint, currentEntryMode8491())]?.takeIf { System.currentTimeMillis() - it.timestamp <= 10 * 60_000L }?.scores
+
+    /** Captured by the existing immutable entry seal before a buy leaves the thread. */
+    fun entryScoresJson8491(mint: String, mode: String): String {
+        val snap = pendingEntryScores[entrySnapshotKey8491(mint, mode)] ?: return ""
+        if (System.currentTimeMillis() - snap.timestamp !in 0L..10 * 60_000L) return ""
+        return org.json.JSONObject(snap.scores as Map<*, *>).toString()
+    }
+
+    internal fun decodeEntryScores8491(raw: String): Map<String, Int> = try {
+        val j = org.json.JSONObject(raw)
+        j.keys().asSequence().mapNotNull { key ->
+            val value = j.opt(key) as? Number ?: return@mapNotNull null
+            val d = value.toDouble()
+            if (!d.isFinite() || d != value.toInt().toDouble()) null else normalizeLayerName(key) to value.toInt()
+        }.toMap()
+    } catch (_: Exception) { emptyMap() }
+
+    internal fun restoreSealedScores8491(outcome: TradeOutcomeData) {
+        if (outcome.positionId8491.isBlank()) return
+        val entry = com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.snapshot(outcome.positionId8491) ?: return
+        if (entry.mint != outcome.mint || !entry.mode8090.equals(outcome.executionMode, true)) return
+        val scores = decodeEntryScores8491(entry.educationScores8491)
+        if (scores.isEmpty()) return // Older entries did not store components; never manufacture them.
+        // A late settlement must not overwrite or consume the next position's pending votes.
+        val key = outcomeSnapshotKey8491(outcome)
+        val memory = pendingEntryScores[entrySnapshotKey8491(outcome.mint, outcome.executionMode)]
+            ?.takeIf { entry.entryTimestampMs - it.timestamp in 0L..60_000L }
+        pendingEntryScores[key] = EntryScoreSnapshot(scores, entry.entryTimestampMs, memory?.candidate)
+        if (entry.entryMarketRegime.isNotBlank()) pendingEntryMarketRegime7403[key] = entry.entryMarketRegime
+    }
 
     /** V5.9.140 — public wrapper so UnifiedScorer can normalise without making
      *  the private function public (keeps the when-expression internal). */
@@ -653,7 +703,7 @@ object EducationSubLayerAI {
         // An absent or wrong-lane layer remains visibly dormant. Painting its
         // timestamp green without a prediction concealed broken wiring.
 
-        val snap = pendingEntryScores.remove(outcome.mint)
+        val snap = pendingEntryScores.remove(outcomeSnapshotKey8491(outcome))
         val snappedScores: Map<String, Int> = snap?.scores ?: emptyMap()
         var updated = 0
 
@@ -909,6 +959,9 @@ object EducationSubLayerAI {
             try { recordTradeOutcomeForSubTrader(outcome) } catch (_: Exception) {}
             return
         }
+        // Reuse this position's sealed entry votes after a process restart or a later re-score.
+        // Matching is by position, mint and account mode, never by the latest mint classification.
+        try { restoreSealedScores8491(outcome) } catch (_: Throwable) {}
 
         // ═══════════════════════════════════════════════════════════════════
         // PHASE 1: Core Learning Layers (Critical) — MEME BASE ONLY
@@ -1030,7 +1083,7 @@ object EducationSubLayerAI {
         
         // MarketRegimeAI
         try {
-            val entryRegime7403 = pendingEntryMarketRegime7403.remove(outcome.mint)
+            val entryRegime7403 = pendingEntryMarketRegime7403.remove(outcomeSnapshotKey8491(outcome))
             MarketRegimeAI.recordTradeOutcome(outcome.pnlPct, entryRegime7403)
             markLayerOutcome("MarketRegimeAI", outcome.isWin, outcome.pnlPct, isShadowTrade = outcome.isShadowTrade, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
@@ -1179,7 +1232,7 @@ object EducationSubLayerAI {
         // tracker, so it doesn't double-count.
         // ═══════════════════════════════════════════════════════════════════
         try {
-            val pending = pendingEntryScores[outcome.mint]
+            val pending = pendingEntryScores[outcomeSnapshotKey8491(outcome)]
             if (pending != null) {
                 AITrustNetworkAI.recordTradeOutcome(pending.scores, outcome.isWin)
             }
@@ -1195,7 +1248,7 @@ object EducationSubLayerAI {
         // decisive outcomes (|pnl|≥1%) so scratches don't poison priors.
         // ═══════════════════════════════════════════════════════════════════
         try {
-            val pending = pendingEntryScores[outcome.mint]
+            val pending = pendingEntryScores[outcomeSnapshotKey8491(outcome)]
             val cand = pending?.candidate
             val decisive = outcome.pnlPct >= 1.0 || outcome.pnlPct <= -1.0
             if (decisive) {
@@ -1262,7 +1315,7 @@ object EducationSubLayerAI {
         // pendingEntryScores.remove() happens inside applyRealAccuracyLearning — must read first
         try {
             if (BootstrapAdaptiveEngine.isBootstrapActive()) {
-                val pending = pendingEntryScores[outcome.mint]
+                val pending = pendingEntryScores[outcomeSnapshotKey8491(outcome)]
                 val layerScores: Map<String, Int> = pending?.scores?.mapKeys { it.key.lowercase() } ?: emptyMap()
                 if (layerScores.isNotEmpty()) {
                     BootstrapAdaptiveEngine.recordTradeOutcome(layerScores, outcome.isWin)
@@ -1382,6 +1435,7 @@ object EducationSubLayerAI {
         val proofState: String = "unknown",
         // Canonical economic settlement that authorized this lesson.
         val economicEventId: String = "",
+        val positionId8491: String = "",
     ) {
         // V5.9.342 — REVERT V5.9.341 isWin tweak.
         // After audit the >-0.5% threshold turned out to be inert for layer
@@ -1547,7 +1601,7 @@ object EducationSubLayerAI {
     private fun analyzeLayerCorrelations(outcome: TradeOutcomeData) {
         // V5.9.139 — use the REAL entry vote map (peek, do not remove —
         // applyRealAccuracyLearning consumes it a few lines later).
-        val entryScores = pendingEntryScores[outcome.mint]?.scores
+        val entryScores = outcomeEntryScores8491(outcome)
         val signature = buildApprovalSignature(entryScores) ?: return
 
         // Legacy win/loss counters (kept for backward compatibility with

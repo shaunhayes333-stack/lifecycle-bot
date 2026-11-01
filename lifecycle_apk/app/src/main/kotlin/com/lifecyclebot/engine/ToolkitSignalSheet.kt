@@ -33,7 +33,7 @@ object ToolkitSignalSheet {
     // whole multi-desk sheet every 2.5s. Real fingerprint changes still refresh
     // immediately; this only extends reuse when the inputs are identical.
     private const val UNCHANGED_CACHE_TTL_MS_7476 = 15_000L
-    private data class CacheEntry(val sheet: Sheet, val tsMs: Long, val fingerprint: Int)
+    private data class CacheEntry(val sheet: Sheet, val tsMs: Long, val fingerprint: Int, val paper: Boolean)
     private val cache = ConcurrentHashMap<String, CacheEntry>()
     private val inFlight = ConcurrentHashMap.newKeySet<String>()
     private val deskStageCounts6599 = ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
@@ -192,7 +192,7 @@ object ToolkitSignalSheet {
     fun snapshot(ts: TokenState, classification: ModeRouter.Classification? = null): Sheet {
         val now = System.currentTimeMillis()
         val fp = fingerprint(ts, classification)
-        val existing = cache[ts.mint]
+        val existing = cache[ts.mint]?.takeIf { it.paper == RuntimeModeAuthority.isPaper() }
         if (existing != null) {
             val age7476 = now - existing.tsMs
             if (existing.fingerprint == fp && age7476 <= UNCHANGED_CACHE_TTL_MS_7476) {
@@ -202,9 +202,11 @@ object ToolkitSignalSheet {
                 return existing.sheet
             }
         }
-        refreshAsync(ts, classification, fp)
-        return existing?.sheet ?: fallbackSheet(ts, classification)
+        refreshAsync(ts, classification)
+        return existing?.takeIf { reusableDuringRefresh8491(now - it.tsMs) }?.sheet ?: fallbackSheet(ts, classification)
     }
+
+    internal fun reusableDuringRefresh8491(ageMs: Long): Boolean = ageMs in 0L..CACHE_TTL_MS
 
     fun fallbackSheet(ts: TokenState, classification: ModeRouter.Classification? = null): Sheet {
         val tt = classification?.tradeType ?: ModeRouter.TradeType.UNKNOWN
@@ -243,12 +245,15 @@ object ToolkitSignalSheet {
         )
     }
 
-    private fun refreshAsync(ts: TokenState, classification: ModeRouter.Classification?, fp: Int) {
+    private fun refreshAsync(ts: TokenState, classification: ModeRouter.Classification?) {
         val mint = ts.mint
         if (mint.isBlank()) return
         if (!inFlight.add(mint)) return
         GlobalScope.launch(AppDispatchers.sideEffect) {
             try {
+                val startedAt8491 = System.currentTimeMillis()
+                val paper8491 = RuntimeModeAuthority.isPaper()
+                val inputs8491 = fingerprint(ts, classification)
                 try {
                     InternetEdgeDesk.refreshAsync(
                         trigger = "toolkit_sheet",
@@ -256,7 +261,10 @@ object ToolkitSignalSheet {
                     )
                 } catch (_: Throwable) {}
                 val built = build(ts, classification)
-                cache[mint] = CacheEntry(built, System.currentTimeMillis(), fp)
+                // Queue/compute time is not fresh evidence. A mode switch invalidates the result.
+                if (paper8491 == RuntimeModeAuthority.isPaper()) {
+                    cache[mint] = CacheEntry(built, startedAt8491, inputs8491, paper8491)
+                }
                 pruneOnInsert8169()  // V5.0.8169 — idle sheets of coins no longer resident
                 try { PipelineHealthCollector.labelInc("TOOLKIT_SIGNAL_SHEET_REFRESHED") } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("TOOLKIT_SETUP_${built.setup.name}") } catch (_: Throwable) {}
@@ -293,6 +301,8 @@ object ToolkitSignalSheet {
         ts.lastLiquidityUsd.toInt(),
         ts.lastMcap.toInt(),
         ts.source,
+        RuntimeModeAuthority.isPaper(),
+        com.lifecyclebot.engine.truth.FeatureRevision8283.revision8283(ts.mint),
         classification?.tradeType?.name,
         classification?.confidence?.toInt(),
     ).hashCode()

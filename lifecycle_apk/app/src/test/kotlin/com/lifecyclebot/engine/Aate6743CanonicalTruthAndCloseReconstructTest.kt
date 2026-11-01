@@ -76,7 +76,7 @@ class Aate6743CanonicalTruthAndCloseReconstructTest {
             "hasOpenMint must consult isOpenLifecycleWithQty6743, not the strict 6631 filter",
             hasOpenBody.contains("isOpenLifecycleWithQty6743"),
         )
-        val firstOpenIdx = src.indexOf("fun firstOpenForMint(")
+        val firstOpenIdx = src.indexOf("fun firstOpenForMint(mint: String, mode: String?)")   // V5.0.8492 — the mode-scoped overload holds the body
         assertTrue("firstOpenForMint must exist", firstOpenIdx > 0)
         val firstOpenBody = src.substring(firstOpenIdx, kotlin.math.min(firstOpenIdx + 400, src.length))
         assertTrue(

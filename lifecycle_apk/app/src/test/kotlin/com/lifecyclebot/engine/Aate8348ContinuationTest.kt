@@ -157,7 +157,8 @@ class Aate8348ContinuationTest {
         assertTrue(b.contains("if (prices.size < 2) ExpressMomentum8190.sinceLaunchPct8190(ts, ageMin) else null, now)"))
         assertTrue(b.contains("val expressMomentum7555 = cont8348.pct"))
         assertTrue(b.contains("?: (if (prices.size < 2 && cont8348.source == ContinuationRead8348.Source8348.FROM_TAPE) cont8348.pct else histMomentumPct7551)"))
-        val review = "ContinuationRead8348.reviewMomentum8348(out, cont8348.observed, ContinuationRead8348.momentumObserved8348(ts.lastPriceChange5m, ts.priceChangeObservedAtMs8084, prices.size, cont8348))"
+        // superseded by V5.0.8492 — momentum counts as observed from a fresh 5 m change, 2+ prices or the coin's own tape
+        val review = "ContinuationRead8348.reviewMomentum8348(out, cont8348.observed, observedChange8491 != null || prices.size >= 2 || cont8348.source == ContinuationRead8348.Source8348.FROM_TAPE)"
         assertTrue(b.contains(review))
         val i8236 = b.indexOf("LaneInputTruth8236.deferFor8236(lane, o.reason, inputs8236)")
         val i8348 = b.indexOf(review)
