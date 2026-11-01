@@ -1857,8 +1857,21 @@ object Cortex7885 {
     @Volatile private var shadowFlushedAtMs8377 = 0L
 
     /** Pure: is a shadow checkpoint due for [ready] staged outcomes, [sinceMs] after the last one? */
-    internal fun shadowFlushDue8377(ready: Int, sinceMs: Long): Boolean =
-        ready > 0 && (ready >= SHADOW_FLUSH_MIN_BATCH_8377 || sinceMs >= SHADOW_FLUSH_MAX_WAIT_MS_8377)
+    internal fun shadowFlushDue8377(ready: Int, sinceMs: Long, lastSaveCostMs8497: Long = 0L): Boolean {
+        if (ready <= 0) return false
+        // V5.0.8497 — a checkpoint rewrites the WHOLE Cortex (5.0.8492: books 12 MB + pending 22.5 MB + grades 3.6 MB,
+        // encode 2.9 s + db 0.8 s), so its cost scales with the state, not the batch. 293 full saves in 1,821 s (one per
+        // 6 s) kept a core busy and ~6 MB/s of JSON garbage on a 512 MB heap at 86 %. Saves are spaced by their own
+        // measured cost (x [SAVE_COST_GAP_MULT_8497], at most [SAVE_GAP_CAP_MS_8497]); a very large batch still goes now.
+        // Nothing is acknowledged before it is durable; outcomes only wait longer in the durable outbox.
+        val gap = maxOf(SHADOW_FLUSH_MAX_WAIT_MS_8377, minOf(SAVE_GAP_CAP_MS_8497, lastSaveCostMs8497 * SAVE_COST_GAP_MULT_8497))
+        val batchNow = if (lastSaveCostMs8497 * SAVE_COST_GAP_MULT_8497 > SHADOW_FLUSH_MAX_WAIT_MS_8377) LARGE_BATCH_8497 else SHADOW_FLUSH_MIN_BATCH_8377
+        return ready >= batchNow || sinceMs >= gap
+    }
+    internal const val SAVE_COST_GAP_MULT_8497 = 20L
+    internal const val SAVE_GAP_CAP_MS_8497 = 90_000L
+    internal const val LARGE_BATCH_8497 = 512
+    private fun lastSaveCostMs8497(): Long = snapshotEncodeMs8386 + snapshotDbMs8386
 
     internal const val UNAVAILABLE_FLUSH_MIN_BATCH_8396 = 256
     internal const val UNAVAILABLE_FLUSH_MAX_WAIT_MS_8396 = 120_000L
@@ -1872,7 +1885,7 @@ object Cortex7885 {
      * 8377 cadence and carries any staged unavailable terminals with it.
      */
     internal fun shadowFlushDue8396(learned: Int, unavailable: Int, sinceMs: Long): Boolean =
-        if (learned > 0) shadowFlushDue8377(learned + unavailable, sinceMs)
+        if (learned > 0) shadowFlushDue8377(learned + unavailable, sinceMs, lastSaveCostMs8497())
         else unavailable > 0 && (unavailable >= UNAVAILABLE_FLUSH_MIN_BATCH_8396 || sinceMs >= UNAVAILABLE_FLUSH_MAX_WAIT_MS_8396)
 
     /** Unavailable simulation receipts are not learned outcomes and must use the unavailable cadence. */
