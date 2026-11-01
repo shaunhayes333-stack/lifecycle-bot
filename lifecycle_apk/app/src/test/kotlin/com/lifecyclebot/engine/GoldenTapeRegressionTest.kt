@@ -13134,8 +13134,7 @@ class GoldenTapeRegressionTest {
         // 7706: the doctrine applies the routable minimum itself.
         // superseded by V5.0.8492 (2026-10-14 directive: never size up for a target) — the live floor is the ROUTABLE
         // minimum; the doctrine's concentration size no longer inflates a risk-sized order. The share guard still lifts.
-        assertTrue(sizer.contains("val liveFloorEff7697 = routableMinSol7127"))
-        assertFalse(sizer.contains("LiveConcentrationDoctrine7697.positionSol(tradeable, routableMinSol7127)"))
+        assertTrue(sizer.contains("com.lifecyclebot.engine.truth.LiveConcentrationDoctrine7697.positionSol(tradeable, routableMinSol7127)"))
         assertEquals(2, Regex(Regex.escape("com.lifecyclebot.engine.truth.LiveConcentrationDoctrine7697.share(tradeable)")).findAll(sizer).count())
         assertTrue(sizer.contains("val safeShareCap7142 = tradeable * shareGuardEff7697"))
         assertTrue(sizer.contains("val safeShareCap = tradeable * shareGuard7697"))
@@ -15576,5 +15575,17 @@ class GoldenTapeRegressionTest {
         assertTrue(src("cortex/CortexGradeBook8144").contains("f.size !in 24..47"))
         assertTrue(src("cortex/Cortex7885").contains("shadowMaturity8394"))
         assertTrue(src("truth/EvidenceHold8336").contains("it.entryTsMs >= epoch8394"))
+    }
+
+    @Test
+    fun V5_0_8495_live_floor_is_the_larger_floor() {
+        // OPERATOR (1 Nov 2026): "I want the larger floor. stop the bot from returning to old behaviour."
+        // The live floor must be max(no-dust wallet-percent floor, LiveConcentrationDoctrine7697 position size),
+        // never the bare routable minimum (PR #71 / 8492 did that and was rejected).
+        val sizer = java.io.File("src/main/kotlin/com/lifecyclebot/v3/sizing/SmartSizerV3.kt").readText()
+        assertFalse(sizer.contains("val liveFloorEff7697 = routableMinSol7127\n"))
+        assertTrue(sizer.contains("val liveNoDustFloor6269 = (tradeable * LIVE_FLOOR_WALLET_PCT_7127)"))
+        assertTrue(sizer.contains("val liveFloorEff7697 = if (isLive && concentrationFloor7697 > liveNoDustFloor6269) {"))
+        assertTrue(sizer.contains("} else liveNoDustFloor6269"))
     }
 }

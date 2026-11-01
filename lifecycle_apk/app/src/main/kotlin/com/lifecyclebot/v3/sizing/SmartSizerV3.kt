@@ -451,9 +451,23 @@ class SmartSizerV3(
             // this be" when the conversion is unavailable.
             routableMinSol7951(Double.NaN) // V5.0.7951 — price-independent cost floor
         }
-        // V5.0.8491 — a preferred concentration is not a routing minimum. Preserve
-        // the risk-sized order when it can route; final lane sizing may grow it on proven edge.
-        val liveFloorEff7697 = routableMinSol7127
+        // V5.0.8495 — OPERATOR (1 Nov 2026): "I want the larger floor." PR #71 (8492) set the live floor to the bare
+        // routable minimum; the operator rejected that. The live floor is again the larger of the no-dust wallet-percent
+        // floor and the LiveConcentrationDoctrine7697 position size (fewer, larger, higher-conviction live fills). Do not
+        // revert to routable-minimum-only live sizing; Golden Tape V5_0_8495_live_floor_is_the_larger_floor pins this.
+        val liveNoDustFloor6269 = (tradeable * LIVE_FLOOR_WALLET_PCT_7127)
+            .coerceIn(routableMinSol7127, LIVE_FLOOR_CEILING_SOL_7127)
+        // V5.0.7697 §FEWER_LARGER_HIGHER_CONVICTION — see LiveConcentrationDoctrine7697.
+        // The doctrine's position size (tradeable / slots) is the live floor when it is larger. The routable minimum,
+        // the share guard (lifted to the same share below) and MAX_POSITION_SOL still bound it.
+        val concentrationFloor7697 = if (isLive) try {
+            // V5.0.7706 — the doctrine applies the routable minimum itself.
+            com.lifecyclebot.engine.truth.LiveConcentrationDoctrine7697.positionSol(tradeable, routableMinSol7127)
+        } catch (_: Throwable) { 0.0 } else 0.0
+        val liveFloorEff7697 = if (isLive && concentrationFloor7697 > liveNoDustFloor6269) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_CONCENTRATION_FLOOR_APPLIED_7697") } catch (_: Throwable) {}
+            concentrationFloor7697
+        } else liveNoDustFloor6269
         // V5.0.7142 — refuse on the ROUTABLE minimum, clamp on the percentage.
         //
         // 7127's own comment states the intent exactly: "The hard block REMAINS,
