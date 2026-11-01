@@ -210,10 +210,12 @@ class JupiterApi(
         val t0 = System.currentTimeMillis()
         try {
             val q = block()
-            try { JupiterLatency.record(System.currentTimeMillis() - t0, true) } catch (_: Throwable) {}
+            // V5.0.8496 — only TRADE quotes time Jupiter for routing; observation quotes (short timeouts, shed under load)
+            // are not evidence of how fast a buy or sell quote is answered.
+            if (!observationOnly7397) try { JupiterLatency.record(System.currentTimeMillis() - t0, true) } catch (_: Throwable) {}
             return q
         } catch (e: Exception) {
-            try { JupiterLatency.record(System.currentTimeMillis() - t0, false, e.message) } catch (_: Throwable) {}
+            if (!observationOnly7397) try { JupiterLatency.record(System.currentTimeMillis() - t0, false, e.message) } catch (_: Throwable) {}
             throw e
         }
     }
@@ -1070,6 +1072,8 @@ class JupiterApi(
             .url(url)
             .header("User-Agent", "lifecycle-bot-android/6.0")
             .header("Accept", "application/json")
+        // V5.0.8496 — a trade quote is marked so the shared host circuit never sheds it on another caller's backoff.
+        if (!observationOnly7397) reqBuilder.header(HostCircuitInterceptor.TRADE_HEADER_8496, "1")
 
         if (apiKey.isNotBlank() && JupiterQuoteHealth8288.keyedHost8288(url)) {  // V5.0.8288 — never to keyless lite-api
             reqBuilder.header("x-api-key", apiKey)
@@ -1089,10 +1093,16 @@ class JupiterApi(
         val quoteLockedOut: Boolean = try {
             com.lifecyclebot.engine.ApiBackoff.isLockedOut("jupiter_quote")
         } catch (_: Throwable) { false }
-        if (quoteLockedOut && !ExitHttpScope7314.active()) {
+        // V5.0.8496 — a TRADE quote is never skipped by the shared backoff (V5.0.3959: Jupiter quote is core routing and must
+        // never be endpoint-disabled). 5.0.8492 live: QUOTE_TRY->FAILED n=4 avg=1 ms — buys failed every slippage rung in
+        // one millisecond on "GET skipped: backoff lockout" while jupiter_quote transport read 100%, and 7 FDG-approved
+        // MOONSHOT tickets ended unopened. The lockout still sheds OBSERVATION quotes (marks / labels); a trade quote goes
+        // to the wire and fails only on Jupiter's real answer.
+        if (quoteLockedOut && observationOnly7397 && !ExitHttpScope7314.active()) {
             throw RuntimeException("Jupiter GET skipped: jupiter_quote in backoff lockout")
         }
-        if (quoteLockedOut) ExitHttpScope7314.noteBypass("JUPITER_QUOTE_PRECHECK")
+        if (quoteLockedOut && !observationOnly7397) try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("JUPITER_TRADE_QUOTE_THROUGH_LOCKOUT_8496") } catch (_: Throwable) {}
+        if (quoteLockedOut && ExitHttpScope7314.active()) ExitHttpScope7314.noteBypass("JUPITER_QUOTE_PRECHECK")
 
         var lastErr: RuntimeException = RuntimeException("Jupiter GET failed")
         for (attempt in 0..(if (ExitQuoteBudget7863.remainingMs() != null) 0 else 1)) {

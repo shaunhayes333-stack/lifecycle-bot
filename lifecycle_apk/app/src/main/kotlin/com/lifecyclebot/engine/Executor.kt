@@ -20079,6 +20079,7 @@ class Executor(
                     "mint=${ts.mint.take(10)} sol=$sol reason=${buyLease.reason} backoffMs=${buyLease.backoffMs} processor=$buyLeaseProcessor",
                 )
             } catch (_: Throwable) {}
+            lastLiveBuyStop8252[ts.mint] = "BUY_LEASE_DEFERRED_8496"   // V5.0.8496 — the ticket names this stop (was UNNAMED_8330)
             return false
         }
         // V5.0.8489 — one live position per mint, enforced at the send. 8488 live: EXPRESS bought 3qjBR3 while a QUALITY
@@ -20092,6 +20093,7 @@ class Executor(
                 PipelineHealthCollector.labelInc("LIVE_BUY_REFUSED_MINT_ALREADY_HELD_8489")
                 ForensicLogger.lifecycle("LIVE_BUY_REFUSED_MINT_ALREADY_HELD_8489", "mint=${ts.mint.take(10)} lane=$buyLeaseProcessor held=${ts.position.tradingMode}")
             } catch (_: Throwable) {}
+            lastLiveBuyStop8252[ts.mint] = "MINT_ALREADY_HELD_8489"   // V5.0.8496 — the ticket names this stop (was UNNAMED_8330)
             return false
         }
         var buyTerminalRecorded = false
@@ -20725,6 +20727,7 @@ class Executor(
             // of orphaning the slot for 30s.
             ExecutionAttemptLease.releaseNonTerminal(buyLease.key, "BUY", ts.mint, ts.symbol, "WALLET_BALANCE_ZERO_TRANSIENT")
             buyTerminalRecorded = true
+            lastLiveBuyStop8252[ts.mint] = "WALLET_BALANCE_ZERO_TRANSIENT"   // V5.0.8496 — the ticket names this stop (was UNNAMED_8330)
             return false
         }
 
@@ -20874,6 +20877,7 @@ class Executor(
             // so the promised immediate retry was refused as a duplicate buy.
             try { ExecutableOpenGate.releaseDeferredLiveClaim7356(recoveredLiveAttemptId, ts.mint, "MUTEX_BUSY_DEFERRED") } catch (_: Throwable) {}
             buyTerminalRecorded = true
+            lastLiveBuyStop8252[ts.mint] = "MUTEX_BUSY_DEFERRED"   // V5.0.8496 — the ticket names this stop (was UNNAMED_8330)
             return false
         }
         liveBuyMutexAcquired = true
@@ -21699,6 +21703,7 @@ class Executor(
                         txTruth6486.rawTokenDelta.signum() <= 0 || txTruth6486.solSpentLamports <= 0L || txTruth6486.decimals < 0
                     ) {
                         try { ForensicLogger.lifecycle("LIVE_BUY_CANONICAL_COMMIT_DEFERRED_6486", "mint=${verifyMint.take(10)} stage=$stage outcome=${txTruth6486?.outcome} raw=${txTruth6486?.rawTokenDelta} spent=${txTruth6486?.solSpentLamports}") } catch (_: Throwable) {}
+                        lastLiveBuyStop8252[verifyMint] = "LIVE_BUY_CANONICAL_COMMIT_DEFERRED_6486"   // V5.0.8496 — the ticket names this stop (was UNNAMED_8330)
                         protectLandedLiveBuy7807(ts, com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(verifyMint, false), candidateProof, 0.0, 0.0, verifySig, "TX_TRUTH_DEFERRED:$stage", sealedIntent7835, verifyWallet)
                         return false
                     }
@@ -21716,6 +21721,7 @@ class Executor(
                     val validated6486 = com.lifecyclebot.engine.truth.FinalizedBuyProof6386.validate(verifyWallet.publicKeyB58, verifyMint, proof6386)
                     if (!validated6486.proofComplete) {
                         try { ForensicLogger.lifecycle("LIVE_BUY_CANONICAL_COMMIT_DEFERRED_6486", "mint=${verifyMint.take(10)} stage=$stage reason=${validated6486.reason}") } catch (_: Throwable) {}
+                        lastLiveBuyStop8252[verifyMint] = "LIVE_BUY_CANONICAL_COMMIT_DEFERRED_6486"   // V5.0.8496 — the ticket names this stop (was UNNAMED_8330)
                         protectLandedLiveBuy7807(ts, com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(verifyMint, false), candidateProof, 0.0, 0.0, verifySig, "PROOF_INCOMPLETE:$stage", sealedIntent7835, verifyWallet)
                         return false
                     }
@@ -21742,6 +21748,7 @@ class Executor(
                     if (!proof.authoritative || proof.amountRaw.signum() <= 0 || proof.mint != verifyMint) {
                         try { com.lifecyclebot.engine.ForensicLogger.lifecycle("BUY_PENDING_BALANCE_PROOF", "mint=${verifyMint.take(10)} symbol=$verifySymbol stage=$stage reason=INVALID_PROOF source=${proof.source} raw=${proof.amountRaw}") } catch (_: Throwable) {}
                         try { HostWalletTokenTracker.recordBuyPending(verifyMint, verifySymbol, verifySig) } catch (_: Throwable) {}
+                        lastLiveBuyStop8252[verifyMint] = "BUY_PENDING_BALANCE_PROOF"   // V5.0.8496 — the ticket names this stop (was UNNAMED_8330)
                         protectLandedLiveBuy7807(ts, com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(verifyMint, false), candidateProof, 0.0, 0.0, verifySig, "INVALID_PROOF:$stage", sealedIntent7835, verifyWallet)
                         return false
                     }
@@ -21808,6 +21815,7 @@ class Executor(
                                 "mint=${verifyMint.take(10)} symbol=$verifySymbol reason=missing_event_time_sol_usd sol=$actualCostSol6486 qty=$qtyUi solUsdWitness=$entrySolUsdWitness6637",
                             )
                         } catch (_: Throwable) {}
+                        lastLiveBuyStop8252[verifyMint] = "LIVE_BUY_MISSING_EVENT_TIME_SOL_USD"   // V5.0.8496 — the ticket names this stop (was UNNAMED_8330)
                         protectLandedLiveBuy7807(ts, com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(verifyMint, false), proof, actualCostSol6486, 0.0, verifySig, "ENTRY_PRICE_PROOF_DEFERRED", sealedIntent7835, verifyWallet)
                         return false
                     }
@@ -21834,6 +21842,7 @@ class Executor(
                     if (canonicalOpen6486) com.lifecyclebot.engine.truth.EpisodeTrace8395.fillSafe8395("LIVE", verifyMint, sealedIntent7835.candidateVersion, sealedIntent7835.canonicalLane, pidLive6486, actualCostSol6486, attemptId)
                     if (!canonicalOpen6486) {
                         try { ForensicLogger.lifecycle("LIVE_BUY_CANONICAL_COMMIT_REJECTED_6486", "mint=${verifyMint.take(10)} pid=${pidLive6486.take(18)} sig=${verifySig.take(16)}") } catch (_: Throwable) {}
+                        lastLiveBuyStop8252[verifyMint] = "CANONICAL_COMMIT_REJECTED_6486"   // V5.0.8496 — the ticket names this stop (was UNNAMED_8330)
                         protectLandedLiveBuy7807(ts, pidLive6486, proof, actualCostSol6486, ts.position.entryPrice, verifySig, "CANONICAL_COMMIT_REJECTED_6486", sealedIntent7835, verifyWallet)
                         return false
                     }
@@ -21935,12 +21944,14 @@ class Executor(
                     try { HostWalletTokenTracker.recordBuyConfirmedWithProof(ts, proof, verifySig) } catch (e: Throwable) {
                         ErrorLogger.error("Executor", "🚨 HOST_TRACKER_RECORD_WITH_PROOF_FAILED: $verifySymbol — ${e.javaClass.simpleName}: ${e.message?.take(120)}", e)
                         try { HostWalletTokenTracker.recordBuyPending(verifyMint, verifySymbol, verifySig) } catch (_: Throwable) {}
+                        lastLiveBuyStop8252[verifyMint] = "HOST_TRACKER_RECORD_WITH_PROOF_FAILED"   // V5.0.8496 — the ticket names this stop (was UNNAMED_8330)
                         return false
                     }
                     val afterOpen = try { HostWalletTokenTracker.getOpenCount() } catch (_: Throwable) { -1 }
                     val opened = try { HostWalletTokenTracker.hasOpenPosition(verifyMint) } catch (_: Throwable) { false }
                     if (!opened) {
                         try { com.lifecyclebot.engine.ForensicLogger.lifecycle("BUY_PENDING_BALANCE_PROOF", "mint=${verifyMint.take(10)} symbol=$verifySymbol stage=$stage reason=TRACKER_NOT_OPEN_AFTER_PROOF source=${proof.source}") } catch (_: Throwable) {}
+                        lastLiveBuyStop8252[verifyMint] = "BUY_PENDING_BALANCE_PROOF"   // V5.0.8496 — the ticket names this stop (was UNNAMED_8330)
                         return false
                     }
                     try { com.lifecyclebot.engine.ForensicLogger.lifecycle("TOKEN_TRACKER_BUY_CONFIRMED_WITH_PROOF", "mint=${verifyMint.take(10)} symbol=$verifySymbol source=${proof.source} rawAmount=${proof.amountRaw} decimals=${proof.decimals} open=$beforeOpen->$afterOpen") } catch (_: Throwable) {}

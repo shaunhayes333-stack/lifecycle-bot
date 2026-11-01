@@ -20,3 +20,15 @@ class Aate8493JupiterLatencyTruthTest {
         assertTrue(JupiterLatency.realRateLimit8493("HTTP 429 Too Many Requests"))
     }
 }
+
+/** V5.0.8496 — trade quotes reach the wire through another caller's backoff; observation quotes do not time routing. */
+class Aate8496TradeQuoteThroughLockoutTest {
+    @Test fun tradeQuotesAreNotShedAndObservationsDoNotTimeJupiter() {
+        val jup = java.io.File("src/main/kotlin/com/lifecyclebot/network/JupiterApi.kt").readText()
+        assertTrue(jup.contains("if (quoteLockedOut && observationOnly7397 && !ExitHttpScope7314.active())"))
+        assertTrue(jup.contains("if (!observationOnly7397) reqBuilder.header(HostCircuitInterceptor.TRADE_HEADER_8496, \"1\")"))
+        assertTrue(jup.contains("if (!observationOnly7397) try { JupiterLatency.record(System.currentTimeMillis() - t0, true) }"))
+        val hci = java.io.File("src/main/kotlin/com/lifecyclebot/network/HostCircuitInterceptor.kt").readText()
+        assertTrue(hci.contains("req.header(TRADE_HEADER_8496) != null"))
+    }
+}

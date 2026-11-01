@@ -11308,7 +11308,7 @@ class GoldenTapeRegressionTest {
         assertTrue(pump.contains("host = \"pumpportal_trade\""))
         val jup = java.io.File("src/main/kotlin/com/lifecyclebot/network/JupiterApi.kt").readText()
         assertTrue(jup.contains("EXIT_QUOTE_V6_SENDER_FIRST_7314"))
-        assertTrue(jup.contains("if (quoteLockedOut && !ExitHttpScope7314.active())"))
+        assertTrue(jup.contains("if (quoteLockedOut && observationOnly7397 && !ExitHttpScope7314.active())"))   // V5.0.8496 — trade quotes are never shed
         val hci = java.io.File("src/main/kotlin/com/lifecyclebot/network/HostCircuitInterceptor.kt").readText()
         assertTrue(hci.contains("if (!isProbe && !isExit7314 && now < cooldownUntil)"))
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()

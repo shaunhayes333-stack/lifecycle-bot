@@ -28,6 +28,9 @@ import java.util.concurrent.atomic.AtomicInteger
  * intelligence backoff never starves an execution RPC or a held-position mark on the same host.
  */
 object HostCircuitInterceptor : Interceptor {
+    /** V5.0.8496 — header stamped on trade (buy/sell) quotes: never shed by another caller's backoff or cooldown. */
+    const val TRADE_HEADER_8496 = "X-AATE-Trade"
+
 
     private const val NXDOMAIN_COOLDOWN_MS = 5 * 60_000L
     private const val SERVER_FAIL_COOLDOWN_MS = 90_000L
@@ -216,7 +219,10 @@ object HostCircuitInterceptor : Interceptor {
         // V5.0.8179 — Jupiter token lists and DexScreener cool down per endpoint: one list's refusal never blocks its siblings.
         val provider = scopedLabel8179(labelFor8125(wireHost8144, req.url.encodedPath, req.header(LANE_HEADER_8125)), req.url.encodedPath)
         // V5.0.7314 — an exit is never refused by the local lockout/cool-down.
-        val isExit7314 = req.header(ExitHttpScope7314.HEADER) != null || ExitHttpScope7314.active()
+        // V5.0.8496 — a TRADE quote (buy or sell) is exempt from the shared-client lockout and host cooldown exactly like an
+        // exit: 5.0.8492 buys failed every rung in 1 ms on another caller's backoff while Jupiter transport read 100%.
+        val isExit7314 = req.header(ExitHttpScope7314.HEADER) != null || ExitHttpScope7314.active() ||
+            req.header(TRADE_HEADER_8496) != null
         // V5.0.8144 — an unmapped host (Solana RPCs, PumpPortal) cools down per traffic lane: a 429 earned by speculative
         // intelligence no longer refuses the next send / balance / held-position read on the same host.
         val lane8144 = ProofDataLanes8144.laneFor8144(
