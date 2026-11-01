@@ -216,7 +216,7 @@ object SpecialistBrainBridge7542 {
         ts.lastMcap.toLong(),ts.lastLiquidityUsd.toLong(),
         ts.lastBuyPressurePct.toInt(),ts.lastSellPressurePct.toInt(),ts.lastPriceChange5m.toInt(),
         ts.lastV3Score,ts.lastV3Confidence,
-        ts.lastPriceChange5m,ts.volatility,ts.topHolderPct,ts.peakHolderCount,
+        ts.hourChangeObservedAtMs8506,ts.lastPriceChange1h,ts.lastPriceChange5m,ts.volatility,ts.topHolderPct,ts.peakHolderCount,
         ts.meta.momScore.toInt(),ts.meta.pressScore.toInt(),ts.meta.velocityScore.toInt(),
         ts.meta.emafanAlignment,ts.meta.exhaustion,ts.meta.spikeDetected,ts.meta.curveProgress.toInt(),
         ts.safety.checkedAt,ts.safety.rugcheckScore,ts.safety.firstBlockSupplyPct.toInt(),
@@ -273,11 +273,15 @@ object SpecialistBrainBridge7542 {
         try { com.lifecyclebot.engine.truth.CandidateMarkFresh8094.ensureFresh8094(ts) } catch (_: Throwable) {}
         val residentScope7828 = (try {
             com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.residentLanes(ts.mint)
-        } catch (_: Throwable) { emptySet<String>() }) + handoffScope8180(ts.mint)
+        } catch (_: Throwable) { emptySet<String>() }) + handoffScope8180(ts.mint) + com.lifecyclebot.engine.market.LaneHunter7297.waveReaders8506(ts.mint, System.currentTimeMillis())
         val f=fp(ts,paper,residentScope7828);val now=System.currentTimeMillis();cache[ts.mint]?.snapshot?.let{if(it.fingerprint==f&&now-it.evaluatedAtMs<=CACHE_MS)return it}
         val hist=try{ts.history.toList().filter{it.priceUsd.isFinite()&&it.priceUsd>0}}catch(_:Throwable){emptyList()}
-        val prices=hist.map{it.priceUsd};val price=ts.lastPrice.takeIf{it.isFinite()&&it>0}?:prices.lastOrNull()?:0.0
-        val vols=hist.filter{!it.synthetic}.map{it.vol}.filter{it.isFinite()&&it>0};val recent=vols.takeLast(3).takeIf{it.isNotEmpty()}?.average()?:0.0;val prior=vols.dropLast(minOf(3,vols.size)).takeLast(5).takeIf{it.isNotEmpty()}?.average()?:0.0;val volVs=if(recent>0&&prior>0)recent/prior else 1.0
+        val prices=hist.map{it.priceUsd};val recentPrices = hist.filter { now - it.ts in 0L..300_000L }.map { it.priceUsd };val price=ts.lastPrice.takeIf{it.isFinite()&&it>0}?:prices.lastOrNull()?:0.0
+        val vols = hist.filter { !it.synthetic && now - it.ts in 0L..60L * 60_000L }.takeLast(8).map { it.volumeH1 }
+        val recent = vols.takeLast(3).average()
+        val prior = vols.dropLast(minOf(3, vols.size)).average()
+        val measuredVolume = if (recent.isFinite() && recent >= 0.0 && prior.isFinite() && prior > 0.0) recent / prior else null
+        val volVs = measuredVolume ?: 1.0
         val high=max(price,prices.maxOrNull()?:price)
         val ageMin=try{com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts)}catch(_:Throwable){null}?:ts.safety.tokenAgeMinutes.takeIf{it>=0}?:((now-ts.addedToWatchlistAt).coerceAtLeast(0)/60000.0)
         val observedBp8491 = LaneInputTruth8236.buyPressure8491(ts, now)
@@ -287,17 +291,17 @@ object SpecialistBrainBridge7542 {
         // not a signed percentage move. Native BlueChip/ShitCoin/Express/Manip/
         // CashGen APIs all document/use momentum as signed %. Feeding score=50
         // into those APIs made a flat token look like +50% momentum.
-        val histMomentumPct7551 = if (prices.size >= 2) {
-            val first = prices[maxOf(0, prices.size - 6)]
-            val last = prices.last()
+        val histMomentumPct7551 = if (recentPrices.size >= 2) {
+            val first = recentPrices[maxOf(0, recentPrices.size - 6)]
+            val last = recentPrices.last()
             if (first > 0.0 && last.isFinite()) ((last - first) / first) * 100.0 else 0.0
         } else 0.0
         // V5.0.8348 — ONE continuation read with provenance (ContinuationRead8348): the tape over the coin's own age inside the
         // launch hour, else the 1 h change, the history move, the move since the create price, a 5 m change; else UNOBSERVED.
-        val cont8348 = ContinuationRead8348.read8348(ts, histMomentumPct7551, prices.size, ageMin,
-            if (prices.size < 2) ExpressMomentum8190.sinceLaunchPct8190(ts, ageMin) else null, now)
+        val cont8348 = ContinuationRead8348.read8348(ts, histMomentumPct7551, recentPrices.size, ageMin,
+            if (recentPrices.size < 2) ExpressMomentum8190.sinceLaunchPct8190(ts, ageMin) else null, now)
         val mom = observedChange8491
-            ?: (if (prices.size < 2 && cont8348.source == ContinuationRead8348.Source8348.FROM_TAPE) cont8348.pct else histMomentumPct7551)   // V5.0.8348 — a young coin's tape, not a flat 0.0 on no history
+            ?: (if (recentPrices.size < 2 && cont8348.source == ContinuationRead8348.Source8348.FROM_TAPE) cont8348.pct else histMomentumPct7551)   // V5.0.8348 — a young coin's tape, not a flat 0.0 on no history
         // V5.0.7555 — Express has two directional inputs by design:
         // broad momentum + acute 5m change. Feed the authoritative 1h drift
         // into momentum so the same 5m print is not scored twice.
@@ -323,7 +327,7 @@ object SpecialistBrainBridge7542 {
         val socialMeta7556 = try { BirdeyeMetaDataProvider.peekCached(ts.mint) } catch (_: Throwable) { null }
         val src=ts.source.uppercase();val trending=src.contains("TREND")||ts.toolAffinity.any{it.contains("TREND",true)};val boosted=src.contains("BOOST")||ts.toolAffinity.any{it.contains("BOOST",true)}
         val platform=when{src.contains("PUMP")->ShitCoinTraderAI.LaunchPlatform.PUMP_FUN;src.contains("RAYDIUM")->ShitCoinTraderAI.LaunchPlatform.RAYDIUM;src.contains("MOONSHOT")->ShitCoinTraderAI.LaunchPlatform.MOONSHOT;src.contains("BONK")->ShitCoinTraderAI.LaunchPlatform.BONK_BOT;else->ShitCoinTraderAI.LaunchPlatform.UNKNOWN}
-        val bounce=if(prices.size>=4&&price>0){val tail=prices.takeLast(8);val low=tail.minOrNull()?:price;val idx=tail.indexOf(low);low>0&&idx>=0&&idx<tail.lastIndex-1&&price>=low*1.02&&bp>=50&&volVs>=0.5}else false
+        val bounce=if(prices.size>=4&&price>0){val tail=prices.takeLast(8);val low=tail.minOrNull()?:price;val idx=tail.indexOf(low);low>0&&idx>=0&&idx<tail.lastIndex-1&&price>=low*1.02&&bp>=50&&measuredVolume!=null&&measuredVolume>=0.5}else false
         val cls=try{ModeRouter.classify(ts)}catch(_:Throwable){null};val launch=try{com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts)}catch(_:Throwable){null};val runner=try{com.lifecyclebot.engine.truth.MoonshotFreshLaunchAdmission7044.isRunnerShaped(ts,cls?.tradeType?:ModeRouter.TradeType.UNKNOWN)}catch(_:Throwable){false}
 
         // 8168 — resident claims augment bounded native discovery; execution election remains separate.
@@ -366,7 +370,7 @@ object SpecialistBrainBridge7542 {
         // price change observed, buy pressure at its 50 default, no price history, V3 never scored) is a DEFER, not a
         // refusal. Not gradeable: the veto audit grades refusals, and this one was never a judgement of the coin.
         val inputs8236 = LaneInputTruth8236.observed8236(ts, prices.size).copy(
-            buyPressure = observedBp8491 != null, momentum = observedChange8491 != null || prices.size >= 2 || cont8348.observed)
+            buyPressure = observedBp8491 != null, momentum = observedChange8491 != null || recentPrices.size >= 2 || cont8348.observed)
         for ((lane, o) in out.toList()) {
             if (o.eligible || !o.authoritative) continue
             val defer8236 = LaneInputTruth8236.deferFor8236(lane, o.reason, inputs8236) ?: continue
@@ -374,7 +378,7 @@ object SpecialistBrainBridge7542 {
         }
         // V5.0.8348 — a momentum mandate that fired on an UNOBSERVED continuation defers (whatever buy pressure says); an
         // observed read below the bar refuses. Before the grab-lane review so the deferral is remembered for hydration.
-        ContinuationRead8348.reviewMomentum8348(out, cont8348.observed, observedChange8491 != null || prices.size >= 2 || cont8348.source == ContinuationRead8348.Source8348.FROM_TAPE)
+        ContinuationRead8348.reviewMomentum8348(out, cont8348.observed, observedChange8491 != null || recentPrices.size >= 2 || cont8348.source == ContinuationRead8348.Source8348.FROM_TAPE)
         // V5.0.8343 — the grab lane: a forming runner refused only on a lane MANDATE is re-asked on its own legs (hard safety,
         // exit-safe venue, forming-run evidence, economics at the route minimum, chase cap; live: the evidence hold's door);
         // UNHYDRATED_DEFER refusals are remembered for the hydration re-evaluation. Safety / rug / dev refusals are never re-asked.

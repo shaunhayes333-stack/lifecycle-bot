@@ -253,7 +253,7 @@ class Aate8191DataPipelineTest {
         assertTrue(o.contains("refreshSources8191(mint, keys)"))
         val w = src("network/PumpFunWS.kt")
         assertTrue(w.contains("val drop = tradeSubscriptions7278 - wanted - lifecycleMints7420.keys - setupMints8191.keys"))
-        assertTrue(w.contains("val unsub8191 = expired.filter { !setupWatched8191(it, now) }"))
+        assertTrue(w.contains("val unsub8191 = expired.filter { releaseLifecycleSub8506(it, now) }"))
     }
 
     @Test fun setupWatchEvictsExpiredThenEldestButNeverALiveLaunch() {

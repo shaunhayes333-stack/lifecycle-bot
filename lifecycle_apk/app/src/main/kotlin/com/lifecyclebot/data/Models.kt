@@ -621,6 +621,7 @@ data class TokenState(
     @Volatile var buyPressureObservedAtMs8084: Long = 0L
     /** V5.0.8084 — wall clock of the last measured 5m/1h price-change write (0 = the 0.0 defaults are unobserved). */
     @Volatile var priceChangeObservedAtMs8084: Long = 0L
+    @Volatile var hourChangeObservedAtMs8506: Long = 0L
 
     init {
         if (tokenMap.canonicalTargetMint.isBlank()) {

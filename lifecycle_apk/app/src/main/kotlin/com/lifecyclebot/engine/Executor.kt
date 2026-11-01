@@ -18831,6 +18831,10 @@ class Executor(
         // The executor cannot ask the same learned/risk policy to decide the
         // trade again. Current route/safety/finality checks below remain hard.
         try { PipelineHealthCollector.labelInc("LIVE_RISK_POLICY_CONSUMED_SEALED_7850") } catch (_: Throwable) {}
+        if (entryEvidence7863.wait8506 != null) {
+            liveBuyDeferred(ts, sol, "ENTRY_${entryEvidence7863.wait8506}_8506", "attemptId=$attemptId preSubmission=true")
+            return false
+        }
         if (flatChartRefused8027(ts, sol, attemptId8198 = attemptId)) return false
         // V5.0.7849 — immutable execution intent is the entry verdict.
         // Executor consumes it; learned/history authorities may not re-decide it.
@@ -21961,7 +21965,7 @@ class Executor(
                         "LIVE_BUY_LANDED — proof=${proof.source} raw=${proof.amountRaw} decimals=${proof.decimals} host_tracker open=$beforeOpen→$afterOpen | mint_tracked=$opened",
                         tokenAmount = ts.position.qtyToken, sig = verifySig, traderTag = "MEME",
                     )
-                    try { com.lifecyclebot.engine.truth.EntryReceipt8500.onLiveBuy8500(ts) } catch (_: Throwable) {}  // V5.0.8500 — the door and chart position of this live buy
+                    try { com.lifecyclebot.engine.truth.EntryReceipt8500.onLiveBuy8500(ts, entryEvidence7863.receipt8506) } catch (_: Throwable) {}  // V5.0.8500 — the door and chart position of this live buy
                     try { com.lifecyclebot.engine.ForensicLogger.lifecycle("LIVE_BUY_LANDED", "mint=${verifyMint.take(10)} symbol=$verifySymbol source=${proof.source} rawAmount=${proof.amountRaw} decimals=${proof.decimals} sig=${verifySig.take(16)}") } catch (_: Throwable) {}
                     // V5.0.6405 §5/§7/§1+§2 — canonical buy-verified wire.
                     // Stamps the raw-qty entry ledger, the position-generation

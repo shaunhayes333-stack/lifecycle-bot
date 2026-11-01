@@ -2090,6 +2090,8 @@ object ExecutableOpenGate {
             com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.observe(
                 mint, lane, canExecute && hardNoReasons.isEmpty(), reason ?: preFdgVerdict,
                 score = entryScore,
+                incumbent8506 = if (!paperRuntime && authoritativeFdgDecision7858?.canExecute() == true &&
+                    canExecute && hardNoReasons.isEmpty() && authoritativeFdgDecision7858.nativeSelection8506) true else null,
             )
         } catch (_: Throwable) {}
         val tokenRouteUpper = tokenMapRouteStatus.uppercase()

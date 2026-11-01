@@ -99,7 +99,12 @@ object LiquidityTruth8037 {
             }
             return chain
         }
-        val obs = try { com.lifecyclebot.engine.TokenMapAuthority.observedLiquidityUsd(ts) } catch (_: Throwable) { 0.0 }
+        val obs = if (ts.lastLiquidityUsd > 0.0) ts.lastLiquidityUsd else {
+            val now = System.currentTimeMillis()
+            val age = CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts, now) ?: Double.NaN
+            SetupFeatureResolver8169.observedLiquidity8170(ts.mint, age, now)
+                ?: try { com.lifecyclebot.engine.TokenMapAuthority.observedLiquidityUsd(ts) } catch (_: Throwable) { 0.0 }
+        }
         fill8037(ts.lastLiquidityUsd, obs)?.let { write8343(ts, it); hydrated.incrementAndGet() }
         // V5.0.8164 — an ACTIVE pump.fun curve with a priced cap but no reserve frame inside the curve TTL: its real SOL
         // follows from the cap by the curve's own invariant ([curveRealSolFromCap8048]), so it is derived, not invented.

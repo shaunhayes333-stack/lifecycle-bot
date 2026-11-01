@@ -42,6 +42,6 @@ class Aate7867TokenSelectionTest {
 
     @Test fun relativeStrengthLeaderNeedsLiveTape() {
         val sweep = File("src/main/kotlin/com/lifecyclebot/engine/market/MarketSweep7297.kt").readText()
-        assertTrue(sweep.contains("relative >= 8.0 && r.priceChangeH1Pct > 0.0 && latestRt != null -> \"RELATIVE_STRENGTH_LEADER\""))
+        assertTrue(sweep.contains("relative >= 8.0 && r.priceChangeH1Pct > 0.0 && price5 > 0.0 && bp > 50.0 -> \"RELATIVE_STRENGTH_LEADER\""))
     }
 }

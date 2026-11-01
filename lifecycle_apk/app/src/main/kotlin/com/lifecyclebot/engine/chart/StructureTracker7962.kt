@@ -272,6 +272,9 @@ object StructureTracker7962 {
         return r
     }
 
+    internal fun hasCurrentEntryMark8506(mint: String, nowMs: Long): Boolean =
+        tapes[mint]?.lastMs?.let { nowMs - it in 0L..120_000L } == true
+
     /** V5.0.7967 — RunnerGrab7967: the 15-second and 1-minute structure reads of [mint] now (cached 2 s). */
     fun reads7967(mint: String, nowMs: Long = System.currentTimeMillis()): Pair<Read7962?, Read7962?> = try {
         readTf(mint, TF15, nowMs) to readTf(mint, TF60, nowMs)
@@ -281,6 +284,7 @@ object StructureTracker7962 {
 
     /** LanePlaybook7907.features: does HL_RECLAIM fire for [mint] on either timeframe now? */
     fun hlReclaim7962(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (!hasCurrentEntryMark8506(mint, nowMs)) return false
         val ok = try { hlReclaimFires7962(readTf(mint, TF15, nowMs)) || hlReclaimFires7962(readTf(mint, TF60, nowMs)) } catch (_: Throwable) { false }
         if (ok) hlFires.incrementAndGet()
         return ok

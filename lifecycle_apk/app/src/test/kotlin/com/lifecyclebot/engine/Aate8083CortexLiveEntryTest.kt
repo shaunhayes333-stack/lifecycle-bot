@@ -59,7 +59,7 @@ class Aate8083CortexLiveEntryTest {
         // superseded by V5.0.8418 — 21d066011 flipped the board.inverted7948 pin to assertFalse with no note: inversion is again
         // a revocation, now on the CURRENT cohort, inside the one authority the setup cell reads (authorityFraction8366).
         assertFalse(cell.contains("board.inverted7948"))
-        assertTrue(c.contains("if (invertedCurrent8372(lane)) { inc(\"AUTHORITY_REVOKED_INVERTED_8418_\$lane\"); return 0.0 }"))
+        assertTrue(c.contains("if (invertedCurrent8372(lane)) { entryGrants8506.remove(lane); inc(\"AUTHORITY_REVOKED_INVERTED_8418_\$lane\"); return 0.0 }"))
         val ov = c.substringAfter("fun overrulesEdgeRefusal(").substringBefore("fun fullAuthorityOverrules8078(")
         assertTrue(ov.contains("if (!softBlock(refusal, false)) return false"))           // hard safety intact
         assertTrue(ov.contains("(provenRefusal && fraction < 1.0)"))                         // own proven loser needs full

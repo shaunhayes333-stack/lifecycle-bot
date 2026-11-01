@@ -1,4 +1,5 @@
 plugins {
+    id("com.google.protobuf") version "0.9.4"
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.serialization")
@@ -164,7 +165,14 @@ android {
     }
 }
 
+protobuf {
+    protoc { artifact = "com.google.protobuf:protoc:3.25.5" }
+    generateProtoTasks { all().configureEach { builtins { maybeCreate("java") } } }
+}
+
 dependencies {
+    implementation("io.grpc:grpc-okhttp:1.68.1")
+    implementation("com.google.protobuf:protobuf-java:3.25.5")
     // UI
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")

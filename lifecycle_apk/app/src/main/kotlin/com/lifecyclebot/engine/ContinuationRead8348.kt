@@ -81,7 +81,20 @@ object ContinuationRead8348 {
     /** SpecialistBrainBridge7542.evaluate: the one continuation read of [ts] this cycle (its source counted). */
     fun read8348(ts: TokenState, histPct: Double, histPoints: Int, ageMin: Double?, sinceLaunchPct: Double?, nowMs: Long): Continuation8348 {
         val tape = if (youngCoin8348(ageMin)) tapeChangeOverAge8348(ts.mint, nowMs) else null
-        val c = resolve8348(ts.lastPriceChange1h, ts.priceChangeObservedAtMs8084, ts.lastPriceChange5m, histPct, histPoints, tape, sinceLaunchPct, ageMin)
+        val pair = com.lifecyclebot.engine.truth.PairFlow8169.peek8169(ts.mint)
+            ?.takeIf { LaneInputTruth8236.fresh8491(it.atMs, nowMs) && it.chg1h.isFinite() }
+        val row = com.lifecyclebot.engine.market.MarketSweep7297.rowFor8169(ts.mint, nowMs)
+            ?.takeIf { LaneInputTruth8236.fresh8491(it.observedAtMs8169, nowMs) && it.hourChangeObserved8417 }
+        val localAt = ts.hourChangeObservedAtMs8506.takeIf { LaneInputTruth8236.fresh8491(it, nowMs) } ?: 0L
+        val hourAt = maxOf(localAt, pair?.atMs ?: 0L, row?.observedAtMs8169 ?: 0L)
+        val hour = when {
+            hourAt == 0L -> Double.NaN
+            hourAt == localAt -> ts.lastPriceChange1h
+            hourAt == pair?.atMs -> pair.chg1h
+            else -> row?.priceChangeH1Pct ?: Double.NaN
+        }
+        val five = LaneInputTruth8236.change5m8491(ts, nowMs) ?: Double.NaN
+        val c = resolve8348(hour, hourAt, five, histPct, histPoints, tape, sinceLaunchPct, ageMin)
         when (c.source) {
             Source8348.FROM_TAPE -> fromTape.incrementAndGet()
             Source8348.FROM_1H -> from1h.incrementAndGet()

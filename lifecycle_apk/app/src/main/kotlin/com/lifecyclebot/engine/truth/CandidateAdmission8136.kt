@@ -116,6 +116,7 @@ object CandidateAdmission8136 {
         val nativeQualified8213: Boolean = false,
         /** Native's own named setup is retained when optional playbook features prevent classification. */
         val nativeSetup8213: String? = null,
+        val entryWait8506: String? = null,
         /**
          * V5.0.8245 — RunnerGrab7967: this coin is a grab right now (proven runner cell n >= 20, mean - SE >= +20% net
          * at 60 m; chart firming / not breaking; hard safety and Mayhem clear; the grab record standing). Candidate-
@@ -477,6 +478,20 @@ object CandidateAdmission8136 {
         val liveCell8210 = if (c.lossEpochAware8169) c.cellLoss8169 else c.cell
         // V5.0.8316 — support is read on the cell past the realised shortfall; the loss tests below read the raw cell.
         val liveCellProof8290 = if (c.lossEpochAware8169) c.cellLossProof8290 else c.cellProof8290
+        if (c.live && c.entryWait8506 != null) {
+            val wait = c.entryWait8506
+            val missing = when (wait) {
+                "FLOW_UNOBSERVED" -> "swaps,bp,chg"
+                "STAGE_UNRESOLVED" -> "shape,chg,bp"
+                else -> null
+            }
+            if (missing != null) {
+                trace += "entryWait8506=$wait"
+                trace += "missing=$missing"
+                return done(Terminal8136.DEFER_DATA, "DATA_INCOMPLETE_DEFER_8136", false, c.selectedSetup)
+            }
+            return done(Terminal8136.REFUSE, "ENTRY_${wait}_8506", true, c.selectedSetup)
+        }
         val cellSupported = supported8136(liveCellProof8290, c.costPct)
         // V5.0.8153 — every fired setup ranked on its own record AND its timing band (StrategyRank8153): a supported setup
         //    losing at this point of the move is not the strategy; ties of the conservative net go to the runner rate.
@@ -1051,7 +1066,6 @@ object CandidateAdmission8136 {
             PipelineHealthCollector.labelInc("ADMISSION_NATIVE_OPTIONAL_DATA_ADMITTED_8213_${candidate.lane}")
         } catch (_: Throwable) {}
         try { AdmissionRunnerTrace8144.noteAdmission8144(mint, laneRaw, d.terminal.name, d.reason) } catch (_: Throwable) {}
-        try { EntryReceipt8500.noteAdmission8500(mode, mint, laneRaw, d.admitted, d.reason, d.chosenSetup, nowMs) } catch (_: Throwable) {}  // V5.0.8500
         try { noteFunnel8283(candidate, d) } catch (_: Throwable) {}  // V5.0.8283 — unique-candidate feature funnel
         try { AdmissionEdge8180.note8180(mode, mint, laneRaw, candidateVersion, d, nowMs) } catch (_: Throwable) {}  // V5.0.8180 / 8198 — this lane's own proof, sizers read it
         // V5.0.8169 — a loss refusal that decayed to neutral on its epoch, counted once per fresh decision.
@@ -1347,7 +1361,9 @@ object CandidateAdmission8136 {
                 Evidence8136(KIND_TIMING, "${selected ?: "-"}@${pb.timingBandOf8094(ts)}", a[2].toInt(), a[0], stdErr8136(a[1], a[2]))   // raw (8316)
             }
         } catch (_: Throwable) { null }
-        val fit = try { com.lifecyclebot.engine.TokenMetricStageRouter.laneFit(ts, lane) } catch (_: Throwable) { null }
+        val memeLane = com.lifecyclebot.engine.TokenMetricStageRouter.memeEntry8506(lane, ts.mint)
+        val entry = if (memeLane) com.lifecyclebot.engine.TokenMetricStageRouter.entryRead8506(ts, lane, nowMs) else null
+        val fit = entry?.first ?: try { com.lifecyclebot.engine.TokenMetricStageRouter.laneFit(ts, lane) } catch (_: Throwable) { null }
         val stageRecord = try {
             if (fit == null) null else ForwardReturnLabeler7731.stageStatFor7928(fit.lane, fit.stage.name)
                 ?.let { st -> Evidence8136(KIND_STAGE, fit.stage.name, st.n60, st.meanNet60Pct, st.stderr60Pct, st.runnerRate60, lateN = st.n240, lateMeanPct = if (st.n240 > 0) st.meanNet240Pct else Double.NaN) }
@@ -1404,6 +1420,7 @@ object CandidateAdmission8136 {
             selectedSetup = selected,
             regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "" },
             stage = fit?.stage?.name.orEmpty(),
+            entryWait8506 = entry?.second,
             priceAgeMs = priceAge,
             // V5.0.8283 — the lifecycle split (dataIncomplete8136's binding inputs; the too-young history recorded apart).
             missingInputs = resolvedMissingInputs(

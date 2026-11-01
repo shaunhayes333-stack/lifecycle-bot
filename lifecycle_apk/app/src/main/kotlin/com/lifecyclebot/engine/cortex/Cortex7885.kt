@@ -904,7 +904,7 @@ object Cortex7885 {
     }
 
     /** ForwardReturnLabeler7731.observe: one graded decision opens here (1:1 with its observation). */
-    fun capture(ts: TokenState, labelLane: String, admitted: Boolean, nowMs: Long = System.currentTimeMillis(), reason: String? = null) {
+    fun capture(ts: TokenState, labelLane: String, admitted: Boolean, nowMs: Long = System.currentTimeMillis(), reason: String? = null, incumbent8506: Boolean? = null) {
         if (labelLane.startsWith("PLANWAIT_") || labelLane.startsWith("PLANADMIT_")) return
         val captureKey8397 = "${ts.mint}|${labelLane.trim().uppercase()}"
         val ticket8397 = synchronized(this) {
@@ -930,7 +930,7 @@ object Cortex7885 {
                 // V5.0.8178 — 8174 dropped every cold decision (5.0.8175: 1081 dropped vs 19 captured, graded=0). The
                 // voters are read now on the capture pool; captureNow audits that read against the label start, so a read
                 // after the label opens is held out of authority (LABEL_HYGIENE_LATE_VOTER_READ_8169), never graded as proof.
-                val ctxCold8178 = try { decisionCtx8144(ts, canon(labelLane), admitted, reason) } catch (_: Throwable) { null }
+                val ctxCold8178 = try { decisionCtx8144(ts, canon(labelLane), admitted, reason, incumbent8506) } catch (_: Throwable) { null }
                 val sourceCold8178 = ts.source
                 val decisionMode8196 = accountMode8077()
                 // V5.0.8273 (R9) — freeze the decision-time features NOW: the cold voter read runs later on the capture pool
@@ -940,7 +940,7 @@ object Cortex7885 {
                 submitCaptureKeyed8187(ticket8397, admitted) { captureCold8178(frozen8273, labelLane, admitted, nowMs, reason, snap8084, sel8153, ctxCold8178, sourceCold8178, decisionMode8196, ticket8397) }
                 return@prepareCapture8397
             }
-            val ctx8174 = try { decisionCtx8144(ts, a8174.lane, admitted, reason) } catch (_: Throwable) { null }
+            val ctx8174 = try { decisionCtx8144(ts, a8174.lane, admitted, reason, incumbent8506) } catch (_: Throwable) { null }
             // Timing requires the decision's price, before the asynchronous queue mutates its TokenState.
             try { CortexTiming7900.capture(ts, a8174, nowMs) } catch (_: Throwable) {}
             val source8174 = ts.source
@@ -1144,7 +1144,7 @@ object Cortex7885 {
                 val ctx8196 = p.context8372?.let { c ->
                     org.json.JSONObject().put("timing", c.timing).put("cost", c.costBand)
                         .put("cohort", c.cohort).put("latency", c.latencyMeasured)
-                        .put("executable", c.executable)
+                        .put("executable", c.executable).put("native8506", c.incumbent8506)
                 } ?: org.json.JSONObject.NULL
                 if (arr.length > 1) arr.append(',')
                 arr.append(section8418("p",
@@ -1365,7 +1365,7 @@ object Cortex7885 {
             else if (pairedEntry8417 && pending.containsKey(k)) pairedPending8401["$k|$at"] = restored8372
             else pending[k] = restored8372
             o.optJSONObject("ctx8196")?.let { c ->
-                val ctx = DecisionCtx8144(c.optString("timing"), c.optString("cost"), c.optString("cohort"), c.optBoolean("latency"), c.optBoolean("executable"))
+                val ctx = DecisionCtx8144(c.optString("timing"), c.optString("cost"), c.optString("cohort"), c.optBoolean("latency"), c.optBoolean("executable"), c.opt("native8506") as? Boolean)
                 restored8372.context8372 = ctx
                 if (shadow8372) shadowCtx8372[k] = ctx else if (pending[k] === restored8372) pendingCtx8144[k] = ctx
             }
@@ -2162,7 +2162,7 @@ object Cortex7885 {
     @Volatile private var lastLostSweepMs8144 = 0L
 
     /** The decision-time context of a grade key, frozen with the decision. */
-    private class DecisionCtx8144(val timing: String, val costBand: String, val cohort: String, val latencyMeasured: Boolean, val executable: Boolean)
+    private class DecisionCtx8144(val timing: String, val costBand: String, val cohort: String, val latencyMeasured: Boolean, val executable: Boolean, val incumbent8506: Boolean? = null)
 
     private fun latencyMeasured8144(lane: String): Boolean =
         try { com.lifecyclebot.engine.truth.EntryChase7961.laneLatencyMs8094(lane) > 0L } catch (_: Throwable) { false }
@@ -2171,7 +2171,7 @@ object Cortex7885 {
         (try { com.lifecyclebot.engine.TradeExitContract8077.runnerFromEntryLane8104(lane, false) } catch (_: Throwable) { false }) || isRunner(lane) ||
             LaneGradeHorizon8406.hourGraded8406(lane)   // V5.0.8406
 
-    private fun decisionCtx8144(ts: TokenState, lane: String, admitted: Boolean, reason: String?): DecisionCtx8144 {
+    private fun decisionCtx8144(ts: TokenState, lane: String, admitted: Boolean, reason: String?, incumbent8506: Boolean? = null): DecisionCtx8144 {
         val timing = try { LanePlaybook7907.timingBandOf8094(ts) } catch (_: Throwable) { LanePlaybook7907.TIMING_UNKNOWN_8094 }
         val liq = if (ts.lastLiquidityUsd.isFinite() && ts.lastLiquidityUsd > 0.0) ts.lastLiquidityUsd else 0.0
         val cost = try {
@@ -2193,7 +2193,7 @@ object Cortex7885 {
         if (!executable8196) CortexLabelHygiene8144.unexecClass8291(admitted, reason, nativeEligible8196)?.let { inc("LABEL_UNEXEC_CLASS_8291_$it") }
         if (!admitted && nativeEligible8196 == false) inc(if (executable8196) "LABEL_NATIVE_NO_LEARNABLE_8372" else "LABEL_NATIVE_INELIGIBLE_OBSERVED_ONLY_8196")
         if (!admitted && nativeEligible8196 == null) inc("LABEL_NATIVE_ELIGIBILITY_UNVERIFIED_8196")
-        return DecisionCtx8144(timing, CortexLabelHygiene8144.costBand8144(cost), cohort, latencyMeasured8144(lane), executable8196)
+        return DecisionCtx8144(timing, CortexLabelHygiene8144.costBand8144(cost), cohort, latencyMeasured8144(lane), executable8196, incumbent8506)
     }
 
     /** Caller holds the lock. */
@@ -2210,6 +2210,7 @@ object Cortex7885 {
             ctx?.timing ?: LanePlaybook7907.TIMING_UNKNOWN_8094, ctx?.costBand ?: "CUNK", ctx?.cohort ?: "UNK",
             p.a.bucket.ordinal, p.a.calibratedEdge, p.legacyAdmitted, v.executable, v.repeat)
             .also {
+                it.incumbent8506 = ctx?.incumbent8506
                 it.mode = p.decisionMode8196; it.lateRead8187 = p.lateRead8169; it.tailEv8324 = p.a.tailEv8324
                 it.scoreVersion8372 = p.a.scoreVersion8372
             }
@@ -2608,7 +2609,7 @@ object Cortex7885 {
      * launch-ladder candidates whose forward return was +16.7% (n=40) — the audit
      * printed REFUSING_WINNERS and nothing acted on it.
      */
-    fun vetoRefusesWinners7953(reason: String): Boolean {
+    private fun vetoRefusesWinners7953(reason: String): Boolean {
         ensureLoaded()
         CortexAudit8169.call("VETO_AUDIT")  // V5.0.8169
         val st = synchronized(this) { vetoBook[vetoRuleOf(reason)] } ?: return false
@@ -2624,6 +2625,7 @@ object Cortex7885 {
      * record of the rule decides once it has 40 graded refusals, the all-lane record before that.
      */
     fun vetoRefusesWinners8006(reason: String, lane: String): Boolean {
+        if (lane.isBlank() || nativeOwnsSelection8506(lane)) return false
         ensureLoaded()
         CortexAudit8169.call("VETO_AUDIT")  // V5.0.8169
         val rule = vetoRuleOf(reason)
@@ -2634,7 +2636,7 @@ object Cortex7885 {
             if (retired) inc("VETO_RETIRED_8006_${rule}@$l")
             return retired
         }
-        return vetoRefusesWinners7953(reason)
+        return l !in LanePlaybook7907.menuLanes8383() && vetoRefusesWinners7953(reason)
     }
 
     /**
@@ -2642,6 +2644,7 @@ object Cortex7885 {
      * holds 100+ graded refusals that proved winners (vetoProvenWinners8006: mean - SE above +2 % net, robust read).
      */
     fun vetoRetiresAt100_8365(reason: String, lane: String): Boolean {
+        if (lane.isBlank() || nativeOwnsSelection8506(lane)) return false
         ensureLoaded()
         return synchronized(this) {
             val st = vetoBook[vetoLaneKey8006(vetoRuleOf(reason), canon(lane))] ?: return@synchronized false
@@ -2651,6 +2654,7 @@ object Cortex7885 {
 
     /** A lane-specific refusal can retire only on that lane's own consistent outcome book. */
     fun ownLaneVetoRefusesWinners8076(reason: String, lane: String): Boolean {
+        if (lane.isBlank() || nativeOwnsSelection8506(lane)) return false
         ensureLoaded()
         CortexAudit8169.call("VETO_AUDIT")  // V5.0.8169
         return synchronized(this) {
@@ -3122,7 +3126,7 @@ object Cortex7885 {
             val key=id.substringBeforeLast('|')
             if (!verdict8144(key,p,p.context8372).authority) return
             rows += CortexAuthority8366.Row8366(p.atMs,p.a.calibratedEdge,Double.NaN,p.a.bucket.ordinal,0L,
-                p.outcomeDueAtMs8394)
+                p.outcomeDueAtMs8394, p.context8372?.incumbent8506)
         }
         for ((key,p) in pending) append("$key|${p.atMs}",p)
         for ((id,p) in pairedPending8401) append(id,p)
@@ -3182,7 +3186,11 @@ object Cortex7885 {
         val cost = try { com.lifecyclebot.engine.truth.CostLedger7962.laneCostPct7962(lane) } catch (_: Throwable) { CortexAuthority8366.MIN_FULL_MARGIN_PCT_8366 }
         val key = "$lane|${setup ?: "*"}|offset=$offset|cost=$cost|pending=${pendingCount()}:${shadowPending8372.size}"
         auth8366Cache[key]?.let { if (it.gradeRevision == gradeBook8144.revision && now - it.atMs in 0L until WF_REFRESH_MS_8144) return it.value }
-        val r = CortexAuthority8366.test8372(authorityRows8392(lane, setup), cost, now)
+        val rows = authorityRows8392(lane, setup)
+        val old = CortexAuthority8366.test8372(rows, cost, now)
+        val r = if (old.granted && lane in LanePlaybook7907.menuLanes8383() &&
+            !CortexAuthority8366.beatsIncumbent8506(rows, now))
+            old.copy(verdict = CortexAuthority8366.Verdict8366.NATIVE_POLICY_UNBEATEN, fraction = 0.0) else old
         if (auth8366Cache.size > 200) auth8366Cache.clear()
         auth8366Cache[key] = AuthorityCache8372(now, gradeBook8144.revision, r)
         return r
@@ -3195,12 +3203,22 @@ object Cortex7885 {
     }
 
     /** Caller holds the lock. The authority [lane] holds: the granted walk-forward fraction unless UNCALIBRATED or revoked. */
+    private val entryGrants8506 = ConcurrentHashMap<String, Long>()
+
+    fun nativeOwnsSelection8506(lane: String): Boolean {
+        val key = canon(lane)
+        return key in LanePlaybook7907.menuLanes8383() &&
+            entryGrants8506[key]?.let { System.currentTimeMillis() - it in 0L..WF_REFRESH_MS_8144 } != true
+    }
+
     private fun authorityFraction8366(lane: String): Double {
         // V5.0.8418 §INVERSION_REVOKES — a lane whose current STRONG cohort is proven inverted (worse than its NEUTRAL / REFUSE
         // reads) holds no authority. 8372 left inversion as a diagnostic only (the STRONG door / sizing kept the grant).
-        if (invertedCurrent8372(lane)) { inc("AUTHORITY_REVOKED_INVERTED_8418_$lane"); return 0.0 }
+        if (invertedCurrent8372(lane)) { entryGrants8506.remove(lane); inc("AUTHORITY_REVOKED_INVERTED_8418_$lane"); return 0.0 }
         val (n, mean) = realisedStrong8366(lane)
-        return CortexAuthority8366.authority8366(authorityTest8366(lane), calibration.uncalibrated8372(lane, executableOffset8187(lane)), n, mean)
+        return CortexAuthority8366.authority8366(authorityTest8366(lane), calibration.uncalibrated8372(lane, executableOffset8187(lane)), n, mean).also {
+            if (it > 0.0) entryGrants8506[lane] = System.currentTimeMillis() else entryGrants8506.remove(lane)
+        }
     }
 
     /** Caller holds the lock. What keeps [lane]'s authority at 0 (or OPEN). */
@@ -3569,6 +3587,11 @@ object Cortex7885 {
     fun entryRefusal(ts: TokenState, laneRaw: String, paper: Boolean): String? {
         return try {
             CortexAudit8169.call("ENTRY_REFUSAL")
+            if (nativeOwnsSelection8506(laneRaw)) {
+                cachedOrSchedule(ts, laneRaw)
+                return if (!paper && ts.safety.tier == com.lifecyclebot.engine.SafetyTier.HARD_BLOCK)
+                    "CORTEX_7885_C1_HARD_SAFETY_${canon(laneRaw)}" else null
+            }
             // V5.0.7930 — LIVE never proceeds without a read: a first-seen live candidate
             // (fast lane, launch-heat promotion) used to be admitted on a cache miss.
             val a = cachedOrSchedule(ts, laneRaw) ?: (if (!paper) assess(ts, laneRaw) else null) ?: run {
@@ -3632,6 +3655,7 @@ object Cortex7885 {
         n >= 5.0 && meanPct.isFinite() && sePct.isFinite() && meanPct + sePct < 0.0
 
     fun overrulesEdgeRefusal(ts: TokenState, laneRaw: String, refusal: String): Boolean {
+        if (nativeOwnsSelection8506(laneRaw)) return false
         return try {
             CortexAudit8169.call("OVERRULE")  // V5.0.8169
             val a = cachedOrSchedule(ts, laneRaw) ?: return false
@@ -3709,6 +3733,7 @@ object Cortex7885 {
      * Authority is re-read every call, so it is lost the moment the record stops supporting it.
      */
     fun fullAuthorityOverrules8078(ts: TokenState, laneRaw: String, refusal: String): Boolean {
+        if (nativeOwnsSelection8506(laneRaw)) return false
         return try {
             CortexAudit8169.call("FULL_AUTHORITY")  // V5.0.8169
             val a = cachedOrSchedule(ts, laneRaw) ?: return false
@@ -3770,6 +3795,7 @@ object Cortex7885 {
 
     /** FinalDecisionGate (PAPER only): true admits this soft-blocked candidate as the Cortex's choice. */
     fun paperChoice(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (nativeOwnsSelection8506(laneRaw)) return false
         return try {
             CortexAudit8169.call("PAPER_CHOICE")  // V5.0.8169
             val a = cachedOrSchedule(ts, laneRaw, nowMs) ?: return false

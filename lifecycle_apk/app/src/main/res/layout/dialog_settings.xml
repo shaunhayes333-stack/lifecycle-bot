@@ -852,6 +852,45 @@
                 android:paddingStart="12dp"
                 android:inputType="textUri"
                 android:layout_marginBottom="10dp"/>
+            <EditText
+                android:id="@+id/etValidatorEndpoint8506"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:background="@drawable/input_bg"
+                android:textColor="@color/aate_text"
+                android:textColorHint="@color/aate_text_muted"
+                android:textSize="11sp"
+                android:fontFamily="monospace"
+                android:hint="Yellowstone gRPC · https://host:port"
+                android:paddingStart="12dp"
+                android:inputType="textUri"
+                android:layout_marginBottom="10dp"/>
+            <EditText
+                android:id="@+id/etValidatorToken8506"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:background="@drawable/input_bg"
+                android:textColor="@color/aate_text"
+                android:textColorHint="@color/aate_text_muted"
+                android:textSize="11sp"
+                android:fontFamily="monospace"
+                android:hint="Yellowstone x-token (if required)"
+                android:paddingStart="12dp"
+                android:inputType="textPassword"
+                android:layout_marginBottom="10dp"/>
+            <EditText
+                android:id="@+id/etXStreamToken8506"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:background="@drawable/input_bg"
+                android:textColor="@color/aate_text"
+                android:textColorHint="@color/aate_text_muted"
+                android:textSize="11sp"
+                android:fontFamily="monospace"
+                android:hint="X filtered stream bearer (existing rules)"
+                android:paddingStart="12dp"
+                android:inputType="textPassword"
+                android:layout_marginBottom="10dp"/>
 
             <!-- Treasury destination wallet -->
             <TextView

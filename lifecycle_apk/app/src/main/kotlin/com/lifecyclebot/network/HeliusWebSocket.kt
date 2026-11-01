@@ -712,7 +712,7 @@ class HeliusWebSocket(
                     // reads: unsubscribe it instead of silently paying for it.
                     if (!subscriptionToMint7765.containsKey(params.optInt("subscription", -1))) unsubscribeOrphan7807("logsUnsubscribe", params.optInt("subscription", -1))
                     val mint8397 = subscriptionToMint7765[params.optInt("subscription", -1)].orEmpty()
-                    parseLogsNotification(value, mint8397)
+                    parseLogsNotification(value, mint8397, result.optJSONObject("context")?.optLong("slot") ?: 0L)
                     if ((decisionTape8397.tracked(mint8397) &&
                         !decisionTape8397.noteBytes(mint8397, text.length, System.currentTimeMillis())) ||
                         !com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.dailyRoom8397())
@@ -735,7 +735,7 @@ class HeliusWebSocket(
      * We look for swap-related log messages to extract trade data.
      * Helius enhanced API enriches these with parsed token amounts.
      */
-    private fun parseLogsNotification(value: JSONObject, mint: String) {
+    private fun parseLogsNotification(value: JSONObject, mint: String, slot: Long) {
         val logs = value.optJSONArray("logs") ?: return
         val sig  = value.optString("signature", "")
         if (sig.isBlank() || mint.isBlank()) return
@@ -756,6 +756,12 @@ class HeliusWebSocket(
             val wallet = try { io.github.novacrypto.base58.Base58.base58Encode(b.copyOfRange(57, 89)) } catch (_: Throwable) { "" }
             if (solAmt > 0.0) {
                 noteDecoded8096(mint); dispatchCallback7863(mint) { onSwap(mint, isBuy, solAmt, tokenAmt, wallet, sig) }
+                if (slot > 0L && line in SolanaSwapEvidence8506.ownedLogs((0 until logs.length()).map { logs.optString(it) })[SolanaSwapEvidence8506.PUMP].orEmpty()) {
+                    ChainLaunchFeed8179.decodeTradeEvent8179(b)?.let { e ->
+                        com.lifecyclebot.engine.market.KineticFlow8506.observe(com.lifecyclebot.engine.market.KineticFlow8506.Swap(
+                            e.mint, "CURVE", sig, e.user, e.isBuy, e.sol, e.tokens, e.timestampSec * 1000L, slot, sourceTime = true))
+                    }
+                }
                 ChainLaunchFeed8179.onHeliusTradeEvent8179(mint, sig, b)  // V5.0.8179 — swap provenance + curve reserves
                 return
             }

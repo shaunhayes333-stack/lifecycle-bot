@@ -70,7 +70,7 @@ object PumpCurveKeys7269 {
     // program-derived address of ["bonding-curve", mint] under the pump program,
     // so it is derived here, deterministically, for any mint — nothing to store,
     // nothing to lose, and it cannot be the wrong account.
-    private const val PUMP_PROGRAM_7392 = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"
+    private const val PUMP_PROGRAM_7392 = SolanaSwapEvidence8506.PUMP
     private val derived7392 = ConcurrentHashMap<String, String>()
 
     /** The canonical bonding-curve PDA for [mint], or null if [mint] is not a valid key. */

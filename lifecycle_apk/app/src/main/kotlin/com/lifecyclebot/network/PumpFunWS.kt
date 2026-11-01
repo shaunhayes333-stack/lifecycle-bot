@@ -615,6 +615,11 @@ object PumpFunWS {
         return true
     }
 
+    internal fun releaseLifecycleSub8506(held: Boolean, setupWatched: Boolean): Boolean = !held && !setupWatched
+
+    private fun releaseLifecycleSub8506(mint: String, nowMs: Long): Boolean =
+        releaseLifecycleSub8506(mint in heldMints8192, setupWatched8191(mint, nowMs))
+
     private fun registerFreshLifecycle7420(mint: String) {
         if (mint.isBlank()) return
         rollDay8192(System.currentTimeMillis())
@@ -629,20 +634,21 @@ object PumpFunWS {
         if (expired.isNotEmpty()) {
             lifecycleMints7420.keys.removeAll(expired.toSet())
             // V5.0.8191 — a launch that is now a setup candidate keeps its trade stream past the lifecycle TTL.
-            val unsub8191 = expired.filter { !setupWatched8191(it, now) }
+            val unsub8191 = expired.filter { releaseLifecycleSub8506(it, now) }
             tradeSubscriptions7278.removeAll(unsub8191.toSet())
             if (tradeStreamKeyed7284() && unsub8191.isNotEmpty()) ws?.send(JSONObject().put("method", "unsubscribeTokenTrade").put("keys", JSONArray(unsub8191)).toString())
-            unsub7420.addAndGet(expired.size.toLong())
-            try { repeat(expired.size) { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TRADE_UNSUBSCRIBED") } } catch (_: Throwable) {}
+            unsub7420.addAndGet(unsub8191.size.toLong())
+            try { repeat(unsub8191.size) { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TRADE_UNSUBSCRIBED") } } catch (_: Throwable) {}
         }
         if (lifecycleMints7420.size >= LIFECYCLE_MAX_7420 && !lifecycleMints7420.containsKey(mint)) {
             val oldest = lifecycleMints7420.entries.minByOrNull { it.value }?.key
             if (oldest != null) {
                 lifecycleMints7420.remove(oldest)
-                tradeSubscriptions7278.remove(oldest)
-                if (tradeStreamKeyed7284()) ws?.send(JSONObject().put("method", "unsubscribeTokenTrade").put("keys", JSONArray().put(oldest)).toString())
-                unsub7420.incrementAndGet()
-                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TRADE_UNSUBSCRIBED") } catch (_: Throwable) {}
+                if (releaseLifecycleSub8506(oldest, now) && tradeSubscriptions7278.remove(oldest)) {
+                    if (tradeStreamKeyed7284()) ws?.send(JSONObject().put("method", "unsubscribeTokenTrade").put("keys", JSONArray().put(oldest)).toString())
+                    unsub7420.incrementAndGet()
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TRADE_UNSUBSCRIBED") } catch (_: Throwable) {}
+                }
             }
         }
         lifecycleMints7420[mint] = now
@@ -1042,11 +1048,21 @@ object PumpFunWS {
 
     /** One PumpPortal trade frame onto the executed-trade tape with its signature, venue, token size and timestamps. */
     private fun tapeFrame8285(j: JSONObject, mint: String, priceSol: Double, sol: Double, tokenQty: Double, isBuy: Boolean) {
+        val recv = System.currentTimeMillis()
+        val at = frameEventMs8285(j.optLong("timestamp", 0L))
+        val venue = when (val v = venue8285(j.optString("pool", ""))) {
+            com.lifecyclebot.engine.truth.TradeTape8100.VENUE_CURVE_8285 -> "CURVE"
+            com.lifecyclebot.engine.truth.TradeTape8100.VENUE_AMM_8285 -> "PUMPSWAP"
+            else -> v
+        }
         HeliusCurveTape8354.notePumpPortalPrint8354()   // V5.0.8354 — prints{pumpportal=} on the curve-tape line
         com.lifecyclebot.engine.truth.TradeTape8100.note8285(
             mint, priceSol, sol, tokenQty, isBuy, com.lifecyclebot.engine.truth.TradeTape8100.SRC_PUMPPORTAL_8285,
             pool = venue8285(j.optString("pool", "")), signature = j.optString("signature", ""),
             eventMs = frameEventMs8285(j.optLong("timestamp", 0L)), recvMs = System.currentTimeMillis(),
         )
+        com.lifecyclebot.engine.market.KineticFlow8506.observe(com.lifecyclebot.engine.market.KineticFlow8506.Swap(
+            mint, venue, j.optString("signature"), j.optString("traderPublicKey"), isBuy, sol, tokenQty,
+            at.takeIf { it > 0 } ?: recv, j.optLong("slot"), sourceTime = at > 0), recv)
     }
 }

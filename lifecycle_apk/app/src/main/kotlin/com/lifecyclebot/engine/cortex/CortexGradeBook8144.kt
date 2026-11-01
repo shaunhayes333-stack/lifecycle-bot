@@ -105,6 +105,7 @@ class CortexGradeRecord8144(
     var laneMean8371: Double = Double.NaN
     var calStamp8371: Double = Double.NaN
     /** 0 = preserved historical score; 1 = the single per-token arithmetic forecast/verdict introduced in 8372. */
+    var incumbent8506: Boolean? = null
     var scoreVersion8372: Int = 0
     /** A banked simulated exit is labelled explicitly, never a canonical or realised trade. */
     var outcomeSource8372: String = "FORWARD"
@@ -158,6 +159,7 @@ class CortexGradeRecord8144(
         out.rawEdge8371 = rawEdge8371
         out.laneMean8371 = laneMean8371
         out.calStamp8371 = calStamp8371
+        out.incumbent8506 = incumbent8506
         out.scoreVersion8372 = scoreVersion8372
         out.outcomeSource8372 = outcomeSource8372
         out.outcomeKind8394 = outcomeKind8394; out.outcomeDueAtMs8394 = outcomeDueAtMs8394
@@ -496,7 +498,7 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
                 if (it.scoreVersion8372 == 0 && runner && it.tailEv8324.isFinite()) it.tailEv8324 else it.predictedEdgePct,
                 if (!it.lost && it.executablePct.isFinite()) objectivePct8322(it) - offsetFor8372(it) else Double.NaN,
                 it.bucket, if (it.executablePct.isFinite()) objectiveAvailableAt8322(it) else 0L,
-                it.outcomeDueAtMs8394.takeIf { due -> due > 0L } ?: (it.atMs + FIRST_LABEL_MS_8322)) }
+                it.outcomeDueAtMs8394.takeIf { due -> due > 0L } ?: (it.atMs + FIRST_LABEL_MS_8322), it.incumbent8506) }
     }
 
     /** The same frozen, executable current-predictor cohorts used by the visible verdict row and authority.
@@ -714,7 +716,7 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
         clean(r.outcomeKind8394), r.outcomeDueAtMs8394.toString(),
         clean(r.firstOutcomeProof8395), clean(r.revisedOutcomeProof8395), clean(r.modelContribution8395), clean(r.disposition8395),
         // V5.0.8418 — how many later-horizon revisions the record took survives a restart (it restarted at 0).
-        r.revisions8272.toString(),
+        r.revisions8272.toString(), r.incumbent8506?.toString().orEmpty(),
     ).joinToString(FS.toString())
 
     internal fun detached8386(): CortexGradeBook8144 = CortexGradeBook8144(maxDecisions, maxTrades).also { out ->
@@ -736,7 +738,8 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
             // V5.0.8322 — 29 fields (revised executable, its availability, flat mark); 24..26-field rows read as before.
             // V5.0.8324 — 32 fields (objective gross first / revised, tail EV); 24..29-field rows read as before.
             // V5.0.8418 — 47 fields (revision count); 24..46-field rows read with the count unknown-as-0 they always had.
-            if (f.size !in 24..47 || f[0].length != 1 || f[1].isBlank()) continue
+            // V5.0.8506 adds the frozen native decision; all earlier rows remain readable.
+            if (f.size !in 24..48 || f[0].length != 1 || f[1].isBlank()) continue
             val at = f[3].toLongOrNull() ?: continue
             val r = CortexGradeRecord8144(f[0][0], f[1], f[2], at, f[4], f[5], f[6], f[7], f[8], f[9],
                 f[10].toIntOrNull() ?: 1, dbl(f[11]), f[12] == "1", f[13] == "1", f[14] == "1")
@@ -758,6 +761,7 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
             r.outcomeDueAtMs8394 = f.getOrNull(41)?.toLongOrNull() ?: 0L
             r.firstOutcomeProof8395 = f.getOrNull(42).orEmpty(); r.revisedOutcomeProof8395 = f.getOrNull(43).orEmpty()
             r.modelContribution8395 = f.getOrNull(44).orEmpty(); r.disposition8395 = f.getOrNull(45) ?: "LEGACY"
+            r.incumbent8506 = f.getOrNull(47)?.toBooleanStrictOrNull()
             r.revisions8272 = f.getOrNull(46)?.toIntOrNull()?.coerceAtLeast(0) ?: 0
             if (r.lateEntry8153 || r.lateRead8187 || r.flat8322) { r.executablePct = Double.NaN; r.executableRevisedPct = Double.NaN }
             // V5.0.8388 — historical rows whose unwitnessed executable value is physically implausible (8385 SHITCOIN strong

@@ -33,6 +33,19 @@ jobs:
           # Preserve commit ancestry for diagnostic build provenance.
           fetch-depth: 0
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: helius-grpc-hunter/package-lock.json
+
+      - name: Validator relay typecheck and gRPC tests
+        working-directory: helius-grpc-hunter
+        run: |
+          npm ci
+          npm run check
+          npm test
+
       - uses: actions/setup-java@v4
         with:
           java-version: '17'

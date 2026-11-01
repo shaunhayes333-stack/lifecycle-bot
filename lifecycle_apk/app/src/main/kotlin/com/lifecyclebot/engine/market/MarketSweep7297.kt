@@ -82,7 +82,11 @@ object MarketSweep7297 {
          * never its birth — and no launch-window lane may read it as the birth (LaneHunter7297.sniperAgeFits8419).
          */
         val birthProven8419: Boolean = false,
-    )
+        val buysM5: Int = -1, val sellsM5: Int = -1, val volumeM5: Double = Double.NaN,
+        val observedFlow8506: EntryFlow8506? = null,
+    ) {
+        internal val flow5m get() = observedFlow8506 ?: EntryFlow8506(observedAtMs8169, buysM5, sellsM5, volumeM5, priceChange5mPct)
+    }
 
     enum class Band(val minMcap: Double, val maxMcap: Double) {
         MICRO(0.0, 50_000.0),
@@ -129,7 +133,10 @@ object MarketSweep7297 {
         val volume5mUsd: Double,
         val txCount5m: Int,
         val atMs: Long,
-    )
+        val buys5m: Int = -1, val sells5m: Int = -1,
+    ) {
+        internal val flow8506 get() = EntryFlow8506(atMs, buys5m, sells5m, volume5mUsd, priceChange5mPct)
+    }
 
     /**
      * Cross-sectional opportunity intelligence. Absolute quality and relative
@@ -200,6 +207,10 @@ object MarketSweep7297 {
 
     fun latest(): Snapshot? = last
 
+    /** The pair poll or socket already delivered these fields together. */
+    internal fun latestFlow8506(mint: String, nowMs: Long): EntryFlow8506? =
+        realtime7777[mint]?.peekLast()?.flow8506?.takeIf { it.usable(nowMs) }
+
     /**
      * Hot-feed ingress used by DataOrchestrator after it has already accepted
      * a coherent DexScreener mark. O(1), local-only, bounded, and intentionally
@@ -216,6 +227,7 @@ object MarketSweep7297 {
         volume5mUsd: Double,
         txCount5m: Int,
         nowMs: Long = System.currentTimeMillis(),
+        buys5m: Int = -1, sells5m: Int = -1,
     ) {
         if (mint.length < 32 || !priceUsd.isFinite() || priceUsd <= 0.0) return
         val q = realtime7777.computeIfAbsent(mint) { ConcurrentLinkedDeque() }
@@ -225,11 +237,11 @@ object MarketSweep7297 {
                 mcapUsd = mcapUsd.takeIf { it.isFinite() && it > 0.0 } ?: 0.0,
                 liquidityUsd = liquidityUsd.takeIf { it.isFinite() && it > 0.0 } ?: 0.0,
                 buyPressurePct = buyPressurePct.takeIf { it.isFinite() }?.coerceIn(0.0, 100.0) ?: 50.0,
-                priceChange5mPct = priceChange5mPct.takeIf { it.isFinite() } ?: 0.0,
+                priceChange5mPct = priceChange5mPct,
                 priceChange1hPct = priceChange1hPct.takeIf { it.isFinite() } ?: 0.0,
-                volume5mUsd = volume5mUsd.takeIf { it.isFinite() && it >= 0.0 } ?: 0.0,
+                volume5mUsd = volume5mUsd,
                 txCount5m = txCount5m.coerceAtLeast(0),
-                atMs = nowMs,
+                atMs = nowMs, buys5m = buys5m, sells5m = sells5m,
             )
         )
         while (q.size > OPPORTUNITY_OBS_PER_MINT_7777) q.pollFirst()
@@ -250,13 +262,15 @@ object MarketSweep7297 {
         }
     }
 
-    fun opportunityFor7777(mint: String): OpportunitySignal? = opportunity7777[mint]
+    fun opportunityFor7777(mint: String): OpportunitySignal? = opportunity7777[mint]?.takeIf {
+        System.currentTimeMillis() - it.generatedAtMs in 0L..120_000L
+    }
 
     // V5.0.8293 — the rebuild's leaders, kept in rank order so the cycle window reads them without re-sorting the map.
     @Volatile private var top8293: List<String> = emptyList()
 
     /** V5.0.8293 — the current opportunity leaders (best rank first, at most 16), for HunterWindow8293. */
-    fun topOpportunities8293(): List<OpportunitySignal> = top8293.mapNotNull { opportunity7777[it] }
+    fun topOpportunities8293(): List<OpportunitySignal> = top8293.mapNotNull { opportunityFor7777(it) }
 
     /**
      * Pure (V5.0.8293): every row's age advanced to [nowMs] from the moment its provider answered. A list served from its
@@ -275,7 +289,7 @@ object MarketSweep7297 {
      * Weak signals still remain available to lane scorers and forward learning.
      */
     fun opportunityMultiplier7777(mint: String): Double {
-        val o = opportunity7777[mint] ?: return 1.0
+        val o = opportunityFor7777(mint) ?: return 1.0
         var m = 0.82 + (o.score.coerceIn(0.0, 100.0) / 100.0) * 0.36
         if (o.percentile >= 0.90) m += 0.06
         if (o.percentile >= 0.97) m += 0.04
@@ -430,8 +444,11 @@ object MarketSweep7297 {
                     ?: dated.firstOrNull { positive(it.priceUsd) || positive(it.mcapUsd) }
                     ?: dated.first()
                 val named = g.firstOrNull { it.symbol.isNotBlank() } ?: g.first()
-                val birth8419 = try { birthAgeHours(market.mint) } catch (_: Throwable) { null }
+                val birth8419 = (try { birthAgeHours(market.mint) } catch (_: Throwable) { null })
+                    ?.takeIf { it.isFinite() && it > 0.0 }
+                    ?: dated.firstOrNull { it.birthProven8419 && it.ageHours.isFinite() && it.ageHours > 0.0 }?.ageHours
                 market.copy(
+                    observedFlow8506 = dated.asSequence().map { it.flow5m }.filter { it.usable(it.atMs) }.maxByOrNull { it.atMs },
                     symbol = named.symbol,
                     name = named.name,
                     ageHours = mergedAge8418(market.ageHours, g.map { it.ageHours }, birth8419),   // V5.0.8418 — never inflated by the merge
@@ -506,23 +523,22 @@ object MarketSweep7297 {
 
         for (r in current.rows) {
             val rt = realtime7777[r.mint]?.toList()
-                ?.filter { now - it.atMs <= OPPORTUNITY_OBS_MAX_AGE_MS_7777 }
+                ?.filter { now - it.atMs in 0L..OPPORTUNITY_OBS_MAX_AGE_MS_7777 }
                 .orEmpty()
-            val latestRt = rt.lastOrNull()
+            val rowFlow = r.flow5m.takeIf { it.usable(now) }
+            val latestRt = rt.lastOrNull()?.takeIf { it.flow8506.usable(now) &&
+                (rowFlow == null || it.atMs >= rowFlow.atMs) }
             val prev = prevByMint[r.mint]
             val bandMedian = Band.of(r.mcapUsd)?.let { current.bands[it]?.medianChangeH1Pct } ?: 0.0
             val relative = relativeStrength7876(r.priceChangeH1Pct, r.ageHours, bandMedian)
-            val price5 = latestRt?.priceChange5mPct ?: run {
-                if (prev != null && prev.priceUsd > 0.0 && r.priceUsd > 0.0) {
-                    ((r.priceUsd / prev.priceUsd) - 1.0) * 100.0
-                } else 0.0
-            }
+            val price5 = latestRt?.priceChange5mPct ?: rowFlow?.move ?: 0.0
+            val active = (latestRt?.flow8506 ?: rowFlow)?.active == true
 
             fun acceleration(values: List<Double>): Double {
                 if (values.size < 4) return 1.0
                 val split = values.size / 2
-                val early = values.take(split).filter { it > 0.0 }.averageOrNull7777()
-                val late = values.drop(split).filter { it > 0.0 }.averageOrNull7777()
+                val early = values.take(split).filter { it >= 0.0 }.averageOrNull7777()
+                val late = values.drop(split).filter { it >= 0.0 }.averageOrNull7777()
                 return if (early > 0.0 && late >= 0.0) (late / early).coerceIn(0.0, 20.0) else 1.0
             }
             val volAccel = acceleration(rt.map { it.volume5mUsd })
@@ -533,21 +549,22 @@ object MarketSweep7297 {
             val liqDelta = if (liqBefore != null && liqBefore > 0.0 && liqNow > 0.0) {
                 ((liqNow / liqBefore) - 1.0) * 100.0
             } else 0.0
-            val bp = latestRt?.buyPressurePct ?: 50.0
+            val bp = (latestRt?.flow8506 ?: rowFlow)?.buyPct?.takeIf { it.isFinite() } ?: 50.0
             val providerAgreement = r.providers.size.coerceAtLeast(1)
             val turnover = if (r.liquidityUsd > 0.0) (r.volumeH1Usd / r.liquidityUsd).coerceAtLeast(0.0) else 0.0
 
             val setup = when {
                 (r.priceChangeH1Pct >= 35.0 && price5 <= -6.0) || bp <= 38.0 -> "EXHAUSTION"
                 price5 <= -8.0 && r.priceChangeH1Pct > 0.0 -> "DISTRIBUTION"
+                !active -> "OBSERVING"
                 r.priceChangeH1Pct <= -4.0 && price5 >= 1.5 && bp >= 55.0 -> "DIP_RECOVERY"
                 price5 >= 2.0 && bp >= 58.0 && volAccel >= 1.35 -> "EARLY_MOMENTUM_IGNITION"
-                price5 >= 5.0 && relative >= 5.0 -> "BREAKOUT_EXPANSION"
+                price5 >= 5.0 && relative >= 5.0 && bp > 50.0 -> "BREAKOUT_EXPANSION"
                 liqDelta >= 12.0 && bp >= 52.0 -> "LIQUIDITY_EXPANSION"
                 // V5.0.7867 — a leader needs live tape. 5.0.7866's top ranks were
                 // "Transforme"/"ChatGPT"/"NVIDIA" at rs=+1000 with v5=0 and volx=1.0:
                 // a 1h % from a minutes-old launch's first print, no realtime row.
-                relative >= 8.0 && r.priceChangeH1Pct > 0.0 && latestRt != null -> "RELATIVE_STRENGTH_LEADER"
+                relative >= 8.0 && r.priceChangeH1Pct > 0.0 && price5 > 0.0 && bp > 50.0 -> "RELATIVE_STRENGTH_LEADER"
                 r.priceChangeH1Pct >= 3.0 && price5 > 0.0 && bp >= 52.0 -> "CONTINUATION"
                 else -> "OBSERVING"
             }
@@ -591,7 +608,7 @@ object MarketSweep7297 {
                 buyPressurePct = bp,
                 providerAgreement = providerAgreement,
                 regime = regime,
-                generatedAtMs = now,
+                generatedAtMs = latestRt?.atMs ?: rowFlow?.atMs ?: r.observedAtMs8169,
             )
         }
 
@@ -744,6 +761,11 @@ object MarketSweep7297 {
                     verified = false,
                     ageHours = if (created > 0L && created <= now) (now - created) / 3_600_000.0 else 0.0,
                     providers = setOf("DEXSCREENER_ENRICH"),
+                    priceChange5mPct = p.optJSONObject("priceChange")?.optDouble("m5", Double.NaN) ?: Double.NaN,
+                    priceChangeH24Pct = p.optJSONObject("priceChange")?.optDouble("h24", Double.NaN) ?: Double.NaN,
+                    buysM5 = p.optJSONObject("txns")?.optJSONObject("m5")?.optInt("buys", -1) ?: -1,
+                    sellsM5 = p.optJSONObject("txns")?.optJSONObject("m5")?.optInt("sells", -1) ?: -1,
+                    volumeM5 = p.optJSONObject("volume")?.optDouble("m5", Double.NaN) ?: Double.NaN,
                     buysH1 = if (tx != null && tx.has("buys") && tx.has("sells")) tx.optInt("buys", -1) else -1,   // V5.0.8169
                     sellsH1 = if (tx != null && tx.has("buys") && tx.has("sells")) tx.optInt("sells", -1) else -1,
                     observedAtMs8169 = now,
@@ -788,6 +810,10 @@ object MarketSweep7297 {
                 verified = o.optBoolean("isVerified", false),
                 ageHours = if (createdMs > 0L) ((now - createdMs) / 3_600_000.0).coerceAtLeast(0.0) else 0.0,
                 providers = setOf(provider),
+                buysM5 = s5?.optInt("numBuys", -1) ?: -1,
+                sellsM5 = s5?.optInt("numSells", -1) ?: -1,
+                volumeM5 = if (s5 != null && s5.has("buyVolume") && s5.has("sellVolume"))
+                    s5.optDouble("buyVolume", Double.NaN) + s5.optDouble("sellVolume", Double.NaN) else Double.NaN,
                 priceChange5mPct = s5?.optDouble("priceChange", Double.NaN) ?: Double.NaN,
                 priceChangeH24Pct = s24?.optDouble("priceChange", Double.NaN) ?: Double.NaN,
                 buysH1 = if (s1 != null && s1.has("numBuys") && s1.has("numSells")) s1.optInt("numBuys", -1) else -1,   // V5.0.8169

@@ -15,24 +15,14 @@ import java.util.concurrent.ConcurrentHashMap
  * per stage and per run-up band. Read-only evidence: it never admits, refuses or sizes anything. It survives restarts.
  */
 object EntryReceipt8500 {
-    data class Admit8500(val lane: String, val door: String, val setup: String, val atMs: Long)
     data class Receipt8500(val lane: String, val door: String, val setup: String, val stage: String,
                            val runupPct: Double, val vsPeak: Double, val chg5mPct: Double, val ageMin: Double, val atMs: Long)
 
-    private const val ADMIT_CARRY_MS_8500 = 15 * 60_000L
     private const val PERSIST_KEY_8500 = "ENTRY_RECEIPT_8500"
-    private val admits = ConcurrentHashMap<String, Admit8500>()
     private val open = ConcurrentHashMap<String, Receipt8500>()
     /** key -> [n, wins, boughtTop, gaveBack, sumRealisedPct] */
     private val agg = ConcurrentHashMap<String, DoubleArray>()
     @Volatile private var restored = false
-
-    /** CandidateAdmission8136.noteDecision8144: the latest LIVE admission of [mint]. */
-    fun noteAdmission8500(mode: String, mint: String, lane: String, admitted: Boolean, reason: String, setup: String?, nowMs: Long) {
-        if (!admitted || !mode.equals("LIVE", true) || mint.isBlank()) return
-        if (admits.size > 2_000) admits.entries.removeIf { nowMs - it.value.atMs > ADMIT_CARRY_MS_8500 }
-        admits[mint] = Admit8500(lane.trim().uppercase(), reason.take(48), setup.orEmpty().take(40), nowMs)
-    }
 
     /** Pure: the run-up band a receipt folds into. */
     fun runupBand8500(runupPct: Double): String = when {
@@ -53,19 +43,25 @@ object EntryReceipt8500 {
         else -> "deep"
     }
 
-    /** Executor live BUY_VERIFIED_LANDED: the receipt is cut at the fill. */
-    fun onLiveBuy8500(ts: TokenState, nowMs: Long = System.currentTimeMillis()) {
+    internal fun atEntry8506(ts: TokenState, lane: String, version: Long, nowMs: Long,
+                             s: com.lifecyclebot.engine.TokenMetricStageRouter.Snapshot, move: Double): Receipt8500 {
+        val proof = AdmissionEdge8180.proof8198("LIVE", ts.mint, lane, version, nowMs)
+        val grab = try { com.lifecyclebot.engine.RunnerGrab7967.grab7967(ts.mint, nowMs) } catch (_: Exception) { false }
+        val ticket = try { com.lifecyclebot.engine.RunnerPlay8018.ticketActive8018(ts.mint, nowMs) } catch (_: Exception) { false }
+        val door = (proof?.reason ?: "NO_LIVE_ADMISSION_RECORD") + (if (grab) "+GRAB" else "") + (if (ticket) "+TICKET" else "")
+        return Receipt8500(lane, door, proof?.chosenSetup.orEmpty(), s.stage.name, s.runupFromLocalLowPct, s.currentVsPeak,
+            move, s.ageMin, nowMs)
+    }
+
+    /** The landed fill commits the evidence captured for this exact execution attempt. */
+    fun onLiveBuy8500(ts: TokenState, receipt: Receipt8500?) {
+        if (receipt == null) return
         try {
             restore8500()
             val mint = ts.mint
             if (mint.isBlank()) return
-            val a = admits[mint]?.takeIf { nowMs - it.atMs in 0L..ADMIT_CARRY_MS_8500 }
-            val grab = try { com.lifecyclebot.engine.RunnerGrab7967.grab7967(mint, nowMs) } catch (_: Throwable) { false }
-            val ticket = try { com.lifecyclebot.engine.RunnerPlay8018.ticketActive8018(mint, nowMs) } catch (_: Throwable) { false }
-            val door = (a?.door ?: "NO_LIVE_ADMISSION_RECORD") + (if (grab) "+GRAB" else "") + (if (ticket) "+TICKET" else "")
-            val s = com.lifecyclebot.engine.TokenMetricStageRouter.snapshot(ts)
-            open[mint] = Receipt8500(a?.lane ?: "?", door, a?.setup ?: "", s.stage.name, s.runupFromLocalLowPct, s.currentVsPeak,
-                ts.lastPriceChange5m, s.ageMin, nowMs)
+            val nowMs = receipt.atMs
+            open[mint] = receipt
             if (open.size > 500) open.entries.removeIf { nowMs - it.value.atMs > 7 * 24 * 3_600_000L }
             PipelineHealthCollector.labelInc("ENTRY_RECEIPT_8500_CUT")
             persist8500()
@@ -144,5 +140,5 @@ object EntryReceipt8500 {
         try { com.lifecyclebot.engine.LearningPersistence.save(PERSIST_KEY_8500, encode8500()) } catch (_: Throwable) {}
     }
 
-    internal fun resetForTest8500() { admits.clear(); open.clear(); agg.clear(); restored = true }
+    internal fun resetForTest8500() { open.clear(); agg.clear(); restored = true }
 }

@@ -449,6 +449,14 @@ object TradeAuthorizer {
 
         // V5.0.8304 — the live executor's dead / flat chart refusal (FlatChart8027) is a deterministic read of the current
         // chart: refuse it here, before the seal, so it never costs a sealed ticket (8302: MOONSHOT FLATLINE_8027 post-ticket).
+        if (!isPaperMode && TokenMetricStageRouter.memeEntry8506(requestedBook.name, mint)) {
+            val wait = TokenMetricStageRouter.entryRead8506(tokenState7835, requestedBook.name, now).second
+            if (wait != null) {
+                val reason = "ENTRY_${wait}_8506"
+                releasePrimaryAfterAuthFailure(reason)
+                return rejectAuth4424(reason, BlockLevel.SOFT, canRetry = true, stampCausal7858 = false)
+            }
+        }
         TicketExec8304.preSealChartRefusal8304(tokenState7835, isPaperMode)?.let { why8304 ->
             releasePrimaryAfterAuthFailure(why8304)
             return rejectAuth4424(why8304, BlockLevel.SOFT, canRetry = true, stampCausal7858 = false)

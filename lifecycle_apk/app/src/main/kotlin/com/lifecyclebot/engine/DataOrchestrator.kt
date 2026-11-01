@@ -894,6 +894,15 @@ class DataOrchestrator(
     private val lastHeliusTradeMs8252 = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val PUMPPORTAL_PRIORITY_MS_7773 = 20_000L
 
+    fun onValidatorTrade8506(event: com.lifecyclebot.engine.market.KineticFlow8506.Swap): Boolean {
+        val key = com.lifecyclebot.engine.truth.LaunchEvidence8136.dedupKey8136(
+            event.mint, event.signature, event.buyer, event.isBuy, event.sol, 0.0, 0.0)
+        if (!com.lifecyclebot.engine.truth.LaunchEvidence8136.noteSwap8136(event.mint, key)) return false
+        onTapeTrade7773(event.mint, event.buyer, event.sol, event.isBuy, 0.0)
+        onTradePrint7819(event.mint, event.sol / event.qty)
+        return true
+    }
+
     private fun onTapeTrade7773(mint: String, wallet: String, solAmount: Double, isBuy: Boolean, soldFractionOfHolding: Double) {
         // V5.0.8252 — a print is tape / swaps / buy-pressure evidence: a held defer waiting for it is due now.
         try { com.lifecyclebot.engine.truth.CandidateAdmission8136.evidenceArrived8252(mint, com.lifecyclebot.engine.truth.CandidateAdmission8136.TAPE_FEATURES_8252) } catch (_: Throwable) {}
@@ -1077,6 +1086,7 @@ class DataOrchestrator(
                 // from a token already cascading after its pump.
                 ts.lastPriceChange5m = priceChange5m
                 ts.lastPriceChange1h = priceChange1h
+                if (priceChange1h.isFinite()) ts.hourChangeObservedAtMs8506 = ts.lastPriceUpdate
                 if (priceChange5m.isFinite()) ts.priceChangeObservedAtMs8084 = System.currentTimeMillis()   // V5.0.8084
                 
                 // Update volume scores in meta (copy with new values)
@@ -1108,7 +1118,7 @@ class DataOrchestrator(
                         priceChange5mPct = priceChange5m,
                         priceChange1hPct = priceChange1h,
                         volume5mUsd = volume5m,
-                        txCount5m = txns5m,
+                        txCount5m = txns5m, buys5m = buys5m, sells5m = sells5m,
                     )
                 } catch (_: Throwable) {}
                 

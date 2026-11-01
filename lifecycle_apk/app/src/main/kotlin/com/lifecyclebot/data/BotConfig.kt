@@ -421,6 +421,16 @@ object ConfigStore {
     )
 
     /** V5.0.7958 — the market-data keys, kept out of BotConfig (JVM constructor slot limit). */
+    private val feedKeys8506 = listOf("yellowstone_tls_endpoint", "yellowstone_x_token", "x_filtered_stream_bearer")
+    fun validatorFeeds8506(ctx: Context): List<String> {
+        val store = secrets(ctx)
+        return feedKeys8506.map { store.getString(it, "").orEmpty() }
+    }
+    fun saveValidatorFeeds8506(ctx: Context, values: List<String>) {
+        require(values.size == feedKeys8506.size)
+        secrets(ctx).edit().apply { feedKeys8506.forEachIndexed { i, key -> putString(key, values[i].trim()) } }.apply()
+    }
+
     fun marketDataKeys7958(ctx: Context): List<String> = try {
         val s = secrets(ctx)
         MARKET_DATA_KEY_NAMES_7958.map { s.getString(it, "").orEmpty().trim() }

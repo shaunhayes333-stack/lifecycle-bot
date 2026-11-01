@@ -46,7 +46,7 @@ object CortexAuthority8366 {
     const val MIN_FULL_MARGIN_PCT_8366 = 2.0
     const val REVOKE_MIN_N_8366 = 20
 
-    enum class Verdict8366 { INSUFFICIENT_OOS, NO_RANK, SPREAD_BELOW_COST, TOP_NOT_POSITIVE, INCOMPLETE_OUTCOMES, GRANTED, RAMP_8399 }
+    enum class Verdict8366 { INSUFFICIENT_OOS, NO_RANK, SPREAD_BELOW_COST, TOP_NOT_POSITIVE, INCOMPLETE_OUTCOMES, GRANTED, RAMP_8399, NATIVE_POLICY_UNBEATEN }
 
     /**
      * One graded executable decision: its immutable decision-time score/verdict and executable-net objective (%).
@@ -60,6 +60,7 @@ object CortexAuthority8366 {
         val frozenBucket: Int? = null,
         val outcomeAvailableAtMs: Long = 0L,
         val dueAtMs8392: Long = 0L,
+        val incumbent8506: Boolean? = null,
     )
 
     data class Result8366(
@@ -98,6 +99,36 @@ object CortexAuthority8366 {
         if (s.isEmpty()) return Double.NaN
         val i = (q.coerceIn(0.0, 1.0) * (s.size - 1)).toInt().coerceIn(0, s.size - 1)
         return s[i]
+    }
+
+    /** Same live-mode FDG opportunities with a frozen Cortex call and executable net outcome.
+     * Neutral follows the incumbent. A skipped entry earns zero. Historical rows without an
+     * independently recorded incumbent decision cannot grant entry authority. */
+    internal fun beatsIncumbent8506(rows: List<Row8366>, nowMs: Long): Boolean {
+        val mature = rows.filter { it.incumbent8506 != null && it.atMs in 1L..nowMs &&
+            it.frozenBucket in CortexScoreboard7885.Bucket.values().indices &&
+            (it.dueAtMs8392 in 1L..nowMs || it.outcomeAvailableAtMs in (it.atMs + 1)..nowMs) }
+        val resolved = mature.filter { it.netPct.isFinite() && it.outcomeAvailableAtMs in (it.atMs + 1)..nowMs }.sortedBy { it.atMs }
+        for (admitted in listOf(true, false)) {
+            val side = mature.count { it.incumbent8506 == admitted }
+            val known = resolved.count { it.incumbent8506 == admitted }
+            if (known < MIN_BUCKET_N_8366 || known < MIN_COVERAGE_FOR_ANY_8399 * side) return false
+        }
+        val base = resolved.map { if (it.incumbent8506 == true) it.netPct else 0.0 }
+        val challenger = resolved.mapIndexed { i, row -> when (row.frozenBucket) {
+            CortexScoreboard7885.Bucket.STRONG.ordinal -> row.netPct
+            CortexScoreboard7885.Bucket.REFUSE.ordinal -> 0.0
+            else -> base[i]
+        } }
+        // The policies were fixed before outcomes. Test the chronological holdout without fitting a fold.
+        val warmup = resolved.size / FOLDS_8366
+        val baseline = base.drop(warmup)
+        val candidate = challenger.drop(warmup)
+        val deltas = candidate.indices.map { candidate[it] - baseline[it] }
+        if (deltas.size < MIN_RAMP_OOS_N_8399 || deltas.count { it != 0.0 } < MIN_BUCKET_N_8366) return false
+        return candidate.average() > 0.0 &&
+            CortexWalkForward8144.stat8144(deltas).lower > LearningPolicyCompare8153.MARGIN_PCT_8153 &&
+            LearningObjective8153.score8153(candidate).score > LearningObjective8153.score8153(baseline).score
     }
 
     /** Pure: the single walk-forward test of [rows] (any order) at round-trip cost [costPct]. */

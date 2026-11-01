@@ -16,6 +16,16 @@ class Aate8243StrategyElectionTest {
     private fun defer(lane: String) = Verdict8243(lane, Terminal8136.DEFER_DATA, false, Double.NaN, null, "DATA_INCOMPLETE_DEFER_8136")
     private fun generic(lane: String) = Verdict8243(lane, Terminal8136.ADMIT, false, 2.0, null, "GENERIC_PRIOR_CLEARS_8136")
 
+    @Test fun confirmedNativeSetupCanOwnAheadOfAnUnjudgedHigherScore() {
+        val native = StrategyElection8243.Verdict8243("EXPRESS", Terminal8136.ADMIT,
+            false, 4.0, "IGNITION_5M", "NATIVE_QUALIFIED_ADMIT_8259")
+        val v = mapOf("EXPRESS" to native)
+        assertEquals(setOf("CORE", "EXPRESS"), StrategyElection8243.contestLanes(setOf("CORE"), setOf("EXPRESS"), v))
+        assertEquals("EXPRESS", StrategyElection8243.ownerOrder8243(mapOf("CORE" to 90.0, "EXPRESS" to 45.0), v))
+        assertEquals("CORE", StrategyElection8243.ownerOrder8243(mapOf("CORE" to 90.0, "EXPRESS" to 45.0),
+            mapOf("EXPRESS" to native.copy(setup = "NO_TRIGGER"))))
+    }
+
     @Test fun zfrogTheProvenStrategyOutranksTheConvictionWinner() {
         // 8241: MOONSHOT 80 (DATA_INCOMPLETE_DEFER) owned ZFROG +129,601%; SHITCOIN 37 held ADMIT:SPECIFIC_EDGE_PROVEN.
         val scores = mapOf("MOONSHOT" to 80.0, "SHITCOIN" to 37.0)

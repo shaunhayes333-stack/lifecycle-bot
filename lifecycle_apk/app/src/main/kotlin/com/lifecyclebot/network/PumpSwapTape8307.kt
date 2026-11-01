@@ -267,6 +267,8 @@ object PumpSwapTape8307 {
     @Volatile private var lastTapeSet8307: List<String> = emptyList()
 
     /** DataOrchestrator: the set the parsed stream was last asked for (for the report). */
+    internal fun validatorWatch8506(): List<String> = lastTapeSet8307.toList()
+
     fun noteTapeSet8307(set: List<String>, budget8399: String = "OK") { lastTapeSet8307 = set; tapeBudget8399 = budget8399 }
     @Volatile private var tapeBudget8399: String = "OK"
     /** V5.0.8399 — the budget state the last tape set was built under (report). */

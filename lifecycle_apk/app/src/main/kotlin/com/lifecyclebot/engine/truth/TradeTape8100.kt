@@ -279,6 +279,31 @@ object TradeTape8100 {
         try { PipelineHealthCollector.labelInc("TRADE_TAPE_FILLED_8100_$feature") } catch (_: Throwable) {}
     }
 
+    internal fun entryFlow8506(mint: String, nowMs: Long, afterMs: Long): com.lifecyclebot.engine.market.EntryFlow8506? {
+        val q = tapes[mint] ?: return null
+        synchronized(q) {
+            // Select one venue using the same rule as prints8128. Untagged prints are compatible.
+            val venue = q.lastOrNull { !it.priceOnly && it.pool.isNotBlank() }?.pool.orEmpty()
+            var first: Trade? = null
+            var last: Trade? = null
+            var buys = 0
+            var sells = 0
+            var volume = 0.0
+            for (trade in q) {
+                if (trade.priceOnly || trade.inferred || !trade.sol.isFinite() || trade.sol <= 0.0 ||
+                    (venue.isNotBlank() && trade.pool.isNotBlank() && trade.pool != venue) ||
+                    nowMs - trade.atMs !in 0L..BP_WINDOW_MS) continue
+                if (first == null || trade.atMs < first.atMs) first = trade
+                if (last == null || trade.atMs >= last.atMs) last = trade
+                if (trade.isBuy) buys++ else sells++
+                volume += trade.sol
+            }
+            if (buys + sells < 3 || first == null || last == null || last.atMs <= maxOf(first.atMs, afterMs)) return null
+            return com.lifecyclebot.engine.market.EntryFlow8506(last.atMs, buys, sells, volume,
+                (last.priceSol / first.priceSol - 1.0) * 100.0).takeIf { it.usable(nowMs) }
+        }
+    }
+
     /** V5.0.8128 — one executed curve print (SOL per token, SOL size), read by the chart backfill's keyless local rung. */
     data class Print8128(val atMs: Long, val priceSol: Double, val sol: Double, val isBuy: Boolean,
                          val source: String = "", val pool: String = "",   // V5.0.8285 — provenance

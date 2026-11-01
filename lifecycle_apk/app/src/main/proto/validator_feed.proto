@@ -1,0 +1,27 @@
+// Wire-compatible projection of rpcpool/yellowstone-grpc, geyser.proto and solana-storage.proto.
+// Unused fields are skipped by protobuf. The service and message field numbers are the upstream ABI.
+syntax = "proto3";
+package geyser;
+option java_package = "com.lifecyclebot.validator";
+option java_outer_classname = "ValidatorFeed";
+message Filter { optional bool vote = 1; optional bool failed = 2; repeated string account_include = 3; repeated string account_required = 6; }
+message Empty {}
+message Ping { int32 id = 1; }
+message Request { map<string,Filter> transactions = 3; optional int32 commitment = 6; map<string,Empty> blocks_meta = 5; Ping ping = 9; }
+message Update { repeated string filters = 1; TxUpdate transaction = 4; Empty ping = 6; Block block_meta = 7; Timestamp created_at = 11; }
+message Timestamp { int64 seconds = 1; int32 nanos = 2; }
+message Block { uint64 slot = 1; Timestamp block_time = 4; }
+message TxUpdate { TxInfo transaction = 1; uint64 slot = 2; }
+message TxInfo { bytes signature = 1; bool is_vote = 2; Tx transaction = 3; Meta meta = 4; }
+message Tx { Msg message = 2; }
+message Msg { Header header = 1; repeated bytes account_keys = 2; repeated Ix instructions = 4; }
+message Header { uint32 num_required_signatures = 1; }
+message Ix { uint32 program_id_index = 1; bytes accounts = 2; bytes data = 3; }
+message Meta {
+    Empty err = 1; repeated Inner inner_instructions = 5; repeated string log_messages = 6;
+    repeated Balance pre_token_balances = 7; repeated Balance post_token_balances = 8;
+    repeated bytes loaded_writable_addresses = 12; repeated bytes loaded_readonly_addresses = 13;
+}
+message Inner { uint32 index = 1; repeated Ix instructions = 2; }
+message Balance { uint32 account_index = 1; string mint = 2; Amount ui_token_amount = 3; string owner = 4; }
+message Amount { uint32 decimals = 2; string amount = 3; string ui_amount_string = 4; }

@@ -29,6 +29,8 @@ object StrategyElection8243 {
     data class Verdict8243(val lane: String, val terminal: CandidateAdmission8136.Terminal8136?, val specific: Boolean,
                            val netPct: Double, val setup: String?, val reason: String) {
         val provenAdmit: Boolean get() = terminal == CandidateAdmission8136.Terminal8136.ADMIT && specific
+        val nativeAdmit: Boolean get() = terminal == CandidateAdmission8136.Terminal8136.ADMIT &&
+            reason == "NATIVE_QUALIFIED_ADMIT_8259" && !setup.isNullOrBlank() && setup != "NO_TRIGGER" && netPct.isFinite() && netPct > 0.0
         val specificRefuse: Boolean get() = terminal == CandidateAdmission8136.Terminal8136.REFUSE && specific
     }
 
@@ -57,7 +59,7 @@ object StrategyElection8243 {
     /** READY is a scheduling state. It must not hide a natively qualified,
      * independently admitted strategy before the edge ranking can inspect it. */
     internal fun contestLanes(ready: Set<String>, qualified: Set<String>, verdicts: Map<String, Verdict8243?>): Set<String> =
-        ready + qualified.filter { verdicts[it]?.provenAdmit == true }
+        ready + qualified.filter { verdicts[it]?.let { v -> v.provenAdmit || v.nativeAdmit } == true }
 
     /** Pure: the lane that owns the candidate — best tier, then (ADMIT tier) best net of cost, then conviction, then name. */
     fun ownerOrder8243(scores: Map<String, Double>, verdicts: Map<String, Verdict8243?>): String? {
@@ -67,6 +69,7 @@ object StrategyElection8243 {
         return scores.keys.sortedWith(
             compareBy<String> { tier8243(v(it)) }
                 .thenByDescending { if (tier8243(v(it)) == TIER_ADMIT) net(it) else 0.0 }
+                .thenByDescending { v(it)?.nativeAdmit == true }
                 .thenByDescending { scores[it] ?: Double.NEGATIVE_INFINITY }
                 .thenBy { it },
         ).firstOrNull()
@@ -85,7 +88,8 @@ object StrategyElection8243 {
     /** The lane's candidate-specific admission read for this generation (memoised [MEMO_MS_8243]); null = no read. */
     private fun verdictFor8243(ts: TokenState, lane: String, candidateVersion: Long, nowMs: Long): Verdict8243? {
         val l = lane.trim().uppercase()
-        val key = "${ts.mint}|$l|$candidateVersion"
+        val paper = FdgGate8365.paperContext8393() ?: com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
+        val key = "${ts.mint}|$l|$candidateVersion|$paper|${FdgGate8365.policyKey8393()}"
         memos8243[key]?.takeIf { nowMs - it.atMs in 0L..MEMO_MS_8243 }?.let { return it.verdict }
         val d = try { CandidateAdmission8136.assess8136(ts, l, nowMs, candidateVersion) } catch (_: Throwable) { null }
         val v = d?.let { Verdict8243(l, it.terminal, it.specific, it.expectedNetPct, it.chosenSetup, it.reason) }

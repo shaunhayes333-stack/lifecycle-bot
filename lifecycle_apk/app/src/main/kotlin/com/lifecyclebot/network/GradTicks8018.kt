@@ -93,7 +93,8 @@ object GradTicks8018 {
 
     /** V5.0.8419 — pure: the dex label a tick's source carries into TokenState.lastPriceDex (copied to tokenMap.dexId / venue). */
     fun dexFor8419(source: String): String =
-        if (source.startsWith("POOL_VAULT_WS_8418_") || source.startsWith("POOL_STATE_WS_8418_")) source.substringAfterLast("_8418_").uppercase()
+        if (source.startsWith("YELLOWSTONE_TRADE_8506_")) source.substringAfter("YELLOWSTONE_TRADE_8506_")
+        else if (source.startsWith("POOL_VAULT_WS_8418_") || source.startsWith("POOL_STATE_WS_8418_")) source.substringAfterLast("_8418_").uppercase()
         else "PUMPSWAP"
 
     private fun b58(b: ByteArray, off: Int): String =

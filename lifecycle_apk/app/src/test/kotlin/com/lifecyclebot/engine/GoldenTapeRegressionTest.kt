@@ -4,6 +4,7 @@ import com.lifecyclebot.data.Position
 import com.lifecyclebot.data.TokenState
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -14083,7 +14084,7 @@ class GoldenTapeRegressionTest {
         assertTrue(fom.contains("val fromPaperPrior6991 = isPaper && src.endsWith(\"_label_prior\")"))
         // Labeler: the signature travels with the observation and the 60-minute label teaches the model.
         val labeler = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
-        assertTrue(labeler.contains("fun observe(ts: TokenState, lane: String, admitted: Boolean, reason: String?, nowMs: Long = System.currentTimeMillis(), score: Int = -1) {"))
+        assertTrue(labeler.contains("fun observe(ts: TokenState, lane: String, admitted: Boolean, reason: String?, nowMs: Long = System.currentTimeMillis(), score: Int = -1, incumbent8506: Boolean? = null) {"))
         // superseded by V5.0.8418 — the label carries its decision id
         assertTrue(labeler.contains("ForwardOutcomeModel.recordLabel7734(o.lane, o.score, o.quality, o.regime, o.phase, net, \"\${o.mint}|\${o.lane}|\${o.atMs}\")"))
         assertTrue(labeler.indexOf("book(o, 60, net, gross)") < labeler.indexOf("ForwardOutcomeModel.recordLabel7734("))
@@ -14775,7 +14776,7 @@ class GoldenTapeRegressionTest {
         assertTrue(h.contains("subscriptionToMint7765[sub] = mint"))
         val logs = h.substringAfter("\"logsNotification\" -> {", "").substringBefore("\"accountNotification\" -> {", "")
         val mintLookup = logs.indexOf("val mint8397 = subscriptionToMint7765[params.optInt(\"subscription\", -1)].orEmpty()")
-        val parse = logs.indexOf("parseLogsNotification(value, mint8397)")
+        val parse = logs.indexOf("parseLogsNotification(value, mint8397, result.optJSONObject(\"context\")?.optLong(\"slot\") ?: 0L)")
         assertTrue("each notification is parsed with the mint belonging to its server subscription", mintLookup in 0 until parse)
         assertFalse(h.contains("onSwap(\"\", "))
         assertTrue(h.contains("b.copyOfRange(8, 40).contentEquals(mintBytes)"))
@@ -15572,7 +15573,7 @@ class GoldenTapeRegressionTest {
         assertTrue(src("truth/EvidenceShadow8344").contains("ShadowMark8360.observedTimed8372"))
         // superseded by V5.0.8395: the grade record carries R1/R3 disposition, receipt and provenance fields (rows 24..46, older rows still load).
         // superseded by V5.0.8418 — the record adds its revision count (field 46); rows 24..46 still load.
-        assertTrue(src("cortex/CortexGradeBook8144").contains("f.size !in 24..47"))
+        assertTrue(src("cortex/CortexGradeBook8144").contains("f.size !in 24..48"))
         assertTrue(src("cortex/Cortex7885").contains("shadowMaturity8394"))
         assertTrue(src("truth/EvidenceHold8336").contains("it.entryTsMs >= epoch8394"))
     }
@@ -15598,7 +15599,7 @@ class GoldenTapeRegressionTest {
         assertTrue(rec.contains("private const val PERSIST_KEY_8500 = \"ENTRY_RECEIPT_8500\""))
         assertTrue(rec.contains("if (!restored) return   // never overwrite the stored book with an unrestored one"))
         val ex = java.io.File(root, "Executor.kt").readText()
-        assertTrue(ex.contains("com.lifecyclebot.engine.truth.EntryReceipt8500.onLiveBuy8500(ts)"))
+        assertTrue(ex.contains("com.lifecyclebot.engine.truth.EntryReceipt8500.onLiveBuy8500(ts, entryEvidence7863.receipt8506)"))
         val cap = java.io.File(root, "truth/RunnerCapture8017.kt").readText()
         assertTrue(cap.contains("EntryReceipt8500.onLiveClose8500(env.mint, env.mode, env.terminal, env.realizedReturnPct, env.mfePct)"))
         val router = java.io.File(root, "TokenMetricStageRouter.kt").readText()
@@ -15665,5 +15666,13 @@ class GoldenTapeRegressionTest {
         val h = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/HiveEdge8000.kt").readText()
         assertTrue(h.contains("if (!fullPulledThisProcess8094) bootPageIn8505(client)   // V5.0.8505"))
         assertTrue(h.contains("pageInFlight8505.compareAndSet(false, true)"))
+    }
+    @Test
+    fun V5_0_8506_unclassified_meme_entries_wait_and_supported_reclaims_trade() {
+        val t = TokenMetricStageRouter
+        val flow = com.lifecyclebot.engine.market.EntryFlow8506(100L, 12, 4, 200.0, 3.0)
+        assertEquals("STAGE_UNRESOLVED", t.entryWait8506(TokenMetricStageRouter.LaneFit(true, "MOONSHOT",
+            TokenMetricStageRouter.Stage.UNKNOWN, ""), flow))
+        assertNull(t.entryWait8506(TokenMetricStageRouter.LaneFit(true, "DIP_HUNTER", TokenMetricStageRouter.Stage.DUMPING, ""), flow))
     }
 }

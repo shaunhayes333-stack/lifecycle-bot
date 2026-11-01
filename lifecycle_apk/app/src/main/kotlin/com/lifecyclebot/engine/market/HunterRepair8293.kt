@@ -182,7 +182,7 @@ object HunterShape8293 {
  */
 object OpportunityRoute8293 {
     val CONSTRUCTIVE_8293 = setOf(
-        "EARLY_MOMENTUM_IGNITION", "BREAKOUT_EXPANSION", "RELATIVE_STRENGTH_LEADER", "LIQUIDITY_EXPANSION", "CONTINUATION",
+        "EARLY_MOMENTUM_IGNITION", "BREAKOUT_EXPANSION", "RELATIVE_STRENGTH_LEADER", "LIQUIDITY_EXPANSION", "CONTINUATION", "DIP_RECOVERY",
     )
     const val TOP_RANK_8293 = 10
     const val TOP_SCORE_8293 = 80.0
@@ -197,6 +197,18 @@ object OpportunityRoute8293 {
     /** Pure: is [o] an opportunity leader (top ranks, high score, constructive setup)? */
     fun isTop8293(o: MarketSweep7297.OpportunitySignal?): Boolean =
         o != null && o.rank in 1..TOP_RANK_8293 && o.score >= TOP_SCORE_8293 && o.setup in CONSTRUCTIVE_8293
+
+    /** Priority within a desk follows its mandate. Every other eligible candidate retains its ordinary rank. */
+    fun leadsLane8506(lane: String, setup: String): Boolean = when (lane) {
+        "DIP_HUNTER", "CYCLIC" -> setup == "DIP_RECOVERY"
+        "TREASURY", "CASHGEN" -> setup == "CONTINUATION" || setup == "LIQUIDITY_EXPANSION"
+        "QUALITY", "BLUECHIP" -> setup in setOf("CONTINUATION", "LIQUIDITY_EXPANSION", "RELATIVE_STRENGTH_LEADER", "DIP_RECOVERY")
+        "PROJECT_SNIPER" -> setup == "EARLY_MOMENTUM_IGNITION"
+        "MANIPULATED" -> setup == "EARLY_MOMENTUM_IGNITION" || setup == "DIP_RECOVERY"
+        "EXPRESS", "MOONSHOT", "SHITCOIN" -> setup in setOf("EARLY_MOMENTUM_IGNITION", "BREAKOUT_EXPANSION", "CONTINUATION", "RELATIVE_STRENGTH_LEADER")
+        "CORE" -> setup in CONSTRUCTIVE_8293
+        else -> false
+    }
 
     /** Pure: the route of one leader row through every lane's band and mandate, and which lanes picked it. */
     fun route8293(r: MarketSweep7297.Row, o: MarketSweep7297.OpportunitySignal, lanes: List<LaneTest8293>,

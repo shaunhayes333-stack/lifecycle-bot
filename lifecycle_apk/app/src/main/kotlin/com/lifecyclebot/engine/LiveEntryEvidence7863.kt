@@ -11,6 +11,8 @@ internal data class LiveEntryEvidence7863(
     val holderPct: Double, val rug: String,
     val educationScores8491: String = "",
     val v4EntryContext8491: String = "",
+    val receipt8506: com.lifecyclebot.engine.truth.EntryReceipt8500.Receipt8500? = null,
+    val wait8506: String? = null,
 ) {
     companion object {
         fun capture(ts: TokenState, intent: ExecutableOpenGate.ExecutionIntent): LiveEntryEvidence7863 {
@@ -18,6 +20,13 @@ internal data class LiveEntryEvidence7863(
             val decision = AateDecisionFabric6512.get(intent.mode, ts.mint, intent.candidateVersion, lane)
             val desk = try { ToolkitSignalSheet.snapshot(ts).deskHypotheses[lane] } catch (_: Throwable) { null }
             val objections = ts.lastConsensusObjections.toList()
+            val now = System.currentTimeMillis()
+            val meme = TokenMetricStageRouter.memeEntry8506(lane, ts.mint)
+            val flow = if (meme) com.lifecyclebot.engine.market.EntryFlow8506.forMint(ts.mint, now) else null
+            val stage = if (meme) TokenMetricStageRouter.snapshot(ts, now, flow) else null
+            val wait = stage?.let { TokenMetricStageRouter.entryWait8506(TokenMetricStageRouter.laneFit(ts, lane, now, flow, it), flow) }
+            val receipt = if (stage != null && flow != null && wait == null)
+                com.lifecyclebot.engine.truth.EntryReceipt8500.atEntry8506(ts, lane, intent.candidateVersion, now, stage, flow.move) else null
             return LiveEntryEvidence7863(
                 desk, decision?.context?.source ?: ts.source,
                 decision?.context?.regime ?: try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "UNKNOWN" },
@@ -30,6 +39,7 @@ internal data class LiveEntryEvidence7863(
                 "rug=${ts.safety.rugcheckStatus};hard=${ts.safety.hardBlockReasons.joinToString("+").take(120)}",
                 com.lifecyclebot.v3.scoring.EducationSubLayerAI.entryScoresJson8491(ts.mint, intent.mode),
                 com.lifecyclebot.v4.meta.TradeLessonRecorder.captureMemeEntry8491(ts.mint, ts.symbol, lane, intent.mode, ts.lastPrice),
+                receipt, wait,
             )
         }
     }

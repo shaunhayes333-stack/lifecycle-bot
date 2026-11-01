@@ -1,6 +1,8 @@
 package com.lifecyclebot.engine
 
 import com.lifecyclebot.data.TokenState
+import com.lifecyclebot.engine.market.EntryFlow8506
+import com.lifecyclebot.engine.truth.SetupFeatureResolver8169
 import kotlin.math.max
 import kotlin.math.min
 
@@ -17,7 +19,7 @@ import kotlin.math.min
 object TokenMetricStageRouter {
     const val VERSION = "V5.0.4033_TOKEN_METRIC_STAGE_ROUTER"
 
-    enum class Stage { FRESH_LAUNCH, BASE_START, MID_ACCUMULATION, CONTROLLED_MARKUP, PEAK_EXHAUSTION, DUMPING, RUG_PRONE, UNKNOWN }
+    enum class Stage { FRESH_LAUNCH, BASE_START, MID_ACCUMULATION, CONTROLLED_MARKUP, PEAK_EXHAUSTION, DUMPING, RUG_PRONE, UNKNOWN, NO_SETUP }
 
     data class Snapshot(
         val stage: Stage,
@@ -34,7 +36,7 @@ object TokenMetricStageRouter {
         val reason: String,
     ) {
         val compact: String get() =
-            "$VERSION stage=$stage age=${ageMin.toInt()}m peakPos=${"%.2f".format(currentVsPeak)} dd=${drawdownFromPeakPct.toInt()}% runup=${runupFromLocalLowPct.toInt()}% bp=${buyPressurePct.toInt()} sp=${sellPressurePct.toInt()} liq=${liquidityUsd.toInt()} mcapLiq=${"%.1f".format(mcapToLiq)} top=${topHolderPct.toInt()} $reason"
+            "$VERSION stage=$stage age=${ageMin.takeIf { it.isFinite() }?.let { "${it.toInt()}m" } ?: "unresolved"} peakPos=${"%.2f".format(currentVsPeak)} dd=${drawdownFromPeakPct.toInt()}% runup=${runupFromLocalLowPct.toInt()}% bp=${buyPressurePct.toInt()} sp=${sellPressurePct.toInt()} liq=${liquidityUsd.toInt()} mcapLiq=${"%.1f".format(mcapToLiq)} top=${topHolderPct.toInt()} $reason"
     }
 
     data class LaneFit(val allowed: Boolean, val lane: String, val stage: Stage, val reason: String)
@@ -53,9 +55,13 @@ object TokenMetricStageRouter {
         }
     }
 
-    fun snapshot(ts: TokenState): Snapshot = try {
-        val hist = ts.history.toList().filter { it.priceUsd > 0.0 }
+    fun snapshot(ts: TokenState): Snapshot {
         val now = System.currentTimeMillis()
+        return snapshot(ts, now, EntryFlow8506.provider(ts.mint, now))
+    }
+
+    internal fun snapshot(ts: TokenState, now: Long, flow: EntryFlow8506?): Snapshot = try {
+        val hist = synchronized(ts.history) { ts.history.filter { it.priceUsd.isFinite() && it.priceUsd > 0.0 } }
         // V5.0.7401 — token age is launch age, not "time since AATE noticed it".
         // A trending token discovered after its pump used to reset to age=0 and
         // was routed back into PROJECT_SNIPER as FRESH_LAUNCH.
@@ -70,15 +76,26 @@ object TokenMetricStageRouter {
             lastHistory?.ts ?: 0L, ts.lastPrice, ts.lastPriceUpdate)
         val newestTick = ts.lastPriceUpdate > 0L && ts.lastPriceUpdate > (lastHistory?.ts ?: 0L) && current > 0.0
         val local = (prices.takeLast(24) + if (newestTick) listOf(current) else emptyList()).takeLast(24)
-        val peak = local.maxOrNull()?.takeIf { it > 0.0 } ?: current.takeIf { it > 0.0 } ?: 0.0
+        val closePeak = local.maxOrNull()?.takeIf { it > 0.0 } ?: current.coerceAtLeast(0.0)
+        // A second observed bar corroborates a wick. A single outlier cannot manufacture a dump.
+        var highest = 0.0
+        var corroborated = 0.0
+        for (bar in hist.takeLast(24)) {
+            if (bar.synthetic || !bar.highUsd.isFinite() || bar.highUsd < bar.priceUsd) continue
+            if (bar.highUsd >= highest) { corroborated = highest; highest = bar.highUsd }
+            else if (bar.highUsd > corroborated) corroborated = bar.highUsd
+        }
+        val peak = maxOf(closePeak, corroborated)
         val low = local.minOrNull()?.takeIf { it > 0.0 } ?: current.takeIf { it > 0.0 } ?: 0.0
         val currentVsPeak = if (peak > 0.0 && current > 0.0) (current / peak).coerceIn(0.0, 2.0) else 0.0
         val dd = if (peak > 0.0 && current > 0.0) ((peak - current) / peak * 100.0).coerceAtLeast(0.0) else 0.0
         val runup = if (low > 0.0 && current > 0.0) ((current - low) / low * 100.0).coerceAtLeast(0.0) else 0.0
-        val bp = ts.lastBuyPressurePct.coerceIn(0.0, 100.0)
-        val sp = ts.lastSellPressurePct.coerceIn(0.0, 100.0)
-        val liq = ts.lastLiquidityUsd.coerceAtLeast(0.0)
-        val mcap = max(ts.lastMcap, ts.lastFdv).coerceAtLeast(0.0)
+        val freshLocalBook = LaneInputTruth8236.fresh8491(ts.buyPressureObservedAtMs8084, now)
+        val bp = flow?.buyPct?.takeIf { it.isFinite() } ?: if (freshLocalBook) ts.lastBuyPressurePct else 50.0
+        val sp = if (flow?.buyPct?.isFinite() == true) 100.0 - bp else if (freshLocalBook) ts.lastSellPressurePct else 50.0
+        val liq = ts.lastLiquidityUsd.takeIf { it.isFinite() && it > 0 }
+            ?: SetupFeatureResolver8169.observedLiquidity8170(ts.mint, ageMin, now) ?: 0.0
+        val mcap = ts.lastMcap.takeIf { it.isFinite() && it > 0.0 } ?: ts.lastFdv.coerceAtLeast(0.0)
         val mcapToLiq = if (liq > 0.0) (mcap / liq).coerceIn(0.0, 10_000.0) else 9999.0
         val top = (ts.safety.topHolderPct.takeIf { it > 0.0 } ?: ts.topHolderPct ?: -1.0)
         val liqThin = liq in 1.0..2_500.0
@@ -99,19 +116,21 @@ object TokenMetricStageRouter {
         // RUG_PRONE: refused STRUCTURAL_RISK_8136, routed observation-only and blocked live (8457: STRUCTURAL_RISK n47 with a
         // 21 % runner share, 28 of the 65 wrongly refused runners). A read pool and a real book still stage it RUG_PRONE;
         // the top-holder and thin-liquidity-runup tests are unchanged.
-        val bookObserved8464 = ts.buyPressureObservedAtMs8084 > 0L
+        val bookObserved8464 = freshLocalBook || flow?.buyPct?.isFinite() == true
         val valuationAir = liq > 0.0 && mcapToLiq >= 85.0 && mcap >= 150_000.0 && !isEstablished7306(ts, mcap, liq, ageMin)
         val airRug8500 = valuationAir && bookObserved8464 && (sp >= 55.0 || bp < 52.0)
         val thinRug8500 = liqThin && runup >= 80.0
         val rugProne = topHeavy || airRug8500 || thinRug8500
         // V5.0.8500 — which structural test staged it, so a refusal names its trigger (was "topHeavy/liquidityAir/thinRunup").
         val rugWhy8500 = rugWhy8500(topHeavy, airRug8500, thinRug8500)
-        val acute5m7425 = ts.lastPriceChange5m.takeIf { it.isFinite() } ?: 0.0
-        val pumpThenFade7425 = ts.lastPriceChange1h >= 80.0 && acute5m7425 <= -8.0
+        val acute5m7425 = flow?.move ?: ts.lastPriceChange5m.takeIf { LaneInputTruth8236.fresh8491(ts.priceChangeObservedAtMs8084, now) } ?: Double.NaN
+        val hour = ts.lastPriceChange1h.takeIf { LaneInputTruth8236.fresh8491(ts.hourChangeObservedAtMs8506, now) }
+            ?: com.lifecyclebot.engine.truth.PairFlow8169.peek8169(ts.mint)?.takeIf { LaneInputTruth8236.fresh8491(it.atMs, now) }?.chg1h ?: Double.NaN
+        val pumpThenFade7425 = hour >= 80.0 && acute5m7425 <= -8.0
         val peakExhaustion = (currentVsPeak >= 0.88 && runup >= 70.0 &&
-            (sp >= 52.0 || bp < 52.0 || ts.lastPriceChange1h >= 80.0)) || pumpThenFade7425
+            (sp >= 52.0 || bp < 52.0 || hour >= 80.0)) || pumpThenFade7425
         val dumping = acute5m7425 <= -18.0 || (dd >= 24.0 && (bp < 52.0 || sp >= 55.0))
-        val baseStart = ageMin <= 12.0 && runup <= 45.0 && dd <= 18.0 && bp >= 54.0 && sp <= 50.0 &&
+        val baseStart = (flow == null || flow.active) && ageMin <= 12.0 && runup <= 45.0 && dd <= 18.0 && bp >= 54.0 && sp <= 50.0 &&
             acute5m7425 > -8.0 && liq >= 3_000.0
         val midAccum = currentVsPeak in 0.45..0.82 && dd in 8.0..35.0 && bp >= 50.0 && sp <= 54.0 && liq >= 8_000.0
         val markup = currentVsPeak in 0.68..0.92 && runup in 25.0..120.0 && bp >= 55.0 && sp <= 50.0 && liq >= 6_000.0
@@ -148,10 +167,13 @@ object TokenMetricStageRouter {
         // launch age (8471: 55,765 UNKNOWN stagings; age=0m peakPos 0.96-1.00 runup 1-31 % bp 66-100 all UNKNOWN), so the
         // launch / markup desks were never routed them and no stage record was ever booked for them. The chart's own
         // position names them now — on real history (5+ prints) and an observed book (bp / sp read, not the 50 / 50 default).
-        val chart8473 = chartStage8473(prices.size, ts.buyPressureObservedAtMs8084 > 0L, ageMin, currentVsPeak, runup, dd, bp, sp,
+        val chart8473 = chartStage8473(hist.count { !it.synthetic && now - it.ts in 0L..FlatChart8027.FLAT_WINDOW_MS }, bookObserved8464, ageMin, currentVsPeak, runup, dd, bp, sp,
             acute5m7425, liq, tapeLive = !(try { FlatChart8027.deadTape8476(ts.mint, now) } catch (_: Throwable) { true }))
+        // A reported intrawindow rise is a lower bound on run-up, even before five local candles arrive.
+        val flowMarkup = current > 0.0 && flow != null && flow.active && flow.buys >= 3 && flow.buyPct >= 55.0 && flow.move > 15.0 && flow.move < 70.0 &&
+            currentVsPeak >= 0.92 && liq >= 6_000.0 && runup < 70.0
         val baseAnyAge8473 = chart8473 == Stage.BASE_START
-        val breakout8473 = chart8473 == Stage.CONTROLLED_MARKUP
+        val breakout8473 = chart8473 == Stage.CONTROLLED_MARKUP || flowMarkup
         // V5.0.8316 — no clean metric stage (bp / chg / shape never arrived): a young coin's OWN executed prints name the
         // stage (TapeStage8316: dumping / exhausted on a sell-dominated tape off its peak, a build on early buying), so the
         // sheet's reclaim rule can stop a buy into a dump and the launch lanes buy builds. No prints: UNKNOWN as before.
@@ -170,6 +192,8 @@ object TokenMetricStageRouter {
             freshLaunch -> Stage.FRESH_LAUNCH
             breakout8473 -> Stage.CONTROLLED_MARKUP   // V5.0.8473 — an early breakout at its high
             baseAnyAge8473 -> Stage.BASE_START        // V5.0.8473 — a tight base near its high, buyers in control, any age
+            tape8316 == null && flow != null && current > 0.0 && liq > 0.0 &&
+                hist.count { !it.synthetic && now - it.ts in 0L..FlatChart8027.FLAT_WINDOW_MS } >= CHART_MIN_PRINTS_8473 -> Stage.NO_SETUP
             else -> tape8316?.stage ?: Stage.UNKNOWN
         }
         Snapshot(stage, ageMin, currentVsPeak, if (tape8316 != null) maxOf(dd, tape8316.offPeakPct) else dd, runup, bp, sp, liq, mcap, mcapToLiq, top,
@@ -179,7 +203,7 @@ object TokenMetricStageRouter {
                 (if (baseAnyAge8473 && stage == Stage.BASE_START && !baseStart) " baseAnyAge8473" else "") +
                 (tape8316?.let { " ${it.compact}" } ?: ""))
     } catch (t: Throwable) {
-        Snapshot(Stage.UNKNOWN, 999.0, 0.0, 0.0, 0.0, 50.0, 50.0, 0.0, 0.0, 9999.0, -1.0, "stage_error=${t.javaClass.simpleName}")
+        Snapshot(Stage.UNKNOWN, Double.NaN, 0.0, 0.0, 0.0, 50.0, 50.0, 0.0, 0.0, 9999.0, -1.0, "stage_error=${t.javaClass.simpleName}")
     }
 
     /**
@@ -333,13 +357,22 @@ object TokenMetricStageRouter {
             Stage.CONTROLLED_MARKUP -> "MOONSHOT"
             Stage.DUMPING -> "DIP_HUNTER"
             Stage.PEAK_EXHAUSTION, Stage.RUG_PRONE -> "QUALITY" // observation/defensive owner; laneFit blocks live buy exposure
-            Stage.UNKNOWN -> fallback.uppercase().ifBlank { "STANDARD" }
+            Stage.NO_SETUP, Stage.UNKNOWN -> fallback.uppercase().ifBlank { "STANDARD" }
         }
     }
 
     fun laneFit(ts: TokenState, laneRaw: String): LaneFit {
+        val now = System.currentTimeMillis()
+        val flow = EntryFlow8506.provider(ts.mint, now)
+        return laneFit(ts, laneRaw, now, flow)
+    }
+
+    private fun laneFit(ts: TokenState, laneRaw: String, now: Long, flow: EntryFlow8506?): LaneFit {
         val lane = laneRaw.uppercase()
-        val s = snapshot(ts)
+        return laneFit(ts, lane, now, flow, snapshot(ts, now, flow))
+    }
+
+    internal fun laneFit(ts: TokenState, lane: String, now: Long, flow: EntryFlow8506?, s: Snapshot): LaneFit {
         // V5.0.7425 — DIP_HUNTER is a reclaim desk, not a falling-knife desk.
         // A post-pump/dumping token needs an actual turn in the local tape before
         // any non-MANIPULATED lane can convert the observation into live capital.
@@ -347,7 +380,7 @@ object TokenMetricStageRouter {
         val reclaimConfirmed7425 = recent7425.size >= 3 &&
             recent7425.last() > recent7425.minOrNull()!! * 1.06 &&
             recent7425.takeLast(3).zipWithNext().all { (a, b) -> b >= a * 0.985 } &&
-            ts.lastPriceChange5m > 0.0 &&
+            (flow?.move ?: ts.lastPriceChange5m.takeIf { LaneInputTruth8236.fresh8491(ts.priceChangeObservedAtMs8084, now) } ?: Double.NaN) > 0.0 &&
             s.buyPressurePct >= 56.0 && s.sellPressurePct <= 50.0
         // V5.0.4091 — established-token lane-fit override mirrors the primary
         // routing override above. Without this, the primary picks BLUECHIP but
@@ -361,7 +394,7 @@ object TokenMetricStageRouter {
         // but laneFit() kept the obsolete watchAge>=60 requirement and could reject
         // BLUECHIP/DIP_HUNTER/QUALITY/TREASURY immediately after routing selected them.
         val isEstablished = isEstablished7306(ts, s.marketCapUsd, s.liquidityUsd, s.ageMin)
-        if (isEstablished && s.stage != Stage.RUG_PRONE && s.stage != Stage.PEAK_EXHAUSTION) {
+        if (isEstablished && s.stage != Stage.RUG_PRONE && s.stage != Stage.PEAK_EXHAUSTION && s.stage != Stage.DUMPING) {
             if (lane in setOf("BLUECHIP", "DIP_HUNTER", "QUALITY", "TREASURY", "STANDARD", "CORE", "V3")) {
                 return LaneFit(true, lane, s.stage, s.compact)
             }
@@ -374,9 +407,33 @@ object TokenMetricStageRouter {
                 lane == "DIP_HUNTER" && s.drawdownFromPeakPct >= 25.0
             Stage.FRESH_LAUNCH, Stage.BASE_START, Stage.MID_ACCUMULATION, Stage.CONTROLLED_MARKUP ->
                 lane in LANE_STAGE_SHEET_7928.getValue(s.stage)
+            Stage.NO_SETUP -> false
             Stage.UNKNOWN -> lane in setOf("QUALITY", "BLUECHIP", "TREASURY", "STANDARD", "CORE", "V3") && s.liquidityUsd >= 12_000.0 && s.mcapToLiq <= 65.0 && s.buyPressurePct >= 52.0
         }
         return LaneFit(allowed, lane, s.stage, s.compact)
+    }
+
+    /** The live meme lane needs both a resolved phase and current participation at selection and again before sealing. */
+    internal fun memeEntry8506(lane: String, mint: String): Boolean =
+        lane in com.lifecyclebot.engine.cortex.LanePlaybook7907.menuLanes8383() &&
+            com.lifecyclebot.network.HeliusSolanaScope7819.isSolanaMint7819(mint)
+
+    internal fun entryRead8506(ts: TokenState, lane: String, nowMs: Long): Pair<LaneFit, String?> {
+        val flow = EntryFlow8506.forMint(ts.mint, nowMs)
+        val fit = laneFit(ts, lane, nowMs, flow)
+        return fit to entryWait8506(fit, flow)
+    }
+
+    internal fun entryWait8506(fit: LaneFit, flow: EntryFlow8506?): String? = when {
+        flow == null -> "FLOW_UNOBSERVED"
+        !flow.active -> "NO_BUY_VOLUME"
+        fit.stage == Stage.UNKNOWN -> "STAGE_UNRESOLVED"
+        fit.stage == Stage.NO_SETUP -> "NO_PHASE_TRIGGER"
+        fit.stage == Stage.RUG_PRONE -> "RUG_PRONE"
+        fit.stage in setOf(Stage.DUMPING, Stage.PEAK_EXHAUSTION) && !fit.allowed -> "NO_RECLAIM"
+        fit.lane in setOf("EXPRESS", "MOONSHOT", "SHITCOIN", "PROJECT_SNIPER", "MANIPULATED") &&
+            flow.move <= 0.0 && flow.buyPct <= 50.0 -> "NO_IGNITION"
+        else -> null
     }
 
     /**
@@ -461,6 +518,7 @@ object TokenMetricStageRouter {
         Stage.BASE_START -> "baseStart=$base early+notExtended+buyPressure"
         Stage.MID_ACCUMULATION -> "midAccum=$mid pullbackBand+liq+controlledSP"
         Stage.CONTROLLED_MARKUP -> "markup=$markup controlledRunup+bp+liq"
+        Stage.NO_SETUP -> "observed chart without a current lane entry phase"
         Stage.UNKNOWN -> "unknown=noCleanMetricStage"
     }
 }

@@ -1271,7 +1271,10 @@ class BotService : Service() {
                 }
             }
             if (pair.priceChangeM5.isFinite()) { ts.lastPriceChange5m = pair.priceChangeM5; ts.priceChangeObservedAtMs8084 = System.currentTimeMillis() }
-            if (pair.priceChangeH1.isFinite()) ts.lastPriceChange1h = pair.priceChangeH1
+            if (pair.priceChangeH1.isFinite()) {
+                ts.lastPriceChange1h = pair.priceChangeH1
+                ts.hourChangeObservedAtMs8506 = System.currentTimeMillis()
+            }
             if (pair.candle.volumeH1.isFinite() && pair.candle.volumeH1 > 0.0) ts.tokenMap.volume1hUsd = pair.candle.volumeH1
             if (pair.volumeM5.isFinite() && pair.volumeM5 >= 0.0) ts.tokenMap.volume5mUsd = pair.volumeM5
             // V5.0.7764 — tokenMap.creatorOrDevWallet had no writer; the creator is held
@@ -1303,7 +1306,7 @@ class BotService : Service() {
                 priceChange5mPct = pair.priceChangeM5,
                 priceChange1hPct = if (pair.priceChangeH1.isFinite()) pair.priceChangeH1 else 0.0,
                 volume5mUsd = pair.volumeM5,
-                txCount5m = m5,
+                txCount5m = m5, buys5m = pair.buysM5, sells5m = pair.sellsM5,
             )
             PipelineHealthCollector.labelInc("OPPORTUNITY_TAPE_FROM_POLL_7807")
         } catch (_: Throwable) {}
@@ -11593,6 +11596,39 @@ class BotService : Service() {
 
         // V5.0.8179 — pool creations across Raydium / Meteora / PumpSwap from the chain itself (Helius key; none = idle).
         try { com.lifecyclebot.network.ChainLaunchFeed8179.start8179({ try { ConfigStore.load(applicationContext).heliusApiKey } catch (_: Throwable) { cfg.heliusApiKey } }) { l -> chainLaunchIntake8179(l, streamGeneration) } } catch (_: Throwable) {}
+        val feeds8506 = ConfigStore.validatorFeeds8506(applicationContext)
+        // Direct mode reuses the configured Helius subscription. A custom relay receives only its explicitly entered token.
+        val validatorEndpoint = feeds8506[0].ifBlank { "https://laserstream-mainnet-tyo.helius-rpc.com" }
+        val validatorKey = if (feeds8506[0].isBlank()) feeds8506[1].ifBlank { cfg.heliusApiKey } else feeds8506[1]
+        com.lifecyclebot.network.ValidatorFeed8506.start(if (validatorKey.isBlank()) "" else validatorEndpoint, validatorKey)
+        com.lifecyclebot.network.ValidatorMarket8506.onConfirmed = { event ->
+            if (status.running && streamGeneration == BotRuntimeController.currentGeneration()) {
+                if (orchestrator?.onValidatorTrade8506(event) == true) {
+                    val pool = if (event.venue == "CURVE") "" else event.pool
+                    if (event.venue == "CURVE" || com.lifecyclebot.network.HeliusSolanaScope7819.isSolanaMint7819(pool))
+                        applyPumpTradeMark7278(event.mint, event.sol / event.qty, 0.0, "YELLOWSTONE_TRADE_8506_" + event.venue, pool)
+                }
+            }
+        }
+        com.lifecyclebot.network.XMintStream8506.start(feeds8506[2])
+        com.lifecyclebot.engine.market.KineticFlow8506.trackedWallet = com.lifecyclebot.perps.InsiderWalletTracker::tracksWallet8506
+        com.lifecyclebot.engine.market.KineticFlow8506.ownWallet = cfg.walletAddress
+        com.lifecyclebot.engine.market.KineticFlow8506.onWave = { mint ->
+            // A wave may arrive before a scanner row. Use the same protected intake and current runtime generation.
+            if (status.running && streamGeneration == BotRuntimeController.currentGeneration()) scope.launch(Dispatchers.IO) {
+                if (!status.running || isShuttingDown || streamGeneration != BotRuntimeController.currentGeneration()) return@launch
+                if (com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.hasOpenMint(mint, if (RuntimeModeAuthority.isLive()) "live" else "paper")) return@launch
+                val wave = com.lifecyclebot.engine.market.KineticFlow8506.current(mint, System.currentTimeMillis())?.takeIf { it.active } ?: return@launch
+                val solUsd = WalletManager.lastKnownSolPrice.takeIf { it.isFinite() && it > 0 } ?: Double.NaN
+                if (!status.tokens.containsKey(mint)) admitProtectedMemeIntake(
+                    mint = mint, symbol = mint.take(6), name = mint.take(6), source = "ONCHAIN_FLOW_8506",
+                    marketCapUsd = com.lifecyclebot.engine.truth.MintSupply8418.capSol8418(mint, wave.priceSol) * solUsd,
+                    liquidityUsd = if (wave.venue == "CURVE") (com.lifecyclebot.engine.truth.CurveReserves7951.realSolIfActive8046(mint) ?: Double.NaN) * solUsd
+                        else com.lifecyclebot.engine.market.MarketSweep7297.rowFor8169(mint)?.liquidityUsd ?: Double.NaN, confidence = 30,
+                    allSources = linkedSetOf("ONCHAIN_FLOW_8506"), expectedRuntimeGeneration = streamGeneration)
+                if (status.tokens.containsKey(mint)) fastLaneEvaluate7277(mint, ConfigStore.load(applicationContext), "ONCHAIN_FLOW_8506")
+            }
+        }
         // 2) Helius Enhanced WS — push whale-wallet activity
         try {
             if (cfg.heliusApiKey.isNotBlank()) {
@@ -11711,6 +11747,10 @@ class BotService : Service() {
     }
 
     private fun unwireExternalStreams() {
+        com.lifecyclebot.engine.market.KineticFlow8506.reset()
+        com.lifecyclebot.network.ValidatorMarket8506.onConfirmed = null
+        com.lifecyclebot.network.ValidatorFeed8506.stop()
+        com.lifecyclebot.network.XMintStream8506.stop()
         try { com.lifecyclebot.network.PumpFunWS.stop() } catch (_: Exception) {}
         try { com.lifecyclebot.network.HeliusEnhancedWS.stop() } catch (_: Exception) {}
         try { com.lifecyclebot.network.ChainLaunchFeed8179.stop8179() } catch (_: Throwable) {}  // V5.0.8179

@@ -64,6 +64,7 @@ object AdmissionEdge8180 {
         val expectedNetPct: Double = Double.NaN, val costPct: Double = Double.NaN, val costSizeSol: Double = Double.NaN,
         /** V5.0.8235 — ADMIT on a candidate-specific proven edge (route-minimum promotion rights); false = generic prior clears. */
         val specificEdge: Boolean = true,
+        val reason: String = "",
     ) {
         /** The admission's expected GROSS (%) — net plus the round trip it was charged; NaN when either is unknown. */
         val expectedGrossPct: Double get() =
@@ -89,7 +90,7 @@ object AdmissionEdge8180 {
         val k = key8198(mode, mint, lane)
         if (d.terminal != CandidateAdmission8136.Terminal8136.ADMIT) { admitted.remove(k); return }
         admitted[k] = Proof8198(mode.trim().uppercase(), mint, k.substringAfterLast('|'), candidateVersion, d.basis, d.chosenSetup, nowMs,
-            d.expectedNetPct, d.costPct, d.costSizeSol, specificEdge = carriesEdge8180(d))
+            d.expectedNetPct, d.costPct, d.costSizeSol, specificEdge = carriesEdge8180(d), reason = d.reason)
         if (admitted.size > MAX_8180) admitted.entries.removeIf { nowMs - it.value.atMs > TTL_MS_8180 }
     }
 

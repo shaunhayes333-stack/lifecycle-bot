@@ -167,7 +167,9 @@ object RunnerGrab7967 {
      */
     /** Pure (V5.0.8270): an unlearned forming runner needs an OBSERVED read that is firming, or an observed 60 m run standing. */
     fun formingStructure8270(r15: StructureTracker7962.Read7962?, r60: StructureTracker7962.Read7962?): Boolean =
-        firming7967(r15) || firming7967(r60) || (r60 != null && runStanding8019(r60))
+        (r15 != null && r15.buyShare >= MIN_BUY_SHARE && firming7967(r15)) ||
+            (r60 != null && r60.buyShare >= MIN_BUY_SHARE && !r60.brokeStructure &&
+                r60.hhHl > 0 && r60.lastLow.isFinite() && r60.lastClose > r60.lastLow)
 
     fun formingNative8260(ts: TokenState, nowMs: Long = System.currentTimeMillis()): String? {
         val mint = ts.mint
@@ -178,7 +180,8 @@ object RunnerGrab7967 {
         if (losingCellFor8260(ts, nowMs) != null) return null
         // V5.0.8270 — missing structure proves nothing: standing7970 treats an ABSENT 60 m read as "not breaking",
         // which is right for a grab in a PROVEN cell but cannot witness an unlearned forming runner. A read must exist.
-        val (r15, r60) = StructureTracker7962.reads7967(mint, nowMs)
+        val (r15, r60) = if (StructureTracker7962.hasCurrentEntryMark8506(mint, nowMs))
+            StructureTracker7962.reads7967(mint, nowMs) else null to null
         // V5.0.8293 — a fresh RunTape8293 detection (10+ executed prints, buyers >= 60% of SOL, +15..150% off the low,
         // near the high, still rising) is an OBSERVED forming read on the trades themselves; its own record stands it down.
         val tape8293 = !formingStructure8270(r15, r60) && RunTape8293.fresh8293(mint, nowMs)

@@ -1221,7 +1221,7 @@ object LanePlaybook7907 {
                 "outside tradable envelope: $why", envelope8383 = why)
         }
         // V5.0.8383 — network-proven losers no longer fire as this lane's strategy.
-        val fired = fired0.filter { !retired8383(lane, it) }
+        val fired = if (Cortex7885.nativeOwnsSelection8506(lane)) fired0 else fired0.filter { !retired8383(lane, it) }
         if (fired.size != fired0.size) {
             retiredSkips8383.computeIfAbsent(lane) { AtomicLong(0) }.incrementAndGet()
             try { PipelineHealthCollector.labelInc("SETUP_RETIRED_SKIPPED_8383_$lane") } catch (_: Throwable) {}

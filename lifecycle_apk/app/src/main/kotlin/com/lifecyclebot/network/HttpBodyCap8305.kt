@@ -81,6 +81,8 @@ object HttpBodyCap8305 : Interceptor {
     /** Wrap [response]'s body in the counting source (or refuse a declared oversize body). Visible for tests. */
     internal fun wrap8305(response: Response, host: String, path: String): Response {
         if (response.code == 101) return response
+        // The signed X stream is long-lived NDJSON. XMintStream8506 bounds each line before decoding it.
+        if (host == "api.x.com" && path == "/2/tweets/search/stream" && response.isSuccessful) return response
         val body = response.body ?: return response
         val ct: MediaType? = body.contentType()
         if (ct != null && ct.subtype.equals("event-stream", ignoreCase = true)) return response

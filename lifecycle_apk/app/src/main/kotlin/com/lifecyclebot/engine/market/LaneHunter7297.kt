@@ -398,7 +398,7 @@ object LaneHunter7297 {
         val strong = try { com.lifecyclebot.engine.MomentumPredictorAI.getStrongMomentumTokens() } catch (_: Throwable) { emptyList() }
         val now = System.currentTimeMillis()
         var n = 0
-        for (m in strong.take(20)) {
+        for (m in strong.asSequence().filter { now - it.lastUpdateMs in 0L..120_000L }.take(20)) {
             val k7803 = claimKey7803("MOONSHOT", m.mint)
             val existing = claims[k7803]
             if (existing != null && now - existing.atMs <= CLAIM_TTL_MS) continue
@@ -490,6 +490,17 @@ object LaneHunter7297 {
      * Each lane picks from the sweep. Returns lane → rows, and records every
      * pick as a claim the election honours while the token stays in band.
      */
+    internal fun waveReaders8506(mint: String, now: Long): Set<String> {
+        val wave = KineticFlow8506.current(mint, now) ?: return emptySet()
+        val native = wave.readers()
+        if (!wave.active || maxOf(wave.linkedBuyers, wave.fundedBuyers) >= 5) return native
+        val r = MarketSweep7297.rowFor8169(mint, now) ?: return native
+        return native + profiles.filter { p ->
+            r.mcapUsd in p.baseMin..p.baseMax && r.liquidityUsd >= com.lifecyclebot.engine.cortex.LaneCheatSheet8323.liqMin8389(p.lane) &&
+                p.fits(r) && com.lifecyclebot.engine.cortex.LaneCheatSheet8323.hunterFits8323(p.lane, r.ageHours, r.liquidityUsd)
+        }.map { it.lane }
+    }
+
     fun hunt(snap: MarketSweep7297.Snapshot): Map<String, List<MarketSweep7297.Row>> {
         ensureSubscribed()
         val byMint = snap.rows.associateBy { it.mint }
@@ -499,13 +510,20 @@ object LaneHunter7297 {
         val nonMeme8169 = snap.rows.mapNotNull { r -> HunterAssetClass8169.of(r).takeIf { it != HunterAssetClass8169.Kind.MEME_TRADEABLE }?.let { r.mint to it } }.toMap()
         val now8169 = System.currentTimeMillis()
         requeuedAt8169.entries.removeIf { !onCooldown8169(it.value, now8169) }
-        val top8293 = snap.rows.mapNotNull { r -> r.mint.takeIf { OpportunityRoute8293.isTop8293(MarketSweep7297.opportunityFor7777(it)) } }.toSet()
+        val leaders = snap.rows.mapNotNull { r ->
+            MarketSweep7297.opportunityFor7777(r.mint)?.takeIf { OpportunityRoute8293.isTop8293(it) }
+        }
+        val waves = snap.rows.mapNotNull { r -> KineticFlow8506.current(r.mint, now8169)?.takeIf { it.active }?.let { r.mint to it } }.toMap()
         val tests8293 = ArrayList<OpportunityRoute8293.LaneTest8293>()
         val ranked = profiles.associate { p ->
             val (lo, hi) = fluidBand(HunterMandates8293.baseMin8293(p.lane, p.baseMin), p.baseMax, bucketStatsFor(p.lane))  // V5.0.8293 native floor
-            tests8293 += OpportunityRoute8293.LaneTest8293(p.lane, { r -> r.mcapUsd in lo..hi && r.mint !in nonMeme8169 }, p.fits)
+            val fits: (MarketSweep7297.Row) -> Boolean = {
+                p.fits(it) && com.lifecyclebot.engine.cortex.LaneCheatSheet8323.hunterFits8323(p.lane, it.ageHours, it.liquidityUsd)
+            }
+            tests8293 += OpportunityRoute8293.LaneTest8293(p.lane, { r -> r.mcapUsd in lo..hi && r.mint !in nonMeme8169 }, fits)
+            val top8293 = leaders.filter { OpportunityRoute8293.leadsLane8506(p.lane, it.setup) }.mapTo(HashSet()) { it.mint }
             val inBand8168 = snap.rows.filter { it.mcapUsd in lo..hi && it.mint !in nonMeme8169 }
-            val eligible8168 = inBand8168.filter { p.fits(it) && com.lifecyclebot.engine.cortex.LaneCheatSheet8323.hunterFits8323(p.lane, it.ageHours, it.liquidityUsd) }  // V5.0.8323 — the lane's mandate (age band, liquidity floor now)
+            val eligible8168 = inBand8168.filter(fits)  // V5.0.8323 — the lane's mandate (age band, liquidity floor now)
             p.lane to eligible8168
                 // Compute each expensive evidence/ranking multiplier exactly
                 // once per candidate, not O(n log n) times inside TimSort's
@@ -515,7 +533,8 @@ object LaneHunter7297 {
                     r to (p.rank(r) * brainMultiplier(p.lane, r.mcapUsd) * modeLiqMultiplier(p.lane, r.liquidityUsd) *
                         (0.9 + 0.2 * heat / 100.0) * opportunityLaneMultiplier7777(p.lane, r) *
                         commonSenseMult7797(p.lane, r) * adaptiveTimingMultiplier7812(p.lane, r) *
-                        com.lifecyclebot.engine.ExpertTraderKnowledge7813.marketRankMultiplier7813(p.lane, r))
+                        com.lifecyclebot.engine.ExpertTraderKnowledge7813.marketRankMultiplier7813(p.lane, r) *
+                        (waves[r.mint]?.rankMultiplier(p.lane) ?: 1.0))
                 }
                 .sortedByDescending { it.second }
                 .map { it.first.mint }

@@ -153,12 +153,12 @@ class Aate8348ContinuationTest {
 
     @Test fun theDeskReadsOneContinuationAndReviewsMomentumBeforeTheGrabLane() {
         val b = src("engine/SpecialistBrainBridge7542.kt")
-        assertTrue(b.contains("val cont8348 = ContinuationRead8348.read8348(ts, histMomentumPct7551, prices.size, ageMin,"))
-        assertTrue(b.contains("if (prices.size < 2) ExpressMomentum8190.sinceLaunchPct8190(ts, ageMin) else null, now)"))
+        assertTrue(b.contains("val cont8348 = ContinuationRead8348.read8348(ts, histMomentumPct7551, recentPrices.size, ageMin,"))
+        assertTrue(b.contains("if (recentPrices.size < 2) ExpressMomentum8190.sinceLaunchPct8190(ts, ageMin) else null, now)"))
         assertTrue(b.contains("val expressMomentum7555 = cont8348.pct"))
-        assertTrue(b.contains("?: (if (prices.size < 2 && cont8348.source == ContinuationRead8348.Source8348.FROM_TAPE) cont8348.pct else histMomentumPct7551)"))
+        assertTrue(b.contains("?: (if (recentPrices.size < 2 && cont8348.source == ContinuationRead8348.Source8348.FROM_TAPE) cont8348.pct else histMomentumPct7551)"))
         // superseded by V5.0.8492 — momentum counts as observed from a fresh 5 m change, 2+ prices or the coin's own tape
-        val review = "ContinuationRead8348.reviewMomentum8348(out, cont8348.observed, observedChange8491 != null || prices.size >= 2 || cont8348.source == ContinuationRead8348.Source8348.FROM_TAPE)"
+        val review = "ContinuationRead8348.reviewMomentum8348(out, cont8348.observed, observedChange8491 != null || recentPrices.size >= 2 || cont8348.source == ContinuationRead8348.Source8348.FROM_TAPE)"
         assertTrue(b.contains(review))
         val i8236 = b.indexOf("LaneInputTruth8236.deferFor8236(lane, o.reason, inputs8236)")
         val i8348 = b.indexOf(review)

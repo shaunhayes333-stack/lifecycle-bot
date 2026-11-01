@@ -64,8 +64,8 @@ class Aate8417CortexHourDeliveryRuntimeTest {
                 val original = ctor.newInstance(a, false, at, null, "", "", emptyList<String>())
                 field(original, "decisionReason8196").set(original, "CORTEX_SHADOW_STRONG")
                 val context = Class.forName("${cortex.javaClass.name}\$DecisionCtx8144").declaredConstructors
-                    .single { it.parameterCount == 5 }.apply { isAccessible = true }
-                    .newInstance("EARLY", "LOW", "SMALL", true, true)
+                    .single { it.parameterCount == 6 }.apply { isAccessible = true }
+                    .newInstance("EARLY", "LOW", "SMALL", true, true, null)
                 field(original, "context8372").set(original, context)
                 pending[key] = original
                 val frozen = requireNotNull(cortex.freezeForwardOutcome8404("hour-delivery8417", "QUALITY", at))

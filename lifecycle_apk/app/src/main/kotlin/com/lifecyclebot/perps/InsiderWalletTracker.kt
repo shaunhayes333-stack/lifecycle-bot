@@ -406,6 +406,8 @@ object InsiderWalletTracker {
     // PUBLIC API
     // ===============================================================================
 
+    fun tracksWallet8506(address: String): Boolean = insiderWallets[address]?.isActive == true
+
     fun getTrackedWallets(): List<InsiderWallet> = insiderWallets.values.toList()
 
     fun getActiveWallets(): List<InsiderWallet> =

@@ -21,8 +21,8 @@ class Aate8397CortexCaptureRuntimeTest {
     @Suppress("UNCHECKED_CAST") private fun pending() = field("pending") as MutableMap<String, Any>
     @Suppress("UNCHECKED_CAST") private fun contexts() = field("pendingCtx8144") as MutableMap<String, Any>
     private fun context(timing: String): Any = Class.forName("${Cortex7885::class.java.name}\$DecisionCtx8144")
-        .declaredConstructors.single { it.parameterCount == 5 }.apply { isAccessible = true }
-        .newInstance(timing, "C0_3", "TEST", true, false)
+        .declaredConstructors.single { it.parameterCount == 6 }.apply { isAccessible = true }
+        .newInstance(timing, "C0_3", "TEST", true, false, null)
     private fun assessment(at: Long, score: Double) = Cortex7885.Assessment("MOONSHOT", true,
         doubleArrayOf(score), listOf("TEST_8397"), listOf(doubleArrayOf(0.0)), "TEST",
         CortexLedger7885.Fused(score, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, emptyList()), score,

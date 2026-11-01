@@ -71,12 +71,12 @@ class Aate8200CortexCarryTest {
         // 8136 / 8144 caps stay diagnostic (one authority test, 8366); inversion is a revocation of that authority on the current
         // cohort (authorityFraction8366), and a SHADOW_EXIT row never reaches bucketStats8372 / the Kelly stake.
         assertFalse(fn.contains("board.inverted7948"))
-        assertTrue(cx.contains("if (invertedCurrent8372(lane)) { inc(\"AUTHORITY_REVOKED_INVERTED_8418_\$lane\"); return 0.0 }"))
+        assertTrue(cx.contains("if (invertedCurrent8372(lane)) { entryGrants8506.remove(lane); inc(\"AUTHORITY_REVOKED_INVERTED_8418_\$lane\"); return 0.0 }"))
         assertFalse(fn.contains("gradeBook8144.executableSeries("))
         val proof = cx.substringAfter("private fun authorityTest8366(").substringBefore("private fun realisedStrong8366(")
         assertTrue(proof.contains("CortexAuthority8366.test8372("))
         // V5.0.8392 — the proof rows come through authorityRows8392 (scored rows + unresolved pending predictions in the denominator)
-        assertTrue(proof.contains("CortexAuthority8366.test8372(authorityRows8392(lane, setup), cost, now)"))
+        assertTrue(proof.contains("CortexAuthority8366.test8372(rows, cost, now)"))
         val rows8392 = cx.substringAfter("private fun authorityRows8392(").substringBefore("private data class RefusalCoverage8392(")
         // superseded by V5.0.8418 — refusal reads may fall back to every score version; grants still read the current one
         assertTrue(rows8392.contains("scoredRows8366(lane,runnerHorizon8144(lane),scoreVersion=if (allVersions8418) null else 1,setup=setup)"))

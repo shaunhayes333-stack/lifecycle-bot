@@ -28,6 +28,6 @@ class Aate8464RugProneDefaultsTest {
         assertTrue(src.contains("val airRug8500 = valuationAir && bookObserved8464 && (sp >= 55.0 || bp < 52.0)"))
         assertTrue(src.contains("val thinRug8500 = liqThin && runup >= 80.0"))
         assertTrue(src.contains("val rugProne = topHeavy || airRug8500 || thinRug8500"))
-        assertTrue(src.contains("val bookObserved8464 = ts.buyPressureObservedAtMs8084 > 0L"))
+        assertTrue(src.contains("val bookObserved8464 = freshLocalBook || flow?.buyPct?.isFinite() == true"))
     }
 }

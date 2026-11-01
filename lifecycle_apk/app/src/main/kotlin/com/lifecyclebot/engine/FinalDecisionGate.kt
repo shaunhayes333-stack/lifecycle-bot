@@ -58,6 +58,13 @@ object FinalDecisionGate {
                 RejectTaxonomy.classify(blockReason ?: approvalReason, null)
             } else null
 
+        // Freeze the owner alongside the actual FDG verdict. A later seal or asynchronous label cannot reassign it.
+        val nativeSelection8506: Boolean = mode == TradeMode.LIVE &&
+            !com.lifecyclebot.engine.truth.FdgGate8365.shadowOnly8393() &&
+            com.lifecyclebot.engine.cortex.Cortex7885.nativeOwnsSelection8506(canonicalLane7835.ifBlank {
+                tags.firstOrNull { it.startsWith("lane:") }?.removePrefix("lane:").orEmpty()
+            })
+
         init {
             val taxonomy = rejectTaxonomy
             if (taxonomy != null) {
@@ -70,11 +77,12 @@ object FinalDecisionGate {
                 val refusedLane7920 = canonicalLane7835.ifBlank {
                     tags.firstOrNull { it.startsWith("lane:") }?.removePrefix("lane:").orEmpty()
                 }
+                val incumbent8506 = if (nativeSelection8506 && !shouldTrade) false else null
                 ChokeReliefBus.launch("FDG_REJECT_TAXONOMY_4427", mint) {
                     try { RejectTaxonomyLedger.record(taxonomy, "FDG_${mode.name}", blockReason ?: approvalReason) } catch (_: Throwable) {}
                     try { PipelineHealthCollector.labelInc("FDG_REJECT_TAXONOMY_4427_${taxonomy.category.name}") } catch (_: Throwable) {}
                     if (!shouldTrade && mint.isNotBlank() && refusedLane7920.isNotBlank()) try {
-                        com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.observe(mint, refusedLane7920, false, blockReason ?: approvalReason)
+                        com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.observe(mint, refusedLane7920, false, blockReason ?: approvalReason, incumbent8506 = incumbent8506)
                     } catch (_: Throwable) {}
                 }
             }
@@ -745,8 +753,8 @@ object FinalDecisionGate {
     }
 
     /** V5.0.7985 — Cortex7885's veto audit retires EDGE_VETO_ACTIVE when its refused candidates are proven winners. */
-    private fun edgeVetoRetired7985(): Boolean =
-        try { com.lifecyclebot.engine.cortex.Cortex7885.vetoRefusesWinners7953("EDGE_VETO_ACTIVE") } catch (_: Throwable) { false }
+    private fun edgeVetoRetired7985(lane: String?): Boolean =
+        try { com.lifecyclebot.engine.cortex.Cortex7885.vetoRefusesWinners8006("EDGE_VETO_ACTIVE", lane.orEmpty()) } catch (_: Throwable) { false }
 
     /** V5.0.7996 — a tail-proven lottery ticket is not held back by the legacy edge veto. */
     private fun tailTicket7996(mint: String): Boolean =
@@ -3921,7 +3929,7 @@ object FinalDecisionGate {
                 if (config.paperMode) {
                     checks.add(GateCheck("edge_veto_sticky", true, "PAPER: veto bypassed for learning (original: ${activeVeto.reason})"))
                     tags.add("edge_veto_bypassed")
-                } else if (edgeVetoRetired7985() || tailTicket7996(ts.mint)) {
+                } else if (edgeVetoRetired7985(specialistLane) || tailTicket7996(ts.mint)) {
                     // V5.0.7985 — the legacy edge veto answers to its own record like every graded rule:
                     // once its refused candidates are proven to win (veto audit n>=40, mean-SE > +2%), it stands down.
                     checks.add(GateCheck("edge_veto_sticky", true, "RETIRED_7985: refused candidates proven to win (${activeVeto.reason})"))

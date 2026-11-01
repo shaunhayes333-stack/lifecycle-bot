@@ -124,9 +124,9 @@ object ChainLaunchFeed8179 {
         val realTokens: Double,
     )
 
-    const val WSOL_8179 = "So11111111111111111111111111111111111111112"
-    const val USDC_8179 = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
-    const val USDT_8179 = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
+    const val WSOL_8179 = SolanaSwapEvidence8506.WSOL
+    const val USDC_8179 = SolanaSwapEvidence8506.USDC
+    const val USDT_8179 = SolanaSwapEvidence8506.USDT
     private val QUOTE_MINTS_8179: Set<String> = setOf(WSOL_8179, USDC_8179, USDT_8179)
 
     const val RAYDIUM_AMM_V4_8179 = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
@@ -738,8 +738,8 @@ object ChainLaunchFeed8179 {
         notesByTarget.computeIfAbsent(targetKey) { AtomicLong(0) }.incrementAndGet()
         val now = System.currentTimeMillis()
         if (governors.computeIfAbsent(targetKey) { StreamGovernor8179(GOVERNOR_MAX_PER_WINDOW, GOVERNOR_WINDOW_MS) }.note8179(now)) {
+            // Stop future delivery. This notification already arrived and can be the actual pool creation.
             park8179(targetKey, now)
-            return
         }
         val value = p.optJSONObject("result")?.optJSONObject("value") ?: return
         if (!isNull8179(value.opt("err"))) return
@@ -809,12 +809,27 @@ object ChainLaunchFeed8179 {
         deliver8179(launch)
     }
 
+    internal fun validatorLaunch8506(launch: Launch8179) {
+        if (!running.get()) return
+        deliver8179(launch)
+    }
+
+    internal fun validatorBirth8506(launch: Launch8179) {
+        if (running.get() && launch.blockTimeMs > 0L && recordedBirth8506.firstSeen8179(launch.signature + "|" + launch.mint))
+            recordBirth8179(launch)
+    }
+
+    private val recordedBirth8506 = BoundedSeen8179(2048)
     private fun deliver8179(l: Launch8179, rate: RateWindow8179 = discoveryRate) {
         notePumpSwapPool8317(l)
-        if (seenMints.contains8179(l.mint)) { dupMints.incrementAndGet(); return }
-        if (!rate.tryAcquire8179(System.currentTimeMillis())) { rateLimited.incrementAndGet(); label("CHAIN_LAUNCH_RATE_LIMITED_8179"); return }
-        seenMints.firstSeen8179(l.mint)
-        recordBirth8179(l)
+        ValidatorMarket8506.notePool(l)
+        if (l.chainProven) validatorBirth8506(l)
+        synchronized(seenMints) {
+            if (seenMints.contains8179(l.mint)) { dupMints.incrementAndGet(); return }
+            if (!rate.tryAcquire8179(System.currentTimeMillis())) { rateLimited.incrementAndGet(); label("CHAIN_LAUNCH_RATE_LIMITED_8179"); return }
+            seenMints.firstSeen8179(l.mint)
+        }
+        if (!l.chainProven) recordBirth8179(l)
         launchesByVenue.computeIfAbsent(l.target) { AtomicLong(0) }.incrementAndGet()
         lastLaunchMs = System.currentTimeMillis()
         label("CHAIN_LAUNCH_DISCOVERED_8179_${l.target}")
@@ -1123,7 +1138,7 @@ object ChainLaunchFeed8179 {
             "unreadable=${unreadable.get()} queueDropped=${queueDropped.get()} backoffSkipped=${backoffSkipped.get()} budgetSkipped=${budgetSkipped.get()} " +
             "dupMints=${dupMints.get()} rateLimited=${rateLimited.get()} launches{$found} lastLaunch=$age births=${births.get()} floors=${floors.get()} " +
             "parks=${parks.get()} connects=${connects.get()} lastError=$lastError " +
-            "transport8191=${if (shared8191) "shared" else if (ws != null) "dedicated" else "none"} subRequests=${subRequests8191.get()} " +
+            "validator8506{${ValidatorFeed8506.statusLine()}} xStream8506=${XMintStream8506.state} transport8191=${if (shared8191) "shared" else if (ws != null) "dedicated" else "none"} subRequests=${subRequests8191.get()} " +
             "subAcks=${subAcks8191.get()} ackExpired=${ackExpired8191.get()} handshake{$lastHandshake8191 refusals=$handshakeRefusals8191} " +
             "backoffLeftMs=${(reconnectNotBeforeMs8191 - now).coerceAtLeast(0L)}] " +
             "codex8179[state=${codexState8307(try { com.lifecyclebot.engine.chart.ChartSources7955.codexQuotaExhausted8307(now) } catch (_: Throwable) { false },

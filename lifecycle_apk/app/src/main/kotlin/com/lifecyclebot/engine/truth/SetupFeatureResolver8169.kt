@@ -23,6 +23,7 @@ object PairFlow8169 {
         val chg5m: Double, val chg1h: Double, val liquidityUsd: Double, val atMs: Long,
         /** Same answer's price and pool age: never derive historical prices from a later TokenState mark. */
         val priceUsd8417: Double = Double.NaN, val pairCreatedAtMs8417: Long = 0L,
+        val volumeM5: Double = Double.NaN,
     )
 
     private val flows = ConcurrentHashMap<String, Flow8169>()
@@ -56,7 +57,7 @@ object PairFlow8169 {
     fun notePair8169(mint: String, p: com.lifecyclebot.network.PairInfo, atMs: Long = System.currentTimeMillis()) {
         // PairInfo carries h1 counts as 0 when absent: 0/0 is no reading (countShare8169 returns null for it).
         note8169(mint, Flow8169(p.buysM5, p.sellsM5, p.candle.buysH1, p.candle.sellsH1, p.priceChangeM5, p.priceChangeH1, p.liquidity, atMs,
-            p.candle.priceUsd, p.pairCreatedAtMs))
+            p.candle.priceUsd, p.pairCreatedAtMs, p.volumeM5))
     }
 
     /** Pure: one DexScreener pair object's flow (the batch /tokens/v1 answer); absent fields stay absent. */
@@ -77,6 +78,7 @@ object PairFlow8169 {
             atMs = atMs,
             priceUsd8417 = p.optDouble("priceUsd", Double.NaN),
             pairCreatedAtMs8417 = p.optLong("pairCreatedAt", 0L),
+            volumeM5 = p.optJSONObject("volume")?.optDouble("m5", Double.NaN) ?: Double.NaN,
         )
     }
 

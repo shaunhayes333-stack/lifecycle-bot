@@ -965,13 +965,13 @@ object ForwardReturnLabeler7731 {
         return shape to stage
     }
 
-    fun observe(mint: String, lane: String, admitted: Boolean, reason: String?, nowMs: Long = System.currentTimeMillis(), score: Int = -1) {
+    fun observe(mint: String, lane: String, admitted: Boolean, reason: String?, nowMs: Long = System.currentTimeMillis(), score: Int = -1, incumbent8506: Boolean? = null) {
         if (mint.isBlank()) return
         val ts = try { com.lifecyclebot.engine.BotService.status.tokens[mint] } catch (_: Throwable) { null } ?: return
-        observe(ts, lane, admitted, reason, nowMs, score)
+        observe(ts, lane, admitted, reason, nowMs, score, incumbent8506)
     }
 
-    fun observe(ts: TokenState, lane: String, admitted: Boolean, reason: String?, nowMs: Long = System.currentTimeMillis(), score: Int = -1) {
+    fun observe(ts: TokenState, lane: String, admitted: Boolean, reason: String?, nowMs: Long = System.currentTimeMillis(), score: Int = -1, incumbent8506: Boolean? = null) {
         val l = lane.trim().uppercase().ifBlank { "UNKNOWN" }
         val key = "${ts.mint}|$l"
         // V5.0.8418 — the buy-path gate that ruled on a candidate whose observation is already pending (GateOutcome8418).
@@ -1099,7 +1099,7 @@ object ForwardReturnLabeler7731 {
         try { TradeShapeLearner7883.capture(ts, l, nowMs) } catch (_: Throwable) {}
         try { FallingHourCohort8418.capture8418(ts, l, nowMs) } catch (_: Throwable) {}  // V5.0.8418 — the falling-hour rule's own evidence
         // V5.0.7885 — the Cortex snapshot + every voter's opinion at this decision.
-        try { com.lifecyclebot.engine.cortex.Cortex7885.capture(ts, l, admitted, nowMs, reason) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.cortex.Cortex7885.capture(ts, l, admitted, nowMs, reason, incumbent8506) } catch (_: Throwable) {}
         // V5.0.7955 — the setup this decision is traded as keys its exit profile (classify is cached by the capture above).
         try { pending[key]?.setup7955 = com.lifecyclebot.engine.ExitProfile7955.entrySetup7955(ts, l, nowMs) } catch (_: Throwable) {}
         // V5.0.7737 — a fresh launch is also followed by first touch (+50% / -30%).

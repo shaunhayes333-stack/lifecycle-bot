@@ -261,7 +261,7 @@ object FreshLaunchSelector7737 {
             // V5.0.7948 — a setup cell's stops-first record (20+ results) yields to a proven
             // plan cohort this launch sits in, measured on more labels (LiveEdgeGate7877).
             cellRefuses(c) && !LiveEdgeGate7877.cohortOverrulesSmaller7948(LiveEdgeGate7877.provenCohort7948(ts, nowMs), c?.n ?: 0) &&
-                !com.lifecyclebot.engine.cortex.Cortex7885.vetoRefusesWinners7953("FRESH_LAUNCH_SETUP_STOPS_FIRST_7737") -> {
+                !com.lifecyclebot.engine.cortex.Cortex7885.vetoRefusesWinners8006("FRESH_LAUNCH_SETUP_STOPS_FIRST_7737", lane) -> {
                 refusedLearned.incrementAndGet()
                 "FRESH_LAUNCH_SETUP_STOPS_FIRST_7737"
             }

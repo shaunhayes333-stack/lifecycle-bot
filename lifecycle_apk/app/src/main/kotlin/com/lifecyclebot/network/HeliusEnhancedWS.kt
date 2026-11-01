@@ -348,6 +348,7 @@ object HeliusEnhancedWS {
                 val result = params.optJSONObject("result") ?: return
                 if (tapeSubId8307 >= 0 && params.optLong("subscription", -2L) == tapeSubId8307) {
                     PumpSwapTape8307.onEnhancedTx8307(result, tapeIncluded8307)   // V5.0.8307 — onto the trade tape, never the whale callback
+                    ValidatorMarket8506.enhanced(result, params)
                     return
                 }
                 if (curveSubId8354 >= 0L && params.optLong("subscription", -2L) == curveSubId8354) {

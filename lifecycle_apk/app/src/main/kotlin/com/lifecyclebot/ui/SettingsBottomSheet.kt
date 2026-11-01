@@ -57,6 +57,7 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
     private lateinit var etTopUpGainStep: EditText
     private lateinit var etTopUpMaxCount: EditText
     private lateinit var etTopUpMaxSol: EditText
+    private lateinit var validatorFields8506: List<EditText>
     private lateinit var etRpc: EditText
     private lateinit var etTreasuryWalletAddress: EditText
     private lateinit var etHeliusKey: EditText
@@ -148,6 +149,7 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         etTopUpGainStep = view.findViewById(R.id.etTopUpGainStep)
         etTopUpMaxCount = view.findViewById(R.id.etTopUpMaxCount)
         etTopUpMaxSol = view.findViewById(R.id.etTopUpMaxSol)
+        validatorFields8506 = listOf(view.findViewById<EditText>(R.id.etValidatorEndpoint8506), view.findViewById<EditText>(R.id.etValidatorToken8506), view.findViewById<EditText>(R.id.etXStreamToken8506))
         etRpc = view.findViewById(R.id.etRpc)
         etTreasuryWalletAddress = view.findViewById(R.id.etTreasuryWalletAddress)
         etHeliusKey = view.findViewById(R.id.etHeliusKey)
@@ -318,6 +320,8 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
                 .setTitle("Clear API Keys")
                 .setMessage("This will remove all your API keys. Are you sure?")
                 .setPositiveButton("Clear") { _, _ ->
+                    validatorFields8506.forEach { it.text.clear() }
+                    com.lifecyclebot.data.ConfigStore.saveValidatorFeeds8506(requireContext(), listOf("", "", ""))
                     onClearApiKeys?.invoke()
                     dismiss()
                 }
@@ -402,6 +406,7 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         etTopUpMaxSol.setText(cfg.topUpMaxTotalSol.toString())
         
         // API Keys
+        validatorFields8506.zip(com.lifecyclebot.data.ConfigStore.validatorFeeds8506(requireContext())).forEach { (field, v) -> field.setText(v) }
         etRpc.setText(cfg.rpcUrl)
         etTreasuryWalletAddress.setText(cfg.treasuryWalletAddress)
         etHeliusKey.setText(cfg.heliusApiKey)
@@ -504,6 +509,7 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
             etCoinMarketCapKey7955, etMoralisKey7955, etBitqueryKey7955,
             etSolanaTrackerKey7955, etCodexKey7955, etCryptoCompareKey7955,
         ).map { it.text.toString().trim() }, allowClear8286 = true)  // V5.0.8286 — this sheet shows the saved keys, so a cleared field is deliberate
+        com.lifecyclebot.data.ConfigStore.saveValidatorFeeds8506(requireContext(), validatorFields8506.map { it.text.toString() })
         onSettingsSaved?.invoke(newConfig)
         // V5.9.361 — persist ElevenLabs key (lives in VoiceManager prefs).
         try {

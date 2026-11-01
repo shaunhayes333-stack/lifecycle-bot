@@ -605,6 +605,8 @@ object TelegramCallSweeper7830 {
                         for (m in ex.mints + ex.pairLike) {
                             casExtracted.incrementAndGet()
                             if (stale) { staleSkipped.incrementAndGet(); continue }
+                            if (m in ex.mints && m !in ex.pairLike && p.tsMs > 0L)
+                                KineticFlow8506.mention(m, p.tsMs, now)
                             if (verifyQueue.size < MAX_VERIFY_QUEUE_7830) {
                                 verifyQueue.add(Candidate7830(m, m in ex.pairLike, c.name, if (p.tsMs > 0L) p.tsMs else now, call))
                             }

@@ -36,11 +36,12 @@ class Aate8418GradeRevisionsPersistTest {
         assertEquals(CortexOutcomeDisposition8395.ACCEPTED_REVISION, deliver(restored, 300, 33.0))
         assertEquals(3, restored.decision(id)!!.revisions8272)
 
-        // A row saved before 8418 (46 fields, no count) still loads; its count reads 0 as it always did.
+        // A row saved before 8418 (46 fields, no count or native-policy field) still loads;
+        // its count reads 0 as it always did.
         val fs = '\u001F'
         val fields = encoded.split(fs)
-        assertEquals(47, fields.size)
-        val legacy = book().also { it.decode(fields.dropLast(1).joinToString(fs.toString())) }
+        assertEquals(48, fields.size)
+        val legacy = book().also { it.decode(fields.dropLast(2).joinToString(fs.toString())) }
         assertEquals(0, legacy.decision(id)!!.revisions8272)
         assertEquals(30.0, legacy.decision(id)!!.executableRevisedPct, 1e-4)
     }
