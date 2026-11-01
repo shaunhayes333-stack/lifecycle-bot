@@ -15608,4 +15608,18 @@ class GoldenTapeRegressionTest {
         val safety = java.io.File(root, "TokenSafetyChecker.kt").readText()
         assertTrue(safety.contains("topHolderPct > 80.0 ->"))
     }
+
+    @Test
+    fun V5_0_8501_big_prefs_live_in_sqlite_and_token_lists_stream_row_by_row() {
+        val root = java.io.File("src/main/kotlin/com/lifecyclebot")
+        val off = java.io.File(root, "engine/OffloadedPrefs8501.kt").readText()
+        assertTrue(off.contains("if (xml.exists()) try { app.deleteSharedPreferences(name) } catch (_: Throwable) {}"))
+        assertTrue(off.contains("for ((k, v) in ch) if (s.pending[k] === v) s.pending.remove(k)"))
+        assertTrue(java.io.File(root, "engine/truth/ForwardReturnLabeler7731.kt").readText().contains("OffloadedPrefs8501.of(context, PREFS_7731)"))
+        assertTrue(java.io.File(root, "engine/truth/LearningResetSweep7781.kt").readText().contains("OffloadedPrefs8501.clear8501(app, name)"))
+        val jup = java.io.File(root, "network/JupiterStrictTokenList.kt").readText()
+        assertTrue(!jup.contains("val arr = JSONArray(body)"))
+        val dyn = java.io.File(root, "perps/DynamicAltTokenRegistry.kt").readText()
+        assertTrue(dyn.contains("httpStream8501(\"https://lite-api.jup.ag/tokens/v2/tag?query=verified\", row8501)"))
+    }
 }

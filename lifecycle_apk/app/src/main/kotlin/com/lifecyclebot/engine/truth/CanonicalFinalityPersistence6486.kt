@@ -24,7 +24,7 @@ object CanonicalFinalityPersistence6486 {
     @Synchronized
     fun initAndReplay(context: Context): Int {
         if (initialized) return 0
-        prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        prefs = com.lifecyclebot.engine.OffloadedPrefs8501.of(context, PREFS)
         // V5.0.6699 — load the durable typed economic sidecar BEFORE replaying
         // persisted finality rows. CanonicalEconomicEvent6635 is volatile, so
         // restart-safe exact terminal proof must be able to resolve the matching

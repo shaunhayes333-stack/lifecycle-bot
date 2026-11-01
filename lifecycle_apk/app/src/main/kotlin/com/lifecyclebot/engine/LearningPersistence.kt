@@ -52,7 +52,7 @@ object LearningPersistence {
         if (positionId.isBlank() || payload.isBlank()) return false
         val app = appCtx ?: return false
         return try {
-            app.getSharedPreferences(IMMUTABLE_EXECUTION_PREFS_8093, Context.MODE_PRIVATE)
+            OffloadedPrefs8501.of(app, IMMUTABLE_EXECUTION_PREFS_8093)
                 .edit().putString(positionId, payload).commit()
         } catch (_: Throwable) { false }
     }
@@ -60,7 +60,7 @@ object LearningPersistence {
     fun loadImmutableExecutionEvidence8093(positionId: String): String? {
         if (positionId.isBlank()) return null
         return try {
-            appCtx?.getSharedPreferences(IMMUTABLE_EXECUTION_PREFS_8093, Context.MODE_PRIVATE)
+            appCtx?.let { OffloadedPrefs8501.of(it, IMMUTABLE_EXECUTION_PREFS_8093) }
                 ?.getString(positionId, null)
         } catch (_: Throwable) { null }
     }

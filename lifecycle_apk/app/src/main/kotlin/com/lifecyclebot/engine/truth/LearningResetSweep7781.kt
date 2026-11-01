@@ -147,6 +147,7 @@ object LearningResetSweep7781 {
         for (name in LEARNING_PREFS_7781) {
             if (!ReconcileEvidenceStores8144.resettable8144(name)) continue // V5.0.8144 — evidence stores are not learning
             try { app.getSharedPreferences(name, Context.MODE_PRIVATE).edit().clear().commit() } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.OffloadedPrefs8501.clear8501(app, name) } catch (_: Throwable) {}   // V5.0.8501 — offloaded rows too
         }
     }
 

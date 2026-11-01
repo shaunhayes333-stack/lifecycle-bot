@@ -1936,14 +1936,10 @@ object DynamicAltTokenRegistry {
         // Field names differ between them, so the parser below reads either:
         //   lite-api v2 tag: {"id":"<mint>","symbol":..,"name":..,"icon":..}
         //   legacy strict:   {"address":"<mint>","symbol":..,"name":..,"logoURI":..}
-        val body = httpGet("https://lite-api.jup.ag/tokens/v2/tag?query=verified")
-            ?: httpGet("https://tokens.jup.ag/tokens?tags=verified")
-            ?: return
         var added = 0
         try {
-            val arr = JSONArray(body)
-            for (i in 0 until arr.length()) {
-                val obj     = arr.getJSONObject(i)
+            // V5.0.8501 — streamed one row at a time (JsonArrayStream8501): never the 5 MB body as a String + a whole DOM.
+            val row8501: (org.json.JSONObject) -> Boolean = row8501@{ obj ->
                 // V5.0.6894 — lite-api names the mint "id"; legacy used "address".
                 val mint    = obj.optString("address", "").trim()
                     .ifBlank { obj.optString("id", "").trim() }
@@ -1952,7 +1948,7 @@ object DynamicAltTokenRegistry {
                 // V5.0.6894 — lite-api names the logo "icon"; legacy used "logoURI".
                 val logoUrl = obj.optString("logoURI", "").ifBlank { obj.optString("icon", "") }
 
-                if (mint.isBlank() || symbol.isBlank()) continue
+                if (mint.isBlank() || symbol.isBlank()) return@row8501 true
                 // V5.0.8460 — Jupiter's first pool proves a minimum age (MarketSweep7297 records it from the same API): an
                 // established verified coin leaves the launch scope at once instead of waiting on a signature walk
                 // (8457: birth unknownMints JUPITER_STRICT/other=933, walk rpcFail=391, sniper BIRTH_METADATA_HYDRATING=1107).
@@ -1968,7 +1964,7 @@ object DynamicAltTokenRegistry {
                     if (existing.logoUrl.isBlank() && logoUrl.isNotBlank()) {
                         registry[canonicalKey6544] = existing.copy(logoUrl = logoUrl, lastUpdatedMs = System.currentTimeMillis())
                     }
-                    continue
+                    return@row8501 true
                 }
 
                 // Brand new token from Jupiter — established Solana enrichment source.
@@ -1984,7 +1980,12 @@ object DynamicAltTokenRegistry {
                 )
                 indexSymbol6493(symbol, canonicalKey6544)
                 added++
+                            true
             }
+            val rows8501 = httpStream8501("https://lite-api.jup.ag/tokens/v2/tag?query=verified", row8501)
+                .takeIf { it > 0 } ?: httpStream8501("https://tokens.jup.ag/tokens?tags=verified", row8501)
+            if (rows8501 <= 0) return
+
             jupiterListReadAtMs8305 = System.currentTimeMillis()   // V5.0.8305
             ErrorLogger.info(TAG, "Jupiter strict: +$added new tokens (total ${registry.size})")
         } catch (e: Exception) {
@@ -2132,6 +2133,17 @@ object DynamicAltTokenRegistry {
         // Deterministic execution safety remains in FDG/route proof.
         return pair.candle.priceUsd > 0.0
     }
+
+    /** V5.0.8501 — stream a JSON-array body row by row; rows delivered, or -1 when the request failed. */
+    private fun httpStream8501(url: String, fn: (org.json.JSONObject) -> Boolean): Int = try {
+        val req = Request.Builder().url(url)
+            .header("User-Agent", "lifecycle-bot-android/6.0")
+            .header("Accept", "application/json").build()
+        com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, "jupiter").use { resp ->
+            val b = resp.body
+            if (!resp.isSuccessful || b == null) -1 else com.lifecyclebot.network.JsonArrayStream8501.forEachObject8501(b.charStream(), fn = fn)
+        }
+    } catch (_: Exception) { -1 }
 
     private fun httpGet(url: String): String? = try {
         val host = when {

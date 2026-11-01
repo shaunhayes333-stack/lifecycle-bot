@@ -73,17 +73,14 @@ class JupiterStrictTokenList {
         // stats24h.buyVolume+sellVolume); parser below handles V2 fields and
         // falls back to V1 keys if the operator's network ever serves an old
         // cached shape.
-        val body = get("https://lite-api.jup.ag/tokens/v2/tag?query=verified") ?: return cache
-        return try {
-            val arr = JSONArray(body)
-            val list = mutableListOf<JupVerifiedToken>()
-            for (i in 0 until arr.length()) {
-                val obj = arr.optJSONObject(i) ?: continue
+        val list = mutableListOf<JupVerifiedToken>()
+        // V5.0.8501 — the list is read one row at a time off the stream (JsonArrayStream8501), never a whole String + DOM.
+        val streamed8501 = getStream8501("https://lite-api.jup.ag/tokens/v2/tag?query=verified") stream8501@{ obj ->
                 // V2 calls the mint `id`; V1 called it `address`.
                 val mint = obj.optString("id", "").ifBlank { obj.optString("address", "") }
-                if (mint.isBlank() || mint.length !in 32..64) continue
+                if (mint.isBlank() || mint.length !in 32..64) return@stream8501 true
                 val sym = obj.optString("symbol", "").uppercase()
-                if (sym in setOf("SOL", "WSOL", "USDC", "USDT", "USDH", "JITOSOL", "MSOL", "BSOL")) continue
+                if (sym in setOf("SOL", "WSOL", "USDC", "USDT", "USDH", "JITOSOL", "MSOL", "BSOL")) return@stream8501 true
                 // V2 splits volume into buy + sell under stats24h. V1 had
                 // a flat `daily_volume` field. Use whichever is present.
                 val vol = run {
@@ -94,7 +91,7 @@ class JupiterStrictTokenList {
                         obj.optDouble("daily_volume", 0.0)
                     }
                 }
-                if (vol < 5_000.0) continue   // floor — established but liquid
+                if (vol < 5_000.0) return@stream8501 true   // floor — established but liquid
                 list.add(
                     JupVerifiedToken(
                         mint = mint,
@@ -104,7 +101,11 @@ class JupiterStrictTokenList {
                         dailyVolumeUsd = vol,
                     )
                 )
-            }
+                        true
+        }
+        if (streamed8501 <= 0) return cache
+        return try {
+
             // Sort by daily volume desc — most active established tokens first
             val sorted = list.sortedByDescending { it.dailyVolumeUsd }
             cache = sorted
@@ -158,6 +159,18 @@ class JupiterStrictTokenList {
             cache
         }
     }
+
+    /** V5.0.8501 — stream the array body; returns rows delivered, or -1 when the request failed. */
+    private fun getStream8501(url: String, fn: (org.json.JSONObject) -> Boolean): Int = try {
+        val req = Request.Builder().url(url)
+            .header("Accept", "application/json")
+            .header("User-Agent", "AATE/5.0 (Solana trader)")
+            .build()
+        HealthAwareHttp.execute(http, req, host = "jupiter").use { resp ->
+            val b = resp.body
+            if (!resp.isSuccessful || b == null) -1 else JsonArrayStream8501.forEachObject8501(b.charStream(), fn = fn)
+        }
+    } catch (_: Exception) { -1 }
 
     private fun get(url: String): String? = try {
         val req = Request.Builder().url(url)

@@ -598,7 +598,7 @@ object ForwardReturnLabeler7731 {
     fun attach(context: Context) {
         if (prefs != null) return
         val p = try {
-            context.applicationContext.getSharedPreferences(PREFS_7731, Context.MODE_PRIVATE)
+            com.lifecyclebot.engine.OffloadedPrefs8501.of(context, PREFS_7731)
         } catch (_: Throwable) { return }
         prefs = p
         pairedRestore8401 = p.getString(PAIRED_CORTEX_KEY_8401, null)

@@ -744,7 +744,7 @@ object MemoryGuard7977 {
             prefsBytes8309 = residentPrefsBytes8418(prefsFiles8418)   // V5.0.8309; V5.0.8418 — loaded files only
             prefsArchivedBytes8418 = prefsFiles8418.values.sum() - prefsBytes8309
             val files = ctx.filesDir.walkTopDown().maxDepth(2).filter { it.isFile }.associate { it.name to it.length() }
-            "prefsTotal=${prefs.values.sum() / 1024}KB prefsNotLoaded8418=${prefsArchivedBytes8418 / 1024}KB prefsTop=[${topSizes8031(prefs)}] filesTotal=${files.values.sum() / 1024}KB filesTop=[${topSizes8031(files)}] " +
+            "${try { OffloadedPrefs8501.statusLine8501() } catch (_: Throwable) { "prefsOffload8501[ERR]" }} prefsTotal=${prefs.values.sum() / 1024}KB prefsNotLoaded8418=${prefsArchivedBytes8418 / 1024}KB prefsTop=[${topSizes8031(prefs)}] filesTotal=${files.values.sum() / 1024}KB filesTop=[${topSizes8031(files)}] " +
                 "labelLoad=${"%.2f".format(try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.pendingLoad8031() } catch (_: Throwable) { -1.0 })}"
         } catch (_: Throwable) { "census_failed" }
         return census8031

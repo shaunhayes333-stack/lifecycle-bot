@@ -53,7 +53,7 @@ object ChartLibraryBuilder7950 {
                 phase = "loading"
                 val n = ChartLibrary7950.load(f)
                 try { ForensicLogger.lifecycle("CHART_LIBRARY_LOADED_7950", "motifs=$n") } catch (_: Throwable) {}
-                val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                val prefs = com.lifecyclebot.engine.OffloadedPrefs8501.of(app, PREFS)
                 val last = prefs.getLong("builtAtMs", 0L)
                 var pending = System.currentTimeMillis() - last > REBUILD_MS || n < ChartLibrary7950.CAPACITY / 4
                 if (pending) pending = !buildAndMark7955(prefs)

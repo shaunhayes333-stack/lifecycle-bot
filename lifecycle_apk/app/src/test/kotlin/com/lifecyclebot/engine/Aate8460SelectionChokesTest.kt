@@ -52,7 +52,8 @@ class Aate8460SelectionChokesTest {
         DynamicAltTokenRegistry.notePoolFloor8460(none, JSONObject().put("firstPool", JSONObject().put("createdAt", "not-a-date")))
         assertEquals(null, PoolCreationTime7385.createdAtMs(none))
         val reg = File("src/main/kotlin/com/lifecyclebot/perps/DynamicAltTokenRegistry.kt").readText()
-        val loader = reg.substringAfter("https://lite-api.jup.ag/tokens/v2/tag?query=verified")
+        // V5.0.8501 — the verified list is streamed row by row; the row handler is the loader body.
+        val loader = reg.substringAfter("val row8501: (org.json.JSONObject) -> Boolean = row8501@{ obj ->")
         assertTrue("read for every listed coin, new or already held", loader.indexOf("notePoolFloor8460(mint, obj)") in 0 until loader.indexOf("if (registry.containsKey(canonicalKey6544))"))
     }
 }

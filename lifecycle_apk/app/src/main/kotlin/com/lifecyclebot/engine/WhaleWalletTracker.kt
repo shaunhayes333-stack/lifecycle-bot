@@ -104,7 +104,7 @@ object WhaleWalletTracker {
     )
 
     fun init(context: Context) {
-        prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs = OffloadedPrefs8501.of(context, PREFS_NAME)
         loadFromPrefs()
     }
 

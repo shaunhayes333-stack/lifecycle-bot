@@ -67,7 +67,7 @@ object ScannerHardRejectStore {
     private fun load() {
         val c = ctx ?: return
         try {
-            val raw = c.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getString(KEY_MINTS, "{}") ?: "{}"
+            val raw = OffloadedPrefs8501.of(c, PREFS_NAME).getString(KEY_MINTS, "{}") ?: "{}"
             val obj = JSONObject(raw)
             hardRejects.clear()
             obj.keys().asSequence().forEach { mint ->
@@ -171,7 +171,7 @@ object ScannerHardRejectStore {
                     put("atMs", r.atMs)
                 })
             }
-            c.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putString(KEY_MINTS, obj.toString()).apply()
+            OffloadedPrefs8501.of(c, PREFS_NAME).edit().putString(KEY_MINTS, obj.toString()).apply()
         } catch (_: Throwable) {}
     }
 }
