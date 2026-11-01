@@ -24107,7 +24107,7 @@ class Executor(
             return
         }
         val pct = RunnerExitLive8136.budget8136(ts, sellPercentage.coerceIn(0.0, 1.0), reason)  // V5.0.8136 — one residual share budget
-        if (pct <= 0) return
+        if (pct <= 0) { spikeRefused8337(reason, "SHARE_BUDGET_OR_TICKET_8502"); return }
         // V5.0.8034 — a moonbag tail sells no ordinary slice (only its own TAIL_ milestones or a structural exit).
         if (try { TailBag8034.partialHeld8034(ts, reason) } catch (_: Throwable) { false }) {
             spikeRefused8337(reason, "TAILBAG")
@@ -24248,6 +24248,7 @@ class Executor(
                 try { ForensicLogger.lifecycle("PARTIAL_BLOCKED_BELOW_BREAKEVEN",
                     "mint=${ts.mint.take(10)} symbol=${ts.symbol} pnl=${"%.2f".format(pnlPct)} floor=${"%.2f".format(partialFloor6920)} flatFloor=${LiveStrategyTuner.livePartialProfitFloorPct()} paper=$isPaper reqPct=${(pct*100).toInt()} reason=$reason action=hold_runner") } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("PARTIAL_BLOCKED_BELOW_BREAKEVEN") } catch (_: Throwable) {}
+                spikeRefused8337(reason, "BELOW_BREAKEVEN_8502")
                 return
             }
             if (pnlPct <= -15.0 && !isForcedCut) {
@@ -24451,6 +24452,7 @@ class Executor(
                 
                 if (activeWallet == null) {
                     ErrorLogger.error("Executor", "🚨 PARTIAL SELL BLOCKED: No wallet for ${ts.symbol}")
+                    spikeRefused8337(reason, "NO_WALLET_8502")
                     onNotify("🚨 Partial Sell Blocked!", 
                         "Cannot partial-sell ${ts.symbol} - wallet not connected!",
                         com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
@@ -24474,8 +24476,9 @@ class Executor(
                 ))
             } else {
                 val lockTradeKeyPre = LiveTradeLogStore.keyFor(ts.mint, ts.position.entryTime)
-                if (blockIfSellInFlight(ts, reason, lockTradeKeyPre)) return
+                if (blockIfSellInFlight(ts, reason, lockTradeKeyPre)) { spikeRefused8337(reason, "SELL_IN_FLIGHT_8502"); return }
                 if (!com.lifecyclebot.engine.sell.SellExecutionLocks.tryAcquire(ts.mint)) {
+                    spikeRefused8337(reason, "SELL_LOCK_BUSY_8502")   // V5.0.8502 — a refused rung names its door
                     // V5.9.967 — z43-D SellSpamGuard wrap.
                     if (com.lifecyclebot.engine.sell.SellSpamGuard.shouldLogBlocked(ts.mint, reason))
                         LiveTradeLogStore.log(lockTradeKeyPre, ts.mint, ts.symbol, "SELL",
@@ -24501,6 +24504,7 @@ class Executor(
                     ) ?: run {
                         com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint)
                         onLog("🛑 PARTIAL SELL BLOCKED: ${ts.symbol} BALANCE_UNKNOWN — refusing cached qty broadcast", ts.mint)
+                        spikeRefused8337(reason, "BALANCE_UNKNOWN_8502")
                         return
                     }
                     val sellQty = partialPlan.uiAmount
@@ -24545,6 +24549,7 @@ class Executor(
                         traderTag = "MEME",
                     ) ?: run {
                         com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint)
+                        spikeRefused8337(reason, "SLICE_NOT_SIZED_8502")
                         return
                     }
                     sellUnits = manualJupiterPlan.rawAmount
@@ -24583,6 +24588,7 @@ class Executor(
                                         traderTag = "MEME",
                                     ) ?: run {
                                         com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint)
+                                        spikeRefused8337(reason, "LADDER_SLICE_NOT_SIZED_8502")
                                         return
                                     }
                                     sellUnits = manualLadderPlan.rawAmount
@@ -24610,6 +24616,7 @@ class Executor(
                             val dynSlipCap = com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason).coerceAtLeast(currentSlip)
                             // 8168: revalidate every exact slice after every re-quote.
                             if (!ProfitExitTruth8163.acceptQuote(ts, reason, quote, dynSlipCap)) {
+                                spikeRefused8337(reason, "QUOTE_REFUSED_8502")
                                 receipt6566?.invoke(PartialSellReceipt6566(false))
                                 return
                             }

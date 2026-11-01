@@ -15622,4 +15622,13 @@ class GoldenTapeRegressionTest {
         val dyn = java.io.File(root, "perps/DynamicAltTokenRegistry.kt").readText()
         assertTrue(dyn.contains("httpStream8501(\"https://lite-api.jup.ag/tokens/v2/tag?query=verified\", row8501)"))
     }
+
+    @Test
+    fun V5_0_8502_every_refused_runner_rung_names_its_door() {
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        for (door in listOf("SHARE_BUDGET_OR_TICKET_8502", "BELOW_BREAKEVEN_8502", "SELL_IN_FLIGHT_8502", "SELL_LOCK_BUSY_8502",
+                "NO_WALLET_8502", "BALANCE_UNKNOWN_8502", "SLICE_NOT_SIZED_8502", "LADDER_SLICE_NOT_SIZED_8502", "QUOTE_REFUSED_8502")) {
+            assertTrue(door, ex.contains("spikeRefused8337(reason, \"" + door + "\")"))
+        }
+    }
 }
