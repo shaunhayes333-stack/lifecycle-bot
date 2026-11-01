@@ -180,7 +180,13 @@ object RunnerLive8153 {
 
     fun request8153(ts: TokenState, ladder: String, tier: Int, reason: String, nowMs: Long): Boolean {
         ensureLoaded8153()
-        return book.request8153(key8153(ts), ladder, tier, reason, nowMs)
+        // V5.0.8507 — the funnel's RUNG_TRIGGERED / RUNG_ARMED stages had no writer (8499-8506: always 0, the ladder read
+        // as dead). Triggered = the price reached a runner tier and asked for its sale; armed = the book accepted it.
+        val runner8507 = ladder == RunnerRungBook8153.LADDER_RUNNER_8153 && tier > 0
+        if (runner8507) RunnerFunnel8331.stage8331(RunnerFunnel8331.Stage8331.RUNG_TRIGGERED, "${key8153(ts)}|T$tier")
+        val ok = book.request8153(key8153(ts), ladder, tier, reason, nowMs)
+        if (runner8507 && ok) RunnerFunnel8331.stage8331(RunnerFunnel8331.Stage8331.RUNG_ARMED, "${key8153(ts)}|T$tier")
+        return ok
     }
 
     fun advance8153(ts: TokenState, stage: RunnerRungBook8153.Stage8153, nowMs: Long, expectedReason8397: String? = null, expectedRequestAtMs8397: Long? = null): Boolean {

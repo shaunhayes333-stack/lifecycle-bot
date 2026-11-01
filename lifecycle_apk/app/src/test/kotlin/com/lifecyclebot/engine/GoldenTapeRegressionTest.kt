@@ -15675,4 +15675,17 @@ class GoldenTapeRegressionTest {
             TokenMetricStageRouter.Stage.UNKNOWN, ""), flow))
         assertNull(t.entryWait8506(TokenMetricStageRouter.LaneFit(true, "DIP_HUNTER", TokenMetricStageRouter.Stage.DUMPING, ""), flow))
     }
+
+    @Test
+    fun V5_0_8507_live_watchlist_recheck_needs_its_own_record_and_rungs_are_counted() {
+        val a = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CandidateAdmission8136.kt").readText()
+        val door = a.indexOf("if (nativeLive8259 && c.live && c.watchlistRecheck8507 && !cellSupported && doorBinds8393(")
+        assertTrue(door > 0)
+        assertTrue(door < a.indexOf("return done(Terminal8136.ADMIT, \"NATIVE_QUALIFIED_ADMIT_8259\""))
+        assertTrue(a.indexOf("return done(Terminal8136.ADMIT, \"SPECIFIC_EDGE_PROVEN_8136\"") < door)
+        assertTrue(a.contains("watchlistRecheck8507 = ts.source.trim().equals(\"WATCHLIST\", ignoreCase = true),"))
+        val r = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RunnerLive8153.kt").readText()
+        assertTrue(r.contains("RunnerFunnel8331.Stage8331.RUNG_TRIGGERED"))
+        assertTrue(r.contains("if (runner8507 && ok) RunnerFunnel8331.stage8331(RunnerFunnel8331.Stage8331.RUNG_ARMED"))
+    }
 }

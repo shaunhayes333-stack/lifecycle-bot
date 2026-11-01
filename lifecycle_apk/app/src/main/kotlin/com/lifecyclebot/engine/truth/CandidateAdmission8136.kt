@@ -118,6 +118,12 @@ object CandidateAdmission8136 {
         val nativeSetup8213: String? = null,
         val entryWait8506: String? = null,
         /**
+         * V5.0.8507 — the coin is a watchlist re-check (TokenState.source WATCHLIST: re-hydrated by the pair poll, no live
+         * discovery event). 8506: that source n1270 -10.9% 5-min net and 349 of the buy-qualified rows; its live buys all
+         * bought the top. Read only by the native-qualified live opinion door below.
+         */
+        val watchlistRecheck8507: Boolean = false,
+        /**
          * V5.0.8245 — RunnerGrab7967: this coin is a grab right now (proven runner cell n >= 20, mean - SE >= +20% net
          * at 60 m; chart firming / not breaking; hard safety and Mayhem clear; the grab record standing). Candidate-
          * specific positive evidence at the SUPPORTED margin beside the setup / cell / Cortex records; it never carries
@@ -726,6 +732,15 @@ object CandidateAdmission8136 {
         // live doors — LIVE_PROVEN_SETUP_ONLY_8059 with its runner / cold-start / measured-edge exemptions, the chase
         // rule, the learned setup / timing / tactic negatives, watch-first, the V3 base signal and the cell proof ladder
         // all judge it again. Only a SUPPORTED record (step 6) is candidate-specific evidence.
+        // V5.0.8507 §WATCHLIST_RECHECK_NEEDS_ITS_OWN_RECORD — a live watchlist re-check admits on the native lane opinion only
+        // when its own cell record is supported (the same evidence the 8238 generic-prior door asks for). Paper / shadow keep
+        // learning from it; a candidate-specific supported edge (step 6) already admitted above; the closed-loop veto audit
+        // (doorBinds8393) unbinds this door if the re-checks it refuses are proven to win.
+        if (nativeLive8259 && c.live && c.watchlistRecheck8507 && !cellSupported && doorBinds8393("LIVE_WATCHLIST_RECHECK_UNPROVEN_8507")) {
+            trace += "watchlistRecheckUnproven8507 cell=${c.cell?.compact ?: "-"} native=${c.nativeSetup8213}"
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_WATCHLIST_RECHECK_UNPROVEN_8507_${c.lane.uppercase()}") } catch (_: Throwable) {}
+            return done(Terminal8136.REFUSE, "LIVE_WATCHLIST_RECHECK_UNPROVEN_8507", false, chosen)
+        }
         if (nativeLive8259) {
             trace += "nativeQualifiedAdmit8259=${c.nativeSetup8213} generic=${fmt8136(c.genericScore)} floor=${fmt8136(c.genericFloor)} opinion8279"
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("NATIVE_QUALIFIED_ADMIT_8259_${c.lane.uppercase()}") } catch (_: Throwable) {}
@@ -1462,6 +1477,7 @@ object CandidateAdmission8136 {
                 com.lifecyclebot.engine.RunnerGrab7967.grabEvidence8245(ts, nowMs)?.let { Evidence8136(KIND_RUNNER_GRAB_8245, it.key, it.n, it.meanNetPct, it.sePct) }  // V5.0.8316 — shifted in decide8136
             } catch (_: Throwable) { null },
             nativeQualified8213 = nativeOpinion8213 != null || nativeSetupBook8217 != null || runnerForming8260 != null,
+            watchlistRecheck8507 = ts.source.trim().equals("WATCHLIST", ignoreCase = true),
             nativeSetup8213 = nativeOpinion8213?.setup?.takeIf { it.isNotBlank() && !it.equals("NONE", true) } ?: nativeSetupBook8217 ?: runnerForming8260,
             sheet8323 = try { com.lifecyclebot.engine.cortex.LaneCheatSheet8323.admissionVerdicts8323(lane, setups.map { it.id }, selected, ts.mint, nowMs) } catch (_: Throwable) { emptyMap() },
             tailLaneRate8324 = pond8324?.pBook ?: Double.NaN,
