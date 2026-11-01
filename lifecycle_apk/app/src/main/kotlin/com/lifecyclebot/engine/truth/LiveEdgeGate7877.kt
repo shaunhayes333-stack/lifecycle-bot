@@ -1070,11 +1070,22 @@ object LiveEdgeGate7877 {
         // 8018's floor-price launches (filed under $10k once the cap agrees with the price) rode the
         // THIN_CELL stand-down into the bot's worst group (27 live closes, -17.4%).
         val band = if (st == null || st.n60 < WATCH_MIN_N_7994) try { ForwardReturnLabeler7731.bandStatFor8019(ts, l) } catch (_: Throwable) { null } else null
-        val bandNegative = band != null && bandLoses8019(band.n60, band.meanNet60Pct, band.stderr60Pct)
+        // V5.0.8504 §SURVIVOR_RECORD_IS_NOT_A_VERDICT — a band / cell whose labels mostly went unpriced (resolvedShare below
+        // DiagnosisBrief8438.MIN_COVERAGE_8474) holds only the survivors; it is no measured loss. It reads as thin (no evidence
+        // either way) so V3/FDG's call stands; a covered negative record still refuses. 8502: 16 BAND_NEGATIVE refusals at 24-37% coverage.
+        val bandMeasured8504 = band != null && band.resolvedShare >= com.lifecyclebot.engine.DiagnosisBrief8438.MIN_COVERAGE_8474
+        val cellMeasured8504 = st != null && st.resolvedShare >= com.lifecyclebot.engine.DiagnosisBrief8438.MIN_COVERAGE_8474
+        val bandNegative = band != null && bandMeasured8504 && bandLoses8019(band.n60, band.meanNet60Pct, band.stderr60Pct)
         if (bandNegative) bandRefused8019.incrementAndGet()
+        if (band != null && !bandMeasured8504 && bandLoses8019(band.n60, band.meanNet60Pct, band.stderr60Pct))
+            try { PipelineHealthCollector.labelInc("WATCH_FIRST_BAND_UNCOVERED_STOOD_DOWN_8504") } catch (_: Throwable) {}
         val why = when {
             bandNegative -> "WATCH_FIRST_8019_BAND_NEGATIVE"
             st == null || st.n60 < WATCH_MIN_N_7994 -> "WATCH_FIRST_7994_THIN_CELL"
+            !cellMeasured8504 -> {
+                try { PipelineHealthCollector.labelInc("WATCH_FIRST_CELL_UNCOVERED_STOOD_DOWN_8504") } catch (_: Throwable) {}
+                "WATCH_FIRST_7994_THIN_CELL"
+            }
             else -> "WATCH_FIRST_7994_CELL_NEGATIVE"
         }
         // A thin cell (too few labels to measure) is no evidence either way: it no longer holds the coin (it was released only

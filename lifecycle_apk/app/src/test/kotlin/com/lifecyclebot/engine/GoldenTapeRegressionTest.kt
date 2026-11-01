@@ -15640,4 +15640,13 @@ class GoldenTapeRegressionTest {
         assertTrue(!off.contains("SELECT t, v FROM kv"))
         assertTrue(!off.contains("SELECT k, t, v FROM kv"))
     }
+
+    @Test
+    fun V5_0_8504_watch_first_refuses_only_on_a_covered_record() {
+        val g = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveEdgeGate7877.kt").readText()
+        assertTrue(g.contains("val bandNegative = band != null && bandMeasured8504 && bandLoses8019("))
+        assertTrue(g.contains("band.resolvedShare >= com.lifecyclebot.engine.DiagnosisBrief8438.MIN_COVERAGE_8474"))
+        assertTrue(g.contains("st.resolvedShare >= com.lifecyclebot.engine.DiagnosisBrief8438.MIN_COVERAGE_8474"))
+        assertTrue(g.contains("WATCH_FIRST_CELL_UNCOVERED_STOOD_DOWN_8504"))
+    }
 }
