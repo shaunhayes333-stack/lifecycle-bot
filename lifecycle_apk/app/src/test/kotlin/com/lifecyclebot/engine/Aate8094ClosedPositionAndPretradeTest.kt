@@ -479,7 +479,7 @@ class Aate8094ClosedPositionAndPretradeTest {
     @Test fun theHiveNetworkBooksComeBackInFullAfterEveryRestart() {
         // The network aggregate lives in memory; lastPullMs survives the restart. The first sync pages everything in.
         val h = src("engine/truth/HiveEdge8000.kt")
-        assertTrue(h.contains("if (!fullPulledThisProcess8094) {"))
+        assertTrue(h.contains("if (!fullPulledThisProcess8094) bootPageIn8505(client)"))  // V5.0.8505: page-in in its guarded helper, retried every minute
         assertTrue(h.contains("HIVE_FULL_PAGE_IN_AT_BOOT_8094"))
         assertTrue(h.contains("pageIn8094(client, 0L)"))
     }
@@ -553,7 +553,7 @@ class Aate8094ClosedPositionAndPretradeTest {
         val ex = src("engine/Executor.kt")
         assertTrue(ex.contains("if (baseQuoteSellRefused8096(ts.mint, reason)) return SellResult.FAILED_FATAL"))
         val h = src("engine/truth/HiveEdge8000.kt")
-        assertTrue(h.indexOf("if (!fullPulledThisProcess8094) {") in 0 until h.indexOf("// Upload deltas."))
+        assertTrue(h.indexOf("if (!fullPulledThisProcess8094) bootPageIn8505(client)") in 0 until h.indexOf("// Upload deltas."))  // V5.0.8505: same invariant, page-in moved to its guarded helper
         assertTrue(h.contains("if (!uploadDue8096 && fullPulledThisProcess8094) return"))
     }
 

@@ -219,16 +219,7 @@ object HiveEdge8000 {
         // local data (SHITCOIN LAUNCH_LADDER_PROVEN n208 +227% -> n127 +37%, SPECIALIST_EDGE n884 -> n51).
         // V5.0.8096 — BEFORE the upload: 8095 at 243 s was still uploading its restart backlog (uploadedRows=2720 of ~28k
         // keys) and had not paged anything in (sharedKeys=0), so every proven-setup gate read local-only data for minutes.
-        if (!fullPulledThisProcess8094) {
-            val (rows, to) = pageIn8094(client, 0L)
-            // An unreachable hive (rows=0) retries the full page-in on the next sync.
-            if (rows > 0) fullPulledThisProcess8094 = true
-            lastPullMs = maxOf(lastPullMs, to)
-            pulledRows.addAndGet(rows.toLong())
-            try { PipelineHealthCollector.labelInc("HIVE_FULL_PAGE_IN_AT_BOOT_8094") } catch (_: Throwable) {}
-            save()
-            inherit()
-        }
+        if (!fullPulledThisProcess8094) bootPageIn8505(client)
         if (!uploadDue8096) return
         lastUploadMs = now
         // Upload deltas.
@@ -295,6 +286,33 @@ object HiveEdge8000 {
     @Volatile private var fullPulledThisProcess8094 = false
 
     /** V5.0.8094 — page every network row updated after [start] into the aggregate: (rows read, last updated_ms). */
+    // V5.0.8505 §HIVE_PAGE_IN_NOT_BEHIND_COLLECTIVE — 8502/8504 ran with sharedKeys=0 pulledRows=0 (8381-8499 paged 36-47k
+    // keys in by ~240-340 s). The boot page-in only ran inside the 10-minute collective job, AFTER
+    // uploadLocalPatternAggregates()+downloadAll() and inside their try, so a slow or failing collective step left every
+    // forward-label cell, playbook and tail book reading local-only data (admitted n1300 -> n300). The page-in is now also
+    // attempted from the 1-minute runner job until it lands, guarded so only one runs, and every attempt's outcome is counted.
+    private val pageInFlight8505 = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val pageInAttempts8505 = AtomicLong(0)
+    private val pageInEmpty8505 = AtomicLong(0)
+    @Volatile private var pageInError8505: String = "-"
+    private suspend fun bootPageIn8505(client: com.lifecyclebot.collective.TursoClient) {
+        if (fullPulledThisProcess8094 || !pageInFlight8505.compareAndSet(false, true)) return
+        try {
+            ensureLoaded()
+            pageInAttempts8505.incrementAndGet()
+            val (rows, to) = pageIn8094(client, 0L)
+            // An unreachable hive (rows=0) retries the full page-in on the next sync.
+            if (rows > 0) fullPulledThisProcess8094 = true else pageInEmpty8505.incrementAndGet()
+            lastPullMs = maxOf(lastPullMs, to)
+            pulledRows.addAndGet(rows.toLong())
+            try { PipelineHealthCollector.labelInc(if (rows > 0) "HIVE_FULL_PAGE_IN_AT_BOOT_8094" else "HIVE_PAGE_IN_EMPTY_8505") } catch (_: Throwable) {}
+            if (rows > 0) { save(); inherit() }
+        } catch (t: Throwable) {
+            pageInError8505 = (t.message ?: t.javaClass.simpleName).take(80)
+            try { PipelineHealthCollector.labelInc("HIVE_PAGE_IN_EXCEPTION_8505") } catch (_: Throwable) {}
+        } finally { pageInFlight8505.set(false) }
+    }
+
     private suspend fun pageIn8094(client: com.lifecyclebot.collective.TursoClient, start: Long): Pair<Int, Long> {
         var from = start
         var rows = 0
@@ -304,6 +322,7 @@ object HiveEdge8000 {
                 "SELECT k, n, s, ss, w, r, b, updated_ms FROM $EDGE_TABLE_8028 WHERE updated_ms > ? ORDER BY updated_ms LIMIT $PULL_LIMIT",
                 listOf<Any?>(from),
             )
+            if (!res.success) pageInError8505 = (res.error ?: "query failed").take(80)   // V5.0.8505
             if (!res.success || res.rows.isEmpty()) break
             var maxTs = from
             for (row in res.rows) {
@@ -357,6 +376,7 @@ object HiveEdge8000 {
     suspend fun fastSync8000(client: com.lifecyclebot.collective.TursoClient, instanceId: String) {
         if (instanceId.isBlank()) return
         ensureTables(client)
+        if (!fullPulledThisProcess8094) bootPageIn8505(client)   // V5.0.8505
         val now = System.currentTimeMillis()
         val send = pendingRunners.entries.toList()
         if (send.isNotEmpty()) {
@@ -396,5 +416,5 @@ object HiveEdge8000 {
     fun statusLine8000(): String =
         "sharedKeys=${aggregate.size} evicted8144=${aggregateEvicted8144.get()} mineUploaded=${uploaded.size} uploadedRows=${uploadedRows.get()} pulledRows=${pulledRows.get()} " +
             "specialistsFromHive=${promotedFromHive.get()} seatsInherited=${seatsInherited.get()} expertsInherited=${expertsInherited.get()} runnerSignals[sent=${runnersSent.get()} pulled=${runnersPulled.get()}] " +
-            "books=FRL,SPEC,PB,TAIL,CX,DEV,EXP hive=$EDGE_TABLE_8028 baselinedKeys8028=${baselined8028.get()} lastPull=${if (lastPullMs > 0L) "${(System.currentTimeMillis() - lastPullMs) / 1000}s" else "-"}"
+            "books=FRL,SPEC,PB,TAIL,CX,DEV,EXP hive=$EDGE_TABLE_8028 baselinedKeys8028=${baselined8028.get()} pageIn8505[attempts=${pageInAttempts8505.get()} empty=${pageInEmpty8505.get()} done=$fullPulledThisProcess8094 err=$pageInError8505] lastPull=${if (lastPullMs > 0L) "${(System.currentTimeMillis() - lastPullMs) / 1000}s" else "-"}"
 }

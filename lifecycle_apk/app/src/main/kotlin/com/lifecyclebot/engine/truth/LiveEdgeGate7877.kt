@@ -1013,9 +1013,24 @@ object LiveEdgeGate7877 {
     private val priorsCleared8019 = AtomicLong(0)
     private const val BAND_MIN_N_8019 = 20
 
+    // V5.0.8505 — book-wide label coverage (admitted AND refused aggregates >= MIN_COVERAGE_8474), cached 30 s.
+    @Volatile private var bookCoveredAt8505 = 0L
+    @Volatile private var bookCoveredVal8505 = true
+    fun bookCovered8505(nowMs: Long): Boolean {
+        if (nowMs - bookCoveredAt8505 < 30_000L) return bookCoveredVal8505
+        val v = try {
+            com.lifecyclebot.engine.DiagnosisBrief8438.covered8474(ForwardReturnLabeler7731.aggregate8438(true)) &&
+                com.lifecyclebot.engine.DiagnosisBrief8438.covered8474(ForwardReturnLabeler7731.aggregate8438(false))
+        } catch (_: Throwable) { true }
+        bookCoveredVal8505 = v; bookCoveredAt8505 = nowMs
+        return v
+    }
+
     /**
      * Pure (V5.0.8019): a lane x cap band is proven losing on 20+ labels — its upper bound (mean + SE) is below
      * zero. V5.0.8023: was mean - SE < 0, which "proved" every band whose lower bound dipped under zero.
+
+
      */
     fun bandLoses8019(n: Int, meanPct: Double, sePct: Double): Boolean =
         n >= BAND_MIN_N_8019 && meanPct.isFinite() && sePct.isFinite() && meanPct + sePct < 0.0
@@ -1073,8 +1088,12 @@ object LiveEdgeGate7877 {
         // V5.0.8504 §SURVIVOR_RECORD_IS_NOT_A_VERDICT — a band / cell whose labels mostly went unpriced (resolvedShare below
         // DiagnosisBrief8438.MIN_COVERAGE_8474) holds only the survivors; it is no measured loss. It reads as thin (no evidence
         // either way) so V3/FDG's call stands; a covered negative record still refuses. 8502: 16 BAND_NEGATIVE refusals at 24-37% coverage.
-        val bandMeasured8504 = band != null && band.resolvedShare >= com.lifecyclebot.engine.DiagnosisBrief8438.MIN_COVERAGE_8474
-        val cellMeasured8504 = st != null && st.resolvedShare >= com.lifecyclebot.engine.DiagnosisBrief8438.MIN_COVERAGE_8474
+        // V5.0.8505 — 8504 read only the cell's own lifetime share (56-78% on every lane) and never stood down while the
+        // labeler's CURRENT pricing was 20-33% (admitted/refused aggregates, the same cohorts the brief judges): 214
+        // CELL/BAND_NEGATIVE refusals, 0 stand-downs, 0 buys. The book-wide coverage now gates both verdicts too.
+        val bookCovered8505 = bookCovered8505(nowMs)
+        val bandMeasured8504 = bookCovered8505 && band != null && band.resolvedShare >= com.lifecyclebot.engine.DiagnosisBrief8438.MIN_COVERAGE_8474
+        val cellMeasured8504 = bookCovered8505 && st != null && st.resolvedShare >= com.lifecyclebot.engine.DiagnosisBrief8438.MIN_COVERAGE_8474
         val bandNegative = band != null && bandMeasured8504 && bandLoses8019(band.n60, band.meanNet60Pct, band.stderr60Pct)
         if (bandNegative) bandRefused8019.incrementAndGet()
         if (band != null && !bandMeasured8504 && bandLoses8019(band.n60, band.meanNet60Pct, band.stderr60Pct))

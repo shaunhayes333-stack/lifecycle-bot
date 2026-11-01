@@ -431,6 +431,8 @@ object ForwardReturnLabeler7731 {
         var witness60 = 0
         var n240 = 0; var sum240 = 0.0; var win240 = 0
         var lost = 0
+        /** V5.0.8505 — carried fraction of the faded lost count (lost fades with the 60 slot it is a share of). */
+        var lostFrac8505 = 0.0
         /** V5.0.8410 — cumulative decay of the 60 slot (ln k per window pass, falling); a revision owns exp(logScale60 - bookScale). */
         var logScale60 = 0.0
         /** V5.0.8410 — fractional remainders of weighted count revisions (wins / runners / witnessed), carried, never dropped. */
@@ -451,6 +453,10 @@ object ForwardReturnLabeler7731 {
                 DecayCount8420.fade(win60, winFrac60, k).let { (c, r) -> win60 = c.coerceIn(0, n60); winFrac60 = r }
                 DecayCount8420.fade(runner60, runnerFrac60, k).let { (c, r) -> runner60 = c.coerceIn(0, n60); runnerFrac60 = r }
                 DecayCount8420.fade(witness60, witnessFrac60, k).let { (c, r) -> witness60 = c.coerceIn(0, runner60); witnessFrac60 = r }
+                // V5.0.8505 — lost fades with the window it is a share of. It never did: n60 was held at the window while lost
+                // grew for the life of the install, so resolvedShare (= n60 / (n60 + lost)) fell forever (8504 AGG|ADMITTED
+                // n300 cov33%) and read restart history as current pricing failure.
+                DecayCount8420.fade(lost, lostFrac8505, k).let { (c, r) -> lost = c.coerceAtLeast(0); lostFrac8505 = r }
             }
             if (n240 > w) { val k = w.toDouble() / n240; n240 = w; sum240 *= k
                 DecayCount8420.fade(win240, win240Frac8420, k).let { (c, r) -> win240 = c.coerceIn(0, n240); win240Frac8420 = r } }
@@ -2062,7 +2068,8 @@ object ForwardReturnLabeler7731 {
         " " + lostByVenueLine8474() +   // V5.0.8474
         " " + DowntimeRecovery8430.statusLine8430() +   // V5.0.8430
         " " + LabelClock8442.statusLine8442() + " shadowWanted8442=${shadowWanted8442.size} pendingMints8475=${pendingMintCount8475()}" +   // V5.0.8442 / 8475
-        " flat8454[awaitingLive=${flatAwaitingLive8454.get()} liveBooked=${flatLiveBooked8454.get()}]"   // V5.0.8454
+        " flat8454[awaitingLive=${flatAwaitingLive8454.get()} liveBooked=${flatLiveBooked8454.get()}]" +   // V5.0.8454
+        " downtimeUnobserved8505=${labelLostDowntime8505.get()}"   // V5.0.8505
 
     /** Pure: a horizon label may book only from a mark at most the lost-mark grace past it. */
     fun horizonOpen7809(ageMs: Long, horizonMs: Long): Boolean =
@@ -2311,7 +2318,7 @@ object ForwardReturnLabeler7731 {
     private fun terminalKey8395(o: Obs) = "$TERMINAL_PREFIX_8395${o.mint}|${o.lane}|${o.atMs}"
 
     /** Input is durably owned before the observation releases capacity. No return is fabricated. */
-    private fun unavailable8395(key: String, o: Obs, why: String, nowMs: Long): Boolean {
+    private fun unavailable8395(key: String, o: Obs, why: String, nowMs: Long, downtime8505: Boolean = false): Boolean {
         val id = terminalKey8395(o)
         val durable = synchronized(terminalLock8395) {
             if (terminalOutbox8395.containsKey(id)) true
@@ -2325,7 +2332,14 @@ object ForwardReturnLabeler7731 {
             }
         }
         if (!durable) { try { PipelineHealthCollector.labelInc("FORWARD_TERMINAL_DURABILITY_WAIT_8395") } catch (_: Throwable) {}; return false }
-        if (pending.remove(key,o) && !o.done60) {
+        val released8505 = pending.remove(key,o) && !o.done60
+        if (released8505 && downtime8505) {
+            // V5.0.8505 §DOWNTIME_WINDOW_IS_NOT_A_LOST_MARK — the window closed while the process was down and its candle could
+            // not be fetched: nothing observed it, so it is no evidence about pricing or the coin. Not a label, not a lost mark
+            // (8504: three installs in one evening read as 77% of labels lost). Counted on its own.
+            labelLostDowntime8505.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("FORWARD_LABEL_DOWNTIME_UNOBSERVED_8505") } catch (_: Throwable) {}
+        } else if (released8505) {
             markLost(o)
             // V5.0.8418 — noSource: no source ever priced it; late: marks were seen, none accepted inside the window.
             val late8474 = com.lifecyclebot.engine.cortex.CortexLabelFeed8291.lostLate8418(o.lateMark8418, o.lastAcceptedMark8395 != null, o.lastMark8386 != null)
@@ -2336,6 +2350,7 @@ object ForwardReturnLabeler7731 {
         return true
     }
 
+    private val labelLostDowntime8505 = AtomicLong(0)
     private val terminalStorageFailures8401 = AtomicLong(0)
     private val terminalCapacityRefusals8401 = AtomicLong(0)
     private var lastTerminalCleanup8401 = 0L
@@ -2501,7 +2516,8 @@ object ForwardReturnLabeler7731 {
             }
         }
         if (o.done240 && o.lastPx > 0.0 && o.entryPrice > 0.0) endRun8006(o, (o.lastPx / o.entryPrice - 1.0) * 100.0)
-        unavailable8395(key,o,"OBSERVATION_DEADLINE_${LabelEvidence8386.status(o.basis8386.mark,incoming)}",nowMs)
+        unavailable8395(key,o,"OBSERVATION_DEADLINE_${LabelEvidence8386.status(o.basis8386.mark,incoming)}",nowMs,
+            DowntimeRecovery8430.downtime8430(deadline, bootMs8430))   // V5.0.8505
         return true
     }
 

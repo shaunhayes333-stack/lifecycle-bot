@@ -15649,4 +15649,21 @@ class GoldenTapeRegressionTest {
         assertTrue(g.contains("st.resolvedShare >= com.lifecyclebot.engine.DiagnosisBrief8438.MIN_COVERAGE_8474"))
         assertTrue(g.contains("WATCH_FIRST_CELL_UNCOVERED_STOOD_DOWN_8504"))
     }
+
+    @Test
+    fun V5_0_8505_watch_first_stands_down_while_the_label_book_is_uncovered() {
+        val g = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveEdgeGate7877.kt").readText()
+        assertTrue(g.contains("val bookCovered8505 = bookCovered8505(nowMs)"))
+        assertTrue(g.contains("val bandMeasured8504 = bookCovered8505 && band != null"))
+        assertTrue(g.contains("val cellMeasured8504 = bookCovered8505 && st != null"))
+        assertTrue(g.contains("ForwardReturnLabeler7731.aggregate8438(false)"))
+        val l = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
+        assertTrue(l.contains("DecayCount8420.fade(lost, lostFrac8505, k)"))
+        assertTrue(l.contains("DowntimeRecovery8430.downtime8430(deadline, bootMs8430))   // V5.0.8505"))
+        assertTrue(l.contains("if (released8505 && downtime8505) {"))
+        assertTrue(l.contains("} else if (released8505) {\n            markLost(o)"))
+        val h = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/HiveEdge8000.kt").readText()
+        assertTrue(h.contains("if (!fullPulledThisProcess8094) bootPageIn8505(client)   // V5.0.8505"))
+        assertTrue(h.contains("pageInFlight8505.compareAndSet(false, true)"))
+    }
 }
