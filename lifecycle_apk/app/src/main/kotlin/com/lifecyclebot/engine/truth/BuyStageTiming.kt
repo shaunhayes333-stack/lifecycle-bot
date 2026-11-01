@@ -19,6 +19,10 @@ object BuyStageTiming {
     private val tracks = ConcurrentHashMap<String, Track>()
     private val aggs = ConcurrentHashMap<String, Agg>()
 
+    private const val ATTEMPT_GAP_MS_8498 = 45_000L
+    const val GAP_KEY_8498 = "between_attempts"
+    private val POST_QUOTE_8498 = setOf("BUY_SIM_OK", "BUY_SIGNED", "BUY_BROADCAST", "BUY_CONFIRMED", "BUY_VERIFY_POLL")
+
     private val END = setOf("BUY_VERIFIED_LANDED", "BUY_FAILED", "BUY_PHANTOM", "BUY_RECONCILE_LANDED")
 
     /** LiveTradeLogStore.log, LIVE side=BUY only. */
@@ -30,6 +34,18 @@ object BuyStageTiming {
             Track(nowMs).also { tracks[mint] = it }
         } else t0
         synchronized(t) {
+            // V5.0.8498 — a later attempt on the same mint is not a step of the earlier one. 5.0.8497 reported the slowest
+            // step as SIM_OK->QUOTE_TRY avg=109925ms (n=1): a buy that simulated, stopped without an end phase, and a
+            // retry 110 s later quoting again. A gap past ATTEMPT_GAP_MS_8498 (or quoting again after a passed
+            // simulation) starts a new track; the gap is kept as its own key, outside the slowest-step read.
+            val newAttempt8498 = t.lastPhase.isNotEmpty() && (nowMs - t.lastAtMs > ATTEMPT_GAP_MS_8498 ||
+                (phase == "BUY_QUOTE_TRY" && t.lastPhase in POST_QUOTE_8498))
+            if (newAttempt8498) {
+                add(GAP_KEY_8498, nowMs - t.lastAtMs)
+                val fresh = Track(nowMs).also { it.lastPhase = phase; it.lastAtMs = nowMs }
+                tracks[mint] = fresh
+                return
+            }
             if (t.lastPhase.isNotEmpty() && t.lastPhase != phase) add("${short(t.lastPhase)}->${short(phase)}", nowMs - t.lastAtMs)
             if (phase == "BUY_BROADCAST" && t.broadcastAtMs == 0L) {
                 t.broadcastAtMs = nowMs
@@ -56,7 +72,7 @@ object BuyStageTiming {
 
     /** The slowest step by average (excluding the totals), e.g. "QUOTE_TRY->QUOTE_OK avg=1840ms". */
     fun slowestStep(): String {
-        val e = aggs.entries.filter { it.key != "start->broadcast" && it.key != "broadcast->confirmed" && it.value.n > 0 }
+        val e = aggs.entries.filter { it.key != "start->broadcast" && it.key != "broadcast->confirmed" && it.key != GAP_KEY_8498 && it.value.n > 0 }
             .maxByOrNull { it.value.sumMs / it.value.n } ?: return "-"
         return "${e.key} avg=${e.value.sumMs / e.value.n}ms"
     }

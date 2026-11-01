@@ -1076,6 +1076,17 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
             throw e
         } catch (fallbackEx: Exception) {
             android.util.Log.e("SolanaWallet", "❌ Fallback also failed: ${fallbackEx.message}")
+            // V5.0.8498 — the RFQ branch's rule, applied to non-RFQ: an /execute that may have submitted these bytes is not
+            // a failure because the self-broadcast was refused (an already-landed tx fails preflight). 5.0.8497 live:
+            // 2cnLP7 "Live buy FAILED ...: unknown" landed anyway (SignedTxLedger stuck SUBMIT_ATTEMPTED), was re-adopted
+            // as WALLET_RECOVERED with no lane or plan and sold -17%. Its own signature now goes to confirmation: landed ->
+            // the normal verified-buy path; never landed -> TxExpiredProven / OnChainFailed by receipt, not by guess.
+            if (executeMaybeDelivered8085) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ULTRA_EXECUTE_MAYBE_DELIVERED_CONFIRM_8498") } catch (_: Throwable) {}
+                SignedTxLedger8085.transition(localSig8085, SignedTxLedger8085.State.OUTCOME_UNKNOWN, "ultra_execute_unconfirmed_8498")
+                awaitConfirmationKeepingSignature7733(localSig8085)
+                return localSig8085
+            }
             // Throw original Ultra error as it's more descriptive
             throw lastException ?: fallbackEx
         }

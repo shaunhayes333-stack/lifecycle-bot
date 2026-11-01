@@ -36,6 +36,9 @@ object TicketRetry8327 {
         "TOKEN_MAP_PENDING_DEFERRED_7371",
         "MUTEX_BUSY_DEFERRED",
         "SAFETY_PROOF_PENDING_DEFERRED_8270",
+        // V5.0.8498 — the per-mint buy lease is busy or backing off (non-terminal: liveBuy released nothing and bought
+        // nothing). 5.0.8497 SHITCOIN dropped a sealed ticket on it; the retry re-runs liveBuy's own lease check.
+        "BUY_LEASE_DEFERRED_8496",
     )
 
     class Hold8327(val lane: String, val attemptId: String, val cause: String, val firstMs: Long, val holds: Int)

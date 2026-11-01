@@ -23,3 +23,28 @@ class Aate8498StopAnchorAndPendingTest {
         assertEquals(org.json.JSONObject.NULL, Cortex7885.compactNumber8498(Double.NaN))
     }
 }
+
+class Aate8498ExecutionTruthTest {
+    @Test fun aBusyBuyLeaseHoldsTheTicketInsteadOfDroppingIt() {
+        assertEquals("BUY_LEASE_DEFERRED_8496",
+            TicketRetry8327.transientCause8327("LIVE_BUY_NOT_OPENED_7948:BUY_LEASE_DEFERRED_8496"))
+        assertEquals(null, TicketRetry8327.transientCause8327("LIVE_BUY_NOT_OPENED_7948:MINT_ALREADY_HELD_8489"))
+    }
+
+    @Test fun aRetryOnTheSameMintIsNotTimedAsAStepOfTheEarlierBuy() {
+        val t = com.lifecyclebot.engine.truth.BuyStageTiming
+        val mint = "Mint8498Gap"
+        t.onPhase(mint, "BUY_QUOTE_TRY", 1_000L); t.onPhase(mint, "BUY_QUOTE_OK", 2_000L); t.onPhase(mint, "BUY_SIM_OK", 2_500L)
+        t.onPhase(mint, "BUY_QUOTE_TRY", 112_500L)
+        assertTrue(!t.statusLine().contains("SIM_OK->QUOTE_TRY"))
+        assertTrue(!t.slowestStep().startsWith(com.lifecyclebot.engine.truth.BuyStageTiming.GAP_KEY_8498))
+    }
+
+    @Test fun ultraMaybeDeliveredGoesToConfirmationNotFailure() {
+        val src = java.io.File("src/main/kotlin/com/lifecyclebot/network/SolanaWallet.kt").readText()
+        val i = src.indexOf("❌ Fallback also failed")
+        val j = src.indexOf("ultra_execute_unconfirmed_8498")
+        val k = src.indexOf("throw lastException ?: fallbackEx")
+        assertTrue(i in 0 until j && j < k)
+    }
+}
