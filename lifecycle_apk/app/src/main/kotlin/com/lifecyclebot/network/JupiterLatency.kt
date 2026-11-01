@@ -20,11 +20,39 @@ object JupiterLatency {
     private var head = 0
     @Volatile private var last429AtMs = 0L
 
+    /**
+     * V5.0.8493 — what a failed quote says about Jupiter. 5.0.8492 live: jupiterLatency8489[n=12 fail=12 slow=true] while the
+     * Jupiter health probe was HTTP 200 and QUOTE_TRY->FAILED averaged 1 ms. Those were the bot's OWN skips (backoff lockout,
+     * observation yield) and Jupiter's fast "no route" answers, booked as Jupiter failures; the yield message even contains
+     * "429", so every local skip re-armed the 30 s rate-limit window. Jupiter read slow forever and PumpPortal went first,
+     * against the owner's Jupiter-first routing. Now: a local skip is no sample; a quote Jupiter answered (no route,
+     * outAmount 0) is an answered sample (Jupiter is reachable and fast); only a real HTTP/timeout failure counts, and only
+     * a real 429 from Jupiter arms the rate-limit window.
+     */
+    enum class Kind8493 { LOCAL_SKIP, ANSWERED, FAILED }
+
+    /** Pure (V5.0.8493): classify a quote outcome. */
+    fun kindOf8493(success: Boolean, error: String?): Kind8493 {
+        if (success) return Kind8493.ANSWERED
+        val e = error.orEmpty()
+        if (e.contains("yielded after 429") || e.contains("GET skipped") || e.contains("backoff lockout")) return Kind8493.LOCAL_SKIP
+        if (e.contains("quote error") || e.contains("order error") || e.contains("outAmount=0")) return Kind8493.ANSWERED
+        return Kind8493.FAILED
+    }
+
+    /** Pure (V5.0.8493): a genuine rate limit from Jupiter (never the bot's own yield message). */
+    fun realRateLimit8493(error: String?): Boolean {
+        val e = error.orEmpty()
+        return !e.contains("yielded after 429") && (e.contains("429") || e.contains("Too Many", ignoreCase = true))
+    }
+
     @Synchronized fun record(elapsedMs: Long, success: Boolean, error: String? = null, nowMs: Long = System.currentTimeMillis()) {
-        ms[head] = elapsedMs.coerceAtLeast(0L); ok[head] = success; at[head] = nowMs
+        val kind = kindOf8493(success, error)
+        if (kind == Kind8493.LOCAL_SKIP) return
+        ms[head] = elapsedMs.coerceAtLeast(0L); ok[head] = kind == Kind8493.ANSWERED; at[head] = nowMs
         head = (head + 1) % RING
         if (n < RING) n++
-        if (!success && error != null && (error.contains("429") || error.contains("Too Many", ignoreCase = true))) last429AtMs = nowMs
+        if (kind == Kind8493.FAILED && realRateLimit8493(error)) last429AtMs = nowMs
     }
 
     /** Pure: slow given recent [samples] (elapsed ms, success), and a 429 [msSince429] ago. */
