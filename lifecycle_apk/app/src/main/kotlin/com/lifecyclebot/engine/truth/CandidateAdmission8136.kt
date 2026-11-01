@@ -463,7 +463,9 @@ object CandidateAdmission8136 {
         c.structuralRisk?.let {
             val isLaunchLearned = it.startsWith("FRESH_LAUNCH_")
             if (!isLaunchLearned) {
-                trace += "structure=$it"; return done(Terminal8136.REFUSE, "STRUCTURAL_RISK_8136", true, c.selectedSetup)
+                trace += "structure=$it"
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("STRUCTURAL_RISK_8136_WHY_${it.take(40)}") } catch (_: Throwable) {}  // V5.0.8500
+                return done(Terminal8136.REFUSE, "STRUCTURAL_RISK_8136", true, c.selectedSetup)
             }
             trace += "launchLearned=$it"
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ADMISSION_LAUNCH_LEARNED_FALLTHROUGH_8221") } catch (_: Throwable) {}
@@ -1049,6 +1051,7 @@ object CandidateAdmission8136 {
             PipelineHealthCollector.labelInc("ADMISSION_NATIVE_OPTIONAL_DATA_ADMITTED_8213_${candidate.lane}")
         } catch (_: Throwable) {}
         try { AdmissionRunnerTrace8144.noteAdmission8144(mint, laneRaw, d.terminal.name, d.reason) } catch (_: Throwable) {}
+        try { EntryReceipt8500.noteAdmission8500(mode, mint, laneRaw, d.admitted, d.reason, d.chosenSetup, nowMs) } catch (_: Throwable) {}  // V5.0.8500
         try { noteFunnel8283(candidate, d) } catch (_: Throwable) {}  // V5.0.8283 — unique-candidate feature funnel
         try { AdmissionEdge8180.note8180(mode, mint, laneRaw, candidateVersion, d, nowMs) } catch (_: Throwable) {}  // V5.0.8180 / 8198 — this lane's own proof, sizers read it
         // V5.0.8169 — a loss refusal that decayed to neutral on its epoch, counted once per fresh decision.
@@ -1428,7 +1431,8 @@ object CandidateAdmission8136 {
             losingTactic = try { com.lifecyclebot.engine.learning.TacticSwitcher.losingTacticFor8094(ts, lane) } catch (_: Throwable) { null },
             hotLaunch = launch != null && launch.verdict != FreshLaunchSelector7737.LaunchVerdict.NOT_FRESH,
             safetyRefusal = safety,
-            structuralRisk = if (fit?.stage == com.lifecyclebot.engine.TokenMetricStageRouter.Stage.RUG_PRONE) "STAGE_RUG_PRONE"
+            structuralRisk = if (fit?.stage == com.lifecyclebot.engine.TokenMetricStageRouter.Stage.RUG_PRONE)
+                "STAGE_RUG_PRONE" + ((try { com.lifecyclebot.engine.TokenMetricStageRouter.snapshot(ts).reason } catch (_: Throwable) { "" }).substringAfter("why8500=", "").substringBefore(' ').takeIf { it.isNotBlank() }?.let { "_$it" } ?: "")   // V5.0.8500 — names its trigger
                 else launch?.takeIf { it.verdict == FreshLaunchSelector7737.LaunchVerdict.REFUSED }?.why,
             setupTimings = setupTimings,
             lossEpochAware8169 = true,

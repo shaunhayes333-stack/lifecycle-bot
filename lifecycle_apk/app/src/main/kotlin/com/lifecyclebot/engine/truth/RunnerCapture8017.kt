@@ -156,6 +156,7 @@ object RunnerCapture8017 {
     /** CanonicalFinalizedTradeBus6464: a position closed — if it was a runner, that is what the bot banked. */
     fun onClose8017(env: CanonicalFinalizedTradeBus6464.Envelope) {
         try { RunnerFunnel8297.onAnyClose8297(env) } catch (_: Throwable) {}  // V5.0.8297 — runner-admit outcomes / capped wins
+        try { EntryReceipt8500.onLiveClose8500(env.mint, env.mode, env.terminal, env.realizedReturnPct, env.mfePct) } catch (_: Throwable) {}  // V5.0.8500
         val r = runs[env.mint] ?: return
         if (env.terminal) { r.closeAtMs = env.atMs; r.holdMs = env.holdingTimeMs }  // V5.0.8297
         r.held = true
@@ -181,7 +182,7 @@ object RunnerCapture8017 {
     private fun funnelLine8297(recent: List<Run>): String {
         val traces = try { AdmissionRunnerTrace8144.traces8144().associateBy { it.mint } } catch (_: Throwable) { emptyMap() }
         val list = recent.map { attribution8297(it, traces[it.mint]) }
-        return "${RunnerFunnel8297.summary8297(list)} ${RunnerFunnel8297.outcomesLine8297()} ${RunnerDefer8297.statusLine8297()}"
+        return "${RunnerFunnel8297.summary8297(list)} ${RunnerFunnel8297.outcomesLine8297()} ${RunnerDefer8297.statusLine8297()} ${try { EntryReceipt8500.line8500() } catch (_: Throwable) { "entryReceipts8500[ERR]" }}"
     }
 
     fun statusLine(): String {

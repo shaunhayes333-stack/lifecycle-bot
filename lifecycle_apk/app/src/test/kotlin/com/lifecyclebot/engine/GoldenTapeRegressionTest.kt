@@ -15588,4 +15588,24 @@ class GoldenTapeRegressionTest {
         assertTrue(sizer.contains("val liveFloorEff7697 = if (isLive && concentrationFloor7697 > liveNoDustFloor6269) {"))
         assertTrue(sizer.contains("} else liveNoDustFloor6269"))
     }
+
+    @Test
+    fun V5_0_8500_every_live_buy_names_its_door_and_rug_prone_reads_top10_at_the_safety_tier() {
+        val root = java.io.File("src/main/kotlin/com/lifecyclebot/engine")
+        val rec = java.io.File(root, "truth/EntryReceipt8500.kt").readText()
+        assertTrue(rec.contains("fun onLiveBuy8500(ts: TokenState"))
+        assertTrue(rec.contains("fun onLiveClose8500(mint: String, mode: String, terminal: Boolean"))
+        assertTrue(rec.contains("private const val PERSIST_KEY_8500 = \"ENTRY_RECEIPT_8500\""))
+        assertTrue(rec.contains("if (!restored) return   // never overwrite the stored book with an unrestored one"))
+        val ex = java.io.File(root, "Executor.kt").readText()
+        assertTrue(ex.contains("com.lifecyclebot.engine.truth.EntryReceipt8500.onLiveBuy8500(ts)"))
+        val cap = java.io.File(root, "truth/RunnerCapture8017.kt").readText()
+        assertTrue(cap.contains("EntryReceipt8500.onLiveClose8500(env.mint, env.mode, env.terminal, env.realizedReturnPct, env.mfePct)"))
+        val router = java.io.File(root, "TokenMetricStageRouter.kt").readText()
+        assertTrue(router.contains("const val TOP10_RUG_PRONE_PCT_8500 = 60.0"))
+        assertTrue(router.contains("val topHeavy = top >= TOP10_RUG_PRONE_PCT_8500"))
+        assertTrue(router.contains("val thinRug8500 = liqThin && runup >= 80.0"))
+        val safety = java.io.File(root, "TokenSafetyChecker.kt").readText()
+        assertTrue(safety.contains("topHolderPct > 80.0 ->"))
+    }
 }

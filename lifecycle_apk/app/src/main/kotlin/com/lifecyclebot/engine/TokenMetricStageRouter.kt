@@ -82,7 +82,13 @@ object TokenMetricStageRouter {
         val mcapToLiq = if (liq > 0.0) (mcap / liq).coerceIn(0.0, 10_000.0) else 9999.0
         val top = (ts.safety.topHolderPct.takeIf { it > 0.0 } ?: ts.topHolderPct ?: -1.0)
         val liqThin = liq in 1.0..2_500.0
-        val topHeavy = top >= 35.0
+        // V5.0.8500 §TOP10_IS_NOT_ONE_WALLET — [top] is the TOP-10 holders' combined share (rugcheck topHolders.top10Pct,
+        // else OnChainHolderConcentration7379.top10Pct). Read at >= 35 % it staged ordinary young memecoins RUG_PRONE, a
+        // refusal nothing overrides (STRUCTURAL_RISK_8136: 22 of 61 wrongly refused runners on 5.0.8499), while the safety
+        // owner of the same number (TokenSafetyChecker) penalises it from 40 %, flags "concentrated" from 60 % and refuses
+        // hard over 80 %. The stage now reads top-10 concentration at the safety owner's own "concentrated" tier; the hard
+        // safety refusal over 80 %, valuation air and the thin-liquidity run-up tests are unchanged.
+        val topHeavy = top >= TOP10_RUG_PRONE_PCT_8500
         // V5.0.7306 — a single pool's depth against a large cap's whole
         // valuation is normally hundreds of x (BONK read mcapLiq=780 on one
         // $428K pool and was staged RUG_PRONE, so it could never be BLUECHIP).
@@ -95,7 +101,11 @@ object TokenMetricStageRouter {
         // the top-holder and thin-liquidity-runup tests are unchanged.
         val bookObserved8464 = ts.buyPressureObservedAtMs8084 > 0L
         val valuationAir = liq > 0.0 && mcapToLiq >= 85.0 && mcap >= 150_000.0 && !isEstablished7306(ts, mcap, liq, ageMin)
-        val rugProne = topHeavy || (valuationAir && bookObserved8464 && (sp >= 55.0 || bp < 52.0)) || (liqThin && runup >= 80.0)
+        val airRug8500 = valuationAir && bookObserved8464 && (sp >= 55.0 || bp < 52.0)
+        val thinRug8500 = liqThin && runup >= 80.0
+        val rugProne = topHeavy || airRug8500 || thinRug8500
+        // V5.0.8500 — which structural test staged it, so a refusal names its trigger (was "topHeavy/liquidityAir/thinRunup").
+        val rugWhy8500 = rugWhy8500(topHeavy, airRug8500, thinRug8500)
         val acute5m7425 = ts.lastPriceChange5m.takeIf { it.isFinite() } ?: 0.0
         val pumpThenFade7425 = ts.lastPriceChange1h >= 80.0 && acute5m7425 <= -8.0
         val peakExhaustion = (currentVsPeak >= 0.88 && runup >= 70.0 &&
@@ -164,6 +174,7 @@ object TokenMetricStageRouter {
         }
         Snapshot(stage, ageMin, currentVsPeak, if (tape8316 != null) maxOf(dd, tape8316.offPeakPct) else dd, runup, bp, sp, liq, mcap, mcapToLiq, top,
             reasonFor(stage, rugProne, peakExhaustion, dumping, baseStart || baseAnyAge8473, midAccum, markup || breakout8473, freshLaunch) +
+                (if (stage == Stage.RUG_PRONE) " why8500=$rugWhy8500" else "") +
                 (if (breakout8473 && stage == Stage.CONTROLLED_MARKUP && !markup) " breakoutAtHigh8473" else "") +
                 (if (baseAnyAge8473 && stage == Stage.BASE_START && !baseStart) " baseAnyAge8473" else "") +
                 (tape8316?.let { " ${it.compact}" } ?: ""))
@@ -433,6 +444,14 @@ object TokenMetricStageRouter {
         buyPressurePct >= 50.0 -> "N_PULLBACK"
         else -> "N_FADING"
     }
+
+    /** V5.0.8500 — the top-10 share at which a coin stages RUG_PRONE (TokenSafetyChecker's own "concentrated" tier). */
+    const val TOP10_RUG_PRONE_PCT_8500 = 60.0
+
+    /** Pure (V5.0.8500): the structural test(s) that staged a coin RUG_PRONE. */
+    fun rugWhy8500(topHeavy: Boolean, valuationAir: Boolean, thinRunup: Boolean): String =
+        listOfNotNull("TOP10".takeIf { topHeavy }, "VALUATION_AIR".takeIf { valuationAir }, "THIN_LIQ_RUNUP".takeIf { thinRunup })
+            .joinToString("+").ifBlank { "NONE" }
 
     fun reasonFor(stage: Stage, rug: Boolean, peak: Boolean, dump: Boolean, base: Boolean, mid: Boolean, markup: Boolean, fresh: Boolean = false): String = when (stage) {
         Stage.RUG_PRONE -> "rugProne=$rug topHeavy/liquidityAir/thinRunup"

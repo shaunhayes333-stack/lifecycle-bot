@@ -21961,6 +21961,7 @@ class Executor(
                         "LIVE_BUY_LANDED — proof=${proof.source} raw=${proof.amountRaw} decimals=${proof.decimals} host_tracker open=$beforeOpen→$afterOpen | mint_tracked=$opened",
                         tokenAmount = ts.position.qtyToken, sig = verifySig, traderTag = "MEME",
                     )
+                    try { com.lifecyclebot.engine.truth.EntryReceipt8500.onLiveBuy8500(ts) } catch (_: Throwable) {}  // V5.0.8500 — the door and chart position of this live buy
                     try { com.lifecyclebot.engine.ForensicLogger.lifecycle("LIVE_BUY_LANDED", "mint=${verifyMint.take(10)} symbol=$verifySymbol source=${proof.source} rawAmount=${proof.amountRaw} decimals=${proof.decimals} sig=${verifySig.take(16)}") } catch (_: Throwable) {}
                     // V5.0.6405 §5/§7/§1+§2 — canonical buy-verified wire.
                     // Stamps the raw-qty entry ledger, the position-generation
