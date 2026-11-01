@@ -37,6 +37,8 @@ import java.util.concurrent.atomic.AtomicLong
 object ExitDoctrine8169 {
     /** A stop must clear this many measured 1-minute ranges (plus the round trip) to stand outside ordinary noise. */
     private const val NOISE_MULT_8169 = 2.0
+    /** V5.0.8498 — the stop is never inside 1.5 x the measured round trip (operator rule, all desks). */
+    internal const val COST_ANCHOR_MULT_8498 = 1.5
     /** Candles (1m, real high and low) needed before a range is a measurement. */
     private const val MIN_NOISE_CANDLES_8169 = 3
     private const val NOISE_WINDOW_8169 = 12
@@ -77,6 +79,12 @@ object ExitDoctrine8169 {
         if (!stopMag.isFinite() || stopMag <= 0.0) return stopMag
         var floor = 0.0
         if (doctrinePct.isFinite() && doctrinePct > 0.0) floor = doctrinePct
+        // V5.0.8498 — operator rule: every desk's stop is anchored at >= 1.5 x the position's measured round trip, with
+        // or without a noise reading. 5.0.8497 live: QUALITY 3kRQDK was stopped 90 s after entry (PROTECTIVE_EXIT_
+        // STOP_LOSS_6450, realised price -1.3%) on a coin that then ran +408%; QUALITY's after-HARD_STOP record read
+        // +9.3% (n13, up 38%). A fresh position has < 3 candles, so the noise floor never ran and nothing kept the
+        // stop outside the 4.5% trip it had just paid.
+        if (costPct.isFinite() && costPct > 0.0) floor = maxOf(floor, COST_ANCHOR_MULT_8498 * costPct)
         if (noisePct.isFinite() && noisePct > 0.0) {
             val cost = if (costPct.isFinite() && costPct > 0.0) costPct else 0.0
             floor = maxOf(floor, cost + NOISE_MULT_8169 * noisePct)

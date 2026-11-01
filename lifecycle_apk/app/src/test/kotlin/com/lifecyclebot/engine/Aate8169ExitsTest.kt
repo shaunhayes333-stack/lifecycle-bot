@@ -43,8 +43,11 @@ class Aate8169ExitsTest {
         assertEquals("NOISE", ExitDoctrine8169.floorSource8169(15.0, 15.0, 6.0, 4.0))
         // Never past StopAuthority7887's 25% ceiling.
         assertEquals(25.0, ExitDoctrine8169.floorStopMag8169(15.0, Double.NaN, 20.0, 10.0), 1e-9)
-        // Unknown noise is not invented: only the doctrine applies.
-        assertEquals(12.0, ExitDoctrine8169.floorStopMag8169(12.0, 10.0, Double.NaN, 30.0), 1e-9)
+        // Unknown noise is not invented, but superseded by V5.0.8498 — the 1.5 x round-trip anchor still applies (operator
+        // rule): a 4.5% trip with no candles yet keeps a 12% stop and lifts a 4% one to 6.75%.
+        assertEquals(12.0, ExitDoctrine8169.floorStopMag8169(12.0, 10.0, Double.NaN, 4.5), 1e-9)
+        assertEquals(6.75, ExitDoctrine8169.floorStopMag8169(4.0, Double.NaN, Double.NaN, 4.5), 1e-9)
+        assertEquals(25.0, ExitDoctrine8169.floorStopMag8169(12.0, 10.0, Double.NaN, 30.0), 1e-9)
         // A calm bluechip (1.5%/minute, 2.5% cost) keeps its 10% stop.
         assertEquals(10.0, ExitDoctrine8169.floorStopMag8169(10.0, 10.0, 1.5, 2.5), 1e-9)
     }

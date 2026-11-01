@@ -1038,7 +1038,11 @@ object Cortex7885 {
     // pending decisions (finite votes only, sparse) are saved every 2 minutes
     // and restored on load; edges are rebuilt from voter ids.
     private const val PENDING_PERSIST_KEY = "CORTEX_PENDING_7920"
-    private const val PENDING_PERSIST_MAX = 1_000
+    // V5.0.8498 — 5.0.8497 held 1,242 pending against this 1,000 cap, so each restart dropped the oldest open decisions
+    // (SHADOW_UNAVAILABLE_8372_EXPIRED_ON_RESTORE=1734) and their labels came back ORIGINAL_UNAVAILABLE (1,158 thrown away).
+    // The per-voter numbers are now written at 6 significant digits (compactNumber8498), which roughly halves a row, so
+    // covering every live pending decision costs less than the old 1,000.
+    private const val PENDING_PERSIST_MAX = 2_000
     private const val PENDING_PERSIST_EVERY_MS = 120_000L
     @Volatile private var lastPendingPersistMs = 0L
 
@@ -1086,6 +1090,11 @@ object Cortex7885 {
     private fun storedEdges(id: String, e: DoubleArray?): Any =
         if (e != null && CortexVoters7885.edgesFor(id)?.contentEquals(e) == true) org.json.JSONObject.NULL else jsonNumbers(e)
 
+    /** V5.0.8498 — open (not yet graded) decisions only; graded rows keep exact provenance for contribution reversal. */
+    private fun storedEdgesCompact8498(id: String, e: DoubleArray?): Any =
+        if (e != null && CortexVoters7885.edgesFor(id)?.contentEquals(e) == true) org.json.JSONObject.NULL
+        else org.json.JSONArray().also { j -> e?.forEach { j.put(compactNumber8498(it)) } }
+
     private fun pendingSnapshot8076(episodes8401: Set<String>?, generation8403: Long?): () -> String {
         val now8144 = System.currentTimeMillis()
         val ordinary = if (episodes8401 == null) pending.entries
@@ -1125,10 +1134,10 @@ object Cortex7885 {
                 for (i in a.ids.indices) {
                     val r = a.raws.getOrNull(i) ?: continue
                     if (r.isFinite()) {
-                        ids.put(dict.getOrPut(a.ids[i]) { dict.size }); xs.put(jsonNumber(r))
-                        pr.put(jsonNumber(a.prediction8076?.preds?.getOrNull(i)))
-                        pw.put(jsonNumber(a.prediction8076?.pWins?.getOrNull(i)))
-                        frozenEdges8372.put(storedEdges(a.ids[i], a.edges.getOrNull(i)))
+                        ids.put(dict.getOrPut(a.ids[i]) { dict.size }); xs.put(compactNumber8498(r))
+                        pr.put(compactNumber8498(a.prediction8076?.preds?.getOrNull(i)))
+                        pw.put(compactNumber8498(a.prediction8076?.pWins?.getOrNull(i)))
+                        frozenEdges8372.put(storedEdgesCompact8498(a.ids[i], a.edges.getOrNull(i)))
                     }
                 }
                 // All decision-time context must survive a process restart unchanged.
@@ -1271,6 +1280,21 @@ object Cortex7885 {
     }
 
     private fun jsonNumber(value: Double?): Any = value?.takeIf { it.isFinite() } ?: org.json.JSONObject.NULL
+
+    /**
+     * V5.0.8498 — a per-voter feature / prediction / bin edge at 6 significant digits (relative error <= 5e-7, far inside
+     * any voter bin or calibration step). Only OPEN (pending) decisions' per-voter arrays use it; counts, sums and ledger books keep full
+     * precision. The decoder is unchanged (it reads any JSON number).
+     */
+    internal fun compactNumber8498(value: Double?): Any {
+        val v = value?.takeIf { it.isFinite() } ?: return org.json.JSONObject.NULL
+        if (v == 0.0) return 0.0
+        val mag = kotlin.math.floor(kotlin.math.log10(kotlin.math.abs(v))).toInt()
+        if (mag > 12 || mag < -12) return v
+        val scale = Math.pow(10.0, (5 - mag).toDouble())
+        val r = Math.round(v * scale) / scale
+        return if (r.isFinite()) r else v
+    }
     private fun jsonNumbers(values: DoubleArray?): org.json.JSONArray = org.json.JSONArray().also { a ->
         values?.forEach { a.put(jsonNumber(it)) }
     }
