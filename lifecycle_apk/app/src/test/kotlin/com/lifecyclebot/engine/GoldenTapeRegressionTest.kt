@@ -15631,4 +15631,13 @@ class GoldenTapeRegressionTest {
             assertTrue(door, ex.contains("spikeRefused8337(reason, \"" + door + "\")"))
         }
     }
+
+    @Test
+    fun V5_0_8503_offloaded_values_over_the_cursor_window_read_back_in_chunks() {
+        val off = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OffloadedPrefs8501.kt").readText()
+        assertTrue(off.contains("SELECT substr(v, ?, ?) FROM kv WHERE ns=? AND k=?"))
+        assertTrue(off.contains("SELECT t, length(v) FROM kv WHERE ns=? AND k=?"))
+        assertTrue(!off.contains("SELECT t, v FROM kv"))
+        assertTrue(!off.contains("SELECT k, t, v FROM kv"))
+    }
 }

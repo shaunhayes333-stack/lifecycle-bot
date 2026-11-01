@@ -125,6 +125,45 @@ object OffloadedPrefs8501 {
         }
     } catch (_: Throwable) { null }
 
+    /**
+     * V5.0.8503 §ROW_TOO_BIG_FOR_THE_CURSOR. An Android cursor window holds ~2 MB; one value can be larger
+     * (forward_return_labeler_7731 cells / pending / paired-Cortex checkpoints). `SELECT v` of such a row throws
+     * "Row too big to fit into CursorWindow"; the 8501 reader swallowed it and returned null, so after a restart those
+     * stores read EMPTY although every byte is on disk (8502: label coverage collapsed, Cortex graded 96/964).
+     * Large values are read back through substr() in chunks well under the window. Nothing on disk is rewritten.
+     */
+    private const val CHUNK_CHARS_8503 = 256 * 1024
+    private val readFailures8502 = AtomicLong(0)
+    private val chunkedReads8503 = AtomicLong(0)
+
+    private fun readRow8502(db: SQLiteDatabase, ns: String, key: String): Any? {
+        var type = -1
+        var len = -1L
+        db.rawQuery("SELECT t, length(v) FROM kv WHERE ns=? AND k=?", arrayOf(ns, key)).use { c ->
+            if (!c.moveToFirst()) return null
+            type = c.getInt(0)
+            len = if (c.isNull(1)) -1L else c.getLong(1)
+        }
+        if (len < 0) return decode(type, null)
+        if (len <= CHUNK_CHARS_8503) {
+            return db.rawQuery("SELECT v FROM kv WHERE ns=? AND k=?", arrayOf(ns, key)).use { c ->
+                if (c.moveToFirst()) decode(type, c.getString(0)) else null
+            }
+        }
+        chunkedReads8503.incrementAndGet()
+        val sb = StringBuilder(len.toInt())
+        var start = 1L
+        while (start <= len) {
+            db.rawQuery("SELECT substr(v, ?, ?) FROM kv WHERE ns=? AND k=?",
+                arrayOf(start.toString(), CHUNK_CHARS_8503.toString(), ns, key)).use { c ->
+                if (!c.moveToFirst()) return null
+                sb.append(c.getString(0) ?: "")
+            }
+            start += CHUNK_CHARS_8503
+        }
+        return decode(type, sb.toString())
+    }
+
     private object Removed
 
     private class Store(val ns: String, val db: SQLiteDatabase) : SharedPreferences {
@@ -135,19 +174,15 @@ object OffloadedPrefs8501 {
         private fun read(key: String): Any? {
             pending[key]?.let { return if (it === Removed) null else it }
             if (pendingClear) return null
-            return try {
-                db.rawQuery("SELECT t, v FROM kv WHERE ns=? AND k=?", arrayOf(ns, key)).use { c ->
-                    if (c.moveToFirst()) decode(c.getInt(0), c.getString(1)) else null
-                }
-            } catch (_: Throwable) { null }
+            return try { readRow8502(db, ns, key) } catch (_: Throwable) { readFailures8502.incrementAndGet(); null }
         }
 
         override fun getAll(): MutableMap<String, *> {
             val m = HashMap<String, Any?>()
             if (!pendingClear) try {
-                db.rawQuery("SELECT k, t, v FROM kv WHERE ns=?", arrayOf(ns)).use { c ->
-                    while (c.moveToNext()) m[c.getString(0)] = decode(c.getInt(1), c.getString(2))
-                }
+                val keys = ArrayList<String>()
+                db.rawQuery("SELECT k FROM kv WHERE ns=?", arrayOf(ns)).use { c -> while (c.moveToNext()) keys += c.getString(0) }
+                for (k in keys) m[k] = try { readRow8502(db, ns, k) } catch (_: Throwable) { readFailures8502.incrementAndGet(); null }
             } catch (_: Throwable) {}
             for ((k, v) in pending) if (v === Removed) m.remove(k) else m[k] = v
             return m
@@ -221,5 +256,5 @@ object OffloadedPrefs8501 {
 
     fun statusLine8501(): String = "prefsOffload8501[ns=${stores.size}/${OFFLOADED_8501.size} migratedNs=${migratedNs.get()} " +
         "migratedKeys=${migratedKeys.get()} writes=${writes.get()} writeFailed=${writeFailures.get()} " +
-        "pendingApply=${stores.values.sumOf { it.pending.size }}]"
+        "pendingApply=${stores.values.sumOf { it.pending.size }} chunkedReads8503=${chunkedReads8503.get()} readFailed8503=${readFailures8502.get()}]"
 }
