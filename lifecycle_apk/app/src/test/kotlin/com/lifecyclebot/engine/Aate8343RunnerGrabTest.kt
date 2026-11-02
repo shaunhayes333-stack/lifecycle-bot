@@ -39,6 +39,7 @@ class Aate8343RunnerGrabTest {
         assertEquals("NO_FORMING_RUN", g.refusal8343(legs().copy(evidence = null)))
         assertEquals("economics at 1.5x the round trip at the grab size", "ECONOMICS_1_5X_COST", g.refusal8343(legs().copy(expectedGrossPct = 10.0, costPct = 8.0)))
         assertNull("12% clears 1.5 x 8%", g.refusal8343(legs().copy(expectedGrossPct = 12.0, costPct = 8.0)))
+        assertEquals("MOVE_UNVERIFIED", g.refusal8343(legs().copy(expectedGrossPct = Double.NaN)))
         assertEquals("the launch-breakout chase cap (8%) binds", "CHASE_OVER_CAP", g.refusal8343(legs().copy(movePct = 9.0)))
         assertEquals("a move inside the cap that eats the edge binds", "CHASE_EDGE_CONSUMED", g.refusal8343(legs().copy(movePct = 7.0, expectedGrossPct = 14.0, costPct = 8.0)))
         assertNull("a cheaper quote never refuses", g.refusal8343(legs().copy(movePct = -3.0)))
@@ -56,6 +57,7 @@ class Aate8343RunnerGrabTest {
         assertEquals("SAFETY_AUTHORITY_UNPROVEN", g.safetyLeg8343(now - 1_000L, SafetyTier.SAFE, null, true, now))
         assertEquals("SAFETY_AUTHORITY_UNPROVEN", g.safetyLeg8343(now - 1_000L, SafetyTier.SAFE, true, false, now))
         assertEquals("SAFETY_STALE", g.safetyLeg8343(now - RunnerGrabLane8343.SAFETY_MAX_AGE_MS_8343 - 1L, SafetyTier.SAFE, true, true, now))
+        assertEquals("SAFETY_STALE", g.safetyLeg8343(now + 1L, SafetyTier.SAFE, true, true, now))
         assertNull(g.safetyLeg8343(now - 1_000L, SafetyTier.SAFE, true, true, now))
         assertNull("CAUTION is a soft tier, not a wall", g.safetyLeg8343(now - 1_000L, SafetyTier.CAUTION, true, true, now))
     }
@@ -114,6 +116,35 @@ class Aate8343RunnerGrabTest {
         assertFalse(RunnerGrabLane8343.admitted8343("nobody", "MOONSHOT", 1_000L))
     }
 
+    @Test fun liveDoorRejectsPaperAndSupersededRunnerDecisions() {
+        val g = RunnerGrabLane8343
+        val mint = "modeRunnerFixture"
+        val lane = "MOONSHOT"
+        val now = System.currentTimeMillis()
+        val original = RuntimeModeAuthority.current()
+        val admitType = g.javaClass.declaredClasses.single { it.simpleName == "Admit8343" }
+        val constructor = admitType.declaredConstructors.single().apply { isAccessible = true }
+        @Suppress("UNCHECKED_CAST")
+        fun cache(name: String) = g.javaClass.getDeclaredField(name).apply { isAccessible = true }.get(g) as MutableMap<String, Any>
+        try {
+            RuntimeModeAuthority.publishConfig(false, false)
+            val version = LaneExecutionCoordinator.candidateVersionFor(mint)
+            val verdict = RunnerGrabLane8343.Verdict8343(true, "ADMIT", "FORMING", "CURVE", now, version, false)
+            cache("admits")[mint] = constructor.newInstance(now, lane, false, "FORMING")
+            val v = cache("verdicts")
+            v["$mint|$lane"] = verdict
+            assertTrue(g.admitted8343(mint, lane, now))
+            v["$mint|$lane"] = verdict.copy(paper8397 = true)
+            assertFalse(g.admitted8343(mint, lane, now))
+            v["$mint|$lane"] = verdict.copy(candidateVersion8397 = version + 1)
+            assertFalse(g.admitted8343(mint, lane, now))
+            v["$mint|$lane"] = verdict.copy(admitted = false)
+            assertFalse(g.admitted8343(mint, lane, now))
+        } finally {
+            RuntimeModeAuthority.publishConfig(original.authority == RuntimeModeAuthority.Mode.PAPER, original.autoTrade)
+        }
+    }
+
     @Test fun hydrationRequeueCarriesTheOriginalVersion() {
         val h = HydrationReeval8343
         val t0 = 5_000_000_000L
@@ -144,7 +175,11 @@ class Aate8343RunnerGrabTest {
         assertEquals(listOf("mintH8343" to t0 + 500L + HydrationReeval8343.QUEUE_TTL_MS_8343), h.targets8343(t0 + 600L))
         assertEquals(5L, h.carriedVersion8343("mintH8343", t0 + 600L))
         assertNull(h.carriedVersion8343("mintH8343", t0 + 500L + HydrationReeval8343.QUEUE_TTL_MS_8343 + 1L))
-        h.onEvaluated8343("mintH8343", true, t0 + 700L)
+        val other = SpecialistBrainBridge7542.Opinion("EXPRESS", true, 80, 80, 0.03, "READ", "", "", "")
+        val moon = other.copy(lane = "MOONSHOT")
+        h.onEvaluated8343("mintH8343", mapOf("EXPRESS" to other, "MOONSHOT" to moon.copy(authoritative = false)), t0 + 650L)
+        assertEquals("an unrelated approval cannot consume the retry", 5L, h.carriedVersion8343("mintH8343", t0 + 660L))
+        h.onEvaluated8343("mintH8343", mapOf("MOONSHOT" to moon), t0 + 700L)
         assertTrue(h.targets8343(t0 + 800L).isEmpty())
         val line = h.statusLine8343(t0 + 800L)
         assertTrue(line, line.contains("hydrationReeval8343[queued=1 evaluated=1 admitted=1"))

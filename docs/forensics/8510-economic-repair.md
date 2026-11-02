@@ -128,3 +128,11 @@ Both CashGenerationAI exit evaluators tested the **current** percentage gain aga
 Aate8030NetEdgeTest previously required the literal TREASURY in the scalp cost lookup, contradicting the elected CASHGEN owner. Its replacement runs the live exit-floor calculation for both desks at the same stake and checks the attributed cost and coverage. JVM unit test workers now resolve only the loopback host from a test-only hosts file. No operator configuration changes.
 
 The two supplied reports and the bundled 500-row historical corpus still do not contain a joined, timestamped executable quote and route history for the three-policy comparison.
+
+### 8513 runner admission and hydration
+
+RunnerGrabLane8343 used two records for an admission. The native decision cache checked its mode and version, while the subsequent lane door, anti-chase and route-minimum consumers checked only the mint, lane and age. They now require the matching current verdict, mode, version and admission time. A native runner also used the full lane mandate if NetEdge8030 returned an unverified move. It now requests evidence and requires a priced forecast. A runner slot excludes positions from the other mode. No observed loss has been causally attributed to these branches.
+
+HydrationReeval8343 previously removed a pending mint after any call to reviewNative8343, even if the requesting desk was absent or advisory. The queue now tracks which requesting desks received an authoritative read, consumes them individually and expires the remaining request on its existing deadline. This schedules an evaluation only.
+
+EpisodeTrace8395 now keeps pre-election records separate by mode, rejects a mismatched disposition, persists its attempt ID and per-event material time and conditionally removes its own secondary-index bindings on eviction. Old JSONL rows lack the newly retained fields. These attribution tests do not establish exactly-once learning for all consumers.

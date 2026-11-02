@@ -124,7 +124,7 @@ object RunnerGrabLane8343 {
         checkedAtMs <= 0L -> "SAFETY_UNCHECKED"
         tier == SafetyTier.HARD_BLOCK -> "SAFETY_HARD_BLOCK"
         mintDisabled != true || freezeDisabled != true -> "SAFETY_AUTHORITY_UNPROVEN"
-        nowMs - checkedAtMs > SAFETY_MAX_AGE_MS_8343 -> "SAFETY_STALE"
+        nowMs - checkedAtMs !in 0L..SAFETY_MAX_AGE_MS_8343 -> "SAFETY_STALE"
         else -> null
     }
 
@@ -139,6 +139,7 @@ object RunnerGrabLane8343 {
         if (l.mayhem) return "MAYHEM"
         if (l.venue.isNullOrBlank()) return "VENUE_NOT_EXIT_SAFE"
         if (l.evidence.isNullOrBlank()) return "NO_FORMING_RUN"
+        if (!l.expectedGrossPct.isFinite()) return "MOVE_UNVERIFIED"
         if (!NetEdge8030.entryClears8030(l.expectedGrossPct, l.costPct, l.costMargin8391)) return "ECONOMICS_1_5X_COST"
         val chase = chaseLeg8343(l.movePct, l.expectedGrossPct, l.costPct, l.costMargin8391)
         if (chase != null) return "CHASE_$chase"
@@ -192,12 +193,6 @@ object RunnerGrabLane8343 {
         if (min.isFinite() && min > 0.0) min else NetEdge8030.DEFAULT_TICKET_SOL
     } catch (_: Throwable) { NetEdge8030.DEFAULT_TICKET_SOL }
 
-    private fun expectedGross(ts: TokenState, lane: String, costPct: Double): Double {
-        val g = try { NetEdge8030.expectedGrossFor8153(ts, lane, null, costPct) } catch (_: Throwable) { Double.NaN }
-        if (g.isFinite()) return g
-        return try { com.lifecyclebot.engine.truth.FieldManual7715.mandateFor(lane).expectedGrossPct } catch (_: Throwable) { Double.NaN }
-    }
-
     private fun movePct(ts: TokenState, nowMs: Long): Double {
         val d = try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.decisionPx8094(ts.mint) } catch (_: Throwable) { null } ?: return Double.NaN
         if (nowMs - d.second !in 0L..(10L * 60_000L)) return Double.NaN
@@ -205,12 +200,12 @@ object RunnerGrabLane8343 {
     }
 
     /** Grabs admitted inside the hold window whose mint holds an open position now. */
-    fun openGrabs8343(nowMs: Long = System.currentTimeMillis()): Int {
+    fun openGrabs8343(nowMs: Long = System.currentTimeMillis(), paper: Boolean = RuntimeModeAuthority.isPaper()): Int {
         var n = 0
         for ((mint, a) in admits) {
-            if (nowMs - a.atMs > OPEN_WINDOW_MS_8343) continue
+            if (a.paper != paper || nowMs - a.atMs !in 0L..OPEN_WINDOW_MS_8343) continue
             val ts = try { BotService.status.tokens[mint] } catch (_: Throwable) { null } ?: continue
-            if (ts.position.isOpen && ts.position.entryTime >= a.atMs - 5L * 60_000L) n++
+            if (ts.position.isOpen && ts.position.isPaperPosition == paper && ts.position.entryTime >= a.atMs - 5L * 60_000L) n++
         }
         return n
     }
@@ -237,12 +232,12 @@ object RunnerGrabLane8343 {
             if (nowMs - v.atMs in 0L..ttl && v.candidateVersion8397 == version8397 && v.paper8397 == paper8397) return v
         }
         if (verdicts.size > 2_000) verdicts.entries.removeIf { nowMs - it.value.atMs > ADMIT_TTL_MS_8343 }
-        val v = decide(ts, l, nowMs, version8397).copy(candidateVersion8397 = version8397, paper8397 = paper8397)
+        val v = decide(ts, l, nowMs, version8397, live = !paper8397).copy(candidateVersion8397 = version8397, paper8397 = paper8397)
         verdicts[key] = v
         return v
     }
 
-    private fun decide(ts: TokenState, l: String, nowMs: Long, version8397: Long): Verdict8343 {
+    private fun decide(ts: TokenState, l: String, nowMs: Long, version8397: Long, live: Boolean): Verdict8343 {
         val mint = ts.mint
         if (ts.position.isOpen) return Verdict8343(false, "POSITION_OPEN", "", "", nowMs)
         val evidence = evidenceLeg(ts, nowMs)
@@ -258,10 +253,12 @@ object RunnerGrabLane8343 {
         val size = grabSizeSol8343()
         val liq = try { com.lifecyclebot.engine.truth.LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) { ts.lastLiquidityUsd }
         val cost = try { NetEdge8030.preTradeCostPct8329(l, size, liq, mint, ts.lastMcap) } catch (_: Throwable) { Double.NaN }
-        val gross = expectedGross(ts, l, cost)
-        val legs = Legs8343(false, safety, mayhem, venue, evidence, gross, cost, movePct(ts, nowMs), openGrabs8343(nowMs), null, NetEdge8030.margin8391(l, size, cost))
+        val gross = try { NetEdge8030.expectedGrossFor8153(ts, l, SETUP_8343, cost) } catch (_: Throwable) { Double.NaN }
+        val legs = Legs8343(false, safety, mayhem, venue, evidence, gross, cost, movePct(ts, nowMs), openGrabs8343(nowMs, !live), null, NetEdge8030.margin8391(l, size, cost))
         var why = refusal8343(legs)
-        val live = try { RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }
+        if (why == "MOVE_UNVERIFIED") {
+            try { com.lifecyclebot.engine.cortex.LanePlaybook7907.requestEvidence8153(ts, listOf("shape:HISTORY_SPARSE", "chg:UNOBSERVED")) } catch (_: Throwable) {}
+        }
         if (why == null && live) {
             // V5.0.8345 — every grab leg passed: the hold is asked WITH the grab lane's own forming-run evidence, which satisfies
             // the exception door's legs (a)+(c) (EvidenceHold8336.exceptionalViaGrab8345; venue, lane-open and the rate bounds
@@ -301,7 +298,12 @@ object RunnerGrabLane8343 {
     /** BotService.laneDoor8105 / EntryEconomics8329: was [mint] admitted by the grab lane for host [lane] inside the TTL? */
     fun admitted8343(mint: String, lane: String?, nowMs: Long = System.currentTimeMillis()): Boolean {
         val a = admits[mint] ?: return false
-        return a.lane == canon(lane) && nowMs - a.atMs in 0L..ADMIT_TTL_MS_8343
+        if (a.lane != canon(lane) || a.paper != RuntimeModeAuthority.isPaper()) return false
+        val verdict = verdicts["$mint|${a.lane}"] ?: return false
+        return verdict.atMs == a.atMs && verdict.admitted &&
+            verdict.paper8397 == a.paper &&
+            nowMs - verdict.atMs in 0L..ADMIT_TTL_MS_8343 &&
+            verdict.candidateVersion8397 > 0L && verdict.candidateVersion8397 == LaneExecutionCoordinator.candidateVersionFor(mint)
     }
 
     /**
@@ -323,7 +325,7 @@ object RunnerGrabLane8343 {
             val v = admit8343(ts, host, nowMs)
             if (v.admitted) out[host] = o.copy(eligible = true, reason = grabReason8343(v.evidence, v.venue), setup = SETUP_8343, gradeable = true)
         }
-        HydrationReeval8343.onEvaluated8343(ts.mint, out.values.any { it.eligible && it.authoritative && it.lane != "CORE" }, nowMs)
+        HydrationReeval8343.onEvaluated8343(ts.mint, out, nowMs)
     }
 
     /** SpecialistBrainBridge7542: CORE's refusal name when no specialist took the coin (counted), else the yield-clear. */
@@ -338,6 +340,7 @@ object RunnerGrabLane8343 {
     /** CanonicalFinalizedTradeBus6464: a terminal close of a grabbed mint joins the grab's own record. */
     fun onClose8343(env: com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.Envelope) {
         val a = admits[env.mint] ?: return
+        if (!env.mode.equals(if (a.paper) "PAPER" else "LIVE", true) || canon(env.lane) != a.lane) return
         if (!env.terminal || env.atMs < a.atMs || env.atMs - a.atMs > OPEN_WINDOW_MS_8343 + 3_600_000L) return
         synchronized(closes) {
             closes.addLast(Triple(env.mode.lowercase(), env.realizedReturnPct, env.realizedPnlSol))

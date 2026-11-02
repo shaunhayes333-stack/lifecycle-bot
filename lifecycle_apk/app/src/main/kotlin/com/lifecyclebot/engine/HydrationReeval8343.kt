@@ -29,7 +29,7 @@ object HydrationReeval8343 {
     private const val MAX_8343 = 2_048
 
     data class Deferred8343(val mint: String, val lanes: Set<String>, val reason: String, val version: Long, val atMs: Long)
-    data class Queued8343(val mint: String, val lanes: Set<String>, val version: Long, val queuedAtMs: Long, val deadlineMs: Long, val liquidityUsd: Double, val source: String)
+    data class Queued8343(val mint: String, val lanes: Set<String>, val version: Long, val queuedAtMs: Long, val deadlineMs: Long, val liquidityUsd: Double, val source: String, val anyEligible: Boolean = false)
 
     private val deferred = ConcurrentHashMap<String, Deferred8343>()
     private val queued = ConcurrentHashMap<String, Queued8343>()
@@ -210,16 +210,27 @@ object HydrationReeval8343 {
     fun carriedVersion8343(mint: String, nowMs: Long = System.currentTimeMillis()): Long? =
         queued[mint]?.takeIf { nowMs <= it.deadlineMs }?.version
 
-    /** The desk evaluated [mint] ([anyEligible]: some lane turned eligible): a queued re-evaluation is consumed. */
-    fun onEvaluated8343(mint: String, anyEligible: Boolean, nowMs: Long = System.currentTimeMillis()) {
-        val q = queued.remove(mint) ?: return
-        evaluatedN.incrementAndGet()
-        if (anyEligible) admittedN.incrementAndGet()
-        try {
-            PipelineHealthCollector.labelInc(if (anyEligible) "HYDRATION_REEVAL_ADMITTED_8343" else "HYDRATION_REEVAL_EVALUATED_8343")
-            ForensicLogger.lifecycle("HYDRATION_REEVAL_EVALUATED_8343", "mint=${mint.take(10)} version=${q.version} lanes=${q.lanes.joinToString(",")} " +
-                "waitedMs=${nowMs - q.queuedAtMs} eligible=$anyEligible source=${q.source}")
-        } catch (_: Throwable) {}
+    /** Only an authoritative read of a waiting desk can consume that desk's retry. */
+    fun onEvaluated8343(mint: String, opinions: Map<String, SpecialistBrainBridge7542.Opinion>, nowMs: Long) {
+        queued.computeIfPresent(mint) { _, q ->
+            if (nowMs < q.queuedAtMs) return@computeIfPresent q
+            if (nowMs > q.deadlineMs) {
+                expired.incrementAndGet()
+                return@computeIfPresent null
+            }
+            val answered = q.lanes.filter { opinions[it]?.authoritative == true }
+            if (answered.isEmpty()) return@computeIfPresent q
+            val eligible = q.anyEligible || answered.any { opinions[it]?.eligible == true }
+            val remaining = q.lanes - answered.toSet()
+            if (remaining.isNotEmpty()) return@computeIfPresent q.copy(lanes = remaining, anyEligible = eligible)
+            evaluatedN.incrementAndGet()
+            if (eligible) admittedN.incrementAndGet()
+            try {
+                PipelineHealthCollector.labelInc(if (eligible) "HYDRATION_REEVAL_ADMITTED_8343" else "HYDRATION_REEVAL_EVALUATED_8343")
+                ForensicLogger.lifecycle("HYDRATION_REEVAL_EVALUATED_8343", "mint=${mint.take(10)} version=${q.version} waitedMs=${nowMs - q.queuedAtMs} eligible=$eligible source=${q.source}")
+            } catch (_: Throwable) {}
+            null
+        }
     }
 
     fun statusLine8343(nowMs: Long = System.currentTimeMillis()): String {

@@ -41,11 +41,23 @@ class Aate8395EpisodeTraceTest {
             Stage.SUBMISSION, Stage.FILL, Stage.POSITION, Stage.DISPOSITION, Stage.ACK), stages)
         assertFalse("a read after the election must not be filed into the decision", ev.any { it.reason == "LATER READ" })
         assertFalse("another lane's task is not this episode's", ev.any { it.reason == "other lane" })
+        val restored = EpisodeTrace8395.parseJsonl(EpisodeTrace8395.toJson(ep).toString()).single()
+        assertEquals("att-7", restored.attemptId)
+        assertEquals(1_150L, restored.snapshot().single { it.stage == Stage.TASK }.materialAtMs)
         assertEquals(1_150L, ep.materialAtMs)
         assertEquals(Basis.MODELLED, ev.first { it.stage == Stage.ECONOMICS }.basis)
         assertEquals(Basis.REALISED, ev.first { it.stage == Stage.DISPOSITION }.basis)
         assertEquals("DISPOSED_ACKED", EpisodeTrace8395.terminal8395(ev))
         assertEquals(0, ep.orderViolations)
+    }
+
+    @Test fun anUnboundPaperRefusalCannotBecomeALiveElectionEvent() {
+        val m = "SameMintDifferentModes"
+        EpisodeTrace8395.noteForLatest("PAPER", m, "EXPRESS", Stage.FDG, "REFUSE", "paper refusal", 100)
+        val live = EpisodeTrace8395.onElection("LIVE", m, 1, "EXPRESS", 101, null, null, "BUY")!!
+        val paper = EpisodeTrace8395.onElection("PAPER", m, 1, "EXPRESS", 102, null, null, "BUY")!!
+        assertFalse(live.has(Stage.FDG))
+        assertTrue(paper.has(Stage.FDG))
     }
 
     @Test fun fillBindsTheSealedVersionEvenAfterAReassessment() {
@@ -65,6 +77,7 @@ class Aate8395EpisodeTraceTest {
         EpisodeTrace8395.onTicket("att-c", "LIVE", m, 1L, "EXPRESS", 1_010L, 0.03)
         EpisodeTrace8395.onFill("LIVE", m, 1L, "EXPRESS", "pid-c", 1_020L, 0.03)
         EpisodeTrace8395.onDisposition("pid-c", "LIVE", "EXPRESS", 2_000L, 0.5, 900.0, "SELL_SUBMITTED", terminal = true, chainProven = false)
+        EpisodeTrace8395.onDisposition("pid-c", "PAPER", "EXPRESS", 2_001L, 10.0, 1000.0, "PAPER_CANONICAL", true, false)
         val ep = EpisodeTrace8395.episodeForPosition("pid-c")!!
         assertEquals(Basis.UNVERIFIED, ep.snapshot().last { it.stage == Stage.DISPOSITION }.basis)
         val r = EpisodeTrace8395.replay8395(listOf(ep), cutoffMs = 10_000L, live = true).lanes.first { it.lane == "EXPRESS" }

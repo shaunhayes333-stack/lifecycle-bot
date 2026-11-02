@@ -92,10 +92,16 @@ object EpisodeTrace8395 {
     /** A pre-election hop (no candidate version yet). Bounded per mint; stale buffers age out. */
     fun notePre(mint: String, stage: Stage, verdict: String, reason: String, atMs: Long, lane: String = "",
                 basis: Basis = Basis.DECISION, value: Double = Double.NaN, materialAtMs: Long = 0L) {
+        notePreForMode(com.lifecyclebot.engine.RuntimeModeAuthority.authority().name, mint, stage, verdict, reason, atMs, lane, basis, value, materialAtMs)
+    }
+
+    private fun notePreForMode(mode: String, mint: String, stage: Stage, verdict: String, reason: String, atMs: Long,
+                               lane: String, basis: Basis, value: Double, materialAtMs: Long) {
         if (mint.isBlank()) return
-        if (pre.size >= MAX_PRE_MINTS_8395 && !pre.containsKey(mint)) prunePre(atMs)
-        if (pre.size >= MAX_PRE_MINTS_8395 && !pre.containsKey(mint)) { inc("EPISODE_TRACE_PRE_FULL_8395"); return }
-        val list = pre.computeIfAbsent(mint) { ArrayList(MAX_PRE_EVENTS_8395) }
+        val key = "${mode.uppercase()}|$mint"
+        if (pre.size >= MAX_PRE_MINTS_8395 && !pre.containsKey(key)) prunePre(atMs)
+        if (pre.size >= MAX_PRE_MINTS_8395 && !pre.containsKey(key)) { inc("EPISODE_TRACE_PRE_FULL_8395"); return }
+        val list = pre.computeIfAbsent(key) { ArrayList(MAX_PRE_EVENTS_8395) }
         synchronized(list) {
             if (list.size >= MAX_PRE_EVENTS_8395) list.removeAt(0)
             list.add(Event(stage, verdict.take(40), reason.take(90), basis, atMs, value, canonLane(lane), materialAtMs))
@@ -112,7 +118,7 @@ object EpisodeTrace8395 {
         if (episodes.size >= MAX_EPISODES_8395) evict()
         val ep = Episode(key, mode.uppercase(), mint, version, canonLane(lane), gen, atMs)
         if (episodes.putIfAbsent(key, ep) != null) return episodes[key]
-        val buffered = pre[mint]?.let { l -> synchronized(l) { l.filter { it.atMs in 1..atMs &&
+        val buffered = pre["${ep.mode}|$mint"]?.let { l -> synchronized(l) { l.filter { it.atMs in 1..atMs &&
             (it.lane.isBlank() || it.lane == ep.lane || it.stage == Stage.NATIVE_SCOPE || it.stage == Stage.RECEIVER) } } }.orEmpty()
         synchronized(ep) {
             buffered.sortedBy { it.atMs }.forEach { ep.events.add(it); if (it.materialAtMs > ep.materialAtMs) ep.materialAtMs = it.materialAtMs }
@@ -142,7 +148,7 @@ object EpisodeTrace8395 {
         val ep = episodes.values.asSequence()
             .filter { it.mint == mint && it.lane == l && (mode.isBlank() || it.mode.equals(mode, true)) && it.electedAtMs <= atMs && !it.has(Stage.TICKET) }
             .maxByOrNull { it.electedAtMs }
-        if (ep == null) { notePre(mint, stage, verdict, reason, atMs, lane, basis, value); return }
+        if (ep == null) { notePreForMode(mode, mint, stage, verdict, reason, atMs, lane, basis, value, 0L); return }
         add(ep, Event(stage, verdict.take(40), reason.take(90), basis, atMs, value, l))
     }
 
@@ -171,7 +177,8 @@ object EpisodeTrace8395 {
     fun onDisposition(positionId: String, mode: String, lane: String, atMs: Long, realizedPnlSol: Double,
                       realizedReturnPct: Double, proofState: String, terminal: Boolean, chainProven: Boolean) {
         val ep = byPosition[positionId]?.let { episodes[it] } ?: run { inc("EPISODE_TRACE_DISPOSITION_UNBOUND_8395"); return }
-        val basis = if (mode.equals("PAPER", true) || chainProven) Basis.REALISED else Basis.UNVERIFIED
+        if (!ep.mode.equals(mode, true)) { inc("EPISODE_TRACE_DISPOSITION_MODE_MISMATCH_8395"); return }
+        val basis = if (mode.equals("PAPER", true) || (mode.equals("LIVE", true) && chainProven)) Basis.REALISED else Basis.UNVERIFIED
         add(ep, Event(Stage.DISPOSITION, if (terminal) "TERMINAL" else "PARTIAL", proofState.take(40), basis, atMs, realizedPnlSol, canonLane(lane)))
         if (realizedReturnPct.isFinite()) add(ep, Event(Stage.DISPOSITION, "RETURN_PCT", "", basis, atMs, realizedReturnPct, canonLane(lane)))
         if (terminal) persistAsync(ep)
@@ -203,7 +210,7 @@ object EpisodeTrace8395 {
 
     fun latestSafe8395(mint: String, lane: String, stage: Stage, verdict: String, reason: String, value: Double = Double.NaN,
                        basis: Basis = Basis.DECISION) {
-        try { noteForLatest("", mint, lane, stage, verdict, reason, System.currentTimeMillis(), basis, value) } catch (_: Throwable) {}
+        try { noteForLatest(com.lifecyclebot.engine.RuntimeModeAuthority.authority().name, mint, lane, stage, verdict, reason, System.currentTimeMillis(), basis, value) } catch (_: Throwable) {}
     }
 
     private fun locate(mode: String, mint: String, version: Long, lane: String): Episode? {
@@ -221,7 +228,7 @@ object EpisodeTrace8395 {
         // disposed episodes leave first (they are already exported); open ones only when nothing else is left
         val victims = episodes.values.sortedWith(compareBy<Episode> { !it.has(Stage.DISPOSITION) }.thenBy { it.electedAtMs })
             .take(MAX_EPISODES_8395 / 10)
-        victims.forEach { ep -> episodes.remove(ep.key, ep); byAttempt.remove(ep.attemptId); byPosition.remove(ep.positionId) }
+        victims.forEach { ep -> episodes.remove(ep.key, ep); byAttempt.remove(ep.attemptId, ep.key); byPosition.remove(ep.positionId, ep.key) }
         inc("EPISODE_TRACE_EVICTED_8395")
     }
 
@@ -244,20 +251,20 @@ object EpisodeTrace8395 {
 
     fun toJson(ep: Episode): JSONObject = JSONObject().put("k", ep.key).put("mode", ep.mode).put("mint", ep.mint)
         .put("v", ep.version).put("lane", ep.lane).put("g", ep.generation).put("el", ep.electedAtMs).put("pid", ep.positionId)
-        .put("mat", ep.materialAtMs).put("ov", ep.orderViolations)
+        .put("att", ep.attemptId).put("mat", ep.materialAtMs).put("ov", ep.orderViolations)
         .put("ev", JSONArray().also { a -> ep.snapshot().forEach { e -> a.put(JSONObject().put("s", e.stage.name).put("vd", e.verdict)
-            .put("r", e.reason).put("b", e.basis.name).put("t", e.atMs).put("x", if (e.value.isFinite()) e.value else JSONObject.NULL).put("l", e.lane)) } })
+            .put("r", e.reason).put("b", e.basis.name).put("t", e.atMs).put("x", if (e.value.isFinite()) e.value else JSONObject.NULL).put("l", e.lane).put("mat", e.materialAtMs)) } })
 
     fun parseJsonl(text: String): List<Episode> = text.lineSequence().map { it.trim() }.filter { it.startsWith("{") }.mapNotNull { line ->
         try {
             val j = JSONObject(line)
             val ep = Episode(j.getString("k"), j.getString("mode"), j.getString("mint"), j.getLong("v"), j.getString("lane"), j.optLong("g"), j.getLong("el"))
-            ep.positionId = j.optString("pid"); ep.materialAtMs = j.optLong("mat"); ep.orderViolations = j.optInt("ov")
+            ep.attemptId = j.optString("att"); ep.positionId = j.optString("pid"); ep.materialAtMs = j.optLong("mat"); ep.orderViolations = j.optInt("ov")
             val a = j.getJSONArray("ev")
             for (i in 0 until a.length()) {
                 val e = a.getJSONObject(i)
                 ep.events.add(Event(Stage.valueOf(e.getString("s")), e.optString("vd"), e.optString("r"), Basis.valueOf(e.getString("b")), e.getLong("t"),
-                    if (e.isNull("x")) Double.NaN else e.getDouble("x"), e.optString("l")))
+                    if (e.isNull("x")) Double.NaN else e.getDouble("x"), e.optString("l"), e.optLong("mat")))
             }
             ep
         } catch (_: Exception) { null }
@@ -308,7 +315,7 @@ object EpisodeTrace8395 {
      * including roles with no episodes, so a silent desk is visible rather than missing.
      */
     fun replay8395(history: List<Episode>, cutoffMs: Long, live: Boolean? = null): Replay {
-        val eps = history.filter { live == null || it.mode.equals("LIVE", true) == live }.sortedBy { it.electedAtMs }
+        val eps = history.filter { live == null || it.mode.equals(if (live) "LIVE" else "PAPER", true) }.sortedBy { it.electedAtMs }
         val rows = ROLES_8395.map { role ->
             var tN = 0; var tNet = 0.0; var tW = 0; var vN = 0; var vNet = 0.0; var vW = 0; var unv = 0; var str = 0
             val stops = HashMap<String, Int>()
