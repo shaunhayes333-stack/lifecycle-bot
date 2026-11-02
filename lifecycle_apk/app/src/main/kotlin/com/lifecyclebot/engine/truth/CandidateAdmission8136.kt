@@ -496,7 +496,18 @@ object CandidateAdmission8136 {
                 trace += "missing=$missing"
                 return done(Terminal8136.DEFER_DATA, "DATA_INCOMPLETE_DEFER_8136", false, c.selectedSetup)
             }
-            return done(Terminal8136.REFUSE, "ENTRY_${wait}_8506", true, c.selectedSetup)
+            // V5.0.8511 §4A — the generic stage/flow wait no longer pre-empts candidate-specific evidence. It refuses only when
+            // (a) no setup of this candidate is SUPPORTED after cost on its own record (bestSetup8153: lower bound past the
+            // cost bar or a proven tail; suspect / sheet-AVOID records never count), and (b) its door still binds
+            // (Rehearsal8339 / FdgGate8365 demotion, the same test every other non-safety door takes). A supported setup or a
+            // demoted door falls through to every later door: losing cell/stage, timing, economics at the quoted size.
+            // Safety, structure and missing-data defers above are unchanged.
+            val supported8511 = bestSetup8153(c)
+            if (supported8511 == null && doorBinds8393("ENTRY_${wait}_8506"))
+                return done(Terminal8136.REFUSE, "ENTRY_${wait}_8506", true, c.selectedSetup)
+            trace += if (supported8511 != null) "entryWait8506=$wait overriddenBy=${supported8511.id}" else "entryWait8506=$wait doorAdvisory"
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
+                (if (supported8511 != null) "ENTRY_WAIT_SUPPORTED_SETUP_FALLTHROUGH_8511_" else "ENTRY_WAIT_DOOR_ADVISORY_8511_") + c.lane.uppercase()) } catch (_: Throwable) {}
         }
         val cellSupported = supported8136(liveCellProof8290, c.costPct)
         // V5.0.8153 — every fired setup ranked on its own record AND its timing band (StrategyRank8153): a supported setup

@@ -15722,4 +15722,14 @@ class GoldenTapeRegressionTest {
         val x = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(x.contains("EntryReceipt8500.onLiveBuy8500(ts, entryEvidence7863.receipt8506, pidLive6486)"))
     }
+
+    @Test
+    fun V5_0_8511_stage_wait_yields_to_supported_setup_and_binds_like_every_door() {
+        val c = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CandidateAdmission8136.kt").readText()
+        val wait = c.indexOf("val supported8511 = bestSetup8153(c)")
+        assertTrue(wait > 0)
+        assertTrue(c.contains("if (supported8511 == null && doorBinds8393(\"ENTRY_\${wait}_8506\"))"))
+        assertTrue(wait < c.indexOf("val cellSupported = supported8136(liveCellProof8290, c.costPct)"))
+        assertTrue(c.indexOf("return done(Terminal8136.DEFER_DATA, \"DATA_INCOMPLETE_DEFER_8136\"") < wait)
+    }
 }
