@@ -34,6 +34,7 @@ internal object ValidatorFeed8506 {
     @Volatile private var confirmedFrames = 0L
     @Volatile private var malformedFrames = 0L
     fun statusLine(): String = "$state processedFrames=$processedFrames confirmedFrames=$confirmedFrames malformed=$malformedFrames"
+    @Volatile private var lastWarned8509 = ""
     @Volatile var state = "OFF"
         private set
     private val recent = LinkedHashMap<String, Long>()
@@ -76,7 +77,15 @@ internal object ValidatorFeed8506 {
         failures = (failures + 1).coerceAtMost(7)
         retryAt = System.currentTimeMillis() + (1_000L shl failures)
         state = reason
-        if (reason in setOf("UNAUTHENTICATED", "PERMISSION_DENIED", "RESOURCE_EXHAUSTED")) retryAt = System.currentTimeMillis() + 15L * 60_000L
+        if (reason in setOf("UNAUTHENTICATED", "PERMISSION_DENIED", "RESOURCE_EXHAUSTED")) {
+            retryAt = System.currentTimeMillis() + 15L * 60_000L
+            // V5.0.8509 — an authorisation refusal is surfaced (once per state change), not only a state string.
+            if (lastWarned8509 != reason) {
+                lastWarned8509 = reason
+                try { com.lifecyclebot.engine.ErrorLogger.warn("ValidatorFeed8506", "gRPC validator feed refused: $reason endpoint=${endpoint.substringBefore('?').take(60)} — 0 frames until an authorised key is set") } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("VALIDATOR_FEED_AUTH_REFUSED_8509_$reason") } catch (_: Throwable) {}
+            }
+        }
     }
 
     private fun tick(uri: URI) {

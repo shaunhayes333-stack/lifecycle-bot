@@ -313,6 +313,14 @@ object DiagnosisBrief8438 {
                 .append(if (supplyStarved) " [FAULT supply starved]" else "").append('\n')
             if (supplyStarved) fixes += Fix8438((sup[0] - sup[1]) / 10.0, "FAULT",
                 "mint supply unread for discovered coins (resolved ${sup[1]} of ${sup[0]}, locked ${sup[2]}): no market cap, so mcap-banded lanes cannot place them -> rpcRoute8359 unsupported8441 / OnChainSupplyAuthority7075 status")
+            // V5.0.8509 — the gRPC launch feed refusing its key is an owner action, not a silent OFF.
+            val validator8509 = try { com.lifecyclebot.network.ValidatorFeed8506.state } catch (_: Throwable) { "OFF" }
+            if (validator8509 in setOf("UNAUTHENTICATED", "PERMISSION_DENIED")) {
+                sb.append("               gRPC validator feed: ").append(validator8509)
+                    .append(" (the endpoint refused the key: Helius LaserStream mainnet needs a Business/Professional plan; any Yellowstone endpoint + x-token works) — 0 frames, launch detection falls back to PumpPortal / polling\n")
+                fixes += Fix8438(200.0, "OWNER_ACTION",
+                    "gRPC validator feed $validator8509: set an endpoint/key the provider authorises for Yellowstone mainnet (validatorEndpoint / validatorKey) -> ValidatorFeed8506")
+            }
             if (try { com.lifecyclebot.network.PumpFunWS.keyedStreamDenied8439() } catch (_: Throwable) { false }) {
                 sb.append("               PumpPortal: keyed trade stream DENIED (the wallet linked to the API key holds < 0.02 SOL) — launch creates still arrive free; per-coin trade tapes do not\n")
                 fixes += Fix8438(150.0, "OWNER_ACTION",

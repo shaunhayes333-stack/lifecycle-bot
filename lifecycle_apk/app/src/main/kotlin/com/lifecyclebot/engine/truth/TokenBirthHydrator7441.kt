@@ -141,7 +141,7 @@ object TokenBirthHydrator7441 {
     fun statusLine7441(): String =
         "birthHydrator7441[requests=${requests8265.get()} launched=${launched8265.get()} busDropped=${busDropped8265.get()} " +
             "cooldownSkips=${cooldownSkips8265.get()} dropped8287=${dropped8287.get()} resolved=${resolved8265.get()} mintInitProven8418=${initProven8418.get()} unproven8418=${initUnproven8418.get()} noRpc=${noRpc8265.get()} noAnswer=${noAnswer8265.get()} " +
-            "inFlight=${inFlight.size} progress=${progress.size} cooling=${cooldownUntil.size}] ${walkOutcomes8435()} ${StoredBirth8418.statusLine8418()}"
+            "inFlight=${inFlight.size} progress=${progress.size} cooling=${cooldownUntil.size} txOtherRung8509=${txFallbackFound8509.get()}/${txFallbackAsked8509.get()}] ${walkOutcomes8435()} ${StoredBirth8418.statusLine8418()}"
 
     /**
      * V5.0.8435 — 8434: launched=1769 resolved=13, and where the other walks ended (another page owed, the page budget, a
@@ -419,6 +419,23 @@ object TokenBirthHydrator7441 {
     private val initProven8418 = java.util.concurrent.atomic.AtomicLong(0)
     private val initUnproven8418 = java.util.concurrent.atomic.AtomicLong(0)
 
+    private val txFallbackAsked8509 = java.util.concurrent.atomic.AtomicLong(0)
+    private val txFallbackFound8509 = java.util.concurrent.atomic.AtomicLong(0)
+
+    /** V5.0.8509 — at most two other rungs (keyless first, then keyed), each one bounded getTransaction. */
+    private fun txFromOtherRungs8509(walked: String, signature: String): JSONObject? {
+        val others = try { RuntimeProviderAuthority6685.marketReadCandidates8359(null, "getTransaction") } catch (_: Throwable) { emptyList() }
+            .filter { it != walked }.take(2)
+        for (other in others) {
+            txFallbackAsked8509.incrementAndGet()
+            val tx = fetchTx8418(other, signature) ?: continue
+            txFallbackFound8509.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("TOKEN_BIRTH_MINT_INIT_TX_OTHER_RUNG_8509") } catch (_: Throwable) {}
+            return tx
+        }
+        return null
+    }
+
     private fun fetchTx8418(rpc: String, signature: String): JSONObject? {
         val body = JSONObject().put("jsonrpc", "2.0").put("id", "birth8418").put("method", "getTransaction")
             .put("params", JSONArray().put(signature).put(JSONObject().put("encoding", "jsonParsed")
@@ -440,7 +457,10 @@ object TokenBirthHydrator7441 {
     private fun proveAndPublish8418(rpc: String, mint: String, state: Progress) {
         val floor = state.oldestBlockMs
         val sig = state.oldestOkSig8418
-        val tx = if (sig.isBlank()) null else fetchTx8418(rpc, sig)
+        // V5.0.8509 — the mint-init transaction is asked of the next market-read rungs when the walking rung returns none.
+        // 8507: initTxPending=2,021 of 5,387 walks (the keyless rung that answered getSignaturesForAddress often has no
+        // getTransaction for it), resolved=293; each retried every 15 s on the same rung and never proven.
+        val tx = if (sig.isBlank()) null else fetchTx8418(rpc, sig) ?: txFromOtherRungs8509(rpc, sig)
         val verdict = if (sig.isBlank()) MintInit8418.NOT_IN_TRANSACTION else mintInitProof8418(tx, mint)
         if (verdict == MintInit8418.PROVEN) {
             val txMs = (tx?.optLong("blockTime", 0L) ?: 0L).takeIf { it > 0L }?.let { it * 1000L }

@@ -15697,4 +15697,15 @@ class GoldenTapeRegressionTest {
         assertTrue(l.contains("if (offWatchGen8508.get() == gen8508) offWatchInFlight7737.set(false)"))
         assertTrue(l.contains("markNoSolRate8508="))
     }
+
+    @Test
+    fun V5_0_8509_birth_proof_asks_other_rungs_and_grpc_refusal_is_surfaced() {
+        val h = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/TokenBirthHydrator7441.kt").readText()
+        assertTrue(h.contains("fetchTx8418(rpc, sig) ?: txFromOtherRungs8509(rpc, sig)"))
+        assertTrue(h.contains(".filter { it != walked }.take(2)"))
+        val v = java.io.File("src/main/kotlin/com/lifecyclebot/network/ValidatorFeed8506.kt").readText()
+        assertTrue(v.contains("VALIDATOR_FEED_AUTH_REFUSED_8509_"))
+        val b = java.io.File("src/main/kotlin/com/lifecyclebot/engine/DiagnosisBrief8438.kt").readText()
+        assertTrue(b.contains("gRPC validator feed: "))
+    }
 }
