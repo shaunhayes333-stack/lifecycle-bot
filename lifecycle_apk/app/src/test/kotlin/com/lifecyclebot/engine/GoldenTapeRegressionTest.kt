@@ -15688,4 +15688,13 @@ class GoldenTapeRegressionTest {
         assertTrue(r.contains("RunnerFunnel8331.Stage8331.RUNG_TRIGGERED"))
         assertTrue(r.contains("if (runner8507 && ok) RunnerFunnel8331.stage8331(RunnerFunnel8331.Stage8331.RUNG_ARMED"))
     }
+
+    @Test
+    fun V5_0_8508_a_stalled_offwatch_batch_releases_the_pricing_slot_bounded() {
+        val l = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
+        assertTrue(l.contains("if (offWatchStartedAt8508 <= 0L || nowMs - offWatchStartedAt8508 < OFFWATCH_STALL_MS_8508) return"))
+        assertTrue(l.contains("if (offWatchRunning8508.get() >= OFFWATCH_MAX_RUNNING_8508) return"))
+        assertTrue(l.contains("if (offWatchGen8508.get() == gen8508) offWatchInFlight7737.set(false)"))
+        assertTrue(l.contains("markNoSolRate8508="))
+    }
 }

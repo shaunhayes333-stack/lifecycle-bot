@@ -152,6 +152,22 @@ object ForwardReturnLabeler7731 {
     } catch (_: Throwable) { false }
     private val offWatchMarks7737 = ConcurrentHashMap<String, Pair<Double, Long>>()
     private val offWatchInFlight7737 = java.util.concurrent.atomic.AtomicBoolean(false)
+    // V5.0.8508 §ONE_SLOW_BATCH_STARVES_EVERY_LABEL — the off-watch pricer runs one batch at a time. A batch whose network
+    // calls stall (DexScreener limiter wait, a slow curve RPC, Jupiter 5xx) held the single slot for as long as it took:
+    // 8506 priced 7.2 mints/s at 584 s, 8507 priced 1.2/s by 16,823 s and 68% of due labels found no source. A batch that
+    // has run past OFFWATCH_STALL_MS_8508 no longer owns the slot (its results still land when it finishes); a generation
+    // id keeps the late finisher from releasing the newer batch's slot. Batch wall time is measured.
+    private const val OFFWATCH_STALL_MS_8508 = 45_000L
+    @Volatile private var offWatchStartedAt8508 = 0L
+    private val offWatchGen8508 = AtomicLong(0)
+    private val offWatchBatches8508 = AtomicLong(0)
+    private val offWatchBatchMsSum8508 = AtomicLong(0)
+    @Volatile private var offWatchBatchMsMax8508 = 0L
+    private val offWatchStallReleased8508 = AtomicLong(0)
+    private val noSolRate8508 = AtomicLong(0)
+    /** Batches still running (a released stalled batch plus the current one); never more than OFFWATCH_MAX_RUNNING_8508. */
+    private val offWatchRunning8508 = java.util.concurrent.atomic.AtomicInteger(0)
+    private const val OFFWATCH_MAX_RUNNING_8508 = 3
     @Volatile private var offWatchLastFetchMs7737 = 0L
     private val offWatchPriced7737 = AtomicLong(0)
     private val offWatchMissed7737 = AtomicLong(0)
@@ -1938,6 +1954,8 @@ object ForwardReturnLabeler7731 {
             val o = CurveReserves7951.activeExitObservation(mint, nowMs, MARK_MAX_AGE_MS_7731)
             val solUsd = com.lifecyclebot.engine.WalletManager.freshSolPrice8163(nowMs)
             val accepted = CurveReserves7951.acceptedObservation8385(mint)
+            // V5.0.8508 — a curve read the label could not use because no fresh SOL/USD rate existed (counted, not guessed).
+            if (o != null && !(solUsd.isFinite() && solUsd > 0)) noSolRate8508.incrementAndGet()
             if (o != null && solUsd.isFinite() && solUsd > 0) candidates.add(LabelMark8386(mint, "pump.curve",
                 CurveReserves7951.priceSol7951(o.virtualSol, o.virtualTokens) * solUsd, o.observedAtMs, nowMs,
                 "CURVE_${accepted?.source ?: "UNKNOWN"}", decimals = 6,
@@ -1951,6 +1969,7 @@ object ForwardReturnLabeler7731 {
         try {
             val tp = TradeTape8100.lastPrint8360(mint)
             val solUsd = com.lifecyclebot.engine.WalletManager.freshSolPrice8163(nowMs)
+            if (tp != null && !(solUsd.isFinite() && solUsd > 0.0)) noSolRate8508.incrementAndGet()
             if (tp != null && solUsd.isFinite() && solUsd > 0.0)
                 candidates.add(LabelMark8386(mint, "", tp.first * solUsd, tp.second, nowMs, TAPE_MARK_SOURCE_8475, independentBasis = true))
         } catch (_: Throwable) {}
@@ -2134,7 +2153,15 @@ object ForwardReturnLabeler7731 {
 
     private fun fetchOffWatchMarks7737(due: List<String>, nowMs: Long) {
         if (due.isEmpty() || nowMs - offWatchLastFetchMs7737 < OFFWATCH_FETCH_GAP_MS_7737) return
-        if (!offWatchInFlight7737.compareAndSet(false, true)) return
+        if (!offWatchInFlight7737.compareAndSet(false, true)) {
+            if (offWatchStartedAt8508 <= 0L || nowMs - offWatchStartedAt8508 < OFFWATCH_STALL_MS_8508) return
+            if (offWatchRunning8508.get() >= OFFWATCH_MAX_RUNNING_8508) return   // bounded: never a pile of stalled threads
+            offWatchStallReleased8508.incrementAndGet()   // V5.0.8508 — the stalled batch keeps running; it no longer owns the slot
+            try { PipelineHealthCollector.labelInc("FORWARD_LABEL_OFFWATCH_STALL_RELEASED_8508") } catch (_: Throwable) {}
+        }
+        val gen8508 = offWatchGen8508.incrementAndGet()
+        offWatchRunning8508.incrementAndGet()
+        offWatchStartedAt8508 = nowMs
         offWatchLastFetchMs7737 = nowMs
         val batch = due.distinct().take(OFFWATCH_BATCH_7737)
         for (m in batch) offWatchAttemptAt7809[m] = nowMs
@@ -2202,11 +2229,16 @@ object ForwardReturnLabeler7731 {
                     offWatchMarks7737.entries.removeIf { it.value.second < cutoff }
                 } catch (_: Throwable) {
                 } finally {
-                    offWatchInFlight7737.set(false)
+                    val ms8508 = (System.currentTimeMillis() - nowMs).coerceAtLeast(0L)
+                    offWatchBatches8508.incrementAndGet(); offWatchBatchMsSum8508.addAndGet(ms8508)
+                    if (ms8508 > offWatchBatchMsMax8508) offWatchBatchMsMax8508 = ms8508
+                    offWatchRunning8508.decrementAndGet()
+                    if (offWatchGen8508.get() == gen8508) offWatchInFlight7737.set(false)
                 }
             }, "fwd-label-offwatch-7737").apply { isDaemon = true }.start()
         } catch (_: Throwable) {
-            offWatchInFlight7737.set(false)
+            offWatchRunning8508.decrementAndGet()
+            if (offWatchGen8508.get() == gen8508) offWatchInFlight7737.set(false)
         }
     }
 
@@ -2942,7 +2974,7 @@ object ForwardReturnLabeler7731 {
         val lanes = cells.keys.filter { it.startsWith("LANE|") }.map { it.removePrefix("LANE|") }.sorted()
             .mapNotNull { l -> laneStat(l)?.let { "$l[${fmtStat(it)}]" } }
         return "read=5m(slot60) early=1m late=60m pending=${pending.size} restored7735=${restoredPending7735.get()} observed=${observed.get()} booked15=${booked15.get()} booked60=${booked60.get()} booked240=${booked240.get()} " +
-            "lostMark=${lostMark.get()} vanished7944[lastMark=${vanishedLastMark7944.get()} dead=${vanishedDead7944.get()}] spikeCredited7945=${capturedLabels7945.get()} ${honestLine8366()} offWatch7737[priced=${offWatchPriced7737.get()} missed=${offWatchMissed7737.get()} limiterRetry8474=${offWatchLimiterRetry8474.get()} curve7753=${offWatchCurvePriced7753.get()} deferred7809=${offWatchDeferred7809.get()}] horizonMissed7809=${horizonMissed7809.get()} ${labelMarksLine8418()} basisSuspect7738=${basisSuspect7738.get()} curveWitness8165[entry=${curveRefusedEntry8165.get()} mark=${curveRefusedMark8165.get()} held8337=${curveHeldMark8337.get()}] hourSlot8337=${revisedToHour8337.get()} witnessedRunnerLabels8324=${witnessedLabels8324.get()} purged7738=${purgedCells7738.get()} curvePriced8062=${curvePriced8062.get()} rebased8076[up=${rebasedUp8076.get()} down=${rebasedDown8076.get()} flat8322=${rebasedFlat8322.get()} flatLostMarks8342=${flatMarks8322.get()} meanGap=${(rebasedUp8076.get() + rebasedDown8076.get() + rebasedFlat8322.get()).let { n -> if (n > 0) "%+.1f".format(rebaseGapSum8076 / n) else "-" }}% lateFirstPrice8153=${lateFirstCount8153.get()}] skipped[noPrice=${skippedNoPrice.get()} recent=${skippedRecent.get()} full=${skippedFull.get()}] cells=${cellStats.size}/${cells.size}\n" +
+            "lostMark=${lostMark.get()} vanished7944[lastMark=${vanishedLastMark7944.get()} dead=${vanishedDead7944.get()}] spikeCredited7945=${capturedLabels7945.get()} ${honestLine8366()} offWatch7737[priced=${offWatchPriced7737.get()} missed=${offWatchMissed7737.get()} limiterRetry8474=${offWatchLimiterRetry8474.get()} curve7753=${offWatchCurvePriced7753.get()} deferred7809=${offWatchDeferred7809.get()} batches8508=${offWatchBatches8508.get()} avgMs8508=${offWatchBatches8508.get().let { n -> if (n > 0) offWatchBatchMsSum8508.get() / n else 0 }} maxMs8508=$offWatchBatchMsMax8508 stallReleased8508=${offWatchStallReleased8508.get()} running8508=${offWatchRunning8508.get()} markNoSolRate8508=${noSolRate8508.get()}] horizonMissed7809=${horizonMissed7809.get()} ${labelMarksLine8418()} basisSuspect7738=${basisSuspect7738.get()} curveWitness8165[entry=${curveRefusedEntry8165.get()} mark=${curveRefusedMark8165.get()} held8337=${curveHeldMark8337.get()}] hourSlot8337=${revisedToHour8337.get()} witnessedRunnerLabels8324=${witnessedLabels8324.get()} purged7738=${purgedCells7738.get()} curvePriced8062=${curvePriced8062.get()} rebased8076[up=${rebasedUp8076.get()} down=${rebasedDown8076.get()} flat8322=${rebasedFlat8322.get()} flatLostMarks8342=${flatMarks8322.get()} meanGap=${(rebasedUp8076.get() + rebasedDown8076.get() + rebasedFlat8322.get()).let { n -> if (n > 0) "%+.1f".format(rebaseGapSum8076 / n) else "-" }}% lateFirstPrice8153=${lateFirstCount8153.get()}] skipped[noPrice=${skippedNoPrice.get()} recent=${skippedRecent.get()} full=${skippedFull.get()}] cells=${cellStats.size}/${cells.size}\n" +
             "      admitted60[${fmtStat(cellStat(AGG_ADMITTED))}] refused60[${fmtStat(cellStat(AGG_REFUSED))}]\n" +
             "      best60: ${best.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }}\n" +
             "      tail8303: ${best.joinToString(" · ") { CellTail8303.line8303(it.key, it.meanNet60Pct, it.winRate60, it.runnerRate60) }.ifBlank { "-" }}\n" +  // V5.0.8303
