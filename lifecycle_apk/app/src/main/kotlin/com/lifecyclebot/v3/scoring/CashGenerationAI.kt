@@ -165,6 +165,7 @@ object CashGenerationAI {
         var currentPrice: Double = 0.0,
         // V5.9.436 — entry treasury score for outcome attribution.
         val entryScore: Int = 0,
+        val ownerLane: String = "TREASURY",
     )
 
     data class TreasurySignal(
@@ -490,6 +491,7 @@ object CashGenerationAI {
         priceSource: String = "",
         priceDex: String = "",
         tokenAgeMinutes: Double = 30.0,
+        ownerLane: String = "TREASURY",
     ): TreasurySignal {
         val mode = getCurrentMode()
 
@@ -530,7 +532,7 @@ object CashGenerationAI {
         // live). Score threshold + anti-FOMO clamp + FDG remain unchanged.
         // V5.0.7550 — identical Treasury/CashGen admission pond in PAPER and LIVE.
         val learnedTreasuryMinLiq = 10_000.0
-        val treasuryMinLiq = com.lifecyclebot.engine.ColdStartPriors.applyLiquidityFloor("TREASURY", learnedTreasuryMinLiq)
+        val treasuryMinLiq = com.lifecyclebot.engine.ColdStartPriors.applyLiquidityFloor(ownerLane, learnedTreasuryMinLiq)
         if (liquidityUsd > 0.0 && liquidityUsd < treasuryMinLiq) {
             try { TreasuryCashflowMissionReport.recordRejected("treasury_liq_floor_${liquidityUsd.toInt()}_below_${treasuryMinLiq.toInt()}", mode.name, isPaperMode) } catch (_: Throwable) {}
             return TreasurySignal(
@@ -789,7 +791,7 @@ object CashGenerationAI {
         // does not disable other lanes; it only stops Treasury from repeatedly
         // buying score bands its own journal says are toxic, unless exceptional
         // live evidence is present.
-        val treasuryDanger = com.lifecyclebot.engine.LosingPatternMemory.stats("TREASURY", treasuryScore)
+        val treasuryDanger = com.lifecyclebot.engine.LosingPatternMemory.stats(ownerLane, treasuryScore)
         if (treasuryDanger.isDangerous && treasuryDanger.meanPnl < 0.0) {
             val dangerBand = com.lifecyclebot.engine.LosingPatternMemory.scoreBand(treasuryScore)
             val exceptionalEvidence = liquidityUsd >= 5_000.0 &&
@@ -808,9 +810,9 @@ object CashGenerationAI {
         // safety. It may heavily shrink Treasury/CashGen, but must not zero-size
         // a candidate before sizing attribution and FDG/executor flow.
         var treasuryExpectancySoftSize4316 = 1.0
-        if (com.lifecyclebot.engine.ScoreExpectancyTracker.shouldReject("TREASURY", treasuryScore)) {
-            val mean = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketMean("TREASURY", treasuryScore)
-            val n = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketSamples("TREASURY", treasuryScore)
+        if (com.lifecyclebot.engine.ScoreExpectancyTracker.shouldReject(ownerLane, treasuryScore)) {
+            val mean = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketMean(ownerLane, treasuryScore)
+            val n = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketSamples(ownerLane, treasuryScore)
             treasuryExpectancySoftSize4316 = 0.25
             scoreReasons.add("expectancyProbe4316")
             ErrorLogger.info(TAG, "💰 TREASURY_EXPECTANCY_RECOVERY_PROBE_4316: $symbol | score=$treasuryScore bucket μ=${"%+.1f".format(mean ?: 0.0)}% n=$n — size×0.25, no hard reject")
@@ -901,8 +903,8 @@ object CashGenerationAI {
         // (the existing calibrationSizeMult below already shrinks it further). Doctrine: soft-
         // shape, never veto — the band still trades at base size and keeps learning.
         if (treasuryConfidence >= 75 && treasuryScore >= 50) {
-            val bandMean = try { com.lifecyclebot.engine.ScoreExpectancyTracker.bucketMean("TREASURY", treasuryScore) ?: 0.0 } catch (_: Throwable) { 0.0 }
-            val bandN = try { com.lifecyclebot.engine.ScoreExpectancyTracker.bucketSamples("TREASURY", treasuryScore) } catch (_: Throwable) { 0 }
+            val bandMean = try { com.lifecyclebot.engine.ScoreExpectancyTracker.bucketMean(ownerLane, treasuryScore) ?: 0.0 } catch (_: Throwable) { 0.0 }
+            val bandN = try { com.lifecyclebot.engine.ScoreExpectancyTracker.bucketSamples(ownerLane, treasuryScore) } catch (_: Throwable) { 0 }
             // amplify only when the band is unproven (bootstrap) OR proven net-positive
             if (bandN < 12 || bandMean > 0.0) {
                 positionSol *= POSITION_SCALE_FACTOR
@@ -958,7 +960,7 @@ object CashGenerationAI {
         // V5.0.4327 — cache-only UltimateEdgeEngine readback for Treasury.
         // Do not enqueue/refresh here; open/close events warm cards asynchronously.
         try {
-            val edgeCard4327 = com.lifecyclebot.engine.UltimateEdgeEngine.cached(mint, "TREASURY")
+            val edgeCard4327 = com.lifecyclebot.engine.UltimateEdgeEngine.cached(mint, ownerLane)
             if (edgeCard4327 != null) {
                 // V5.0.7112 — the clamp AND the `> 0` guard each discarded the
                 // graph's negative verdict. The score itself still floors at 0.
@@ -1078,10 +1080,10 @@ object CashGenerationAI {
 
         // V5.9.1380 — closed-loop lane exit tuner overlay on TREASURY exits.
         val takeProfitPct = FluidLearningAI.getFluidTakeProfit(baseTakeProfitPct) *
-            com.lifecyclebot.engine.learning.LaneExitTuner.getTpMult("TREASURY")
+            com.lifecyclebot.engine.learning.LaneExitTuner.getTpMult(ownerLane)
         val stopLossPct = maxOf(
             -FluidLearningAI.getFluidStopLoss(baseStopLossPct) *
-                com.lifecyclebot.engine.learning.LaneExitTuner.getSlMult("TREASURY"),
+                com.lifecyclebot.engine.learning.LaneExitTuner.getSlMult(ownerLane),
             -15.0  // hard floor sacred
         )
 
@@ -1089,7 +1091,7 @@ object CashGenerationAI {
         // band has proven net-negative (scorer-inversion). Soft-shape, never veto.
         // (positionSol is already a `var`, declared above — just mutate it.)
         try {
-            val calMult = com.lifecyclebot.engine.ScoreExpectancyTracker.calibrationSizeMult("TREASURY", treasuryScore)
+            val calMult = com.lifecyclebot.engine.ScoreExpectancyTracker.calibrationSizeMult(ownerLane, treasuryScore)
             if (calMult < 1.0) {
                 positionSol *= calMult
                 ErrorLogger.info(TAG, "💰 CASHGEN CALIBRATION_SHRINK $symbol | band=S$treasuryScore size×$calMult (net-negative band)")
@@ -1135,6 +1137,7 @@ object CashGenerationAI {
         stopLossPct: Double,
         entryScore: Int = 0,  // V5.9.436 — for outcome attribution
         isPaper: Boolean = isPaperMode,
+        ownerLane: String = "TREASURY",
     ) {
         val targetPrice = entryPrice * (1 + takeProfitPct / 100)
         val stopPrice = entryPrice * (1 + stopLossPct / 100)
@@ -1158,14 +1161,15 @@ object CashGenerationAI {
             trailingStop = stopPrice,
             isPaper = isPaper,
             entryScore = entryScore,
+            ownerLane = ownerLane,
         )
 
         val entryPositions7858 = if (isPaper) paperPositions else livePositions
         synchronized(entryPositions7858) {
             entryPositions7858[mint] = position
             try { TreasuryCashflowMissionReport.recordOpened(mint, symbol, isPaper, positionSol, entryScore) } catch (_: Throwable) {}
-            try { com.lifecyclebot.engine.TreasuryOpportunityEngine.recordDeployment(mint, symbol, positionSol, entryPrice, "TREASURY") } catch (_: Throwable) {}  // V5.0.4339 ledger-only; CashGen executed the buy
-            try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(mint, symbol, "TREASURY", "TREASURY_OPEN", entryScore.coerceIn(0, 100), "open_size_${positionSol.fmt(4)}") } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.TreasuryOpportunityEngine.recordDeployment(mint, symbol, positionSol, entryPrice, ownerLane) } catch (_: Throwable) {}  // V5.0.4339 ledger-only; CashGen executed the buy
+            try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(mint, symbol, ownerLane, "${ownerLane}_OPEN", entryScore.coerceIn(0, 100), "open_size_${positionSol.fmt(4)}") } catch (_: Throwable) {}
             ErrorLogger.info(
                 TAG,
                 "💰 TREASURY MAP: Added $symbol | activePositions.size=${activePositions.size} | " +
@@ -1188,6 +1192,19 @@ object CashGenerationAI {
         // already-held orphan across a mode toggle.
         return synchronized(paperPositions) { paperPositions.containsKey(mint) } ||
             synchronized(livePositions) { livePositions.containsKey(mint) }
+    }
+
+    /** Build the auxiliary tracker from the persisted position without recording another entry. */
+    fun recoveredPosition(mint: String, symbol: String, p: com.lifecyclebot.data.Position, ownerLane: String,
+                          lastPrice: Double, legacyTakeProfit: Double, legacyStop: Double): TreasuryPosition {
+        val entry = p.treasuryEntryPrice.takeIf { it.isFinite() && it > 0.0 }
+            ?: p.entryPrice.takeIf { it.isFinite() && it > 0.0 } ?: lastPrice
+        val tp = p.treasuryTakeProfit.takeIf { it.isFinite() && it > 0.0 } ?: legacyTakeProfit
+        val sl = p.treasuryStopLoss.takeIf { it.isFinite() && it < 0.0 } ?: legacyStop
+        val stop = entry * (1.0 + sl / 100.0)
+        return TreasuryPosition(mint, symbol, entry, p.costSol, p.entryTime, entry * (1.0 + tp / 100.0),
+            stop, p.highestPrice.takeIf { it > entry } ?: entry, stop, p.isPaperPosition,
+            lastPrice.takeIf { it > 0.0 } ?: entry, p.entryScore.toInt(), ownerLane)
     }
 
     fun restorePosition(position: TreasuryPosition, isPaper: Boolean) {
@@ -1294,7 +1311,7 @@ object CashGenerationAI {
         // Paper/live TP floor: live exits at 2.5% (lock real profit sooner),
         // paper at 3.5% (let paper trades breathe for learning data).
         // These constants were defined but previously unused — now applied.
-        val tpFloor = if (pos.isPaper) TAKE_PROFIT_PCT_PAPER else liveTpFloor7928(pos.entrySol)
+        val tpFloor = if (pos.isPaper) TAKE_PROFIT_PCT_PAPER else liveTpFloor7928(pos.entrySol, pos.ownerLane)
         if (pnlPct >= tpFloor) {
             val holdSeconds = (System.currentTimeMillis() - pos.entryTime) / 1000
             val modeLabel = if (pos.isPaper) "PAPER" else "LIVE"
@@ -1316,14 +1333,14 @@ object CashGenerationAI {
 
         // V5.9.437 — LIVE HOLD-BUCKET GATE (paper).
         if (com.lifecyclebot.engine.OutcomeGates.earlyExitByHoldBucket(
-                layer = "TREASURY", holdMinutes = holdMinutes, pnlPct = pnlPct)) {
+                layer = pos.ownerLane, holdMinutes = holdMinutes, pnlPct = pnlPct)) {
             return ExitSignal.TIME_EXIT
         }
 
         // V5.9.204: was pnlPct < 0 — flat 0% positions held FOREVER. Now exit if below TP floor too.
         // V5.9.437 — extend for winners when TIME_EXIT historically bleeds this lane.
         val cgTimeExt = com.lifecyclebot.engine.OutcomeGates.timeExitExtensionMult(
-            layer = "TREASURY", exitReason = "TIME_EXIT", pnlPct = pnlPct)
+            layer = pos.ownerLane, exitReason = "TIME_EXIT", pnlPct = pnlPct)
         if (holdMinutes >= (MAX_HOLD_MINUTES * cgTimeExt).toLong() && pnlPct < TAKE_PROFIT_PCT_PAPER) {
             return ExitSignal.TIME_EXIT
         }
@@ -1339,9 +1356,9 @@ object CashGenerationAI {
     // V5.0.8030 — owner: "treasury scalps ... 3% is dumb, that just costs money". A live take-profit is at least
     // 2x the round trip (measured lane cost or the model at this ticket, NetEdge8030): the same bar the entry had
     // to clear, so a scalp that is taken is a net win.
-    fun liveTpFloor7928(entrySol: Double): Double = try {
+    fun liveTpFloor7928(entrySol: Double, ownerLane: String = "TREASURY"): Double = try {
         maxOf(TAKE_PROFIT_PCT_LIVE, com.lifecyclebot.engine.truth.FieldManual7715.roundTripCostPct7766(entrySol, 0.0, 0.0) + 1.0,
-            com.lifecyclebot.engine.truth.NetEdge8030.EDGE_MULT * com.lifecyclebot.engine.truth.NetEdge8030.costPct8030("TREASURY", entrySol, 0.0))
+            com.lifecyclebot.engine.truth.NetEdge8030.EDGE_MULT * com.lifecyclebot.engine.truth.NetEdge8030.costPct8030(ownerLane, entrySol, 0.0))
     } catch (_: Throwable) { TAKE_PROFIT_PCT_LIVE }
 
     /** V5.0.7928 — a TIME_EXIT sweep never sells a position whose pnl is unreadable or green. */
@@ -1403,10 +1420,10 @@ object CashGenerationAI {
         // but survives any floating-point or stale-price edge cases.
         val tpPct = if (pos.entryPrice > 0 && pos.targetPrice > pos.entryPrice) {
             (pos.targetPrice - pos.entryPrice) / pos.entryPrice * 100.0
-        } else if (pos.isPaper) TAKE_PROFIT_PCT_PAPER.toDouble() else liveTpFloor7928(pos.entrySol)
+        } else if (pos.isPaper) TAKE_PROFIT_PCT_PAPER.toDouble() else liveTpFloor7928(pos.entrySol, pos.ownerLane)
 
         // V5.0.7928 — live: the stored target only counts once it clears the round trip.
-        if ((pos.isPaper && isAboveTarget) || pnlPct >= (if (pos.isPaper) tpPct else maxOf(tpPct, liveTpFloor7928(pos.entrySol)))) {
+        if ((pos.isPaper && isAboveTarget) || pnlPct >= (if (pos.isPaper) tpPct else maxOf(tpPct, liveTpFloor7928(pos.entrySol, pos.ownerLane)))) {
             val modeLabel = if (pos.isPaper) "PAPER" else "LIVE"
             ErrorLogger.info(
                 TAG,
@@ -1436,7 +1453,7 @@ object CashGenerationAI {
 
         // V5.9.437 — LIVE HOLD-BUCKET GATE (live).
         if (com.lifecyclebot.engine.OutcomeGates.earlyExitByHoldBucket(
-                layer = "TREASURY", holdMinutes = holdMinutes, pnlPct = pnlPct)) {
+                layer = pos.ownerLane, holdMinutes = holdMinutes, pnlPct = pnlPct)) {
             ErrorLogger.info(TAG, "💰🧠 HOLD-BUCKET EARLY EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min — bucket bleeds")
             return ExitSignal.TIME_EXIT
         }
@@ -1444,7 +1461,7 @@ object CashGenerationAI {
         // V5.9.204: was pnlPct < 0 — flat 0% positions held FOREVER. Exit if below TP floor.
         // V5.9.437 — extend for winners when TIME_EXIT historically bleeds this lane.
         val cgTimeExtLive = com.lifecyclebot.engine.OutcomeGates.timeExitExtensionMult(
-            layer = "TREASURY", exitReason = "TIME_EXIT", pnlPct = pnlPct)
+            layer = pos.ownerLane, exitReason = "TIME_EXIT", pnlPct = pnlPct)
         if (holdMinutes >= (MAX_HOLD_MINUTES * cgTimeExtLive).toLong() && pnlPct < TAKE_PROFIT_PCT_LIVE) {
             ErrorLogger.info(TAG, "💰 TREASURY TIME EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min")
             return ExitSignal.TIME_EXIT
@@ -1529,7 +1546,7 @@ object CashGenerationAI {
         val pnlSol = pos.entrySol * pnlPct / 100
         try { TreasuryCashflowMissionReport.recordClosed(mint, pos.symbol, pos.isPaper, pnlSol, exitReason.name) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.TreasuryOpportunityEngine.closeDeployment(mint, pos.entrySol + pnlSol, pnlPct) } catch (_: Throwable) {}  // V5.0.4339 ledger-only; CashGen executed the sell
-        try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(mint, pos.symbol, "TREASURY", "TREASURY_CLOSE", pnlPct.toInt().coerceIn(-100, 100), "exit_${exitReason.name}_pnl_${pnlPct.fmt(2)}") } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(mint, pos.symbol, pos.ownerLane, "${pos.ownerLane}_CLOSE", pnlPct.toInt().coerceIn(-100, 100), "exit_${exitReason.name}_pnl_${pnlPct.fmt(2)}") } catch (_: Throwable) {}
         val holdMinutesLong = (System.currentTimeMillis() - pos.entryTime) / 60_000L
 
         // V5.9.434 — journal every V3 sub-trader close so the persistent

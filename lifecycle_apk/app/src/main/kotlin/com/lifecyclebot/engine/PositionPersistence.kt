@@ -152,6 +152,9 @@ object PositionPersistence {
         val lastPriceSource: String = "",
         val lastPricePoolAddr: String = "",
         val lastPriceDex: String = "",
+        val treasuryTakeProfit: Double = 0.0,
+        val treasuryStopLoss: Double = 0.0,
+        val treasuryEntryPrice: Double = 0.0,
     )
     
     /**
@@ -318,6 +321,9 @@ object PositionPersistence {
                 positionId = saved.positionId8384,
                 entryPolicySnapshot = saved.entryPolicySnapshot8384,
                 isTreasuryPosition = saved.isTreasuryPosition,
+                treasuryTakeProfit = saved.treasuryTakeProfit,
+                treasuryStopLoss = saved.treasuryStopLoss,
+                treasuryEntryPrice = saved.treasuryEntryPrice,
                 isBlueChipPosition = saved.isBlueChipPosition,
                 isShitCoinPosition = saved.isShitCoinPosition,
                 entryTakeProfitPct = saved.entryTakeProfitPct,
@@ -629,27 +635,10 @@ object PositionPersistence {
                     PipelineHealthCollector.labelInc("SHITCOIN_RESTORED_ACTIVE_POSITION_4228")
                 }
                 if ((restoredLayer.equals("TREASURY", ignoreCase = true) || restoredLayer.equals("CASHGEN", ignoreCase = true)) &&
-                    !com.lifecyclebot.v3.scoring.CashGenerationAI.hasPosition(mint)) {
-                    val cashEntry = saved.entryPrice.takeIf { it > 0.0 } ?: saved.lastKnownPrice
-                    val tpPct = 8.0
-                    val slPct = -6.0
-                    com.lifecyclebot.v3.scoring.CashGenerationAI.restorePosition(
-                        com.lifecyclebot.v3.scoring.CashGenerationAI.TreasuryPosition(
-                            mint = mint,
-                            symbol = saved.symbol,
-                            entryPrice = cashEntry,
-                            entrySol = saved.costSol,
-                            entryTime = saved.entryTime,
-                            targetPrice = cashEntry * (1.0 + tpPct / 100.0),
-                            stopPrice = cashEntry * (1.0 + slPct / 100.0),
-                            highWaterMark = saved.highestPrice.takeIf { it > cashEntry } ?: cashEntry,
-                            trailingStop = cashEntry * (1.0 + slPct / 100.0),
-                            isPaper = saved.isPaperPosition,
-                            currentPrice = saved.lastKnownPrice.takeIf { it > 0.0 } ?: cashEntry,
-                            entryScore = saved.entryScore.toInt(),
-                        ),
-                        saved.isPaperPosition,
-                    )
+                    com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePosition(mint, saved.isPaperPosition) == null) {
+                    val recovered = com.lifecyclebot.v3.scoring.CashGenerationAI.recoveredPosition(
+                        mint, saved.symbol, position, restoredLayer.uppercase(), saved.lastKnownPrice, 8.0, -6.0)
+                    com.lifecyclebot.v3.scoring.CashGenerationAI.restorePosition(recovered, saved.isPaperPosition)
                     PipelineHealthCollector.labelInc("TREASURY_RESTORED_ACTIVE_POSITION_4228")
                 }
             } catch (_: Throwable) {}
@@ -741,6 +730,9 @@ object PositionPersistence {
             styleHoldMult8384 = ts.styleHoldMult,
             styleTpMult8384 = ts.styleTpMult,
             isTreasuryPosition = pos.isTreasuryPosition,
+            treasuryTakeProfit = pos.treasuryTakeProfit,
+            treasuryStopLoss = pos.treasuryStopLoss,
+            treasuryEntryPrice = pos.treasuryEntryPrice,
             isBlueChipPosition = pos.isBlueChipPosition,
             isShitCoinPosition = pos.isShitCoinPosition,
             entryTakeProfitPct = pos.entryTakeProfitPct,
@@ -822,6 +814,9 @@ object PositionPersistence {
                 put("styleHoldMult8384", pos.styleHoldMult8384)
                 put("styleTpMult8384", pos.styleTpMult8384)
                 put("isTreasuryPosition", pos.isTreasuryPosition)
+                put("treasuryTakeProfit", pos.treasuryTakeProfit)
+                put("treasuryStopLoss", pos.treasuryStopLoss)
+                put("treasuryEntryPrice", pos.treasuryEntryPrice)
                 put("isBlueChipPosition", pos.isBlueChipPosition)
                 put("isShitCoinPosition", pos.isShitCoinPosition)
                 put("entryTakeProfitPct", pos.entryTakeProfitPct)
@@ -917,6 +912,9 @@ object PositionPersistence {
                     styleHoldMult8384 = obj.optDouble("styleHoldMult8384", 1.0).let { if (it.isFinite() && it > 0.0) it else 1.0 },
                     styleTpMult8384 = obj.optDouble("styleTpMult8384", 1.0).let { if (it.isFinite() && it > 0.0) it else 1.0 },
                     isTreasuryPosition = obj.optBoolean("isTreasuryPosition", false),
+                    treasuryTakeProfit = obj.optDouble("treasuryTakeProfit", 0.0),
+                    treasuryStopLoss = obj.optDouble("treasuryStopLoss", 0.0),
+                    treasuryEntryPrice = obj.optDouble("treasuryEntryPrice", 0.0),
                     isBlueChipPosition = obj.optBoolean("isBlueChipPosition", false),
                     isShitCoinPosition = obj.optBoolean("isShitCoinPosition", false),
                     entryTakeProfitPct = obj.optDouble("entryTakeProfitPct", 0.0),
