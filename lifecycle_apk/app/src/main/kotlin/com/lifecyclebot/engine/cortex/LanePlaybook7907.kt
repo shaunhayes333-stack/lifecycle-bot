@@ -200,21 +200,36 @@ object LanePlaybook7907 {
                 continue
             }
             distinct.add(point)
-            if (distinct.size == 3) break
+            if (distinct.size == 16) break
         }
-        if (distinct.size < 3) return Obs8084.UNKNOWN
-        val last3 = distinct.asReversed()
-        for (i in last3.indices) {
-            val c = last3[i]
-            if (!c.priceUsd.isFinite() || c.priceUsd <= 0.0 || c.ts <= 0L) return Obs8084.INVALID
-            if (i > 0) {
-                val p = last3[i - 1]
-                if (c.ts <= p.ts) return Obs8084.INVALID
-                val r = c.priceUsd / p.priceUsd
-                if (!r.isFinite() || r > 1_000.0 || r < 0.001) return Obs8084.INVALID
+        // V5.0.8517 §SHAPE_FROM_TIME_NOT_INSERTION — 8517 live: features8144 complete=3,336 of 28,559 evaluations and every
+        // lane's sample row read shape:INVALID, so QUALITY alone deferred 476 coins as DATA_INCOMPLETE. Two causes in this
+        // reader, not in the market: (1) observations merged from several feeds arrive out of insertion order, and the
+        // order of insertion was treated as corruption; (2) a fast feed lands three ticks inside 10 s and the reader stopped
+        // there instead of looking one observation further back. A shape is read from TIME order. Real corruption is
+        // still INVALID: a non-positive / non-finite price, two different prices at one timestamp, a >1000x jump.
+        if (distinct.size < 3) {
+            for (point in pts.takeLast(64).asReversed()) {
+                if (distinct.size >= 16) break
+                if (!point.priceUsd.isFinite() || point.priceUsd <= 0.0 || point.ts <= 0L) return Obs8084.INVALID
+                val prev = seen.putIfAbsent(point.ts, point.priceUsd)
+                if (prev != null) { if (prev != point.priceUsd) return Obs8084.INVALID; continue }
+                distinct.add(point)
             }
         }
-        if (last3.last().ts - last3.first().ts < 10_000L) return Obs8084.INVALID
+        if (distinct.size < 3) return Obs8084.UNKNOWN
+        val ordered = distinct.sortedBy { it.ts }
+        val newest = ordered.last()
+        val older = ordered.filter { it.ts <= newest.ts - 10_000L }
+        if (older.isEmpty()) return Obs8084.INVALID
+        val anchor = older.last()
+        val mid = ordered.lastOrNull { it.ts > anchor.ts && it.ts < newest.ts } ?: older.getOrNull(older.size - 2)
+            ?: return Obs8084.INVALID
+        val last3 = listOf(anchor, mid, newest).sortedBy { it.ts }
+        for (i in 1 until last3.size) {
+            val r = last3[i].priceUsd / last3[i - 1].priceUsd
+            if (!r.isFinite() || r > 1_000.0 || r < 0.001) return Obs8084.INVALID
+        }
         val age = nowMs - last3.last().ts
         if (age < -60_000L) return Obs8084.INVALID
         return if (age > SHAPE_FRESH_MS_8084) Obs8084.STALE else Obs8084.OBSERVED

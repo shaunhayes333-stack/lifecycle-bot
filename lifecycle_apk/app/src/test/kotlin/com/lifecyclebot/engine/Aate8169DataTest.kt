@@ -184,9 +184,12 @@ class Aate8169DataTest {
         assertEquals(listOf(now - 60_000L, now - 50_000L, now - 20_000L), h.map { it.ts })
         assertTrue(LocalCandleSynthesis7055.appendInOrder8169(h, c(now, 1.2)))
         assertEquals(Obs8084.OBSERVED, LanePlaybook7907.shapeObs8084(h.toList(), now))
-        // the same sequence appended blindly was the device's shape:INVALID
+        // V5.0.8517 — the same observations appended blindly are still the same chart: read in time order, not refused
         val blind = listOf(s1, s2, s2, c(now - 60_000L, 0.9))
-        assertEquals(Obs8084.INVALID, LanePlaybook7907.shapeObs8084(blind, now))
+        assertEquals(Obs8084.OBSERVED, LanePlaybook7907.shapeObs8084(blind, now))
+        // a burst of three ticks inside 10 s reads one observation further back instead of going blind
+        val burst = listOf(c(now - 40_000L, 1.0), c(now - 4_000L, 1.05), c(now - 2_000L, 1.06), c(now, 1.07))
+        assertEquals(Obs8084.OBSERVED, LanePlaybook7907.shapeObs8084(burst, now))
         assertEquals(1, LocalCandleSynthesis7055.orderedIndex8169(listOf(c(10L, 1.0), c(30L, 1.0)), 20L))
         assertEquals(2, LocalCandleSynthesis7055.orderedIndex8169(listOf(c(10L, 1.0), c(30L, 1.0)), 30L))
         // a full history drops its oldest point
