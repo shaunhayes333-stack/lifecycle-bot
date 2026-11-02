@@ -6,6 +6,7 @@ import com.lifecyclebot.engine.truth.CandidateAdmission8136.Candidate8136
 import com.lifecyclebot.engine.truth.CandidateAdmission8136.Evidence8136
 import com.lifecyclebot.engine.truth.CandidateAdmission8136.Terminal8136
 import com.lifecyclebot.engine.truth.NetEdge8030
+import com.lifecyclebot.engine.truth.LiveEdgeGate7877
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -117,5 +118,13 @@ class Aate8515PerLaneEndToEndTest {
         assertTrue("40% WR at this payoff is ~break-even after costs and fees", grow(24.0, 4.5, 0.4, 8.0) in 0.98..1.02)
         assertTrue(grow(24.0, 4.5, 0.35, 8.0) < 1.0)
         assertTrue("a sub-cost edge must bleed, which is why admission refuses it", grow(5.0, 4.5, 0.5, 8.0) < 1.0)
+    }
+
+    @Test fun earlyRunStandDownNeverBuysTheTickPinnedAtItsHigh() {
+        assertFalse("at the high", LiveEdgeGate7877.offTheHigh8516(1.0))
+        assertFalse("within 8 % of the high", LiveEdgeGate7877.offTheHigh8516(0.95))
+        assertFalse("unknown peak claims nothing", LiveEdgeGate7877.offTheHigh8516(Double.NaN))
+        assertTrue("a developing run on its pullback", LiveEdgeGate7877.offTheHigh8516(0.88))
+        assertTrue(LiveEdgeGate7877.grabLaneEarly8418(true, 95.0, 20.0))  // the early-run bound itself is unchanged
     }
 }

@@ -807,7 +807,7 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertFalse(g.earlyRun8117(Double.NaN, 10.0))                            // unknown run-up: the chase rule decides
         val chase = chaseDecisionSource8397()
         // superseded (8480): label-record chase stand-downs removed (they read survivors with labels lost: LOSS_BOUGHT_TOP=13)
-        assertTrue(chase.contains("if (developingRunGrab8117(ts, runupFromLowPct, nowMs)) return null"))
+        assertTrue(chase.contains("if (offHigh8516 && developingRunGrab8117(ts, runupFromLowPct, nowMs)) return null"))
         assertFalse(chase.contains("runnerForming8113")) // broad forming-run status is not an exemption
     }
 

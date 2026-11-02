@@ -913,12 +913,17 @@ object LiveEdgeGate7877 {
         // definition; it waits for its pullback (8115: 8113 bought 34fph3 on a ticket at +1,238%). Counted, not exempted.
         if (try { com.lifecyclebot.engine.RunnerPlay8018.ticketActive8018(ts.mint, nowMs) } catch (_: Throwable) { false })
             try { PipelineHealthCollector.labelInc("CHASE_RUNNER_TICKET_NOT_EXEMPT_8418_$lane") } catch (_: Throwable) {}
-        if (developingRunGrab8117(ts, runupFromLowPct, nowMs)) return null
+        // V5.0.8516 — the early-run stand-downs buy a run as it develops, never the tick pinned at its high: lifetime live
+        // runner admits were LOSS_BOUGHT_TOP 19 / 35 (best excursion < +5 %). A grab still under the 8117 bound is bought
+        // once it has come at least [AT_HIGH_VS_PEAK_8516] off the high; pinned at the high the chase rule binds.
+        val offHigh8516 = offTheHigh8516(currentVsPeak)
+        if (!offHigh8516) try { PipelineHealthCollector.labelInc("CHASE_NOT_STOOD_DOWN_AT_HIGH_8516_$lane") } catch (_: Throwable) {}
+        if (offHigh8516 && developingRunGrab8117(ts, runupFromLowPct, nowMs)) return null
         // V5.0.8418 — the grab lane's own admit (RunnerGrabLane8343: full safety, exit-safe venue, forming run, 1.5x at the
         // grab size, the 8329 chase cap) is the 8117 developing run too: still early by the same bound, it is bought on the
         // way up. 8416: 435 live grab-lane admits, 0 buys — a forming run is "up 80% off its low near its high" by definition.
         val grabLane8418 = try { com.lifecyclebot.engine.RunnerGrabLane8343.admitted8343(ts.mint, lane, nowMs) } catch (_: Throwable) { false }
-        if (grabLaneEarly8418(grabLane8418, runupFromLowPct, ts.lastPriceChange5m)) {
+        if (offHigh8516 && grabLaneEarly8418(grabLane8418, runupFromLowPct, ts.lastPriceChange5m)) {
             try { PipelineHealthCollector.labelInc("CHASE_STOOD_DOWN_GRAB_LANE_EARLY_8418_$lane") } catch (_: Throwable) {}
             return null
         }
@@ -955,6 +960,12 @@ object LiveEdgeGate7877 {
     /** Pure (V5.0.8418): a grab-lane admit still inside the 8117 early-run bound (the chase rule stands down for it). */
     internal fun grabLaneEarly8418(grabLaneAdmitted: Boolean, runupFromLowPct: Double, chg5mPct: Double): Boolean =
         grabLaneAdmitted && earlyRun8117(runupFromLowPct, chg5mPct)
+
+    /** V5.0.8516 — at or above this fraction of the local high the coin is pinned at its top (the 8468 runner bound: within 8 %). */
+    internal const val AT_HIGH_VS_PEAK_8516 = 0.92
+
+    /** Pure (V5.0.8516): has the coin come off its high enough that an early-run stand-down buys a developing run, not the top? Unknown = no. */
+    internal fun offTheHigh8516(currentVsPeak: Double): Boolean = currentVsPeak.isFinite() && currentVsPeak > 0.0 && currentVsPeak < AT_HIGH_VS_PEAK_8516
 
     private const val EARLY_RUNUP_MAX_PCT_8117 = 150.0
     private const val EARLY_CHG5M_MAX_PCT_8117 = 100.0
