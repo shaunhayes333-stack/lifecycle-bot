@@ -60,6 +60,15 @@ TRADERS = [
     ("MANIPULATED", "v3/scoring/ManipulatedTraderAI.kt"),
     ("SHADOW_PAPER", "engine/truth/ExploreShadow8347.kt"),
     ("CASHGEN", "v3/scoring/CashGenerationAI.kt"),
+    ("TREASURY", "engine/TreasuryBrain.kt"),
+    ("EXPRESS", "v3/scoring/ShitCoinExpress.kt"),
+    ("MANIPULATED", "v3/scoring/ManipulatedTraderAI.kt"),
+    ("DIP_HUNTER", "v3/scoring/DipHunterAI.kt"),
+    ("PROJECT_SNIPER", "v3/scoring/ProjectSniperAI.kt"),
+    # CORE is constructed by the specialist ensemble, not a CoreTraderAI class.
+    ("CORE", "engine/SpecialistBrainBridge7542.kt"),
+    # Ledger authority is deliberately paper-only; a mode reference is not live readiness.
+    ("SHADOW_PAPER", "engine/truth/PaperAccountLedger6430.kt"),
 ]
 
 COLUMNS = {
@@ -124,7 +133,8 @@ def main() -> int:
         rows.append((label, rel, hits))
 
     cols = list(COLUMNS.keys())
-    print("live_awareness_matrix — V5.0.6992\n")
+    print("live_awareness_matrix — full-system coverage 8513\n")
+    print("Lexical leads only. Shared-file matches do not prove lane-specific runtime authority.\n")
     print(f"{'TRADER':<18}{'MODE':>6}{'SEED':>6}{'STREAK':>8}{'PROT':>6}   file")
     print("-" * 78)
     gaps = []
@@ -135,15 +145,15 @@ def main() -> int:
         cells = "".join(f"{('yes' if hits[c] else '--'):>{6 if c!='STREAK' else 8}}" for c in cols)
         print(f"{label:<18}{cells}   {rel}")
         if hits["MODE"] and not hits["SEED"]:
-            gaps.append((label, rel, "no paper->live seeding"))
+            gaps.append((label, rel, "no direct seed reference (may be intentional)"))
         if hits["MODE"] and not hits["STREAK"]:
             gaps.append((label, rel, "no streak reflex"))
         if hits["MODE"] and not hits["PROT"] and label not in NON_RUGGABLE:
             gaps.append((label, rel, "no protection stack"))
 
-    print("\n=== GAPS (knows about real money, consults nothing that protects it)")
+    print("\n=== CANDIDATE INDIRECT-REFERENCE GAPS (not proof of missing protection)")
     if not gaps:
-        print("  none")
+        print("  no direct-reference gaps found; not runtime proof")
     for label, rel, why in gaps:
         print(f"  {label:<18} {why:<26} {rel}")
     print("\nA gap is a candidate, not a verdict — a trader may reach these")

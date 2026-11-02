@@ -17,8 +17,8 @@ class Aate7605FDeadDispositionCompletenessTest {
         val fDead = source.readLines().drop(1).filter { it.startsWith("F_DEAD\t") }
         val rows = disposition.readLines().drop(1).filter { it.isNotBlank() }
 
-        assertEquals(1458, fDead.size)
-        assertEquals(1458, rows.size)
+        assertEquals(1481, fDead.size)
+        assertEquals(1481, rows.size)
         assertFalse(rows.any { it.contains("\tUNCLASSIFIED\t") })
 
         val keys = rows.map {
@@ -38,7 +38,7 @@ class Aate7605FDeadDispositionCompletenessTest {
     @Test
     fun `audit declares zero unresolved F DEAD rows`() {
         val audit = File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
-        assertTrue(audit.contains("F_DEAD unresolved count: 0 / 1,458"))
-        assertTrue(audit.contains("1,458 / 1,458 classified"))
+        assertTrue(audit.contains("F_DEAD unresolved count: 0 / 1,481"))
+        assertTrue(audit.contains("1,481 / 1,481 classified"))
     }
 }

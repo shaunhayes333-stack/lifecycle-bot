@@ -72,6 +72,15 @@ object SizingQuoteRecheck8153 {
         return maxOf(markUsd.takeIf { it.isFinite() } ?: 0.0, quote)
     }
 
+    /** V5.0.8513: executable evidence, unlike an advisory mark, requires a real quote conversion.
+     * Keep a newer adverse market mark, but never substitute it for unknown quote units or SOL/USD. */
+    internal fun executionQuotePrice8513(inLamports: Long, outRaw: Long, decimals: Int?, solUsd: Double, markUsd: Double): Double {
+        if (inLamports <= 0L || outRaw <= 0L || decimals == null || decimals !in 0..18 || !solUsd.isFinite() || solUsd <= 0.0) return Double.NaN
+        val price = (inLamports.toDouble() / 1_000_000_000.0) * solUsd * Math.pow(10.0, decimals.toDouble()) / outRaw.toDouble()
+        if (!price.isFinite() || price <= 0.0) return Double.NaN
+        return maxOf(price, markUsd.takeIf { it.isFinite() && it > 0.0 } ?: price)
+    }
+
     /** Executor's final SOL-to-token quote: no price inferred from the cached mark or guessed decimal scale. */
     fun preBroadcastQuoteRefusal8167(ts: com.lifecyclebot.data.TokenState, executedSol: Double, quote: com.lifecyclebot.network.SwapQuote, solUsd: Double = WalletManager.freshSolPrice8163(), intent8198: ExecutableOpenGate.ExecutionIntent? = null): String? {
         if (quote.inputMint != com.lifecyclebot.network.JupiterApi.SOL_MINT || quote.outputMint != ts.mint) return "PRE_BROADCAST_QUOTE_IDENTITY_MISMATCH_8198"

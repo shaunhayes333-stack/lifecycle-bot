@@ -4,6 +4,10 @@ import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.engine.ForensicLogger
 import com.lifecyclebot.engine.HostWalletTokenTracker
 import com.lifecyclebot.network.SolanaWallet
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -43,6 +47,8 @@ import java.util.concurrent.atomic.AtomicReference
 object SellReconciler {
     private const val TICK_INTERVAL_MS: Long = 10_000L
     private val jobRef = AtomicReference<Job?>(null)
+    private val tickMutex8513 = Mutex()
+    @Volatile private var loopStartedAtMs8513 = 0L
     // V5.9.1518 — PATCH ITEM 2/7: retain the live scope so the runtime doctor /
     // ledger-drift mitigation can request an immediate off-loop reconcile tick
     // without waiting for the next scheduled cadence.
@@ -76,7 +82,7 @@ object SellReconciler {
     @Volatile var totalChecked: Long = 0L
     /** V5.9.774 — wall-clock at last tick (0 = never). Surfaced in forensics. */
     @Volatile var lastTickAtMs: Long = 0L
-    /** V5.9.774 — true once a live-mode tick loop is active. Surfaced in forensics. */
+    /** One scheduled loop is owned. Actual progress remains lastTickAtMs/totalTicks, never a synthetic tick. */
     @Volatile var isStarted: Boolean = false
 
     // V5.0.6265 — reconciler fail-open sentinel. Tracks consecutive wallet-read
@@ -98,13 +104,14 @@ object SellReconciler {
 
     /** V5.9.1522 — zombie test: live, marked started, jobs exist, but the tick
      *  loop never advanced. An illegal state the watchdog must force-restart. */
-    fun isLiveZombie(activeJobs: Int): Boolean =
-        !paperMode && (isStarted || pendingLiveStart) && activeJobs > 0 && totalTicks == 0L
+    fun isLiveZombie(activeJobs: Int, nowMs: Long = System.currentTimeMillis()): Boolean =
+        !paperMode && isStarted && activeJobs > 0 && !isLiveAlive(nowMs)
 
-    /** V5.9.1522 — is a live reconciler genuinely alive (ticking)? */
-    fun isLiveAlive(): Boolean =
-        !paperMode && isStarted && (jobRef.get()?.isActive == true) &&
-            (totalTicks > 0L || (System.currentTimeMillis() - lastTickAtMs) < TICK_INTERVAL_MS * 3)
+    /** Scheduling ownership is immediate; heartbeat evidence is never synthesized by start(). */
+    fun isLiveAlive(nowMs: Long = System.currentTimeMillis()): Boolean =
+        !paperMode && isStarted && jobRef.get()?.isActive == true &&
+            (nowMs - loopStartedAtMs8513 in 0L until TICK_INTERVAL_MS * 3 ||
+                (lastTickAtMs >= loopStartedAtMs8513 && nowMs - lastTickAtMs in 0L until TICK_INTERVAL_MS * 3))
     /** V5.9.765 — count of consecutive ticks where a mint has price=0 so we
      *  can emit a PRICE_STALE_LIVE_POSITION anomaly after the second tick. */
     private val zeroPriceStreak = java.util.concurrent.ConcurrentHashMap<String, Int>()
@@ -113,6 +120,7 @@ object SellReconciler {
 
     /** Idempotent start. Caller (BotService) re-invokes whenever mode or
      *  wallet changes; we restart cleanly. */
+    @Synchronized
     fun start(
         scope: CoroutineScope,
         isPaperMode: Boolean,
@@ -120,15 +128,20 @@ object SellReconciler {
         sellTrigger: ((mint: String, symbol: String, balance: Double) -> Unit)? = null,
         onZeroClose: ((mint: String, symbol: String, sig: String?) -> Unit)? = null,
         onHealWalletHeld: ((heldMints: Set<String>) -> Unit)? = null,
+        dispatcher: CoroutineDispatcher = Dispatchers.IO,
     ) {
-        paperMode = isPaperMode
-        wallet = hostWallet
+        // Refresh callbacks without cancelling a healthy or queued equivalent generation.
         this.sellTrigger = sellTrigger
         this.onZeroClose = onZeroClose
         if (onHealWalletHeld != null) this.onHealWalletHeld = onHealWalletHeld
+        if (loopScope === scope && paperMode == isPaperMode && wallet === hostWallet &&
+            isStarted && jobRef.get()?.isActive == true) return
+        val previous8513 = jobRef.getAndSet(null)
+        isStarted = false
+        previous8513?.cancel()
+        paperMode = isPaperMode
+        wallet = hostWallet
         loopScope = scope
-        // Cancel any prior loop.
-        jobRef.get()?.cancel()
         // V5.9.1371 — PAPER MODE now ALSO runs the reconciler. Previously this
         // hard-returned (isStarted=false) because the reconciler was a live-
         // wallet watchdog. But the runtime doctor's success criteria require
@@ -158,8 +171,7 @@ object SellReconciler {
         // Reaching here we have a usable wallet (or paper) → clear the latch.
         pendingLiveStart = false
         if (isPaperMode) {
-            val paperJob = scope.launch(Dispatchers.IO) {
-                isStarted = true
+            val paperJob = scope.launch(dispatcher, start = CoroutineStart.LAZY) {
                 ErrorLogger.info("SellReconciler", "🩹 SellReconciler started (10s tick, PAPER mode — orphan reconcile)")
                 if (!startEventEmitted) {
                     startEventEmitted = true
@@ -177,11 +189,10 @@ object SellReconciler {
                     delay(TICK_INTERVAL_MS)
                 }
             }
-            jobRef.set(paperJob)
+            publishLoop8513(paperJob)
             return
         }
-        val newJob = scope.launch(Dispatchers.IO) {
-            isStarted = true
+        val newJob = scope.launch(dispatcher, start = CoroutineStart.LAZY) {
             ErrorLogger.info("SellReconciler", "🩹 SellReconciler started (10s tick, LIVE mode)")
             // V5.9.765 — EMERGENT priority 1 + acceptance test D: one-shot
             // RECONCILER_START forensic event so operator dumps prove the
@@ -205,11 +216,29 @@ object SellReconciler {
                 delay(TICK_INTERVAL_MS)
             }
         }
-        jobRef.set(newJob)
+        publishLoop8513(newJob)
     }
 
-    fun stop() {
+    /** Called under the lifecycle monitor; a queued coroutine already has one published owner. */
+    private fun publishLoop8513(job: Job) {
+        loopStartedAtMs8513 = System.currentTimeMillis()
+        jobRef.set(job)
+        isStarted = true
+        job.invokeOnCompletion {
+            synchronized(this) {
+                if (jobRef.compareAndSet(job, null)) {
+                    isStarted = false
+                    loopScope = null
+                }
+            }
+        }
+        job.start()
+    }
+
+    @Synchronized fun stop() {
         isStarted = false
+        pendingLiveStart = false
+        loopScope = null
         jobRef.getAndSet(null)?.cancel()
     }
 
@@ -217,22 +246,30 @@ object SellReconciler {
      *  Called by RuntimeDoctor when LEDGER_DRIFT / SELL_RETRY_STORM /
      *  CLOSED_BUT_WALLET_HELD is detected so the ledger converges between the
      *  normal scheduled ticks. No-op if the reconciler is not started. */
-    fun requestImmediateTick() {
-        if (!isStarted) return
-        val sc = loopScope ?: return
-        sc.launch { try { tickOnce() } catch (_: Throwable) {} }
-    }
+    fun requestImmediateTick() = launchOwnedTick8513()
 
-    /** Single reconciliation pass. Public for unit-tests / manual nudges. */
     fun requestUrgentTick(reason: String = "urgent") {
-        try {
-            ForensicLogger.lifecycle("SELL_RECONCILER_URGENT_TICK_REQUESTED", "reason=$reason")
-            val sc = loopScope ?: return
-            sc.launch { try { tickOnce() } catch (_: Throwable) {} }
-        } catch (_: Throwable) {}
+        try { ForensicLogger.lifecycle("SELL_RECONCILER_URGENT_TICK_REQUESTED", "reason=$reason") } catch (_: Throwable) {}
+        launchOwnedTick8513()
     }
 
-    suspend fun tickOnce() {
+    private fun launchOwnedTick8513() {
+        val (sc, owner) = synchronized(this) {
+            if (!isStarted) return
+            val sc = loopScope ?: return
+            val owner = jobRef.get()?.takeIf { it.isActive } ?: return
+            sc to owner
+        }
+        sc.launch(Dispatchers.IO) {
+            if (jobRef.get() !== owner || !owner.isActive) return@launch
+            try { if (paperMode) reconcilePaperOnce() else tickOnce() } catch (_: Throwable) {}
+        }
+    }
+
+    suspend fun tickOnce() = tickMutex8513.withLock { tickOnceSerialized8513() }
+
+    private suspend fun tickOnceSerialized8513() {
+
         if (paperMode) return
         val w = wallet ?: return
         totalTicks++
@@ -426,7 +463,9 @@ object SellReconciler {
             .map { it.key }
     }
 
-    suspend fun reconcilePaperOnce() {
+    suspend fun reconcilePaperOnce() = tickMutex8513.withLock { reconcilePaperSerialized8513() }
+
+    private suspend fun reconcilePaperSerialized8513() {
         totalTicks++
         lastTickAtMs = System.currentTimeMillis()
         val orphans = withContext(Dispatchers.IO) { computePaperOrphans() }

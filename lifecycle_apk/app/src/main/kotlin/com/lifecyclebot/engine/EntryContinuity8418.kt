@@ -57,12 +57,21 @@ object EntryContinuity8418 {
         if (approved == null) return PREFIX + "NO_APPROVAL"
         if (approved.mint != mint || (executedQuote != null && executedQuote.outputMint != mint)) return PREFIX + "MINT"
         if (current == null) return PREFIX + "APPROVAL_GONE"
+        // V5.0.8513: matching attempt/size alone cannot authorize a cross-mode,
+        // different-mint or revoked current ticket. Identity stays event-local.
+        if (current.mint != mint) return PREFIX + "MINT"
+        if (!approved.mode.equals("LIVE", true) || !current.mode.equals(approved.mode, true)) return PREFIX + "MODE"
         if (approved.finalDecision6613 != ExecutableOpenGate.CanonicalFinalDecision6613.BUY || approved.fdgVerdict != "BUY" ||
-            !approved.fdgAllowed || current.attemptId != approved.attemptId ||
+            !approved.fdgAllowed || !current.fdgAllowed || current.fdgVerdict != "BUY" ||
+            current.finalDecision6613 != ExecutableOpenGate.CanonicalFinalDecision6613.BUY ||
+            current.candidateId != approved.candidateId || current.authorityVersion != approved.authorityVersion ||
+            current.fdgDecisionId6613 != approved.fdgDecisionId6613 || current.attemptId != approved.attemptId ||
             current.candidateVersion != approved.candidateVersion ||
             LaneAlias.normalize(current.canonicalLane) != LaneAlias.normalize(approved.canonicalLane) ||
             current.resolvedSize != approved.resolvedSize) return PREFIX + "STRATEGY"
         if (!sizeMatches8418(approved.resolvedSize, spentLamports)) return PREFIX + "SIZE"
+        if (approvedQuote != null && executedQuote == null) return PREFIX + "QUOTE_MISSING"
+        if (executedQuote != null && executedQuote.outRaw <= 0L) return PREFIX + "OUT_AMOUNT"
         if (executedQuote != null && !sizeMatches8418(approved.resolvedSize, executedQuote.inLamports)) return PREFIX + "SIZE"
         if (approvedQuote != null && executedQuote != null && approvedQuote != executedQuote) {
             if (!approvedQuote.router.equals(executedQuote.router, true)) return PREFIX + "ROUTE"
@@ -102,7 +111,7 @@ object EntryContinuity8418 {
         approvedQuote: com.lifecyclebot.network.SwapQuote?, executedQuote: com.lifecyclebot.network.SwapQuote, slippageBps: Int,
     ): String? {
         val price = try {
-            SizingQuoteRecheck8153.quotePrice8167(executedQuote.inAmount, executedQuote.outAmount, ts.tokenMap.decimals,
+            SizingQuoteRecheck8153.executionQuotePrice8513(executedQuote.inAmount, executedQuote.outAmount, ts.tokenMap.decimals,
                 WalletManager.freshSolPrice8163(), ts.lastPrice)
         } catch (_: Exception) { Double.NaN }
         return check8418(ts.mint, intent, executedQuote.inAmount, price, quoteOf8418(approvedQuote, slippageBps), quoteOf8418(executedQuote, slippageBps))

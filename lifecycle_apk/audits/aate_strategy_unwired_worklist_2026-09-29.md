@@ -3671,3 +3671,28 @@ Repair:
 - [x] Census: 252 intelligence candidates / 1,256 Kotlin files; unclassified review count reduced from 71 to 59.
 - [x] Source classification is not runtime acceptance. Device mark, learning population, partial accounting and specialist causal-chain obligations remain open.
 - [x] No Kotlin trading logic, thresholds, sizes, safety, exit policy or live capability changed.
+
+
+## 5.0.8513 reconciliation
+
+- F_DEAD unresolved count: 0 / 1,481 (dispositions explicit; open decisions listed below).
+- 1,481 / 1,481 classified.
+
+Ledger regenerated from current source: 1,481 F_DEAD rows (454 historical rows no longer dead, 477 new). Historical dispositions kept verbatim; new rows classified by a full production+test reference sweep.
+
+- BACKGROUND_IO_PROVIDER_HELPER: 20
+- EXPLICIT_CONTROL_MAINTENANCE: 89
+- IN_FILE_REFERENCE: 95
+- LAB_BACKTEST_BACKGROUND: 8
+- LEGACY_ZERO_CALLER_DO_NOT_AUTOWIRE: 189
+- PRODUCT_UI_VOICE_DEAD: 27
+- READBACK_PREDICATE_ADVISORY: 370
+- REFERENCED_OUTSIDE_DECLARING_FILE: 124
+- RUNTIME_QUANT_LEARNING_UTILITY: 14
+- STRATEGY_INTERNAL_ZERO_CALLER: 47
+- TEST_HOOK_ONLY: 89
+- TEST_ONLY_CONTRACT_NOT_PRODUCTION_WIRED: 163
+- TRUTH_INTERNAL_ZERO_CALLER: 219
+- ZERO_REFERENCE_DEAD: 27
+
+TEST_ONLY_CONTRACT_NOT_PRODUCTION_WIRED and ZERO_REFERENCE_DEAD are NOT closed: each is an open wiring-or-removal decision for the 8513 authority audit, not a claim that the code is harmless.

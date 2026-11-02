@@ -1087,12 +1087,19 @@ object Cortex7885 {
      * A voter's frozen edges are written only when they differ from its table edges: the restore already reads the table
      * when the entry is null, and ~400 voters x 5 edges on every pending / graded row was most of CORTEX_PENDING (~41 MB).
      */
-    private fun storedEdges(id: String, e: DoubleArray?): Any =
-        if (e != null && CortexVoters7885.edgesFor(id)?.contentEquals(e) == true) org.json.JSONObject.NULL else jsonNumbers(e)
+    /** Snapshot-local lookup: cross-voter edges otherwise allocate a new array for every saved row. */
+    private fun edgeReference8513(id: String, cache: MutableMap<String, DoubleArray?>?): DoubleArray? {
+        if (cache == null) return CortexVoters7885.edgesFor(id)
+        if (cache.containsKey(id)) return cache[id]
+        return CortexVoters7885.edgesFor(id).also { cache[id] = it }
+    }
 
-    /** V5.0.8498 — open (not yet graded) decisions only; graded rows keep exact provenance for contribution reversal. */
-    private fun storedEdgesCompact8498(id: String, e: DoubleArray?): Any =
-        if (e != null && CortexVoters7885.edgesFor(id)?.contentEquals(e) == true) org.json.JSONObject.NULL
+    private fun storedEdges(id: String, e: DoubleArray?, cache: MutableMap<String, DoubleArray?>? = null): Any =
+        if (e != null && edgeReference8513(id, cache)?.contentEquals(e) == true) org.json.JSONObject.NULL else jsonNumbers(e)
+
+    /** Open decisions only; graded rows keep exact provenance for contribution reversal. */
+    private fun storedEdgesCompact8498(id: String, e: DoubleArray?, cache: MutableMap<String, DoubleArray?>): Any =
+        if (e != null && edgeReference8513(id, cache)?.contentEquals(e) == true) org.json.JSONObject.NULL
         else org.json.JSONArray().also { j -> e?.forEach { j.put(compactNumber8498(it)) } }
 
     private fun pendingSnapshot8076(episodes8401: Set<String>?, generation8403: Long?): () -> String {
@@ -1104,17 +1111,20 @@ object Cortex7885 {
             val key = id.substringBeforeLast('|')
             val at = id.substringAfterLast('|').toLongOrNull()
             val p = pending[key]?.takeIf { it.atMs == at } ?: pairedPending8401[id] ?: graded8006[id]?.p
-            p?.let { Triple(key, detachPending8386(it), false) }
+            p?.let { Triple(key, it, false) }
         }.orEmpty()
         // V5.0.8447 — superseded episodes (8443) are saved as paired rows: a restart restores each one beside the newer
         // decision (pairedPending8401) or as the lane's pending when no newer one survived, and its own label still finds it.
         val pairedIds8417 = pairedPending8401.keys.toSet() + superseded8443.keys
         val awaitingHour8417 = if (episodes8401 == null) (pairedPending8401.entries + superseded8443.entries)
             .filter { persistablePending8144(it.value.atMs, now8144) }
-            .map { Triple(it.key.substringBeforeLast('|'), detachPending8386(it.value), false) } else emptyList()
-        val rows8372 = (ordinary.map { Triple(it.key, detachPending8386(it.value), false) } + awaitingHour8417 + forwardRows8401 +
-            (if (episodes8401 == null) shadowPending8372.entries.map { Triple(it.key, detachPending8386(it.value), true) } else emptyList()))
+            .map { Triple(it.key.substringBeforeLast('|'), it.value, false) } else emptyList()
+        val rows8372 = (ordinary.map { Triple(it.key, it.value, false) } + awaitingHour8417 + forwardRows8401 +
+            (if (episodes8401 == null) shadowPending8372.entries.map { Triple(it.key, it.value, true) } else emptyList()))
             .distinctBy { "${it.first}|${it.second.atMs}|${it.third}" }
+            // V5.0.8513: multiple delivery-owner maps can hold the same episode.
+            // Select its existing first-wins identity before cloning the voter graph under the monitor.
+            .map { Triple(it.first, detachPending8386(it.second), it.third) }
         val gradedRows = if (episodes8401 == null) graded8006.entries.sortedByDescending { it.value.atMs }.take(GRADED_PERSIST_MAX_8013)
             .map { it.key to detachGraded8386(it.value) }
             else emptyList() // A companion preserves predictions, never imports gradients without their atomic ledger checkpoint.
@@ -1125,6 +1135,7 @@ object Cortex7885 {
         val archive = if (episodes8401 == null) traceArchive8372.detached8386(now8144) else null
         return {
             val dict = LinkedHashMap<String, Int>()
+            val edgeCache8513 = HashMap<String, DoubleArray?>()
             val arr = StringBuilder("[")
             rows8372.forEach { (k, p, shadow8372) ->
                 val a = p.a
@@ -1137,7 +1148,7 @@ object Cortex7885 {
                         ids.put(dict.getOrPut(a.ids[i]) { dict.size }); xs.put(compactNumber8498(r))
                         pr.put(compactNumber8498(a.prediction8076?.preds?.getOrNull(i)))
                         pw.put(compactNumber8498(a.prediction8076?.pWins?.getOrNull(i)))
-                        frozenEdges8372.put(storedEdgesCompact8498(a.ids[i], a.edges.getOrNull(i)))
+                        frozenEdges8372.put(storedEdgesCompact8498(a.ids[i], a.edges.getOrNull(i), edgeCache8513))
                     }
                 }
                 // All decision-time context must survive a process restart unchanged.
@@ -1171,7 +1182,7 @@ object Cortex7885 {
             val garr = StringBuilder("[")
             gradedRows.forEach { (k, g) ->
                 if (garr.length > 1) garr.append(',')
-                garr.append(section8418("g8013", encodeGraded8372(k, g, dict).toString()))
+                garr.append(section8418("g8013", encodeGradedCached8513(k, g, dict, edgeCache8513).toString()))
             }
             val seals8395 = StringBuilder("[")
             sealRows8395.forEach { (rk, e, v) ->
@@ -1249,14 +1260,18 @@ object Cortex7885 {
     }
 
     /** Exact sparse prediction/weight provenance, shared by hot checkpoints and the bounded compressed archive. */
-    private fun encodeGraded8372(key: String, g: Graded8006, dict: MutableMap<String, Int>): org.json.JSONObject {
+    private fun encodeGraded8372(key: String, g: Graded8006, dict: MutableMap<String, Int>): org.json.JSONObject =
+        encodeGradedCached8513(key, g, dict, null)
+
+    /** V5.0.8513 — same codec; the snapshot passes one edge cache so cross-voter edges are not rebuilt per row. */
+    private fun encodeGradedCached8513(key: String, g: Graded8006, dict: MutableMap<String, Int>, edgeCache8513: MutableMap<String, DoubleArray?>?): org.json.JSONObject {
         val a = g.p.a
         val ids = org.json.JSONArray(); val xs = org.json.JSONArray(); val pr = org.json.JSONArray(); val pw = org.json.JSONArray()
         val rs = org.json.JSONArray(); val sc = org.json.JSONArray(); val ee = org.json.JSONArray()
         for (i in a.ids.indices) {
             val raw = a.raws.getOrNull(i) ?: continue
             if (!raw.isFinite()) continue
-            ids.put(dict.getOrPut(a.ids[i]) { dict.size }); xs.put(jsonNumber(raw)); ee.put(storedEdges(a.ids[i], a.edges.getOrNull(i)))
+            ids.put(dict.getOrPut(a.ids[i]) { dict.size }); xs.put(jsonNumber(raw)); ee.put(storedEdges(a.ids[i], a.edges.getOrNull(i), edgeCache8513))
             pr.put(jsonNumber(g.trace.preds.getOrNull(i))); pw.put(jsonNumber(g.trace.pWins.getOrNull(i)))
             sc.put(g.trace.scoreAt?.getOrNull(i) ?: -1)
             repeat(4) { rs.put(jsonNumber(g.trace.scales?.getOrNull(i * 4 + it))) }

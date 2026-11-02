@@ -5,6 +5,7 @@ import com.lifecyclebot.v3.scanner.CandidateSnapshot
 import com.lifecyclebot.engine.ErrorLogger
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.abs
 import kotlin.math.sqrt
 
@@ -89,16 +90,16 @@ object VolatilityRegimeAI {
         val atrValues: ArrayDeque<Double> = ArrayDeque(50),
         var lastRegime: VolatilityRegime = VolatilityRegime.NORMAL,
         var squeezeCandles: Int = 0,
-        var lastUpdate: Long = 0
+        @Volatile var lastUpdate: Long = 0
     )
     private val tokenVolatility = ConcurrentHashMap<String, VolHistory>()
     /** V5.0.8309 — per-mint residue: MintResidue8309 drops keys of mints that are no longer live (MemoryGuard7977). */
     internal fun residueMap8309(): java.util.concurrent.ConcurrentHashMap<String, *> = tokenVolatility
     
     // Stats
-    private var totalAnalyses = 0
-    private var squeezeBreakouts = 0
-    private var regimeTransitions = 0
+    private val totalAnalyses = AtomicInteger(0)
+    private val squeezeBreakouts = AtomicInteger(0)
+    private val regimeTransitions = AtomicInteger(0)
     
     // ═══════════════════════════════════════════════════════════════════════════
     // MAIN ANALYSIS
@@ -115,7 +116,7 @@ object VolatilityRegimeAI {
         recentLows: List<Double>,
         recentCloses: List<Double>
     ): VolatilitySignal {
-        totalAnalyses++
+        totalAnalyses.incrementAndGet()
         
         if (recentHighs.size < 5 || recentLows.size < 5 || recentCloses.size < 5) {
             return defaultSignal("Insufficient data")
@@ -128,58 +129,63 @@ object VolatilityRegimeAI {
         
         // Update history
         val history = tokenVolatility.getOrPut(mint) { VolHistory() }
-        history.atrValues.addLast(currentAtr)
-        if (history.atrValues.size > 50) history.atrValues.removeFirst()
-        history.lastUpdate = System.currentTimeMillis()
-        
-        // Determine regime
-        val regime = classifyRegime(currentAtr)
-        
-        // Detect pattern
-        val atrRatio = if (avgAtr > 0) currentAtr / avgAtr else 1.0
-        val pattern = detectPattern(history, atrRatio, regime)
-        
-        // Calculate squeeze score
-        val squeezeScore = calculateSqueezeScore(history, atrRatio)
-        
-        // Track regime transitions
-        if (regime != history.lastRegime) {
-            regimeTransitions++
-            history.lastRegime = regime
+        // V5.0.8513: the map protects keys, not mutable deque/derived-state rows.
+        // Tick and V3 callers share this mint. Publish one coherent signal per update;
+        // unrelated mints retain independent locks and existing LayerBrain authority.
+        return synchronized(history) {
+            history.atrValues.addLast(currentAtr)
+            if (history.atrValues.size > 50) history.atrValues.removeFirst()
+            history.lastUpdate = System.currentTimeMillis()
+
+            // Determine regime
+            val regime = classifyRegime(currentAtr)
+
+            // Detect pattern
+            val atrRatio = if (avgAtr > 0) currentAtr / avgAtr else 1.0
+            val pattern = detectPattern(history, atrRatio, regime)
+
+            // Calculate squeeze score
+            val squeezeScore = calculateSqueezeScore(history, atrRatio)
+
+            // Track regime transitions
+            if (regime != history.lastRegime) {
+                regimeTransitions.incrementAndGet()
+                history.lastRegime = regime
+            }
+
+            // Calculate trading adjustments
+            val (stopMult, targetMult, sizeMult) = getRegimeAdjustments(regime, pattern, squeezeScore)
+
+            // Calculate entry score adjustment
+            val entryBoost = calculateEntryBoost(regime, pattern, squeezeScore)
+
+            val reason = buildReason(regime, pattern, currentAtr, squeezeScore)
+
+            if (pattern == VolatilityPattern.SQUEEZE && squeezeScore > 70) {
+                ErrorLogger.info(TAG, "🔥 SQUEEZE DETECTED: $symbol | ATR=${currentAtr.toInt()}% | squeeze=$squeezeScore")
+            }
+
+            VolatilitySignal(
+                regime = regime,
+                pattern = pattern,
+                currentAtr = currentAtr,
+                avgAtr = avgAtr,
+                atrRatio = atrRatio,
+                squeezeScore = squeezeScore,
+                recommendedStopMult = stopMult,
+                recommendedTargetMult = targetMult,
+                recommendedSizeMult = sizeMult,
+                entryBoost = entryBoost,
+                reason = reason
+            )
         }
-        
-        // Calculate trading adjustments
-        val (stopMult, targetMult, sizeMult) = getRegimeAdjustments(regime, pattern, squeezeScore)
-        
-        // Calculate entry score adjustment
-        val entryBoost = calculateEntryBoost(regime, pattern, squeezeScore)
-        
-        val reason = buildReason(regime, pattern, currentAtr, squeezeScore)
-        
-        if (pattern == VolatilityPattern.SQUEEZE && squeezeScore > 70) {
-            ErrorLogger.info(TAG, "🔥 SQUEEZE DETECTED: $symbol | ATR=${currentAtr.toInt()}% | squeeze=$squeezeScore")
-        }
-        
-        return VolatilitySignal(
-            regime = regime,
-            pattern = pattern,
-            currentAtr = currentAtr,
-            avgAtr = avgAtr,
-            atrRatio = atrRatio,
-            squeezeScore = squeezeScore,
-            recommendedStopMult = stopMult,
-            recommendedTargetMult = targetMult,
-            recommendedSizeMult = sizeMult,
-            entryBoost = entryBoost,
-            reason = reason
-        )
     }
     
     /**
      * Quick regime check without full analysis.
      */
     fun getRegime(mint: String): VolatilityRegime {
-        return tokenVolatility[mint]?.lastRegime ?: VolatilityRegime.NORMAL
+        return tokenVolatility[mint]?.let { synchronized(it) { it.lastRegime } } ?: VolatilityRegime.NORMAL
     }
     
     /**
@@ -187,7 +193,7 @@ object VolatilityRegimeAI {
      */
     fun isInSqueeze(mint: String): Boolean {
         val history = tokenVolatility[mint] ?: return false
-        return history.squeezeCandles >= 3
+        return synchronized(history) { history.squeezeCandles >= 3 }
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -425,9 +431,9 @@ object VolatilityRegimeAI {
             put("calmThreshold", calmThreshold)
             put("normalThreshold", normalThreshold)
             put("elevatedThreshold", elevatedThreshold)
-            put("totalAnalyses", totalAnalyses)
-            put("squeezeBreakouts", squeezeBreakouts)
-            put("regimeTransitions", regimeTransitions)
+            put("totalAnalyses", totalAnalyses.get())
+            put("squeezeBreakouts", squeezeBreakouts.get())
+            put("regimeTransitions", regimeTransitions.get())
         }
     }
     
@@ -436,16 +442,16 @@ object VolatilityRegimeAI {
             calmThreshold = json.optDouble("calmThreshold", 3.0)
             normalThreshold = json.optDouble("normalThreshold", 8.0)
             elevatedThreshold = json.optDouble("elevatedThreshold", 15.0)
-            totalAnalyses = json.optInt("totalAnalyses", 0)
-            squeezeBreakouts = json.optInt("squeezeBreakouts", 0)
-            regimeTransitions = json.optInt("regimeTransitions", 0)
+            totalAnalyses.set(json.optInt("totalAnalyses", 0))
+            squeezeBreakouts.set(json.optInt("squeezeBreakouts", 0))
+            regimeTransitions.set(json.optInt("regimeTransitions", 0))
         } catch (e: Exception) {
             ErrorLogger.error(TAG, "Load error: ${e.message}")
         }
     }
     
     fun getStats(): String {
-        return "VolatilityAI: $totalAnalyses analyses | squeezes=$squeezeBreakouts transitions=$regimeTransitions"
+        return "VolatilityAI: ${totalAnalyses.get()} analyses | squeezes=${squeezeBreakouts.get()} transitions=${regimeTransitions.get()}"
     }
     
     fun cleanup() {

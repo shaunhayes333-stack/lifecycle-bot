@@ -5,6 +5,7 @@ import com.lifecyclebot.v3.scanner.CandidateSnapshot
 import com.lifecyclebot.engine.ErrorLogger
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * V3.2 Order Flow Imbalance AI
@@ -88,17 +89,17 @@ object OrderFlowImbalanceAI {
         var cumulativeDelta: Double = 0.0,
         var lastState: FlowState = FlowState.BALANCED,
         var absorptionCandles: Int = 0,
-        var lastUpdate: Long = 0
+        @Volatile var lastUpdate: Long = 0
     )
     private val tokenFlow = ConcurrentHashMap<String, FlowHistory>()
     /** V5.0.8309 — per-mint residue: MintResidue8309 drops keys of mints that are no longer live (MemoryGuard7977). */
     internal fun residueMap8309(): java.util.concurrent.ConcurrentHashMap<String, *> = tokenFlow
     
     // Stats
-    private var totalAnalyses = 0
-    private var absorptionsDetected = 0
-    private var divergencesDetected = 0
-    private var climaxesDetected = 0
+    private val totalAnalyses = AtomicInteger(0)
+    private val absorptionsDetected = AtomicInteger(0)
+    private val divergencesDetected = AtomicInteger(0)
+    private val climaxesDetected = AtomicInteger(0)
     
     // ═══════════════════════════════════════════════════════════════════════════
     // MAIN ANALYSIS
@@ -118,109 +119,114 @@ object OrderFlowImbalanceAI {
         sellVolumes: List<Double>,
         prices: List<Double>
     ): FlowSignal {
-        totalAnalyses++
+        totalAnalyses.incrementAndGet()
         
         if (buyVolumes.size < 3 || sellVolumes.size < 3) {
             return defaultSignal("Insufficient data")
         }
         
         val history = tokenFlow.getOrPut(mint) { FlowHistory() }
-        history.lastUpdate = System.currentTimeMillis()
-        
-        // Calculate volume delta for each candle
-        val deltas = buyVolumes.zip(sellVolumes).map { (buy, sell) ->
-            val total = buy + sell
-            if (total > 0) ((buy - sell) / total) * 100.0 else 0.0
-        }
-        
-        // Update history
-        deltas.forEach { delta ->
-            history.deltas.addLast(delta)
-            if (history.deltas.size > 100) history.deltas.removeFirst()
-            history.cumulativeDelta += delta
-        }
-        
-        prices.forEach { price ->
-            history.prices.addLast(price)
-            if (history.prices.size > 100) history.prices.removeFirst()
-        }
-        
-        (buyVolumes.zip(sellVolumes)).forEach { (buy, sell) ->
-            history.volumes.addLast(buy + sell)
-            if (history.volumes.size > 100) history.volumes.removeFirst()
-        }
-        
-        // Current state
-        val recentDeltas = history.deltas.toList().takeLast(5)
-        val avgDelta = recentDeltas.average()
-        val state = classifyState(avgDelta)
-        
-        // Detect patterns
-        val pattern = detectPattern(history, avgDelta, prices)
-        
-        // Calculate metrics
-        val totalRecent = buyVolumes.takeLast(5).sum() + sellVolumes.takeLast(5).sum()
-        val buyPct = if (totalRecent > 0) (buyVolumes.takeLast(5).sum() / totalRecent) * 100.0 else 50.0
-        val sellPct = 100.0 - buyPct
-        
-        // Absorption level
-        val absorptionLevel = calculateAbsorption(history, buyVolumes.takeLast(5), prices.takeLast(5))
-        
-        // Track absorption
-        if (absorptionLevel > 60) {
-            history.absorptionCandles++
-            if (history.absorptionCandles >= 3) {
-                absorptionsDetected++
+        // V5.0.8513: the map protects keys, not mutable deque/derived-state rows.
+        // Tick and V3 callers share this mint. Publish one coherent signal per update;
+        // unrelated mints retain independent locks and existing LayerBrain authority.
+        return synchronized(history) {
+            history.lastUpdate = System.currentTimeMillis()
+
+            // Calculate volume delta for each candle
+            val deltas = buyVolumes.zip(sellVolumes).map { (buy, sell) ->
+                val total = buy + sell
+                if (total > 0) ((buy - sell) / total) * 100.0 else 0.0
             }
-        } else {
-            history.absorptionCandles = 0
+
+            // Update history
+            deltas.forEach { delta ->
+                history.deltas.addLast(delta)
+                if (history.deltas.size > 100) history.deltas.removeFirst()
+                history.cumulativeDelta += delta
+            }
+
+            prices.forEach { price ->
+                history.prices.addLast(price)
+                if (history.prices.size > 100) history.prices.removeFirst()
+            }
+
+            (buyVolumes.zip(sellVolumes)).forEach { (buy, sell) ->
+                history.volumes.addLast(buy + sell)
+                if (history.volumes.size > 100) history.volumes.removeFirst()
+            }
+
+            // Current state
+            val recentDeltas = history.deltas.toList().takeLast(5)
+            val avgDelta = recentDeltas.average()
+            val state = classifyState(avgDelta)
+
+            // Detect patterns
+            val pattern = detectPattern(history, avgDelta, prices)
+
+            // Calculate metrics
+            val totalRecent = buyVolumes.takeLast(5).sum() + sellVolumes.takeLast(5).sum()
+            val buyPct = if (totalRecent > 0) (buyVolumes.takeLast(5).sum() / totalRecent) * 100.0 else 50.0
+            val sellPct = 100.0 - buyPct
+
+            // Absorption level
+            val absorptionLevel = calculateAbsorption(history, buyVolumes.takeLast(5), prices.takeLast(5))
+
+            // Track absorption
+            if (absorptionLevel > 60) {
+                history.absorptionCandles++
+                if (history.absorptionCandles >= 3) {
+                    absorptionsDetected.incrementAndGet()
+                }
+            } else {
+                history.absorptionCandles = 0
+            }
+
+            history.lastState = state
+
+            // Calculate trading signals
+            val entryBoost = calculateEntryBoost(state, pattern, absorptionLevel)
+            val exitUrgency = calculateExitUrgency(state, pattern, absorptionLevel)
+
+            val reason = buildReason(state, pattern, avgDelta, absorptionLevel)
+
+            if (pattern in listOf(FlowPattern.ABSORPTION, FlowPattern.DISTRIBUTION, FlowPattern.CLIMAX_SELL)) {
+                ErrorLogger.warn(TAG, "⚠️ FLOW WARNING: $symbol | ${pattern.name} | delta=${avgDelta.toInt()}%")
+            }
+
+            FlowSignal(
+                state = state,
+                pattern = pattern,
+                buyVolumePct = buyPct,
+                sellVolumePct = sellPct,
+                deltaScore = avgDelta,
+                absorptionLevel = absorptionLevel,
+                cumulativeDelta = history.cumulativeDelta,
+                entryBoost = entryBoost,
+                exitUrgency = exitUrgency,
+                reason = reason
+            )
         }
-        
-        history.lastState = state
-        
-        // Calculate trading signals
-        val entryBoost = calculateEntryBoost(state, pattern, absorptionLevel)
-        val exitUrgency = calculateExitUrgency(state, pattern, absorptionLevel)
-        
-        val reason = buildReason(state, pattern, avgDelta, absorptionLevel)
-        
-        if (pattern in listOf(FlowPattern.ABSORPTION, FlowPattern.DISTRIBUTION, FlowPattern.CLIMAX_SELL)) {
-            ErrorLogger.warn(TAG, "⚠️ FLOW WARNING: $symbol | ${pattern.name} | delta=${avgDelta.toInt()}%")
-        }
-        
-        return FlowSignal(
-            state = state,
-            pattern = pattern,
-            buyVolumePct = buyPct,
-            sellVolumePct = sellPct,
-            deltaScore = avgDelta,
-            absorptionLevel = absorptionLevel,
-            cumulativeDelta = history.cumulativeDelta,
-            entryBoost = entryBoost,
-            exitUrgency = exitUrgency,
-            reason = reason
-        )
     }
     
     /**
      * Quick flow check for a token.
      */
     fun getFlowState(mint: String): FlowState {
-        return tokenFlow[mint]?.lastState ?: FlowState.BALANCED
+        return tokenFlow[mint]?.let { synchronized(it) { it.lastState } } ?: FlowState.BALANCED
     }
     
     /**
      * Check cumulative delta trend.
      */
     fun getCumulativeDelta(mint: String): Double {
-        return tokenFlow[mint]?.cumulativeDelta ?: 0.0
+        return tokenFlow[mint]?.let { synchronized(it) { it.cumulativeDelta } } ?: 0.0
     }
     
     /**
      * Check if absorption is happening (bearish).
      */
     fun isAbsorbing(mint: String): Boolean {
-        return (tokenFlow[mint]?.absorptionCandles ?: 0) >= 3
+        return (tokenFlow[mint]?.let { synchronized(it) { it.absorptionCandles } } ?: 0) >= 3
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -257,7 +263,7 @@ object OrderFlowImbalanceAI {
         val avgVol = recentVolumes.dropLast(2).average()
         val recentVol = recentVolumes.takeLast(2).average()
         if (avgVol > 0 && recentVol / avgVol > 3.0) {
-            climaxesDetected++
+            climaxesDetected.incrementAndGet()
             return if (delta > 30) FlowPattern.CLIMAX_BUY else if (delta < -30) FlowPattern.CLIMAX_SELL else FlowPattern.NORMAL
         }
         
@@ -278,12 +284,12 @@ object OrderFlowImbalanceAI {
         } else 0.0
         
         if (priceTrend < 0 && deltaTrend > 10) {
-            divergencesDetected++
+            divergencesDetected.incrementAndGet()
             return FlowPattern.DIVERGENCE_BULL  // Price down but buying increasing
         }
         
         if (priceTrend > 0 && deltaTrend < -10) {
-            divergencesDetected++
+            divergencesDetected.incrementAndGet()
             return FlowPattern.DIVERGENCE_BEAR  // Price up but selling increasing
         }
         
@@ -479,26 +485,26 @@ object OrderFlowImbalanceAI {
     
     fun saveToJson(): JSONObject {
         return JSONObject().apply {
-            put("totalAnalyses", totalAnalyses)
-            put("absorptionsDetected", absorptionsDetected)
-            put("divergencesDetected", divergencesDetected)
-            put("climaxesDetected", climaxesDetected)
+            put("totalAnalyses", totalAnalyses.get())
+            put("absorptionsDetected", absorptionsDetected.get())
+            put("divergencesDetected", divergencesDetected.get())
+            put("climaxesDetected", climaxesDetected.get())
         }
     }
     
     fun loadFromJson(json: JSONObject) {
         try {
-            totalAnalyses = json.optInt("totalAnalyses", 0)
-            absorptionsDetected = json.optInt("absorptionsDetected", 0)
-            divergencesDetected = json.optInt("divergencesDetected", 0)
-            climaxesDetected = json.optInt("climaxesDetected", 0)
+            totalAnalyses.set(json.optInt("totalAnalyses", 0))
+            absorptionsDetected.set(json.optInt("absorptionsDetected", 0))
+            divergencesDetected.set(json.optInt("divergencesDetected", 0))
+            climaxesDetected.set(json.optInt("climaxesDetected", 0))
         } catch (e: Exception) {
             ErrorLogger.error(TAG, "Load error: ${e.message}")
         }
     }
     
     fun getStats(): String {
-        return "OrderFlowAI: $totalAnalyses analyses | absorptions=$absorptionsDetected divergences=$divergencesDetected climaxes=$climaxesDetected"
+        return "OrderFlowAI: ${totalAnalyses.get()} analyses | absorptions=${absorptionsDetected.get()} divergences=${divergencesDetected.get()} climaxes=${climaxesDetected.get()}"
     }
     
     fun cleanup() {

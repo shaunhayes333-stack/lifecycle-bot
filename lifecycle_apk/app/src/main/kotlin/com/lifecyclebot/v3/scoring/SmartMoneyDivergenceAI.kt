@@ -6,6 +6,7 @@ import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.engine.WhaleTrackerAI
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * V3.2 Smart Money Divergence AI
@@ -83,17 +84,17 @@ object SmartMoneyDivergenceAI {
         val priceChanges: ArrayDeque<Double> = ArrayDeque(30),
         var lastDivergence: DivergenceType = DivergenceType.NEUTRAL,
         var consecutiveDivergence: Int = 0,
-        var lastUpdate: Long = 0
+        @Volatile var lastUpdate: Long = 0
     )
     private val tokenSmartMoney = ConcurrentHashMap<String, SmartMoneyHistory>()
     /** V5.0.8309 — per-mint residue: MintResidue8309 drops keys of mints that are no longer live (MemoryGuard7977). */
     internal fun residueMap8309(): java.util.concurrent.ConcurrentHashMap<String, *> = tokenSmartMoney
     
     // Stats
-    private var totalAnalyses = 0
-    private var bullishDivergences = 0
-    private var bearishDivergences = 0
-    private var insiderPatternsDetected = 0
+    private val totalAnalyses = AtomicInteger(0)
+    private val bullishDivergences = AtomicInteger(0)
+    private val bearishDivergences = AtomicInteger(0)
+    private val insiderPatternsDetected = AtomicInteger(0)
     
     // ═══════════════════════════════════════════════════════════════════════════
     // MAIN ANALYSIS
@@ -110,10 +111,8 @@ object SmartMoneyDivergenceAI {
         topHolderPctChange: Double = 0.0,     // Change in top holder %
         holderCountChange: Int = 0             // Change in holder count
     ): DivergenceSignal {
-        totalAnalyses++
+        totalAnalyses.incrementAndGet()
         
-        val history = tokenSmartMoney.getOrPut(mint) { SmartMoneyHistory() }
-        history.lastUpdate = System.currentTimeMillis()
         
         // Get whale signal if not provided
         val whaleSignal = whaleRecommendation ?: try {
@@ -139,87 +138,95 @@ object SmartMoneyDivergenceAI {
             else -> 0              // Flat
         }
         
-        // Update history
-        history.whaleBuyScores.addLast(whaleBuyScore)
-        history.whaleSellScores.addLast(whaleSellScore)
-        history.priceChanges.addLast(priceChange)
-        
-        if (history.whaleBuyScores.size > 30) history.whaleBuyScores.removeFirst()
-        if (history.whaleSellScores.size > 30) history.whaleSellScores.removeFirst()
-        if (history.priceChanges.size > 30) history.priceChanges.removeFirst()
-        
-        // Detect smart money behavior
-        val behavior = detectBehavior(whaleBuyScore, whaleSellScore, topHolderPctChange, holderCountChange)
-        
-        // Detect divergence
-        val divergenceType = if (!hasValidPriceTrend) DivergenceType.NEUTRAL else detectDivergence(behavior, priceDirection, whaleBuyScore, whaleSellScore)
-        
-        // Calculate divergence strength
-        val divergenceStrength = calculateDivergenceStrength(
-            whaleBuyScore, whaleSellScore, priceDirection, priceChange
-        )
-        
-        // Detect insider patterns
-        val insiderScore = detectInsiderPattern(history, behavior, priceChange)
-        
-        // Track consecutive divergences
-        if (divergenceType in listOf(DivergenceType.BULLISH, DivergenceType.STRONG_BULLISH,
-                                      DivergenceType.BEARISH, DivergenceType.STRONG_BEARISH)) {
-            if (divergenceType == history.lastDivergence) {
-                history.consecutiveDivergence++
+        val history = tokenSmartMoney.getOrPut(mint) { SmartMoneyHistory() }
+        // V5.0.8513: the map protects keys, not mutable deque/derived-state rows.
+        // Tick and V3 callers share this mint. Publish one coherent signal per update;
+        // unrelated mints retain independent locks and existing LayerBrain authority.
+        return synchronized(history) {
+            history.lastUpdate = System.currentTimeMillis()
+
+            // Update history
+            history.whaleBuyScores.addLast(whaleBuyScore)
+            history.whaleSellScores.addLast(whaleSellScore)
+            history.priceChanges.addLast(priceChange)
+
+            if (history.whaleBuyScores.size > 30) history.whaleBuyScores.removeFirst()
+            if (history.whaleSellScores.size > 30) history.whaleSellScores.removeFirst()
+            if (history.priceChanges.size > 30) history.priceChanges.removeFirst()
+
+            // Detect smart money behavior
+            val behavior = detectBehavior(whaleBuyScore, whaleSellScore, topHolderPctChange, holderCountChange)
+
+            // Detect divergence
+            val divergenceType = if (!hasValidPriceTrend) DivergenceType.NEUTRAL else detectDivergence(behavior, priceDirection, whaleBuyScore, whaleSellScore)
+
+            // Calculate divergence strength
+            val divergenceStrength = calculateDivergenceStrength(
+                whaleBuyScore, whaleSellScore, priceDirection, priceChange
+            )
+
+            // Detect insider patterns
+            val insiderScore = detectInsiderPattern(history, behavior, priceChange)
+
+            // Track consecutive divergences
+            if (divergenceType in listOf(DivergenceType.BULLISH, DivergenceType.STRONG_BULLISH,
+                                          DivergenceType.BEARISH, DivergenceType.STRONG_BEARISH)) {
+                if (divergenceType == history.lastDivergence) {
+                    history.consecutiveDivergence++
+                } else {
+                    history.consecutiveDivergence = 1
+                }
             } else {
-                history.consecutiveDivergence = 1
+                history.consecutiveDivergence = 0
             }
-        } else {
-            history.consecutiveDivergence = 0
+            history.lastDivergence = divergenceType
+
+            // Track stats
+            when (divergenceType) {
+                DivergenceType.BULLISH, DivergenceType.STRONG_BULLISH -> bullishDivergences.incrementAndGet()
+                DivergenceType.BEARISH, DivergenceType.STRONG_BEARISH -> bearishDivergences.incrementAndGet()
+                else -> {}
+            }
+
+            if (insiderScore > 60) insiderPatternsDetected.incrementAndGet()
+
+            // Calculate signals
+            val entryBoost = calculateEntryBoost(divergenceType, divergenceStrength, insiderScore)
+            val exitUrgency = calculateExitUrgency(divergenceType, divergenceStrength)
+
+            val reason = buildReason(divergenceType, behavior, divergenceStrength, insiderScore)
+
+            if (divergenceType in listOf(DivergenceType.STRONG_BULLISH, DivergenceType.STRONG_BEARISH)) {
+                ErrorLogger.info(TAG, "🐋 DIVERGENCE: $symbol | ${divergenceType.name} | whale=$whaleSignal price=$priceDirection")
+            }
+
+            DivergenceSignal(
+                divergenceType = divergenceType,
+                smartMoneyBehavior = behavior,
+                whaleBuyScore = whaleBuyScore,
+                whaleSellScore = whaleSellScore,
+                priceDirection = priceDirection,
+                divergenceStrength = divergenceStrength,
+                insiderScore = insiderScore,
+                entryBoost = entryBoost,
+                exitUrgency = exitUrgency,
+                reason = reason
+            )
         }
-        history.lastDivergence = divergenceType
-        
-        // Track stats
-        when (divergenceType) {
-            DivergenceType.BULLISH, DivergenceType.STRONG_BULLISH -> bullishDivergences++
-            DivergenceType.BEARISH, DivergenceType.STRONG_BEARISH -> bearishDivergences++
-            else -> {}
-        }
-        
-        if (insiderScore > 60) insiderPatternsDetected++
-        
-        // Calculate signals
-        val entryBoost = calculateEntryBoost(divergenceType, divergenceStrength, insiderScore)
-        val exitUrgency = calculateExitUrgency(divergenceType, divergenceStrength)
-        
-        val reason = buildReason(divergenceType, behavior, divergenceStrength, insiderScore)
-        
-        if (divergenceType in listOf(DivergenceType.STRONG_BULLISH, DivergenceType.STRONG_BEARISH)) {
-            ErrorLogger.info(TAG, "🐋 DIVERGENCE: $symbol | ${divergenceType.name} | whale=$whaleSignal price=$priceDirection")
-        }
-        
-        return DivergenceSignal(
-            divergenceType = divergenceType,
-            smartMoneyBehavior = behavior,
-            whaleBuyScore = whaleBuyScore,
-            whaleSellScore = whaleSellScore,
-            priceDirection = priceDirection,
-            divergenceStrength = divergenceStrength,
-            insiderScore = insiderScore,
-            entryBoost = entryBoost,
-            exitUrgency = exitUrgency,
-            reason = reason
-        )
     }
     
     /**
      * Quick check for divergence type.
      */
     fun getDivergence(mint: String): DivergenceType {
-        return tokenSmartMoney[mint]?.lastDivergence ?: DivergenceType.NEUTRAL
+        return tokenSmartMoney[mint]?.let { synchronized(it) { it.lastDivergence } } ?: DivergenceType.NEUTRAL
     }
     
     /**
      * Check if strong bearish divergence (exit signal).
      */
     fun hasBearishDivergence(mint: String): Boolean {
-        val div = tokenSmartMoney[mint]?.lastDivergence
+        val div = getDivergence(mint)
         return div in listOf(DivergenceType.BEARISH, DivergenceType.STRONG_BEARISH)
     }
     
@@ -227,7 +234,7 @@ object SmartMoneyDivergenceAI {
      * Check if strong bullish divergence (entry signal).
      */
     fun hasBullishDivergence(mint: String): Boolean {
-        val div = tokenSmartMoney[mint]?.lastDivergence
+        val div = getDivergence(mint)
         return div in listOf(DivergenceType.BULLISH, DivergenceType.STRONG_BULLISH)
     }
     
@@ -525,26 +532,26 @@ object SmartMoneyDivergenceAI {
     
     fun saveToJson(): JSONObject {
         return JSONObject().apply {
-            put("totalAnalyses", totalAnalyses)
-            put("bullishDivergences", bullishDivergences)
-            put("bearishDivergences", bearishDivergences)
-            put("insiderPatternsDetected", insiderPatternsDetected)
+            put("totalAnalyses", totalAnalyses.get())
+            put("bullishDivergences", bullishDivergences.get())
+            put("bearishDivergences", bearishDivergences.get())
+            put("insiderPatternsDetected", insiderPatternsDetected.get())
         }
     }
     
     fun loadFromJson(json: JSONObject) {
         try {
-            totalAnalyses = json.optInt("totalAnalyses", 0)
-            bullishDivergences = json.optInt("bullishDivergences", 0)
-            bearishDivergences = json.optInt("bearishDivergences", 0)
-            insiderPatternsDetected = json.optInt("insiderPatternsDetected", 0)
+            totalAnalyses.set(json.optInt("totalAnalyses", 0))
+            bullishDivergences.set(json.optInt("bullishDivergences", 0))
+            bearishDivergences.set(json.optInt("bearishDivergences", 0))
+            insiderPatternsDetected.set(json.optInt("insiderPatternsDetected", 0))
         } catch (e: Exception) {
             ErrorLogger.error(TAG, "Load error: ${e.message}")
         }
     }
     
     fun getStats(): String {
-        return "SmartMoneyAI: $totalAnalyses analyses | bull=$bullishDivergences bear=$bearishDivergences insider=$insiderPatternsDetected"
+        return "SmartMoneyAI: ${totalAnalyses.get()} analyses | bull=${bullishDivergences.get()} bear=${bearishDivergences.get()} insider=${insiderPatternsDetected.get()}"
     }
     
     fun cleanup() {

@@ -15743,4 +15743,32 @@ class GoldenTapeRegressionTest {
         val c = (if (curve.exists()) curve else java.io.File("src/main/kotlin/com/lifecyclebot/engine/CurveReserves7951.kt")).readText()
         assertTrue(c.contains("nowMs - r.atMs !in -60_000L..maxAgeMs"))
     }
+
+    @Test
+    fun V5_0_8513_scoring_history_stays_coherent_under_concurrent_feeders() {
+        // Behavioral contract, not a string-presence assertion: exercise the actual
+        // tick/scorer shared histories and their readers for all reproduced siblings.
+        val fixture = Aate8513ConcurrentScoringBaselineTest()
+        fixture.orderFlowConcurrentTickAndScoreRemainConsistent()
+        fixture.volatilityConcurrentTickAndScoreRemainConsistent()
+        fixture.smartMoneyConcurrentTickAndScoreRemainConsistent()
+    }
+
+    @Test fun V5_0_8513_final_entry_requires_same_live_authority_and_observed_execution_price() {
+        val fixture = Aate8513EntryEvidenceTest()
+        fixture.missingOrNonPhysicalExecutionPriceIsNeverApproval()
+        fixture.modeMintAndCurrentAuthorityCannotChangeAfterApproval()
+        fixture.knownQuoteCannotDisappearOrBecomeNonExecutable()
+        fixture.missingQuoteUnitsOrRateCannotMasqueradeAsAnExecutableMark()
+    }
+
+    @Test fun V5_0_8513_sell_generation_and_snapshot_frozen_identity_contracts() {
+        Aate8513SellLifecycleTest().apply {
+            queuedWorkerIsOwnedBeforeDispatchAndStartIsIdempotent()
+            cancelledScopeCannotLeaveAStartedZombie()
+            oldCompletionCannotEraseAReplacementGeneration()
+            firstTickGetsGraceButHistoricTicksCannotHideAStall()
+        }
+        Aate8513SnapshotAllocationTest().overlappingPendingOwnersDetachOneFrozenEpisodeWithoutRepeatedGraphs()
+    }
 }
