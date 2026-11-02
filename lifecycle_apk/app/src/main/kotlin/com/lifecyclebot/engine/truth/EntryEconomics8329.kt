@@ -22,7 +22,7 @@ import java.util.concurrent.atomic.AtomicLong
  *     positive, proven-setup-only, cheat sheet) stay bypassed per the owner's choice.
  *  2. [preBroadcastRefusal8329] — immediately before the live buy is sent: the fresh executable quote (the Jupiter quote the
  *     buy is built from; the curve mark on the PumpPortal route, which has no quote) against the decision price and time
- *     (ForwardReturnLabeler7731.decisionPx8094). move % net of the quote's own impact must sit under the tactic's cap
+ *     sealed in the execution intent. move % net of the quote's own impact must sit under the tactic's cap
  *     ([chaseCapPct8329]: launch / breakout 8 %, pullback / reaccumulation 2.5 %, momentum 5 %, an exhausted rally none)
  *     and the move left (expected gross - move) must still clear the owner's 1.5x round trip at this size
  *     (NetEdge8030.entryClears8030 on [NetEdge8030.preTradeCostPct8329]). Otherwise the buy is not sent
@@ -171,7 +171,7 @@ object EntryEconomics8329 {
 
     /**
      * Executor, immediately before the live buy is sent: null = send; else the refusal (the buy is not sent). [quotePxUsd]
-     * is the executable quote's implied price (NaN on a route without one: the current mark is used), [impactPct] its own
+     * is the route quote's implied price (or the validated Pump mark), [impactPct] its own
      * impact, [source] the route for the log.
      */
     fun preBroadcastRefusal8329(

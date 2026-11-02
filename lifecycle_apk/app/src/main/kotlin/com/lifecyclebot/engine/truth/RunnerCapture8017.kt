@@ -18,7 +18,7 @@ import java.util.concurrent.atomic.AtomicLong
  *  - banked  = the realised whole-position return; share = banked / (peak over the bot's own entry)
  */
 object RunnerCapture8017 {
-    const val RUNNER_PEAK_PCT_8017 = 400.0
+    const val RUNNER_PEAK_PCT_8017 = 300.0  // 4x ending price is a 300% return
     private const val KEEP_MS = 24L * 3_600_000L
     private const val MAX_RUNS = 300
 
@@ -35,6 +35,47 @@ object RunnerCapture8017 {
         /** V5.0.8297 — the close that ended the bot's position in this runner (0 = none yet) and how long it was held. */
         @Volatile var closeAtMs = 0L
         @Volatile var holdMs = 0L
+
+        private var positionId = ""
+        private var eventAtMs = 0L
+
+        // Display the latest LIVE position when present. A paper close on the same mint
+        // must never supply that position's return or entry basis.
+        private fun selectPosition(id: String, isLive: Boolean, at: Long): Boolean {
+            if (live && !isLive || live == isLive && at < eventAtMs) return false
+            if (id.isBlank() || positionId != id || live != isLive) {
+                positionId = id
+                entryPx = 0.0
+                bankedPct = Double.NaN
+                openNowPct = Double.NaN
+                closeAtMs = 0L
+                holdMs = 0L
+                peakInHold = false
+            }
+            held = true
+            live = isLive
+            eventAtMs = at
+            return true
+        }
+
+        @Synchronized
+        fun holding(id: String, isLive: Boolean, at: Long, entry: Double, px: Double) {
+            if (!selectPosition(id, isLive, at) || closeAtMs > 0L) return
+            entryPx = entry
+            openNowPct = if (px > 0.0) (px / entry - 1.0) * 100.0 else Double.NaN
+        }
+
+        @Synchronized
+        fun closed(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean {
+            if (!env.terminal || !(env.mode.equals("live", true) || env.mode.equals("paper", true))) return false
+            if (!selectPosition(env.positionId, env.mode.equals("live", true), env.atMs)) return false
+            closeAtMs = env.atMs
+            holdMs = env.holdingTimeMs
+            bankedPct = env.realizedReturnPct
+            openNowPct = Double.NaN
+            peakInHold = peakInHold8237(peakAtMs, closeAtMs, holdMs)
+            return true
+        }
     }
 
     /**
@@ -51,7 +92,7 @@ object RunnerCapture8017 {
 
     /** Pure (V5.0.8237): was the run's peak observed while the bot held the coin (entry..close)? */
     fun peakInHold8237(peakAtMs: Long, closeAtMs: Long, holdingTimeMs: Long): Boolean {
-        if (peakAtMs <= 0L || closeAtMs <= 0L || holdingTimeMs <= 0L) return true
+        if (peakAtMs <= 0L || closeAtMs <= 0L || holdingTimeMs <= 0L) return false
         return peakAtMs in (closeAtMs - holdingTimeMs)..closeAtMs
     }
 
@@ -118,7 +159,7 @@ object RunnerCapture8017 {
             .take(MAX_RUNS)
 
     /** ForwardReturnLabeler7731: a followed coin's peak passed (or rose further past) the runner bar. */
-    fun onRunnerPeak8017(mint: String, symbol: String, lane: String, startPx: Double, peakPct: Double, refusedBy: String, nowMs: Long = System.currentTimeMillis()) {
+    fun onRunnerPeak8017(mint: String, symbol: String, lane: String, startPx: Double, peakPct: Double, refusedBy: String, nowMs: Long = System.currentTimeMillis(), observedAtMs: Long = nowMs) {
         if (mint.isBlank() || !peakPct.isFinite() || peakPct < RUNNER_PEAK_PCT_8017) return
         try { AdmissionRunnerTrace8144.restore8169(nowMs) } catch (_: Throwable) {}  // V5.0.8169 — restored runs first, never duplicated
         val r = runs.getOrPut(mint) {
@@ -131,7 +172,11 @@ object RunnerCapture8017 {
         // V5.0.8237 — every observation's % is read over THIS run's start before it can raise the peak.
         val rebased8237 = rebasedPeakPct8237(peakPct, startPx, r.startPx)
         if (rebased8237 != peakPct) try { PipelineHealthCollector.labelInc("RUNNER_PEAK_REBASED_TO_RUN_START_8237") } catch (_: Throwable) {}
-        if (rebased8237.isFinite() && rebased8237 > r.peakPct) { r.peakPct = rebased8237; r.peakAtMs = nowMs }
+        if (rebased8237.isFinite() && rebased8237 > r.peakPct) {
+            r.peakPct = rebased8237
+            r.peakAtMs = observedAtMs
+            if (r.closeAtMs > 0L) r.peakInHold = peakInHold8237(observedAtMs, r.closeAtMs, r.holdMs)
+        }
         // V5.0.8055 — a lane's native opinion (TREASURY "role floor" on a $30K meme) is not what stopped the buy: the
         // first label of a runner is often a lane that would never own it. A gate refusal (watch first, Cortex, net
         // edge ...) from a later label of the same coin names the real stop.
@@ -141,9 +186,7 @@ object RunnerCapture8017 {
             val ts = com.lifecyclebot.engine.BotService.status.tokens[mint]
             val pos = ts?.position
             if (pos != null && pos.isOpen && pos.entryPrice > 0.0) {
-                r.held = true; r.live = !pos.isPaperPosition; r.entryPx = pos.entryPrice
-                val px = ts.lastPrice
-                if (px > 0.0) r.openNowPct = (px / pos.entryPrice - 1.0) * 100.0
+                r.holding(pos.positionId, !pos.isPaperPosition, pos.entryTime, pos.entryPrice, ts.lastPrice)
             }
         } catch (_: Throwable) {}
         // V5.0.8144 — the runner's decision trace is frozen the first time (no-op after); later labels refine it.
@@ -158,13 +201,7 @@ object RunnerCapture8017 {
         try { RunnerFunnel8297.onAnyClose8297(env) } catch (_: Throwable) {}  // V5.0.8297 — runner-admit outcomes / capped wins
         try { EntryReceipt8500.onLiveClose8500(env.mint, env.mode, env.terminal, env.realizedReturnPct, env.mfePct, env.positionId, env.atMs, env.holdingTimeMs) } catch (_: Throwable) {}  // V5.0.8500
         val r = runs[env.mint] ?: return
-        if (env.terminal) { r.closeAtMs = env.atMs; r.holdMs = env.holdingTimeMs }  // V5.0.8297
-        r.held = true
-        r.live = r.live || env.mode.equals("live", ignoreCase = true)
-        if (env.realizedReturnPct.isFinite()) r.bankedPct = env.realizedReturnPct
-        r.openNowPct = Double.NaN
-        // V5.0.8237 — a peak before the entry or after the close is not a run the position could have banked.
-        r.peakInHold = peakInHold8237(r.peakAtMs, env.atMs, env.holdingTimeMs)
+        if (!r.closed(env)) return
         if (!r.peakInHold) try { PipelineHealthCollector.labelInc("RUNNER_PEAK_OUTSIDE_HOLD_8237") } catch (_: Throwable) {}
         try { AdmissionRunnerTrace8144.update8144(env.mint, r.refusedBy, downstream8047[env.mint], true) } catch (_: Throwable) {}  // V5.0.8144
     }
@@ -200,6 +237,7 @@ object RunnerCapture8017 {
             val e = entryVsStart8017(r.entryPx, r.startPx)
             when {
                 !r.held -> "${r.symbol.take(10)} +${r.peakPct.toInt()}% MISSED(${missedWhy8047(r.refusedBy, downstream8047[r.mint]).take(40)})"
+                r.bankedPct.isFinite() && (r.peakAtMs <= 0L || r.closeAtMs <= 0L || r.holdMs <= 0L) -> "${r.symbol.take(10)} PEAK_TIME_UNVERIFIED"
                 r.bankedPct.isFinite() && !r.peakInHold -> "${r.symbol.take(10)} +${r.peakPct.toInt()}% PEAK_OUTSIDE_HOLD(${attribution8297(r, null).stage.name}) banked ${"%+.0f".format(r.bankedPct)}%${if (r.live) " LIVE" else " paper"}"
                 r.bankedPct.isFinite() -> "${r.symbol.take(10)} +${r.peakPct.toInt()}% in@${if (e.isFinite()) "%+.0f%%".format(e) else "?"} banked ${"%+.0f".format(r.bankedPct)}% (${"%.0f".format((bankedShare8017(r.bankedPct, r.peakPct, e).takeIf { it.isFinite() } ?: 0.0) * 100)}% of run)${if (r.live) " LIVE" else " paper"}"
                 else -> "${r.symbol.take(10)} +${r.peakPct.toInt()}% in@${if (e.isFinite()) "%+.0f%%".format(e) else "?"} HOLDING ${if (r.openNowPct.isFinite()) "%+.0f%%".format(r.openNowPct) else ""}${if (r.live) " LIVE" else " paper"}"

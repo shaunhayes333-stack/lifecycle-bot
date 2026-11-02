@@ -74,3 +74,11 @@ The versioned baseline tree manifest includes every tracked path and blob at 851
 ### Unclosed release gates
 
 Coverage is still required for every lane, including the additional asset systems and their actual enabled modes; full decision ownership and learning attribution; incomplete-data resume; all supported economic fallback paths; signed-fill and capital reconciliation after restart; protective-sell deadlines and runner banking; chronological 8114/8510/candidate executable replay with costs, uncertainty and drawdown; APK build/test/emulator and release identity. The runner and episode JSONL files and candidate-time route/size observations are still needed for the economic comparison. No after-cost performance result exists for this branch.
+
+### Runner and receipt corrections
+
+The 8512 capture report counted a runner only when its observed gain exceeded or equalled 400%. Since the producer computes (price / entry − 1) × 100, its reported “4x+” population actually started at 5x. The archive classifier already used +300%. The candidate aligns the live observation and restore threshold with four times the entry price. Existing trace files cannot retrospectively supply previously unrecorded 4x–5x runners. RunnerGrab7967's separate +400% signal remains a distinct policy.
+
+RunnerCapture8017 also attributed a later paper close to the same mint's live row because the LIVE flag was sticky while the return was overwritten. The candidate keeps the selected live position's mode and identity together, clears unrelated basis, and uses the accepted mark's source time for peak-in-hold evidence. An unknown peak time earns no capture credit. EntryReceipt8500's legacy mint fallback now consumes an entry only when the open-time window matches and the conditional removal succeeds. Exact position IDs still match directly. The 124 unmatched-current counter includes events outside the 27-close governor window; these fixes do not establish how many of those events were affected.
+
+Updated behavioural fixtures cover the 4x boundary, absent peak timing, live/paper contamination and out-of-order legacy receipts. None of these marks or replay labels is a settled fill.

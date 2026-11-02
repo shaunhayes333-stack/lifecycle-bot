@@ -200,7 +200,8 @@ class Aate8169LaunchTest {
         // Runner list: only real 4x+ runners of the last 24 h, missed or held as recorded.
         val c = RunnerCapture8017
         assertEquals(1, c.restorableRuns8169(listOf(trace), t0).size)
-        assertEquals(0, c.restorableRuns8169(listOf(trace.copy(peakPct = 300.0)), t0).size)
+        assertEquals(1, c.restorableRuns8169(listOf(trace.copy(peakPct = 300.0)), t0).size)
+        assertEquals(0, c.restorableRuns8169(listOf(trace.copy(peakPct = 299.99)), t0).size)
         assertEquals(0, c.restorableRuns8169(listOf(trace.copy(peakPct = Double.NaN)), t0).size)
         assertEquals(0, c.restorableRuns8169(listOf(trace.copy(detectedAtMs = t0 - 25L * 3_600_000L)), t0).size)
         // Wiring: restored before the first capture rewrites the file, read by the report and the runner status line.
