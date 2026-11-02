@@ -15,7 +15,7 @@ import runner_replay_8432 as rr  # noqa: E402
 def trace(**kw):
     base = {"mint": "M" * 44, "symbol": "SYM", "lane": "MOONSHOT", "peakPct": 500.0, "held": False, "binding": "",
             "refusedBy": "", "fdgVerdict": "", "hardSafetyPassed": True, "exitDepthUsd": 5000.0, "expectedNetPct": 12.0,
-            "route": "PUMP_CURVE"}
+            "windowAtMs": 1000, "route": "PUMP_CURVE"}
     base.update(kw)
     return base
 
@@ -30,6 +30,14 @@ class Classify(unittest.TestCase):
         self.assertEqual(rr.classify_8432(trace(binding="TIMING_ADVERSE_8136", expectedNetPct=-2.0))[0], "CORRECT_UNPROVEN")
         self.assertEqual(rr.classify_8432(trace(binding="TIMING_ADVERSE_8136", exitDepthUsd=None))[0], "CORRECT_UNPROVEN")
         self.assertEqual(rr.classify_8432(trace(binding="TIMING_ADVERSE_8136", hardSafetyPassed=False))[0], "CORRECT_UNPROVEN")
+
+    def test_executable_window_and_depth_floor(self):
+        for depth in (1, 499.99, float("nan"), float("inf"), True):
+            self.assertEqual(rr.classify_8432(trace(exitDepthUsd=depth))[0], "CORRECT_UNPROVEN")
+        self.assertEqual(rr.classify_8432(trace(exitDepthUsd=500))[0], "WRONGLY_REFUSED")
+        self.assertEqual(rr.classify_8432(trace(windowAtMs=0))[0], "DATA_GAP")
+        self.assertEqual(rr.classify_8432(trace(route=""))[0], "DATA_GAP")
+        self.assertEqual(rr.replay_8432([trace(peakPct=float("nan"))])["runners"], [])
 
     def test_door_stem_drops_lane_and_detail(self):
         self.assertEqual(rr.door_stem_8432("CANDIDATE_ADMISSION_8136_LIVE_LANE_REALISED_LOSING_8325@MOONSHOT x"),

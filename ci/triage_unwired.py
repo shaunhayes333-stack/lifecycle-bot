@@ -12,8 +12,12 @@ Tiers:
   E_INFILE    only ever needed inside its own file -> false positive
   F_DEAD      no semantic hook anywhere -> deletion candidate
 """
+import argparse
 import os,re,sys
 from collections import defaultdict
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--output", default="ci/UNWIRED_LEDGER.tsv", help="destination for the candidate ledger")
+args = parser.parse_args()
 ROOT="lifecycle_apk/app/src/main/kotlin/com/lifecyclebot"
 GOD={"engine/Executor.kt","engine/BotService.kt","ui/MainActivity.kt",
      "engine/FinalDecisionGate.kt","engine/SolanaMarketScanner.kt"}
@@ -75,7 +79,7 @@ for p,t in raw.items():
 rows.sort()
 counts=defaultdict(int)
 for tier,_,_,_ in rows: counts[tier]+=1
-out=os.path.join("ci","UNWIRED_LEDGER.tsv")
+out=args.output
 with open(out,"w") as f:
     f.write("tier\towner\tfunction\tfile\n")
     for r in rows: f.write("\t".join(r)+"\n")

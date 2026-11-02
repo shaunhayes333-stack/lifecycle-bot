@@ -37,3 +37,40 @@ All four requested inventory scripts ran on the frozen tree. triage_unwired foun
 The full three-policy replay still requires candidate-time market observations and executable route/depth/cost data joined by candidate generation, followed by subsequent tradable quotes and settlement evidence. The historical corpus sample contains retrospective bands and price history. No complete timestamped executable tape was established in this investigation. Preserve missing coverage in any comparison.
 
 Local Python CI discovery ran 54 tests successfully. The Android Gradle wrapper stopped before compilation because services.gradle.org could not resolve. No local Android SDK, emulator, or APK was available. Full Kotlin and emulator runs, controlled restart, safety and mode separation, all trader fixtures, out-of-sample replay, drawdown and independent live profitability remain open. No promotion of Cortex authority or change to operator settings is proposed.
+
+## 8512 device evidence, 2 November at 22:27 Brisbane
+
+The attached report is from the implementation parent. Its governor window covers 27 canonical live closes, six wins and 21 losses, PF 0.31, expectancy −0.0025 SOL. Five closes were in the session. Wallet 0.2685 SOL and zero live positions. The 54 elsewhere are paper. The 8510 and 8512 windows differ; neither the wallet delta nor their difference in mean expectancy is an attribution to a particular change.
+
+| Desk | Qualified | FDG allow/block | Tickets | Executions | Governor live closes and expectancy (SOL) |
+|---|---:|---:|---:|---:|---|
+| BLUECHIP | 991 | 0/45 | 0 | 0 | n1 exp-0.0028 |
+| CASHGEN | 420 | 0/78 | 0 | 0 | n1 exp-0.0052 |
+| CORE | 301 | 0/0 | 0 | 0 | - |
+| CYCLIC | 562 | 0/0 | 0 | 0 | - |
+| DIP_HUNTER | 0 | 0/0 | 0 | 0 | - |
+| EXPRESS | 161 | 2/62 | 0 | 0 | n2 exp-0.0036 |
+| MANIPULATED | 58 | 0/0 | 0 | 0 | - |
+| MOONSHOT | 874 | 7/592 | 4 | 2 | n15 exp-0.0003 |
+| PROJECT_SNIPER | 0 | 0/0 | 0 | 0 | - |
+| QUALITY | 980 | 0/156 | 0 | 0 | n4 exp-0.0045 |
+| SHITCOIN | 556 | 4/75 | 3 | 1 | n4 exp-0.0076 |
+| TREASURY | 734 | 0/17 | 0 | 0 | - |
+
+Rows combine reporting scopes. Execution counts cannot be joined to historical closes by subtracting columns.
+
+* SHITCOIN now has three tickets and one execution. Its four governor closes average −0.0076 SOL. Three attributed NATIVE_QUALIFIED_ADMIT_8259 receipts show two bought tops, one giveback, and no win.
+* CORE has 641 owner-reason rows beginning READY_NOT_EVALUATED_PRIMARY, including 468 behind SHITCOIN. CYCLIC has 523 such rows behind SHITCOIN and 193 behind CASHGEN. Trace the READY resident proposal, selected spine, rescue eligibility and candidate version in BotService.laneEvaluationAllowed7951 and LaneDispatch8418.spineLane8418.
+* The six runner prints are restored observations. The C9uwhn mint shows MOONSHOT:Y at the native read, a SHITCOIN structural-risk refusal, an expired unevaluated MOONSHOT handoff, zero window time and no route. The execution economics of that miss are indeterminate.
+* Runner replay previously treated any positive depth as sufficient. Its evidence test now requires a dated window, finite net expectation and depth of at least the production 8331 floor of USD 500. This replay is still a refusal classifier. A CURVE/POOL route marker and a peak do not establish a fill or banked gain.
+* Buy start-to-broadcast improved to a 4.672 second mean across three measured attempts. Emergency trigger-to-broadcast reached 13.866 seconds. The 3Di8Hz close logged 8.313 seconds in CLOSE_LEASE/queue of 9.524 seconds to broadcast. SellRouteSpine8144 accumulates retry and lease waits in this stage. Signing alone cannot explain it. Trace the individual lease owner, retry timing, earlier venue failures and re-dispatch for this sell before changing retry limits.
+* StopFast8288.bounded8288 launched optional corroborating quotes in an unbounded cached thread pool and left timed-out tasks running. The candidate caps concurrency at four with zero queued work and requests cancellation on timeout. This is an optional read. The actual sell still runs through its existing route, signature, lease and finality checks. Its effect on exit latency is unmeasured.
+* Heap reached 512/512 MB without a recent crash. Another sample in the same report was 470 MB, of which 342 MB was outside the store census. There were 28 hard trims, five classified ineffective. A heap allocation trace and thread dump are required to attribute retained memory. Shrinking one reported store cannot establish the root cause.
+* Cortex priced 891/2489 due marks (35.8%), assessed 4593 and graded 271. The report shows 998 lost, alongside 453 no-source and 348 late label marks. The populations need episode/horizon joins. No Cortex authority increase is justified by these totals.
+* The on-device cost book reports MOONSHOT median 7.26% on four measured trips and QUALITY 7.58% on two. The latest SHITCOIN model at 0.0318 SOL gives 5.31%. These are different cohorts. Exact trade-level receipt matching remains open, including 124 unmatched current entry receipts reported by 8512.
+
+The versioned baseline tree manifest includes every tracked path and blob at 8510. It establishes source coverage only. The full registered-component producer/caller/consumer/learning/test map remains incomplete. The updated inventory scripts expose complete unread-function and authority matches and permit writing snapshot outputs separately. The live-awareness report now includes additional specialist implementation files. SHADOW_PAPER covers the ExploreShadow book in this report; other shadow consumers still require tracing. Neither string references nor the historical F_DEAD label prove a runtime status.
+
+### Unclosed release gates
+
+Coverage is still required for every lane, including the additional asset systems and their actual enabled modes; full decision ownership and learning attribution; incomplete-data resume; all supported economic fallback paths; signed-fill and capital reconciliation after restart; protective-sell deadlines and runner banking; chronological 8114/8510/candidate executable replay with costs, uncertainty and drawdown; APK build/test/emulator and release identity. The runner and episode JSONL files and candidate-time route/size observations are still needed for the economic comparison. No after-cost performance result exists for this branch.
