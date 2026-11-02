@@ -180,7 +180,7 @@ class Aate8366CortexTest {
         val cx = src("engine/cortex/Cortex7885.kt")
         val lab = src("engine/truth/ForwardReturnLabeler7731.kt")
         assertTrue(lab.contains("decisionAtMs8371 = o.atMs"))
-        assertTrue(cx.contains("if (decisionAtMs8371 > 0L && p.atMs != decisionAtMs8371)"))
+        assertTrue(cx.contains("pending[key]?.takeIf { it.atMs == decisionAtMs8371 } ?: pairedPending8401[\"\$key|\$decisionAtMs8371\"] ?: superseded8443[\"\$key|\$decisionAtMs8371\"]"))  // V5.0.8510: exact episode only
         assertTrue(cx.contains("val id = \"\$key|\$decisionAtMs8371\""))
         assertTrue(cx.contains("val g = gradedTrace8372(id)"))
         assertTrue(cx.contains("r.calStamp8371"))

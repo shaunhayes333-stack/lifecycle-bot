@@ -3305,6 +3305,17 @@ object ExecutableOpenGate {
             }
         }
 
+        // V5.0.8510 §EXPIRED_LAUNCH — the sniper's launch cutoff is enforced again at the final execution intent: a birth that
+        // resolved past the window after the sniper elected the coin is refused, never bought late. Other lanes are untouched
+        // (an expired launch reaches them only through their own qualification — LaunchBirth8169.sniperScoped8169 hand-off).
+        if (requestedLaneForSynth == "PROJECT_SNIPER") {
+            val tsExpired8510 = try { BotService.status.tokens[mint] } catch (_: Throwable) { null }
+            if (tsExpired8510 != null && com.lifecyclebot.engine.truth.LaunchBirth8169.expiredLaunch8510(tsExpired8510)) {
+                try { PipelineHealthCollector.labelInc("EXPIRED_LAUNCH_8510_${modeUpper}") } catch (_: Throwable) {}
+                return blocked("EXPIRED_LAUNCH", "EXPIRED_LAUNCH lane=PROJECT_SNIPER mode=$modeUpper")
+            }
+        }
+
         // ──────────────────────────────────────────────────────────────────
         // V5.0.6683 — RESTORE SHADOW_TRAIN EXECUTION SEPARATION.
         // BucketExecutionState is the matured lane×score-bucket authority. Once a

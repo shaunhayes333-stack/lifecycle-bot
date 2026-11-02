@@ -21,7 +21,7 @@ class Aate8444SupersededLabelTest {
         assertFalse("not marked lost at supersession", capture.contains("gradeBook8144.markLost(oldId)"))
         val label = cx.substring(cx.indexOf("fun onLabel(mint: String, labelLane: String, horizonMin: Int"))
             .substringBefore("val id8372 = \"\$key|\${p.atMs}\"")
-        assertTrue(label.contains("?: superseded8443[\"\$key|\$decisionAtMs8371\"] ?: pending[key]"))
+        assertTrue(label.contains("?: superseded8443[\"\$key|\$decisionAtMs8371\"]\n            else pending[key]"))  // V5.0.8510: superseded episode found by its own time; no newest fallback
         assertTrue(label.contains("!superseded8443.remove(\"\$key|\${captured.atMs}\", captured)"))
         val lost = cx.substring(cx.indexOf("fun onLabelLost8187(")).substringBefore("inc(\"LABEL_LOST_\${lostKey8441(reason)}_8187\")")
         assertTrue(lost.contains("superseded8443[\"\$key|\$decisionAtMs8371\"]"))

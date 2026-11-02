@@ -287,7 +287,9 @@ class LabActivity : AppCompatActivity() {
     private fun rebuild() {
         // HUD ----------------------------------------------------------------
         val balance = LlmLabStore.getPaperBalance()
-        val totalPnl = LlmLabStore.allStrategies().sumOf { it.paperPnlSol }
+        // V5.0.8510 — the HUD P&L is the current generation (archived strategies' historical paper P&L excluded: 8508 showed
+        // +43.4 SOL cumulative while the live ledger lost). Simulated paper P&L, never executable proof.
+        val totalPnl = LlmLabStore.allStrategies().filter { it.status != LabStrategyStatus.ARCHIVED }.sumOf { it.paperPnlSol }
         val activeN = LlmLabStore.allStrategies().count { it.status == LabStrategyStatus.ACTIVE }
         val promN   = LlmLabStore.allStrategies().count { it.status == LabStrategyStatus.PROMOTED }
         val pending = LlmLabStore.pendingApprovals().size
@@ -615,6 +617,9 @@ class LabActivity : AppCompatActivity() {
     // ────────────────────────────────────────────────────────────────────
     // SECTOR: STRATEGIES
     // ────────────────────────────────────────────────────────────────────
+    private val LAB_GROUP_CARDS_8510 = 40
+    private val LAB_ARCHIVED_CARDS_8510 = 12
+
     private fun buildStrategiesBody() {
         val all = LlmLabStore.allStrategies().sortedWith(
             compareByDescending<LabStrategy> { it.status.ordinal }
@@ -635,7 +640,11 @@ class LabActivity : AppCompatActivity() {
         for ((title, list) in groups) {
             if (list.isEmpty()) continue
             llContent.addView(sectionHeader(title))
-            list.forEach { llContent.addView(strategyCard(it)) }
+            // V5.0.8510 — bounded card build: every strategy (archive included) became a card + DNA strip on the main thread
+            // each rebuild (8508 ANR samples: HardwareRenderer / LabActivity.rowText / dnaStrip). The rest are counted, not drawn.
+            val cap8510 = if (title.contains("ARCHIVED")) LAB_ARCHIVED_CARDS_8510 else LAB_GROUP_CARDS_8510
+            list.take(cap8510).forEach { llContent.addView(strategyCard(it)) }
+            if (list.size > cap8510) llContent.addView(rowText("  +${list.size - cap8510} more (not drawn)", grey, 10))
         }
     }
 

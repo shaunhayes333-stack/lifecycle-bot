@@ -156,7 +156,7 @@ object RunnerCapture8017 {
     /** CanonicalFinalizedTradeBus6464: a position closed — if it was a runner, that is what the bot banked. */
     fun onClose8017(env: CanonicalFinalizedTradeBus6464.Envelope) {
         try { RunnerFunnel8297.onAnyClose8297(env) } catch (_: Throwable) {}  // V5.0.8297 — runner-admit outcomes / capped wins
-        try { EntryReceipt8500.onLiveClose8500(env.mint, env.mode, env.terminal, env.realizedReturnPct, env.mfePct) } catch (_: Throwable) {}  // V5.0.8500
+        try { EntryReceipt8500.onLiveClose8500(env.mint, env.mode, env.terminal, env.realizedReturnPct, env.mfePct, env.positionId, env.atMs, env.holdingTimeMs) } catch (_: Throwable) {}  // V5.0.8500
         val r = runs[env.mint] ?: return
         if (env.terminal) { r.closeAtMs = env.atMs; r.holdMs = env.holdingTimeMs }  // V5.0.8297
         r.held = true

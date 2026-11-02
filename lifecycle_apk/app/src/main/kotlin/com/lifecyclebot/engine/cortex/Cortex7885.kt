@@ -1464,10 +1464,21 @@ object Cortex7885 {
             captureOwners8397.terminal(key, decisionAtMs8371)
             deferredLabels8397.remove("$key|$decisionAtMs8371")
         }
-        val p = pending[key]?.takeIf { decisionAtMs8371 <= 0L || it.atMs == decisionAtMs8371 }
-            ?: pairedPending8401["$key|$decisionAtMs8371"] ?: superseded8443["$key|$decisionAtMs8371"] ?: pending[key] ?: return
-        if (decisionAtMs8371 > 0L && p.atMs != decisionAtMs8371) {
-            inc("LABEL_LOST_EPISODE_MISMATCH_8371")
+        // V5.0.8510 §EXACT_EPISODE_ONLY — a timed terminal resolves only its own episode. The fallback to the newest pending
+        // decision for the mint/lane then counted the mismatch under LABEL_LOST_ (8508: 211 of 601 "lost") and returned
+        // without resolving the named episode; when that episode was still in the grade book it stayed open forever.
+        val p = if (decisionAtMs8371 > 0L)
+            pending[key]?.takeIf { it.atMs == decisionAtMs8371 } ?: pairedPending8401["$key|$decisionAtMs8371"] ?: superseded8443["$key|$decisionAtMs8371"]
+        else pending[key]
+        if (p == null) {
+            if (decisionAtMs8371 > 0L) {
+                val id = "$key|$decisionAtMs8371"
+                val marked = synchronized(this) { gradeBook8144.markLost(id) }
+                try { LanePlaybook7907.dropPending8144(mint, labelLane, decisionAtMs8372 = decisionAtMs8371) } catch (_: Throwable) {}
+                // A graded-book decision no longer held in memory is a real terminal loss of THAT episode; one the Cortex
+                // never held (already graded, evicted or never captured) is not a loss and is counted apart from LABEL_LOST_.
+                inc(if (marked) "LABEL_LOST_${lostKey8441(reason)}_8187" else "LABEL_TERMINAL_EPISODE_NOT_HELD_8510")
+            }
             return
         }
         if (!pending.remove(key, p) && !pairedPending8401.remove("$key|${p.atMs}", p) && !superseded8443.remove("$key|${p.atMs}", p)) return
@@ -1610,9 +1621,11 @@ object Cortex7885 {
         ensureLoaded()
         val key = "$mint|${labelLane.trim().uppercase()}"
         val p = synchronized(this) {
-            val captured = pending[key]?.takeIf { decisionAtMs8371 <= 0L || it.atMs == decisionAtMs8371 }
-                ?: pairedPending8401["$key|$decisionAtMs8371"] ?: superseded8443["$key|$decisionAtMs8371"] ?: pending[key]
-            if (decisionAtMs8371 > 0L && captured?.atMs != decisionAtMs8371 && captureOwners8397.awaiting(key, decisionAtMs8371)) {
+            // V5.0.8510 §EXACT_EPISODE_ONLY — a timed label is delivered only to its own episode (no newest-pending fallback).
+            val captured = if (decisionAtMs8371 > 0L)
+                pending[key]?.takeIf { it.atMs == decisionAtMs8371 } ?: pairedPending8401["$key|$decisionAtMs8371"] ?: superseded8443["$key|$decisionAtMs8371"]
+            else pending[key]
+            if (decisionAtMs8371 > 0L && captured == null && captureOwners8397.awaiting(key, decisionAtMs8371)) {
                 val id = "$key|$decisionAtMs8371"
                 if (deferredLabels8397.containsKey(id) || deferredLabels8397.size < CAPTURE_QUEUE_HARD_8187 + 32) {
                     deferredLabels8397.putIfAbsent(id, DeferredLabel8397(mint, labelLane, decisionAtMs8371, netPct, grossPct,
@@ -1621,9 +1634,14 @@ object Cortex7885 {
                 } else inc("LABEL_CAPTURE_WAIT_FULL_8397")
                 return
             }
-            if (captured == null) { inc("LABEL_ORIGINAL_CAPTURE_MISSING_8397"); return }
-            if (decisionAtMs8371 > 0L && captured.atMs != decisionAtMs8371) {
-                inc("LABEL_EPISODE_MISMATCH_8371")
+            if (captured == null) {
+                // V5.0.8510 — its episode is no longer held in memory (restart, eviction) but its grade record is still open:
+                // the label is booked on THAT record as observed-only (no voter / calibration update without its context;
+                // never onto a newer decision). Otherwise the original capture is genuinely missing.
+                val id8510 = "$key|$decisionAtMs8371"
+                val open8510 = decisionAtMs8371 > 0L && gradeBook8144.decision(id8510)?.let { !it.observedNetPct.isFinite() && !it.lost } == true
+                if (open8510 && gradeBook8144.label(id8510, netPct, grossPct, Double.NaN, false)) inc("LABEL_BOOKED_OBSERVED_ONLY_UNHELD_8510")
+                else inc("LABEL_ORIGINAL_CAPTURE_MISSING_8397")
                 return
             }
             if (!pending.remove(key, captured) && !pairedPending8401.remove("$key|${captured.atMs}", captured) &&

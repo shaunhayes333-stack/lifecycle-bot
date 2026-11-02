@@ -309,7 +309,7 @@ class Aate8187CortexCompleteTest {
         // 8371/8372: a lost label addresses its original token episode, never a newer pending observation.
         val lost = cx.substringAfter("fun onLabelLost8187(").substringBefore("/** ForwardReturnLabeler7731.tick:")
         assertTrue(lost.contains("decisionAtMs8371: Long = 0L"))
-        assertTrue(lost.indexOf("if (decisionAtMs8371 > 0L && p.atMs != decisionAtMs8371)") in 0 until lost.indexOf("pending.remove(key, p)"))
+        assertTrue(lost.indexOf("pending[key]?.takeIf { it.atMs == decisionAtMs8371 }") in 0 until lost.indexOf("pending.remove(key, p)"))  // V5.0.8510: exact episode only, no newest fallback
         // Forward pending still expires with the labeler; a separately bound shadow exit keeps its original prediction.
         assertTrue(cx.contains("if (!shadow8372 && !persistablePending8144(at, nowMs)) { inc(\"PENDING_RESTORE_PAST_LABEL_8187\"); continue }"))
         assertTrue(cx.contains("nowMs - at > (if (shadow8372) GRADED_KEEP_MS_8013 else PENDING_TTL_MS) || at > nowMs"))

@@ -15599,9 +15599,9 @@ class GoldenTapeRegressionTest {
         assertTrue(rec.contains("private const val PERSIST_KEY_8500 = \"ENTRY_RECEIPT_8500\""))
         assertTrue(rec.contains("if (!restored) return   // never overwrite the stored book with an unrestored one"))
         val ex = java.io.File(root, "Executor.kt").readText()
-        assertTrue(ex.contains("com.lifecyclebot.engine.truth.EntryReceipt8500.onLiveBuy8500(ts, entryEvidence7863.receipt8506)"))
+        assertTrue(ex.contains("com.lifecyclebot.engine.truth.EntryReceipt8500.onLiveBuy8500(ts, entryEvidence7863.receipt8506, pidLive6486)"))  // V5.0.8510
         val cap = java.io.File(root, "truth/RunnerCapture8017.kt").readText()
-        assertTrue(cap.contains("EntryReceipt8500.onLiveClose8500(env.mint, env.mode, env.terminal, env.realizedReturnPct, env.mfePct)"))
+        assertTrue(cap.contains("EntryReceipt8500.onLiveClose8500(env.mint, env.mode, env.terminal, env.realizedReturnPct, env.mfePct, env.positionId, env.atMs, env.holdingTimeMs)"))  // V5.0.8510
         val router = java.io.File(root, "TokenMetricStageRouter.kt").readText()
         assertTrue(router.contains("const val TOP10_RUG_PRONE_PCT_8500 = 60.0"))
         assertTrue(router.contains("val topHeavy = top >= TOP10_RUG_PRONE_PCT_8500"))
@@ -15707,5 +15707,18 @@ class GoldenTapeRegressionTest {
         assertTrue(v.contains("VALIDATOR_FEED_AUTH_REFUSED_8509_"))
         val b = java.io.File("src/main/kotlin/com/lifecyclebot/engine/DiagnosisBrief8438.kt").readText()
         assertTrue(b.contains("gRPC validator feed: "))
+    }
+
+    @Test
+    fun V5_0_8510_exact_episode_labels_expired_launch_and_receipt_identity() {
+        val c = java.io.File("src/main/kotlin/com/lifecyclebot/engine/cortex/Cortex7885.kt").readText()
+        assertTrue(!c.contains("superseded8443[\"\$key|\$decisionAtMs8371\"] ?: pending[key] ?: return"))
+        assertTrue(!c.contains("inc(\"LABEL_LOST_EPISODE_MISMATCH_8371\")"))
+        assertTrue(c.contains("LABEL_TERMINAL_EPISODE_NOT_HELD_8510"))
+        assertTrue(c.contains("LABEL_BOOKED_OBSERVED_ONLY_UNHELD_8510"))
+        val g = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        assertTrue(g.contains("return blocked(\"EXPIRED_LAUNCH\""))
+        val x = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(x.contains("EntryReceipt8500.onLiveBuy8500(ts, entryEvidence7863.receipt8506, pidLive6486)"))
     }
 }

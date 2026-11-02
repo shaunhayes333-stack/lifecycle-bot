@@ -20,6 +20,11 @@ object EntryReceipt8500 {
 
     private const val PERSIST_KEY_8500 = "ENTRY_RECEIPT_8500"
     private val open = ConcurrentHashMap<String, Receipt8500>()
+    private const val PID_8510 = "pid:"
+    /** V5.0.8510 — the earliest receipt this install recorded (persisted): closes of older positions are history. */
+    @Volatile private var epochMs8510 = 0L
+    private val historicalNoReceipt8510 = java.util.concurrent.atomic.AtomicLong(0)
+    private val unmatchedCurrent8510 = java.util.concurrent.atomic.AtomicLong(0)
     /** key -> [n, wins, boughtTop, gaveBack, sumRealisedPct] */
     private val agg = ConcurrentHashMap<String, DoubleArray>()
     @Volatile private var restored = false
@@ -54,14 +59,17 @@ object EntryReceipt8500 {
     }
 
     /** The landed fill commits the evidence captured for this exact execution attempt. */
-    fun onLiveBuy8500(ts: TokenState, receipt: Receipt8500?) {
+    fun onLiveBuy8500(ts: TokenState, receipt: Receipt8500?, positionId: String = "") {
         if (receipt == null) return
         try {
             restore8500()
             val mint = ts.mint
             if (mint.isBlank()) return
             val nowMs = receipt.atMs
-            open[mint] = receipt
+            // V5.0.8510 — keyed by the canonical position id (a re-entry into the same mint is its own receipt); a fill with
+            // no position id keeps the legacy mint key, and stored mint-keyed receipts still match (backward compatible).
+            open[if (positionId.isNotBlank()) PID_8510 + positionId else mint] = receipt
+            if (epochMs8510 <= 0L || nowMs < epochMs8510) epochMs8510 = nowMs
             if (open.size > 500) open.entries.removeIf { nowMs - it.value.atMs > 7 * 24 * 3_600_000L }
             PipelineHealthCollector.labelInc("ENTRY_RECEIPT_8500_CUT")
             persist8500()
@@ -69,11 +77,23 @@ object EntryReceipt8500 {
     }
 
     /** RunnerCapture8017.onClose8017: a finalized LIVE close grades its receipt. */
-    fun onLiveClose8500(mint: String, mode: String, terminal: Boolean, realizedPct: Double, mfePct: Double) {
+    fun onLiveClose8500(mint: String, mode: String, terminal: Boolean, realizedPct: Double, mfePct: Double,
+                        positionId: String = "", closeAtMs: Long = 0L, holdingMs: Long = 0L) {
         if (!terminal || !mode.equals("live", true) || mint.isBlank() || !realizedPct.isFinite()) return
         try {
             restore8500()
-            val r = open.remove(mint) ?: run { PipelineHealthCollector.labelInc("ENTRY_RECEIPT_8500_CLOSE_UNMATCHED"); return }
+            val openedAt = if (closeAtMs > 0L && holdingMs > 0L) closeAtMs - holdingMs else 0L
+            val r = (if (positionId.isNotBlank()) open.remove(PID_8510 + positionId) else null)
+                // legacy mint-keyed receipt: only one taken at or before this position opened (never a newer re-entry's)
+                ?: open[mint]?.takeIf { openedAt <= 0L || it.atMs <= openedAt + 60_000L }?.also { open.remove(mint, it) }
+                ?: run {
+                    // V5.0.8510 — a close of a position opened before receipts existed (boot replay / history) is not a
+                    // reconciliation failure; only a current-epoch close without its receipt is.
+                    val historical = epochMs8510 <= 0L || (openedAt in 1 until epochMs8510)
+                    if (historical) historicalNoReceipt8510.incrementAndGet() else unmatchedCurrent8510.incrementAndGet()
+                    PipelineHealthCollector.labelInc(if (historical) "ENTRY_RECEIPT_8510_CLOSE_HISTORICAL_NO_RECEIPT" else "ENTRY_RECEIPT_8500_CLOSE_UNMATCHED")
+                    return
+                }
             val o = RunnerFunnel8297.outcome8297(realizedPct, mfePct)
             for (k in keysFor8500(r)) fold8500(k, o, realizedPct)
             persist8500()
@@ -102,7 +122,7 @@ object EntryReceipt8500 {
         fun fam(p: String, limit: Int) = agg.entries.filter { it.key.startsWith("$p|") }.sortedByDescending { it.value[0] }.take(limit)
             .joinToString(" ") { (k, a) -> "${k.substringAfter('|')}{n${a[0].toInt()} w${a[1].toInt()} top${a[2].toInt()} gave${a[3].toInt()} ${"%+.1f".format(if (a[0] > 0) a[4] / a[0] else 0.0)}%}" }
             .ifBlank { "-" }
-        return "entryReceipts8500[open=${open.size}] byDoor{${fam("door", 8)}} byStage{${fam("stage", 8)}} byRunup{${fam("runup", 5)}} byPeak{${fam("peak", 4)}}"
+        return "entryReceipts8500[open=${open.size} unmatchedCurrent8510=${unmatchedCurrent8510.get()} historicalNoReceipt8510=${historicalNoReceipt8510.get()}] byDoor{${fam("door", 8)}} byStage{${fam("stage", 8)}} byRunup{${fam("runup", 5)}} byPeak{${fam("peak", 4)}}"
     }
 
     // ── persistence (doctrine: learnt state survives restarts) ──
@@ -112,17 +132,20 @@ object EntryReceipt8500 {
         val op = org.json.JSONObject(); open.forEach { (m, r) -> op.put(m, org.json.JSONArray(listOf(r.lane, r.door, r.setup, r.stage,
             r.runupPct.takeIf { it.isFinite() } ?: -1.0, r.vsPeak.takeIf { it.isFinite() } ?: -1.0,
             r.chg5mPct.takeIf { it.isFinite() } ?: 0.0, r.ageMin.takeIf { it.isFinite() } ?: -1.0, r.atMs))) }
-        return o.put("agg", ag).put("open", op).toString()
+        return o.put("agg", ag).put("open", op).put("epoch8510", epochMs8510).toString()
     }
 
     internal fun decode8500(raw: String?) {
         if (raw.isNullOrBlank()) return
         val o = org.json.JSONObject(raw)
+        // V5.0.8510 — pre-8510 stores have no epoch: the oldest open receipt stands in (still a lower bound of receipt time).
+        epochMs8510 = o.optLong("epoch8510", 0L).takeIf { it > 0L } ?: epochMs8510
         o.optJSONObject("agg")?.let { ag -> for (k in ag.keys()) ag.optJSONArray(k)?.let { arr ->
             if (arr.length() == 5) agg[k] = DoubleArray(5) { arr.optDouble(it, 0.0) } } }
         o.optJSONObject("open")?.let { op -> for (m in op.keys()) op.optJSONArray(m)?.let { a ->
             if (a.length() == 9) open.putIfAbsent(m, Receipt8500(a.optString(0), a.optString(1), a.optString(2), a.optString(3),
                 a.optDouble(4), a.optDouble(5), a.optDouble(6), a.optDouble(7), a.optLong(8))) } }
+        if (epochMs8510 <= 0L) epochMs8510 = open.values.minOfOrNull { it.atMs }?.takeIf { it > 0L } ?: 0L
     }
 
     private fun restore8500() {
@@ -140,5 +163,5 @@ object EntryReceipt8500 {
         try { com.lifecyclebot.engine.LearningPersistence.save(PERSIST_KEY_8500, encode8500()) } catch (_: Throwable) {}
     }
 
-    internal fun resetForTest8500() { open.clear(); agg.clear(); restored = true }
+    internal fun resetForTest8500() { open.clear(); agg.clear(); restored = true; epochMs8510 = 0L; historicalNoReceipt8510.set(0); unmatchedCurrent8510.set(0) }
 }

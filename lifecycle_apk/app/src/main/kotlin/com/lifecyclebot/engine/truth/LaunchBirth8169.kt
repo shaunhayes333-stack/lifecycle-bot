@@ -130,6 +130,18 @@ object LaunchBirth8169 {
     }
 
     /**
+     * V5.0.8510 — final execution intent: the sniper's launch window read again at open time (same canonical birth / witness
+     * read as [sniperScoped8169], no counters). True only when the birth is PROVEN past the window; unknown stays unknown.
+     * A birth that resolved after the sniper elected the coin cannot turn its pre-launch entry into a late top-buy.
+     */
+    fun expiredLaunch8510(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Boolean = try {
+        val canonical = CanonicalTokenBirthTime7440.launchAgeMs7767(ts, nowMs)
+        val read = if (canonical == null) AdmissionBirth8144.readFor8144(ts, nowMs)
+        else AdmissionBirth8144.Read8144(AdmissionBirth8144.Kind8144.KNOWN, nowMs - canonical, canonical, "CANONICAL")
+        sniperWindow8169(canonical, read, com.lifecyclebot.v3.scoring.ProjectSniperAI.SNIPER_WINDOW_SECS_8169) == AdmissionBirth8144.Window8144.PAST_WINDOW
+    } catch (_: Throwable) { false }
+
+    /**
      * SpecialistBrainBridge7542.evaluate: [scope] with PROJECT_SNIPER removed when [ts] is proven past the sniper's
      * window — the same age assessTarget reads (canonical, else AdmissionBirth8144), read without its counters — and the
      * sniper's own TOO_OLD hand-off emitted for it. In window or unknown: scope unchanged, assessTarget decides.
