@@ -15717,7 +15717,8 @@ class GoldenTapeRegressionTest {
         assertTrue(c.contains("LABEL_TERMINAL_EPISODE_NOT_HELD_8510"))
         assertTrue(c.contains("LABEL_BOOKED_OBSERVED_ONLY_UNHELD_8510"))
         val g = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
-        assertTrue(g.contains("return blocked(\"EXPIRED_LAUNCH\""))
+        assertTrue(g.contains("expiredLaunch8510(mint, lane, mode, attemptId)?.let { return it }"))
+        assertTrue(g.contains("expiredLaunch8510(ts.mint, lane, mode, attemptId)?.let { return it }"))
         val x = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(x.contains("EntryReceipt8500.onLiveBuy8500(ts, entryEvidence7863.receipt8506, pidLive6486)"))
     }

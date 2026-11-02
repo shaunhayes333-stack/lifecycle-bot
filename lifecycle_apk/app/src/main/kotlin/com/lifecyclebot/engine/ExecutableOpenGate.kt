@@ -2590,6 +2590,7 @@ object ExecutableOpenGate {
         // V5.0.6506 §P0-2 — canonical lane alias fold at boundary.
         @Suppress("NAME_SHADOWING") val lane = com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(lane)
         @Suppress("NAME_SHADOWING") val electedLane6494 = com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(electedLane6494)
+        expiredLaunch8510(mint, lane, mode, attemptId)?.let { return it }   // V5.0.8510
         return canOpenExecutablePositionInternal(
             mint = mint,
             symbol = symbol,
@@ -2915,6 +2916,7 @@ object ExecutableOpenGate {
             }
         } catch (_: Throwable) {}
 
+        expiredLaunch8510(ts.mint, lane, mode, attemptId)?.let { return it }   // V5.0.8510
         val verdict8204 = canOpenExecutablePositionInternal(
             mint = ts.mint,
             symbol = ts.symbol,
@@ -2960,6 +2962,22 @@ object ExecutableOpenGate {
         1.0,
         "sealed_execution_intent_authority_7846",
     )
+
+    /**
+     * V5.0.8510 §EXPIRED_LAUNCH — the sniper's launch cutoff, enforced again at the final execution intent: a birth proven
+     * past the sniper window (hydrated after the sniper elected the coin) cannot open a PROJECT_SNIPER position. Same read as
+     * the sniper scope filter (LaunchBirth8169); unknown age is not expired. Other lanes are untouched. Kept out of
+     * canOpenExecutablePositionInternal (ART oversized-method budget).
+     */
+    private fun expiredLaunch8510(mint: String, lane: String, mode: String, attemptId: String): OpenVerdict? {
+        if (canonicalLane(lane) != "PROJECT_SNIPER") return null
+        val ts = try { BotService.status.tokens[mint] } catch (_: Throwable) { null } ?: return null
+        if (!com.lifecyclebot.engine.truth.LaunchBirth8169.expiredLaunch8510(ts, System.currentTimeMillis())) return null
+        val modeUpper = mode.uppercase()
+        try { PipelineHealthCollector.labelInc("EXPIRED_LAUNCH_8510_$modeUpper") } catch (_: Throwable) {}
+        try { ForensicLogger.lifecycle("EXPIRED_LAUNCH", "attemptId=$attemptId mint=${mint.take(10)} lane=PROJECT_SNIPER mode=$modeUpper") } catch (_: Throwable) {}
+        return OpenVerdict(false, "EXPIRED_LAUNCH lane=PROJECT_SNIPER mode=$modeUpper", logName = "EXPIRED_LAUNCH", attemptId = attemptId)
+    }
 
     private fun canOpenExecutablePositionInternal(
         mint: String,
@@ -3302,17 +3320,6 @@ object ExecutableOpenGate {
                     } catch (_: Throwable) {}
                 }
                 return blocked("EXEC_OPEN_BLOCKED_SAME_MINT_ALREADY_OPEN_6371", "PAPER_SAME_MINT_ALREADY_OPEN_6371 existing=$existingLayer6371")
-            }
-        }
-
-        // V5.0.8510 §EXPIRED_LAUNCH — the sniper's launch cutoff is enforced again at the final execution intent: a birth that
-        // resolved past the window after the sniper elected the coin is refused, never bought late. Other lanes are untouched
-        // (an expired launch reaches them only through their own qualification — LaunchBirth8169.sniperScoped8169 hand-off).
-        if (requestedLaneForSynth == "PROJECT_SNIPER") {
-            val tsExpired8510 = try { BotService.status.tokens[mint] } catch (_: Throwable) { null }
-            if (tsExpired8510 != null && com.lifecyclebot.engine.truth.LaunchBirth8169.expiredLaunch8510(tsExpired8510)) {
-                try { PipelineHealthCollector.labelInc("EXPIRED_LAUNCH_8510_${modeUpper}") } catch (_: Throwable) {}
-                return blocked("EXPIRED_LAUNCH", "EXPIRED_LAUNCH lane=PROJECT_SNIPER mode=$modeUpper")
             }
         }
 
