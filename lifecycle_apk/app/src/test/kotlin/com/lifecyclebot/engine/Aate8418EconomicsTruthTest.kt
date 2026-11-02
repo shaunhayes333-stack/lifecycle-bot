@@ -22,6 +22,21 @@ class Aate8418EconomicsTruthTest {
 
     // ── sparse range is pre-history ──
 
+    @Test fun missingObservedMoveDefersAcrossThePlaybookAndRealEvidenceResumesTheCalculation() {
+        val lanes = com.lifecyclebot.engine.cortex.LanePlaybook7907.menuLanes8383()
+        assertEquals(12, lanes.size)
+        for (lane in lanes) {
+            val mandate = com.lifecyclebot.engine.truth.FieldManual7715.mandateFor(lane).expectedGrossPct
+            fun move(hour: Double?, n: Int = 0) = StrategyMove8153.expected8153(mandate, null, false, hour,
+                n, if (n > 0) 12.0 else Double.NaN, if (n > 0) 2.0 else Double.NaN, 4.5, true)
+            val absent = move(null)
+            assertTrue(lane, absent.expectedGrossPct.isNaN())
+            assertEquals(lane, NetEdge8030.MOVE_WAIT_HISTORY_8418, NetEdge8030.moveWait8418(absent, 4.5))
+            assertEquals(lane, minOf(mandate, 18.0), move(18.0).expectedGrossPct, 1e-9)
+            assertEquals(lane, "STRATEGY", move(null, 40).basis)
+        }
+    }
+
     @Test fun aSparseRangeNeverCapsTheMoveAtAnyAge() {
         // An older coin seen for two candles "moved 2%": pre-8418 RANGE_SPARSE capped the move at 2% (refused vs 4.5% x1.5).
         val old = StrategyMove8153.expected8153(50.0, 2.0, false, null, 0, Double.NaN, Double.NaN, 4.5, false)

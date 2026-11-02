@@ -81,8 +81,9 @@ object StrategyMove8153 {
             return Move8153(NetEdge8030.expectedMove8035(mandatePct, range), "RANGE_SPARSE", true)
         }
         val realized = if (range != null && h1 != null) maxOf(range, h1) else range ?: h1
+            ?: return Move8153(Double.NaN, "HISTORY_UNOBSERVED", true)
         val basis = when {
-            realized == null || realized >= mandatePct -> "MANDATE"
+            realized >= mandatePct -> "MANDATE"
             range != null && (h1 == null || range >= h1) -> if (rangeDense) "RANGE" else "RANGE_SPARSE"
             else -> "H1"
         }

@@ -3667,7 +3667,7 @@ object CryptoAltTrader {
                     // V5.0.8042 — live money only where the coin's own move clears 2x the round trip.
                     if (paper7803) null else try {
                         com.lifecyclebot.engine.truth.NetEdge8030.cryptoEntryRefusal8042(signal.priceChange24h, finalSize, candidate.liquidityUsd)
-                    } catch (_: Throwable) { null },
+                    } catch (_: Exception) { "NET_EDGE_CRYPTO_ECONOMICS_UNAVAILABLE_8042" },
                     if (remainingExposure7835 <= 0.0) "CRYPTO_EXPOSURE_CAP_7835" else null,
                 ), candidateVersion = candidate.candidateVersion,
                 diagnosticSignal = candidate.preFdgVerdict.name,
