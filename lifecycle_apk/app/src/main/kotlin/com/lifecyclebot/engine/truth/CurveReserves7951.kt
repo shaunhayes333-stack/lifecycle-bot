@@ -201,7 +201,9 @@ object CurveReserves7951 {
         val r = rows[mint.trim()] ?: return null
         if (try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(mint) } catch (_: Throwable) { true }) return null
         return synchronized(r) {
-            if (nowMs - r.atMs !in 0L..maxAgeMs || !r.virtualSol.isFinite() || r.virtualSol <= 0.0 ||
+            // V5.0.8512 — a row the stream wrote after the caller read its clock is the freshest read, not an unknown one
+            // (the same future-stamp defect as WalletManager.freshSolPrice8163): accepted up to 60 s newer than nowMs.
+            if (nowMs - r.atMs !in -60_000L..maxAgeMs || !r.virtualSol.isFinite() || r.virtualSol <= 0.0 ||
                 !r.virtualTokens.isFinite() || r.virtualTokens <= 0.0 || !r.realSol.isFinite() || r.realSol < 0.0) null
             else ExitReserveObservation(r.virtualSol, r.virtualTokens, r.realSol, r.atMs)
         }

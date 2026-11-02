@@ -15732,4 +15732,15 @@ class GoldenTapeRegressionTest {
         assertTrue(wait < c.indexOf("val cellSupported = supported8136(liveCellProof8290, c.costPct)"))
         assertTrue(c.indexOf("return done(Terminal8136.DEFER_DATA, \"DATA_INCOMPLETE_DEFER_8136\"") < wait)
     }
+
+    @Test
+    fun V5_0_8512_sol_rate_and_curve_reads_newer_than_the_caller_clock_are_fresh() {
+        val w = java.io.File("src/main/kotlin/com/lifecyclebot/engine/WalletManager.kt").readText()
+        assertTrue(w.contains("solPriceFresh8512(nowMs, lastObservedSolAt8163)"))
+        assertTrue(w.contains("nowMs - observedAtMs in -SOL_PRICE_FUTURE_SKEW_MS_8512..300_000L"))
+        assertTrue(w.contains("val at8512 = minOf(observedAtMs, nowObs8512)"))
+        val curve = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CurveReserves7951.kt")
+        val c = (if (curve.exists()) curve else java.io.File("src/main/kotlin/com/lifecyclebot/engine/CurveReserves7951.kt")).readText()
+        assertTrue(c.contains("nowMs - r.atMs !in -60_000L..maxAgeMs"))
+    }
 }

@@ -74,8 +74,22 @@ class WalletManager private constructor(private val ctx: Context) {
     companion object {
         @Volatile var lastKnownSolPrice: Double = 0.0
         @Volatile private var lastObservedSolAt8163: Long = 0L
+        /**
+         * V5.0.8512 — an observation stamped AFTER the caller's clock read is fresh, not unknown. Pyth Hermes notes a rate
+         * every ~400 ms, while callers capture `nowMs` once per batch (the off-watch label batch averaged 2.3 s, max 16 s):
+         * `nowMs - observedAt` was negative for nearly every such batch, so `in 0..300_000` answered 0.0 and the labeler
+         * dropped the curve mark (8511 report: markNoSolRate8508=5149, curve marks 1543 seen / 75 used, labels 33 % priced).
+         * Age is now `nowMs - observedAt <= 300 s`, accepting an observation up to [SOL_PRICE_FUTURE_SKEW_MS_8512] newer than
+         * the caller's clock; older than 5 minutes is still unknown and still refused.
+         */
         fun freshSolPrice8163(nowMs: Long = System.currentTimeMillis()): Double =
-            lastKnownSolPrice.takeIf { it.isFinite() && it > 0.0 && nowMs - lastObservedSolAt8163 in 0L..300_000L } ?: 0.0
+            lastKnownSolPrice.takeIf { it.isFinite() && it > 0.0 && solPriceFresh8512(nowMs, lastObservedSolAt8163) } ?: 0.0
+
+        internal const val SOL_PRICE_FUTURE_SKEW_MS_8512 = 60_000L
+
+        /** Pure: the rate observed at [observedAtMs] is fresh at [nowMs] (at most 5 minutes old, or newer than the read). */
+        internal fun solPriceFresh8512(nowMs: Long, observedAtMs: Long): Boolean =
+            observedAtMs > 0L && nowMs - observedAtMs in -SOL_PRICE_FUTURE_SKEW_MS_8512..300_000L
 
         /**
          * V5.0.7042 §THE_RATE_WAS_OBSERVED_AND_THEN_FORGOTTEN_EVERY_LAUNCH.
@@ -119,10 +133,13 @@ class WalletManager private constructor(private val ctx: Context) {
          * chain's genuine successes, never from its fallback.
          */
         fun noteObservedSolPrice7042(price: Double, observedAtMs: Long = System.currentTimeMillis()) {
-            if (!price.isFinite() || price !in 50.0..1000.0 || System.currentTimeMillis() - observedAtMs !in 0L..120_000L) return
-            if (observedAtMs < lastObservedSolAt8163) return
+            // V5.0.8512 — Pyth publish_time can lead the device clock by a little skew; it is clamped to now, not dropped.
+            val nowObs8512 = System.currentTimeMillis()
+            if (!price.isFinite() || price !in 50.0..1000.0 || nowObs8512 - observedAtMs !in -SOL_PRICE_FUTURE_SKEW_MS_8512..120_000L) return
+            val at8512 = minOf(observedAtMs, nowObs8512)
+            if (at8512 < lastObservedSolAt8163) return
             lastKnownSolPrice = price
-            lastObservedSolAt8163 = observedAtMs
+            lastObservedSolAt8163 = at8512
             try {
                 solPrefs7042?.edit()
                     ?.putFloat(KEY_SOL_PRICE_7042, price.toFloat())
