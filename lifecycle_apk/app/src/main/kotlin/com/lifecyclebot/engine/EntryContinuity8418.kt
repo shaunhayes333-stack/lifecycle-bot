@@ -73,7 +73,8 @@ object EntryContinuity8418 {
         }
         val mark = approved.executableMarkPriceUsd6613
         if (!mark.isFinite() || mark <= 0.0) return PREFIX + "PRICE_UNAPPROVED"
-        if (executionPriceUsd.isFinite() && executionPriceUsd > mark * (1.0 + CHASE_BOUND_FRAC_8418)) return PREFIX + "PRICE"
+        if (!executionPriceUsd.isFinite() || executionPriceUsd <= 0.0) return PREFIX + "PRICE_UNAVAILABLE"
+        if (executionPriceUsd > mark * (1.0 + CHASE_BOUND_FRAC_8418)) return PREFIX + "PRICE"
         return null
     }
 
@@ -103,7 +104,7 @@ object EntryContinuity8418 {
         val price = try {
             SizingQuoteRecheck8153.quotePrice8167(executedQuote.inAmount, executedQuote.outAmount, ts.tokenMap.decimals,
                 WalletManager.freshSolPrice8163(), ts.lastPrice)
-        } catch (_: Throwable) { ts.lastPrice }
+        } catch (_: Exception) { Double.NaN }
         return check8418(ts.mint, intent, executedQuote.inAmount, price, quoteOf8418(approvedQuote, slippageBps), quoteOf8418(executedQuote, slippageBps))
     }
 

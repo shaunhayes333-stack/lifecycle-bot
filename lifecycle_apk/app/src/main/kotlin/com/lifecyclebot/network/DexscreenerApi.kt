@@ -421,7 +421,7 @@ class DexscreenerApi {
     fun batchPriceFetch(mints: List<String>, slotWaitMs7948: Long = 0L): Map<String, Double> =
         batchPriceFetchTyped8087(mints, slotWaitMs7948).prices
 
-    fun batchPriceFetchTyped8087(mints: List<String>, slotWaitMs7948: Long = 0L): BatchResult8087 {
+    fun batchPriceFetchTyped8087(mints: List<String>, slotWaitMs7948: Long = 0L, heldMarkTraffic: Boolean = slotWaitMs7948 > 0L): BatchResult8087 {
         if (mints.isEmpty()) return BatchResult8087(emptyMap(), BatchCause8087.PRICED, emptyList())
         // V5.0.7948 — the held-mark batch (rapid stop-loss tick) waits briefly for
         // the shared 25 ms limiter slot instead of returning an empty batch whenever
@@ -437,7 +437,7 @@ class DexscreenerApi {
         // V5.0.8095 — the held-position batch (the only caller that waits for a slot) is exit traffic: a scanner 429 put
         // the shared "dexscreener" host in OUR lockout and the stop-loss marks came back empty on 1,948 of 2,297 ticks
         // (4abd6b13a, cause=PROVIDER_FAILED). Exit traffic is never refused by our own lockout (ExitHttpScope7314).
-        val body = get8095(url, exit8095 = slotWaitMs7948 > 0L) ?: return BatchResult8087(emptyMap(), BatchCause8087.PROVIDER_FAILED, emptyList())
+        val body = get8095(url, exit8095 = heldMarkTraffic) ?: return BatchResult8087(emptyMap(), BatchCause8087.PROVIDER_FAILED, emptyList())
 
         val out = HashMap<String, Double>(mints.size)
         // V5.0.7026 — the liquidity behind each mint's currently-chosen pair,

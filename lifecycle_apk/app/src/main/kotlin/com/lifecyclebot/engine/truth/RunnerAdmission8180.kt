@@ -65,6 +65,7 @@ object AdmissionEdge8180 {
         /** V5.0.8235 — ADMIT on a candidate-specific proven edge (route-minimum promotion rights); false = generic prior clears. */
         val specificEdge: Boolean = true,
         val reason: String = "",
+        val evaluatedStage: String = "", val evaluatedEntryWait: String? = null,
     ) {
         /** The admission's expected GROSS (%) — net plus the round trip it was charged; NaN when either is unknown. */
         val expectedGrossPct: Double get() =
@@ -90,7 +91,8 @@ object AdmissionEdge8180 {
         val k = key8198(mode, mint, lane)
         if (d.terminal != CandidateAdmission8136.Terminal8136.ADMIT) { admitted.remove(k); return }
         admitted[k] = Proof8198(mode.trim().uppercase(), mint, k.substringAfterLast('|'), candidateVersion, d.basis, d.chosenSetup, nowMs,
-            d.expectedNetPct, d.costPct, d.costSizeSol, specificEdge = carriesEdge8180(d), reason = d.reason)
+            d.expectedNetPct, d.costPct, d.costSizeSol, specificEdge = carriesEdge8180(d), reason = d.reason,
+            evaluatedStage = d.evaluatedStage, evaluatedEntryWait = d.evaluatedEntryWait)
         if (admitted.size > MAX_8180) admitted.entries.removeIf { nowMs - it.value.atMs > TTL_MS_8180 }
     }
 
@@ -104,6 +106,21 @@ object AdmissionEdge8180 {
         if (nowMs - p.atMs !in 0L..TTL_MS_8180) return null
         if (p.candidateVersion != candidateVersion) return null
         return p
+    }
+
+    /** After admission a fresh danger or changed wait still binds. Only the exact evaluated soft wait was settled. */
+    fun remainingLiveWait(mint: String, lane: String, version: Long, stage: String, wait: String?, nowMs: Long,
+                          admittedProof: Proof8198? = proof8198("LIVE", mint, lane, version, nowMs)): String? {
+        if (wait == null || version <= 0L) return wait
+        when (wait) {
+            "NO_PHASE_TRIGGER", "NO_RECLAIM", "NO_BUY_VOLUME", "NO_IGNITION" -> Unit
+            else -> return wait
+        }
+        val proof = admittedProof ?: return wait
+        if (proof.mode != "LIVE" || proof.mint != mint || proof.candidateVersion != version ||
+            key8198(proof.mode, mint, lane) != key8198(proof.mode, mint, proof.lane) ||
+            nowMs - proof.atMs !in 0L..TTL_MS_8180) return wait
+        return if (proof.evaluatedStage == stage && proof.evaluatedEntryWait == wait) null else wait
     }
 
     /** Was this exact candidate (mode, mint, lane, generation) admitted on a specific proven edge inside the TTL? */

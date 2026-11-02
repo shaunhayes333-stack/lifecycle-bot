@@ -1,6 +1,8 @@
 package com.lifecyclebot.engine.truth
 
 import com.lifecyclebot.data.TokenState
+import com.lifecyclebot.engine.ExecutableOpenGate.ExecutionIntent
+import com.lifecyclebot.engine.WalletManager
 import com.lifecyclebot.engine.ForensicLogger
 import com.lifecyclebot.engine.PipelineHealthCollector
 import java.util.concurrent.ConcurrentHashMap
@@ -20,7 +22,7 @@ import java.util.concurrent.atomic.AtomicLong
  *     positive, proven-setup-only, cheat sheet) stay bypassed per the owner's choice.
  *  2. [preBroadcastRefusal8329] — immediately before the live buy is sent: the fresh executable quote (the Jupiter quote the
  *     buy is built from; the curve mark on the PumpPortal route, which has no quote) against the decision price and time
- *     (ForwardReturnLabeler7731.decisionPx8094). move % net of the quote's own impact must sit under the tactic's cap
+ *     sealed in the execution intent. move % net of the quote's own impact must sit under the tactic's cap
  *     ([chaseCapPct8329]: launch / breakout 8 %, pullback / reaccumulation 2.5 %, momentum 5 %, an exhausted rally none)
  *     and the move left (expected gross - move) must still clear the owner's 1.5x round trip at this size
  *     (NetEdge8030.entryClears8030 on [NetEdge8030.preTradeCostPct8329]). Otherwise the buy is not sent
@@ -141,11 +143,15 @@ object EntryEconomics8329 {
      * this size. A cheaper or unchanged quote never refuses.
      */
     fun consumed8329(movePct: Double, capPct: Double, expectedGrossPct: Double, costPct: Double, margin: Double = NetEdge8030.EDGE_MULT): String? {
-        if (!movePct.isFinite() || movePct <= 0.0) return null
-        if (!capPct.isFinite()) return "EXHAUSTED_RALLY"
+        // RunnerGrab also calls this during scouting, before an admitted mark can exist.
+        // preBroadcastRefusal8329 separately requires a comparable quote at the live send boundary.
+        if (!movePct.isFinite()) return null
+        if (movePct > 0.0 && !capPct.isFinite()) return "EXHAUSTED_RALLY"
         if (movePct > capPct) return "OVER_CAP"
-        if (!expectedGrossPct.isFinite() || !costPct.isFinite()) return null
-        return if (NetEdge8030.entryClears8030(expectedGrossPct - movePct, costPct, margin)) null else "EDGE_CONSUMED"
+        if (!expectedGrossPct.isFinite() || !costPct.isFinite()) return "ECONOMICS_UNAVAILABLE"
+        val chase = movePct.coerceAtLeast(0.0)
+        val remainingPct = (expectedGrossPct - chase) / (1.0 + chase / 100.0)
+        return if (NetEdge8030.entryClears8030(remainingPct, costPct, margin)) null else "EDGE_CONSUMED"
     }
 
     /** Pure: the USD price one UI token costs at a quote of [outRaw] raw tokens for [inSol] SOL; NaN when unknown. */
@@ -168,37 +174,37 @@ object EntryEconomics8329 {
 
     /**
      * Executor, immediately before the live buy is sent: null = send; else the refusal (the buy is not sent). [quotePxUsd]
-     * is the executable quote's implied price (NaN on a route without one: the current mark is used), [impactPct] its own
+     * is the route quote's implied price (or the validated Pump mark), [impactPct] its own
      * impact, [source] the route for the log.
      */
     fun preBroadcastRefusal8329(
-        ts: TokenState, laneRaw: String, sizeSol: Double, quotePxUsd: Double, impactPct: Double, source: String,
+        ts: TokenState, intent: ExecutionIntent, sizeSol: Double, quotePxUsd: Double, impactPct: Double, source: String,
         nowMs: Long = System.currentTimeMillis(),
     ): String? {
-        val lane = CanonicalLaneIdentity6506.desk8392(laneRaw)
+        val lane = CanonicalLaneIdentity6506.desk8392(intent.canonicalLane)
         val book = chase8329.computeIfAbsent(lane) { ChaseBook8329() }
-        val d = try { ForwardReturnLabeler7731.decisionPx8094(ts.mint) } catch (_: Throwable) { null }
-        if (d == null || nowMs - d.second !in 0L..DECISION_MAX_AGE_MS_8329) {
-            labelInc("ENTRY_CHASE_NO_DECISION_8329_$lane")
-            return null
-        }
-        val px = if (quotePxUsd.isFinite() && quotePxUsd > 0.0) quotePxUsd else ts.lastPrice
-        val move = quoteMovePct8329(d.first, px, impactPct) ?: return null
+        val decisionPx = intent.executableMarkPriceUsd6613
+        val observedAt = intent.executableMarkTimestampMs6613
+        if (intent.mint != ts.mint || nowMs - observedAt !in 0L..DECISION_MAX_AGE_MS_8329 ||
+            nowMs >= intent.expiresAtMs6613) return "ENTRY_CHASE_DECISION_STALE_$lane"
+        val px = quotePxUsd
+        val move = quoteMovePct8329(decisionPx, px, impactPct) ?: return "ENTRY_CHASE_PRICE_INCOMPARABLE_$lane"
         if (consumedAt8329.containsKey(ts.mint) &&
             (try { com.lifecyclebot.engine.chart.StructureTracker7962.hlReclaim7962(ts.mint, nowMs) } catch (_: Throwable) { false })) {
             consumedAt8329.remove(ts.mint)
             labelInc("ENTRY_CHASE_REARMED_HL_RECLAIM_8329_$lane")
         }
         val setup = try { TradePlan7739.freshPlan7783(ts.mint, nowMs)?.setup } catch (_: Throwable) { null }
-        val sel = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, lane, nowMs) } catch (_: Throwable) { null }
+        val sel = intent.admissionProof?.chosenSetup
+            ?: try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, lane, nowMs) } catch (_: Throwable) { null }
         val tactic = try { com.lifecyclebot.engine.learning.TacticSwitcher.seedTactic8049(lane, sel) } catch (_: Throwable) { null }
         val snap = try { com.lifecyclebot.engine.TokenMetricStageRouter.snapshot(ts) } catch (_: Throwable) { null }
         val exhausted = snap != null &&
             (try { LiveEdgeGate7877.chasing8065(snap.runupFromLocalLowPct, snap.currentVsPeak, ts.lastPriceChange5m) } catch (_: Throwable) { false })
         val liq = try { LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) { ts.lastLiquidityUsd }
         val cost = try { NetEdge8030.preTradeCostPct8329(lane, sizeSol, liq, ts.mint, ts.lastMcap) } catch (_: Throwable) { Double.NaN }
-        val gross = try { NetEdge8030.expectedGrossFor8153(ts, lane, sel, cost) } catch (_: Throwable) { Double.NaN }
-        val expected = if (gross.isFinite()) gross else (try { FieldManual7715.mandateFor(lane).expectedGrossPct } catch (_: Throwable) { Double.NaN })
+        val expected = intent.admissionProof?.expectedGrossPct ?: NetEdge8030.expectedGrossFor8153(ts, lane, sel, cost)
+        if (!expected.isFinite() || !cost.isFinite()) return "ENTRY_CHASE_ECONOMICS_UNAVAILABLE_$lane"
         val cap = chaseCapPct8329(setup, tactic, exhausted)
         val why = consumed8329(move, cap, expected, cost, NetEdge8030.margin8391(lane, sizeSol, cost))
         synchronized(book) {
@@ -216,7 +222,7 @@ object EntryEconomics8329 {
             ForensicLogger.lifecycle(CHASE_CONSUMED_8329,
                 "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=$lane why=$why move=${"%.2f".format(move)}% cap=${if (cap.isFinite()) "%.1f".format(cap) else "none"}% " +
                     "expected=${"%.2f".format(expected)}% cost=${"%.2f".format(cost)}% setup=${setup?.name ?: "-"} tactic=${tactic?.name ?: "-"} source=$source " +
-                    "decisionPx=${d.first} quotePx=$px latencyMs=${nowMs - d.second} action=do_not_buy_wait_for_structural_reentry")
+                    "decisionPx=$decisionPx quotePx=$px latencyMs=${nowMs - observedAt} action=do_not_buy_wait_for_structural_reentry")
             // Graded against what happened next: a refused forward label in the lane's chase-miss pond.
             ForwardReturnLabeler7731.observe(ts, "$MISSED_LANE_PREFIX_8329$lane", false, label, nowMs)
         } catch (_: Throwable) {}
@@ -224,20 +230,18 @@ object EntryEconomics8329 {
     }
 
     /** Executor.prepareJupiterBuy8090: the Jupiter quote the buy is built from, against the decision price. */
-    fun jupiterQuoteRefusal8329(ts: TokenState, lane: String?, sizeSol: Double, quote: com.lifecyclebot.network.SwapQuote?): String? {
-        if (quote == null) return null
-        return try {
-            val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
-            val inSol = if (quote.inAmount > 0L) quote.inAmount / 1_000_000_000.0 else sizeSol
-            val px = quotePxUsd8329(inSol, quote.outAmount, ts.tokenMap.decimals, solUsd)
-            preBroadcastRefusal8329(ts, lane.orEmpty(), sizeSol, px, quote.priceImpactPct, "JUPITER")?.let { "BUY_TERMINAL_$it" }
-        } catch (_: Throwable) { null }
+    fun jupiterQuoteRefusal8329(ts: TokenState, intent: ExecutionIntent, sizeSol: Double, quote: com.lifecyclebot.network.SwapQuote): String? {
+        val px = quotePxUsd8329(quote.inAmount / 1_000_000_000.0, quote.outAmount, ts.tokenMap.decimals, WalletManager.freshSolPrice8163())
+        return preBroadcastRefusal8329(ts, intent, sizeSol, px, quote.priceImpactPct, "JUPITER")?.let { "BUY_TERMINAL_$it" }
     }
 
-    /** Executor.liveBuy, before the PumpPortal send (no quote on that route): the current curve mark against the decision price. */
-    fun markRefusal8329(ts: TokenState, lane: String?, sizeSol: Double): String? = try {
-        preBroadcastRefusal8329(ts, lane.orEmpty(), sizeSol, Double.NaN, 0.0, "PUMPPORTAL")?.let { "BUY_TERMINAL_$it" }
-    } catch (_: Throwable) { null }
+    /** The unquoted Pump route needs a current mark for its comparison. */
+    fun markRefusal8329(ts: TokenState, intent: ExecutionIntent, sizeSol: Double): String? {
+        val now = System.currentTimeMillis()
+        if (ts.lastPriceUpdate < intent.executableMarkTimestampMs6613 || ts.lastPriceUpdate > now)
+            return "BUY_TERMINAL_ENTRY_CHASE_PUMP_MARK_STALE"
+        return preBroadcastRefusal8329(ts, intent, sizeSol, ts.lastPrice, 0.0, "PUMPPORTAL", now)?.let { "BUY_TERMINAL_$it" }
+    }
 
     // ── 3. route-minimum promotion needs a reason ──
 

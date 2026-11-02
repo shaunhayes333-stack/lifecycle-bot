@@ -99,8 +99,8 @@ class Aate8397SubmissionReceiptTest {
         val pump = source.substring(source.indexOf("val pumpFirstResult:"), source.indexOf("val prepared8090 ="))
         assertTrue(pump.contains("submission8397 = submission8397"))
         assertEquals("all direct Raydium entry calls carry the receipt", 3,
-            Regex("tryRaydiumBuy7325\\(ts, wallet, sol, tradeKey, submission8397\\)").findAll(source).count())
-        assertTrue(source.contains("buildBuyTxOrRaydium8089(ts, wallet, sol, tradeKey, executionQuote7688, c, submission8397)"))
+            Regex("tryRaydiumBuy7325\\(ts, wallet, sol, tradeKey, submission8397, intent8198\\)").findAll(source).count())
+        assertTrue(source.contains("buildBuyTxOrRaydium8089(ts, wallet, sol, tradeKey, executionQuote7688, c, submission8397, intent8198)"))
         assertTrue(source.contains("sendObserver8397 = { send -> BuySubmissionReceipt8397.observe8397(submission8397, send) }"))
         assertTrue(source.contains("intentId = submission8397.attemptId, route = \"RAYDIUM\""))
         // superseded by V5.0.8418 — the entry attempt id still binds first; a top-up (no submission) names its own owner

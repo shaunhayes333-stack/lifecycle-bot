@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
+import argparse
 from pathlib import Path
 import re
 from collections import defaultdict
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "app/src/main/kotlin"
-OUT = ROOT / "audits/v5_0_6711_full_authority_audit.md"
+parser = argparse.ArgumentParser(description="Index authority references for manual review")
+parser.add_argument("--output", type=Path, default=ROOT / "audits/v5_0_6711_full_authority_audit.md")
+parser.add_argument("--full", action="store_true", help="include all matching locations")
+args = parser.parse_args()
+OUT = args.output
 
 files = sorted(SRC.rglob("*.kt"))
 texts = {p: p.read_text(errors="ignore") for p in files}
@@ -22,12 +27,12 @@ def hits(pattern, flags=0):
 
 def section(title, rows, limit=500):
     out=[f"\n## {title}\n", f"Count: **{len(rows)}**\n"]
-    for p,i,l in rows[:limit]: out.append(f"- `{p}:{i}` — `{l[:300]}`")
-    if len(rows)>limit: out.append(f"- … {len(rows)-limit} more")
+    for p,i,l in (rows if args.full else rows[:limit]): out.append(f"- `{p}:{i}` — `{l[:300]}`")
+    if not args.full and len(rows)>limit: out.append(f"- … {len(rows)-limit} more")
     return out
 
 lines=["# V5.0.6711 Full Runtime Authority / Patch-Rot Audit\n",
-       "Generated from the complete checked-out Kotlin source. This report maps source authority, overlays, bypasses and causal wiring; it is not a string-presence regression test.\n"]
+       "Generated from the complete checked-out Kotlin source. Matches include comments, labels and historical overlays. Runtime authority requires caller and behavioural verification.\n"]
 
 # 1. Duplicate authority definitions / legacy-new parallel stacks.
 defs=defaultdict(list)

@@ -8,6 +8,19 @@ import org.junit.Test
 class Aate8510ReceiptAndEpisodeTest {
     private fun r(at: Long) = EntryReceipt8500.Receipt8500("MOONSHOT", "DOOR", "S", "BASE_START", 10.0, 0.9, 1.0, 3.0, at)
 
+    @Test fun replayWithoutAMatchingOpenTimeCannotTakeALegacyReceipt() {
+        EntryReceipt8500.resetForTest8500()
+        val ts = TokenState(mint = "m8510", symbol = "T")
+        EntryReceipt8500.onLiveBuy8500(ts, r(2_000_000L))
+        EntryReceipt8500.onLiveClose8500(ts.mint, "live", true, -90.0, 0.0, "different", 1_500_000L, 0L)
+        EntryReceipt8500.onLiveClose8500(ts.mint, "live", true, -90.0, 0.0, "later", 3_000_000L, 10_000L)
+        assertTrue(EntryReceipt8500.line8500().contains("open=1 "))
+        EntryReceipt8500.onLiveClose8500(ts.mint, "live", true, 5.0, 8.0, "actual", 2_100_000L, 100_000L)
+        val line = EntryReceipt8500.line8500()
+        assertTrue(line, line.contains("MOONSHOT|DOOR{n1 w1"))
+        EntryReceipt8500.resetForTest8500()
+    }
+
     /** Re-entry into one mint: each close grades its own position's receipt, and a replayed old close is history. */
     @Test
     fun receipts_join_by_position_and_history_is_not_a_reconciliation_failure() {

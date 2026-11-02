@@ -53,6 +53,12 @@ TRADERS = [
     ("BLUECHIP", "v3/scoring/BlueChipTraderAI.kt"),
     ("SHITCOIN", "v3/scoring/ShitCoinTraderAI.kt"),
     ("MOONSHOT", "v3/scoring/MoonshotTraderAI.kt"),
+    ("EXPRESS", "v3/scoring/ShitCoinExpress.kt"),
+    ("TREASURY", "engine/TreasuryBrain.kt"),
+    ("DIP_HUNTER", "v3/scoring/DipHunterAI.kt"),
+    ("PROJECT_SNIPER", "v3/scoring/ProjectSniperAI.kt"),
+    ("MANIPULATED", "v3/scoring/ManipulatedTraderAI.kt"),
+    ("SHADOW_PAPER", "engine/truth/ExploreShadow8347.kt"),
     ("CASHGEN", "v3/scoring/CashGenerationAI.kt"),
 ]
 

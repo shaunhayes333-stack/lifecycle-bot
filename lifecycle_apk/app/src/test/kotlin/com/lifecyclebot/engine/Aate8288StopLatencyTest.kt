@@ -198,10 +198,14 @@ class Aate8288StopLatencyTest {
 
     @Test fun the_deep_stop_quote_check_holds_an_emergency_for_at_most_its_budget() {
         val t0 = System.nanoTime()
-        val v: Double? = StopFast8288.bounded8288(150L) { Thread.sleep(2_000L); 1.0 }
+        val finished = java.util.concurrent.CountDownLatch(1)
+        val v: Double? = StopFast8288.bounded8288(150L) {
+            try { Thread.sleep(2_000L); 1.0 } finally { finished.countDown() }
+        }
         val ms = (System.nanoTime() - t0) / 1_000_000L
         assertNull("no quote in time = allow (7928 never blocks on a failed quote)", v)
         assertTrue("held ${ms}ms", ms < 600L)
+        assertTrue("the timeout cancels the optional quote", finished.await(1L, java.util.concurrent.TimeUnit.SECONDS))
         assertEquals(2.0, StopFast8288.bounded8288(1_000L) { 2.0 }!!, 0.0)
         assertTrue(StopFast8288.STOP_QUOTE_CHECK_BUDGET_MS_8288 + StopFast8288.STOP_READ_BUDGET_MS_8288 < StopFast8288.STOP_T2B_TARGET_MS_8288)
         assertTrue(src("engine/Executor.kt").contains("StopFast8288.bounded8288(com.lifecyclebot.engine.sell.StopFast8288.STOP_QUOTE_CHECK_BUDGET_MS_8288)"))

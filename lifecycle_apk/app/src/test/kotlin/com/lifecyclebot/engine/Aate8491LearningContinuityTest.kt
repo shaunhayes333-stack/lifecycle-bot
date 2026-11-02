@@ -232,7 +232,13 @@ class Aate8491LearningContinuityTest {
         try {
             assertTrue(AsyncStrategyLab.submitBackgroundHypothesis(AsyncStrategyLab.Provider.LOCAL_ONLY,
                 "MOONSHOT", "RUNNER_CAPTURE", "SIZE_UP", "revert on loss", symbolicChecked = true))
-            assertEquals(1.25, AsyncStrategyLab.reviewedSizeBias("MOONSHOT", 70, "TREND"), 0.0)
+            fun biasIn(mode: String) = LearningEnvironment7835.withMode(mode) {
+                AsyncStrategyLab.reviewedSizeBias("MOONSHOT", 70, "TREND")
+            }
+            assertEquals(1.25, biasIn("PAPER"), 0.0)
+            assertEquals(1.25, biasIn("SHADOW"), 0.0)
+            assertEquals(1.0, biasIn("LIVE"), 0.0)
+            assertEquals(1.0, biasIn("UNKNOWN"), 0.0)
             assertTrue(AsyncStrategyLab.submitBackgroundHypothesis(AsyncStrategyLab.Provider.LOCAL_ONLY,
                 "MOONSHOT", "RUNNER_CAPTURE", "SIZE_UP", "revert on loss", symbolicChecked = false))
             assertEquals(1.0, AsyncStrategyLab.reviewedSizeBias("MOONSHOT", 70, "TREND"), 0.0)

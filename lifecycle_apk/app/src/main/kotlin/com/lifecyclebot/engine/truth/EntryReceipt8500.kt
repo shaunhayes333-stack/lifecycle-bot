@@ -84,8 +84,12 @@ object EntryReceipt8500 {
             restore8500()
             val openedAt = if (closeAtMs > 0L && holdingMs > 0L) closeAtMs - holdingMs else 0L
             val r = (if (positionId.isNotBlank()) open.remove(PID_8510 + positionId) else null)
-                // legacy mint-keyed receipt: only one taken at or before this position opened (never a newer re-entry's)
-                ?: open[mint]?.takeIf { openedAt <= 0L || it.atMs <= openedAt + 60_000L }?.also { open.remove(mint, it) }
+                // A legacy receipt has no position id. Without a corresponding open time a replay could
+                // consume any later position's receipt for this mint. Only the winning removal grades it.
+                ?: open[mint]?.takeIf { receipt ->
+                    openedAt > 0L && receipt.atMs in (openedAt - 60_000L)..minOf(openedAt + 60_000L, closeAtMs) &&
+                        open.remove(mint, receipt)
+                }
                 ?: run {
                     // V5.0.8510 — a close of a position opened before receipts existed (boot replay / history) is not a
                     // reconciliation failure; only a current-epoch close without its receipt is.

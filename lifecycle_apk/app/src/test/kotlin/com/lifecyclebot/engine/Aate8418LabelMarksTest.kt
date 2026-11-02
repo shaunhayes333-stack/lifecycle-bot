@@ -79,6 +79,18 @@ class Aate8418LabelMarksTest {
         assertEquals(listOf("SHADOW", "OLD", "ASKED_LONG_AGO"), ask)
     }
 
+    @Test fun delayedFallbackDoesNotGiveAnEarlierMarkANewObservationTime() {
+        val first = "FirstOffwatchResponse1111111111111111pump"
+        val second = "SecondOffwatchResponse111111111111111pump"
+        val t = System.currentTimeMillis()
+        ForwardReturnLabeler7731.noteOffWatchResponse(mapOf(first to 0.004), t)
+        ForwardReturnLabeler7731.noteOffWatchResponse(mapOf(second to 0.005), t + 60_000L)
+        assertNull(ForwardReturnLabeler7731.observedMark8372(first, t + 60_000L))
+        assertEquals(t + 60_000L, ForwardReturnLabeler7731.observedMark8372(second, t + 60_000L)!!.second)
+        ForwardReturnLabeler7731.noteOffWatchResponse(mapOf(second to 0.001), t)
+        assertEquals(0.005, ForwardReturnLabeler7731.observedMark8372(second, t + 60_000L)!!.first, 0.0)
+    }
+
     @Test fun aLaneAnswerBecomesTheLabelersObservedMarkAndNothingIsInvented() {
         KeylessMarks8359.resetForTests8359()
         val now = System.currentTimeMillis()

@@ -5,6 +5,8 @@ import java.math.BigInteger
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.SynchronousQueue
+import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -217,16 +219,22 @@ object StopFast8288 {
     // ── bounded quote corroboration ────────────────────────────────────────
 
     private val quotePool8288: ExecutorService by lazy {
-        java.util.concurrent.Executors.newCachedThreadPool { r -> Thread(r, "AATE-StopQuote-8288").apply { isDaemon = true } }
+        ThreadPoolExecutor(0, 4, 30L, TimeUnit.SECONDS, SynchronousQueue<Runnable>(),
+            java.util.concurrent.ThreadFactory { r -> Thread(r, "AATE-StopQuote-8288").apply { isDaemon = true } })
     }
 
-    /** [fn] bounded at [budgetMs] (null on timeout / failure; the slow call finishes off-thread). */
+    /** [fn] bounded at [budgetMs] (null on timeout / failure; never queue this optional read behind a stalled provider). */
     fun <T> bounded8288(budgetMs: Long, fn: () -> T?): T? {
-        val f = try { quotePool8288.submit(java.util.concurrent.Callable { fn() }) } catch (_: Throwable) { return null }
+        val f = try { quotePool8288.submit(java.util.concurrent.Callable { fn() }) } catch (_: java.util.concurrent.RejectedExecutionException) { return null }
         return try { f.get(budgetMs.coerceAtLeast(1L), TimeUnit.MILLISECONDS) } catch (_: java.util.concurrent.TimeoutException) {
+            f.cancel(true)
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("STOP_QUOTE_CHECK_TIMED_OUT_ALLOWED_8288") } catch (_: Throwable) {}
             null
-        } catch (_: Throwable) { null }
+        } catch (_: InterruptedException) {
+            f.cancel(true)
+            Thread.currentThread().interrupt()
+            null
+        } catch (_: java.util.concurrent.ExecutionException) { null }
     }
 
     internal fun resetForTest8288() { fallbacks8288.clear(); vetoed8288.clear() }

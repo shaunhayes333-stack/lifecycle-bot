@@ -9,6 +9,19 @@ import java.io.File
 class Aate8017RunnerCaptureTest {
     private fun src(p: String) = File("src/main/kotlin/com/lifecyclebot/$p").readText()
 
+    @Test fun paperCloseCannotReplaceALiveRunnerOutcomeOrSupplyItsEntry() {
+        val r = RunnerCapture8017.Run("mint", "SYM", "MOONSHOT", 1.0, 1000L, "")
+        fun close(mode: String, ret: Double, at: Long) = com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.Envelope(
+            tradeId = mode, positionId = mode, atMs = at, realizedPnlSol = 0.0, realizedReturnPct = ret,
+            mint = "mint", lane = "MOONSHOT", mode = mode, holdingTimeMs = 1000L)
+        r.holding("paper", false, 1000L, 9.0, 9.1)
+        r.closed(close("live", -3.0, 3000L))
+        r.closed(close("paper", 500.0, 4000L))
+        assertTrue(r.live)
+        assertEquals(-3.0, r.bankedPct, 0.0)
+        assertEquals(0.0, r.entryPx, 0.0)
+    }
+
     @Test fun entryIsMeasuredAgainstTheStartMark() {
         assertEquals(100.0, RunnerCapture8017.entryVsStart8017(2.0, 1.0), 1e-9)
         assertEquals(-50.0, RunnerCapture8017.entryVsStart8017(0.5, 1.0), 1e-9)

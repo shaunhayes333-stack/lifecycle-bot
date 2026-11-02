@@ -85,14 +85,18 @@ class Aate8329EntryEconomicsTest {
     }
 
     @Test fun consumedEdgeDecision() {
+        // Decision at 100, target 120, current quote 105. The remaining return is 14.29%, below the 15% hurdle.
+        assertEquals("EDGE_CONSUMED", EntryEconomics8329.consumed8329(5.0, 8.0, 20.0, 10.0, 1.5))
         assertNull("a cheaper quote never refuses", EntryEconomics8329.consumed8329(-3.0, 2.5, 20.0, 5.0))
+        assertEquals("a flat quote still has to pay any increased route cost", "EDGE_CONSUMED",
+            EntryEconomics8329.consumed8329(0.0, 2.5, 8.0, 10.0))
         assertNull("no move", EntryEconomics8329.consumed8329(0.0, 2.5, 20.0, 5.0))
         assertEquals("OVER_CAP", EntryEconomics8329.consumed8329(13.5, 8.0, 40.0, 5.0))
         assertEquals("EXHAUSTED_RALLY", EntryEconomics8329.consumed8329(0.5, Double.NaN, 40.0, 5.0))
         assertNull("inside the cap with the remaining move still 1.5x the round trip", EntryEconomics8329.consumed8329(6.0, 8.0, 30.0, 10.0))
         assertEquals("inside the cap but the remaining move no longer clears 1.5x the round trip", "EDGE_CONSUMED",
             EntryEconomics8329.consumed8329(6.0, 8.0, 20.0, 10.0))
-        assertNull("an unknown expected move or cost is not a refusal here (the admission economics already ran)",
+        assertEquals("the terminal quote requires a known remaining edge", "ECONOMICS_UNAVAILABLE",
             EntryEconomics8329.consumed8329(6.0, 8.0, Double.NaN, 10.0))
     }
 
@@ -109,18 +113,14 @@ class Aate8329EntryEconomicsTest {
 
     @Test fun chaseCheckSitsImmediatelyBeforeBroadcastOnBothLiveBuyRoutes() {
         val exec = src("engine/Executor.kt")
-        val jup = exec.indexOf("EntryEconomics8329.jupiterQuoteRefusal8329(ts, intent8198.canonicalLane, effectiveSol, jq7325)")
-        assertTrue("the Jupiter quote is checked after the SecurityGuard quote check", jup > 0)
-        val guard = exec.lastIndexOf("val qGuard = security.validateQuote(jq7325, isBuy = true, inputSol = sol)", jup)
-        val build = exec.indexOf("buildBuyTxOrRaydium8089(ts, wallet, sol, tradeKey, executionQuote7688, c, submission8397)", jup)
-        assertTrue("after the quote guard, before the swap is built / signed", guard in 1 until jup && build > jup)
-        val pump = exec.indexOf("EntryEconomics8329.markRefusal8329(ts, layerTag, pumpBuyPlan.solAmount)")
+        val jup = exec.indexOf("EntryEconomics8329.jupiterQuoteRefusal8329(ts, intent8198, effectiveSol, executionQuote7688)")
+        val refresh = exec.indexOf("executionQuote7688 = fresh7688")
+        val broadcast = exec.indexOf("return JupiterBuyPreparation8090(quote, txResult, raydiumBuy7325, useJito, jitoTip)")
+        assertTrue("the quote that survived simulation is checked", refresh in 1 until jup && jup < broadcast)
+        val pump = exec.indexOf("EntryEconomics8329.markRefusal8329(ts, sealedIntent7835, pumpBuyPlan.solAmount)")
         val pumpSend = exec.indexOf("val pumpFirstResult: Pair<String, Double>? = if (pumpBuyPlan == null) null else tryPumpPortalBuy(")
         assertTrue("the PumpPortal route is checked on the curve mark before its send", pump in 1 until pumpSend)
         val econ = src("engine/truth/EntryEconomics8329.kt")
-        assertTrue("both routes share one check", econ.contains("preBroadcastRefusal8329(ts, lane.orEmpty(), sizeSol, px, quote.priceImpactPct, \"JUPITER\")") &&
-            econ.contains("preBroadcastRefusal8329(ts, lane.orEmpty(), sizeSol, Double.NaN, 0.0, \"PUMPPORTAL\")"))
-        assertTrue("the decision price and time come from the admitted decision", econ.contains("ForwardReturnLabeler7731.decisionPx8094(ts.mint)"))
         assertTrue("the remaining move is judged at the pre-trade cost truth", econ.contains("NetEdge8030.preTradeCostPct8329(lane, sizeSol, liq, ts.mint, ts.lastMcap)"))
         assertTrue("a consumed entry is graded against what happened next", econ.contains("ForwardReturnLabeler7731.observe(ts, \"\$MISSED_LANE_PREFIX_8329\$lane\", false, label, nowMs)"))
         assertTrue("the structural re-entry re-arms it", econ.contains("StructureTracker7962.hlReclaim7962(ts.mint, nowMs)"))

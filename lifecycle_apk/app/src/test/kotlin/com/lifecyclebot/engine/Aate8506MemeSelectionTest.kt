@@ -51,6 +51,8 @@ class Aate8506MemeSelectionTest {
             assertNull(p.lane, t.entryWait8506(fit, bought))
         }
         val runner = TokenMetricStageRouter.LaneFit(true, "MOONSHOT", Stage.BASE_START, "")
+        assertEquals("RUG_PRONE", t.entryWait8506(runner.copy(stage = Stage.RUG_PRONE), bought.copy(buys = 0)))
+        assertEquals("STAGE_UNRESOLVED", t.entryWait8506(runner.copy(stage = Stage.UNKNOWN), bought.copy(buys = 0)))
         assertEquals("NO_IGNITION", t.entryWait8506(runner, bought.copy(move = -2.0, buys = 2)))
         assertEquals("NO_RECLAIM", t.entryWait8506(runner.copy(stage = Stage.DUMPING, allowed = false), bought))
         assertNull(t.entryWait8506(runner.copy(lane = "CASHGEN"), bought.copy(move = 0.0)))

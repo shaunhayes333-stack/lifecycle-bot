@@ -252,7 +252,7 @@ object NetEdge8030 {
         if (entryClears8030(expected, cost, margin8391(lane, entryTicket8151(), cost))) return null
         entryRefused.incrementAndGet()
         // V5.0.8418 — a sparse range whose wait is spent is still not the coin's hour: the refusal says so, not "too slow".
-        if (move.deferForHistory && move.basis == "RANGE_SPARSE") {
+        if (move.deferForHistory && (move.basis == "RANGE_SPARSE" || move.basis == "HISTORY_UNOBSERVED")) {
             try { PipelineHealthCollector.labelInc("${MOVE_UNOBSERVED_8418}_${lane.uppercase().take(16)}") } catch (_: Throwable) {}
             return MOVE_UNOBSERVED_8418
         }
@@ -489,8 +489,8 @@ object NetEdge8030 {
      * trip at this size and depth. Returns the refusal, or null.
      */
     fun cryptoEntryRefusal8042(change24hPct: Double, sizeSol: Double, liquidityUsd: Double): String? {
-        val mandate = try { FieldManual7715.mandateFor("CRYPTO_ALT").expectedGrossPct } catch (_: Throwable) { 12.0 }
-        val realized = kotlin.math.abs(change24hPct).takeIf { it.isFinite() }
+        val mandate = try { FieldManual7715.mandateFor("CRYPTO_ALT").expectedGrossPct } catch (_: Exception) { return "NET_EDGE_CRYPTO_MANDATE_UNAVAILABLE_8042" }
+        val realized = kotlin.math.abs(change24hPct).takeIf { it.isFinite() } ?: return "NET_EDGE_CRYPTO_MOVE_UNOBSERVED_8042"
         val cost = costPct8030("CRYPTO_ALT", sizeSol, liquidityUsd)
         if (entryClears8030(expectedMove8035(mandate, realized), cost, margin8391("CRYPTO_ALT", sizeSol, cost))) return null
         cryptoRefused8042.incrementAndGet()
@@ -519,9 +519,9 @@ object NetEdge8030 {
         return pricingDepth8171(canonical, dated)
     }
 
-    /** Pure: the move to expect — the lane's mandate, capped by what the coin is actually moving when that is known. */
+    /** A lane target caps a measured move. Without a measurement it supplies no estimate. */
     fun expectedMove8035(mandatePct: Double, realizedPct: Double?): Double =
-        if (realizedPct != null && realizedPct.isFinite() && realizedPct >= 0.0) minOf(mandatePct, realizedPct) else mandatePct
+        if (realizedPct != null && realizedPct.isFinite() && realizedPct >= 0.0) minOf(mandatePct, realizedPct) else Double.NaN
 
     /** Pure: the range (%) of [prices] (the last hour's prints), or null with fewer than [minPrints]. */
     fun rangePct8035(prices: List<Double>, minPrints: Int = 6): Double? {

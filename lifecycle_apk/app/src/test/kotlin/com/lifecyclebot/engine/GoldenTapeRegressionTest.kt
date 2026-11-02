@@ -5248,8 +5248,8 @@ class GoldenTapeRegressionTest {
     @Test
     fun treasury4327ConsumesUltimateEdgeCardsCacheOnly() {
         val cash = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/CashGenerationAI.kt").readText()
-        assertTrue("V5.0.4327: Treasury must consume cached UltimateEdge cards as bounded soft shaping", cash.contains("ULTIMATE_EDGE_TREASURY_CACHE_SHAPE_4327") && cash.contains("UltimateEdgeEngine.cached(mint, \"TREASURY\")") && cash.contains("edgeCard4327.sizeMult.coerceIn(0.90, 1.08)"))
-        assertTrue("V5.0.4327: Treasury open/close must warm UltimateEdge cards", cash.contains("UltimateEdgeEngine.enqueueRefresh(mint, symbol, \"TREASURY\"") && cash.contains("UltimateEdgeEngine.enqueueRefresh(mint, pos.symbol, \"TREASURY\""))
+        assertTrue("V5.0.4327: Treasury must consume cached UltimateEdge cards as bounded soft shaping", cash.contains("ULTIMATE_EDGE_TREASURY_CACHE_SHAPE_4327") && cash.contains("UltimateEdgeEngine.cached(mint, ownerLane)") && cash.contains("edgeCard4327.sizeMult.coerceIn(0.90, 1.08)"))
+        assertTrue("V5.0.4327: Treasury open/close must warm UltimateEdge cards", cash.contains("UltimateEdgeEngine.enqueueRefresh(mint, symbol, ownerLane") && cash.contains("UltimateEdgeEngine.enqueueRefresh(mint, pos.symbol, pos.ownerLane"))
     }
 
     @Test
@@ -11513,7 +11513,7 @@ class GoldenTapeRegressionTest {
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(ex.contains("val prepared8090 = if (pumpFirstResult == null) {"))
         assertTrue(ex.contains("prepareJupiterBuy8090(ts, wallet, sol, effectiveSol, tradeKey, c, ::buyTerminalFail, sealedIntent7835, submission8397)"))
-        assertTrue(ex.contains("raydiumBuy7325 = tryRaydiumBuy7325(ts, wallet, sol, tradeKey, submission8397)"))
+        assertTrue(ex.contains("raydiumBuy7325 = tryRaydiumBuy7325(ts, wallet, sol, tradeKey, submission8397, intent8198)"))
         assertTrue(ex.contains("val directFill7325 = pumpFirstResult ?: raydiumBuy7325"))
         assertTrue(ex.indexOf("raydiumBuy7325 = tryRaydiumBuy7325") in 0 until ex.indexOf("BUY ABORTED: all slippage levels failed"))
     }

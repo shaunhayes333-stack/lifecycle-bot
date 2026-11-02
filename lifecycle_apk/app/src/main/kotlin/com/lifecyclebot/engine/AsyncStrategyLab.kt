@@ -151,7 +151,13 @@ object AsyncStrategyLab {
         // FDG/Executor sizing, so never synchronize or scan proposal history here.
         return try {
             val laneKey = lane.uppercase().take(24)
-            (reviewedBiasByLane[laneKey] ?: reviewedBiasByLane["ALL"] ?: 1.0).coerceIn(0.60, 1.55)
+            val bias = (reviewedBiasByLane[laneKey] ?: reviewedBiasByLane["ALL"] ?: 1.0).coerceIn(0.60, 1.55)
+            // Symbolic review carries no attributed live after-cost result. Real-money growth is
+            // earned by the mode-specific outcome books and the live sizing authority.
+            when (LearningEnvironment7835.mode()) {
+                "PAPER", "SHADOW" -> bias
+                else -> bias.coerceAtMost(1.0)
+            }
         } catch (_: Throwable) { 1.0 }
     }
 

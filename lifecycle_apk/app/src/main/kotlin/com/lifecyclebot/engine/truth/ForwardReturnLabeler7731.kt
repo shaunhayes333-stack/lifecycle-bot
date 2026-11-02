@@ -2051,11 +2051,18 @@ object ForwardReturnLabeler7731 {
      */
     fun noteLaneMark8418(mint: String, px: Double, atMs: Long): Boolean {
         if (mint.isBlank() || !px.isFinite() || px <= 0.0 || atMs <= 0L) return false
-        val prior = offWatchMarks7737[mint]
-        if (prior != null && prior.second >= atMs) return false
-        offWatchMarks7737[mint] = px to atMs
+        val observation = px to atMs
+        val newest = offWatchMarks7737.compute(mint) { _, prior ->
+            if (prior != null && prior.second >= atMs) prior else observation
+        }
+        if (newest !== observation) return false
         if (offWatchMarks7737.size > MAX_OFFWATCH_MARKS_8418) offWatchMarks7737.entries.removeIf { atMs - it.value.second > MARK_MAX_AGE_MS_7731 }
         return true
+    }
+
+    /** Publish this network response immediately. A later fallback cannot change its receipt time. */
+    internal fun noteOffWatchResponse(prices: Map<String, Double>, receivedAtMs: Long = System.currentTimeMillis()) {
+        for ((mint, price) in prices) noteLaneMark8418(mint, price, receivedAtMs)
     }
 
     /** V5.0.8418 — the window an unpriced [o] must be priced in now (0 = none): re-base, each open horizon, the due checkpoint. */
@@ -2194,13 +2201,15 @@ object ForwardReturnLabeler7731 {
                         // against priced=7666; labels lost noSource=1519). The held-mark batch waits 200 ms; this background
                         // thread waits [LABEL_SLOT_WAIT_MS_8474], and a batch still refused is re-asked next pass, not written off.
                         val r8474 = try {
-                            com.lifecyclebot.network.DexscreenerApi().batchPriceFetchTyped8087(ask8418, LABEL_SLOT_WAIT_MS_8474)
+                            com.lifecyclebot.network.DexscreenerApi().batchPriceFetchTyped8087(ask8418, LABEL_SLOT_WAIT_MS_8474, heldMarkTraffic = false)
                         } catch (_: Throwable) { null }
                         if (r8474 == null || r8474.cause == com.lifecyclebot.network.DexscreenerApi.BatchCause8087.LIMITER_REFUSED) {
                             limiterRetry8474.addAll(ask8418)
                             continue
                         }
                         val dex8405 = r8474.prices.filter { it.value.isFinite() && it.value > 0.0 }
+                        // Dex returns a snapshot without a trade timestamp. Its receipt time belongs to this response.
+                        noteOffWatchResponse(dex8405)
                         got.putAll(dex8405)
                         if (dex8405.isNotEmpty()) PipelineHealthCollector.labelAdd("FORWARD_LABEL_OFFWATCH_DEX_PRICED_8217", dex8405.size.toLong())
                     }
@@ -2213,11 +2222,13 @@ object ForwardReturnLabeler7731 {
                     val missedJup8405 = batch.filter { it !in got }.take(50)
                     if (missedJup8405.isNotEmpty()) {
                         val jup = try { com.lifecyclebot.engine.sell.PriceResolverFallback.jupiterBatchPrices7737(missedJup8405) } catch (_: Throwable) { emptyMap() }
+                        noteOffWatchResponse(jup)
                         got.putAll(jup)
                         if (jup.isNotEmpty()) PipelineHealthCollector.labelAdd("FORWARD_LABEL_OFFWATCH_JUP_PRICED_8405", jup.size.toLong())
                     }
                     val at = System.currentTimeMillis()
-                    for ((m, px) in got) offWatchMarks7737[m] = px to at
+                    // Curve prices are already available through activeExitObservation, with the account observation time.
+                    // The end of a later fallback must never refresh earlier marks.
                     // V5.0.8474 — a coin our own limiter refused (and nothing else priced) is retried on the next pass.
                     val retry8474 = limiterRetry8474.filter { it !in got }
                     for (m in retry8474) offWatchAttemptAt7809.remove(m)
@@ -2714,7 +2725,7 @@ object ForwardReturnLabeler7731 {
             // V5.0.8017 — every 4x+ runner joined to the bot's own position (held? entry vs start? share banked?).
             // V5.0.8018 — a confirmed run (+100% over the decision price inside the hour) can earn a second entry.
             if (gross >= com.lifecyclebot.engine.RunnerPlay8018.RUN_CONFIRM_PCT_8018) try { com.lifecyclebot.engine.RunnerPlay8018.onRun8018(o.mint, gross, nowMs - o.atMs, nowMs) } catch (_: Throwable) {}
-            if (gross >= RunnerCapture8017.RUNNER_PEAK_PCT_8017 && gross > o.peakPct) try { RunnerCapture8017.onRunnerPeak8017(o.mint, o.symbol, o.lane, o.entryPrice, gross, if (o.admitted) "" else o.reason7967.take(40), nowMs) } catch (_: Throwable) {}
+            if (gross >= RunnerCapture8017.RUNNER_PEAK_PCT_8017 && gross > o.peakPct) try { RunnerCapture8017.onRunnerPeak8017(o.mint, o.symbol, o.lane, o.entryPrice, gross, if (o.admitted) "" else o.reason7967.take(40), nowMs, mark8386.observedAtMs) } catch (_: Throwable) {}
             if (gross > o.peakPct) { o.peakPct = gross; o.peakAtMs7955 = mark8386.observedAtMs; o.dipBeforePeak7962 = o.minPct7962 }
             // V5.0.8071 — the level the price held long enough to sell into.
             synchronized(o.recent8071) { o.heldPeak8071 = heldPeakStep8071(o.recent8071, mark8386.observedAtMs, gross, o.heldPeak8071); notePathHeld8366(o, mark8386.observedAtMs, gross) }

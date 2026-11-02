@@ -220,6 +220,7 @@ object CandidateAdmission8136 {
         val costMargin8391: Double = NetEdge8030.EDGE_MULT,
         /** Lifecycle prior already weighed against this decision's selected strategy. */
         val evaluatedStage: String = "",
+        val evaluatedEntryWait: String? = null,
     ) {
         val admitted: Boolean get() = terminal == Terminal8136.ADMIT
         val compact: String get() = "${terminal.name}:$reason${chosenSetup?.let { " setup=$it" } ?: ""} [${trace.joinToString("; ")}]"
@@ -454,7 +455,7 @@ object CandidateAdmission8136 {
         fun done(t: Terminal8136, reason: String, specific: Boolean, setup: String?, basis: String = ""): Decision8136 =
             Decision8136(t, reason, specific, setup, net, trace.toList(), basis.ifBlank { reason },
                 costPct = c.costPct, costSizeSol = c.costSizeSol, costBreakdown = c.costBreakdown, costMargin8391 = c.costMargin8391,
-                evaluatedStage = c.stage)
+                evaluatedStage = c.stage, evaluatedEntryWait = c.entryWait8506)
 
         // 1. hard safety and structural selling risk: nothing overrides them.
         c.safetyRefusal?.let { trace += "safety=$it"; return done(Terminal8136.REFUSE, "SAFETY_REFUSED_8136", true, c.selectedSetup) }

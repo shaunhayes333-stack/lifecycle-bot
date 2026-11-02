@@ -28815,6 +28815,7 @@ if (hotExitHandledSweep) {
                             priceSource = ts.lastPriceSource,
                             priceDex = ts.lastPriceDex,
                             tokenAgeMinutes = tokenAge,
+                            ownerLane = compounderLane7614,
                         )
                         val treasuryBridge6022 = if (!treasurySignal.shouldEnter) toolkitGoodLaneBridge6022(ts, compounderLane7614, treasurySignal.reason) else null
                         val treasurySignal6022 = if (treasuryBridge6022 != null) treasurySignal.copy(
@@ -29323,6 +29324,7 @@ if (hotExitHandledSweep) {
                                     stopLossPct = effectiveSlPct,     // V5.2.8: Use effective SL
                                     entryScore = treasurySignal6022.entryScore,  // V5.9.436
                                     isPaper = ts.position.isPaperPosition,
+                                    ownerLane = compounderLane7614,
                                 )
                                 
                                 // V5.6.8 FIX: Notify V3 exposure guards of new position
@@ -33458,24 +33460,12 @@ if (hotExitHandledSweep) {
             if (treasuryPos == null && ts.position.isOpen) {
                 // V5.5 RECOVERY: CashGenerationAI's in-memory map is empty after restart.
                 // Re-register the position from persisted ts.position data so checkExit works.
-                val recTpPct = if (ts.position.treasuryTakeProfit > 0) ts.position.treasuryTakeProfit else 4.0
-                val recSlPct = if (ts.position.treasuryStopLoss < 0) ts.position.treasuryStopLoss else -4.0
-                // V5.9.200: Use raw treasuryEntryPrice if saved — not slippage-affected entryPrice
-                val recEntryPrice = if (ts.position.treasuryEntryPrice > 0) ts.position.treasuryEntryPrice
-                                   else ts.position.entryPrice
-                com.lifecyclebot.v3.scoring.CashGenerationAI.openPosition(
-                    mint = ts.mint,
-                    symbol = ts.symbol,
-                    entryPrice = recEntryPrice,
-                    positionSol = ts.position.costSol,
-                    takeProfitPct = recTpPct,
-                    stopLossPct = recSlPct,
-                    isPaper = ts.position.isPaperPosition,
-                )
-                treasuryPos = com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePosition(ts.mint, isPaper = ts.position.isPaperPosition)
-                ErrorLogger.warn("BotService",
-                    "💰 [TREASURY RECOVERY] ${ts.symbol} | Re-registered in CashGenerationAI | " +
-                    "entry=${ts.position.entryPrice} tp=$recTpPct% sl=$recSlPct%")
+                val ownerLane = if (ts.position.tradingMode.equals("CASHGEN", true)) "CASHGEN" else "TREASURY"
+                val recovered = com.lifecyclebot.v3.scoring.CashGenerationAI.recoveredPosition(
+                    ts.mint, ts.symbol, ts.position, ownerLane, currentPrice, 4.0, -4.0)
+                com.lifecyclebot.v3.scoring.CashGenerationAI.restorePosition(recovered, ts.position.isPaperPosition)
+                treasuryPos = recovered
+                ErrorLogger.warn("BotService", "Restored $ownerLane tracker for ${ts.symbol} at ${recovered.entryPrice}")
                 // V5.9.495z39 P1 — operator spec item 5: re-registered
                 // treasury positions MUST NOT trigger an immediate TP sell
                 // until chain basis is loaded AND a live profitable quote is

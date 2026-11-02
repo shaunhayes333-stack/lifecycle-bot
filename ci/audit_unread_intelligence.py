@@ -3,8 +3,12 @@
 Excludes god-objects (internal helpers legitimately stay in-file) and
 keeps only getter/query-shaped functions — the ones whose entire purpose is
 to be consumed by a decision path."""
+import argparse
 import os,re
 from collections import defaultdict
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--full", action="store_true", help="show every flagged module and query")
+args = parser.parse_args()
 ROOT="lifecycle_apk/app/src/main/kotlin/com/lifecyclebot"
 GOD={"engine/Executor.kt","engine/BotService.kt","ui/MainActivity.kt","engine/FinalDecisionGate.kt"}
 files=[]
@@ -43,8 +47,11 @@ for p,t in raw.items():
     if dead: rows.append((owner,rel,len(q),dead,len(t.splitlines())))
 rows.sort(key=lambda r:(-len(r[3]),-r[4]))
 tot=sum(len(r[3]) for r in rows)
-print(f"intelligence modules with UNREAD analysis outputs: {len(rows)}")
+print(f"intelligence modules with candidate unread analysis outputs: {len(rows)}")
 print(f"TOTAL unread query/analysis functions: {tot}\n")
-for owner,rel,nq,dead,lines in rows[:40]:
+for owner,rel,nq,dead,lines in (rows if args.full else rows[:40]):
     print(f"{owner:34s} {len(dead):2d}/{nq:2d} unread  L={lines:5d}  {rel}")
+    if args.full:
+        print("     " + ", ".join(dead))
+        continue
     print(f"     {', '.join(dead[:8])}{' …' if len(dead)>8 else ''}")

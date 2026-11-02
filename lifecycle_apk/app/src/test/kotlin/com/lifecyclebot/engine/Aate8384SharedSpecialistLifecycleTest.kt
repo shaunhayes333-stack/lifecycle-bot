@@ -143,6 +143,22 @@ class Aate8384SharedSpecialistLifecycleTest {
         assertEquals(TacticSwitcher.Tactic.REACCUMULATION, TacticSwitcher.seedTactic8049("CORE", "SWEET_SPOT_8383"))
         assertEquals(TacticSwitcher.Tactic.REACCUMULATION, TacticSwitcher.seedTactic8049("CYCLIC", "DEEP_RATIO_8383"))
     }
+    @Test fun recoveredCompounderRetainsArmedTrailThroughRetracement() {
+        val ai = com.lifecyclebot.v3.scoring.CashGenerationAI
+        for ((owner, paper) in listOf("CASHGEN" to true, "TREASURY" to false)) {
+            val mint = "fixture-trail-$owner"
+            val position = Position(entryPrice = 100.0, highestPrice = 114.0, costSol = 0.03,
+                entryTime = System.currentTimeMillis() - 60_000, isPaperPosition = paper)
+            val tracker = ai.recoveredPosition(mint, owner, position, owner, 105.0, 15.0, -8.0)
+            ai.restorePosition(tracker, paper)
+            try {
+                assertEquals(104.88, tracker.trailingStop, 1e-9)
+                assertEquals(com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.HOLD, ai.checkExit(mint, 105.0, paper))
+                assertEquals(com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TRAILING_STOP, ai.checkExit(mint, 104.0, paper))
+            } finally { ai.evictGhost(mint, paper) }
+        }
+    }
+
     @Test fun persistedPositionCodecRetainsManagementCooldownAndImmutableLineage() {
         val values = mutableMapOf<String, Any?>()
         val editor = Proxy.newProxyInstance(SharedPreferences.Editor::class.java.classLoader, arrayOf(SharedPreferences.Editor::class.java)) { proxy, method, args ->
@@ -167,6 +183,11 @@ class Aate8384SharedSpecialistLifecycleTest {
             val ts = sealedToken()
             ts.position.lastManagementSwitchAtMs8384 = 90_000; ts.position.modeHistory = "CORE>MOONSHOT"
             ts.position.entryPolicySnapshot = "sealed-policy8384"; ts.styleHoldMult = 1.8; ts.styleTpMult = 1.4
+            ts.position.tradingMode = "CASHGEN"
+            ts.position.isTreasuryPosition = true
+            ts.position.treasuryTakeProfit = 13.0
+            ts.position.treasuryStopLoss = -3.0
+            ts.position.treasuryEntryPrice = 2.0
             PositionPersistence.savePosition(ts)
             val raw = values.values.filterIsInstance<String>().first { it.startsWith("[") }
             val j = JSONArray(raw).getJSONObject(0)
@@ -176,6 +197,16 @@ class Aate8384SharedSpecialistLifecycleTest {
             val rows = load.invoke(PositionPersistence) as Map<*, *>
             val row = rows[ts.mint]!!
             fun get(name: String) = row.javaClass.getMethod(name).invoke(row)
+            assertEquals("CASHGEN", get("getTradingMode"))
+            assertEquals(13.0, get("getTreasuryTakeProfit") as Double, 0.0)
+            assertEquals(-3.0, get("getTreasuryStopLoss") as Double, 0.0)
+            assertEquals(2.0, get("getTreasuryEntryPrice") as Double, 0.0)
+            val recovered = com.lifecyclebot.v3.scoring.CashGenerationAI.recoveredPosition(
+                ts.mint, ts.symbol, ts.position, "CASHGEN", 3.0, 8.0, -6.0)
+            assertEquals("CASHGEN", recovered.ownerLane)
+            assertEquals(ts.position.entryTime, recovered.entryTime)
+            assertEquals(2.26, recovered.targetPrice, 1e-12)
+            assertEquals(1.94, recovered.stopPrice, 1e-12)
             assertEquals(ts.position.positionId, get("getPositionId8384"))
             assertEquals("sealed-policy8384", get("getEntryPolicySnapshot8384"))
             assertEquals(90_000L, get("getLastManagementSwitchAtMs8384"))

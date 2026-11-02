@@ -425,11 +425,11 @@ object TokenMetricStageRouter {
     }
 
     internal fun entryWait8506(fit: LaneFit, flow: EntryFlow8506?): String? = when {
-        flow == null -> "FLOW_UNOBSERVED"
-        !flow.active -> "NO_BUY_VOLUME"
-        fit.stage == Stage.UNKNOWN -> "STAGE_UNRESOLVED"
-        fit.stage == Stage.NO_SETUP -> "NO_PHASE_TRIGGER"
         fit.stage == Stage.RUG_PRONE -> "RUG_PRONE"
+        flow == null -> "FLOW_UNOBSERVED"
+        fit.stage == Stage.UNKNOWN -> "STAGE_UNRESOLVED"
+        !flow.active -> "NO_BUY_VOLUME"
+        fit.stage == Stage.NO_SETUP -> "NO_PHASE_TRIGGER"
         fit.stage in setOf(Stage.DUMPING, Stage.PEAK_EXHAUSTION) && !fit.allowed -> "NO_RECLAIM"
         fit.lane in setOf("EXPRESS", "MOONSHOT", "SHITCOIN", "PROJECT_SNIPER", "MANIPULATED") &&
             flow.move <= 0.0 && flow.buyPct <= 50.0 -> "NO_IGNITION"

@@ -10,6 +10,7 @@ Pure Python, no network. `python3 ci/runner_replay_8432.py <traces.jsonl> [--min
 """
 import argparse
 import json
+import math
 import sys
 from collections import Counter, defaultdict
 
@@ -17,6 +18,10 @@ MIN_PEAK_DEFAULT = 300.0        # a 4x runner: +300 % peak over the decision pri
 
 SAFETY_WORDS = ("SAFETY", "RUG", "HONEYPOT", "FREEZE", "MINT_AUTH", "HARD_BLOCK", "BEHAVIOR_BLOCK", "SELLABILITY", "QUARANTIN")
 DATA_WORDS = ("DATA_INCOMPLETE", "DEFER", "UNHYDRATED", "UNREAD", "HYDRATING", "WAIT")
+
+
+def finite_number(value):
+    return type(value) in (int, float) and math.isfinite(value)
 
 
 def classify_8432(t):
@@ -34,7 +39,11 @@ def classify_8432(t):
     depth = t.get("exitDepthUsd")
     net = t.get("expectedNetPct")
     route = (t.get("route") or "").strip()
-    evidenced = hard_ok and isinstance(depth, (int, float)) and depth > 0 and isinstance(net, (int, float)) and net > 0 and route
+    window = t.get("windowAtMs")
+    if not finite_number(window) or window <= 0 or not route:
+        return "DATA_GAP", door
+    # RunnerTraceReclass8331.LIVE_EXIT_FLOOR_USD_8331 at the recorded decision window.
+    evidenced = hard_ok and finite_number(depth) and depth >= 500 and finite_number(net) and net > 0
     return ("WRONGLY_REFUSED" if evidenced else "CORRECT_UNPROVEN"), door
 
 
@@ -70,7 +79,7 @@ def replay_8432(rows, min_peak=MIN_PEAK_DEFAULT, lane=None):
     by_lane = defaultdict(Counter)
     for t in rows:
         peak = t.get("peakPct")
-        if not isinstance(peak, (int, float)) or peak < min_peak:
+        if not finite_number(peak) or peak < min_peak:
             continue
         if lane and (t.get("lane") or "").upper() != lane.upper():
             continue
