@@ -88,13 +88,15 @@ class Aate8329EntryEconomicsTest {
         // Decision at 100, target 120, current quote 105. The remaining return is 14.29%, below the 15% hurdle.
         assertEquals("EDGE_CONSUMED", EntryEconomics8329.consumed8329(5.0, 8.0, 20.0, 10.0, 1.5))
         assertNull("a cheaper quote never refuses", EntryEconomics8329.consumed8329(-3.0, 2.5, 20.0, 5.0))
+        assertEquals("a flat quote still has to pay any increased route cost", "EDGE_CONSUMED",
+            EntryEconomics8329.consumed8329(0.0, 2.5, 8.0, 10.0))
         assertNull("no move", EntryEconomics8329.consumed8329(0.0, 2.5, 20.0, 5.0))
         assertEquals("OVER_CAP", EntryEconomics8329.consumed8329(13.5, 8.0, 40.0, 5.0))
         assertEquals("EXHAUSTED_RALLY", EntryEconomics8329.consumed8329(0.5, Double.NaN, 40.0, 5.0))
         assertNull("inside the cap with the remaining move still 1.5x the round trip", EntryEconomics8329.consumed8329(6.0, 8.0, 30.0, 10.0))
         assertEquals("inside the cap but the remaining move no longer clears 1.5x the round trip", "EDGE_CONSUMED",
             EntryEconomics8329.consumed8329(6.0, 8.0, 20.0, 10.0))
-        assertNull("an unknown expected move or cost is not a refusal here (the admission economics already ran)",
+        assertEquals("the terminal quote requires a known remaining edge", "ECONOMICS_UNAVAILABLE",
             EntryEconomics8329.consumed8329(6.0, 8.0, Double.NaN, 10.0))
     }
 

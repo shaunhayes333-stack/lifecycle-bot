@@ -154,6 +154,7 @@ object ExecutableOpenGate {
         val cortexLearningIdentity8372: String = "",
         /** V5.0.8418 — the SPOT multiple sealed with this ticket (leveraged tokenized trades); 1 = none. */
         val spotScaleLeverage8418: Double = 1.0,
+        val admissionProof: com.lifecyclebot.engine.truth.AdmissionEdge8180.Proof8198? = null,
     ) {
         /** V5.0.8418 — the SOL notional the executor may submit and record for this ticket. */
         val sealedSpotNotionalSol8418: Double get() = resolvedSize * spotScaleLeverage8418
@@ -2412,6 +2413,8 @@ object ExecutableOpenGate {
                         )
                     }
                     val entryMark7096 = entryMarkResolution7465.mark
+                    val admissionProof = com.lifecyclebot.engine.truth.AdmissionEdge8180.proof8198(
+                        mode6512, mint, canonicalLane6519, winner.candidateVersion)
                     var intentPublished7096 = false
                     try {
                         publishFdgIntent6519(
@@ -2438,9 +2441,8 @@ object ExecutableOpenGate {
                             decisionAuthorityId6613 = "FDG_AUTH:${immutableAuthority6519?.authorityVersion ?: winner.candidateVersion}",
                             fdgDecisionId6613 = "${mode6512}:${mint}:${winner.candidateVersion}:${canonicalLane6519}",
                             fdgEvidence6613 = "fdgCan=true;preFdg=${winner.preFdgVerdict};safety=${winner.safetyTier};hardNo=0",
-                            runnerEntry = com.lifecyclebot.engine.truth.AdmissionEdge8180.proof8198(
-                                mode6512, mint, canonicalLane6519, winner.candidateVersion)
-                                ?.let { it.specificEdge && it.basis.startsWith("RUNNER_GRAB:") } == true,
+                            admissionProof = admissionProof,
+                            runnerEntry = admissionProof?.let { it.specificEdge && it.basis.startsWith("RUNNER_GRAB:") } == true,
                             expiresAtMs6613 = System.currentTimeMillis() + if (paperRuntime)
                                 // V5.0.6626 §RUNTIME_LOOP_UNCHOKE §2 — adaptive TTL on fresh ticket seal.
                                 com.lifecyclebot.engine.truth.AdaptiveTicketTtl6626.paperTicketTtlMs6626()

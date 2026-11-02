@@ -143,11 +143,12 @@ object EntryEconomics8329 {
      * this size. A cheaper or unchanged quote never refuses.
      */
     fun consumed8329(movePct: Double, capPct: Double, expectedGrossPct: Double, costPct: Double, margin: Double = NetEdge8030.EDGE_MULT): String? {
-        if (!movePct.isFinite() || movePct <= 0.0) return null
-        if (!capPct.isFinite()) return "EXHAUSTED_RALLY"
+        if (!movePct.isFinite()) return "PRICE_INCOMPARABLE"
+        if (movePct > 0.0 && !capPct.isFinite()) return "EXHAUSTED_RALLY"
         if (movePct > capPct) return "OVER_CAP"
-        if (!expectedGrossPct.isFinite() || !costPct.isFinite()) return null
-        val remainingPct = (expectedGrossPct - movePct) / (1.0 + movePct / 100.0)
+        if (!expectedGrossPct.isFinite() || !costPct.isFinite()) return "ECONOMICS_UNAVAILABLE"
+        val chase = movePct.coerceAtLeast(0.0)
+        val remainingPct = (expectedGrossPct - chase) / (1.0 + chase / 100.0)
         return if (NetEdge8030.entryClears8030(remainingPct, costPct, margin)) null else "EDGE_CONSUMED"
     }
 
@@ -192,14 +193,15 @@ object EntryEconomics8329 {
             labelInc("ENTRY_CHASE_REARMED_HL_RECLAIM_8329_$lane")
         }
         val setup = try { TradePlan7739.freshPlan7783(ts.mint, nowMs)?.setup } catch (_: Throwable) { null }
-        val sel = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, lane, nowMs) } catch (_: Throwable) { null }
+        val sel = intent.admissionProof?.chosenSetup
+            ?: try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, lane, nowMs) } catch (_: Throwable) { null }
         val tactic = try { com.lifecyclebot.engine.learning.TacticSwitcher.seedTactic8049(lane, sel) } catch (_: Throwable) { null }
         val snap = try { com.lifecyclebot.engine.TokenMetricStageRouter.snapshot(ts) } catch (_: Throwable) { null }
         val exhausted = snap != null &&
             (try { LiveEdgeGate7877.chasing8065(snap.runupFromLocalLowPct, snap.currentVsPeak, ts.lastPriceChange5m) } catch (_: Throwable) { false })
         val liq = try { LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) { ts.lastLiquidityUsd }
         val cost = try { NetEdge8030.preTradeCostPct8329(lane, sizeSol, liq, ts.mint, ts.lastMcap) } catch (_: Throwable) { Double.NaN }
-        val expected = NetEdge8030.expectedGrossFor8153(ts, lane, sel, cost)
+        val expected = intent.admissionProof?.expectedGrossPct ?: NetEdge8030.expectedGrossFor8153(ts, lane, sel, cost)
         if (!expected.isFinite() || !cost.isFinite()) return "ENTRY_CHASE_ECONOMICS_UNAVAILABLE_$lane"
         val cap = chaseCapPct8329(setup, tactic, exhausted)
         val why = consumed8329(move, cap, expected, cost, NetEdge8030.margin8391(lane, sizeSol, cost))
