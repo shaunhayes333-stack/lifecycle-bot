@@ -74,6 +74,7 @@ class Aate8167PipelineRepairTest {
             val quote = com.lifecyclebot.network.SwapQuote(org.json.JSONObject(), 4_000_000L, 0.1,
                 inputMint = com.lifecyclebot.network.JupiterApi.SOL_MINT, outputMint = ts.mint, inAmount = 50_000_000L)
             assertEquals(1.25, q.quotePrice8167(quote.inAmount, quote.outAmount, 6, 100.0, ts.lastPrice), 1e-12)
+            assertEquals("PRE_BROADCAST_QUOTE_PRICE_UNAVAILABLE", q.preBroadcastQuoteRefusal8167(ts, 0.05, quote, 0.0))
             assertEquals("PRE_BROADCAST_NET_EV_NONPOSITIVE_8153", q.preBroadcastQuoteRefusal8167(ts, 0.05, quote, 100.0))
         }
     }
@@ -82,8 +83,8 @@ class Aate8167PipelineRepairTest {
         val q = SizingQuoteRecheck8153
         assertEquals(1.25, q.quotePrice8167(50_000_000L, 4_000_000_000L, 9, 100.0, 1.0), 1e-12)
         assertEquals(1.0, q.quotePrice8167(50_000_000L, 10_000_000L, 6, 100.0, 1.0), 0.0)
-        assertEquals(1.0, q.quotePrice8167(50_000_000L, 4_000_000L, null, 100.0, 1.0), 0.0)
-        assertEquals(1.0, q.quotePrice8167(50_000_000L, 0L, 6, 100.0, 1.0), 0.0)
+        assertTrue(q.quotePrice8167(50_000_000L, 4_000_000L, null, 100.0, 1.0).isNaN())
+        assertTrue(q.quotePrice8167(50_000_000L, 0L, 6, 100.0, 1.0).isNaN())
         val seal = SizingQuoteRecheck8153.SealedEconomics8153(0.05, 12.0, 30.0, 4.0, 0.1, 1.0, 1000L)
         assertEquals("PRE_BROADCAST_PRICE_DISCONTINUITY_8167", q.recheck8153(seal, 0.05, 50_000_000L, 0.1, 5.0, 2000L))
         assertNull(q.recheck8153(seal, 0.05, 50_000_000L, 0.1, 1.01, 2000L))

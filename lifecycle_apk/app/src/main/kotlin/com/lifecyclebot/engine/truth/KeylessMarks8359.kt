@@ -85,8 +85,10 @@ object KeylessMarks8359 {
         val m = mint.trim()
         if (m.length !in 32..44 || windowEndMs <= nowMs) return
         val until = minOf(windowEndMs, nowMs + MAX_HOLD_MS_8359)
-        val prior = labelWanted8418.put(m, maxOf(until, labelWanted8418[m] ?: 0L))
-        if (prior == null || prior <= nowMs) labelNoted8418.incrementAndGet()
+        labelWanted8418.compute(m) { _, previous ->
+            if (previous == null || previous <= nowMs) labelNoted8418.incrementAndGet()
+            maxOf(until, previous ?: 0L)
+        }
         if (labelWanted8418.size > MAX_LABEL_WANTED_8418) pruneLabel8418(nowMs)
         maybeTick8359(nowMs)
     }
@@ -276,8 +278,8 @@ object KeylessMarks8359 {
         labelWanted8418.entries.removeIf { it.value <= nowMs }
         if (labelWanted8418.size > MAX_LABEL_WANTED_8418) {
             // the windows that close last leave first: the soonest-closing are the ones a mark can still save
-            labelWanted8418.entries.sortedByDescending { it.value }.take(labelWanted8418.size - MAX_LABEL_WANTED_8418)
-                .forEach { labelWanted8418.remove(it.key) }
+            labelWanted8418.entries.sortedByDescending { it.value }.take((labelWanted8418.size - MAX_LABEL_WANTED_8418).coerceAtLeast(0))
+                .forEach { labelWanted8418.remove(it.key, it.value) }
         }
         labelLaneAskedAt8418.keys.removeIf { !labelWanted8418.containsKey(it) }
         labelCurveMarkMs8418.keys.removeIf { !labelWanted8418.containsKey(it) }
@@ -286,7 +288,7 @@ object KeylessMarks8359 {
     private fun prune8359(nowMs: Long) {
         wanted.entries.removeIf { it.value <= nowMs }
         if (wanted.size > MAX_WANTED_8359) {
-            wanted.entries.sortedBy { it.value }.take(wanted.size - MAX_WANTED_8359).forEach { wanted.remove(it.key) }
+            wanted.entries.sortedBy { it.value }.take((wanted.size - MAX_WANTED_8359).coerceAtLeast(0)).forEach { wanted.remove(it.key, it.value) }
         }
         lastCurveMarkMs.keys.removeIf { !wanted.containsKey(it) }
     }

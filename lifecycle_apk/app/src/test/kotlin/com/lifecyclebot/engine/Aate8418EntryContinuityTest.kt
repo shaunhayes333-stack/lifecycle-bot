@@ -25,6 +25,16 @@ class Aate8418EntryContinuityTest {
         aq: EntryContinuity8418.Quote8418? = q(), eq: EntryContinuity8418.Quote8418? = q(),
     ) = EntryContinuity8418.refusal8418(approved, current, mint, spent, px, aq, eq)
 
+    @Test fun terminalChaseUsesTheSealedGenerationAndRequiresComparablePrices() {
+        val token = com.lifecyclebot.data.TokenState(mint)
+        val decision = intent().copy(executableMarkTimestampMs6613 = now - 100L)
+        fun checkChase(ticket: ExecutableOpenGate.ExecutionIntent, quote: Double): String? =
+            com.lifecyclebot.engine.truth.EntryEconomics8329.preBroadcastRefusal8329(token, ticket, 0.04, quote, 0.0, "JUPITER", now)
+        assertEquals("ENTRY_CHASE_DECISION_STALE_QUALITY", checkChase(decision.copy(expiresAtMs6613 = now), 0.001))
+        assertEquals("ENTRY_CHASE_DECISION_STALE_QUALITY", checkChase(decision.copy(mint = "other"), 0.001))
+        assertEquals("ENTRY_CHASE_PRICE_INCOMPARABLE_QUALITY", checkChase(decision, 0.01))
+    }
+
     @Test fun theApprovedOrderPasses() {
         assertNull(check())
         assertNull("a cheaper fill is no mismatch", check(px = 0.0009))
@@ -57,6 +67,7 @@ class Aate8418EntryContinuityTest {
     }
 
     @Test fun priceStaysInsideTheChaseBound() {
+        assertEquals("ENTRY_CONTINUITY_8418_PRICE_UNAVAILABLE", check(px = Double.NaN))
         assertEquals("ENTRY_CONTINUITY_8418_PRICE", check(px = 0.00116))
         assertNull(check(px = 0.00114))
         assertEquals("ENTRY_CONTINUITY_8418_PRICE_UNAPPROVED",

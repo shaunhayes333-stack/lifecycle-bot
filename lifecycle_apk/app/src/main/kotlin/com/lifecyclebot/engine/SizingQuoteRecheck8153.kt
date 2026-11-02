@@ -66,19 +66,18 @@ object SizingQuoteRecheck8153 {
 
     /** Final buy quote price, with observed decimals only; a cheaper quote never cancels a newer adverse mark. */
     internal fun quotePrice8167(inLamports: Long, outRaw: Long, decimals: Int?, solUsd: Double, markUsd: Double): Double {
-        val mark = markUsd.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
-        if (inLamports <= 0L || outRaw <= 0L || decimals == null || decimals !in 0..18 || !solUsd.isFinite() || solUsd <= 0.0) return mark
-        val quote = (inLamports.toDouble() / 1_000_000_000.0) * solUsd * Math.pow(10.0, decimals.toDouble()) / outRaw.toDouble()
-        return if (quote.isFinite() && quote > 0.0) maxOf(mark, quote) else mark
+        val quote = com.lifecyclebot.engine.truth.EntryEconomics8329.quotePxUsd8329(
+            inLamports / 1_000_000_000.0, outRaw, decimals, solUsd)
+        if (!quote.isFinite() || quote <= 0.0) return Double.NaN
+        return maxOf(markUsd.takeIf { it.isFinite() } ?: 0.0, quote)
     }
 
     /** Executor's final SOL-to-token quote: no price inferred from the cached mark or guessed decimal scale. */
     fun preBroadcastQuoteRefusal8167(ts: com.lifecyclebot.data.TokenState, executedSol: Double, quote: com.lifecyclebot.network.SwapQuote, solUsd: Double = WalletManager.freshSolPrice8163(), intent8198: ExecutableOpenGate.ExecutionIntent? = null): String? {
         if (quote.inputMint != com.lifecyclebot.network.JupiterApi.SOL_MINT || quote.outputMint != ts.mint) return "PRE_BROADCAST_QUOTE_IDENTITY_MISMATCH_8198"
         if (quote.inAmount <= 0L || quote.outAmount <= 0L) return "PRE_BROADCAST_QUOTE_AMOUNT_INVALID_8198"
-        val price = if (quote.inputMint == com.lifecyclebot.network.JupiterApi.SOL_MINT && quote.outputMint == ts.mint)
-            quotePrice8167(quote.inAmount, quote.outAmount, ts.tokenMap.decimals, solUsd, ts.lastPrice)
-        else ts.lastPrice
+        val price = quotePrice8167(quote.inAmount, quote.outAmount, ts.tokenMap.decimals, solUsd, ts.lastPrice)
+        if (!price.isFinite()) return "PRE_BROADCAST_QUOTE_PRICE_UNAVAILABLE"
         return preBroadcastRefusal8153(ts.mint, executedSol, quote.inAmount, quote.priceImpactPct, ts.lastPrice, price, intent8198)
     }
 

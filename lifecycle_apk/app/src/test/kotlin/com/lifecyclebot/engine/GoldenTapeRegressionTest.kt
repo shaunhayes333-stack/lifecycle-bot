@@ -11513,7 +11513,7 @@ class GoldenTapeRegressionTest {
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(ex.contains("val prepared8090 = if (pumpFirstResult == null) {"))
         assertTrue(ex.contains("prepareJupiterBuy8090(ts, wallet, sol, effectiveSol, tradeKey, c, ::buyTerminalFail, sealedIntent7835, submission8397)"))
-        assertTrue(ex.contains("raydiumBuy7325 = tryRaydiumBuy7325(ts, wallet, sol, tradeKey, submission8397)"))
+        assertTrue(ex.contains("raydiumBuy7325 = tryRaydiumBuy7325(ts, wallet, sol, tradeKey, submission8397, intent8198)"))
         assertTrue(ex.contains("val directFill7325 = pumpFirstResult ?: raydiumBuy7325"))
         assertTrue(ex.indexOf("raydiumBuy7325 = tryRaydiumBuy7325") in 0 until ex.indexOf("BUY ABORTED: all slippage levels failed"))
     }
