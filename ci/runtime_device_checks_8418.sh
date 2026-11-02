@@ -98,11 +98,15 @@ pipeline_report() {  # output-file -> 0 when a generated report carrying the §8
             for path in $(since "$m" | grep -o 'PIPELINE_REPORT_FILE_WRITTEN_6401 *path=[^ ]*' | sed 's/.*path=//'); do
                 if adb shell run-as "$PKG" cat "$path" > "$out.part" 2>/dev/null && [ -s "$out.part" ]; then
                     mv "$out.part" "$out"
-                    if grep -q '§8324 restore without reset' "$out"; then adb shell input keyevent KEYCODE_BACK; return 0; fi
+                    # V5.0.8511a — a watchdog PARTIAL (the full builder still running, last line = stalled section) is kept
+                    # only as a fallback: the full report the builder writes later is waited for until the deadline.
+                    if grep -q '§8324 restore without reset' "$out" && ! grep -q 'PARTIAL FULL REPORT' "$out"; then adb shell input keyevent KEYCODE_BACK; return 0; fi
+                    grep -q '§8324 restore without reset' "$out" && cp "$out" "$out.partial"
                 fi
             done
             sleep 5
         done
+        if [ -s "$out.partial" ]; then echo "report attempt $attempt: only a watchdog partial within 150s; retrying for the full report"; fi
         echo "report attempt $attempt: no generated report with the §8324 store line within 150s"
         adb shell input keyevent KEYCODE_BACK
         sleep 5
