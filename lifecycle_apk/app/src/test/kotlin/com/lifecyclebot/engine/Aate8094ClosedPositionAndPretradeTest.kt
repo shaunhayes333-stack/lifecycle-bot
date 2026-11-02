@@ -528,7 +528,7 @@ class Aate8094ClosedPositionAndPretradeTest {
 
     @Test fun heldMarksCurveTicksAndRentReclaimNameOrRecoverTheirFailures() {
         // Held-position marks are exit traffic: a scanner lockout on the shared host can no longer starve them.
-        assertTrue(src("network/DexscreenerApi.kt").contains("val body = get8095(url, exit8095 = slotWaitMs7948 > 0L)"))
+        assertTrue(src("network/DexscreenerApi.kt").contains("val body = get8095(url, exit8095 = heldMarkTraffic)"))
         assertTrue(src("network/DexscreenerApi.kt").contains("header(ExitHttpScope7314.HEADER, \"held-marks\")"))
         // Curve ticks: refused subscribes are counted and named; unanswered ones are re-sent.
         val ct = src("network/CurveTicks7968.kt")

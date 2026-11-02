@@ -21,7 +21,7 @@ class Aate8474LabelCoverageTest {
     @Test fun theLabelBatchWaitsForTheLimiterAndRetriesARefusal() {
         val fetch = src("engine/truth/ForwardReturnLabeler7731.kt").substringAfter("private fun fetchOffWatchMarks7737(")
             .substringBefore("private const val TERMINAL_PREFIX_8395")
-        assertTrue(fetch.contains("DexscreenerApi().batchPriceFetchTyped8087(ask8418, LABEL_SLOT_WAIT_MS_8474)"))
+        assertTrue(fetch.contains("DexscreenerApi().batchPriceFetchTyped8087(ask8418, LABEL_SLOT_WAIT_MS_8474, heldMarkTraffic = false)"))
         assertFalse("no zero-wait batch left", fetch.contains("DexscreenerApi().batchPriceFetch(ask8418)"))
         assertTrue(fetch.contains("r8474.cause == com.lifecyclebot.network.DexscreenerApi.BatchCause8087.LIMITER_REFUSED"))
         assertTrue("a refused coin is re-asked next pass", fetch.contains("for (m in retry8474) offWatchAttemptAt7809.remove(m)"))

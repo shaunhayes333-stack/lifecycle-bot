@@ -29,8 +29,8 @@ class Aate8217CrossLaneAndNativeTest {
         // so DexScreener is called on `ask8418`, not the raw chunk; the dex read still precedes the curve rung and the mark store.
         // superseded by V5.0.8474 — the DexScreener read waits for the shared limiter slot (batchPriceFetchTyped8087 with
         // LABEL_SLOT_WAIT_MS_8474) instead of coming back empty; its place before the curve rung and the mark store is unchanged.
-        val dex = body.indexOf("DexscreenerApi().batchPriceFetchTyped8087(ask8418, LABEL_SLOT_WAIT_MS_8474)"); val curve = body.indexOf("offWatchCurvePriced7753.addAndGet(curve7753.size.toLong())")
+        val dex = body.indexOf("DexscreenerApi().batchPriceFetchTyped8087(ask8418, LABEL_SLOT_WAIT_MS_8474, heldMarkTraffic = false)"); val curve = body.indexOf("offWatchCurvePriced7753.addAndGet(curve7753.size.toLong())")
         assertTrue(dex in 1 until curve)
-        assertTrue("dex read lands before marks are stored", dex < body.indexOf("for ((m, px) in got) offWatchMarks7737[m] = px to at"))
+        assertTrue("dex read lands before marks are stored", dex < body.indexOf("noteOffWatchResponse(dex8405)"))
     }
 }
