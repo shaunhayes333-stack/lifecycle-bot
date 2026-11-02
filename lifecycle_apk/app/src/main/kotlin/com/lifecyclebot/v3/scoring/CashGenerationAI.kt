@@ -1202,8 +1202,10 @@ object CashGenerationAI {
         val tp = p.treasuryTakeProfit.takeIf { it.isFinite() && it > 0.0 } ?: legacyTakeProfit
         val sl = p.treasuryStopLoss.takeIf { it.isFinite() && it < 0.0 } ?: legacyStop
         val stop = entry * (1.0 + sl / 100.0)
+        val peak = p.highestPrice.takeIf { it.isFinite() && it > entry } ?: entry
+        val trail = if (peak > entry) peak * (1 - TRAILING_STOP_PCT / 100) else stop
         return TreasuryPosition(mint, symbol, entry, p.costSol, p.entryTime, entry * (1.0 + tp / 100.0),
-            stop, p.highestPrice.takeIf { it > entry } ?: entry, stop, p.isPaperPosition,
+            stop, peak, trail, p.isPaperPosition,
             lastPrice.takeIf { it > 0.0 } ?: entry, p.entryScore.toInt(), ownerLane)
     }
 
@@ -1298,6 +1300,9 @@ object CashGenerationAI {
         return exits
     }
 
+    private fun trailingStopHit(pos: TreasuryPosition, currentPrice: Double): Boolean =
+        pos.highWaterMark > pos.entryPrice * (1 + TRAIL_ARM_PCT / 100) && currentPrice <= pos.trailingStop
+
     private fun checkExitInternal(pos: TreasuryPosition, currentPrice: Double): ExitSignal {
         // V5.0.7928 — an unreadable pnl is not a flat position: it held, it does not time out as "0%".
         val pnlPct = com.lifecyclebot.engine.OpenPnlSanity.inspect(pos.entryPrice, currentPrice, context = "CashGenerationAI_exit_6038/${pos.mint.take(8)}", emit = true).takeIf { it.ok }?.pnlPct ?: return ExitSignal.HOLD
@@ -1327,7 +1332,7 @@ object CashGenerationAI {
             return ExitSignal.STOP_LOSS
         }
 
-        if (pnlPct > TRAIL_ARM_PCT && currentPrice <= pos.trailingStop) {
+        if (trailingStopHit(pos, currentPrice)) {
             return ExitSignal.TRAILING_STOP
         }
 
@@ -1446,7 +1451,7 @@ object CashGenerationAI {
             return ExitSignal.STOP_LOSS
         }
 
-        if (pnlPct > TRAIL_ARM_PCT && currentPrice <= pos.trailingStop) {
+        if (trailingStopHit(pos, currentPrice)) {
             ErrorLogger.info(TAG, "💰 TREASURY TRAIL HIT: ${pos.symbol} | +${pnlPct.fmt(1)}%")
             return ExitSignal.TRAILING_STOP
         }

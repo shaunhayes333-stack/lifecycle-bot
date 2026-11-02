@@ -143,6 +143,22 @@ class Aate8384SharedSpecialistLifecycleTest {
         assertEquals(TacticSwitcher.Tactic.REACCUMULATION, TacticSwitcher.seedTactic8049("CORE", "SWEET_SPOT_8383"))
         assertEquals(TacticSwitcher.Tactic.REACCUMULATION, TacticSwitcher.seedTactic8049("CYCLIC", "DEEP_RATIO_8383"))
     }
+    @Test fun recoveredCompounderRetainsArmedTrailThroughRetracement() {
+        val ai = com.lifecyclebot.v3.scoring.CashGenerationAI
+        for ((owner, paper) in listOf("CASHGEN" to true, "TREASURY" to false)) {
+            val mint = "fixture-trail-$owner"
+            val position = Position(entryPrice = 100.0, highestPrice = 114.0, costSol = 0.03,
+                entryTime = System.currentTimeMillis() - 60_000, isPaperPosition = paper)
+            val tracker = ai.recoveredPosition(mint, owner, position, owner, 105.0, 15.0, -8.0)
+            ai.restorePosition(tracker, paper)
+            try {
+                assertEquals(104.88, tracker.trailingStop, 1e-9)
+                assertEquals(com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.HOLD, ai.checkExit(mint, 105.0, paper))
+                assertEquals(com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TRAILING_STOP, ai.checkExit(mint, 104.0, paper))
+            } finally { ai.evictGhost(mint, paper) }
+        }
+    }
+
     @Test fun persistedPositionCodecRetainsManagementCooldownAndImmutableLineage() {
         val values = mutableMapOf<String, Any?>()
         val editor = Proxy.newProxyInstance(SharedPreferences.Editor::class.java.classLoader, arrayOf(SharedPreferences.Editor::class.java)) { proxy, method, args ->

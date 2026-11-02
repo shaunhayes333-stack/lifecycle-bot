@@ -153,6 +153,11 @@ android {
     testOptions {
         unitTests {
             isReturnDefaultValues = true
+            all {
+                // Local HTTP fixtures can resolve localhost. Provider names must never resolve in JVM tests.
+                it.systemProperty("jdk.net.hosts.file", file("src/test/resources/offline-hosts").absolutePath)
+                it.systemProperty("java.net.useSystemProxies", "false")
+            }
         }
     }
 

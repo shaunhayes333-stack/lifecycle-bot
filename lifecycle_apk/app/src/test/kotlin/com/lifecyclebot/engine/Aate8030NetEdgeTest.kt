@@ -46,6 +46,12 @@ class Aate8030NetEdgeTest {
         assertTrue(src("engine/Executor.kt").contains("val rawSL = com.lifecyclebot.engine.cortex.StopAuthority7887.stopMagFor(ts)"))
         // V5.0.8169 — the first-12-minute stop is the position's own ordinary stop (15..25%), not a flat -15.
         assertTrue(src("v3/scoring/MoonshotTraderAI.kt").contains("if (holdMinutes <= 12) stop = maxOf(stop, -com.lifecyclebot.engine.ExitDoctrine8169.earlyRunnerStopMag8169(mint))"))
-        assertTrue(src("v3/scoring/CashGenerationAI.kt").contains("NetEdge8030.EDGE_MULT * com.lifecyclebot.engine.truth.NetEdge8030.costPct8030(\"TREASURY\", entrySol, 0.0)"))
+        val size = 0.001
+        for (owner in listOf("TREASURY", "CASHGEN")) {
+            val cost = NetEdge8030.costPct8030(owner, size, 0.0)
+            val floor = com.lifecyclebot.v3.scoring.CashGenerationAI.liveTpFloor7928(size, owner)
+            assertTrue("$owner must cover its own executable cost", floor >= NetEdge8030.EDGE_MULT * cost)
+            assertTrue(NetEdge8030.statusLine().contains("lastCost8169=[lane=$owner "))
+        }
     }
 }

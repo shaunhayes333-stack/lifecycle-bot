@@ -120,3 +120,11 @@ PositionPersistence did not serialize the compounder's target, stop and raw entr
 AsyncStrategyLab.rebuildReviewedBiasCache derives numeric biases from text in symbolically reviewed proposals. A proposal mentioning SIZE_UP could contribute 1.25 to StrategyHypothesisEngine.getSizeBias. FinalDecisionGate multiplies its proposed size before the later live risk ceilings. There is no per-proposal live realised-profit field on that symbolic review. The candidate permits the existing experimental multiplier in paper/shadow, retains defensive reductions in live, and caps this specific source at 1.0 for live or unknown mode. The mode-specific hypothesis outcome books and real-money risk policy still own earned growth. Other lab, Cortex and V3/V4 promotion paths remain subject to the full authority audit.
 
 The 64041990 draft introduced four Aate8343RunnerGrabTest failures. The shared chase function treated a scout's absence of a prior admitted price as a failure. The correction restores pre-admission evaluation while retaining the mandatory price comparison immediately before live submission.
+
+### Compounder trailing exits and validation
+
+Both CashGenerationAI exit evaluators tested the **current** percentage gain against the 12% arm threshold. An entry at 100, peak of 114 and retracement to 104 therefore missed the 104.88 trailing stop. Recovery kept the peak but reset the trail to the original hard stop. The correction tests arming against the observed position high and reconstructs the trail from that high when restoring the tracker. The regression runs the restored position through checkExit at 105 and 104 in CASHGEN and TREASURY. An actual landed sell for this price sequence remains unverified.
+
+Aate8030NetEdgeTest previously required the literal TREASURY in the scalp cost lookup, contradicting the elected CASHGEN owner. Its replacement runs the live exit-floor calculation for both desks at the same stake and checks the attributed cost and coverage. JVM unit test workers now resolve only the loopback host from a test-only hosts file. No operator configuration changes.
+
+The two supplied reports and the bundled 500-row historical corpus still do not contain a joined, timestamped executable quote and route history for the three-policy comparison.
