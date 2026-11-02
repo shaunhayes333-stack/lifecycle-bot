@@ -143,7 +143,9 @@ object EntryEconomics8329 {
      * this size. A cheaper or unchanged quote never refuses.
      */
     fun consumed8329(movePct: Double, capPct: Double, expectedGrossPct: Double, costPct: Double, margin: Double = NetEdge8030.EDGE_MULT): String? {
-        if (!movePct.isFinite()) return "PRICE_INCOMPARABLE"
+        // RunnerGrab also calls this during scouting, before an admitted mark can exist.
+        // preBroadcastRefusal8329 separately requires a comparable quote at the live send boundary.
+        if (!movePct.isFinite()) return null
         if (movePct > 0.0 && !capPct.isFinite()) return "EXHAUSTED_RALLY"
         if (movePct > capPct) return "OVER_CAP"
         if (!expectedGrossPct.isFinite() || !costPct.isFinite()) return "ECONOMICS_UNAVAILABLE"
