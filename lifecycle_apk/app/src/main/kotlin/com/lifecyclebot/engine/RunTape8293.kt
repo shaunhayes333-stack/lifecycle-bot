@@ -129,6 +129,22 @@ object RunTape8293 {
         return !synchronized(record) { standsDown8293(record) }
     }
 
+    /**
+     * V5.0.8520 — a fresh, unusually strong EXECUTED-PRINT momentum witness, not a price-feed estimate.
+     * A phase/reclaim wait may consume this witness; safety, sellability and sized net economics remain binding.
+     * Deliberately do not treat a five-minute-old detection as a live fast-track.
+     */
+    internal fun highVelocity8520(r: Run8293): Boolean =
+        r.prints >= 15 && r.recentBuys >= 5 && r.buySol >= 2.0 &&
+            r.bpSolPct >= 75.0 && r.bpTxPct >= 65.0 &&
+            r.lastMinutePct >= 20.0 && r.vsPeak >= 0.95 && r.risePct <= 100.0
+
+    fun freshHighVelocity8520(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        val e = evidence[mint] ?: return false
+        if (nowMs - e.atMs !in 0L..FRESH_PRINT_MS_8293) return false
+        return highVelocity8520(e) && fresh8293(mint, nowMs)
+    }
+
     /** The latest evidence line for [mint] inside the evidence window, or null. */
     fun evidence8293(mint: String, nowMs: Long = System.currentTimeMillis()): String? =
         evidence[mint]?.takeIf { nowMs - it.atMs in 0L..EVIDENCE_TTL_MS_8293 }?.evidence()
