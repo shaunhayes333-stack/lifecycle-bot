@@ -1095,18 +1095,71 @@ class BotService : Service() {
         return retired
     }
 
-    private fun laneDoor8105(s: com.lifecyclebot.v3.scoring.MoonshotTraderAI.MoonshotScore, mint: String = ""): com.lifecyclebot.v3.scoring.MoonshotTraderAI.MoonshotScore =
-        if (laneDoor8105("MOONSHOT", s.eligible, s.rejectReason, mint)) s.copy(eligible = true, rejectReason = "", suggestedSizeSol = s.suggestedSizeSol.coerceAtLeast(0.01)) else s
+    /** Re-run the native specialist at the buy door, then apply only a fresh, same-candidate opportunity projection. */
+    private fun operatorSniperAssessment8522(ts: com.lifecyclebot.data.TokenState): com.lifecyclebot.v3.scoring.ProjectSniperAI.TargetAssessment {
+        val raw = com.lifecyclebot.v3.scoring.ProjectSniperAI.assessTarget(ts, ts.ref)
+        return NativeOpportunityDoor8522.sniper8522(raw,
+            SpecialistBrainBridge7542.opportunityDecision8522(ts.mint, "PROJECT_SNIPER", token = ts))
+    }
 
-    private fun laneDoor8105(s: com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipSignal, mint: String = ""): com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipSignal =
-        if (laneDoor8105("MANIPULATED", s.shouldEnter, s.reason, mint)) s.copy(shouldEnter = true, positionSizeSol = s.positionSizeSol.coerceAtLeast(0.01)) else s
+    private fun operatorDipAssessment8522(ts: com.lifecyclebot.data.TokenState, recentHigh: Double,
+                                          dipVolVsAvg: Double, tokenAgeHours: Double, bounce: Boolean): com.lifecyclebot.v3.scoring.DipHunterAI.DipSignal {
+        val raw = com.lifecyclebot.v3.scoring.DipHunterAI.evaluate(
+            mint = ts.mint,
+            symbol = ts.symbol,
+            currentPrice = ts.ref,
+            highPrice = recentHigh,
+            marketCapUsd = ts.lastMcap,
+            liquidityUsd = ts.lastLiquidityUsd,
+            buyPressurePct = ts.lastBuyPressurePct,
+            volumeVsAvg = dipVolVsAvg,
+            tokenAgeHours = tokenAgeHours,
+            holderCount = ts.peakHolderCount.takeIf { it > 0 } ?: 100,
+            holderChange24h = holderChange7764(ts),
+            isDevSelling = ts.safety.bundleRisk == "HIGH",
+            bounceConfirmed = bounce,
+        )
+        return NativeOpportunityDoor8522.dip8522(raw,
+            SpecialistBrainBridge7542.opportunityDecision8522(ts.mint, "DIP_HUNTER", token = ts), ts.ref, recentHigh)
+    }
 
-    private fun laneDoor8105(s: com.lifecyclebot.v3.scoring.ShitCoinExpress.ExpressSignal, mint: String = ""): com.lifecyclebot.v3.scoring.ShitCoinExpress.ExpressSignal =
-        if (laneDoor8105("EXPRESS", s.shouldRide, s.reason, mint)) s.copy(shouldRide = true, positionSizeSol = s.positionSizeSol.coerceAtLeast(0.01),
-            rideType = if (s.rideType == com.lifecyclebot.v3.scoring.ShitCoinExpress.RideType.NO_RIDE) com.lifecyclebot.v3.scoring.ShitCoinExpress.RideType.QUICK_FLIP else s.rideType) else s
+    /** A source-bound inverse election can change opportunity only, never a hard native or final safety veto. */
+    private fun operatorChoice8522(mint: String, lane: String): NativeOpportunityPolicy8522.Decision? =
+        if (mint.isBlank()) null else SpecialistBrainBridge7542.opportunityDecision8522(mint, lane)
 
-    private fun laneDoor8105(s: com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinSignal, mint: String = ""): com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinSignal =
-        if (laneDoor8105("SHITCOIN", s.shouldEnter, s.reason, mint)) s.copy(shouldEnter = true, positionSizeSol = s.positionSizeSol.coerceAtLeast(0.01)) else s
+    private fun laneDoor8105(s: com.lifecyclebot.v3.scoring.MoonshotTraderAI.MoonshotScore, mint: String = ""): com.lifecyclebot.v3.scoring.MoonshotTraderAI.MoonshotScore {
+        val choice = operatorChoice8522(mint, "MOONSHOT")
+        val projected = NativeOpportunityDoor8522.moonshot8522(s, choice)
+        if (choice?.action == NativeOpportunityPolicy8522.Action.REFUSE) return projected
+        return if (laneDoor8105("MOONSHOT", projected.eligible, projected.rejectReason, mint))
+            projected.copy(eligible = true, rejectReason = "", suggestedSizeSol = projected.suggestedSizeSol.coerceAtLeast(0.01)) else projected
+    }
+
+    private fun laneDoor8105(s: com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipSignal, mint: String = ""): com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipSignal {
+        val choice = operatorChoice8522(mint, "MANIPULATED")
+        val projected = NativeOpportunityDoor8522.manipulated8522(s, choice)
+        if (choice?.action == NativeOpportunityPolicy8522.Action.REFUSE) return projected
+        return if (laneDoor8105("MANIPULATED", projected.shouldEnter, projected.reason, mint))
+            projected.copy(shouldEnter = true, positionSizeSol = projected.positionSizeSol.coerceAtLeast(0.01)) else projected
+    }
+
+    private fun laneDoor8105(s: com.lifecyclebot.v3.scoring.ShitCoinExpress.ExpressSignal, mint: String = ""): com.lifecyclebot.v3.scoring.ShitCoinExpress.ExpressSignal {
+        val choice = operatorChoice8522(mint, "EXPRESS")
+        val projected = NativeOpportunityDoor8522.express8522(s, choice)
+        if (choice?.action == NativeOpportunityPolicy8522.Action.REFUSE) return projected
+        return if (laneDoor8105("EXPRESS", projected.shouldRide, projected.reason, mint))
+            projected.copy(shouldRide = true, positionSizeSol = projected.positionSizeSol.coerceAtLeast(0.01),
+                rideType = if (projected.rideType == com.lifecyclebot.v3.scoring.ShitCoinExpress.RideType.NO_RIDE) com.lifecyclebot.v3.scoring.ShitCoinExpress.RideType.QUICK_FLIP else projected.rideType,
+                estimatedGainPct = if (projected.estimatedGainPct <= 0.0) com.lifecyclebot.v3.scoring.ShitCoinExpress.RideType.QUICK_FLIP.targetPct else projected.estimatedGainPct) else projected
+    }
+
+    private fun laneDoor8105(s: com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinSignal, mint: String = ""): com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinSignal {
+        val choice = operatorChoice8522(mint, "SHITCOIN")
+        val projected = NativeOpportunityDoor8522.shitcoin8522(s, choice)
+        if (choice?.action == NativeOpportunityPolicy8522.Action.REFUSE) return projected
+        return if (laneDoor8105("SHITCOIN", projected.shouldEnter, projected.reason, mint))
+            projected.copy(shouldEnter = true, positionSizeSol = projected.positionSizeSol.coerceAtLeast(0.01)) else projected
+    }
 
     private fun moonshotMcapInZone7792(ts: com.lifecyclebot.data.TokenState): Boolean = try {
         ts.lastMcap in com.lifecyclebot.v3.scoring.MoonshotTraderAI.minMarketCapUsdFluid7719()..com.lifecyclebot.v3.scoring.MoonshotTraderAI.MAX_MARKET_CAP_USD
@@ -13879,12 +13932,15 @@ class BotService : Service() {
             // V5.0.7389 — a lane's own hard criterion (its mcap/liquidity band, age,
             // holder concentration, minimum quality) is its design, not a near-miss
             // the bridge may rescue. It rescues only soft/timing refusals.
+            val inverseTake8522 = SpecialistBrainBridge7542.opportunityDecision8522(ts.mint, laneKey, token = ts)
+                ?.takeIf { it.action == NativeOpportunityPolicy8522.Action.TAKE_CANDIDATE &&
+                    NativeOpportunityPolicy8522.opportunityReason8522(laneKey, blockedReason) } != null
             val hardLaneReject7389 = blockedReason.uppercase().let { b ->
                 b.startsWith("MCAP") || b.contains("MCAP_TOO") || b.startsWith("LIQ") || b.contains("LIQUIDITY_TOO") ||
                     b.contains("TOP HOLDER") || b.contains("TOO NEW") || b.contains("QUALITY SCORE TOO LOW") ||
                     b.contains("TOO FEW HOLDERS") || b.startsWith("MEME COIN")
             }
-            if (hardLaneReject7389) {
+            if (hardLaneReject7389 && !inverseTake8522) {
                 try { PipelineHealthCollector.labelInc("TOOLKIT_BRIDGE_REFUSED_HARD_LANE_REJECT_7389") } catch (_: Throwable) {}
                 return null
             }
@@ -13902,7 +13958,7 @@ class BotService : Service() {
             val chartGood = sheet.chartPattern.contains("accumulation", true) || sheet.chartPattern.contains("breakout", true) ||
                 sheet.chartPattern.contains("runner", true) || sheet.chartPattern.contains("pullback", true) ||
                 sheet.chartPattern.contains("smart_wallet", true) || sheet.chartPattern.contains("quality", true)
-            if (!setupGood && !laneVoted && !chartGood) return null
+            if (!setupGood && !laneVoted && !chartGood && !inverseTake8522) return null
             val conf = sheet.confidence.coerceIn(0.0, 100.0)
             // V5.0.7389 — the real score: no 42 floor lifting every bridged candidate.
             val score = maxOf(conf.toInt(), (ts.lastV3Score ?: ts.entryScore.toInt()).coerceIn(0, 100)).coerceIn(0, 88)
@@ -13926,7 +13982,7 @@ class BotService : Service() {
                 "BLUECHIP", "BLUE_CHIP" -> -6.0
                 else -> -8.0
             }
-            val reason = "TOOLKIT_GOOD_LANE_BRIDGE_6022 setup=$setup chart=${sheet.chartPattern.take(40)} conf=${conf.toInt()} votes=${sheet.laneVotes.joinToString("/").take(60)} blocked=${blockedReason.take(80)}"
+            val reason = "${if (inverseTake8522) "OPERATOR_INVERSE_8522_" else ""}TOOLKIT_GOOD_LANE_BRIDGE_6022 setup=$setup chart=${sheet.chartPattern.take(40)} conf=${conf.toInt()} votes=${sheet.laneVotes.joinToString("/").take(60)} blocked=${blockedReason.take(80)}"
             try {
                 PipelineHealthCollector.labelInc("TOOLKIT_GOOD_LANE_BRIDGE_6022")
                 PipelineHealthCollector.labelInc("TOOLKIT_BRIDGE_${laneKey}")
@@ -31128,7 +31184,7 @@ if (hotExitHandledSweep) {
                 } else if (!com.lifecyclebot.v3.scoring.CashGenerationAI.hasPosition(ts.mint)) {
                     // Try to acquire target
                     try {
-                        val assessment = com.lifecyclebot.v3.scoring.ProjectSniperAI.assessTarget(ts, ts.ref)
+                        val assessment = operatorSniperAssessment8522(ts)
                         
                         // V5.9.1068 — DOWNGRADED HARD BLOCK TO TELEMETRY.
                         // Same rationale as TREASURY (V5.9.1068): a 75% loss rate
@@ -31434,21 +31490,7 @@ if (hotExitHandledSweep) {
                             }
                         }
                         if (!dipBounce7389) try { PipelineHealthCollector.labelInc("DIP_NO_BOUNCE_CONFIRMATION_7389") } catch (_: Throwable) {}
-                        val dipSignal = com.lifecyclebot.v3.scoring.DipHunterAI.evaluate(
-                            mint = ts.mint,
-                            symbol = ts.symbol,
-                            currentPrice = ts.ref,
-                            highPrice = recentHigh,
-                            marketCapUsd = ts.lastMcap,
-                            liquidityUsd = ts.lastLiquidityUsd,
-                            buyPressurePct = ts.lastBuyPressurePct,
-                            volumeVsAvg = dipVolVsAvg,
-                            tokenAgeHours = tokenAgeHours,
-                            holderCount = ts.peakHolderCount.takeIf { it > 0 } ?: 100,
-                            holderChange24h = holderChange7764(ts),  // V5.0.7764 — was a constant 0
-                            isDevSelling = ts.safety.bundleRisk == "HIGH",
-                            bounceConfirmed = dipBounce7389,
-                        )
+                        val dipSignal = operatorDipAssessment8522(ts, recentHigh, dipVolVsAvg, tokenAgeHours, dipBounce7389)
                         
                         if (dipSignal.shouldBuy) {
                             // V5.9.688 — FDG gate for DipHunter path
