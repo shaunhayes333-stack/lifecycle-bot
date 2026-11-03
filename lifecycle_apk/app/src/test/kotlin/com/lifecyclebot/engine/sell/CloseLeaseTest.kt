@@ -30,6 +30,24 @@ class CloseLeaseTest {
         assertFalse(CloseLease.earlierRetryDue8520(now + 250L, now + 250L, now))
     }
 
+    @Test fun terminal_release_invalidates_a_pending_timer_even_if_the_mint_is_reacquired() {
+        val mint = "MintTerminal8520${System.nanoTime()}"
+        val previous = CloseLease.emergencyHandoff8087
+        val fired = CountDownLatch(1)
+        try {
+            CloseLease.emergencyHandoff8087 = { m, _ -> if (m == mint) fired.countDown() }
+            assertNotNull(CloseLease.acquire(mint, "STOP", "RAPID_CATASTROPHE_STOP"))
+            CloseLease.recordPreRouteWait8288(mint)
+            CloseLease.release(mint, "CONFIRMED")
+            assertNotNull(CloseLease.acquire(mint, "NEW", "TAKE_PROFIT"))
+            assertFalse("timer belonging to a closed lease must not enter a new lease",
+                fired.await(800L, TimeUnit.MILLISECONDS))
+        } finally {
+            CloseLease.release(mint, "TEST_DONE")
+            CloseLease.emergencyHandoff8087 = previous
+        }
+    }
+
     @Test fun pre_route_short_clock_preempts_a_pending_slow_emergency_retry() {
         val mint = "MintEmergency8520${System.nanoTime()}"
         val previous = CloseLease.emergencyHandoff8087
