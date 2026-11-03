@@ -119,6 +119,8 @@ object CandidateAdmission8136 {
         val entryWait8506: String? = null,
         /** Executed-print velocity witness, current for at most 20 seconds (RunTape8293). */
         val highVelocityTape8520: Boolean = false,
+        /** Conservative 30m GROSS executed-tape cohort lower bound; NaN when evidence is thin. */
+        val tapeLowerGross8520: Double = Double.NaN,
         /**
          * V5.0.8507 — the coin is a watchlist re-check (TokenState.source WATCHLIST: re-hydrated by the pair poll, no live
          * discovery event). 8506: that source n1270 -10.9% 5-min net and 349 of the buy-qualified rows; its live buys all
@@ -452,7 +454,8 @@ object CandidateAdmission8136 {
     internal fun highVelocityFastTrack8520(c: Candidate8136): Boolean =
         c.live && c.highVelocityTape8520 && !c.watchlistRecheck8507 &&
             c.lane.uppercase() in setOf("MOONSHOT", "SHITCOIN", "EXPRESS") &&
-            optionalNativeContextClears8213(c, c.expectedGrossPct)
+            optionalNativeContextClears8213(c, c.expectedGrossPct) &&
+            com.lifecyclebot.engine.RunTape8293.conservativeNetFastTrack8520(c.tapeLowerGross8520, c.costPct)
 
     // ── the decision ──
 
@@ -1466,6 +1469,7 @@ object CandidateAdmission8136 {
             stage = fit?.stage?.name.orEmpty(),
             entryWait8506 = entry?.second,
             highVelocityTape8520 = try { com.lifecyclebot.engine.RunTape8293.freshHighVelocity8520(ts.mint, nowMs) } catch (_: Throwable) { false },
+            tapeLowerGross8520 = try { com.lifecyclebot.engine.RunTape8293.conservativeForwardGross8520() } catch (_: Throwable) { Double.NaN },
             priceAgeMs = priceAge,
             // V5.0.8283 — the lifecycle split (dataIncomplete8136's binding inputs; the too-young history recorded apart).
             missingInputs = resolvedMissingInputs(

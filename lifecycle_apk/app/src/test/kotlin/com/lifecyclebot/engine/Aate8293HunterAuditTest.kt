@@ -49,6 +49,11 @@ class Aate8293HunterAuditTest {
         assertFalse(RunTape8293.highVelocity8520(burst.copy(lastMinutePct = 2.0)))
         assertFalse(RunTape8293.highVelocity8520(burst.copy(vsPeak = 0.84)))
         assertFalse(RunTape8293.highVelocity8520(burst.copy(risePct = 140.0)))
+        assertFalse(RunTape8293.highVelocity8520(burst.copy(risePct = 75.0)))
+        assertFalse(RunTape8293.highVelocity8520(burst.copy(lastMinutePct = 60.0)))
+        assertTrue(RunTape8293.conservativeNetFastTrack8520(30.0, 4.5))
+        assertFalse(RunTape8293.conservativeNetFastTrack8520(Double.NaN, 4.5))
+        assertFalse(RunTape8293.conservativeNetFastTrack8520(8.0, 4.5))
     }
 
     // ── mandates in the native terms ──
