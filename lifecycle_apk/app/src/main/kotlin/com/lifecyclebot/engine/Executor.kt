@@ -2420,10 +2420,11 @@ class Executor(
     }
 
     /** V5.0.8085 — every Jupiter live BUY send: bound to (mint, BUY); unknown outcomes propagate to liveBuy's 7733 path. */
-    private fun buySend8085(wallet: SolanaWallet, mint: String, tx: com.lifecyclebot.network.SwapTxResult, useJito: Boolean,
+    private fun buySend8085(wallet: SolanaWallet, ts: TokenState, tx: com.lifecyclebot.network.SwapTxResult, useJito: Boolean,
                             jitoTip: Long, ultraReqId: String?, c: com.lifecyclebot.data.BotConfig,
                             submission8397: BuySubmissionReceipt8397? = null, owner8418: com.lifecyclebot.network.SignedTxLedger8085.Intent? = null): String {
-        com.lifecyclebot.network.SignedTxLedger8085.intend(com.lifecyclebot.network.SignedTxLedger8085.Intent(mint, "BUY", positionId = owner8418?.positionId.orEmpty(), intentId = submission8397?.attemptId ?: owner8418?.intentId.orEmpty(), route = if (ultraReqId != null) "JUPITER_ULTRA" else "JUPITER"))
+        BuyRouteSafety8522.requireAllowed(ts, BuyRouteSafety8522.jupiter(tx.executionQuote8521), "JUPITER_FINAL_SIGN")
+        com.lifecyclebot.network.SignedTxLedger8085.intend(com.lifecyclebot.network.SignedTxLedger8085.Intent(ts.mint, "BUY", positionId = owner8418?.positionId.orEmpty(), intentId = submission8397?.attemptId ?: owner8418?.intentId.orEmpty(), route = if (ultraReqId != null) "JUPITER_ULTRA" else "JUPITER"))
         return BuySubmissionReceipt8397.observe8397(submission8397) {
             wallet.signSendAndConfirm(tx.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, tx.isRfqRoute, tx.senderCompatible)
         }
@@ -13754,7 +13755,7 @@ class Executor(
                 } else {
                     onLog("Broadcasting top-up tx…", ts.mint)
                 }
-                sig = buySend8085(wallet, ts.mint, txResult, useJito, jitoTip, ultraReqId, c, owner8418 = owner8418)
+                sig = buySend8085(wallet, ts, txResult, useJito, jitoTip, ultraReqId, c, owner8418 = owner8418)
                 newQty = rawTokenAmountToUiAmount(ts, quote.outAmount, solAmount = jupiterTopUpPlan.solAmount, priceUsd = price, explicitDecimals = topUpExplicitDecimals)
             }
 
@@ -13798,6 +13799,13 @@ class Executor(
                      com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
         } catch (e: Exception) {
             if (topUpUnresolved8085(ts, wallet, e)) return
+            if (e is BuyRouteSafety8522.Refused) {
+                if (BuyRouteSafety8522.unsignedPending8522(e, null)) {
+                    val retry8522 = deferFinalSafety8522(ts, sol, e, "TOP_UP_FINAL_SIGN")
+                    onLog("⏳ Live top-up deferred: ${retry8522.reason} (${e.reason})", ts.mint)
+                } else onLog("🛡 Live top-up blocked: ${e.reason}", ts.mint)
+                return
+            }
             onLog("Live top-up FAILED: ${security.sanitiseForLog(e.message ?: "unknown")}", ts.mint)
         }
     }
@@ -14054,6 +14062,30 @@ class Executor(
                 if (taxonomy != null) PipelineHealthCollector.labelInc("EXECUTOR_DEFERRED_BUY_TAXONOMY_4433_${taxonomy.category.name}")
             } catch (_: Throwable) {}
         }
+    }
+
+    /** Final-signing proof misses use the existing bounded hydration budget and release no submitted liability. */
+    private fun deferFinalSafety8522(ts: TokenState, sol: Double, refusal: BuyRouteSafety8522.Refused, stage: String,
+                                     leaseKey: String = "", attemptId: String = ""): BuyRouteSafety8522.PendingRetry8522 {
+        val now = System.currentTimeMillis()
+        val retry = BuyRouteSafety8522.pendingRetry8522(safetyProofDeferrals8270[ts.mint].orEmpty(), now)
+        if (safetyProofDeferrals8270.size > 2_000) safetyProofDeferrals8270.clear()
+        if (!retry.exhausted) safetyProofDeferrals8270[ts.mint] = retry.next
+        try { SafetyRefreshQueue.request(ts.mint) } catch (_: Throwable) {}
+        try { SafetyProofPriority8310.noteDeferred8310(ts.mint, refusal.reason) } catch (_: Throwable) {}
+        liveBuyDeferred(ts, sol, retry.reason, "cause=${refusal.reason} stage=$stage deferrals=${retry.priorCount}")
+        if (!retry.exhausted && leaseKey.isNotBlank())
+            ExecutionAttemptLease.releaseNonTerminal(leaseKey, "BUY", ts.mint, ts.symbol, retry.reason)
+        if (attemptId.isNotBlank()) try {
+            ExecutableOpenGate.releaseDeferredLiveClaim7356(attemptId, ts.mint, retry.reason)
+        } catch (_: Throwable) {}
+        try {
+            PipelineHealthCollector.labelInc("LIVE_BUY_DEFERRED_SAFETY_PROOF")
+            ForensicLogger.lifecycle("EXEC_OPEN_DEFERRED_SAFETY_PROOF",
+                "attemptId=$attemptId mint=${ts.mint.take(10)} symbol=${ts.symbol} stage=$stage reason=${refusal.reason} " +
+                    "detail=${refusal.detail.take(160)} exhausted=${retry.exhausted} action=hydrate_then_retry no_live_buy_fail=true")
+        } catch (_: Throwable) {}
+        return retry
     }
 
     private fun terminalizeCanonicalLiveFailure7790(ts: TokenState, reason: String, attemptId8198: String = "") {
@@ -21046,7 +21078,7 @@ class Executor(
                     PipelineHealthCollector.labelInc("LIVE_BUY_SUBMITTED")
                 } catch (_: Throwable) {}
                 liveStage("TX_SUBMIT_START", "route=${q.router}")
-                sig = buySend8085(wallet, ts.mint, tx, useJito, jitoTip, ultraReqId, c, submission8397)
+                sig = buySend8085(wallet, ts, tx, useJito, jitoTip, ultraReqId, c, submission8397)
                 broadcastSig7733 = sig
                 buyPhase("TX_SIGNED")
                 try { ForensicLogger.lifecycle("BUY_TX_SUBMITTED", "attemptId=${execCtx.attemptId} mint=${ts.mint.take(10)} symbol=${ts.symbol} route=${q.router} sig=${sig.take(16)}") } catch (_: Throwable) {}
@@ -22309,6 +22341,18 @@ class Executor(
             val sentSig7733 = broadcastSig7733 ?: (e as? SolanaWallet.SentButUnconfirmed7733)?.signature
             // Keep unknown submitted liability visible to the outer reservation receipt as well.
             broadcastSig7733 = sentSig7733
+            if (BuyRouteSafety8522.unsignedPending8522(e, sentSig7733)) {
+                val retry8522 = deferFinalSafety8522(ts, sol, e as BuyRouteSafety8522.Refused, "BUY_FINAL_SIGN",
+                    buyLease.key, attemptId.ifBlank { executionContext?.attemptId.orEmpty() }
+                        .ifBlank { ExecutableOpenGate.recentAllowedAttemptIdAnyLane(ts.mint, "LIVE").orEmpty() })
+                liveStage("LIVE_BUY_DEFERRED", "reason=${retry8522.reason} deferrals=${retry8522.priorCount} stage=BUY_FINAL_SIGN")
+                if (retry8522.exhausted) buyTerminalFail(retry8522.reason) else buyTerminalRecorded = true
+                return false
+            }
+            if (sentSig7733 == null && e is BuyRouteSafety8522.Refused) {
+                buyTerminalFail("BUY_TERMINAL_${e.reason}")
+                return false
+            }
             if (sentSig7733 == null && e is RouteEconomicsRefused) {
                 buyTerminalFail("BUY_TERMINAL_${e.refusal}")
                 return false
@@ -32197,7 +32241,14 @@ class Executor(
                 com.lifecyclebot.network.RaydiumSellRoute7311.sendBuilt(
                     wallet, built, effectiveSenderTipLamports(c, urgent = false), c.jitoEnabled, effectiveJitoTipLamports(c, urgent = false),
                     intent8085 = com.lifecyclebot.network.SignedTxLedger8085.Intent(ts.mint, "BUY", intentId = submission8397.attemptId, route = "RAYDIUM"),
-                    sendObserver8397 = { send -> BuySubmissionReceipt8397.observe8397(submission8397, send) },
+                    sendObserver8397 = { send ->
+                        val route8522 = built.buyRoute8522 ?: throw BuyRouteSafety8522.Refused(
+                            "BUY_ROUTE_POOL_PROOF_PENDING_8522", "Raydium build has no bound quote", LiquidityOwnership8522.Status.PENDING)
+                        BuyRouteSafety8522.requireAllowed(ts, route8522, "RAYDIUM_FINAL_SIGN")
+                        BuySubmissionReceipt8397.observe8397(submission8397, send).also { sent ->
+                            if (sent.isNotBlank()) submittedSig8397 = sent
+                        }
+                    },
                 )
             } ?: return null
             submittedSig8397 = sig.takeIf { it.isNotBlank() }
@@ -32217,6 +32268,9 @@ class Executor(
                 ForensicLogger.lifecycle(status, "mint=${ts.mint.take(10)} sig=${sig.take(16)} sol=$solAmount provisionalQty=$qty")
             } catch (_: Throwable) {}
             Pair(sig, qty)
+        } catch (e: BuyRouteSafety8522.Refused) {
+            submittedSig8397?.let { throw SolanaWallet.SentButUnconfirmed7733(it, e) }
+            throw e
         } catch (e: RouteEconomicsRefused) {
             throw e
         } catch (e: SolanaWallet.SentButUnconfirmed7733) {
@@ -32250,8 +32304,17 @@ class Executor(
     ): Pair<String, Double>? {
         var submittedSig8397: String? = null
         return try {
-            val pumpVenue = if (com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(ts.mint))
-                "pump.fun" else "universal-auto"
+            // The local API returns a transaction without an AMM quote/pool identity. Use its
+            // explicit curve selector only with actual fresh curve-account evidence. Ordinary
+            // AMMs continue through Jupiter/Raydium, whose selected pools can be verified.
+            val curve8522 = if (!ts.tokenMap.migratedOrGraduated && LiquidityOwnership8522.activeCurveVerified(ts.mint))
+                try { com.lifecyclebot.network.PumpCurveKeys7269.canonicalCurveKey7392(ts.mint).orEmpty() }
+                catch (_: Throwable) { "" } else ""
+            if (curve8522.isBlank()) {
+                try { PipelineHealthCollector.labelInc("PUMP_BUY_NEEDS_QUOTED_POOL_8522") } catch (_: Throwable) {}
+                return null
+            }
+            val pumpVenue = "pump.fun-verified-curve"
 
             // V5.9.495d — DEEP FORENSICS for buys. Snapshot wallet SOL +
             // existing token balance pre-broadcast so the operator can see
@@ -32322,6 +32385,7 @@ class Executor(
                 return null
             }
             PumpLanding8288.prefetchBlockhash8337(wallet)  // V5.0.8337 — our fresh blockhash is read in parallel with the PumpPortal build (2 s cache; freshen8288 below uses it)
+            val pumpBuildStarted8522 = System.currentTimeMillis()
             val built = com.lifecyclebot.network.PumpFunDirectApi.buildBuyTx(
                 publicKeyB58    = wallet.publicKeyB58,
                 mint            = ts.mint,
@@ -32329,6 +32393,7 @@ class Executor(
                 slippagePercent = slipPct,
                 priorityFeeSol  = priorityFeeSol,
                 ordinary8151    = entryOrdinary8151(ts.mint) || Costs8369.entryCapActive8369(true, RunnerGrab7967.isGrabbed7980(ts.mint)),  // V5.0.8151 — medium priority for a discretionary entry; V5.0.8369 — capped to the ticket unless capped buys stop landing
+                pool8522        = "pump",
             )
             LiveTradeLogStore.log(
                 tradeKey, ts.mint, ts.symbol, "BUY",
@@ -32387,6 +32452,8 @@ class Executor(
             )
             // V5.0.8085 — bound to (mint, BUY): an unresolved earlier buy blocks a second order; a sent-but-unconfirmed
             // outcome propagates to liveBuy's 7733 pending-wallet-delta path instead of falling through to Jupiter.
+            BuyRouteSafety8522.requireAllowed(ts,
+                BuyRouteSafety8522.pumpCurve(ts.mint, curve8522, pumpBuildStarted8522), "PUMP_CURVE_FINAL_SIGN")
             com.lifecyclebot.network.SignedTxLedger8085.intend(com.lifecyclebot.network.SignedTxLedger8085.Intent(ts.mint, "BUY", positionId = owner8418?.positionId.orEmpty(), intentId = submission8397?.attemptId ?: owner8418?.intentId.orEmpty(), route = "PUMPPORTAL"))
             val sig = BuySubmissionReceipt8397.observe8397(submission8397) {
                 wallet.signSendAndConfirm(
@@ -32554,6 +32621,9 @@ class Executor(
         } catch (e: SolanaWallet.SentButUnconfirmed7733) {
             throw e   // V5.0.8085 — possibly-landed buy: never a silent fallthrough to a competing Jupiter buy
         } catch (e: SolanaWallet.DuplicateOrderPrevented8085) {
+            throw e
+        } catch (e: BuyRouteSafety8522.Refused) {
+            submittedSig8397?.let { throw SolanaWallet.SentButUnconfirmed7733(it, e) }
             throw e
         } catch (pumpEx: Exception) {
             submittedSig8397?.let { throw SolanaWallet.SentButUnconfirmed7733(it, pumpEx) }

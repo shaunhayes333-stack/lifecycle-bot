@@ -28,7 +28,7 @@ class Aate8178RegressionRepairTest {
         assertTrue(cold.contains("admitted) { captureCold8178("))
         assertFalse(cold.contains("cachedOrSchedule(ts, labelLane, nowMs)"))
         val body = s.substringAfter("private fun captureCold8178(").substringBefore("private fun captureNow(")
-        assertTrue(body.contains("val a = assess(ts, labelLane)"))
+        assertTrue(body.contains("val a = assess(ts, labelLane, inputAtMs8522 = decisionAtMs)"))
         assertTrue(body.contains("captureNow(ts.mint, labelLane, admitted, decisionAtMs,"))
         assertTrue(body.contains("!p.lateRead8169"))
     }

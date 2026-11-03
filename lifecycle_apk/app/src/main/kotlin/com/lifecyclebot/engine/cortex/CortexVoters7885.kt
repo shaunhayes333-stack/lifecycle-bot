@@ -623,7 +623,7 @@ object CortexVoters7885 {
     fun trim8289(nowMs: Long = System.currentTimeMillis()): Int {
         val before = cacheCount8289()
         voterCache8187.entries.removeIf { !cacheFresh8187(it.value.atMs, nowMs) }
-        memo8169.entries.removeIf { nowMs - it.value.wallMs > MEMO_MS_8169 }
+        memo8169.trim(nowMs)
         return (before - cacheCount8289()).coerceAtLeast(0)
     }
 
@@ -677,26 +677,18 @@ object CortexVoters7885 {
     /** Read every voter for (ts, lane). Index-aligned with [ALL]; NaN = abstained or failed. */
     fun readAll(ts: TokenState, lane: String, nowMs: Long, failures: java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>? = null,
                 core8291: BooleanArray? = null): DoubleArray {
-        // V5.0.8169 — the lane-free voters (248 of 291 never read the lane) are read once per coin per moment and shared
-        // by every lane assessing that coin (8168: 164.85 ms per assessment, the same coin assessed by up to 12 lanes).
+        // The same immutable decision input shares lane-free reads, including concurrent cold-capture workers.
+        // A non-core abstention from the first lane must not deprive another lane of its required core read.
         val wall = System.currentTimeMillis()
-        val memo = memo8169[ts.mint]?.takeIf { memoReusable8169(it.ts === ts, it.priceAt, ts.lastPriceUpdate, it.wallMs, wall, it.nowMs, nowMs) }
-        val free = laneFree8169
-        val t0 = System.nanoTime()
+        var t0 = 0L
         // V5.0.8291 — cheapest first; the lane's seated voters inline whatever the budget (see §VOTE_COVERAGE).
         val tally = ReadTally8291()
-        val out = DoubleArray(ALL.size) { Double.NaN }
-        for (i in readOrder8291(wall)) {
-            out[i] = if (memo != null && free[i]) memo.vals[i]
-                else readOne8169(i, ts, lane, nowMs, failures, (System.nanoTime() - t0) / 1_000_000.0, core8291?.getOrNull(i) == true, tally)
+        val out = memo8169.read(ts.mint, ts, ts.lastPriceUpdate, nowMs, core8291, readOrder8291(wall)) { i ->
+            if (t0 == 0L) t0 = System.nanoTime() // Waiting for the shared read is not time spent reading this lane's voters.
+            readOne8169(i, ts, lane, nowMs, failures, (System.nanoTime() - t0) / 1_000_000.0, core8291?.getOrNull(i) == true, tally)
         }
         noteCoverage8291(coverage8291(tally.abstained, ALL.size))
         if (tally.core > 0) coreRead8291.addAndGet(tally.core.toLong())
-        if (memo != null) memoHits8169.incrementAndGet() else {
-            memoMisses8169.incrementAndGet()
-            if (memo8169.size >= MEMO_MAX_8169) memo8169.entries.removeIf { wall - it.value.wallMs > MEMO_MS_8169 }
-            if (memo8169.size < MEMO_MAX_8169) memo8169[ts.mint] = Memo8169(ts, ts.lastPriceUpdate, wall, nowMs, out)
-        }
         return out
     }
 
@@ -742,12 +734,8 @@ object CortexVoters7885 {
     const val MEMO_MS_8169 = 3_000L
     private const val MEMO_MAX_8169 = 128
 
-    private class Memo8169(val ts: TokenState, val priceAt: Long, val wallMs: Long, val nowMs: Long, val vals: DoubleArray)
-
-    private val memo8169 = java.util.concurrent.ConcurrentHashMap<String, Memo8169>()
-    private val memoHits8169 = java.util.concurrent.atomic.AtomicLong(0)
-    private val memoMisses8169 = java.util.concurrent.atomic.AtomicLong(0)
     private val laneFree8169: BooleanArray by lazy { BooleanArray(ALL.size) { ALL[it].id !in LANE_DEPENDENT_8169 } }
+    private val memo8169 by lazy { CortexVoterMemo8522(laneFree8169, MEMO_MAX_8169, MEMO_MS_8169) }
 
     /**
      * Pure (V5.0.8169): may a coin's lane-free reads taken at wall time [readWallMs] (decision time [readNowMs], price stamp
@@ -756,11 +744,10 @@ object CortexVoters7885 {
      */
     fun memoReusable8169(sameObject: Boolean, priceAtThen: Long, priceAtNow: Long, readWallMs: Long, wallNowMs: Long,
                          readNowMs: Long, nowMs: Long): Boolean =
-        sameObject && priceAtThen == priceAtNow && wallNowMs >= readWallMs && wallNowMs - readWallMs <= MEMO_MS_8169 &&
-            kotlin.math.abs(nowMs - readNowMs) <= MEMO_MS_8169
+        CortexVoterMemo8522.reusable(sameObject, priceAtThen, priceAtNow, readWallMs, wallNowMs, readNowMs, nowMs, MEMO_MS_8169)
 
     fun laneFreeCount8169(): Int = laneFree8169.count { it }
 
     /** "memo8169[hit= miss= laneFree=]" for the compute line. */
-    fun memoLine8169(): String = "memo8169[hit=${memoHits8169.get()} miss=${memoMisses8169.get()} laneFree=${laneFreeCount8169()}/${ALL.size}]"
+    fun memoLine8169(): String = "memo8169[hit=${memo8169.hits.get()} miss=${memo8169.misses.get()} laneFree=${laneFreeCount8169()}/${ALL.size}]"
 }

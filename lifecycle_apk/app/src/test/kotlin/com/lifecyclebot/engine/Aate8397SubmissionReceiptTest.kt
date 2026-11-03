@@ -95,13 +95,21 @@ class Aate8397SubmissionReceiptTest {
     @Test fun everyBuyRouteCarriesTheSameReceiptIncludingTheBuilderFallback() {
         val source = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(source.contains("val submission8397 = BuySubmissionReceipt8397(recoveredLiveAttemptId)"))
-        assertTrue(source.contains("buySend8085(wallet, ts.mint, tx, useJito, jitoTip, ultraReqId, c, submission8397)"))
+        assertTrue(source.contains("buySend8085(wallet, ts, tx, useJito, jitoTip, ultraReqId, c, submission8397)"))
         val pump = source.substring(source.indexOf("val pumpFirstResult:"), source.indexOf("val prepared8090 ="))
         assertTrue(pump.contains("submission8397 = submission8397"))
         assertEquals("all direct Raydium entry calls carry the receipt", 3,
             Regex("tryRaydiumBuy7325\\(ts, wallet, sol, tradeKey, submission8397, intent8198\\)").findAll(source).count())
         assertTrue(source.contains("buildBuyTxOrRaydium8089(ts, wallet, sol, tradeKey, executionQuote7688, c, submission8397, intent8198)"))
-        assertTrue(source.contains("sendObserver8397 = { send -> BuySubmissionReceipt8397.observe8397(submission8397, send) }"))
+        val observerStart = source.indexOf("sendObserver8397 = { send ->")
+        val observerEnd = source.indexOf("submittedSig8397 = sig.takeIf", observerStart)
+        assertTrue("Raydium retains its per-transaction send observer", observerStart >= 0 && observerEnd > observerStart)
+        val observer = source.substring(observerStart, observerEnd)
+        val safetyAt = observer.indexOf("BuyRouteSafety8522.requireAllowed(ts, route8522, \"RAYDIUM_FINAL_SIGN\")")
+        val receiptAt = observer.indexOf("BuySubmissionReceipt8397.observe8397(submission8397, send)")
+        assertTrue("each transaction checks current route safety before receipt-observed submission", safetyAt >= 0 && receiptAt > safetyAt)
+        assertTrue("a submitted signature remains owned if a later transaction is refused",
+            observer.indexOf("submittedSig8397 = sent") > receiptAt)
         assertTrue(source.contains("intentId = submission8397.attemptId, route = \"RAYDIUM\""))
         // superseded by V5.0.8418 — the entry attempt id still binds first; a top-up (no submission) names its own owner
         assertTrue(source.contains("intentId = submission8397?.attemptId ?: owner8418?.intentId.orEmpty(), route = \"PUMPPORTAL\""))

@@ -1262,7 +1262,11 @@ class JupiterApi(
     }
 
     private fun isRfqRouter(router: String): Boolean {
-        return router.lowercase() in setOf("iris", "dflow", "okx", "hashflow", "rfq")
+        // Legacy transport flag: retain conservative managed execution for the earlier
+        // third-party router set. JupiterZ is the actual RFQ router and MUST never be
+        // self-broadcast with its market-maker signature missing. Pool safety separately
+        // recognizes only the explicit JupiterZ route as maker inventory (8522).
+        return router.lowercase() in setOf("jupiterz", "iris", "dflow", "okx", "hashflow", "rfq")
     }
 
     private fun shortMint(mint: String): String {

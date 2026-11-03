@@ -72,9 +72,26 @@ object PreTradeHardGate {
             reason == "HOLDER_DATA_UNKNOWN" ||
             reason == "HOLDER_DISTRIBUTION_PENDING" ||
             reason == "HOLDER_DATA_PENDING" ||
+            reason.startsWith("LP_OWNERSHIP_PROOF_PENDING_8522") ||
             reason.startsWith("LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP:") ||
             reason == "LIQUIDITY_PROOF_PENDING"
     }.distinct()
+
+    /** An invalid numeric feed cannot erase another provider's concentration finding. */
+    internal fun topHolderPct8522(statePct: Double?, reportPct: Double): Double =
+        listOfNotNull(statePct, reportPct).filter { it.isFinite() && it >= 0.0 }
+            .maxOrNull()?.coerceAtMost(100.0) ?: -1.0
+
+    internal data class HolderProof8522(val adversePct: Double, val freshPct: Double?)
+
+    /** Undated state can preserve a warning; only dated current report evidence can authorize spending. */
+    internal fun holderProof8522(statePct: Double?, report: SafetyReport, nowMs: Long): HolderProof8522 {
+        val fresh = report.topHolderPct.takeIf {
+            it.isFinite() && it >= 0.0 && report.topHolderObservedAtMs8522 > 0L &&
+                nowMs - report.topHolderObservedAtMs8522 in 0L..SAFETY_FRESH_MS
+        }?.coerceAtMost(100.0)
+        return HolderProof8522(topHolderPct8522(statePct, report.topHolderPct), fresh)
+    }
 
     private fun allowWithPendingProof(ts: TokenState, pending: List<String>, callSite: String): Verdict {
         val essentialPending = criticalProofPending8373(pending)
@@ -111,7 +128,7 @@ object PreTradeHardGate {
         return Verdict(true, "ALLOW", "site=$callSite" + if (pending.isNotEmpty()) " pending_penalty=${pending.joinToString("|")}" else "")
     }
 
-    fun requireLiveBuyAllowed(ts: TokenState, callSite: String): Verdict {
+    fun requireLiveBuyAllowed(ts: TokenState, callSite: String, selectedPoolAddressOverride8522: String? = null): Verdict {
         val mint = ts.mint
         val safety = ts.safety
         val now = System.currentTimeMillis()
@@ -143,6 +160,11 @@ object PreTradeHardGate {
             return deferSafetyProof(ts, "LIVE_SAFETY_REPORT_NOT_FRESH_8269",
                 listOf("SAFETY_PROOF_STALE_OR_MISSING:checkedAt=$safetyAt ageMs=$safetyAge"), callSite)
         }
+        if (safety.evaluatedForPaper8522 != false) {
+            try { SafetyRefreshQueue.request(mint) } catch (_: Throwable) {}
+            return deferSafetyProof(ts, "LIVE_SAFETY_POLICY_REFRESH_8522",
+                listOf("SAFETY_POLICY_NOT_LIVE:paper=${safety.evaluatedForPaper8522}"), callSite)
+        }
 
         val rcStatus = safety.rugcheckStatus.uppercase()
         if (rcStatus.isBlank() || rcStatus in setOf("UNKNOWN", "TIMEOUT", "PENDING", "PENDING_REVIEW", "ERROR")) {
@@ -153,11 +175,6 @@ object PreTradeHardGate {
         // confirmed fatal signal exists; score=0 remains a hard rug proof.
         if (safety.rugcheckScore == 0) return block(ts, "RUGCHECK_CONFIRMED_RUG", "score=0")
 
-        when (safety.mintAuthorityDisabled) {
-            false -> return block(ts, "MINT_AUTHORITY_ACTIVE", "mint authority still active")
-            null -> pendingProofs.add("MINT_AUTHORITY_UNKNOWN")
-            true -> Unit
-        }
         // V5.0.7238 §FREEZE_AUTHORITY_HARD_BLOCK — operator screenshot
         // showed 3 frozen tokens were bought live (PUMPAPI.IO DECODE,
         // SWITCH TO PUMPAPI, SWITCH TO PUMPDEV) because the V5.0.4019
@@ -183,40 +200,72 @@ object PreTradeHardGate {
                     .FreezeAuthorityHardBlock7238.Verdict.ALLOW -> Unit
             }
         }
+        // The freeze check reads both authorities. Use that same fresh account
+        // result, not the scan-time snapshot captured before the RPC resolved.
+        val authorityMint8522 = ts.safety.mintAuthorityDisabled
+        when (authorityMint8522) {
+            false -> return block(ts, "MINT_AUTHORITY_ACTIVE", "mint authority still active")
+            null -> pendingProofs.add("MINT_AUTHORITY_UNKNOWN")
+            true -> Unit
+        }
 
         val tokenMapLiquidity = TokenMapAuthority.liquidityVerdict(ts)
+        val hasExecutionPool8522 = selectedPoolAddressOverride8522 != null
         when {
             tokenMapLiquidity.sourceIdentityBad -> return block(ts, "SOURCE_IDENTITY_BAD", tokenMapLiquidity.reason)
-            tokenMapLiquidity.hardZero -> return block(ts, "TRUE_ZERO_LIQUIDITY", tokenMapLiquidity.reason)
-            tokenMapLiquidity.pending -> pendingProofs.add("LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP:${tokenMapLiquidity.reason}")
+            !hasExecutionPool8522 && tokenMapLiquidity.hardZero -> return block(ts, "TRUE_ZERO_LIQUIDITY", tokenMapLiquidity.reason)
+            !hasExecutionPool8522 && tokenMapLiquidity.pending -> pendingProofs.add("LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP:${tokenMapLiquidity.reason}")
             tokenMapLiquidity.executable -> Unit
         }
-        if (!safety.liqConfirmed && !tokenMapLiquidity.executable) pendingProofs.add("LIQUIDITY_PROOF_PENDING")
-        // V5.0.8319 — an ACTIVE pump.fun curve with >= 0.5 real SOL observed inside the curve TTL is exit-safe on its own
-        // reserves (LaneAgeLiquidityTruth8140.activeCurveExitSafe8319); graduated / non-curve pools keep the $500 floor.
-        val curveExitSafe8319 = try { LaneAgeLiquidityTruth8140.activeCurveExitSafe8319(ts.mint) } catch (_: Throwable) { false }
-        if (ts.lastLiquidityUsd > 0.0 && ts.lastLiquidityUsd < MIN_LIVE_LIQ_HARD_FLOOR_USD && !curveExitSafe8319) {
+        if (!hasExecutionPool8522 && !safety.liqConfirmed && !tokenMapLiquidity.executable) pendingProofs.add("LIQUIDITY_PROOF_PENDING")
+        // Actual curve-account reserves observed within 30 seconds can prove active
+        // program custody; an inferred stream reserve or old venue label cannot.
+        val curveExitSafe8319 = !ts.tokenMap.migratedOrGraduated && LiquidityOwnership8522.activeCurveVerified(mint, now)
+        val curveAddress8522 = if (curveExitSafe8319) try {
+            com.lifecyclebot.network.PumpCurveKeys7269.canonicalCurveKey7392(mint).orEmpty()
+        } catch (_: Throwable) { "" } else ""
+        val selectedPool8522 = selectedPoolAddressOverride8522 ?:
+            ts.tokenMap.poolAddress.ifBlank { ts.lastPricePoolAddr.ifBlank { ts.pairAddress } }
+        val ownership8522 = LiquidityOwnership8522.assess(
+            safety, selectedPool8522, curveExitSafe8319, TokenSafetyChecker.isWhitelisted(mint), curveAddress8522, now,
+            expectedMint = mint,
+        )
+        when (ownership8522.status) {
+            LiquidityOwnership8522.Status.BLOCKED -> return block(ts, ownership8522.reason, ownership8522.detail)
+            LiquidityOwnership8522.Status.PENDING -> pendingProofs.add("${ownership8522.reason}:${ownership8522.detail}")
+            LiquidityOwnership8522.Status.PROVEN -> Unit
+        }
+        val exactDepth8522 = if (hasExecutionPool8522)
+            LiquidityOwnership8522.observedPoolDepth8522(safety, selectedPool8522, now, expectedMint = mint) else null
+        val curveCustody8522 = ownership8522.reason == "ACTIVE_CURVE_LP_NOT_APPLICABLE_8522"
+        if (hasExecutionPool8522 && exactDepth8522 == null && !curveCustody8522) pendingProofs.add("LIQUIDITY_PROOF_PENDING")
+        // A final quote may use a different pool from the last price. Its depth
+        // is resolved by exact address, never the old map's low/high reading.
+        val liquidityUsd8522 = if (hasExecutionPool8522) exactDepth8522 ?: -1.0 else ts.lastLiquidityUsd
+        val depthObserved8522 = if (hasExecutionPool8522) liquidityUsd8522 >= 0.0 else liquidityUsd8522 > 0.0
+        if (depthObserved8522 && liquidityUsd8522 < MIN_LIVE_LIQ_HARD_FLOOR_USD && !curveCustody8522) {
             // V5.0.4090 — UN-TRADEABLE THIN-POOL HARD BLOCK. Any sell into a sub-$500
             // pool will catastrophically slip past its stop loss (operator data point:
             // STANDARD entry at $192 liq → STRICT_SL_-10 fired → realized -47% =
             // -0.146 SOL single-trade loss). No lane survives this safely.
-            return block(ts, "LIQUIDITY_BELOW_EXIT_SAFE_FLOOR", "liq=\$${ts.lastLiquidityUsd.toInt()} min=\$${MIN_LIVE_LIQ_HARD_FLOOR_USD.toInt()}")
+            return block(ts, "LIQUIDITY_BELOW_EXIT_SAFE_FLOOR", "liq=\$${liquidityUsd8522.toInt()} pool=$selectedPool8522 min=\$${MIN_LIVE_LIQ_HARD_FLOOR_USD.toInt()}")
         }
-        if (ts.lastLiquidityUsd > 0.0 && ts.lastLiquidityUsd < MIN_LIVE_LIQ_USD) {
-            pendingProofs.add("LOW_LIQUIDITY_SIZE_REDUCED:liq=${ts.lastLiquidityUsd} min=$MIN_LIVE_LIQ_USD")
+        if (liquidityUsd8522 > 0.0 && liquidityUsd8522 < MIN_LIVE_LIQ_USD) {
+            pendingProofs.add("LOW_LIQUIDITY_SIZE_REDUCED:liq=$liquidityUsd8522 min=$MIN_LIVE_LIQ_USD")
             try { ForensicLogger.lifecycle("BUY_GATE_DECISION", "mint=${ts.mint.take(10)} symbol=${ts.symbol} decision=PENALTY_ONLY reason=LOW_LIQUIDITY_SIZE_REDUCED source=PreTradeHardGate liveEligible=true") } catch (_: Throwable) {}
         }
 
-        val topHolder = listOfNotNull(ts.topHolderPct, safety.topHolderPct.takeIf { it >= 0.0 }).maxOrNull() ?: -1.0
+        val holder8522 = holderProof8522(ts.topHolderPct, safety, System.currentTimeMillis())
+        val topHolder = holder8522.adversePct
         // V5.0.7379 — a known top-10 concentration (rugcheck or on-chain) is resolved
         // holder data, whether or not a holder-count candle has arrived.
-        if (!ts.holderDataResolved && topHolder < 0.0) pendingProofs.add("HOLDER_DATA_PENDING")
-        if (topHolder < 0.0) pendingProofs.add("HOLDER_DATA_UNKNOWN")
+        if (!ts.holderDataResolved && holder8522.freshPct == null) pendingProofs.add("HOLDER_DATA_PENDING")
+        if (holder8522.freshPct == null) pendingProofs.add("HOLDER_DATA_UNKNOWN")
         // V5.0.3986 — operator screenshot breach: single-holder/high-ownership/
         // top10/unverified token risk must never spend real SOL. Unknown holder
         // distribution is a live hydration defer; confirmed concentration is a
         // hard block. Paper learning can still sample outside this live-only gate.
-        if (topHolder < 0.0) {
+        if (holder8522.freshPct == null) {
             pendingProofs.add("HOLDER_DISTRIBUTION_PENDING")
         }
         // Freeze is already fail-closed above; do not wait for an impossible
@@ -227,9 +276,9 @@ object PreTradeHardGate {
         // If BOTH critical holder ownership and the provider report are blind,
         // or the pool is already thin, no new money is spent on unverified
         // distribution. Keep the candidate in refresh rather than blacklist it.
-        if (topHolder < 0.0 &&
+        if (holder8522.freshPct == null &&
             (rcStatus in setOf("UNKNOWN", "TIMEOUT", "PENDING", "PENDING_REVIEW", "ERROR", "") ||
-                (ts.lastLiquidityUsd in 0.000001..MIN_LIVE_LIQ_USD && !curveExitSafe8319))) {   // V5.0.8319: a blind rugcheck still defers
+                (liquidityUsd8522 in 0.000001..MIN_LIVE_LIQ_USD && !curveCustody8522))) {   // V5.0.8319: a blind rugcheck still defers
             try { SafetyRefreshQueue.request(mint) } catch (_: Throwable) {}
             return deferSafetyProof(ts, "HOLDER_DISTRIBUTION_RISK_UNVERIFIED_8269", pendingProofs.distinct(), callSite)
         }
@@ -253,8 +302,12 @@ object PreTradeHardGate {
         if (fatal != null) return block(ts, "FATAL_WALLET_RISK_TEXT", fatal)
 
         // V5.0.8471 — owner: "trade whatever we can trade safely using the safety tools we have built".
-        val pending8471 = chainProvenRugcheckSubstitute8471(pendingProofs.distinct(), safety.mintAuthorityDisabled == true,
-            topHolder, tokenMapLiquidity.executable || curveExitSafe8319)
+        val executableExit8522 = if (hasExecutionPool8522) curveCustody8522 ||
+            (exactDepth8522 != null && exactDepth8522 >= MIN_LIVE_LIQ_HARD_FLOOR_USD)
+            else tokenMapLiquidity.executable || curveExitSafe8319
+        val pending8471 = chainProvenRugcheckSubstitute8471(pendingProofs.distinct(), authorityMint8522 == true,
+            holder8522.freshPct ?: -1.0, executableExit8522,
+            ownership8522.status == LiquidityOwnership8522.Status.PROVEN)
         return allowWithPendingProof(ts, pending8471, callSite)
     }
 
@@ -265,13 +318,15 @@ object PreTradeHardGate {
      * rug proof, all of them required: mint authority revoked [mintRevoked], freeze revoked with no hostile Token-2022
      * extension (re-read on chain above, FreezeAuthorityHardBlock7238, or this gate already refused), holder concentration
      * read and under the fatal limit [topHolderPct], and an exit we can sell into [executableExit] (a routable token map or
-     * an exit-safe active curve). The RugCheck item then stays a size penalty, not a refusal; any other
+     * an exit-safe active curve), plus protected LP ownership or verified active curve custody [liquidityOwnershipProven].
+     * The RugCheck item then stays a size penalty, not a refusal; any other
      * missing proof still defers, and a RugCheck report with findings is judged by them upstream.
      */
     internal fun chainProvenRugcheckSubstitute8471(pending: List<String>, mintRevoked: Boolean, topHolderPct: Double,
-                                                   executableExit: Boolean): List<String> {
+                                                   executableExit: Boolean, liquidityOwnershipProven: Boolean = false): List<String> {
         if (pending.none { it.startsWith(RUGCHECK_PENDING_8471) }) return pending
-        val proven = mintRevoked && topHolderPct >= 0.0 && topHolderPct < TOP_HOLDER_FATAL_PCT && executableExit
+        val proven = mintRevoked && topHolderPct.isFinite() && topHolderPct >= 0.0 && topHolderPct < TOP_HOLDER_FATAL_PCT &&
+            executableExit && liquidityOwnershipProven
         if (!proven) return pending
         try { PipelineHealthCollector.labelInc("RUGCHECK_NO_FINDINGS_CHAIN_PROVEN_8471") } catch (_: Throwable) {}
         return pending.map { if (it.startsWith(RUGCHECK_PENDING_8471)) "RUGCHECK_NO_FINDINGS_CHAIN_PROVEN_8471:" + it.substringAfter(':') else it }

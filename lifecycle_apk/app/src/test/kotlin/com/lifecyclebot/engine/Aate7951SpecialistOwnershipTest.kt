@@ -135,7 +135,7 @@ class Aate7951SpecialistOwnershipTest {
         val bridge = src("engine/SpecialistBrainBridge7542.kt")
         // Common conviction still owns the completed native snapshot; 8372 publishes it before observers run.
         val compactBridge = bridge.replace(Regex("\\s+"), "")
-        assertTrue(compactBridge.contains("val snapshot8372 = Snapshot(ts.mint, f, now, SpecialistOwnership7951.onCommonScale7951(ts.mint, out.toMap()))".replace(" ", "")))
+        assertTrue(compactBridge.contains("val snapshot8372 = Snapshot(ts.mint, f, now, SpecialistOwnership7951.onCommonScale7951(ts.mint, out.toMap()), marketInputs8522)".replace(" ", "")))
         assertTrue(compactBridge.contains("cache[ts.mint]=Cached(snapshot8372)"))
         assertTrue(compactBridge.contains("return snapshot8372.also".replace(" ", "")))
         assertTrue(src("engine/TradeAuthorizer.kt").contains("SpecialistOwnership7951.authorizerReadyConviction7951(requestedBook.name, mint, candidateVersion7624, score, safeConfidence)"))

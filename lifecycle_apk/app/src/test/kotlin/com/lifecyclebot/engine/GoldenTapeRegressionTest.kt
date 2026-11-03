@@ -9985,7 +9985,7 @@ class GoldenTapeRegressionTest {
         assertFalse(com.lifecyclebot.engine.truth.PeggedAssetGuard7270.isPegged("PIGUSD", 1.001, 3.0e4))
         assertFalse(com.lifecyclebot.engine.truth.PeggedAssetGuard7270.isPegged("INJ", 8.5, 7.6e8))
         assertFalse(com.lifecyclebot.engine.truth.PeggedAssetGuard7270.isPegged("WIF", 1.01, 1.0e9))
-        assertTrue(bot.contains("val qualityLaneAllowedThisCycle = !ts.position.isOpen && !peggedQuality7270 && shouldRunBuyLaneForCycle(ts, \"QUALITY\", cyclePrimaryLane)"))
+        assertTrue(bot.contains("val qualityLaneAllowedThisCycle = !ts.position.isOpen && !peggedQuality7270 && shouldRunBuyLaneForCycle(ts, \"QUALITY\", cyclePrimaryLane, cycleSheet8522)"))
         assertTrue(bot.contains("if (!permitResult.allowed || peggedBlue7270 || pumpBlue7320) {"))
         assertTrue(pegged.contains("PEGGED_ASSET_LANE_SKIPPED_7270"))
 
@@ -15622,7 +15622,7 @@ class GoldenTapeRegressionTest {
         val ex = java.io.File(root, "Executor.kt").readText()
         assertTrue(ex.contains("com.lifecyclebot.engine.truth.EntryReceipt8500.onLiveBuy8500(ts, entryEvidence7863.receipt8506, pidLive6486)"))  // V5.0.8510
         val cap = java.io.File(root, "truth/RunnerCapture8017.kt").readText()
-        assertTrue(cap.contains("EntryReceipt8500.onLiveClose8500(env.mint, env.mode, env.terminal, env.realizedReturnPct, env.mfePct, env.positionId, env.atMs, env.holdingTimeMs)"))  // V5.0.8510
+        assertTrue(cap.contains("EntryReceipt8500.onLiveClose8500(env.mint, env.mode, env.terminal, env.realizedReturnPct, env.mfePct, env.positionId, env.atMs, env.holdingTimeMs, env.lane, env.assetClassTag)"))  // V5.0.8522
         val router = java.io.File(root, "TokenMetricStageRouter.kt").readText()
         assertTrue(router.contains("const val TOP10_RUG_PRONE_PCT_8500 = 60.0"))
         assertTrue(router.contains("val topHeavy = top >= TOP10_RUG_PRONE_PCT_8500"))

@@ -940,8 +940,9 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
      * Jupiter handles MEV protection and optimal execution.
      * 
      * CRITICAL FIX #3: SMART FALLBACK BASED ON ROUTER TYPE
-     * - RFQ routes (iris, dflow, okx): MUST use /execute - retry /execute on failure
-     * - Metis/JupiterZ routes: Can self-broadcast via RPC as fallback
+     * - JupiterZ RFQ requires the maker signature from /execute; never self-broadcast.
+     * - The legacy transport flag also conservatively keeps Iris/Dflow/OKX on /execute.
+     * - Unflagged complete routes may self-broadcast via RPC as fallback.
      * 
      * @param jupiterApiKey The Jupiter API key from config
      * @param isRfqRoute True if this is an RFQ route that requires Jupiter's signature

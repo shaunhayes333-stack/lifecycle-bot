@@ -36,6 +36,20 @@ object DiagnosisBrief8438 {
     /** One fix-queue entry: [weight] orders the queue (money-like units), [text] says what and where. */
     data class Fix8438(val weight: Double, val tag: String, val text: String)
 
+    internal data class HeldQuoteEvidence8522(val summary: String, val detail: String, val fix: Fix8438?)
+
+    /** Session quote misses remain inspectable after the live book closes; they do not imply a current held-position conflict. */
+    internal fun heldQuoteEvidence8522(asked: Long, ok: Long, liveHeld: Int, detail: String): HeldQuoteEvidence8522 {
+        val unresolved = liveHeld > 0 && asked >= 10L && ok == 0L
+        return HeldQuoteEvidence8522(
+            "heldQuote cumulative asked=$asked ok=$ok liveHeld=$liveHeld" +
+                if (unresolved) " [REVIEW no successful held-quantity quote this session]" else "",
+            detail,
+            if (unresolved) Fix8438(asked.toDouble(), "REVIEW",
+                "open LIVE holdings have no successful held-quantity quote this session (asked=$asked ok=0); inspect the cumulative miss causes -> HeldHotMarkAuthority7419.quoteSellEstimate") else null,
+        )
+    }
+
     // ── pure verdicts ──
 
     /** Pure: the forward record of a gate's refusals — refusing winners costs money; refusing losers protects it. */
@@ -236,14 +250,16 @@ object DiagnosisBrief8438 {
             val t2b = com.lifecyclebot.engine.sell.SellRouteSpine8144.emergencyT2bMax8438()
             val pre = com.lifecyclebot.engine.sell.SellRouteSpine8144.preRouteTop8438()
             val (asked, ok) = com.lifecyclebot.engine.truth.HeldExitQuote8189.askedOk8438()
+            val heldQuote8522 = heldQuoteEvidence8522(asked, ok,
+                com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.protectiveInventory7807("live").size,
+                com.lifecyclebot.engine.truth.HeldExitQuote8189.statusLine8189())
             sb.append("  E EXITS      emergency trigger->broadcast max=").append(if (t2b > 0L) "${t2b}ms" else "-")
                 .append(if (t2b > 5_000L) " [FAULT >5 s]" else "").append(" preRoute{")
-                .append(pre.joinToString(",") { "${it.first}=${it.second}" }.ifBlank { "-" }).append("} heldQuote asked=").append(asked).append(" ok=").append(ok)
-                .append(if (asked >= 10L && ok == 0L) " [CONFLICT route READY with no executable sell quote]" else "").append('\n')
+                .append(pre.joinToString(",") { "${it.first}=${it.second}" }.ifBlank { "-" }).append("} ").append(heldQuote8522.summary).append('\n')
+            sb.append("               ").append(heldQuote8522.detail).append('\n')
             if (t2b > 5_000L) fixes += Fix8438(t2b / 100.0, "FAULT",
                 "emergency exit ${t2b} ms trigger->broadcast; top pre-route cause ${pre.firstOrNull()?.first ?: "-"} -> SellRouteSpine8144 preRoute8435 names the sell row; Executor.doSell / liveSellInScope7314 early returns")
-            if (asked >= 10L && ok == 0L) fixes += Fix8438(asked.toDouble(), "CONFLICT",
-                "held positions have no executable sell quote (asked=$asked ok=0) -> heldQuote8189 missBy8435; HeldHotMarkAuthority7419.quoteSellEstimate")
+            heldQuote8522.fix?.let { fixes += it }
             // V5.0.8488 — live buys timed per step (target: start -> broadcast within 2 s).
             val (bn, bavg, bmax) = com.lifecyclebot.engine.truth.BuyStageTiming.startToBroadcast()
             val slow = com.lifecyclebot.engine.truth.BuyStageTiming.slowestStep()

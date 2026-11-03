@@ -20,7 +20,8 @@ object SpecialistBrainBridge7542 {
         // null = bar unknown, arbitration keeps the raw score/confidence.
         val ownershipConviction7948:Double?=null,
     )
-    data class Snapshot(val mint:String,val fingerprint:Int,val evaluatedAtMs:Long,val opinions:Map<String,Opinion>)
+    data class Snapshot(val mint:String,val fingerprint:Int,val evaluatedAtMs:Long,val opinions:Map<String,Opinion>,
+                        val marketInputs8522: SpecialistMarketInputs8522.Read? = null)
     private data class Cached(val snapshot:Snapshot)
     private val cache=ConcurrentHashMap<String,Cached>()
     private val initialized=AtomicBoolean(false)
@@ -138,6 +139,11 @@ object SpecialistBrainBridge7542 {
         // own missing setup features. Coalesce by mint + feature before asking
         // the existing provider-budgeted refresher; don't fabricate values.
         val missingByFeature = linkedMapOf<String, String>()
+        // A lane missing its required history/age/flow cannot qualify yet. It must request that
+        // evidence here as well; otherwise only already-qualified lanes ever reach the refresher.
+        SpecialistMarketInputs8522.missingNativeInputs8522(snap.opinions.values).forEach { raw ->
+            missingByFeature.putIfAbsent(raw.substringBefore(':').lowercase(), raw)
+        }
         qualified.forEach { o ->
             try {
                 val missing = com.lifecyclebot.engine.cortex.LanePlaybook7907.dataIncomplete8136(ts, o.lane, nowMs).orEmpty()
@@ -222,6 +228,7 @@ object SpecialistBrainBridge7542 {
         ts.meta.emafanAlignment,ts.meta.exhaustion,ts.meta.spikeDetected,ts.meta.curveProgress.toInt(),
         ts.safety.checkedAt,ts.safety.rugcheckScore,ts.safety.firstBlockSupplyPct.toInt(),
         ts.safety.isBlocked,ts.safety.hardBlockReasons.hashCode(),ts.safety.bundleReason,
+        SpecialistMarketInputs8522.riskFingerprint8522(ts),
         ts.sentiment.score.toInt(),ts.toolAffinity.hashCode(),
         ts.source,ts.lastPriceSource,ts.lastPriceDex,
         ts.tokenMap.creatorOrDevWallet,ts.tokenMap.migratedOrGraduated,
@@ -260,7 +267,9 @@ object SpecialistBrainBridge7542 {
         return bootstrap + residents.intersect(com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.LANES)
     }
 
-    fun evaluate(ts:TokenState):Snapshot{
+    fun evaluate(ts:TokenState):Snapshot = SpecialistBuild8522.local8522(ts.mint) { evaluateLocal8522(ts) }
+
+    private fun evaluateLocal8522(ts:TokenState):Snapshot{
         // V5.0.8399 — a curve token's market cap comes from its own reserves before any specialist judges "mcap unknown".
         // V5.0.8400 §CAPTURED_WITH_THE_TOKEN_AT_DISCOVERY — the one resolver (DiscoveryCapture8400: reserves, price x supply,
         // curve-from-liquidity, else the batched chain read) runs at intake for every source; this is the backstop for a
@@ -280,33 +289,26 @@ object SpecialistBrainBridge7542 {
             catch (_: Throwable) { null }
         val f = fp(ts, paper, residentScope7828, NativeLaneAge8521.fingerprint8521(birthRead8521, now))
         cache[ts.mint]?.snapshot?.let { if (it.fingerprint == f && now - it.evaluatedAtMs in 0L..CACHE_MS) return it }
-        val nativeHistory8521 = NativeHistory8521.read8521(ts, now)
+        val marketInputs8522 = SpecialistMarketInputs8522.read8522(ts, now, birthRead8521)
+        val nativeHistory8521 = marketInputs8522.history
         val prices = nativeHistory8521.prices
         val recentPrices = nativeHistory8521.recentPrices
-        val price = ts.lastPrice.takeIf { it.isFinite() && it > 0.0 } ?: prices.lastOrNull() ?: 0.0
+        val price = marketInputs8522.price
         val measuredVolume = nativeHistory8521.volumeRatio
         val volVs = measuredVolume ?: 1.0
         val high = max(price, nativeHistory8521.high ?: price)
-        val ageEvidence8521 = NativeLaneAge8521.evidence8521(birthRead8521)
+        val ageEvidence8521 = marketInputs8522.age
         val ageMin = ageEvidence8521.inputMinutes
-        val observedBp8491 = LaneInputTruth8236.buyPressure8491(ts, now)
-        val observedChange8491 = LaneInputTruth8236.change5m8491(ts, now)
+        val observedBp8491 = marketInputs8522.buyPressurePct
+        val observedChange8491 = marketInputs8522.change5mPct
         val bp = observedBp8491 ?: 50.0
-        // V5.0.7551 — TokenState.momentum is a centered 0..100 SCORE (50=flat),
-        // not a signed percentage move. Native BlueChip/ShitCoin/Express/Manip/
-        // CashGen APIs all document/use momentum as signed %. Feeding score=50
-        // into those APIs made a flat token look like +50% momentum.
-        val histMomentumPct7551 = if (recentPrices.size >= 2) {
-            val first = recentPrices.first()
-            val last = recentPrices.last()
-            if (first > 0.0 && last.isFinite()) ((last - first) / first) * 100.0 else 0.0
-        } else 0.0
+        // Native BlueChip/ShitCoin/Express/Manip/CashGen APIs expect signed percent.
+        // Producers fixed the historical centered-score bug in 7758; the shared read
+        // now also keeps their window/freshness identical to the actual entry doors.
         // V5.0.8348 — ONE continuation read with provenance (ContinuationRead8348): the tape over the coin's own age inside the
         // launch hour, else the 1 h change, the history move, the move since the create price, a 5 m change; else UNOBSERVED.
-        val cont8348 = ContinuationRead8348.read8348(ts, histMomentumPct7551, recentPrices.size, ageMin,
-            if (recentPrices.size < 2) ExpressMomentum8190.sinceLaunchPct8190(ts, ageMin) else null, now)
-        val mom = observedChange8491
-            ?: (if (recentPrices.size < 2 && cont8348.source == ContinuationRead8348.Source8348.FROM_TAPE) cont8348.pct else histMomentumPct7551)   // V5.0.8348 — a young coin's tape, not a flat 0.0 on no history
+        val cont8348 = marketInputs8522.continuation
+        val mom = marketInputs8522.momentumPct ?: 0.0
         // V5.0.7555 — Express has two directional inputs by design:
         // broad momentum + acute 5m change. Feed the authoritative 1h drift
         // into momentum so the same 5m print is not scored twice.
@@ -315,7 +317,7 @@ object SpecialistBrainBridge7542 {
         // volatility intentionally stays on its existing 0..100 score scale:
         // DataOrchestrator and these native lanes already use score-like bands.
         val vol=ts.volatility?.takeIf{it.isFinite()}?:abs(ts.meta.avgAtr)
-        val v3=(ts.lastV3Score?:ts.entryScore.toInt()).coerceIn(0,100);val v3c=(ts.lastV3Confidence?:50).coerceIn(0,100)
+        val v3=marketInputs8522.v3Score;val v3c=marketInputs8522.v3Confidence
         // V5.0.7552 — unknown data must stay neutral/pending, never masquerade
         // as best-possible holder distribution or a fabricated confirmed RC.
         val top = if (ts.holderDataResolved) {
@@ -362,7 +364,8 @@ object SpecialistBrainBridge7542 {
         // Birth evidence is shared; each desk applies only its own age rule.
         // A fresh watchlist insertion cannot make an old, unresolved token young.
         for ((lane, opinion) in out.toList()) {
-            val capped = NativeLaneConstraints8521.requireCap8521(opinion, ts.lastMcap)
+            val capped = NativeLaneConstraints8521.requireCashflowRole8522(
+                NativeLaneConstraints8521.requireCap8521(opinion, ts.lastMcap), ts.lastMcap, ts.lastLiquidityUsd)
             out[lane] = NativeLaneAge8521.review8521(capped, ageEvidence8521)
         }
 
@@ -413,7 +416,7 @@ object SpecialistBrainBridge7542 {
         // V5.0.8372 — publish the FULL immutable native snapshot before any observer can ask cachedSnapshot7650.
         // Previously enrollment/Explore could capture the preceding decision (or no native context), because this
         // assignment happened only in the return expression after both callbacks. No new assessment/compute lock.
-        val snapshot8372 = Snapshot(ts.mint, f, now, SpecialistOwnership7951.onCommonScale7951(ts.mint, out.toMap()))
+        val snapshot8372 = Snapshot(ts.mint, f, now, SpecialistOwnership7951.onCommonScale7951(ts.mint, out.toMap()), marketInputs8522)
         cache[ts.mint] = Cached(snapshot8372)
         pruneOnInsert8169(now)
         // Every gradeable native YES and NO is offered from this same published decision.
