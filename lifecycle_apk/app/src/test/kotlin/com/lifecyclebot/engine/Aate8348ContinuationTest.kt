@@ -153,10 +153,12 @@ class Aate8348ContinuationTest {
 
     @Test fun theDeskReadsOneContinuationAndReviewsMomentumBeforeTheGrabLane() {
         val b = src("engine/SpecialistBrainBridge7542.kt")
-        assertTrue(b.contains("val cont8348 = ContinuationRead8348.read8348(ts, histMomentumPct7551, recentPrices.size, ageMin,"))
-        assertTrue(b.contains("if (recentPrices.size < 2) ExpressMomentum8190.sinceLaunchPct8190(ts, ageMin) else null, now)"))
+        val inputs = src("engine/SpecialistMarketInputs8522.kt")
+        assertTrue(b.contains("val cont8348 = marketInputs8522.continuation"))
+        assertTrue(inputs.contains("ContinuationRead8348.read8348(ts, historyPct ?: 0.0, recent.size,"))
+        assertTrue(inputs.contains("if (recent.size < 2) ExpressMomentum8190.sinceLaunchPct8190(ts, age.inputMinutes) else null, nowMs)"))
         assertTrue(b.contains("val expressMomentum7555 = cont8348.pct"))
-        assertTrue(b.contains("?: (if (recentPrices.size < 2 && cont8348.source == ContinuationRead8348.Source8348.FROM_TAPE) cont8348.pct else histMomentumPct7551)"))
+        assertTrue(inputs.contains("ContinuationRead8348.Source8348.FROM_TAPE && it.pct.isFinite()"))
         // superseded by V5.0.8492 — momentum counts as observed from a fresh 5 m change, 2+ prices or the coin's own tape
         val review = "ContinuationRead8348.reviewMomentum8348(out, cont8348.observed, observedChange8491 != null || recentPrices.size >= 2 || cont8348.source == ContinuationRead8348.Source8348.FROM_TAPE)"
         assertTrue(b.contains(review))

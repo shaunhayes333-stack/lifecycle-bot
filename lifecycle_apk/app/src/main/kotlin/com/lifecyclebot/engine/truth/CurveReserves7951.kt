@@ -40,6 +40,7 @@ object CurveReserves7951 {
         @Volatile var atMs: Long,
         @Volatile var accountObserved: Boolean,
         @Volatile var version8385: Long = 0L,
+        var accountSnapshot8522: ExitReserveObservation? = null,
     )
 
     private val rows = ConcurrentHashMap<String, Row>()
@@ -150,6 +151,13 @@ object CurveReserves7951 {
         if (rows.size >= MAX_MINTS && !rows.containsKey(m)) trim(atMs)
         val r = rows.computeIfAbsent(m) { Row(vSol, vTok, real, 0L, accountObserved) }
         val accepted = synchronized(r) {
+            // A newer trade frame must not delete a still-fresh account proof. Retain its
+            // own source time, including a delayed account response older than the latest
+            // frame. It never overwrites the latest price/reserve row or gains that row's clock.
+            if (accountObserved && vSol.isFinite() && vSol > 0.0 && vTok.isFinite() && vTok > 0.0 &&
+                real.isFinite() && real >= 0.0 && atMs > (r.accountSnapshot8522?.observedAtMs ?: 0L)) {
+                r.accountSnapshot8522 = ExitReserveObservation(vSol, vTok, real, atMs)
+            }
             if (!accepts8418(atMs, r.atMs, accountObserved, r.accountObserved)) return null   // V5.0.8418 — an ACCOUNT read wins a same-ms tie
             r.virtualSol = vSol
             r.virtualTokens = if (vTok.isFinite() && vTok > 0.0) vTok else Double.NaN
@@ -234,6 +242,20 @@ object CurveReserves7951 {
         return synchronized(r) {
             if (!r.accountObserved || !LaunchCohort8173.reserveFresh8174(r.atMs, nowMs)) null
             else r.realSol.takeIf { it.isFinite() && it >= 0.0 }
+        }
+    }
+
+    /** One atomic, dated account observation for safety; stream arithmetic and stale rows are not ownership proof. */
+    fun accountObservation8522(mint: String, nowMs: Long, maxAgeMs: Long = 30_000L): ExitReserveObservation? {
+        val r = rows[mint.trim()] ?: return null
+        if (try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(mint) } catch (_: Throwable) { true }) return null
+        return synchronized(r) {
+            val account = r.accountSnapshot8522
+            if (account == null || account.observedAtMs <= 0L || nowMs - account.observedAtMs !in -5_000L..maxAgeMs) null
+            // A newer observed empty/unsafe curve cannot use an older healthy account read.
+            else if (r.atMs > account.observedAtMs && r.realSol.isFinite() &&
+                r.realSol < com.lifecyclebot.engine.LaneAgeLiquidityTruth8140.CURVE_EXIT_MIN_REAL_SOL_8319) null
+            else account
         }
     }
 

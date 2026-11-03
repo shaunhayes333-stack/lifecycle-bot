@@ -45,17 +45,24 @@ object OnChainHolderConcentration7379 {
             .build()
     }
 
-    private data class Cached(val pct: Double, val atMs: Long)
-    private val cache = ConcurrentHashMap<String, Cached>()
+    data class Observation8522(val pct: Double, val observedAtMs: Long)
+    private val cache = ConcurrentHashMap<String, Observation8522>()
     private val missAt = ConcurrentHashMap<String, Long>()
     private const val TTL_MS = 10 * 60_000L
     private const val MISS_RETRY_MS = 15_000L   // a buy's 3 deferrals in 5 min each get a fresh read (was 60 s: one read for all three)
 
-    fun top10Pct(mint: String): Double? {
+    internal fun usable8522(observation: Observation8522, nowMs: Long, maxAgeMs: Long): Boolean =
+        observation.pct.isFinite() && observation.pct in 0.0..100.0 && observation.observedAtMs > 0L &&
+            nowMs - observation.observedAtMs in 0L..minOf(TTL_MS, maxAgeMs.coerceAtLeast(0L))
+
+    /** Informational callers retain the wider cache; live safety requests its shorter proof window. */
+    fun top10Pct(mint: String): Double? = observation8522(mint)?.pct
+
+    fun observation8522(mint: String, maxAgeMs: Long = TTL_MS): Observation8522? {
         if (mint.isBlank()) return null
         val now = System.currentTimeMillis()
-        cache[mint]?.let { if (now - it.atMs < TTL_MS) return it.pct }
-        missAt[mint]?.let { if (now - it < MISS_RETRY_MS) return null }
+        cache[mint]?.let { if (usable8522(it, now, maxAgeMs)) return it }
+        missAt[mint]?.let { if (now - it in 0L until MISS_RETRY_MS) return null }
         val pct = try { compute(mint) } catch (_: Throwable) { null }
         if (pct == null) {
             if (missAt.size > 5_000) missAt.clear()
@@ -64,9 +71,10 @@ object OnChainHolderConcentration7379 {
             return null
         }
         if (cache.size > 5_000) cache.clear()
-        cache[mint] = Cached(pct, now)
+        val observation = Observation8522(pct, now)
+        cache[mint] = observation
         try { PipelineHealthCollector.labelInc("ONCHAIN_HOLDER_CONCENTRATION_RESOLVED_7379") } catch (_: Throwable) {}
-        return pct
+        return observation
     }
 
     private fun compute(mint: String): Double? {

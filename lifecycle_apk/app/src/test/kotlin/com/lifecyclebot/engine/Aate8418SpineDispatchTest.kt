@@ -47,7 +47,7 @@ class Aate8418SpineDispatchTest {
         val a = s.indexOf("val spineLane8418 = LaneDispatch8418.spineLane8418(")
         assertTrue(a > 0)
         val block = s.substring(a, s.indexOf("TradeAuthorizer.authorize(", a))
-        assertTrue(block.contains("laneEvaluationAllowed7951(ts, it, cyclePrimaryLane) && cyclicPolicyAllows7809(it)"))
+        assertTrue(block.contains("laneEvaluationAllowed7951(ts, it, cyclePrimaryLane, cycleSheet8522) && cyclicPolicyAllows7809(it)"))
         assertTrue(block.contains("specialistLane = spineLane8418,"))
         assertTrue(block.contains("identity.mint, fdgCandidateVersion6653, spineLane8418,"))
         assertTrue(!block.contains("specialistLane = cyclePrimaryLane,"))

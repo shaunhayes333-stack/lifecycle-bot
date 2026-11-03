@@ -71,21 +71,21 @@ class Aate8471RugcheckTest {
 
     @Test fun noRugcheckFindingsTradesOnlyOnCompleteChainProof() {
         val pending = listOf("RUGCHECK_PENDING_OR_UNKNOWN:PENDING_REVIEW", "LOW_LIQUIDITY_SIZE_REDUCED:liq=900.0 min=1500.0")
-        val proven = PreTradeHardGate.chainProvenRugcheckSubstitute8471(pending, mintRevoked = true, topHolderPct = 22.0, executableExit = true)
+        val proven = PreTradeHardGate.chainProvenRugcheckSubstitute8471(pending, mintRevoked = true, topHolderPct = 22.0, executableExit = true, liquidityOwnershipProven = true)
         assertEquals("RUGCHECK_NO_FINDINGS_CHAIN_PROVEN_8471:PENDING_REVIEW", proven[0])
         assertTrue("no longer a critical proof: a size penalty", PreTradeHardGate.criticalProofPending8373(proven).isEmpty())
         // every proof is required
         for ((m, h, e) in listOf(Triple(false, 22.0, true), Triple(true, -1.0, true), Triple(true, 35.0, true), Triple(true, 22.0, false))) {
-            val kept = PreTradeHardGate.chainProvenRugcheckSubstitute8471(pending, m, h, e)
+            val kept = PreTradeHardGate.chainProvenRugcheckSubstitute8471(pending, m, h, e, liquidityOwnershipProven = true)
             assertEquals("mint=$m holders=$h exit=$e", pending, kept)
             assertEquals(listOf("RUGCHECK_PENDING_OR_UNKNOWN:PENDING_REVIEW"), PreTradeHardGate.criticalProofPending8373(kept))
         }
         // other missing proofs still defer
-        val withHolders = PreTradeHardGate.chainProvenRugcheckSubstitute8471(pending + "MINT_AUTHORITY_UNKNOWN", true, 22.0, true)
+        val withHolders = PreTradeHardGate.chainProvenRugcheckSubstitute8471(pending + "MINT_AUTHORITY_UNKNOWN", true, 22.0, true, liquidityOwnershipProven = true)
         assertEquals(listOf("MINT_AUTHORITY_UNKNOWN"), PreTradeHardGate.criticalProofPending8373(withHolders))
         // the gate passes its own chain readings, after the freeze / Token-2022 chain re-read and the fatal-holder block
         val gate = src("engine/PreTradeHardGate.kt")
-        assertTrue(gate.contains("chainProvenRugcheckSubstitute8471(pendingProofs.distinct(), safety.mintAuthorityDisabled == true,\n            topHolder, tokenMapLiquidity.executable || curveExitSafe8319)"))
+        assertTrue(gate.contains("chainProvenRugcheckSubstitute8471(pendingProofs.distinct(), authorityMint8522 == true,\n            holder8522.freshPct ?: -1.0, executableExit8522,\n            ownership8522.status == LiquidityOwnership8522.Status.PROVEN)"))
         assertTrue(gate.indexOf("FreezeAuthorityHardBlock7238.evaluateLive(ts)") in 0 until gate.indexOf("val pending8471 = chainProvenRugcheckSubstitute8471("))
         assertTrue(gate.indexOf("return block(ts, \"TOP_HOLDER_CONCENTRATION\"") in 0 until gate.indexOf("val pending8471 = chainProvenRugcheckSubstitute8471("))
         assertTrue(src("engine/DiagnosisBrief8438.kt").contains("RugcheckScore8399.statusLine8471()"))

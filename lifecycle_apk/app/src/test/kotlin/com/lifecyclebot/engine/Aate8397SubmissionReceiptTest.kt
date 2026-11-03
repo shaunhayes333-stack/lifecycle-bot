@@ -95,7 +95,7 @@ class Aate8397SubmissionReceiptTest {
     @Test fun everyBuyRouteCarriesTheSameReceiptIncludingTheBuilderFallback() {
         val source = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(source.contains("val submission8397 = BuySubmissionReceipt8397(recoveredLiveAttemptId)"))
-        assertTrue(source.contains("buySend8085(wallet, ts.mint, tx, useJito, jitoTip, ultraReqId, c, submission8397)"))
+        assertTrue(source.contains("buySend8085(wallet, ts, tx, useJito, jitoTip, ultraReqId, c, submission8397)"))
         val pump = source.substring(source.indexOf("val pumpFirstResult:"), source.indexOf("val prepared8090 ="))
         assertTrue(pump.contains("submission8397 = submission8397"))
         assertEquals("all direct Raydium entry calls carry the receipt", 3,

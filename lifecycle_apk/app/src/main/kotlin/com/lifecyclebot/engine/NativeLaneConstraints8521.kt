@@ -34,6 +34,20 @@ object NativeLaneConstraints8521 {
 
     fun missingData8521(reason: String): Boolean = kind8521(reason) == Kind.DATA
 
+    /** Cashflow native READY uses the same established-token mandate as hunters, election and playbooks. */
+    internal fun requireCashflowRole8522(opinion: SpecialistBrainBridge7542.Opinion, capUsd: Double,
+                                        liquidityUsd: Double): SpecialistBrainBridge7542.Opinion {
+        if (!opinion.authoritative || !opinion.eligible || opinion.lane !in setOf("TREASURY", "CASHGEN")) return opinion
+        val reason = when {
+            !capUsd.isFinite() || capUsd <= 0.0 -> "NATIVE_MCAP_UNHYDRATED_DEFER_8522"
+            !liquidityUsd.isFinite() || liquidityUsd <= 0.0 -> "NATIVE_LIQ_UNHYDRATED_DEFER_8522"
+            capUsd < com.lifecyclebot.engine.cortex.LaneCheatSheet8323.mcapMin8323(opinion.lane) -> "NATIVE_CASHFLOW_ROLE_MCAP_FLOOR_8522"
+            liquidityUsd < com.lifecyclebot.engine.cortex.LaneCheatSheet8323.liqMin8389(opinion.lane) -> "NATIVE_CASHFLOW_ROLE_LIQ_FLOOR_8522"
+            else -> return opinion
+        }
+        return opinion.copy(eligible = false, reason = "$reason:${opinion.lane}", gradeable = !missingData8521(reason))
+    }
+
     /** An unknown cap cannot prove a specialist's band. The discovery resolver
      * already requests the authoritative supply/reserve read before this call.
      * CORE remains an independent generalist assessment, not a token-wide veto.

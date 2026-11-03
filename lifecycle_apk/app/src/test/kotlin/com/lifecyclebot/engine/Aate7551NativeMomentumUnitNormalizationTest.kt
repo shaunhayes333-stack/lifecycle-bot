@@ -15,14 +15,14 @@ class Aate7551NativeMomentumUnitNormalizationTest {
     }
 
     @Test fun specialist_bridge_uses_signed_percent_not_centered_score() {
-        val b=src("engine/SpecialistBrainBridge7542.kt")
-        val block=b.substringAfter("val bp=").substringBefore("val v3=")
-        assertFalse(block.contains("ts.momentum?.takeIf"))
-        assertTrue(block.contains("val histMomentumPct7551"))
-        // superseded by V5.0.8492 — the 5 m change is read only when freshly observed (provider or executed tape)
-        assertTrue(block.contains("val mom = observedChange8491"))
-        assertTrue(src("engine/LaneInputTruth8236.kt").contains("fresh8491(ts.priceChangeObservedAtMs8084, nowMs) && it.isFinite()"))
-        assertTrue(block.contains("((last - first) / first) * 100.0"))
+        // 8522 shares the same dated input reader with the real CASHGEN/BLUECHIP doors.
+        val unobserved = ContinuationRead8348.Continuation8348(0.0, ContinuationRead8348.Source8348.UNOBSERVED)
+        val history = SpecialistMarketInputs8522.historyMomentum8522(listOf(100.0, 95.0))
+        assertEquals(-5.0, history!!, 1e-9)
+        assertEquals(-6.0, SpecialistMarketInputs8522.signedMomentum8522(-6.0, history, unobserved)!!, 0.0)
+        assertEquals(-5.0, SpecialistMarketInputs8522.signedMomentum8522(null, history, unobserved)!!, 1e-9)
+        assertNull(SpecialistMarketInputs8522.signedMomentum8522(null, null, unobserved))
+        assertTrue(src("engine/SpecialistBrainBridge7542.kt").contains("val mom = marketInputs8522.momentumPct ?: 0.0"))
     }
 
     @Test fun cache_tracks_same_momentum_evidence_brains_consume() {

@@ -45,7 +45,7 @@ class Aate8500EntryReceiptTest {
         val ex = src("engine/Executor.kt")
         assertTrue(ex.indexOf("EntryReceipt8500.onLiveBuy8500(ts, entryEvidence7863.receipt8506, pidLive6486)") in 1 until ex.indexOf("\"LIVE_BUY_LANDED\", \"mint="))
         val cap = src("engine/truth/RunnerCapture8017.kt")
-        assertTrue(cap.contains("EntryReceipt8500.onLiveClose8500(env.mint, env.mode, env.terminal, env.realizedReturnPct, env.mfePct, env.positionId, env.atMs, env.holdingTimeMs)"))  // V5.0.8510
+        assertTrue(cap.contains("EntryReceipt8500.onLiveClose8500(env.mint, env.mode, env.terminal, env.realizedReturnPct, env.mfePct, env.positionId, env.atMs, env.holdingTimeMs, env.lane, env.assetClassTag)"))
         assertTrue(cap.contains("EntryReceipt8500.line8500()"))
     }
 

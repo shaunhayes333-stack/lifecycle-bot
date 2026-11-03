@@ -143,7 +143,7 @@ class Aate8169LoadTest {
 
     @Test fun wiring() {
         val bot = src("engine/BotService.kt")
-        assertTrue(bot.contains("LoadTelemetry8169.timedLaneGate8169(ts.mint, lane, primaryLane) { laneEvaluationAllowed7951(ts, lane, primaryLane) }"))
+        assertTrue(bot.contains("LoadTelemetry8169.timedLaneGate8169(ts.mint, lane, primaryLane) { laneEvaluationAllowed7951(ts, lane, primaryLane, cycleSheet8522) }"))
         val guardian = src("engine/InvariantGuardian.kt")
         assertTrue(guardian.contains("LoadTelemetry8169.lanesPerCandidateCycle8169(s.laneEval, s.scanCb, s.intake)"))
         assertTrue(guardian.contains("laneRatio > 18.0") && guardian.contains("laneRatio > 12.0 && !productiveFanout6019"))
