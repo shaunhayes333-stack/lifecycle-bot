@@ -405,22 +405,33 @@ object CloseLease {
     /** Pure (V5.0.8094): the self-retry delay for an emergency whose lease is eligible again at [eligibleAtMs]. */
     internal fun selfRetryDelayMs8094(eligibleAtMs: Long, nowMs: Long): Long = (eligibleAtMs - nowMs + 50L).coerceIn(250L, 15_000L)
 
+    /** V5.0.8520: a fast pre-route retry must be able to pull an already scheduled emergency timer forward. */
+    internal fun earlierRetryDue8520(pendingAtMs: Long?, requestedAtMs: Long, nowMs: Long): Boolean =
+        pendingAtMs == null || pendingAtMs < nowMs || requestedAtMs < pendingAtMs
+
     private fun scheduleEmergencyRetry8094(mint: String, reason: String, eligibleAtMs: Long) {
         if (emergencyHandoff8087 == null) return
         val now = System.currentTimeMillis()
-        val pending = selfRetryAt8094[mint]
-        if (pending != null && pending >= now) return            // one self-retry per mint at a time
         val delay = selfRetryDelayMs8094(eligibleAtMs, now)
-        selfRetryAt8094[mint] = now + delay
+        val dueAt = now + delay
+        var scheduled = false
+        // An earlier fast-retry replaces a later provider-backoff timer. Old callbacks must not
+        // clear or dispatch the replacement; the close lease and signed-tx ledger still single-flight.
+        selfRetryAt8094.compute(mint) { _, pending ->
+            if (earlierRetryDue8520(pending, dueAt, now)) {
+                scheduled = true
+                dueAt
+            } else pending
+        }
+        if (!scheduled) return
         try {
             retryTimer8094.schedule({
-                selfRetryAt8094.remove(mint)
-                if (current(mint) != null) {
+                if (selfRetryAt8094.remove(mint, dueAt) && current(mint) != null) {
                     try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXIT_EMERGENCY_SELF_RETRY_8094") } catch (_: Throwable) {}
                     try { emergencyHandoff8087?.invoke(mint, reason) } catch (_: Throwable) {}
                 }
             }, delay, java.util.concurrent.TimeUnit.MILLISECONDS)
-        } catch (_: Throwable) { selfRetryAt8094.remove(mint) }
+        } catch (_: Throwable) { selfRetryAt8094.remove(mint, dueAt) }
     }
 
     private fun handoff8087(mint: String, reason: String, l: Lease) {
