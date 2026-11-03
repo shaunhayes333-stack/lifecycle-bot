@@ -12308,9 +12308,18 @@ class GoldenTapeRegressionTest {
         assertFalse(com.lifecyclebot.engine.truth.OnChainHolderConcentration7379.isOnCurve("4wTV1YmiEkRvAtNtsSGPtUrqRYQMe5SKy2uB4Jjaxnjf"))
         assertFalse(com.lifecyclebot.engine.truth.OnChainHolderConcentration7379.isOnCurve("5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1"))
         val t = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TokenSafetyChecker.kt").readText()
-        assertTrue(t.contains("OnChainHolderConcentration7379.top10Pct(mint)?.let { topHolderPct = it }"))
+        // LIVE retains the bounded holder observation and its original source clock.
+        val holderRead = t.substringAfter("if (topHolderPct < 0) {")
+            .substringBefore("// ── 5. Holder concentration")
+        assertTrue(holderRead.contains("OnChainHolderConcentration7379.observation8522("))
+        assertTrue(holderRead.contains("mint, maxAgeMs = if (isPaperMode) Long.MAX_VALUE else 120_000L"))
+        assertTrue(holderRead.contains("topHolderPct = it.pct"))
+        assertTrue(holderRead.contains("topHolderObservedAtMs8522 = it.observedAtMs"))
+        assertTrue(holderRead.contains("topHolderSource8522 = \"RPC_TOP10\""))
         val g = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PreTradeHardGate.kt").readText()
-        assertTrue(g.contains("if (!ts.holderDataResolved && topHolder < 0.0) pendingProofs.add(\"HOLDER_DATA_PENDING\")"))
+        assertTrue(g.contains("val holder8522 = holderProof8522(ts.topHolderPct, safety, System.currentTimeMillis())"))
+        assertTrue(g.contains("if (!ts.holderDataResolved && holder8522.freshPct == null) pendingProofs.add(\"HOLDER_DATA_PENDING\")"))
+        assertTrue(g.contains("if (holder8522.freshPct == null) pendingProofs.add(\"HOLDER_DATA_UNKNOWN\")"))
     }
 
 

@@ -130,6 +130,7 @@ object ToolkitSignalSheet {
         val reasons: List<String>,
         val executableLanes7863: Set<String> = emptySet(),
         val marketInputs8522: SpecialistMarketInputs8522.Read? = null,
+        val nativeSnapshot8522: SpecialistBrainBridge7542.Snapshot? = null,
     ) {
         val compactReason: String get() = reasons.take(5).joinToString(";")
     }
@@ -907,7 +908,7 @@ object ToolkitSignalSheet {
             } else {
                 val setup = try { Setup.valueOf(native.setup) } catch (_: Throwable) { Setup.NONE }
                 deskHypotheses[lane] = preferDesk8384(deskHypotheses[lane], DeskHypothesis(
-                    lane, setup, (native.ownershipConviction7948 ?: maxOf(native.score,native.confidence).toDouble()).coerceIn(25.0,100.0),
+                    lane, setup, NativeOpportunityPolicy8522.selectionPriority8522(native).coerceIn(25.0,100.0),
                     native.entryStyle,native.exitStyle,native.holdMult.coerceIn(0.30,3.50),
                     native.sizeMult.coerceIn(0.30,1.15),native.tpMult.coerceIn(0.60,1.70),
                     "nativeBrain7542;${native.reason}"
@@ -920,10 +921,11 @@ object ToolkitSignalSheet {
         // MARKET_HUNT_CORE claim could never find deskHypotheses["CORE"] and therefore
         // could never influence ownership. CORE remains an ensemble: its native brain
         // must still mark it authoritative+eligible before the hunter can tie-break.
+        if (nativeBrains7542.opinions["CORE"]?.let { it.authoritative && !it.eligible } == true) deskHypotheses.remove("CORE")
         nativeBrains7542.opinions["CORE"]?.takeIf { it.authoritative && it.eligible }?.let { native ->
             val setup = try { Setup.valueOf(native.setup) } catch (_: Throwable) { Setup.NONE }
             deskHypotheses["CORE"] = preferDesk8384(deskHypotheses["CORE"], DeskHypothesis(
-                "CORE", setup, maxOf(native.score,native.confidence).toDouble().coerceIn(25.0,100.0),
+                "CORE", setup, NativeOpportunityPolicy8522.selectionPriority8522(native).coerceIn(25.0,100.0),
                 native.entryStyle,native.exitStyle,native.holdMult.coerceIn(0.30,3.50),
                 native.sizeMult.coerceIn(0.30,1.15),native.tpMult.coerceIn(0.60,1.70),
                 "nativeBrain7542;${native.reason}"
@@ -1009,7 +1011,7 @@ object ToolkitSignalSheet {
                             candidateVersion = candidateVersion7622,
                             score = native.score,
                             confidence = native.confidence.toDouble(),
-                            reason = "NATIVE_SPECIALIST_READY_7803;" + native.reason, conviction7948 = native.ownershipConviction7948,
+                            reason = "NATIVE_SPECIALIST_READY_7803;" + native.reason, conviction7948 = NativeOpportunityPolicy8522.selectionPriority8522(native),
                         )
                     }
                 }
@@ -1086,6 +1088,7 @@ object ToolkitSignalSheet {
             laneVotes = deskHypotheses.keys,
             executableLanes7863 = nativeReady7803.keys,
             marketInputs8522 = nativeBrains7542.marketInputs8522,
+            nativeSnapshot8522 = nativeBrains7542,
             deskHypotheses = deskHypotheses,
             toolVotes = best.tools,
             reasons = best.reasons + listOf("internetBias=${InternetEdgeDesk.setupScoreBias(best.setup.name).toInt()}", "regimeBias=${regimeSetupBias(best.setup, regime).toInt()}", "riskOffBias=${riskOffSetupBias(best.setup, defensiveRisk).toInt()}", "regime=${regime?.regime ?: "unknown"}", internetRiskMode),

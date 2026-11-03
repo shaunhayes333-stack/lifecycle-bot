@@ -384,6 +384,11 @@ class LearningCounterActivity : Activity() {
         target7023().addView(AateComponents6994.metricRow(this, "Voters with a seat", ui.seated.toString(),
             if (ui.seated > 0) AateUi.GREEN else AateUi.AMBER, "a seat = predictions that beat the lane average out of sample"))
 
+        addHeader("🔄 Cortex · entry policy")
+        addText("Operator inverse is active for Solana strategy opportunities: a fresh REFUSE forecast can become a take candidate, and a fresh STRONG forecast can become an opportunity refusal. The candidate must still pass its lane requirements and trade checks. Missing or neutral forecasts add no inverse decision.", AateUi.TEXT_SECONDARY, small = true)
+        addText(com.lifecyclebot.engine.cortex.CortexOpportunityPolarity8522.statusLine8522(), AateUi.TEXT_MUTED, small = true)
+        addText("Forecasts and outcome figures below retain their original meaning. The authority bar measures learned authority; the operator's inverse instruction does not increase it.", AateUi.TEXT_MUTED, small = true)
+
         addHeader("🛣️ Cortex · lane forecasts")
         addText("The 12 Solana strategy lanes are shown by their own names. Crypto Universe learns separately in CRYPTO_* lanes, Markets in MKT_* lanes, and other chains in EVM_* lanes. Their results stay in their own cohorts. Actual PAPER and LIVE portfolio returns include positions across the trading desks and are recorded separately from these forward forecasts.", AateUi.TEXT_MUTED, small = true)
         if (ui.lanes.isEmpty()) addText("no graded decisions yet", AateUi.TEXT_MUTED)
@@ -444,15 +449,17 @@ class LearningCounterActivity : Activity() {
                 if (v.authority > 0.0) AateUi.GREEN else signColor8069(v.skillPct),
                 "n${v.n}${if (v.authority > 0.0) " · seated, authority ${"%.2f".format(v.authority)}" else " · not seated"}"))
         }
+        addText("Skill measures improvement in prediction error against the lane average. It is not a trading return.", AateUi.TEXT_MUTED, small = true)
 
         addHeader("🚫 Cortex · refusals audit")
-        if (ui.vetoes.isEmpty()) addText("no refusal reason has 5+ graded coins yet", AateUi.TEXT_MUTED)
+        if (ui.vetoes.isEmpty()) addText("no refusal reason has 5+ effective graded observations yet", AateUi.TEXT_MUTED)
         ui.vetoes.forEach { v ->
-            // A refusal whose coins went DOWN saved money (green); one whose coins went UP refused winners (red).
+            // These are modelled net outcomes, not distinct-token counts or proof of executable profit.
             target7023().addView(AateComponents6994.metricRow(this, v.reason.take(34),
-                pct8069(v.meanPct), if (v.meanPct < 0.0) AateUi.GREEN else AateUi.RED,
-                "n${v.n} refused coins · ${if (v.meanPct < 0.0) "blocked losers" else "blocked winners"}"))
+                pct8069(v.meanPct), when { !v.meanPct.isFinite() -> AateUi.TEXT_MUTED; v.meanPct < 0.0 -> AateUi.GREEN; else -> AateUi.RED },
+                "effective n${v.n} · ${if (v.meanPct > 0.0) "positive modelled net outcome" else if (v.meanPct < 0.0) "negative modelled net outcome" else "no net gain"}"))
         }
+        addText("This audit combines forward-target and shadow-exit outcomes after modelled costs. Effective n is decayed and capped weight, not a count of distinct coins. A positive mean identifies missed potential; it does not prove a safe, fillable trade or establish that every score is reversed.", AateUi.TEXT_MUTED, small = true)
 
         addHeader("🧬 Live book · holds · data budget")
         cachedTruth8069.forEach { (k, v) -> addKv(k, ""); addText(v, AateUi.TEXT_SECONDARY, small = true) }

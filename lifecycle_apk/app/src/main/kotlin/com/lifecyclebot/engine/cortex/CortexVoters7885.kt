@@ -39,22 +39,38 @@ object CortexVoters7885 {
     private val FLAG = e(0.5)
 
     private fun spec(ts: TokenState) = com.lifecyclebot.engine.SpecialistBrainBridge7542.cachedSnapshot7650(ts.mint)
+    private data class NativeContext8522(val mint: String,
+        val opinions: Map<String, com.lifecyclebot.engine.SpecialistBrainBridge7542.Opinion>)
+    private val nativeContext8522 = ThreadLocal<NativeContext8522>()
+
+    /** A queued operator assessment reads the raw committee captured with its input, never a later effective policy. */
+    internal fun <T> withOriginalOpinions8522(mint: String,
+        opinions: Map<String, com.lifecyclebot.engine.SpecialistBrainBridge7542.Opinion>?, read: () -> T): T {
+        val previous = nativeContext8522.get()
+        if (opinions == null) nativeContext8522.remove() else nativeContext8522.set(NativeContext8522(mint, opinions))
+        return try { read() } finally {
+            if (previous == null) nativeContext8522.remove() else nativeContext8522.set(previous)
+        }
+    }
+
+    private fun originalOpinions8522(ts: TokenState) = nativeContext8522.get()?.takeIf { it.mint == ts.mint }?.opinions
+        ?: spec(ts)?.originalOpinions8522
     private fun pos(v: Double?): Double? = v?.takeIf { it.isFinite() && it > 0.0 }
     private fun fin(v: Double?): Double? = v?.takeIf { it.isFinite() }
 
     val ALL: List<Voter> = listOf(
         // ── specialists (the 12 lanes' own read, cached by FDG for 5 s) ──
         Voter("SPEC_OWN_SCORE", "SPECIALIST", SCORE, setOf("lane_native")) { ts, lane, _ ->
-            spec(ts)?.opinions?.get(lane)?.takeIf { it.gradeable }?.let { if (it.eligible) it.score.toDouble() else 0.0 }
+            originalOpinions8522(ts)?.get(lane)?.takeIf { it.gradeable }?.let { if (it.eligible) it.score.toDouble() else 0.0 }
         },
         Voter("SPEC_OWN_CONF", "SPECIALIST", CONF, setOf("lane_native")) { ts, lane, _ ->
-            spec(ts)?.opinions?.get(lane)?.takeIf { it.gradeable && it.eligible }?.confidence?.toDouble()
+            originalOpinions8522(ts)?.get(lane)?.takeIf { it.gradeable && it.eligible }?.confidence?.toDouble()
         },
         Voter("SPEC_BREADTH", "SPECIALIST", e(1.0, 2.0, 3.0, 5.0), setOf("lane_native_all")) { ts, _, _ ->
-            spec(ts)?.opinions?.values?.count { it.gradeable && it.eligible }?.toDouble()
+            originalOpinions8522(ts)?.values?.count { it.gradeable && it.eligible }?.toDouble()
         },
         Voter("SPEC_MEAN_SCORE", "SPECIALIST", SCORE, setOf("lane_native_all")) { ts, _, _ ->
-            spec(ts)?.opinions?.values?.filter { it.gradeable && it.eligible }?.takeIf { it.isNotEmpty() }?.map { it.score }?.average()
+            originalOpinions8522(ts)?.values?.filter { it.gradeable && it.eligible }?.takeIf { it.isNotEmpty() }?.map { it.score }?.average()
         },
         // ── V5.0.8003 — modules that had no seat ──
         Voter("TREASURY_SCALP", "BRAIN", SCORE, setOf("treasury_scalp")) { ts, _, _ ->
@@ -452,7 +468,7 @@ object CortexVoters7885 {
      * brain, so one brain's three numbers count once in fusion.
      */
     internal fun laneBrainVotes8003(ts: TokenState): List<CortexLedger7885.Vote> {
-        val ops = spec(ts)?.opinions ?: return emptyList()
+        val ops = originalOpinions8522(ts) ?: return emptyList()
         return ops.values.filter { it.gradeable }.sortedBy { it.lane }.flatMap { o ->
             val stem = laneBrainStem8003(o.lane)
             val ev = setOf("lane_brain_$stem")

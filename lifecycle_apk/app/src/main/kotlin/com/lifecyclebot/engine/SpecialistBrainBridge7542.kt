@@ -19,9 +19,12 @@ object SpecialistBrainBridge7542 {
         // V5.0.7948 — cross-lane ownership conviction on the lane's own pass bar;
         // null = bar unknown, arbitration keeps the raw score/confidence.
         val ownershipConviction7948:Double?=null,
+        val selectionPriority8522:Double?=null,
     )
     data class Snapshot(val mint:String,val fingerprint:Int,val evaluatedAtMs:Long,val opinions:Map<String,Opinion>,
-                        val marketInputs8522: SpecialistMarketInputs8522.Read? = null)
+                        val marketInputs8522: SpecialistMarketInputs8522.Read? = null,
+                        val originalOpinions8522: Map<String,Opinion> = opinions,
+                        val opportunityDecisions8522: Map<String,NativeOpportunityPolicy8522.Decision> = emptyMap())
     private data class Cached(val snapshot:Snapshot)
     private val cache=ConcurrentHashMap<String,Cached>()
     private val initialized=AtomicBoolean(false)
@@ -63,10 +66,46 @@ object SpecialistBrainBridge7542 {
      * the coin belongs to a refused population proven to win in this lane (40+ graded, mean - SE > +2% net).
      */
     fun nativeRetiredFor8112(mint: String, lane: String): Boolean = try {
-        val r = cachedSnapshot7650(mint)?.opinions?.get(lane.uppercase())?.reason
+        val snapshot = cachedSnapshot7650(mint)
+        val r = snapshot?.opinions?.get(lane.uppercase())?.reason
         // V5.0.8343 — a grab-lane admit (forming runner on its own evidence) is not held back by the generic score floor either.
-        r != null && (r.startsWith("NATIVE_VETO_RETIRED_8048") || r.startsWith(RunnerGrabLane8343.REASON_PREFIX_8343))
+        (opportunityDecision8522(mint, lane, snapshot)?.action == NativeOpportunityPolicy8522.Action.TAKE_CANDIDATE) ||
+            (r != null && (r.startsWith("NATIVE_VETO_RETIRED_8048") || r.startsWith(RunnerGrabLane8343.REASON_PREFIX_8343)))
     } catch (_: Throwable) { false }
+
+    /** The immutable operator decision is shared by the elected sheet, lane door and generic soft-score floor. */
+    fun opportunityDecision8522(mint: String, lane: String, snapshot: Snapshot? = cachedSnapshot7650(mint),
+                                nowMs: Long = System.currentTimeMillis(), token: TokenState? = null): NativeOpportunityPolicy8522.Decision? {
+        val key = lane.trim().uppercase().replace("BLUE_CHIP", "BLUECHIP")
+        val mode = if (RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE"
+        val decision = NativeOpportunityPolicy8522.current8522(snapshot?.opportunityDecisions8522?.get(key), mint, key, mode,
+            LaneExecutionCoordinator.candidateVersionFor(mint), com.lifecyclebot.engine.truth.FeatureRevision8283.revision8283(mint), nowMs) ?: return null
+        val source = decision.source8522 ?: return null
+        val current = token ?: HandoffRoute8180.tokenFor8180(mint) ?: return null
+        return decision.takeIf { com.lifecyclebot.engine.cortex.Cortex7885.operatorSourceCurrent8522(current, source, nowMs) }
+    }
+
+    private fun opportunityReview8522(ts: TokenState, original: Map<String,Opinion>, nowMs: Long, paper: Boolean):
+        Pair<Map<String,Opinion>, Map<String,NativeOpportunityPolicy8522.Decision>> {
+        val mode = if (paper) "PAPER" else "LIVE"
+        val version = LaneExecutionCoordinator.candidateVersionFor(ts.mint)
+        val constraints = !ts.position.isOpen && !ts.safety.isBlocked && ts.safety.tier != SafetyTier.HARD_BLOCK &&
+            ts.safety.hardBlockReasons.isEmpty() && ts.lastMcap.isFinite() && ts.lastMcap > 0.0 &&
+            ts.lastLiquidityUsd.isFinite() && ts.lastLiquidityUsd > 0.0 && ts.lastPrice.isFinite() && ts.lastPrice > 0.0
+        val decisions = linkedMapOf<String,NativeOpportunityPolicy8522.Decision>()
+        val effective = original.mapValues { (lane, opinion) ->
+            if (!constraints || !NativeOpportunityPolicy8522.canConsider8522(opinion)) opinion else {
+                val projected = com.lifecyclebot.engine.cortex.Cortex7885.operatorOpportunity8522(ts, lane, mode, nowMs, original)
+                val decision = NativeOpportunityPolicy8522.decision8522(opinion, projected.decision.name, projected.rawEdgePct,
+                    projected.mint, projected.mode, projected.candidateVersion, projected.featureRevision, nowMs, projected.assessmentAtMs,
+                    projected.inputAtMs, projected.mint == ts.mint && projected.lane == lane && projected.candidateVersion == version)
+                    ?.copy(source8522 = projected.source8522)
+                if (decision != null) decisions[lane] = decision
+                NativeOpportunityPolicy8522.apply8522(opinion, decision)
+            }
+        }
+        return effective to decisions
+    }
 
     fun nativeRuleRetirable8048(reason:String):Boolean = NativeLaneConstraints8521.mayAdapt8521(reason)
     /** CORE is formed after the specialist veto review; only its own measured refusal can rescue it. */
@@ -105,7 +144,7 @@ object SpecialistBrainBridge7542 {
      */
     /** Qualified native evidence is a 12-lane contract; the Cortex warm pool is separately bounded. */
     internal fun nativeEvidenceLanes8197(snap: Snapshot): List<Opinion> =
-        snap.opinions.values.filter { it.eligible && it.authoritative }
+        snap.originalOpinions8522.values.filter { NativeOpportunityPolicy8522.canConsider8522(it) }
             .sortedWith(compareByDescending<Opinion> {
                 it.ownershipConviction7948?.takeIf { c -> c.isFinite() }
                     ?: maxOf(it.score, it.confidence).toDouble()
@@ -369,18 +408,6 @@ object SpecialistBrainBridge7542 {
             out[lane] = NativeLaneAge8521.review8521(capped, ageEvidence8521)
         }
 
-        // V5.0.8048 — closed loop for native refusals: the Cortex veto audit grades every NATIVE_<rule> (8031) and 5.0.8046
-        // read NATIVE_NO_CONTINUATION@EXPRESS refusing winners (n56, +7.5%), but nothing ever asked it back. A native rule
-        // the audit proves is refusing winners in its own lane (40+ graded, mean - SE > +2% net) stands down; every
-        // downstream gate (watch first, net edge, FDG, the buy door) still decides. Safety and liquidity rules never do.
-        for ((lane, o) in out.toList()) {
-            if (o.eligible || !o.authoritative || !o.gradeable || !nativeRuleRetirable8048(o.reason)) continue
-            val rule = "NATIVE_${DecisionReasons8031.rule8031(o.reason)}"
-            if (try { com.lifecyclebot.engine.cortex.Cortex7885.vetoRefusesWinners8006(rule, lane) } catch (_: Throwable) { false }) {
-                out[lane] = o.copy(eligible = true, reason = "NATIVE_VETO_RETIRED_8048:${o.reason.take(60)}")
-                try { PipelineHealthCollector.labelInc("NATIVE_VETO_RETIRED_8048_$lane") } catch (_: Throwable) {}
-            }
-        }
         // V5.0.8236 — every specialist: a native rule that fired on an unobserved input (mcap $0, momentum 0 with no
         // price change observed, buy pressure at its 50 default, no price history, V3 never scored) is a DEFER, not a
         // refusal. Not gradeable: the veto audit grades refusals, and this one was never a judgement of the coin.
@@ -394,6 +421,18 @@ object SpecialistBrainBridge7542 {
         // V5.0.8348 — a momentum mandate that fired on an UNOBSERVED continuation defers (whatever buy pressure says); an
         // observed read below the bar refuses. Before the grab-lane review so the deferral is remembered for hydration.
         ContinuationRead8348.reviewMomentum8348(out, cont8348.observed, observedChange8491 != null || recentPrices.size >= 2 || cont8348.source == ContinuationRead8348.Source8348.FROM_TAPE)
+        // V5.0.8048 — closed loop for native refusals: the Cortex veto audit grades every NATIVE_<rule> (8031) and 5.0.8046
+        // read NATIVE_NO_CONTINUATION@EXPRESS refusing winners (n56, +7.5%), but nothing ever asked it back. A native rule
+        // the audit proves is refusing winners in its own lane (40+ graded, mean - SE > +2% net) stands down; every
+        // downstream gate (watch first, net edge, FDG, the buy door) still decides. Safety and liquidity rules never do.
+        for ((lane, o) in out.toList()) {
+            if (o.eligible || !o.authoritative || !o.gradeable || !nativeRuleRetirable8048(o.reason)) continue
+            val rule = "NATIVE_${DecisionReasons8031.rule8031(o.reason)}"
+            if (try { com.lifecyclebot.engine.cortex.Cortex7885.vetoRefusesWinners8006(rule, lane) } catch (_: Throwable) { false }) {
+                out[lane] = o.copy(eligible = true, reason = "NATIVE_VETO_RETIRED_8048:${o.reason.take(60)}")
+                try { PipelineHealthCollector.labelInc("NATIVE_VETO_RETIRED_8048_$lane") } catch (_: Throwable) {}
+            }
+        }
         // V5.0.8343 — the grab lane: a forming runner refused only on a lane MANDATE is re-asked on its own legs (hard safety,
         // exit-safe venue, forming-run evidence, economics at the route minimum, chase cap; live: the evidence hold's door);
         // UNHYDRATED_DEFER refusals are remembered for the hydration re-evaluation. Safety / rug / dev refusals are never re-asked.
@@ -416,13 +455,15 @@ object SpecialistBrainBridge7542 {
         // V5.0.8372 — publish the FULL immutable native snapshot before any observer can ask cachedSnapshot7650.
         // Previously enrollment/Explore could capture the preceding decision (or no native context), because this
         // assignment happened only in the return expression after both callbacks. No new assessment/compute lock.
-        val snapshot8372 = Snapshot(ts.mint, f, now, SpecialistOwnership7951.onCommonScale7951(ts.mint, out.toMap()), marketInputs8522)
+        val original8522 = SpecialistOwnership7951.onCommonScale7951(ts.mint, out.toMap())
+        val (effective8522, opportunity8522) = opportunityReview8522(ts, original8522, now, paper)
+        val snapshot8372 = Snapshot(ts.mint, f, now, effective8522, marketInputs8522, original8522, opportunity8522)
         cache[ts.mint] = Cached(snapshot8372)
         pruneOnInsert8169(now)
         // Every gradeable native YES and NO is offered from this same published decision.
-        try { DecisionReasons8031.nativeVerdicts8031(ts, snapshot8372.opinions.values) } catch (_: Throwable) {}
+        try { DecisionReasons8031.nativeVerdicts8031(ts, snapshot8372.originalOpinions8522.values) } catch (_: Throwable) {}
         // V5.0.8347 — every specialist explores in shadow on its own opinion, whatever the downstream gates decide.
-        try { com.lifecyclebot.engine.truth.ExploreShadow8347.onOpinions8347(ts, snapshot8372.opinions, now) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.truth.ExploreShadow8347.onOpinions8347(ts, snapshot8372.originalOpinions8522, now) } catch (_: Throwable) {}
         // V5.0.7951 — every eligible lane's ownership conviction on ONE common scale (+ chart BUY evidence).
         return snapshot8372.also { registerElection8136(it);primeDecisionData8196(ts,it) }
     }
@@ -439,7 +480,7 @@ object SpecialistBrainBridge7542 {
                 val eligible = o.eligible && o.authoritative
                 SpecialistElection8136.NativeView8136(
                     eligible = eligible,
-                    normalised = SpecialistElection8136.normalised8136(maxOf(o.score, o.confidence).toDouble(), Double.NaN, o.ownershipConviction7948),
+                    normalised = NativeOpportunityPolicy8522.selectionPriority8522(o),
                     reason = o.reason,
                     ownable = !eligible || LaneExecutionCoordinator.laneCanOwnExecution6910(lane),
                 )

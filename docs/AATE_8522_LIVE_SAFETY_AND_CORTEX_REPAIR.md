@@ -70,6 +70,30 @@ New assessments use actual read/fusion completion time. Waiting for a shared rea
 
 Hot-cache ordering separately retains the input time. A slow read of an older frozen input cannot overwrite a newer prediction merely because it completed later. Its actual completion time remains intact for the late-read checks.
 
+### Explicit operator inverse opportunity policy
+
+The operator requested that refused opportunities and strong opportunities exchange their selection roles. This is a separate decision policy, not a claim that every V3/V4 number has a reversed sign.
+
+The audit found that V3 sums signed opportunity and risk components, while V4 has fields with different directions: higher trust and execution confidence are favourable; higher fragility and portfolio heat are adverse. Cortex learns actual net outcomes for each input bin. Its voter skill measures prediction-error improvement against the lane baseline, not profit. Negating these raw values or their later returns would change their meaning and contaminate learning.
+
+The new policy instead projects the original candidate-specific Cortex verdict at the Solana native opportunity boundary:
+
+- A fresh original `REFUSE` can become an operator `TAKE_CANDIDATE`.
+- A fresh original `STRONG` can become an operator opportunity `REFUSE`.
+- A neutral, missing, stale, non-finite or prior-only forecast contributes no inverse decision.
+
+The projection is explicit operator authority. It does not grant learned Cortex entry authority, rewrite the original bucket or net forecast, negate an observed outcome, or retrospectively relabel a trade. Original native opinions remain available to voter capture, preventing the reversed choice from feeding back into the model as an original input. The effective decision is carried through selection and the actual buy door once.
+
+Only an affirmative set of score, setup and momentum preference refusals can be reconsidered, after current-input review. Cap, age, lane role, safety, liquidity, lifecycle and missing-evidence requirements remain binding. A cap refusal from a specialist that has not yet evaluated its later checks cannot be promoted by copying its early-return result. The existing cross-lane election can select a separately qualified owner from the current cycle.
+
+This distinction also addresses zero-authority lanes. Native selection owns those lanes; changing a Cortex display or calibration sign alone would not change their native buy gates. The operator projection acts at that native decision boundary without claiming that the ordinary learned-authority proof passed.
+
+### Refusal and skill diagnostics
+
+The refusal audit combines forward-target and modelled shadow-exit outcomes. Its effective observation weight is decayed and capped; it is not a count of distinct refused tokens. The audit's aggregated net mean is neither a later peak nor realised live P&L, and a positive mean alone does not establish an executable trade or a globally reversed model. The learning screen now states these meanings and identifies the active operator inverse policy alongside the original forecasts.
+
+Explicit adverse LP ownership, holder concentration, token authority and structural-risk reasons are classified as safety. Missing safety proof remains data pending. In particular, a native `Top holder too dominant` refusal and the cash-generation holder-limit comparison can no longer fall through as adaptable opportunity preferences. Benign holder-count or growth preferences remain distinct.
+
 ## 4. Close replay and diagnostic accuracy
 
 `EntryReceipt8500` previously persisted aggregates and consumed open receipts without persisting the already-graded close identity. Restart replay could consequently describe an already-handled position as unmatched.

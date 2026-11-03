@@ -113,9 +113,16 @@ class Aate8418LaneDispatchTest {
 
     @Test fun wiredAtTheCycleTheSpineTheRingAndTheSheet() {
         val bot = src("engine/BotService.kt")
-        assertTrue(bot.contains("LaneDispatch8418.noteCycle8418(ts.mint, cyclePrimaryLane, ts.position.isOpen)"))
+        // 8522 resolves the current sheet and owner lazily after V3 publishes this cycle's score.
+        // The dispatch observer receives the just-selected owner without recursively reading the lazy value.
+        assertTrue(bot.contains("val cycleSheet8522 by lazy(LazyThreadSafetyMode.NONE) { ToolkitSignalSheet.electionSnapshot8522(ts, modeClassification) }"))
+        val cycle = bot.substringAfter("val cycleSheet8522 by lazy").substringBefore("// V5.9.1094")
+        assertTrue(cycle.contains("val cyclePrimaryLane by lazy(LazyThreadSafetyMode.NONE)"))
+        val selected = cycle.indexOf("canonicalCycleLaneFor(ts, modeClassification, cycleSheet8522).also { selected ->")
+        val observed = cycle.indexOf("LaneDispatch8418.noteCycle8418(ts.mint, selected, ts.position.isOpen)")
+        assertTrue("The cycle observer sees the owner selected from this same current sheet", selected >= 0 && observed > selected)
         // superseded by V5.0.8418 — the spine resolves its lane first (spineLane8418 names a non-proposing block-less lane inside)
-        assertTrue(bot.contains("val spineLane8418 = LaneDispatch8418.spineLane8418(ts.mint, cyclePrimaryLane, ts.position.isOpen, decision.finalSignal, canProposeEarly)"))
+        assertTrue(bot.contains("val spineLane8418 = LaneDispatch8418.spineLane8418(ts.mint, cyclePrimaryLane, ts.position.isOpen, decision.finalSignal, canProposeEarly) { laneEvaluationAllowed7951(ts, it, cyclePrimaryLane, cycleSheet8522)"))
         assertTrue(src("engine/LaneDispatch8418.kt").contains("notePrimarySpine8418(mint, lane, positionOpen, finalSignal, canPropose)"))
         val ring = src("engine/CyclicTradeEngine.kt")
         assertTrue(ring.contains("LaneDispatch8418.cyclicRank8418((ts.lastV3Score ?: ts.entryScore.toInt()).toDouble(), ts.lastV3Confidence, LaneDispatch8418.cyclicReady8418(ts.mint))"))
