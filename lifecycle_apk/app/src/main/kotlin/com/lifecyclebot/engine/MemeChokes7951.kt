@@ -53,14 +53,15 @@ object MemeChokes7951 {
      * SIZE_ZERO is the V3 sizer's capital answer on an EXECUTE-band score; TOO_OLD
      * is V3's fixed 6 h trunk window, while ShitCoinTraderAI applies its own
      * (fluid) TOKEN AGE CHECK. Treasury already releases both (V5.0.7389).
-     * Liquidity, exposure, cooldown, safety and score rejects stay binding.
+     * Liquidity, exposure, cooldown and safety rejects stay binding. A V3 SCORE_TOO_LOW is only a
+     * score opinion: SHITCOIN must run its own evaluator and all final gates.
      */
     fun v3RejectIsLaneRouting7951(reason: String): Boolean {
         val r = reason.trim()
         return r.contains("SHITCOIN_CANDIDATE") || r.contains("MCAP_TOO_LOW") ||
             // V5.0.7951 review — TOO_OLD stays fatal: V3 reads true on-chain age, the lane's own
             // check reads watchlist age, and EligibilityGate stops at the first failure.
-            r.equals("SIZE_ZERO", ignoreCase = true)
+            r.equals("SIZE_ZERO", ignoreCase = true) || r.equals("SCORE_TOO_LOW", ignoreCase = true)
     }
 
     // ── the curve is the venue ──────────────────────────────────────────────
