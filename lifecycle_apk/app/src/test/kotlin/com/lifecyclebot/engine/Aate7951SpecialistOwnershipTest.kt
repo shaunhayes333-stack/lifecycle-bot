@@ -135,7 +135,10 @@ class Aate7951SpecialistOwnershipTest {
         val bridge = src("engine/SpecialistBrainBridge7542.kt")
         // Common conviction still owns the completed native snapshot; 8372 publishes it before observers run.
         val compactBridge = bridge.replace(Regex("\\s+"), "")
-        assertTrue(compactBridge.contains("val snapshot8372 = Snapshot(ts.mint, f, now, SpecialistOwnership7951.onCommonScale7951(ts.mint, out.toMap()))".replace(" ", "")))
+        assertTrue("Native original common-scale ownership must be captured before opportunity review",
+            Regex("""val\s+original8522\s*=\s*SpecialistOwnership7951\.onCommonScale7951\(ts\.mint,\s*out\.toMap\(\)\)""").containsMatchIn(bridge))
+        assertTrue(compactBridge.contains("val(effective8522,opportunity8522)=opportunityReview8522(ts,original8522,now,paper)"))
+        assertTrue(compactBridge.contains("val snapshot8372=Snapshot(ts.mint,f,now,effective8522,marketInputs8522,original8522,opportunity8522)".replace(" ", "")))
         assertTrue(compactBridge.contains("cache[ts.mint]=Cached(snapshot8372)"))
         assertTrue(compactBridge.contains("return snapshot8372.also".replace(" ", "")))
         assertTrue(src("engine/TradeAuthorizer.kt").contains("SpecialistOwnership7951.authorizerReadyConviction7951(requestedBook.name, mint, candidateVersion7624, score, safeConfidence)"))
@@ -143,10 +146,10 @@ class Aate7951SpecialistOwnershipTest {
         assertTrue(fdg.substringAfter("private fun rememberFdgVerdict(").substringBefore("fun invalidateCandidate6734").contains("SpecialistOwnership7951.onFdgVerdict7951("))
         assertTrue(fdg.contains("SpecialistOwnership7951.notePreIntent7951(lane, \"FDG_\$reason\")"))
         assertTrue(src("engine/truth/OrderSizeResolver6441.kt").contains("SpecialistOwnership7951.onCapitalRefusal7951(laneName, mint, reason, postIntent = causalEventId.isNotBlank())"))
-        assertTrue(src("engine/BotService.kt").contains("SpecialistOwnership7951.noteReadyNotEvaluated7951(lane, ts.mint, primaryLane)"))
+        assertTrue(src("engine/LaneDispatch8418.kt").contains("SpecialistOwnership7951.noteReadyNotEvaluated7951(l, mint, primaryLane)"))
         val sheet = src("engine/ToolkitSignalSheet.kt")
         assertTrue(sheet.contains("capitalDemand7951=\${capitalDemand7951[lane] ?: 0}"))
         assertTrue(sheet.contains("preIntentRefusals7951=\${preIntent7951.ifBlank { \"NONE\" }}"))
-        assertTrue(src("engine/Executor.kt").contains("capitalDemand7951=\${SpecialistOwnership7951.capitalDemand7951()}"))
+        assertTrue(sheet.contains("val capitalDemand7951 = try { SpecialistOwnership7951.capitalDemand7951() }"))
     }
 }

@@ -45,7 +45,8 @@ object RaydiumSellRoute7311 {
             .build()
     }
 
-    data class Built(val transactions: List<String>, val outLamports: Long, val cuPrice: Long)
+    data class Built(val transactions: List<String>, val outLamports: Long, val cuPrice: Long,
+                     val buyRoute8522: com.lifecyclebot.engine.BuyRouteSafety8522.Route? = null)
 
     private fun get(url: String): JSONObject {
         val req = Request.Builder().url(url).get().build()
@@ -150,6 +151,7 @@ object RaydiumSellRoute7311 {
      */
     fun buildBuy(wallet: SolanaWallet, mint: String, lamports: Long, slippageBps: Int): Built {
         require(lamports > 0L) { "raydium_buy_zero_amount" }
+        val quoteStarted8522 = System.currentTimeMillis()
         val quote = get(
             "$COMPUTE_URL?inputMint=${JupiterApi.SOL_MINT}&outputMint=$mint" +
                 "&amount=$lamports&slippageBps=${slippageBps.coerceIn(50, 5_000)}&txVersion=V0",
@@ -178,7 +180,8 @@ object RaydiumSellRoute7311 {
                 "mint=${mint.take(10)} lamports=$lamports outRaw=$outRaw txs=${txs.size} cuPrice=$cuPrice slipBps=$slippageBps",
             )
         } catch (_: Throwable) {}
-        return Built(txs, outRaw, cuPrice)
+        return Built(txs, outRaw, cuPrice,
+            com.lifecyclebot.engine.BuyRouteSafety8522.raydium(quote, mint, quoteStarted8522))
     }
 
     /**

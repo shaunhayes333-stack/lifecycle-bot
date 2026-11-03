@@ -39,22 +39,38 @@ object CortexVoters7885 {
     private val FLAG = e(0.5)
 
     private fun spec(ts: TokenState) = com.lifecyclebot.engine.SpecialistBrainBridge7542.cachedSnapshot7650(ts.mint)
+    private data class NativeContext8522(val mint: String,
+        val opinions: Map<String, com.lifecyclebot.engine.SpecialistBrainBridge7542.Opinion>)
+    private val nativeContext8522 = ThreadLocal<NativeContext8522>()
+
+    /** A queued operator assessment reads the raw committee captured with its input, never a later effective policy. */
+    internal fun <T> withOriginalOpinions8522(mint: String,
+        opinions: Map<String, com.lifecyclebot.engine.SpecialistBrainBridge7542.Opinion>?, read: () -> T): T {
+        val previous = nativeContext8522.get()
+        if (opinions == null) nativeContext8522.remove() else nativeContext8522.set(NativeContext8522(mint, opinions))
+        return try { read() } finally {
+            if (previous == null) nativeContext8522.remove() else nativeContext8522.set(previous)
+        }
+    }
+
+    private fun originalOpinions8522(ts: TokenState) = nativeContext8522.get()?.takeIf { it.mint == ts.mint }?.opinions
+        ?: spec(ts)?.originalOpinions8522
     private fun pos(v: Double?): Double? = v?.takeIf { it.isFinite() && it > 0.0 }
     private fun fin(v: Double?): Double? = v?.takeIf { it.isFinite() }
 
     val ALL: List<Voter> = listOf(
         // ── specialists (the 12 lanes' own read, cached by FDG for 5 s) ──
         Voter("SPEC_OWN_SCORE", "SPECIALIST", SCORE, setOf("lane_native")) { ts, lane, _ ->
-            spec(ts)?.opinions?.get(lane)?.takeIf { it.gradeable }?.let { if (it.eligible) it.score.toDouble() else 0.0 }
+            originalOpinions8522(ts)?.get(lane)?.takeIf { it.gradeable }?.let { if (it.eligible) it.score.toDouble() else 0.0 }
         },
         Voter("SPEC_OWN_CONF", "SPECIALIST", CONF, setOf("lane_native")) { ts, lane, _ ->
-            spec(ts)?.opinions?.get(lane)?.takeIf { it.gradeable && it.eligible }?.confidence?.toDouble()
+            originalOpinions8522(ts)?.get(lane)?.takeIf { it.gradeable && it.eligible }?.confidence?.toDouble()
         },
         Voter("SPEC_BREADTH", "SPECIALIST", e(1.0, 2.0, 3.0, 5.0), setOf("lane_native_all")) { ts, _, _ ->
-            spec(ts)?.opinions?.values?.count { it.gradeable && it.eligible }?.toDouble()
+            originalOpinions8522(ts)?.values?.count { it.gradeable && it.eligible }?.toDouble()
         },
         Voter("SPEC_MEAN_SCORE", "SPECIALIST", SCORE, setOf("lane_native_all")) { ts, _, _ ->
-            spec(ts)?.opinions?.values?.filter { it.gradeable && it.eligible }?.takeIf { it.isNotEmpty() }?.map { it.score }?.average()
+            originalOpinions8522(ts)?.values?.filter { it.gradeable && it.eligible }?.takeIf { it.isNotEmpty() }?.map { it.score }?.average()
         },
         // ── V5.0.8003 — modules that had no seat ──
         Voter("TREASURY_SCALP", "BRAIN", SCORE, setOf("treasury_scalp")) { ts, _, _ ->
@@ -452,7 +468,7 @@ object CortexVoters7885 {
      * brain, so one brain's three numbers count once in fusion.
      */
     internal fun laneBrainVotes8003(ts: TokenState): List<CortexLedger7885.Vote> {
-        val ops = spec(ts)?.opinions ?: return emptyList()
+        val ops = originalOpinions8522(ts) ?: return emptyList()
         return ops.values.filter { it.gradeable }.sortedBy { it.lane }.flatMap { o ->
             val stem = laneBrainStem8003(o.lane)
             val ev = setOf("lane_brain_$stem")
@@ -623,7 +639,7 @@ object CortexVoters7885 {
     fun trim8289(nowMs: Long = System.currentTimeMillis()): Int {
         val before = cacheCount8289()
         voterCache8187.entries.removeIf { !cacheFresh8187(it.value.atMs, nowMs) }
-        memo8169.entries.removeIf { nowMs - it.value.wallMs > MEMO_MS_8169 }
+        memo8169.trim(nowMs)
         return (before - cacheCount8289()).coerceAtLeast(0)
     }
 
@@ -677,26 +693,18 @@ object CortexVoters7885 {
     /** Read every voter for (ts, lane). Index-aligned with [ALL]; NaN = abstained or failed. */
     fun readAll(ts: TokenState, lane: String, nowMs: Long, failures: java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>? = null,
                 core8291: BooleanArray? = null): DoubleArray {
-        // V5.0.8169 — the lane-free voters (248 of 291 never read the lane) are read once per coin per moment and shared
-        // by every lane assessing that coin (8168: 164.85 ms per assessment, the same coin assessed by up to 12 lanes).
+        // The same immutable decision input shares lane-free reads, including concurrent cold-capture workers.
+        // A non-core abstention from the first lane must not deprive another lane of its required core read.
         val wall = System.currentTimeMillis()
-        val memo = memo8169[ts.mint]?.takeIf { memoReusable8169(it.ts === ts, it.priceAt, ts.lastPriceUpdate, it.wallMs, wall, it.nowMs, nowMs) }
-        val free = laneFree8169
-        val t0 = System.nanoTime()
+        var t0 = 0L
         // V5.0.8291 — cheapest first; the lane's seated voters inline whatever the budget (see §VOTE_COVERAGE).
         val tally = ReadTally8291()
-        val out = DoubleArray(ALL.size) { Double.NaN }
-        for (i in readOrder8291(wall)) {
-            out[i] = if (memo != null && free[i]) memo.vals[i]
-                else readOne8169(i, ts, lane, nowMs, failures, (System.nanoTime() - t0) / 1_000_000.0, core8291?.getOrNull(i) == true, tally)
+        val out = memo8169.read(ts.mint, ts, ts.lastPriceUpdate, nowMs, core8291, readOrder8291(wall)) { i ->
+            if (t0 == 0L) t0 = System.nanoTime() // Waiting for the shared read is not time spent reading this lane's voters.
+            readOne8169(i, ts, lane, nowMs, failures, (System.nanoTime() - t0) / 1_000_000.0, core8291?.getOrNull(i) == true, tally)
         }
         noteCoverage8291(coverage8291(tally.abstained, ALL.size))
         if (tally.core > 0) coreRead8291.addAndGet(tally.core.toLong())
-        if (memo != null) memoHits8169.incrementAndGet() else {
-            memoMisses8169.incrementAndGet()
-            if (memo8169.size >= MEMO_MAX_8169) memo8169.entries.removeIf { wall - it.value.wallMs > MEMO_MS_8169 }
-            if (memo8169.size < MEMO_MAX_8169) memo8169[ts.mint] = Memo8169(ts, ts.lastPriceUpdate, wall, nowMs, out)
-        }
         return out
     }
 
@@ -742,12 +750,8 @@ object CortexVoters7885 {
     const val MEMO_MS_8169 = 3_000L
     private const val MEMO_MAX_8169 = 128
 
-    private class Memo8169(val ts: TokenState, val priceAt: Long, val wallMs: Long, val nowMs: Long, val vals: DoubleArray)
-
-    private val memo8169 = java.util.concurrent.ConcurrentHashMap<String, Memo8169>()
-    private val memoHits8169 = java.util.concurrent.atomic.AtomicLong(0)
-    private val memoMisses8169 = java.util.concurrent.atomic.AtomicLong(0)
     private val laneFree8169: BooleanArray by lazy { BooleanArray(ALL.size) { ALL[it].id !in LANE_DEPENDENT_8169 } }
+    private val memo8169 by lazy { CortexVoterMemo8522(laneFree8169, MEMO_MAX_8169, MEMO_MS_8169) }
 
     /**
      * Pure (V5.0.8169): may a coin's lane-free reads taken at wall time [readWallMs] (decision time [readNowMs], price stamp
@@ -756,11 +760,10 @@ object CortexVoters7885 {
      */
     fun memoReusable8169(sameObject: Boolean, priceAtThen: Long, priceAtNow: Long, readWallMs: Long, wallNowMs: Long,
                          readNowMs: Long, nowMs: Long): Boolean =
-        sameObject && priceAtThen == priceAtNow && wallNowMs >= readWallMs && wallNowMs - readWallMs <= MEMO_MS_8169 &&
-            kotlin.math.abs(nowMs - readNowMs) <= MEMO_MS_8169
+        CortexVoterMemo8522.reusable(sameObject, priceAtThen, priceAtNow, readWallMs, wallNowMs, readNowMs, nowMs, MEMO_MS_8169)
 
     fun laneFreeCount8169(): Int = laneFree8169.count { it }
 
     /** "memo8169[hit= miss= laneFree=]" for the compute line. */
-    fun memoLine8169(): String = "memo8169[hit=${memoHits8169.get()} miss=${memoMisses8169.get()} laneFree=${laneFreeCount8169()}/${ALL.size}]"
+    fun memoLine8169(): String = "memo8169[hit=${memo8169.hits.get()} miss=${memo8169.misses.get()} laneFree=${laneFreeCount8169()}/${ALL.size}]"
 }

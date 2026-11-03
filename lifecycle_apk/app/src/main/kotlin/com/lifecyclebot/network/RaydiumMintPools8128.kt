@@ -156,6 +156,16 @@ object RaydiumMintPools8128 {
         return e.pool
     }
 
+    /** Safety cannot reuse the discovery cache's nine-minute stale tolerance or lose the observation time. */
+    fun observedForSafety8522(mint: String, nowMs: Long, maxAgeMs: Long): Pair<Pool8128, Long>? {
+        val entry = cache8128[mint]
+        if (entry == null || nowMs - entry.atMs !in -5_000L..maxAgeMs) {
+            if (mint.length >= 32) requestAsync8128(mint)
+            return null
+        }
+        return entry.pool?.let { it to entry.atMs }
+    }
+
     /**
      * V5.0.8128 — the stand-in pair itself keeps pairAddress="" (BotService reads a blank pair + blank dexId as
      * SYNTHETIC so a seed price is never relabelled a live DexScreener quote, 7271); the real Raydium pool id
@@ -180,8 +190,9 @@ object RaydiumMintPools8128 {
         try {
             workers8128.execute {
                 try {
+                    val requestedAt8522 = System.currentTimeMillis()
                     val pool = parsePool8128(get8128(MINT_URL_8128 + mint), mint)
-                    cache8128[mint] = Entry8128(pool, System.currentTimeMillis())
+                    cache8128[mint] = Entry8128(pool, requestedAt8522)
                     try { PipelineHealthCollector.labelInc(if (pool == null) "RAYDIUM_MINT_POOL_MISS_8128" else "RAYDIUM_MINT_POOL_HIT_8128") } catch (_: Throwable) {}
                 } finally {
                     inFlight8128.remove(mint)

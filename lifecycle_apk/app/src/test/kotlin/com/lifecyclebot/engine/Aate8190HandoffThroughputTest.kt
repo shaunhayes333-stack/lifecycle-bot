@@ -231,9 +231,16 @@ class Aate8190HandoffThroughputTest {
         assertEquals(3.0, x.momentum8190(0.0, 3.0, 5, 40.0), 1e-9)
         assertEquals(40.0, x.momentum8190(0.0, 0.0, 1, 40.0), 1e-9)
         assertEquals(0.0, x.momentum8190(0.0, 0.0, 0, null), 1e-9)
-        // superseded by V5.0.8348 — the chain (1 h, history, launch price) now lives in ContinuationRead8348 with the tape first inside the launch hour
-        assertTrue(src("engine/SpecialistBrainBridge7542.kt").contains("val expressMomentum7555 = cont8348.pct"))
-        assertTrue(src("engine/SpecialistBrainBridge7542.kt").contains("ExpressMomentum8190.sinceLaunchPct8190(ts, ageMin)"))
+        // 8348 keeps the tape first inside the launch hour. 8522 captures that continuation once
+        // in the shared market read; the native bridge consumes the same captured result.
+        val bridge = src("engine/SpecialistBrainBridge7542.kt")
+        val inputs = src("engine/SpecialistMarketInputs8522.kt")
+        assertTrue(bridge.contains("val marketInputs8522 = SpecialistMarketInputs8522.read8522(ts, now, birthRead8521)"))
+        assertTrue(bridge.contains("val cont8348 = marketInputs8522.continuation"))
+        assertTrue(bridge.contains("val expressMomentum7555 = cont8348.pct"))
+        assertTrue(inputs.contains("val continuation = ContinuationRead8348.read8348(ts, historyPct ?: 0.0, recent.size,"))
+        assertTrue(inputs.contains("if (recent.size < 2) ExpressMomentum8190.sinceLaunchPct8190(ts, age.inputMinutes) else null, nowMs)"))
+        assertTrue(inputs.contains("LaneInputTruth8236.buyPressure8491(ts, nowMs), change, momentum, continuation,"))
     }
 
     @Test fun manipulatedReadsAnUnhydratedCapAsDataAndTheLedgerHandsOnLaneFloors() {

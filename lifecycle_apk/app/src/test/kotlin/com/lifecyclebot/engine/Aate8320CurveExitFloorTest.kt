@@ -91,10 +91,31 @@ class Aate8320CurveExitFloorTest {
     @Test fun preTradeHardGateWiring() {
         val g = src("engine/PreTradeHardGate.kt")
         assertTrue(g.contains("MIN_LIVE_LIQ_HARD_FLOOR_USD = 500.0"))
-        assertTrue(g.contains("val curveExitSafe8319 = try { LaneAgeLiquidityTruth8140.activeCurveExitSafe8319(ts.mint) } catch (_: Throwable) { false }"))
-        assertTrue(g.contains("ts.lastLiquidityUsd < MIN_LIVE_LIQ_HARD_FLOOR_USD && !curveExitSafe8319) {"))
+        // LIVE safety uses fresh account custody, then binds that proof to the selected pool.
+        assertTrue(g.contains("val curveExitSafe8319 = !ts.tokenMap.migratedOrGraduated && LiquidityOwnership8522.activeCurveVerified(mint, now)"))
+        assertFalse(g.contains("LaneAgeLiquidityTruth8140.activeCurveExitSafe8319(ts.mint)"))
+        assertTrue(g.contains("PumpCurveKeys7269.canonicalCurveKey7392(mint)"))
+        assertTrue(g.contains("safety, selectedPool8522, curveExitSafe8319, TokenSafetyChecker.isWhitelisted(mint), curveAddress8522, now"))
+        assertTrue(g.contains("val curveCustody8522 = ownership8522.reason == \"ACTIVE_CURVE_LP_NOT_APPLICABLE_8522\""))
+        val ownership = src("engine/LiquidityOwnership8522.kt")
+        val curveProof = ownership.substringAfter("fun activeCurveVerified(").substringBefore("/** Pure parsing.")
+        assertTrue(curveProof.contains("CurveReserves7951.accountObservation8522(mint, nowMs)?.realSol"))
+        assertTrue(curveProof.contains("real.isFinite() && real >= LaneAgeLiquidityTruth8140.CURVE_EXIT_MIN_REAL_SOL_8319"))
+        assertTrue(ownership.contains("selectedPoolAddress == activeCurveAddress"))
+        assertTrue(ownership.contains("activeCurveVerified && selectedCurveIdentity && ordinarySelected == null && ordinaryPrimary == null"))
+        val accountProof = src("engine/truth/CurveReserves7951.kt")
+            .substringAfter("fun accountObservation8522(").substringBefore("/** V5.0.8173")
+        assertTrue(accountProof.contains("maxAgeMs: Long = 30_000L"))
+        assertTrue(accountProof.contains("PumpCurveKeys7269.isGraduated7392(mint)"))
+        assertTrue(accountProof.contains("val account = r.accountSnapshot8522"))
+        assertTrue(accountProof.contains("nowMs - account.observedAtMs !in -5_000L..maxAgeMs"))
+        assertTrue(accountProof.contains("r.realSol < com.lifecyclebot.engine.LaneAgeLiquidityTruth8140.CURVE_EXIT_MIN_REAL_SOL_8319"))
+        // A quote's pool uses its own dated depth; only verified same-curve custody exempts the $500 floor.
+        assertTrue(g.contains("LiquidityOwnership8522.observedPoolDepth8522(safety, selectedPool8522, now, expectedMint = mint)"))
+        assertTrue(g.contains("val liquidityUsd8522 = if (hasExecutionPool8522) exactDepth8522 ?: -1.0 else ts.lastLiquidityUsd"))
+        assertTrue(g.contains("depthObserved8522 && liquidityUsd8522 < MIN_LIVE_LIQ_HARD_FLOOR_USD && !curveCustody8522) {"))
         // The thin-pool arm of the holder-distribution defer is curve-aware; a blind rugcheck still defers.
-        assertTrue(g.contains("(ts.lastLiquidityUsd in 0.000001..MIN_LIVE_LIQ_USD && !curveExitSafe8319)"))
+        assertTrue(g.contains("(liquidityUsd8522 in 0.000001..MIN_LIVE_LIQ_USD && !curveCustody8522)"))
         assertTrue(g.contains("rcStatus in setOf(\"UNKNOWN\", \"TIMEOUT\", \"PENDING\", \"PENDING_REVIEW\", \"ERROR\", \"\")"))
         // Every other wall is still there.
         for (wall in listOf("TRUE_ZERO_LIQUIDITY", "TOP_HOLDER_CONCENTRATION", "FREEZE_AUTHORITY_UNVERIFIED_7238", "SAFETY_HARD_BLOCK")) {

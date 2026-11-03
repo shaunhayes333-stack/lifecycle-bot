@@ -96,7 +96,9 @@ object PumpFunDirectApi {
         slippagePercent: Int,
         priorityFeeSol: Double = 0.0001,
         ordinary8151: Boolean = false,   // V5.0.8151 — discretionary entry: medium priority capped to the trade size
+        pool8522: String = "auto",
     ): BuiltTx {
+        require(pool8522 in setOf("auto", "pump")) { "Unsupported buy pool selector" }
         val slip = slippagePercent.coerceIn(1, 99)
         if (solAmount <= 0.0 || solAmount.isNaN() || solAmount.isInfinite()) {
             throw RuntimeException("PumpPortal BUY: invalid solAmount=$solAmount")
@@ -114,7 +116,7 @@ object PumpFunDirectApi {
             put("denominatedInSol", true)
             put("slippage", slip)
             put("priorityFee", effPriorityFee)
-            put("pool", "auto")
+            put("pool", pool8522)
         }
 
         val req = Request.Builder()

@@ -21,7 +21,7 @@ class Aate8429OwnBrainTest {
 
     @Test fun theLaneGateLetsAReadyResidentProposalEvaluatePastASealedOwner() {
         val b = File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        val own = b.indexOf("val ownBrainReady8429 = try {")
+        val own = b.indexOf("val ownBrainReady8429 = l in cycleSheet8522.executableLanes7863")
         val sealed = b.indexOf("val claimedOwner6600 = LaneExecutionCoordinator.currentElection6600(ts.mint)?.takeIf { it.sealed }?.primaryLane")
         assertTrue(own in 1 until sealed)
         assertTrue(b.contains("val ownBrain8429 = ownBrainReady8429 && !ExecutionAuthorityPolicy6533.isTrunkLane(lane) &&"))

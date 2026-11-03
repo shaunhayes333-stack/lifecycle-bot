@@ -137,6 +137,6 @@ class Aate8360ExploreStackTest {
             e.contains("entryMark8360{"))
         assertTrue(src("engine/truth/TradeTape8100.kt").contains("fun lastPrint8360(mint: String): Pair<Double, Long>?"))
         assertTrue("the bridge passes the same published immutable native decision to shadow",
-            src("engine/SpecialistBrainBridge7542.kt").contains("ExploreShadow8347.onOpinions8347(ts, snapshot8372.opinions, now)"))
+            src("engine/SpecialistBrainBridge7542.kt").contains("ExploreShadow8347.onOpinions8347(ts, snapshot8372.originalOpinions8522, now)"))
     }
 }

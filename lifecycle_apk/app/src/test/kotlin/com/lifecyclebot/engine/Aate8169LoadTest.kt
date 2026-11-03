@@ -99,8 +99,8 @@ class Aate8169LoadTest {
         // Keep pruning immediately after publication, before either learning or shadow reads that snapshot.
         val publish = b.indexOf("cache[ts.mint] = Cached(snapshot8372)")
         val prune = b.indexOf("pruneOnInsert8169(now)", publish.coerceAtLeast(0))
-        val enroll = b.indexOf("DecisionReasons8031.nativeVerdicts8031(ts, snapshot8372.opinions.values)")
-        val shadow = b.indexOf("ExploreShadow8347.onOpinions8347(ts, snapshot8372.opinions, now)")
+        val enroll = b.indexOf("DecisionReasons8031.nativeVerdicts8031(ts, snapshot8372.originalOpinions8522.values)")
+        val shadow = b.indexOf("ExploreShadow8347.onOpinions8347(ts, snapshot8372.originalOpinions8522, now)")
         assertTrue("The complete snapshot must be published before pruning", publish >= 0 && prune > publish)
         assertTrue("Pruning stays ahead of every observer", prune < enroll && prune < shadow)
     }
@@ -143,7 +143,7 @@ class Aate8169LoadTest {
 
     @Test fun wiring() {
         val bot = src("engine/BotService.kt")
-        assertTrue(bot.contains("LoadTelemetry8169.timedLaneGate8169(ts.mint, lane, primaryLane) { laneEvaluationAllowed7951(ts, lane, primaryLane) }"))
+        assertTrue(bot.contains("LoadTelemetry8169.timedLaneGate8169(ts.mint, lane, primaryLane) { laneEvaluationAllowed7951(ts, lane, primaryLane, cycleSheet8522) }"))
         val guardian = src("engine/InvariantGuardian.kt")
         assertTrue(guardian.contains("LoadTelemetry8169.lanesPerCandidateCycle8169(s.laneEval, s.scanCb, s.intake)"))
         assertTrue(guardian.contains("laneRatio > 18.0") && guardian.contains("laneRatio > 12.0 && !productiveFanout6019"))

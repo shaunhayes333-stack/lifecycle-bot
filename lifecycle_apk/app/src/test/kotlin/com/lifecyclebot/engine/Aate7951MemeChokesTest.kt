@@ -74,7 +74,10 @@ class Aate7951MemeChokesTest {
         assertFalse(MemeChokes7951.v3RejectIsLaneRouting7951("TOO_OLD"))
         assertTrue(MemeChokes7951.v3RejectIsLaneRouting7951("SHITCOIN_CANDIDATE"))
         assertTrue(MemeChokes7951.v3RejectIsLaneRouting7951("MCAP_TOO_LOW"))
-        for (hard in listOf("ZERO_LIQUIDITY", "LOW_LIQUIDITY", "COOLDOWN", "ALREADY_OPEN", "SCORE_TOO_LOW", "GLOBAL_EXPOSURE_MAX_SLOTS(5/5)")) {
+        assertTrue("A score-only V3 rejection must not stop SHITCOIN's independent setup read",
+            MemeChokes7951.v3RejectIsLaneRouting7951("SCORE_TOO_LOW"))
+        for (hard in listOf("ZERO_LIQUIDITY", "LOW_LIQUIDITY", "COOLDOWN", "ALREADY_OPEN", "SCORE_TOO_LOW:LP_UNLOCKED",
+            "SCORE_TOO_LOW_RUG_FATAL", "GLOBAL_EXPOSURE_MAX_SLOTS(5/5)")) {
             assertFalse(hard, MemeChokes7951.v3RejectIsLaneRouting7951(hard))
         }
         assertTrue(src("engine/BotService.kt").contains("MemeChokes7951.v3RejectIsLaneRouting7951(reason)"))

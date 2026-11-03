@@ -22,7 +22,8 @@ import kotlin.math.abs
  * Performance contract:
  *   AgenticStyleRouter reads a cached helper snapshot. Full-sheet refresh runs as a
  *   silent coroutine on AppDispatchers.sideEffect, single-flight per mint. Cold cache
- *   returns a cheap O(1) fallback sheet and warms in the background. No bot-loop choke.
+ *   returns a cheap O(1) fallback sheet and warms in the background. The trading worker
+ *   completes a changed local sheet once at election; every lane in that cycle shares it.
  */
 object ToolkitSignalSheet {
     /** V5.0.8198 — raw SIZE outcome for a sizing whose lineage predecessors were not stamped (not executable-size truth). */
@@ -33,8 +34,9 @@ object ToolkitSignalSheet {
     // whole multi-desk sheet every 2.5s. Real fingerprint changes still refresh
     // immediately; this only extends reuse when the inputs are identical.
     private const val UNCHANGED_CACHE_TTL_MS_7476 = 15_000L
-    private data class CacheEntry(val sheet: Sheet, val tsMs: Long, val fingerprint: Int, val paper: Boolean)
+    private data class CacheEntry(val sheet: Sheet, val tsMs: Long, val fingerprint: Int, val paper: Boolean, val buildId8522: Long)
     private val cache = ConcurrentHashMap<String, CacheEntry>()
+    private val buildSequence8522 = java.util.concurrent.atomic.AtomicLong(0L)
     private val inFlight = ConcurrentHashMap.newKeySet<String>()
     private val deskStageCounts6599 = ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
     // V5.0.7481 — this is telemetry idempotency, not trading authority.
@@ -127,6 +129,8 @@ object ToolkitSignalSheet {
         val toolVotes: Set<String>,
         val reasons: List<String>,
         val executableLanes7863: Set<String> = emptySet(),
+        val marketInputs8522: SpecialistMarketInputs8522.Read? = null,
+        val nativeSnapshot8522: SpecialistBrainBridge7542.Snapshot? = null,
     ) {
         val compactReason: String get() = reasons.take(5).joinToString(";")
     }
@@ -206,6 +210,50 @@ object ToolkitSignalSheet {
         return existing?.takeIf { reusableDuringRefresh8491(now - it.tsMs) }?.sheet ?: fallbackSheet(ts, classification)
     }
 
+    /** The trading worker needs a completed, current contest before it elects a lane. An asynchronous
+     * fallback has no executable desks and must not become the election result on every three-second
+     * cycle after the 2.5-second advisory cache expires. Build only from local observations; UI and
+     * advisory readers retain the nonblocking [snapshot] path. The returned immutable sheet is carried
+     * through that cycle's lane gates, so their order cannot decide which specialist sees qualification. */
+    fun electionSnapshot8522(ts: TokenState, classification: ModeRouter.Classification? = null): Sheet =
+        completedSheet8522(ts, classification) { build(ts, classification) }
+
+    /** Both the worker and an advisory refresh enter here. Re-read the cache after any older local
+     * build finishes: fencing only the Sheet assignment would leave its native/READY/LOST writes
+     * free to overwrite a newer worker's contest. No provider work is awaited in this section. */
+    internal fun completedSheet8522(ts: TokenState, classification: ModeRouter.Classification? = null,
+                                   currentBuild: () -> Sheet): Sheet = SpecialistBuild8522.local8522(ts.mint) {
+        val nowMs = System.currentTimeMillis()
+        val paper = RuntimeModeAuthority.isPaper()
+        val inputs = fingerprint(ts, classification)
+        val prior = cache[ts.mint]
+        electionSheet8522(prior?.sheet, prior?.let { nowMs - it.tsMs } ?: Long.MAX_VALUE,
+            prior?.fingerprint == inputs, prior?.paper == paper) {
+            val buildId = buildSequence8522.incrementAndGet()
+            val built = currentBuild()
+            if (paper == RuntimeModeAuthority.isPaper()) {
+                publish8522(ts.mint, CacheEntry(built, nowMs, inputs, paper, buildId))
+                built
+            } else fallbackSheet(ts, classification)
+        }
+    }
+
+    internal fun electionSheet8522(cached: Sheet?, ageMs: Long, sameInputs: Boolean, sameMode: Boolean,
+                                  currentBuild: () -> Sheet): Sheet =
+        // Native eligibility also changes with launch age and lifecycle, even at a flat price.
+        // Only advisory snapshots may extend unchanged reuse to fifteen seconds.
+        cached?.takeIf { sameInputs && sameMode && ageMs in 0L..CACHE_TTL_MS }
+            ?: currentBuild()
+
+    internal fun newerBuild8522(currentBuildId: Long?, incomingBuildId: Long): Boolean =
+        currentBuildId == null || incomingBuildId > currentBuildId
+
+    private fun publish8522(mint: String, incoming: CacheEntry) {
+        cache.compute(mint) { _, prior ->
+            if (newerBuild8522(prior?.buildId8522, incoming.buildId8522)) incoming else prior
+        }
+    }
+
     internal fun reusableDuringRefresh8491(ageMs: Long): Boolean = ageMs in 0L..CACHE_TTL_MS
 
     fun fallbackSheet(ts: TokenState, classification: ModeRouter.Classification? = null): Sheet {
@@ -251,20 +299,15 @@ object ToolkitSignalSheet {
         if (!inFlight.add(mint)) return
         GlobalScope.launch(AppDispatchers.sideEffect) {
             try {
-                val startedAt8491 = System.currentTimeMillis()
-                val paper8491 = RuntimeModeAuthority.isPaper()
-                val inputs8491 = fingerprint(ts, classification)
                 try {
                     InternetEdgeDesk.refreshAsync(
                         trigger = "toolkit_sheet",
                         context = "symbol=${ts.symbol} source=${ts.source} liq=${ts.lastLiquidityUsd.toInt()} mcap=${ts.lastMcap.toInt()} score=${ts.lastV3Score ?: ts.entryScore.toInt()} confidence=${ts.lastV3Confidence ?: 0} classification=${classification?.tradeType}",
                     )
                 } catch (_: Throwable) {}
-                val built = build(ts, classification)
-                // Queue/compute time is not fresh evidence. A mode switch invalidates the result.
-                if (paper8491 == RuntimeModeAuthority.isPaper()) {
-                    cache[mint] = CacheEntry(built, startedAt8491, inputs8491, paper8491)
-                }
+                // Same local build/publication path as the worker; a queued advisory refresh
+                // reuses a worker's now-current sheet instead of replaying older qualification.
+                val built = completedSheet8522(ts, classification) { build(ts, classification) }
                 pruneOnInsert8169()  // V5.0.8169 — idle sheets of coins no longer resident
                 try { PipelineHealthCollector.labelInc("TOOLKIT_SIGNAL_SHEET_REFRESHED") } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("TOOLKIT_SETUP_${built.setup.name}") } catch (_: Throwable) {}
@@ -301,6 +344,7 @@ object ToolkitSignalSheet {
         ts.lastLiquidityUsd.toInt(),
         ts.lastMcap.toInt(),
         ts.source,
+        SpecialistMarketInputs8522.riskFingerprint8522(ts),
         RuntimeModeAuthority.isPaper(),
         com.lifecyclebot.engine.truth.FeatureRevision8283.revision8283(ts.mint),
         classification?.tradeType?.name,
@@ -323,7 +367,10 @@ object ToolkitSignalSheet {
         return bestByDesk
     }
 
-    fun build(ts: TokenState, classification: ModeRouter.Classification? = null): Sheet {
+    fun build(ts: TokenState, classification: ModeRouter.Classification? = null): Sheet =
+        SpecialistBuild8522.local8522(ts.mint) { buildLocal8522(ts, classification) }
+
+    private fun buildLocal8522(ts: TokenState, classification: ModeRouter.Classification?): Sheet {
         val hist = try { ts.history.toList().filter { it.priceUsd.isFinite() && it.priceUsd > 0.0 } } catch (_: Throwable) { emptyList() }
         val prices = hist.map { it.priceUsd }
         // V5.0.7389 — volume features use only real (non-synthetic, volume > 0) candles; tick-appended candles carry no volume.
@@ -861,7 +908,7 @@ object ToolkitSignalSheet {
             } else {
                 val setup = try { Setup.valueOf(native.setup) } catch (_: Throwable) { Setup.NONE }
                 deskHypotheses[lane] = preferDesk8384(deskHypotheses[lane], DeskHypothesis(
-                    lane, setup, (native.ownershipConviction7948 ?: maxOf(native.score,native.confidence).toDouble()).coerceIn(25.0,100.0),
+                    lane, setup, NativeOpportunityPolicy8522.selectionPriority8522(native).coerceIn(25.0,100.0),
                     native.entryStyle,native.exitStyle,native.holdMult.coerceIn(0.30,3.50),
                     native.sizeMult.coerceIn(0.30,1.15),native.tpMult.coerceIn(0.60,1.70),
                     "nativeBrain7542;${native.reason}"
@@ -874,10 +921,11 @@ object ToolkitSignalSheet {
         // MARKET_HUNT_CORE claim could never find deskHypotheses["CORE"] and therefore
         // could never influence ownership. CORE remains an ensemble: its native brain
         // must still mark it authoritative+eligible before the hunter can tie-break.
+        if (nativeBrains7542.opinions["CORE"]?.let { it.authoritative && !it.eligible } == true) deskHypotheses.remove("CORE")
         nativeBrains7542.opinions["CORE"]?.takeIf { it.authoritative && it.eligible }?.let { native ->
             val setup = try { Setup.valueOf(native.setup) } catch (_: Throwable) { Setup.NONE }
             deskHypotheses["CORE"] = preferDesk8384(deskHypotheses["CORE"], DeskHypothesis(
-                "CORE", setup, maxOf(native.score,native.confidence).toDouble().coerceIn(25.0,100.0),
+                "CORE", setup, NativeOpportunityPolicy8522.selectionPriority8522(native).coerceIn(25.0,100.0),
                 native.entryStyle,native.exitStyle,native.holdMult.coerceIn(0.30,3.50),
                 native.sizeMult.coerceIn(0.30,1.15),native.tpMult.coerceIn(0.60,1.70),
                 "nativeBrain7542;${native.reason}"
@@ -963,7 +1011,7 @@ object ToolkitSignalSheet {
                             candidateVersion = candidateVersion7622,
                             score = native.score,
                             confidence = native.confidence.toDouble(),
-                            reason = "NATIVE_SPECIALIST_READY_7803;" + native.reason, conviction7948 = native.ownershipConviction7948,
+                            reason = "NATIVE_SPECIALIST_READY_7803;" + native.reason, conviction7948 = NativeOpportunityPolicy8522.selectionPriority8522(native),
                         )
                     }
                 }
@@ -1039,6 +1087,8 @@ object ToolkitSignalSheet {
             tpMult = best.tp.coerceIn(0.60, 1.70),
             laneVotes = deskHypotheses.keys,
             executableLanes7863 = nativeReady7803.keys,
+            marketInputs8522 = nativeBrains7542.marketInputs8522,
+            nativeSnapshot8522 = nativeBrains7542,
             deskHypotheses = deskHypotheses,
             toolVotes = best.tools,
             reasons = best.reasons + listOf("internetBias=${InternetEdgeDesk.setupScoreBias(best.setup.name).toInt()}", "regimeBias=${regimeSetupBias(best.setup, regime).toInt()}", "riskOffBias=${riskOffSetupBias(best.setup, defensiveRisk).toInt()}", "regime=${regime?.regime ?: "unknown"}", internetRiskMode),

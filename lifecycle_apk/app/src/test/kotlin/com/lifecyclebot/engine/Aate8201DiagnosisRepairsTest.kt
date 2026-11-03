@@ -10,7 +10,7 @@ class Aate8201DiagnosisRepairsTest {
         val body = src.substringAfter("fun strongCohortEvidence8200(").substringBefore("private fun <T> nullWhy8201")
         // superseded by V5.0.8366 — UNCALIBRATED / INVERTED / BARRED are no longer separate live doors: the one walk-forward test
         // names its own refusal (AUTHORITY_8366_<code>, UNCALIBRATED among them) and the old doors are counted for display.
-        for (why in listOf("NO_ASSESSMENT", "NOT_STRONG", "STALE_MARK", "HARD_BLOCK", "MAYHEM", "NO_EXECUTABLE_COHORT", "EXCEPTION"))
+        for (why in listOf("NO_ASSESSMENT", "NOT_STRONG", "STALE_MARK", "HARD_BLOCK", "MAYHEM", "NO_EXECUTABLE_COHORT", "OPERATOR_OVERRIDE_8522", "EXCEPTION"))
             assertTrue(why, body.contains("nullWhy8201(\"$why\")"))
         assertTrue(body.contains("nullWhy8201<CortexWalkForward8144.Stat8144>(\"AUTHORITY_8366_\${authorityCode8366(a.lane)}\")"))
         for (legacy in listOf("UNCALIBRATED", "INVERTED", "BARRED")) assertTrue(legacy, body.contains("return \"$legacy\""))

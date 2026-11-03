@@ -54,6 +54,17 @@ data class SafetyReport(
     val rugcheckTimeoutPenalty: Int = 0,
     /** Confirmed RugCheck danger cluster (paper wall and final live buy guard). */
     val confirmedWalletRiskCluster8269: Boolean = false,
+    /** Raw LP ownership observations survive policy/mode changes and quote-pool selection. */
+    val lpOwnership8522: LiquidityOwnership8522.Evidence = LiquidityOwnership8522.Evidence(),
+    /** The policy that produced this report; a PAPER result cannot satisfy a LIVE cache lookup. */
+    val evaluatedForPaper8522: Boolean? = null,
+    val evaluatedPool8522: String = "",
+    /** Pool liquidity keeps the provider's own observation time, separate from the risk report. */
+    val liquidityObservedUsd8522: Double = -1.0,
+    val liquidityObservedAtMs8522: Long = 0L,
+    val liquidityObservedPool8522: String = "",
+    val topHolderObservedAtMs8522: Long = 0L,
+    val topHolderSource8522: String = "",
 ) {
     val isBlocked get() = tier == SafetyTier.HARD_BLOCK
     val ageMinutes get() = (System.currentTimeMillis() - checkedAt) / 60_000.0
@@ -126,7 +137,11 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
     private val cache = ConcurrentHashMap<String, SafetyReport>()
 
     /** V5.0.7387 — the cached report if it is still fresh; never touches the network. */
-    fun peekFresh7387(mint: String): SafetyReport? = cache[mint]?.takeIf { !it.isStale }
+    fun peekFresh7387(mint: String): SafetyReport? = cache[mint]?.takeIf {
+        cacheUsable8522(it, currentPaperMode8522(), Long.MAX_VALUE, System.currentTimeMillis())
+    }
+
+    private fun currentPaperMode8522(): Boolean = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { cfg().paperMode }
 
     // V5.9.736 — IN-FLIGHT DEDUP + RC_PENDING DEFER QUEUE.
     //
@@ -158,6 +173,42 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
     private val deferred = ConcurrentHashMap<String, Long>()
 
     companion object {
+
+        internal fun cacheUsable8522(report: SafetyReport, isPaper: Boolean, maxAgeMs: Long, nowMs: Long,
+                                    selectedPoolAddress: String? = null): Boolean =
+            maxAgeMs > 0L && report.evaluatedForPaper8522 == isPaper && report.checkedAt > 0L &&
+                (selectedPoolAddress == null || report.evaluatedPool8522 == selectedPoolAddress) &&
+                nowMs - report.checkedAt in 0L..minOf(10 * 60_000L, maxAgeMs.coerceAtLeast(0L)) &&
+                (isPaper || report.topHolderPct < 0.0 || (report.topHolderObservedAtMs8522 > 0L &&
+                    nowMs - report.topHolderObservedAtMs8522 in 0L..120_000L))
+
+        /** A forced follower may share new evidence its current owner produced after the request, never the old cache. */
+        internal fun completedRefreshUsable8522(report: SafetyReport, previous: SafetyReport?, requestedAtMs: Long,
+                                                isPaper: Boolean, pool: String, nowMs: Long): Boolean =
+            report !== previous && requestedAtMs > 0L && report.checkedAt >= requestedAtMs &&
+                cacheUsable8522(report, isPaper, 120_000L, nowMs, pool)
+
+        /** A verified major still needs real holder proof; a missing read must not preserve an earlier safe number. */
+        internal fun withHolderObservation8522(report: SafetyReport,
+                observation: com.lifecyclebot.engine.truth.OnChainHolderConcentration7379.Observation8522?,
+                nowMs: Long, maxAgeMs: Long): SafetyReport {
+            val usable = observation?.takeIf {
+                com.lifecyclebot.engine.truth.OnChainHolderConcentration7379.usable8522(it, nowMs, maxAgeMs)
+            }
+            return report.copy(topHolderPct = usable?.pct ?: -1.0,
+                topHolderObservedAtMs8522 = usable?.observedAtMs ?: 0L,
+                topHolderSource8522 = if (usable != null) "RPC_TOP10" else "")
+        }
+
+        /** Refreshing liquidity never refreshes the risk/ownership report. A new zero is meaningful evidence. */
+        internal fun withLiquidityObservation8522(report: SafetyReport, usd: Double, observedAtMs: Long,
+                                                  pool: String, nowMs: Long): SafetyReport {
+            if (!usd.isFinite() || usd < 0.0 || pool.isBlank() || observedAtMs <= 0L ||
+                nowMs - observedAtMs !in 0L..120_000L) return report
+            if (report.liquidityObservedPool8522 == pool && report.liquidityObservedAtMs8522 > observedAtMs) return report
+            return report.copy(liquidityObservedUsd8522 = usd, liquidityObservedAtMs8522 = observedAtMs,
+                liquidityObservedPool8522 = pool, liqConfirmed = usd > 0.0)
+        }
 
         /** A numerical score alone does not prove the provider delivered the mint's risk inventory. */
         internal fun rugcheckReportComplete8374(requestMint: String, echoedMint: String?, risksPresent: Boolean): Boolean =
@@ -207,13 +258,17 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         // reference. Populated whenever check() resolves a SafetyReport.
         // Bounded growth: ConcurrentHashMap relies on the same upstream
         // dedup as the instance cache. Returns -1.0 if unknown.
-        private val staticLpLockCache = java.util.concurrent.ConcurrentHashMap<String, Double>()
+        private data class CachedLp8522(val pct: Double, val checkedAt: Long)
+        private val staticLpLockCache = java.util.concurrent.ConcurrentHashMap<String, CachedLp8522>()
 
-        fun peekLpLockPct(mint: String): Double = staticLpLockCache[mint] ?: -1.0
+        fun peekLpLockPct(mint: String): Double = staticLpLockCache[mint]?.takeIf {
+            System.currentTimeMillis() - it.checkedAt in 0L..120_000L
+        }?.pct ?: -1.0
 
-        internal fun recordLpLockPct(mint: String, pct: Double) {
+        internal fun recordLpLockPct(mint: String, pct: Double, checkedAt: Long = System.currentTimeMillis()) {
             if (mint.isBlank()) return
-            if (pct >= 0.0) staticLpLockCache[mint] = pct
+            if (pct.isFinite() && pct in 0.0..100.0 && checkedAt > 0L) staticLpLockCache[mint] = CachedLp8522(pct, checkedAt)
+            else staticLpLockCache.remove(mint)
         }
 
         fun isWhitelisted(mint: String): Boolean = mint in WHITELISTED_MINTS
@@ -306,20 +361,15 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         // V5.0.8310 — a caller that needs a CURRENT proof (a deferred live buy's explicit refresh, a live prospect whose
         // report is older than the pre-trade freshness window) gets a fresh run instead of a cached report this old.
         maxCacheAgeMs: Long = Long.MAX_VALUE,
+        selectedPoolAddress8522: String = "",
+        liquidityObservedAtMs8522: Long = 0L,
     ): SafetyReport {
-        if (mint in WHITELISTED_MINTS) {
-            val safeReport = SafetyReport(
-                tier = SafetyTier.SAFE,
-                summary = "✅ VERIFIED: $symbol is a whitelisted major token",
-                checkedAt = System.currentTimeMillis(),
-                rugcheckStatus = "WHITELISTED",
-                liqConfirmed = currentLiquidityUsd > 0,
-            )
-            cache[mint] = safeReport
-            return safeReport
-        }
+        val requestedAtMs8522 = System.currentTimeMillis()
+        val previousAtRequest8522 = cache[mint]
+        val isPaperMode = currentPaperMode8522()
+        val policyKey8522 = "$mint:${if (isPaperMode) "paper" else "live"}:$selectedPoolAddress8522"
 
-        val cached = cache[mint]?.takeIf { SafetyProofPriority8310.cacheUsable8310(it.checkedAt, maxCacheAgeMs, System.currentTimeMillis()) }  // V5.0.8310
+        val cached = cache[mint]?.takeIf { cacheUsable8522(it, isPaperMode, maxCacheAgeMs, System.currentTimeMillis(), selectedPoolAddress8522) }
         if (cached != null && !cached.isStale) {
             // V5.9.605 — don't let a transient false-zero liquidity block
             // suppress a fresh launch for the full 10-minute cache window.
@@ -331,7 +381,7 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
             // cached HARD_BLOCK so we re-evaluate. RC may now have a real
             // score. After RC_DEFER_TTL_MS we stop bothering and let the
             // hard block stand (token is genuinely unscoreable).
-            val deferUntil = deferred[mint]
+            val deferUntil = deferred[policyKey8522]
             val now = System.currentTimeMillis()
             val cachedIsRcPendingBlock = cached.hardBlockReasons.any { it.startsWith("Rugcheck pending", ignoreCase = true) }
             val deferRecheckDue = deferUntil != null && now >= deferUntil && cachedIsRcPendingBlock
@@ -340,15 +390,18 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                 if (deferAgeMs >= RUGCHECK_PENDING_TTL_MS) {
                     // Past pending TTL — do NOT accept a hard block for pending RC.
                     // Drop stale pending cache and re-evaluate as timeout/penalty.
-                    deferred.remove(mint)
+                    deferred.remove(policyKey8522)
                     cache.remove(mint)
                 }
                 ErrorLogger.info(TAG, "⏳ RC_DEFER_RECHECK: $symbol — re-evaluating after ${deferAgeMs / 1000}s")
                 cache.remove(mint)
                 // Re-stamp defer expiry so we don't busy-loop the recheck.
-                deferred[mint] = now + RC_DEFER_RECHECK_MS
+                deferred[policyKey8522] = now + RC_DEFER_RECHECK_MS
             } else if (!(cachedLiquidityBlock && currentLiquidityUsd >= 2_000.0)) {
-                return cached
+                val withLiquidity = withLiquidityObservation8522(cached, currentLiquidityUsd, liquidityObservedAtMs8522,
+                    selectedPoolAddress8522, System.currentTimeMillis())
+                cache[mint] = withLiquidity
+                return withLiquidity
             } else {
                 ErrorLogger.info(TAG, "🩹 Rechecking $symbol: cached liquidity block but fresh liq=\$${currentLiquidityUsd.toInt()}")
                 cache.remove(mint)
@@ -361,7 +414,7 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         // our own duplicate Rugcheck + RPC calls. Bounded by INFLIGHT_WAIT_MS
         // so a hung HTTP request can't deadlock the whole pipeline.
         val ourLock = Any()
-        val installed = inFlight.putIfAbsent(mint, ourLock)
+        val installed = inFlight.putIfAbsent(policyKey8522, ourLock)
         if (installed != null) {
             // Someone else is doing the work. Wait on THEIR lock object.
             synchronized(installed) {
@@ -372,26 +425,44 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                 }
             }
             // First caller should have populated `cache`. If they did, return it.
-            val populated = cache[mint]
-            if (populated != null && !populated.isStale) return populated
+            val populated = cache[mint]?.takeIf {
+                if (maxCacheAgeMs <= 0L) completedRefreshUsable8522(it, previousAtRequest8522, requestedAtMs8522,
+                    isPaperMode, selectedPoolAddress8522, System.currentTimeMillis())
+                else cacheUsable8522(it, isPaperMode, maxCacheAgeMs, System.currentTimeMillis(), selectedPoolAddress8522)
+            }
+            if (populated != null) {
+                val withLiquidity = withLiquidityObservation8522(populated, currentLiquidityUsd, liquidityObservedAtMs8522,
+                    selectedPoolAddress8522, System.currentTimeMillis())
+                cache[mint] = withLiquidity
+                return withLiquidity
+            }
             // Otherwise fall through — first caller timed out or errored.
             // Install our own lock and proceed; whoever wins putIfAbsent
             // again runs the check, others wait on the new lock.
-            inFlight.putIfAbsent(mint, ourLock)
+            inFlight.putIfAbsent(policyKey8522, ourLock)
         }
 
         try {
 
-        val isPaperMode = try {
-            // V5.9.1567 — RuntimeModeAuthority is the single source of truth for
-            // paper-vs-live. `cfg().paperMode` can be stale (same regression
-            // patched in FinalDecisionGate @ V5.9.1567 and in ToxicMode @
-            // V5.9.1119). When the authority disagrees, prefer authority so
-            // live runs use the live branches and do not inherit paper-mode
-            // soft penalties / hard blocks intended for the other mode.
-            com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
-        } catch (_: Throwable) {
-            cfg().paperMode
+        if (mint in WHITELISTED_MINTS) {
+            val holderMaxAge8522 = if (isPaperMode) Long.MAX_VALUE else 120_000L
+            val holder8522 = com.lifecyclebot.engine.truth.OnChainHolderConcentration7379.observation8522(mint, holderMaxAge8522)
+            val safeReport = withHolderObservation8522(SafetyReport(
+                tier = SafetyTier.SAFE,
+                summary = "✅ VERIFIED: $symbol is a whitelisted major token",
+                checkedAt = requestedAtMs8522,
+                rugcheckStatus = "WHITELISTED",
+                liqConfirmed = currentLiquidityUsd.isFinite() && currentLiquidityUsd > 0 && selectedPoolAddress8522.isNotBlank() &&
+                    liquidityObservedAtMs8522 > 0L && System.currentTimeMillis() - liquidityObservedAtMs8522 in 0L..120_000L,
+                evaluatedForPaper8522 = isPaperMode,
+                evaluatedPool8522 = selectedPoolAddress8522,
+                liquidityObservedUsd8522 = currentLiquidityUsd.takeIf { it.isFinite() && it >= 0.0 } ?: -1.0,
+                liquidityObservedAtMs8522 = liquidityObservedAtMs8522,
+                liquidityObservedPool8522 = selectedPoolAddress8522,
+            ), holder8522, System.currentTimeMillis(), holderMaxAge8522)
+            cache[mint] = safeReport
+            try { TicketRetry8327.onProofLanded8330(mint) } catch (_: Throwable) {}
+            return safeReport
         }
 
         val hard = mutableListOf<String>()
@@ -418,11 +489,17 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                 // fatal condition. Keep as penalty; route/preflight decides.
             }
 
-            liqConfirmed = currentLiquidityUsd > 0
+            liqConfirmed = currentLiquidityUsd.isFinite() && currentLiquidityUsd > 0 && selectedPoolAddress8522.isNotBlank() &&
+                liquidityObservedAtMs8522 > 0L && System.currentTimeMillis() - liquidityObservedAtMs8522 in 0L..120_000L
         }
 
         // ── 1. Rugcheck
-        val rugcheck = fetchRugcheck(mint)
+        val rugcheck = fetchRugcheck(mint)?.takeIf {
+            val echoed = it.optString("mint", "")
+            echoed.isBlank() || echoed == mint
+        }
+        val rugcheckObservedAtMs8522 = System.currentTimeMillis()
+        val lpOwnership8522 = LiquidityOwnership8522.parse(rugcheck, mint)
         // V5.0.8399 — the provider's RISK score becomes this ladder's SAFETY score in one place (RugcheckScore8399); a
         // `rugged: true` report is a confirmed rug whatever the score says.
         // V5.0.8418 — and only a complete report about THIS mint can confirm a rug from its score (reportSafety8418).
@@ -432,6 +509,8 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         var freezeDisabled: Boolean? = null
         var lpLockPct = -1.0
         var topHolderPct = -1.0
+        var topHolderObservedAtMs8522 = 0L
+        var topHolderSource8522 = ""
 
         if (rugcheck == null || rcScore == -1) {
             rugcheckStatus = "TIMEOUT"
@@ -530,8 +609,8 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                 // V5.0.7384 — liquidity on a pump.fun bonding curve is held by the
                 // program, not an LP a dev can pull; "LP unlocked" does not apply there.
                 val onCurve7384 = try {
-                    rugcheck.optJSONArray("markets")?.let { primaryMarket7867(it) }?.optString("marketType", "").orEmpty()
-                        .equals("pump_fun", ignoreCase = true)
+                    lpOwnership8522.pools.none { !it.isCurve && it.depthUsd > 0.0 } &&
+                        LiquidityOwnership8522.activeCurveVerified(mint)
                 } catch (_: Throwable) { false }
                 if (onCurve7384) lpUnlockedRisk = false
                 if (lpUnlockedRisk && lpLockPct < 0.0) lpLockPct = 0.0
@@ -609,7 +688,10 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
 
             val markets = rugcheck.optJSONArray("markets")
             if (markets != null && markets.length() > 0) {
-                val market = primaryMarket7867(markets)
+                val market = if (selectedPoolAddress8522.isBlank()) primaryMarket7867(markets) else
+                    (0 until markets.length()).mapNotNull { markets.optJSONObject(it) }.firstOrNull {
+                        it.optString("pubkey", "").ifBlank { it.optString("address", "") } == selectedPoolAddress8522
+                    }
                 val lp = market?.optJSONObject("lp")
                 // V5.0.7384 — a pump.fun bonding curve has no LP token to lock, and
                 // rugcheck reports it as 0% locked. Read literally, that hard-blocked
@@ -622,16 +704,20 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                     try { PipelineHealthCollector.labelInc("LP_LOCK_CURVE_MARKET_UNKNOWN_7384") } catch (_: Throwable) {}
                 }
                 if (locked >= 0) {
-                    lpLockPct = locked
-                    // V5.9.939 Phase 5 — mirror to static cache for FDG tier-safety shape
-                    recordLpLockPct(mint, locked)
+                    // A numerical lock percentage from another/aggregated pool
+                    // cannot erase the provider's named unlocked-LP finding.
+                    lpLockPct = if (lpOwnership8522.explicitUnlocked) minOf(lpLockPct.takeIf { it >= 0.0 } ?: 0.0, locked) else locked
                 }
             }
 
             val topHolders = rugcheck.optJSONObject("topHolders")
             if (topHolders != null) {
                 val pct = topHolders.optDouble("top10Pct", -1.0)
-                if (pct >= 0) topHolderPct = pct
+                if (pct.isFinite() && pct >= 0) {
+                    topHolderPct = pct
+                    topHolderObservedAtMs8522 = rugcheckObservedAtMs8522
+                    topHolderSource8522 = "RUGCHECK"
+                }
             }
 
             // ═══════════════════════════════════════════════════════════════════════
@@ -685,9 +771,9 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                             soft.add("Rugcheck pending (live risk penalty, no hard block)" to p)
                             soft.add("RUGCHECK_UNKNOWN_MAX_SIZE_MULT=${"%.2f".format(RUGCHECK_UNKNOWN_MAX_SIZE_MULT)}" to 0)
                             penalty += p
-                            val existingDefer = deferred[mint]
+                            val existingDefer = deferred[policyKey8522]
                             if (existingDefer == null) {
-                                deferred[mint] = System.currentTimeMillis() + RUGCHECK_PENDING_TTL_MS
+                                deferred[policyKey8522] = System.currentTimeMillis() + RUGCHECK_PENDING_TTL_MS
                                 ErrorLogger.warn(TAG, "⏳ RC_PENDING_LIVE_PENALTY: $symbol → -$p penalty, ttl=${RUGCHECK_PENDING_TTL_MS / 1000}s")
                             } else {
                                 ErrorLogger.warn(TAG, "⏳ RC_PENDING_LIVE_PENALTY: $symbol → -$p penalty")
@@ -915,7 +1001,13 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         // Birdeye is dead); read it from chain, counting only wallet owners so the
         // bonding curve and pool vaults are not mistaken for whales.
         if (topHolderPct < 0) {
-            com.lifecyclebot.engine.truth.OnChainHolderConcentration7379.top10Pct(mint)?.let { topHolderPct = it }
+            com.lifecyclebot.engine.truth.OnChainHolderConcentration7379.observation8522(
+                mint, maxAgeMs = if (isPaperMode) Long.MAX_VALUE else 120_000L,
+            )?.let {
+                topHolderPct = it.pct
+                topHolderObservedAtMs8522 = it.observedAtMs
+                topHolderSource8522 = "RPC_TOP10"
+            }
         }
 
         // ── 5. Holder concentration
@@ -1055,7 +1147,7 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
             tokenAgeMinutes = ageMinutes,
             nameFlag = nameFlag,
             summary = summary,
-            checkedAt = System.currentTimeMillis(),
+            checkedAt = rugcheckObservedAtMs8522,
             bundleRisk = bundleRisk,
             bundleType = bundleType,
             firstBlockSupplyPct = firstBlockSupplyPct,
@@ -1069,10 +1161,19 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
             dataConflictReason = dataConflictReason,
             rugcheckTimeoutPenalty = rugcheckTimeoutPenalty,
             confirmedWalletRiskCluster8269 = confirmedRugCluster8269 != null,
+            lpOwnership8522 = lpOwnership8522,
+            evaluatedForPaper8522 = isPaperMode,
+            evaluatedPool8522 = selectedPoolAddress8522,
+            liquidityObservedUsd8522 = currentLiquidityUsd.takeIf { it.isFinite() && it >= 0.0 } ?: -1.0,
+            liquidityObservedAtMs8522 = liquidityObservedAtMs8522,
+            liquidityObservedPool8522 = selectedPoolAddress8522,
+            topHolderObservedAtMs8522 = topHolderObservedAtMs8522,
+            topHolderSource8522 = topHolderSource8522,
         )
 
         cache[mint] = report
         try { TicketRetry8327.onProofLanded8330(mint) } catch (_: Throwable) {}  // V5.0.8330 — a proof-held ticket resumes now
+        recordLpLockPct(mint, lpLockPct, report.checkedAt)
         // V5.9.651 — forensic gate result for SafetyChecker. Operator can grep
         // "🧬[SAFETY]" to see every safety verdict in one place: which symbol,
         // allow/deny, hard reasons, soft reasons, total penalty.
@@ -1096,7 +1197,7 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
             // existing installer, we waited but didn't get a cached result, and
             // then a second putIfAbsent ALSO saw an installer (yet a third caller
             // beat us), we don't own any lock and must not remove someone else's.
-            val released = inFlight.remove(mint, ourLock)
+            val released = inFlight.remove(policyKey8522, ourLock)
             if (released) {
                 synchronized(ourLock) {
                     (ourLock as Object).notifyAll()

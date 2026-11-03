@@ -366,7 +366,11 @@ object V3Adapter {
         extras["momentumKnown"] = known.momentum
         extras["volumeKnown"] = known.volume
         extras["dataCompleteness"] = known.completeness
-        extras["lane"] = com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(ts.position.tradingMode)
+        val candidateLane8522 = com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(ts.position.tradingMode).ifBlank { "STANDARD" }
+        extras["lane"] = candidateLane8522
+        // UnifiedScorer's learned band and arb modules read tradingMode, not lane.
+        // The absent alias kept the matured score-band correction dormant for every V3 candidate.
+        extras["tradingMode"] = candidateLane8522
         // Provider changes survive a cold candle cache. They remain price momentum, never buy pressure.
         val now = System.currentTimeMillis()
         val observedChange = com.lifecyclebot.engine.LaneInputTruth8236.change5m8491(ts, now)

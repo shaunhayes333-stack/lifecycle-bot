@@ -5,6 +5,7 @@ import com.lifecyclebot.engine.ForensicLogger
 import com.lifecyclebot.engine.PipelineHealthCollector
 import com.lifecyclebot.engine.QuarantineStore
 import com.lifecyclebot.engine.TokenBlacklist
+import com.lifecyclebot.engine.SafetyReport
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -60,6 +61,10 @@ object FreezeAuthorityHardBlock7238 {
     private val blockedActive = AtomicLong(0L)
     private val blockedUnverified = AtomicLong(0L)
 
+    /** A mint-account read does not re-observe the LP, holder or RugCheck evidence. */
+    internal fun withAuthorityProof8522(report: SafetyReport, mintAuthorityDisabled: Boolean?, freezeAuthorityDisabled: Boolean?): SafetyReport =
+        report.copy(mintAuthorityDisabled = mintAuthorityDisabled, freezeAuthorityDisabled = freezeAuthorityDisabled)
+
     /**
      * Called by PreTradeHardGate at the LIVE pre-broadcast site.
      *
@@ -100,8 +105,13 @@ object FreezeAuthorityHardBlock7238 {
                 try { PipelineHealthCollector.labelInc("FREEZE_CACHED_TRUE_CHAIN_UNANSWERED_8123") } catch (_: Throwable) {}
                 return Decision(Verdict.BLOCK_FREEZE_UNVERIFIED, "FREEZE_AUTHORITY_UNVERIFIED")
             }
+            if (proof != null) {
+                // Both authorities came from this same account read. Preserve
+                // the risk report's source time while publishing both results.
+                ts.safety = withAuthorityProof8522(ts.safety,
+                    mintAuthorityDisabled = proof.mintAuthorityDisabled, freezeAuthorityDisabled = proof.freezeAuthorityDisabled)
+            }
             if (freeze == true && proof != null && !proof.freezeAuthorityDisabled) {
-                ts.safety = ts.safety.copy(freezeAuthorityDisabled = false, checkedAt = System.currentTimeMillis())
                 return evaluateLive(ts)
             }
         }
@@ -135,11 +145,8 @@ object FreezeAuthorityHardBlock7238 {
                 // RPC ladder before refusing an otherwise executable live buy.
                 val proof = if (asked8136) firstProof8136 else try { OnChainMintAuthorityProof7248.resolve(mint, liveGate8094 = true) } catch (_: Throwable) { null }
                 if (proof != null) {
-                    ts.safety = ts.safety.copy(
-                        mintAuthorityDisabled = proof.mintAuthorityDisabled,
-                        freezeAuthorityDisabled = proof.freezeAuthorityDisabled,
-                        checkedAt = System.currentTimeMillis(),
-                    )
+                    ts.safety = withAuthorityProof8522(ts.safety,
+                        mintAuthorityDisabled = proof.mintAuthorityDisabled, freezeAuthorityDisabled = proof.freezeAuthorityDisabled)
                     if (proof.freezeAuthorityDisabled) {
                         allowed.incrementAndGet()
                         try {

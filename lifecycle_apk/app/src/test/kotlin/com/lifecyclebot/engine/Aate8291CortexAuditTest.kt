@@ -65,7 +65,7 @@ class Aate8291CortexAuditTest {
         assertFalse(s.contains("ThreadPoolExecutor.DiscardPolicy()"))
         assertTrue(s.contains("(r as? RefreshTask8291)?.let { refreshJobs8291.remove(it.key) }; refreshDropped8187.incrementAndGet()"))
         assertTrue(s.contains("if (core8291) { tally8291?.let { it.core++ }; return timedRead8187(i, ts, lane, nowMs, failures) }"))
-        assertTrue(s.contains("for (i in readOrder8291(wall)) {"))
+        assertTrue(s.contains("memo8169.read(ts.mint, ts, ts.lastPriceUpdate, nowMs, core8291, readOrder8291(wall))"))
         assertTrue(s.contains("coverageLine8291()"))
         val cx = src("engine/cortex/Cortex7885.kt")
         assertTrue(cx.contains("CortexVoters7885.readAll(ts, lane, nowMs, voterFailures, coreVoters8291(lane, nowMs))"))

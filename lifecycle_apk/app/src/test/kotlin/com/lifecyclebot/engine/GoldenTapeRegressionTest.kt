@@ -2882,7 +2882,8 @@ class GoldenTapeRegressionTest {
         assertTrue("MoE must consume MetaCog trust", moe.contains("MetaCognitionAI.getTrustMultiplier"))
         assertTrue("MoE must be bounded", moe.contains("FLOOR = 0.75") && moe.contains("CAP = 1.25"))
         assertTrue("MoE must preserve non-zero votes", moe.contains("nonZeroRounded"))
-        assertTrue("UnifiedScorer must apply MoE before final ScoreCard", scorer.contains("SpecialistMoEGate.apply(gatedComponents, candidate, ctx)") && scorer.contains("ScoreCard(moeComponents)"))
+        assertTrue("UnifiedScorer must apply MoE before final ScoreCard", scorer.contains("SpecialistMoEGate.apply(gatedComponents, candidate, ctx)") &&
+            scorer.contains("ScoreCard(moeComponents + listOfNotNull(bandComponent8522))"))
         assertTrue("MoE telemetry must be report-visible", collector.contains("SpecialistMoEGate.formatForPipelineDump"))
         assertFalse("MoE must not introduce hard veto", moe.contains("fatal = true") || moe.contains("return emptyList") || moe.contains("return false"))
         assertFalse("MoE must not call an LLM/API on scorer hot path", moe.contains("GeminiCopilot") || moe.contains("Groq") || moe.contains("rawText") || moe.contains("http"))
@@ -9985,7 +9986,7 @@ class GoldenTapeRegressionTest {
         assertFalse(com.lifecyclebot.engine.truth.PeggedAssetGuard7270.isPegged("PIGUSD", 1.001, 3.0e4))
         assertFalse(com.lifecyclebot.engine.truth.PeggedAssetGuard7270.isPegged("INJ", 8.5, 7.6e8))
         assertFalse(com.lifecyclebot.engine.truth.PeggedAssetGuard7270.isPegged("WIF", 1.01, 1.0e9))
-        assertTrue(bot.contains("val qualityLaneAllowedThisCycle = !ts.position.isOpen && !peggedQuality7270 && shouldRunBuyLaneForCycle(ts, \"QUALITY\", cyclePrimaryLane)"))
+        assertTrue(bot.contains("val qualityLaneAllowedThisCycle = !ts.position.isOpen && !peggedQuality7270 && shouldRunBuyLaneForCycle(ts, \"QUALITY\", cyclePrimaryLane, cycleSheet8522)"))
         assertTrue(bot.contains("if (!permitResult.allowed || peggedBlue7270 || pumpBlue7320) {"))
         assertTrue(pegged.contains("PEGGED_ASSET_LANE_SKIPPED_7270"))
 
@@ -12308,9 +12309,18 @@ class GoldenTapeRegressionTest {
         assertFalse(com.lifecyclebot.engine.truth.OnChainHolderConcentration7379.isOnCurve("4wTV1YmiEkRvAtNtsSGPtUrqRYQMe5SKy2uB4Jjaxnjf"))
         assertFalse(com.lifecyclebot.engine.truth.OnChainHolderConcentration7379.isOnCurve("5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1"))
         val t = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TokenSafetyChecker.kt").readText()
-        assertTrue(t.contains("OnChainHolderConcentration7379.top10Pct(mint)?.let { topHolderPct = it }"))
+        // LIVE retains the bounded holder observation and its original source clock.
+        val holderRead = t.substringAfter("if (topHolderPct < 0) {")
+            .substringBefore("// ── 5. Holder concentration")
+        assertTrue(holderRead.contains("OnChainHolderConcentration7379.observation8522("))
+        assertTrue(holderRead.contains("mint, maxAgeMs = if (isPaperMode) Long.MAX_VALUE else 120_000L"))
+        assertTrue(holderRead.contains("topHolderPct = it.pct"))
+        assertTrue(holderRead.contains("topHolderObservedAtMs8522 = it.observedAtMs"))
+        assertTrue(holderRead.contains("topHolderSource8522 = \"RPC_TOP10\""))
         val g = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PreTradeHardGate.kt").readText()
-        assertTrue(g.contains("if (!ts.holderDataResolved && topHolder < 0.0) pendingProofs.add(\"HOLDER_DATA_PENDING\")"))
+        assertTrue(g.contains("val holder8522 = holderProof8522(ts.topHolderPct, safety, System.currentTimeMillis())"))
+        assertTrue(g.contains("if (!ts.holderDataResolved && holder8522.freshPct == null) pendingProofs.add(\"HOLDER_DATA_PENDING\")"))
+        assertTrue(g.contains("if (holder8522.freshPct == null) pendingProofs.add(\"HOLDER_DATA_UNKNOWN\")"))
     }
 
 
@@ -12500,7 +12510,9 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("laneName4588 == \"CORE\""))
         assertTrue(bot.contains("ts.position.tradingMode.uppercase() in setOf(\"BLUE_CHIP\", \"BLUECHIP\")"))
         assertTrue(bot.contains("TREASURY_V3_SCORE_REJECT_NOT_BINDING_7389"))
-        assertTrue(bot.contains("bounceConfirmed = dipBounce7389"))
+        assertTrue(bot.contains("val dipBounce7389 = run {") &&
+            bot.contains("operatorDipAssessment8522(ts, recentHigh, dipVolVsAvg, tokenAgeHours, dipBounce7389)") &&
+            bot.contains("bounceConfirmed = bounce"))
         // The dip recovery partial is now named DIP_TARGET_PARTIAL_TAKE_PROFIT_50PCT (asserted below).
         val lec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneEntryContract6342.kt").readText()
         assertTrue(lec.contains("if (ts.lastMcap <= 0.0 || ts.lastMcap !in qualityMcapBand7389()) return false"))
@@ -15622,7 +15634,7 @@ class GoldenTapeRegressionTest {
         val ex = java.io.File(root, "Executor.kt").readText()
         assertTrue(ex.contains("com.lifecyclebot.engine.truth.EntryReceipt8500.onLiveBuy8500(ts, entryEvidence7863.receipt8506, pidLive6486)"))  // V5.0.8510
         val cap = java.io.File(root, "truth/RunnerCapture8017.kt").readText()
-        assertTrue(cap.contains("EntryReceipt8500.onLiveClose8500(env.mint, env.mode, env.terminal, env.realizedReturnPct, env.mfePct, env.positionId, env.atMs, env.holdingTimeMs)"))  // V5.0.8510
+        assertTrue(cap.contains("EntryReceipt8500.onLiveClose8500(env.mint, env.mode, env.terminal, env.realizedReturnPct, env.mfePct, env.positionId, env.atMs, env.holdingTimeMs, env.lane, env.assetClassTag)"))  // V5.0.8522
         val router = java.io.File(root, "TokenMetricStageRouter.kt").readText()
         assertTrue(router.contains("const val TOP10_RUG_PRONE_PCT_8500 = 60.0"))
         assertTrue(router.contains("val topHeavy = top >= TOP10_RUG_PRONE_PCT_8500"))
