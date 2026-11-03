@@ -68,7 +68,7 @@ class Aate8372CortexCalibrationTest {
         assertTrue(fit.valid)
         assertArrayEquals(doubleArrayOf(0.0, 1.5, 3.0), fit.xs, 1e-12)
         assertArrayEquals(doubleArrayOf(-20.0, 10.0, 60.0), fit.ys, 1e-12)
-        assertEquals(35.0, fit.expectedNetPct8372(2.25), 1e-12)
+        assertEquals(22.5, fit.expectedNetPct8372(2.25), 1e-12)
         var previous = Double.NEGATIVE_INFINITY
         repeat(81) { i ->
             val prediction = fit.expectedNetPct8372(-0.5 + i * 0.05)

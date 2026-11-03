@@ -20,6 +20,9 @@ data class Candle(
     val openUsd: Double = 0.0,    // candle open price
     // V5.0.7389 — marks tick-appended/fabricated candles (no real OHLCV volume) so pattern classifiers can ignore them.
     val synthetic: Boolean = false,
+    // Actual kline duration and USD volume for THIS interval. Rolling market snapshots leave these unobserved.
+    val intervalMs8521: Long = 0L,
+    val periodVolumeUsd8521: Double? = null,
 ) {
     val buyRatio: Double get() {
         val t = buysH1 + sellsH1
@@ -29,7 +32,8 @@ data class Candle(
         }
         return buysH1.toDouble() / t
     }
-    val vol: Double get() = if (volumeH1 > 0) volumeH1 else volume24h
+    val vol: Double get() = periodVolumeUsd8521?.takeIf { it.isFinite() && it >= 0.0 }
+        ?: if (volumeH1 > 0) volumeH1 else volume24h
     // CRITICAL FIX: ref should return PRICE, not market cap! 
     // Market cap was causing astronomical P&L calculations (+98 billion %)
     val ref: Double get() = priceUsd  // Always return actual price
@@ -560,9 +564,11 @@ data class TokenState(
     var holderDataResolved: Boolean = false,
     // history — 1m candles (primary strategy timeframe)
     val history: ArrayDeque<Candle> = ArrayDeque(300),
-    // Multi-timeframe candles — seeded from Birdeye, used for trend confirmation
+    // Independent observed chart histories. Higher timeframes never replace the primary one-minute tape.
     val history5m: ArrayDeque<Candle> = ArrayDeque(100),   // 5m candles
     val history15m: ArrayDeque<Candle> = ArrayDeque(60),   // 15m candles
+    val history1h: ArrayDeque<Candle> = ArrayDeque(96),
+    val history4h: ArrayDeque<Candle> = ArrayDeque(72),
     var position: Position = Position(),
     val trades: MutableList<Trade> = mutableListOf(),
     var lastError: String = "",

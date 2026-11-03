@@ -9,6 +9,10 @@ data class CortexOutcomeProof8395(
 ) {
     internal fun matches8395(id: String, horizon: Long, at: Long, net: Double, gross: Double): Boolean =
         decisionId == id && horizonMs == horizon && observedAtMs == at && netPct.toBits() == net.toBits() && grossPct.toBits() == gross.toBits()
+    internal fun sourceStamped8521(decisionAtMs: Long): Boolean = entry != null && outcome != null &&
+        entry.mint == decisionId.substringBefore('|') && outcome.observedAtMs == observedAtMs &&
+        entry.observedAtMs - decisionAtMs in 5_000L..60_000L &&
+        com.lifecyclebot.engine.truth.LabelEvidence8386.eligible(entry, outcome)
     fun witnessed8395(): Boolean = entry != null && outcome != null &&
         com.lifecyclebot.engine.truth.LabelEvidence8386.independent8418(entry) && com.lifecyclebot.engine.truth.LabelEvidence8386.independent8418(outcome) &&
         entry.mint == decisionId.substringBefore('|') && outcome.observedAtMs == observedAtMs &&
@@ -64,8 +68,8 @@ class CortexGradeRecord8144(
     var observedNetPct: Double = Double.NaN
     var observedGrossPct: Double = Double.NaN
     var executablePct: Double = Double.NaN
-    // V5.0.8272 (R10) — the FIRST executable label is the model's immutable five-minute target; later horizons are
-    // stored apart with when they became knowable, and never rewrite it (a 4 h gain cannot enter an earlier fold).
+    // The FIRST executable label is the model's immutable target at its decision-time horizon. Accepted corrections
+    // are stored apart with when they became knowable; a later horizon cannot enter an earlier fold.
     var executableRevisedPct: Double = Double.NaN
     var revisedAvailableAtMs: Long = 0L
     var revisions8272: Int = 0
@@ -104,7 +108,7 @@ class CortexGradeRecord8144(
     var rawEdge8371: Double = Double.NaN
     var laneMean8371: Double = Double.NaN
     var calStamp8371: Double = Double.NaN
-    /** 0 = preserved historical score; 1 = the single per-token arithmetic forecast/verdict introduced in 8372. */
+    /** 0/1 = archived historical forecasts; 2 = source-stamped evidence with a frozen five-minute/hour target. */
     var incumbent8506: Boolean? = null
     var scoreVersion8372: Int = 0
     /** A banked simulated exit is labelled explicitly, never a canonical or realised trade. */
@@ -212,28 +216,34 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
 
     private fun runner8322(lane: String): Boolean = try { runnerLane8322(lane) } catch (_: Throwable) { false }
 
+    private fun revisedObjective8521(r: CortexGradeRecord8144): Boolean = r.executableRevisedPct.isFinite() &&
+        (if (r.scoreVersion8372 == CortexForwardEpoch8521.SCORE_VERSION && CortexForwardEpoch8521.frozenTarget(r.outcomeKind8394))
+            true // Acceptance below already binds every executable revision to this decision's exact frozen horizon.
+        else runner8322(r.lane) || r.outcomeSource8372 == "SHADOW_EXIT")
+
     /**
-     * V5.0.8322 — the value a decision is GRADED on (authority, walk-forward, verdict rows, inversion): a runner lane's latest
-     * executable revision inside its hold window (the 1 h / 4 h checkpoints the labeler already books, credited on the
-     * lane's runner ladder and give-back exit, net of cost), else the immutable first (five-minute) label. RAW: no cap.
-     * The first label is never rewritten (8272); the objective only chooses which stored value answers.
+     * The value a decision is graded on for authority, walk-forward, verdict rows and inversion. Version 2 accepts
+     * corrections only at its frozen target; later checkpoints remain observations. Historical rows retain their
+     * original objective rule. The first executable value and its availability time are never rewritten.
      */
     fun objectivePct8322(r: CortexGradeRecord8144): Double =
-        if (r.executableRevisedPct.isFinite() && (runner8322(r.lane) || r.outcomeSource8372 == "SHADOW_EXIT")) r.executableRevisedPct else r.executablePct
+        if (revisedObjective8521(r)) r.executableRevisedPct else r.executablePct
 
     /**
      * V5.0.8324 — the gross move of the label [objectivePct8322] answers with (same horizon); legacy rows without it read the
      * observed gross as before.
      */
     fun objectiveGross8324(r: CortexGradeRecord8144): Double {
-        val g = if (r.executableRevisedPct.isFinite() && (runner8322(r.lane) || r.outcomeSource8372 == "SHADOW_EXIT")) r.revisedGross8324 else r.firstGross8324
+        val g = if (revisedObjective8521(r)) r.revisedGross8324 else r.firstGross8324
         return if (g.isFinite()) g else r.observedGrossPct
     }
 
     /** V5.0.8322 — when [objectivePct8322] became knowable (the revision's time, else five minutes after the decision). */
     fun objectiveAvailableAt8322(r: CortexGradeRecord8144): Long =
-        if (r.executableRevisedPct.isFinite() && (runner8322(r.lane) || r.outcomeSource8372 == "SHADOW_EXIT") && r.revisedAvailableAtMs > 0L) r.revisedAvailableAtMs
-        else r.firstAvailableAtMs8372.takeIf { it > 0L } ?: (r.atMs + FIRST_LABEL_MS_8322)
+        if (revisedObjective8521(r) && r.revisedAvailableAtMs > 0L) r.revisedAvailableAtMs
+        else r.firstAvailableAtMs8372.takeIf { it > 0L } ?:
+            r.outcomeDueAtMs8394.takeIf { r.scoreVersion8372 == CortexForwardEpoch8521.SCORE_VERSION && it > 0L } ?:
+            (r.atMs + FIRST_LABEL_MS_8322)
 
     /** V5.0.8322 — records whose executable value the 8187 ingestion clamp destroyed (diagnostic). */
     fun clampedLegacy8322(): Int = decisions.count { it.clampedLegacy8322 }
@@ -333,7 +343,11 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
         r.observedNetPct = netPct; r.observedGrossPct = grossPct
         val witnessed = bound.witnessed8395()
         val implausible = implausible8388(executableValue, r.labelCap8187(), witnessed)
-        if (!r.graded || !executableAllowed || !executableValue.isFinite() || r.lateEntry8153 || r.lateRead8187 || r.flat8322 || implausible) {
+        val targetReady8521 = r.scoreVersion8372 != CortexForwardEpoch8521.SCORE_VERSION ||
+            !CortexForwardEpoch8521.frozenTarget(r.outcomeKind8394) ||
+            (proof?.sourceStamped8521(r.atMs) == true &&
+                CortexForwardEpoch8521.matchesTarget(r.outcomeKind8394, r.atMs, horizonMs, outcomeAtMs))
+        if (!r.graded || !executableAllowed || !executableValue.isFinite() || r.lateEntry8153 || r.lateRead8187 || r.flat8322 || implausible || !targetReady8521) {
             if (implausible) noteImplausible8388(r, executableValue, "LABEL")
             r.disposition8395 = "OBSERVED_ONLY"; revision++
             return CortexOutcomeDisposition8395.OBSERVED_ONLY
@@ -543,7 +557,7 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
         val by = HashMap<String, ArrayList<CortexGradeRecord8144>>()
         for (d in decisions) if (d.graded && !d.lost && d.executablePct.isFinite() && (scoreVersion == null || d.scoreVersion8372 == scoreVersion)) by.getOrPut(d.lane) { ArrayList() }.add(d)
         return by.mapValues { (lane, rs) ->
-            rs.sortedBy { it.atMs }.map { RankRow8324(it.predictedEdgePct, if (it.scoreVersion8372 == 1) Double.NaN else it.tailEv8324, objectivePct8322(it) - offsetFor8372(it), it.bucket, it.admitted) }
+            rs.sortedBy { it.atMs }.map { RankRow8324(it.predictedEdgePct, if (it.scoreVersion8372 >= 1) Double.NaN else it.tailEv8324, objectivePct8322(it) - offsetFor8372(it), it.bucket, it.admitted) }
         }
     }
 

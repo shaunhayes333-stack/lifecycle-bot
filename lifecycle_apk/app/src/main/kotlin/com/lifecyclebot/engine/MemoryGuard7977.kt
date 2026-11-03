@@ -136,6 +136,9 @@ object MemoryGuard7977 {
             if (ts.position.isOpen || mint in watch) continue
             try {
                 synchronized(ts.history) { while (ts.history.size > COLD_ROW_CANDLES_8087) { ts.history.removeFirst(); dropped++ } }
+                for (chart in listOf(ts.history1h, ts.history4h)) synchronized(chart) {
+                    while (chart.size > 24) { chart.removeFirst(); dropped++ }
+                }
             } catch (_: Throwable) {}
         }
         if (dropped > 0) candlesTrimmed8087.addAndGet(dropped.toLong())
@@ -328,8 +331,8 @@ object MemoryGuard7977 {
     private fun tokenRowBytes8144(): Long {
         var candles = 0L
         var rows = 0L
-        for (ts in BotService.status.tokens.values) { rows++; candles += ts.history.size + ts.history5m.size + ts.history15m.size }
-        return candles * 104L + rows * 6_144L
+        for (ts in BotService.status.tokens.values) { rows++; candles += ts.history.size + ts.history5m.size + ts.history15m.size + ts.history1h.size + ts.history4h.size }
+        return candles * 128L + rows * 6_144L
     }
 
     private fun registerStores8144(r: MemoryRegistry8144) {

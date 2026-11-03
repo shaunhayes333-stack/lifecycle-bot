@@ -69,6 +69,18 @@ class Aate8404CortexDeliveryRuntimeTest {
                 field(original, "context8372").set(original, context)
                 pending[key] = original
                 val frozen = requireNotNull(cortex.freezeForwardOutcome8404("stale-delivery8404", "QUALITY", at))
+                val oldFrozen = org.json.JSONObject(ForwardCheckpoint8401.unpack(frozen)).apply {
+                    remove(CortexForwardEpoch8521.FIELD)
+                }.toString()
+                val oldDelivery = ForwardOutcomeDelivery8404("archived-delivery8521", "QUALITY", at - 1L,
+                    -100.0, -100.0, null, false, false, null, ForwardCheckpoint8401.pack(oldFrozen))
+                val book = field(cortex, "gradeBook8144").get(cortex) as CortexGradeBook8144
+                val beforeArchive = book.size()
+                assertTrue("old producer work drains only with a durable archived disposition", cortex.deliverForwardOutcome8404(oldDelivery))
+                val archivedReceipt = LearningPersistence.load("CORTEX_FORWARD_RECEIPT_8404|${oldDelivery.deliveryId}")!!
+                assertTrue(archivedReceipt.contains("ARCHIVED_FORWARD_EPOCH_8521"))
+                assertEquals(beforeArchive, book.size())
+                assertSame("an old item cannot replace the current frozen prediction", original, pending[key])
                 pending.remove(key) // restart has lost the ordinary pending cache; producer owns the original
                 val d = ForwardOutcomeDelivery8404("stale-delivery8404", "QUALITY", at, 5.0, 8.0, null, false, false, null, frozen)
                 assertFalse(cortex.deliverForwardOutcome8404(d))

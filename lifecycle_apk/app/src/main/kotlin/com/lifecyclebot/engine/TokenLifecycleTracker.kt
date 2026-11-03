@@ -328,6 +328,15 @@ object TokenLifecycleTracker {
         scheduleSave()
     }
 
+    /** Caller proved no sell owns the mint. Withdraw the request only: keep quantities, basis and receipts untouched. */
+    @Synchronized
+    fun onSellSignalInvalidated8521(mint: String) {
+        val r = records[mint] ?: return
+        if (r.status != Status.SELL_PENDING) return
+        r.status = if (r.soldTokenQty > 0.0) Status.PARTIAL_SELL else Status.HELD
+        scheduleSave()
+    }
+
     /**
      * Operator spec item 1: "Do not mark a sell as fully complete just
      * because SOL returned. The bot must verify BOTH sides."

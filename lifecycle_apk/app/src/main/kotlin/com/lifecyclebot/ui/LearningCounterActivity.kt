@@ -384,7 +384,8 @@ class LearningCounterActivity : Activity() {
         target7023().addView(AateComponents6994.metricRow(this, "Voters with a seat", ui.seated.toString(),
             if (ui.seated > 0) AateUi.GREEN else AateUi.AMBER, "a seat = predictions that beat the lane average out of sample"))
 
-        addHeader("🛣️ Cortex · lanes")
+        addHeader("🛣️ Cortex · lane forecasts")
+        addText("The 12 Solana strategy lanes are shown by their own names. Crypto Universe learns separately in CRYPTO_* lanes, Markets in MKT_* lanes, and other chains in EVM_* lanes. Their results stay in their own cohorts. Actual PAPER and LIVE portfolio returns include positions across the trading desks and are recorded separately from these forward forecasts.", AateUi.TEXT_MUTED, small = true)
         if (ui.lanes.isEmpty()) addText("no graded decisions yet", AateUi.TEXT_MUTED)
         ui.lanes.forEach { l ->
             // 8269: the LEFT/RIGHT performance comparison must answer the
@@ -400,18 +401,18 @@ class LearningCounterActivity : Activity() {
             target7023().addView(AateComponents6994.metricRow(this, l.lane,
                 "${pct8069(l.aateTakeNetMean8269)} / ${pct8069(l.aateRefuseNetMean8269)}",
                 when { !gap.isFinite() -> AateUi.TEXT_MUTED; gap > 0.0 -> AateUi.GREEN; else -> AateUi.RED },
-                "AATE selection (frozen-v1 labels) TAKE n${l.aateTakeN8269} vs REFUSE n${l.aateRefuseN8269} · net mean, same executable forward-label population · " +
+                "AATE selection (source-time-v2 labels) TAKE n${l.aateTakeN8269} vs REFUSE n${l.aateRefuseN8269} · net mean, same executable forward-label population · " +
                     "net median ${pct8069(l.aateTakeNetMedian8269)} / ${pct8069(l.aateRefuseNetMedian8269)} · gross median ${pct8069(l.aateTakeGrossMedian8269)} / ${pct8069(l.aateRefuseGrossMedian8269)} · " +
                     "Cortex predicted STRONG n${l.strongN} net mean ${pct8069(l.strongMean)} vs REFUSE n${l.refuseN} ${pct8069(l.refuseMean)} · " +
                     "neutral n${l.neutralN} ${pct8069(l.neutralMean)} · " +
                     "Cortex net median ${pct8069(l.strongMedian8165)} / ${pct8069(l.refuseMedian8165)} · gross median ${pct8069(l.strongGrossMedian8198)} / ${pct8069(l.refuseGrossMedian8198)} · " +
-                    "exec offset -${"%.1f".format(l.execOffset8198)}pt · graded ${l.graded} · slope ${"%.2f".format(l.slope)} · ${l.powers}" +
-                    (if (l.source8153.isNotBlank()) " · executable first-of-episode on-time labels; old decayed cohorts display-only" else "") +
+                    "exec offset -${"%.1f".format(l.execOffset8198)}pt · graded ${l.graded} · target ${l.targetHorizonMs8521 / 60_000L}m · fit ${l.calibrationState8521} · legacy slope ${"%.2f".format(l.slope)} · ${l.powers} · authority ${l.authorityCode8521}" +
+                    (if (l.source8153.isNotBlank()) " · executable first-of-episode source-timed labels; prior forward aggregates archived" else "") +
                     (if (l.inversion8324.isNotBlank()) " · ranking (§8324): ${l.inversion8324}" else "")))
             target7023().addView(AateComponents6994.barRow(this, "Cortex positive authority", (l.auth * 100.0).coerceIn(0.0, 100.0),
                 if (l.auth > 0.0) AateUi.GREEN else AateUi.TEXT_MUTED))
         }
-        addText("Left = net mean forward return (runner lanes: their hold-window label) of tokens AATE would TAKE; right = ones it would REFUSE. These are current frozen-v1 counterfactual labels, not confirmed trading profits. Both selection columns and Cortex predictions use the same generation; missing outcomes are reported in the authority proof. Cortex STRONG/REFUSE predictions remain in each lane's detail. Colour needs 5+ qualified labels on both sides; the authority bar reports STRONG-side power, not refusal power.", AateUi.TEXT_MUTED, small = true)
+        addText("Left = net mean forward return of tokens AATE would TAKE; right = ones it would REFUSE. Each prediction freezes its lane's 5-minute or 1-hour target. Both selection columns and Cortex predictions use the same source-time-v2 counterfactual evidence. Cross-asset forecasts currently cover LONG entries; SHORT closes retain their actual owner-attributed outcomes without a LONG forecast verdict. Missing outcomes remain in the authority proof. Calibration describes the forecast fit; the authority bar shows the positive decision power its later outcomes have earned. Colour needs 5+ qualified labels on both sides.", AateUi.TEXT_MUTED, small = true)
 
         addHeader("🎯 Cortex · setups")
         val setups = cachedSetups8069

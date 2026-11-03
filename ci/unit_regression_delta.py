@@ -22,6 +22,22 @@ RENAMED_TESTS = {
         ('com.lifecyclebot.engine.Aate8082CausalPipelineTest', 'incompleteExactIdentityDoesNotConsumeTerminalCredit'),
     ('com.lifecyclebot.engine.Aate8082CausalPipelineTest', 'exitCortexIsGradedByTheVerifiedCanonicalClose'):
         ('com.lifecyclebot.engine.Aate8082CausalPipelineTest', 'closeRecordsActualEconomicsAndPreservesFutureHoldSamples'),
+    # 8521 strengthens Stop finality, price units and frozen-target contracts.
+    # Every replacement must execute and pass; missing/skipped/failing replacements still block release.
+    ('com.lifecyclebot.engine.Aate7433AuthorityAndStopPreservationTest', 'paper stop preserves economic positions instead of manufacturing shutdown sells'):
+        ('com.lifecyclebot.engine.Aate7433AuthorityAndStopPreservationTest', 'config restart preserves positions while deliberate paper stop uses canonical closes'),
+    ('com.lifecyclebot.engine.Aate7433LifecycleAuthorityRepairTest', 'paper runtime stop preserves positions and never enters shutdown liquidation block'):
+        ('com.lifecyclebot.engine.Aate7433LifecycleAuthorityRepairTest', 'paper config restart preserves positions and operator stop stays mode isolated'),
+    ('com.lifecyclebot.engine.Aate7446DataWasteConvergenceTest', 'paid_or_auth_dead_ohlcv_provider_is_session_circuit_broken'):
+        ('com.lifecyclebot.engine.Aate7446DataWasteConvergenceTest', 'unconvertedPairRatioAndPaidSubHourCallsCannotPoisonUsdHistory'),
+    ('com.lifecyclebot.engine.Aate7997ProgressiveGradingTest', 'checkpointsAreWiredIntoEveryBook'):
+        ('com.lifecyclebot.engine.Aate7997ProgressiveGradingTest', 'checkpointsKeepPathLearningWithoutRetargetingTheEntryBooks'),
+    ('com.lifecyclebot.engine.BuildRepair6581CoverageTest', 'p0_1_canonical_sell_fallback_uses_canonical_refund'):
+        ('com.lifecyclebot.engine.BuildRepair6581CoverageTest', 'p0_1_refused_canonical_sell_never_invents_a_refund'),
+    ('com.lifecyclebot.engine.GoldenTapeRegressionTest', 'V5_0_8080_setups_graded_on_own_exit_family_and_cold_start_is_bounded'):
+        ('com.lifecyclebot.engine.GoldenTapeRegressionTest', 'V5_0_8080_setups_keep_the_frozen_lane_target_and_cold_start_is_bounded'),
+    ('com.lifecyclebot.engine.Repair6518StopRestartOwnershipTest', 'fast shutdown bulk clears every private strategy registry'):
+        ('com.lifecyclebot.engine.Repair6518StopRestartOwnershipTest', 'shutdown retires only confirmed paper projections and preserves unresolved inventory'),
 }
 
 def stable_message(message):

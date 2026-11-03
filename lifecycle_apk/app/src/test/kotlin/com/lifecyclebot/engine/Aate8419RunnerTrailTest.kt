@@ -90,8 +90,9 @@ class Aate8419RunnerTrailTest {
 
     @Test fun everyLayerReadsTheOneAuthority() {
         val hold = src("engine/HoldingLogicLayer.kt")
-        assertTrue(hold.contains("RunnerTrail8419.holdLayerTrailPoints8419(mode, learningLane8384, params.trailingStopPct, ssiExitPatience6091, position.peakGainPct)"))
-        assertTrue(hold.contains("RunnerTrail8419.holdLayerLevelFor8419(ts, mode, learningLane8384)"))
+        assertTrue(hold.contains("val runnerLane8419 = RunnerTrail8419.runnerPosition8521(ts, mode, learningLane8384)"))
+        assertTrue(hold.contains("RunnerTrail8419.holdLayerTrailPoints8419(mode, learningLane8384, params.trailingStopPct, ssiExitPatience6091, position.peakGainPct, runnerPosition = runnerLane8419)"))
+        assertTrue(hold.contains("RunnerTrail8419.holdLayerLevelFor8419(ts, mode, learningLane8384, runnerPosition = runnerLane8419)"))
         assertTrue(hold.contains("if (diamondHandsMode6091 && !runnerLane8419 && position.peakGainPct >= 150.0)"))
         assertFalse(hold.contains("LaneHolds8418.trailFor8418(mode, learningLane8384, params.trailingStopPct) * ssiExitPatience6091"))
         // superseded by V5.0.8468 — the same runner-trail lock, on a runner POSITION: a fast contract lane only once promoted

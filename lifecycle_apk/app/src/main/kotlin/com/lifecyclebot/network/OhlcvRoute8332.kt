@@ -109,20 +109,20 @@ object OhlcvRoute8332 {
     }
 
     /** Bars served to a caller from [source]: counted per source and stamped per mint with the newest bar's time. */
-    fun served8332(source: String, mint: String, bars: List<Candle>, nowMs: Long = System.currentTimeMillis()) {
+    fun served8332(source: String, mint: String, bars: List<Candle>, nowMs: Long = System.currentTimeMillis(), tfMinutes: Int = 1) {
         if (bars.isEmpty()) return
         routedBars.computeIfAbsent(source) { AtomicLong(0L) }.addAndGet(bars.size.toLong())
         lastSource = source
         val newest = bars.maxOf { it.ts }
-        stamps[mint] = Stamp8332(source, newest, nowMs)
+        stamps["$mint|$tfMinutes"] = Stamp8332(source, newest, nowMs)
         if (stamps.size > 3_000) stamps.entries.removeIf { nowMs - it.value.servedAtMs > 30L * 60_000L }
     }
 
-    fun stamp8332(mint: String): Stamp8332? = stamps[mint]
+    fun stamp8332(mint: String, tfMinutes: Int = 1): Stamp8332? = stamps["$mint|$tfMinutes"]
 
     /** The newest served bar for [mint] is current for [tfMinutes] (false when nothing was served or the bar is stale). */
     fun current8332(mint: String, tfMinutes: Int, nowMs: Long = System.currentTimeMillis()): Boolean {
-        val st = stamps[mint] ?: return false
+        val st = stamp8332(mint, tfMinutes) ?: return false
         return fresh8332(st.newestBarMs, nowMs, tfMinutes)
     }
 

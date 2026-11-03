@@ -206,7 +206,7 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertEquals(10_000.0, f.rescaledMcap8094(10_000.0, 0.0, 2.0), 1e-9)
         val bridge = src("engine/SpecialistBrainBridge7542.kt")
         // 8168: the fingerprint also carries the resident scope (fp(ts,paper,residents)); the fresh mark still precedes it.
-        assertTrue(bridge.indexOf("CandidateMarkFresh8094.ensureFresh8094(ts)") in 0 until bridge.indexOf("val f=fp(ts,paper,"))
+        assertTrue(bridge.indexOf("CandidateMarkFresh8094.ensureFresh8094(ts)") in 0 until bridge.indexOf("val f = fp(ts, paper,"))
         assertTrue(src("engine/CyclicTradeEngine.kt").contains("CandidateMarkFresh8094.ensureFresh8094(ts)"))
     }
 
@@ -697,13 +697,13 @@ class Aate8094ClosedPositionAndPretradeTest {
 
     @Test fun aRetiredNativeVetoIsHonouredAtTheLaneBuyDoor() {
         val b = SpecialistBrainBridge7542
-        val proven = { rule: String, lane: String -> rule == "NATIVE_MCAP_TOO_LOW" && lane == "MANIPULATED" }
-        // 5.0.8098: NATIVE_MCAP_TOO_LOW@MANIPULATED retired 1,685 times in the desk while the buy branch refused every one.
-        assertTrue(b.doorRetires8105("MANIPULATED", eligible = false, reason = "MCAP_TOO_LOW", audit = proven))
-        assertFalse(b.doorRetires8105("EXPRESS", eligible = false, reason = "MCAP_TOO_LOW", audit = proven))       // not proven in this lane
-        assertFalse(b.doorRetires8105("MANIPULATED", eligible = true, reason = "MCAP_TOO_LOW", audit = proven))   // nothing to retire
+        val proven = { rule: String, lane: String -> rule == "NATIVE_THRESHOLD_FAIL_SCORE" && lane == "MANIPULATED" }
+        assertTrue(b.doorRetires8105("MANIPULATED", eligible = false, reason = "THRESHOLD_FAIL_SCORE", audit = proven))
+        assertFalse(b.doorRetires8105("EXPRESS", eligible = false, reason = "THRESHOLD_FAIL_SCORE", audit = proven))
+        assertFalse(b.doorRetires8105("MANIPULATED", eligible = true, reason = "THRESHOLD_FAIL_SCORE", audit = proven))
         // Safety / rug / liquidity refusals are never retired, whatever the audit says.
         val always = { _: String, _: String -> true }
+        assertFalse(b.doorRetires8105("MANIPULATED", false, "MCAP_TOO_LOW", always))
         assertFalse(b.doorRetires8105("MOONSHOT", false, "liq_too_low_0K", always))
         assertFalse(b.doorRetires8105("SHITCOIN", false, "RUG_RISK dev sold", always))
         assertFalse(b.doorRetires8105("EXPRESS", false, "", always))

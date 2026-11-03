@@ -127,11 +127,9 @@ object CortexLabelHygiene8144 {
         else com.lifecyclebot.engine.LaneHolds8418.deskHorizonMs8468(lane) ?: executableHorizonMs8144(false)
 
     /**
-     * The Cortex and the lane playbook grade THE read the bot trades on: the 5-minute spike-credited label, with revisions
-     * counted only up to [GRADE_READ_MS] after the decision (as 7947-8143 did, when it separated winners). Since 8144 runner
-     * lanes were graded on a 6 h hold and every other lane on 60 min — a hold the bot never runs — and in every report since
-     * 8302 no lane's STRONG reads were profitable. The hold horizons above still drive the shadow books and the hold layer.
-     * [lane] / [runnerLane] are kept for the call sites; the read is the same for every lane.
+     * Historical first-read revision window. Current source-time-v2 predictions use their original frozen target and
+     * source proof through CortexForwardEpoch8521; they do not recalculate a target from mutable lane settings here.
+     * The longer executable hold horizons above remain the simulator/hold policy, a separate learning objective.
      */
     const val GRADE_READ_MS = 10L * 60_000L
     @Suppress("UNUSED_PARAMETER")

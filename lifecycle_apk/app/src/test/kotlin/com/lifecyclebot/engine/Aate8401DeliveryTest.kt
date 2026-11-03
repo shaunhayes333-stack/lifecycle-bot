@@ -95,7 +95,7 @@ class Aate8401DeliveryTest {
             assertTrue(id in outbox); assertTrue(id in ack)
             call(owner, "cleanupTerminals8401")
             assertFalse(id in outbox); assertFalse(id in ack)
-            verify(editor, times(2)).putString("pending_8350", "")
+            verify(editor, times(2)).putString("pending_8521", "")
             // V5.0.8409 — the acknowledged row leaves only after the checkpoint commit succeeded (its own transaction), so the
             // failed first attempt never reaches the row removal; the retry removes it once.
             verify(editor, times(1)).remove(id)

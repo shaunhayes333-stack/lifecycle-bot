@@ -96,6 +96,8 @@ object NetEdge8030 {
      * not take back) instead of the 7766 constants (a 1% "platform" fee and 0.000205 SOL a leg).
      */
     fun costPct8030(lane: String, sizeSol: Double, liquidityUsd: Double, mint: String = "", mcapUsd: Double = 0.0): Double {
+        // A fallback or failed component read must never expose the prior mint's cost decomposition.
+        tlComponents8252.remove()
         val size = if (sizeSol.isFinite() && sizeSol > 0.0) sizeSol else DEFAULT_TICKET_SOL
         val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
         val sizeUsd = if (solUsd.isFinite() && solUsd > 0.0) size * solUsd else 0.0
@@ -137,6 +139,11 @@ object NetEdge8030 {
     @Volatile private var lastComponents8169 = doubleArrayOf(Double.NaN, Double.NaN, Double.NaN, Double.NaN, Double.NaN)
     /** V5.0.8252 — the components THIS thread's quote priced; the breakdown never mixes another candidate's venue/route. */
     private val tlComponents8252 = ThreadLocal<DoubleArray>()
+
+    /** Fixed network/tip component used by this thread's latest cost calculation, rent excluded. */
+    internal fun fixedRoundTripForCurrentCost8521(): Double? = tlComponents8252.get()?.let { components ->
+        if (components.size < 4) null else (2.0 * components[3]).takeIf { it.isFinite() && it >= 0.0 }
+    }
 
     /**
      * V5.0.8271 — the SELL leg's VARIABLE cost only (venue + route + app fee per side, half the slippage allowance and

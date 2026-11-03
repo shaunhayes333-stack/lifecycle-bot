@@ -69,6 +69,9 @@ class Aate8394IntegrationTest {
                 repeat(n) { i ->
                     val j=JSONObject().put("k","mint-$i|MOONSHOT").put("l","MOONSHOT").put("at",now-1000)
                         .put("i",JSONArray()).put("x",JSONArray()).put("pr",JSONArray()).put("pw",JSONArray())
+                        .put("sv8372", com.lifecyclebot.engine.cortex.CortexForwardEpoch8521.SCORE_VERSION)
+                        .put("outcomeKind8394", com.lifecyclebot.engine.cortex.CortexForwardEpoch8521.HOUR_KIND)
+                        .put("outcomeDueAtMs8394", now - 1000 + com.lifecyclebot.engine.cortex.CortexForwardEpoch8521.HOUR_MS)
                         .put("n",12.0+i).put("gr",15.0+i).put("su","BASE").put("s","HUNTER")
                     val row=decoder.invoke(Cortex7885,j,emptyList<String>(),now) as Pair<String,Any>
                     graded[row.first]=row.second

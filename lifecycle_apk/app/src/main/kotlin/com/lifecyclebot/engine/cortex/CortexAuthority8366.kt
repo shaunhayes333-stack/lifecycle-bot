@@ -200,7 +200,9 @@ object CortexAuthority8366 {
             val group = matured.filter { (it.frozenBucket == CortexScoreboard7885.Bucket.STRONG.ordinal) == strongSide }
             return if (group.isEmpty()) 1.0 else group.count { available(it) }.toDouble() / group.size
         }
-        val missing = matured.count { it.netPct.isNaN() }
+        // A finite cached return without an in-time availability stamp is also unresolved. Counting only NaN let an
+        // entirely unproven finite cohort bypass the coverage test below while it was excluded from the OOS numerator.
+        val missing = matured.count { !available(it) }
         val result = evaluate8366(oosScore, oosNet, strong, nonStrong, cost, "STRONG_VS_NON_STRONG_8372", rows.size - xs.size)
             .copy(matured8392=matured.size, missing8392=missing, pending8392=population.size-matured.size,
                 strongCoverage8392=coverage(true), restCoverage8392=coverage(false))

@@ -97,7 +97,7 @@ class Aate8409LabelerRowStoreTest {
         // superseded by V5.0.8423 — the checkpoint is rewritten only when it holds an acknowledged row (TerminalOutbox8419.retainedRows8419
         // null = nothing to rewrite); the order is unchanged: checkpoint commit first, then the rows leave the store in one transaction.
         // Was: `if (p.edit().putString(PENDING_KEY_7946, retained).commit() && removeRows8409(acknowledged))`.
-        assertTrue(src.contains("val checkpointOk8419 = retained == null || p.edit().putString(PENDING_KEY_7946, retained).commit()"))
+        assertTrue(src.contains("val checkpointOk8419 = retained == null || p.edit().putString(PENDING_KEY_7946, packedPending8521(retained)).commit()"))
         assertTrue(src.contains("if (checkpointOk8419 && removeRows8409(acknowledged))"))
         assertTrue(src.contains("openRowStore8409(context, p)"))
         assertTrue(src.indexOf("openRowStore8409(context, p)") < src.indexOf("val rows8409 = loadRows8409(p)"))

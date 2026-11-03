@@ -288,7 +288,7 @@ class Aate8187CortexCompleteTest {
         assertFalse(CortexTiming7900.gradeable8187(t0, t0 + 10L * 60_000L))
         assertFalse(CortexTiming7900.gradeable8187(t0 + 1L, t0))
         assertTrue(ForwardReturnLabeler7731.firstMarkDue8187(false, 0L, 20_000L))
-        assertFalse("already priced", ForwardReturnLabeler7731.firstMarkDue8187(false, t0, 20_000L))
+        assertTrue("a decision-time price does not settle the later executable fill", ForwardReturnLabeler7731.firstMarkDue8187(false, t0, 20_000L))
         assertFalse("past the re-base window", ForwardReturnLabeler7731.firstMarkDue8187(false, 0L, 61_000L))
         assertFalse("already re-based", ForwardReturnLabeler7731.firstMarkDue8187(true, 0L, 20_000L))
         assertEquals(1.5, CortexExit7897.samplePx8187(1.5, t0, t0 + 1_000L)!!, 0.0)
@@ -417,7 +417,7 @@ class Aate8187CortexCompleteTest {
         assertTrue(stake.contains("minOf(setupStake, proofStake) to minOf(setupFraction, proof.fraction)"))
         val conviction = cx.substringAfter("private fun cortexStake7893(").substringBefore("private fun provenEvidenceStake7948(")
         // 8372: sizing uses the same current STRONG cohort as its OOS authority, never a legacy lane-wide proof.
-        assertTrue(conviction.contains("val strong = gradeBook8144.bucketStats8372(a.lane)[CortexScoreboard7885.Bucket.STRONG.ordinal]"))
+        assertTrue(conviction.contains("val strong = gradeBook8144.bucketStats8372(a.lane, scoreVersion = CortexForwardEpoch8521.SCORE_VERSION)[CortexScoreboard7885.Bucket.STRONG.ordinal]"))
         assertTrue(conviction.contains("val proof = authorityTest8366(a.lane)"))
         assertTrue(conviction.contains("if (!proof.granted || proof.topN < 20 || !proof.topSe.isFinite())"))
         assertTrue(conviction.contains("inc(\"SIZE_UP_REFUSED_UNVALIDATED_8187_\${a.lane}\"); return none"))

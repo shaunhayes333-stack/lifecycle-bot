@@ -215,6 +215,12 @@ object ExitTelemetryStamper6732 {
         try { ExitStageTiming7876.closeUnbroadcast7948(mint) } catch (_: Throwable) {}
     }
 
+    /** A disproved, unbroadcast signal is cancelled, not fulfilled; preserve its named cancellation in the sell spine. */
+    fun invalidateUnbroadcastSignal8521(mint: String, positionId: String) {
+        if (positionId.isNotBlank()) intents.remove(positionId)
+        clearTrigger7807(mint)
+    }
+
     // ── V5.0.7809 — latency samples measure condition-first-ACTIONABLE ───────
     // requestSell stamps its trigger before the hold gates. A non-emergency exit
     // a hold gate then defers (style min-hold, profit dust, healthy reconciler

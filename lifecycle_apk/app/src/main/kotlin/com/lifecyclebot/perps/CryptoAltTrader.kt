@@ -607,13 +607,13 @@ object CryptoAltTrader {
                 if (cp.mode.equals("paper", true)) {
                     com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.ensureOpenProjection6659(cp)
                 }
-                val persisted = stored.firstOrNull { it.id == cp.positionId }
-                    ?: stored.firstOrNull { it.canonicalAssetKey == cp.mint }
-                if (persisted == null) {
-                    try { ForensicLogger.lifecycle("CRYPTO_CANONICAL_REHYDRATE_MISSING_LOCAL_6647", "positionId=${cp.positionId} asset=${cp.mint} action=retain_canonical_no_purge") } catch (_: Throwable) {}
+                val persisted = stored.firstOrNull { it.id == cp.positionId && it.canonicalAssetKey == cp.mint &&
+                    it.isPaper == cp.mode.equals("paper", true) }
+                val pos = restoreCanonicalPosition8521(cp, persisted)
+                if (pos == null) {
+                    try { ForensicLogger.lifecycle("CRYPTO_CANONICAL_REHYDRATE_MISSING_LOCAL_6647", "positionId=${cp.positionId} asset=${cp.mint} action=defer_missing_exact_execution_metadata_retain_canonical") } catch (_: Throwable) {}
                     return@forEach
                 }
-                val pos = if (persisted.id == cp.positionId) persisted else persisted.copy(id = cp.positionId)
                 if (positions.putIfAbsent(pos.id, pos) != null) return@forEach
                 if (pos.isSpot) spotPositions[pos.id] = pos else leveragePositions[pos.id] = pos
                 // Only LIVE positions hold live wallet exposure: paper crypto books trade beside LIVE, and their paper sizes
@@ -631,6 +631,54 @@ object CryptoAltTrader {
         } catch (e: Exception) {
             ErrorLogger.warn(TAG, "position rehydrate failed: ${e.message}")
         }
+    }
+
+    private fun canonicalRecoveryMarket8521(cp: com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Position): PerpsMarket =
+        if (cp.lane.equals("CRYPTO_ALT", true)) PerpsMarket.DYN
+        else PerpsMarket.values().firstOrNull { it.isCrypto && it.symbol.equals(cp.symbol, true) } ?: PerpsMarket.DYN
+
+    /** Restore execution metadata only for this canonical lot; a canonical-only leveraged row has no known side. */
+    internal fun restoreCanonicalPosition8521(
+        cp: com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Position,
+        persisted: AltPosition?,
+        mark: DynamicAltTokenRegistry.HeldMarkRefresh7251? = null,
+    ): AltPosition? {
+        val paper = when {
+            cp.mode.equals("paper", true) -> true
+            cp.mode.equals("live", true) -> false
+            else -> return null
+        }
+        val remainingCost = cp.entryCostSol - cp.soldCostBasisSol
+        if (cp.assetClass != com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT ||
+            cp.lifecycle !in setOf(com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.OPEN,
+                com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED) ||
+            cp.remainingQtyRaw.signum() <= 0 || !remainingCost.isFinite() || remainingCost <= 0.0 ||
+            !cp.entryPriceUsd.isFinite() || cp.entryPriceUsd <= 0.0) return null
+        if (persisted != null) {
+            if (persisted.id != cp.positionId || persisted.canonicalAssetKey != cp.mint || persisted.isPaper != paper ||
+                !persisted.leverage.isFinite() || persisted.leverage <= 0.0 ||
+                (persisted.isSpot && (persisted.direction != PerpsDirection.LONG || persisted.leverage != 1.0)) ||
+                (cp.lane.equals("CRYPTO_LEV", true) && persisted.isSpot)) return null
+            return persisted.copy(entryPrice = cp.entryPriceUsd, sizeSol = remainingCost, openTime = cp.openedAtMs,
+                closeTime = null, closePrice = null, realizedPnl = null)
+        }
+        // These canonical lane contracts represent LONG spot. CRYPTO_LEV and unknown historical lanes cannot reveal
+        // side/leverage from cost and quantity; preserve their open canonical inventory without inventing economics.
+        if (cp.lane.uppercase() !in setOf("CRYPTO_SPOT", "CRYPTO_ALT")) return null
+        val market = canonicalRecoveryMarket8521(cp)
+        val dynamic = market == PerpsMarket.DYN
+        val identity = if (dynamic) cp.mint else market.name
+        val observed = mark?.takeIf { it.canonicalIdentity == identity && it.price.isFinite() && it.price > 0.0 && it.observedAtMs > 0L }
+        return AltPosition(
+            id = cp.positionId, market = market, dynSymbol = if (dynamic) cp.symbol else null,
+            dynName = if (dynamic) cp.symbol else null, dynMint = if (dynamic) cp.mint else null,
+            direction = PerpsDirection.LONG, isSpot = true, isPaper = paper, canonicalAssetKey = cp.mint,
+            markAssetKey = observed?.canonicalIdentity.orEmpty(), markUpdatedAtMs = observed?.observedAtMs ?: 0L,
+            entryPrice = cp.entryPriceUsd, currentPrice = observed?.price ?: 0.0, sizeSol = remainingCost, leverage = 1.0,
+            takeProfitPrice = cp.entryPriceUsd * 1.06, stopLossPrice = cp.entryPriceUsd * 0.96,
+            aiScore = 50, aiConfidence = 50, reasons = listOf("CANONICAL_CRYPTO_RECOVERY_7255", cp.entryPriceSource),
+            openTime = cp.openedAtMs,
+        )
     }
 
     /**
@@ -658,43 +706,18 @@ object CryptoAltTrader {
             if (!cp.entryPriceUsd.isFinite() || cp.entryPriceUsd <= 0.0 ||
                 !cp.entryCostSol.isFinite() || cp.entryCostSol <= 0.0
             ) continue
-            if (positions[cp.positionId]?.isPaper == activePaperMode ||
-                positions.values.any { it.isPaper == activePaperMode && it.canonicalAssetKey == cp.mint }
-            ) continue
+            if (positions[cp.positionId]?.let { it.isPaper == activePaperMode && it.canonicalAssetKey == cp.mint } == true) continue
 
-            val market = PerpsMarket.values().firstOrNull {
-                it.isCrypto && it.symbol.equals(cp.symbol, ignoreCase = true)
-            } ?: PerpsMarket.DYN
+            val market = canonicalRecoveryMarket8521(cp)
             val dynamic = market == PerpsMarket.DYN
-            val cached = if (!dynamic) try {
-                PerpsMarketDataFetcher.getCachedPrice(market)?.price ?: 0.0
-            } catch (_: Throwable) { 0.0 } else try {
-                DynamicAltTokenRegistry.heldMarkSnapshot7251(cp.mint).price
-            } catch (_: Throwable) { 0.0 }
-            val current = cached.takeIf { it.isFinite() && it > 0.0 } ?: cp.entryPriceUsd
-            val projected = AltPosition(
-                id = cp.positionId,
-                market = market,
-                dynSymbol = if (dynamic) cp.symbol else null,
-                dynName = if (dynamic) cp.symbol else null,
-                dynMint = if (dynamic) cp.mint else null,
-                direction = PerpsDirection.LONG,
-                isSpot = true,
-                isPaper = cp.mode.equals("paper", true),
-                canonicalAssetKey = cp.mint,
-                markAssetKey = if (dynamic && cached > 0.0) cp.mint else "",
-                markUpdatedAtMs = if (dynamic && cached > 0.0) System.currentTimeMillis() else 0L,
-                entryPrice = cp.entryPriceUsd,
-                currentPrice = current,
-                sizeSol = cp.entryCostSol,
-                leverage = 1.0,
-                takeProfitPrice = cp.entryPriceUsd * 1.06,
-                stopLossPrice = cp.entryPriceUsd * 0.96,
-                aiScore = 50,
-                aiConfidence = 50,
-                reasons = listOf("CANONICAL_CRYPTO_RECOVERY_7255", cp.entryPriceSource),
-                openTime = cp.openedAtMs,
-            )
+            val mark = if (!dynamic) try {
+                PerpsMarketDataFetcher.getCachedPrice(market)?.let {
+                    DynamicAltTokenRegistry.HeldMarkRefresh7251(it.price, market.name, it.lastUpdate, false)
+                }
+            } catch (_: Throwable) { null } else try {
+                DynamicAltTokenRegistry.heldMarkSnapshot7251(cp.mint)
+            } catch (_: Throwable) { null }
+            val projected = restoreCanonicalPosition8521(cp, null, mark) ?: continue
             positions[projected.id] = projected
             spotPositions[projected.id] = projected
             added++
@@ -1042,12 +1065,14 @@ object CryptoAltTrader {
      * keeps its last mark; an untrusted dynamic mark is still held by
      * closePosition as before.
      */
-    private fun refreshMarksForStop7298() {
+    private fun refreshMarksForStop7298(targetIds: Set<String>? = null, paperOnly: Boolean = false) {
         if (positions.isEmpty()) return
         try {
             kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
                 kotlinx.coroutines.withTimeoutOrNull(6_000L) {
-                    positions.toMap().map { (id, position) ->
+                    positions.toMap().filter { (id, p) ->
+                        (targetIds == null || id in targetIds) && (!paperOnly || p.isPaper)
+                    }.map { (id, position) ->
                         async {
                             val mark: Triple<Double, String, Long>? = try {
                                 if (position.isDynamic) {
@@ -1056,9 +1081,10 @@ object CryptoAltTrader {
                                     if (held.freshObservation && held.canonicalIdentity.equals(key, true) &&
                                         held.price.isFinite() && held.price > 0.0) Triple(held.price, key, held.observedAtMs) else null
                                 } else {
-                                    val px = PerpsMarketDataFetcher.getMarketData(position.market).price
-                                    val ratio = if (position.entryPrice > 0) px / position.entryPrice else 1.0
-                                    if (px.isFinite() && px > 0.0 && ratio in 0.1..10.0) Triple(px, position.market.name, System.currentTimeMillis()) else null
+                                    val data = PerpsMarketDataFetcher.getMarketData(position.market)
+                                    if (com.lifecyclebot.engine.PaperStopLifecycle8521.eligibleMark8521(
+                                            position.market, data, System.currentTimeMillis()))
+                                        Triple(data.price, position.market.name, data.lastUpdate) else null
                                 }
                             } catch (_: Throwable) { null }
                             if (mark != null) {
@@ -1082,11 +1108,11 @@ object CryptoAltTrader {
     }
 
     /** Close all open positions immediately (called on STOP). */
-    fun closeAllPositions() {
-        refreshMarksForStop7298()
-        val ids = positions.keys.toList()
+    fun closeAllPositions(paperMode: Boolean? = null) {
+        val ids = positions.values.filter { paperMode == null || it.isPaper == paperMode }.map { it.id }
+        refreshMarksForStop7298(ids.toSet())
         val closedCount = ids.count { id ->
-            try { closePosition(id, "USER_STOP"); true }
+            try { closePosition(id, "USER_STOP"); positions[id] == null }
             catch (_: Exception) { false }
         }
         // Failed closes remain durable and canonical so the next bootstrap can
@@ -1099,6 +1125,26 @@ object CryptoAltTrader {
         }
         ErrorLogger.info(TAG, "🪙 All crypto alt positions closed on STOP (${ids.size} positions, $closedCount individual closes)")
         persistAltPositions()
+    }
+
+    suspend fun closePaperPositions8521(targetIds: Set<String>): com.lifecyclebot.engine.PaperStopLifecycle8521.CloseResult {
+        syncCanonicalCryptoPositions7255()
+        val requested = positions.values.filter { it.isPaper && it.id in targetIds }.mapTo(linkedSetOf()) { it.id }
+        withContext(Dispatchers.IO) { refreshMarksForStop7298(requested, paperOnly = true) }
+        val attempted = linkedSetOf<String>()
+        for (id in requested) {
+            if (com.lifecyclebot.engine.PaperStopLifecycle8521.confirmedClosed(id)) continue
+            val p = positions[id]?.takeIf { it.isPaper } ?: continue
+            val now = System.currentTimeMillis()
+            val expectedIdentity = if (p.isDynamic) p.canonicalAssetKey else p.market.name
+            if (!p.hasTrustedMark(now) || !p.markAssetKey.equals(expectedIdentity, true) ||
+                p.markUpdatedAtMs <= 0L || now - p.markUpdatedAtMs !in 0L..30_000L) continue
+            attempted.add(id)
+            try { closePosition(id, "USER_STOP") } catch (_: Exception) { }
+        }
+        persistAltPositions()
+        return com.lifecyclebot.engine.PaperStopLifecycle8521.CloseResult(requested, attempted,
+            requested.filterTo(linkedSetOf()) { com.lifecyclebot.engine.PaperStopLifecycle8521.confirmedClosed(it) })
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -5771,14 +5817,16 @@ object CryptoAltTrader {
                 val tokensMap = com.lifecyclebot.engine.BotService.status.tokens
                 synchronized(tokensMap) {
                     tokensMap.values
-                        .filter { it.symbol.equals(ticker, ignoreCase = true) && it.position.isOpen }
+                        .filter { it.symbol.equals(ticker, ignoreCase = true) && it.position.isOpen && it.position.isPaperPosition }
                         .maxByOrNull { it.position.entryTime }
                 }
             } catch (_: Exception) { null }
 
             if (memeTs != null) {
                 return try {
-                    val (ok, msg) = botService.manualSell(memeTs.mint)
+                    val selectedPaperLot = memeTs.position.positionId
+                    val (ok, msg) = botService.manualSell(memeTs.mint,
+                        expectedPositionId8521 = selectedPaperLot, expectedPaper8521 = true)
                     if (ok) {
                         val pnlPct = if (memeTs.position.entryPrice > 0) (memeTs.lastPrice / memeTs.position.entryPrice - 1.0) * 100.0 else 0.0
                         ErrorLogger.info(TAG, "💬 LLM MEME SELL: $ticker pnl=${"%.1f".format(pnlPct)}% | $reason")

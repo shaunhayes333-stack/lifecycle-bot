@@ -24,7 +24,18 @@ class Aate8013GradingScheduleTest {
 
     @Test fun followedCoinsSurviveRestartsAndLeavingTheWatchlist() {
         val f = src("engine/truth/ForwardReturnLabeler7731.kt")
-        assertTrue(f.contains(".filter { nowMs - it.atMs <= H240_MS_7731 + LOST_GRACE_MS_7731 || followed8013(it, nowMs) }"))
+        // 8521: age alone cannot remove unfinished work. Followed coins have persistence priority;
+        // only a durable terminal disposition transfers ownership away from the pending snapshot.
+        val selectionStart = f.indexOf("private fun selectedPending8401(")
+        val encodingStart = f.indexOf("private fun encodePending7735(", selectionStart)
+        assertTrue(selectionStart >= 0 && encodingStart > selectionStart)
+        val selection = f.substring(selectionStart, encodingStart)
+        assertTrue(selection.contains(".filterNot { terminalOutbox8395.containsKey(terminalKey8395(it)) }"))
+        assertTrue(selection.contains("compareByDescending<Obs> { followed8013(it, nowMs) }.thenByDescending { it.atMs }"))
+        assertFalse("pending ownership cannot expire just because a checkpoint is being saved", selection.contains("H240_MS_7731"))
+        assertTrue(f.contains("val selected = selectedPending8401(now)"))
+        assertTrue(f.contains("encodePending7735(now, selected)"))
+        assertTrue(f.contains("if (f[15] == \"1\" && nowMs - atMs > H240_MS_7731 + LOST_GRACE_MS_7731 && !scheduleOpen8013(ck8013, nowMs - atMs)) return@forEach"))
         // superseded by V5.0.8291 — the checkpoint still asks for an off-watch mark, its due time now carries the off-watch rank.
         assertTrue(f.contains("else if (checkpointDue8013(o, age)) dueUnpriced7737.add(o.mint to com.lifecyclebot.engine.cortex.CortexLabelFeed8291.offWatchKey8291(rank8291, o.atMs + CK_MS_7997[o.ck7997]))"))
         // superseded by V5.0.8395: a followed coin's bounded deadline is its last checkpoint (R2), and a 240 booking keeps it while followed.
@@ -39,7 +50,7 @@ class Aate8013GradingScheduleTest {
         val hour = f.substring(hourStart, expiryStart)
         assertTrue(f.contains("recoveredHorizon8397(key, o, recovered, nowMs)"))
         assertTrue(recovery.contains("completeHour8397(key, o, net, gross, stop, bookable = true)"))
-        assertTrue(f.contains("completeHour8397(key, o, net, gross, stop7997, horizonOpen7809(age, H240_MS_7731))"))
+        assertTrue(f.contains("completeHour8397(key, o, net, gross, stop7997, horizonOpen7809(observedAge8521, H240_MS_7731))"))
         assertTrue(hour.contains("val follow = !stop && keepRunning7997(o, gross)"))
         assertTrue(hour.contains("bookTwoForty7944(o, net, gross, deferExit8006 = follow)"))
         assertTrue(hour.contains("if (!follow) pending.remove(key, o) else extended7997.incrementAndGet()"))

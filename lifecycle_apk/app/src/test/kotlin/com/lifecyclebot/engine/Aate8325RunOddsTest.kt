@@ -124,7 +124,7 @@ class Aate8325RunOddsTest {
         assertTrue(cx.contains("CortexRunOdds8325.ev8325(pond, fused.pRun8325)"))
         // The displayed token forecast, not a separate tail/rank diagnostic, assigns its frozen verdict.
         // superseded by V5.0.8418 — the frozen verdict reads the restored rank / calibration chain (8372: a bare bucketOf).
-        assertTrue(cx.contains("return uncalibratedNeutral8366(lane, fit, rankConsistentBucket8325(lane, runner, first, calibrated))"))
+        assertTrue(cx.contains("val legacyProjection = uncalibratedNeutral8366(lane, fit, rankConsistentBucket8325(lane, runner, first, calibrated))"))
         assertFalse(cx.contains("val bucket8325 = uncalibratedNeutral8366("))
     }
 }

@@ -32,7 +32,7 @@ object SpecialistBrainBridge7542 {
     private val lastOpinion=ConcurrentHashMap<String,Opinion>()
 
     private fun bump(m:ConcurrentHashMap<String,AtomicLong>,lane:String){m.computeIfAbsent(lane){AtomicLong(0)}.incrementAndGet()}
-    private fun noGrade(reason:String)=listOf("ALREADY_","MAX_","DAILY_LIMIT","RECENT_","HYDRATING","DISABLED","POSITION_ACTIVE","COOLDOWN").any{reason.uppercase().contains(it)}
+    private fun noGrade(reason:String)=NativeLaneConstraints8521.missingData8521(reason)||listOf("ALREADY_","MAX_","DAILY_LIMIT","RECENT_","HYDRATING","DISABLED","POSITION_ACTIVE","COOLDOWN").any{reason.uppercase().contains(it)}
     private fun record(o:Opinion){lastOpinion[o.lane]=o;bump(called,o.lane);bump(if(o.eligible)allowed else rejected,o.lane);try{
         PipelineHealthCollector.labelInc("NATIVE_BRAIN_CALLED_7542_${o.lane}")
         PipelineHealthCollector.labelInc(if(o.eligible)"NATIVE_BRAIN_ALLOW_7542_${o.lane}" else "NATIVE_BRAIN_REJECT_7542_${o.lane}")
@@ -67,7 +67,7 @@ object SpecialistBrainBridge7542 {
         r != null && (r.startsWith("NATIVE_VETO_RETIRED_8048") || r.startsWith(RunnerGrabLane8343.REASON_PREFIX_8343))
     } catch (_: Throwable) { false }
 
-    fun nativeRuleRetirable8048(reason:String):Boolean{val r=reason.uppercase();return listOf("RUG","SAFETY","HONEYPOT","BLOCK","DEV","BUNDLE","LIQ","SCAM","FREEZE","MINT_AUTH","BLACKLIST","ERROR").none{r.contains(it)}}
+    fun nativeRuleRetirable8048(reason:String):Boolean = NativeLaneConstraints8521.mayAdapt8521(reason)
     /** CORE is formed after the specialist veto review; only its own measured refusal can rescue it. */
     internal fun reviewCoreYield8077(o: Opinion, ownLaneProof: (String, String) -> Boolean): Opinion {
         // V5.0.8343 — CORE's own-ensemble refusal (no specialist took the coin) is audited the same way.
@@ -208,8 +208,9 @@ object SpecialistBrainBridge7542 {
     // native brains actually consume. The old fingerprint omitted momentum,
     // volatility, holder/bundle state and Treasury meta fields, allowing a
     // 2.5-second stale ALLOW/VETO to survive a fast lifecycle change.
-    private fun fp(ts:TokenState,paper:Boolean,residents8168:Set<String>)=listOf(
+    private fun fp(ts:TokenState,paper:Boolean,residents8168:Set<String>,birthFingerprint8521:Int)=listOf(
         ts.mint,paper,ts.history.size,ts.buyPressureObservedAtMs8084,ts.priceChangeObservedAtMs8084,
+        birthFingerprint8521,
         com.lifecyclebot.engine.truth.FeatureRevision8283.revision8283(ts.mint),
         residents8168.hashCode(),
         if(ts.lastPrice>0)(kotlin.math.ln(ts.lastPrice)*10000).toLong()else 0L,
@@ -274,16 +275,20 @@ object SpecialistBrainBridge7542 {
         val residentScope7828 = (try {
             com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.residentLanes(ts.mint)
         } catch (_: Throwable) { emptySet<String>() }) + handoffScope8180(ts.mint) + com.lifecyclebot.engine.market.LaneHunter7297.waveReaders8506(ts.mint, System.currentTimeMillis())
-        val f=fp(ts,paper,residentScope7828);val now=System.currentTimeMillis();cache[ts.mint]?.snapshot?.let{if(it.fingerprint==f&&now-it.evaluatedAtMs<=CACHE_MS)return it}
-        val hist=try{ts.history.toList().filter{it.priceUsd.isFinite()&&it.priceUsd>0}}catch(_:Throwable){emptyList()}
-        val prices=hist.map{it.priceUsd};val recentPrices = hist.filter { now - it.ts in 0L..300_000L }.map { it.priceUsd };val price=ts.lastPrice.takeIf{it.isFinite()&&it>0}?:prices.lastOrNull()?:0.0
-        val vols = hist.filter { !it.synthetic && now - it.ts in 0L..60L * 60_000L }.takeLast(8).map { it.volumeH1 }
-        val recent = vols.takeLast(3).average()
-        val prior = vols.dropLast(minOf(3, vols.size)).average()
-        val measuredVolume = if (recent.isFinite() && recent >= 0.0 && prior.isFinite() && prior > 0.0) recent / prior else null
+        val now = System.currentTimeMillis()
+        val birthRead8521 = try { com.lifecyclebot.engine.truth.AdmissionBirth8144.readFor8144(ts, now) }
+            catch (_: Throwable) { null }
+        val f = fp(ts, paper, residentScope7828, NativeLaneAge8521.fingerprint8521(birthRead8521, now))
+        cache[ts.mint]?.snapshot?.let { if (it.fingerprint == f && now - it.evaluatedAtMs in 0L..CACHE_MS) return it }
+        val nativeHistory8521 = NativeHistory8521.read8521(ts, now)
+        val prices = nativeHistory8521.prices
+        val recentPrices = nativeHistory8521.recentPrices
+        val price = ts.lastPrice.takeIf { it.isFinite() && it > 0.0 } ?: prices.lastOrNull() ?: 0.0
+        val measuredVolume = nativeHistory8521.volumeRatio
         val volVs = measuredVolume ?: 1.0
-        val high=max(price,prices.maxOrNull()?:price)
-        val ageMin=try{com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts)}catch(_:Throwable){null}?:ts.safety.tokenAgeMinutes.takeIf{it>=0}?:((now-ts.addedToWatchlistAt).coerceAtLeast(0)/60000.0)
+        val high = max(price, nativeHistory8521.high ?: price)
+        val ageEvidence8521 = NativeLaneAge8521.evidence8521(birthRead8521)
+        val ageMin = ageEvidence8521.inputMinutes
         val observedBp8491 = LaneInputTruth8236.buyPressure8491(ts, now)
         val observedChange8491 = LaneInputTruth8236.change5m8491(ts, now)
         val bp = observedBp8491 ?: 50.0
@@ -292,7 +297,7 @@ object SpecialistBrainBridge7542 {
         // CashGen APIs all document/use momentum as signed %. Feeding score=50
         // into those APIs made a flat token look like +50% momentum.
         val histMomentumPct7551 = if (recentPrices.size >= 2) {
-            val first = recentPrices[maxOf(0, recentPrices.size - 6)]
+            val first = recentPrices.first()
             val last = recentPrices.last()
             if (first > 0.0 && last.isFinite()) ((last - first) / first) * 100.0 else 0.0
         } else 0.0
@@ -327,7 +332,7 @@ object SpecialistBrainBridge7542 {
         val socialMeta7556 = try { BirdeyeMetaDataProvider.peekCached(ts.mint) } catch (_: Throwable) { null }
         val src=ts.source.uppercase();val trending=src.contains("TREND")||ts.toolAffinity.any{it.contains("TREND",true)};val boosted=src.contains("BOOST")||ts.toolAffinity.any{it.contains("BOOST",true)}
         val platform=when{src.contains("PUMP")->ShitCoinTraderAI.LaunchPlatform.PUMP_FUN;src.contains("RAYDIUM")->ShitCoinTraderAI.LaunchPlatform.RAYDIUM;src.contains("MOONSHOT")->ShitCoinTraderAI.LaunchPlatform.MOONSHOT;src.contains("BONK")->ShitCoinTraderAI.LaunchPlatform.BONK_BOT;else->ShitCoinTraderAI.LaunchPlatform.UNKNOWN}
-        val bounce=if(prices.size>=4&&price>0){val tail=prices.takeLast(8);val low=tail.minOrNull()?:price;val idx=tail.indexOf(low);low>0&&idx>=0&&idx<tail.lastIndex-1&&price>=low*1.02&&bp>=50&&measuredVolume!=null&&measuredVolume>=0.5}else false
+        val bounce = nativeHistory8521.bounce8521(price, observedBp8491 ?: Double.NaN)
         val cls=try{ModeRouter.classify(ts)}catch(_:Throwable){null};val launch=try{com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts)}catch(_:Throwable){null};val runner=try{com.lifecyclebot.engine.truth.MoonshotFreshLaunchAdmission7044.isRunnerShaped(ts,cls?.tradeType?:ModeRouter.TradeType.UNKNOWN)}catch(_:Throwable){false}
 
         // 8168 — resident claims augment bounded native discovery; execution election remains separate.
@@ -353,6 +358,13 @@ object SpecialistBrainBridge7542 {
         if (owns7828("TREASURY")) out["TREASURY"]=try{val x=TreasuryBrain.evaluate(ts);val floor8031=treasuryFloorOk8031(ts);val ok=x.category!="SKIP"&&x.score>=50.0&&floor8031;op("TREASURY",ok,x.score.toInt(),x.score.toInt(),0.0,if(!floor8031)"TREASURY_ROLE_FLOOR_8031" else x.reasons.joinToString(";").ifBlank{x.category},"CASHFLOW_SCALP","treasury_native_confirmed_scalp","treasury_native_bank",0.75,x.sizeMultiplier.coerceIn(0.3,1.15),0.9,setOf("TREASURY_BRAIN","MOMENTUM_5M_15M","EMA_FAN","DEPTH"))}catch(t:Throwable){err("TREASURY",t)}
         if (owns7828("CASHGEN")) out["CASHGEN"]=try{val x=CashGenerationAI.evaluate(ts.mint,ts.symbol,price,ts.lastLiquidityUsd,top,bp,v3,v3c,mom,vol,ts.source,ts.lastPriceSource,ts.lastPriceDex,ageMin,ownerLane="CASHGEN");op("CASHGEN",x.shouldEnter,if(x.entryScore>0)x.entryScore else x.confidence,x.confidence,x.positionSizeSol,x.reason,"CASHFLOW_SCALP","cashgen_native_cashflow","cashgen_native_quick_bank",0.55,0.82,0.78,setOf("CASHGEN","LIQUIDITY_DEPTH","ORDER_FLOW","TURNOVER"))}catch(t:Throwable){err("CASHGEN",t)}
         if (owns7828("CYCLIC")) out["CYCLIC"]=try{val x=CyclicTradeEngine.evaluateCandidate7542(ts,!paper);op("CYCLIC",x.eligible,x.score,x.confidence,0.0,x.reason,"CYCLIC_COMPOUND","cyclic_native_compound_pick","cyclic_inherit_owner_exit",1.35,0.72,1.18,setOf("CYCLIC","COMPOUND","V3","SELLABILITY"))}catch(t:Throwable){err("CYCLIC",t)}
+
+        // Birth evidence is shared; each desk applies only its own age rule.
+        // A fresh watchlist insertion cannot make an old, unresolved token young.
+        for ((lane, opinion) in out.toList()) {
+            val capped = NativeLaneConstraints8521.requireCap8521(opinion, ts.lastMcap)
+            out[lane] = NativeLaneAge8521.review8521(capped, ageEvidence8521)
+        }
 
         // V5.0.8048 — closed loop for native refusals: the Cortex veto audit grades every NATIVE_<rule> (8031) and 5.0.8046
         // read NATIVE_NO_CONTINUATION@EXPRESS refusing winners (n56, +7.5%), but nothing ever asked it back. A native rule

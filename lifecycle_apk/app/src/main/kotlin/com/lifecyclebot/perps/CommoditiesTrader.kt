@@ -298,13 +298,25 @@ object CommoditiesTrader {
     }
 
     /** Close all open positions immediately (called on STOP). */
-    fun closeAllPositions() {
-        val all = spotPositions.values.toList() + leveragePositions.values.toList()
+    fun closeAllPositions(paperMode: Boolean? = null) {
+        val all = (spotPositions.values.toList() + leveragePositions.values.toList())
+            .filter { paperMode == null || it.isPaper == paperMode }
         all.forEach { pos ->
             try { val map = if (pos.tradeType == TradeType.SPOT) spotPositions else leveragePositions; closePosition(pos, map, "STOP — all positions closed") } catch (_: Exception) {}
         }
         ErrorLogger.info(TAG, "🛢️ All commodity positions closed on STOP (${all.size} positions)")
     }
+
+    suspend fun closePaperPositions8521(targetIds: Set<String>): com.lifecyclebot.engine.PaperStopLifecycle8521.CloseResult =
+        com.lifecyclebot.engine.PaperStopLifecycle8521.closeObserved8521(targetIds, getAllPositions().map { p ->
+            com.lifecyclebot.engine.PaperStopLifecycle8521.MarketPosition(p.id, p.isPaper, p.market) { mark ->
+                val map = if (p.tradeType == TradeType.SPOT) spotPositions else leveragePositions
+                map[p.id]?.takeIf { it.isPaper }?.let { current ->
+                    current.currentPrice = mark.price
+                    closePosition(current, map, "USER_STOP")
+                }
+            }
+        })
     
     // ═══════════════════════════════════════════════════════════════════════════
     // SCAN CYCLE

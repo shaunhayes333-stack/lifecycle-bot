@@ -48,7 +48,7 @@ class Aate8397ForwardRecoveryLifecycleTest {
             .single { it.parameterCount == 13 }.apply { isAccessible = true }
             .newInstance(mint, "TEST", "TEST_RECOVERY_8397_$mint", "TEST", "MOONSHOT", false,
                 50, "TEST", "TEST", "TEST", 1.0, 3.0, at)
-        val basis = LabelBasis8386(mark(mint, at, 1.0), 0.0)
+        val basis = LabelBasis8386(mark(mint, at + 5_000L, 1.0), 0.0)
         set(obs, "basis8386", basis); set(obs, "decisionBasis8386", basis)
         set(obs, "rebased8076", true)
         return obs
@@ -61,7 +61,7 @@ class Aate8397ForwardRecoveryLifecycleTest {
         val at = System.currentTimeMillis() - 2 * 3_600_000L
         val obs = observation(mint, at)
         val originalBasis = get(obs, "basis8386")
-        val first = mark(mint, at + 4 * 60_000, 1.1)
+        val first = mark(mint, at + 5 * 60_000, 1.1)
         set(obs, "lastAcceptedMark8395", first)
         set(obs, "lastMark8386", first)
         pending()[key] = obs
@@ -78,7 +78,8 @@ class Aate8397ForwardRecoveryLifecycleTest {
             val firstNet = get(obs, "bookedNet7997") as Double
             assertEquals(false, call("checkpoint7997", obs, 37.0, 40.0, 15 * 60_000L, fifteen.observedAtMs))
             assertEquals(1, get(obs, "ck7997"))
-            assertTrue("The actual revision hook has advanced this episode", (get(obs, "bookedNet7997") as Double) > firstNet)
+            assertEquals("Later path reads cannot rewrite the frozen five-minute entry target", firstNet,
+                get(obs, "bookedNet7997") as Double, 0.0)
 
             val hour = mark(mint, at + 60 * 60_000, 1.8)
             set(obs, "lastMark8386", hour)
@@ -93,16 +94,16 @@ class Aate8397ForwardRecoveryLifecycleTest {
         } finally { pending().remove(key, obs) }
     }
 
-    @Test fun unchangedHourOutcomeStillStagesItsFirstHourModelGrade8417() {
+    @Test fun firstHourOutcomeStagesWithoutAnyEarlierEntryContribution() {
         val mint = "forward-recovery-8397-unchanged"; val at = System.currentTimeMillis() - 65 * 60_000L
         val obs = observation(mint, at)
-        set(obs, "done60", true); set(obs, "bookedNet7997", 7.0); set(obs, "bookedGross7997", 10.0)
+        set(obs, "done60", true); set(obs, "targetHorizon8521", 3_600_000L)
         val mark = mark(mint, at + 60 * 60_000L, 1.1)
         set(obs, "lastMark8386", mark)
         val outbox = get(runtime, "forwardOutbox8404")!!
         @Suppress("UNCHECKED_CAST") val rows = get(outbox, "rows") as MutableMap<String, String>
         assertEquals(true, call("stageForwardRevision8404", obs, 7.0, 10.0, mark.observedAtMs))
-        assertTrue("a due horizon carries evidence even with zero return change", rows.keys.any { it.startsWith("$mint|MOONSHOT|$at|R|") })
+        assertTrue("the promised hour has its own proof without an interim grade", rows.keys.any { it.startsWith("$mint|MOONSHOT|$at|R|") })
     }
 
     @Test fun recoveredHourDefersExitForAContinuingRunnerJustLikeTheNormalHourPath() {
@@ -112,7 +113,7 @@ class Aate8397ForwardRecoveryLifecycleTest {
         set(obs, "done60", true); set(obs, "bookedNet7997", 7.0); set(obs, "bookedGross7997", 10.0)
         set(obs, "bookedLongNet8080", 7.0); set(obs, "bookedLongGross8080", 10.0)
         set(obs, "ck7997", 1)
-        val hour = mark(mint, at + 59 * 60_000L, 1.8)
+        val hour = mark(mint, at + 60 * 60_000L, 1.8)
         set(obs, "lastAcceptedMark8395", hour); set(obs, "lastMark8386", hour)
         pending()[key] = obs
         try {
@@ -123,9 +124,10 @@ class Aate8397ForwardRecoveryLifecycleTest {
         } finally { pending().remove(key, obs) }
     }
 
-    @Test fun actualDeathStillTerminatesInsteadOfUsingTheNewContinuationPath() {
+    @Test fun providerSilenceAfterADeclineTerminatesWithoutManufacturingTotalLoss() {
         val mint = "forward-recovery-8397-dead"; val key = "$mint|MOONSHOT"
-        val at = System.currentTimeMillis() - 10 * 60_000L
+        // This observation belongs to the running process. A pre-boot deadline correctly waits for recovery first.
+        val at = (get(runtime, "bootMs8430") as Long) + 1L
         val obs = observation(mint, at)
         val dying = mark(mint, at + 60_000L, 0.2) // outside the recoverable first-horizon window
         set(obs, "lastAcceptedMark8395", dying); set(obs, "lastMark8386", dying)
@@ -134,8 +136,34 @@ class Aate8397ForwardRecoveryLifecycleTest {
         try {
             assertEquals(true, call("expired8395", key, obs, null, at + 450_000L))
             assertFalse(pending().containsKey(key))
-            assertEquals(true, get(obs, "done60"))
+            assertEquals(false, get(obs, "done60"))
+            assertTrue("an observed -80% and missing horizon is not an observed -100%", (get(obs, "bookedNet7997") as Double).isNaN())
         } finally { pending().remove(key, obs) }
+    }
+
+    @Test fun earlierCollapseStillRecoversTheGenuineHorizonCandleWithoutSurvivorshipFiltering() {
+        val mint = "forward-recovery-8397-collapse-candle"; val key = "$mint|MOONSHOT"
+        // Anchor the historical window to the real immutable boot timestamp; do not mutate static-final state.
+        val now = get(runtime, "bootMs8430") as Long; val at = now - 600_000L
+        val obs = observation(mint, at)
+        set(obs, "honest8366", true)
+        val collapse = mark(mint, at + 60_000L, 0.2)
+        set(obs, "lastAcceptedMark8395", collapse); set(obs, "lastMark8386", collapse)
+        set(obs, "lastPx", collapse.usd); set(obs, "lastPxAtMs", collapse.observedAtMs)
+        com.lifecyclebot.engine.truth.DowntimeRecovery8430.seedForTest8430(mint,
+            listOf(com.lifecyclebot.data.Candle(at + 240_000L, 0.2, 0.0, 0.0, 0.0)))
+        pending()[key] = obs
+        try {
+            assertEquals(true, call("expired8395", key, obs, null, now))
+            assertEquals(true, get(obs, "done60"))
+            assertTrue("the actual large loss still teaches the original entry", (get(obs, "bookedNet7997") as Double).isFinite())
+            assertEquals(at + 300_000L, (get(obs, "lastAcceptedMark8395") as LabelMark8386).observedAtMs)
+            assertEquals(0.2, (get(obs, "lastAcceptedMark8395") as LabelMark8386).usd, 0.0)
+            assertSame(obs, pending()[key])
+        } finally {
+            pending().remove(key, obs)
+            com.lifecyclebot.engine.truth.DowntimeRecovery8430.seedForTest8430(mint, emptyList())
+        }
     }
 
     @Test fun wrongBasisCannotBecomeARecoveredLabelAndUncommittedTerminalKeepsOwnership() {

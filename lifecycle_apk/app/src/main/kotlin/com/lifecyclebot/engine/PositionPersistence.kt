@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.lifecyclebot.data.Position
 import com.lifecyclebot.data.TokenState
+import com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
@@ -49,10 +50,6 @@ object PositionPersistence {
     
     // Minimum interval between periodic saves (don't spam disk)
     private const val MIN_SAVE_INTERVAL_MS = 10_000L  // 10 seconds
-    // V5.0.3801 — paper restore must not resurrect stale simulator rows into
-    // forcedOpen/exit-managed churn. Recent active paper rows survive restarts;
-    // old rows are quarantined/dropped and must not consume slots or learning.
-    private const val PAPER_RESTORE_WINDOW_MS = 6L * 60L * 60L * 1000L
     
     private var ctx: Context? = null
     private var prefs: SharedPreferences? = null
@@ -152,6 +149,7 @@ object PositionPersistence {
         val lastPriceSource: String = "",
         val lastPricePoolAddr: String = "",
         val lastPriceDex: String = "",
+        val lastPriceObservedAtMs8521: Long = 0L,
         val treasuryTakeProfit: Double = 0.0,
         val treasuryStopLoss: Double = 0.0,
         val treasuryEntryPrice: Double = 0.0,
@@ -161,15 +159,18 @@ object PositionPersistence {
      * Save a single position immediately.
      * Call this after every entry/exit.
      */
+    @Synchronized
     fun savePosition(ts: TokenState) {
         val positions = loadPositionsInternal().toMutableMap()
         
         if (ts.position.isOpen) {
-            positions[ts.mint] = createPersistedPosition(ts)
+            val replacement = createPersistedPosition(ts)
+            if (!canReplace8521(positions[ts.mint], replacement)) return
+            positions[ts.mint] = replacement
             ErrorLogger.debug(TAG, "💾 Saved position: ${ts.symbol} | qty=${ts.position.qtyToken}")
         } else {
             // Position closed, remove from persistence
-            if (positions.remove(ts.mint) != null) {
+            if (positions[ts.mint]?.let { canRemove8521(it, ts.position) } == true && positions.remove(ts.mint) != null) {
                 ErrorLogger.debug(TAG, "🗑️ Removed closed position: ${ts.symbol}")
             }
         }
@@ -181,6 +182,7 @@ object PositionPersistence {
      * Save all open positions from BotStatus.
      * Call this periodically and on app pause.
      */
+    @Synchronized
     fun saveAllPositions(tokens: Map<String, TokenState>, force: Boolean = false) {
         val now = System.currentTimeMillis()
         if (!force && now - lastSaveTime < MIN_SAVE_INTERVAL_MS) {
@@ -195,16 +197,19 @@ object PositionPersistence {
         // a 70-position paper book down to 3. Batch save is now MERGE/REMOVE-KNOWN:
         // update rows for tokens present and open, remove rows for tokens present and
         // explicitly closed, but preserve persisted rows for mints absent from this
-        // snapshot. Manual stop/full reset still use clear(), and individual closes
-        // still call removePosition()/savePosition(closed) at the source.
+        // snapshot. Only an explicit full reset uses clear(); ordinary closes
+        // call removePosition()/savePosition(closed) with canonical finality.
         val current = loadPositionsInternal().toMutableMap()
         var updated = 0
         var removed = 0
         tokens.values.forEach { ts ->
             if (ts.position.isOpen) {
-                current[ts.mint] = createPersistedPosition(ts)
-                updated++
-            } else if (current.remove(ts.mint) != null) {
+                val replacement = createPersistedPosition(ts)
+                if (canReplace8521(current[ts.mint], replacement)) {
+                    current[ts.mint] = replacement
+                    updated++
+                }
+            } else if (current[ts.mint]?.let { canRemove8521(it, ts.position) } == true && current.remove(ts.mint) != null) {
                 removed++
             }
         }
@@ -268,21 +273,26 @@ object PositionPersistence {
         val droppedPaper = mutableListOf<String>()
         val nowMs = System.currentTimeMillis()
         
-        for ((mint, saved) in persisted) {
+        for ((mint, stored) in persisted) {
+            var saved = stored
             val ageMs = (nowMs - saved.savedAt).coerceAtLeast(0L)
             val ageHours = ageMs / 3600_000.0
             if (saved.isPaperPosition) {
-                val validOpen = saved.qtyToken.isFinite() && saved.qtyToken > 0.0 &&
-                    saved.entryPrice.isFinite() && saved.entryPrice > 0.0 &&
-                    saved.costSol.isFinite() && saved.costSol > 0.0 &&
-                    saved.entryTime > 0L && saved.savedAt > 0L
-                if (!validOpen || ageMs > PAPER_RESTORE_WINDOW_MS) {
+                val canonical = canonicalFor8521(saved)
+                if (canonical != null && canonical.mode.equals("paper", true) && canonical.mint == mint &&
+                    canonical.lifecycle == CanonicalPositionAuthority6441.Lifecycle.CLOSED && canonical.remainingQtyRaw.signum() == 0) {
                     droppedPaper.add(mint)
-                    try { PaperPositionCloseAuthority.markClosed("PAPER", mint, saved.symbol, "PAPER_STALE_RESTORE_DROPPED") } catch (_: Throwable) {}
-                    try { PipelineHealthCollector.labelInc("PAPER_STALE_RESTORE_DROPPED") } catch (_: Throwable) {}
-                    try { ForensicLogger.lifecycle("PAPER_STALE_RESTORE_DROPPED", "mint=${mint.take(10)} symbol=${saved.symbol} ageH=${String.format("%.1f", ageHours)} validOpen=$validOpen qty=${saved.qtyToken} entry=${saved.entryPrice} cost=${saved.costSol}") } catch (_: Throwable) {}
+                    try { PipelineHealthCollector.labelInc("PAPER_CANONICAL_TERMINAL_RESTORE_PRUNED_8521") } catch (_: Throwable) {}
                     continue
                 }
+                val recovered = paperRestore8521(saved, canonical)
+                if (recovered == null) {
+                    // A local snapshot is not an economic OPEN or CLOSE. Keep unresolved evidence
+                    // on disk for reconciliation; never invent a sale merely because it is old.
+                    try { PipelineHealthCollector.labelInc("PAPER_RESTORE_CANONICAL_UNRESOLVED_8521") } catch (_: Throwable) {}
+                    continue
+                }
+                saved = recovered
             }
             if (!saved.isPaperPosition && ageHours > 24.0 * 7) {
                 // V5.0.4550 — live held positions are sticky-managed until terminal
@@ -355,11 +365,10 @@ object PositionPersistence {
                 priceBasisRescaleFactor = saved.priceBasisRescaleFactor,
             )
             
-            // V5.0.3843 — restore freshness for persisted lastKnownPrice. Without
-            // this, restored positions have lastPrice>0 but lastPriceUpdate=0 and
-            // Executor stale-feed eviction can treat the feed age as unknown/MAX.
+            // Saving a stale quote does not refresh its observation clock. Legacy rows
+            // without a source timestamp require a new quote before executable use.
             val restoredPriceUpdateMs = if (saved.lastKnownPrice.isFinite() && saved.lastKnownPrice > 0.0)
-                saved.savedAt.takeIf { it > 0L } ?: nowMs else 0L
+                saved.lastPriceObservedAtMs8521.takeIf { it in 1L..nowMs } ?: 0L else 0L
 
             if (existing != null) {
                 // Update existing TokenState with restored position
@@ -648,11 +657,15 @@ object PositionPersistence {
         
         if (droppedPaper.isNotEmpty()) {
             try {
-                val cleaned = persisted.toMutableMap()
-                droppedPaper.forEach { cleaned.remove(it) }
-                savePositionsInternal(cleaned)
+                synchronized(this) {
+                    val cleaned = loadPositionsInternal().toMutableMap()
+                    droppedPaper.forEach { mint ->
+                        if (cleaned[mint]?.let { canRemove8521(it, null) } == true) cleaned.remove(mint)
+                    }
+                    savePositionsInternal(cleaned)
+                }
             } catch (_: Throwable) {}
-            ErrorLogger.warn(TAG, "🧹 Dropped ${droppedPaper.size} stale/invalid PAPER restored rows (window=${PAPER_RESTORE_WINDOW_MS / 3600000L}h)")
+            ErrorLogger.info(TAG, "Pruned ${droppedPaper.size} canonically terminal PAPER snapshots")
         }
         if (restoredCount > 0) {
             ErrorLogger.info(TAG, "✅ Successfully restored $restoredCount positions")
@@ -665,6 +678,7 @@ object PositionPersistence {
      * Clear all persisted positions.
      * Call this when doing a full reset.
      */
+    @Synchronized
     fun clear() {
         prefs?.edit()?.clear()?.apply()
         ErrorLogger.info(TAG, "🧹 Cleared all persisted positions")
@@ -675,10 +689,14 @@ object PositionPersistence {
      * Used by the paper ghost auto-purge in BotService.startBot() so a
      * cleared ghost doesn't reappear on the next restart.
      */
-    fun removePosition(mint: String) {
+    @Synchronized
+    fun removePosition(mint: String, expectedPositionId8521: String? = null, expectedPaper8521: Boolean? = null) {
         try {
             val current = loadPositionsInternal().toMutableMap()
-            if (current.remove(mint) != null) {
+            val saved = current[mint] ?: return
+            if (expectedPositionId8521 != null && saved.positionId8384 != expectedPositionId8521) return
+            if (expectedPaper8521 != null && saved.isPaperPosition != expectedPaper8521) return
+            if (canRemove8521(saved, null) && current.remove(mint) != null) {
                 savePositionsInternal(current)
                 ErrorLogger.debug(TAG, "Removed persisted position for mint=${mint.take(8)}")
             }
@@ -703,6 +721,58 @@ object PositionPersistence {
     // INTERNAL HELPERS
     // ═══════════════════════════════════════════════════════════════════════════
     
+    private fun canonicalFor8521(saved: PersistedPosition): CanonicalPositionAuthority6441.Position? =
+        if (saved.positionId8384.isNotBlank()) CanonicalPositionAuthority6441.getPosition(saved.positionId8384)
+        else CanonicalPositionAuthority6441.openPositions().singleOrNull {
+            it.mint == saved.mint && it.mode.equals(if (saved.isPaperPosition) "paper" else "live", true) &&
+                it.openedAtMs == saved.entryTime
+        }
+
+    /** Restore the economic lot, not an expired projection's quantity or an invented close. */
+    internal fun paperRestore8521(
+        saved: PersistedPosition, canonical: CanonicalPositionAuthority6441.Position?,
+    ): PersistedPosition? {
+        val p = canonical ?: return null
+        if (!saved.isPaperPosition || !p.mode.equals("paper", true) || p.mint != saved.mint ||
+            (saved.positionId8384.isNotBlank() && p.positionId != saved.positionId8384) ||
+            p.assetClass != com.lifecyclebot.engine.truth.AssetClass.SOLANA_TOKEN ||
+            CanonicalPositionAuthority6441.isCryptoAltTraderOwned8082(p) ||
+            (p.lifecycle != CanonicalPositionAuthority6441.Lifecycle.OPEN &&
+                p.lifecycle != CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED) || p.quantityScale !in 0..18) return null
+        val qty = p.remainingQtyRaw.toBigDecimal().movePointLeft(p.quantityScale).toDouble()
+        val cost = p.entryCostSol - p.soldCostBasisSol
+        if (!qty.isFinite() || qty <= 0.0 || !cost.isFinite() || cost <= 0.0 ||
+            !p.entryPriceUsd.isFinite() || p.entryPriceUsd <= 0.0 || p.openedAtMs <= 0L) return null
+        return saved.copy(qtyToken = qty, costSol = cost, entryPrice = p.entryPriceUsd,
+            entryTime = p.openedAtMs, positionId8384 = p.positionId, tradingMode = p.lane,
+            entryPriceSource = p.entryPriceSource, entryPoolAddress = p.entryPoolAddress, entryDex = p.entryDex,
+            pendingVerify = false)
+    }
+
+    private fun canReplace8521(old: PersistedPosition?, replacement: PersistedPosition): Boolean {
+        val newLot = canonicalFor8521(replacement)
+        if (newLot?.lifecycle == CanonicalPositionAuthority6441.Lifecycle.CLOSED) return false
+        if (old == null || (old.isPaperPosition == replacement.isPaperPosition &&
+                (old.positionId8384 == replacement.positionId8384 || old.positionId8384.isBlank()))) return true
+        val oldLot = canonicalFor8521(old)
+        // A mint-indexed legacy file must not erase an opposite-mode/older still-open lot.
+        // Canonical inventory remains the source for both lots; preserve its existing metadata.
+        return oldLot == null || oldLot.lifecycle == CanonicalPositionAuthority6441.Lifecycle.CLOSED
+    }
+
+    private fun canRemove8521(saved: PersistedPosition, snapshot: Position?): Boolean {
+        val canonical = canonicalFor8521(saved)
+        if (canonical != null) {
+            if (canonical.mint != saved.mint || !canonical.mode.equals(if (saved.isPaperPosition) "paper" else "live", true)) return false
+            return canonical.lifecycle == CanonicalPositionAuthority6441.Lifecycle.CLOSED && canonical.remainingQtyRaw.signum() == 0
+        }
+        // PAPER bookkeeping is finalized only by the canonical reducer. A blank discovery
+        // Position() or a failed close cannot erase an unresolved economic snapshot.
+        if (saved.isPaperPosition) return false
+        return snapshot == null || (!snapshot.isOpen && !snapshot.isPaperPosition &&
+            snapshot.positionId.isNotBlank() && snapshot.positionId == saved.positionId8384)
+    }
+
     private fun createPersistedPosition(ts: TokenState): PersistedPosition {
         val pos = ts.position
         return PersistedPosition(
@@ -766,6 +836,7 @@ object PositionPersistence {
             lastPriceSource = ts.lastPriceSource,
             lastPricePoolAddr = ts.lastPricePoolAddr,
             lastPriceDex = ts.lastPriceDex,
+            lastPriceObservedAtMs8521 = ts.lastPriceUpdate,
         )
     }
     
@@ -850,6 +921,7 @@ object PositionPersistence {
                 put("lastPriceSource", pos.lastPriceSource)
                 put("lastPricePoolAddr", pos.lastPricePoolAddr)
                 put("lastPriceDex", pos.lastPriceDex)
+                put("lastPriceObservedAtMs8521", pos.lastPriceObservedAtMs8521)
             }
             jsonArray.put(json)
         }
@@ -873,19 +945,12 @@ object PositionPersistence {
                 val qty = obj.getPrice("qtyToken")
                 val cost = obj.getPrice("costSol")
                 val rawEntry = obj.getPrice("entryPrice")
-                // V5.0.3922 — SYNTH-FROM-COST FALLBACK. Legacy positions that
-                // were saved before the precision fix may already have
-                // entryPrice=0.0 baked into prefs. Reconstruct the cost basis
-                // as costSol/qtyToken if both legs are valid — this is what
-                // every downstream PnL/SL/TP calculator implicitly expects.
-                // Tag the source so the operator knows it's a recovery basis.
+                // USD/token cannot be reconstructed as SOL/token. Missing legacy basis
+                // stays unknown until the canonical immutable entry supplies it.
                 val (entryPrice, entryPriceSource) = if (rawEntry > 0.0) {
                     rawEntry to obj.optString("entryPriceSource", "")
-                } else if (cost > 0.0 && qty > 0.0) {
-                    val synth = cost / qty
-                    synth to ("SYNTH_COST_DIV_QTY|" + obj.optString("entryPriceSource", ""))
                 } else {
-                    0.0 to obj.optString("entryPriceSource", "")
+                    0.0 to "RESTORED_ENTRY_BASIS_UNKNOWN_8521"
                 }
                 val pos = PersistedPosition(
                     mint = obj.getString("mint"),
@@ -948,6 +1013,7 @@ object PositionPersistence {
                     lastPriceSource = obj.optString("lastPriceSource", ""),
                     lastPricePoolAddr = obj.optString("lastPricePoolAddr", ""),
                     lastPriceDex = obj.optString("lastPriceDex", ""),
+                    lastPriceObservedAtMs8521 = obj.optLong("lastPriceObservedAtMs8521", 0L),
                 )
                 result[pos.mint] = pos
             }

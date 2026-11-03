@@ -235,6 +235,14 @@ object PendingSellQueue {
         }
     }
 
+    /** A disproved signal is cancelled, not a route failure; preserve a different pending exit. */
+    fun removeInvalidatedSignal8521(mint: String, reason: String) {
+        queue.computeIfPresent(mint) { _, p ->
+            if (com.lifecyclebot.engine.sell.CloseLease.canonicalReason(p.reason) ==
+                com.lifecyclebot.engine.sell.CloseLease.canonicalReason(reason)) null else p
+        }
+    }
+
     fun clear() {
         val count = queue.size
         queue.clear()

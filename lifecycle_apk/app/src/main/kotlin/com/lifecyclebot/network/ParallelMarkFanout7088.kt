@@ -172,6 +172,9 @@ object ParallelMarkFanout7088 {
         val corroborated: Boolean,
         val spreadPct: Double,
         val sources: String,
+        // Conservative clock of this uncached network observation pass. Consumers
+        // must retain it; reading/reusing a Mark never makes it fresh again.
+        val observedAtMs8521: Long = 0L,
     )
 
     /**
@@ -182,6 +185,7 @@ object ParallelMarkFanout7088 {
     fun resolve7088(mints: List<String>): Map<String, Mark7088> {
         val wanted = mints.filter { it.isNotBlank() }.distinct()
         if (wanted.isEmpty()) return emptyMap()
+        val observedAtMs8521 = System.currentTimeMillis()
         passes.incrementAndGet()
 
         // source name -> (mint -> price). Written once per source, from that
@@ -262,7 +266,8 @@ object ParallelMarkFanout7088 {
                 if (p.isFinite() && p > 0.0) quotes += name to p
             }
             if (quotes.isEmpty()) continue
-            out[mint] = merge7088(mint, quotes).also { m -> if (m.corroborated) noteCorroborated8128(mint, m.priceUsd) }
+            out[mint] = merge7088(mint, quotes).copy(observedAtMs8521 = observedAtMs8521)
+                .also { m -> if (m.corroborated) noteCorroborated8128(mint, m.priceUsd) }
         }
 
         if (out.isNotEmpty()) {

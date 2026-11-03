@@ -59,6 +59,20 @@ object LearningEntryTruth8153 {
         return r to owner
     }
 
+    /** A persisted entry row can close even when its larger voter snapshot was not restored.
+     * Its original prediction stays immutable; only the verified owner receives realized money.
+     * A different lot, asset or account mode may never reuse that entry evidence. */
+    fun restoredTradeOwner8521(
+        record: CortexGradeRecord8144, positionId: String, mint: String, mode: String,
+        sealedMode: String?, sealedMint: String?, sealedLane: String?, sealedSetupTag: String?, snapshotSetupTag: String?,
+    ): CortexOutcomeRoute8144.Owner8144? {
+        if (record.kind != 'T' || record.id != positionId || record.realisedPct.isFinite() ||
+            mode !in setOf("LIVE", "PAPER") || !record.mode.equals(mode, true) ||
+            record.episode.substringBeforeLast('|') != mint) return null
+        return CortexOutcomeRoute8144.owner8144(mode, mint, sealedMode, sealedMint, sealedLane,
+            sealedSetupTag, snapshotSetupTag, record.lane, record.setup).takeIf { it.lane.isNotBlank() }
+    }
+
     data class VerdictRow8153(
         val strongN: Int, val strongMean: Double,
         val neutralN: Int, val neutralMean: Double,

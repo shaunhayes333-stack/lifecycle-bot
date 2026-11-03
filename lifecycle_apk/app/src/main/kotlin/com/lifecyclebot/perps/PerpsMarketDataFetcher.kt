@@ -422,7 +422,7 @@ object PerpsMarketDataFetcher {
         .build()
     
     // API Endpoints (fallbacks)
-    private const val COINGECKO_SOL = "https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true"
+    private const val COINGECKO_SOL = "https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true&include_last_updated_at=true"
     // V5.9.862 — price.jup.ag DNS dead → lite-api.jup.ag/price/v3
     private const val JUPITER_PRICE = "https://lite-api.jup.ag/price/v3?ids=So11111111111111111111111111111111111111112"
     
@@ -469,6 +469,7 @@ object PerpsMarketDataFetcher {
                         high24h = pa.price * (1 + kotlin.math.abs(pa.change24h) / 100 + 0.005),
                         low24h = pa.price * (1 - kotlin.math.abs(pa.change24h) / 100 - 0.005),
                         priceChange24hPct = pa.change24h,
+                        lastUpdate = pa.observedAtMs8521,
                     )
                 } else fetchFromPythOracle(market)
             } catch (_: Exception) { fetchFromPythOracle(market) }
@@ -483,12 +484,7 @@ object PerpsMarketDataFetcher {
                 if (pa != null && pa.price > 0) {
                     ErrorLogger.info(TAG, "🌐 ${market.symbol} via PriceAggregator fallback (${pa.source}): \$${pa.price}")
                     networkRetry.recordFailure()
-                    freshData = freshData.copy(
-                        price = pa.price,
-                        indexPrice = pa.price,
-                        markPrice = pa.price,
-                        priceChange24hPct = pa.change24h,
-                    )
+                    freshData = withObservedPrice8521(freshData, pa)
                 }
             } catch (_: Exception) {}
         } else if (freshData.price > 0) {
@@ -501,6 +497,15 @@ object PerpsMarketDataFetcher {
         }
         return freshData
     }
+
+    /** Replacing the price also replaces its clock. A cache lookup is not a new market observation. */
+    internal fun withObservedPrice8521(base: PerpsMarketData, price: PriceAggregator.PriceResult): PerpsMarketData = base.copy(
+        price = price.price,
+        indexPrice = price.price,
+        markPrice = price.price,
+        priceChange24hPct = price.change24h,
+        lastUpdate = price.observedAtMs8521,
+    )
     
     /**
      * V5.7.6b: Get cached price data (non-blocking, for UI)
@@ -560,7 +565,7 @@ object PerpsMarketDataFetcher {
                     // Update the stockPrices cache with real Pyth price
                     if (market.isStock) {
                         stockPrices[market.symbol] = pythPrice.price
-                        verifiedPriceUpdatedAt[market.symbol] = System.currentTimeMillis()
+                        verifiedPriceUpdatedAt[market.symbol] = pythPrice.publishTime * 1_000L
                     }
                     
                     // Real 24h change from PriceAggregator (CoinGecko/Binance — cached 3s)
@@ -584,48 +589,18 @@ object PerpsMarketDataFetcher {
                         high24h = pythPrice.price * (1 + kotlin.math.abs(real24hChange) / 100 + 0.005),
                         low24h = pythPrice.price * (1 - kotlin.math.abs(real24hChange) / 100 - 0.005),
                         priceChange24hPct = real24hChange,
+                        lastUpdate = pythPrice.publishTime * 1_000L,
                     )
                 } else {
-                    // V5.9.27: stale Pyth — only trust for true CRYPTO. Stocks/ETFs/METALS/
-                    // FX/COMMODITIES must fall through to PriceAggregator. Previously any
-                    // non-stock (incl. metals like XPD/XAL) was treated as "crypto stale but
-                    // valid", causing e.g. XAL = $1.05 and XPD = $1563 to produce bogus
-                    // signals. Classify strictly.
-                    if (market.isCrypto) {
-                        if (pythPrice.price > 0) {
-                            ErrorLogger.debug(TAG, "📊 Pyth stale but valid (crypto): ${market.symbol} = \$${pythPrice.price.fmt(2)}")
-                            val staleChange: Double = try {
-                                PriceAggregator.getPrice(market.symbol)?.change24h
-                                    ?: calculateChange(pythPrice.price, pythPrice.emaPrice)
-                            } catch (_: Exception) { calculateChange(pythPrice.price, pythPrice.emaPrice) }
-                            return PerpsMarketData(
-                                market = market,
-                                price = pythPrice.price,
-                                indexPrice = pythPrice.emaPrice,
-                                markPrice = pythPrice.price,
-                                fundingRate = calculateFundingRate(market),
-                                fundingRateAnnualized = calculateFundingRate(market) * 365 * 3 * 100,
-                                nextFundingTime = System.currentTimeMillis() + 8 * 60 * 60 * 1000,
-                                openInterestLong = getEstimatedOI(market, true),
-                                openInterestShort = getEstimatedOI(market, false),
-                                volume24h = getEstimatedVolume(market),
-                                high24h = pythPrice.price * (1 + kotlin.math.abs(staleChange) / 100 + 0.005),
-                                low24h = pythPrice.price * (1 - kotlin.math.abs(staleChange) / 100 - 0.005),
-                                priceChange24hPct = staleChange,
-                            )
-                        }
-                    } else {
-                        // Stock, ETF, metal, commodity, forex — stale Pyth must fall through.
-                        // V5.9.425 — suppress stale log for stocks/ETFs when US equity market
-                        // is closed (expected behaviour; fallback always succeeds). Keep the
-                        // log for metals/commodities/forex which trade ~24h.
-                        val isEquity = market.isStock || market.isETF
-                        val marketClosed = isEquity && runCatching {
-                            !com.lifecyclebot.perps.TokenizedStockTrader.isStockMarketOpen()
-                        }.getOrDefault(false)
-                        if (!marketClosed) {
-                            ErrorLogger.debug(TAG, "📊 Pyth stale for ${market.symbol} (${if(market.isMetal)"METAL" else if(market.isETF)"ETF" else if(market.isStock)"STOCK" else "OTHER"}) — using PriceAggregator")
-                        }
+                    // V5.0.8521 — a stale oracle reading must not suppress a
+                    // fresh alternate quote. The fallback retains its own
+                    // observation time, including when only cached data exists.
+                    val isEquity = market.isStock || market.isETF
+                    val marketClosed = isEquity && runCatching {
+                        !com.lifecyclebot.perps.TokenizedStockTrader.isStockMarketOpen()
+                    }.getOrDefault(false)
+                    if (!marketClosed) {
+                        ErrorLogger.debug(TAG, "Pyth stale for ${market.symbol} — using PriceAggregator")
                     }
                 }
             } else {
@@ -710,6 +685,7 @@ object PerpsMarketDataFetcher {
                 high24h = price,
                 low24h = price,
                 priceChange24hPct = change24h,
+                lastUpdate = solana.optLong("last_updated_at", 0L) * 1_000L,
             )
         } catch (e: Exception) {
             ErrorLogger.warn(TAG, "Failed to fetch SOL data: ${e.message}")
@@ -928,7 +904,7 @@ object PerpsMarketDataFetcher {
         
         if (result != null && result.price > 0) {
             stockPrices[market.symbol] = result.price
-            verifiedPriceUpdatedAt[market.symbol] = System.currentTimeMillis()
+            verifiedPriceUpdatedAt[market.symbol] = result.observedAtMs8521
             yahooChangeCache[market.symbol] = result.change24h
             priceSourceCache[market.symbol] = result.source
             
@@ -948,6 +924,7 @@ object PerpsMarketDataFetcher {
                 high24h = result.price * (1 + kotlin.math.abs(result.change24h) / 100 + 0.005),
                 low24h = result.price * (1 - kotlin.math.abs(result.change24h) / 100 - 0.005),
                 priceChange24hPct = result.change24h,
+                lastUpdate = result.observedAtMs8521,
             )
         }
         
@@ -1002,6 +979,7 @@ object PerpsMarketDataFetcher {
             high24h = price * 1.02,
             low24h = price * 0.98,
             priceChange24hPct = 0.0,
+            lastUpdate = cachedAt,
         )
     }
 }

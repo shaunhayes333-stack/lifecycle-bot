@@ -23,17 +23,17 @@ class Aate7446DataWasteConvergenceTest {
         assertTrue(s.contains("SCANNER_DEDUPE_CAP_TRIM_7446"))
     }
 
-    @Test fun paid_or_auth_dead_ohlcv_provider_is_session_circuit_broken() {
+    @Test fun unconvertedPairRatioAndPaidSubHourCallsCannotPoisonUsdHistory() {
         val s = src("network/SolanaOhlcvFeed6916.kt")
-        assertTrue(s.contains("paprikaTerminalDisabled7446"))
-        assertTrue(s.contains("resp.code in setOf(401, 402, 403)"))
-        assertTrue(s.contains("DEXPAPRIKA_TERMINAL_DISABLE_7446"))
-        assertTrue(s.contains("DEXPAPRIKA_TERMINAL_SKIP_7446"))
+        assertFalse(s.contains("PAPRIKA_BASE_7293"))
+        assertFalse(s.contains("fetchDexPaprika7293"))
+        assertTrue(s.contains("currency=usd&token=$" + "mint&include_empty_intervals=false"))
+        assertTrue(src("network/DexscreenerApi.kt").contains("fetchDexPaprikaToken6512(tokenAddress)"))
     }
 
     @Test fun transient_ohlcv_failures_remain_retryable() {
         val s = src("network/SolanaOhlcvFeed6916.kt")
-        assertTrue(s.contains("resp.code == 429 || resp.code >= 500"))
-        assertTrue(s.contains("paprikaCooldownUntilMs7293"))
+        assertTrue(s.contains("code == 429 || code >= 500"))
+        assertTrue(s.contains("cooldownUntilMs.set"))
     }
 }

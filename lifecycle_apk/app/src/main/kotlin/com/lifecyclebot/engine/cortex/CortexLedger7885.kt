@@ -435,15 +435,24 @@ class CortexLedger7885(
         // Global and lane windows decay independently. Subtracting them is not
         // leave-one-lane-out evidence: it can manufacture negative counts/means.
         // Pool the actual other-lane books instead (one direct lookup per lane).
-        var n = 0.0; var sum = 0.0; var laneN = 0.0; var laneSum = 0.0
+        var n = 0.0; var deviationSum = 0.0
         for ((other, baseline) in lanes) {
             if (other == ownLane || other == GLOBAL || '@' in other || CrossAssetCortex7931.isCrossAssetLane(other)) continue
             val cell = seats["$voterId|$other"]?.bins?.getOrNull(bin) ?: continue
             if (cell.n <= 0.0 || baseline.n <= 0.0) continue
-            n += cell.n; sum += cell.sumWithShadowCredit8404(shadowCredit8404); laneN += baseline.n; laneSum += baseline.sumWithShadowCredit8404(shadowCredit8404)  // V5.0.8187
+            // Centre inside each lane before pooling. A bin appearing mainly in a
+            // profitable lane is not evidence that the feature predicts profit:
+            // the comparison must weight that lane's baseline by THIS bin's n.
+            // Pooling all lane baselines by total lane n produced Simpson's
+            // paradox and transferred invented edge to every other lane.
+            val cellSum = cell.sumWithShadowCredit8404(shadowCredit8404)
+            val laneMean = baseline.predictionWithShadowCredit8404(shadowCredit8404)
+            if (!cellSum.isFinite() || !laneMean.isFinite()) continue
+            n += cell.n
+            deviationSum += cellSum - cell.n * laneMean
         }
-        if (n <= 0.5 || laneN <= 0.5) return 0.0
-        return (sum - n * (laneSum / laneN)) / (n + SHRINK_K)
+        if (n <= 0.5) return 0.0
+        return deviationSum / (n + SHRINK_K)
     }
 
     data class Prediction(val netPct: Double, val runnerRate: Double, val authority: Double, val binN: Double, val pWin: Double = 0.5)

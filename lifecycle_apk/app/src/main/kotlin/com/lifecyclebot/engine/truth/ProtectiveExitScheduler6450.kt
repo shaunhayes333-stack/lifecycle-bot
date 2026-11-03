@@ -32,7 +32,9 @@ import java.util.concurrent.atomic.AtomicLong
  *   1. Caller emits `evaluate(mint, positionId, mark, stopPx, catastrophePx, tpPx, trailPx)`.
  *   2. If any threshold breaches, `latchTrigger(positionId, kind, mark)` is called.
  *   3. Once latched, `isTriggered(positionId)` returns true forever for that
- *      exitEpoch. Later re-evaluations CANNOT untrigger.
+ *      exitEpoch. Later mark re-evaluations CANNOT untrigger. The sole exception
+ *      is a newer exact-holding executable quote proving the recorded loss
+ *      threshold never applied, before any SELL has entered signed finality.
  *   4. Heartbeat is bumped on every evaluate call. Watchdog fires
  *      SCHEDULER_STARVATION_6450 if no heartbeat for > STARVATION_MS.
  */
@@ -47,6 +49,7 @@ object ProtectiveExitScheduler6450 {
         val triggerPrice: Double,
         val triggerTimestamp: Long,
         val quoteAge: Long,
+        val thresholdPrice8521: Double? = null,
     )
 
     private const val STARVATION_MS = 15_000L
@@ -284,22 +287,36 @@ object ProtectiveExitScheduler6450 {
         // Staleness of THIS clock while inventory is open is the real fault the
         // old merged starvation counter was hiding.
         lastArmedMs.set(System.currentTimeMillis())
+        // Feed the exact holding's newer quote back to the trigger source. A
+        // cancelled phantom stop must not instantly re-latch on the same mark.
+        // No quote, changed holding or a newer market tick retains normal stops.
+        val lossPx8521 = try {
+            val p = CanonicalPositionAuthority6441.firstOpenForMint(mint, "live")
+            if (p == null || p.positionId != positionId) markPx else lossMark8521(HeldExitQuote8189.last8189(mint),
+                positionId, p.remainingQtyRaw, System.currentTimeMillis() - quoteAgeMs, System.currentTimeMillis()) ?: markPx
+        } catch (_: Throwable) { markPx }
         val kind: TriggerKind? = when {
-            catastrophePx > 0.0 && markPx <= catastrophePx -> TriggerKind.CATASTROPHE
-            stopPx > 0.0 && markPx <= stopPx -> TriggerKind.STOP_LOSS
+            catastrophePx > 0.0 && lossPx8521 <= catastrophePx -> TriggerKind.CATASTROPHE
+            stopPx > 0.0 && lossPx8521 <= stopPx -> TriggerKind.STOP_LOSS
             trailPx > 0.0 && markPx <= trailPx -> TriggerKind.TRAILING_STOP
             tpPx > 0.0 && markPx >= tpPx -> TriggerKind.TAKE_PROFIT
             else -> null
         }
         if (kind != null) {
-            latchTrigger(positionId, kind, markPx, quoteAgeMs)
+            val threshold8521 = when (kind) {
+                TriggerKind.CATASTROPHE -> maxOf(catastrophePx, stopPx)
+                TriggerKind.STOP_LOSS -> stopPx
+                else -> null
+            }
+            latchTrigger(positionId, kind, markPx, quoteAgeMs, threshold8521)
         }
         return latches[positionId]?.kind ?: kind
     }
 
-    fun latchTrigger(positionId: String, kind: TriggerKind, mark: Double, quoteAgeMs: Long = 0L): Latch {
+    fun latchTrigger(positionId: String, kind: TriggerKind, mark: Double, quoteAgeMs: Long = 0L,
+                     thresholdPrice8521: Double? = null): Latch {
         val epoch = System.currentTimeMillis()
-        val latch = Latch(positionId, epoch, kind, mark, epoch, quoteAgeMs)
+        val latch = Latch(positionId, epoch, kind, mark, epoch, quoteAgeMs, thresholdPrice8521)
         var advanced7835 = false
         var escalated7884 = false
         val effective7835 = latches.compute(positionId) { _, old ->
@@ -353,6 +370,39 @@ object ProtectiveExitScheduler6450 {
     fun isTriggered(positionId: String): Boolean = latches.containsKey(positionId)
 
     fun latch(positionId: String): Latch? = latches[positionId]
+
+    /** Gross quote price stays unchanged in HeldExitQuote; only loss comparisons use net exit value. */
+    fun lossMark8521(q: HeldExitQuote8189.Quote8189?, positionId: String, raw: java.math.BigInteger,
+                     markAtMs: Long, nowMs: Long): Double? {
+        if (q == null || q.positionId8521 != positionId || q.rawQty != raw ||
+            nowMs - q.observedAtMs !in 0L..2_000L || q.observedAtMs < markAtMs ||
+            !q.priceUsd.isFinite() || q.priceUsd <= 0.0) return null
+        val gross = q.proceedsSol?.takeIf { it.isFinite() && it > 0.0 } ?: return null
+        val fee = q.estimatedSellCostSol8521?.takeIf { it.isFinite() && it >= 0.0 } ?: return null
+        return q.priceUsd * ((gross - fee).coerceAtLeast(0.0) / gross)
+    }
+
+    /** Called under the SELL lock and CloseLease finality guard, never an ordinary mark-based untrigger. */
+    fun invalidateQuotedLoss8521(positionId: String, raw: java.math.BigInteger, q: HeldExitQuote8189.Quote8189?,
+                                 markAtMs: Long, nowMs: Long): Boolean {
+        val px = lossMark8521(q, positionId, raw, markAtMs, nowMs) ?: return false
+        var removed = false
+        latches.computeIfPresent(positionId) { _, current ->
+            val threshold = current.thresholdPrice8521
+            if (isEmergencyKind7807(current.kind) && threshold != null && threshold.isFinite() && threshold > 0.0 &&
+                q!!.observedAtMs >= current.triggerTimestamp && px > threshold) {
+                lastDispatchMs.remove(positionId)
+                dispatchAttempts7807.remove(positionId)
+                removed = true
+                null
+            } else current
+        }
+        if (removed) try {
+            PipelineHealthCollector.labelInc("PROTECTIVE_EXIT_QUOTE_INVALIDATED_8521")
+            ForensicLogger.lifecycle("PROTECTIVE_EXIT_QUOTE_INVALIDATED_8521", "positionId=${positionId.take(12)} netQuotePx=$px action=cancel_unbroadcast_bad_mark_signal")
+        } catch (_: Throwable) {}
+        return removed
+    }
 
     // ─────────────────────────────────────────────────────────────────────
     // V5.0.7176 §A_LATCH_IS_NOT_AN_EXECUTION.

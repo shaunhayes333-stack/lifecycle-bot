@@ -502,6 +502,10 @@ object CandidateAdmission8136 {
         // V5.0.8316 — support is read on the cell past the realised shortfall; the loss tests below read the raw cell.
         val liveCellProof8290 = if (c.lossEpochAware8169) c.cellLossProof8290 else c.cellProof8290
         val fastTrack8520 = highVelocityFastTrack8520(c)
+        // The runtime adapter supplies only setups whose current predicates fired.
+        // Compare them before a generic stage/flow-data wait: that optional context
+        // is not an extra mandatory input of an independently observed setup.
+        val bestSetup = bestSetup8153(c)
         if (c.live && c.entryWait8506 != null) {
             val wait = c.entryWait8506
             val missing = when (wait) {
@@ -509,19 +513,20 @@ object CandidateAdmission8136 {
                 "STAGE_UNRESOLVED" -> "shape,chg,bp"
                 else -> null
             }
-            if (missing != null && !fastTrack8520) {
+            if (missing != null && !fastTrack8520 && bestSetup == null) {
                 trace += "entryWait8506=$wait"
                 trace += "missing=$missing"
                 return done(Terminal8136.DEFER_DATA, "DATA_INCOMPLETE_DEFER_8136", false, c.selectedSetup)
             }
-            if (missing != null) trace += "fastTrack8520=$wait executedTapeObserved; optionalStage=$missing"
+            if (missing != null && fastTrack8520) trace += "fastTrack8520=$wait executedTapeObserved; optionalStage=$missing"
+            else if (missing != null) trace += "supportedSetup8521=${bestSetup?.id} optionalStage=$missing"
             // V5.0.8511 §4A — the generic stage/flow wait no longer pre-empts candidate-specific evidence. It refuses only when
             // (a) no setup of this candidate is SUPPORTED after cost on its own record (bestSetup8153: lower bound past the
             // cost bar or a proven tail; suspect / sheet-AVOID records never count), and (b) its door still binds
             // (Rehearsal8339 / FdgGate8365 demotion, the same test every other non-safety door takes). A supported setup or a
             // demoted door falls through to every later door: losing cell/stage, timing, economics at the quoted size.
-            // Safety, structure and missing-data defers above are unchanged.
-            val supported8511 = bestSetup8153(c)
+            // Safety, structure and the critical input/economic gates below still bind.
+            val supported8511 = bestSetup
             if (!fastTrack8520) {
                 // The original 8511 binding door remains unchanged for ordinary candidates.
                 if (supported8511 == null && doorBinds8393("ENTRY_${wait}_8506"))
@@ -536,7 +541,6 @@ object CandidateAdmission8136 {
         val cellSupported = supported8136(liveCellProof8290, c.costPct)
         // V5.0.8153 — every fired setup ranked on its own record AND its timing band (StrategyRank8153): a supported setup
         //    losing at this point of the move is not the strategy; ties of the conservative net go to the runner rate.
-        val bestSetup = bestSetup8153(c)
         // V5.0.8324 — the loss tests read the tail-credited record on a runner lane (support tests keep the raw / shifted ones).
         // V5.0.8325 — the loss tests read every record on its own labels again (the 8324 missed-runner credit let thin losing
         //    records trade live: 8323 SHITCOIN 1/7). [tailCredited8324] is no longer read by a live admission test.

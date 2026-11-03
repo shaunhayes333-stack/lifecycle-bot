@@ -37,10 +37,10 @@ class Aate8430DowntimeRecoveryTest {
         val target = at + 300_000L                       // the 5-minute horizon
         val cs = listOf(candle(target - 180_000L, 1.0), candle(target - 60_000L, 2.0), candle(target, 3.0), candle(target + 60_000L, 4.0), candle(target + 400_000L, 9.0))
         val pick = DowntimeRecovery8430.pick8430(cs, target, at + 150_000L, at + 450_000L)
-        assertNotNull(pick); assertEquals(3.0, pick!!.priceUsd, 0.0)
+        assertNotNull(pick); assertEquals(2.0, pick!!.priceUsd, 0.0) // this minute's close is at the target
         // seconds from a provider read the same
         val secs = cs.map { it.copy(ts = it.ts / 1000L) }
-        assertEquals(3.0, DowntimeRecovery8430.pick8430(secs, target, at + 150_000L, at + 450_000L)!!.priceUsd, 0.0)
+        assertEquals(2.0, DowntimeRecovery8430.pick8430(secs, target, at + 150_000L, at + 450_000L)!!.priceUsd, 0.0)
         // nothing inside the window: nothing (a candle after the deadline is not the horizon)
         assertNull(DowntimeRecovery8430.pick8430(listOf(candle(target + 400_000L, 9.0)), target, at + 150_000L, at + 450_000L))
         assertNull(DowntimeRecovery8430.pick8430(listOf(candle(target, Double.NaN)), target, at + 150_000L, at + 450_000L))
@@ -58,7 +58,7 @@ class Aate8430DowntimeRecoveryTest {
         val r = DowntimeRecovery8430.candleMark8430("MintA", target, from, deadline, boot, now + 20_000L)
         assertFalse(r.waiting)
         val m = r.mark!!
-        assertEquals(0.0025, m.usd, 0.0); assertEquals(target, m.observedAtMs); assertEquals(DowntimeRecovery8430.SOURCE_8430, m.source)
+        assertEquals(0.0025, m.usd, 0.0); assertEquals(target + 60_000L, m.observedAtMs); assertEquals(DowntimeRecovery8430.SOURCE_8430, m.source)
         assertFalse(m.independentBasis)
         assertTrue(m.known())
         // against a known entry basis it is an ordinary (not extreme) move: eligible for the labeler's recovery filter
@@ -98,9 +98,10 @@ class Aate8430DowntimeRecoveryTest {
         val l = File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
         assertTrue(l.contains("private val bootMs8430 = System.currentTimeMillis()"))
         // 8435: the held marks and the DEAD test come first; the candle is asked for only when nothing held answers
-        assertTrue(l.contains("val downtime8430 = DowntimeRecovery8430.candleMark8430(o.mint, o.atMs + horizon, o.atMs + horizon / 2, deadline, bootMs8430, nowMs)"))
+        assertTrue(l.contains("val downtime8430 = DowntimeRecovery8430.candleMark8430(o.mint, o.atMs + horizon, o.atMs + horizon, deadline, bootMs8430, nowMs)"))
         assertTrue(l.contains("if (downtime8430.waiting) return false"))
-        assertTrue(l.contains("if (recovered == null && !o.done240 && !dying8435(o, deadline)) {"))
+        assertTrue(l.contains("if (recovered == null && !o.done240) {"))
+        assertFalse("an earlier collapse must not suppress genuine horizon recovery", l.contains("!dying8435(o, deadline)"))
         assertTrue("the candle goes through the SAME recovery filter as every other mark", l.contains("recovered = downtime8430.mark?.takeIf(recoverable8435)"))
         assertTrue(l.contains("try { DowntimeRecovery8430.drain8430(nowMs) } catch (_: Throwable) {}"))
         assertEquals(150, DowntimeRecovery8430.MAX_MINTS_PER_BOOT_8430)

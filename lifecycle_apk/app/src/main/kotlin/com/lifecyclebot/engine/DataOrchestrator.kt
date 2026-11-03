@@ -4,6 +4,8 @@ import com.lifecyclebot.data.*
 import com.lifecyclebot.engine.WhaleDetector
 import com.lifecyclebot.network.*
 import kotlinx.coroutines.*
+import com.lifecyclebot.engine.truth.MultiTimeframeCharts8521
+import com.lifecyclebot.engine.truth.MultiTimeframeCharts8521.Frame8521
 
 /**
  * DataOrchestrator — event-driven data layer.
@@ -107,40 +109,115 @@ class DataOrchestrator(
         } catch (e: Exception) { onLog("Stream reconnect: ${e.message?.take(40)}", "") }
     }
 
-    // Refresh 5m/15m candles for all active tokens every 5 minutes
-    // These don't need to be real-time — they're for trend confirmation
+    private val mtfStarted8521 = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val mtfAttempts8521 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val mtfNextDue8521 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val mtfBackupAt8521 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    companion object {
+        /** No observation must not acquire a successful hourly/four-hour refresh delay. Provider budgets still bind. */
+        internal fun mtfRetryGap8521(frame: Frame8521, observed: Boolean): Long =
+            if (observed) MultiTimeframeCharts8521.refreshGap8521(frame) else 30_000L
+
+        /** A nonempty stale/open/wrong-frame response cannot hide an independent usable source. */
+        internal fun mtfEligibleRows8521(rows: List<Candle>, frame: Frame8521, nowMs: Long,
+                                         source: String, pool: String = ""): List<Candle> {
+            val bars = MultiTimeframeCharts8521.stamp8521(rows, frame, source, pool, provider8521 = true)
+                .filter { c -> MultiTimeframeCharts8521.valid8521(c, frame, nowMs) &&
+                    (pool.isBlank() || com.lifecyclebot.engine.truth.CandleCoverage8284.tagOf8284(c)?.pool
+                        .orEmpty().let { it.isBlank() || it == pool }) }
+                .sortedByDescending { com.lifecyclebot.engine.truth.CandleCoverage8284.qualityOf8284(it).rank }
+                .distinctBy { it.ts }.sortedBy { it.ts }.takeLast(frame.capacity)
+            val close = bars.lastOrNull()?.let { it.ts + frame.intervalMs } ?: return emptyList()
+            return if (nowMs - close in 0L..(2L * frame.intervalMs)) bars else emptyList()
+        }
+    }
+
+    /** One bounded queue of real charts: held positions, near decisions, then rotating discovery rows. */
     fun startMtfRefresh() {
+        if (!mtfStarted8521.compareAndSet(false, true)) return
         scope.launch {
             while (isActive) {
-                delay(5 * 60_000L)
-                // V5.0.7809 — Birdeye is a history source only while its credential
-                // is healthy. A terminal 401/403 key is not polled for every token
-                // every 5 minutes (each call still charged the budget gate before
-                // the circuit refused it). Field Manual L404.
-                val birdeyeDead7809 = try {
-                    com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402
-                        .isAuthTerminal(com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402.Provider.BIRDEYE)
-                } catch (_: Throwable) { false }
-                if (birdeyeDead7809) {
-                    try { PipelineHealthCollector.labelInc("BIRDEYE_MTF_REFRESH_SKIPPED_AUTH_DEAD_7809") } catch (_: Throwable) {}
-                    continue
+                val now = System.currentTimeMillis()
+                val tokens = synchronized(status.tokens) { status.tokens.values.toList() }
+                for (ts in tokens.filter { DataPipeline8191.seedPriority8191(it.mint, now) }.take(32))
+                    MultiTimeframeCharts8521.refreshLocal8521(ts, now)
+                val jobs = tokens.asSequence()
+                    .filter { com.lifecyclebot.network.HeliusSolanaScope7819.isSolanaMint7819(it.mint) }
+                    .flatMap { ts -> MultiTimeframeCharts8521.higherFrames8521.asSequence().map { ts to it } }
+                    .filter { (ts, frame) -> mtfDue8521(ts, frame, now) }
+                    .sortedWith(compareByDescending<Pair<TokenState, Frame8521>> { (ts, _) ->
+                        if (ts.position.isOpen) 2 else if (DataPipeline8191.nearDecision8191(ts.mint, now)) 1 else 0
+                    }.thenBy { (ts, frame) -> mtfAttempts8521["${ts.mint}|${frame.label}"] ?: 0L })
+                    .take(4).toList()
+                for ((ts, frame) in jobs) {
+                    try { refreshMtfFrame8521(ts, frame) }
+                    catch (e: CancellationException) { throw e }
+                    catch (_: Exception) { PipelineHealthCollector.labelInc("CHART_MTF_REFRESH_ERROR_8521") }
                 }
-                // Copy tokens list to avoid concurrent modification
-                val tokensCopy = synchronized(status.tokens) {
-                    status.tokens.values.toList()
-                }
-                tokensCopy.forEach { ts ->
-                    try {
-                        val c5m = birdeye.getCandles(ts.mint, "5m", 30)
-                        if (c5m.isNotEmpty()) {
-                            synchronized(ts.history5m) {
-                                c5m.forEach { ts.history5m.addLast(it) }
-                                while (ts.history5m.size > 100) ts.history5m.removeFirst()
-                            }
-                        }
-                    } catch (_: Exception) {}
-                }
+                delay(15_000L)
             }
+        }
+    }
+
+    private fun mtfDue8521(ts: TokenState, frame: Frame8521, now: Long): Boolean {
+        val age = try { com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.launchAgeMs7767(ts, now) }
+            catch (_: Throwable) { null }
+        if (!MultiTimeframeCharts8521.fetchPossible8521(frame, age)) return false
+        val key = "${ts.mint}|${frame.label}"
+        val lastAttempt = mtfAttempts8521[key] ?: 0L
+        if (now >= lastAttempt && now < (mtfNextDue8521[key] ?: 0L)) return false
+        val bars = MultiTimeframeCharts8521.snapshot8521(ts, frame, now)
+        val latestClosedOpen = now / frame.intervalMs * frame.intervalMs - frame.intervalMs
+        return bars.size < 8 || (bars.lastOrNull()?.ts ?: 0L) < latestClosedOpen
+    }
+
+    private suspend fun refreshMtfFrame8521(ts: TokenState, frame: Frame8521) {
+        val now = System.currentTimeMillis()
+        MultiTimeframeCharts8521.refreshLocal8521(ts, now)
+        if (!mtfDue8521(ts, frame, now)) return
+        val key = "${ts.mint}|${frame.label}"
+        if (!SolanaOhlcvFeed6916.claimAttemptWindow8402(mtfAttempts8521, key, now, 15_000L)) return
+        var observed = false
+        try {
+            val priority = DataPipeline8191.seedPriority8191(ts.mint, now)
+            val pool = ts.pairAddress.ifBlank { ts.lastPricePoolAddr }
+            var source = "keyless_cache8521"
+            var rows = mtfEligibleRows8521(SolanaOhlcvFeed6916.cachedCandles8253(ts.mint, frame.label, frame.capacity),
+                frame, now, source, pool)
+            // The same healthy, paced Codex source already used for one-minute setups can answer 1h and 4h.
+            if (rows.isEmpty() && priority) {
+                source = "codex8521"
+                val response = try { com.lifecyclebot.engine.chart.ChartSources7955.codexCandles8521(ts.mint,
+                    (frame.intervalMs / 60_000L).toInt(), frame.capacity, now).orEmpty() }
+                    catch (e: CancellationException) { throw e }
+                    catch (_: Exception) { emptyList() }
+                rows = mtfEligibleRows8521(response, frame, System.currentTimeMillis(), source)
+            }
+            if (rows.isEmpty()) {
+                source = "keyless8521"
+                val response = SolanaOhlcvFeed6916.queuedAnswer8402(ts.mint, frame.label, frame.capacity, pool,
+                    attempts = 1, timeoutMs = 8_000L)
+                rows = mtfEligibleRows8521(response.rows, frame, System.currentTimeMillis(), source, pool)
+            }
+            val birdeyeAvailable = cfg().birdeyeApiKey.isNotBlank() && !com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402
+                .isAuthTerminal(com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402.Provider.BIRDEYE)
+            if (rows.isEmpty() && priority && birdeyeAvailable && BirdeyeBudgetGate.canAffordScannerLane() &&
+                SolanaOhlcvFeed6916.claimAttemptWindow8402(mtfBackupAt8521, ts.mint, now, 60_000L)) {
+                source = "birdeye8521"
+                rows = mtfEligibleRows8521(birdeye.getCandles(ts.mint, frame.label, frame.capacity),
+                    frame, System.currentTimeMillis(), source)
+            }
+            val changed = MultiTimeframeCharts8521.install8521(ts, frame, rows, System.currentTimeMillis(), source,
+                if (source.startsWith("keyless")) pool else "", provider8521 = true)
+            observed = rows.isNotEmpty() && MultiTimeframeCharts8521.snapshot8521(ts, frame, System.currentTimeMillis()).isNotEmpty()
+            if (changed > 0) {
+                MultiTimeframeCharts8521.refreshLocal8521(ts, System.currentTimeMillis())
+                PipelineHealthCollector.labelInc("CHART_MTF_${frame.label.uppercase()}_MERGED_8521")
+            }
+            PipelineHealthCollector.labelInc("CHART_MTF_${frame.label.uppercase()}_${if (observed) "OBSERVED" else "UNAVAILABLE"}_8521")
+        } finally {
+            mtfNextDue8521[key] = System.currentTimeMillis() + mtfRetryGap8521(frame, observed)
         }
     }
 
@@ -176,6 +253,7 @@ class DataOrchestrator(
             // Historical enrichment is confirmation. It must never delay the
             // first-minute launch tape.
             seedCandleHistory(mint, symbol)
+            status.tokens[mint]?.let { MultiTimeframeCharts8521.refreshLocal8521(it, System.currentTimeMillis()) }
         }
     }
 
@@ -317,6 +395,9 @@ class DataOrchestrator(
         // V5.0.7819 — the pinned set is now Solana-only; per-mint caches still cover every held row.
         try { live.addAll(com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.protectiveInventoryMints7807()) } catch (_: Throwable) {}
         tokenDevWallets.keys.removeIf { it !in live }
+        mtfAttempts8521.keys.removeIf { it.substringBefore('|') !in live }
+        mtfNextDue8521.keys.removeIf { it.substringBefore('|') !in live }
+        mtfBackupAt8521.keys.removeIf { it !in live }
         synchronized(pendingTrades) { pendingTrades.keys.removeIf { it !in live } }
         dexWs?.let { d -> d.subscribedMints7807().filter { it !in live }.forEach { d.unsubscribeToken(it) } }
         // V5.0.7948 — Helius slots held by mints that left the watchlist (and whose
@@ -501,27 +582,12 @@ class DataOrchestrator(
             // V5.0.8169 — a cooling or empty keyless feed hands the shape repair to Codex before the budget-gated backup.
             if (repairShape8168 && repairShapeFromCodex8169(ts)) return
             val k5m = keylessFetch7809(mint, "5m", 60, poolHint6916, attempts = if ((k1mOk7809 || codexFirst8191) && !repairShape8168) 1 else 0)
-            if (k5m.size >= 2) {
-                synchronized(ts.history5m) {
-                    if (ts.history5m.size < 5) {
-                        ts.history5m.clear()
-                        k5m.forEach { ts.history5m.addLast(it) }
-                        while (ts.history5m.size > 100) ts.history5m.removeFirst()
-                        keylessSeeded6916 += k5m.size
-                    }
-                }
-            }
+            keylessSeeded6916 += MultiTimeframeCharts8521.install8521(ts, Frame8521.M5, k5m,
+                System.currentTimeMillis(), "keyless8521", poolHint6916, provider8521 = true)
             val k15m = keylessFetch7809(mint, "15m", 48, poolHint6916, attempts = if ((k1mOk7809 || codexFirst8191) && !repairShape8168) 1 else 0)
-            if (k15m.size >= 2) {
-                synchronized(ts.history15m) {
-                    if (ts.history15m.size < 5) {
-                        ts.history15m.clear()
-                        k15m.forEach { ts.history15m.addLast(it) }
-                        while (ts.history15m.size > 60) ts.history15m.removeFirst()
-                        keylessSeeded6916 += k15m.size
-                    }
-                }
-            }
+            keylessSeeded6916 += MultiTimeframeCharts8521.install8521(ts, Frame8521.M15, k15m,
+                System.currentTimeMillis(), "keyless8521", poolHint6916, provider8521 = true)
+            MultiTimeframeCharts8521.refreshLocal8521(ts, System.currentTimeMillis())
         } catch (_: Throwable) {}
         // V5.0.8418 — Helius history only when the free seed (and Codex) delivered nothing. Asynchronous; it never waits in
         // scanner/FDG. V5.0.8284 — no history.size < 6 shortcut: held, near-decision and hand-off mints ask; request7819
@@ -605,9 +671,7 @@ class DataOrchestrator(
         }
 
         // Seed 1m candles (primary strategy timeframe)
-        // For very new tokens (no 4H history yet) 1m is always correct.
-        // For established tokens DataOrchestrator checks if 4H data exists
-        // and uses that as the primary feed, setting candleTimeframeMinutes accordingly.
+        // Keep the primary one-minute series intact at every token age; higher frames live separately.
         try {
             // V5.0.8191 — a timeframe another source already filled is never bought again from Birdeye.
             val candles1m = if (ts.history.size >= 10 && !repairShape8168) emptyList() else birdeye.getCandles(mint, "1m", 120)
@@ -630,52 +694,17 @@ class DataOrchestrator(
             return
         }
 
-        // Seed 5m candles (trend direction confirmation)
-        try {
-            val candles5m = if (ts.history5m.size >= 5) emptyList() else birdeye.getCandles(mint, "5m", 60)
-            if (candles5m.isNotEmpty()) {
-                synchronized(ts.history5m) {
-                    ts.history5m.clear()
-                    candles5m.forEach { ts.history5m.addLast(it) }
-                    while (ts.history5m.size > 100) ts.history5m.removeFirst()
-                    seeded += candles5m.size
-                }
-            }
-        } catch (_: Exception) {}
-
-        // Seed 15m candles (macro trend)
-        try {
-            val candles15m = if (ts.history15m.size >= 5) emptyList() else birdeye.getCandles(mint, "15m", 48)
-            if (candles15m.isNotEmpty()) {
-                synchronized(ts.history15m) {
-                    ts.history15m.clear()
-                    candles15m.forEach { ts.history15m.addLast(it) }
-                    while (ts.history15m.size > 60) ts.history15m.removeFirst()
-                    seeded += candles15m.size
-                }
-            }
-        } catch (_: Exception) {}
-
-        // ── Timeframe selection ───────────────────────────────────────
-        // If we got very few 1M candles the token is old — the 1M history
-        // only covers the last 2h. Seed 4H candles as primary feed instead
-        // so the strategy has meaningful history to work with.
-        val primary1mCandles = ts.history.size
-        if (primary1mCandles < 30 && seeded > 0) {
+        // Missing higher frames are topped up independently, without duplicating overlapping candles.
+        for (frame in listOf(Frame8521.M5, Frame8521.M15)) {
+            if (MultiTimeframeCharts8521.snapshot8521(ts, frame, System.currentTimeMillis()).size >= 5) continue
             try {
-                val candles4h = birdeye.getCandles(mint, "4H", 120)
-                if (candles4h.size >= 20) {
-                    synchronized(ts.history) {
-                        ts.history.clear()
-                        candles4h.forEach { ts.history.addLast(it) }
-                        while (ts.history.size > 300) ts.history.removeFirst()
-                        ts.candleTimeframeMinutes = 240   // 4H
-                        seeded = candles4h.size
-                        onLog("$symbol: using 4H candles (token age > 2h, ${candles4h.size} candles)", mint)
-                    }
-                }
+                val bars = birdeye.getCandles(mint, frame.label, frame.capacity)
+                seeded += MultiTimeframeCharts8521.install8521(ts, frame, bars, System.currentTimeMillis(),
+                    "birdeye8521", provider8521 = true)
             } catch (_: Exception) {}
         }
+        // Hourly charts are refreshed by the bounded priority queue, even with no Birdeye key or short 1m history.
+        MultiTimeframeCharts8521.refreshLocal8521(ts, System.currentTimeMillis())
 
         if (seeded > 0)
             onLog("$symbol: seeded $seeded candles (tf=${ts.candleTimeframeMinutes}m/5m/15m)", mint)

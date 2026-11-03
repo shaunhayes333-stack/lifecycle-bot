@@ -243,6 +243,80 @@ object EntryEconomics8329 {
         return preBroadcastRefusal8329(ts, intent, sizeSol, ts.lastPrice, 0.0, "PUMPPORTAL", now)?.let { "BUY_TERMINAL_$it" }
     }
 
+    /** V5.0.8521 — outAmount is an estimate; the transaction can legally land at its minimum output.
+     * Keep that executable floor separate from the old chase calculation: buy impact/fees/slip are
+     * already paid in this price, and must not be charged again as a complete modelled round trip.
+     */
+    fun jupiterFloorRefusal8521(ts: TokenState, intent: ExecutionIntent, sizeSol: Double,
+                               quote: com.lifecyclebot.network.SwapQuote, builtSlippageBps: Int,
+                               plannedBuyFixedSol: Double, nowMs: Long = System.currentTimeMillis(),
+                               builtSimulatedOutRaw8521: Long? = null): String? {
+        if (!com.lifecyclebot.engine.ExecutableEntryFloor8521.fresh8521(quote.receivedAtMs8521, nowMs))
+            return "ENTRY_EXECUTABLE_QUOTE_STALE_8521"
+        val minimum = if (quote.raw.has("otherAmountThreshold")) quote.raw.optString("otherAmountThreshold").toLongOrNull() else null
+        if (quote.raw.has("otherAmountThreshold") && minimum == null && builtSlippageBps < 0)
+            return "ENTRY_EXECUTABLE_MIN_OUT_INVALID_8521"
+        val quoteBps = if (quote.raw.has("slippageBps")) quote.raw.optInt("slippageBps", -1) else null
+        val floor = (if (builtSlippageBps >= 0) com.lifecyclebot.engine.ExecutableEntryFloor8521.dynamicBound8521(
+            quote.outAmount, minimum, quoteBps, builtSlippageBps, builtSimulatedOutRaw8521)
+            else com.lifecyclebot.engine.ExecutableEntryFloor8521.minimumOut8521(quote.outAmount, minimum, quoteBps, null))
+            ?: return "ENTRY_EXECUTABLE_MIN_OUT_UNOBSERVED_8521"
+        val px = quotePxUsd8329(quote.inAmount / 1_000_000_000.0, floor, ts.tokenMap.decimals, WalletManager.freshSolPrice8163())
+        return executableNetRefusal8521(ts, intent, sizeSol, px, plannedBuyFixedSol,
+            if (builtSlippageBps >= 0) "JUPITER_DYNAMIC_CONSERVATIVE_BOUND" else "JUPITER_QUOTE_MIN_OUT")
+    }
+
+    /** V5.0.8521 — recheck AFTER PumpPortal's build/simulation/envelope, immediately before signing.
+     * A cached headline mark is not a sized curve fill. Missing/stale reserves abandon only this
+     * unquoted route; the caller falls through to Jupiter's fresh quoted route for the same ticket.
+     */
+    fun pumpFinalRefusal8521(ts: TokenState, intent: ExecutionIntent, sizeSol: Double, slippagePct: Int,
+                            plannedBuyFixedSol: Double, nowMs: Long = System.currentTimeMillis()): String? {
+        val curve = CurveReserves7951.activeExitObservation(ts.mint, nowMs,
+            com.lifecyclebot.engine.ExecutableEntryFloor8521.MAX_MARK_AGE_MS)
+            ?: return "ENTRY_EXECUTABLE_CURVE_UNOBSERVED_8521"
+        if (!com.lifecyclebot.engine.ExecutableEntryFloor8521.fresh8521(curve.observedAtMs, nowMs))
+            return "ENTRY_EXECUTABLE_CURVE_STALE_8521"
+        val solUsd = WalletManager.freshSolPrice8163()
+        val spot = CurveReserves7951.priceSol7951(curve.virtualSol, curve.virtualTokens) * solUsd
+        preBroadcastRefusal8329(ts, intent, sizeSol, spot, 0.0, "PUMP_FINAL_CURVE", nowMs)?.let { return it }
+        val venue = PaperVenueCost7287.venueFeePct(ts.mint, curve.realSol * solUsd, ts.lastMcap)
+        val floorPx = com.lifecyclebot.engine.ExecutableEntryFloor8521.curvePrice8521(
+            curve.virtualSol, curve.virtualTokens, sizeSol, solUsd,
+            venue + com.lifecyclebot.engine.CostTrim8151.PUMPPORTAL_FEE_PCT_PER_SIDE_8151, slippagePct.toDouble())
+            ?: return "ENTRY_EXECUTABLE_CURVE_PRICE_UNAVAILABLE_8521"
+        return executableNetRefusal8521(ts, intent, sizeSol, floorPx, plannedBuyFixedSol, "PUMP_CURVE_SIZED_MODEL")
+    }
+
+    internal fun executableNetRefusal8521(ts: TokenState, intent: ExecutionIntent, sizeSol: Double,
+                                         floorPx: Double, plannedBuyFixedSol: Double, source: String): String? {
+        val lane = CanonicalLaneIdentity6506.desk8392(intent.canonicalLane)
+        val liquidity = LiquidityTruth8037.hydrate8037(ts)
+        val cost = NetEdge8030.preTradeCostPct8329(lane, sizeSol, liquidity, ts.mint, ts.lastMcap)
+        val modelFixed = NetEdge8030.fixedRoundTripForCurrentCost8521()
+        val expected = intent.admissionProof?.expectedGrossPct
+            ?: NetEdge8030.expectedGrossFor8153(ts, lane, intent.admissionProof?.chosenSetup, cost)
+        val fixed = com.lifecyclebot.engine.CostMeter8151.fixedLegs8521()
+        val roundTripFixed = fixed.roundTripFixedSol
+        val sellFixed = fixed.sellFixedSol
+        // The round-trip percentage contains the average fixed leg; remove that average from
+        // the same model observation, then charge one coherent set of asymmetric fixed estimates.
+        val sellVariable = (com.lifecyclebot.engine.CostTrim8151.sellLegPct8418(cost) -
+            (modelFixed ?: roundTripFixed) / 2.0 / sizeSol * 100.0).coerceAtLeast(0.0)
+        val net = com.lifecyclebot.engine.ExecutableEntryFloor8521.netWithFixedLegs8521(
+            intent.executableMarkPriceUsd6613, floorPx, expected, sizeSol, sellVariable, roundTripFixed,
+            sellFixed, com.lifecyclebot.engine.CostTrim8151.BUY_APP_FEE_PCT_8418, plannedBuyFixedSol)
+        val refusal = if (net == null) "ENTRY_EXECUTABLE_NET_UNAVAILABLE_8521"
+            else if (net <= 0.0) "ENTRY_EXECUTABLE_NET_NONPOSITIVE_8521" else null
+        try {
+            PipelineHealthCollector.labelInc(refusal ?: "ENTRY_EXECUTABLE_NET_OK_8521")
+            ForensicLogger.lifecycle("ENTRY_EXECUTABLE_NET_8521", "mint=${ts.mint.take(10)} lane=$lane source=$source " +
+                "decisionPx=${intent.executableMarkPriceUsd6613} floorPx=$floorPx expectedGross=$expected netAtFloor=$net " +
+                "sizeSol=$sizeSol sellVariable=$sellVariable sellFixed=$sellFixed buyFixed=$plannedBuyFixedSol verdict=${refusal ?: "ALLOW"}")
+        } catch (_: Throwable) {}
+        return refusal
+    }
+
     // ── 3. route-minimum promotion needs a reason ──
 
     const val PROMOTION_UNSUPPORTED_8329 = "ROUTE_MIN_PROMOTION_UNSUPPORTED_8329"

@@ -707,11 +707,21 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
     }
 
     /** Close all open positions immediately (called on STOP). */
-    fun closeAllPositions() {
-        val ids = positions.keys.toList()
+    fun closeAllPositions(paperMode: Boolean? = null) {
+        val ids = positions.values.filter { paperMode == null || it.isPaper == paperMode }.map { it.id }
         ids.forEach { id -> try { closePosition(id, "USER_STOP") } catch (_: Exception) {} }
         ErrorLogger.info(TAG, "📈 All stock positions closed on STOP (${ids.size} positions)")
     }
+
+    suspend fun closePaperPositions8521(targetIds: Set<String>): com.lifecyclebot.engine.PaperStopLifecycle8521.CloseResult =
+        com.lifecyclebot.engine.PaperStopLifecycle8521.closeObserved8521(targetIds, positions.values.toList().map { p ->
+            com.lifecyclebot.engine.PaperStopLifecycle8521.MarketPosition(p.id, p.isPaper, p.market) { mark ->
+                positions[p.id]?.takeIf { it.isPaper }?.let { current ->
+                    current.currentPrice = mark.price
+                    closePosition(current.id, "USER_STOP")
+                }
+            }
+        })
     
     // ═══════════════════════════════════════════════════════════════════════════
     // SCAN CYCLE - Find stock opportunities
@@ -1631,76 +1641,17 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                 terminalSequence = System.currentTimeMillis(),
             )
             if (!canonicalClose6486.applied) {
-                // V5.0.6581 §P0-1 — CANONICAL SELL FALLBACK MUST STAY CANONICAL.
-                // 6580 operator forensic: 52 paper sells but executor mirror
-                // and lane attribution only saw 1. PAPER_CLOSE_FALLBACK_6572
-                // fired 51 times because my V5.0.6572 fallback bypassed the
-                // canonical journal (it called PaperAccountLedger6430.onSell
-                // directly). Result: capital refunded but no canonical
-                // terminal event → journal / lane / learning / analytics /
-                // policy heads never saw the close.
-                //
-                // Fix at source: route the fallback THROUGH
-                // CanonicalPaperTransaction6486.refund(positionId), which
-                // internally calls close() at basis + zero PnL. This produces
-                // a genuine canonical terminal event (finalizeSell -> the
-                // FinalizedBus) so every downstream learner receives the
-                // close as an ordinary refund/breakeven, not a silent leak.
-                ErrorLogger.warn(TAG, "PAPER CLOSE CANONICAL_REFUND 6581: ${position.market.symbol} " +
-                    "orig=${canonicalClose6486.reason} exit=$reason")
-                val refundResult6581 = try {
-                    com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.refund(
-                        positionId = position.id,
-                        mint = position.market.symbol,
-                        symbol = position.market.symbol,
-                        reason = "UNCLOSEABLE_MARKET_${reason}",
-                    )
-                } catch (_: Throwable) { null }
-                if (refundResult6581?.applied == true) {
-                    try {
-                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PAPER_CLOSE_CANONICAL_REFUND_6581")
-                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                            "PAPER_CLOSE_CANONICAL_REFUND_6581",
-                            "positionId=${position.id} symbol=${position.market.symbol} " +
-                                "reason=${canonicalClose6486.reason} exitReason=$reason " +
-                                "action=canonical_refund_success lane=STOCKS",
-                        )
-                    } catch (_: Throwable) {}
-                } else {
-                    // V5.0.6616 §HARD_AUTHORITY_DOCTRINE — canonical refuse
-                    //   MUST NOT trigger a ledger-only mutation. Operator
-                    //   directive Feb 2026: "If the journal write cannot
-                    //   be committed, the economic close must not become
-                    //   canonical." Previously (V5.0.6581) we fell back
-                    //   to PaperAccountLedger6430.onSell directly which
-                    //   produced 30 PAPER_CLOSE_UNJOURNALED_LEAK_6581
-                    //   occurrences per run — a second economic writer
-                    //   that mutated cash outside the journal chain.
-                    //
-                    //   Correct behaviour: the canonical authority has
-                    //   proven the position is not owned by the paper
-                    //   account (either it was already closed canonically
-                    //   or the mint identity mismatches the canonical
-                    //   row). The ledger cash is therefore ALREADY
-                    //   correct. Free the local phantom slot, count the
-                    //   refusal, do NOT mutate cash. The single
-                    //   derivation chain remains journal→balance→hero.
-                    ErrorLogger.warn(TAG, "PAPER CLOSE CANONICAL_REFUND ALSO REJECTED: ${position.market.symbol} " +
-                        "refundReason=${refundResult6581?.reason ?: "NULL"} — journal-authoritative: NO ledger mutation")
-                    try {
-                        com.lifecyclebot.engine.PipelineHealthCollector
-                            .labelInc("PAPER_CLOSE_JOURNAL_REFUSED_NO_LEDGER_MUTATION_6616")
-                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                            "PAPER_CLOSE_JOURNAL_REFUSED_NO_LEDGER_MUTATION_6616",
-                            "positionId=${position.id} symbol=${position.market.symbol} " +
-                                "reason=${canonicalClose6486.reason} exitReason=$reason " +
-                                "refundReason=${refundResult6581?.reason ?: "NULL"} " +
-                                "action=free_local_slot_only lane=STOCKS " +
-                                "doctrine=journal_is_authority_no_second_writer",
-                        )
-                    } catch (_: Throwable) {}
+                // A refused settlement cannot be converted to an invented breakeven refund.
+                // Only an already-terminal lot may lose its local projection.
+                if (com.lifecyclebot.engine.PaperStopLifecycle8521.confirmedClosed(position.id)) {
+                    positions.remove(position.id)
+                    spotPositions.remove(position.id)
+                    leveragePositions.remove(position.id)
+                    persistStockPositions()
                 }
-                // FALL THROUGH — free the slot so capital returns to the wallet.
+                ErrorLogger.warn(TAG, "PAPER CLOSE REJECTED: ${position.market.symbol} ${canonicalClose6486.reason}; retained unless canonically terminal")
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PAPER_CLOSE_JOURNAL_REFUSED_NO_LEDGER_MUTATION_6616") } catch (_: Throwable) { }
+                return
             }
         } else {
             val closeSuccess6486 = try {

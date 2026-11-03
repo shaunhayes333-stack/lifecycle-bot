@@ -67,20 +67,26 @@ class BirdeyeApi(private val apiKey: String = "") {
         val interval = timeframeToSeconds(timeframe)
         val from     = now - (count * interval)
 
-        val url = "$BASE/defi/ohlcv?address=$mint" +
-                  "&type=$timeframe&time_from=$from&time_to=$now"
+        val type8521 = if (timeframe.endsWith("h", true)) timeframe.uppercase() else timeframe
+        val url = "$BASE/defi/v3/ohlcv?address=$mint" +
+                  "&type=$type8521&currency=usd&padding=false&time_from=$from&time_to=$now"
 
         val body = get(url) ?: return emptyList()
+        return parseCandles8521(body, interval)
+    }
+
+    internal fun parseCandles8521(body: String, intervalSeconds: Long): List<Candle> {
         return try {
             val json  = JSONObject(body)
             val items = json.optJSONObject("data")?.optJSONArray("items") ?: return emptyList()
             (0 until items.length()).mapNotNull { i ->
                 val item = items.optJSONObject(i) ?: return@mapNotNull null
+                val volumeUsd8521 = item.optDouble("v_usd", Double.NaN).takeIf { it.isFinite() && it >= 0.0 }
                 Candle(
-                    ts         = item.optLong("unixTime", 0L) * 1000L,
+                    ts         = item.optLong("unix_time", 0L) * 1000L,
                     priceUsd   = item.optDouble("c", 0.0),   // close
                     marketCap  = 0.0,                         // filled by overview
-                    volumeH1   = item.optDouble("v", 0.0),
+                    volumeH1   = volumeUsd8521 ?: 0.0,
                     volume24h  = 0.0,
                     buysH1     = 0,
                     sellsH1    = 0,
@@ -88,8 +94,13 @@ class BirdeyeApi(private val apiKey: String = "") {
                     highUsd    = item.optDouble("h", 0.0),
                     lowUsd     = item.optDouble("l", 0.0),
                     openUsd    = item.optDouble("o", 0.0),
+                    intervalMs8521 = intervalSeconds * 1000L,
+                    periodVolumeUsd8521 = volumeUsd8521,
                 )
-            }
+            }.filter { c -> c.ts > 0L && c.priceUsd.isFinite() && c.priceUsd > 0.0 &&
+                c.openUsd.isFinite() && c.openUsd > 0.0 && c.lowUsd.isFinite() && c.lowUsd > 0.0 &&
+                c.highUsd.isFinite() && c.highUsd >= maxOf(c.openUsd, c.priceUsd) &&
+                c.lowUsd <= minOf(c.openUsd, c.priceUsd) }.sortedBy { it.ts }.distinctBy { it.ts }
         } catch (_: Exception) { emptyList() }
     }
 
@@ -707,13 +718,14 @@ class BirdeyeApi(private val apiKey: String = "") {
         } catch (_: Exception) { null }
     }
 
-    private fun timeframeToSeconds(tf: String): Long = when (tf) {
+    internal fun timeframeToSeconds(tf: String): Long = when (tf.lowercase()) {
         "1m"  -> 60L
         "3m"  -> 180L
         "5m"  -> 300L
         "15m" -> 900L
         "30m" -> 1800L
-        "1H"  -> 3600L
+        "1h"  -> 3600L
+        "4h"  -> 14400L
         else  -> 60L
     }
 }

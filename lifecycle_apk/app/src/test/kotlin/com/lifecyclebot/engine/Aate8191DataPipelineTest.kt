@@ -240,7 +240,14 @@ class Aate8191DataPipelineTest {
         assertTrue(o.contains("if (ts.history.size < 10 && DataPipeline8191.claimCodexOrdinary8191()) codexSeed8191(ts)"))
         assertTrue(o.indexOf("if (!priority8191) {") < o.indexOf("val candles1m = "))
         assertTrue(o.contains("val candles1m = if (ts.history.size >= 10 && !repairShape8168) emptyList() else birdeye.getCandles(mint, \"1m\", 120)"))
-        assertTrue(o.contains("val candles5m = if (ts.history5m.size >= 5) emptyList() else birdeye.getCandles(mint, \"5m\", 60)"))
+        // 8521: a higher timeframe is filled only by fresh, valid bars of that real interval.
+        val higher = o.substringAfter("for (frame in listOf(Frame8521.M5, Frame8521.M15)) {")
+            .substringBefore("// Hourly charts are refreshed")
+        val filled = higher.indexOf("if (MultiTimeframeCharts8521.snapshot8521(ts, frame, System.currentTimeMillis()).size >= 5) continue")
+        val fetch = higher.indexOf("val bars = birdeye.getCandles(mint, frame.label, frame.capacity)")
+        assertTrue("check this frame's observed history before spending provider CU", filled >= 0 && fetch > filled)
+        assertTrue(higher.contains("MultiTimeframeCharts8521.install8521(ts, frame, bars, System.currentTimeMillis(),"))
+        assertTrue(higher.contains("\"birdeye8521\", provider8521 = true)"))
     }
 
     // ── 5. setup features: trade frames reach the evaluated coin, a missing pair is fetched ──

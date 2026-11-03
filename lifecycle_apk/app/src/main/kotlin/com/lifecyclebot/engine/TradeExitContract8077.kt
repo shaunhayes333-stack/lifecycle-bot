@@ -32,9 +32,15 @@ object TradeExitContract8077 {
     // V5.0.8136 — the lane only says a lane CAN host a runner. Whether THIS position rides the runner ladder, its
     // soft-exit deferral, the moonbag and the no-pop-fade-clock rule is its immutable sealed setup or a PROVEN
     // promotion (RunnerExitContract8136.runnerBasis8136): a QUICK_FLIP scalp bought in MOONSHOT no longer holds 6 h.
-    fun runnerFromEntry8104(ts: TokenState): Boolean =
-        ts.position.isOpen && ts.position.entryTime > 0L && runnerFromEntryLane8104(ts.position.tradingMode, ts.position.isPaperPosition) &&
-            runnerBasis8136(ts) != RunnerExitContract8136.RunnerBasis8136.NONE
+    fun runnerFromEntry8104(ts: TokenState): Boolean {
+        val pos = ts.position
+        if (!pos.isOpen || pos.entryTime <= 0L || pos.isPaperPosition) return false
+        val basis = runnerBasis8136(ts)
+        // A capable lane outside the born-runner set earns this held-position contract only after a proven promotion.
+        // Keep the native entry contract unchanged, but do not discard the peak/latch RunnerLive8153 has verified.
+        return basis != RunnerExitContract8136.RunnerBasis8136.NONE &&
+            (runnerFromEntryLane8104(pos.tradingMode, false) || basis == RunnerExitContract8136.RunnerBasis8136.PROVEN_PROMOTION)
+    }
 
     /**
      * V5.0.8136 — why [ts] rides the runner contract: its sealed entry setup, or proof (position.peakGainPct ratchets

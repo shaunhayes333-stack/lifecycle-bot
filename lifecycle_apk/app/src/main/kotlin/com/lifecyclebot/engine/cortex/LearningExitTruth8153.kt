@@ -96,7 +96,18 @@ object LearningExitTruth8153 {
 
         fun add(g: Grade8153) {
             if (!g.totalPct.isFinite()) return
+            addBanked8521(g)
+            addRegret8521(g)
+        }
+
+        /** Confirmed proceeds are learnable at the close; they do not wait for a future mark. */
+        fun addBanked8521(g: Grade8153) {
+            if (!g.totalPct.isFinite()) return
             n++; sumTotal += g.totalPct
+        }
+
+        /** Completing the later counterfactual must not count the same banked close a second time. */
+        fun addRegret8521(g: Grade8153) {
             if (g.regretPct.isFinite()) {
                 regretN++; sumRegret += g.regretPct; sumSqRegret += g.regretPct * g.regretPct
                 if (g.tailCut) tailCuts++

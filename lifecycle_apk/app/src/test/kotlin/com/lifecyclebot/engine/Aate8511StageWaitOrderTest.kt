@@ -46,9 +46,12 @@ class Aate8511StageWaitOrderTest {
         assertNotEquals("ENTRY_NO_PHASE_TRIGGER_8506", d.reason)
     }
 
-    @Test fun missingFlowStillDefersEvenWithASupportedSetup() {
+    @Test fun optionalFlowGapDoesNotPreemptAnObservedSupportedSetup() {
         val d = CandidateAdmission8136.decide8136(base.copy(entryWait8506 = "FLOW_UNOBSERVED", setups = listOf(supported))) { false }
-        assertEquals(CandidateAdmission8136.Terminal8136.DEFER_DATA, d.terminal)
+        assertEquals(CandidateAdmission8136.Terminal8136.ADMIT, d.terminal)
+        val critical = CandidateAdmission8136.decide8136(base.copy(entryWait8506 = "FLOW_UNOBSERVED",
+            setups = listOf(supported), missingInputs = listOf("quote:UNKNOWN"))) { false }
+        assertEquals(CandidateAdmission8136.Terminal8136.DEFER_DATA, critical.terminal)
     }
 
     @Test fun observedTapeVelocityClearsOnlyAuxiliaryPhaseWaitNotSafetyOrExecutableData() {

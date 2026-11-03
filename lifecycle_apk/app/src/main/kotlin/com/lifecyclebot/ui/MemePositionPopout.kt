@@ -47,6 +47,7 @@ object MemePositionPopout {
 
     private class Readout(
         val open: Boolean,
+        val positionId: String,
         val symbol: String,
         val name: String,
         val lane: String,
@@ -97,11 +98,18 @@ object MemePositionPopout {
     // ── data ──────────────────────────────────────────────────────────────
 
     /** The live, still-open TokenState for [mint], or null once it has closed. */
-    private fun resolveOpen(mint: String, lookup: (String) -> TokenState?): TokenState? {
+    private fun resolveOpen(mint: String, lookup: (String) -> TokenState?, positionId: String, paper: Boolean): TokenState? {
+        val canonical = try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(positionId) }
+            catch (_: Throwable) { null } ?: return null
+        if (canonical.mint != mint || !canonical.mode.equals(if (paper) "paper" else "live", true) ||
+            canonical.remainingQtyRaw.signum() <= 0 || canonical.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.CLOSED ||
+            canonical.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.PENDING_ENTRY) return null
+        fun matches(t: TokenState?): Boolean = t != null && t.mint == mint &&
+            com.lifecyclebot.engine.truth.CanonicalUiPositionProjection6686.matchesPosition8521(t.position, positionId, paper)
         val live = try { com.lifecyclebot.engine.BotService.status.tokens[mint] } catch (_: Throwable) { null }
-        if (live != null && (try { live.position.isOpen } catch (_: Throwable) { false })) return live
+        if (matches(live)) return live
         val listed = try { lookup(mint) } catch (_: Throwable) { null }
-        return listed?.takeIf { try { it.position.isOpen } catch (_: Throwable) { false } }
+        return listed?.takeIf { matches(it) }
     }
 
     private fun readout(openTs: TokenState?, last: TokenState): Readout {
@@ -145,6 +153,7 @@ object MemePositionPopout {
         } catch (_: Throwable) { null }
         return Readout(
             open = open,
+            positionId = pos.positionId,
             symbol = t.symbol.ifBlank { t.mint.take(8) },
             name = t.name,
             lane = pos.tradingMode.ifBlank { "STANDARD" },
@@ -177,7 +186,7 @@ object MemePositionPopout {
         lookup: (String) -> TokenState?,
     ) {
         val ctx: Context = activity
-        val first = readout(resolveOpen(mint, lookup) ?: initial.takeIf { it.position.isOpen }, initial)
+        val first = readout(resolveOpen(mint, lookup, initial.position.positionId, initial.position.isPaperPosition), initial)
 
         val scroll = ScrollView(ctx).apply { setBackgroundColor(AateUi.BG) }
         val root = box(ctx, LinearLayout.VERTICAL, 0, 16, 14)
@@ -339,7 +348,7 @@ object MemePositionPopout {
                 }
                 val next = try {
                     withContext(Dispatchers.Default) {
-                        val openTs = resolveOpen(mint, lookup)
+                        val openTs = resolveOpen(mint, lookup, initial.position.positionId, initial.position.isPaperPosition)
                         if (openTs != null) last = openTs
                         readout(openTs, last)
                     }
@@ -433,7 +442,7 @@ object MemePositionPopout {
                 toast(activity, "⏳ SELL submitting…", false)
                 Thread {
                     val (ok, msg) = try {
-                        svc.manualSell(mint)
+                        svc.manualSell(mint, expectedPositionId8521 = r.positionId, expectedPaper8521 = r.paper)
                     } catch (e: Throwable) {
                         false to "Error: ${e.message ?: e.javaClass.simpleName}"
                     }
@@ -462,13 +471,16 @@ object MemePositionPopout {
         Thread {
             val plan: Triple<Double, Double, String?> = try {
                 val executor = try { svc.executor } catch (_: Throwable) { null }
-                val ts = com.lifecyclebot.engine.BotService.status.tokens[mint]?.takeIf { it.position.isOpen }
-                val paper = try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true }
+                val ts = com.lifecyclebot.engine.BotService.status.tokens[mint]?.takeIf {
+                    com.lifecyclebot.engine.truth.CanonicalUiPositionProjection6686.matchesPosition8521(it.position, r.positionId, r.paper)
+                }
+                val paper = r.paper
                 val status = com.lifecyclebot.engine.BotService.status
                 val walletSol = try { status.getEffectiveBalance(paper) } catch (_: Throwable) { 0.0 }
                 val exposure = try { status.totalExposureSol } catch (_: Throwable) { 0.0 }
                 when {
                     executor == null -> Triple(0.0, walletSol, "Bot not started")
+                    paper != com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() -> Triple(0.0, walletSol, "Select this position's trading mode before adding")
                     ts == null -> Triple(0.0, walletSol, "Live token state for ${r.symbol} isn't loaded — top-up needs it")
                     else -> {
                         // V5.0.7930 — the engine's top-up size is only the suggested amount;
@@ -494,7 +506,7 @@ object MemePositionPopout {
     }
 
     private fun confirmTopUp(activity: AppCompatActivity, mint: String, r: Readout, suggested: Double, walletSol: Double) {
-        val paper = try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true }
+        val paper = r.paper
         val input = android.widget.EditText(activity).apply {
             inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
             setText("%.4f".format(java.util.Locale.US, suggested))
@@ -524,7 +536,7 @@ object MemePositionPopout {
                 val appCtx = activity.applicationContext
                 Thread {
                     val (ok, msg) = try {
-                        runTopUp(appCtx, mint, size)
+                        runTopUp(appCtx, mint, size, r.positionId, r.paper)
                     } catch (e: Throwable) {
                         false to "Error: ${e.message ?: e.javaClass.simpleName}"
                     }
@@ -539,12 +551,14 @@ object MemePositionPopout {
     }
 
     /** Off-Main only. Re-reads everything at execution time; never trusts the preview. */
-    private fun runTopUp(appCtx: Context, mint: String, sizeSol: Double): Pair<Boolean, String> {
+    private fun runTopUp(appCtx: Context, mint: String, sizeSol: Double, positionId: String, paper: Boolean): Pair<Boolean, String> {
         val svc = com.lifecyclebot.engine.BotService.instance ?: return false to "Bot service not running"
         val executor = (try { svc.executor } catch (_: Throwable) { null }) ?: return false to "Bot not started"
         val status = com.lifecyclebot.engine.BotService.status
-        val ts = status.tokens[mint]?.takeIf { it.position.isOpen } ?: return false to "Position is no longer open"
-        val paper = try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true }
+        val ts = status.tokens[mint]?.takeIf {
+            com.lifecyclebot.engine.truth.CanonicalUiPositionProjection6686.matchesPosition8521(it.position, positionId, paper)
+        } ?: return false to "The selected position is no longer available for an add"
+        if (paper != com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) return false to "Trading mode changed; reopen this position before adding"
         val wallet = try { com.lifecyclebot.engine.WalletManager.getWallet() } catch (_: Throwable) { null }
         if (!paper && wallet == null) return false to "Live wallet not connected"
         val walletSol = try { status.getEffectiveBalance(paper) } catch (_: Throwable) { 0.0 }
@@ -552,7 +566,9 @@ object MemePositionPopout {
         val costBefore = ts.position.costSol
         if (!paper && walletSol < sizeSol + 0.01) return false to "Insufficient wallet SOL"
         executor.doTopUp(ts, walletSol, wallet, exposure, manualSizeSol = sizeSol)
-        val costAfter = try { status.tokens[mint]?.position?.costSol ?: ts.position.costSol } catch (_: Throwable) { costBefore }
+        val costAfter = try { status.tokens[mint]?.takeIf {
+            com.lifecyclebot.engine.truth.CanonicalUiPositionProjection6686.matchesPosition8521(it.position, positionId, paper)
+        }?.position?.costSol ?: ts.position.costSol } catch (_: Throwable) { costBefore }
         return if (costAfter > costBefore + 1e-9) {
             true to "Added ${"%.4f".format(costAfter - costBefore)} SOL to ${ts.symbol} (${if (paper) "paper" else "LIVE"})"
         } else {

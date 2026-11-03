@@ -676,13 +676,67 @@ class MainActivity : AppCompatActivity() {
     @Volatile private var cachedWatchlistModel: WatchlistModel = WatchlistModel()
     private data class OpenPositionsModel6078(
         val updatedAtMs: Long = 0L,
+        val paperMode8521: Boolean = true,
         val allSorted: List<com.lifecyclebot.data.TokenState> = emptyList(),
+        val paperRows8521: List<com.lifecyclebot.engine.truth.PaperPortfolioDisplay8521.Row> = emptyList(),
         val totalExposureSol: Double = 0.0,
         val totalUnrealizedSol: Double = 0.0,
         val laneHeldExtra: Int = 0,
         val structuralHash: Int = 0,
     )
     @Volatile private var cachedOpenPositionsModel6078: OpenPositionsModel6078 = OpenPositionsModel6078()
+    private var paperPortfolioRenderer8521: PaperPortfolioRows8521? = null
+
+    private fun openPositionsModelForMode8521(paper: Boolean): OpenPositionsModel6078 =
+        cachedOpenPositionsModel6078.takeIf { it.paperMode8521 == paper } ?: OpenPositionsModel6078(paperMode8521 = paper)
+
+    private fun bindOpenHeader8521(model: OpenPositionsModel6078) {
+        tvTotalExposure.setTextIfChanged(model.totalExposureSol.fastFixed(3) + "◎ at risk")
+        val missing = model.paperRows8521.count { it.pnlSol == null }
+        tvTotalUnrealisedPnl.setTextIfChanged(model.totalUnrealizedSol.fastSigned(4) + "◎" +
+            if (missing > 0) " · $missing awaiting mark" else "")
+        tvTotalUnrealisedPnl.setTextColor(if (model.totalUnrealizedSol >= 0) AateUi.GREEN else AateUi.RED)
+    }
+
+    private fun renderPaperPortfolio8521(positions: List<TokenState>): Boolean {
+        if (positions.isEmpty() || positions.any { !it.position.isPaperPosition }) return false
+        val ids = positions.mapTo(HashSet()) { it.position.positionId }
+        val rows = openPositionsModelForMode8521(true).paperRows8521.filter { it.positionId in ids }
+        laneCounts7011 = positions.groupingBy { it.position.tradingMode.ifBlank { "OTHER" }.uppercase() }.eachCount()
+        findViewById<TextView>(R.id.tvOpenPositionsModeChip)?.apply {
+            text = "PAPER · ALL DESKS"; setTextColor(0xFFB58CFF.toInt())
+        }
+        findViewById<TextView>("OPEN_POS_LANE_FOOTER".hashCode())?.visibility = View.GONE
+        val renderer = paperPortfolioRenderer8521 ?: PaperPortfolioRows8521(this).also { paperPortfolioRenderer8521 = it }
+        renderer.render(llOpenPositions, rows, OPENPOS_ROW_CAP, System.currentTimeMillis(), ::openPaperPosition8521)
+        lastOpenPosHash = -1 // A subsequent LIVE render must attach its own cached views.
+        return true
+    }
+
+    private fun openPaperPosition8521(row: com.lifecyclebot.engine.truth.PaperPortfolioDisplay8521.Row) {
+        val ts = openPositionsModelForMode8521(true).allSorted.firstOrNull {
+            it.position.positionId == row.positionId && it.position.isPaperPosition
+        } ?: return
+        if (!com.lifecyclebot.engine.truth.CanonicalUiPositionProjection6686.isCurrentPaperOpen8521(ts)) { vm.forceRefresh(); return }
+        when (row.assetClass) {
+            com.lifecyclebot.engine.truth.AssetClass.SOLANA_TOKEN -> openMemePositionPopout(ts)
+            com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT -> startActivity(Intent(this, CryptoAltActivity::class.java))
+            com.lifecyclebot.engine.truth.AssetClass.UNKNOWN -> AlertDialog.Builder(this)
+                .setTitle("${row.symbol} · PAPER")
+                .setMessage("Open position · ${row.lane}\nSize ${row.costSol.fastFixed(4)} SOL\nAwaiting its market classification.")
+                .setPositiveButton("Close", null).show()
+            else -> {
+                val tab = when (row.assetClass) {
+                    com.lifecyclebot.engine.truth.AssetClass.PERPS -> "PERPS"
+                    com.lifecyclebot.engine.truth.AssetClass.FOREX -> "FOREX"
+                    com.lifecyclebot.engine.truth.AssetClass.METAL -> "METALS"
+                    com.lifecyclebot.engine.truth.AssetClass.COMMODITY -> "COMMODITIES"
+                    else -> "STOCKS"
+                }
+                startActivity(Intent(this, MultiAssetActivity::class.java).putExtra("startTab", tab))
+            }
+        }
+    }
     private val mainModelRefreshInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
     // V5.0.6254 — rate-limit the OPEN count divergence diagnostic added in
     // V5.0.6252 to at most one iteration per minute. Original impl ran per
@@ -2881,11 +2935,14 @@ for legal compliance.
                     vm.stopBot(source = "halt_reset", uiStopConfirmed = true)
                 }
                 runningNow || pendingNow -> {
+                    val paperNow8521 = com.lifecyclebot.data.ConfigStore.load(applicationContext).paperMode
                     val title = if (pendingNow && !runningNow) "Cancel bot startup?" else "Stop the bot?"
                     val message = if (pendingNow && !runningNow) {
                         "This cancels the queued Start while persisted state is loading."
+                    } else if (paperNow8521) {
+                        "Stop bot halts scanning and trading and closes paper positions across all trading desks using current market prices.\n\n" +
+                            "Positions without a valid current price remain open and visible. Their pending closes retry when the bot runs again."
                     } else {
-                        // V5.0.7929 — Stop keeps positions; selling them is its own explicit choice.
                         "Stop bot: halts scanning and trading and keeps open positions (their exits resume when you start again).\n\n" +
                             "Stop & sell all: halts the bot and sells every open position back to SOL."
                     }
@@ -2898,7 +2955,7 @@ for legal compliance.
                             }
                             .setNegativeButton("Keep running", null)
                             .apply {
-                                if (runningNow) setNeutralButton("Stop & sell all") { d, _ ->
+                                if (runningNow && !paperNow8521) setNeutralButton("Stop & sell all") { d, _ ->
                                     d.dismiss(); vm.stopBotAndSellAll7929()
                                 }
                             }
@@ -3166,32 +3223,14 @@ for legal compliance.
                 // off Main as part of the same immutable dashboard model. updateUi()
                 // must never call buildUnifiedOpenPositions() synchronously while the
                 // bot is running; that was the header/list mismatch + ANR source.
-                val allOpen = buildUnifiedOpenPositions(state)
-                // V5.0.6503 §2 — HERO SNAPSHOT AUTHORITY hot-cache reuse.
-                // The background HeroSnapshotAuthority6503 already summed
-                // costSol + unrealized (OpenPnlSanity.inspect) off Main every
-                // 500ms. When the cached hero is fresh, skip the duplicate
-                // Σ passes below to keep this Default worker tick short —
-                // the operator's 6501/6502 dumps still had 3s frame gaps
-                // during hero rebuild churn.
-                // V5.0.6523 §HEADER_ROW_PARITY — pull the mode-partitioned
-                // hero fields so the header "X◎ at risk / +Y◎" matches the
-                // paper-only OR live-only row list. Operator screenshot
-                // Feb 2026 showed header +483◎ while paper rows summed to
-                // only +55.83◎ because the hero previously included both
-                // paper AND live open positions in the same total.
-                val paperMode6523 = state.config.paperMode
-                val hero6503 = try {
-                    com.lifecyclebot.engine.truth.HeroSnapshotAuthority6503.current()
-                } catch (_: Throwable) { null }
-                // A 500ms hero cache may straddle the exact tick where an
-                // invariant quarantine removes a row. Only reuse it when its
-                // partition count equals the canonical-gated row set.
-                val heroMatchesRows6636 = hero6503 != null &&
-                    hero6503.openCountFor(paperMode6523) == allOpen.size
-                val totalExposure = if (heroMatchesRows6636) hero6503!!.totalExposureSolFor(paperMode6523)
-                    else allOpen.sumOf { it.position.costSol }
-                val totalUpnl = if (heroMatchesRows6636) hero6503!!.totalUnrealizedSolFor(paperMode6523)
+                val rawOpen8521 = buildUnifiedOpenPositions(state)
+                val paperRows8521 = if (state.config.paperMode)
+                    com.lifecyclebot.engine.truth.PaperPortfolioDisplay8521.snapshot8521(rawOpen8521, System.currentTimeMillis()) else emptyList()
+                val byPositionId8521 = rawOpen8521.associateBy { it.position.positionId }
+                val allOpen = if (state.config.paperMode) paperRows8521.mapNotNull { byPositionId8521[it.positionId] } else rawOpen8521
+                // Counts, exposure and P&L are projections of these exact rows, never a same-count portfolio cache.
+                val totalExposure = allOpen.sumOf { it.position.costSol }
+                val totalUpnl = if (state.config.paperMode) paperRows8521.sumOf { it.pnlSol ?: 0.0 }
                     else allOpen.sumOf { token ->
                         val truth = com.lifecyclebot.engine.OpenPnlSanity.pricingTruth(
                             token, "MainActivity.precomputeTotalUpnl6636/${token.symbol}/${token.mint.take(8)}", emit = false,
@@ -3204,7 +3243,9 @@ for legal compliance.
                 } + ":${allOpen.size}:${totalExposure}:${totalUpnl}").hashCode()
                 OpenPositionsModel6078(
                     updatedAtMs = System.currentTimeMillis(),
+                    paperMode8521 = state.config.paperMode,
                     allSorted = allOpen,
+                    paperRows8521 = paperRows8521,
                     totalExposureSol = totalExposure,
                     totalUnrealizedSol = totalUpnl,
                     laneHeldExtra = countLaneHeldPositions(allOpen),
@@ -3302,6 +3343,7 @@ for legal compliance.
         // binders below consume the previously-published immutable model. This is
         // the single point that feeds renderWatchlist + renderOpenPositions.
         precomputeMainRenderModelAsync(state)
+        val displayedOpen8521 = openPositionsModelForMode8521(cfg.paperMode)
 
         // V5.9.1416 — reset the per-tick heavy-render budget at the start of each
         // pass. Caps synchronous panel re-inflation per frame; overflow defers.
@@ -4311,12 +4353,11 @@ for legal compliance.
             // ═══════════════════════════════════════════════════════════════════
             // OPEN POSITIONS COUNT
             // V5.0.8163 — bot-managed positions and host/manual inventory are different populations.
-            val unifiedListSize = cachedOpenPositionsModel6078.allSorted.size
+            val unifiedListSize = displayedOpen8521.allSorted.size
             val heldSet = try { com.lifecyclebot.engine.HostWalletTokenTracker.getActuallyHeldMints() } catch (_: Throwable) { emptySet<String>() }
-            val managedOpenCount = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
-                .count { it.mode.equals(portfolioMode, true) }
+            val managedOpenCount = unifiedListSize
             tvStatsOpenPos.text = managedOpenCount.toString()
-            tvStatsOpenPos.contentDescription = "Canonical $portfolioMode bot positions; host wallet inventory is separate"
+            tvStatsOpenPos.contentDescription = "Displayed $portfolioMode positions across ${if (cfg.paperMode) "all paper desks" else "the Solana portfolio"}"
             tvStatsOpenPos.setTextColor(if (managedOpenCount > 0) purple else muted)
             // V5.0.6252 — OPEN COUNT DIAGNOSTIC (rate-limited by V5.0.6254).
             // Operator saw OPEN=18 pre-repaint and OPEN=0 post-repaint;
@@ -4431,13 +4472,11 @@ for legal compliance.
             // NOT blank Open Positions while runtime/tracker says bags are held.
             // Render the capped/cached open panel first, then return before the
             // lower-priority lane/watchlist/report cards.
-            val openModelDuringShed6078 = cachedOpenPositionsModel6078
+            val openModelDuringShed6078 = displayedOpen8521
             val openPosDuringShed6040 = openModelDuringShed6078.allSorted
             cardOpenPositions.visibility = if (openPosDuringShed6040.isNotEmpty()) android.view.View.VISIBLE else android.view.View.GONE
             if (openPosDuringShed6040.isNotEmpty()) {
-                tvTotalExposure.setTextIfChanged(openModelDuringShed6078.totalExposureSol.fastFixed(3) + "◎ at risk")
-                tvTotalUnrealisedPnl.setTextIfChanged(openModelDuringShed6078.totalUnrealizedSol.fastSigned(4) + "◎")
-                tvTotalUnrealisedPnl.setTextColor(if (openModelDuringShed6078.totalUnrealizedSol >= 0) green else red)
+                bindOpenHeader8521(openModelDuringShed6078)
                 renderOpenPositions(openPosDuringShed6040, preSorted6078 = true)
             }
             if (nowForRenderShed - lastAnrHeavyRenderShedLogMs > 10_000L) {
@@ -4463,16 +4502,14 @@ for legal compliance.
         // identical across the whole card. Deduplication: if a mint is
         // already in state.openPositions it's NOT synthesized a second
         // time, even if a sub-trader also holds it.
-        val openModel6078 = cachedOpenPositionsModel6078
+        val openModel6078 = displayedOpen8521
         val openPos = openModel6078.allSorted
         cardOpenPositions.visibility = if (openPos.isNotEmpty()) android.view.View.VISIBLE else android.view.View.GONE
         if (openPos.isNotEmpty()) {
             // V5.0.7247 — HeroAccountSnapshot is deliberately portfolio-wide,
             // while this is the Solana MemeTrader card. Bind the header to the
             // exact filtered rows so HYPE/XMR/TBTC/WLFI exposure cannot leak in.
-            tvTotalExposure.setTextIfChanged(openModel6078.totalExposureSol.fastFixed(3) + "◎ at risk")
-            tvTotalUnrealisedPnl.setTextIfChanged(openModel6078.totalUnrealizedSol.fastSigned(4) + "◎")
-            tvTotalUnrealisedPnl.setTextColor(if (openModel6078.totalUnrealizedSol >= 0) green else red)
+            bindOpenHeader8521(openModel6078)
             // V5.0.6078 — header totals and row list now bind the same off-main
             // OpenPositionsModel. No synchronous buildUnifiedOpenPositions() on Main,
             // and no divergent header/list source during ANR shed.
@@ -5280,17 +5317,17 @@ for legal compliance.
         // isolated crypto lane witness) before admission.
         val merged = state.openPositions
             .filter {
-                com.lifecyclebot.engine.truth.CanonicalUiPositionProjection6686
+                isPaperMode || com.lifecyclebot.engine.truth.CanonicalUiPositionProjection6686
                     .isMemeDashboardOwned7252(it)
             }
             .filter { it.position.isPaperPosition == isPaperMode }
             .filter { ts ->
+                if (isPaperMode) return@filter true
                 val canonicalProven7132 = try {
                     com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500
                         .isRuntimeOpenEligible6636(ts.mint, ts.position)
                 } catch (_: Throwable) { false }
                 if (!canonicalProven7132) return@filter false
-                if (isPaperMode) return@filter true
                 val ledgerClosed7132 = try {
                     com.lifecyclebot.engine.PositionCloseLedger.isClosed(ts.mint)
                 } catch (_: Throwable) { false }
@@ -5310,7 +5347,7 @@ for legal compliance.
                 }
                 true
             }
-            .let { rows7213 -> dedupeOpenRowsByMint7213(rows7213) }
+            .let { rows7213 -> if (isPaperMode) rows7213.distinctBy { it.position.positionId } else dedupeOpenRowsByMint7213(rows7213) }
             .toMutableList()
         val alreadyRendered = merged.map { it.mint }.toMutableSet()
         var latestBuyByMint: Map<String, com.lifecyclebot.data.Trade>? = null
@@ -5570,15 +5607,17 @@ for legal compliance.
         //
         return merged.filter { ts ->
             // V5.0.7807 — a canonical protective-inventory row is canonical-backed.
-            val canonical7253 = ts.mint in protectiveMints7807 || try {
+            val canonical7253 = if (isPaperMode) com.lifecyclebot.engine.truth.CanonicalUiPositionProjection6686
+                .isCurrentPaperOpen8521(ts) else ts.mint in protectiveMints7807 || try {
                 com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500
                     .isRuntimeOpenEligible6636(ts.mint, ts.position)
             } catch (_: Throwable) { false }
             canonical7253 &&
-                com.lifecyclebot.engine.truth.CanonicalUiPositionProjection6686.isMemeDashboardOwned7252(ts) &&
-                !com.lifecyclebot.engine.truth.WalletTokenAccountStateAuthority7253.isFrozen(ts.mint)
+                com.lifecyclebot.engine.truth.CanonicalUiPositionProjection6686.isDashboardOwned8521(ts, isPaperMode) &&
+                (isPaperMode || !com.lifecyclebot.engine.truth.WalletTokenAccountStateAuthority7253.isFrozen(ts.mint))
         }.sortedWith(
             compareByDescending<com.lifecyclebot.data.TokenState> { ts ->
+                if (isPaperMode) return@compareByDescending 0.0
                 val verdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(ts, "MainActivity.openSort/${ts.symbol}/${ts.mint.take(8)}", emit = false)
                 if (verdict.ok) verdict.pnlPct else Double.NEGATIVE_INFINITY
             }.thenByDescending { it.position.entryTime }
@@ -5670,18 +5709,20 @@ for legal compliance.
     private fun holdLockText8080(ts: com.lifecyclebot.data.TokenState): String? =
         try { com.lifecyclebot.engine.LifecycleHold8065.displayLock8080(ts)?.let { "hold lock +${it.first.toInt()}%" } } catch (_: Throwable) { null }
 
+    private fun publishOpenLaneCounts7012(positions: List<TokenState>) {
+        try {
+            laneCounts7011 = positions.asSequence().filter { it.position.isOpen }
+                .groupingBy { it.position.tradingMode.ifBlank { "OTHER" }.uppercase() }.eachCount()
+        } catch (_: Throwable) { /* presentation only */ }
+    }
+
     private fun renderOpenPositions(positions: List<TokenState>, preSorted6078: Boolean = false) {
+        if (renderPaperPortfolio8521(positions)) return
         // V5.0.7012 — publish lane occupancy for the hero's pressure strip.
         // This function is the one place holding the canonical open-position
         // list, so it is the only honest place to count lanes from. Cheap: one
         // grouping over a list already in hand, no new state and no new source.
-        try {
-            laneCounts7011 = positions
-                .asSequence()
-                .filter { it.position.isOpen }
-                .groupingBy { it.position.tradingMode.ifBlank { "OTHER" }.uppercase() }
-                .eachCount()
-        } catch (_: Throwable) { /* presentation only */ }
+        publishOpenLaneCounts7012(positions)
 
         // V5.9.749 — STRUCTURAL-only hash. Excludes ts.ref (live price) on
         // purpose: price drift from the 1Hz tick loop must NOT trigger a
@@ -5888,7 +5929,7 @@ for legal compliance.
             // that produced a ~1/solPrice (≈1/150) mismatch between the
             // Entry: label on the card and every other USD-priced surface
             // (journal, sell toast, dashboard). Always take USD first.
-            val fill6321 = try { com.lifecyclebot.engine.CanonicalBuyFillRegistry.get(ts.mint) } catch (_: Throwable) { null }
+            val fill6321 = if (pos.isPaperPosition) null else try { com.lifecyclebot.engine.CanonicalBuyFillRegistry.get(ts.mint) } catch (_: Throwable) { null }
             // V5.0.8078 — ONE PRICE, ONE BASIS, EVERY SCREEN: the card and the detail sheet read the same view
             // (canonical remaining qty / entry / remaining cost + the verified exit-economic mark).
             val view8078 = try { com.lifecyclebot.engine.truth.PositionDisplayTruth8078.view(ts) } catch (_: Throwable) { null }
@@ -9758,7 +9799,8 @@ This cannot be undone!
                 Toast.makeText(this, "⏳ SELL submitting…", Toast.LENGTH_SHORT).show()
                 Thread {
                     val (ok, msg) = try {
-                        service.manualSell(mint)
+                        service.manualSell(mint, expectedPositionId8521 = pos.positionId,
+                            expectedPaper8521 = pos.isPaperPosition)
                     } catch (e: Exception) {
                         false to "Error: ${e.message ?: e.javaClass.simpleName}"
                     }

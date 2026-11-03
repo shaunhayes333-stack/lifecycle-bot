@@ -115,6 +115,19 @@ class Aate8354CurveTapeTest {
         assertTrue(RunnerFunnel8331.rungMarkAuthoritative8331(curveCoin = true, source = "PUMP_PORTAL_TRADE_WS_7278"))
     }
 
+    @Test fun anOverflowingDerivedPriceDoesNotHydrateReservesOrTradeTape() {
+        val ev = ChainLaunchFeed8179.decodeTradeEvent8179(tradeEventBytes(MINT, true, 1_500_000_000L, 52_000_000_000_000L, 41_500_000_000L, 775_000_000_000_000L))!!
+        assertFalse(HeliusCurveTape8354.onTradeEvent8354(ev.copy(virtualSol = Double.MAX_VALUE, virtualTokens = Double.MIN_VALUE), "overflow8354", t0))
+        assertFalse(CurveReserves7951.known7951(MINT))
+        assertTrue(TradeTape8100.prints8128(MINT, t0, 600_000L).isEmpty())
+    }
+
+    @Test fun aRejectedProgramLogsSubscriptionCannotCountAsTransportAvailability() {
+        assertTrue(HeliusCurveTape8354.sharedLogsEligible8509(true, 2_000L, 2_000L))
+        assertFalse(HeliusCurveTape8354.sharedLogsEligible8509(true, 2_001L, 2_000L))
+        assertFalse(HeliusCurveTape8354.sharedLogsEligible8509(false, 0L, 2_000L))
+    }
+
     // ── bytes and credits: the fallback decision ──
 
     @Test fun theByteGovernorStepsDownPastThreeMegabytesAndBackUnderFourHundredKilobytes() {
@@ -161,6 +174,8 @@ class Aate8354CurveTapeTest {
         assertEquals(Source8354.HELIUS_PER_MINT to Transport8354.NONE, d.decide8354(false, 0, false, affordable = false, enhancedOk = true, sharedUp = true))
         assertEquals("PROGRAM_SHARE_EXHAUSTED", d.fallbackWhy8354(Source8354.HELIUS_PER_MINT, false, false, false, false, 0, Transport8354.NONE))
         assertEquals("HELIUS_OVER_BUDGET", d.fallbackWhy8354(Source8354.HELIUS_PER_MINT, false, false, false, true, 0, Transport8354.NONE))
+        assertEquals("BYTES_OVER_3MB_MIN", d.fallbackWhy8354(Source8354.HELIUS_PER_MINT, true, true, true, false, 2, Transport8354.NONE))
+        assertEquals("BYTES_LEVEL", d.fallbackWhy8354(Source8354.HELIUS_PER_MINT, true, false, true, false, 2, Transport8354.NONE))
         assertEquals("-", d.fallbackWhy8354(Source8354.HELIUS_PROGRAM, false, false, true, false, 0, Transport8354.ENHANCED))
     }
 

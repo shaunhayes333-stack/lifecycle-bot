@@ -504,6 +504,7 @@ object EducationSubLayerAI {
         pendingEntryScores[outcomeSnapshotKey8491(outcome)]?.scores.orEmpty()
     private fun currentEntryMode8491(): String = if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive()) "live" else "paper"
     private val pendingEntryScores = ConcurrentHashMap<String, EntryScoreSnapshot>()
+    private val candidateComponents8521 = CandidateComponentBook8521()
     // V5.0.7403 — causal context frozen alongside the score snapshot.
     private val pendingEntryMarketRegime7403 = ConcurrentHashMap<String, String>()
     private const val REAL_ACCURACY_NEUTRAL_THRESHOLD = 0  // V5.9.344: 2→0. Even ±1 counts as a directional vote so layers converge off the 50% Bayesian prior instead of plateauing red.
@@ -535,6 +536,9 @@ object EducationSubLayerAI {
             pendingEntryScores.entries.removeIf { it.value.timestamp < cutoff }
         }
         val map = components.associate { normalizeLayerName(it.name) to it.value }
+        // A held position freezes its entry-learning snapshot below, but must not
+        // freeze the current features Cortex reads for later candidate decisions.
+        candidateComponents8521.record(snapshotKey, map, System.currentTimeMillis(), mergeFresh = candidate == null)
         // V5.9.1272 — ENTRY-SNAPSHOT FREEZE (the silent learning-killer fix).
         // Tokens are re-scored every cycle while they sit in the watchlist AND
         // while a position is open. A bare overwrite here meant the snapshot
@@ -569,12 +573,12 @@ object EducationSubLayerAI {
     }
 
     /**
-     * V5.0.7895 — read-only peek at the per-module V3 component scores UnifiedScorer
-     * recorded for [mint] in the last 10 minutes. The Cortex grades every module as
-     * its own voter (about 50 of them were only ever summed into one score).
+     * Current per-module V3 observations for Cortex. The position's immutable
+     * entry scores remain in pendingEntryScores for close-time attribution.
+     * Stale or future components abstain instead of becoming current votes.
      */
     fun peekEntryScores7895(mint: String): Map<String, Int>? =
-        pendingEntryScores[entrySnapshotKey8491(mint, currentEntryMode8491())]?.takeIf { System.currentTimeMillis() - it.timestamp <= 10 * 60_000L }?.scores
+        candidateComponents8521.read(entrySnapshotKey8491(mint, currentEntryMode8491()), System.currentTimeMillis())
 
     /** Captured by the existing immutable entry seal before a buy leaves the thread. */
     fun entryScoresJson8491(mint: String, mode: String): String {

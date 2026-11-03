@@ -53,7 +53,7 @@ class Aate8006ClosedLoopTest {
         // V5.0.8372: keep the chain witness AND the exact token/lane episode timestamp.
         // A later observation of the same mint must never receive an earlier episode's correction.
         // superseded by V5.0.8395: every revision carries its own outcome-specific proof (R3).
-        assertTrue(frl.contains("stageForwardRevision8404(o, net, gross, nowMs)"))
+        assertTrue(frl.contains("stageForwardRevision8404(o, net, gross, System.currentTimeMillis())"))
         assertTrue(frl.contains("if (deferExit8006) o.exitDeferred8006 = true else exitSample8006(o, gross0)"))
         assertTrue(frl.contains("endRun8006(o, gross)"))
         val cx = src("engine/cortex/Cortex7885.kt")

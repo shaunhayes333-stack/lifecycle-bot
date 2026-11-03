@@ -39,6 +39,12 @@ object RunnerTrail8419 {
     fun runnerLaneAt8468(mode: String?, owner: String?, peakPct: Double): Boolean =
         RunnerExitProfile7277.runnerExits8468(mode, peakPct) || RunnerExitProfile7277.runnerExits8468(owner, peakPct)
 
+    /** The existing lane/peak contract also follows an earned promotion of this exact position across later reads. */
+    fun runnerPosition8521(ts: TokenState, mode: String? = ts.position.tradingMode,
+                           owner: String? = HeldPositionPivotArbiter.entryOwner8384(ts)): Boolean =
+        runnerLaneAt8468(mode, owner, ts.position.peakGainPct) ||
+            RunnerLive8153.basis8153(ts) == RunnerExitContract8136.RunnerBasis8136.PROVEN_PROMOTION
+
     /** Pure: the trail level (gross %) at [peakPct]: 65 % of the peak price. NaN for no peak. */
     fun trailLevelPct8419(peakPct: Double): Double =
         if (peakPct.isFinite() && peakPct > 0.0) GreenFloor8363.trail8370(peakPct) else Double.NaN
@@ -73,9 +79,10 @@ object RunnerTrail8419 {
      * patience; a runner lane gets the trail's own points at its peak (35 + 0.35 x peak), never the table x patience
      * (35 x 0.65 = 22.75). With no peak yet a runner reads the 35-point table floor (nothing is armed anyway).
      */
-    fun holdLayerTrailPoints8419(mode: String, owner: String, tablePct: Double, patience: Double, peakPct: Double): Double {
+    fun holdLayerTrailPoints8419(mode: String, owner: String, tablePct: Double, patience: Double, peakPct: Double,
+                                runnerPosition: Boolean = runnerLaneAt8468(mode, owner, peakPct)): Double {
         // V5.0.8468 — a fast contract lane trails on its own table until promoted (RunnerExitProfile7277.runnerExits8468).
-        if (!runnerLaneAt8468(mode, owner, peakPct)) return LaneHolds8418.trailFor8418(mode, owner, tablePct, peakPct) * patience
+        if (!runnerPosition) return LaneHolds8418.trailFor8418(mode, owner, tablePct, peakPct) * patience
         val pts = pointsUnderPeak8419(peakPct)
         return if (pts.isFinite()) pts else GIVE_BACK_PRICE_PCT_8419
     }
@@ -99,9 +106,10 @@ object RunnerTrail8419 {
     // ── live readers ──
 
     /** HoldingLogicLayer: the runner exit level of [ts] (its confirmed peak, its priced round trip), or null (not a runner lane / not armed). */
-    fun holdLayerLevelFor8419(ts: TokenState, mode: String, owner: String): Level8419? {
+    fun holdLayerLevelFor8419(ts: TokenState, mode: String, owner: String,
+                             runnerPosition: Boolean = runnerPosition8521(ts, mode, owner)): Level8419? {
         val peak = ts.position.peakGainPct
-        if (!runnerLaneAt8468(mode, owner, peak)) return null   // V5.0.8468 — a contract lane only once promoted
+        if (!runnerPosition) return null   // A sealed style alone cannot promote a fast contract lane.
         if (!peak.isFinite() || peak <= 0.0) return null
         val floor = try { GreenFloor8363.floorFor8363(ts) } catch (_: Throwable) { Double.NaN }
         if (!floor.isFinite()) return null

@@ -4,6 +4,7 @@ import com.lifecyclebot.engine.cortex.CortexLedger7885
 import com.lifecyclebot.engine.truth.SpecialistMiner7972
 import com.lifecyclebot.engine.truth.TailHunter7996
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -24,16 +25,17 @@ class Aate7997ProgressiveGradingTest {
         assertEquals(1, m.n); assertEquals(120.0, m.sum, 1e-9); assertEquals(1, m.runners); assertEquals(1, m.wins)
     }
 
-    @Test fun checkpointsAreWiredIntoEveryBook() {
+    @Test fun checkpointsKeepPathLearningWithoutRetargetingTheEntryBooks() {
         val f = src("engine/truth/ForwardReturnLabeler7731.kt")
-        assertTrue(f.contains("val stop7997 = if (o.done60) checkpoint7997(o, net, gross, age, nowMs) else false"))
-        // Long-hold family only, now addressed to the original observation rather than the latest mint/lane.
-        val playbookRevision = "LanePlaybook7907.reviseLabel7997(o.mint, o.lane, oldLong8080, long8080.first, o.bookedLongGross8080, long8080.second, decisionAtMs8372 = o.atMs)"
-        assertTrue(f.substringAfter("private fun checkpoint7997(").substringBefore("private fun revise7997(").contains(playbookRevision))
-        assertTrue(f.substringAfter("private fun reviseToHour8337(").substringBefore("private val exitRunSamples8006").contains(playbookRevision))
-        // superseded by V5.0.8418 — the miner revision carries the label's booking stamps (weighted, mature combinations revise).
-        assertTrue(f.contains("SpecialistMiner7972.reviseLabel7997(o.lane, o.feats7972, oldNet, newNet, oldGross, newGross, o.minerScales8418)"))
-        assertTrue(f.contains("CellAllocator7962.reviseLabel7997(o.cell, o.lane, o.setup7955, oldNet, newNet, o.allocScales8410)"))   // V5.0.8410 — weighted by remaining ownership
+        assertTrue(f.contains("val stop7997 = if (o.done60) checkpoint7997(o, net, gross, observedAge8521, nowMs) else false"))
+        val checkpoint = f.substringAfter("private fun checkpoint7997(").substringBefore("internal fun revisionStageGiveUp8418(")
+        assertTrue(checkpoint.contains("captured7945(o, net0, gross0)"))
+        assertTrue(checkpoint.contains("worthWatchingNow8040(o, gross0)"))
+        assertFalse(checkpoint.contains("o.bookedNet7997 ="))
+        assertFalse(checkpoint.contains(".reviseLabel7997("))
+        val target = f.substringAfter("private fun bookEntryTarget8521(").substringBefore("private fun teachForwardLearners8521(")
+        assertTrue(target.contains("o.bookedNet7997.isFinite()"))
+        assertTrue(target.contains("teachForwardLearners8521(o, net, gross, nowMs)"))
     }
 
     @Test fun cryptoRidesTheSwingLadder() {

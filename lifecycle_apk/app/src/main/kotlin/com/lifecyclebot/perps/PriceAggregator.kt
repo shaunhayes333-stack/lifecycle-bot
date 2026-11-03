@@ -115,15 +115,27 @@ object PriceAggregator {
         val price: Double,
         val change24h: Double,
         val source: String,
-        val timestamp: Long = System.currentTimeMillis()
-    )
+        val timestamp: Long = System.currentTimeMillis(),
+        val observedAtMs8521: Long = timestamp,
+    ) {
+        fun result8521(stale: Boolean = false): PriceResult = PriceResult(
+            price, if (stale) 0.0 else change24h, if (stale) "STALE_$source" else source,
+            observedAtMs8521 = observedAtMs8521,
+        )
+    }
     
     data class PriceResult(
         val price: Double,
         val change24h: Double = 0.0,
         val source: String,
-        val confidence: Double = 1.0
-    )
+        val confidence: Double = 1.0,
+        // Provider publication time when supplied; otherwise the original
+        // successful price observation. Cache reads never refresh this clock.
+        val observedAtMs8521: Long = System.currentTimeMillis(),
+    ) {
+        fun cached8521(fetchedAtMs: Long = System.currentTimeMillis()): CachedPrice =
+            CachedPrice(price, change24h, source, fetchedAtMs, observedAtMs8521)
+    }
     
     // ═══════════════════════════════════════════════════════════════════════════
     // MAIN ENTRY POINT
@@ -135,8 +147,8 @@ object PriceAggregator {
     suspend fun getPrice(symbol: String, assetType: AssetType = AssetType.AUTO): PriceResult? = withContext(Dispatchers.IO) {
         // Check cache first
         val cached = priceCache[symbol]
-        if (cached != null && System.currentTimeMillis() - cached.timestamp < CACHE_TTL_MS) {
-            return@withContext PriceResult(cached.price, cached.change24h, cached.source)
+        if (cached != null && System.currentTimeMillis() - cached.timestamp in 0L until CACHE_TTL_MS) {
+            return@withContext cached.result8521()
         }
 
         // V5.9.25: auto-prune — skip symbols that have consistently failed until cooldown expires
@@ -145,8 +157,8 @@ object PriceAggregator {
             // V5.9.393: serve last known good price if still within stale window,
             // instead of forcing the caller into a price=0 fallback during the 1h prune.
             val stale = priceCache[symbol]
-            if (stale != null && System.currentTimeMillis() - stale.timestamp < STALE_FALLBACK_TTL_MS) {
-                return@withContext PriceResult(stale.price, 0.0, "STALE_${stale.source}")
+            if (stale != null && System.currentTimeMillis() - stale.timestamp in 0L until STALE_FALLBACK_TTL_MS) {
+                return@withContext stale.result8521(stale = true)
             }
             // Still pruned and no stale cache — short-circuit with no network calls
             return@withContext null
@@ -169,7 +181,7 @@ object PriceAggregator {
                 val result = fetchFromSource(symbol, source)
                 if (result != null && result.price > 0) {
                     // Cache it
-                    priceCache[symbol] = CachedPrice(result.price, result.change24h, result.source)
+                    priceCache[symbol] = result.cached8521()
                     trackSuccess(result.source)
                     consecutiveFails.remove(symbol)  // V5.9.25: reset fail counter on success
                     return@withContext result
@@ -198,8 +210,8 @@ object PriceAggregator {
         // from a previous successful fetch, serve it rather than returning null
         // (which downstream turns into price=0 and triggers bogus stop-losses).
         val stale = priceCache[symbol]
-        if (stale != null && System.currentTimeMillis() - stale.timestamp < STALE_FALLBACK_TTL_MS) {
-            return@withContext PriceResult(stale.price, 0.0, "STALE_${stale.source}")
+        if (stale != null && System.currentTimeMillis() - stale.timestamp in 0L until STALE_FALLBACK_TTL_MS) {
+            return@withContext stale.result8521(stale = true)
         }
         return@withContext null
     }
@@ -448,7 +460,8 @@ object PriceAggregator {
         return try {
             val data = PythOracle.getPrice(symbol)
             if (data != null && data.price > 0) {
-                PriceResult(data.price, calcChange(symbol, data.price), "PYTH", data.confidence)
+                PriceResult(data.price, calcChange(symbol, data.price), "PYTH", data.confidence,
+                    observedAtMs8521 = data.publishTime * 1_000L)
             } else null
         } catch (e: Exception) { null }
     }
@@ -457,7 +470,7 @@ object PriceAggregator {
         return try {
             val data = SwitchboardOracle.getPrice(symbol)
             if (data != null && data.price > 0) {
-                PriceResult(data.price, calcChange(symbol, data.price), "SWITCHBOARD")
+                PriceResult(data.price, calcChange(symbol, data.price), "SWITCHBOARD", observedAtMs8521 = data.timestamp)
             } else null
         } catch (e: Exception) { null }
     }
@@ -470,7 +483,8 @@ object PriceAggregator {
         return try {
             val price = JupiterPriceOracle.getPrice(symbol)
             if (price != null && price > 0) {
-                PriceResult(price, calcChange(symbol, price), "JUPITER")
+                PriceResult(price, calcChange(symbol, price), "JUPITER",
+                    observedAtMs8521 = JupiterPriceOracle.observedAtMs8521(symbol))
             } else null
         } catch (e: Exception) { null }
     }
@@ -479,7 +493,7 @@ object PriceAggregator {
         try {
             val id = getCoinGeckoId(symbol) ?: return@withContext null
             val request = Request.Builder()
-                .url("https://api.coingecko.com/api/v3/simple/price?ids=$id&vs_currencies=usd&include_24hr_change=true")
+                .url("https://api.coingecko.com/api/v3/simple/price?ids=$id&vs_currencies=usd&include_24hr_change=true&include_last_updated_at=true")
                 .header("User-Agent", "Mozilla/5.0")
                 .build()
             
@@ -493,7 +507,8 @@ object PriceAggregator {
                 
                 if (price > 0) {
                     response.close()
-                    return@withContext PriceResult(price, change, "COINGECKO")
+                    return@withContext PriceResult(price, change, "COINGECKO",
+                        observedAtMs8521 = (data?.optLong("last_updated_at", 0L) ?: 0L) * 1_000L)
                 }
             }
             response.close()
@@ -517,7 +532,7 @@ object PriceAggregator {
                 
                 if (price > 0) {
                     response.close()
-                    return@withContext PriceResult(price, change, "BINANCE")
+                    return@withContext PriceResult(price, change, "BINANCE", observedAtMs8521 = json.optLong("closeTime", 0L))
                 }
             }
             response.close()
@@ -991,7 +1006,8 @@ object PriceAggregator {
                         val change = quote.optDouble("regularMarketChangePercent", 0.0)
                         if (price > 0) {
                             response.close()
-                            return@withContext PriceResult(price, change, "YAHOO_V7")
+                            return@withContext PriceResult(price, change, "YAHOO_V7",
+                                observedAtMs8521 = quote.optLong("regularMarketTime", 0L) * 1_000L)
                         }
                     }
                 }
@@ -1029,7 +1045,8 @@ object PriceAggregator {
                         val change = if (prevClose > 0) ((price - prevClose) / prevClose) * 100 else 0.0
                         if (price > 0) {
                             response.close()
-                            return@withContext PriceResult(price, change, "YAHOO_V8")
+                            return@withContext PriceResult(price, change, "YAHOO_V8",
+                                observedAtMs8521 = (meta?.optLong("regularMarketTime", 0L) ?: 0L) * 1_000L)
                         }
                     }
                 }

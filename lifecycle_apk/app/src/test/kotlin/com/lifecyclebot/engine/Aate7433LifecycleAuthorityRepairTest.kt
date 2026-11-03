@@ -8,13 +8,15 @@ import java.io.File
 class Aate7433LifecycleAuthorityRepairTest {
 
     @Test
-    fun `paper runtime stop preserves positions and never enters shutdown liquidation block`() {
+    fun `paper config restart preserves positions and operator stop stays mode isolated`() {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val stop = src.substringAfter("fun stopBot(source: String = \"direct_call_unknown\")")
         assertTrue(stop.contains("paperRuntime7433"))
         assertTrue(stop.contains("val liquidateOnStop = explicitLiquidationStop7433 && !paperRuntime7433"))
         assertTrue(stop.contains("if (liquidateOnStop)"))
         assertTrue(stop.contains("STOP_SOFT_PRESERVE_POSITIONS"))
+        assertTrue(stop.contains("paperRuntime7433 && operatorStop7928"))
+        assertFalse(stop.substringBefore("private fun scheduleFreshStartAfterStop6518").contains("PositionPersistence.clear()"))
     }
 
     @Test

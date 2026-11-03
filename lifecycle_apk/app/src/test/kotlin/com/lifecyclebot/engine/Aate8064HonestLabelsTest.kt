@@ -26,10 +26,11 @@ class Aate8064HonestLabelsTest {
 
     @Test fun freshBooks() {
         // superseded by V5.0.8350 — grades price on the depth a curve trades against (allInCostPct8350); fresh books cells_8350
-        assertTrue(src("engine/truth/ForwardReturnLabeler7731.kt").contains("CELLS_KEY_7946 = \"cells_8350\""))
-        assertTrue(src("engine/cortex/LanePlaybook7907.kt").contains("\"LANE_PLAYBOOK_8076\""))
-        assertTrue(src("engine/cortex/Cortex7885.kt").contains("\"CORTEX_7885_V8076\""))
-        assertTrue(src("engine/truth/SpecialistMiner7972.kt").contains("\"specialists8076.bin\""))
+        assertTrue(src("engine/truth/ForwardReturnLabeler7731.kt").contains("CELLS_KEY_7946 = \"cells_8521\""))
+        // 8521: archive old synthetic/premature forward labels; keep realised books separate.
+        assertTrue(src("engine/cortex/LanePlaybook7907.kt").contains("\"LANE_PLAYBOOK_OBSERVED_8521\""))
+        assertTrue(src("engine/cortex/CortexForwardEpoch8521.kt").contains("\"CORTEX_7885_V8076\""))
+        assertTrue(src("engine/truth/SpecialistMiner7972.kt").contains("\"specialists8521.bin\""))
         assertTrue(src("engine/truth/HiveEdge8000.kt").contains("\"hive_edge_8076\""))
     }
 

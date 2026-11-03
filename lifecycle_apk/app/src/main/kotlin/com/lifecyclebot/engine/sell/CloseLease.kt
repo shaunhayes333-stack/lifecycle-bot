@@ -67,7 +67,13 @@ object CloseLease {
         // many, and when the emergency may re-enter (StopFast8288). They are not route attempts.
         @Volatile var preRouteWaits8288: Int = 0,
         @Volatile var preRouteEligibleAtMs8288: Long = 0L,
-    )
+    ) {
+        // Cleanup touches tracker persistence. Reserve this generation while it runs
+        // outside CloseLease's monitor; neither TTL nor another terminal caller may
+        // expose a new lease until those mutations have finished.
+        @Volatile internal var signalInvalidating8521: Boolean = false
+        internal var deferredRelease8521: String? = null
+    }
 
     private val leases = ConcurrentHashMap<String, Lease>()
     private val _dupSuppressed = AtomicLong(0L)
@@ -77,7 +83,7 @@ object CloseLease {
     // pendingSellQueue signal fed to SellOnlySafeMode → SELL_ONLY_SAFE_MODE stayed
     // active even after all sells landed. Count only TTL-live leases.
     fun activeLeaseCount(): Int = leases.entries.count { (_, l) ->
-        System.currentTimeMillis() - l.acquiredMs < LEASE_TTL_MS
+        l.signalInvalidating8521 || System.currentTimeMillis() - l.acquiredMs < LEASE_TTL_MS
     }
 
     // V5.0.3915 — operator dump 06-19 19:28 root cause.
@@ -104,7 +110,7 @@ object CloseLease {
         reapResidue()
         val now = System.currentTimeMillis()
         return leases.entries.count { (_, l) ->
-            (now - l.acquiredMs < LEASE_TTL_MS) && l.inFlight
+            l.signalInvalidating8521 || ((now - l.acquiredMs < LEASE_TTL_MS) && l.inFlight)
         }
     }
 
@@ -124,7 +130,7 @@ object CloseLease {
             val l = e.value
             val idleMs = now - l.acquiredMs
             val pastBackoff = now >= l.nextEligibleMs
-            if (!l.inFlight && !l.finalityPending && pastBackoff && idleMs >= RESIDUE_REAP_MS) {
+            if (!l.signalInvalidating8521 && !l.inFlight && !l.finalityPending && pastBackoff && idleMs >= RESIDUE_REAP_MS) {
                 it.remove()
                 try {
                     ForensicLogger.lifecycle(
@@ -145,7 +151,7 @@ object CloseLease {
     private fun current(mint: String): Lease? {
         if (mint.isBlank()) return null
         val l = leases[mint] ?: return null
-        if (System.currentTimeMillis() - l.acquiredMs >= LEASE_TTL_MS) {
+        if (!l.signalInvalidating8521 && System.currentTimeMillis() - l.acquiredMs >= LEASE_TTL_MS) {
             leases.remove(mint, l)
             l.finalityPending = false
             try {
@@ -191,12 +197,17 @@ object CloseLease {
                 (now - existing.lastTouchMs >= ProtectiveExitClass7807.emergencyRetryDelayMs(existing.closeAttemptCount - 1) ||
                     StopFast8288.preRouteEligible8288(existing.preRouteEligibleAtMs8288, now))  // V5.0.8288 — a pre-route wait re-enters on its short clock
             if (emergency7807) {
-                val prior7807 = existing.emergencyReason7807 ?: existing.originalExitReason
-                existing.emergencyReason7807 = ProtectiveExitClass7807.effectiveReason(prior7807, canonicalReason(rawReason))
+                // During cancellation the original reason has been disproved. Only
+                // still-queued/new evidence may outrank another arriving emergency.
+                val prior7807 = if (existing.signalInvalidating8521) existing.emergencyWaiting8087
+                    else existing.emergencyReason7807 ?: existing.originalExitReason
+                val incoming7807 = canonicalReason(rawReason)
+                existing.emergencyReason7807 = if (prior7807 == null) incoming7807
+                    else ProtectiveExitClass7807.effectiveReason(prior7807, incoming7807)
             }
-            if (existing.inFlight || (now < existing.nextEligibleMs && !emergencyEligible7807)) {
+            if (existing.signalInvalidating8521 || existing.inFlight || (now < existing.nextEligibleMs && !emergencyEligible7807)) {
                 _dupSuppressed.incrementAndGet()
-                if (emergency7807 && existing.inFlight) {
+                if (emergency7807 && (existing.inFlight || existing.signalInvalidating8521)) {
                     // Coalesce: one owner per mint; the stronger reason rides the existing lease and is
                     // dispatched the instant the running attempt ends (or stands down before signing).
                     existing.emergencyReason7807?.let { existing.emergencyWaiting8087 = it }
@@ -239,6 +250,10 @@ object CloseLease {
     @Synchronized
     fun recordRetry(mint: String, failureCode: String): Int {
         val l = current(mint) ?: return 0
+        if (l.signalInvalidating8521) {
+            if (failureCode.contains("SELL_FINALITY_PENDING_RETRY", ignoreCase = true)) l.finalityPending = true
+            return l.closeAttemptCount
+        }
         l.closeAttemptCount += 1
         l.lastCloseFailureCode = failureCode
         if (failureCode.contains("SELL_FINALITY_PENDING_RETRY", ignoreCase = true)) l.finalityPending = true
@@ -274,8 +289,9 @@ object CloseLease {
      * unchanged: acquire() still refuses while an attempt is in flight.
      */
     @Synchronized
-    fun recordPreRouteWait8288(mint: String): Long {
+    fun recordPreRouteWait8288(mint: String, expectedLease8521: Lease? = null): Long {
         val l = current(mint) ?: return 0L
+        if (l.signalInvalidating8521 || (expectedLease8521 != null && l !== expectedLease8521)) return 0L
         val now = System.currentTimeMillis()
         l.preRouteWaits8288 += 1
         val delay = StopFast8288.preRouteDelayMs8288(l.preRouteWaits8288)
@@ -309,6 +325,7 @@ object CloseLease {
     @Synchronized
     fun scheduleBackoff(mint: String, errorClass: String): Long {
         val l = current(mint) ?: return 0L
+        if (l.signalInvalidating8521) return 0L
         l.lastErrorClass = errorClass
         val attempt = l.closeAttemptCount.coerceAtLeast(1)
         // 2s, 4s, 8s, 15s cap (V5.0.7807) — provider/error aware.
@@ -357,8 +374,14 @@ object CloseLease {
     fun raiseIntent(mint: String, reason: String, priority: Int): Boolean {
         val l = current(mint) ?: return false
         if (ProtectiveExitClass7807.isEmergency(reason)) {
-            l.emergencyReason7807 = ProtectiveExitClass7807.effectiveReason(
-                l.emergencyReason7807 ?: l.originalExitReason, canonicalReason(reason))
+            val prior = if (l.signalInvalidating8521) l.emergencyWaiting8087
+                else l.emergencyReason7807 ?: l.originalExitReason
+            val incoming = canonicalReason(reason)
+            l.emergencyReason7807 = if (prior == null) incoming else ProtectiveExitClass7807.effectiveReason(prior, incoming)
+            if (l.signalInvalidating8521) {
+                l.emergencyWaiting8087 = l.emergencyReason7807
+                if (l.emergencyWaitingSinceMs8087 == 0L) l.emergencyWaitingSinceMs8087 = System.currentTimeMillis()
+            }
         }
         if (priority > l.intentPriority) {
             l.intentPriority = priority
@@ -374,7 +397,12 @@ object CloseLease {
 
     @Synchronized
     fun release(mint: String, terminal: String) {
-        val l = leases.remove(mint) ?: return
+        val l = leases[mint] ?: return
+        if (l.signalInvalidating8521) {
+            if (l.deferredRelease8521 == null) l.deferredRelease8521 = terminal
+            return
+        }
+        if (!leases.remove(mint, l)) return
         // A terminal close invalidates its pending timer. Without this an old emergency
         // callback can wake a newly acquired lease for the same mint with the old reason.
         selfRetryAt8094.remove(mint)
@@ -387,6 +415,51 @@ object CloseLease {
     }
 
     fun attemptCount(mint: String): Int = current(mint)?.closeAttemptCount ?: 0
+
+    /** Cancel only this unbroadcast signal. Tracker cleanup must not run under the lease monitor. */
+    fun invalidateSignal8521(mint: String, reason: String, anotherSellOwnsMint: Boolean,
+                             expectedLease8521: Lease, beforeRelease: () -> Unit): Boolean {
+        val l = synchronized(this) {
+            val current = current(mint) ?: return false
+            if (current !== expectedLease8521 || anotherSellOwnsMint || current.finalityPending ||
+                current.signalInvalidating8521) return false
+            current.signalInvalidating8521 = true
+            current.inFlight = true
+            selfRetryAt8094.remove(mint) // A timer for the disproved signal cannot requeue it during cleanup.
+            // Only copies already queued before this quote was disproved are withdrawn.
+            // A new emergency received during cleanup remains queued for the handoff.
+            if (current.emergencyWaiting8087?.let(::canonicalReason) == canonicalReason(reason)) {
+                current.emergencyWaiting8087 = null
+                current.emergencyWaitingSinceMs8087 = 0L
+            }
+            current
+        }
+        var cleaned = false
+        var invalidated = false
+        try {
+            beforeRelease()
+            cleaned = true
+        } catch (_: Throwable) {
+            // Keep the attempt owned until the caller schedules its identity-bound
+            // short retry. Cleanup failure must never strand a reservation or clear
+            // a later worker's state through the generic exception/retry path.
+            try { ForensicLogger.lifecycle("SELL_SIGNAL_CLEANUP_RETRY_8521", "mint=${mint.take(10)}") }
+            catch (_: Throwable) {}
+        } finally {
+            synchronized(this) {
+                if (leases[mint] === l) {
+                    l.signalInvalidating8521 = false
+                    val deferred = l.deferredRelease8521
+                    l.deferredRelease8521 = null
+                    if (deferred != null || (cleaned && !l.finalityPending)) {
+                        release(mint, deferred ?: "SIGNAL_INVALIDATED_8521")
+                        invalidated = cleaned
+                    }
+                }
+            }
+        }
+        return invalidated
+    }
 
     // ── V5.0.8087 — catastrophic exits do not queue behind a running attempt ──
     //

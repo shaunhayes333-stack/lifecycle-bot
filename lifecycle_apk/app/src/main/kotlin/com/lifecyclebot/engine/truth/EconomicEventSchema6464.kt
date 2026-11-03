@@ -196,6 +196,8 @@ object EconomicEventSchema6464 {
     }
     private val pendingEvictions6558 = AtomicInteger(0)
     @Volatile private var initialized = false
+    /** An empty snapshot before boot restoration is not proof that canonical sell slices are absent. */
+    fun isReady8521(): Boolean = initialized
     @Volatile private var replayCarry6489 = ReplayCarry6489()
     private val recordedBuys = AtomicLong(0L)
     private val recordedSells = AtomicLong(0L)

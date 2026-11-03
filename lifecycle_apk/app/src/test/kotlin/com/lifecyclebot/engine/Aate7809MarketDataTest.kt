@@ -127,10 +127,12 @@ class Aate7809MarketDataTest {
     @Test fun terminalProvidersStayOutOfHistoryAndDiscovery() {
         assertTrue(src("network/BirdeyeApi.kt").substringAfter("private fun get(url: String)").substringBefore("recordCalls(1)")
             .contains("isAuthTerminal"))
-        assertTrue(src("engine/DataOrchestrator.kt").contains("BIRDEYE_MTF_REFRESH_SKIPPED_AUTH_DEAD_7809"))
+        assertTrue(src("engine/DataOrchestrator.kt").contains("val birdeyeAvailable"))
+        assertTrue(src("engine/DataOrchestrator.kt").contains("rows.isEmpty() && priority && birdeyeAvailable"))
         assertTrue(src("engine/SolanaMarketScanner.kt").contains("BIRDEYE_SCANNER_SKIPPED_AUTH_DEAD_7809"))
         assertTrue(src("engine/HistoricalChartScanner.kt").contains("birdeyeDead7809"))
-        assertTrue(src("network/DexscreenerApi.kt").contains("SolanaOhlcvFeed6916.paprikaTerminal7809()"))
+        assertFalse(src("network/DexscreenerApi.kt").contains("SolanaOhlcvFeed6916.paprikaTerminal7809()"))
+        assertTrue(src("network/DexscreenerApi.kt").contains("ApiHealthMonitor.isCircuitBroken(\"dexpaprika\")"))
     }
 
     @Test fun narrativeDetectorNeverBlocksTheEntryOnGroq() {

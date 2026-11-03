@@ -11,7 +11,6 @@ import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
-import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * V5.0.6916 §THE_PATTERN_STACK_WAS_STARVED_BY_ONE_DEAD_KEY.
@@ -238,7 +237,6 @@ object SolanaOhlcvFeed6916 {
     private val cooldowns7819 = AtomicLong(0L)
     private val geckoServed7819 = AtomicLong(0L)
     private val geckoBars7819 = AtomicLong(0L)
-    private val paprikaBars7819 = AtomicLong(0L)
 
     /** V5.0.7819 — pure: cooldown for the [level]-th consecutive provider cooldown. */
     fun escalatedCooldownMs7819(level: Long): Long =
@@ -530,27 +528,12 @@ object SolanaOhlcvFeed6916 {
         // A local decline is the absence of an observation. Return empty for
         // now — there genuinely are no bars this instant — but write nothing
         // down, and count it as a skip rather than as an empty result.
-        // V5.0.7293 — DexPaprika first. GeckoTerminal answered 5xx on every
-        // call for several sessions (geckoterminal sr=0% 5xx=95, served=0);
-        // DexPaprika publishes pool OHLCV keyless on a host this app already
-        // reads for prices. GeckoTerminal remains the fallback.
-        try {
-            val paprika7293 = fetchDexPaprika7293(mint, poolHint, timeframeLabel, n)
-            if (paprika7293.isNotEmpty()) {
-                OhlcvRoute8332.served8332(OhlcvRoute8332.PAPRIKA_8332, mint, paprika7293, now)   // V5.0.8332 — source + newest-bar stamp
-                cache[key] = Cached(paprika7293, now)
-                served.incrementAndGet()
-                paprikaServed7293.incrementAndGet()
-                barsDelivered.addAndGet(paprika7293.size.toLong())
-                paprikaBars7819.addAndGet(paprika7293.size.toLong())
-                try {
-                    PipelineHealthCollector.labelInc("OHLCV_DEXPAPRIKA_SERVED_7293")
-                    PipelineHealthCollector.labelInc("OHLCV_KEYLESS_SERVED_6916_${timeframeLabel.uppercase()}")
-                } catch (_: Throwable) {}
-                return paprika7293
-            }
-        } catch (_: Throwable) {}
-        // Only GeckoTerminal established this absence. Its negative cache cannot veto DexPaprika.
+        // V5.0.8521 — only USD candles for this mint enter Candle.priceUsd. DexPaprika's public pool OHLCV
+        // is a pair ratio, sub-hour bars require a paid plan, and it has no 4h interval. Use Gecko's explicitly
+        // denominated USD endpoint here; Codex and Birdeye remain priority history sources in DataOrchestrator.
+        // DexPaprika's independent USD token-price/metadata fallback remains available in DexscreenerApi.
+
+        // Only GeckoTerminal established this absence; independent local trade candles remain available.
         // V5.0.6944 — negative cache. 1990 of 2008 results came back empty, and
         // without this the same poolless mints are re-requested every scan pass,
         // which is most of how the request budget was burned.
@@ -592,7 +575,7 @@ object SolanaOhlcvFeed6916 {
             }
             return localTapeCandles8285(mint, timeframeLabel, n, now) ?: emptyList()   // V5.0.8285 — the local alternate
         }
-        val url = "$BASE/pools/$pool/ohlcv/$unit?aggregate=$aggregate&limit=$n&currency=usd"
+        val url = "$BASE/pools/$pool/ohlcv/$unit?aggregate=$aggregate&limit=$n&currency=usd&token=$mint&include_empty_intervals=false"
         // V5.0.8191 — the pool was just resolved on the wire: wait for the next slot instead of being declined by it.
         if (lookup6982.askedProvider && awaitSlot8191(MIN_INTERVAL_MS + 500L)) slotWaits8191.incrementAndGet()
         val candles6982 = fetch6982(url)
@@ -608,43 +591,29 @@ object SolanaOhlcvFeed6916 {
                 ?: json.optJSONArray("ohlcv_list")
         } catch (_: Throwable) { null } ?: run { emptyResults.incrementAndGet(); return emptyList() }
 
+        val intervalMs8521 = when (unit) { "minute" -> 60_000L; "hour" -> 3_600_000L; else -> 86_400_000L } * aggregate
+        val meta8521 = json.optJSONObject("meta")
+        val base8521 = meta8521?.optJSONObject("base")?.optString("address").orEmpty()
+        val quote8521 = meta8521?.optJSONObject("quote")?.optString("address").orEmpty()
+        if (base8521.isNotBlank() && quote8521.isNotBlank() && mint != base8521 && mint != quote8521) {
+            rowsRejected.incrementAndGet()
+            return emptyList()
+        }
         val out = ArrayList<Candle>(list.length())
         for (i in 0 until list.length()) {
             val row = list.optJSONArray(i) ?: continue
-            if (row.length() < 5) { rowsRejected.incrementAndGet(); continue }
-            // GeckoTerminal returns seconds; the app's Candle.ts is millis.
-            val tsSec = row.optLong(0, 0L)
-            val o = row.optDouble(1, Double.NaN)
-            val h = row.optDouble(2, Double.NaN)
-            val l = row.optDouble(3, Double.NaN)
-            val c = row.optDouble(4, Double.NaN)
-            val vol = if (row.length() >= 6) row.optDouble(5, 0.0) else 0.0
-            // Strict validation. Garbage bars are worse than no bars: this
-            // history feeds OpenPnlSanity, the peak tracker and every chart
-            // shape, so a malformed row is dropped rather than flattened.
-            val sane = tsSec > 0L &&
-                o.isFinite() && h.isFinite() && l.isFinite() && c.isFinite() &&
-                o > 0.0 && h > 0.0 && l > 0.0 && c > 0.0 &&
-                l <= minOf(o, c) + 1e-12 && h >= maxOf(o, c) - 1e-12
-            if (!sane) { rowsRejected.incrementAndGet(); continue }
-            out.add(
-                Candle(
-                    ts = if (tsSec > 4_000_000_000L) tsSec else tsSec * 1000L,
-                    priceUsd = c,
-                    marketCap = 0.0,
-                    volumeH1 = 0.0,
-                    volume24h = if (vol.isFinite() && vol >= 0.0) vol else 0.0,
-                    highUsd = h,
-                    lowUsd = l,
-                    openUsd = o,
-                )
-            )
+            val candle = candleRow8521(row, intervalMs8521)
+            if (candle == null || candle.ts > now) { rowsRejected.incrementAndGet(); continue }
+            out.add(candle)
         }
         // GeckoTerminal returns newest-first; the app's history is oldest-first
         // (addLast + removeFirst on overflow), and every pattern engine reads it
         // chronologically. Reversing here is not cosmetic — a backwards series
         // inverts every trend, breakout and wick the classifiers look for.
-        val chronological = out.sortedBy { it.ts }
+        val chronological = out.sortedBy { it.ts }.distinctBy { it.ts }.onEach { c ->
+            com.lifecyclebot.engine.truth.CandleCoverage8284.tag8284(c,
+                com.lifecyclebot.engine.truth.CandleCoverage8284.Quality8284.VALID_POOL_OHLCV, "gecko", pool)
+        }
         if (chronological.isEmpty()) {
             if (list.length() > 0) FeatureSourceCounters8285.note8285("shape", "gecko", FeatureSourceCounters8285.INVALID)
             OhlcvRoute8332.noteAnswer8332(OhlcvRoute8332.GECKO_8332, 0, now)   // V5.0.8332 — answered, no sane bar
@@ -652,7 +621,7 @@ object SolanaOhlcvFeed6916 {
         }
         FeatureSourceCounters8285.note8285("shape", "gecko", FeatureSourceCounters8285.RETURNED)
         OhlcvRoute8332.noteAnswer8332(OhlcvRoute8332.GECKO_8332, chronological.size, now)   // V5.0.8332 — a served answer revives the source
-        OhlcvRoute8332.served8332(OhlcvRoute8332.GECKO_8332, mint, chronological, now)
+        OhlcvRoute8332.served8332(OhlcvRoute8332.GECKO_8332, mint, chronological, now, (intervalMs8521 / 60_000L).toInt())
         cache[key] = Cached(chronological, now)
         served.incrementAndGet()
         barsDelivered.addAndGet(chronological.size.toLong())
@@ -665,162 +634,21 @@ object SolanaOhlcvFeed6916 {
         return chronological
     }
 
-    // ══════ V5.0.7293 — DexPaprika keyless OHLCV ══════
-    //
-    //   GET https://api.dexpaprika.com/networks/solana/pools/{pool}/ohlcv
-    //       ?start={unixSec}&limit={n}&interval={1m|5m|15m|1h|6h|24h}
-    //   -> [ {time_open, time_close, open, high, low, close, volume}, ... ]
-    //      ascending by time_open (ISO-8601).
-    //
-    // Free tier is keyless at ~15 requests/minute, so the gate is 4.5 s and a
-    // 429/5xx backs the host off for a minute. Pool comes from the caller's
-    // hint, else /networks/solana/tokens/{mint}/pools (deepest by volume),
-    // cached with the GeckoTerminal pool cache's TTL. Bars pass the same strict
-    // validation as 6916; a shape this parser does not recognise yields no
-    // bars, never flattened ones.
-    private const val PAPRIKA_HOST_7293 = "dexpaprika"
-    private const val PAPRIKA_BASE_7293 = "https://api.dexpaprika.com/networks/solana"
-    private const val PAPRIKA_MIN_INTERVAL_MS_7293 = 4_500L
-    private val paprikaLastCallMs7293 = AtomicLong(0L)
-    private val paprikaCooldownUntilMs7293 = AtomicLong(0L)
-    private val paprikaServed7293 = AtomicLong(0L)
-    private val paprikaEmpty7293 = AtomicLong(0L)
-    private val paprikaPools7293 = ConcurrentHashMap<String, PoolRef>()
-
-    /** V5.0.7295 — last HTTP status from DexPaprika (0 = none / gated). */
-    @Volatile private var paprikaLastCode7295 = 0
-    // V5.0.7446 — 401/402/403 are not transient OHLCV failures. 7438 showed
-    // DexPaprika at 0% while the app kept paying calls. Latch for this process;
-    // app restart/provider credential change naturally gives it another probe.
-    private val paprikaTerminalDisabled7446 = AtomicBoolean(false)
-    @Volatile private var paprikaTerminalCode7446 = 0
-
-    /**
-     * V5.0.7809 — DexPaprika answered 401/402/403 this session (auth or paid
-     * endpoint). Other DexPaprika readers consult this so a terminal host stays
-     * out of every live path, not only OHLCV (Field Manual L404).
-     */
-    fun paprikaTerminal7809(): Boolean = paprikaTerminalDisabled7446.get()
-
-    private fun paprikaGet7293(url: String): String? {
-        paprikaLastCode7295 = 0
-        if (paprikaTerminalDisabled7446.get()) {
-            try { PipelineHealthCollector.labelInc("DEXPAPRIKA_TERMINAL_SKIP_7446") } catch (_: Throwable) {}
-            return null
-        }
-        val now = System.currentTimeMillis()
-        if (now < paprikaCooldownUntilMs7293.get()) return null
-        val prev = paprikaLastCallMs7293.get()
-        if (now - prev < PAPRIKA_MIN_INTERVAL_MS_7293 || !paprikaLastCallMs7293.compareAndSet(prev, now)) return null
-        val req = Request.Builder().url(url).header("Accept", "application/json").build()
-        return try {
-            http.newCall(req).execute().use { resp ->
-                try { ApiHealthMonitor.record(PAPRIKA_HOST_7293, resp.code, System.currentTimeMillis() - now) } catch (_: Throwable) {}
-                paprikaLastCode7295 = resp.code
-                // V5.0.7295 — 5.0.7293 showed dexpaprika 4xx=18 5xx=4 served=0 and
-                // no way to tell a wrong path (400) from an unindexed pool (404)
-                // from a rate limit (429). Every non-2xx is named by code.
-                if (!resp.isSuccessful) try { PipelineHealthCollector.labelInc("DEXPAPRIKA_HTTP_${resp.code}_7295") } catch (_: Throwable) {}
-                if (resp.code in setOf(401, 402, 403)) {
-                    paprikaTerminalCode7446 = resp.code
-                    if (paprikaTerminalDisabled7446.compareAndSet(false, true)) {
-                        try {
-                            PipelineHealthCollector.labelInc("DEXPAPRIKA_TERMINAL_DISABLE_7446_${resp.code}")
-                            ForensicLogger.lifecycle(
-                                "DEXPAPRIKA_TERMINAL_DISABLE_7446",
-                                "http=${resp.code} action=session_disable reason=auth_or_paid_endpoint",
-                            )
-                        } catch (_: Throwable) {}
-                    }
-                } else if (resp.code == 429 || resp.code >= 500) {
-                    paprikaCooldownUntilMs7293.set(System.currentTimeMillis() + COOLDOWN_MS)
-                }
-                if (!resp.isSuccessful) null else resp.body?.string()
-            }
-        } catch (e: Throwable) {
-            try { ApiHealthMonitor.recordNetworkError(PAPRIKA_HOST_7293, e.message) } catch (_: Throwable) {}
-            null
-        }
-    }
-
-    private val paprikaHintRejected7295 = ConcurrentHashMap<String, Long>()
-
-    private fun paprikaPool7293(mint: String, poolHint: String): String? {
-        val hint = poolHint.trim()
-        val hintRejected7295 = paprikaHintRejected7295[mint]?.let { System.currentTimeMillis() - it < POOL_CACHE_TTL_MS } == true
-        if (!hintRejected7295 && hint.length in 32..64 && !hint.contains(':') && !hint.equals("UNKNOWN", true)) return hint
-        paprikaPools7293[mint]?.let {
-            if (System.currentTimeMillis() - it.atMs <= POOL_CACHE_TTL_MS) return it.pool
-        }
-        if (!hintRejected7295) poolCache[mint]?.let { return it.pool }
-        val body = paprikaGet7293("$PAPRIKA_BASE_7293/tokens/$mint/pools?limit=5&order_by=volume_usd&sort=desc") ?: return null
-        return try {
-            val trimmed = body.trim()
-            val arr = if (trimmed.startsWith("[")) org.json.JSONArray(trimmed)
-                else JSONObject(trimmed).optJSONArray("pools") ?: return null
-            var best: String? = null
-            var bestVol = -1.0
-            for (i in 0 until arr.length()) {
-                val o = arr.optJSONObject(i) ?: continue
-                val id = o.optString("id", "").ifBlank { o.optString("address", "") }
-                if (id.length !in 32..64) continue
-                val vol = o.optDouble("volume_usd", 0.0).takeIf { it.isFinite() } ?: 0.0
-                if (vol > bestVol) { bestVol = vol; best = id }
-            }
-            best?.also { paprikaPools7293[mint] = PoolRef(it, System.currentTimeMillis()) }
-        } catch (_: Throwable) { null }
-    }
-
-    private fun fetchDexPaprika7293(mint: String, poolHint: String, timeframeLabel: String, n: Int): List<Candle> {
-        val (interval, stepSec) = when (timeframeLabel.trim().lowercase()) {
-            "1m" -> "1m" to 60L
-            "5m" -> "5m" to 300L
-            "15m" -> "15m" to 900L
-            "1h" -> "1h" to 3_600L
-            "4h" -> "6h" to 21_600L
-            "1d", "1day" -> "24h" to 86_400L
-            else -> return emptyList()
-        }
-        val pool = paprikaPool7293(mint, poolHint) ?: return emptyList()
-        val limit = n.coerceIn(2, 366)
-        val startSec = System.currentTimeMillis() / 1000L - stepSec * limit
-        // V5.0.7295 — RFC3339 start (documented alongside unix seconds).
-        val startIso = java.time.Instant.ofEpochSecond(startSec).toString()
-        var body = paprikaGet7293("$PAPRIKA_BASE_7293/pools/$pool/ohlcv?start=$startIso&limit=$limit&interval=$interval")
-        // V5.0.7295 — the caller's pool hint is often a DexScreener pair or a
-        // pump.fun curve that DexPaprika does not index (404). Ask DexPaprika
-        // for its own deepest pool for the token once and retry on the next pass.
-        if (body == null && (paprikaLastCode7295 == 404 || paprikaLastCode7295 == 400) && pool == poolHint.trim()) {
-            paprikaHintRejected7295[mint] = System.currentTimeMillis()
-            try { PipelineHealthCollector.labelInc("DEXPAPRIKA_HINT_POOL_UNINDEXED_7295") } catch (_: Throwable) {}
-        }
-        if (body == null) return emptyList()
-        val arr = try {
-            val t = body.trim()
-            if (t.startsWith("[")) org.json.JSONArray(t) else JSONObject(t).optJSONArray("data")
-        } catch (_: Throwable) { null } ?: run { paprikaEmpty7293.incrementAndGet(); return emptyList() }
-        val out = ArrayList<Candle>(arr.length())
-        for (i in 0 until arr.length()) {
-            val o = arr.optJSONObject(i) ?: continue
-            val tsMs = try { java.time.Instant.parse(o.optString("time_open", "")).toEpochMilli() } catch (_: Throwable) { 0L }
-            val op = o.optDouble("open", Double.NaN)
-            val h = o.optDouble("high", Double.NaN)
-            val l = o.optDouble("low", Double.NaN)
-            val c = o.optDouble("close", Double.NaN)
-            val vol = o.optDouble("volume", 0.0)
-            val sane = tsMs > 0L &&
-                op.isFinite() && h.isFinite() && l.isFinite() && c.isFinite() &&
-                op > 0.0 && h > 0.0 && l > 0.0 && c > 0.0 &&
-                l <= minOf(op, c) + 1e-12 && h >= maxOf(op, c) - 1e-12
-            if (!sane) { rowsRejected.incrementAndGet(); continue }
-            out.add(Candle(
-                ts = tsMs, priceUsd = c, marketCap = 0.0, volumeH1 = 0.0,
-                volume24h = if (vol.isFinite() && vol >= 0.0) vol else 0.0,
-                highUsd = h, lowUsd = l, openUsd = op,
-            ))
-        }
-        if (out.isEmpty()) paprikaEmpty7293.incrementAndGet()
-        return out.sortedBy { it.ts }
+    /** Typed USD provider row. A missing volume is unknown, while an explicitly reported zero stays zero. */
+    internal fun candleRow8521(row: org.json.JSONArray, intervalMs: Long): Candle? {
+        if (row.length() < 5 || intervalMs <= 0L) return null
+        val stamp = row.optLong(0, 0L)
+        val o = row.optDouble(1, Double.NaN)
+        val h = row.optDouble(2, Double.NaN)
+        val l = row.optDouble(3, Double.NaN)
+        val c = row.optDouble(4, Double.NaN)
+        val volume = if (row.length() > 5 && !row.isNull(5))
+            row.optDouble(5, Double.NaN).takeIf { it.isFinite() && it >= 0.0 } else null
+        if (stamp <= 0L || listOf(o, h, l, c).any { !it.isFinite() || it <= 0.0 } ||
+            l > minOf(o, c) || h < maxOf(o, c) || h < l) return null
+        return Candle(ts = if (stamp > 4_000_000_000L) stamp else stamp * 1000L,
+            priceUsd = c, marketCap = 0.0, volumeH1 = 0.0, volume24h = volume ?: 0.0,
+            highUsd = h, lowUsd = l, openUsd = o, intervalMs8521 = intervalMs, periodVolumeUsd8521 = volume)
     }
 
     fun statusLine(): String =
@@ -833,10 +661,8 @@ object SolanaOhlcvFeed6916 {
             "sameKeyCoalesced7484=${sameKeyCoalesced7484.get()} " +
             "localSkips6982=${localSkips6982.get()} providerErrors8078=${providerErrors8078.get()} " +
             "minIntervalMs=$MIN_INTERVAL_MS slotWaits8191=${slotWaits8191.get()} " +
-            "| dexpaprika7293 served=${paprikaServed7293.get()} empty=${paprikaEmpty7293.get()} pools=${paprikaPools7293.size} " +
-            "terminalDisabled=${paprikaTerminalDisabled7446.get()} terminalCode=$paprikaTerminalCode7446 " +
+            "| paprikaOhlcv8521=pair_units_not_USD " +
             "| perSource7819[gecko served=${geckoServed7819.get()} bars=${geckoBars7819.get()} " +
-            "dexpaprika served=${paprikaServed7293.get()} bars=${paprikaBars7819.get()} " +
             "heliusSwaps ${com.lifecyclebot.engine.truth.HeliusSwapCandles7819.servedBars7819()}] " +
             "geckoBackoff7819[level=${cooldownLevel7819.get()} cooldowns=${cooldowns7819.get()} " +
             "cooldownLeftMs=${(cooldownUntilMs.get() - System.currentTimeMillis()).coerceAtLeast(0L)}] " +
@@ -851,11 +677,9 @@ object SolanaOhlcvFeed6916 {
         fetches.set(0L); served.set(0L); cacheHits.set(0L); emptyResults.set(0L)
         poolResolves.set(0L); barsDelivered.set(0L); rowsRejected.set(0L)
         negativeCache.clear(); lastCallAtMs.set(0L); cooldownUntilMs.set(0L)
-        cooldownLevel7819.set(0L); cooldowns7819.set(0L); geckoServed7819.set(0L); geckoBars7819.set(0L); paprikaBars7819.set(0L)
+        cooldownLevel7819.set(0L); cooldowns7819.set(0L); geckoServed7819.set(0L); geckoBars7819.set(0L)
         consecutiveRejects.set(0L); rateLimited.set(0L); cooldownSkips.set(0L); negativeHits.set(0L); localSkips6982.set(0L); providerErrors8078.set(0L)
         sameKeyLastAttempt7484.clear(); sameKeyCoalesced7484.set(0L)
-        paprikaTerminalDisabled7446.set(false); paprikaTerminalCode7446 = 0
-        paprikaLastCode7295 = 0; paprikaCooldownUntilMs7293.set(0L); paprikaLastCallMs7293.set(0L)
         geckoIntervalMs8285.set(MIN_INTERVAL_MS); okStreak8285.set(0L); localServed8285.set(0L)
         tradesAsked8285.set(0L); tradesTaped8285.set(0L); tradesInvalid8285.set(0L); tradesSkipped8285.set(0L); tradesAt8285.clear()
         synchronized(tradesMinute8285) { tradesMinute8285.clear() }
@@ -911,7 +735,8 @@ object SolanaOhlcvFeed6916 {
         val bars = com.lifecyclebot.engine.chart.LocalTapeBars8128.fromPrints8128(prints, solUsd) ?: return null
         return bars.map { b ->
             Candle(ts = b.t, priceUsd = b.c, marketCap = 0.0, volumeH1 = 0.0,
-                volume24h = if (b.v.isFinite() && b.v >= 0.0) b.v else 0.0, highUsd = b.h, lowUsd = b.l, openUsd = b.o)
+                volume24h = if (b.v.isFinite() && b.v >= 0.0) b.v else 0.0, highUsd = b.h, lowUsd = b.l, openUsd = b.o,
+                intervalMs8521 = 60_000L, periodVolumeUsd8521 = b.v.takeIf { it.isFinite() && it >= 0.0 })
         }.takeIf { it.isNotEmpty() }
     }
 

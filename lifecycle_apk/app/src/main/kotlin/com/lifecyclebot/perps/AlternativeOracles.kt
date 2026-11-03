@@ -207,6 +207,17 @@ object JupiterPriceOracle {
     // stale dynamic-alt prices to masquerade as fresh during cross-universe scans.
     private val lastFetchTimeBySymbol = ConcurrentHashMap<String, Long>()
     private const val CACHE_TTL_MS = 3_000L
+
+    /** Original successful observation, including when getPrice returned its cache. */
+    fun observedAtMs8521(symbol: String): Long = lastFetchTimeBySymbol[symbol] ?: 0L
+
+    internal fun acceptPrice8521(root: JSONObject, symbol: String, mint: String, observedAtMs: Long): Double? {
+        val price = com.lifecyclebot.network.JupiterPriceIds8418.usdPrice8418(root, mint) ?: return null
+        if (observedAtMs <= 0L) return null
+        priceCache[symbol] = price
+        lastFetchTimeBySymbol[symbol] = observedAtMs
+        return price
+    }
     
     private val client = SharedHttpClient.builder()
         .connectTimeout(5, TimeUnit.SECONDS)
@@ -325,13 +336,9 @@ object JupiterPriceOracle {
                 val body = response.body?.string()
                 if (body != null) {
                     val json = JSONObject(body)
-                    val data = json.optJSONObject("data")
-                    val tokenData = data?.optJSONObject(mint)
-                    val price = tokenData?.optDouble("price", 0.0) ?: 0.0
+                    val price = acceptPrice8521(json, symbol, mint, System.currentTimeMillis()) ?: 0.0
                     
                     if (price > 0) {
-                        priceCache[symbol] = price
-                        lastFetchTimeBySymbol[symbol] = System.currentTimeMillis()
                         ErrorLogger.info(TAG, "🪐 Jupiter: $symbol = \$${price.fmt(4)}")
                         return@withContext price
                     }
@@ -366,15 +373,11 @@ object JupiterPriceOracle {
                 val body = response.body?.string()
                 if (body != null) {
                     val json = JSONObject(body)
-                    val data = json.optJSONObject("data")
-                    
+                    val observedAtMs = System.currentTimeMillis()
                     mints.forEach { (symbol, mint) ->
-                        val tokenData = data?.optJSONObject(mint)
-                        val price = tokenData?.optDouble("price", 0.0) ?: 0.0
+                        val price = acceptPrice8521(json, symbol, mint, observedAtMs) ?: 0.0
                         if (price > 0) {
                             results[symbol] = price
-                            priceCache[symbol] = price
-                            lastFetchTimeBySymbol[symbol] = System.currentTimeMillis()
                         }
                     }
                 }
