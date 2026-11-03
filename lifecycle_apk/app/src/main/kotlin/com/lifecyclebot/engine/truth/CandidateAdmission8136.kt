@@ -522,8 +522,11 @@ object CandidateAdmission8136 {
             // demoted door falls through to every later door: losing cell/stage, timing, economics at the quoted size.
             // Safety, structure and missing-data defers above are unchanged.
             val supported8511 = bestSetup8153(c)
-            if (supported8511 == null && !fastTrack8520 && doorBinds8393("ENTRY_${wait}_8506"))
-                return done(Terminal8136.REFUSE, "ENTRY_${wait}_8506", true, c.selectedSetup)
+            if (!fastTrack8520) {
+                // The original 8511 binding door remains unchanged for ordinary candidates.
+                if (supported8511 == null && doorBinds8393("ENTRY_${wait}_8506"))
+                    return done(Terminal8136.REFUSE, "ENTRY_${wait}_8506", true, c.selectedSetup)
+            }
             trace += if (fastTrack8520) "entryWait8506=$wait overriddenBy=FRESH_EXECUTED_TAPE_8520"
                 else if (supported8511 != null) "entryWait8506=$wait overriddenBy=${supported8511.id}"
                 else "entryWait8506=$wait doorAdvisory"
