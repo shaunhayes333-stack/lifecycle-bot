@@ -81,6 +81,22 @@ class UnifiedScorer(
      *
      * V5.9.326: routes to classicScore() or modernScore() based on classicMode flag.
      */
+    /** Shared, realised-outcome soft correction for both MODERN and production UNIFIED scoring.
+     * Only mature, observed profit/loss cohorts contribute; this never makes an executable verdict.
+     */
+    private fun bandExpectancyComponent8522(candidate: CandidateSnapshot, inputs: List<ScoreComponent>): ScoreComponent? = try {
+        val tradingMode = candidate.extraString("tradingMode")
+        if (tradingMode.isBlank()) null else {
+            val preTotal = inputs.sumOf { it.value }
+            val nudge = com.lifecyclebot.engine.LosingPatternMemory.recommendedBandNudge(tradingMode, preTotal)
+            if (nudge == 0) null else {
+                val band = com.lifecyclebot.engine.LosingPatternMemory.scoreBand(preTotal)
+                ScoreComponent(name = "band_expectancy", value = nudge,
+                    reason = "BAND $tradingMode|$band realised-PnL reshaper ${if (nudge > 0) "boost" else "damp"} ($nudge)")
+            }
+        }
+    } catch (_: Exception) { null }
+
     fun score(candidate: CandidateSnapshot, ctx: TradingContext): ScoreCard {
         // V5.9.813 — unifiedMode takes precedence; falls through to classic/modern split otherwise.
         // Opt-in only. classicMode (default true) remains the production path until operator
@@ -745,23 +761,7 @@ class UnifiedScorer(
             // the bucket's REALISED mean-PnL back into the score as a small signed,
             // bounded nudge: boost matured proven-positive bands, damp matured
             // proven-negative bands. Evidence-gated (n>=20), soft, never a veto.
-            val bandComponent: ScoreComponent? = try {
-                val tradingMode = candidate.extraString("tradingMode")
-                if (tradingMode.isBlank()) null else {
-                    val preTotal = gatedComponents.sumOf { it.value }
-                    val nudge = com.lifecyclebot.engine.LosingPatternMemory
-                        .recommendedBandNudge(tradingMode, preTotal)
-                    if (nudge == 0) null
-                    else {
-                        val band = com.lifecyclebot.engine.LosingPatternMemory.scoreBand(preTotal)
-                        ScoreComponent(
-                            name = "band_expectancy",
-                            value = nudge,
-                            reason = "BAND $tradingMode|$band realised-PnL reshaper ${if (nudge > 0) "boost" else "damp"} ($nudge)"
-                        )
-                    }
-                }
-            } catch (_: Exception) { null }  // fail-open: never blocks
+            val bandComponent = bandExpectancyComponent8522(candidate, gatedComponents)
 
             // ─── PHASE 13: ARB SUBSYSTEM — SOFT SIGNAL (V5.9.1283) ─────────
             // ArbScannerAI (FlowImbalance / PanicReversion / VenueLag) was wired
@@ -1335,7 +1335,10 @@ class UnifiedScorer(
 
             // V5.0.7809 — fresh-launch tape evidence reaches the UNIFIED total
             // (it was CLASSIC-only); added after the gates exactly as CLASSIC adds it.
-            val finalCard = ScoreCard(moeComponents)
+            // Production UNIFIED used to omit MODERN's matured winner/loser score-band signal entirely.
+            // Keep this a bounded learned component, not a buy authority, and retain the exact raw contributions.
+            val bandComponent8522 = bandExpectancyComponent8522(candidate, moeComponents)
+            val finalCard = ScoreCard(moeComponents + listOfNotNull(bandComponent8522))
             try { EducationSubLayerAI.recordEntryScores(candidate.mint, SyntheticComponentAccountability.annotate(finalCard.components, candidate, "UNIFIED"), candidate, ctx.mode.name) } catch (_: Exception) {}
             try { com.lifecyclebot.engine.LearningLifecycleBus.scorerComponents("UNIFIED", candidate, finalCard.components) } catch (_: Exception) {}
 
