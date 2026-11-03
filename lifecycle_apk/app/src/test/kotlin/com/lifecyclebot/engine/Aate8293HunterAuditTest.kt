@@ -38,6 +38,24 @@ class Aate8293HunterAuditTest {
         liquidityDeltaPct = 0.0, buyPressurePct = 60.0, providerAgreement = 2, regime = "NORMAL", generatedAtMs = t0,
     )
 
+    @Test fun onlyFreshDominantExecutedTapeQualifiesForHighVelocityFastTrack() {
+        val burst = RunTape8293.Run8293(prints = 20, buys = 16, recentBuys = 7,
+            buySol = 3.2, bpSolPct = 82.0, bpTxPct = 80.0, risePct = 54.0,
+            vsPeak = 0.98, lastMinutePct = 26.0, pxSol = 0.000001, atMs = t0)
+        assertTrue(RunTape8293.highVelocity8520(burst))
+        assertFalse(RunTape8293.highVelocity8520(burst.copy(recentBuys = 1)))
+        assertFalse(RunTape8293.highVelocity8520(burst.copy(bpSolPct = 53.0)))
+        assertFalse(RunTape8293.highVelocity8520(burst.copy(buySol = 0.25)))
+        assertFalse(RunTape8293.highVelocity8520(burst.copy(lastMinutePct = 2.0)))
+        assertFalse(RunTape8293.highVelocity8520(burst.copy(vsPeak = 0.84)))
+        assertFalse(RunTape8293.highVelocity8520(burst.copy(risePct = 140.0)))
+        assertFalse(RunTape8293.highVelocity8520(burst.copy(risePct = 75.0)))
+        assertFalse(RunTape8293.highVelocity8520(burst.copy(lastMinutePct = 60.0)))
+        assertTrue(RunTape8293.conservativeNetFastTrack8520(30.0, 4.5))
+        assertFalse(RunTape8293.conservativeNetFastTrack8520(Double.NaN, 4.5))
+        assertFalse(RunTape8293.conservativeNetFastTrack8520(8.0, 4.5))
+    }
+
     // ── mandates in the native terms ──
 
     @Test fun expressMandateIsTheNativeOne() {

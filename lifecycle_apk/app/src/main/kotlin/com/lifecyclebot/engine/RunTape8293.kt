@@ -129,6 +129,44 @@ object RunTape8293 {
         return !synchronized(record) { standsDown8293(record) }
     }
 
+    /**
+     * V5.0.8520 — a fresh, unusually strong EXECUTED-PRINT momentum witness, not a price-feed estimate.
+     * A phase/reclaim wait may consume this witness; safety, sellability and sized net economics remain binding.
+     * Deliberately do not treat a five-minute-old detection as a live fast-track.
+     */
+    internal fun highVelocity8520(r: Run8293): Boolean =
+        r.prints >= 15 && r.recentBuys >= 5 && r.buySol >= 2.0 &&
+            r.bpSolPct >= 75.0 && r.bpTxPct >= 65.0 &&
+            r.lastMinutePct in 20.0..40.0 && r.vsPeak >= 0.95 && r.risePct <= 65.0
+
+    fun freshHighVelocity8520(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        val e = evidence[mint] ?: return false
+        if (nowMs - e.atMs !in 0L..FRESH_PRINT_MS_8293) return false
+        return highVelocity8520(e) && fresh8293(mint, nowMs)
+    }
+
+    /**
+     * V5.0.8520 EV filter — the 30-minute executed-tape cohort is a GROSS
+     * forward outcome, not realised SOL. Its conservative mean minus one SE
+     * needs to clear actual sized costs and a substantial additional margin.
+     * Cold or ungraded books give no fast-track authority.
+     */
+    fun conservativeForwardGross8520(): Double {
+        ensureRecord8293()
+        return synchronized(record) {
+            if (record.n < 20.0) Double.NaN else {
+                val se = kotlin.math.sqrt(record.variance() / record.n)
+                val lower = record.mean() - se
+                if (lower.isFinite()) lower else Double.NaN
+            }
+        }
+    }
+
+    /** Pure: require material positive forward edge after a modelled round trip, never a tiny gross uptick. */
+    internal fun conservativeNetFastTrack8520(lowerGrossPct: Double, roundTripCostPct: Double): Boolean =
+        lowerGrossPct.isFinite() && roundTripCostPct.isFinite() && roundTripCostPct > 0.0 &&
+            lowerGrossPct - roundTripCostPct >= maxOf(10.0, 2.0 * roundTripCostPct)
+
     /** The latest evidence line for [mint] inside the evidence window, or null. */
     fun evidence8293(mint: String, nowMs: Long = System.currentTimeMillis()): String? =
         evidence[mint]?.takeIf { nowMs - it.atMs in 0L..EVIDENCE_TTL_MS_8293 }?.evidence()
