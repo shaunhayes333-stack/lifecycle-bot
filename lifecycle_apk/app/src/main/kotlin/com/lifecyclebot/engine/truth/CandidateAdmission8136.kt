@@ -117,6 +117,8 @@ object CandidateAdmission8136 {
         /** Native's own named setup is retained when optional playbook features prevent classification. */
         val nativeSetup8213: String? = null,
         val entryWait8506: String? = null,
+        /** Executed-print velocity witness, current for at most 20 seconds (RunTape8293). */
+        val highVelocityTape8520: Boolean = false,
         /**
          * V5.0.8507 — the coin is a watchlist re-check (TokenState.source WATCHLIST: re-hydrated by the pair poll, no live
          * discovery event). 8506: that source n1270 -10.9% 5-min net and 349 of the buy-qualified rows; its live buys all
@@ -441,6 +443,17 @@ object CandidateAdmission8136 {
             c.safetyRefusal == null && c.structuralRisk == null &&
             NetEdge8030.entryClears8030(gross, c.costPct, c.costMargin8391)
 
+    /**
+     * V5.0.8520 — use observed extreme tape velocity as a candidate-specific phase witness.
+     * This clears only the auxiliary chart/phase/reclaim wait. It never overrides missing
+     * price, quote, token-map, sellability, safety, structural risk, losing evidence or
+     * the lane's own score and sized executable cost margin.
+     */
+    internal fun highVelocityFastTrack8520(c: Candidate8136): Boolean =
+        c.live && c.highVelocityTape8520 && !c.watchlistRecheck8507 &&
+            c.lane.uppercase() in setOf("MOONSHOT", "SHITCOIN", "EXPRESS") &&
+            optionalNativeContextClears8213(c, c.expectedGrossPct)
+
     // ── the decision ──
 
     /** Pure: the one terminal admission for [c]. Order: safety, structure, loss patterns, timing, economics, data, edge, prior. */
@@ -485,6 +498,7 @@ object CandidateAdmission8136 {
         val liveCell8210 = if (c.lossEpochAware8169) c.cellLoss8169 else c.cell
         // V5.0.8316 — support is read on the cell past the realised shortfall; the loss tests below read the raw cell.
         val liveCellProof8290 = if (c.lossEpochAware8169) c.cellLossProof8290 else c.cellProof8290
+        val fastTrack8520 = highVelocityFastTrack8520(c)
         if (c.live && c.entryWait8506 != null) {
             val wait = c.entryWait8506
             val missing = when (wait) {
@@ -492,11 +506,12 @@ object CandidateAdmission8136 {
                 "STAGE_UNRESOLVED" -> "shape,chg,bp"
                 else -> null
             }
-            if (missing != null) {
+            if (missing != null && !fastTrack8520) {
                 trace += "entryWait8506=$wait"
                 trace += "missing=$missing"
                 return done(Terminal8136.DEFER_DATA, "DATA_INCOMPLETE_DEFER_8136", false, c.selectedSetup)
             }
+            if (missing != null) trace += "fastTrack8520=$wait executedTapeObserved; optionalStage=$missing"
             // V5.0.8511 §4A — the generic stage/flow wait no longer pre-empts candidate-specific evidence. It refuses only when
             // (a) no setup of this candidate is SUPPORTED after cost on its own record (bestSetup8153: lower bound past the
             // cost bar or a proven tail; suspect / sheet-AVOID records never count), and (b) its door still binds
@@ -504,9 +519,11 @@ object CandidateAdmission8136 {
             // demoted door falls through to every later door: losing cell/stage, timing, economics at the quoted size.
             // Safety, structure and missing-data defers above are unchanged.
             val supported8511 = bestSetup8153(c)
-            if (supported8511 == null && doorBinds8393("ENTRY_${wait}_8506"))
+            if (supported8511 == null && !fastTrack8520 && doorBinds8393("ENTRY_${wait}_8506"))
                 return done(Terminal8136.REFUSE, "ENTRY_${wait}_8506", true, c.selectedSetup)
-            trace += if (supported8511 != null) "entryWait8506=$wait overriddenBy=${supported8511.id}" else "entryWait8506=$wait doorAdvisory"
+            trace += if (fastTrack8520) "entryWait8506=$wait overriddenBy=FRESH_EXECUTED_TAPE_8520"
+                else if (supported8511 != null) "entryWait8506=$wait overriddenBy=${supported8511.id}"
+                else "entryWait8506=$wait doorAdvisory"
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
                 (if (supported8511 != null) "ENTRY_WAIT_SUPPORTED_SETUP_FALLTHROUGH_8511_" else "ENTRY_WAIT_DOOR_ADVISORY_8511_") + c.lane.uppercase()) } catch (_: Throwable) {}
         }
@@ -1448,6 +1465,7 @@ object CandidateAdmission8136 {
             regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "" },
             stage = fit?.stage?.name.orEmpty(),
             entryWait8506 = entry?.second,
+            highVelocityTape8520 = try { com.lifecyclebot.engine.RunTape8293.freshHighVelocity8520(ts.mint, nowMs) } catch (_: Throwable) { false },
             priceAgeMs = priceAge,
             // V5.0.8283 — the lifecycle split (dataIncomplete8136's binding inputs; the too-young history recorded apart).
             missingInputs = resolvedMissingInputs(
