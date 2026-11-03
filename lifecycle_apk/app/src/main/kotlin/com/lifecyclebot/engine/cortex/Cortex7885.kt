@@ -2557,7 +2557,7 @@ object Cortex7885 {
      * not inverted and not barred (STRONG closes lost or STRONG trails a rival out of sample).
      */
     fun strongCohortEvidence8200(ts: TokenState, laneRaw: String): com.lifecyclebot.engine.truth.CandidateAdmission8136.Evidence8136? {
-        if (operatorDecision8522(ts.mint, laneRaw, ts) != null) return null
+        if (operatorDecision8522(ts.mint, laneRaw, ts) != null) return nullWhy8201("OPERATOR_OVERRIDE_8522")
         try {
             CortexAudit8169.call("STRONG_COHORT_8200")
             val a = cachedOrSchedule(ts, laneRaw) ?: return nullWhy8201("NO_ASSESSMENT")
