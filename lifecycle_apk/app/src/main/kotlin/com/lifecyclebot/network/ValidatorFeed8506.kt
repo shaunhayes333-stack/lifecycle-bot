@@ -2,6 +2,8 @@ package com.lifecyclebot.network
 
 import com.google.protobuf.MessageLite
 import com.google.protobuf.Parser
+import com.lifecyclebot.engine.ErrorLogger
+import com.lifecyclebot.engine.PipelineHealthCollector
 import com.lifecyclebot.validator.ValidatorFeed as Wire
 import io.grpc.CallOptions
 import io.grpc.ClientCall
@@ -25,7 +27,7 @@ internal object ValidatorFeed8506 {
     private var preview: ClientCall<Wire.Request, Wire.Update>? = null
     private var endpoint = ""
     private var token = ""
-    private var retryAt = 0L
+    @Volatile private var retryAt = 0L
     private var failures = 0
     private var lastMessage = 0L
     private var refresh: ScheduledFuture<*>? = null
@@ -33,7 +35,12 @@ internal object ValidatorFeed8506 {
     @Volatile private var processedFrames = 0L
     @Volatile private var confirmedFrames = 0L
     @Volatile private var malformedFrames = 0L
-    fun statusLine(): String = "$state processedFrames=$processedFrames confirmedFrames=$confirmedFrames malformed=$malformedFrames"
+    @Volatile private var refusedStream = ""
+    @Volatile private var refusalCount = 0L
+    private var lastWarningAtMs = 0L
+    private var lastAuthWarningAtMs = 0L
+    fun statusLine(): String = "$state processedFrames=$processedFrames confirmedFrames=$confirmedFrames malformed=$malformedFrames " +
+        "refusals=$refusalCount lastRefused=${refusedStream.ifBlank { "-" }} retryInSec=${((retryAt - System.currentTimeMillis()).coerceAtLeast(0L) / 1000L)}"
     @Volatile var state = "OFF"
         private set
     private val recent = LinkedHashMap<String, Long>()
@@ -50,7 +57,14 @@ internal object ValidatorFeed8506 {
         if (timer != null && url == endpoint && key == token) return@execute
         close()
         endpoint = url.trim(); token = key.trim()
-        if (endpoint.isEmpty()) return@execute
+        if (endpoint.isEmpty() || token.isEmpty()) {
+            state = if (endpoint.isEmpty()) "NO_ENDPOINT" else "NO_TOKEN"
+            if (endpoint.isNotEmpty()) {
+                try { PipelineHealthCollector.labelInc("VALIDATOR_TOKEN_MISSING_8509") } catch (_: Throwable) {}
+                ErrorLogger.warn("ValidatorFeed8506", "stream=both state=NO_TOKEN; configure an entitled Yellowstone x-token")
+            }
+            return@execute
+        }
         val uri = runCatching { URI(endpoint) }.getOrNull()
         if (uri == null || uri.scheme != "https" || uri.host == null || uri.userInfo != null ||
             uri.rawQuery != null || uri.fragment != null || uri.path !in setOf("", "/") || uri.port == 0 || uri.port > 65535) {
@@ -68,7 +82,7 @@ internal object ValidatorFeed8506 {
         disconnect("OFF"); retryAt = 0; failures = 0
         recent.clear(); ValidatorTx8506.reset()
     }
-    private fun disconnect(reason: String) {
+    private fun disconnect(reason: String, streamKind: String = "both") {
         val old = call; call = null
         old?.cancel("stream closed", null)
         val early = preview; preview = null; early?.cancel("stream closed", null)
@@ -76,7 +90,20 @@ internal object ValidatorFeed8506 {
         failures = (failures + 1).coerceAtMost(7)
         retryAt = System.currentTimeMillis() + (1_000L shl failures)
         state = reason
-        if (reason in setOf("UNAUTHENTICATED", "PERMISSION_DENIED", "RESOURCE_EXHAUSTED")) retryAt = System.currentTimeMillis() + 15L * 60_000L
+        val refused = reason in setOf("UNAUTHENTICATED", "PERMISSION_DENIED", "RESOURCE_EXHAUSTED")
+        if (refused) {
+            retryAt = System.currentTimeMillis() + 15L * 60_000L
+            refusedStream = streamKind
+            refusalCount++
+            try { PipelineHealthCollector.labelInc("VALIDATOR_AUTH_OR_CAPACITY_REFUSED_8509") } catch (_: Throwable) {}
+        }
+        val now = System.currentTimeMillis()
+        val warningDue = if (refused) now - lastAuthWarningAtMs > 60_000L else now - lastWarningAtMs > 60_000L
+        if (reason != "OFF" && warningDue) {
+            if (refused) lastAuthWarningAtMs = now else lastWarningAtMs = now
+            // No URL, token or gRPC status description: these may contain credentials.
+            ErrorLogger.warn("ValidatorFeed8506", "stream=$streamKind state=$reason; verify alternate feed health independently; retryInSec=${((retryAt - now).coerceAtLeast(0L) / 1000L)}")
+        }
     }
 
     private fun tick(uri: URI) {
@@ -130,7 +157,7 @@ internal object ValidatorFeed8506 {
                 } finally { if (active()) stream.request(1) }
             }
             override fun onClose(status: Status, trailers: Metadata) {
-                if (active()) disconnect(status.code.name)
+                if (active()) disconnect(status.code.name, if (processed) "processed" else "confirmed")
             }
         }, headers)
         stream.request(1); stream.sendMessage(subscription(watch, processed))

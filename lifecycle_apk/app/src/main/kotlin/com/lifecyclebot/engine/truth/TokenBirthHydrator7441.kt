@@ -97,13 +97,29 @@ object TokenBirthHydrator7441 {
     private const val POOL_THREADS_8287 = 3
     private const val POOL_QUEUE_8287 = 256
     private val dropped8287 = java.util.concurrent.atomic.AtomicLong(0)
+    private val started8509 = java.util.concurrent.atomic.AtomicLong(0)
+    private val completed8509 = java.util.concurrent.atomic.AtomicLong(0)
 
     /** One birth walk; the mint leaves [inFlight] when it ends or when its queued walk is dropped for a newer one. */
     private class Walk8287(val mint: String) : Runnable {
         override fun run() {
+            started8509.incrementAndGet()
             try { TokenBirthHydrator7441.hydrate(mint) } catch (_: Throwable) {
-            } finally { TokenBirthHydrator7441.inFlight.remove(mint) }
+            } finally {
+                completed8509.incrementAndGet()
+                TokenBirthHydrator7441.inFlight.remove(mint)
+            }
         }
+    }
+
+    /**
+     * 8509: ThreadPoolExecutor.execute calls BlockingQueue.offer. The old LinkedBlockingQueue was FIFO, so a
+     * just-created launch waited behind up to 256 older RPC walks (each may spend seconds paging). Rejecting the
+     * oldest only after saturation did not make the ordinary queue newest-first as the 8287 contract promised.
+     * Put fresh discoveries at the head; defer old history walks rather than consuming the sniper's 180-second window.
+     */
+    internal class NewestFirstQueue8509(capacity: Int) : java.util.concurrent.LinkedBlockingDeque<Runnable>(capacity) {
+        override fun offer(e: Runnable): Boolean = super.offerFirst(e)
     }
 
     /** Queue full: the oldest queued walk is dropped (its mint may be asked again), the new one is queued. */
@@ -112,13 +128,14 @@ object TokenBirthHydrator7441 {
             (r as? Walk8287)?.let { inFlight.remove(it.mint) }
             return@RejectedExecutionHandler
         }
-        (ex.queue.poll() as? Walk8287)?.let { inFlight.remove(it.mint); dropped8287.incrementAndGet() }
+        val evicted = (ex.queue as? java.util.concurrent.LinkedBlockingDeque<Runnable>)?.pollLast() ?: ex.queue.poll()
+        (evicted as? Walk8287)?.let { inFlight.remove(it.mint); dropped8287.incrementAndGet() }
         if (!ex.queue.offer(r)) (r as? Walk8287)?.let { inFlight.remove(it.mint) }
     }
 
     private val pool8287 = java.util.concurrent.ThreadPoolExecutor(
         POOL_THREADS_8287, POOL_THREADS_8287, 30L, TimeUnit.SECONDS,
-        java.util.concurrent.LinkedBlockingQueue<Runnable>(POOL_QUEUE_8287),
+        NewestFirstQueue8509(POOL_QUEUE_8287),
         java.util.concurrent.ThreadFactory { r -> Thread(r, "birth-hydrate-8287").apply { isDaemon = true } },
         dropOldest8287,
     ).apply { allowCoreThreadTimeOut(true) }
@@ -141,7 +158,7 @@ object TokenBirthHydrator7441 {
     fun statusLine7441(): String =
         "birthHydrator7441[requests=${requests8265.get()} launched=${launched8265.get()} busDropped=${busDropped8265.get()} " +
             "cooldownSkips=${cooldownSkips8265.get()} dropped8287=${dropped8287.get()} resolved=${resolved8265.get()} mintInitProven8418=${initProven8418.get()} unproven8418=${initUnproven8418.get()} noRpc=${noRpc8265.get()} noAnswer=${noAnswer8265.get()} " +
-            "inFlight=${inFlight.size} progress=${progress.size} cooling=${cooldownUntil.size}] ${walkOutcomes8435()} ${StoredBirth8418.statusLine8418()}"
+            "inFlight=${inFlight.size} queued8509=${pool8287.queue.size} started8509=${started8509.get()} completed8509=${completed8509.get()} progress=${progress.size} cooling=${cooldownUntil.size}] ${walkOutcomes8435()} ${StoredBirth8418.statusLine8418()}"
 
     /**
      * V5.0.8435 — 8434: launched=1769 resolved=13, and where the other walks ended (another page owed, the page budget, a
