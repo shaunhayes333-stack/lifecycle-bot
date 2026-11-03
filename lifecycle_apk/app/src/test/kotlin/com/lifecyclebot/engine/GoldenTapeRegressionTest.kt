@@ -2882,7 +2882,8 @@ class GoldenTapeRegressionTest {
         assertTrue("MoE must consume MetaCog trust", moe.contains("MetaCognitionAI.getTrustMultiplier"))
         assertTrue("MoE must be bounded", moe.contains("FLOOR = 0.75") && moe.contains("CAP = 1.25"))
         assertTrue("MoE must preserve non-zero votes", moe.contains("nonZeroRounded"))
-        assertTrue("UnifiedScorer must apply MoE before final ScoreCard", scorer.contains("SpecialistMoEGate.apply(gatedComponents, candidate, ctx)") && scorer.contains("ScoreCard(moeComponents)"))
+        assertTrue("UnifiedScorer must apply MoE before final ScoreCard", scorer.contains("SpecialistMoEGate.apply(gatedComponents, candidate, ctx)") &&
+            scorer.contains("ScoreCard(moeComponents + listOfNotNull(bandComponent8522))"))
         assertTrue("MoE telemetry must be report-visible", collector.contains("SpecialistMoEGate.formatForPipelineDump"))
         assertFalse("MoE must not introduce hard veto", moe.contains("fatal = true") || moe.contains("return emptyList") || moe.contains("return false"))
         assertFalse("MoE must not call an LLM/API on scorer hot path", moe.contains("GeminiCopilot") || moe.contains("Groq") || moe.contains("rawText") || moe.contains("http"))
@@ -12509,7 +12510,9 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("laneName4588 == \"CORE\""))
         assertTrue(bot.contains("ts.position.tradingMode.uppercase() in setOf(\"BLUE_CHIP\", \"BLUECHIP\")"))
         assertTrue(bot.contains("TREASURY_V3_SCORE_REJECT_NOT_BINDING_7389"))
-        assertTrue(bot.contains("bounceConfirmed = dipBounce7389"))
+        assertTrue(bot.contains("val dipBounce7389 = run {") &&
+            bot.contains("operatorDipAssessment8522(ts, recentHigh, dipVolVsAvg, tokenAgeHours, dipBounce7389)") &&
+            bot.contains("bounceConfirmed = bounce"))
         // The dip recovery partial is now named DIP_TARGET_PARTIAL_TAKE_PROFIT_50PCT (asserted below).
         val lec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneEntryContract6342.kt").readText()
         assertTrue(lec.contains("if (ts.lastMcap <= 0.0 || ts.lastMcap !in qualityMcapBand7389()) return false"))
