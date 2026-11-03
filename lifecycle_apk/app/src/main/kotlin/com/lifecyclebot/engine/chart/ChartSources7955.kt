@@ -382,10 +382,10 @@ object ChartSources7955 {
 
     private val JSON_MT = "application/json".toMediaType()
 
-    private fun codexBody(mint: String, fromSec: Long, toSec: Long): String =
+    private fun codexBody(mint: String, fromSec: Long, toSec: Long, resolution: String = "1"): String =
         JSONObject().put("query",
-            "query B(\$s: String!, \$f: Int!, \$t: Int!, \$r: String!) { getBars(symbol: \$s, from: \$f, to: \$t, resolution: \$r, removeEmptyBars: true) { t o h l c volume buyVolume } }")
-            .put("variables", JSONObject().put("s", "$mint:$CODEX_SOLANA").put("f", fromSec).put("t", toSec).put("r", "1"))
+            "query B(\$s: String!, \$f: Int!, \$t: Int!, \$r: String!) { getBars(symbol: \$s, from: \$f, to: \$t, resolution: \$r, currencyCode: \"USD\", symbolType: TOKEN, removeEmptyBars: true) { t o h l c volume buyVolume } }")
+            .put("variables", JSONObject().put("s", "$mint:$CODEX_SOLANA").put("f", fromSec).put("t", toSec).put("r", resolution))
             .toString()
 
     private fun bitqueryBody(mint: String, sinceMs: Long): String =
@@ -1001,7 +1001,7 @@ object ChartSources7955 {
         if (v.isFinite()) b.copy(v = v, buyV = if (bv.isFinite()) bv else Double.NaN) else b.copy(v = 0.0, buyV = Double.NaN)
     }
 
-    /** The app's keyless candle feed (DexPaprika, then the GeckoTerminal pool), already paced by its own gate. */
+    /** The app's USD candle feed (GeckoTerminal and observed local bars), paced by its own gate. */
     private fun feedBars(mint: String): List<Bar7950>? {
         val c = kotlinx.coroutines.runBlocking {
             com.lifecyclebot.network.SolanaOhlcvFeed6916.queuedAnswer8402(mint, "1m", BACKFILL_MINUTES, "", 2, timeoutMs = 3_000L).rows
@@ -1024,21 +1024,45 @@ object ChartSources7955 {
      * V5.0.8169 — Codex one-minute candles for [mint] (USD prices, traded minutes only) as app candles, for the setup
      * shape repair when the keyless feed is cooling / empty and Birdeye is out of budget (5.0.8168: codex 63/63 ok while
      * the shape repair ended unresolved 295 times). Null when Codex has no key, is resting, or its slot is not free
-     * within 3 s (never queued behind a resting provider). Volume is left 0 (not a USD figure the history carries).
+     * within 3 s (never queued behind a resting provider). Preserve the provider's USD interval volume.
      */
     fun codexCandles8169(mint: String, minutes: Int = 90, nowMs: Long = System.currentTimeMillis()): List<com.lifecyclebot.data.Candle>? {
+        return codexCandles8521(mint, 1, minutes, nowMs)
+    }
+
+    /** The same paced, existing chart source for each actual requested timeframe. */
+    fun codexCandles8521(mint: String, timeframeMinutes: Int, count: Int,
+                         nowMs: Long = System.currentTimeMillis()): List<com.lifecyclebot.data.Candle>? {
         if (mint.isBlank()) return null
+        if (timeframeMinutes !in setOf(1, 5, 15, 60, 240)) return null
         refreshKeys()
         val toSec = nowMs / 1000L
-        val bars = keyedBars(CODEX, "https://graph.codex.io/graphql", codexHeaders(), codexBody(mint, toSec - minutes * 60L, toSec)) {
-            ChartParsers7955.codex7955(JSONObject(it))
-        } ?: return null
-        return bars.filter { it.c.isFinite() && it.c > 0.0 && it.t > 0L }.sortedBy { it.t }.map { b ->
+        val intervalSec = timeframeMinutes * 60L
+        val provider = byId[CODEX] ?: return null
+        if (!hasKey(provider) || !claimWithin(provider, 3_000L)) return null
+        val body = call(provider, "https://graph.codex.io/graphql", codexHeaders(),
+            codexBody(mint, toSec - count.coerceIn(2, 300) * intervalSec, toSec, timeframeMinutes.toString())).body ?: return null
+        return codexCandlesFromJson8521(JSONObject(body), timeframeMinutes).also { provider.bars.addAndGet(it.size.toLong()) }
+    }
+
+    internal fun codexCandlesFromJson8521(root: JSONObject, timeframeMinutes: Int): List<com.lifecyclebot.data.Candle> {
+        if (timeframeMinutes !in setOf(1, 5, 15, 60, 240)) return emptyList()
+        val raw = root.optJSONObject("data")?.optJSONObject("getBars") ?: return emptyList()
+        val times = raw.optJSONArray("t") ?: return emptyList()
+        val volumes = raw.optJSONArray("volume")
+        val observedVolumes = HashMap<Long, Double>()
+        for (i in 0 until times.length()) {
+            val seconds = times.optLong(i, 0L)
+            val at = if (seconds in 1L..99_999_999_999L) seconds * 1000L else seconds
+            val v = volumes?.optString(i)?.toDoubleOrNull()
+            if (at > 0L && v != null && v.isFinite() && v >= 0.0) observedVolumes[at] = v
+        }
+        return ChartParsers7955.codex7955(root).map { b ->
+            val volume = observedVolumes[b.t]
             com.lifecyclebot.data.Candle(
-                ts = b.t, priceUsd = b.c, marketCap = 0.0, volumeH1 = 0.0, volume24h = 0.0,
-                highUsd = if (b.h.isFinite() && b.h > 0.0) b.h else b.c,
-                lowUsd = if (b.l.isFinite() && b.l > 0.0) b.l else b.c,
-                openUsd = if (b.o.isFinite() && b.o > 0.0) b.o else b.c,
+                ts = b.t, priceUsd = b.c, marketCap = 0.0, volumeH1 = 0.0, volume24h = volume ?: 0.0,
+                highUsd = b.h, lowUsd = b.l, openUsd = b.o,
+                intervalMs8521 = timeframeMinutes * 60_000L, periodVolumeUsd8521 = volume,
             )
         }
     }

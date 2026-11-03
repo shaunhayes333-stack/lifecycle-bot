@@ -53,11 +53,14 @@ object DowntimeRecovery8430 {
     /** Pure: a candle timestamp in milliseconds (a provider's seconds are normalised). */
     private fun ms8430(ts: Long): Long = if (ts in 1L..99_999_999_999L) ts * 1000L else ts
 
-    /** Pure: the candle whose minute covers the window ([fromMs], [toMs]] nearest the horizon [targetMs]; null when none. */
+    /** The feed's priceUsd is the bar CLOSE, while ts is its OPEN. A close is knowable at the end of the minute. */
+    private fun closeAt8521(c: Candle): Long = ms8430(c.ts) + CANDLE_MS_8430
+
+    /** Pure: a completed candle close inside [fromMs]..[toMs], nearest the target; no timestamp is moved into a window. */
     fun pick8430(cs: List<Candle>, targetMs: Long, fromMs: Long, toMs: Long): Candle? =
         cs.asSequence()
-            .filter { c -> val t = ms8430(c.ts); t > fromMs - CANDLE_MS_8430 && t <= toMs && c.priceUsd.isFinite() && c.priceUsd > 0.0 }
-            .minByOrNull { kotlin.math.abs(ms8430(it.ts) - targetMs) }
+            .filter { c -> val t = closeAt8521(c); !c.synthetic && t in fromMs..toMs && c.priceUsd.isFinite() && c.priceUsd > 0.0 }
+            .minByOrNull { kotlin.math.abs(closeAt8521(it) - targetMs) }
 
     /**
      * ForwardReturnLabeler7731.expired8395: the recovered candle mark of [mint] at horizon [targetMs] for a window
@@ -66,10 +69,10 @@ object DowntimeRecovery8430 {
     fun candleMark8430(mint: String, targetMs: Long, fromMs: Long, deadlineMs: Long, bootMs: Long, nowMs: Long): Read8430 {
         if (mint.isBlank() || !downtime8430(deadlineMs, bootMs)) return NONE_8430
         candles[mint]?.let { cs ->
-            val c = pick8430(cs, targetMs, fromMs, deadlineMs) ?: return NONE_8430
+            val c = pick8430(cs, targetMs, fromMs, minOf(deadlineMs, nowMs)) ?: return NONE_8430
             recovered.incrementAndGet()
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FORWARD_LABEL_DOWNTIME_CANDLE_8430") } catch (_: Throwable) {}
-            val at = ms8430(c.ts).coerceIn(fromMs + 1L, minOf(deadlineMs, nowMs))
+            val at = closeAt8521(c)
             return Read8430(false, LabelMark8386(mint, "ohlcv", c.priceUsd, at, nowMs, SOURCE_8430))
         }
         if (mint == inFlight8430) return WAIT_8430   // its fetch is on the wire

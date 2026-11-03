@@ -12,8 +12,16 @@ import java.sql.DriverManager
 class Aate8417CortexHourDeliveryRuntimeTest {
     private fun field(owner: Any, name: String) = owner.javaClass.getDeclaredField(name).apply { isAccessible = true }
 
-    @Suppress("UNCHECKED_CAST")
     @Test fun hourPredictionSurvivesIntermediateReceiptsAndRestartUntilItsOneModelGrade() {
+        runHourCase8521(missingFiveMinute = false)
+    }
+
+    @Test fun firstHourResultCanGradeItsOriginalPredictionWhenTheFiveMinuteSourceWasMissing() {
+        runHourCase8521(missingFiveMinute = true)
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun runHourCase8521(missingFiveMinute: Boolean) {
         Class.forName("org.sqlite.JDBC")
         DriverManager.getConnection("jdbc:sqlite::memory:").use { connection ->
             connection.createStatement().use { it.execute("CREATE TABLE kv (tracker TEXT, bucket TEXT, payload TEXT, updated INTEGER, PRIMARY KEY(tracker,bucket))") }
@@ -53,7 +61,8 @@ class Aate8417CortexHourDeliveryRuntimeTest {
             val pending = field(cortex, "pending").get(cortex) as MutableMap<String, Any>
             val ready = field(cortex, "forwardReady8404").get(cortex) as MutableMap<String, String>
             val at = System.currentTimeMillis() - 65 * 60_000L
-            val key = "hour-delivery8417|QUALITY"; val id = "$key|$at"
+            val mint = if (missingFiveMinute) "hour-first8521" else "hour-delivery8417"
+            val key = "$mint|QUALITY"; val id = "$key|$at"
             val receipt = "CORTEX_FORWARD_RECEIPT_8404|$id"
             val a = Cortex7885.Assessment("QUALITY", false, doubleArrayOf(4.0), listOf("TEST8404"), listOf(doubleArrayOf(0.0)), "TEST",
                 CortexLedger7885.Fused(4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, emptyList()), 4.0,
@@ -68,32 +77,49 @@ class Aate8417CortexHourDeliveryRuntimeTest {
                     .newInstance("EARLY", "LOW", "SMALL", true, true, null)
                 field(original, "context8372").set(original, context)
                 pending[key] = original
-                val frozen = requireNotNull(cortex.freezeForwardOutcome8404("hour-delivery8417", "QUALITY", at))
+                val frozen = requireNotNull(cortex.freezeForwardOutcome8404(mint, "QUALITY", at))
                 pending.remove(key) // restart has lost the ordinary pending cache; producer owns the original
                 val paired = field(cortex, "pairedPending8401").get(cortex) as MutableMap<String, Any>
                 val deferred = field(cortex, "deferredHour8415").get(cortex) as MutableSet<String>
                 val book = field(cortex, "gradeBook8144").get(cortex) as CortexGradeBook8144
                 fun proof(minutes: Int): CortexOutcomeProof8395 {
-                    fun mark(time: Long) = com.lifecyclebot.engine.truth.LabelMark8386("hour-delivery8417", "TEST",
-                        if (time == at) 1.0 else 1.08, time, time, "TEST", decimals = 6, independentBasis = true)
+                    val entryAt = at + 5_000L
+                    fun mark(time: Long) = com.lifecyclebot.engine.truth.LabelMark8386(mint, "TEST",
+                        if (time == entryAt) 1.0 else 1.08, time, time, "TEST", decimals = 6, independentBasis = true)
                     val end = at + minutes * 60_000L
-                    return CortexOutcomeProof8395(id, minutes * 60_000L, end, 5.0, 8.0, mark(at), mark(end))
+                    return CortexOutcomeProof8395(id, minutes * 60_000L, end, 5.0, 8.0, mark(entryAt), mark(end))
                 }
                 val flush = cortex.javaClass.getDeclaredMethod("flushShadowOutcomesBlocking8403").apply { isAccessible = true }
                 fun deliver(minutes: Int, frozenOriginal: String) {
-                    val d = ForwardOutcomeDelivery8404("hour-delivery8417", "QUALITY", at, 5.0, 8.0, null,
+                    val d = ForwardOutcomeDelivery8404(mint, "QUALITY", at, 5.0, 8.0, null,
                         false, true, proof(minutes), frozenOriginal, revision = minutes != 5)
                     assertFalse(cortex.deliverForwardOutcome8404(d))
                     assertEquals(true, flush.invoke(cortex))
                     assertTrue("receipt exists only after database checkpoint", cortex.deliverForwardOutcome8404(d))
                 }
-                deliver(5, frozen)
-                // superseded by V5.0.8485 — every lane is graded on the 5-minute read (CortexLabelHygiene8144.GRADE_READ_MS),
-                // as 7947-8143 did when it separated winners; the hour deferral pinned here (8415/8417) left every hour-lane
-                // book unprofitable in every report since 8302. The 5-minute receipt now makes the one model contribution.
-                assertEquals("the five-minute result trains the lane", id, book.decision(id)!!.modelContribution8395)
-                assertEquals(4.0, book.decision(id)!!.predictedEdgePct, 0.0)
-                assertFalse("nothing deferred to the hour", deferred.contains(id))
+                var checkpoint = frozen
+                if (!missingFiveMinute) {
+                    deliver(5, frozen)
+                    assertEquals("the five-minute result is provisional for this hour mandate", "", book.decision(id)!!.modelContribution8395)
+                    assertTrue(book.decision(id)!!.executablePct.isNaN())
+                    assertEquals(4.0, book.decision(id)!!.predictedEdgePct, 0.0)
+                    assertTrue(deferred.contains(id))
+                    assertTrue("the original voter snapshot remains paired", paired.containsKey(id))
+                    checkpoint = requireNotNull(cortex.freezeForwardOutcome8404(mint, "QUALITY", at))
+                    // Recreate the grade book and discard session-only deferral state as a restart would.
+                    book.decode(book.encode()); paired.remove(id); deferred.remove(id)
+                    deliver(15, checkpoint)
+                    assertEquals("an intermediate return cannot train the hour predictor", "", book.decision(id)!!.modelContribution8395)
+                    assertTrue(book.decision(id)!!.executablePct.isNaN())
+                } else {
+                    assertNull("no synthetic five-minute row was needed", book.decision(id))
+                }
+                deliver(60, checkpoint)
+                assertEquals("the exact original prediction learns once at its frozen horizon", id, book.decision(id)!!.modelContribution8395)
+                assertEquals(5.0, book.decision(id)!!.executablePct, 0.0)
+                assertEquals(at + 60 * 60_000L, book.decision(id)!!.outcomeDueAtMs8394)
+                assertFalse(deferred.contains(id))
+                assertFalse(paired.containsKey(id))
             } finally {
                 pool.submit {}.get(10, java.util.concurrent.TimeUnit.SECONDS)
                 pending.remove(key)

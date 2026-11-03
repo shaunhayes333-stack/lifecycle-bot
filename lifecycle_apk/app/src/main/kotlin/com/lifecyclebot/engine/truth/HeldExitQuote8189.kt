@@ -46,7 +46,8 @@ object HeldExitQuote8189 {
     private const val WALLET_READ_MAX_AGE_MS_8189 = 10L * 60_000L
 
     data class Quote8189(val priceUsd: Double, val observedAtMs: Long, val rawQty: BigInteger,
-                         val proceedsSol: Double? = null, val source: String = SOURCE_8189)
+                         val proceedsSol: Double? = null, val source: String = SOURCE_8189,
+                         val positionId8521: String = "", val estimatedSellCostSol8521: Double? = null)
 
     // ── pure ──
 
@@ -104,6 +105,20 @@ object HeldExitQuote8189 {
 
     /** Any cached quote of [mint] (for the proof table: its age is printed). */
     fun last8189(mint: String): Quote8189? = quotes[mint]
+
+    /** Feed the stop's own authoritative SELL quote back to its origin; never invent a price or a fill. */
+    fun rememberStopQuote8521(mint: String, positionId: String, raw: BigInteger, scale: Int,
+                             proceedsSol: Double, solUsd: Double, askedAtMs: Long, estimatedSellCostSol: Double) {
+        if (positionId.isBlank() || raw.signum() <= 0 || scale !in 0..18 || !proceedsSol.isFinite() || proceedsSol <= 0.0 ||
+            !solUsd.isFinite() || solUsd <= 0.0 || askedAtMs <= 0L) return
+        val ui = java.math.BigDecimal(raw).movePointLeft(scale).toDouble()
+        val px = proceedsSol * solUsd / ui
+        if (!px.isFinite() || px <= 0.0) return
+        val q = Quote8189(px, askedAtMs, raw, proceedsSol, SOURCE_8189, positionId,
+            estimatedSellCostSol.takeIf { it.isFinite() && it >= 0.0 })
+        quotes.compute(mint) { _, old -> if (old == null || old.observedAtMs <= askedAtMs) q else old }
+        if (quotes.size > 2_000) quotes.entries.removeIf { askedAtMs - it.value.observedAtMs > QUOTE_FRESH_MS_8189 }
+    }
 
     /**
      * HeldHotMarkAuthority7419.refreshPass: the fresh held sell quote of [mint] for [canonicalRaw] at [scale], or null.

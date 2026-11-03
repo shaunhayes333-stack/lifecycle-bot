@@ -267,7 +267,8 @@ object CellAllocator7962 {
 
     // ── runtime books ──────────────────────────────────────────────────────
 
-    private const val EV_LABEL = "L"
+    // Only the old counterfactual label component is incompatible; actual live/paper closes retain their keys.
+    private const val EV_LABEL = "L8521"
     private const val EV_LIVE = "V"
     private const val EV_PAPER = "P"
 
@@ -362,8 +363,14 @@ object CellAllocator7962 {
     private fun holdFor(lane: String, live: Boolean): Double {
         val s = nodes[nodeKey(if (live) EV_LIVE else EV_PAPER, laneNode(lane))]
         val (hw, hs) = s?.let { synchronized(it) { it.holdW to it.holdSum } } ?: (0.0 to 0.0)
-        return ((hs + LABEL_HOLD_MIN_7962 * 3.0) / (hw + 3.0)).coerceIn(MIN_HOLD_MIN_7962, MAX_HOLD_MIN_7962)
+        val forward = nodes[nodeKey(EV_LABEL, laneNode(lane))]
+        val labelHold = forward?.let { synchronized(it) { if (it.holdW > 0.0) it.holdSum / it.holdW else Double.NaN } }
+            ?.takeIf { it.isFinite() && it > 0.0 } ?: labelHold8521(lane)
+        return ((hs + labelHold * 3.0) / (hw + 3.0)).coerceIn(MIN_HOLD_MIN_7962, MAX_HOLD_MIN_7962)
     }
+
+    internal fun labelHold8521(lane: String): Double = com.lifecyclebot.engine.cortex.CortexForwardEpoch8521.targetHorizon(
+        com.lifecyclebot.engine.cortex.CortexForwardEpoch8521.targetKind(lane)).toDouble() / 60_000.0
 
     private fun drawFor(leaf: String, post: Posterior7962, live: Boolean, nowMs: Long): Double {
         val seed = leaf.hashCode().toLong() * 1_000_003L + nowMs / DRAW_BUCKET_MS_7962 + (if (live) 7L else 0L)
@@ -389,9 +396,10 @@ object CellAllocator7962 {
 
     // ── evidence hooks ─────────────────────────────────────────────────────
 
-    /** ForwardReturnLabeler7731.bookSixty7944: one 5-minute net label (cost + chase already charged). */
+    /** One net label at its frozen lane target (cost + chase already charged). */
     /** Returns the EV_LABEL nodes' forgetting at booking, in [reviseLabel7997] node order (V5.0.8410). */
-    fun onLabel7962(cell: String, lane: String, setup: String, netPct: Double, id8418: String = ""): DoubleArray {
+    fun onLabel7962(cell: String, lane: String, setup: String, netPct: Double, id8418: String = "",
+                    holdMin8521: Double = labelHold8521(lane)): DoubleArray {
         if (cell.isBlank() || !netPct.isFinite()) return DoubleArray(0)
         val l = canonLane(lane)
         if (l.startsWith("PLANWAIT_") || l.startsWith("PLANADMIT_")) return DoubleArray(0)
@@ -399,7 +407,7 @@ object CellAllocator7962 {
         val scales = labelNodes8410(ref).map { node -> nodes[nodeKey(EV_LABEL, node)]?.let { s -> synchronized(s) { s.logScale } } ?: 0.0 }.toDoubleArray()
         // V5.0.8418 — one booking per labelled decision (a recovered horizon re-books it); the scales still return.
         if (!com.lifecyclebot.engine.truth.LearnerAttribution8418.admit8418("CellAllocator7962.label", id8418, "LABEL")) return scales
-        addAll(EV_LABEL, ref, netPct, 1.0)
+        addAll(EV_LABEL, ref, netPct, 1.0, holdMin8521.takeIf { it.isFinite() && it > 0.0 } ?: labelHold8521(lane))
         labelsIn.incrementAndGet()
         return scales
     }
@@ -598,7 +606,8 @@ object CellAllocator7962 {
             val bs = statFor(bandNode(band), live)
             if ((bs?.w ?: 0.0) < MIN_PRIORITY_N_7962) 0.0 else {
                 val post = hierarchy7962(listOf(statFor(GLOBAL_NODE, live), bs))
-                score7962(drawFor(band, post, live, nowMs), LABEL_HOLD_MIN_7962)
+                val hold = bs?.let { if (it.holdW > 0.0) it.holdSum / it.holdW else LABEL_HOLD_MIN_7962 } ?: LABEL_HOLD_MIN_7962
+                score7962(drawFor(band, post, live, nowMs), hold)
             }
         }
         val v = if (boost.isFinite()) (boost * PRIORITY_PER_SCORE_7962).coerceIn(-120.0, 200.0) else 0.0
@@ -615,7 +624,8 @@ object CellAllocator7962 {
         val p = try { context.applicationContext.getSharedPreferences(PREFS_7962, Context.MODE_PRIVATE) } catch (_: Throwable) { return }
         prefs = p
         try {
-            p.getString("nodes", null)?.split(';')?.forEach { row ->
+            val raw = p.getString("nodes_8521", null) ?: realisedNodes8521(p.getString("nodes", null))
+            raw.split(';').forEach { row ->
                 val sep = row.lastIndexOf('=')
                 if (sep <= 0) return@forEach
                 val f = row.substring(sep + 1).split(',')
@@ -640,9 +650,13 @@ object CellAllocator7962 {
         updatesSincePersist.set(0)
         try {
             val enc = nodes.entries.joinToString(";") { (k, s) -> "$k=${synchronized(s) { s.encode() }}" }
-            p.edit().putString("nodes", enc).apply()
+            p.edit().putString("nodes_8521", enc).apply()
         } catch (_: Throwable) {}
     }
+
+    /** Preserve each actual node byte-for-byte; old forward aggregates remain archived at their original key. */
+    internal fun realisedNodes8521(raw: String?): String = raw.orEmpty().split(';')
+        .filter { it.startsWith("V|") || it.startsWith("P|") }.joinToString(";")
 
     // ── diag ───────────────────────────────────────────────────────────────
 

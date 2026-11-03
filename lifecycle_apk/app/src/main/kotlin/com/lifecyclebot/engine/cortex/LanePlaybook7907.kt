@@ -1006,7 +1006,7 @@ object LanePlaybook7907 {
         val local = books[lane]?.stats?.get(setup)?.takeIf { it.n == 0.0 ||
             LaneEvidence8077.coherent(it.n, it.sum, it.sumSq, it.wins, it.runners) }
         // V5.0.8000 — the rest of the hive's grades of this setup ride on the local book.
-        val hive = try { com.lifecyclebot.engine.truth.HiveEdge8000.net8000("PB|$lane|$setup") } catch (_: Throwable) { null } ?: return local
+        val hive = try { com.lifecyclebot.engine.truth.HiveEdge8000.net8000(hiveKey8521(lane, setup)) } catch (_: Throwable) { null } ?: return local
         if (!CortexLedger7885.validHiveBin8076(hive)) return local
         val c = CortexLedger7885.labelStat8187()  // V5.0.8187 — the merged record reads through the same cap
         if (local != null) { c.n = local.n; c.sum = local.sum; c.sumSq = local.sumSq; c.runners = local.runners; c.wins = local.wins }
@@ -1033,7 +1033,7 @@ object LanePlaybook7907 {
 
     /** Caller holds the lock. " local=n hive=n" on the screen when the hive lends labels to this record. */
     private fun hiveNote8291(lane: String, setup: String): String {
-        val hive = try { com.lifecyclebot.engine.truth.HiveEdge8000.net8000("PB|$lane|$setup") } catch (_: Throwable) { null } ?: return ""
+        val hive = try { com.lifecyclebot.engine.truth.HiveEdge8000.net8000(hiveKey8521(lane, setup)) } catch (_: Throwable) { null } ?: return ""
         if (!CortexLedger7885.validHiveBin8076(hive)) return ""
         val localN = books[lane]?.stats?.get(setup)?.n ?: 0.0
         return " local=${localN.toInt()} hive=${(hive[0] * hiveScale8291(localN, hive[0])).toInt()}/${hive[0].toInt()}"
@@ -1042,9 +1042,12 @@ object LanePlaybook7907 {
     /** V5.0.8000 — HiveEdge8000: this instance's setup books ([n, sum, sumSq, wins, runners, 0]). */
     fun hiveSnapshot8000(): Map<String, DoubleArray> = synchronized(this) {
         val out = HashMap<String, DoubleArray>()
-        for ((lane, b) in books) for ((setup, s) in b.stats) if (s.n >= 3.0) out["$lane|$setup"] = doubleArrayOf(s.n, s.sum, s.sumSq, s.wins, s.runners, 0.0)
+        for ((lane, b) in books) for ((setup, s) in b.stats) if (s.n >= 3.0) out[hiveKey8521(lane, setup).removePrefix("PB|")] = doubleArrayOf(s.n, s.sum, s.sumSq, s.wins, s.runners, 0.0)
         out
     }
+
+    /** Old forward labels used premature horizons and synthetic expiry losses. */
+    internal fun hiveKey8521(lane: String, setup: String): String = "PB|OBSERVED_8521|$lane|$setup"
 
     private fun priorOf(lane: String, setup: String): Double =
         if (setup == NO_TRIGGER || setup == OUTSIDE_ENVELOPE_8383) -1.0 else if (setup in UNCLASSIFIED_8087) 0.0 else menuOf7962(lane)?.firstOrNull { it.id == setup }?.prior ?: 0.0
@@ -1091,6 +1094,13 @@ object LanePlaybook7907 {
         d(ts.lastPriceChange5m); d(ts.lastPriceChange1h); l(ts.priceChangeObservedAtMs8084)
         val last = try { ts.history.lastOrNull() } catch (_: Throwable) { null }
         l(ts.history.size.toLong()); l(last?.ts ?: 0L); l((last?.holderCount ?: 0).toLong())
+        // A newly closed macro bar changes the current technical evidence even
+        // when the latest tick price and the selected setup name stay the same.
+        for (history in listOf(ts.history5m, ts.history15m, ts.history1h, ts.history4h)) {
+            val end = synchronized(history) { l(history.size.toLong()); history.lastOrNull() }
+            l(end?.ts ?: 0L); d(end?.priceUsd ?: Double.NaN); d(end?.highUsd ?: Double.NaN)
+            d(end?.lowUsd ?: Double.NaN); d(end?.periodVolumeUsd8521 ?: Double.NaN)
+        }
         d(ts.holderGrowthRate); l(if (ts.holderDataResolved) 1L else 0L); l(ts.lastExitTs); l(if (ts.position.isOpen) 1L else 0L)
         d(try { com.lifecyclebot.engine.MomentumPredictorAI.getMomentum(ts.mint)?.volumeAccelerationScore } catch (_: Throwable) { null } ?: Double.NaN)
         // V5.0.8283 — the shared provider-evidence revision (pair flow, sweep, tape, candles, liquidity): new evidence is a new key.
@@ -1731,7 +1741,7 @@ object LanePlaybook7907 {
      * V5.0.8080 §BOUNDED_COLD_START. A fresh install has no setup with 30 graded labels, so [provenSetup8056] refuses
      * every live entry until hours of labels accrue (8078 clean user: LIVE_PROVEN_SETUP_ONLY_8059=4182, zero buys).
      * This is the same exact-strategy test on fewer labels with a stricter margin: the coin's classified setup, graded
-     * on its OWN exit family (familyLabel8080), with [COLD_MIN_N_8080]+ labels and mean - 1.5 SE above zero net of
+     * on its frozen lane target, with [COLD_MIN_N_8080]+ labels and mean - 1.5 SE above zero net of
      * cost. Missing evidence is never edge: no record, or a record that does not clear the margin, returns null.
      * The caller (LiveEdgeGate7877) bounds how many live entries this may admit.
      */
@@ -1990,7 +2000,7 @@ object LanePlaybook7907 {
                 val st = stat(lane, s.id)
                 val n = st?.n ?: 0.0
                 // V5.0.8324 — the network record read bounded, and the local record alone, for the hive-prior FAVOUR rule.
-                val hive8324 = try { com.lifecyclebot.engine.truth.HiveEdge8000.net8000("PB|$lane|${s.id}") } catch (_: Throwable) { null }
+                val hive8324 = try { com.lifecyclebot.engine.truth.HiveEdge8000.net8000(hiveKey8521(lane, s.id)) } catch (_: Throwable) { null }
                     ?.takeIf { CortexLedger7885.validHiveBin8076(it) }
                 val hiveRead8324 = hive8324?.let {
                     com.lifecyclebot.engine.truth.RobustLabelRead8185.robust8187(it[0], it[1], it[2], it[3], it[4], CortexLedger7885.LABEL_CAP_8187, CortexLedger7885.RUNNER_GROSS_PCT)
@@ -2109,7 +2119,6 @@ object LanePlaybook7907 {
                 expectedSetup8084: String? = null, decisionAtMs8372: Long = 0L, selectedOnly8372: Boolean = false) {
         ensureLoaded()
         if (!netPct.isFinite()) return
-        val fam = fam8080?.takeIf { it.size == 4 && it.all { v -> v.isFinite() } }
         val exact8372 = if (decisionAtMs8372 > 0L) episodes8372.take(mint, labelLane, decisionAtMs8372) ?: return else null
         val (lane, full) = exact8372?.let { it.lane to it.tag }
             ?: (pending.remove("$mint|${labelLane.trim().uppercase()}") ?: return)
@@ -2148,8 +2157,9 @@ object LanePlaybook7907 {
         synchronized(this) {
             val exactContributions8372 = LinkedHashMap<String, LaneSetupEpisodes8372.Contribution>()
             val stamps = graded.distinct().associateWith { setup ->
-                // V5.0.8080 — each setup is graded on its own exit family (scalp vs long hold) of the same path.
-                val (y, g) = familyLabel8080(lane, setup, netPct, grossPct, fam)
+                // Cortex delivers only the original decision's proof-bound target.
+                // A later exit-family path cannot replace the outcome this setup predicted.
+                val (y, g) = netPct to grossPct
                 // V5.0.8187 — label books read through the cap; new labels clamped at ingestion.
                 val stamp = books.getOrPut(lane) { Book() }.stats.getOrPut(setup) { CortexLedger7885.labelStat8187() }
                     .add(y.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX), g.isFinite() && g >= CortexLedger7885.RUNNER_GROSS_PCT)  // V5.0.8322 — raw
@@ -2165,9 +2175,9 @@ object LanePlaybook7907 {
             if (exact8372 != null) episodes8372.record(exact8372, exactContributions8372)
             else {
                 if (graded7997.size >= 8_000) graded7997.entries.minByOrNull { it.value.atMs }?.key?.let { graded7997.remove(it) }
-                // Legacy callbacks retain their original stored trace and semantics.
+                // Legacy callback signatures retain the same supplied target in their stored trace.
                 graded7997["$mint|${labelLane.trim().uppercase()}"] = Grade8076(lane, stamps,
-                    (fam?.get(2) ?: netPct), fam?.get(3) ?: grossPct, System.currentTimeMillis())
+                    netPct, grossPct, System.currentTimeMillis())
             }
             bookRevision8077.incrementAndGet()
         }
@@ -2191,7 +2201,7 @@ object LanePlaybook7907 {
             LaneGradeHorizon8406.hourGraded8406(lane)   // V5.0.8406 — every setup book of an hour-graded lane takes the hour read
     }
 
-    /** Pure (V5.0.8080): the (net, gross) a setup is graded on; [fam] = [scalpNet, scalpGross, longNet, longGross]. */
+    /** Legacy path comparison only; the 8521 setup books use the frozen target supplied by Cortex.onLabel. */
     internal fun familyLabel8080(lane: String, setup: String, net: Double, gross: Double, fam: DoubleArray?): Pair<Double, Double> =
         if (fam == null) net to gross
         else if (setupHoldsLong8080(lane, setup)) fam[2] to fam[3] else fam[0] to fam[1]
@@ -2221,56 +2231,11 @@ object LanePlaybook7907 {
     private class Grade8076(val lane: String, val stamps: Map<String, Double>, var net: Double, var gross: Double, val atMs: Long)
     private val graded7997 = ConcurrentHashMap<String, Grade8076>()
 
-    /** V5.0.7997 — ForwardReturnLabeler7731: a later checkpoint revises a graded label in every setup book it went to. */
+    /** Later path checkpoints remain observations; the first proof-bound decision target is immutable. */
     fun reviseLabel7997(mint: String, labelLane: String, oldNet: Double, newNet: Double, oldGross: Double, newGross: Double,
                         decisionAtMs8372: Long = 0L) {
-        if (!newNet.isFinite()) return
-        if (decisionAtMs8372 > 0L) {
-            reviseEpisode8372(mint, labelLane, decisionAtMs8372, newNet, newGross, false, System.currentTimeMillis())
-            return
-        }
-        synchronized(this) {
-            val g = graded7997["$mint|${labelLane.trim().uppercase()}"] ?: return
-            // V5.0.8144 — a revision past the lane's executable hold horizon is not a return the strategy can bank.
-            if (!CortexLabelHygiene8144.revisionCountsFor8468(g.lane, runnerHorizonLane8144(g.lane), System.currentTimeMillis() - g.atMs)) {
-                try { PipelineHealthCollector.labelInc("SETUP_REVISION_PAST_EXEC_HORIZON_8144") } catch (_: Throwable) {}
-                return
-            }
-            val yo = g.net.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX)
-            val yn = newNet.coerceIn(CortexLedger7885.Y_MIN, CortexLedger7885.Y_MAX)  // V5.0.8322 — stored raw like any new label
-            val ro = g.gross.isFinite() && g.gross >= CortexLedger7885.RUNNER_GROSS_PCT
-            val rn = newGross.isFinite() && newGross >= CortexLedger7885.RUNNER_GROSS_PCT
-            // V5.0.8080 — a scalp setup keeps its first-read grade: the later path is not a scalp's return.
-            for ((setup, stamp) in g.stamps) if (setupHoldsLong8080(g.lane, setup)) books[g.lane]?.stats?.get(setup)?.let { st ->
-                st.revise(yo, yn, ro, rn, st.revisionWeight(stamp))
-            }
-            g.net = yn; g.gross = newGross  // V5.0.8187 — the booked value is the clamped one
-            bookRevision8077.incrementAndGet()
-        }
-    }
-
-    private fun reviseEpisode8372(mint: String, lane: String, atMs: Long, net: Double, gross: Double,
-                                   terminal: Boolean, nowMs: Long): Boolean {
-        ensureLoaded()
-        if (!loaded || !net.isFinite()) return false
-        return synchronized(this) {
-            val g = episodes8372.grade(mint, lane, atMs) ?: return@synchronized false
-            if (episodes8372.disposition(mint, lane, atMs) != null) return@synchronized terminal
-            if (g.terminal) {
-                if (!terminal) PipelineHealthCollector.labelInc("SETUP_FORWARD_AFTER_SHADOW_OBSERVED_ONLY_8372")
-                return@synchronized terminal
-            }
-            if (!CortexLabelHygiene8144.revisionCountsFor8468(g.decision.lane, runnerHorizonLane8144(g.decision.lane), nowMs - g.decision.atMs)) {
-                PipelineHealthCollector.labelInc("SETUP_EXACT_REVISION_PAST_HORIZON_8372")
-                return@synchronized false
-            }
-            episodes8372.revise(mint, lane, atMs, net, gross, terminal,
-                { setup -> setupHoldsLong8080(g.decision.lane, setup) },
-                { owner, setup -> books[owner]?.stats?.get(setup) },
-                { owner, setup, timing -> timingBooks8094[owner]?.get("$setup|$timing") }).also {
-                if (it) bookRevision8077.incrementAndGet()
-            }
-        }
+        if (mint.isBlank() || labelLane.isBlank() || !newNet.isFinite() || !newGross.isFinite()) return
+        try { PipelineHealthCollector.labelInc("SETUP_LATER_PATH_OBSERVATION_ONLY_8521") } catch (_: Throwable) {}
     }
 
     /** Register every Cortex experiment, including the explicit case where it captured no setup. No setup is invented. */
@@ -2422,11 +2387,11 @@ object LanePlaybook7907 {
         }
     }
 
-    private const val PENDING_KEY_7920 = "LANE_PLAYBOOK_PENDING_7920"
-    private const val EPISODES_KEY_8372 = "LANE_PLAYBOOK_EPISODES_8372"
-    /** V5.0.7947 — setup records graded on the 5-minute, spike-credited read (old key "LANE_PLAYBOOK_7907" left untouched). */
-    // V5.0.8064 — setup records restart on labels without spike credit (the 7947 books promised exits live never banked).
-    private const val BOOKS_KEY_7947 = "LANE_PLAYBOOK_8076"
+    // Forward-only generation: archive old aggregates untouched; actual setup
+    // closes remain in Cortex's canonical realised books and still govern stat().
+    private const val PENDING_KEY_7920 = "LANE_PLAYBOOK_PENDING_8521"
+    private const val EPISODES_KEY_8372 = "LANE_PLAYBOOK_EPISODES_8521"
+    private const val BOOKS_KEY_7947 = "LANE_PLAYBOOK_OBSERVED_8521"
     @Volatile private var lastPendingPersistMs = 0L
 
     /** Cortex7885.captureNow: save the pending setup tags at most every 2 minutes. */

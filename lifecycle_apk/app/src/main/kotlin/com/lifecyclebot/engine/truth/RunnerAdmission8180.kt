@@ -113,7 +113,8 @@ object AdmissionEdge8180 {
                           admittedProof: Proof8198? = proof8198("LIVE", mint, lane, version, nowMs)): String? {
         if (wait == null || version <= 0L) return wait
         when (wait) {
-            "NO_PHASE_TRIGGER", "NO_RECLAIM", "NO_BUY_VOLUME", "NO_IGNITION" -> Unit
+            "NO_PHASE_TRIGGER", "NO_RECLAIM", "NO_BUY_VOLUME", "NO_IGNITION",
+            "FLOW_UNOBSERVED", "STAGE_UNRESOLVED" -> Unit
             else -> return wait
         }
         val proof = admittedProof ?: return wait

@@ -80,6 +80,15 @@ object HydrationReeval8343 {
 
     private fun window(): Double = try { com.lifecyclebot.v3.V3EngineManager.launchAgeWindowMinutes8140() } catch (_: Throwable) { 360.0 }
 
+    /** A launch-age deadline belongs to a launch-only receiver. Established
+     * token lanes still need a retry when their requested market data arrives;
+     * each native lane evaluates its own age and setup rules on that retry.
+     */
+    internal fun retryWindow8521(lanes: Set<String>, launchWindowMinutes: Double): Double =
+        if (lanes.isNotEmpty() && lanes.all {
+            com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.desk8392(it) == "PROJECT_SNIPER"
+        }) launchWindowMinutes else Double.POSITIVE_INFINITY
+
     // ── V5.0.8345 §EVERY_LIQUIDITY_WRITE_IS_A_HYDRATION — 5.0.8344 audit: 57 tasks deferred for missing data, 51 without
     // TokenState, 0 resumed. Traced from the write sites: only LiquidityTruth8037.write8343, CurveReserves7951.put and
     // OnChainDepth8038.fetch called here, and the hand-off task was resumed ONLY when a native UNHYDRATED deferral had been
@@ -172,9 +181,10 @@ object HydrationReeval8343 {
     private fun enqueue(d: Deferred8343, ts: TokenState?, liquidityUsd: Double, nowMs: Long, source: String): Boolean {
         if (queued[d.mint]?.let { nowMs <= it.deadlineMs } == true) { whyNot("ALREADY_QUEUED"); return false }
         val age = ageMinutes(ts, nowMs)
-        val row = queue8343(d, liquidityUsd, age, window(), nowMs, source)
+        val retryWindow = retryWindow8521(d.lanes, window())
+        val row = queue8343(d, liquidityUsd, age, retryWindow, nowMs, source)
         if (row == null) {
-            if (age != null && age.isFinite() && age > window()) { outsideWindow.incrementAndGet(); deferred.remove(d.mint); whyNot("OUTSIDE_LAUNCH_WINDOW") }
+            if (age != null && age.isFinite() && age > retryWindow) { outsideWindow.incrementAndGet(); deferred.remove(d.mint); whyNot("OUTSIDE_LAUNCH_WINDOW") }
             else if (!(liquidityUsd.isFinite() && liquidityUsd > 0.0)) whyNot("LIQUIDITY_STILL_UNREAD")
             else whyNot("DEFERRAL_OLDER_THAN_MEMORY")
             return false

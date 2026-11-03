@@ -49,6 +49,11 @@ class Aate8395EntrySealTest {
         val bind = cx.substringAfter("fun bindPosition8076(").substringBefore("private fun bindRead8187(")
         assertTrue(bind.indexOf("entrySeals8395.resolve(rk, candidateVersion8395)") < bind.indexOf("val a = entryReads["))
         assertTrue(bind.contains("ENTRY_BIND_UNRESOLVED_UNSEALED_8395"))
+        val recovered = cx.substringAfter("private fun recoverRead8187(").substringBefore("fun onCanonicalClose(")
+        assertTrue(recovered.indexOf("entrySeals8395.resolve(d.key, d.version8395)") in
+            0 until recovered.indexOf("val a = entryReads[d.key]"))
+        assertTrue(recovered.contains("res.state == CortexEntrySeal8395.State.SEALED"))
+        assertTrue(recovered.substringBefore("val a = entryReads[d.key]").contains("return null"))
         assertTrue(cx.contains("append(\",\\\"seal8395\\\":\")"))
         val cpa = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt").readText()
         assertTrue(cpa.contains("candidateVersion8395 = if (p.assetClass == AssetClass.SOLANA_TOKEN) candidateVersion7863 else 0L"))

@@ -258,6 +258,7 @@ object SellRouteSpine8144 {
         if (bookRefusal8363(mint, result, nowMs)) return
         when (result) {
             "CONFIRMED" -> finish8144(mint, "CONFIRMED", nowMs)
+            "SIGNAL_INVALIDATED" -> finish8144(mint, "SIGNAL_INVALIDATED_QUOTE_8521", nowMs)
             "ALREADY_CLOSED", "FAILED_FATAL" -> finish8144(mint, result, nowMs)
             "WAITING_BALANCE_PROOF" -> fail8144(mint, "PROOF_WAIT", Stage8144.TOKEN_BALANCE, nowMs)
             "ROUTE_FAILED_NO_SIGNATURE", "FAILED_RETRYABLE", "NO_WALLET" -> {

@@ -8,12 +8,14 @@ import java.io.File
 class Aate7433AuthorityAndStopPreservationTest {
 
     @Test
-    fun `paper stop preserves economic positions instead of manufacturing shutdown sells`() {
+    fun `config restart preserves positions while deliberate paper stop uses canonical closes`() {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        // V5.0.7928 — liquidation is folded into liquidateOnStop, which a PAPER runtime never sets.
+        // 8521: LIVE liquidation stays separate; explicit PAPER Stop has an exact-lot close path.
         assertTrue(src.contains("val paperRuntime7433 = try {"))
         assertTrue(src.contains("val liquidateOnStop = explicitLiquidationStop7433 && !paperRuntime7433"))
-        assertTrue(src.contains("val softStopPreservePositions = !liquidateOnStop"))
+        assertTrue(src.contains("val softStopPreservePositions = !liquidateOnStop && !paperLiquidationStop8521"))
+        assertTrue(src.contains("val paperLiquidationStop8521 = paperRuntime7433 && operatorStop7928"))
+        assertTrue(src.contains("closePaperStopIntent8521(requestCurrent = true, source = source)"))
         assertTrue(src.contains("if (liquidateOnStop) {"))
         assertTrue(src.contains("if (liquidateOnStop) try {"))
     }

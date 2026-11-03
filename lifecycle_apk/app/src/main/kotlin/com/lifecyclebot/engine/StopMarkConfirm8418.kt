@@ -72,6 +72,26 @@ object StopMarkConfirm8418 {
         return if (execAtMs >= askedAtMs) false else null
     }
 
+    /** The exact holding's newer SELL quote can refute an older bad mark, never a subsequent price tick. */
+    fun feedbackVerdict8521(q: com.lifecyclebot.engine.truth.HeldExitQuote8189.Quote8189?, positionId: String,
+                           raw: java.math.BigInteger, remainingCostSol: Double, markAtMs: Long,
+                           nowMs: Long, thresholdPct: Double): Boolean? {
+        if (q == null || q.positionId8521 != positionId || q.rawQty != raw ||
+            nowMs - q.observedAtMs !in 0L..2_000L || q.observedAtMs < markAtMs ||
+            !remainingCostSol.isFinite() || remainingCostSol <= 0.0) return null
+        val proceeds = q.proceedsSol?.takeIf { it.isFinite() && it > 0.0 } ?: return null
+        val sellCost = q.estimatedSellCostSol8521?.takeIf { it.isFinite() && it >= 0.0 } ?: return null
+        return ((proceeds - sellCost).coerceAtLeast(0.0) / remainingCostSol - 1.0) * 100.0 <= thresholdPct
+    }
+
+    fun cachedSellQuoteVerdict8521(ts: TokenState, thresholdPct: Double, nowMs: Long = System.currentTimeMillis()): Boolean? {
+        if (ts.position.isPaperPosition) return null
+        val p = try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.firstOpenForMint(ts.mint, "live") }
+            catch (_: Throwable) { null } ?: return null
+        return feedbackVerdict8521(com.lifecyclebot.engine.truth.HeldExitQuote8189.last8189(ts.mint), p.positionId,
+            p.remainingQtyRaw, p.entryCostSol - p.soldCostBasisSol, ts.lastPriceUpdate, nowMs, thresholdPct)
+    }
+
     /** V5.0.8419 — pure: an unconfirmed loss stop fires on its own mark once the ask is [AWAIT_MAX_MS_8419] old. */
     fun awaitExpired8419(askedAtMs: Long, nowMs: Long): Boolean = askedAtMs > 0L && nowMs - askedAtMs >= AWAIT_MAX_MS_8419
 
@@ -82,6 +102,7 @@ object StopMarkConfirm8418 {
      */
     fun confirmed8418(ts: TokenState, pnlPct: Double, thresholdPct: Double, paper: Boolean, nowMs: Long = System.currentTimeMillis()): Boolean {
         if (paper) return true
+        cachedSellQuoteVerdict8521(ts, thresholdPct, nowMs)?.let { return it }
         val pos = ts.position
         if (pos.entryPrice <= 0.0) return true
         val key = "${ts.mint}|${pos.entryTime}"

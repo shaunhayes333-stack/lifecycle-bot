@@ -6323,7 +6323,8 @@ class BotService : Service() {
      * - In live mode: routes through Jupiter swap pipeline + reconnect logic.
      * - Reason tag "MANUAL" so journal entries are clearly attributed.
      */
-    fun manualSell(mint: String): Pair<Boolean, String> {
+    fun manualSell(mint: String, expectedPositionId8521: String? = null,
+                   expectedPaper8521: Boolean? = null): Pair<Boolean, String> {
         if (mint.isBlank()) return false to "No token selected"
         if (!::executor.isInitialized) return false to "Bot not started"
 
@@ -6338,6 +6339,27 @@ class BotService : Service() {
             livePreflightWalletSol(w)
         }
         if (!isPaper && w == null) return false to "Live wallet not connected"
+
+        // A UI selection is an exact lot, not permission to sell another mode
+        // or a newer entry that happens to share its mint.
+        if (expectedPositionId8521 != null) {
+            val selected = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
+                .getPosition(expectedPositionId8521) ?: return false to "Selected position is unavailable"
+            val selectedPaper = selected.mode.equals("paper", true)
+            if (selected.mint != mint || (expectedPaper8521 != null && selectedPaper != expectedPaper8521) ||
+                selectedPaper != isPaper) return false to "Position or trading mode changed; refresh the position"
+            val projected = com.lifecyclebot.engine.truth.CanonicalUiPositionProjection6686
+                .projectPosition8521(selected, status.tokens[mint]) ?: return false to "Selected position is no longer open"
+            return try {
+                val result = executor.doSell(projected, "MANUAL", w, walletSol,
+                    expectedPositionId8521 = selected.positionId, expectedPaper8521 = selectedPaper)
+                val closed = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(selected.positionId)
+                    ?.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.CLOSED
+                closed to if (closed) "Selected position closed" else "Position retained: ${result.name}"
+            } catch (e: Exception) {
+                false to "Position retained: ${e.message ?: e.javaClass.simpleName}"
+            }
+        }
 
         // V5.9.474 — operator-reported manual-SELL store-mismatch bug.
         //
@@ -6361,7 +6383,7 @@ class BotService : Service() {
         //      strategy bookkeeping clears even if the swap path is busy.
         //   3. None of the above → return a meaningful error listing every
         //      store we checked so the operator knows it's truly absent.
-        val ts = status.tokens[mint]
+        val ts = status.tokens[mint]?.takeIf { it.position.isPaperPosition == (expectedPaper8521 ?: isPaper) }
 
         // Path 1: main TokenState says open → use existing fast path.
         if (ts != null && ts.position.isOpen) {
@@ -6369,8 +6391,9 @@ class BotService : Service() {
                 ErrorLogger.info("BotService",
                     "👆 MANUAL SELL [main]: ${ts.symbol} | qty=${ts.position.qtyToken} | mode=${if (isPaper) "PAPER" else "LIVE"}")
                 addLog("👆 Manual SELL: ${ts.symbol} ${if (isPaper) "(paper)" else "(LIVE)"}")
-                val result = executor.doSell(ts, "MANUAL", w, walletSol)
-                true to "Sell submitted (${result.name})"
+                val result = executor.doSell(ts, "MANUAL", w, walletSol,
+                    expectedPositionId8521 = ts.position.positionId.takeIf { it.isNotBlank() }, expectedPaper8521 = isPaper)
+                result.settled8521() to if (result.settled8521()) "Sell completed (${result.name})" else "Position retained: ${result.name}"
             } catch (e: Exception) {
                 ErrorLogger.error("BotService", "manualSell error for ${ts.symbol}", e)
                 false to "Error: ${e.message ?: e.javaClass.simpleName}"
@@ -6434,7 +6457,7 @@ class BotService : Service() {
                 addLog("👆 Manual SELL (${hits.first().name}): ${ts.symbol}")
                 return try {
                     val result = executor.doSell(ts, "MANUAL_${hits.first().name.uppercase()}", w, walletSol)
-                    true to "Sell submitted via ${hits.first().name} (${result.name})"
+                    result.settled8521() to if (result.settled8521()) "Sell completed via ${hits.first().name} (${result.name})" else "Position retained: ${result.name}"
                 } catch (e: Exception) {
                     ErrorLogger.error("BotService", "manualSell sub-trader error for ${ts.symbol}", e)
                     false to "Error: ${e.message ?: e.javaClass.simpleName}"
@@ -6670,6 +6693,13 @@ class BotService : Service() {
 
     fun startBot() {
         if (deferStartUntilServiceReady6516()) return
+        val recoveringPaperStop8521 = RuntimeModeAuthority.isPaper() &&
+            (try { PaperStopLifecycle8521.pending(applicationContext).isNotEmpty() } catch (_: Exception) { false })
+        if (recoveringPaperStop8521) {
+            isShuttingDown = true
+            stopMarketsForLifecycle8521()
+            closePaperStopIntent8521(requestCurrent = false, source = "startup_recovery")
+        }
         isShuttingDown = false  // V5.9.721: clear shutdown flag so traders run normally
         // V5.0.6659d — a fresh service is initialized while the prior static
         // shutdown flag is still true. CryptoAltTrader's bootstrap start then
@@ -6683,6 +6713,13 @@ class BotService : Service() {
             )
             com.lifecyclebot.perps.CryptoAltTrader.setEnabled(startPlan6659d.cryptoUniverseOn)
             if (startPlan6659d.cryptoUniverseOn) com.lifecyclebot.perps.CryptoAltTrader.start()
+            if (recoveringPaperStop8521) {
+                if (startPlan6659d.stocksEffective) com.lifecyclebot.perps.TokenizedStockTrader.start()
+                if (startPlan6659d.commoditiesEffective) com.lifecyclebot.perps.CommoditiesTrader.start()
+                if (startPlan6659d.metalsEffective) com.lifecyclebot.perps.MetalsTrader.start()
+                if (startPlan6659d.forexEffective) com.lifecyclebot.perps.ForexTrader.start()
+                if (startPlan6659d.perpsEffective) com.lifecyclebot.perps.PerpsExecutionEngine.start(applicationContext)
+            }
         } catch (t: Throwable) {
             try { ForensicLogger.lifecycle("CRYPTO_REARM_FAILED_6659D", "err=${t.message?.take(100)}") } catch (_: Throwable) {}
         }
@@ -7805,77 +7842,9 @@ class BotService : Service() {
                 addLog("⚠️ Reconciler start failed: ${e.message}")
             }
 
-            // ═══════════════════════════════════════════════════════════════════
-            // V5.6.9: RESTORE PERSISTED POSITIONS ON BOT START
-            // 
-            // This recovers positions that were lost when the app was killed.
-            // CRITICAL: Must happen BEFORE botLoop() starts to avoid duplicate entries.
-            //
-            // V5.9.681 — GHOST REAPER ON START.
-            // If KEY_MANUAL_STOP_REQUESTED == true on the runtime-prefs, the
-            // previous shutdown was an explicit user-pressed Stop. In that case
-            // stopBot() should have already cleared PositionPersistence — if
-            // it did not (slow paper-sell loop, frozen bot loop, process kill
-            // mid-stop), any positions still in storage are by definition
-            // ghosts from an unclean teardown. Wipe the persistence BEFORE
-            // restorePositions so we boot from a clean slate.
-            //
-            // V5.9.682 — MASS-GHOST FALLBACK.
-            // Operator screenshot V5.9.681 showed 23 V3_SKIPPED position_open
-            // events even though only 3 positions were really open. Root
-            // cause: previous V5.9.680 session froze without a clean stop,
-            // KEY_MANUAL_STOP_REQUESTED stayed false (force-killed process),
-            // and the V5.9.681 reaper gated itself off. The unbroken V5.6.9
-            // contract said "restore everything if not a manual stop", but
-            // 20+ paper positions on a cold boot is by definition a ghost
-            // backlog from a stuck previous session — never a legitimate
-            // recovery. Now: in paper mode, if persistedCount > MASS_GHOST_THRESHOLD
-            // (20) we wipe regardless of the manual-stop flag. Live mode
-            // still honors the existing V5.6.9 path (legitimate on-chain
-            // positions might be valuable and shouldn't auto-wipe).
-            // Crash/kill paths with < 20 persisted rows still restore.
-            // ═══════════════════════════════════════════════════════════════════
-            try {
-                val prevWasManualStop = getSharedPreferences(RUNTIME_PREFS, android.content.Context.MODE_PRIVATE)
-                    .getBoolean(KEY_MANUAL_STOP_REQUESTED, false)
-                val persistedBefore = try { PositionPersistence.getPersistedCount() } catch (_: Throwable) { -1 }
-                val MASS_GHOST_THRESHOLD = 20
-                val cfgForReap = try { ConfigStore.load(applicationContext) } catch (_: Throwable) { null }
-                val isPaperReap = cfgForReap?.paperMode ?: true
-                val massGhost = isPaperReap && persistedBefore > MASS_GHOST_THRESHOLD
-                // V5.0.7309 — the comment above says live keeps its rows, but the
-                // manual-stop branch never checked the mode: every live stop/start
-                // wiped the persisted lane and entry basis of tokens the wallet
-                // still holds, which then came back as basis-less orphans. A
-                // manual stop does not make an on-chain holding a ghost.
-                val shouldReap = (isPaperReap && prevWasManualStop && persistedBefore > 0) || massGhost
-                if (shouldReap) {
-                    try {
-                        PositionPersistence.clear()
-                        val reason = when {
-                            massGhost -> "mass_ghost_paper"
-                            else      -> "manual_stop_unclean"
-                        }
-                        ForensicLogger.lifecycle(
-                            "START_GHOST_REAP",
-                            "reason=$reason prevManualStop=$prevWasManualStop persistedBefore=$persistedBefore wiped=true paper=$isPaperReap"
-                        )
-                        addLog("🧹 Ghost reaper ($reason): wiped $persistedBefore stale position(s)")
-                    } catch (e: Throwable) {
-                        ErrorLogger.warn("BotService", "ghost reap wipe failed: ${e.message}")
-                    }
-                } else if (persistedBefore > 0) {
-                    try {
-                        ForensicLogger.lifecycle(
-                            "START_GHOST_REAP",
-                            "reason=skipped persistedBefore=$persistedBefore prevManualStop=$prevWasManualStop paper=$isPaperReap"
-                        )
-                    } catch (_: Throwable) {}
-                }
-            } catch (e: Exception) {
-                ErrorLogger.debug("BotService", "ghost reap pre-check error: ${e.message}")
-            }
-
+            // 8521: inventory count and an interrupted manual Stop are not close
+            // evidence. Restore unresolved canonical lots; persistence prunes only
+            // exact canonically terminal PAPER positions.
             try {
                 val tokensCopy = synchronized(status.tokens) { status.tokens.toMutableMap() }
                 val restoredCount = PositionPersistence.restorePositions(tokensCopy)
@@ -7929,6 +7898,7 @@ class BotService : Service() {
                     try {
                         val cfgGhost = try { ConfigStore.load(applicationContext) } catch (_: Throwable) { null }
                         val paperGhost = cfgGhost?.paperMode ?: true
+                        if (paperGhost) return@launch
                         // V5.0.6068 — API-health gate. If Helius is 429ing, do NOT reconcile.
                         val heliusHealthy = try { com.lifecyclebot.engine.ApiHealthMonitor.successRate("helius_rpc") >= 0.30 } catch (_: Throwable) { false }
                         if (!paperGhost && !heliusHealthy) {
@@ -8108,6 +8078,7 @@ class BotService : Service() {
         botStartTimeMs = System.currentTimeMillis()
 
         addLog("✓ Starting bot loop...")
+        startPaperStopRetries8521()
         val createdLoopJob6518 = scope.launch(botLoopDispatcher) { botLoop() } // V5.9.1023: dedicated single-thread dispatcher prevents Dispatchers.IO pool starvation from wedged supervisor workers
         synchronized(loopJobLock) { loopJob = createdLoopJob6518 }
         try {
@@ -10201,17 +10172,80 @@ class BotService : Service() {
         }
     }
 
+    private var paperStopRetryJob8521: kotlinx.coroutines.Job? = null
+
+    private fun startPaperStopRetries8521() {
+        paperStopRetryJob8521?.cancel()
+        paperStopRetryJob8521 = scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            while (status.running && RuntimeModeAuthority.isPaper()) {
+                kotlinx.coroutines.delay(30_000L)
+                if (!status.running || stopInProgress || !RuntimeModeAuthority.isPaper()) break
+                val remaining = try { PaperStopLifecycle8521.reconcile(applicationContext) } catch (_: Exception) { emptySet<String>() }
+                if (remaining.isEmpty()) break
+                closePaperStopIntent8521(requestCurrent = false, source = "observed_quote_retry")
+            }
+        }
+    }
+
+    private fun stopMarketsForLifecycle8521() {
+        try { com.lifecyclebot.perps.TokenizedStockTrader.stop() } catch (_: Exception) {}
+        try { com.lifecyclebot.perps.CommoditiesTrader.stop() } catch (_: Exception) {}
+        try { com.lifecyclebot.perps.MetalsTrader.stop() } catch (_: Exception) {}
+        try { com.lifecyclebot.perps.ForexTrader.stop() } catch (_: Exception) {}
+        try { com.lifecyclebot.perps.CryptoAltTrader.stop() } catch (_: Exception) {}
+        try { com.lifecyclebot.perps.PerpsExecutionEngine.stop() } catch (_: Exception) {}
+    }
+
+    private fun closePaperStopIntent8521(requestCurrent: Boolean, source: String) {
+        try {
+            val targets = if (requestCurrent) PaperStopLifecycle8521.request(applicationContext,
+                com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions())
+                else PaperStopLifecycle8521.reconcile(applicationContext)
+            if (targets.isEmpty()) return
+            val tokens = PaperStopLifecycle8521.tokenSnapshots(status, targets)
+            val solana = executor.closePaperPositions8521(tokens, targets)
+            val markets = kotlinx.coroutines.runBlocking { PaperStopLifecycle8521.closeMarkets(targets) }
+            val confirmed = solana.closedIds + markets.closedIds
+            synchronized(status.tokens) {
+                status.tokens.values.filter { it.position.isPaperPosition && it.position.positionId in confirmed }
+                    .forEach { it.position = Position() }
+            }
+            val remaining = PaperStopLifecycle8521.reconcile(applicationContext)
+            val closed = confirmed.size
+            addLog("🛑 PAPER Stop: $closed confirmed close(s), ${remaining.size} awaiting fill")
+            ForensicLogger.lifecycle("PAPER_STOP_RESULT_8521",
+                "source=$source requested=${targets.size} confirmed=$closed pending=${remaining.size}")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "PAPER Stop retained unresolved inventory: ${e.message}", e)
+            addLog("⚠️ PAPER close incomplete; unresolved positions retained for retry")
+        }
+    }
+
+    private fun closeLivePositionsOnStop8521() {
+        try {
+            if (wallet == null) wallet = com.lifecyclebot.engine.WalletManager.attemptReconnect()
+            val tokens = synchronized(status.tokens) { status.tokens.toMap() }
+                .filterValues { it.position.isOpen && !it.position.isPaperPosition }
+            val kept = tokens.filterValues { LifecycleHold8065.keepOnStop8066(it) }
+            kept.values.forEach { addLog("🧬 LIFECYCLE HOLD kept through Stop: ${it.symbol}") }
+            val balance = status.getEffectiveBalance(false)
+            val closed = executor.closeAllPositions(tokens - kept.keys, wallet, balance, paperMode = false)
+            wallet?.let { w ->
+                val swept = executor.liveSweepWalletTokens(w, balance, kept.keys)
+                if (swept > 0) addLog("💰 Wallet sweep: $swept holding(s) settled")
+                try { com.lifecyclebot.engine.sell.LiveWalletReconciler.reconcileNow(w, "stop_close_confirmation_8521") }
+                catch (_: Exception) {}
+            }
+            addLog("🛑 LIVE Stop: $closed canonical close(s) confirmed; unresolved holdings retained")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "LIVE Stop retained unresolved inventory: ${e.message}", e)
+        }
+    }
+
     fun stopBot(source: String = "direct_call_unknown") {
-        // V5.0.7433 — runtime lifecycle is not an economic PAPER exit.
-        // 7431 proved a stop/restart could write ~138 bot_shutdown SELLs, then
-        // canonical reconstruction reopened the same inventory. That poisoned
-        // journal/finalized learning and manufactured ledger divergence.
-        //
-        // PAPER positions are simulated canonical inventory and survive every
-        // service/config/manual stop. They close only through trading exit
-        // authority (SL/TP/trail/manual economic close), never because Android
-        // stopped a service. LIVE keeps the explicit operator-stop liquidation
-        // behaviour so a confirmed Stop button can still sweep real holdings.
+        // 8521: a deliberate PAPER Stop requests economic closes for the exact
+        // currently open lots. Config/process lifecycle restarts preserve inventory.
+        // Completion is canonical CLOSED, never an emptied UI cache or attempted sell.
         val paperRuntime7433 = try {
             com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
         } catch (_: Throwable) {
@@ -10240,8 +10274,9 @@ class BotService : Service() {
             try { ServiceWatchdog.scheduleAlarm(applicationContext) } catch (_: Throwable) {}
             return
         }
-        val softStopPreservePositions = !liquidateOnStop
-        isShuttingDown = liquidateOnStop  // V5.9.1078: only liquidation stops use fast-close shutdown paths
+        val paperLiquidationStop8521 = paperRuntime7433 && operatorStop7928
+        val softStopPreservePositions = !liquidateOnStop && !paperLiquidationStop8521
+        isShuttingDown = liquidateOnStop || paperLiquidationStop8521
         // Capture immutable ownership before teardown starts.  Every cancellation
         // in this stop must target this Job, never whatever a later start/rescue
         // may install in the shared field.
@@ -10254,6 +10289,18 @@ class BotService : Service() {
         // the tail of this method. Cleared in the `finally` block below.
         stopInProgress = true
         status.running = false  // visible immediately; stopInProgress remains the cleanup truth
+        paperStopRetryJob8521?.cancel()
+        paperStopRetryJob8521 = null
+        if (paperLiquidationStop8521) {
+            try {
+                PaperStopLifecycle8521.request(applicationContext,
+                    com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions())
+            } catch (e: Exception) {
+                addLog("⚠️ PAPER Stop intent could not be saved: ${e.message}")
+            }
+        }
+        // Stop intake for every asset family before capturing the final close set.
+        stopMarketsForLifecycle8521()
         cancelShadowEvidenceTicks8372("stopBot:$source")
         try { com.lifecyclebot.engine.truth.BackgroundTradingAuthority6469.setRuntimeActive(false, "BotService.stopBot.$source.6487") } catch (_: Throwable) {}
 
@@ -10410,500 +10457,19 @@ class BotService : Service() {
             addLog("↻ Soft stop/restart: preserving open positions (source=$source)")
         }
 
+        if (paperLiquidationStop8521) {
+            closePaperStopIntent8521(requestCurrent = true, source = source)
+        }
         if (liquidateOnStop) {
-        // IMPORTANT: Close all open positions BEFORE stopping.
-        // V5.9.1078 — liquidation is no longer unconditional. Only confirmed
-        // operator STOP/halt reset may close positions with bot_shutdown.
-        // Internal/config/lifecycle stops preserve positions and skip this block.
-        // V5.9.661 — UNCONDITIONAL on every manual stop. Per operator mandate,
-        // every stop MUST close all open positions and sweep the live
-        // wallet, regardless of the legacy cfg.closePositionsOnStop
-        // toggle. That flag is now ignored for safety: live tokens
-        // stranded in the host wallet, and paper SOL never returning,
-        // were both traced to this gate being false.
+            closeLivePositionsOnStop8521()
+        }
+        // Preserve every unresolved position. Its close receipt, not Stop, owns
+        // tracker retirement and persistence removal.
         try {
-            val cfg = ConfigStore.load(applicationContext)
-
-            run {
-                val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
-
-                // V5.9.454 — STOP-PATH WALLET RECOVERY.
-                // On live stop, the local `wallet` var may have been
-                // nulled by an earlier RPC hiccup (see WalletManager
-                // preservation fix) or by the old launchWalletConnect
-                // race. If it's null here, held tokens would stay
-                // stranded in the host wallet because closeAllPositions
-                // and liveSweepWalletTokens both need a live wallet.
-                //
-                // Do one synchronous attemptReconnect before giving up
-                // so the user's positions actually liquidate.
-                if (!cfg.paperMode && wallet == null) {
-                    try {
-                        ErrorLogger.warn("BotService",
-                            "🚨 STOP: live wallet is null — attempting reconnect so held tokens can be swept")
-                        addLog("🚨 STOP: reconnecting wallet to sell held tokens…")
-                        val recovered = com.lifecyclebot.engine.WalletManager.attemptReconnect()
-                        if (recovered != null) {
-                            wallet = recovered
-                            addLog("✅ Wallet reconnected for shutdown sweep")
-                            ErrorLogger.info("BotService", "✅ STOP: wallet recovered for shutdown sweep")
-                        } else {
-                            ErrorLogger.error("BotService",
-                                "❌ STOP: wallet reconnect failed — held tokens will remain in host wallet")
-                            addLog("❌ STOP: wallet reconnect failed — held tokens will NOT be sold")
-                        }
-                    } catch (e: Exception) {
-                        ErrorLogger.error("BotService", "STOP reconnect threw: ${e.message}", e)
-                    }
-                }
-                
-                // Get a synchronized copy of tokens to avoid ConcurrentModificationException
-                val tokensCopy = synchronized(status.tokens) {
-                    status.tokens.toMap()
-                }
-
-                // V5.9.681 — AGGRESSIVE EARLY UI CLEAR (operator regression fix).
-                //
-                // Previous flow ran closeAllPositions() FIRST (which does
-                // per-position paperSell() + heavy learning code, ~500ms each),
-                // then 7 lane-trader clears, then trackers, THEN finally
-                // status.tokens.clear() + PositionPersistence.clear().
-                //
-                // Operator screenshot V5.9.680: 10+ paper positions still on UI
-                // after pressing Stop. Root cause: with 10 open positions, the
-                // per-token paperSell learning loop takes 5+ seconds. The bot
-                // loop may also be frozen mid-cycle (cycle 3 wedged at 170s+),
-                // holding monitors that block stopBot's downstream work. So
-                // status.tokens never reaches the late clear() call within the
-                // window the user looks at the screen.
-                //
-                // Fix: clear status.tokens AND PositionPersistence RIGHT NOW,
-                // before any heavy work. The tokensCopy snapshot already holds
-                // the live TokenState references so closeAllPositions() and the
-                // sub-trader close loops downstream still operate on real data
-                // for learning purposes. UI sees a clean state immediately, and
-                // even if the process is killed during the slow paperSell loop,
-                // persistence is already wiped so the next start can't restore
-                // ghosts.
-                // V5.9.1003-FIX: Clear in-memory tokens early (UI fast-clear) but
-                // do NOT clear PositionPersistence until AFTER closeAllPositions.
-                // Treasury live positions: if PositionPersistence.clear() fires first
-                // and the process is killed mid-close, the positions are orphaned on-chain
-                // (persistence wiped → next boot restorePositions finds nothing).
-                // Keep positions in persistence until the sell loop completes so the
-                // next-boot reconciler can adopt any that didn't close cleanly.
-                run {
-                    try {
-                        synchronized(status.tokens) {
-                            status.tokens.clear()
-                        }
-                        try { GlobalTradeRegistry.reset() } catch (_: Throwable) {}
-                        ForensicLogger.lifecycle(
-                            "STOP_EARLY_TOKENS_CLEARED",
-                            "snapshotSize=${tokensCopy.size}"
-                        )
-                    } catch (e: Throwable) {
-                        ErrorLogger.warn("BotService", "early tokens clear: ${e.message}")
-                    }
-                    // PositionPersistence.clear() intentionally moved AFTER closeAllPositions below.
-                }
-
-                // V5.0.8066 — owner: Stop leaves lifecycle holds alone ("yes but label them"). They stay in the wallet,
-                // stay persisted, are labelled in the log here and on the positions card, and are managed again on start.
-                val kept8066 = if (cfg.paperMode) emptyMap() else tokensCopy.filterValues {
-                    try { LifecycleHold8065.keepOnStop8066(it) } catch (_: Throwable) { false }
-                }
-                kept8066.values.forEach { k ->
-                    val g8066 = if (k.position.entryPrice > 0.0 && k.lastPrice > 0.0) ((k.lastPrice / k.position.entryPrice - 1.0) * 100.0).toInt() else 0
-                    addLog("🧬 LIFECYCLE HOLD kept through Stop: ${k.symbol} (${if (g8066 >= 0) "+" else ""}$g8066%) — still held, managed again on start")
-                }
-                val closedCount = executor.closeAllPositions(
-                    tokens = tokensCopy - kept8066.keys,
-                    wallet = wallet,
-                    walletSol = effectiveBalance,
-                    paperMode = cfg.paperMode,
-                )
-                
-                if (closedCount > 0) {
-                    addLog("✅ Closed $closedCount position(s) before shutdown")
-                }
-
-                // V5.9.1003-FIX: Clear persistence AFTER close loop so treasury/live
-                // positions aren't orphaned if the process dies mid-sell.
-                try {
-                    PositionPersistence.clear()
-                    // V5.0.8066 — the kept lifecycle holds are written back.
-                    kept8066.values.forEach { k -> try { PositionPersistence.savePosition(k) } catch (_: Throwable) {} }
-                    ForensicLogger.lifecycle("STOP_PERSIST_CLEARED_POST_CLOSE", "closedCount=$closedCount keptLifecycle8066=${kept8066.size}")
-                } catch (e: Throwable) {
-                    ErrorLogger.warn("BotService", "post-close persist clear: ${e.message}")
-                }
-
-                // ═══════════════════════════════════════════════════════════════════
-                // V5.9.261 — LIVE WALLET SWEEP (chronic 1-month sell bug fix)
-                // Layer traders (ShitCoin/Moonshot/BlueChip/Manip/Express/Quality)
-                // do only in-memory accounting in their closePosition() paths —
-                // they never broadcast a Jupiter sell. Sweep the wallet now so
-                // every meme/altcoin actually returns to SOL before shutdown.
-                // Stablecoins + SOL are preserved.
-                // ═══════════════════════════════════════════════════════════════════
-                if (!cfg.paperMode && wallet != null) {
-                    try {
-                        val swept = executor.liveSweepWalletTokens(wallet!!, effectiveBalance, kept8066.keys)
-                        if (swept > 0) {
-                            addLog("💰 Wallet sweep: liquidated $swept on-chain holding(s) to SOL")
-                        }
-                    } catch (sweepEx: Exception) {
-                        ErrorLogger.error("BotService", "Wallet sweep failed: ${sweepEx.message}", sweepEx)
-                        addLog("⚠️ Wallet sweep error: ${sweepEx.message?.take(80)}")
-                    }
-                }
-                
-                // ═══════════════════════════════════════════════════════════════════
-                // V4.0 FIX: Also close Treasury Mode positions
-                // Treasury tracks positions separately in CashGenerationAI
-                // ═══════════════════════════════════════════════════════════════════
-                try {
-                    val treasuryPositions = com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositions()
-                    if (treasuryPositions.isNotEmpty()) {
-                        addLog("💰 Closing ${treasuryPositions.size} Treasury position(s)...")
-                        for (tPos in treasuryPositions) {
-                            try {
-                                val ts = tokensCopy[tPos.mint]
-                                val currentPrice = ts?.lastPrice ?: ts?.ref ?: tPos.entryPrice
-                                
-                                // Close the treasury position tracking
-                                com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(
-                                    mint = tPos.mint,
-                                    exitPrice = currentPrice,
-                                    exitReason = com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TIME_EXIT
-                                )
-                                recentlyClosedMs[tPos.mint] = System.currentTimeMillis()
-                                addLog("💰 Closed Treasury position: ${tPos.symbol}", tPos.mint)
-                            } catch (te: Exception) {
-                                addLog("⚠️ Failed to close Treasury ${tPos.symbol}: ${te.message}", tPos.mint)
-                            }
-                        }
-                    }
-                } catch (treasuryEx: Exception) {
-                    ErrorLogger.error("BotService", "Error closing Treasury positions: ${treasuryEx.message}", treasuryEx)
-                }
-                
-                // ═══════════════════════════════════════════════════════════════════
-                // V4.0 FIX: Also close Blue Chip positions
-                // ═══════════════════════════════════════════════════════════════════
-                try {
-                    val blueChipPositions = com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions()
-                    if (blueChipPositions.isNotEmpty()) {
-                        addLog("🔵 Closing ${blueChipPositions.size} Blue Chip position(s)...")
-                        for (bcPos in blueChipPositions) {
-                            try {
-                                val ts = tokensCopy[bcPos.mint]
-                                val currentPrice = ts?.lastPrice ?: ts?.ref ?: bcPos.entryPrice
-                                
-                                com.lifecyclebot.v3.scoring.BlueChipTraderAI.closePosition(
-                                    mint = bcPos.mint,
-                                    exitPrice = currentPrice,
-                                    exitReason = com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.TIME_EXIT
-                                )
-                                addLog("🔵 Closed Blue Chip position: ${bcPos.symbol}", bcPos.mint)
-                            } catch (bcEx: Exception) {
-                                addLog("⚠️ Failed to close BlueChip ${bcPos.symbol}: ${bcEx.message}", bcPos.mint)
-                            }
-                        }
-                    }
-                } catch (bcEx: Exception) {
-                    ErrorLogger.error("BotService", "Error closing BlueChip positions: ${bcEx.message}", bcEx)
-                }
-                
-                // ═══════════════════════════════════════════════════════════════════
-                // V4.0 FIX: Also close ShitCoin positions
-                // ═══════════════════════════════════════════════════════════════════
-                try {
-                    val shitCoinPositions = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions()
-                    if (shitCoinPositions.isNotEmpty()) {
-                        addLog("💩 Closing ${shitCoinPositions.size} ShitCoin position(s)...")
-                        for (scPos in shitCoinPositions) {
-                            try {
-                                val ts = tokensCopy[scPos.mint]
-                                val currentPrice = ts?.lastPrice ?: ts?.ref ?: scPos.entryPrice
-                                
-                                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(
-                                    mint = scPos.mint,
-                                    exitPrice = currentPrice,
-                                    exitReason = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.TIME_EXIT
-                                )
-                                addLog("💩 Closed ShitCoin position: ${scPos.symbol}", scPos.mint)
-                            } catch (scEx: Exception) {
-                                addLog("⚠️ Failed to close ShitCoin ${scPos.symbol}: ${scEx.message}", scPos.mint)
-                            }
-                        }
-                    }
-                    // V5.2: Force clear all ShitCoin positions to ensure UI updates
-                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.clearAllPositions()
-                } catch (scEx: Exception) {
-                    ErrorLogger.error("BotService", "Error closing ShitCoin positions: ${scEx.message}", scEx)
-                }
-                
-                // ═══════════════════════════════════════════════════════════════════
-                // V5.2: Also close ShitCoinExpress positions
-                // ═══════════════════════════════════════════════════════════════════
-                try {
-                    com.lifecyclebot.v3.scoring.ShitCoinExpress.clearAllRides()
-                    addLog("💩🚂 Cleared ShitCoin Express rides")
-                } catch (scEx: Exception) {
-                    ErrorLogger.error("BotService", "Error clearing ShitCoin Express: ${scEx.message}", scEx)
-                }
-
-                // ☠️ Clear Manipulated positions
-                try {
-                    com.lifecyclebot.v3.scoring.ManipulatedTraderAI.clearAll()
-                    addLog("☠️ Cleared Manipulated positions")
-                } catch (mEx: Exception) {
-                    ErrorLogger.error("BotService", "Error clearing Manipulated positions: ${mEx.message}", mEx)
-                }
-                
-                // ═══════════════════════════════════════════════════════════════════
-                // V5.2.12: Also close Quality positions
-                // ═══════════════════════════════════════════════════════════════════
-                try {
-                    val qualityPositions = com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositions()
-                    if (qualityPositions.isNotEmpty()) {
-                        addLog("⭐ Closing ${qualityPositions.size} Quality position(s)...")
-                        for (qPos in qualityPositions) {
-                            try {
-                                val ts = tokensCopy[qPos.mint]
-                                val currentPrice = ts?.lastPrice ?: ts?.ref ?: qPos.entryPrice
-                                
-                                com.lifecyclebot.v3.scoring.QualityTraderAI.closePosition(
-                                    mint = qPos.mint,
-                                    exitPrice = currentPrice,
-                                    exitSignal = com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.TIME_EXIT
-                                )
-                                addLog("⭐ Closed Quality position: ${qPos.symbol}", qPos.mint)
-                            } catch (qEx: Exception) {
-                                addLog("⚠️ Failed to close Quality ${qPos.symbol}: ${qEx.message}", qPos.mint)
-                            }
-                        }
-                    }
-                } catch (qEx: Exception) {
-                    ErrorLogger.error("BotService", "Error closing Quality positions: ${qEx.message}", qEx)
-                }
-                
-                // ═══════════════════════════════════════════════════════════════════
-                // V5.2.12: Also close Moonshot positions
-                // ═══════════════════════════════════════════════════════════════════
-                try {
-                    val moonshotPositions = com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions()
-                    if (moonshotPositions.isNotEmpty()) {
-                        addLog("🚀 Closing ${moonshotPositions.size} Moonshot position(s)...")
-                        for (mPos in moonshotPositions) {
-                            try {
-                                val ts = tokensCopy[mPos.mint]
-                                val currentPrice = ts?.lastPrice ?: ts?.ref ?: mPos.entryPrice
-                                
-                                com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(
-                                    mint = mPos.mint,
-                                    exitPrice = currentPrice,
-                                    exitReason = com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.TIMEOUT
-                                )
-                                addLog("🚀 Closed Moonshot position: ${mPos.symbol}", mPos.mint)
-                            } catch (mEx: Exception) {
-                                addLog("⚠️ Failed to close Moonshot ${mPos.symbol}: ${mEx.message}", mPos.mint)
-                            }
-                        }
-                    }
-                } catch (mEx: Exception) {
-                    ErrorLogger.error("BotService", "Error closing Moonshot positions: ${mEx.message}", mEx)
-                }
-                
-                // Also purge any orphaned tokens (live mode only)
-                if (!cfg.paperMode && wallet != null) {
-                    purgeOrphanedTokensOnStop(cfg)
-                }
-            }
+            val remaining = synchronized(status.tokens) { status.tokens.toMap() }
+            PositionPersistence.saveAllPositions(remaining, force = true)
         } catch (e: Exception) {
-            addLog("⚠️ Error closing positions on shutdown: ${e.message}")
-            ErrorLogger.error("BotService", "Error closing positions on shutdown: ${e.message}", e)
-        }
-        
-        // V5.2 FIX: ALWAYS clear all layer positions when bot stops, regardless of closePositionsOnStop setting
-        // This ensures the UI doesn't show stale positions after a bot stop/crash
-        //
-        // V5.9.679 — DEFENSIVE per-step clears (P0 bug fix).
-        //
-        // Operator screenshot: 6 paper positions persisted on the UI after
-        // pressing Stop. Root cause: the previous single try-catch wrapped
-        // SEVEN lane-trader clears + a LiveWalletReconciler pass + TWO
-        // tracker clears in one block. If ANY of the lane traders threw
-        // (a defensive throw inside CashGen/BlueChip/ShitCoin/etc), the
-        // SHARED catch at the bottom skipped the trackers — and the UI's
-        // open-counter does maxOf(tokens, hostTracker, lifecycleTracker)
-        // so the tracker leak alone keeps the badge non-zero.
-        //
-        // Fix: each clear gets its own try-catch. Trackers ALWAYS run in a
-        // dedicated final try regardless of upstream failures. Also emit
-        // STOP_CLEAR_STEP forensic events so the next dump shows EXACTLY
-        // which step failed if this regression ever recurs.
-        try {
-            try { com.lifecyclebot.v3.scoring.CashGenerationAI.clearAllPositions() }
-                catch (e: Throwable) { ErrorLogger.warn("BotService", "stop-clear CashGen: ${e.message}") }
-            try { com.lifecyclebot.v3.scoring.BlueChipTraderAI.clearAllPositions() }
-                catch (e: Throwable) { ErrorLogger.warn("BotService", "stop-clear BlueChip: ${e.message}") }
-            try { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.clearAllPositions() }
-                catch (e: Throwable) { ErrorLogger.warn("BotService", "stop-clear ShitCoin: ${e.message}") }
-            try { com.lifecyclebot.v3.scoring.ShitCoinExpress.clearAllRides() }
-                catch (e: Throwable) { ErrorLogger.warn("BotService", "stop-clear ShitCoinExpress: ${e.message}") }
-            try { com.lifecyclebot.v3.scoring.ManipulatedTraderAI.clearAll() }
-                catch (e: Throwable) { ErrorLogger.warn("BotService", "stop-clear Manipulated: ${e.message}") }
-            try { com.lifecyclebot.v3.scoring.QualityTraderAI.clearAllPositions() }
-                catch (e: Throwable) { ErrorLogger.warn("BotService", "stop-clear Quality: ${e.message}") }
-            try { com.lifecyclebot.v3.scoring.MoonshotTraderAI.clearAllPositions() }
-                catch (e: Throwable) { ErrorLogger.warn("BotService", "stop-clear Moonshot: ${e.message}") }
-            try { com.lifecyclebot.v3.scoring.ProjectSniperAI.clearAllMissions() }
-                catch (e: Throwable) { ErrorLogger.warn("BotService", "stop-clear ProjectSniper: ${e.message}") }
-            try { com.lifecyclebot.v3.scoring.DipHunterAI.clearAllDips() }
-                catch (e: Throwable) { ErrorLogger.warn("BotService", "stop-clear DipHunter: ${e.message}") }
-            // V5.9.665 — operator regression fix.
-            // Before wiping HostWalletTokenTracker / TokenLifecycleTracker,
-            // give LiveWalletReconciler one synchronous pass so any swap
-            // that landed on chain after the last verifyWalletDelta poll
-            // (Jupiter ATA still settling) is captured into the position
-            // store BEFORE the trackers get cleared. Without this, late-
-            // landing swaps would be silently dropped on stop.
-            try {
-                val w = wallet
-                if (w != null) {
-                    com.lifecyclebot.engine.sell.LiveWalletReconciler.reconcileNow(w, "stop_pre_tracker_clear")
-                }
-            } catch (rcEx: Throwable) {
-                ErrorLogger.debug("BotService", "pre-clear reconcile soft-failed: ${rcEx.message}")
-            }
-        } catch (clearEx: Exception) {
-            ErrorLogger.error("BotService", "Error clearing layer positions: ${clearEx.message}", clearEx)
-        }
-        // V5.9.679 — trackers ALWAYS clear, even if every lane trader
-        // above threw. This is the dedicated final guard for the UI
-        // open-counter maxOf computation.
-        // V5.9.661c — also wipe the lifecycle + host-wallet trackers
-        // so the main UI "Open" counter (uses maxOf of all sources)
-        // actually drops to 0. Operator: 'still showed 11 as per
-        // screen shot with the bot off'. Root cause was these two
-        // trackers retaining their counts past stop.
-        // V5.9.777 — EMERGENT MEME-ONLY stop-bot live preservation.
-        // Operator forensics: WC2026 / early / GOAT vanished from host
-        // tracker after a stop/start cycle because clearAll() wiped
-        // live OPEN_TRACKING positions. In LIVE mode we now call
-        // clearPaperOnly() which preserves every live wallet-backed
-        // position (BUY_CONFIRMED / HELD_IN_WALLET / OPEN_TRACKING /
-        // EXIT_SIGNALLED / SELL_PENDING / SELL_VERIFYING). PAPER mode
-        // still uses clearAll() because there's no on-chain truth to
-        // preserve. The lifecycle tracker keeps its existing clearAll
-        // behaviour — it's an ephemeral state machine, not wallet truth.
-        val liveStop = try {
-            !ConfigStore.load(applicationContext).paperMode
-        } catch (_: Throwable) {
-            false  // safe default — if config read fails, behave like PAPER (full clear)
-        }
-        try { com.lifecyclebot.engine.TokenLifecycleTracker.clearAll() }
-            catch (e: Throwable) { ErrorLogger.warn("BotService", "stop-clear LifecycleTracker: ${e.message}") }
-        try {
-            if (liveStop) {
-                com.lifecyclebot.engine.HostWalletTokenTracker.clearPaperOnly()
-            } else {
-                com.lifecyclebot.engine.HostWalletTokenTracker.clearAll()
-            }
-        } catch (e: Throwable) {
-            ErrorLogger.warn("BotService", "stop-clear HostWalletTracker: ${e.message}")
-        }
-        try {
-            ForensicLogger.lifecycle(
-                "STOP_TRACKERS_CLEARED",
-                "lifecycleCleared=true hostCleared=${if (liveStop) "PAPER_ONLY" else "ALL"} mode=${if (liveStop) "LIVE" else "PAPER"}"
-            )
-        } catch (_: Throwable) {}
-        addLog("✅ Cleared trackers (host=${if (liveStop) "PAPER_ONLY · live positions preserved" else "ALL"})")
-        
-        // V5.2.12 FIX: Also clear position.isOpen flags in status.tokens
-        // This is what the UI reads - critical to prevent stale position display
-        // Note: isOpen is a computed property (qtyToken > 0), so we replace with empty Position
-        //
-        // V5.9.777 — EMERGENT MEME-ONLY: in LIVE mode, do NOT clear live
-        // position flags. The wallet still holds the tokens; clearing the
-        // in-memory flag desyncs the UI from on-chain truth and causes
-        // restart races where paper sells overwrite the live position.
-        // Paper positions are still cleared because there's no on-chain
-        // truth to preserve.
-        try {
-            synchronized(status.tokens) {
-                status.tokens.values.forEach { ts ->
-                    if (ts.position.isOpen) {
-                        if (liveStop && !ts.position.isPaperPosition) {
-                            // Preserve live wallet-backed position.
-                            ErrorLogger.debug("BotService", "🔒 Preserved LIVE position for ${ts.symbol} on stopBot")
-                        } else {
-                            ts.position = Position()
-                            ErrorLogger.debug("BotService", "Cleared position for ${ts.symbol}")
-                        }
-                    }
-                }
-            }
-            addLog("✅ Cleared token position flags (live positions preserved: $liveStop)")
-        } catch (tokensEx: Exception) {
-            ErrorLogger.error("BotService", "Error clearing token positions: ${tokensEx.message}", tokensEx)
-        }
-
-        // V5.6: Clear the watchlist so UI shows clean state after stop
-        // Learning data is persisted in trade DB — status.tokens is just the live runtime cache
-        //
-        // V5.9.777 — EMERGENT MEME-ONLY: in LIVE mode, retain mints that
-        // still have an open live position so restart can find them.
-        try {
-            val _preClearCount = status.tokens.values.count { it.position.isOpen }
-            synchronized(status.tokens) {
-                if (liveStop) {
-                    // Retain only live open positions; drop the rest.
-                    val keepKeys = status.tokens.entries.asSequence()
-                        .filter { it.value.position.isOpen && !it.value.position.isPaperPosition }
-                        .map { it.key }
-                        .toSet()
-                    val it = status.tokens.entries.iterator()
-                    while (it.hasNext()) {
-                        if (it.next().key !in keepKeys) it.remove()
-                    }
-                    ErrorLogger.info("BotService", "🔒 stopBot LIVE: retained ${keepKeys.size} open mints in watchlist")
-                } else {
-                    status.tokens.clear()
-                }
-            }
-            if (!liveStop) GlobalTradeRegistry.reset()
-            try {
-                ForensicLogger.lifecycle(
-                    "STOP_TOKENS_CLEARED",
-                    "preClearOpen=$_preClearCount mapSize=${status.tokens.size} liveStop=$liveStop"
-                )
-            } catch (_: Throwable) {}
-            addLog("✅ Watchlist ${if (liveStop) "trimmed (live mints kept)" else "cleared"}")
-        } catch (clearEx: Exception) {
-            ErrorLogger.error("BotService", "Error clearing watchlist on stop: ${clearEx.message}", clearEx)
-        }
-
-        // V5.6.10 FIX: Also clear PositionPersistence so positions don't restore on restart
-        // Without this, positions reappear after bot stop → start cycle
-        try {
-            PositionPersistence.clear()
-            persistenceFinalizedByStop = true
-            try {
-                ForensicLogger.lifecycle("STOP_PERSIST_CLEARED", "ok=true finalizedByStop=true")
-            } catch (_: Throwable) {}
-            addLog("✅ Cleared position persistence — positions won't restore on restart")
-        } catch (persistEx: Exception) {
-            ErrorLogger.error("BotService", "Error clearing position persistence: ${persistEx.message}", persistEx)
-            try {
-                ForensicLogger.lifecycle("STOP_PERSIST_CLEARED", "ok=false err=${persistEx.message?.take(60)}")
-            } catch (_: Throwable) {}
-        }
-
+            ErrorLogger.warn("BotService", "Stop persistence: ${e.message}")
         }
 
         status.running = false
@@ -10923,7 +10489,7 @@ class BotService : Service() {
         networkCallback = null
         TreasuryManager.save(applicationContext)
         botBrain?.stop(); botBrain = null
-        tradeDb?.close(); tradeDb = null
+        // Close the journal only after every asset family's close attempt below.
         // Cancel keep-alive alarm only on explicit manual stop. Soft/restart
         // stops must keep resurrection available.
         if (operatorStop7928) cancelKeepAliveAlarm()
@@ -10977,12 +10543,12 @@ class BotService : Service() {
         //
         // V5.9.5: Close all Markets positions then stop all traders when main bot stops
         if (liquidateOnStop) try {
-            com.lifecyclebot.perps.TokenizedStockTrader.closeAllPositions()
-            com.lifecyclebot.perps.CommoditiesTrader.closeAllPositions()
-            com.lifecyclebot.perps.MetalsTrader.closeAllPositions()
-            com.lifecyclebot.perps.ForexTrader.closeAllPositions()
-            com.lifecyclebot.perps.CryptoAltTrader.closeAllPositions()
-            kotlinx.coroutines.runBlocking { com.lifecyclebot.perps.PerpsExecutionEngine.closeAllPositions() }
+            com.lifecyclebot.perps.TokenizedStockTrader.closeAllPositions(paperMode = false)
+            com.lifecyclebot.perps.CommoditiesTrader.closeAllPositions(paperMode = false)
+            com.lifecyclebot.perps.MetalsTrader.closeAllPositions(paperMode = false)
+            com.lifecyclebot.perps.ForexTrader.closeAllPositions(paperMode = false)
+            com.lifecyclebot.perps.CryptoAltTrader.closeAllPositions(paperMode = false)
+            kotlinx.coroutines.runBlocking { com.lifecyclebot.perps.PerpsExecutionEngine.closeAllPositions(paperMode = false) }
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "Error closing markets positions: ${e.message}", e)
         }
@@ -10998,6 +10564,8 @@ class BotService : Service() {
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "Error stopping markets traders: ${e.message}", e)
         }
+
+        tradeDb?.close(); tradeDb = null
 
         // V4.0: Reset initialization flags so services can reinit on next start
         tradingModesInitialized = false
@@ -11059,7 +10627,16 @@ class BotService : Service() {
         try { wifiLock6032?.let { if (it.isHeld) it.release() } } catch (_: Throwable) {}
         wifiLock6032 = null
         
-        val stopSummary7835 = if (liquidateOnStop) "Liquidation requested; pending closes retain their proof state." else "Positions preserved."
+        val stopSummary7835 = when {
+            paperLiquidationStop8521 -> {
+                val pending = try { PaperStopLifecycle8521.reconcile(applicationContext).size } catch (_: Exception) { -1 }
+                if (pending == 0) "Paper close requests confirmed."
+                else if (pending > 0) "$pending paper close(s) awaiting an observed fill; positions retained for retry."
+                else "Paper close status unavailable; positions retained for recovery."
+            }
+            liquidateOnStop -> "Liquidation requested; pending closes retain their proof state."
+            else -> "Positions preserved."
+        }
         addLog("Bot stopped. $stopSummary7835 Wallet remains connected.")
         
         // Show Toast on UI thread for immediate feedback
@@ -19875,6 +19452,7 @@ class BotService : Service() {
         // -60% after 10s regardless.
         val stopConfirmed7385 = run {
             if (cfg.paperMode || pnlPct > catastropheThreshold && pnlPct > -HARD_FLOOR_STOP_PCT_CONST) return@run true
+            StopMarkConfirm8418.cachedSellQuoteVerdict8521(ts, maxOf(catastropheThreshold, -HARD_FLOOR_STOP_PCT_CONST))?.let { return@run it }
             val ageMs = System.currentTimeMillis() - ts.position.entryTime
             val src = ts.lastPriceSource.uppercase()
             // V5.0.7735 — an uncorroborated fan-out mark, a trade-stream observation
@@ -33602,7 +33180,7 @@ if (hotExitHandledSweep) {
                 // V5.9.706 FIX: if rapid monitor already closed ts.position, requestSell
                 // returns ALREADY_CLOSED — still clean up sub-trader state so UI ghosts clear.
                 // Only bail on FAILED_RETRYABLE (will retry next tick with fresh price/balance).
-                if (sellResult == Executor.SellResult.FAILED_RETRYABLE) return
+                if (!sellResult.settled8521()) return
                 com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(
                     ts.mint, currentPrice, exitSignal
                 )
@@ -33786,7 +33364,7 @@ if (hotExitHandledSweep) {
 
                 // V5.9.706 FIX: ALREADY_CLOSED means rapid monitor already exited this position.
                 // Still clean up ShitCoinTraderAI state so the UI tile disappears.
-                if (sellResult == Executor.SellResult.FAILED_RETRYABLE) return
+                if (!sellResult.settled8521()) return
                 com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(
                     ts.mint, currentPrice, exitSignal
                 )
@@ -33854,7 +33432,7 @@ if (hotExitHandledSweep) {
                 )
                 
                 // V5.9.706 FIX: clean up sub-trader state even if ALREADY_CLOSED
-                if (sellResult == Executor.SellResult.FAILED_RETRYABLE) return
+                if (!sellResult.settled8521()) return
                 com.lifecyclebot.v3.scoring.ShitCoinExpress.exitRide(ts.mint, currentPrice, exitSignal)
                 com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
                 addLog("$exitEmoji EXPRESS SELL: ${ts.symbol} | ${exitSignal.name} | " +
@@ -33903,7 +33481,7 @@ if (hotExitHandledSweep) {
                 )
                 
                 // V5.9.706 FIX: clean up sub-trader state even if ALREADY_CLOSED
-                if (sellResult == Executor.SellResult.FAILED_RETRYABLE) return
+                if (!sellResult.settled8521()) return
                 com.lifecyclebot.v3.scoring.ManipulatedTraderAI.closePosition(ts.mint, currentPrice, exitSignal, isPaper = ts.position.isPaperPosition)
                 com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
                 addLog("☠️ MANIP EXIT: ${ts.symbol} | ${exitSignal.name} | " +
@@ -34031,7 +33609,7 @@ if (hotExitHandledSweep) {
                     wallet = wallet,
                     walletSol = effectiveBalance
                 )
-                if (moonshotSellResult == Executor.SellResult.FAILED_RETRYABLE) return
+                if (!moonshotSellResult.settled8521()) return
 
                 com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(ts.mint, currentPrice, exitSignal)
                 
@@ -35280,7 +34858,7 @@ if (hotExitHandledSweep) {
                             wallet = wallet, walletSol = effectiveBalance,
                         )
                         // V5.9.706 FIX: clean up sub-trader state unless retryable
-                        if (fbScResult != Executor.SellResult.FAILED_RETRYABLE) {
+                        if (fbScResult.settled8521()) {
                             com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(ts.mint, price, sig)
                             com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
                         }
@@ -35312,7 +34890,7 @@ if (hotExitHandledSweep) {
                             wallet = wallet, walletSol = effectiveBalance,
                         )
                         // V5.9.706 FIX: clean up sub-trader state unless retryable
-                        if (fbMsResult != Executor.SellResult.FAILED_RETRYABLE) {
+                        if (fbMsResult.settled8521()) {
                             com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(ts.mint, price, sig)
                             com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
                         }

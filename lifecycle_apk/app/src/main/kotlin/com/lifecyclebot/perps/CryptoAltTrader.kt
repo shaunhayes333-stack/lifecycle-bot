@@ -1042,12 +1042,14 @@ object CryptoAltTrader {
      * keeps its last mark; an untrusted dynamic mark is still held by
      * closePosition as before.
      */
-    private fun refreshMarksForStop7298() {
+    private fun refreshMarksForStop7298(targetIds: Set<String>? = null, paperOnly: Boolean = false) {
         if (positions.isEmpty()) return
         try {
             kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
                 kotlinx.coroutines.withTimeoutOrNull(6_000L) {
-                    positions.toMap().map { (id, position) ->
+                    positions.toMap().filter { (id, p) ->
+                        (targetIds == null || id in targetIds) && (!paperOnly || p.isPaper)
+                    }.map { (id, position) ->
                         async {
                             val mark: Triple<Double, String, Long>? = try {
                                 if (position.isDynamic) {
@@ -1056,9 +1058,10 @@ object CryptoAltTrader {
                                     if (held.freshObservation && held.canonicalIdentity.equals(key, true) &&
                                         held.price.isFinite() && held.price > 0.0) Triple(held.price, key, held.observedAtMs) else null
                                 } else {
-                                    val px = PerpsMarketDataFetcher.getMarketData(position.market).price
-                                    val ratio = if (position.entryPrice > 0) px / position.entryPrice else 1.0
-                                    if (px.isFinite() && px > 0.0 && ratio in 0.1..10.0) Triple(px, position.market.name, System.currentTimeMillis()) else null
+                                    val data = PerpsMarketDataFetcher.getMarketData(position.market)
+                                    if (com.lifecyclebot.engine.PaperStopLifecycle8521.eligibleMark8521(
+                                            position.market, data, System.currentTimeMillis()))
+                                        Triple(data.price, position.market.name, data.lastUpdate) else null
                                 }
                             } catch (_: Throwable) { null }
                             if (mark != null) {
@@ -1082,11 +1085,11 @@ object CryptoAltTrader {
     }
 
     /** Close all open positions immediately (called on STOP). */
-    fun closeAllPositions() {
-        refreshMarksForStop7298()
-        val ids = positions.keys.toList()
+    fun closeAllPositions(paperMode: Boolean? = null) {
+        val ids = positions.values.filter { paperMode == null || it.isPaper == paperMode }.map { it.id }
+        refreshMarksForStop7298(ids.toSet())
         val closedCount = ids.count { id ->
-            try { closePosition(id, "USER_STOP"); true }
+            try { closePosition(id, "USER_STOP"); positions[id] == null }
             catch (_: Exception) { false }
         }
         // Failed closes remain durable and canonical so the next bootstrap can
@@ -1099,6 +1102,26 @@ object CryptoAltTrader {
         }
         ErrorLogger.info(TAG, "🪙 All crypto alt positions closed on STOP (${ids.size} positions, $closedCount individual closes)")
         persistAltPositions()
+    }
+
+    suspend fun closePaperPositions8521(targetIds: Set<String>): com.lifecyclebot.engine.PaperStopLifecycle8521.CloseResult {
+        syncCanonicalCryptoPositions7255()
+        val requested = positions.values.filter { it.isPaper && it.id in targetIds }.mapTo(linkedSetOf()) { it.id }
+        withContext(Dispatchers.IO) { refreshMarksForStop7298(requested, paperOnly = true) }
+        val attempted = linkedSetOf<String>()
+        for (id in requested) {
+            if (com.lifecyclebot.engine.PaperStopLifecycle8521.confirmedClosed(id)) continue
+            val p = positions[id]?.takeIf { it.isPaper } ?: continue
+            val now = System.currentTimeMillis()
+            val expectedIdentity = if (p.isDynamic) p.canonicalAssetKey else p.market.name
+            if (!p.hasTrustedMark(now) || !p.markAssetKey.equals(expectedIdentity, true) ||
+                p.markUpdatedAtMs <= 0L || now - p.markUpdatedAtMs !in 0L..30_000L) continue
+            attempted.add(id)
+            try { closePosition(id, "USER_STOP") } catch (_: Exception) { }
+        }
+        persistAltPositions()
+        return com.lifecyclebot.engine.PaperStopLifecycle8521.CloseResult(requested, attempted,
+            requested.filterTo(linkedSetOf()) { com.lifecyclebot.engine.PaperStopLifecycle8521.confirmedClosed(it) })
     }
 
     // ═══════════════════════════════════════════════════════════════════════════

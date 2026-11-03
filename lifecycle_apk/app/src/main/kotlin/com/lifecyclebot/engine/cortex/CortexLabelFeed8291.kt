@@ -44,6 +44,23 @@ object CortexLabelFeed8291 {
     /** How long before a horizon an unpriced observation starts asking (one lane round trip and a curve pass fit in it). */
     const val LABEL_LEAD_MS_8418 = 30_000L
 
+    /** A copied price is not coverage, even when another writer stamped it "now".
+     * Ask only inside an active label window; the shared fetch lanes still coalesce/rate-limit requests.
+     */
+    fun needsIndependentRefresh8521(windowEndMs: Long, nowMs: Long, marketMark: Boolean,
+                                    compatible: Boolean, observedAtMs: Long, freshMs: Long = 20_000L,
+                                    requiredAfterMs: Long = 0L): Boolean =
+        windowEndMs > nowMs && (!marketMark || !compatible || observedAtMs <= 0L ||
+            (requiredAfterMs in 1L..nowMs && observedAtMs < requiredAfterMs) ||
+            nowMs - observedAtMs !in 0L..freshMs.coerceAtLeast(0L))
+
+    /** A recent pre-horizon read cannot settle a later target. Return the earliest open target due now. */
+    fun requiredObservationAt8521(atMs: Long, nowMs: Long, horizonsMs: LongArray, gracesMs: LongArray): Long =
+        horizonsMs.indices.asSequence().filter { i ->
+            val horizon = horizonsMs[i]
+            horizon >= 0L && i < gracesMs.size && nowMs - atMs in horizon..(horizon + gracesMs[i].coerceAtLeast(0L))
+        }.map { atMs + horizonsMs[it] }.minOrNull() ?: 0L
+
     /**
      * Pure (V5.0.8418): the wall-clock end of the mark window an unpriced observation decided at [atMs] is in (or within
      * [leadMs] of) at [ageMs], else 0. [firstMarkDue]: the re-base window, which ends at [rebaseMaxMs]. [horizonsMs] /

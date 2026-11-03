@@ -208,7 +208,7 @@ object ForwardOutcomeModel {
                 val keyMode = if (hasMode) seg.getOrNull(0) else null
                 // 7838: forward price labels are advisory observations, not
                 // completed trades. They have a separate proof ladder in FDG.
-                if (keyMode == LABEL_TAG_7734) continue
+                if (keyMode == LABEL_TAG_7734 || keyMode == "S") continue
                 val keyRegime = if (hasMode) seg.getOrNull(4) else seg.getOrNull(3)
                 if (keyMode != ownMode) otherModeCells++
 
@@ -300,7 +300,9 @@ object ForwardOutcomeModel {
      * shrunk like a paper prior: a cheap mark may warn at full volume and
      * encourage only softly.
      */
-    private const val LABEL_TAG_7734 = "S"
+    // Keep old S| cells archived in the saved state; only corrected observations
+    // can enter current label forecasts. L|/P| actual-close cells are unchanged.
+    private const val LABEL_TAG_7734 = "S8521"
     /** V5.0.7738 — the most one forward label may contribute to a label cell's mean. */
     // V5.0.8072 — NO win cap (was +300%). Owner, 2026-10-12: "remove caps on blockchain provable data ... no win caps. the whole data set is blockchain verifiable".
     private const val LABEL_GAIN_CEILING_PCT_7738 = Double.POSITIVE_INFINITY
@@ -618,7 +620,7 @@ object ForwardOutcomeModel {
 
     fun formatForPipelineDump(): String {
         return try {
-            val ranked = fine.entries.filter { it.value.n >= MIN_SAMPLES }.sortedByDescending { it.value.mean }
+            val ranked = fine.entries.filter { it.value.n >= MIN_SAMPLES && !it.key.startsWith("S|") }.sortedByDescending { it.value.mean }
             if (ranked.isEmpty()) return ""
             val sb = StringBuilder("\n===== Forward Outcome Model (V5.9.1261) — counterfactual edge map =====\n")
             sb.append("  signatures=${fine.size}  updates=$totalUpdates  labelCells7734=${fine.keys.count { it.startsWith("$LABEL_TAG_7734|") }}  labelUpdates7734=$labelUpdates7734\n")

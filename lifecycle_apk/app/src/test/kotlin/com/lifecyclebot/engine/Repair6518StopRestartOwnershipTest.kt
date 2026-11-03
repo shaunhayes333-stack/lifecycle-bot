@@ -48,15 +48,12 @@ class Repair6518StopRestartOwnershipTest {
     }
 
     @Test
-    fun `fast shutdown bulk clears every private strategy registry`() {
-        assertTrue(service.contains("CashGenerationAI.clearAllPositions()"))
-        assertTrue(service.contains("BlueChipTraderAI.clearAllPositions()"))
-        assertTrue(service.contains("ShitCoinTraderAI.clearAllPositions()"))
-        assertTrue(service.contains("ShitCoinExpress.clearAllRides()"))
-        assertTrue(service.contains("ManipulatedTraderAI.clearAll()"))
-        assertTrue(service.contains("QualityTraderAI.clearAllPositions()"))
-        assertTrue(service.contains("MoonshotTraderAI.clearAllPositions()"))
-        assertTrue(service.contains("ProjectSniperAI.clearAllMissions()"))
-        assertTrue(service.contains("DipHunterAI.clearAllDips()"))
+    fun `shutdown retires only confirmed paper projections and preserves unresolved inventory`() {
+        val stop = service.substringAfter("fun stopBot(").substringBefore("private fun scheduleFreshStartAfterStop6518")
+        assertFalse(stop.contains("PositionPersistence.clear()"))
+        assertFalse(stop.contains("status.tokens.clear()"))
+        assertTrue(stop.contains("closePaperStopIntent8521(requestCurrent = true, source = source)"))
+        assertTrue(executor.contains("PaperStopLaneRegistry8521.retire(terminalPid6455)"))
+        assertFalse(executor.contains("SHUTDOWN_FORCE_CLOSE"))
     }
 }

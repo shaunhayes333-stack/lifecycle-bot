@@ -134,11 +134,13 @@ object OpenPositionPanel7807 {
         val inventory = try { CanonicalPositionAuthority6441.protectiveInventory7807(mode) } catch (_: Throwable) { emptyList() }
         if (inventory.isEmpty()) return emptyList()
         val eligible = inventory.filter { p ->
-            p.assetClass == AssetClass.SOLANA_TOKEN &&
+            if (p.mode.equals("paper", true)) true else p.assetClass == AssetClass.SOLANA_TOKEN &&
                 !(try { WalletTokenAccountStateAuthority7253.isFrozen(p.mint) } catch (_: Throwable) { false }) &&
                 !(try { com.lifecyclebot.engine.PositionCloseLedger.isClosed(p.mint) } catch (_: Throwable) { false })
         }
-        return pickOnePerMint7807(eligible, shownMints).mapNotNull { p -> project7807(p, tokens[p.mint]) }
+        return pickOnePerMint7807(eligible, shownMints).mapNotNull { p ->
+            CanonicalUiPositionProjection6686.projectPosition8521(p, tokens[p.mint])
+        }
     }
 
     private fun project7807(p: CanonicalPositionAuthority6441.Position, existing: TokenState?): TokenState? = try {

@@ -22893,6 +22893,9 @@ class Executor(
     enum class SellResult {
         CONFIRMED,
         FAILED_RETRYABLE,
+        // The executable quote disproved a price-based stop before any route/signature.
+        // Re-evaluate the signal; never back off, escalate slippage or mark the holding closed.
+        SIGNAL_INVALIDATED,
         // V5.0.3795 — all providers failed before any broadcast signature. This is
         // not a terminal close (tokens may still be held), but it also must NOT keep
         // a CloseLease or PendingSellQueue entry. A stale blocking retry is exactly
@@ -22907,7 +22910,10 @@ class Executor(
         // PendingSellQueue.add() (which would emit SELL_RETRY_TEMPORARY_ONLY)
         // and does NOT emit SELL_NO_CURRENT_HELD_PROOF_NOT_RETRIED. The mint
         // is owned by BalanceProofPoller until proof arrives or zero confirmed.
-        WAITING_BALANCE_PROOF,
+        WAITING_BALANCE_PROOF;
+
+        /** Only these outcomes may retire specialist ownership; a refused/unsubmitted sell keeps the position. */
+        fun settled8521(): Boolean = this == CONFIRMED || this == PAPER_CONFIRMED || this == ALREADY_CLOSED
     }
     
     // ═══ V5.0.7362 — LIVE SELL FINALITY RESUME ═══
@@ -24013,8 +24019,9 @@ class Executor(
                 val r = doSell(ts, canonicalReason, wallet, walletSol)
                 val preRoute8288 = try { com.lifecyclebot.engine.sell.StopFast8288.preRouteWait8288(ts.mint, canonicalReason, r.name) } catch (_: Throwable) { false }  // V5.0.8288
                 if (!preRoute8288) noteEmergencyOutcome7807(ts, canonicalReason, r)
-                com.lifecyclebot.engine.sell.SellRouteSpine8144.onResult8144(ts.mint, r.name)  // V5.0.8144
+                if (r != SellResult.SIGNAL_INVALIDATED) com.lifecyclebot.engine.sell.SellRouteSpine8144.onResult8144(ts.mint, r.name)  // V5.0.8144
                 when (r) {
+                    SellResult.SIGNAL_INVALIDATED -> invalidateExitSignal8521(ts, canonicalReason)
                     // Terminal outcomes → release the lease.
                     SellResult.CONFIRMED, SellResult.PAPER_CONFIRMED,
                     SellResult.ALREADY_CLOSED, SellResult.FAILED_FATAL,
@@ -24061,6 +24068,40 @@ class Executor(
         }
         try { SellDecisionMatrixReport.recordDoSellHandoff(ts.mint, ts.symbol ?: "?", requestReason, ts.position.isPaperPosition) } catch (_: Throwable) {}
         return doSell(ts, requestReason, wallet, walletSol)
+    }
+
+    /** A quote-refuted stop never enters provider retry/backoff or escalates slippage. A new stop may re-arm. */
+    private fun invalidateExitSignal8521(ts: TokenState, reason: String) {
+        // Serialize cancellation with partial/full signing; checking isLocked alone leaves a check-then-clear race.
+        if (!com.lifecyclebot.engine.sell.SellExecutionLocks.tryAcquire(ts.mint)) {
+            com.lifecyclebot.engine.sell.CloseLease.recordPreRouteWait8288(ts.mint)
+            return
+        }
+        val stamp = com.lifecyclebot.engine.sell.SellExecutionLocks.acquiredAtMs(ts.mint) ?: return
+        try {
+        val anotherOwns = try {
+            com.lifecyclebot.network.SignedTxLedger8085.unresolvedFor(ts.mint, "SELL") != null ||
+                TradeVerifier.activeSellSig(ts.mint) != null
+        } catch (_: Throwable) { true }
+        val cancelled = com.lifecyclebot.engine.sell.CloseLease.invalidateSignal8521(ts.mint, reason, anotherOwns) {
+            try { PendingSellQueue.removeInvalidatedSignal8521(ts.mint, reason) } catch (_: Throwable) {}
+            try { HostWalletTokenTracker.clearSellInFlight(ts.mint, "SIGNAL_INVALIDATED_QUOTE_8521") } catch (_: Throwable) {}
+            try { TokenLifecycleTracker.onSellSignalInvalidated8521(ts.mint) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.sell.ProtectiveExitClass7807.clearAttempts(ts.mint) } catch (_: Throwable) {}
+            try {
+                val held8521 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.firstOpenForMint(ts.mint, "live")
+                if (held8521 != null) com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450.invalidateQuotedLoss8521(
+                    held8521.positionId, held8521.remainingQtyRaw, com.lifecyclebot.engine.truth.HeldExitQuote8189.last8189(ts.mint),
+                    ts.lastPriceUpdate, System.currentTimeMillis())
+            } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.sell.SellRouteSpine8144.onResult8144(ts.mint, SellResult.SIGNAL_INVALIDATED.name) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.invalidateUnbroadcastSignal8521(ts.mint, ts.position.positionId) } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("EXIT_SIGNAL_INVALIDATED_QUOTE_8521") } catch (_: Throwable) {}
+            com.lifecyclebot.engine.sell.SellExecutionLocks.releaseOwned7835(ts.mint, stamp)
+        }
+        // A separate signed/active sell still owns its finality. Recheck on the short pre-route cadence, never double it.
+        if (!cancelled) com.lifecyclebot.engine.sell.CloseLease.recordPreRouteWait8288(ts.mint)
+        } finally { com.lifecyclebot.engine.sell.SellExecutionLocks.releaseOwned7835(ts.mint, stamp) }
     }
     
     data class PartialSellReceipt6566(
@@ -25021,41 +25062,91 @@ class Executor(
         // An unreadable trigger pnl is the phantom case itself: check the deepest band.
         val trigger = if (v.ok) v.pnlPct else com.lifecyclebot.engine.truth.ExitQuoteCorroboration7928.CHECK_BELOW_PCT - 1.0
         if (!com.lifecyclebot.engine.truth.ExitQuoteCorroboration7928.applies(reason, trigger, live)) true
-        else com.lifecyclebot.engine.truth.ExitQuoteCorroboration7928.allowSell(ts.mint, ts.symbol, reason, trigger, ts.position.costSol) {
+        else {
             val pid = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint, false)
-            val raw = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(pid)?.remainingQtyRaw
-            if (raw == null || raw.signum() <= 0 || raw.bitLength() > 63) null
-            // V5.0.8288 — an emergency is held by this check for at most STOP_QUOTE_CHECK_BUDGET_MS_8288 (no quote = allow).
-            else if (com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(reason)) com.lifecyclebot.engine.sell.StopFast8288.bounded8288(com.lifecyclebot.engine.sell.StopFast8288.STOP_QUOTE_CHECK_BUDGET_MS_8288) { jupiter.getQuote(ts.mint, JupiterApi.SOL_MINT, raw.toLong(), 500).outAmount / 1_000_000_000.0 }
-            else jupiter.getQuote(ts.mint, JupiterApi.SOL_MINT, raw.toLong(), 500).outAmount / 1_000_000_000.0
+            val held = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(pid)
+            val raw = held?.remainingQtyRaw
+            val cost = held?.let { (it.entryCostSol - it.soldCostBasisSol).coerceAtLeast(0.0) } ?: ts.position.costSol
+            val namedDepth = StopMarkConfirm8418.stopDepthPct8489(reason)
+            // Risk-clock reasons do not encode their threshold. Bind quote
+            // validation to that exact latch, including its ordinary floor.
+            val latchDepth8521 = if (reason.startsWith("PROTECTIVE_EXIT_") && held != null && raw != null && cost > 0.0) {
+                val px8521 = com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450.latch(pid)?.thresholdPrice8521
+                val solUsd8521 = WalletManager.lastKnownSolPrice
+                if (px8521 != null && px8521 > 0.0 && solUsd8521 > 0.0) {
+                    val units8521 = java.math.BigDecimal(raw).movePointLeft(held.quantityScale).toDouble()
+                    ((px8521 * units8521 / solUsd8521) / cost - 1.0) * 100.0
+                } else null
+            } else null
+            // A rapid catastrophe still exits when the quote independently breaches its ordinary hard floor.
+            val depth = namedDepth ?: latchDepth8521 ?: if (reason.startsWith("RAPID_CATASTROPHE_STOP") || reason.startsWith("RAPID_HARD_FLOOR_STOP"))
+                -ExitDoctrine8169.rapidHardFloorMag8169(ts) else null
+            val sellCost8521 = try { CostMeter8151.sellLegFixedSol8151() } catch (_: Throwable) { Double.NaN }
+            if (reason.startsWith("PROTECTIVE_EXIT_") && (depth == null || !depth.isFinite() || depth >= 0.0)) true
+            else com.lifecyclebot.engine.truth.ExitQuoteCorroboration7928.allowSell(ts.mint, ts.symbol, reason, trigger, cost,
+                positionIdentity8521 = "$pid|$raw|${held?.lastMutationMs}", stopThresholdPct8521 = depth, sellCostSol8521 = sellCost8521) {
+                if (raw == null || raw.signum() <= 0 || raw.bitLength() > 63) null else {
+                    val asked8521 = System.currentTimeMillis()
+                    // V5.0.8288 — no quote within the bounded budget still allows a real emergency to route.
+                    val out8521 = if (com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(reason))
+                        com.lifecyclebot.engine.sell.StopFast8288.bounded8288(com.lifecyclebot.engine.sell.StopFast8288.STOP_QUOTE_CHECK_BUDGET_MS_8288) { jupiter.getQuote(ts.mint, JupiterApi.SOL_MINT, raw.toLong(), 500).outAmount / 1_000_000_000.0 }
+                    else jupiter.getQuote(ts.mint, JupiterApi.SOL_MINT, raw.toLong(), 500).outAmount / 1_000_000_000.0
+                    // A concurrent partial/reconciliation changed the holding: this quote cannot veto its new basis.
+                    if (com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(pid) != held) null else {
+                        if (out8521 != null && held != null) com.lifecyclebot.engine.truth.HeldExitQuote8189.rememberStopQuote8521(
+                            ts.mint, held.positionId, raw, held.quantityScale, out8521, WalletManager.lastKnownSolPrice, asked8521, sellCost8521)
+                        out8521
+                    }
+                }
+            }
         }
     } catch (_: Throwable) { true }
 
-    private fun freshExitReason7835(ts: TokenState, reason: String): String? {
+    private data class FreshExit8521(val reason: String?, val quoteRefuted: Boolean = false)
+
+    private fun freshExitReason7835(ts: TokenState, reason: String): String? = freshExitDecision8521(ts, reason).reason
+
+    private fun freshExitDecision8521(ts: TokenState, reason: String): FreshExit8521 {
         val fresh7948 = freshExitReasonOrVeto7948(ts, reason)
         // V5.0.7948 — a vetoed exit (cortex hold, missing / untrusted mark, stop the quote
         // does not corroborate) is not waiting to sell: withdraw its non-emergency stamp.
-        if (fresh7948 == null) com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.withdrawDeferred7809(ts.mint, ts.position.positionId)
-        if (fresh7948 == null) com.lifecyclebot.engine.sell.StopFast8288.noteVeto8288(ts.mint)  // V5.0.8288 — a veto is not a pre-route wait
+        if (fresh7948.reason == null) com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.withdrawDeferred7809(ts.mint, ts.position.positionId)
+        if (fresh7948.reason == null) com.lifecyclebot.engine.sell.StopFast8288.noteVeto8288(ts.mint)  // V5.0.8288 — a veto is not a pre-route wait
         return fresh7948
     }
 
-    private fun freshExitReasonOrVeto7948(ts: TokenState, reason: String): String? {
+    private fun freshExitReasonOrVeto7948(ts: TokenState, reason: String): FreshExit8521 {
         // V5.0.7897 — Cortex v3: an ordinary exit of a winner is held while the exit
         // cortex's PROVEN read says holding pays (never stops/emergencies/operator).
-        if (com.lifecyclebot.engine.cortex.CortexExit7897.holdVeto(ts, reason)) return null
+        if (com.lifecyclebot.engine.cortex.CortexExit7897.holdVeto(ts, reason)) return FreshExit8521(null)
         val verdict = com.lifecyclebot.engine.truth.MissingMarkExitVeto6835.evaluate(
             ts.mint, ts.lastPrice, ts.lastPriceUpdate, reason)
-        if (!verdict.allow) return null
-        if (!stopCorroboratedByQuote7928(ts, reason)) return null
-        return if (verdict.markUntrusted6882 && !reason.contains("MARK_UNTRUSTED_6882"))
-            "$reason|MARK_UNTRUSTED_6882" else reason
+        if (!verdict.allow) return FreshExit8521(null)
+        if (!stopCorroboratedByQuote7928(ts, reason)) return FreshExit8521(null, quoteRefuted = true)
+        return FreshExit8521(if (verdict.markUntrusted6882 && !reason.contains("MARK_UNTRUSTED_6882"))
+            "$reason|MARK_UNTRUSTED_6882" else reason)
+    }
+
+    private fun selectedPositionMatches8521(ts: TokenState, expectedId: String?, expectedPaper: Boolean?): Boolean {
+        val pos = ts.position
+        if (expectedPaper != null && pos.isPaperPosition != expectedPaper) return false
+        if (expectedId == null) return true
+        if (expectedId.isBlank() || pos.positionId != expectedId) return false
+        val canonical = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(expectedId) ?: return false
+        return canonical.mint == ts.mint && canonical.mode.equals(if (pos.isPaperPosition) "paper" else "live", true) &&
+            canonical.remainingQtyRaw.signum() > 0 &&
+            (canonical.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.OPEN ||
+                canonical.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED)
     }
 
     internal fun doSell(ts: TokenState, reason: String,
                        wallet: SolanaWallet?, walletSol: Double,
-                       identity: TradeIdentity? = null): SellResult {
-        val reason = freshExitReason7835(ts, reason) ?: return SellResult.FAILED_RETRYABLE
+                       identity: TradeIdentity? = null,
+                       expectedPositionId8521: String? = null,
+                       expectedPaper8521: Boolean? = null): SellResult {
+        if (!selectedPositionMatches8521(ts, expectedPositionId8521, expectedPaper8521)) return SellResult.FAILED_RETRYABLE
+        val checked8521 = freshExitDecision8521(ts, reason)
+        val reason = checked8521.reason ?: return if (checked8521.quoteRefuted) SellResult.SIGNAL_INVALIDATED else SellResult.FAILED_RETRYABLE
         // V5.0.8076 — the lifecycle hold at the lowest sell door too: 5.0.8075 sold ABU (MOONSHOT, a lifecycle lane)
         // on STRICT_SL_-12, which calls doSell directly and never passed requestSellCore7948's hold.
         if (try { LifecycleHold8065.defer8065(ts, reason) } catch (_: Throwable) { null } != null) {
@@ -25163,6 +25254,8 @@ class Executor(
             rehydratePositionFromWallet(ts, wallet)
         }
 
+        if (!selectedPositionMatches8521(ts, expectedPositionId8521, expectedPaper8521)) return SellResult.FAILED_RETRYABLE
+
         val isPaper = ts.position.isPaperPosition
         val hasWallet = wallet != null
 
@@ -25235,7 +25328,7 @@ class Executor(
                 PaperPositionCloseAuthority.markCloseRequested("PAPER", ts.mint, ts.symbol, reason)
             }
             onLog("📄 Routing to paperSell (paperMode=$isPaper)", tradeId.mint)
-            return paperSell(ts, reason, tradeId, freshnessChecked7836 = true)
+            return paperSell(ts, reason, tradeId, freshnessChecked7836 = true, expectedPositionId8521 = expectedPositionId8521)
         } else if (wallet == null) {
             ErrorLogger.error("Executor", "🚨 LIVE MODE SELL BLOCKED: Wallet is NULL!")
             onLog("🚨 LIVE SELL BLOCKED: ${ts.symbol} | No wallet - position NOT cleared", tradeId.mint)
@@ -25803,7 +25896,10 @@ class Executor(
         return pos
     }
 
-    fun paperSell(ts: TokenState, reason: String, identity: TradeIdentity? = null, freshnessChecked7836: Boolean = false): SellResult {
+    fun paperSell(ts: TokenState, reason: String, identity: TradeIdentity? = null,
+                  freshnessChecked7836: Boolean = false, expectedPositionId8521: String? = null): SellResult {
+        if (expectedPositionId8521 != null && PaperStopLifecycle8521.confirmedClosed(expectedPositionId8521)) return SellResult.ALREADY_CLOSED
+        if (!selectedPositionMatches8521(ts, expectedPositionId8521, true)) return SellResult.FAILED_RETRYABLE
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         if (reconcileCanonicalClosedPaper7836(ts, reason)) return SellResult.ALREADY_CLOSED
         val reason = if (freshnessChecked7836) reason else
@@ -25814,7 +25910,7 @@ class Executor(
         // Snapshot the projection before canonical repair; async consumers below
         // capture the repaired immutable reference, never a mutable boxed local.
         val initialProjection7858 = ts.position
-        val price = getActualPrice(ts)
+        val price = if (expectedPositionId8521 != null && reason == "bot_shutdown") ts.lastPrice else getActualPrice(ts)
         if (!initialProjection7858.isOpen) {
             PaperPositionCloseAuthority.markClosed("PAPER", ts.mint, ts.symbol, "PAPER_SELL_NOT_OPEN:$reason")
             return SellResult.ALREADY_CLOSED
@@ -25865,6 +25961,8 @@ class Executor(
             if (byPid6635 != null) {
                 try { PipelineHealthCollector.labelInc("PAPER_SELL_RESOLVED_BY_POSITIONID_6635") } catch (_: Throwable) {}
                 byPid6635
+            } else if (expectedPositionId8521 != null) {
+                null
             } else {
                 // Fallback: (mode, canonicalMint) — but ONLY when unique.
                 val bySameMint6635 = allOpenPapers6635.filter { it.mint == ts.mint }
@@ -26410,7 +26508,7 @@ class Executor(
                 TokenLifecycleTracker.onSellSettled(
                     mint = ts.mint,
                     sig = "PAPER:bot_shutdown",
-                    solReceived = shutdownCostSol.coerceAtLeast(0.0),
+                    solReceived = value.coerceAtLeast(0.0),
                     walletTokenAfter = 0.0,
                 )
             } catch (_: Throwable) {}
@@ -26421,7 +26519,8 @@ class Executor(
             // specialist locks behind.  Full-terminal inventory is mint
             // canonical, so clear every residual book for this mint.
             try { TradeAuthorizer.releasePosition(ts.mint, "SELL_$reason", isPaperMode = true) } catch (_: Exception) {}
-            onLog("🛑 SHUTDOWN CLOSE: ${ts.symbol} @ ${pnlP.toInt()}% (learning skipped)", tradeId.mint)
+            try { PaperStopLaneRegistry8521.retire(terminalPid6455) } catch (_: Exception) {}
+            onLog("🛑 SHUTDOWN CLOSE: ${ts.symbol} @ ${pnlP.toInt()}% (canonical outcome recorded; forced-exit strategy training skipped)", tradeId.mint)
             return SellResult.PAPER_CONFIRMED
         }
         
@@ -26580,7 +26679,7 @@ class Executor(
             TokenLifecycleTracker.onSellSettled(
                 mint = ts.mint,
                 sig = "PAPER:${reason}",
-                solReceived = pos.costSol.coerceAtLeast(0.0),
+                solReceived = value.coerceAtLeast(0.0),
                 walletTokenAfter = 0.0,
             )
         } catch (_: Throwable) {}
@@ -30514,18 +30613,20 @@ class Executor(
         for ((bare, ts) in byBare) {
             val m = marks[bare] ?: continue
             if (m.sourceCount >= 2 && !m.corroborated) continue
-            if (!m.priceUsd.isFinite() || m.priceUsd <= 0.0) continue
+            if (!m.priceUsd.isFinite() || m.priceUsd <= 0.0 || m.observedAtMs8521 <= 0L ||
+                System.currentTimeMillis() - m.observedAtMs8521 !in 0L..30_000L) continue
             val label = if (m.corroborated) "FANOUT_CORROBORATED_7088_x${m.agreeingCount}" else "FANOUT_UNCORROBORATED_7088"
             synchronized(ts) {
                 ts.lastPrice = m.priceUsd
                 ts.lastPriceSource = label
-                ts.lastPriceUpdate = System.currentTimeMillis()
+                ts.lastPriceUpdate = m.observedAtMs8521
             }
             try {
                 com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.note(
                     mint = ts.mint,
                     priceUsd = m.priceUsd,
                     source = com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.Provenance.REST_LIVE,
+                    quoteAgeMs = (System.currentTimeMillis() - m.observedAtMs8521).coerceAtLeast(0L),
                 )
             } catch (_: Throwable) {}
             applied++
@@ -30540,98 +30641,69 @@ class Executor(
         onLog("🛑 Shutdown marks refreshed: $applied/${byBare.size} priced now", "shutdown")
     }
 
+    private fun observedPaperStopMark8521(ts: TokenState, nowMs: Long): Boolean {
+        if (!ts.lastPrice.isFinite() || ts.lastPrice <= 0.0 || ts.lastPriceUpdate <= 0L ||
+            nowMs < ts.lastPriceUpdate || nowMs - ts.lastPriceUpdate > 30_000L) return false
+        return com.lifecyclebot.engine.truth.MarkAuthorityIntegrityGate6496.isAuthoritative(
+            mint = ts.mint, priceUsd = ts.lastPrice, mcapUsd = ts.lastMcap,
+            liquidityUsd = ts.lastLiquidityUsd, source = ts.lastPriceSource,
+            poolAddress = ts.position.entryPoolAddress, isKnownOpenMint6596 = true)
+    }
+
+    /** A stop owns exact PAPER lots; a failed or missing-price close remains open. */
+    fun closePaperPositions8521(
+        tokens: Map<String, TokenState>, targetIds: Set<String>,
+    ): PaperStopLifecycle8521.CloseResult {
+        val open = tokens.values.filter { it.position.isOpen && it.position.isPaperPosition &&
+            it.position.positionId in targetIds }.distinctBy { it.position.positionId }
+        val requested = open.mapTo(linkedSetOf()) { it.position.positionId }
+        val attempted = linkedSetOf<String>()
+        refreshMarksForShutdown7298(open)
+        for (ts in open) {
+            val id = ts.position.positionId
+            if (PaperStopLifecycle8521.confirmedClosed(id)) continue
+            if (!selectedPositionMatches8521(ts, id, true) ||
+                !observedPaperStopMark8521(ts, System.currentTimeMillis())) continue
+            attempted.add(id)
+            try {
+                paperSell(ts, "bot_shutdown", expectedPositionId8521 = id)
+            } catch (e: Exception) {
+                onLog("PAPER Stop retained ${ts.symbol}: ${e.message}", ts.mint)
+            }
+        }
+        return PaperStopLifecycle8521.CloseResult(requested, attempted,
+            requested.filterTo(linkedSetOf()) { PaperStopLifecycle8521.confirmedClosed(it) })
+    }
+
     fun closeAllPositions(
         tokens: Map<String, com.lifecyclebot.data.TokenState>,
         wallet: SolanaWallet?,
         walletSol: Double,
         paperMode: Boolean,
     ): Int {
-        var closedCount = 0
-        val openPositions = tokens.values.filter { it.position.isOpen }
-        
-        // V5.9.720: clear any stale paper sell locks BEFORE iterating positions.
-        // A lock left over from a crashed mid-sell (exception before finally block fires,
-        // or from a session started before the try/finally fix) would cause paperSell()
-        // to return ALREADY_CLOSED for every position → wallet never refunded on stop.
-        clearAllPaperSellLocks()
-
-        if (openPositions.isEmpty()) {
-            onLog("🛑 Bot stopping — no open positions to close", "shutdown")
-            return 0
+        if (paperMode) {
+            val ids = tokens.values.filter { it.position.isOpen && it.position.isPaperPosition }
+                .mapTo(linkedSetOf()) { it.position.positionId }
+            return closePaperPositions8521(tokens, ids).closedIds.size
         }
-        
-        onLog("🛑 Bot stopping — closing ${openPositions.size} open position(s)...", "shutdown")
-        refreshMarksForShutdown7298(openPositions)
-        onNotify("🛑 Bot Stopping", 
-                 "Closing ${openPositions.size} open position(s)",
-                 com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
-        
-        for (ts in openPositions) {
+        val open = tokens.values.filter { it.position.isOpen && !it.position.isPaperPosition }
+            .distinctBy { it.position.positionId.ifBlank { it.mint } }
+        refreshMarksForShutdown7298(open)
+        var closed = 0
+        for (ts in open) {
+            val id = ts.position.positionId
             try {
-                val pos = ts.position
-                if (!pos.isOpen) continue
-                
-                val gainPct = if (pos.entryPrice > 0) {
-                    ((getActualPrice(ts) - pos.entryPrice) / pos.entryPrice * 100)
-                } else 0.0
-                
-                onLog("🔴 EMERGENCY CLOSE: ${ts.symbol} @ ${gainPct.toInt()}% gain | reason=bot_shutdown", ts.mint)
-                
-                // V5.9.751b — route on POSITION isPaper, not config. Previously
-                // a live position with wallet=null during shutdown silently
-                // booked a paperSell (phantom close: position numbers updated
-                // but tokens stayed on-chain). Now: paper positions paperSell,
-                // live positions liveSell. If a live position has no wallet,
-                // skip the close so the next session reconciler can adopt it.
-                val isPaperPos = pos.isPaperPosition
-                when {
-                    isPaperPos -> {
-                        paperSell(ts, "bot_shutdown")
-                        closedCount++
-                    }
-                    wallet != null -> {
-                        liveSell(ts, "bot_shutdown", wallet, walletSol)
-                        closedCount++
-                    }
-                    else -> {
-                        ErrorLogger.warn("Executor",
-                            "🚫 SHUTDOWN_CLOSE_DEFERRED: ${ts.symbol} — live position with no wallet. " +
-                            "Position left OPEN for next-session reconciler to adopt.")
-                        onLog("⏸ Live ${ts.symbol} left open — wallet disconnected at shutdown.", ts.mint)
-                    }
-                }
-                
+                if (wallet != null) liveSell(ts, "bot_shutdown", wallet, walletSol)
             } catch (e: Exception) {
-                onLog("Failed to close ${ts.symbol}: ${e.message}", ts.mint)
-                // V5.7.8: Force close on ANY failure during shutdown — don't leave ghosts
-                try {
-                    val tradeId = com.lifecyclebot.engine.TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
-                    tradeId.closed(getActualPrice(ts), 
-                        if (ts.position.entryPrice > 0) ((getActualPrice(ts) - ts.position.entryPrice) / ts.position.entryPrice * 100) else -100.0,
-                        -(ts.position.costSol), "SHUTDOWN_FORCE_CLOSE")
-                    onLog("Force-closed on shutdown: ${ts.symbol}", ts.mint)
-                    closedCount++
-                } catch (_: Exception) {
-                    if (paperMode) {
-                        try {
-                            val pos = ts.position
-                            val value = pos.qtyToken * getActualPrice(ts)
-                            onPaperBalanceChange?.invoke(value)
-                            ts.position = com.lifecyclebot.data.Position()
-                            onLog("Force-closed paper position: ${ts.symbol}", ts.mint)
-                            closedCount++
-                        } catch (_: Exception) {}
-                    }
-                }
+                onLog("LIVE Stop retained ${ts.symbol}: ${e.message}", ts.mint)
             }
+            val canonical = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(id)
+            if (canonical != null && canonical.mode.equals("live", true) &&
+                canonical.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.CLOSED &&
+                canonical.remainingQtyRaw.signum() == 0) closed++
         }
-        
-        onLog("✅ Closed $closedCount/${openPositions.size} positions on shutdown", "shutdown")
-        onNotify("✅ Positions Closed", 
-                 "Closed $closedCount position(s) on bot shutdown",
-                 com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
-        
-        return closedCount
+        onLog("🛑 Stop: $closed/${open.size} canonical LIVE closes confirmed; unresolved positions retained", "shutdown")
+        return closed
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -31151,6 +31223,7 @@ class Executor(
         var executionQuote7688 = requireNotNull(jq7325) { "JUPITER_QUOTE_MISSING_BEFORE_BUILD_7688" }
         var txResultLocal = buildBuyTxOrRaydium8089(ts, wallet, sol, tradeKey, executionQuote7688, c, submission8397, intent8198) { raydiumBuy7325 = it }
             ?: return JupiterBuyPreparation8090(directFill = raydiumBuy7325)  // V5.0.8089 — Jupiter /swap 5xx: the Raydium builder filled this buy instead
+        executionQuote7688 = txResultLocal.executionQuote8521 ?: executionQuote7688
         txResult = txResultLocal
         buyPhase("SWAP_BUILT")
         LiveTradeLogStore.log(
@@ -31183,6 +31256,7 @@ class Executor(
             executionQuote7688 = fresh7688
             txResultLocal = buildTxWithRetry(fresh7688, wallet.publicKeyB58,
                 senderTipLamports = costSenderTip8151(c, urgent = false, ordinary = entryOrdinary8151(ts.mint), entry = true, ticketSol8369 = effectiveSol, mint8369 = ts.mint), ordinary8151 = entryOrdinary8151(ts.mint))
+            executionQuote7688 = txResultLocal.executionQuote8521 ?: executionQuote7688
             txResult = txResultLocal
             simErr = jupiter.simulateSwap(txResultLocal.txBase64, wallet.rpcUrl)
         }
@@ -31229,12 +31303,23 @@ class Executor(
         }
 
         security.enforceSignDelay()
+        val finalQuoteGuard8521 = security.validateQuote(executionQuote7688, isBuy = true, inputSol = effectiveSol)
+        if (finalQuoteGuard8521 is GuardResult.Block) { buyTerminalFail("BUY_TERMINAL_FINAL_QUOTE_REJECTED_8521:${finalQuoteGuard8521.reason}"); return null }
         SizingQuoteRecheck8153.preBroadcastQuoteRefusal8167(ts, sol, executionQuote7688, intent8198 = intent8198)?.let { buyTerminalFail("BUY_TERMINAL_PRE_BROADCAST_ECONOMICS:$it"); return null }  // V5.0.8167 — final quote economics
         com.lifecyclebot.engine.truth.EntryEconomics8329.jupiterQuoteRefusal8329(ts, intent8198, effectiveSol, executionQuote7688)?.let { buyTerminalFail(it); return null }
         EntryContinuity8418.jupiterRefusal8418(ts, intent8198, jq7325, executionQuote7688, buyBaseSlippage)?.let { buyTerminalFail("BUY_TERMINAL_$it"); return null }  // V5.0.8418 — the exact approved decision
 
         useJito = c.jitoEnabled && !executionQuote7688.isUltra
         jitoTip = effectiveJitoTipLamports(c, urgent = false)
+
+        // V5.0.8521 — an indicative quote can pass while its allowed minimum fill is net-negative.
+        // The built transaction's tolerance and actual Sender/Jito fee must still clear the decision target.
+        val buyTip8521 = if (txResultLocal.senderCompatible) txResultLocal.senderTipLamports else if (useJito) jitoTip else 0L
+        val buyFixed8521 = (RoundTrip8418.plannedLegFeeLamportsNow8418() + buyTip8521.coerceAtLeast(0L)) / 1_000_000_000.0
+        com.lifecyclebot.engine.truth.EntryEconomics8329.jupiterFloorRefusal8521(
+            ts, intent8198, effectiveSol, executionQuote7688, txResultLocal.dynSlipPickedBps, buyFixed8521,
+            builtSimulatedOutRaw8521 = txResultLocal.dynSlipOtherAmountRaw8521,
+        )?.let { buyTerminalFail("BUY_TERMINAL_$it"); return null }
 
         if (executionQuote7688.isUltra) {
             onLog("🚀 Broadcasting via Jupiter Ultra (Beam MEV protection)…", ts.mint)
@@ -32078,6 +32163,7 @@ class Executor(
             val lamports = (solAmount * 1_000_000_000.0).toLong()
             if (lamports <= 0L) return null
             val preTokenQty = try { wallet.getTokenAccountsWithDecimalsBounded()[ts.mint]?.first ?: 0.0 } catch (_: Exception) { null }
+            val quoteStarted8521 = System.currentTimeMillis()
             val built = com.lifecyclebot.network.RaydiumSellRoute7311.buildBuy(wallet, ts.mint, lamports, 500)
             val price = com.lifecyclebot.engine.truth.EntryEconomics8329.quotePxUsd8329(
                 solAmount, built.outLamports, ts.tokenMap.decimals, WalletManager.freshSolPrice8163())
@@ -32086,6 +32172,17 @@ class Executor(
                 ?: com.lifecyclebot.engine.truth.EntryEconomics8329.preBroadcastRefusal8329(
                     ts, intent8198, solAmount, price, 0.0, "RAYDIUM")
             if (refusal != null) throw RouteEconomicsRefused(refusal)
+            if (!ExecutableEntryFloor8521.fresh8521(quoteStarted8521, System.currentTimeMillis()))
+                throw RouteEconomicsRefused("ENTRY_EXECUTABLE_QUOTE_STALE_8521")
+            val minimum8521 = ExecutableEntryFloor8521.minimumOut8521(built.outLamports, null, 500, null)
+                ?: throw RouteEconomicsRefused("ENTRY_EXECUTABLE_MIN_OUT_UNOBSERVED_8521")
+            val floorPrice8521 = com.lifecyclebot.engine.truth.EntryEconomics8329.quotePxUsd8329(
+                solAmount, minimum8521, ts.tokenMap.decimals, WalletManager.freshSolPrice8163())
+            val tip8521 = maxOf(effectiveSenderTipLamports(c, urgent = false), if (c.jitoEnabled) effectiveJitoTipLamports(c, urgent = false) else 0L)
+            val fixed8521 = built.transactions.size * (RoundTrip8418.plannedLegFeeLamports8418(built.cuPrice, 0L,
+                CostTrim8151.EST_SWAP_CU_8151) + tip8521).toDouble() / 1_000_000_000.0
+            com.lifecyclebot.engine.truth.EntryEconomics8329.executableNetRefusal8521(
+                ts, intent8198, solAmount, floorPrice8521, fixed8521, "RAYDIUM_MIN_OUT")?.let { throw RouteEconomicsRefused(it) }
             LiveTradeLogStore.log(
                 tradeKey, ts.mint, ts.symbol, "BUY",
                 LiveTradeLogStore.Phase.BUY_BROADCAST,
@@ -32198,6 +32295,9 @@ class Executor(
                 traderTag = traderTag,
             ) ?: return null
             val buySol = processorPlan.solAmount
+            // Preserve the approval that existed before the asynchronous builder; a newer ticket
+            // must not retroactively authorize the transaction built for the old generation.
+            val pumpApproved8521 = submission8397?.let { ExecutableOpenGate.ticketForAttempt(it.attemptId) }
             // V5.0.8418 — an entry spends exactly its sealed ticket on this route too (no quote: size / strategy / chase).
             if (submission8397 != null) EntryContinuity8418.pumpRefusal8418(ts, submission8397.attemptId, buySol)?.let {
                 LiveTradeLogStore.log(tradeKey, ts.mint, ts.symbol, "BUY", LiveTradeLogStore.Phase.BUY_FAILED,
@@ -32254,6 +32354,25 @@ class Executor(
             try {
                 PipelineHealthCollector.labelInc(if (pumpEnv7311 != null) "PUMP_BUY_HELIUS_SENDER_7311" else "PUMP_BUY_HELIUS_ENVELOPE_REFUSED_7311")
             } catch (_: Throwable) {}
+            // V5.0.8521 — the earlier mark/continuity check preceded network work. Re-read the
+            // current curve and ticket here, AFTER build/freshen/envelope and BEFORE any signature.
+            // An unpriced Pump route falls through to the quoted Jupiter route; no ticket is spent.
+            if (submission8397 != null) {
+                val finalIntent8521 = ExecutableOpenGate.ticketForAttempt(submission8397.attemptId)
+                val finalTip8521 = pumpEnv7311?.tipLamports ?: if (useJito) maxOf(jitoTipLamports, 200_000L) else 0L
+                val finalFixed8521 = priorityFeeSol.coerceAtLeast(0.0) + (5_000L + finalTip8521) / 1_000_000_000.0
+                val finalRefusal8521 = EntryContinuity8418.refusal8418(pumpApproved8521, finalIntent8521, ts.mint,
+                    kotlin.math.round(buySol * 1_000_000_000.0).toLong(), ts.lastPrice, null, null)
+                    ?: if (finalIntent8521 == null) "ENTRY_EXECUTABLE_APPROVAL_GONE_8521" else
+                        com.lifecyclebot.engine.truth.EntryEconomics8329.pumpFinalRefusal8521(
+                            ts, finalIntent8521, buySol, built.pickedSlippagePct, finalFixed8521)
+                if (finalRefusal8521 != null) {
+                    PipelineHealthCollector.labelInc(finalRefusal8521)
+                    LiveTradeLogStore.log(tradeKey, ts.mint, ts.symbol, "BUY", LiveTradeLogStore.Phase.BUY_FAILED,
+                        "PUMP-FIRST final economics: $finalRefusal8521 — retry same ticket on quoted route", traderTag = traderTag)
+                    return null
+                }
+            }
             // V5.0.8169 — name the route actually used: the Sender envelope (when built) plus the parallel RPC fan-out
             // (paid + public). The old label said JITO whenever Jito was enabled, even when Sender carried the buy.
             LiveTradeLogStore.log(

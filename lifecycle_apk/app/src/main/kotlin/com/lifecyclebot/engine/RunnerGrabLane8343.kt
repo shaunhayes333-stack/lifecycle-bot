@@ -38,7 +38,9 @@ import java.util.concurrent.atomic.AtomicLong
  *     price when one is recorded (the executor's pre-broadcast re-quote still binds at fill);
  *   - LIVE only: EvidenceHold8336.refusal8336(ts, lane, paper = false) must pass — it consults exceptional8336 (the
  *     owner's 8337 exception door, called, never re-implemented). PAPER trades paper: that is how the hold builds evidence.
- * No mcap band, no CORE yield-clear, no lane score threshold, no continuation test.
+ * V5.0.8521: the host's cap, age, liquidity, lifecycle and required-data refusal
+ * remains binding. A runner may adapt the host's soft score/continuation read;
+ * it cannot make an out-of-mandate token eligible for that host.
  *
  * WHERE IT ACTS. SpecialistBrainBridge7542.evaluate hands the native opinions to [reviewNative8343]: the first grab lane
  * whose refusal is a MANDATE (never safety / rug / dev / bundle / freeze / zero-liquidity — [mandateRefusal8343]) is
@@ -109,11 +111,10 @@ object RunnerGrabLane8343 {
 
     // ── pure ──
 
-    /** Pure: is [reason] a lane MANDATE refusal (shape, band, floor, score, continuation, yield) and not a binding wall? */
+    /** A soft native judgement the runner may re-ask, within the host's own constraints. */
     fun mandateRefusal8343(reason: String?): Boolean {
         val r = reason?.trim()?.uppercase()?.replace(' ', '_').orEmpty()
-        if (r.isBlank()) return false
-        return BINDING_WORDS_8343.none { r.contains(it) }
+        return NativeLaneConstraints8521.mayAdapt8521(r) && BINDING_WORDS_8343.none { r.contains(it) }
     }
 
     /**
@@ -153,7 +154,12 @@ object RunnerGrabLane8343 {
      * specialist refusal was a mandate (never safety): a clear owner that does not exist is not a clear.
      */
     fun coreYieldFalls8343(eligibleSpecialists: Int, specialistRefusals: List<String>): Boolean =
-        eligibleSpecialists == 0 && specialistRefusals.isNotEmpty() && specialistRefusals.all { mandateRefusal8343(it) }
+        eligibleSpecialists == 0 && specialistRefusals.isNotEmpty() && specialistRefusals.all { reason ->
+            // Another desk's cap/age/liquidity floor does not become CORE's
+            // mandate. CORE must still produce and pass its own native read.
+            val r = reason.trim().uppercase().replace(' ', '_')
+            r.isNotBlank() && BINDING_WORDS_8343.none { r.contains(it) }
+        }
 
     /** Pure: the native reason a grab lane carries once admitted. */
     fun grabReason8343(evidence: String, venue: String): String = "$REASON_PREFIX_8343$evidence venue=$venue"

@@ -882,27 +882,40 @@ object PerpsExecutionEngine {
     /**
      * Close all positions (emergency)
      */
-    suspend fun closeAllPositions() {
-        val positions = PerpsTraderAI.getActivePositions()
+    suspend fun closeAllPositions(paperMode: Boolean? = null) {
+        val positions = PerpsTraderAI.getActivePositions().filter { paperMode == null || it.isPaper == paperMode }
         
         for (position in positions) {
             try {
-                // V5.9.721-FIX: Use cached price first (no RPC round-trip on shutdown).
-                // PerpsMarketDataFetcher.getMarketData() makes a live network call when
-                // cache is stale (3s TTL). On shutdown with multiple positions this causes
-                // a blocking 90s+ freeze. Use getCachedPrice() and fall back to entry
-                // price as a last resort — the exact close price doesn't matter for
-                // paper accounting. executeExit confirms the on-chain close for live positions.
-                val price = PerpsMarketDataFetcher.getCachedPrice(position.market)?.price
-                    ?: position.entryPrice  // last resort: close at entry (0% PnL) rather than block
+                val canonical = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(position.id)
+                    ?: continue
+                if (canonical.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.CLOSED) {
+                    // Finality already exists; executeExit reads the immutable settled return.
+                    executeExit(position, position.currentPrice, PerpsExitSignal.AI_EXIT)
+                    continue
+                }
+                val mark = kotlinx.coroutines.withTimeoutOrNull(4_000L) {
+                    PerpsMarketDataFetcher.getMarketData(position.market)
+                }?.takeIf { com.lifecyclebot.engine.PaperStopLifecycle8521.eligibleMark8521(
+                    position.market, it, System.currentTimeMillis()) } ?: continue
+                val price = mark.price
                 executeExit(position, price, PerpsExitSignal.AI_EXIT)
             } catch (e: Exception) {
                 ErrorLogger.error(TAG, "Failed to close ${position.market.symbol}: ${e.message}")
             }
         }
         
-        ErrorLogger.warn(TAG, "⚡ ALL POSITIONS CLOSED")
+        ErrorLogger.warn(TAG, "PERPS stop close pass completed; unresolved positions remain open")
     }
+
+    suspend fun closePaperPositions8521(targetIds: Set<String>): com.lifecyclebot.engine.PaperStopLifecycle8521.CloseResult =
+        com.lifecyclebot.engine.PaperStopLifecycle8521.closeObserved8521(targetIds, PerpsTraderAI.getActivePositions().map { p ->
+            com.lifecyclebot.engine.PaperStopLifecycle8521.MarketPosition(p.id, p.isPaper, p.market) { mark ->
+                PerpsTraderAI.getActivePositions().firstOrNull { it.id == p.id && it.isPaper }?.let { current ->
+                    executeExit(current, mark.price, PerpsExitSignal.AI_EXIT)
+                }
+            }
+        })
     
     // ═══════════════════════════════════════════════════════════════════════════
     // STATS

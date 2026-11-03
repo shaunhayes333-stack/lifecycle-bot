@@ -52,6 +52,10 @@ internal class ForwardOutcomeOutbox8404(private val capacity: Int) {
     }
     @Synchronized fun contains(id: String): Boolean = rows.containsKey(id)
     @Synchronized fun payload(id: String): String? = rows[id]
+    /** A fixed target is immutable even if its durable write/consumer acknowledgement has not finished yet. */
+    @Synchronized fun firstRevisionForHorizon8521(episode: String, horizonMs: Long): Pair<String, String>? =
+        rows.entries.firstOrNull { it.key.startsWith("$episode|R|") && it.key.substringAfterLast('|').toLongOrNull() == horizonMs }
+            ?.let { it.key to it.value }
     @Synchronized fun size(): Int = rows.size
 
     @Synchronized fun stage(id: String, payload: () -> String?, write: (String, String) -> Boolean): Boolean {
@@ -75,10 +79,11 @@ internal class ForwardOutcomeOutbox8404(private val capacity: Int) {
      * replaces it; a revision replaces the contribution, it never adds one). An acknowledged row waits for its own removal.
      * Returns the rows dropped; [remove] deletes the durable copy first, and a row whose delete fails stays.
      */
-    @Synchronized fun supersedeRevisions8418(prefix: String, keep: String, remove: (String) -> Boolean): Int {
+    @Synchronized fun supersedeRevisions8418(prefix: String, keep: String, protectedHorizonMs: Long = 0L, remove: (String) -> Boolean): Int {
         if (prefix.isBlank()) return 0
         var dropped = 0
-        for (id in rows.keys.filter { it.startsWith(prefix) && it != keep && it !in acknowledged }) {
+        for (id in rows.keys.filter { it.startsWith(prefix) && it != keep && it !in acknowledged &&
+            (protectedHorizonMs <= 0L || it.substringAfterLast('|').toLongOrNull() != protectedHorizonMs) }) {
             if (id in durable && !remove(id)) continue
             rows.remove(id); durable.remove(id); dropped++
         }

@@ -158,7 +158,7 @@ class Aate8284HeliusCandleMergeTest {
         assertEquals(Coverage8284.MISSING, old[2])
         assertEquals(Coverage8284.COVERED, old[3])
         assertEquals(Coverage8284.PARTIAL, CandleCoverage8284.coverageOf8284(null, 2, min, 6))
-        assertEquals(CandleCoverage8284.TIMEFRAMES_8284, listOf("15s", "1m", "5m", "15m"))
+        assertEquals(CandleCoverage8284.TIMEFRAMES_8284, listOf("15s", "1m", "5m", "15m", "1h", "4h"))
     }
 
     @Test fun historyRequestIsNotGatedOnHistorySizeSix() {

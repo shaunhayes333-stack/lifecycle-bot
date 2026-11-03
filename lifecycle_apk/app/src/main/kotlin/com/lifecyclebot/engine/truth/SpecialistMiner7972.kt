@@ -242,7 +242,7 @@ object SpecialistMiner7972 {
     private fun devFor(mint: String): String {
         val dev = try { com.lifecyclebot.engine.OperatorRegistry.getDevWallet(mint) } catch (_: Throwable) { null } ?: return "NA"
         // V5.0.8001 — the hive's record of this dev rides on the local one.
-        val hive = try { HiveEdge8000.net8000("DEV|$dev") } catch (_: Throwable) { null }
+        val hive = try { HiveEdge8000.net8000("DEV8521|$dev") } catch (_: Throwable) { null }
         val s = devs[dev] ?: if (hive == null) return "NEW" else Stat()
         return synchronized(s) {
             val n = s.n + (hive?.get(0)?.toInt() ?: 0)
@@ -259,13 +259,14 @@ object SpecialistMiner7972 {
     /** ForwardReturnLabeler7731.attach: where the miner keeps its record. */
     fun attach7972(context: Context) {
         if (file != null) return
-        // V5.0.8064 — the fact combinations restart on labels without spike credit.
-        val f = File(context.applicationContext.filesDir, "specialists8076.bin")
+        // Both discovery and held-out "live" specialist samples below come from forward labels, not actual fills.
+        // Keep the previous file intact; all new combinations/developer reputations use the fixed target contract.
+        val f = File(context.applicationContext.filesDir, "specialists8521.bin")
         file = f
         Thread({ try { load(f) } catch (_: Throwable) {} finally { loaded = true } }, "specialists-7972-load").apply { isDaemon = true }.start()
     }
 
-    /** ForwardReturnLabeler7731 (5-minute label): book [net] to every combination of the decision's facts. */
+    /** ForwardReturnLabeler7731 (frozen lane target): book [net] to every combination of the decision's facts. */
     fun onLabel7972(lane: String, mint: String, facts: List<String>, net: Double, gross: Double, decidedAtMs: Long): DoubleArray {
         if (facts.size < 3 || !net.isFinite() || lane.startsWith("PLAN")) return DoubleArray(0)
         // V5.0.8419 — classify, never clamp: a value below a total loss is a basis / unit break and is refused by name.
@@ -374,8 +375,8 @@ object SpecialistMiner7972 {
     /** V5.0.8000 — a combination the network (local + hive evidence) proves is promoted here too. Returns promotions. */
     fun hivePromote8000(): Int {
         var n = 0
-        for (hk in HiveEdge8000.netKeys8000("SPEC|")) {
-            val k = hk.removePrefix("SPEC|")
+        for (hk in HiveEdge8000.netKeys8000("SPEC8521|")) {
+            val k = hk.removePrefix("SPEC8521|")
             if (promoted.containsKey(k)) continue
             val net = HiveEdge8000.net8000(hk) ?: continue
             val local = keys[k]

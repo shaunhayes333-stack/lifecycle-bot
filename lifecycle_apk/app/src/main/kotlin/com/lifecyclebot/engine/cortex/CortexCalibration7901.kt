@@ -117,6 +117,7 @@ class CortexCalibration7901 {
             val n = idx.size
             if (n == 0) return NetFit8372(DoubleArray(0), DoubleArray(0), 0, Double.NaN)
             val bx = DoubleArray(n); val by = DoubleArray(n); val bw = DoubleArray(n)
+            val lower8521 = DoubleArray(n); val upper8521 = DoubleArray(n)
             var m = 0
             var at = 0
             var distinct8418 = 0
@@ -131,17 +132,20 @@ class CortexCalibration7901 {
                     w++
                     at++
                 }
-                bx[m] = x; by[m] = y; bw[m] = w; m++
+                bx[m] = x; by[m] = y; bw[m] = w
+                lower8521[m] = x; upper8521[m] = x; m++
                 while (m >= 2 && by[m - 2] > by[m - 1]) {
                     val leftW = bw[m - 2]; val rightW = bw[m - 1]
                     by[m - 2] = weightedMean8372(by[m - 2], leftW, by[m - 1], rightW)
                     bx[m - 2] = weightedMean8372(bx[m - 2], leftW, bx[m - 1], rightW)
                     bw[m - 2] = leftW + rightW
+                    upper8521[m - 2] = upper8521[m - 1]
                     m--
                 }
             }
             val sp = CortexTailEv8324.rankIc8324(idx.map { scores[it] }, idx.map { netOutcomesPct[it] })
-            return NetFit8372(bx.copyOf(m), by.copyOf(m), n, sp, distinct8418)
+            return NetFit8372(bx.copyOf(m), by.copyOf(m), n, sp, distinct8418,
+                lower8521.copyOf(m), upper8521.copyOf(m))
         }
 
         // Weight before adding rather than summing raw returns: finite large labels stay finite without a win cap.
@@ -227,7 +231,8 @@ class CortexCalibration7901 {
      * and [flat]/[spearman] describe discrimination. These are deliberately separate: a constant positive/negative
      * cohort still has an expected return, although it does not prove that the score ranks individual tokens.
      */
-    class NetFit8372(val xs: DoubleArray, val ys: DoubleArray, val n: Int, val spearman: Double, val distinctScores8418: Int = -1) {
+    class NetFit8372(val xs: DoubleArray, val ys: DoubleArray, val n: Int, val spearman: Double, val distinctScores8418: Int = -1,
+                     val lowerScores8521: DoubleArray = xs, val upperScores8521: DoubleArray = xs) {
         /**
          * V5.0.8418 — the score took at least [MIN_DISTINCT_SCORES_8418] values over the pairs, so "does it rank the outcomes?"
          * can be asked at all. A lane whose every pair carries one score has no rank evidence either way: INSUFFICIENT, not
@@ -235,26 +240,36 @@ class CortexCalibration7901 {
          */
         val rankable8418: Boolean get() = distinctScores8418 < 0 || distinctScores8418 >= MIN_DISTINCT_SCORES_8418
         val valid: Boolean = n > 0 && xs.isNotEmpty() && xs.size == ys.size && xs.all { it.isFinite() } &&
-            ys.all { it.isFinite() } && (1 until xs.size).all { xs[it] > xs[it - 1] && ys[it] >= ys[it - 1] }
+            lowerScores8521.size == xs.size && upperScores8521.size == xs.size &&
+            xs.indices.all { lowerScores8521[it].isFinite() && upperScores8521[it].isFinite() &&
+                lowerScores8521[it] <= xs[it] && xs[it] <= upperScores8521[it] } &&
+            ys.all { it.isFinite() } && (1 until xs.size).all { xs[it] > xs[it - 1] && ys[it] >= ys[it - 1] &&
+                lowerScores8521[it] > upperScores8521[it - 1] }
         val measured: Boolean get() = n >= ISO_MIN_N_8366
         val flat: Boolean get() = !valid || !(ys.last() - ys.first() >= FLAT_NET_PCT_8372)
         /** Rank evidence for the EXISTING authority check; it must not rewrite an individual token's verdict. */
         val calibrated: Boolean get() = valid && measured && spearman.isFinite() && spearman > 0.0 && !flat
 
-        /** Expected NET return (%) at [score], interpolated between block centres and constant outside their range. */
+        /**
+         * Expected NET return (%). A pooled block has ONE fitted value over its full score interval. Interpolation is
+         * only across the gaps between blocks. Interpolating their centres invented a different return at the very
+         * scores PAVA had pooled (and could turn a fitted loss into a predicted gain).
+         */
         fun expectedNetPct8372(score: Double): Double {
             if (!valid || !score.isFinite()) return Double.NaN
-            if (score <= xs[0]) return ys[0]
+            if (score <= upperScores8521[0]) return ys[0]
             val last = xs.size - 1
-            if (score >= xs[last]) return ys[last]
+            if (score >= lowerScores8521[last]) return ys[last]
             var j = 1
-            while (j <= last && xs[j] < score) j++
+            while (j <= last && upperScores8521[j] < score) j++
+            if (score >= lowerScores8521[j]) return ys[j]
             val lo = j - 1
             // Normalise only the interpolation coordinates if their difference overflows; labels remain raw.
-            val dx = xs[j] - xs[lo]
-            val w = if (dx.isFinite()) (score - xs[lo]) / dx else {
-                val scale = maxOf(kotlin.math.abs(xs[lo]), kotlin.math.abs(xs[j]))
-                (score / scale - xs[lo] / scale) / (xs[j] / scale - xs[lo] / scale)
+            val left = upperScores8521[lo]; val right = lowerScores8521[j]
+            val dx = right - left
+            val w = if (dx.isFinite()) (score - left) / dx else {
+                val scale = maxOf(kotlin.math.abs(left), kotlin.math.abs(right))
+                (score / scale - left / scale) / (right / scale - left / scale)
             }
             return ys[lo] * (1.0 - w) + ys[j] * w
         }
@@ -365,7 +380,7 @@ class CortexCalibration7901 {
     }
 
     /** V5.0.8366 — per lane: the rank fit's pairs, Spearman and blocks (diagnostic). */
-    fun isoLine8366(): String = "rank8366[" + iso8366.keys.sorted().take(10).joinToString(",") { k ->
+    fun isoLine8366(): String = "rank8366[" + iso8366.keys.sorted().joinToString(",") { k ->
         "$k:${isoFit8366(k)?.compact8366() ?: "-"}"
     }.ifBlank { "-" } + "]"
 
@@ -532,6 +547,6 @@ class CortexCalibration7901 {
         }
     }
 
-    fun line(): String = lanes.entries.filter { it.value.n >= 1.0 }.sortedByDescending { it.value.n }.take(8)
+    fun line(): String = lanes.entries.filter { it.value.n >= 1.0 }.sortedByDescending { it.value.n }
         .joinToString(",") { "${it.key}:${"%.2f".format(slope(it.key))}${if (measured8291(it.key)) "" else "id"}(n${it.value.n.toInt()}${if (suspendable8322(it.key)) "" else ",noSuspend8322"})" }.ifBlank { "-" }
 }

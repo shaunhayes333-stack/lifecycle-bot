@@ -209,10 +209,10 @@ class Aate8418CortexRestartHorizonTest {
                 val recordBefore = book.decision(decisionId)!!
 
                 cortex.javaClass.getDeclaredMethod("persistBlocking8094").apply { isAccessible = true }.invoke(cortex)
-                val saved = LearningPersistence.load("CORTEX_7885_V8076")
+                val saved = LearningPersistence.load("CORTEX_7885_V8521")
                 assertNotNull("the snapshot must reach the store (an Android-only call on this path would drop it)", saved)
                 assertTrue(saved!!.contains("$voter|$lane"))
-                assertNotNull(LearningPersistence.load("CORTEX_GRADES_8144"))
+                assertNotNull(LearningPersistence.load("CORTEX_GRADES_8521"))
 
                 // a fresh process: the in-memory books are gone, the store is not
                 ledger.lanes.clear(); ledger.seats.clear(); ledger.pairs.clear()

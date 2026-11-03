@@ -178,7 +178,7 @@ class Aate8372CortexAuthorityTest {
     @Test fun runtimeSizingAndAuthorityCacheAreWiredToTheSameCurrentCostCohort() {
         val source = java.io.File("src/main/kotlin/com/lifecyclebot/engine/cortex/Cortex7885.kt").readText()
         val sizing = source.substringAfter("private fun cortexStake7893(").substringBefore("private fun provenEvidenceStake7948(")
-        assertTrue(sizing.contains("gradeBook8144.bucketStats8372(a.lane)[CortexScoreboard7885.Bucket.STRONG.ordinal]"))
+        assertTrue(sizing.contains("gradeBook8144.bucketStats8372(a.lane, scoreVersion = CortexForwardEpoch8521.SCORE_VERSION)[CortexScoreboard7885.Bucket.STRONG.ordinal]"))
         assertTrue(sizing.contains("val proof = authorityTest8366(a.lane)"))
         assertTrue(sizing.contains("!proof.granted || proof.topN < 20 || !proof.topSe.isFinite()"))
         assertTrue(sizing.contains("kellyStakeSol(proof.topMean, variance, equitySol)"))
@@ -190,7 +190,7 @@ class Aate8372CortexAuthorityTest {
         assertTrue(authority.contains("authorityRows8392(lane, setup)"))
         val rows8392 = source.substringAfter("private fun authorityRows8392(").substringBefore("private data class RefusalCoverage8392(")
         // superseded by V5.0.8418 — refusal reads may fall back to every score version; grants still read the current one
-        assertTrue(rows8392.contains("scoredRows8366(lane,runnerHorizon8144(lane),scoreVersion=if (allVersions8418) null else 1,setup=setup)"))
+        assertTrue(rows8392.contains("scoredRows8366(lane,runnerHorizon8144(lane),scoreVersion=if (allVersions8418) null else CortexForwardEpoch8521.SCORE_VERSION,setup=setup)"))
         assertTrue("unresolved pending predictions join the authority denominator", rows8392.contains("for ((key,p) in pending)"))
     }
 }

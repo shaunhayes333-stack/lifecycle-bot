@@ -2,6 +2,7 @@ package com.lifecyclebot.engine
 
 import com.lifecyclebot.engine.truth.ForwardReturnLabeler7731
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -59,11 +60,11 @@ class Aate8410WeightedRevisionTest {
         assertEquals((0 until 50).sumOf { ln(w / (w + 1)) }, t.logScale60, 1e-9)
         val src = File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
         assertTrue(src.contains("if (horizon == 60) o.tallyScales8410 = scales8410"))
-        assertTrue(src.contains("val wt = revisionWeight8410(o.tallyScales8410[i], t.logScale60)"))
         assertTrue(src.contains("o.allocScales8410 = com.lifecyclebot.engine.CellAllocator7962.onLabel7962("))
-        assertTrue(src.contains("CellAllocator7962.reviseLabel7997(o.cell, o.lane, o.setup7955, oldNet, newNet, o.allocScales8410)"))
+        // Frozen entry targets no longer change when a later, selected survivor receives another path read.
+        assertTrue(src.contains("private fun bookEntryTarget8521("))
+        assertFalse(src.contains("CellAllocator7962.reviseLabel7997("))
         assertTrue(src.contains("if (f.size !in 17..36) return@forEach"))
-        assertTrue(src.contains("""PipelineHealthCollector.labelInc("REVISION_WEIGHT_UNKNOWN_8410_TALLY")"""))
         val miner = File("src/main/kotlin/com/lifecyclebot/engine/truth/SpecialistMiner7972.kt").readText()
         // superseded by V5.0.8418 — a mature combination revises at its stamped weight; only an unstamped (legacy) label keeps
         // the 8410 skip once the window faded the record.

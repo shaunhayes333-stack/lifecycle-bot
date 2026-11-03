@@ -2197,8 +2197,9 @@ class GoldenTapeRegressionTest {
         assertTrue("paper requestSell guard must run before lifecycle pending", reqGuard >= 0 && lifecyclePending > reqGuard)
         assertTrue("paper doSell guard must remain before EXEC_TRACE_SELL", exec.indexOf("PaperPositionCloseAuthority.preSellGuard(\"PAPER\"") in 0 until trace)
 
-        assertTrue("paper restore must use a bounded freshness window", persist.contains("PAPER_RESTORE_WINDOW_MS"))
-        assertTrue("stale paper restore rows must be quarantined/dropped", persist.contains("PAPER_STALE_RESTORE_DROPPED"))
+        assertTrue("paper restore must use exact canonical ownership", persist.contains("paperRestore8521(saved, canonical)"))
+        assertTrue("only canonical terminal evidence may prune paper snapshots", persist.contains("PAPER_CANONICAL_TERMINAL_RESTORE_PRUNED_8521"))
+        assertFalse("age alone cannot fabricate a paper close", persist.contains("PaperPositionCloseAuthority.markClosed(\"PAPER\", mint, saved.symbol"))
         assertTrue("restore must not use noisy loadPositions()", persist.contains("val persisted = loadPositionsInternal()"))
         assertFalse("paper restore doctrine must not say paper positions never go stale", persist.contains("paper positions NEVER go stale"))
 
@@ -11049,10 +11050,12 @@ class GoldenTapeRegressionTest {
     @Test
     fun V5_0_7298_shutdown_reprices_absurd_marks_reping_and_built_brains_are_read() {
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue(ex.contains("refreshMarksForShutdown7298(openPositions)"))
+        assertTrue(ex.contains("refreshMarksForShutdown7298(open)"))
+        assertTrue(ex.contains("ts.lastPriceUpdate = m.observedAtMs8521"))
         assertTrue(ex.contains("if (m.sourceCount >= 2 && !m.corroborated) continue"))
         val alt = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
-        assertTrue(alt.contains("refreshMarksForStop7298()\n        val ids = positions.keys.toList()"))
+        assertTrue(alt.contains("refreshMarksForStop7298(ids.toSet())"))
+        assertTrue(alt.contains("refreshMarksForStop7298(requested, paperOnly = true)"))
         val sanity = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OpenPnlSanity.kt").readText()
         assertTrue(sanity.contains("requestRepair(mint, \"OpenPnlSanity_absurd_gain_7298\")"))
         assertTrue(sanity.contains("OPEN_PNL_ABSURD_GAIN_REPAIRED_7298"))
@@ -14073,7 +14076,8 @@ class GoldenTapeRegressionTest {
     fun V5_0_7734_labels_teach_the_forecast_shadow_outranks_thin_pauses_unaffordable_bridge_is_not_a_live_job() {
         // Forecast model: label cells under their own tag, served after own- and other-mode cells, shrunk like a paper prior.
         val fom = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ForwardOutcomeModel.kt").readText()
-        assertTrue(fom.contains("private const val LABEL_TAG_7734 = \"S\""))
+        // 8521: current observed-label generation; archived S| and actual L|/P| cells remain separate.
+        assertTrue(fom.contains("private const val LABEL_TAG_7734 = \"S8521\""))
         // superseded by V5.0.8418 — the label carries its decision id (LearnerAttribution8418: one booking per decision)
         assertTrue(fom.contains("fun recordLabel7734(lane: String, score: Int, quality: String, regime: String, edgePhase: String, netPct: Double,\n                        id8418: String = \"\") {"))
         val whenBlock = fom.substringAfter("val cell: Cell?; val src: String").substringBefore("else -> return Forecast(0.5, 0.0, 0.0, 0.0,")
@@ -14175,7 +14179,7 @@ class GoldenTapeRegressionTest {
         assertTrue(lab.contains(".putString(PENDING_KEY_7946, encodePending7735(now, selected))"))
         assertTrue(lab.contains("restorePending7735(p.getString(PENDING_KEY_7946, null), System.currentTimeMillis())"))
         assertTrue(lab.contains("if (f.size !in 17..36) return@forEach"))   // V5.0.8410 — field 36 carries the booking-time decay
-        assertTrue(lab.contains("private const val MAX_PERSISTED_PENDING_7735 = 2_000"))
+        assertTrue(lab.contains("private const val MAX_PERSISTED_PENDING_7735 = MAX_PENDING_7731"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
     }
@@ -15120,9 +15124,9 @@ class GoldenTapeRegressionTest {
         assertTrue(executor.contains("return paperSell(ts, reason, tradeId, freshnessChecked7836 = true)"))
         assertTrue(veto.contains("val priceBased = !independentSafety &&"))
         assertTrue(veto.contains("markAgeMs > MARK_MAX_AGE_MS"))
-        assertTrue(executor.contains("val reason = freshExitReason7835(ts, reason) ?: return SellResult.FAILED_RETRYABLE"))
+        assertTrue(executor.contains("val checked8521 = freshExitDecision8521(ts, reason)"))
         assertTrue(executor.contains("MARK_UNTRUSTED_6882"))
-        assertTrue(executor.indexOf("val reason = freshExitReason7835(ts, reason)") <
+        assertTrue(executor.indexOf("val checked8521 = freshExitDecision8521(ts, reason)") <
             executor.indexOf("PaperPositionCloseAuthority.markCloseRequested", executor.indexOf("internal fun doSell(")))
     }
 
@@ -15158,10 +15162,10 @@ class GoldenTapeRegressionTest {
         assertTrue(j.contains("JUPITER_V6_TIMEOUT_YIELDS_NEXT_ENDPOINT_8079"))
     }
 
-    @Test fun V5_0_8080_setups_graded_on_own_exit_family_and_cold_start_is_bounded() {
+    @Test fun V5_0_8080_setups_keep_the_frozen_lane_target_and_cold_start_is_bounded() {
         val pb = java.io.File("src/main/kotlin/com/lifecyclebot/engine/cortex/LanePlaybook7907.kt").readText()
-        assertTrue(pb.contains("val (y, g) = familyLabel8080(lane, setup, netPct, grossPct, fam)"))
-        assertTrue(pb.contains("if (setupHoldsLong8080(g.lane, setup)) books[g.lane]"))
+        assertTrue(pb.contains("val (y, g) = netPct to grossPct"))
+        assertTrue(pb.contains("SETUP_LATER_PATH_OBSERVATION_ONLY_8521"))
         val fl = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
         // superseded by V5.0.8322: the five-minute label carries its flat-mark flag.
         // superseded by V5.0.8324: the five-minute label carries its chain-witness provenance.
@@ -15520,8 +15524,8 @@ class GoldenTapeRegressionTest {
         assertTrue(cortex.contains("gradeBook8144.markLost(target)"))
         assertTrue(cortex.contains("refuseCoverage8392(lane)"))
         assertTrue(cortex.contains("shadowInvertedRefusal8310(ts, a)"))
-        assertTrue(cortex.contains("LearningEntryTruth8153.decisionRow8269(gradeBook8144, lane, scoreVersion = 1)"))
-        assertTrue(cortex.contains("gradeBook8144.rankRowsByLane8325(scoreVersion = 1)"))
+        assertTrue(cortex.contains("LearningEntryTruth8153.decisionRow8269(gradeBook8144, lane, scoreVersion = CortexForwardEpoch8521.SCORE_VERSION)"))
+        assertTrue(cortex.contains("gradeBook8144.rankRowsByLane8325(scoreVersion = CortexForwardEpoch8521.SCORE_VERSION)"))
     }
 
     @Test fun canonical8393_evidence_policy_is_wired_and_shadow_cannot_authorize_live() {

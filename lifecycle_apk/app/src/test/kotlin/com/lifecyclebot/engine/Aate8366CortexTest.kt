@@ -342,9 +342,9 @@ class Aate8366CortexTest {
         assertFalse(cx.contains("uncalibratedNeutral8366(lane, locked8325.iso8366,"))
         // superseded by V5.0.8418 — 8372 removed the uncalibrated-NEUTRAL bucket (the 8366 "superseded" notes were deleted with
         // it). It is re-wired on the 8372 NET fit: a measured, rankable, uncalibrated lane reads NEUTRAL.
-        assertTrue(cx.contains("return uncalibratedNeutral8366(lane, fit, rankConsistentBucket8325(lane, runner, first, calibrated))"))
+        assertTrue(cx.contains("val legacyProjection = uncalibratedNeutral8366(lane, fit, rankConsistentBucket8325(lane, runner, first, calibrated))"))
         assertTrue(cx.contains("CortexAuthority8366.test8372("))
-        assertTrue(cx.contains("scoreVersion = 1"))
+        assertTrue(cx.contains("scoreVersion = CortexForwardEpoch8521.SCORE_VERSION"))
         assertTrue(cx.contains("calibrationScore8372(p.a),"))
         assertTrue(cx.contains("targetBasis8372 = if (shadowExit8372) CortexCalibration7901.TARGET_SHADOW_NET_8372 else CortexCalibration7901.TARGET_FORWARD_NET_8372"))
         assertTrue(cx.contains("CortexAssessmentProvenance8372.decode("))

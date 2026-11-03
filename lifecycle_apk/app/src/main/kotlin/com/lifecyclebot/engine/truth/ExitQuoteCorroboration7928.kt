@@ -18,8 +18,9 @@ object ExitQuoteCorroboration7928 {
     /** Only deep stop-side triggers are checked: shallow stops are not phantom-shaped. */
     const val CHECK_BELOW_PCT = -8.0
     private const val VERDICT_TTL_MS = 10_000L
+    internal const val EMERGENCY_VERDICT_TTL_MS_8521 = 250L
 
-    private data class Verdict(val atMs: Long, val contradicted: Boolean, val quotePnl: Double)
+    private data class Verdict(val atMs: Long, val quotePnl: Double, val identity: String, val costSol: Double, val reason: String, val sellCostSol: Double)
     private val recent = ConcurrentHashMap<String, Verdict>()
 
     /** Pure: is this exit one the quote check applies to? */
@@ -36,6 +37,13 @@ object ExitQuoteCorroboration7928 {
         return quotePnlPct - triggerPnlPct >= maxOf(8.0, 0.5 * kotlin.math.abs(triggerPnlPct))
     }
 
+    /** A route which breaches the actual stop still exits when a bad mark overstates the loss. */
+    fun quoteRefutes8521(triggerPnlPct: Double, quotePnlPct: Double, stopThresholdPct: Double?): Boolean {
+        if (stopThresholdPct != null && stopThresholdPct.isFinite() && stopThresholdPct < 0.0 &&
+            quotePnlPct.isFinite()) return quotePnlPct > stopThresholdPct
+        return contradicts(triggerPnlPct, quotePnlPct)
+    }
+
     /** Pure: the position's pnl at an executable quote (gross of the sell's own fee). */
     fun quotePnlPct(quotedOutSol: Double, costSol: Double): Double =
         if (quotedOutSol.isFinite() && quotedOutSol >= 0.0 && costSol.isFinite() && costSol > 0.0)
@@ -46,16 +54,23 @@ object ExitQuoteCorroboration7928 {
      * the held amount, or null/throws when no quote is available.
      */
     fun allowSell(mint: String, symbol: String, reason: String, triggerPnlPct: Double, costSol: Double,
-                  nowMs: Long = System.currentTimeMillis(), quoteOutSol: () -> Double?): Boolean {
+                  nowMs: Long = System.currentTimeMillis(), positionIdentity8521: String = "",
+                  stopThresholdPct8521: Double? = null, sellCostSol8521: Double = 0.0, quoteOutSol: () -> Double?): Boolean {
+        // 8519: eight quote refutations and forty pre-route retries; each cached veto was a FAILED_RETRYABLE result.
+        // A pre-dump quote must not veto the next emergency; a partial or re-entry must not inherit its old value.
+        if (!sellCostSol8521.isFinite() || sellCostSol8521 < 0.0) return true // unknown net value cannot refute a stop
+        val ttl = if (com.lifecyclebot.engine.sell.ProtectiveExitClass7807.isEmergency(reason)) EMERGENCY_VERDICT_TTL_MS_8521 else VERDICT_TTL_MS
         recent[mint]?.let { v ->
-            if (nowMs - v.atMs < VERDICT_TTL_MS) return !v.contradicted || !contradicts(triggerPnlPct, v.quotePnl)
+            if (nowMs - v.atMs in 0L until ttl && v.identity == positionIdentity8521 && v.costSol == costSol &&
+                v.reason == reason && v.sellCostSol == sellCostSol8521)
+                return !quoteRefutes8521(triggerPnlPct, v.quotePnl, stopThresholdPct8521)
         }
         val out = try { quoteOutSol() } catch (_: Throwable) { null } ?: return true
-        val qPnl = quotePnlPct(out, costSol)
+        val qPnl = quotePnlPct((out - sellCostSol8521).coerceAtLeast(0.0), costSol)
         if (!qPnl.isFinite()) return true
-        val bad = contradicts(triggerPnlPct, qPnl)
+        val bad = quoteRefutes8521(triggerPnlPct, qPnl, stopThresholdPct8521)
         if (recent.size > 2_000) recent.clear()
-        recent[mint] = Verdict(nowMs, bad, qPnl)
+        recent[mint] = Verdict(nowMs, qPnl, positionIdentity8521, costSol, reason, sellCostSol8521)
         try {
             PipelineHealthCollector.labelInc(if (bad) "EXIT_TRIGGER_CONTRADICTED_BY_QUOTE_7928" else "EXIT_TRIGGER_QUOTE_CONFIRMED_7928")
             if (bad) ForensicLogger.lifecycle(
@@ -66,4 +81,6 @@ object ExitQuoteCorroboration7928 {
         } catch (_: Throwable) {}
         return !bad
     }
+
+    internal fun resetForTest8521() = recent.clear()
 }

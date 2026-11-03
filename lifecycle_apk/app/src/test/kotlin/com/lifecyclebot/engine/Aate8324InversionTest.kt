@@ -63,7 +63,7 @@ class Aate8324InversionTest {
         assertTrue(ui.contains("l.inversion8324"))
         val cx = src("engine/cortex/Cortex7885.kt")
         // The row total and all verdict columns use the same current-version population, not decayed legacy counts.
-        assertTrue(cx.contains("LearningEntryTruth8153.verdictRow8153(gradeBook8144, lane, scoreVersion = 1)"))
+        assertTrue(cx.contains("LearningEntryTruth8153.verdictRow8153(gradeBook8144, lane, scoreVersion = CortexForwardEpoch8521.SCORE_VERSION)"))
         assertTrue(cx.contains("UiLane8069(lane, v.strongN + v.neutralN + v.refuseN, v.strongN, v.strongMean, v.neutralN, v.neutralMean,"))
         assertTrue(cx.contains("aateTakeNetMean8269 = d8269.takeNetMean, aateRefuseNetMean8269 = d8269.refuseNetMean,"))
     }

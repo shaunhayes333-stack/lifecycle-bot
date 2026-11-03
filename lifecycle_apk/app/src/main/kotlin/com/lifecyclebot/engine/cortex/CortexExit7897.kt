@@ -4,8 +4,10 @@ import com.lifecyclebot.data.TokenState
 import com.lifecyclebot.engine.ForensicLogger
 import com.lifecyclebot.engine.LearningPersistence
 import com.lifecyclebot.engine.PipelineHealthCollector
+import com.lifecyclebot.engine.truth.ForwardReturnLabeler7731
+import com.lifecyclebot.engine.truth.KeylessMarks8359
+import com.lifecyclebot.engine.truth.LabelMark8386
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -56,7 +58,6 @@ object CortexExit7897 {
     @Volatile private var lastPersistMs8091 = 0L
     @Volatile private var dirty8091 = false
     private const val PERSIST_EVERY = 30
-    private const val FETCH_GAP_MS = 60_000L
 
     /** Operator, shutdown and housekeeping exits are never held. */
     private val OPERATOR_OR_SHUTDOWN = listOf(
@@ -115,19 +116,16 @@ object CortexExit7897 {
 
     private val ledger = CortexLedger7885()
     /** V5.0.8309 — census: exit seat ledger + lane books (learning: counted, never trimmed). */
-    fun ledgerBytes8309(): Long = ledger.estBytes8309().coerceAtLeast(0L) + (try { books.size + truthBooks8153.size } catch (_: Throwable) { 0 }) * 1_200L
+    fun ledgerBytes8309(): Long = ledger.estBytes8309().coerceAtLeast(0L) + (try { books.size } catch (_: Throwable) { 0 }) * 1_200L + truthState8521.estimatedBytes()
     private val calibration = CortexCalibration7901()
     private val books = HashMap<String, Book>()
     private val latest = ConcurrentHashMap<String, Read>()        // positionId
     private val pending = ConcurrentHashMap<String, Read>()       // positionId|atMs
     private val lastSample = ConcurrentHashMap<String, Long>()
     private val holdVetoSince = ConcurrentHashMap<String, Long>()
-    private val offMarks = ConcurrentHashMap<String, Pair<Double, Long>>()
     private val counters = ConcurrentHashMap<String, AtomicLong>()
     private val graded = AtomicLong(0)
     private val sincePersist = AtomicLong(0)
-    private val inFlight = AtomicBoolean(false)
-    @Volatile private var lastFetchMs = 0L
     @Volatile private var loaded = false
 
     private fun inc(k: String) { counters.computeIfAbsent(k) { AtomicLong(0) }.incrementAndGet() }
@@ -192,26 +190,22 @@ object CortexExit7897 {
     /** Called from ExitRegret7752.tick with the loop's fresh-price closure: grades due samples. */
     fun tick(priceFor: (String) -> Double?, nowMs: Long = System.currentTimeMillis()) {
         ensureLoaded()
-        if (truthPending8153.isNotEmpty()) gradeTruth8153(priceFor, nowMs)  // V5.0.8153
-        if (pending.isEmpty()) return
-        val unpriced = ArrayList<String>()
+        gradeTruth8153(priceFor, nowMs)
         for ((k, r) in pending.entries.toList()) {
             val due = r.atMs + if (r.runner) RUNNER_HORIZON_MS else HORIZON_MS
+            requestHorizon8521(r.mint, due, nowMs)
             if (nowMs < due) continue
-            val px = (try { priceFor(r.mint) } catch (_: Throwable) { null })?.takeIf { it.isFinite() && it > 0.0 }
-                ?: registryMark(r.mint, nowMs)
-                ?: offMarks[r.mint]?.takeIf { nowMs - it.second in 0L..MARK_MAX_AGE_MS }?.first
+            val px = CortexExitTruth8521.horizonPrice(r.mint, due, horizonMark8521(r.mint, priceFor, nowMs), nowMs, GRADE_GRACE_MS)
             if (px == null) {
-                if (nowMs - due > GRADE_GRACE_MS) { pending.remove(k); dirty8091 = true; inc("LOST_MARK") } else unpriced.add(r.mint)
+                if (nowMs - due > GRADE_GRACE_MS && pending.remove(k, r)) { dirty8091 = true; inc("LOST_MARK") }
                 continue
             }
-            pending.remove(k)
+            if (!pending.remove(k, r)) continue
             dirty8091 = true
             if (com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.basisSuspect7738(r.px, px)) { inc("BASIS_SUSPECT"); continue }
             val fwd = (px / r.px - 1.0) * 100.0
             grade8082(r, fwd)
         }
-        if (unpriced.isNotEmpty()) fetch(unpriced, nowMs)
         persistMaybe8091(nowMs)
     }
 
@@ -228,11 +222,15 @@ object CortexExit7897 {
             .put("netSol", env.realizedPnlSol).put("returnPct", env.realizedReturnPct)
             .put("sampleTimes", org.json.JSONArray(samples.map { it.atMs })).toString()
         val key = "cortex_exit_actual_8090_${env.mode}_${env.positionId}"
+        // A closed trade is ACKed only after its actual-proceeds learner and pending counterfactual
+        // survive restart. A storage failure is retried by the registered finalized-bus consumer.
+        if (!onClosePartials8153(env)) return false
         return when (LearningPersistence.commitOnce8090("${key}_receipt", mapOf(key to record))) {
             LearningPersistence.Commit8090.RETRY -> false
             LearningPersistence.Commit8090.ALREADY_COMMITTED -> true
             LearningPersistence.Commit8090.COMMITTED -> {
                 inc("ACTUAL_REALIZED_RECORDED_8090")
+                try { com.lifecyclebot.engine.TailBag8034.onClose8034(env) } catch (_: Throwable) {}
                 // Keep pending samples until timestamped future observations resolve their own horizons.
                 true
             }
@@ -247,11 +245,38 @@ object CortexExit7897 {
     // is priced again: banked return, regret (what the sold quantity went on to be worth) and tail cuts per mode and lane.
     // A lane whose exits are proven to cut moves that kept going loses the Cortex's own SELL authority (sellReason).
     // Never mixed into the forward-mark ledger (FUTURE_MARK_RETURN_V1); paper and live books are kept apart.
-    private const val TRUTH_MAX_PENDING_8153 = 400
-    private class TruthPending8153(val mint: String, val lane: String, val mode: String, val costSol: Double,
-                                   val slices: List<LearningExitTruth8153.Slice8153>, val dueMs: Long)
-    private val truthPending8153 = ConcurrentHashMap<String, TruthPending8153>()   // positionId
+    private const val TRUTH_KEY_8521 = "CORTEX_EXIT_TRUTH_8521"
+    private val truthState8521 = CortexExitTruth8521(load = {
+        LearningPersistence.load(TRUTH_KEY_8521).also { check(!LearningPersistence.readFailed8086(TRUTH_KEY_8521)) }
+    }) { receipt, state ->
+        when (LearningPersistence.commitOnce8090(receipt, mapOf(TRUTH_KEY_8521 to state))) {
+            LearningPersistence.Commit8090.COMMITTED -> CortexExitTruth8521.Receipt.COMMITTED
+            LearningPersistence.Commit8090.ALREADY_COMMITTED -> CortexExitTruth8521.Receipt.ALREADY_COMMITTED
+            LearningPersistence.Commit8090.RETRY -> CortexExitTruth8521.Receipt.RETRY
+        }
+    }
+    @Volatile private var truthLoaded8521 = false
     private val truthBooks8153 = HashMap<String, LearningExitTruth8153.Book8153>()  // MODE|lane
+
+    private fun truthReady8521(): Boolean {
+        if (truthLoaded8521) return true
+        if (!LearningPersistence.ready()) return false
+        synchronized(truthState8521) {
+            if (truthLoaded8521) return true
+            return try {
+                val raw = LearningPersistence.load(TRUTH_KEY_8521)
+                if (LearningPersistence.readFailed8086(TRUTH_KEY_8521)) return false
+                if (raw != null) truthState8521.restore(raw)
+                else {
+                    val old = LearningPersistence.load(PERSIST_KEY)
+                    if (LearningPersistence.readFailed8086(PERSIST_KEY)) return false
+                    old?.let { org.json.JSONObject(it).optJSONObject("truth8153") }?.let(truthState8521::restoreLegacyBooks)
+                }
+                truthLoaded8521 = true
+                true
+            } catch (e: Throwable) { LearningPersistence.decodeFailed8086(TRUTH_KEY_8521, e); false }
+        }
+    }
 
     // V5.0.8171: no later observation can be recovered by a real-time tick
     // for a historical close replayed long after its grading horizon.
@@ -263,9 +288,27 @@ object CortexExit7897 {
 
     /** CanonicalFinalizedTradeBus6464.publish: freeze a closed position's actual proceeds for its exit grade. */
     fun onClosePartials8153(env: com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.Envelope): Boolean {
-        if (!env.terminal || env.positionId.isBlank() || env.mint.isBlank() || !env.learningEligible) return false
-        if (!com.lifecyclebot.engine.truth.ExactStrategyPerformance7429.terminalEconomicsEligible8081(env.mode, env.proofState)) return false
-        val mode = if (env.mode.equals("live", true)) "LIVE" else if (env.mode.equals("paper", true)) "PAPER" else return false
+        if (!env.terminal || env.positionId.isBlank() || env.mint.isBlank() || !env.learningEligible) return true
+        if (!com.lifecyclebot.engine.truth.ExactStrategyPerformance7429.terminalEconomicsEligible8081(env.mode, env.proofState)) return true
+        val mode = if (env.mode.equals("live", true)) "LIVE" else if (env.mode.equals("paper", true)) "PAPER" else return true
+        val lane = try { com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(env.lane).uppercase().ifBlank { env.lane.uppercase() } } catch (_: Throwable) { env.lane.uppercase() }
+        val runner = try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false }
+        val horizon8171 = if (runner) RUNNER_HORIZON_MS else HORIZON_MS
+        val trackCounterfactual8521 = recentClose8171(env.atMs, System.currentTimeMillis(), horizon8171 + GRADE_GRACE_MS)
+        if (!truthReady8521()) return false
+        val key = "$mode|${env.positionId}"
+        if (truthState8521.contains(key)) return true
+        if (!trackCounterfactual8521) {
+            // Legacy aggregate books do not carry per-position membership. A
+            // previously acknowledged historical close must not be added to
+            // those books again during migration. A genuinely unacknowledged
+            // delivery still learns its exact proceeds after a long outage.
+            val actualKey8521 = "cortex_exit_actual_8090_${env.mode}_${env.positionId}"
+            val acknowledged8521 = LearningPersistence.load(actualKey8521)
+            if (LearningPersistence.readFailed8086(actualKey8521)) return false
+            if (acknowledged8521 != null) return true
+        }
+        if (!com.lifecyclebot.engine.truth.EconomicEventSchema6464.isReady8521()) return false
         val legs = try {
             com.lifecyclebot.engine.truth.EconomicEventSchema6464.snapshot().asSequence()
                 .filterIsInstance<com.lifecyclebot.engine.truth.EconomicEventSchema6464.Sell>()
@@ -273,59 +316,46 @@ object CortexExit7897 {
                 .map { LearningExitTruth8153.SellLeg8153(it.atMs, it.soldQty.toDouble(), it.soldQty.add(it.remainingQty).toDouble(),
                     it.netProceedsSol, it.allocatedCostBasisSol, it.remainingCostBasisSol, it.exitPriceUsd) }
                 .toList()
-        } catch (_: Throwable) { emptyList() }
+        } catch (_: Throwable) { inc("EXIT_TRUTH_SNAPSHOT_RETRY_8521"); return false }
         // Confirmed fallback fills the canonical book does not carry (read before TailBag8034 retires the rows).
         val fallback = if (mode == "LIVE") try { com.lifecyclebot.engine.RecoveryFallbackLedger8141.confirmedFallbackSol8141(env.positionId) } catch (_: Throwable) { 0.0 } else 0.0
-        val built = LearningExitTruth8153.fromLegs8153(legs, fallback) ?: run { inc("EXIT_TRUTH_NO_LEGS_8153"); return false }
-        val lane = try { com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(env.lane).uppercase().ifBlank { env.lane.uppercase() } } catch (_: Throwable) { env.lane.uppercase() }
-        val runner = try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false }
-        val horizon8171 = if (runner) RUNNER_HORIZON_MS else HORIZON_MS
-        if (!recentClose8171(env.atMs, System.currentTimeMillis(), horizon8171 + GRADE_GRACE_MS)) {
-            inc("EXIT_TRUTH_HISTORICAL_NO_MARK_SKIPPED_8171")
-            return false
+        val built = LearningExitTruth8153.fromLegs8153(legs, fallback) ?: run {
+            inc("EXIT_TRUTH_NO_LEGS_8153")
+            // The canonical close still has exact net SOL and return. Persist the missing counterfactual explicitly;
+            // never infer a cost basis from PnL/return or indefinitely starve the valid realised-return consumer.
+            return CortexExitTruth8521.recordUnavailableSlices(mode, env.positionId, env.economicEventId, env.mint, lane,
+                env.proofState, env.realizedPnlSol, env.realizedReturnPct) { receipt, record ->
+                when (LearningPersistence.commitOnce8090(receipt, mapOf("${receipt}_record" to record))) {
+                    LearningPersistence.Commit8090.COMMITTED -> CortexExitTruth8521.Receipt.COMMITTED
+                    LearningPersistence.Commit8090.ALREADY_COMMITTED -> CortexExitTruth8521.Receipt.ALREADY_COMMITTED
+                    LearningPersistence.Commit8090.RETRY -> CortexExitTruth8521.Receipt.RETRY
+                }
+            }
         }
-        if (truthPending8153.size >= TRUTH_MAX_PENDING_8153) { inc("EXIT_TRUTH_FULL_8153"); return false }
-        truthPending8153[env.positionId] = TruthPending8153(env.mint, lane, mode, built.first, built.second,
-            env.atMs + horizon8171)
-        inc("EXIT_TRUTH_FROZEN_8153_$mode")
-        return true
+        val saved = truthState8521.freeze(CortexExitTruth8521.Pending(key, env.mint, lane, mode, built.first, built.second,
+            env.atMs + horizon8171), trackCounterfactual = trackCounterfactual8521)
+        if (saved && !trackCounterfactual8521) inc("EXIT_TRUTH_HISTORICAL_BANKED_8521")
+        inc(if (saved) "EXIT_TRUTH_FROZEN_8153_$mode" else "EXIT_TRUTH_DURABLE_RETRY_8521")
+        return saved
     }
 
     private fun gradeTruth8153(priceFor: (String) -> Double?, nowMs: Long) {
-        val unpriced = ArrayList<String>()
-        for ((pid, t) in truthPending8153.entries.toList()) {
+        if (!truthReady8521()) return
+        for (t in truthState8521.pending()) {
+            requestHorizon8521(t.mint, t.dueMs, nowMs)
             if (nowMs < t.dueMs) continue
-            val px = (try { priceFor(t.mint) } catch (_: Throwable) { null })?.takeIf { it.isFinite() && it > 0.0 }
-                ?: registryMark(t.mint, nowMs)
-                ?: offMarks[t.mint]?.takeIf { nowMs - it.second in 0L..MARK_MAX_AGE_MS }?.first
-            if (px == null) {
-                if (nowMs - t.dueMs > GRADE_GRACE_MS) {
-                    // No later mark: the banked part is still true; regret stays unknown.
-                    truthPending8153.remove(pid)
-                    LearningExitTruth8153.grade8153(t.costSol, t.slices, 0.0, Double.NaN)?.let { bookTruth8153(t, it) }
-                    inc("EXIT_TRUTH_NO_LATER_MARK_8153")
-                } else unpriced.add(t.mint)
-                continue
+            val mark = horizonMark8521(t.mint, priceFor, nowMs)
+            if (truthState8521.complete(t.key, mark, nowMs, GRADE_GRACE_MS)) {
+                inc(if (CortexExitTruth8521.horizonPrice(t.mint, t.dueMs, mark, nowMs, GRADE_GRACE_MS) == null)
+                    "EXIT_TRUTH_NO_LATER_MARK_8153" else "EXIT_TRUTH_GRADED_8153")
             }
-            truthPending8153.remove(pid)
-            LearningExitTruth8153.grade8153(t.costSol, t.slices, 0.0, px)?.let { bookTruth8153(t, it) }
         }
-        if (unpriced.isNotEmpty()) fetch(unpriced, nowMs)
-    }
-
-    private fun bookTruth8153(t: TruthPending8153, g: LearningExitTruth8153.Grade8153) {
-        synchronized(this) {
-            if (truthBooks8153.size >= 200 && !truthBooks8153.containsKey("${t.mode}|${t.lane}")) return
-            truthBooks8153.getOrPut("${t.mode}|${t.lane}") { LearningExitTruth8153.Book8153() }.add(g)
-        }
-        dirty8091 = true
-        inc(if (g.tailCut) "EXIT_TRUTH_TAIL_CUT_8153" else "EXIT_TRUTH_GRADED_8153")
     }
 
     /** V5.0.8153 — this lane's exits (this account mode) measurably cut moves that kept going. */
     private fun tailCutting8153(lane: String): Boolean {
         val mode = try { if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE" } catch (_: Throwable) { "LIVE" }
-        return synchronized(this) { truthBooks8153["$mode|$lane"]?.tailCutProven8153() == true }
+        return truthReady8521() && truthState8521.book("$mode|$lane")?.tailCutProven8153() == true
     }
 
     private fun grade8082(r: Read, fwd: Double) {
@@ -346,25 +376,13 @@ object CortexExit7897 {
         }
     }
 
-    private fun registryMark(mint: String, nowMs: Long): Double? = try {
-        val m = com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(mint)
-        if (m == null || nowMs - m.timestampMs !in 0L..MARK_MAX_AGE_MS) null else m.priceUsd.value.toDouble().takeIf { it.isFinite() && it > 0.0 }
-    } catch (_: Throwable) { null }
+    /** Use the shared curve, executed-tape and pair mark chain, including off-watch exits. */
+    private fun horizonMark8521(mint: String, priceFor: (String) -> Double?, nowMs: Long): LabelMark8386? =
+        try { ForwardReturnLabeler7731.typedMark8386(mint, priceFor, nowMs) } catch (_: Throwable) { null }
 
-    private fun fetch(mints: List<String>, nowMs: Long) {
-        if (nowMs - lastFetchMs < FETCH_GAP_MS || !inFlight.compareAndSet(false, true)) return
-        lastFetchMs = nowMs
-        try {
-            Thread({
-                try {
-                    val got = com.lifecyclebot.engine.sell.PriceResolverFallback.jupiterBatchPrices7737(mints.distinct().take(50))
-                    val at = System.currentTimeMillis()
-                    for ((m, p) in got) offMarks[m] = p to at
-                    offMarks.entries.removeIf { at - it.value.second > MARK_MAX_AGE_MS }
-                } catch (_: Throwable) {
-                } finally { inFlight.set(false) }
-            }, "cortex-exit-7897").apply { isDaemon = true }.start()
-        } catch (_: Throwable) { inFlight.set(false) }
+    private fun requestHorizon8521(mint: String, dueMs: Long, nowMs: Long) {
+        if (nowMs in (dueMs - CortexLabelFeed8291.LABEL_LEAD_MS_8418)..(dueMs + GRADE_GRACE_MS))
+            try { KeylessMarks8359.noteLabelDue8418(mint, dueMs + GRADE_GRACE_MS, nowMs) } catch (_: Throwable) {}
     }
 
     private fun proven(lane: String, bucket: Bucket): Boolean {
@@ -575,6 +593,7 @@ object CortexExit7897 {
 
     fun statusLine(): String {
         ensureLoaded()
+        val truthReady = truthReady8521()
         return synchronized(this) {
             val seated = ledger.seats.entries.map { it.key to it.value.authority() }.filter { it.second > 0.0 }.sortedByDescending { it.second }
             "bar=EXIT_BAR_V1 target=$TARGET_8091 legacy=retained_separate horizon=30m(runner 120m) sampled/1m pending=${pending.size} graded=${graded.get()} seated=${seated.size} slope=${calibration.line()}\n" +
@@ -585,8 +604,8 @@ object CortexExit7897 {
                         "holdAuth=${holdProven(b.byBucket[2], b.positions[2].size)} sellAuth=${sellProven(b.byBucket[0], b.positions[0].size)}"
                 }.ifBlank { "no graded samples yet" }}" +
                 "\n      grades8136: ${dueLine8136(System.currentTimeMillis())}" +
-                "\n      exitTruth8153 (actual proceeds, regret one horizon after the close): pending=${truthPending8153.size} " +
-                truthBooks8153.entries.sortedBy { it.key }.take(8).joinToString(" · ") { (k, b) -> "$k ${b.line()}" }.ifBlank { "no graded closes yet" }
+                "\n      exitTruth8153 (banked at close, regret at horizon, durable8521=$truthReady): pending=${truthState8521.pending().size} " +
+                truthState8521.lines()
         }
     }
 

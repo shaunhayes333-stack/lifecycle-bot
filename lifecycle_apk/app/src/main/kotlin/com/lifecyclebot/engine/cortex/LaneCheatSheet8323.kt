@@ -529,7 +529,9 @@ object LaneCheatSheet8323 {
     @Volatile private var lastBuildMs = 0L
     @Volatile private var loaded = false
     private val reprobeCount = AtomicLong(0)
-    private const val PERSIST_KEY_8323 = "LANE_CHEAT_SHEET_8323"
+    // Recompute mixed forward/live hysteresis from corrected forward records and
+    // the unchanged canonical live closes. The old verdict archive is retained.
+    private const val PERSIST_KEY_8323 = "LANE_CHEAT_SHEET_OBSERVED_8521"
 
     data class Grant8323(val mint: String, val atMs: Long)
 

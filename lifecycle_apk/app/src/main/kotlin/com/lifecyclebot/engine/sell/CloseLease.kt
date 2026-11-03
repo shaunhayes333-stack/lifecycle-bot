@@ -388,6 +388,21 @@ object CloseLease {
 
     fun attemptCount(mint: String): Int = current(mint)?.closeAttemptCount ?: 0
 
+    /** Cancel only an unbroadcast disproved signal, then hand off any DIFFERENT coalesced emergency. */
+    @Synchronized
+    fun invalidateSignal8521(mint: String, reason: String, anotherSellOwnsMint: Boolean, beforeRelease: () -> Unit): Boolean {
+        val l = current(mint) ?: return false
+        if (anotherSellOwnsMint || l.finalityPending) return false
+        // Repeated copies of the invalidated signal are not a new emergency. A rug/manual/different stop survives.
+        if (l.emergencyWaiting8087?.let(::canonicalReason) == canonicalReason(reason)) {
+            l.emergencyWaiting8087 = null
+            l.emergencyWaitingSinceMs8087 = 0L
+        }
+        beforeRelease()
+        release(mint, "SIGNAL_INVALIDATED_8521")
+        return true
+    }
+
     // ── V5.0.8087 — catastrophic exits do not queue behind a running attempt ──
     //
     // 5.0.8086 live: a catastrophic exit spent 58 s between trigger and its first worker. The lease was held

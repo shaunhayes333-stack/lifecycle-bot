@@ -43,7 +43,7 @@ class Aate8406MandateHorizonGradingTest {
     }
 
     @Test fun the_hour_read_owns_every_hour_graded_lane() {
-        val lab = src("engine/truth/ForwardReturnLabeler7731.kt").substringAfter("fun runnerSlot8337(").substringBefore("private fun reviseToHour8337(")
+        val lab = src("engine/truth/ForwardReturnLabeler7731.kt").substringAfter("fun runnerSlot8337(").substringBefore("private val exitRunSamples8006")
         assertTrue(lab.contains("LaneGradeHorizon8406.hourGraded8406(lane)"))
         val pb = src("engine/cortex/LanePlaybook7907.kt")
         assertTrue(pb.substringAfter("private fun runnerHorizonLane8144(").substringBefore("private class Grade8076").contains("LaneGradeHorizon8406.hourGraded8406(lane)"))

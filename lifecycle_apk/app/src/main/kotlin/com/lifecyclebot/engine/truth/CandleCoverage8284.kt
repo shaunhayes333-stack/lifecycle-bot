@@ -43,7 +43,7 @@ object CandleCoverage8284 {
     private const val MAX_TRACKED = 2_000
     private const val MIN_1M_BARS_8284 = 6
     private const val MIN_TF_BARS_8284 = 3
-    val TIMEFRAMES_8284 = listOf("15s", "1m", "5m", "15m")
+    val TIMEFRAMES_8284 = listOf("15s", "1m", "5m", "15m", "1h", "4h")
 
     /** Candle -> what it is. Weak: an entry goes when no history holds the candle any more. */
     private val tags = Collections.synchronizedMap(WeakHashMap<Candle, Tag8284>())
@@ -205,7 +205,11 @@ object CandleCoverage8284 {
         val h15 = try { synchronized(ts.history15m) { ts.history15m.toList() } } catch (_: Throwable) { emptyList() }
         val c15m = coverageOf8284(ageMs, distinctBuckets(h15, 15L * BUCKET_MS, nowMs - 6L * 3_600_000L, Quality8284.UNKNOWN.rank),
             15L * BUCKET_MS, MIN_TF_BARS_8284)
-        val out = arrayOf(c15, c1, c5, c15m)
+        val h1 = MultiTimeframeCharts8521.snapshot8521(ts, MultiTimeframeCharts8521.Frame8521.H1, nowMs)
+        val h4 = MultiTimeframeCharts8521.snapshot8521(ts, MultiTimeframeCharts8521.Frame8521.H4, nowMs)
+        val c1h = coverageOf8284(ageMs, h1.size, 3_600_000L, MIN_TF_BARS_8284)
+        val c4h = coverageOf8284(ageMs, h4.size, 14_400_000L, MIN_TF_BARS_8284)
+        val out = arrayOf(c15, c1, c5, c15m, c1h, c4h)
         latest[ts.mint] = out
         if (latest.size > MAX_TRACKED) latest.keys.take(MAX_TRACKED / 10).forEach { latest.remove(it) }
         return out
@@ -262,7 +266,7 @@ object CandleCoverage8284 {
     // ── V5.0.8289 — memory census and pressure trim (MemoryGuard7977 registry) ──
     /** One [tags] entry (weak-reference node + its [Tag8284]); one stored 1 m [Candle] (as the token-row census counts it). */
     private const val TAG_BYTES_8289 = 88L
-    const val BAR_BYTES_8289 = 108L
+    const val BAR_BYTES_8289 = 128L
 
     fun tagCount8289(): Int = tags.size
     fun storeMints8289(): Int = store1m.size

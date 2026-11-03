@@ -37,6 +37,8 @@ data class SwapQuote(
     // Metis fallback') instead of leaving the operator wondering why the
     // sell didn't go through Ultra like the buy did.
     val ultraRejectedReason: String = "",
+    /** Local receipt time, preserved through copy/rebuild. An old response is not a fresh executable quote. */
+    val receivedAtMs8521: Long = System.currentTimeMillis(),
 )
 
 data class SwapTxResult(
@@ -53,6 +55,10 @@ data class SwapTxResult(
     // the locally-appended Helius tip transfer required by Sender.
     val senderCompatible: Boolean = false,
     val senderTipLamports: Long = 0L,
+    /** The exact quote/order represented by txBase64 (Ultra may replace an indicative quote while building). */
+    val executionQuote8521: SwapQuote? = null,
+    /** Dynamic report's simulated output, not a decoded transaction minimum. */
+    val dynSlipOtherAmountRaw8521: Long? = null,
 )
 
 class JupiterApi(
@@ -664,6 +670,8 @@ class JupiterApi(
             dynSlipIncurredBps = v6.third,
             senderCompatible = senderEnvelope?.hasComputeUnitPrice == true,
             senderTipLamports = senderEnvelope?.tipLamports ?: 0L,
+            executionQuote8521 = quote,
+            dynSlipOtherAmountRaw8521 = v6.otherAmountRaw,
         )
     }
 
@@ -681,6 +689,7 @@ class JupiterApi(
                 requestId = quote.requestId,
                 router = quote.router,
                 isRfqRoute = quote.isRfqRoute,
+                executionQuote8521 = quote,
             )
         }
 
@@ -710,12 +719,15 @@ class JupiterApi(
             amountRaw = amountRaw,
             taker = userPublicKey,
         )
+        try { com.lifecyclebot.engine.RealisedSlip8418.noteExecuted8426(freshOrder.inputMint, freshOrder.outputMint,
+            freshOrder.inAmount, freshOrder.outAmount, freshOrder.priceImpactPct) } catch (_: Throwable) {}
 
         return SwapTxResult(
             txBase64 = freshOrder.swapTransaction,
             requestId = freshOrder.requestId,
             router = freshOrder.router,
             isRfqRoute = freshOrder.isRfqRoute,
+            executionQuote8521 = freshOrder,
         )
     }
 
@@ -736,8 +748,10 @@ class JupiterApi(
         }
     }
 
+    private data class V6BuildDetails8521(val first: String, val second: Int, val third: Int, val otherAmountRaw: Long?)
+
     /**
-     * V5.9.482 — same as buildSwapTxV6 but returns Triple(txBase64, dynSlipPickedBps, dynSlipIncurredBps).
+     * V5.9.482 — same as buildSwapTxV6 but returns txBase64, dynSlipPickedBps, dynSlipIncurredBps.
      * Jupiter's response includes a `dynamicSlippageReport` JSON when dynamicSlippage was requested;
      * we extract `slippageBps` (picked) + `simulatedIncurredSlippageBps` for forensics. Returns -1 / -1
      * when dynamicSlippage was not requested or the report is missing.
@@ -749,7 +763,7 @@ class JupiterApi(
         senderTipLamports: Long = 0L,
         senderComputeUnitPriceMicroLamports: Long = 25_000L,
         ordinary8151: Boolean = false,
-    ): Triple<String, Int, Int> {
+    ): V6BuildDetails8521 {
         val startMs = System.currentTimeMillis()
 
         val payload = JSONObject().apply {
@@ -840,9 +854,10 @@ class JupiterApi(
         val dsReport = json.optJSONObject("dynamicSlippageReport")
         val picked = dsReport?.optInt("slippageBps", -1) ?: -1
         val incurred = dsReport?.optInt("simulatedIncurredSlippageBps", -1) ?: -1
+        val otherAmount8521 = dsReport?.opt("otherAmount")?.toString()?.toLongOrNull()
         val dsLog = if (dsReport != null) " | dyn-slip picked=${picked}bps incurred=${incurred}bps" else ""
         log("✅ V6 BUILD TX OK: txLen=${swapTx.length} (${elapsed}ms)$dsLog")
-        return Triple(swapTx, picked, incurred)
+        return V6BuildDetails8521(swapTx, picked, incurred, otherAmount8521)
     }
 
     /**

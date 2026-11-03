@@ -27,21 +27,21 @@ class Aate8337LabelsGateTest {
         val labeler = src("engine/truth/ForwardReturnLabeler7731.kt")
         val sixty = labeler.substringAfter("private fun bookSixty7944(").substringBefore("// ── V5.0.7997 — PROGRESSIVE GRADING ──")
         val flatTest = sixty.indexOf("var flat8322 = com.lifecyclebot.engine.cortex.CortexFlatMark8322.flatMark8322(gross0, o.peakPct, o.minPct7962)")
-        val booked = sixty.indexOf("book(o, 60, net, gross, w8324)")
+        val booked = sixty.indexOf("bookEntryTarget8521(o, net, gross, w8324, nowMs)")
         assertTrue(flatTest in 0 until booked)                                      // the flat test runs BEFORE the 60 slot is booked
         assertTrue(sixty.contains("markLost(o)                       // counted as lost mark, never as a -cost label"))
         assertTrue(sixty.contains("o.bookedNet7997 = Double.NaN"))
         // the shape / cell / specialist hooks are skipped on a flat mark; the Cortex still receives the flag (observed only there)
         val shape = sixty.indexOf("TradeShapeLearner7883.onLabel60(o.mint, o.lane, net, gross)")
         assertTrue(shape > sixty.indexOf("} else {") && shape > flatTest)
-        val skip = sixty.indexOf("if (flat8322) return")
+        val skip = sixty.indexOf("} else {\n            bookEntryTarget8521(")
         assertTrue(skip > 0)
         // superseded by V5.0.8404 — the 5-minute value is staged in the durable outbox first; V5.0.8418 — a failed staging no longer
         // returns before the learners (they book once, the value is kept for the Cortex retry: o.staged8418).
         assertTrue(skip > sixty.indexOf("stageForwardOutcome8404(o, net, gross, fam8080, flat8322, w8324)"))
         assertTrue(sixty.contains("o.staged8418 = stagedValue8418(net, gross, flat8322, w8324, fam8080)"))
         // superseded by V5.0.8418 — the label carries its decision id (LearnerAttribution8418: one booking per decision)
-        assertTrue(skip < sixty.indexOf("CellAllocator7962.onLabel7962(o.cell, o.lane, o.setup7955, net, \"\${o.mint}|\${o.lane}|\${o.atMs}\")"))
+        assertTrue(skip < sixty.indexOf("CellAllocator7962.onLabel7962(o.cell, o.lane, o.setup7955, net, \"\${o.mint}|\${o.lane}|\${o.atMs}\", o.targetHorizon8521 / 60_000.0)"))
         assertTrue(skip < sixty.indexOf("SpecialistMiner7972.onLabel7972(o.lane, o.mint, o.feats7972, net, gross, o.atMs)"))
     }
 
@@ -96,15 +96,14 @@ class Aate8337LabelsGateTest {
         assertFalse(ForwardReturnLabeler7731.runnerSlot8337("TREASURY"))
         val labeler = src("engine/truth/ForwardReturnLabeler7731.kt")
         val twoForty = labeler.substringAfter("private fun bookTwoForty7944(").substringBefore("private val exitRunSamples8006")
-        // one-line slot selection: the hour's label revises a runner lane's 5-minute slot before the 240 slot is booked
-        assertTrue(twoForty.contains("if (runnerSlot8337(o.lane)) reviseToHour8337(o, net0, gross0, net, gross)"))
-        assertTrue(twoForty.indexOf("reviseToHour8337(") < twoForty.indexOf("book(o, 240, net, gross)"))
-        val revise = labeler.substringAfter("private fun reviseToHour8337(").substringBefore("private fun bookTwoForty7944(").ifBlank {
-            labeler.substringAfter("private fun reviseToHour8337(")
-        }
-        assertTrue(revise.contains("revise7997(o, oldNet, net, o.bookedGross7997, gross"))
-        assertTrue(revise.contains("LanePlaybook7907.reviseLabel7997(o.mint, o.lane, oldLong8080, long8080.first"))
-        assertTrue(revise.contains("kotlin.math.abs(net - oldNet) < 0.5) return"))   // a checkpoint that already moved it is not revised twice
+        assertTrue(twoForty.contains("o.targetHorizon8521 == H240_MS_7731 && !o.bookedNet7997.isFinite()"))
+        assertTrue(twoForty.indexOf("bookEntryTarget8521(") < twoForty.indexOf("book(o, 240, net, gross)"))
+        val target = labeler.substringAfter("private fun bookEntryTarget8521(").substringBefore("private fun teachForwardLearners8521(")
+        assertTrue(target.contains("o.bookedNet7997.isFinite()"))
+        assertTrue(target.contains("o.targetHorizon8521"))
+        assertTrue(target.contains("LaneGradeHorizon8406.noteHourGrade8408(o.lane)"))
+        val interim = labeler.substringAfter("private fun bookSixty7944(").substringBefore("private fun bookEntryTarget8521(")
+        assertTrue(interim.indexOf("if (o.targetHorizon8521 > H60_MS_7731) return") < interim.indexOf("bookEntryTarget8521("))
     }
 
     @Test fun chartBuyUsesCanonicalPlanAdmission() {

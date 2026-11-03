@@ -17,77 +17,104 @@ object CanonicalUiPositionProjection6686 {
             try { status.tokens.values.toList().associateBy { it.mint } } catch (_: Throwable) { emptyMap() }
         }
 
-        return canonical.asSequence()
-            .filterNot { WalletTokenAccountStateAuthority7253.isFrozen(it.mint) }
-            .distinctBy { "${it.mode.lowercase()}:${it.mint}" }
-            .mapNotNull { p ->
-            try {
-                val qty = if (p.quantityScale in 0..18)
-                    p.remainingQtyRaw.toBigDecimal().movePointLeft(p.quantityScale).toDouble()
-                else 0.0
-                if (!qty.isFinite() || qty <= 0.0) return@mapNotNull null
-                val remainingCost = (p.entryCostSol - p.soldCostBasisSol).coerceAtLeast(0.0)
-                val existing = byMint[p.mint]
-                val base = existing?.position
-                val projectedPosition = if (base != null) {
-                    base.copy(
-                        qtyToken = qty,
-                        entryPrice = p.entryPriceUsd,
-                        entryTime = p.openedAtMs,
-                        costSol = remainingCost,
-                        highestPrice = base.highestPrice.takeIf { it > 0.0 } ?: p.entryPriceUsd,
-                        lowestPrice = base.lowestPrice.takeIf { it > 0.0 } ?: p.entryPriceUsd,
-                        entryPriceSource = p.entryPriceSource,
-                        entryPoolAddress = p.entryPoolAddress,
-                        entryDex = p.entryDex,
-                        isPaperPosition = p.mode.equals("paper", true),
-                        tradingMode = p.lane,
-                        positionId = p.positionId,
-                        pendingVerify = false,
-                        canonicalAssetClassTag = p.assetClass.tag,
-                    )
-                } else {
-                    Position(
-                        qtyToken = qty,
-                        entryPrice = p.entryPriceUsd,
-                        entryTime = p.openedAtMs,
-                        costSol = remainingCost,
-                        highestPrice = p.entryPriceUsd,
-                        lowestPrice = p.entryPriceUsd,
-                        entryPhase = "CANONICAL_UI_RECOVERY_6686",
-                        entryPriceSource = p.entryPriceSource,
-                        entryPoolAddress = p.entryPoolAddress,
-                        entryDex = p.entryDex,
-                        isPaperPosition = p.mode.equals("paper", true),
-                        tradingMode = p.lane,
-                        tradingModeEmoji = "🔗",
-                        positionId = p.positionId,
-                        pendingVerify = false,
-                        canonicalAssetClassTag = p.assetClass.tag,
-                    )
-                }
-                if (existing != null) {
-                    existing.copy(position = projectedPosition)
-                } else {
-                    TokenState(
-                        mint = p.mint,
-                        symbol = p.symbol.ifBlank { p.mint.take(8) },
-                        name = "Canonical Position",
-                        source = "CANONICAL_UI_PROJECTION_6686",
-                        position = projectedPosition,
-                    )
-                }
-            } catch (t: Throwable) {
-                try {
-                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                        "CANONICAL_UI_POSITION_PROJECTION_FAILED_6686",
-                        "mint=${p.mint.take(12)} pid=${p.positionId.take(24)} err=${t.message?.take(100)}",
-                    )
-                } catch (_: Throwable) {}
-                null
-            }
-            }.toList()
+        return projectRows8521(canonical, byMint) { WalletTokenAccountStateAuthority7253.isFrozen(it) }
     }
+
+    /** Mode and immutable lot identity survive the projection, even when the token cache holds another book. */
+    internal fun projectRows8521(canonical: List<CanonicalPositionAuthority6441.Position>,
+                                  byMint: Map<String, TokenState>, isWalletFrozen: (String) -> Boolean): List<TokenState> =
+        canonical.asSequence()
+            .filter { it.lifecycle == CanonicalPositionAuthority6441.Lifecycle.OPEN ||
+                it.lifecycle == CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED }
+            .filter { it.mode.equals("paper", true) || !isWalletFrozen(it.mint) }
+            .distinctBy { "${it.mode.lowercase()}:${it.positionId}" }
+            .mapNotNull { p -> projectPosition8521(p, byMint[p.mint]) }.toList()
+
+    internal fun projectPosition8521(p: CanonicalPositionAuthority6441.Position, existing: TokenState?): TokenState? {
+        try {
+            val qty = if (p.quantityScale in 0..18)
+                p.remainingQtyRaw.toBigDecimal().movePointLeft(p.quantityScale).toDouble()
+            else 0.0
+            if (!qty.isFinite() || qty <= 0.0) return null
+            val remainingCost = (p.entryCostSol - p.soldCostBasisSol).coerceAtLeast(0.0)
+            val base = existing?.position?.takeIf {
+                existing.mint == p.mint && it.positionId == p.positionId &&
+                    it.isPaperPosition == p.mode.equals("paper", true)
+            }
+            val projectedPosition = if (base != null) {
+                base.copy(
+                    qtyToken = qty,
+                    entryPrice = p.entryPriceUsd,
+                    entryTime = p.openedAtMs,
+                    costSol = remainingCost,
+                    highestPrice = base.highestPrice.takeIf { it > 0.0 } ?: p.entryPriceUsd,
+                    lowestPrice = base.lowestPrice.takeIf { it > 0.0 } ?: p.entryPriceUsd,
+                    entryPriceSource = p.entryPriceSource,
+                    entryPoolAddress = p.entryPoolAddress,
+                    entryDex = p.entryDex,
+                    isPaperPosition = p.mode.equals("paper", true),
+                    tradingMode = p.lane,
+                    positionId = p.positionId,
+                    pendingVerify = false,
+                    canonicalAssetClassTag = p.assetClass.tag,
+                )
+            } else {
+                Position(
+                    qtyToken = qty,
+                    entryPrice = p.entryPriceUsd,
+                    entryTime = p.openedAtMs,
+                    costSol = remainingCost,
+                    highestPrice = p.entryPriceUsd,
+                    lowestPrice = p.entryPriceUsd,
+                    entryPhase = "CANONICAL_UI_RECOVERY_6686",
+                    entryPriceSource = p.entryPriceSource,
+                    entryPoolAddress = p.entryPoolAddress,
+                    entryDex = p.entryDex,
+                    isPaperPosition = p.mode.equals("paper", true),
+                    tradingMode = p.lane,
+                    tradingModeEmoji = "🔗",
+                    positionId = p.positionId,
+                    pendingVerify = false,
+                    canonicalAssetClassTag = p.assetClass.tag,
+                )
+            }
+            return if (existing != null) {
+                existing.copy(position = projectedPosition)
+            } else {
+                TokenState(
+                    mint = p.mint,
+                    symbol = p.symbol.ifBlank { p.mint.take(8) },
+                    name = "Canonical Position",
+                    source = "CANONICAL_UI_PROJECTION_6686",
+                    position = projectedPosition,
+                )
+            }
+        } catch (t: Throwable) {
+            try {
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "CANONICAL_UI_POSITION_PROJECTION_FAILED_6686",
+                    "mint=${p.mint.take(12)} pid=${p.positionId.take(24)} err=${t.message?.take(100)}",
+                )
+            } catch (_: Throwable) {}
+            return null
+        }
+    }
+
+    /** The PAPER portfolio includes all owned asset families; LIVE keeps its existing Solana dashboard scope. */
+    fun isDashboardOwned8521(row: TokenState, paperMode: Boolean): Boolean =
+        row.position.isPaperPosition == paperMode &&
+            (paperMode || isMemeDashboardOwned7252(row))
+
+    fun isCurrentPaperOpen8521(row: TokenState): Boolean {
+        if (!row.position.isPaperPosition || row.position.positionId.isBlank()) return false
+        val p = CanonicalPositionAuthority6441.getPosition(row.position.positionId) ?: return false
+        return p.mode.equals("paper", true) && p.mint == row.mint && p.remainingQtyRaw.signum() > 0 &&
+            p.lifecycle in setOf(CanonicalPositionAuthority6441.Lifecycle.OPEN, CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED)
+    }
+
+    fun matchesPosition8521(position: Position, positionId: String, paper: Boolean): Boolean =
+        positionId.isNotBlank() && position.positionId == positionId && position.isPaperPosition == paper &&
+            position.qtyToken.isFinite() && position.qtyToken > 0.0
 
     /** V5.0.7252 — authoritative ownership check for the MemeTrader dashboard. */
     fun isMemeDashboardOwned7252(row: TokenState): Boolean {

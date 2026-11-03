@@ -30,11 +30,12 @@ class Aate8395PaperSellVerifierTest {
         assertTrue(bodyLines("fun paperSellLearningTailB8395() {") < 600)
     }
 
-    @Test fun aTokenSeenDyingThenVanishingIsStillBookedDead() {
+    @Test fun aTokenSeenDyingThenVanishingRetainsObservedRiskWithoutInventingTotalLoss() {
         val f = File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
         val ex = f.substringAfter("private fun expired8395(").substringBefore("fun tick(priceFor0")
         assertTrue(ex.indexOf("Vanished7944.DEAD") in 0 until ex.indexOf("unavailable8395(key,o,\"OBSERVATION_DEADLINE_"))
-        assertTrue(ex.contains("bookSixty7944(o,-100.0,-100.0,nowMs)"))
+        assertFalse(ex.contains("bookSixty7944(o,-100.0,-100.0,nowMs)"))
+        assertTrue(ex.contains("OBSERVATION_DEADLINE_AFTER_OBSERVED_COLLAPSE_8521"))
         assertEquals(com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.Vanished7944.DEAD,
             com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.classifyVanished7944(-80.0, 600_000L, 3_600_000L))
         assertEquals(com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.Vanished7944.GAP,

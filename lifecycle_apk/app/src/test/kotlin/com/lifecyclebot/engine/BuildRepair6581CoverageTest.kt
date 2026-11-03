@@ -28,12 +28,12 @@ class BuildRepair6581CoverageTest {
     private val canonicalContractSrc = File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalAssetEntryContract6551.kt").readText()
 
     @Test
-    fun p0_1_canonical_sell_fallback_uses_canonical_refund() {
+    fun p0_1_refused_canonical_sell_never_invents_a_refund() {
         assertTrue(
-            "Uncloseable-market path must route through CanonicalPaperTransaction6486.refund " +
-                "(the pre-6581 PaperAccountLedger6430.onSell fallback bypassed the canonical journal)",
-            stockSrc.contains("CanonicalPaperTransaction6486.refund(") &&
-                stockSrc.contains("PAPER_CLOSE_CANONICAL_REFUND_6581")
+            "A refused settlement must retain the lot until actual canonical terminal evidence; " +
+                "a synthetic breakeven refund corrupts cash and paper performance",
+            !stockSrc.contains("CanonicalPaperTransaction6486.refund(") &&
+                stockSrc.contains("PaperStopLifecycle8521.confirmedClosed(position.id)")
         )
         // The pre-6581 direct-onSell fallback lived under PAPER_CLOSE_FALLBACK_6572;
         // V5.0.6581 replaced it with the canonical refund path. V5.0.6616

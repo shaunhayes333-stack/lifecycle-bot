@@ -9,12 +9,12 @@ class Aate7484OhlcvSameKeyCoalescerTest {
 
     @Test fun duplicate_request_is_coalesced_before_provider_resolution() {
         val s = src()
-        val fn = s.substringAfter("fun fetchCandles6916(").substringBefore("// ══════ V5.0.7293")
+        val fn = s.substringAfter("fun fetchCandles6916(").substringBefore("fun statusLine()")
         val coalesce = fn.indexOf("OHLCV_SAME_KEY_WINDOW_COALESCED_7484")
-        val paprika = fn.indexOf("fetchDexPaprika7293")
+        val request = fn.indexOf("val url =")
         val pool = fn.indexOf("resolvePool(mint, poolHint)")
         assertTrue(coalesce >= 0)
-        assertTrue(paprika > coalesce)
+        assertTrue(request > coalesce)
         assertTrue(pool > coalesce)
     }
 
@@ -24,7 +24,7 @@ class Aate7484OhlcvSameKeyCoalescerTest {
         assertTrue(s.contains("cachedCandles8253(mint, timeframeLabel, n, now)"))
         assertTrue(s.contains("val row = cache[key] ?: return emptyList()"))
         assertTrue(s.contains("negativeCache[mint]?.let"))
-        assertTrue(s.contains("fetchDexPaprika7293"))
+        assertTrue(s.contains("currency=usd&token=$" + "mint&include_empty_intervals=false"))
         assertTrue(s.contains("resolvePool(mint, poolHint)"))
     }
 

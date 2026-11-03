@@ -49,7 +49,7 @@ class Aate8400RugcheckEdgeAndDiscoveryCaptureTest {
         val b = src("engine/SpecialistBrainBridge7542.kt")
         val eval = b.substringAfter("fun evaluate(ts:TokenState)")
         val bridgeCapture = eval.indexOf("DiscoveryCapture8400.captureMcap8400(ts, \"BRIDGE\")")
-        val fp = eval.indexOf("val f=fp(ts,paper,residentScope7828)")
+        val fp = eval.indexOf("val f = fp(ts, paper, residentScope7828,")
         assertTrue(bridgeCapture in 0 until fp)
         assertTrue(b.substringAfter("private fun fp(").contains("ts.lastMcap.toLong()"))
         // the resolver order is evidence first, chain read last

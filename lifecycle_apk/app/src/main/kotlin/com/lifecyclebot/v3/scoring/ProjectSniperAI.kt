@@ -987,6 +987,19 @@ object ProjectSniperAI {
         save(force = true)
     }
 
+    /** A forced PAPER stop retires tracking only after exact canonical finality. */
+    internal fun retireClosedPaperStop8521(positionId: String) {
+        val p = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(positionId) ?: return
+        if (!com.lifecyclebot.engine.PaperStopLifecycle8521.confirmedClosed(positionId)) return
+        // This legacy mission map has no mode key. Preserve it whenever either
+        // mode still owns the mint; never discard a same-mint LIVE mission.
+        if (com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions().any { it.mint == p.mint }) return
+        val mission = activeMissions[p.mint] ?: return
+        if (mission.entryTime > p.lastMutationMs) return
+        activeMissions.remove(p.mint, mission)
+        save(force = true)
+    }
+
     fun clearAllMissions() {
         activeMissions.clear()
         ErrorLogger.info(TAG, "🎯 All missions cleared")

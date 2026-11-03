@@ -41,7 +41,7 @@ class Aate8210AdmissionContinuityTest {
     @Test fun gradingEpochAndProvenanceNeverUsePreviousFreshRefusals() {
         val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
         // superseded by V5.0.8418 — the cost-contract change (mark gap no longer charged) starts a new grading epoch
-        assertTrue(src.contains("GRADING_VERSION_8169 = 8418"))
+        assertTrue(src.contains("GRADING_VERSION_8169 = 8521"))
         assertTrue(src.contains("return -1L"))
         assertTrue(src.contains("restoreFresh8169(p, System.currentTimeMillis())"))
         val adm = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CandidateAdmission8136.kt").readText()

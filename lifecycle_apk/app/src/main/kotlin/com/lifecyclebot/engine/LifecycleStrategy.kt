@@ -4,6 +4,8 @@ import com.lifecyclebot.data.*
 import com.lifecyclebot.util.*
 import com.lifecyclebot.engine.BondingCurveTracker
 import com.lifecyclebot.engine.WhaleDetector
+import com.lifecyclebot.engine.truth.MultiTimeframeCharts8521
+import com.lifecyclebot.engine.truth.MultiTimeframeCharts8521.Frame8521
 
 /**
  * LifecycleStrategy v4 — Chart-Tuned
@@ -76,6 +78,7 @@ class LifecycleStrategy(
 
     fun evaluate(ts: TokenState, modeConf: AutoModeEngine.ModeConfig? = null): StrategyResult {
         val hist = ts.history.toList()
+        val charts8521 = chartFrames8521(ts, System.currentTimeMillis())
         val isPaperMode = cfg().paperMode
 
         // ═══════════════════════════════════════════════════════════════════
@@ -129,18 +132,7 @@ class LifecycleStrategy(
         val momScore   = momentumScore(prices)
         
         // Calculate RSI for Entry/Exit AI
-        val rsiVal = if (prices.size >= 14) {
-            val gains = mutableListOf<Double>()
-            val losses = mutableListOf<Double>()
-            for (i in 1 until minOf(14, prices.size)) {
-                val change = prices[prices.size - i] - prices[prices.size - i - 1]
-                if (change > 0) gains.add(change) else losses.add(-change)
-            }
-            val avgGain = if (gains.isNotEmpty()) gains.average() else 0.0
-            val avgLoss = if (losses.isNotEmpty()) losses.average() else 0.001
-            val rs = avgGain / avgLoss
-            100 - (100 / (1 + rs))
-        } else 50.0
+        val rsiVal = currentRsi8521(prices)
         
         // Calculate ATR (average true range) for volatility
         val avgAtrVal = if (hist.size >= 5) {
@@ -153,7 +145,7 @@ class LifecycleStrategy(
         } else 5.0
         
         // On a bull-fan grinder with good gains, require stronger exhaustion confirmation
-        val emafanQuick = calcEmaFan(prices)
+        val emafanQuick = charts8521[Frame8521.M1]?.ema ?: calcEmaFan(prices)
         val inGrinder   = ts.position.isOpen
             && pct(ts.position.entryPrice, ts.ref) > 30.0
             && emafanQuick.alignment == EmaAlignment.BULL_FAN
@@ -163,12 +155,14 @@ class LifecycleStrategy(
         val buyDom     = buyerDominance(hist)
 
         // New v4 indicators
-        val emafan     = calcEmaFan(prices)
+        val emafan     = emafanQuick
         val stochRsi   = calcStochRsiSignal(hist)
         val volDiv     = volumeDivergence(hist, prices)
         val athProx    = athProximity(prices)
-        val mtf5m      = mtfTrend(ts.history5m)
-        val mtf15m     = mtfTrend(ts.history15m)
+        val mtf5m      = mtfTrend(charts8521[Frame8521.M5])
+        val macro8521  = macroContext8521(charts8521)
+        val primaryPattern8521 = charts8521[Frame8521.M1]?.pattern
+            ?: ChartPatternSignal(ChartPattern.NONE, 0.0, 0.0, "Observed 1m pattern unavailable")
 
         val (phase, pm) = when (mode) {
             TradingMode.LAUNCH_SNIPE -> detectLaunchPhase(hist, prices, requireNotNull(tokenAgeMins))
@@ -204,13 +198,9 @@ class LifecycleStrategy(
                 MtfTrend.BULL    -> entryScore = (entryScore + 8.0).coerceIn(0.0, 100.0)
                 MtfTrend.NEUTRAL -> Unit
             }
-            // FIX 5: 15m is the macro trend — BEAR_FAN on 15m = hard block for range entries
-            // This catches ROSIE/DOWNALD/AFK patterns before phase detection even runs.
-            // Launch snipes are exempt — new tokens don't have 15m history.
-            if (mode == TradingMode.RANGE_TRADE && mtf15m == MtfTrend.BEAR
-                && ts.history15m.size >= 8) {
-                entryScore = 0.0
-            }
+            // Measured 1h/4h shape and volume inform all setups. A reversal may
+            // still be valid in a weak macro chart; absent young frames abstain.
+            entryScore = (entryScore + macro8521).coerceIn(0.0, 100.0)
         }
         // BotBrain learning — phase boost AND bad behaviour suppression
         if (!ts.position.isOpen) {
@@ -245,9 +235,10 @@ class LifecycleStrategy(
             val gainMtf = if (ts.position.entryPrice > 0) pct(ts.position.entryPrice, ts.ref) else 0.0
             if (gainMtf > 10.0 && !exhaust) exitScore = (exitScore - 15.0).coerceAtLeast(0.0)
         }
-        // 15m bear = macro trend against us — add urgency
-        if (ts.position.isOpen && mtf15m == MtfTrend.BEAR) {
-            exitScore = (exitScore + 12.0).coerceIn(0.0, 100.0)
+        // The same current macro features reach held positions. Positive context
+        // can temper ordinary noise, but cannot suppress observed deterioration.
+        if (ts.position.isOpen && (macro8521 < 0.0 || (!exhaust && !volDiv && !txnDrop && !pm.breakdown))) {
+            exitScore = (exitScore - macro8521).coerceIn(0.0, 100.0)
         }
         
         // ═══════════════════════════════════════════════════════════════════
@@ -710,7 +701,7 @@ class LifecycleStrategy(
             // V5: CLASSIC CHART PATTERN DETECTION
             // ═══════════════════════════════════════════════════════════════════
             // Double Bottom, Cup & Handle, Bull Flag - time-tested patterns
-            val chartPattern = detectChartPattern(prices, hist)
+            val chartPattern = primaryPattern8521
             
             if (chartPattern.pattern != ChartPattern.NONE && chartPattern.confidence >= 50.0) {
                 // Chart patterns always apply - they're based on price action, not learned data
@@ -988,7 +979,7 @@ class LifecycleStrategy(
         // Only compute for potential entries (BUY signal)
         if (signal == "BUY" && !ts.position.isOpen) {
             // Check for quality signals
-            val chartPattern = detectChartPattern(prices, hist)
+            val chartPattern = primaryPattern8521
             if (chartPattern.pattern != ChartPattern.NONE && chartPattern.confidence >= 60) qualityScore += 3
             if (emafan.alignment == EmaAlignment.BULL_FAN) qualityScore += 2
             if (emafan.widening) qualityScore += 1  // Widening fan is extra bullish
@@ -1035,6 +1026,8 @@ class LifecycleStrategy(
             setupQuality     = setupQuality,
             avgAtr           = avgAtrVal,
             rsi              = rsiVal,
+            chartPattern     = primaryPattern8521.pattern.name,
+            chartPatternConf = primaryPattern8521.confidence,
         )
         
         return StrategyResult(
@@ -2102,6 +2095,73 @@ class LifecycleStrategy(
         val entryBoost: Double,     // Score boost to apply
         val details: String,
     )
+
+    enum class MtfTrend { BULL, BEAR, NEUTRAL }
+
+    /** Each value describes observed bars at one real interval; an unavailable indicator abstains. */
+    data class ChartFrame8521(
+        val bars: Int,
+        val observedThroughMs: Long,
+        val ema: EmaFanSignal?,
+        val pattern: ChartPatternSignal?,
+        val volumeScore: Double?,
+        val volumeDivergence: Boolean?,
+        val movePct: Double?,
+    )
+
+    companion object {
+    /** Existing calculation moved out of evaluate to keep its device verifier budget bounded. */
+    private fun currentRsi8521(prices: List<Double>): Double {
+        if (prices.size < 14) return 50.0
+        val gains = mutableListOf<Double>()
+        val losses = mutableListOf<Double>()
+        for (i in 1 until minOf(14, prices.size)) {
+            val change = prices[prices.size - i] - prices[prices.size - i - 1]
+            if (change > 0) gains.add(change) else losses.add(-change)
+        }
+        val avgGain = if (gains.isNotEmpty()) gains.average() else 0.0
+        val avgLoss = if (losses.isNotEmpty()) losses.average() else 0.001
+        val rs = avgGain / avgLoss
+        return 100 - (100 / (1 + rs))
+    }
+
+    /** Reuses the strategy's existing indicators for both current scoring and immutable Cortex votes. */
+    internal fun chartFrames8521(ts: TokenState, nowMs: Long): Map<Frame8521, ChartFrame8521> =
+        Frame8521.values().mapNotNull { frame ->
+            chartFrame8521(MultiTimeframeCharts8521.snapshot8521(ts, frame, nowMs))?.let { frame to it }
+        }.toMap()
+
+    internal fun chartFrame8521(candles: List<Candle>): ChartFrame8521? {
+        if (candles.size < 3) return null
+        val interval = candles.last().intervalMs8521.takeIf { it > 0L } ?: return null
+        // Indicators must not compress a feed outage or a known venue switch into one apparent price move.
+        val afterGap = (1 until candles.size).lastOrNull { candles[it].ts - candles[it - 1].ts != interval ||
+            candles[it - 1].intervalMs8521 != interval } ?: 0
+        val pools = candles.map { com.lifecyclebot.engine.truth.CandleCoverage8284.tagOf8284(it)?.pool.orEmpty() }
+        val latestPool = pools.lastOrNull { it.isNotBlank() }.orEmpty()
+        val afterVenue = if (latestPool.isBlank()) 0 else pools.indexOfLast { it.isNotBlank() && it != latestPool } + 1
+        val observed = candles.drop(maxOf(afterGap, afterVenue))
+        if (observed.size < 3) return null
+        val prices = observed.map { it.ref }
+        if (prices.any { !it.isFinite() || it <= 0.0 }) return null
+        val measuredVolume = observed.takeLast(12).all { it.periodVolumeUsd8521?.let { v -> v.isFinite() && v >= 0.0 } == true }
+        return ChartFrame8521(observed.size, observed.last().ts + interval,
+            if (prices.size >= 22) calcEmaFan(prices) else null,
+            if (prices.size >= 15) detectChartPattern(prices, observed) else null,
+            if (measuredVolume) volumeScore(observed) else null,
+            if (measuredVolume && prices.size >= 6) volumeDivergence(observed, prices) else null,
+            (prices.last() / prices.takeLast(22).first() - 1.0) * 100.0)
+    }
+
+    /** Macro context is a bounded score, never an admission veto or a substitute for execution/rug truth. */
+    internal fun macroContext8521(charts: Map<Frame8521, ChartFrame8521>): Double {
+        val macro = listOfNotNull(charts[Frame8521.H1], charts[Frame8521.H4]).ifEmpty { listOfNotNull(charts[Frame8521.M15]) }
+        if (macro.isEmpty()) return 0.0
+        return macro.map { chart ->
+            val trend = chart.ema?.score ?: chart.movePct?.coerceIn(-50.0, 50.0) ?: 0.0
+            trend + (chart.pattern?.entryBoost ?: 0.0) - if (chart.volumeDivergence == true) 20.0 else 0.0
+        }.average().times(0.16).coerceIn(-8.0, 8.0)
+    }
     
     /**
      * Detect classic bullish chart patterns that precede big moves.
@@ -2185,9 +2245,10 @@ class LifecycleStrategy(
         
         // Volume confirmation: second bottom should have less selling volume
         if (windowHist.size >= 12) {
-            val firstBottomVol = windowHist.getOrNull(minIdx1)?.vol ?: 0.0
-            val secondBottomVol = windowHist.getOrNull(minIdx2)?.vol ?: 0.0
-            if (secondBottomVol < firstBottomVol * 0.8) {
+            val firstBottomVol = windowHist.getOrNull(minOf(minIdx1, minIdx2))?.periodVolumeUsd8521
+            val secondBottomVol = windowHist.getOrNull(maxOf(minIdx1, minIdx2))?.periodVolumeUsd8521
+            if (firstBottomVol != null && secondBottomVol != null && firstBottomVol.isFinite() && firstBottomVol > 0.0 &&
+                secondBottomVol.isFinite() && secondBottomVol >= 0.0 && secondBottomVol < firstBottomVol * 0.8) {
                 confidence += 15.0  // Bullish divergence
             }
         }
@@ -2228,6 +2289,7 @@ class LifecycleStrategy(
         if (prices.size < 15) return noPattern()
         
         val window = prices.takeLast(18)
+        val windowHist = hist.takeLast(window.size)
         
         // Cup needs: high -> low -> high structure
         val startHigh = window.take(4).max()
@@ -2271,9 +2333,9 @@ class LifecycleStrategy(
         if (hasHandle) confidence += 20.0
         
         // Volume declining during cup, increasing on recovery
-        if (hist.size >= 15) {
-            val cupVol = hist.drop(4).take(6).map { it.vol }.average()
-            val recoveryVol = hist.takeLast(4).map { it.vol }.average()
+        if (windowHist.size >= 15 && windowHist.all { it.periodVolumeUsd8521?.let { v -> v.isFinite() && v >= 0.0 } == true }) {
+            val cupVol = windowHist.drop(4).take(6).map { requireNotNull(it.periodVolumeUsd8521) }.average()
+            val recoveryVol = windowHist.takeLast(4).map { requireNotNull(it.periodVolumeUsd8521) }.average()
             if (recoveryVol > cupVol * 1.2) confidence += 10.0
         }
         
@@ -2349,15 +2411,15 @@ class LifecycleStrategy(
         if (retracement < 25.0) confidence += 10.0
         
         // Volume declining during flag
-        if (windowHist.size >= 12) {
-            val poleVol = windowHist.take(6).map { it.vol }.average()
-            val flagVol = windowHist.takeLast(5).map { it.vol }.average()
+        if (windowHist.size >= 12 && windowHist.all { it.periodVolumeUsd8521?.let { v -> v.isFinite() && v >= 0.0 } == true }) {
+            val poleVol = windowHist.take(6).map { requireNotNull(it.periodVolumeUsd8521) }.average()
+            val flagVol = windowHist.takeLast(5).map { requireNotNull(it.periodVolumeUsd8521) }.average()
             if (flagVol < poleVol * 0.7) confidence += 15.0
         }
         
         // Current price near top of flag (ready to break out)
         val currentPrice = prices.last()
-        val posInFlag = (currentPrice - flagLow) / (flagHigh - flagLow) * 100
+        val posInFlag = if (flagHigh > flagLow) (currentPrice - flagLow) / (flagHigh - flagLow) * 100 else 50.0
         if (posInFlag > 70.0) confidence += 10.0
         
         if (confidence < 50.0) return noPattern()
@@ -2388,17 +2450,17 @@ class LifecycleStrategy(
     private fun calcEmaFan(prices: List<Double>): EmaFanSignal {
         if (prices.size < 22) return EmaFanSignal(EmaAlignment.FLAT, 0.0, 0.0, false)
 
-        val ema5prev  = ema(prices.takeLast(7),  5)
-        val ema10prev = ema(prices.takeLast(13), 10)
-        val ema20prev = ema(prices.takeLast(23), 20)
+        val previous = prices.dropLast(1)
+        val ema5prev  = ema(previous.takeLast(6), 5)
+        val ema20prev = ema(previous.takeLast(22), 20).coerceAtLeast(1e-12)
 
         val ema5  = ema(prices.takeLast(6),  5)
         val ema10 = ema(prices.takeLast(12), 10)
         val ema20 = ema(prices.takeLast(22), 20).coerceAtLeast(1e-12)
 
         val spreadPct     = (ema5 - ema20) / ema20 * 100.0
-        val prevSpreadPct = (ema5prev - ema20prev) / ema20 * 100.0
-        val widening      = spreadPct > prevSpreadPct + 0.1
+        val prevSpreadPct = (ema5prev - ema20prev) / ema20prev * 100.0
+        val widening      = if (spreadPct < 0.0) spreadPct < prevSpreadPct - 0.1 else spreadPct > prevSpreadPct + 0.1
 
         val bullFan   = ema5 > ema10 && ema10 > ema20
         val bearFan   = ema5 < ema10 && ema10 < ema20
@@ -2482,7 +2544,8 @@ class LifecycleStrategy(
     // ─────────────────────────────────────────────────────────────────
 
     private fun volumeScore(hist: List<Candle>): Double {
-        val vols = hist.map { it.vol }.filter { it > 0 }
+        val vols = hist.mapNotNull { c -> c.periodVolumeUsd8521?.takeIf { it.isFinite() && it >= 0.0 }
+            ?: c.vol.takeIf { it.isFinite() && it > 0.0 } }
         if (vols.size < 3) return 50.0
         val recentAvg = sma(vols.takeLast(3))
         val baseAvg   = sma(vols.takeLast(minOf(vols.size, 12))).coerceAtLeast(1e-12)
@@ -2518,17 +2581,15 @@ class LifecycleStrategy(
         return recent.all { it.buyRatio >= 0.58 }
     }
 
-    enum class MtfTrend { BULL, BEAR, NEUTRAL }
-
-    private fun mtfTrend(history: ArrayDeque<Candle>): MtfTrend {
-        val candles = history.toList()
-        if (candles.size < 22) return MtfTrend.NEUTRAL
-        val fan = calcEmaFan(candles.map { it.ref })
+    private fun mtfTrend(chart: ChartFrame8521?): MtfTrend {
+        val fan = chart?.ema ?: return MtfTrend.NEUTRAL
         return when (fan.alignment) {
             EmaAlignment.BULL_FAN, EmaAlignment.BULL_FLAT -> MtfTrend.BULL
             EmaAlignment.BEAR_FAN, EmaAlignment.BEAR_FLAT -> MtfTrend.BEAR
             else                                          -> MtfTrend.NEUTRAL
         }
+    }
+
     }
 
     private fun volumeExhaustion(hist: List<Candle>, requireStrong: Boolean = false): Boolean {
@@ -3732,6 +3793,8 @@ class LifecycleStrategy(
             EmaAlignment.BEAR_FLAT  -> -15.0
             EmaAlignment.BEAR_FAN   -> -30.0
         }
+
+        pts += macroContext8521(chartFrames8521(ts, System.currentTimeMillis()))
 
         // Long-hold positions always get full extension — conviction was
         // already verified externally, keep exit score low while trend holds

@@ -62,17 +62,16 @@ class Aate8343RunnerGrabTest {
         assertNull("CAUTION is a soft tier, not a wall", g.safetyLeg8343(now - 1_000L, SafetyTier.CAUTION, true, true, now))
     }
 
-    @Test fun noLaneMandateBindsOnlyWalls() {
+    @Test fun runnerAdaptsSoftJudgementsInsideTheNativeLaneMandate() {
         val g = RunnerGrabLane8343
-        // 8341's killers are mandates the grab lane looks past (its own venue leg re-tests the binding exit floor on chain truth).
-        for (m in listOf("NATIVE_MCAP_TOO_LOW", "MCAP_TOO_LOW: $1 < $5000", "LANE_LIQ_BELOW_FLOOR_8140_MOONSHOT", "LANE_LIQ_UNHYDRATED_DEFER_8140_SHITCOIN",
-            "THRESHOLD_FAIL_SCORE", "NO_CONTINUATION", "TREASURY_ROLE_FLOOR_8031", "CORE_YIELD_CLEAR_SPECIALIST_OWNER", "NATIVE_LIQ_TOO_LOW", "TOO_YOUNG: 0.2h"))
+        for (m in listOf("THRESHOLD_FAIL_SCORE", "NO_CONTINUATION", "CORE_YIELD_CLEAR_SPECIALIST_OWNER"))
             assertTrue(m, g.mandateRefusal8343(m))
-        // walls are never re-asked
-        for (w in listOf("RUG_RISK", "SAFETY_HARD_BLOCK", "DEV_SOLD", "ZERO_LIQUIDITY", "MINT_AUTH_ENABLED", "HONEYPOT", "BUNDLE_HIGH", "FREEZE_AUTHORITY",
+        for (w in listOf("NATIVE_MCAP_TOO_LOW", "MCAP_TOO_LOW: $1 < $5000", "LANE_LIQ_BELOW_FLOOR_8140_MOONSHOT",
+            "LANE_LIQ_UNHYDRATED_DEFER_8140_SHITCOIN", "TREASURY_ROLE_FLOOR_8031", "NATIVE_LIQ_TOO_LOW", "TOO_YOUNG: 0.2h",
+            "RUG_RISK", "SAFETY_HARD_BLOCK", "DEV_SOLD", "ZERO_LIQUIDITY", "MINT_AUTH_ENABLED", "HONEYPOT", "BUNDLE_HIGH", "FREEZE_AUTHORITY",
             "BLACKLIST", "BRAIN_ERROR_X", "TOXIC", "QUARANTINED", "CANNOT_SELL", "TOKEN_2022_HOSTILE", "", "   "))
             assertFalse(w, g.mandateRefusal8343(w))
-        // a $1-mcap coin on a $600 exit-safe curve: the legs carry no mcap, no score, no continuation — only the walls above.
+        // The runner's additional legs do not duplicate the host's already-binding native checks.
         val lane = src("engine/RunnerGrabLane8343.kt")
         val legsDecl = lane.substring(lane.indexOf("data class Legs8343("), lane.indexOf("data class Verdict8343("))
         for (banned in listOf("mcap", "Mcap", "score", "Score", "continuation", "threshold", "age", "Age"))

@@ -178,10 +178,9 @@ class DexscreenerApi {
         }
         // Fallback only — and only to a host that is not circuit-broken.
         if (result == null && allowDexPaprika) {
-            // V5.0.7809 — also out when DexPaprika is latched terminal (401/402/403).
+            // V5.0.8521 — price endpoint health is independent of access to paid/pair-denominated OHLCV.
             val paprikaDead6894 = try {
-                com.lifecyclebot.engine.ApiHealthMonitor.isCircuitBroken("dexpaprika") ||
-                    SolanaOhlcvFeed6916.paprikaTerminal7809()
+                com.lifecyclebot.engine.ApiHealthMonitor.isCircuitBroken("dexpaprika")
             } catch (_: Throwable) { false }
             if (paprikaDead6894) {
                 try {

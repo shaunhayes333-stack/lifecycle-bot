@@ -28,7 +28,7 @@ class Aate8454TrueFlatOutcomeTest {
         val sixty = l.substringAfter("private fun bookSixty7944(").substringBefore("// ── V5.0.7997 — PROGRESSIVE GRADING ──")
         val flat = sixty.indexOf("var flat8322 = com.lifecyclebot.engine.cortex.CortexFlatMark8322.flatMark8322(gross0, o.peakPct, o.minPct7962)")
         val live = sixty.indexOf("if (flat8322 && liveMark8454(o.lastMark8386)) { flat8322 = false; flatLiveBooked8454.incrementAndGet() }")
-        assertTrue(live > flat && live < sixty.indexOf("book(o, 60, net, gross, w8324)"))
+        assertTrue(live > flat && live < sixty.indexOf("bookEntryTarget8521(o, net, gross, w8324, nowMs)"))
         val tick = l.substring(l.indexOf("private fun tickOnce8442("))
         val wait = tick.indexOf("flatAwaitingLive8454.incrementAndGet()")
         assertTrue("waits before the 5-minute slot is booked", wait in 0 until tick.indexOf("o.done60 = bookSixty7944(o, net, gross, nowMs)"))

@@ -2,6 +2,8 @@ package com.lifecyclebot.engine.cortex
 
 import com.lifecyclebot.data.TokenState
 import com.lifecyclebot.engine.cortex.CortexVoters7885.Voter
+import com.lifecyclebot.engine.LifecycleStrategy
+import com.lifecyclebot.engine.truth.MultiTimeframeCharts8521.Frame8521
 
 /**
  * V5.0.8004 — the wide estate: every per-coin read in the stack that had no
@@ -60,6 +62,7 @@ internal object CortexVotersWide8004 {
         com.lifecyclebot.engine.HistoricalChartScanner.getHistoricalRecommendation(ts.lastLiquidityUsd, ts.tokenMap.volume1hUsd ?: 0.0, 0.0)
     }
     private fun curve(ts: TokenState, now: Long) = once("curve", ts, now) { com.lifecyclebot.engine.BondingCurveTracker.evaluate(ts) }
+    private fun charts8521(ts: TokenState, now: Long) = once("charts8521", ts, now) { LifecycleStrategy.chartFrames8521(ts, now) }
 
     private fun ageMs(ts: TokenState, now: Long): Long =
         ts.safety.tokenAgeMinutes.takeIf { it >= 0.0 }?.let { (it * 60_000.0).toLong() } ?: (now - ts.addedToWatchlistAt).coerceAtLeast(0L)
@@ -89,12 +92,6 @@ internal object CortexVotersWide8004 {
 
     private fun lastCandle(ts: TokenState) = try { ts.history.lastOrNull { !it.synthetic } } catch (_: Throwable) { null }
 
-    private fun trend(c: Collection<com.lifecyclebot.data.Candle>): Double? {
-        val l = c.toList().filter { it.priceUsd.isFinite() && it.priceUsd > 0.0 }
-        if (l.size < 3) return null
-        return (l.last().priceUsd / l.first().priceUsd - 1.0) * 100.0
-    }
-
     private fun setupQuality(ts: TokenState) = when {
         ts.entryScore >= 90 -> "A+"; ts.entryScore >= 80 -> "A"; ts.entryScore >= 70 -> "B"; else -> "C"
     }
@@ -102,6 +99,29 @@ internal object CortexVotersWide8004 {
     private fun volumeSignal(ts: TokenState) = ts.meta.volScore.let {
         when { it > 80 -> "SURGE"; it > 60 -> "INCREASING"; it > 40 -> "NORMAL"; it > 20 -> "DECREASING"; else -> "LOW" }
     }
+
+    /** The existing chart detectors get measured seats in every lane, including each held-position sample. */
+    private fun chartVoters8521(): List<Voter> = listOf(Frame8521.M1, Frame8521.M5, Frame8521.H1, Frame8521.H4).flatMap { frame ->
+        fun chart(suffix: String, bins: DoubleArray, read: (LifecycleStrategy.ChartFrame8521) -> Double?): Voter =
+            v("CHART_${frame.label.uppercase()}_${suffix}_8521", "CHART", bins, "chart_${frame.label}_8521") { ts, _, now ->
+                charts8521(ts, now)[frame]?.let(read)
+            }
+        listOf(
+            chart("MOVE", WIDE_PCT) { it.movePct },
+            chart("EMA", e(-1.5, -0.5, 0.5, 1.5)) { it.ema?.let { fan -> when (fan.alignment) {
+                LifecycleStrategy.EmaAlignment.BULL_FAN -> 2.0; LifecycleStrategy.EmaAlignment.BULL_FLAT -> 1.0
+                LifecycleStrategy.EmaAlignment.FLAT -> 0.0; LifecycleStrategy.EmaAlignment.BEAR_FLAT -> -1.0
+                LifecycleStrategy.EmaAlignment.BEAR_FAN -> -2.0
+            } } },
+            chart("EMA_SPREAD", PCT) { it.ema?.spreadPct },
+            chart("VOLUME", SCORE) { it.volumeScore },
+            chart("DIVERGENCE", FLAG) { flag(it.volumeDivergence) },
+            chart("PATTERN", e(0.5, 1.5, 2.5, 3.5)) { it.pattern?.pattern?.ordinal?.toDouble() },
+            chart("PATTERN_CONF", CONF_8521) { it.pattern?.confidence },
+        )
+    }
+
+    private val CONF_8521 = e(30.0, 50.0, 70.0, 85.0)
 
     val VOTERS: List<Voter> = listOf(
         // ── learned books (§7731 … §8000) ──
@@ -113,7 +133,7 @@ internal object CortexVotersWide8004 {
         },
         v("TAIL_TICKET", "BOOKS", FLAG, "tail_hunter") { ts, _, now -> flag(com.lifecyclebot.engine.truth.TailHunter7996.ticketActive7996(ts.mint, now)) },
         v("SPECIALIST_MATCH", "BOOKS", FLAG, "specialist_miner") { ts, lane, now -> flag(com.lifecyclebot.engine.truth.SpecialistMiner7972.peek7978(ts, lane, now)) },
-        v("HIVE_DEV_MEAN", "BOOKS", WIDE_PCT, "hive_dev") { ts, _, _ -> dev(ts)?.let { hiveMean("DEV|$it") } },
+        v("HIVE_DEV_MEAN", "BOOKS", WIDE_PCT, "hive_dev") { ts, _, _ -> dev(ts)?.let { hiveMean("DEV8521|$it") } },
         v("RUNNER_GRABBED", "BOOKS", FLAG, "runner_grab") { ts, _, _ -> flag(com.lifecyclebot.engine.RunnerGrab7967.isGrabbed7980(ts.mint)) },
         v("EXIT_PROFILE_P75_PEAK", "BOOKS", e(10.0, 25.0, 50.0, 100.0), "exit_profile") { ts, _, now ->
             com.lifecyclebot.engine.ExitProfile7955.keyProfileFor7962(ts, now)?.takeIf { it.n >= 5 }?.p75Peak
@@ -436,8 +456,8 @@ internal object CortexVotersWide8004 {
         v("LAST_EXIT_WAS_WIN", "TOKEN", FLAG, "reentry_price") { ts, _, _ -> if (ts.lastExitPrice > 0.0) flag(ts.lastExitWasWin) else null },
         v("CANDLE_UPPER_WICK", "TOKEN", e(0.1, 0.25, 0.4, 0.6), "candle") { ts, _, _ -> lastCandle(ts)?.upperWickRatio?.let { fin(it) } },
         v("CANDLE_BUY_RATIO", "TOKEN", e(0.40, 0.50, 0.60, 0.70), "candle") { ts, _, _ -> lastCandle(ts)?.takeIf { it.buysH1 + it.sellsH1 > 0 }?.buyRatio?.let { fin(it) } },
-        v("TREND_5M_CANDLES", "TOKEN", WIDE_PCT, "htf_trend") { ts, _, _ -> trend(ts.history5m) },
-        v("TREND_15M_CANDLES", "TOKEN", WIDE_PCT, "htf_trend") { ts, _, _ -> trend(ts.history15m) },
+        v("TREND_5M_CANDLES", "TOKEN", WIDE_PCT, "chart_5m_8521") { ts, _, now -> charts8521(ts, now)[Frame8521.M5]?.movePct },
+        v("TREND_15M_CANDLES", "TOKEN", WIDE_PCT, "chart_15m_8521") { ts, _, now -> charts8521(ts, now)[Frame8521.M15]?.movePct },
         v("CONSENSUS_OBJECTIONS", "TOKEN", COUNT, "consensus_obj") { ts, _, _ -> ts.lastConsensusObjections.size.toDouble() },
         v("WATCHLIST_AGE_MIN", "TOKEN", e(2.0, 10.0, 30.0, 120.0), "watch_age") { ts, _, now -> ((now - ts.addedToWatchlistAt).coerceAtLeast(0L) / 60_000.0) },
         v("VOL_ACCEL_5M_VS_1H", "TOKEN", e(0.5, 1.0, 2.0, 4.0), "vol_accel") { ts, _, _ ->
@@ -478,5 +498,5 @@ internal object CortexVotersWide8004 {
         v("SHEET_FAVOUR_CASHGEN", "SHEET", SHEET_8323, "sheet8323_CASHGEN") { ts, _, now -> LaneCheatSheet8323.vote8323(ts, "CASHGEN", now) },
         v("SHEET_FAVOUR_CYCLIC", "SHEET", SHEET_8323, "sheet8323_CYCLIC") { ts, _, now -> LaneCheatSheet8323.vote8323(ts, "CYCLIC", now) },
         v("SHEET_FAVOUR_CORE", "SHEET", SHEET_8323, "sheet8323_CORE") { ts, _, now -> LaneCheatSheet8323.vote8323(ts, "CORE", now) },
-    )
+    ) + chartVoters8521()
 }
