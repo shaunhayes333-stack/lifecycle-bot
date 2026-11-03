@@ -133,6 +133,29 @@ class Aate8521PaperStopLifecycleTest {
         } finally { field.set(PositionPersistence, old) }
     }
 
+    @Test fun paperStopCannotRetireSameMintLiveTrackingOrUnknownLivePersistence() {
+        val terminal = canonical().copy(lifecycle = CanonicalPositionAuthority6441.Lifecycle.CLOSED,
+            remainingQtyRaw = BigInteger.ZERO)
+        val live = canonical(id = "live-same-mint-8521", mode = "live")
+        withCanonical(terminal) {
+            assertTrue(PaperStopLaneRegistry8521.sharedTrackingReleased8521(terminal.positionId))
+            withCanonical(live) {
+                assertFalse(PaperStopLaneRegistry8521.sharedTrackingReleased8521(terminal.positionId))
+            }
+        }
+        val field = PositionPersistence::class.java.getDeclaredField("prefs").apply { isAccessible = true }
+        val old = field.get(PositionPersistence)
+        try {
+            field.set(PositionPersistence, memoryContext().getSharedPreferences("position_persistence_v1", Context.MODE_PRIVATE))
+            val token = TokenState(mint = live.mint, symbol = "LIVE", position = Position(
+                positionId = live.positionId, isPaperPosition = false, qtyToken = 1.0,
+                entryPrice = 8.0, costSol = 0.1, entryTime = live.openedAtMs))
+            PositionPersistence.savePosition(token)
+            PositionPersistence.removePosition(live.mint, terminal.positionId, expectedPaper8521 = true)
+            assertEquals(live.positionId, PositionPersistence.loadPositions()[live.mint]!!.positionId8384)
+        } finally { field.set(PositionPersistence, old) }
+    }
+
     private fun withCanonical(p: CanonicalPositionAuthority6441.Position, block: () -> Unit) {
         val field = CanonicalPositionAuthority6441::class.java.getDeclaredField("positions").apply { isAccessible = true }
         @Suppress("UNCHECKED_CAST")

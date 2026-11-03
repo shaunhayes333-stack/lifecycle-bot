@@ -5,6 +5,12 @@ import com.lifecyclebot.v3.scoring.*
 
 /** Retire confirmed PAPER projections without inventing another trade or training receipt. */
 internal object PaperStopLaneRegistry8521 {
+    fun sharedTrackingReleased8521(positionId: String): Boolean {
+        val p = CanonicalPositionAuthority6441.getPosition(positionId) ?: return false
+        return PaperStopLifecycle8521.confirmedClosed(positionId) &&
+            CanonicalPositionAuthority6441.openPositions().none { it.mint == p.mint && it.remainingQtyRaw.signum() > 0 }
+    }
+
     fun retire(positionId: String) {
         val p = CanonicalPositionAuthority6441.getPosition(positionId) ?: return
         if (!PaperStopLifecycle8521.confirmedClosed(positionId) ||

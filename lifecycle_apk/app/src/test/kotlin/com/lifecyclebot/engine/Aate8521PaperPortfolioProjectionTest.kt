@@ -67,18 +67,20 @@ class Aate8521PaperPortfolioProjectionTest {
 
     @Test fun ownerSignedLeveragedPnlIsNotRecomputedAsALongSpotReturn() {
         val ts = Projection.projectPosition8521(canonical("short", true, AssetClass.PERPS), null)!!
-        val owner = Paper.OwnerMark("short", true, 100.0, 90.0, now - 1_000L, 50.0, 0.5)
+        val owner = Paper.OwnerMark("short", true, 100.0, 90.0, now - 1_000L, 50.0)
         val row = Paper.rows8521(listOf(ts), mapOf("short" to owner), now).single()
         assertEquals(90.0, row.markPriceUsd!!, 0.0)
         assertEquals(50.0, row.pnlPct!!, 0.0)
         assertEquals(0.5, row.pnlSol!!, 0.0)
-        val zero = Paper.rows8521(listOf(ts), mapOf("short" to owner.copy(pnlPct = 0.0, pnlSol = 0.0)), now).single()
+        val partial = ts.copy(position = ts.position.copy(costSol = 0.4))
+        assertEquals(0.2, Paper.rows8521(listOf(partial), mapOf("short" to owner), now).single().pnlSol!!, 0.0)
+        val zero = Paper.rows8521(listOf(ts), mapOf("short" to owner.copy(pnlPct = 0.0)), now).single()
         assertEquals(0.0, zero.pnlSol!!, 0.0)
     }
 
     @Test fun liveWrongBasisAndStaleOwnerMarksCannotBecomeCurrentPaperPnl() {
         val ts = Projection.projectPosition8521(canonical("P", true, AssetClass.CRYPTO_ALT), null)!!
-        val owner = Paper.OwnerMark("P", true, 100.0, 90.0, now - 1_000L, -10.0, -0.1)
+        val owner = Paper.OwnerMark("P", true, 100.0, 90.0, now - 1_000L, -10.0)
         for (invalid in listOf(owner.copy(paper = false), owner.copy(entryPriceUsd = 1.0),
             owner.copy(markAtMs = now - 61_000L), owner.copy(markAtMs = now + 1L), owner.copy(markPriceUsd = 0.0))) {
             val row = Paper.rows8521(listOf(ts), mapOf("P" to invalid), now).single()

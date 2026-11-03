@@ -96,4 +96,33 @@ class Aate8521NativeLaneMandateTest {
         val proven = AdmissionBirth8144.Read8144(AdmissionBirth8144.Kind8144.KNOWN, 60_000L, 41_000L, "CHAIN_MINT_INIT")
         assertNotEquals(NativeLaneAge8521.fingerprint8521(later, 101_000L), NativeLaneAge8521.fingerprint8521(proven, 101_000L))
     }
+
+    @Test fun boundedDesksWaitForAnObservedCapAndHydrationReturnsTheSameCandidateToAssessment() {
+        for (lane in lanes) for (missing in listOf(0.0, -1.0, Double.NaN, Double.POSITIVE_INFINITY)) {
+            val read = NativeLaneConstraints8521.requireCap8521(opinion(lane), missing)
+            if (lane == "CORE") assertTrue(read.eligible)
+            else {
+                assertFalse(lane, read.eligible)
+                assertFalse(lane, read.gradeable)
+                assertTrue(lane, ContinuationRead8348.dataDefer8348(read.reason))
+            }
+        }
+        val original = opinion("EXPRESS")
+        assertEquals(original, NativeLaneConstraints8521.requireCap8521(original, 20_000.0))
+        assertFalse(NativeLaneConstraints8521.requireCap8521(
+            opinion("TREASURY", false, "TREASURY_ROLE_FLOOR_8031"), 0.0).gradeable)
+        HydrationReeval8343.resetForTests8343()
+        try {
+            val now = System.currentTimeMillis()
+            val ts = TokenState(mint = "mcap-hydration-test", symbol = "TEST")
+            val deferred = linkedMapOf("EXPRESS" to NativeLaneConstraints8521.requireCap8521(original, 0.0))
+            RunnerGrabLane8343.reviewNative8343(ts, deferred, now)
+            assertFalse(deferred.getValue("EXPRESS").eligible)
+            ts.lastMcap = 20_000.0
+            ts.lastLiquidityUsd = 4_000.0
+            HydrationReeval8343.onHydrated8343(ts, ts.lastLiquidityUsd, now + 1L, "OBSERVED_CHAIN_TEST")
+            assertTrue(HydrationReeval8343.targets8343(now + 1L).any { it.first == ts.mint })
+            assertTrue(NativeLaneConstraints8521.requireCap8521(original, ts.lastMcap).eligible)
+        } finally { HydrationReeval8343.resetForTests8343() }
+    }
 }

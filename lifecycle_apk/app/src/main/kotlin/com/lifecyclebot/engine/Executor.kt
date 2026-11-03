@@ -9094,7 +9094,7 @@ class Executor(
                 // give-back exits) and the moonbag rides on the lane's own exits;
                 // once banked this block stands aside. Non-runner lanes unchanged.
                 // V5.0.8468 — a fast contract lane banks a moonbag only once promoted (RunnerExitProfile7277.runnerExits8468).
-                val runnerLane7349 = try { RunnerExitProfile7277.runnerExits8468(ts.position.tradingMode, ts.position.peakGainPct) } catch (_: Throwable) { false }
+                val runnerLane7349 = try { RunnerTrail8419.runnerPosition8521(ts) } catch (_: Throwable) { false }
                 val runnerKey7349 = ts.position.positionId.ifBlank { ts.mint }
                 val runnerBanked7349 = runnerLane7349 && MoonbagRunner7322.bankedPeakFor(runnerKey7349) != null
                 if (runnerBanked7349) {
@@ -10033,7 +10033,7 @@ class Executor(
         run {
             val lane7353 = ts.position.tradingMode
             // V5.0.8468 — a fast contract lane is culled flat like any desk until promoted (its design is a quick exit).
-            val runner7353 = try { RunnerExitProfile7277.runnerExits8468(lane7353, ts.position.peakGainPct) } catch (_: Throwable) { true }
+            val runner7353 = try { RunnerTrail8419.runnerPosition8521(ts, mode = lane7353) } catch (_: Throwable) { true }
             // V5.0.7706 — live: 30-minute minimum and a +3% peak is life, not flat.
             val live7706 = !ts.position.isPaperPosition
             if (live7706 && ts.position.peakGainPct >= LIVE_CULL_PEAK_EXEMPT_PCT_7706) {
@@ -26490,21 +26490,25 @@ class Executor(
         // positions that made stopBot() run for minutes; its 30s restart waiter
         // then launched a replacement inside the dying service and the old tail
         // cancelled it.  Shutdown exits are forced outcomes and must not train the
-        // strategy stack.  BotService clears every lane registry in bulk later.
+        // strategy stack. Confirmed-lot retirement preserves every unresolved or
+        // opposite-mode owner; there is no blanket registry clear on Stop.
         if (reason == "bot_shutdown") {
             val shutdownCostSol = pos.costSol
-            tradeId.closed(price, pnlP, pnl, reason)
-            try { GlobalTradeRegistry.closePosition(tradeId.mint) } catch (_: Exception) {}
-            try { EmergentGuardrails.unregisterPosition(tradeId.mint) } catch (_: Exception) {}
-            try { com.lifecyclebot.v4.meta.PortfolioHeatAI.removePosition(tradeId.mint) } catch (_: Throwable) {}
+            val sharedTrackingReleased8521 = PaperStopLaneRegistry8521.sharedTrackingReleased8521(terminalPid6455)
+            if (sharedTrackingReleased8521) {
+                tradeId.closed(price, pnlP, pnl, reason)
+                try { GlobalTradeRegistry.closePosition(tradeId.mint) } catch (_: Exception) {}
+                try { EmergentGuardrails.unregisterPosition(tradeId.mint) } catch (_: Exception) {}
+                try { com.lifecyclebot.v4.meta.PortfolioHeatAI.removePosition(tradeId.mint) } catch (_: Throwable) {}
+            }
             ts.position = Position()
             ts.lastExitTs = System.currentTimeMillis()
             ts.lastExitPrice = price
             ts.lastExitPnlPct = pnlP
             ts.lastExitWasWin = pnlP >= 1.0
-            try { PositionPersistence.removePosition(ts.mint) } catch (_: Exception) {}
+            try { PositionPersistence.removePosition(ts.mint, terminalPid6455, expectedPaper8521 = true) } catch (_: Exception) {}
             try { PaperPositionCloseAuthority.markClosed("PAPER", ts.mint, ts.symbol, "bot_shutdown") } catch (_: Throwable) {}
-            try {
+            if (sharedTrackingReleased8521) try {
                 TokenLifecycleTracker.onSellSettled(
                     mint = ts.mint,
                     sig = "PAPER:bot_shutdown",
@@ -26512,7 +26516,7 @@ class Executor(
                     walletTokenAfter = 0.0,
                 )
             } catch (_: Throwable) {}
-            try { BotService.recentlyClosedMs[ts.mint] = System.currentTimeMillis() } catch (_: Throwable) {}
+            if (sharedTrackingReleased8521) try { BotService.recentlyClosedMs[ts.mint] = System.currentTimeMillis() } catch (_: Throwable) {}
             try { WalletPositionLock.recordClose("Meme", shutdownCostSol) } catch (_: Exception) {}
             // V5.0.6664 — a terminal close must clear the book that actually
             // opened the mint.  CORE was a stale hard-coded default and left

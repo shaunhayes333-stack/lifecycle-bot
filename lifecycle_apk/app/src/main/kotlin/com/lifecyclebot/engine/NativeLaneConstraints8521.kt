@@ -33,4 +33,20 @@ object NativeLaneConstraints8521 {
     fun mayAdapt8521(reason: String?): Boolean = !reason.isNullOrBlank() && kind8521(reason) == null
 
     fun missingData8521(reason: String): Boolean = kind8521(reason) == Kind.DATA
+
+    /** An unknown cap cannot prove a specialist's band. The discovery resolver
+     * already requests the authoritative supply/reserve read before this call.
+     * CORE remains an independent generalist assessment, not a token-wide veto.
+     */
+    internal fun requireCap8521(opinion: SpecialistBrainBridge7542.Opinion, observedCapUsd: Double): SpecialistBrainBridge7542.Opinion {
+        if (!opinion.authoritative || opinion.lane == "CORE" || (observedCapUsd.isFinite() && observedCapUsd > 0.0)) return opinion
+        val kind = kind8521(opinion.reason)
+        if (!opinion.eligible && kind != null && kind != Kind.CAP &&
+            !(kind == Kind.LANE_SCOPE && opinion.reason.uppercase().contains("ROLE_FLOOR"))) return opinion
+        val sheet = com.lifecyclebot.engine.cortex.LaneCheatSheet8323
+        val min = sheet.mcapMin8323(opinion.lane)
+        val max = sheet.mcapMax8323(opinion.lane)
+        if (!(min > 0.0 || (max.isFinite() && max < Double.MAX_VALUE))) return opinion
+        return opinion.copy(eligible = false, gradeable = false, reason = "${LaneInputTruth8236.MCAP_DEFER}:${opinion.lane}")
+    }
 }

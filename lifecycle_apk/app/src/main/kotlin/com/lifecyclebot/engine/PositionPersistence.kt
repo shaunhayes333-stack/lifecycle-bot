@@ -690,10 +690,13 @@ object PositionPersistence {
      * cleared ghost doesn't reappear on the next restart.
      */
     @Synchronized
-    fun removePosition(mint: String) {
+    fun removePosition(mint: String, expectedPositionId8521: String? = null, expectedPaper8521: Boolean? = null) {
         try {
             val current = loadPositionsInternal().toMutableMap()
-            if (current[mint]?.let { canRemove8521(it, null) } == true && current.remove(mint) != null) {
+            val saved = current[mint] ?: return
+            if (expectedPositionId8521 != null && saved.positionId8384 != expectedPositionId8521) return
+            if (expectedPaper8521 != null && saved.isPaperPosition != expectedPaper8521) return
+            if (canRemove8521(saved, null) && current.remove(mint) != null) {
                 savePositionsInternal(current)
                 ErrorLogger.debug(TAG, "Removed persisted position for mint=${mint.take(8)}")
             }

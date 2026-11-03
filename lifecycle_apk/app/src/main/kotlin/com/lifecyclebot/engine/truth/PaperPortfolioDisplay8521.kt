@@ -34,7 +34,7 @@ object PaperPortfolioDisplay8521 {
 
     internal data class OwnerMark(
         val positionId: String, val paper: Boolean, val entryPriceUsd: Double,
-        val markPriceUsd: Double, val markAtMs: Long, val pnlPct: Double, val pnlSol: Double,
+        val markPriceUsd: Double, val markAtMs: Long, val pnlPct: Double,
     )
 
     private fun markAt8521(market: PerpsMarket, price: Double): Long = try {
@@ -47,45 +47,45 @@ object PaperPortfolioDisplay8521 {
     /** Read each owning book once, then join by immutable position ID and mode; symbols are never identity. */
     fun snapshot8521(positions: List<TokenState>, nowMs: Long): List<Row> {
         val marks = HashMap<String, OwnerMark>()
-        fun put(id: String, paper: Boolean, entry: Double, price: Double, at: Long, pct: Double, sol: Double) {
-            if (paper) marks[id] = OwnerMark(id, true, entry, price, at, pct, sol)
+        fun put(id: String, paper: Boolean, entry: Double, price: Double, at: Long, pct: Double) {
+            if (paper) marks[id] = OwnerMark(id, true, entry, price, at, pct)
         }
         val families = positions.map { assetClass8521(it) }.toSet()
         if (AssetClass.CRYPTO_ALT in families) try {
             CryptoAltTrader.getAllPositions().filter { it.isPaper && it.closeTime == null }.forEach { p ->
                 if (p.hasTrustedMark(nowMs)) put(p.id, p.isPaper, p.entryPrice, p.currentPrice,
-                    if (p.isDynamic) p.markUpdatedAtMs else markAt8521(p.market, p.currentPrice), p.getPnlPct(), p.getPnlSol())
+                    if (p.isDynamic) p.markUpdatedAtMs else markAt8521(p.market, p.currentPrice), p.getPnlPct())
             }
         } catch (_: Exception) { }
         if (AssetClass.STOCK in families || AssetClass.PERPS in families) try {
             TokenizedStockTrader.getAllPositions().forEach { p ->
-                put(p.id, p.isPaper, p.entryPrice, p.currentPrice, markAt8521(p.market, p.currentPrice), p.getPnlPercent(), p.getPnlSol())
+                put(p.id, p.isPaper, p.entryPrice, p.currentPrice, markAt8521(p.market, p.currentPrice), p.getPnlPercent())
             }
         } catch (_: Exception) { }
         if (AssetClass.FOREX in families) try {
             ForexTrader.getAllPositions().filter { it.closeTime == null }.forEach { p ->
-                put(p.id, p.isPaper, p.entryPrice, p.currentPrice, markAt8521(p.market, p.currentPrice), p.getPnlPercent(), p.getPnlSol())
+                put(p.id, p.isPaper, p.entryPrice, p.currentPrice, markAt8521(p.market, p.currentPrice), p.getPnlPercent())
             }
         } catch (_: Exception) { }
         if (AssetClass.COMMODITY in families) try {
             CommoditiesTrader.getAllPositions().filter { it.closeTime == null }.forEach { p ->
-                put(p.id, p.isPaper, p.entryPrice, p.currentPrice, markAt8521(p.market, p.currentPrice), p.getPnlPercent(), p.getPnlSol())
+                put(p.id, p.isPaper, p.entryPrice, p.currentPrice, markAt8521(p.market, p.currentPrice), p.getPnlPercent())
             }
         } catch (_: Exception) { }
         if (AssetClass.METAL in families) try {
             MetalsTrader.getAllPositions().filter { it.closeTime == null }.forEach { p ->
-                put(p.id, p.isPaper, p.entryPrice, p.currentPrice, markAt8521(p.market, p.currentPrice), p.getPnlPercent(), p.getPnlSol())
+                put(p.id, p.isPaper, p.entryPrice, p.currentPrice, markAt8521(p.market, p.currentPrice), p.getPnlPercent())
             }
         } catch (_: Exception) { }
         if (AssetClass.PERPS in families) try {
             PerpsExecutionEngine.getActivePositions().forEach { p ->
-                put(p.id, p.isPaper, p.entryPrice, p.currentPrice, p.lastUpdateTime, p.getPnlPercent(), p.getPnlSol())
+                put(p.id, p.isPaper, p.entryPrice, p.currentPrice, p.lastUpdateTime, p.getPnlPercent())
             }
         } catch (_: Exception) { }
         for (ts in positions) if (ts.position.isPaperPosition && assetClass8521(ts) == AssetClass.SOLANA_TOKEN) try {
             val truth = com.lifecyclebot.engine.OpenPnlSanity.pricingTruth(ts, "PaperPortfolio8521/${ts.position.positionId}", emit = false)
             if (truth.trusted) put(ts.position.positionId, true, ts.position.entryPrice, ts.ref,
-                ts.lastPriceUpdate, truth.pnlPct, truth.pnlSol)
+                ts.lastPriceUpdate, truth.pnlPct)
         } catch (_: Exception) { }
         return rows8521(positions, marks, nowMs)
     }
@@ -103,10 +103,14 @@ object PaperPortfolioDisplay8521 {
                 val sameBasis = owner != null && p.entryPrice.isFinite() && p.entryPrice > 0.0 &&
                     owner.entryPriceUsd.isFinite() && kotlin.math.abs(owner.entryPriceUsd / p.entryPrice - 1.0) <= 0.000001
                 val fresh = owner != null && owner.markAtMs > 0L && nowMs - owner.markAtMs in 0L..60_000L
+                val pct = owner?.pnlPct?.takeIf { sameBasis && fresh && mark != null && it.isFinite() }
+                // The owner supplies signed/leverage-adjusted return; canonical remaining capital supplies size.
+                // A restored native row may still carry its pre-partial original size.
+                val pnlSol = pct?.takeIf { p.costSol.isFinite() && p.costSol > 0.0 }
+                    ?.let { p.costSol * it / 100.0 }?.takeIf { it.isFinite() }
                 Row(p.positionId, ts.mint, ts.symbol.ifBlank { ts.mint.take(12) }, assetClass8521(ts), p.tradingMode,
                     p.entryPrice, p.qtyToken, p.costSol, p.entryTime, mark, owner?.markAtMs ?: 0L,
-                    owner?.pnlPct?.takeIf { sameBasis && fresh && mark != null && it.isFinite() },
-                    owner?.pnlSol?.takeIf { sameBasis && fresh && mark != null && it.isFinite() })
+                    pct, pnlSol)
             }.sortedWith(compareByDescending<Row> { it.pnlPct ?: Double.NEGATIVE_INFINITY }
                 .thenByDescending { it.openedAtMs }).toList()
 }

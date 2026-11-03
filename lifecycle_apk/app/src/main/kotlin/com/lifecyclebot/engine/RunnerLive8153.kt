@@ -70,8 +70,10 @@ object RunnerLive8153 {
         } catch (_: Throwable) { null }
         val strategy = snap?.takeIf { it.mint == ts.mint }?.let { s -> s.entryTactic.ifBlank { s.entryStrategyPid } }.orEmpty()
         val style = try { TradeExitContract8077.sealedStyle8136(ts) } catch (_: Throwable) { "" }
-        // Paper decides as live will: the lane question ignores the paper flag (paper never sells anything real).
-        val hosts = try { TradeExitContract8077.runnerFromEntryLane8104(pos.tradingMode, false) } catch (_: Throwable) { false }
+        // Capability includes lanes that can earn a promotion after entry. The narrower born-runner entry contract
+        // excluded MANIPULATED, DIP_HUNTER and CORE here, so even a verified peak or durable promotion stayed SCALP.
+        // The plan still requires the sealed admission or existing promotion evidence; capability alone admits nothing.
+        val hosts = RunnerExitProfile7277.isRunnerLane(com.lifecyclebot.engine.truth.LiveRiskPolicy7807.canonicalLane(pos.tradingMode))
         val grabbed = try { RunnerGrab7967.grabbedAtEntry8153(ts) } catch (_: Throwable) { false }
         val runnerAdmit = snap?.takeIf { it.mint == ts.mint }?.runnerEntry == true
         ensureLoaded8153()

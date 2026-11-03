@@ -33450,7 +33450,7 @@ if (hotExitHandledSweep) {
         // REACCUMULATION skipped MANIPULATED's designed exit entirely; LaneExitContract8468).
         // ═══════════════════════════════════════════════════════════════════
         if (com.lifecyclebot.v3.scoring.ManipulatedTraderAI.hasPosition(ts.mint, ts.position.isPaperPosition) &&
-            !RunnerExitProfile7277.runnerExits8468("MANIPULATED", ts.position.peakGainPct)) {
+            !RunnerTrail8419.runnerPosition8521(ts, mode = "MANIPULATED")) {
             val currentPrice = resolveLivePrice(ts)
             val exitSignal = com.lifecyclebot.v3.scoring.ManipulatedTraderAI.checkExit(ts.mint, currentPrice, isPaper = ts.position.isPaperPosition)
             // V5.9.170 — firehose learning feedback.

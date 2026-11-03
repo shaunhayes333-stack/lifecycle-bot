@@ -42,7 +42,7 @@ class Aate8420RunnerTrailTest {
         val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HoldingLogicLayer.kt").readText()
         // superseded by V5.0.8423 — the hold layer no longer reads the 35-POINT table for a runner lane at all: RunnerTrail8419
         // (35 % under the peak PRICE, ledger #34) owns the runner trail; the table x patience stays for the other desks.
-        assertTrue(src.contains("RunnerTrail8419.holdLayerTrailPoints8419(mode, learningLane8384, params.trailingStopPct, ssiExitPatience6091, position.peakGainPct)"))
+        assertTrue(src.contains("RunnerTrail8419.holdLayerTrailPoints8419(mode, learningLane8384, params.trailingStopPct, ssiExitPatience6091, position.peakGainPct, runnerPosition = runnerLane8419)"))
         assertTrue(!src.contains("LaneHolds8418.trailFor8418(mode, learningLane8384, params.trailingStopPct) * ssiExitPatience6091"))
         assertTrue(src.contains("val tighterStop = currentPnlPct - (trailingStopPct6091 * tighten8420)"))
     }

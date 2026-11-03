@@ -2935,11 +2935,14 @@ for legal compliance.
                     vm.stopBot(source = "halt_reset", uiStopConfirmed = true)
                 }
                 runningNow || pendingNow -> {
+                    val paperNow8521 = com.lifecyclebot.data.ConfigStore.load(applicationContext).paperMode
                     val title = if (pendingNow && !runningNow) "Cancel bot startup?" else "Stop the bot?"
                     val message = if (pendingNow && !runningNow) {
                         "This cancels the queued Start while persisted state is loading."
+                    } else if (paperNow8521) {
+                        "Stop bot halts scanning and trading and closes paper positions across all trading desks using current market prices.\n\n" +
+                            "Positions without a valid current price remain open and visible. Their pending closes retry when the bot runs again."
                     } else {
-                        // V5.0.7929 — Stop keeps positions; selling them is its own explicit choice.
                         "Stop bot: halts scanning and trading and keeps open positions (their exits resume when you start again).\n\n" +
                             "Stop & sell all: halts the bot and sells every open position back to SOL."
                     }
@@ -2952,7 +2955,7 @@ for legal compliance.
                             }
                             .setNegativeButton("Keep running", null)
                             .apply {
-                                if (runningNow) setNeutralButton("Stop & sell all") { d, _ ->
+                                if (runningNow && !paperNow8521) setNeutralButton("Stop & sell all") { d, _ ->
                                     d.dismiss(); vm.stopBotAndSellAll7929()
                                 }
                             }
@@ -5706,19 +5709,20 @@ for legal compliance.
     private fun holdLockText8080(ts: com.lifecyclebot.data.TokenState): String? =
         try { com.lifecyclebot.engine.LifecycleHold8065.displayLock8080(ts)?.let { "hold lock +${it.first.toInt()}%" } } catch (_: Throwable) { null }
 
+    private fun publishOpenLaneCounts7012(positions: List<TokenState>) {
+        try {
+            laneCounts7011 = positions.asSequence().filter { it.position.isOpen }
+                .groupingBy { it.position.tradingMode.ifBlank { "OTHER" }.uppercase() }.eachCount()
+        } catch (_: Throwable) { /* presentation only */ }
+    }
+
     private fun renderOpenPositions(positions: List<TokenState>, preSorted6078: Boolean = false) {
         if (renderPaperPortfolio8521(positions)) return
         // V5.0.7012 — publish lane occupancy for the hero's pressure strip.
         // This function is the one place holding the canonical open-position
         // list, so it is the only honest place to count lanes from. Cheap: one
         // grouping over a list already in hand, no new state and no new source.
-        try {
-            laneCounts7011 = positions
-                .asSequence()
-                .filter { it.position.isOpen }
-                .groupingBy { it.position.tradingMode.ifBlank { "OTHER" }.uppercase() }
-                .eachCount()
-        } catch (_: Throwable) { /* presentation only */ }
+        publishOpenLaneCounts7012(positions)
 
         // V5.9.749 — STRUCTURAL-only hash. Excludes ts.ref (live price) on
         // purpose: price drift from the 1Hz tick loop must NOT trigger a

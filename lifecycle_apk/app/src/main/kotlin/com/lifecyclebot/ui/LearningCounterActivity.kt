@@ -384,7 +384,8 @@ class LearningCounterActivity : Activity() {
         target7023().addView(AateComponents6994.metricRow(this, "Voters with a seat", ui.seated.toString(),
             if (ui.seated > 0) AateUi.GREEN else AateUi.AMBER, "a seat = predictions that beat the lane average out of sample"))
 
-        addHeader("🛣️ Cortex · lanes")
+        addHeader("🛣️ Cortex · lane forecasts")
+        addText("The 12 Solana strategy lanes are shown by their own names. Crypto Universe learns separately in CRYPTO_* lanes, Markets in MKT_* lanes, and other chains in EVM_* lanes. Their results stay in their own cohorts. Actual PAPER and LIVE portfolio returns include positions across the trading desks and are recorded separately from these forward forecasts.", AateUi.TEXT_MUTED, small = true)
         if (ui.lanes.isEmpty()) addText("no graded decisions yet", AateUi.TEXT_MUTED)
         ui.lanes.forEach { l ->
             // 8269: the LEFT/RIGHT performance comparison must answer the
@@ -411,7 +412,7 @@ class LearningCounterActivity : Activity() {
             target7023().addView(AateComponents6994.barRow(this, "Cortex positive authority", (l.auth * 100.0).coerceIn(0.0, 100.0),
                 if (l.auth > 0.0) AateUi.GREEN else AateUi.TEXT_MUTED))
         }
-        addText("Left = net mean forward return of tokens AATE would TAKE; right = ones it would REFUSE. Each prediction freezes its lane's 5-minute or 1-hour target. Both selection columns and Cortex predictions use the same source-time-v2 counterfactual evidence; confirmed trading profits are recorded separately. Missing outcomes remain in the authority proof. Calibration describes the forecast fit; the authority bar shows the positive decision power its later outcomes have earned. Colour needs 5+ qualified labels on both sides.", AateUi.TEXT_MUTED, small = true)
+        addText("Left = net mean forward return of tokens AATE would TAKE; right = ones it would REFUSE. Each prediction freezes its lane's 5-minute or 1-hour target. Both selection columns and Cortex predictions use the same source-time-v2 counterfactual evidence. Cross-asset forecasts currently cover LONG entries; SHORT closes retain their actual owner-attributed outcomes without a LONG forecast verdict. Missing outcomes remain in the authority proof. Calibration describes the forecast fit; the authority bar shows the positive decision power its later outcomes have earned. Colour needs 5+ qualified labels on both sides.", AateUi.TEXT_MUTED, small = true)
 
         addHeader("🎯 Cortex · setups")
         val setups = cachedSetups8069

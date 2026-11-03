@@ -54,8 +54,9 @@ object ExitTruthArbiterLive8144 {
         } catch (_: Throwable) { null }
         val strategy = snap?.takeIf { it.mint == ts.mint }?.let { s -> s.entryTactic.ifBlank { s.entryStrategyPid } }.orEmpty()
         val style = try { TradeExitContract8077.sealedStyle8136(ts) } catch (_: Throwable) { "" }
-        // Paper decides as live will: the lane question ignores the paper flag (paper never sells anything real).
-        val hosts = try { TradeExitContract8077.runnerFromEntryLane8104(pos.tradingMode, false) } catch (_: Throwable) { false }
+        // The arbiter must accept the same promotable capability as RunnerLive8153. Reusing the narrower born-runner
+        // entry contract would discard a proven MANIPULATED, DIP_HUNTER or CORE plan before consulting planBasis8153.
+        val hosts = RunnerExitProfile7277.isRunnerLane(com.lifecyclebot.engine.truth.LiveRiskPolicy7807.canonicalLane(pos.tradingMode))
         val sellCost = try { RunnerExitLive8136.sellCostPct8136(ts) } catch (_: Throwable) { 3.0 }
         return ExitTruthArbiter8144.Inputs8144(
             sealedStrategy = strategy,

@@ -22,8 +22,9 @@ package com.lifecyclebot.engine
  *    a 35-point trail held fast-lane coins past their designed exits (lifetime live runner-lane book: 30 trades, 8 reached
  *    +5 % and closed red, 16 never reached +5 %). A promoted runner is never capped.
  *  - Non-runner desks run their own sub-trader's clock (CashGenerationAI 45 min, QualityTraderAI 60 min, BlueChipTraderAI
- *    8 h) instead of 8392's 60-minute floor and the 30-day BLUE_CHIP table; the Cortex grades them on that same clock
- *    ([deskHorizonMs8468], CortexLabelHygiene8144.horizonMsFor8468) rather than bending their exits to the grader.
+ *    8 h) instead of 8392's 60-minute floor and the 30-day BLUE_CHIP table. These are operating hold limits.
+ *    The 8521 forward forecast separately freezes its five-minute/hour objective at decision time; actual terminal
+ *    trade outcomes retain their full holding period. A forecast target never changes these exit limits.
  */
 object LaneHolds8418 {
     /** One named lane's documented hold. [base] is the HoldingLogicLayer table whose scale-out ladder it uses. */
@@ -59,13 +60,13 @@ object LaneHolds8418 {
             "established-token swing desk: BlueChipTraderAI's 8 h window, BLUE_CHIP's 5-point trail"),
     )
 
-    /** The desks that are not runner lanes: graded on their own clock (V5.0.8468). */
+    /** The non-runner desks with explicit operating hold limits. */
     private val DESKS_8468 = setOf("TREASURY", "CASHGEN", "QUALITY", "BLUECHIP")
 
     /** Pure: [lane]'s documented hold, or null (an unnamed lane falls back to STANDARD). */
     fun holdFor8418(lane: String): LaneHold8418? = HOLDS_8418[lane.trim().uppercase()]
 
-    /** Pure (V5.0.8468): a non-runner desk's own clock — the horizon the Cortex grades it on — or null for any other lane. */
+    /** Pure: a non-runner desk's operating hold limit, retained for legacy horizon diagnostics. */
     fun deskHorizonMs8468(lane: String?): Long? {
         val l = lane?.trim()?.uppercase() ?: return null
         return if (l in DESKS_8468) HOLDS_8418[l]?.maxHoldMs else null
@@ -84,9 +85,9 @@ object LaneHolds8418 {
      * [owner] at gross [pnlPct] and verified peak [peakPct]? Not on a GREEN runner — the 35 % trail and the protective
      * stops own it (V5.0.8468: a contract lane is a runner once promoted). Unknown P&L binds.
      */
-    fun clockBinds8418(mode: String, owner: String, pnlPct: Double, peakPct: Double = Double.NaN): Boolean {
-        val runner = RunnerTrail8419.runnerLaneAt8468(mode, owner, peakPct)
-        return !(runner && pnlPct.isFinite() && pnlPct > 0.0)
+    fun clockBinds8418(mode: String, owner: String, pnlPct: Double, peakPct: Double = Double.NaN,
+                       runnerPosition: Boolean = RunnerTrail8419.runnerLaneAt8468(mode, owner, peakPct)): Boolean {
+        return !(runnerPosition && pnlPct.isFinite() && pnlPct > 0.0)
     }
 
     fun statusLine8418(): String =

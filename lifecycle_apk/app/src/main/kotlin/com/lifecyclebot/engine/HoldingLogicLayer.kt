@@ -177,6 +177,7 @@ object HoldingLogicLayer {
             val params = getHoldParams(mode)
             // Management mode may change; training/tuning always belongs to the event-local entry owner.
             val learningLane8384 = HeldPositionPivotArbiter.entryOwner8384(ts).ifBlank { mode }
+            val runnerLane8419 = RunnerTrail8419.runnerPosition8521(ts, mode, learningLane8384)
             try { PipelineHealthCollector.labelInc("HOLD_PARAMS_CANONICAL_READ_7455") } catch (_: Throwable) {}
             
             val holdTimeMs = System.currentTimeMillis() - position.entryTime
@@ -220,7 +221,7 @@ object HoldingLogicLayer {
             // superseded by V5.0.8419 — 8418 multiplied LaneHolds8418's 35-POINT runner trail by the patience (floored at 0.65: 22.75
             // points under the peak GAIN); V5.0.8420 applied the floor after the patience (35 points). The owner's rule is 35 % under
             // the peak PRICE (ledger #34): RunnerTrail8419 owns it for a runner lane, the table x patience stays for the other desks.
-            val trailingStopPct6091 = RunnerTrail8419.holdLayerTrailPoints8419(mode, learningLane8384, params.trailingStopPct, ssiExitPatience6091, position.peakGainPct)
+            val trailingStopPct6091 = RunnerTrail8419.holdLayerTrailPoints8419(mode, learningLane8384, params.trailingStopPct, ssiExitPatience6091, position.peakGainPct, runnerPosition = runnerLane8419)
             val maxHoldTimeMs6091 = (baseMaxHoldMs6684.toDouble() * ssiExitPatience6091 * holdMult7455).toLong()
                 .coerceAtLeast(baseMaxHoldMs6684 / 2L)
             
@@ -370,8 +371,7 @@ object HoldingLogicLayer {
             // V5.0.8419 — a runner lane's trail is RunnerTrail8419's (GreenFloor8363: 65 % of the peak PRICE with the owner's 8337 3a
             // rule beneath), armed by its own rule and never multiplied by the patience; the table trail below is for the other desks.
             // V5.0.8468 — a fast contract lane is on the runner trail only once promoted (RunnerExitProfile7277.runnerExits8468).
-            val runnerLane8419 = RunnerTrail8419.runnerLaneAt8468(mode, learningLane8384, position.peakGainPct)
-            val runnerLevel8419 = if (runnerLane8419) RunnerTrail8419.holdLayerLevelFor8419(ts, mode, learningLane8384) else null
+            val runnerLevel8419 = if (runnerLane8419) RunnerTrail8419.holdLayerLevelFor8419(ts, mode, learningLane8384, runnerPosition = runnerLane8419) else null
             if (runnerLevel8419 != null && currentPnlPct <= runnerLevel8419.levelPct) {
                 return HoldEvaluation(
                     action = HoldAction.EXIT_NOW,
@@ -422,7 +422,7 @@ object HoldingLogicLayer {
             }
 
             // V5.2: Fluid max hold time exceeded (layer-specific, learning-aware)
-            if (holdTimeMinutes > tunedFluidMaxHold7455 && LaneHolds8418.clockBinds8418(mode, learningLane8384, currentPnlPct, position.peakGainPct)) {   // V5.0.8418 — not on a green runner
+            if (holdTimeMinutes > tunedFluidMaxHold7455 && LaneHolds8418.clockBinds8418(mode, learningLane8384, currentPnlPct, position.peakGainPct, runnerPosition = runnerLane8419)) {   // V5.0.8418 — not on a green runner
                 return HoldEvaluation(
                     action = HoldAction.EXIT_NOW,
                     reason = "Fluid hold time exceeded: ${holdTimeMinutes}min > ${tunedFluidMaxHold7455.toInt()}min [$layer] tune×${"%.2f".format(holdMult7455)}",
@@ -432,7 +432,7 @@ object HoldingLogicLayer {
             }
             
             // Legacy max hold time fallback
-            if (holdTimeMs > maxHoldTimeMs6091 && LaneHolds8418.clockBinds8418(mode, learningLane8384, currentPnlPct, position.peakGainPct)) {   // V5.0.8418 — not on a green runner
+            if (holdTimeMs > maxHoldTimeMs6091 && LaneHolds8418.clockBinds8418(mode, learningLane8384, currentPnlPct, position.peakGainPct, runnerPosition = runnerLane8419)) {   // V5.0.8418 — not on a green runner
                 return HoldEvaluation(
                     action = HoldAction.EXIT_NOW,
                     reason = "Max hold time exceeded: ${holdTimeMinutes}min > ${maxHoldTimeMs6091 / 60000}min ssiPatience=${"%.2f".format(ssiExitPatience6091)}",
@@ -861,20 +861,25 @@ object HoldingLogicLayer {
      * V5.2: Map trading mode to layer name for FluidLearningAI hold times.
      * This ensures fluid hold parameters are correctly applied per layer type.
      */
-    private fun getLayerFromMode(mode: String): String {
-        return when (mode.uppercase()) {
+    internal fun getLayerFromMode(mode: String): String {
+        // The entry owner uses canonical lane names, while this reader previously understood mostly old mode names.
+        // Select the existing fluid family through the named lane's documented base table. QUALITY intentionally
+        // retains its V3 fluid family even though its separate scale-out table borrows BLUE_CHIP.
+        val lane = com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.desk8392(mode)
+        val base = if (lane == "QUALITY") lane else LaneHolds8418.holdFor8418(lane)?.base ?: lane
+        return when (com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.desk8392(base)) {
             // Treasury layer modes
             "TREASURY", "SCALP", "MARKET_MAKER", "ARBITRAGE" -> "TREASURY"
             
             // ShitCoin layer modes
-            "MICRO_CAP", "PUMP_SNIPER", "PUMP_DUMP", "PRESALE_SNIPE" -> "SHITCOIN"
+            "SHITCOIN", "EXPRESS", "MANIPULATED", "PROJECT_SNIPER", "MICRO", "PUMP_SNIPER", "PUMP_DUMP" -> "SHITCOIN"
             
             // V3/Quality layer modes
-            "STANDARD", "MOMENTUM_SWING", "REVIVAL", "CYCLIC", "NICHE", 
-            "COPY_TRADE", "WHALE_FOLLOW", "INSIDER_SHARK", "LIQUIDATION_HUNTER" -> "V3"
+            "QUALITY", "CORE", "DIP_HUNTER", "STANDARD", "MOMENTUM_SWING", "REVIVAL", "CYCLIC", "NICHE",
+            "COPYTRADE", "WHALE_FOLLOW", "INSIDER_SHARK", "LIQUIDATION_HUNTER" -> "V3"
             
             // Blue Chip layer modes  
-            "BLUE_CHIP", "LONG_HOLD", "DIAMOND_HANDS", "SLEEPER" -> "BLUECHIP"
+            "BLUECHIP", "LONG_HOLD", "DIAMOND_HANDS", "SLEEPER" -> "BLUECHIP"
             
             // Moonshot layer modes
             "MOONSHOT", "MOONSHOT_ORBITAL", "MOONSHOT_LUNAR", 
