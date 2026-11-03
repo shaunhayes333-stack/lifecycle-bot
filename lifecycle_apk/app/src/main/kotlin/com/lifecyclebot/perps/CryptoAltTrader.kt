@@ -5817,14 +5817,16 @@ object CryptoAltTrader {
                 val tokensMap = com.lifecyclebot.engine.BotService.status.tokens
                 synchronized(tokensMap) {
                     tokensMap.values
-                        .filter { it.symbol.equals(ticker, ignoreCase = true) && it.position.isOpen }
+                        .filter { it.symbol.equals(ticker, ignoreCase = true) && it.position.isOpen && it.position.isPaperPosition }
                         .maxByOrNull { it.position.entryTime }
                 }
             } catch (_: Exception) { null }
 
             if (memeTs != null) {
                 return try {
-                    val (ok, msg) = botService.manualSell(memeTs.mint)
+                    val selectedPaperLot = memeTs.position.positionId
+                    val (ok, msg) = botService.manualSell(memeTs.mint,
+                        expectedPositionId8521 = selectedPaperLot, expectedPaper8521 = true)
                     if (ok) {
                         val pnlPct = if (memeTs.position.entryPrice > 0) (memeTs.lastPrice / memeTs.position.entryPrice - 1.0) * 100.0 else 0.0
                         ErrorLogger.info(TAG, "💬 LLM MEME SELL: $ticker pnl=${"%.1f".format(pnlPct)}% | $reason")

@@ -293,20 +293,26 @@ object EntryEconomics8329 {
         val lane = CanonicalLaneIdentity6506.desk8392(intent.canonicalLane)
         val liquidity = LiquidityTruth8037.hydrate8037(ts)
         val cost = NetEdge8030.preTradeCostPct8329(lane, sizeSol, liquidity, ts.mint, ts.lastMcap)
+        val modelFixed = NetEdge8030.fixedRoundTripForCurrentCost8521()
         val expected = intent.admissionProof?.expectedGrossPct
             ?: NetEdge8030.expectedGrossFor8153(ts, lane, intent.admissionProof?.chosenSetup, cost)
-        val fixedLeg = com.lifecyclebot.engine.CostMeter8151.roundTripFixedSol8151() / 2.0
-        val sellVariable = (com.lifecyclebot.engine.CostTrim8151.sellLegPct8418(cost) - fixedLeg / sizeSol * 100.0).coerceAtLeast(0.0)
-        val net = com.lifecyclebot.engine.ExecutableEntryFloor8521.netPct8521(
-            intent.executableMarkPriceUsd6613, floorPx, expected, sizeSol, sellVariable, fixedLeg,
-            com.lifecyclebot.engine.CostTrim8151.BUY_APP_FEE_PCT_8418, maxOf(fixedLeg, plannedBuyFixedSol))
+        val fixed = com.lifecyclebot.engine.CostMeter8151.fixedLegs8521()
+        val roundTripFixed = fixed.roundTripFixedSol
+        val sellFixed = fixed.sellFixedSol
+        // The round-trip percentage contains the average fixed leg; remove that average from
+        // the same model observation, then charge one coherent set of asymmetric fixed estimates.
+        val sellVariable = (com.lifecyclebot.engine.CostTrim8151.sellLegPct8418(cost) -
+            (modelFixed ?: roundTripFixed) / 2.0 / sizeSol * 100.0).coerceAtLeast(0.0)
+        val net = com.lifecyclebot.engine.ExecutableEntryFloor8521.netWithFixedLegs8521(
+            intent.executableMarkPriceUsd6613, floorPx, expected, sizeSol, sellVariable, roundTripFixed,
+            sellFixed, com.lifecyclebot.engine.CostTrim8151.BUY_APP_FEE_PCT_8418, plannedBuyFixedSol)
         val refusal = if (net == null) "ENTRY_EXECUTABLE_NET_UNAVAILABLE_8521"
             else if (net <= 0.0) "ENTRY_EXECUTABLE_NET_NONPOSITIVE_8521" else null
         try {
             PipelineHealthCollector.labelInc(refusal ?: "ENTRY_EXECUTABLE_NET_OK_8521")
             ForensicLogger.lifecycle("ENTRY_EXECUTABLE_NET_8521", "mint=${ts.mint.take(10)} lane=$lane source=$source " +
                 "decisionPx=${intent.executableMarkPriceUsd6613} floorPx=$floorPx expectedGross=$expected netAtFloor=$net " +
-                "sizeSol=$sizeSol sellVariable=$sellVariable fixedLeg=$fixedLeg buyFixed=$plannedBuyFixedSol verdict=${refusal ?: "ALLOW"}")
+                "sizeSol=$sizeSol sellVariable=$sellVariable sellFixed=$sellFixed buyFixed=$plannedBuyFixedSol verdict=${refusal ?: "ALLOW"}")
         } catch (_: Throwable) {}
         return refusal
     }

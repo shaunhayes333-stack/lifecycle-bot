@@ -263,16 +263,27 @@ object RunnerLive8153 {
         save8153()
     }
 
-    /** TailBag8034.onClose8034: the position entered near [entryMs] of [mint] closed — its rungs retire to the closed totals. */
-    fun retire8153(mint: String, entryMs: Long) {
+    /** Retire the closed lot's exact entry key; nearby re-entries retain their earned runner state. */
+    fun retire8153(mint: String, entryMs: Long, positionId: String? = null) {
         if (mint.isBlank()) return
+        val exactEntryMs = if (positionId != null) {
+            val lot = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(positionId) ?: return
+            if (lot.mint != mint || lot.lifecycle != com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.CLOSED ||
+                lot.remainingQtyRaw.signum() != 0) return
+            // The durable legacy key predates mode/ID suffixes. If another book owns
+            // that exact entry clock, a receipt for this lot cannot retire its state.
+            if (com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions().any {
+                    it.mint == mint && it.openedAtMs == lot.openedAtMs && it.positionId != positionId }) return
+            lot.openedAtMs
+        } else entryMs
+        if (exactEntryMs <= 0L) return
         ensureLoaded8153()
-        val keys = book.keys8153().filter { k ->
-            k.startsWith("$mint|") && kotlin.math.abs((k.substringAfter('|').toLongOrNull() ?: Long.MIN_VALUE / 2) - entryMs) < 120_000L
-        }
-        var any = false
-        for (k in keys) { if (book.retire8153(k)) any = true; continuation.remove(k); lastVerdict.remove(k) }
-        if (any) save8153()
+        val key = "$mint|$exactEntryMs"
+        val retired = book.retire8153(key)
+        continuation.remove(key)
+        lastVerdict.remove(key)
+        planActive8254.remove(key)
+        if (retired) save8153()
     }
 
     fun statusLine8153(): String {

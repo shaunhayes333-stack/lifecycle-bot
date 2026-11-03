@@ -141,6 +141,8 @@ object CortexExit7897 {
     /** Called per open position per tick (BotService.planTickRead7739); samples every 3 min. */
     fun observe(ts: TokenState, pnlPct: Double, peakPct: Double, nowMs: Long = System.currentTimeMillis()) {
         if (!ts.position.isOpen || !pnlPct.isFinite()) return
+        ensureLoaded()
+        if (!loaded) return
         val key = posKey(ts)
         val last = lastSample[key] ?: 0L
         if (nowMs - last < SAMPLE_EVERY_MS) return
@@ -151,7 +153,6 @@ object CortexExit7897 {
                 ?.takeIf { it.isFinite() && it > 0.0 }?.also { inc("SAMPLE_PRICED_BY_MARK_CHAIN_8187") }
             ?: run { inc("SAMPLE_SKIPPED_NO_MARK_8187"); return }
         lastSample[key] = nowMs
-        ensureLoaded()
         val lane = laneOf(ts)
         // V5.0.7955 — a runner setup (learned exit profile) is graded on the runner horizon in any lane; a pop-and-fade one never.
         val runner = try {
@@ -190,6 +191,7 @@ object CortexExit7897 {
     /** Called from ExitRegret7752.tick with the loop's fresh-price closure: grades due samples. */
     fun tick(priceFor: (String) -> Double?, nowMs: Long = System.currentTimeMillis()) {
         ensureLoaded()
+        if (!loaded) return
         gradeTruth8153(priceFor, nowMs)
         for ((k, r) in pending.entries.toList()) {
             val due = r.atMs + if (r.runner) RUNNER_HORIZON_MS else HORIZON_MS
@@ -472,7 +474,6 @@ object CortexExit7897 {
         if (!LearningPersistence.ready()) return
         synchronized(this) {
             if (loaded) return
-            loaded = true
             try {
                 val current = LearningPersistence.load(PERSIST_KEY)
                 if (LearningPersistence.readFailed8086(PERSIST_KEY)) { loaded = false; return }
@@ -486,6 +487,7 @@ object CortexExit7897 {
                         inc("LEGACY_MIXED_TARGET_RETAINED_8091")
                     }
                     dirty8091 = true
+                    loaded = true
                     return
                 }
                 val o = org.json.JSONObject(current)
@@ -508,6 +510,7 @@ object CortexExit7897 {
                         books[k] = b
                     }
                 }
+                loaded = true
             } catch (e: Throwable) { LearningPersistence.decodeFailed8086(PERSIST_KEY, e) } finally {
                 // V5.0.8086 — the row is on disk but would not read: stay unloaded (persist() is gated) and retry.
                 if (LearningPersistence.readFailed8086(PERSIST_KEY)) loaded = false

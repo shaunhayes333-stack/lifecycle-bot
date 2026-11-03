@@ -109,15 +109,21 @@ object HeliusCurveTape8354 {
 
     /** Pure: the status line's fallback reason. */
     internal fun fallbackWhy8354(src: Source8354, pumpPortalOn: Boolean, inHold: Boolean, affordable: Boolean, overBudget: Boolean, level: Int, transport: Transport8354): String = when {
-        pumpPortalOn -> "PUMPPORTAL_ON"
+        // 8509: PumpPortal may be live *while* the Helius program feed is shut off by the byte governor. The old
+        // order always reported PUMPPORTAL_ON, hiding the actual cause (8508: level=2, 873 s in hold, zero asks).
         src == Source8354.HELIUS_PROGRAM -> "-"
         overBudget -> "HELIUS_OVER_BUDGET"
         !affordable -> "PROGRAM_SHARE_EXHAUSTED"
         inHold -> "BYTES_OVER_${HIGH_BYTES_PER_MIN_8354 / 1_048_576L}MB_MIN"
         level >= LEVEL_PER_MINT_8354 -> "BYTES_LEVEL"
         transport == Transport8354.NONE -> "NO_TRANSPORT"
+        pumpPortalOn -> "PUMPPORTAL_ON"
         else -> "-"
     }
+
+    /** A rejected logs subscription is not a usable transport, even when the shared socket itself is connected. */
+    internal fun sharedLogsEligible8509(attached: Boolean, refusedUntilMs: Long, nowMs: Long): Boolean =
+        attached && nowMs >= refusedUntilMs
 
     // ── state ──
 
@@ -154,6 +160,7 @@ object HeliusCurveTape8354 {
     @Volatile private var logsReqId = -1
     @Volatile private var logsSubId = -1L
     @Volatile private var logsWanted = false
+    @Volatile private var logsRefusedUntilMs8509 = 0L
     private val logsPending = ConcurrentHashMap<Int, Boolean>()
     @Volatile private var shareInstalled = false
 
@@ -253,7 +260,7 @@ object HeliusCurveTape8354 {
             if (!inHold && fallbackUntilMs > 0L) { fallbackUntilMs = 0L; level = LEVEL_LOGS_8354 }   // the hold served: re-probe logs only
             val affordable = programAffordable8354(programCreditsToday(), bytesLastMinute, dayFraction(nowMs), over)
             val enhancedOk = try { HeliusEnhancedWS.enhancedOk8354() } catch (_: Throwable) { false }
-            val sharedUp = HeliusSocketShare8191.attached8191()
+            val sharedUp = sharedLogsEligible8509(HeliusSocketShare8191.attached8191(), logsRefusedUntilMs8509, nowMs)
             val (src, tr) = decide8354(pumpPortalOn, level, inHold, affordable, enhancedOk, sharedUp)
             why = fallbackWhy8354(src, pumpPortalOn, inHold, affordable, over, level, tr)
             apply(src, tr)
@@ -313,13 +320,15 @@ object HeliusCurveTape8354 {
                 ev.virtualSol.isFinite() && ev.virtualSol > 0.0 && ev.virtualTokens.isFinite() && ev.virtualTokens > 0.0)) {
             malformed.incrementAndGet(); return false
         }
+        // Validate the derived price before touching reserves or any voter-facing market evidence. Even two positive,
+        // individually finite reserves can overflow their ratio; such a frame must not hydrate a mint.
+        val priceSol = ev.virtualSol / ev.virtualTokens
+        if (!priceSol.isFinite() || priceSol <= 0.0) { malformed.incrementAndGet(); return false }
         // V5.0.8475 — the curve's reserves are written for EVERY decoded trade, before the care filter: they are the price,
         // real SOL and liquidity tick of that coin (bounded store, 60-min TTL). 8471 dropped 1,828 of 2,368 decoded prints
         // and their reserves with them, while the labeler lost 1,519 marks for want of a source.
         try { com.lifecyclebot.engine.truth.CurveReserves7951.noteFrame7951(mint, ev.virtualSol, ev.virtualTokens) } catch (_: Throwable) {}
         if (!cares8354(mint, nowMs)) { dropped.incrementAndGet(); return false }
-        val priceSol = ev.virtualSol / ev.virtualTokens
-        if (!priceSol.isFinite() || priceSol <= 0.0) { malformed.incrementAndGet(); return false }
         val key = com.lifecyclebot.engine.truth.LaunchEvidence8136.dedupKey8136(mint, sig, ev.user, ev.isBuy, ev.sol, ev.virtualSol, ev.virtualTokens)
         if (!com.lifecyclebot.engine.truth.LaunchEvidence8136.noteSwap8136(mint, key)) { duplicates.incrementAndGet(); return false }
         kept.incrementAndGet()   // V5.0.8356 — a kept print is one that passed the dedup, not one that merely passed the filter
@@ -438,7 +447,11 @@ object HeliusCurveTape8354 {
                 if (r is Number) logsSubId = r.toLong()
                 else {
                     val e = o?.optJSONObject("error")
-                    ErrorLogger.warn(TAG, "program logsSubscribe refused: ${e?.optInt("code", 0) ?: 0}:${e?.optString("message").orEmpty().take(48)}")
+                    // A socket can be healthy while this particular subscription is forbidden. Give the per-mint /
+                    // enhanced route a chance on the next sync instead of retrying a rejected subscribe every 10 s.
+                    logsRefusedUntilMs8509 = System.currentTimeMillis() + 60_000L
+                    // The provider's free-form error description can echo a URL or key; log only its numeric code.
+                    ErrorLogger.warn(TAG, "program logsSubscribe refused code=${e?.optInt("code", 0) ?: 0}; retry in 60s, use alternate tape")
                     try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CURVE_TAPE_LOGS_SUB_ERROR_8354") } catch (_: Throwable) {}
                 }
             }
@@ -471,7 +484,8 @@ object HeliusCurveTape8354 {
             "bytes/min=${bytesLastMinute} bytesToday=${bytesToday.get()} credits=${"%.0f".format(programCreditsToday())} " +
             "fallback=$why holdLeftS=$holdLeftS stepDowns=${stepDowns.get()} frames=${frames.get()} failedTx=${failedTx.get()} " +
             "dup=${duplicates.get()} malformed=${malformed.get()} asks=${asks.get()} perMintAsks=${perMintAsks.get()} " +
-            "enhancedSub=${try { HeliusEnhancedWS.curveSubState8354() } catch (_: Throwable) { "-" }} logsSub=${if (logsSubId >= 0L) "ACK" else if (logsReqId >= 0) "PENDING" else "NONE"}]"
+            "enhancedSub=${try { HeliusEnhancedWS.curveSubState8354() } catch (_: Throwable) { "-" }} logsSub=${if (logsSubId >= 0L) "ACK" else if (logsReqId >= 0) "PENDING" else "NONE"} " +
+            "logsRetryInSec8509=${((logsRefusedUntilMs8509 - nowMs).coerceAtLeast(0L) / 1000L)}]"
     }
 
     internal fun resetForTest8354() {
@@ -480,5 +494,6 @@ object HeliusCurveTape8354 {
         bytesMinute.set(0L); bytesToday.set(0L); heliusPrints.set(0L); pumpPortalPrints.set(0L); kept.set(0L); dropped.set(0L)
         duplicates.set(0L); malformed.set(0L); frames.set(0L); failedTx.set(0L); asks.set(0L); perMintAsks.set(0L); stepDowns.set(0L)
         askedAt.clear(); waiting8386.clear(); heldSet = emptySet(); nearSet = emptySet(); watch = null; perMint = null
+        logsRefusedUntilMs8509 = 0L
     }
 }

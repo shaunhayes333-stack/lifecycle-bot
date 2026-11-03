@@ -77,9 +77,16 @@ object MultiTimeframeCharts8521 {
     internal fun merge8521(target: ArrayDeque<Candle>, incoming: List<Candle>, frame: Frame8521,
                            nowMs: Long, pool: String = ""): Int {
         val byTime = java.util.TreeMap<Long, Candle>()
+        // Token-wide providers may return tagged bars without a caller pool hint.
+        // Keep the newest observed venue instead of joining two pools into a false trend.
+        val selectedPool = pool.ifBlank {
+            (target.toList() + incoming).filter { valid8521(it, frame, nowMs) &&
+                CandleCoverage8284.tagOf8284(it)?.pool?.isNotBlank() == true }
+                .maxByOrNull { it.ts }?.let { CandleCoverage8284.tagOf8284(it)?.pool }.orEmpty()
+        }
         fun venueMatches(c: Candle): Boolean {
             val venue = CandleCoverage8284.tagOf8284(c)?.pool.orEmpty()
-            return pool.isBlank() || venue.isBlank() || pool == venue
+            return selectedPool.isBlank() || venue.isBlank() || selectedPool == venue
         }
         for (c in target) if (valid8521(c, frame, nowMs) && venueMatches(c)) byTime[c.ts] = c
         var changed = 0

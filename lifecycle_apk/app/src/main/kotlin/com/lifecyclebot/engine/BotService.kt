@@ -6327,145 +6327,53 @@ class BotService : Service() {
                    expectedPaper8521: Boolean? = null): Pair<Boolean, String> {
         if (mint.isBlank()) return false to "No token selected"
         if (!::executor.isInitialized) return false to "Bot not started"
-
-        val cfgNow = ConfigStore.load(applicationContext)
-        val isPaper = cfgNow.paperMode
-        val w = wallet
-        // V5.9.495o — same cached-balance fallback as manualBuy.
-        val walletSol = if (isPaper) {
-            try { com.lifecyclebot.v3.scoring.CashGenerationAI.getTreasuryBalance(true) } catch (_: Exception) { 0.0 }
-        } else {
-            // V5.9.1495 — main-thread-safe preflight read (no RPC on Main).
-            livePreflightWalletSol(w)
-        }
-        if (!isPaper && w == null) return false to "Live wallet not connected"
-
-        // A UI selection is an exact lot, not permission to sell another mode
-        // or a newer entry that happens to share its mint.
-        if (expectedPositionId8521 != null) {
-            val selected = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
-                .getPosition(expectedPositionId8521) ?: return false to "Selected position is unavailable"
-            val selectedPaper = selected.mode.equals("paper", true)
-            if (selected.mint != mint || (expectedPaper8521 != null && selectedPaper != expectedPaper8521) ||
-                selectedPaper != isPaper) return false to "Position or trading mode changed; refresh the position"
-            val projected = com.lifecyclebot.engine.truth.CanonicalUiPositionProjection6686
-                .projectPosition8521(selected, status.tokens[mint]) ?: return false to "Selected position is no longer open"
+        val isPaper = ConfigStore.load(applicationContext).paperMode
+        if (expectedPaper8521 != null && expectedPaper8521 != isPaper)
+            return false to "Trading mode changed; refresh the selected position"
+        // Every caller binds one canonical lot before submission. Private mint-only
+        // projections cannot choose a different book, close a re-entry, or manufacture
+        // successful settlement after the executor has refused the requested sale.
+        val candidates = if (expectedPositionId8521 != null)
+            listOfNotNull(com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(expectedPositionId8521))
+            else com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+        val selected = com.lifecyclebot.engine.truth.CanonicalUiPositionProjection6686
+            .manualPosition8521(candidates, mint, isPaper, expectedPositionId8521)
+            ?: return false to "No unique open position matches this selection; refresh its trading desk"
+        val nativeMarket = selected.assetClass != com.lifecyclebot.engine.truth.AssetClass.SOLANA_TOKEN ||
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.isTraderOwnedOffChainMarket7819(selected) ||
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.isCryptoAltTraderOwned8082(selected)
+        if (nativeMarket) {
+            if (!isPaper) return false to "Close this position from its owning market desk"
             return try {
-                val result = executor.doSell(projected, "MANUAL", w, walletSol,
-                    expectedPositionId8521 = selected.positionId, expectedPaper8521 = selectedPaper)
-                val closed = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(selected.positionId)
-                    ?.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.CLOSED
-                closed to if (closed) "Selected position closed" else "Position retained: ${result.name}"
+                kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
+                    PaperStopLifecycle8521.closeMarkets(setOf(selected.positionId))
+                }
+                val closed = PaperStopLifecycle8521.confirmedClosed(selected.positionId)
+                closed to if (closed) "Selected position closed" else "Position retained: awaiting its owning desk's observed fill"
             } catch (e: Exception) {
                 false to "Position retained: ${e.message ?: e.javaClass.simpleName}"
             }
         }
-
-        // V5.9.474 — operator-reported manual-SELL store-mismatch bug.
-        //
-        // Symptom: DMC visible in 'Treasury Scalps' card with +4.1% PnL but
-        // pressing manual SELL toasted "No open position to sell" because
-        // the old code only inspected `status.tokens[mint].position.isOpen`.
-        // CashGenerationAI / ShitCoinTraderAI / QualityTraderAI /
-        // BlueChipTraderAI / MoonshotTraderAI all maintain their OWN position
-        // maps and (a) do NOT always set ts.position.isOpen=true on the
-        // shared TokenState, (b) sometimes the mint isn't in status.tokens
-        // at all (cleanup races, reboot rehydration). The sub-trader cards
-        // were reading from those private maps but the sell button was
-        // reading from the main one — visibility/action mismatch.
-        //
-        // Fix: scan ALL position stores in priority order. If found:
-        //   1. ts.position.isOpen=true  → use main executor.doSell path
-        //      (works for ShitCoin / Quality / BlueChip / Moonshot since
-        //      those layers DO mirror to ts.position when buying).
-        //   2. Treasury-only position (CashGen has it, ts.position closed)
-        //      → call CashGenerationAI.closePosition directly so the
-        //      strategy bookkeeping clears even if the swap path is busy.
-        //   3. None of the above → return a meaningful error listing every
-        //      store we checked so the operator knows it's truly absent.
-        val ts = status.tokens[mint]?.takeIf { it.position.isPaperPosition == (expectedPaper8521 ?: isPaper) }
-
-        // Path 1: main TokenState says open → use existing fast path.
-        if (ts != null && ts.position.isOpen) {
-            return try {
-                ErrorLogger.info("BotService",
-                    "👆 MANUAL SELL [main]: ${ts.symbol} | qty=${ts.position.qtyToken} | mode=${if (isPaper) "PAPER" else "LIVE"}")
-                addLog("👆 Manual SELL: ${ts.symbol} ${if (isPaper) "(paper)" else "(LIVE)"}")
-                val result = executor.doSell(ts, "MANUAL", w, walletSol,
-                    expectedPositionId8521 = ts.position.positionId.takeIf { it.isNotBlank() }, expectedPaper8521 = isPaper)
-                result.settled8521() to if (result.settled8521()) "Sell completed (${result.name})" else "Position retained: ${result.name}"
-            } catch (e: Exception) {
-                ErrorLogger.error("BotService", "manualSell error for ${ts.symbol}", e)
-                false to "Error: ${e.message ?: e.javaClass.simpleName}"
-            }
-        }
-
-        // Path 2: scan sub-trader stores. Each holds its own position map.
-        // If any of them has the mint we route the sell through it.
-        val symbol = ts?.symbol ?: mint.take(8)
-
-        try {
-            val tp = com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePosition(mint)
-            if (tp != null) {
-                val price = com.lifecyclebot.v3.scoring.CashGenerationAI.getTrackedPrice(mint)
-                    ?: tp.entryPrice
-                ErrorLogger.info("BotService", "👆 MANUAL SELL [Treasury]: ${tp.symbol} @ \$${price}")
-                addLog("👆 Manual SELL (Treasury): ${tp.symbol}")
-                val realTs = ts ?: return false to "Treasury position retained: token state is unavailable"
-                val sellResult = executor.doSell(realTs, "MANUAL_TREASURY", w, walletSol)
-                if (sellResult !in setOf(Executor.SellResult.CONFIRMED,
-                        Executor.SellResult.PAPER_CONFIRMED, Executor.SellResult.ALREADY_CLOSED)) {
-                    return false to "Treasury position retained: ${sellResult.name}"
-                }
-                com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(
-                    mint, price, com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TAKE_PROFIT,
-                    isPaper = tp.isPaper)
-                return true to "Treasury position closed (${sellResult.name})"
-            }
+        val projected = com.lifecyclebot.engine.truth.CanonicalUiPositionProjection6686
+            .projectPosition8521(selected, status.tokens[mint])
+            ?: return false to "Selected position is unavailable for execution"
+        val w = wallet
+        if (!isPaper && w == null) return false to "Live wallet not connected"
+        val walletSol = if (isPaper) {
+            try { com.lifecyclebot.v3.scoring.CashGenerationAI.getTreasuryBalance(true) } catch (_: Exception) { 0.0 }
+        } else livePreflightWalletSol(w)
+        return try {
+            val result = executor.doSell(projected, "MANUAL", w, walletSol,
+                expectedPositionId8521 = selected.positionId, expectedPaper8521 = isPaper)
+            val closed = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(selected.positionId)?.let {
+                it.mint == mint && it.mode.equals(if (isPaper) "paper" else "live", true) &&
+                    it.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.CLOSED &&
+                    it.remainingQtyRaw.signum() == 0
+            } == true
+            closed to if (closed) "Selected position closed" else "Position retained: ${result.name}"
         } catch (e: Exception) {
-            ErrorLogger.warn("BotService", "manualSell Treasury check error: ${e.message}")
+            false to "Position retained: ${e.message ?: e.javaClass.simpleName}"
         }
-
-        // ShitCoin / Quality / BlueChip / Moonshot all keep their positions
-        // in private activePositions maps. They DO mirror to ts.position
-        // when buying so the Path 1 branch above usually catches them. If
-        // we got here, the main flag fell out of sync — list them so the
-        // operator can see which store has it and we still attempt the
-        // swap via doSell when a TokenState exists.
-        if (ts != null) {
-            data class StoreHit(val name: String, val symbol: String)
-            val hits = mutableListOf<StoreHit>()
-            try {
-                if (com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions().any { it.mint == mint })
-                    hits += StoreHit("ShitCoin", ts.symbol)
-            } catch (_: Exception) {}
-            try {
-                if (com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositions().any { it.mint == mint })
-                    hits += StoreHit("Quality", ts.symbol)
-            } catch (_: Exception) {}
-            try {
-                if (com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions().any { it.mint == mint })
-                    hits += StoreHit("BlueChip", ts.symbol)
-            } catch (_: Exception) {}
-            try {
-                if (com.lifecyclebot.v3.scoring.MoonshotTraderAI.hasPosition(mint))
-                    hits += StoreHit("Moonshot", ts.symbol)
-            } catch (_: Exception) {}
-            if (hits.isNotEmpty()) {
-                ErrorLogger.info("BotService",
-                    "👆 MANUAL SELL [sub-trader resync]: ${ts.symbol} found in ${hits.joinToString(",") { it.name }} — forcing doSell")
-                addLog("👆 Manual SELL (${hits.first().name}): ${ts.symbol}")
-                return try {
-                    val result = executor.doSell(ts, "MANUAL_${hits.first().name.uppercase()}", w, walletSol)
-                    result.settled8521() to if (result.settled8521()) "Sell completed via ${hits.first().name} (${result.name})" else "Position retained: ${result.name}"
-                } catch (e: Exception) {
-                    ErrorLogger.error("BotService", "manualSell sub-trader error for ${ts.symbol}", e)
-                    false to "Error: ${e.message ?: e.javaClass.simpleName}"
-                }
-            }
-        }
-
-        return false to "No open position found for ${symbol} in any store (main/Treasury/ShitCoin/Quality/BlueChip/Moonshot)"
     }
 
 
@@ -33170,6 +33078,7 @@ if (hotExitHandledSweep) {
                 val pnlPct = if (pnlVerdictTreasuryExit.ok) pnlVerdictTreasuryExit.pnlPct else 0.0
                 
                 // V5.6.9g: Execute sell and only close strategy if confirmed
+                val closingLot8521 = ts.position.let { it.positionId to it.isPaperPosition }
                 val sellResult = executor.requestSell(
                     ts = ts,
                     reason = "TREASURY_${exitSignal.name}",
@@ -33177,15 +33086,13 @@ if (hotExitHandledSweep) {
                     walletSol = effectiveBalance
                 )
                 
-                // V5.9.706 FIX: if rapid monitor already closed ts.position, requestSell
-                // returns ALREADY_CLOSED — still clean up sub-trader state so UI ghosts clear.
-                // Only bail on FAILED_RETRYABLE (will retry next tick with fresh price/balance).
-                if (!sellResult.settled8521()) return
+                // Retirement requires the captured lot's canonical finality, including ALREADY_CLOSED results.
+                if (!sellResult.settled8521() || !specialistCloseConfirmed8521(ts.mint, closingLot8521)) return
                 com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(
-                    ts.mint, currentPrice, exitSignal
+                    ts.mint, currentPrice, exitSignal, isPaper = closingLot8521.second
                 )
                 recentlyClosedMs[ts.mint] = System.currentTimeMillis()
-                com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
+                releaseSharedSpecialist8521(ts.mint)
                 addLog("💰 TREASURY SELL: ${ts.symbol} | ${exitSignal.name} | +${pnlPct.toInt()}% | " +
                     "${if (cfg.paperMode) "PAPER" else "LIVE"} | result=$sellResult", ts.mint)
                 if (exitSignal == com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TAKE_PROFIT) {
@@ -33355,6 +33262,7 @@ if (hotExitHandledSweep) {
                 val immutableLanePrefix6613 = ts.position.tradingMode
                     .takeIf { it.isNotBlank() && it.uppercase() != "STANDARD" }
                     ?.uppercase() ?: "SHITCOIN"
+                val closingLot8521 = ts.position.let { it.positionId to it.isPaperPosition }
                 val sellResult = executor.requestSell(
                     ts = ts,
                     reason = "${immutableLanePrefix6613}_${exitSignal.name}",
@@ -33362,13 +33270,12 @@ if (hotExitHandledSweep) {
                     walletSol = effectiveBalance
                 )
 
-                // V5.9.706 FIX: ALREADY_CLOSED means rapid monitor already exited this position.
-                // Still clean up ShitCoinTraderAI state so the UI tile disappears.
-                if (!sellResult.settled8521()) return
+                // A same-mint ALREADY_CLOSED result is not evidence that this captured lot closed.
+                if (!sellResult.settled8521() || !specialistCloseConfirmed8521(ts.mint, closingLot8521)) return
                 com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(
-                    ts.mint, currentPrice, exitSignal
+                    ts.mint, currentPrice, exitSignal, isPaper = closingLot8521.second
                 )
-                com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
+                releaseSharedSpecialist8521(ts.mint)
                 addLog("$exitEmoji SHITCOIN SELL: ${ts.symbol} | ${exitSignal.name} | " +
                     "${if (cfg.paperMode) "PAPER" else "LIVE"} | result=$sellResult", ts.mint)
 
@@ -33424,6 +33331,7 @@ if (hotExitHandledSweep) {
                 }
 
                 // V5.6.9g: Only close strategy position if sell was confirmed
+                val closingLot8521 = ts.position.let { it.positionId to it.isPaperPosition }
                 val sellResult = executor.requestSell(
                     ts = ts,
                     reason = "EXPRESS_${exitSignal.name}",
@@ -33431,10 +33339,12 @@ if (hotExitHandledSweep) {
                     walletSol = effectiveBalance
                 )
                 
-                // V5.9.706 FIX: clean up sub-trader state even if ALREADY_CLOSED
-                if (!sellResult.settled8521()) return
-                com.lifecyclebot.v3.scoring.ShitCoinExpress.exitRide(ts.mint, currentPrice, exitSignal)
-                com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
+                // Retain the specialist until the captured canonical lot has closed.
+                if (!sellResult.settled8521() || !specialistCloseConfirmed8521(ts.mint, closingLot8521)) return
+                if (com.lifecyclebot.v3.scoring.ShitCoinExpress.getActiveRides().any { it.mint == ts.mint && it.isPaper == closingLot8521.second }) {
+                    com.lifecyclebot.v3.scoring.ShitCoinExpress.exitRide(ts.mint, currentPrice, exitSignal)
+                }
+                releaseSharedSpecialist8521(ts.mint)
                 addLog("$exitEmoji EXPRESS SELL: ${ts.symbol} | ${exitSignal.name} | " +
                     "${if (cfg.paperMode) "PAPER" else "LIVE"} | result=$sellResult", ts.mint)
 
@@ -33473,6 +33383,7 @@ if (hotExitHandledSweep) {
                 }
 
                 // V5.6.9g: Only close strategy position if sell was confirmed
+                val closingLot8521 = ts.position.let { it.positionId to it.isPaperPosition }
                 val sellResult = executor.requestSell(
                     ts = ts,
                     reason = "MANIPULATED_${exitSignal.name}",
@@ -33480,10 +33391,10 @@ if (hotExitHandledSweep) {
                     walletSol = effectiveBalance
                 )
                 
-                // V5.9.706 FIX: clean up sub-trader state even if ALREADY_CLOSED
-                if (!sellResult.settled8521()) return
-                com.lifecyclebot.v3.scoring.ManipulatedTraderAI.closePosition(ts.mint, currentPrice, exitSignal, isPaper = ts.position.isPaperPosition)
-                com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
+                // Retain the specialist until the captured canonical lot has closed.
+                if (!sellResult.settled8521() || !specialistCloseConfirmed8521(ts.mint, closingLot8521)) return
+                com.lifecyclebot.v3.scoring.ManipulatedTraderAI.closePosition(ts.mint, currentPrice, exitSignal, isPaper = closingLot8521.second)
+                releaseSharedSpecialist8521(ts.mint)
                 addLog("☠️ MANIP EXIT: ${ts.symbol} | ${exitSignal.name} | " +
                     "${if (cfg.paperMode) "PAPER" else "LIVE"} | result=$sellResult", ts.mint)
                 return
@@ -33603,18 +33514,19 @@ if (hotExitHandledSweep) {
                 }
 
                 // V5.9.705 FIX: only close sub-trader position if sell confirmed
+                val closingLot8521 = ts.position.let { it.positionId to it.isPaperPosition }
                 val moonshotSellResult = executor.requestSell(
                     ts = ts,
                     reason = "MOONSHOT_${exitSignal.name}",
                     wallet = wallet,
                     walletSol = effectiveBalance
                 )
-                if (!moonshotSellResult.settled8521()) return
+                if (!moonshotSellResult.settled8521() || !specialistCloseConfirmed8521(ts.mint, closingLot8521)) return
 
-                com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(ts.mint, currentPrice, exitSignal)
+                com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(ts.mint, currentPrice, exitSignal, isPaper = closingLot8521.second)
                 
                 // V5.6.8 FIX: Release exposure slot
-                com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
+                releaseSharedSpecialist8521(ts.mint)
 
                 addLog("$exitEmoji MOONSHOT SELL: ${ts.symbol} | ${exitSignal.name} | " +
                     "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
@@ -34814,6 +34726,25 @@ if (hotExitHandledSweep) {
         }
     }
 
+    private fun specialistCloseConfirmed8521(mint: String, lot: Pair<String, Boolean>): Boolean {
+        val p = try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(lot.first) }
+            catch (_: Throwable) { null }
+        if (!com.lifecyclebot.engine.truth.CanonicalUiPositionProjection6686.confirmedClosedLot8521(p, lot.first, mint, lot.second)) return false
+        return SpecialistCloseProjection7858.mayClose(mint, lot.second, p!!.openedAtMs)
+    }
+
+    /** Exposure and peak state are keyed by mint, so another open lot still owns them. */
+    private fun releaseSharedSpecialist8521(mint: String) {
+        val stillOwned = try {
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions().any {
+                it.mint == mint && it.remainingQtyRaw.signum() > 0
+            } || com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.protectiveInventory7807("live").any {
+                it.mint == mint && it.remainingQtyRaw.signum() > 0
+            }
+        } catch (_: Throwable) { true }
+        if (!stillOwned) com.lifecyclebot.v3.V3EngineManager.onPositionClosed(mint)
+    }
+
     private fun runFallbackSafetyExit(ts: TokenState, cfg: BotConfig, wallet: SolanaWallet?) {
         try {
             val price = try { executor.getActualPricePublic(ts) } catch (_: Throwable) { ts.lastPrice }
@@ -34852,15 +34783,16 @@ if (hotExitHandledSweep) {
                         com.lifecyclebot.v3.scoring.ShitCoinTraderAI.onPartialSell(ts.mint, 0.25, isPaper = ts.position.isPaperPosition) // V5.9.705
                         com.lifecyclebot.engine.PositionPersistence.savePosition(ts)               // V5.9.705
                     } else {
+                        val closingLot8521 = ts.position.let { it.positionId to it.isPaperPosition }
                         val fbScResult = executor.requestSell(
                             ts = ts,
                             reason = "FALLBACK_SHITCOIN_${sig.name}",
                             wallet = wallet, walletSol = effectiveBalance,
                         )
-                        // V5.9.706 FIX: clean up sub-trader state unless retryable
-                        if (fbScResult.settled8521()) {
-                            com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(ts.mint, price, sig)
-                            com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
+                        // Retain the specialist until the captured canonical lot has closed.
+                        if (fbScResult.settled8521() && specialistCloseConfirmed8521(ts.mint, closingLot8521)) {
+                            com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(ts.mint, price, sig, isPaper = closingLot8521.second)
+                            releaseSharedSpecialist8521(ts.mint)
                         }
                     }
                     return
@@ -34884,15 +34816,16 @@ if (hotExitHandledSweep) {
                         com.lifecyclebot.v3.scoring.MoonshotTraderAI.onPartialSell(ts.mint, partialPct, isPaper = ts.position.isPaperPosition) // V5.9.705
                         com.lifecyclebot.engine.PositionPersistence.savePosition(ts)                    // V5.9.705
                     } else {
+                        val closingLot8521 = ts.position.let { it.positionId to it.isPaperPosition }
                         val fbMsResult = executor.requestSell(
                             ts = ts,
                             reason = "FALLBACK_MOONSHOT_${sig.name}",
                             wallet = wallet, walletSol = effectiveBalance,
                         )
-                        // V5.9.706 FIX: clean up sub-trader state unless retryable
-                        if (fbMsResult.settled8521()) {
-                            com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(ts.mint, price, sig)
-                            com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
+                        // Retain the specialist until the captured canonical lot has closed.
+                        if (fbMsResult.settled8521() && specialistCloseConfirmed8521(ts.mint, closingLot8521)) {
+                            com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(ts.mint, price, sig, isPaper = closingLot8521.second)
+                            releaseSharedSpecialist8521(ts.mint)
                         }
                     }
                     return

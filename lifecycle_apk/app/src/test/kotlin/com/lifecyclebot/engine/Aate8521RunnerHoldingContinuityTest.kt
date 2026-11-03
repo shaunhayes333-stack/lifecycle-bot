@@ -87,4 +87,20 @@ class Aate8521RunnerHoldingContinuityTest {
             } finally { RunnerLive8153.retire8153(ts.mint, ts.position.entryTime) }
         }
     }
+    @Test fun closingAnOldLotDoesNotRetireANewRunnerEnteredWithinTwoMinutes() {
+        val old = token("MANIPULATED", ageMs = 180_000L)
+        val newer = old.copy(position = old.position.copy(entryTime = old.position.entryTime + 60_000L))
+        try {
+            latchProvenStructure(old)
+            latchProvenStructure(newer)
+            RunnerLive8153.retire8153(old.mint, old.position.entryTime)
+            assertEquals(RunnerExitContract8136.RunnerBasis8136.NONE, RunnerLive8153.basis8153(old))
+            assertEquals(RunnerExitContract8136.RunnerBasis8136.PROVEN_PROMOTION, RunnerLive8153.basis8153(newer))
+            assertTrue(RunnerTrail8419.runnerPosition8521(newer))
+        } finally {
+            RunnerLive8153.retire8153(old.mint, old.position.entryTime)
+            RunnerLive8153.retire8153(newer.mint, newer.position.entryTime)
+        }
+    }
+
 }

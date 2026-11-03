@@ -25,7 +25,7 @@ internal object ValidatorFeed8506 {
     private var preview: ClientCall<Wire.Request, Wire.Update>? = null
     private var endpoint = ""
     private var token = ""
-    private var retryAt = 0L
+    @Volatile private var retryAt = 0L
     private var failures = 0
     private var lastMessage = 0L
     private var refresh: ScheduledFuture<*>? = null
@@ -33,7 +33,11 @@ internal object ValidatorFeed8506 {
     @Volatile private var processedFrames = 0L
     @Volatile private var confirmedFrames = 0L
     @Volatile private var malformedFrames = 0L
-    fun statusLine(): String = "$state processedFrames=$processedFrames confirmedFrames=$confirmedFrames malformed=$malformedFrames"
+    @Volatile private var refusedStream = ""
+    @Volatile private var refusalCount = 0L
+    private var lastWarningAtMs = 0L
+    fun statusLine(): String = "$state processedFrames=$processedFrames confirmedFrames=$confirmedFrames malformed=$malformedFrames " +
+        "refusals=$refusalCount lastRefused=${refusedStream.ifBlank { "-" }} retryInSec=${((retryAt - System.currentTimeMillis()).coerceAtLeast(0L) / 1000L)}"
     @Volatile private var lastWarned8509 = ""
     @Volatile var state = "OFF"
         private set
@@ -51,7 +55,14 @@ internal object ValidatorFeed8506 {
         if (timer != null && url == endpoint && key == token) return@execute
         close()
         endpoint = url.trim(); token = key.trim()
-        if (endpoint.isEmpty()) return@execute
+        if (endpoint.isEmpty() || token.isEmpty()) {
+            state = if (endpoint.isEmpty()) "NO_ENDPOINT" else "NO_TOKEN"
+            if (endpoint.isNotEmpty()) {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("VALIDATOR_TOKEN_MISSING_8509")
+                com.lifecyclebot.engine.ErrorLogger.warn("ValidatorFeed8506", "stream=both state=NO_TOKEN; configure an entitled Yellowstone x-token")
+            }
+            return@execute
+        }
         val uri = runCatching { URI(endpoint) }.getOrNull()
         if (uri == null || uri.scheme != "https" || uri.host == null || uri.userInfo != null ||
             uri.rawQuery != null || uri.fragment != null || uri.path !in setOf("", "/") || uri.port == 0 || uri.port > 65535) {
@@ -69,7 +80,7 @@ internal object ValidatorFeed8506 {
         disconnect("OFF"); retryAt = 0; failures = 0
         recent.clear(); ValidatorTx8506.reset()
     }
-    private fun disconnect(reason: String) {
+    private fun disconnect(reason: String, streamKind: String = "both") {
         val old = call; call = null
         old?.cancel("stream closed", null)
         val early = preview; preview = null; early?.cancel("stream closed", null)
@@ -79,12 +90,18 @@ internal object ValidatorFeed8506 {
         state = reason
         if (reason in setOf("UNAUTHENTICATED", "PERMISSION_DENIED", "RESOURCE_EXHAUSTED")) {
             retryAt = System.currentTimeMillis() + 15L * 60_000L
+            refusedStream = streamKind
+            refusalCount++
             // V5.0.8509 — an authorisation refusal is surfaced (once per state change), not only a state string.
-            if (lastWarned8509 != reason) {
-                lastWarned8509 = reason
-                try { com.lifecyclebot.engine.ErrorLogger.warn("ValidatorFeed8506", "gRPC validator feed refused: $reason endpoint=${endpoint.substringBefore('?').take(60)} — 0 frames until an authorised key is set") } catch (_: Throwable) {}
+            if (lastWarned8509 != "$streamKind:$reason") {
+                lastWarned8509 = "$streamKind:$reason"
+                // Provider descriptions and endpoint strings can carry credentials.
+                try { com.lifecyclebot.engine.ErrorLogger.warn("ValidatorFeed8506", "gRPC validator feed refused: stream=$streamKind state=$reason; retry in 900s") } catch (_: Throwable) {}
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("VALIDATOR_FEED_AUTH_REFUSED_8509_$reason") } catch (_: Throwable) {}
             }
+        } else if (reason != "OFF" && System.currentTimeMillis() - lastWarningAtMs > 60_000L) {
+            lastWarningAtMs = System.currentTimeMillis()
+            try { com.lifecyclebot.engine.ErrorLogger.warn("ValidatorFeed8506", "stream=$streamKind state=$reason; retryInSec=${((retryAt - lastWarningAtMs).coerceAtLeast(0L) / 1000L)}") } catch (_: Throwable) {}
         }
     }
 
@@ -119,6 +136,7 @@ internal object ValidatorFeed8506 {
             override fun onMessage(msg: Wire.Update) {
                 if (!active()) return
                 lastMessage = System.currentTimeMillis(); failures = 0
+                lastWarned8509 = ""
                 if (msg.hasTransaction()) { if (processed) processedFrames++ else confirmedFrames++ }
                 if (!processed) state = "RECEIVING"
                 try {
@@ -139,7 +157,7 @@ internal object ValidatorFeed8506 {
                 } finally { if (active()) stream.request(1) }
             }
             override fun onClose(status: Status, trailers: Metadata) {
-                if (active()) disconnect(status.code.name)
+                if (active()) disconnect(status.code.name, if (processed) "processed" else "confirmed")
             }
         }, headers)
         stream.request(1); stream.sendMessage(subscription(watch, processed))

@@ -245,7 +245,7 @@ object TailBag8034 {
         // V5.0.8144 — a thawed frozen holding that sold: its frozen sub-ledger row closes (its one terminal is this one).
         try { FrozenHeldUnsellableLive8141.onTerminal8144(env.positionId) } catch (_: Throwable) {}
         // V5.0.8153 — the position's rung / promotion rows retire to the closed opportunity-vs-banked totals.
-        try { RunnerLive8153.retire8153(env.mint, env.atMs - env.holdingTimeMs.coerceAtLeast(0L)) } catch (_: Throwable) {}
+        try { RunnerLive8153.retire8153(env.mint, env.atMs - env.holdingTimeMs.coerceAtLeast(0L), env.positionId) } catch (_: Throwable) {}
         load()
         if (tails.remove(env.mint) == null) return
         if (env.realizedPnlSol.isFinite() && env.realizedPnlSol > 0.0) closedWin.incrementAndGet() else closedLoss.incrementAndGet()

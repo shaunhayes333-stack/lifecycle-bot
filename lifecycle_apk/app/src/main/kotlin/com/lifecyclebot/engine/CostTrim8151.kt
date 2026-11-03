@@ -378,7 +378,14 @@ object CostMeter8151 {
      * tip and the legacy sell tip; the fallback before any leg was measured. Conservative: an ordinary slice that paid
      * less still counts the legacy sell tip.
      */
-    fun roundTripFixedSol8151(): Double {
+    data class FixedLegs8521(val buyFixedSol: Double, val sellFixedSol: Double) {
+        val roundTripFixedSol: Double get() = buyFixedSol + sellFixedSol
+    }
+
+    /** One immutable observation for callers that need both sides. Receipt/tip writers can
+     * advance between independent reads; deriving both legs here prevents a mixed-epoch pair.
+     */
+    fun fixedLegs8521(): FixedLegs8521 {
         val fee = feeLamportsEwma
         val tip = tipLamportsEwma
         // superseded by V5.0.8418 — before any leg was measured this returned 2 x FALLBACK_FIXED_LEG_SOL_8151 (0.0006 SOL,
@@ -390,17 +397,13 @@ object CostMeter8151 {
         // superseded by V5.0.8418 — was the mixed average of every sell tip (ordinary exits pulled it down); now the tip class
         // the exit will use (modelSellTipLamports8418).
         val sellTip8378 = modelSellTipLamports8418()
-        return (2.0 * feePart + entryTip + sellTip8378) / 1e9
+        return FixedLegs8521((feePart + entryTip) / 1e9, (feePart + sellTip8378) / 1e9)
     }
 
+    fun roundTripFixedSol8151(): Double = fixedLegs8521().roundTripFixedSol
+
     /** One sell leg's fixed cost (SOL): measured network fee + the legacy sell tip; the fallback before any leg. */
-    fun sellLegFixedSol8151(): Double {
-        val fee = feeLamportsEwma
-        // V5.0.8378 — the measured sell tip once a sell has been tipped (ordinary exits no longer pay the legacy floor).
-        val sellTip8378 = modelSellTipLamports8418()   // superseded by V5.0.8418 — the protective class, not the mixed average
-        // V5.0.8418 — before a leg is measured: the planned leg fee (base + medium priority), not the 0.0003 SOL fallback.
-        return ((if (fee.isFinite()) fee else RoundTrip8418.plannedLegFeeLamportsNow8418().toDouble()) + sellTip8378) / 1e9
-    }
+    fun sellLegFixedSol8151(): Double = fixedLegs8521().sellFixedSol
 
     private val boundedExec8151: java.util.concurrent.ExecutorService by lazy {
         java.util.concurrent.ThreadPoolExecutor(2, 2, 30L, java.util.concurrent.TimeUnit.SECONDS,

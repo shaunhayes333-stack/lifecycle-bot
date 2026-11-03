@@ -941,6 +941,22 @@ object CanonicalPositionAuthority6441 {
     // ─── Read-only accessors for consumers ─────────────────────────────────
     fun getPosition(positionId: String): Position? = positions[positionId]
 
+    /** Shared mint tracking may retire only after this PAPER lot is terminal and no other liability owns it. */
+    fun canReleaseSharedTrackingAfterPaperClose8521(positionId: String): Boolean {
+        lock.lock()
+        try {
+            val closed = positions[positionId] ?: return false
+            if (!closed.mode.equals("paper", true) || closed.lifecycle != Lifecycle.CLOSED ||
+                closed.remainingQtyRaw.signum() != 0) return false
+            // This is a destructive-cleanup permission, not a cached dashboard view.
+            // Quarantine does not prove zero holdings; a pending LIVE buy may not have
+            // its quantity yet. Neither can be cleared by another mode's PAPER exit.
+            return positions.values.none { it.mint == closed.mint &&
+                (it.remainingQtyRaw.signum() > 0 ||
+                    (it.mode.equals("live", true) && it.lifecycle == Lifecycle.PENDING_ENTRY)) }
+        } finally { lock.unlock() }
+    }
+
     /**
      * V5.0.6631 §B/§L PURGE_INVARIANT_BROKEN_POSITIONS (operator P0
      * Feb 2026):

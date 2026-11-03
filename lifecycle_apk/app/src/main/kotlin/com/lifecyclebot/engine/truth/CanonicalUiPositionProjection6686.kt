@@ -112,9 +112,25 @@ object CanonicalUiPositionProjection6686 {
             p.lifecycle in setOf(CanonicalPositionAuthority6441.Lifecycle.OPEN, CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED)
     }
 
+    /** A mint-only action is safe only when exactly one open lot in the selected mode owns it. */
+    internal fun manualPosition8521(candidates: List<CanonicalPositionAuthority6441.Position>,
+                                    mint: String, paper: Boolean, expectedId: String? = null): CanonicalPositionAuthority6441.Position? =
+        candidates.filter { it.mint == mint && it.mode.equals(if (paper) "paper" else "live", true) &&
+            (expectedId == null || it.positionId == expectedId) && it.positionId.isNotBlank() &&
+            it.remainingQtyRaw.signum() > 0 && it.lifecycle in setOf(
+                CanonicalPositionAuthority6441.Lifecycle.OPEN, CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED) }
+            .distinctBy { it.positionId }.singleOrNull()
+
     fun matchesPosition8521(position: Position, positionId: String, paper: Boolean): Boolean =
         positionId.isNotBlank() && position.positionId == positionId && position.isPaperPosition == paper &&
             position.qtyToken.isFinite() && position.qtyToken > 0.0
+
+    /** A sell result or an old same-mint receipt cannot retire the selected lot's owner. */
+    internal fun confirmedClosedLot8521(position: CanonicalPositionAuthority6441.Position?,
+                                        positionId: String, mint: String, paper: Boolean): Boolean =
+        positionId.isNotBlank() && position != null && position.positionId == positionId &&
+            position.mint == mint && position.mode.equals(if (paper) "paper" else "live", true) &&
+            position.lifecycle == CanonicalPositionAuthority6441.Lifecycle.CLOSED && position.remainingQtyRaw.signum() == 0
 
     /** V5.0.7252 — authoritative ownership check for the MemeTrader dashboard. */
     fun isMemeDashboardOwned7252(row: TokenState): Boolean {

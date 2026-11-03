@@ -2111,18 +2111,22 @@ class LifecycleStrategy(
 
     companion object {
     /** Existing calculation moved out of evaluate to keep its device verifier budget bounded. */
-    private fun currentRsi8521(prices: List<Double>): Double {
-        if (prices.size < 14) return 50.0
-        val gains = mutableListOf<Double>()
-        val losses = mutableListOf<Double>()
-        for (i in 1 until minOf(14, prices.size)) {
-            val change = prices[prices.size - i] - prices[prices.size - i - 1]
-            if (change > 0) gains.add(change) else losses.add(-change)
+    internal fun currentRsi8521(prices: List<Double>): Double {
+        val window = prices.takeLast(15)
+        if (window.size < 15 || window.any { !it.isFinite() || it <= 0.0 }) return 50.0
+        var gains = 0.0
+        var losses = 0.0
+        for (i in 1 until window.size) {
+            val change = window[i] - window[i - 1]
+            if (change > 0.0) gains += change else losses -= change
         }
-        val avgGain = if (gains.isNotEmpty()) gains.average() else 0.0
-        val avgLoss = if (losses.isNotEmpty()) losses.average() else 0.001
-        val rs = avgGain / avgLoss
-        return 100 - (100 / (1 + rs))
+        // Both means have the same fourteen-period denominator. Averaging only
+        // winning/losing periods separately discarded how often each occurred.
+        val scale = maxOf(gains, losses)
+        if (scale <= 0.0 || !scale.isFinite()) return 50.0
+        val up = gains / scale
+        val down = losses / scale
+        return 100.0 * up / (up + down)
     }
 
     /** Reuses the strategy's existing indicators for both current scoring and immutable Cortex votes. */
@@ -3371,18 +3375,7 @@ class LifecycleStrategy(
         val isChasing = distanceFromHigh < 2.0 && phase == "pumping"  // Near highs while pumping = chasing
         
         // Check RSI for oversold bounce (if we have enough data)
-        val rsiVal = if (prices.size >= 14) {
-            val gains = mutableListOf<Double>()
-            val losses = mutableListOf<Double>()
-            for (i in 1 until minOf(14, prices.size)) {
-                val change = prices[prices.size - i] - prices[prices.size - i - 1]
-                if (change > 0) gains.add(change) else losses.add(-change)
-            }
-            val avgGain = if (gains.isNotEmpty()) gains.average() else 0.0
-            val avgLoss = if (losses.isNotEmpty()) losses.average() else 0.001
-            val rs = avgGain / avgLoss
-            100 - (100 / (1 + rs))
-        } else 50.0
+        val rsiVal = currentRsi8521(prices)
         val rsiOversold = rsiVal < 35  // RSI below 35 = oversold
         
         // ══════════════════════════════════════════════════════════════

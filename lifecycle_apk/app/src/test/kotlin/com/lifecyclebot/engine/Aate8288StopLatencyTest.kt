@@ -191,7 +191,7 @@ class Aate8288StopLatencyTest {
         assertNull("after a real failure the 2 s rung applies again", CloseLease.acquire(m2, "T", "STRICT_SL_-8"))
         CloseLease.release(m2, "TEST_DONE")
         val exec = src("engine/Executor.kt")
-        assertTrue(exec.contains("if (preRoute8288) com.lifecyclebot.engine.sell.CloseLease.recordPreRouteWait8288(ts.mint)"))
+        assertTrue(exec.contains("if (preRoute8288) com.lifecyclebot.engine.sell.CloseLease.recordPreRouteWait8288(ts.mint, lease)"))
         assertTrue(exec.contains("if (!preRoute8288) noteEmergencyOutcome7807(ts, canonicalReason, r)"))
         assertTrue(exec.contains("com.lifecyclebot.engine.sell.StopFast8288.noteVeto8288(ts.mint)"))
     }

@@ -5,6 +5,11 @@ import com.lifecyclebot.engine.truth.ExitQuoteCorroboration7928 as QuoteGate
 import com.lifecyclebot.engine.truth.HeldExitQuote8189
 import com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450 as Scheduler
 import java.math.BigInteger
+import java.util.concurrent.Callable
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -87,7 +92,7 @@ class Aate8521StopQuoteRevalidationTest {
             CloseLease.emergencyHandoff8087 = { _, _ -> handoffs++ }
             val l = CloseLease.acquire(mint, "X", "RAPID_CATASTROPHE_STOP")!!
             l.emergencyWaiting8087 = "RAPID_CATASTROPHE_STOP"
-            assertTrue(CloseLease.invalidateSignal8521(mint, "RAPID_CATASTROPHE_STOP", false) { cleanup++ })
+            assertTrue(CloseLease.invalidateSignal8521(mint, "RAPID_CATASTROPHE_STOP", false, l) { cleanup++ })
             assertFalse(CloseLease.isLeased(mint))
             assertEquals(1, cleanup)
             assertEquals(0, handoffs)
@@ -105,7 +110,7 @@ class Aate8521StopQuoteRevalidationTest {
             CloseLease.emergencyHandoff8087 = { _, reason -> order += reason }
             val l = CloseLease.acquire(mint, "X", "RAPID_CATASTROPHE_STOP")!!
             l.emergencyWaiting8087 = "RUG_DRAIN"
-            assertTrue(CloseLease.invalidateSignal8521(mint, "RAPID_CATASTROPHE_STOP", false) { order += "cleanup" })
+            assertTrue(CloseLease.invalidateSignal8521(mint, "RAPID_CATASTROPHE_STOP", false, l) { order += "cleanup" })
             assertEquals(listOf("cleanup", "RUG_DRAIN"), order)
         } finally { CloseLease.release(mint, "TEST_DONE"); CloseLease.emergencyHandoff8087 = old }
     }
@@ -115,9 +120,9 @@ class Aate8521StopQuoteRevalidationTest {
         var cleanup = 0
         try {
             val l = CloseLease.acquire(mint, "X", "RAPID_CATASTROPHE_STOP")!!
-            assertFalse(CloseLease.invalidateSignal8521(mint, "RAPID_CATASTROPHE_STOP", true) { cleanup++ })
+            assertFalse(CloseLease.invalidateSignal8521(mint, "RAPID_CATASTROPHE_STOP", true, l) { cleanup++ })
             l.finalityPending = true
-            assertFalse(CloseLease.invalidateSignal8521(mint, "RAPID_CATASTROPHE_STOP", false) { cleanup++ })
+            assertFalse(CloseLease.invalidateSignal8521(mint, "RAPID_CATASTROPHE_STOP", false, l) { cleanup++ })
             assertTrue(CloseLease.isLeased(mint))
             assertEquals(0, cleanup)
         } finally { CloseLease.release(mint, "TEST_DONE") }
@@ -127,13 +132,153 @@ class Aate8521StopQuoteRevalidationTest {
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         val service = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(ex.contains("checked8521.quoteRefuted) SellResult.SIGNAL_INVALIDATED"))
-        assertTrue(ex.contains("SellResult.SIGNAL_INVALIDATED -> invalidateExitSignal8521(ts, canonicalReason)"))
+        assertTrue(ex.contains("SellResult.SIGNAL_INVALIDATED -> invalidateExitSignal8521(ts, canonicalReason, lease)"))
         assertTrue(ex.contains("PendingSellQueue.removeInvalidatedSignal8521"))
         assertTrue(ex.contains("TokenLifecycleTracker.onSellSignalInvalidated8521"))
         assertTrue(ex.contains("ProtectiveExitScheduler6450.invalidateQuotedLoss8521"))
         assertTrue(ex.contains("SellExecutionLocks.releaseOwned7835(ts.mint, stamp)"))
         assertTrue(ex.contains("ExitTelemetryStamper6732.invalidateUnbroadcastSignal8521(ts.mint, ts.position.positionId)"))
         assertTrue(service.contains("StopMarkConfirm8418.cachedSellQuoteVerdict8521(ts, maxOf(catastropheThreshold, -HARD_FLOOR_STOP_PCT_CONST))"))
+    }
+
+    @Test fun an_old_quote_cannot_cancel_or_reschedule_a_new_lease_for_the_same_mint() {
+        val mint = "reentry-lease8521-${System.nanoTime()}"
+        var cleanup = 0
+        try {
+            val old = CloseLease.acquire(mint, "X", "RAPID_CATASTROPHE_STOP")!!
+            CloseLease.release(mint, "OLD_FINALITY_RECONCILED")
+            val current = CloseLease.acquire(mint, "X", "RAPID_CATASTROPHE_STOP")!!
+            assertFalse(CloseLease.invalidateSignal8521(mint, "RAPID_CATASTROPHE_STOP", false, old) { cleanup++ })
+            assertEquals(0L, CloseLease.recordPreRouteWait8288(mint, old))
+            assertTrue(CloseLease.isLeased(mint))
+            assertTrue("old completion must not turn off the new worker", current.inFlight)
+            assertEquals(0, current.preRouteWaits8288)
+            assertEquals(0L, current.nextEligibleMs)
+            assertEquals(0, cleanup)
+            assertTrue(CloseLease.invalidateSignal8521(mint, "RAPID_CATASTROPHE_STOP", false, current) { cleanup++ })
+            assertEquals(1, cleanup)
+        } finally { CloseLease.release(mint, "TEST_DONE") }
+    }
+
+    @Test fun cleanup_releases_the_monitor_but_reserves_its_generation_until_handoff() {
+        val mint = "cleanup-race8521-${System.nanoTime()}"
+        val otherMint = "$mint-other"
+        val entered = CountDownLatch(1)
+        val contenderDone = CountDownLatch(1)
+        val order = ConcurrentLinkedQueue<String>()
+        val previousHandoff = CloseLease.emergencyHandoff8087
+        val workers = Executors.newFixedThreadPool(2) { task ->
+            Thread(task, "lease-cleanup-test8521").apply { isDaemon = true }
+        }
+        try {
+            CloseLease.emergencyHandoff8087 = { requestedMint, reason ->
+                if (requestedMint == mint) order.add(reason)
+            }
+            val lease = CloseLease.acquire(mint, "X", "RAPID_CATASTROPHE_STOP")!!
+            val cleanup = workers.submit(Callable {
+                CloseLease.invalidateSignal8521(mint, "RAPID_CATASTROPHE_STOP", false, lease) {
+                    entered.countDown()
+                    // A tracker holding its own monitor must be able to reconcile a
+                    // lease while cleanup waits for that tracker. No sleep/race lottery.
+                    assertTrue("CloseLease monitor is held during external cleanup", contenderDone.await(5, TimeUnit.SECONDS))
+                    assertTrue("handoff must follow cleanup", order.none { it == "RUG_DRAIN" })
+                    order.add("cleanup")
+                }
+            })
+            val contender = workers.submit(Callable {
+                assertTrue(entered.await(5, TimeUnit.SECONDS))
+                try {
+                    assertNotNull(CloseLease.acquire(otherMint, "Y", "TAKE_PROFIT"))
+                    CloseLease.release(otherMint, "OTHER_DONE")
+                    CloseLease.release(mint, "CONCURRENT_CANONICAL_TERMINAL")
+                    assertTrue("terminal release is deferred until cleanup ends", CloseLease.isLeased(mint))
+                    assertEquals(0L, CloseLease.recordPreRouteWait8288(mint, lease))
+                    val attempts = lease.closeAttemptCount
+                    assertEquals(attempts, CloseLease.recordRetry(mint, "STALE_WORKER_RETRY"))
+                    assertTrue(lease.inFlight)
+                    // Neither the TTL reader nor residue scan may expose a new owner.
+                    lease.acquiredMs = System.currentTimeMillis() - CloseLease.LEASE_TTL_MS - 1L
+                    assertTrue(CloseLease.isLeased(mint))
+                    CloseLease.activeBlockingLeaseCount()
+                    assertTrue(CloseLease.isLeased(mint))
+                    assertNull(CloseLease.acquire(mint, "X", "RUG_DRAIN"))
+                    assertTrue(order.isEmpty())
+                    order.add("reconciled")
+                } finally { contenderDone.countDown() }
+            })
+            contender.get(7, TimeUnit.SECONDS)
+            assertTrue(cleanup.get(7, TimeUnit.SECONDS))
+            assertEquals(listOf("reconciled", "cleanup", "RUG_DRAIN"), order.toList())
+            assertFalse(CloseLease.isLeased(mint))
+            val next = CloseLease.acquire(mint, "X", "RUG_DRAIN")!!
+            assertNotSame(lease, next)
+        } finally {
+            contenderDone.countDown()
+            workers.shutdownNow()
+            workers.awaitTermination(7, TimeUnit.SECONDS)
+            CloseLease.release(mint, "TEST_DONE")
+            CloseLease.release(otherMint, "TEST_DONE")
+            CloseLease.emergencyHandoff8087 = previousHandoff
+        }
+    }
+
+    @Test fun cancellation_prioritizes_new_emergencies_without_the_disproved_original_reason() {
+        val mint = "new-emergency8521-${System.nanoTime()}"
+        val previousHandoff = CloseLease.emergencyHandoff8087
+        val handoffs = mutableListOf<String>()
+        try {
+            CloseLease.emergencyHandoff8087 = { m, reason -> if (m == mint) handoffs += reason }
+            val lease = CloseLease.acquire(mint, "X", "RAPID_CATASTROPHE_STOP")!!
+            assertTrue(CloseLease.invalidateSignal8521(mint, "RAPID_CATASTROPHE_STOP", false, lease) {
+                assertNull(CloseLease.acquire(mint, "X", "RUG_DRAIN"))
+                assertEquals("RUG_DRAIN", lease.emergencyWaiting8087)
+                assertNull(CloseLease.acquire(mint, "X", "STRICT_SL_-15"))
+                assertEquals("new lower-priority signals cannot displace the queued rug exit", "RUG_DRAIN", lease.emergencyWaiting8087)
+                CloseLease.raiseIntent(mint, "WALLET_DRAIN", 100)
+                assertEquals("WALLET_DRAIN", lease.emergencyWaiting8087)
+                assertNull(CloseLease.acquire(mint, "X", "RUG_DRAIN"))
+                assertEquals("WALLET_DRAIN", lease.emergencyWaiting8087)
+                assertTrue(handoffs.isEmpty())
+            })
+            assertEquals(listOf("WALLET_DRAIN"), handoffs)
+        } finally {
+            CloseLease.release(mint, "TEST_DONE")
+            CloseLease.emergencyHandoff8087 = previousHandoff
+        }
+    }
+
+    @Test fun cleanup_failure_and_late_finality_cannot_strand_or_cancel_a_reserved_lease() {
+        val mint = "cleanup-failure8521-${System.nanoTime()}"
+        val previousHandoff = CloseLease.emergencyHandoff8087
+        try {
+            CloseLease.emergencyHandoff8087 = null
+            val lease = CloseLease.acquire(mint, "X", "RAPID_CATASTROPHE_STOP")!!
+            assertFalse(CloseLease.invalidateSignal8521(mint, "RAPID_CATASTROPHE_STOP", false, lease) {
+                throw IllegalStateException("simulated tracker persistence failure")
+            })
+            assertTrue(CloseLease.isLeased(mint))
+            assertTrue(lease.inFlight)
+            assertTrue("reservation clears so the exact owner can schedule its retry",
+                CloseLease.recordPreRouteWait8288(mint, lease) > 0L)
+            CloseLease.release(mint, "TEST_RETRY_DONE")
+            val finality = CloseLease.acquire(mint, "X", "RAPID_CATASTROPHE_STOP")!!
+            assertFalse(CloseLease.invalidateSignal8521(mint, "RAPID_CATASTROPHE_STOP", false, finality) {
+                CloseLease.recordRetry(mint, "SELL_FINALITY_PENDING_RETRY")
+            })
+            assertTrue(finality.finalityPending)
+            assertTrue(CloseLease.isLeased(mint))
+            CloseLease.release(mint, "FINALITY_CONFIRMED")
+            val terminal = CloseLease.acquire(mint, "X", "RAPID_CATASTROPHE_STOP")!!
+            assertFalse(CloseLease.invalidateSignal8521(mint, "RAPID_CATASTROPHE_STOP", false, terminal) {
+                CloseLease.release(mint, "CONCURRENT_TERMINAL")
+                throw IllegalStateException("simulated cleanup failure after terminal proof")
+            })
+            assertFalse("deferred terminal release still runs after a thrown callback", CloseLease.isLeased(mint))
+            assertNotNull(CloseLease.acquire(mint, "X", "MANUAL"))
+        } finally {
+            CloseLease.release(mint, "TEST_DONE")
+            CloseLease.emergencyHandoff8087 = previousHandoff
+        }
     }
 
     @Test fun net_execution_fees_cannot_hide_a_breached_small_ticket_stop() {

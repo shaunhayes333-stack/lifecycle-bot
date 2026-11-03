@@ -75,6 +75,61 @@ class Aate8521ExecutableEntryTest {
         assertFalse(e.fresh8521(0L, now))
     }
 
+    @Test fun expensiveBuiltBuyDoesNotReplaceTheProtectiveSellWithAnAverageLeg() {
+        // Observed policy: cheap ordinary entry, more expensive protective exit. A higher built
+        // buy tip must be added to that full exit, not to the old round-trip average.
+        val oldAverage = e.netPct8521(1.0, 1.0, 6.8, 0.01, 0.5, 0.000125, 0.5, 0.0004)!!
+        val exactLegs = e.netWithFixedLegs8521(1.0, 1.0, 6.8, 0.01, 0.5,
+            0.00025, 0.0002125, 0.5, 0.0004)!!
+        assertTrue("half the round trip understated the protective exit", oldAverage > 0.0)
+        assertTrue("the same executable ticket cannot pay both real legs", exactLegs < 0.0)
+        assertTrue("a supported runner retains its positive edge", e.netWithFixedLegs8521(
+            1.0, 1.0, 30.0, 0.01, 0.5, 0.00025, 0.0002125, 0.5, 0.0004)!! > 20.0)
+    }
+
+    @Test fun fixedLegSplitPreservesTheModelAndRejectsUnobservedOrInconsistentCosts() {
+        val split = e.netWithFixedLegs8521(1.0, 1.04, 15.0, 0.03, 2.0,
+            0.00025, 0.0002125, 0.5, 0.00001)!!
+        assertEquals(e.netPct8521(1.0, 1.04, 15.0, 0.03, 2.0, 0.0002125, 0.5, 0.0000375)!!,
+            split, 1e-10)
+        assertNull(e.netWithFixedLegs8521(1.0, 1.0, 30.0, 0.03, 1.0,
+            Double.NaN, 0.0002, 0.5, 0.0001))
+        assertNull(e.netWithFixedLegs8521(1.0, 1.0, 30.0, 0.03, 1.0,
+            0.0001, 0.0002, 0.5, 0.0001))
+    }
+
+    @Test fun fixedCostsStayCoherentWhenProtectiveTipsChangeBetweenEvaluations() {
+        CostMeter8151.resetForTest8151()
+        try {
+            CostMeter8151.noteLeg8151(12_500L, 0L, 0L)
+            CostMeter8151.noteTip8151(25_000L, 25_000L, entry = true)
+            CostMeter8151.noteSellTip8378(200_000L, protective = true)
+            val before = CostMeter8151.fixedLegs8521()
+            assertEquals(0.00025, before.roundTripFixedSol, 1e-12)
+            assertEquals(0.0000375, before.buyFixedSol, 1e-12)
+            assertEquals(0.0002125, before.sellFixedSol, 1e-12)
+            com.lifecyclebot.engine.truth.NetEdge8030.preTradeCostPct8329("EXPRESS", 0.03, 20_000.0)
+            val modelBefore = com.lifecyclebot.engine.truth.NetEdge8030.fixedRoundTripForCurrentCost8521()!!
+
+            // A protective send can update the meter after the entry model has been priced.
+            CostMeter8151.noteSellTip8378(1_000_000L, protective = true)
+            val after = CostMeter8151.fixedLegs8521()
+            assertTrue("independent old/new reads would have formed an impossible pair",
+                after.sellFixedSol > before.roundTripFixedSol)
+            assertEquals(0.00025, before.roundTripFixedSol, 1e-12)
+            assertEquals(modelBefore, com.lifecyclebot.engine.truth.NetEdge8030.fixedRoundTripForCurrentCost8521()!!, 0.0)
+            for (fixed in listOf(before, after)) {
+                assertTrue(fixed.sellFixedSol <= fixed.roundTripFixedSol)
+                assertNotNull(e.netWithFixedLegs8521(1.0, 1.0, 30.0, 0.03, 0.5,
+                    fixed.roundTripFixedSol, fixed.sellFixedSol, 0.5, 0.0004))
+            }
+            // The next ticket, including default-sized evaluation, replaces that thread's model component.
+            com.lifecyclebot.engine.truth.NetEdge8030.preTradeCostPct8329("QUALITY", Double.NaN, 20_000.0)
+            assertEquals(after.roundTripFixedSol,
+                com.lifecyclebot.engine.truth.NetEdge8030.fixedRoundTripForCurrentCost8521()!!, 1e-12)
+        } finally { CostMeter8151.resetForTest8151() }
+    }
+
     @Test fun rebuildingDoesNotRetimestampAnOldQuoteAndCarriesTheActualOrder() {
         val indicative = com.lifecyclebot.network.SwapQuote(org.json.JSONObject(), 1_000_000L, 0.1,
             receivedAtMs8521 = 1_000L)

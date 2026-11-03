@@ -80,6 +80,25 @@ The frozen target is chosen from the lane mandate at decision time: five minutes
 
 ## Verification and practical limits
 
+### Final integration after recovery
+
+The recovered continuation was reviewed again before integration. Additional concrete defects were corrected:
+
+- Actual Cortex closes now wait for complete learning-state restore before mutation. Failed receipt reads remain retryable, and a restored open trade record can receive its exact canonical close even when its voter snapshot is unavailable. Entry and exit learning publish readiness only after restore completes.
+- Manual sells bind one canonical lot and mode throughout the action. Ambiguous mint-only actions and refused settlements cannot report a successful close; redundant specialist close bookkeeping was removed.
+- A terminal runner receipt retires only its exact entry state, preserving a nearby same-mint re-entry's earned promotion and profit rungs.
+- The separately recovered discovery changes restore newest-first bounded birth hydration and stream-refusal fallback handling, while retaining newer mint-init recovery. Invalid derived curve prices cannot enter reserve evidence.
+- Higher-frame history remains on one known venue, and native volume comparisons use contiguous observed periods. Missing periods are not compressed into fabricated activity.
+- Entry and oversold RSI readers share a period-correct calculation: gain/loss frequency across the fourteen periods remains represented, including for very small token prices.
+- Executable entry economics retain the full protective sell fee when a built buy has a larger tip; averaging asymmetric fixed legs no longer understates that exit charge.
+- Quote-refuted exit cleanup is bound to its original close lease. A late result cannot cancel or reschedule a newer lease on the same mint. Cleanup runs outside the lease monitor with an exact-generation reservation, removing the opposite-lock-order deadlock with wallet reconciliation while preserving queued emergencies and late finality.
+- Specialist retirement requires the captured lot's canonical closed state, zero quantity and exact mode/mint. A stale same-mint close result cannot erase a newer lot's private or shared tracking.
+- PAPER cleanup checks current canonical ownership under the authority lock, including funded quarantined holdings and pending LIVE entries. A PAPER terminal receipt cannot release their shared tracking.
+
+The first recovered-source CI run compiled and passed release identity/signing checks, then reported eight failures in 1,640 required tests. Their obsolete source assertions and boot/cache fixtures were corrected while retaining the intended behavior assertions. The ownership review also exposed the quarantined/pending-entry cleanup defect above. Final integrated CI must rerun the entire required gate; this initial run is not release acceptance.
+
+Behavioral regressions cover these cases in the 8521 suites, the recovered birth-priority suite and the curve-feed suite. The required CI selection includes all of them. Source checks alone do not establish that those behavioral tests executed; the final revision's Android CI and release evidence remain the acceptance authority below.
+
 This repository's Android workflow is the release authority: compile and package, run the required regression gate (including every `Aate8521*` suite), evaluate historical unit-test delta, check signing/security, and exercise install/upgrade/lifecycle behavior on the emulator. An accepted installable artifact must come from the validated main revision. Local source scans are useful evidence, but are not a substitute for Kotlin compilation, test execution or device verification.
 
 The new regression cases cover exact executable entry economics, quote-refuted stops, calibration intervals and lane pooling, frozen targets and source clocks, restart/outbox delivery, multi-timeframe parsing and chronology, setup/admission continuity, lane constraints/age evidence, all-family PAPER projection, exact PAPER stop identity/finality, persistence, and runner promotion alignment. Existing assertions that encoded the obsolete contract are updated narrowly; the build gates and economic protections remain in force.

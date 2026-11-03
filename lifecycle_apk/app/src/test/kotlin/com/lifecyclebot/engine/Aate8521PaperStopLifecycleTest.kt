@@ -142,6 +142,7 @@ class Aate8521PaperStopLifecycleTest {
             withCanonical(live) {
                 assertFalse(PaperStopLaneRegistry8521.sharedTrackingReleased8521(terminal.positionId))
             }
+            assertTrue(PaperStopLaneRegistry8521.sharedTrackingReleased8521(terminal.positionId))
         }
         val field = PositionPersistence::class.java.getDeclaredField("prefs").apply { isAccessible = true }
         val old = field.get(PositionPersistence)
@@ -156,12 +157,49 @@ class Aate8521PaperStopLifecycleTest {
         } finally { field.set(PositionPersistence, old) }
     }
 
+    @Test fun paperTerminalCannotRetireQuarantinedHoldingsOrAnUnfilledLiveEntry() {
+        val terminal = canonical().copy(lifecycle = CanonicalPositionAuthority6441.Lifecycle.CLOSED,
+            remainingQtyRaw = BigInteger.ZERO)
+        val live = canonical(id = "other-owner-8521", mode = "live")
+        withCanonical(terminal) {
+            for (other in listOf(
+                live.copy(lifecycle = CanonicalPositionAuthority6441.Lifecycle.QUARANTINED,
+                    quarantineReason = "ECONOMIC_BASIS_RECONCILIATION"),
+                live.copy(lifecycle = CanonicalPositionAuthority6441.Lifecycle.PENDING_ENTRY,
+                    remainingQtyRaw = BigInteger.ZERO),
+                live.copy(mode = "paper", lifecycle = CanonicalPositionAuthority6441.Lifecycle.QUARANTINED),
+            )) withCanonical(other) {
+                assertFalse("PAPER terminal cannot clear ${other.mode}/${other.lifecycle} ownership",
+                    PaperStopLaneRegistry8521.sharedTrackingReleased8521(terminal.positionId))
+            }
+            withCanonical(live.copy(lifecycle = CanonicalPositionAuthority6441.Lifecycle.CLOSED,
+                remainingQtyRaw = BigInteger.ZERO)) {
+                assertTrue(PaperStopLaneRegistry8521.sharedTrackingReleased8521(terminal.positionId))
+                assertFalse("LIVE terminal is not PAPER cleanup authority",
+                    PaperStopLaneRegistry8521.sharedTrackingReleased8521(live.positionId))
+            }
+        }
+    }
+
     private fun withCanonical(p: CanonicalPositionAuthority6441.Position, block: () -> Unit) {
         val field = CanonicalPositionAuthority6441::class.java.getDeclaredField("positions").apply { isAccessible = true }
         @Suppress("UNCHECKED_CAST")
         val rows = field.get(CanonicalPositionAuthority6441) as MutableMap<String, CanonicalPositionAuthority6441.Position>
-        val old = rows.put(p.positionId, p)
-        try { block() } finally { if (old == null) rows.remove(p.positionId) else rows[p.positionId] = old }
+        val revisionField = CanonicalPositionAuthority6441::class.java.getDeclaredField("muts").apply { isAccessible = true }
+        val revision = revisionField.get(CanonicalPositionAuthority6441) as java.util.concurrent.atomic.AtomicLong
+        val lockField = CanonicalPositionAuthority6441::class.java.getDeclaredField("lock").apply { isAccessible = true }
+        val lock = lockField.get(CanonicalPositionAuthority6441) as java.util.concurrent.locks.ReentrantLock
+        // Match the authority's mutation discipline; direct map writes alone leave
+        // its revision-keyed open/protective views serving stale fixture rows.
+        lock.lock()
+        val old = try { rows.put(p.positionId, p).also { revision.incrementAndGet() } } finally { lock.unlock() }
+        try { block() } finally {
+            lock.lock()
+            try {
+                if (old == null) rows.remove(p.positionId) else rows[p.positionId] = old
+                revision.incrementAndGet()
+            } finally { lock.unlock() }
+        }
     }
 
     private fun memoryContext(): Context {

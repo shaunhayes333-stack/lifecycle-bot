@@ -59,6 +59,19 @@ object ExecutableEntryFloor8521 {
         return ((received / paid - 1.0) * 100.0).takeIf { it.isFinite() }
     }
 
+    /** Entry and protective-exit tips are asymmetric. Replacing the buy estimate with the built
+     * transaction's charge must retain the whole estimated sell leg, not half the old round trip.
+     */
+    fun netWithFixedLegs8521(decisionPx: Double, executablePx: Double, expectedGrossPct: Double,
+                            sizeSol: Double, sellVariablePct: Double, roundTripFixedSol: Double,
+                            sellFixedSol: Double, buyExternalPct: Double, plannedBuyFixedSol: Double): Double? {
+        if (listOf(roundTripFixedSol, sellFixedSol, plannedBuyFixedSol).any { !it.isFinite() || it < 0.0 } ||
+            sellFixedSol > roundTripFixedSol) return null
+        val modeledBuyFixed = roundTripFixedSol - sellFixedSol
+        return netPct8521(decisionPx, executablePx, expectedGrossPct, sizeSol, sellVariablePct,
+            sellFixedSol, buyExternalPct, maxOf(modeledBuyFixed, plannedBuyFixedSol))
+    }
+
     /** Constant-product average buy price from OBSERVED virtual reserves, including venue/route
      * fees and the requested adverse-fill envelope. This is a reserve model, not a decoded transaction
      * minimum or a promised fill. Real SOL still belongs to the sellability gate.

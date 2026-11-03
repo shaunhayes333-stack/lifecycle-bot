@@ -9799,7 +9799,8 @@ This cannot be undone!
                 Toast.makeText(this, "⏳ SELL submitting…", Toast.LENGTH_SHORT).show()
                 Thread {
                     val (ok, msg) = try {
-                        service.manualSell(mint)
+                        service.manualSell(mint, expectedPositionId8521 = pos.positionId,
+                            expectedPaper8521 = pos.isPaperPosition)
                     } catch (e: Exception) {
                         false to "Error: ${e.message ?: e.javaClass.simpleName}"
                     }

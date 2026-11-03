@@ -1552,7 +1552,9 @@ object Cortex7885 {
         if (!loaded || !LearningPersistence.ready() || atMs <= 0L) return false
         val id = "$mint|${canon(lane)}|$atMs"
         val receipt = OBSERVATION_TERMINAL_PREFIX_8395 + id
-        if (LearningPersistence.load(receipt) != null) return true
+        val savedTerminal8521 = LearningPersistence.load(receipt)
+        if (LearningPersistence.readFailed8086(receipt)) return false
+        if (savedTerminal8521 != null) return true
         // V5.0.8419 (TerminalReceipt8419) — does acknowledging this terminal change Cortex state? Only an episode the Cortex still
         // HOLDS (pending at this decision time, or paired) is removed by onLabelLost8187, and that mutation and its receipt must
         // ride one snapshot. An episode it does not hold has no mutation: its receipt is one small verified row written here, not
@@ -1602,7 +1604,9 @@ object Cortex7885 {
         ensureLoaded()
         if (!loaded || !LearningPersistence.ready()) return false
         val id = d.id; val receipt = FORWARD_RECEIPT_8404 + d.deliveryId
-        if (LearningPersistence.load(receipt) != null) return true
+        val savedReceipt8521 = LearningPersistence.load(receipt)
+        if (LearningPersistence.readFailed8086(receipt)) return false
+        if (savedReceipt8521 != null) return true
         val frozenEpoch8521 = try { CortexForwardEpoch8521.current(org.json.JSONObject(ForwardCheckpoint8401.unpack(d.frozenPrediction))) }
             catch (_: Exception) { false }
         if (!frozenEpoch8521) {
@@ -1830,7 +1834,9 @@ object Cortex7885 {
         if (!loaded || !LearningPersistence.ready()) return false
         val shadowId = "$mint|${canon(lane)}|$assessmentAtMs"
         val receipt = "CORTEX_SHADOW_RECEIPT_8372|$shadowId"
-        if (LearningPersistence.load(receipt) != null) {
+        val savedShadow8521 = LearningPersistence.load(receipt)
+        if (LearningPersistence.readFailed8086(receipt)) return false
+        if (savedShadow8521 != null) {
             synchronized(this) {
                 shadowPending8372.remove(shadowId); shadowCtx8372.remove(shadowId)
                 outcomeBook8372.retireAcknowledged8372(shadowId, trainingOwnershipDurable = true)
@@ -2514,6 +2520,7 @@ object Cortex7885 {
             ctx?.timing ?: LanePlaybook7907.TIMING_UNKNOWN_8094, ctx?.costBand ?: "CUNK", ctx?.cohort ?: "UNK",
             a.bucket.ordinal, a.calibratedEdge, true, true, false)
         r.mode = mode
+        r.scoreVersion8372 = a.scoreVersion8372
         synchronized(this) { if (gradeBook8144.openTrade(r)) inc("TRADE_RECORD_OPENED_8144_$mode") }
     }
 
@@ -2527,6 +2534,7 @@ object Cortex7885 {
             val r = CortexGradeRecord8144('T', env.positionId, "${env.mint}|${a.lane}", a.atMs, a.lane, "", a.regime.ifBlank { "-" },
                 LanePlaybook7907.TIMING_UNKNOWN_8094, "CUNK", "UNK", a.bucket.ordinal, a.calibratedEdge, true, true, false)
             r.mode = mode
+            r.scoreVersion8372 = a.scoreVersion8372
             if (!gradeBook8144.openTrade(r)) return
             inc("TRADE_RECORD_FILED_AT_CLOSE_8153")
             r
@@ -2544,7 +2552,16 @@ object Cortex7885 {
      */
     private fun fileUnboundClose8153(env: com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.Envelope, mode: String,
                                      sealed: com.lifecyclebot.engine.truth.AateEntryIdentity8136?, snapshotTag: String?): Boolean {
-        if (gradeBook8144.trade(env.positionId) != null) return false
+        gradeBook8144.trade(env.positionId)?.let { stored ->
+            val owner = LearningEntryTruth8153.restoredTradeOwner8521(stored, env.positionId, env.mint, mode,
+                sealed?.mode, sealed?.mint, sealed?.ownerLane, sealed?.exactSetup, snapshotTag) ?: return false
+            if (gradeBook8144.closeTrade(env.positionId, owner, env.realizedReturnPct) == null) return false
+            if (stored.bucket in CortexScoreboard7885.Bucket.values().indices) {
+                board.recordRealized(mode, stored.lane, CortexScoreboard7885.Bucket.values()[stored.bucket], env.realizedReturnPct)
+            }
+            inc("REALIZED_RESTORED_TRADE_CLOSED_8521")
+            return true
+        }
         // V5.0.8169 — a close finalized before this process (the bootstrap replays every historical close: 8168 filed 1,345
         // in 9 minutes) is counted apart; the book takes it only if it is newer than the book's oldest trade (openTrade).
         if (env.atMs in 1 until loadedAtMs8169) inc("REALIZED_REPLAYED_8169")
@@ -4506,6 +4523,13 @@ object Cortex7885 {
         val verified8082 = com.lifecyclebot.engine.truth.ExactStrategyPerformance7429.terminalEconomicsEligible8081(env.mode, env.proofState)
         if (!verified8082) inc("REALIZED_UNVERIFIED_FINALITY_8082")
         val eligible = env.learningEligible && env.realizedReturnPct.isFinite() && verified8082
+        // A close must not mutate the books before restore succeeds. Otherwise a later load
+        // replaces its in-memory grade while the uncommitted receipt prevents replaying it.
+        // Explicitly ineligible terminals still take the existing no-learning release path.
+        if (eligible && (!loaded || !LearningPersistence.ready())) {
+            inc("CORTEX_CLOSE_WAITING_FOR_RESTORE_8521")
+            return CloseDelivery8198.RETRY
+        }
         // V5.0.8144 — the owner of the trade, read outside the lock: the sealed entry identity, else the entry snapshot.
         val sealed8144 = if (!eligible) null else try { com.lifecyclebot.engine.truth.AateEntryIdentityBook8136.identity8136(env.positionId) } catch (_: Throwable) { null }
         // V5.0.8332 — the whole sealed entry snapshot is read here, outside the lock (its lane and entry time are the canonical bind key).
@@ -4516,6 +4540,10 @@ object Cortex7885 {
         // the store while holding the Cortex monitor). Receipts are only ever added, so a stale "absent" re-checks harmlessly.
         val storedReceipt8325 = eligible && env.tradeId !in closeReceipts8198 &&
             (try { LearningPersistence.load(closeReceipt8198(env.tradeId)) != null } catch (_: Throwable) { false })
+        if (eligible && env.tradeId !in closeReceipts8198 && LearningPersistence.readFailed8086(closeReceipt8198(env.tradeId))) {
+            inc("CORTEX_CLOSE_RECEIPT_READ_RETRY_8521")
+            return CloseDelivery8198.RETRY
+        }
         var execRefresh8325 = false
         synchronized(this) {
             val tradeId = env.tradeId
@@ -4567,6 +4595,7 @@ object Cortex7885 {
                         }
                         // The unbound filing IS graded state: it crosses the same durability barrier below.
                         gradeMutationsBegun8198 = true
+                        lastExecRefresh8187 = 0L; execRefresh8325 = true
                     } else {
                         if (env.atMs >= loadedAtMs8169 || env.atMs <= 0L) inc("REALIZED_BOUND_LIVE_SESSION_8187")
                         gradeMutationsBegun8198 = true
@@ -4649,12 +4678,13 @@ object Cortex7885 {
         if (!LearningPersistence.ready()) return
         synchronized(this) {
             if (loaded) return
-            loaded = true
             try {
-                try { gradeBook8144.decode(LearningPersistence.load(GRADES_KEY_8144)) } catch (_: Throwable) {}  // V5.0.8144
-                val raw8324 = LearningPersistence.load(PERSIST_KEY)
+                val stored8521 = CortexForwardEpoch8521.readStoredRows(LearningPersistence::load, LearningPersistence::readFailed8086)
+                    ?: run { loaded = false; inc("CORTEX_CHECKPOINT_READ_RETRY_8521"); return }
+                gradeBook8144.decode(stored8521.grades)
+                val raw8324 = stored8521.books
                 val o = org.json.JSONObject(raw8324 ?: run {
-                    restoreRealisedEpoch8521()
+                    loaded = restoreRealisedEpoch8521()
                     return
                 })
                 check(CortexForwardEpoch8521.current(o)) { "CORTEX_FORWARD_EPOCH_MISMATCH_8521" }
@@ -4667,7 +4697,7 @@ object Cortex7885 {
                 o.optJSONObject("joint7961")?.let { j -> for (k in j.keys()) jointBook7961[k] = CortexLedger7885.labelStat8187().also { it.decode(j.optString(k)) } }
                 restoreJointGenerations8372(o)
                 try { shadowLedger8418.decode(o.optJSONObject("shadowLedger8418")) } catch (_: Throwable) { inc("SHADOW_LEDGER_DECODE_FAILED_8418") }
-                try { restorePending(LearningPersistence.load(PENDING_PERSIST_KEY), System.currentTimeMillis()) }
+                try { restorePending(stored8521.pending, System.currentTimeMillis()) }
                     catch (pendingFailure8394: Throwable) {
                         if (pendingFailure8394 is VirtualMachineError) throw pendingFailure8394
                         LearningPersistence.decodeFailed8086(PENDING_PERSIST_KEY, pendingFailure8394)
@@ -4675,6 +4705,9 @@ object Cortex7885 {
                     }
                 // V5.0.8324 §RESTORE_WITHOUT_RESET — a boot that read a far smaller book than one kept aside restores from it.
                 try { afterLoad8324(raw8324) } catch (_: Throwable) { inc("CORTEX_RESTORE_FAILED_8324") }
+                // Publish readiness only after the checkpoint has been restored. Other threads
+                // may enter ensureLoaded while this monitor is held and must wait for completion.
+                loaded = true
             } catch (e: Throwable) {
                 // V5.0.8324 — out of memory (or any VM error) while decoding is not a corrupt book: stay unloaded and retry.
                 // 8086 quarantined it and let the next save replace the stored book with what had been decoded so far.
@@ -4682,7 +4715,7 @@ object Cortex7885 {
                 else LearningPersistence.decodeFailed8086(PERSIST_KEY, e)
             } finally {
                 // V5.0.8086 — the row is on disk but would not read: stay unloaded (persist() is gated) and retry.
-                if (LearningPersistence.readFailed8086(PERSIST_KEY)) loaded = false
+                if (listOf(PERSIST_KEY, GRADES_KEY_8144, PENDING_PERSIST_KEY).any(LearningPersistence::readFailed8086)) loaded = false
                 if (!loaded) loadRetryAtMs8325 = System.currentTimeMillis() + LOAD_RETRY_MS_8325
             }
         }
@@ -4693,7 +4726,7 @@ object Cortex7885 {
      * valid raw traces can be inspected without allowing mixed forward aggregates to prove the new predictor.
      * Canonical trade history, actual-mode ledgers and outstanding position ownership survive without regrading a close.
      */
-    private fun restoreRealisedEpoch8521() {
+    private fun restoreRealisedEpoch8521(): Boolean {
         val legacy = LearningPersistence.load(CortexForwardEpoch8521.OLD_BOOKS)
             ?: LearningPersistence.load(LEGACY_PERSIST_KEY_7947)
         legacy?.let {
@@ -4708,11 +4741,13 @@ object Cortex7885 {
         LearningPersistence.load(CortexForwardEpoch8521.OLD_PENDING)?.let {
             restorePending(CortexForwardEpoch8521.positionPending(org.json.JSONObject(it)).toString(), System.currentTimeMillis())
         }
-        val keys = listOf(CortexForwardEpoch8521.OLD_BOOKS, CortexForwardEpoch8521.OLD_GRADES, CortexForwardEpoch8521.OLD_PENDING)
-        if (keys.any { LearningPersistence.readFailed8086(it) }) { loaded = false; return }
+        val keys = listOf(CortexForwardEpoch8521.OLD_BOOKS, LEGACY_PERSIST_KEY_7947,
+            CortexForwardEpoch8521.OLD_GRADES, CortexForwardEpoch8521.OLD_PENDING)
+        if (keys.any { LearningPersistence.readFailed8086(it) }) return false
         bootSeasoned8324 = 0
         restoreNote8324 = "forwardEpoch=8521 legacyForward=archived actualLedgers=${realLedgers.size} actualTrades=${gradeBook8144.tradeCount()}"
         inc("CORTEX_REAL_TRUTH_CARRIED_FORWARD_EPOCH_8521")
+        return true
     }
 
     // ── V5.0.8324 §RESTORE_WITHOUT_RESET — the voter seats, calibration and books survive a lost boot ──

@@ -75,9 +75,14 @@ object NativeHistory8521 {
         .filter { it.periodVolumeUsd8521?.let { v -> v.isFinite() && v >= 0.0 } == true }
         .groupBy { CandleCoverage8284.tagOf8284(it)?.let { tag -> tag.source to tag.pool } ?: ("observed" to "") }
         .values.sortedByDescending { group -> group.maxOf { it.ts } }.firstNotNullOfOrNull { group ->
-            val ordered = group.distinctBy { it.ts }.sortedBy { it.ts }
+            val ordered = group.distinctBy { it.ts }.sortedBy { it.ts }.takeLast(8)
             if (nowMs - (ordered.last().ts + minute.intervalMs) !in 0L..FRESH_MS) null
-            else ratio8521(ordered.map { it.periodVolumeUsd8521!! })
+            else {
+                val afterGap = (1 until ordered.size).lastOrNull {
+                    ordered[it].ts - ordered[it - 1].ts != minute.intervalMs
+                } ?: 0
+                ratio8521(ordered.drop(afterGap).map { it.periodVolumeUsd8521!! })
+            }
         }
 
     /** Equal 15-second periods from executed trades; price-only marks carry no volume.
@@ -91,7 +96,14 @@ object NativeHistory8521 {
                 .filterKeys { it + PRINT_INTERVAL_MS <= nowMs }.toSortedMap()
             val last = periods.lastKeyOrNull8521() ?: return@firstNotNullOfOrNull null
             if (nowMs - (last + PRINT_INTERVAL_MS) !in 0L..FRESH_MS) null
-            else ratio8521(periods.values.map { bucket -> bucket.sumOf { it.sol } })
+            else {
+                val ordered = periods.entries.toList().takeLast(8)
+                val afterGap = (1 until ordered.size).lastOrNull {
+                    ordered[it].key - ordered[it - 1].key != PRINT_INTERVAL_MS
+                } ?: 0
+                // Missing feed intervals are neither observed zero volume nor adjacent periods.
+                ratio8521(ordered.drop(afterGap).map { it.value.sumOf { print -> print.sol } })
+            }
         }
 
     private fun java.util.SortedMap<Long, List<TradeTape8100.Print8128>>.lastKeyOrNull8521(): Long? =

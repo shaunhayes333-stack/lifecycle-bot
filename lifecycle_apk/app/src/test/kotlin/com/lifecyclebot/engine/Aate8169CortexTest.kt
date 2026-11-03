@@ -84,7 +84,21 @@ class Aate8169CortexTest {
     @Test fun theLaneDependentSetMatchesEveryVoterThatReadsTheLane() {
         val re = Regex("""(?:Voter|\bv)\(\s*("?[A-Za-z0-9_.]+"?)\s*,[^{]*?\{\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*->""")
         val all = listOf("engine/cortex/CortexVoters7885.kt", "engine/cortex/CortexVotersWide8004.kt").flatMap { f -> re.findAll(src(f)).toList() }
-        assertEquals("every voter declaration parsed", CortexVoters7885.ALL.size, all.size)
+        // 8521 adds four frames of seven chart voters through one factory, rather than literal IDs.
+        // Account for every generated ID and still prove its shared read ignores the assessment lane.
+        val chartIds = listOf("1M", "5M", "1H", "4H").flatMap { frame ->
+            listOf("MOVE", "EMA", "EMA_SPREAD", "VOLUME", "DIVERGENCE", "PATTERN", "PATTERN_CONF")
+                .map { "CHART_${frame}_${it}_8521" }
+        }.toSet()
+        val generated = CortexVoters7885.ALL.filter { it.id.startsWith("CHART_") && it.id.endsWith("_8521") }
+        assertEquals(chartIds, generated.map { it.id }.toSet())
+        assertEquals("generated chart IDs are unique", chartIds.size, generated.size)
+        val factory = src("engine/cortex/CortexVotersWide8004.kt")
+            .substringAfter("private fun chartVoters8521()").substringBefore("val VOTERS:")
+        val factoryRead = Regex("""v\("CHART_[^\n]+\{\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*->""")
+            .findAll(factory).single()
+        assertEquals("generated chart reads are lane-free", "_", factoryRead.groupValues[2])
+        assertEquals("every literal or generated voter accounted for", CortexVoters7885.ALL.size, all.size + generated.size)
         val dependent = all.filter { it.groupValues[3] != "_" }.map { it.groupValues[1].trim('"') }.toSet()
         assertEquals(dependent, CortexVoters7885.LANE_DEPENDENT_8169)
         assertEquals(CortexVoters7885.ALL.size - dependent.size, CortexVoters7885.laneFreeCount8169())

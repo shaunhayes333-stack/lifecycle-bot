@@ -26,9 +26,20 @@ class Aate8066HoldsCapOwnersHeliusBudgetTest {
 
     @Test fun stopKeepsLabelledHolds() {
         val b = src("engine/BotService.kt")
-        assertTrue(b.contains("tokens = tokensCopy - kept8066.keys,"))
-        assertTrue(b.contains("executor.liveSweepWalletTokens(wallet!!, effectiveBalance, kept8066.keys)"))
-        assertTrue(b.contains("PositionPersistence.savePosition(k)"))
+        // 8521: live liquidation has its own helper; every unresolved row is persisted after it returns.
+        val liveStart = b.indexOf("private fun closeLivePositionsOnStop8521()")
+        val stopStart = b.indexOf("fun stopBot(", liveStart)
+        assertTrue(liveStart >= 0 && stopStart > liveStart)
+        val live = b.substring(liveStart, stopStart)
+        assertTrue(live.contains(".filterValues { it.position.isOpen && !it.position.isPaperPosition }"))
+        assertTrue(live.contains("val kept = tokens.filterValues { LifecycleHold8065.keepOnStop8066(it) }"))
+        assertTrue(live.contains("executor.closeAllPositions(tokens - kept.keys, wallet, balance, paperMode = false)"))
+        assertTrue(live.contains("executor.liveSweepWalletTokens(w, balance, kept.keys)"))
+        val stop = b.substring(stopStart)
+        val closeAt = stop.indexOf("closeLivePositionsOnStop8521()")
+        val saveAt = stop.indexOf("PositionPersistence.saveAllPositions(remaining, force = true)")
+        assertTrue("retained holds must be saved after liquidation", closeAt >= 0 && saveAt > closeAt)
+        assertTrue(stop.substring(closeAt, saveAt).contains("val remaining = synchronized(status.tokens) { status.tokens.toMap() }"))
         assertTrue(src("ui/MainActivity.kt").contains("LifecycleHold8065.label8066(ts)"))
     }
 

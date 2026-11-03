@@ -28,6 +28,17 @@ internal object CortexForwardEpoch8521 {
 
     fun current(root: JSONObject): Boolean = root.optInt(FIELD, 0) == EPOCH
 
+    data class StoredRows(val books: String?, val grades: String?, val pending: String?)
+
+    /** All three rows belong to one checkpoint. A failed read is not an absent first-boot row. */
+    fun readStoredRows(read: (String) -> String?, failed: (String) -> Boolean): StoredRows? {
+        val books = read(BOOKS)
+        val grades = read(GRADES)
+        val pending = read(PENDING)
+        if (listOf(BOOKS, GRADES, PENDING).any(failed)) return null
+        return StoredRows(books, grades, pending)
+    }
+
     fun targetKind(lane: String): String = if (LaneGradeHorizon8406.hourGraded8406(lane)) HOUR_KIND else SCALP_KIND
     fun targetHorizon(kind: String): Long = if (kind == HOUR_KIND) HOUR_MS else SCALP_MS
     fun frozenTarget(kind: String): Boolean = kind == HOUR_KIND || kind == SCALP_KIND

@@ -24021,7 +24021,7 @@ class Executor(
                 if (!preRoute8288) noteEmergencyOutcome7807(ts, canonicalReason, r)
                 if (r != SellResult.SIGNAL_INVALIDATED) com.lifecyclebot.engine.sell.SellRouteSpine8144.onResult8144(ts.mint, r.name)  // V5.0.8144
                 when (r) {
-                    SellResult.SIGNAL_INVALIDATED -> invalidateExitSignal8521(ts, canonicalReason)
+                    SellResult.SIGNAL_INVALIDATED -> invalidateExitSignal8521(ts, canonicalReason, lease)
                     // Terminal outcomes → release the lease.
                     SellResult.CONFIRMED, SellResult.PAPER_CONFIRMED,
                     SellResult.ALREADY_CLOSED, SellResult.FAILED_FATAL,
@@ -24056,7 +24056,7 @@ class Executor(
                         com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "WAITING_BALANCE_PROOF")
                     // Retryable → keep the lease, record the attempt (de-pollutes reason).
                     SellResult.FAILED_RETRYABLE ->
-                        if (preRoute8288) com.lifecyclebot.engine.sell.CloseLease.recordPreRouteWait8288(ts.mint)  // V5.0.8288 — not a route attempt
+                        if (preRoute8288) com.lifecyclebot.engine.sell.CloseLease.recordPreRouteWait8288(ts.mint, lease)  // V5.0.8288 — not a route attempt
                         else com.lifecyclebot.engine.sell.CloseLease.recordRetry(ts.mint, "RETRYABLE")
                 }
                 r
@@ -24071,10 +24071,10 @@ class Executor(
     }
 
     /** A quote-refuted stop never enters provider retry/backoff or escalates slippage. A new stop may re-arm. */
-    private fun invalidateExitSignal8521(ts: TokenState, reason: String) {
+    private fun invalidateExitSignal8521(ts: TokenState, reason: String, lease: com.lifecyclebot.engine.sell.CloseLease.Lease) {
         // Serialize cancellation with partial/full signing; checking isLocked alone leaves a check-then-clear race.
         if (!com.lifecyclebot.engine.sell.SellExecutionLocks.tryAcquire(ts.mint)) {
-            com.lifecyclebot.engine.sell.CloseLease.recordPreRouteWait8288(ts.mint)
+            com.lifecyclebot.engine.sell.CloseLease.recordPreRouteWait8288(ts.mint, lease)
             return
         }
         val stamp = com.lifecyclebot.engine.sell.SellExecutionLocks.acquiredAtMs(ts.mint) ?: return
@@ -24083,7 +24083,7 @@ class Executor(
             com.lifecyclebot.network.SignedTxLedger8085.unresolvedFor(ts.mint, "SELL") != null ||
                 TradeVerifier.activeSellSig(ts.mint) != null
         } catch (_: Throwable) { true }
-        val cancelled = com.lifecyclebot.engine.sell.CloseLease.invalidateSignal8521(ts.mint, reason, anotherOwns) {
+        val cancelled = com.lifecyclebot.engine.sell.CloseLease.invalidateSignal8521(ts.mint, reason, anotherOwns, lease) {
             try { PendingSellQueue.removeInvalidatedSignal8521(ts.mint, reason) } catch (_: Throwable) {}
             try { HostWalletTokenTracker.clearSellInFlight(ts.mint, "SIGNAL_INVALIDATED_QUOTE_8521") } catch (_: Throwable) {}
             try { TokenLifecycleTracker.onSellSignalInvalidated8521(ts.mint) } catch (_: Throwable) {}
@@ -24100,7 +24100,7 @@ class Executor(
             com.lifecyclebot.engine.sell.SellExecutionLocks.releaseOwned7835(ts.mint, stamp)
         }
         // A separate signed/active sell still owns its finality. Recheck on the short pre-route cadence, never double it.
-        if (!cancelled) com.lifecyclebot.engine.sell.CloseLease.recordPreRouteWait8288(ts.mint)
+        if (!cancelled) com.lifecyclebot.engine.sell.CloseLease.recordPreRouteWait8288(ts.mint, lease)
         } finally { com.lifecyclebot.engine.sell.SellExecutionLocks.releaseOwned7835(ts.mint, stamp) }
     }
     

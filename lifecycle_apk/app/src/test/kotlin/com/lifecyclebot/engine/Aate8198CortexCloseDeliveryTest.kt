@@ -105,11 +105,13 @@ class Aate8198CortexCloseDeliveryTest {
 
     @Test fun duplicateDeliveryWhileTheCheckpointRefusesRegradesNothing() {
         val e = env("close_delivery_8198_a", mint = "uncommittedMint8198", positionId = "pos8198a")
+        val unmatchedBefore = Cortex7885.counter8198("REALIZED_UNMATCHED")
         val first = Cortex7885.onCanonicalClose(e)
-        // no store is open in the JVM test environment: the durable commit is honestly refused, never faked
+        // No store is open: defer before any mutation. A later restore must not erase a grade
+        // while leaving its uncommitted receipt behind to suppress the actual replay.
         assertEquals(Cortex7885.CloseDelivery8198.RETRY, first)
         val unmatchedAfterFirst = Cortex7885.counter8198("REALIZED_UNMATCHED")
-        // the bus redelivers the same envelope; the in-process grade gate must skip the grade, re-attempt only the commit
+        assertEquals(unmatchedBefore, unmatchedAfterFirst)
         val second = Cortex7885.onCanonicalClose(e)
         assertEquals(Cortex7885.CloseDelivery8198.RETRY, second)
         assertEquals(unmatchedAfterFirst, Cortex7885.counter8198("REALIZED_UNMATCHED"))

@@ -96,4 +96,52 @@ class Aate8521PaperPortfolioProjectionTest {
         assertFalse(Projection.matchesPosition8521(paper.copy(positionId = "reentry"), "selected", true))
         assertFalse(Projection.matchesPosition8521(paper.copy(qtyToken = 0.0), "selected", true))
     }
+    @Test fun manualSelectionKeepsModeAndLotIdentityAndRefusesAmbiguousMintOnlyActions() {
+        val old = canonical("old-paper", true, AssetClass.SOLANA_TOKEN, "same-mint")
+        val new = old.copy(positionId = "new-paper", openedAtMs = old.openedAtMs + 1L)
+        val live = old.copy(positionId = "live", mode = "live")
+        val closed = old.copy(lifecycle = Authority.Lifecycle.CLOSED, remainingQtyRaw = BigInteger.ZERO)
+        assertEquals(old, Projection.manualPosition8521(listOf(old, live), old.mint, true))
+        assertEquals(live, Projection.manualPosition8521(listOf(old, live), old.mint, false))
+        assertNull(Projection.manualPosition8521(listOf(old, new, live), old.mint, true))
+        assertEquals(old, Projection.manualPosition8521(listOf(old, new, live), old.mint, true, old.positionId))
+        assertNull(Projection.manualPosition8521(listOf(closed, new, live), old.mint, true, old.positionId))
+        assertNull(Projection.manualPosition8521(listOf(old, live), old.mint, false, old.positionId))
+        assertNull(Projection.manualPosition8521(listOf(old), "different-mint", true, old.positionId))
+    }
+
+    @Test fun aSellResultCannotRetireAnOpenPartialOrQuarantinedCanonicalLot() {
+        for (paper in listOf(true, false)) {
+            val p = canonical("captured-lot", paper, AssetClass.SOLANA_TOKEN, "same-mint")
+            for (state in Authority.Lifecycle.values()) {
+                val zero = p.copy(lifecycle = state, remainingQtyRaw = BigInteger.ZERO)
+                assertEquals(state == Authority.Lifecycle.CLOSED,
+                    Projection.confirmedClosedLot8521(zero, p.positionId, p.mint, paper))
+                assertFalse(Projection.confirmedClosedLot8521(p.copy(lifecycle = state), p.positionId, p.mint, paper))
+            }
+        }
+    }
+
+    @Test fun earlierSameMintReceiptAndOtherModeCannotCloseTheCapturedLot() {
+        val old = canonical("old-lot", true, AssetClass.SOLANA_TOKEN, "same-mint")
+            .copy(lifecycle = Authority.Lifecycle.CLOSED, remainingQtyRaw = BigInteger.ZERO)
+        assertFalse(Projection.confirmedClosedLot8521(old, "new-lot", old.mint, true))
+        assertFalse(Projection.confirmedClosedLot8521(old, old.positionId, old.mint, false))
+        assertFalse(Projection.confirmedClosedLot8521(old, old.positionId, "other-mint", true))
+        assertFalse(Projection.confirmedClosedLot8521(null, old.positionId, old.mint, true))
+        assertFalse(Projection.confirmedClosedLot8521(old, "", old.mint, true))
+    }
+
+    @Test fun sellClearingOrReplacingTokenStateCannotChangeTheCapturedCloseIdentity() {
+        val selected = canonical("selected-lot", true, AssetClass.SOLANA_TOKEN, "same-mint")
+        val ts = Projection.projectPosition8521(selected, null)!!
+        val captured = ts.position.let { it.positionId to it.isPaperPosition }
+        ts.position = Position()
+        val closed = selected.copy(lifecycle = Authority.Lifecycle.CLOSED, remainingQtyRaw = BigInteger.ZERO)
+        assertTrue(Projection.confirmedClosedLot8521(closed, captured.first, ts.mint, captured.second))
+        ts.position = Position(positionId = "new-live-lot", qtyToken = 1.0, isPaperPosition = false)
+        assertTrue(Projection.confirmedClosedLot8521(closed, captured.first, ts.mint, captured.second))
+        assertFalse(Projection.confirmedClosedLot8521(closed, ts.position.positionId, ts.mint, ts.position.isPaperPosition))
+    }
+
 }

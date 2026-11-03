@@ -38,7 +38,11 @@ class Aate8171IntegratedRepairTest {
         assertFalse(exit.recentClose8171(at, at - 1L, horizon))
         assertFalse(exit.recentClose8171(0L, at, horizon))
         val source = src("engine/cortex/CortexExit7897.kt")
-        assertTrue(source.contains("EXIT_TRUTH_HISTORICAL_NO_MARK_SKIPPED_8171"))
+        // 8521 preserves a historical close's exact banked proceeds, but never enrolls an impossible later mark.
+        // Aate8521CortexExitLearningTest also checks the durable book and restart behavior of this path.
+        assertTrue(source.contains("val trackCounterfactual8521 = recentClose8171(env.atMs, System.currentTimeMillis(), horizon8171 + GRADE_GRACE_MS)"))
+        assertTrue(source.contains("trackCounterfactual = trackCounterfactual8521"))
+        assertTrue(source.contains("EXIT_TRUTH_HISTORICAL_BANKED_8521"))
     }
 
     @Test fun recentChainMismatchGetsRecheckedButHealthyAuditStaysFiveMinutes() {

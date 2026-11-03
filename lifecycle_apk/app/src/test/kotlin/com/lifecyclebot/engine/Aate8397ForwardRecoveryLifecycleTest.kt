@@ -126,7 +126,8 @@ class Aate8397ForwardRecoveryLifecycleTest {
 
     @Test fun providerSilenceAfterADeclineTerminatesWithoutManufacturingTotalLoss() {
         val mint = "forward-recovery-8397-dead"; val key = "$mint|MOONSHOT"
-        val at = System.currentTimeMillis() - 10 * 60_000L
+        // This observation belongs to the running process. A pre-boot deadline correctly waits for recovery first.
+        val at = (get(runtime, "bootMs8430") as Long) + 1L
         val obs = observation(mint, at)
         val dying = mark(mint, at + 60_000L, 0.2) // outside the recoverable first-horizon window
         set(obs, "lastAcceptedMark8395", dying); set(obs, "lastMark8386", dying)
@@ -142,8 +143,8 @@ class Aate8397ForwardRecoveryLifecycleTest {
 
     @Test fun earlierCollapseStillRecoversTheGenuineHorizonCandleWithoutSurvivorshipFiltering() {
         val mint = "forward-recovery-8397-collapse-candle"; val key = "$mint|MOONSHOT"
-        val now = System.currentTimeMillis(); val at = now - 600_000L
-        val oldBoot = get(runtime, "bootMs8430")
+        // Anchor the historical window to the real immutable boot timestamp; do not mutate static-final state.
+        val now = get(runtime, "bootMs8430") as Long; val at = now - 600_000L
         val obs = observation(mint, at)
         set(obs, "honest8366", true)
         val collapse = mark(mint, at + 60_000L, 0.2)
@@ -153,7 +154,6 @@ class Aate8397ForwardRecoveryLifecycleTest {
             listOf(com.lifecyclebot.data.Candle(at + 240_000L, 0.2, 0.0, 0.0, 0.0)))
         pending()[key] = obs
         try {
-            set(runtime, "bootMs8430", now)
             assertEquals(true, call("expired8395", key, obs, null, now))
             assertEquals(true, get(obs, "done60"))
             assertTrue("the actual large loss still teaches the original entry", (get(obs, "bookedNet7997") as Double).isFinite())
@@ -161,7 +161,7 @@ class Aate8397ForwardRecoveryLifecycleTest {
             assertEquals(0.2, (get(obs, "lastAcceptedMark8395") as LabelMark8386).usd, 0.0)
             assertSame(obs, pending()[key])
         } finally {
-            pending().remove(key, obs); set(runtime, "bootMs8430", oldBoot)
+            pending().remove(key, obs)
             com.lifecyclebot.engine.truth.DowntimeRecovery8430.seedForTest8430(mint, emptyList())
         }
     }
