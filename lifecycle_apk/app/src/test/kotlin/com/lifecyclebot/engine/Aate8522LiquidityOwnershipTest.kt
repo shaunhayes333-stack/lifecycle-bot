@@ -131,6 +131,64 @@ class Aate8522LiquidityOwnershipTest {
         assertFalse(TokenSafetyChecker.cacheUsable8522(report.copy(evaluatedForPaper8522 = false), false, 90_000L, now))
     }
 
+    @Test fun whitelistedPolicyCarriesRealHolderProofAndPreservesItsSourceClock() {
+        val major = report().copy(rugcheckStatus = "WHITELISTED", evaluatedPool8522 = "major-pool",
+            liquidityObservedUsd8522 = 50_000.0, liquidityObservedAtMs8522 = now - 5_000L,
+            liquidityObservedPool8522 = "major-pool")
+        val observation = OnChainHolderConcentration7379.Observation8522(18.0, now - 20_000L)
+        val hydrated = TokenSafetyChecker.withHolderObservation8522(major, observation, now, 120_000L)
+        assertEquals(18.0, hydrated.topHolderPct, 0.0)
+        assertEquals(observation.observedAtMs, hydrated.topHolderObservedAtMs8522)
+        assertEquals("RPC_TOP10", hydrated.topHolderSource8522)
+        assertEquals(major.checkedAt, hydrated.checkedAt)
+        assertEquals(major.evaluatedForPaper8522, hydrated.evaluatedForPaper8522)
+        assertEquals(major.evaluatedPool8522, hydrated.evaluatedPool8522)
+        assertEquals(major.liquidityObservedAtMs8522, hydrated.liquidityObservedAtMs8522)
+        assertEquals(18.0, PreTradeHardGate.holderProof8522(null, hydrated, now).freshPct!!, 0.0)
+        val concentrated = TokenSafetyChecker.withHolderObservation8522(major, observation.copy(pct = 85.0), now, 120_000L)
+        assertEquals(85.0, PreTradeHardGate.holderProof8522(null, concentrated, now).adversePct, 0.0)
+    }
+
+    @Test fun whitelistedMissingOrExpiredReadDoesNotInventOrRetainSafeHoldings() {
+        val previous = report().copy(rugcheckStatus = "WHITELISTED", topHolderPct = 3.0,
+            topHolderObservedAtMs8522 = now - 10_000L, topHolderSource8522 = "RPC_TOP10")
+        for (observation in listOf(null,
+                OnChainHolderConcentration7379.Observation8522(3.0, now - 120_001L),
+                OnChainHolderConcentration7379.Observation8522(3.0, now + 1L),
+                OnChainHolderConcentration7379.Observation8522(Double.NaN, now))) {
+            val missing = TokenSafetyChecker.withHolderObservation8522(previous, observation, now, 120_000L)
+            assertEquals(-1.0, missing.topHolderPct, 0.0)
+            assertEquals(0L, missing.topHolderObservedAtMs8522)
+            assertEquals("", missing.topHolderSource8522)
+            assertNull(PreTradeHardGate.holderProof8522(3.0, missing, now).freshPct)
+            assertEquals(previous.checkedAt, missing.checkedAt)
+        }
+    }
+
+    @Test fun explicitRefreshSkipsEvenSameMillisecondUnknownCacheWithoutForcingNormalScans() {
+        val unknown = report().copy(checkedAt = now, rugcheckStatus = "PENDING_REVIEW", evaluatedPool8522 = "main")
+        assertEquals(Long.MAX_VALUE, SafetyProofPriority8310.maxCacheAge8310(false))
+        assertEquals(0L, SafetyProofPriority8310.maxCacheAge8310(true))
+        assertEquals(0L, SafetyProofPriority8310.maxCacheAge8310(false, explicitRefresh = true))
+        assertTrue(TokenSafetyChecker.cacheUsable8522(unknown, false,
+            SafetyProofPriority8310.maxCacheAge8310(false), now, "main"))
+        assertFalse(TokenSafetyChecker.cacheUsable8522(unknown, false,
+            SafetyProofPriority8310.maxCacheAge8310(true), now, "main"))
+        assertFalse(TokenSafetyChecker.cacheUsable8522(unknown, false,
+            SafetyProofPriority8310.maxCacheAge8310(false, explicitRefresh = true), now, "main"))
+    }
+
+    @Test fun forcedFollowerSharesOnlyNewMatchingEvidenceProducedAfterItsRequest() {
+        val old = report().copy(checkedAt = now, evaluatedPool8522 = "main", rugcheckStatus = "PENDING_REVIEW")
+        assertFalse(TokenSafetyChecker.completedRefreshUsable8522(old, old, now, false, "main", now + 1L))
+        val fresh = old.copy(checkedAt = now + 1L)
+        assertTrue(TokenSafetyChecker.completedRefreshUsable8522(fresh, old, now, false, "main", now + 10L))
+        assertFalse(TokenSafetyChecker.completedRefreshUsable8522(fresh.copy(checkedAt = now - 1L), old, now, false, "main", now + 10L))
+        assertFalse(TokenSafetyChecker.completedRefreshUsable8522(fresh.copy(evaluatedForPaper8522 = true), old, now, false, "main", now + 10L))
+        assertFalse(TokenSafetyChecker.completedRefreshUsable8522(fresh, old, now, false, "another-pool", now + 10L))
+        assertFalse(TokenSafetyChecker.completedRefreshUsable8522(fresh.copy(checkedAt = now + 20L), old, now, false, "main", now + 10L))
+    }
+
     @Test fun activeCurveRequiresActualProofAndItsExactAddress() {
         val r = report(pool("curve", 0.0, 500.0, "pump_fun"), unlocked = true)
         assertEquals(LiquidityOwnership8522.Status.PROVEN, assess(r, "curve", curve = true).status)

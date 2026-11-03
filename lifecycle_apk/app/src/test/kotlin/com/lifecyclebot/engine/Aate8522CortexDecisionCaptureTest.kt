@@ -3,7 +3,12 @@ package com.lifecyclebot.engine
 import com.lifecyclebot.data.Candle
 import com.lifecyclebot.data.TokenState
 import com.lifecyclebot.data.Trade
+import com.lifecyclebot.engine.cortex.Cortex7885
+import com.lifecyclebot.engine.cortex.CortexAssessmentProvenance8372
+import com.lifecyclebot.engine.cortex.CortexAudit8169
 import com.lifecyclebot.engine.cortex.CortexDecisionSnapshot8522
+import com.lifecyclebot.engine.cortex.CortexLedger7885
+import com.lifecyclebot.engine.cortex.CortexScoreboard7885
 import com.lifecyclebot.engine.cortex.CortexVoterMemo8522
 import com.lifecyclebot.engine.truth.MintSupply8418
 import org.junit.Assert.*
@@ -187,5 +192,59 @@ class Aate8522CortexDecisionCaptureTest {
         wall.set(at - 1)
         assertEquals(5.0, read(input, at + 1), 0.0)
         assertEquals(6.0, read(input, at + 1, decision = at + 4_000), 0.0)
+    }
+
+    @Test fun olderInputFinishingLastCannotReplaceNewerCacheOrRewriteItsActualReadTime() {
+        val mint = "assessment-order8522"
+        val lane = "MOONSHOT"
+        val key = "$mint|$lane"
+        fun assessment(inputAt: Long, completedAt: Long, score: Double) = Cortex7885.Assessment(
+            lane, true, doubleArrayOf(score), listOf("ORDER_8522"), listOf(doubleArrayOf(0.0)), "TEST",
+            CortexLedger7885.Fused(score, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, emptyList()), score,
+            CortexScoreboard7885.Bucket.NEUTRAL, 0, false, completedAt, inputAtMs8522 = inputAt,
+        )
+        @Suppress("UNCHECKED_CAST")
+        val actualCache = Cortex7885::class.java.getDeclaredField("assessCache").apply { isAccessible = true }
+            .get(Cortex7885) as MutableMap<String, Cortex7885.Assessment>
+        val older = assessment(at, at + 20_000L, -8.0)
+        val newer = assessment(at + 10_000L, at + 11_000L, 12.0)
+        val olderStarted = CountDownLatch(1)
+        val releaseOlder = CountDownLatch(1)
+        val workers = Executors.newFixedThreadPool(2)
+        try {
+            val oldJob = workers.submit<Cortex7885.Assessment> {
+                olderStarted.countDown()
+                check(releaseOlder.await(5, TimeUnit.SECONDS))
+                Cortex7885.publishAssessment8522(key, older)
+            }
+            assertTrue(olderStarted.await(5, TimeUnit.SECONDS))
+            assertSame(newer, workers.submit<Cortex7885.Assessment> {
+                Cortex7885.publishAssessment8522(key, newer)
+            }.get(5, TimeUnit.SECONDS))
+            releaseOlder.countDown()
+            assertSame(newer, oldJob.get(5, TimeUnit.SECONDS))
+            assertSame(newer, actualCache[key])
+            assertSame("the real read path must retain the newer input", newer,
+                Cortex7885.assess(TokenState(mint), lane, at + 20_001L))
+            assertEquals(at, older.inputAtMs8522)
+            assertEquals(at + 20_000L, older.atMs)
+            assertEquals(at + 11_000L, newer.atMs)
+            val provenance = Cortex7885::class.java.getDeclaredMethod("provenance8372", Cortex7885.Assessment::class.java)
+                .apply { isAccessible = true }.invoke(Cortex7885, older) as CortexAssessmentProvenance8372
+            assertEquals("late completion cannot be backdated to the frozen input", older.atMs, provenance.assessmentAtMs)
+            assertTrue(CortexAudit8169.voterReadLeaks8169(older.atMs, at, 5_000L))
+            assertFalse(CortexAudit8169.voterReadLeaks8169(older.inputAtMs8522, at, 5_000L))
+
+            val sameInputLaterCompletion = assessment(newer.inputAtMs8522, at + 25_000L, 99.0)
+            assertSame("one input clock keeps its first prediction", newer,
+                Cortex7885.publishAssessment8522(key, sameInputLaterCompletion))
+            val next = assessment(at + 30_000L, at + 31_000L, 4.0)
+            assertSame(next, Cortex7885.publishAssessment8522(key, next))
+            assertSame(next, actualCache[key])
+        } finally {
+            releaseOlder.countDown()
+            workers.shutdownNow()
+            actualCache.remove(key)
+        }
     }
 }

@@ -38,9 +38,9 @@ object SafetyProofPriority8310 {
     private val forcedProspect8310 = AtomicLong(0)
     private val deferrals8310 = AtomicLong(0)
 
-    /** Pure: may a cached report checked at [checkedAtMs] serve a caller that accepts at most [maxAgeMs]? */
+    /** Pure: a zero cap requests a provider refresh; positive caps bound cached proof age. */
     fun cacheUsable8310(checkedAtMs: Long, maxAgeMs: Long, nowMs: Long): Boolean =
-        maxAgeMs == Long.MAX_VALUE || (checkedAtMs > 0L && nowMs - checkedAtMs in 0L..maxAgeMs)
+        maxAgeMs > 0L && (maxAgeMs == Long.MAX_VALUE || (checkedAtMs > 0L && nowMs - checkedAtMs in 0L..maxAgeMs))
 
     /**
      * Pure: must the cycle's safety step run a current (uncached) proof? An explicit refresh always does; a live prospect
@@ -59,7 +59,7 @@ object SafetyProofPriority8310 {
             (try { RunnerPlay8018.ticketActive8018(mint, nowMs) } catch (_: Throwable) { false }) ||
             deferredAt8310[mint]?.let { nowMs - it in 0L..DEFER_PRIORITY_MS_8310 } == true
 
-    /** BotService safety step: run a current proof for [mint] now (true), with the checker's cache capped at the window. */
+    /** BotService safety step: run a current proof for [mint] now (true), without reusing an earlier cached report. */
     fun forceFresh8310(mint: String, explicitRefresh: Boolean, reportCheckedAtMs: Long, nowMs: Long = System.currentTimeMillis()): Boolean {
         if (mint.isBlank()) return false
         val age = if (reportCheckedAtMs > 0L) nowMs - reportCheckedAtMs else Long.MAX_VALUE
@@ -84,8 +84,9 @@ object SafetyProofPriority8310 {
             deferredAt8310[mint]?.let { nowMs - it in 0L..DEFER_PRIORITY_MS_8310 } == true
     }
 
-    /** The checker's cache cap for this cycle's run. */
-    fun maxCacheAge8310(forced: Boolean): Long = if (forced) LIVE_PROOF_MAX_AGE_MS_8310 else Long.MAX_VALUE
+    /** Explicit/forced refresh means a provider run, even when an UNKNOWN report was checked just now. */
+    fun maxCacheAge8310(forced: Boolean, explicitRefresh: Boolean = false): Long =
+        if (forced || explicitRefresh) 0L else Long.MAX_VALUE
 
     /** PreTradeHardGate: a live buy deferred on proof — its mint gets a current proof and a cycle slot next. */
     fun noteDeferred8310(mint: String, reason: String, nowMs: Long = System.currentTimeMillis()) {

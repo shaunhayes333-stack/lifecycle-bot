@@ -38,8 +38,8 @@ class Aate8368CortexShadowVerdictTest {
         val c = src("engine/cortex/Cortex7885.kt")
         val hook = c.indexOf("ExploreShadow8347.onCortexAssessment8368(")
         assertTrue("Cortex must deliver ITS OWN bucket to shadow", hook > 0)
-        assertTrue("use the actual assessed bucket not an FDG allow/reject proxy", c.contains("ts, a.lane, a.bucket.name, a.fused.pWin, nowMs"))
-        assertTrue("cache the exact decision first", c.lastIndexOf("assessCache[key] = a", hook) > 0)
+        assertTrue("use the actual assessed bucket and completion time", c.contains("ts, a.lane, a.bucket.name, a.fused.pWin, a.atMs"))
+        assertTrue("publish the prediction after ownership is reserved", c.lastIndexOf("publishAssessment8522(key, a)", hook) > 0)
         assertTrue("the shadow hook must not cancel the authoritative assessment", hook < c.indexOf("return a", hook))
         assertTrue("voters still grade both admitted and rejected forward decisions", c.contains("ledger.grade(p.a.lane, p.a.ids") &&
             c.contains("board.record(p.a.lane, p.a.bucket, p.legacyAdmitted"))

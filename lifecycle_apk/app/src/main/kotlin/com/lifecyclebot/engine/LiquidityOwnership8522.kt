@@ -9,7 +9,7 @@ import java.util.Locale
  * positive score nor a locked side pool can erase an unlocked primary pool.
  */
 object LiquidityOwnership8522 {
-    const val MIN_LOCKED_PCT = 70.0 // Existing TokenSafetyChecker live policy.
+    private const val MIN_LOCKED_PCT = 70.0 // Existing TokenSafetyChecker live policy.
     private const val FRESH_MS = 120_000L
 
     data class Pool(

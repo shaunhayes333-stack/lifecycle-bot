@@ -4,6 +4,7 @@ import com.lifecyclebot.data.TokenState
 import com.lifecyclebot.network.JupiterApi
 import com.lifecyclebot.network.SwapQuote
 import com.lifecyclebot.network.SwapTxResult
+import com.lifecyclebot.network.SolanaWallet
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
@@ -106,8 +107,54 @@ class Aate8522BuyRouteSafetyTest {
             fail("Current adverse safety must stop the signing boundary")
         } catch (e: BuyRouteSafety8522.Refused) {
             assertEquals("SAFETY_HARD_BLOCK", e.reason)
+            assertEquals(LiquidityOwnership8522.Status.BLOCKED, e.status)
         }
         assertFalse(signed)
+    }
+
+    @Test fun finalGatePreservesPendingStatusForRetryableMissingEvidence() {
+        val token = TokenState(mint)
+        token.safety = report(pool("main")).copy(checkedAt = 0L)
+        try {
+            BuyRouteSafety8522.requireAllowed(token, BuyRouteSafety8522.jupiter(quote("main")), "TEST_PENDING_FINAL_SIGN")
+            fail("Missing current report cannot authorize a signature")
+        } catch (e: BuyRouteSafety8522.Refused) {
+            assertEquals("DEFER_SAFETY_PROOF", e.reason)
+            assertEquals(LiquidityOwnership8522.Status.PENDING, e.status)
+            assertTrue(BuyRouteSafety8522.unsignedPending8522(e, null))
+        }
+    }
+
+    @Test fun onlyUnsignedPendingRefusalCanEnterHydrationRetry() {
+        val pending = BuyRouteSafety8522.Refused("LP_OWNERSHIP_PROOF_PENDING_8522", "pool=main", LiquidityOwnership8522.Status.PENDING)
+        val unsafe = BuyRouteSafety8522.Refused("LP_UNLOCKED_CONFIRMED_8522", "pool=main", LiquidityOwnership8522.Status.BLOCKED)
+        assertTrue(BuyRouteSafety8522.unsignedPending8522(pending, null))
+        assertFalse(BuyRouteSafety8522.unsignedPending8522(unsafe, null))
+        assertFalse(BuyRouteSafety8522.unsignedPending8522(pending, "already-submitted-signature"))
+        assertFalse(BuyRouteSafety8522.unsignedPending8522(unsafe, "already-submitted-signature"))
+        assertFalse(BuyRouteSafety8522.unsignedPending8522(
+            SolanaWallet.SentButUnconfirmed7733("already-submitted-signature", pending), null))
+        assertFalse(BuyRouteSafety8522.unsignedPending8522(IllegalStateException("provider failed"), null))
+    }
+
+    @Test fun finalProofRetryKeepsTheExistingThreeAttemptsInFiveMinutesBudget() {
+        var times = emptyList<Long>()
+        repeat(3) { i ->
+            val retry = BuyRouteSafety8522.pendingRetry8522(times, now + i)
+            assertEquals(i, retry.priorCount)
+            assertFalse(retry.exhausted)
+            assertEquals("SAFETY_PROOF_PENDING_DEFERRED_8270", retry.reason)
+            times = retry.next
+        }
+        val exhausted = BuyRouteSafety8522.pendingRetry8522(times, now + 3L)
+        assertTrue(exhausted.exhausted)
+        assertEquals("DEFERRED_DATA_SAFETY_PROOF_8270", exhausted.reason)
+        assertEquals(times, exhausted.next)
+        val later = BuyRouteSafety8522.pendingRetry8522(times, now + 300_003L)
+        assertFalse(later.exhausted)
+        assertEquals(0, later.priorCount)
+        assertEquals(1, later.next.size)
+        assertEquals(0, BuyRouteSafety8522.pendingRetry8522(listOf(now - 300_000L), now).priorCount)
     }
 
     @Test fun raydiumRetainsExactQuotePoolAndOriginalRequestClock() {
@@ -172,5 +219,10 @@ class Aate8522BuyRouteSafetyTest {
         val ray = source.substringAfter("private fun tryRaydiumBuy7325(").substringBefore("private fun tryPumpPortalBuy(")
         assertTrue(ray.contains("BuyRouteSafety8522.requireAllowed(ts, route8522, \"RAYDIUM_FINAL_SIGN\")"))
         assertTrue(ray.contains("submittedSig8397?.let { throw SolanaWallet.SentButUnconfirmed7733(it, e) }"))
+        assertTrue(source.contains("BuyRouteSafety8522.unsignedPending8522(e, sentSig7733)"))
+        assertTrue(source.contains("deferFinalSafety8522(ts, sol, e as BuyRouteSafety8522.Refused, \"BUY_FINAL_SIGN\""))
+        val topup = source.substringAfter("private fun liveTopUp(").substringBefore("// ── buy")
+        assertTrue(topup.contains("deferFinalSafety8522(ts, sol, e, \"TOP_UP_FINAL_SIGN\")"))
+        assertTrue(topup.indexOf("topUpUnresolved8085(ts, wallet, e)") < topup.indexOf("unsignedPending8522(e, null)"))
     }
 }

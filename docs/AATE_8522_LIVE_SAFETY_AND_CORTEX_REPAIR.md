@@ -15,6 +15,8 @@ No profitability result is claimed. A missed token's later peak is not proof tha
 - Live holder reads use a bounded observation with its original source time. The longer informational holder cache cannot repeatedly become a new live proof when a report is reconstructed.
 - An undated safe holder value from mutable token state cannot authorize a buy when the current report lacks holder proof. Valid adverse evidence remains conservative. NaN cannot hide another provider's high concentration.
 - Missing proof defers and requests hydration; it does not become a permanent blacklist or a fabricated clean report.
+- Explicit and forced safety refreshes bypass an earlier cached unknown result, including a same-millisecond cache hit. A waiting caller may share only a matching refresh completed from evidence obtained after its request. Existing provider backoffs and request bounds remain enforced.
+- Whitelisted major tokens also acquire real, dated holder evidence through the bounded holder reader. Their verified identity does not fabricate a zero concentration or make unknown holder proof executable.
 
 ### LP ownership and liquidity
 
@@ -38,6 +40,8 @@ The final route cannot borrow depth from a different historical pool. Both the s
 
 Concurrent safety replacements are rechecked, including policy and authority changes. The report and runtime mode are checked again before returning to the signer. Missing, stale, changed or adverse evidence is logged with a distinct safety refusal, rather than mislabeled as a provider outage.
 
+An unsigned final proof miss retains its pending disposition through the executor and uses the existing bounded hydration/retry budget. A genuine adverse finding remains a terminal safety rejection. A transaction that has already been submitted remains a reconciliation liability and cannot enter an ordinary retry as though nothing was sent.
+
 ## 2. Lane qualification and election use the current cycle
 
 The asynchronous advisory sheet could return an empty executable fallback after 2.5 seconds. A trading cycle taking about three seconds could elect from that fallback, then see ready native brains later in the same cycle.
@@ -45,6 +49,8 @@ The asynchronous advisory sheet could return an empty executable fallback after 
 `electionSnapshot8522` computes current local evidence on the trading worker before election. One immutable sheet is pinned across the owner election, ten specialist gates and the CORE/CYCLIC spine. Initial evaluation occurs after the current V3 result is published. Older asynchronous completions cannot overwrite a newer sheet.
 
 Worker reuse remains bounded to 2.5 seconds even when the price is unchanged, since launch age and other eligibility boundaries still move. The UI/advisory path keeps its longer unchanged-input reuse. A mode change during construction produces a non-executable result.
+
+Worker and advisory local builds serialize per mint through their native evaluation and resident READY/LOST publication. The cache is read inside that boundary, so an older asynchronous build cannot erase a newer resident qualification while the sheet still reports it ready. Direct native evaluations share the same guard; unrelated mints progress independently, and idle guards are removed.
 
 `SpecialistMarketInputs8522` supplies both native qualification and the CASHGEN/TREASURY and BLUECHIP entry checks. The actual entry consumes the immutable native read rather than reconstructing it from changing token fields. Inputs include observed price/pressure, fresh signed momentum, canonical birth evidence and real V3 results. Unknown evidence remains unknown. Rejected/blocked V3 placeholders and watchlist-as-birth inputs are removed.
 
@@ -61,6 +67,8 @@ The previous `TokenState.copy()` was shallow. Queued cold captures shared mutabl
 `CortexVoterMemo8522` coalesces lane-independent reads across simultaneous lane captures. Lane-dependent voters remain distinct. A non-core budget abstention in one lane cannot suppress another lane's required seated voter. Supplementing the memo does not mutate an earlier prediction array or refresh its clock.
 
 New assessments use actual read/fusion completion time. Waiting for a shared read or model lock cannot be disguised as a timely prediction. Original decision timestamps, forward targets and late-read exclusions remain unchanged. An incomplete one-hour target is not manufactured into a grade to change the scoreboard.
+
+Hot-cache ordering separately retains the input time. A slow read of an older frozen input cannot overwrite a newer prediction merely because it completed later. Its actual completion time remains intact for the late-read checks.
 
 ## 4. Close replay and diagnostic accuracy
 

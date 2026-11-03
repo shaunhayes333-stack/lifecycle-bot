@@ -89,6 +89,8 @@ object Cortex7885 {
         val scoreVersion8372: Int = CortexForwardEpoch8521.SCORE_VERSION,
         /** The slope-free predictor actually paired with this outcome; never recomputed from a changed lane prior. */
         val calibrationInput8372: Double = Double.NaN,
+        /** Hot-cache ordering only: frozen input time, or read start for a live input. [atMs] remains read completion. */
+        val inputAtMs8522: Long = atMs,
     )
 
     private fun predictionForGrade8076(a: Assessment): CortexLedger7885.PredictionSnapshot8076 =
@@ -120,6 +122,18 @@ object Cortex7885 {
     fun ledgerBytes8309(): Long = ledger.estBytes8309().coerceAtLeast(0L) +
         (try { realLedgers.values.toList() } catch (_: Throwable) { emptyList() }).sumOf { it.estBytes8309().coerceAtLeast(0L) }
     private val assessCache = ConcurrentHashMap<String, Assessment>()
+
+    /** A slow older input may finish last, but cannot replace a newer prediction. Equal input clocks keep the first read. */
+    @Synchronized
+    internal fun publishAssessment8522(key: String, a: Assessment): Assessment {
+        val current = assessCache[key]
+        if (current == null || current.inputAtMs8522 < a.inputAtMs8522) {
+            assessCache[key] = a
+            return a
+        }
+        return current
+    }
+
     private val pending = ConcurrentHashMap<String, Pending>()
 
     // ── V5.0.8443 §A_REDECIDED_COIN_KEEPS_ITS_EARLIER_LABEL ──
@@ -203,7 +217,8 @@ object Cortex7885 {
         try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false }
 
     /** Snapshot + votes + fusion for (ts, lane); cached briefly so the gate and the labeler see one read. */
-    fun assess(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): Assessment? {
+    fun assess(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis(),
+               inputAtMs8522: Long = nowMs): Assessment? {
         if (ts.mint.isBlank() || laneRaw.isBlank()) return null
         val lane = canon(laneRaw)
         val key = "${ts.mint}|$lane"
@@ -255,7 +270,7 @@ object Cortex7885 {
         val readCompletedMs8522 = maxOf(nowMs, System.currentTimeMillis())
         val priceAge = if (freshestAt > 0L) readCompletedMs8522 - freshestAt else Long.MAX_VALUE
         val a = Assessment(lane, runner, raws, ids, edges, regime, fused, calibrated, bucket, raws.count { !it.isFinite() }, priceAge < 0L || priceAge > MARK_STALE_MS, readCompletedMs8522, prediction8076, ev8324,
-            calibrationInput8372 = calibratedRead8325(runner, fused, 1.0))
+            calibrationInput8372 = calibratedRead8325(runner, fused, 1.0), inputAtMs8522 = inputAtMs8522)
         try { CortexInvariants7911.recordProvenance(ts, a.atMs) } catch (_: Throwable) {}
         assessNanos.addAndGet(System.nanoTime() - t0)
         noteAssessMs8187((System.nanoTime() - t0) / 1_000_000.0)
@@ -281,8 +296,8 @@ object Cortex7885 {
                     }
                     if (shadowContext8372 != null) shadowCtx8372[shadowId8372] = shadowContext8372
                 }
-                // A slower read from an older snapshot must not replace a newer cached prediction.
-                if ((assessCache[key]?.atMs ?: Long.MIN_VALUE) <= a.atMs) assessCache[key] = a
+                // Read completion controls causality; input time separately controls cache publication order.
+                publishAssessment8522(key, a)
             }
         }
         try {
@@ -975,7 +990,7 @@ object Cortex7885 {
                                 snap8084: LanePlaybook7907.Classification8084?, sel8153: String?,
                                 ctx: DecisionCtx8144?, source: String, decisionMode8196: String, ticket8397: CortexCaptureOwnership8397.Ticket) {
         if (!captureOwners8397.current(ticket8397)) { inc("CAPTURE_SUPERSEDED_BEFORE_READ_8397"); return }
-        val a = assess(ts, labelLane) ?: run { inc("CAPTURE_COLD_ASSESS_FAILED_8178"); return }
+        val a = assess(ts, labelLane, inputAtMs8522 = decisionAtMs) ?: run { inc("CAPTURE_COLD_ASSESS_FAILED_8178"); return }
         inc("CAPTURE_COLD_READ_8178")
         captureNow(ts.mint, labelLane, admitted, decisionAtMs, reason, snap8084, sel8153, a, ctx?.takeIf { a.lane == canon(labelLane) }, source, decisionMode8196, ticket8397)
         // Timing needs the decision's price: only a read that still preceded the label start opens a timing sample.
@@ -1081,7 +1096,7 @@ object Cortex7885 {
         a.edges.map { it.copyOf() }, a.regime, a.fused.copy(top = a.fused.top.toList()), a.calibratedEdge, a.bucket,
         a.unknownFeatures, a.staleMark, a.atMs,
         a.prediction8076?.let { CortexLedger7885.PredictionSnapshot8076(it.preds.copyOf(), it.pWins.copyOf(), it.base, it.baseWin) },
-        a.tailEv8324, a.scoreVersion8372, a.calibrationInput8372)
+        a.tailEv8324, a.scoreVersion8372, a.calibrationInput8372, a.inputAtMs8522)
 
     private fun detachPending8386(p: Pending): Pending = Pending(detachAssessment8386(p.a), p.legacyAdmitted, p.atMs,
         p.vetoRule, p.source, p.setup7961, p.fired8094.toList()).also {

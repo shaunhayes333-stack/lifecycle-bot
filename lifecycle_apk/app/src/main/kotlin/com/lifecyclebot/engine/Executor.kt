@@ -13799,6 +13799,13 @@ class Executor(
                      com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
         } catch (e: Exception) {
             if (topUpUnresolved8085(ts, wallet, e)) return
+            if (e is BuyRouteSafety8522.Refused) {
+                if (BuyRouteSafety8522.unsignedPending8522(e, null)) {
+                    val retry8522 = deferFinalSafety8522(ts, sol, e, "TOP_UP_FINAL_SIGN")
+                    onLog("⏳ Live top-up deferred: ${retry8522.reason} (${e.reason})", ts.mint)
+                } else onLog("🛡 Live top-up blocked: ${e.reason}", ts.mint)
+                return
+            }
             onLog("Live top-up FAILED: ${security.sanitiseForLog(e.message ?: "unknown")}", ts.mint)
         }
     }
@@ -14055,6 +14062,30 @@ class Executor(
                 if (taxonomy != null) PipelineHealthCollector.labelInc("EXECUTOR_DEFERRED_BUY_TAXONOMY_4433_${taxonomy.category.name}")
             } catch (_: Throwable) {}
         }
+    }
+
+    /** Final-signing proof misses use the existing bounded hydration budget and release no submitted liability. */
+    private fun deferFinalSafety8522(ts: TokenState, sol: Double, refusal: BuyRouteSafety8522.Refused, stage: String,
+                                     leaseKey: String = "", attemptId: String = ""): BuyRouteSafety8522.PendingRetry8522 {
+        val now = System.currentTimeMillis()
+        val retry = BuyRouteSafety8522.pendingRetry8522(safetyProofDeferrals8270[ts.mint].orEmpty(), now)
+        if (safetyProofDeferrals8270.size > 2_000) safetyProofDeferrals8270.clear()
+        if (!retry.exhausted) safetyProofDeferrals8270[ts.mint] = retry.next
+        try { SafetyRefreshQueue.request(ts.mint) } catch (_: Throwable) {}
+        try { SafetyProofPriority8310.noteDeferred8310(ts.mint, refusal.reason) } catch (_: Throwable) {}
+        liveBuyDeferred(ts, sol, retry.reason, "cause=${refusal.reason} stage=$stage deferrals=${retry.priorCount}")
+        if (!retry.exhausted && leaseKey.isNotBlank())
+            ExecutionAttemptLease.releaseNonTerminal(leaseKey, "BUY", ts.mint, ts.symbol, retry.reason)
+        if (attemptId.isNotBlank()) try {
+            ExecutableOpenGate.releaseDeferredLiveClaim7356(attemptId, ts.mint, retry.reason)
+        } catch (_: Throwable) {}
+        try {
+            PipelineHealthCollector.labelInc("LIVE_BUY_DEFERRED_SAFETY_PROOF")
+            ForensicLogger.lifecycle("EXEC_OPEN_DEFERRED_SAFETY_PROOF",
+                "attemptId=$attemptId mint=${ts.mint.take(10)} symbol=${ts.symbol} stage=$stage reason=${refusal.reason} " +
+                    "detail=${refusal.detail.take(160)} exhausted=${retry.exhausted} action=hydrate_then_retry no_live_buy_fail=true")
+        } catch (_: Throwable) {}
+        return retry
     }
 
     private fun terminalizeCanonicalLiveFailure7790(ts: TokenState, reason: String, attemptId8198: String = "") {
@@ -22310,6 +22341,14 @@ class Executor(
             val sentSig7733 = broadcastSig7733 ?: (e as? SolanaWallet.SentButUnconfirmed7733)?.signature
             // Keep unknown submitted liability visible to the outer reservation receipt as well.
             broadcastSig7733 = sentSig7733
+            if (BuyRouteSafety8522.unsignedPending8522(e, sentSig7733)) {
+                val retry8522 = deferFinalSafety8522(ts, sol, e as BuyRouteSafety8522.Refused, "BUY_FINAL_SIGN",
+                    buyLease.key, attemptId.ifBlank { executionContext?.attemptId.orEmpty() }
+                        .ifBlank { ExecutableOpenGate.recentAllowedAttemptIdAnyLane(ts.mint, "LIVE").orEmpty() })
+                liveStage("LIVE_BUY_DEFERRED", "reason=${retry8522.reason} deferrals=${retry8522.priorCount} stage=BUY_FINAL_SIGN")
+                if (retry8522.exhausted) buyTerminalFail(retry8522.reason) else buyTerminalRecorded = true
+                return false
+            }
             if (sentSig7733 == null && e is BuyRouteSafety8522.Refused) {
                 buyTerminalFail("BUY_TERMINAL_${e.reason}")
                 return false
@@ -32204,7 +32243,7 @@ class Executor(
                     intent8085 = com.lifecyclebot.network.SignedTxLedger8085.Intent(ts.mint, "BUY", intentId = submission8397.attemptId, route = "RAYDIUM"),
                     sendObserver8397 = { send ->
                         val route8522 = built.buyRoute8522 ?: throw BuyRouteSafety8522.Refused(
-                            "BUY_ROUTE_POOL_PROOF_PENDING_8522", "Raydium build has no bound quote")
+                            "BUY_ROUTE_POOL_PROOF_PENDING_8522", "Raydium build has no bound quote", LiquidityOwnership8522.Status.PENDING)
                         BuyRouteSafety8522.requireAllowed(ts, route8522, "RAYDIUM_FINAL_SIGN")
                         BuySubmissionReceipt8397.observe8397(submission8397, send).also { sent ->
                             if (sent.isNotBlank()) submittedSig8397 = sent

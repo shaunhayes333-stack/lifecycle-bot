@@ -267,7 +267,9 @@ object SpecialistBrainBridge7542 {
         return bootstrap + residents.intersect(com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.LANES)
     }
 
-    fun evaluate(ts:TokenState):Snapshot{
+    fun evaluate(ts:TokenState):Snapshot = SpecialistBuild8522.local8522(ts.mint) { evaluateLocal8522(ts) }
+
+    private fun evaluateLocal8522(ts:TokenState):Snapshot{
         // V5.0.8399 — a curve token's market cap comes from its own reserves before any specialist judges "mcap unknown".
         // V5.0.8400 §CAPTURED_WITH_THE_TOKEN_AT_DISCOVERY — the one resolver (DiscoveryCapture8400: reserves, price x supply,
         // curve-from-liquidity, else the batched chain read) runs at intake for every source; this is the backstop for a

@@ -21,7 +21,25 @@ object BuyRouteSafety8522 {
         val invalid: String = "",
     )
 
-    class Refused(val reason: String, val detail: String) : IllegalStateException("$reason: $detail")
+    class Refused(val reason: String, val detail: String, val status: LiquidityOwnership8522.Status) :
+        IllegalStateException("$reason: $detail") {
+        init { require(status != LiquidityOwnership8522.Status.PROVEN) }
+    }
+
+    /** Submitted liability belongs to reconciliation; only an unsigned missing proof may be retried. */
+    internal fun unsignedPending8522(error: Throwable, submittedSignature: String?): Boolean =
+        submittedSignature.isNullOrBlank() && error is Refused && error.status == LiquidityOwnership8522.Status.PENDING
+
+    internal data class PendingRetry8522(val priorCount: Int, val exhausted: Boolean, val reason: String, val next: List<Long>)
+
+    /** Same three-deferral/five-minute budget as the earlier PreTradeHardGate path. */
+    internal fun pendingRetry8522(previous: List<Long>, nowMs: Long): PendingRetry8522 {
+        val recent = previous.filter { nowMs - it < 5 * 60_000L }
+        val exhausted = recent.size >= 3
+        return PendingRetry8522(recent.size, exhausted,
+            if (exhausted) "DEFERRED_DATA_SAFETY_PROOF_8270" else "SAFETY_PROOF_PENDING_DEFERRED_8270",
+            if (exhausted) recent else recent + nowMs)
+    }
 
     private fun targetPools(plan: JSONArray?, mint: String, nested: Boolean): Pair<List<String>, String> {
         if (plan == null || plan.length() == 0) return emptyList<String>() to "BUY_ROUTE_POOL_PROOF_PENDING_8522"
@@ -116,14 +134,16 @@ object BuyRouteSafety8522 {
             val before = ts.safety
             val gate = PreTradeHardGate.requireLiveBuyAllowed(ts, callSite,
                 selectedPoolAddressOverride8522 = if (route.rfq) "" else route.pools.firstOrNull())
-            if (!gate.allowed) throw Refused(gate.reason, gate.detail)
+            if (!gate.allowed) throw Refused(gate.reason, gate.detail,
+                if (gate.reason == "DEFER_SAFETY_PROOF") LiquidityOwnership8522.Status.PENDING else LiquidityOwnership8522.Status.BLOCKED)
             val after = ts.safety
             // The gate may legitimately add its just-read mint/freeze account proof. Any
             // other concurrent replacement (including PAPER policy) needs another full gate.
             if (before.copy(mintAuthorityDisabled = after.mintAuthorityDisabled,
                     freezeAuthorityDisabled = after.freezeAuthorityDisabled) == after) return after
         }
-        throw Refused("BUY_FINAL_SAFETY_CHANGED_8522", "safety changed during both final evaluations; retry with current evidence")
+        throw Refused("BUY_FINAL_SAFETY_CHANGED_8522", "safety changed during both final evaluations; retry with current evidence",
+            LiquidityOwnership8522.Status.PENDING)
     }
 
     fun requireAllowed(ts: TokenState, route: Route, callSite: String) {
@@ -144,10 +164,11 @@ object BuyRouteSafety8522 {
                 ForensicLogger.lifecycle("BUY_FINAL_SAFETY_REFUSED_8522",
                     "mint=${ts.mint} site=$callSite route=${route.source} reason=${verdict.reason} detail=${verdict.detail}")
             } catch (_: Throwable) {}
-            throw Refused(verdict.reason, verdict.detail)
+            throw Refused(verdict.reason, verdict.detail, verdict.status)
         }
         if (ts.safety !== report || RuntimeModeAuthority.isPaper())
-            throw Refused("BUY_FINAL_SAFETY_CHANGED_8522", "report or runtime mode changed before signing")
+            throw Refused("BUY_FINAL_SAFETY_CHANGED_8522", "report or runtime mode changed before signing",
+                LiquidityOwnership8522.Status.PENDING)
         try {
             ForensicLogger.lifecycle("BUY_FINAL_SAFETY_PROVEN_8522",
                 "mint=${ts.mint} site=$callSite route=${route.source} pools=${route.pools.joinToString(",")} " +

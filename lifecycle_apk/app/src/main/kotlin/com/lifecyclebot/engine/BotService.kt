@@ -26653,10 +26653,8 @@ if (hotExitHandledSweep) {
         // continued immediately, so current-cycle FDG still saw missing/old safety
         // and live candidates looped through SAFETY_NOT_READY_MISSING. Age-only
         // refreshes remain async below; explicit queue/defer refresh is sync.
-        val explicitSafetyRefresh = !needsFirstCheck && (
-            com.lifecyclebot.engine.SafetyRefreshQueue.consume(canonicalMint) ||
-                com.lifecyclebot.engine.SafetyRefreshQueue.consume(mint)
-        )
+        val explicitSafetyRefresh = com.lifecyclebot.engine.SafetyRefreshQueue.consume(canonicalMint) ||
+            com.lifecyclebot.engine.SafetyRefreshQueue.consume(mint)
         val forceFresh8310 = !needsFirstCheck && SafetyProofPriority8310.forceFresh8310(canonicalMint, explicitSafetyRefresh, ts.safety.checkedAt)  // V5.0.8310
         if (explicitSafetyRefresh) {
             try { ForensicLogger.lifecycle("SAFETY_REFRESH_SYNC_REQUEST", "key=${canonicalMint.take(10)} symbol=${ts.symbol} ageSec=${safetyAge / 1000}") } catch (_: Throwable) {}
@@ -26680,9 +26678,9 @@ if (hotExitHandledSweep) {
                     pairCreatedAtMs = pairCreatedAt,
                     currentLiquidityUsd = resolvedLiquidityUsd,
                     score = ts.entryScore.toInt().coerceIn(0, 100),
-                    maxCacheAgeMs = SafetyProofPriority8310.maxCacheAge8310(forceFresh8310),
+                    maxCacheAgeMs = SafetyProofPriority8310.maxCacheAge8310(forceFresh8310, explicitSafetyRefresh),
                     selectedPoolAddress8522 = safetyPool8522,
-                liquidityObservedAtMs8522 = liquidity8522?.observedAtMs ?: 0L,
+                    liquidityObservedAtMs8522 = liquidity8522?.observedAtMs ?: 0L,
                 )
                 synchronized(ts) {
                     ts.safety       = r

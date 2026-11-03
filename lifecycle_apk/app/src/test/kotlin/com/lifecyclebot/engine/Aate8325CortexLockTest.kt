@@ -48,7 +48,7 @@ class Aate8325CortexLockTest {
         "refreshExecutable8187", "Thread.sleep")
 
     @Test fun assessTakesTheLockOnceAndDoesNoSlowWorkUnderIt() {
-        val assess = fn("fun assess(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): Assessment? {",
+        val assess = fn("fun assess(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis(),",
             "// ── V5.0.8324 §TAIL_EV")
         val blocks = lockedBlocks(assess)
         // V5.0.8372 still fuses exactly once. Its distinct state-only ownership barrier publishes the
@@ -58,7 +58,7 @@ class Aate8325CortexLockTest {
         assertEquals(1, blocks.count { it.contains("ledger.fuseWithSnapshot8324(") })
         val ownership = blocks.single { it.contains("outcomeBook8372.reserve(shadowId8372, a.atMs)") }
         assertTrue(ownership.indexOf("outcomeBook8372.reserve(shadowId8372, a.atMs)") in
-            0 until ownership.indexOf("assessCache[key] = a"))
+            0 until ownership.indexOf("publishAssessment8522(key, a)"))
         assertEquals(2, blocks.count { it.contains("outcomeBook8372.cancelUnopened(shadowId8372)") })
         for (b in blocks) for (k in slow + "ExploreShadow8347")
             assertFalse("assess holds the lock through $k", b.contains(k))

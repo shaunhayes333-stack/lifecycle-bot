@@ -176,11 +176,29 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
 
         internal fun cacheUsable8522(report: SafetyReport, isPaper: Boolean, maxAgeMs: Long, nowMs: Long,
                                     selectedPoolAddress: String? = null): Boolean =
-            report.evaluatedForPaper8522 == isPaper && report.checkedAt > 0L &&
+            maxAgeMs > 0L && report.evaluatedForPaper8522 == isPaper && report.checkedAt > 0L &&
                 (selectedPoolAddress == null || report.evaluatedPool8522 == selectedPoolAddress) &&
                 nowMs - report.checkedAt in 0L..minOf(10 * 60_000L, maxAgeMs.coerceAtLeast(0L)) &&
                 (isPaper || report.topHolderPct < 0.0 || (report.topHolderObservedAtMs8522 > 0L &&
                     nowMs - report.topHolderObservedAtMs8522 in 0L..120_000L))
+
+        /** A forced follower may share new evidence its current owner produced after the request, never the old cache. */
+        internal fun completedRefreshUsable8522(report: SafetyReport, previous: SafetyReport?, requestedAtMs: Long,
+                                                isPaper: Boolean, pool: String, nowMs: Long): Boolean =
+            report !== previous && requestedAtMs > 0L && report.checkedAt >= requestedAtMs &&
+                cacheUsable8522(report, isPaper, 120_000L, nowMs, pool)
+
+        /** A verified major still needs real holder proof; a missing read must not preserve an earlier safe number. */
+        internal fun withHolderObservation8522(report: SafetyReport,
+                observation: com.lifecyclebot.engine.truth.OnChainHolderConcentration7379.Observation8522?,
+                nowMs: Long, maxAgeMs: Long): SafetyReport {
+            val usable = observation?.takeIf {
+                com.lifecyclebot.engine.truth.OnChainHolderConcentration7379.usable8522(it, nowMs, maxAgeMs)
+            }
+            return report.copy(topHolderPct = usable?.pct ?: -1.0,
+                topHolderObservedAtMs8522 = usable?.observedAtMs ?: 0L,
+                topHolderSource8522 = if (usable != null) "RPC_TOP10" else "")
+        }
 
         /** Refreshing liquidity never refreshes the risk/ownership report. A new zero is meaningful evidence. */
         internal fun withLiquidityObservation8522(report: SafetyReport, usd: Double, observedAtMs: Long,
@@ -346,25 +364,10 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         selectedPoolAddress8522: String = "",
         liquidityObservedAtMs8522: Long = 0L,
     ): SafetyReport {
+        val requestedAtMs8522 = System.currentTimeMillis()
+        val previousAtRequest8522 = cache[mint]
         val isPaperMode = currentPaperMode8522()
         val policyKey8522 = "$mint:${if (isPaperMode) "paper" else "live"}:$selectedPoolAddress8522"
-        if (mint in WHITELISTED_MINTS) {
-            val safeReport = SafetyReport(
-                tier = SafetyTier.SAFE,
-                summary = "✅ VERIFIED: $symbol is a whitelisted major token",
-                checkedAt = System.currentTimeMillis(),
-                rugcheckStatus = "WHITELISTED",
-                liqConfirmed = currentLiquidityUsd.isFinite() && currentLiquidityUsd > 0 && selectedPoolAddress8522.isNotBlank() &&
-                    liquidityObservedAtMs8522 > 0L && System.currentTimeMillis() - liquidityObservedAtMs8522 in 0L..120_000L,
-                evaluatedForPaper8522 = isPaperMode,
-                evaluatedPool8522 = selectedPoolAddress8522,
-                liquidityObservedUsd8522 = currentLiquidityUsd.takeIf { it.isFinite() && it >= 0.0 } ?: -1.0,
-                liquidityObservedAtMs8522 = liquidityObservedAtMs8522,
-                liquidityObservedPool8522 = selectedPoolAddress8522,
-            )
-            cache[mint] = safeReport
-            return safeReport
-        }
 
         val cached = cache[mint]?.takeIf { cacheUsable8522(it, isPaperMode, maxCacheAgeMs, System.currentTimeMillis(), selectedPoolAddress8522) }
         if (cached != null && !cached.isStale) {
@@ -422,7 +425,11 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                 }
             }
             // First caller should have populated `cache`. If they did, return it.
-            val populated = cache[mint]?.takeIf { cacheUsable8522(it, isPaperMode, maxCacheAgeMs, System.currentTimeMillis(), selectedPoolAddress8522) }
+            val populated = cache[mint]?.takeIf {
+                if (maxCacheAgeMs <= 0L) completedRefreshUsable8522(it, previousAtRequest8522, requestedAtMs8522,
+                    isPaperMode, selectedPoolAddress8522, System.currentTimeMillis())
+                else cacheUsable8522(it, isPaperMode, maxCacheAgeMs, System.currentTimeMillis(), selectedPoolAddress8522)
+            }
             if (populated != null) {
                 val withLiquidity = withLiquidityObservation8522(populated, currentLiquidityUsd, liquidityObservedAtMs8522,
                     selectedPoolAddress8522, System.currentTimeMillis())
@@ -436,6 +443,27 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         }
 
         try {
+
+        if (mint in WHITELISTED_MINTS) {
+            val holderMaxAge8522 = if (isPaperMode) Long.MAX_VALUE else 120_000L
+            val holder8522 = com.lifecyclebot.engine.truth.OnChainHolderConcentration7379.observation8522(mint, holderMaxAge8522)
+            val safeReport = withHolderObservation8522(SafetyReport(
+                tier = SafetyTier.SAFE,
+                summary = "✅ VERIFIED: $symbol is a whitelisted major token",
+                checkedAt = requestedAtMs8522,
+                rugcheckStatus = "WHITELISTED",
+                liqConfirmed = currentLiquidityUsd.isFinite() && currentLiquidityUsd > 0 && selectedPoolAddress8522.isNotBlank() &&
+                    liquidityObservedAtMs8522 > 0L && System.currentTimeMillis() - liquidityObservedAtMs8522 in 0L..120_000L,
+                evaluatedForPaper8522 = isPaperMode,
+                evaluatedPool8522 = selectedPoolAddress8522,
+                liquidityObservedUsd8522 = currentLiquidityUsd.takeIf { it.isFinite() && it >= 0.0 } ?: -1.0,
+                liquidityObservedAtMs8522 = liquidityObservedAtMs8522,
+                liquidityObservedPool8522 = selectedPoolAddress8522,
+            ), holder8522, System.currentTimeMillis(), holderMaxAge8522)
+            cache[mint] = safeReport
+            try { TicketRetry8327.onProofLanded8330(mint) } catch (_: Throwable) {}
+            return safeReport
+        }
 
         val hard = mutableListOf<String>()
         val soft = mutableListOf<Pair<String, Int>>()

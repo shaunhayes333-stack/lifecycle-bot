@@ -8,8 +8,8 @@ import com.lifecyclebot.network.RaydiumMintPools8128
 
 /** Liquidity supplied to safety must be a dated observation of this venue, never a cap-derived estimate. */
 object SafetyLiquidity8522 {
-    const val MAX_POOL_AGE_MS = 120_000L
-    const val MAX_CURVE_AGE_MS = 30_000L
+    private const val MAX_POOL_AGE_MS = 120_000L
+    private const val MAX_CURVE_AGE_MS = 30_000L
 
     data class Observation(val usd: Double, val observedAtMs: Long, val poolAddress: String, val source: String)
 

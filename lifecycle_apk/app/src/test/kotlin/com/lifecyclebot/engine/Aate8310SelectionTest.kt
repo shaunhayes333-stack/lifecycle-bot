@@ -89,6 +89,7 @@ class Aate8310SelectionTest {
         assertTrue(SafetyProofPriority8310.cacheUsable8310(now - 60_000L, SafetyProofPriority8310.LIVE_PROOF_MAX_AGE_MS_8310, now))
         assertFalse(SafetyProofPriority8310.cacheUsable8310(now - 300_000L, SafetyProofPriority8310.LIVE_PROOF_MAX_AGE_MS_8310, now))
         assertFalse(SafetyProofPriority8310.cacheUsable8310(0L, SafetyProofPriority8310.LIVE_PROOF_MAX_AGE_MS_8310, now))
+        assertFalse(SafetyProofPriority8310.cacheUsable8310(now, SafetyProofPriority8310.maxCacheAge8310(true), now))
         // the window is inside the buy door's own freshness (PreTradeHardGate SAFETY_FRESH_MS = 120 s)
         assertTrue(SafetyProofPriority8310.LIVE_PROOF_MAX_AGE_MS_8310 < 120_000L)
     }
@@ -117,7 +118,7 @@ class Aate8310SelectionTest {
         assertFalse(SafetyProofPriority8310.heliusFirst8310(""))
         val bot = src("engine/BotService.kt")
         assertTrue(bot.contains("SafetyProofPriority8310.forceFresh8310(canonicalMint, explicitSafetyRefresh, ts.safety.checkedAt)"))
-        assertTrue(bot.contains("maxCacheAgeMs = SafetyProofPriority8310.maxCacheAge8310(forceFresh8310)"))
+        assertTrue(bot.contains("maxCacheAgeMs = SafetyProofPriority8310.maxCacheAge8310(forceFresh8310, explicitSafetyRefresh)"))
         assertTrue(bot.contains("if (needsFirstCheck || explicitSafetyRefresh || forceFresh8310) {"))
         val pre = src("engine/PreTradeHardGate.kt")
         assertTrue(pre.contains("SafetyProofPriority8310.noteDeferred8310(ts.mint, reason)"))
