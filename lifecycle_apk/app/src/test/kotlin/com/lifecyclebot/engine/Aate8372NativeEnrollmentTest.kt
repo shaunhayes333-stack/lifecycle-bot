@@ -92,8 +92,8 @@ class Aate8372NativeEnrollmentTest {
     @Test fun completeNativeSnapshotIsPublishedBeforeLearningOrShadowReadsIt() {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/SpecialistBrainBridge7542.kt").readText()
         val publish = src.indexOf("cache[ts.mint] = Cached(snapshot8372)")
-        val enroll = src.indexOf("DecisionReasons8031.nativeVerdicts8031(ts, snapshot8372.opinions.values)")
-        val shadow = src.indexOf("ExploreShadow8347.onOpinions8347(ts, snapshot8372.opinions, now)")
+        val enroll = src.indexOf("DecisionReasons8031.nativeVerdicts8031(ts, snapshot8372.originalOpinions8522.values)")
+        val shadow = src.indexOf("ExploreShadow8347.onOpinions8347(ts, snapshot8372.originalOpinions8522, now)")
         assertTrue("A complete decision is cached before observers read it", publish >= 0 && publish < enroll && publish < shadow)
         assertTrue(src.contains("return snapshot8372.also"))
     }
