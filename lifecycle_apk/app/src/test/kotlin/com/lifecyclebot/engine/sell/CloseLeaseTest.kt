@@ -2,6 +2,10 @@ package com.lifecyclebot.engine.sell
 
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import org.junit.Test
 
 /** V5.9.1568 — retryable sell failures must not hold the close lease until 10m TTL. */
@@ -16,5 +20,31 @@ class CloseLeaseTest {
         val second = CloseLease.acquire(mint, "LEASE", "STOP_LOSS")
         assertNotNull("retryable lease must re-enter after backoff, not wait for TTL", second)
         CloseLease.release(mint, "TEST_DONE")
+    }
+
+    @Test fun earlier_fast_retry_replaces_later_backoff_but_never_duplicates_an_earlier_timer() {
+        val now = 100_000L
+        assertTrue(CloseLease.earlierRetryDue8520(null, now + 250L, now))
+        assertTrue(CloseLease.earlierRetryDue8520(now + 10_000L, now + 250L, now))
+        assertFalse(CloseLease.earlierRetryDue8520(now + 250L, now + 10_000L, now))
+        assertFalse(CloseLease.earlierRetryDue8520(now + 250L, now + 250L, now))
+    }
+
+    @Test fun pre_route_short_clock_preempts_a_pending_slow_emergency_retry() {
+        val mint = "MintEmergency8520${System.nanoTime()}"
+        val previous = CloseLease.emergencyHandoff8087
+        val fired = CountDownLatch(1)
+        try {
+            CloseLease.emergencyHandoff8087 = { m, _ -> if (m == mint) fired.countDown() }
+            assertNotNull(CloseLease.acquire(mint, "STOP", "RAPID_CATASTROPHE_STOP"))
+            CloseLease.scheduleBackoff(mint, "503")
+            CloseLease.recordRetry(mint, "RETRYABLE")
+            CloseLease.recordPreRouteWait8288(mint)
+            assertTrue("fast pre-route retry should not inherit the earlier 4s backoff timer",
+                fired.await(2L, TimeUnit.SECONDS))
+        } finally {
+            CloseLease.release(mint, "TEST_DONE")
+            CloseLease.emergencyHandoff8087 = previous
+        }
     }
 }
