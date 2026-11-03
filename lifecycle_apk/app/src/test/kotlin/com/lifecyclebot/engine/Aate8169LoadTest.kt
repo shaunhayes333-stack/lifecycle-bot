@@ -99,8 +99,8 @@ class Aate8169LoadTest {
         // Keep pruning immediately after publication, before either learning or shadow reads that snapshot.
         val publish = b.indexOf("cache[ts.mint] = Cached(snapshot8372)")
         val prune = b.indexOf("pruneOnInsert8169(now)", publish.coerceAtLeast(0))
-        val enroll = b.indexOf("DecisionReasons8031.nativeVerdicts8031(ts, snapshot8372.opinions.values)")
-        val shadow = b.indexOf("ExploreShadow8347.onOpinions8347(ts, snapshot8372.opinions, now)")
+        val enroll = b.indexOf("DecisionReasons8031.nativeVerdicts8031(ts, snapshot8372.originalOpinions8522.values)")
+        val shadow = b.indexOf("ExploreShadow8347.onOpinions8347(ts, snapshot8372.originalOpinions8522, now)")
         assertTrue("The complete snapshot must be published before pruning", publish >= 0 && prune > publish)
         assertTrue("Pruning stays ahead of every observer", prune < enroll && prune < shadow)
     }
