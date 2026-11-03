@@ -8,7 +8,8 @@ import java.io.File
 
 class Aate8522V3ScorerParityTest {
     @Test fun candidateCarriesTheExactV3StrategyLaneKey() {
-        val ts = TokenState("v3-lane-8522")
+        val ts = TokenState("11111111111111111111111111111112")
+        com.lifecyclebot.engine.truth.AdmissionBirth8144.noteChainMintInit8179(ts.mint, System.currentTimeMillis() - 60_000L)
         ts.position.tradingMode = "BLUE_CHIP"
         val snap = V3Adapter.toCandidate(ts)
         assertEquals("BLUECHIP", snap.extraString("lane"))
@@ -16,7 +17,8 @@ class Aate8522V3ScorerParityTest {
     }
 
     @Test fun defaultV3TrunkDoesNotBorrowAnotherSpecialistsHistory() {
-        val ts = TokenState("v3-default-8522")
+        val ts = TokenState("11111111111111111111111111111113")
+        com.lifecyclebot.engine.truth.AdmissionBirth8144.noteChainMintInit8179(ts.mint, System.currentTimeMillis() - 60_000L)
         ts.position.tradingMode = ""
         val snap = V3Adapter.toCandidate(ts)
         assertEquals("STANDARD", snap.extraString("tradingMode"))
