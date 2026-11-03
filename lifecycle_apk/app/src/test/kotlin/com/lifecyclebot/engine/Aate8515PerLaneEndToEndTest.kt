@@ -127,18 +127,4 @@ class Aate8515PerLaneEndToEndTest {
         assertTrue("a developing run on its pullback", LiveEdgeGate7877.offTheHigh8516(0.88))
         assertTrue(LiveEdgeGate7877.grabLaneEarly8418(true, 95.0, 20.0))  // the early-run bound itself is unchanged
     }
-
-    @Test fun matureSwingLanesTradeWithoutALaunchPhaseButLaunchDesksStillNeedOne() {
-        val r = TokenMetricStageRouter
-        fun snap(stage: TokenMetricStageRouter.Stage, liq: Double = 40_000.0, buy: Double = 58.0, ml: Double = 20.0) =
-            TokenMetricStageRouter.Snapshot(stage, 600.0, 0.85, 15.0, 30.0, buy, 100.0 - buy, liq, liq * ml, ml, 8.0, "fixture")
-        for (lane in listOf("QUALITY", "BLUECHIP", "TREASURY", "CORE")) {
-            assertTrue(lane, r.matureSwingFit8517(lane, snap(TokenMetricStageRouter.Stage.NO_SETUP)))
-            assertFalse("$lane thin pool", r.matureSwingFit8517(lane, snap(TokenMetricStageRouter.Stage.NO_SETUP, liq = 5_000.0)))
-            assertFalse("$lane sellers in charge", r.matureSwingFit8517(lane, snap(TokenMetricStageRouter.Stage.NO_SETUP, buy = 45.0)))
-            assertFalse("$lane bloated mcap/liq", r.matureSwingFit8517(lane, snap(TokenMetricStageRouter.Stage.NO_SETUP, ml = 120.0)))
-        }
-        for (lane in listOf("SHITCOIN", "EXPRESS", "MOONSHOT", "PROJECT_SNIPER", "MANIPULATED"))
-            assertFalse("$lane launch desk needs a phase", r.matureSwingFit8517(lane, snap(TokenMetricStageRouter.Stage.NO_SETUP)))
-    }
 }

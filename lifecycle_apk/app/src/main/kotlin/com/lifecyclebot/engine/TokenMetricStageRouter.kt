@@ -407,19 +407,11 @@ object TokenMetricStageRouter {
                 lane == "DIP_HUNTER" && s.drawdownFromPeakPct >= 25.0
             Stage.FRESH_LAUNCH, Stage.BASE_START, Stage.MID_ACCUMULATION, Stage.CONTROLLED_MARKUP ->
                 lane in LANE_STAGE_SHEET_7928.getValue(s.stage)
-            // V5.0.8517 — a mature swing coin has no launch phase by design: NO_SETUP is its normal read, not a missing trigger.
-            // 8516 live: QUALITY 716 / TREASURY 144 / BLUECHIP 114 qualified coins died on NO_PHASE_TRIGGER (refused forward
-            // n6 -1.5 % wr33 %: not protecting). Same deep-liquidity / participation proof the UNKNOWN read already carries.
-            Stage.NO_SETUP, Stage.UNKNOWN -> matureSwingFit8517(lane, s)
+            Stage.NO_SETUP -> false
+            Stage.UNKNOWN -> lane in setOf("QUALITY", "BLUECHIP", "TREASURY", "STANDARD", "CORE", "V3") && s.liquidityUsd >= 12_000.0 && s.mcapToLiq <= 65.0 && s.buyPressurePct >= 52.0
         }
         return LaneFit(allowed, lane, s.stage, s.compact)
     }
-
-    internal val MATURE_SWING_LANES_8517 = setOf("QUALITY", "BLUECHIP", "TREASURY", "STANDARD", "CORE", "V3")
-
-    /** Pure (V5.0.8517): a mature swing coin with deep liquidity and buyers in charge is tradeable without a launch phase. */
-    internal fun matureSwingFit8517(lane: String, s: Snapshot): Boolean =
-        lane in MATURE_SWING_LANES_8517 && s.liquidityUsd >= 12_000.0 && s.mcapToLiq <= 65.0 && s.buyPressurePct >= 52.0
 
     /** The live meme lane needs both a resolved phase and current participation at selection and again before sealing. */
     internal fun memeEntry8506(lane: String, mint: String): Boolean =
@@ -435,9 +427,9 @@ object TokenMetricStageRouter {
     internal fun entryWait8506(fit: LaneFit, flow: EntryFlow8506?): String? = when {
         fit.stage == Stage.RUG_PRONE -> "RUG_PRONE"
         flow == null -> "FLOW_UNOBSERVED"
-        fit.stage == Stage.UNKNOWN && !(fit.allowed && fit.lane in MATURE_SWING_LANES_8517) -> "STAGE_UNRESOLVED"
+        fit.stage == Stage.UNKNOWN -> "STAGE_UNRESOLVED"
         !flow.active -> "NO_BUY_VOLUME"
-        fit.stage == Stage.NO_SETUP && !(fit.allowed && fit.lane in MATURE_SWING_LANES_8517) -> "NO_PHASE_TRIGGER"
+        fit.stage == Stage.NO_SETUP -> "NO_PHASE_TRIGGER"
         fit.stage in setOf(Stage.DUMPING, Stage.PEAK_EXHAUSTION) && !fit.allowed -> "NO_RECLAIM"
         fit.lane in setOf("EXPRESS", "MOONSHOT", "SHITCOIN", "PROJECT_SNIPER", "MANIPULATED") &&
             flow.move <= 0.0 && flow.buyPct <= 50.0 -> "NO_IGNITION"
