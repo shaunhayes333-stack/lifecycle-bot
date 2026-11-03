@@ -1340,7 +1340,7 @@ class GoldenTapeRegressionTest {
         assertTrue(forensics.contains("EXEC_LIVE_SELL_ROUTE_FAILED_NO_SIGNATURE"))
 
         // SellResult.WAITING_BALANCE_PROOF must exist and be handled.
-        assertTrue(exec.contains("WAITING_BALANCE_PROOF,"))
+        assertEquals("WAITING_BALANCE_PROOF", Executor.SellResult.WAITING_BALANCE_PROOF.name)
         assertTrue(exec.contains("SellResult.WAITING_BALANCE_PROOF ->"))
         // requestSell short-circuits on the wait state, no lease re-acquired.
         assertTrue(exec.contains("BalanceProofWaitState.isWaiting(ts.mint)"))
@@ -2057,9 +2057,15 @@ class GoldenTapeRegressionTest {
         assertFalse("header must not unconditionally guess ACTIVE without consulting runtime authority",
             pipe.contains("val state = if (blockedMs > 0 && ageSec in 0..120) {"))
 
-        // Fault #1 — manual stop finalizes persistence and onDestroy must not re-save stale rows.
+        // 8521 retains unresolved lots after Stop. Manual onDestroy must not
+        // overwrite that snapshot with stale rows or erase pending ownership.
         assertTrue(svc.contains("var persistenceFinalizedByStop = false"))
-        assertTrue(svc.contains("persistenceFinalizedByStop = true"))
+        val stop = svc.substringAfter("fun stopBot(").substringBefore("private fun scheduleFreshStartAfterStop6518")
+        assertTrue(stop.contains("PositionPersistence.saveAllPositions(remaining, force = true)"))
+        assertFalse(stop.contains("PositionPersistence.clear()"))
+        assertFalse(stop.contains("status.tokens.clear()"))
+        assertTrue(stop.indexOf("PositionPersistence.saveAllPositions(remaining, force = true)") < stop.indexOf("stopSelf()"))
+        assertTrue(stop.contains(".putBoolean(KEY_MANUAL_STOP_REQUESTED, operatorStop7928 && !userStartQueuedDuringStop)"))
         assertTrue(svc.contains("ONDESTROY_SAVE_SUPPRESSED"))
         // The unconditional crash-recovery save must now be guarded.
         assertTrue(svc.contains("if (!persistenceFinalizedByStop && !isManualStopRequested(applicationContext)) {"))
@@ -10947,8 +10953,9 @@ class GoldenTapeRegressionTest {
     @Test
     fun V5_0_7293_dexpaprika_candles_lab_paper_promotion_and_starved_lanes_get_slots() {
         val feed = java.io.File("src/main/kotlin/com/lifecyclebot/network/SolanaOhlcvFeed6916.kt").readText()
-        assertTrue(feed.contains("https://api.dexpaprika.com/networks/solana"))
-        assertTrue(feed.contains("val paprika7293 = fetchDexPaprika7293(mint, poolHint, timeframeLabel, n)"))
+        // 8521 withdraws pair-ratio OHLCV; the keyless history path explicitly requests this token in USD.
+        assertFalse(feed.contains("fetchDexPaprika7293"))
+        assertTrue(feed.contains("currency=usd&token=$" + "mint&include_empty_intervals=false"))
         assertEquals(8, com.lifecyclebot.engine.lab.LlmLabStore.MIN_TRADES_FOR_PAPER_PROMOTION_7293)
         assertEquals(30, com.lifecyclebot.engine.lab.LlmLabStore.MIN_TRADES_BEFORE_PROMOTION)
         val trader = java.io.File("src/main/kotlin/com/lifecyclebot/engine/lab/LlmLabTrader.kt").readText()
@@ -10988,9 +10995,15 @@ class GoldenTapeRegressionTest {
     @Test
     fun V5_0_7295_dexpaprika_failures_are_named_and_unindexed_hint_pools_fall_back() {
         val feed = java.io.File("src/main/kotlin/com/lifecyclebot/network/SolanaOhlcvFeed6916.kt").readText()
-        assertTrue(feed.contains("DEXPAPRIKA_HTTP_\${resp.code}_7295"))
-        assertTrue(feed.contains("paprikaHintRejected7295[mint] = System.currentTimeMillis()"))
-        assertTrue(feed.contains("java.time.Instant.ofEpochSecond(startSec).toString()"))
+        // Preserve failure attribution and the local fallback without restoring unconverted ratio bars.
+        assertTrue(feed.contains("ApiHealthMonitor.record(HOST, resp.code, System.currentTimeMillis() - started)"))
+        assertTrue(feed.contains("if (!resp.isSuccessful) return Fetched6982(null, askedProvider = true, failed8078 = true)"))
+        val failed = feed.substringAfter("val json = candles6982.json ?: run {").substringBefore("val list = try {")
+        assertTrue(failed.contains("if (candles6982.failed8078) providerErrors8078.incrementAndGet()"))
+        assertTrue(failed.contains("return localTapeCandles8285(mint, timeframeLabel, n, now) ?: emptyList()"))
+        assertFalse(failed.contains("negativeCache["))
+        val prices = java.io.File("src/main/kotlin/com/lifecyclebot/network/DexscreenerApi.kt").readText()
+        assertTrue(prices.contains("fetchDexPaprikaToken6512(tokenAddress)"))
     }
 
     @Test
@@ -11238,7 +11251,10 @@ class GoldenTapeRegressionTest {
         assertFalse(bs.contains("            if (qty <= 1.0) {\n                try { ForensicLogger.lifecycle(\"TOKEN_STATE_REHYDRATE_SKIPPED_TERMINAL_DUST\""))
         assertFalse(bs.contains("                if (bal <= 1.0) {"))
         assertFalse(bs.contains("                if (qty < 1.0) return@forEach"))
-        assertTrue(bs.contains("val shouldReap = (isPaperReap && prevWasManualStop && persistedBefore > 0) || massGhost"))
+        // A previous Stop or a large inventory count is not terminal proof in either mode.
+        assertFalse(bs.contains("val MASS_GHOST_THRESHOLD = 20"))
+        assertFalse(bs.contains("val shouldReap = (isPaperReap && prevWasManualStop && persistedBefore > 0) || massGhost"))
+        assertTrue(bs.contains("val restoredCount = PositionPersistence.restorePositions(tokensCopy)"))
         assertTrue(bs.contains("GHOST_REAP_SKIPPED_WALLET_HELD_7309"))
     }
 
@@ -15120,8 +15136,9 @@ class GoldenTapeRegressionTest {
         val veto = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/MissingMarkExitVeto6835.kt").readText()
         val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(veto.contains("STOP_LOSS_ALIAS_7836.containsMatchIn(reason)"))
-        assertTrue(executor.contains("identity: TradeIdentity? = null, freshnessChecked7836: Boolean = false): SellResult {"))
-        assertTrue(executor.contains("return paperSell(ts, reason, tradeId, freshnessChecked7836 = true)"))
+        assertTrue(executor.contains("freshnessChecked7836: Boolean = false, expectedPositionId8521: String? = null): SellResult {"))
+        assertTrue(executor.contains("return paperSell(ts, reason, tradeId, freshnessChecked7836 = true, expectedPositionId8521 = expectedPositionId8521)"))
+        assertTrue(executor.contains("if (!selectedPositionMatches8521(ts, expectedPositionId8521, true)) return SellResult.FAILED_RETRYABLE"))
         assertTrue(veto.contains("val priceBased = !independentSafety &&"))
         assertTrue(veto.contains("markAgeMs > MARK_MAX_AGE_MS"))
         assertTrue(executor.contains("val checked8521 = freshExitDecision8521(ts, reason)"))
@@ -15730,11 +15747,18 @@ class GoldenTapeRegressionTest {
     @Test
     fun V5_0_8511_stage_wait_yields_to_supported_setup_and_binds_like_every_door() {
         val c = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CandidateAdmission8136.kt").readText()
-        val wait = c.indexOf("val supported8511 = bestSetup8153(c)")
-        assertTrue(wait > 0)
+        val comparison = c.indexOf("val bestSetup = bestSetup8153(c)")
+        val wait = c.indexOf("if (c.live && c.entryWait8506 != null)")
+        assertTrue(comparison in 1 until wait)
+        assertTrue(c.contains("val supported8511 = bestSetup"))
         assertTrue(c.contains("if (supported8511 == null && doorBinds8393(\"ENTRY_\${wait}_8506\"))"))
         assertTrue(wait < c.indexOf("val cellSupported = supported8136(liveCellProof8290, c.costPct)"))
-        assertTrue(c.indexOf("return done(Terminal8136.DEFER_DATA, \"DATA_INCOMPLETE_DEFER_8136\"") < wait)
+        assertTrue(c.contains("if (missing != null && !fastTrack8520 && bestSetup == null)"))
+        Aate8521SetupAdmissionContinuityTest().apply {
+            everyLaneCanEvaluateItsObservedSupportedSetupBeforeAnOptionalContextDeferral()
+            missingRequiredSetupInputsLeaveNoFiredEvidenceAndStillDefer()
+            supportedAlternativeStillNeedsItsOwnEconomicsAndCriticalExecutionFacts()
+        }
     }
 
     @Test

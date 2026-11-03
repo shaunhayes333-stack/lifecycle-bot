@@ -96,11 +96,18 @@ class Aate8153LearningTest {
         assertTrue(LearningEntryTruth8153.lateFirstPrice8153(61_000L, 60_000L))
         assertTrue(LearningEntryTruth8153.lateFirstPrice8153(5L * 60_000L, 60_000L))
         assertFalse(LearningEntryTruth8153.lateFirstPrice8153(5L * 60_000L, 0L))
-        // Wiring: the labeler flags it where the re-base window is decided; the Cortex consumes it at the 5-minute label.
+        // Wiring: source time decides the fill window, even when its delivery is delayed. The flag survives recovery.
         val fl = src("engine/truth/ForwardReturnLabeler7731.kt")
-        val rebase = fl.substringAfter("o.rebased8076 = true").substringBefore("o.basis8386 = o.basis8386.rebase(mark8386)")
-        assertTrue(rebase.contains("LearningEntryTruth8153.lateFirstPrice8153(age, REBASE_MAX_MS_8076)) noteLateFirstPrice8153(o.mint, o.lane, o.atMs, nowMs)"))
-        assertTrue(rebase.indexOf("noteLateFirstPrice8153") < rebase.indexOf("if (mark8386.observedAtMs - o.atMs <= REBASE_MAX_MS_8076"))
+        val rebase = fl.substringAfter("if (!o.rebased8076 && age >= REBASE_MIN_MS_8076)")
+            .substringBefore("o.basis8386 = o.basis8386.rebase(mark8386)")
+        assertTrue(rebase.contains("LearningEntryTruth8153.lateFirstPrice8153(mark8386.observedAtMs - o.atMs, REBASE_MAX_MS_8076)"))
+        assertTrue(rebase.contains("o.lateEntry8521 = true"))
+        assertTrue(rebase.indexOf("noteLateFirstPrice8153(o.mint, o.lane, o.atMs, nowMs)") in 0 until
+            rebase.indexOf("if (mark8386.observedAtMs - o.atMs <= REBASE_MAX_MS_8076"))
+        val recovered = fl.substringAfter("private fun recoveredHorizon8397(").substringBefore("val gross =")
+        assertTrue(recovered.contains("if (!entryFill8521(o))"))
+        assertTrue(recovered.contains("o.lateEntry8521 = true"))
+        assertTrue(recovered.contains("noteLateFirstPrice8153(o.mint, o.lane, o.atMs, nowMs)"))
         val cx = src("engine/cortex/Cortex7885.kt")
         assertTrue(cx.contains("ForwardReturnLabeler7731.lateFirstPrice8153(mint, labelLane, atMs)"))
         assertTrue(cx.contains("gradeBook8144.markLateEntry8153(\"\$key|\$atMs\")"))

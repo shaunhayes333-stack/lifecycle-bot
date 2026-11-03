@@ -225,9 +225,12 @@ class Aate8285TapeProvidersTest {
         assertEquals(30_000L, l.cooldownMs8285(0)); assertEquals(60_000L, l.cooldownMs8285(1)); assertEquals(600_000L, l.cooldownMs8285(9))
         assertTrue(l.statusLine8285(now).contains("dexpaprika:disabled403"))
         l.resetForTests8285()
-        // the keyless feed's own DexPaprika latch on 401/402/403 stands
+        // 8521: pair-ratio/paid DexPaprika OHLCV is never requested as USD history.
+        // Independent provider backoff above remains; Gecko still uses its own pacing lane.
         val f = src("network/SolanaOhlcvFeed6916.kt")
-        assertTrue(f.contains("resp.code in setOf(401, 402, 403)"))
+        assertFalse(f.contains("fetchDexPaprika7293"))
+        assertFalse(f.contains("PAPRIKA_BASE_7293"))
+        assertTrue(f.contains("currency=usd&token=\$mint&include_empty_intervals=false"))
         assertTrue(f.contains("pace8285(code)  // V5.0.8285 — adaptive pacing + this provider's own lane backoff"))
     }
 

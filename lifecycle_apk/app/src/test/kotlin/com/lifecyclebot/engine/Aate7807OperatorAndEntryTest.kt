@@ -85,10 +85,24 @@ class Aate7807OperatorAndEntryTest {
 
     @Test fun mainPanelShowsProtectiveInventoryWithoutHidingFooter() {
         val ui = src("ui/MainActivity.kt")
+        val canonicalGate = ui.substringAfter("val canonical7253 =")
+            .substringBefore("canonical7253 &&")
+        val paperRender = ui.substringAfter("private fun renderPaperPortfolio8521(")
+            .substringBefore("private fun openPaperPosition8521(")
+        val liveRender = ui.substringAfter("private fun renderOpenPositions(")
         assertTrue(ui.contains("OPENPOS_ROW_CAP: Int = 20"))
         assertTrue(ui.contains("OpenPositionPanel7807.protectiveRowsNotShown7807("))
-        assertTrue(ui.contains("val canonical7253 = ts.mint in protectiveMints7807 ||"))
-        assertTrue(ui.contains("openPanelFooter7807(positions, laneHeld)"))
+        assertTrue(canonicalGate.contains("if (isPaperMode)"))
+        assertTrue(canonicalGate.contains(".isCurrentPaperOpen8521(ts)"))
+        assertTrue(canonicalGate.contains("else ts.mint in protectiveMints7807 ||"))
+        assertTrue(canonicalGate.contains(".isRuntimeOpenEligible6636(ts.mint, ts.position)"))
+        // PAPER owns a complete portfolio footer; returning to LIVE forces a
+        // render and restores its protective-inventory footer's visibility.
+        assertTrue(paperRender.contains("lastOpenPosHash = -1"))
+        assertTrue(liveRender.contains("if (renderPaperPortfolio8521(positions)) return"))
+        assertTrue(liveRender.contains("openPanelFooter7807(positions, laneHeld)"))
+        assertTrue(liveRender.contains("footer.visibility = android.view.View.VISIBLE"))
+        assertTrue(src("ui/PaperPortfolioRows8521.kt").contains("View all \${rows.size} positions"))
         assertFalse(ui.contains("\"Showing \${positions.size}; managed total"))
         assertTrue(ui.contains("cached.markTv7807?.text = markLine7807"))
         assertTrue(ui.contains("basis7807.ordinal * 101 +"))

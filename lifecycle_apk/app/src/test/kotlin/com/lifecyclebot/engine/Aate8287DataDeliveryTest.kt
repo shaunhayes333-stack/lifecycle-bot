@@ -332,8 +332,14 @@ class Aate8287DataDeliveryTest {
         val request = hyd.substringAfter("fun request(mint: String) {").substringBefore("// V5.0.8265")
         assertFalse("a birth is a decision input, not a report-only side effect", request.contains("ChokeReliefBus.launch"))
         assertTrue(request.contains("pool8287.execute(Walk8287(m))"))
-        assertTrue(hyd.contains("(ex.queue.poll() as? Walk8287)?.let { inFlight.remove(it.mint); dropped8287.incrementAndGet() }"))
-        assertTrue(hyd.contains("finally { TokenBirthHydrator7441.inFlight.remove(mint) }"))
+        // 8509: newest walks run first, so the oldest queued walk is the deque's tail.
+        assertTrue(hyd.contains("NewestFirstQueue8509(POOL_QUEUE_8287)"))
+        val rejection = hyd.substringAfter("private val dropOldest8287 =").substringBefore("private val pool8287 =")
+        assertTrue(rejection.contains("val evicted = (ex.queue as? java.util.concurrent.LinkedBlockingDeque<Runnable>)?.pollLast() ?: ex.queue.poll()"))
+        assertTrue(rejection.contains("(evicted as? Walk8287)?.let { inFlight.remove(it.mint); dropped8287.incrementAndGet() }"))
+        assertTrue(rejection.contains("if (!ex.queue.offer(r)) (r as? Walk8287)?.let { inFlight.remove(it.mint) }"))
+        val walk = hyd.substringAfter("private class Walk8287").substringBefore("internal class NewestFirstQueue8509")
+        assertTrue(walk.substringAfter("finally {").contains("TokenBirthHydrator7441.inFlight.remove(mint)"))
         assertTrue(com.lifecyclebot.engine.truth.TokenBirthHydrator7441.statusLine7441().contains("dropped8287="))
         // every batch answer now passes its best pair through parsePair: a pump mint's own curve pair is its birth witness
         assertTrue(src("network/DexscreenerApi.kt").contains("val pair = try { withHolders8128(parsePair(best), mint) } catch (_: Throwable) { null } ?: continue"))

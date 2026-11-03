@@ -3,6 +3,7 @@ package com.lifecyclebot.engine
 import com.lifecyclebot.engine.RunnerPlan8153.Evidence8153
 import com.lifecyclebot.engine.RunnerPlan8153.Plan8153
 import com.lifecyclebot.engine.cortex.CortexLabelHygiene8144
+import com.lifecyclebot.engine.cortex.CortexForwardEpoch8521
 import com.lifecyclebot.engine.truth.ForwardReturnLabeler7731
 import com.lifecyclebot.engine.truth.LaneTrigger8468
 import com.lifecyclebot.engine.truth.LiveEdgeGate7877
@@ -104,9 +105,9 @@ class Aate8468LaneDesignTest {
         for (head in listOf("private fun moonbagGate7322(", "private fun liveProfitDustExitShouldDefer(", "private fun liveHoldDelayIfNeeded(")) {
             assertTrue(head, ex.substringAfter(head).take(900).contains("LaneExitContract8468.acts8468(ts, "))
         }
-        // MANIPULATED's own exit runs until promotion, whatever style was sealed
+        // MANIPULATED's own exit runs until promotion; the exact-position reader preserves earned promotion too.
         val bs = src("engine/BotService.kt")
-        assertTrue(bs.contains("ManipulatedTraderAI.hasPosition(ts.mint, ts.position.isPaperPosition) &&\n            !RunnerExitProfile7277.runnerExits8468(\"MANIPULATED\", ts.position.peakGainPct)) {"))
+        assertTrue(bs.contains("ManipulatedTraderAI.hasPosition(ts.mint, ts.position.isPaperPosition) &&\n            !RunnerTrail8419.runnerPosition8521(ts, mode = \"MANIPULATED\")) {"))
     }
 
     // ── 2. desks on their own clocks ──
@@ -122,11 +123,28 @@ class Aate8468LaneDesignTest {
         assertEquals("hour-graded / runner lanes unchanged", CortexLabelHygiene8144.executableHorizonMs8392(true), CortexLabelHygiene8144.horizonMsFor8468("QUALITY", true))
         assertEquals(60L * minute, CortexLabelHygiene8144.horizonMsFor8468("STANDARD", false))
         assertFalse(CortexLabelHygiene8144.revisionCountsFor8468("CASHGEN", false, 50L * minute))
-        // superseded (8485): the Cortex grades the 5-minute read for every lane — revisions count up to 10 minutes
+        // Legacy first-read revisions retain their ten-minute bound. Current predictions keep the target selected at entry.
         assertFalse(CortexLabelHygiene8144.revisionCountsFor8468("STANDARD", false, 50L * minute))
         assertTrue(CortexLabelHygiene8144.revisionCountsFor8468("MOONSHOT", true, 9L * minute))
+        val at = 1_000_000L
+        for ((lane, horizon) in listOf("CASHGEN" to 5L * minute, "QUALITY" to 60L * minute)) {
+            val kind = CortexForwardEpoch8521.targetKind(lane)
+            assertEquals(lane, horizon, CortexForwardEpoch8521.targetHorizon(kind))
+            assertTrue(CortexForwardEpoch8521.matchesTarget(kind, at, horizon, at + horizon))
+            assertFalse("a desk's hold clock cannot replace its prediction target",
+                CortexForwardEpoch8521.matchesTarget(kind, at, 45L * minute, at + 45L * minute))
+            assertFalse("a later survivor price cannot rewrite the original target",
+                CortexForwardEpoch8521.matchesTarget(kind, at, horizon, at + 24L * 60L * minute))
+        }
         val cx = src("engine/cortex/Cortex7885.kt")
-        assertEquals(3, Regex("CortexLabelHygiene8144\\.revisionCountsFor8468\\(").findAll(cx).count())
+        val revisionGate = cx.substringAfter("private fun executableRevision8521(").substringBefore("    /**")
+        assertTrue(revisionGate.contains("scoreVersion == CortexForwardEpoch8521.SCORE_VERSION && CortexForwardEpoch8521.frozenTarget(kind)"))
+        assertTrue(revisionGate.contains("CortexForwardEpoch8521.matchesTarget(kind, atMs, proof.horizonMs, proof.observedAtMs)"))
+        assertTrue(revisionGate.contains("else CortexLabelHygiene8144.revisionCountsFor8468("))
+        assertTrue(cx.substringAfter("private fun reviseGradeOnly8324(").substringBefore("private fun awaitsHourGrade8417(")
+            .contains("executableRevision8521(r.lane, r.scoreVersion8372, r.outcomeKind8394, r.atMs, proof8395,"))
+        assertTrue(cx.substringAfter("fun reviseLabel8006(").substringBefore("private fun reviseModelsLocked8372(")
+            .contains("executableRevision8521(g.p.a.lane, g.p.a.scoreVersion8372, g.p.outcomeKind8394,"))
         assertTrue(src("engine/HoldingLogicLayer.kt").contains("val hold8392 = base.maxHoldTimeMs"))
     }
 

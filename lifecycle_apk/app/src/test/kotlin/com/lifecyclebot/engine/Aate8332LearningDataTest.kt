@@ -133,8 +133,8 @@ class Aate8332LearningDataTest {
 
     @Test fun servedBarsAreStampedAndAStaleBarNeverReadsAsCurrent() {
         OhlcvRoute8332.resetForTest8332()
-        val now = 1_700_000_000_000L
-        val bars = listOf(bar(now - 180_000L), bar(now - 120_000L), bar(now - 60_000L))
+        val now = 1_728_000_000_000L // one- and five-minute boundary
+        val bars = listOf(180_000L, 120_000L, 60_000L).map { bar(now - it).copy(intervalMs8521 = 60_000L) }
         OhlcvRoute8332.served8332(OhlcvRoute8332.LOCAL_8332, "MintA", bars, now)
         val st = OhlcvRoute8332.stamp8332("MintA")
         assertNotNull(st)
@@ -142,12 +142,20 @@ class Aate8332LearningDataTest {
         assertEquals(now - 60_000L, st.newestBarMs)
         assertTrue(OhlcvRoute8332.current8332("MintA", 1, now))
         assertFalse("a 1 m bar three minutes old is not the present price", OhlcvRoute8332.current8332("MintA", 1, now + 120_001L))
-        assertTrue("the same bar is current for a 5 m frame", OhlcvRoute8332.current8332("MintA", 5, now + 120_001L))
+        assertFalse("one-minute history cannot establish a five-minute chart", OhlcvRoute8332.current8332("MintA", 5, now + 120_001L))
+        val five = listOf(900_000L, 600_000L, 300_000L).map { bar(now - it).copy(intervalMs8521 = 300_000L) }
+        OhlcvRoute8332.served8332(OhlcvRoute8332.LOCAL_8332, "MintA", five, now, tfMinutes = 5)
+        assertEquals(now - 300_000L, OhlcvRoute8332.stamp8332("MintA", 5)!!.newestBarMs)
+        assertEquals("serving a different interval cannot replace the minute stamp", now - 60_000L,
+            OhlcvRoute8332.stamp8332("MintA", 1)!!.newestBarMs)
+        assertTrue("an observed five-minute series has its own freshness window", OhlcvRoute8332.current8332("MintA", 5, now + 120_001L))
+        assertFalse(OhlcvRoute8332.current8332("MintA", 1, now + 120_001L))
+        assertFalse("five-minute bars also expire", OhlcvRoute8332.current8332("MintA", 5, now + 330_001L))
         assertFalse(OhlcvRoute8332.current8332("Unknown", 1, now))
         assertFalse("nothing from the future", OhlcvRoute8332.fresh8332(now + 1L, now, 1))
         assertFalse(OhlcvRoute8332.fresh8332(0L, now, 1))
         val line = OhlcvRoute8332.statusLine8332(now)
-        assertTrue(line, line.startsWith("ohlcvRoute8332[source=local, bars{local=3}, deadSince{none}"))
+        assertTrue(line, line.startsWith("ohlcvRoute8332[source=local, bars{local=6}, deadSince{none}"))
         OhlcvRoute8332.resetForTest8332()
     }
 
@@ -232,9 +240,11 @@ class Aate8332LearningDataTest {
         assertTrue(f.contains("if (OhlcvRoute8332.dead8332(OhlcvRoute8332.GECKO_8332) && !OhlcvRoute8332.probeDue8332(OhlcvRoute8332.GECKO_8332, now)) {"))
         assertTrue(f.contains("return localTapeCandles8285(mint, timeframeLabel, n, now) ?: emptyList()\n        }\n        FeatureSourceCounters8285.note8285(\"shape\", \"gecko\", FeatureSourceCounters8285.ATTEMPT)"))
         assertTrue(f.contains("OhlcvRoute8332.noteAnswer8332(OhlcvRoute8332.GECKO_8332, chronological.size, now)"))
-        assertTrue(f.contains("OhlcvRoute8332.served8332(OhlcvRoute8332.GECKO_8332, mint, chronological, now)"))
-        assertTrue(f.contains("OhlcvRoute8332.served8332(OhlcvRoute8332.PAPRIKA_8332, mint, paprika7293, now)"))
+        assertTrue(f.contains("OhlcvRoute8332.served8332(OhlcvRoute8332.GECKO_8332, mint, chronological, now, (intervalMs8521 / 60_000L).toInt())"))
+        assertTrue(f.contains("val candle = candleRow8521(row, intervalMs8521)"))
+        assertFalse("unconverted pair-ratio candles are never a USD alternate", f.contains("fetchDexPaprika7293"))
         assertTrue(f.contains("OhlcvRoute8332.served8332(OhlcvRoute8332.LOCAL_8332, mint, served8332, nowMs)"))
+        assertTrue(f.contains("OhlcvRoute8332.served8332(\"pumpfun\", mint, served, nowMs)"))
         assertTrue("a dead source is a cooldown to the seed: no waiting on its probe", f.contains("if (probe8332 > 0L) return SlotWait7809(probe8332, cooldown = true)"))
         assertTrue(f.contains("OhlcvRoute8332.statusLine8332()"))
     }
