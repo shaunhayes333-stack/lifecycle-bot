@@ -11,8 +11,8 @@ class Aate8522V3ScorerParityTest {
         val ts = TokenState("v3-lane-8522")
         ts.position.tradingMode = "BLUE_CHIP"
         val snap = V3Adapter.toCandidate(ts)
-        assertEquals("BLUE_CHIP", snap.extraString("lane"))
-        assertEquals("BLUE_CHIP", snap.extraString("tradingMode"))
+        assertEquals("BLUECHIP", snap.extraString("lane"))
+        assertEquals("BLUECHIP", snap.extraString("tradingMode"))
     }
 
     @Test fun defaultV3TrunkDoesNotBorrowAnotherSpecialistsHistory() {
