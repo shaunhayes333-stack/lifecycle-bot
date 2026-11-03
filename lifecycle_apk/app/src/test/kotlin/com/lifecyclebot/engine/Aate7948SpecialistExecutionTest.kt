@@ -82,6 +82,6 @@ class Aate7948SpecialistExecutionTest {
 
     @Test fun shitcoinOwnershipUsesItsOwnBar() {
         assertTrue(src("engine/SpecialistBrainBridge7542.kt").contains("onLaneBar7948(it,ShitCoinTraderAI.getFluidScoreThreshold(),ShitCoinTraderAI.getFluidConfidenceThreshold())"))
-        assertTrue(src("engine/ToolkitSignalSheet.kt").contains("conviction7948 = native.ownershipConviction7948"))
+        assertTrue(src("engine/ToolkitSignalSheet.kt").contains("conviction7948 = NativeOpportunityPolicy8522.selectionPriority8522(native)"))
     }
 }
