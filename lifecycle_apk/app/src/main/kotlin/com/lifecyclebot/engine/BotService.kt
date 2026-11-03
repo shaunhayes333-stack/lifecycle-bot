@@ -1095,6 +1095,47 @@ class BotService : Service() {
         return retired
     }
 
+    /** Recheck physical native criteria first; the carried inverse can change only its late score verdict. */
+    private fun operatorQualityAssessment8522(ts: com.lifecyclebot.data.TokenState, v3Score: Int,
+                                               ageMinutes: Double, holders: Int): com.lifecyclebot.v3.scoring.QualityTraderAI.QualitySignal {
+        val raw = com.lifecyclebot.v3.scoring.QualityTraderAI.evaluate(
+            mint = ts.mint, symbol = ts.symbol, currentPrice = ts.ref, marketCapUsd = ts.lastMcap,
+            liquidityUsd = ts.lastLiquidityUsd, buyPressure = ts.lastBuyPressurePct.toInt(),
+            tokenAgeMinutes = LaneAgeLiquidityTruth8140.establishedAgeMinutes8140(ts, ageMinutes),
+            holderCount = holders, topHolderPct = laneTopHolderPct7809(ts), v3Score = v3Score, isMeme = false,
+        )
+        return NativeOpportunityDoor8522.quality8522(raw,
+            SpecialistBrainBridge7542.opportunityDecision8522(ts.mint, "QUALITY", token = ts))
+    }
+
+    private fun operatorBlueChipAssessment8522(ts: com.lifecyclebot.data.TokenState,
+                                                inputs: SpecialistMarketInputs8522.Read): com.lifecyclebot.v3.scoring.BlueChipTraderAI.BlueChipSignal {
+        val raw = com.lifecyclebot.v3.scoring.BlueChipTraderAI.evaluate(
+            mint = ts.mint, symbol = ts.symbol, currentPrice = inputs.price, marketCapUsd = ts.lastMcap,
+            liquidityUsd = ts.lastLiquidityUsd, topHolderPct = laneTopHolderPct7809(ts),
+            buyPressurePct = inputs.buyPressurePct ?: 50.0, v3Score = inputs.v3Score,
+            v3Confidence = inputs.v3Confidence, momentum = inputs.momentumPct ?: 0.0,
+            volatility = ts.volatility ?: 0.0,
+        )
+        return NativeOpportunityDoor8522.blueChip8522(raw,
+            SpecialistBrainBridge7542.opportunityDecision8522(ts.mint, "BLUECHIP", token = ts))
+    }
+
+    private fun operatorCashflowAssessment8522(ts: com.lifecyclebot.data.TokenState,
+                                                inputs: SpecialistMarketInputs8522.Read, ageMinutes: Double,
+                                                ownerLane: String): com.lifecyclebot.v3.scoring.CashGenerationAI.TreasurySignal {
+        val raw = com.lifecyclebot.v3.scoring.CashGenerationAI.evaluate(
+            mint = ts.mint, symbol = ts.symbol, currentPrice = inputs.price, liquidityUsd = ts.lastLiquidityUsd,
+            topHolderPct = laneTopHolderPct7809(ts), buyPressurePct = inputs.buyPressurePct ?: 50.0,
+            v3Score = inputs.v3Score, v3Confidence = inputs.v3Confidence,
+            momentum = inputs.momentumPct ?: 0.0, volatility = ts.volatility ?: 0.0,
+            discoverySource = ts.source, priceSource = ts.lastPriceSource, priceDex = ts.lastPriceDex,
+            tokenAgeMinutes = ageMinutes, ownerLane = ownerLane,
+        )
+        return NativeOpportunityDoor8522.cashflow8522(raw,
+            SpecialistBrainBridge7542.opportunityDecision8522(ts.mint, ownerLane, token = ts))
+    }
+
     /** Re-run the native specialist at the buy door, then apply only a fresh, same-candidate opportunity projection. */
     private fun operatorSniperAssessment8522(ts: com.lifecyclebot.data.TokenState): com.lifecyclebot.v3.scoring.ProjectSniperAI.TargetAssessment {
         val raw = com.lifecyclebot.v3.scoring.ProjectSniperAI.assessTarget(ts, ts.ref)
@@ -13932,7 +13973,10 @@ class BotService : Service() {
             // V5.0.7389 — a lane's own hard criterion (its mcap/liquidity band, age,
             // holder concentration, minimum quality) is its design, not a near-miss
             // the bridge may rescue. It rescues only soft/timing refusals.
-            val inverseTake8522 = SpecialistBrainBridge7542.opportunityDecision8522(ts.mint, laneKey, token = ts)
+            val operatorChoice8522 = SpecialistBrainBridge7542.opportunityDecision8522(ts.mint, laneKey, token = ts)
+            // A raw STRONG projection inverted to REFUSE must not be re-promoted by the old setup bridge.
+            if (operatorChoice8522?.action == NativeOpportunityPolicy8522.Action.REFUSE) return null
+            val inverseTake8522 = operatorChoice8522
                 ?.takeIf { it.action == NativeOpportunityPolicy8522.Action.TAKE_CANDIDATE &&
                     NativeOpportunityPolicy8522.opportunityReason8522(laneKey, blockedReason) } != null
             val hardLaneReject7389 = blockedReason.uppercase().let { b ->
@@ -28332,28 +28376,7 @@ if (hotExitHandledSweep) {
                             isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()  // V5.9.1563 — runtime authority, not stale cfg
                         )
                         
-                        val treasurySignal = com.lifecyclebot.v3.scoring.CashGenerationAI.evaluate(
-                            mint = ts.mint,
-                            symbol = ts.symbol,
-                            currentPrice = treasuryInputs8522.price,
-                            liquidityUsd = ts.lastLiquidityUsd,
-                            // V5.0.3986 — live profitability/safety fix. Missing
-                            // holder data is NOT safe. In live it must hydrate/defer
-                            // at PreTradeHardGate; scorer receives a neutral/failure
-                            // value so Treasury/CashGen does not over-score unknown
-                            // high-holder tokens as cashflow candidates.
-                            topHolderPct = laneTopHolderPct7809(ts),
-                            buyPressurePct = treasuryInputs8522.buyPressurePct ?: 50.0,
-                            v3Score = v3Score,
-                            v3Confidence = v3Confidence,
-                            momentum = treasuryInputs8522.momentumPct ?: 0.0,
-                            volatility = ts.volatility ?: 0.0,
-                            discoverySource = ts.source,
-                            priceSource = ts.lastPriceSource,
-                            priceDex = ts.lastPriceDex,
-                            tokenAgeMinutes = tokenAge,
-                            ownerLane = compounderLane7614,
-                        )
+                        val treasurySignal = operatorCashflowAssessment8522(ts, treasuryInputs8522, tokenAge, compounderLane7614)
                         val treasuryBridge6022 = if (!treasurySignal.shouldEnter) toolkitGoodLaneBridge6022(ts, compounderLane7614, treasurySignal.reason) else null
                         val treasurySignal6022 = if (treasuryBridge6022 != null) treasurySignal.copy(
                             shouldEnter = true,
@@ -28974,19 +28997,7 @@ if (hotExitHandledSweep) {
                         // Get holder count from last candle
                         val qualityHolderCount = ts.history.lastOrNull()?.holderCount ?: 0
                         
-                        val qualitySignal = com.lifecyclebot.v3.scoring.QualityTraderAI.evaluate(
-                            mint = ts.mint,
-                            symbol = ts.symbol,
-                            currentPrice = ts.ref,
-                            marketCapUsd = ts.lastMcap,
-                            liquidityUsd = ts.lastLiquidityUsd,
-                            buyPressure = ts.lastBuyPressurePct.toInt(),
-                            tokenAgeMinutes = LaneAgeLiquidityTruth8140.establishedAgeMinutes8140(ts, qualityTokenAgeMinutes), // V5.0.8140 — raised to chain truth
-                            holderCount = qualityHolderCount,
-                            topHolderPct = laneTopHolderPct7809(ts),  // V5.0.7809 — Field Manual L345
-                            v3Score = v3Score,
-                            isMeme = false,
-                        )
+                        val qualitySignal = operatorQualityAssessment8522(ts, v3Score, qualityTokenAgeMinutes, qualityHolderCount)
                         val qualityBridge6022 = if (!qualitySignal.shouldEnter) toolkitGoodLaneBridge6022(ts, "QUALITY", qualitySignal.reason) else null
                         val qualitySignal6022 = if (qualityBridge6022 != null) qualitySignal.copy(
                             shouldEnter = true,
@@ -29236,19 +29247,7 @@ if (hotExitHandledSweep) {
                         val v3Score = blueChipInputs8522.v3Score
                         val v3Confidence = blueChipInputs8522.v3Confidence
                         
-                        val blueChipSignal = com.lifecyclebot.v3.scoring.BlueChipTraderAI.evaluate(
-                            mint = ts.mint,
-                            symbol = ts.symbol,
-                            currentPrice = blueChipInputs8522.price,
-                            marketCapUsd = ts.lastMcap,
-                            liquidityUsd = ts.lastLiquidityUsd,
-                            topHolderPct = laneTopHolderPct7809(ts),  // V5.0.7809 — Field Manual L345
-                            buyPressurePct = blueChipInputs8522.buyPressurePct ?: 50.0,
-                            v3Score = v3Score,
-                            v3Confidence = v3Confidence,
-                            momentum = blueChipInputs8522.momentumPct ?: 0.0,
-                            volatility = ts.volatility ?: 0.0
-                        )
+                        val blueChipSignal = operatorBlueChipAssessment8522(ts, blueChipInputs8522)
                         val blueChipBridge6022 = if (!blueChipSignal.shouldEnter) toolkitGoodLaneBridge6022(ts, "BLUE_CHIP", blueChipSignal.reason) else null
                         val blueChipSignal6022 = if (blueChipBridge6022 != null) blueChipSignal.copy(
                             shouldEnter = true,

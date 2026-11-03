@@ -102,6 +102,11 @@ class Aate8522OperatorOpportunityDoorTest {
             takeDip, 100.0, 120.0).shouldBuy)
     }
 
+    @Test fun sourceTimePolarityPolicyHasAnExplicitFiveSecondBound() {
+        assertEquals("OPERATOR_INVERSE", com.lifecyclebot.engine.cortex.CortexOpportunityPolarity8522.POLICY_LABEL_8522)
+        assertEquals(5_000L, com.lifecyclebot.engine.cortex.CortexOpportunityPolarity8522.MAX_AGE_MS_8522)
+    }
+
     @Test fun staleOrUnprovedProjectionStaysAbstained() {
         val o = SpecialistBrainBridge7542.Opinion("QUALITY", false, 30, 35, 0.0,
             "QUALITY_SCORE_TOO_LOW:30<55", "BREAKOUT", "buy", "sell")
