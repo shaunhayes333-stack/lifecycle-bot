@@ -126,7 +126,8 @@ class Aate8140LaneAgeLiquidityTest {
         val bot = src("engine/BotService.kt")
         assertTrue(bot.contains("LaneAgeLiquidityTruth8140.launchLaneAgeBlocked8140(ts, \"SHITCOIN\")"))
         assertTrue(bot.contains("LaneAgeLiquidityTruth8140.launchAgeMinutesOr8140(ts, 120.0)"))
-        assertTrue(bot.contains("LaneAgeLiquidityTruth8140.establishedAgeMinutes8140(ts, qualityTokenAgeMinutes)"))
+        assertTrue(bot.contains("operatorQualityAssessment8522(ts, v3Score, qualityTokenAgeMinutes, qualityHolderCount)") &&
+            bot.contains("LaneAgeLiquidityTruth8140.establishedAgeMinutes8140(ts, ageMinutes)"))
         assertTrue(bot.contains("val poolAgeSecs7389 = LaneAgeLiquidityTruth8140.chainAgeSecs8140(ts)"))
         assertTrue(bot.contains("LaneAgeLiquidityTruth8140.launchAgeMinutesOr8140(ts, 60.0)"))
         for ((file, lane) in listOf("QualityTraderAI" to "QUALITY", "BlueChipTraderAI" to "BLUECHIP", "DipHunterAI" to "DIP_HUNTER",
