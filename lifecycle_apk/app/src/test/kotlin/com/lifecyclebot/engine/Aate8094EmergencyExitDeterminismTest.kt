@@ -57,8 +57,11 @@ class Aate8094EmergencyExitDeterminismTest {
             assertTrue("gap=$gap delay=$d", d in 250L..15_000L)
         }
         val lease = src("engine/sell/CloseLease.kt")
-        assertTrue(lease.contains("if (pending != null && pending >= now) return            // one self-retry per mint at a time"))
-        assertTrue(lease.contains("if (current(mint) != null) {"))     // a released lease is not re-dispatched
+        // 8520: a shorter STOP pre-route deadline must replace a queued longer retry.
+        // Only its current deadline may dispatch; stale callbacks cannot awaken a released lease.
+        assertTrue(lease.contains("selfRetryAt8094.compute(mint)"))
+        assertTrue(lease.contains("earlierRetryDue8520(pending, dueAt, now)"))
+        assertTrue(lease.contains("selfRetryAt8094.remove(mint, dueAt) && current(mint) != null"))
     }
 
     // Unavailable balance proof: an emergency sells from the last complete snapshot; a partial snapshot proves nothing.
