@@ -76,6 +76,8 @@ Hot-cache ordering separately retains the input time. A slow read of an older fr
 
 Terminal identities, aggregate updates and open-receipt removal now share one ordered verified write. Repeated close/fill callbacks are idempotent, re-entries retain separate position identities, genuine new unmatched closes remain visible, and a later actual receipt can resolve an earlier unmatched close. Startup replay waits for successful restoration instead of assuming an empty book.
 
+When an early repeated fill arrives before restoration, the persisted canonical position receipt retains its original entry evidence. A restored graded identity removes any staged duplicate open receipt, while distinct new positions remain intact.
+
 Older aggregates have no recoverable contributing position IDs. Their values remain intact. Missing historical identities are explicitly reported as legacy unknowns, not declared successfully matched. Known non-meme asset classes are outside this receipt cohort; unknown legacy classifications remain compatible.
 
 The held-quote diagnosis now separates cumulative request/miss counts from current live inventory. It prints detailed miss causes even when the live book is flat, and does not label a historical unanswered-quote count as a current held-position conflict. Quote freshness, exact-quantity matching, provider budgets and exit execution policies are unchanged.

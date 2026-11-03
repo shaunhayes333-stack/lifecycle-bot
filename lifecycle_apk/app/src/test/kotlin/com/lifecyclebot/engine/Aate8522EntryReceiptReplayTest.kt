@@ -81,6 +81,62 @@ class Aate8522EntryReceiptReplayTest {
         assertEquals(0L, saved().getLong("unmatched8510"))
     }
 
+    @Test fun restoreKeepsTheDurableOriginalOverAnEarlyRepeatedFillAndRetainsDistinctNewPositions() {
+        EntryReceipt8500.onLiveBuy8500(token, receipt(), "original")
+        val persisted = saved()
+        EntryReceipt8500.resetForTest8500(trackingFromMs = at)
+        // Deterministically stage the callbacks before the stored book is decoded.
+        EntryReceipt8500.onLiveBuy8500(token, receipt(at + 30_000L, "EARLY_REPLAY"), "original")
+        EntryReceipt8500.onLiveBuy8500(token, receipt(at + 90_000L, "NEW_POSITION"), "new-position")
+        EntryReceipt8500.decode8500(persisted.toString(), at + 120_000L)
+        val restored = saved()
+        assertEquals(2, restored.getJSONObject("open").length())
+        assertEquals(persisted.getJSONObject("open").getJSONArray("pid:original").toString(),
+            restored.getJSONObject("open").getJSONArray("pid:original").toString())
+        assertEquals("NEW_POSITION", restored.getJSONObject("open").getJSONArray("pid:new-position").getString(1))
+        close("original")
+        close("new-position", at + 180_000L, 90_000L)
+        val graded = saved()
+        assertEquals(0, graded.getJSONObject("open").length())
+        assertEquals(1.0, graded.getJSONObject("agg").getJSONArray("door|MOONSHOT|FROZEN_DOOR").getDouble(0), 0.0)
+        assertEquals(1.0, graded.getJSONObject("agg").getJSONArray("door|MOONSHOT|NEW_POSITION").getDouble(0), 0.0)
+        assertFalse(graded.getJSONObject("agg").has("door|MOONSHOT|EARLY_REPLAY"))
+        restart()
+        repeat(3) { close("original"); close("new-position", at + 180_000L, 90_000L) }
+        sameAggregates(graded.getJSONObject("agg"), saved().getJSONObject("agg"))
+        assertEquals(0L, saved().getLong("unmatched8510"))
+    }
+
+    @Test fun restoredGradedIdentityRemovesItsEarlyReplayedOpenWithoutDroppingANewPositionOrDoubleGrading() {
+        EntryReceipt8500.onLiveBuy8500(token, receipt(), "already-graded")
+        close("already-graded")
+        val persisted = saved()
+        EntryReceipt8500.resetForTest8500(trackingFromMs = at)
+        EntryReceipt8500.onLiveBuy8500(token, receipt(at + 30_000L, "EARLY_REPLAY"), "already-graded")
+        EntryReceipt8500.onLiveBuy8500(token, receipt(at + 90_000L, "NEW_POSITION"), "new-position")
+        assertEquals(2, saved().getJSONObject("open").length())
+        EntryReceipt8500.decode8500(persisted.toString(), at + 120_000L)
+        val restored = saved()
+        assertEquals(1, restored.getJSONObject("open").length())
+        assertFalse(restored.getJSONObject("open").has("pid:already-graded"))
+        assertTrue(restored.getJSONObject("open").has("pid:new-position"))
+        sameAggregates(persisted.getJSONObject("agg"), restored.getJSONObject("agg"))
+        repeat(3) { close("already-graded") }
+        EntryReceipt8500.onLiveBuy8500(token, receipt(door = "ANOTHER_REPLAY"), "already-graded")
+        assertEquals(1, saved().getJSONObject("open").length())
+        sameAggregates(persisted.getJSONObject("agg"), saved().getJSONObject("agg"))
+        close("new-position", at + 180_000L, 90_000L)
+        val graded = saved()
+        assertEquals(0, graded.getJSONObject("open").length())
+        assertEquals(1.0, graded.getJSONObject("agg").getJSONArray("door|MOONSHOT|FROZEN_DOOR").getDouble(0), 0.0)
+        assertEquals(1.0, graded.getJSONObject("agg").getJSONArray("door|MOONSHOT|NEW_POSITION").getDouble(0), 0.0)
+        assertFalse(graded.getJSONObject("agg").has("door|MOONSHOT|EARLY_REPLAY"))
+        restart()
+        repeat(3) { close("already-graded"); close("new-position", at + 180_000L, 90_000L) }
+        sameAggregates(graded.getJSONObject("agg"), saved().getJSONObject("agg"))
+        assertEquals(0L, saved().getLong("unmatched8510"))
+    }
+
     @Test fun legacyAggregatesStayUnchangedAndTheirMissingIdentityIsExplicitlyUnknown() {
         EntryReceipt8500.onLiveBuy8500(token, receipt(), "still-open")
         EntryReceipt8500.fold8500("door|QUALITY|OLD_DOOR", RunnerFunnel8297.Outcome8297.WIN, 12.0)

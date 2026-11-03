@@ -232,8 +232,13 @@ object EntryReceipt8500 {
         o.optJSONObject("agg")?.let { ag -> for (k in ag.keys()) ag.optJSONArray(k)?.let { arr ->
             if (arr.length() == 5) agg[k] = DoubleArray(5) { arr.optDouble(it, 0.0) } } }
         o.optJSONObject("open")?.let { op -> for (m in op.keys()) op.optJSONArray(m)?.let { a ->
-            if (a.length() == 9) open.putIfAbsent(m, Receipt8500(a.optString(0), a.optString(1), a.optString(2), a.optString(3),
-                a.optDouble(4), a.optDouble(5), a.optDouble(6), a.optDouble(7), a.optLong(8))) } }
+            if (a.length() == 9) {
+                val receipt = Receipt8500(a.optString(0), a.optString(1), a.optString(2), a.optString(3),
+                    a.optDouble(4), a.optDouble(5), a.optDouble(6), a.optDouble(7), a.optLong(8))
+                // A callback before the store was ready may have staged this same position again. The durable
+                // canonical receipt owns its original entry evidence; unrelated new position IDs remain staged.
+                if (m.startsWith(PID_8510)) open[m] = receipt else open.putIfAbsent(m, receipt)
+            } } }
         if (epochMs8510 <= 0L) epochMs8510 = open.values.minOfOrNull { it.atMs }?.takeIf { it > 0L } ?: 0L
         val closed = o.optJSONObject("terminals8522")
         if (closed == null) {
@@ -244,6 +249,8 @@ object EntryReceipt8500 {
             if (id.isNotBlank() && row.length() == 2 && row.optString(0) in setOf("GRADED", "OUTSIDE_MEME_SCOPE", "HISTORICAL_NO_RECEIPT", "LEGACY_IDENTITY_UNKNOWN", "UNMATCHED_CURRENT") &&
                 !terminals8522.containsKey(id)) rememberTerminal8522(id, row.optString(0), row.optLong(1))
         }
+        // The terminal may only now be visible to an early repeated buy callback. It cannot reopen a graded receipt.
+        for ((id, terminal) in terminals8522) if (terminal.disposition == "GRADED" && open.remove(id) != null) dirty8522 = true
         legacyThroughMs8522 = maxOf(legacyThroughMs8522, o.optLong("legacyThrough8522", 0L))
         unmatchedCurrent8510.set(maxOf(unmatchedCurrent8510.get(), o.optLong("unmatched8510", 0L)))
         historicalNoReceipt8510.set(maxOf(historicalNoReceipt8510.get(), o.optLong("historical8510", 0L)))
