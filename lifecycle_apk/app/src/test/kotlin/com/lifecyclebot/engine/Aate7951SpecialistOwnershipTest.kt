@@ -145,10 +145,10 @@ class Aate7951SpecialistOwnershipTest {
         assertTrue(fdg.substringAfter("private fun rememberFdgVerdict(").substringBefore("fun invalidateCandidate6734").contains("SpecialistOwnership7951.onFdgVerdict7951("))
         assertTrue(fdg.contains("SpecialistOwnership7951.notePreIntent7951(lane, \"FDG_\$reason\")"))
         assertTrue(src("engine/truth/OrderSizeResolver6441.kt").contains("SpecialistOwnership7951.onCapitalRefusal7951(laneName, mint, reason, postIntent = causalEventId.isNotBlank())"))
-        assertTrue(src("engine/BotService.kt").contains("SpecialistOwnership7951.noteReadyNotEvaluated7951(lane, ts.mint, primaryLane)"))
+        assertTrue(src("engine/LaneDispatch8418.kt").contains("SpecialistOwnership7951.noteReadyNotEvaluated7951(l, mint, primaryLane)"))
         val sheet = src("engine/ToolkitSignalSheet.kt")
         assertTrue(sheet.contains("capitalDemand7951=\${capitalDemand7951[lane] ?: 0}"))
         assertTrue(sheet.contains("preIntentRefusals7951=\${preIntent7951.ifBlank { \"NONE\" }}"))
-        assertTrue(src("engine/Executor.kt").contains("capitalDemand7951=\${SpecialistOwnership7951.capitalDemand7951()}"))
+        assertTrue(sheet.contains("val capitalDemand7951 = try { SpecialistOwnership7951.capitalDemand7951() }"))
     }
 }
