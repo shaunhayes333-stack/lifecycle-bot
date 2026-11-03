@@ -375,6 +375,9 @@ object CloseLease {
     @Synchronized
     fun release(mint: String, terminal: String) {
         val l = leases.remove(mint) ?: return
+        // A terminal close invalidates its pending timer. Without this an old emergency
+        // callback can wake a newly acquired lease for the same mint with the old reason.
+        selfRetryAt8094.remove(mint)
         l.emergencyWaiting8087?.let { r -> handoff8087(mint, r, l) }
         try {
             ForensicLogger.lifecycle("SELL_LEASE_RELEASED",
