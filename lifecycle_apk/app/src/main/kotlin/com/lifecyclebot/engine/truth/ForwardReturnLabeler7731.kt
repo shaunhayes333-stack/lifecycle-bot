@@ -2733,9 +2733,7 @@ object ForwardReturnLabeler7731 {
             if (adoptLateBasis8524(o.basis8386.mark.known(), age, mark8386)) {
                 o.basis8386 = LabelBasis8386(mark8386, o.entryMcap)
                 if (!o.decisionBasis8386.mark.known()) o.decisionBasis8386 = o.basis8386
-                o.rebased8076 = true
-                o.lateEntry8521 = true
-                noteLateFirstPrice8153(o.mint, o.lane, o.atMs, nowMs)
+                // the 8076 block below records the late first price (lateEntry8521) once the mark clears the curve / step guards
                 try { PipelineHealthCollector.labelInc("FORWARD_LABEL_BASIS_ADOPTED_LATE_8524") } catch (_: Throwable) {}
             }
             // Validate against the original typed basis BEFORE a rebase can erase a decimals/units mismatch.

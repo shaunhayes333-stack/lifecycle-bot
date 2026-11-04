@@ -2,6 +2,7 @@ package com.lifecyclebot.engine
 
 import com.lifecyclebot.engine.cortex.Cortex7885
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -40,7 +41,8 @@ class Aate8524HeapAndLabelBasisTest {
         val tick = src.substringAfter("if (adoptBasis8418(o.basis8386.mark.known(), o.rebased8076, age, mark8386)) {")
             .substringBefore("// Validate against the original typed basis")
         assertTrue(tick.contains("if (adoptLateBasis8524(o.basis8386.mark.known(), age, mark8386)) {"))
-        assertTrue(tick.contains("o.lateEntry8521 = true"))
-        assertTrue(tick.contains("noteLateFirstPrice8153(o.mint, o.lane, o.atMs, nowMs)"))
+        // the late first price is recorded by the 8076 block AFTER the curve / step guards (8167 ordering pin), not here
+        assertFalse(tick.contains("o.rebased8076 = true"))
+        assertTrue(src.substringAfter("if (!o.rebased8076 && age >= REBASE_MIN_MS_8076) {").contains("o.lateEntry8521 = true"))
     }
 }

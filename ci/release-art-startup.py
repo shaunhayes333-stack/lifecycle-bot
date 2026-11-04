@@ -197,9 +197,20 @@ previous_package = adb("shell", "dumpsys", "package", PKG)
 # events, learning DBs) before the candidate is installed over it; an upgrade over an empty
 # install proves only that the signatures match.
 handle, proc = capture_8418("previous_logcat.txt")
+previous_crashed_8526 = False
 try:
     previous_pins = drive_to_first_loop(output / "previous_logcat.txt", "previous_ui.xml")
     time.sleep(20)  # let the running previous release persist its stores
+except RuntimeError as previous_failure:
+    # V5.0.8526 — the PREVIOUS published release (8522: TimSort "comparison method violates its general contract" in
+    # the MTF refresh sort) crashed before its first loop on this emulator. That is a verdict on the previous build, not
+    # on the candidate; raising here deadlocked every later build (8523, 8524 failed only at this step). The candidate
+    # is installed over the crashed install and must prove its own bootstrap and first loop below; the data-carry
+    # proof (files before/after, canonical event count) cannot be given this round and is reported as such.
+    previous_pins = set()
+    previous_crashed_8526 = True
+    (output / "previous_crashed_8526.txt").write_text(str(previous_failure) + "\n")
+    print("PREVIOUS RELEASE CRASHED BEFORE FIRST LOOP (upgrade over a crashed install):", previous_failure, flush=True)
 finally:
     stop_capture_8418(handle, proc)
 previous_boot = bootstrap_8418(output / "previous_logcat.txt")
@@ -213,9 +224,9 @@ files_before = data_files_8418()
 bytes_before = data_bytes_8418()
 if files_before is not None:
     (output / "previous_files.txt").write_text("\n".join(sorted(files_before)) + "\n")
-    if not files_before:
+    if not files_before and not previous_crashed_8526:
         raise RuntimeError("previous release created no shared_prefs/databases; nothing to carry across the upgrade")
-elif previous_boot is None:
+elif previous_boot is None and not previous_crashed_8526:
     raise RuntimeError("package mode: the previous release logged no CANONICAL_BOOTSTRAP_READY_6515, so its data cannot be shown to exist")
 # Upgrade in place, as the owner does: no uninstall, same signature, over the used install.
 # The previous process is stopped first so every line in logcat.txt is the candidate's own
@@ -279,8 +290,11 @@ try:
                         f"file names unreadable without root/run-as (package checks only: diskstats data {bytes_before} -> {bytes_after})")
     (output / "verdict.txt").write_text(
         "PASS: published-APK upgrade, release version identity, ART verification, service bootstrap, UI Start, first bot-loop tick\n"
-        f"PASS 8418 [data access={DATA_MODE_8418}]: previous release ran (pins={sorted(previous_pins)} boot={previous_boot}); "
-        f"{files_proof_8418}; install -r in place (firstInstallTime={first_after} lastUpdateTime={last_after}); "
+        + (f"PASS 8418 [data access={DATA_MODE_8418}]: previous release ran (pins={sorted(previous_pins)} boot={previous_boot}); "
+           if not previous_crashed_8526 else
+           f"PASS-WITH-CAVEAT 8526 [data access={DATA_MODE_8418}]: the PREVIOUS published release crashed before its first loop "
+           "(see previous_crashed_8526.txt) — upgrade over a crashed install; data-carry across the upgrade NOT provable this round; ")
+        + f"{files_proof_8418}; install -r in place (firstInstallTime={first_after} lastUpdateTime={last_after}); "
         f"candidate pins={sorted(candidate_pins)} boot={candidate_boot}\n")
     print((output / "verdict.txt").read_text(), flush=True)
 finally:
