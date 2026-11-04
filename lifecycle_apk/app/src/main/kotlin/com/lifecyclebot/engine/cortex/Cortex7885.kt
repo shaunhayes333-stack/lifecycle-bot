@@ -1010,8 +1010,9 @@ object Cortex7885 {
             try { cachedOrSchedule(ts, lane, nowMs, opportunitySource8522 = source) } catch (_: Throwable) { null } else null
         // A changed observation or account mode during the read cannot inherit the earlier projection.
         val latest = operatorSource8522(ts, lane, mode, original) ?: source.copy(priceAtMs = 0L, price = Double.NaN)
+        val rankedEvidence8527 = rankCache8325.peekFresh8527(nowMs)?.get(lane)
         return CortexOpportunityPolarity8522.note8522(CortexOpportunityPolarity8522.project8522(latest, assessment,
-            nowMs, accountMode8077()))
+            nowMs, accountMode8077(), rankedEvidence8527))
     }
 
     private fun operatorDecision8522(mint: String, lane: String, token: TokenState? = null) = try {

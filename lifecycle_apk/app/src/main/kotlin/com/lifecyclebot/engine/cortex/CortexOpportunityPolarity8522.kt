@@ -6,6 +6,14 @@ import java.util.concurrent.atomic.AtomicLong
 object CortexOpportunityPolarity8522 {
     const val POLICY_LABEL_8522 = "OPERATOR_INVERSE"
     const val MAX_AGE_MS_8522 = 5_000L
+    /** Enough graded same-lane decisions to reject noisy, misleading direction flips. */
+    const val MIN_DIRECTION_ROWS_8527 = 60
+
+    /** Only the calibrated edge's own OUT-OF-SAMPLE order can authorize an edge-bucket inversion. */
+    fun inverseRankVerified8527(rank: CortexRank8325.LaneRank8325?, lane: String): Boolean =
+        rank != null && rank.lane == lane && rank.rows >= MIN_DIRECTION_ROWS_8527 &&
+            rank.orderedBy == "edge" && rank.verdict == "INVERTED" &&
+            rank.inverseBottomNetLowerBoundPct.isFinite() && rank.inverseBottomNetLowerBoundPct > 0.0
     private val lanes = setOf("QUALITY", "BLUECHIP", "SHITCOIN", "EXPRESS", "MOONSHOT", "PROJECT_SNIPER",
         "DIP_HUNTER", "MANIPULATED", "TREASURY", "CASHGEN", "CYCLIC", "CORE")
 
@@ -53,7 +61,8 @@ object CortexOpportunityPolarity8522 {
         "VOLUME_SCORE", "RSI", "FORWARD_MODEL_EV", "FORWARD_MODEL_PWIN", "PATTERN_CLASSIFIER")
 
     /** Pure projection: the caller still applies all mandate, data, safety, account, route and size checks. */
-    fun project8522(source: Source, assessment: Cortex7885.Assessment?, nowMs: Long, currentMode: String): Projection {
+    fun project8522(source: Source, assessment: Cortex7885.Assessment?, nowMs: Long, currentMode: String,
+                    verifiedLaneRank8527: CortexRank8325.LaneRank8325? = null): Projection {
         fun result(decision: Decision, reason: String) = Projection(decision, assessment?.bucket,
             assessment?.calibratedEdge ?: Double.NaN, reason, source.mint, source.lane, source.mode,
             assessment?.atMs ?: 0L, assessment?.inputAtMs8522 ?: 0L, source.candidateVersion,
@@ -77,6 +86,10 @@ object CortexOpportunityPolarity8522 {
         if (!candidateEvidence8522(a)) return abstain("NO_CANDIDATE_EVIDENCE")
         if (CortexScoreboard7885.bucketOf(a.calibratedEdge, 0.0, false) != a.bucket)
             return abstain("FORECAST_BUCKET_MISMATCH")
+        // V5.0.8527: 8522 flipped every native lane even where recent rank IC was positive or FLAT.
+        // The scored cohort, decision clock and target must match this raw EDGE bucket, not a tail EV pond.
+        // No fresh, sufficiently graded INVERTED rank means abstain: native/V3 authority remains unchanged.
+        if (!inverseRankVerified8527(verifiedLaneRank8527, source.lane)) return abstain("LANE_INVERSION_UNPROVEN_8527")
         return when (a.bucket) {
             CortexScoreboard7885.Bucket.REFUSE -> result(Decision.TAKE_CANDIDATE, "RAW_REFUSE_OPERATOR_TAKE_CANDIDATE")
             CortexScoreboard7885.Bucket.STRONG -> result(Decision.REFUSE, "RAW_STRONG_OPERATOR_REFUSE")

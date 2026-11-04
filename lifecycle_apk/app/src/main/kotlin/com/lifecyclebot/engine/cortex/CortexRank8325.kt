@@ -2,6 +2,7 @@ package com.lifecyclebot.engine.cortex
 
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.math.sqrt
 
 /**
  * V5.0.8325 §RANKING_OFF_THE_LOCK — the Cortex's per-lane ranking check (inversion8324) and its cache.
@@ -26,11 +27,17 @@ object CortexRank8325 {
     class TtlCache8325<T : Any>(private val ttlMs: Long) {
         @Volatile private var atMs = Long.MIN_VALUE
         @Volatile private var value: T? = null
+        private data class Fresh8527<T>(val atMs: Long, val value: T)
+        /** Atomic evidence + timestamp: a concurrent rank refresh must not re-date an older verdict. */
+        @Volatile private var fresh8527: Fresh8527<T>? = null
         private val busy = AtomicBoolean(false)
         val computes = AtomicLong(0)
 
         /** The cached value, never computing. */
         fun peek(): T? = value
+
+        /** Current cache only: a stale historical rank can never authorize a new inverse trade. */
+        fun peekFresh8527(nowMs: Long): T? = fresh8527?.takeIf { nowMs - it.atMs in 0L until ttlMs }?.value
 
         /** The cached value while fresh; else computes it once (concurrent callers get the previous value). */
         fun get(nowMs: Long, compute: () -> T): T? {
@@ -40,16 +47,18 @@ object CortexRank8325 {
             try {
                 val v = compute()
                 value = v; atMs = nowMs
+                fresh8527 = Fresh8527(nowMs, v)
                 computes.incrementAndGet()
                 return v
             } finally { busy.set(false) }
         }
 
         /** Next [get] recomputes. */
-        fun invalidate() { atMs = Long.MIN_VALUE }
+        fun invalidate() { atMs = Long.MIN_VALUE; fresh8527 = null }
     }
 
-    class LaneRank8325(val lane: String, val line: String, val short: String, val verdict: String, val rows: Int, val orderedBy: String)
+    class LaneRank8325(val lane: String, val line: String, val short: String, val verdict: String, val rows: Int,
+                       val orderedBy: String, val inverseBottomNetLowerBoundPct: Double = Double.NaN)
 
     private fun f(v: Double) = if (v.isFinite()) "%+.2f".format(v) else "-"
 
@@ -72,14 +81,24 @@ object CortexRank8325 {
         val oY = recent.map { it.objective }
         val oIc = CortexTailEv8324.rankIc8324(oPred, oY)
         val oQ = CortexTailEv8324.quintiles8324(oPred, oY)
+        // A negative ranking can merely select the LEAST losing cohort. The actual
+        // inverse tail must still have positive executable net expectancy after uncertainty.
+        val ordered = oPred.indices.filter { it < oY.size && oPred[it].isFinite() && oY[it].isFinite() }
+            .sortedBy { oPred[it] }
+        val bottom = ordered.take(ordered.size / 5).map { oY[it] }
+        val bottomNetLowerBound = if (bottom.size < 2) Double.NaN else {
+            val avg = bottom.average()
+            val sampleVariance = bottom.sumOf { (it - avg) * (it - avg) } / (bottom.size - 1)
+            avg - sqrt(sampleVariance / bottom.size)
+        }
         val verdict = CortexTailEv8324.verdict8324(oIc, oQ[0], oQ[1])
         val by = if (byTail) "tailEv" else "edge"
         val line = "$lane: ic=${f(ic)} n${all.size} topQ/botQ=${CortexTailEv8324.fmt(q[0])}/${CortexTailEv8324.fmt(q[1])} " +
             "tailIc=${f(tailIc)}(n${tailRows.size}) strong/refuse=$sN/$rN take/refuse=$tN/${all.size - tN} " +
-            "order8325=$by ic=${f(oIc)} n${recent.size} topQ/botQ=${CortexTailEv8324.fmt(oQ[0])}/${CortexTailEv8324.fmt(oQ[1])} $verdict" +
+            "order8325=$by ic=${f(oIc)} n${recent.size} topQ/botQ=${CortexTailEv8324.fmt(oQ[0])}/${CortexTailEv8324.fmt(oQ[1])} inverseBotNetLCB=${f(bottomNetLowerBound)} $verdict" +
             (pondCompact?.let { " pond[$it]" } ?: "")
         val short = "rank IC ($by) ${if (oIc.isFinite()) "%+.2f".format(oIc) else "-"} top/bottom fifth " +
             "${CortexTailEv8324.fmt(oQ[0])}/${CortexTailEv8324.fmt(oQ[1])} $verdict"
-        return LaneRank8325(lane, line, short, verdict, recent.size, by)
+        return LaneRank8325(lane, line, short, verdict, recent.size, by, bottomNetLowerBound)
     }
 }
