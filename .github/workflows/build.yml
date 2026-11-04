@@ -270,8 +270,35 @@ jobs:
           echo "apk_sha256=$(sha256sum "$APK" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
       - name: Required lane and history regression tests
+        timeout-minutes: 18
         run: |
-          ./gradlew testReleaseUnitTest \
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/unit_diagnostics"
+          # Record the exact start/end of each test without changing its assertions.
+          printf '%s\n' \
+            'allprojects { p ->' \
+            '  p.tasks.withType(org.gradle.api.tasks.testing.Test).configureEach { task ->' \
+            '    task.beforeTest { descriptor ->' \
+            '      println("AATE8527_TEST_START " + descriptor.className + "#" + descriptor.name)' \
+            '    }' \
+            '    task.afterTest { descriptor, result ->' \
+            '      println("AATE8527_TEST_END " + descriptor.className + "#" + descriptor.name + " " + result.resultType)' \
+            '    }' \
+            '  }' \
+            '}' > "$GITHUB_WORKSPACE/unit_diagnostics/test-events.init.gradle"
+          (
+            for checkpoint in 6m 12m; do
+              sleep 360
+              printf 'Regression tests still active at %s; capturing Java workers\n' "$checkpoint" | tee -a "$GITHUB_WORKSPACE/unit_diagnostics/checkpoints.txt"
+              timeout 15s jcmd -l > "$GITHUB_WORKSPACE/unit_diagnostics/jcmd_${checkpoint}.txt" 2>&1 || true
+              for pid in $(timeout 15s jcmd -l | awk '/GradleDaemon|GradleWorkerMain|KotlinCompileDaemon/ { print $1 }'); do
+                timeout 15s jcmd "$pid" Thread.print > "$GITHUB_WORKSPACE/unit_diagnostics/threads_${checkpoint}_${pid}.txt" 2>&1 || true
+              done
+            done
+          ) &
+          watchdog_pid=$!
+          trap 'pkill -P "$watchdog_pid" 2>/dev/null || true; kill "$watchdog_pid" 2>/dev/null || true; wait "$watchdog_pid" 2>/dev/null || true' EXIT
+          ./gradlew --init-script "$GITHUB_WORKSPACE/unit_diagnostics/test-events.init.gradle" testReleaseUnitTest \
             --tests '*Aate8527*' --tests '*Aate8331RunnerTest*' --tests '*Aate8337ExitsTest*' --tests '*PartialFinality6566Test*' --tests '*Aate7542NativeSpecialistAuthorityTest*' --tests '*Aate7677ExpressOwnershipContractTest*' --tests '*Aate7551NativeMomentumUnitNormalizationTest*' \
             --tests '*Aate8522*' \
             --tests '*Aate8521*' \
@@ -458,7 +485,17 @@ jobs:
             --tests '*Aate8200*' \
             --tests '*Aate8197*' \
             --tests '*GoldenTapeRegressionTest.V5_0_7281_floor_is_lamport_exact_recent_basis_accepted_and_ladder_skips_locked_rungs' \
-            --no-daemon --stacktrace -PbuildNumber=$AATE_BUILD_NUMBER -PaateVersionName=$AATE_VERSION_NAME
+            --no-daemon --stacktrace --console=plain --info -PbuildNumber=$AATE_BUILD_NUMBER -PaateVersionName=$AATE_VERSION_NAME 2>&1 | tee "$GITHUB_WORKSPACE/unit-regression-output.txt"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unit-regression-diag-${{ github.sha }}
+          path: |
+            unit_diagnostics/
+            unit-regression-output.txt
+            lifecycle_apk/app/build/test-results/testReleaseUnitTest/**/*.xml
+          if-no-files-found: warn
 
       # Keep required release checks strict while measuring every historical
       # test against the unchanged recorded 8089 baseline and rejecting regressions.
