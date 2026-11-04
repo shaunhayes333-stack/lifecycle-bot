@@ -1324,9 +1324,17 @@ object CryptoAltTrader {
             " pullback=" + "%.2f".format(pullbackPct7443) + " rebound=" + "%.2f".format(reboundPct7443) +
             " chg=" + change24hPct + " bp=" + buyPressurePct +
             " liq=" + liquidityUsd.toLong() + " vol=" + volume24hUsd.toLong()
+        // V5.0.8535 §C09 — LAB_PROPOSED has no validated lab hypothesis id on this desk: the entry is recorded under the
+        // predicate that actually fired, so its outcome trains that tactic and not an unidentifiable label.
+        val executedTactic8535 = if (tactic7443 == com.lifecyclebot.perps.crypto.brain.CryptoTacticSwitcher.Tactic.LAB_PROPOSED) when {
+            pullbackEvidence7443 -> com.lifecyclebot.perps.crypto.brain.CryptoTacticSwitcher.Tactic.PULLBACK
+            breakoutEvidence7443 -> com.lifecyclebot.perps.crypto.brain.CryptoTacticSwitcher.Tactic.BREAKOUT
+            meanRevertEvidence7443 -> com.lifecyclebot.perps.crypto.brain.CryptoTacticSwitcher.Tactic.MEAN_REVERT
+            else -> tactic7443
+        } else tactic7443
         return DynamicCryptoDecision7244(
             score, confidence, tier, actionableLong, shadowOnlyLive, reason,
-            tactic7443.name,
+            executedTactic8535.name,
         )
     }
     private suspend fun runDynamicTokenScan() = withContext(Dispatchers.Default) {
@@ -1537,7 +1545,9 @@ object CryptoAltTrader {
                 val deskCandidates7803 = CryptoLaneDesk7391.qualifyAll7803(cryptoDeskTs7803)
                 val desk7391 = deskCandidates7803.maxByOrNull { it.conviction }
                     ?: CryptoLaneDesk7391.Election("", 0.0, "", "", 0)
-                val cryptoCv7803 = System.currentTimeMillis() / 30_000L
+                // V5.0.8535 §C07 — the revision of this signal's inputs, not the clock bucket.
+                val cryptoCv7803 = CryptoCandidateRevision8535.of(deskIdentity7391, cryptoDecision7244.strategy7803,
+                    refreshed.priceObservedAtMs8372, cryptoDecision7244.score, cryptoDecision7244.confidence, cryptoDecision7244.reason)
                 try {
                     CryptoStrategyCandidateBooks7803.watch(
                         deskIdentity7391, refreshed.symbol, cryptoDecision7244.strategy7803, "CRYPTO_BRAIN_DISCOVERY_7803"
@@ -1962,7 +1972,7 @@ object CryptoAltTrader {
                     val first = rows.firstOrNull() ?: return@mapNotNull null
                     val assetKey7803 = first.dynAssetKey ?: first.dynMint ?: "${first.market.name}:${first.marketSymbol}"
                     val cv7803 = rows.map { it.candidateVersion7803 }.firstOrNull { it > 0L }
-                        ?: (System.currentTimeMillis() / 30_000L)
+                        ?: CryptoCandidateRevision8535.of(assetKey7803, rows.map { "${it.strategy7803}:${it.score}:${it.confidence}:${it.price}" })   // V5.0.8535 §C07
                     rows.forEach { proposal ->
                         try {
                             CryptoStrategyCandidateBooks7803.qualify(
@@ -2873,7 +2883,7 @@ object CryptoAltTrader {
             reasons        = reasons,
             layerVotes     = layerVotes,
             strategy7803   = "CRYPTO_STATIC_ANALYZE",
-            candidateVersion7803 = System.currentTimeMillis() / 30_000L,
+            candidateVersion7803 = CryptoCandidateRevision8535.of("CRYPTO_STATIC_ANALYZE", direction.name, data.price, change, score, confidence),   // V5.0.8535 §C07
         )
     }
 
@@ -5176,6 +5186,8 @@ object CryptoAltTrader {
                 isPaper = paper,
                 reason  = reason,
                 symbol  = mktSym,
+                // V5.0.8535 §C09 — the tactic sealed at entry (reasons: STRATEGY7803=<tactic>), not the cell's current one
+                tacticName8535 = pos.reasons.firstOrNull { it.startsWith("STRATEGY7803=") }?.removePrefix("STRATEGY7803=").orEmpty(),
             )
         } catch (_: Exception) {}
 

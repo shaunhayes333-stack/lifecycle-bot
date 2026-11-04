@@ -32,7 +32,8 @@ class Aate6641IntelligenceAuthorityTest {
 
     @Test fun metacognition_freezes_entry_roster_and_maps_outer_brains() {
         val src = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/MetaCognitionAI.kt").readText()
-        assertTrue(src.contains("alreadyOpen && pendingPredictions.containsKey(mint)"))
+        // V5.0.8535 §C03 — superseded: `containsKey(mint)`; the staging slot is keyed (mode, mint).
+        assertTrue(src.contains("alreadyOpen && pendingPredictions.containsKey(key)"))
         assertTrue(src.contains("\"executioncostpredictorai\""))
         assertTrue(src.contains("\"tokendnaclusteringai\""))
         assertTrue(src.indexOf("recentAccuracyEwma <= 32.0") < src.indexOf("recentAccuracyEwma <= 40.0"))

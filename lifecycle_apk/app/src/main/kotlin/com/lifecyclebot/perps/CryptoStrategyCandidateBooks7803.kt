@@ -66,31 +66,51 @@ internal object CryptoStrategyCandidateBooks7803 {
         val strategy = key(strategyRaw)
         val now = System.currentTimeMillis()
         val b = books.computeIfAbsent(strategy) { ConcurrentHashMap() }
+        var kept8535 = false
         val next = b.compute(assetKey) { _, old ->
             val s = score.takeIf { it >= 0 } ?: old?.score ?: -1
             val cf = confidence.takeIf { it >= 0 } ?: old?.confidence ?: -1
             val conv = if (s >= 0 && cf >= 0) s.coerceIn(0,100) * 0.60 + cf.coerceIn(0,100) * 0.40
                 else old?.conviction ?: 0.0
+            // V5.0.8535 §C06 — a WATCH / QUALIFY of the same revision never demotes a live READY (transition8535).
+            val t = transition8535(old, state, candidateVersion, now)
+            kept8535 = old != null && t.first == State.READY && state != State.READY
             Entry(
                 assetKey = assetKey,
                 symbol = symbol.ifBlank { old?.symbol.orEmpty() },
                 strategy = strategy,
-                candidateVersion = candidateVersion.takeIf { it > 0L } ?: old?.candidateVersion ?: 0L,
-                state = state,
+                candidateVersion = t.second,
+                state = t.first,
                 score = s,
                 confidence = cf,
                 conviction = conv,
-                reason = reason.ifBlank { old?.reason.orEmpty() },
+                reason = if (kept8535) old!!.reason else reason.ifBlank { old?.reason.orEmpty() },
                 firstSeenMs = old?.firstSeenMs ?: now,
-                updatedAtMs = now,
+                updatedAtMs = if (kept8535) old!!.updatedAtMs else now,   // a kept READY keeps its own clock; it is not refreshed by a watch tick
             )
         } ?: return null
+        if (kept8535) try { PipelineHealthCollector.labelInc("CRYPTO_RESIDENT_READY_KEPT_8535") } catch (_: Throwable) {}
         prune(strategy, now)
         try {
             PipelineHealthCollector.labelInc("CRYPTO_RESIDENT_${state.name}_7803")
             PipelineHealthCollector.labelInc("CRYPTO_RESIDENT_${state.name}_7803_$strategy")
         } catch (_: Throwable) {}
         return next
+    }
+
+    /**
+     * Pure (V5.0.8535 §C06): the state and revision an update stores. A LOST / EXPIRED / READY update always applies. A
+     * WATCHING / QUALIFIED update for the SAME revision (or with no revision) of a READY entry still inside its TTL keeps
+     * READY and the entry's revision — a lower-confidence lifecycle tick cannot erase an executable signal; a different
+     * revision (the inputs changed) applies as given. superseded: `state = state` unconditionally in put().
+     */
+    internal fun transition8535(old: Entry?, incoming: State, incomingVersion: Long, nowMs: Long, readyTtlMs: Long = READY_TTL_MS): Pair<State, Long> {
+        val version = incomingVersion.takeIf { it > 0L } ?: old?.candidateVersion ?: 0L
+        if (old == null) return incoming to version
+        if (incoming == State.LOST || incoming == State.EXPIRED || incoming == State.READY) return incoming to version
+        val readyLive = old.state == State.READY && nowMs - old.updatedAtMs in 0L..readyTtlMs
+        val sameRevision = incomingVersion <= 0L || old.candidateVersion <= 0L || incomingVersion == old.candidateVersion
+        return if (readyLive && sameRevision) State.READY to old.candidateVersion else incoming to version
     }
 
     internal fun watch(assetKey:String,symbol:String,strategy:String,reason:String="DISCOVERY") =

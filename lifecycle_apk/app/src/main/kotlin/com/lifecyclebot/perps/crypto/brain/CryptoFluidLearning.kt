@@ -41,12 +41,16 @@ object CryptoFluidLearning {
     private const val K_WINS         = "fl.wins"
     private const val K_LOSSES       = "fl.losses"
     private const val K_PAPER_PNL_AVG = "fl.paper.pnlAvg"
+    private const val K_SCRATCHES_8535 = "fl.scratches"
+    private const val K_OPENS_8535 = "fl.opens"
 
     private val tradesTotal = AtomicInteger(0)
     private val tradesPaper = AtomicInteger(0)
     private val tradesLive  = AtomicInteger(0)
     private val wins        = AtomicInteger(0)
     private val losses      = AtomicInteger(0)
+    private val scratches8535 = AtomicInteger(0)
+    private val opens8535     = AtomicInteger(0)
     @Volatile private var paperPnlEma: Double = 0.0    // exponential moving avg of pnl%
 
     enum class Maturity { BOOTSTRAP, LEARNING, VALIDATING, MATURING, READY }
@@ -166,12 +170,13 @@ object CryptoFluidLearning {
     }
 
     // ── Event hooks called by CryptoAltTrader ─────────────────────────────────
-    fun recordTradeStart() {
-        // Counted at start so threshold ladder advances even on losers/scratches.
-        tradesTotal.incrementAndGet()
-    }
+    // V5.0.8535 §C10 — maturity advances on SETTLED samples. superseded: `tradesTotal` incremented at open ("so the
+    // threshold ladder advances even on losers/scratches"): 100 unfinished positions moved the model from BOOTSTRAP
+    // toward LEARNING before one outcome existed. Opens are counted on their own line.
+    fun recordTradeStart() { opens8535.incrementAndGet() }
 
     fun recordPaperTrade(win: Boolean, pnlPct: Double) {
+        tradesTotal.incrementAndGet()
         tradesPaper.incrementAndGet()
         if (win) wins.incrementAndGet() else losses.incrementAndGet()
         // EMA with alpha=0.05 (slow, smooths over ~20 samples).
@@ -179,9 +184,21 @@ object CryptoFluidLearning {
     }
 
     fun recordLiveTrade(win: Boolean) {
+        tradesTotal.incrementAndGet()
         tradesLive.incrementAndGet()
         if (win) wins.incrementAndGet() else losses.incrementAndGet()
     }
+
+    /** A settled close inside the scratch band: counted toward maturity and the paper EMA, never as a win or a loss. */
+    fun recordScratch(isPaper: Boolean, pnlPct: Double) {
+        tradesTotal.incrementAndGet()
+        scratches8535.incrementAndGet()
+        if (isPaper) { tradesPaper.incrementAndGet(); if (pnlPct.isFinite()) paperPnlEma = paperPnlEma * 0.95 + pnlPct * 0.05 }
+        else tradesLive.incrementAndGet()
+    }
+
+    fun scratchCount8535(): Int = scratches8535.get()
+    fun openCount8535(): Int = opens8535.get()
 
     // ── Persistence ───────────────────────────────────────────────────────────
     fun loadFrom(state: CryptoBrainState) {
@@ -190,6 +207,8 @@ object CryptoFluidLearning {
         tradesLive.set(state.getInt(K_TRADES_LIVE, 0))
         wins.set(state.getInt(K_WINS, 0))
         losses.set(state.getInt(K_LOSSES, 0))
+        scratches8535.set(state.getInt(K_SCRATCHES_8535, 0))
+        opens8535.set(state.getInt(K_OPENS_8535, 0))
         paperPnlEma = state.getDouble(K_PAPER_PNL_AVG, 0.0)
     }
 
@@ -199,9 +218,11 @@ object CryptoFluidLearning {
         ed.putInt(K_TRADES_LIVE, tradesLive.get())
         ed.putInt(K_WINS, wins.get())
         ed.putInt(K_LOSSES, losses.get())
+        ed.putInt(K_SCRATCHES_8535, scratches8535.get())
+        ed.putInt(K_OPENS_8535, opens8535.get())
         ed.putLong("fl.paper.pnlAvg", java.lang.Double.doubleToRawLongBits(paperPnlEma))
     }
 
     fun summary(): String =
-        "Crypto FluidLearning: maturity=${maturity()} progress=${progressPct()}% trades=${tradesTotal.get()} W=${wins.get()} L=${losses.get()} WR=${"%.1f".format(winRate() * 100)}% paperPnlEma=${"%.2f".format(paperPnlEma)}%"
+        "Crypto FluidLearning: maturity=${maturity()} progress=${progressPct()}% settled=${tradesTotal.get()} opens=${opens8535.get()} W=${wins.get()} L=${losses.get()} S=${scratches8535.get()} WR=${"%.1f".format(winRate() * 100)}% paperPnlEma=${"%.2f".format(paperPnlEma)}%"
 }

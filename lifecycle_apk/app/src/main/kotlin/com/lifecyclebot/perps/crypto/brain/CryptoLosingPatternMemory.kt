@@ -19,14 +19,25 @@ import java.util.concurrent.ConcurrentHashMap
  */
 object CryptoLosingPatternMemory {
 
-    private data class Bucket(
+    // V5.0.8535 §C08 — a scratch (|pnl| < 1 %) entered pnlSum but neither wins nor losses, so meanPnl = pnlSum / (wins+losses)
+    // divided scratch money by a denominator that excluded it (one -4 % loss + ten -0.9 % scratches read mean -13 %).
+    // Trainable money and the trainable count live together; every settled close is counted on its own line.
+    internal data class Bucket(
         var wins: Int = 0,
         var losses: Int = 0,
         var pnlSum: Double = 0.0,
+        var scratches: Int = 0,
+        var pnlSumTrainable: Double = 0.0,
     ) {
+        /** Trainable closes (net win or net loss). */
         fun n(): Int = wins + losses
+        /** Every settled close. */
+        fun settledN(): Int = wins + losses + scratches
         fun lossRate(): Double = if (n() == 0) 0.0 else losses.toDouble() / n().toDouble()
-        fun meanPnl(): Double = if (n() == 0) 0.0 else pnlSum / n().toDouble()
+        /** Mean over the trainable closes — the cohort the danger rule counts. */
+        fun meanPnl(): Double = if (n() == 0) 0.0 else pnlSumTrainable / n().toDouble()
+        /** Mean over every settled close. */
+        fun meanPnlAll(): Double = if (settledN() == 0) 0.0 else pnlSum / settledN().toDouble()
         val isDangerous: Boolean
             get() = n() >= 20 && lossRate() >= 0.75 && meanPnl() <= -4.0
         val isShadowOnly: Boolean
@@ -48,8 +59,18 @@ object CryptoLosingPatternMemory {
     fun record(tier: String, score: Int, pnlPct: Double) {
         val k = key(tier, score)
         val b = buckets.getOrPut(k) { Bucket() }
-        if (pnlPct >= 1.0) b.wins++ else if (pnlPct <= -1.0) b.losses++
+        if (!pnlPct.isFinite()) return
+        when (CryptoOutcome8535.classify(pnlPct)) {
+            CryptoOutcome8535.Kind.NET_WIN -> { b.wins++; b.pnlSumTrainable += pnlPct }
+            CryptoOutcome8535.Kind.NET_LOSS -> { b.losses++; b.pnlSumTrainable += pnlPct }
+            else -> b.scratches++
+        }
         b.pnlSum += pnlPct
+    }
+
+    /** V5.0.8535 — the bucket's counts for a test or report: [wins, losses, scratches, meanTrainable, meanAll]. */
+    internal fun snapshot8535(tier: String, score: Int): DoubleArray? = buckets[key(tier, score)]?.let {
+        doubleArrayOf(it.wins.toDouble(), it.losses.toDouble(), it.scratches.toDouble(), it.meanPnl(), it.meanPnlAll())
     }
 
     /** Multiplicative sizing nudge for the entry path. */
@@ -74,7 +95,7 @@ object CryptoLosingPatternMemory {
         val sb = StringBuilder("Crypto LosingPatterns danger:\n")
         danger.sortedByDescending { it.value.losses }.take(8).forEach { (k, v) ->
             val shadow = if (v.isShadowOnly) "  🔒 SHADOW_TRAIN_ONLY" else ""
-            sb.append("  $k  W=${v.wins} L=${v.losses}  meanPnl=${"%+.2f".format(v.meanPnl())}%$shadow\n")
+            sb.append("  $k  W=${v.wins} L=${v.losses} S=${v.scratches}  meanTrainable=${"%+.2f".format(v.meanPnl())}% meanAll=${"%+.2f".format(v.meanPnlAll())}%$shadow\n")
         }
         return sb.toString()
     }
@@ -90,10 +111,13 @@ object CryptoLosingPatternMemory {
             val obj = org.json.JSONObject(blob)
             for (k in obj.keys()) {
                 val o = obj.getJSONObject(k)
+                val p = o.optDouble("p", 0.0)
                 buckets[k] = Bucket(
                     wins = o.optInt("w", 0),
                     losses = o.optInt("l", 0),
-                    pnlSum = o.optDouble("p", 0.0),
+                    pnlSum = p,
+                    scratches = o.optInt("s", 0),
+                    pnlSumTrainable = if (o.has("pt")) o.optDouble("pt", p) else p,   // a pre-8535 blob kept one sum: carried as the trainable sum
                 )
             }
         } catch (_: Throwable) { /* fail-open */ }
@@ -103,7 +127,7 @@ object CryptoLosingPatternMemory {
         val obj = org.json.JSONObject()
         for ((k, v) in buckets) {
             val o = org.json.JSONObject()
-            o.put("w", v.wins); o.put("l", v.losses); o.put("p", v.pnlSum)
+            o.put("w", v.wins); o.put("l", v.losses); o.put("p", v.pnlSum); o.put("s", v.scratches); o.put("pt", v.pnlSumTrainable)
             obj.put(k, o)
         }
         ed.putString(K_BLOB, obj.toString())

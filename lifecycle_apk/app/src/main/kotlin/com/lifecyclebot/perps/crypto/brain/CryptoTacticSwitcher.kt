@@ -22,7 +22,14 @@ object CryptoTacticSwitcher {
         var tactic: Tactic = Tactic.MOMENTUM,
         var losses: Int = 0,
         var lastRotateMs: Long = 0L,
+        /** V5.0.8535 §C09 — outcomes of positions entered under a tactic the cell has since rotated away from. */
+        var staleWins: Int = 0,
+        var staleLosses: Int = 0,
+        var unattributed: Int = 0,
     )
+
+    /** Pure (V5.0.8535 §C09): may an outcome entered under [executed] move the cell that now holds [cellTactic]? */
+    fun attributable8535(cellTactic: Tactic, executed: Tactic?): Boolean = executed == null || executed == cellTactic
 
     private val cells = ConcurrentHashMap<String, Cell>()
     private const val LOSS_TRIGGER_FOR_ROTATE = 6
@@ -39,9 +46,17 @@ object CryptoTacticSwitcher {
      * [LOSS_TRIGGER_FOR_ROTATE] in a row (counter resets on a win), it
      * rotates to the next tactic in the cycle.
      */
-    fun onOutcome(tier: String, score: Int, win: Boolean) {
+    fun onOutcome(tier: String, score: Int, win: Boolean, executed: Tactic? = null) {
         val k = keyFor(tier, score)
         val c = cells.getOrPut(k) { Cell() }
+        // V5.0.8535 §C09 — only the executed tactic's outcome trains the cell. superseded: every close rotated whatever tactic
+        // the cell held at close time (an older position's loss reset or rotated a newer tactic).
+        if (!attributable8535(c.tactic, executed)) {
+            if (win) c.staleWins++ else c.staleLosses++
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_TACTIC_OUTCOME_STALE_8535") } catch (_: Throwable) {}
+            return
+        }
+        if (executed == null) { c.unattributed++; try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_TACTIC_OUTCOME_UNATTRIBUTED_8535") } catch (_: Throwable) {} }
         if (win) {
             c.losses = 0
             return

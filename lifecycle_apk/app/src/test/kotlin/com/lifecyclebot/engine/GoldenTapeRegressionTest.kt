@@ -11580,7 +11580,9 @@ class GoldenTapeRegressionTest {
         assertTrue(ad.contains("internal fun dataKnowledge7327(ts: TokenState, nowMs: Long = System.currentTimeMillis()): DataKnowledge7327"))   // V5.0.8492 — freshness is judged at nowMs
         val sm = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ScoringModules.kt").readText()
         assertTrue(sm.contains("reasons += \"Buy pressure NO_DATA\""))
-        assertTrue(sm.contains("!bpKnown && !momKnown -> { reasons += \"Momentum NO_DATA\"; 0 }"))
+        // V5.0.8535 §C04 — superseded: `!bpKnown && !momKnown -> { reasons += "Momentum NO_DATA"; 0 }`; momentum is price momentum,
+        // so unknown price momentum is no momentum vote whatever the buyer reading (EntryAI holds that vote).
+        assertTrue(sm.contains("!momKnown -> { reasons += if (bpKnown) \"Momentum NO_PRICE_DATA (buy pressure is the entry vote)\" else \"Momentum NO_DATA\"; 0 }"))
         val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(bs.contains("TREASURY_V3_SCORE_NOT_CACHED_7327"))
         assertTrue(bs.contains("SpecialistInputParity8527.moonshotInputs8527(ts)") && java.io.File("src/main/kotlin/com/lifecyclebot/engine/SpecialistInputParity8527.kt").readText().contains("dataKnowledge7327(ts).volume"))

@@ -113,13 +113,19 @@ object CryptoBrain {
         isPaper: Boolean,
         reason: String,
         symbol: String,
+        tacticName8535: String = "",
     ) {
-        val win = pnlPct > 0.0
-        val trainable = kotlin.math.abs(pnlPct) >= 1.0   // <1% scratch is canonical INCONCLUSIVE, not W/L evidence
+        // V5.0.8535 §C10 — one classification for every brain (CryptoOutcome8535). superseded: `win = pnlPct > 0.0`.
+        val kind8535 = CryptoOutcome8535.classify(pnlPct)
+        val trainable = CryptoOutcome8535.trainable(kind8535)
+        val win = kind8535 == CryptoOutcome8535.Kind.NET_WIN
 
-        // 1. Maturity counters
-        if (isPaper) CryptoFluidLearning.recordPaperTrade(win, pnlPct)
-        else CryptoFluidLearning.recordLiveTrade(win)
+        // 1. Maturity counters — settled samples only; a scratch is settled but trains no direction
+        when {
+            kind8535 == CryptoOutcome8535.Kind.UNKNOWN -> {}
+            trainable -> if (isPaper) CryptoFluidLearning.recordPaperTrade(win, pnlPct) else CryptoFluidLearning.recordLiveTrade(win)
+            else -> CryptoFluidLearning.recordScratch(isPaper, pnlPct)
+        }
 
         // 2. Sentiment / tilt
         CryptoBehavior.recordTrade(pnlPct, reason, symbol, isPaper)
@@ -127,8 +133,9 @@ object CryptoBrain {
         // 3. Bucket loss memory
         CryptoLosingPatternMemory.record(tier, score, pnlPct)
 
-        // 4. Tactic rotation
-        CryptoTacticSwitcher.onOutcome(tier, score, win)
+        // 4. Tactic rotation — trainable outcomes only, attributed to the tactic the position was entered under (§C09)
+        if (trainable) CryptoTacticSwitcher.onOutcome(tier, score, win,
+            CryptoTacticSwitcher.Tactic.values().firstOrNull { it.name == tacticName8535.trim().uppercase() })
 
         // 5. Per-tier exit tuner
         CryptoLaneExitTuner.recordClose(tier, pnlPct, pnlSol)

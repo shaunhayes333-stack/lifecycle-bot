@@ -161,7 +161,8 @@ class Aate8527MetaDirectionConfidenceTest {
         assertEquals(3, scorer.split("MetaCognitionAI.predictionsFromComponents8527(").size - 1)
         assertFalse(scorer.contains("confidence = (50.0 + comp.value * 2)"))
         val meta = File("src/main/kotlin/com/lifecyclebot/v3/scoring/MetaCognitionAI.kt").readText()
-        assertTrue(meta.contains("recordForecast8527(mint, symbol, predictionsFromComponents8527(components))"))
+        // V5.0.8535 §C03 — superseded: the forecast is staged under its account mode as well.
+        assertTrue(meta.contains("recordForecast8527(mint, symbol, predictionsFromComponents8527(components), mode8535)"))
         assertTrue(meta.contains("ConcurrentHashMap<String, PendingForecast8527>"))
         assertTrue(meta.contains("updateMetaCalibration(outcome, captured.metaAtEntry)"))
         // V5.0.8535 §C03 — superseded: `alreadyOpen && pendingPredictions.containsKey(mint)`; the staging slot is keyed (mode, mint).
