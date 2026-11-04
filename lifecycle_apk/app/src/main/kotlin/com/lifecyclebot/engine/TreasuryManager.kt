@@ -209,6 +209,30 @@ object TreasuryManager {
     @Volatile private var lastAutoSaveMs: Long = 0L
     private const val AUTO_SAVE_MIN_INTERVAL_MS = 5_000L  // avoid IO spam
 
+    // V5.0.8527 — a keystore read must never hold the Application/UI thread.
+    // A single-flight restore also prevents an async Application restore from
+    // racing BotService.startBot's pre-trade restore and overwriting balances.
+    private val restoreLock8527 = Any()
+    private val restoreScheduled8527 = java.util.concurrent.atomic.AtomicBoolean(false)
+    @Volatile private var restoredThisProcess8527 = false
+
+    fun restoreAsync8527(ctx: Context) {
+        val app = ctx.applicationContext ?: ctx
+        cachedCtx = app // forceSave remains durable before startBot exists
+        if (restoredThisProcess8527 || !restoreScheduled8527.compareAndSet(false, true)) return
+        try {
+            Thread({
+                try { restore(app) }
+                catch (t: Throwable) {
+                    ErrorLogger.warn("Treasury", "Async restore failed: ${t.message}")
+                }
+            }, "AATE-TreasuryRestore-8527").apply { isDaemon = true }.start()
+        } catch (t: Throwable) {
+            restoreScheduled8527.set(false)
+            throw t
+        }
+    }
+
     private fun autoSave() {
         val ctx = cachedCtx ?: return
         val now = System.currentTimeMillis()
@@ -839,7 +863,13 @@ object TreasuryManager {
     }
 
     fun restore(ctx: Context) {
-        cachedCtx = ctx   // V5.9.433 — cache for autoSave()
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            restoreAsync8527(ctx)
+            return
+        }
+        synchronized(restoreLock8527) {
+        cachedCtx = ctx.applicationContext ?: ctx   // V5.9.433 — cache for autoSave()
+        if (restoredThisProcess8527) return@synchronized
         var restored = false
         
         // Try primary: Encrypted SharedPreferences
@@ -892,6 +922,8 @@ object TreasuryManager {
     // whatever the real state was (0.0 on fresh install) and only grows
     // when realised profits are deposited via lockProfit/addToTreasury.
     // The lifetimeLocked floor is also removed for the same reason.
+        restoredThisProcess8527 = true
+        }
     }
     
     private fun restoreFromJson(json: String) {

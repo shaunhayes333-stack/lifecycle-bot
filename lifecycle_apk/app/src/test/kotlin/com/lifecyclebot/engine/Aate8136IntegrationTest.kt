@@ -17,8 +17,9 @@ class Aate8136IntegrationTest {
 
     @Test fun aCredibleBuyProposalPrefetchesItsAuthorityProof() {
         val bot = src("engine/BotService.kt")
-        val gate = bot.indexOf("if (!ts.position.isOpen && decision.finalSignal == \"BUY\" && canProposeEarly &&")
+        val gate = bot.lastIndexOf("val candidate = laneQualifiedBuyDecision(", bot.indexOf("AuthorityProofPrefetch8136.prefetchIfLive8136(ts.mint)"))
         val prefetch = bot.indexOf("AuthorityProofPrefetch8136.prefetchIfLive8136(ts.mint)")
-        assertTrue(gate in 0 until prefetch && prefetch - gate < 600)
+        val fdg = bot.indexOf("val coreFdg8527 = FdgOutcomeContinuity8197.evaluate(", prefetch)
+        assertTrue(gate in 0 until prefetch && prefetch - gate < 1_400 && fdg > prefetch && fdg - prefetch < 400)
     }
 }

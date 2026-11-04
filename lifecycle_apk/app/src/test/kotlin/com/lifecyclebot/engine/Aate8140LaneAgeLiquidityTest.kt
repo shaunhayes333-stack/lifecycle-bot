@@ -129,7 +129,8 @@ class Aate8140LaneAgeLiquidityTest {
         assertTrue(bot.contains("operatorQualityAssessment8522(ts,") &&
             bot.contains("SpecialistMarketInputs8522.forCycle8522(cycleSheet8522, ts)") &&
             bot.contains("tokenAgeMinutes = inputs.age.inputMinutes"))
-        assertTrue(bot.contains("val poolAgeSecs7389 = LaneAgeLiquidityTruth8140.chainAgeSecs8140(ts)"))
+        assertTrue(bot.contains("SpecialistMarketInputs8522.forCycle8522(cycleSheet8522, ts)"))
+        assertTrue(bot.contains("inputs.age.inputMinutes"))
         assertTrue(bot.contains("SpecialistInputParity8527.express8527"))
         assertTrue(src("engine/SpecialistInputParity8527.kt").contains("NativeLaneAge8521.review8521"))
         for ((file, lane) in listOf("QualityTraderAI" to "QUALITY", "BlueChipTraderAI" to "BLUECHIP", "DipHunterAI" to "DIP_HUNTER",
