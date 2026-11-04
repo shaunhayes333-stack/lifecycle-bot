@@ -14,10 +14,12 @@ class SharedPreferences {
     @Volatile var commitSucceeds: Boolean = true
     val commitAttempts = java.util.concurrent.atomic.AtomicInteger()
     fun getString(key: String, fallback: String?): String? = values[key] ?: fallback
+    fun getLong(key: String, fallback: Long): Long = values[key]?.toLongOrNull() ?: fallback
     fun edit(): Editor = Editor(this, values)
     class Editor(private val owner: SharedPreferences, private val target: java.util.concurrent.ConcurrentHashMap<String, String>) {
         private val pending = LinkedHashMap<String, String>()
         fun putString(key: String, value: String): Editor = apply { pending[key] = value }
+        fun putLong(key: String, value: Long): Editor = apply { pending[key] = value.toString() }
         fun apply() { target.putAll(pending) }
         fun commit(): Boolean {
             owner.commitAttempts.incrementAndGet()

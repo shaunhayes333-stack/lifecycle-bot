@@ -51,7 +51,14 @@ fi
 sources="$apk_dir/app/src/main/kotlin/com/lifecyclebot/engine"
 tests="$apk_dir/app/src/test/kotlin/com/lifecyclebot/engine"
 classpath="$deps_dir/kotlin-stdlib-1.9.24.jar:$deps_dir/annotations-13.0.jar:$deps_dir/json-20250517.jar:$deps_dir/junit-4.13.2.jar:$deps_dir/hamcrest-core-1.3.jar"
+python3 "$script_dir/extract_field_manual.py" "$sources/truth/FieldManual7715.kt" "$output_dir/FieldManual7715.kt"
 production=(
+  "$sources/truth/LabelEvidence8386.kt"
+  "$sources/truth/LearningEpoch8164.kt"
+  "$sources/cortex/CortexForwardEpoch8521.kt"
+  "$sources/cortex/LaneGradeHorizon8406.kt"
+  "$sources/LaneHolds8418.kt"
+  "$sources/RunnerExitProfile7277.kt"
   "$sources/truth/RobustLabelRead8185.kt"
   "$sources/cortex/CortexLedger7885.kt"
   "$sources/cortex/CortexScoreboard7885.kt"
@@ -83,7 +90,7 @@ production=(
 printf 'Compiling %s production files; outputs: %s\n' "${#production[@]}" "$output_dir"
 java -Xmx1536m -cp "$deps_dir/*" org.jetbrains.kotlin.cli.jvm.K2JVMCompiler \
   -jvm-target 17 -no-stdlib -no-reflect -classpath "$classpath" -d "$output_dir/production.jar" \
-  "${production[@]}" "$script_dir/ServiceAdapters.kt" "$script_dir/RunnerAdapter.kt" \
+  "${production[@]}" "$output_dir/FieldManual7715.kt" "$script_dir/ServiceAdapters.kt" "$script_dir/RunnerAdapter.kt" \
   "$script_dir/AndroidPreferenceAdapters.kt" "$script_dir/ScannerAdapters.kt" \
   "$script_dir/ScannerHunterAdapter.kt" "$script_dir/FirstSightModelAdapters.kt" \
   "$script_dir/FirstSightEngineAdapters.kt" "$script_dir/FirstSightTruthAdapters.kt" \
