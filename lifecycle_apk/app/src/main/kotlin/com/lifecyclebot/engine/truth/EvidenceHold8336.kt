@@ -95,39 +95,14 @@ object EvidenceHold8336 {
         if (n == 0) return Proof8336(0, Double.NaN, Double.NaN, Double.NaN, false)
         val mean = r.average()
         val se = if (n > 1) kotlin.math.sqrt(r.sumOf { (it - mean) * (it - mean) } / (n - 1)) / kotlin.math.sqrt(n.toDouble()) else Double.POSITIVE_INFINITY
-        val pnl = cappedPnl8529(returnsPct, pnlSol)
-        val wins = pnl.filter { it.isFinite() && it > 0.0 }.sum()
-        val losses = -pnl.filter { it.isFinite() && it < 0.0 }.sum()
+        // V5.0.8529b — the profit factor reads the real SOL results: a +40,000 % runner is a real trade (owner), not a print
+        // to cap. (A cap / leave-two-out rule added earlier in 8529 was withdrawn before release.)
+        val wins = pnlSol.filter { it.isFinite() && it > 0.0 }.sum()
+        val losses = -pnlSol.filter { it.isFinite() && it < 0.0 }.sum()
         val pf = if (losses > 0.0) wins / losses else if (wins > 0.0) Double.POSITIVE_INFINITY else 0.0
-        val proven = n >= minN8399(lane) && mean - se > MARGIN_PCT_8336 && pf >= minPf8399(lane) &&   // V5.0.8399 — lane bar
-            survivesTopTwo8529(r)
+        val proven = n >= minN8399(lane) && mean - se > MARGIN_PCT_8336 && pf >= minPf8399(lane)   // V5.0.8399 — lane bar
         return Proof8336(n, mean, se, pf, proven)
     }
-
-    /**
-     * Pure (V5.0.8529): each SOL result scaled down with its return when the return was capped at +1000 %. superseded: the
-     * profit factor read the uncapped SOL while the mean read capped returns — 8527: cortex NO n72 wins 7 / losses 65 printed
-     * pf 252.92 / 398.17 / 220.28 on a few +5,000-10,000 % marks. A list of another length is used as given.
-     */
-    fun cappedPnl8529(returnsPct: List<Double>, pnlSol: List<Double>): List<Double> {
-        if (returnsPct.size != pnlSol.size) return pnlSol
-        return pnlSol.indices.map { i ->
-            val raw = returnsPct[i]; val p = pnlSol[i]
-            if (raw.isFinite() && raw > MAX_PROOF_RETURN_PCT_8529 && p.isFinite() && p > 0.0) p * (MAX_PROOF_RETURN_PCT_8529 / raw) else p
-        }
-    }
-
-    /**
-     * Pure (V5.0.8529): the record stays positive with its two largest returns removed. A tail strategy with several real
-     * runners passes; a losing book carried by one or two prints (8527: 65 losses of 72) does not prove.
-     */
-    fun survivesTopTwo8529(capped: List<Double>): Boolean {
-        if (capped.size <= 2) return true
-        val rest = capped.sortedDescending().drop(2)
-        return rest.average() > 0.0
-    }
-
-    private const val MAX_PROOF_RETURN_PCT_8529 = 1_000.0
 
     /** V5.0.8344 — the lane's shadow record behind the live trader (EvidenceShadow8344) unlocks it on the same bar as paper. */
     /** V5.0.8347 — a lane whose best exploration variant (ExploreShadow8347) has proven unlocks too; live then enters that way. */

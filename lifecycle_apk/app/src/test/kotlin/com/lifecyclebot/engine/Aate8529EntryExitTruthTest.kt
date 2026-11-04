@@ -18,7 +18,6 @@ import org.junit.Test
  *  2. HonEQ5 stopped out at -1.9 % (10 s), bought back 14.5 min later by another lane, -25 %;
  *  3. stops cancelled by a quote one point above the line, landing at -21 / -25 / -30 % against -15 %;
  *  4. Raydium / PumpPortal sells landing 0/3 and 1/3 still tried first;
- *  5. a shadow book with 65 losses of 72 "proved" on a few +5,000 % marks (pf 252 / 398).
  */
 class Aate8529EntryExitTruthTest {
 
@@ -133,34 +132,12 @@ class Aate8529EntryExitTruthTest {
         assertNull(SellRouteEndpoint8144.routeOf8529("UNKNOWN"))
     }
 
-    // ── 5. a few impossible prints do not prove a losing book ──
+    // ── 5. a runner is a real trade: the proof reads its real SOL ──
 
-    @Test fun the_profit_factor_reads_the_same_capped_returns_as_the_mean() {
-        // 8527 shape: 65 losses, 7 prints at +40,000 % — the old pf read the uncapped SOL (several hundred).
+    @Test fun a_forty_thousand_percent_runner_counts_at_its_real_size() {
         val r = List(65) { -10.0 } + List(7) { 40_000.0 }
-        val p = EvidenceHold8336.proof8336(r, r.map { it * 0.03 / 100.0 })
-        assertEquals(2.1 / 0.195, p.pf, 1e-6)
-    }
-
-    @Test fun a_book_carried_by_two_extreme_prints_does_not_prove() {
-        // 40 small losses and two +1,000 % prints: mean - SE and pf clear the old bar; without the two prints it loses.
-        val r = List(40) { -2.0 } + List(2) { 1_000.0 }
-        val p = EvidenceHold8336.proof8336(r, r.map { it / 1000.0 })
-        assertTrue(p.meanPct - p.sePct > EvidenceHold8336.MARGIN_PCT_8336 && p.pf >= EvidenceHold8336.MIN_PF_8336)
-        assertFalse(p.toString(), p.proven)
-    }
-
-    @Test fun a_real_tail_strategy_with_several_runners_still_proves() {
-        val r = List(32) { -10.0 } + List(8) { 300.0 }
-        val p = EvidenceHold8336.proof8336(r, r.map { it / 1000.0 })
-        assertTrue(p.toString(), p.proven)
-        assertEquals(7.5, p.pf, 1e-6)
-    }
-
-    @Test fun capped_pnl_scales_only_capped_winners() {
-        assertEquals(listOf(-0.01, 0.1, 0.05), EvidenceHold8336.cappedPnl8529(listOf(-10.0, 4_000.0, 500.0), listOf(-0.01, 0.4, 0.05)))
-        assertEquals(listOf(1.0), EvidenceHold8336.cappedPnl8529(listOf(1.0, 2.0), listOf(1.0)))
-        assertTrue(EvidenceHold8336.survivesTopTwo8529(listOf(5.0, 5.0)))
-        assertFalse(EvidenceHold8336.survivesTopTwo8529(listOf(1_000.0, 1_000.0, -10.0, -10.0)))
+        val sol = r.map { it * 0.03 / 100.0 }
+        val p = EvidenceHold8336.proof8336(r, sol)
+        assertEquals((7 * 12.0) / (65 * 0.003), p.pf, 1e-6)
     }
 }
