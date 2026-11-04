@@ -9844,8 +9844,10 @@ class GoldenTapeRegressionTest {
 
         // Moonshot minimum: learned bucket floor overrides the table both ways.
         assertTrue(floor.contains("fun learnedLaneFloor(rawLane: String?): Double?"))
-        assertTrue(moon.contains("CanonicalEntryFloor7266.learnedLaneFloor(\"MOONSHOT\")"))
-        assertTrue(moon.contains("val minScoreFluid7267 = learnedFloor7267?.toInt() ?: minScoreRaw"))
+        // superseded by V5.0.8528 — the learning-progress table and the V3-scale learned bucket floor were replaced by the lane's
+        // own native-score bands (NativeScoreFloor8528; bootstrap 30). Was: `CanonicalEntryFloor7266.learnedLaneFloor("MOONSHOT")`
+        // and `val minScoreFluid7267 = learnedFloor7267?.toInt() ?: minScoreRaw` (7389: the V3-scale floor filtered nothing).
+        assertTrue(moon.contains("val minScoreFluid7267 = com.lifecyclebot.engine.truth.NativeScoreFloor8528.resolve(\"MOONSHOT\", 30)"))
         assertTrue(moon.contains("val minScore = (minScoreFluid7267 * com.lifecyclebot.engine.LiveLayerGateRelaxer.floorMultiplier(\"MOONSHOT\")).toInt()"))
 
         // Drawdown guard: tolerance from observed range, floored at the old 2% / capped at 25%; lane-earned allow.
@@ -15769,7 +15771,9 @@ class GoldenTapeRegressionTest {
         val wait = c.indexOf("if (c.live && c.entryWait8506 != null)")
         assertTrue(comparison in 1 until wait)
         assertTrue(c.contains("val supported8511 = bestSetup"))
-        assertTrue(c.contains("if (supported8511 == null && doorBinds8393(\"ENTRY_\${wait}_8506\"))"))
+        // superseded by V5.0.8528 — a named setup that fired (nativePhaseWitness8528) settles NO_PHASE_TRIGGER only; it grants
+        // no edge and skips no later check. Was: `if (supported8511 == null && doorBinds8393("ENTRY_${'$'}{wait}_8506"))`.
+        assertTrue(c.contains("if (supported8511 == null && !nativePhase8528 && doorBinds8393(\"ENTRY_\${wait}_8506\"))"))
         assertTrue(wait < c.indexOf("val cellSupported = supported8136(liveCellProof8290, c.costPct)"))
         assertTrue(c.contains("if (missing != null && !fastTrack8520 && bestSetup == null)"))
         Aate8521SetupAdmissionContinuityTest().apply {

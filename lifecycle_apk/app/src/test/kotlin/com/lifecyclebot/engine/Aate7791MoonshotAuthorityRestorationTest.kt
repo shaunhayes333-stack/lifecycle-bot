@@ -10,8 +10,9 @@ class Aate7791MoonshotAuthorityRestorationTest {
 
     @Test fun paperMoonshotIsStillAnExploratoryTailScanner(){
         val s=src("v3/scoring/MoonshotTraderAI.kt")
-        assertTrue(s.contains("if (isPaper) 20 else 30"))
-        assertTrue(s.contains("if (isPaper) 28 else 38"))
+        // superseded by V5.0.8528 — paper and live share one native-score floor learned from the lane's own score bands
+        // (V5.0.7550: learning rehearses the bar LIVE executes). Was: `if (isPaper) 20 else 30` / `if (isPaper) 28 else 38`.
+        assertTrue(s.contains("NativeScoreFloor8528.resolve(\"MOONSHOT\", 30)"))
         assertTrue(s.contains("MOONSHOT_GENERIC_WR_FLOOR_IGNORED_TAIL_LANE_7791"))
     }
 
