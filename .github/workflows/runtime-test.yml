@@ -34,6 +34,18 @@ jobs:
         working-directory: lifecycle_apk
 
     steps:
+      # V5.0.8531 — run 41857645878 (8529): "An error occurred while preparing SDK package Google APIs Intel x86_64
+      # Atom System Image: No space left on device"; the emulator never started and every device check read NOT_RUN.
+      # Free runner toolchains this job never uses before anything is installed. The Android SDK is not touched.
+      - name: Free runner disk for the emulator image
+        working-directory: .
+        run: |
+          df -h / | tail -1
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/share/boost /usr/share/swift \
+            /usr/local/julia* /opt/hostedtoolcache/CodeQL /usr/local/share/powershell /usr/local/share/chromium || true
+          sudo docker image prune --all --force >/dev/null 2>&1 || true
+          df -h / | tail -1
+
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
