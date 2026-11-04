@@ -1023,9 +1023,30 @@ object MetaCognitionAI {
         }
     }
 
-    fun adjustScore(rawScore: Int, predictions: List<Prediction>): Int {
-        if (predictions.isEmpty()) return rawScore
-        if (totalTradesAnalyzed < MIN_TRADES_FOR_META) return rawScore
+    /**
+     * V5.0.8535 §C02 — the MetaCognition correction is a bounded DELTA on the raw vote aggregate, never a clamp of the
+     * aggregate itself. superseded: `return (adjusted + symNudge).toInt().coerceIn(-100, 100)` — with 44 layers a base of
+     * 180 and a neutral forecast returned 100, so the scorer booked a "metacognition" vote of -80 that no layer cast, and
+     * 180 and 250 became the same score. The raw aggregate stays on its own scale; the correction (trust blend, confidence
+     * multiplier, symbolic nudge) is bounded to ±[META_DELTA_CAP_8535] points in the aggregate's units.
+     */
+    const val META_DELTA_CAP_8535 = 40
+
+    /** Pure: the bounded correction MetaCognition adds to [rawScore] — 0 before [MIN_TRADES_FOR_META] outcomes or with no votes. */
+    fun metaDelta8535(rawScore: Int, predictions: List<Prediction>): Int {
+        if (predictions.isEmpty() || totalTradesAnalyzed < MIN_TRADES_FOR_META) return 0
+        return deltaOf8535(rawScore, adjustedRaw8535(rawScore, predictions))
+    }
+
+    /** Pure: the correction [adjusted] implies on [rawScore], bounded. */
+    fun deltaOf8535(rawScore: Int, adjusted: Double): Int {
+        if (!adjusted.isFinite()) return 0
+        return Math.round(adjusted - rawScore).toInt().coerceIn(-META_DELTA_CAP_8535, META_DELTA_CAP_8535)
+    }
+
+    fun adjustScore(rawScore: Int, predictions: List<Prediction>): Int = rawScore + metaDelta8535(rawScore, predictions)
+
+    private fun adjustedRaw8535(rawScore: Int, predictions: List<Prediction>): Double {
 
         val meta = calculateMetaConfidence(predictions)
 
@@ -1057,7 +1078,7 @@ object MetaCognitionAI {
             }
         } catch (_: Exception) { 0.0 }
 
-        return (adjusted + symNudge).toInt().coerceIn(-100, 100)
+        return adjusted + symNudge
     }
 
     // -------------------------------------------------------------------------

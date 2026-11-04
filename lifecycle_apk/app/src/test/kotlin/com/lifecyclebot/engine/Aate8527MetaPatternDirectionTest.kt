@@ -168,8 +168,10 @@ class Aate8527MetaPatternDirectionTest {
         assertEquals(50, Meta.adjustScore(50, votes(0)))
         assertEquals(-50, Meta.adjustScore(-50, votes(0)))
         assertEquals(50, Meta.adjustScore(50, emptyList()))
-        assertTrue(Meta.adjustScore(1_000, bull) <= 100)
-        assertTrue(Meta.adjustScore(-1_000, bear) >= -100)
+        // V5.0.8535 §C02 — superseded: `adjustScore(1_000, bull) <= 100` / `adjustScore(-1_000, bear) >= -100`. The raw vote
+        // aggregate is never clamped; the correction is a bounded delta (±META_DELTA_CAP_8535), so 1,000 stays near 1,000.
+        assertTrue(Meta.adjustScore(1_000, bull) in 1_000..(1_000 + Meta.META_DELTA_CAP_8535))
+        assertTrue(Meta.adjustScore(-1_000, bear) in (-1_000 - Meta.META_DELTA_CAP_8535)..-1_000)
     }
 
     private fun installPerformance(bulls: List<Meta.AILayer>, bears: List<Meta.AILayer>) {

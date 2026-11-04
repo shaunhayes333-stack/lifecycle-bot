@@ -145,17 +145,8 @@ class UnifiedScorer(
         // holders + narrative + social + holdtime uncapped = up to -8.
         // Cap their combined negative at -5 so no noisy signal blocks alone.
         val softPenaltyNames = setOf("holders", "narrative", "social", "holdtime")
-        val softPenaltyTotal = baseComponentsRaw
-            .filter { it.name.lowercase() in softPenaltyNames && it.value < 0 }
-            .sumOf { it.value }
-        val baseComponents = if (softPenaltyTotal < -5) {
-            val scale = -5.0 / softPenaltyTotal
-            baseComponentsRaw.map { comp ->
-                if (comp.name.lowercase() in softPenaltyNames && comp.value < 0)
-                    comp.copy(value = (comp.value * scale).toInt())
-                else comp
-            }
-        } else baseComponentsRaw
+        // V5.0.8535 §C01 — the cap is apportioned to exactly -5 (SignedCap8535); superseded: per-vote `(value * scale).toInt()`.
+        val baseComponents = SignedCap8535.capNegatives(baseComponentsRaw, -5, null) { it.name.lowercase() in softPenaltyNames }
 
         // CollectiveIntelligenceAI — hive mind (was present in build ~1920)
         val collectiveComponent = try {
@@ -454,11 +445,10 @@ class UnifiedScorer(
          * bands that actually pay, so admission is driven by realised evidence
          * rather than by an optimism bias standing in for it.
          */
-        fun fluidScale(c: ScoreComponent): ScoreComponent {
-            if (c.name.lowercase() !in newLayerNames) return c
-            val scaled = (c.value * newLayerNegScale).toInt()
-            return c.copy(value = scaled, reason = "${c.reason} | FLUID×${"%.2f".format(newLayerNegScale)}")
-        }
+        // V5.0.8535 §C01 — the bootstrap scale is applied to the new layers as a group with the aggregate preserved
+        // (SignedCap8535.scaleGroup); superseded: per-vote `(c.value * newLayerNegScale).toInt()` (fluidScale).
+        fun fluidScale8535(cs: List<ScoreComponent>): List<ScoreComponent> =
+            SignedCap8535.scaleGroup(cs, newLayerNegScale, "FLUID") { it.name.lowercase() in newLayerNames }
 
         val v4KillPenalty: Int = try {
             val snap = CrossTalkFusionEngine.getSnapshot()
@@ -494,7 +484,7 @@ class UnifiedScorer(
             LiquidityCycleAI.score(candidate, ctx),
             insiderTrackerScore(candidate),
         )
-        val classic27 = classic27Raw.map { fluidScale(it) }
+        val classic27 = fluidScale8535(classic27Raw)
 
         val genEqRamp: Double = try {
             val outerRingNames = listOf(
@@ -517,14 +507,9 @@ class UnifiedScorer(
             else (outerAvg / innerAvg).coerceIn(0.5, 1.0)
         } catch (_: Exception) { 1.0 }
 
-        fun genEqScale(c: ScoreComponent): ScoreComponent {
-            if (genEqRamp >= 1.0) return c
-            val scaled = (c.value * genEqRamp).toInt()
-            return if (scaled == c.value) c else c.copy(
-                value = scaled,
-                reason = "${c.reason} | GENEQ×${"%.2f".format(genEqRamp)}"
-            )
-        }
+        // V5.0.8535 §C01 — the generation-equalisation ramp scales the outer ring as a group with the aggregate preserved;
+        // superseded: per-vote `(c.value * genEqRamp).toInt()` (genEqScale).
+        fun genEqScale8535(cs: List<ScoreComponent>): List<ScoreComponent> = SignedCap8535.scaleGroup(cs, genEqRamp, "GENEQ") { true }
 
         // V5.9.339: BootstrapAdaptiveEngine — all 44 layers active from trade 1.
         // OLD: bootstrapBypass=true dropped 14 outer-ring layers and skipped AITrustNetworkAI
@@ -546,7 +531,7 @@ class UnifiedScorer(
             NewsShockAI.score(candidate, ctx),
             FundingRateAwarenessAI.score(candidate, ctx),
             OrderbookImbalancePulseAI.score(candidate, ctx),
-        ).map { fluidScale(genEqScale(it)) }
+        ).let { fluidScale8535(genEqScale8535(it)) }
 
         // Apply bootstrap adaptive multipliers to outer ring during bootstrap
         val outerRingScaled = if (bootstrapBypass) {
@@ -588,17 +573,8 @@ class UnifiedScorer(
         val baseComponentsWithV4 = if (v4Component != null) baseComponents + v4Component else baseComponents
 
         val softPenaltyNames = setOf("holders", "narrative", "social", "holdtime")
-        val softPenaltyTotal = baseComponentsWithV4
-            .filter { it.name.lowercase() in softPenaltyNames && it.value < 0 }
-            .sumOf { it.value }
-        val cappedBaseComponents = if (softPenaltyTotal < -5) {
-            val scale = -5.0 / softPenaltyTotal
-            baseComponentsWithV4.map { comp ->
-                if (comp.name.lowercase() in softPenaltyNames && comp.value < 0)
-                    comp.copy(value = (comp.value * scale).toInt())
-                else comp
-            }
-        } else baseComponentsWithV4
+        // V5.0.8535 §C01 — apportioned to exactly -5 (SignedCap8535); superseded: per-vote `(value * scale).toInt()`.
+        val cappedBaseComponents = SignedCap8535.capNegatives(baseComponentsWithV4, -5, null) { it.name.lowercase() in softPenaltyNames }
 
         val v59123LayerNames = setOf(
             "correlationhedgeai", "liquidityexitpathai", "mevdetectionai",
@@ -607,17 +583,8 @@ class UnifiedScorer(
             "tokendnaclusteringai", "peeralphaverificationai", "newsshockai",
             "fundingrateawarenessai", "orderbookimbalancepulseai"
         )
-        val v59123PenaltyTotal = cappedBaseComponents
-            .filter { it.name.lowercase() in v59123LayerNames && it.value < 0 }
-            .sumOf { it.value }
-        val v59123CappedComponents = if (v59123PenaltyTotal < -25) {
-            val scale = -25.0 / v59123PenaltyTotal
-            cappedBaseComponents.map { comp ->
-                if (comp.name.lowercase() in v59123LayerNames && comp.value < 0)
-                    comp.copy(value = (comp.value * scale).toInt())
-                else comp
-            }
-        } else cappedBaseComponents
+        // V5.0.8535 §C01 — apportioned to exactly -25 (SignedCap8535); superseded: per-vote `(value * scale).toInt()`.
+        val v59123CappedComponents = SignedCap8535.capNegatives(cappedBaseComponents, -25, null) { it.name.lowercase() in v59123LayerNames }
 
         val collectiveComponent = try {
             val insight = CollectiveIntelligenceAI.score(
@@ -1086,29 +1053,13 @@ class UnifiedScorer(
 
         // ─── PHASE 5: SOFT PENALTY CAP — noisy cluster (CLASSIC V5.8) ───────
         val softNames = setOf("holders", "narrative", "social", "holdtime")
-        val softTotal = phase4Classic
-            .filter { it.name.lowercase() in softNames && it.value < 0 }
-            .sumOf { it.value }
-        val phase5Classic = if (softTotal < -5) {
-            val scale = -5.0 / softTotal
-            phase4Classic.map { c ->
-                if (c.name.lowercase() in softNames && c.value < 0)
-                    c.copy(value = (c.value * scale).toInt(),
-                        reason = "${c.reason} | SOFTCAP×${"%.2f".format(scale)}")
-                else c
-            }
-        } else phase4Classic
+        // V5.0.8535 §C01 — apportioned to exactly -5 (SignedCap8535); superseded: per-vote `(c.value * scale).toInt()`.
+        val phase5Classic = SignedCap8535.capNegatives(phase4Classic, -5, "SOFTCAP") { it.name.lowercase() in softNames }
 
         // ─── PHASE 6: OUTER-RING SOFT CAP (tightened from MODERN's -25 to -10) ───
-        val outerTotalNeg = phase4Outer.filter { it.value < 0 }.sumOf { it.value }
-        val phase6Outer = if (outerTotalNeg < -10) {
-            val scale = -10.0 / outerTotalNeg
-            phase4Outer.map { c ->
-                if (c.value < 0) c.copy(value = (c.value * scale).toInt(),
-                    reason = "${c.reason} | OUTERCAP×${"%.2f".format(scale)}")
-                else c
-            }
-        } else phase4Outer
+        // V5.0.8535 §C01 — fourteen outer votes of -3 (total -42) summed to 0 after per-vote truncation; apportioned to exactly -10.
+        // superseded: per-vote `(c.value * scale).toInt()`.
+        val phase6Outer = SignedCap8535.capNegatives(phase4Outer, -10, "OUTERCAP") { true }
 
         // ─── PHASE 7: V4 CROSSTALK (MODERN, penalties halved per doctrine #86) ───
         val v4Penalty: Int = try {
