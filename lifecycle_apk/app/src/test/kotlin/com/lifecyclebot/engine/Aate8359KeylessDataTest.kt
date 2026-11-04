@@ -52,9 +52,11 @@ class Aate8359KeylessDataTest {
 
     @Test fun theMarketLadderPutsOpenKeylessRungsFirstAndClosedOnesBehindHelius() {
         val ladder = listOf(helius, alchemy, publicnode, beta)
-        assertEquals(listOf(beta, publicnode, helius, alchemy), KeylessRpc8359.order8359(ladder, Route8359.MARKET, { true }))
-        // a keyless host whose governor is closed goes behind the paid rungs
-        assertEquals(listOf(publicnode, helius, alchemy, beta),
+        // V5.0.8533 §HELIUS_MATE (owner) — superseded: `listOf(beta, publicnode, helius, alchemy)` (keyless first). The paid
+        // rungs lead a market read; open keyless nodes follow in their own order, closed ones last.
+        assertEquals(listOf(helius, alchemy, beta, publicnode), KeylessRpc8359.order8359(ladder, Route8359.MARKET, { true }))
+        // a keyless host whose governor is closed goes behind the open one
+        assertEquals(listOf(helius, alchemy, publicnode, beta),
             KeylessRpc8359.order8359(ladder, Route8359.MARKET, { it != beta }))
         // execution / DAS routes keep the ladder exactly (Helius leads)
         assertEquals(ladder, KeylessRpc8359.order8359(ladder, Route8359.EXECUTION, { true }))

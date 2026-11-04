@@ -459,6 +459,9 @@ object ParallelMarkFanout7088 {
                         val asset = arr.optJSONObject(i) ?: continue
                         val id = asset.optString("id", "")
                         if (id.isBlank()) continue
+                        // V5.0.8533 — the same answer carries token_info.supply / decimals: kept as the mint's DAS supply
+                        // (MintSupply8418, ranked below a mint-account read) instead of discarded with the price read.
+                        try { com.lifecyclebot.engine.truth.MintSupply8418.fromDasAsset8418(asset, System.currentTimeMillis())?.let { com.lifecyclebot.engine.truth.MintSupply8418.accept8418(it, notifyMetrics = false) } } catch (_: Throwable) {}
                         val price = asset.optJSONObject("token_info")
                             ?.optJSONObject("price_info")
                             ?.optDouble("price_per_token", 0.0) ?: 0.0

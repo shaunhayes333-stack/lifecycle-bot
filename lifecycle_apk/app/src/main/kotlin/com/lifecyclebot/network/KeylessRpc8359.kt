@@ -102,7 +102,11 @@ object KeylessRpc8359 {
             .sortedBy { u -> keylessOrder.indexOfFirst { host8359(it) == host8359(u) }.let { if (it < 0) Int.MAX_VALUE else it } }
         val rest = clean.filter { !isKeyless8359(it, keylessOrder) }
         val (openK, closedK) = keyless.partition(isOpen)
-        return openK + rest + closedK
+        // V5.0.8533 §HELIUS_MATE (owner) — the paid rungs lead a market read; the keyless nodes are the fallback behind them.
+        // superseded: `return openK + rest + closedK` (8359, keyless first). 8529 live: publicnode 575 calls / 13 answered
+        // (http503=347), api.mainnet-beta 112 / 97, Helius 100 %; supply reads on that order left 1,375 caps unresolved in
+        // six minutes. Helius's own budget gates (HeliusRateGate8191 / hardGate8066) still shed to the next rung.
+        return rest + openK + closedK
     }
 
     /** Pure: getMultipleAccounts batches — de-duplicated, order kept, at most [max] (<= 100) keys a call. */

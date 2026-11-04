@@ -259,9 +259,9 @@ object OnChainSupplyAuthority7075 {
     fun requestAsync7075(mint: String) {
         if (mint.isBlank() || rpcUrl.isBlank()) return
         // V5.0.8458 — not a Solana public key: no SPL mint account to read, and one such key refused a whole 100-mint batch.
-        if (!com.lifecyclebot.network.KeylessRpc8359.solanaKey8458(mint)) { notSolanaKey8458.incrementAndGet(); return }
-        if (resolved.containsKey(mint)) return
-        if (try { MintSupply8418.chainRead8418(mint) } catch (_: Throwable) { false }) return   // V5.0.8418 — the mint account was already read
+        if (!com.lifecyclebot.network.KeylessRpc8359.solanaKey8458(mint)) { notSolanaKey8458.incrementAndGet(); bump8533(keyShape8533(mint)); return }
+        if (resolved.containsKey(mint)) { skippedResolved8533.incrementAndGet(); return }
+        if (try { MintSupply8418.chainRead8418(mint) } catch (_: Throwable) { false }) { skippedChainRead8533.incrementAndGet(); return }   // V5.0.8418 — the mint account was already read
         // V5.0.7345 §DO_NOT_BUILD_A_REQUEST_THE_BACKOFF_WILL_REFUSE.
         //
         // With Helius at max usage for a whole run: requested=2245, dec7116=2237
@@ -296,7 +296,16 @@ object OnChainSupplyAuthority7075 {
         }
         sweepCooldowns7116()
         val gate = inFlight.computeIfAbsent(mint) { AtomicBoolean(false) }
-        if (!gate.compareAndSet(false, true)) return
+        if (!gate.compareAndSet(false, true)) {
+            // V5.0.8533 — a gate held past [GATE_TTL_MS_8533] is a wedge (a task whose finally never ran), not a read in
+            // flight: released and counted. 8529: requested=131 against ~1,375 unresolved cap reads, no counter named why.
+            val since = inFlightSince8533[mint]
+            if (since == null || !gateStale8533(since, now) || !run { gate.set(false); gateReset8533.incrementAndGet(); gate.compareAndSet(false, true) }) {
+                skippedGateBusy8533.incrementAndGet(); return
+            }
+        }
+        if (inFlightSince8533.size > 20_000) inFlightSince8533.clear()
+        inFlightSince8533[mint] = now
         requested.incrementAndGet()
         if (enqueueBatch8445(mint, gate)) return   // V5.0.8445 — 100 mint accounts per read
         val submitted = try {
@@ -333,6 +342,27 @@ object OnChainSupplyAuthority7075 {
     private val batchUnanswered8445 = AtomicLong(0L)
     private val batchFallback8445 = AtomicLong(0L)
     private val notSolanaKey8458 = AtomicLong(0L)
+
+    // ── V5.0.8533 — every silent early return of requestAsync7075 is counted; a wedged gate self-heals ──
+    const val GATE_TTL_MS_8533 = 120_000L
+    private val inFlightSince8533 = ConcurrentHashMap<String, Long>()
+    private val skippedGateBusy8533 = AtomicLong(0L)
+    private val gateReset8533 = AtomicLong(0L)
+    private val skippedResolved8533 = AtomicLong(0L)
+    private val skippedChainRead8533 = AtomicLong(0L)
+    private val notSolanaKeyBy8533 = ConcurrentHashMap<String, AtomicLong>()
+    private fun bump8533(k: String) { notSolanaKeyBy8533.computeIfAbsent(k) { AtomicLong(0L) }.incrementAndGet() }
+
+    /** Pure: a gate taken at [sinceMs] and still held at [nowMs] has outlived any real read. */
+    fun gateStale8533(sinceMs: Long, nowMs: Long): Boolean = nowMs - sinceMs > GATE_TTL_MS_8533
+
+    /** Pure: the shape of an identity the key check refused (which caller family feeds non-Solana ids). */
+    fun keyShape8533(s: String): String = when {
+        s.startsWith("0x", ignoreCase = true) -> "EVM"
+        s.length < 32 -> "SHORT"
+        s.length > 44 -> "LONG"
+        else -> "BASE58_FAIL"
+    }
 
     private fun enqueueBatch8445(mint: String, gate: AtomicBoolean): Boolean {
         if (batch8445.size >= MAX_BATCH_QUEUED_8445) return false
@@ -727,7 +757,9 @@ object OnChainSupplyAuthority7075 {
             "negCached7116=${skippedNegative.get()} cooling7116=${retryNotBefore.size} " +
             "notVisibleYet7809=${notFoundYet7809.get()} " +
             "batch8445[calls=${batchCalls8445.get()} resolved=${batchResolved8445.get()} unanswered=${batchUnanswered8445.get()} " +
-            "fallback=${batchFallback8445.get()} queued=${batch8445.size}] notSolanaKey8458=${notSolanaKey8458.get()}"
+            "fallback=${batchFallback8445.get()} queued=${batch8445.size}] notSolanaKey8458=${notSolanaKey8458.get()} " +
+            "gate8533[busy=${skippedGateBusy8533.get()} reset=${gateReset8533.get()} resolvedSkip=${skippedResolved8533.get()} chainReadSkip=${skippedChainRead8533.get()}] " +
+            "notSolanaKeyBy8533{${notSolanaKeyBy8533.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}}"
 
     /** V5.0.8441 — DiagnosisBrief8438 G INPUTS: [requested, resolved, allRungsLocked, declinedLocally, noSupply]. */
     fun counts8441(): LongArray = longArrayOf(requested.get(), fetched.get(), skippedProviderLocked7345.get(), declinedLocally.get(), noSupply.get())

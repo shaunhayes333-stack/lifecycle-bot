@@ -34,6 +34,23 @@ object DiscoveryCapture8400 {
     private const val PRICE_X_SUPPLY = "PRICE_X_SUPPLY"
     private const val CHAIN_READ_QUEUED = "CHAIN_READ_QUEUED"
     private const val UNRESOLVED = "UNRESOLVED"
+    private const val PROVIDER_CAP = "PROVIDER_CAP_8533"
+    private const val PROVIDER_CAP_MAX_AGE_MS_8533 = 15L * 60_000L
+    private val providerCap8533 = AtomicLong(0)
+
+    /**
+     * Pure (V5.0.8533): a provider's own cap for a coin that is NOT on a pump curve — the market sweep row's, else the
+     * DexScreener pair's fdv — when observed within [maxAgeMs]; null otherwise. The owner: the sources are already in
+     * the code. It stands in until price x verified supply lands (TrustedMcap8019.mcap8019 reconciles the row against
+     * that on every decision), so a lane can read the coin instead of deferring on an empty field.
+     */
+    fun providerCap8533(sweepCap: Double?, sweepAtMs: Long?, pairFdv: Double?, pairAtMs: Long?, nowMs: Long,
+                        maxAgeMs: Long = PROVIDER_CAP_MAX_AGE_MS_8533): Double? {
+        fun ok(v: Double?, at: Long?) = v != null && v.isFinite() && v > 0.0 && at != null && at > 0L && nowMs - at in 0L..maxAgeMs
+        if (ok(sweepCap, sweepAtMs)) return sweepCap
+        if (ok(pairFdv, pairAtMs)) return pairFdv
+        return null
+    }
 
     private val resolved = AtomicLong(0)
     private val queued = AtomicLong(0)
@@ -69,6 +86,18 @@ object DiscoveryCapture8400 {
             val v = TrustedMcap8019.mcap8019(ts)   // writes the price-implied cap back to the row when it can
             if (v.isFinite() && v > 0.0) how = PRICE_X_SUPPLY
         } catch (_: Throwable) {}
+        // V5.0.8533 §HELIUS_MATE — no verified supply: ask Helius DAS for it in a batch (HeliusSupplyBatch8533), so the next
+        // read is price x supply; meanwhile a provider's own cap for a non-curve coin stands in (providerCap8533).
+        if (how == UNRESOLVED) {
+            try { com.lifecyclebot.network.HeliusSupplyBatch8533.request(ts.mint) } catch (_: Throwable) {}
+            if (!activeCurve8400(ts.mint)) {
+                val now8533 = System.currentTimeMillis()
+                val row8533 = try { com.lifecyclebot.engine.market.MarketSweep7297.rowFor8169(ts.mint, now8533) } catch (_: Throwable) { null }
+                val pair8533 = try { PairFlow8169.peek8169(ts.mint) } catch (_: Throwable) { null }
+                val v8533 = providerCap8533(row8533?.mcapUsd, row8533?.observedAtMs8169, pair8533?.fdvUsd8533, pair8533?.atMs, now8533)
+                if (v8533 != null) { ts.lastMcap = v8533; how = PROVIDER_CAP; providerCap8533.incrementAndGet() }
+            }
+        }
         // superseded by V5.0.8418 — step 4 (CURVE_FROM_LIQUIDITY: cap = (realSol + 30)^2 / 32.19 from ts.lastLiquidityUsd) is
         // deleted: it derived a cap from a depth that LiquidityTruth8037 may itself have derived from a cap, over an assumed 1B
         // supply. Without observed reserves x verified supply or price x verified supply the cap stays UNKNOWN (chain read queued).
@@ -185,6 +214,6 @@ object DiscoveryCapture8400 {
     fun statusLine(): String =
         "discoveryMcap8400 resolved=${resolved.get()} chainQueued=${queued.get()} unresolved=${unresolved.get()} by{${top(byHow)}} " +
             "unresolvedWhy8439{${top(unresolvedWhy8439)}} " +
-            "uncappedBySource{${top(missingBySource)}} liq[hydrated=${liqHydrated.get()} missingBySource{${top(liqMissingBySource)}}] " +
+            "providerCap8533=${providerCap8533.get()} uncappedBySource{${top(missingBySource)}} liq[hydrated=${liqHydrated.get()} missingBySource{${top(liqMissingBySource)}}] " +
             "shape8407[seeded=${shapeSeeded8407.get()} notSeeded{${shapeNotSeeded8407.entries.sortedByDescending { it.value.get() }.take(4).joinToString(",") { "${it.key}=${it.value.get()}" }}}]"
 }

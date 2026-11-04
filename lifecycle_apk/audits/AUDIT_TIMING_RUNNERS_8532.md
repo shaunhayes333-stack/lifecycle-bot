@@ -84,3 +84,19 @@ lane. The lanes read one stored field each and defer when it is empty.
 
 DONE so far: 8529 remaining-move, stop-out lockout, stop quote rule, route demotion; 8532 Moonshot 500k, lockout at the
 sell row, minimum-gate defers, trading age from the pool.
+
+## 7. Data chain findings (8533, owner: "helius mate")
+
+- (F) 8529: `discoveryMcap8400 unresolved=1,397` — `NO_VERIFIED_SUPPLY@jupiter_strict=1,050 / @market_hunt=325`; `uncappedBySource{BRIDGE=1,381}` =
+  MOONSHOT / MANIPULATED `NATIVE_MCAP_UNHYDRATED_DEFER=1,381`. The cap chain was curve reserves → price × verified supply → (pump only) chain read;
+  established DEX coins have no curve and their supply was never verified.
+- (F) Supply ladder (8359) ran keyless nodes first: publicnode 575 calls / 13 answered (http503=347), api.mainnet-beta 112 / 97; Helius 100 %,
+  74.9k of 400k daily credits used. `requested=131` against ~1,375 misses; the request's silent early returns (resolved / chain-read / in-flight
+  gate) had no counters; `notSolanaKey8458=6,731` (shape now counted — EVM ids from the cross-asset desk are the likely source).
+- (F) The Helius DAS `getAssetBatch` the mark fan-out already called carried `token_info.supply` / `decimals` for every asset and parsed only the price.
+- (F) The sweep row carries `mcapUsd` / `liquidityUsd` and the DexScreener pair carries `fdv` / `liquidity`; the cap chain read neither.
+- (F) DexScreener host budget 180/min: `taken{exit=508, near=357, bulk=170} refused{bulk=1,404}` — 508 EXIT-class calls in six minutes for ONE held
+  position starved the bulk lane that prices waiting coins. NOT changed in 8533 (exit-time path; the held mark is already chain-sourced); to measure
+  the caller (`ExitHttpScope7314.active()` covers every fetch under the exit scope) before coalescing.
+- DONE 8533: paid rungs first for market reads (`order8359`), DAS supply kept, bounded DAS supply batch for cap-pending mints, gate TTL + counters,
+  provider cap rung (non-curve, ≤15 min) replaced by price × verified supply when it lands, pair `fdv` kept on the flow row.

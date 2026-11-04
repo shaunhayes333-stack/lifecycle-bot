@@ -3661,7 +3661,7 @@ object PipelineHealthCollector {
             sb.append(smartMoneyLines7962())
             sb.append("  On-chain supply   (§7075): ").append(
                 com.lifecyclebot.engine.truth.OnChainSupplyAuthority7075.status()
-            ).append("\n")
+            ).append(" ").append(try { com.lifecyclebot.network.HeliusSupplyBatch8533.statusLine() } catch (_: Throwable) { "" }).append("\n")
             sb.append("  Token metrics     (§7069): ").append(
                 com.lifecyclebot.engine.truth.TokenMetricsAuthority7069.status()
             ).append("\n")
