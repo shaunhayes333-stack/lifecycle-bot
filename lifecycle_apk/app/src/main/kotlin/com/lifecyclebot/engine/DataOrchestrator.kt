@@ -146,10 +146,15 @@ class DataOrchestrator(
                     .filter { com.lifecyclebot.network.HeliusSolanaScope7819.isSolanaMint7819(it.mint) }
                     .flatMap { ts -> MultiTimeframeCharts8521.higherFrames8521.asSequence().map { ts to it } }
                     .filter { (ts, frame) -> mtfDue8521(ts, frame, now) }
-                    .sortedWith(compareByDescending<Pair<TokenState, Frame8521>> { (ts, _) ->
-                        if (ts.position.isOpen) 2 else if (DataPipeline8191.nearDecision8191(ts.mint, now)) 1 else 0
-                    }.thenBy { (ts, frame) -> mtfAttempts8521["${ts.mint}|${frame.label}"] ?: 0L })
-                    .take(4).toList()
+                    // V5.0.8523 — 8522 RUNTIME_CRASH "Comparison method violates its general contract": the comparator read
+                    // live state (open position, near-decision, attempt counts) that other workers change mid-sort. Keys are
+                    // snapshotted once per job, so the sort sees one consistent value per element.
+                    .map { (ts, frame) -> Triple(ts to frame,
+                        if (ts.position.isOpen) 2 else if (DataPipeline8191.nearDecision8191(ts.mint, now)) 1 else 0,
+                        mtfAttempts8521["${ts.mint}|${frame.label}"] ?: 0L) }
+                    .toList()
+                    .sortedWith(compareByDescending<Triple<Pair<TokenState, Frame8521>, Int, Long>> { it.second }.thenBy { it.third })
+                    .take(4).map { it.first }
                 for ((ts, frame) in jobs) {
                     try { refreshMtfFrame8521(ts, frame) }
                     catch (e: CancellationException) { throw e }
