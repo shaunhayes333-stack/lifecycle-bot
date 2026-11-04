@@ -58,9 +58,19 @@ object CortexRank8325 {
     }
 
     class LaneRank8325(val lane: String, val line: String, val short: String, val verdict: String, val rows: Int,
-                       val orderedBy: String, val inverseBottomNetLowerBoundPct: Double = Double.NaN)
+                       val orderedBy: String, val refuseCount8527: Int = 0, val refuseNetLowerPct8527: Double = Double.NaN,
+                       val strongCount8527: Int = 0, val strongNetUpperPct8527: Double = Double.NaN)
 
     private fun f(v: Double) = if (v.isFinite()) "%+.2f".format(v) else "-"
+
+    /** Modelled executable-net return percent; one standard-error interval, not a fill guarantee. */
+    private fun cohortBounds8527(values: List<Double>): Pair<Double, Double> {
+        if (values.size < 2) return Double.NaN to Double.NaN
+        val mean = values.average()
+        val variance = values.sumOf { (it - mean) * (it - mean) } / (values.size - 1)
+        val se = sqrt(variance / values.size)
+        return (mean - se) to (mean + se)
+    }
 
     /** Pure: one lane's ranking check from its rows (oldest first); null under [MIN_ROWS_8325] rows. */
     fun rankLane8325(lane: String, all: List<CortexGradeBook8144.RankRow8324>, runner: Boolean, pondCompact: String?): LaneRank8325? {
@@ -81,24 +91,25 @@ object CortexRank8325 {
         val oY = recent.map { it.objective }
         val oIc = CortexTailEv8324.rankIc8324(oPred, oY)
         val oQ = CortexTailEv8324.quintiles8324(oPred, oY)
-        // A negative ranking can merely select the LEAST losing cohort. The actual
-        // inverse tail must still have positive executable net expectancy after uncertainty.
-        val ordered = oPred.indices.filter { it < oY.size && oPred[it].isFinite() && oY[it].isFinite() }
-            .sortedBy { oPred[it] }
-        val bottom = ordered.take(ordered.size / 5).map { oY[it] }
-        val bottomNetLowerBound = if (bottom.size < 2) Double.NaN else {
-            val avg = bottom.average()
-            val sampleVariance = bottom.sumOf { (it - avg) * (it - avg) } / (bottom.size - 1)
-            avg - sqrt(sampleVariance / bottom.size)
-        }
+        // A profitable bottom fifth does not prove that ALL raw REFUSE-bucket candidates pay.
+        // The operator flips the full bucket, so authority must be earned on that very bucket.
+        val pairedRecent = recent.filter { (if (byTail) it.tailEv else it.predicted).isFinite() && it.objective.isFinite() }
+        val eligiblePairCount = pairedRecent.size
+        val refuseReturns = pairedRecent.filter { it.bucket == CortexScoreboard7885.Bucket.REFUSE.ordinal }
+            .map { it.objective }
+        val strongReturns = pairedRecent.filter { it.bucket == CortexScoreboard7885.Bucket.STRONG.ordinal }
+            .map { it.objective }
+        val refuseLower = cohortBounds8527(refuseReturns).first
+        val strongUpper = cohortBounds8527(strongReturns).second
         val verdict = CortexTailEv8324.verdict8324(oIc, oQ[0], oQ[1])
         val by = if (byTail) "tailEv" else "edge"
         val line = "$lane: ic=${f(ic)} n${all.size} topQ/botQ=${CortexTailEv8324.fmt(q[0])}/${CortexTailEv8324.fmt(q[1])} " +
             "tailIc=${f(tailIc)}(n${tailRows.size}) strong/refuse=$sN/$rN take/refuse=$tN/${all.size - tN} " +
-            "order8325=$by ic=${f(oIc)} n${recent.size} topQ/botQ=${CortexTailEv8324.fmt(oQ[0])}/${CortexTailEv8324.fmt(oQ[1])} inverseBotNetLCB=${f(bottomNetLowerBound)} $verdict" +
+            "order8325=$by ic=${f(oIc)} n${eligiblePairCount} topQ/botQ=${CortexTailEv8324.fmt(oQ[0])}/${CortexTailEv8324.fmt(oQ[1])} refuseN=${refuseReturns.size} refuseNetLCB=${f(refuseLower)} strongN=${strongReturns.size} strongNetUCB=${f(strongUpper)} $verdict" +
             (pondCompact?.let { " pond[$it]" } ?: "")
         val short = "rank IC ($by) ${if (oIc.isFinite()) "%+.2f".format(oIc) else "-"} top/bottom fifth " +
             "${CortexTailEv8324.fmt(oQ[0])}/${CortexTailEv8324.fmt(oQ[1])} $verdict"
-        return LaneRank8325(lane, line, short, verdict, recent.size, by, bottomNetLowerBound)
+        return LaneRank8325(lane, line, short, verdict, eligiblePairCount, by,
+            refuseReturns.size, refuseLower, strongReturns.size, strongUpper)
     }
 }
