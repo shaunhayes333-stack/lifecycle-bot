@@ -7202,7 +7202,7 @@ class GoldenTapeRegressionTest {
         val laneExitTuner6093 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/LaneExitTuner.kt").readText()
         val tuningUi6093 = java.io.File("src/main/kotlin/com/lifecyclebot/ui/TuningActivity.kt").readText()
         assertTrue("V5.0.6093: Lane Strategy Replay must actuate bounded LaneExitTuner TP/SL bias, not remain UI-only", laneExitTuner6093.contains("Summary-only exit-shape research is advisory; it does not set TP/SL.") && laneExitTuner6093.contains("Live source-timed ExitRegret") && laneExitTuner6093.contains("getTpMult") && laneExitTuner6093.contains("getSlMult") && !laneExitTuner6093.contains("ReplayBias"))
-        assertTrue("V5.0.6093: tuning UI must stop claiming replay is read-only/no lanes when warmup contributors exist", tuningUi6093.contains("Lane Strategy Replay feeds a bounded ") && tuningUi6093.contains("Warming — below the statistical threshold, but these lanes are contributing.") && tuningUi6093.contains("rawBoard.take(12)"))
+        assertTrue("V5.0.8527: UI must disclose summary research is read-only while retaining warming lanes", tuningUi6093.contains("unordered peak/drawdown summaries do not set TP/SL or planner confidence. This screen is read-only.") && tuningUi6093.contains("Warming — below the statistical threshold, but these lanes are contributing.") && tuningUi6093.contains("rawBoard.take(12)"))
         val fdgRoute6094 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/FdgRouteVerdict.kt").readText()
         assertTrue("V5.0.6094: live paper-micro bleeder buckets must be paper-only, not escalated to live reduced-size", fdgRoute6094.contains("BLOCK_LIVE_BLEEDER_PAPER_ONLY") && fdgRoute6094.contains("LIVE_BLEEDER_PAPER_ONLY_BLOCK_6094") && fdgRoute6094.contains("RuntimeModeAuthority.isLive()") && !fdgRoute6094.contains("LIVE_PAPER_MICRO_ESCALATED_TO_REDUCED_4526"))
         val botService6094 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
@@ -12538,16 +12538,16 @@ class GoldenTapeRegressionTest {
         assertTrue(ex.contains("private const val MAX_POSITION_SOL = 0.25"))
         assertTrue(ex.contains("currentMomentum < -2.0 && pnlPct > 0 && ride.partialRungsTaken == 0"))
         val moon = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/MoonshotTraderAI.kt").readText()
-        assertTrue(moon.contains("if (!goldProtected && pos.peakPnlPct < 8.0)"))
+        assertTrue(moon.contains("ExitDoctrine8169.earlyRunnerStopMag8169(mint)"))
         // CORE's score is blended with its voters; V3 position/cooldown holds still bind TREASURY.
-        assertTrue(bot.contains("CORE_ENSEMBLE_SCORE_BLENDED_7389"))
+        assertTrue(bot.contains("laneScoredBase7389(base, native.score.toDouble(), native.confidence.toDouble())"))
         assertTrue(bot.contains("v3RejectReason7389 in setOf(\"TOO_OLD\", \"SCORE_TOO_LOW\", \"SIZE_ZERO\")"))
         assertTrue(dip.contains("val pnlSol = pos.entrySol * pos.remainingFrac * pnlPct / 100"))
         assertTrue(dip.contains("FluidLearningAI.fluidProfitFloor(pos.recoveryHighPct, holdSeconds = dipHoldSec7389)"))
         assertTrue(bot.contains("DIP_TARGET_PARTIAL_TAKE_PROFIT_50PCT"))
         assertTrue(com.lifecyclebot.engine.sell.SellReasonClassifier.fromString("DIP_TARGET_PARTIAL_TAKE_PROFIT_50PCT") == com.lifecyclebot.engine.sell.ExitReason.PARTIAL_TAKE_PROFIT)
         // No orphaned owner: V3 defers only when QUALITY/BLUECHIP's block can buy.
-        assertTrue(bot.contains("LaneEntryContract6342.specialistCanBuy7389(ts, cyclePrimaryLane)"))
+        assertTrue(bot.contains("LaneEntryContract6342.isLaneIdentityEligible7252(ts, it.lane)"))
         assertTrue(bot.contains("ts.lastMcap in qualityBand7389"))
         assertTrue(bot.contains("MOONSHOT_LANE_STOP_LOSS_"))
         // The degenerate-input cap limits vetoes only, never the floor/sizing tier.
