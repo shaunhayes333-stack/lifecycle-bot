@@ -76,6 +76,48 @@ class LifecycleStrategy(
     // Public interface
     // ─────────────────────────────────────────────────────────────────
 
+    // V5.0.8527: Keep observed-only feature extraction outside evaluate(),
+    // which has a pinned ART verifier budget. Preserve the same score and blend.
+    private fun adaptiveEntryScore8527(
+        ts: TokenState,
+        tokenAgeMins: Double,
+        emaFanName: String,
+        entryScore: Double,
+        tradeCount: Int,
+    ): Double {
+        val adaptiveScore = AdaptiveLearningEngine.calculateAdaptiveScore(
+            mcapUsd = ts.lastMcap.takeIf { it.isFinite() && it > 0.0 } ?: Double.NaN,
+            tokenAgeMinutes = tokenAgeMins,
+            buyRatioPct = LaneInputTruth8236.buyPressure8491(ts, System.currentTimeMillis()) ?: Double.NaN,
+            volumeUsd = ts.tokenMap.volume24hUsd?.takeIf { it.isFinite() && it >= 0.0 } ?: Double.NaN,
+            liquidityUsd = ts.lastLiquidityUsd.takeIf { it.isFinite() && it > 0.0 }
+                ?: ts.tokenMap.liquidityUsd?.takeIf { it.isFinite() && it >= 0.0 } ?: Double.NaN,
+            holderCount = ts.history.lastOrNull()?.holderCount?.takeIf { it > 0 } ?: -1,
+            topHolderPct = ts.topHolderPct?.takeIf { it.isFinite() && it in 0.0..100.0 }
+                ?: ts.tokenMap.topHolderConcentrationPct?.takeIf { it.isFinite() && it in 0.0..100.0 }
+                ?: ts.safety.topHolderPct.takeIf {
+                    ts.safety.topHolderObservedAtMs8522 > 0L && it.isFinite() && it in 0.0..100.0
+                } ?: Double.NaN,
+            holderGrowthRate = ts.holderGrowthRate.takeIf {
+                ts.holderDataResolved && it.isFinite() && ts.history.count { candle -> candle.holderCount > 0 } >= 2
+            } ?: Double.NaN,
+            devWalletPct = Double.NaN, // No measured creator-ownership fraction in this input.
+            bondingCurveProgress = if (ts.tokenMap.migratedOrGraduated) 100.0 else Double.NaN,
+            rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 && ts.safety.checkedAt > 0L }?.toDouble() ?: Double.NaN,
+            emaFanState = emaFanName,
+            baseEntryScore = entryScore,
+        )
+        
+        // Very conservative blend: 90% base + 10% adaptive
+        val blendRatio = when {
+            tradeCount >= 100 -> 0.20  // More confidence after 100 trades
+            tradeCount >= 60 -> 0.15   // Medium confidence
+            else -> 0.10               // Low confidence
+        }
+        val blendedScore = (entryScore * (1 - blendRatio) + adaptiveScore.score * blendRatio)
+        return blendedScore.coerceIn(0.0, 100.0)
+    }
+
     fun evaluate(ts: TokenState, modeConf: AutoModeEngine.ModeConfig? = null): StrategyResult {
         val hist = ts.history.toList()
         val charts8521 = chartFrames8521(ts, System.currentTimeMillis())
@@ -813,37 +855,9 @@ class LifecycleStrategy(
                 
                 // ADAPTIVE LEARNING: Feature-weighted scoring (only after 40+ trades)
                 if (tradeCount >= 40 && tokenAgeMins != null) {
-                    val adaptiveScore = AdaptiveLearningEngine.calculateAdaptiveScore(
-                        mcapUsd = ts.lastMcap.takeIf { it.isFinite() && it > 0.0 } ?: Double.NaN,
-                        tokenAgeMinutes = tokenAgeMins,
-                        buyRatioPct = LaneInputTruth8236.buyPressure8491(ts, System.currentTimeMillis()) ?: Double.NaN,
-                        volumeUsd = ts.tokenMap.volume24hUsd?.takeIf { it.isFinite() && it >= 0.0 } ?: Double.NaN,
-                        liquidityUsd = ts.lastLiquidityUsd.takeIf { it.isFinite() && it > 0.0 }
-                            ?: ts.tokenMap.liquidityUsd?.takeIf { it.isFinite() && it >= 0.0 } ?: Double.NaN,
-                        holderCount = ts.history.lastOrNull()?.holderCount?.takeIf { it > 0 } ?: -1,
-                        topHolderPct = ts.topHolderPct?.takeIf { it.isFinite() && it in 0.0..100.0 }
-                            ?: ts.tokenMap.topHolderConcentrationPct?.takeIf { it.isFinite() && it in 0.0..100.0 }
-                            ?: ts.safety.topHolderPct.takeIf {
-                                ts.safety.topHolderObservedAtMs8522 > 0L && it.isFinite() && it in 0.0..100.0
-                            } ?: Double.NaN,
-                        holderGrowthRate = ts.holderGrowthRate.takeIf {
-                            ts.holderDataResolved && it.isFinite() && ts.history.count { candle -> candle.holderCount > 0 } >= 2
-                        } ?: Double.NaN,
-                        devWalletPct = Double.NaN, // No measured creator-ownership fraction in this input.
-                        bondingCurveProgress = if (ts.tokenMap.migratedOrGraduated) 100.0 else Double.NaN,
-                        rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 && ts.safety.checkedAt > 0L }?.toDouble() ?: Double.NaN,
-                        emaFanState = emafan.alignment.name,
-                        baseEntryScore = entryScore,
+                    entryScore = adaptiveEntryScore8527(
+                        ts, tokenAgeMins, emafan.alignment.name, entryScore, tradeCount,
                     )
-                    
-                    // Very conservative blend: 90% base + 10% adaptive
-                    val blendRatio = when {
-                        tradeCount >= 100 -> 0.20  // More confidence after 100 trades
-                        tradeCount >= 60 -> 0.15   // Medium confidence
-                        else -> 0.10               // Low confidence
-                    }
-                    val blendedScore = (entryScore * (1 - blendRatio) + adaptiveScore.score * blendRatio)
-                    entryScore = blendedScore.coerceIn(0.0, 100.0)
                 } else if (tradeCount >= 40) {
                     try { PipelineHealthCollector.labelInc("ADAPTIVE_AGE_DEFERRED_7441") } catch (_: Throwable) {}
                 }
