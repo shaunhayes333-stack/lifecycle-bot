@@ -22,6 +22,40 @@ internal object SpecialistInputParity8527 {
         ShitcoinInputs(read.momentumPct?.takeIf { it.isFinite() } ?: 0.0,
             measuredBundlePct.takeIf { it.isFinite() && it >= 0.0 } ?: 0.0)
 
+
+    data class ShitcoinEvidence(
+        val buyPressurePct: Double, val volatility: Double, val socialScore: Int,
+        val hasWebsite: Boolean, val hasTwitter: Boolean, val hasTelegram: Boolean,
+        val devWallet: String?, val devHoldPct: Double, val graduationProgress: Double,
+        val graduationObserved: Boolean,
+    )
+
+    internal fun shitcoinEvidence8527(
+        buyPressurePct: Double?, volatility: Double?, socialScore: Double?,
+        website: String?, twitter: String?, telegram: String?, devWallet: String?,
+        migrated: Boolean,
+    ): ShitcoinEvidence = ShitcoinEvidence(
+        buyPressurePct?.takeIf { it.isFinite() && it in 0.0..100.0 } ?: 50.0,
+        volatility?.takeIf { it.isFinite() && it >= 0.0 } ?: 0.0,
+        socialScore?.takeIf { it.isFinite() }?.toInt()?.coerceIn(0, 100) ?: 0,
+        !website.isNullOrBlank(), !twitter.isNullOrBlank(), !telegram.isNullOrBlank(),
+        devWallet?.takeIf { it.isNotBlank() },
+        // No creator-ownership observation exists here. First-block supply is a bundle metric, not developer holdings.
+        0.0,
+        // The legacy API uses zero as a neutral/unobserved feature; it grants no graduation score.
+        // BondingCurveTracker/meta progress is market-cap-derived and must not impersonate measured curve completion.
+        if (migrated) 100.0 else 0.0, migrated,
+    )
+
+    fun shitcoinEvidence8527(ts: TokenState, read: SpecialistMarketInputs8522.Read): ShitcoinEvidence {
+        val socialMeta7556 = try { BirdeyeMetaDataProvider.peekCached(ts.mint) } catch (_: Throwable) { null }
+        return shitcoinEvidence8527(
+            read.buyPressurePct, ts.volatility, ts.sentiment.score.takeIf { !ts.sentiment.isStale },
+            socialMeta7556?.website, socialMeta7556?.twitter, socialMeta7556?.telegram,
+            ts.tokenMap.creatorOrDevWallet.takeIf { it.isNotBlank() } ?: OperatorRegistry.getDevWallet(ts.mint),
+            ts.tokenMap.migratedOrGraduated)
+    }
+
     data class MoonshotInputs(val volumeScore: Int, val phase: String)
 
     internal fun moonshotInputs8527(measuredVolumeScore: Double, volumeObserved: Boolean,

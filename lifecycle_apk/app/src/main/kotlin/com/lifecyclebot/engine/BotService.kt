@@ -30000,14 +30000,11 @@ if (hotExitHandledSweep) {
                         // Detect launch platform from source
                         val launchPlatform = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.detectPlatform(ts.source)
                         
-                        // Extract holder and bundle info from safety data
-                        // Use firstBlockSupplyPct as proxy for dev/bundle holding
-                        val devHoldPct = ts.safety.firstBlockSupplyPct.takeIf { it >= 0 } ?: 10.0
+                        // 8527 — qualification and entry share dated market evidence and cached project metadata.
+                        val shitcoinMarketInputs8527 = SpecialistMarketInputs8522.forCycle8522(cycleSheet8522, ts)
                         val shitcoinInputs8527 = SpecialistInputParity8527.shitcoinInputs8527(
-                            SpecialistMarketInputs8522.forCycle8522(cycleSheet8522, ts), ts.safety.firstBlockSupplyPct)
-                        
-                        // Calculate social score from available signals
-                        val socialScore = calculateSocialScore(ts)
+                            shitcoinMarketInputs8527, ts.safety.firstBlockSupplyPct)
+                        val shitcoinEvidence8527 = SpecialistInputParity8527.shitcoinEvidence8527(ts, shitcoinMarketInputs8527)
                         
                         // Check for DEX boost/trending
                         val isDexBoosted = ts.source.contains("BOOSTED", ignoreCase = true)
@@ -30016,11 +30013,7 @@ if (hotExitHandledSweep) {
                         // Check for copycat/scam patterns
                         val isCopyCat = detectCopyCat(ts.symbol)
                         
-                        // Calculate graduation progress for pump.fun tokens
-                        val graduationProgress = if (launchPlatform == com.lifecyclebot.v3.scoring.ShitCoinTraderAI.LaunchPlatform.PUMP_FUN) {
-                            // Graduation happens around $69K mcap on pump.fun
-                            ((ts.lastMcap / 69_000.0) * 100).coerceAtMost(100.0)
-                        } else 0.0
+                        val graduationProgress = shitcoinEvidence8527.graduationProgress
                         
                         // V5.9.103: COLLAPSE GUARD — skip ShitCoin emit on draining-liquidity tokens
                         // Uses LiquidityDepthAI's existing trend analysis (same engine that
@@ -30102,26 +30095,18 @@ if (hotExitHandledSweep) {
                             marketCapUsd = ts.lastMcap,
                             liquidityUsd = ts.lastLiquidityUsd,
                             topHolderPct = laneTopHolderPct7809(ts),
-                            buyPressurePct = ts.lastBuyPressurePct,
+                            buyPressurePct = shitcoinEvidence8527.buyPressurePct,
                             momentum = shitcoinInputs8527.momentumPct,
-                            volatility = ts.volatility ?: 0.0,
+                            volatility = shitcoinEvidence8527.volatility,
                             tokenAgeMinutes = tokenAgeMinutes,
                             launchPlatform = launchPlatform,
-                            devWallet = OperatorRegistry.getDevWallet(ts.mint),  // V5.0.7764 — creator from the PumpPortal create frame
-                            devHoldPct = devHoldPct,
+                            devWallet = shitcoinEvidence8527.devWallet,
+                            devHoldPct = shitcoinEvidence8527.devHoldPct,
                             bundlePct = shitcoinInputs8527.bundlePct,
-                            socialScore = socialScore,
-                            // V5.9.618 — KILLED the social-score farce.
-                            // Pre-V5.9.618 these were fabricated from a single proxy
-                            // (`symbol.length > 2`, `socialScore >= 20`), feeding ~7
-                            // points of garbage signal to ShitCoin scoring. Until we
-                            // wire real social-presence detection, default to false.
-                            // ShitCoin's score floors are already calibrated low so
-                            // this won't choke entries — it just stops feeding noise
-                            // into AdaptiveLearningEngine pattern weights.
-                            hasWebsite = ts.pairUrl.isNotBlank(),
-                            hasTwitter = ts.sentiment.xMentions > 0,
-                            hasTelegram = ts.sentiment.telegramMentions > 0,
+                            socialScore = shitcoinEvidence8527.socialScore,
+                            hasWebsite = shitcoinEvidence8527.hasWebsite,
+                            hasTwitter = shitcoinEvidence8527.hasTwitter,
+                            hasTelegram = shitcoinEvidence8527.hasTelegram,
                             hasGithub = false,
                             isDexBoosted = isDexBoosted,
                             dexTrendingRank = dexTrendingRank,
@@ -30196,17 +30181,17 @@ if (hotExitHandledSweep) {
                         // Use raw signal score, not shitCoinSignal.confidence which may be low
                         // ═══════════════════════════════════════════════════════════════════
                         val rawShitcoinScore = calculateBootstrapScore(
-                            buyPressurePct = ts.lastBuyPressurePct,
+                            buyPressurePct = shitcoinEvidence8527.buyPressurePct,
                             liquidityUsd = ts.lastLiquidityUsd,
                             momentum = shitcoinInputs8527.momentumPct,
-                            volatility = ts.volatility ?: 0.0,
+                            volatility = shitcoinEvidence8527.volatility,
                         )
                         
                         val forceBootstrapEntry = com.lifecyclebot.v3.scoring.FluidLearningAI.shouldForceBootstrapEntry(
                             score = rawShitcoinScore,
                             liquidityUsd = ts.lastLiquidityUsd,
                             tokenAgeMinutes = tokenAgeMinutes,
-                            buyPressurePct = ts.lastBuyPressurePct,
+                            buyPressurePct = shitcoinEvidence8527.buyPressurePct,
                             isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()  // V5.9.1563 — runtime authority, not stale cfg
                         )
                         
@@ -34917,44 +34902,7 @@ if (hotExitHandledSweep) {
     // SHITCOIN LAYER HELPERS
     // ═══════════════════════════════════════════════════════════════════════════
     
-    /**
-     * Calculate social score for a token based on available signals
-     */
-    private fun calculateSocialScore(ts: TokenState): Int {
-        var score = 0
-        
-        // Boost for trending tokens
-        if (ts.source.contains("TRENDING", ignoreCase = true)) score += 25
-        if (ts.source.contains("BOOSTED", ignoreCase = true)) score += 20
-        // V5.0.4232 — real cached social alpha. This consumes existing sentiment
-        // fields only; no scanner/executor hot-path API calls.
-        if (!ts.sentiment.isStale) {
-            if (ts.sentiment.xMentions > 0) score += (ts.sentiment.xMentions * 2).coerceAtMost(25)
-            if (ts.sentiment.telegramMentions > 0) score += (ts.sentiment.telegramMentions * 2).coerceAtMost(20)
-            if (ts.sentiment.decayedScore > 20.0) score += 15
-            if (ts.sentiment.decayedScore < -20.0) score -= 15
-            if (ts.sentiment.blocked) score -= 30
-        }
-        
-        // Boost for tokens from recognized platforms
-        if (ts.source.contains("PUMP_FUN", ignoreCase = true)) score += 15
-        if (ts.source.contains("RAYDIUM", ignoreCase = true)) score += 10
-        
-        // Positive signals from source naming
-        if (ts.source.contains("VERIFIED", ignoreCase = true)) score += 10
-        if (ts.source.contains("MOONSHOT", ignoreCase = true)) score += 10
-        
-        // Symbol length heuristic (legitimate projects often have 3-6 char tickers)
-        val symbolLen = ts.symbol.length
-        if (symbolLen in 3..6) score += 10
-        if (symbolLen > 10) score -= 5  // Too long often indicates scam
-        
-        // Bundle risk affects social perception
-        if (ts.safety.bundleRisk == "LOW") score += 10
-        if (ts.safety.bundleRisk == "HIGH") score -= 15
-        
-        return score.coerceIn(0, 100)
-    }
+
     
     /**
      * Detect copycat/scam patterns in token symbols
