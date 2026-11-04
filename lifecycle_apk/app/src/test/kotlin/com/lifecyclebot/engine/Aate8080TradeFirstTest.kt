@@ -137,6 +137,9 @@ class Aate8080TradeFirstTest {
         assertFalse(c.contains("isAnyProbe -> {"))
         assertTrue(f.contains("TradeMode.PAPER -> approvalClass == ApprovalClass.PAPER_BENCHMARK"))
         assertFalse(f.contains("paperApprovalClass8080"))
+        // V5.0.8525 — confidence is sized, never a benchmark rule: live has no confidence hard block (4296), so neither has paper.
+        assertTrue(c.contains("wouldPassLiveEdge && wouldPassLiveQuality -> {"))
+        assertFalse(c.contains("wouldPassLiveEdge && wouldPassLiveQuality && wouldPassLiveConfidence -> {"))
     }
 
     @Test fun laneLogicNeverEmitsAProbeBuyTheGateMustRefuse() {

@@ -5485,6 +5485,11 @@ object FinalDecisionGate {
             else -> {
                 val wouldPassLiveEdge = edgeVerdict != EdgeVerdict.SKIP
                 val wouldPassLiveQuality = candidate.setupQuality in listOf("A+", "A", "B", "C", "D")  // V5.0.8080 §PAPER_ACCEPTS_WHAT_LIVE_ACCEPTS: C/D are size-only in live (4099/4162)
+                // V5.0.8525 — LIVE never hard-blocks on confidence (4296: "LOW-CONF ADAPTIVE_SIZE … no hard block", the size
+                // is cut instead, in both modes). Paper's benchmark class demanded conf >= the live adaptive floor on top, so
+                // every meme decision on a cold book (8522 PAPER: base=0.0, copilot floor 8 %) fell to EXPLORATION and the
+                // 7548 economic approval refused it: NON_ECONOMIC_APPROVAL_7835 x512, paper meme buys 0 while LIVE bought the
+                // same coins. Confidence stays in the reason; it is not a rule live does not apply.
                 val wouldPassLiveConfidence = adjustedConfidence >= liveAdaptiveConf
 
                 when {
@@ -5498,8 +5503,8 @@ object FinalDecisionGate {
                         if (confidenceProbe) probeReasons.add("confidence_override")
                         ApprovalClass.PAPER_PROBE to "probe: soft blocks→penalties (${probeReasons.joinToString(",")}), size×${combinedSizeMultiplier.format(2)}"
                     }
-                    wouldPassLiveEdge && wouldPassLiveQuality && wouldPassLiveConfidence -> {
-                        ApprovalClass.PAPER_BENCHMARK to "benchmark: passes live rules (edge=$wouldPassLiveEdge quality=${candidate.setupQuality} conf=${adjustedConfidence.toInt()}%>=${liveAdaptiveConf.toInt()}%)"
+                    wouldPassLiveEdge && wouldPassLiveQuality -> {
+                        ApprovalClass.PAPER_BENCHMARK to "benchmark: passes live rules (edge=$wouldPassLiveEdge quality=${candidate.setupQuality} conf=${adjustedConfidence.toInt()}%${if (wouldPassLiveConfidence) ">=" else "<"}${liveAdaptiveConf.toInt()}% sized-not-blocked)"
                     }
                     else -> {
                         val relaxedReasons = mutableListOf<String>()

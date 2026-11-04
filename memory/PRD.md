@@ -2,7 +2,21 @@
 
 **Status:** PAPER TRADING ONLY. NO LOCAL COMPILER — every change ships via `git push` → GitHub Actions CI.
 
-## CURRENT: V5.0.8523 on main (Nov 2026) — 8522 runtime audit: heap-starved loop → Cortex grading collapsed
+## CURRENT: V5.0.8524 on main (Nov 2026) — labels book again; Cortex pending capped under heap pressure
+- **Root cause of "no forward predictive ability" found in the 8522 snapshot**: `FORWARD_LABEL_OBSERVED_ONLY_UNKNOWN_BASIS=13,440`.
+  `observe()` typed the entry basis only when a typed mark equalled the decision price EXACTLY; otherwise the basis stayed
+  "UNKNOWN", the 60 s adopt window (8418) passed unpriced on the slow device, and every later mark was discarded, so the
+  observation could never book — lanes60 had no meme lane at all, Cortex graded 4 of 4,403. Fix (8524, `e03ae9dfa`):
+  (a) the basis is the token-state price with its own observation time/venue (`TOKEN_STATE`, the number the gate read);
+  (b) past the window the first typed mark is adopted as the late basis (`adoptLateBasis8524`, lateEntry8521 recorded).
+- Heap: `Cortex7885.capPendingUnderPressure8524` — HARD cap 2,400 / CRITICAL 1,200 pending decisions, non-selected oldest
+  first, each retained as MISSING outcome. CORTEX_PENDING_8521 was the largest restored blob (12.7 MB JSON).
+  Still unknown: 368 MB "unattributed" heap on the 512 MB device (pss java=274 MB, graphics=126 MB) — needs a heap dump.
+- 8280–8282 (scorecard, runner banking rung, UNKNOWN-kind) are on main; 8523 (other session) fixed the 8522 TimSort crash.
+- GitHub: the old embedded token was revoked; a fresh GITHUB_TOKEN is in backend/.env (remote URL set from it at runtime).
+- Owner action still open: fund the PumpPortal API-key wallet with ≥0.02 SOL (per-coin trade tapes are DENIED without it).
+
+## V5.0.8523 on main (Nov 2026) — 8522 runtime audit: heap-starved loop → Cortex grading collapsed
 - 8280/8281/8282 (this fork): **lane scorecard** at the top of the report (`LiveConfidenceStats.byLane8280`, BLEEDING
   flag n≥3 negative) — visible in the 8522 snapshot (MOONSHOT S:n=5 wr=0% BLEEDING); **first profit rung at the proven
   cell target** (`RunnerGrab7967.firstRungMultiple8280`, ≥1.2x, only lowers); **NARR|lane|UNKNOWN is not a proven kind**.
