@@ -67,7 +67,7 @@ class Aate8527AgeCellIdentityTest {
         val band = "BAND|SRC|MC_10K_100K|AGE_LT15M"
         assertEquals("V8527|$cell", CellAllocator7962.nodeKey8527("V", cell))
         assertEquals("P8527|$band", CellAllocator7962.nodeKey8527("P", band))
-        assertEquals("L8521|$cell", CellAllocator7962.nodeKey8527("L8521", cell))
+        assertEquals("L8527|$cell", CellAllocator7962.nodeKey8527("L8527", cell))
         for (node in listOf("G", "LANE|MOONSHOT", "LS|MOONSHOT|BREAKOUT")) {
             assertEquals("V|$node", CellAllocator7962.nodeKey8527("V", node))
             assertEquals("P|$node", CellAllocator7962.nodeKey8527("P", node))
@@ -80,7 +80,7 @@ class Aate8527AgeCellIdentityTest {
         val valid = listOf(
             "V|LANE|MOONSHOT=60,600,6000,60,60,-0.1",
             "P|LS|MOONSHOT|BREAKOUT=20,200,2000,20,20,-0.2",
-            "L8521|CELL|SRC|MOONSHOT|MC_10K_100K|AGE_UNKNOWN=10,-100,1000,10,600,0.0",
+            "L8527|CELL|SRC|MOONSHOT|MC_10K_100K|AGE_UNKNOWN=10,-100,1000,10,600,0.0",
             "V8527|CELL|SRC|MOONSHOT|MC_10K_100K|AGE_UNKNOWN=6,30,150,2,60,0.0",
         )
         val current = CellAllocator7962.currentNodes8527((valid + legacyCell + legacyBand).joinToString(";"))
@@ -100,7 +100,7 @@ class Aate8527AgeCellIdentityTest {
             nodes.clear()
             nodes["V|$node"] = stat(200, 300.0)
             nodes["P|$node"] = stat(200, 300.0)
-            nodes["L8521|$node"] = stat(10, -10.0)
+            nodes["L8527|$node"] = stat(10, -10.0)
             nodes["V8527|$node"] = stat(2, 5.0)
             nodes["P8527|$node"] = stat(3, -20.0)
             val live = read.invoke(CellAllocator7962, node, true) as CellAllocator7962.Stat7962
@@ -174,7 +174,9 @@ class Aate8527AgeCellIdentityTest {
             assertFalse(nodes.containsKey("V|CELL|legacy"))
             assertEquals(40.0, nodes.getValue("V|LANE|MOONSHOT").w, 0.0)
             owner.javaClass.getDeclaredMethod("persist").apply { isAccessible = true }.invoke(owner)
-            verify(editor).putString(eq("nodes_birth_8527"), anyString())
+            verify(editor).putString(eq("nodes_observed_8527"), anyString())
+            verify(editor, never()).putString(eq("nodes_birth_8527"), anyString())
+            verify(editor, never()).remove("nodes_birth_8527")
             verify(editor, never()).putString(eq("nodes_8521"), anyString())
             verify(editor, never()).remove("nodes_8521")
         } finally {
@@ -195,3 +197,4 @@ class Aate8527AgeCellIdentityTest {
         assertTrue(tail.contains("LEGACY_OBSERVED_AGE_FILE_8527 = \"tail_hunter_7996.txt\""))
     }
 }
+

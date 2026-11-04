@@ -269,7 +269,7 @@ object CellAllocator7962 {
 
     // Forward labels already use source-time birth/unknown cells. Realised global/lane/setup nodes retain their
     // evidence; realised CELL/BAND nodes use a new birth-age namespace, never old watchlist-residence cohorts.
-    private const val EV_LABEL = "L8521"
+    private const val EV_LABEL = "L8527"
     private const val EV_LIVE = "V"
     private const val EV_PAPER = "P"
 
@@ -309,12 +309,19 @@ object CellAllocator7962 {
         return "$versioned|$node"
     }
 
-    /** The original preference remains the legacy observed-age archive; these rows cannot become birth leaf proof. */
+    /** Preserve realised nodes; legacy age leaves and synthetic forward labels cannot become current proof. */
     internal fun currentNodes8527(raw: String?): String = raw.orEmpty().split(';').filterNot { row ->
         val key = row.substringBefore('=')
-        (key.startsWith("V|CELL|") || key.startsWith("V|BAND|") ||
+        (key.startsWith("L8521|") || key.startsWith("L|") ||
+            key.startsWith("V|CELL|") || key.startsWith("V|BAND|") ||
             key.startsWith("P|CELL|") || key.startsWith("P|BAND|"))
     }.joinToString(";")
+
+    /** New forward contract, with byte-preserved compatible realised history from prior stores. */
+    internal fun restoreNodes8527(p: SharedPreferences): String = currentNodes8527(
+        p.getString("nodes_observed_8527", null) ?: p.getString("nodes_birth_8527", null)
+            ?: p.getString("nodes_8521", null) ?: realisedNodes8521(p.getString("nodes", null)),
+    )
 
     internal fun cellKey8527(ts: TokenState, lane: String, nowMs: Long): String =
         ForwardReturnLabeler7731.cellKey(ts.source, canonLane(lane), com.lifecyclebot.engine.truth.TrustedMcap8019.mcap8019(ts),
@@ -640,8 +647,7 @@ object CellAllocator7962 {
         val p = try { context.applicationContext.getSharedPreferences(PREFS_7962, Context.MODE_PRIVATE) } catch (_: Throwable) { return }
         prefs = p
         try {
-            val raw = currentNodes8527(p.getString("nodes_birth_8527", null)
-                ?: p.getString("nodes_8521", null) ?: realisedNodes8521(p.getString("nodes", null)))
+            val raw = restoreNodes8527(p)
             raw.split(';').forEach { row ->
                 val sep = row.lastIndexOf('=')
                 if (sep <= 0) return@forEach
@@ -667,7 +673,7 @@ object CellAllocator7962 {
         updatesSincePersist.set(0)
         try {
             val enc = nodes.entries.joinToString(";") { (k, s) -> "$k=${synchronized(s) { s.encode() }}" }
-            p.edit().putString("nodes_birth_8527", enc).apply()
+            p.edit().putString("nodes_observed_8527", enc).apply()
         } catch (_: Throwable) {}
     }
 
@@ -701,3 +707,4 @@ object CellAllocator7962 {
             "evidence[labels=${labelsIn.get()} liveCloses=${liveCloses.get()} paperCloses=${paperCloses.get()} nodes=${nodes.size}]"
     }
 }
+

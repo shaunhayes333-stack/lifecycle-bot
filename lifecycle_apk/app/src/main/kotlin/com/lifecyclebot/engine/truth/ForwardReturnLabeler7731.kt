@@ -69,10 +69,19 @@ object ForwardReturnLabeler7731 {
     /** V5.0.7946 — one observation per mint and lane per 15 minutes (the read is 5). */
     private const val REOBSERVE_MS_7731 = 15L * 60_000L
     // V5.0.8064 — a fresh book: every cell before it was graded with spike credit live never banks (see captured7945).
-    // Prior forward aggregates used incomplete restart paths, pre-target source clocks and inferred total losses.
-    // Keep those raw preference keys on disk, but do not mix their returns with this corrected forward contract.
-    private const val CELLS_KEY_7946 = "cells_8521"
-    private const val PENDING_KEY_7946 = "pending_8521"
+    // V5.0.8527 — the old runner remainder fabricated a half-peak exit without an observed fill.
+    // These are forward-only stores, not realised trade journals. Preserve old preferences and SQLite rows as
+    // archives, including frozen pending/outbox payloads; never replay them into the observed-only authority.
+    private const val CELLS_KEY_7946 = "cells_8527"
+    private const val PENDING_KEY_7946 = "pending_8527"
+
+    internal data class ModelledCheckpoint8527(val cells: String?, val pending: String?, val paired: String?)
+
+    /** A checkpoint and its predictions must use one grading contract; no fallback to the synthetic epoch. */
+    internal fun modelledCheckpoint8527(p: SharedPreferences): ModelledCheckpoint8527 = ModelledCheckpoint8527(
+        p.getString(CELLS_KEY_7946, null), p.getString(PENDING_KEY_7946, null),
+        p.getString(PAIRED_CORTEX_KEY_8401, null),
+    )
 
     /** V5.0.7946 — Pure: how late a horizon may still be read: half the horizon, between 1 and 10 minutes. */
     fun graceFor7946(horizonMs: Long): Long = (horizonMs / 2).coerceIn(60_000L, LOST_GRACE_MS_7731)
@@ -639,20 +648,19 @@ object ForwardReturnLabeler7731 {
             com.lifecyclebot.engine.OffloadedPrefs8501.of(context, PREFS_7731)
         } catch (_: Throwable) { return }
         prefs = p
-        pairedRestore8401 = p.getString(PAIRED_CORTEX_KEY_8401, null)
+        val checkpoint8527 = modelledCheckpoint8527(p)
+        pairedRestore8401 = checkpoint8527.paired
         try { com.lifecyclebot.engine.cortex.CrossAssetCortex7931.restorePriceIdentities8402(p.getString(PRICE_IDENTITIES_KEY_8402, null)) }
         catch (_: Exception) { PipelineHealthCollector.labelInc("FORWARD_PRICE_IDENTITY_RESTORE_FAILED_8402") }
         try { openRowStore8409(context, p) } catch (_: Throwable) {}   // V5.0.8409 — rows leave the checkpoint file
         val rows8409 = loadRows8409(p)
         rows8409.forEach { (key, value) -> if (key.startsWith(TERMINAL_PREFIX_8395)) terminalOutbox8395[key] = value }
-        forwardOutbox8404.restore(rows8409.mapNotNull { (key, value) ->
-            if (key.startsWith(FORWARD_PREFIX_8404)) key.removePrefix(FORWARD_PREFIX_8404) to value else null
-        }.toMap())
+        forwardOutbox8404.restore(forwardPayloads8527(rows8409))
         try { FreshLaunchSelector7737.attach(context) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.CellAllocator7962.attach(context) } catch (_: Throwable) {}
         try { SpecialistMiner7972.attach7972(context) } catch (_: Throwable) {}
         try {
-            p.getString(CELLS_KEY_7946, null)?.split(';')?.forEach { row ->
+            checkpoint8527.cells?.split(';')?.forEach { row ->
                 val sep = row.lastIndexOf('=')
                 if (sep <= 0) return@forEach
                 val key = row.substring(0, sep)
@@ -681,7 +689,7 @@ object ForwardReturnLabeler7731 {
             }
         } catch (_: Throwable) {}
         try {
-            val n = restorePending7735(p.getString(PENDING_KEY_7946, null), System.currentTimeMillis())
+            val n = restorePending7735(checkpoint8527.pending, System.currentTimeMillis())
             if (n > 0) {
                 restoredPending7735.addAndGet(n.toLong())
                 PipelineHealthCollector.labelInc("FORWARD_LABELER_PENDING_RESTORED_7735")
@@ -692,7 +700,7 @@ object ForwardReturnLabeler7731 {
 
     internal fun pendingPriceKeys8402(): Set<String> = pending.values.mapTo(HashSet()) { it.mint }
     private const val PRICE_IDENTITIES_KEY_8402 = "price_identities_8402"
-    private const val PAIRED_CORTEX_KEY_8401 = "paired_cortex_8521"
+    private const val PAIRED_CORTEX_KEY_8401 = "paired_cortex_8527"
     @Volatile private var pairedRestore8401: String? = null
     @Volatile private var pairedRestoreSinceMs8418 = 0L
     private val pairedSkipped8418 = AtomicLong(0)
@@ -2288,7 +2296,12 @@ object ForwardReturnLabeler7731 {
     }
 
     private const val TERMINAL_PREFIX_8395 = "terminal8395|"
-    private const val FORWARD_PREFIX_8404 = "forward8404|"
+    private const val FORWARD_PREFIX_8404 = "forward8527|"
+
+    /** Old durable synthetic outcomes remain archived, never renamed into the current delivery queue. */
+    internal fun forwardPayloads8527(rows: Map<String, String>): Map<String, String> = rows.mapNotNull { (key, value) ->
+        if (key.startsWith(FORWARD_PREFIX_8404)) key.removePrefix(FORWARD_PREFIX_8404) to value else null
+    }.toMap()
 
     // ── V5.0.8409 §ROWS_DO_NOT_LIVE_IN_THE_CHECKPOINT_FILE ───────────────────────────────────────────────────────────────────
     // Every forward outcome write, forward acknowledgement and terminal write was a synchronous commit() on the one preferences
@@ -2856,7 +2869,7 @@ object ForwardReturnLabeler7731 {
 
     private fun cellStat(key: String): CellStat? {
         // V5.0.8000 — the rest of the hive's labels for this key ride on the local tally.
-        val hive = try { HiveEdge8000.net8000("FRL8521|$key") } catch (_: Throwable) { null }
+        val hive = try { HiveEdge8000.net8000("FRL8527|$key") } catch (_: Throwable) { null }
         val t = cells[key] ?: if (hive == null) return null else Tally()
         return synchronized(t) {
             val n = t.n60 + (hive?.get(0)?.toInt() ?: 0)
@@ -3088,3 +3101,4 @@ object ForwardReturnLabeler7731 {
 }
 
 /** V5.0.8014 — Double to Int, rounded half up (counts scaled by a fresh-edge window). */
+
