@@ -88,6 +88,14 @@ class Aate8527NativeEntryEvidenceParityTest {
         assertTrue(actual.contains("bundlePct = shitcoinInputs8527.bundlePct"))
         assertFalse(actual.contains("momentum = ts.momentum"))
         assertFalse(bot.contains("val bundlePct = if (ts.safety.bundleRisk"))
+        // Entry attribution must retain the same measured bundle read; a removed local previously broke compilation.
+        assertEquals(2, Regex("bundlePct = shitcoinInputs8527\\.bundlePct,").findAll(bot).count())
+        val position = bot.substringAfter("var shitCoinSignal = laneDoor8105(")
+            .substringAfter("com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinPosition(")
+            .substringBefore("entryGraduationProgress = graduationProgress")
+        assertTrue(position.contains("bundlePct = shitcoinInputs8527.bundlePct,"))
+        assertFalse(bot.contains("bundlePct = bundlePct,"))
+
     }
 
     @Test fun moonshotBothCallSitesUseObservedVolumeAndCanonicalPhaseAndCacheThem() {
