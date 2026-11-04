@@ -546,8 +546,8 @@ object ForwardReturnLabeler7731 {
     // labels only: the hive's tallies carry no epoch.
     // V5.0.8418 — new grading contract: labels stop paying the ~9 % mark-based "cost" (§MARK_GAP_IS_NOT_A_FEE), so loss
     // patterns graded under the old charge (~6 pt too negative) decay to neutral; positive evidence keeps its history.
-    private const val GRADING_VERSION_8169 = 8521
-    private const val FRESH_KEY_8169 = "fresh_cells_8521"
+    private const val GRADING_VERSION_8169 = 8527
+    private const val FRESH_KEY_8169 = "fresh_cells_8527"
     private const val FRESH_EPOCH_KEY_8169 = "fresh_epoch_8169"
     private const val GRADING_VERSION_KEY_8169 = "grading_version_8169"
     private val fresh8169 = ConcurrentHashMap<String, Tally>()
@@ -1321,9 +1321,9 @@ object ForwardReturnLabeler7731 {
         // credited the spike ladder on their peak. Live never banks those prints (spike tiers fired=0; a +156% quick take
         // landed at -40%; a +236% peak closed at -18%) — a pump.fun spike is one or two trades, gone before a sell lands.
         // A label is now the lane's own play (its stop first) with the position worth the mark at the read.
-        // V5.0.8106 — a lane whose live buys ride the runner ladder from entry (8104: MOONSHOT / SHITCOIN / EXPRESS /
-        // PROJECT_SNIPER) is graded on THAT ladder (2x / 5x / 11x) and its give-back exit (half of a +40..+199% held peak),
-        // not on the scalp tiers it no longer sells into. Its stop is unchanged: live still takes the lane stop.
+        // V5.0.8527 — runner lanes keep their own observed held-level ladder (2x / 5x / 11x), not scalp tiers.
+        // A held peak plus a later mark does NOT establish a chronological exit or a fill at either the old half-peak
+        // threshold or the current GreenFloor. The remaining quantity is valued only at the observed mark.
         val runner8106 = try { com.lifecyclebot.engine.TradeExitContract8077.runnerFromEntryLane8104(o.lane, false) } catch (_: Throwable) { false }
         val tiers8071 = try { if (longHold8077 ?: com.lifecyclebot.engine.LifecycleHold8065.lifecycleLane8065(o.lane)) com.lifecyclebot.engine.LifecycleHold8065.ladder8071() else if (runner8106) com.lifecyclebot.engine.RunnerGrab7967.TIERS_7967 else com.lifecyclebot.engine.SpikeCapture7943.TIERS } catch (_: Throwable) { com.lifecyclebot.engine.SpikeCapture7943.TIERS }
         // V5.0.8366 §HONEST_LABELS — the ladder credits a level held for the measured sell latency (not a free 20 s window),
@@ -1528,9 +1528,13 @@ object ForwardReturnLabeler7731 {
         return if (g.isFinite() && g > restPct) g else restPct
     }
 
-    /** Pure (V5.0.8106): a runner-from-entry lane's remainder — its give-back exit banks half a +40..+199% held peak. */
-    fun runnerRest8106(runnerLane: Boolean, heldPeakPct: Double, restPct: Double): Double =
-        if (runnerLane && com.lifecyclebot.engine.RunnerGrab7967.fromEntryGiveback8104(heldPeakPct, restPct)) heldPeakPct * 0.5 else restPct
+    /**
+     * V5.0.8527 — summary extrema do not prove the order, executable crossing or a sell fill.
+     * Keep the observed remainder; chronological runner exits are replayed by RunnerReplay8153 at actual marks.
+     * Retain this adapter so old callers cannot silently reintroduce synthetic half-peak proceeds.
+     */
+    fun runnerRest8106(@Suppress("UNUSED_PARAMETER") runnerLane: Boolean,
+                       @Suppress("UNUSED_PARAMETER") heldPeakPct: Double, restPct: Double): Double = restPct
 
     /** Pure (V5.0.8064): what a label credits for a peak [peakPct] above the mark at the read [restPct] — nothing. */
     fun spikeCredit8064(@Suppress("UNUSED_PARAMETER") peakPct: Double, restPct: Double): Double = restPct

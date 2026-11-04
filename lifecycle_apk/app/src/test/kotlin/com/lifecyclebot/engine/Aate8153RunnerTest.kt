@@ -141,7 +141,7 @@ class Aate8153RunnerTest {
             assertTrue(r.net > 0.0)
         }
         assertEquals(listOf(1, 2, 3, 3), runs.map { it.runnerConfirmed })
-        assertTrue(runs[0].exits.last().startsWith("RUNNER_FROM_ENTRY_GIVEBACK_8104"))
+        assertTrue(runs[0].exits.last().startsWith("RUNNER_GREEN_FLOOR_8363"))
         for (r in runs.drop(1)) assertTrue(r.exits.last().startsWith("RUNNER_PEAK_CAPTURE_7980"))
         // A real residual rode each run to its peak (the 51x keeps at least the protected 20% of the original).
         assertEquals(1.0 - 1.0 / (2.2 * 0.97), runs[1].shareAtPeak, 1e-9)

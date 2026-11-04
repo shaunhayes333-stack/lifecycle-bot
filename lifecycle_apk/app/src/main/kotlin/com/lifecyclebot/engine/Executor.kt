@@ -2644,11 +2644,9 @@ class Executor(
             val emergency = com.lifecyclebot.engine.sell.StopLatencyWiring8153.emergencyNow8153(ts.mint, exitReason)
             if (!com.lifecyclebot.engine.sell.StopLatencyCore8153.fastPlanEligible8153(emergency, fraction, processor)) return null
             val held = com.lifecyclebot.engine.sell.StopLatencyWiring8153.emergencyHolding8153(wallet, ts.mint) ?: return null
-            val canonical = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
-                .filter { it.mint == ts.mint && it.mode == "live" }
-                .maxByOrNull { it.lastMutationMs }
+            val canonical = ProcessorAmountPlanner.canonicalSellPosition8527(ts, exitReason) ?: return null
             val raw = com.lifecyclebot.engine.sell.StopLatencyCore8153.fullExitRaw8153(
-                held.raw, held.decimals, canonical?.remainingQtyRaw, canonical?.quantityScale,
+                held.raw, held.decimals, canonical.remainingQtyRaw, canonical.quantityScale,
             ) ?: return null
             val plan = ProcessorAmountPlanner.planSellFromConfirmed(
                 ts = ts, processor = processor,
