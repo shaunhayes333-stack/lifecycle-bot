@@ -2,7 +2,23 @@
 
 **Status:** PAPER TRADING ONLY. NO LOCAL COMPILER — every change ships via `git push` → GitHub Actions CI.
 
-## CURRENT: V5.0.8279 (Oct 2026) — SELECT LIKE 8114: the quality filters that chose the 8085–8114 runners bind again
+## CURRENT: V5.0.8523 on main (Nov 2026) — 8522 runtime audit: heap-starved loop → Cortex grading collapsed
+- 8280/8281/8282 (this fork): **lane scorecard** at the top of the report (`LiveConfidenceStats.byLane8280`, BLEEDING
+  flag n≥3 negative) — visible in the 8522 snapshot (MOONSHOT S:n=5 wr=0% BLEEDING); **first profit rung at the proven
+  cell target** (`RunnerGrab7967.firstRungMultiple8280`, ≥1.2x, only lowers); **NARR|lane|UNKNOWN is not a proven kind**.
+  8280/8281 failed compile (fold8280 type), fixed in 8282. Main has since moved to 8523 by other sessions.
+- **8522 snapshot (`aate_pipeline_20261104_133250_263.txt`, 1073 s): the money printer is starved, not mis-selected.**
+  Heap 511/512 MB (100 %, CRITICAL, unattributedMb=368, cortex census 52 MB/2938 rows, hiveBook 99.5k rows, mintRegistry
+  5001), avg cycle 8.8 s ⇒ label marks due=1055 priced=200 (18 %), Cortex graded 4 of 4403 (13/h vs 1,700/h at 8279),
+  forward labels n=0 in EVERY meme lane (only CASHGEN/TREASURY graded) ⇒ no proven setup/cell can form ⇒ the 8114 doors
+  refuse everything (MOONSHOT 3/316) and the few buys lose (n7 wr14% pf0.08). Also: PumpPortal keyed trade stream DENIED
+  (key wallet < 0.02 SOL — OWNER ACTION) so pump launches have no per-coin tape (buy pressure / shape unobserved).
+  8522 crash (TimSort comparator) fixed in 8523 (`3c49b939b`).
+- Next (ordered by money): (1) heap — cap/evict cortex record size + hiveBook rows + mintRegistry, make the restored
+  states lazy (census unattributed 368 MB); (2) label pricing lane must not wait on the bot loop (fetchOffWatchMarks7737 /
+  KeylessMarks8359 on their own budget); (3) fund PumpPortal key wallet; (4) only then judge selection again.
+
+## V5.0.8279 (Oct 2026) — SELECT LIKE 8114: the quality filters that chose the 8085–8114 runners bind again
 - Owner: "8114 found huge runners, so did 8085/8086; now it just finds trash." Audit of `379ad2fa0` (8114) vs main:
   the 8114 live door was LIVE_PROVEN_SETUP_ONLY_8059 (proven setup / cell / kind, measured edge, RunnerGrab on a
   PROVEN runner cell, RunnerPlay ticket, shadow audit, 3-coin/6 h cold start, RunnerTicket budget) + the V3 floor (7843)
