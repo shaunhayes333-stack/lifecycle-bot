@@ -36,7 +36,8 @@ class Aate7551NativeMomentumUnitNormalizationTest {
         val b=src("engine/SpecialistBrainBridge7542.kt")
         listOf("BlueChipTraderAI.evaluate","ShitCoinTraderAI.evaluate","CashGenerationAI.evaluate")
             .forEach { assertTrue(b.contains(it)) }
-        assertTrue(b.contains("momentum=mom"))
+        assertTrue(b.contains("momentum=shitcoinInputs8527.momentumPct"))
+        assertTrue(b.contains("SpecialistInputParity8527.shitcoinInputs8527(marketInputs8522, ts.safety.firstBlockSupplyPct)"))
         assertTrue(b.contains(",v3,v3c,mom,vol"))
         // The other two lanes use shared preview/entry adapters, still in signed-percent units.
         val shared=src("engine/SpecialistInputParity8527.kt")

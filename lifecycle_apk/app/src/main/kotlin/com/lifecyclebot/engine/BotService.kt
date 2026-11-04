@@ -1158,7 +1158,7 @@ class BotService : Service() {
             tokenAgeHours = tokenAgeHours,
             holderCount = ts.peakHolderCount.takeIf { it > 0 } ?: 100,
             holderChange24h = holderChange7764(ts),
-            isDevSelling = ts.safety.bundleRisk == "HIGH",
+            isDevSelling = SpecialistInputParity8527.namedDevSelling8527(ts),
             bounceConfirmed = bounce,
         )
         return NativeOpportunityDoor8522.dip8522(raw,
@@ -15022,15 +15022,12 @@ class BotService : Service() {
      * token map) was scored as if a 50% holder had been measured: QUALITY
      * refused it outright ("Top holder too dominant: 50% > 30%") and BLUECHIP
      * took the -15 penalty, and neither lane reached OWNER/BUY_INTENT. Read the
-     * same evidence chain CanonicalFeaturesBuilder already uses; the
-     * conservative live fallback is kept for genuinely unknown concentration
-     * (Field Manual L190 / L345: holder evidence is checked; unknown is not zero risk).
+     * same observed evidence as native qualification. 8527 keeps an unobserved
+     * safety default out of the feature; unknown uses the native neutral value,
+     * never a fabricated zero-risk distribution or measured 50% concentration.
      */
     private fun laneTopHolderPct7809(ts: com.lifecyclebot.data.TokenState): Double =
-        ts.topHolderPct
-            ?: ts.safety.topHolderPct.takeIf { it >= 0.0 }
-            ?: ts.tokenMap.topHolderConcentrationPct?.takeIf { it >= 0.0 }
-            ?: if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive()) 50.0 else 20.0
+        SpecialistInputParity8527.topHolderPct8527(ts)
 
     /**
      * V5.0.7809 §A_DISABLED_TRADER_CANNOT_OWN_A_CYCLE. With the Cyclic ring off by
@@ -29571,14 +29568,8 @@ if (hotExitHandledSweep) {
                                 )
                             } catch (_: Throwable) {}
                         } else {
-                            // Calculate volume score from recent data (use lastV3Score as proxy)
-                            // V5.0.7327 — once the token has real volume candles, score the
-                            // measured volume expansion instead of the generic V3 total.
-                            val volKnown7327 = try {
-                                com.lifecyclebot.v3.bridge.V3Adapter.dataKnowledge7327(ts).volume
-                            } catch (_: Throwable) { false }
-                            val volScore = if (volKnown7327) ts.meta.volScore.toInt().coerceIn(0, 100)
-                                else ts.lastV3Score ?: 20
+                            // 8527 — the native opinion and actual entry read identical volume and lifecycle evidence.
+                            val moonshotInputs8527 = SpecialistInputParity8527.moonshotInputs8527(ts)
                             
                             // Check for collective intelligence boost
                             val isCollectiveWinner = com.lifecyclebot.v3.scoring.MoonshotTraderAI.isCollectiveWinner(ts.mint)
@@ -29588,12 +29579,12 @@ if (hotExitHandledSweep) {
                                 symbol = ts.symbol,
                                 marketCapUsd = ts.lastMcap,
                                 liquidityUsd = ts.lastLiquidityUsd,
-                                volumeScore = volScore,
+                                volumeScore = moonshotInputs8527.volumeScore,
                                 buyPressurePct = ts.lastBuyPressurePct,
                                 rugcheckScore = ts.safety.rugcheckScore,
                                 v3EntryScore = (ts.lastV3Score ?: 50).toDouble(),
                                 v3Confidence = (ts.lastV3Confidence ?: 50).toDouble(),
-                                phase = ts.phase,
+                                phase = moonshotInputs8527.phase,
                                 isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),  // V5.9.1563 — runtime authority, not stale cfg
                                 runnerShaped7266 = runnerShaped7266,
                             ), ts.mint)
@@ -30012,9 +30003,8 @@ if (hotExitHandledSweep) {
                         // Extract holder and bundle info from safety data
                         // Use firstBlockSupplyPct as proxy for dev/bundle holding
                         val devHoldPct = ts.safety.firstBlockSupplyPct.takeIf { it >= 0 } ?: 10.0
-                        val bundlePct = if (ts.safety.bundleRisk == "HIGH") 80.0 
-                                       else if (ts.safety.bundleRisk == "MEDIUM") 50.0 
-                                       else 10.0
+                        val shitcoinInputs8527 = SpecialistInputParity8527.shitcoinInputs8527(
+                            SpecialistMarketInputs8522.forCycle8522(cycleSheet8522, ts), ts.safety.firstBlockSupplyPct)
                         
                         // Calculate social score from available signals
                         val socialScore = calculateSocialScore(ts)
@@ -30111,15 +30101,15 @@ if (hotExitHandledSweep) {
                             currentPrice = ts.ref,
                             marketCapUsd = ts.lastMcap,
                             liquidityUsd = ts.lastLiquidityUsd,
-                            topHolderPct = ts.topHolderPct ?: ts.safety.topHolderPct.takeIf { it >= 0 } ?: if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive()) 50.0 else 20.0,
+                            topHolderPct = laneTopHolderPct7809(ts),
                             buyPressurePct = ts.lastBuyPressurePct,
-                            momentum = ts.momentum ?: 0.0,
+                            momentum = shitcoinInputs8527.momentumPct,
                             volatility = ts.volatility ?: 0.0,
                             tokenAgeMinutes = tokenAgeMinutes,
                             launchPlatform = launchPlatform,
                             devWallet = OperatorRegistry.getDevWallet(ts.mint),  // V5.0.7764 — creator from the PumpPortal create frame
                             devHoldPct = devHoldPct,
-                            bundlePct = bundlePct,
+                            bundlePct = shitcoinInputs8527.bundlePct,
                             socialScore = socialScore,
                             // V5.9.618 — KILLED the social-score farce.
                             // Pre-V5.9.618 these were fabricated from a single proxy
@@ -30208,7 +30198,7 @@ if (hotExitHandledSweep) {
                         val rawShitcoinScore = calculateBootstrapScore(
                             buyPressurePct = ts.lastBuyPressurePct,
                             liquidityUsd = ts.lastLiquidityUsd,
-                            momentum = ts.momentum ?: 0.0,
+                            momentum = shitcoinInputs8527.momentumPct,
                             volatility = ts.volatility ?: 0.0,
                         )
                         
