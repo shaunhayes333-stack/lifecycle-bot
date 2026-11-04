@@ -108,16 +108,17 @@ class AATEApp : Application() {
             ErrorLogger.warn("App", "AdaptiveIntelligenceRuntime6684 start failed: ${e.message}")
         }
 
-        // V5.9.433 — restore TreasuryManager here too, so the 70/30 splits
-        // and 100% scalp deposits can auto-persist (cachedCtx is seeded on
-        // restore). Previously only BotService.startBot did this, which
-        // meant contributions before startBot would land in memory-only and
-        // get wiped on process kill. Restore is idempotent.
+        // V5.0.8527 — encrypted Treasury prefs may wait for Android Keystore
+        // for multiple seconds. An emulator ANR captured the UI thread inside
+        // TreasuryManager.restore -> EncryptedSharedPreferences -> KeyStore.get.
+        // Bind persistence immediately, but perform the actual restore off-main.
+        // BotService.startBot calls restore again on its worker and joins the
+        // same single-flight restore before trading; no treasury snapshot is lost.
         try {
-            com.lifecyclebot.engine.TreasuryManager.restore(this)
-            ErrorLogger.info("App", "TreasuryManager restored — treasury persistence active")
+            com.lifecyclebot.engine.TreasuryManager.restoreAsync8527(applicationContext)
+            ErrorLogger.info("App", "TreasuryManager background restore scheduled — treasury persistence active")
         } catch (e: Exception) {
-            ErrorLogger.error("App", "TreasuryManager restore failed: ${e.message}", e)
+            ErrorLogger.error("App", "TreasuryManager restore scheduling failed: ${e.message}", e)
         }
 
         // V5.0.6405 §1+§2 — CRASH-SAFE PORTFOLIO STORE.
