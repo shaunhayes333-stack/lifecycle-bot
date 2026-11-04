@@ -8080,6 +8080,11 @@ class BotService : Service() {
         // V5.9.714-FIX: mark session start so pendingVerify gate knows watchdog hasn't fired yet.
         botStartTimeMs = System.currentTimeMillis()
 
+        // V5.0.8527 — single-flight background Treasury restoration must finish
+        // before the botLoop (and independent sell/profit workers) can observe
+        // balances or contribute profits. AATEApp schedules this off-main;
+        // this dedicated service worker joins the same guarded restore.
+        TreasuryManager.restore(applicationContext)
         addLog("✓ Starting bot loop...")
         startPaperStopRetries8521()
         val createdLoopJob6518 = scope.launch(botLoopDispatcher) { botLoop() } // V5.9.1023: dedicated single-thread dispatcher prevents Dispatchers.IO pool starvation from wedged supervisor workers
@@ -8807,8 +8812,7 @@ class BotService : Service() {
         // Restore session state from last run (streak, peak wallet) - MODE SPECIFIC
         val restored = SessionStore.restore(applicationContext, cfg.paperMode)
         if (!restored) SmartSizer.resetSession()
-        TreasuryManager.restore(applicationContext)   // load persisted treasury
-            CyclicTradeEngine.init(applicationContext)  // load persisted cyclic ring state
+        CyclicTradeEngine.init(applicationContext)  // load persisted cyclic ring state
         
         // Safety: if wallet is very low but treasury claims to have locked funds,
         // something is wrong - reset treasury to allow trading
