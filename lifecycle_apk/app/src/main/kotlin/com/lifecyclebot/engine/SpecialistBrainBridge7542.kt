@@ -295,10 +295,8 @@ object SpecialistBrainBridge7542 {
     /** Discovery claims add independent native readers; one resident must not suppress the bootstrap readers. */
     internal fun nativeScope8168(mcap: Double, residents: Set<String>): Set<String> {
         val bootstrap = when {
-            // V5.0.8180 — MOONSHOT hunts up to its own $5M ceiling: a $1M-$5M coin handed to it (Apple +740%,
-            // NAMED_MOONSHOT_NEVER_EVALUATED) was never read because this tier left it out of scope.
-            mcap.isFinite() && mcap >= 1_000_000.0 && mcap <= MoonshotTraderAI.MAX_MARKET_CAP_USD ->
-                setOf("BLUECHIP", "QUALITY", "TREASURY", "CASHGEN", "DIP_HUNTER", "MOONSHOT", "CORE")
+            // V5.0.8531 — MOONSHOT's entry ceiling is $500k (MoonshotTraderAI.MAX_MARKET_CAP_USD): the $1M-$5M tier no longer
+            // reads it. superseded (V5.0.8180): a `mcap in 1M..MAX_MARKET_CAP_USD` tier that added MOONSHOT.
             mcap.isFinite() && mcap >= 1_000_000.0 ->
                 setOf("BLUECHIP", "QUALITY", "TREASURY", "CASHGEN", "DIP_HUNTER", "CORE")
             mcap.isFinite() && mcap >= 75_000.0 ->

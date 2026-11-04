@@ -55,15 +55,19 @@ class Aate8213AllLaneDataAdmissionTest {
             // 8279: the generic V3 floor (7843) is the second floor again — a native opinion under it is refused by name
             assertEquals(lane, "GENERIC_SCORE_FLOOR_8136", CandidateAdmission8136.decide8136(candidate(lane, setup).copy(genericScore = 12.0, missingInputs = emptyList())).reason)
             // and under the floor it no longer carries a candidate through optional gaps either
-            assertEquals(lane, CandidateAdmission8136.Terminal8136.DEFER_DATA, CandidateAdmission8136.decide8136(candidate(lane, setup).copy(genericScore = 12.0)).terminal)
+            // V5.0.8531 §MINIMUM_GATE_DECIDES (owner) — superseded: an optional chart/tape/context gap no longer defers a candidate
+            // without evidence; it gets its real verdict (the live doors still need positive after-cost evidence).
+            assertEquals(lane, "GENERIC_SCORE_FLOOR_8136", CandidateAdmission8136.decide8136(candidate(lane, setup).copy(genericScore = 12.0)).reason)
         }
     }
 
     @Test fun noNativeProofOrUnmeasuredNativeIdentityStillDefers() {
         val c = candidate()
-        assertEquals(CandidateAdmission8136.Terminal8136.DEFER_DATA,
+        // V5.0.8531 §MINIMUM_GATE_DECIDES (owner) — superseded: an optional chart/tape/context gap no longer defers a candidate
+        // without evidence; it gets its real verdict (the live doors still need positive after-cost evidence).
+        assertNotEquals(CandidateAdmission8136.Terminal8136.DEFER_DATA,
             CandidateAdmission8136.decide8136(c.copy(nativeQualified8213 = false)).terminal)
-        assertEquals(CandidateAdmission8136.Terminal8136.DEFER_DATA,
+        assertNotEquals(CandidateAdmission8136.Terminal8136.DEFER_DATA,
             CandidateAdmission8136.decide8136(c.copy(nativeSetup8213 = "NONE")).terminal)
         // economics, safety and critical facts still bind the native admit
         assertEquals("EXECUTION_ECONOMICS_8136", CandidateAdmission8136.decide8136(c.copy(expectedGrossPct = 7.0)).reason)

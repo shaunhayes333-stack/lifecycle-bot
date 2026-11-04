@@ -67,7 +67,7 @@ object RebuyLockout8019 {
         if (mint.isBlank()) return
         loadLosses8022()
         if (bigLoss8130(realizedReturnPct) || stoppedLoss8529(realizedReturnPct, exitReason)) noteBigLoss8130(mint, atMs)
-        if (realizedReturnPct.isFinite() && realizedReturnPct < 0.0) {
+        if (realizedReturnPct.isFinite() && realizedReturnPct < 0.0 && !sameClose8531(losses[mint], atMs)) {
             if (losses.size > 4_000) losses.entries.removeIf { e -> synchronized(e.value) { e.value.none { atMs - it < LOSS_MEMORY_MS_8022 } } }
             val l = losses.getOrPut(mint) { java.util.Collections.synchronizedList(ArrayList()) }
             synchronized(l) { l.add(atMs); l.removeAll { atMs - it >= LOSS_MEMORY_MS_8022 } }
@@ -76,6 +76,15 @@ object RebuyLockout8019 {
         if (closedAt.size > 4_000) closedAt.entries.removeIf { atMs - it.value > LOCK_MS_8019 }
         closedAt[mint] = atMs
     }
+
+    /**
+     * Pure (V5.0.8531): a loss already recorded within [SAME_CLOSE_MS_8531] of [atMs] is the same close arriving from its
+     * second reporter (the journal row at the sell, then the finalized bus) — counted once.
+     */
+    internal fun sameClose8531(times: List<Long>?, atMs: Long): Boolean =
+        times != null && synchronized(times) { times.any { kotlin.math.abs(it - atMs) <= SAME_CLOSE_MS_8531 } }
+
+    internal const val SAME_CLOSE_MS_8531 = 120_000L
 
     /** Live entry gates: the refusal label when [mint] was closed inside the lockout, else null. */
     fun refusal8019(mint: String, nowMs: Long = System.currentTimeMillis()): String? {

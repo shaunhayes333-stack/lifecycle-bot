@@ -5,6 +5,7 @@ import com.lifecyclebot.engine.truth.CandidateAdmission8136.Candidate8136
 import com.lifecyclebot.engine.truth.CandidateAdmission8136.Evidence8136
 import com.lifecyclebot.engine.truth.CandidateAdmission8136.Terminal8136
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -80,10 +81,10 @@ class Aate8136AdmissionRecordTest {
     @Test fun sparseDataDefersAndTheDeferralIsBounded() {
         val sparse = base(selected = null).copy(missingInputs = listOf("shape:UNKNOWN", "chg:DEFAULT_UNOBSERVED"))
         val d = CandidateAdmission8136.decide8136(sparse)
-        assertEquals(Terminal8136.DEFER_DATA, d.terminal)
-        assertEquals("DATA_INCOMPLETE_DEFER_8136", d.reason)
-        assertNull(CandidateAdmission8136.floorVerdict8136(d))
-        assertTrue(d.trace.any { it.contains("missing=shape:UNKNOWN,chg:DEFAULT_UNOBSERVED") })
+        // V5.0.8531 §MINIMUM_GATE_DECIDES (owner) — superseded: an optional chart/tape/context gap no longer defers a candidate
+        // without evidence; it gets its real verdict (the live doors still need positive after-cost evidence).
+        assertNotEquals(Terminal8136.DEFER_DATA, d.terminal)
+        assertTrue(d.trace.any { it.contains("optionalUnobserved8170=shape:UNKNOWN,chg:DEFAULT_UNOBSERVED") })
         // a stale price and unknown economics defer too; neither is a fabricated reading
         assertEquals(Terminal8136.DEFER_DATA, CandidateAdmission8136.decide8136(base().copy(priceAgeMs = 10L * 60_000L)).terminal)
         assertEquals(Terminal8136.DEFER_DATA, CandidateAdmission8136.decide8136(base().copy(priceAgeMs = Long.MAX_VALUE)).terminal)

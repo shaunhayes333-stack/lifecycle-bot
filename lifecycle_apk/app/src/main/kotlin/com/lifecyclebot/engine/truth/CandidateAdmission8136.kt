@@ -740,8 +740,13 @@ object CandidateAdmission8136 {
             optionalNativeContextClears8213(c, decisionGross)
         // V5.0.8279 — the native admit sits behind the generic V3 floor again (8114 doctrine, 7843 second floor).
         val nativeLive8259 = edge == null && optionalNativeContextClears8213(c, decisionGross)
-        if (stale || !econKnown || criticalMissing8170.isNotEmpty() ||
-            (c.missingInputs.isNotEmpty() && edge == null && !nativeOptional8213 && !nativeLive8259)) {
+        // V5.0.8531 §MINIMUM_GATE_DECIDES — owner: "if we can clear a minimum gate for tokenomics, metadata etc then the buy
+        // should proceed". Only the minimum (fresh price, known economics, every CRITICAL_MISSING_8170 fact: liquidity, route,
+        // sellability, mint / decimals / supply, depth, quote, wallet, cost, move) defers; optional chart / tape / context gaps
+        // go on to the evidence checks below, which still need positive after-cost evidence for a LIVE admit. superseded:
+        // `|| (c.missingInputs.isNotEmpty() && edge == null && !nativeOptional8213 && !nativeLive8259)` (8527: DATA_INCOMPLETE
+        // _DEFER_8136 x2,062, DATA_NEVER_ARRIVED x1,131 — tokens parked on launchTape / opp / age / chg / bp).
+        if (stale || !econKnown || criticalMissing8170.isNotEmpty()) {
             // V5.0.8418 — an unknown move names what it waits for (candles / the hour), so its fetch and its arrival match.
             val econMissing8418: List<String> = if (econKnown) emptyList()
                 else if (c.costPct.isFinite() && moveWaitChosen8418 == NetEdge8030.MOVE_WAIT_HISTORY_8418) listOf(StrategyMove8153.DEFER_FEATURE_8153)

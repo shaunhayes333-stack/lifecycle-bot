@@ -96,7 +96,11 @@ class Aate8180RunnerCaptureTest {
     }
 
     @Test fun moonshotReadsACoinUpToItsOwnFiveMillionCeiling() {
-        assertTrue("MOONSHOT" in SpecialistBrainBridge7542.nativeScope8168(2_000_000.0, emptySet()))
+        // V5.0.8531 — superseded: assertTrue("MOONSHOT" in nativeScope8168(2_000_000.0, ...)). Owner: a moonshot is not a
+        // buy-in at $500k+; the entry ceiling is $500k and the $1M+ tier no longer reads MOONSHOT.
+        assertFalse("MOONSHOT" in SpecialistBrainBridge7542.nativeScope8168(2_000_000.0, emptySet()))
+        assertTrue("MOONSHOT" in SpecialistBrainBridge7542.nativeScope8168(300_000.0, emptySet()))
+        assertEquals(500_000.0, com.lifecyclebot.v3.scoring.MoonshotTraderAI.MAX_MARKET_CAP_USD, 0.0)
         assertFalse("MOONSHOT" in SpecialistBrainBridge7542.nativeScope8168(9_000_000.0, emptySet()))
         // The named lane of an open hand-off joins the native scope.
         assertTrue(src("engine/SpecialistBrainBridge7542.kt").contains("} catch (_: Throwable) { emptySet<String>() }) + handoffScope8180(ts.mint)"))

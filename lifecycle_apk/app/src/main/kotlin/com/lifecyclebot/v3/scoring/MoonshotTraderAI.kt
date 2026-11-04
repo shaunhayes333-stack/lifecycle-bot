@@ -80,7 +80,11 @@ object MoonshotTraderAI {
     // Pull the ceiling back to $5M so the lane targets the asymmetric-upside zone it was
     // built for. COLLECTIVE winners (proven 10x network plays) keep a higher implicit
     // ceiling via the JUPITER mode bonus path; this only stops cold bids on mature caps.
-    const val MAX_MARKET_CAP_USD = 5_000_000.0   // $5M — moonshot upside zone
+    // V5.0.8531 — owner: "a moonshot isn't a buy-in on a token already at 500k". 8529 live: 5tdWkb bought at $703k and
+    // $685k as MOONSHOT (NO_SETUP), stopped -13 % in 32 s; MOONSHOT 5-min forward -65.9 % on n212, every live close a loss.
+    // superseded: `const val MAX_MARKET_CAP_USD = 5_000_000.0` (V5.9.1307). Entry zone is now the fluid floor .. $500k;
+    // a position that grows past it is held by its exits, not refused.
+    const val MAX_MARKET_CAP_USD = 500_000.0     // $500k — moonshot entry ceiling
     
     // Liquidity requirements - flexible since these are promoted positions
     // V5.9.159 — bootstrap liquidity floor lowered. At 1% learning a $5K floor

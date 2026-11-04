@@ -760,6 +760,13 @@ object LanePlaybook7907 {
             ts.lastPriceChange1h else Double.NaN
     }
 
+    /** Pure (V5.0.8531): the verified birth age when known, else the minutes since the coin's pool opened; NaN without either. */
+    fun tradingAgeMin8531(birthAgeMin: Double, poolOpenedAtMs: Long?, nowMs: Long): Double {
+        if (birthAgeMin.isFinite() && birthAgeMin >= 0.0) return birthAgeMin
+        if (poolOpenedAtMs == null || poolOpenedAtMs <= 0L || poolOpenedAtMs > nowMs) return Double.NaN
+        return (nowMs - poolOpenedAtMs) / 60_000.0
+    }
+
     fun features(ts: TokenState, nowMs: Long = System.currentTimeMillis()): F = featuresUnmemoized8399(ts, nowMs).also { remember8399(ts.mint, nowMs, it) }
 
     private fun featuresUnmemoized8399(ts: TokenState, nowMs: Long): F {
@@ -821,9 +828,14 @@ object LanePlaybook7907 {
         val altChg8169 = if (!chgKnown && tapeChg8100 == null) fill8169?.chg?.value else null
         val altLiq8169 = if (liqObs != Obs8084.OBSERVED) fill8169?.liq?.value else null
         // V5.0.8144 — name each missing input separately (per-feature counters), not one DATA_INCOMPLETE.
-        try { com.lifecyclebot.engine.ProofDataFeatureCoverage8144.observe8144(ts.mint, nowMs, bp = bpKnown || tapeBp8100 != null || altBp8169 != null, chg = chgKnown || tapeChg8100 != null || altChg8169 != null, launchTape = tape != null, structure = shapeKnown || tapeShape8100 != null, context = !plan.isNullOrBlank() || !phase.isNullOrBlank() || opp != null, liquidity = liqObs == Obs8084.OBSERVED || altLiq8169 != null, birth = nn(s?.ageMin).isFinite(), swaps = swaps8169) } catch (_: Throwable) {}
+        // V5.0.8531 — the coin's trading age: its verified birth, else when its pool opened (every pool producer: DexScreener
+        // pairCreatedAt, Jupiter firstPool, PoolCreationTime7385). 8527: CORE setup reads DATA_INCOMPLETE 4,666 of 15,871 with
+        // age missing 7,174 times while the pool time was held as an unused "lower bound". First-seen time is never used.
+        val age8531 = tradingAgeMin8531(nn(s?.ageMin),
+            try { com.lifecyclebot.engine.truth.AdmissionBirth8144.poolFloorMs8417(ts.mint) } catch (_: Throwable) { null }, nowMs)
+        try { com.lifecyclebot.engine.ProofDataFeatureCoverage8144.observe8144(ts.mint, nowMs, bp = bpKnown || tapeBp8100 != null || altBp8169 != null, chg = chgKnown || tapeChg8100 != null || altChg8169 != null, launchTape = tape != null, structure = shapeKnown || tapeShape8100 != null, context = !plan.isNullOrBlank() || !phase.isNullOrBlank() || opp != null, liquidity = liqObs == Obs8084.OBSERVED || altLiq8169 != null, birth = age8531.isFinite(), swaps = swaps8169) } catch (_: Throwable) {}
         return F(
-            age = nn(s?.ageMin),
+            age = age8531,
             runup = if (shapeKnown) nn(s?.runupFromLocalLowPct) else tapeShape8100?.runupPct ?: Double.NaN,
             pxPeak = if (shapeKnown) pos(s?.currentVsPeak) else tapeShape8100?.vsPeak ?: Double.NaN,
             dd = if (shapeKnown) nn(s?.drawdownFromPeakPct) else tapeShape8100?.ddPct ?: Double.NaN,

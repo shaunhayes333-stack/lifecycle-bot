@@ -963,6 +963,17 @@ object TradeHistoryStore {
         return ""
     }
 
+    /**
+     * V5.0.8531 — the rebuy / big-loser lockout learns a live whole-position SELL when its row is written, not only when
+     * the finalized bus reaches it after its learning consumers. 8529 live: 5tdWkb RAPID_CATASTROPHE_STOP at -13 %
+     * (02:02:31), bought again by MOONSHOT 26 s later (02:02:57). The bus call stays; the same close is counted once.
+     */
+    private fun lockOnLiveSell8531(t: Trade) {
+        if (!t.mode.equals("live", true) || !t.side.equals("SELL", true) || t.mint.isBlank()) return
+        val pct = if (t.entryCostSol > 0.0 && t.pnlSol.isFinite()) t.pnlSol / t.entryCostSol * 100.0 else t.pnlPct
+        try { RebuyLockout8019.onClose8019(t.mint, if (t.ts > 0L) t.ts else System.currentTimeMillis(), pct, t.reason) } catch (_: Throwable) {}
+    }
+
     /** One chain transaction/token movement, independent of caller, lane or partial label. No proof is inferred. */
     internal fun liveSellKey8422(t: Trade): String? =
         if (t.mode.equals("live", true) && t.sig.isNotBlank() && t.mint.isNotBlank() &&
@@ -971,6 +982,7 @@ object TradeHistoryStore {
 
     fun recordTrade(inputTrade8422: Trade) {
         val trade = liveSellKey8422(inputTrade8422)?.let { inputTrade8422.copy(economicEventId = it) } ?: inputTrade8422
+        lockOnLiveSell8531(trade)
         ensureInitialized()
         // V5.0.6653 — canonical economic identity outranks heuristic mint/time
         // dedupe.  The old 30-second mint+size filter could discard the real

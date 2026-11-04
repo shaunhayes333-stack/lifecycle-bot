@@ -8,6 +8,7 @@ import com.lifecyclebot.engine.truth.SetupFeatureResolver8169
 import com.lifecyclebot.engine.market.LaneHunter7297
 import com.lifecyclebot.engine.cortex.LanePlaybook7907
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -39,7 +40,10 @@ class Aate8170RepairTest {
             assertTrue(d.trace.any { it.startsWith("criticalUnobserved8170=") })
         }
         val noEdge = a.decide8136(base.copy(cell = null, missingInputs = listOf("shape:UNKNOWN"), genericScore = 90.0))
-        assertEquals(CandidateAdmission8136.Terminal8136.DEFER_DATA, noEdge.terminal)
+        // V5.0.8531 §MINIMUM_GATE_DECIDES (owner) — superseded: an optional chart/tape/context gap no longer defers a candidate
+        // without evidence; it gets its real verdict (the live doors still need positive after-cost evidence).
+        assertNotEquals(CandidateAdmission8136.Terminal8136.DEFER_DATA, noEdge.terminal)
+        assertTrue(noEdge.trace.any { it.startsWith("optionalUnobserved8170=") })
         assertEquals(CandidateAdmission8136.Terminal8136.REFUSE, a.decide8136(base.copy(safetyRefusal = "RUG")).terminal)
     }
 
