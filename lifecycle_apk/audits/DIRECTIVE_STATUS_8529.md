@@ -1,4 +1,4 @@
-# AATE full-system directive — status at 5.0.8529
+# AATE full-system directive — status at 5.0.8530
 
 Status: **NOT COMPLETE.** This file records what is verified, what changed, and what remains. Observed facts are marked
 (F); hypotheses (H).
@@ -21,7 +21,7 @@ Status: **NOT COMPLETE.** This file records what is verified, what changed, and 
 | D3b | Raydium 0/3, PumpPortal 1/3 landed, still first (F) | static venue order (F) | landing-rate demotion (`SellRouteEndpoint8144`), reported as `routesDemoted8529` | same | CHANGED |
 | D3c | CATASTROPHIC queue avg 34.5 s / max 198.6 s (F) | unknown — causes recorded but never printed (F) | `ExitStageTiming7876` prints `queueCauses` | — | OPEN (measurement only) |
 | D4 | 29jQSL canonical, chain 0; npz2 sold (sig `2A74sz…`) yet chain still holds 272843664 raw (F) | unresolved; needs the transaction (H: sell booked against the wrong row, or a stale / incomplete token read) | none; self-heal paths exist (`ghostZeroHandOff8288`, `requestAdoptionAsync7718`) | — | OPEN (blocked: no Solana RPC from the build sandbox) |
-| D5 | Shadow means +3063 % / pf 252–398 | owner: +40,000 % trades are real; the 8529 cap was withdrawn (8529b) | none net | pf-at-real-size test | CLOSED (not a defect) |
+| D5 | Shadow means +3063 % / pf 252–398 | owner: +40,000 % trades are real; the 8529 cap was withdrawn (8530) | none net | pf-at-real-size test | CLOSED (not a defect) |
 | CI | main 8528: 3 failed of 8478 | stale source pins of code 8528 replaced (F) | pins superseded to the 8528 contracts | the 3 tests | CHANGED |
 
 ## Inventory (directive §2) — tool output, 8529

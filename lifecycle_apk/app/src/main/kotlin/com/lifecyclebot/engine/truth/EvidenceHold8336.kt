@@ -95,8 +95,8 @@ object EvidenceHold8336 {
         if (n == 0) return Proof8336(0, Double.NaN, Double.NaN, Double.NaN, false)
         val mean = r.average()
         val se = if (n > 1) kotlin.math.sqrt(r.sumOf { (it - mean) * (it - mean) } / (n - 1)) / kotlin.math.sqrt(n.toDouble()) else Double.POSITIVE_INFINITY
-        // V5.0.8529b — the profit factor reads the real SOL results: a +40,000 % runner is a real trade (owner), not a print
-        // to cap. (A cap / leave-two-out rule added earlier in 8529 was withdrawn before release.)
+        // V5.0.8530 — the profit factor reads the real SOL results: a +40,000 % runner is a real trade (owner), not a print
+        // to cap. (A cap / leave-two-out rule added earlier in 8529 was withdrawn in 8530.)
         val wins = pnlSol.filter { it.isFinite() && it > 0.0 }.sum()
         val losses = -pnlSol.filter { it.isFinite() && it < 0.0 }.sum()
         val pf = if (losses > 0.0) wins / losses else if (wins > 0.0) Double.POSITIVE_INFINITY else 0.0
