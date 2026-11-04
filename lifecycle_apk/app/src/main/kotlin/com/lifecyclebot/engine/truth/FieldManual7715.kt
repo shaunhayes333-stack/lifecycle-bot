@@ -316,6 +316,21 @@ object FieldManual7715 {
         return allInCostPct(sizeUsd, depthUsdForImpact8337(mint, liquidityUsd, solUsd))
     }
 
+    /**
+     * V5.0.8534 §A_LABEL_IS_NOT_CHARGED_A_GUARD — a forward LABEL's round trip at its notional: the all-in cost when the
+     * depth was read; with NO depth read, fees + priority + slippage only. [impactRoundTripPct]'s 20 % maximum on an
+     * unknown depth is an entry-decision guard, not a measurement: a $5 label notional moves no pool 20 %. 8527 live:
+     * LiquidityTruth stillUnknown=1,135 — every label on those coins read 20 points too negative, and those cells, stages,
+     * Cortex seats and lane suspensions were learnt from it. Returns (cost %, depth known).
+     */
+    fun labelCostPct8534(sizeUsd: Double, liquidityUsd: Double, mint: String): Pair<Double, Boolean> {
+        val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        val depth = depthUsdForImpact8337(mint, liquidityUsd, solUsd)
+        val known = depth.isFinite() && depth > 0.0
+        val all = allInCostPct(sizeUsd, depth)
+        return (if (known) all else (all - impactRoundTripPct(sizeUsd, depth)).coerceAtLeast(0.0)) to known
+    }
+
     fun allInCostPct(sizeUsd: Double, liquidityUsd: Double): Double {
         val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
         if (!solUsd.isFinite() || solUsd <= 0.0 || !sizeUsd.isFinite() || sizeUsd <= 0.0) {

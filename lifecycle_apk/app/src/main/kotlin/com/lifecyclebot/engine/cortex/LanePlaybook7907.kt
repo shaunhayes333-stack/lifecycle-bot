@@ -889,7 +889,8 @@ object LanePlaybook7907 {
             volatility = ts.volatility ?: Double.NaN,
             regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "" },
             launchLadderProven = try {
-                val cost = com.lifecyclebot.engine.truth.FieldManual7715.allInCostPct8350(10.0, ts.lastLiquidityUsd.takeIf { it.isFinite() } ?: 0.0, ts.mint)
+                // V5.0.8534 — a timing feature read at $10: an unread depth is not the 20 % guard (an unread launch could never read PROVEN).
+                val cost = com.lifecyclebot.engine.truth.FieldManual7715.labelCostPct8534(10.0, ts.lastLiquidityUsd.takeIf { it.isFinite() } ?: 0.0, ts.mint).first
                 com.lifecyclebot.engine.truth.FreshLaunchSelector7737.launchRead7742(ts, cost, nowMs).verdict ==
                     com.lifecyclebot.engine.truth.FreshLaunchSelector7737.LaunchVerdict.PROVEN
             } catch (_: Throwable) { false },

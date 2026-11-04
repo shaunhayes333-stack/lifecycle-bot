@@ -1157,8 +1157,11 @@ object ForwardReturnLabeler7731 {
         // V5.0.7962 — the lane's measured live round trip once it has 8+ trades (CostLedger7962; excludes the chase).
         // V5.0.7961 — what the lane's fills cost above the decision price (EntryChase7961).
         val chase8094 = (try { EntryChase7961.lanePenaltyPct7961(l) } catch (_: Throwable) { 0.0 })
-        val cost = CostLedger7962.costOr7962(l, Double.NaN, (try { FieldManual7715.allInCostPct8350(COST_SIZE_USD_7731, liq, ts.mint) } catch (_: Throwable) { FieldManual7715.BASE_ROUND_TRIP_COST_PCT_7715 })) +
-            chase8094
+        // V5.0.8534 — an unread depth is not charged the 20 % impact guard on a $5 label (FieldManual7715.labelCostPct8534).
+        // superseded: `FieldManual7715.allInCostPct8350(COST_SIZE_USD_7731, liq, ts.mint)` — unknown depth -> MAX impact.
+        val labelCost8534 = try { FieldManual7715.labelCostPct8534(COST_SIZE_USD_7731, liq, ts.mint) } catch (_: Throwable) { FieldManual7715.BASE_ROUND_TRIP_COST_PCT_7715 to true }
+        if (!labelCost8534.second) { depthUnknownLabels8534.incrementAndGet(); try { PipelineHealthCollector.labelInc("LABEL_DEPTH_UNKNOWN_NO_IMPACT_8534") } catch (_: Throwable) {} }
+        val cost = CostLedger7962.costOr7962(l, Double.NaN, labelCost8534.first) + chase8094
         noteChargedCost8418(l, cost - chase8094)
         val cell = cellKey(ts.source, l, TrustedMcap8019.mcap8019(ts), ageMs)  // V5.0.8019 — the cap the price agrees with
         // V5.0.7734 — the regime is read now, at decision time, as the forecast
@@ -2165,7 +2168,8 @@ object ForwardReturnLabeler7731 {
         " " + DowntimeRecovery8430.statusLine8430() +   // V5.0.8430
         " " + LabelClock8442.statusLine8442() + " shadowWanted8442=${shadowWanted8442.size} pendingMints8475=${pendingMintCount8475()}" +   // V5.0.8442 / 8475
         " flat8454[awaitingLive=${flatAwaitingLive8454.get()} liveBooked=${flatLiveBooked8454.get()}]" +   // V5.0.8454
-        " downtimeUnobserved8505=${labelLostDowntime8505.get()} ${timingBook8528.line()}"   // V5.0.8505
+        " downtimeUnobserved8505=${labelLostDowntime8505.get()} ${timingBook8528.line()}" +   // V5.0.8505
+        " " + chargedCostLine8534()   // V5.0.8534
 
     /** Pure: a horizon label may book only from a mark at most the lost-mark grace past it. */
     fun horizonOpen7809(ageMs: Long, horizonMs: Long): Boolean =
@@ -3065,6 +3069,13 @@ object ForwardReturnLabeler7731 {
     // the all-in cost at their own size and depth (~3.3 %), so the gap (~2.1 pt) was charged a second time on every lane.
     // The labeler keeps the mean cost (chase excluded) it actually charged per lane; the offset reads that.
     private val charged8418 = ConcurrentHashMap<String, DoubleArray>()   // lane -> [n, mean]
+    private val depthUnknownLabels8534 = AtomicLong(0)
+
+    /** V5.0.8534 — chargedCost8418{LANE=mean%/n ...}: what this session's labels were actually charged, per lane (top 8 by n). */
+    private fun chargedCostLine8534(): String = "chargedCost8418{" + charged8418.entries
+        .map { (l, a) -> synchronized(a) { Triple(l, a[1], a[0].toInt()) } }.filter { it.third > 0 }
+        .sortedByDescending { it.third }.take(8).joinToString(" ") { "${it.first}=${"%.1f".format(it.second)}%/n${it.third}" }
+        .ifBlank { "-" } + "} depthUnknownLabels8534=${depthUnknownLabels8534.get()}"
 
     internal fun noteChargedCost8418(lane: String, costPct: Double) {
         if (!costPct.isFinite() || costPct < 0.0) return
