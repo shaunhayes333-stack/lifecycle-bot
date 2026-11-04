@@ -88,17 +88,8 @@ object CanonicalEntryFloor7266 {
     private val belowMature = AtomicLong(0L)
     private val aboveMature = AtomicLong(0L)
 
-    /**
-     * V5.0.7385 — in LIVE a band must clear real execution friction (swap fees,
-     * slippage, priority/Jito tips, failed fills) before it can pull the floor
-     * down, not merely beat zero. PROJECT_SNIPER's 0–10 band (+7.4% paper mean)
-     * dragged the live sniper floor to 1 while its 11–25 band carried the edge
-     * (+208.8%), and live bought whatever scored 1+. Paper keeps > 0.
-     */
-    const val LIVE_BAND_COST_MARGIN_PCT_7385 = 10.0
-
+    // Closed score-band outcomes already include execution costs. Require supported positive net evidence.
     private fun learnedFloor(lane: String): Double? = try {
-        val bar7385 = if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) 0.0 else LIVE_BAND_COST_MARGIN_PCT_7385
         var found: Double? = null
         var bucket = 0
         while (bucket <= 9) {
@@ -106,7 +97,7 @@ object CanonicalEntryFloor7266 {
             val n = ScoreExpectancyTracker.bucketSamples(lane, score)
             if (n >= LEARNED_MIN_SAMPLES) {
                 val mean = ScoreExpectancyTracker.bucketMean(lane, score)
-                if (mean != null && mean.isFinite() && mean > bar7385) { found = score.toDouble(); break }
+                if (EntryFloorEvidence8528.profitableNetBand(n, mean)) { found = score.toDouble(); break }
             }
             bucket++
         }
@@ -234,8 +225,8 @@ object CanonicalEntryFloor7266 {
             try { PipelineHealthCollector.labelInc("CANONICAL_FLOOR_RAISE_CAPPED_AT_LOSS_BAND_7276") } catch (_: Throwable) {}
         }
         val negativeDelta7276 = (regimeDelta + damperDelta).coerceAtMost(0.0)
-        val floor = (base7276 + cappedRaise7276 + negativeDelta7276)
-            .coerceIn(FLOOR_MIN, FLOOR_MAX)
+        val floor = EntryFloorEvidence8528.preserveProfitableBand(
+            base7276 + cappedRaise7276 + negativeDelta7276, learned).coerceIn(FLOOR_MIN, FLOOR_MAX)
         val r = Resolution(
             // V5.0.7377 — the WAIT-promotion margin narrows as the lane's band is
             // proven: an unproven lane keeps +25, a lane whose learned band carries
@@ -266,6 +257,6 @@ object CanonicalEntryFloor7266 {
             "mature=${"%.0f".format(MATURE_DEFAULT_FLOOR_7243)}/${"%.0f".format(MATURE_DEFAULT_FLOOR_7243 + WAIT_PROMOTION_MARGIN_7243)} " +
             (if (lanes.isBlank()) "lanes=none_yet" else lanes) +
             // V5.0.8136 — the one admission record's terminals (FLOOR / LIVE / PLAN), counted per reason.
-            " " + CandidateAdmission8136.statusLine8136()
+            " " + CandidateAdmission8136.statusLine8136() + " " + NativeScoreFloor8528.statusLine()
     } catch (_: Throwable) { "CanonicalEntryFloor7266: unavailable" }
 }

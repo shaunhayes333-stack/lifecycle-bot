@@ -25196,26 +25196,26 @@ class Executor(
         val v = com.lifecyclebot.engine.OpenPnlSanity.inspect(ts, "ExitQuoteCorroboration7928/${ts.mint.take(8)}", emit = false)
         // An unreadable trigger pnl is the phantom case itself: check the deepest band.
         val trigger = if (v.ok) v.pnlPct else com.lifecyclebot.engine.truth.ExitQuoteCorroboration7928.CHECK_BELOW_PCT - 1.0
-        if (!com.lifecyclebot.engine.truth.ExitQuoteCorroboration7928.applies(reason, trigger, live)) true
-        else {
-            val pid = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint, false)
-            val held = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(pid)
-            val raw = held?.remainingQtyRaw
-            val cost = held?.let { (it.entryCostSol - it.soldCostBasisSol).coerceAtLeast(0.0) } ?: ts.position.costSol
-            val namedDepth = StopMarkConfirm8418.stopDepthPct8489(reason)
-            // Risk-clock reasons do not encode their threshold. Bind quote
-            // validation to that exact latch, including its ordinary floor.
-            val latchDepth8521 = if (reason.startsWith("PROTECTIVE_EXIT_") && held != null && raw != null && cost > 0.0) {
-                val px8521 = com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450.latch(pid)?.thresholdPrice8521
-                val solUsd8521 = WalletManager.lastKnownSolPrice
-                if (px8521 != null && px8521 > 0.0 && solUsd8521 > 0.0) {
-                    val units8521 = java.math.BigDecimal(raw).movePointLeft(held.quantityScale).toDouble()
-                    ((px8521 * units8521 / solUsd8521) / cost - 1.0) * 100.0
-                } else null
+        val pid = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint, false)
+        val held = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(pid)
+        val raw = held?.remainingQtyRaw
+        val cost = held?.let { (it.entryCostSol - it.soldCostBasisSol).coerceAtLeast(0.0) } ?: ts.position.costSol
+        val namedDepth = StopMarkConfirm8418.stopDepthPct8489(reason)
+        // Risk-clock reasons do not encode their threshold. Bind quote
+        // validation to that exact latch, including its ordinary floor.
+        val latchDepth8521 = if (reason.startsWith("PROTECTIVE_EXIT_") && held != null && raw != null && cost > 0.0) {
+            val px8521 = com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450.latch(pid)?.thresholdPrice8521
+            val solUsd8521 = WalletManager.lastKnownSolPrice
+            if (px8521 != null && px8521 > 0.0 && solUsd8521 > 0.0) {
+                val units8521 = java.math.BigDecimal(raw).movePointLeft(held.quantityScale).toDouble()
+                ((px8521 * units8521 / solUsd8521) / cost - 1.0) * 100.0
             } else null
-            // A rapid catastrophe still exits when the quote independently breaches its ordinary hard floor.
-            val depth = namedDepth ?: latchDepth8521 ?: if (reason.startsWith("RAPID_CATASTROPHE_STOP") || reason.startsWith("RAPID_HARD_FLOOR_STOP"))
-                -ExitDoctrine8169.rapidHardFloorMag8169(ts) else null
+        } else null
+        // A rapid catastrophe still exits when the quote independently breaches its ordinary hard floor.
+        val depth = namedDepth ?: latchDepth8521 ?: if (reason.startsWith("RAPID_CATASTROPHE_STOP") || reason.startsWith("RAPID_HARD_FLOOR_STOP"))
+            -ExitDoctrine8169.rapidHardFloorMag8169(ts) else null
+        if (!com.lifecyclebot.engine.truth.ExitQuoteCorroboration7928.applies(reason, trigger, live, depth)) true
+        else {
             val sellCost8521 = try { CostMeter8151.sellLegFixedSol8151() } catch (_: Throwable) { Double.NaN }
             if (reason.startsWith("PROTECTIVE_EXIT_") && (depth == null || !depth.isFinite() || depth >= 0.0)) true
             else com.lifecyclebot.engine.truth.ExitQuoteCorroboration7928.allowSell(ts.mint, ts.symbol, reason, trigger, cost,

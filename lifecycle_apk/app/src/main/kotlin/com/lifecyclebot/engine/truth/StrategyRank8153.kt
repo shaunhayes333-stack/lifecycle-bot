@@ -37,11 +37,14 @@ object StrategyRank8153 {
         val timingN: Int = 0,
         val timingMeanPct: Double = Double.NaN,
         val timingSePct: Double = Double.NaN,
+        /** Independent setup-specific early mark record; ranks only, never creates profit evidence or refusal authority. */
+        val entryTimingAdjustment8528: Double = 0.0,
     ) {
         val lowerPct: Double get() = if (meanPct.isFinite() && sePct.isFinite()) meanPct - sePct else Double.NaN
         val upperPct: Double get() = if (meanPct.isFinite() && sePct.isFinite()) meanPct + sePct else Double.NaN
         val compact: String get() = "$id n$n ${fmt8153(meanPct)}±${fmt8153(sePct)}" +
-            (if (timingN > 0) " band n$timingN ${fmt8153(timingMeanPct)}" else "")
+            (if (timingN > 0) " band n$timingN ${fmt8153(timingMeanPct)}" else "") +
+            (if (entryTimingAdjustment8528 != 0.0) " earlyTimingRank=${fmt8153(entryTimingAdjustment8528)}" else "")
     }
 
     /** One option with its tier, conservative executable net (%) and the rule that placed it. */
@@ -110,9 +113,11 @@ object StrategyRank8153 {
             val t = tier8153(o, costPct)
             Ranked8153(o, t, score8153(o, costPct), why8153(o, t))
         }.sortedWith(
-            compareBy<Ranked8153>({ it.tier.ordinal }, { if (it.scorePct.isFinite()) -it.scorePct else Double.MAX_VALUE },
+            compareBy<Ranked8153>({ it.tier.ordinal }, { if (it.scorePct.isFinite()) -(it.scorePct + it.option.entryTimingAdjustment8528.takeIf { a -> a.isFinite() }?.coerceIn(-2.0, 2.0).orZero8528()) else Double.MAX_VALUE },
                 { if (it.option.runnerRate.isFinite()) -it.option.runnerRate else 0.0 }, { -it.option.n }),
         )
+
+    private fun Double?.orZero8528(): Double = this ?: 0.0
 
     /** Pure: the best SUPPORTED option (CandidateAdmission8136's specific edge among setups), or null. */
     fun bestSupported8153(options: List<Option8153>, costPct: Double): Option8153? =
@@ -125,6 +130,13 @@ object StrategyRank8153 {
         val best = ranked.firstOrNull { it.tier == Tier8153.SUPPORTED || it.tier == Tier8153.VALID }
         if (best != null) {
             return Pick8153(best.option.id, best.tier, "${best.tier.name}:${best.option.compact}", best.option.id != defaultId, rejected)
+        }
+        // Early timing may choose between still-unproven fired setups. It never promotes their evidence tier.
+        val early = ranked.filter { it.tier == Tier8153.UNPROVEN && it.option.entryTimingAdjustment8528 > 0.0 }
+            .maxByOrNull { it.option.entryTimingAdjustment8528 }
+        val defaultEarly = ranked.firstOrNull { it.option.id == defaultId }?.option?.entryTimingAdjustment8528 ?: 0.0
+        if (early != null && early.option.entryTimingAdjustment8528 > defaultEarly) {
+            return Pick8153(early.option.id, Tier8153.UNPROVEN, "EARLY_TIMING_8528:${early.option.id}", early.option.id != defaultId, rejected)
         }
         val def = defaultId?.takeIf { it.isNotBlank() } ?: return Pick8153(null, Tier8153.UNPROVEN, "NONE", false, rejected)
         val defTier = ranked.firstOrNull { it.option.id == def }?.tier ?: Tier8153.UNPROVEN

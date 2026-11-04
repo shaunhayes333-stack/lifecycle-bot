@@ -2024,12 +2024,8 @@ object ShitCoinTraderAI {
         return SC_CONF_BOOST_MAX * (1.0 - progress).coerceIn(0.0, 1.0)
     }
     
-    fun getFluidScoreThreshold(): Int {
-        val base = lerp(SC_SCORE_BOOTSTRAP.toDouble(), SC_SCORE_MATURE.toDouble()).toInt()
-        // V5.9.446 — Meme WR emergency brake: +15 to score floor when meme
-        // WR < 30% over last 200 closes. Raises the entry bar until WR recovers.
-        return base + try { com.lifecyclebot.engine.MemeWREmergencyBrake.scoreBoost() } catch (_: Throwable) { 0 }
-    }
+    fun getFluidScoreThreshold(): Int =
+        com.lifecyclebot.engine.truth.NativeScoreFloor8528.resolve("SHITCOIN", SC_SCORE_BOOTSTRAP)
 
     fun getFluidConfidenceThreshold(): Int {
         val baseConf = lerp(SC_CONF_BOOTSTRAP.toDouble(), SC_CONF_MATURE.toDouble())

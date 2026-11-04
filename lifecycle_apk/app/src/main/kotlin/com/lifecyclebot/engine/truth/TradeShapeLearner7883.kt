@@ -53,6 +53,7 @@ object TradeShapeLearner7883 {
         MCAP_USD(doubleArrayOf(10_000.0, 50_000.0, 250_000.0, 1_000_000.0, 5_000_000.0)),
         MCAP_LIQ(doubleArrayOf(3.0, 8.0, 25.0, 85.0)),
         TOP_HOLDER_PCT(doubleArrayOf(10.0, 20.0, 30.0, 50.0)),
+        RUG_SAFETY_SCORE(doubleArrayOf(5.0, 15.0, 40.0, 70.0, 90.0)),
     }
 
     private const val MIN_N = 30
@@ -113,7 +114,7 @@ object TradeShapeLearner7883 {
 
     private class Pending(val lane: String, val bins: IntArray, val atMs: Long)
 
-    private val pending = ConcurrentHashMap<String, Pending>()               // mint|lane
+    private val pending = ConcurrentHashMap<String, Pending>()               // mint|lane|decisionAtMs
     private val stats = ConcurrentHashMap<String, Stat>()                    // lane|feature|bin
     private val laneAll = ConcurrentHashMap<String, Stat>()                  // lane
     /** V5.0.8309 — census: pending shapes (~320 B with their bins), feature / lane Stats (~180 B). */
@@ -142,6 +143,7 @@ object TradeShapeLearner7883 {
         doubleArrayOf(
             s.ageMin, s.runupFromLocalLowPct, s.currentVsPeak, s.drawdownFromPeakPct, s.buyPressurePct,
             liq, mcap, ratio, s.topHolderPct,
+            ts.safety.rugcheckScore.takeIf { it in 2..100 && ts.safety.checkedAt > 0L }?.toDouble() ?: -1.0,
         )
     } catch (_: Throwable) { null }
 
@@ -157,14 +159,18 @@ object TradeShapeLearner7883 {
         val l = canon(lane)
         if (pending.size >= MAX_PENDING) pending.entries.removeIf { nowMs - it.value.atMs > PENDING_TTL_MS }
         if (pending.size >= MAX_PENDING) return
-        pending["${ts.mint}|${lane.trim().uppercase()}"] = Pending(l, bins, nowMs)
+        pending["${ts.mint}|${lane.trim().uppercase()}|$nowMs"] = Pending(l, bins, nowMs)
         captured.incrementAndGet()
     }
 
     /** Called by ForwardReturnLabeler7731 when the 60-minute label books. */
-    fun onLabel60(mint: String, labelLane: String, netPct: Double, grossPct: Double) {
+    fun onLabel60(mint: String, labelLane: String, netPct: Double, grossPct: Double, decisionAtMs: Long = 0L) {
         if (!netPct.isFinite()) return
-        val p = pending.remove("$mint|${labelLane.trim().uppercase()}") ?: return
+        val prefix = "$mint|${labelLane.trim().uppercase()}|"
+        val key = if (decisionAtMs > 0L) "$prefix$decisionAtMs" else
+            pending.entries.filter { it.key.startsWith(prefix) }.maxByOrNull { it.value.atMs }?.key ?: return
+        val p = pending[key] ?: return
+        if (!pending.remove(key, p)) return
         ensureLoaded()
         synchronized(this) {
             laneAll.getOrPut(p.lane) { Stat() }.add(netPct, grossPct)

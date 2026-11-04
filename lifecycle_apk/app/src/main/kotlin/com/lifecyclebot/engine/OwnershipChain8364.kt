@@ -45,6 +45,8 @@ object OwnershipChain8364 {
     private val stepCounts8364 = ConcurrentHashMap<String, AtomicLong>()
     private val terminalCounts8364 = ConcurrentHashMap<String, AtomicLong>()
     private val lostCounts8364 = ConcurrentHashMap<String, AtomicLong>()
+    private val lostClosure8528 = ConcurrentHashMap<String, AtomicLong>()
+    private val lostExamples8528 = ArrayDeque<Pair<String, String>>() // bounded, full candidate identity
     private val versionCarried8364 = AtomicLong(0L)
     private var lastSweepMs8364 = 0L
 
@@ -130,12 +132,15 @@ object OwnershipChain8364 {
         if (c.steps.add(s)) bump8364(stepCounts8364, "${c.lane}|${s.name}")
     }
 
-    private fun close8364(c: Cand8364) {
+    private fun close8364(c: Cand8364, cause: String = "TEST_FLUSH", nowMs: Long = c.touchedMs) {
         val key = closeKey8364(Step8364.QUALIFIED in c.steps, c.steps, c.terminal, c.softTerminal)
         if (key == "T:EMPTY") return
         if (key.startsWith("LOST:")) {
             val stage = key.removePrefix("LOST:")
             bump8364(lostCounts8364, "${c.lane}|$stage")
+            bump8364(lostClosure8528, "${c.lane}|$cause")
+            if (lostExamples8528.size >= 64) lostExamples8528.removeFirst()
+            lostExamples8528.addLast(c.lane to "${c.mint}:v${c.version}:$stage:$cause:lastSeen=${c.touchedMs}:idleMs=${(nowMs - c.touchedMs).coerceAtLeast(0)}")
             try { PipelineHealthCollector.labelInc("OWNER_LOST_NO_TERMINAL_8364_$stage") } catch (_: Throwable) {}
         } else {
             bump8364(terminalCounts8364, "${c.lane}|${key.removePrefix("T:")}")
@@ -151,7 +156,7 @@ object OwnershipChain8364 {
             val c = e.value
             val over = records8364.size > MAX_RECORDS_8364
             if (!over && nowMs - c.touchedMs <= TTL_MS_8364) continue
-            close8364(c)
+            close8364(c, if (over) "CAPACITY_EVICTION" else "IDLE_TTL", nowMs)
             val lm = "${c.lane}|${c.mint}"
             if (latestByLaneMint8364[lm] == e.key) latestByLaneMint8364.remove(lm)
             it.remove()
@@ -296,9 +301,12 @@ object OwnershipChain8364 {
             .joinToString(",") { "${it.key}=${it.value}" }.ifBlank { "-" }
         val lost = laneMap8364(lostCounts8364, lane).entries.sortedByDescending { it.value }
             .joinToString(",") { "${it.key}=${it.value}" }.ifBlank { "0" }
+        val closure = laneMap8364(lostClosure8528, lane).entries.sortedBy { it.key }
+            .joinToString(",") { "${it.key}=${it.value}" }.ifBlank { "0" }
+        val examples = synchronized(lock8364) { lostExamples8528.filter { it.first == lane }.takeLast(2).joinToString(";") { it.second } }
         return "$lane chain8364[qualified=${s(Step8364.QUALIFIED)} fdg=${s(Step8364.FDG_ALLOW)}/${s(Step8364.FDG_BLOCK)} " +
             "owner=${s(Step8364.OWNER)} intent=${s(Step8364.INTENT)} ticket=${s(Step8364.TICKET)} exec=${s(Step8364.EXEC)} open=$open " +
-            "ended{$terms} lostNoTerminal{$lost}] (owner/intent are stamped after an FDG allow)"
+            "ended{$terms} lostNoTerminal{$lost} missingReceiptClosure{$closure} examples{$examples}] (candidate records, not unique tokens; owner/intent follow FDG allow)"
     }
 
     /** V5.0.8438 — DiagnosisBrief8438: [lane]'s stage counts (QUALIFIED, FDG_ALLOW, FDG_BLOCK, OWNER, INTENT, TICKET, EXEC). */
@@ -317,8 +325,8 @@ object OwnershipChain8364 {
 
     internal fun resetForTests8364() {
         synchronized(lock8364) {
-            records8364.clear(); latestByLaneMint8364.clear(); lastSweepMs8364 = 0L
+            records8364.clear(); latestByLaneMint8364.clear(); lostExamples8528.clear(); lastSweepMs8364 = 0L
         }
-        stepCounts8364.clear(); terminalCounts8364.clear(); lostCounts8364.clear(); versionCarried8364.set(0L)
+        stepCounts8364.clear(); terminalCounts8364.clear(); lostCounts8364.clear(); lostClosure8528.clear(); versionCarried8364.set(0L)
     }
 }

@@ -558,6 +558,7 @@ object FinalizedBusConsumerBridge6465 {
             // trade. The causal learner below still retries on its own terms;
             // only the side effects are made idempotent.
             if (firstAttribution7169(env.tradeId)) {
+                try { NativeScoreFloor8528.record(env) } catch (_: Throwable) {}
                 try { com.lifecyclebot.engine.ScoreExpectancyTracker.record(env.lane, env.entryScore, pnlPctLearn6707) } catch (_: Throwable) {}
                 try { com.lifecyclebot.engine.HoldDurationTracker.record(env.lane, holdMinutes6707, pnlPctLearn6707) } catch (_: Throwable) {}
                 try { com.lifecyclebot.engine.ExitReasonTracker.record(env.lane, env.exitReason, pnlPctLearn6707) } catch (_: Throwable) {}

@@ -1075,6 +1075,7 @@ object Cortex7885 {
             // Freeze the tag and timing here; never classify the mutable TokenState minutes later.
             val timing8174 = try { LanePlaybook7907.timingBandOf8094(ts) } catch (_: Throwable) { LanePlaybook7907.TIMING_UNKNOWN_8094 }
             try { LanePlaybook7907.capture(ts, labelLane, labelLane, nowMs, snap8084, sel8153, timing8174) } catch (_: Throwable) {}
+            com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.freezeTiming8528(ts.mint, labelLane, nowMs, sel8153, timing8174)
             val a8174 = assessCache["${ts.mint}|${canon(labelLane)}"]?.takeIf { nowMs - it.atMs in 0L..ASSESS_TTL_MS }
             if (a8174 == null) {
                 // A voter read after the decision would predict a move it has already observed.

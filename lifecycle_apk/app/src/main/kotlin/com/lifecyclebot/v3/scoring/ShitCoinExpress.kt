@@ -997,10 +997,8 @@ object ShitCoinExpress {
     private const val EXPRESS_SCORE_BOOTSTRAP = 10  // V5.9.1571: tune out EXPRESS[0-9] red band (μ≈-6/-9%) without disabling Express
     private const val EXPRESS_SCORE_MATURE = 20     // V5.9.442: 25→20 — user reported Express rarely firing
     
-    private fun getFluidScoreThreshold(): Int {
-        val progress = FluidLearningAI.getLearningProgress()
-        return (EXPRESS_SCORE_BOOTSTRAP + (EXPRESS_SCORE_MATURE - EXPRESS_SCORE_BOOTSTRAP) * progress).toInt()
-    }
+    private fun getFluidScoreThreshold(): Int =
+        com.lifecyclebot.engine.truth.NativeScoreFloor8528.resolve("EXPRESS", EXPRESS_SCORE_BOOTSTRAP)
     
     // ═══════════════════════════════════════════════════════════════════════════
     // STATS

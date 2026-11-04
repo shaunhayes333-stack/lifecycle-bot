@@ -46,6 +46,13 @@ object AdaptiveEntryWitness8527 {
             observations["emaFan"] = emaStates.indexOf(ema).toDouble()
         }
         put("entryScore", ts.entryScore) { it in 0.0..100.0 }
+        // Keep each native scorer's actual scale, before opportunity-policy ranking transforms it.
+        com.lifecyclebot.engine.SpecialistBrainBridge7542.cachedSnapshot7650(ts.mint)
+            ?.takeIf { nowMs - it.evaluatedAtMs in 0L..5_000L }?.originalOpinions8522?.values?.forEach { opinion ->
+                if (opinion.authoritative && opinion.gradeable) {
+                    put("nativeScore8528_${CanonicalLaneIdentity6506.canonical(opinion.lane)}", opinion.score.toDouble()) { it in 0.0..100.0 }
+                }
+            }
         // No developer ownership or ATH distance witness exists on this producer: both stay absent.
         return encode(ts.mint, nowMs, observations)
     }

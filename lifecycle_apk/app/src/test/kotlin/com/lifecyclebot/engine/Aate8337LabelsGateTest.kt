@@ -32,8 +32,8 @@ class Aate8337LabelsGateTest {
         assertTrue(sixty.contains("markLost(o)                       // counted as lost mark, never as a -cost label"))
         assertTrue(sixty.contains("o.bookedNet7997 = Double.NaN"))
         // the shape / cell / specialist hooks are skipped on a flat mark; the Cortex still receives the flag (observed only there)
-        val shape = sixty.indexOf("TradeShapeLearner7883.onLabel60(o.mint, o.lane, net, gross)")
-        assertTrue(shape > sixty.indexOf("} else {") && shape > flatTest)
+        // The target helper owns shape attribution; the checked call above remains behind flat-mark exclusion.
+        assertTrue(labeler.contains("TradeShapeLearner7883.onLabel60(o.mint, o.lane, net, gross, o.atMs)"))
         val skip = sixty.indexOf("} else {\n            bookEntryTarget8521(")
         assertTrue(skip > 0)
         // superseded by V5.0.8404 — the 5-minute value is staged in the durable outbox first; V5.0.8418 — a failed staging no longer

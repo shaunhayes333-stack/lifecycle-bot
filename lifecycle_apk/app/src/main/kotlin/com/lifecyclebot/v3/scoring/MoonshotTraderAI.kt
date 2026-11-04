@@ -66,19 +66,13 @@ object MoonshotTraderAI {
     // V5.2.12: Moonshot is a CROSS-LAYER promotion for massive gains
     // Any token from any layer can promote to Moonshot when gains hit threshold
     // Market cap boundaries are wide to accept promotions from all layers
-    const val MIN_MARKET_CAP_USD = 10_000.0      // $10K minimum (can come from ShitCoin)
-    // V5.0.7719 — operator: "moonshot Sniper etc target as low as those ranges.
-    // scoring is meant to be fluid with a rough start of around 15 and $1500
-    // market cap ... the bot is supposed to have a chance to learn." The $10k
-    // floor (7337) is the MATURE end; the lane starts at $1,500 and walks to
-    // it with FluidLearningAI's learning progress, like every other fluid
-    // threshold in this file.
+    const val MIN_MARKET_CAP_USD = 10_000.0      // Scoring reference; admission uses the fluid lane floor.
+    // Discovery starts at $1,500. Global learning progress is not evidence that small caps became unprofitable.
     const val MIN_MARKET_CAP_BOOTSTRAP_USD_7719 = 1_500.0
 
-    /** The lane's minimum market cap right now: $1,500 at cold start, $10k when mature. */
+    /** Discovery remains open to early caps; only this lane's cap-bucket outcomes can widen its band. */
     fun minMarketCapUsdFluid7719(): Double {
-        val progress = try { FluidLearningAI.getLearningProgress().coerceIn(0.0, 1.0) } catch (_: Throwable) { 1.0 }
-        return MIN_MARKET_CAP_BOOTSTRAP_USD_7719 + (MIN_MARKET_CAP_USD - MIN_MARKET_CAP_BOOTSTRAP_USD_7719) * progress
+        return com.lifecyclebot.engine.market.LaneHunter7297.floorFor("MOONSHOT", MIN_MARKET_CAP_BOOTSTRAP_USD_7719)
     }
     // V5.9.1307 — was $100M ("allow Jupiter plays"). But a $50M token cannot 10x-1000x;
     // letting MOONSHOT bid mature caps diluted its edge into a generalist and contributed
@@ -423,21 +417,12 @@ object MoonshotTraderAI {
     // SPACE MODE DETECTION
     // ═══════════════════════════════════════════════════════════════════════════
 
-    /**
-     * Pure (V5.0.8418 §RUGCHECK_DANGER_BAND_IS_A_DOOR): the MOONSHOT RugCheck refusal, or null. 0 = confirmed rug; 2..14 =
-     * provider risk 86..98 under the 8399 reading (RugcheckScore8399: safety = 100 - risk), RugCheck's danger band one step
-     * from confirmed — also where a raw-only sum or a score-only answer at the ceiling lands (8418 intake: never 0 without a
-     * complete report, so it reads 2). Pending (1) and unfetched (< 0) are not answers and never refuse here. Hard safety:
-     * superseded V5.0.8400's rugcheckSoftPenalty8400 (a 13..1 point score penalty) — never loosen rug.
-     */
-    fun rugcheckRefusal8418(rugcheckScore: Int): String? = when {
-        rugcheckScore == 0 -> "rugcheck_0_confirmed_rug"
-        rugcheckScore in 2 until RUGCHECK_DANGER_FLOOR_8418 -> "rugcheck_${rugcheckScore}_below_min_$RUGCHECK_DANGER_FLOOR_8418"
-        else -> null
-    }
-    private const val RUGCHECK_DANGER_FLOOR_8418 = 15
+    /** Zero retains explicit danger authority. Numeric nonzero risk is scored, then learned per lane by TradeShapeLearner. */
+    fun rugcheckRefusal8418(rugcheckScore: Int): String? =
+        if (rugcheckScore == 0) "rugcheck_0_confirmed_rug" else null
 
-    
+    internal fun rugcheckPenalty8528(score: Int): Int = if (score in 2..14) 15 - score else 0
+
     private fun detectSpaceMode(marketCapUsd: Double, isCollectiveWinner: Boolean = false): SpaceMode {
         // Collective winners get JUPITER mode regardless of mcap
         if (isCollectiveWinner && marketCapUsd >= 5_000_000.0) {
@@ -576,7 +561,7 @@ object MoonshotTraderAI {
         } else 0
         
         // ─── SCORING ───
-        var score = 0
+        var score = -rugcheckPenalty8528(rugcheckScore)
         
         // Market cap bonus - sweet spots by mode
         val mode = detectSpaceMode(marketCapUsd, isCollective)
@@ -726,38 +711,7 @@ object MoonshotTraderAI {
         // "marginally selective" instead of "anything that looks alive".
         // V5.0.7550 — score-floor learning must rehearse the same bar that
         // LIVE will execute. Mode changes settlement mechanics, not strategy quality.
-        val minScoreRaw = when {
-            learningProgress < 0.1 -> if (isPaper) 20 else 30
-            learningProgress < 0.3 -> if (isPaper) 28 else 38
-            learningProgress < 0.5 -> if (isPaper) 38 else 48
-            else                   -> if (isPaper) 52 else 60
-        }
-        // V5.9.1328 — ROOT FIX D: apply GATE_RELAXER multiplier in PAPER too.
-        // Operator snapshot showed MOONSHOT rejecting score=44 base=45 — a
-        // single-point miss. The GATE_RELAXER advertises MOONSHOT ×0.85 in
-        // the dashboard header but `LiveLayerGateRelaxer.relaxFloor` skipped
-        // paper mode (early-out when !isLiveMode). Under Train-First doctrine
-        // paper must learn as fast as possible, so apply the same advertised
-        // multiplier in paper. 45 × 0.85 = 38 → score=44 now passes.
-        // V5.0.7267 — the table above is the default; once this lane has a
-        // 10-point score bucket with >= 15 profitable closes, the lowest such
-        // bucket IS the minimum, whether that is below the table (a proven
-        // low band) or above it (only high bands pay). Same evidence source
-        // and bar as CanonicalEntryFloor7266, so the lane's own gate and the
-        // canonical gate move together instead of one hand-set number
-        // overruling a learned one.
-        // V5.0.7389 — learnedLaneFloor is learned on the canonical V3 score scale
-        // (MOONSHOT ~L20) while this scorer's own output never falls below ~26, so
-        // taking it as the minimum replaced the lane's table with a floor that
-        // filtered nothing. The learned band may only RAISE the lane-native table
-        // floor (the "only high bands pay" case), never lower it.
-        val learnedFloor7267 = if (isPaper) null else try {
-            com.lifecyclebot.engine.truth.CanonicalEntryFloor7266.learnedLaneFloor("MOONSHOT")
-        } catch (_: Throwable) { null }?.takeIf { it >= minScoreRaw.toDouble() }
-        val minScoreFluid7267 = learnedFloor7267?.toInt() ?: minScoreRaw
-        if (learnedFloor7267 != null && minScoreFluid7267 != minScoreRaw) {
-            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MOONSHOT_MIN_SCORE_LEARNED_7267") } catch (_: Throwable) {}
-        }
+        val minScoreFluid7267 = com.lifecyclebot.engine.truth.NativeScoreFloor8528.resolve("MOONSHOT", 30)
         val minScore = (minScoreFluid7267 * com.lifecyclebot.engine.LiveLayerGateRelaxer.floorMultiplier("MOONSHOT")).toInt()
         
         // V5.9.801 — operator audit Fix A+B: hoist WR Recovery Quality Floor
@@ -1051,7 +1005,7 @@ object MoonshotTraderAI {
         }
         
         // Check if within moonshot mcap range
-        if (marketCapUsd < MIN_MARKET_CAP_USD || marketCapUsd > MAX_MARKET_CAP_USD) {
+        if (marketCapUsd < minMarketCapUsdFluid7719() || marketCapUsd > MAX_MARKET_CAP_USD) {
             return false
         }
         

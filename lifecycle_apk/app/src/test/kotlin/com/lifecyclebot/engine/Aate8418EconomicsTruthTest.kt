@@ -87,29 +87,17 @@ class Aate8418EconomicsTruthTest {
         assertEquals(StrategyMove8153.DEFER_REASON_8153, NetEdge8030.laneFitRefusal8054(ts, "CASHGEN"))
     }
 
-    // ── the wrong clock may raise the move, never lower it ──
-
-    @Test fun aFiveMinuteBookCannotLowerAnHourGradedLanesMove() {
-        val strat = move(6.0, "STRATEGY")      // +1.5% net on the 5-minute read + 4.5% cost
-        val fallback = move(50.0, "MANDATE")   // the lane mandate / the coin's own hour
-        var asked = 0
-        val spared = StrategyMove8153.wrongClockMove8418(strat, fallback) { asked++; true }
-        assertEquals(50.0, spared.expectedGrossPct, 1e-9)
-        assertEquals("MANDATE" + StrategyMove8153.WRONG_CLOCK_SUFFIX_8418, spared.basis)
-        assertEquals(1, asked)
-        assertTrue(NetEdge8030.entryClears8030(spared.expectedGrossPct, 4.5))
-        // The right clock (hour book full, or a 5-minute lane): the record decides.
-        assertEquals(6.0, StrategyMove8153.wrongClockMove8418(strat, fallback) { false }.expectedGrossPct, 1e-9)
-        // A record that already says more is kept without asking; a deferring fallback never replaces it.
-        var asked2 = 0
-        assertEquals(60.0, StrategyMove8153.wrongClockMove8418(move(60.0, "STRATEGY"), fallback) { asked2++; true }.expectedGrossPct, 1e-9)
-        assertEquals(6.0, StrategyMove8153.wrongClockMove8418(strat, move(50.0, "RANGE_SPARSE", true)) { asked2++; true }.expectedGrossPct, 1e-9)
-        assertEquals(0, asked2)
-        // A non-strategy estimate is never touched.
-        assertEquals(3.0, StrategyMove8153.wrongClockMove8418(move(3.0, "RANGE"), fallback) { true }.expectedGrossPct, 1e-9)
-        // The 8408 rule this consults: an hour-graded lane short of its hour book may not refuse on 5-minute evidence.
-        assertFalse(com.lifecyclebot.engine.cortex.LaneGradeHorizon8406.fiveMinuteMayRefuse8408(true, 3L))
-        assertTrue(com.lifecyclebot.engine.cortex.LaneGradeHorizon8406.fiveMinuteMayRefuse8408(false, 0L))
+    @Test fun supportedTargetRecordIsNotRaisedByAnAlreadyCompletedPriceMove() {
+        // Same setup edge, but token history ranges from quiet to already vertical.
+        for (pastMove in listOf(2.0, 50.0, 300.0)) {
+            val estimate = StrategyMove8153.expected8153(
+                mandatePct = 50.0, rangePct = pastMove, rangeDense = true,
+                h1Pct = pastMove, strategyN = 40, strategyMeanPct = 1.5,
+                strategySePct = 0.5, costPct = 4.5, freshLaunch = false)
+            assertEquals("STRATEGY", estimate.basis)
+            assertEquals(6.0, estimate.expectedGrossPct, 1e-9)
+            assertFalse(NetEdge8030.entryClears8030(estimate.expectedGrossPct, 4.5))
+        }
     }
 
     // ── the admission names why the move is unknown ──

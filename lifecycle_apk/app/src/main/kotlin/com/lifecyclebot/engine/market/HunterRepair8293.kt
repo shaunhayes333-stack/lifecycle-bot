@@ -35,7 +35,7 @@ object HunterMandates8293 {
         else -> 0.0
     }
 
-    /** MOONSHOT's native market-cap floor right now (MoonshotTraderAI: $1,500 cold start walking to $10k mature). */
+    /** MOONSHOT's native market-cap floor, using the same outcome-based lane band as discovery. */
     fun moonshotMinCap8293(): Double = try {
         com.lifecyclebot.v3.scoring.MoonshotTraderAI.minMarketCapUsdFluid7719()
     } catch (_: Throwable) { com.lifecyclebot.v3.scoring.MoonshotTraderAI.MIN_MARKET_CAP_BOOTSTRAP_USD_7719 }
@@ -89,9 +89,9 @@ object HunterMandates8293 {
     fun manipulatedFits8293(ageHours: Double, tx1h: Int, h1: Double, liqUsd: Double, maxAgeHours: Double, minLiq: Double): Boolean =
         ageHours.isFinite() && ageHours > 0.0 && ageHours <= maxAgeHours && tx1h >= 6 && h1.isFinite() && h1 >= 5.0 && liqUsd >= minLiq
 
-    /** The lane's band floor the hunter uses: MOONSHOT reads its native fluid floor, every other lane its constant. */
-    fun baseMin8293(lane: String, baseMin: Double): Double =
-        if (lane == "MOONSHOT") maxOf(baseMin, moonshotMinCap8293()) else baseMin
+    /** Keep the discovery baseline independent of native scoring to avoid a circular floor lookup. */
+    fun baseMin8293(@Suppress("UNUSED_PARAMETER") lane: String, baseMin: Double): Double =
+        baseMin
 }
 
 /**

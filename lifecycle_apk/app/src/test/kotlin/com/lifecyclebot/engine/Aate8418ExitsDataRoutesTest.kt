@@ -32,12 +32,15 @@ class Aate8418ExitsDataRoutesTest {
         assertEquals(42_000.0, ts.lastMcap, 0.0)
     }
 
-    // ── 2. MOONSHOT RugCheck: confirmed rug and the danger band refuse ──
+    // ── 2. MOONSHOT RugCheck: confirmed rug refuses; numeric risk is a graded score penalty ──
 
-    @Test fun moonshotRefusesConfirmedRugAndTheDangerBand() {
+    @Test fun moonshotRefusesConfirmedRugAndPenalisesNumericRisk() {
         assertEquals("rugcheck_0_confirmed_rug", MoonshotTraderAI.rugcheckRefusal8418(0))
-        for (s in 2..14) assertNotNull("safety $s (risk ${100 - s})", MoonshotTraderAI.rugcheckRefusal8418(s))
-        assertEquals("rugcheck_2_below_min_15", MoonshotTraderAI.rugcheckRefusal8418(2))
+        for (s in 2..14) {
+            assertNull(MoonshotTraderAI.rugcheckRefusal8418(s))
+            assertTrue(MoonshotTraderAI.rugcheckPenalty8528(s) > 0)
+        }
+        assertEquals(13, MoonshotTraderAI.rugcheckPenalty8528(2))
         assertNull("pending", MoonshotTraderAI.rugcheckRefusal8418(1))
         assertNull("unfetched", MoonshotTraderAI.rugcheckRefusal8418(-1))
         for (s in 15..100) assertNull("safety $s", MoonshotTraderAI.rugcheckRefusal8418(s))
@@ -52,7 +55,7 @@ class Aate8418ExitsDataRoutesTest {
         assertEquals(95, RugcheckScore8399.safety8399(j("""{"score":500}""")))       // good
         val r5000 = RugcheckScore8399.safety8399(j("""{"score":5000}"""))
         assertTrue("raw 5000 (danger) was a neutral 50; now $r5000", r5000 in 2..14)
-        assertNotNull(MoonshotTraderAI.rugcheckRefusal8418(r5000))
+        assertTrue(MoonshotTraderAI.rugcheckPenalty8528(r5000) > 0)
         assertEquals(2, RugcheckScore8399.safety8399(j("""{"score":20000}""")))
         val r3000 = RugcheckScore8399.safety8399(j("""{"score":3000}"""))
         assertTrue("raw 3000 elevated: $r3000", r3000 in 40..70)

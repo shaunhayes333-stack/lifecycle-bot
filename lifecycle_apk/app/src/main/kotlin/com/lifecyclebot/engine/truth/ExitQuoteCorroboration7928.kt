@@ -24,10 +24,16 @@ object ExitQuoteCorroboration7928 {
     private val recent = ConcurrentHashMap<String, Verdict>()
 
     /** Pure: is this exit one the quote check applies to? */
-    fun applies(reason: String, triggerPnlPct: Double, live: Boolean): Boolean {
-        if (!live || !triggerPnlPct.isFinite() || triggerPnlPct > CHECK_BELOW_PCT) return false
+    fun applies(reason: String, triggerPnlPct: Double, live: Boolean, stopThresholdPct: Double? = null): Boolean {
+        if (!live) return false
         val r = reason.uppercase()
         if (r.contains("MANUAL") || r.contains("OPERATOR") || r.contains("USER") || r.contains("SHUTDOWN") || r.contains("RUG")) return false
+        // A queued price stop can outlive its trigger. Re-reading a recovered mark above -8% must not
+        // bypass the very check which cancels that obsolete stop. The bound threshold, not the new
+        // display PnL, decides whether a known price stop needs revalidation.
+        if (stopThresholdPct != null && stopThresholdPct.isFinite() && stopThresholdPct < 0.0 &&
+            com.lifecyclebot.engine.StopMarkConfirm8418.priceLossStop8489(reason)) return true
+        if (!triggerPnlPct.isFinite() || triggerPnlPct > CHECK_BELOW_PCT) return false
         return ExitRegret7752.isStopFamily7925(r)
     }
 

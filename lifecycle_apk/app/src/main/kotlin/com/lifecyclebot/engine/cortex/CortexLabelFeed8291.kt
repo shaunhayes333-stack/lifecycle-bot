@@ -68,8 +68,7 @@ object CortexLabelFeed8291 {
      */
     fun windowEnd8418(atMs: Long, ageMs: Long, firstMarkDue: Boolean, rebaseMaxMs: Long, horizonsMs: LongArray,
                       gracesMs: LongArray, leadMs: Long): Long {
-        if (firstMarkDue && ageMs <= rebaseMaxMs) return atMs + rebaseMaxMs
-        var best = 0L
+        var best = if (firstMarkDue && ageMs <= rebaseMaxMs) atMs + rebaseMaxMs else 0L
         for (i in horizonsMs.indices) {
             val h = horizonsMs[i]
             if (h < 0L || i >= gracesMs.size) continue

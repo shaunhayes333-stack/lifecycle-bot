@@ -49,7 +49,7 @@ object ProjectSniperAI {
     internal const val MIN_TOKEN_AGE_SECONDS = 15       // V5.9.442: 30→15s — fresher launches OK with tighter TP
     internal const val MIN_LIQUIDITY_USD = 2_000.0      // V5.9.442: 3k→2k
     internal const val MAX_LIQUIDITY_USD = 250_000.0    // V5.9.442: 100k→250k — most sniper targets pass this now
-    internal const val MIN_MCAP_USD = 3_000.0           // V5.9.442: 5k→3k
+    internal const val MIN_MCAP_USD = 2_000.0           // Early launch discovery; execution still prices depth and costs
     internal const val MAX_MCAP_USD = 500_000.0         // V5.9.442: 200k→500k — catch later-stage snipes too
     private const val MIN_BUY_PRESSURE_PCT = 48.0      // V5.9.442: 52→48 — allow balanced books
     private const val MIN_PRICE_CHANGE_PCT = -5.0      // Can't be dumping hard
@@ -363,7 +363,7 @@ object ProjectSniperAI {
         }
         
         // Market cap check
-        if (ts.lastMcap < MIN_MCAP_USD) {
+        if (ts.lastMcap < com.lifecyclebot.engine.market.LaneHunter7297.floorFor("PROJECT_SNIPER", MIN_MCAP_USD)) {
             return noEngage("LOW_MCAP: \$${ts.lastMcap.toInt()}", tokenAgeSecs)
         }
         if (ts.lastMcap > MAX_MCAP_USD) {

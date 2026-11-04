@@ -193,6 +193,8 @@ object CandidateAdmission8136 {
          * the falling hour: proven losing refuses, anything less defers until the hour turns. Null = nothing graded.
          */
         val fallingHourProof8418: Evidence8136? = null,
+        /** Current predicate matches, independent of whether a historical performance book exists yet. */
+        val firedSetups8528: Set<String> = emptySet(),
     ) {
         /** V5.0.8316 — every fired setup's record past the realised shortfall (support tests only). */
         val setupsProof8290: List<Evidence8136> get() = setups.map { LiveAdmissionProof8290.shift8290(it, liveShortfall8290) ?: it }
@@ -225,6 +227,7 @@ object CandidateAdmission8136 {
         /** Lifecycle prior already weighed against this decision's selected strategy. */
         val evaluatedStage: String = "",
         val evaluatedEntryWait: String? = null,
+        val nativePhaseWitness8528: Boolean = false,
     ) {
         val admitted: Boolean get() = terminal == Terminal8136.ADMIT
         val compact: String get() = "${terminal.name}:$reason${chosenSetup?.let { " setup=$it" } ?: ""} [${trace.joinToString("; ")}]"
@@ -457,6 +460,15 @@ object CandidateAdmission8136 {
             optionalNativeContextClears8213(c, c.expectedGrossPct) &&
             com.lifecyclebot.engine.RunTape8293.conservativeNetFastTrack8520(c.tapeLowerGross8520, c.costPct)
 
+    /** A generic chart classifier's no-match cannot erase a named strategy that actually fired.
+     * This settles only NO_PHASE_TRIGGER; it grants no statistical edge and skips no later check.
+     */
+    internal fun nativePhaseWitness8528(c: Candidate8136): Boolean =
+        c.live && c.stage == "NO_SETUP" && c.entryWait8506 == "NO_PHASE_TRIGGER" &&
+            !c.selectedSetup.isNullOrBlank() && c.selectedSetup in c.firedSetups8528 &&
+            c.sheet8323[c.selectedSetup] != SHEET_AVOID_8323 &&
+            optionalNativeContextClears8213(c, c.expectedGrossPct)
+
     // ── the decision ──
 
     /** Pure: the one terminal admission for [c]. Order: safety, structure, loss patterns, timing, economics, data, edge, prior. */
@@ -471,7 +483,8 @@ object CandidateAdmission8136 {
         fun done(t: Terminal8136, reason: String, specific: Boolean, setup: String?, basis: String = ""): Decision8136 =
             Decision8136(t, reason, specific, setup, net, trace.toList(), basis.ifBlank { reason },
                 costPct = c.costPct, costSizeSol = c.costSizeSol, costBreakdown = c.costBreakdown, costMargin8391 = c.costMargin8391,
-                evaluatedStage = c.stage, evaluatedEntryWait = c.entryWait8506)
+                evaluatedStage = c.stage, evaluatedEntryWait = c.entryWait8506,
+                nativePhaseWitness8528 = t == Terminal8136.ADMIT && setup == c.selectedSetup && nativePhaseWitness8528(c))
 
         // 1. hard safety and structural selling risk: nothing overrides them.
         c.safetyRefusal?.let { trace += "safety=$it"; return done(Terminal8136.REFUSE, "SAFETY_REFUSED_8136", true, c.selectedSetup) }
@@ -506,6 +519,7 @@ object CandidateAdmission8136 {
         // Compare them before a generic stage/flow-data wait: that optional context
         // is not an extra mandatory input of an independently observed setup.
         val bestSetup = bestSetup8153(c)
+        val nativePhase8528 = nativePhaseWitness8528(c)
         if (c.live && c.entryWait8506 != null) {
             val wait = c.entryWait8506
             val missing = when (wait) {
@@ -529,11 +543,12 @@ object CandidateAdmission8136 {
             val supported8511 = bestSetup
             if (!fastTrack8520) {
                 // The original 8511 binding door remains unchanged for ordinary candidates.
-                if (supported8511 == null && doorBinds8393("ENTRY_${wait}_8506"))
+                if (supported8511 == null && !nativePhase8528 && doorBinds8393("ENTRY_${wait}_8506"))
                     return done(Terminal8136.REFUSE, "ENTRY_${wait}_8506", true, c.selectedSetup)
             }
             trace += if (fastTrack8520) "entryWait8506=$wait overriddenBy=FRESH_EXECUTED_TAPE_8520"
                 else if (supported8511 != null) "entryWait8506=$wait overriddenBy=${supported8511.id}"
+                else if (nativePhase8528) "entryWait8506=$wait observedSetup8528=${c.selectedSetup} nativeOpinionNotProvenEdge"
                 else "entryWait8506=$wait doorAdvisory"
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
                 (if (supported8511 != null) "ENTRY_WAIT_SUPPORTED_SETUP_FALLTHROUGH_8511_" else "ENTRY_WAIT_DOOR_ADVISORY_8511_") + c.lane.uppercase()) } catch (_: Throwable) {}
@@ -1472,6 +1487,7 @@ object CandidateAdmission8136 {
             mint = ts.mint,
             lane = lane,
             selectedSetup = selected,
+            firedSetups8528 = try { pb.matchedSetups8083(ts, lane, nowMs).toSet() } catch (_: Throwable) { emptySet() },
             regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "" },
             stage = fit?.stage?.name.orEmpty(),
             entryWait8506 = entry?.second,

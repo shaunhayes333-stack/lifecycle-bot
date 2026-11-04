@@ -298,17 +298,6 @@ object NetEdge8030 {
     const val MOVE_WAIT_HISTORY_8418 = "HISTORY_SPARSE"
     const val MOVE_WAIT_FALLING_8418 = "FALLING_HOUR_UNPROVEN"
 
-    /** V5.0.8418 — the move [executableMove8153] judges with [setup]'s own book left out (the wrong-clock fallback). */
-    private fun moveWithoutBook8418(mandatePct: Double, range: Double?, dense: Boolean, h1: Double?, costPct: Double,
-                                    age: Double?, hour: Double, lane: String): StrategyMove8153.Move8153 =
-        StrategyMove8153.expected8153(
-            mandatePct = mandatePct, rangePct = range, rangeDense = dense, h1Pct = h1,
-            strategyN = 0, strategyMeanPct = Double.NaN, strategySePct = Double.NaN,
-            costPct = costPct, freshLaunch = StrategyMove8153.fresh8153(age),
-            signedHourPct = hour, momentumEntry = StrategyMove8153.momentumLane8153(lane),
-            inLaunchWindow8418 = FallingHourCohort8418.inLaunchWindow8418(age),
-        )
-
     /** V5.0.8153 — the expected executable move of [setup] (default: the strategy the coin trades as) for this entry. */
     fun executableMove8153(ts: TokenState, lane: String, mandatePct: Double, costPct: Double, setup: String? = null): StrategyMove8153.Move8153 {
         val nowMs = System.currentTimeMillis()
@@ -328,13 +317,9 @@ object NetEdge8030 {
             costPct = costPct, freshLaunch = StrategyMove8153.fresh8153(age),
             signedHourPct = hour8399, momentumEntry = StrategyMove8153.momentumLane8153(lane),
             inLaunchWindow8418 = FallingHourCohort8418.inLaunchWindow8418(age),
-        ).let { strat ->
-            // V5.0.8418 — a book on the wrong clock (hour-graded lane, hour book short) may raise the move, never lower it.
-            if (strat.basis != "STRATEGY") strat else StrategyMove8153.wrongClockMove8418(strat,
-                moveWithoutBook8418(mandatePct, range, StrategyMove8153.dense8153(bars.size, spanMs), h1, costPct, age, hour8399, lane)) {
-                com.lifecyclebot.engine.cortex.LaneGradeHorizon8406.wrongClockSpares8408(lane, "NET_EDGE_MOVE_8418")
-            }
-        }
+        )
+        // The isolated 8521 setup book already uses the decision's frozen target horizon.
+        // Its measured estimate must not be raised by a historical range or lane mandate.
         if (ts.mint.isNotBlank()) {
             if (moves8153.size > 4_000) moves8153.clear()
             moves8153[ts.mint] = "${m.basis}:${"%.1f".format(m.expectedGrossPct)}/bars${bars.size}"

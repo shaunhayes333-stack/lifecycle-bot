@@ -1474,16 +1474,8 @@ class LifecycleStrategy(
         //  (c) Drop the floor to 1 — operator: "live rugcheck min can be 5,
         //      realistically even lower, rugcheck is brutal". Only score=0
         //      (confirmed-dangerous) is unconditionally hard-blocked now.
-        val rugcheckThreshold = if (isLenient) 3 else (learned?.rugcheckMin ?: 8).coerceIn(1, 10)
-        val rugIsPending = (safety.rugcheckScore == 1)
-        if (!rugIsPending && safety.rugcheckScore in 0..rugcheckThreshold) {
-            val mode = when {
-                isBootstrap -> "paper_bootstrap"
-                hasProvenEdge -> "paper-proven-edge"
-                else -> "live"
-            }
-            return "Rugcheck score ${safety.rugcheckScore}/100 (threshold=$rugcheckThreshold [$mode])"
-        }
+        if (safety.rugcheckScore == 0) return "Rugcheck score 0/100 (confirmed dangerous)"
+        // Nonzero provider scores are soft evidence. The lane-specific shape learner owns their learned refusal.
         
         // 2. LIQUIDITY - Must have minimum pool
         // V5.0.8418 — on the hydrated pool: a measured pool below the floor or a proven zero blocks; an unread pool

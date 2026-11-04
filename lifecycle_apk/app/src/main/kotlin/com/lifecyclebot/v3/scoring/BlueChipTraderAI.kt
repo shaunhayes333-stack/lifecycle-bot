@@ -1117,7 +1117,7 @@ object BlueChipTraderAI {
         return BC_CONF_BOOST_MAX * (1.0 - progress).coerceIn(0.0, 1.0)
     }
     
-    fun getFluidScoreThreshold(): Int = lerp(BC_SCORE_BOOTSTRAP.toDouble(), BC_SCORE_MATURE.toDouble()).toInt()
+    fun getFluidScoreThreshold(): Int = com.lifecyclebot.engine.truth.NativeScoreFloor8528.resolve("BLUECHIP", BC_SCORE_BOOTSTRAP)
     
     fun getFluidConfidenceThreshold(): Int {
         val baseConf = lerp(BC_CONF_BOOTSTRAP.toDouble(), BC_CONF_MATURE.toDouble())

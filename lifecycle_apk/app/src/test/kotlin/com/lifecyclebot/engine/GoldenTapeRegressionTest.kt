@@ -12451,7 +12451,7 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("if (pnlPct <= catastropheThreshold && stopConfirmed7385) {"))
         assertTrue(bot.contains("PoolCreationTime7385.record(mint, System.currentTimeMillis(), \"PUMPPORTAL_CREATE\")"))
         val floor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalEntryFloor7266.kt").readText()
-        assertTrue(floor.contains("const val LIVE_BAND_COST_MARGIN_PCT_7385 = 10.0"))
+        assertTrue(floor.contains("EntryFloorEvidence8528.profitableNetBand"))
         assertTrue(MoonbagRunner7322.decide("MOONSHOT", "RAPID_TRAILING_STOP", 40.0, 60.0, null) == MoonbagRunner7322.Action.BANK_PARTIAL)
         // superseded by V5.0.8337 — the bank bar follows MIN_PEAK_FOR_GIVEBACK_LOCK_PCT, now +25 (owner's fix block 3b):
         // a +45% peak banks; the bar still holds under it.

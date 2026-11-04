@@ -1503,16 +1503,17 @@ object LanePlaybook7907 {
         val hit = options8153[ck]?.takeIf { it.key == key && it.rev == rev && it.fired == fired && nowMs - it.atMs in 0L..OPTIONS_TTL_MS_8153 }
         if (hit != null) hit.opts else if (fired.isEmpty()) emptyList() else {
             // The band is read only when a fired setup has a timing record to look it up in.
-            val banded = synchronized(this) { timingBooks8094[lane]?.keys?.any { k -> fired.any { k.startsWith("$it|") } } == true }
-            val band = if (banded) timingBandOf8094(ts) else TIMING_UNKNOWN_8094
+            val band = timingBandOf8094(ts)
             val opts = synchronized(this) {
                 fired.mapNotNull { id ->
                     val st = stat(lane, id)?.takeIf { it.n >= 1.0 }
                     val tm = if (st == null || band == TIMING_UNKNOWN_8094) null else timingBooks8094[lane]?.get("$id|$band")?.takeIf { it.n >= 1.0 }
-                    if (st == null) null else com.lifecyclebot.engine.truth.StrategyRank8153.Option8153(
-                        id = id, n = st.n.toInt(), meanPct = st.mean(),
-                        sePct = if (st.n > 1.0) kotlin.math.sqrt(st.variance() / st.n) else Double.POSITIVE_INFINITY,
-                        runnerRate = st.runnerRate(), netOfCost = true,
+                    val early = com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.timingAdjustment8528(lane, id, band)
+                    if (st == null && early == 0.0) null else com.lifecyclebot.engine.truth.StrategyRank8153.Option8153(
+                        id = id, n = st?.n?.toInt() ?: 0, meanPct = st?.mean() ?: Double.NaN,
+                        sePct = if (st != null && st.n > 1.0) kotlin.math.sqrt(st.variance() / st.n) else Double.POSITIVE_INFINITY,
+                        runnerRate = st?.runnerRate() ?: Double.NaN, netOfCost = true,
+                        entryTimingAdjustment8528 = early,
                         timingN = tm?.n?.toInt() ?: 0, timingMeanPct = tm?.mean() ?: Double.NaN,
                         timingSePct = if (tm != null && tm.n > 1.0) kotlin.math.sqrt(tm.variance() / tm.n) else Double.NaN,
                     )
@@ -1543,7 +1544,7 @@ object LanePlaybook7907 {
     /** V5.0.8153 — the best SUPPORTED / VALID fired setup on its own record and timing band, else null (the default decides). */
     fun rankedSetup8153(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): String? {
         val p = strategyPick8153(ts, laneRaw, nowMs) ?: return null
-        if (!com.lifecyclebot.engine.truth.StrategyRank8153.evidenced8153(p.tier) && !LaneCheatSheet8323.favourBasis8323(p.basis)) return null  // V5.0.8323
+        if (!com.lifecyclebot.engine.truth.StrategyRank8153.evidenced8153(p.tier) && !LaneCheatSheet8323.favourBasis8323(p.basis) && !p.basis.startsWith("EARLY_TIMING_8528:")) return null  // V5.0.8323
         if (p.overDefault) try { PipelineHealthCollector.labelInc("SETUP_RANKED_OVER_DEFAULT_8153_${canon(laneRaw)}") } catch (_: Throwable) {}
         return p.id
     }

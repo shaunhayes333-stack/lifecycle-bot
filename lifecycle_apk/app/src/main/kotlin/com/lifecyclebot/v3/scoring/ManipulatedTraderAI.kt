@@ -57,7 +57,7 @@ object ManipulatedTraderAI {
     
     // Market cap range
     const val MCAP_UNHYDRATED_DEFER_8190 = "MCAP_UNHYDRATED_DEFER_8190"
-    internal const val MIN_MARKET_CAP_USD = 5_000.0          // $5K minimum
+    internal const val MIN_MARKET_CAP_USD = 2_000.0          // Early manipulation setups retain their own evidence requirements
     internal const val MAX_MARKET_CAP_USD = 300_000.0        // $300K maximum
     
     // Liquidity thresholds (fluid) - LOW for manipulation plays
@@ -287,7 +287,7 @@ object ManipulatedTraderAI {
         // V5.0.8190 — $0 / unread is an unhydrated cap, not a tiny one (EXPRESS 7971, SHITCOIN V5.9.160): it defers by name
         // (a data gap the hand-off waits on and re-fetches), it never reads as the MCAP_TOO_LOW judgement. Still no entry.
         if (!(marketCapUsd.isFinite() && marketCapUsd > 0.0)) return noEnter(MCAP_UNHYDRATED_DEFER_8190)
-        if (marketCapUsd < MIN_MARKET_CAP_USD) return noEnter("MCAP_TOO_LOW")
+        if (marketCapUsd < com.lifecyclebot.engine.market.LaneHunter7297.floorFor("MANIPULATED", MIN_MARKET_CAP_USD)) return noEnter("MCAP_TOO_LOW")
         if (marketCapUsd > MAX_MARKET_CAP_USD) return noEnter("MCAP_TOO_HIGH")
 
         // V5.6.8: Fluid liquidity filter
@@ -669,10 +669,8 @@ object ManipulatedTraderAI {
     // Thresholds relax during bootstrap (learning), tighten when mature (experienced)
     // ═══════════════════════════════════════════════════════════════════════════
     
-    fun getFluidScoreThreshold(): Int {
-        val progress = FluidLearningAI.getLearningProgress().coerceIn(0.0, 1.0)
-        return (MIN_MANIP_SCORE_BOOTSTRAP + (MIN_MANIP_SCORE_MATURE - MIN_MANIP_SCORE_BOOTSTRAP) * progress).toInt()
-    }
+    fun getFluidScoreThreshold(): Int =
+        com.lifecyclebot.engine.truth.NativeScoreFloor8528.resolve("MANIPULATED", MIN_MANIP_SCORE_BOOTSTRAP)
     
     fun getFluidMinLiquidity(): Double {
         val progress = FluidLearningAI.getLearningProgress().coerceIn(0.0, 1.0)

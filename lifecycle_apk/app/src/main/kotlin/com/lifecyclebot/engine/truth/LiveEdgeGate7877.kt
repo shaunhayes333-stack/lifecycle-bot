@@ -42,10 +42,15 @@ object LiveEdgeGate7877 {
 
     /** Only the exact lifecycle prior evaluated by admission is already resolved.
      * Setup loss, execution costs and a changed lifecycle remain independent checks. */
-    internal fun stagePriorAlreadyResolved(admission: CandidateAdmission8136.Decision8136?, lane: String, prior: String): Boolean =
-        admission?.admitted == true && admission.specific && admission.evaluatedStage.isNotBlank() &&
+    internal fun stagePriorAlreadyResolved(admission: CandidateAdmission8136.Decision8136?, lane: String, prior: String): Boolean {
+        if (admission?.admitted != true) return false
+        if (admission.nativePhaseWitness8528 && admission.evaluatedStage == "NO_SETUP" &&
+            admission.evaluatedEntryWait == "NO_PHASE_TRIGGER" &&
+            prior == "STAGE_LANE_MISFIT_7928_${lane}_NO_SETUP") return true
+        return admission.specific && admission.evaluatedStage.isNotBlank() &&
             !admission.evaluatedStage.equals("UNKNOWN", true) &&
             prior == "STAGE_PROVEN_LOSING_7928_${lane}_${admission.evaluatedStage}"
+    }
 
     private const val CELL_MIN_N = 30
     private const val LIVE_MARGIN_PCT = 2.0

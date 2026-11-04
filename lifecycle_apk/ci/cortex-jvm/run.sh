@@ -52,7 +52,12 @@ sources="$apk_dir/app/src/main/kotlin/com/lifecyclebot/engine"
 tests="$apk_dir/app/src/test/kotlin/com/lifecyclebot/engine"
 classpath="$deps_dir/kotlin-stdlib-1.9.24.jar:$deps_dir/annotations-13.0.jar:$deps_dir/json-20250517.jar:$deps_dir/junit-4.13.2.jar:$deps_dir/hamcrest-core-1.3.jar"
 python3 "$script_dir/extract_field_manual.py" "$sources/truth/FieldManual7715.kt" "$output_dir/FieldManual7715.kt"
+python3 "$script_dir/extract_strategy_rank.py" "$sources/truth/StrategyRank8153.kt" "$output_dir/StrategyRank8153.kt"
 production=(
+  "$output_dir/StrategyRank8153.kt"
+  "$sources/truth/SetupTimingGrades8528.kt"
+  "$sources/truth/EntryFloorEvidence8528.kt"
+  "$sources/cortex/CortexLabelFeed8291.kt"
   "$sources/truth/LabelEvidence8386.kt"
   "$sources/truth/LearningEpoch8164.kt"
   "$sources/cortex/CortexForwardEpoch8521.kt"
@@ -99,6 +104,7 @@ printf 'Compiling tests against the separate production module (Gradle-style fri
 java -Xmx1536m -cp "$deps_dir/*" org.jetbrains.kotlin.cli.jvm.K2JVMCompiler \
   -jvm-target 17 -no-stdlib -no-reflect -classpath "$classpath:$output_dir/production.jar" \
   -Xfriend-paths="$output_dir/production.jar" -d "$output_dir/tests.jar" \
+  "$tests/Aate8528SetupTimingTest.kt" "$tests/Aate8528FluidFloorTest.kt" \
   "$script_dir/ScannerSourceBrainIntegrationTest.kt" \
   "$tests/Aate8076CortexRevisionTest.kt" "$tests/Aate8372CortexLearningTest.kt" \
   "$tests/Aate8372CortexCalibrationTest.kt" "$tests/Aate8372ShadowLearningTest.kt" \
@@ -111,6 +117,8 @@ java -Xmx1536m -cp "$deps_dir/*" org.jetbrains.kotlin.cli.jvm.K2JVMCompiler \
 printf 'Running pure-model behavior tests (not Android/service integration).\n'
 cd -- "$apk_dir/app"
 java -cp "$output_dir/tests.jar:$output_dir/production.jar:$classpath" org.junit.runner.JUnitCore \
+  com.lifecyclebot.engine.Aate8528SetupTimingTest \
+  com.lifecyclebot.engine.Aate8528FluidFloorTest \
   com.lifecyclebot.engine.Aate8076CortexRevisionTest \
   com.lifecyclebot.engine.Aate8372CortexLearningTest \
   com.lifecyclebot.engine.Aate8372CortexCalibrationTest \

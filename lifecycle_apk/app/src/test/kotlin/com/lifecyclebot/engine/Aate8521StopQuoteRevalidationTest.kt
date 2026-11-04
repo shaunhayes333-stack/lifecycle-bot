@@ -18,6 +18,28 @@ import org.junit.Test
 class Aate8521StopQuoteRevalidationTest {
     @Before fun reset() { QuoteGate.resetForTest8521(); HeldExitQuote8189.resetForTest8189() }
 
+    @Test fun queued_catastrophe_revalidates_after_the_display_mark_recovers() {
+        val reason = "RAPID_CATASTROPHE_STOP"
+        // The stop was queued at -30%; the current display has recovered to -3% before doSell runs.
+        // Previously applies() returned false here and bypassed the cancellation path entirely.
+        for (mark in listOf(-3.0, 2.0, Double.NaN)) {
+            assertTrue(QuoteGate.applies(reason, mark, live = true, stopThresholdPct = -20.0))
+            assertFalse(QuoteGate.allowSell("recovered-$mark", "X", reason, mark, 0.0335,
+                nowMs = 1_000L, positionIdentity8521 = "p1|100|1", stopThresholdPct8521 = -20.0) { 0.032 })
+        }
+        assertTrue("an executable dump still exits even if the display has recovered",
+            QuoteGate.allowSell("real-dump", "X", reason, -3.0, 0.0335,
+                nowMs = 1_000L, positionIdentity8521 = "p1|100|1", stopThresholdPct8521 = -20.0) { 0.023 })
+    }
+
+    @Test fun bound_shallow_stops_revalidate_without_gating_structural_or_operator_exits() {
+        assertTrue(QuoteGate.applies("STRICT_SL_-4", -2.0, true, -4.0))
+        assertTrue(QuoteGate.applies("PROTECTIVE_EXIT_STOP_LOSS_6450_RISKCLOCK", 1.0, true, -15.0))
+        for (reason in listOf("MANUAL_STOP", "RUG_STOP", "SHUTDOWN"))
+            assertFalse(QuoteGate.applies(reason, -30.0, true, -15.0))
+        assertFalse(QuoteGate.applies("RAPID_CATASTROPHE_STOP", -30.0, false, -20.0))
+    }
+
     @Test fun an_executable_stop_breach_is_not_vetoed_because_the_mark_overstates_the_loss() {
         assertFalse(QuoteGate.quoteRefutes8521(-82.0, -16.0, -15.0))
         assertTrue(QuoteGate.quoteRefutes8521(-82.0, -3.4, -15.0))
