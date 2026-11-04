@@ -1611,7 +1611,8 @@ class CryptoAltActivity : AppCompatActivity() {
         ) { showAiDialog("📐 Adaptive Learning",
             buildString {
                 append("Adaptive Learning Engine\n")
-                append("Total Trades: $alCount\n")
+                append("LIVE model terminals: $alCount\n")
+                append("Excludes legacy, PAPER/SHADOW and partial-leg history.\n")
                 append("Status: ${if (alCount > 100) "Mature" else if (alCount > 0) "Learning" else "New"}")
             }) })
 
@@ -1732,13 +1733,14 @@ class CryptoAltActivity : AppCompatActivity() {
         llContent.addView(ctTile)
 
         // ── Adaptive Learning Engine ───────────────────────────────────────────
-        val alTile  = buildTile(teal, "📐 Adaptive Learning", "Feature-Weight Optimizer", teal)
+        val alTile  = buildTile(teal, "📐 Adaptive Learning", "Observed LIVE terminal model", teal)
         val alRow   = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 6 } }
         val alCount = AdaptiveLearningEngine.getTradeCount()
         val alStatus = AdaptiveLearningEngine.getStatus()
-        addStatChip(alRow, "Trades",  "$alCount",   white, 1f)
+        addStatChip(alRow, "Model closes",  "$alCount",   white, 1f)
         addStatChip(alRow, "Status",  alStatus.take(8), teal, 2f)
         alTile.addView(alRow)
+        alTile.addView(tv("Excludes legacy, PAPER/SHADOW and partial-leg history.", 11f, muted))
 
         // Top feature weights
         val weights = try { AdaptiveLearningEngine.getDetailedWeights() } catch (_: Exception) { emptyMap<String, Double>() }
@@ -3863,7 +3865,8 @@ class CryptoAltActivity : AppCompatActivity() {
 
         // ── Adaptive Learning Engine ─────────────────────────────────────────
         addSectionHeader("📐 Adaptive Learning", teal)
-        addInfoRow("Trade Count",  "${AdaptiveLearningEngine.getTradeCount()}")
+        addInfoRow("LIVE model terminals",  "${AdaptiveLearningEngine.getTradeCount()}")
+        addInfoRow("Cohort", "Observed LIVE terminals; excludes legacy, PAPER/SHADOW and partial-leg history.")
         addInfoRow("Status",       AdaptiveLearningEngine.getStatus())
         val wts = try { AdaptiveLearningEngine.getDetailedWeights() } catch (_: Exception) { emptyMap<String, Double>() }
         wts.entries.sortedByDescending { it.value }.take(6).forEach { (k, v) ->

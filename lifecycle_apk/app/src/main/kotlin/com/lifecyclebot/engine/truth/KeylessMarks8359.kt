@@ -50,7 +50,7 @@ object KeylessMarks8359 {
     private const val MAX_LABEL_WANTED_8418 = 1_500
     private const val MAX_LABEL_LANE_PER_TICK_8418 = 300
     private val labelWanted8418 = ConcurrentHashMap<String, Long>()
-    private val labelLaneAskedAt8418 = ConcurrentHashMap<String, Long>()
+    private val labelLaneFailed8527 = ConcurrentHashMap.newKeySet<String>()
     private val labelCurveMarkMs8418 = ConcurrentHashMap<String, Long>()
     private val labelNoted8418 = AtomicLong(0L)
     private val labelLaneQueued8418 = AtomicLong(0L)
@@ -101,11 +101,15 @@ object KeylessMarks8359 {
         labelWanted8418.entries.filter { it.value > nowMs }.sortedBy { it.value }.map { it.key }
 
     /**
-     * V5.0.8418 — a label mint the pair lane was asked for within [STALE_MS_8359]: the off-watch batch leaves its DexScreener
-     * rung to the lane (one ask per mint, not two on the same host).
+     * Only an admitted queue/in-flight request owns the pair-lane lease, from
+     * its original admission time. Re-asking cannot renew a stuck request.
+     * A failed/empty answer releases fallback until real price evidence arrives.
      */
     fun laneCovered8418(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean =
-        isLabelWanted8418(mint, nowMs) && (labelLaneAskedAt8418[mint]?.let { nowMs - it in 0L..STALE_MS_8359 } ?: false)
+        isLabelWanted8418(mint, nowMs) && mint !in labelLaneFailed8527 &&
+            (com.lifecyclebot.engine.DexBatchLane8287.outstandingAt8527(mint)?.let {
+                nowMs - it in 0L..STALE_MS_8359
+            } ?: false)
 
     /** Pure (V5.0.8418): held first, then the shadow books' mints, then the labeler's, de-duplicated, at most [cap]. */
     fun priorityOrder8418(held: List<String>, shadow: List<String>, label: List<String>, cap: Int): List<String> =
@@ -142,8 +146,12 @@ object KeylessMarks8359 {
         var n = 0L
         for (m in batch) {
             if (!isLabelWanted8418(m, now)) continue
-            val px = prices[m] ?: continue
-            if (!px.isFinite() || px <= 0.0) continue
+            val px = prices[m]
+            if (px == null || !px.isFinite() || px <= 0.0) {
+                labelLaneFailed8527.add(m)
+                continue
+            }
+            labelLaneFailed8527.remove(m)
             try { if (ForwardReturnLabeler7731.noteLaneMark8418(m, px, now)) n++ } catch (_: Throwable) {}
         }
         if (n > 0L) labelLaneMarks8418.addAndGet(n)
@@ -262,10 +270,11 @@ object KeylessMarks8359 {
             try { ForwardReturnLabeler7731.independentMarkAt8418(m, nowMs) } catch (_: Throwable) { 0L }
         }
         val ask = labelLaneAsk8418(label, wanted.keys.filter { (wanted[it] ?: 0L) > nowMs }.toHashSet(), markAt,
-            { m -> labelLaneAskedAt8418[m] ?: 0L }, nowMs, STALE_MS_8359, MAX_LABEL_LANE_PER_TICK_8418)
+            { m -> if (laneCovered8418(m, nowMs)) com.lifecyclebot.engine.DexBatchLane8287.outstandingAt8527(m) ?: 0L else 0L },
+            nowMs, STALE_MS_8359, MAX_LABEL_LANE_PER_TICK_8418)
         var queued = 0L
         for (m in ask) {
-            labelLaneAskedAt8418[m] = nowMs
+            // enqueue=false means coalesced, not rejected; coverage reads the actual queue/in-flight identity.
             try { if (com.lifecyclebot.engine.DexBatchLane8287.enqueue8287(m)) queued++ } catch (_: Throwable) {}
         }
         if (queued > 0L) labelLaneQueued8418.addAndGet(queued)
@@ -281,7 +290,7 @@ object KeylessMarks8359 {
             labelWanted8418.entries.sortedByDescending { it.value }.take((labelWanted8418.size - MAX_LABEL_WANTED_8418).coerceAtLeast(0))
                 .forEach { labelWanted8418.remove(it.key, it.value) }
         }
-        labelLaneAskedAt8418.keys.removeIf { !labelWanted8418.containsKey(it) }
+        labelLaneFailed8527.removeIf { !labelWanted8418.containsKey(it) }
         labelCurveMarkMs8418.keys.removeIf { !labelWanted8418.containsKey(it) }
     }
 
@@ -301,7 +310,7 @@ object KeylessMarks8359 {
     internal fun resetForTests8359() {
         wanted.clear(); lastCurveMarkMs.clear(); lastTickMs = 0L; running.set(false)
         noted.set(0L); ticks.set(0L); laneQueued.set(0L); curvePasses.set(0L); curveMarks.set(0L)
-        labelWanted8418.clear(); labelLaneAskedAt8418.clear(); labelCurveMarkMs8418.clear()
+        labelWanted8418.clear(); labelLaneFailed8527.clear(); labelCurveMarkMs8418.clear()
         labelNoted8418.set(0L); labelLaneQueued8418.set(0L); labelLaneMarks8418.set(0L); labelCurveMarks8418.set(0L); labelCurvePasses8418.set(0L)
     }
 

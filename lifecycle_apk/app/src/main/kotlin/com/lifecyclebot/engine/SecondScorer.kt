@@ -16,11 +16,12 @@ import com.lifecyclebot.data.TokenState
  * dampener without having to second-guess V3 itself.
  *
  * Weights (deliberately different from V3):
- *   • Liquidity stability (lastLiquidityUsd vs 10-min moving avg) — heavy
- *   • Holder count (more holders = more distribution = less rug)
- *   • Pool age in minutes (older = better)
- *   • Buy/sell imbalance (-30..+30)  — moderate
- *   • V3 momentum (intentionally LOW weight here — opposite of V3 emphasis)
+ *   • Observed pool liquidity in USD — 0..25
+ *   • Peak observed holder count — 0..20
+ *   • Proven token age — 0..20 (older adds safety evidence)
+ *   • Observed buy pressure in percent — 0..15 (balanced, not FOMO)
+ *   • Latest observed hourly USD volume — 0..15
+ *   • Normalised app SAFETY score (not provider risk) — 0..5
  *
  * Output: 0..100 score, same scale as V3, so the disagreement gap is a
  * direct apples-to-apples comparison.
@@ -29,13 +30,25 @@ object SecondScorer {
 
     data class SecondScore(val score: Int, val components: Map<String, Int>)
 
+    /** Age contributes safety points only when observed; missing data is not old age. */
+    internal fun ageScore8527(resolvedAgeMs: Long?): Int {
+        val ageMin = resolvedAgeMs?.takeIf { it >= 0L && it != Long.MAX_VALUE }?.div(60_000L) ?: return 0
+        return when {
+            ageMin < 1     -> 0
+            ageMin < 5     -> 5
+            ageMin < 30    -> 10
+            ageMin < 120   -> 15
+            else           -> 20
+        }
+    }
+
     fun score(ts: TokenState): SecondScore {
         val comp = HashMap<String, Int>(6)
 
         // Liquidity score: 0 (rugged) → 25 (deep)
         val liq = ts.lastLiquidityUsd
         val liqScore = when {
-            liq <= 0       -> 0
+            !liq.isFinite() || liq <= 0 -> 0
             liq < 2_000    -> 5
             liq < 5_000    -> 12
             liq < 20_000   -> 18
@@ -57,24 +70,20 @@ object SecondScorer {
         }
         comp["holders"] = holderScore
 
-        // V5.0.7402 — use market age, not AATE first-sighting age.
-        // The older-is-safer concept is valid for this secondary risk scorer;
-        // the old timestamp was not.
-        val ageMin = try {
-            (com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.trueAgeMs(ts) / 60_000L).coerceAtLeast(0L)
-        } catch (_: Throwable) { 999L }
-        val ageScore = when {
-            ageMin < 1     -> 0
-            ageMin < 5     -> 5
-            ageMin < 30    -> 10
-            ageMin < 120   -> 15
-            else           -> 20
-        }
+        // Unknown launch age must not receive the maximum established-age bonus.
+        // The non-null launch-gating API uses Long.MAX_VALUE as "not known fresh";
+        // scoring reads the nullable evidence API instead.
+        val ageMs = try {
+            com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.resolvedAgeMs(ts)
+        } catch (_: Throwable) { null }
+        val ageScore = ageScore8527(ageMs)
         comp["age"] = ageScore
 
         // Buy pressure score (anti-FOMO: prefer balanced markets, NOT > 80%)
-        val buyPct = ts.lastBuyPressurePct
+        // The TokenState default is 50/50, not an observation of a balanced market.
+        val buyPct = LaneInputTruth8236.buyPressure8491(ts, System.currentTimeMillis())
         val buyScore = when {
+            buyPct == null || !buyPct.isFinite() || buyPct !in 0.0..100.0 -> 0
             buyPct <= 0          -> 0
             buyPct < 40          -> 8         // sellers heavy — neutral
             buyPct in 40.0..60.0 -> 15        // balanced — best
@@ -90,7 +99,7 @@ object SecondScorer {
             ts.history.lastOrNull()?.volumeH1 ?: 0.0
         } catch (_: Throwable) { 0.0 }
         val volScore = when {
-            vol <= 0          -> 0
+            !vol.isFinite() || vol <= 0 -> 0
             vol < 500         -> 3
             vol < 5_000       -> 8
             vol < 50_000      -> 12
@@ -98,10 +107,12 @@ object SecondScorer {
         }
         comp["vol"] = volScore
 
-        // Safety / rugcheck score: 0 → 5
+        // TokenSafetyChecker already converts provider RISK to app SAFETY:
+        // -1 unknown, 0 confirmed rug, 1 pending, 2..100 higher = cleaner.
+        // Do not invert this a second time. Unknown/malformed data earns no bonus.
         val rcScore = try { ts.safety.rugcheckScore } catch (_: Throwable) { -1 }
         val safetyScore = when {
-            rcScore < 0   -> 0
+            rcScore !in 2..100 -> 0
             rcScore < 30  -> 0
             rcScore < 70  -> 3
             else          -> 5

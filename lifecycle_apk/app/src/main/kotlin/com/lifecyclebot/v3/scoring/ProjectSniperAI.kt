@@ -81,7 +81,7 @@ object ProjectSniperAI {
     private val dailyMissions = AtomicInteger(0)
     private val dailyKills = AtomicInteger(0)          // Wins
     private val dailyKIA = AtomicInteger(0)            // Losses
-    private val dailyPnlSolBps = AtomicLong(0)
+    private val dailyPnlLamports8527 = AtomicLong(0)
     
     // Lifetime stats
     private val lifetimeGenerals = AtomicInteger(0)    // 100%+ wins
@@ -129,7 +129,8 @@ object ProjectSniperAI {
             dailyMissions.set(p.getInt("dailyMissions", 0))
             dailyKills.set(p.getInt("dailyKills", 0))
             dailyKIA.set(p.getInt("dailyKIA", 0))
-            dailyPnlSolBps.set(p.getLong("dailyPnlSolBps", 0))
+            dailyPnlLamports8527.set(p.getLong("dailyPnlLamports8527",
+                legacySolBpsToLamports8527(p.getLong("dailyPnlSolBps", 0))))
         }
         
         ErrorLogger.info(TAG, "🎯 RESTORED: Generals=${lifetimeGenerals.get()} Colonels=${lifetimeColonels.get()} " +
@@ -150,7 +151,9 @@ object ProjectSniperAI {
             putInt("dailyMissions", dailyMissions.get())
             putInt("dailyKills", dailyKills.get())
             putInt("dailyKIA", dailyKIA.get())
-            putLong("dailyPnlSolBps", dailyPnlSolBps.get())
+            putLong("dailyPnlLamports8527", dailyPnlLamports8527.get())
+            // Downgrade compatibility only; current readers always prefer the exact lamport key.
+            putLong("dailyPnlSolBps", Math.round(dailyPnlLamports8527.get() / 10_000_000.0))
             apply()
         }
     }
@@ -311,8 +314,9 @@ object ProjectSniperAI {
         // V5.0.4222 — lane-local daily loss is a recovery-probe shaper, not a
         // hard sniper amputation. Global SecurityGuard/KillSwitch remains the
         // catastrophic drawdown authority; this lane keeps tiny probes flowing.
-        val dailyPnl = dailyPnlSolBps.get() / 100.0
-        val dailyLossRecoveryProbe = dailyPnl <= -DAILY_MAX_LOSS_SOL
+        val dailyPnl = dailyPnlLamports8527.get() / 1_000_000_000.0
+        val dailyLossSizeMult8527 = dailyLossSizeMultiplier8527(dailyPnl)
+        val dailyLossRecoveryProbe = dailyLossSizeMult8527 < 1.0
         if (dailyLossRecoveryProbe) {
             ErrorLogger.warn(TAG, "🎯 SNIPER_DAILY_LOSS_RECOVERY_PROBE_4222: pnl=${dailyPnl.fmt(2)}◎ cap=${DAILY_MAX_LOSS_SOL.fmt(2)}◎ — size×0.35")
         }
@@ -565,7 +569,7 @@ object ProjectSniperAI {
             }
         } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
 
-        val dailyLossProbeMult = if (dailyLossRecoveryProbe) 0.35 else 1.0
+        val dailyLossProbeMult = dailyLossSizeMult8527
         val composed = BASE_POSITION_SOL * sizeMultiplier * behaviorSizeMult * behaviorGradeMult * sniperSelfDamp * dailyLossProbeMult
         var positionSol = composed.coerceIn(BASE_POSITION_SOL * 0.25, MAX_POSITION_SOL)
 
@@ -725,12 +729,14 @@ object ProjectSniperAI {
     fun checkExit(mint: String, currentPrice: Double, currentBuyPressure: Double): ExitSignal {
         val mission = activeMissions[mint] ?: return ExitSignal(false, 0, "NO_MISSION", SniperRank.PENDING)
         
+        val pnlPct = com.lifecyclebot.engine.OpenPnlSanity.inspect(mission.entryPrice, currentPrice, context = "ProjectSniperAI_6038/${mint.take(8)}", emit = true).takeIf { it.ok }?.pnlPct
+            ?: return ExitSignal(false, 0, "PRICE_UNVERIFIED_8527", SniperRank.PENDING)
+
         // Update highest price
         if (currentPrice > mission.highestPrice && com.lifecyclebot.engine.truth.PositionDisplayTruth8078.highStepOk8133(mint, mission.entryPrice, mission.highestPrice, currentPrice, "PROJECT_SNIPER")) {  // V5.0.8133
             mission.highestPrice = currentPrice
         }
         
-        val pnlPct = com.lifecyclebot.engine.OpenPnlSanity.inspect(mission.entryPrice, currentPrice, context = "ProjectSniperAI_6038/${mint.take(8)}", emit = true).takeIf { it.ok }?.pnlPct ?: 0.0
         val drawdownFromHigh = ((mission.highestPrice - currentPrice) / mission.highestPrice * 100)
         
         // ═══════════════════════════════════════════════════════════════════
@@ -741,15 +747,8 @@ object ProjectSniperAI {
             return ExitSignal(true, 100, "STOP_LOSS: ${pnlPct.fmt(1)}%", SniperRank.KIA)
         }
         
-        // Trailing stop from high
-        val trailingStopPct = when {
-            pnlPct > 50 -> 15.0   // Lock in gains
-            pnlPct > 25 -> 12.0
-            pnlPct > 10 -> 10.0
-            else -> 20.0          // Wider trailing when small gains
-        }
-        
-        if (drawdownFromHigh > trailingStopPct && pnlPct > 5) {
+        // Native launch trail until earned promotion; thereafter the one runner-price floor.
+        if (trailingStopHit8527(mission, currentPrice, pnlPct)) {
             return ExitSignal(true, 100, "TRAILING_STOP: -${drawdownFromHigh.fmt(1)}% from high", getRank(pnlPct))
         }
         
@@ -802,6 +801,26 @@ object ProjectSniperAI {
         return ExitSignal(false, 0, "HOLD: +${pnlPct.fmt(1)}%", SniperRank.PENDING)
     }
     
+    /** Pure native trail decision: no target, hard-stop, partial, momentum or clock is changed. */
+    internal fun trailingStopHit8527(mission: SniperMission, currentPrice: Double, pnlPct: Double): Boolean {
+        if (!currentPrice.isFinite() || currentPrice <= 0.0 || !pnlPct.isFinite() ||
+            !mission.entryPrice.isFinite() || mission.entryPrice <= 0.0 ||
+            !mission.highestPrice.isFinite() || mission.highestPrice <= 0.0) return false
+        val peakPct = (mission.highestPrice / mission.entryPrice - 1.0) * 100.0
+        val nativeTrailPct = when {
+            pnlPct > 50.0 -> 15.0
+            pnlPct > 25.0 -> 12.0
+            pnlPct > 10.0 -> 10.0
+            else -> 20.0
+        }
+        val nativePrice = mission.highestPrice * (1.0 - nativeTrailPct / 100.0)
+        val trailPrice = com.lifecyclebot.engine.RunnerTrail8419.nativeTrailPrice8527(
+            "PROJECT_SNIPER", mission.entryPrice, peakPct, nativePrice)
+        return if (com.lifecyclebot.engine.RunnerExitProfile7277.runnerExits8468("PROJECT_SNIPER", peakPct))
+            currentPrice <= trailPrice
+        else currentPrice < trailPrice && pnlPct > 5.0
+    }
+
     private fun getRank(pnlPct: Double): SniperRank {
         return when {
             pnlPct >= 100 -> SniperRank.GENERAL
@@ -817,37 +836,58 @@ object ProjectSniperAI {
     // MISSION COMPLETE
     // ═══════════════════════════════════════════════════════════════════════════
     
-    fun completeMission(mint: String, exitPrice: Double, exitSignal: ExitSignal) {
-        val mission = activeMissions.remove(mint) ?: return
+    fun completeMission(
+        mint: String,
+        exitPrice: Double,
+        exitSignal: ExitSignal,
+        canonicalSlice8527: com.lifecyclebot.engine.truth.CanonicalPartialReceipt8527? = null,
+        expectedMission8527: SniperMission? = null,
+    ) {
+        val candidate8527 = expectedMission8527 ?: activeMissions[mint] ?: return
+        var wholeReturnPct8527: Double? = null
+        if (canonicalSlice8527 != null) {
+            val row8527 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
+                .getPosition(canonicalSlice8527.positionId) ?: return
+            if (!canonicalSlice8527.terminal || canonicalSlice8527.mint != mint ||
+                candidate8527.mint != mint || !canonicalSlice8527.belongsToHistory8527(row8527)) return
+            // Legacy missions have no mode or position ID. A unique canonical lifetime is evidence;
+            // an overlapping PAPER/LIVE lot is ambiguous and must retain the mission.
+            val authority8527 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
+            if (authority8527.openPositions().any { it.mint == mint } ||
+                authority8527.protectiveInventory7807("live").any { it.mint == mint }) return
+            val matching8527 = authority8527.closedPositions().filter {
+                it.mint == mint && candidate8527.entryTime in it.openedAtMs..it.lastMutationMs
+            }.singleOrNull() ?: return
+            if (matching8527.positionId != canonicalSlice8527.positionId ||
+                matching8527.mode != canonicalSlice8527.mode) return
+            wholeReturnPct8527 = com.lifecyclebot.engine.truth.WholePositionEconomics7835.from(row8527).returnPct
+        }
+        // No provider or canonical mutation runs inside this per-key native-map operation.
+        var claimed8527: SniperMission? = null
+        activeMissions.computeIfPresent(mint) { _, current8527 ->
+            if (current8527 === candidate8527) { claimed8527 = current8527; null } else current8527
+        }
+        val mission = claimed8527 ?: return
         
-        val pnlPct = ((exitPrice - mission.entryPrice) / mission.entryPrice * 100)
-        val pnlSol = mission.entrySol * (pnlPct / 100)
-        try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(mission.mint, mission.symbol, "PROJECT_SNIPER", "SNIPER_CLOSE", pnlPct.toInt().coerceIn(-100, 100), "exit_${exitSignal.reason.take(40)}_pnl_${pnlPct.fmt(2)}") } catch (_: Throwable) {}
+        val pnlPct = canonicalSlice8527?.realizedPnlPct
+            ?: ((exitPrice - mission.entryPrice) / mission.entryPrice * 100)
+        // extractedPct never shrinks entrySol: only the exact final slice can supply its cash increment.
+        val pnlSol = canonicalSlice8527?.realizedPnlSol ?: mission.entrySol * (pnlPct / 100)
+        val outcomePnlPct8527 = wholeReturnPct8527 ?: pnlPct
+        try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(mission.mint, mission.symbol, "PROJECT_SNIPER", "SNIPER_CLOSE", outcomePnlPct8527.toInt().coerceIn(-100, 100), "exit_${exitSignal.reason.take(40)}_pnl_${pnlPct.fmt(2)}") } catch (_: Throwable) {}
         
 
-        // V5.9.495z17 — operator-mandated 70/30 profit split + missing
-        // sentience hook (ProjectSniper was 1 of 4/8 not feeding sentience).
-        if (pnlSol > 0.0) {
-            try {
-                com.lifecyclebot.engine.TreasuryManager.contributeFromMemeSell(
-                    pnlSol,
-                    com.lifecyclebot.engine.WalletManager.lastKnownSolPrice,
-                )
-            } catch (_: Exception) {}
-        }
+        // Native mission state is a projection. Executor already booked the one profit split
+        // after confirmed accounting; neither a receipt callback nor a mark-only cleanup may book it again.
         try {
             com.lifecyclebot.engine.SentienceHooks.recordEngineOutcome("MEME", pnlSol, pnlSol > 0.0)
         } catch (_: Exception) {}
 
         // Update stats
-        // V5.0.6828 §PNL_LEDGER_TRUNCATED_TO_ZERO — toLong() truncates toward zero on a
-        // 0.01-SOL-granularity ledger, so any |pnlSol| < 0.01 recorded as exactly 0 and
-        // larger values were understated, biasing the daily P&L that getCurrentMode reads
-        // at :223 toward zero. Round instead. Scale and readers unchanged deliberately:
-        // the value is persisted at :123/:144, so re-scaling needs a state migration.
-        dailyPnlSolBps.addAndGet(Math.round(pnlSol * 100))
+        // Keep sub-centi-SOL closes in the same exact units as the daily recovery-sizing reader.
+        dailyPnlLamports8527.addAndGet(Math.round(pnlSol * 1_000_000_000.0))
         
-        if (pnlPct >= 0) {
+        if (outcomePnlPct8527 >= 0) {
             dailyKills.incrementAndGet()
             when (exitSignal.rank) {
                 SniperRank.GENERAL -> lifetimeGenerals.incrementAndGet()
@@ -861,7 +901,7 @@ object ProjectSniperAI {
         
         // Record to FluidLearning
         try {
-            FluidLearningAI.recordTrade(pnlPct >= 0)
+            FluidLearningAI.recordTrade(outcomePnlPct8527 >= 0)
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "FluidLearning record failed: ${e.message}")
         }
@@ -926,12 +966,19 @@ object ProjectSniperAI {
     
     fun isEnabled(): Boolean = true  // Always enabled
     
+    internal fun dailyLossSizeMultiplier8527(
+        dailyPnlSol: Double = dailyPnlLamports8527.get() / 1_000_000_000.0,
+    ): Double = if (dailyPnlSol <= -DAILY_MAX_LOSS_SOL) 0.35 else 1.0
+
+    private fun legacySolBpsToLamports8527(value: Long): Long =
+        value.coerceIn(Long.MIN_VALUE / 10_000_000L, Long.MAX_VALUE / 10_000_000L) * 10_000_000L
+
     fun getDailyStats(): DailyStats {
         return DailyStats(
             missions = dailyMissions.get(),
             kills = dailyKills.get(),
             kia = dailyKIA.get(),
-            pnlSol = dailyPnlSolBps.get() / 100.0,
+            pnlSol = dailyPnlLamports8527.get() / 1_000_000_000.0,
             winRate = if (dailyKills.get() + dailyKIA.get() > 0) {
                 dailyKills.get() * 100 / (dailyKills.get() + dailyKIA.get())
             } else 0,

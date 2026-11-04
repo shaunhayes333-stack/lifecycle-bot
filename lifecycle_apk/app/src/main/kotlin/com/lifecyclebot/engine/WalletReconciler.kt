@@ -115,6 +115,7 @@ object WalletReconciler {
             val decimals = pair.decimals
             val rawExact = pair.raw
             if (rawExact <= java.math.BigInteger.valueOf(DUST_RAW)) continue
+            if (!LiveCanonicalRecovery6686.recoveryHoldingCurrent8527(mint, pair)) continue
             // V5.0.7714 — dust the routes refused is not re-stubbed every pass.
             if (try { LiveCanonicalRecovery6686.isDustUnroutable7714(mint) } catch (_: Throwable) { false }) continue
             val ts = status.tokens[mint]

@@ -30,7 +30,8 @@ object CapitalEfficiencyAI {
         return Triple(maxSamples, 5, maxSamples >= 5)
     }
 
-    private fun bandFor(ageMinutes: Double): String = when {
+    internal fun bandFor8527(ageMinutes: Double): String? = when {
+        !ageMinutes.isFinite() || ageMinutes < 0.0 -> null
         ageMinutes < 15     -> "AGE_0_15m"
         ageMinutes < 60     -> "AGE_15_60m"
         ageMinutes < 240    -> "AGE_1_4h"
@@ -39,9 +40,10 @@ object CapitalEfficiencyAI {
     }
 
     fun recordOutcome(ageBandMinutes: Double, pnlPct: Double, sizeSol: Double, holdHours: Double) {
-        if (sizeSol <= 0 || holdHours <= 0) return
-        val band = bandFor(ageBandMinutes)
+        if (!pnlPct.isFinite() || !sizeSol.isFinite() || !holdHours.isFinite() || sizeSol <= 0 || holdHours <= 0) return
+        val band = bandFor8527(ageBandMinutes) ?: return
         val pnlSolPerHour = (pnlPct / 100.0 * sizeSol) / holdHours
+        if (!pnlSolPerHour.isFinite()) return
         val prev = bandPnlPerSolHour[band] ?: 0.0
         val n = bandSampleCount[band] ?: 0
         bandPnlPerSolHour[band] = (prev * n + pnlSolPerHour) / (n + 1)
@@ -52,7 +54,10 @@ object CapitalEfficiencyAI {
     }
 
     fun score(candidate: CandidateSnapshot, @Suppress("UNUSED_PARAMETER") ctx: TradingContext): ScoreComponent {
-        val band = bandFor(candidate.ageMinutes)
+        val exactAge = candidate.exactAgeMinutes8527
+            ?: return ScoreComponent("CapitalEfficiencyAI", 0, "Exact age unobserved; age-band model abstains")
+        val band = bandFor8527(exactAge)
+            ?: return ScoreComponent("CapitalEfficiencyAI", 0, "Exact age invalid; age-band model abstains")
         val expected = bandPnlPerSolHour[band] ?: return ScoreComponent("CapitalEfficiencyAI", 0, "💸 $band: no history")
         // V5.9.357 — warmup: need 5+ samples in this age band before voting,
         // otherwise a single early outcome could swing the score wildly.

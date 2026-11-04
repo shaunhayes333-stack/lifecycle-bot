@@ -109,7 +109,7 @@ object RunnerReplay8153 {
         st.plan = RunnerPlan8153.plan8153(ev.copy(promotedLatched = st.latched))
         val runner = st.plan != RunnerPlan8153.Plan8153.SCALP
         val cont = RunnerPlan8153.continuation8153(st.plan, st.peak, gross, m.firming, m.standing, m.structureBroken)
-        val intents = overlayIntents8153(st, m, gross, runner)
+        val intents = overlayIntents8153(st, m, gross, runner, cost)
         val rung = rungIntent8153(st, m, gross, entry, runner, cost, nowMs)
         if (rung != null) intents += rung.second
         val inp = ExitTruthArbiter8144.Inputs8144(sealedStrategy = "", entryStyle = style, laneHostsRunners = true,
@@ -157,14 +157,14 @@ object RunnerReplay8153 {
     }
 
     /** The runner / scalp overlays' own exits on this print (rapidMark: chart reader, heldExit7967, the scalp stops). */
-    private fun overlayIntents8153(st: State8153, m: Mark8153, g: Double, runner: Boolean): MutableList<ExitTruthArbiter8144.Intent8144> {
+    private fun overlayIntents8153(st: State8153, m: Mark8153, g: Double, runner: Boolean, cost: Double): MutableList<ExitTruthArbiter8144.Intent8144> {
         val out = mutableListOf<ExitTruthArbiter8144.Intent8144>()
         val gi = g.toInt()
         if (m.emergency) out += ExitTruthArbiter8144.Intent8144("LIQUIDITY_DRAIN_EXIT_8153_${gi}PCT", 1.0)
         if (runner) {
             if (g <= -35.0) out += ExitTruthArbiter8144.Intent8144("RUNNER_HARD_STOP_7967_${gi}PCT", 1.0)
             if (RunnerGrab7967.peakGiveback7980(st.peak, g)) out += ExitTruthArbiter8144.Intent8144("RUNNER_PEAK_CAPTURE_7980_${st.peak.toInt()}PK_${gi}PCT", 1.0)
-            else if (RunnerGrab7967.fromEntryGiveback8104(st.peak, g)) out += ExitTruthArbiter8144.Intent8144("RUNNER_FROM_ENTRY_GIVEBACK_8104_${st.peak.toInt()}PK_${gi}PCT", 1.0)
+            else if (RunnerTrail8419.breached8419(st.peak, g, cost)) out += ExitTruthArbiter8144.Intent8144("RUNNER_GREEN_FLOOR_8363_${st.peak.toInt()}PK_${gi}PCT", 1.0)
             if (m.structureBroken) out += ExitTruthArbiter8144.Intent8144("RUNNER_STRUCTURE_BREAK_7967_1M_${gi}PCT", 1.0)
         } else {
             if (g <= -20.0) out += ExitTruthArbiter8144.Intent8144("STRICT_SL_-20_${gi}PCT", 1.0)

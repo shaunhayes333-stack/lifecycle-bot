@@ -280,6 +280,17 @@ object ScannerSourceBrain {
 
     private data class Read8372(val n: Long, val wr: Double, val mean: Double, val centred: Double, val evidence: String)
 
+    /**
+     * Legacy rows lack variance/episode identity, so they may not promote an economic
+     * loser or suppress an economic winner on win rate alone. Conflicting signs are
+     * neutral, not inverted into a new positive signal; zero/invalid means are neutral.
+     */
+    internal fun netConsistentCentred8527(winRate: Double, mean: Double): Double {
+        if (!winRate.isFinite() || !mean.isFinite() || mean == 0.0) return 0.0
+        val centred = (winRate.coerceIn(0.0, 1.0) - 0.5) * 2.0
+        return if (mean > 0.0) centred.coerceAtLeast(0.0) else centred.coerceAtMost(0.0)
+    }
+
     private fun read8372(key: String): Read8372? {
         val decision = decisionEpisodes8372.snapshot(key)
         // Existing n>=20 maturity, plus an uncertainty check. A handful of outliers must not seize source authority.
@@ -288,7 +299,8 @@ object ScannerSourceBrain {
         }
         val legacy = stats[key] ?: return null
         return synchronized(legacy) {
-            Read8372(legacy.samples(), legacy.winRate(), legacy.avgPnlPct(), (legacy.winRate() - 0.5) * 2.0, "LEGACY_MIXED")
+            val mean = legacy.avgPnlPct()
+            Read8372(legacy.samples(), legacy.winRate(), mean, netConsistentCentred8527(legacy.winRate(), mean), "LEGACY_MIXED")
         }
     }
 
@@ -374,15 +386,28 @@ object ScannerSourceBrain {
             }
             var wins = 0L
             var losses = 0L
+            var pnlSumPct = 0.0
+            var allFinite = true
             stats.forEach { (key, s) ->
                 if (needles.any { key.contains(it) }) {
-                    synchronized(s) { wins += s.wins; losses += s.losses }
+                    synchronized(s) {
+                        // An invalid persisted sum cannot manufacture a net-positive family.
+                        if (s.pnlSumPct.isFinite()) {
+                            wins += s.wins
+                            losses += s.losses
+                            pnlSumPct += s.pnlSumPct
+                        } else {
+                            allFinite = false
+                        }
+                    }
                 }
             }
             val n = wins + losses
-            if (n < BOOT_THRESHOLD) return 1.0
+            if (!allFinite || n < BOOT_THRESHOLD) return 1.0
             val wr = wins.toDouble() / n
-            val centred = (wr - 0.5) * 2.0
+            // Sum returns, then divide by observations: never average per-source means.
+            val mean = pnlSumPct / n.toDouble()
+            val centred = netConsistentCentred8527(wr, mean)
             val (floor, cap) = when {
                 n >= AUTH_THRESHOLD    -> 0.40 to 1.80
                 n >= LEARNED_THRESHOLD -> 0.60 to 1.40

@@ -242,7 +242,7 @@ object SpecialistMiner7972 {
     private fun devFor(mint: String): String {
         val dev = try { com.lifecyclebot.engine.OperatorRegistry.getDevWallet(mint) } catch (_: Throwable) { null } ?: return "NA"
         // V5.0.8001 — the hive's record of this dev rides on the local one.
-        val hive = try { HiveEdge8000.net8000("DEV8521|$dev") } catch (_: Throwable) { null }
+        val hive = try { HiveEdge8000.net8000("DEV8527|$dev") } catch (_: Throwable) { null }
         val s = devs[dev] ?: if (hive == null) return "NEW" else Stat()
         return synchronized(s) {
             val n = s.n + (hive?.get(0)?.toInt() ?: 0)
@@ -261,7 +261,7 @@ object SpecialistMiner7972 {
         if (file != null) return
         // Both discovery and held-out "live" specialist samples below come from forward labels, not actual fills.
         // Keep the previous file intact; all new combinations/developer reputations use the fixed target contract.
-        val f = File(context.applicationContext.filesDir, "specialists8521.bin")
+        val f = File(context.applicationContext.filesDir, "specialists8527.bin")
         file = f
         Thread({ try { load(f) } catch (_: Throwable) {} finally { loaded = true } }, "specialists-7972-load").apply { isDaemon = true }.start()
     }
@@ -375,8 +375,8 @@ object SpecialistMiner7972 {
     /** V5.0.8000 — a combination the network (local + hive evidence) proves is promoted here too. Returns promotions. */
     fun hivePromote8000(): Int {
         var n = 0
-        for (hk in HiveEdge8000.netKeys8000("SPEC8521|")) {
-            val k = hk.removePrefix("SPEC8521|")
+        for (hk in HiveEdge8000.netKeys8000("SPEC8527|")) {
+            val k = hk.removePrefix("SPEC8527|")
             if (promoted.containsKey(k)) continue
             val net = HiveEdge8000.net8000(hk) ?: continue
             val local = keys[k]

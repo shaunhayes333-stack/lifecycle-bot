@@ -20,8 +20,6 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 object StopLatencyWiring8153 {
 
-    /** A snapshot is stamped when its (up to ~11 s) whole-wallet read FINISHED: its data is treated as that much older. */
-    private const val SNAPSHOT_READ_SPAN_MS_8153 = 12_000L
     /** The 8144 multi-provider cache is stamped at the end of its (<= 3 s) read. */
     private const val MULTI_PROVIDER_READ_SPAN_MS_8153 = 3_000L
 
@@ -46,11 +44,7 @@ object StopLatencyWiring8153 {
             SellRouteProbe8144.cachedBalanceAt8153(mint, nowMs)?.takeIf { SellRouteProbe8144.held8144(it.first) }
                 ?.let { HeldProof8153(it.first.raw, it.first.decimals, "MULTI_PROVIDER_8144", it.second - MULTI_PROVIDER_READ_SPAN_MS_8153) }
         } catch (_: Throwable) { null }
-        val snap = try {
-            val at = com.lifecyclebot.engine.WalletAccountCache.snapshotAtMs8094()
-            com.lifecyclebot.engine.WalletAccountCache.snapshot(ttlMs = StopLatencyCore8153.HOT_PROOF_TTL_MS_8153)?.get(mint)
-                ?.let { HeldProof8153(it.raw, it.decimals, "WALLET_SNAPSHOT", at - SNAPSHOT_READ_SPAN_MS_8153) }
-        } catch (_: Throwable) { null }
+        val snap = snapshotHolding8527(mint, nowMs, StopLatencyCore8153.HOT_PROOF_TTL_MS_8153)
         return StopLatencyCore8153.newestUsable8153(listOf(StopLatencyCore8153.proof8153(mint), multi, snap), nowMs, lastTouch, false)
     }
 
@@ -59,15 +53,19 @@ object StopLatencyWiring8153 {
         try { StopLatencyCore8153.record8153(mint, HeldProof8153(raw, decimals, source, readStartedAtMs)) } catch (_: Throwable) {}
     }
 
-    /** getSingleMintBalanceBounded7868 answers from a wallet snapshot younger than this before it reads. */
-    private const val SINGLE_MINT_SNAPSHOT_TTL_MS_8153 = 5_000L
+    /** WalletAccountCache already stores the read START; never subtract an invented second read span. */
+    internal fun snapshotHolding8527(mint: String, nowMs: Long, maxAgeMs: Long): HeldProof8153? = try {
+        com.lifecyclebot.engine.truth.WalletHoldingFreshness8527.fromSnapshot(
+            com.lifecyclebot.engine.WalletAccountCache.evidence(), mint,
+            com.lifecyclebot.engine.WalletManager.currentPubkey(), nowMs, maxAgeMs,
+        )?.let { HeldProof8153(it.amount.raw, it.amount.decimals, "WALLET_SNAPSHOT", it.observedAtMs) }
+    } catch (_: Throwable) { null }
 
-    /** When the single-mint answer may date from: its read start, or the young snapshot it may have been served from. */
-    private fun singleMintDataAt8153(startedAtMs: Long): Long {
-        val snapAt = try { com.lifecyclebot.engine.WalletAccountCache.snapshotAtMs8094() } catch (_: Throwable) { 0L }
-        return if (snapAt > 0L && startedAtMs - snapAt < SINGLE_MINT_SNAPSHOT_TTL_MS_8153) minOf(startedAtMs, snapAt - SNAPSHOT_READ_SPAN_MS_8153)
-        else startedAtMs
-    }
+    /** Accounting quarantine is not a loss of exit ownership. One current protective row per mint. */
+    internal fun liveExitInventory8527(): List<com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Position> =
+        com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.protectiveExitScope7809("live")
+            .filter { it.assetClass == com.lifecyclebot.engine.truth.AssetClass.SOLANA_TOKEN &&
+                it.remainingQtyRaw.signum() > 0 && it.mint.isNotBlank() }
 
     /**
      * The two independent owner+mint reads an emergency races: the wallet's single-mint ladder and a cache-free
@@ -78,8 +76,8 @@ object StopLatencyWiring8153 {
             p?.takeIf { StopLatencyCore8153.usable8153(it, System.currentTimeMillis(), lastTouchMs, false) }
         return listOf(
             {
-                fresh(wallet.getSingleMintBalanceBounded7868(mint, StopLatencyCore8153.EMERGENCY_READ_BUDGET_MS_8153)
-                    ?.let { HeldProof8153(it.raw, it.decimals, "SINGLE_MINT_7868", singleMintDataAt8153(startedAtMs)) })
+                fresh(wallet.getSingleMintBalanceRead8527(mint, StopLatencyCore8153.EMERGENCY_READ_BUDGET_MS_8153)
+                    ?.let { HeldProof8153(it.amount.raw, it.amount.decimals, "SINGLE_MINT_7868", it.observedAtMs) })
             },
             {
                 fresh(SellRouteProbe8144.balanceFresh8153(wallet, mint).takeIf { SellRouteProbe8144.held8144(it) }
@@ -140,20 +138,14 @@ object StopLatencyWiring8153 {
     /** V5.0.8288 — the canonical held quantity of [mint] (min the newest wallet read), when safe to size a stop with. */
     private fun canonicalFallback8288(mint: String, nowMs: Long): HeldProof8153? {
         val canonical = try {
-            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
-                .filter { it.mint == mint && it.mode.equals("live", ignoreCase = true) }
-                .maxByOrNull { it.lastMutationMs }
+            liveExitInventory8527().firstOrNull { it.mint == mint }
         } catch (_: Throwable) { null } ?: return null
         val rows = try { SignedTxLedger8085.historyFor8090(mint).filter { it.side == "SELL" } } catch (_: Throwable) { return null }
         // superseded by V5.0.8368 — only a sell that could have moved tokens (CONFIRMED; unresolved already refuses) voids an
         // older wallet read; an expired / failed sell no longer discards it and leaves the stop on the bare canonical qty.
         val lastSellTouch = com.lifecyclebot.engine.SellLanding8368.lastMovingSellAt8368(rows)
         val lastConfirmed = rows.filter { it.state == SignedTxLedger8085.State.CONFIRMED }.maxOfOrNull { it.updatedAtMs } ?: 0L
-        val snap = try {
-            val at = com.lifecyclebot.engine.WalletAccountCache.snapshotAtMs8094()
-            com.lifecyclebot.engine.WalletAccountCache.snapshot(ttlMs = 10L * 60_000L)?.get(mint)
-                ?.let { HeldProof8153(it.raw, it.decimals, "WALLET_SNAPSHOT", at - SNAPSHOT_READ_SPAN_MS_8153) }
-        } catch (_: Throwable) { null }
+        val snap = snapshotHolding8527(mint, nowMs, 10L * 60_000L)
         val observed = listOfNotNull(StopLatencyCore8153.proof8153(mint), snap)
             .filter { StopLatencyCore8153.positive8153(it) }.maxByOrNull { it.atMs }
         return StopFast8288.fallbackProof8288(
@@ -214,8 +206,7 @@ object StopLatencyWiring8153 {
         if (try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true }) return
         val w = walletSource8153?.invoke() ?: return
         val now = System.currentTimeMillis()
-        val open = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
-            .filter { it.mode.equals("live", ignoreCase = true) && it.remainingQtyRaw.signum() > 0 && it.mint.isNotBlank() }
+        val open = liveExitInventory8527()
         StopLatencyCore8153.retain8153(open.map { it.mint }.toSet())
         if (open.isEmpty()) return
         val targets = open.map {
@@ -240,10 +231,9 @@ object StopLatencyWiring8153 {
             StopLatencyCore8153.noteRefresh8153(mint, now)
             try {
                 lane.execute(Runnable {
-                    val dataAt = singleMintDataAt8153(System.currentTimeMillis())
-                    val one = try { w.getSingleMintBalanceBounded7868(mint) } catch (_: Throwable) { null }
+                    val one = try { w.getSingleMintBalanceRead8527(mint) } catch (_: Throwable) { null }
                     if (one != null) {
-                        noteHolding8153(mint, one.raw, one.decimals, "PREWARM_SINGLE_MINT", dataAt)
+                        noteHolding8153(mint, one.amount.raw, one.amount.decimals, "PREWARM_SINGLE_MINT", one.observedAtMs)
                     }
                 })
             } catch (_: Throwable) {}

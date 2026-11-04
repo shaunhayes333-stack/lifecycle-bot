@@ -58,6 +58,20 @@ object RunnerTrail8419 {
     /** Pure: the effective runner exit level: max(owner 8337 3a rule, the trail) — GreenFloor8363.floor8370; NaN until armed. */
     fun exitLevelPct8419(peakPct: Double, costPct: Double): Double = GreenFloor8363.floor8370(peakPct, costPct)
 
+    /**
+     * Native stored-price trails must use the same promoted-runner contract on every read,
+     * including a restored position which has not printed a new high. Non-runner/scalp lanes
+     * retain their own trail. This adapts units only; it does not change a stop-loss or partial.
+     */
+    fun nativeTrailPrice8527(lane: String, entryPrice: Double, peakPct: Double,
+                             nativeTrailPrice: Double): Double {
+        if (!RunnerExitProfile7277.runnerExits8468(lane, peakPct) ||
+            !entryPrice.isFinite() || entryPrice <= 0.0) return nativeTrailPrice
+        val level = exitLevelPct8419(peakPct, Double.NaN)
+        if (!level.isFinite()) return nativeTrailPrice
+        return entryPrice * (1.0 + level / 100.0)
+    }
+
     /** Pure: has gross [grossPct] fallen to the runner exit level? (GreenFloor8363.breached8363 — the one rule.) */
     fun breached8419(peakPct: Double, grossPct: Double, costPct: Double = Double.NaN): Boolean =
         GreenFloor8363.breached8363(grossPct, peakPct, costPct)

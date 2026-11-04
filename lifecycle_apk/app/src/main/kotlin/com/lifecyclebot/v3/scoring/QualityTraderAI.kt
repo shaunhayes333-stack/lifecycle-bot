@@ -619,7 +619,7 @@ object QualityTraderAI {
         if (pnlPct > pos.peakPnlPct) pos.peakPnlPct = pnlPct
 
         // V5.9.438 — HARD PEAK-DRAWDOWN LOCK (unconditional backstop).
-        if (com.lifecyclebot.engine.PeakDrawdownLock.shouldLock(pos.peakPnlPct, pnlPct)) {
+        if (com.lifecyclebot.engine.PeakDrawdownLock.shouldLock(pos.peakPnlPct, pnlPct, "QUALITY")) {
             ErrorLogger.warn(TAG, "💎🔒🛑 PEAK-DRAWDOWN LOCK: ${pos.symbol} | " +
                 "peak +${pos.peakPnlPct.toInt()}% → now +${pnlPct.toInt()}% " +
                 "(gave back ≥${(com.lifecyclebot.engine.PeakDrawdownLock.DRAWDOWN_TRIGGER_FRAC * 100).toInt()}% of peak)")
@@ -646,14 +646,14 @@ object QualityTraderAI {
         else doubleArrayOf(20.0, 50.0, 100.0, 300.0, 1000.0, 3000.0, 10000.0)
         if (pos.partialRungsTaken < rungs.size && pnlPct >= rungs[pos.partialRungsTaken]) {
             val hitRung = rungs[pos.partialRungsTaken]
-            pos.partialRungsTaken += 1
-            ErrorLogger.info(TAG, "💎💰 LADDER PARTIAL #${pos.partialRungsTaken}: ${pos.symbol} | hit +${hitRung.toInt()}% (now +${pnlPct.toInt()}%)")
+            // Proposal only; the confirmed canonical slice advances this rung.
+            ErrorLogger.info(TAG, "💎💰 LADDER PARTIAL #${pos.partialRungsTaken + 1}: ${pos.symbol} | hit +${hitRung.toInt()}% (now +${pnlPct.toInt()}%)")
             return ExitSignal.PARTIAL_TAKE
         }
 
         // V5.9.169 — continuous fluid profit floor (shared engine).
         val _holdSec = (System.currentTimeMillis() - pos.entryTime) / 1000.0  // V5.9.835
-        val profitFloor = com.lifecyclebot.v3.scoring.FluidLearningAI.fluidProfitFloor(pos.peakPnlPct, holdSeconds = _holdSec)
+        val profitFloor = com.lifecyclebot.v3.scoring.FluidLearningAI.fluidProfitFloor(pos.peakPnlPct, holdSeconds = _holdSec, lane = "QUALITY")
         if (pnlPct < profitFloor) {
             ErrorLogger.info(TAG, "💎🔒 FLOOR LOCK: ${pos.symbol} | peak +${pos.peakPnlPct.toInt()}% → +${pnlPct.toInt()}% < +${profitFloor.toInt()}%")
             return ExitSignal.TRAILING_STOP
@@ -824,15 +824,10 @@ object QualityTraderAI {
         // V5.9.401 — Sentience hook #4: cross-engine telegraph (MEME).
         try { com.lifecyclebot.engine.SentienceHooks.recordEngineOutcome("MEME", pnlSol, isWin) } catch (e: Exception) { com.lifecyclebot.engine.ErrorLogger.debug("QualityTraderAI", "sentience skip: ${e.message}") }
 
-        // V5.9.495z17 — wire operator-mandated 70/30 profit split.
-        if (pnlSol > 0.0) {
-            try {
-                com.lifecyclebot.engine.TreasuryManager.contributeFromMemeSell(
-                    pnlSol,
-                    com.lifecyclebot.engine.WalletManager.lastKnownSolPrice,
-                )
-            } catch (_: Exception) {}
-        }
+        // V5.0.8527: The canonical Executor books the confirmed fill and the
+        // treasury split once. This native close only updates lane-local
+        // results; a second treasury deposit here double-counted profit and
+        // could initiate another live transfer.
 
         
         dailyPnlSol += pnlSol
@@ -878,15 +873,19 @@ object QualityTraderAI {
     /**
      * V5.9.705 — Reduce sub-trader tracked entrySol after a confirmed partial sell.
      */
-    fun onPartialSell(mint: String, soldFraction: Double, isPaper: Boolean = isPaperMode) {
-        val partialPositions7858 = if (isPaper) paperPositions else livePositions
-        val frac = soldFraction.coerceIn(0.0, 1.0)
-        if (frac <= 0.0) return
-        val pos = partialPositions7858[mint] ?: return
-        val updated = pos.copy(entrySol = pos.entrySol * (1.0 - frac))
-        partialPositions7858[mint] = updated
-        ErrorLogger.debug(TAG, "🔷🔪 onPartialSell ${pos.symbol}: entrySol ${pos.entrySol} → ${updated.entrySol} (sold ${(frac*100).toInt()}%)")
+    /** V5.0.8527 — capture the native generation before execution; project only the applied canonical slice. */
+    fun partialProjection8527(ts: com.lifecyclebot.data.TokenState):
+        (com.lifecyclebot.engine.truth.CanonicalPartialReceipt8527?) -> Boolean {
+        val isPaper8527 = ts.position.isPaperPosition
+        val book = if (isPaper8527) paperPositions else livePositions
+        return com.lifecyclebot.engine.truth.NativePartialProjection8527.capture8527(
+            book, ts, { isPaper8527 }, { pos, receipt ->
+                pos.copy(entrySol = receipt.remainingCostSol, partialRungsTaken = pos.partialRungsTaken + 1)
+            },
+        )
     }
+
+
 
 
     

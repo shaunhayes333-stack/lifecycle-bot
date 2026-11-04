@@ -5,45 +5,24 @@ import kotlin.math.min
 import kotlin.math.sqrt
 
 /**
- * V5.9.1285 — LANE STRATEGY EVALUATOR
- * ════════════════════════════════════════════════════════════════════════════
- * Closes the strategy-evaluation loop so we STOP patch-rotating one lane at a
- * time and instead let REPLAY ON REAL HISTORY decide what each lane should do.
+ * Lane exit-shape research from canonical terminal summaries.
  *
- * WHY THIS EXISTS (operator directive 2026-06-02):
- *   The tuning console proved 6 of 7 lanes run the SAME profit ladder
- *   [20,50,100,300,1000,3000,10000] but with tight stops (BLUECHIP -4/-7%),
- *   producing high-WR / net-NEGATIVE bleed (clip the small losers AND the
- *   would-be runners). The ONE lane that wins (SHITCOIN: WR 6% / net +2.7 SOL)
- *   uses the -15% floor + trail-the-runner so the fat tails survive. The
- *   question isn't "clamp TREASURY" — it's "does each lane have ANY edge, or is
- *   it a worse-shaped version of the one strategy that works?"
+ * Realized return is observed. MFE/MAE are unordered extrema, not a chronological/executable price path:
+ * the same extrema can describe stop-before-TP and TP-before-stop. No summary can prove a counterfactual fill,
+ * trail activation, gap execution, fee or residual share. Alternate values below are explicitly hypothetical
+ * sensitivity calculations for research only; they cannot select an executable exit policy.
  *
- * HONEST BACKTEST — NO FABRICATED UPSIDE:
- *   Each historical close in CanonicalOutcomeBus carries the REAL realizedPnlPct,
- *   maxGainPct (peak the trade actually reached) and maxDrawdownPct (worst dip it
- *   actually saw). We only ever re-derive an outcome the trade's OWN price path
- *   could have produced:
- *     - TIGHTER STOP s: if the trade's dip (maxDrawdownPct) breached s, it would
- *       have stopped at s — UNLESS its peak came first and it already realized
- *       more than s, in which case the actual stands. Conservative: we clamp the
- *       loss, we never invent a save.
- *     - WIDER STOP / LET-RUN trail t from peak: we KNOW maxGainPct, so a runner
- *       banks ~ (maxGainPct - t), capped at the actual realized when the trade
- *       didn't round-trip. We never bank more than the peak the trade truly hit.
- *     - EARLIER FULL TP at target: if peak reached the target, realize = target;
- *       else the trade never got there → actual stands.
- *     - NO-TRADE: lane sits out → 0 (the honest floor every lane must beat).
- *
- * Output ranks profiles per lane by net SOL, then Sharpe, then drawdown. A lane
- * whose best profile can't beat NO-TRADE is a structural bleeder — the data, not
- * a human guess, says it should stop trading.
+ * Chronological runner replay remains in RunnerReplay8153. Canonical closed-loop tuning remains in LaneExitTuner.
  */
 object LaneStrategyEvaluator {
 
     private const val TAG = "LaneStrategyEval"
 
-    /** A candidate exit shape. transform() returns the honest re-derived pnlPct. */
+    enum class Evidence8527 { CANONICAL_REALIZED, SUMMARY_HYPOTHESIS, NO_TRADE_REFERENCE }
+
+    data class SummaryValue8527(val pnlPct: Double, val evidence: Evidence8527)
+
+    /** A candidate exit shape. Summary arithmetic is diagnostic, never a simulated or guaranteed fill. */
     data class ExitProfile(
         val name: String,
         /** stop floor in pct (negative). null = no hard stop beyond the trade's own. */
@@ -55,19 +34,26 @@ object LaneStrategyEvaluator {
         /** true = lane sits out entirely (the NO-TRADE floor). */
         val noTrade: Boolean = false,
     ) {
+        val evidence8527: Evidence8527 get() = when {
+            noTrade -> Evidence8527.NO_TRADE_REFERENCE
+            stopPct == null && trailFromPeakPct == null && fullTpPct == null -> Evidence8527.CANONICAL_REALIZED
+            else -> Evidence8527.SUMMARY_HYPOTHESIS
+        }
+
+        fun summarize8527(realizedPct: Double, peakPct: Double, drawdownPct: Double): SummaryValue8527 =
+            SummaryValue8527(transform(realizedPct, peakPct, drawdownPct), evidence8527)
+
+        /** Legacy arithmetic API; use summarize8527 to carry its evidence kind. No chronology is implied. */
         fun transform(realizedPct: Double, peakPct: Double, drawdownPct: Double): Double {
             if (noTrade) return 0.0
             var out = realizedPct
 
-            // EARLIER FULL TP — only if the trade truly reached the target. If the
-            // peak reached the target we would have sold the full position there,
-            // banking exactly tp. If it never reached tp, the actual outcome stands.
+            // Sensitivity assumption: a TP fill at the target. Extrema cannot establish order or executability.
             fullTpPct?.let { tp ->
                 if (peakPct >= tp) out = tp
             }
 
-            // LET-RUN TRAIL from the REAL peak — bank peak minus trail, but never
-            // more than the peak actually reached and never less than a clean stop.
+            // Sensitivity assumption: a trail banks peak-minus-width. A later retracement is not proved.
             trailFromPeakPct?.let { t ->
                 if (peakPct > 0.0) {
                     val trailed = peakPct - t
@@ -76,10 +62,9 @@ object LaneStrategyEvaluator {
                 }
             }
 
-            // STOP — clamp the downside the trade's OWN dip would have triggered.
+            // Sensitivity assumption: a stop fills at its threshold. A gap/failed sale is not represented.
             stopPct?.let { s ->
-                // If the worst dip breached the stop AND the trade ultimately did
-                // worse than the stop, it would have exited at the stop instead.
+                // Kept for research comparison only, not a claim that the loss could actually have been clipped.
                 if (drawdownPct <= s && out < s) out = s
             }
             return out
@@ -96,10 +81,12 @@ object LaneStrategyEvaluator {
         val netSol: Double,
         val sharpe: Double,
         val maxDrawdownPct: Double,
+        val evidence8527: Evidence8527 = Evidence8527.SUMMARY_HYPOTHESIS,
+        val environment8527: String = "UNKNOWN",
     ) {
         val winRate: Double get() = if (n > 0) wins * 100.0 / n else 0.0
         fun oneLine(): String =
-            "[$lane/$profile] n=$n WR=${"%.0f".format(winRate)}% avg=${"%+.1f".format(avgPct)}% " +
+            "[$environment8527/$lane/$profile ${evidence8527.name}] n=$n WR=${"%.0f".format(winRate)}% avg=${"%+.1f".format(avgPct)}% " +
             "net=${"%+.3f".format(netSol)}◎ sharpe=${"%.2f".format(sharpe)} maxDD=${"%.0f".format(maxDrawdownPct)}%"
     }
 
@@ -113,20 +100,22 @@ object LaneStrategyEvaluator {
         ExitProfile("NO_TRADE",       stopPct = null, trailFromPeakPct = null, fullTpPct = null, noTrade = true),
     )
 
-    /**
-     * Replay every lane × every profile against the canonical outcome history.
-     * Returns a flat list sorted by lane then net SOL desc.
-     */
-    fun evaluateAll(profiles: List<ExitProfile> = defaultProfiles()): List<LaneResult> {
-        val outcomes = try { CanonicalOutcomeBus.recentSnapshot() } catch (_: Throwable) { emptyList() }
-        // closed trades with a usable realized pnl
-        val closed = outcomes.filter { it.realizedPnlPct != null && it.entrySol != null && it.entrySol!! > 0.0 }
+    /** Summary sensitivity rows, separated by environment. Alternate profiles remain explicitly hypothetical. */
+    fun evaluateAll(profiles: List<ExitProfile> = defaultProfiles()): List<LaneResult> =
+        evaluateOutcomes8527(try { CanonicalOutcomeBus.recentSnapshot() } catch (_: Throwable) { emptyList() }, profiles)
+
+    internal fun evaluateOutcomes8527(outcomes: List<CanonicalTradeOutcome>, profiles: List<ExitProfile> = defaultProfiles()): List<LaneResult> {
+        val closed = outcomes.filter {
+            !it.isPartial && it.isTrainable && it.exitTimeMs != null &&
+                it.realizedPnlPct?.isFinite() == true && it.entrySol?.let { size -> size.isFinite() && size > 0.0 } == true
+        }.sortedBy { it.exitTimeMs }
         if (closed.isEmpty()) return emptyList()
 
-        val byLane = closed.groupBy { it.mode.name }
+        val byLane = closed.groupBy { it.environment.name to it.mode.name }
         val out = mutableListOf<LaneResult>()
 
-        for ((lane, trades) in byLane) {
+        for ((cohort, trades) in byLane) {
+            val (environment, lane) = cohort
             if (trades.size < 5) continue   // not enough to evaluate honestly
             for (p in profiles) {
                 var wins = 0
@@ -138,8 +127,10 @@ object LaneStrategyEvaluator {
                     val realized = t.realizedPnlPct ?: 0.0
                     val pk = t.maxGainPct ?: max(realized, 0.0)
                     val dd = t.maxDrawdownPct ?: min(realized, 0.0)
-                    val hyp = p.transform(realized, pk, dd)
-                    val sol = (t.entrySol ?: 0.0) * (hyp / 100.0)
+                    val hyp = p.summarize8527(realized, pk, dd).pnlPct
+                    val sol = if (p.evidence8527 == Evidence8527.CANONICAL_REALIZED) {
+                        t.realizedPnlSol?.takeIf { it.isFinite() } ?: (t.entrySol ?: 0.0) * (hyp / 100.0)
+                    } else (t.entrySol ?: 0.0) * (hyp / 100.0)
                     if (hyp >= 1.0) wins++
                     netPctSum += hyp
                     netSol += sol
@@ -157,38 +148,36 @@ object LaneStrategyEvaluator {
                     val sd = sqrt(v)
                     if (sd > 0) m / sd * sqrt(rets.size.toDouble()) else 0.0
                 } else 0.0
-                out.add(LaneResult(lane, p.name, n, wins, netPctSum, avg, netSol, sharpe, maxDD))
+                out.add(LaneResult(lane, p.name, n, wins, netPctSum, avg, netSol, sharpe, maxDD, p.evidence8527, environment))
             }
         }
-        return out.sortedWith(compareBy({ it.lane }, { -it.netSol }))
+        return out.sortedWith(compareBy({ it.environment8527 }, { it.lane }, { -it.netSol }))
     }
 
-    /** Best profile per lane + verdict (what the lane SHOULD do). */
-    fun bestPerLane(profiles: List<ExitProfile> = defaultProfiles()): Map<String, LaneResult> {
-        val all = evaluateAll(profiles)
-        return all.groupBy { it.lane }.mapValues { (_, rs) -> rs.maxByOrNull { it.netSol }!! }
-    }
+    /**
+     * Compatibility ranking: only measured unchanged-policy baselines are eligible. A hypothetical summary,
+     * even with a huge number or a misleading profile name, cannot beat a recorded outcome into execution authority.
+     */
+    fun bestPerLane(profiles: List<ExitProfile> = defaultProfiles()): Map<String, LaneResult> =
+        supportedBaselines8527(evaluateAll(profiles))
+
+    internal fun supportedBaselines8527(rows: List<LaneResult>): Map<String, LaneResult> =
+        rows.filter { it.evidence8527 == Evidence8527.CANONICAL_REALIZED }
+            .groupBy { "${it.environment8527}|${it.lane}" }
+            .mapValues { (_, rs) -> rs.maxByOrNull { it.netSol }!! }
 
     fun renderReport(): String {
         val sb = StringBuilder()
         sb.appendLine("══════════════════════════════════════════════════")
-        sb.appendLine("🧪 LANE STRATEGY REPLAY — V5.9.1285")
-        sb.appendLine("  Honest replay on real peak/drawdown history.")
-        sb.appendLine("  A lane whose best profile < NO_TRADE is a structural bleeder.")
+        sb.appendLine("🧪 LANE EXIT SUMMARY RESEARCH — NOT EXECUTABLE REPLAY")
+        sb.appendLine("  Actual baseline is recorded; alternate shapes assume fills and event order.")
+        sb.appendLine("  No switch/stop-trading recommendation follows from unordered MFE/MAE.")
         sb.appendLine("══════════════════════════════════════════════════")
         val all = evaluateAll()
-        if (all.isEmpty()) { sb.appendLine("(no closed outcomes with peak data yet)"); return sb.toString() }
-        val byLane = all.groupBy { it.lane }
+        if (all.isEmpty()) { sb.appendLine("(insufficient canonical closed outcomes per environment/lane)"); return sb.toString() }
+        val byLane = all.groupBy { "${it.environment8527}|${it.lane}" }
         for ((lane, rs) in byLane) {
-            val best = rs.maxByOrNull { it.netSol }!!
-            val noTrade = rs.find { it.profile == "NO_TRADE" }
-            val verdict = when {
-                best.profile == "NO_TRADE" -> "⛔ STOP TRADING (no profile beats sitting out)"
-                noTrade != null && best.netSol <= noTrade.netSol -> "⛔ STOP TRADING"
-                best.profile == "CURRENT_ACTUAL" -> "✅ KEEP CURRENT (already optimal)"
-                else -> "🔧 SWITCH → ${best.profile}"
-            }
-            sb.appendLine("─── $lane ─── $verdict")
+            sb.appendLine("─── $lane ─── research only; chronological execution evidence required")
             rs.sortedByDescending { it.netSol }.forEach { sb.appendLine("   ${it.oneLine()}") }
             sb.appendLine()
         }

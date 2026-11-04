@@ -111,9 +111,12 @@ object SuperIntelligenceEstate7654 {
 
         fun sourceLearningUtility(policy: SuperPolicyTree7638.Policy): Double {
             val s = sourceLearning ?: return 0.0
-            if (s.samples < 20L) return 0.0
+            if (s.samples < 20L || !s.winRate.isFinite() || !s.avgPnlPct.isFinite()) return 0.0
             val sample = (s.samples.toDouble() / (s.samples + 40.0)).coerceIn(0.0, 1.0)
-            val wrTerm = ((s.winRate - 0.50) * 2.0).coerceIn(-1.0, 1.0)
+            // Source evidence must keep its economic sign through downstream planning.
+            // A low-WR runner source with positive mean is not a bearish source vote;
+            // a high-WR source with negative mean cannot become a bullish vote.
+            val wrTerm = ScannerSourceBrain.netConsistentCentred8527(s.winRate, s.avgPnlPct)
             val evTerm = (s.avgPnlPct / 20.0).coerceIn(-1.0, 1.0)
             val base = (wrTerm * 0.55 + evTerm * 0.75).coerceIn(-1.25, 1.25) * sample
             return when (policy) {

@@ -58,7 +58,7 @@ class Aate6659dSellJournalRoundTripTest {
         // V5.0.7835 / V5.0.7853 — BotService hands the FDG decision itself to the authorizer
         // and SpecialistPreauthSeal7834 seals FDG's own size (ONE_AUTHORITATIVE_SIZE).
         val source = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue(source.contains("fdgDecision7835 = v3Fdg6533, tokenState7835 = ts,"))
+        assertTrue(source.contains("fdgDecision7835 = coreFdg8527, tokenState7835 = ts,"))
         val seal = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SpecialistPreauthSeal7834.kt").readText()
         assertTrue(seal.contains("val size = decision.sizeSol"))
         assertTrue(seal.contains("resolvedSizeSol6558 = size,"))

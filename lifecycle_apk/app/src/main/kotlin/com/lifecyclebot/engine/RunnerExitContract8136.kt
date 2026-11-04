@@ -335,7 +335,8 @@ object RunnerExitContract8136 {
         if (st.runner) {
             if (g <= -35.0) out += Intent8136("RUNNER_HARD_STOP_7967_${gi}PCT", 1.0)
             if (RunnerGrab7967.peakGiveback7980(st.peak, g)) out += Intent8136("RUNNER_PEAK_CAPTURE_7980_${st.peak.toInt()}PK_${gi}PCT", 1.0)
-            else if (RunnerGrab7967.fromEntryGiveback8104(st.peak, g)) out += Intent8136("RUNNER_FROM_ENTRY_GIVEBACK_8104_${st.peak.toInt()}PK_${gi}PCT", 1.0)
+            else if (st.legacy && RunnerGrab7967.fromEntryGiveback8104(st.peak, g)) out += Intent8136("RUNNER_FROM_ENTRY_GIVEBACK_8104_${st.peak.toInt()}PK_${gi}PCT", 1.0)
+            else if (!st.legacy && RunnerTrail8419.breached8419(st.peak, g, sellCostPct)) out += Intent8136("RUNNER_GREEN_FLOOR_8363_${st.peak.toInt()}PK_${gi}PCT", 1.0)
             val reached = SpikeCapture7943.tierReached(g, RunnerGrab7967.TIERS_7967)
             if (reached >= 1 && st.runnerDone == 0) {
                 if (st.legacy) {

@@ -11,10 +11,21 @@ class Aate7542NativeSpecialistAuthorityTest {
     @Test fun all_twelve_native_brains_are_called_by_one_bridge(){
         val b=src("engine/SpecialistBrainBridge7542.kt")
         listOf("QualityTraderAI.evaluate","BlueChipTraderAI.evaluate","ShitCoinTraderAI.evaluate",
-            "ShitCoinExpress.evaluate","MoonshotTraderAI.scoreToken","ProjectSniperAI.assessTarget",
-            "DipHunterAI.evaluate","ManipulatedTraderAI.evaluate","TreasuryBrain.evaluate",
+            "MoonshotTraderAI.scoreToken","ProjectSniperAI.assessTarget",
+            "DipHunterAI.evaluate","TreasuryBrain.evaluate",
             "CashGenerationAI.evaluate","CyclicTradeEngine.evaluateCandidate7542").forEach{
             assertTrue("missing native call $it",b.contains(it))
+        }
+        // Preview and execution share the same native input adapters; neither may substitute a surrogate.
+        val shared=src("engine/SpecialistInputParity8527.kt")
+        val bot=src("engine/BotService.kt")
+        for ((adapter,native) in listOf("express8527" to "ShitCoinExpress.evaluate",
+            "manipulated8527" to "ManipulatedTraderAI.evaluate")) {
+            assertTrue("bridge must call $adapter",b.contains("SpecialistInputParity8527.$adapter("))
+            val body=shared.substringAfter("fun $adapter(").substringBefore("\n    fun ")
+            assertTrue("$adapter must call $native",body.contains(native))
+            assertTrue("execution must use the same $adapter",
+                bot.contains("laneDoor8105(SpecialistInputParity8527.$adapter("))
         }
         assertTrue(b.contains("out[\"CORE\"]=op"))
     }

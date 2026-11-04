@@ -242,7 +242,7 @@ object LiveCanonicalRecovery6686 {
         val out7819 = LinkedHashMap<String, CanonicalTokenAmount>()
         for (m in mints) {
             val row = try { HostWalletTokenTracker.getEntry(m) } catch (_: Throwable) { null } ?: continue
-            if (row.status == HostWalletTokenTracker.PositionStatus.CLOSED_DUST_UNROUTABLE) continue
+            if (HostWalletTokenTracker.historicalBuyBlocked8079(row.status, row.sellSignature)) continue
             val raw = try { BigInteger(row.rawAmount.trim().ifBlank { "0" }) } catch (_: Throwable) { BigInteger.ZERO }
             if (raw <= BigInteger.ONE || row.decimals !in 0..18) continue
             out7819[m] = CanonicalTokenAmount(raw, row.decimals)
@@ -252,12 +252,12 @@ object LiveCanonicalRecovery6686 {
     }
 
     /** V5.0.7962 — direct per-mint wallet reads for heal targets the cached snapshot omits (positive answers only). */
-    private fun singleMintReads7962(mints: List<String>): Map<String, CanonicalTokenAmount> {
+    private fun singleMintReads7962(mints: List<String>): Map<String, com.lifecyclebot.engine.truth.WalletHoldingRead8527> {
         if (mints.isEmpty()) return emptyMap()
         val w = try { WalletManager.getWallet() } catch (_: Throwable) { null } ?: return emptyMap()
-        val out = LinkedHashMap<String, CanonicalTokenAmount>()
+        val out = LinkedHashMap<String, com.lifecyclebot.engine.truth.WalletHoldingRead8527>()
         for (m in mints.take(4)) {
-            val a = try { w.getSingleMintBalanceBounded7868(m) } catch (_: Throwable) { null } ?: continue
+            val a = try { w.getSingleMintBalanceRead8527(m) } catch (_: Throwable) { null } ?: continue
             out[m] = a
         }
         try { PipelineHealthCollector.labelInc(if (out.isEmpty()) "BOT_HOLDING_HEAL_SINGLE_MINT_EMPTY_7962" else "BOT_HOLDING_HEAL_SINGLE_MINT_FOUND_7962") } catch (_: Throwable) {}
@@ -292,19 +292,26 @@ object LiveCanonicalRecovery6686 {
         try {
             kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 try {
-                    val snap = try { WalletAccountCache.snapshot(ttlMs = 60_000L) } catch (_: Throwable) { null }
+                    val owner8527 = WalletManager.currentPubkey()
+                    val evidence8527 = WalletAccountCache.evidence()?.takeIf {
+                        owner8527.isNotBlank() && it.owner == owner8527 &&
+                            System.currentTimeMillis() - it.observedAtMs in 0L..60_000L
+                    }
+                    val snap = evidence8527?.tokens
                     // V5.0.7962 — a mint the coverage guard convicts but the cached wallet read
                     // omits is asked for directly (one mint-filtered RPC read, both token
                     // programs). 5.0.7961: 6LhyhWmD — 86 heal kicks, 81 ended NO_WALLET_SNAPSHOT
                     // while the tokens sat in the wallet with no exit owner.
-                    val subset = snap.orEmpty().filterKeys { it in due }.filterValues { it.raw > BigInteger.ONE } +
+                    val holdingProofs8527 = snap.orEmpty().filterKeys { it in due }.filterValues { it.raw > BigInteger.ONE }
+                        .mapValues { (mint, amount) -> com.lifecyclebot.engine.truth.WalletHoldingRead8527(
+                            mint, owner8527, amount, requireNotNull(evidence8527).observedAtMs) } +
                         singleMintReads7962(due.filter { snap?.get(it)?.let { a -> a.raw > BigInteger.ONE } != true })
+                    val subset = holdingProofs8527.mapValues { it.value.amount }
                     // V5.0.7819 — see trackerHoldings7819: the guard's own evidence
                     // stands in for the wallet cache nothing refreshes in PAPER.
                     // A fresh COMPLETE read that omits a mint proves it gone, so the
                     // tracker fills in only when that read is missing or partial.
-                    val completeRead7819 = snap != null &&
-                        !(try { com.lifecyclebot.engine.truth.WalletSnapshotCompleteness7140.isLastPartial() } catch (_: Throwable) { true })
+                    val completeRead7819 = evidence8527?.complete == true
                     val trackerOnly7819 = if (completeRead7819) emptyMap<String, CanonicalTokenAmount>() else trackerHoldings7819(due.filter { it !in subset.keys })
                     if (subset.isEmpty() && trackerOnly7819.isEmpty()) {
                         PipelineHealthCollector.labelInc("BOT_HOLDING_HEAL_NO_WALLET_SNAPSHOT_7718")
@@ -324,11 +331,11 @@ object LiveCanonicalRecovery6686 {
                     }
                     // Mark adoption stays on a fresh on-chain read only (empty map -> 0);
                     // tracker evidence earns protective ownership, never a priced OPEN row.
-                    val n = recoverWalletSnapshot(BotService.status, subset)
+                    val n = recoverWalletSnapshot(BotService.status, subset, holdingProofs8527)
                     if (n > 0) healAdopted7718.addAndGet(n.toLong())
                     // V5.0.7807 — a bot holding whose basis is still unproven gets a
                     // protective BASIS_UNCERTAIN owner now instead of staying unmanaged.
-                    val p7819 = protectUnadoptedBotHoldings7807(subset) + protectUnadoptedBotHoldings7807(trackerOnly7819)
+                    val p7819 = protectUnadoptedBotHoldings7807(subset, holdingProofs8527) + protectUnadoptedBotHoldings7807(trackerOnly7819)
                     if (p7819 > 0) healProtected7819.addAndGet(p7819.toLong())
                     lastHeal7718 = "mints=${due.size} adopted=$n protected7819=$p7819 trackerOnly7819=${trackerOnly7819.size}"
                     PipelineHealthCollector.labelInc(if (n > 0) "BOT_HOLDING_HEAL_ADOPTED_7718" else "BOT_HOLDING_HEAL_STILL_AWAITING_BASIS_7718")
@@ -369,12 +376,45 @@ object LiveCanonicalRecovery6686 {
         return if (tracker > 0.0) minOf(tracker, share) else share
     }
 
-    internal fun protectUnadoptedBotHoldings7807(subset: Map<String, CanonicalTokenAmount>): Int {
+    /**
+     * A completed sell spends every earlier wallet/tracker observation. Carry read evidence
+     * through recovery rather than stamping an old quantity with a new callback time.
+     * This only refuses re-adoption; it never closes an existing protective holding.
+     */
+    internal fun recoveryHoldingCurrent8527(
+        mint: String, amount: CanonicalTokenAmount,
+        proof8527: com.lifecyclebot.engine.truth.WalletHoldingRead8527? = null,
+        nowMs: Long = System.currentTimeMillis(),
+    ): Boolean {
+        val signed8527 = try { com.lifecyclebot.network.SignedTxLedger8085.historyFor8090(mint) }
+            catch (_: Throwable) { return false }
+        val lastSell8527 = maxOf(
+            SellLanding8368.lastMovingSellAt8368(signed8527),
+            CanonicalPositionAuthority6441.lastClosedLiveAtMs8094(mint),
+            com.lifecyclebot.engine.truth.LiveReceiptSpent7959.lastLiveFullCloseMs(mint) ?: 0L,
+        )
+        val owner8527 = WalletManager.currentPubkey()
+        val observation8527 = proof8527 ?: com.lifecyclebot.engine.truth.WalletHoldingFreshness8527.fromSnapshot(
+            WalletAccountCache.evidence(), mint, owner8527, nowMs, 60_000L,
+        )
+        val accepted8527 = com.lifecyclebot.engine.truth.WalletHoldingFreshness8527.mayRecover(
+            mint, amount, owner8527, observation8527, lastSell8527,
+            signed8527.any { it.side == "SELL" && it.unresolved }, nowMs,
+        )
+        if (!accepted8527) try { PipelineHealthCollector.labelInc("WALLET_RECOVERY_STALE_AFTER_SELL_8527") } catch (_: Throwable) {}
+        return accepted8527
+    }
+
+    internal fun protectUnadoptedBotHoldings7807(
+        subset: Map<String, CanonicalTokenAmount>,
+        holdingProofs8527: Map<String, com.lifecyclebot.engine.truth.WalletHoldingRead8527> = emptyMap(),
+    ): Int {
         if (subset.isEmpty()) return 0
         val covered7807 = try { CanonicalPositionAuthority6441.protectiveInventoryMints7807("live") } catch (_: Throwable) { emptySet<String>() }
         val pendingEntry8418 = try { CanonicalPositionAuthority6441.pendingEntryLivePositions8418() } catch (_: Throwable) { emptyMap<String, String>() }
         var n7807 = 0
         for ((mint, amount) in subset) {
+            if (!recoveryHoldingCurrent8527(mint, amount, holdingProofs8527[mint])) continue
             // V5.0.7868 — a covered mint can still be under-covered (wallet > canonical
             // qty): reconcile a never-sold OPEN row's receipt-sized gap to the wallet.
             if (mint in covered7807 && amount.raw > BigInteger.ONE) {
@@ -414,6 +454,7 @@ object LiveCanonicalRecovery6686 {
                     entryPriceUsd = row7807?.entryPriceUsd ?: 0.0,
                     signature = row7807?.buySignature.orEmpty(),
                     reason = if (pendingId8418 != null) "BOT_BUY_PENDING_VERIFY_8418" else "BOT_HOLDING_BASIS_UNPROVEN_7718",
+                    walletRecovery8527 = true, holdingRead8527 = holdingProofs8527[mint],
                 )
             } catch (_: Throwable) { CanonicalPositionAuthority6441.ProtectiveOwnership7807.REFUSED }
             if (r7807 == CanonicalPositionAuthority6441.ProtectiveOwnership7807.CREATED ||
@@ -805,6 +846,7 @@ object LiveCanonicalRecovery6686 {
     fun recoverWalletSnapshot(
         status: BotStatus,
         walletMints: Map<String, CanonicalTokenAmount>,
+        holdingProofs8527: Map<String, com.lifecyclebot.engine.truth.WalletHoldingRead8527> = emptyMap(),
     ): Int {
         if (walletMints.isEmpty()) return 0
         val existingLive = try {
@@ -816,6 +858,7 @@ object LiveCanonicalRecovery6686 {
 
         for ((mint, amount) in walletMints) {
             if (mint.isBlank() || amount.raw <= BigInteger.ONE || existingLive.contains(mint)) continue
+            if (!recoveryHoldingCurrent8527(mint, amount, holdingProofs8527[mint])) continue
             // V5.0.8418 — USDC / USDT / wSOL (and every guarded base mint) is cash at its quote basis, never a position
             if (com.lifecyclebot.engine.truth.QuoteAssetBasis8418.skipRecovery8418(mint, amount.raw, amount.decimals)) continue
             // V5.0.7714 — see DUST_THE_ROUTES_REFUSE above.
@@ -1036,6 +1079,8 @@ object LiveCanonicalRecovery6686 {
                 continue
             }
 
+            // Basis lookup may have waited on providers; recheck the same observation before ownership mutation.
+            if (!recoveryHoldingCurrent8527(mint, amount, holdingProofs8527[mint])) continue
             val safeIdentity = basis.identity.replace(Regex("[^A-Za-z0-9]"), "").takeLast(14).ifBlank { "basis" }
             val positionId = runtimePos?.positionId?.takeIf { it.isNotBlank() }
                 ?: "LIVE_RECOVERED_6686:${mint.take(16)}:$safeIdentity"
@@ -1067,6 +1112,7 @@ object LiveCanonicalRecovery6686 {
                         recoveredAssetClass = recoveredClass7454,
                         actualEntryPoolAddress = basis.pool,
                         actualEntryDex = basis.dex,
+                        walletRecovery8527 = true, holdingRead8527 = holdingProofs8527[mint],
                     )
                 } catch (_: Throwable) {
                     CanonicalPositionAuthority6441.MutateResult.INVARIANT_VIOLATION
@@ -1171,6 +1217,7 @@ object LiveCanonicalRecovery6686 {
                         actualEntryPriceSource = if (promoCost7876 == basis.entryCostSol) basis.source else "RESERVED_COST_7876",
                         actualEntryPoolAddress = basis.pool,
                         actualEntryDex = basis.dex,
+                        walletRecovery8527 = true, holdingRead8527 = holdingProofs8527[mint],
                     )
                 } catch (_: Throwable) { CanonicalPositionAuthority6441.MutateResult.INVARIANT_VIOLATION }
                 if (promoted7133 == CanonicalPositionAuthority6441.MutateResult.APPLIED) {
@@ -1252,6 +1299,7 @@ object LiveCanonicalRecovery6686 {
                     assetClass = com.lifecyclebot.engine.truth.AssetClass.fromLane(basis.lane)
                         .takeUnless { it == com.lifecyclebot.engine.truth.AssetClass.UNKNOWN }
                         ?: com.lifecyclebot.engine.truth.AssetClass.SOLANA_TOKEN,
+                    walletRecovery8527 = true, holdingRead8527 = holdingProofs8527[mint],
                 )
             } catch (_: Throwable) { CanonicalPositionAuthority6441.MutateResult.INVARIANT_VIOLATION }
 

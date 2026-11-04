@@ -1196,6 +1196,7 @@ object HostWalletTokenTracker {
             val uiAmount = pair.uiDoubleForDisplay()
             val decimals = pair.decimals
             val rawExact = pair.raw
+            if (rawExact.signum() > 0 && !LiveCanonicalRecovery6686.recoveryHoldingCurrent8527(mint, pair)) continue
             val walletHasTradableUi = uiAmount.isFinite() && uiAmount > TERMINAL_DUST_UI
             val walletHasTradableRaw = rawExact > BigInteger.valueOf(DUST_RAW) && walletHasTradableUi
             val existing = positions[mint]

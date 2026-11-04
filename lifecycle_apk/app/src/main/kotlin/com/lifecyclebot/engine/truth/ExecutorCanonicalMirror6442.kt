@@ -485,6 +485,7 @@ object ExecutorCanonicalMirror6442 {
         reason: String = "SELL_CONFIRMED",
         positionId7835: String? = null,
         sellExecutionId7835: String = "",
+        receiptCapture8527: CanonicalPartialReceipt8527.Capture8527? = null,
     ): Boolean {
         return try {
             val positionId = positionId7835 ?: positionIdOf(mint, paperMode)
@@ -493,6 +494,7 @@ object ExecutorCanonicalMirror6442 {
             val posBefore = CanonicalPositionAuthority6441.getPosition(positionId)
             if (posBefore == null || posBefore.mint != mint || !posBefore.mode.equals(modeName(paperMode), true)) return false
             val qtyToSell = soldQtyRaw
+            val capture8527 = receiptCapture8527 ?: CanonicalPartialReceipt8527.Capture8527()
             val result = CanonicalPositionAuthority6441.partialSell(
                 idempotencyKey = idem,
                 positionId = positionId,
@@ -501,9 +503,10 @@ object ExecutorCanonicalMirror6442 {
                 soldCostBasisSol = soldCostBasisSol,
                 feesSol = feesSol,
                 paperMode = paperMode,
+                receiptCapture8527 = capture8527,
             )
             sellsMirrored.incrementAndGet()
-            val posAfter = CanonicalPositionAuthority6441.getPosition(positionId)
+            val posAfter = capture8527.afterPosition ?: CanonicalPositionAuthority6441.getPosition(positionId)
             if (result == CanonicalPositionAuthority6441.MutateResult.APPLIED && posAfter != null) {
                 if (posAfter.lifecycle == CanonicalPositionAuthority6441.Lifecycle.CLOSED) {
                     try { PositionStateLedger6427.confirmTerminalSell(canonicalMint(mint)) } catch (_: Throwable) {}

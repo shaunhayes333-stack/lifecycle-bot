@@ -13,7 +13,7 @@ class Aate8076LabelsStartWhereABuyLandsTest {
         assertTrue(f.contains("REBASE_MIN_MS_8076 = 5_000L"))
         assertTrue(f.contains("if (!o.rebased8076 && age >= REBASE_MIN_MS_8076) {"))
         // superseded by V5.0.8350 — grades price on the depth a curve trades against (allInCostPct8350); fresh books cells_8350
-        assertTrue(f.contains("CELLS_KEY_7946 = \"cells_8521\""))
+        assertTrue(f.contains("CELLS_KEY_7946 = \"cells_8527\""))
         assertTrue(src("engine/truth/HiveEdge8000.kt").contains("\"hive_edge_8076\""))
     }
 
@@ -27,3 +27,4 @@ class Aate8076LabelsStartWhereABuyLandsTest {
         assertTrue(src("engine/truth/LiveBootRecovery8074.kt").contains("WalletAccountCache.snapshot(ttlMs = 180_000L)"))
     }
 }
+

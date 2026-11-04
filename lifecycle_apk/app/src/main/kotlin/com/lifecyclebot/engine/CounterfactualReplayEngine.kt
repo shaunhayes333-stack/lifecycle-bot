@@ -7,7 +7,7 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
 
-/** V5.0.4239 — offline counterfactual exit replay. */
+/** Unordered terminal-summary sensitivity research. This is not chronological execution replay or empirical policy proof. */
 object CounterfactualReplayEngine {
     enum class AlternativeKind { BANK_25, BANK_50, TRAIL_RUNNER, HARD_STOP_15, HOLD_TO_PEAK_HALF }
 
@@ -30,17 +30,25 @@ object CounterfactualReplayEngine {
         val createdAtMs: Long = System.currentTimeMillis(),
     )
 
+    /**
+     * Legacy name retained for callers. Coverage is the fraction of summaries containing this arm, not accuracy,
+     * confidence, or executable advantage. These cases contain neither event order nor an identified environment.
+     */
     data class MctsExitPolicyHint(
         val policy: AlternativeKind,
-        val expectedDeltaPct: Double,
-        val confidence: Double,
+        val meanHypotheticalDeltaPct: Double,
+        val summarySupportShare: Double,
         val sampleCount: Int,
-    )
+    ) {
+        val evidence8527: LaneStrategyEvaluator.Evidence8527 get() = LaneStrategyEvaluator.Evidence8527.SUMMARY_HYPOTHESIS
+        val provenance8527: String get() = "UNORDERED_EXTREMA_ENVIRONMENT_UNKNOWN"
+    }
 
     private const val MAX_CASES = 500
     private val cases = CopyOnWriteArrayList<ReplayCase>()
 
     fun recordTerminalTrade(lane: String, exitReason: String, realizedPnlPct: Double, peakGainPct: Double, maxLossPct: Double = 0.0, holdSeconds: Long = 0L): String {
+        if (!realizedPnlPct.isFinite() || !peakGainPct.isFinite() || !maxLossPct.isFinite()) return ""
         val realized = realizedPnlPct.coerceIn(-500.0, 100_000.0)
         val peak = peakGainPct.coerceIn(-100.0, 250_000.0)
         val loss = maxLossPct.coerceIn(-500.0, 0.0)
@@ -66,7 +74,7 @@ object CounterfactualReplayEngine {
     }
 
 
-    /** V5.0.4259 — bounded offline MCTS/UCB-style exit policy hint. */
+    /** Legacy bounded offline MCTS/UCB-style RESEARCH ranking: no simulated tree, event sequence or fill proof. */
     fun mctsExitPolicyHint(lane: String = "", maxCases: Int = 40, rollouts: Int = 96): MctsExitPolicyHint? = synchronized(cases) {
         val sample = cases.asSequence()
             .filter { lane.isBlank() || it.lane.equals(lane, ignoreCase = true) }
@@ -86,21 +94,21 @@ object CounterfactualReplayEngine {
         }.sortedByDescending { it.second.second }
         val best = ranked.first()
         val avg = best.second.first.coerceIn(-500.0, 250_000.0)
-        val confidence = (best.second.third.toDouble() / sample.size.toDouble()).coerceIn(0.0, 1.0)
-        MctsExitPolicyHint(best.first, avg, confidence, sample.size)
+        val coverage = (best.second.third.toDouble() / sample.size.toDouble()).coerceIn(0.0, 1.0)
+        MctsExitPolicyHint(best.first, avg, coverage, sample.size)
     }
 
     fun policyHints(lane: String = ""): String = synchronized(cases) {
         val sample = bestMissedAlternatives(lane, 20)
-        if (sample.isEmpty()) return@synchronized "CounterfactualReplayEngine: no missed exit alternatives"
+        if (sample.isEmpty()) return@synchronized "CounterfactualReplayEngine: no summary hypotheses (no executable replay evidence)"
         val grouped = sample.flatMap { it.alternatives.filter { a -> a.deltaVsRealizedPct >= 8.0 } }
             .groupBy { it.kind }
             .mapValues { (_, alts) -> alts.map { it.deltaVsRealizedPct }.average() }
             .entries.sortedByDescending { it.value }
         val top = grouped.take(3).joinToString { entry -> entry.key.name + ':' + String.format(java.util.Locale.US, "%.1f", entry.value) }
         val mcts = mctsExitPolicyHint(lane)
-        val mctsText = if (mcts != null) " mcts=${mcts.policy.name}:${String.format(java.util.Locale.US, "%.1f", mcts.expectedDeltaPct)} conf=${String.format(java.util.Locale.US, "%.2f", mcts.confidence)}" else ""
-        "CounterfactualReplayEngine: cases=${cases.size} top=$top$mctsText offline_only=true"
+        val mctsText = if (mcts != null) " summary=${mcts.policy.name}:${String.format(java.util.Locale.US, "%.1f", mcts.meanHypotheticalDeltaPct)} support=${String.format(java.util.Locale.US, "%.2f", mcts.summarySupportShare)}" else ""
+        "CounterfactualReplayEngine: cases=${cases.size} hypotheticalTop=$top$mctsText offline_only=true authority=none chronology=missing environment=unknown"
     }
 
     fun reset() { synchronized(cases) { cases.clear() } }
@@ -112,7 +120,7 @@ object CounterfactualReplayEngine {
             c.alternatives.forEach { a -> alts.put(JSONObject().put("kind", a.kind.name).put("hypo", a.hypotheticalPnlPct).put("delta", a.deltaVsRealizedPct).put("note", a.note)) }
             arr.put(JSONObject().put("id", c.id).put("lane", c.lane).put("exitReason", c.exitReason).put("realized", c.realizedPnlPct).put("peak", c.peakGainPct).put("loss", c.maxLossPct).put("holdSeconds", c.holdSeconds).put("createdAt", c.createdAtMs).put("alternatives", alts))
         }
-        JSONObject().put("cases", arr).toString()
+        JSONObject().put("evidence8527", "SUMMARY_HYPOTHESIS").put("cases", arr).toString()
     }
 
     fun importState(raw: String?) {
@@ -131,18 +139,21 @@ object CounterfactualReplayEngine {
                 }
                 restored.add(ReplayCase(c.optString("id"), c.optString("lane"), c.optString("exitReason"), c.optDouble("realized", 0.0), c.optDouble("peak", 0.0), c.optDouble("loss", 0.0), c.optLong("holdSeconds", 0L), alts, c.optLong("createdAt", System.currentTimeMillis())))
             }
-            synchronized(cases) { cases.clear(); cases.addAll(restored.filter { it.id.isNotBlank() && it.alternatives.isNotEmpty() }.takeLast(MAX_CASES)) }
+            synchronized(cases) { cases.clear(); cases.addAll(restored.filter { it.id.isNotBlank() && it.realizedPnlPct.isFinite() && it.peakGainPct.isFinite() &&
+                it.maxLossPct.isFinite() && it.alternatives.isNotEmpty() && it.alternatives.all { a ->
+                    a.hypotheticalPnlPct.isFinite() && a.deltaVsRealizedPct.isFinite()
+                } }.takeLast(MAX_CASES)) }
         } catch (_: Throwable) {}
     }
 
     private fun buildAlternatives(realized: Double, peak: Double, loss: Double): List<ReplayAlternative> {
         val out = mutableListOf<ReplayAlternative>()
         fun add(kind: AlternativeKind, hypo: Double, note: String) { val h = hypo.coerceIn(-500.0, 250_000.0); out.add(ReplayAlternative(kind, h, h - realized, note)) }
-        if (peak >= 25.0) add(AlternativeKind.BANK_25, 25.0, "Bank fixed 25% once available")
-        if (peak >= 50.0) add(AlternativeKind.BANK_50, 50.0, "Bank fixed 50% once available")
-        if (peak >= 100.0) add(AlternativeKind.TRAIL_RUNNER, max(35.0, peak * 0.38), "Trail runner instead of full giveback")
-        if (realized < -15.0 || loss <= -15.0) add(AlternativeKind.HARD_STOP_15, -15.0, "Respect unconditional hard floor")
-        if (peak > realized + 20.0) add(AlternativeKind.HOLD_TO_PEAK_HALF, min(peak * 0.5, peak - 5.0), "Capture half of observed peak excursion")
+        if (peak >= 25.0) add(AlternativeKind.BANK_25, 25.0, "Hypothesis: full fill at +25%; order, execution and costs unproved")
+        if (peak >= 50.0) add(AlternativeKind.BANK_50, 50.0, "Hypothesis: full fill at +50%; order, execution and costs unproved")
+        if (peak >= 100.0) add(AlternativeKind.TRAIL_RUNNER, max(35.0, peak * 0.38), "Hypothesis: runner trail; peak-to-exit sequence and fill unproved")
+        if (realized < -15.0 || loss <= -15.0) add(AlternativeKind.HARD_STOP_15, -15.0, "Hypothesis: stop fill at -15%; gaps and failed sales unrepresented")
+        if (peak > realized + 20.0) add(AlternativeKind.HOLD_TO_PEAK_HALF, min(peak * 0.5, peak - 5.0), "Hypothesis: half-peak capture; no executable exit timestamp")
         return out.sortedByDescending { it.deltaVsRealizedPct }.take(5)
     }
 

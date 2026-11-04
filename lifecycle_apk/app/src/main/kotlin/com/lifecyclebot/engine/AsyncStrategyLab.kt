@@ -16,6 +16,16 @@ import java.util.concurrent.ConcurrentHashMap
 object AsyncStrategyLab {
     enum class Provider { LOCAL_ONLY, GEMINI_FREE, GROQ_FREE, OPENROUTER_FREE }
 
+    /** Structured sizing intent, not a keyword found inside metrics or research prose. */
+    enum class SizingAction8527 { NONE, SIZE_UP, SIZE_DOWN }
+
+    internal fun explicitSizingAction8527(proposal: String): SizingAction8527 =
+        when (proposal.trim().uppercase(java.util.Locale.ROOT)) {
+            "SIZE_UP" -> SizingAction8527.SIZE_UP
+            "SIZE_DOWN", "RISK_DOWN" -> SizingAction8527.SIZE_DOWN
+            else -> SizingAction8527.NONE
+        }
+
     data class LabHypothesis(
         val id: String,
         val provider: Provider,
@@ -26,6 +36,7 @@ object AsyncStrategyLab {
         val createdAtMs: Long = System.currentTimeMillis(),
         val backgroundOnly: Boolean = true,
         val symbolicChecked: Boolean = false,
+        val sizingAction8527: SizingAction8527 = SizingAction8527.NONE,
     )
 
     private const val MAX_ACCEPTED = 80
@@ -39,6 +50,7 @@ object AsyncStrategyLab {
         proposal: String,
         rollbackCondition: String,
         symbolicChecked: Boolean = false,
+        sizingAction8527: SizingAction8527 = explicitSizingAction8527(proposal),
     ): Boolean {
         val p = proposal.trim()
         val metric = expectedMetric.trim()
@@ -55,6 +67,7 @@ object AsyncStrategyLab {
             proposal = p.take(1200),
             rollbackCondition = rollback.take(400),
             symbolicChecked = symbolicChecked,
+            sizingAction8527 = sizingAction8527,
         )
         synchronized(accepted) {
             accepted.removeAll { it.id == id }
@@ -176,6 +189,7 @@ object AsyncStrategyLab {
                 put("createdAt", h.createdAtMs)
                 put("backgroundOnly", h.backgroundOnly)
                 put("symbolicChecked", h.symbolicChecked)
+                put("sizingAction8527", h.sizingAction8527.name)
             })
         }
         JSONObject().put("accepted", arr).toString()
@@ -199,6 +213,11 @@ object AsyncStrategyLab {
                     createdAtMs = o.optLong("createdAt", System.currentTimeMillis()),
                     backgroundOnly = o.optBoolean("backgroundOnly", true),
                     symbolicChecked = o.optBoolean("symbolicChecked", false),
+                    // Legacy notes are retained; only an entire explicit command migrates as intent.
+                    sizingAction8527 = if (o.has("sizingAction8527")) {
+                        runCatching { SizingAction8527.valueOf(o.optString("sizingAction8527")) }
+                            .getOrDefault(SizingAction8527.NONE)
+                    } else explicitSizingAction8527(o.optString("proposal")),
                 )
                 if (h.id.isNotBlank() && h.proposal.isNotBlank() && !looksHotPath(h.proposal)) restored.add(h)
             }
@@ -220,11 +239,10 @@ object AsyncStrategyLab {
             grouped.forEach { (lane, hs) ->
                 var bias = 1.0
                 hs.takeLast(4).forEach { h ->
-                    val text = (h.expectedMetric + " " + h.proposal).uppercase()
-                    bias *= when {
-                        text.contains("SIZE_DOWN") || text.contains("RISK_DOWN") || text.contains("DRAWDOWN") || text.contains("AVOID") -> 0.80
-                        text.contains("SIZE_UP") || text.contains("COMPOUND") || text.contains("RUNNER_CAPTURE") || text.contains("PRESS") || text.contains("FOCUS") -> 1.25
-                        else -> 1.0
+                    bias *= when (h.sizingAction8527) {
+                        SizingAction8527.SIZE_DOWN -> 0.80
+                        SizingAction8527.SIZE_UP -> 1.25
+                        SizingAction8527.NONE -> 1.0
                     }
                 }
                 next[lane] = bias.coerceIn(0.60, 1.55)
@@ -238,7 +256,7 @@ object AsyncStrategyLab {
         else buildString {
             appendLine("AsyncStrategyLab: accepted=${accepted.size} background_only=true actuated_authority_6090=true bias_range=0.60..1.55")
             accepted.takeLast(5).forEach { h ->
-                appendLine("- ${h.provider.name} ${h.lane}: ${h.expectedMetric} :: ${h.proposal.take(120)} rollback=${h.rollbackCondition.take(80)} symbolic=${h.symbolicChecked}")
+                appendLine("- ${h.provider.name} ${h.lane}: ${h.expectedMetric} :: ${h.proposal.take(120)} rollback=${h.rollbackCondition.take(80)} symbolic=${h.symbolicChecked} sizingIntent=${h.sizingAction8527}")
             }
         }
     }

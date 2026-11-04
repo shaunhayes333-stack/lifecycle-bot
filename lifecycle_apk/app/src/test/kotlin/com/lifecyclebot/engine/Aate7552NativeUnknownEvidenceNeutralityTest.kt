@@ -9,10 +9,12 @@ class Aate7552NativeUnknownEvidenceNeutralityTest {
 
     @Test fun holder_unknown_uses_explicit_resolution_state_and_neutral_value() {
         val b=src("engine/SpecialistBrainBridge7542.kt")
-        val block=b.substringAfter("V5.0.7552").substringBefore("val bundle=")
-        assertTrue(block.contains("if (ts.holderDataResolved)"))
-        assertTrue(block.contains("else 20.0"))
-        assertFalse(block.contains("?:0.0"))
+        assertTrue(b.contains("val top = SpecialistInputParity8527.topHolderPct8527(ts)"))
+        val shared=src("engine/SpecialistInputParity8527.kt")
+        assertTrue(shared.contains("safetyObservedAtMs in 1L..nowMs"))
+        assertEquals(20.0, SpecialistInputParity8527.topHolderPct8527(null, null, 0.0, 0L, 1_000L), 0.0)
+        assertEquals(42.0, SpecialistInputParity8527.topHolderPct8527(null, 42.0, 0.0, 0L, 1_000L), 0.0)
+        assertEquals(0.0, SpecialistInputParity8527.topHolderPct8527(null, null, 0.0, 900L, 1_000L), 0.0)
     }
 
     @Test fun unresolved_rugcheck_is_pending_not_fabricated_confirmed_score() {

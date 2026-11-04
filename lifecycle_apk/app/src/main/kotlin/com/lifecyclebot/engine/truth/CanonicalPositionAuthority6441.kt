@@ -273,12 +273,20 @@ object CanonicalPositionAuthority6441 {
         // pre-6525 callers).
         assetClass: AssetClass = AssetClass.SOLANA_TOKEN,
         candidateVersion7863: Long = 0L,
+        walletRecovery8527: Boolean = false,
+        holdingRead8527: WalletHoldingRead8527? = null,
     ): MutateResult {
         lock.lock()
         try {
             if (isDuplicate(idempotencyKey)) return MutateResult.DUPLICATE
             val canonicalMode6490 = modeOverride?.trim()?.lowercase()?.takeIf { it in setOf("paper", "live") }
                 ?: if (paperMode) "paper" else "live"
+            // Recovery is a wallet read, not a new signed BUY. Revalidate under the same lock as the sell/close.
+            if (walletRecovery8527 && (canonicalMode6490 != "live" ||
+                !com.lifecyclebot.engine.LiveCanonicalRecovery6686.recoveryHoldingCurrent8527(
+                    mint, CanonicalTokenAmount(openedQtyRaw, quantityScale), holdingRead8527))) {
+                return MutateResult.LIFECYCLE_FORBIDDEN
+            }
             // V5.0.8216 — ledger backstop: no new PAPER position while the runtime is LIVE (Markets/Crypto/any caller).
             if (paperRefusedWhileLive8216(canonicalMode6490)) {
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_PAPER_OPEN_REFUSED_LIVE_RUNTIME_8216") } catch (_: Throwable) {}
@@ -566,6 +574,8 @@ object CanonicalPositionAuthority6441 {
         actualEntryPoolAddress: String = "",
         actualEntryDex: String = "",
         candidateVersion7863: Long = 0L,
+        walletRecovery8527: Boolean = false,
+        holdingRead8527: WalletHoldingRead8527? = null,
     ): MutateResult {
         lock.lock()
         try {
@@ -574,6 +584,11 @@ object CanonicalPositionAuthority6441 {
                 // Never saw an open; caller should have used openPosition — refuse.
                 invariantViolations.incrementAndGet()
                 return MutateResult.UNKNOWN_POSITION
+            }
+            if (walletRecovery8527 && (!prev.mode.equals("live", true) || paperMode ||
+                !com.lifecyclebot.engine.LiveCanonicalRecovery6686.recoveryHoldingCurrent8527(
+                    prev.mint, CanonicalTokenAmount(actualQtyRaw, quantityScale), holdingRead8527))) {
+                return MutateResult.LIFECYCLE_FORBIDDEN
             }
             // V5.0.7807 — a protective BASIS_UNCERTAIN row is the same bot buy
             // awaiting proof; a later verified fill promotes it like a pending
@@ -809,6 +824,7 @@ object CanonicalPositionAuthority6441 {
         soldCostBasisSol: Double,
         feesSol: Double,
         paperMode: Boolean,
+        receiptCapture8527: CanonicalPartialReceipt8527.Capture8527? = null,
     ): MutateResult {
         lock.lock()
         try {
@@ -831,7 +847,7 @@ object CanonicalPositionAuthority6441 {
             val newRemaining = pos.remainingQtyRaw - soldQtyRaw
             val newLifecycle = if (newRemaining == BigInteger.ZERO) Lifecycle.CLOSED else Lifecycle.PARTIALLY_CLOSED
             val realizedDelta = proceedsSol - soldCostBasisSol - feesSol
-            positions[positionId] = pos.copy(
+            val appliedPosition8527 = pos.copy(
                 remainingQtyRaw = newRemaining,
                 soldCostBasisSol = pos.soldCostBasisSol + soldCostBasisSol,
                 realizedProceedsSol = pos.realizedProceedsSol + proceedsSol,
@@ -840,9 +856,11 @@ object CanonicalPositionAuthority6441 {
                 lifecycle = newLifecycle,
                 lastMutationMs = System.currentTimeMillis(),
             )
+            positions[positionId] = appliedPosition8527
             if (paperMode) paperCashSol.getAndUpdate { it + proceedsSol - feesSol }
             markKeyUsed(idempotencyKey)
             muts.incrementAndGet()
+            receiptCapture8527?.recordApplied8527(pos, appliedPosition8527, idempotencyKey)
             try {
                 PipelineHealthCollector.labelInc(
                     if (newLifecycle == Lifecycle.CLOSED) "CANONICAL_POSITION_CLOSE_6441"
@@ -939,6 +957,23 @@ object CanonicalPositionAuthority6441 {
     }
 
     // ─── Read-only accessors for consumers ─────────────────────────────────
+    /**
+     * Read-only downstream projection of a confirmed slice. Hold the existing mutation lock until the native
+     * projection is applied, so a newer canonical slice cannot race its validation/write boundary.
+     */
+    internal fun projectConfirmedSlice8527(receipt: CanonicalPartialReceipt8527,
+                                           project: (Position) -> Boolean): Boolean {
+        lock.lock()
+        try {
+            val current = positions[receipt.positionId] ?: return false
+            if (!receipt.belongsToHistory8527(current)) return false
+            if (positions.values.any { it.positionId != current.positionId && it.mint == current.mint &&
+                    it.mode == current.mode && it.remainingQtyRaw.signum() > 0 && it.lifecycle != Lifecycle.CLOSED })
+                return false
+            return project(current)
+        } finally { lock.unlock() }
+    }
+
     fun getPosition(positionId: String): Position? = positions[positionId]
 
     /** Shared mint tracking may retire only after this PAPER lot is terminal and no other liability owns it. */
@@ -1242,12 +1277,22 @@ object CanonicalPositionAuthority6441 {
         entryPriceUsd: Double,
         signature: String,
         reason: String,
+        walletRecovery8527: Boolean = false,
+        holdingRead8527: WalletHoldingRead8527? = null,
     ): ProtectiveOwnership7807 {
         if (mint.isBlank() || actualQtyRaw <= BigInteger.ONE || tokenDecimals !in 0..18) return ProtectiveOwnership7807.REFUSED
         var target7807: Position? = null
         var outcome7807 = ProtectiveOwnership7807.REFUSED
         lock.lock()
         try {
+            // An asynchronous receipt for a CLOSED position must never create a sibling owner.
+            // Genuine post-sale residuals use wallet recovery with a new owner-account observation.
+            if (positionIdHint.isNotBlank() && positions[positionIdHint]?.let {
+                    it.mint == mint && it.mode.equals("live", true) && it.lifecycle == Lifecycle.CLOSED
+                } == true) return ProtectiveOwnership7807.REFUSED
+            if (walletRecovery8527 && !com.lifecyclebot.engine.LiveCanonicalRecovery6686.recoveryHoldingCurrent8527(
+                    mint, CanonicalTokenAmount(actualQtyRaw, tokenDecimals), holdingRead8527,
+                )) return ProtectiveOwnership7807.REFUSED
             val liveRows7807 = positions.values.filter { it.mint == mint && it.mode.equals("live", true) }
             if (liveRows7807.any { isOpenLifecycleWithQty6743(it) }) return ProtectiveOwnership7807.ALREADY_OPEN
             if (liveRows7807.any { isFundedProtectiveQuarantine7807(it) }) return ProtectiveOwnership7807.ALREADY_PROTECTED
@@ -2081,11 +2126,17 @@ object CanonicalPositionAuthority6441 {
         recoveredAssetClass: AssetClass,
         actualEntryPoolAddress: String = "",
         actualEntryDex: String = "",
+        walletRecovery8527: Boolean = false,
+        holdingRead8527: WalletHoldingRead8527? = null,
     ): MutateResult {
         lock.lock()
         try {
             val prev = positions[positionId] ?: return MutateResult.UNKNOWN_POSITION
             if (prev.lifecycle != Lifecycle.QUARANTINED || !prev.mode.equals("live", true)) {
+                return MutateResult.LIFECYCLE_FORBIDDEN
+            }
+            if (walletRecovery8527 && !com.lifecyclebot.engine.LiveCanonicalRecovery6686.recoveryHoldingCurrent8527(
+                    prev.mint, CanonicalTokenAmount(actualQtyRaw, quantityScale), holdingRead8527)) {
                 return MutateResult.LIFECYCLE_FORBIDDEN
             }
             val recoverableReason = prev.quarantineReason == "PENDING_ENTRY_TTL_CANCELLED_6461" ||

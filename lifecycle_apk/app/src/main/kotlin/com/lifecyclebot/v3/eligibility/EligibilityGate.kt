@@ -256,14 +256,20 @@ class EligibilityGate(
             }
         }
 
+        // A lower bound cannot satisfy a launch window. Only proven-established
+        // candidates with an actual established-lane pool may score without exact birth.
+        if (!candidate.hasScorableAge8527) return EligibilityResult.fail("BIRTH_METADATA_HYDRATING_7441")
+        val ageForWindow8527 = candidate.provenMinimumAgeMinutes8527
+            ?: return EligibilityResult.fail("BIRTH_METADATA_HYDRATING_7441")
+
         // Too old = stale opportunity — V5.0.8140: for a LAUNCH only. The window (live 6 h) is a
         // launch-lane rule; an old token with a real established-lane pool is scored, not refused
         // (CORE / QUALITY / BLUECHIP / DIP_HUNTER / TREASURY / MOONSHOT need that score). SHITCOIN
         // applies the same window on true age itself (LaneAgeLiquidityTruth8140).
-        if (com.lifecyclebot.engine.LaneAgeLiquidityScope8140.v3AgeWindowRefuses8140(candidate.ageMinutes, config.maxTokenAgeMinutes, candidate.liquidityUsd)) {
+        if (com.lifecyclebot.engine.LaneAgeLiquidityScope8140.v3AgeWindowRefuses8140(ageForWindow8527, config.maxTokenAgeMinutes, candidate.liquidityUsd)) {
             return EligibilityResult.fail("TOO_OLD")
         }
-        if (candidate.ageMinutes > config.maxTokenAgeMinutes) {
+        if (ageForWindow8527 > config.maxTokenAgeMinutes) {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("V3_AGE_WINDOW_ESTABLISHED_SCOPE_SCORED_8140") } catch (_: Throwable) {}
         }
 

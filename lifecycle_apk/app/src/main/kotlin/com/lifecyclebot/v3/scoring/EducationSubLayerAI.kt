@@ -2,7 +2,6 @@ package com.lifecyclebot.v3.scoring
 
 import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.engine.TradeHistoryStore
-import com.lifecyclebot.engine.AdaptiveLearningEngine
 import com.lifecyclebot.engine.EdgeLearning
 import com.lifecyclebot.engine.TokenWinMemory
 import com.lifecyclebot.engine.BehaviorLearning
@@ -495,6 +494,10 @@ object EducationSubLayerAI {
         // with the real entry-time features instead of bailing to "no data".
         val candidate: com.lifecyclebot.v3.scanner.CandidateSnapshot? = null,
     )
+    /** A present entry snapshot with no exact birth must not learn as a zero-minute launch. */
+    internal fun exactEntryAge8527(candidate: com.lifecyclebot.v3.scanner.CandidateSnapshot?, outcomeAge: Double): Double? =
+        if (candidate != null) candidate.exactAgeMinutes8527 else outcomeAge.takeIf { it.isFinite() && it >= 0.0 }
+
     internal fun entrySnapshotKey8491(mint: String, mode: String): String = "${mode.trim().lowercase()}:$mint"
     private fun outcomeSnapshotKey8491(outcome: TradeOutcomeData): String =
         if (outcome.positionId8491.isBlank()) entrySnapshotKey8491(outcome.mint, outcome.executionMode)
@@ -1008,38 +1011,17 @@ object EducationSubLayerAI {
             layersUpdated++
         } catch (e: Exception) { errors.add("FluidLearningAI: ${e.message}") }
         
-        // AdaptiveLearningEngine - Feature weight adjustment
+        // AdaptiveLearningEngine has one learning owner: the finalized whole-position bus ->
+        // onCanonicalTerminal8527, using the sealed entry witness and stable position identity.
+        // Education's old second write used 0/50 proxy fields and a different key, so a
+        // single position could train twice with contradictory features. Keep only this
+        // dashboard's layer accounting; never re-train or synthesize a fallback lesson.
         try {
-            val features = AdaptiveLearningEngine.captureFeatures(
-                entryMcapUsd = outcome.entryMcapUsd,
-                tokenAgeMinutes = outcome.tokenAgeMinutes,
-                buyRatioPct = outcome.buyRatioPct,
-                volumeUsd = outcome.volumeUsd,
-                liquidityUsd = outcome.liquidityUsd,
-                holderCount = outcome.holderCount,
-                topHolderPct = outcome.topHolderPct,
-                holderGrowthRate = outcome.holderGrowthRate,
-                devWalletPct = outcome.devWalletPct,
-                bondingCurveProgress = outcome.bondingCurveProgress,
-                rugcheckScore = outcome.rugcheckScore,
-                emaFanState = outcome.emaFanState,
-                entryScore = outcome.entryScore,
-                priceFromAth = outcome.priceFromAth,
-                pnlPct = outcome.pnlPct,
-                maxGainPct = outcome.maxGainPct,
-                maxDrawdownPct = outcome.maxDrawdownPct,
-                timeToPeakMins = outcome.timeToPeakMins,
-                holdTimeMins = outcome.holdTimeMinutes,
-                exitReason = outcome.exitReason,
-                entryPhase = outcome.entryPhase,
-                stableTradeKey = outcomeDedupKey(outcome),
-            )
             val adaptiveEnvironment7803 = when {
                 outcome.executionMode.contains("PAPER", ignoreCase = true) -> com.lifecyclebot.engine.TradeEnvironment.PAPER
                 outcome.executionMode.contains("SHADOW", ignoreCase = true) || outcome.isShadowTrade -> com.lifecyclebot.engine.TradeEnvironment.SHADOW
                 else -> com.lifecyclebot.engine.TradeEnvironment.LIVE
             }
-            AdaptiveLearningEngine.learnFromTrade(features, adaptiveEnvironment7803)
             markLayerOutcome("AdaptiveLearningEngine", outcome.isWin, outcome.pnlPct, isShadowTrade = adaptiveEnvironment7803 != com.lifecyclebot.engine.TradeEnvironment.LIVE, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("AdaptiveLearning: ${e.message}") }
@@ -1261,12 +1243,14 @@ object EducationSubLayerAI {
                 // which is still a valid ranking signal across all trades.
                 try {
                     val holdHours = (outcome.holdTimeMinutes / 60.0).coerceAtLeast(0.05)
-                    CapitalEfficiencyAI.recordOutcome(
-                        ageBandMinutes = outcome.tokenAgeMinutes,
-                        pnlPct = outcome.pnlPct,
-                        sizeSol = 1.0,
-                        holdHours = holdHours,
-                    )
+                    exactEntryAge8527(cand, outcome.tokenAgeMinutes)?.let { exactAge ->
+                        CapitalEfficiencyAI.recordOutcome(
+                            ageBandMinutes = exactAge,
+                            pnlPct = outcome.pnlPct,
+                            sizeSol = 1.0,
+                            holdHours = holdHours,
+                        )
+                    }
                 } catch (_: Exception) {}
 
                 // TokenDNAClusteringAI: needs the entry-time CandidateSnapshot

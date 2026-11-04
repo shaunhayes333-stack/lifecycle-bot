@@ -6,6 +6,23 @@ import java.util.concurrent.atomic.AtomicLong
 object CortexOpportunityPolarity8522 {
     const val POLICY_LABEL_8522 = "OPERATOR_INVERSE"
     const val MAX_AGE_MS_8522 = 5_000L
+    /** Enough graded same-lane decisions to reject noisy, misleading direction flips. */
+    const val MIN_DIRECTION_ROWS_8527 = 60
+    const val MIN_BUCKET_ROWS_8527 = 20
+
+    /** A directional override proves BOTH its inversion and the economics of the exact bucket it changes. */
+    fun inverseRankVerified8527(rank: CortexRank8325.LaneRank8325?, lane: String, action: Decision): Boolean {
+        if (rank == null || rank.lane != lane || rank.rows < MIN_DIRECTION_ROWS_8527 ||
+            rank.orderedBy != "edge" || rank.verdict != "INVERTED") return false
+        return when (action) {
+            Decision.TAKE_CANDIDATE -> rank.refuseCount8527 >= MIN_BUCKET_ROWS_8527 &&
+                rank.refuseNetLowerPct8527.isFinite() && rank.refuseNetLowerPct8527 > 0.0
+            Decision.REFUSE -> rank.strongCount8527 >= MIN_BUCKET_ROWS_8527 &&
+                rank.strongNetUpperPct8527.isFinite() && rank.strongNetUpperPct8527 < 0.0
+            Decision.ABSTAIN -> false
+        }
+    }
+
     private val lanes = setOf("QUALITY", "BLUECHIP", "SHITCOIN", "EXPRESS", "MOONSHOT", "PROJECT_SNIPER",
         "DIP_HUNTER", "MANIPULATED", "TREASURY", "CASHGEN", "CYCLIC", "CORE")
 
@@ -53,7 +70,8 @@ object CortexOpportunityPolarity8522 {
         "VOLUME_SCORE", "RSI", "FORWARD_MODEL_EV", "FORWARD_MODEL_PWIN", "PATTERN_CLASSIFIER")
 
     /** Pure projection: the caller still applies all mandate, data, safety, account, route and size checks. */
-    fun project8522(source: Source, assessment: Cortex7885.Assessment?, nowMs: Long, currentMode: String): Projection {
+    fun project8522(source: Source, assessment: Cortex7885.Assessment?, nowMs: Long, currentMode: String,
+                    verifiedLaneRank8527: CortexRank8325.LaneRank8325? = null): Projection {
         fun result(decision: Decision, reason: String) = Projection(decision, assessment?.bucket,
             assessment?.calibratedEdge ?: Double.NaN, reason, source.mint, source.lane, source.mode,
             assessment?.atMs ?: 0L, assessment?.inputAtMs8522 ?: 0L, source.candidateVersion,
@@ -77,9 +95,17 @@ object CortexOpportunityPolarity8522 {
         if (!candidateEvidence8522(a)) return abstain("NO_CANDIDATE_EVIDENCE")
         if (CortexScoreboard7885.bucketOf(a.calibratedEdge, 0.0, false) != a.bucket)
             return abstain("FORECAST_BUCKET_MISMATCH")
+        // Invert ONLY a bucket whose same-lane, finite, current-epoch forward outcomes support
+        // the particular action after modelled execution costs. The opposite bucket cannot borrow its proof.
         return when (a.bucket) {
-            CortexScoreboard7885.Bucket.REFUSE -> result(Decision.TAKE_CANDIDATE, "RAW_REFUSE_OPERATOR_TAKE_CANDIDATE")
-            CortexScoreboard7885.Bucket.STRONG -> result(Decision.REFUSE, "RAW_STRONG_OPERATOR_REFUSE")
+            CortexScoreboard7885.Bucket.REFUSE ->
+                if (inverseRankVerified8527(verifiedLaneRank8527, source.lane, Decision.TAKE_CANDIDATE))
+                    result(Decision.TAKE_CANDIDATE, "VERIFIED_REFUSE_BUCKET_NET_POSITIVE_8527")
+                else abstain("REFUSE_BUCKET_INVERSION_UNPROVEN_8527")
+            CortexScoreboard7885.Bucket.STRONG ->
+                if (inverseRankVerified8527(verifiedLaneRank8527, source.lane, Decision.REFUSE))
+                    result(Decision.REFUSE, "VERIFIED_STRONG_BUCKET_NET_NEGATIVE_8527")
+                else abstain("STRONG_BUCKET_INVERSION_UNPROVEN_8527")
             CortexScoreboard7885.Bucket.NEUTRAL -> abstain("RAW_NEUTRAL")
         }
     }

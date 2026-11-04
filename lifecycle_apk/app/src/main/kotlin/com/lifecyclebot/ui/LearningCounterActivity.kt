@@ -246,20 +246,14 @@ class LearningCounterActivity : Activity() {
             fluidSession,
             settledTrades,
         )
-        // V5.9.1035 — operator triage: prior code surfaced session-only counters
-        // for AdaptiveLearning + raw feature-gated counter for BehaviorLearning.
-        // Both intentionally lag the canonical settled baseline by design
-        // (AdaptiveLearning's session counter rebases per process restart;
-        // BehaviorLearning skips featuresIncomplete=true samples — see
-        // V5.9.802 doc on getCanonicalAlignedTradeCount). The drift display
-        // was therefore lying about fragmentation when in fact the brains
-        // ARE canonical-aligned through their dedicated bus-aware getters.
-        // Switch to the canonical-aligned accessors so Δ=0 reflects reality.
-        addKvDrift(
-            "AdaptiveLearningEngine (canonical-aligned)",
-            try { AdaptiveLearningEngine.getTradeCount().toLong() } catch (_: Throwable) { -1L },
-            settledTrades,
+        // V5.0.8527 — ALE counts its durably learned observed LIVE terminals, not all historical economic legs.
+        // Comparing this model-local cohort with the all-mode settled baseline would manufacture drift.
+        addKv(
+            "ALE observed LIVE terminals",
+            try { AdaptiveLearningEngine.getTradeCount().toString() } catch (_: Throwable) { "n/a" },
         )
+        addText("Observed LIVE terminal model; excludes legacy, PAPER/SHADOW and partial-leg history.", small = true)
+        // BehaviorLearning retains its existing canonical-aligned accessor and drift comparison.
         addKvDrift(
             "BehaviorLearning (canonical-aligned)",
             try { BehaviorLearning.getCanonicalAlignedTradeCount().toLong() } catch (_: Throwable) { -1L },

@@ -64,8 +64,19 @@ internal object CortexVotersWide8004 {
     private fun curve(ts: TokenState, now: Long) = once("curve", ts, now) { com.lifecyclebot.engine.BondingCurveTracker.evaluate(ts) }
     private fun charts8521(ts: TokenState, now: Long) = once("charts8521", ts, now) { LifecycleStrategy.chartFrames8521(ts, now) }
 
-    private fun ageMs(ts: TokenState, now: Long): Long =
-        ts.safety.tokenAgeMinutes.takeIf { it >= 0.0 }?.let { (it * 60_000.0).toLong() } ?: (now - ts.addedToWatchlistAt).coerceAtLeast(0L)
+    /** Birth and local observation are different facts. Voters never invent one from the other. */
+    internal fun observedAgeMs8527(ts: TokenState, now: Long): Long? {
+        val birth = try {
+            com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.peekBirthMs8418(ts.mint, now)
+        } catch (_: Throwable) { null }
+        return ageFromBirth8527(birth, now)
+    }
+
+    internal fun ageFromBirth8527(birthMs: Long?, now: Long): Long? =
+        birthMs?.takeIf { it > 0L && it <= now }?.let { now - it }
+
+    internal fun watchAgeMinutes8527(addedAtMs: Long, now: Long): Double? =
+        addedAtMs.takeIf { it > 0L && it <= now }?.let { (now - it) / 60_000.0 }
 
     private fun dev(ts: TokenState): String? =
         try { com.lifecyclebot.engine.OperatorRegistry.getDevWallet(ts.mint)?.takeIf { it.isNotBlank() } } catch (_: Throwable) { null }
@@ -167,7 +178,8 @@ internal object CortexVotersWide8004 {
         // ── expert wallets, callers, meme meta ──
         v("EXPERT_ENTRY_LIVE", "SMART_MONEY", FLAG, "experts") { ts, _, now -> flag(com.lifecyclebot.engine.ExpertWallets7962.expertEntryLive7962(ts.mint, now)) },
         v("EXPERT_CELL_LIFT", "SMART_MONEY", PCT, "experts_cell") { ts, _, now ->
-            fin(com.lifecyclebot.engine.ExpertWallets7962.expertCellLift7962(ts.lastMcap, ageMs(ts, now)))?.takeIf { it != 0.0 }
+            val age = observedAgeMs8527(ts, now) ?: return@v null
+            fin(com.lifecyclebot.engine.ExpertWallets7962.expertCellLift7962(ts.lastMcap, age))?.takeIf { it != 0.0 }
         },
         v("MEME_META_BETA", "META", FLAG, "meme_meta") { ts, _, now -> flag(com.lifecyclebot.engine.market.MemeMeta7973.beta7973(ts.mint, ts.symbol, ts.name, now)) },
         v("MEME_META_LIVE", "META", FLAG, "meme_meta_live") { ts, _, now -> flag(com.lifecyclebot.engine.market.MemeMeta7973.live7973(ts.mint, now)) },
@@ -264,9 +276,11 @@ internal object CortexVotersWide8004 {
         },
         // ── scanner brains ──
         v("SCANNER_DISCOVERY_BONUS", "SCANNER", ADJ, "scanner_learning") { ts, _, now ->
-            fin(com.lifecyclebot.engine.ScannerLearning.getDiscoveryBonus(ts.source, ts.lastLiquidityUsd, ageMs(ts, now) / 3_600_000.0))
+            val age = observedAgeMs8527(ts, now) ?: return@v null
+            fin(com.lifecyclebot.engine.ScannerLearning.getDiscoveryBonus(ts.source, ts.lastLiquidityUsd, age / 3_600_000.0))
         },
-        v("SCANNER_SOURCE_WR", "SCANNER", PROB, "scanner_learning") { ts, _, _ -> fin(com.lifecyclebot.engine.ScannerLearning.getSourceWinRate(ts.source)) },
+        // Old SCANNER_SOURCE_WR mixed missing-default50 with measured50; retain its ledger as legacy, never relabel it.
+        v("SCANNER_SOURCE_WR_8527", "SCANNER", PROB, "scanner_learning") { ts, _, _ -> com.lifecyclebot.engine.ScannerLearning.sourceEvidence8527(ts.source)?.winRate },
         v("MODE_LEARNING_BONUS", "SCANNER", ADJ, "mode_learning") { ts, lane, _ ->
             com.lifecyclebot.engine.ModeLearning.getScoreBonus(lane, ts.phase, ts.lastLiquidityUsd, ts.source,
                 java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)).toDouble()
@@ -292,7 +306,8 @@ internal object CortexVotersWide8004 {
         v("MEME_TECH_SCORE", "SCANNER", SCORE, "meme_tech") { ts, _, _ -> com.lifecyclebot.v3.MemeUnifiedScorerBridge.scoreForEntry(ts, null).techScore.toDouble() },
         v("SECOND_SCORER", "SCANNER", SCORE, "second_scorer") { ts, _, _ -> com.lifecyclebot.engine.SecondScorer.score(ts).score.toDouble() },
         v("AGE_PATTERN_SCORE", "SCANNER", SCORE, "age_pattern") { ts, _, now ->
-            fin(com.lifecyclebot.engine.OrthogonalSignals.calculateAgePatternScore((ageMs(ts, now) / 60_000L).toInt(), ts.tokenMap.migratedOrGraduated))
+            val age = observedAgeMs8527(ts, now) ?: return@v null
+            fin(com.lifecyclebot.engine.OrthogonalSignals.calculateAgePatternScore((age / 60_000L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(), ts.tokenMap.migratedOrGraduated))
         },
         v("TOXIC_PATTERN", "SCANNER", FLAG, "toxic_mode") { ts, lane, _ ->
             val bucket = ts.lastLiquidityUsd.let { when { it < 2_000 -> "MICRO"; it < 10_000 -> "TINY"; it < 50_000 -> "LOW"; else -> "HEALTHY" } }
@@ -422,11 +437,12 @@ internal object CortexVotersWide8004 {
         v("DEAD_QUARANTINE", "LAUNCH", FLAG, "dead_token") { ts, _, _ -> flag(com.lifecyclebot.engine.DeadTokenQuarantine.isDead(ts.mint)) },
         v("SOCIAL_TRUST", "LAUNCH", e(0.8, 0.95, 1.05, 1.15), "social_trust") { ts, _, _ -> fin(com.lifecyclebot.engine.TokenSocialScorer.getTrustForMint(ts.mint)) },
         v("ML_ENTRY_CONFIDENCE", "FORECASTER", PROB, "on_device_ml") { ts, _, now ->
+            val age = observedAgeMs8527(ts, now) ?: return@v null
             val h = ts.history.toList().takeLast(30)
             if (h.size < 5) null else com.lifecyclebot.ml.OnDeviceMLEngine.predict(
                 h, ts.lastLiquidityUsd, ts.lastMcap, h.last().holderCount, ts.holderGrowthRate, ts.safety.rugcheckScore,
                 ts.safety.mintAuthorityDisabled == true, ts.safety.freezeAuthorityDisabled == true, ts.safety.topHolderPct,
-                ts.meta.rsi, ts.meta.emafanAlignment, ageMs(ts, now) / 60_000L,
+                ts.meta.rsi, ts.meta.emafanAlignment, age / 60_000L,
             ).takeIf { it.trajectoryClass != "BOOTSTRAP" && it.trajectoryClass != "UNAVAILABLE" }?.entryConfidence?.toDouble()
         },
         // ── raw TokenState fields no voter read ──
@@ -459,7 +475,7 @@ internal object CortexVotersWide8004 {
         v("TREND_5M_CANDLES", "TOKEN", WIDE_PCT, "chart_5m_8521") { ts, _, now -> charts8521(ts, now)[Frame8521.M5]?.movePct },
         v("TREND_15M_CANDLES", "TOKEN", WIDE_PCT, "chart_15m_8521") { ts, _, now -> charts8521(ts, now)[Frame8521.M15]?.movePct },
         v("CONSENSUS_OBJECTIONS", "TOKEN", COUNT, "consensus_obj") { ts, _, _ -> ts.lastConsensusObjections.size.toDouble() },
-        v("WATCHLIST_AGE_MIN", "TOKEN", e(2.0, 10.0, 30.0, 120.0), "watch_age") { ts, _, now -> ((now - ts.addedToWatchlistAt).coerceAtLeast(0L) / 60_000.0) },
+        v("WATCHLIST_AGE_MIN", "TOKEN", e(2.0, 10.0, 30.0, 120.0), "watch_age") { ts, _, now -> watchAgeMinutes8527(ts.addedToWatchlistAt, now) },
         v("VOL_ACCEL_5M_VS_1H", "TOKEN", e(0.5, 1.0, 2.0, 4.0), "vol_accel") { ts, _, _ ->
             val v5 = ts.tokenMap.volume5mUsd ?: return@v null; val v1h = ts.tokenMap.volume1hUsd ?: return@v null
             if (v5 > 0.0 && v1h > 0.0) v5 * 12.0 / v1h else null

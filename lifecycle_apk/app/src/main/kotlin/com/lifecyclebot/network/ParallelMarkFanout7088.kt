@@ -9,8 +9,6 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 
@@ -53,7 +51,7 @@ import java.util.concurrent.atomic.AtomicLong
  *      pump.fun      fan    frontend-api-v3/coins/{mint} for bonding-curve
  *                           mints that NO aggregator lists yet
  *
- * All six start together on one pool and the merge runs at a fixed deadline.
+ * All eight start together on bounded source workers and merge at a fixed deadline.
  * Total latency is the SLOWEST source, not the sum, and a dead provider costs
  * nothing but its own absence — which is the whole point, because on this
  * device two of the six are dead at any given moment.
@@ -99,7 +97,7 @@ object ParallelMarkFanout7088 {
      */
     private const val AGREE_TOLERANCE = 0.02
 
-    /** Whole fan-out budget. The slowest source, not the sum of all six. */
+    /** Whole fan-out budget. The slowest source, not the sum of all eight. */
     private const val DEADLINE_MS = 4_000L
 
     /** pump.fun is per-mint, so its fan-out is bounded to stay polite. */
@@ -109,10 +107,6 @@ object ParallelMarkFanout7088 {
     // owns the mcap -> price derivation for this endpoint and reads the payload's
     // own supply; a second copy of the 1e9 constant here was exactly the
     // assumption V5.0.7089 had to remove from intake.
-
-    private val pool = Executors.newCachedThreadPool { r ->
-        Thread(r, "mark-fanout-7088").apply { isDaemon = true }
-    }
 
     private val http = SharedHttpClient.builder()
         .connectTimeout(3, TimeUnit.SECONDS)
@@ -188,11 +182,11 @@ object ParallelMarkFanout7088 {
         val observedAtMs8521 = System.currentTimeMillis()
         passes.incrementAndGet()
 
-        // source name -> (mint -> price). Written once per source, from that
-        // source's own thread, then read after the latch. No shared mutation.
+        // source name -> (mint -> price). Held/background parts merge immutable
+        // result maps per source; the reader snapshots only returned real marks.
         val results = ConcurrentHashMap<String, Map<String, Double>>()
 
-        val tasks: List<Pair<String, () -> Map<String, Double>>> = listOf(
+        fun sourceTasks8527(wanted: List<String>): List<Pair<String, () -> Map<String, Double>>> = listOf(
             // DexScreener is a CLASS, not an object — it is reached through an
             // instance (BotService:10753 does `dex.batchPriceFetch`). Calling it
             // statically is the exact mistake ci/static_call_check.py exists to
@@ -222,35 +216,39 @@ object ParallelMarkFanout7088 {
             // Jupiter quote (what a sell would actually receive) and the curve
             // account itself, read from chain state through Helius RPC.
             "JUPITER_QUOTE" to { safe { jupiterQuoteFanout7269(wanted) } },
-            "PUMP_CURVE_RPC" to { safe { pumpCurveRpcFanout7269(wanted) } },
+            "PUMP_CURVE_RPC" to { safe { pumpCurveRpcFanout7269(wanted,
+                latencyCritical8527 = ObservationHttpScope8527.current()?.held == true) } },
         )
 
-        val latch = CountDownLatch(tasks.size)
-        for ((name, fetch) in tasks) {
-            try {
-                pool.execute {
-                    try {
-                        val got = fetch()
-                        if (got.isNotEmpty()) results[name] = got
-                    } catch (_: Throwable) {
-                    } finally {
-                        latch.countDown()
+        // A mixed pass never puts unrelated shadow work on the held-position pool.
+        val (held8527, background8527) = wanted.partition { mint ->
+            try { com.lifecyclebot.engine.HeldPositionSupervisor7246.isHeld(mint) } catch (_: Throwable) { false }
+        }
+        val deadline8527 = System.nanoTime() + DEADLINE_MS * 1_000_000L
+        val batches8527 = ArrayList<ObservationFanout8527.Batch>()
+        var sourceCount8527 = 0
+        for ((targets8527, protective8527) in listOf(held8527 to true, background8527 to false)) {
+            if (targets8527.isEmpty()) continue
+            val tasks8527 = sourceTasks8527(targets8527)
+            sourceCount8527 = tasks8527.size
+            val batch8527 = ObservationFanout8527.Batch(tasks8527.size, DEADLINE_MS,
+                held = protective8527, deadlineNanos = deadline8527)
+            batches8527.add(batch8527)
+            for ((name, fetch) in tasks8527) {
+                batch8527.submit {
+                    val got = fetch()
+                    if (got.isNotEmpty()) ObservationHttpScope8527.publishIfCurrent {
+                        results.merge(name, got) { old, fresh -> old + fresh }
                     }
                 }
-            } catch (_: Throwable) {
-                // Pool refused the task; do not leave the latch hanging.
-                latch.countDown()
             }
         }
-        try {
-            latch.await(DEADLINE_MS, TimeUnit.MILLISECONDS)
-        } catch (_: InterruptedException) {
-            Thread.currentThread().interrupt()
-        }
+        // Both priorities were submitted before waiting; they share the same
+        // absolute pass deadline, not two serial four-second budgets.
+        batches8527.forEach { it.await() }
 
-        // Snapshot whatever landed inside the deadline. A source that is still
-        // running is simply absent — it is never waited on and never cancels
-        // the pass, which is the entire difference from the serial chain.
+        // Snapshot real replies inside the deadline. Unfinished source futures
+        // and their actual HTTP calls are cancelled; already-persisted marks stay.
         val landed = results.toMap()
         for ((name, map) in landed) {
             if (map.isNotEmpty()) {
@@ -275,7 +273,7 @@ object ParallelMarkFanout7088 {
                 PipelineHealthCollector.labelInc("PARALLEL_MARK_FANOUT_PASS_7088")
                 ErrorLogger.info(
                     TAG,
-                    "fanout priced ${out.size}/${wanted.size} from ${landed.size}/${tasks.size} live feeds",
+                    "fanout priced ${out.size}/${wanted.size} from ${landed.size}/${sourceCount8527} live feeds",
                 )
             } catch (_: Throwable) {}
         }
@@ -499,10 +497,9 @@ object ParallelMarkFanout7088 {
             try { PipelineHealthCollector.labelInc("PUMPFUN_FRONTEND_FANOUT_HALF_OPEN_7529") } catch (_: Throwable) {}
         }
         val out = ConcurrentHashMap<String, Double>()
-        val latch = CountDownLatch(targets.size)
+        val batch8527 = ObservationFanout8527.Batch(targets.size, 3_000L, leaf = true)
         for (mint in targets) {
-            try {
-                pool.execute {
+            batch8527.submit {
                     try {
                         val url = "https://frontend-api-v3.pump.fun/coins/$mint"
                         val req = Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").build()
@@ -537,21 +534,21 @@ object ParallelMarkFanout7088 {
                                 com.lifecyclebot.engine.PumpFunPriceUnits7017
                                     .priceUsd(JSONObject(body))
                             } catch (_: Throwable) { 0.0 }
-                            if (px.isFinite() && px > 0.0) out[mint] = px
+                            if (px.isFinite() && px > 0.0) ObservationHttpScope8527.publishIfCurrent { out[mint] = px }
                             try { com.lifecyclebot.engine.truth.AdmissionBirth8144.notePumpCoinRecord8144(mint, JSONObject(body).optLong("created_timestamp", 0L)) } catch (_: Throwable) {}  // V5.0.8144 — the same record dates the launch
                         }
                     } catch (_: Throwable) {
-                    } finally {
-                        latch.countDown()
                     }
-                }
-            } catch (_: Throwable) { latch.countDown() }
+            }
         }
-        try { latch.await(3_000L, TimeUnit.MILLISECONDS) } catch (_: InterruptedException) {
-            Thread.currentThread().interrupt()
-        }
+        val completed8527 = batch8527.await()
 
         val result7529 = out.toMap()
+        if (result7529.isEmpty() && !completed8527) {
+            // Local saturation/deadline is retryable unknown, not evidence that
+            // the provider serves no coins. Do not arm the empty-source circuit.
+            return result7529
+        }
         if (result7529.isNotEmpty()) {
             pumpFrontendEmptyPasses7529.set(0L)
             pumpFrontendCooldownUntil7529.set(0L)
@@ -643,10 +640,9 @@ object ParallelMarkFanout7088 {
         val targets = mints.filter { PumpFunDirectApi.isPumpFunMint(it) }.take(QUOTE_MAX_MINTS_7269)
         if (targets.isEmpty()) return emptyMap()
         val out = ConcurrentHashMap<String, Double>()
-        val latch = CountDownLatch(targets.size)
+        val batch8527 = ObservationFanout8527.Batch(targets.size, 3_500L, leaf = true)
         for (mint in targets) {
-            try {
-                pool.execute {
+            batch8527.submit {
                     try {
                         val q = jupiterQuoteApi7269.getQuote(
                             inputMint = JupiterApi.SOL_MINT,
@@ -658,18 +654,13 @@ object ParallelMarkFanout7088 {
                         if (tokens > 0.0 && tokens.isFinite()) {
                             val usdIn = QUOTE_LAMPORTS_7269.toDouble() / 1e9 * solUsd
                             val px = usdIn / tokens
-                            if (px.isFinite() && px > 0.0) out[mint] = px
+                            if (px.isFinite() && px > 0.0) ObservationHttpScope8527.publishIfCurrent { out[mint] = px }
                         }
                     } catch (_: Throwable) {
-                    } finally {
-                        latch.countDown()
                     }
-                }
-            } catch (_: Throwable) { latch.countDown() }
+            }
         }
-        try { latch.await(3_500L, TimeUnit.MILLISECONDS) } catch (_: InterruptedException) {
-            Thread.currentThread().interrupt()
-        }
+        batch8527.await()
         if (out.isNotEmpty()) {
             try { PipelineHealthCollector.labelInc("KEYLESS_MARK_JUPITER_QUOTE_7269") } catch (_: Throwable) {}
         }
@@ -718,9 +709,6 @@ object ParallelMarkFanout7088 {
         return if (host.isBlank()) "solana_rpc" else "rpc_$host"
     }
 
-    /** V5.0.7809 — transport failures one curve pass tolerates before it stops walking the ladder. */
-    private const val CURVE_MAX_TRANSPORT_FAILS_7809 = 2
-
     /**
      * V5.0.7809 — bench a public RPC rung that threw (timeout, reset, unparseable
      * body) on its own ApiBackoff record; 504 selects the soft 2/5/10/20/30 s
@@ -740,13 +728,15 @@ object ParallelMarkFanout7088 {
      * V5.0.7392 — read [mints]' bonding curves directly (the caller already knows
      * these are curve positions, from the token register). Uses the derived PDA.
      */
-    internal fun curvePrices7392(mints: List<String>): Map<String, Double> =
-        pumpCurveRpcFanout7269(mints, explicitCurve7392 = true)
+    internal fun curvePrices7392(mints: List<String>, latencyCritical8527: Boolean = false): Map<String, Double> =
+        pumpCurveRpcFanout7269(mints, explicitCurve7392 = true, latencyCritical8527 = latencyCritical8527)
 
     /** V5.0.8359 — one keyless-first getMultipleAccounts pass for the shadow books' wanted curve mints (KeylessMarks8359). */
     internal fun wantedCurvePass8359(): Map<String, Double> = pumpCurveRpcFanout7269(emptyList())
 
-    private fun pumpCurveRpcFanout7269(mints: List<String>, explicitCurve7392: Boolean = false): Map<String, Double> {
+    private fun pumpCurveRpcFanout7269(
+        mints: List<String>, explicitCurve7392: Boolean = false, latencyCritical8527: Boolean = false,
+    ): Map<String, Double> {
         val url = rpcUrl
         if (url.isBlank()) return emptyMap()
         val solUsd = solUsd7269()
@@ -775,7 +765,9 @@ object ParallelMarkFanout7088 {
         // V5.0.7819 — Helius RPC curve reads are for base58 Solana mints only.
         // V5.0.8359 — the mints the shadow books want marked (KeylessMarks8359) ride the same getMultipleAccounts call,
         // after the caller's own (held) mints, up to the call's cap.
-        val mints8359 = try { com.lifecyclebot.engine.truth.KeylessMarks8359.withWantedCurves8359(mints, CURVE_MAX_MINTS_7269) } catch (_: Throwable) { mints }
+        // A held or approved read carries only its requested reserves; shadow backlog never expands the hot read.
+        val mints8359 = if (latencyCritical8527) mints else
+            try { com.lifecyclebot.engine.truth.KeylessMarks8359.withWantedCurves8359(mints, CURVE_MAX_MINTS_7269) } catch (_: Throwable) { mints }
         val now8458 = System.currentTimeMillis()
         val targets = HeliusSolanaScope7819.solanaMintsOnly7819(mints8359).mapNotNull { m ->
             val pumpLike7392 = explicitCurve7392 || PumpCurveKeys7269.keyFor(m) != null ||
@@ -803,22 +795,16 @@ object ParallelMarkFanout7088 {
         var skippedComplete = 0
         var answered7279 = false
         val resolved8385 = HashSet<String>()
-        var transportFails7809 = 0
-        for ((rungIdx, rung) in rungs7279.withIndex()) {
-            if (resolved8385.size == targets.size) break
+        // HealthAwareHttp alone consumes the host's half-open probe. A second
+        // destructive isLockedOut precheck spent that probe before HTTP could use it.
+        CurveReadBudget8527.walk(rungs7279, latencyCritical8527, admit = { rung ->
+            KeylessRpc8359.beforeCall8359(rung)
+        }) { rung, rungIdx, callTimeout8527 ->
             val pending8385 = targets.filter { it.first !in resolved8385 }
             val payload8385 = JSONObject(payload).apply {
                 getJSONArray("params").put(0, JSONArray(pending8385.map { it.second }))
             }.toString()
             val hostLabel = rpcHostLabel7279(rung)
-            // V5.0.7281 — a rung already in backoff is passed over without a
-            // request, so the walk reaches a rung that can answer.
-            val locked7281 = try { com.lifecyclebot.engine.ApiBackoff.isLockedOut(hostLabel) } catch (_: Throwable) { false }
-            if (locked7281) {
-                try { PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_RUNG_SKIPPED_LOCKED_7281") } catch (_: Throwable) {}
-                continue
-            }
-            if (!KeylessRpc8359.beforeCall8359(rung)) continue   // V5.0.8359 — keyless host governor (requests / 10 s, 429 back-off)
             try {
                 PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_ATTEMPT_7278")
                 val req = Request.Builder()
@@ -826,7 +812,11 @@ object ParallelMarkFanout7088 {
                     .header("Content-Type", "application/json")
                     .post(payload8385.toRequestBody("application/json".toMediaType()))
                     .build()
-                com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host = hostLabel).use { resp ->
+                val readHttp8527 = http.newBuilder().callTimeout(callTimeout8527, TimeUnit.MILLISECONDS).build()
+                com.lifecyclebot.engine.HealthAwareHttp.execute(readHttp8527, req, host = hostLabel,
+                    isLocalFailure8288 = { e -> JupiterQuoteHealth8288.localFailure8288(
+                        e, budgetScoped = true, interrupted = Thread.currentThread().isInterrupted) },
+                ).use { resp ->
                     if (HostCircuitInterceptor.isSyntheticBlock(resp)) {
                         // This app declined to call; not a provider observation.
                         PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_CIRCUIT_BLOCKED_7279")
@@ -857,13 +847,18 @@ object ParallelMarkFanout7088 {
                     try { com.lifecyclebot.engine.ApiHealthMonitor.record("pump_curve_rpc", 200, 0L) } catch (_: Throwable) {}
                     for (i in pending8385.indices) {
                         val mint = pending8385[i].first
-                        val value = values.optJSONObject(i)
-                        if (value == null) {
+                        val slot8527 = CurveAccountRead8527.slot(values, i)
+                        if (slot8527.kind == CurveAccountRead8527.Kind.ABSENT) {
                             PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_NO_ACCOUNT_7278")
-                            // V5.0.8458 — a fresh-slot "no account" is the answer: not asked of the next rung, nor next pass.
+                            // Only an explicit null account is authoritative absence.
                             resolved8385.add(mint); answered7279 = true
                             noteNoCurve8458(mint, System.currentTimeMillis())
                             continue
+                        }
+                        val value = slot8527.account
+                        if (slot8527.kind == CurveAccountRead8527.Kind.MALFORMED || value == null) {
+                            PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_MALFORMED_SLOT_8527")
+                            continue // unresolved: ask the next rung, never cache a false NO_ACCOUNT
                         }
                         // V5.0.7283 — 5.0.7281 read NO_DATA=108 against NO_ACCOUNT=0
                         // and SHORT_ACCOUNT=0: the rung answered, every account
@@ -923,22 +918,21 @@ object ParallelMarkFanout7088 {
                     }
                 }
             } catch (t: Throwable) {
-                PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_EXCEPTION_7278")
-                try { com.lifecyclebot.engine.ApiHealthMonitor.record("pump_curve_rpc", 0, 0L, "${t.javaClass.simpleName}:${t.message?.take(100)}") } catch (_: Throwable) {}
-                // V5.0.7809 — a timeout / reset / garbage body only reached the
-                // health table, never ApiBackoff, so a slow or dead PUBLIC rung was
-                // asked again on every pass (up to 7 s each) and the exception count
-                // climbed. It now backs off on its own record (soft ladder, half-open
-                // probe, cleared by its next success). Helius, the preferred rung,
-                // is never benched from here. Bounded: a pass stops walking after
-                // CURVE_MAX_TRANSPORT_FAILS_7809 transport failures. Field Manual L404.
-                noteCurveRungFailure7809(hostLabel)
-                transportFails7809++
-                if (transportFails7809 >= CURVE_MAX_TRANSPORT_FAILS_7809) {
-                    try { PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_PASS_BOUNDED_7809") } catch (_: Throwable) {}
-                    break
+                if (t is InterruptedException) Thread.currentThread().interrupt()
+                val local8527 = Thread.currentThread().isInterrupted || JupiterQuoteHealth8288.localFailure8288(
+                    t, budgetScoped = true, interrupted = Thread.currentThread().isInterrupted)
+                if (local8527) {
+                    try { PipelineHealthCollector.labelInc("PUMP_CURVE_READ_DEADLINE_8527") } catch (_: Throwable) {}
+                } else {
+                    PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_EXCEPTION_7278")
+                    KeylessRpc8359.afterCall8359(rung, 0)
+                    try { com.lifecyclebot.engine.ApiHealthMonitor.record("pump_curve_rpc", 0, 0L, "${t.javaClass.simpleName}:${t.message?.take(100)}") } catch (_: Throwable) {}
+                    noteCurveRungFailure7809(hostLabel)
                 }
+                // The old two-failure break assumed Helius was first. The shared
+                // deadline now bounds retries without cutting off the paid fallback.
             }
+            resolved8385.size == targets.size
         }
         if (!answered7279) {
             try { PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_NO_RUNG_ANSWERED_7279") } catch (_: Throwable) {}

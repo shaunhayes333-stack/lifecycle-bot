@@ -420,7 +420,7 @@ object OnChainDepth8038 {
             // written to CurveReserves7951 by the fan-out) instead of deferring to a refresh queue that drains at most once
             // every 10 s: 8471 MOONSHOT lost 2 tickets as CURVE_RESERVES_STALE_DEFER_8174_RETRY_EXPIRED while the coin traded.
             try {
-                com.lifecyclebot.network.ParallelMarkFanout7088.curvePrices7392(listOf(ts.mint))
+                com.lifecyclebot.network.ParallelMarkFanout7088.curvePrices7392(listOf(ts.mint), latencyCritical8527 = true)
                 PipelineHealthCollector.labelInc("CURVE_RESERVES_INLINE_READ_8476")
             } catch (_: Throwable) {}
             val refreshedAt8174 = try { CurveReserves7951.readingAtMs8173(ts.mint) } catch (_: Throwable) { null }
@@ -484,7 +484,7 @@ object OnChainDepth8038 {
         // V5.0.8045 — 5.0.8043: 13 of 16 sized MOONSHOT buys died TOKEN_MAP_INCOMPLETE (liquidity pending) at this door.
         // An unknown depth is read from the chain now (the coin's pump.fun curve, one call), before the token-map check.
         if (!(ts.lastLiquidityUsd > 0.0)) try {
-            com.lifecyclebot.network.ParallelMarkFanout7088.curvePrices7392(listOf(ts.mint))
+            com.lifecyclebot.network.ParallelMarkFanout7088.curvePrices7392(listOf(ts.mint), latencyCritical8527 = true)
             LiquidityTruth8037.hydrate8037(ts)
             if (ts.lastLiquidityUsd > 0.0) PipelineHealthCollector.labelInc("BUY_DOOR_CURVE_DEPTH_READ_8045")
         } catch (_: Throwable) {}

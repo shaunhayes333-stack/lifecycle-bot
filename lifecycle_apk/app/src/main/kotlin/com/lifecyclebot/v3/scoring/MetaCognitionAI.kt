@@ -104,7 +104,7 @@ object MetaCognitionAI {
     data class Prediction(
         val layer: AILayer,
         val signal: SignalType,
-        val confidence: Double,      // 0..100
+        val confidence: Double,      // 0..100 confidence in signal, NOT probability of an upward outcome
         val rawScore: Double,
         val timestamp: Long = System.currentTimeMillis(),
     ) {
@@ -231,6 +231,11 @@ object MetaCognitionAI {
         val losses: Int = 0,
         val avgPnl: Double = 0.0,
         val lastSeen: Long = System.currentTimeMillis(),
+        // Legacy financial wins/losses cannot distinguish a flat close from a correct bearish call.
+        // These prospective counts preserve that distinction without relabelling old history.
+        val directionUp8527: Int = 0,
+        val directionDown8527: Int = 0,
+        val directionNeutral8527: Int = 0,
     ) {
         val winRate: Double
             get() = if (occurrences > 0) wins.toDouble() / occurrences * 100.0 else 0.0
@@ -300,7 +305,11 @@ object MetaCognitionAI {
     private const val MIN_PATTERN_OCCURRENCES = 3
 
     private val layerPerformance = ConcurrentHashMap<AILayer, LayerPerformance>()
-    private val pendingPredictions = ConcurrentHashMap<String, List<Prediction>>()
+    private data class PendingForecast8527(
+        val predictions: List<Prediction>,
+        val metaAtEntry: MetaConfidenceResult,
+    )
+    private val pendingPredictions = ConcurrentHashMap<String, PendingForecast8527>()
     // V5.9.717 — dedup set: mints already counted by recordTradeOutcome() so
     // onCanonicalSettlement() can skip the duplicate totalTradesAnalyzed increment.
     private val recentlyCountedMints = java.util.Collections.newSetFromMap(
@@ -327,72 +336,64 @@ object MetaCognitionAI {
     // RECORD ENTRY
     // -------------------------------------------------------------------------
 
+    /** Confidence always means confidence in the stated direction, never P(up). */
+    internal fun predictionFromScore8527(layer: AILayer, rawScore: Double): Prediction? {
+        if (!rawScore.isFinite()) return null
+        val signal = when {
+            rawScore > 5.0 -> SignalType.BULLISH
+            rawScore < -5.0 -> SignalType.BEARISH
+            else -> SignalType.NEUTRAL
+        }
+        val confidence = if (signal == SignalType.NEUTRAL) 50.0
+            else (50.0 + abs(rawScore) * 2.0).coerceIn(0.0, 100.0)
+        return Prediction(layer, signal, confidence, rawScore)
+    }
+
+    /** One layer, one vote; recording and all three score paths consume this same roster. */
+    internal fun predictionsFromComponents8527(components: List<ScoreComponent>): List<Prediction> =
+        components.mapNotNull { comp ->
+            val layer = mapComponentToLayer(comp.name) ?: return@mapNotNull null
+            predictionFromScore8527(layer, comp.value.toDouble())
+        }.associateBy { it.layer }.values.toList()
+
     fun recordEntryPredictions(
         mint: String,
         symbol: String,
         predictions: Map<AILayer, Pair<SignalType, Double>>,
     ) {
-        if (mint.isBlank() || predictions.isEmpty()) return
+        val normalized = predictions.mapNotNull { (layer, pair) ->
+            if (!pair.second.isFinite()) return@mapNotNull null
+            Prediction(layer, pair.first, pair.second.coerceIn(0.0, 100.0), pair.second)
+        }
+        recordForecast8527(mint, symbol, normalized)
+    }
 
-        // Once a canonical position is OPEN, its entry prediction roster is
-        // immutable. Scanner rescoring used to overwrite this map throughout
-        // the hold, so MetaCognition graded the latest observation rather than
-        // the signals that actually authorized the trade.
+    private fun recordForecast8527(mint: String, symbol: String, normalized: List<Prediction>) {
+        if (mint.isBlank() || normalized.isEmpty()) return
         val alreadyOpen = try {
             com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.hasOpenMint(mint)
         } catch (_: Throwable) { false }
+        // Keep the existing immutable-entry boundary; roster and forecast are one atomic map value.
         if (alreadyOpen && pendingPredictions.containsKey(mint)) return
-        // A fresh entry lifecycle for a previously traded mint must not be
-        // mistaken for the prior settlement in canonical-bus dedupe.
         recentlyCountedMints.remove(mint)
-
-        val normalized = predictions.map { (layer, pair) ->
-            Prediction(
-                layer = layer,
-                signal = pair.first,
-                confidence = pair.second.coerceIn(0.0, 100.0),
-                rawScore = pair.second,
-            )
+        val captured = PendingForecast8527(normalized.toList(), calculateMetaConfidence(normalized))
+        pendingPredictions.compute(mint) { _, existing ->
+            if (alreadyOpen && existing != null) existing else captured
         }
-
-        pendingPredictions[mint] = normalized
-        Log.d(TAG, "Recorded ${normalized.size} meta predictions for $symbol")
+        Log.d(TAG, "Recorded " + normalized.size + " meta predictions for " + symbol)
     }
 
-    /**
-     * Convenience adapter from scorecard components.
-     * Kept compatible with your existing caller.
-     */
-    fun recordFromScoreCard(
-        mint: String,
-        symbol: String,
-        components: List<ScoreComponent>,
-    ) {
-        val mapped = mutableMapOf<AILayer, Pair<SignalType, Double>>()
-
-        for (comp in components) {
-            val layer = mapComponentToLayer(comp.name) ?: continue
-            val signal = when {
-                comp.value > 4.0 -> SignalType.BULLISH
-                comp.value < -4.0 -> SignalType.BEARISH
-                else -> SignalType.NEUTRAL
-            }
-            val confidence = (50.0 + comp.value * 2.0).coerceIn(0.0, 100.0)
-            mapped[layer] = signal to confidence
-        }
-
-        if (mapped.isNotEmpty()) {
-            recordEntryPredictions(mint, symbol, mapped)
-        }
+    fun recordFromScoreCard(mint: String, symbol: String, components: List<ScoreComponent>) {
+        recordForecast8527(mint, symbol, predictionsFromComponents8527(components))
     }
 
-    private fun mapComponentToLayer(name: String): AILayer? {
+    internal fun mapComponentToLayer(name: String): AILayer? {
         return when (name.lowercase()) {
             "volatility", "volatility_regime" -> AILayer.VOLATILITY_REGIME
-            "orderflow", "order_flow", "flow_imbalance" -> AILayer.ORDER_FLOW_IMBALANCE
+            "volume", "orderflow", "order_flow", "flow_imbalance" -> AILayer.ORDER_FLOW_IMBALANCE
             "smartmoney", "smart_money" -> AILayer.SMART_MONEY_DIVERGENCE
             "holdtime", "hold_time" -> AILayer.HOLD_TIME_OPTIMIZER
-            "liquidity_cycle", "liq_cycle" -> AILayer.LIQUIDITY_CYCLE
+            "liquiditycycle", "liquidity_cycle", "liq_cycle" -> AILayer.LIQUIDITY_CYCLE
             "regime", "market_regime" -> AILayer.MARKET_REGIME
             "whale", "whale_tracker" -> AILayer.WHALE_TRACKER
             "momentum" -> AILayer.MOMENTUM_PREDICTOR
@@ -403,7 +404,7 @@ object MetaCognitionAI {
             "exit" -> AILayer.EXIT_INTELLIGENCE
             "edge" -> AILayer.EDGE_LEARNING
             "memory", "win_memory" -> AILayer.TOKEN_WIN_MEMORY
-            "collective" -> AILayer.COLLECTIVE_INTELLIGENCE
+            "collective", "collective_ai" -> AILayer.COLLECTIVE_INTELLIGENCE
             "gemini" -> AILayer.GEMINI_COPILOT
             "groq", "groq_narrative" -> AILayer.GROQ_NARRATIVE
             "orthogonal" -> AILayer.ORTHOGONAL_SIGNALS
@@ -418,7 +419,7 @@ object MetaCognitionAI {
             "drawdowncircuitai", "drawdown_circuit" -> AILayer.DRAWDOWN_CIRCUIT
             "capitalefficiencyai", "capital_efficiency" -> AILayer.CAPITAL_EFFICIENCY
             "tokendnaclusteringai", "token_dna" -> AILayer.TOKEN_DNA_CLUSTERING
-            "peeralphaverificationai", "peer_alpha" -> AILayer.PEER_ALPHA_VERIFICATION
+            "peeralphaverficationai", "peeralphaverificationai", "peer_alpha" -> AILayer.PEER_ALPHA_VERIFICATION
             "newsshockai", "news_shock" -> AILayer.NEWS_SHOCK
             "fundingrateawarenessai", "funding_rate" -> AILayer.FUNDING_RATE_AWARENESS
             "orderbookimbalancepulseai", "orderbook_pulse" -> AILayer.ORDERBOOK_IMBALANCE_PULSE
@@ -429,11 +430,11 @@ object MetaCognitionAI {
             "qualitytraderai", "quality" -> AILayer.QUALITY_TRADER
             "moonshottraderai", "moonshot" -> AILayer.MOONSHOT_TRADER
             "bluechiptraderai", "bluechip", "blue_chip" -> AILayer.BLUECHIP_TRADER
-            "diphunterai", "dip_hunter" -> AILayer.DIP_HUNTER
+            "diphunter", "diphunterai", "dip_hunter" -> AILayer.DIP_HUNTER
             "behaviorai", "behavior" -> AILayer.BEHAVIOR_AI
             "insidertrackerai", "insider_tracker" -> AILayer.INSIDER_TRACKER
-            "feargreedai", "fear_greed" -> AILayer.FEAR_GREED
-            "socialvelocityai", "social_velocity" -> AILayer.SOCIAL_VELOCITY
+            "feargreed", "feargreedai", "fear_greed" -> AILayer.FEAR_GREED
+            "social", "socialvelocityai", "social_velocity" -> AILayer.SOCIAL_VELOCITY
             else -> null
         }
     }
@@ -449,7 +450,9 @@ object MetaCognitionAI {
         holdTimeMs: Long,
         exitReason: String,
     ) {
-        val preds = pendingPredictions.remove(mint) ?: return
+        if (!pnlPct.isFinite()) return
+        val captured = pendingPredictions.remove(mint) ?: return
+        val preds = captured.predictions
         // V5.9.717 — mark mint so onCanonicalSettlement() skips the duplicate increment
         recentlyCountedMints.add(mint)
         if (recentlyCountedMints.size > 2000) recentlyCountedMints.clear()
@@ -474,7 +477,7 @@ object MetaCognitionAI {
         }
 
         updateConsensusPatterns(outcome)
-        updateMetaCalibration(outcome)
+        updateMetaCalibration(outcome, captured.metaAtEntry)
 
         totalTradesAnalyzed++
         lastMetaUpdate = System.currentTimeMillis()
@@ -492,7 +495,7 @@ object MetaCognitionAI {
         val wasCorrect = when (pred.signal) {
             SignalType.BULLISH -> outcome.pnlPct >= 1.0
             SignalType.BEARISH -> outcome.pnlPct <= -1.0
-            SignalType.NEUTRAL -> outcome.pnlPct in -1.0..1.0
+            SignalType.NEUTRAL -> outcome.pnlPct > -1.0 && outcome.pnlPct < 1.0
         }
 
         val realizedProbability = when {
@@ -578,33 +581,27 @@ object MetaCognitionAI {
 
     private fun updateConsensusPatterns(outcome: TradeOutcome) {
         val signature = ConsensusPattern.buildSignature(outcome.predictions)
-
-        if (outcome.isWin) {
-            val existing = winningPatterns[signature]
-            winningPatterns[signature] = if (existing == null) {
-                buildPattern(signature, outcome, wins = 1, losses = 0, occurrences = 1)
+        val book = if (outcome.isWin) winningPatterns else losingPatterns
+        // One atomic row update binds the original financial result and its known direction.
+        book.compute(signature) { _, existing ->
+            val next = if (existing == null) {
+                buildPattern(signature, outcome, wins = if (outcome.isWin) 1 else 0,
+                    losses = if (outcome.isWin) 0 else 1, occurrences = 1)
             } else {
                 existing.copy(
                     occurrences = existing.occurrences + 1,
-                    wins = existing.wins + 1,
+                    wins = existing.wins + if (outcome.isWin) 1 else 0,
+                    losses = existing.losses + if (outcome.isWin) 0 else 1,
                     avgPnl = runningAverage(existing.avgPnl, existing.occurrences, outcome.pnlPct),
                     lastSeen = System.currentTimeMillis(),
                 )
             }
-        } else {
-            val existing = losingPatterns[signature]
-            losingPatterns[signature] = if (existing == null) {
-                buildPattern(signature, outcome, wins = 0, losses = 1, occurrences = 1)
-            } else {
-                existing.copy(
-                    occurrences = existing.occurrences + 1,
-                    losses = existing.losses + 1,
-                    avgPnl = runningAverage(existing.avgPnl, existing.occurrences, outcome.pnlPct),
-                    lastSeen = System.currentTimeMillis(),
-                )
-            }
+            next.copy(
+                directionUp8527 = next.directionUp8527 + if (outcome.pnlPct >= 1.0) 1 else 0,
+                directionDown8527 = next.directionDown8527 + if (outcome.pnlPct <= -1.0) 1 else 0,
+                directionNeutral8527 = next.directionNeutral8527 + if (outcome.pnlPct > -1.0 && outcome.pnlPct < 1.0) 1 else 0,
+            )
         }
-
         trimPatternMaps()
     }
 
@@ -652,20 +649,77 @@ object MetaCognitionAI {
     // META CALIBRATION
     // -------------------------------------------------------------------------
 
-    private fun updateMetaCalibration(outcome: TradeOutcome) {
-        val meta = calculateMetaConfidence(outcome.predictions)
+    internal fun upwardProbability8527(signal: String, confidencePct: Double): Double {
+        val confidence = confidencePct.takeIf { it.isFinite() }?.coerceIn(0.0, 100.0)?.div(100.0) ?: return 0.5
+        return when (signal) {
+            "BULLISH" -> confidence
+            "BEARISH" -> 1.0 - confidence
+            else -> 0.5
+        }
+    }
 
-        val predicted = meta.confidence / 100.0
-        val actual = if (outcome.isWin) 1.0 else 0.0
+    private fun updateMetaCalibration(outcome: TradeOutcome, metaAtEntry: MetaConfidenceResult) {
+        // Never recompute this forecast after teaching the outcome to trust or consensus-pattern memory.
+        val predicted = upwardProbability8527(metaAtEntry.dominantSignal, metaAtEntry.confidence)
+        val actual = when {
+            outcome.pnlPct >= 1.0 -> 1.0
+            outcome.pnlPct <= -1.0 -> 0.0
+            else -> 0.5
+        }
         val err = (predicted - actual) * (predicted - actual)
-
+        val correct: Boolean? = when (metaAtEntry.dominantSignal) {
+            "BULLISH" -> outcome.pnlPct >= 1.0
+            "BEARISH" -> outcome.pnlPct <= -1.0
+            else -> null // Mixed/absent direction is uncertainty, not a fabricated bearish forecast.
+        }
         metaCalibrationError = ewma(metaCalibrationError, err, 0.08)
-        metaAccuracy = ewma(metaAccuracy, if (outcome.isWin == (meta.dominantSignal == "BULLISH")) 100.0 else 0.0, 0.08)
+        if (correct != null) metaAccuracy = ewma(metaAccuracy, if (correct) 100.0 else 0.0, 0.08)
     }
 
     // -------------------------------------------------------------------------
     // META CONFIDENCE
     // -------------------------------------------------------------------------
+
+    /**
+     * Pool both books for this signature, but directional confidence uses only
+     * prospectively recorded signed outcomes. Historical financial LOSS may
+     * mean flat or +0.5%, so it is never fabricated into bearish correctness.
+     */
+    internal fun patternConfidenceAdjustment8527(
+        dominantSignal: String, winPattern: ConsensusPattern?, lossPattern: ConsensusPattern?,
+    ): Double {
+        val rows = listOfNotNull(winPattern, lossPattern).filter { p ->
+            // A corrupt import cannot manufacture more known directional outcomes than financial closes.
+            p.directionUp8527 >= 0 && p.directionDown8527 >= 0 && p.directionNeutral8527 >= 0 &&
+                p.directionUp8527.toLong() <= p.wins.toLong().coerceAtLeast(0L) &&
+                p.directionDown8527.toLong() + p.directionNeutral8527.toLong() <= p.losses.toLong().coerceAtLeast(0L)
+        }
+        val up = rows.sumOf { it.directionUp8527.toLong().coerceAtLeast(0L) }
+        val down = rows.sumOf { it.directionDown8527.toLong().coerceAtLeast(0L) }
+        val neutral = rows.sumOf { it.directionNeutral8527.toLong().coerceAtLeast(0L) }
+        val total = up + down + neutral
+        if (total < MIN_PATTERN_OCCURRENCES.toLong()) return 0.0
+        val agreeing = when (dominantSignal) {
+            "BULLISH" -> up
+            "BEARISH" -> down
+            else -> return 0.0
+        }
+        val rate = 100.0 * agreeing.toDouble() / total.toDouble()
+        return when {
+            rate >= 66.0 -> 12.0
+            rate <= 34.0 -> -12.0
+            else -> 0.0
+        }
+    }
+
+    /** The existing profitability veto reads the entire financial population, not the losses-only row. */
+    internal fun knownLosingPattern8527(winPattern: ConsensusPattern?, lossPattern: ConsensusPattern?): Boolean {
+        val rows = listOfNotNull(winPattern, lossPattern)
+        val wins = rows.sumOf { it.wins.toLong().coerceAtLeast(0L) }
+        val losses = rows.sumOf { it.losses.toLong().coerceAtLeast(0L) }
+        val total = wins + losses
+        return total >= 5L && 100.0 * wins.toDouble() / total.toDouble() <= 25.0
+    }
 
     fun calculateMetaConfidence(predictions: List<Prediction>): MetaConfidenceResult {
         if (predictions.isEmpty()) {
@@ -729,7 +783,12 @@ object MetaCognitionAI {
             0.0
         }
 
-        val biasAdj = (abs(weightedBias) / 14.0).coerceAtMost(8.0)
+        val supportingBias8527 = when (dominantSignal) {
+            "BULLISH" -> weightedBias
+            "BEARISH" -> -weightedBias
+            else -> 0.0
+        }
+        val biasAdj = (supportingBias8527 / 14.0).coerceIn(-8.0, 8.0)
         score += biasAdj
         factors.add("bias=${weightedBias.toInt()}→${biasAdj.toInt()}")
 
@@ -738,9 +797,11 @@ object MetaCognitionAI {
         val strongBearishLayers = bearish.count { (layerPerformance[it.layer]?.accuracy ?: 50.0) >= 60.0 }
 
         val accurateAdj = when {
-            strongBullishLayers >= 3 && strongBearishLayers == 0 -> 10.0
-            strongBearishLayers >= 3 && strongBullishLayers == 0 -> 10.0
             strongBullishLayers > 0 && strongBearishLayers > 0 -> -8.0
+            strongBullishLayers >= 3 && strongBearishLayers == 0 ->
+                if (dominantSignal == "BULLISH") 10.0 else if (dominantSignal == "BEARISH") -8.0 else 0.0
+            strongBearishLayers >= 3 && strongBullishLayers == 0 ->
+                if (dominantSignal == "BEARISH") 10.0 else if (dominantSignal == "BULLISH") -8.0 else 0.0
             else -> 0.0
         }
         score += accurateAdj
@@ -764,11 +825,7 @@ object MetaCognitionAI {
         val winPattern = winningPatterns[signature]
         val lossPattern = losingPatterns[signature]
 
-        val patternAdj = when {
-            winPattern != null && winPattern.occurrences >= MIN_PATTERN_OCCURRENCES && winPattern.winRate >= 66.0 -> 12.0
-            lossPattern != null && lossPattern.occurrences >= MIN_PATTERN_OCCURRENCES && lossPattern.winRate <= 34.0 -> -12.0
-            else -> 0.0
-        }
+        val patternAdj = patternConfidenceAdjustment8527(dominantSignal, winPattern, lossPattern)
         score += patternAdj
         if (patternAdj != 0.0) {
             factors.add("pattern→${patternAdj.toInt()}")
@@ -915,8 +972,7 @@ object MetaCognitionAI {
 
         // 3) Known losing pattern
         val sig = ConsensusPattern.buildSignature(predictions)
-        val losing = losingPatterns[sig]
-        if (losing != null && losing.occurrences >= 5 && losing.winRate <= 25.0) {
+        if (knownLosingPattern8527(winningPatterns[sig], losingPatterns[sig])) {
             return "META_VETO_KNOWN_LOSER"
         }
 
@@ -946,21 +1002,34 @@ object MetaCognitionAI {
         return null
     }
 
+    /**
+     * Confidence supports the score's CURRENT direction. Strong bearish evidence
+     * may amplify a negative score, but must not boost a positive buy score.
+     * This preserves the existing bounded multipliers and never flips the raw
+     * score by itself. Mixed/unknown direction is neutral.
+     */
+    internal fun scoreConfidenceMultiplier8527(rawScore: Int, meta: MetaConfidenceResult): Double {
+        if (rawScore == 0) return 1.0
+        val up = upwardProbability8527(meta.dominantSignal, meta.confidence)
+        val supportingPct = (if (rawScore > 0) up else 1.0 - up) * 100.0
+        return when {
+            supportingPct >= 80.0 -> 1.15
+            supportingPct >= 70.0 -> 1.09
+            supportingPct >= 60.0 -> 1.04
+            supportingPct <= 25.0 -> 0.72
+            supportingPct <= 35.0 -> 0.82
+            supportingPct <= 45.0 -> 0.90
+            else -> 1.0
+        }
+    }
+
     fun adjustScore(rawScore: Int, predictions: List<Prediction>): Int {
         if (predictions.isEmpty()) return rawScore
         if (totalTradesAnalyzed < MIN_TRADES_FOR_META) return rawScore
 
         val meta = calculateMetaConfidence(predictions)
 
-        val multiplier = when {
-            meta.confidence >= 80.0 -> 1.15
-            meta.confidence >= 70.0 -> 1.09
-            meta.confidence >= 60.0 -> 1.04
-            meta.confidence <= 25.0 -> 0.72
-            meta.confidence <= 35.0 -> 0.82
-            meta.confidence <= 45.0 -> 0.90
-            else -> 1.0
-        }
+        val multiplier = scoreConfidenceMultiplier8527(rawScore, meta)
 
         var trustAdjustment = 0.0
         for (pred in predictions) {
@@ -1072,6 +1141,9 @@ object MetaCognitionAI {
                     put("losses", p.losses)
                     put("avgPnl", p.avgPnl)
                     put("lastSeen", p.lastSeen)
+                    put("directionUp8527", p.directionUp8527)
+                    put("directionDown8527", p.directionDown8527)
+                    put("directionNeutral8527", p.directionNeutral8527)
                 })
             }
             return arr
@@ -1136,6 +1208,9 @@ object MetaCognitionAI {
                         losses = j.optInt("losses", 0),
                         avgPnl = j.optDouble("avgPnl", 0.0),
                         lastSeen = j.optLong("lastSeen", 0L),
+                        directionUp8527 = j.optInt("directionUp8527", 0).coerceAtLeast(0),
+                        directionDown8527 = j.optInt("directionDown8527", 0).coerceAtLeast(0),
+                        directionNeutral8527 = j.optInt("directionNeutral8527", 0).coerceAtLeast(0),
                     )
                 }
             }
@@ -1205,7 +1280,7 @@ object MetaCognitionAI {
      * per-AILayer Prediction roster — which the canonical outcome does not
      * carry. When Push 5 lands a richer producer that includes the AILayer
      * vote roster, this adapter will be extended to also update the
-     * ConsensusPattern memory; until then it's counters + EWMA only.
+     * ConsensusPattern memory; until then this path counts exposure only.
      */
     fun onCanonicalOutcome(outcome: com.lifecyclebot.engine.CanonicalTradeOutcome) {
         try {
@@ -1214,8 +1289,8 @@ object MetaCognitionAI {
             // Counter behavior (same dedup as onCanonicalSettlement)
             if (outcome.mint.isNotBlank() && recentlyCountedMints.contains(outcome.mint)) return
             totalTradesAnalyzed++
-            val isWin = outcome.result == com.lifecyclebot.engine.TradeResult.WIN
-            metaAccuracy = ewma(metaAccuracy, if (isWin) 100.0 else 0.0, 0.02)
+            // No entry forecast was supplied here. Exposure is real; prediction accuracy is unknown.
+            // The attributed direct path records the roster and frozen meta forecast above.
         } catch (_: Throwable) {}
     }
 
