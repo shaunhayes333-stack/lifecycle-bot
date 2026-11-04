@@ -63,10 +63,10 @@ object RebuyLockout8019 {
     fun locked8019(sinceCloseMs: Long, ticket: Boolean): Boolean = !ticket && sinceCloseMs in 0L until LOCK_MS_8019
 
     /** CanonicalFinalizedTradeBus6464: a whole-position close (its realised return feeds the loss memory). */
-    fun onClose8019(mint: String, atMs: Long, realizedReturnPct: Double = Double.NaN) {
+    fun onClose8019(mint: String, atMs: Long, realizedReturnPct: Double = Double.NaN, exitReason: String = "") {
         if (mint.isBlank()) return
         loadLosses8022()
-        if (bigLoss8130(realizedReturnPct)) noteBigLoss8130(mint, atMs)
+        if (bigLoss8130(realizedReturnPct) || stoppedLoss8529(realizedReturnPct, exitReason)) noteBigLoss8130(mint, atMs)
         if (realizedReturnPct.isFinite() && realizedReturnPct < 0.0) {
             if (losses.size > 4_000) losses.entries.removeIf { e -> synchronized(e.value) { e.value.none { atMs - it < LOSS_MEMORY_MS_8022 } } }
             val l = losses.getOrPut(mint) { java.util.Collections.synchronizedList(ArrayList()) }
@@ -122,6 +122,21 @@ object RebuyLockout8019 {
         !ticket && change1hPct != null && change1hPct.isFinite() && change1hPct <= FALLING_KNIFE_1H_PCT_8130
 
     private const val FALLING_KNIFE_1H_PCT_8130 = -35.0
+
+    /**
+     * Pure (V5.0.8529): a losing close made by a protective stop is a real loss whatever the realised % — a fast stop lands
+     * small on a coin that is collapsing. 8527 live: HonEQ5 RAPID_CATASTROPHE_STOP at -1.9 % (10 s after the buy) took only
+     * the 10-minute lockout; SHITCOIN bought it again 14.5 min later and lost -25 %. A profit lock, trail in profit or
+     * manual / shutdown close is not a stop-out.
+     */
+    fun stoppedLoss8529(realizedReturnPct: Double, exitReason: String): Boolean {
+        if (!realizedReturnPct.isFinite() || realizedReturnPct >= 0.0) return false
+        val r = exitReason.uppercase()
+        if (r.isBlank() || r.contains("MANUAL") || r.contains("SHUTDOWN") || r.contains("PROFIT")) return false
+        return STOP_MARKS_8529.any { r.contains(it) }
+    }
+
+    private val STOP_MARKS_8529 = listOf("CATASTROPH", "STOP", "HARD_FLOOR", "_SL_", "SL_", "FLUID_FLOOR", "RUG")
 
     /** Pure: a realised return that counts as a real loss. */
     fun bigLoss8130(realizedReturnPct: Double): Boolean = realizedReturnPct.isFinite() && realizedReturnPct <= BIG_LOSS_PCT_8130

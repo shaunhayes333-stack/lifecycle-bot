@@ -311,12 +311,18 @@ object NetEdge8030 {
         val h1 = StrategyMove8153.positiveHour8153(hour8399)
         val rec = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedRecord8153(ts, lane, setup, nowMs) } catch (_: Throwable) { null }
         val age = try { CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts, nowMs) } catch (_: Throwable) { null }
+        // V5.0.8529 — where the price sits in the hour it just moved through (StrategyMove8153.remaining8529).
+        val pos8529 = if (bars.isEmpty()) null else StrategyMove8153.hourPosition8529(
+            bars.minOf { minOf(it.lowUsd.takeIf { l -> l > 0.0 } ?: it.priceUsd, it.priceUsd) },
+            maxOf(bars.maxOf { maxOf(it.highUsd, it.priceUsd) }, ts.lastPrice.takeIf { it.isFinite() } ?: 0.0),
+            ts.lastPrice.takeIf { it.isFinite() && it > 0.0 } ?: bars.maxByOrNull { it.ts }!!.priceUsd)
         val m = StrategyMove8153.expected8153(
             mandatePct = mandatePct, rangePct = range, rangeDense = StrategyMove8153.dense8153(bars.size, spanMs), h1Pct = h1,
             strategyN = rec?.get(0)?.toInt() ?: 0, strategyMeanPct = rec?.get(1) ?: Double.NaN, strategySePct = rec?.get(2) ?: Double.NaN,
             costPct = costPct, freshLaunch = StrategyMove8153.fresh8153(age),
             signedHourPct = hour8399, momentumEntry = StrategyMove8153.momentumLane8153(lane),
             inLaunchWindow8418 = FallingHourCohort8418.inLaunchWindow8418(age),
+            runupFromHourLowPct8529 = pos8529?.first, roomToHourHighPct8529 = pos8529?.second,
         )
         // The isolated 8521 setup book already uses the decision's frozen target horizon.
         // Its measured estimate must not be raised by a historical range or lane mandate.

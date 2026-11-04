@@ -138,11 +138,17 @@ object ExitStageTiming7876 {
             val gap = one("redispatchGap")
             val att = one("attemptsToBroadcast")
             val conf = one("broadcast->confirm")
+            // V5.0.8529 — the queue's named causes (recorded since 8087, never printed: 8527 CATASTROPHIC queue avg 34.5 s
+            // / max 198.6 s had no attribution in the report).
+            val causes = rows.filter { it.key.substringAfter('|').startsWith("queueCause[") }
+                .sortedByDescending { synchronized(it.value) { it.value.sumMs } }.take(3)
+                .joinToString(",") { "${it.key.substringAfter('|').removePrefix("queueCause[").removeSuffix("]")}=n${it.value.n}/avg${it.value.avg()}/max${it.value.maxMs}ms" }
             val inner = rows.filter { it.key.substringAfter('|').contains("->") &&
+                    !it.key.substringAfter('|').startsWith("queueCause[") &&
                     !it.key.endsWith("queue(trigger->start)") && !it.key.endsWith("broadcast->confirm") }
                 .sortedByDescending { synchronized(it.value) { it.value.sumMs } }.take(3)
                 .joinToString(",") { "${it.key.substringAfter('|')}=avg${it.value.avg()}/max${it.value.maxMs}ms" }
-            "$cls[queue=avg${queue?.avg() ?: 0}/max${queue?.maxMs ?: 0}ms redispatchGap=avg${gap?.avg() ?: 0}ms(n=${gap?.n ?: 0}) " +
+            "$cls[queue=avg${queue?.avg() ?: 0}/max${queue?.maxMs ?: 0}ms queueCauses={${causes.ifBlank { "-" }}} redispatchGap=avg${gap?.avg() ?: 0}ms(n=${gap?.n ?: 0}) " +
                 "attempts=avg${att?.avg() ?: 0}/max${att?.maxMs ?: 0} slowest={${inner.ifBlank { "-" }}} " +
                 "broadcast->confirm=avg${conf?.avg() ?: 0}/max${conf?.maxMs ?: 0}ms]"
         }

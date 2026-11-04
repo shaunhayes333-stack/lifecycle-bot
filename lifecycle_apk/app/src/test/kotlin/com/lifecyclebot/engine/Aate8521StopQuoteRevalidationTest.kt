@@ -43,7 +43,11 @@ class Aate8521StopQuoteRevalidationTest {
     @Test fun an_executable_stop_breach_is_not_vetoed_because_the_mark_overstates_the_loss() {
         assertFalse(QuoteGate.quoteRefutes8521(-82.0, -16.0, -15.0))
         assertTrue(QuoteGate.quoteRefutes8521(-82.0, -3.4, -15.0))
-        assertTrue(QuoteGate.quoteRefutes8521(-25.0, -14.0, -15.0))
+        // V5.0.8529 — superseded: assertTrue(quoteRefutes8521(-25.0, -14.0, -15.0)). A quote one point above a -15 % line is
+        // the same falling price (8527: stops cancelled this way landed at -21 / -25 / -30 %); only a quote better than half
+        // the stop depth (a phantom mark or a recovered queued stop) refutes.
+        assertFalse(QuoteGate.quoteRefutes8521(-25.0, -14.0, -15.0))
+        assertTrue(QuoteGate.quoteRefutes8521(-25.0, -7.0, -15.0))
         var broadcasts = 0
         val allowed = QuoteGate.allowSell("breached8521", "X", "STRICT_SL_-15", -82.0, 0.05,
             nowMs = 1_000L, positionIdentity8521 = "p1|100|1", stopThresholdPct8521 = -15.0) { 0.042 }

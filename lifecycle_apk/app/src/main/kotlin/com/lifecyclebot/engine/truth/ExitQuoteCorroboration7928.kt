@@ -43,12 +43,21 @@ object ExitQuoteCorroboration7928 {
         return quotePnlPct - triggerPnlPct >= maxOf(8.0, 0.5 * kotlin.math.abs(triggerPnlPct))
     }
 
-    /** A route which breaches the actual stop still exits when a bad mark overstates the loss. */
+    /**
+     * A route which breaches the actual stop still exits when a bad mark overstates the loss.
+     * V5.0.8529 — a quote refutes a bound stop only when the executable loss is under half the stop's depth
+     * ([REFUTE_DEPTH_SHARE_8529], the StopMarkConfirm8418.venueRefutes8489 rule): a phantom mark or a recovered queued stop.
+     * superseded: `return quotePnlPct > stopThresholdPct` — a quote a hair above the line cancelled the stop (8527 live:
+     * SIGNAL_INVALIDATED_QUOTE_8521 x12 on emergencies; stops landed at -21 / -25 / -30 % against -15 % lines). A quote at
+     * the line is the same falling price, not a bad print.
+     */
     fun quoteRefutes8521(triggerPnlPct: Double, quotePnlPct: Double, stopThresholdPct: Double?): Boolean {
         if (stopThresholdPct != null && stopThresholdPct.isFinite() && stopThresholdPct < 0.0 &&
-            quotePnlPct.isFinite()) return quotePnlPct > stopThresholdPct
+            quotePnlPct.isFinite()) return quotePnlPct > stopThresholdPct * REFUTE_DEPTH_SHARE_8529
         return contradicts(triggerPnlPct, quotePnlPct)
     }
+
+    internal const val REFUTE_DEPTH_SHARE_8529 = 0.5
 
     /** Pure: the position's pnl at an executable quote (gross of the sell's own fee). */
     fun quotePnlPct(quotedOutSol: Double, costSol: Double): Double =

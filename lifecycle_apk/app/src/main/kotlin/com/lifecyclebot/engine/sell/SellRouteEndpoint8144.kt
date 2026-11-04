@@ -217,16 +217,72 @@ object SellRouteEndpoint8144 {
         Venue8144.AGGREGATOR_ONLY -> listOf(Route8144.JUPITER, Route8144.RAYDIUM, Route8144.PUMPPORTAL)
     }
 
+    // ── V5.0.8529 §ROUTES_THAT_LAND_GO_FIRST ──
+    // 8527 live: RAYDIUM sent 3 landed 0, PUMPPORTAL sent 3 landed 1 (all EXPIRED_BLOCKHASH) while JUPITER landed 39/43; a
+    // Raydium-venue stop (22r9JG) went Raydium first: broadcast 25.8 s, finality 48 s, -16 % against a -11 % line. The venue
+    // order stands until a route's own signed sells measure it failing: [DEMOTE_MIN_DONE_8529]+ resolved sells in the last
+    // [DEMOTE_WINDOW_MS_8529] landing under [DEMOTE_MAX_RATE_8529] puts it behind the routes that land. Nothing is removed.
+    internal const val DEMOTE_MIN_DONE_8529 = 3
+    internal const val DEMOTE_MAX_RATE_8529 = 0.5
+    internal const val DEMOTE_WINDOW_MS_8529 = 30L * 60_000L
+    private const val DEMOTE_CACHE_MS_8529 = 5_000L
+
+    /** Pure: the routes whose resolved sells (route -> landed, resolved) land under the demotion rate. */
+    fun demoted8529(landedResolved: Map<Route8144, Pair<Int, Int>>): Set<Route8144> =
+        landedResolved.filter { (_, v) -> v.second >= DEMOTE_MIN_DONE_8529 && v.first.toDouble() / v.second < DEMOTE_MAX_RATE_8529 }.keys
+
+    /** Pure: [order] with [demoted] routes moved behind the rest (stable); unchanged when every route is demoted. */
+    fun reorder8529(order: List<Route8144>, demoted: Set<Route8144>): List<Route8144> =
+        if (demoted.isEmpty() || order.all { it in demoted }) order else order.filter { it !in demoted } + order.filter { it in demoted }
+
+    /** Pure: a ledger route name to its endpoint route (JUPITER_ULTRA is Jupiter), else null. */
+    fun routeOf8529(name: String): Route8144? {
+        val n = name.uppercase()
+        return when {
+            n.startsWith("JUPITER") -> Route8144.JUPITER
+            n.startsWith("PUMPPORTAL") || n.startsWith("PUMP_PORTAL") -> Route8144.PUMPPORTAL
+            n.startsWith("RAYDIUM") -> Route8144.RAYDIUM
+            else -> null
+        }
+    }
+
+    @Volatile private var demotedAt8529 = 0L
+    @Volatile private var demotedCache8529: Set<Route8144> = emptySet()
+
+    /** The routes currently demoted by their own landing record (signed SELLs, last 30 min); cached 5 s. */
+    fun liveDemoted8529(nowMs: Long = System.currentTimeMillis()): Set<Route8144> {
+        if (nowMs - demotedAt8529 in 0L until DEMOTE_CACHE_MS_8529) return demotedCache8529
+        val tally = HashMap<Route8144, IntArray>()
+        try {
+            for (e in com.lifecyclebot.network.SignedTxLedger8085.allRows8144()) {
+                if (!e.side.equals("SELL", true) || nowMs - e.createdAtMs !in 0L..DEMOTE_WINDOW_MS_8529 || e.unresolved) continue
+                val r = routeOf8529(e.route) ?: continue
+                val c = com.lifecyclebot.engine.SellLanding8368.classify8368(e.state.name, e.detail, e.submittedAtMs8087 > 0L)
+                if (c == com.lifecyclebot.engine.SellLanding8368.Reason8368.NOT_SENT || c == com.lifecyclebot.engine.SellLanding8368.Reason8368.PENDING) continue
+                val t = tally.getOrPut(r) { IntArray(2) }
+                if (c == com.lifecyclebot.engine.SellLanding8368.Reason8368.LANDED) t[0]++
+                t[1]++
+            }
+        } catch (_: Throwable) {}
+        val out = demoted8529(tally.mapValues { it.value[0] to it.value[1] })
+        demotedCache8529 = out; demotedAt8529 = nowMs
+        return out
+    }
+
+    /** [routeOrder8144] for [venue] with today's measured non-landing routes behind the ones that land. */
+    private fun liveOrder8529(venue: Venue8144, nowMs: Long = System.currentTimeMillis()): List<Route8144> =
+        reorder8529(routeOrder8144(venue), liveDemoted8529(nowMs))
+
     /** The first route of [venue]'s order that is admissible now and not in [exclude], or null. */
     fun nextRoute8144(mint: String, venue: Venue8144, nowMs: Long, exclude: Set<Route8144> = emptySet()): Route8144? =
-        routeOrder8144(venue).firstOrNull { it !in exclude && peek8144(mint, it, nowMs, venue.name) == Admit8144.ALLOWED }
+        liveOrder8529(venue, nowMs).firstOrNull { it !in exclude && peek8144(mint, it, nowMs, venue.name) == Admit8144.ALLOWED }
 
     /**
      * May the FIRST attempt go to PumpPortal: it is admissible and the confirmed venue does not put the aggregator
      * ahead of it (a mint with no pump curve sells through Jupiter first; PumpPortal stays available as the rescue).
      */
     fun pumpPortalFirst8144(mint: String, venue: Venue8144, nowMs: Long): Boolean =
-        routeOrder8144(venue).first() == Route8144.PUMPPORTAL &&
+        liveOrder8529(venue, nowMs).first() == Route8144.PUMPPORTAL &&
             peek8144(mint, Route8144.PUMPPORTAL, nowMs, venue.name) == Admit8144.ALLOWED
 
     /**
@@ -234,9 +290,11 @@ object SellRouteEndpoint8144 {
      * a direct route can still answer — PumpPortal admissible on a venue it serves, or a confirmed Raydium pool.
      */
     fun directRouteViable8144(mint: String, venue: Venue8144, nowMs: Long): Boolean {
-        if (venue == Venue8144.RAYDIUM) return peek8144(mint, Route8144.RAYDIUM, nowMs, venue.name) == Admit8144.ALLOWED
         if (venue == Venue8144.AGGREGATOR_ONLY) return false
-        return peek8144(mint, Route8144.PUMPPORTAL, nowMs, venue.name) == Admit8144.ALLOWED
+        // V5.0.8529 — a direct route that is not landing today is not a reason to skip the aggregator ladder.
+        val direct = if (venue == Venue8144.RAYDIUM) Route8144.RAYDIUM else Route8144.PUMPPORTAL
+        if (direct in liveDemoted8529(nowMs)) return false
+        return peek8144(mint, direct, nowMs, venue.name) == Admit8144.ALLOWED
     }
 
     private fun trim8144(nowMs: Long) {

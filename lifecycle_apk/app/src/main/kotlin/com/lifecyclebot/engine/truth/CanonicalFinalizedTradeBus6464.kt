@@ -234,7 +234,7 @@ object CanonicalFinalizedTradeBus6464 {
         // Only housekeeping waits for this learner's durable enrollment; sell finality never does.
         // On storage failure the registered CortexExit consumer retries while fallback proceeds remain recoverable.
         if (exitTruthSaved8521) try { com.lifecyclebot.engine.TailBag8034.onClose8034(env) } catch (_: Throwable) {}
-        if (env.terminal && env.mode.equals("live", true)) try { com.lifecyclebot.engine.RebuyLockout8019.onClose8019(env.mint, env.atMs, env.realizedReturnPct) } catch (_: Throwable) {}
+        if (env.terminal && env.mode.equals("live", true)) try { com.lifecyclebot.engine.RebuyLockout8019.onClose8019(env.mint, env.atMs, env.realizedReturnPct, env.exitReason) } catch (_: Throwable) {}
         // V5.0.7885 — Cortex OutcomeTruth cross-check: realised outcome by entry verdict.
         // V5.0.8198 — Cortex7885 OutcomeTruth no longer runs as a swallowed direct call here (a failure never entered
         // the per-consumer ACK/backoff path and a mid-grade failure destroyed the entry read: cortex-wiring-review).

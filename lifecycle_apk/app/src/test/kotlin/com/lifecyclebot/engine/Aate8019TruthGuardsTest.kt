@@ -90,7 +90,9 @@ class Aate8019TruthGuardsTest {
         RebuyLockout8019.onClose8019("TESTMINT8019", 1_000L)
         assertEquals("REBUY_LOCKOUT_8019", RebuyLockout8019.refusal8019("TESTMINT8019", 2_000L))
         assertNull(RebuyLockout8019.refusal8019("TESTMINT8019", 2_000L + RebuyLockout8019.LOCK_MS_8019))
-        assertTrue(src("engine/truth/CanonicalFinalizedTradeBus6464.kt").contains("RebuyLockout8019.onClose8019(env.mint, env.atMs, env.realizedReturnPct)"))
+        // V5.0.8529 — superseded: `...onClose8019(env.mint, env.atMs, env.realizedReturnPct)`; the bus also passes the exit
+        // reason so a losing protective-stop close locks the mint (RebuyLockout8019.stoppedLoss8529).
+        assertTrue(src("engine/truth/CanonicalFinalizedTradeBus6464.kt").contains("RebuyLockout8019.onClose8019(env.mint, env.atMs, env.realizedReturnPct, env.exitReason)"))
         assertTrue(src("perps/CryptoAltTrader.kt").contains("RebuyLockout8019.refusal8019(mint)"))
     }
 

@@ -60,6 +60,44 @@ object StrategyMove8153 {
         signedHourPct: Double? = null,
         momentumEntry: Boolean = false,
         inLaunchWindow8418: Boolean = false,
+        runupFromHourLowPct8529: Double? = null,
+        roomToHourHighPct8529: Double? = null,
+    ): Move8153 {
+        val m = expectedRaw8153(mandatePct, rangePct, rangeDense, h1Pct, strategyN, strategyMeanPct, strategySePct, costPct,
+            freshLaunch, signedHourPct, momentumEntry, inLaunchWindow8418)
+        if (m.basis !in SPENT_BASES_8529 || inLaunchWindow8418) return m
+        val left = remaining8529(m.expectedGrossPct, runupFromHourLowPct8529, roomToHourHighPct8529) ?: return m
+        return m.copy(expectedGrossPct = left)
+    }
+
+    /**
+     * V5.0.8529 §EXPECTED_MOVE_IS_WHAT_IS_LEFT — the range / 1h / mandate read measures how far the coin moved this hour, not
+     * how far it will move after the buy. 8527 live: STONKS bought after +70 % in the hour (expected = the full lane
+     * mandate), 5 of 13 losses fell from the fill inside 75 s, admitted forward -12.7 % vs refused -0.5 %. What is left is
+     * the hour's move minus the part already run from the hour's low, and never less than the room back to the hour's high.
+     * A setup with its own supported record (basis STRATEGY) and a coin inside its launch window keep their reads.
+     * Null (no change) when either price position is unknown.
+     */
+    fun remaining8529(expectedPct: Double, runupFromLowPct: Double?, roomToHighPct: Double?): Double? {
+        if (!expectedPct.isFinite() || runupFromLowPct == null || roomToHighPct == null) return null
+        if (!runupFromLowPct.isFinite() || !roomToHighPct.isFinite() || runupFromLowPct < 0.0 || roomToHighPct < 0.0) return null
+        return minOf(expectedPct, maxOf(expectedPct - runupFromLowPct, roomToHighPct))
+    }
+
+    /** Pure: the current price's run from the hour's low and room to the hour's high (%), or null without a usable hour. */
+    fun hourPosition8529(lowUsd: Double, highUsd: Double, priceUsd: Double): Pair<Double, Double>? {
+        if (!(lowUsd > 0.0) || !(highUsd >= lowUsd) || !(priceUsd > 0.0) || !lowUsd.isFinite() || !highUsd.isFinite() || !priceUsd.isFinite()) return null
+        val run = (priceUsd / lowUsd - 1.0) * 100.0
+        val room = (highUsd / priceUsd - 1.0) * 100.0
+        return run.coerceAtLeast(0.0) to room.coerceAtLeast(0.0)
+    }
+
+    private val SPENT_BASES_8529 = setOf("MANDATE", "RANGE", "H1", "RANGE_SPARSE")
+
+    private fun expectedRaw8153(
+        mandatePct: Double, rangePct: Double?, rangeDense: Boolean, h1Pct: Double?, strategyN: Int, strategyMeanPct: Double,
+        strategySePct: Double, costPct: Double, freshLaunch: Boolean, signedHourPct: Double?, momentumEntry: Boolean,
+        inLaunchWindow8418: Boolean,
     ): Move8153 {
         if (strategySupported8153(strategyN, strategyMeanPct, strategySePct) && costPct.isFinite() && costPct >= 0.0) {
             return Move8153(strategyMeanPct + costPct, "STRATEGY", false)

@@ -128,7 +128,8 @@ object SellLanding8368 {
             }
         } catch (_: Throwable) { emptyList<Row8368>() }
         return "sellLanding8368[${line8368(table8368(rows))}] stopQty8368[clamped=${clamped.get()} refused=${clampRefused.get()}] " +
-            "staleQuoteRequote8368=${requoted.get()}"
+            "staleQuoteRequote8368=${requoted.get()} " +
+            "routesDemoted8529=${try { com.lifecyclebot.engine.sell.SellRouteEndpoint8144.liveDemoted8529().joinToString(",") { it.name }.ifBlank { "-" } } catch (_: Throwable) { "?" }}"
     }
 
     // ── 1. quantity: never more than the wallet holds ───────────────────────
