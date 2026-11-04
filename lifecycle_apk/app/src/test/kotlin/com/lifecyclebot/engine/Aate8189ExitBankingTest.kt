@@ -130,7 +130,9 @@ class Aate8189ExitBankingTest {
         assertTrue("the full exit is still checked on its own executable quote", ProfitExitTruth8163.profitTaking(reason))
         // 8397 keeps the escalation door but passes through the actual full-exit result: a request is not a fill.
         assertTrue(src("engine/Executor.kt").contains("profitEscalated8189(ts, reason, wallet, walletBalance, delivery8527)?.let { receipt6566?.invoke(it); return }"))
-        assertTrue(src("engine/Executor.kt").contains("return ProfitEscalationReceipt8397.request8397 {"))
+        assertTrue("A full-exit request must preserve the actual result and canonical receipt",
+            src("engine/Executor.kt").contains("val result8527 = ProfitEscalationReceipt8397.request8397 {") &&
+            src("engine/Executor.kt").contains("return result8527.copy(canonicalSlice8527 = capture8527.receipt)"))
     }
 
     @Test fun profitLockBanksOnAHeldSellQuoteRepair() {

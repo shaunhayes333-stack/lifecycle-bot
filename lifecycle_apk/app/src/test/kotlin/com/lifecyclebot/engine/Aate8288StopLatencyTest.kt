@@ -291,7 +291,10 @@ class Aate8288StopLatencyTest {
         assertTrue(JupiterQuoteHealth8288.localFailure8288(SocketTimeoutException("Exit quote budget exhausted"), false, false))
         assertFalse("DNS is the provider path", JupiterQuoteHealth8288.localFailure8288(UnknownHostException("api.jup.ag"), true, false))
         val h = src("engine/HealthAwareHttp.kt")
-        assertTrue(h.contains("val local8288 = try { observation8527?.localFailure(e) == true || isLocalFailure8288?.invoke(e) == true } catch (_: Throwable) { false }"))
+        assertTrue("Local failures must be classified before provider health is penalized",
+            h.contains("val local8288 = try {") &&
+            h.contains("observation8527?.localFailure(e) == true || isLocalFailure8288?.invoke(e) == true") &&
+            h.contains("if (local8288) {"))
         assertTrue(src("network/JupiterApi.kt").contains("host = if (observationOnly7397) JupiterQuoteHealth8288.OBS_HOST_8288 else \"jupiter_quote\""))
         for (a in 1..5) {
             val s = JupiterQuoteHealth8288.retrySleepMs8288(a, 150L)
