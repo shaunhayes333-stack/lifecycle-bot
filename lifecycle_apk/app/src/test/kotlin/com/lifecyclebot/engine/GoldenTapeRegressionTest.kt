@@ -10663,7 +10663,14 @@ class GoldenTapeRegressionTest {
 
         // Ladder: per-host labels, locked rungs skipped, six rungs.
         assertTrue(fan.contains("return if (host.isBlank()) \"solana_rpc\" else \"rpc_\$host\""))
-        assertTrue(fan.contains("PUMP_CURVE_RPC_RUNG_SKIPPED_LOCKED_7281"))
+        // The retired 7281 skip label was replaced by the bounded read ladder.
+        // A declined rung never reaches visit/HTTP; synthetic circuit refusals are not provider evidence.
+        val curveBudget = java.io.File("src/main/kotlin/com/lifecyclebot/network/CurveReadBudget8527.kt").readText()
+        assertTrue(fan.contains("CurveReadBudget8527.walk(rungs7279, latencyCritical8527, admit = { rung ->"))
+        assertTrue(fan.contains("KeylessRpc8359.beforeCall8359(rung)"))
+        assertTrue(curveBudget.contains("if (timeout <= 0L || !admit(url)) continue"))
+        assertTrue(fan.contains("HostCircuitInterceptor.isSyntheticBlock(resp)"))
+        assertTrue(fan.contains("PUMP_CURVE_RPC_CIRCUIT_BLOCKED_7279"))
         assertTrue(fan.contains("private const val CURVE_LADDER_RUNGS_7279 = 6"))
 
         assertTrue(phc.contains("\"PAPER_ATOMIC_REFUSED_SIZE_BELOW_MIN_7281\","))

@@ -536,6 +536,9 @@ class Aate8527ConfirmedPartialProjectionTest {
             canonicalSlice8527 = receipt, expectedMission8527 = expected)
         assertSame(replacement, Sniper.getMission(ts.mint))
 
+        // Prove the opposite-mode liability with an actually funded paper account.
+        // CPA correctly rejects an unfunded PAPER open; it must not relax that invariant.
+        Cpa.setPaperCash(1.0, "sniper_opposite_mode_liability_fixture_8527")
         val paperId = "PAPER:other:${ts.mint}"
         assertEquals(Cpa.MutateResult.APPLIED, Cpa.openPosition("open:$paperId", paperId, ts.mint,
             ts.symbol, "PROJECT_SNIPER", "8527", 1.0, BigInteger.valueOf(100L), 0, 0.0, true,

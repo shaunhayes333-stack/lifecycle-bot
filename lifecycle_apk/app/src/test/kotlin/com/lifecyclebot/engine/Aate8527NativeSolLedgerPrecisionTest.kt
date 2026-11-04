@@ -186,6 +186,8 @@ class Aate8527NativeSolLedgerPrecisionTest {
         val ledger = com.lifecyclebot.engine.truth.PaperAccountLedger6430
         ledger.resetForTest()
         ledger.initialize(1.0)
+        // A PAPER canonical open must have funded CPA cash, not just a funded Treasury ledger.
+        Cpa.setPaperCash(1.0, "native_sol_ledger_precision_fixture_8527")
         cls.getDeclaredField("cachedCtx").apply { isAccessible = true }.set(TreasuryManager, null)
         try { body() } finally {
             saved.forEach { (field, value) -> field.set(TreasuryManager, value) }
