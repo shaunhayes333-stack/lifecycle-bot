@@ -362,8 +362,9 @@ object LiveEdgeGate7877 {
     private fun runnerSetupFires7939(ts: TokenState, lane: String, nowMs: Long): Boolean {
         val runner = try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false }
         if (!runner) return false
-        val pb = com.lifecyclebot.engine.cortex.LanePlaybook7907.playbookScore7937(ts, lane, nowMs) ?: return false
-        return pb > 50.0
+        // V5.0.8535 §C05 — read the native expected net, not the display score.
+        val edge = com.lifecyclebot.engine.cortex.LanePlaybook7907.playbookEdge8535(ts, lane, nowMs) ?: return false
+        return edge.expectedNetPct > 0.0
     }
 
     /** Pure: a refusal resting on a prior alone (no measurement says the entry loses). */

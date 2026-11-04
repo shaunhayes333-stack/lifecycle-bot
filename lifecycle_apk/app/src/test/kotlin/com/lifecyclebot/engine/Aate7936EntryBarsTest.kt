@@ -34,10 +34,11 @@ class Aate7936EntryBarsTest {
 /** V5.0.7937 — scoring reflects the lane playbook. */
 class Aate7937PlaybookScoreTest {
     @Test fun playbookScoreReadsExpectedReturnAndConfluence() {
+        // superseded: 8535 §C05 — the display is a range-preserving shape (50 ± 50·tanh(x/8)), no longer 10 points per % clipped at ±5 %
         assertEquals(50.0, LanePlaybook7907.scoreOf7937(0.0, 0), 1e-9)
-        assertEquals(60.0, LanePlaybook7907.scoreOf7937(1.0, 0), 1e-9)
-        assertEquals(66.0, LanePlaybook7907.scoreOf7937(1.0, 2), 1e-9)
-        assertEquals(0.0, LanePlaybook7907.scoreOf7937(-9.0, 0), 1e-9)
-        assertEquals(100.0, LanePlaybook7907.scoreOf7937(8.0, 5), 1e-9)
+        assertEquals(50.0 + 50.0 * kotlin.math.tanh(1.0 / 8.0), LanePlaybook7907.scoreOf7937(1.0, 0), 1e-9)
+        assertEquals(LanePlaybook7907.scoreOf7937(1.0, 0) + 6.0, LanePlaybook7907.scoreOf7937(1.0, 2), 1e-9)
+        assertTrue(LanePlaybook7907.scoreOf7937(-9.0, 0) in 5.0..15.0)
+        assertEquals(100.0, LanePlaybook7907.scoreOf7937(8.0, 5), 1e-9)   // confluence can still fill the display cap
     }
 }

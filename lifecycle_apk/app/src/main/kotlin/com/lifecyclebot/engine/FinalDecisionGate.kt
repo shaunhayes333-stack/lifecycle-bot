@@ -1229,9 +1229,10 @@ object FinalDecisionGate {
             try { PipelineHealthCollector.labelInc("FDG_SCORE_FLOOR_RETIRED_VETO_POPULATION_8112_$lane") } catch (_: Throwable) {}
             return true
         }
-        val pb = com.lifecyclebot.engine.cortex.LanePlaybook7907.playbookScore7937(ts, lane) ?: return false
-        // A positive expected record (score above the 50 break-even) and at least the WAIT bar.
-        val clears = pb > 50.0 && pb >= waitFloor
+        // V5.0.8535 §C05 — the playbook answers on its native scale: a positive expected NET record (not a display score
+        // above 50 that saturated at +5 %) and a display at least the WAIT bar. +5 % and +50 % no longer tie at 100.
+        val edge8535 = com.lifecyclebot.engine.cortex.LanePlaybook7907.playbookEdge8535(ts, lane) ?: return false
+        val clears = edge8535.expectedNetPct > 0.0 && edge8535.displayScore >= waitFloor
         if (clears) try { PipelineHealthCollector.labelInc("FDG_SCORE_FLOOR_PLAYBOOK_SCORE_7937_$lane") } catch (_: Throwable) {}
         return clears
     }

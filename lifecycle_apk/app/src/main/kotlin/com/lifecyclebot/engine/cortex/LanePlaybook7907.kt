@@ -1324,25 +1324,58 @@ object LanePlaybook7907 {
     }
 
     /**
-     * V5.0.7937 — the lane's playbook score for this candidate: the best fired
-     * setup's expected net return (learned record shrunk to its prior), on the
-     * score scale (50 = break-even, +10 per expected point, +3 per extra setup
-     * that also fired), or null when only NO_TRIGGER applies or the lane has no
-     * playbook. Scoring reflects what the lane trades, not the generic V3 read.
+     * V5.0.7937 — the lane's playbook read for this candidate: the best fired setup's expected net return (learned
+     * record shrunk to its prior), or null when only NO_TRIGGER applies or the lane has no playbook. Scoring reflects
+     * what the lane trades, not the generic V3 read.
+     *
+     * V5.0.8535 §C05 — the playbook's edge on its NATIVE scale (the 7937 `playbookScore7937` display accessor is retired:
+     * both of its readers compare this record). `scoreOf7937` mapped +5 %, +15 % and +100 % expected
+     * net to the same 100 (and anything ≤ −5 % to 0), so the two gates that read it (FinalDecisionGate's floor bypass,
+     * LiveEdgeGate's runner-setup test) could not tell economically distinct setups apart. Arbitration reads this
+     * record: expected net %, its standard error, the 500 % runner-tail rate and the confluence count; the bounded
+     * score is a display of it, never the thing compared.
      */
-    fun playbookScore7937(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): Double? = try {
+    data class PlaybookEdge8535(
+        val setup: String,
+        /** Expected NET % (learned record shrunk to its prior; label cost already charged). */
+        val expectedNetPct: Double,
+        val n: Double,
+        /** Standard error of the record's mean, NaN below two labels. */
+        val stderrPct: Double,
+        /** Share of the record's labels that reached the runner tail. */
+        val runnerRate: Double,
+        val extraSetups: Int,
+    ) {
+        /** Conservative executable net: one standard error under the mean when measured, the shrunk prior when not. */
+        val conservativeNetPct: Double get() = if (stderrPct.isFinite()) expectedNetPct - stderrPct else expectedNetPct
+        /** The bounded 0..100 display of this edge (`scoreOf7937`); 50 = break-even. */
+        val displayScore: Double get() = scoreOf7937(expectedNetPct, extraSetups)
+    }
+
+    fun playbookEdge8535(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): PlaybookEdge8535? = try {
         val lane = canon(laneRaw)
         val setup = selectedSetup8094(ts, lane, nowMs)  // V5.0.8153 — scored as the strategy it trades as
         if (setup == null || setup == NO_TRIGGER) null else {
             val also = classify8084(ts, lane, nowMs)?.matched.orEmpty().count { it != setup }
-            val exp = synchronized(this) { expected(lane, setup) }
-            scoreOf7937(exp, also)
+            synchronized(this) {
+                val st = stat(lane, setup)
+                val n = st?.n ?: 0.0
+                val se = if (st != null && n >= 2.0) kotlin.math.sqrt(st.variance() / n) else Double.NaN
+                PlaybookEdge8535(setup, expected(lane, setup), n, se, st?.runnerRate() ?: 0.0, also)
+            }
         }
     } catch (_: Throwable) { null }
 
-    /** Pure: expected net % and confluence → score (0..100). */
+    /** Expected net % at which the display score has used half its range above break-even. */
+    const val DISPLAY_SCALE_PCT_8535 = 8.0
+
+    /**
+     * Pure: expected net % and confluence → bounded display score (0..100, 50 = break-even). V5.0.8535 §C05 — a
+     * range-preserving shape (50 ± 50·tanh(x / 8)) instead of 10 points per % clipped at ±5 %: +2 / +5 / +15 / +50 %
+     * stay distinct and ordered; the native edge ([PlaybookEdge8535]) is what arbitration reads.
+     */
     fun scoreOf7937(expectedPct: Double, extraSetups: Int): Double =
-        (50.0 + 10.0 * expectedPct + 3.0 * extraSetups.coerceIn(0, 5)).coerceIn(0.0, 100.0)
+        (50.0 + 50.0 * kotlin.math.tanh(expectedPct / DISPLAY_SCALE_PCT_8535) + 3.0 * extraSetups.coerceIn(0, 5)).coerceIn(0.0, 100.0)
 
     /** Pure: V5.0.7936 — does the lane have a mature NO_TRIGGER record to judge by? */
     fun noTriggerMeasured7936(st: CortexLedger7885.Stat?): Boolean = st != null && st.n >= NONE_PROOF_N
