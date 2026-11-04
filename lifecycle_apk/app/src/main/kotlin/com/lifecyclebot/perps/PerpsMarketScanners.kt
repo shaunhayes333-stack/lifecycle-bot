@@ -57,6 +57,8 @@ object PerpsMarketScanners {
         FUNDING_RATE("📊", "Funding Arb", "Funding rate arbitrage"),
         VOLATILITY_BREAKOUT("⚡", "Vol Breakout", "Volatility squeeze breakouts"),
         CORRELATION("🔄", "Correlation", "SOL vs stock correlation plays"),
+        /** V5.0.8535 §C13 — PerpsTraderAI's native strategy (funding / OI / L-S / RSI edges), previously uncalled. */
+        AI_BRAIN("🧠", "AI Brain", "PerpsStrategy native edges on observed feeds"),
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -132,6 +134,7 @@ object PerpsMarketScanners {
                     ScannerType.FUNDING_RATE -> scanFundingRate(marketDataMap, isPaperMode)
                     ScannerType.VOLATILITY_BREAKOUT -> scanVolatilityBreakout(marketDataMap, isPaperMode)
                     ScannerType.CORRELATION -> scanCorrelation(marketDataMap, isPaperMode)
+                    ScannerType.AI_BRAIN -> scanAiBrain8535(marketDataMap, isPaperMode)
                 }
                 
                 // Log scanner results
@@ -279,6 +282,39 @@ object PerpsMarketScanners {
     // Quick volatility plays - fast entries on SOL price spikes
     // ═══════════════════════════════════════════════════════════════════════════
     
+    // ═══════════════════════════════════════════════════════════════════════════
+    // SCANNER 8 (V5.0.8535 §C13): AI BRAIN — PerpsTraderAI.generateSignal was the only PerpsStrategy consumer and had no
+    // caller, so the funding / OI / RSI strategy never reached execution. It runs here over the crypto perps markets.
+    // A signal is emitted only when PerpsStrategy produced a setup (at least one OBSERVED native feed); with every feed
+    // absent the scanner counts PERPS_AI_BRAIN_NO_NATIVE_FEED_8535 instead of emitting a momentum duplicate.
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private fun scanAiBrain8535(
+        marketData: Map<PerpsMarket, PerpsMarketData>,
+        isPaperMode: Boolean,
+    ): List<ScanResult> {
+        val results = mutableListOf<ScanResult>()
+        for ((market, data) in marketData) {
+            if (!market.isCrypto || data.price <= 0.0) continue
+            val signal = try { PerpsTraderAI.generateSignal(market, data, isPaperMode) } catch (_: Throwable) { continue }
+            if (signal.score <= 0 || signal.confidence <= 0) continue   // pre-flight refusal (daily loss, market closed)
+            if (signal.setup8535.isBlank()) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PERPS_AI_BRAIN_NO_NATIVE_FEED_8535") } catch (_: Throwable) {}
+                continue
+            }
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PERPS_AI_BRAIN_SETUP_8535_${signal.setup8535}") } catch (_: Throwable) {}
+            results.add(ScanResult(
+                scanner = ScannerType.AI_BRAIN,
+                market = market,
+                signal = signal,
+                priority = when { signal.confidence >= 80 -> 8; signal.confidence >= 65 -> 6; else -> 4 },
+                reasoning = signal.reasons,
+            ))
+            signalsGenerated.incrementAndGet()
+        }
+        return results
+    }
+
     private fun scanSolSniper(
         marketData: Map<PerpsMarket, PerpsMarketData>,
         isPaperMode: Boolean,

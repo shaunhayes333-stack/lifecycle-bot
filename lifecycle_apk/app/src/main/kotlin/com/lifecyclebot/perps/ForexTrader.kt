@@ -146,7 +146,10 @@ object ForexTrader {
         val price: Double,
         val priceChange24h: Double,
         val reasons: List<String>,
-        val leverage: Double = 1.0  // V5.7.6: 1.0 = SPOT, 10.0 = LEVERAGE
+        val leverage: Double = 1.0,  // V5.7.6: 1.0 = SPOT, 10.0 = LEVERAGE
+        /** V5.0.8535 §C14 — the ForexStrategy setup decided at analysis (with its RSI / reversal inputs) and its clock. */
+        val setup8535: com.lifecyclebot.perps.strategy.ForexStrategy.ForexSetup? = null,
+        val decidedAtMs8535: Long = 0L,
     )
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -465,11 +468,12 @@ object ForexTrader {
         // V5.9.376 — consult the dedicated forex strategy for session-aware,
         // bidirectional, pip-based decision. If it stands down (off-session
         // or insufficient edge), skip this pair entirely.
-        val rsiVal: Double? = try {
-            com.lifecyclebot.perps.PerpsAdvancedAI.analyzeTechnicals(market).rsi
-        } catch (_: Exception) { null }
-        val isOversold = try { com.lifecyclebot.perps.PerpsAdvancedAI.analyzeTechnicals(market).isOversold } catch (_: Exception) { false }
-        val isOverbought = try { com.lifecyclebot.perps.PerpsAdvancedAI.analyzeTechnicals(market).isOverbought } catch (_: Exception) { false }
+        // V5.0.8535 §C14 — RSI / reversal from OBSERVED ticks only (the seeded tape is a shape drawn from a synthesised
+        // 24h range); unknown is null, not a 50 that reads as "neither".
+        val rsiVal: Double? = try { com.lifecyclebot.perps.PerpsAdvancedAI.observedRsi8535(market)?.rsi } catch (_: Exception) { null }
+        val isOversold = rsiVal != null && rsiVal < 30.0
+        val isOverbought = rsiVal != null && rsiVal > 70.0
+        val decidedAt8535 = System.currentTimeMillis()
         val setup = com.lifecyclebot.perps.strategy.ForexStrategy.decide(
             symbol = market.symbol,
             price = data.price,
@@ -630,7 +634,9 @@ object ForexTrader {
             confidence = confidence.coerceIn(0, 100),
             price = data.price,
             priceChange24h = change,
-            reasons = reasons
+            reasons = reasons,
+            setup8535 = setup,
+            decidedAtMs8535 = decidedAt8535,
         )
     }
     
@@ -730,32 +736,25 @@ object ForexTrader {
         // runs the same sizing/TP/SL pipeline as paper. Live swap fires
         // below where paper debits the paper wallet (unified path).
         
-        // V5.9.93: fluid TP/SL
-        val (tpMult, slMult) = PerpsFluidSizing.tpSlMultiplier(signal.score, signal.confidence)
-        val baseTpPct = com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsSpotTpPct()
-
-        // V5.9.376 — use ForexStrategy pip-based TP/SL instead of %-based
-        // (a 0.5% SL on EURUSD was 50 pips of room — far too wide). Falls
-        // back to the legacy % multipliers if the strategy stood down.
-        val strategySetup = com.lifecyclebot.perps.strategy.ForexStrategy.decide(
-            symbol = signal.market.symbol,
-            price = signal.price,
-            priceChange24hPct = signal.priceChange24h,
-        )
-        val tpPct: Double
-        val slPct: Double
-        if (strategySetup != null) {
-            tpPct = com.lifecyclebot.perps.strategy.ForexStrategy.pipsToPct(
-                signal.market.symbol, strategySetup.tpPips, signal.price)
-            slPct = com.lifecyclebot.perps.strategy.ForexStrategy.pipsToPct(
-                signal.market.symbol, strategySetup.slPips, signal.price)
-        } else {
-            // V5.9.983 — SmartExitOptimizer trust-aware blend (was DORMANT).
-            val seoTp = try { com.lifecyclebot.engine.SmartExitOptimizer.getSuggestedTpPct("FOREX", 0.0, 0.0) } catch (_: Throwable) { baseTpPct }
-            val seoSl = try { com.lifecyclebot.engine.SmartExitOptimizer.getSuggestedSlPct("FOREX") } catch (_: Throwable) { SL_PERCENT }
-            tpPct = ((baseTpPct + seoTp) * 0.5) * tpMult
-            slPct = ((SL_PERCENT + seoSl) * 0.5) * slMult
+        // V5.0.8535 §C14 — the setup decided at analysis (with its RSI / reversal inputs and frozen clock) is the
+        // contract: it is repriced at the fill, never re-decided. The old path called decide() again WITHOUT the RSI
+        // inputs and took that second thesis' stops (or the generic optimiser's) under the first thesis' direction.
+        // An expired or direction-mismatched setup cancels the entry.
+        val strategySetup = signal.setup8535
+        if (strategySetup == null || strategySetup.direction != signal.direction) {
+            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(executionIntent6565, "FOREX_SETUP_MISSING_8535")
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FOREX_SETUP_MISSING_8535") } catch (_: Throwable) {}
+            return
         }
+        val setupAgeMs8535 = System.currentTimeMillis() - signal.decidedAtMs8535
+        if (setupAgeMs8535 > com.lifecyclebot.perps.strategy.ForexStrategy.SETUP_TTL_MS_8535) {
+            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(executionIntent6565, "FOREX_SETUP_EXPIRED_8535")
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FOREX_SETUP_EXPIRED_8535") } catch (_: Throwable) {}
+            ErrorLogger.warn(TAG, "💱 ${signal.market.symbol}: setup expired (${setupAgeMs8535 / 1000}s) — entry cancelled, not re-decided")
+            return
+        }
+        val tpPct = com.lifecyclebot.perps.strategy.ForexStrategy.pipsToPct(signal.market.symbol, strategySetup.tpPips, signal.price)
+        val slPct = com.lifecyclebot.perps.strategy.ForexStrategy.pipsToPct(signal.market.symbol, strategySetup.slPips, signal.price)
 
         val tp = if (signal.direction == PerpsDirection.LONG) {
             signal.price * (1 + tpPct / 100)

@@ -1,12 +1,15 @@
 package com.lifecyclebot.perps.strategy
 
 import com.lifecyclebot.perps.PerpsDirection
-import com.lifecyclebot.perps.PerpsMarket
+import java.time.DayOfWeek
+import java.time.Instant
+import java.time.ZoneId
+import java.time.ZonedDateTime
 import kotlin.math.abs
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
- * 💱 FOREX STRATEGY — V5.9.376
+ * 💱 FOREX STRATEGY — V5.9.376 · V5.0.8535 §C14/§C16
  * ═══════════════════════════════════════════════════════════════════════════════
  *
  * Replaces the "24h-change ≥ 0 → LONG" heuristic ForexTrader was using with a
@@ -23,9 +26,19 @@ import kotlin.math.abs
  *     ATR-scaled pips per pair class.
  *   • Leverage tiers: majors 10-30x, crosses 5-15x, EM 1-5x — gated by conviction
  *
+ * 8535 §C16 — sessions were static UTC hour bands (21:00–23:00 filed as ASIA before Tokyo opens, London fixed at
+ * 07:00 UTC through the DST switch, the week closing at a UTC hour). They are now read from the exchange calendars in
+ * their own zones: Tokyo 09:00–18:00 JST, London 08:00–17:00 Europe/London, New York 08:00–17:00 America/New_York;
+ * the week runs Sunday 17:00 to Friday 17:00 New York. The Sydney-only window before Tokyo is OFF_HOURS (thin), and
+ * EM pairs stand down outside London / New York. There is no economic-event calendar source in this build; that is
+ * stated in the reasons rather than assumed away.
+ *
+ * 8535 §C14 — the setup is decided once, at analysis, and carried to the fill ([SETUP_TTL_MS_8535]); the trader no
+ * longer re-decides without the RSI inputs to borrow a second thesis' stops.
+ *
  * PUBLIC API:
  *   ForexStrategy.decide(...)                  → ForexSetup?
- *   ForexStrategy.currentSession()             → Session
+ *   ForexStrategy.currentSession(nowMs)        → Session
  *   ForexStrategy.classifyPair(symbol)         → PairClass
  *   ForexStrategy.leverageFor(cls, conviction) → Double
  *   ForexStrategy.pipsToPct(symbol, pips, px)  → Double
@@ -34,8 +47,11 @@ import kotlin.math.abs
  */
 object ForexStrategy {
 
-    enum class Session { ASIA, LONDON, LONDON_NY_OVERLAP, NY, CLOSED }
+    enum class Session { ASIA, LONDON, LONDON_NY_OVERLAP, NY, OFF_HOURS, CLOSED }
     enum class PairClass { MAJOR, CROSS, JPY_CROSS, EM }
+
+    /** A setup decided at analysis is executable for this long; after that the entry is cancelled, not re-decided. */
+    const val SETUP_TTL_MS_8535 = 15 * 60_000L
 
     data class ForexSetup(
         val direction: PerpsDirection,
@@ -63,25 +79,39 @@ object ForexStrategy {
         "USDSGD", "USDHKD", "USDKRW",
     )
 
-    /** London opens 07:00 UTC, closes 16:00. NY opens 12:00, closes 21:00.
-     *  Tokyo is 23:00-08:00 UTC. Weekend (Fri 21:00 - Sun 22:00) = CLOSED. */
-    fun currentSession(
-        utcHour: Int = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"))
-            .get(java.util.Calendar.HOUR_OF_DAY),
-        dayOfWeek: Int = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"))
-            .get(java.util.Calendar.DAY_OF_WEEK),
-    ): Session {
-        // DAY_OF_WEEK: Sun=1, Mon=2, ..., Sat=7
-        if (dayOfWeek == java.util.Calendar.SATURDAY) return Session.CLOSED
-        if (dayOfWeek == java.util.Calendar.SUNDAY && utcHour < 22) return Session.CLOSED
-        if (dayOfWeek == java.util.Calendar.FRIDAY && utcHour >= 21) return Session.CLOSED
-        return when (utcHour) {
-            in 0..6 -> Session.ASIA
-            in 7..11 -> Session.LONDON
-            in 12..15 -> Session.LONDON_NY_OVERLAP
-            in 16..20 -> Session.NY
-            in 21..23 -> Session.ASIA
-            else -> Session.ASIA
+    private val TOKYO: ZoneId = ZoneId.of("Asia/Tokyo")
+    private val LONDON: ZoneId = ZoneId.of("Europe/London")
+    private val NEW_YORK: ZoneId = ZoneId.of("America/New_York")
+
+    private fun open(z: ZonedDateTime, openHour: Int, closeHour: Int): Boolean =
+        z.dayOfWeek != DayOfWeek.SATURDAY && z.dayOfWeek != DayOfWeek.SUNDAY && z.hour >= openHour && z.hour < closeHour
+
+    /**
+     * The session at [nowMs], from the exchange calendars in their own zones (DST follows each zone).
+     * CLOSED from Friday 17:00 to Sunday 17:00 New York; OFF_HOURS when no major centre is open (the Sydney-only window
+     * before Tokyo, and the gap after New York).
+     */
+    fun currentSession(nowMs: Long = System.currentTimeMillis()): Session {
+        val instant = Instant.ofEpochMilli(nowMs)
+        val ny = ZonedDateTime.ofInstant(instant, NEW_YORK)
+        val weekendClosed = when (ny.dayOfWeek) {
+            DayOfWeek.SATURDAY -> true
+            DayOfWeek.FRIDAY -> ny.hour >= 17
+            DayOfWeek.SUNDAY -> ny.hour < 17
+            else -> false
+        }
+        if (weekendClosed) return Session.CLOSED
+        val london = ZonedDateTime.ofInstant(instant, LONDON)
+        val tokyo = ZonedDateTime.ofInstant(instant, TOKYO)
+        val londonOpen = open(london, 8, 17)
+        val nyOpen = open(ny, 8, 17)
+        val tokyoOpen = open(tokyo, 9, 18)
+        return when {
+            londonOpen && nyOpen -> Session.LONDON_NY_OVERLAP
+            londonOpen -> Session.LONDON
+            nyOpen -> Session.NY
+            tokyoOpen -> Session.ASIA
+            else -> Session.OFF_HOURS
         }
     }
 
@@ -142,10 +172,13 @@ object ForexStrategy {
         isOversold: Boolean = false,
         isOverbought: Boolean = false,
         dxyChangePct: Double? = null,  // DXY daily change for USD regime context
+        nowMs: Long = System.currentTimeMillis(),
     ): ForexSetup? {
         val cls = classifyPair(symbol)
-        val session = currentSession()
+        val session = currentSession(nowMs)
         if (session == Session.CLOSED) return null
+        // 8535 §C16 — EM pairs have no liquid market outside London / New York.
+        if (cls == PairClass.EM && session != Session.LONDON && session != Session.NY && session != Session.LONDON_NY_OVERLAP) return null
 
         val reasons = mutableListOf<String>()
         var conviction = 40
@@ -168,11 +201,17 @@ object ForexStrategy {
             Session.LONDON -> { conviction += 10; reasons.add("🇬🇧 London session") }
             Session.NY -> { conviction += 8; reasons.add("🇺🇸 NY session") }
             Session.ASIA -> {
-                if (cls == PairClass.JPY_CROSS) { conviction += 8; reasons.add("🇯🇵 Asia session (JPY relevant)") }
-                else { conviction -= 5; reasons.add("🌙 Asia session (low conviction for non-JPY)") }
+                if (cls == PairClass.JPY_CROSS) { conviction += 8; reasons.add("🇯🇵 Tokyo session (JPY relevant)") }
+                else { conviction -= 5; reasons.add("🌙 Tokyo session (low conviction for non-JPY)") }
             }
-            else -> {}
+            Session.OFF_HOURS -> {
+                // Sydney-only / post-NY: thin books, wide spreads, no centre open.
+                conviction -= if (cls == PairClass.JPY_CROSS) 3 else 10
+                reasons.add("🌑 Off-hours (no major centre open)")
+            }
+            Session.CLOSED -> {}
         }
+        reasons.add("📅 no economic-event calendar source in this build")
 
         // 3) RSI reversal setups — pure contrarian only when extreme
         rsi?.let { r ->

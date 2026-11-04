@@ -455,6 +455,8 @@ object ReportingHub {
         }.let { appendLine(it) }
         appendLine(safe("losing_pattern_memory") { LosingPatternMemory.formatForPipelineDump().trim() }.ifBlank { "Losing-pattern memory: no mature danger buckets" })
         appendLine(safe("autonomous_meta_policy") { AutonomousMetaPolicy.formatForPipelineDump().trim() }.ifBlank { "Autonomous Meta-Policy: no mature contexts yet" })
+        // V5.0.8535 §C13 — each executed perps setup graded on its own settled closes.
+        appendLine("Perps setups (8535): ${safe("perps_setup_grades_8535") { com.lifecyclebot.perps.strategy.PerpsSetupGradeBook8535.summary().trim() }}")
         appendLine(safe("unified_policy_head") { UnifiedPolicyHead.formatForPipelineDump().trim() }.ifBlank { "Unified Policy Head: no trained weights yet" })
         appendLine(safe("unified_exit_policy_head") { UnifiedExitPolicyHead.formatForPipelineDump().trim() }.ifBlank { "" })
         // V5.0.4097 — ScannerSourceBrain (per-source intake AGI)

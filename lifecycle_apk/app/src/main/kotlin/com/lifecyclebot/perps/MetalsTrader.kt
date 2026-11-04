@@ -135,7 +135,9 @@ object MetalsTrader {
         val price: Double,
         val priceChange24h: Double,
         val reasons: List<String>,
-        val leverage: Double = 1.0  // V5.7.6: 1.0 = SPOT, 5.0 = LEVERAGE
+        val leverage: Double = 1.0,  // V5.7.6: 1.0 = SPOT, 5.0 = LEVERAGE
+        /** V5.0.8535 §C15 — the specialist plan decided at analysis; it owns the exit contract at execution. */
+        val setup8535: com.lifecyclebot.perps.strategy.MetalsStrategy.MetalSetup? = null,
     )
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -448,12 +450,14 @@ object MetalsTrader {
         // V5.9.377 — consult MetalsStrategy for USD-inverse, safe-haven aware,
         // bidirectional decision. Stand down if no edge. Replaces the
         // "change >= 0 → LONG" long-biased heuristic.
-        val rsiVal: Double? = try {
-            com.lifecyclebot.perps.PerpsAdvancedAI.analyzeTechnicals(market).rsi
-        } catch (_: Exception) { null }
+        // V5.0.8535 §C15 — RSI from OBSERVED ticks only; DXY / VIX have no source in this build and are passed as
+        // unobserved (null) so the strategy names the submodels off instead of silently skipping them.
+        val rsiVal: Double? = try { com.lifecyclebot.perps.PerpsAdvancedAI.observedRsi8535(market)?.rsi } catch (_: Exception) { null }
         val setup = com.lifecyclebot.perps.strategy.MetalsStrategy.decide(
             symbol = market.symbol,
             priceChange24hPct = change,
+            dxyChangePct = null,
+            vixLevel = null,
             rsi = rsiVal,
         ) ?: run {
             ErrorLogger.debug(TAG, "🥇 ${market.symbol}: MetalsStrategy stand-down (no edge)")
@@ -571,7 +575,8 @@ object MetalsTrader {
             confidence = confidence.coerceIn(0, 100),
             price = data.price,
             priceChange24h = change,
-            reasons = reasons
+            reasons = reasons,
+            setup8535 = setup,
         )
     }
     
@@ -672,16 +677,17 @@ object MetalsTrader {
         // runs the same sizing/TP/SL pipeline as paper. The live swap
         // fires below where paper debits the paper wallet (unified path).
         
-        // V5.9.93: fluid TP/SL — stretch TP and tighten SL on high-conviction
+        // V5.0.8535 §C15 — the specialist plan decided at analysis (class- and conviction-calibrated TP/SL) is the exit
+        // contract; the learned fluid multipliers still shape it and the swap-cost floor bounds it. The old path priced
+        // exits from the generic FluidLearning/SmartExitOptimiser blend and never read the plan. A signal without its
+        // plan is not executed. Leverage stays the lane's fixed tier (the plan's leverage is advisory).
         val (tpMult, slMult) = PerpsFluidSizing.tpSlMultiplier(signal.score, signal.confidence)
-        val baseTpPct = com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsSpotTpPct()
-        // V5.9.983 — SmartExitOptimizer trust-aware blend (was DORMANT).
-        // 50/50 blend with StrategyTrustAI suggestion. Trust>=0.7 stretches TP;
-        // Trust<0.4 tightens SL. Pass-through at trust=0.5 default.
-        val seoTp = try { com.lifecyclebot.engine.SmartExitOptimizer.getSuggestedTpPct("METALS", 0.0, 0.0) } catch (_: Throwable) { baseTpPct }
-        val seoSl = try { com.lifecyclebot.engine.SmartExitOptimizer.getSuggestedSlPct("METALS") } catch (_: Throwable) { SL_PERCENT }
-        val tpPct = ((baseTpPct + seoTp) * 0.5) * tpMult
-        val slPct = ((SL_PERCENT + seoSl) * 0.5) * slMult
+        val plan8535 = signal.setup8535 ?: run {
+            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(executionIntent6565, "METALS_PLAN_MISSING_8535")
+            return
+        }
+        val tpPct = com.lifecyclebot.perps.strategy.SpecialistPlanExit8535.tpPct(plan8535.tpPct, tpMult)
+        val slPct = com.lifecyclebot.perps.strategy.SpecialistPlanExit8535.slPct(plan8535.slPct, slMult)
 
         val tp = if (signal.direction == PerpsDirection.LONG) {
             signal.price * (1 + tpPct / 100)

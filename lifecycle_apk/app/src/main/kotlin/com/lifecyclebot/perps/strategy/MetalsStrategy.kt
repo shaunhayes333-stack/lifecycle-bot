@@ -94,9 +94,12 @@ object MetalsStrategy {
             reasons.add("💵 DXY ${"%+.2f".format(dxy)}% → metal bias ${if (dxy > 0) "SHORT" else "LONG"}")
             if (abs(dxy) > 0.3) conviction += 10
         }
+        // V5.0.8535 §C15 — an absent feed is named, not silently skipped: the operator can see which submodels decided.
+        if (dxyChangePct == null) reasons.add("💵 DXY unobserved → USD submodel off")
 
         // Safe-haven bid for precious metals during risk-off (VIX spike)
         if (cls in setOf(Class.PRECIOUS_GOLD, Class.PRECIOUS_SILVER)) {
+            if (vixLevel == null) reasons.add("😱 VIX unobserved → safe-haven submodel off")
             vixLevel?.let { vix ->
                 when {
                     vix > 30 -> { bias += 5; conviction += 15; reasons.add("😱 VIX=${vix.toInt()} → flight to precious") }

@@ -1209,6 +1209,7 @@ object CryptoAltTrader {
         volume24hUsd: Double,
         change24hPct: Double,
         buyPressurePct: Double,
+        buyersObserved8535: Boolean,
     ): DynamicCryptoDecision7244 {
         val paper7803 = authoritativePaperMode7425()
         DynamicAltTokenRegistry.markCryptoBrainReach7244(tok)
@@ -1267,13 +1268,6 @@ object CryptoAltTrader {
         recordCryptoScore7312(score, confidence)
         val scoreFloor = cryptoFloor7312(maturityScoreFloor7312, recentCryptoScores7312, 48)
         val confFloor = cryptoFloor7312(maturityConfFloor7312, recentCryptoConfs7312, 42)
-        val notExtended7403 = change24hPct <= 20.0 && change24hPct >= -8.0
-        val momentumEvidence7443 = notExtended7403 && (
-            buyPressurePct >= 56.0 ||
-            (change24hPct in 0.5..8.0 && buyPressurePct >= 52.0) ||
-            (tok.isTrending && buyPressurePct >= 58.0)
-        )
-
         // V5.0.7443 — CryptoTacticSwitcher now changes entry SHAPE, not just
         // telemetry. Use the local 20s CryptoLaneDesk tape for short-horizon
         // structure; never manufacture a tactic from repeated 24h snapshots.
@@ -1283,57 +1277,37 @@ object CryptoAltTrader {
             com.lifecyclebot.perps.crypto.brain.CryptoTacticSwitcher.Tactic.MOMENTUM
         }
         val px7443 = try {
-            CryptoLaneDesk7391.prices(tok.canonicalIdentity6544).filter { it.isFinite() && it > 0.0 }.takeLast(8)
+            CryptoLaneDesk7391.prices(tok.canonicalIdentity6544)
         } catch (_: Throwable) { emptyList() }
-        val cur7443 = px7443.lastOrNull() ?: tok.price.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
-        val prior7443 = px7443.dropLast(1)
-        val priorHigh7443 = prior7443.maxOrNull() ?: cur7443
-        val priorLow7443 = prior7443.minOrNull() ?: cur7443
-        val pullbackPct7443 = if (priorHigh7443 > 0.0 && cur7443 > 0.0)
-            ((priorHigh7443 - cur7443) / priorHigh7443 * 100.0).coerceAtLeast(0.0) else 0.0
-        val reboundPct7443 = if (priorLow7443 > 0.0 && cur7443 > 0.0)
-            ((cur7443 - priorLow7443) / priorLow7443 * 100.0).coerceAtLeast(0.0) else 0.0
-        val pullbackEvidence7443 = px7443.size >= 4 &&
-            pullbackPct7443 in 2.0..12.0 && reboundPct7443 >= 1.0 &&
-            buyPressurePct >= 52.0 && notExtended7403
-        val breakoutEvidence7443 = px7443.size >= 4 && priorHigh7443 > 0.0 &&
-            cur7443 >= priorHigh7443 * 1.005 && buyPressurePct >= 54.0 && notExtended7403
-        val meanRevertEvidence7443 = px7443.size >= 4 &&
-            pullbackPct7443 in 4.0..18.0 && reboundPct7443 >= 2.0 &&
-            buyPressurePct >= 50.0 && change24hPct < 12.0
-        val tacticEvidence7443 = when (tactic7443) {
-            com.lifecyclebot.perps.crypto.brain.CryptoTacticSwitcher.Tactic.MOMENTUM ->
-                momentumEvidence7443
-            com.lifecyclebot.perps.crypto.brain.CryptoTacticSwitcher.Tactic.PULLBACK ->
-                pullbackEvidence7443
-            com.lifecyclebot.perps.crypto.brain.CryptoTacticSwitcher.Tactic.BREAKOUT ->
-                breakoutEvidence7443
-            com.lifecyclebot.perps.crypto.brain.CryptoTacticSwitcher.Tactic.MEAN_REVERT ->
-                meanRevertEvidence7443
-            com.lifecyclebot.perps.crypto.brain.CryptoTacticSwitcher.Tactic.LAB_PROPOSED ->
-                pullbackEvidence7443 || breakoutEvidence7443 || meanRevertEvidence7443
-        }
+        // V5.0.8535 §C11 — the shapes take the buyer reading WITH its provenance: a zero-count row's default 50 confirms
+        // nothing, and a shape that fires on price alone is graded down and named as such.
+        val shape8535 = com.lifecyclebot.perps.crypto.brain.CryptoTacticEvidence8535.evaluate(
+            px7443, tok.price, buyPressurePct, buyersObserved8535, change24hPct, tok.isTrending,
+        )
+        val pullbackPct7443 = shape8535.pullbackPct
+        val reboundPct7443 = shape8535.reboundPct
+        val tacticEvidence7443 = shape8535.forTactic(tactic7443)
+        if (shape8535.priceOnly) try { PipelineHealthCollector.labelInc("CRYPTO_TACTIC_PRICE_ONLY_8535") } catch (_: Throwable) {}
+        val confidence8535 = if (shape8535.priceOnly && tacticEvidence7443)
+            (confidence - com.lifecyclebot.perps.crypto.brain.CryptoTacticEvidence8535.PRICE_ONLY_CONF_PENALTY).coerceAtLeast(0) else confidence
         try { PipelineHealthCollector.labelInc("CRYPTO_TACTIC_CONSUMED_7443_${tactic7443.name}") } catch (_: Throwable) {}
 
         val shadowOnlyLive = try {
             !paper7803 && com.lifecyclebot.perps.crypto.brain.CryptoBrain.shouldShadowOnly(tier, score)
         } catch (_: Throwable) { false }
-        val actionableLong = tacticEvidence7443 && score >= scoreFloor && confidence >= confFloor && !shadowOnlyLive
-        val reason = "CRYPTO_BRAIN_NATIVE_7244 tier=" + tier + " score=" + score + "/" + confidence +
+        val actionableLong = tacticEvidence7443 && score >= scoreFloor && confidence8535 >= confFloor && !shadowOnlyLive
+        val reason = "CRYPTO_BRAIN_NATIVE_7244 tier=" + tier + " score=" + score + "/" + confidence8535 +
             " floor=" + scoreFloor + "/" + confFloor + " tactic=" + tactic7443.name +
+            (if (shape8535.priceOnly) " PRICE_ONLY_8535" else "") +
             " pullback=" + "%.2f".format(pullbackPct7443) + " rebound=" + "%.2f".format(reboundPct7443) +
-            " chg=" + change24hPct + " bp=" + buyPressurePct +
+            " chg=" + change24hPct + " bp=" + (if (buyersObserved8535) "%.1f".format(buyPressurePct) else "UNOBSERVED") +
             " liq=" + liquidityUsd.toLong() + " vol=" + volume24hUsd.toLong()
         // V5.0.8535 §C09 — LAB_PROPOSED has no validated lab hypothesis id on this desk: the entry is recorded under the
         // predicate that actually fired, so its outcome trains that tactic and not an unidentifiable label.
-        val executedTactic8535 = if (tactic7443 == com.lifecyclebot.perps.crypto.brain.CryptoTacticSwitcher.Tactic.LAB_PROPOSED) when {
-            pullbackEvidence7443 -> com.lifecyclebot.perps.crypto.brain.CryptoTacticSwitcher.Tactic.PULLBACK
-            breakoutEvidence7443 -> com.lifecyclebot.perps.crypto.brain.CryptoTacticSwitcher.Tactic.BREAKOUT
-            meanRevertEvidence7443 -> com.lifecyclebot.perps.crypto.brain.CryptoTacticSwitcher.Tactic.MEAN_REVERT
-            else -> tactic7443
-        } else tactic7443
+        val executedTactic8535 = if (tactic7443 == com.lifecyclebot.perps.crypto.brain.CryptoTacticSwitcher.Tactic.LAB_PROPOSED)
+            shape8535.fired() ?: tactic7443 else tactic7443
         return DynamicCryptoDecision7244(
-            score, confidence, tier, actionableLong, shadowOnlyLive, reason,
+            score, confidence8535, tier, actionableLong, shadowOnlyLive, reason,
             executedTactic8535.name,
         )
     }
@@ -1518,6 +1492,7 @@ object CryptoAltTrader {
                 val cryptoDecision7244 = scoreDynamicCrypto7244(
                     tok = refreshed, marketCapUsd = mcap, liquidityUsd = liq,
                     volume24hUsd = vol, change24hPct = change, buyPressurePct = buyPct,
+                    buyersObserved8535 = buys24h7391 + sells24h7391 > 0,
                 )
                 // V5.0.7391 — the meme desk. Specialists judge their own mcap
                 // bands on the provider's market cap (as the meme lanes do);
@@ -2472,11 +2447,14 @@ object CryptoAltTrader {
             com.lifecyclebot.perps.strategy.CryptoAltStrategy.Mode.PERPS_BIDIRECTIONAL
         else
             com.lifecyclebot.perps.strategy.CryptoAltStrategy.Mode.SPOT_LONG_ONLY
+        // V5.0.8535 §C12 — the strategy's RSI and reversal come from OBSERVED ticks; the seeded tape is a shape drawn
+        // from a synthesised 24h range (PerpsMarketDataFetcher derives high/low from |change|) and must not pose as one.
         val altRsi: Double? = try {
             PerpsAdvancedAI.seedHistoryFromOHLC(market, data.price, data.high24h, data.low24h, data.volume24h)
             PerpsAdvancedAI.recordPrice(market, data.price, data.volume24h)
-            PerpsAdvancedAI.analyzeTechnicals(market).rsi
+            PerpsAdvancedAI.observedRsi8535(market)?.rsi
         } catch (_: Exception) { null }
+        val altReversal8535: Boolean? = try { PerpsAdvancedAI.observedReversal8535(market, change) } catch (_: Exception) { null }
         val btcMove7403 = try {
             PerpsMarketDataFetcher.getCachedPrice(PerpsMarket.BTC)?.priceChange24hPct
                 ?.takeIf { it.isFinite() } ?: PerpsMarketDataFetcher.getMarketData(PerpsMarket.BTC).priceChange24hPct
@@ -2486,12 +2464,14 @@ object CryptoAltTrader {
                 symbol = market.symbol,
                 priceChange24hPct = change,
                 mode = altStrategyMode,
-                volatility24h = kotlin.math.abs(change),
-                // Dominance feed is not available in this path; leave it neutral.
+                // V5.0.8535 §C12 — displacement is not volatility: the realised range when the prints are real, else UNKNOWN.
+                volatility24h = data.realisedRangePct8535(),
+                // No BTC dominance source exists in this build: the submodel is OFF (null), not neutral (0.0).
                 // BTC price direction IS available and must not be hardcoded away.
-                btcDominanceChange7d = 0.0,
+                btcDominanceChange7d = null,
                 btcPriceChange24h = btcMove7403,
                 rsi = altRsi,
+                reversalConfirmed = altReversal8535,
             )
         } catch (_: Exception) { null }
 

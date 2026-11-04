@@ -266,6 +266,7 @@ object PerpsTraderAI {
         // Learning
         learningProgress.set(p.getInt("learningProgress", 0))
         disciplineScore.set(p.getInt("disciplineScore", 50))
+        try { com.lifecyclebot.perps.strategy.PerpsSetupGradeBook8535.load(p.getString("setupGrades8535", "") ?: "") } catch (_: Throwable) {}
         
         // Daily stats (only restore if same day)
         val savedDay = p.getLong("savedDay", 0)
@@ -316,6 +317,7 @@ object PerpsTraderAI {
             // Learning
             putInt("learningProgress", learningProgress.get())
             putInt("disciplineScore", disciplineScore.get())
+            putString("setupGrades8535", com.lifecyclebot.perps.strategy.PerpsSetupGradeBook8535.serialize())
             
             // Daily stats
             putLong("savedDay", now / (24 * 60 * 60 * 1000))
@@ -451,14 +453,19 @@ object PerpsTraderAI {
         // V5.9.381 — consult PerpsStrategy first (funding/OI/LSR-aware,
         // bidirectional). If it returns a setup with conviction, use its
         // direction. Otherwise fall back to the legacy trend/funding path.
+        // V5.0.8535 §C13 — native feeds pass WITH their provenance: the row's 0.0 funding / 0.0 OI are placeholders
+        // (null here, never "flat"), RSI comes from observed ticks only, volatility is the realised range when the
+        // prints are real. PerpsStrategy returns a setup only when at least one native feed was observed.
+        val rsiObs8535 = try { PerpsAdvancedAI.observedRsi8535(market) } catch (_: Throwable) { null }
         val perpsStrategySetup = try {
             com.lifecyclebot.perps.strategy.PerpsStrategy.decide(
                 symbol = market.symbol,
                 priceChange24hPct = marketData.priceChange24hPct,
-                volatility24h = kotlin.math.abs(marketData.priceChange24hPct),
-                fundingRate8h = marketData.fundingRate,
-                longShortRatio = marketData.getLongShortRatio(),
-                rsi = null,
+                volatility24h = marketData.realisedRangePct8535(),
+                fundingRate8h = marketData.fundingRate8535(),
+                openInterestChange24h = null,   // no open-interest history source in this build: unavailable, not 0
+                longShortRatio = marketData.longShortRatio8535(),
+                rsi = rsiObs8535?.rsi,
             )
         } catch (_: Exception) { null }
 
@@ -559,7 +566,8 @@ object PerpsTraderAI {
         }
         
         val confidenceLeverage = baseLev + (confidence - 50) * 0.1 + streakBonus
-        val recommendedLeverage = confidenceLeverage.coerceIn(1.0, min(baseMax, market.maxLeverage))
+        // V5.0.8535 §C13 — a native setup's leverage (conviction × vol-damped) is the executed leverage, inside the mode cap.
+        val recommendedLeverage = (perpsStrategySetup?.leverage ?: confidenceLeverage).coerceIn(1.0, min(baseMax, market.maxLeverage))
         
         // Determine risk tier based on leverage
         val riskTier = when {
@@ -634,15 +642,19 @@ object PerpsTraderAI {
             reasons.add("🎬 Replay pattern size×${"%.2f".format(replayPatternSizeMult7540)}")
         }
 
-        val composed = baseSize * sizeMultiplier * behaviorSizeMult * behaviorGradeMult * replayPatternSizeMult7540
+        // V5.0.8535 §C13 — the exact setup's own settled record shapes size (bounded, neutral until five closes).
+        val setupGradeMult8535 = perpsStrategySetup?.let { com.lifecyclebot.perps.strategy.PerpsSetupGradeBook8535.sizeMultiplier(it.setup) } ?: 1.0
+        if (kotlin.math.abs(setupGradeMult8535 - 1.0) > 0.0001) reasons.add("📒 Setup ${perpsStrategySetup?.setup} size×${"%.2f".format(setupGradeMult8535)}")
+        val composed = baseSize * sizeMultiplier * behaviorSizeMult * behaviorGradeMult * replayPatternSizeMult7540 * setupGradeMult8535
         val recommendedSizePct = composed.coerceIn(2.0, MAX_POSITION_PCT_OF_BALANCE)
         
         // ═══════════════════════════════════════════════════════════════════
         // RISK PARAMETERS
         // ═══════════════════════════════════════════════════════════════════
         
-        val takeProfitPct = riskTier.takeProfitPct
-        val stopLossPct = riskTier.stopLossPct
+        // V5.0.8535 §C13 — the chosen PerpsSetup's TP/SL are the executed TP/SL; the risk tier's only when no native setup decided.
+        val takeProfitPct = perpsStrategySetup?.tpPct ?: riskTier.takeProfitPct
+        val stopLossPct = perpsStrategySetup?.slPct ?: riskTier.stopLossPct
         
         // ═══════════════════════════════════════════════════════════════════
         // FINAL SCORING
@@ -689,6 +701,7 @@ object PerpsTraderAI {
             stopLossPct = stopLossPct,
             reasons = reasons,
             aiReasoning = aiReasoning,
+            setup8535 = perpsStrategySetup?.setup ?: "",
         )
     }
     
@@ -839,6 +852,7 @@ object PerpsTraderAI {
             entryConfidence = signal.confidence,
             aiLeverage = leverage,
             aiReasoning = signal.aiReasoning,
+            setup8535 = signal.setup8535,
         )
         
         if (isPaper) {
@@ -1132,6 +1146,8 @@ object PerpsTraderAI {
 
         // Update learning
         updateLearning(pnlPct, isWin, position.isPaper)
+        // V5.0.8535 §C13 — grade the exact setup the position was entered under.
+        try { com.lifecyclebot.perps.strategy.PerpsSetupGradeBook8535.record(position.setup8535, pnlPct) } catch (_: Throwable) {}
         
         // Create trade record
         val trade = PerpsTrade(
@@ -1152,6 +1168,7 @@ object PerpsTraderAI {
             aiScore = position.entryScore,
             aiConfidence = position.entryConfidence,
             riskTier = position.riskTier,
+            setup8535 = position.setup8535,
         )
         
         // CanonicalPaperTransaction / MarketsLiveExecutor already publishes the exact

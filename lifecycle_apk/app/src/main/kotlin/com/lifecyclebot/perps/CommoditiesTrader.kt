@@ -154,7 +154,9 @@ object CommoditiesTrader {
         val confidence: Int,
         val price: Double,
         val priceChange24h: Double,
-        val reasons: List<String>
+        val reasons: List<String>,
+        /** V5.0.8535 §C15 — the specialist plan decided at analysis; it owns the exit contract at execution. */
+        val setup8535: com.lifecyclebot.perps.strategy.CommoditiesStrategy.CommoditySetup? = null,
     )
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -469,12 +471,12 @@ object CommoditiesTrader {
 
         // V5.9.377 — consult CommoditiesStrategy for seasonal + USD + trend
         // bidirectional decision.
-        val rsiVal: Double? = try {
-            com.lifecyclebot.perps.PerpsAdvancedAI.analyzeTechnicals(market).rsi
-        } catch (_: Exception) { null }
+        // V5.0.8535 §C15 — RSI from OBSERVED ticks only; DXY has no source in this build and is passed as unobserved.
+        val rsiVal: Double? = try { com.lifecyclebot.perps.PerpsAdvancedAI.observedRsi8535(market)?.rsi } catch (_: Exception) { null }
         val setup = com.lifecyclebot.perps.strategy.CommoditiesStrategy.decide(
             symbol = market.symbol,
             priceChange24hPct = change,
+            dxyChangePct = null,
             rsi = rsiVal,
         ) ?: run {
             ErrorLogger.debug(TAG, "🛢️ ${market.symbol}: CommoditiesStrategy stand-down (no edge)")
@@ -605,7 +607,8 @@ object CommoditiesTrader {
             confidence = confidence.coerceIn(0, 100),
             price = data.price,
             priceChange24h = change,
-            reasons = reasons
+            reasons = reasons,
+            setup8535 = setup,
         )
     }
     
@@ -697,18 +700,17 @@ object CommoditiesTrader {
         // uses the same sizing/TP/SL pipeline as paper. Live swap fires
         // below at the capital-move branch (paper-matched sizing).
         
-        // V5.9.8: Dynamic TP — 4→25% as learning matures, never caps legitimate runs
-        // V5.9.93: fluid TP/SL — stretch TP and tighten SL on high-conviction
+        // V5.0.8535 §C15 — the specialist plan decided at analysis (class- and conviction-calibrated TP/SL) is the exit
+        // contract; the learned fluid multipliers still shape it and the swap-cost floor bounds it. The old path priced
+        // exits from the generic FluidLearning/SmartExitOptimiser blend and never read the plan. A signal without its
+        // plan is not executed. Leverage stays the trade type's fixed tier (the plan's leverage is advisory).
         val (tpMult, slMult) = PerpsFluidSizing.tpSlMultiplier(signal.score, signal.confidence)
-        val baseTpPct = if (signal.tradeType == TradeType.SPOT)
-            com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsSpotTpPct()
-        else com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsLevTpPct()
-        val baseSlPct = if (signal.tradeType == TradeType.SPOT) SL_PERCENT_SPOT else SL_PERCENT_LEVERAGE
-        // V5.9.983 — SmartExitOptimizer trust-aware blend (was DORMANT).
-        val seoTp = try { com.lifecyclebot.engine.SmartExitOptimizer.getSuggestedTpPct("COMMODITIES", 0.0, 0.0) } catch (_: Throwable) { baseTpPct }
-        val seoSl = try { com.lifecyclebot.engine.SmartExitOptimizer.getSuggestedSlPct("COMMODITIES") } catch (_: Throwable) { baseSlPct }
-        val tpPct = ((baseTpPct + seoTp) * 0.5) * tpMult
-        val slPct = ((baseSlPct + seoSl) * 0.5) * slMult
+        val plan8535 = signal.setup8535 ?: run {
+            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(executionIntent6565, "COMMODITIES_PLAN_MISSING_8535")
+            return
+        }
+        val tpPct = com.lifecyclebot.perps.strategy.SpecialistPlanExit8535.tpPct(plan8535.tpPct, tpMult)
+        val slPct = com.lifecyclebot.perps.strategy.SpecialistPlanExit8535.slPct(plan8535.slPct, slMult)
         
         val tp = if (signal.direction == PerpsDirection.LONG) {
             signal.price * (1 + tpPct / 100)

@@ -142,6 +142,8 @@ object CommoditiesStrategy {
             if (abs(dxy) > 0.3) conviction += 5
             reasons.add("💵 DXY ${"%+.2f".format(dxy)}%")
         }
+        // V5.0.8535 §C15 — an absent feed is named, not silently skipped.
+        if (dxyChangePct == null) reasons.add("💵 DXY unobserved → USD submodel off")
 
         // 3) Seasonal bias
         val seasonal = seasonalBias(cls, monthOneIndexed)

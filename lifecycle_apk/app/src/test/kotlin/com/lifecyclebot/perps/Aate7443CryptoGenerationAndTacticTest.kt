@@ -21,17 +21,22 @@ class Aate7443CryptoGenerationAndTacticTest {
         val s = src("perps/CryptoAltTrader.kt")
         assertTrue(s.contains("CryptoBrain.activeTactic(tier, score)"))
         assertTrue(s.contains("CryptoLaneDesk7391.prices(tok.canonicalIdentity6544)"))
-        assertTrue(s.contains("Tactic.PULLBACK"))
-        assertTrue(s.contains("Tactic.BREAKOUT"))
-        assertTrue(s.contains("Tactic.MEAN_REVERT"))
+        // superseded: 8535 §C11 — the per-tactic shapes live in CryptoTacticEvidence8535; the trader consumes them via forTactic()
+        val shapes = src("perps/crypto/brain/CryptoTacticEvidence8535.kt")
+        assertTrue(shapes.contains("Tactic.PULLBACK -> pullback"))
+        assertTrue(shapes.contains("Tactic.BREAKOUT -> breakout"))
+        assertTrue(shapes.contains("Tactic.MEAN_REVERT -> meanRevert"))
+        assertTrue(s.contains("shape8535.forTactic(tactic7443)"))
         assertTrue(s.contains("CRYPTO_TACTIC_CONSUMED_7443_"))
     }
 
     @Test fun non_momentum_tactics_use_local_structure_not_24h_change_as_shape() {
-        val s = src("perps/CryptoAltTrader.kt")
-        assertTrue(s.contains("pullbackPct7443 in 2.0..12.0"))
-        assertTrue(s.contains("cur7443 >= priorHigh7443 * 1.005"))
-        assertTrue(s.contains("reboundPct7443 >= 2.0"))
-        assertTrue(s.contains("pullbackEvidence7443 || breakoutEvidence7443 || meanRevertEvidence7443"))
+        // superseded: 8535 §C11 moved the shapes into CryptoTacticEvidence8535 so the buyer reading carries its provenance
+        val s = src("perps/crypto/brain/CryptoTacticEvidence8535.kt")
+        assertTrue(s.contains("pullbackPct in 2.0..12.0"))
+        assertTrue(s.contains("cur >= priorHigh * 1.005"))
+        assertTrue(s.contains("reboundPct >= 2.0"))
+        assertTrue(s.contains("Tactic.LAB_PROPOSED -> pullback || breakout || meanRevert"))
+        assertTrue(src("perps/CryptoAltTrader.kt").contains("CryptoTacticEvidence8535.evaluate("))
     }
 }

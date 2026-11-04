@@ -56,7 +56,9 @@ object PerpsAdvancedAI {
     data class PricePoint(
         val price: Double,
         val timestamp: Long,
-        val volume: Double = 0.0
+        val volume: Double = 0.0,
+        /** V5.0.8535 — true for the seeded OHLC tape: a shape drawn from a 24h range, not an observed tick. */
+        val synthetic8535: Boolean = false,
     )
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -873,6 +875,35 @@ object PerpsAdvancedAI {
     // PRICE HISTORY MANAGEMENT
     // ═══════════════════════════════════════════════════════════════════════════
     
+    // ── V5.0.8535 §C12/§C13/§C14/§C15 — readings from OBSERVED ticks only ─────────────────────────────────────────
+    // analyzeTechnicals() computes RSI/MACD over whatever the buffer holds, and after seedHistoryFromOHLC() that is a
+    // monotone tape built from a SYNTHESISED 24h range (every PerpsMarketData producer derives high/low from |change|).
+    // The strategies' reversal inputs come from here instead: null until enough real ticks exist, never a shape posing
+    // as a reading.
+
+    data class ObservedRsi8535(val rsi: Double, val asOfMs: Long, val ticks: Int)
+
+    private fun observedTicks8535(market: PerpsMarket): List<PricePoint> =
+        try { (priceHistory[market] ?: return emptyList()).toList().filter { !it.synthetic8535 } } catch (_: Throwable) { emptyList() }
+
+    /** RSI(14) over real ticks, stamped with the newest tick's time; null until 28 real ticks exist. */
+    fun observedRsi8535(market: PerpsMarket): ObservedRsi8535? {
+        val real = observedTicks8535(market)
+        if (real.size < 28) return null
+        return ObservedRsi8535(calculateRSI(real.takeLast(50).map { it.price }, 14), real.last().timestamp, real.size)
+    }
+
+    /**
+     * True when the MACD on real ticks has crossed AGAINST [displacementPct] (a reclaim after a dump, a roll-over after
+     * a pump), false when it has not, null with fewer than 26 real ticks.
+     */
+    fun observedReversal8535(market: PerpsMarket, displacementPct: Double): Boolean? {
+        val real = observedTicks8535(market)
+        if (real.size < 26) return null
+        val macd = calculateMACD(real.takeLast(50).map { it.price })
+        return if (displacementPct < 0.0) macd == MacdSignal.BULLISH_CROSS else macd == MacdSignal.BEARISH_CROSS
+    }
+
     fun recordPrice(market: PerpsMarket, price: Double, volume: Double = 0.0) {
         val history = priceHistory.getOrPut(market) { mutableListOf() }
         
@@ -947,6 +978,7 @@ object PerpsAdvancedAI {
                 price = p,
                 timestamp = now - (tapeSize - idx) * 60_000L,  // 1-min spaced
                 volume = volume24h / tapeSize,
+                synthetic8535 = true,
             ))
         }
         while (history.size > MAX_HISTORY_SIZE) { history.removeAt(0) }

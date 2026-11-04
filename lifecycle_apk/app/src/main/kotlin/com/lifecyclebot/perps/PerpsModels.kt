@@ -722,6 +722,8 @@ data class PerpsPosition(
     // V5.9.600: Flash.trade perps position key — stored on live open, required for proper close.
     // Null = spot/paper position or Flash key not yet resolved.
     @Volatile var flashPositionKey: String? = null,
+    /** V5.0.8535 §C13 — the setup the position was entered under, so its close grades that setup. */
+    val setup8535: String = "",
 ) {
     fun getUnrealizedPnlPct(): Double {
         val raw = ((currentPrice - entryPrice) / entryPrice * 100) * direction.multiplier
@@ -798,8 +800,21 @@ data class PerpsMarketData(
     val low24h: Double,
     val priceChange24hPct: Double,
     val lastUpdate: Long = System.currentTimeMillis(),
+    // V5.0.8535 §C12/§C13 — provenance of what this row carries. Every producer in this build synthesises high24h/low24h
+    // from |priceChange24hPct| and returns funding and open interest as 0.0 (unknown); a consumer that reads them as
+    // observations is reading a default. A producer that fetches real prints sets the matching flag.
+    val rangeObserved8535: Boolean = false,
+    val fundingObserved8535: Boolean = false,
+    val oiObserved8535: Boolean = false,
 ) {
     fun getLongShortRatio(): Double = if (openInterestShort > 0) openInterestLong / openInterestShort else 1.0
+    /** The 24h high-low range as % of price when the prints are real; null when the row synthesised them. */
+    fun realisedRangePct8535(): Double? =
+        if (rangeObserved8535 && high24h > 0.0 && low24h > 0.0 && high24h >= low24h && price > 0.0) (high24h - low24h) / price * 100.0 else null
+    /** The 8h funding rate when observed; null when the row carries the 0.0 placeholder. */
+    fun fundingRate8535(): Double? = if (fundingObserved8535 && fundingRate.isFinite()) fundingRate else null
+    /** Long/short OI ratio when open interest was observed; null otherwise (never the 1.0 placeholder). */
+    fun longShortRatio8535(): Double? = if (oiObserved8535 && openInterestShort > 0.0) openInterestLong / openInterestShort else null
     fun isFundingFavorableLong(): Boolean = fundingRate < 0
     fun isFundingFavorableShort(): Boolean = fundingRate > 0
     fun isVolatile(): Boolean = kotlin.math.abs(priceChange24hPct) > 5.0
@@ -827,6 +842,8 @@ data class PerpsSignal(
     val reasons: List<String>,
     val aiReasoning: String,
     val timestamp: Long = System.currentTimeMillis(),
+    /** V5.0.8535 §C13 — the PerpsStrategy setup this signal is bound to ("" = no native setup). */
+    val setup8535: String = "",
 ) {
     fun shouldTrade(): Boolean = confidence >= 60 && score >= 50
     fun isHighConfidence(): Boolean = confidence >= 80
@@ -860,6 +877,7 @@ data class PerpsTrade(
     val aiScore: Int,
     val aiConfidence: Int,
     val riskTier: PerpsRiskTier,
+    val setup8535: String = "",
 )
 
 // ═══════════════════════════════════════════════════════════════════════════════
