@@ -102,7 +102,7 @@ object LockedVenueMarks7392 {
         }
         if (curveMints.isNotEmpty()) {
             val curve = boundedProvider7432("CURVE") {
-                ParallelMarkFanout7088.curvePrices7392(curveMints)
+                ParallelMarkFanout7088.curvePrices7392(curveMints, latencyCritical8527 = true)
             } ?: emptyMap()
             for ((m, px) in curve) if (px.isFinite() && px > 0.0) out[m] = Mark(px, CURVE_SOURCE)
         }

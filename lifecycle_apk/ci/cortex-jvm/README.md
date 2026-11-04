@@ -1,6 +1,6 @@
 # Offline Cortex model regression harness
 
-Run from any directory with Java 17, Bash and `unzip` installed:
+Run from any directory with Java 17, Python 3, Bash and `unzip` installed:
 
 ```sh
 bash lifecycle_apk/ci/cortex-jvm/run.sh --fetch --deps-dir /tmp/aate-cortex-jvm-deps
@@ -12,9 +12,11 @@ Build outputs go to a fresh temporary directory printed by the script. Supply `-
 
 The harness compiles the actual production ledger, scoreboard, calibration, grade book, label hygiene, frozen-verdict authority, ranking diagnostics, shadow-outcome persistence, outcome ownership, compressed trace archive, cross-asset learning seal, native learning enrollment, source-episode models and ScannerSourceBrain. Tests exercise per-token discrimination; both YES and NO wins/losses; own-lane attribution; late episode revisions after 1,600 intervening grades and restart; raw arithmetic calibration; frozen STRONG versus non-STRONG authority without future-outcome leakage; explicit unavailable shadow outcomes; selected-exit receipts and restart idempotence; source corrections and duplicate prevention; and legacy-versus-new source cohort separation.
 
-Only service-facing adapters are supplied locally: cross-asset lane names, runner lane names, the desk setup vocabulary, Android preferences backed by an in-memory map, diagnostics, source tags and source-to-lane mapping. Prediction, training, calibration, authority arithmetic, JSON persistence and revisions are not stubbed. ScannerSourceBrain integration tests execute its real reader/writer code; Android disk durability and the actual service adapters remain outside this harness.
+Only service-facing adapters are supplied locally: cross-asset lane names, the desk setup vocabulary, Android preferences and the string persistence service backed by in-memory maps, diagnostics, source tags and source-to-lane mapping. Prediction, training, calibration, authority arithmetic, JSON persistence and revisions are not stubbed. ScannerSourceBrain integration tests execute its real reader/writer code; Android disk durability and the actual service adapters remain outside this harness.
 
 The actual FirstSight permission reader and LearningEntryTruth display calculations also compile here. FirstSight tests seed only isolated cached tickets and exercise revocation, wrong-lane and stale-mark refusals. Their TokenState adapter is a DTO; wallet, pricing, runner creation and grant-publication adapters fail immediately if reached, rather than grant synthetic authority.
+
+The complete production source-evidence, reset epoch, forward epoch, lane-grade horizon, lane-hold table and runner-profile classes also compile here. The Android-coupled FieldManual is limited to its pure lane-mandate declarations: a strict extractor copies those declarations verbatim from the checked-out production source, rather than maintaining a second mandate table. Unsupported declaration-boundary changes fail the build. Unused lifecycle/runner exit-orchestration adapters fail if called. This does not execute the full FieldManual entry or exit path.
 
 Production and tests compile as separate Kotlin modules with friend visibility, matching Gradle's main/test boundary. This catches cross-module type/smart-cast errors that a one-module standalone compile would miss.
 

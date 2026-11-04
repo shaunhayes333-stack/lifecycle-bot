@@ -25,12 +25,15 @@ object TokenBirthHydrator7441 {
     private const val MAX_PAGES_7770 = 40
     private const val PAGE_BUDGET_COOLDOWN_MS_7770 = 60L * 60_000L
 
-    private data class Progress(
+    internal data class Progress(
         var before: String? = null,
         var oldestBlockMs: Long = Long.MAX_VALUE,
         var pages: Int = 0,
         /** V5.0.8418 — signature of the oldest successful row read so far: the only candidate creation transaction. */
         var oldestOkSig8418: String = "",
+        /** Signature paging completed; a missing transaction is retried without spending more history pages. */
+        var historyComplete8527: Boolean = false,
+        var historyRpc8527: String = "",
         @Volatile var lastTouchedMs: Long = System.currentTimeMillis(),
     )
     private val progress = ConcurrentHashMap<String, Progress>()
@@ -164,7 +167,8 @@ object TokenBirthHydrator7441 {
         val keys = listOf("HYDRATE_CONTINUE_7441" to "continue", "HYDRATE_RPC_FAIL_7441" to "rpcFail", "HYDRATE_PAGE_BUDGET_7770" to "pageBudget",
             "SLOT_TIME_PENDING_8144" to "slotTime", "PROVEN_ESTABLISHED_8144" to "established", "HISTORY_TRUNCATED_UNPROVEN_8418" to "truncated",
             "MINT_INIT_TX_PENDING_8418" to "initTxPending", "HYDRATE_NO_BLOCKTIME_7441" to "noBlockTime", "PUMP_RECORD_RESOLVED_8144" to "pumpRecord",
-            "WALK_SKIPPED_KNOWN_8346" to "skippedKnown")
+            "WALK_SKIPPED_KNOWN_8346" to "skippedKnown", "HISTORY_NOT_INDEXED_8527" to "historyNotIndexed",
+            "PROOF_RETRY_8527" to "proofRetry")
         "walk8435{" + keys.joinToString(" ") { (k, n) -> "$n=${l.entries.firstOrNull { it.key.endsWith(k) }?.value ?: 0L}" } + "}"
     } catch (_: Throwable) { "walk8435{-}" }
 
@@ -294,6 +298,14 @@ object TokenBirthHydrator7441 {
             return
         }
         if (pumpRecord8144(mint)) return
+        val state = progress.computeIfAbsent(mint) { Progress() }
+        state.lastTouchedMs = System.currentTimeMillis()
+        // A completed history only owes its creation-transaction proof. Re-reading
+        // its last page spent provider capacity and eventually exhausted MAX_PAGES.
+        if (resumeCompletedHistory8527(state) { rpc, ready ->
+                try { PipelineHealthCollector.labelInc("TOKEN_BIRTH_PROOF_RETRY_8527") } catch (_: Throwable) {}
+                proveAndPublish8418(rpc, mint, ready)
+            }) return
         val rpcCandidates = RuntimeProviderAuthority6685.marketReadCandidates8359(null, "getSignaturesForAddress")   // V5.0.8359 — the birth walk is a market read: keyless first
         if (rpcCandidates.isEmpty()) {
             cooldownUntil[mint] = System.currentTimeMillis() + NO_RPC_COOLDOWN_MS
@@ -302,8 +314,6 @@ object TokenBirthHydrator7441 {
             return
         }
 
-        val state = progress.computeIfAbsent(mint) { Progress() }
-        state.lastTouchedMs = System.currentTimeMillis()
         if (state.pages >= MAX_PAGES_7770) {
             // V5.0.8144 — the budget ends the paging, not the evidence: what was read still proves the age's lower bound.
             if (state.oldestBlockMs != Long.MAX_VALUE) AdmissionBirth8144.noteHistoryFloor8144(mint, state.oldestBlockMs)
@@ -465,15 +475,39 @@ object TokenBirthHydrator7441 {
         } catch (_: Throwable) { com.lifecyclebot.network.KeylessRpc8359.afterCall8359(rpc, 0); null }
     }
 
+    /** A completed read with no successful signature is not a negative creation proof. */
+    internal fun rememberCompletedHistory8527(state: Progress, rpc: String): Boolean {
+        if (state.oldestOkSig8418.isBlank() || rpc.isBlank()) return false
+        state.historyComplete8527 = true
+        state.historyRpc8527 = rpc
+        return true
+    }
+
+    /** Resume the exact candidate proof before applying the signature-page budget. No new page is consumed. */
+    internal fun resumeCompletedHistory8527(state: Progress, prove: (String, Progress) -> Unit): Boolean {
+        if (!state.historyComplete8527 || state.oldestOkSig8418.isBlank() || state.historyRpc8527.isBlank()) return false
+        prove(state.historyRpc8527, state)
+        return true
+    }
+
     /** V5.0.8418 — the history reached its end: publish the birth only when its oldest row initialised the mint. */
     private fun proveAndPublish8418(rpc: String, mint: String, state: Progress) {
+        // Confirmed/indexed history may lag a newly observed mint. An empty read,
+        // or a history containing only failed rows, has no transaction to disprove
+        // creation: retry from the head, never impose the truncated-history hour.
+        if (!rememberCompletedHistory8527(state, rpc)) {
+            progress.remove(mint)
+            cooldownUntil[mint] = System.currentTimeMillis() + RETRY_COOLDOWN_MS
+            try { PipelineHealthCollector.labelInc("TOKEN_BIRTH_HISTORY_NOT_INDEXED_8527") } catch (_: Throwable) {}
+            return
+        }
         val floor = state.oldestBlockMs
         val sig = state.oldestOkSig8418
         // V5.0.8509 — the mint-init transaction is asked of the next market-read rungs when the walking rung returns none.
         // 8507: initTxPending=2,021 of 5,387 walks (the keyless rung that answered getSignaturesForAddress often has no
         // getTransaction for it), resolved=293; each retried every 15 s on the same rung and never proven.
-        val tx = if (sig.isBlank()) null else fetchTx8418(rpc, sig) ?: txFromOtherRungs8509(rpc, sig)
-        val verdict = if (sig.isBlank()) MintInit8418.NOT_IN_TRANSACTION else mintInitProof8418(tx, mint)
+        val tx = fetchTx8418(rpc, sig) ?: txFromOtherRungs8509(rpc, sig)
+        val verdict = mintInitProof8418(tx, mint)
         if (verdict == MintInit8418.PROVEN) {
             val txMs = (tx?.optLong("blockTime", 0L) ?: 0L).takeIf { it > 0L }?.let { it * 1000L }
             if (txMs != null) state.oldestBlockMs = minOf(state.oldestBlockMs, txMs)

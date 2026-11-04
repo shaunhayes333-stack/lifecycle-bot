@@ -125,7 +125,10 @@ class Aate8418LaneDispatchTest {
         assertTrue(bot.contains("val spineLane8418 = LaneDispatch8418.spineLane8418(ts.mint, cyclePrimaryLane, ts.position.isOpen, decision.finalSignal, canProposeEarly) { laneEvaluationAllowed7951(ts, it, cyclePrimaryLane, cycleSheet8522)"))
         assertTrue(src("engine/LaneDispatch8418.kt").contains("notePrimarySpine8418(mint, lane, positionOpen, finalSignal, canPropose)"))
         val ring = src("engine/CyclicTradeEngine.kt")
-        assertTrue(ring.contains("LaneDispatch8418.cyclicRank8418((ts.lastV3Score ?: ts.entryScore.toInt()).toDouble(), ts.lastV3Confidence, LaneDispatch8418.cyclicReady8418(ts.mint))"))
+        assertTrue(ring.contains(".maxByOrNull { ts -> ringRank8527(ts) }"))
+        assertTrue(ring.contains("CyclicEntryPolicy8527.rank8527((ts.lastV3Score ?: ts.entryScore.toInt()).toDouble(),"))
+        assertTrue(ring.contains("ts.lastV3Confidence, LaneDispatch8418.cyclicReady8418(ts.mint), operatorChoice8527(ts))"))
+        assertTrue(src("engine/CyclicEntryPolicy8527.kt").contains("LaneDispatch8418.cyclicRank8418(score, confidence, nativeReady)"))
         for (k in listOf("CYCLIC_RING_DISABLED", "CYCLIC_RING_HOLDING", "CYCLIC_RING_BELOW_RING_FILTERS", "CYCLIC_RING_TOOK_OTHER")) assertTrue(k, ring.contains("\"$k\""))
         assertTrue(src("engine/ToolkitSignalSheet.kt").contains("LaneDispatch8418.hunterPoolLanes8418(residentHunterLanes7803, deskHypotheses.keys,"))
     }

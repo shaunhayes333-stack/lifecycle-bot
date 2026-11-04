@@ -47,6 +47,7 @@ object CanonicalPaperTerminalBridge6469 {
         val preRemainingRaw: BigInteger = BigInteger.ZERO,
         val postRemainingRaw: BigInteger = BigInteger.ZERO,
         val tokenDecimals: Int = -1,
+        val canonicalSlice8527: CanonicalPartialReceipt8527? = null,
     )
 
     private data class Claim(
@@ -266,6 +267,7 @@ object CanonicalPaperTerminalBridge6469 {
         }
 
         var busPublished = false
+        val capture8527 = CanonicalPartialReceipt8527.Capture8527()
         try {
             if (!PaperAccountLedger6430.canApplySell6486(soldCostBasisSol)) {
                 try { PipelineHealthCollector.labelInc("PAPER_TERMINAL_LEDGER_BASIS_REJECTED_6486") } catch (_: Throwable) {}
@@ -283,6 +285,7 @@ object CanonicalPaperTerminalBridge6469 {
                     soldCostBasisSol = soldCostBasisSol,
                     feesSol = settlementFees8391,
                     paperMode = false,
+                    receiptCapture8527 = capture8527,
                 ) == CanonicalPositionAuthority6441.MutateResult.APPLIED
             } else {
                 ExecutorCanonicalMirror6442.mirrorSell(
@@ -297,6 +300,7 @@ object CanonicalPaperTerminalBridge6469 {
                     lane = lane,
                     reason = exitReason,
                     positionId7835 = positionId, sellExecutionId7835 = sellSig,
+                    receiptCapture8527 = capture8527,
                 )
             }
             feePositionApplied8391 = positionApplied6486
@@ -349,15 +353,15 @@ object CanonicalPaperTerminalBridge6469 {
                 positionId = positionId,
                 mint = mint,
                 symbol = symbol,
-                soldQtyRaw = soldQtyRaw,
-                preRemainingRaw = preRemainingRaw,
-                preRemainingCostBasisSol = preRemainingCostBasisSol,
+                soldQtyRaw = capture8527.receipt?.consumedRaw ?: soldQtyRaw,
+                preRemainingRaw = capture8527.receipt?.preRaw ?: preRemainingRaw,
+                preRemainingCostBasisSol = capture8527.receipt?.let { it.remainingCostSol + it.soldCostSol } ?: preRemainingCostBasisSol,
                 grossProceedsSol = grossProceedsSol,
-                soldCostBasisSol = soldCostBasisSol,
+                soldCostBasisSol = capture8527.receipt?.soldCostSol ?: soldCostBasisSol,
                 feesSol = settlementFees8391,
                 lane = lane,
                 exitReason = exitReason,
-                terminal = terminal,
+                terminal = capture8527.receipt?.terminal ?: terminal,
                 suppressLearningFanout6490 = suppressLearningFanout6490,
                 exitPriceUsd7032 = exitPriceUsd7032,
                 solUsdAtExit7032 = solUsdAtExit7032,
@@ -373,12 +377,14 @@ object CanonicalPaperTerminalBridge6469 {
             }
             return Result(applied = true, terminalClaimed = true, busPublished = busPublished, reason = "GRANTED",
                 economicEventId = sellSig, grossProceedsSol = grossProceedsSol,
-                soldCostBasisSol = soldCostBasisSol, feesSol = settlementFees8391,
-                preRemainingCostBasisSol = preRemainingCostBasisSol,
-                postRemainingCostBasisSol = (preRemainingCostBasisSol - soldCostBasisSol).coerceAtLeast(0.0),
-                canonicalConsumedRaw = soldQtyRaw, preRemainingRaw = preRemainingRaw,
-                postRemainingRaw = preRemainingRaw.subtract(soldQtyRaw).coerceAtLeast(BigInteger.ZERO),
-                tokenDecimals = CanonicalPositionAuthority6441.getPosition(positionId)?.quantityScale ?: -1)
+                soldCostBasisSol = capture8527.receipt?.soldCostSol ?: soldCostBasisSol, feesSol = settlementFees8391,
+                preRemainingCostBasisSol = capture8527.receipt?.let { it.remainingCostSol + it.soldCostSol } ?: preRemainingCostBasisSol,
+                postRemainingCostBasisSol = capture8527.receipt?.remainingCostSol ?: (preRemainingCostBasisSol - soldCostBasisSol).coerceAtLeast(0.0),
+                canonicalConsumedRaw = capture8527.receipt?.consumedRaw ?: soldQtyRaw,
+                preRemainingRaw = capture8527.receipt?.preRaw ?: preRemainingRaw,
+                postRemainingRaw = capture8527.receipt?.remainingRaw ?: preRemainingRaw.subtract(soldQtyRaw).coerceAtLeast(BigInteger.ZERO),
+                tokenDecimals = capture8527.afterPosition?.quantityScale ?: canonicalBefore6522?.quantityScale ?: -1,
+                canonicalSlice8527 = capture8527.receipt)
         } catch (t: Throwable) {
             fanoutFailures.incrementAndGet()
             try {
@@ -390,12 +396,14 @@ object CanonicalPaperTerminalBridge6469 {
             } catch (_: Throwable) {}
             return Result(applied = true, terminalClaimed = true, busPublished = busPublished, reason = "APPLIED_WITH_FANOUT_ERROR",
                 economicEventId = sellSig, grossProceedsSol = grossProceedsSol,
-                soldCostBasisSol = soldCostBasisSol, feesSol = settlementFees8391,
-                preRemainingCostBasisSol = preRemainingCostBasisSol,
-                postRemainingCostBasisSol = (preRemainingCostBasisSol - soldCostBasisSol).coerceAtLeast(0.0),
-                canonicalConsumedRaw = soldQtyRaw, preRemainingRaw = preRemainingRaw,
-                postRemainingRaw = preRemainingRaw.subtract(soldQtyRaw).coerceAtLeast(BigInteger.ZERO),
-                tokenDecimals = CanonicalPositionAuthority6441.getPosition(positionId)?.quantityScale ?: -1)
+                soldCostBasisSol = capture8527.receipt?.soldCostSol ?: soldCostBasisSol, feesSol = settlementFees8391,
+                preRemainingCostBasisSol = capture8527.receipt?.let { it.remainingCostSol + it.soldCostSol } ?: preRemainingCostBasisSol,
+                postRemainingCostBasisSol = capture8527.receipt?.remainingCostSol ?: (preRemainingCostBasisSol - soldCostBasisSol).coerceAtLeast(0.0),
+                canonicalConsumedRaw = capture8527.receipt?.consumedRaw ?: soldQtyRaw,
+                preRemainingRaw = capture8527.receipt?.preRaw ?: preRemainingRaw,
+                postRemainingRaw = capture8527.receipt?.remainingRaw ?: preRemainingRaw.subtract(soldQtyRaw).coerceAtLeast(BigInteger.ZERO),
+                tokenDecimals = capture8527.afterPosition?.quantityScale ?: canonicalBefore6522?.quantityScale ?: -1,
+                canonicalSlice8527 = capture8527.receipt)
         }
         } finally {
             if (!feePositionApplied8391) com.lifecyclebot.engine.PerformanceFees8391.abortUnappliedPaper(positionId)

@@ -9,10 +9,17 @@ class Aate7556ShitCoinSocialEvidenceTest {
 
     @Test fun authoritative_bridge_consumes_cached_social_presence_only() {
         val b=src("engine/SpecialistBrainBridge7542.kt")
-        assertTrue(b.contains("val socialMeta7556 = try { BirdeyeMetaDataProvider.peekCached(ts.mint) }"))
-        assertTrue(b.contains("hasWebsite=socialMeta7556?.website?.isNotBlank()==true"))
-        assertTrue(b.contains("hasTwitter=socialMeta7556?.twitter?.isNotBlank()==true"))
-        assertTrue(b.contains("hasTelegram=socialMeta7556?.telegram?.isNotBlank()==true"))
+        val shared=src("engine/SpecialistInputParity8527.kt")
+        assertTrue(b.contains("SpecialistInputParity8527.shitcoinEvidence8527(ts, marketInputs8522)"))
+        assertTrue(shared.contains("val socialMeta7556 = try { BirdeyeMetaDataProvider.peekCached(ts.mint) }"))
+        assertTrue(shared.contains("socialMeta7556?.website, socialMeta7556?.twitter, socialMeta7556?.telegram"))
+        assertTrue(b.contains("hasWebsite=shitcoinEvidence8527.hasWebsite"))
+        assertTrue(b.contains("hasTwitter=shitcoinEvidence8527.hasTwitter"))
+        assertTrue(b.contains("hasTelegram=shitcoinEvidence8527.hasTelegram"))
+        val bot=src("engine/BotService.kt")
+        assertTrue(bot.contains("hasWebsite = shitcoinEvidence8527.hasWebsite"))
+        assertTrue(bot.contains("hasTwitter = shitcoinEvidence8527.hasTwitter"))
+        assertTrue(bot.contains("hasTelegram = shitcoinEvidence8527.hasTelegram"))
         assertTrue(b.contains("hasGithub=false"))
         assertFalse(b.contains("maybePrefetch(ts.mint"))
     }

@@ -584,9 +584,11 @@ object SpecialistOwnership7951 {
     private val TOKEN_JUDGEMENT_8198 = listOf("RUG", "SAFETY", "HONEYPOT", "HARD_BLOCK", "BEHAVIOR_BLOCK", "DEV_", "BUNDLE", "SCAM",
         "FREEZE", "MINT_AUTH", "BLACKLIST", "ZERO_LIQ", "NO_LIQ", "LIQ_ZERO", "QUARANTIN")
 
-    private fun contenderOf8136(o: SpecialistBrainBridge7542.Opinion): SpecialistElection8136.Contender8136 =
+    /** Rescue/fit yields preserve the same selection priority the current native election published.
+     * Raw score and confidence remain forecasts; an operator inverse does not reverse again at hand-off. */
+    internal fun contenderOf8136(o: SpecialistBrainBridge7542.Opinion): SpecialistElection8136.Contender8136 =
         SpecialistElection8136.Contender8136(lane7951(o.lane),
-            SpecialistElection8136.normalised8136(maxOf(o.score, o.confidence).toDouble(), Double.NaN, o.ownershipConviction7948))
+            NativeOpportunityPolicy8522.selectionPriority8522(o))
 
     /** V5.0.8136 — every lane with independent native evidence for [mint] (fresh eligible opinion, else READY book), own scale. */
     private fun contenders8136(mint: String): List<SpecialistElection8136.Contender8136> {

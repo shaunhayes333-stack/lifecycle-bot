@@ -749,14 +749,20 @@ object HandoffTaskRuntime8153 {
     internal fun blockOf8153(reason: String?): HandoffReceiverTasks8153.Block8153 =
         HandoffRefusal8190.classify8190(reason, fit8153(reason), binding8153(reason))  // V5.0.8190 — data / scope / not-yet named
 
-    /** Every authoritative, natively eligible lane that may own execution, on its own scale. */
+    /** Every authoritative, eligible receiver retains the initial election's current selection priority. */
+    internal fun eligiblePriorities8527(
+        opinions: Collection<SpecialistBrainBridge7542.Opinion>,
+        canOwn: (String) -> Boolean,
+    ): Map<String, Double> = opinions
+        .filter { it.eligible && it.authoritative && canOwn(it.lane) }
+        .associate { o ->
+            HandoffReceiverTasks8153.canon8153(o.lane) to NativeOpportunityPolicy8522.selectionPriority8522(o)
+        }
+
     private fun eligibleNow8153(mint: String): Map<String, Double> = try {
-        SpecialistBrainBridge7542.cachedSnapshot7650(mint)?.opinions?.values.orEmpty()
-            .filter { it.eligible && it.authoritative && LaneExecutionCoordinator.laneCanOwnExecution6910(it.lane) }
-            .associate { o ->
-                HandoffReceiverTasks8153.canon8153(o.lane) to
-                    SpecialistElection8136.normalised8136(maxOf(o.score, o.confidence).toDouble(), Double.NaN, o.ownershipConviction7948)
-            }
+        eligiblePriorities8527(SpecialistBrainBridge7542.cachedSnapshot7650(mint)?.opinions?.values.orEmpty()) {
+            LaneExecutionCoordinator.laneCanOwnExecution6910(it)
+        }
     } catch (_: Throwable) { emptyMap() }
 
     /** A refusal met by [lane]'s task: fit hands it on (election and ledger follow), anything else is applied as classified. */

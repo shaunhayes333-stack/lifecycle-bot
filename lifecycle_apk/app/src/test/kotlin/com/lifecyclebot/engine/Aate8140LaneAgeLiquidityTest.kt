@@ -117,7 +117,7 @@ class Aate8140LaneAgeLiquidityTest {
 
     @Test fun theRulesAreWiredWhereTheRefusalsHappened() {
         val elig = src("v3/eligibility/EligibilityGate.kt")
-        assertTrue(elig.contains("LaneAgeLiquidityScope8140.v3AgeWindowRefuses8140(candidate.ageMinutes, config.maxTokenAgeMinutes, candidate.liquidityUsd)"))
+        assertTrue(elig.contains("LaneAgeLiquidityScope8140.v3AgeWindowRefuses8140(ageForWindow8527, config.maxTokenAgeMinutes, candidate.liquidityUsd)"))
         assertTrue(elig.contains("return EligibilityResult.fail(\"TOO_OLD\")"))
         val v3 = src("v3/V3EngineManager.kt")
         assertTrue(v3.contains("LaneAgeLiquidityTruth8140.v3LiquidityDeferReason8140(ts)"))
@@ -126,10 +126,12 @@ class Aate8140LaneAgeLiquidityTest {
         val bot = src("engine/BotService.kt")
         assertTrue(bot.contains("LaneAgeLiquidityTruth8140.launchLaneAgeBlocked8140(ts, \"SHITCOIN\")"))
         assertTrue(bot.contains("LaneAgeLiquidityTruth8140.launchAgeMinutesOr8140(ts, 120.0)"))
-        assertTrue(bot.contains("operatorQualityAssessment8522(ts, v3Score, qualityTokenAgeMinutes, qualityHolderCount)") &&
-            bot.contains("LaneAgeLiquidityTruth8140.establishedAgeMinutes8140(ts, ageMinutes)"))
+        assertTrue(bot.contains("operatorQualityAssessment8522(ts,") &&
+            bot.contains("SpecialistMarketInputs8522.forCycle8522(cycleSheet8522, ts)") &&
+            bot.contains("tokenAgeMinutes = inputs.age.inputMinutes"))
         assertTrue(bot.contains("val poolAgeSecs7389 = LaneAgeLiquidityTruth8140.chainAgeSecs8140(ts)"))
-        assertTrue(bot.contains("LaneAgeLiquidityTruth8140.launchAgeMinutesOr8140(ts, 60.0)"))
+        assertTrue(bot.contains("SpecialistInputParity8527.express8527"))
+        assertTrue(src("engine/SpecialistInputParity8527.kt").contains("NativeLaneAge8521.review8521"))
         for ((file, lane) in listOf("QualityTraderAI" to "QUALITY", "BlueChipTraderAI" to "BLUECHIP", "DipHunterAI" to "DIP_HUNTER",
                 "MoonshotTraderAI" to "MOONSHOT", "ShitCoinTraderAI" to "SHITCOIN", "ShitCoinExpress" to "EXPRESS",
                 "ManipulatedTraderAI" to "MANIPULATED", "ProjectSniperAI" to "PROJECT_SNIPER")) {

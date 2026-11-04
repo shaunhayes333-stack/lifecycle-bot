@@ -337,6 +337,7 @@ object LiveWalletReconciler {
             val uiAmount = pair.uiDoubleForDisplay()
             val decimals = pair.decimals
             if (pair.raw.signum() <= 0) continue
+            if (!com.lifecyclebot.engine.LiveCanonicalRecovery6686.recoveryHoldingCurrent8527(mint, pair)) continue
             // V5.0.3791 — do not re-open / keep dust as a live held token; the
             // dust-zombie reaper above owns finality for these.
             val rawExact = pair.raw

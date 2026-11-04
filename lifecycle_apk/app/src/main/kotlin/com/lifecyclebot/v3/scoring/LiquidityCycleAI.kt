@@ -439,9 +439,11 @@ object LiquidityCycleAI {
         // 91-score STRONG_BUYs to a 14 WATCH. Fresh launches inherit only
         // the market-phase boost; the relative-strength comparison kicks in
         // once they're old enough to have a fair sample.
-        val isFreshLaunch = candidate.ageMinutes < 5.0
+        val isFreshLaunch = candidate.ageBelow8527(5.0)
+        val provenNotFresh8527 = candidate.ageAtLeast8527(5.0)
+        val freshnessFeature8527 = if (isFreshLaunch) 1.0 else if (provenNotFresh8527) 0.0 else 0.5
         
-        if (avgLiq > 0 && !isFreshLaunch) {
+        if (avgLiq > 0 && provenNotFresh8527) {
             val relativeStrength = tokenLiq / avgLiq
             if (relativeStrength > 2.0) boost += 3   // Token has strong liquidity
             else if (relativeStrength < 0.5) boost -= 5  // Token has weak liquidity
@@ -452,7 +454,7 @@ object LiquidityCycleAI {
             value = brain.applyBias(boost.coerceIn(-15, 12).toDouble(), doubleArrayOf(
                 ((state.entryBoost + 15.0) / 27.0).coerceIn(0.0, 1.0),
                 if (avgLiq > 0.0) ((tokenLiq / avgLiq) / 3.0).coerceIn(0.0, 1.0) else 0.5,
-                if (isFreshLaunch) 1.0 else 0.0,
+                freshnessFeature8527,
             )).toInt(),
             reason = if (isFreshLaunch) "${state.reason} [fresh-launch exempt]" else state.reason
         ).also {
@@ -460,7 +462,7 @@ object LiquidityCycleAI {
                 brain.stamp(candidate.mint, doubleArrayOf(
                     ((state.entryBoost + 15.0) / 27.0).coerceIn(0.0, 1.0),
                     if (avgLiq > 0.0) ((tokenLiq / avgLiq) / 3.0).coerceIn(0.0, 1.0) else 0.5,
-                    if (isFreshLaunch) 1.0 else 0.0,
+                    freshnessFeature8527,
                 ))
             } catch (_: Throwable) {}
         }

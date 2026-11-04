@@ -19,9 +19,8 @@ object ExistingIntelligenceContext7650 {
         val legacyConsensusMult: Double,
         val hypothesisSizeBias: Double,
         val reviewedLabBias: Double,
-        val mctsPolicy: CounterfactualReplayEngine.AlternativeKind?,
-        val mctsExpectedDeltaPct: Double,
-        val mctsConfidence: Double,
+        /** Summary research is retained for diagnostics, never an empirical planner vote. */
+        val summaryReplay8527: CounterfactualReplayEngine.MctsExitPolicyHint?,
         val expertPrior7813: ExpertTraderKnowledge7813.Prior,
         val sources: Set<String>,
         val estate7654: SuperIntelligenceEstate7654.Snapshot,
@@ -131,31 +130,8 @@ object ExistingIntelligenceContext7650 {
                 )
             }
 
-            // Counterfactual replay is a separate empirical ancestry family.
-            val mcts = mctsPolicy
-            if (mcts != null && mctsConfidence > 0.0) {
-                val magnitude = (mctsExpectedDeltaPct / 25.0)
-                    .coerceIn(-3.0, 3.0) * mctsConfidence
-                val mctsUtility = when (mcts) {
-                    CounterfactualReplayEngine.AlternativeKind.BANK_25,
-                    CounterfactualReplayEngine.AlternativeKind.BANK_50 ->
-                        if (policy == SuperPolicyTree7638.Policy.BASE_TACTICAL_BANK) magnitude else 0.0
-                    CounterfactualReplayEngine.AlternativeKind.TRAIL_RUNNER,
-                    CounterfactualReplayEngine.AlternativeKind.HOLD_TO_PEAK_HALF ->
-                        if (policy == SuperPolicyTree7638.Policy.CONVICTION_RUNNER ||
-                            policy == SuperPolicyTree7638.Policy.BASE_TACTICAL_HOLD) magnitude else 0.0
-                    CounterfactualReplayEngine.AlternativeKind.HARD_STOP_15 ->
-                        if (policy == SuperPolicyTree7638.Policy.REDUCED_THEN_SCALE ||
-                            policy == SuperPolicyTree7638.Policy.WAIT_REASSESS) magnitude
-                        else -kotlin.math.abs(magnitude) * 0.35
-                }
-                if (mctsUtility != 0.0) observations += SuperEvidenceTopology7651.Observation(
-                    "counterfactual_mcts", SuperEvidenceTopology7651.Family.COUNTERFACTUAL_REPLAY,
-                    mctsUtility,
-                    (mctsConfidence.coerceIn(0.0, 1.0) *
-                        trust(SuperEvidenceTopology7651.Family.COUNTERFACTUAL_REPLAY)).coerceIn(0.0, 1.15),
-                )
-            }
+            // Unordered counterfactual summaries carry no executable-fill evidence. They remain in contributionTag
+            // as research, but cannot enter an empirical ancestry family or change a live/PAPER planner prior.
 
             return SuperEvidenceTopology7651.fuse(observations)
         }
@@ -173,7 +149,7 @@ object ExistingIntelligenceContext7650 {
         fun contributionTag(): String {
             return String.format(
                 java.util.Locale.US,
-                "existing7650(spec=%s/%s/%s,edge=%+d/%.2f,cons=%.2f,hyp=%.2f,lab=%.2f,mcts=%s:%+.1f@%.2f,src=%s)",
+                "existing7650(spec=%s/%s/%s,edge=%+d/%.2f,cons=%.2f,hyp=%.2f,lab=%.2f,cfSummary=%s:%+.1f/support%.2f(noAuthority),src=%s)",
                 specialistEligible?.toString() ?: "na",
                 specialistScore?.toString() ?: "na",
                 specialistConfidence?.toString() ?: "na",
@@ -182,9 +158,9 @@ object ExistingIntelligenceContext7650 {
                 legacyConsensusMult,
                 hypothesisSizeBias,
                 reviewedLabBias,
-                mctsPolicy?.name ?: "none",
-                mctsExpectedDeltaPct,
-                mctsConfidence,
+                summaryReplay8527?.policy?.name ?: "none",
+                summaryReplay8527?.meanHypotheticalDeltaPct ?: 0.0,
+                summaryReplay8527?.summarySupportShare ?: 0.0,
                 sources.joinToString("+").take(80),
             ) + " " + expertPrior7813.label + " " + estate7654.tag()
         }
@@ -246,7 +222,7 @@ object ExistingIntelligenceContext7650 {
         if (consensus != null) src += "BrainConsensusBridge6329"
         if (hypothesis != 1.0) src += "StrategyHypothesisEngine"
         if (lab != 1.0) src += "AsyncStrategyLab"
-        if (mcts != null) src += "CounterfactualReplayEngine"
+        if (mcts != null) src += "CounterfactualReplayEngine:summaryOnly"
         if (kotlin.math.abs(expert7813.deltaPct) >= 0.05) src += "ExpertTraderKnowledge7813"
 
         val estate7654 = try {
@@ -265,9 +241,7 @@ object ExistingIntelligenceContext7650 {
             legacyConsensusMult = consensus?.multiplier ?: 1.0,
             hypothesisSizeBias = hypothesis,
             reviewedLabBias = lab,
-            mctsPolicy = mcts?.policy,
-            mctsExpectedDeltaPct = mcts?.expectedDeltaPct ?: 0.0,
-            mctsConfidence = mcts?.confidence ?: 0.0,
+            summaryReplay8527 = mcts,
             expertPrior7813 = expert7813,
             sources = src,
             estate7654 = estate7654,

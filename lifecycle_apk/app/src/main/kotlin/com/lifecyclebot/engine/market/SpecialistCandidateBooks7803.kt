@@ -44,6 +44,36 @@ internal object SpecialistCandidateBooks7803 {
 
     private val books = LANES.associateWith { ConcurrentHashMap<String, Entry>() }
 
+    // A short-lived display row is not the lifetime of its generation's verdict.
+    // Retain ordering through the longest existing proposal lifetime; this rejects only
+    // older generations and never imposes a wait on same/newer re-evaluation.
+    private data class RefusalFloor8527(val version: Long, val atMs: Long)
+    private val refusalFloors8527 = LANES.associateWith { ConcurrentHashMap<String, RefusalFloor8527>() }
+    private const val MAX_REFUSAL_FLOORS_PER_LANE_8527 = MAX_PER_LANE * 4
+
+    private fun rememberRefusal8527(lane: String, mint: String, version: Long, nowMs: Long): Long {
+        if (version <= 0L) return version
+        val floors = refusalFloors8527[lane] ?: return version
+        val next = floors.compute(mint) { _, old ->
+            val prior = old?.takeIf { nowMs - it.atMs in 0L..QUALIFIED_TTL_MS }?.version ?: 0L
+            RefusalFloor8527(maxOf(version, prior), nowMs)
+        }!!
+        if (floors.size > MAX_REFUSAL_FLOORS_PER_LANE_8527) {
+            floors.entries.removeIf { nowMs - it.value.atMs > QUALIFIED_TTL_MS }
+            if (floors.size > MAX_REFUSAL_FLOORS_PER_LANE_8527) {
+                floors.entries.sortedBy { it.value.atMs }.take(floors.size - MAX_REFUSAL_FLOORS_PER_LANE_8527)
+                    .forEach { floors.remove(it.key, it.value) }
+            }
+        }
+        return next.version
+    }
+
+    private fun generationNotRefused8527(lane: String, mint: String, version: Long, nowMs: Long): Boolean {
+        val floor = refusalFloors8527[lane]?.get(mint)
+            ?.takeIf { nowMs - it.atMs in 0L..QUALIFIED_TTL_MS } ?: return true
+        return version <= 0L || version >= floor.version
+    }
+
     private fun canonicalLane(raw: String): String = raw.trim().uppercase()
         .replace("BLUE_CHIP", "BLUECHIP")
         .replace("SHITCOIN_EXPRESS", "EXPRESS")
@@ -82,6 +112,7 @@ internal object SpecialistCandidateBooks7803 {
         val now = System.currentTimeMillis()
         val book = books.getValue(lane)
         val next = book.compute(mint) { _, old ->
+            if (!generationNotRefused8527(lane, mint, candidateVersion, now)) return@compute old
             // Discovery repeats carry no evaluation evidence. They must not erase a
             // fresh READY offer or refresh its executable-evidence timestamp.
             if (old != null && now - old.updatedAtMs <= ttlFor(old.state)) {
@@ -150,13 +181,23 @@ internal object SpecialistCandidateBooks7803 {
     }
 
     internal fun markLost(lane: String, mint: String, candidateVersion: Long, reason: String) {
-        val current = entry(lane, mint) ?: return
+        val canonical = canonicalLane(lane)
+        if (canonical !in LANES || mint.isBlank()) return
+        val current = entry(canonical, mint)
+        // The refusal can arrive before the older asynchronous qualification.
+        if (current == null) {
+            rememberRefusal8527(canonical, mint, candidateVersion, System.currentTimeMillis())
+            return
+        }
         // V5.0.8271 (R2) — a FRESH refusal (same or newer candidate generation) supersedes older readiness; a STALE
         // asynchronous refusal (older generation) must not erase a newer approval. Pre-8271 any version difference was
         // ignored, so a generation-101 refusal left a generation-100 READY row that readyFor() still accepted.
         if (!refusalSupersedes8271(current.candidateVersion, candidateVersion)) return
+        val refusalVersion8527 = rememberRefusal8527(canonical, mint, maxOf(current.candidateVersion, candidateVersion), System.currentTimeMillis())
+        // Preserve the refusal generation. Otherwise a delayed older approval can
+        // resurrect the entry because the tombstone still advertises the old version.
         upsert(
-            lane, mint, current.symbol, current.candidateVersion, State.LOST,
+            lane, mint, current.symbol, refusalVersion8527, State.LOST,
             current.conviction, current.score, current.confidence, current.source, reason,
         )
     }
@@ -180,7 +221,8 @@ internal object SpecialistCandidateBooks7803 {
         return LANES.mapNotNull { lane ->
             pruneLane(lane, now)
             val e = books[lane]?.get(mint) ?: return@mapNotNull null
-            if (versionCurrent8094(e.candidateVersion, candidateVersion) &&
+            if (generationNotRefused8527(lane, mint, e.candidateVersion, now) &&
+                versionCurrent8094(e.candidateVersion, candidateVersion) &&
                 (e.state == State.QUALIFIED || e.state == State.READY)
             ) lane to e else null
         }.toMap()
@@ -203,7 +245,8 @@ internal object SpecialistCandidateBooks7803 {
         return LANES.mapNotNull { lane ->
             pruneLane(lane, now)
             val e = books[lane]?.get(mint) ?: return@mapNotNull null
-            if (versionCurrent8094(e.candidateVersion, candidateVersion) && e.state == State.READY) lane to e else null
+            if (generationNotRefused8527(lane, mint, e.candidateVersion, now) &&
+                versionCurrent8094(e.candidateVersion, candidateVersion) && e.state == State.READY) lane to e else null
         }.toMap()
     }
 
@@ -265,5 +308,8 @@ internal object SpecialistCandidateBooks7803 {
             "$lane=${g?.n?.get() ?: 0}/${g?.wins?.get() ?: 0}W"
         }
 
-    internal fun resetForTests() = books.values.forEach { it.clear() }
+    internal fun resetForTests() {
+        books.values.forEach { it.clear() }
+        refusalFloors8527.values.forEach { it.clear() }
+    }
 }

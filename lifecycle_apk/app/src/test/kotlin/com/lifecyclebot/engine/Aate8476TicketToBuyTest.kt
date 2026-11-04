@@ -28,8 +28,8 @@ class Aate8476TicketToBuyTest {
         val d = src("engine/truth/OnChainDepth8038.kt").substringAfter("fun buyRefusal8038(").substringBefore("UNVERIFIED_RESERVES_8385\n")
         val body = src("engine/truth/OnChainDepth8038.kt").substringAfter("if (observedAt8174 != null && !LaunchCohort8173.reserveFresh8174(observedAt8174, nowMs)) {")
             .substringBefore("return \"CURVE_RESERVES_STALE_DEFER_8174\"")
-        assertTrue(body.contains("ParallelMarkFanout7088.curvePrices7392(listOf(ts.mint))"))
-        assertTrue("the read lands before the freshness re-check", body.indexOf("curvePrices7392(listOf(ts.mint))") in 0 until body.indexOf("val refreshedAt8174"))
+        assertTrue(body.contains("ParallelMarkFanout7088.curvePrices7392(listOf(ts.mint), latencyCritical8527 = true)"))
+        assertTrue("the read lands before the freshness re-check", body.indexOf("curvePrices7392(listOf(ts.mint), latencyCritical8527 = true)") in 0 until body.indexOf("val refreshedAt8174"))
         assertTrue(d.isNotEmpty())
     }
 

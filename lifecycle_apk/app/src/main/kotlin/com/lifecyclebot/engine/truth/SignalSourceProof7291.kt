@@ -77,11 +77,26 @@ object SignalSourceProof7291 {
             context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         } catch (_: Throwable) { return }
         prefs = p
-        Source.values().forEach { tallies.getValue(it).decode(p.getString("${it.name}_LIVE_7835", null)) }
-        // V5.0.8064 — the labeled books restart on labels without spike credit.
-        Source.values().forEach { labeled7731.getValue(it).decode(p.getString("${it.name}_LABELED_8076", null)) }
-        Source.values().forEach { s -> p.getString("${s.name}_LABELED_SQ_8076", null)?.split(',')?.forEachIndexed { i, v -> if (i < 3) labeledSq7962.getValue(s)[i] = v.toDoubleOrNull() ?: 0.0 } }
+        restoreBooks8527 { p.getString(it, null) }
         ensureSubscribed()
+    }
+
+    /**
+     * The actual finalized-live book keeps its original key. Old modelled keys
+     * remain untouched in preferences, but cannot promote a source under the
+     * observed-remainder 8527 label contract.
+     */
+    @Synchronized
+    internal fun restoreBooks8527(read: (String) -> String?) {
+        Source.values().forEach { source ->
+            tallies.getValue(source).decode(read("${source.name}_LIVE_7835") ?: "0,0,0,0,0")
+            labeled7731.getValue(source).decode(read("${source.name}_LABELED_8527") ?: "0,0,0,0,0")
+            val sq = labeledSq7962.getValue(source)
+            sq.fill(0.0)
+            read("${source.name}_LABELED_SQ_8527")?.split(',')?.forEachIndexed { i, value ->
+                if (i < sq.size) sq[i] = value.toDoubleOrNull() ?: 0.0
+            }
+        }
     }
 
     /**
@@ -99,7 +114,7 @@ object SignalSourceProof7291 {
             if (netReturnFraction > 0.0) { t.wins++; t.grossWinSol += netReturnFraction } else t.grossLossSol += -netReturnFraction
             val sq = labeledSq7962.getValue(source)
             sq[0] += 1.0; sq[1] += netReturnFraction; sq[2] += netReturnFraction * netReturnFraction
-            try { prefs?.edit()?.putString("${source.name}_LABELED_8076", t.encode())?.putString("${source.name}_LABELED_SQ_8076", sq.joinToString(","))?.apply() } catch (_: Throwable) {}
+            try { prefs?.edit()?.putString("${source.name}_LABELED_8527", t.encode())?.putString("${source.name}_LABELED_SQ_8527", sq.joinToString(","))?.apply() } catch (_: Throwable) {}
         }
         try { PipelineHealthCollector.labelInc("SIGNAL_SOURCE_LABELED_7731_${source.name}") } catch (_: Throwable) {}
     }

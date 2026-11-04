@@ -180,7 +180,7 @@ class Aate7807ProtectiveInventoryTest {
         assertTrue(src("engine/sell/SellFinalizationCoordinator.kt").contains("applyProtectiveSellFill7807("))
         assertTrue(src("engine/sell/SellReconciler.kt").contains("applyProtectiveSellFill7807("))
         assertTrue(src("engine/WalletReconciler.kt").contains("retireProtectiveQuarantinesOnWalletZero7807(walletMints)"))
-        assertTrue(src("engine/LiveCanonicalRecovery6686.kt").contains("protectUnadoptedBotHoldings7807(subset)"))
+        assertTrue(src("engine/LiveCanonicalRecovery6686.kt").contains("protectUnadoptedBotHoldings7807(subset, holdingProofs8527)"))
         // Exits never refuse a funded quarantine.
         val exec = src("engine/Executor.kt")
         assertTrue(exec.contains("hasFundedProtectiveQuarantine7807(ts.mint))"))

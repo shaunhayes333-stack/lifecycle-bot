@@ -116,7 +116,7 @@ object HeldExitQuote8189 {
         if (!px.isFinite() || px <= 0.0) return
         val q = Quote8189(px, askedAtMs, raw, proceedsSol, SOURCE_8189, positionId,
             estimatedSellCostSol.takeIf { it.isFinite() && it >= 0.0 })
-        quotes.compute(mint) { _, old -> if (old == null || old.observedAtMs <= askedAtMs) q else old }
+        publish8527(mint, q)
         if (quotes.size > 2_000) quotes.entries.removeIf { askedAtMs - it.value.observedAtMs > QUOTE_FRESH_MS_8189 }
     }
 
@@ -158,8 +158,9 @@ object HeldExitQuote8189 {
             return null
         }
         val q = Quote8189(estimate.priceUsd, minOf(askedAtMs, estimate.observedAtMs), qty, estimate.proceedsSol, estimate.source)
-        quotes[mint] = q
-        if (quotes.size > 2_000) quotes.clear()
+        // A slow background answer must not roll back a newer stop/mark observation.
+        if (!publish8527(mint, q)) return null
+        if (quotes.size > 2_000) quotes.entries.removeIf { askedAtMs - it.value.observedAtMs > QUOTE_FRESH_MS_8189 }
         answered.incrementAndGet()
         try { PipelineHealthCollector.labelInc("HELD_EXIT_QUOTE_OK_8189") } catch (_: Throwable) {}
         return q
@@ -192,6 +193,18 @@ object HeldExitQuote8189 {
         HeldHotMarkAuthority7419.reserveFirstLine8486() + " " +   // V5.0.8486
         "heldQuote8189[asked=${asked.get()} ok=${answered.get()} noRoute=${empty.get()} served=${served.get()} cached=${quotes.size} inFlight=${inFlight.size}" +
             " missBy8435{${missCauses8435.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}}]"
+
+    internal fun publish8527(mint: String, q: Quote8189): Boolean {
+        val kept = quotes.compute(mint) { _, old ->
+            when {
+                old == null -> q
+                old.observedAtMs > q.observedAtMs -> old
+                old.observedAtMs == q.observedAtMs && old.positionId8521.isNotBlank() && q.positionId8521.isBlank() -> old
+                else -> q
+            }
+        }
+        return kept === q
+    }
 
     internal fun putForTest8189(mint: String, q: Quote8189) { quotes[mint] = q }
     internal fun resetForTest8189() { quotes.clear(); attempts.clear(); inFlight.clear() }

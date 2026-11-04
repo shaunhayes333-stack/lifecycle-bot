@@ -156,6 +156,9 @@ class FinalDecisionEngine(
             else -> 0
         }
 
+        internal fun freshLaunchProbe8527(ageMinutes: Double): Boolean =
+            ageMinutes.isFinite() && ageMinutes in 0.0..15.0
+
         fun recordExecute() { consecutiveNonExecute = 0 }
         fun recordNonExecute() { consecutiveNonExecute++ }
 
@@ -326,7 +329,7 @@ class FinalDecisionEngine(
         // V5.9.1586 — 3501 fresh-launch bootstrap behavior. AGE_0_15m tokens
         // naturally lack holders/orderflow/social/smart-money/history. Unknown or
         // immature layers must be neutral/size-shaped, not converted into WATCH-only.
-        val isFreshLaunchProbe = ageMinutes <= 15.0
+        val isFreshLaunchProbe = freshLaunchProbe8527(ageMinutes)
         
         // ═══════════════════════════════════════════════════════════════════
         // V3 SELECTIVITY: HARD C-GRADE EXECUTION BAN
@@ -498,6 +501,9 @@ class FinalDecisionEngine(
         val smallConfFloor       = maxOf(effectiveCGradeConf, 15)
 
         val rawBand = when {
+            // V5.0.8527 — relief can make effectiveMinScore negative. No execute band
+            // may reinterpret an actively negative final score as neutral bootstrap evidence.
+            score < 0 -> if (score >= config.watchScoreMin) DecisionBand.WATCH else DecisionBand.REJECT
             // V5.0.4077 — V3 NEGATIVE-SCORE GUARD (operator P0: "we win when we
             // hold"). The previous `score >= -5` cut for fresh-launch probes was
             // executing buys on tokens the AI had already SCORED negative — that
@@ -524,7 +530,7 @@ class FinalDecisionEngine(
         // gates downstream; promotion only lifts WATCH→SMALL, never bypasses a veto.
         val band = if (rawBand == DecisionBand.WATCH) {
             val nearMissFloor = (effectiveMinScore * 0.7).toInt()
-            val isNearMiss = score >= (nearMissFloor - 4) && score < nearMissFloor
+            val isNearMiss = score >= 0 && score >= (nearMissFloor - 4) && score < nearMissFloor
             val confirmedPrecursor = momentumScoreV >= 6 && volumeScoreV >= 6 &&
                 effectiveConf >= (smallConfFloor - 3)
             if (isNearMiss && confirmedPrecursor) {

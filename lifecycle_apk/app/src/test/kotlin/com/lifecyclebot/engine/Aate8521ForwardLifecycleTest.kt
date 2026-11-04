@@ -185,7 +185,7 @@ class Aate8521ForwardLifecycleTest {
                 if (target == 3_600_000L) {
                     assertTrue("$lane/$take has no five-minute entry contribution", (get(obs, "bookedNet7997") as Double).isNaN())
                     assertEquals(0, cells[cell]?.n60 ?: 0)
-                    assertNull(nodes["L8521|CELL|$cell"])
+                    assertNull(nodes["L8527|CELL|$cell"])
                     set(obs, "lastMark8386", mark(mint, at + 3_605_000L, 1.7))
                     assertEquals(true, call("bookTwoForty7944", obs, 67.0, 70.0, true))
                 }
@@ -193,7 +193,7 @@ class Aate8521ForwardLifecycleTest {
                 assertTrue("$lane/$take has its real target", fixed.isFinite())
                 assertEquals(1, cells.getValue(cell).n60)
                 assertEquals(fixed, cells.getValue(cell).sum60, 0.0)
-                val alloc = nodes.getValue("L8521|CELL|$cell")
+                val alloc = nodes.getValue("L8527|CELL|$cell")
                 assertEquals(1.0, alloc.w, 0.0)
                 assertEquals(target / 60_000.0, alloc.holdSum / alloc.holdW, 0.0)
                 set(obs, "lastMark8386", mark(mint, at + 14_400_000L, 3.0))
@@ -215,7 +215,7 @@ class Aate8521ForwardLifecycleTest {
             assertEquals(true, call("bookTwoForty7944", missing, 67.0, 70.0, true))
             assertTrue("the first hour can teach without inventing an intermediate outcome", (get(missing, "bookedNet7997") as Double).isFinite())
             assertEquals(1, cells.getValue(missingCell).n60)
-            assertEquals(1.0, nodes.getValue("L8521|CELL|$missingCell").w, 0.0)
+            assertEquals(1.0, nodes.getValue("L8527|CELL|$missingCell").w, 0.0)
             assertFalse(get(missing, "firstReadValid8521") as Boolean)
             val noFillMint = "${prefix}no-fill"
             val noFillCell = "TEST_FROZEN_8521|TREASURY|NO_FILL"
@@ -224,7 +224,7 @@ class Aate8521ForwardLifecycleTest {
             assertEquals(true, call("bookSixty7944", noFill, 97.0, 100.0, at + 300_000L))
             assertTrue("a recovered outcome cannot invent an earlier executable fill", (get(noFill, "bookedNet7997") as Double).isNaN())
             assertEquals(0, cells[noFillCell]?.n60 ?: 0)
-            assertNull(nodes["L8521|CELL|$noFillCell"])
+            assertNull(nodes["L8527|CELL|$noFillCell"])
         } finally {
             cells.clear(); cells.putAll(oldCells); fresh.clear(); fresh.putAll(oldFresh); nodes.clear(); nodes.putAll(oldNodes)
             fine.clear(); fine.putAll(oldFine); coarse.clear(); coarse.putAll(oldCoarse)
@@ -361,3 +361,4 @@ class Aate8521ForwardLifecycleTest {
         } finally { pending.clear(); pending.putAll(saved) }
     }
 }
+

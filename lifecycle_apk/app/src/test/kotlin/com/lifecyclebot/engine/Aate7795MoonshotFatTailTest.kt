@@ -11,7 +11,9 @@ class Aate7795MoonshotFatTailTest {
     @Test fun moonshotRestoresGoldenEraRunway() {
         val s = src()
         assertTrue(s.contains("private const val HARD_FLOOR_STOP = -20.0"))
-        assertTrue(s.contains("private const val EARLY_TIGHT_STOP_PCT_7696 = HARD_FLOOR_STOP"))
+        // The later early-tight overlay was identical to the preceding hard floor and unreachable.
+        assertFalse(s.contains("EARLY_TIGHT_STOP_PCT_7696"))
+        assertTrue(s.contains("if (pnlPct <= effectiveHardFloor)"))
         assertTrue(s.contains("val timeoutMins = maxOf(180L"))
     }
 

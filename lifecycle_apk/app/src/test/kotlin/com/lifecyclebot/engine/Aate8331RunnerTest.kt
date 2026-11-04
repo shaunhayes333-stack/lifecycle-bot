@@ -60,7 +60,17 @@ class Aate8331RunnerTest {
         assertTrue(rungSell.contains("RungDispatch8397.dispatch8397(ts, reason, offer8397) {"))
         assertTrue(rungSell.contains("if (ts.position.entryTime != offer8397.entryTime) false"))
         assertTrue(rungSell.contains("else executor.requestPartialSellConfirmed6566(ts, fraction, reason, wallet, bal).applied"))
-        assertTrue(exec.indexOf("val settled7835 = commitVerifiedLiveSlice7835(ts, proof7835, reason) ?: return") > 0)
+        val settledCall = "val settled7835 = commitVerifiedLiveSlice7835(ts, proof7835, reason, partialCompletion8527) ?: return"
+        val partial = exec.substringAfter("private fun requestPartialSellWithDelivery8527(", "")
+        val proof = partial.indexOf("val proof7835 = verifiedSlice7835 ?: return")
+        val capture = partial.indexOf("val partialCompletion8527 = com.lifecyclebot.engine.truth.CanonicalPartialReceipt8527.Capture8527(delivery8527)")
+        val settle = partial.indexOf(settledCall)
+        val graduate = partial.indexOf("SpikeCapture7943.onConfirmedPartial8081(ts, reason, settled7835.actualConsumedRaw")
+        assertTrue(proof >= 0 && proof < capture && capture < settle && settle < graduate)
+        val finalizer = exec.substringAfter("private fun commitVerifiedLiveSlice7835(", "")
+            .substringBefore("// ── V5.0.7884", "")
+        assertTrue(finalizer.contains("proof.outcome != TradeVerifier.Outcome.LANDED"))
+        assertTrue(finalizer.contains("receiptCapture8527 = receiptCapture8527,"))
         assertTrue(exec.contains("try { RunnerLive8153.bookSlice8153(ts, reason, proof.sig, result.actualConsumedRaw, result.solReceived, result.realizedPnl.proportionalCostBasisSol) } catch (_: Throwable) {}"))
     }
 

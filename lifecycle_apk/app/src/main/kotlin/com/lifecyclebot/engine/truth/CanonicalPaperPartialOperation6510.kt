@@ -64,6 +64,7 @@ object CanonicalPaperPartialOperation6510 {
         val preQty: BigInteger, val soldQty: BigInteger, val postQty: BigInteger,
         val preCost: Double, val soldCostBasis: Double, val postCost: Double,
         val grossProceeds: Double, val fees: Double, val realizedPnl: Double,
+        val canonicalSlice8527: CanonicalPartialReceipt8527? = null,
     )
 
     /**
@@ -394,7 +395,7 @@ object CanonicalPaperPartialOperation6510 {
             // V5.0.8083 — the 7066-validated basis-derived figure is checked by its own invariant at the bridge too.
             basisDerivedProceeds8083 = basisDerivedProceeds7066 && !(markPriceUsd7029 > 0.0 && solUsd7029 > 0.0),
         )
-        val post = CanonicalPositionAuthority6441.getPosition(positionId) ?: pre
+        val canonicalSlice8527 = r.canonicalSlice8527
         if (r.applied) {
             // V5.0.6677 — JOURNAL THE SAME IMMUTABLE PARTIAL RECEIPT HERE.
             //
@@ -485,9 +486,15 @@ object CanonicalPaperPartialOperation6510 {
             lastRefusal7194 = r.reason.take(60)
         }
         return Receipt(r.applied, !r.applied && r.reason.contains("DUPLICATE", true), r.reason,
-            positionId, operationId, sequence, pre.remainingQtyRaw, soldRaw, post.remainingQtyRaw,
-            preCost, soldBasis, (post.entryCostSol - post.soldCostBasisSol).coerceAtLeast(0.0),
-            grossProceeds, fees, grossProceeds - soldBasis - fees)
+            positionId, operationId, sequence,
+            canonicalSlice8527?.preRaw ?: pre.remainingQtyRaw,
+            canonicalSlice8527?.consumedRaw ?: soldRaw,
+            canonicalSlice8527?.remainingRaw ?: if (r.applied) r.postRemainingRaw else pre.remainingQtyRaw,
+            canonicalSlice8527?.let { it.remainingCostSol + it.soldCostSol } ?: preCost,
+            canonicalSlice8527?.soldCostSol ?: soldBasis,
+            canonicalSlice8527?.remainingCostSol ?: if (r.applied) r.postRemainingCostBasisSol else preCost,
+            grossProceeds, r.feesSol, canonicalSlice8527?.realizedPnlSol ?: (grossProceeds - soldBasis - r.feesSol),
+            canonicalSlice8527 = canonicalSlice8527)
     }
 
     /**

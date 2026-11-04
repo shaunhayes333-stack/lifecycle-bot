@@ -118,7 +118,10 @@ class Aate7809MarketDataTest {
         val p = src("network/ParallelMarkFanout7088.kt")
         assertTrue(p.contains("noteCurveRungFailure7809(hostLabel)"))
         assertTrue(p.contains("if (hostLabel.startsWith(\"helius\")) return"))
-        assertTrue(p.contains("CURVE_MAX_TRANSPORT_FAILS_7809 = 2"))
+        // 8527: the keyless-first ladder must not stop before the authenticated fallback.
+        assertFalse(p.contains("CURVE_MAX_TRANSPORT_FAILS_7809"))
+        assertTrue(p.contains("CurveReadBudget8527.walk(rungs7279, latencyCritical8527"))
+        assertTrue(src("network/CurveReadBudget8527.kt").contains("const val TOTAL_MS = 4_000L"))
         assertTrue(p.contains("ApiBackoff.markFailure(hostLabel, 504)"))
     }
 

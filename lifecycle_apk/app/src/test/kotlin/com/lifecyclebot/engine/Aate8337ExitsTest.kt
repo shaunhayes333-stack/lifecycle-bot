@@ -81,13 +81,25 @@ class Aate8337ExitsTest {
 
     @Test fun aFullSizePartialGoesThroughRequestSell() {
         val e = src("engine/Executor.kt")
-        assertTrue(e.contains("val fullResult6566 = requestSell(ts, reason, activeWallet, walletBalance)"))
+        val partial = e.substringAfter("private fun requestPartialSellWithDelivery8527(", "")
+        val full = partial.substringAfter("if (pct >= 1.0 - 1e-9) {", "").substringBefore("} else {", "")
+        assertTrue(full.contains("val capture8527 = com.lifecyclebot.engine.truth.CanonicalPartialReceipt8527.Capture8527(delivery8527)"))
+        assertTrue(full.contains("val fullResult6566 = requestSell(ts, reason, activeWallet, walletBalance,"))
+        assertTrue(full.contains("receiptCapture8527 = capture8527)"))
+        assertTrue(full.contains("canonicalSlice8527 = capture8527.receipt,"))
         assertFalse(e.contains("doSell(ts, \"[PARTIAL→FULL] \$reason\", activeWallet, walletBalance)"))
     }
 
     @Test fun theExitDoorsRunBeforeTheBudgetAndReceiptsSayWhatHappened() {
         val e = src("engine/Executor.kt")
-        val body = e.substringAfter("fun requestPartialSell(").substringBefore("rehydratePositionFromSubTraders(ts)")
+        val publicEntry = e.substringAfter("fun requestPartialSell(", "")
+            .substringBefore("private fun requestPartialSellWithDelivery8527(", "")
+        assertTrue(publicEntry.contains("requestPartialSellWithDelivery8527(ts, sellPercentage, reason, wallet, walletBalance, null, receipt6566)"))
+        val confirmedEntry = e.substringAfter("fun requestPartialSellConfirmed6566(", "")
+            .substringBefore("private fun spikeRefused8337(", "")
+        assertTrue(confirmedEntry.contains("requestPartialSellWithDelivery8527(ts, sellPercentage, reason, wallet, walletBalance, delivery8527)"))
+        val body = e.substringAfter("private fun requestPartialSellWithDelivery8527(", "")
+            .substringBefore("rehydratePositionFromSubTraders(ts)", "")
         val iNet = body.indexOf("NetEdge8030.exitRefusal8030(ts, reason, getActualPrice(ts), partial = true)")
         val iUnecon = body.indexOf("if (partialUneconomic8094(ts, requested8337, reason)) {")
         val iBudget = body.indexOf("val pct = RunnerExitLive8136.budget8136(ts, sellPercentage.coerceIn(0.0, 1.0), reason)")
@@ -96,8 +108,13 @@ class Aate8337ExitsTest {
         // 9a — net-profit and uneconomic doors before the budget (which takes the arbiter ticket); tail / lifecycle after it.
         assertTrue(iNet in 0 until iUnecon && iUnecon < iBudget && iBudget < iTail && iTail < iLife)
         // 8397 corrects 9b: escalation is handled, but only an actually completed full exit acknowledges the rung.
-        assertTrue(body.contains("profitEscalated8189(ts, reason, wallet, walletBalance)?.let { receipt6566?.invoke(it); return }"))
-        assertTrue(e.contains("return ProfitEscalationReceipt8397.request8397 {"))
+        assertTrue(body.contains("profitEscalated8189(ts, reason, wallet, walletBalance, delivery8527)?.let { receipt6566?.invoke(it); return }"))
+        val escalation = e.substringAfter("private fun profitEscalated8189(", "")
+            .substringBefore("private fun executeProfitLockSell(", "")
+        assertTrue(escalation.contains("val result8527 = ProfitEscalationReceipt8397.request8397 {"))
+        assertTrue(escalation.contains("requestSell(ts, com.lifecyclebot.engine.sell.ProfitEscalation8189.reason8189(reason), wallet, walletSol,"))
+        assertTrue(escalation.contains("receiptCapture8527 = capture8527)"))
+        assertTrue(escalation.contains("return result8527.copy(canonicalSlice8527 = capture8527.receipt)"))
         // 9c — a spike-capture rung refused at a door is counted by the door.
         for (door in listOf("NET_PROFIT", "UNECONOMIC", "TAILBAG", "LIFECYCLE_HOLD")) assertTrue(door, body.contains("spikeRefused8337(reason, \"$door\")"))
         assertTrue(e.contains("if (reason.contains(\"SPIKE_CAPTURE_7943\")) try { PipelineHealthCollector.labelInc(\"SPIKE_REFUSED_8337_\$door\") } catch (_: Throwable) {}"))

@@ -1,6 +1,7 @@
 package com.lifecyclebot.engine.truth
 
 import com.lifecyclebot.data.Candle
+import com.lifecyclebot.network.OhlcvRequestQueue8401
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -39,6 +40,13 @@ object DowntimeRecovery8430 {
     private val candles = ConcurrentHashMap<String, List<Candle>>()
     private val attempted: MutableSet<String> = ConcurrentHashMap.newKeySet()
     private val queue: MutableSet<String> = java.util.Collections.synchronizedSet(LinkedHashSet())
+    // A local refusal is not a completed attempt. These deadlines bound retries even while the provider stays unavailable.
+    private val retryUntil8527 = ConcurrentHashMap<String, Long>()
+    private val providerFailures8527 = ConcurrentHashMap<String, Int>()
+    private const val MAX_PROVIDER_FAILURES_8527 = 3
+    private val requeued8527 = AtomicLong(0)
+    private val localWaits8527 = AtomicLong(0)
+    private val failed8527 = AtomicLong(0)
     private val fetching = AtomicBoolean(false)
     @Volatile private var lastFetchMs = 0L
     private val fetched = AtomicLong(0)
@@ -68,28 +76,40 @@ object DowntimeRecovery8430 {
      */
     fun candleMark8430(mint: String, targetMs: Long, fromMs: Long, deadlineMs: Long, bootMs: Long, nowMs: Long): Read8430 {
         if (mint.isBlank() || !downtime8430(deadlineMs, bootMs)) return NONE_8430
-        candles[mint]?.let { cs ->
-            val c = pick8430(cs, targetMs, fromMs, minOf(deadlineMs, nowMs)) ?: return NONE_8430
-            recovered.incrementAndGet()
-            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FORWARD_LABEL_DOWNTIME_CANDLE_8430") } catch (_: Throwable) {}
-            val at = closeAt8521(c)
-            return Read8430(false, LabelMark8386(mint, "ohlcv", c.priceUsd, at, nowMs, SOURCE_8430))
+        return synchronized(queue) {
+            // Completion publishes candles and terminal membership under this same lock. A result landing between
+            // a cache miss and the attempted read must not make a genuinely recovered label close unavailable.
+            candles[mint]?.let { cs ->
+                val c = pick8430(cs, targetMs, fromMs, minOf(deadlineMs, nowMs)) ?: return@synchronized NONE_8430
+                recovered.incrementAndGet()
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FORWARD_LABEL_DOWNTIME_CANDLE_8430") } catch (_: Throwable) {}
+                val at = closeAt8521(c)
+                return@synchronized Read8430(false, LabelMark8386(mint, "ohlcv", c.priceUsd, at, nowMs, SOURCE_8430))
+            }
+            // Expiry precedes queue/in-flight membership. A dead provider must not hold a restored label forever.
+            if (nowMs - bootMs > RECOVERY_WINDOW_MS_8430) {
+                queue.remove(mint)
+                retryUntil8527.remove(mint)
+                providerFailures8527.remove(mint)
+                if (attempted.add(mint)) gaveUp.incrementAndGet()
+                return@synchronized NONE_8430
+            }
+            if (mint == inFlight8430 || queue.contains(mint)) return@synchronized WAIT_8430
+            if (attempted.contains(mint)) return@synchronized NONE_8430
+            val inFlight = if (inFlight8430.isNotBlank() && !attempted.contains(inFlight8430)) 1 else 0
+            if (attempted.size + queue.size + inFlight >= MAX_MINTS_PER_BOOT_8430) {
+                if (attempted.add(mint)) gaveUp.incrementAndGet()
+                return@synchronized NONE_8430
+            }
+            retryUntil8527[mint] = bootMs + RECOVERY_WINDOW_MS_8430
+            queue.add(mint)
+            WAIT_8430
         }
-        if (mint == inFlight8430) return WAIT_8430   // its fetch is on the wire
-        // V5.0.8435 — 8434 (5.4 min): queued=150 fetched=0 gaveUp=197. The full-queue branch below ran BEFORE the queued-
-        // membership read, so once the queue held 150 mints every re-ask for a mint already in it was counted as given up and
-        // its observation closed UNKNOWN while its fetch still sat in the queue. Queued is waiting.
-        if (queue.contains(mint)) return WAIT_8430
-        if (attempted.contains(mint)) return NONE_8430
-        if (nowMs - bootMs > RECOVERY_WINDOW_MS_8430 || attempted.size + queue.size >= MAX_MINTS_PER_BOOT_8430) {
-            attempted.add(mint); gaveUp.incrementAndGet(); return NONE_8430
-        }
-        queue.add(mint)
-        return WAIT_8430
     }
 
     /** ForwardReturnLabeler7731.tick: one bounded fetch when the provider slot is idle and the gap has passed. */
     fun drain8430(nowMs: Long) {
+        expireQueued8527(nowMs)
         if (queue.isEmpty() || nowMs - lastFetchMs < FETCH_GAP_MS_8430) return
         val wait = try { com.lifecyclebot.network.SolanaOhlcvFeed6916.providerSlotWait7809(nowMs) } catch (_: Throwable) { return }
         // V5.0.8435 — 8434 (5.4 min): queued=150 fetched=0. The provider's own call interval rarely reads exactly zero at the
@@ -102,25 +122,86 @@ object DowntimeRecovery8430 {
         if (!slot8457) { yielded8439.incrementAndGet(); return }
         val sleepMs8435 = wait.waitMs.coerceAtLeast(0L)
         if (!fetching.compareAndSet(false, true)) return
-        val mint = synchronized(queue) { queue.firstOrNull()?.also { queue.remove(it) } }
+        val mint = takeQueued8527(nowMs)
         if (mint == null) { fetching.set(false); return }
         lastFetchMs = nowMs
-        attempted.add(mint)
-        inFlight8430 = mint
         try {
             Thread({
                 try {
-                    if (sleepMs8435 > 0L) try { Thread.sleep(sleepMs8435) } catch (_: InterruptedException) {}
-                    val cs = try { com.lifecyclebot.network.SolanaOhlcvFeed6916.fetchCandles6916(mint, "1m", CANDLES_8430) } catch (_: Throwable) { emptyList() }
-                    if (cs.isEmpty()) empty.incrementAndGet() else fetched.incrementAndGet()
-                    candles[mint] = cs
-                    if (candles.size > 400) candles.keys.take(100).forEach { candles.remove(it) }
-                } finally { inFlight8430 = ""; fetching.set(false) }
+                    if (sleepMs8435 > 0L) try { Thread.sleep(sleepMs8435) } catch (_: InterruptedException) { Thread.currentThread().interrupt() }
+                    val answer = if (Thread.currentThread().isInterrupted || System.currentTimeMillis() > (retryUntil8527[mint] ?: 0L))
+                        OhlcvRequestQueue8401.Answer<Candle>(OhlcvRequestQueue8401.State.DEADLINE)
+                    else fetchOwned8527 { com.lifecyclebot.network.SolanaOhlcvFeed6916.fetchAnswer8527(mint, "1m", CANDLES_8430) }
+                    completeFetch8527(mint, answer, System.currentTimeMillis())
+                } finally { synchronized(queue) { if (inFlight8430 == mint) inFlight8430 = "" }; fetching.set(false) }
             }, "label-downtime-8430").apply { isDaemon = true }.start()
-        } catch (_: Throwable) { inFlight8430 = ""; fetching.set(false) }
+        } catch (_: Throwable) {
+            completeFetch8527(mint, OhlcvRequestQueue8401.Answer(OhlcvRequestQueue8401.State.PROVIDER_FAILURE), nowMs)
+            synchronized(queue) { if (inFlight8430 == mint) inFlight8430 = "" }
+            fetching.set(false)
+        }
     }
 
     @Volatile private var inFlight8430 = ""
+
+    /** Raw daemon threads own cancellation locally; it must neither crash Android nor count as a provider failure. */
+    internal fun fetchOwned8527(fetch: () -> OhlcvRequestQueue8401.Answer<Candle>): OhlcvRequestQueue8401.Answer<Candle> =
+        try { fetch() }
+        catch (_: kotlinx.coroutines.CancellationException) { OhlcvRequestQueue8401.Answer(OhlcvRequestQueue8401.State.DEADLINE) }
+        catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            OhlcvRequestQueue8401.Answer(OhlcvRequestQueue8401.State.DEADLINE)
+        }
+        catch (_: Exception) { OhlcvRequestQueue8401.Answer(if (Thread.currentThread().isInterrupted)
+            OhlcvRequestQueue8401.State.DEADLINE else OhlcvRequestQueue8401.State.PROVIDER_FAILURE) }
+
+    /** One queue owner per mint. In-flight work counts against the same unique-mint boot budget. */
+    internal fun takeQueued8527(nowMs: Long): String? = synchronized(queue) {
+        expireQueued8527(nowMs)
+        if (inFlight8430.isNotBlank()) return@synchronized null
+        queue.firstOrNull()?.also { queue.remove(it); inFlight8430 = it }
+    }
+
+    private fun retire8527(mint: String) {
+        queue.remove(mint)
+        retryUntil8527.remove(mint)
+        providerFailures8527.remove(mint)
+        if (attempted.add(mint)) gaveUp.incrementAndGet()
+    }
+
+    /** Expiry runs even when a provider cooldown prevents any fetch from starting. */
+    internal fun expireQueued8527(nowMs: Long) = synchronized(queue) {
+        queue.toList().filter { nowMs > (retryUntil8527[it] ?: 0L) }.forEach(::retire8527)
+    }
+
+    /**
+     * Retain temporary waits and transport failures as work, never as a fabricated empty source answer.
+     * Actual completed candles may still arrive from an already-started call after the boot window; their original
+     * source close times are retained, and only the labeler's existing exact pending episode can consume them.
+     */
+    internal fun completeFetch8527(mint: String, answer: OhlcvRequestQueue8401.Answer<Candle>, nowMs: Long) = synchronized(queue) {
+        if (inFlight8430 != mint) return@synchronized
+        queue.remove(mint)
+        val terminal = (answer.state == OhlcvRequestQueue8401.State.ANSWERED_BARS && answer.rows.isNotEmpty()) ||
+            (answer.state == OhlcvRequestQueue8401.State.ANSWERED_EMPTY && answer.rows.isEmpty())
+        if (terminal) {
+            if (answer.rows.isEmpty()) empty.incrementAndGet() else fetched.incrementAndGet()
+            candles[mint] = answer.rows
+            attempted.add(mint)
+            retryUntil8527.remove(mint)
+            providerFailures8527.remove(mint)
+            if (candles.size > 400) candles.keys.take(100).forEach { candles.remove(it) }
+        } else {
+            val failure = answer.state == OhlcvRequestQueue8401.State.PROVIDER_FAILURE ||
+                answer.state == OhlcvRequestQueue8401.State.ANSWERED_BARS || answer.state == OhlcvRequestQueue8401.State.ANSWERED_EMPTY
+            val failures = if (failure) providerFailures8527.merge(mint, 1) { a, b -> a + b } ?: 1 else providerFailures8527[mint] ?: 0
+            if (failure) failed8527.incrementAndGet() else localWaits8527.incrementAndGet()
+            if (nowMs > (retryUntil8527[mint] ?: 0L) || failures >= MAX_PROVIDER_FAILURES_8527 || attempted.contains(mint))
+                retire8527(mint)
+            else { queue.add(mint); requeued8527.incrementAndGet() }
+        }
+        inFlight8430 = ""
+    }
 
 
     /** V5.0.8438 — DiagnosisBrief8438: (queued, fetched, recovered, gaveUp). */
@@ -128,8 +209,14 @@ object DowntimeRecovery8430 {
 
     fun statusLine8430(): String =
         "downtimeRecovery8430[queued=${queue.size} fetched=${fetched.get()} empty=${empty.get()} recovered=${recovered.get()} " +
-            "gaveUp=${gaveUp.get()} slotBusy=${yielded8439.get()} cap=$MAX_MINTS_PER_BOOT_8430 mints/${RECOVERY_WINDOW_MS_8430 / 60_000L}m]"
+            "gaveUp=${gaveUp.get()} slotBusy=${yielded8439.get()} retry8527=${requeued8527.get()} " +
+            "localWait8527=${localWaits8527.get()} providerFail8527=${failed8527.get()} cap=$MAX_MINTS_PER_BOOT_8430 mints/${RECOVERY_WINDOW_MS_8430 / 60_000L}m]"
 
     internal fun seedForTest8430(mint: String, cs: List<Candle>) { candles[mint] = cs }
-    internal fun resetForTest8430() { candles.clear(); attempted.clear(); queue.clear(); fetching.set(false); lastFetchMs = 0L; fetched.set(0); empty.set(0); recovered.set(0); gaveUp.set(0) }
+    internal fun resetForTest8430() {
+        candles.clear(); attempted.clear(); queue.clear(); retryUntil8527.clear(); providerFailures8527.clear()
+        fetching.set(false); inFlight8430 = ""; lastFetchMs = 0L
+        fetched.set(0); empty.set(0); recovered.set(0); gaveUp.set(0); yielded8439.set(0)
+        requeued8527.set(0); localWaits8527.set(0); failed8527.set(0)
+    }
 }
