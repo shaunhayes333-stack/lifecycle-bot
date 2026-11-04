@@ -380,7 +380,19 @@ object ExecutionSpineAcceptanceWindow6647 {
         } catch (_: Throwable) { return open.size.toLong() }
         // A position opened inside the last exit cycle has not had a tick to be evaluated in yet (8479 smoke: AAVE opened
         // 0.39 s before the window closed and failed it as OPEN_WITHOUT_EXIT_EVALUATION). It is owed an evaluation next window.
-        return open.count { it.mode.equals(activeMode, ignoreCase = true) && nowMs - it.openedAtMs >= EXIT_CYCLE_GRACE_MS }.toLong()
+        // V5.0.8527 — only positions owned by the Solana protective exit spine can require a Solana exit-evaluation
+        // witness. The earlier acceptance counted STOCK, METALS, COMMODITIES and CRYPTO_ALT paper positions opened by
+        // their dedicated traders while BotService.canonicalExitTokenSnapshot6512 correctly excluded those positions;
+        // its universal sweep consequently saw zero Solana positions, yet the window falsely failed
+        // OPEN_WITHOUT_EXIT_EVALUATION (observed 8527 emulator: 3 trader-owned rows, exitStart/done=4/4, exitEval=0).
+        // Match the exact ownership exclusions in BotService.solanaExitScope7819. These trader-owned positions remain
+        // subject to their own exit monitors, but do not masquerade as Solana-managed inventory in this invariant.
+        return open.count {
+            it.mode.equals(activeMode, ignoreCase = true) &&
+                nowMs - it.openedAtMs >= EXIT_CYCLE_GRACE_MS &&
+                !CanonicalPositionAuthority6441.isTraderOwnedOffChainMarket7819(it) &&
+                !CanonicalPositionAuthority6441.isCryptoAltTraderOwned8082(it)
+        }.toLong()
     }
 
     private const val EXIT_CYCLE_GRACE_MS = 15_000L

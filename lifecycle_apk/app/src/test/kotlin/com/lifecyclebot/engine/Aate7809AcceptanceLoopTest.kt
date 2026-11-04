@@ -106,6 +106,14 @@ class Aate7809AcceptanceLoopTest {
         // its evaluation next window instead of failing this one (8479 smoke: opened 0.39 s before close).
         assertTrue(spine.contains("canonicalOpen = activeModeOpenCount7809(canonicalOpenPositions, nowMs)"))
         assertTrue(spine.contains("nowMs - it.openedAtMs >= EXIT_CYCLE_GRACE_MS"))
+        assertTrue("Solana acceptance must not demand a Solana exit evaluation for off-chain trader-owned opens",
+            spine.contains("!CanonicalPositionAuthority6441.isTraderOwnedOffChainMarket7819(it)"))
+        assertTrue("Crypto Alt owns its own closes; it must not be counted by the Solana exit witness",
+            spine.contains("!CanonicalPositionAuthority6441.isCryptoAltTraderOwned8082(it)"))
+        val bot = src("engine/BotService.kt")
+        assertTrue("The acceptance and real protective exit scope must agree on owner exclusions",
+            bot.contains("CanonicalPositionAuthority6441.isTraderOwnedOffChainMarket7819(it)") &&
+            bot.contains("CanonicalPositionAuthority6441.isCryptoAltTraderOwned8082(it)"))
         assertTrue(spine.contains("phantomSizedInWindow7809"))
         val entry = src("engine/truth/CanonicalAssetEntryContract6551.kt")
         assertTrue(entry.contains("LIVE_DISPATCH_IN_FLIGHT_WITHIN_CONFIRM_BUDGET_7809"))
