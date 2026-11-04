@@ -86,10 +86,13 @@ class Aate7809FunnelSizingIntentTest {
     @Test fun qualityAndBluechipReadTheHolderEvidenceChain() {
         val bot = src("engine/BotService.kt")
         val helper = bot.substringAfter("private fun laneTopHolderPct7809(").substringBefore("private fun cyclicPolicyAllows7809(")
-        assertTrue(helper.contains("ts.safety.topHolderPct.takeIf { it >= 0.0 }"))
-        assertTrue(helper.contains("ts.tokenMap.topHolderConcentrationPct"))
-        // the conservative live fallback for genuinely unknown concentration stays
-        assertTrue(helper.contains("isLive()) 50.0 else 20.0"))
+        assertTrue(helper.contains("SpecialistInputParity8527.topHolderPct8527(ts)"))
+        val shared = src("engine/SpecialistInputParity8527.kt")
+        assertTrue(shared.contains("ts.tokenMap.topHolderConcentrationPct"))
+        assertTrue(shared.contains("ts.safety.topHolderObservedAtMs8522"))
+        // Unknown concentration has the same native-neutral value in preview and actual execution.
+        assertEquals(20.0, SpecialistInputParity8527.topHolderPct8527(null, null, 0.0, 0L, 1_000L), 0.0)
+        assertEquals(42.0, SpecialistInputParity8527.topHolderPct8527(null, 42.0, 0.0, 0L, 1_000L), 0.0)
         val quality = bot.substringAfter("QualityTraderAI.evaluate(").substringBefore("isMeme = false")
         assertTrue(quality.contains("topHolderPct = laneTopHolderPct7809(ts)"))
         val blue = bot.substringAfter("BlueChipTraderAI.evaluate(").substringBefore("volatility = ts.volatility")

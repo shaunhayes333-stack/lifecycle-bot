@@ -19,9 +19,27 @@ internal object ExitQuoteBudget7863 {
         if (left <= 0L) throw java.net.SocketTimeoutException("Exit quote budget exhausted")
         return left.coerceAtMost(HOP_CAP_MS)
     }
-    fun <T> run(nowNanos: Long = System.nanoTime(), block: () -> T): T {
+    /**
+     * Scope for imperative callers with early returns (the live sell quote ladder).
+     * Nested callers may shorten, never restart or extend, the current thread's deadline.
+     * Only unsigned quote reads consume this scope; close before simulation or submission.
+     */
+    fun begin(nowNanos: Long = System.nanoTime(), budgetMs: Long = TOTAL_MS): AutoCloseable {
+        require(budgetMs in 1L..60_000L)
         val previous = deadline.get()
-        deadline.set(minOf(previous ?: Long.MAX_VALUE, nowNanos + TOTAL_MS * 1_000_000L))
-        try { return block() } finally { if (previous == null) deadline.remove() else deadline.set(previous) }
+        deadline.set(minOf(previous ?: Long.MAX_VALUE, nowNanos + budgetMs * 1_000_000L))
+        return object : AutoCloseable {
+            private var closed = false
+            override fun close() {
+                if (closed) return
+                closed = true
+                if (previous == null) deadline.remove() else deadline.set(previous)
+            }
+        }
+    }
+
+    fun <T> run(nowNanos: Long = System.nanoTime(), block: () -> T): T {
+        val scope = begin(nowNanos)
+        try { return block() } finally { scope.close() }
     }
 }

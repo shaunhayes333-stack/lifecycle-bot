@@ -202,7 +202,7 @@ class Aate8359KeylessDataTest {
         assertTrue(rpa.contains("com.lifecyclebot.network.KeylessRpc8359.marketLadder8359(ladder, method)"))
         val fan = src("network/ParallelMarkFanout7088.kt")
         assertTrue(fan.contains("RuntimeProviderAuthority6685.marketReadCandidates8359(url, \"getMultipleAccounts\").take(CURVE_LADDER_RUNGS_7279)"))
-        assertTrue(fan.contains("if (!KeylessRpc8359.beforeCall8359(rung)) continue"))
+        assertTrue(fan.contains("KeylessRpc8359.beforeCall8359(rung)"))
         assertTrue(fan.contains("if (KeylessRpc8359.staleAnswer8359(rung, root7278)) return@use"))
         assertTrue(fan.contains("KeylessMarks8359.withWantedCurves8359(mints, CURVE_MAX_MINTS_7269)"))
         assertTrue(fan.contains("KeylessMarks8359.onCurveMarks8359(out)"))

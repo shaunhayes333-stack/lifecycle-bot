@@ -84,6 +84,8 @@ object EntryStrategySnapshot6450 {
         val runnerEntry: Boolean = false,
         val educationScores8491: String = "",
         val v4EntryContext8491: String = "",
+        // Optional, immutable, presence-aware numeric observations captured before this entry executed.
+        val adaptiveEntry8527: String = "",
     )
 
     private val snapshots = ConcurrentHashMap<String, Snapshot>() // positionId -> Snapshot
@@ -96,7 +98,12 @@ object EntryStrategySnapshot6450 {
         if (snapIn.positionId.isBlank()) { rejects.incrementAndGet(); return false }
         val exact = com.lifecyclebot.engine.StrategyHypothesisEngine.exactEntryIdentity8090(
             snapIn.positionId, snapIn.mint, snapIn.entryLane, snapIn.candidateVersion8090)
-        val snap = if (exact == null) snapIn else snapIn.copy(
+        val entryWitness8527 = snapIn.adaptiveEntry8527.ifBlank {
+            snapIn.entryThresholdSnapshot.split(';').firstOrNull { it.startsWith("adaptiveEntry8527=") }
+                ?.substringAfter('=').orEmpty()
+        }
+        val frozen8527 = snapIn.copy(adaptiveEntry8527 = entryWitness8527)
+        val snap = if (exact == null) frozen8527 else frozen8527.copy(
             entryTradeType = exact[0], entrySetup = exact[1], entryStyle = exact[2], entryTactic = exact[3],
             cortexSetupTag8085 = com.lifecyclebot.engine.StrategyHypothesisEngine.entrySetupTag8091(
                 snapIn.positionId, snapIn.mint, snapIn.entryLane, snapIn.candidateVersion8090))
@@ -152,6 +159,7 @@ object EntryStrategySnapshot6450 {
                 .put("snapshotId", snap.entryPolicySnapshotId).put("tacticVersion", snap.entryTacticVersion)
                 .put("educationScores8491", snap.educationScores8491)
                 .put("v4EntryContext8491", snap.v4EntryContext8491)
+                .put("adaptiveEntry8527", snap.adaptiveEntry8527)
                 .put("v3", snap.v3Components).put("brain", snap.brainConsensusVerdict)
                 .put("brainConfidence", snap.brainConsensusConfidence).put("brainObjections", snap.brainConsensusObjections)
                 .put("policyAuthority", snap.policyAuthority).put("policyProbability", snap.policyProbability)
@@ -233,6 +241,7 @@ object EntryStrategySnapshot6450 {
             entryPolicySnapshotId = j.optString("snapshotId", positionId), entryTacticVersion = j.optString("tacticVersion", ""),
             educationScores8491 = j.optString("educationScores8491", ""),
             v4EntryContext8491 = j.optString("v4EntryContext8491", ""),
+            adaptiveEntry8527 = j.optString("adaptiveEntry8527", ""),
             v3Components = j.optString("v3", ""), brainConsensusVerdict = j.optString("brain", "UNKNOWN"),
             brainConsensusConfidence = j.optDouble("brainConfidence", 0.0), brainConsensusObjections = j.optString("brainObjections", ""),
             policyAuthority = j.optString("policyAuthority", "BOOTSTRAP"), policyProbability = j.optDouble("policyProbability", 0.5),

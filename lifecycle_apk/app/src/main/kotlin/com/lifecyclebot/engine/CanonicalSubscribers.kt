@@ -173,7 +173,6 @@ object CanonicalSubscribers {
 
             // Canonical adapters for rich-feature consumers.
             for (layer in listOf(
-                "AdaptiveLearningEngine",
                 "RunTracker30D",
                 "BehaviorLearning",
                 "MetaCognitionAI",
@@ -234,11 +233,6 @@ object CanonicalSubscribers {
                         try {
                             BehaviorLearning.onCanonicalOutcome(outcome)
                             BehaviorLearning.onCanonicalSettlement(isWin, outcome.mint)
-                        } catch (_: Throwable) {}
-                    }
-                    if (layer == "AdaptiveLearningEngine") {
-                        try {
-                            AdaptiveLearningEngine.onCanonicalOutcome(outcome)
                         } catch (_: Throwable) {}
                     }
                     if (layer == "RunTracker30D") {

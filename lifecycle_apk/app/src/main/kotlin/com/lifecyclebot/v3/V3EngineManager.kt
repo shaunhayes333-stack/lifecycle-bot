@@ -323,19 +323,24 @@ object V3EngineManager {
             val currentBotConfig = botConfig ?: return V3Decision.watch(score = ts.entryScore.toInt().coerceIn(0, 100), confidence = 50)
             if (liqDefer8140 != null) return V3Decision.rejected(liqDefer8140)
 
-            // V5.0.7440 — age-dependent routing waits for canonical birth.
-            val tokenAgeMinutes = com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts)
-            if (tokenAgeMinutes == null) {
+            // Exact birth remains mandatory for launch claims. Proven-established tokens
+            // can reach the age-independent stack without waiting for history we intentionally stop paging.
+            val age8527 = V3Adapter.scoringAge8527(ts)
+            if (age8527 == null) {
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("V3_BIRTH_HYDRATION_PENDING_7440") } catch (_: Throwable) {}
                 return V3Decision.watch(score = ts.entryScore.toInt().coerceIn(0, 100), confidence = 50)
             }
-            val tokenAgeHours = tokenAgeMinutes / 60.0
+            val tokenAgeHours = age8527.minimumMinutes / 60.0
+            if (age8527.exactMinutes == null) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("V3_PROVEN_ESTABLISHED_SCORED_8527") } catch (_: Throwable) {}
+            }
 
-            val isShitCoinCandidate =
+            val isShitCoinCandidate = age8527.exactMinutes?.let { exactAge ->
                 com.lifecyclebot.v3.scoring.ShitCoinTraderAI.isShitCoinCandidate(
                     marketCapUsd = ts.lastMcap,
-                    tokenAgeMinutes = tokenAgeMinutes
+                    tokenAgeMinutes = exactAge
                 )
+            } ?: false
 
             val isQualityLowCap =
                 com.lifecyclebot.v3.scoring.LayerTransitionManager.isV3QualityCandidate(

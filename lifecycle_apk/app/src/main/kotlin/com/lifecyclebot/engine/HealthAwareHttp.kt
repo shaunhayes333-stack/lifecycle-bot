@@ -74,6 +74,7 @@ object HealthAwareHttp {
         // such an exception is still thrown, but never recorded as the provider's network error.
         isLocalFailure8288: ((Exception) -> Boolean)? = null,
     ): Response {
+        val observation8527 = com.lifecyclebot.network.ObservationHttpScope8527.current()
         // V5.9.1024 — REACTIVE BACKOFF SHORT-CIRCUIT.
         // If this host is in lockout (last call returned 429/403/4xx/5xx
         // within the backoff window), don't fire another request. Return
@@ -82,10 +83,17 @@ object HealthAwareHttp {
             // V5.0.7314 — exits are never refused by our own lockout.
             val exit7314 = request.header(com.lifecyclebot.network.ExitHttpScope7314.HEADER) != null ||
                 com.lifecyclebot.network.ExitHttpScope7314.active()
-            if (exit7314 && !allowDuringLockout && ApiBackoff.isLockedOut(host)) {
+            // V5.0.8527 — the trade marker already bypassed HostCircuitInterceptor, but this
+            // preceding wrapper still returned its own 503. Use the same request authority;
+            // observation quotes and unrelated providers retain their existing backoff.
+            val tradeQuote8527 = host == "jupiter_quote" &&
+                com.lifecyclebot.network.HostCircuitInterceptor.tradeQuote8527(request)
+            val priorityRead8527 = exit7314 || tradeQuote8527
+            if (priorityRead8527 && !allowDuringLockout && ApiBackoff.isLockedOut(host)) {
                 com.lifecyclebot.network.ExitHttpScope7314.noteBypass("HEALTH_AWARE")
             }
-            if (!allowDuringLockout && !exit7314 && ApiBackoff.isLockedOut(host)) {
+            if (!allowDuringLockout && !priorityRead8527 && ApiBackoff.isLockedOut(host)) {
+                observation8527?.noteLocalRefusal()
                 return Response.Builder()
                     .request(request)
                     .protocol(Protocol.HTTP_1_1)
@@ -106,8 +114,12 @@ object HealthAwareHttp {
         else request.newBuilder().url(rewritten).build()
 
         val start = System.currentTimeMillis()
+        // Only explicitly scoped read-only observation workers carry this context.
+        // Cap the actual Call before execution and retain its cancellation handle
+        // through body reads; unscoped trade/finality requests are untouched.
         try {
-            val resp = client.newCall(finalRequest).execute()
+            val call = observation8527?.prepareCall(client, finalRequest) ?: client.newCall(finalRequest)
+            val resp = call.execute()
             val latency = System.currentTimeMillis() - start
 
             // V5.0.6976 §THE_HOST_THAT_LOCKED_ITSELF_OUT_ON_ITS_OWN_REFUSALS.
@@ -140,6 +152,7 @@ object HealthAwareHttp {
             } catch (_: Throwable) { false }
 
             if (synthetic) {
+                observation8527?.noteLocalRefusal()
                 try { PipelineHealthCollector.labelInc("SYNTHETIC_BLOCK_NOT_RECORDED_6976") } catch (_: Throwable) {}
                 return resp
             }
@@ -156,9 +169,11 @@ object HealthAwareHttp {
                 if (resp.code in 200..299) ApiBackoff.markSuccess(host)
                 else if (resp.code in 400..599) ApiBackoff.markFailure(host, resp.code)
             } catch (_: Throwable) {}
-            return resp
+            return observation8527?.watchResponse(resp) ?: resp
         } catch (e: Exception) {
-            val local8288 = try { isLocalFailure8288?.invoke(e) == true } catch (_: Throwable) { false }
+            val local8288 = try {
+                observation8527?.localFailure(e) == true || isLocalFailure8288?.invoke(e) == true
+            } catch (_: Throwable) { false }
             if (local8288) {
                 try { PipelineHealthCollector.labelInc("HTTP_LOCAL_FAILURE_NOT_RECORDED_8288_$host") } catch (_: Throwable) {}
             } else {

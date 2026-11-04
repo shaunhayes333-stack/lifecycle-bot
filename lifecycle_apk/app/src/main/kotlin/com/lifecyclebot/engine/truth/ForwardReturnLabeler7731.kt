@@ -69,10 +69,19 @@ object ForwardReturnLabeler7731 {
     /** V5.0.7946 — one observation per mint and lane per 15 minutes (the read is 5). */
     private const val REOBSERVE_MS_7731 = 15L * 60_000L
     // V5.0.8064 — a fresh book: every cell before it was graded with spike credit live never banks (see captured7945).
-    // Prior forward aggregates used incomplete restart paths, pre-target source clocks and inferred total losses.
-    // Keep those raw preference keys on disk, but do not mix their returns with this corrected forward contract.
-    private const val CELLS_KEY_7946 = "cells_8521"
-    private const val PENDING_KEY_7946 = "pending_8521"
+    // V5.0.8527 — the old runner remainder fabricated a half-peak exit without an observed fill.
+    // These are forward-only stores, not realised trade journals. Preserve old preferences and SQLite rows as
+    // archives, including frozen pending/outbox payloads; never replay them into the observed-only authority.
+    private const val CELLS_KEY_7946 = "cells_8527"
+    private const val PENDING_KEY_7946 = "pending_8527"
+
+    internal data class ModelledCheckpoint8527(val cells: String?, val pending: String?, val paired: String?)
+
+    /** A checkpoint and its predictions must use one grading contract; no fallback to the synthetic epoch. */
+    internal fun modelledCheckpoint8527(p: SharedPreferences): ModelledCheckpoint8527 = ModelledCheckpoint8527(
+        p.getString(CELLS_KEY_7946, null), p.getString(PENDING_KEY_7946, null),
+        p.getString(PAIRED_CORTEX_KEY_8401, null),
+    )
 
     /** V5.0.7946 — Pure: how late a horizon may still be read: half the horizon, between 1 and 10 minutes. */
     fun graceFor7946(horizonMs: Long): Long = (horizonMs / 2).coerceIn(60_000L, LOST_GRACE_MS_7731)
@@ -546,8 +555,8 @@ object ForwardReturnLabeler7731 {
     // labels only: the hive's tallies carry no epoch.
     // V5.0.8418 — new grading contract: labels stop paying the ~9 % mark-based "cost" (§MARK_GAP_IS_NOT_A_FEE), so loss
     // patterns graded under the old charge (~6 pt too negative) decay to neutral; positive evidence keeps its history.
-    private const val GRADING_VERSION_8169 = 8521
-    private const val FRESH_KEY_8169 = "fresh_cells_8521"
+    private const val GRADING_VERSION_8169 = 8527
+    private const val FRESH_KEY_8169 = "fresh_cells_8527"
     private const val FRESH_EPOCH_KEY_8169 = "fresh_epoch_8169"
     private const val GRADING_VERSION_KEY_8169 = "grading_version_8169"
     private val fresh8169 = ConcurrentHashMap<String, Tally>()
@@ -639,20 +648,19 @@ object ForwardReturnLabeler7731 {
             com.lifecyclebot.engine.OffloadedPrefs8501.of(context, PREFS_7731)
         } catch (_: Throwable) { return }
         prefs = p
-        pairedRestore8401 = p.getString(PAIRED_CORTEX_KEY_8401, null)
+        val checkpoint8527 = modelledCheckpoint8527(p)
+        pairedRestore8401 = checkpoint8527.paired
         try { com.lifecyclebot.engine.cortex.CrossAssetCortex7931.restorePriceIdentities8402(p.getString(PRICE_IDENTITIES_KEY_8402, null)) }
         catch (_: Exception) { PipelineHealthCollector.labelInc("FORWARD_PRICE_IDENTITY_RESTORE_FAILED_8402") }
         try { openRowStore8409(context, p) } catch (_: Throwable) {}   // V5.0.8409 — rows leave the checkpoint file
         val rows8409 = loadRows8409(p)
         rows8409.forEach { (key, value) -> if (key.startsWith(TERMINAL_PREFIX_8395)) terminalOutbox8395[key] = value }
-        forwardOutbox8404.restore(rows8409.mapNotNull { (key, value) ->
-            if (key.startsWith(FORWARD_PREFIX_8404)) key.removePrefix(FORWARD_PREFIX_8404) to value else null
-        }.toMap())
+        forwardOutbox8404.restore(forwardPayloads8527(rows8409))
         try { FreshLaunchSelector7737.attach(context) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.CellAllocator7962.attach(context) } catch (_: Throwable) {}
         try { SpecialistMiner7972.attach7972(context) } catch (_: Throwable) {}
         try {
-            p.getString(CELLS_KEY_7946, null)?.split(';')?.forEach { row ->
+            checkpoint8527.cells?.split(';')?.forEach { row ->
                 val sep = row.lastIndexOf('=')
                 if (sep <= 0) return@forEach
                 val key = row.substring(0, sep)
@@ -681,7 +689,7 @@ object ForwardReturnLabeler7731 {
             }
         } catch (_: Throwable) {}
         try {
-            val n = restorePending7735(p.getString(PENDING_KEY_7946, null), System.currentTimeMillis())
+            val n = restorePending7735(checkpoint8527.pending, System.currentTimeMillis())
             if (n > 0) {
                 restoredPending7735.addAndGet(n.toLong())
                 PipelineHealthCollector.labelInc("FORWARD_LABELER_PENDING_RESTORED_7735")
@@ -692,7 +700,7 @@ object ForwardReturnLabeler7731 {
 
     internal fun pendingPriceKeys8402(): Set<String> = pending.values.mapTo(HashSet()) { it.mint }
     private const val PRICE_IDENTITIES_KEY_8402 = "price_identities_8402"
-    private const val PAIRED_CORTEX_KEY_8401 = "paired_cortex_8521"
+    private const val PAIRED_CORTEX_KEY_8401 = "paired_cortex_8527"
     @Volatile private var pairedRestore8401: String? = null
     @Volatile private var pairedRestoreSinceMs8418 = 0L
     private val pairedSkipped8418 = AtomicLong(0)
@@ -1071,40 +1079,22 @@ object ForwardReturnLabeler7731 {
         pending[key]?.let { p ->
             GateOutcome8418.attachGate8418(p.gate8418, p.atMs, admitted, reason, l, nowMs)?.let { g -> p.gate8418 = g; GateOutcome8418.noteAttached8418() }
         }
-        // V5.0.7733 — the entry mark comes from the token state when it is fresh,
-        // else from the canonical registry (the same plumbing gap 7730 closed for
-        // the Field Manual: a live canonical mark with lastPriceUpdate=0). 5.0.7732
-        // at 367 s: observed=212, skipped noPrice=743 — three verdicts in four
-        // were thrown away for want of a timestamp the registry already held.
-        val tsAge = if (ts.lastPriceUpdate > 0L) nowMs - ts.lastPriceUpdate else Long.MAX_VALUE
-        val tsPriced = ts.lastPrice.isFinite() && ts.lastPrice > 0.0
-        val tsFresh = tsPriced && tsAge <= MARK_MAX_AGE_MS_7731
-        val px = if (tsFresh) ts.lastPrice else {
-            val fromRegistry = markFor(ts.mint, { null }, nowMs)
-            when {
-                fromRegistry != null -> {
-                    try { PipelineHealthCollector.labelInc("FORWARD_LABEL_ENTRY_FROM_CANONICAL_MARK_7733") } catch (_: Throwable) {}
-                    fromRegistry
-                }
-                // V5.0.7735 — the gate ruled on this very price. 5.0.7734 still
-                // skipped 2,325 verdicts for want of a two-minute-fresh mark while
-                // observing 505; a label may start from the price the decision
-                // was made on when it is under ten minutes old. The exit marks
-                // that close the label keep the two-minute bar.
-                tsPriced && tsAge <= ENTRY_MARK_MAX_AGE_MS_7735 -> {
-                    try { PipelineHealthCollector.labelInc("FORWARD_LABEL_ENTRY_STALE_MARK_7735") } catch (_: Throwable) {}
-                    ts.lastPrice
-                }
-                else -> null
-            }
-        }
-        if (px == null || !px.isFinite() || px <= 0.0) {
+        // Freeze the number and source clock BEFORE ancillary setup/liquidity work can race a live mark update.
+        // Future-dated state is not fresh; the canonical market fallback still uses its own real observation time.
+        val stateMark8527 = LabelMark8386(ts.mint, ts.lastPriceDex, ts.lastPrice, ts.lastPriceUpdate, nowMs, "TOKEN_STATE")
+        val entryMark8527 = ForwardEntryMark8527.select(stateMark8527, typedMark8386(ts.mint, { null }, nowMs),
+            nowMs, MARK_MAX_AGE_MS_7731, ENTRY_MARK_MAX_AGE_MS_7735) ?: run {
             skippedNoPrice.incrementAndGet()
             return
         }
+        val px = entryMark8527.usd
+        try {
+            if (entryMark8527 !== stateMark8527) PipelineHealthCollector.labelInc("FORWARD_LABEL_ENTRY_FROM_CANONICAL_MARK_7733")
+            else if (nowMs - entryMark8527.observedAtMs > MARK_MAX_AGE_MS_7731) PipelineHealthCollector.labelInc("FORWARD_LABEL_ENTRY_STALE_MARK_7735")
+        } catch (_: Throwable) {}
         // V5.0.8165 — an entry price the coin's own bonding curve contradicts is not a buyable price.
         // V5.0.8337 (10d) — compared on the mark's own time: a curve read out of sync with it is no witness against it.
-        if (curveContradicts8165(ts.mint, px, nowMs, if (tsFresh) ts.lastPriceUpdate else nowMs)) {
+        if (curveContradicts8165(ts.mint, px, nowMs, entryMark8527.observedAtMs)) {
             curveRefusedEntry8165.incrementAndGet()
             return
         }
@@ -1177,18 +1167,10 @@ object ForwardReturnLabeler7731 {
                     com.lifecyclebot.engine.AgenticStyleRouter.decide(ts, com.lifecyclebot.engine.ModeRouter.classify(ts), l).style.name
                 } catch (_: Throwable) { "" }
                 it.entryMcap = if (ts.lastMcap.isFinite() && ts.lastMcap > 0.0) ts.lastMcap else 0.0
-                typedMark8386(ts.mint, { null }, nowMs)?.takeIf { m -> m.usd == px }?.let { m ->
-                    it.basis8386 = LabelBasis8386(m, it.entryMcap)
-                }
-                // V5.0.8524 §BASIS_IS_THE_PRICE_THE_GATE_RULED_ON — no typed mark equals the decision price exactly (the pair lane
-                // and the token state round differently): the basis stayed "UNKNOWN", the 60 s adopt window passed unpriced on a
-                // slow device, and EVERY later mark was thrown away (8522: FORWARD_LABEL_OBSERVED_ONLY_UNKNOWN_BASIS=13,440;
-                // lanes60 held no meme lane at all; Cortex graded 4 of 4,403). The decision price IS an observation: the token
-                // state's price with its own observation time and venue. Nothing invented — the same number the gate read.
-                if (!it.basis8386.mark.known() && tsPriced && px == ts.lastPrice && ts.lastPriceUpdate > 0L && ts.lastPriceUpdate <= nowMs) {
-                    it.basis8386 = LabelBasis8386(LabelMark8386(ts.mint, ts.lastPriceDex, px, ts.lastPriceUpdate, nowMs, "TOKEN_STATE"), it.entryMcap)
+                // The source mark selected above IS the basis; do not re-read a mutable token or registry here.
+                it.basis8386 = LabelBasis8386(entryMark8527, it.entryMcap)
+                if (entryMark8527.source == "TOKEN_STATE")
                     try { PipelineHealthCollector.labelInc("FORWARD_LABEL_BASIS_FROM_DECISION_PRICE_8524") } catch (_: Throwable) {}
-                }
                 it.decisionBasis8386 = it.basis8386
 
                 it.reason7967 = reason.orEmpty().take(120)
@@ -1347,9 +1329,9 @@ object ForwardReturnLabeler7731 {
         // credited the spike ladder on their peak. Live never banks those prints (spike tiers fired=0; a +156% quick take
         // landed at -40%; a +236% peak closed at -18%) — a pump.fun spike is one or two trades, gone before a sell lands.
         // A label is now the lane's own play (its stop first) with the position worth the mark at the read.
-        // V5.0.8106 — a lane whose live buys ride the runner ladder from entry (8104: MOONSHOT / SHITCOIN / EXPRESS /
-        // PROJECT_SNIPER) is graded on THAT ladder (2x / 5x / 11x) and its give-back exit (half of a +40..+199% held peak),
-        // not on the scalp tiers it no longer sells into. Its stop is unchanged: live still takes the lane stop.
+        // V5.0.8527 — runner lanes keep their own observed held-level ladder (2x / 5x / 11x), not scalp tiers.
+        // A held peak plus a later mark does NOT establish a chronological exit or a fill at either the old half-peak
+        // threshold or the current GreenFloor. The remaining quantity is valued only at the observed mark.
         val runner8106 = try { com.lifecyclebot.engine.TradeExitContract8077.runnerFromEntryLane8104(o.lane, false) } catch (_: Throwable) { false }
         val tiers8071 = try { if (longHold8077 ?: com.lifecyclebot.engine.LifecycleHold8065.lifecycleLane8065(o.lane)) com.lifecyclebot.engine.LifecycleHold8065.ladder8071() else if (runner8106) com.lifecyclebot.engine.RunnerGrab7967.TIERS_7967 else com.lifecyclebot.engine.SpikeCapture7943.TIERS } catch (_: Throwable) { com.lifecyclebot.engine.SpikeCapture7943.TIERS }
         // V5.0.8366 §HONEST_LABELS — the ladder credits a level held for the measured sell latency (not a free 20 s window),
@@ -1554,9 +1536,13 @@ object ForwardReturnLabeler7731 {
         return if (g.isFinite() && g > restPct) g else restPct
     }
 
-    /** Pure (V5.0.8106): a runner-from-entry lane's remainder — its give-back exit banks half a +40..+199% held peak. */
-    fun runnerRest8106(runnerLane: Boolean, heldPeakPct: Double, restPct: Double): Double =
-        if (runnerLane && com.lifecyclebot.engine.RunnerGrab7967.fromEntryGiveback8104(heldPeakPct, restPct)) heldPeakPct * 0.5 else restPct
+    /**
+     * V5.0.8527 — summary extrema do not prove the order, executable crossing or a sell fill.
+     * Keep the observed remainder; chronological runner exits are replayed by RunnerReplay8153 at actual marks.
+     * Retain this adapter so old callers cannot silently reintroduce synthetic half-peak proceeds.
+     */
+    fun runnerRest8106(@Suppress("UNUSED_PARAMETER") runnerLane: Boolean,
+                       @Suppress("UNUSED_PARAMETER") heldPeakPct: Double, restPct: Double): Double = restPct
 
     /** Pure (V5.0.8064): what a label credits for a peak [peakPct] above the mark at the read [restPct] — nothing. */
     fun spikeCredit8064(@Suppress("UNUSED_PARAMETER") peakPct: Double, restPct: Double): Double = restPct
@@ -2248,7 +2234,9 @@ object ForwardReturnLabeler7731 {
                     val limiterRetry8474 = ArrayList<String>()
                     for (chunk in dexBatch8418.chunked(OFFWATCH_DEX_CHUNK_8405)) {
                         // V5.0.8418 — a due label mint the pair lane was just asked for is not asked twice on the same host.
-                        val ask8418 = chunk.filter { m -> !(try { KeylessMarks8359.laneCovered8418(m, nowMs) } catch (_: Throwable) { false }) }
+                        // A curve RPC can outlive the request lease. Test coverage at this actual rung, not batch start.
+                        val leaseAt8527 = System.currentTimeMillis()
+                        val ask8418 = chunk.filter { m -> !(try { KeylessMarks8359.laneCovered8418(m, leaseAt8527) } catch (_: Throwable) { false }) }
                         if (ask8418.isEmpty()) continue
                         // V5.0.8474 — this call waited 0 ms for the shared DexScreener limiter slot, so whenever any other caller
                         // held it the batch came back EMPTY and all 30 coins were counted missed (8471: offWatch missed=8381
@@ -2308,7 +2296,12 @@ object ForwardReturnLabeler7731 {
     }
 
     private const val TERMINAL_PREFIX_8395 = "terminal8395|"
-    private const val FORWARD_PREFIX_8404 = "forward8404|"
+    private const val FORWARD_PREFIX_8404 = "forward8527|"
+
+    /** Old durable synthetic outcomes remain archived, never renamed into the current delivery queue. */
+    internal fun forwardPayloads8527(rows: Map<String, String>): Map<String, String> = rows.mapNotNull { (key, value) ->
+        if (key.startsWith(FORWARD_PREFIX_8404)) key.removePrefix(FORWARD_PREFIX_8404) to value else null
+    }.toMap()
 
     // ── V5.0.8409 §ROWS_DO_NOT_LIVE_IN_THE_CHECKPOINT_FILE ───────────────────────────────────────────────────────────────────
     // Every forward outcome write, forward acknowledgement and terminal write was a synchronous commit() on the one preferences
@@ -2876,7 +2869,7 @@ object ForwardReturnLabeler7731 {
 
     private fun cellStat(key: String): CellStat? {
         // V5.0.8000 — the rest of the hive's labels for this key ride on the local tally.
-        val hive = try { HiveEdge8000.net8000("FRL8521|$key") } catch (_: Throwable) { null }
+        val hive = try { HiveEdge8000.net8000("FRL8527|$key") } catch (_: Throwable) { null }
         val t = cells[key] ?: if (hive == null) return null else Tally()
         return synchronized(t) {
             val n = t.n60 + (hive?.get(0)?.toInt() ?: 0)
@@ -3108,3 +3101,4 @@ object ForwardReturnLabeler7731 {
 }
 
 /** V5.0.8014 — Double to Int, rounded half up (counts scaled by a fresh-edge window). */
+

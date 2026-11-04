@@ -6,6 +6,7 @@ import android.util.Log
 import com.lifecyclebot.data.CanonicalMint
 import com.lifecyclebot.data.ConfigStore
 import com.lifecyclebot.engine.ErrorLogger
+import com.lifecyclebot.engine.AdaptiveWeightTransfer8527
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -518,6 +519,7 @@ object CollectiveLearning {
         val avgWinRatePct: Double,
         val avgNetPnlSol: Double,
         val bestWinRatePct: Double,
+        val adaptive8527: AdaptiveWeightTransfer8527.CompatibleModel = AdaptiveWeightTransfer8527.CompatibleModel(),
     )
 
     data class HivePatternEdge(
@@ -607,15 +609,25 @@ object CollectiveLearning {
         netPnlSol: Double,
         profitFactor: Double,
         featureWeights: Map<String, Double>,
+        adaptive8527: AdaptiveWeightTransfer8527.LocalModel = AdaptiveWeightTransfer8527.LocalModel(),
     ): Boolean {
         if (!isEnabled()) return false
         if (instanceId.isBlank()) return false
-        if (totalTrades < 20) return false
+        val legacyGenomeReady8527 = totalTrades >= 20
+        val adaptiveGenomeReady8527 = AdaptiveWeightTransfer8527.exportReady8527(adaptive8527)
+        if (!legacyGenomeReady8527 && !adaptiveGenomeReady8527) return false
         return withContext(Dispatchers.IO) {
             try {
                 val weightsJson = org.json.JSONObject().apply {
-                    featureWeights.forEach { (k, v) ->
-                        if (k.isNotBlank()) put(k, sanitizeDouble(v).takeIf { !it.isNaN() && !it.isInfinite() }?.coerceIn(0.1, 5.0) ?: 1.0)
+                    (if (legacyGenomeReady8527) featureWeights else emptyMap()).forEach { (k, v) ->
+                        // LYR and other legacy channels keep their existing representation.
+                        if (k.isNotBlank() && k != AdaptiveWeightTransfer8527.SCHEMA_KEY)
+                            put(k, sanitizeDouble(v).takeIf { !it.isNaN() && !it.isInfinite() }?.coerceIn(0.1, 5.0) ?: 1.0)
+                    }
+                    val validAdaptive8527 = AdaptiveWeightTransfer8527.localModel8527(
+                        adaptive8527.weights, adaptive8527.featureSamples, adaptive8527.trainedPositions, adaptive8527.terminalEconomics)
+                    if (adaptiveGenomeReady8527) {
+                        put(AdaptiveWeightTransfer8527.SCHEMA_KEY, AdaptiveWeightTransfer8527.encodeLocal8527(validAdaptive8527))
                     }
                 }.toString()
                 val now = System.currentTimeMillis()
@@ -651,7 +663,9 @@ object CollectiveLearning {
         if (!isEnabled()) return null
         return withContext(Dispatchers.IO) {
             try {
-                val cutoff = System.currentTimeMillis() - 7L * 24L * 60L * 60L * 1000L
+                val now8527 = System.currentTimeMillis()
+                val maxAge8527 = 7L * 24L * 60L * 60L * 1000L
+                val cutoff = now8527 - maxAge8527
                 val result = client!!.query(
                     """
                     SELECT instance_id, total_trades, win_rate_pct, net_pnl_sol, profit_factor, feature_weights_json
@@ -662,10 +676,10 @@ object CollectiveLearning {
                     LIMIT 25
                     """.trimIndent(), listOf(cutoff, instanceId)
                 )
-                if (!result.success || result.rows.isEmpty()) return@withContext null
+                val legacyRows8527 = if (result.success) result.rows else emptyList()
                 val weighted = mutableMapOf<String, Double>(); val weights = mutableMapOf<String, Double>()
                 var contributors = 0; var totalTrades = 0; var wrSum = 0.0; var pnlSum = 0.0; var bestWr = 0.0
-                for (row in result.rows) {
+                for (row in legacyRows8527) {
                     val trades = parseInt(row["total_trades"]).coerceAtLeast(0)
                     val wr = parseDouble(row["win_rate_pct"]).coerceIn(0.0, 100.0)
                     val pnl = parseDouble(row["net_pnl_sol"])
@@ -675,16 +689,53 @@ object CollectiveLearning {
                     val contributorWeight = ((trades.coerceAtMost(1000).toDouble() / 1000.0) * 0.35 +
                         ((wr - 50.0) / 50.0).coerceIn(0.0, 1.0) * 0.45 +
                         (pf / 3.0).coerceIn(0.0, 1.0) * 0.20).coerceIn(0.05, 1.0)
-                    val obj = org.json.JSONObject(json); val keys = obj.keys()
+                    val obj = try { org.json.JSONObject(json) } catch (_: Exception) { continue }
+                    val keys = obj.keys()
                     while (keys.hasNext()) {
-                        val k = keys.next(); val v = sanitizeDouble(obj.optDouble(k, 1.0)).takeIf { !it.isNaN() && !it.isInfinite() }?.coerceIn(0.1, 5.0) ?: 1.0
+                        val k = keys.next()
+                        // A structured adaptive model is not a scalar weight/version marker.
+                        if (k == AdaptiveWeightTransfer8527.SCHEMA_KEY) continue
+                        val v = sanitizeDouble(obj.optDouble(k, 1.0)).takeIf { !it.isNaN() && !it.isInfinite() }?.coerceIn(0.1, 5.0) ?: 1.0
                         weighted[k] = (weighted[k] ?: 0.0) + v * contributorWeight
                         weights[k] = (weights[k] ?: 0.0) + contributorWeight
                     }
                     contributors++; totalTrades += trades; wrSum += wr; pnlSum += pnl; if (wr > bestWr) bestWr = wr
                 }
-                if (contributors <= 0 || weighted.isEmpty()) return@withContext null
-                HiveGenomeBlend(weighted.mapValues { (k, v) -> v / (weights[k] ?: 1.0) }, contributors, totalTrades, wrSum / contributors, pnlSum / contributors, bestWr)
+                // Separate schema-scoped selection: old high-WR genomes cannot occupy all
+                // 25 slots before a current-model peer is even considered. ALE eligibility below
+                // uses only its committed LIVE SOL cohort; legacy WR/PF/counts remain LYR-only.
+                val adaptiveRows8527 = client!!.query(
+                    """
+                    SELECT instance_id, feature_weights_json, updated_at
+                    FROM hive_performance_genomes
+                    WHERE updated_at >= ? AND updated_at <= ? AND instance_id != ?
+                      AND instr(feature_weights_json, ?) > 0
+                    ORDER BY updated_at DESC
+                    LIMIT 500
+                    """.trimIndent(),
+                    listOf(cutoff, now8527, instanceId, "\"" + AdaptiveWeightTransfer8527.SCHEMA_KEY + "\""),
+                )
+                val adaptiveContributions8527 = mutableListOf<AdaptiveWeightTransfer8527.Contribution>()
+                if (adaptiveRows8527.success) for (row in adaptiveRows8527.rows) {
+                    val root = try { org.json.JSONObject(parseString(row["feature_weights_json"])) }
+                        catch (_: Exception) { continue }
+                    val model = AdaptiveWeightTransfer8527.decodeLocal8527(root) ?: continue
+                    // This is the current LIVE model's durable whole-position count,
+                    // never total_trades / app history / a backtest report.
+                    if (!AdaptiveWeightTransfer8527.hiveEligible8527(model)) continue
+                    adaptiveContributions8527 += AdaptiveWeightTransfer8527.contributions8527(
+                        parseString(row["instance_id"]), model, parseLong(row["updated_at"]))
+                }
+                val adaptive8527 = AdaptiveWeightTransfer8527.aggregate8527(
+                    adaptiveContributions8527, now8527, maxAge8527, instanceId)
+                if ((contributors <= 0 || weighted.isEmpty()) && adaptive8527.features.isEmpty()) return@withContext null
+                HiveGenomeBlend(
+                    weighted.mapValues { (k, v) -> v / (weights[k] ?: 1.0) },
+                    contributors, totalTrades,
+                    if (contributors > 0) wrSum / contributors else 0.0,
+                    if (contributors > 0) pnlSum / contributors else 0.0,
+                    bestWr, adaptive8527,
+                )
             } catch (e: Exception) { Log.e(TAG, "downloadPerformanceGenomeBlend error: ${e.message}"); null }
         }
     }

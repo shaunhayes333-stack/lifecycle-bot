@@ -76,6 +76,48 @@ class LifecycleStrategy(
     // Public interface
     // ─────────────────────────────────────────────────────────────────
 
+    // V5.0.8527: Keep observed-only feature extraction outside evaluate(),
+    // which has a pinned ART verifier budget. Preserve the same score and blend.
+    private fun adaptiveEntryScore8527(
+        ts: TokenState,
+        tokenAgeMins: Double,
+        emaFanName: String,
+        entryScore: Double,
+        tradeCount: Int,
+    ): Double {
+        val adaptiveScore = AdaptiveLearningEngine.calculateAdaptiveScore(
+            mcapUsd = ts.lastMcap.takeIf { it.isFinite() && it > 0.0 } ?: Double.NaN,
+            tokenAgeMinutes = tokenAgeMins,
+            buyRatioPct = LaneInputTruth8236.buyPressure8491(ts, System.currentTimeMillis()) ?: Double.NaN,
+            volumeUsd = ts.tokenMap.volume24hUsd?.takeIf { it.isFinite() && it >= 0.0 } ?: Double.NaN,
+            liquidityUsd = ts.lastLiquidityUsd.takeIf { it.isFinite() && it > 0.0 }
+                ?: ts.tokenMap.liquidityUsd?.takeIf { it.isFinite() && it >= 0.0 } ?: Double.NaN,
+            holderCount = ts.history.lastOrNull()?.holderCount?.takeIf { it > 0 } ?: -1,
+            topHolderPct = ts.topHolderPct?.takeIf { it.isFinite() && it in 0.0..100.0 }
+                ?: ts.tokenMap.topHolderConcentrationPct?.takeIf { it.isFinite() && it in 0.0..100.0 }
+                ?: ts.safety.topHolderPct.takeIf {
+                    ts.safety.topHolderObservedAtMs8522 > 0L && it.isFinite() && it in 0.0..100.0
+                } ?: Double.NaN,
+            holderGrowthRate = ts.holderGrowthRate.takeIf {
+                ts.holderDataResolved && it.isFinite() && ts.history.count { candle -> candle.holderCount > 0 } >= 2
+            } ?: Double.NaN,
+            devWalletPct = Double.NaN, // No measured creator-ownership fraction in this input.
+            bondingCurveProgress = if (ts.tokenMap.migratedOrGraduated) 100.0 else Double.NaN,
+            rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 && ts.safety.checkedAt > 0L }?.toDouble() ?: Double.NaN,
+            emaFanState = emaFanName,
+            baseEntryScore = entryScore,
+        )
+        
+        // Very conservative blend: 90% base + 10% adaptive
+        val blendRatio = when {
+            tradeCount >= 100 -> 0.20  // More confidence after 100 trades
+            tradeCount >= 60 -> 0.15   // Medium confidence
+            else -> 0.10               // Low confidence
+        }
+        val blendedScore = (entryScore * (1 - blendRatio) + adaptiveScore.score * blendRatio)
+        return blendedScore.coerceIn(0.0, 100.0)
+    }
+
     fun evaluate(ts: TokenState, modeConf: AutoModeEngine.ModeConfig? = null): StrategyResult {
         val hist = ts.history.toList()
         val charts8521 = chartFrames8521(ts, System.currentTimeMillis())
@@ -813,30 +855,9 @@ class LifecycleStrategy(
                 
                 // ADAPTIVE LEARNING: Feature-weighted scoring (only after 40+ trades)
                 if (tradeCount >= 40 && tokenAgeMins != null) {
-                    val adaptiveScore = AdaptiveLearningEngine.calculateAdaptiveScore(
-                        mcapUsd = ts.lastMcap,
-                        tokenAgeMinutes = tokenAgeMins,
-                        buyRatioPct = pressScore,
-                        volumeUsd = ts.lastLiquidityUsd * volScore / 50.0,
-                        liquidityUsd = ts.lastLiquidityUsd,
-                        holderCount = ts.history.lastOrNull()?.holderCount ?: 0,
-                        topHolderPct = ts.safety.topHolderPct,
-                        holderGrowthRate = ts.holderGrowthRate,
-                        devWalletPct = 0.0,
-                        bondingCurveProgress = 100.0,
-                        rugcheckScore = ts.safety.rugcheckScore.toDouble(),
-                        emaFanState = emafan.alignment.name,
-                        baseEntryScore = entryScore,
+                    entryScore = adaptiveEntryScore8527(
+                        ts, tokenAgeMins, emafan.alignment.name, entryScore, tradeCount,
                     )
-                    
-                    // Very conservative blend: 90% base + 10% adaptive
-                    val blendRatio = when {
-                        tradeCount >= 100 -> 0.20  // More confidence after 100 trades
-                        tradeCount >= 60 -> 0.15   // Medium confidence
-                        else -> 0.10               // Low confidence
-                    }
-                    val blendedScore = (entryScore * (1 - blendRatio) + adaptiveScore.score * blendRatio)
-                    entryScore = blendedScore.coerceIn(0.0, 100.0)
                 } else if (tradeCount >= 40) {
                     try { PipelineHealthCollector.labelInc("ADAPTIVE_AGE_DEFERRED_7441") } catch (_: Throwable) {}
                 }
@@ -3052,7 +3073,7 @@ class LifecycleStrategy(
             // PAPER MODE: DYNAMIC TRAILING STOP + SMART EXITS
             // Improvement #2: Let winners run with trailing stop
             // ════════════════════════════════════════════════════════════════
-            if (c.paperMode) {
+            if (pos.isPaperPosition) {
                 val paperHeldMins = (System.currentTimeMillis() - pos.entryTime) / 60_000.0
                 
                 // Apply price impact for realistic paper P&L
@@ -3061,23 +3082,25 @@ class LifecycleStrategy(
                 val priceImpact = if (c.fluidLearningEnabled) {
                     FluidLearning.getPriceImpact(ts.mint)
                 } else 1.0
-                val adjustedPrice = ts.ref / priceImpact  // Remove the inflation from your own buys
+                // Read the same accepted entry/mark basis as the owned exit. Missing or refused
+                // marks are not zero-PnL observations and may not manufacture a peak or floor breach.
+                val paperMark8527 = OpenPnlSanity.inspect(ts, context = "LifecycleStrategy.paper8527")
+                if (!paperMark8527.ok || !priceImpact.isFinite() || priceImpact <= 0.0) return "WAIT"
+                val paperGainPct = ((1.0 + paperMark8527.pnlPct / 100.0) / priceImpact - 1.0) * 100.0
+                if (!paperGainPct.isFinite()) return "WAIT"
+                com.lifecyclebot.engine.truth.PositionDisplayTruth8078.ratchetPeak8080(
+                    ts, paperGainPct, "LIFECYCLE_PAPER_8527")
+                val peakGain = pos.peakGainPct
+                val entryOwner8527 = HeldPositionPivotArbiter.entryOwner8384(ts).ifBlank { pos.tradingMode }
+                val runnerPosition8527 = RunnerTrail8419.runnerPosition8521(ts, pos.tradingMode, entryOwner8527)
+                val runnerLevel8527 = RunnerTrail8419.holdLayerLevelFor8419(
+                    ts, pos.tradingMode, entryOwner8527, runnerPosition = runnerPosition8527)
                 
-                val paperGainPct = pct(pos.entryPrice, adjustedPrice)
-                val peakGain = pos.peakGainPct.coerceAtLeast(paperGainPct)  // Track highest gain
-                
-                // Update peak gain tracking
-                if (paperGainPct > pos.peakGainPct) {
-                    pos.peakGainPct = paperGainPct
-                }
-                
-                // Minimum hold: 3 mins (let trade develop)
-                if (paperHeldMins < 3.0) {
-                    if (paperGainPct <= -25.0) {
-                        ErrorLogger.info("Strategy", "🚨 PAPER RUG: ${ts.symbol} ${paperGainPct.toInt()}% - fast exit")
-                        return "EXIT"
-                    }
-                    return "WAIT"
+                // Catastrophe still acts immediately. Warmup may delay an ordinary stop,
+                // never an already-earned profit floor or trail.
+                if (paperHeldMins < 3.0 && paperGainPct <= -25.0) {
+                    ErrorLogger.info("Strategy", "🚨 PAPER RUG: ${ts.symbol} ${paperGainPct.toInt()}% - fast exit")
+                    return "EXIT"
                 }
                 
                 // ── DYNAMIC TRAILING STOP ──
@@ -3088,13 +3111,19 @@ class LifecycleStrategy(
                 // New curve: once a trade is up >= 30%, lock in more
                 // aggressively (give back at most 15%). Once up >= 100%,
                 // trail at just 12% to preserve moonshot wins.
-                val trailPct = when {
+                val deskTrailPct8527 = when {
                     peakGain >= 100.0 -> 12.0   // At +100%, trail at 12% from peak
                     peakGain >= 50.0  -> 13.0   // At +50%, trail at 13%
                     peakGain >= 30.0  -> 15.0   // At +30%, trail at 15% (user req)
                     peakGain >= 15.0  -> 25.0   // At +15%, give room (25%)
                     else              -> 40.0   // Below +15%, trail at 40%
                 }
+
+                // Only a genuinely owned/promoted runner uses the canonical price-floor distance.
+                // Ordinary desks keep their existing point table. An unarmed runner has no price trail yet.
+                val trailPct = if (runnerPosition8527)
+                    runnerLevel8527?.pointsUnderPeak ?: Double.POSITIVE_INFINITY
+                else deskTrailPct8527
 
                 val drawdownFromPeak = peakGain - paperGainPct
 
@@ -3103,20 +3132,29 @@ class LifecycleStrategy(
                 val _holdSecLs = try {
                     (System.currentTimeMillis() - ts.position.entryTime) / 1000.0
                 } catch (_: Throwable) { 0.0 }
-                val profitFloor = com.lifecyclebot.v3.scoring.FluidLearningAI.fluidProfitFloor(peakGain, holdSeconds = _holdSecLs)
-                if (paperGainPct < profitFloor) {
-                    ErrorLogger.info(
-                        "Strategy",
-                        "🔒 PAPER FLOOR LOCK: ${ts.symbol} peak +${peakGain.toInt()}% → now +${paperGainPct.toInt()}% < floor +${profitFloor.toInt()}% — locking in"
-                    )
-                    return "EXIT"
-                }
-
-                // Exit if we've given back too much from peak
-                if (peakGain >= 10.0 && drawdownFromPeak >= trailPct) {
-                    val lockedProfit = (peakGain - drawdownFromPeak).toInt()
-                    ErrorLogger.info("Strategy", "📉 PAPER TRAIL HIT: ${ts.symbol} peak +${peakGain.toInt()}% → now +${paperGainPct.toInt()}% (gave back ${drawdownFromPeak.toInt()}%)")
-                    return "EXIT"
+                val nativeProfitFloor8527 = com.lifecyclebot.v3.scoring.FluidLearningAI.fluidProfitFloor(
+                    peakGain, holdSeconds = _holdSecLs, lane = entryOwner8527)
+                val profitFloor = runnerLevel8527?.let { minOf(nativeProfitFloor8527, it.levelPct) }
+                    ?: nativeProfitFloor8527
+                val paperEarlyExit8527 = PaperExitOrder8527.choose8527(
+                    paperHeldMins,
+                    profitFloorBreached = paperGainPct < profitFloor,
+                    trailBreached = peakGain >= 10.0 && drawdownFromPeak >= trailPct,
+                )
+                when (paperEarlyExit8527) {
+                    PaperExitOrder8527.Decision.PROFIT_FLOOR -> {
+                        ErrorLogger.info(
+                            "Strategy",
+                            "🔒 PAPER FLOOR LOCK: ${ts.symbol} peak +${peakGain.toInt()}% → now +${paperGainPct.toInt()}% < floor +${profitFloor.toInt()}% — locking in"
+                        )
+                        return "EXIT"
+                    }
+                    PaperExitOrder8527.Decision.TRAIL -> {
+                        ErrorLogger.info("Strategy", "📉 PAPER TRAIL HIT: ${ts.symbol} peak +${peakGain.toInt()}% → now +${paperGainPct.toInt()}% (gave back ${drawdownFromPeak.toInt()}%)")
+                        return "EXIT"
+                    }
+                    PaperExitOrder8527.Decision.WARMUP -> return "WAIT"
+                    PaperExitOrder8527.Decision.CONTINUE -> Unit
                 }
                 
                 // ── STOP LOSS ──

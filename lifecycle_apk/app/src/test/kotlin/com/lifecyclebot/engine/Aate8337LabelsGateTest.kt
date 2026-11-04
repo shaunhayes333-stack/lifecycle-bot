@@ -85,7 +85,7 @@ class Aate8337LabelsGateTest {
         assertTrue(heldBlock.contains("continue"))
         assertFalse(heldBlock.contains("pending.remove"))                            // never dropped
         // the entry mark is compared on its own time
-        assertTrue(labeler.contains("if (curveContradicts8165(ts.mint, px, nowMs, if (tsFresh) ts.lastPriceUpdate else nowMs)) {"))
+        assertTrue(labeler.contains("if (curveContradicts8165(ts.mint, px, nowMs, entryMark8527.observedAtMs)) {"))
         assertTrue(labeler.contains("CurveReserves7951.readingAtMs8173(mint)"))
     }
 

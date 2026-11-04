@@ -447,10 +447,7 @@ object ShitCoinTraderAI {
         synchronized(livePositions) { livePositions[mint]?.lastSeenPrice = price }
     }
     // Called by BotService after executing a PARTIAL_TAKE sell to confirm the flag is set
-    fun markFirstTakeDone(mint: String, isPaper: Boolean = isPaperMode) {
-        val positions = if (isPaper) paperPositions else livePositions
-        synchronized(positions) { positions[mint]?.firstTakeDone = true }
-    }
+
 
     /**
      * V5.9.705 — Called by BotService after a PARTIAL_TAKE sell executes successfully.
@@ -458,17 +455,19 @@ object ShitCoinTraderAI {
      * restores the correct remaining size (not the original full size), and so
      * subsequent closePosition P&L accounting is correct.
      */
-    fun onPartialSell(mint: String, soldFraction: Double, isPaper: Boolean = isPaperMode) {
-        val partialPositions7858 = if (isPaper) paperPositions else livePositions
-        val frac = soldFraction.coerceIn(0.0, 1.0)
-        if (frac <= 0.0) return
-        val pos = synchronized(partialPositions7858) { partialPositions7858[mint] } ?: return
-        val newEntrySol = pos.entrySol * (1.0 - frac)
-        // ShitCoinPosition uses var for mutable fields; entrySol is val, so we replace the entry
-        val updated = pos.copy(entrySol = newEntrySol)
-        synchronized(partialPositions7858) { partialPositions7858[mint] = updated }
-        ErrorLogger.debug(TAG, "💩🔪 onPartialSell ${pos.symbol}: entrySol ${pos.entrySol.fmt(4)} → ${newEntrySol.fmt(4)} (sold ${(frac*100).toInt()}%)")
+    /** V5.0.8527 — capture the native generation before execution; project only the applied canonical slice. */
+    fun partialProjection8527(ts: com.lifecyclebot.data.TokenState):
+        (com.lifecyclebot.engine.truth.CanonicalPartialReceipt8527?) -> Boolean {
+        val book = if (ts.position.isPaperPosition) paperPositions else livePositions
+        return com.lifecyclebot.engine.truth.NativePartialProjection8527.capture8527(
+            book, ts, { it.isPaper }, { pos, receipt ->
+                pos.copy(entrySol = receipt.remainingCostSol, firstTakeDone = true,
+                    partialRungsTaken = (pos.partialRungsTaken + 1).coerceAtMost(PARTIAL_TAKE_LADDER_8527.size))
+            },
+        )
     }
+
+
 
 
     /**
@@ -594,15 +593,10 @@ object ShitCoinTraderAI {
         // V5.9.401 — Sentience hook #4: cross-engine telegraph (MEME).
         try { com.lifecyclebot.engine.SentienceHooks.recordEngineOutcome("MEME", pnlSol, pnlPct >= 1.0) } catch (_: Exception) {}
 
-        // V5.9.495z17 — wire operator-mandated 70/30 profit split.
-        if (pnlSol > 0.0) {
-            try {
-                com.lifecyclebot.engine.TreasuryManager.contributeFromMemeSell(
-                    pnlSol,
-                    com.lifecyclebot.engine.WalletManager.lastKnownSolPrice,
-                )
-            } catch (_: Exception) {}
-        }
+        // V5.0.8527: The canonical Executor books the confirmed fill and the
+        // treasury split once. This native close only updates lane-local
+        // results; a second treasury deposit here double-counted profit and
+        // could initiate another live transfer.
 
         
         // Record to daily P&L
@@ -679,61 +673,8 @@ object ShitCoinTraderAI {
                 com.lifecyclebot.engine.SentientPersonality.onTradeLoss(pos.symbol, pnlPct, "SHITCOIN", exitReason.name)
             }
 
-            // V5.9.305: WIRE STRATEGY TRUST + ADAPTIVE LEARNING — was missing from closePosition.
-            // Without this, ShitCoin closes never reached TradeLessonRecorder → StrategyTrustAI,
-            // leaving the trust dashboard with all 50%/UNTESTED for SHITCOIN despite hundreds of trades.
-            try {
-                // V4 lessons use canonical net economics and one position identity (8491).
-                val mfePct = if (pos.peakPnlPct > 0.0) pos.peakPnlPct else pnlPct.coerceAtLeast(0.0)
-                val maePct = pnlPct.coerceAtMost(0.0)
-                // Feed AdaptiveLearningEngine for V5.9.301 pattern matching
-                val label = when {
-                    pnlPct >= 100.0 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.GOOD_RUNNER
-                    pnlPct >= 30.0 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.GOOD_CONTINUATION
-                    pnlPct >= 10.0 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.GOOD_SECOND_LEG
-                    pnlPct >= 1.0 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.MID_SMALL_WIN
-                    pnlPct in -0.5..1.0 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.MID_FLAT_CHOP
-                    pnlPct in -5.0..-0.5 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.MID_WEAK_FOLLOW
-                    pnlPct in -15.0..-5.0 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.MID_STOPPED_OUT
-                    pnlPct <= -50.0 && exitReason == ExitSignal.RUG_DETECTED -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.BAD_RUG
-                    pnlPct <= -30.0 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.BAD_DUMP
-                    pnlPct <= -15.0 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.BAD_DEAD_CAT
-                    else -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.MID_CHOP
-                }
-                // V5.9.618 — REAL feature vector. Pre-V5.9.618 most fields were 0.0,
-                // making AdaptiveLearningEngine cluster all trades together regardless
-                // of entry conditions. Now we use the entry-context snapshot.
-                val volLiq = if (pos.liquidityUsd > 0.0) pos.entryVolumeUsd / pos.liquidityUsd else 0.0
-                val features = com.lifecyclebot.engine.AdaptiveLearningEngine.TradeFeatures(
-                    entryMcapUsd = pos.marketCapUsd,
-                    tokenAgeMinutes = pos.entryAgeMinutes,
-                    buyRatioPct = pos.entryBuyPressurePct,
-                    volumeUsd = pos.entryVolumeUsd,
-                    liquidityUsd = pos.liquidityUsd,
-                    holderCount = pos.entryHolderCount,
-                    topHolderPct = pos.entryTopHolderPct,
-                    holderGrowthRate = pos.entryHolderGrowthRate,
-                    devWalletPct = pos.bundlePct,
-                    bondingCurveProgress = pos.entryGraduationProgress,
-                    rugcheckScore = pos.entryRugcheckScore,
-                    emaFanState = pos.entryEmaFanState,
-                    entryScore = pos.entryScore.toDouble(),
-                    volumeLiquidityRatio = volLiq,
-                    priceFromAth = 0.0,
-                    pnlPct = pnlPct,
-                    maxGainPct = mfePct,
-                    maxDrawdownPct = maePct,
-                    timeToPeakMins = 0.0,
-                    holdTimeMins = holdMins,
-                    exitReason = exitReason.name,
-                    outcomeScore = if (isWin) 1 else if (pnlPct <= -1.0) -1 else 0,
-                    label = label,
-                    stableTradeKey = "${mint}:${pos.entryTime}",
-                )
-                com.lifecyclebot.engine.AdaptiveLearningEngine.learnFromTrade(features, if (pos.isPaper) com.lifecyclebot.engine.TradeEnvironment.PAPER else com.lifecyclebot.engine.TradeEnvironment.LIVE)
-            } catch (e: Exception) {
-                ErrorLogger.debug(TAG, "Lesson/Trust wiring error: ${e.message}")
-            }
+            // AdaptiveLearningEngine learns once from the canonical settled outcome and its frozen entry witness.
+
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "Sentience hook error: ${e.message}")
         }
@@ -1743,6 +1684,8 @@ object ShitCoinTraderAI {
     // EXIT CHECKING
     // ═══════════════════════════════════════════════════════════════════════════
     
+    private val PARTIAL_TAKE_LADDER_8527 = doubleArrayOf(20.0, 50.0, 100.0, 300.0, 1000.0, 3000.0, 10000.0)
+
     fun checkExit(mint: String, currentPrice: Double, isPaper: Boolean = isPaperMode): ExitSignal {
         val exitPositions7858 = if (isPaper) paperPositions else livePositions
         val pos = synchronized(exitPositions7858) { exitPositions7858[mint] } ?: return ExitSignal.HOLD
@@ -1755,51 +1698,22 @@ object ShitCoinTraderAI {
         val pnlPct = pnlVerdict.pnlPct
         val holdMinutes = (System.currentTimeMillis() - pos.entryTime) / 60000
 
-        // V5.9.443 — EARLY-DEATH STOP.
-        // V5.9.444 — cutoff now fluid: reads HoldDurationTracker 0-1min
-        // bucket for SHITCOIN and tightens toward the proven mean as data
-        // accumulates. Falls back to -1.5% with no samples.
+        // Record the first-minute path too: settlement is not a reason to miss an early runner.
+        if (pnlPct > pos.peakPnlPct) pos.peakPnlPct = pnlPct
         val holdSeconds = (System.currentTimeMillis() - pos.entryTime) / 1000
         if (holdSeconds < 60) {
-            // V5.9.1425 — SHITCOIN CHURN KILL (operator: "still very slow trading
-            // ... only 2 tokens held"). Root cause of the 3.7% WR death-spiral and
-            // why positions never stack: the first-tick warmup only held for 15s,
-            // then earlyDeathCutoffPct("SHITCOIN") — as TIGHT as ~-1.5% — fired an
-            // instant SHITCOIN_STOP_LOSS on any token merely wiggling -2% between
-            // 15s and 60s. For a just-launched meme a -2% wiggle in the first minute
-            // is NOISE, not signal; cutting there turns scanner volume into
-            // buy→stop→buy churn (snapshot: 447 buys, ~all SHITCOIN_STOP_LOSS at
-            // pnl≈0/-0.025, positions dead in seconds so memeOpen stuck at 2-3).
-            // FIX: hold the early-death stop for the FULL 60s settlement window so
-            // entries get the same breathing room the settle-in path (line ~522)
-            // already grants. The UNCONDITIONAL -15% hard floor still closes any
-            // genuine crash immediately — this only suppresses the sub-floor
-            // early-death micro-cut during settlement. Aligns the two exit paths.
-            if (pnlPct > -15.0) {
-                return ExitSignal.HOLD
+            if (pnlPct <= -15.0) {
+                ErrorLogger.info(TAG, "💩⚡ EARLY-DEATH HARD-FLOOR: ${pos.symbol} | ${pnlPct.fmt(1)}% in ${holdSeconds}s (past -15% floor)")
+                return ExitSignal.STOP_LOSS
             }
-            // Past the hard floor inside the warmup window ⇒ genuine crash, stop now.
-            ErrorLogger.info(TAG, "💩⚡ EARLY-DEATH HARD-FLOOR: ${pos.symbol} | ${pnlPct.fmt(1)}% in ${holdSeconds}s (past -15% floor)")
-            return ExitSignal.STOP_LOSS
+            // Only a never-green entry's ordinary loss gets settlement room.
+            // Positive profit rungs and protection of an already observed winner remain active.
+            if (pnlPct <= 0.0 && pos.peakPnlPct <= 0.0) return ExitSignal.HOLD
         }
 
-        // V5.9.438 — Update peak FIRST (was buried below ladder block).
-        // Ensures every downstream lock/floor reads an up-to-date peak.
-        if (pnlPct > pos.peakPnlPct) pos.peakPnlPct = pnlPct
-
-        // V5.9.1439 — EARLY-WEAKNESS EXIT (operator strategy spec + honest backtest).
-        // The Lane Strategy Replay says SHITCOIN's CURRENT_ACTUAL is net-negative
-        // (Sharpe ~-1) while TIGHT_STOP_-5 is net-positive (Sharpe ~1.7). Root cause
-        // in the live data: SHITCOIN:STOP_LOSS n=200 μ=-19.4% with -78/-87/-98%
-        // gap-through prints — far past the -6/-8% configured stop. Those are
-        // dead-on-arrival tokens (no liquidity, stale/rugging feed) that the 8-min
-        // "breather" keeps holding until they free-fall through the -15% floor.
-        // Spec: "if no positive MFE within first 30-45s, tighten exit thesis."
-        // A token that has NEVER been green by 45s is not a survivable dip — it is
-        // dead. Exit it at the lane stop NOW instead of letting the breather widen
-        // it into a -90% bag. This ONLY touches never-green positions past 45s;
-        // any position that printed even +0.1% MFE keeps full breather protection.
-        // All rug checks + the unconditional -15% hard floor remain above/below.
+        // Existing never-green weakness policy, evaluated after settlement. This is a policy,
+        // not a proven counterfactual return: unordered MFE/MAE cannot establish what a tighter stop earned.
+        // The first-minute path above now records real upside instead of falsely labelling it never-green.
         run {
             val ageSec = holdSeconds
             // V5.9.1571 — tuning-only WR recovery. Current tuning screenshot:
@@ -1838,12 +1752,15 @@ object ShitCoinTraderAI {
             return ExitSignal.TRAILING_STOP
         }
 
-        // Update high water mark and trailing stop
+        // The promoted runner uses the same price-based trail as the shared exit stack.
         if (currentPrice > pos.highWaterMark) {
             pos.highWaterMark = currentPrice
-            // V5.9.169 — continuous fluid trail (smooth log curve).
             val dynamicTrailPct = FluidLearningAI.fluidTrailPct(pnlPct)
             pos.trailingStop = currentPrice * (1 - dynamicTrailPct / 100)
+        }
+        if (com.lifecyclebot.engine.RunnerExitProfile7277.runnerExits8468("SHITCOIN", pos.peakPnlPct)) {
+            val level = com.lifecyclebot.engine.RunnerTrail8419.exitLevelPct8419(pos.peakPnlPct, Double.NaN)
+            if (level.isFinite()) pos.trailingStop = pos.entryPrice * (1.0 + level / 100.0)
         }
         
         // ═══════════════════════════════════════════════════════════════════════════
@@ -1930,19 +1847,18 @@ object ShitCoinTraderAI {
         // V5.9.163 — LADDERED PARTIAL TAKES (same engine as Moonshot).
         // Walk the ladder. Each rung fires ONE partial sell.
         // (Peak update moved to top of checkExit in V5.9.438.)
-        val rungs = doubleArrayOf(20.0, 50.0, 100.0, 300.0, 1000.0, 3000.0, 10000.0)
+        val rungs = PARTIAL_TAKE_LADDER_8527
         if (pos.partialRungsTaken < rungs.size && pnlPct >= rungs[pos.partialRungsTaken]) {
             val hitRung = rungs[pos.partialRungsTaken]
-            pos.partialRungsTaken += 1
-            pos.firstTakeDone = true
-            ErrorLogger.info(TAG, "💩💰 LADDER PARTIAL #${pos.partialRungsTaken}: ${pos.symbol} | " +
+            val proposedRung = pos.partialRungsTaken + 1
+            ErrorLogger.info(TAG, "💩💰 LADDER PARTIAL #$proposedRung: ${pos.symbol} | " +
                 "hit +${hitRung.toInt()}% (now +${pnlPct.fmt(1)}%) — locking a slice, rest rides")
             return ExitSignal.PARTIAL_TAKE
         }
 
         // V5.9.169 — continuous fluid profit floor (shared engine).
         val _holdSec = (System.currentTimeMillis() - pos.entryTime) / 1000.0  // V5.9.835
-        val profitFloor = FluidLearningAI.fluidProfitFloor(pos.peakPnlPct, holdSeconds = _holdSec)
+        val profitFloor = FluidLearningAI.fluidProfitFloor(pos.peakPnlPct, holdSeconds = _holdSec, lane = "SHITCOIN")
         if (pnlPct < profitFloor) {
             ErrorLogger.info(TAG, "💩🔒 FLOOR LOCK: ${pos.symbol} | peak +${pos.peakPnlPct.toInt()}% → now +${pnlPct.fmt(1)}% < floor +${profitFloor.toInt()}%")
             return ExitSignal.TRAILING_STOP

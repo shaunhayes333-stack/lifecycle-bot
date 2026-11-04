@@ -27,7 +27,7 @@ class Aate8000HiveBrainTest {
     }
 
     @Test fun everyBookReadsTheHive() {
-        assertTrue(src("engine/truth/ForwardReturnLabeler7731.kt").contains("HiveEdge8000.net8000(\"FRL8521|\$key\")"))
+        assertTrue(src("engine/truth/ForwardReturnLabeler7731.kt").contains("HiveEdge8000.net8000(\"FRL8527|\$key\")"))
         assertTrue(src("engine/cortex/LanePlaybook7907.kt").contains("HiveEdge8000.net8000(hiveKey8521(lane, setup))"))
         assertTrue(src("engine/truth/SpecialistMiner7972.kt").contains("fun hivePromote8000(): Int"))
         assertTrue(src("engine/truth/ForwardReturnLabeler7731.kt").contains("HiveEdge8000.noteRunner8000(o.mint, o.symbol, gross, o.atMs)"))

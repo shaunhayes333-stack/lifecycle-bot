@@ -44,11 +44,13 @@ class Aate7440CanonicalBirthTimeTest {
         val toolkit = src("engine/ToolkitSignalSheet.kt")
         val stage = src("engine/TokenMetricStageRouter.kt")
         val adapter = src("v3/bridge/V3Adapter.kt")
-        assertTrue(v3.contains("CanonicalTokenBirthTime7440.resolvedAgeMinutes"))
+        assertTrue(v3.contains("V3Adapter.scoringAge8527(ts)"))
         assertTrue(toolkit.contains("CanonicalTokenBirthTime7440.resolvedAgeMinutes"))
         assertTrue(stage.contains("CanonicalTokenBirthTime7440.resolvedAgeMinutes"))
         assertFalse(stage.contains("now - ts.addedToWatchlistAt"))
-        assertTrue(adapter.contains("CanonicalTokenBirthTime7440.resolvedAgeMs"))
+        assertTrue(adapter.contains("AdmissionBirth8144.readFor8144(ts, nowMs)"))
+        assertTrue(adapter.contains("AdmissionBirth8144.Kind8144.KNOWN"))
+        assertTrue(adapter.contains("minimumAgeMinutes8527 = age8527.minimumMinutes.takeIf { age8527.exactMinutes == null }"))
         assertFalse(adapter.contains("(now - discoveredAt).coerceAtLeast(0L)"))
     }
 }

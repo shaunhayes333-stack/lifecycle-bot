@@ -3,6 +3,7 @@ package com.lifecyclebot.engine
 import com.lifecyclebot.network.DexPools8285
 import com.lifecyclebot.network.DexscreenerApi
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -31,6 +32,28 @@ object DexBatchLane8287 {
     private const val MAX_REFUSALS_8287 = 4
 
     private val running = AtomicBoolean(false)
+    // A drain keeps the request's original admission time while it is on the wire.
+    // A coalesced label ask cannot restart this lease, nor a failed answer renew it.
+    private val inFlight8527 = ConcurrentHashMap<String, Long>()
+
+    fun outstandingAt8527(mint: String): Long? {
+        val lanes = ProviderLanes8285
+        val queued = lanes.pendingAt8527(lanes.DEX_8285, lanes.KIND_PAIR_8285, mint)
+        val flying = inFlight8527[mint]
+        return when {
+            queued == null -> flying
+            flying == null -> queued
+            else -> minOf(queued, flying)
+        }
+    }
+
+    internal fun claimBatch8527(): List<String> = ProviderLanes8285.drain8285(
+        ProviderLanes8285.DEX_8285, ProviderLanes8285.KIND_PAIR_8285, DexPools8285.BATCH_MAX_8285,
+    ) { mint, atMs -> inFlight8527[mint] = atMs }
+
+    internal fun completeBatch8527(batch: List<String>, result: DexscreenerApi.BatchPairs8285?) {
+        try { noteBatch8287(batch, result) } finally { batch.forEach { inFlight8527.remove(it) } }
+    }
     @Volatile private var lastBatchAtMs = 0L
     private val api by lazy { DexscreenerApi() }
     private val batches = AtomicLong(0L)
@@ -54,6 +77,7 @@ object DexBatchLane8287 {
     /** Queue [mint] for the lane at its priority (one pending request per mint across every asker) and start the lane. */
     fun enqueue8287(mint: String, handoff: Boolean = false): Boolean {
         if (mint.trim().length !in 32..44) return false
+        if (inFlight8527.containsKey(mint.trim())) return false // shares the active answer, not a second HTTP request
         val queued = ProviderLanes8285.enqueue8285(ProviderLanes8285.DEX_8285, ProviderLanes8285.KIND_PAIR_8285, mint.trim(),
             ProviderLanes8285.prioFor8285(mint.trim(), handoff))
         kick8287()
@@ -101,14 +125,14 @@ object DexBatchLane8287 {
                 now - lastBatchAtMs, lanes.heldPending8287(lanes.DEX_8285, lanes.KIND_PAIR_8285))
             if (w < 0L) return true
             if (w > 0L) { if (!sleep8287(w)) return false; continue }
-            val batch = lanes.drain8285(lanes.DEX_8285, lanes.KIND_PAIR_8285, DexPools8285.BATCH_MAX_8285)
+            val batch = claimBatch8527()
             if (batch.isEmpty()) return true
             lastBatchAtMs = now
             batches.incrementAndGet()
             mintsSent.addAndGet(batch.size.toLong())
             val r = try { api.batchPairs8285(batch) } catch (_: Throwable) { null }
             try { PipelineHealthCollector.labelInc("SETUP_PAIR_FETCH_8191") } catch (_: Throwable) {}
-            noteBatch8287(batch, r)
+            completeBatch8527(batch, r)
             if (r == null || r.cause == DexscreenerApi.BatchCause8087.LIMITER_REFUSED || r.cause == DexscreenerApi.BatchCause8087.PROVIDER_FAILED) {
                 refusals++
                 refusedBatches.incrementAndGet()
@@ -135,7 +159,10 @@ object DexBatchLane8287 {
         if (r != null && !throttled) try {
             com.lifecyclebot.engine.truth.CandidateMarkFresh8094.onLaneAnswer8287(batch, r.prices8287)
         } catch (_: Throwable) {}
-        if (r != null && !throttled) try { com.lifecyclebot.engine.truth.KeylessMarks8359.onLaneAnswer8418(batch, r.prices8287) } catch (_: Throwable) {}   // V5.0.8418
+        // Every terminal batch, including local refusal / failure / missing mint, releases its label lease.
+        try { com.lifecyclebot.engine.truth.KeylessMarks8359.onLaneAnswer8418(
+            batch, if (r != null && !throttled) r.prices8287 else emptyMap(),
+        ) } catch (_: Throwable) {}
         if (r != null && !throttled) try { applyLiquidity8460(r.liquidity8460) } catch (_: Throwable) {}
     }
 

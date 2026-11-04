@@ -29,10 +29,8 @@ object CloudLearningSync {
     private const val KEY_USE_COMMUNITY = "use_community_weights"
     private const val KEY_COMMUNITY_WEIGHTS = "cached_community_weights"
     private const val KEY_SCHEMA_READY = "schema_ready"
-    // V5.9.412 — bump whenever the schema layout changes so older cloud
-    // tables get dropped+recreated. Fixes "no such column: instance_id"
-    // pipeline errors caused by a Turso schema that was created before
-    // the V5.9.404-era columns existed.
+    // Database layout bookkeeping only. Model compatibility uses a typed namespace;
+    // a client must never delete shared tables to repair local schema-version drift.
     private const val KEY_SCHEMA_VERSION = "schema_version"
     private const val CURRENT_SCHEMA_VERSION = 2
 
@@ -72,7 +70,8 @@ object CloudLearningSync {
         val featureWeights: Map<String, Double>,
         val patternStats: List<PatternStat>,
         val appVersion: String,
-        val timestamp: Long
+        val timestamp: Long,
+        val adaptiveFeatureSamples8527: Map<String, Int> = emptyMap(),
     )
 
     data class PatternStat(
@@ -87,7 +86,8 @@ object CloudLearningSync {
         val patternMultipliers: Map<String, Double>,
         val totalContributors: Int,
         val totalTrades: Int,
-        val lastUpdated: Long
+        val lastUpdated: Long,
+        val adaptive8527: AdaptiveWeightTransfer8527.CompatibleModel = AdaptiveWeightTransfer8527.CompatibleModel(),
     )
 
     fun init(context: Context) {
@@ -155,6 +155,7 @@ object CloudLearningSync {
                     put("totalContributors", cw.totalContributors)
                     put("totalTrades", cw.totalTrades)
                     put("lastUpdated", cw.lastUpdated)
+                    put("adaptive8527", AdaptiveWeightTransfer8527.encodeCompatible8527(cw.adaptive8527))
                 }
                 putString(KEY_COMMUNITY_WEIGHTS, json.toString())
             } else {
@@ -183,22 +184,8 @@ object CloudLearningSync {
         if (!isConfigured()) return@withContext false
 
         try {
-            // V5.9.412 — schema-version drift recovery. If the persisted
-            // CURRENT_SCHEMA_VERSION doesn't match, DROP the legacy collective_*
-            // tables so the CREATE IF NOT EXISTS below seeds them clean. This
-            // unsticks instances whose Turso DB was created against an older
-            // column layout (the "no such column: instance_id" pipeline error).
-            val storedVer = prefs?.getInt(KEY_SCHEMA_VERSION, 0) ?: 0
-            if (storedVer != CURRENT_SCHEMA_VERSION) {
-                val dropRequests = JSONArray().apply {
-                    put(exec("DROP TABLE IF EXISTS collective_feature_weights"))
-                    put(exec("DROP TABLE IF EXISTS collective_patterns"))
-                    put(exec("DROP TABLE IF EXISTS collective_instances"))
-                    put(closeReq())
-                }
-                pipeline(dropRequests) // best-effort
-                ErrorLogger.info("CloudSync", "Schema version $storedVer → $CURRENT_SCHEMA_VERSION — collective_* tables reset.")
-            }
+            // Existing shared tables survive client upgrades. Retain the additive
+            // CREATE/ALTER/index path; incompatible data remains non-authoritative.
             // Phase 1: Create tables (IF NOT EXISTS won't modify existing tables)
             val createRequests = JSONArray().apply {
                 put(
@@ -284,7 +271,7 @@ object CloudLearningSync {
 
             schemaReady = true
             saveState()
-            // V5.9.412 — pin the version so we don't re-drop on every boot.
+            // Pin the additive layout version; shared tables are never dropped.
             prefs?.edit()?.putInt(KEY_SCHEMA_VERSION, CURRENT_SCHEMA_VERSION)?.apply()
             ErrorLogger.info("CloudSync", "Turso schema ready")
             true
@@ -298,7 +285,8 @@ object CloudLearningSync {
         tradeCount: Int,
         winRate: Double,
         featureWeights: Map<String, Double>,
-        patternStats: List<PatternBacktester.PatternStats>
+        patternStats: List<PatternBacktester.PatternStats>,
+        adaptive8527: AdaptiveWeightTransfer8527.LocalModel = AdaptiveWeightTransfer8527.LocalModel(),
     ): Boolean {
         if (!isConfigured()) {
             ErrorLogger.debug("CloudSync", "Upload skipped: Turso not configured")
@@ -310,11 +298,10 @@ object CloudLearningSync {
             return false
         }
 
-        if (tradeCount < MIN_TRADES_TO_CONTRIBUTE) {
-            ErrorLogger.debug(
-                "CloudSync",
-                "Upload skipped: need $MIN_TRADES_TO_CONTRIBUTE trades (have $tradeCount)"
-            )
+        val legacyContributionReady8527 = tradeCount >= MIN_TRADES_TO_CONTRIBUTE
+        val adaptiveContributionReady8527 = AdaptiveWeightTransfer8527.exportReady8527(adaptive8527, MIN_TRADES_TO_CONTRIBUTE)
+        if (!legacyContributionReady8527 && !adaptiveContributionReady8527) {
+            ErrorLogger.debug("CloudSync", "Upload skipped: neither channel has its own observed sample support")
             return false
         }
 
@@ -332,7 +319,7 @@ object CloudLearningSync {
 
         return withContext(Dispatchers.IO) {
             try {
-                val localPatternStats = patternStats.map {
+                val localPatternStats = (if (legacyContributionReady8527) patternStats else emptyList()).map {
                     PatternStat(
                         name = it.patternName,
                         winRate = sanitizeDouble(it.winRate),
@@ -341,14 +328,19 @@ object CloudLearningSync {
                     )
                 }
 
+                // Backtest/global totals do not certify any adaptive feature's training support.
+                val transferWeights8527 = if (adaptiveContributionReady8527) AdaptiveWeightTransfer8527.cloudWeights8527(adaptive8527) else emptyMap()
                 val payload = ContributionPayload(
                     instanceId = instanceId,
-                    tradeCount = tradeCount,
-                    winRate = sanitizeDouble(winRate),
-                    featureWeights = featureWeights.mapValues { sanitizeDouble(it.value, 1.0) },
+                    tradeCount = if (legacyContributionReady8527) tradeCount else adaptive8527.trainedPositions,
+                    winRate = if (legacyContributionReady8527) sanitizeDouble(winRate) else 0.0,
+                    featureWeights = transferWeights8527,
                     patternStats = localPatternStats,
-                    appVersion = "1.0.0",
-                    timestamp = now
+                    appVersion = com.lifecyclebot.BuildConfig.VERSION_NAME,
+                    timestamp = now,
+                    adaptiveFeatureSamples8527 = transferWeights8527.keys.associateWith {
+                        requireNotNull(AdaptiveWeightTransfer8527.cloudSampleCount8527(adaptive8527, it))
+                    },
                 )
 
                 val requests = JSONArray().apply {
@@ -373,19 +365,23 @@ object CloudLearningSync {
                         )
                     )
 
-                    put(
-                        exec(
-                            "DELETE FROM collective_feature_weights WHERE instance_id = ?",
-                            payload.instanceId
+                    if (adaptiveContributionReady8527) {
+                        put(
+                            exec(
+                                "DELETE FROM collective_feature_weights WHERE instance_id = ?",
+                                payload.instanceId
+                            )
                         )
-                    )
+                    }
 
-                    put(
-                        exec(
-                            "DELETE FROM collective_patterns WHERE instance_id = ?",
-                            payload.instanceId
+                    if (legacyContributionReady8527) {
+                        put(
+                            exec(
+                                "DELETE FROM collective_patterns WHERE instance_id = ?",
+                                payload.instanceId
+                            )
                         )
-                    )
+                    }
 
                     payload.featureWeights.forEach { (feature, weight) ->
                         put(
@@ -398,7 +394,7 @@ object CloudLearningSync {
                                 payload.instanceId,
                                 feature,
                                 weight,
-                                payload.tradeCount,
+                                payload.adaptiveFeatureSamples8527.getValue(feature),
                                 payload.timestamp
                             )
                         )
@@ -474,30 +470,27 @@ object CloudLearningSync {
 
     suspend fun downloadCommunityWeights(): CommunityWeights? {
         ErrorLogger.info("CloudSync", "☁️ DOWNLOAD: Starting community weights download...")
+        val now = System.currentTimeMillis()
+        // Disabled means not applicable, including cached/error/configuration branches.
+        if (!usingCommunityWeights) return null
 
         if (!isConfigured()) {
             ErrorLogger.info("CloudSync", "☁️ DOWNLOAD: Skipped - Turso not configured")
-            return communityWeights
+            return applicableCache8527(now)
         }
 
-        if (!usingCommunityWeights) {
-            ErrorLogger.info("CloudSync", "☁️ DOWNLOAD: Skipped - community weights disabled in settings")
-            return communityWeights
-        }
-
-        val now = System.currentTimeMillis()
-        if (now - lastDownloadTs < DOWNLOAD_INTERVAL_MS && communityWeights != null) {
+        if (now - lastDownloadTs in 0L until DOWNLOAD_INTERVAL_MS && applicableCache8527(now) != null) {
             ErrorLogger.info(
                 "CloudSync",
                 "☁️ DOWNLOAD: Using cached weights (age=${(now - lastDownloadTs) / 1000}s)"
             )
-            return communityWeights
+            return applicableCache8527(now)
         }
 
         val schemaOk = ensureSchema()
         if (!schemaOk) {
             ErrorLogger.info("CloudSync", "☁️ DOWNLOAD: Skipped - schema setup failed")
-            return communityWeights
+            return applicableCache8527(now)
         }
 
         ErrorLogger.info("CloudSync", "☁️ DOWNLOAD: Querying Turso for community data...")
@@ -506,64 +499,26 @@ object CloudLearningSync {
             try {
                 val activeSince = now - STALE_INSTANCE_MS
 
-                val statsResp = pipeline(
-                    JSONArray().apply {
-                        put(
-                            exec(
-                                """
-                                SELECT
-                                    COUNT(*) AS contributor_count,
-                                    COALESCE(SUM(trade_count), 0) AS total_trades
-                                FROM collective_instances
-                                WHERE updated_at >= ?
-                                """.trimIndent(),
-                                activeSince
-                            )
-                        )
-                        put(closeReq())
-                    }
-                )
-
-                if (statsResp == null || pipelineHasErrors(statsResp)) {
-                    ErrorLogger.error("CloudSync", "DOWNLOAD stats query failed")
-                    return@withContext communityWeights
-                }
-
-                val statsRows = extractRows(statsResp, 0)
-                val contributorCount =
-                    statsRows.firstOrNull()?.optInt("contributor_count", 0) ?: 0
-                val totalTrades =
-                    statsRows.firstOrNull()?.optInt("total_trades", 0) ?: 0
-
                 val featureResp = pipeline(
                     JSONArray().apply {
                         put(
                             exec(
                                 """
-                                SELECT
-                                    feature_name,
-                                    CASE
-                                        WHEN SUM(CASE WHEN trade_count > ? THEN ? ELSE trade_count END) = 0 THEN 1.0
-                                        ELSE
-                                            SUM(
-                                                weight *
-                                                (CASE WHEN trade_count > ? THEN ? ELSE trade_count END)
-                                            ) /
-                                            SUM(
-                                                CASE WHEN trade_count > ? THEN ? ELSE trade_count END
-                                            )
-                                    END AS blended_weight
+                                SELECT instance_id, feature_name, weight, trade_count, updated_at
                                 FROM collective_feature_weights
-                                WHERE updated_at >= ?
-                                GROUP BY feature_name
+                                WHERE updated_at >= ? AND updated_at <= ?
+                                  AND substr(feature_name, 1, ?) = ?
+                                  AND trade_count BETWEEN 1 AND ?
+                                  AND instance_id != ?
+                                ORDER BY updated_at DESC
+                                LIMIT 10000
                                 """.trimIndent(),
-                                MAX_EFFECTIVE_TRADE_WEIGHT,
-                                MAX_EFFECTIVE_TRADE_WEIGHT,
-                                MAX_EFFECTIVE_TRADE_WEIGHT,
-                                MAX_EFFECTIVE_TRADE_WEIGHT,
-                                MAX_EFFECTIVE_TRADE_WEIGHT,
-                                MAX_EFFECTIVE_TRADE_WEIGHT,
-                                activeSince
+                                activeSince,
+                                now,
+                                AdaptiveWeightTransfer8527.WIRE_PREFIX.length,
+                                AdaptiveWeightTransfer8527.WIRE_PREFIX,
+                                AdaptiveWeightTransfer8527.MAX_FEATURE_SAMPLES,
+                                instanceId
                             )
                         )
                         put(closeReq())
@@ -572,17 +527,27 @@ object CloudLearningSync {
 
                 if (featureResp == null || pipelineHasErrors(featureResp)) {
                     ErrorLogger.error("CloudSync", "DOWNLOAD feature query failed")
-                    return@withContext communityWeights
+                    return@withContext applicableCache8527(now)
                 }
 
-                val featureWeights = mutableMapOf<String, Double>()
+                val contributions8527 = mutableListOf<AdaptiveWeightTransfer8527.Contribution>()
                 extractRows(featureResp, 0).forEach { row ->
-                    val name = row.optString("feature_name", "")
-                    val weight = row.optDouble("blended_weight", 1.0)
-                    if (name.isNotBlank()) {
-                        featureWeights[name] = sanitizeDouble(weight, 1.0)
-                    }
+                    val count = (row.opt("trade_count") as? Number)?.toDouble()
+                    if (count == null || !count.isFinite() || count != count.toInt().toDouble()) return@forEach
+                    AdaptiveWeightTransfer8527.cloudContribution8527(
+                        row.optString("instance_id", ""),
+                        row.optString("feature_name", ""),
+                        row.optDouble("weight", Double.NaN),
+                        count.toInt(),
+                        row.optLong("updated_at", 0L),
+                    )?.let { contributions8527.add(it) }
                 }
+                val compatible8527 = AdaptiveWeightTransfer8527.aggregate8527(
+                    contributions8527, now, STALE_INSTANCE_MS, instanceId)
+                val featureWeights = AdaptiveWeightTransfer8527.importableWeights8527(compatible8527, 1)
+                // Conservative support summaries; never sum the same position across 17 features.
+                val contributorCount = compatible8527.features.values.maxOfOrNull { it.contributors } ?: 0
+                val totalTrades = compatible8527.features.values.maxOfOrNull { it.samples } ?: 0
 
                 val patternResp = pipeline(
                     JSONArray().apply {
@@ -600,13 +565,15 @@ object CloudLearningSync {
                     }
                 )
 
-                if (patternResp == null || pipelineHasErrors(patternResp)) {
-                    ErrorLogger.error("CloudSync", "DOWNLOAD pattern query failed")
-                    return@withContext communityWeights
+                val patternRows8527 = if (patternResp != null && !pipelineHasErrors(patternResp)) {
+                    extractRows(patternResp, 0)
+                } else {
+                    ErrorLogger.error("CloudSync", "DOWNLOAD pattern query failed; compatible adaptive evidence retained")
+                    emptyList()
                 }
 
                 val patternBuckets = mutableMapOf<String, MutableList<PatternStat>>()
-                extractRows(patternResp, 0).forEach { row ->
+                patternRows8527.forEach { row ->
                     val patternName = row.optString("pattern_name", "")
                     if (patternName.isBlank()) return@forEach
 
@@ -659,7 +626,8 @@ object CloudLearningSync {
                     patternMultipliers = patternMultipliers,
                     totalContributors = contributorCount,
                     totalTrades = totalTrades,
-                    lastUpdated = now
+                    lastUpdated = now,
+                    adaptive8527 = compatible8527,
                 )
 
                 lastDownloadTs = now
@@ -671,13 +639,18 @@ object CloudLearningSync {
                         "features=${featureWeights.size} patterns=${patternMultipliers.size}"
                 )
 
-                communityWeights
+                applicableCache8527(now)
             } catch (e: Exception) {
                 ErrorLogger.error("CloudSync", "Download failed: ${e.message}")
-                communityWeights
+                applicableCache8527(now)
             }
         }
     }
+
+    private fun applicableCache8527(nowMs: Long): CommunityWeights? =
+        communityWeights?.takeIf {
+            AdaptiveWeightTransfer8527.cacheApplicable8527(usingCommunityWeights, it.lastUpdated, nowMs, STALE_INSTANCE_MS)
+        }
 
     private fun parseCommunityWeights(obj: JSONObject): CommunityWeights {
         val weightsObj = obj.optJSONObject("featureWeights")
@@ -703,7 +676,8 @@ object CloudLearningSync {
             patternMultipliers = multipliers,
             totalContributors = obj.optInt("totalContributors", obj.optInt("total_contributors", 0)),
             totalTrades = obj.optInt("totalTrades", obj.optInt("total_trades", 0)),
-            lastUpdated = obj.optLong("lastUpdated", obj.optLong("last_updated", System.currentTimeMillis()))
+            lastUpdated = obj.optLong("lastUpdated", obj.optLong("last_updated", 0L)),
+            adaptive8527 = AdaptiveWeightTransfer8527.decodeCompatible8527(obj.optJSONObject("adaptive8527")),
         )
     }
 
@@ -711,28 +685,9 @@ object CloudLearningSync {
         localWeights: Map<String, Double>,
         localTradeCount: Int
     ): Map<String, Double> {
-        val community = communityWeights ?: return localWeights
-        if (!usingCommunityWeights || community.featureWeights.isEmpty()) return localWeights
-
-        val localRatio = when {
-            localTradeCount >= 300 -> 0.80
-            localTradeCount >= 150 -> 0.65
-            localTradeCount >= 75 -> 0.50
-            localTradeCount >= 30 -> 0.35
-            else -> 0.15
-        }
-
-        val communityRatio = 1.0 - localRatio
-        val blended = mutableMapOf<String, Double>()
-        val allKeys = localWeights.keys + community.featureWeights.keys
-
-        for (key in allKeys) {
-            val local = sanitizeDouble(localWeights[key] ?: 1.0, 1.0)
-            val comm = sanitizeDouble(community.featureWeights[key] ?: 1.0, 1.0)
-            blended[key] = (local * localRatio) + (comm * communityRatio)
-        }
-
-        return blended
+        val community = applicableCache8527(System.currentTimeMillis()) ?: return localWeights
+        return AdaptiveWeightTransfer8527.communityBlend8527(
+            localWeights, community.adaptive8527, AdaptiveLearningEngine.getTradeCount())
     }
 
     fun getCommunityPatternMultiplier(patternName: String): Double {

@@ -30,10 +30,10 @@ class Aate7835ProducerWiringTest {
 
     @Test fun V3_evaluates_FDG_before_authorization_and_consumes_its_returned_intent() {
         val code = src("engine/BotService.kt")
-        val block = code.substringAfter("val v3Fdg6533 = FinalDecisionGate.evaluate(").substringBefore("val v3AttemptId =")
+        val block = code.substringAfter("val coreFdg8527 = FdgOutcomeContinuity8197.evaluate(").substringBefore("TradeLifecycle.recordProposal(ts.mint)")
         assertTrue(block.contains("TradeAuthorizer.authorize("))
-        assertTrue(block.contains("fdgDecision7835 = v3Fdg6533"))
-        assertTrue(block.contains("val v3Intent6533 = authResult.executionIntent7835"))
+        assertTrue(block.contains("fdgDecision7835 = coreFdg8527"))
+        assertTrue(block.contains("val intent = auth.executionIntent7835"))
         assertFalse(block.contains("recordFdgAndGetIntent6533("))
     }
 

@@ -225,7 +225,7 @@ object TokenMetricStageRouter {
 
     fun preferredPrimaryLane(ts: TokenState, fallback: String): String {
         val lane = preferredPrimaryLaneByStage(ts, fallback)
-        return try { evidenceReroute7940(lane, snapshot(ts).stage) } catch (_: Throwable) { lane }
+        return try { evidenceReroute7940(lane, snapshot(ts).stage, ts) } catch (_: Throwable) { lane }
     }
 
     /**
@@ -236,9 +236,13 @@ object TokenMetricStageRouter {
      * mean - se > 0), the token goes to the paying lane. 5.0.7937: FRESH_LAUNCH went
      * to MOONSHOT (labels n=251 -8.2%) while EXPRESS read n=85 +12.7% run 14%.
      */
-    private fun evidenceReroute7940(lane: String, stage: Stage): String {
-        val stats = LANE_STAGE_SHEET_7928[stage].orEmpty().filter { it !in TRUNK_LANES_7940 }
-            .associateWith { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.laneStatFor7737(it) }
+    private fun evidenceReroute7940(lane: String, stage: Stage, ts: TokenState): String {
+        // The evidence reroute must not reintroduce an age/phase-ineligible sniper after the stage owner rejected it.
+        val launch = if (stage == Stage.FRESH_LAUNCH || stage == Stage.BASE_START)
+            try { com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts) } catch (_: Throwable) { null } else null
+        val stats = evidenceAlternativeLanes8527(
+            stage, launch?.takeIf { it.birthResolved }?.ageMs, launch?.lifecycle8136?.stage,
+        ).associateWith { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.laneStatFor7737(it) }
         val own = stats[lane.uppercase()] ?: com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.laneStatFor7737(lane.uppercase())
         val to = rerouteTarget7940(lane.uppercase(), own, stats)
         if (to != lane.uppercase()) try { PipelineHealthCollector.labelInc("LANE_REROUTED_BY_EVIDENCE_7940_${lane.uppercase()}_TO_$to") } catch (_: Throwable) {}
@@ -328,36 +332,72 @@ object TokenMetricStageRouter {
             return owner
         }
         return when (s.stage) {
-            Stage.FRESH_LAUNCH -> {
-                // V5.0.7401 — ownership follows launch timing, not chart maturity.
-                // IGNITION belongs to the sniper/runner desks before the crowd;
-                // once it is merely EXPANDING, prefer MOONSHOT only when demand
-                // is still strong. POST_PUMP_FADE never reaches FRESH_LAUNCH.
-                val lp = try { com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts) } catch (_: Throwable) { null }
-                when {
-                    lp?.phase == com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.IGNITION -> "PROJECT_SNIPER"
-                    lp?.phase == com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.PRE_IGNITION &&
-                        s.liquidityUsd >= 1_500.0 -> "PROJECT_SNIPER"
-                    lp?.phase == com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.EXPANDING &&
-                        s.liquidityUsd >= 5_000.0 && s.buyPressurePct >= 56.0 -> "MOONSHOT"
-                    s.liquidityUsd >= 2_500.0 -> "PROJECT_SNIPER"
-                    s.liquidityUsd >= 1_500.0 -> "EXPRESS"
-                    else -> "SHITCOIN"
-                }
-            }
-            // V5.0.8473 — a base past the launch window (or of unread age) is a re-accumulation: the sniper's window is gone;
-            // a small cap stays with SHITCOIN, a grown one goes to MOONSHOT (the next leg is its play).
-            Stage.BASE_START -> when {
-                s.ageMin.isFinite() && s.ageMin <= 12.0 ->
-                    if (s.liquidityUsd >= 8_000.0 && s.buyPressurePct >= 58.0) "PROJECT_SNIPER" else "SHITCOIN"
-                s.marketCapUsd >= 150_000.0 -> "MOONSHOT"
-                else -> "SHITCOIN"
+            Stage.FRESH_LAUNCH, Stage.BASE_START -> {
+                val launch = try { com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts) } catch (_: Throwable) { null }
+                launchStageOwner8527(
+                    s.stage, s.ageMin, s.liquidityUsd, s.buyPressurePct, s.marketCapUsd,
+                    launch?.takeIf { it.birthResolved }?.ageMs, launch?.phase, launch?.lifecycle8136?.stage,
+                ) ?: fallback.uppercase().ifBlank { "STANDARD" }
             }
             Stage.MID_ACCUMULATION -> if (s.liquidityUsd >= 20_000.0) "BLUECHIP" else "QUALITY"
             Stage.CONTROLLED_MARKUP -> "MOONSHOT"
             Stage.DUMPING -> "DIP_HUNTER"
             Stage.PEAK_EXHAUSTION, Stage.RUG_PRONE -> "QUALITY" // observation/defensive owner; laneFit blocks live buy exposure
             Stage.NO_SETUP, Stage.UNKNOWN -> fallback.uppercase().ifBlank { "STANDARD" }
+        }
+    }
+
+    /**
+     * V5.0.8527 — stage routing is advisory but must respect the sniper's real clock and ordered lifecycle.
+     * A 3–12 minute chart base is not a fresh launch. A legacy IGNITION read cannot rewind a launch which
+     * has already reached EXPANDING/MIGRATION/CONTINUATION. Unknown birth/phase stays unknown; this does
+     * not replace the native sniper's setup, swap-evidence, liquidity or physical-safety checks.
+     */
+    internal fun sniperTimingFits8527(
+        launchAgeMs: Long?,
+        orderedStage: com.lifecyclebot.engine.truth.LaunchLifecycle8136.Stage8136?,
+    ): Boolean = launchAgeMs != null &&
+        launchAgeMs in 0L..com.lifecyclebot.engine.truth.LaunchLifecycle8136.LAUNCH_WINDOW_MS &&
+        (orderedStage == com.lifecyclebot.engine.truth.LaunchLifecycle8136.Stage8136.PRE_IGNITION ||
+            orderedStage == com.lifecyclebot.engine.truth.LaunchLifecycle8136.Stage8136.IGNITION)
+
+    internal fun evidenceAlternativeLanes8527(
+        stage: Stage,
+        launchAgeMs: Long?,
+        orderedStage: com.lifecyclebot.engine.truth.LaunchLifecycle8136.Stage8136?,
+    ): Set<String> = LANE_STAGE_SHEET_7928[stage].orEmpty().filterTo(linkedSetOf()) {
+        it !in TRUNK_LANES_7940 && (it != "PROJECT_SNIPER" || sniperTimingFits8527(launchAgeMs, orderedStage))
+    }
+
+    internal fun launchStageOwner8527(
+        stage: Stage,
+        ageMin: Double,
+        liquidityUsd: Double,
+        buyPressurePct: Double,
+        marketCapUsd: Double,
+        launchAgeMs: Long?,
+        legacyPhase: com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase?,
+        orderedStage: com.lifecyclebot.engine.truth.LaunchLifecycle8136.Stage8136?,
+    ): String? {
+        val sniperWindow = sniperTimingFits8527(launchAgeMs, orderedStage)
+        return when (stage) {
+            Stage.FRESH_LAUNCH -> when {
+                sniperWindow && legacyPhase == com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.IGNITION -> "PROJECT_SNIPER"
+                sniperWindow && legacyPhase == com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.PRE_IGNITION &&
+                    liquidityUsd >= 1_500.0 -> "PROJECT_SNIPER"
+                legacyPhase == com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.EXPANDING &&
+                    liquidityUsd >= 5_000.0 && buyPressurePct >= 56.0 -> "MOONSHOT"
+                sniperWindow && liquidityUsd >= 2_500.0 -> "PROJECT_SNIPER"
+                liquidityUsd >= 1_500.0 -> "EXPRESS"
+                else -> "SHITCOIN"
+            }
+            Stage.BASE_START -> when {
+                ageMin.isFinite() && ageMin in 0.0..12.0 ->
+                    if (sniperWindow && liquidityUsd >= 8_000.0 && buyPressurePct >= 58.0) "PROJECT_SNIPER" else "SHITCOIN"
+                marketCapUsd >= 150_000.0 -> "MOONSHOT"
+                else -> "SHITCOIN"
+            }
+            else -> null
         }
     }
 

@@ -1,14 +1,12 @@
 package com.lifecyclebot.engine
 
-/** Standalone runner-lane service adapter; production exits are not tested. */
-object RunnerExitProfile7277 {
-    private val runnerKeys = arrayOf(
-        "MOONSHOT", "SHITCOIN", "MEME", "EXPRESS", "MANIPULATED", "MANIP",
-        "PRESALE", "PROJECT_SNIPER", "DIP_HUNTER", "INSIDER_SHARK", "COPY_TRADE",
-        "WHALE_FOLLOW", "CORE",
-    )
-    fun isRunnerLane(lane: String?): Boolean =
-        lane?.trim()?.uppercase()?.let { value -> runnerKeys.any { value.contains(it) } } ?: false
+/** Exit orchestration is outside this pure-model harness; accidental calls fail instead of granting authority. */
+object LifecycleHold8065 {
+    fun lifecycleLane8065(lane: String): Boolean = error("Pure Cortex tests must not decide lifecycle exit ownership")
+}
+object RunnerTrail8419 {
+    fun runnerLaneAt8468(mode: String, owner: String, peakPct: Double): Boolean =
+        error("Pure Cortex tests must not decide a live position's runner exit contract")
 }
 
 /** Only the desk vocabulary; no service snapshot, admission or execution path. */

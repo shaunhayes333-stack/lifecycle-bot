@@ -112,11 +112,12 @@ object DipHunterAI {
     
     @Volatile var isPaperMode: Boolean = true
     
-    private val dailyPnlSolBps = AtomicLong(0)
+    private const val SOL_LAMPORTS_8527 = 1_000_000_000.0
+    private val dailyPnlLamports8527 = AtomicLong(0)
     private val dailyHunts = AtomicInteger(0)
     private val dailyWins = AtomicInteger(0)
     private val dailyLosses = AtomicInteger(0)
-    private val dipBalanceBps = AtomicLong(100)  // 1 SOL start
+    private val dipBalanceLamports8527 = AtomicLong(1_000_000_000L)  // 1 SOL start
     
     private val activeDips = ConcurrentHashMap<String, DipPosition>()
     
@@ -215,7 +216,7 @@ object DipHunterAI {
     }
     
     fun resetDaily() {
-        dailyPnlSolBps.set(0)
+        dailyPnlLamports8527.set(0)
         dailyHunts.set(0)
         dailyWins.set(0)
         dailyLosses.set(0)
@@ -268,7 +269,7 @@ object DipHunterAI {
         // hard lane amputation. Global SecurityGuard/KillSwitch still owns true
         // catastrophic drawdown. This preserves sample flow + daily compounding
         // opportunities while shrinking the lane after local bleed.
-        val dailyPnl = dailyPnlSolBps.get() / 100.0
+        val dailyPnl = dailyPnlLamports8527.get() / SOL_LAMPORTS_8527
         val dailyLossRecoveryProbe = dailyPnl <= -DAILY_MAX_LOSS_SOL
         if (dailyLossRecoveryProbe) {
             ErrorLogger.warn(TAG, "📉🎯 DIP_DAILY_LOSS_RECOVERY_PROBE_4222: pnl=${dailyPnl.fmt(3)}◎ cap=${DAILY_MAX_LOSS_SOL.fmt(3)}◎ — size×0.35")
@@ -643,7 +644,13 @@ object DipHunterAI {
     fun checkExit(mint: String, currentPrice: Double, currentLiquidity: Double): DipExitSignal {
         val pos = synchronized(activeDips) { activeDips[mint] } ?: return DipExitSignal.HOLD
         
-        val pnlPct = com.lifecyclebot.engine.OpenPnlSanity.inspect(pos.entryPrice, currentPrice, context = "DipHunterAI_6038/${mint.take(8)}", emit = true).takeIf { it.ok }?.pnlPct ?: 0.0
+        // A known positive liquidity collapse is independent of a missing/invalid price.
+        val liquidityCollapse8527 = currentLiquidity.isFinite() && currentLiquidity > 0.0 &&
+            pos.entryLiquidity.isFinite() && pos.entryLiquidity > 0.0 && currentLiquidity < pos.entryLiquidity * 0.5
+        val mark8527 = com.lifecyclebot.engine.OpenPnlSanity.inspect(pos.entryPrice, currentPrice,
+            context = "DipHunterAI_6038/${mint.take(8)}", emit = true)
+        if (!mark8527.ok) return if (liquidityCollapse8527) DipExitSignal.DEATH_SPIRAL else DipExitSignal.HOLD
+        val pnlPct = mark8527.pnlPct
         val holdHours = (System.currentTimeMillis() - pos.entryTime) / (60 * 60 * 1000.0)
         
         // Track best recovery
@@ -658,12 +665,12 @@ object DipHunterAI {
         // V5.0.7389 — sliding locks arm from the start (lane doctrine): the shared
         // give-back lock and the fluid profit floor (+10% peak locks ~+7%) ratchet
         // with the recovery peak, before and after the target half is banked.
-        if (com.lifecyclebot.engine.PeakDrawdownLock.shouldLock(pos.recoveryHighPct, pnlPct)) {
+        if (com.lifecyclebot.engine.PeakDrawdownLock.shouldLock(pos.recoveryHighPct, pnlPct, "DIP_HUNTER")) {
             ErrorLogger.info(TAG, "📉🔒 RECOVERY LOCK! $mint | peak=${pos.recoveryHighPct.fmt(1)}% now=${pnlPct.fmt(1)}%")
             return DipExitSignal.RECOVERY_TARGET
         }
         val dipHoldSec7389 = (System.currentTimeMillis() - pos.entryTime) / 1000.0
-        val dipProfitFloor7389 = FluidLearningAI.fluidProfitFloor(pos.recoveryHighPct, holdSeconds = dipHoldSec7389)
+        val dipProfitFloor7389 = FluidLearningAI.fluidProfitFloor(pos.recoveryHighPct, holdSeconds = dipHoldSec7389, lane = "DIP_HUNTER")
         if (pnlPct < dipProfitFloor7389) {
             ErrorLogger.info(TAG, "📉🔒 RECOVERY FLOOR! $mint | peak=${pos.recoveryHighPct.fmt(1)}% now=${pnlPct.fmt(1)}% < +${dipProfitFloor7389.toInt()}%")
             return DipExitSignal.RECOVERY_TARGET
@@ -682,7 +689,7 @@ object DipHunterAI {
         // 2. TARGET RECOVERY - FLUID. V5.0.7389 — banks half and lets the
         // other half ride toward the pre-dip high instead of closing the lot.
         if (!pos.recoveryBanked && pnlPct >= targetRecovery) {
-            pos.recoveryBanked = true
+            // The canonical receipt, not the proposal, marks this recovery as banked.
             ErrorLogger.info(TAG, "📉✅ TARGET HIT! $mint | +${pnlPct.fmt(1)}% (fluid target: ${targetRecovery.toInt()}%) — banking half")
             return DipExitSignal.PARTIAL_TAKE
         }
@@ -702,7 +709,7 @@ object DipHunterAI {
         }
         
         // 4. DEATH SPIRAL - Liquidity collapsing
-        if (currentLiquidity < pos.entryLiquidity * 0.5) {
+        if (liquidityCollapse8527) {
             ErrorLogger.info(TAG, "📉💀 DEATH SPIRAL! $mint | liq dropped 50%+")
             return DipExitSignal.DEATH_SPIRAL
         }
@@ -723,34 +730,35 @@ object DipHunterAI {
         return DipExitSignal.HOLD
     }
     
-    fun closeDip(mint: String, exitPrice: Double, exitSignal: DipExitSignal) {
-        val pos = synchronized(activeDips) { activeDips.remove(mint) } ?: return
+    fun closeDip(mint: String, exitPrice: Double, exitSignal: DipExitSignal,
+                 canonicalSlice8527: com.lifecyclebot.engine.truth.CanonicalPartialReceipt8527? = null) {
+        val pos = synchronized(activeDips) { activeDips[mint] } ?: return
+        if (!com.lifecyclebot.engine.SpecialistCloseProjection7858.mayClose(mint, pos.isPaper, pos.entryTime)) return
+        if (!activeDips.remove(mint, pos)) return
         
-        val pnlPct = (exitPrice - pos.entryPrice) / pos.entryPrice * 100
-        // V5.0.7389 — after a recovery partial only the remainder is booked here.
-        val pnlSol = pos.entrySol * pos.remainingFrac * pnlPct / 100
+        val settled8527 = canonicalSlice8527?.takeIf { receipt ->
+            receipt.terminal && receipt.mint == mint && receipt.mode == (if (pos.isPaper) "paper" else "live")
+        }?.takeIf { receipt ->
+            val row = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(receipt.positionId)
+            row != null && receipt.belongsToHistory8527(row) && receipt.openedAtMs >= pos.entryTime
+        }
+        val whole8527 = settled8527?.let { receipt ->
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(receipt.positionId)
+                ?.let { com.lifecyclebot.engine.truth.WholePositionEconomics7835.from(it) }
+        }
+        // Final-slice cash and whole-position classification are distinct: a losing tail may finish a winning lot.
+        val pnlPct = whole8527?.returnPct ?: ((exitPrice - pos.entryPrice) / pos.entryPrice * 100)
+        // Earlier actual partial net was already banked. Add only this final canonical slice, not the whole lot again.
+        val pnlSol = settled8527?.realizedPnlSol ?: (pos.entrySol * pos.remainingFrac * pnlPct / 100)
         try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(pos.mint, pos.symbol, "DIP_HUNTER", "DIP_CLOSE", pnlPct.toInt().coerceIn(-100, 100), "exit_${exitSignal.name}_pnl_${pnlPct.fmt(2)}") } catch (_: Throwable) {}
         
-        // Record P&L
-        // V5.0.6828 §PNL_LEDGER_TRUNCATED_TO_ZERO — toLong() truncates toward zero, and
-        // this ledger's granularity is 0.01 SOL, so every |pnlSol| < 0.01 recorded as
-        // EXACTLY 0 and everything else was understated. DipHunter's own sizing makes
-        // that the modal case: BASE_POSITION_SOL 0.05 x (0.6 + conf/100 x 0.8) x
-        // dipQuality.sizeMult, so a RISKY_DIP at conf 30 is ~0.034 SOL and its -15% hard
-        // stop is -0.005 SOL -> (-0.504).toLong() == 0. The daily loss cap that :101
-        // calls "CRITICAL for bootstrap protection" therefore never tripped, and the
-        // positionSol *= 0.35 recovery probe never engaged, no matter how many stops hit.
-        // Rounding instead of truncating makes the residual error zero-mean so the cap
-        // accumulates. The *100 scale and every /100.0 reader are left alone on purpose:
-        // these values are persisted (save/restore at :772/:783), so re-scaling would
-        // need a state migration.
-        val pnlBps = Math.round(pnlSol * 100)
-        dailyPnlSolBps.addAndGet(pnlBps)
+        // Lamport precision: ordinary 0.001 SOL slices must not disappear at a 0.01 SOL rounding boundary.
+        dailyPnlLamports8527.addAndGet(Math.round(pnlSol * SOL_LAMPORTS_8527))
 
         // V5.9.328: Use pnlPct>=1.0 for win tracking (unified threshold)
         if (pnlPct >= 1.0) {
             dailyWins.incrementAndGet()
-            dipBalanceBps.addAndGet(Math.round(pnlSol * 40))  // 40% compound
+            dipBalanceLamports8527.addAndGet(Math.round(pnlSol * 0.40 * SOL_LAMPORTS_8527))  // 40% compound
         } else {
             dailyLosses.incrementAndGet()
         }
@@ -814,22 +822,26 @@ object DipHunterAI {
      * V5.0.7389 — the recovery partial filled: book the banked slice's P&L into the
      * lane's daily ledger now and shrink what closeDip will book for the remainder.
      */
-    fun onRecoveryPartial(mint: String, price: Double, frac: Double) {
-        val pos = synchronized(activeDips) { activeDips[mint] } ?: return
-        if (pos.entryPrice <= 0.0 || price <= 0.0) return
-        val slice = (pos.remainingFrac * frac.coerceIn(0.0, 1.0))
-        val pnlSol = pos.entrySol * slice * ((price - pos.entryPrice) / pos.entryPrice)
-        dailyPnlSolBps.addAndGet(Math.round(pnlSol * 100))
-        if (pnlSol > 0.0) dipBalanceBps.addAndGet(Math.round(pnlSol * 40))
-        pos.remainingFrac = (pos.remainingFrac - slice).coerceAtLeast(0.0)
+    /** V5.0.8527 — capture the native generation before execution; project only the applied canonical slice. */
+    fun partialProjection8527(ts: com.lifecyclebot.data.TokenState):
+        (com.lifecyclebot.engine.truth.CanonicalPartialReceipt8527?) -> Boolean {
+        return com.lifecyclebot.engine.truth.NativePartialProjection8527.capture8527(
+            activeDips, ts, { it.isPaper }, { pos, receipt ->
+                // entrySol stays the original basis; closeDip multiplies it by remainingFrac.
+                pos.copy(remainingFrac = if (pos.entrySol > 0.0) receipt.remainingCostSol / pos.entrySol else 0.0,
+                    recoveryBanked = true)
+            },
+            applied = { _, _, receipt ->
+                dailyPnlLamports8527.addAndGet(Math.round(receipt.realizedPnlSol * SOL_LAMPORTS_8527))
+                if (receipt.realizedPnlSol > 0.0) dipBalanceLamports8527.addAndGet(Math.round(receipt.realizedPnlSol * 0.40 * SOL_LAMPORTS_8527))
+            },
+        )
     }
 
-    /** V5.0.7389 — the recovery partial did not apply; re-arm the target. */
-    fun unbankRecovery(mint: String) {
-        synchronized(activeDips) { activeDips[mint] }?.recoveryBanked = false
-    }
+
+
     
-    fun getDailyPnlSol(): Double = dailyPnlSolBps.get() / 100.0
+    fun getDailyPnlSol(): Double = dailyPnlLamports8527.get() / SOL_LAMPORTS_8527
     
     data class DipStats(
         val dailyHunts: Int,
@@ -846,7 +858,7 @@ object DipHunterAI {
             dailyHunts = dailyHunts.get(),
             dailyWins = dailyWins.get(),
             dailyLosses = dailyLosses.get(),
-            dailyPnlSol = dailyPnlSolBps.get() / 100.0,
+            dailyPnlSol = dailyPnlLamports8527.get() / SOL_LAMPORTS_8527,
             activeDips = activeDips.size,
             winRate = if (totalTrades > 0) dailyWins.get().toDouble() / totalTrades * 100 else 0.0,
         )
@@ -859,25 +871,32 @@ object DipHunterAI {
     private fun Double.fmt(decimals: Int): String = String.format("%.${decimals}f", this)
     private fun Double.fmtPrice(): String = if (this < 0.01) String.format("%.8f", this) else String.format("%.6f", this)
 
-    // V5.9.985 — PERSISTENCE (was AMNESIA — Doctrine #25)
+    // V5.9.985 persistence; 8527 explicitly migrates old centi-SOL counters to lamports.
     fun exportState(): String = try {
         val o = org.json.JSONObject()
-        o.put("dailyPnlSolBps",  dailyPnlSolBps.get())
-        o.put("dailyHunts",      dailyHunts.get())
-        o.put("dailyWins",       dailyWins.get())
-        o.put("dailyLosses",     dailyLosses.get())
-        o.put("dipBalanceBps",   dipBalanceBps.get())
+        o.put("dailyPnlLamports8527", dailyPnlLamports8527.get())
+        o.put("dipBalanceLamports8527", dipBalanceLamports8527.get())
+        // Rounded compatibility fields are export-only; a new reader always prefers the exact units above.
+        o.put("dailyPnlSolBps", Math.round(dailyPnlLamports8527.get() / 10_000_000.0))
+        o.put("dipBalanceBps", Math.round(dipBalanceLamports8527.get() / 10_000_000.0))
+        o.put("dailyHunts", dailyHunts.get())
+        o.put("dailyWins", dailyWins.get())
+        o.put("dailyLosses", dailyLosses.get())
         o.toString()
     } catch (_: Throwable) { "{}" }
 
     fun importState(json: String) {
         try {
             val o = org.json.JSONObject(json)
-            dailyPnlSolBps.set(o.optLong("dailyPnlSolBps", 0L))
+            dailyPnlLamports8527.set(if (o.has("dailyPnlLamports8527"))
+                o.optLong("dailyPnlLamports8527", 0L)
+                else Math.round(o.optLong("dailyPnlSolBps", 0L).toDouble() * 10_000_000.0))
+            dipBalanceLamports8527.set(if (o.has("dipBalanceLamports8527"))
+                o.optLong("dipBalanceLamports8527", 1_000_000_000L)
+                else Math.round(o.optLong("dipBalanceBps", 100L).toDouble() * 10_000_000.0))
             dailyHunts.set(o.optInt("dailyHunts", 0))
             dailyWins.set(o.optInt("dailyWins", 0))
             dailyLosses.set(o.optInt("dailyLosses", 0))
-            dipBalanceBps.set(o.optLong("dipBalanceBps", 100L))
         } catch (_: Throwable) { /* corrupt — start fresh */ }
     }
 }

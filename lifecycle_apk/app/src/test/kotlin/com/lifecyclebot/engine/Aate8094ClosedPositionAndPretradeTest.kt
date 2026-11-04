@@ -523,7 +523,7 @@ class Aate8094ClosedPositionAndPretradeTest {
         // The launch-cap rule stands down only where its own ladder replays are tail-proven.
         assertFalse(com.lifecyclebot.engine.truth.OnChainDepth8038.launchCapStoodDown8094("NO_SUCH_MINT_8094"))
         assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("OnChainDepth8038.standDownIfTailProven8094(ts, lane, nowMs)"))
-        assertTrue(src("engine/truth/TailHunter7996.kt").contains("proven(\"R|\$rule|\$cell\") != null"))
+        assertTrue(src("engine/truth/TailHunter7996.kt").contains("proven(\"R8527|\$rule|\$cell\") != null"))
     }
 
     @Test fun heldMarksCurveTicksAndRentReclaimNameOrRecoverTheirFailures() {
@@ -710,8 +710,15 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(b.doorRetires8105("EXPRESS", false, "CHASE_EXTENDED: mom=1.0% chg5m=34.5%", always))
         val bs = src("engine/BotService.kt")
         assertTrue(bs.contains("var moonshotScore = laneDoor8105(com.lifecyclebot.v3.scoring.MoonshotTraderAI.scoreToken("))
-        assertTrue(bs.contains("val manipSignal = laneDoor8105(com.lifecyclebot.v3.scoring.ManipulatedTraderAI.evaluate("))
-        assertTrue(bs.contains("val expressSignal = laneDoor8105(com.lifecyclebot.v3.scoring.ShitCoinExpress.evaluate("))
+        assertTrue(bs.contains("val manipSignal = laneDoor8105(SpecialistInputParity8527.manipulated8527("))
+        assertTrue(bs.contains("val expressSignal = laneDoor8105(SpecialistInputParity8527.express8527("))
+        val shared = src("engine/SpecialistInputParity8527.kt")
+        assertTrue(shared.substringAfter("fun manipulated8527(").contains("ManipulatedTraderAI.evaluate("))
+        assertTrue(shared.substringAfter("fun express8527(").substringBefore("fun manipulated8527(")
+            .contains("ShitCoinExpress.evaluate("))
+        val preview = src("engine/SpecialistBrainBridge7542.kt")
+        assertTrue(preview.contains("SpecialistInputParity8527.manipulated8527("))
+        assertTrue(preview.contains("SpecialistInputParity8527.express8527("))
         assertTrue(bs.contains("var shitCoinSignal = laneDoor8105(com.lifecyclebot.v3.scoring.ShitCoinTraderAI.evaluate("))
     }
 

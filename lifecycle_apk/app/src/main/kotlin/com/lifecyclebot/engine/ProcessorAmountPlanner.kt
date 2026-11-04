@@ -1,6 +1,8 @@
 package com.lifecyclebot.engine
 
 import com.lifecyclebot.data.TokenState
+import com.lifecyclebot.engine.truth.AssetClass
+import com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441 as Cpa
 import com.lifecyclebot.network.SolanaWallet
 import java.math.BigDecimal
 import java.math.BigInteger
@@ -184,6 +186,29 @@ object ProcessorAmountPlanner {
         return SellPlan(processor, requestedRawLong, requestedUi, walletRawLong, walletUi, decimals)
     }
 
+    /**
+     * V5.0.8527 — quantity authority is distinct from trusted valuation. A funded live quarantine
+     * still owns wallet risk and may size a protective sell, but never becomes OPEN or learns PnL here.
+     * An explicit position id must match exactly; an unbound caller must have one unambiguous owner.
+     * Wallet owner/mint proof, signed-order freshness and min(wallet, canonical) remain downstream.
+     */
+    internal fun canonicalSellPosition8527(ts: TokenState, reason: String): Cpa.Position? {
+        if (ts.mint.isBlank() || ts.position.isPaperPosition) return null
+        val inventory = Cpa.protectiveInventory7807("live").filter {
+            it.mint == ts.mint && it.assetClass == AssetClass.SOLANA_TOKEN &&
+                !Cpa.isCryptoAltTraderOwned8082(it) && it.remainingQtyRaw.signum() > 0
+        }
+        // An older quarantined row may not sell a newer ordinary owner of the same mint.
+        val open = inventory.filter { it.lifecycle != Cpa.Lifecycle.QUARANTINED }
+        val candidates = if (open.isNotEmpty()) open else inventory
+        val canonical = candidates.singleOrNull() ?: return null
+        val positionId = ts.position.positionId.trim()
+        if (positionId.isNotEmpty() && canonical.positionId != positionId) return null
+        if (canonical.lifecycle == Cpa.Lifecycle.QUARANTINED &&
+            !ExitTruthArbiter8144.protective8144(reason) && !ProfitLock8363.profitLock8363(reason)) return null
+        return canonical
+    }
+
     private fun resolveConfirmedSellAmountOrNull(
         ts: TokenState,
         wallet: SolanaWallet,
@@ -261,9 +286,7 @@ object ProcessorAmountPlanner {
         val decimals = entry.decimals
         val walletUi = entry.uiDoubleForDisplay()
         if (walletRaw.signum() <= 0) return null
-        val canonical = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
-            .filter { it.mint == ts.mint && it.mode == "live" }
-            .maxByOrNull { it.lastMutationMs } ?: return null
+        val canonical = canonicalSellPosition8527(ts, reason) ?: return null
         if (canonical.quantityScale != decimals || canonical.remainingQtyRaw.signum() <= 0) {
             try { PipelineHealthCollector.labelInc("SELL_BLOCKED_CANONICAL_DECIMAL_SKEW_6522") } catch (_: Throwable) {}
             return null
@@ -294,9 +317,7 @@ object ProcessorAmountPlanner {
         val c = recovered as? com.lifecyclebot.engine.sell.SellAmountAuthority.Resolution.Confirmed ?: return null
         val walletRaw = if (c.rawAmount.signum() < 0) BigInteger.ZERO else c.rawAmount
         val decimals = c.decimals.coerceAtLeast(0)
-        val canonical = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
-            .filter { it.mint == ts.mint && it.mode == "live" }
-            .maxByOrNull { it.lastMutationMs } ?: return null
+        val canonical = canonicalSellPosition8527(ts, reason) ?: return null
         if (canonical.quantityScale != decimals || canonical.remainingQtyRaw.signum() <= 0) return null
         val availableRaw = canonical.remainingQtyRaw.min(walletRaw)
         val partial8079 = processor.contains("PARTIAL", ignoreCase = true)

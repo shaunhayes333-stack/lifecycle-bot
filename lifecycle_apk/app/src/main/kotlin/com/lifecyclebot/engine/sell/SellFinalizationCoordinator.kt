@@ -34,6 +34,7 @@ object SellFinalizationCoordinator {
         val freshWalletSol: Double,
         val finality: TxMetaSellFinalizer.SellFinalityResult,
         val pendingRetry: Boolean,
+        val canonicalSlice8527: com.lifecyclebot.engine.truth.CanonicalPartialReceipt8527? = null,
     )
 
     /**
@@ -61,6 +62,7 @@ object SellFinalizationCoordinator {
         slippageUsedBps: Int,
         sellSig: String,
         traderTag: String = "MEME",
+        receiptCapture8527: com.lifecyclebot.engine.truth.CanonicalPartialReceipt8527.Capture8527? = null,
     ): Result {
         // (2) chain-meta-driven final state + consumed amount
         val fin = TxMetaSellFinalizer.finalize(
@@ -183,6 +185,7 @@ object SellFinalizationCoordinator {
             pendingRetry = false,
         )
         var canonicalMutationFailed6486 = false
+        val capture8527 = receiptCapture8527 ?: com.lifecyclebot.engine.truth.CanonicalPartialReceipt8527.Capture8527()
         run {
             val res = result6486
             // V5.0.6463 §P1 — PARTIAL-SELL UNIT CORRECTNESS.
@@ -277,6 +280,7 @@ object SellFinalizationCoordinator {
                         lane = com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.resolveExitLane(positionId, traderTag),
                         reason = intent.reason.name,
                         positionId7835 = positionId, sellExecutionId7835 = sellSig,
+                        receiptCapture8527 = capture8527,
                     )
                     if (!positionApplied6486) {
                         com.lifecyclebot.engine.truth.TerminalSellIdempotency6464.releaseFailed7835(idKey, positionId)
@@ -364,7 +368,9 @@ object SellFinalizationCoordinator {
         val assessedFee8391 = com.lifecyclebot.engine.PerformanceFees8391.feeForSignature(sellSig, "live", intent.mint)
         val netResult8391 = if (assessedFee8391 > 0.0) result6486.copy(realizedPnl = RealizedPnLCalculator.calculate(
             intent.entrySolSpent, intent.entryTokenRaw, actualConsumedRaw, sellSolReceived, feesSol + assessedFee8391)) else result6486
-        return if (canonicalMutationFailed6486) netResult8391.copy(pendingRetry = true) else netResult8391
+        if (canonicalMutationFailed6486) return netResult8391.copy(pendingRetry = true)
+        // Return evidence only. Executor completes native terminal bookkeeping before publishing any callback.
+        return netResult8391.copy(canonicalSlice8527 = capture8527.receipt)
     }
 }
 

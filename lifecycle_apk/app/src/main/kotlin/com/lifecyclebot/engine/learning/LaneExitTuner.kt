@@ -1,9 +1,7 @@
 package com.lifecyclebot.engine.learning
 
-import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * V5.9.1379 — LANE EXIT TUNER (closed-loop exit-ladder auto-tuning).
@@ -81,7 +79,7 @@ object LaneExitTuner {
      * LearnedAdmissionAuthority6846's dump denial, or the lab promotion bars.
      *
      * MIN_SAMPLE itself is left at 8 and still governs `closedLoopMature`
-     * below, so the closed-loop-vs-replay-bias authority question is unchanged.
+     * below. The summary-only replay adapter was removed in 8527; this canonical learner is retained.
      */
     private const val MIN_SAMPLE_POOLED_7186 = 3
     private const val SHRINK_K_7186 = 6.0
@@ -127,18 +125,7 @@ object LaneExitTuner {
         @Volatile var slMult = 1.0
     }
 
-    data class ReplayBias(
-        val profile: String,
-        val tpMult: Double,
-        val slMult: Double,
-        val netSol: Double,
-        val n: Int,
-    )
-
     private val lanes = ConcurrentHashMap<String, LaneState>()
-    @Volatile private var replayBiasByLane: Map<String, ReplayBias> = emptyMap()
-    @Volatile private var replayBiasAtMs: Long = 0L
-    private val replayBiasInFlight = AtomicBoolean(false)
 
     private fun canon(lane: String): String {
         // V5.0.7439 — one lane identity authority. The previous substring
@@ -173,92 +160,8 @@ object LaneExitTuner {
         "RECOVERED_", "RESTORED_", "INVENTORY_RECON",
     )
 
-    private fun refreshReplayBiasAsync(reason: String = "close") {
-        val now = System.currentTimeMillis()
-        if (now - replayBiasAtMs < 60_000L && replayBiasByLane.isNotEmpty()) return
-        if (!replayBiasInFlight.compareAndSet(false, true)) return
-        kotlinx.coroutines.GlobalScope.launch(com.lifecyclebot.util.AppDispatchers.sideEffect) {
-            try {
-                val best = com.lifecyclebot.engine.LaneStrategyEvaluator.bestPerLane()
-                replayBiasByLane = best.mapNotNull { (lane, r) ->
-                    val b = when (r.profile) {
-                        "TIGHT_STOP_-5" -> ReplayBias(r.profile, tpMult = 0.92, slMult = 0.70, netSol = r.netSol, n = r.n)
-                        "FLOOR_-15_LETRUN" -> ReplayBias(r.profile, tpMult = 1.10, slMult = 1.00, netSol = r.netSol, n = r.n)
-                        "FLOOR_-15_TRAIL25" -> ReplayBias(r.profile, tpMult = 1.16, slMult = 1.08, netSol = r.netSol, n = r.n)
-                        "EARLY_TP_+30" -> ReplayBias(r.profile, tpMult = 0.78, slMult = 0.85, netSol = r.netSol, n = r.n)
-                        // V5.0.7203 §A_VERDICT_ABOUT_ENTERING_WAS_BEING_SPENT_ON_EXITING.
-                        //
-                        // NO_TRADE is not an exit profile. LaneStrategyEvaluator
-                        // declares it as
-                        //     ExitProfile("NO_TRADE", stopPct = null,
-                        //                 trailFromPeakPct = null,
-                        //                 fullTpPct = null, noTrade = true)
-                        // and prints it as "STOP TRADING (no profile beats
-                        // sitting out)". stopPct is null because the profile
-                        // explicitly declines to recommend a stop. Mapping it to
-                        // slMult = 0.70 invented a stop opinion out of a verdict
-                        // that refused to give one — and applied it to positions
-                        // already open, which is a statement about entry being
-                        // spent on exit.
-                        //
-                        // MEASURED, 5.0.7202: BLUECHIP n=16 W/L=0/16 WR=0.0%
-                        // PnL=-1.0961 SOL, and terminal-by-lane avgPct = -5.0%
-                        // EXACTLY. Not approximately — every single BLUECHIP
-                        // position exits at the same number, because a 30%
-                        // tightened stop sits inside the asset's ordinary
-                        // volatility and harvests it. Largest single loss
-                        // contributor on a book that just went to -0.2005 SOL.
-                        //
-                        // The file already knew. UnifiedExitPolicyHead:227:
-                        //   "the paper-hands pattern seen across BLUECHIP/
-                        //    QUALITY/STANDARD where the STRICT_SL rule was
-                        //    cutting real assets at -5% during normal
-                        //    volatility while MOONSHOT held through and printed"
-                        //
-                        // And it is self-reinforcing: tighter stop -> more small
-                        // losses -> replay concludes NO_TRADE harder -> stop
-                        // tightens again. A lane cannot trade its way out of it.
-                        //
-                        // Returning null drops the lane from replayBiasByLane so
-                        // getTpMult/getSlMult fall through to `?: 1.0` — the
-                        // lane's DESIGNED stop, not a widened one. This removes
-                        // an invented tightening; it does not loosen anything
-                        // past default, and every catastrophic backstop
-                        // (TICK_HARD_FLOOR, CATASTROPHIC_HARD_BACKSTOP_25,
-                        // PROTECTIVE_EXIT_*) is untouched.
-                        //
-                        // NARROW BY CONSTRUCTION: getSlMult only consults the
-                        // replay bias when the closed-loop learner is NOT mature
-                        // (n < MIN_SAMPLE). QUALITY (lifetime=15) and
-                        // PRESALE_SNIPE (lifetime=17) are mature, so replay is
-                        // already ignored for them and they are unaffected. On
-                        // the 7202 snapshot BLUECHIP is the only NO_TRADE lane
-                        // with no closed-loop entry — the one lane that is
-                        // 16-for-16 losing at exactly the tightened stop.
-                        //
-                        // Entry-side suppression of a NO_TRADE lane is unchanged
-                        // and stays where it belongs: LosingPatternMemory's size
-                        // ladder, LaneExpectancyDamper (BLUECHIP x0.46) and the
-                        // brain consensus gate.
-                        "NO_TRADE" -> null
-                        else -> null
-                    }
-                    if (b != null) canon(lane) to b else null
-                }.toMap()
-                replayBiasAtMs = System.currentTimeMillis()
-                try {
-                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                        "LANE_STRATEGY_REPLAY_BIAS_REFRESH_6093",
-                        "reason=$reason lanes=${replayBiasByLane.entries.joinToString(";") { "${it.key}:${it.value.profile}:n=${it.value.n}:net=${"%.3f".format(it.value.netSol)}" }.take(400)}",
-                    )
-                } catch (_: Throwable) {}
-            } catch (_: Throwable) {
-            } finally {
-                replayBiasInFlight.set(false)
-            }
-        }
-    }
-
+    // Summary-only LaneStrategyEvaluator research has no exit authority. Its old asynchronous profile-to-multiplier
+    // adapter is removed; canonical closed-loop outcomes below and source-timed ExitRegret retain their existing roles.
 
     private val STOP_REASONS = listOf(
         "STOP_LOSS", "HARD_FLOOR", "DISTRIBUTION_STOP", "V8_DISTRIBUTION",
@@ -342,7 +245,6 @@ object LaneExitTuner {
                     st.sinceRecalc = 0
                     recompute(st)
                 }
-                refreshReplayBiasAsync("recordClose")
             }
         } catch (_: Throwable) { }
     }
@@ -532,29 +434,18 @@ object LaneExitTuner {
     }
 
     /**
-     * V5.0.6747 §EXIT_TUNER_RESOLVED_AUTHORITY — operator directive:
-     *   > "This should ultimately become one resolved TP/SL policy
-     *   >  per position, rather than two independent multipliers
-     *   >  influencing the same trade."
-     *
-     * The closed-loop learner (LaneExitTuner) and the strategy
-     * replay bias (LaneStrategyReplay) used to multiply together, so
-     * for EXPRESS the two authorities were pushing tpMult 0.72 ×
-     * 1.10 in opposite directions and partially cancelling. Now:
-     *   • If closed-loop is MATURE (n ≥ MIN_SAMPLE): closed-loop is
-     *     authoritative; replay bias is IGNORED.
-     *   • Else (bootstrap): replay bias is authoritative (closed-loop
-     *     result would be neutral 1.0 anyway during bootstrap).
+     * One executable base: the mature, environment-specific canonical closed-loop learner.
+     * Before the existing sample floor, retain the lane's designed base. Unordered MFE/MAE hypotheses cannot
+     * invent fills and supply a bootstrap multiplier. Live source-timed ExitRegret overlays remain unchanged.
      */
     fun getTpMult(lane: String): Double = try {
-        refreshReplayBiasAsync("getTpMult")
         val key = "${com.lifecyclebot.engine.LearningEnvironment7835.mode()}|${canon(lane)}"
         val laneSt = lanes[key]
         val closedLoopMature = laneSt != null && laneSt.window.size >= MIN_SAMPLE
         val base7888 = if (closedLoopMature) {
             laneSt!!.tpMult
         } else {
-            if (com.lifecyclebot.engine.LearningEnvironment7835.mode() == "PAPER") replayBiasByLane[canon(lane)]?.tpMult ?: 1.0 else 1.0
+            1.0
         }
         // V5.0.7888 — in LIVE, profit exits that were followed by the price running on
         // widen the targets (ExitRegret7752.profitMultFor7888), as 7877 did for stops.
@@ -563,7 +454,6 @@ object LaneExitTuner {
     } catch (_: Throwable) { 1.0 }
 
     fun getSlMult(lane: String): Double = try {
-        refreshReplayBiasAsync("getSlMult")
         val mode7877 = com.lifecyclebot.engine.LearningEnvironment7835.mode()
         val key = "$mode7877|${canon(lane)}"
         val laneSt = lanes[key]
@@ -571,7 +461,7 @@ object LaneExitTuner {
         val base = if (closedLoopMature) {
             laneSt!!.slMult
         } else {
-            if (mode7877 == "PAPER") replayBiasByLane[canon(lane)]?.slMult ?: 1.0 else 1.0
+            1.0
         }
         // V5.0.7877 — the closed loop above only sees how a stop exit ended, not
         // what the price did next, so a lane whose stops cut runners (5.0.7876
@@ -596,13 +486,8 @@ object LaneExitTuner {
             }
             append("  Read: tpMult>1 => lane lets winners run further; <1 => banks sooner.\n")
             append("        slMult>1 => wider stop (still clamped to -15%); <1 => tighter.\n")
-            if (replayBiasByLane.isNotEmpty()) {
-                append("  LaneStrategyReplay bias 6093: ")
-                append(replayBiasByLane.entries.sortedBy { it.key }.joinToString(" · ") { (lane, b) ->
-                    "${lane}:${b.profile} tp×=${"%.2f".format(b.tpMult)} sl×=${"%.2f".format(b.slMult)} n=${b.n}"
-                })
-                append('\n')
-            }
+            append("  Summary-only exit-shape research is advisory; it does not set TP/SL.\n")
+
         }
       } catch (_: Throwable) { "" }
     }

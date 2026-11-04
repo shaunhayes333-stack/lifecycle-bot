@@ -2644,11 +2644,9 @@ class Executor(
             val emergency = com.lifecyclebot.engine.sell.StopLatencyWiring8153.emergencyNow8153(ts.mint, exitReason)
             if (!com.lifecyclebot.engine.sell.StopLatencyCore8153.fastPlanEligible8153(emergency, fraction, processor)) return null
             val held = com.lifecyclebot.engine.sell.StopLatencyWiring8153.emergencyHolding8153(wallet, ts.mint) ?: return null
-            val canonical = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
-                .filter { it.mint == ts.mint && it.mode == "live" }
-                .maxByOrNull { it.lastMutationMs }
+            val canonical = ProcessorAmountPlanner.canonicalSellPosition8527(ts, exitReason) ?: return null
             val raw = com.lifecyclebot.engine.sell.StopLatencyCore8153.fullExitRaw8153(
-                held.raw, held.decimals, canonical?.remainingQtyRaw, canonical?.quantityScale,
+                held.raw, held.decimals, canonical.remainingQtyRaw, canonical.quantityScale,
             ) ?: return null
             val plan = ProcessorAmountPlanner.planSellFromConfirmed(
                 ts = ts, processor = processor,
@@ -3582,7 +3580,8 @@ class Executor(
      *  is drifting / reconciler is stalled. 0.05 SOL per operator spec. */
     private val LEDGER_DRIFT_MAX_LIVE_SOL: Double = 0.05
 
-    private fun commitVerifiedLiveSlice7835(ts: TokenState, proof: TradeVerifier.SellResult, reason: String): com.lifecyclebot.engine.sell.SellFinalizationCoordinator.Result? {
+    private fun commitVerifiedLiveSlice7835(ts: TokenState, proof: TradeVerifier.SellResult, reason: String,
+                                               receiptCapture8527: com.lifecyclebot.engine.truth.CanonicalPartialReceipt8527.Capture8527? = null): com.lifecyclebot.engine.sell.SellFinalizationCoordinator.Result? {
         if (proof.outcome != TradeVerifier.Outcome.LANDED || proof.mint != ts.mint ||
             proof.preTokenRaw7835 == null || proof.postTokenRaw7835 == null ||
             proof.preTokenRaw7835.signum() <= 0 || proof.rawTokenConsumed.signum() <= 0 ||
@@ -3612,6 +3611,7 @@ class Executor(
             solReceivedLamports = proof.solReceivedLamports,
             sellSolReceived = proof.solReceivedLamports / 1_000_000_000.0, feesSol = 0.0,
             decimals = proof.decimals, slippageUsedBps = 0, sellSig = proof.sig,
+            receiptCapture8527 = receiptCapture8527,
         )
         if (result.pendingRetry) return null
         val updated = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(position.positionId) ?: return null
@@ -5941,7 +5941,11 @@ class Executor(
             try {
                 if (tradeWithMint.side.equals("SELL", ignoreCase = true) || tradeWithMint.side.equals("PARTIAL_SELL", ignoreCase = true)) {
                     val tradeId = "${tradeWithMint.mint}_${tradeWithMint.ts}"
-                    val isPaperEnv = isPaperRT()
+                    val isPaperEnv = when {
+                        tradeWithMint.mode.equals("paper", true) -> true
+                        tradeWithMint.mode.equals("live", true) -> false
+                        else -> isPaperRT()
+                    }
                     // V5.9.1509 — NET-OF-FEE WIN/LOSS CLASSIFICATION (operator: "see
                     // heaps of win alerts but the gain doesn't represent true gains").
                     // V5.0.3868 — tradeWithMint has already been normalized at the
@@ -5949,26 +5953,20 @@ class Executor(
                     // net edge when fee/net fields exist. Keep classification net-SOL based
                     // so paper/live readiness and canonical outcomes agree.
                     val grossPnl = tradeWithMint.pnlPct
-                    val costBasis = (tradeWithMint.netPnlSol.takeIf { it != 0.0 }?.let { _ ->
-                        // prefer the entry cost actually consumed by this (partial) sell
-                        ts.position.costSol.takeIf { it > 0.0 } ?: tradeWithMint.sol.takeIf { it > 0.0 }
-                    }) ?: (ts.position.costSol.takeIf { it > 0.0 } ?: tradeWithMint.sol)
-                    val netPnlPct = if (!isPaperEnv && tradeWithMint.netPnlSol != 0.0 && costBasis != null && costBasis > 0.0) {
-                        (tradeWithMint.netPnlSol / costBasis) * 100.0
-                    } else grossPnl
+                    val sliceEconomics8527 = com.lifecyclebot.engine.truth.TradeSliceEconomics8527.read(tradeWithMint)
+                    val costBasis = sliceEconomics8527.costBasisSol
+                    val netPnlPct = sliceEconomics8527.returnPct ?: grossPnl
                     // V5.9.1513 — P0 FIX 1 (parity with CanonicalPublishHelper):
                     // classify on REALIZED NET SOL against a fee-aware epsilon, for
                     // BOTH paper and live. The prior paper path fell back to GROSS %
                     // with a ±1.0% band, so a +1.0% gross paper scratch (net-negative
                     // after the ~1.6% round-trip) was booked WIN — inflating paper WR
                     // and poisoning learning. Win must clear the fee floor in SOL.
-                    val classifyCost = costBasis ?: ts.position.costSol.takeIf { it > 0.0 } ?: tradeWithMint.sol
-                    val feeCostSolCls = ((classifyCost ?: 0.0) * 0.016).coerceAtLeast(0.0)
+                    val classifyCost = costBasis ?: tradeWithMint.sol
+                    val feeCostSolCls = (classifyCost * 0.016).coerceAtLeast(0.0)
                     val epsilonSolCls = maxOf(0.0002, feeCostSolCls)
-                    // realized net SOL for this (partial) sell: prefer explicit netPnlSol,
-                    // else derive from gross pnl% on the cost actually consumed.
-                    val realizedNetSol = if (tradeWithMint.netPnlSol != 0.0) tradeWithMint.netPnlSol
-                                         else (netPnlPct / 100.0) * (classifyCost ?: 0.0)
+                    // Slice net SOL is already fee-adjusted; a proven zero stays zero.
+                    val realizedNetSol = sliceEconomics8527.netPnlSol
                     val pnl = netPnlPct
                     val resultEnum = when {
                         realizedNetSol >  epsilonSolCls -> com.lifecyclebot.engine.TradeResult.WIN
@@ -6045,8 +6043,23 @@ class Executor(
                     } catch (_: Throwable) { "" }
                     val (candFeatures, isIncomplete) = com.lifecyclebot.engine.CanonicalFeaturesBuilder
                         .fromTokenState(ts, trade, modeEnum, sourceEnum, envEnum, symVerdict)
-                    val canonicalEntrySizeSol = ts.position.costSol.takeIf { it > 0.0 }
-                    val canonicalRealizedPnlSol = tradeWithMint.netPnlSol.takeIf { it != 0.0 } ?: tradeWithMint.pnlSol
+                    val outcomePositionId8527 = tradeWithMint.positionId.ifBlank {
+                        com.lifecyclebot.engine.TradeOutcomeLedger.positionId(ts, trade)
+                    }
+                    val entrySnapshot8527 = com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.snapshot(outcomePositionId8527)
+                        ?.takeIf { it.positionId == outcomePositionId8527 && it.mint == ts.mint &&
+                            it.mode8090.equals(if (isPaperEnv) "PAPER" else "LIVE", true) }
+                    val entryTime8527 = entrySnapshot8527?.entryTimestampMs?.takeIf { it > 0L }
+                        ?: trade.entryTsMs.takeIf { it > 0L } ?: 0L
+                    val canonicalEntrySizeSol = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
+                        .getPosition(outcomePositionId8527)?.entryCostSol?.takeIf { it.isFinite() && it > 0.0 }
+                        ?: costBasis
+                    val canonicalRealizedPnlSol = sliceEconomics8527.netPnlSol
+                    val frozenFeatures8527 = com.lifecyclebot.engine.truth.AdaptiveEntryWitness8527.canonicalFeatures8527(
+                        entrySnapshot8527, ts.mint, envEnum, entryTime8527)
+                    val validEconomics8527 = tradeWithMint.price.isFinite() && tradeWithMint.price > 0.0 &&
+                        costBasis != null && costBasis > 0.0 && canonicalRealizedPnlSol.isFinite() &&
+                        costBasis + canonicalRealizedPnlSol >= -0.0000001
                     val rich = com.lifecyclebot.engine.CanonicalTradeOutcome(
                         tradeId = tradeId,
                         mint = ts.mint,
@@ -6055,9 +6068,13 @@ class Executor(
                         mode = modeEnum,
                         source = sourceEnum,
                         environment = envEnum,
-                        entryTimeMs = ts.position.entryTime,
+                        entryTimeMs = entryTime8527,
                         exitTimeMs = tradeWithMint.ts,
-                        entryPrice = ts.position.entryPrice,
+                        entryPrice = trade.entryPriceSnapshot.takeIf { it.isFinite() && it > 0.0 }
+                            ?: entrySnapshot8527?.entryPriceUsd?.takeIf { it.isFinite() && it > 0.0 }
+                            ?: com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(outcomePositionId8527)
+                                ?.entryPriceUsd?.takeIf { it.isFinite() && it > 0.0 }
+                            ?: 0.0,
                         exitPrice = tradeWithMint.price,
                         entrySol = canonicalEntrySizeSol,
                         entrySizeSol = canonicalEntrySizeSol,
@@ -6074,17 +6091,17 @@ class Executor(
                         result = resultEnum,
                         executionResult = executionEnum,
                         closeReason = tradeWithMint.reason.ifBlank { null },
-                        featuresAtEntry = features,
+                        featuresAtEntry = features + frozenFeatures8527,
                         candidate = candFeatures,
                         featuresIncomplete = isIncomplete,
                         isPartial = tradeWithMint.side.equals("PARTIAL_SELL", ignoreCase = true),
                         partialIndex = if (tradeWithMint.side.equals("PARTIAL_SELL", true)) tradeWithMint.reason.filter { it.isDigit() }.toIntOrNull() ?: 1 else 0,
-                        parentPositionId = com.lifecyclebot.engine.TradeOutcomeLedger.positionId(ts, trade),
-                        costBasisSol = tradeWithMint.sol.takeIf { it > 0.0 },
-                        proceedsSol = (tradeWithMint.sol + (tradeWithMint.netPnlSol.takeIf { it != 0.0 } ?: tradeWithMint.pnlSol)).coerceAtLeast(0.0),
+                        parentPositionId = outcomePositionId8527,
+                        costBasisSol = costBasis,
+                        proceedsSol = ((costBasis ?: 0.0) + canonicalRealizedPnlSol).coerceAtLeast(0.0),
                         feesSol = trade.feeSol,
-                        isTrainable = tradeWithMint.price > 0.0 && tradeWithMint.sol > 0.0 && (tradeWithMint.sol + (tradeWithMint.netPnlSol.takeIf { it != 0.0 } ?: tradeWithMint.pnlSol)) >= -0.0000001,
-                        invalidReason = if (tradeWithMint.price <= 0.0 || tradeWithMint.sol <= 0.0) "INVALID_ACCOUNTING" else null,
+                        isTrainable = validEconomics8527,
+                        invalidReason = if (validEconomics8527) null else "INVALID_ACCOUNTING",
                         // V5.9.793 — operator audit Item 5: flag BC-sim-only outcomes
                         // so the production WR aggregator can exclude them. A paper
                         // close priced exclusively against a pump.fun bonding-curve
@@ -7475,7 +7492,8 @@ class Executor(
      * keep their residual. Null means no escalation; otherwise the receipt carries the actual full-exit result
      * (which still passes ProfitExitTruth8163 on its own quote). A handled request is not necessarily an applied sale.
      */
-    private fun profitEscalated8189(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double): PartialSellReceipt6566? {
+    private fun profitEscalated8189(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double,
+                                   delivery8527: com.lifecyclebot.engine.truth.CanonicalPartialReceipt8527.Delivery8527? = null): PartialSellReceipt6566? {
         val pos = ts.position
         if (pos.isPaperPosition || !pos.isOpen || reason.startsWith(com.lifecyclebot.engine.sell.ProfitEscalation8189.REASON_PREFIX_8189)) return null
         val full = proceedsSol7029(pos.qtyToken, getActualPrice(ts)) ?: return null
@@ -7489,9 +7507,12 @@ class Executor(
         com.lifecyclebot.engine.sell.ProfitEscalation8189.count8189(v)
         if (v != com.lifecyclebot.engine.sell.ProfitEscalation8189.Verdict8189.ESCALATE_FULL) return null
         try { ForensicLogger.lifecycle("PROFIT_SLICE_ESCALATED_FULL_8189", "mint=${ts.mint.take(10)} symbol=${ts.symbol} slice=${reason.take(48)} fullProceeds=${"%.6f".format(full)} cost=${"%.6f".format(remainingCost)}") } catch (_: Throwable) {}
-        return ProfitEscalationReceipt8397.request8397 {
-            requestSell(ts, com.lifecyclebot.engine.sell.ProfitEscalation8189.reason8189(reason), wallet, walletSol)
+        val capture8527 = com.lifecyclebot.engine.truth.CanonicalPartialReceipt8527.Capture8527(delivery8527)
+        val result8527 = ProfitEscalationReceipt8397.request8397 {
+            requestSell(ts, com.lifecyclebot.engine.sell.ProfitEscalation8189.reason8189(reason), wallet, walletSol,
+                receiptCapture8527 = capture8527)
         }
+        return result8527.copy(canonicalSlice8527 = capture8527.receipt)
     }
 
     private fun executeProfitLockSell(
@@ -13953,7 +13974,7 @@ class Executor(
             entryScore = intent.effectiveEntryScore7256.takeIf { it >= 0 } ?: (ts?.position?.entryScore?.toInt() ?: 0),
             entryLiquiditySol = 0.0,
             entryMarketCapUsd = ts?.lastMcap ?: 0.0,
-            entryTimestampMs = System.currentTimeMillis(),
+            entryTimestampMs = ts?.position?.entryTime ?: 0L,
             entryThresholdSnapshot = policy,
             entryPolicySnapshotId = "${intent.attemptId}:7871", entryTacticVersion = "6568",
             educationScores8491 = com.lifecyclebot.v3.scoring.EducationSubLayerAI.entryScoresJson8491(intent.mint, intent.mode),
@@ -14958,6 +14979,26 @@ class Executor(
         }
     }
 
+    private data class LearningEntryWitness8527(
+        val observedAtMs: Long, val adaptiveJson: String, val ageHours: Double?,
+        val scanner: String, val liquidityUsd: Double?,
+    )
+
+    /** Freeze learning inputs before submission. This read-only capture cannot gate a trade. */
+    private fun captureLearningEntry8527(ts: TokenState): LearningEntryWitness8527 {
+        val entryNow8527 = System.currentTimeMillis()
+        val age = try {
+            com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.peekBirthMs8418(ts.mint, entryNow8527)
+                ?.takeIf { it in 1L..entryNow8527 }?.let { (entryNow8527 - it) / 3_600_000.0 }
+        } catch (_: Throwable) { null }
+        val json = try {
+            com.lifecyclebot.engine.truth.AdaptiveEntryWitness8527.capture(ts, entryNow8527)
+        } catch (_: Throwable) { "" }
+        return LearningEntryWitness8527(entryNow8527, json, age,
+            ts.source.ifBlank { ts.tokenMap.sourceScanner },
+            ts.lastLiquidityUsd.takeIf { it.isFinite() && it > 0.0 })
+    }
+
     private fun buildTradePolicySnapshot(
         ts: TokenState,
         mode: String,
@@ -14968,6 +15009,7 @@ class Executor(
         finalSol: Double,
         reasons: List<String> = emptyList(),
         extra: String = "",
+        learningWitness8527: LearningEntryWitness8527,
     ): String {
         val safeLane = normalizeExecutionLane(lane).ifBlank { "STANDARD" }
         // V5.0.7427 — one canonical strategy identity for PAPER and LIVE.
@@ -14982,8 +15024,9 @@ class Executor(
         val strategySheet7427 = strategyDecision7427?.toolkit?.takeIf { sheetFit8080 }
         val laneSetup8080 = if (sheetFit8080) null else AgenticStyleRouter.sealedSetup8080(ts, null, safeLane)
         val safeStyle = strategyDecision7427?.style?.name ?: style.ifBlank { safeLane }
-        val scannerSource = ts.source.ifBlank { ts.tokenMap.sourceScanner.ifBlank { "UNKNOWN" } }
+        val scannerSource = learningWitness8527.scanner.ifBlank { "UNKNOWN" }
         val source = ts.lastPriceSource.ifBlank { scannerSource }
+        val entryAgeHours8527 = learningWitness8527.ageHours
         val mult = if (plannedSol > 0.0) (finalSol / plannedSol).coerceIn(0.0, 50.0) else 1.0
         val reasonText = reasons.filter { it.isNotBlank() }.joinToString("|").take(240)
         val electedTactic6568 = try { com.lifecyclebot.engine.learning.TacticSwitcher.tacticForToken8050(ts, safeLane, score.toInt()).name } catch (_: Throwable) { "UNKNOWN" }  // V5.0.8050 — the token's shape
@@ -15012,13 +15055,15 @@ class Executor(
             "policyPWin=${policyPWin6568.fmt(3)}",
             "scanner=$scannerSource",
             "source=$source",
+            entryAgeHours8527?.let { "entryAgeHours8527=$it" }.orEmpty(),
+            learningWitness8527.adaptiveJson.takeIf { it.isNotBlank() }?.let { "adaptiveEntry8527=$it" }.orEmpty(),
             "score=${score.fmt(1)}",
             "planned=${plannedSol.fmt(4)}",
             "final=${finalSol.fmt(4)}",
             "sizeMult=${mult.fmt(3)}",
             "styleTp=${ts.styleTpMult.fmt(2)}",
             "styleHold=${ts.styleHoldMult.fmt(2)}",
-            "liq=${ts.lastLiquidityUsd.toInt()}",
+            learningWitness8527.liquidityUsd?.let { "liq=${it.toInt()}" }.orEmpty(),
             "mcap=${ts.lastMcap.toInt()}",
             "reasons=$reasonText",
             extra.take(200),
@@ -15796,7 +15841,7 @@ class Executor(
                     entryScore = score.toInt(),
                     entryLiquiditySol = 0.0,
                     entryMarketCapUsd = ts.lastMcap,
-                    entryTimestampMs = System.currentTimeMillis(),
+                    entryTimestampMs = ts.position.entryTime,
                     entryThresholdSnapshot = paperPolicySnapshot,
                     entryMarketRegime = try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "NORMAL" },
                     entryPolicySnapshotId = "$pid6450:6568", entryTacticVersion = "6568",
@@ -16919,8 +16964,9 @@ class Executor(
         } catch (_: Throwable) { "" }
 
         persistMintEntryMarketSnapshot(ts, entryMarketSnapshot, "paperBuy.authoritative.6663")
+        val paperLearningWitness8527 = captureLearningEntry8527(ts)
         val paperPolicySnapshot = buildTradePolicySnapshot(
-            ts = ts,
+            ts = ts, learningWitness8527 = paperLearningWitness8527,
             mode = "PAPER",
             lane = if (routeIsShadow) "SHADOW_$finalMode" else finalMode,
             style = finalMode,
@@ -18846,6 +18892,7 @@ class Executor(
             return false
         }
         val entryEvidence7863 = LiveEntryEvidence7863.capture(ts, requireNotNull(sealedIntent7835))
+        val liveLearningWitness8527 = captureLearningEntry8527(ts)
         // V5.0.7257 — the authority walk lives in its own verifier-safe method.
         // This call remains before every pending-row, lease, quote and provider
         // side effect, preserving the 7256 pre-lease rejection contract.
@@ -21189,7 +21236,7 @@ class Executor(
             }
 
             val livePolicySnapshot = buildTradePolicySnapshot(
-                ts = ts,
+                ts = ts, learningWitness8527 = liveLearningWitness8527,
                 mode = "LIVE",
                 lane = routedLaneTag,
                 style = routedStyleTag,
@@ -23593,7 +23640,8 @@ class Executor(
         )
     }
 
-    fun requestSell(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double): SellResult {
+    fun requestSell(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double,
+                    receiptCapture8527: com.lifecyclebot.engine.truth.CanonicalPartialReceipt8527.Capture8527? = null): SellResult {
         if (baseQuoteSellRefused8096(ts.mint, reason)) return SellResult.FAILED_FATAL  // V5.0.8096
         // V5.0.7948 — processTokenCycle sells inline on a supervisor worker whose 15 s
         // budget ends in Thread.interrupt (runInterruptible). A live sell past that budget
@@ -23601,9 +23649,9 @@ class Executor(
         // worker timeouts, 285 sell redispatches). On those threads the sell now runs on
         // its own pool; CloseLease and the sell locks still single-flight it per mint.
         if (com.lifecyclebot.engine.sell.ExitDispatchLatency7948.runsOffCallerThread(Thread.currentThread().name)) {
-            return requestSellOffSupervisor7948(ts, reason, wallet, walletSol)
+            return requestSellOffSupervisor7948(ts, reason, wallet, walletSol, receiptCapture8527)
         }
-        return requestSellCore7948(ts, reason, wallet, walletSol)
+        return requestSellCore7948(ts, reason, wallet, walletSol, receiptCapture8527)
     }
 
     /**
@@ -23626,13 +23674,14 @@ class Executor(
      * callers already treat that as "retry next tick", and the next tick sees the settled
      * position (ALREADY_CLOSED) — while the sell itself finishes, verifies and books normally.
      */
-    private fun requestSellOffSupervisor7948(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double): SellResult {
+    private fun requestSellOffSupervisor7948(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double,
+                                             receiptCapture8527: com.lifecyclebot.engine.truth.CanonicalPartialReceipt8527.Capture8527? = null): SellResult {
         val future7948 = try {
             com.lifecyclebot.engine.sell.ExitDispatchLatency7948.supervisorSellExecutor.submit(
-                java.util.concurrent.Callable { requestSellCore7948(ts, reason, wallet, walletSol) },
+                java.util.concurrent.Callable { requestSellCore7948(ts, reason, wallet, walletSol, receiptCapture8527) },
             )
         } catch (_: Throwable) {
-            return requestSellCore7948(ts, reason, wallet, walletSol)
+            return requestSellCore7948(ts, reason, wallet, walletSol, receiptCapture8527)
         }
         return try {
             future7948.get(com.lifecyclebot.engine.sell.ExitDispatchLatency7948.SUPERVISOR_SELL_WAIT_MS_7948, java.util.concurrent.TimeUnit.MILLISECONDS)
@@ -23699,7 +23748,8 @@ class Executor(
     /** V5.0.8094 — the exit sweeps retire a canonically closed runtime position before any exit (or veto) reads it. */
     fun retireIfCanonicallyClosed8094(ts: TokenState): Boolean = retireClosedRuntimePosition8094(ts, "EXIT_SWEEP_8094")
 
-    private fun requestSellCore7948(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double): SellResult {
+    private fun requestSellCore7948(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double,
+                                    receiptCapture8527: com.lifecyclebot.engine.truth.CanonicalPartialReceipt8527.Capture8527? = null): SellResult {
         if (retireClosedRuntimePosition8094(ts, reason)) return SellResult.ALREADY_CLOSED
         // V5.0.8141 — an issuer-frozen live holding is FROZEN_HELD_UNSELLABLE: settled once, no sell routed, the poller owns the thaw.
         if (try { FrozenHeldUnsellableLive8141.refusesSell8141(ts, reason) } catch (_: Throwable) { false }) return SellResult.WAITING_BALANCE_PROOF
@@ -24060,7 +24110,7 @@ class Executor(
             )
             noteEmergencyDispatched7807(ts, canonicalReason, emergencyAttempt7807(ts))
             return try {
-                val r = doSell(ts, canonicalReason, wallet, walletSol)
+                val r = doSell(ts, canonicalReason, wallet, walletSol, receiptCapture8527 = receiptCapture8527)
                 val preRoute8288 = try { com.lifecyclebot.engine.sell.StopFast8288.preRouteWait8288(ts.mint, canonicalReason, r.name) } catch (_: Throwable) { false }  // V5.0.8288
                 if (!preRoute8288) noteEmergencyOutcome7807(ts, canonicalReason, r)
                 if (r != SellResult.SIGNAL_INVALIDATED) com.lifecyclebot.engine.sell.SellRouteSpine8144.onResult8144(ts.mint, r.name)  // V5.0.8144
@@ -24111,7 +24161,7 @@ class Executor(
             }
         }
         try { SellDecisionMatrixReport.recordDoSellHandoff(ts.mint, ts.symbol ?: "?", requestReason, ts.position.isPaperPosition) } catch (_: Throwable) {}
-        return doSell(ts, requestReason, wallet, walletSol)
+        return doSell(ts, requestReason, wallet, walletSol, receiptCapture8527 = receiptCapture8527)
     }
 
     /** A quote-refuted stop never enters provider retry/backoff or escalates slippage. A new stop may re-arm. */
@@ -24153,6 +24203,9 @@ class Executor(
         val terminal: Boolean = false,
         val authorityResult: String = "NOT_APPLIED",
         val operationId: String = "",
+        val confirmedConsumedRaw8527: java.math.BigInteger? = null,
+        val confirmedRemainingRaw8527: java.math.BigInteger? = null,
+        val canonicalSlice8527: com.lifecyclebot.engine.truth.CanonicalPartialReceipt8527? = null,
     )
 
     fun requestPartialSellConfirmed6566(
@@ -24161,10 +24214,18 @@ class Executor(
         reason: String,
         wallet: SolanaWallet?,
         walletBalance: Double,
+        onConfirmedSlice8527: ((com.lifecyclebot.engine.truth.CanonicalPartialReceipt8527?) -> Boolean)? = null,
     ): PartialSellReceipt6566 {
+        val delivery8527 = onConfirmedSlice8527?.let { projection ->
+            com.lifecyclebot.engine.truth.CanonicalPartialReceipt8527.Delivery8527 { projection(it) }
+        }
         var receipt = PartialSellReceipt6566(false)
-        requestPartialSell(ts, sellPercentage, reason, wallet, walletBalance) { receipt = it }
-        return receipt
+        requestPartialSellWithDelivery8527(ts, sellPercentage, reason, wallet, walletBalance, delivery8527) { receipt = it }
+        val slice8527 = receipt.canonicalSlice8527
+        if (!receipt.applied || slice8527 == null) return receipt.copy(applied = false)
+        // Synchronous PAPER uses this publication; async LIVE publishes from its actual finalizer.
+        delivery8527?.deliver8527(slice8527)
+        return receipt.copy(terminal = slice8527.terminal)
     }
 
     /** V5.0.8337 — a spike-capture rung refused at an exit door is counted by the door (SPIKE_REFUSED_8337_<DOOR>). */
@@ -24180,6 +24241,18 @@ class Executor(
         walletBalance: Double,
         receipt6566: ((PartialSellReceipt6566) -> Unit)? = null,
     ) {
+        requestPartialSellWithDelivery8527(ts, sellPercentage, reason, wallet, walletBalance, null, receipt6566)
+    }
+
+    private fun requestPartialSellWithDelivery8527(
+        ts: TokenState,
+        sellPercentage: Double,
+        reason: String, 
+        wallet: SolanaWallet?, 
+        walletBalance: Double,
+        delivery8527: com.lifecyclebot.engine.truth.CanonicalPartialReceipt8527.Delivery8527?,
+        receipt6566: ((PartialSellReceipt6566) -> Unit)? = null,
+    ) {
         // V5.0.8337 — the net-profit and uneconomic doors run BEFORE the share budget (which takes the arbiter ticket), so a
         // refused tranche never holds the position's ticket; they read the requested fraction.
         val requested8337 = sellPercentage.coerceIn(0.0, 1.0)
@@ -24193,7 +24266,7 @@ class Executor(
         // V5.0.8094 — a discretionary profit slice whose net its own exit costs consume is not sent.
         if (partialUneconomic8094(ts, requested8337, reason)) {
             // A requested full exit can still be refused by its quote/route/finality doors. Preserve that result.
-            profitEscalated8189(ts, reason, wallet, walletBalance)?.let { receipt6566?.invoke(it); return }
+            profitEscalated8189(ts, reason, wallet, walletBalance, delivery8527)?.let { receipt6566?.invoke(it); return }
             try { DecisionReasons8031.hold8031(ts, "PARTIAL_EXIT_NET_UNECONOMIC", reason) } catch (_: Throwable) {}
             spikeRefused8337(reason, "UNECONOMIC")
             receipt6566?.invoke(PartialSellReceipt6566(false))
@@ -24524,7 +24597,13 @@ class Executor(
             onNotify("📊 Partial Profit (PAPER)",
                 "${ts.symbol}: sold ${(pct * 100).toInt()}% | PnL ${pnlPct.fmtPctPrecise()} (${profitSol.fmtSignedSol()} SOL)",
                 com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
-            receipt6566?.invoke(PartialSellReceipt6566(true, fullyExited, partial6510.reason, partial6510.operationId))
+            if (partial6510.canonicalSlice8527?.terminal == true)
+                com.lifecyclebot.engine.truth.NativeTerminalClose8527.close8527(partial6510.canonicalSlice8527, currentPrice)
+            receipt6566?.invoke(PartialSellReceipt6566(
+                true, partial6510.postQty.signum() == 0, partial6510.reason, partial6510.operationId,
+                confirmedConsumedRaw8527 = partial6510.soldQty, confirmedRemainingRaw8527 = partial6510.postQty,
+                canonicalSlice8527 = partial6510.canonicalSlice8527,
+            ))
 
         } else {
             // LIVE partial sell - need wallet
@@ -24561,11 +24640,14 @@ class Executor(
             // shortcut silently turned it into a full liquidation.
             if (pct >= 1.0 - 1e-9) {
                 // V5.0.8337 — a full-size "partial" goes through requestSell (not doSell), so requestSellCore7948's basis check runs.
-                val fullResult6566 = requestSell(ts, reason, activeWallet, walletBalance)
+                val capture8527 = com.lifecyclebot.engine.truth.CanonicalPartialReceipt8527.Capture8527(delivery8527)
+                val fullResult6566 = requestSell(ts, reason, activeWallet, walletBalance,
+                    receiptCapture8527 = capture8527)
                 receipt6566?.invoke(PartialSellReceipt6566(
                     applied = fullResult6566 in setOf(SellResult.CONFIRMED, SellResult.PAPER_CONFIRMED, SellResult.ALREADY_CLOSED),
                     terminal = fullResult6566 in setOf(SellResult.CONFIRMED, SellResult.PAPER_CONFIRMED, SellResult.ALREADY_CLOSED),
                     authorityResult = fullResult6566.name,
+                    canonicalSlice8527 = capture8527.receipt,
                 ))
             } else {
                 val lockTradeKeyPre = LiveTradeLogStore.keyFor(ts.mint, ts.position.entryTime)
@@ -24871,7 +24953,8 @@ class Executor(
                     TradeVerifier.endSell(ts.mint)
                     
                     val proof7835 = verifiedSlice7835 ?: return
-                    val settled7835 = commitVerifiedLiveSlice7835(ts, proof7835, reason) ?: return
+                    val partialCompletion8527 = com.lifecyclebot.engine.truth.CanonicalPartialReceipt8527.Capture8527(delivery8527)
+                    val settled7835 = commitVerifiedLiveSlice7835(ts, proof7835, reason, partialCompletion8527) ?: return
                     // Only chain-verified token consumption graduates a spike tier.
                     try { SpikeCapture7943.onConfirmedPartial8081(ts, reason, settled7835.actualConsumedRaw, alreadyCommitted8397 = true) } catch (_: Throwable) {}
                     val solBack = settled7835.solReceived
@@ -24943,7 +25026,15 @@ class Executor(
                     onNotify("💰 Live Partial Sell",
                         "${ts.symbol}: sold ${(pct*100).toInt()}% | PnL ${liveScore.fmtPctPrecise()} (${netPnl.fmtSignedSol()} SOL net)",
                         com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
-                    receipt6566?.invoke(PartialSellReceipt6566(true, false, "LIVE_PARTIAL_CONFIRMED", finalSig))
+                    if (settled7835.canonicalSlice8527?.terminal == true)
+                        com.lifecyclebot.engine.truth.NativeTerminalClose8527.close8527(settled7835.canonicalSlice8527, currentPrice)
+                    partialCompletion8527.publishSettled8527()
+                    receipt6566?.invoke(PartialSellReceipt6566(
+                        true, settled7835.remainingRaw.signum() == 0, "LIVE_PARTIAL_CONFIRMED", finalSig,
+                        confirmedConsumedRaw8527 = settled7835.actualConsumedRaw,
+                        confirmedRemainingRaw8527 = settled7835.remainingRaw,
+                        canonicalSlice8527 = settled7835.canonicalSlice8527,
+                    ))
                         
                 } catch (e: Exception) {
                     // V5.9.474 — classified post-quote forensics for partial-sell catch
@@ -25187,7 +25278,8 @@ class Executor(
                        wallet: SolanaWallet?, walletSol: Double,
                        identity: TradeIdentity? = null,
                        expectedPositionId8521: String? = null,
-                       expectedPaper8521: Boolean? = null): SellResult {
+                       expectedPaper8521: Boolean? = null,
+                       receiptCapture8527: com.lifecyclebot.engine.truth.CanonicalPartialReceipt8527.Capture8527? = null): SellResult {
         if (!selectedPositionMatches8521(ts, expectedPositionId8521, expectedPaper8521)) return SellResult.FAILED_RETRYABLE
         val checked8521 = freshExitDecision8521(ts, reason)
         val reason = checked8521.reason ?: return if (checked8521.quoteRefuted) SellResult.SIGNAL_INVALIDATED else SellResult.FAILED_RETRYABLE
@@ -25342,7 +25434,7 @@ class Executor(
                 if (reconnectedWallet != null) {
                     ErrorLogger.info("Executor", "✅ Wallet reconnected! Proceeding with sell...")
                     onLog("✅ Wallet reconnected - proceeding with ${ts.symbol} sell", tradeId.mint)
-                    return liveSell(ts, reason, reconnectedWallet, reconnectedWallet.getSolBalance(), tradeId)
+                    return liveSell(ts, reason, reconnectedWallet, reconnectedWallet.getSolBalance(), tradeId, receiptCapture8527)
                 }
             } catch (e: Exception) {
                 ErrorLogger.error("Executor", "🚨 Wallet reconnect failed: ${e.message}")
@@ -25398,7 +25490,7 @@ class Executor(
             }
             executionLockStamp7835 = com.lifecyclebot.engine.sell.SellExecutionLocks.acquiredAtMs(ts.mint)
             onLog("💰 Routing to liveSell", tradeId.mint)
-            val result = liveSell(ts, reason, wallet, walletSol, tradeId)
+            val result = liveSell(ts, reason, wallet, walletSol, tradeId, receiptCapture8527)
             // V5.7.7 FIX: Auto-requeue on retryable failure so SL/TP never gets silently dropped
             if (result == SellResult.FAILED_RETRYABLE) {
                 val nonRouteWait = isNonRouteSellWait(ts)
@@ -26957,41 +27049,17 @@ class Executor(
         ))
         
         try {
-            val holdMins = ((System.currentTimeMillis() - ts.position.entryTime) / 60_000.0)
-            val tokenAgeMins = (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
-            val features = AdaptiveLearningEngine.captureFeatures(
-                entryMcapUsd = ts.position.entryLiquidityUsd * 2,
-                tokenAgeMinutes = tokenAgeMins,
-                buyRatioPct = ts.meta.pressScore,
-                volumeUsd = ts.lastLiquidityUsd * ts.meta.volScore / 50.0,
-                liquidityUsd = ts.lastLiquidityUsd,
-                holderCount = ts.history.lastOrNull()?.holderCount ?: 0,
-                topHolderPct = ts.safety.topHolderPct,
-                holderGrowthRate = ts.holderGrowthRate,
-                devWalletPct = 0.0,
-                bondingCurveProgress = 100.0,
-                rugcheckScore = ts.safety.rugcheckScore.toDouble(),
-                emaFanState = ts.meta.emafanAlignment,
-                entryScore = ts.position.entryScore,
-                priceFromAth = if (ts.position.highestPrice > 0) 
-                    ((ts.position.highestPrice - ts.position.entryPrice) / ts.position.entryPrice * 100) else 0.0,
-                pnlPct = pnlP,
-                maxGainPct = if (ts.position.entryPrice > 0) 
-                    ((ts.position.highestPrice - ts.position.entryPrice) / ts.position.entryPrice * 100) else 0.0,
-                maxDrawdownPct = 0.0,
-                timeToPeakMins = holdMins * 0.5,
-                holdTimeMins = holdMins,
-                exitReason = reason,
-                entryPhase = ts.position.entryPhase,
-                stableTradeKey = "${ts.mint}:${ts.position.entryTime}",
-            )
-            AdaptiveLearningEngine.learnPaperTrade7835(features)
+            // ALE is written once by the canonical outcome subscriber using the frozen entry witness.
             
             if (shouldLearnAsWin || shouldLearnAsLoss) {
-                val tokenAgeHours = (System.currentTimeMillis() - ts.addedToWatchlistAt) / 3_600_000.0
+                // Frozen entry witnesses only: watchlist residence and exit liquidity are not token-entry features.
+                val scannerEntry8527 = pos.entryPolicySnapshot
+                val tokenAgeHours = policyField6568(scannerEntry8527, "entryAgeHours8527").toDoubleOrNull()
+                    ?.takeIf { it.isFinite() && it >= 0.0 } ?: Double.NaN
                 ScannerLearning.recordTrade(
-                    source = ts.source.ifEmpty { "UNKNOWN" },
-                    liqUsd = ts.lastLiquidityUsd,
+                    source = policyField6568(scannerEntry8527, "scanner"),
+                    liqUsd = policyField6568(scannerEntry8527, "liq").toDoubleOrNull()
+                        ?.takeIf { it.isFinite() && it > 0.0 } ?: Double.NaN,
                     ageHours = tokenAgeHours,
                     isWin = shouldLearnAsWin
                 )
@@ -27588,10 +27656,11 @@ class Executor(
     // so our own backoff/cool-down can never refuse it (TTP, 5.0.7311).
     private fun liveSell(ts: TokenState, reason: String,
                          wallet: SolanaWallet, walletSol: Double,
-                         identity: TradeIdentity? = null): SellResult {
+                         identity: TradeIdentity? = null,
+                         receiptCapture8527: com.lifecyclebot.engine.truth.CanonicalPartialReceipt8527.Capture8527? = null): SellResult {
         liveSellReservedPid7317.set(null)
         val result = try {
-            com.lifecyclebot.network.ExitHttpScope7314.run { liveSellInScope7314(ts, reason, wallet, walletSol, identity) }
+            com.lifecyclebot.network.ExitHttpScope7314.run { liveSellInScope7314(ts, reason, wallet, walletSol, identity, receiptCapture8527) }
         } finally {
             // V5.0.7317 — settle the reservation this attempt took (only this
             // attempt's; a rejected reserve never sets the pid).
@@ -27692,7 +27761,9 @@ class Executor(
 
     private fun liveSellInScope7314(ts: TokenState, reason: String,
                          wallet: SolanaWallet, walletSol: Double,
-                         identity: TradeIdentity? = null): SellResult {
+                         identity: TradeIdentity? = null,
+                         receiptCapture8527: com.lifecyclebot.engine.truth.CanonicalPartialReceipt8527.Capture8527? = null): SellResult {
+        val nativeCompletion8527 = receiptCapture8527 ?: com.lifecyclebot.engine.truth.CanonicalPartialReceipt8527.Capture8527()
         ExecutionRootCauseTrace.sell("LIVE_SELL_ENTRY", ts, "reason=$reason walletSol=$walletSol posQty=${ts.position.qtyToken} entry=${ts.position.entryPrice} high=${ts.position.highestPrice}")
         // V5.0.6920 — stamp the exit brain on the live terminal path too. The
         // old stamp site rode inside the min-hold and dust-defer checks, so
@@ -28033,7 +28104,7 @@ class Executor(
                     )
                     if (retryIntegrity) {
                         ErrorLogger.info("Executor", "✅ Keypair reloaded successfully, proceeding with sell")
-                        return liveSell(ts, reason, reloadedWallet, reloadedWallet.getSolBalance(), tradeId)
+                        return liveSell(ts, reason, reloadedWallet, reloadedWallet.getSolBalance(), tradeId, receiptCapture8527)
                     }
                 }
             } catch (e: Exception) {
@@ -28514,6 +28585,10 @@ class Executor(
             var jupiterProviderClassFailure7228 = false
             // V5.0.7807 — B4: a funded emergency that already failed once skips the
             // aggregator quote ladder and goes straight to the direct routes.
+            // The same six-second clock must reach every HTTP fallback, not only the next loop iteration.
+            // The scope ends before any route build, simulation, signature, broadcast or finality work.
+            val quoteBudget8527 = com.lifecyclebot.network.ExitQuoteBudget7863.begin(budgetMs = 6_000L)
+            try {
             jupiterLadder7228@ for (slipLevel in if (jupiterCircuitOpen || skipQuoteLadder8009(ts, reason)) emptyList() else slippageLevels) {
                 for (attempt in 1..2) {
                     if (System.nanoTime() >= quoteLadderDeadline7863) break@jupiterLadder7228
@@ -28577,6 +28652,7 @@ class Executor(
                     break
                 }
             }
+            } finally { quoteBudget8527.close() }
             
             // V5.9.72 CRITICAL FIX: If ALL quote attempts failed, KEEP the
             // position open. Previously this force-closed with -100% PnL and
@@ -29698,6 +29774,7 @@ class Executor(
                     slippageUsedBps = 0,
                     sellSig = sig,
                     traderTag = "MEME",
+                    receiptCapture8527 = nativeCompletion8527,
                 )
                 if (finality.pendingRetry) return SellResult.FAILED_RETRYABLE
             } catch (e: Throwable) {
@@ -30126,41 +30203,17 @@ class Executor(
         ))
 
         try {
-            val holdMins = (System.currentTimeMillis() - pos.entryTime) / 60_000.0
-            val tokenAgeMins = (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
-            val features = AdaptiveLearningEngine.captureFeatures(
-                entryMcapUsd = pos.entryLiquidityUsd * 2,
-                tokenAgeMinutes = tokenAgeMins,
-                buyRatioPct = ts.meta.pressScore,
-                volumeUsd = ts.lastLiquidityUsd * ts.meta.volScore / 50.0,
-                liquidityUsd = ts.lastLiquidityUsd,
-                holderCount = ts.history.lastOrNull()?.holderCount ?: 0,
-                topHolderPct = ts.safety.topHolderPct,
-                holderGrowthRate = ts.holderGrowthRate,
-                devWalletPct = 0.0,
-                bondingCurveProgress = 100.0,
-                rugcheckScore = ts.safety.rugcheckScore.toDouble(),
-                emaFanState = ts.meta.emafanAlignment,
-                entryScore = pos.entryScore,
-                priceFromAth = if (pos.highestPrice > 0) 
-                    ((pos.highestPrice - pos.entryPrice) / pos.entryPrice * 100) else 0.0,
-                pnlPct = pnlP,
-                maxGainPct = if (pos.entryPrice > 0) 
-                    ((pos.highestPrice - pos.entryPrice) / pos.entryPrice * 100) else 0.0,
-                maxDrawdownPct = 0.0,
-                timeToPeakMins = holdMins * 0.5,
-                holdTimeMins = holdMins,
-                exitReason = reason,
-                entryPhase = pos.entryPhase,
-                stableTradeKey = "${ts.mint}:${pos.entryTime}",
-            )
-            AdaptiveLearningEngine.learnFromTrade(features, environment = com.lifecyclebot.engine.TradeEnvironment.LIVE)
+            // ALE is written once by the canonical outcome subscriber using the frozen entry witness.
             
             if (shouldLearnAsWin || shouldLearnAsLoss) {
-                val tokenAgeHours2 = (System.currentTimeMillis() - ts.addedToWatchlistAt) / 3_600_000.0
+                // Frozen entry witnesses only: watchlist residence and exit liquidity are not token-entry features.
+                val scannerEntry8527 = pos.entryPolicySnapshot
+                val tokenAgeHours2 = policyField6568(scannerEntry8527, "entryAgeHours8527").toDoubleOrNull()
+                    ?.takeIf { it.isFinite() && it >= 0.0 } ?: Double.NaN
                 ScannerLearning.recordTrade(
-                    source = ts.source.ifEmpty { "UNKNOWN" },
-                    liqUsd = ts.lastLiquidityUsd,
+                    source = policyField6568(scannerEntry8527, "scanner"),
+                    liqUsd = policyField6568(scannerEntry8527, "liq").toDoubleOrNull()
+                        ?.takeIf { it.isFinite() && it > 0.0 } ?: Double.NaN,
                     ageHours = tokenAgeHours2,
                     isWin = shouldLearnAsWin
                 )
@@ -30445,7 +30498,7 @@ class Executor(
             try {
                 val dipEx = if (isWin) com.lifecyclebot.v3.scoring.DipHunterAI.DipExitSignal.RECOVERY_TARGET
                             else com.lifecyclebot.v3.scoring.DipHunterAI.DipExitSignal.STOP_LOSS
-                com.lifecyclebot.v3.scoring.DipHunterAI.closeDip(tradeId.mint, exitPrice, dipEx)
+                com.lifecyclebot.v3.scoring.DipHunterAI.closeDip(tradeId.mint, exitPrice, dipEx, canonicalSlice8527 = nativeCompletion8527.receipt)
             } catch (_: Exception) {}
             try {
                 val snEx = com.lifecyclebot.v3.scoring.ProjectSniperAI.ExitSignal(
@@ -30472,6 +30525,8 @@ class Executor(
         } catch (e: Exception) {
             ErrorLogger.debug("Executor", "Error releasing locks in liveSell: ${e.message}")
         }
+        // The existing native close owners have finished their counters/releases. A late callback cannot erase them first.
+        nativeCompletion8527.publishSettled8527()
         
         try {
             val tradeClassification = when {

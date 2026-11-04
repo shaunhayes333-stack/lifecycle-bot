@@ -44,6 +44,8 @@ object MultiAgentCriticStack {
                 proposal = "${review.strategistNote}\nsummary=${review.summary}\nskeptic=${review.skepticNote}\njudge=${review.judgeNote}",
                 rollbackCondition = rollbackCondition,
                 symbolicChecked = true,
+                // Preserve only a structured explicit action before wrapping it with review prose.
+                sizingAction8527 = AsyncStrategyLab.explicitSizingAction8527(candidateProposal),
             )
         } catch (_: Throwable) { false }
     }

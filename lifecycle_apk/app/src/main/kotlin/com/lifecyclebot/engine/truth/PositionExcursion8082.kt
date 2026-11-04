@@ -23,21 +23,25 @@ object PositionExcursion8082 {
     fun observe(positionId: String, gainPct: Double, source: String, nowMs: Long = System.currentTimeMillis()) {
         if (positionId.isBlank() || !gainPct.isFinite()) return
         if (book.size >= MAX_TRACKED && !book.containsKey(positionId)) return
-        val prev = book[positionId] ?: restore(positionId)
-        val next = if (prev == null) Excursion(gainPct, gainPct, nowMs, nowMs, 1, source) else Excursion(
-            mfePct = maxOf(prev.mfePct, gainPct), maePct = minOf(prev.maePct, gainPct),
-            mfeAtMs = if (gainPct > prev.mfePct) nowMs else prev.mfeAtMs,
-            maeAtMs = if (gainPct < prev.maePct) nowMs else prev.maeAtMs,
-            samples = prev.samples + 1, source = if (gainPct > prev.mfePct) source else prev.source,
-        )
-        book[positionId] = next
-        val extreme = prev == null || next.mfePct != prev.mfePct || next.maePct != prev.maePct
-        if (extreme && nowMs - (lastSaveMs[positionId] ?: 0L) >= SAVE_DEBOUNCE_MS) {
-            lastSaveMs[positionId] = nowMs
-            try {
-                LearningPersistence.save(key(positionId), JSONObject().put("mfe", next.mfePct).put("mae", next.maePct)
-                    .put("mfeAt", next.mfeAtMs).put("maeAt", next.maeAtMs).put("n", next.samples).put("src", next.source).toString())
-            } catch (_: Throwable) {}
+        if (!book.containsKey(positionId)) restore(positionId)
+        // The held supervisor and tick path may accept marks concurrently. A read/max/write
+        // can lose the earlier high (and its source); serialize the accepted excursion per position.
+        book.compute(positionId) { _, prev ->
+            val next = if (prev == null) Excursion(gainPct, gainPct, nowMs, nowMs, 1, source) else Excursion(
+                mfePct = maxOf(prev.mfePct, gainPct), maePct = minOf(prev.maePct, gainPct),
+                mfeAtMs = if (gainPct > prev.mfePct) nowMs else prev.mfeAtMs,
+                maeAtMs = if (gainPct < prev.maePct) nowMs else prev.maeAtMs,
+                samples = prev.samples + 1, source = if (gainPct > prev.mfePct) source else prev.source,
+            )
+            val extreme = prev == null || next.mfePct != prev.mfePct || next.maePct != prev.maePct
+            if (extreme && nowMs - (lastSaveMs[positionId] ?: 0L) >= SAVE_DEBOUNCE_MS) {
+                lastSaveMs[positionId] = nowMs
+                try {
+                    LearningPersistence.save(key(positionId), JSONObject().put("mfe", next.mfePct).put("mae", next.maePct)
+                        .put("mfeAt", next.mfeAtMs).put("maeAt", next.maeAtMs).put("n", next.samples).put("src", next.source).toString())
+                } catch (_: Throwable) {}
+            }
+            next
         }
     }
 
@@ -57,7 +61,8 @@ object PositionExcursion8082 {
         if (raw.isNullOrBlank()) null else JSONObject(raw).let { j ->
             val mfe = j.optDouble("mfe", Double.NaN); val mae = j.optDouble("mae", Double.NaN)
             if (!mfe.isFinite() || !mae.isFinite()) null
-            else Excursion(mfe, mae, j.optLong("mfeAt"), j.optLong("maeAt"), j.optInt("n"), j.optString("src")).also { book[positionId] = it }
+            else Excursion(mfe, mae, j.optLong("mfeAt"), j.optLong("maeAt"), j.optInt("n"), j.optString("src"))
+                .let { restored -> book.putIfAbsent(positionId, restored) ?: restored }
         }
     } catch (_: Throwable) { null }
 

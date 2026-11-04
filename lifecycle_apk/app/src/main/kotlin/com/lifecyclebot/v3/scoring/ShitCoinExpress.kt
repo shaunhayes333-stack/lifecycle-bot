@@ -91,11 +91,11 @@ object ShitCoinExpress {
     
     @Volatile var isPaperMode: Boolean = true
     
-    private val dailyPnlSolBps = AtomicLong(0)
+    private val dailyPnlLamports8527 = AtomicLong(0)
     private val dailyRides = AtomicInteger(0)
     private val dailyWins = AtomicInteger(0)
     private val dailyLosses = AtomicInteger(0)
-    private val expressBalanceBps = AtomicLong(50)  // Start with 0.5 SOL
+    private val expressBalanceLamports8527 = AtomicLong(500_000_000L)  // Start with 0.5 SOL
     
     private val activeRides = ConcurrentHashMap<String, ExpressRide>()
     
@@ -118,17 +118,19 @@ object ShitCoinExpress {
     
     private fun restore() {
         val p = prefs ?: return
-        expressBalanceBps.set(p.getLong("expressBalanceBps", 50))
+        expressBalanceLamports8527.set(p.getLong("expressBalanceLamports8527",
+            legacySolBpsToLamports8527(p.getLong("expressBalanceBps", 50))))
         
         val savedDay = p.getLong("savedDay", 0)
         val currentDay = System.currentTimeMillis() / (24 * 60 * 60 * 1000)
         if (savedDay == currentDay) {
-            dailyPnlSolBps.set(p.getLong("dailyPnlSolBps", 0))
+            dailyPnlLamports8527.set(p.getLong("dailyPnlLamports8527",
+                legacySolBpsToLamports8527(p.getLong("dailyPnlSolBps", 0))))
             dailyRides.set(p.getInt("dailyRides", 0))
             dailyWins.set(p.getInt("dailyWins", 0))
             dailyLosses.set(p.getInt("dailyLosses", 0))
         }
-        ErrorLogger.info(TAG, "🚂 RESTORED: balance=${expressBalanceBps.get()/100.0} | wins=${dailyWins.get()} losses=${dailyLosses.get()}")
+        ErrorLogger.info(TAG, "🚂 RESTORED: balance=${expressBalanceLamports8527.get()/1_000_000_000.0} | wins=${dailyWins.get()} losses=${dailyLosses.get()}")
     }
     
     fun save(force: Boolean = false) {
@@ -138,9 +140,12 @@ object ShitCoinExpress {
         lastSaveTime = now
         
         p.edit().apply {
-            putLong("expressBalanceBps", expressBalanceBps.get())
+            putLong("expressBalanceLamports8527", expressBalanceLamports8527.get())
+            // Preserve legacy keys for downgrade readers; current restores always prefer exact lamports.
+            putLong("expressBalanceBps", Math.round(expressBalanceLamports8527.get() / 10_000_000.0))
             putLong("savedDay", now / (24 * 60 * 60 * 1000))
-            putLong("dailyPnlSolBps", dailyPnlSolBps.get())
+            putLong("dailyPnlLamports8527", dailyPnlLamports8527.get())
+            putLong("dailyPnlSolBps", Math.round(dailyPnlLamports8527.get() / 10_000_000.0))
             putInt("dailyRides", dailyRides.get())
             putInt("dailyWins", dailyWins.get())
             putInt("dailyLosses", dailyLosses.get())
@@ -243,7 +248,7 @@ object ShitCoinExpress {
     }
     
     fun resetDaily() {
-        dailyPnlSolBps.set(0)
+        dailyPnlLamports8527.set(0)
         dailyRides.set(0)
         dailyWins.set(0)
         dailyLosses.set(0)
@@ -284,8 +289,9 @@ object ShitCoinExpress {
         // V5.0.4223 — lane-local daily loss soft-shapes Express into a
         // recovery probe instead of hard-amputing the fastest meme lane. Global
         // SecurityGuard/KillSwitch still owns catastrophic daily drawdown.
-        val dailyPnl = dailyPnlSolBps.get() / 100.0
-        val dailyLossRecoveryProbe = dailyPnl <= -DAILY_MAX_LOSS_SOL
+        val dailyPnl = dailyPnlLamports8527.get() / 1_000_000_000.0
+        val dailyLossSizeMult8527 = dailyLossSizeMultiplier8527(dailyPnl)
+        val dailyLossRecoveryProbe = dailyLossSizeMult8527 < 1.0
         if (dailyLossRecoveryProbe) {
             ErrorLogger.warn(TAG, "💩🚂 EXPRESS_DAILY_LOSS_RECOVERY_PROBE_4223: pnl=${dailyPnl.fmt(2)}◎ cap=${DAILY_MAX_LOSS_SOL.fmt(2)}◎ — size×0.35")
         }
@@ -674,7 +680,7 @@ object ShitCoinExpress {
             }
         } catch (_: Throwable) { /* fail-open */ }
 
-        if (dailyLossRecoveryProbe) positionSol *= 0.35
+        positionSol *= dailyLossSizeMult8527
 
         // Cap at max
         // V5.9.1571 — allow calibration/danger shrink to reach 0.01 probes.
@@ -763,7 +769,10 @@ object ShitCoinExpress {
     fun checkExit(mint: String, currentPrice: Double, currentMomentum: Double): ExitSignal {
         val ride = synchronized(activeRides) { activeRides[mint] } ?: return ExitSignal.HOLD
 
-        val pnlPct = com.lifecyclebot.engine.OpenPnlSanity.inspect(ride.entryPrice, currentPrice, context = "ShitCoinExpress_6038/${ride.symbol}/${mint.take(8)}", emit = true).takeIf { it.ok }?.pnlPct ?: 0.0
+        val mark8527 = com.lifecyclebot.engine.OpenPnlSanity.inspect(ride.entryPrice, currentPrice,
+            context = "ShitCoinExpress_6038/${ride.symbol}/${mint.take(8)}", emit = true)
+        if (!mark8527.ok) return ExitSignal.HOLD
+        val pnlPct = mark8527.pnlPct
         val holdMinutes = (System.currentTimeMillis() - ride.entryTime) / 60_000
 
         // V5.9.696 — Unconditional hard floor (Express). Flash rugs can hit before
@@ -798,13 +807,17 @@ object ShitCoinExpress {
             }
         }
 
+        // A promoted/restored runner cannot keep an older tighter native trail until a new high.
+        ride.trailingStop = com.lifecyclebot.engine.RunnerTrail8419.nativeTrailPrice8527(
+            "EXPRESS", ride.entryPrice, ride.peakPnlPct, ride.trailingStop)
+
         // ─── EXIT CONDITIONS (Priority order) ───
 
         // V5.9.168 — profit-floor ladder. Fires a trailing-stop exit if
         // the runner gives back below its locked-in tier. Biggest wins.
         // V5.9.169 — continuous fluid profit floor (shared engine).
         val _holdSec = (System.currentTimeMillis() - ride.entryTime) / 1000.0  // V5.9.835
-        val profitFloor = com.lifecyclebot.v3.scoring.FluidLearningAI.fluidProfitFloor(ride.peakPnlPct, holdSeconds = _holdSec)
+        val profitFloor = com.lifecyclebot.v3.scoring.FluidLearningAI.fluidProfitFloor(ride.peakPnlPct, holdSeconds = _holdSec, lane = "EXPRESS")
         if (pnlPct < profitFloor) {
             ErrorLogger.info(TAG, "💩🔒 FLOOR LOCK: $mint | peak +${ride.peakPnlPct.toInt()}% → +${pnlPct.toInt()}% < +${profitFloor.toInt()}%")
             return ExitSignal.TRAILING_STOP
@@ -817,9 +830,9 @@ object ShitCoinExpress {
         val rungs = doubleArrayOf(30.0, 50.0, 100.0, 300.0, 1000.0, 3000.0, 10000.0)
         if (ride.partialRungsTaken < rungs.size && pnlPct >= rungs[ride.partialRungsTaken]) {
             val hit = rungs[ride.partialRungsTaken]
-            ride.partialRungsTaken += 1
-            ErrorLogger.info(TAG, "💩💰 LADDER #${ride.partialRungsTaken}: $mint | hit +${hit.toInt()}% (now +${pnlPct.fmt(1)}%)")
-            return when (ride.partialRungsTaken) {
+            // Proposal only; a rejected sell must not consume this rung.
+            ErrorLogger.info(TAG, "💩💰 LADDER #${ride.partialRungsTaken + 1}: $mint | hit +${hit.toInt()}% (now +${pnlPct.fmt(1)}%)")
+            return when (ride.partialRungsTaken + 1) {
                 1 -> ExitSignal.TAKE_PROFIT_30
                 2 -> ExitSignal.TAKE_PROFIT_50
                 else -> ExitSignal.TAKE_PROFIT_100
@@ -859,55 +872,71 @@ object ShitCoinExpress {
         return ExitSignal.HOLD
     }
     
-    fun exitRide(mint: String, exitPrice: Double, exitSignal: ExitSignal) {
-        val ride = synchronized(activeRides) { activeRides.remove(mint) } ?: return
+    fun exitRide(
+        mint: String,
+        exitPrice: Double,
+        exitSignal: ExitSignal,
+        canonicalSlice8527: com.lifecyclebot.engine.truth.CanonicalPartialReceipt8527? = null,
+        expectedRide8527: ExpressRide? = null,
+    ) {
+        val candidate8527 = expectedRide8527 ?: synchronized(activeRides) { activeRides[mint] } ?: return
+        var wholeReturnPct8527: Double? = null
+        if (canonicalSlice8527 != null) {
+            val row8527 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
+                .getPosition(canonicalSlice8527.positionId) ?: return
+            if (!canonicalSlice8527.terminal || canonicalSlice8527.mint != mint ||
+                candidate8527.mint != mint ||
+                candidate8527.isPaper != (canonicalSlice8527.mode == "paper") ||
+                !canonicalSlice8527.belongsToHistory8527(row8527) ||
+                candidate8527.entryTime !in row8527.openedAtMs..row8527.lastMutationMs ||
+                !com.lifecyclebot.engine.SpecialistCloseProjection7858.mayClose(
+                    mint, candidate8527.isPaper, candidate8527.entryTime)) return
+            wholeReturnPct8527 = com.lifecyclebot.engine.truth.WholePositionEconomics7835.from(row8527).returnPct
+        }
+        // The new terminal receipt path may not remove an opposite-mode or replacement generation.
+        // Capture/validation stays outside the native lock; the removal itself binds reference identity.
+        val ride = synchronized(activeRides) {
+            if (activeRides[mint] !== candidate8527) null
+            else { activeRides.remove(mint); candidate8527 }
+        } ?: return
         
-        val pnlPct = (exitPrice - ride.entryPrice) / ride.entryPrice * 100
-        val pnlSol = ride.entrySol * pnlPct / 100
+        val pnlPct = canonicalSlice8527?.realizedPnlPct ?: (exitPrice - ride.entryPrice) / ride.entryPrice * 100
+        val pnlSol = canonicalSlice8527?.realizedPnlSol ?: ride.entrySol * pnlPct / 100
+        val outcomePnlPct8527 = wholeReturnPct8527 ?: pnlPct
+        val outcomeWin8527 = if (canonicalSlice8527 != null) outcomePnlPct8527 > 0.0 else pnlSol > 0.0
 
         // V5.9.447 — UNIVERSAL JOURNAL COVERAGE. Every Express exit now
         // writes a SELL row so the user can see all Express closes with
         // PnL in the Journal. Was previously a silent lane.
                 // V5.0.6567 — canonical terminal bridge owns the single SELL journal projection.
 
-        try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(ride.mint, ride.symbol, "EXPRESS", "EXPRESS_CLOSE", pnlPct.toInt().coerceIn(-100, 100), "exit_${exitSignal.name}_pnl_${pnlPct.fmt(2)}") } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(ride.mint, ride.symbol, "EXPRESS", "EXPRESS_CLOSE", outcomePnlPct8527.toInt().coerceIn(-100, 100), "exit_${exitSignal.name}_pnl_${pnlPct.fmt(2)}") } catch (_: Throwable) {}
 
         // Record P&L
-        val pnlBps = (pnlSol * 100).toLong()
-        dailyPnlSolBps.addAndGet(pnlBps)
+        dailyPnlLamports8527.addAndGet(Math.round(pnlSol * 1_000_000_000.0))
 
         // V5.0.4160 — feed shared ScratchStreakRegistry (butterfly sweep).
-        try { com.lifecyclebot.engine.ScratchStreakRegistry.recordOutcome("EXPRESS", pnlPct) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.ScratchStreakRegistry.recordOutcome("EXPRESS", outcomePnlPct8527) } catch (_: Throwable) {}
 
-        // V5.9.495z17 — operator-mandated 70/30 profit split + missing
-        // sentience hook (Express was 1 of 4/8 not feeding sentience).
-        if (pnlSol > 0.0) {
-            try {
-                com.lifecyclebot.engine.TreasuryManager.contributeFromMemeSell(
-                    pnlSol,
-                    com.lifecyclebot.engine.WalletManager.lastKnownSolPrice,
-                )
-            } catch (_: Exception) {}
-        }
+        // Confirmed Executor accounting owns the single Treasury split. This native close is
+        // projection/counter maintenance only; a mark or duplicate terminal callback is not new profit.
         try {
             com.lifecyclebot.engine.SentienceHooks.recordEngineOutcome("MEME", pnlSol, pnlSol > 0.0)
         } catch (_: Exception) {}
 
         
-        if (pnlSol > 0) {
-            dailyWins.incrementAndGet()
-            // Add to express balance (50% compound)
-            expressBalanceBps.addAndGet((pnlSol * 50).toLong())
-        } else {
-            dailyLosses.incrementAndGet()
+        if (outcomeWin8527) dailyWins.incrementAndGet() else dailyLosses.incrementAndGet()
+        // Cash increment is the final slice, not the whole-position label or a quoted price.
+        if (pnlSol > 0.0) {
+            expressBalanceLamports8527.addAndGet(Math.round(pnlSol * 0.50 * 1_000_000_000.0))
         }
         
         // Record to FluidLearningAI
         try {
             if (ride.isPaper) {
-                FluidLearningAI.recordSubTraderTrade(pnlSol > 0)
+                FluidLearningAI.recordSubTraderTrade(outcomeWin8527)
             } else {
-                FluidLearningAI.recordSubTraderTrade(pnlSol > 0)
+                FluidLearningAI.recordSubTraderTrade(outcomeWin8527)
             }
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "FluidLearning update failed: ${e.message}")
@@ -915,26 +944,26 @@ object ShitCoinExpress {
 
         // V5.9.230 — Sentience wiring: Education + PersonalityMemory + SentientPersonality
         try {
-            val isWin = pnlPct > 0.0  // V5.9.408: restored pre-225 threshold
+            val isWin = outcomePnlPct8527 > 0.0  // V5.9.408: restored pre-225 threshold
             val holdMins = (System.currentTimeMillis() - ride.entryTime) / 60_000.0
             com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordSimpleTradeOutcome(
                 symbol     = ride.symbol,
                 mint       = ride.mint,
-                pnlPct     = pnlPct,
+                pnlPct     = outcomePnlPct8527,
                 holdMins   = holdMins,
                 traderTag  = "EXPRESS",
                 exitReason = exitSignal.name,
                 entryTimeMs = ride.entryTime,
             )
             com.lifecyclebot.engine.PersonalityMemoryStore.recordTradeOutcome(
-                pnlPct              = pnlPct,
-                gaveBackFromPeakPct = (ride.peakPnlPct - pnlPct).coerceAtLeast(0.0),
+                pnlPct              = outcomePnlPct8527,
+                gaveBackFromPeakPct = (ride.peakPnlPct - outcomePnlPct8527).coerceAtLeast(0.0),
                 heldMinutes         = holdMins.toInt().coerceAtLeast(1),
             )
             if (isWin) {
-                com.lifecyclebot.engine.SentientPersonality.onTradeWin(ride.symbol, pnlPct, "EXPRESS", holdMins.toLong() * 60)
+                com.lifecyclebot.engine.SentientPersonality.onTradeWin(ride.symbol, outcomePnlPct8527, "EXPRESS", holdMins.toLong() * 60)
             } else {
-                com.lifecyclebot.engine.SentientPersonality.onTradeLoss(ride.symbol, pnlPct, "EXPRESS", exitSignal.name)
+                com.lifecyclebot.engine.SentientPersonality.onTradeLoss(ride.symbol, outcomePnlPct8527, "EXPRESS", exitSignal.name)
             }
         } catch (_: Exception) {}
         
@@ -997,14 +1026,17 @@ object ShitCoinExpress {
     /**
      * V5.9.705 — Reduce sub-trader tracked entrySol after a confirmed partial sell.
      */
-    fun onPartialSell(mint: String, soldFraction: Double) {
-        val frac = soldFraction.coerceIn(0.0, 1.0)
-        if (frac <= 0.0) return
-        val ride = synchronized(activeRides) { activeRides[mint] } ?: return
-        val updated = ride.copy(entrySol = ride.entrySol * (1.0 - frac))
-        synchronized(activeRides) { activeRides[mint] = updated }
-        ErrorLogger.debug(TAG, "🚀🔪 onPartialSell ${ride.symbol}: entrySol ${ride.entrySol} → ${updated.entrySol} (sold ${(frac*100).toInt()}%)")
+    /** V5.0.8527 — capture the native generation before execution; project only the applied canonical slice. */
+    fun partialProjection8527(ts: com.lifecyclebot.data.TokenState):
+        (com.lifecyclebot.engine.truth.CanonicalPartialReceipt8527?) -> Boolean {
+        return com.lifecyclebot.engine.truth.NativePartialProjection8527.capture8527(
+            activeRides, ts, { it.isPaper }, { ride, receipt ->
+                ride.copy(entrySol = receipt.remainingCostSol, partialRungsTaken = ride.partialRungsTaken + 1)
+            },
+        )
     }
+
+
 
     /**
      * V5.2: Force clear all rides on bot stop
@@ -1017,7 +1049,13 @@ object ShitCoinExpress {
         }
     }
     
-    fun getDailyPnlSol(): Double = dailyPnlSolBps.get() / 100.0
+    fun getDailyPnlSol(): Double = dailyPnlLamports8527.get() / 1_000_000_000.0
+
+    internal fun dailyLossSizeMultiplier8527(dailyPnlSol: Double = getDailyPnlSol()): Double =
+        if (dailyPnlSol <= -DAILY_MAX_LOSS_SOL) 0.35 else 1.0
+
+    private fun legacySolBpsToLamports8527(value: Long): Long =
+        value.coerceIn(Long.MIN_VALUE / 10_000_000L, Long.MAX_VALUE / 10_000_000L) * 10_000_000L
     
     data class ExpressStats(
         val dailyRides: Int,
@@ -1035,7 +1073,7 @@ object ShitCoinExpress {
             dailyRides = dailyRides.get(),
             dailyWins = dailyWins.get(),
             dailyLosses = dailyLosses.get(),
-            dailyPnlSol = dailyPnlSolBps.get() / 100.0,
+            dailyPnlSol = dailyPnlLamports8527.get() / 1_000_000_000.0,
             activeRides = activeRides.size,
             winRate = if (totalTrades > 0) dailyWins.get().toDouble() / totalTrades * 100 else 0.0,
             isPaperMode = isPaperMode,

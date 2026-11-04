@@ -86,7 +86,11 @@ object ExpertTraderKnowledge7813 {
     private const val COUNTERFACTUAL_WEIGHT = 0.20
     private const val PAPER_TO_LIVE_WEIGHT = 0.20
 
+    // Finalized outcomes and corrected forward observations never share a persisted book.
+    // Pre-8527 totals mixed both and cannot be truthfully recovered as realized returns.
     private val stats = ConcurrentHashMap<String, Stat>()
+    private val forwardStats8527 = ConcurrentHashMap<String, Stat>()
+    private val legacyMixed8527 = ConcurrentHashMap<String, Stat>()
     private val pending = ConcurrentHashMap<String, Snapshot>()
     private val byPosition = ConcurrentHashMap<String, Snapshot>()
     private val settled = ConcurrentHashMap.newKeySet<String>()
@@ -294,8 +298,24 @@ object ExpertTraderKnowledge7813 {
         return Snapshot(r.mint, l, modeNow(), r.providers.joinToString("+"), regime, 50, 0.50, values)
     }
 
+    /** Current-policy evidence only; legacy mixed totals are an exportable archive. */
+    private fun combinedStat8527(key: String): Stat? {
+        fun snapshot(book: ConcurrentHashMap<String, Stat>): Stat? =
+            book[key]?.let { synchronized(it) { it.copy() } }
+        val realized = snapshot(stats)
+        val forward = snapshot(forwardStats8527)
+        if (realized == null) return forward
+        if (forward == null) return realized
+        return Stat(
+            realized.weight + forward.weight,
+            realized.sumReturnPct + forward.sumReturnPct,
+            realized.wins + forward.wins,
+            realized.runners + forward.runners,
+        )
+    }
+
     private fun evidence(mode: String, lane: String, regime: String, feature: Feature, value: Double): Evidence? {
-        fun one(m: String, r: String): Stat? = stats[statKey(m, lane, r, feature, value)]
+        fun one(m: String, r: String): Stat? = combinedStat8527(statKey(m, lane, r, feature, value))
         val exact = one(mode, regime)
         val agg = one(mode, "ALL")
         fun ev(s: Stat?): Evidence? {
@@ -441,12 +461,17 @@ object ExpertTraderKnowledge7813 {
         return true
     }
 
-    private fun updateStats(s: Snapshot, returnPct: Double, weight: Double) {
+    private fun updateStats(
+        s: Snapshot,
+        returnPct: Double,
+        weight: Double,
+        target: ConcurrentHashMap<String, Stat> = stats,
+    ) {
         if (!returnPct.isFinite() || weight <= 0.0) return
         val ret = returnPct.coerceIn(-95.0, StrategyTelemetry.LEARNABLE_GAIN_CEILING_PCT_7349)
         s.values.filterValues { abs(it) >= 0.12 }.forEach { (feature, value) ->
             for (regime in listOf(s.regime, "ALL")) {
-                val st = stats.computeIfAbsent(statKey(s.mode, s.lane, regime, feature, value)) { Stat() }
+                val st = target.computeIfAbsent(statKey(s.mode, s.lane, regime, feature, value)) { Stat() }
                 synchronized(st) {
                     st.weight += weight
                     st.sumReturnPct += ret * weight
@@ -488,7 +513,7 @@ object ExpertTraderKnowledge7813 {
             .minByOrNull { kotlin.math.abs(it.atMs - observedAtMs) }
             ?: candidates.maxByOrNull { it.atMs }
             ?: return
-        updateStats(s, netPct, COUNTERFACTUAL_WEIGHT)
+        updateStats(s, netPct, COUNTERFACTUAL_WEIGHT, forwardStats8527)
         forwardGrades.incrementAndGet()
         try {
             PipelineHealthCollector.labelInc(
@@ -507,24 +532,24 @@ object ExpertTraderKnowledge7813 {
     }
 
     fun statusLine(): String {
-        val ranked = stats.entries.mapNotNull { (k, s) ->
-            synchronized(s) {
-                if (s.weight < 2.0 || !k.contains("|ALL|")) null
-                else Triple(k, s.meanPct(), s.weight)
-            }
+        val ranked = (stats.keys + forwardStats8527.keys).mapNotNull { k ->
+            val s = combinedStat8527(k) ?: return@mapNotNull null
+            if (s.weight < 2.0 || !k.contains("|ALL|")) null
+            else Triple(k, s.meanPct(), s.weight)
         }
         val best = ranked.sortedByDescending { it.second }.take(3)
         val worst = ranked.sortedBy { it.second }.take(3)
         fun fmt(x: Triple<String, Double, Double>) =
             "${x.first.substringAfter("|").take(34)}=${"%+.1f".format(x.second)}%@${"%.1f".format(x.third)}"
         return "captures=${captures.get()} bound=${binds.get()} terminal=${terminalGrades.get()} " +
-            "forward=${forwardGrades.get()} pending=${pending.size} boundOpen=${byPosition.size} stats=${stats.size} " +
+            "forward=${forwardGrades.get()} pending=${pending.size} boundOpen=${byPosition.size} stats=${stats.size} forwardStats8527=${forwardStats8527.size} archivedMixed=${legacyMixed8527.size} " +
             "best=[${best.joinToString(" · ") { fmt(it) }}] worst=[${worst.joinToString(" · ") { fmt(it) }}] " +
             "authority=ordering+bounded_prior no_safety_or_execution_authority=true"
     }
 
     fun reset() {
-        stats.clear(); pending.clear(); byPosition.clear(); settled.clear()
+        stats.clear(); forwardStats8527.clear(); legacyMixed8527.clear()
+        pending.clear(); byPosition.clear(); settled.clear()
         captures.set(0L); binds.set(0L); terminalGrades.set(0L); forwardGrades.set(0L)
     }
 
@@ -550,15 +575,30 @@ object ExpertTraderKnowledge7813 {
         ).takeIf { it.mint.isNotBlank() && it.lane.isNotBlank() }
     } catch (_: Throwable) { null }
 
+    private fun statsJson8527(book: ConcurrentHashMap<String, Stat>): JSONArray = JSONArray().apply {
+        book.forEach { (k, s) -> synchronized(s) {
+            put(JSONObject().put("k", k).put("w", s.weight).put("sum", s.sumReturnPct)
+                .put("wins", s.wins).put("runners", s.runners))
+        } }
+    }
+
+    private fun restoreStats8527(rows: JSONArray?, target: ConcurrentHashMap<String, Stat>) {
+        if (rows == null) return
+        for (i in 0 until rows.length()) {
+            val o = rows.optJSONObject(i) ?: continue
+            val k = o.optString("k")
+            if (k.isBlank()) continue
+            target[k] = Stat(o.optDouble("w", 0.0), o.optDouble("sum", 0.0),
+                o.optDouble("wins", 0.0), o.optDouble("runners", 0.0))
+        }
+    }
+
     fun exportState(): String = try {
         JSONObject().apply {
-            put("version", 7813)
-            put("stats", JSONArray().apply {
-                stats.forEach { (k, s) -> synchronized(s) {
-                    put(JSONObject().put("k", k).put("w", s.weight).put("sum", s.sumReturnPct)
-                        .put("wins", s.wins).put("runners", s.runners))
-                } }
-            })
+            put("version", 8527)
+            put("stats", statsJson8527(stats))
+            put("forward8527", statsJson8527(forwardStats8527))
+            put("legacyMixed8527", statsJson8527(legacyMixed8527))
             put("pending", JSONArray().apply { pending.values.take(MAX_PENDING).forEach { put(snapshotJson(it)) } })
             put("bound", JSONObject().apply { byPosition.forEach { (id, s) -> put(id, snapshotJson(s)) } })
         }.toString()
@@ -568,14 +608,15 @@ object ExpertTraderKnowledge7813 {
         if (raw.isBlank() || raw == "{}") return
         try {
             val root = JSONObject(raw)
-            val sa = root.optJSONArray("stats") ?: JSONArray()
-            for (i in 0 until sa.length()) {
-                val o = sa.optJSONObject(i) ?: continue
-                val k = o.optString("k")
-                if (k.isBlank()) continue
-                stats[k] = Stat(o.optDouble("w", 0.0), o.optDouble("sum", 0.0),
-                    o.optDouble("wins", 0.0), o.optDouble("runners", 0.0))
+            if (root.optInt("version", 0) == 8527) {
+                restoreStats8527(root.optJSONArray("stats"), stats)
+                restoreStats8527(root.optJSONArray("forward8527"), forwardStats8527)
+            } else {
+                // Historical aggregates have no label/settlement provenance. Keep them
+                // intact for audit, never relabel them as clean finalized evidence.
+                restoreStats8527(root.optJSONArray("stats"), legacyMixed8527)
             }
+            restoreStats8527(root.optJSONArray("legacyMixed8527"), legacyMixed8527)
             val pa = root.optJSONArray("pending") ?: JSONArray()
             for (i in 0 until pa.length()) {
                 val s = snapshotFromJson(pa.optJSONObject(i) ?: continue) ?: continue

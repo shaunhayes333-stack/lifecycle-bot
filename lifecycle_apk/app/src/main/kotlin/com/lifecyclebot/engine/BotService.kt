@@ -1096,15 +1096,16 @@ class BotService : Service() {
     }
 
     /** Recheck physical native criteria first; the carried inverse can change only its late score verdict. */
-    private fun operatorQualityAssessment8522(ts: com.lifecyclebot.data.TokenState, v3Score: Int,
-                                               ageMinutes: Double, holders: Int): com.lifecyclebot.v3.scoring.QualityTraderAI.QualitySignal {
+    private fun operatorQualityAssessment8522(ts: com.lifecyclebot.data.TokenState,
+                                               inputs: SpecialistMarketInputs8522.Read): com.lifecyclebot.v3.scoring.QualityTraderAI.QualitySignal {
         val raw = com.lifecyclebot.v3.scoring.QualityTraderAI.evaluate(
-            mint = ts.mint, symbol = ts.symbol, currentPrice = ts.ref, marketCapUsd = ts.lastMcap,
-            liquidityUsd = ts.lastLiquidityUsd, buyPressure = ts.lastBuyPressurePct.toInt(),
-            tokenAgeMinutes = LaneAgeLiquidityTruth8140.establishedAgeMinutes8140(ts, ageMinutes),
-            holderCount = holders, topHolderPct = laneTopHolderPct7809(ts), v3Score = v3Score, isMeme = false,
+            mint = ts.mint, symbol = ts.symbol, currentPrice = inputs.price, marketCapUsd = ts.lastMcap,
+            liquidityUsd = ts.lastLiquidityUsd, buyPressure = (inputs.buyPressurePct ?: 50.0).toInt(),
+            tokenAgeMinutes = inputs.age.inputMinutes, holderCount = ts.peakHolderCount.coerceAtLeast(0),
+            topHolderPct = laneTopHolderPct7809(ts), v3Score = inputs.v3Score, isMeme = false,
         )
-        return NativeOpportunityDoor8522.quality8522(raw,
+        val (eligible, reason) = SpecialistInputParity8527.ageDecision8527("QUALITY", raw.shouldEnter, raw.reason, inputs.age)
+        return NativeOpportunityDoor8522.quality8522(raw.copy(shouldEnter = eligible, reason = reason),
             SpecialistBrainBridge7542.opportunityDecision8522(ts.mint, "QUALITY", token = ts))
     }
 
@@ -1157,7 +1158,7 @@ class BotService : Service() {
             tokenAgeHours = tokenAgeHours,
             holderCount = ts.peakHolderCount.takeIf { it > 0 } ?: 100,
             holderChange24h = holderChange7764(ts),
-            isDevSelling = ts.safety.bundleRisk == "HIGH",
+            isDevSelling = SpecialistInputParity8527.namedDevSelling8527(ts),
             bounceConfirmed = bounce,
         )
         return NativeOpportunityDoor8522.dip8522(raw,
@@ -8930,10 +8931,10 @@ class BotService : Service() {
             try {
                 addLog("☁️ Starting community download...")
                 val weights = CloudLearningSync.downloadCommunityWeights()
-                if (weights != null && weights.totalContributors > 0) {
+                if (weights != null && weights.totalContributors > 0 && CloudLearningSync.isUsingCommunityWeights()) {
                     addLog("☁️ Downloaded community data: ${weights.totalContributors} contributors, ${weights.totalTrades} trades")
                     // Apply community weights to local learning engine
-                    AdaptiveLearningEngine.applyCommunityWeights(weights.featureWeights, weights.totalTrades)
+                    AdaptiveLearningEngine.applyCommunityWeights(weights.featureWeights, weights.totalTrades, compatible8527 = weights.adaptive8527)
                 } else if (weights != null) {
                     addLog("☁️ No community data yet (0 contributors)")
                 } else {
@@ -8998,14 +8999,15 @@ class BotService : Service() {
                         // adaptive weights, then inherit only bounded nudges from
                         // proven positive peers. This is fluid pressure, not overwrite.
                         try {
-                            val localWeights = AdaptiveLearningEngine.getDetailedWeights()
+                            val adaptiveTransfer8527 = AdaptiveLearningEngine.transferModel8527()
                             com.lifecyclebot.collective.CollectiveLearning.uploadPerformanceGenome(
                                 appVersion = com.lifecyclebot.BuildConfig.VERSION_NAME,
                                 totalTrades = localStats.totalTrades,
                                 winRatePct = localStats.winRate,
                                 netPnlSol = localStats.totalPnlSol,
                                 profitFactor = localStats.profitFactor,
-                                featureWeights = localWeights,
+                                featureWeights = emptyMap(),
+                                adaptive8527 = adaptiveTransfer8527,
                             )
                             val genome = com.lifecyclebot.collective.CollectiveLearning.downloadPerformanceGenomeBlend(
                                 localTradeCount = localStats.totalTrades,
@@ -9017,10 +9019,11 @@ class BotService : Service() {
                                     hiveAvgWinRatePct = genome.avgWinRatePct,
                                     hiveContributors = genome.contributors,
                                     hiveTotalTrades = genome.totalTrades,
+                                    compatible8527 = genome.adaptive8527,
                                     localWinRatePct = localStats.winRate,
                                     localTradeCount = localStats.totalTrades,
                                 )
-                                addLog("🧬 Hive genome nudge: ${genome.contributors} proven bots, hiveWR=${genome.avgWinRatePct.toInt()}%, best=${genome.bestWinRatePct.toInt()}%")
+                                addLog("🧬 Hive genome nudge: legacyPeers=${genome.contributors}, legacyWR=${genome.avgWinRatePct.toInt()}%, ALEfeatures=${genome.adaptive8527.features.size}")
                             } else {
                                 addLog("🧬 Hive genome: no proven peer genome yet")
                             }
@@ -14036,26 +14039,92 @@ class BotService : Service() {
         } catch (_: Throwable) { null }
     }
 
-    // V5.0.7389 — a specialist lane is admitted on ITS OWN score. The global V3
-    // decision's entryScore/aiConfidence are often 0 for lane-owned candidates,
-    // which fired EXPLORATION_BUDGET_REFUSED_ZERO_SIGNAL and showed
-    // FLUID_SCORE_SCAFFOLD effective=0. Raise (never lower) both to the lane score.
-    // V5.0.7389 — mean conviction of the lanes that voted a CORE (ensemble)
-    // election, per mint; CORE's entry score blends it with V3's.
-    private val coreEnsembleScore7389 = java.util.concurrent.ConcurrentHashMap<String, Double>()
+    // V5.0.8527 — native admission score and confidence keep their separate values through FDG.
+    // A generic V3 maximum or an admission threshold is not a new native measurement.
+
+    /** Current elected CORE uses its own native read even when generic V3 says WATCH.
+     * This is an ordinary proposal: the same FDG, sealed authorizer and executor still decide. */
+    private fun executeNativeCore8527(
+        ts: com.lifecyclebot.data.TokenState, cfg: BotConfig, wallet: SolanaWallet?,
+        lastSuccessfulPollMs: Long, effectiveBalance: Double,
+        primaryLane: String, sheet: ToolkitSignalSheet.Sheet,
+        base: com.lifecyclebot.data.CandidateDecision, canPropose: Boolean,
+    ): Boolean {
+        if (!primaryLane.equals("CORE", true)) return false
+        val version = LaneExecutionCoordinator.candidateVersionFor(ts.mint)
+        val snapshot = sheet.nativeSnapshot8522
+        val current = SpecialistBrainBridge7542.evaluate(ts)
+        val ready = com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.entry("CORE", ts.mint)
+            ?.takeIf { it.state == com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.State.READY }
+        val choice = SpecialistBrainBridge7542.opportunityDecision8522(ts.mint, "CORE", snapshot, token = ts)
+        val native = CoreNativeDispatch8527.currentCore8527(
+            primaryLane, snapshot, current, ready?.candidateVersion, version,
+            LaneExecutionCoordinator.currentElection6600(ts.mint, version)?.takeIf { it.sealed }?.primaryLane,
+            cfg.paperMode == RuntimeModeAuthority.isPaper(),
+            ts.position.isOpen || ts.position.pendingVerify || ts.position.qtyToken > 0.0,
+            canPropose, cfg.v3ShadowMode, System.currentTimeMillis(), choice,
+        ) ?: return false
+        if (!LaneExecutionCoordinator.laneCanOwnExecution6910("CORE") ||
+            RuntimeConfigOverlay.isLaneDisabled("CORE") ||
+            !shouldRunBuyLaneForCycle(ts, "CORE", primaryLane, sheet)) return false
+        val permit = FinalExecutionPermit.canExecute(ts.mint, ts.symbol, "CORE", ts.position.isOpen)
+        if (!permit.allowed) return false
+        if (com.lifecyclebot.engine.truth.PeggedAssetGuard7270.isPegged(ts.symbol, ts.lastPrice, ts.lastMcap, ts.mint)) {
+            com.lifecyclebot.engine.truth.PeggedAssetGuard7270.noteSkipped("CORE", ts.symbol)
+            return false
+        }
+        val candidate = laneQualifiedBuyDecision(
+            laneScoredBase7389(base, native.score.toDouble(), native.confidence.toDouble()), "CORE",
+            confidenceFloor = native.confidence.toDouble(), liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint)
+        val size = native.requestedSizeSol.takeIf { it.isFinite() && it > 0.0 } ?: executor.calculateBuySize(
+            ts = ts, walletSol = effectiveBalance, totalExposureSol = status.totalExposureSol,
+            openPositionCount = status.openPositionCount, quality = candidate.finalQuality)
+        try { com.lifecyclebot.engine.truth.AuthorityProofPrefetch8136.prefetchIfLive8136(ts.mint) } catch (_: Throwable) {}
+        val coreFdg8527 = FdgOutcomeContinuity8197.evaluate(
+            ts = ts, candidate = candidate, config = cfg, proposedSizeSol = size, brain = executor.brain,
+            tradingModeTag = ModeSpecificGates.fromTradingMode("CORE"), laneScore = native.score.toDouble(),
+            specialistLane = "CORE", fanoutRole = "V3_EXEC",
+        )
+        val auth = TradeAuthorizer.authorize(
+            fdgDecision7835 = coreFdg8527, tokenState7835 = ts,
+            mint = ts.mint, symbol = ts.symbol, score = coreFdg8527.effectiveEntryScore7687,
+            confidence = coreFdg8527.confidence, quality = coreFdg8527.quality,
+            isPaperMode = cfg.paperMode, requestedBook = TradeAuthorizer.ExecutionBook.CORE,
+            rugcheckScore = ts.safety.rugcheckScore, liquidity = ts.lastLiquidityUsd,
+            isBanned = BannedTokens.isBanned(ts.mint), preResolvedSizeSol = coreFdg8527.sizeSol,
+        )
+        val intent = auth.executionIntent7835
+        if (!coreFdg8527.canExecute() || !auth.isExecutable() || intent == null) {
+            try { ExecutableOpenGate.terminalizeAttempt6514(auth.attemptId, ts.mint, "CORE") } catch (_: Throwable) {}
+            try { TradeAuthorizer.releasePosition(ts.mint, "CORE_NATIVE_FDG_REFUSED_8527",
+                isPaperMode = cfg.paperMode, attemptId7858 = auth.attemptId) } catch (_: Throwable) {}
+            return false
+        }
+        if (intent.canonicalLane != "CORE" || intent.candidateVersion != version ||
+            LaneExecutionCoordinator.candidateVersionFor(ts.mint) != version ||
+            cfg.paperMode != RuntimeModeAuthority.isPaper()) {
+            try { ExecutableOpenGate.terminalizeAttempt6514(intent.attemptId, ts.mint, "CORE") } catch (_: Throwable) {}
+            try { TradeAuthorizer.releasePosition(ts.mint, "CORE_NATIVE_CONTEXT_CHANGED_8527",
+                isPaperMode = cfg.paperMode, attemptId7858 = intent.attemptId) } catch (_: Throwable) {}
+            return true // end this stale cycle, never fall through into another mode/owner
+        }
+        TradeLifecycle.recordProposal(ts.mint)
+        executor.v3Buy(
+            ts = ts, sizeSol = intent.resolvedSize, walletSol = effectiveBalance,
+            v3Score = intent.effectiveEntryScore7256, v3Band = coreFdg8527.quality,
+            v3Confidence = coreFdg8527.confidence, wallet = wallet,
+            lastSuccessfulPollMs = lastSuccessfulPollMs, openPositionCount = status.openPositionCount,
+            totalExposureSol = status.totalExposureSol, finalityPrechecked = true, attemptId = intent.attemptId,
+        )
+        return true
+    }
 
     private fun laneScoredBase7389(
         base: com.lifecyclebot.data.CandidateDecision,
         laneScore: Double,
-    ): com.lifecyclebot.data.CandidateDecision {
-        if (!laneScore.isFinite() || laneScore <= 0.0) return base
-        val s7389 = laneScore.coerceIn(0.0, 100.0)
-        if (base.entryScore >= s7389 && base.aiConfidence >= s7389) return base
-        return base.copy(
-            entryScore = maxOf(base.entryScore, s7389),
-            aiConfidence = maxOf(base.aiConfidence, s7389),
-        )
-    }
+        laneConfidence: Double,
+    ): com.lifecyclebot.data.CandidateDecision =
+        NativeCandidateValues8527.apply8527(base, laneScore, laneConfidence)
 
     private fun laneQualifiedBuyDecision(
         candidate7951: com.lifecyclebot.data.CandidateDecision,
@@ -14522,7 +14591,7 @@ class BotService : Service() {
                     edgeQuality = if (laneBase.edgeQuality == "SKIP") "B" else laneBase.edgeQuality,
                     finalQuality = if (cleanQuality == "C") "B" else cleanQuality,
                     qualityPenalty = (0.72 * crossTalkSizeMult4262).coerceIn(0.35, 1.18),
-                    aiConfidence = laneBase.aiConfidence.coerceAtLeast(entryScoreTightenedFloor4591),
+                    aiConfidence = laneBase.aiConfidence,
                 )
             }
             if (zeroSignal) {
@@ -14731,7 +14800,7 @@ class BotService : Service() {
                 edgeQuality = if (laneBase.edgeQuality == "SKIP") "C" else laneBase.edgeQuality,
                 finalQuality = "C",
                 qualityPenalty = (crossTalkSizeMult4262 * learnedWaitShape6613 * tacticWaitShape6613).coerceIn(0.05, 1.18),
-                aiConfidence = laneBase.aiConfidence.coerceAtLeast(entryScoreTightenedFloor4591),
+                aiConfidence = laneBase.aiConfidence,
             )
         }
         try {
@@ -14746,7 +14815,7 @@ class BotService : Service() {
             edgeVeto = false,
             edgeQuality = if (laneBase.edgeQuality == "SKIP") "C" else laneBase.edgeQuality,
             finalQuality = cleanQuality,
-            aiConfidence = laneBase.aiConfidence.coerceAtLeast(entryScoreTightenedFloor4591),
+            aiConfidence = laneBase.aiConfidence,
         ).also {
             try {
                 ForensicLogger.lifecycle(
@@ -14868,10 +14937,6 @@ class BotService : Service() {
                 LaneEntryContract6342.isLaneIdentityEligible7252(ts, "CORE")
             if (ensembleCoreFit6614) {
                 try { PipelineHealthCollector.labelInc("CORE_ENSEMBLE_ELECTED_7389") } catch (_: Throwable) {}
-                if (coreEnsembleScore7389.size > 5_000) coreEnsembleScore7389.clear()
-                coreEnsembleScore7389[ts.mint] = ensembleVoters7389.map { it.conviction }.average().coerceIn(0.0, 100.0)
-            } else {
-                coreEnsembleScore7389.remove(ts.mint)
             }
             // V5.0.7297 — a specialist that hunted this token from the market
             // view owns it while the token is still inside that lane's band.
@@ -14957,15 +15022,12 @@ class BotService : Service() {
      * token map) was scored as if a 50% holder had been measured: QUALITY
      * refused it outright ("Top holder too dominant: 50% > 30%") and BLUECHIP
      * took the -15 penalty, and neither lane reached OWNER/BUY_INTENT. Read the
-     * same evidence chain CanonicalFeaturesBuilder already uses; the
-     * conservative live fallback is kept for genuinely unknown concentration
-     * (Field Manual L190 / L345: holder evidence is checked; unknown is not zero risk).
+     * same observed evidence as native qualification. 8527 keeps an unobserved
+     * safety default out of the feature; unknown uses the native neutral value,
+     * never a fabricated zero-risk distribution or measured 50% concentration.
      */
     private fun laneTopHolderPct7809(ts: com.lifecyclebot.data.TokenState): Double =
-        ts.topHolderPct
-            ?: ts.safety.topHolderPct.takeIf { it >= 0.0 }
-            ?: ts.tokenMap.topHolderConcentrationPct?.takeIf { it >= 0.0 }
-            ?: if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive()) 50.0 else 20.0
+        SpecialistInputParity8527.topHolderPct8527(ts)
 
     /**
      * V5.0.7809 §A_DISABLED_TRADER_CANNOT_OWN_A_CYCLE. With the Cyclic ring off by
@@ -19912,7 +19974,8 @@ class BotService : Service() {
                                     .localLayerAccuracySnapshot6880()
                                     .mapKeys { "LYR:${it.key}" }
                             } catch (_: Throwable) { emptyMap() }
-                            val genomeWeights6865 = AdaptiveLearningEngine.getDetailedWeights() + layerAcc6880
+                            val genomeWeights6865 = layerAcc6880
+                            val adaptiveTransfer8527 = AdaptiveLearningEngine.transferModel8527()
                             com.lifecyclebot.collective.CollectiveLearning.uploadPerformanceGenome(
                                 appVersion = com.lifecyclebot.BuildConfig.VERSION_NAME,
                                 totalTrades = localStats.totalTrades,
@@ -19920,6 +19983,7 @@ class BotService : Service() {
                                 netPnlSol = localStats.totalPnlSol,
                                 profitFactor = localStats.profitFactor,
                                 featureWeights = genomeWeights6865,
+                                adaptive8527 = adaptiveTransfer8527,
                             )
                             val genome6865 = com.lifecyclebot.collective.CollectiveLearning
                                 .downloadPerformanceGenomeBlend(
@@ -19949,10 +20013,11 @@ class BotService : Service() {
                                     hiveAvgWinRatePct = genome6865.avgWinRatePct,
                                     hiveContributors = genome6865.contributors,
                                     hiveTotalTrades = genome6865.totalTrades,
+                                    compatible8527 = genome6865.adaptive8527,
                                     localWinRatePct = localStats.winRate,
                                     localTradeCount = localStats.totalTrades,
                                 )
-                                addLog("🧬 Hive genome refresh: ${genome6865.contributors} proven bots, hiveWR=${genome6865.avgWinRatePct.toInt()}%, best=${genome6865.bestWinRatePct.toInt()}%")
+                                addLog("🧬 Hive genome refresh: legacyPeers=${genome6865.contributors}, legacyWR=${genome6865.avgWinRatePct.toInt()}%, ALEfeatures=${genome6865.adaptive8527.features.size}")
                                 try { PipelineHealthCollector.labelInc("HIVE_GENOME_PERIODIC_NUDGE_6865") } catch (_: Throwable) {}
                             }
                         } catch (e: Exception) {
@@ -21448,11 +21513,12 @@ class BotService : Service() {
                                 
                                 // CLOUD SYNC: Upload learnings to community database
                                 try {
-                                    val weights = AdaptiveLearningEngine.getDetailedWeights()
+                                    val adaptiveTransfer8527 = AdaptiveLearningEngine.transferModel8527()
                                     val uploaded = CloudLearningSync.uploadLearnings(
                                         tradeCount = report.totalTrades,
                                         winRate = report.overallWinRate,
-                                        featureWeights = weights,
+                                        featureWeights = emptyMap(),
+                                        adaptive8527 = adaptiveTransfer8527,
                                         patternStats = report.patterns,
                                     )
                                     if (uploaded) {
@@ -21461,10 +21527,10 @@ class BotService : Service() {
                                     
                                     // V5.6.12: Download community weights after upload
                                     val communityWeights = CloudLearningSync.downloadCommunityWeights()
-                                    if (communityWeights != null && communityWeights.totalContributors > 0) {
+                                    if (communityWeights != null && communityWeights.totalContributors > 0 && CloudLearningSync.isUsingCommunityWeights()) {
                                         addLog("☁️ Synced: ${communityWeights.totalContributors} contributors, ${communityWeights.totalTrades} collective trades")
                                         // Apply community weights to local learning engine
-                                        AdaptiveLearningEngine.applyCommunityWeights(communityWeights.featureWeights, communityWeights.totalTrades)
+                                        AdaptiveLearningEngine.applyCommunityWeights(communityWeights.featureWeights, communityWeights.totalTrades, compatible8527 = communityWeights.adaptive8527)
                                     }
                                 } catch (e: Exception) {
                                     ErrorLogger.debug("CloudSync", "Upload error: ${e.message}")
@@ -28267,6 +28333,11 @@ if (hotExitHandledSweep) {
                 PipelineHealthCollector.labelInc("CORE_STANDARD_VISIBILITY_4489")
             } catch (_: Throwable) {}
             
+            // CORE only receives this path when the current native election belongs to CORE.
+            // CYCLIC remains owned by its ring; specialist lanes retain their own blocks below.
+            if (executeNativeCore8527(ts, cfg, wallet, lastSuccessfulPollMs, effectiveBalance,
+                    cyclePrimaryLane, cycleSheet8522, decision, canProposeEarly)) return
+
             // ═══════════════════════════════════════════════════════════════════
             // V3.3 FIX: Run Treasury Mode IMMEDIATELY after V3 decision
             // BEFORE any return statements, so Treasury can evaluate ALL tokens!
@@ -28278,27 +28349,14 @@ if (hotExitHandledSweep) {
             // V4.0 FIX: But Treasury CANNOT override V3 rejections!
             // If V3 REJECTED/BLOCKED a token, Treasury must respect that decision.
             // ═══════════════════════════════════════════════════════════════════
-            // V5.9.93: ONE-BOOK-PER-TOKEN lockout. When V3 is about to
-            // EXECUTE the CORE book on this same tick, skip Treasury
-            // entirely — the audit showed Treasury and V3 opening the
-            // same mint on the same tick (double-buy, conflicting TP/SL
-            // ladders). Treasury will re-evaluate on later ticks once
-            // the CORE position is open/closed.
-            val v3WillExecuteCore = v3Decision is com.lifecyclebot.v3.V3Decision.Execute
-            if (v3WillExecuteCore) {
-                ErrorLogger.info(
-                    "BotService",
-                    "💰 [TREASURY] ${ts.symbol} | SKIP | V3_EXECUTE_SAME_TICK — one book per token"
-                )
-            }
-
+            // V5.0.8527 — generic Execute is an observation, not a CORE reservation.
+            // The canonical authorizer/mint claim prevents double entry; every elected compounder still gets its own door.
             val treasuryLaneAllowedThisCycle4483 = !ts.position.isOpen && shouldRunBuyLaneForCycle(ts, "TREASURY", cyclePrimaryLane, cycleSheet8522)
             val cashgenLaneAllowedThisCycle4483 = !ts.position.isOpen && shouldRunBuyLaneForCycle(ts, "CASHGEN", cyclePrimaryLane, cycleSheet8522)
             // V5.0.7614 — shared cashflow mechanics, distinct canonical owners.
             // Prefer the elected primary when both are eligible; never fold CASHGEN
             // into TREASURY merely because both use CashGenerationAI/treasuryBuy.
             val compounderLane7614 = when {
-                v3WillExecuteCore -> ""
                 cashgenLaneAllowedThisCycle4483 && cyclePrimaryLane.equals("CASHGEN", true) -> "CASHGEN"
                 treasuryLaneAllowedThisCycle4483 && cyclePrimaryLane.equals("TREASURY", true) -> "TREASURY"
                 cashgenLaneAllowedThisCycle4483 && !treasuryLaneAllowedThisCycle4483 -> "CASHGEN"
@@ -28311,7 +28369,7 @@ if (hotExitHandledSweep) {
                     ForensicLogger.phase(
                         ForensicLogger.PHASE.LANE_EVAL,
                         ts.symbol,
-                        "lane=$compounderLane7614 paper=${cfg.paperMode} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore} sharedMechanics=TREASURY_CASHFLOW_EXEC identityPreserved=true v3Skip=$v3WillExecuteCore"
+                        "lane=$compounderLane7614 paper=${cfg.paperMode} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore} sharedMechanics=TREASURY_CASHFLOW_EXEC identityPreserved=true"
                     )
                     PipelineHealthCollector.labelInc("COMPOUNDER_LANE_EVAL_7614_$compounderLane7614")
                 } catch (_: Throwable) {}
@@ -28615,9 +28673,9 @@ if (hotExitHandledSweep) {
                             // Computed here (depends only on rawSignalScore +
                             // treasurySignal6022.confidence, both in scope); the later
                             // telemetry block reuses these same vals.
-                            val _trsScore = rawSignalScore.coerceAtLeast(treasurySignal6022.confidence).coerceIn(0, 100)
+                            val _trsScore = treasurySignal6022.entryScore.coerceIn(0, 100)
                             val _trsIsDanger = try {
-                                com.lifecyclebot.engine.LosingPatternMemory.isDangerZone("TREASURY", _trsScore)
+                                com.lifecyclebot.engine.LosingPatternMemory.isDangerZone(compounderLane7614, _trsScore)
                             } catch (_: Throwable) { false }
                             // V5.9.1247 — tiered danger sizing. Flat ×0.35 (1246)
                             // did not stop the bleed: TREASURY|S61+ kept firing 40+
@@ -28627,7 +28685,7 @@ if (hotExitHandledSweep) {
                             // while still letting every bucket record outcomes (no veto,
                             // no starvation). Bootstrap candidates (sample<20) get ×1.0.
                             val dangerSizeMult = try {
-                                com.lifecyclebot.engine.LosingPatternMemory.recommendedSizeMult("TREASURY", _trsScore)
+                                com.lifecyclebot.engine.LosingPatternMemory.recommendedSizeMult(compounderLane7614, _trsScore)
                             } catch (_: Throwable) { if (_trsIsDanger) 0.35 else 1.0 }
                             // V5.9.1256 — TREASURY was the ONE lane missing the
                             // score-expectancy soft-gate the other 6 lanes have
@@ -28641,15 +28699,15 @@ if (hotExitHandledSweep) {
                             // still the only hard gate) but a proven-negative score
                             // bucket enters at a fraction of size.
                             val _trsExpectancyReject = try {
-                                com.lifecyclebot.engine.ScoreExpectancyTracker.shouldReject("TREASURY", _trsScore)
+                                com.lifecyclebot.engine.ScoreExpectancyTracker.shouldReject(compounderLane7614, _trsScore)
                             } catch (_: Throwable) { false }
                             // V5.9.1257 — calibration-aware shrink (net-negative band).
                             val _trsCalMult = try {
-                                com.lifecyclebot.engine.ScoreExpectancyTracker.calibrationSizeMult("TREASURY", _trsScore)
+                                com.lifecyclebot.engine.ScoreExpectancyTracker.calibrationSizeMult(compounderLane7614, _trsScore)
                             } catch (_: Throwable) { 1.0 }
                             if (_trsExpectancyReject) {
                                 ErrorLogger.info("BotService",
-                                    "🏷️ [TREASURY] ${ts.symbol} | EXPECTANCY_SOFTSHAPE (size×0.25, not blocked) | score=$_trsScore | μ=${"%+.1f".format(com.lifecyclebot.engine.ScoreExpectancyTracker.bucketMean("TREASURY", _trsScore) ?: 0.0)}% n=${com.lifecyclebot.engine.ScoreExpectancyTracker.bucketSamples("TREASURY", _trsScore)}")
+                                    "🏷️ [TREASURY] ${ts.symbol} | EXPECTANCY_SOFTSHAPE (size×0.25, not blocked) | score=$_trsScore | μ=${"%+.1f".format(com.lifecyclebot.engine.ScoreExpectancyTracker.bucketMean(compounderLane7614, _trsScore) ?: 0.0)}% n=${com.lifecyclebot.engine.ScoreExpectancyTracker.bucketSamples(compounderLane7614, _trsScore)}")
                             }
                             // V5.9.1556 — tuning only: Treasury overall is net-positive,
                             // but console shows TREASURY|S0-10 as the dominant danger
@@ -28718,12 +28776,12 @@ if (hotExitHandledSweep) {
                             val treasuryFdg = try {
                                 FdgOutcomeContinuity8197.evaluate(
                                     ts = ts,
-                                    candidate = laneQualifiedBuyDecision(decision, "TREASURY", confidenceFloor = treasurySignal6022.confidence.toDouble(), liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
-                                    laneScore = treasurySignal6022.confidence.toDouble(),
+                                    candidate = laneQualifiedBuyDecision(laneScoredBase7389(decision, treasurySignal6022.entryScore.toDouble(), treasurySignal6022.confidence.toDouble()), compounderLane7614, confidenceFloor = treasurySignal6022.confidence.toDouble(), liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
+                                    laneScore = treasurySignal6022.entryScore.toDouble(),
                                     config = cfg,
                                     proposedSizeSol = adjustedSize,
                                     brain = executor.brain,
-                                    tradingModeTag = try { ModeSpecificGates.fromTradingMode("TREASURY") } catch (_: Exception) { null },
+                                    tradingModeTag = try { ModeSpecificGates.fromTradingMode(compounderLane7614) } catch (_: Exception) { null },
                                     specialistLane = compounderLane7614,
                                 )
                             } catch (fdgEx: Exception) {
@@ -28762,15 +28820,15 @@ if (hotExitHandledSweep) {
                                 fdgDecision7835 = treasuryFdg, tokenState7835 = ts,
                                 mint = ts.mint,
                                 symbol = ts.symbol,
-                                score = treasuryScore,  // V5.2: Use Treasury's score
-                                confidence = treasurySignal6022.confidence.toDouble(),  // V5.2: Use Treasury's confidence
-                                quality = if (treasurySignal6022.confidence >= 70) "B" else "C",  // V5.2: Derive quality from confidence
+                                score = treasuryFdg?.effectiveEntryScore7687 ?: treasuryScore,
+                                confidence = treasuryFdg?.confidence ?: treasurySignal6022.confidence.toDouble(),
+                                quality = treasuryFdg?.quality ?: if (treasurySignal6022.confidence >= 70) "B" else "C",
                                 isPaperMode = cfg.paperMode,
                                 requestedBook = executionBookForLane6494(compounderLane7614),
                                 rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
                                 liquidity = ts.lastLiquidityUsd,
                                 isBanned = BannedTokens.isBanned(ts.mint),
-                                preResolvedSizeSol = adjustedSize,
+                                preResolvedSizeSol = treasuryFdg?.sizeSol ?: adjustedSize,
                             )
                             
                             if (!authResult.isExecutable()) {
@@ -28971,33 +29029,8 @@ if (hotExitHandledSweep) {
                     }
                     
                     if (qualityPermit.allowed && ts.lastMcap in qualityBand7389) {  // V5.0.7389: learned band, same as election
-                        val (v3Score, v3Confidence) = when (val result = v3Decision) {
-                            is com.lifecyclebot.v3.V3Decision.Execute -> result.score to result.confidence.toInt()
-                            is com.lifecyclebot.v3.V3Decision.Watch -> result.score to result.confidence
-                            else -> 15 to 25
-                        }
-                        
-                        // Calculate token age from history (first candle timestamp)
-                        // V5.9.189: Use token's on-chain age (addedToWatchlistAt proxy)
-                        // ts.history.first().ts = when BOT first saw it (wrong on fresh install)
-                        // addedToWatchlistAt is set when token enters scanner — still bot-relative,
-                        // but combined with first-candle ts gives a better floor.
-                        // Quality accepts tokens 10-30 min old so we use max of both signals.
-                        val qualityTokenAgeMinutes = if (ts.history.size >= 2) {
-                            // Use span between first and latest candle as minimum age signal
-                            val historySpanMin = (ts.history.last().ts - ts.history.first().ts) / 60_000.0
-                            // Also use time since added to watchlist
-                            val watchlistAgeMin = (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
-                            // Take the larger of the two — both are lower bounds on real age
-                            maxOf(historySpanMin, watchlistAgeMin, 0.0)
-                        } else if (ts.history.isNotEmpty()) {
-                            (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
-                        } else 0.0
-                        
-                        // Get holder count from last candle
-                        val qualityHolderCount = ts.history.lastOrNull()?.holderCount ?: 0
-                        
-                        val qualitySignal = operatorQualityAssessment8522(ts, v3Score, qualityTokenAgeMinutes, qualityHolderCount)
+                        val qualitySignal = operatorQualityAssessment8522(ts,
+                            SpecialistMarketInputs8522.forCycle8522(cycleSheet8522, ts))
                         val qualityBridge6022 = if (!qualitySignal.shouldEnter) toolkitGoodLaneBridge6022(ts, "QUALITY", qualitySignal.reason) else null
                         val qualitySignal6022 = if (qualityBridge6022 != null) qualitySignal.copy(
                             shouldEnter = true,
@@ -29015,7 +29048,7 @@ if (hotExitHandledSweep) {
                             // V5.9.116: Promote from debug → throttled info so user
                             // actually sees WHY Quality never fires.
                             logLayerSkip("⭐ QUALITY", ts.symbol, ts.mint,
-                                "${qualitySignal6022.reason} | mcap=\$${ts.lastMcap.toInt()} liq=\$${ts.lastLiquidityUsd.toInt()} age=${qualityTokenAgeMinutes.toInt()}min")
+                                "${qualitySignal6022.reason} | mcap=\$${ts.lastMcap.toInt()} liq=\$${ts.lastLiquidityUsd.toInt()} age=${SpecialistMarketInputs8522.forCycle8522(cycleSheet8522, ts).age.inputMinutes.toInt()}min")
                         }
                         
                         if (qualitySignal6022.shouldEnter) {
@@ -29023,7 +29056,7 @@ if (hotExitHandledSweep) {
                             val qualityFdg = try {
                                 FdgOutcomeContinuity8197.evaluate(
                                     ts = ts,
-                                    candidate = laneQualifiedBuyDecision(laneScoredBase7389(decision, qualitySignal6022.qualityScore.toDouble()), "QUALITY", confidenceFloor = qualitySignal6022.qualityScore.toDouble(), liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
+                                    candidate = laneQualifiedBuyDecision(laneScoredBase7389(decision, qualitySignal6022.qualityScore.toDouble(), qualitySignal6022.qualityScore.toDouble()), "QUALITY", confidenceFloor = qualitySignal6022.qualityScore.toDouble(), liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
                                     laneScore = qualitySignal6022.qualityScore.toDouble(),
                                     config = cfg,
                                     proposedSizeSol = qualitySignal6022.positionSizeSol,
@@ -29078,12 +29111,12 @@ if (hotExitHandledSweep) {
                             val qualityAuth6494 = TradeAuthorizer.authorize(
                                 fdgDecision7835 = qualityFdg, tokenState7835 = ts,
                                 mint = ts.mint, symbol = ts.symbol,
-                                score = qualitySignal6022.qualityScore,
-                                confidence = qualitySignal6022.qualityScore.toDouble(),
-                                quality = "QUALITY", isPaperMode = cfg.paperMode,
+                                score = qualityFdg?.effectiveEntryScore7687 ?: qualitySignal6022.qualityScore,
+                                confidence = qualityFdg?.confidence ?: qualitySignal6022.qualityScore.toDouble(),
+                                quality = qualityFdg?.quality ?: "QUALITY", isPaperMode = cfg.paperMode,
                                 requestedBook = TradeAuthorizer.ExecutionBook.QUALITY,
                                 rugcheckScore = ts.safety.rugcheckScore, liquidity = ts.lastLiquidityUsd,
-                                preResolvedSizeSol = qualitySize7389,
+                                preResolvedSizeSol = qualityFdg?.sizeSol ?: qualitySize7389,
                             )
                             val qualityAuthorizedSize7835 = qualityAuth6494.executionIntent7835?.resolvedSize ?: 0.0
                             val canExecute = qualityAuth6494.isExecutable() && FinalExecutionPermit.tryAcquireExecution(
@@ -29271,8 +29304,8 @@ if (hotExitHandledSweep) {
                             val blueChipFdg = try {
                                 FdgOutcomeContinuity8197.evaluate(
                                     ts = ts,
-                                    candidate = laneQualifiedBuyDecision(laneScoredBase7389(decision, blueChipSignal6022.confidence.toDouble()), "BLUE_CHIP", confidenceFloor = blueChipSignal6022.confidence.toDouble(), liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
-                                    laneScore = blueChipSignal6022.confidence.toDouble(),
+                                    candidate = laneQualifiedBuyDecision(laneScoredBase7389(decision, blueChipSignal6022.entryScore.toDouble(), blueChipSignal6022.confidence.toDouble()), "BLUE_CHIP", confidenceFloor = blueChipSignal6022.confidence.toDouble(), liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
+                                    laneScore = blueChipSignal6022.entryScore.toDouble(),
                                     config = cfg,
                                     proposedSizeSol = blueChipSignal6022.positionSizeSol,
                                     brain = executor.brain,
@@ -29327,12 +29360,12 @@ if (hotExitHandledSweep) {
                             val blueChipAuth6494 = TradeAuthorizer.authorize(
                                 fdgDecision7835 = blueChipFdg, tokenState7835 = ts,
                                 mint = ts.mint, symbol = ts.symbol,
-                                score = blueChipSignal6022.confidence,
-                                confidence = blueChipSignal6022.confidence.toDouble(),
-                                quality = "BLUECHIP", isPaperMode = cfg.paperMode,
+                                score = blueChipFdg?.effectiveEntryScore7687 ?: blueChipSignal6022.entryScore,
+                                confidence = blueChipFdg?.confidence ?: blueChipSignal6022.confidence.toDouble(),
+                                quality = blueChipFdg?.quality ?: "BLUECHIP", isPaperMode = cfg.paperMode,
                                 requestedBook = TradeAuthorizer.ExecutionBook.BLUECHIP,
                                 rugcheckScore = ts.safety.rugcheckScore, liquidity = ts.lastLiquidityUsd,
-                                preResolvedSizeSol = bcSize7389,
+                                preResolvedSizeSol = blueChipFdg?.sizeSol ?: bcSize7389,
                             )
                             // The authorizer has now passed the executable-open finality
                             // gate. Record the proven downstream stages on the exact attempt
@@ -29535,14 +29568,8 @@ if (hotExitHandledSweep) {
                                 )
                             } catch (_: Throwable) {}
                         } else {
-                            // Calculate volume score from recent data (use lastV3Score as proxy)
-                            // V5.0.7327 — once the token has real volume candles, score the
-                            // measured volume expansion instead of the generic V3 total.
-                            val volKnown7327 = try {
-                                com.lifecyclebot.v3.bridge.V3Adapter.dataKnowledge7327(ts).volume
-                            } catch (_: Throwable) { false }
-                            val volScore = if (volKnown7327) ts.meta.volScore.toInt().coerceIn(0, 100)
-                                else ts.lastV3Score ?: 20
+                            // 8527 — the native opinion and actual entry read identical volume and lifecycle evidence.
+                            val moonshotInputs8527 = SpecialistInputParity8527.moonshotInputs8527(ts)
                             
                             // Check for collective intelligence boost
                             val isCollectiveWinner = com.lifecyclebot.v3.scoring.MoonshotTraderAI.isCollectiveWinner(ts.mint)
@@ -29552,12 +29579,12 @@ if (hotExitHandledSweep) {
                                 symbol = ts.symbol,
                                 marketCapUsd = ts.lastMcap,
                                 liquidityUsd = ts.lastLiquidityUsd,
-                                volumeScore = volScore,
+                                volumeScore = moonshotInputs8527.volumeScore,
                                 buyPressurePct = ts.lastBuyPressurePct,
                                 rugcheckScore = ts.safety.rugcheckScore,
                                 v3EntryScore = (ts.lastV3Score ?: 50).toDouble(),
                                 v3Confidence = (ts.lastV3Confidence ?: 50).toDouble(),
-                                phase = ts.phase,
+                                phase = moonshotInputs8527.phase,
                                 isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),  // V5.9.1563 — runtime authority, not stale cfg
                                 runnerShaped7266 = runnerShaped7266,
                             ), ts.mint)
@@ -29592,17 +29619,18 @@ if (hotExitHandledSweep) {
                             val moonshotEdge = com.lifecyclebot.v3.scoring.MemeEdgeAI.evaluate(
                                 layer = com.lifecyclebot.v3.scoring.MemeEdgeAI.Layer.MOONSHOT,
                                 mcapUsd = ts.lastMcap,
-                                tokenAgeMinutes = tokenAgeMinutes,
-                                buyRatioPct = ts.lastBuyPressurePct,
-                                volumeUsd = ts.lastLiquidityUsd * 0.05,
-                                liquidityUsd = ts.lastLiquidityUsd,
-                                holderCount = ts.history.lastOrNull()?.holderCount ?: 0,
-                                topHolderPct = ts.topHolderPct ?: ts.safety.topHolderPct.takeIf { it >= 0 } ?: if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive()) 50.0 else 20.0,
-                                holderGrowthRate = ts.holderGrowthRate,
-                                rugcheckScore = ts.safety.rugcheckScore.toDouble(),
+                                tokenAgeMinutes = tokenAgeMinutes.takeIf { it.isFinite() && it >= 0.0 } ?: Double.NaN,
+                                buyRatioPct = LaneInputTruth8236.buyPressure8491(ts, System.currentTimeMillis()) ?: Double.NaN,
+                                volumeUsd = ts.tokenMap.volume24hUsd?.takeIf { it.isFinite() && it >= 0.0 } ?: Double.NaN,
+                                liquidityUsd = ts.tokenMap.liquidityUsd?.takeIf { it.isFinite() && it >= 0.0 } ?: ts.lastLiquidityUsd.takeIf { it.isFinite() && it > 0.0 } ?: Double.NaN,
+                                holderCount = ts.history.lastOrNull()?.holderCount?.takeIf { ts.holderDataResolved && it > 0 } ?: -1,
+                                topHolderPct = ts.topHolderPct?.takeIf { it.isFinite() && it in 0.0..100.0 } ?: ts.tokenMap.topHolderConcentrationPct?.takeIf { it.isFinite() && it in 0.0..100.0 } ?: ts.safety.topHolderPct.takeIf { ts.safety.topHolderObservedAtMs8522 in 1L..System.currentTimeMillis() && it.isFinite() && it in 0.0..100.0 } ?: Double.NaN,
+                                holderGrowthRate = ts.holderGrowthRate.takeIf { ts.holderDataResolved && it.isFinite() && ts.history.count { candle -> candle.holderCount > 0 } >= 2 } ?: Double.NaN,
+                                rugcheckScore = ts.safety.rugcheckScore.toDouble().takeIf { ts.safety.checkedAt in 1L..System.currentTimeMillis() && it.isFinite() && it in 0.0..100.0 } ?: Double.NaN,
                                 baseEntryScore = moonshotScore.score.toDouble(),
                                 narrativeCluster = moonshotNarrative,
                                 openClusterCount = moonshotOpenInCluster,
+                                executionMode = if (cfg.paperMode) "PAPER" else "LIVE",
                             )
                             if (moonshotScore.eligible &&
                                 (moonshotEdge.scoreNudge != 0.0 ||
@@ -29668,8 +29696,8 @@ if (hotExitHandledSweep) {
                                     } catch (_: Exception) { null }
                                     FdgOutcomeContinuity8197.evaluate(
                                         ts = ts,
-                                        candidate = laneQualifiedBuyDecision(laneScoredBase7389(decision, moonshotScore.confidence), "MOONSHOT", confidenceFloor = moonshotScore.confidence /* V5.0.7323: already 0-100 */, liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
-                                        laneScore = moonshotScore.confidence,            // already 0-100
+                                        candidate = laneQualifiedBuyDecision(laneScoredBase7389(decision, moonshotScore.score.toDouble(), moonshotScore.confidence), "MOONSHOT", confidenceFloor = moonshotScore.confidence /* V5.0.7323: already 0-100 */, liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
+                                        laneScore = moonshotScore.score.coerceIn(0, 100).toDouble(),
                                         config = cfg,
                                         proposedSizeSol = moonshotScore.suggestedSizeSol,
                                         brain = executor.brain,
@@ -29734,14 +29762,14 @@ if (hotExitHandledSweep) {
                                 fdgDecision7835 = moonshotFdgDecision, tokenState7835 = ts,
                                     mint = ts.mint,
                                     symbol = ts.symbol,
-                                    score = moonshotScore.score,
-                                    confidence = moonshotScore.confidence,
-                                    quality = moonshotScore.spaceMode.displayName,
+                                    score = moonshotFdgDecision?.effectiveEntryScore7687 ?: moonshotScore.score,
+                                    confidence = moonshotFdgDecision?.confidence ?: moonshotScore.confidence,
+                                    quality = moonshotFdgDecision?.quality ?: moonshotScore.spaceMode.displayName,
                                     isPaperMode = cfg.paperMode,
                                     requestedBook = TradeAuthorizer.ExecutionBook.MOONSHOT,
                                     rugcheckScore = ts.safety.rugcheckScore,
                                     liquidity = ts.lastLiquidityUsd,
-                                    preResolvedSizeSol = msEffectiveSize,
+                                    preResolvedSizeSol = moonshotFdgDecision?.sizeSol ?: msEffectiveSize,
                                 )
                                 
                                 if (!authResult.isExecutable()) {
@@ -29972,15 +30000,11 @@ if (hotExitHandledSweep) {
                         // Detect launch platform from source
                         val launchPlatform = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.detectPlatform(ts.source)
                         
-                        // Extract holder and bundle info from safety data
-                        // Use firstBlockSupplyPct as proxy for dev/bundle holding
-                        val devHoldPct = ts.safety.firstBlockSupplyPct.takeIf { it >= 0 } ?: 10.0
-                        val bundlePct = if (ts.safety.bundleRisk == "HIGH") 80.0 
-                                       else if (ts.safety.bundleRisk == "MEDIUM") 50.0 
-                                       else 10.0
-                        
-                        // Calculate social score from available signals
-                        val socialScore = calculateSocialScore(ts)
+                        // 8527 — qualification and entry share dated market evidence and cached project metadata.
+                        val shitcoinMarketInputs8527 = SpecialistMarketInputs8522.forCycle8522(cycleSheet8522, ts)
+                        val shitcoinInputs8527 = SpecialistInputParity8527.shitcoinInputs8527(
+                            shitcoinMarketInputs8527, ts.safety.firstBlockSupplyPct)
+                        val shitcoinEvidence8527 = SpecialistInputParity8527.shitcoinEvidence8527(ts, shitcoinMarketInputs8527)
                         
                         // Check for DEX boost/trending
                         val isDexBoosted = ts.source.contains("BOOSTED", ignoreCase = true)
@@ -29989,11 +30013,7 @@ if (hotExitHandledSweep) {
                         // Check for copycat/scam patterns
                         val isCopyCat = detectCopyCat(ts.symbol)
                         
-                        // Calculate graduation progress for pump.fun tokens
-                        val graduationProgress = if (launchPlatform == com.lifecyclebot.v3.scoring.ShitCoinTraderAI.LaunchPlatform.PUMP_FUN) {
-                            // Graduation happens around $69K mcap on pump.fun
-                            ((ts.lastMcap / 69_000.0) * 100).coerceAtMost(100.0)
-                        } else 0.0
+                        val graduationProgress = shitcoinEvidence8527.graduationProgress
                         
                         // V5.9.103: COLLAPSE GUARD — skip ShitCoin emit on draining-liquidity tokens
                         // Uses LiquidityDepthAI's existing trend analysis (same engine that
@@ -30074,27 +30094,19 @@ if (hotExitHandledSweep) {
                             currentPrice = ts.ref,
                             marketCapUsd = ts.lastMcap,
                             liquidityUsd = ts.lastLiquidityUsd,
-                            topHolderPct = ts.topHolderPct ?: ts.safety.topHolderPct.takeIf { it >= 0 } ?: if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive()) 50.0 else 20.0,
-                            buyPressurePct = ts.lastBuyPressurePct,
-                            momentum = ts.momentum ?: 0.0,
-                            volatility = ts.volatility ?: 0.0,
+                            topHolderPct = laneTopHolderPct7809(ts),
+                            buyPressurePct = shitcoinEvidence8527.buyPressurePct,
+                            momentum = shitcoinInputs8527.momentumPct,
+                            volatility = shitcoinEvidence8527.volatility,
                             tokenAgeMinutes = tokenAgeMinutes,
                             launchPlatform = launchPlatform,
-                            devWallet = OperatorRegistry.getDevWallet(ts.mint),  // V5.0.7764 — creator from the PumpPortal create frame
-                            devHoldPct = devHoldPct,
-                            bundlePct = bundlePct,
-                            socialScore = socialScore,
-                            // V5.9.618 — KILLED the social-score farce.
-                            // Pre-V5.9.618 these were fabricated from a single proxy
-                            // (`symbol.length > 2`, `socialScore >= 20`), feeding ~7
-                            // points of garbage signal to ShitCoin scoring. Until we
-                            // wire real social-presence detection, default to false.
-                            // ShitCoin's score floors are already calibrated low so
-                            // this won't choke entries — it just stops feeding noise
-                            // into AdaptiveLearningEngine pattern weights.
-                            hasWebsite = ts.pairUrl.isNotBlank(),
-                            hasTwitter = ts.sentiment.xMentions > 0,
-                            hasTelegram = ts.sentiment.telegramMentions > 0,
+                            devWallet = shitcoinEvidence8527.devWallet,
+                            devHoldPct = shitcoinEvidence8527.devHoldPct,
+                            bundlePct = shitcoinInputs8527.bundlePct,
+                            socialScore = shitcoinEvidence8527.socialScore,
+                            hasWebsite = shitcoinEvidence8527.hasWebsite,
+                            hasTwitter = shitcoinEvidence8527.hasTwitter,
+                            hasTelegram = shitcoinEvidence8527.hasTelegram,
                             hasGithub = false,
                             isDexBoosted = isDexBoosted,
                             dexTrendingRank = dexTrendingRank,
@@ -30135,17 +30147,18 @@ if (hotExitHandledSweep) {
                         val shitCoinEdge = com.lifecyclebot.v3.scoring.MemeEdgeAI.evaluate(
                             layer = com.lifecyclebot.v3.scoring.MemeEdgeAI.Layer.SHITCOIN,
                             mcapUsd = ts.lastMcap,
-                            tokenAgeMinutes = tokenAgeMinutes,
-                            buyRatioPct = ts.lastBuyPressurePct,
-                            volumeUsd = ts.lastLiquidityUsd * 0.05,
-                            liquidityUsd = ts.lastLiquidityUsd,
-                            holderCount = ts.history.lastOrNull()?.holderCount ?: 0,
-                            topHolderPct = ts.topHolderPct ?: ts.safety.topHolderPct.takeIf { it >= 0 } ?: if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive()) 50.0 else 20.0,
-                            holderGrowthRate = ts.holderGrowthRate,
-                            rugcheckScore = ts.safety.rugcheckScore.toDouble(),
+                            tokenAgeMinutes = tokenAgeMinutes.takeIf { it.isFinite() && it >= 0.0 } ?: Double.NaN,
+                            buyRatioPct = LaneInputTruth8236.buyPressure8491(ts, System.currentTimeMillis()) ?: Double.NaN,
+                            volumeUsd = ts.tokenMap.volume24hUsd?.takeIf { it.isFinite() && it >= 0.0 } ?: Double.NaN,
+                            liquidityUsd = ts.tokenMap.liquidityUsd?.takeIf { it.isFinite() && it >= 0.0 } ?: ts.lastLiquidityUsd.takeIf { it.isFinite() && it > 0.0 } ?: Double.NaN,
+                            holderCount = ts.history.lastOrNull()?.holderCount?.takeIf { ts.holderDataResolved && it > 0 } ?: -1,
+                            topHolderPct = ts.topHolderPct?.takeIf { it.isFinite() && it in 0.0..100.0 } ?: ts.tokenMap.topHolderConcentrationPct?.takeIf { it.isFinite() && it in 0.0..100.0 } ?: ts.safety.topHolderPct.takeIf { ts.safety.topHolderObservedAtMs8522 in 1L..System.currentTimeMillis() && it.isFinite() && it in 0.0..100.0 } ?: Double.NaN,
+                            holderGrowthRate = ts.holderGrowthRate.takeIf { ts.holderDataResolved && it.isFinite() && ts.history.count { candle -> candle.holderCount > 0 } >= 2 } ?: Double.NaN,
+                            rugcheckScore = ts.safety.rugcheckScore.toDouble().takeIf { ts.safety.checkedAt in 1L..System.currentTimeMillis() && it.isFinite() && it in 0.0..100.0 } ?: Double.NaN,
                             baseEntryScore = shitCoinSignal.entryScore.toDouble(),
                             narrativeCluster = shitCoinNarrative,
                             openClusterCount = shitCoinOpenInCluster,
+                            executionMode = if (cfg.paperMode) "PAPER" else "LIVE",
                         )
                         if (shitCoinEdge.scoreNudge != 0.0 || shitCoinEdge.confidenceNudge != 0.0) {
                             shitCoinSignal = shitCoinSignal.copy(
@@ -30168,17 +30181,17 @@ if (hotExitHandledSweep) {
                         // Use raw signal score, not shitCoinSignal.confidence which may be low
                         // ═══════════════════════════════════════════════════════════════════
                         val rawShitcoinScore = calculateBootstrapScore(
-                            buyPressurePct = ts.lastBuyPressurePct,
+                            buyPressurePct = shitcoinEvidence8527.buyPressurePct,
                             liquidityUsd = ts.lastLiquidityUsd,
-                            momentum = ts.momentum ?: 0.0,
-                            volatility = ts.volatility ?: 0.0,
+                            momentum = shitcoinInputs8527.momentumPct,
+                            volatility = shitcoinEvidence8527.volatility,
                         )
                         
                         val forceBootstrapEntry = com.lifecyclebot.v3.scoring.FluidLearningAI.shouldForceBootstrapEntry(
                             score = rawShitcoinScore,
                             liquidityUsd = ts.lastLiquidityUsd,
                             tokenAgeMinutes = tokenAgeMinutes,
-                            buyPressurePct = ts.lastBuyPressurePct,
+                            buyPressurePct = shitcoinEvidence8527.buyPressurePct,
                             isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()  // V5.9.1563 — runtime authority, not stale cfg
                         )
                         
@@ -30275,8 +30288,8 @@ if (hotExitHandledSweep) {
                             val shitCoinFdg = try {
                                 FdgOutcomeContinuity8197.evaluate(
                                     ts = ts,
-                                    candidate = laneQualifiedBuyDecision(laneScoredBase7389(decision, shitCoinSignal.confidence.toDouble()), "SHITCOIN", confidenceFloor = shitCoinSignal.confidence.toDouble() /* V5.0.7389: Int 0-100, was *100 */, liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
-                                    laneScore = shitCoinSignal.confidence.toDouble(),  // Int 0-100
+                                    candidate = laneQualifiedBuyDecision(laneScoredBase7389(decision, shitCoinSignal.entryScore.toDouble(), shitCoinSignal.confidence.toDouble()), "SHITCOIN", confidenceFloor = shitCoinSignal.confidence.toDouble() /* V5.0.7389: Int 0-100, was *100 */, liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
+                                    laneScore = shitCoinSignal.entryScore.toDouble(),
                                     config = cfg,
                                     proposedSizeSol = adjustedSize,
                                     brain = executor.brain,
@@ -30376,15 +30389,15 @@ if (hotExitHandledSweep) {
                                 fdgDecision7835 = shitCoinFdg, tokenState7835 = ts,
                                 mint = ts.mint,
                                 symbol = ts.symbol,
-                                score = ts.lastV3Score ?: shitCoinSignal.confidence,
-                                confidence = shitCoinSignal.confidence.toDouble(),
-                                quality = "C",  // ShitCoin doesn't have grade, use default
+                                score = shitCoinFdg?.effectiveEntryScore7687 ?: shitCoinSignal.entryScore,
+                                confidence = shitCoinFdg?.confidence ?: shitCoinSignal.confidence.toDouble(),
+                                quality = shitCoinFdg?.quality ?: "C",
                                 isPaperMode = cfg.paperMode,
                                 requestedBook = TradeAuthorizer.ExecutionBook.SHITCOIN,
                                 rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
                                 liquidity = ts.lastLiquidityUsd,
                                 isBanned = BannedTokens.isBanned(ts.mint),
-                                preResolvedSizeSol = adjustedSize,
+                                preResolvedSizeSol = shitCoinFdg?.sizeSol ?: adjustedSize,
                             )
                             
                             if (!authResult.isExecutable()) {
@@ -30599,26 +30612,10 @@ if (hotExitHandledSweep) {
                     )
                 } catch (_: Throwable) {}
                 try {
-                    val manipTokenAgeMinutes = com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.trueAgeMs(ts) / 60_000.0
-
-                    val manipBundlePct = if (ts.safety.bundleRisk == "HIGH") 80.0
-                                        else if (ts.safety.bundleRisk == "MEDIUM") 50.0
-                                        else 10.0
-
-                    val manipSignal = laneDoor8105(com.lifecyclebot.v3.scoring.ManipulatedTraderAI.evaluate(
-                        mint = ts.mint,
-                        symbol = ts.symbol,
-                        currentPrice = ts.ref,
-                        marketCapUsd = ts.lastMcap,
-                        liquidityUsd = ts.lastLiquidityUsd,
-                        momentum = ts.momentum ?: 0.0,
-                        buyPressurePct = ts.lastBuyPressurePct,
-                        bundlePct = manipBundlePct,
-                        source = ts.source,
-                        ageMinutes = manipTokenAgeMinutes,
-                        rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
-                        isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),  // V5.9.1563 — runtime authority, not stale cfg
-                    ), ts.mint)
+                    val manipBundlePct = ts.safety.firstBlockSupplyPct.takeIf { it >= 0.0 } ?: 0.0
+                    val manipSignal = laneDoor8105(SpecialistInputParity8527.manipulated8527(
+                        ts, SpecialistMarketInputs8522.forCycle8522(cycleSheet8522, ts),
+                        com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()), ts.mint)
 
                     // V5.0.7389 — labeled lane scope: MANIPULATED disabled exits only this lane.
                     if (manipSignal.shouldEnter && manipulatedBuyerEnabled7609()) run manipEntry7389@{
@@ -30644,7 +30641,7 @@ if (hotExitHandledSweep) {
                         val manipFdg = try {
                             FdgOutcomeContinuity8197.evaluate(
                                 ts = ts,
-                                candidate = laneQualifiedBuyDecision(decision, "MANIPULATED", confidenceFloor = manipSignal.manipScore.toDouble(), liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
+                                candidate = laneQualifiedBuyDecision(laneScoredBase7389(decision, manipSignal.manipScore.toDouble(), manipSignal.manipScore.toDouble()), "MANIPULATED", confidenceFloor = manipSignal.manipScore.toDouble(), liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
                                 laneScore = manipSignal.manipScore.toDouble(),
                                 config = cfg,
                                 proposedSizeSol = manipSignal.positionSizeSol,
@@ -30694,15 +30691,15 @@ if (hotExitHandledSweep) {
                                 fdgDecision7835 = manipFdg, tokenState7835 = ts,
                             mint = ts.mint,
                             symbol = ts.symbol,
-                            score = manipSignal.manipScore,
-                            confidence = 55.0,
-                            quality = "MANIPULATED",
+                            score = manipFdg?.effectiveEntryScore7687 ?: manipSignal.manipScore,
+                            confidence = manipFdg?.confidence ?: manipSignal.manipScore.toDouble(),
+                            quality = manipFdg?.quality ?: "MANIPULATED",
                             isPaperMode = cfg.paperMode,
                             requestedBook = TradeAuthorizer.ExecutionBook.MANIPULATED,  // V5.6.8: Use MANIPULATED book to bypass rugcheck
                             rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
                             liquidity = ts.lastLiquidityUsd,
                             isBanned = BannedTokens.isBanned(ts.mint),
-                            preResolvedSizeSol = manipSignal.positionSizeSol,
+                            preResolvedSizeSol = manipFdg?.sizeSol ?: manipSignal.positionSizeSol,
                         )
 
                         if (!manipAuthResult.isExecutable()) {
@@ -30817,43 +30814,11 @@ if (hotExitHandledSweep) {
                 // V5.7.8: Express runs independently, but V5.0.3817 routes it through
                 // the shared bounded lane gate so coverage reports prove it is alive.
                 try {
-                    val tokenAgeMinutes = LaneAgeLiquidityTruth8140.launchAgeMinutesOr8140(ts, 60.0) // V5.0.8140 — true chain age, not watchlist
-
-                    // V5.6.29d: Lowered pre-filter to match ShitCoinExpress.kt (was 5%/55%, now 3%/50%)
-                    // V5.9.117: Fluid bootstrap gates — mirror ShitCoinExpress's own
-                    // fluid gates so fresh-launch tokens with no momentum history
-                    // but strong buy pressure still reach evaluate().
-                    val momentum = ts.momentum ?: 0.0
-                    val expressLearning = com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
-                    val expressMinMom = (1.0 + expressLearning * 2.0).coerceIn(1.0, 3.0)
-                    // V5.9.686 — lower floor 45→40 so tokens with 45-50% buy pressure
-                    // (the pump.fun WS default band) pass the pre-filter and reach evaluate().
-                    val expressMinBuyP = (40.0 + expressLearning * 10.0).coerceIn(40.0, 50.0)
-                    // V5.9.686 — Lower proxy threshold 65→55%.
-                    // Pump.fun WS tokens arrive with no candle history so momentum=null
-                    // and lastBuyPressurePct stays at the constructor default (50.0).
-                    // The old 65% floor meant every PumpPortal token got effectiveMom=0
-                    // and hit the EXPRESS SKIP gate. 55% lets the majority of fresh
-                    // launches synthesise a minimal momentum read from buy pressure.
-                    // V5.9.1481 — DEAD-BAND FIX (mirror of ShitCoinExpress): proxy
-                    // floor 55 -> 50 so WS-default (50.0) tokens synthesise momentum
-                    // and reach evaluate() instead of being pre-filtered into silence.
-                    // V5.0.7389 — EXPRESS rides pumps already in motion (design: 60%+ buy
-                    // pressure). A 50% WS-default reading is not momentum; only a genuine
-                    // 60%+ buy-pressure read may stand in for missing candle momentum.
-                    val effectiveExpressMom = if (momentum <= 0.0 && ts.lastBuyPressurePct >= 60.0) {
-                        (ts.lastBuyPressurePct - 49.0).coerceAtLeast(expressMinMom)
-                    } else momentum
-                    // V5.9.240: Mirror Moonshot's mcapUnknownButLiq bypass —
-                    // fresh pump.fun tokens arrive with lastMcap==0 before the
-                    // first mcap fetch lands; still allow if liquidity >= $1K.
-                    // V5.9.245: Raised Express mcap ceiling $300K → $5M — trending memes often 500K-3M
-                    // V5.0.7389 — ceiling aligned to ShitCoinExpress.evaluate's own $300K cap
-                    // (the $5M pre-filter only admitted tokens evaluate() then refused).
+                    // Native continuation/pressure scoring owns the soft opportunity decision.
+                    // Retain the physical cap scope; no second momentum gate may prevent a current native opinion reaching its door.
                     val expressInMcapRange = ts.lastMcap in 1_000.0..300_000.0  // V5.9.1492: 2K->1K, match ShitCoinExpress floor (dead-quiet fix)
                     val expressUnknownMcapOk = ts.lastMcap <= 0.0 && ts.lastLiquidityUsd >= 1_000.0
-                    val passesPreFilter = (expressInMcapRange || expressUnknownMcapOk) &&
-                        effectiveExpressMom >= expressMinMom && ts.lastBuyPressurePct >= expressMinBuyP
+                    val passesPreFilter = expressInMcapRange || expressUnknownMcapOk
                     
                     if (!passesPreFilter) {
                         // V5.9.116: throttled diagnostic so the user can see WHY
@@ -30864,63 +30829,13 @@ if (hotExitHandledSweep) {
                                 if (ts.lastMcap <= 0.0) "mcap=unknown liq=$${ts.lastLiquidityUsd.toInt()} < \$1K"
                                 else if (ts.lastMcap < 1_000) "mcap=\$$mcap < \$1K"
                                 else "mcap=\$$mcap > \$300K"
-                            // V5.0.8236 — a 0% momentum with no price change observed and buy pressure at its default is
-                            // not "no continuation"; the input has not arrived.
-                            effectiveExpressMom < expressMinMom && ts.momentum == null &&
-                                ts.priceChangeObservedAtMs8084 == 0L && ts.buyPressureObservedAtMs8084 == 0L ->
-                                com.lifecyclebot.engine.LaneInputTruth8236.MOMENTUM_DEFER
-                            effectiveExpressMom < expressMinMom -> "mom=${effectiveExpressMom.fmt(1)}% < ${expressMinMom.fmt(1)}% (learning=${(expressLearning*100).toInt()}%)"
-                            ts.lastBuyPressurePct < expressMinBuyP -> "buyP=${ts.lastBuyPressurePct.toInt()}% < ${expressMinBuyP.toInt()}%"
                             else -> "unknown"
                         }
                         logLayerSkip("💩🚂 EXPRESS", ts.symbol, ts.mint, reason)
                     } else {
-                        val isTrending = ts.source.contains("TRENDING", ignoreCase = true)
-                        val isBoosted = ts.source.contains("BOOSTED", ignoreCase = true)
-                        
-                        // Calculate 5 min price change
-                        val lastHistoryEntry = ts.history.lastOrNull()
-                        val priceChange5Min = if (lastHistoryEntry != null && lastHistoryEntry.priceUsd > 0) {
-                            ((ts.ref - lastHistoryEntry.priceUsd) / lastHistoryEntry.priceUsd * 100).coerceIn(-50.0, 100.0)
-                        } else 0.0
-                        
-                        val expressSignal = laneDoor8105(com.lifecyclebot.v3.scoring.ShitCoinExpress.evaluate(
-                            mint = ts.mint,
-                            symbol = ts.symbol,
-                            currentPrice = ts.ref,
-                            marketCapUsd = ts.lastMcap,
-                            liquidityUsd = ts.lastLiquidityUsd,
-                            momentum = effectiveExpressMom,  // V5.9.117: use synthesized bootstrap momentum
-                            buyPressurePct = ts.lastBuyPressurePct,
-                            // V5.0.6841 §EXPRESS_SCORE_GATE_COULD_NOT_REJECT — this was a
-                            // hardcoded 1.5 "default estimate", and ShitCoinExpress scores
-                            // volumeChange with `>= 1.5 -> 8`. The literal landed exactly on
-                            // that branch, so EVERY express candidate collected 8 free points
-                            // for a volume surge nobody measured. With ageScore's floor of 3,
-                            // the minimum achievable score was 8 + 3 = 11 against an admission
-                            // threshold of 10 + 10*progress (progress ~0 at current counts):
-                            // 11 > 10 meant the score gate was arithmetically incapable of
-                            // rejecting anything, and a zero-momentum, 50%-buy-pressure token
-                            // was admitted on constants alone. That is how the book's worst
-                            // lane (3.8% WR, -62% avg) also became one of its busiest.
-                            // No real volume-change ratio is reachable here — volumeH1 /
-                            // volume24h live on Candle, not TokenState — and unmeasured data
-                            // must not score. Passing 0.0 drops to the `else -> 0` branch, so
-                            // the floor falls to 3 and the threshold becomes load-bearing.
-                            // Plumb a genuine surge ratio (volumeH1 vs volume24h/24) here to
-                            // restore the signal properly.
-                            // V5.0.7293 — the genuine surge ratio, from fetched OHLCV
-                            // bars that carry per-bar volume (DexPaprika 7293 /
-                            // GeckoTerminal 6916 store it in volume24h). Latest bar
-                            // vs the mean of up to 12 before it; 0.0 (unmeasured)
-                            // when fewer than 6 volume-bearing bars exist.
-                            volumeChange = expressVolumeSurge7293(ts),
-                            priceChange5Min = priceChange5Min,
-                            isTrending = isTrending,
-                            isBoosted = isBoosted,
-                            tokenAgeMinutes = tokenAgeMinutes,
-                        ), ts.mint)
-                        
+                        val expressSignal = laneDoor8105(SpecialistInputParity8527.express8527(
+                            ts, SpecialistMarketInputs8522.forCycle8522(cycleSheet8522, ts)), ts.mint)
+
                         if (!expressSignal.shouldRide) {
                             // V5.9.116: throttled diagnostic for score-stage rejections.
                             logLayerSkip("💩🚂 EXPRESS", ts.symbol, ts.mint, expressSignal.reason)
@@ -30949,7 +30864,7 @@ if (hotExitHandledSweep) {
                             val expressFdg = try {
                                 FdgOutcomeContinuity8197.evaluate(
                                     ts = ts,
-                                    candidate = laneQualifiedBuyDecision(laneScoredBase7389(decision, expressSignal.confidence.toDouble()), "EXPRESS", confidenceFloor = expressSignal.confidence.toDouble() /* V5.0.7389: Int 0-100, was *100 */, liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
+                                    candidate = laneQualifiedBuyDecision(laneScoredBase7389(decision, expressSignal.confidence.toDouble(), expressSignal.confidence.toDouble()), "EXPRESS", confidenceFloor = expressSignal.confidence.toDouble() /* V5.0.7389: Int 0-100, was *100 */, liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
                                     laneScore = expressSignal.confidence.toDouble(),   // Int 0-100
                                     config = cfg,
                                     proposedSizeSol = expressSignal.positionSizeSol,
@@ -30998,15 +30913,15 @@ if (hotExitHandledSweep) {
                                 symbol = ts.symbol,
                                 // V5.0.7389 — the lane's own score/confidence (0-100), not the
                                 // ride's target gain% and a hard-coded 60.0.
-                                score = expressSignal.confidence,
-                                confidence = expressSignal.confidence.toDouble(),
-                                quality = "EXPRESS",
+                                score = expressFdg?.effectiveEntryScore7687 ?: expressSignal.confidence,
+                                confidence = expressFdg?.confidence ?: expressSignal.confidence.toDouble(),
+                                quality = expressFdg?.quality ?: "EXPRESS",
                                 isPaperMode = cfg.paperMode,
                                 requestedBook = TradeAuthorizer.ExecutionBook.EXPRESS,
                                 rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
                                 liquidity = ts.lastLiquidityUsd,
                                 isBanned = BannedTokens.isBanned(ts.mint),
-                                preResolvedSizeSol = expressFinalSize,
+                                preResolvedSizeSol = expressFdg?.sizeSol ?: expressFinalSize,
                             )
                             if (!authResult.isExecutable()) {
                                 ErrorLogger.info("BotService", "💩🚂 [EXPRESS] ${ts.symbol} | ${if (authResult.isShadowOnly()) "SHADOW_ONLY" else "REJECTED"} | ${authResult.reason}")
@@ -31282,23 +31197,24 @@ if (hotExitHandledSweep) {
 
                         if (assessment.shouldEngage && !_sniperBlocked6072 && !sniperOracleRefused7406 && sniperSizedSol7054 > 0.0) {
                             // Authorize with TradeAuthorizer
-                            val authResult = TradeAuthorizer.authorize(
-                                fdgDecision7835 = FdgOutcomeContinuity8197.evaluate(
-                                    ts = ts, candidate = laneQualifiedBuyDecision(decision, "PROJECT_SNIPER", confidenceFloor = assessment.confidence.toDouble(), liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
+                            val sniperFdg8527 = FdgOutcomeContinuity8197.evaluate(
+                                    ts = ts, candidate = laneQualifiedBuyDecision(laneScoredBase7389(decision, assessment.confidence.toDouble(), assessment.confidence.toDouble()), "PROJECT_SNIPER", confidenceFloor = assessment.confidence.toDouble(), liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
                                     config = cfg, proposedSizeSol = sniperSizedSol7054, brain = executor.brain,
                                     specialistLane = "PROJECT_SNIPER", laneScore = assessment.confidence.toDouble(),
-                                ), tokenState7835 = ts,
+                                )
+                            val authResult = TradeAuthorizer.authorize(
+                                fdgDecision7835 = sniperFdg8527, tokenState7835 = ts,
                                 mint = ts.mint,
                                 symbol = ts.symbol,
-                                score = assessment.confidence,
-                                confidence = assessment.confidence.toDouble(),
-                                quality = "SNIPER",
+                                score = sniperFdg8527.effectiveEntryScore7687,
+                                confidence = sniperFdg8527.confidence,
+                                quality = sniperFdg8527.quality,
                                 isPaperMode = cfg.paperMode,
                                 requestedBook = TradeAuthorizer.ExecutionBook.PROJECT_SNIPER,
                                 rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
                                 liquidity = ts.lastLiquidityUsd,
                                 isBanned = BannedTokens.isBanned(ts.mint),
-                                preResolvedSizeSol = sniperSizedSol7054,  // V5.0.7054 shaped
+                                preResolvedSizeSol = sniperFdg8527.sizeSol,
                             )
                             
                             if (authResult.isExecutable()) {
@@ -31419,17 +31335,8 @@ if (hotExitHandledSweep) {
                 } catch (_: Throwable) {}
                 // V5.7.8: DipHunter runs independently
                 try {
-                    // V5.0.7389 — real token age from the first pool (PoolCreationTime7385).
-                    // Watchlist age meant a 2-hour-old token had to sit on the watchlist
-                    // for 2 hours first; memes are evicted long before, so DIP never fired.
-                    // V5.0.8140 — canonical chain birth (token meta / pump create / first pool), not only the pool witness.
-                    val poolAgeSecs7389 = LaneAgeLiquidityTruth8140.chainAgeSecs8140(ts)
-                    val tokenAgeHours = if (poolAgeSecs7389 != null) {
-                        poolAgeSecs7389 / 3600.0
-                    } else if (ts.addedToWatchlistAt > 0) {
-                        (System.currentTimeMillis() - ts.addedToWatchlistAt) / (60 * 60 * 1000.0)
-                    } else 12.0
-                    
+                    val tokenAgeHours = SpecialistMarketInputs8522.forCycle8522(cycleSheet8522, ts).age.inputMinutes / 60.0
+
                     // Dip Hunter for tokens $50K-$5M mcap that have been around
                     if (ts.lastMcap in 50_000.0..5_000_000.0 && tokenAgeHours >= 2.0) {
                         
@@ -31496,7 +31403,7 @@ if (hotExitHandledSweep) {
                             val dipFdg = try {
                                 FdgOutcomeContinuity8197.evaluate(
                                     ts = ts,
-                                    candidate = laneQualifiedBuyDecision(laneScoredBase7389(decision, dipSignal.confidence.toDouble()), "DIP_HUNTER", confidenceFloor = dipSignal.confidence.toDouble() /* V5.0.7389: Int 0-100, was *100 */, liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
+                                    candidate = laneQualifiedBuyDecision(laneScoredBase7389(decision, dipSignal.confidence.toDouble(), dipSignal.confidence.toDouble()), "DIP_HUNTER", confidenceFloor = dipSignal.confidence.toDouble() /* V5.0.7389: Int 0-100, was *100 */, liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
                                     laneScore = dipSignal.confidence.toDouble(),       // Int 0-100
                                     config = cfg,
                                     proposedSizeSol = dipSignal.positionSizeSol,
@@ -31547,15 +31454,15 @@ if (hotExitHandledSweep) {
                                 fdgDecision7835 = dipFdg, tokenState7835 = ts,
                                 mint = ts.mint,
                                 symbol = ts.symbol,
-                                score = dipSignal.confidence,
-                                confidence = dipSignal.confidence.toDouble(),
-                                quality = "DIP",
+                                score = dipFdg?.effectiveEntryScore7687 ?: dipSignal.confidence,
+                                confidence = dipFdg?.confidence ?: dipSignal.confidence.toDouble(),
+                                quality = dipFdg?.quality ?: "DIP",
                                 isPaperMode = cfg.paperMode,
                                 requestedBook = TradeAuthorizer.ExecutionBook.DIP_HUNTER,
                                 rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
                                 liquidity = ts.lastLiquidityUsd,
                                 isBanned = BannedTokens.isBanned(ts.mint),
-                                preResolvedSizeSol = dipSignal.positionSizeSol,
+                                preResolvedSizeSol = dipFdg?.sizeSol ?: dipSignal.positionSizeSol,
                             )
                             
                             if (!authResult.isExecutable()) {
@@ -31640,363 +31547,18 @@ if (hotExitHandledSweep) {
             
             when (val result = v3Decision) {
                 is com.lifecyclebot.v3.V3Decision.Execute -> {
-                    // V5.9.199: StrategyTrust gate — skip execute if DISTRUSTED, don't return
-                    // V5.0.4021 — free-range trust bypass is paper-only. Live
-                    // must not buy through a DISTRUSTED strategy just because
-                    // the global learning system is wide-open.
-                    val memeMode = ts.position.tradingMode.ifBlank { identity.phase.ifBlank { "SHITCOIN" } }
-                    val trustAllowed = (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() && FreeRangeMode.isWideOpen()) ||
-                        com.lifecyclebot.v4.meta.StrategyTrustAI.isStrategyAllowed(memeMode)
-                    // V5.0.7389 — when QUALITY or BLUECHIP owns the cycle, that lane's own
-                    // evaluator decides; the V3 trunk no longer buys under its label without
-                    // its gates or stops (trunk "QUALITY" buys: 0/7, EV -4.2%). Tokens that do
-                    // not pinpoint to one lane are owned by CORE (the ensemble lane) instead.
-                    // Defers only when that lane's block can actually buy the token, so
-                    // an elected QUALITY/BLUECHIP token is never left with no buyer.
-                    val specialistOwned7389 = cyclePrimaryLane.uppercase() in setOf("QUALITY", "BLUECHIP", "BLUE_CHIP") &&
-                        LaneEntryContract6342.specialistCanBuy7389(ts, cyclePrimaryLane)
-                    if (specialistOwned7389) {
-                        try { PipelineHealthCollector.labelInc("V3_TRUNK_DEFERS_TO_SPECIALIST_OWNER_7389_${cyclePrimaryLane.uppercase()}") } catch (_: Throwable) {}
-                    } else if (!trustAllowed) {
-                        ErrorLogger.warn("BotService", "🚫 [TRUST GATE] ${identity.symbol} | mode=$memeMode DISTRUSTED — skipping execute")
-                    } else {
-                    // Cache V3 scores on TokenState for Treasury Mode to use
-                    ts.lastV3Score = result.score
-                    ts.lastV3Confidence = result.confidence.toInt()
-                    
-                    // ═══════════════════════════════════════════════════════════════════
-                    // V3 EXECUTE: Clean logging + trade execution
-                    // ═══════════════════════════════════════════════════════════════════
-                    ErrorLogger.info("BotService", "[SCORING] ${identity.symbol} | total=${result.score} | ${result.breakdown}")
-                    ErrorLogger.info("BotService", "[FATAL] ${identity.symbol} | PASS")
-                    ErrorLogger.info("BotService", "[CONFIDENCE] ${identity.symbol} | ${result.confidence.toInt()}%")
-                    ErrorLogger.info("BotService", "[DECISION] ${identity.symbol} | ${result.band} | score=${result.score} conf=${result.confidence.toInt()}%")
-                    ErrorLogger.info("BotService", "[SIZING] ${identity.symbol} | ${result.sizeSol.fmt(4)} SOL")
-                    
-                    // A+ alert for high-conviction setups
-                    if (result.score >= 75) {
-                        soundManager.playAplusAlert()
-                        addLog("⭐ HIGH CONFIDENCE: ${identity.symbol} | score=${result.score}", ts.mint)
-                    }
-                    
-                    if (!cfg.v3ShadowMode) {
-                        // V5.9.168 — FLUID FRESH-LAUNCH SCORE GATE
-                        // V5.9.97 had a binary gate (age<5m + score<40 → skip);
-                        // V5.9.150 removed it entirely which restored volume
-                        // but tanked win-rate on fresh pump.fun launches that
-                        // scored 20-30 (coin-flip quality, 13 of 22 V3 layers
-                        // data-starved at <5min age). Replace with a fluid
-                        // minimum that scales with learning progress:
-                        //   bootstrap (0% prog)  → score >= 15 (very lenient)
-                        //   Freshman  (40% prog) → score >= 25
-                        //   mature    (100% prog)→ score >= 40 (V5.9.97 strict)
-                        // Only applies to tokens <5min old; established
-                        // tokens use the standard fluid floors.
-                        run {
-                            val tokenAgeMins = if (ts.addedToWatchlistAt > 0) {
-                                (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
-                            } else Double.MAX_VALUE
-                            if (tokenAgeMins < 5.0) {
-                                val freshLaunchMinScore = (12 + com.lifecyclebot.v3.scoring.FluidLearningAI
-                                    .getLearningProgress() * 28).toInt().coerceIn(12, 40)
-                                if (result.score < freshLaunchMinScore) {
-                                    ErrorLogger.info(
-                                        "BotService",
-                                        "[V3|FRESH_LAUNCH_GATE] ${identity.symbol} | SKIP | " +
-                                            "age=${tokenAgeMins.toInt()}m<5m score=${result.score}<$freshLaunchMinScore (fluid by learning)"
-                                    )
-                                    return
-                                }
-                            }
-                        }
-
-                        // V5.9.93: FRESH-LAUNCH DRAWDOWN GATE
-                        // When SmartChart has < 10 candles, it cannot veto
-                        // bearish moves, so substitute a simple drawdown
-                        // check: skip the entry if price has dropped more
-                        // than 15% from the earliest recorded candle (pool
-                        // formation). Protects against brand-new rugs.
-                        run {
-                            val candles = ts.history
-                            if (candles.size in 1..9) {
-                                val firstPrice = candles.first().priceUsd
-                                if (firstPrice > 0.0 && ts.ref > 0.0) {
-                                    val drawdownPct = ((ts.ref - firstPrice) / firstPrice) * 100.0
-                                    if (drawdownPct <= -15.0) {
-                                        ErrorLogger.info(
-                                            "BotService",
-                                            "[V3|FRESH_DRAWDOWN] ${identity.symbol} | SKIP | " +
-                                                "candles=${candles.size} dd=${drawdownPct.toInt()}% " +
-                                                "(first=${firstPrice} now=${ts.ref})"
-                                        )
-                                        return
-                                    }
-                                }
-                            }
-                        }
-
-                        // V5.2: MUST check TradeAuthorizer BEFORE any execution
-                        run {
-                            val v3SizeSol = result.sizeSol
-                            val v3Thesis = "V3 score=${result.score} band=${result.band}"
-                            
-                            // Update lifecycle to V3 states
-                            identity.v3Execute(result.score, result.band, result.sizeSol)
-                            
-                            // Execute the trade
-                            var proposedSize = result.sizeSol
-                            val modeTag = try {
-                                // V5.9.409 — per-token lane wins over global bot mode
-                                ModeSpecificGates.fromTradingMode(ts.position.tradingMode)
-                                    ?: modeConf?.mode?.let { ModeSpecificGates.fromBotMode(it) }
-                            } catch (e: Exception) { null }
-
-                            // ═══════════════════════════════════════════════════════════════
-                            // V5.9.418 — V3-MEME SENTIENCE & SYMBOLIC RE-WIRE.
-                            // Before V5.9.418 the V3 Execute path went straight to
-                            // executor.v3Buy() — bypassing FDG entirely — which meant
-                            // (a) the 24-channel SymbolicContext never adjusted size on
-                            // memes, (b) ModeSpecificGates.ModeMultipliers were computed
-                            // but never applied, and (c) SentienceHooks.shouldFilterByPersonality
-                            // was dead code. The legacy CORE/Treasury/Quality paths
-                            // still flow through FDG.evaluate() so they were fine —
-                            // only the meme V3-authority path lost the symbolic nervous
-                            // system.
-                            //
-                            // We do NOT re-run full FDG.evaluate() here (heavy, would
-                            // double-log) — instead we apply the same 4 surgical inputs
-                            // FDG would: refresh SymbolicContext, read ModeMultipliers,
-                            // honour the symbolic universe block, and apply size
-                            // adjustments + personality + cross-engine bias before
-                            // executor.v3Buy fires.
-                            // ═══════════════════════════════════════════════════════════════
-                            val symRefreshed = try {
-                                com.lifecyclebot.engine.SymbolicContext.refresh(ts.symbol, ts.mint)
-                                true
-                            } catch (_: Throwable) { false }
-                            val symMood = try { com.lifecyclebot.engine.SymbolicContext.emotionalState } catch (_: Throwable) { "NEUTRAL" }
-                            val symGreenLight = try { com.lifecyclebot.engine.SymbolicContext.getEntryGreenLight() } catch (_: Throwable) { 0.5 }
-                            val symSizeAdj = try { com.lifecyclebot.engine.SymbolicContext.getSizeAdjustment() } catch (_: Throwable) { 1.0 }
-                            val symCircuitBreaking = try { com.lifecyclebot.engine.SymbolicContext.isCircuitBreaking() } catch (_: Throwable) { false }
-
-                            // Mirror FDG's SYMBOLIC_UNIVERSE_BLOCK (LIVE only).
-                            // Paper-mode keeps learning even in panic/circuit states.
-                            if (!cfg.paperMode &&
-                                symGreenLight < 0.20 &&
-                                symMood in listOf("PANIC", "FEARFUL") &&
-                                symCircuitBreaking
-                            ) {
-                                ErrorLogger.warn(
-                                    "BotService",
-                                    "🌌 [V3|SYMBOLIC_BLOCK] ${identity.symbol} | greenLight=${"%.2f".format(symGreenLight)} mood=$symMood circuit_breaking=true (LIVE) — SKIP execute"
-                                )
-                                addLog("🌌 SYMBOLIC BLOCK: ${identity.symbol} | $symMood / circuit-breaking", ts.mint)
-                                try { TradeAuthorizer.releasePosition(ts.mint, "V3_SYMBOLIC_BLOCK_PREBUY", TradeAuthorizer.ExecutionBook.CORE) } catch (_: Throwable) {}
-                                try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, "CORE", "V3_SYMBOLIC_BLOCK_PREBUY") } catch (_: Throwable) {}
-                                return
-                            }
-
-                            // V5.9.449 — REMOVED V5.9.421 TRIPLE-DANGER hard gate.
-                            // The combination (TimeAI.isDangerZone + cold MemeNarrative
-                            // cluster + liquidity<$100K) blocked exactly the dead-hour
-                            // fresh-launch / sparse-data tokens that produced
-                            // build-1941's 500% runners. Each component still
-                            // contributes -6pts to the soft score; that's the
-                            // build-1941 baseline behaviour.
-
-                            // Sentience hook #6 — personality-driven filter.
-                            // If the user's recent chat said "avoid SHITCOIN" / "avoid memes",
-                            // skip this entry. Best-effort, fail-open.
-                            val regimeHint = ts.position.tradingMode.ifBlank { modeConf?.mode?.name ?: "" }
-                            val personalityVeto = try {
-                                com.lifecyclebot.engine.SentienceHooks.shouldFilterByPersonality(
-                                    symbol = identity.symbol,
-                                    regime = regimeHint,
-                                )
-                            } catch (_: Throwable) { false }
-                            val personalitySizeMult = if (personalityVeto) 0.72 else 1.0
-                            if (personalityVeto) {
-                                // V5.0.4198 — personality/LLM filters are advisory only.
-                                // Runtime 4188 showed "LLM VETO suggested" during a V3/FDG
-                                // choke. The LLM hook itself is async/fail-open, but this
-                                // callsite still turned a cached persona match into a hard
-                                // prebuy return. Preserve the signal by trimming size instead
-                                // of releasing the lane and starving throughput.
-                                ErrorLogger.info(
-                                    "BotService",
-                                    "🧠 [V3|PERSONALITY_SOFT_SHAPE] ${identity.symbol} | regime=$regimeHint size×=${"%.2f".format(personalitySizeMult)}"
-                                )
-                                addLog("🧠 PERSONA SOFT-SHAPE: ${identity.symbol} ×${"%.2f".format(personalitySizeMult)} (regime=$regimeHint)", ts.mint)
-                                try { PipelineHealthCollector.labelInc("V3_PERSONALITY_SOFT_SHAPE_4198") } catch (_: Throwable) {}
-                                try { ForensicLogger.lifecycle("V3_PERSONALITY_SOFT_SHAPE_4198", "mint=${ts.mint.take(10)} symbol=${identity.symbol} regime=$regimeHint sizeMult=${"%.2f".format(personalitySizeMult)} action=continue_no_hard_veto") } catch (_: Throwable) {}
-                            }
-
-                            // Apply the size cascade FDG would have applied:
-                            //   ModeSpecificGates.positionSizeMultiplier (per-lane, e.g.
-                            //   memes = looser cap) × SymbolicContext.getSizeAdjustment()
-                            //   × SentienceHooks.suggestSizeMultiplier() (cross-engine bias).
-                            val modeMultipliers = try {
-                                com.lifecyclebot.engine.ModeSpecificGates.getMultipliers(modeTag)
-                            } catch (_: Throwable) {
-                                com.lifecyclebot.engine.ModeSpecificGates.ModeMultipliers.DEFAULT
-                            }
-                            val llmSizeMult = try {
-                                com.lifecyclebot.engine.SentienceHooks.suggestSizeMultiplier(
-                                    engine = "MEME",
-                                    symbol = identity.symbol,
-                                    regime = regimeHint,
-                                )
-                            } catch (_: Throwable) { 1.0 }
-                            // V5.9.422 — progressive size trim from the QualityLadder.
-                            // Tier 0 → 1.00, Tier 5 → 0.50. Never below 0.5 so
-                            // volume is preserved even at maximum caution.
-                            val ladderSizeMult = try { com.lifecyclebot.engine.QualityLadder.sizeMultiplier() } catch (_: Throwable) { 1.0 }
-                            val sizeBefore = proposedSize
-                            // V5.9.489 — CASCADE FLOOR (anti-choke).
-                            // Operator: 'the meme trader should maintain really good
-                            // volume once learnt. it should never ever be allowed to
-                            // choke itself out.'
-                            //
-                            // The 4 multipliers were stacking down to ~0.19× (mode 0.70
-                            // × sym 0.54 × llm 1.00 × ladder 0.50) — strangling
-                            // entries to 19% of base size on every meme trade. Each
-                            // dampener individually is reasonable; the multiplicative
-                            // composition is not. Floor the COMBINED product at 0.60
-                            // so a single cascade can never wipe out more than 40%
-                            // of position size. Volume preserved, signal still steers.
-                            val rawProduct =
-                                modeMultipliers.positionSizeMultiplier *
-                                symSizeAdj *
-                                llmSizeMult *
-                                personalitySizeMult *
-                                ladderSizeMult
-                            // V5.9.495z3 — operator: 'stupidly slow paper, 2 open'.
-                            // Lift the paper-mode floor 0.60→0.75 so each entry is
-                            // bigger (75% of base instead of 60%). Live floor stays
-                            // at 0.60 — risk discipline preserved on real money.
-                            val cascadeFloor = if (cfg.paperMode) 0.75 else 0.60
-                            val flooredProduct = rawProduct.coerceAtLeast(cascadeFloor)
-                            proposedSize = (proposedSize * flooredProduct).coerceIn(0.005, 1.0)
-                            if (kotlin.math.abs(proposedSize - sizeBefore) > 0.0005) {
-                                ErrorLogger.info(
-                                    "BotService",
-                                    "[V3|SIZE_CASCADE] ${identity.symbol} | base=${sizeBefore.fmt(4)}◎ × " +
-                                    "mode=${"%.2f".format(modeMultipliers.positionSizeMultiplier)} × " +
-                                    "sym=${"%.2f".format(symSizeAdj)} × " +
-                                    "llm=${"%.2f".format(llmSizeMult)} × " +
-                                    "persona=${"%.2f".format(personalitySizeMult)} × " +
-                                    "ladder=${"%.2f".format(ladderSizeMult)} = ${"%.2f".format(rawProduct)}" +
-                                    (if (rawProduct < cascadeFloor) " [floored→${"%.2f".format(cascadeFloor)}]" else "") +
-                                    " → ${proposedSize.fmt(4)}◎ " +
-                                    "(symRefreshed=$symRefreshed mood=$symMood green=${"%.2f".format(symGreenLight)})"
-                                )
-                            }
-
-                            // V5.0.6533 — V3 approval is causal input, not a finality bypass.
-                            // Run the real FDG once for the elected canonical lane and require
-                            // its exact immutable intent before Executor may see the order.
-                            // V5.0.7389 — CORE is the ensemble lane: its score is V3's
-                            // blended with the lanes that voted it CORE (raise-only).
-                            val coreEnsemble7389 = if (cyclePrimaryLane.equals("CORE", true)) coreEnsembleScore7389[ts.mint] else null
-                            val v3LaneScore7389 = if (coreEnsemble7389 != null)
-                                maxOf(result.score.toDouble(), (result.score.toDouble() + coreEnsemble7389) / 2.0)
-                            else result.score.toDouble()
-                            if (v3LaneScore7389 > result.score.toDouble()) {
-                                try { PipelineHealthCollector.labelInc("CORE_ENSEMBLE_SCORE_BLENDED_7389") } catch (_: Throwable) {}
-                            }
-                            val v3Candidate6533 = laneQualifiedBuyDecision(
-                                if (coreEnsemble7389 != null) laneScoredBase7389(decision, v3LaneScore7389) else decision,
-                                cyclePrimaryLane,
-                                confidenceFloor = result.confidence.toDouble(),
-                                liquidityUsd = ts.lastLiquidityUsd,
-                                mintForProbe = ts.mint,
-                            )
-                            val v3Fdg6533 = FinalDecisionGate.evaluate(
-                                ts = ts, candidate = v3Candidate6533, config = cfg,
-                                proposedSizeSol = proposedSize, brain = executor.brain,
-                                tradingModeTag = modeTag, laneScore = v3LaneScore7389,
-                                specialistLane = cyclePrimaryLane,
-                                fanoutRole = "V3_EXEC",
-                            )
-                            val v3CandidateVersion6533 = v3Fdg6533.candidateVersion7835
-                            val authResult = TradeAuthorizer.authorize(
-                                mint = ts.mint, symbol = ts.symbol, score = v3Fdg6533.effectiveEntryScore7687,
-                                confidence = v3Fdg6533.confidence, quality = v3Fdg6533.quality,
-                                isPaperMode = cfg.paperMode, requestedBook = executionBookForLane6494(v3Fdg6533.canonicalLane7835),
-                                rugcheckScore = ts.safety.rugcheckScore, liquidity = ts.lastLiquidityUsd,
-                                isBanned = BannedTokens.isBanned(ts.mint), preResolvedSizeSol = v3Fdg6533.sizeSol,
-                                fdgDecision7835 = v3Fdg6533, tokenState7835 = ts,
-                            )
-                            val v3Intent6533 = authResult.executionIntent7835
-                            if (!authResult.isExecutable() || !v3Fdg6533.canExecute() || v3Intent6533 == null) {
-                                val explicitReason6533 = v3Fdg6533.blockReason ?: authResult.reason
-                                try {
-                                    PipelineHealthCollector.labelInc("V3_EXECUTE_EXPLICIT_REJECT_6533")
-                                    // Which door overrode V3's EXECUTE (its forward record is GateOutcome8418's row of the same key).
-                                    PipelineHealthCollector.labelInc("V3_EXECUTE_REJECTED_BY_" + com.lifecyclebot.engine.truth.FdgGate8365.gateKey8392(explicitReason6533.orEmpty()).take(48))
-                                    if (v3Fdg6533.canExecute()) PipelineHealthCollector.labelInc("V3_ALLOW_EXPLICIT_REJECT_NO_INTENT_6533")
-                                    ForensicLogger.lifecycle("V3_EXECUTE_EXPLICIT_REJECT_6533", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$cyclePrimaryLane reason=$explicitReason6533 version=$v3CandidateVersion6533")
-                                } catch (_: Throwable) {}
-                                // Refusal is terminal; it must not create a PAPER retry owner.
-                                try { ExecutableOpenGate.terminalizeAttempt6514(authResult.attemptId, ts.mint, cyclePrimaryLane) } catch (_: Throwable) {}
-                                try { TradeAuthorizer.releasePosition(ts.mint, "V3_FDG_REJECT_6533",
-                                    isPaperMode = cfg.paperMode, attemptId7858 = authResult.attemptId) } catch (_: Throwable) {}
-                                return
-                            }
-                            proposedSize = v3Intent6533.resolvedSize
-                            val v3AttemptId = v3Intent6533.attemptId
-                            // V5.0.7271 — CORE is the V3 trunk lane, and 7270 taught only
-                            // QUALITY and BLUECHIP to decline a peg. 5.0.7270 shows CORE
-                            // buying USDG. Same structural fact, same guard, before the
-                            // executor sees the order; the intent is terminalized so the
-                            // funnel does not report an allow with no execution.
-                            val peggedCore7271 = try {
-                                com.lifecyclebot.engine.truth.PeggedAssetGuard7270.isPegged(ts.symbol, ts.lastPrice, ts.lastMcap, ts.mint)
-                            } catch (_: Throwable) { false }
-                            if (peggedCore7271) {
-                                com.lifecyclebot.engine.truth.PeggedAssetGuard7270.noteSkipped(cyclePrimaryLane.ifBlank { "CORE" }, ts.symbol)
-                                try { ExecutableOpenGate.terminalizeAttempt6514(v3AttemptId, ts.mint, cyclePrimaryLane) } catch (_: Throwable) {}
-                                try { TradeAuthorizer.releasePosition(ts.mint, "PEGGED_ASSET_7271", isPaperMode = cfg.paperMode, attemptId7858 = v3AttemptId) } catch (_: Throwable) {}
-                                try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, v3Intent6533.canonicalLane, "PEGGED_ASSET_7271", candidateVersion = v3Intent6533.candidateVersion) } catch (_: Throwable) {}
-                                ErrorLogger.debug("BotService", "[V3|PEGGED] ${identity.symbol} | declined | PEGGED_ASSET_7271")
-                                return
-                            }
-                            ErrorLogger.info("BotService", "[EXECUTION] ${identity.symbol} | ${if (cfg.paperMode) "PAPER" else "LIVE"}_BUY | ${proposedSize.fmt(4)} SOL")
-                            
-                            // Record proposal for dedupe
-                            TradeLifecycle.recordProposal(identity.mint)
-                            
-                            // Execute buy through unified executor
-                            executor.v3Buy(
-                                ts = ts,
-                            sizeSol = proposedSize,
-                            walletSol = effectiveBalance,
-                            v3Score = v3Intent6533.effectiveEntryScore7256,
-                            v3Band = v3Fdg6533.quality,
-                            v3Confidence = v3Fdg6533.confidence,
-                            wallet = wallet,
-                            lastSuccessfulPollMs = lastSuccessfulPollMs,
-                            openPositionCount = status.openPositionCount,
-                            totalExposureSol = status.totalExposureSol,
-                            finalityPrechecked = true,
-                            attemptId = v3AttemptId,
-                        )
-                        
-                        addLog("⚡ V3 EXECUTE: ${identity.symbol} | ${result.band} | ${proposedSize.fmt(4)} SOL", ts.mint)
-                        } // end authResult.isExecutable() else block
-                    } else {
-                        // Shadow mode - log only
-                        ErrorLogger.info("BotService", "[SHADOW] ${identity.symbol} | WOULD_EXECUTE | ${result.band} | ${result.sizeSol.fmt(4)} SOL")
-                        addLog("🔬 V3 SHADOW: ${identity.symbol} | ${result.band}", ts.mint)
-                    }
-                    // V5.9.93: V3 owns the decision when enabled — do NOT fall
-                    // through to the legacy PROMOTION_GATE path, which was
-                    // post-hoc emitting SHADOW_ONLY after the core buy already
-                    // fired. Treasury and all other layer evaluations ran above.
-                    } // end trust-allowed else block
+                    // Every canonical desk has already received its own entry path (CYCLIC owns its ring tick).
+                    // Generic V3 cannot retry an owner's refusal or buy under a different strategy's label.
+                    val supported8527 = CoreNativeDispatch8527.hasNativeExecutor8527(cyclePrimaryLane)
+                    try {
+                        PipelineHealthCollector.labelInc(if (supported8527) "V3_EXECUTE_NATIVE_OWNER_8527_" + cyclePrimaryLane
+                            else "V3_EXECUTE_UNSUPPORTED_OWNER_8527")
+                        ForensicLogger.lifecycle("V3_EXECUTE_NATIVE_OWNER_8527",
+                            "mint=" + ts.mint.take(10) + " lane=" + cyclePrimaryLane + " score=" + result.score +
+                                " supported=" + supported8527 + " action=observe_native_decision_no_generic_retry")
+                    } catch (_: Throwable) {}
                     return
                 }
-                
                 is com.lifecyclebot.v3.V3Decision.Watch -> {
                     // Cache V3 scores on TokenState for Treasury Mode
                     ts.lastV3Score = result.score
@@ -33266,16 +32828,16 @@ if (hotExitHandledSweep) {
 
                 if (exitSignal == com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.PARTIAL_TAKE) {
                     // Sell 25%, let 75% ride
+                    val applyPartial8527 = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.partialProjection8527(ts)
                     val partialReceipt6566 = executor.requestPartialSellConfirmed6566(
                         ts = ts,
                         sellPercentage = 0.25,
                         reason = "SHITCOIN_PARTIAL_TAKE_25PCT",
                         wallet = wallet,
                         walletBalance = effectiveBalance,
+                        onConfirmedSlice8527 = applyPartial8527,
                     )
                     if (!partialReceipt6566.applied) { try { PipelineHealthCollector.labelInc("MEME_PARTIAL_NOT_APPLIED_6566_SHITCOIN") } catch (_: Throwable) {}; return }
-                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.markFirstTakeDone(ts.mint, isPaper = ts.position.isPaperPosition)
-                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.onPartialSell(ts.mint, 0.25, isPaper = ts.position.isPaperPosition) // V5.9.705
                     com.lifecyclebot.engine.PositionPersistence.savePosition(ts)               // V5.9.705
                     addLog("💰 SHITCOIN PARTIAL: ${ts.symbol} | sold 25%, riding 75%", ts.mint)
                     return
@@ -33349,15 +32911,16 @@ if (hotExitHandledSweep) {
                     com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.TAKE_PROFIT_100,
                 )
                 if (isLadderRung) {
+                    val applyPartial8527 = com.lifecyclebot.v3.scoring.ShitCoinExpress.partialProjection8527(ts)
                     val partialReceipt6566 = executor.requestPartialSellConfirmed6566(
                         ts = ts,
                         sellPercentage = 0.20,
                         reason = "EXPRESS_${exitSignal.name}_PARTIAL_20PCT",
                         wallet = wallet,
                         walletBalance = effectiveBalance,
+                        onConfirmedSlice8527 = applyPartial8527,
                     )
                     if (!partialReceipt6566.applied) { try { PipelineHealthCollector.labelInc("MEME_PARTIAL_NOT_APPLIED_6566_EXPRESS") } catch (_: Throwable) {}; return }
-                    com.lifecyclebot.v3.scoring.ShitCoinExpress.onPartialSell(ts.mint, 0.20) // V5.9.705
                     com.lifecyclebot.engine.PositionPersistence.savePosition(ts)              // V5.9.705
                     addLog("$exitEmoji EXPRESS PARTIAL: ${ts.symbol} | ${exitSignal.name} | sold 20%, riding 80%", ts.mint)
                     return
@@ -33401,15 +32964,16 @@ if (hotExitHandledSweep) {
             if (exitSignal != com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipExitSignal.HOLD) {
                 // V5.9.168 — laddered partial sell (20% per rung)
                 if (exitSignal == com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipExitSignal.PARTIAL_TAKE) {
+                    val applyPartial8527 = com.lifecyclebot.v3.scoring.ManipulatedTraderAI.partialProjection8527(ts)
                     val partialReceipt6566 = executor.requestPartialSellConfirmed6566(
                         ts = ts,
                         sellPercentage = 0.20,
                         reason = "MANIP_PARTIAL_TAKE_20PCT",
                         wallet = wallet,
                         walletBalance = effectiveBalance,
+                        onConfirmedSlice8527 = applyPartial8527,
                     )
                     if (!partialReceipt6566.applied) { try { PipelineHealthCollector.labelInc("MEME_PARTIAL_NOT_APPLIED_6566_MANIP") } catch (_: Throwable) {}; return }
-                    com.lifecyclebot.v3.scoring.ManipulatedTraderAI.onPartialSell(ts.mint, 0.20, isPaper = ts.position.isPaperPosition) // V5.9.705
                     com.lifecyclebot.engine.PositionPersistence.savePosition(ts)                  // V5.9.705
                     addLog("💰 MANIP PARTIAL: ${ts.symbol} | sold 20%, riding 80%", ts.mint)
                     return
@@ -33530,17 +33094,17 @@ if (hotExitHandledSweep) {
 
                 if (exitSignal == com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.PARTIAL_TAKE) {
                     // Sell 50%, let 50% ride to the moon
-                    val partialPct = com.lifecyclebot.v3.scoring.MoonshotTraderAI.getPartialSellPct(ts.mint)
+                    val partialPct = com.lifecyclebot.v3.scoring.MoonshotTraderAI.getPartialSellPct(ts.mint, ts.position.isPaperPosition)
+                    val applyPartial8527 = com.lifecyclebot.v3.scoring.MoonshotTraderAI.partialProjection8527(ts)
                     val partialReceipt6566 = executor.requestPartialSellConfirmed6566(
                         ts = ts,
                         sellPercentage = partialPct,
                         reason = "MOONSHOT_PARTIAL_TAKE_${(partialPct * 100).toInt()}PCT",
                         wallet = wallet,
                         walletBalance = effectiveBalance,
+                        onConfirmedSlice8527 = applyPartial8527,
                     )
                     if (!partialReceipt6566.applied) { try { PipelineHealthCollector.labelInc("MEME_PARTIAL_NOT_APPLIED_6566_MOONSHOT") } catch (_: Throwable) {}; return }
-                    // onPartialSell advances rung/firstTake only after canonical receipt.
-                    com.lifecyclebot.v3.scoring.MoonshotTraderAI.onPartialSell(ts.mint, partialPct, isPaper = ts.position.isPaperPosition) // V5.9.705
                     com.lifecyclebot.engine.PositionPersistence.savePosition(ts)                    // V5.9.705
                     addLog("💰 MOONSHOT PARTIAL: ${ts.symbol} | sold ${(partialPct*100).toInt()}%, riding rest", ts.mint)
                     return
@@ -33645,15 +33209,16 @@ if (hotExitHandledSweep) {
 
                 // V5.9.166 — laddered partial sell (20% per rung)
                 if (exitSignal == com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.PARTIAL_TAKE) {
+                    val applyPartial8527 = com.lifecyclebot.v3.scoring.QualityTraderAI.partialProjection8527(ts)
                     val partialReceipt6566 = executor.requestPartialSellConfirmed6566(
                         ts = ts,
                         sellPercentage = 0.20,
                         reason = "QUALITY_PARTIAL_TAKE_20PCT",
                         wallet = wallet,
                         walletBalance = effectiveBalance,
+                        onConfirmedSlice8527 = applyPartial8527,
                     )
                     if (!partialReceipt6566.applied) { try { PipelineHealthCollector.labelInc("MEME_PARTIAL_NOT_APPLIED_6566_QUALITY") } catch (_: Throwable) {}; return }
-                    com.lifecyclebot.v3.scoring.QualityTraderAI.onPartialSell(ts.mint, 0.20, isPaper = ts.position.isPaperPosition) // V5.9.705
                     com.lifecyclebot.engine.PositionPersistence.savePosition(ts)              // V5.9.705
                     addLog("💰 QUALITY PARTIAL: ${ts.symbol} | sold 20%, riding 80%", ts.mint)
                     return
@@ -33777,31 +33342,32 @@ if (hotExitHandledSweep) {
 
                 // V5.9.166 — laddered partial sell (20% per rung)
                 if (exitSignal == com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.PARTIAL_TAKE) {
+                    val applyPartial8527 = com.lifecyclebot.v3.scoring.BlueChipTraderAI.partialProjection8527(ts)
                     val partialReceipt6566 = executor.requestPartialSellConfirmed6566(
                         ts = ts,
                         sellPercentage = 0.20,
                         reason = "BLUECHIP_PARTIAL_TAKE_20PCT",
                         wallet = wallet,
                         walletBalance = effectiveBalance,
+                        onConfirmedSlice8527 = applyPartial8527,
                     )
                     if (!partialReceipt6566.applied) { try { PipelineHealthCollector.labelInc("MEME_PARTIAL_NOT_APPLIED_6566_BLUECHIP") } catch (_: Throwable) {}; return }
-                    com.lifecyclebot.v3.scoring.BlueChipTraderAI.onPartialSell(ts.mint, 0.20, isPaper = ts.position.isPaperPosition) // V5.9.705
                     com.lifecyclebot.engine.PositionPersistence.savePosition(ts)               // V5.9.705
                     addLog("💰 BLUECHIP PARTIAL: ${ts.symbol} | sold 20%, riding 80%", ts.mint)
                     return
                 }
 
-                executor.requestSell(
+                val closingLot8527 = ts.position.let { it.positionId to it.isPaperPosition }
+                val blueSellResult8527 = executor.requestSell(
                     ts = ts,
                     reason = "BLUECHIP_${exitSignal.name}",
                     wallet = wallet,
                     walletSol = effectiveBalance
                 )
-                
-                com.lifecyclebot.v3.scoring.BlueChipTraderAI.closePosition(ts.mint, currentPrice, exitSignal)
-                
-                // V5.6.8 FIX: Release exposure slot
-                com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
+                if (!blueSellResult8527.settled8521() || !specialistCloseConfirmed8521(ts.mint, closingLot8527)) return
+                com.lifecyclebot.v3.scoring.BlueChipTraderAI.closePosition(ts.mint, currentPrice, exitSignal,
+                    isPaper = closingLot8527.second)
+                releaseSharedSpecialist8521(ts.mint)
                 
                 addLog("$exitEmoji BLUECHIP SELL: ${ts.symbol} | ${exitSignal.name} | " +
                     "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
@@ -33824,19 +33390,19 @@ if (hotExitHandledSweep) {
             
             // V5.0.7389 — recovery target banks half; the rest rides the lock.
             if (exitSignal == com.lifecyclebot.v3.scoring.DipHunterAI.DipExitSignal.PARTIAL_TAKE) {
+                val applyPartial8527 = com.lifecyclebot.v3.scoring.DipHunterAI.partialProjection8527(ts)
                 val dipPartial7389 = executor.requestPartialSellConfirmed6566(
                     ts = ts,
                     sellPercentage = 0.50,
                     reason = "DIP_TARGET_PARTIAL_TAKE_PROFIT_50PCT",
                     wallet = wallet,
                     walletBalance = effectiveBalance,
+                    onConfirmedSlice8527 = applyPartial8527,
                 )
                 if (!dipPartial7389.applied) {
-                    com.lifecyclebot.v3.scoring.DipHunterAI.unbankRecovery(ts.mint)
                     try { PipelineHealthCollector.labelInc("MEME_PARTIAL_NOT_APPLIED_6566_DIP_HUNTER") } catch (_: Throwable) {}
                     return
                 }
-                com.lifecyclebot.v3.scoring.DipHunterAI.onRecoveryPartial(ts.mint, currentPrice, 0.50)
                 addLog("💰 DIP PARTIAL: ${ts.symbol} | recovery target banked 50% | ${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
                 return
             }
@@ -33849,17 +33415,16 @@ if (hotExitHandledSweep) {
                     else -> "⏱"
                 }
                 
-                executor.requestSell(
+                val closingLot8527 = ts.position.let { it.positionId to it.isPaperPosition }
+                val dipSellResult8527 = executor.requestSell(
                     ts = ts,
                     reason = "DIP_${exitSignal.name}",
                     wallet = wallet,
                     walletSol = effectiveBalance
                 )
-                
+                if (!dipSellResult8527.settled8521() || !specialistCloseConfirmed8521(ts.mint, closingLot8527)) return
                 com.lifecyclebot.v3.scoring.DipHunterAI.closeDip(ts.mint, currentPrice, exitSignal)
-                
-                // V5.6.8 FIX: Release exposure slot
-                com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
+                releaseSharedSpecialist8521(ts.mint)
                 
                 addLog("$exitEmoji DIP SELL: ${ts.symbol} | ${exitSignal.name} | " +
                     "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
@@ -33992,22 +33557,19 @@ if (hotExitHandledSweep) {
                     "pnl=${pnlPct.toInt()}% | peak=${sellOptSignal.peakPnlPct.toInt()}% | " +
                     "locked=${sellOptSignal.lockedProfitSol}SOL")
                 
-                // Execute partial sell
+                // Execute partial sell; only the actual canonical slice changes the chunk ledger.
+                val applyPartial8527 = com.lifecyclebot.v3.scoring.SellOptimizationAI.partialProjection8527(ts)
                 val partialReceipt6566 = executor.requestPartialSellConfirmed6566(
                     ts = ts,
                     sellPercentage = chunkPct,
                     reason = "[SELL_OPT] ${strategy.label}: ${sellOptSignal.reason}",
                     wallet = wallet,
                     walletBalance = effectiveBalance,
+                    onConfirmedSlice8527 = applyPartial8527,
                 )
                 
-                // Record chunk only after confirmed canonical/live mutation.
-                if (partialReceipt6566.applied) {
-                    val profitSol = (ts.position.costSol * chunkPct) * (pnlPct / 100.0)
-                    com.lifecyclebot.v3.scoring.SellOptimizationAI.recordChunkSell(
-                        ts.mint, ts.position.costSol * chunkPct, pnlPct, profitSol
-                    )
-                } else {
+                // The completion callback projects the actual chunk, including a later async settlement.
+                if (!partialReceipt6566.applied) {
                     try { PipelineHealthCollector.labelInc("MEME_PARTIAL_NOT_APPLIED_6566_SELL_OPT") } catch (_: Throwable) {}
                 }
                 
@@ -34806,14 +34368,14 @@ if (hotExitHandledSweep) {
                     ErrorLogger.warn("BotService",
                         "🛡️ [FALLBACK_EXIT][SHITCOIN] ${ts.symbol} | signal=$sig | price=$price (DexScreener down)")
                     if (sig == com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.PARTIAL_TAKE) {
+                        val applyPartial8527 = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.partialProjection8527(ts)
                         val partialReceipt6566 = executor.requestPartialSellConfirmed6566(
                             ts = ts, sellPercentage = 0.25,
                             reason = "FALLBACK_SHITCOIN_PARTIAL_TAKE",
                             wallet = wallet, walletBalance = effectiveBalance,
+                            onConfirmedSlice8527 = applyPartial8527,
                         )
                         if (!partialReceipt6566.applied) { try { PipelineHealthCollector.labelInc("MEME_PARTIAL_NOT_APPLIED_6566_FALLBACK_SHITCOIN") } catch (_: Throwable) {}; return }
-                        com.lifecyclebot.v3.scoring.ShitCoinTraderAI.markFirstTakeDone(ts.mint, isPaper = ts.position.isPaperPosition)
-                        com.lifecyclebot.v3.scoring.ShitCoinTraderAI.onPartialSell(ts.mint, 0.25, isPaper = ts.position.isPaperPosition) // V5.9.705
                         com.lifecyclebot.engine.PositionPersistence.savePosition(ts)               // V5.9.705
                     } else {
                         val closingLot8521 = ts.position.let { it.positionId to it.isPaperPosition }
@@ -34839,14 +34401,15 @@ if (hotExitHandledSweep) {
                     ErrorLogger.warn("BotService",
                         "🛡️ [FALLBACK_EXIT][MOONSHOT] ${ts.symbol} | signal=$sig | price=$price (DexScreener down)")
                     if (sig == com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.PARTIAL_TAKE) {
-                        val partialPct = com.lifecyclebot.v3.scoring.MoonshotTraderAI.getPartialSellPct(ts.mint)
+                        val partialPct = com.lifecyclebot.v3.scoring.MoonshotTraderAI.getPartialSellPct(ts.mint, ts.position.isPaperPosition)
+                        val applyPartial8527 = com.lifecyclebot.v3.scoring.MoonshotTraderAI.partialProjection8527(ts)
                         val partialReceipt6566 = executor.requestPartialSellConfirmed6566(
                             ts = ts, sellPercentage = partialPct,
                             reason = "FALLBACK_MOONSHOT_PARTIAL_TAKE_${(partialPct * 100).toInt()}PCT",
                             wallet = wallet, walletBalance = effectiveBalance,
+                            onConfirmedSlice8527 = applyPartial8527,
                         )
                         if (!partialReceipt6566.applied) { try { PipelineHealthCollector.labelInc("MEME_PARTIAL_NOT_APPLIED_6566_FALLBACK_MOONSHOT") } catch (_: Throwable) {}; return }
-                        com.lifecyclebot.v3.scoring.MoonshotTraderAI.onPartialSell(ts.mint, partialPct, isPaper = ts.position.isPaperPosition) // V5.9.705
                         com.lifecyclebot.engine.PositionPersistence.savePosition(ts)                    // V5.9.705
                     } else {
                         val closingLot8521 = ts.position.let { it.positionId to it.isPaperPosition }
@@ -35339,44 +34902,7 @@ if (hotExitHandledSweep) {
     // SHITCOIN LAYER HELPERS
     // ═══════════════════════════════════════════════════════════════════════════
     
-    /**
-     * Calculate social score for a token based on available signals
-     */
-    private fun calculateSocialScore(ts: TokenState): Int {
-        var score = 0
-        
-        // Boost for trending tokens
-        if (ts.source.contains("TRENDING", ignoreCase = true)) score += 25
-        if (ts.source.contains("BOOSTED", ignoreCase = true)) score += 20
-        // V5.0.4232 — real cached social alpha. This consumes existing sentiment
-        // fields only; no scanner/executor hot-path API calls.
-        if (!ts.sentiment.isStale) {
-            if (ts.sentiment.xMentions > 0) score += (ts.sentiment.xMentions * 2).coerceAtMost(25)
-            if (ts.sentiment.telegramMentions > 0) score += (ts.sentiment.telegramMentions * 2).coerceAtMost(20)
-            if (ts.sentiment.decayedScore > 20.0) score += 15
-            if (ts.sentiment.decayedScore < -20.0) score -= 15
-            if (ts.sentiment.blocked) score -= 30
-        }
-        
-        // Boost for tokens from recognized platforms
-        if (ts.source.contains("PUMP_FUN", ignoreCase = true)) score += 15
-        if (ts.source.contains("RAYDIUM", ignoreCase = true)) score += 10
-        
-        // Positive signals from source naming
-        if (ts.source.contains("VERIFIED", ignoreCase = true)) score += 10
-        if (ts.source.contains("MOONSHOT", ignoreCase = true)) score += 10
-        
-        // Symbol length heuristic (legitimate projects often have 3-6 char tickers)
-        val symbolLen = ts.symbol.length
-        if (symbolLen in 3..6) score += 10
-        if (symbolLen > 10) score -= 5  // Too long often indicates scam
-        
-        // Bundle risk affects social perception
-        if (ts.safety.bundleRisk == "LOW") score += 10
-        if (ts.safety.bundleRisk == "HIGH") score -= 15
-        
-        return score.coerceIn(0, 100)
-    }
+
     
     /**
      * Detect copycat/scam patterns in token symbols

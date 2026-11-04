@@ -49,7 +49,8 @@ object TailHunter7996 {
     private const val MAX_OPEN_TICKETS = 3
     private const val TICKET_TTL_MS = 3L * 60_000L
     private const val SWEEP_MS = 30_000L
-    private const val FILE = "tail_hunter_7996.txt"
+    private const val FILE = "tail_hunter_birth_8527.txt"
+    private const val LEGACY_OBSERVED_AGE_FILE_8527 = "tail_hunter_7996.txt"
     private val PAIR_FACTS = setOf("mc", "age", "src", "bp", "c5", "bpm", "lb", "dev", "st", "grad", "live", "mh", "hv", "top", "to")
 
     // ── pure: the ladder replay ──
@@ -156,15 +157,27 @@ object TailHunter7996 {
     private val recentRunners = java.util.ArrayDeque<String>()
 
     private fun file(): File? = com.lifecyclebot.AATEApp.appContextOrNull()?.let { File(it.filesDir, FILE) }
+    private fun legacyFile8527(): File? = com.lifecyclebot.AATEApp.appContextOrNull()?.let { File(it.filesDir, LEGACY_OBSERVED_AGE_FILE_8527) }
+
+    /** Old C/R cells measured watchlist residence, not token age. Their original file remains untouched. */
+    internal fun currentKey8527(key: String): Boolean =
+        key.startsWith("C8527|") || key.startsWith("R8527|") || key.startsWith("S|") ||
+            key.startsWith("SRC|") || key.startsWith("F|") || key.startsWith("P|")
+
+    /** Same direct-birth/unknown contract as the forward-label writer; discovery never creates a launch. */
+    internal fun cellKey8527(ts: TokenState, lane: String, nowMs: Long): String =
+        ForwardReturnLabeler7731.cellKey(ts.source, lane, TrustedMcap8019.mcap8019(ts),
+            ForwardReturnLabeler7731.cellAgeMs8208(ts, nowMs))
 
     private fun ensureLoaded() {
         if (loaded) return
         if (com.lifecyclebot.AATEApp.appContextOrNull() == null) return   // V5.0.8086 — no store yet: latching now made the next save replace the file with empty state
         loaded = true
         try {
-            file()?.takeIf { it.exists() }?.forEachLine { line ->
+            // Preserve source/setup/fact evidence; only incompatible observed-age C/R cohorts stay archived.
+            (file()?.takeIf { it.exists() } ?: legacyFile8527()?.takeIf { it.exists() })?.forEachLine { line ->
                 val k = line.substringBefore('\t'); val v = line.substringAfter('\t', "")
-                if (k.isNotBlank() && v.isNotBlank()) stats.getOrPut(k) { Stat7996() }.decode(v)
+                if (currentKey8527(k) && v.isNotBlank()) stats.getOrPut(k) { Stat7996() }.decode(v)
             }
             anyProvenPair = stats.any { (k, st) -> k.startsWith("P|") && tailProven7996(st.n, st.sum, st.runners) }
         } catch (_: Throwable) {}
@@ -185,8 +198,7 @@ object TailHunter7996 {
         if (ts.mint.isBlank() || !(px > 0.0) || !px.isFinite() || obs.containsKey(ts.mint)) return
         if (obs.size >= MAX_OBS) return
         val l = CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
-        val ageMs = if (ts.addedToWatchlistAt > 0L) nowMs - ts.addedToWatchlistAt else -1L
-        val cell = ForwardReturnLabeler7731.cellKey(ts.source, l, TrustedMcap8019.mcap8019(ts), ageMs)
+        val cell = cellKey8527(ts, l, nowMs)
         val mayhem = try { com.lifecyclebot.engine.MayhemMode7943.isMayhem7979(ts) } catch (_: Throwable) { false }
         val rule = when {
             mayhem -> "MAYHEM_MODE"
@@ -198,7 +210,7 @@ object TailHunter7996 {
         val setup = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.classify(ts, l, nowMs) } catch (_: Throwable) { null } ?: "NONE"
         val src = ForwardReturnLabeler7731.sourceFamily(ts.source)
         val keys = ArrayList<String>(140).apply {
-            add("C|$cell"); add("R|$rule|$cell"); add("S|$l|$setup"); add("SRC|$src|$l"); addAll(factKeys7996(l, facts))
+            add("C8527|$cell"); add("R8527|$rule|$cell"); add("S|$l|$setup"); add("SRC|$src|$l"); addAll(factKeys7996(l, facts))
         }
         obs[ts.mint] = Obs(ts.mint, l, keys, Ladder7996(px, crypto = l.startsWith("CRYPTO")), nowMs)
         observed.incrementAndGet()
@@ -251,6 +263,7 @@ object TailHunter7996 {
 
     /** Local evidence plus the hive's (other instances' replays of the same key, HiveEdge8000). */
     private fun proven(key: String): Stat7996? {
+        if (!currentKey8527(key)) return null
         val local = stats[key]
         val hive = try { HiveEdge8000.net8000("TAIL|$key") } catch (_: Throwable) { null }
         if (local == null && hive == null) return null
@@ -264,21 +277,20 @@ object TailHunter7996 {
 
     /**
      * V5.0.8094 — is refusing [ts] under [reason] in [lane] proven to refuse runners? The rule's own ladder replays in this
-     * coin's cell (R|rule|cell, local + hive) clear the tail bar: 30+ replays, a positive ladder total, 2+ runners.
+     * coin's cell (R8527|rule|cell, local + hive) clear the tail bar: 30+ replays, a positive ladder total, 2+ runners.
      */
     fun refusalTailProven8094(ts: TokenState, lane: String, reason: String, nowMs: Long = System.currentTimeMillis()): Boolean = try {
         ensureLoaded()
         val l = CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
-        val ageMs = if (ts.addedToWatchlistAt > 0L) nowMs - ts.addedToWatchlistAt else -1L
-        val cell = ForwardReturnLabeler7731.cellKey(ts.source, l, TrustedMcap8019.mcap8019(ts), ageMs)
+        val cell = cellKey8527(ts, l, nowMs)
         val rule = com.lifecyclebot.engine.cortex.Cortex7885.vetoRuleOf(reason)
         if (l.isBlank()) false
-        else if (proven("R|$rule|$cell") != null) true
+        else if (proven("R8527|$rule|$cell") != null) true
         else {
             // V5.0.8097 — the coin's own cell is too thin to say (under the bar): the same rule's replays across every
             // cell of this lane decide. A cell with its own full record that is NOT proven keeps the refusal.
             // 8095: WAIT +1,308% (AT_LAUNCH_CAP n93 +69.3% run10 over the lane) and SCREAM +1,054% were refused in thin cells.
-            val own = localStat8097("R|$rule|$cell")
+            val own = localStat8097("R8527|$rule|$cell")
             val cellThin = own == null || own.n < TAIL_MIN_N
             cellThin && laneRuleTailProven8097(rule, l)
         }
@@ -289,7 +301,7 @@ object TailHunter7996 {
     /** V5.0.8097 — [rule]'s ladder replays summed over every cell of [lane] clear the tail bar. */
     private fun laneRuleTailProven8097(rule: String, lane: String): Boolean {
         var n = 0; var sum = 0.0; var runners = 0
-        val prefix = "R|$rule|"
+        val prefix = "R8527|$rule|"
         for ((k, st) in stats) {
             if (!k.startsWith(prefix)) continue
             if (k.removePrefix(prefix).split('|').getOrNull(1) != lane) continue
@@ -313,10 +325,9 @@ object TailHunter7996 {
         val open = tickets.keys.count { m -> try { com.lifecyclebot.engine.BotService.status.tokens[m]?.position?.isOpen == true } catch (_: Throwable) { false } }
         if (open >= MAX_OPEN_TICKETS) return false
         val l = CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
-        val ageMs = if (ts.addedToWatchlistAt > 0L) nowMs - ts.addedToWatchlistAt else -1L
-        val cell = ForwardReturnLabeler7731.cellKey(ts.source, l, TrustedMcap8019.mcap8019(ts), ageMs)
+        val cell = cellKey8527(ts, l, nowMs)
         val setup = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.classify(ts, l, nowMs) } catch (_: Throwable) { null } ?: "NONE"
-        val hit = proven("C|$cell") != null || proven("S|$l|$setup") != null ||
+        val hit = proven("C8527|$cell") != null || proven("S|$l|$setup") != null ||
             proven("SRC|${ForwardReturnLabeler7731.sourceFamily(ts.source)}|$l") != null || pairsWorthChecking(nowMs) && run {
             val facts = try { SpecialistMiner7972.features7972(ts, l, nowMs) } catch (_: Throwable) { emptyList() }
             factKeys7996(l, facts).any { it.startsWith("P|") && proven(it) != null }
@@ -352,9 +363,8 @@ object TailHunter7996 {
     fun goodMayhemTail7996(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Boolean {
         ensureLoaded()
         val l = CanonicalLaneIdentity6506.canonical(ts.position.tradingMode.ifBlank { "SHITCOIN" }).uppercase()
-        val ageMs = if (ts.addedToWatchlistAt > 0L) nowMs - ts.addedToWatchlistAt else -1L
-        val cells = listOf(l, "SHITCOIN", "MOONSHOT").distinct().map { ForwardReturnLabeler7731.cellKey(ts.source, it, TrustedMcap8019.mcap8019(ts), ageMs) }
-        return cells.any { proven("R|MAYHEM_MODE|$it") != null }
+        val cells = listOf(l, "SHITCOIN", "MOONSHOT").distinct().map { cellKey8527(ts, it, nowMs) }
+        return cells.any { proven("R8527|MAYHEM_MODE|$it") != null }
     }
 
     /** TraderSizingBridge6444: a ticket opens at the executable minimum (the risk policy promotes the small request). */
@@ -365,7 +375,7 @@ object TailHunter7996 {
 
     /** V5.0.8000 — HiveEdge8000: this instance's replay totals per key ([n, sum, 0, 0, runners, best]). */
     fun hiveSnapshot8000(): Map<String, DoubleArray> =
-        stats.entries.asSequence().filter { it.value.n >= 3 }.sortedByDescending { it.value.n }.take(1_500)
+        stats.entries.asSequence().filter { currentKey8527(it.key) && it.value.n >= 3 }.sortedByDescending { it.value.n }.take(1_500)
             .associate { (k, s) -> k to doubleArrayOf(s.n.toDouble(), s.sum, 0.0, 0.0, s.runners.toDouble(), s.best) }
 
     // ── housekeeping / report ──
@@ -378,16 +388,16 @@ object TailHunter7996 {
 
     fun statusLine7996(): String {
         val top = stats.entries.asSequence()
-            .filter { tailProven7996(it.value.n, it.value.sum, it.value.runners) }
+            .filter { currentKey8527(it.key) && tailProven7996(it.value.n, it.value.sum, it.value.runners) }
             .sortedByDescending { it.value.mean() }.take(4)
             .joinToString(" · ") { (k, s) -> "${k.take(60)}[n${s.n} ${"%+.0f".format(s.mean())}% run${s.runners}]" }.ifBlank { "-" }
         val rr = synchronized(recentRunners) { recentRunners.joinToString(",").ifBlank { "-" } }
-        val rules = stats.entries.asSequence().filter { it.key.startsWith("R|") && it.value.n >= 10 }
+        val rules = stats.entries.asSequence().filter { it.key.startsWith("R8527|") && it.value.n >= 10 }
             .groupBy { it.key.split('|').getOrElse(1) { "?" } }
             .map { (rule, es) -> val n = es.sumOf { it.value.n }; val sum = es.sumOf { it.value.sum }; val run = es.sumOf { it.value.runners }
                 "$rule n$n ${"%+.1f".format(if (n > 0) sum / n else 0.0)}% run$run" }
             .sortedByDescending { it }.take(8).joinToString(" · ").ifBlank { "-" }
-        return "replaying=${obs.size} observed=${observed.get()} finalized=${finalized.get()} runners=${runnersSeen.get()} tickets=${ticketsIssued.get()} keys=${stats.size} " +
+        return "replaying=${obs.size} observed=${observed.get()} finalized=${finalized.get()} runners=${runnersSeen.get()} tickets=${ticketsIssued.get()} keys=${stats.size} ageBasis=BIRTH8527 legacyAgeBook=archived " +
             "bar=n>=$TAIL_MIN_N,sum>0,runners>=$TAIL_MIN_RUNNERS recentRunners[$rr]\n    tail-proven: $top\n    by refusal (ladder replay): $rules"
     }
 

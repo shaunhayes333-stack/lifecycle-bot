@@ -512,15 +512,21 @@ object ManipulatedTraderAI {
     /**
      * V5.9.705 — Reduce sub-trader tracked entrySol after a confirmed partial sell.
      */
-    fun onPartialSell(mint: String, soldFraction: Double, isPaper: Boolean = isPaperMode) {
-        val partialPositions7858 = if (isPaper) paperPositions else livePositions
-        val frac = soldFraction.coerceIn(0.0, 1.0)
-        if (frac <= 0.0) return
-        val pos = partialPositions7858[mint] ?: return
-        val updated = confirmedPartial8077(pos, frac)
-        partialPositions7858[mint] = updated
-        ErrorLogger.debug(TAG, "🎭🔪 onPartialSell ${pos.symbol}: entrySol ${pos.entrySol} → ${updated.entrySol} (sold ${(frac*100).toInt()}%)")
+    /** V5.0.8527 — capture the native generation before execution; project only the applied canonical slice. */
+    fun partialProjection8527(ts: com.lifecyclebot.data.TokenState):
+        (com.lifecyclebot.engine.truth.CanonicalPartialReceipt8527?) -> Boolean {
+        val book = if (ts.position.isPaperPosition) paperPositions else livePositions
+        return com.lifecyclebot.engine.truth.NativePartialProjection8527.capture8527(
+            book, ts, { it.isPaper }, { pos, receipt ->
+                pos.copy(entrySol = receipt.remainingCostSol,
+                    partialRungsTaken = pos.partialRungsTaken +
+                        if (pos.pendingPartialRung8077 == pos.partialRungsTaken) 1 else 0,
+                    pendingPartialRung8077 = null)
+            },
+        )
     }
+
+
 
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -562,7 +568,7 @@ object ManipulatedTraderAI {
         }
         // V5.9.169 — continuous fluid profit floor (shared engine).
         val _holdSec = (System.currentTimeMillis() - pos.entryTime) / 1000.0  // V5.9.835
-        val profitFloor = com.lifecyclebot.v3.scoring.FluidLearningAI.fluidProfitFloor(pos.peakPnlPct, holdSeconds = _holdSec)
+        val profitFloor = com.lifecyclebot.v3.scoring.FluidLearningAI.fluidProfitFloor(pos.peakPnlPct, holdSeconds = _holdSec, lane = "MANIPULATED")
         if ((holdSeconds >= 60L || pos.peakPnlPct >= TRAILING_STOP_ACTIVATION_PCT) && pnlPct < profitFloor) return ManipExitSignal.TRAILING_STOP
 
         // V5.9.437 — LIVE HOLD-BUCKET GATE. Cut flat stale Manipulated bags
@@ -591,8 +597,10 @@ object ManipulatedTraderAI {
         if (pnlPct <= -15.0) return ManipExitSignal.STOP_LOSS
         if (pos.partialRungsTaken == 0 && pnlPct >= pos.takeProfitPct) return ManipExitSignal.TAKE_PROFIT
         // Once armed at a peak, the trail stays armed after price falls below activation.
-        if (pos.peakPnlPct >= TRAILING_STOP_ACTIVATION_PCT &&
-            currentPrice <= pos.highWaterMark * (1.0 - TRAILING_STOP_FROM_HWM_PCT / 100.0))
+        val nativeTrail8527 = com.lifecyclebot.engine.RunnerTrail8419.nativeTrailPrice8527(
+            "MANIPULATED", pos.entryPrice, pos.peakPnlPct,
+            pos.highWaterMark * (1.0 - TRAILING_STOP_FROM_HWM_PCT / 100.0))
+        if (pos.peakPnlPct >= TRAILING_STOP_ACTIVATION_PCT && currentPrice <= nativeTrail8527)
             return ManipExitSignal.TRAILING_STOP
         if (holdSeconds >= 60L && pnlPct <= pos.stopLossPct) return ManipExitSignal.STOP_LOSS
         if (holdSeconds in 60L..600L && pos.peakPnlPct < 1.0 && pnlPct < -3.0)

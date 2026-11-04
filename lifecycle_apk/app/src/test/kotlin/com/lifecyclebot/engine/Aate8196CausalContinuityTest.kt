@@ -157,11 +157,11 @@ class Aate8196CausalContinuityTest {
         assertTrue(adapter.contains("SpecialistOwnership7951.onFdgVerdict7951("))
         assertTrue(adapter.contains("val result = FinalDecisionGate.evaluate("))
         assertTrue(adapter.contains("if (needsEarlyRecord8197(result))"))
-        // 9 meme/specialist gates, one cyclic gate. The V3 trunk stays unchanged
-        // and is tested separately by Aate7835ProducerWiringTest.
-        assertEquals(9, Regex("FdgOutcomeContinuity8197[.]evaluate[(]").findAll(bot).count())
+        // 9 specialist gates plus the active native CORE gate, and one ring gate.
+        // Every early outcome retains the same receiver receipt and sealed authorizer contract.
+        assertEquals(10, Regex("FdgOutcomeContinuity8197[.]evaluate[(]").findAll(bot).count())
         assertEquals(1, Regex("FdgOutcomeContinuity8197[.]evaluate[(]").findAll(cyclic).count())
-        assertTrue(bot.contains("val v3Fdg6533 = FinalDecisionGate.evaluate("))
+        assertTrue(bot.contains("val coreFdg8527 = FdgOutcomeContinuity8197.evaluate("))
         assertTrue(fdg.contains("return rememberFdgVerdict(fdgCacheKey, FinalDecision("))
         val blocked = FinalDecisionGate.FinalDecision(
             false, FinalDecisionGate.TradeMode.LIVE, FinalDecisionGate.ApprovalClass.BLOCKED,

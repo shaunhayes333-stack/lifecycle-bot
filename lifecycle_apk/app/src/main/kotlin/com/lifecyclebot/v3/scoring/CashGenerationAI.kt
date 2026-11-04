@@ -1567,17 +1567,10 @@ object CashGenerationAI {
         val pnlBps = Math.round(pnlSol * 100)  // round, don't truncate toward zero (V5.0.6828)
         dailyPnlSolBps.addAndGet(pnlBps)
 
-        // V5.9.495z17 — operator-mandated 70/30 profit split (CashGen was
-        // 1 of 8 meme traders bypassing TreasuryManager.contributeFromMemeSell;
-        // 30% lock + 70% reinvest never fired). Plus missing sentience hook.
-        if (pnlSol > 0.0) {
-            try {
-                com.lifecyclebot.engine.TreasuryManager.contributeFromMemeSell(
-                    pnlSol,
-                    com.lifecyclebot.engine.WalletManager.lastKnownSolPrice,
-                )
-            } catch (_: Exception) {}
-        }
+        // V5.0.8527: The canonical Executor books the confirmed fill and the
+        // treasury split once. This native close only updates lane-local
+        // results; a second treasury deposit here double-counted profit and
+        // could initiate another live transfer.
         try {
             com.lifecyclebot.engine.SentienceHooks.recordEngineOutcome("MEME", pnlSol, pnlSol > 0.0)
         } catch (_: Exception) {}

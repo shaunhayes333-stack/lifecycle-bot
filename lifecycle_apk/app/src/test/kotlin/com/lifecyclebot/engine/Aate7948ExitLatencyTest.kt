@@ -33,7 +33,15 @@ class Aate7948ExitLatencyTest {
         assertTrue(src("engine/BotService.kt").contains("Thread(r, \"${ExitDispatchLatency7948.SUPERVISOR_THREAD_PREFIX_7948}\")"))
         val ex = src("engine/Executor.kt")
         assertTrue(ex.contains("ExitDispatchLatency7948.runsOffCallerThread(Thread.currentThread().name)"))
-        assertTrue(ex.contains("return requestSellCore7948(ts, reason, wallet, walletSol)"))
+        // The exact receipt capture must survive both direct execution and the
+        // supervisor hand-off (including its rejected-submission fallback).
+        val direct = ex.substringAfter("fun requestSell(ts:").substringBefore("internal fun baseQuoteSellRefused8096")
+        assertTrue(direct.contains("return requestSellCore7948(ts, reason, wallet, walletSol, receiptCapture8527)"))
+        assertTrue(direct.contains("return requestSellOffSupervisor7948(ts, reason, wallet, walletSol, receiptCapture8527)"))
+        val offSupervisor = ex.substringAfter("private fun requestSellOffSupervisor7948(")
+            .substringBefore("private fun retireClosedRuntimePosition8094(")
+        assertTrue(offSupervisor.contains("Callable { requestSellCore7948(ts, reason, wallet, walletSol, receiptCapture8527) }"))
+        assertTrue(offSupervisor.contains("return requestSellCore7948(ts, reason, wallet, walletSol, receiptCapture8527)"))
     }
 
     @Test fun protective_and_trailing_exits_skip_the_sign_delay_ordinary_exits_keep_it() {

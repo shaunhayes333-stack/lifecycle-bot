@@ -268,9 +268,11 @@ object SpecialistBrainBridge7542 {
         ts.safety.checkedAt,ts.safety.rugcheckScore,ts.safety.firstBlockSupplyPct.toInt(),
         ts.safety.isBlocked,ts.safety.hardBlockReasons.hashCode(),ts.safety.bundleReason,
         SpecialistMarketInputs8522.riskFingerprint8522(ts),
+        SpecialistInputParity8527.moonshotInputs8527(ts),
         ts.sentiment.score.toInt(),ts.toolAffinity.hashCode(),
         ts.source,ts.lastPriceSource,ts.lastPriceDex,
-        ts.tokenMap.creatorOrDevWallet,ts.tokenMap.migratedOrGraduated,
+        ts.tokenMap.creatorOrDevWallet,ts.tokenMap.migratedOrGraduated,OperatorRegistry.getDevWallet(ts.mint),
+        ts.sentiment.isStale,
         // V5.0.7556 — cached social metadata is native SHITCOIN evidence.
         // Include only presence bits; no network call and no raw URLs in identity.
         try {
@@ -359,22 +361,17 @@ object SpecialistBrainBridge7542 {
         val v3=marketInputs8522.v3Score;val v3c=marketInputs8522.v3Confidence
         // V5.0.7552 — unknown data must stay neutral/pending, never masquerade
         // as best-possible holder distribution or a fabricated confirmed RC.
-        val top = if (ts.holderDataResolved) {
-            ts.topHolderPct
-                ?: ts.tokenMap.topHolderConcentrationPct
-                ?: ts.safety.topHolderPct.takeIf { it >= 0.0 }
-                ?: 20.0
-        } else 20.0
+        val top = SpecialistInputParity8527.topHolderPct8527(ts)
         val holders=ts.peakHolderCount.coerceAtLeast(0)
         val rug=ts.safety.rugcheckScore.takeIf{it>=0}?:1
-        val bundle=ts.safety.firstBlockSupplyPct.takeIf{it>=0}?:0.0;val danger=(ts.safety.summary+" "+ts.safety.bundleReason+" "+ts.safety.hardBlockReasons.joinToString(" ")).uppercase();val devSelling=danger.contains("DEV_SELL")||danger.contains("DEV SELL")
-        // V5.0.7556 — cached only. The native SHITCOIN social feature existed
-        // but authoritative bridge left every presence flag false.
-        val socialMeta7556 = try { BirdeyeMetaDataProvider.peekCached(ts.mint) } catch (_: Throwable) { null }
+        val shitcoinInputs8527 = SpecialistInputParity8527.shitcoinInputs8527(marketInputs8522, ts.safety.firstBlockSupplyPct)
+        val shitcoinEvidence8527 = SpecialistInputParity8527.shitcoinEvidence8527(ts, marketInputs8522)
+        val devSelling = SpecialistInputParity8527.namedDevSelling8527(ts)
+        val moonshotInputs8527 = SpecialistInputParity8527.moonshotInputs8527(ts)
         val src=ts.source.uppercase();val trending=src.contains("TREND")||ts.toolAffinity.any{it.contains("TREND",true)};val boosted=src.contains("BOOST")||ts.toolAffinity.any{it.contains("BOOST",true)}
         val platform=when{src.contains("PUMP")->ShitCoinTraderAI.LaunchPlatform.PUMP_FUN;src.contains("RAYDIUM")->ShitCoinTraderAI.LaunchPlatform.RAYDIUM;src.contains("MOONSHOT")->ShitCoinTraderAI.LaunchPlatform.MOONSHOT;src.contains("BONK")->ShitCoinTraderAI.LaunchPlatform.BONK_BOT;else->ShitCoinTraderAI.LaunchPlatform.UNKNOWN}
         val bounce = nativeHistory8521.bounce8521(price, observedBp8491 ?: Double.NaN)
-        val cls=try{ModeRouter.classify(ts)}catch(_:Throwable){null};val launch=try{com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts)}catch(_:Throwable){null};val runner=try{com.lifecyclebot.engine.truth.MoonshotFreshLaunchAdmission7044.isRunnerShaped(ts,cls?.tradeType?:ModeRouter.TradeType.UNKNOWN)}catch(_:Throwable){false}
+        val cls=try{ModeRouter.classify(ts)}catch(_:Throwable){null};val runner=try{com.lifecyclebot.engine.truth.MoonshotFreshLaunchAdmission7044.isRunnerShaped(ts,cls?.tradeType?:ModeRouter.TradeType.UNKNOWN)}catch(_:Throwable){false}
 
         // 8168 — resident claims augment bounded native discovery; execution election remains separate.
         // V5.0.8169 — a token proven past the sniper's launch window leaves its scope before the native call (handed on, counted).
@@ -390,12 +387,12 @@ object SpecialistBrainBridge7542 {
         val out=linkedMapOf<String,Opinion>()
         if (owns7828("QUALITY")) out["QUALITY"]=try{val x=QualityTraderAI.evaluate(ts.mint,ts.symbol,price,ts.lastMcap,ts.lastLiquidityUsd,bp.toInt(),ageMin,holders,top,v3,false);op("QUALITY",x.shouldEnter,x.qualityScore,x.qualityScore,x.positionSizeSol,x.reason,"LIQUIDITY_DEPTH_QUALITY","quality_native_entry","quality_native_exit",1.35,0.95,1.15,setOf("QUALITY_DEPTH","HOLDER_DISTRIBUTION","V3"))}catch(t:Throwable){err("QUALITY",t)}
         if (owns7828("BLUECHIP")) out["BLUECHIP"]=try{val x=BlueChipTraderAI.evaluate(ts.mint,ts.symbol,price,ts.lastMcap,ts.lastLiquidityUsd,top,bp,v3,v3c,mom,vol);op("BLUECHIP",x.shouldEnter,if(x.entryScore>0)x.entryScore else x.confidence,x.confidence,x.positionSizeSol,x.reason,"MAINSTREAM_CRYPTO_SWING","bluechip_native_swing","bluechip_native_exit",2.1,1.0,1.35,setOf("BLUECHIP_DEPTH","MCAP_LIQ_SANITY","SWING"))}catch(t:Throwable){err("BLUECHIP",t)}
-        if (owns7828("SHITCOIN")) out["SHITCOIN"]=try{val x=ShitCoinTraderAI.evaluate(mint=ts.mint,symbol=ts.symbol,currentPrice=price,marketCapUsd=ts.lastMcap,liquidityUsd=ts.lastLiquidityUsd,topHolderPct=top,buyPressurePct=bp,momentum=mom,volatility=vol,tokenAgeMinutes=ageMin,launchPlatform=platform,devWallet=ts.tokenMap.creatorOrDevWallet.ifBlank{null},bundlePct=bundle,socialScore=try{ts.sentiment.score.toInt().coerceIn(0,100)}catch(_:Throwable){0},hasWebsite=socialMeta7556?.website?.isNotBlank()==true,hasTwitter=socialMeta7556?.twitter?.isNotBlank()==true,hasTelegram=socialMeta7556?.telegram?.isNotBlank()==true,hasGithub=false,isDexBoosted=boosted,dexTrendingRank=if(trending)1 else 0,graduationProgress=ts.meta.curveProgress.coerceIn(0.0,100.0),recordEducationScores=true,tokenState8077=ts);op("SHITCOIN",x.shouldEnter,if(x.entryScore>0)x.entryScore else x.confidence,x.confidence,x.positionSizeSol,x.reason,"VOLUME_IGNITION_SCALP","shitcoin_native_meme_entry","shitcoin_native_exit",0.9,0.8,1.0,setOf("MEME_EDGE","BUNDLE","SOCIAL_CACHE","GRADUATION")).let{onLaneBar7948(it,ShitCoinTraderAI.getFluidScoreThreshold(),ShitCoinTraderAI.getFluidConfidenceThreshold())}}catch(t:Throwable){err("SHITCOIN",t)}
-        if (owns7828("EXPRESS")) out["EXPRESS"]=try{val x=ShitCoinExpress.evaluate(ts.mint,ts.symbol,price,ts.lastMcap,ts.lastLiquidityUsd,expressMomentum7555,bp,volVs,observedChange8491 ?: 0.0,trending,boosted,ageMin);op("EXPRESS",x.shouldRide,x.confidence,x.confidence,x.positionSizeSol,x.reason,"VOLUME_IGNITION_SCALP","express_native_${x.rideType.name.lowercase()}","express_native_exit",0.55,0.75,0.95,setOf("EXPRESS","MOMENTUM_1H","PRICE_5M","VOLUME_ACCELERATION"))}catch(t:Throwable){err("EXPRESS",t)}
-        if (owns7828("MOONSHOT")) out["MOONSHOT"]=try{val x=MoonshotTraderAI.scoreToken(ts.mint,ts.symbol,ts.lastMcap,ts.lastLiquidityUsd,ts.meta.volScore.toInt().coerceIn(0,100),bp,rug,v3.toDouble(),v3c.toDouble(),launch?.phase?.name?:ts.phase,paper,runner);op("MOONSHOT",x.eligible,x.score,x.confidence.toInt(),x.suggestedSizeSol,x.rejectReason.ifBlank{"MOONSHOT_NATIVE_ALLOW"},"DIAMOND_HANDS_RUNNER","moonshot_native_runner","moonshot_native_runner_exit",2.8,0.92,1.55,setOf("MOONSHOT","RUNNER","LAUNCH_PHASE","MFE_TRAIL"))}catch(t:Throwable){err("MOONSHOT",t)}
+        if (owns7828("SHITCOIN")) out["SHITCOIN"]=try{val x=ShitCoinTraderAI.evaluate(mint=ts.mint,symbol=ts.symbol,currentPrice=price,marketCapUsd=ts.lastMcap,liquidityUsd=ts.lastLiquidityUsd,topHolderPct=top,buyPressurePct=shitcoinEvidence8527.buyPressurePct,momentum=shitcoinInputs8527.momentumPct,volatility=shitcoinEvidence8527.volatility,tokenAgeMinutes=ageMin,launchPlatform=platform,devWallet=shitcoinEvidence8527.devWallet,devHoldPct=shitcoinEvidence8527.devHoldPct,bundlePct=shitcoinInputs8527.bundlePct,socialScore=shitcoinEvidence8527.socialScore,hasWebsite=shitcoinEvidence8527.hasWebsite,hasTwitter=shitcoinEvidence8527.hasTwitter,hasTelegram=shitcoinEvidence8527.hasTelegram,hasGithub=false,isDexBoosted=boosted,dexTrendingRank=if(trending)1 else 0,graduationProgress=shitcoinEvidence8527.graduationProgress,recordEducationScores=true,tokenState8077=ts);op("SHITCOIN",x.shouldEnter,if(x.entryScore>0)x.entryScore else x.confidence,x.confidence,x.positionSizeSol,x.reason,"VOLUME_IGNITION_SCALP","shitcoin_native_meme_entry","shitcoin_native_exit",0.9,0.8,1.0,setOf("MEME_EDGE","BUNDLE","SOCIAL_CACHE","GRADUATION")).let{onLaneBar7948(it,ShitCoinTraderAI.getFluidScoreThreshold(),ShitCoinTraderAI.getFluidConfidenceThreshold())}}catch(t:Throwable){err("SHITCOIN",t)}
+        if (owns7828("EXPRESS")) out["EXPRESS"]=try{val x=SpecialistInputParity8527.express8527(ts, marketInputs8522);op("EXPRESS",x.shouldRide,x.confidence,x.confidence,x.positionSizeSol,x.reason,"VOLUME_IGNITION_SCALP","express_native_${x.rideType.name.lowercase()}","express_native_exit",0.55,0.75,0.95,setOf("EXPRESS","MOMENTUM_1H","PRICE_5M","VOLUME_ACCELERATION"))}catch(t:Throwable){err("EXPRESS",t)}
+        if (owns7828("MOONSHOT")) out["MOONSHOT"]=try{val x=MoonshotTraderAI.scoreToken(ts.mint,ts.symbol,ts.lastMcap,ts.lastLiquidityUsd,moonshotInputs8527.volumeScore,bp,rug,v3.toDouble(),v3c.toDouble(),moonshotInputs8527.phase,paper,runner);op("MOONSHOT",x.eligible,x.score,x.confidence.toInt(),x.suggestedSizeSol,x.rejectReason.ifBlank{"MOONSHOT_NATIVE_ALLOW"},"DIAMOND_HANDS_RUNNER","moonshot_native_runner","moonshot_native_runner_exit",2.8,0.92,1.55,setOf("MOONSHOT","RUNNER","LAUNCH_PHASE","MFE_TRAIL"))}catch(t:Throwable){err("MOONSHOT",t)}
         if (owns7828("PROJECT_SNIPER")) out["PROJECT_SNIPER"]=try{val x=ProjectSniperAI.assessTarget(ts,price);op("PROJECT_SNIPER",x.shouldEngage,x.confidence,x.confidence,x.positionSizeSol,x.reason,"DEGEN_MICRO_SNIPE","sniper_native_pre_ignition","sniper_native_fast_exit",0.45,0.55,0.85,setOf("SNIPER","LAUNCH_PHASE","BUYER_BREADTH","DEV_FLOW"))}catch(t:Throwable){err("PROJECT_SNIPER",t)}
         if (owns7828("DIP_HUNTER")) out["DIP_HUNTER"]=try{val x=DipHunterAI.evaluate(ts.mint,ts.symbol,price,high,ts.lastMcap,ts.lastLiquidityUsd,bp,volVs,ageMin/60.0,holders,null,devSelling,bounce);op("DIP_HUNTER",x.shouldBuy,x.confidence,x.confidence,x.positionSizeSol,x.reason,"PANIC_REVERSION_BOUNCE","dip_native_reclaim","dip_native_recovery_exit",1.25,x.dipQuality.sizeMult.coerceIn(0.3,1.15),1.05,setOf("DIP_RECLAIM","BOUNCE","VOLUME_RETURN"))}catch(t:Throwable){err("DIP_HUNTER",t)}
-        if (owns7828("MANIPULATED")) out["MANIPULATED"]=try{val x=ManipulatedTraderAI.evaluate(ts.mint,ts.symbol,price,ts.lastMcap,ts.lastLiquidityUsd,mom,bp,bundle,ts.source,ageMin,rug,paper);op("MANIPULATED",x.shouldEnter,x.manipScore,x.manipScore,x.positionSizeSol,x.reason,"VOLUME_IGNITION_SCALP","manipulated_native_pump_ride","manipulated_native_fast_exit",0.4,0.6,0.82,setOf("MANIPULATION","BUNDLE","ORDER_FLOW"))}catch(t:Throwable){err("MANIPULATED",t)}
+        if (owns7828("MANIPULATED")) out["MANIPULATED"]=try{val x=SpecialistInputParity8527.manipulated8527(ts, marketInputs8522, paper);op("MANIPULATED",x.shouldEnter,x.manipScore,x.manipScore,x.positionSizeSol,x.reason,"VOLUME_IGNITION_SCALP","manipulated_native_pump_ride","manipulated_native_fast_exit",0.4,0.6,0.82,setOf("MANIPULATION","BUNDLE","ORDER_FLOW"))}catch(t:Throwable){err("MANIPULATED",t)}
         if (owns7828("TREASURY")) out["TREASURY"]=try{val x=TreasuryBrain.evaluate(ts);val floor8031=treasuryFloorOk8031(ts);val ok=x.category!="SKIP"&&x.score>=50.0&&floor8031;op("TREASURY",ok,x.score.toInt(),x.score.toInt(),0.0,if(!floor8031)"TREASURY_ROLE_FLOOR_8031" else x.reasons.joinToString(";").ifBlank{x.category},"CASHFLOW_SCALP","treasury_native_confirmed_scalp","treasury_native_bank",0.75,x.sizeMultiplier.coerceIn(0.3,1.15),0.9,setOf("TREASURY_BRAIN","MOMENTUM_5M_15M","EMA_FAN","DEPTH"))}catch(t:Throwable){err("TREASURY",t)}
         if (owns7828("CASHGEN")) out["CASHGEN"]=try{val x=CashGenerationAI.evaluate(ts.mint,ts.symbol,price,ts.lastLiquidityUsd,top,bp,v3,v3c,mom,vol,ts.source,ts.lastPriceSource,ts.lastPriceDex,ageMin,ownerLane="CASHGEN");op("CASHGEN",x.shouldEnter,if(x.entryScore>0)x.entryScore else x.confidence,x.confidence,x.positionSizeSol,x.reason,"CASHFLOW_SCALP","cashgen_native_cashflow","cashgen_native_quick_bank",0.55,0.82,0.78,setOf("CASHGEN","LIQUIDITY_DEPTH","ORDER_FLOW","TURNOVER"))}catch(t:Throwable){err("CASHGEN",t)}
         if (owns7828("CYCLIC")) out["CYCLIC"]=try{val x=CyclicTradeEngine.evaluateCandidate7542(ts,!paper);op("CYCLIC",x.eligible,x.score,x.confidence,0.0,x.reason,"CYCLIC_COMPOUND","cyclic_native_compound_pick","cyclic_inherit_owner_exit",1.35,0.72,1.18,setOf("CYCLIC","COMPOUND","V3","SELLABILITY"))}catch(t:Throwable){err("CYCLIC",t)}
@@ -439,8 +436,8 @@ object SpecialistBrainBridge7542 {
         try { RunnerGrabLane8343.reviewNative8343(ts, out, now) } catch (_: Throwable) {}
         val s=out.values.filter{it.authoritative&&it.eligible}.sortedByDescending{maxOf(it.score,it.confidence)};val a=s.getOrNull(0);val b=s.getOrNull(1);val av=a?.let{maxOf(it.score,it.confidence)}?:0;val bv=b?.let{maxOf(it.score,it.confidence)}?:0
         val ensemble=a!=null&&b!=null&&av<75&&(av-bv<=10||av<65);val fallback=s.isEmpty()&&v3>=40&&v3c>=45&&bp>=50&&ts.lastLiquidityUsd>0&&!ts.safety.isBlocked;val coreOk=ensemble||fallback
-        val coreScore=(if(s.isNotEmpty())s.take(4).map{maxOf(it.score,it.confidence)}.average().toInt()else v3).coerceIn(0,100)
-        if (owns7828("CORE")) out["CORE"]=op("CORE",coreOk,coreScore,coreScore,0.0,when{ensemble->"CORE_ENSEMBLE_${s.take(4).joinToString("+"){it.lane}}";fallback->"CORE_GENERALIST_NO_SPECIALIST_FIT";else->RunnerGrabLane8343.coreYieldReason8343(s.isEmpty(),out.values)},a?.setup?:"MAINSTREAM_CRYPTO_SWING","core_native_ensemble","core_inherit_ensemble_exit",1.0,0.8,1.0,s.take(4).flatMap{it.tools}.toSet()+"CORE_ENSEMBLE")
+        val (coreScore, coreConfidence) = NativeCandidateValues8527.coreEnsemble8527(s, v3, v3c)
+        if (owns7828("CORE")) out["CORE"]=op("CORE",coreOk,coreScore,coreConfidence,0.0,when{ensemble->"CORE_ENSEMBLE_${s.take(4).joinToString("+"){it.lane}}";fallback->"CORE_GENERALIST_NO_SPECIALIST_FIT";else->RunnerGrabLane8343.coreYieldReason8343(s.isEmpty(),out.values)},a?.setup?:"MAINSTREAM_CRYPTO_SWING","core_native_ensemble","core_inherit_ensemble_exit",1.0,0.8,1.0,s.take(4).flatMap{it.tools}.toSet()+"CORE_ENSEMBLE")
         out["CORE"]?.let { original ->
             val reviewed = reviewCoreYield8077(original) { rule, lane ->
                 try { com.lifecyclebot.engine.cortex.Cortex7885.ownLaneVetoRefusesWinners8076(rule, lane) }
@@ -473,6 +470,11 @@ object SpecialistBrainBridge7542 {
      * (SpecialistElection8136): each assessed lane is Discovered, each eligible one a NativeQualified proposal on its OWN
      * scale (the 7948 / 7951 ownership conviction), and an eligible lane whose trader cannot own execution ends INELIGIBLE.
      */
+    internal fun handoffRead8527(o: Opinion) =
+        com.lifecyclebot.engine.truth.AdmissionHandoff8144.LaneRead8144(
+            o.lane, o.eligible, maxOf(o.score, o.confidence), o.reason,
+            NativeOpportunityPolicy8522.selectionPriority8522(o))
+
     private fun registerElection8136(s: Snapshot) {
         try {
             val version = try { LaneExecutionCoordinator.candidateVersionFor(s.mint) } catch (_: Throwable) { -1L }
@@ -488,6 +490,6 @@ object SpecialistBrainBridge7542 {
             SpecialistElection8136.registerNative8136(s.mint, version, s.evaluatedAtMs, views)
         } catch (_: Throwable) {}
         // V5.0.8144 — a sniper hand-off arrives only when its receiver has judged the token (and the runner trace's first read).
-        try { com.lifecyclebot.engine.truth.AdmissionHandoff8144.onNativeSnapshot8144(s.mint, s.evaluatedAtMs, s.opinions.values.filter { it.authoritative }.map { com.lifecyclebot.engine.truth.AdmissionHandoff8144.LaneRead8144(it.lane, it.eligible, maxOf(it.score, it.confidence), it.reason, SpecialistElection8136.normalised8136(maxOf(it.score, it.confidence).toDouble(), Double.NaN, it.ownershipConviction7948)) }) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.truth.AdmissionHandoff8144.onNativeSnapshot8144(s.mint, s.evaluatedAtMs, s.opinions.values.filter { it.authoritative }.map { handoffRead8527(it) }) } catch (_: Throwable) {}
     }
 }

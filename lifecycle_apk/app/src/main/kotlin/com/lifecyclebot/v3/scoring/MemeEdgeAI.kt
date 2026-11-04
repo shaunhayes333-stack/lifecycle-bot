@@ -1,9 +1,12 @@
 package com.lifecyclebot.v3.scoring
 
-import com.lifecyclebot.data.Trade
 import com.lifecyclebot.engine.AdaptiveLearningEngine
 import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.engine.TradeHistoryStore
+import com.lifecyclebot.engine.LearningEnvironment7835
+import com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464
+import com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506
+import com.lifecyclebot.engine.truth.ExactStrategyPerformance7429
 
 /**
  * V5.9.619 — MemeEdgeAI
@@ -28,8 +31,8 @@ import com.lifecyclebot.engine.TradeHistoryStore
  *
  * READBACK CHANNELS:
  *   A) Pattern feedback (AdaptiveLearningEngine.calculateAdaptiveScore)
- *   B) Layer rolling-WR sizing nudge (last 50 closes for this layer)
- *   C) Hot/cold streak Kelly damping (last 10 trades momentum)
+ *   B) Mode/lane-specific net economic sizing nudge (last 50 whole-position closes)
+ *   C) Recent streak shaping only in the direction supported by that economic cohort
  *   D) Cluster-correlation guard (too many open in same cluster -> -2 score)
  *
  * Returns one [Verdict] per call. Cheap; safe to invoke per-token per-pass.
@@ -88,6 +91,7 @@ object MemeEdgeAI {
         baseEntryScore: Double,
         narrativeCluster: MemeNarrativeAI.Cluster,
         openClusterCount: Int,
+        executionMode: String = LearningEnvironment7835.mode(),
     ): Verdict = try {
         val expl = StringBuilder()
         var scoreNudge = 0.0
@@ -109,10 +113,11 @@ object MemeEdgeAI {
                 holderCount = holderCount,
                 topHolderPct = topHolderPct,
                 holderGrowthRate = holderGrowthRate,
-                devWalletPct = 0.0,
-                bondingCurveProgress = 0.0,
-                rugcheckScore = rugcheckScore,
-                emaFanState = "FLAT",
+                // No dev/curve/EMA witness is carried by this adapter; zero/FLAT would be fabricated readings.
+                devWalletPct = Double.NaN,
+                bondingCurveProgress = Double.NaN,
+                rugcheckScore = rugcheckScore.takeIf { it.isFinite() && it in 0.0..100.0 } ?: Double.NaN,
+                emaFanState = "",
                 baseEntryScore = baseEntryScore,
             )
             val rawDelta = adaptive.score - baseEntryScore
@@ -135,45 +140,17 @@ object MemeEdgeAI {
             }
         }
 
-        // B) Layer rolling-WR sizing nudge
-        val layerWr = layerRollingWinRate(layer, lookback = 50)
-        if (layerWr != null) {
-            val (wr, n) = layerWr
-            // V5.9.643 — lower minimum from 20 to 5 so sizing nudges arrive
-            // during bootstrap rather than after 20+ trades per layer.
-            val sizingFromWr = when {
-                n < 5        -> 1.0   // too sparse — neutral
-                n < 10       -> when {  // small sample: gentler range
-                    wr < 30.0 -> 0.88
-                    wr > 65.0 -> 1.08
-                    else -> 1.0
-                }
-                wr < 25.0    -> 0.75
-                wr < 35.0    -> 0.90
-                wr in 45.0..55.0 -> 1.0
-                wr < 70.0    -> 1.10
-                else         -> 1.15
-            }
-            sizeMult *= sizingFromWr
-            if (sizingFromWr != 1.0) {
-                expl.append("wr").append(wr.toInt()).append('=')
-                    .append(String.format("%.2f", sizingFromWr)).append("x ")
-            }
-        }
-
-        // C) Hot/cold streak Kelly damping
-        val streak = recentStreak(layer, lookback = 10)
-        val streakMult = when {
-            streak >=  4 -> 1.10
-            streak ==  3 -> 1.05
-            streak <= -4 -> 0.90
-            streak == -3 -> 0.95
-            else -> 1.0
-        }
-        sizeMult *= streakMult
-        if (streakMult != 1.0) {
-            expl.append("strk").append(streak).append('=')
-                .append(String.format("%.2f", streakMult)).append("x ")
+        // B/C) One same-mode, same-lane, after-cost whole-position cohort. Win rate and
+        // a short winning streak cannot overturn negative economic expectancy, or punish
+        // a profitable asymmetric runner cohort just because most of its positions lose.
+        val economics = try { evidenceFor8527(layer, executionMode) } catch (_: Throwable) { null }
+        val shaping = economicShaping8527(economics)
+        sizeMult *= shaping.sizeMultiplier * shaping.streakMultiplier
+        if (shaping.sizeMultiplier != 1.0 || shaping.streakMultiplier != 1.0) {
+            expl.append("net[").append(executionMode.uppercase()).append("]=")
+                .append(economics?.n ?: 0).append('/')
+                .append(String.format("%+.1f", economics?.meanReturnPct ?: 0.0)).append("% ")
+                .append(String.format("%.2f", shaping.sizeMultiplier * shaping.streakMultiplier)).append("x ")
         }
 
         // D) Cluster-correlation guard (deprioritise, don't block)
@@ -203,48 +180,85 @@ object MemeEdgeAI {
         Verdict.NEUTRAL
     }
 
-    private fun layerRollingWinRate(layer: Layer, lookback: Int): Pair<Double, Int>? = try {
-        val all = TradeHistoryStore.getAllSells()
-        val matched = all.asSequence()
-            .filter { matchesLayer(it, layer) }
-            .toList()
-            .takeLast(lookback)
-        if (matched.isEmpty()) null
-        else {
-            val wins = matched.count { it.pnlPct > 0.0 }
-            val wr = wins.toDouble() / matched.size.toDouble() * 100.0
-            wr to matched.size
-        }
-    } catch (_: Exception) { null }
+    internal data class EconomicEvidence8527(
+        val n: Int,
+        val meanReturnPct: Double,
+        val netSol: Double,
+        val winRatePct: Double,
+        val streak: Int,
+    )
 
-    private fun recentStreak(layer: Layer, lookback: Int): Int {
-        return try {
-            val all = TradeHistoryStore.getAllSells()
-            val recent = all.asSequence()
-                .filter { matchesLayer(it, layer) }
-                .toList()
-                .takeLast(lookback)
-                .reversed()
-            if (recent.isEmpty()) {
-                0
-            } else {
-                val firstWin = recent.first().pnlPct > 0.0
-                var streak = 0
-                for (t in recent) {
-                    val isWin = t.pnlPct > 0.0
-                    if (isWin == firstWin) streak++ else break
-                }
-                if (firstWin) streak else -streak
-            }
-        } catch (_: Exception) { 0 }
+    internal data class EconomicShaping8527(val sizeMultiplier: Double = 1.0, val streakMultiplier: Double = 1.0)
+
+    private data class CachedEvidence8527(val revision: Long, val atMs: Long, val evidence: EconomicEvidence8527?)
+    private val evidenceCache8527 = java.util.concurrent.ConcurrentHashMap<String, CachedEvidence8527>()
+
+    private fun evidenceFor8527(layer: Layer, rawMode: String): EconomicEvidence8527? {
+        val mode = rawMode.trim().uppercase(java.util.Locale.ROOT)
+        if (mode != "LIVE" && mode != "PAPER") return null
+        val now = System.currentTimeMillis()
+        val revision = CanonicalFinalizedTradeBus6464.canonicalRevision7493()
+        val key = mode + "|" + layer.name
+        evidenceCache8527[key]?.takeIf { it.revision == revision && now - it.atMs in 0L..30_000L }?.let { return it.evidence }
+        val rows = CanonicalFinalizedTradeBus6464.terminalEnvelopes7863(mode)
+        val evidence = economicEvidence8527(layer, mode, rows, now)
+        if (CanonicalFinalizedTradeBus6464.canonicalRevision7493() == revision)
+            evidenceCache8527[key] = CachedEvidence8527(revision, now, evidence)
+        return evidence
     }
 
-    private fun matchesLayer(t: Trade, layer: Layer): Boolean {
-        val m = t.tradingMode.uppercase()
-        return when (layer) {
-            Layer.SHITCOIN -> m.contains("SHIT")
-            Layer.MOONSHOT -> m.contains("MOON")
+    /** Already-settled whole positions only: no journal partials, mixed-mode WR, broadcast or counterfactual labels. */
+    internal fun economicEvidence8527(
+        layer: Layer,
+        rawMode: String,
+        rows: List<CanonicalFinalizedTradeBus6464.Envelope>,
+        nowMs: Long,
+    ): EconomicEvidence8527? {
+        val mode = rawMode.trim().uppercase(java.util.Locale.ROOT)
+        if (mode != "LIVE" && mode != "PAPER") return null
+        val selected = rows.asSequence().filter {
+            it.terminal && it.learningEligible && it.positionId.isNotBlank() &&
+                it.atMs > 0L && it.atMs <= nowMs && it.mode.equals(mode, true) &&
+                CanonicalLaneIdentity6506.canonical(it.lane) == layer.name &&
+                ExactStrategyPerformance7429.terminalEconomicsEligible8081(it.mode, it.proofState) &&
+                it.realizedReturnPct.isFinite() && it.realizedPnlSol.isFinite() &&
+                ((it.realizedReturnPct > 0.0 && it.realizedPnlSol > 0.0) ||
+                    (it.realizedReturnPct < 0.0 && it.realizedPnlSol < 0.0) ||
+                    (it.realizedReturnPct == 0.0 && it.realizedPnlSol == 0.0))
+        }.sortedByDescending { it.atMs }.distinctBy { it.positionId }.take(50).toList()
+        if (selected.isEmpty()) return null
+        val meanReturn = selected.sumOf { it.realizedReturnPct } / selected.size
+        val netSol = selected.sumOf { it.realizedPnlSol }
+        if (!meanReturn.isFinite() || !netSol.isFinite()) return null
+        val wins = selected.count { it.realizedPnlSol > 0.0 }
+        fun netSign(value: Double): Int = when { value > 0.0 -> 1; value < 0.0 -> -1; else -> 0 }
+        val headSign = netSign(selected.first().realizedPnlSol)
+        val streak = if (headSign == 0) 0 else selected.take(10)
+            .takeWhile { netSign(it.realizedPnlSol) == headSign }.size * headSign
+        return EconomicEvidence8527(selected.size, meanReturn, netSol, wins * 100.0 / selected.size, streak)
+    }
+
+    /** Magnitudes retain the prior bounded ranges; economic evidence alone determines their direction. */
+    internal fun economicShaping8527(e: EconomicEvidence8527?): EconomicShaping8527 {
+        if (e == null || e.n !in 5..50 || !e.meanReturnPct.isFinite() || !e.netSol.isFinite() ||
+            !e.winRatePct.isFinite() || e.winRatePct !in 0.0..100.0) return EconomicShaping8527()
+        val positive = e.meanReturnPct > 0.0 && e.netSol > 0.0
+        val negative = e.meanReturnPct < 0.0 && e.netSol < 0.0
+        val size = when {
+            positive && e.n < 10 -> 1.08
+            positive -> if (e.winRatePct >= 70.0) 1.15 else 1.10
+            negative && e.n < 10 -> 0.88
+            negative -> if (e.winRatePct < 25.0) 0.75 else 0.90
+            else -> 1.0
         }
+        val streak = when {
+            positive && e.streak >= 4 -> 1.10
+            positive && e.streak == 3 -> 1.05
+            negative && e.streak <= -4 -> 0.90
+            negative && e.streak == -3 -> 0.95
+            else -> 1.0
+        }
+        return EconomicShaping8527(size, streak)
     }
 
     fun throughputStatus(): String = try {

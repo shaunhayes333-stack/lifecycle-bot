@@ -197,24 +197,53 @@ object CyclicTradeEngine {
         if(TokenBlacklist.isBlocked(ts.mint)||MemeLossStreakGuard.isBlocked(ts.mint))return CandidateOpinion7542(false,0,0,"KNOWN_BAD_MINT")
         val score=(ts.lastV3Score?:ts.entryScore.toInt()).coerceIn(0,100);val conf=(ts.lastV3Confidence?:50).coerceIn(0,100)
         val bootstrap=try{com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()<0.40}catch(_:Throwable){false}
-        val wr=if(cycleCount>0)winCount*100.0/cycleCount.toDouble()else 0.0;val cold=cycleCount>=3&&(wr<35.0||ringBalanceUsd<lockedFloorUsd.coerceAtLeast(RING_SIZE_USD)*0.80)
-        var floor=when{cold->COLD_MIN_SCORE_TO_ENTER;bootstrap->MIN_SCORE_TO_ENTER_BOOTSTRAP;else->MIN_SCORE_TO_ENTER}
-        if(consecutiveLosses>0)floor+=(consecutiveLosses*5).coerceAtMost(15)
-        try{floor=(floor+com.lifecyclebot.v3.scoring.BehaviorAI.getEntryThresholdMod()).coerceIn(25.0,90.0)}catch(_:Throwable){}
-        val badExp=try{ScoreExpectancyTracker.shouldReject("CYCLIC",score)}catch(_:Throwable){false};val danger=try{val d=LosingPatternMemory.stats("CYCLIC",score);d.isDangerous&&d.meanPnl<0.0}catch(_:Throwable){false}
-        // V5.0.7547 — learned negative memory is evidence, not a permanent
-        // admission tombstone. A hard return here made the affected score band
-        // unable to collect new CYCLIC outcomes and therefore unable to recover.
-        // Shape the same entry floor in the same 5-point units already used by
-        // loss-streak caution; sufficiently strong fresh evidence can still pass.
-        if(badExp)floor+=5.0
-        if(danger)floor+=5.0
-        floor=floor.coerceAtMost(90.0)
+        val baseFloor = scoreFloor8527(bootstrap, cold8527())
+        val (badExp, danger) = negativeMemory8527(score)
+        val floor = CyclicEntryPolicy8527.memoryFloor8527(baseFloor, badExp, danger)
         if(badExp||danger)try{PipelineHealthCollector.labelInc("CYCLIC_NEGATIVE_EXPECTANCY_SOFT_SHAPE_7547")}catch(_:Throwable){}
-        val ok=score.toDouble()>=floor
+        // Raw native scoring does not consume its own later Cortex projection.
+        val ok = CyclicEntryPolicy8527.scoreAllows8527(score.toDouble(), baseFloor, badExp, danger)
         val memoryTag=if(badExp||danger)"_MEMORY_SHAPED" else ""
         return CandidateOpinion7542(ok,score,conf,if (ok) "CYCLIC_NATIVE_SCORE_${score}_FLOOR_${floor.toInt()}$memoryTag" else "CYCLIC_SCORE_BELOW_FLOOR_${score}_LT_${floor.toInt()}$memoryTag")
     }
+
+    private fun cold8527(): Boolean {
+        val winRate = if (cycleCount > 0) winCount * 100.0 / cycleCount else 0.0
+        return cycleCount >= 3 && (winRate < 35.0 ||
+            ringBalanceUsd < lockedFloorUsd.coerceAtLeast(RING_SIZE_USD) * 0.80)
+    }
+
+    private fun scoreFloor8527(bootstrap: Boolean, cold: Boolean): Double {
+        val base = when {
+            cold -> COLD_MIN_SCORE_TO_ENTER
+            bootstrap -> MIN_SCORE_TO_ENTER_BOOTSTRAP
+            else -> MIN_SCORE_TO_ENTER
+        }
+        val behavior = try { com.lifecyclebot.v3.scoring.BehaviorAI.getEntryThresholdMod().toDouble() }
+            catch (_: Throwable) { 0.0 }
+        return CyclicEntryPolicy8527.baseFloor8527(base, consecutiveLosses, behavior)
+    }
+
+    private fun negativeMemory8527(score: Int): Pair<Boolean, Boolean> {
+        val bad = try { ScoreExpectancyTracker.shouldReject("CYCLIC", score) } catch (_: Throwable) { false }
+        val danger = try { LosingPatternMemory.stats("CYCLIC", score).let { it.isDangerous && it.meanPnl < 0.0 } }
+            catch (_: Throwable) { false }
+        return bad to danger
+    }
+
+    private fun operatorChoice8527(ts: TokenState): NativeOpportunityPolicy8522.Decision? = try {
+        SpecialistBrainBridge7542.opportunityDecision8522(ts.mint, "CYCLIC", token = ts)
+    } catch (_: Throwable) { null }
+
+    private fun ringScoreEligible8527(ts: TokenState, baseFloor: Double): Boolean {
+        val score = ts.lastV3Score ?: ts.entryScore.toInt()
+        val (bad, danger) = negativeMemory8527(score)
+        return CyclicEntryPolicy8527.scoreAllows8527(score.toDouble(), baseFloor, bad, danger, operatorChoice8527(ts))
+    }
+
+    private fun ringRank8527(ts: TokenState): Double =
+        CyclicEntryPolicy8527.rank8527((ts.lastV3Score ?: ts.entryScore.toInt()).toDouble(),
+            ts.lastV3Confidence, LaneDispatch8418.cyclicReady8418(ts.mint), operatorChoice8527(ts))
 
     private data class CyclicPriceVerdict(
         val ok: Boolean,
@@ -250,9 +279,9 @@ object CyclicTradeEngine {
         return try {
             val safety = ts.safety
             val liq = ts.lastLiquidityUsd.takeIf { it.isFinite() } ?: 0.0
-            val ageMin = safety.tokenAgeMinutes.takeIf { it >= 0.0 }
-                ?: try { com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.trueAgeMs(ts) / 60_000.0 }
-                   catch (_: Throwable) { 999.0 }
+            val ageMin = CyclicEntryPolicy8527.observedAgeMinutes8527(safety.tokenAgeMinutes,
+                try { com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.trueAgeMs(ts) }
+                catch (_: Throwable) { null }) ?: Double.NaN
             val hardText = buildString {
                 append(safety.summary).append(' ')
                 append(safety.nameFlag).append(' ')
@@ -262,7 +291,7 @@ object CyclicTradeEngine {
                 safety.softPenalties.forEach { append(it.first).append(' ') }
             }.lowercase()
             val providerUnavailable = liq <= 0.0 || ts.lastPrice <= 0.0 || ts.lastPriceSource.isBlank()
-            val softUnknown = ageMin in 0.0..3.0 ||
+            val softUnknown = !ageMin.isFinite() || ageMin in 0.0..3.0 ||
                 hardText.contains("unverified") || safety.lpLockPct == 0.0 ||
                 safety.topHolderPct >= 65.0 || (ts.topHolderPct ?: -1.0) >= 65.0 ||
                 (liq in 0.0000001..14_999.999999)
@@ -772,54 +801,16 @@ object CyclicTradeEngine {
         val isBootstrapPhase = try {
             com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() < 0.40
         } catch (_: Exception) { false }
-        val cyclicWrPct = if (cycleCount > 0) (winCount * 100.0 / cycleCount.toDouble()) else 0.0
-        // V5.9.1309 — cold-mode now measures the dip RELATIVE TO the locked compound
-        // floor, not the original $500. A ring that banked the $1000 tier and dipped
-        // to $850 is NOT "cold" — it's a normal pullback above a protected milestone.
-        // This stops the doom-loop where a ring at $386 was permanently cold (deploy
-        // 20% + score≥72), too starved to ever recover.
-        val cyclicCold = cycleCount >= 3 && (cyclicWrPct < 35.0 || ringBalanceUsd < lockedFloorUsd * 0.80)
-        var effectiveMinScore = when {
-            cyclicCold -> COLD_MIN_SCORE_TO_ENTER
-            isBootstrapPhase -> MIN_SCORE_TO_ENTER_BOOTSTRAP
-            else -> MIN_SCORE_TO_ENTER
-        }
-        if (consecutiveLosses > 0) {
-            // Each recent loss raises the bar +5 (caps at +15). Loop-learning
-            // the ring's own outcomes into entry quality.
-            effectiveMinScore += (consecutiveLosses * 5).coerceAtMost(15)
-        }
-
-        // ── V5.9.885 — BehaviorAI entry-threshold wire-up for CYCLIC lane ──
-        // Cyclic is a 'fixed pool, compound through wins' trader — it deploys
-        // the full RING_BALANCE_SOL every cycle, NOT a sized percentage. So
-        // BehaviorAI sizing doesn't apply here the way it does for the other
-        // 7 lanes (V5.9.817-884). What DOES apply is the entry threshold:
-        //   - getEntryThresholdMod() returns +15..-20 based on aggression band
-        //   - positive value = harder bar (shave eligibility)
-        //   - negative value = easier bar (boost eligibility)
-        //
-        // Cyclic already has TWO loop-learning gates (bootstrap + consecutive
-        // losses). BehaviorAI is the THIRD: global cross-lane tilt state.
-        // When the bot is on tilt across all lanes, raise Cyclic's bar too
-        // so the ring stops cycling into losing setups.
-        //
-        // Per doctrine #86: bounded modifier, fail-open, no hard veto. The
-        // ring will still trade — just demand higher-quality scores during
-        // tilt. Min effective floor = 25.0 even at maximum boost.
-        try {
-            val behaviorMod = com.lifecyclebot.v3.scoring.BehaviorAI.getEntryThresholdMod()
-            effectiveMinScore = (effectiveMinScore + behaviorMod).coerceIn(25.0, 90.0)
-        } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
+        val cyclicCold = cold8527()
+        val effectiveMinScore = scoreFloor8527(isBootstrapPhase, cyclicCold)
         val best = tokens.values
             .filter { ts ->
-                val tokenScore = (ts.lastV3Score ?: ts.entryScore.toInt()).toDouble()
                 !(ts.position.isOpen && ts.position.isPaperPosition != isLiveMode)
                     && !com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.isOpen(if (isLiveMode) "live" else "paper", ts.mint)
                     && !com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.hasOpenMint(ts.mint, if (isLiveMode) "live" else "paper")
                     && resolveCyclicPrice(ts, executor, 0.0, "candidate", requireFresh = true).ok
                     && cyclicEntrySellabilityGuard6097(ts, "candidate", isLiveMode)
-                    && tokenScore >= effectiveMinScore
+                    && ringScoreEligible8527(ts, effectiveMinScore)
                     && ts.mint != currentMint   // don't immediately re-enter same token
                     // V5.9.451 — TokenBlacklist + MemeLossStreakGuard respect.
                     // The ring cycles $500 through trades, it should respect
@@ -827,25 +818,6 @@ object CyclicTradeEngine {
                     // can't bleed the ring.
                     && !TokenBlacklist.isBlocked(ts.mint)
                     && !MemeLossStreakGuard.isBlocked(ts.mint)
-                    // V5.9.1301 — self-awareness: CYCLIC fed ScoreExpectancyTracker
-                    // and LosingPatternMemory under "CYCLIC" but never READ them at
-                    // entry (unlike the other 7 lanes). So it re-entered score bands
-                    // that had already proven to bleed. Now it consults its OWN
-                    // per-score record keyed on the SAME "CYCLIC" bucket it stores
-                    // under. Fail-open (errors → eligible); soft (only a matured,
-                    // net-losing danger bucket suppresses); throughput preserved
-                    // because empty/young buckets never reject.
-                    && run {
-                        val sc = (ts.lastV3Score ?: ts.entryScore.toInt())
-                        val expReject = try {
-                            com.lifecyclebot.engine.ScoreExpectancyTracker.shouldReject("CYCLIC", sc)
-                        } catch (_: Throwable) { false }
-                        val danger = try {
-                            val d = com.lifecyclebot.engine.LosingPatternMemory.stats("CYCLIC", sc)
-                            d.isDangerous && d.meanPnl < 0.0
-                        } catch (_: Throwable) { false }
-                        !(expReject || danger)
-                    }
             }
             // ── V5.9.1347 — RANK BY TOOL-VALIDATED CONVICTION, not raw momentum ──
             // The old ranking was maxByOrNull { lastV3Score + entryScore } — pure
@@ -858,7 +830,7 @@ object CyclicTradeEngine {
             // an 80-score it's shaky on. Falls back to raw score when confidence is
             // absent (older/bootstrap tokens) so the ring is never starved.
             // V5.0.8418 — among the coins that pass every ring filter, the ones CYCLIC's own native brain qualified (READY) go first.
-            .maxByOrNull { ts -> LaneDispatch8418.cyclicRank8418((ts.lastV3Score ?: ts.entryScore.toInt()).toDouble(), ts.lastV3Confidence, LaneDispatch8418.cyclicReady8418(ts.mint)) }
+            .maxByOrNull { ts -> ringRank8527(ts) }
             ?: run {
                 // V5.9.1492 — STARVATION PROBE FALLBACK. No token cleared the strict
                 // floor this tick. Rather than freeze at "Scanning…" indefinitely
@@ -870,7 +842,7 @@ object CyclicTradeEngine {
                 // so a low-score probe risks minimal ring capital while keeping the
                 // CYCLIC learning bucket maturing. Mirrors the PROBE_ONLY path every
                 // other lane already has. NEVER bypasses blacklist / loss-streak /
-                // danger-bucket guards — those are re-checked in the probe filter.
+                // physical guards; the same negative-memory floor is applied to the probe.
                 noEligibleStreak++
                 LaneDispatch8418.noteCyclicRing8418(null, "CYCLIC_RING_BELOW_RING_FILTERS")  // V5.0.8418
                 if (noEligibleStreak < STARVATION_PROBE_TICKS) {
@@ -883,31 +855,17 @@ object CyclicTradeEngine {
                 val probeFloor = PROBE_MIN_SCORE
                 val probePick = tokens.values
                     .filter { ts ->
-                        val tScore = (ts.lastV3Score ?: ts.entryScore.toInt()).toDouble()
                         !(ts.position.isOpen && ts.position.isPaperPosition != isLiveMode)
                             && !com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.isOpen(if (isLiveMode) "live" else "paper", ts.mint)
                             && !com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.hasOpenMint(ts.mint, if (isLiveMode) "live" else "paper")
                             && resolveCyclicPrice(ts, executor, 0.0, "probe", requireFresh = true).ok
                             && cyclicEntrySellabilityGuard6097(ts, "probe", isLiveMode)
-                            && tScore >= probeFloor
+                            && ringScoreEligible8527(ts, probeFloor)
                             && ts.mint != currentMint
                             && !TokenBlacklist.isBlocked(ts.mint)
                             && !MemeLossStreakGuard.isBlocked(ts.mint)
-                            && run {
-                                val sc = (ts.lastV3Score ?: ts.entryScore.toInt())
-                                val expReject = try { com.lifecyclebot.engine.ScoreExpectancyTracker.shouldReject("CYCLIC", sc) } catch (_: Throwable) { false }
-                                val danger = try {
-                                    val d = com.lifecyclebot.engine.LosingPatternMemory.stats("CYCLIC", sc)
-                                    d.isDangerous && d.meanPnl < 0.0
-                                } catch (_: Throwable) { false }
-                                !(expReject || danger)
-                            }
                     }
-                    .maxByOrNull { ts ->
-                        val score = ((ts.lastV3Score ?: ts.entryScore.toInt())).toDouble()
-                        val conf = (ts.lastV3Confidence ?: 50).coerceIn(1, 100).toDouble()
-                        score * (conf / 100.0)
-                    }
+                    .maxByOrNull { ts -> ringRank8527(ts) }
                 if (probePick == null) {
                     statusMessage = "Scanning… (no probe candidate ≥${probeFloor.toInt()} either)"
                     return
@@ -1100,29 +1058,17 @@ object CyclicTradeEngine {
         // Record a CYCLIC/TREASURY BUY candidate and authorize it first, then
         // pass finalityPrechecked=true into treasuryBuy. This preserves FDG /
         // rug / safety finality instead of bypassing it.
+        // The operator's current REFUSE is binding here too; stale/cross-mode choices abstain in the shared read.
+        if (!NativeOpportunityPolicy8522.doorEligible8522(true, "CYCLIC_NATIVE_RING", operatorChoice8527(best))) {
+            statusMessage = "Cyclic current operator opportunity refusal"
+            try { PipelineHealthCollector.labelInc("CYCLIC_OPERATOR_REFUSE_8527") } catch (_: Throwable) {}
+            return
+        }
         val cyclicScore = (best.lastV3Score ?: best.entryScore.toInt()).coerceIn(0, 100)
         val cyclicFdg = try {
             FdgOutcomeContinuity8197.evaluate(
                 ts = best,
-                candidate = com.lifecyclebot.data.CandidateDecision(
-                    entryScore = cyclicScore.toDouble(),
-                    exitScore = 0.0,
-                    phase = best.phase.ifBlank { "cyclic" },
-                    signal = "BUY",
-                    setupQuality = "B",
-                    edgeQuality = "B",
-                    finalQuality = "B",
-                    edgePhase = "CYCLIC",
-                    edgeConfidence = cyclicScore.toDouble().coerceAtLeast(effectiveMinScore),
-                    isOptimalEntry = true,
-                    edgeVeto = false,
-                    shouldTrade = true,
-                    finalSignal = "BUY",
-                    blockReason = "",
-                    qualityPenalty = 1.0,
-                    aiConfidence = cyclicScore.toDouble().coerceAtLeast(effectiveMinScore),
-                    meta = com.lifecyclebot.data.StrategyMeta(),
-                ),
+                candidate = CyclicEntryPolicy8527.candidate8527(cyclicScore, best.lastV3Confidence, best.phase),
                 config = cfg,
                 proposedSizeSol = sizeSol,
                 specialistLane = "CYCLIC",
@@ -1156,15 +1102,15 @@ object CyclicTradeEngine {
             fdgDecision7835 = cyclicFdg, tokenState7835 = best,
             mint = best.mint,
             symbol = best.symbol,
-            score = cyclicScore,
-            confidence = cyclicScore.toDouble().coerceAtLeast(effectiveMinScore),
-            quality = "B",
+            score = cyclicFdg?.effectiveEntryScore7687 ?: cyclicScore,
+            confidence = cyclicFdg?.confidence ?: (best.lastV3Confidence ?: 50).coerceIn(0, 100).toDouble(),
+            quality = cyclicFdg?.quality ?: "B",
             isPaperMode = !isLiveMode,
             requestedBook = TradeAuthorizer.ExecutionBook.CYCLIC,
             rugcheckScore = best.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
             liquidity = best.lastLiquidityUsd,
             isBanned = BannedTokens.isBanned(best.mint),
-            preResolvedSizeSol = sizeSol,
+            preResolvedSizeSol = cyclicFdg?.sizeSol ?: sizeSol,
         )
         if (!cyclicAuth.isExecutable()) {
             statusMessage = "⏸️ Cyclic finality blocked ${best.symbol}: ${cyclicAuth.reason.take(60)}"
