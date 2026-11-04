@@ -133,9 +133,9 @@ object ProfitExitTruth8163 {
 
     /**
      * V5.0.8237 §A_DISPROVEN_MARK_STOPS_HERE — the executable quote is the only price a profit exit can bank; when the
-     * mark the position was displayed, peaked and (nearly) learnt at sits far above it, the mark is disproven: the
-     * position's price and peak are re-based to the quote so the screen, the trailing peak and the learner stop reading
-     * a gain nobody could sell. 8236 forensic (YEARN): +1909%/+2000% displayed, +3.5% executable, 20 of 21 profit quotes
+     * current mark far above it is corrected. A later quote cannot disprove an earlier, same-basis verified peak.
+     * The high is bounded by the current quote and that position's recorded VERIFIED excursion; an unsupported unit
+     * spike is still removed rather than preserved as profit. 8236 forensic (YEARN): +1909%/+2000% displayed, +3.5% executable, 20 of 21 profit quotes
      * refused against slice cost — the quote proved the mark wrong 20 times and nothing acted on it.
      */
     private const val MARK_DISPROOF_RATIO_8237 = 1.5
@@ -151,22 +151,40 @@ object ProfitExitTruth8163 {
     fun markDisproven8237(markUsd: Double, quoteUsd: Double): Boolean =
         markUsd.isFinite() && quoteUsd.isFinite() && markUsd > 0.0 && quoteUsd > 0.0 && markUsd / quoteUsd > MARK_DISPROOF_RATIO_8237
 
-    private fun reconcileMark8237(ts: TokenState, rawIn: Long, outLamports: Long) {
+    internal fun reconcileMark8237(ts: TokenState, rawIn: Long, outLamports: Long,
+                                   solUsd: Double = WalletManager.lastKnownSolPrice,
+                                   nowMs: Long = System.currentTimeMillis()) {
         try {
-            val dec = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.firstOpenForMint(
-                ts.mint, if (ts.position.isPaperPosition) "paper" else "live",
-            )?.tokenDecimals?.takeIf { it in 0..18 } ?: return
-            val q = quoteImpliedUsd8237(outLamports, rawIn, dec, WalletManager.lastKnownSolPrice)
+            val canonical = CanonicalPositionAuthority6441.getPosition(ts.position.positionId) ?: return
+            if (canonical.mint != ts.mint || !canonical.mode.equals(if (ts.position.isPaperPosition) "paper" else "live", true) ||
+                canonical.lifecycle !in setOf(CanonicalPositionAuthority6441.Lifecycle.OPEN, CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED) ||
+                rawIn <= 0L || BigInteger.valueOf(rawIn) > canonical.remainingQtyRaw) return
+            val dec = canonical.tokenDecimals.takeIf { it in 0..18 } ?: return
+            val q = quoteImpliedUsd8237(outLamports, rawIn, dec, solUsd)
             if (!markDisproven8237(ts.lastPrice, q)) return
             val ratio = ts.lastPrice / q
             ts.lastPrice = q
             ts.lastPriceSource = "EXEC_QUOTE_8237"
-            ts.lastPriceUpdate = System.currentTimeMillis()
-            val floor = maxOf(q, ts.position.entryPrice)
-            if (ts.position.highestPrice > floor) ts.position.highestPrice = floor
+            ts.lastPriceUpdate = nowMs
+            // This is a later executable observation, not a replay of the past high.
+            // Preserve only the peak authority's exact-position, same-basis VERIFIED history.
+            val excursion = com.lifecyclebot.engine.truth.PositionExcursion8082.forClose(canonical.positionId)
+            val sameBasis = !ts.position.priceBasisRescaled && canonical.entryPriceUsd.isFinite() && canonical.entryPriceUsd > 0.0 &&
+                ts.position.entryPrice.isFinite() && ts.position.entryPrice > 0.0 &&
+                kotlin.math.abs(ts.position.entryPrice / canonical.entryPriceUsd - 1.0) <= 0.02
+            val verifiedPeak = excursion?.takeIf {
+                sameBasis && it.source.startsWith("VERIFIED_") && it.samples > 0 &&
+                    it.mfePct.isFinite() && it.mfePct >= 0.0 && it.mfeAtMs in canonical.openedAtMs..nowMs &&
+                    ts.position.peakGainPct.isFinite() && ts.position.peakGainPct >= 0.0
+            }?.let { canonical.entryPriceUsd * (1.0 + minOf(it.mfePct, ts.position.peakGainPct) / 100.0) }
+                ?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+            val provenHigh = maxOf(q, canonical.entryPriceUsd.takeIf { it.isFinite() && it > 0.0 } ?: q, verifiedPeak)
+            val priorHigh = ts.position.highestPrice.takeIf { it.isFinite() && it > 0.0 } ?: q
+            // Also restore an earlier verified high if a previous quote correction already erased it.
+            ts.position.highestPrice = maxOf(verifiedPeak, minOf(priorHigh, provenHigh))
             PipelineHealthCollector.labelInc("MARK_DISPROVEN_BY_QUOTE_8237")
             if (ForensicEmitRateLimiter6356.shouldEmit("MARK_DISPROVEN_8237", ts.mint))
-                ForensicLogger.lifecycle("MARK_DISPROVEN_BY_QUOTE_8237", "mint=${ts.mint} markOverQuote=${"%.2f".format(ratio)}x quoteUsd=$q peakRebasedTo=$floor")
+                ForensicLogger.lifecycle("MARK_DISPROVEN_BY_QUOTE_8237", "mint=${ts.mint} markOverQuote=${"%.2f".format(ratio)}x quoteUsd=$q verifiedHistoryUsd=$verifiedPeak peakBoundedTo=${ts.position.highestPrice}")
         } catch (_: Throwable) {}
     }
 

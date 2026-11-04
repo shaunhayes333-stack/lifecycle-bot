@@ -28514,6 +28514,10 @@ class Executor(
             var jupiterProviderClassFailure7228 = false
             // V5.0.7807 — B4: a funded emergency that already failed once skips the
             // aggregator quote ladder and goes straight to the direct routes.
+            // The same six-second clock must reach every HTTP fallback, not only the next loop iteration.
+            // The scope ends before any route build, simulation, signature, broadcast or finality work.
+            val quoteBudget8527 = com.lifecyclebot.network.ExitQuoteBudget7863.begin(budgetMs = 6_000L)
+            try {
             jupiterLadder7228@ for (slipLevel in if (jupiterCircuitOpen || skipQuoteLadder8009(ts, reason)) emptyList() else slippageLevels) {
                 for (attempt in 1..2) {
                     if (System.nanoTime() >= quoteLadderDeadline7863) break@jupiterLadder7228
@@ -28577,6 +28581,7 @@ class Executor(
                     break
                 }
             }
+            } finally { quoteBudget8527.close() }
             
             // V5.9.72 CRITICAL FIX: If ALL quote attempts failed, KEEP the
             // position open. Previously this force-closed with -100% PnL and

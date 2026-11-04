@@ -267,7 +267,8 @@ object CellAllocator7962 {
 
     // ── runtime books ──────────────────────────────────────────────────────
 
-    // Only the old counterfactual label component is incompatible; actual live/paper closes retain their keys.
+    // Forward labels already use source-time birth/unknown cells. Realised global/lane/setup nodes retain their
+    // evidence; realised CELL/BAND nodes use a new birth-age namespace, never old watchlist-residence cohorts.
     private const val EV_LABEL = "L8521"
     private const val EV_LIVE = "V"
     private const val EV_PAPER = "P"
@@ -300,7 +301,24 @@ object CellAllocator7962 {
     private val earlyRotationGrants = AtomicLong(0)
     private val rotations = AtomicLong(0)
 
-    private fun nodeKey(ev: String, node: String) = "$ev|$node"
+    private fun nodeKey(ev: String, node: String) = nodeKey8527(ev, node)
+
+    internal fun nodeKey8527(ev: String, node: String): String {
+        val ageNode = node.startsWith("CELL|") || node.startsWith("BAND|")
+        val versioned = if (ageNode && (ev == EV_LIVE || ev == EV_PAPER)) "${ev}8527" else ev
+        return "$versioned|$node"
+    }
+
+    /** The original preference remains the legacy observed-age archive; these rows cannot become birth leaf proof. */
+    internal fun currentNodes8527(raw: String?): String = raw.orEmpty().split(';').filterNot { row ->
+        val key = row.substringBefore('=')
+        (key.startsWith("V|CELL|") || key.startsWith("V|BAND|") ||
+            key.startsWith("P|CELL|") || key.startsWith("P|BAND|"))
+    }.joinToString(";")
+
+    internal fun cellKey8527(ts: TokenState, lane: String, nowMs: Long): String =
+        ForwardReturnLabeler7731.cellKey(ts.source, canonLane(lane), com.lifecyclebot.engine.truth.TrustedMcap8019.mcap8019(ts),
+            ForwardReturnLabeler7731.cellAgeMs8208(ts, nowMs))
     private fun laneNode(lane: String) = "LANE|$lane"
     private fun setupNode(lane: String, setup: String) = "LS|$lane|$setup"
     private fun cellNode(cell: String) = "CELL|$cell"
@@ -379,8 +397,7 @@ object CellAllocator7962 {
 
     private fun refFor(ts: TokenState, lane: String, nowMs: Long, withSetup: Boolean): Ref7962 {
         val l = canonLane(lane)
-        val ageMs = if (ts.addedToWatchlistAt > 0L) nowMs - ts.addedToWatchlistAt else -1L
-        val cell = ForwardReturnLabeler7731.cellKey(ts.source, l, com.lifecyclebot.engine.truth.TrustedMcap8019.mcap8019(ts), ageMs)
+        val cell = cellKey8527(ts, l, nowMs)
         val setup = if (!withSetup) "" else try { ExitProfile7955.entrySetup7955(ts, l, nowMs) } catch (_: Throwable) { "" }
         return Ref7962(cell, bandOf(cell), l, setup)
     }
@@ -601,8 +618,7 @@ object CellAllocator7962 {
                 score7962(drawFor(ref.cell, post, live, nowMs), holdFor(ref.lane, live))
             }
         } else {
-            val ageMs = if (ts.addedToWatchlistAt > 0L) nowMs - ts.addedToWatchlistAt else -1L
-            val band = bandOf(ForwardReturnLabeler7731.cellKey(ts.source, "X", com.lifecyclebot.engine.truth.TrustedMcap8019.mcap8019(ts), ageMs))
+            val band = bandOf(cellKey8527(ts, "X", nowMs))
             val bs = statFor(bandNode(band), live)
             if ((bs?.w ?: 0.0) < MIN_PRIORITY_N_7962) 0.0 else {
                 val post = hierarchy7962(listOf(statFor(GLOBAL_NODE, live), bs))
@@ -624,7 +640,8 @@ object CellAllocator7962 {
         val p = try { context.applicationContext.getSharedPreferences(PREFS_7962, Context.MODE_PRIVATE) } catch (_: Throwable) { return }
         prefs = p
         try {
-            val raw = p.getString("nodes_8521", null) ?: realisedNodes8521(p.getString("nodes", null))
+            val raw = currentNodes8527(p.getString("nodes_birth_8527", null)
+                ?: p.getString("nodes_8521", null) ?: realisedNodes8521(p.getString("nodes", null)))
             raw.split(';').forEach { row ->
                 val sep = row.lastIndexOf('=')
                 if (sep <= 0) return@forEach
@@ -650,7 +667,7 @@ object CellAllocator7962 {
         updatesSincePersist.set(0)
         try {
             val enc = nodes.entries.joinToString(";") { (k, s) -> "$k=${synchronized(s) { s.encode() }}" }
-            p.edit().putString("nodes_8521", enc).apply()
+            p.edit().putString("nodes_birth_8527", enc).apply()
         } catch (_: Throwable) {}
     }
 
@@ -662,7 +679,8 @@ object CellAllocator7962 {
 
     fun statusLine(): String {
         val live = liveMode7962
-        val cellKeys = nodes.keys.filter { it.contains("|CELL|") }.map { it.substringAfter("|CELL|") }.toSet()
+        val cellKeys = nodes.keys.filter { it.startsWith("$EV_LABEL|CELL|") ||
+            it.startsWith("V8527|CELL|") || it.startsWith("P8527|CELL|") }.map { it.substringAfter("|CELL|") }.toSet()
         val posts = HashMap<String, Posterior7962>()
         for (c in cellKeys) {
             val lane = c.split('|').getOrNull(1) ?: continue
@@ -676,7 +694,7 @@ object CellAllocator7962 {
         }
         val mults = synchronized(sizeMults) { sizeMults.sorted() }
         val sm = if (mults.isEmpty()) "-" else "${"%.2f".format(mults.first())}/${"%.2f".format(mults[mults.size / 2])}/${"%.2f".format(mults.last())}"
-        return "cells=${cellKeys.size} book=${if (live) "LIVE" else "PAPER"} top=[${order.take(3).joinToString(", ") { fmt(it) }}] " +
+        return "cells=${cellKeys.size} ageBasis=BIRTH8527 book=${if (live) "LIVE" else "PAPER"} top=[${order.take(3).joinToString(", ") { fmt(it) }}] " +
             "bottom=[${order.takeLast(3).reversed().joinToString(", ") { fmt(it) }}] " +
             "slotRefusals=${slotRefusals.get()} rotations=${rotations.get()} earlyRotationGrants=${earlyRotationGrants.get()} " +
             "topCellCapitalDemand=${topDemandNotes.get()} sizeMult[min/med/max]=$sm " +

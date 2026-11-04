@@ -29,6 +29,6 @@ class Aate8496TradeQuoteThroughLockoutTest {
         assertTrue(jup.contains("if (!observationOnly7397) reqBuilder.header(HostCircuitInterceptor.TRADE_HEADER_8496, \"1\")"))
         assertTrue(jup.contains("if (!observationOnly7397) try { JupiterLatency.record(System.currentTimeMillis() - t0, true) }"))
         val hci = java.io.File("src/main/kotlin/com/lifecyclebot/network/HostCircuitInterceptor.kt").readText()
-        assertTrue(hci.contains("req.header(TRADE_HEADER_8496) != null"))
+        assertTrue(hci.contains("tradeQuote8527(req)"))
     }
 }

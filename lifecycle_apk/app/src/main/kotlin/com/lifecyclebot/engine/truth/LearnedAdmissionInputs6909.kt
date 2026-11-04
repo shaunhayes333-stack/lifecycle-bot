@@ -49,6 +49,11 @@ import java.util.concurrent.atomic.AtomicLong
  */
 object LearnedAdmissionInputs6909 {
 
+    /** -1 is PredictiveEntryOracle's absent-age contract; zero is a genuinely observed new birth. */
+    internal fun observedAgeMinutes8527(resolvedAgeMs: Long?): Int =
+        resolvedAgeMs?.takeIf { it >= 0L && it != Long.MAX_VALUE }
+            ?.div(60_000L)?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt() ?: -1
+
     private data class FoundationStamp7715(val atMs: Long, val prior: FieldManual7715.FoundationPrior)
     private val foundationByCandidate7715 = java.util.concurrent.ConcurrentHashMap<String, FoundationStamp7715>()
     private const val FOUNDATION_STAMP_TTL_MS_7715 = 60_000L
@@ -244,10 +249,9 @@ object LearnedAdmissionInputs6909 {
                 ?: 0.0
         } catch (_: Throwable) { 0.0 }
         val tokenAgeMinutes7430 = try {
-            tsForBrains6917?.let {
-                (com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.trueAgeMs(it) / 60_000L)
-                    .coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
-            } ?: -1
+            observedAgeMinutes8527(tsForBrains6917?.let {
+                com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.resolvedAgeMs(it)
+            })
         } catch (_: Throwable) { -1 }
         val graduated7430 = try {
             tsForBrains6917?.tokenMap?.migratedOrGraduated == true

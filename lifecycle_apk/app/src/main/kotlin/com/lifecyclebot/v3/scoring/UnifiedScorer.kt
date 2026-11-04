@@ -1404,7 +1404,7 @@ class UnifiedScorer(
             candidate.extraBoolean("launchExpanding7401") ->
                 ScoreComponent(name = "fresh_launch_bonus", value = 6,
                     reason = "🚀 EXPANDING — move underway, timing edge reduced")
-            candidate.ageMinutes <= 1.0 && launchPhase7401.isBlank() ->
+            candidate.ageAtMost8527(1.0) && launchPhase7401.isBlank() ->
                 ScoreComponent(name = "fresh_launch_bonus", value = 5,
                     reason = "launch timing unresolved — minimal grace only")
             else -> null

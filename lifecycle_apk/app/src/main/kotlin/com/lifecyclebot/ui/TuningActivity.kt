@@ -56,9 +56,7 @@ class TuningActivity : Activity() {
         // result is read by renderAll on the next main-thread refresh tick.
         Thread {
             val grouped = try {
-                val best = com.lifecyclebot.engine.LaneStrategyEvaluator.bestPerLane()
-                if (best.isEmpty()) emptyMap()
-                else com.lifecyclebot.engine.LaneStrategyEvaluator.evaluateAll().groupBy { it.lane }
+                com.lifecyclebot.engine.LaneStrategyEvaluator.evaluateAll().groupBy { "${it.environment8527}|${it.lane}" }
             } catch (_: Throwable) { cachedLaneReplay ?: emptyMap() }
             cachedLaneReplay = grouped
             cachedLaneReplayAtMs = System.currentTimeMillis()
@@ -114,9 +112,8 @@ class TuningActivity : Activity() {
 
         addHeader("Tuning Console", "READ ONLY", AateUi.PURPLE)
         addText(
-            "Signals the brains already compute. Lane Strategy Replay feeds a bounded " +
-                "LaneExitTuner TP/SL bias — this screen shows what the bot decided, it does " +
-                "not apply anything.",
+            "Recorded outcomes and research hypotheses. LaneExitTuner learns from canonical closes; " +
+                "unordered peak/drawdown summaries do not set TP/SL or planner confidence. This screen is read-only.",
             AateUi.TEXT_MUTED, small = true,
         )
 
@@ -288,11 +285,11 @@ class TuningActivity : Activity() {
         }
 
         // ── 6. LANE STRATEGY REPLAY (V5.9.1285) ────────────────────────
-        addHeader("Lane Strategy Replay", "HONEST BACKTEST", AateUi.PURPLE)
+        addHeader("Lane Exit-Shape Research", "SUMMARY ONLY", AateUi.PURPLE)
         addText(
-            "Replays each lane's REAL trades under candidate exit shapes using the " +
-                "actual peak/drawdown each trade hit — no fabricated upside. If a lane's " +
-                "best shape can't beat NO_TRADE, the data says it should stop trading.",
+            "Actual baseline is recorded. Other shapes are hypothetical arithmetic from unordered " +
+                "peak/drawdown summaries: stop/TP order, gap fills, costs and residual size are unknown. " +
+                "These rows cannot recommend a switch or stopping a lane.",
             AateUi.TEXT_MUTED, small = true,
         )
         try {
@@ -300,29 +297,20 @@ class TuningActivity : Activity() {
             // never run the O(trades×profiles) backtest on the main thread here.
             val byLane = cachedLaneReplay
             if (byLane == null) {
-                addText("(computing lane replay… refresh in a moment)", AateUi.TEXT_MUTED)
+                addText("(computing lane summaries… refresh in a moment)", AateUi.TEXT_MUTED)
             } else if (byLane.isEmpty()) {
-                addText("(not enough closed outcomes with peak data yet)", AateUi.TEXT_MUTED)
+                addText("(not enough canonical closed outcomes per environment/lane yet)", AateUi.TEXT_MUTED)
             } else {
                 for ((lane, rs) in byLane) {
-                    val b = rs.maxByOrNull { it.netSol }!!
-                    val noTrade = rs.find { it.profile == "NO_TRADE" }
-                    val verdict = when {
-                        b.profile == "NO_TRADE" -> "⛔ STOP TRADING"
-                        noTrade != null && b.netSol <= noTrade.netSol -> "⛔ STOP TRADING"
-                        b.profile == "CURRENT_ACTUAL" -> "✅ KEEP CURRENT"
-                        else -> "🔧 SWITCH → ${b.profile}"
-                    }
-                    val vColor = when {
-                        verdict.startsWith("⛔") -> AateUi.RED
-                        verdict.startsWith("🔧") -> AateUi.AMBER
-                        else -> AateUi.GREEN
+                    val actual = rs.firstOrNull {
+                        it.evidence8527 == com.lifecyclebot.engine.LaneStrategyEvaluator.Evidence8527.CANONICAL_REALIZED
                     }
                     addMetric(
                         label = lane,
-                        value = verdict.replace(Regex("^[^A-Za-z]*"), "").trim(),
-                        color = vColor,
-                        sub = "best ${b.profile}  ·  ${"%+.3f".format(b.netSol)}◎",
+                        value = "RESEARCH ONLY",
+                        color = AateUi.AMBER,
+                        sub = actual?.let { "recorded baseline ${"%+.3f".format(it.netSol)}◎; alternatives unproved" }
+                            ?: "No recorded baseline; alternative fills unproved",
                     )
                     rs.sortedByDescending { it.netSol }.forEach { r ->
                         addText("   ${r.oneLine()}", AateUi.signed(r.netSol), small = true)
@@ -331,7 +319,7 @@ class TuningActivity : Activity() {
                 }
             }
         } catch (t: Throwable) {
-            addText("(lane replay unavailable: ${t.message?.take(80)})", AateUi.TEXT_MUTED)
+            addText("(lane summaries unavailable: ${t.message?.take(80)})", AateUi.TEXT_MUTED)
         }
     }
 

@@ -147,7 +147,7 @@ class Aate8080TradeFirstTest {
         assertFalse(b.contains("blockReason = \"PROBE_ONLY\","))
         val i = b.indexOf("§NO_DOOMED_DUST_PROBE_BUY")
         assertTrue(i > 0)
-        val blk = b.substring(i, b.indexOf("aiConfidence = laneBase.aiConfidence.coerceAtLeast(entryScoreTightenedFloor4591)", i))
+        val blk = b.substring(i, b.indexOf("aiConfidence = laneBase.aiConfidence,", i))
         assertTrue(blk.contains("if (!cortexSignal8019 && !runTicket8025) {"))
         assertTrue(blk.contains("shouldTrade = false, blockReason = \"DUST_PROBE_SHADOW_ONLY_8080\""))
         assertTrue(blk.contains("blockReason = \"\","))

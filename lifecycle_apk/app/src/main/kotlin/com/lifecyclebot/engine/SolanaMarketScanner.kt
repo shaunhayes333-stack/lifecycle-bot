@@ -72,14 +72,11 @@ object ScannerLearning {
         if (isWin) liqBucketWins.merge(liqBucket, 1) { a, b -> a + b }
         else liqBucketLosses.merge(liqBucket, 1) { a, b -> a + b }
 
-        val ageBucket = when {
-            ageHours < 1 -> "age_0_1h"
-            ageHours < 6 -> "age_1_6h"
-            ageHours < 24 -> "age_6_24h"
-            else -> "age_24h_plus"
+        val ageBucket = ageBucket8527(ageHours)
+        if (ageBucket != null) {
+            if (isWin) ageBucketWins.merge(ageBucket, 1) { a, b -> a + b }
+            else ageBucketLosses.merge(ageBucket, 1) { a, b -> a + b }
         }
-        if (isWin) ageBucketWins.merge(ageBucket, 1) { a, b -> a + b }
-        else ageBucketLosses.merge(ageBucket, 1) { a, b -> a + b }
 
         save()
         ErrorLogger.info(
@@ -88,11 +85,33 @@ object ScannerLearning {
         )
     }
 
-    fun getSourceWinRate(source: String): Double {
-        val wins = sourceWins[source] ?: 0
-        val losses = sourceLosses[source] ?: 0
-        val total = wins + losses
-        return if (total >= 5) wins.toDouble() / total else 0.5
+    data class SourceEvidence8527(val source: String, val wins: Int, val losses: Int) {
+        val sampleCount: Long get() = wins.toLong() + losses.toLong()
+        val winRate: Double get() = wins.toDouble() / sampleCount.toDouble()
+    }
+
+    /**
+     * One declared source family, not the sum/best of correlated provenance tags. Writers store each comma-delimited
+     * source separately; the first nonblank tag is the decision's primary source. Null means no measured rate yet.
+     */
+    fun sourceEvidence8527(source: String): SourceEvidence8527? {
+        val primary = source.split(',').firstOrNull { it.isNotBlank() }?.trim() ?: return null
+        val wins = sourceWins[primary] ?: 0
+        val losses = sourceLosses[primary] ?: 0
+        if (wins < 0 || losses < 0) return null
+        val evidence = SourceEvidence8527(primary, wins, losses)
+        return evidence.takeIf { it.sampleCount >= 5L }
+    }
+
+    /** Compatibility score-bonus API: neutral is still the fallback, never a measured 50% voter. */
+    fun getSourceWinRate(source: String): Double = sourceEvidence8527(source)?.winRate ?: 0.5
+
+    internal fun ageBucket8527(ageHours: Double): String? = when {
+        !ageHours.isFinite() || ageHours < 0.0 -> null
+        ageHours < 1.0 -> "age_0_1h"
+        ageHours < 6.0 -> "age_1_6h"
+        ageHours < 24.0 -> "age_6_24h"
+        else -> "age_24h_plus"
     }
 
     fun getDiscoveryBonus(source: String, liqUsd: Double, ageHours: Double): Double {
@@ -115,18 +134,14 @@ object ScannerLearning {
             bonus += (liqRate - 0.5) * 15.0
         }
 
-        val ageBucket = when {
-            ageHours < 1 -> "age_0_1h"
-            ageHours < 6 -> "age_1_6h"
-            ageHours < 24 -> "age_6_24h"
-            else -> "age_24h_plus"
-        }
-        val ageWins = ageBucketWins[ageBucket] ?: 0
-        val ageLosses = ageBucketLosses[ageBucket] ?: 0
-        val ageTotal = ageWins + ageLosses
-        if (ageTotal >= 5) {
-            val ageRate = ageWins.toDouble() / ageTotal
-            bonus += (ageRate - 0.5) * 15.0
+        ageBucket8527(ageHours)?.let { ageBucket ->
+            val ageWins = ageBucketWins[ageBucket] ?: 0
+            val ageLosses = ageBucketLosses[ageBucket] ?: 0
+            val ageTotal = ageWins + ageLosses
+            if (ageTotal >= 5) {
+                val ageRate = ageWins.toDouble() / ageTotal
+                bonus += (ageRate - 0.5) * 15.0
+            }
         }
 
         return bonus.coerceIn(-20.0, 20.0)

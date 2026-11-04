@@ -127,7 +127,7 @@ class LiquidityAI : ScoringModule {
         // 5 minutes old → no thin-liq penalty (structural, not a defect).
         // 5–30 min old → softer -4 penalty (still learning if it's a real
         // launch). 30+ min old AND <$3k → full -8 (it's stalled, real risk).
-        val ageMin = candidate.ageMinutes
+        val ageMin = candidate.provenMinimumAgeMinutes8527
         when {
             // V5.0.7809 — 0.0 is an unread pool, not a thin one (ProviderEvidence7807
             // DATA_UNKNOWN; Field Manual L357). A real zero is a hard block in
@@ -135,9 +135,10 @@ class LiquidityAI : ScoringModule {
             !candidate.liquidityUsd.isFinite() || candidate.liquidityUsd <= 0.0 -> { reasons += "Liquidity NO_DATA" }
             candidate.liquidityUsd >= 40_000 -> { score += 8; reasons += "Strong liquidity base" }
             candidate.liquidityUsd >= 15_000 -> { score += 5; reasons += "Good liquidity" }
-            candidate.liquidityUsd < 3_000 && ageMin >= 30.0 -> { score -= 8; reasons += "Thin liquidity (stalled)" }
-            candidate.liquidityUsd < 3_000 && ageMin >= 5.0  -> { score -= 4; reasons += "Thin liquidity (warming)" }
-            candidate.liquidityUsd < 3_000                   -> { /* fresh-launch exempt */ reasons += "Thin liquidity (fresh, exempt)" }
+            candidate.liquidityUsd < 3_000 && ageMin != null && ageMin >= 30.0 -> { score -= 8; reasons += "Thin liquidity (stalled)" }
+            candidate.liquidityUsd < 3_000 && ageMin != null && ageMin >= 5.0  -> { score -= 4; reasons += "Thin liquidity (warming)" }
+            candidate.liquidityUsd < 3_000 && candidate.ageBelow8527(5.0) -> { reasons += "Thin liquidity (fresh, exempt)" }
+            candidate.liquidityUsd < 3_000 -> { reasons += "Thin liquidity (age unobserved)" }
         }
 
         // Draining penalty (contextual)

@@ -51,6 +51,9 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
+      - name: Cortex and source-model behavioral regressions
+        run: bash ci/cortex-jvm/run.sh --fetch
+
       - uses: android-actions/setup-android@v3
         with:
           accept-android-sdk-licenses: true
@@ -269,6 +272,7 @@ jobs:
       - name: Required lane and history regression tests
         run: |
           ./gradlew testReleaseUnitTest \
+            --tests '*Aate8527*' \
             --tests '*Aate8522*' \
             --tests '*Aate8521*' \
             --tests '*Aate8509BirthPriorityTest*' \
@@ -645,6 +649,7 @@ jobs:
               }
             };
             await need(context.runId, 'build', [
+              'Cortex and source-model behavioral regressions',
               'Build Release APK',
               'Release APK signing, identity and security',
               'Required lane and history regression tests',

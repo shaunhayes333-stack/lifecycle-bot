@@ -111,16 +111,44 @@ object V3Adapter {
         }
     }
 
+    /** Exact birth and a witnessed minimum age are different evidence, never numeric substitutes. */
+    internal data class ScoringAge8527(val exactMinutes: Double?, val minimumMinutes: Double)
+
+    internal fun selectScoringAge8527(
+        exactAgeMs: Long?,
+        provenMinimumAgeMs: Long?,
+        observedLiquidityUsd: Double,
+    ): ScoringAge8527? {
+        exactAgeMs?.takeIf { it >= 0L && it != Long.MAX_VALUE }?.let {
+            return ScoringAge8527(it / 60_000.0, it / 60_000.0)
+        }
+        val minimum = provenMinimumAgeMs?.takeIf { it >= 0L && it != Long.MAX_VALUE } ?: return null
+        // The hydrator deliberately stops at this established-age proof. V3 must consume it,
+        // but only for an actual established-lane pool, never as a fresh-launch exemption.
+        if (!CandidateSnapshot.establishedEvidence8527(minimum / 60_000.0, observedLiquidityUsd)) return null
+        return ScoringAge8527(null, minimum / 60_000.0)
+    }
+
+    internal fun scoringAge8527(ts: TokenState, nowMs: Long = System.currentTimeMillis()): ScoringAge8527? {
+        val age = try { com.lifecyclebot.engine.truth.AdmissionBirth8144.readFor8144(ts, nowMs) }
+            catch (_: Throwable) { return null }
+        val exact = age.minAgeMs.takeIf { age.kind == com.lifecyclebot.engine.truth.AdmissionBirth8144.Kind8144.KNOWN }
+        val minimum = age.minAgeMs.takeIf { age.kind == com.lifecyclebot.engine.truth.AdmissionBirth8144.Kind8144.PROVEN_OLDER_THAN }
+        val liquidity = com.lifecyclebot.engine.TokenMapAuthority.observedLiquidityUsd(ts)
+        return selectScoringAge8527(exact, minimum, liquidity)
+    }
+
     /**
      * Convert legacy TokenState into V3 CandidateSnapshot.
      */
     fun toCandidate(ts: TokenState): CandidateSnapshot {
         val now = System.currentTimeMillis()
         val discoveredAt = ts.addedToWatchlistAt.takeIf { it > 0L } ?: now
-        // V5.0.7440 — discoveredAt remains process-observation metadata only.
-        val trueAgeMs7401 = com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.resolvedAgeMs(ts, now)
+        // A proven-established lower bound is enough to score non-launch evidence,
+        // not enough to manufacture an exact birth or qualify a fresh-launch probe.
+        val age8527 = scoringAge8527(ts, now)
             ?: throw IllegalStateException("BIRTH_METADATA_HYDRATING_7441")
-        val ageMinutes = trueAgeMs7401 / 60_000.0
+        val ageMinutes = age8527.exactMinutes ?: -1.0
 
         val safety = ts.safety
         val meta = ts.meta
@@ -144,6 +172,7 @@ object V3Adapter {
             source = parseSourceType(ts.source.orEmpty()),
             discoveredAtMs = discoveredAt,
             ageMinutes = ageMinutes,
+            minimumAgeMinutes8527 = age8527.minimumMinutes.takeIf { age8527.exactMinutes == null },
             liquidityUsd = liquidityUsd,
             marketCapUsd = marketCapUsd,
             buyPressurePct = buyPressurePct,

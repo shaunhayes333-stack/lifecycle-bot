@@ -18,8 +18,17 @@ class Aate7547NativeSpecialistDecisionCorrectnessTest {
     @Test fun cyclic_negative_memory_shapes_floor_instead_of_tombstoning_lane() {
         val s=src("engine/CyclicTradeEngine.kt")
         assertFalse(s.contains("if(badExp||danger)return CandidateOpinion7542"))
-        assertTrue(s.contains("if(badExp)floor+=5.0"))
-        assertTrue(s.contains("if(danger)floor+=5.0"))
+        val p = CyclicEntryPolicy8527
+        assertEquals(38.0, p.memoryFloor8527(38.0, false, false), 0.0)
+        assertEquals(43.0, p.memoryFloor8527(38.0, true, false), 0.0)
+        assertEquals(43.0, p.memoryFloor8527(38.0, false, true), 0.0)
+        assertEquals(48.0, p.memoryFloor8527(38.0, true, true), 0.0)
+        assertTrue(p.scoreAllows8527(48.0, 38.0, true, true))
+        assertFalse(p.scoreAllows8527(47.0, 38.0, true, true))
+        assertTrue(s.contains("CyclicEntryPolicy8527.scoreAllows8527(score.toDouble(), baseFloor, badExp, danger)"))
+        assertTrue(s.contains("ringScoreEligible8527(ts, effectiveMinScore)"))
+        assertTrue(s.contains("ringScoreEligible8527(ts, probeFloor)"))
+        assertFalse(s.contains("!(expReject || danger)"))
         assertTrue(s.contains("CYCLIC_NEGATIVE_EXPECTANCY_SOFT_SHAPE_7547"))
     }
 

@@ -261,12 +261,21 @@ object ProviderLanes8285 {
     }
 
     /** Take up to [max] pending keys of [provider]/[kind], highest priority first, oldest first within a priority. */
-    fun drain8285(provider: String, kind: String, max: Int): List<String> {
+    fun drain8285(provider: String, kind: String, max: Int, onTaken8527: (String, Long) -> Unit = { _, _ -> }): List<String> {
         val prefix = "$provider|$kind|"
         val picked = pending.entries.filter { it.key.startsWith(prefix) }
             .sortedWith(compareBy({ it.value.prio.ordinal }, { it.value.atMs })).take(max.coerceAtLeast(0))
-        return picked.mapNotNull { e -> if (pending.remove(e.key) != null) e.key.removePrefix(prefix) else null }
+        return picked.mapNotNull { e ->
+            if (!pending.remove(e.key, e.value)) null else {
+                val key = e.key.removePrefix(prefix)
+                onTaken8527(key, e.value.atMs)
+                key
+            }
+        }
     }
+
+    /** The actual first admission time, not the most recent coalesced ask. */
+    fun pendingAt8527(provider: String, kind: String, key: String): Long? = pending["$provider|$kind|$key"]?.atMs
 
     fun pendingCount8285(provider: String, kind: String): Int = pending.keys.count { it.startsWith("$provider|$kind|") }
 

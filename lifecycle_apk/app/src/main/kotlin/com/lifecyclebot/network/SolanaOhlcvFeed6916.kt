@@ -302,16 +302,27 @@ object SolanaOhlcvFeed6916 {
     internal suspend fun queuedAnswer8402(mint: String, timeframe: String, limit: Int, poolHint: String, attempts: Int, timeoutMs: Long = 60_000L): OhlcvRequestQueue8401.Answer<Candle> {
         val deadline = System.currentTimeMillis() + timeoutMs.coerceIn(1L, 60_000L)
         val answer = seedQueue8401.request("$mint|$timeframe|$limit", deadline, attempts,
-            waitMs = { providerSlotWait7809().waitMs }, fetch = {
-                requestState8401.set(OhlcvRequestQueue8401.State.ANSWERED_EMPTY)
-                try {
-                    val rows = fetchCandles6916(mint, timeframe, limit, poolHint)
-                    OhlcvRequestQueue8401.Answer(if (rows.isNotEmpty()) OhlcvRequestQueue8401.State.ANSWERED_BARS
-                        else requestState8401.get() ?: OhlcvRequestQueue8401.State.PROVIDER_FAILURE, rows)
-                } finally { requestState8401.remove() }
-            })
+            waitMs = { providerSlotWait7809().waitMs },
+            fetch = { fetchAnswer8527(mint, timeframe, limit, poolHint) })
         try { PipelineHealthCollector.labelInc("OHLCV_QUEUE_8401_${answer.state}") } catch (_: Exception) {}
         return answer
+    }
+
+    /**
+     * One typed read for both queued chart consumers and restart-label recovery. An empty return is not an answer:
+     * local budget/dead-source/coalescing waits and malformed/failed responses must remain retriable. Only branches
+     * which actually establish absence set ANSWERED_EMPTY. The thread-local belongs to this read, including exceptions.
+     */
+    internal fun fetchAnswer8527(mint: String, timeframe: String, limit: Int, poolHint: String = ""): OhlcvRequestQueue8401.Answer<Candle> =
+        typedAnswer8527 { fetchCandles6916(mint, timeframe, limit, poolHint) }
+
+    internal fun typedAnswer8527(fetch: () -> List<Candle>): OhlcvRequestQueue8401.Answer<Candle> {
+        requestState8401.set(OhlcvRequestQueue8401.State.PROVIDER_FAILURE)
+        return try {
+            val rows = fetch()
+            OhlcvRequestQueue8401.Answer(if (rows.isNotEmpty()) OhlcvRequestQueue8401.State.ANSWERED_BARS
+                else requestState8401.get() ?: OhlcvRequestQueue8401.State.PROVIDER_FAILURE, rows)
+        } finally { requestState8401.remove() }
     }
 
     private class Fetched6982(val json: JSONObject?, val askedProvider: Boolean, val failed8078: Boolean = false) {
@@ -379,6 +390,12 @@ object SolanaOhlcvFeed6916 {
                 Fetched6982(JSONObject(body), askedProvider = true)
             }
         } catch (e: Throwable) {
+            // Cancellation belongs to the caller, not the provider's failure/negative-cache history.
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            if (e is InterruptedException || Thread.currentThread().isInterrupted) {
+                Thread.currentThread().interrupt()
+                throw InterruptedException("OHLCV read interrupted").also { it.initCause(e) }
+            }
             try { ApiHealthMonitor.recordNetworkError(HOST, e.message) } catch (_: Throwable) {}
             Fetched6982(null, askedProvider = true, failed8078 = true)
         }
@@ -390,7 +407,7 @@ object SolanaOhlcvFeed6916 {
      * `lastPricePoolAddr` for most tokens, so the common path costs no extra
      * request at all).
      */
-    private class PoolLookup6982(val pool: String?, val askedProvider: Boolean, val failed8078: Boolean = false)
+    internal class PoolLookup6982(val pool: String?, val askedProvider: Boolean, val failed8078: Boolean = false)
 
     private fun resolvePool(mint: String, poolHint: String): PoolLookup6982 {
         val hint = poolHint.trim()
@@ -413,9 +430,17 @@ object SolanaOhlcvFeed6916 {
         poolResolves.incrementAndGet()
         val fetched = fetch6982("$BASE/tokens/$mint/pools?page=1")
         val json = fetched.json ?: return PoolLookup6982(null, fetched.askedProvider, fetched.failed8078)
+        val answer = poolResponse8527(json)
+        answer.pool?.let { poolCache[mint] = PoolRef(it, System.currentTimeMillis()) }
+        return answer
+    }
+
+    /** A syntactically valid empty list proves absence; a nonempty malformed list does not. */
+    internal fun poolResponse8527(json: JSONObject): PoolLookup6982 {
         val resolved = try {
             val arr = json.optJSONArray("data")
                 ?: return PoolLookup6982(null, askedProvider = true, failed8078 = true)  // malformed answer, not an empty list
+            if (arr.length() == 0) return PoolLookup6982(null, askedProvider = true)
             var best: String? = null
             var bestLiq = -1.0
             for (i in 0 until arr.length()) {
@@ -427,9 +452,10 @@ object SolanaOhlcvFeed6916 {
                 val liq = attrs.optString("reserve_in_usd", "0").toDoubleOrNull() ?: 0.0
                 if (liq > bestLiq) { bestLiq = liq; best = addr }
             }
-            best?.also { poolCache[mint] = PoolRef(it, System.currentTimeMillis()) }
+            best
         } catch (_: Throwable) { null }
-        return PoolLookup6982(resolved, askedProvider = true)
+        // A nonempty but malformed pool list is not proof that this token has no pool.
+        return PoolLookup6982(resolved, askedProvider = true, failed8078 = resolved == null)
     }
 
     /**
@@ -538,7 +564,11 @@ object SolanaOhlcvFeed6916 {
         // without this the same poolless mints are re-requested every scan pass,
         // which is most of how the request budget was burned.
         negativeCache[mint]?.let {
-            if (now - it <= NEGATIVE_TTL_MS) { negativeHits.incrementAndGet(); return localTapeCandles8285(mint, timeframeLabel, n, now) ?: emptyList() }
+            if (now - it <= NEGATIVE_TTL_MS) {
+                negativeHits.incrementAndGet()
+                requestState8401.set(OhlcvRequestQueue8401.State.ANSWERED_EMPTY)
+                return localTapeCandles8285(mint, timeframeLabel, n, now) ?: emptyList()
+            }
             negativeCache.remove(mint)
         }
         // V5.0.8285 — GeckoTerminal cooling down is THIS provider's state: the coin's own executed prints (one venue) are an
@@ -561,8 +591,10 @@ object SolanaOhlcvFeed6916 {
         val pool = lookup6982.pool
         if (pool == null) {
             if (lookup6982.askedProvider && lookup6982.failed8078) {
+                requestState8401.set(OhlcvRequestQueue8401.State.PROVIDER_FAILURE)
                 providerErrors8078.incrementAndGet()
             } else if (lookup6982.askedProvider) {
+                requestState8401.set(OhlcvRequestQueue8401.State.ANSWERED_EMPTY)
                 emptyResults.incrementAndGet()
                 negativeCache[mint] = now
                 // superseded by V5.0.8359 — a mint GeckoTerminal lists no pool for (most fresh curve coins) is that mint's
@@ -615,6 +647,8 @@ object SolanaOhlcvFeed6916 {
                 com.lifecyclebot.engine.truth.CandleCoverage8284.Quality8284.VALID_POOL_OHLCV, "gecko", pool)
         }
         if (chronological.isEmpty()) {
+            requestState8401.set(if (list.length() == 0) OhlcvRequestQueue8401.State.ANSWERED_EMPTY
+                else OhlcvRequestQueue8401.State.PROVIDER_FAILURE)
             if (list.length() > 0) FeatureSourceCounters8285.note8285("shape", "gecko", FeatureSourceCounters8285.INVALID)
             OhlcvRoute8332.noteAnswer8332(OhlcvRoute8332.GECKO_8332, 0, now)   // V5.0.8332 — answered, no sane bar
             emptyResults.incrementAndGet(); return localTapeCandles8285(mint, timeframeLabel, n, now) ?: emptyList()

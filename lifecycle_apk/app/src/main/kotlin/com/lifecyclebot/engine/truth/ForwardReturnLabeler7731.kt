@@ -1071,40 +1071,22 @@ object ForwardReturnLabeler7731 {
         pending[key]?.let { p ->
             GateOutcome8418.attachGate8418(p.gate8418, p.atMs, admitted, reason, l, nowMs)?.let { g -> p.gate8418 = g; GateOutcome8418.noteAttached8418() }
         }
-        // V5.0.7733 — the entry mark comes from the token state when it is fresh,
-        // else from the canonical registry (the same plumbing gap 7730 closed for
-        // the Field Manual: a live canonical mark with lastPriceUpdate=0). 5.0.7732
-        // at 367 s: observed=212, skipped noPrice=743 — three verdicts in four
-        // were thrown away for want of a timestamp the registry already held.
-        val tsAge = if (ts.lastPriceUpdate > 0L) nowMs - ts.lastPriceUpdate else Long.MAX_VALUE
-        val tsPriced = ts.lastPrice.isFinite() && ts.lastPrice > 0.0
-        val tsFresh = tsPriced && tsAge <= MARK_MAX_AGE_MS_7731
-        val px = if (tsFresh) ts.lastPrice else {
-            val fromRegistry = markFor(ts.mint, { null }, nowMs)
-            when {
-                fromRegistry != null -> {
-                    try { PipelineHealthCollector.labelInc("FORWARD_LABEL_ENTRY_FROM_CANONICAL_MARK_7733") } catch (_: Throwable) {}
-                    fromRegistry
-                }
-                // V5.0.7735 — the gate ruled on this very price. 5.0.7734 still
-                // skipped 2,325 verdicts for want of a two-minute-fresh mark while
-                // observing 505; a label may start from the price the decision
-                // was made on when it is under ten minutes old. The exit marks
-                // that close the label keep the two-minute bar.
-                tsPriced && tsAge <= ENTRY_MARK_MAX_AGE_MS_7735 -> {
-                    try { PipelineHealthCollector.labelInc("FORWARD_LABEL_ENTRY_STALE_MARK_7735") } catch (_: Throwable) {}
-                    ts.lastPrice
-                }
-                else -> null
-            }
-        }
-        if (px == null || !px.isFinite() || px <= 0.0) {
+        // Freeze the number and source clock BEFORE ancillary setup/liquidity work can race a live mark update.
+        // Future-dated state is not fresh; the canonical market fallback still uses its own real observation time.
+        val stateMark8527 = LabelMark8386(ts.mint, ts.lastPriceDex, ts.lastPrice, ts.lastPriceUpdate, nowMs, "TOKEN_STATE")
+        val entryMark8527 = ForwardEntryMark8527.select(stateMark8527, typedMark8386(ts.mint, { null }, nowMs),
+            nowMs, MARK_MAX_AGE_MS_7731, ENTRY_MARK_MAX_AGE_MS_7735) ?: run {
             skippedNoPrice.incrementAndGet()
             return
         }
+        val px = entryMark8527.usd
+        try {
+            if (entryMark8527 !== stateMark8527) PipelineHealthCollector.labelInc("FORWARD_LABEL_ENTRY_FROM_CANONICAL_MARK_7733")
+            else if (nowMs - entryMark8527.observedAtMs > MARK_MAX_AGE_MS_7731) PipelineHealthCollector.labelInc("FORWARD_LABEL_ENTRY_STALE_MARK_7735")
+        } catch (_: Throwable) {}
         // V5.0.8165 — an entry price the coin's own bonding curve contradicts is not a buyable price.
         // V5.0.8337 (10d) — compared on the mark's own time: a curve read out of sync with it is no witness against it.
-        if (curveContradicts8165(ts.mint, px, nowMs, if (tsFresh) ts.lastPriceUpdate else nowMs)) {
+        if (curveContradicts8165(ts.mint, px, nowMs, entryMark8527.observedAtMs)) {
             curveRefusedEntry8165.incrementAndGet()
             return
         }
@@ -1177,18 +1159,10 @@ object ForwardReturnLabeler7731 {
                     com.lifecyclebot.engine.AgenticStyleRouter.decide(ts, com.lifecyclebot.engine.ModeRouter.classify(ts), l).style.name
                 } catch (_: Throwable) { "" }
                 it.entryMcap = if (ts.lastMcap.isFinite() && ts.lastMcap > 0.0) ts.lastMcap else 0.0
-                typedMark8386(ts.mint, { null }, nowMs)?.takeIf { m -> m.usd == px }?.let { m ->
-                    it.basis8386 = LabelBasis8386(m, it.entryMcap)
-                }
-                // V5.0.8524 §BASIS_IS_THE_PRICE_THE_GATE_RULED_ON — no typed mark equals the decision price exactly (the pair lane
-                // and the token state round differently): the basis stayed "UNKNOWN", the 60 s adopt window passed unpriced on a
-                // slow device, and EVERY later mark was thrown away (8522: FORWARD_LABEL_OBSERVED_ONLY_UNKNOWN_BASIS=13,440;
-                // lanes60 held no meme lane at all; Cortex graded 4 of 4,403). The decision price IS an observation: the token
-                // state's price with its own observation time and venue. Nothing invented — the same number the gate read.
-                if (!it.basis8386.mark.known() && tsPriced && px == ts.lastPrice && ts.lastPriceUpdate > 0L && ts.lastPriceUpdate <= nowMs) {
-                    it.basis8386 = LabelBasis8386(LabelMark8386(ts.mint, ts.lastPriceDex, px, ts.lastPriceUpdate, nowMs, "TOKEN_STATE"), it.entryMcap)
+                // The source mark selected above IS the basis; do not re-read a mutable token or registry here.
+                it.basis8386 = LabelBasis8386(entryMark8527, it.entryMcap)
+                if (entryMark8527.source == "TOKEN_STATE")
                     try { PipelineHealthCollector.labelInc("FORWARD_LABEL_BASIS_FROM_DECISION_PRICE_8524") } catch (_: Throwable) {}
-                }
                 it.decisionBasis8386 = it.basis8386
 
                 it.reason7967 = reason.orEmpty().take(120)
@@ -2248,7 +2222,9 @@ object ForwardReturnLabeler7731 {
                     val limiterRetry8474 = ArrayList<String>()
                     for (chunk in dexBatch8418.chunked(OFFWATCH_DEX_CHUNK_8405)) {
                         // V5.0.8418 — a due label mint the pair lane was just asked for is not asked twice on the same host.
-                        val ask8418 = chunk.filter { m -> !(try { KeylessMarks8359.laneCovered8418(m, nowMs) } catch (_: Throwable) { false }) }
+                        // A curve RPC can outlive the request lease. Test coverage at this actual rung, not batch start.
+                        val leaseAt8527 = System.currentTimeMillis()
+                        val ask8418 = chunk.filter { m -> !(try { KeylessMarks8359.laneCovered8418(m, leaseAt8527) } catch (_: Throwable) { false }) }
                         if (ask8418.isEmpty()) continue
                         // V5.0.8474 — this call waited 0 ms for the shared DexScreener limiter slot, so whenever any other caller
                         // held it the batch came back EMPTY and all 30 coins were counted missed (8471: offWatch missed=8381

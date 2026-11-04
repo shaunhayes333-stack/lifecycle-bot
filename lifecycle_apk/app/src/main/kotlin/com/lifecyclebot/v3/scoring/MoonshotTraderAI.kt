@@ -136,11 +136,6 @@ object MoonshotTraderAI {
     // legitimate fresh-launch wicks survive long enough to produce 500%+ tails.
     // Integrity/rug/catastrophic exits remain separate and can still close sooner.
     private const val HARD_FLOOR_STOP = -20.0
-    /** V5.0.7696 — first-phase stop while peak < +8% (was -5; see checkExit). Same tier as the ≤12-min -10. */
-    // V5.0.7795 — the later -10% "early tight" overlay recreated the exact
-    // post-1941 regression: normal launch noise became a terminal loss before the
-    // Moonshot thesis had time to express. Keep one economic hard floor only.
-    private const val EARLY_TIGHT_STOP_PCT_7696 = HARD_FLOOR_STOP
     private const val EARLY_DEAD_EXIT_MINUTES = 20   // Dead exit window (mirrors ShitCoin's 12min)
     private const val EARLY_DEAD_EXIT_THRESHOLD = -6.0 // Dead at <-6% within early window
 
@@ -1223,18 +1218,6 @@ object MoonshotTraderAI {
         return true
     }
 
-    // V5.0.7689 — the <60s ChopFilter.earlyDeathCutoffPct("MOONSHOT") gate that
-    // used to sit here is REMOVED. That cutoff is tuned to -0.5%..-3.0% — tighter
-    // than the backtested -5% early-tight-stop one line above, which V5.9.1341
-    // proved is this lane's own optimal first-phase floor
-    // ([MOONSHOT/TIGHT_STOP_-5] n=9 WR=11% avg=+4628.5% net=+18.159). Because it
-    // is tighter, it fired FIRST, cutting fresh entries on ordinary first-minute
-    // noise before the evidence-based -5% stop ever got a chance — the exact
-    // buy→stop→buy churn V5.9.1425 already diagnosed and removed from
-    // ShitCoinTraderAI for the identical reason. MOONSHOT's own hard floor
-    // (above) and -5% early-tight-stop already cover every real crash; this
-    // generic SHITCOIN-derived gate only ever made MOONSHOT cut earlier than
-    // its own proven threshold.
     fun stopFor(mint: String): Double? {
         val pos = posOf8083(mint) ?: return null
         val predictiveSlPct: Double? = try {
@@ -1245,12 +1228,6 @@ object MoonshotTraderAI {
         } catch (_: Throwable) { null }
         val effectiveHardFloor = if (predictiveSlPct != null) maxOf(HARD_FLOOR_STOP, predictiveSlPct) else HARD_FLOOR_STOP
         var stop = effectiveHardFloor
-        // GOLD pattern positions are spared the early tight stop in checkExit; mirror that.
-        val goldProtected = try {
-            com.lifecyclebot.engine.PatternGoldenGoose.edge("", pos.symbol).verdict ==
-                com.lifecyclebot.engine.TokenWinMemory.Verdict.GOLD
-        } catch (_: Throwable) { false }
-        if (!goldProtected && pos.peakPnlPct < 8.0) stop = maxOf(stop, minOf(EARLY_TIGHT_STOP_PCT_7696, effectiveHardFloor))
         val holdSeconds = (System.currentTimeMillis() - pos.entryTime) / 1000
         val holdMinutes = holdSeconds / 60
         // V5.0.8030 — one stop per lane: the first 12 minutes hold the runner floor (StopAuthority7887, 15%), not a
@@ -1708,65 +1685,11 @@ object MoonshotTraderAI {
             return ExitSignal.STOP_LOSS
         }
 
-        // V5.9.1341 — EVIDENCE-BASED EARLY TIGHT-STOP (LaneStrategyEvaluator).
-        // The honest backtest replay (TuningActivity → LaneStrategyEvaluator) shows
-        // MOONSHOT's best exit profile by a wide margin is TIGHT_STOP_-5:
-        //   [MOONSHOT/TIGHT_STOP_-5] n=9 WR=11% avg=+4628.5% net=+18.159◎ sharpe=1.00
-        // vs CURRENT_ACTUAL net negative. Moonshot's edge is asymmetric — a few mega
-        // runners pay for many small losers — so cutting losers FAST at -5% strictly
-        // beats letting them bleed to -15/-20/-40%. The runners are unaffected because
-        // they go UP first (peak >> 0), so they never touch this gate; only positions
-        // that never showed upside get cut early. This is a TIGHTENING of the leash,
-        // fully consistent with the unconditional -15% HARD_FLOOR backstop above
-        // (which remains the absolute floor) and the runner-capture trail below.
-        //
-        // Gate: only fires while the position has NOT yet shown meaningful upside
-        // (peak < +8%). Once a play has popped past +8% it earns the full -15% floor
-        // and the runner-capture machinery. Honors LosingPatternMemory's even-tighter
-        // predictive floor when present (never widens it).
-        //
-        // V5.0.4129 — PATTERN GOLDEN GOOSE EXIT PROTECTION. Tokens matching a GOLD
-        // pattern (verified high-WR signature like theme_space 82%) are exempted
-        // from the early-tight-stop and hold-bucket cuts so they can ride to their
-        // statistical mean win (+47% for theme_space). HARD_FLOOR -15% backstop
-        // still applies — only the early tight stop is relaxed.
+        // Golden-pattern evidence can exempt discretionary late flat exits, never hard risk.
         val gooseExitVerdict = try {
             com.lifecyclebot.engine.PatternGoldenGoose.edge("", pos.symbol).verdict
         } catch (_: Throwable) { com.lifecyclebot.engine.TokenWinMemory.Verdict.NEUTRAL }
         val goldenExitProtected = gooseExitVerdict == com.lifecyclebot.engine.TokenWinMemory.Verdict.GOLD
-        run {
-            // V5.0.7696 — the first-phase stop is -10, not -5. V5.9.1341's backtest
-            // for TIGHT_STOP_-5 was n=9. The operator's 5.0.7693 live tape: five
-            // MOONSHOT closes, every one between -4% and -9%, zero wins, while the
-            // lane's shadow proof read +12343%. On a fresh pump.fun pair the fill
-            // itself marks -2..-4% (spread + 1% venue fee), so a -5 stop left two or
-            // three points of room against a tape that moves 10-20% a minute: it
-            // was a coin flip on every entry, decided before the token had done
-            // anything. -10 is the tier this lane already uses inside 12 minutes;
-            // the -15 hard floor and the rug/catastrophe exits are unchanged.
-            val earlyTightStop = minOf(EARLY_TIGHT_STOP_PCT_7696, effectiveHardFloor)  // respects predictive
-            if (!goldenExitProtected && pos.peakPnlPct < 8.0 && pnlPct <= earlyTightStop) {
-                ErrorLogger.warn(TAG, "🚀✂️ EARLY_TIGHT_STOP(${EARLY_TIGHT_STOP_PCT_7696.toInt()}): ${pos.symbol} | ${pnlPct.fmt(1)}% ≤ ${"%.0f".format(earlyTightStop)}% " +
-                    "(peak +${pos.peakPnlPct.fmt(1)}% < +8% — no upside shown)")
-                return ExitSignal.STOP_LOSS
-            }
-            if (goldenExitProtected && pos.peakPnlPct < 8.0 && pnlPct <= earlyTightStop) {
-                ErrorLogger.info(TAG, "🦢 GOLD_EXIT_PROTECT: ${pos.symbol} | ${pnlPct.fmt(1)}% spared early-tight-stop (gold pattern; HARD_FLOOR -15% still active)")
-            }
-        }
-
-        // V5.9.443 — EARLY-DEATH STOP.
-        // V5.9.444 — fluid cutoff from HoldDurationTracker 0-1min bucket.
-        // V5.0.7689 — REMOVED. ChopFilter.earlyDeathCutoffPct("MOONSHOT") is
-        // tuned to -0.5%..-3.0%, tighter than the backtested -5%
-        // EARLY_TIGHT_STOP just above (V5.9.1341's proven first-phase floor:
-        // [MOONSHOT/TIGHT_STOP_-5] n=9 WR=11% avg=+4628.5% net=+18.159). Being
-        // tighter, it fired first and cut fresh entries on ordinary
-        // first-minute noise before that evidence-based stop ever applied —
-        // the identical buy→stop→buy churn V5.9.1425 already diagnosed and
-        // removed from ShitCoinTraderAI. The HARD_FLOOR and EARLY_TIGHT_STOP
-        // above already cover every real crash in this window.
-
         // Update peak P&L
         if (pnlPct > pos.peakPnlPct) {
             pos.peakPnlPct = pnlPct
@@ -1786,7 +1709,7 @@ object MoonshotTraderAI {
             com.lifecyclebot.engine.RunnerExitProfile7277.deferGiveBackLock("MOONSHOT", pos.peakPnlPct)
         } catch (_: Throwable) { false }
         if (!runnerGiveBackDeferred7335 &&
-            com.lifecyclebot.engine.PeakDrawdownLock.shouldLock(pos.peakPnlPct, pnlPct)) {
+            com.lifecyclebot.engine.PeakDrawdownLock.shouldLock(pos.peakPnlPct, pnlPct, "MOONSHOT")) {
             ErrorLogger.warn(TAG, "🚀🔒🛑 PEAK-DRAWDOWN LOCK: ${pos.symbol} | " +
                 "peak +${pos.peakPnlPct.toInt()}% → now +${pnlPct.fmt(1)}% " +
                 "(gave back ≥${(com.lifecyclebot.engine.PeakDrawdownLock.DRAWDOWN_TRIGGER_FRAC * 100).toInt()}% of peak)")
@@ -1825,6 +1748,9 @@ object MoonshotTraderAI {
             val dynamicTrailPct = maxOf(FluidLearningAI.fluidTrailPct(pnlPct), modeTrailFloor)
             pos.trailingStop = currentPrice * (1 - dynamicTrailPct / 100)
         }
+        // Rebuild from the owned runner rule on every read, including restored legacy trails.
+        val runnerLevel8527 = com.lifecyclebot.engine.RunnerTrail8419.exitLevelPct8419(pos.peakPnlPct, Double.NaN)
+        if (runnerLevel8527.isFinite()) pos.trailingStop = pos.entryPrice * (1.0 + runnerLevel8527 / 100.0)
         
         // Check for space mode upgrade
         val newMode = detectSpaceMode(pos.marketCapUsd * (1 + pnlPct / 100))
@@ -1894,7 +1820,7 @@ object MoonshotTraderAI {
 
         // V5.9.169 — continuous fluid profit floor (shared engine).
         val _holdSec = (System.currentTimeMillis() - pos.entryTime) / 1000.0  // V5.9.835
-        val profitFloor = FluidLearningAI.fluidProfitFloor(pos.peakPnlPct, holdSeconds = _holdSec)
+        val profitFloor = FluidLearningAI.fluidProfitFloor(pos.peakPnlPct, holdSeconds = _holdSec, lane = "MOONSHOT")
         if (!runnerGiveBackDeferred7335 && pnlPct < profitFloor) {
             ErrorLogger.info(TAG, "🔒 FLOOR LOCK: ${pos.symbol} | peak +${pos.peakPnlPct.toInt()}% → now +${pnlPct.fmt(1)}% < floor +${profitFloor.toInt()}%")
             return ExitSignal.TRAILING_STOP

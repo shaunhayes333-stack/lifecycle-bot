@@ -173,11 +173,13 @@ class SocialVelocityAI : ScoringModule {
         }
         
         // 4. Age factor - very new tokens with social = potential pump
-        val ageMinutes = candidate.ageMinutes
-        if (ageMinutes < 60 && socialCount >= 2) {
+        val exactAge8527 = candidate.exactAgeMinutes8527
+        val ageFeature8527 = exactAge8527?.let { (1.0 - it / 240.0).coerceIn(0.0, 1.0) }
+            ?: if (candidate.ageAtLeast8527(240.0)) 0.0 else 0.5
+        if (candidate.ageBelow8527(60.0) && socialCount >= 2) {
             score += 3
             reasons += "New token with social backing"
-        } else if (ageMinutes < 30 && socialCount == 0) {
+        } else if (candidate.ageBelow8527(30.0) && socialCount == 0) {
             // V3.3: Reduced penalty during bootstrap (many fresh launches lack socials initially)
             score -= (3 * penaltyMult).toInt()
             reasons += "Very new, no social = risky"
@@ -188,7 +190,7 @@ class SocialVelocityAI : ScoringModule {
             value = brain.applyBias(score.coerceIn(-8, 12).toDouble(), doubleArrayOf(
                 (socialCount.toDouble() / 3.0).coerceIn(0.0, 1.0),
                 (boostAmount.toDouble() / 1000.0).coerceIn(0.0, 1.0),
-                (1.0 - (ageMinutes / 240.0)).coerceIn(0.0, 1.0),
+                ageFeature8527,
             )).toInt(),
             reason = reasons.ifEmpty { listOf("Neutral social") }.joinToString(", ")
         ).also {
@@ -196,7 +198,7 @@ class SocialVelocityAI : ScoringModule {
                 brain.stamp(candidate.mint, doubleArrayOf(
                     (socialCount.toDouble() / 3.0).coerceIn(0.0, 1.0),
                     (boostAmount.toDouble() / 1000.0).coerceIn(0.0, 1.0),
-                    (1.0 - (ageMinutes / 240.0)).coerceIn(0.0, 1.0),
+                    ageFeature8527,
                 ))
             } catch (_: Throwable) {}
         }

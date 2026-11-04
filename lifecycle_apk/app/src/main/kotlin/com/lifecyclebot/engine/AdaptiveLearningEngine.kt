@@ -713,7 +713,16 @@ object AdaptiveLearningEngine {
         } catch (_: Throwable) { 1.0 }
         val adjustmentFactorShaped = adjustmentFactor * shapedMult
 
-        val mcapSignal = if (features.entryMcapUsd < 50_000.0) 1.0 else -0.5
+        // V5.0.8527 — these five signals describe the FEATURE, not its realised outcome.
+        // The 1275 magnitude-only step fixed the branches already encoding win/loss, but
+        // otherwise made high-buy/BULL/small-cap losses strengthen those same positive signals.
+        // Apply outcome direction exactly once here; age/volLiq/hold/follow/exit already carry it.
+        val outcomeDirection8527 = when {
+            features.outcomeScore > 0 -> 1.0
+            features.outcomeScore < 0 -> -1.0
+            else -> 0.0
+        }
+        val mcapSignal = (if (features.entryMcapUsd < 50_000.0) 1.0 else -0.5) * outcomeDirection8527
         featureWeights.mcapWeight =
             (featureWeights.mcapWeight + mcapSignal * adjustmentFactorShaped).coerceIn(0.3, 2.5)
 
@@ -725,19 +734,19 @@ object AdaptiveLearningEngine {
         featureWeights.ageWeight =
             (featureWeights.ageWeight + ageSignal * adjustmentFactorShaped).coerceIn(0.3, 2.5)
 
-        val buySignal = if (features.buyRatioPct > 55.0) 1.0 else -0.5
+        val buySignal = (if (features.buyRatioPct > 55.0) 1.0 else -0.5) * outcomeDirection8527
         featureWeights.buyRatioWeight =
             (featureWeights.buyRatioWeight + buySignal * adjustmentFactorShaped).coerceIn(0.5, 3.0)
 
-        val concSignal = if (features.topHolderPct < 25.0) 1.0 else -1.0
+        val concSignal = (if (features.topHolderPct < 25.0) 1.0 else -1.0) * outcomeDirection8527
         featureWeights.holderConcWeight =
             (featureWeights.holderConcWeight + concSignal * adjustmentFactorShaped).coerceIn(0.5, 3.0)
 
-        val growthSignal = if (features.holderGrowthRate > 0.0) 1.0 else -0.5
+        val growthSignal = (if (features.holderGrowthRate > 0.0) 1.0 else -0.5) * outcomeDirection8527
         featureWeights.holderGrowthWeight =
             (featureWeights.holderGrowthWeight + growthSignal * adjustmentFactorShaped).coerceIn(0.5, 2.5)
 
-        val emaSignal = if (features.emaFanState.uppercase(Locale.US).contains("BULL")) 1.0 else -0.3
+        val emaSignal = (if (features.emaFanState.uppercase(Locale.US).contains("BULL")) 1.0 else -0.3) * outcomeDirection8527
         featureWeights.emaFanWeight =
             (featureWeights.emaFanWeight + emaSignal * adjustmentFactorShaped).coerceIn(0.5, 3.0)
 

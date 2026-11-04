@@ -34,6 +34,17 @@ object TokenDNAClusteringAI {
         return Triple(total, 10, total >= 10)
     }
 
+    internal fun ageBand8527(candidate: CandidateSnapshot): String {
+        val exact = candidate.exactAgeMinutes8527
+        return when {
+            exact == null -> if (candidate.ageAtLeast8527(720.0)) "AGE_12h_plus" else "AGE_UNKNOWN"
+            exact < 5 -> "AGE_0_5m"
+            exact < 60 -> "AGE_5_60m"
+            exact < 720 -> "AGE_1_12h"
+            else -> "AGE_12h_plus"
+        }
+    }
+
     private fun clusterKey(candidate: CandidateSnapshot): String {
         val mcapBand = when {
             candidate.marketCapUsd < 10_000   -> "MCAP_0_10K"
@@ -54,12 +65,7 @@ object TokenDNAClusteringAI {
             candidate.buyPressurePct < 80 -> "BUY_HIGH"
             else                          -> "BUY_EXTREME"
         }
-        val ageBand = when {
-            candidate.ageMinutes < 5    -> "AGE_0_5m"
-            candidate.ageMinutes < 60   -> "AGE_5_60m"
-            candidate.ageMinutes < 720  -> "AGE_1_12h"
-            else                        -> "AGE_12h_plus"
-        }
+        val ageBand = ageBand8527(candidate)
         return "$mcapBand|$liqBand|$buyBand|$ageBand"
     }
 

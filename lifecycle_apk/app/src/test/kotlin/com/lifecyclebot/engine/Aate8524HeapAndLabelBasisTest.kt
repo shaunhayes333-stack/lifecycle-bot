@@ -36,8 +36,11 @@ class Aate8524HeapAndLabelBasisTest {
     @Test fun aLabelBasisIsTheDecisionPriceWithItsObservationTimeAndLateMarksAreAdopted() {
         val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
         val observe = src.substringAfter("fun observe(ts: TokenState").substringBefore("lastSeenAt[key] = nowMs")
-        assertTrue(observe.contains("LabelMark8386(ts.mint, ts.lastPriceDex, px, ts.lastPriceUpdate, nowMs, \"TOKEN_STATE\")"))
-        assertTrue(observe.contains("px == ts.lastPrice && ts.lastPriceUpdate > 0L && ts.lastPriceUpdate <= nowMs"))
+        // 8527: freeze price + source clock before any ancillary call; a later token update cannot erase the basis.
+        assertTrue(observe.contains("val stateMark8527 = LabelMark8386(ts.mint, ts.lastPriceDex, ts.lastPrice, ts.lastPriceUpdate, nowMs, \"TOKEN_STATE\")"))
+        assertTrue(observe.contains("it.basis8386 = LabelBasis8386(entryMark8527, it.entryMcap)"))
+        assertTrue(observe.indexOf("val entryMark8527 =") < observe.indexOf("val liq ="))
+        assertFalse(observe.contains("takeIf { m -> m.usd == px }"))
         val tick = src.substringAfter("if (adoptBasis8418(o.basis8386.mark.known(), o.rebased8076, age, mark8386)) {")
             .substringBefore("// Validate against the original typed basis")
         assertTrue(tick.contains("if (adoptLateBasis8524(o.basis8386.mark.known(), age, mark8386)) {"))

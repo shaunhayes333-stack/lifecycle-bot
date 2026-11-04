@@ -523,7 +523,7 @@ class Aate8094ClosedPositionAndPretradeTest {
         // The launch-cap rule stands down only where its own ladder replays are tail-proven.
         assertFalse(com.lifecyclebot.engine.truth.OnChainDepth8038.launchCapStoodDown8094("NO_SUCH_MINT_8094"))
         assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("OnChainDepth8038.standDownIfTailProven8094(ts, lane, nowMs)"))
-        assertTrue(src("engine/truth/TailHunter7996.kt").contains("proven(\"R|\$rule|\$cell\") != null"))
+        assertTrue(src("engine/truth/TailHunter7996.kt").contains("proven(\"R8527|\$rule|\$cell\") != null"))
     }
 
     @Test fun heldMarksCurveTicksAndRentReclaimNameOrRecoverTheirFailures() {

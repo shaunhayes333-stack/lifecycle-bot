@@ -95,9 +95,9 @@ class Aate7819PaperSizingWalletTest {
         val rec = src("engine/LiveCanonicalRecovery6686.kt")
         val heal = rec.substringAfter("fun requestAdoptionAsync7718(").substringBefore("internal fun protectUnadoptedBotHoldings7807(")
         assertTrue(heal.contains("trackerHoldings7819(due.filter { it !in subset.keys })"))
-        assertTrue(heal.contains("protectUnadoptedBotHoldings7807(subset) + protectUnadoptedBotHoldings7807(trackerOnly7819)"))
+        assertTrue(heal.contains("protectUnadoptedBotHoldings7807(subset, holdingProofs8527) + protectUnadoptedBotHoldings7807(trackerOnly7819)"))
         // Priced adoption stays on the on-chain read; tracker evidence is protective only.
-        assertTrue(heal.contains("val n = recoverWalletSnapshot(BotService.status, subset)"))
+        assertTrue(heal.contains("val n = recoverWalletSnapshot(BotService.status, subset, holdingProofs8527)"))
         assertFalse(heal.contains("recoverWalletSnapshot(BotService.status, trackerOnly7819)"))
         // A complete fresh read that omits a mint proves it gone.
         assertTrue(heal.contains("if (completeRead7819) emptyMap<String, CanonicalTokenAmount>() else"))

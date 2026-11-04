@@ -495,6 +495,10 @@ object EducationSubLayerAI {
         // with the real entry-time features instead of bailing to "no data".
         val candidate: com.lifecyclebot.v3.scanner.CandidateSnapshot? = null,
     )
+    /** A present entry snapshot with no exact birth must not learn as a zero-minute launch. */
+    internal fun exactEntryAge8527(candidate: com.lifecyclebot.v3.scanner.CandidateSnapshot?, outcomeAge: Double): Double? =
+        if (candidate != null) candidate.exactAgeMinutes8527 else outcomeAge.takeIf { it.isFinite() && it >= 0.0 }
+
     internal fun entrySnapshotKey8491(mint: String, mode: String): String = "${mode.trim().lowercase()}:$mint"
     private fun outcomeSnapshotKey8491(outcome: TradeOutcomeData): String =
         if (outcome.positionId8491.isBlank()) entrySnapshotKey8491(outcome.mint, outcome.executionMode)
@@ -1261,12 +1265,14 @@ object EducationSubLayerAI {
                 // which is still a valid ranking signal across all trades.
                 try {
                     val holdHours = (outcome.holdTimeMinutes / 60.0).coerceAtLeast(0.05)
-                    CapitalEfficiencyAI.recordOutcome(
-                        ageBandMinutes = outcome.tokenAgeMinutes,
-                        pnlPct = outcome.pnlPct,
-                        sizeSol = 1.0,
-                        holdHours = holdHours,
-                    )
+                    exactEntryAge8527(cand, outcome.tokenAgeMinutes)?.let { exactAge ->
+                        CapitalEfficiencyAI.recordOutcome(
+                            ageBandMinutes = exactAge,
+                            pnlPct = outcome.pnlPct,
+                            sizeSol = 1.0,
+                            holdHours = holdHours,
+                        )
+                    }
                 } catch (_: Exception) {}
 
                 // TokenDNAClusteringAI: needs the entry-time CandidateSnapshot

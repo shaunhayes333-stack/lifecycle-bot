@@ -1750,20 +1750,33 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
      * Returns null when not answered or not positive — the caller keeps the
      * existing whole-wallet path and its indeterminate semantics.
      */
-    fun getSingleMintBalanceBounded7868(mint: String, timeoutMs: Long = 2_500L): CanonicalTokenAmount? {
-        if (mint.isBlank()) return null
+    fun getSingleMintBalanceBounded7868(mint: String, timeoutMs: Long = 2_500L): CanonicalTokenAmount? =
+        getSingleMintBalanceRead8527(mint, timeoutMs)?.amount
+
+    /** The same bounded read with its owner and original observation clock preserved. */
+    fun getSingleMintBalanceRead8527(mint: String, timeoutMs: Long = 2_500L): com.lifecyclebot.engine.truth.WalletHoldingRead8527? {
+        if (mint.isBlank() || timeoutMs <= 100L) return null
+        val generation8527 = com.lifecyclebot.engine.WalletAccountCache.readGeneration()
         try {
-            com.lifecyclebot.engine.WalletAccountCache.snapshot(ttlMs = 5_000L)?.get(mint)
-                ?.takeIf { it.raw > java.math.BigInteger.ONE }?.let { return it }
+            com.lifecyclebot.engine.truth.WalletHoldingFreshness8527.fromSnapshot(
+                com.lifecyclebot.engine.WalletAccountCache.evidence(), mint, publicKeyB58,
+                System.currentTimeMillis(), 5_000L,
+            )?.takeIf { it.amount.raw > java.math.BigInteger.ONE }?.let {
+                if (generation8527 == com.lifecyclebot.engine.WalletAccountCache.readGeneration()) return it
+                return null
+            }
         } catch (_: Throwable) {}
         val fut = try {
             boundedRpcExecutor().submit(java.util.concurrent.Callable {
-                readKnownMints7374(listOf(mint), System.currentTimeMillis() + timeoutMs - 100L)
+                val readStarted8527 = System.currentTimeMillis()
+                readKnownMints7374(listOf(mint), readStarted8527 + timeoutMs - 100L).first[mint]
+                    ?.takeIf { it.raw > java.math.BigInteger.ONE }
+                    ?.let { com.lifecyclebot.engine.truth.WalletHoldingRead8527(mint, publicKeyB58, it, readStarted8527) }
             })
         } catch (_: Throwable) { return null }
         return try {
-            fut.get(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS).first[mint]
-                ?.takeIf { it.raw > java.math.BigInteger.ONE }
+            val read8527 = fut.get(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+            read8527?.takeIf { generation8527 == com.lifecyclebot.engine.WalletAccountCache.readGeneration() }
         } catch (_: Throwable) {
             try { fut.cancel(true) } catch (_: Throwable) {}
             null
