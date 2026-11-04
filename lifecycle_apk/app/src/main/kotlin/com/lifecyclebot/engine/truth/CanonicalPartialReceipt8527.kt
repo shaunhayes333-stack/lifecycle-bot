@@ -22,7 +22,7 @@ class CanonicalPartialReceipt8527 private constructor(
     val remainingCostSol: Double,
     val soldCostSol: Double,
     val realizedPnlSol: Double,
-    val cumulativeSoldCostSol: Double,
+    private val cumulativeSoldCostSol: Double,
 ) {
     val terminal: Boolean get() = remainingRaw.signum() == 0
     val consumedRaw: BigInteger get() = preRaw - remainingRaw

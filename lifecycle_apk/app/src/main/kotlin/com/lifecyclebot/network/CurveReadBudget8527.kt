@@ -15,9 +15,9 @@ package com.lifecyclebot.network
  */
 internal object CurveReadBudget8527 {
     const val TOTAL_MS = 4_000L
-    const val AUTHENTICATED_RESERVE_MS = 2_000L
-    const val PUBLIC_HOP_MS = 1_000L
-    const val MIN_HOP_MS = 250L
+    private const val AUTHENTICATED_RESERVE_MS = 2_000L
+    private const val PUBLIC_HOP_MS = 1_000L
+    private const val MIN_HOP_MS = 250L
 
     fun order(ladder: List<String>, latencyCritical: Boolean): List<String> {
         val clean = ladder.filter { it.isNotBlank() }.distinct()

@@ -11,7 +11,7 @@ object AdaptiveWeightTransfer8527 {
     const val SCHEMA_KEY = "ALE8527_LIVE_WHOLE_POSITION_OBSERVED_V1"
     const val WIRE_PREFIX = SCHEMA_KEY + ":"
     const val MAX_FEATURE_SAMPLES = 300
-    const val MAX_CONTRIBUTORS = 25
+    private const val MAX_CONTRIBUTORS = 25
 
     data class LocalModel(
         val weights: Map<String, Double> = emptyMap(),
