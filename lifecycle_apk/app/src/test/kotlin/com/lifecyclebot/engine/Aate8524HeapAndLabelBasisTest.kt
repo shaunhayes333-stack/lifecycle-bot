@@ -1,0 +1,46 @@
+package com.lifecyclebot.engine
+
+import com.lifecyclebot.engine.cortex.Cortex7885
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/**
+ * V5.0.8524 — (1) the Cortex pending book is capped under HARD / CRITICAL heap pressure (non-selected oldest first, every
+ * dropped decision retained as a MISSING outcome); (2) a forward label's basis is the price the gate ruled on (token-state
+ * mark with its own observation time) and, past the adopt window, the first typed mark — so marks are no longer thrown
+ * away as OBSERVED_ONLY_UNKNOWN_BASIS.
+ */
+class Aate8524HeapAndLabelBasisTest {
+    @Test fun thePendingCapFollowsPressure() {
+        assertEquals(1_200, Cortex7885.pendingCapFor8524(RetentionPolicy8136.Pressure.CRITICAL))
+        assertEquals(2_400, Cortex7885.pendingCapFor8524(RetentionPolicy8136.Pressure.HARD))
+        assertTrue(Cortex7885.pendingCapFor8524(RetentionPolicy8136.Pressure.SOFT) >= 8_000)
+        assertTrue(Cortex7885.pendingCapFor8524(RetentionPolicy8136.Pressure.NORMAL) >= 8_000)
+        // an empty / under-cap book evicts nothing
+        assertEquals(0, Cortex7885.capPendingUnderPressure8524(1_200))
+        assertEquals(0, Cortex7885.capPendingUnderPressure8524(0))
+    }
+
+    @Test fun theTrimAppliesTheCapOnlyUnderHardOrCriticalAndDropsNonSelectedOldestFirst() {
+        val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/cortex/Cortex7885.kt").readText()
+        val trim = src.substringAfter("fun trim8144(").substringBefore("fun pendingCapFor8524(")
+        assertTrue(trim.contains("Pressure.HARD || p == com.lifecyclebot.engine.RetentionPolicy8136.Pressure.CRITICAL"))
+        assertTrue(trim.contains("capPendingUnderPressure8524(pendingCapFor8524(p))"))
+        val cap = src.substringAfter("fun capPendingUnderPressure8524(").substringBefore("private val pressureEvictedPending8524")
+        assertTrue(cap.contains("filter { it.value.selected8153.isBlank() }.sortedBy { it.value.atMs }"))
+        assertTrue(cap.contains("retainMissingOutcome8521(\"\$key|\${pd.atMs}\", pd)"))
+    }
+
+    @Test fun aLabelBasisIsTheDecisionPriceWithItsObservationTimeAndLateMarksAreAdopted() {
+        val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
+        val observe = src.substringAfter("fun observe(ts: TokenState").substringBefore("lastSeenAt[key] = nowMs")
+        assertTrue(observe.contains("LabelMark8386(ts.mint, ts.lastPriceDex, px, ts.lastPriceUpdate, nowMs, \"TOKEN_STATE\")"))
+        assertTrue(observe.contains("px == ts.lastPrice && ts.lastPriceUpdate > 0L && ts.lastPriceUpdate <= nowMs"))
+        val tick = src.substringAfter("if (adoptBasis8418(o.basis8386.mark.known(), o.rebased8076, age, mark8386)) {")
+            .substringBefore("// Validate against the original typed basis")
+        assertTrue(tick.contains("if (adoptLateBasis8524(o.basis8386.mark.known(), age, mark8386)) {"))
+        assertTrue(tick.contains("o.lateEntry8521 = true"))
+        assertTrue(tick.contains("noteLateFirstPrice8153(o.mint, o.lane, o.atMs, nowMs)"))
+    }
+}

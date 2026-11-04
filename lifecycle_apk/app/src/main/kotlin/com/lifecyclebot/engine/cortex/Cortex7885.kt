@@ -632,13 +632,52 @@ object Cortex7885 {
             assessCache.entries.removeIf { now - it.value.atMs > ASSESS_TTL_MS }
             assessEvicted8144.addAndGet((before - assessCache.size).coerceAtLeast(0).toLong())
             scheduled.entries.removeIf { now - it.value > 30_000L }
+            capPendingUnderPressure8524(pendingCapFor8524(p))
         }
     }
+
+    /** Pure (V5.0.8524): the pending-decision cap at [p] — HARD half of [MAX_PENDING]'s working band, CRITICAL a quarter. */
+    fun pendingCapFor8524(p: com.lifecyclebot.engine.RetentionPolicy8136.Pressure): Int = when (p) {
+        com.lifecyclebot.engine.RetentionPolicy8136.Pressure.CRITICAL -> PENDING_CAP_CRITICAL_8524
+        com.lifecyclebot.engine.RetentionPolicy8136.Pressure.HARD -> PENDING_CAP_CRITICAL_8524 * 2
+        else -> MAX_PENDING
+    }
+
+    /**
+     * V5.0.8524 §HEAP — 8522: CORTEX_PENDING_8521 was the largest restored state (12.7 MB of JSON, ~20 KB a decision in
+     * memory, 2,128 pending on a 512 MB heap at 100 %, hard trims recovering 0 MB). Under HARD / CRITICAL pressure the
+     * pending book is capped: NON-selected decisions (refused / shadow reads, the bulk) go oldest first; a decision the
+     * desk selected or executed is never dropped here. Each dropped decision is retained as a MISSING outcome in the grade
+     * book (retainMissingOutcome8521) so the authority denominator stays honest — nothing is graded, nothing invented.
+     */
+    @Synchronized
+    fun capPendingUnderPressure8524(cap: Int): Int {
+        if (cap <= 0 || pending.size <= cap) return 0
+        val victims = pending.entries.filter { it.value.selected8153.isBlank() }.sortedBy { it.value.atMs }.take(pending.size - cap)
+        var n = 0
+        for (e in victims) {
+            val key = e.key; val pd = e.value
+            if (pending.remove(key, pd)) {
+                retainMissingOutcome8521("$key|${pd.atMs}", pd)
+                captureOwners8397.terminal(key, pd.atMs)
+                deferredLabels8397.remove("$key|${pd.atMs}")
+                pd.context8372?.let { pendingCtx8144.remove(key, it) }
+                n++
+            }
+        }
+        if (n > 0) {
+            pressureEvictedPending8524.addAndGet(n.toLong())
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelAdd("CORTEX_PENDING_PRESSURE_EVICTED_8524", n.toLong()) } catch (_: Throwable) {}
+        }
+        return n
+    }
+    private val pressureEvictedPending8524 = java.util.concurrent.atomic.AtomicLong(0L)
+    private const val PENDING_CAP_CRITICAL_8524 = 1_200
 
     fun assessCacheCount8144(): Int = assessCache.size
     fun entryReadCount8144(): Int = entryReads.size
     fun gradedCount8144(): Int = synchronized(this) { graded8006.size }
-    fun evicted8144(): Long = assessEvicted8144.get() + deadPendingEvicted8144.get()
+    fun evicted8144(): Long = assessEvicted8144.get() + deadPendingEvicted8144.get() + pressureEvictedPending8524.get()
 
     /** Census: bytes of one assessment of the current voter width (raws, ids, edges, prediction: ~40 B a slot). */
     fun assessmentBytes8144(): Long = ASSESSMENT_BASE_BYTES_8144 + 40L * (try { CortexVoters7885.IDS.size + 120 } catch (_: Throwable) { 400 })

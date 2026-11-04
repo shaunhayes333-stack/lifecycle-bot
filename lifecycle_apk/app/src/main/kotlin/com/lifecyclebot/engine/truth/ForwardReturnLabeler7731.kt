@@ -284,6 +284,10 @@ object ForwardReturnLabeler7731 {
     internal fun adoptBasis8418(basisKnown: Boolean, rebased: Boolean, ageMs: Long, mark: LabelMark8386?): Boolean =
         !basisKnown && !rebased && ageMs in 0L..REBASE_MAX_MS_8076 && mark != null && mark.known()
 
+    /** Pure (V5.0.8524): the adopt window has passed and the basis is still unknown — the first typed mark is the (late) basis. */
+    internal fun adoptLateBasis8524(basisKnown: Boolean, ageMs: Long, mark: LabelMark8386?): Boolean =
+        !basisKnown && ageMs > REBASE_MAX_MS_8076 && mark != null && mark.known()
+
     /** Pure (V5.0.8418): [mark] is chain-provable and is exactly the observation priced at [px] / [pxAtMs]. */
     internal fun markWitnesses8418(mark: LabelMark8386?, px: Double, pxAtMs: Long): Boolean =
         mark != null && px > 0.0 && px.isFinite() && pxAtMs > 0L && mark.observedAtMs == pxAtMs && mark.usd == px &&
@@ -1175,6 +1179,15 @@ object ForwardReturnLabeler7731 {
                 it.entryMcap = if (ts.lastMcap.isFinite() && ts.lastMcap > 0.0) ts.lastMcap else 0.0
                 typedMark8386(ts.mint, { null }, nowMs)?.takeIf { m -> m.usd == px }?.let { m ->
                     it.basis8386 = LabelBasis8386(m, it.entryMcap)
+                }
+                // V5.0.8524 §BASIS_IS_THE_PRICE_THE_GATE_RULED_ON — no typed mark equals the decision price exactly (the pair lane
+                // and the token state round differently): the basis stayed "UNKNOWN", the 60 s adopt window passed unpriced on a
+                // slow device, and EVERY later mark was thrown away (8522: FORWARD_LABEL_OBSERVED_ONLY_UNKNOWN_BASIS=13,440;
+                // lanes60 held no meme lane at all; Cortex graded 4 of 4,403). The decision price IS an observation: the token
+                // state's price with its own observation time and venue. Nothing invented — the same number the gate read.
+                if (!it.basis8386.mark.known() && tsPriced && px == ts.lastPrice && ts.lastPriceUpdate > 0L && ts.lastPriceUpdate <= nowMs) {
+                    it.basis8386 = LabelBasis8386(LabelMark8386(ts.mint, ts.lastPriceDex, px, ts.lastPriceUpdate, nowMs, "TOKEN_STATE"), it.entryMcap)
+                    try { PipelineHealthCollector.labelInc("FORWARD_LABEL_BASIS_FROM_DECISION_PRICE_8524") } catch (_: Throwable) {}
                 }
                 it.decisionBasis8386 = it.basis8386
 
@@ -2713,6 +2726,17 @@ object ForwardReturnLabeler7731 {
                 o.basis8386 = LabelBasis8386(mark8386, o.entryMcap)
                 if (!o.decisionBasis8386.mark.known()) o.decisionBasis8386 = o.basis8386
                 try { PipelineHealthCollector.labelInc("FORWARD_LABEL_BASIS_ADOPTED_8418") } catch (_: Throwable) {}
+            }
+            // V5.0.8524 — the adopt window passed with the basis still unknown: the first typed mark becomes the OBSERVED basis,
+            // and the executable truth records what it is — a late first price (8153: the decision price was never buyable).
+            // Before this every later mark died as OBSERVED_ONLY_UNKNOWN_BASIS and the observation could never book.
+            if (adoptLateBasis8524(o.basis8386.mark.known(), age, mark8386)) {
+                o.basis8386 = LabelBasis8386(mark8386, o.entryMcap)
+                if (!o.decisionBasis8386.mark.known()) o.decisionBasis8386 = o.basis8386
+                o.rebased8076 = true
+                o.lateEntry8521 = true
+                noteLateFirstPrice8153(o.mint, o.lane, o.atMs, nowMs)
+                try { PipelineHealthCollector.labelInc("FORWARD_LABEL_BASIS_ADOPTED_LATE_8524") } catch (_: Throwable) {}
             }
             // Validate against the original typed basis BEFORE a rebase can erase a decimals/units mismatch.
             if (!LabelEvidence8386.eligible(o.basis8386.mark,mark8386)) {

@@ -170,6 +170,12 @@ class Aate8418LearningIntegrityTest {
         assertFalse(ForwardReturnLabeler7731.adoptBasis8418(true, false, 20_000L, mark(1.0, 20_000)))
         assertFalse(ForwardReturnLabeler7731.adoptBasis8418(false, true, 20_000L, mark(1.0, 20_000)))
         assertFalse(ForwardReturnLabeler7731.adoptBasis8418(false, false, 90_000L, mark(1.0, 20_000)))
+        // V5.0.8524 — past the adopt window an unknown basis takes the first typed mark as its (late) basis; a known basis never does.
+        assertTrue(ForwardReturnLabeler7731.adoptLateBasis8524(false, 90_000L, mark(1.0, 20_000)))
+        assertFalse(ForwardReturnLabeler7731.adoptLateBasis8524(false, 20_000L, mark(1.0, 20_000)))
+        assertFalse(ForwardReturnLabeler7731.adoptLateBasis8524(true, 90_000L, mark(1.0, 20_000)))
+        assertFalse(ForwardReturnLabeler7731.adoptLateBasis8524(false, 90_000L, null))
+        assertFalse(ForwardReturnLabeler7731.adoptLateBasis8524(false, 90_000L, LabelMark8386("Mint", "", 1.0, 0L, 20_000L, "UNKNOWN")))
         assertEquals("ethereum|0xabc", CrossAssetCortex7931.migratedKey8418("0xabc", listOf("ethereum|0xabc", "SoMint")))
         assertEquals("0xabc", CrossAssetCortex7931.migratedKey8418("bsc|0xabc", listOf("0xabc")))
         assertNull(CrossAssetCortex7931.migratedKey8418("0xabc", listOf("ethereum|0xabc", "bsc|0xabc")))   // ambiguous
