@@ -5837,7 +5837,8 @@ class Executor(
                                 com.lifecyclebot.v3.scoring.MetaCognitionAI.recordTradeOutcome(
                                     mint = _fanoutMint, symbol = _fanoutSymbol,
                                     pnlPct = _fanoutPnlPct, holdTimeMs = holdTimeMs,
-                                    exitReason = _fanoutReason
+                                    exitReason = _fanoutReason,
+                                    positionId8535 = _fanoutPositionId, mode8535 = if (_fanoutIsPaper) "paper" else "live",   // V5.0.8535 §C03
                                 )
                             } catch (_: Exception) {}
                         }

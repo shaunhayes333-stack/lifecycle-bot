@@ -993,7 +993,8 @@ object EducationSubLayerAI {
                 symbol = outcome.symbol,
                 pnlPct = outcome.pnlPct,
                 holdTimeMs = outcome.holdTimeMinutes.toLong() * 60_000,
-                exitReason = outcome.exitReason
+                exitReason = outcome.exitReason,
+                positionId8535 = outcome.positionId8491, mode8535 = outcome.executionMode,   // V5.0.8535 §C03
             )
             markLayerOutcome("MetaCognitionAI", outcome.isWin, outcome.pnlPct, isShadowTrade = outcome.isShadowTrade, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++

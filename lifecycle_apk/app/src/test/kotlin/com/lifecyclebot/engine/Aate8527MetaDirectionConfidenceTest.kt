@@ -164,6 +164,7 @@ class Aate8527MetaDirectionConfidenceTest {
         assertTrue(meta.contains("recordForecast8527(mint, symbol, predictionsFromComponents8527(components))"))
         assertTrue(meta.contains("ConcurrentHashMap<String, PendingForecast8527>"))
         assertTrue(meta.contains("updateMetaCalibration(outcome, captured.metaAtEntry)"))
-        assertTrue(meta.contains("alreadyOpen && pendingPredictions.containsKey(mint)"))
+        // V5.0.8535 §C03 — superseded: `alreadyOpen && pendingPredictions.containsKey(mint)`; the staging slot is keyed (mode, mint).
+        assertTrue(meta.contains("alreadyOpen && pendingPredictions.containsKey(key)"))
     }
 }

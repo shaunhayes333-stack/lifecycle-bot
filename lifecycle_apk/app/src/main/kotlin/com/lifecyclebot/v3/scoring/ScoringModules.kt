@@ -64,23 +64,31 @@ class MomentumAI : ScoringModule {
         // buy/sell counts and no price history there is nothing to grade.
         val bpKnown = candidate.extra["buyPressureKnown"] != false
         val momKnown = candidate.extra["momentumKnown"] != false
+        // V5.0.8535 §C04 — momentum is PRICE momentum: the observed momentum score (V3Adapter.momentumScore, price history)
+        // or the observed 5-minute change; buy pressure is order flow and is already EntryAI's vote. superseded: the
+        // buyPct bands (75/65/55/45/35/25) that made one buyer-pressure reading two "independent" bullish layers.
+        val priceScore = (candidate.extra["momentumScore"] as? Number)?.toDouble()?.takeIf { it.isFinite() }
         val baseScore = when {
-            !bpKnown && !momKnown -> { reasons += "Momentum NO_DATA"; 0 }
-            !bpKnown -> when {
-                momentumUp -> { reasons += "Momentum rising (price only)"; 2 }
-                momentumWeak -> { reasons += "Momentum weak (price only)"; -7 }
-                else -> { reasons += "Neutral momentum (price only)"; 0 }
-            }
+            !momKnown -> { reasons += if (bpKnown) "Momentum NO_PRICE_DATA (buy pressure is the entry vote)" else "Momentum NO_DATA"; 0 }
             pumpBuilding -> { reasons += "Pump building"; 12 }
-            buyPct >= 75 -> { reasons += "Strong buy momentum"; 8 }
-            buyPct >= 65 -> { reasons += "Good buy pressure"; 5 }
-            buyPct >= 55 -> { reasons += "Mild upward momentum"; 3 }
-            momentumUp   -> { reasons += "Momentum rising"; 2 }
-            buyPct in 45.0..54.9 -> { reasons += "Neutral momentum"; 0 }
-            buyPct >= 35 -> { reasons += "Weakening momentum"; -3 }
-            momentumWeak -> { reasons += "Momentum weak"; -7 }
-            buyPct < 25  -> { reasons += "Sell-dominated"; -12 }
-            else         -> { reasons += "Mild sell pressure"; -5 }
+            priceScore != null -> when {
+                priceScore >= 75.0 -> { reasons += "Strong price momentum"; 8 }
+                priceScore >= 65.0 -> { reasons += "Good price momentum"; 5 }
+                priceScore >= 55.0 -> { reasons += "Mild price momentum"; 3 }
+                priceScore >= 45.0 -> { reasons += "Neutral momentum"; 0 }
+                priceScore >= 35.0 -> { reasons += "Weakening momentum"; -3 }
+                else -> { reasons += "Price momentum weak"; -7 }
+            }
+            momentumUp -> { reasons += "Price rising (short history)"; 2 }
+            momentumWeak -> { reasons += "Price falling (short history)"; -7 }
+            else -> { reasons += "Neutral momentum (short history)"; 0 }
+        }
+        // Buyer flow confirms an observed price move by at most ±2; it never creates momentum on its own.
+        val buyerConfirm8535 = when {
+            !bpKnown || !momKnown || baseScore == 0 || pumpBuilding -> 0
+            baseScore > 0 && buyPct >= 65.0 -> { reasons += "buyers confirm"; 2 }
+            baseScore < 0 && buyPct < 40.0 -> { reasons += "sellers confirm"; -2 }
+            else -> 0
         }
 
         // Volatility regime modifier — extreme vol makes momentum signals less reliable
@@ -98,7 +106,7 @@ class MomentumAI : ScoringModule {
             else -> 0
         }
 
-        val finalScore = (baseScore + volAdjust + regimeAdjust).coerceIn(-12, 12)
+        val finalScore = (baseScore + buyerConfirm8535 + volAdjust + regimeAdjust).coerceIn(-12, 12)
 
         return ScoreComponent(
             name = name,

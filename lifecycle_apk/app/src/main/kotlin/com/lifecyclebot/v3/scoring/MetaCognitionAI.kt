@@ -368,23 +368,57 @@ object MetaCognitionAI {
         recordForecast8527(mint, symbol, normalized)
     }
 
-    private fun recordForecast8527(mint: String, symbol: String, normalized: List<Prediction>) {
+    // ── V5.0.8535 §C03 — a forecast belongs to a decision, not to a mint ──
+    // The pre-entry staging slot is keyed by (account mode, mint): a paper scan never replaces the live forecast and the
+    // reverse. At settlement the forecast is rebuilt from the components the entry SEALED by position
+    // (EntryStrategySnapshot6450.educationScores8491 — the same record EducationSubLayerAI.restoreSealedScores8491 reads),
+    // so a rescore before the fill, a second position on the same mint, a partial or a restart cannot consume or overwrite
+    // another position's votes. Each position (or trade id) is learnt from exactly once. superseded: pendingPredictions[mint]
+    // / recentlyCountedMints[mint].
+    private val countedSettlements8535 = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
+
+    /** Pure: the staging key of a pre-entry forecast. */
+    fun stagingKey8535(mode: String, mint: String): String = "${mode.trim().lowercase().ifBlank { "live" }}|${mint.trim()}"
+
+    /** Pure: the identity a settlement is learnt under — the position id when known, else the trade id, else mint + close time. */
+    fun settlementKey8535(positionId: String, tradeId: String, mint: String, closeMs: Long): String = when {
+        positionId.isNotBlank() -> "P|${positionId.trim()}"
+        tradeId.isNotBlank() -> "T|${tradeId.trim()}"
+        else -> "M|${mint.trim()}|$closeMs"
+    }
+
+    private fun currentMode8535(): String = try { com.lifecyclebot.engine.LearningEnvironment7835.mode() } catch (_: Throwable) { "live" }
+
+    /** The forecast the entry sealed for [positionId] (components -> predictions), or null when none was sealed. */
+    internal fun sealedForecast8535(positionId: String, mint: String, mode: String): PendingForecast8527? {
+        if (positionId.isBlank()) return null
+        val entry = try { com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.snapshot(positionId) } catch (_: Throwable) { null } ?: return null
+        if (entry.mint != mint || (mode.isNotBlank() && !entry.mode8090.equals(mode, true))) return null
+        val scores = try { EducationSubLayerAI.decodeEntryScores8491(entry.educationScores8491) } catch (_: Throwable) { emptyMap() }
+        if (scores.isEmpty()) return null
+        val normalized = predictionsFromComponents8527(scores.map { (name, v) -> ScoreComponent(name, v, "sealed8535") })
+        if (normalized.isEmpty()) return null
+        return PendingForecast8527(normalized, calculateMetaConfidence(normalized))
+    }
+
+    private fun recordForecast8527(mint: String, symbol: String, normalized: List<Prediction>, mode: String = currentMode8535()) {
         if (mint.isBlank() || normalized.isEmpty()) return
+        val key = stagingKey8535(mode, mint)
         val alreadyOpen = try {
             com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.hasOpenMint(mint)
         } catch (_: Throwable) { false }
         // Keep the existing immutable-entry boundary; roster and forecast are one atomic map value.
-        if (alreadyOpen && pendingPredictions.containsKey(mint)) return
+        if (alreadyOpen && pendingPredictions.containsKey(key)) return
         recentlyCountedMints.remove(mint)
         val captured = PendingForecast8527(normalized.toList(), calculateMetaConfidence(normalized))
-        pendingPredictions.compute(mint) { _, existing ->
+        pendingPredictions.compute(key) { _, existing ->
             if (alreadyOpen && existing != null) existing else captured
         }
         Log.d(TAG, "Recorded " + normalized.size + " meta predictions for " + symbol)
     }
 
-    fun recordFromScoreCard(mint: String, symbol: String, components: List<ScoreComponent>) {
-        recordForecast8527(mint, symbol, predictionsFromComponents8527(components))
+    fun recordFromScoreCard(mint: String, symbol: String, components: List<ScoreComponent>, mode8535: String = currentMode8535()) {
+        recordForecast8527(mint, symbol, predictionsFromComponents8527(components), mode8535)
     }
 
     internal fun mapComponentToLayer(name: String): AILayer? {
@@ -449,9 +483,21 @@ object MetaCognitionAI {
         pnlPct: Double,
         holdTimeMs: Long,
         exitReason: String,
+        positionId8535: String = "",
+        mode8535: String = "",
+        tradeId8535: String = "",
     ) {
         if (!pnlPct.isFinite()) return
-        val captured = pendingPredictions.remove(mint) ?: return
+        // V5.0.8535 §C03 — one learning update per position / trade id.
+        val settleKey = settlementKey8535(positionId8535, tradeId8535, mint, System.currentTimeMillis())
+        if (!settleKey.startsWith("M|") && !countedSettlements8535.add(settleKey)) return
+        if (countedSettlements8535.size > 4_000) countedSettlements8535.clear()
+        val mode = mode8535.ifBlank { currentMode8535() }
+        // The entry's sealed votes first; the (mode, mint) staging slot only for an entry that sealed none (older rows).
+        val captured = sealedForecast8535(positionId8535, mint, mode)
+            ?: pendingPredictions.remove(stagingKey8535(mode, mint))
+            ?: return
+        if (positionId8535.isBlank()) pendingPredictions.remove(stagingKey8535(mode, mint))
         val preds = captured.predictions
         // V5.9.717 — mark mint so onCanonicalSettlement() skips the duplicate increment
         recentlyCountedMints.add(mint)
@@ -1309,6 +1355,8 @@ object MetaCognitionAI {
                 outcome.result != com.lifecyclebot.engine.TradeResult.LOSS) return
             // Counter behavior (same dedup as onCanonicalSettlement)
             if (outcome.mint.isNotBlank() && recentlyCountedMints.contains(outcome.mint)) return
+            // V5.0.8535 §C03 — and never twice for one trade id.
+            if (outcome.tradeId.isNotBlank() && !countedSettlements8535.add("T|${outcome.tradeId}")) return
             totalTradesAnalyzed++
             // No entry forecast was supplied here. Exposure is real; prediction accuracy is unknown.
             // The attributed direct path records the roster and frozen meta forecast above.
@@ -1323,6 +1371,7 @@ object MetaCognitionAI {
         layerPerformance.clear()
         pendingPredictions.clear()
         recentlyCountedMints.clear()
+        countedSettlements8535.clear()
         recentOutcomes.clear()
         winningPatterns.clear()
         losingPatterns.clear()

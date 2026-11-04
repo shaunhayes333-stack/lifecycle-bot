@@ -507,12 +507,14 @@ object ShadowLearningEngine {
         }
         // ── MetaCognitionAI (unchanged) ───────────────────────────────────
         try {
+            // V5.0.8535 §C03 — a shadow close settles its own cohort (mode "shadow") and never consumes a live or paper forecast.
             com.lifecyclebot.v3.scoring.MetaCognitionAI.recordTradeOutcome(
                 mint = trade.mint,
                 symbol = trade.symbol,
                 pnlPct = longPnl8368,
                 holdTimeMs = trade.exitTime - trade.entryTime,
-                exitReason = "shadow_${trade.type.name.lowercase()}"
+                exitReason = "shadow_${trade.type.name.lowercase()}",
+                mode8535 = "shadow", tradeId8535 = "shadow|${trade.id}",
             )
         } catch (_: Exception) {}
 
