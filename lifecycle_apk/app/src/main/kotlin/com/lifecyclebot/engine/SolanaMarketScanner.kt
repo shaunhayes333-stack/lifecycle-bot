@@ -57,20 +57,16 @@ object ScannerLearning {
         // RAYDIUM_NEW_POOL"); the reader asks by one source name. Recorded under
         // the joined string, no key ever matched and every source read 50%.
         val sources7331 = source.split(',').map { it.trim() }.filter { it.isNotEmpty() }.distinct()
-            .ifEmpty { listOf(source) }
         for (src in sources7331) {
             if (isWin) sourceWins.merge(src, 1) { a, b -> a + b }
             else sourceLosses.merge(src, 1) { a, b -> a + b }
         }
 
-        val liqBucket = when {
-            liqUsd < 2_000 -> "liq_0_2k"
-            liqUsd < 20_000 -> "liq_2k_20k"
-            liqUsd < 100_000 -> "liq_20k_100k"
-            else -> "liq_100k_plus"
+        val liqBucket = liquidityBucket8527(liqUsd)
+        if (liqBucket != null) {
+            if (isWin) liqBucketWins.merge(liqBucket, 1) { a, b -> a + b }
+            else liqBucketLosses.merge(liqBucket, 1) { a, b -> a + b }
         }
-        if (isWin) liqBucketWins.merge(liqBucket, 1) { a, b -> a + b }
-        else liqBucketLosses.merge(liqBucket, 1) { a, b -> a + b }
 
         val ageBucket = ageBucket8527(ageHours)
         if (ageBucket != null) {
@@ -106,6 +102,14 @@ object ScannerLearning {
     /** Compatibility score-bonus API: neutral is still the fallback, never a measured 50% voter. */
     fun getSourceWinRate(source: String): Double = sourceEvidence8527(source)?.winRate ?: 0.5
 
+    internal fun liquidityBucket8527(liqUsd: Double): String? = when {
+        !liqUsd.isFinite() || liqUsd < 0.0 -> null
+        liqUsd < 2_000 -> "liq_0_2k"
+        liqUsd < 20_000 -> "liq_2k_20k"
+        liqUsd < 100_000 -> "liq_20k_100k"
+        else -> "liq_100k_plus"
+    }
+
     internal fun ageBucket8527(ageHours: Double): String? = when {
         !ageHours.isFinite() || ageHours < 0.0 -> null
         ageHours < 1.0 -> "age_0_1h"
@@ -120,18 +124,14 @@ object ScannerLearning {
         val srcRate = getSourceWinRate(source)
         bonus += (srcRate - 0.5) * 20.0
 
-        val liqBucket = when {
-            liqUsd < 2_000 -> "liq_0_2k"
-            liqUsd < 20_000 -> "liq_2k_20k"
-            liqUsd < 100_000 -> "liq_20k_100k"
-            else -> "liq_100k_plus"
-        }
-        val liqWins = liqBucketWins[liqBucket] ?: 0
-        val liqLosses = liqBucketLosses[liqBucket] ?: 0
-        val liqTotal = liqWins + liqLosses
-        if (liqTotal >= 5) {
-            val liqRate = liqWins.toDouble() / liqTotal
-            bonus += (liqRate - 0.5) * 15.0
+        liquidityBucket8527(liqUsd)?.let { liqBucket ->
+            val liqWins = liqBucketWins[liqBucket] ?: 0
+            val liqLosses = liqBucketLosses[liqBucket] ?: 0
+            val liqTotal = liqWins + liqLosses
+            if (liqTotal >= 5) {
+                val liqRate = liqWins.toDouble() / liqTotal
+                bonus += (liqRate - 0.5) * 15.0
+            }
         }
 
         ageBucket8527(ageHours)?.let { ageBucket ->
@@ -167,8 +167,8 @@ object ScannerLearning {
                 putString("sourceLosses", mapToJson(sourceLosses))
                 putString("liqBucketWins", mapToJson(liqBucketWins))
                 putString("liqBucketLosses", mapToJson(liqBucketLosses))
-                putString("ageBucketWins", mapToJson(ageBucketWins))
-                putString("ageBucketLosses", mapToJson(ageBucketLosses))
+                putString("ageBucketWinsBirth8527", mapToJson(ageBucketWins))
+                putString("ageBucketLossesBirth8527", mapToJson(ageBucketLosses))
                 apply()
             }
         } catch (_: Exception) {
@@ -183,8 +183,11 @@ object ScannerLearning {
             jsonToMap(prefs.getString("sourceLosses", null)).forEach { (k, v) -> sourceLosses[k] = v }
             jsonToMap(prefs.getString("liqBucketWins", null)).forEach { (k, v) -> liqBucketWins[k] = v }
             jsonToMap(prefs.getString("liqBucketLosses", null)).forEach { (k, v) -> liqBucketLosses[k] = v }
-            jsonToMap(prefs.getString("ageBucketWins", null)).forEach { (k, v) -> ageBucketWins[k] = v }
-            jsonToMap(prefs.getString("ageBucketLosses", null)).forEach { (k, v) -> ageBucketLosses[k] = v }
+            // Old ageBucketWins/Losses counted watchlist residence at exit. Keep those archives untouched.
+            ageBucketWins.clear()
+            ageBucketLosses.clear()
+            jsonToMap(prefs.getString("ageBucketWinsBirth8527", null)).forEach { (k, v) -> ageBucketWins[k] = v }
+            jsonToMap(prefs.getString("ageBucketLossesBirth8527", null)).forEach { (k, v) -> ageBucketLosses[k] = v }
         } catch (_: Exception) {
         }
     }

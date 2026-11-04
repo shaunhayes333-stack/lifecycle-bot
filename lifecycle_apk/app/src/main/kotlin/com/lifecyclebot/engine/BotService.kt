@@ -8931,10 +8931,10 @@ class BotService : Service() {
             try {
                 addLog("☁️ Starting community download...")
                 val weights = CloudLearningSync.downloadCommunityWeights()
-                if (weights != null && weights.totalContributors > 0) {
+                if (weights != null && weights.totalContributors > 0 && CloudLearningSync.isUsingCommunityWeights()) {
                     addLog("☁️ Downloaded community data: ${weights.totalContributors} contributors, ${weights.totalTrades} trades")
                     // Apply community weights to local learning engine
-                    AdaptiveLearningEngine.applyCommunityWeights(weights.featureWeights, weights.totalTrades)
+                    AdaptiveLearningEngine.applyCommunityWeights(weights.featureWeights, weights.totalTrades, compatible8527 = weights.adaptive8527)
                 } else if (weights != null) {
                     addLog("☁️ No community data yet (0 contributors)")
                 } else {
@@ -8999,14 +8999,15 @@ class BotService : Service() {
                         // adaptive weights, then inherit only bounded nudges from
                         // proven positive peers. This is fluid pressure, not overwrite.
                         try {
-                            val localWeights = AdaptiveLearningEngine.getDetailedWeights()
+                            val adaptiveTransfer8527 = AdaptiveLearningEngine.transferModel8527()
                             com.lifecyclebot.collective.CollectiveLearning.uploadPerformanceGenome(
                                 appVersion = com.lifecyclebot.BuildConfig.VERSION_NAME,
                                 totalTrades = localStats.totalTrades,
                                 winRatePct = localStats.winRate,
                                 netPnlSol = localStats.totalPnlSol,
                                 profitFactor = localStats.profitFactor,
-                                featureWeights = localWeights,
+                                featureWeights = emptyMap(),
+                                adaptive8527 = adaptiveTransfer8527,
                             )
                             val genome = com.lifecyclebot.collective.CollectiveLearning.downloadPerformanceGenomeBlend(
                                 localTradeCount = localStats.totalTrades,
@@ -9018,10 +9019,11 @@ class BotService : Service() {
                                     hiveAvgWinRatePct = genome.avgWinRatePct,
                                     hiveContributors = genome.contributors,
                                     hiveTotalTrades = genome.totalTrades,
+                                    compatible8527 = genome.adaptive8527,
                                     localWinRatePct = localStats.winRate,
                                     localTradeCount = localStats.totalTrades,
                                 )
-                                addLog("🧬 Hive genome nudge: ${genome.contributors} proven bots, hiveWR=${genome.avgWinRatePct.toInt()}%, best=${genome.bestWinRatePct.toInt()}%")
+                                addLog("🧬 Hive genome nudge: legacyPeers=${genome.contributors}, legacyWR=${genome.avgWinRatePct.toInt()}%, ALEfeatures=${genome.adaptive8527.features.size}")
                             } else {
                                 addLog("🧬 Hive genome: no proven peer genome yet")
                             }
@@ -19975,7 +19977,8 @@ class BotService : Service() {
                                     .localLayerAccuracySnapshot6880()
                                     .mapKeys { "LYR:${it.key}" }
                             } catch (_: Throwable) { emptyMap() }
-                            val genomeWeights6865 = AdaptiveLearningEngine.getDetailedWeights() + layerAcc6880
+                            val genomeWeights6865 = layerAcc6880
+                            val adaptiveTransfer8527 = AdaptiveLearningEngine.transferModel8527()
                             com.lifecyclebot.collective.CollectiveLearning.uploadPerformanceGenome(
                                 appVersion = com.lifecyclebot.BuildConfig.VERSION_NAME,
                                 totalTrades = localStats.totalTrades,
@@ -19983,6 +19986,7 @@ class BotService : Service() {
                                 netPnlSol = localStats.totalPnlSol,
                                 profitFactor = localStats.profitFactor,
                                 featureWeights = genomeWeights6865,
+                                adaptive8527 = adaptiveTransfer8527,
                             )
                             val genome6865 = com.lifecyclebot.collective.CollectiveLearning
                                 .downloadPerformanceGenomeBlend(
@@ -20012,10 +20016,11 @@ class BotService : Service() {
                                     hiveAvgWinRatePct = genome6865.avgWinRatePct,
                                     hiveContributors = genome6865.contributors,
                                     hiveTotalTrades = genome6865.totalTrades,
+                                    compatible8527 = genome6865.adaptive8527,
                                     localWinRatePct = localStats.winRate,
                                     localTradeCount = localStats.totalTrades,
                                 )
-                                addLog("🧬 Hive genome refresh: ${genome6865.contributors} proven bots, hiveWR=${genome6865.avgWinRatePct.toInt()}%, best=${genome6865.bestWinRatePct.toInt()}%")
+                                addLog("🧬 Hive genome refresh: legacyPeers=${genome6865.contributors}, legacyWR=${genome6865.avgWinRatePct.toInt()}%, ALEfeatures=${genome6865.adaptive8527.features.size}")
                                 try { PipelineHealthCollector.labelInc("HIVE_GENOME_PERIODIC_NUDGE_6865") } catch (_: Throwable) {}
                             }
                         } catch (e: Exception) {
@@ -21511,11 +21516,12 @@ class BotService : Service() {
                                 
                                 // CLOUD SYNC: Upload learnings to community database
                                 try {
-                                    val weights = AdaptiveLearningEngine.getDetailedWeights()
+                                    val adaptiveTransfer8527 = AdaptiveLearningEngine.transferModel8527()
                                     val uploaded = CloudLearningSync.uploadLearnings(
                                         tradeCount = report.totalTrades,
                                         winRate = report.overallWinRate,
-                                        featureWeights = weights,
+                                        featureWeights = emptyMap(),
+                                        adaptive8527 = adaptiveTransfer8527,
                                         patternStats = report.patterns,
                                     )
                                     if (uploaded) {
@@ -21524,10 +21530,10 @@ class BotService : Service() {
                                     
                                     // V5.6.12: Download community weights after upload
                                     val communityWeights = CloudLearningSync.downloadCommunityWeights()
-                                    if (communityWeights != null && communityWeights.totalContributors > 0) {
+                                    if (communityWeights != null && communityWeights.totalContributors > 0 && CloudLearningSync.isUsingCommunityWeights()) {
                                         addLog("☁️ Synced: ${communityWeights.totalContributors} contributors, ${communityWeights.totalTrades} collective trades")
                                         // Apply community weights to local learning engine
-                                        AdaptiveLearningEngine.applyCommunityWeights(communityWeights.featureWeights, communityWeights.totalTrades)
+                                        AdaptiveLearningEngine.applyCommunityWeights(communityWeights.featureWeights, communityWeights.totalTrades, compatible8527 = communityWeights.adaptive8527)
                                     }
                                 } catch (e: Exception) {
                                     ErrorLogger.debug("CloudSync", "Upload error: ${e.message}")
@@ -29622,17 +29628,18 @@ if (hotExitHandledSweep) {
                             val moonshotEdge = com.lifecyclebot.v3.scoring.MemeEdgeAI.evaluate(
                                 layer = com.lifecyclebot.v3.scoring.MemeEdgeAI.Layer.MOONSHOT,
                                 mcapUsd = ts.lastMcap,
-                                tokenAgeMinutes = tokenAgeMinutes,
-                                buyRatioPct = ts.lastBuyPressurePct,
-                                volumeUsd = ts.lastLiquidityUsd * 0.05,
-                                liquidityUsd = ts.lastLiquidityUsd,
-                                holderCount = ts.history.lastOrNull()?.holderCount ?: 0,
-                                topHolderPct = ts.topHolderPct ?: ts.safety.topHolderPct.takeIf { it >= 0 } ?: if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive()) 50.0 else 20.0,
-                                holderGrowthRate = ts.holderGrowthRate,
-                                rugcheckScore = ts.safety.rugcheckScore.toDouble(),
+                                tokenAgeMinutes = tokenAgeMinutes.takeIf { it.isFinite() && it >= 0.0 } ?: Double.NaN,
+                                buyRatioPct = LaneInputTruth8236.buyPressure8491(ts, System.currentTimeMillis()) ?: Double.NaN,
+                                volumeUsd = ts.tokenMap.volume24hUsd?.takeIf { it.isFinite() && it >= 0.0 } ?: Double.NaN,
+                                liquidityUsd = ts.tokenMap.liquidityUsd?.takeIf { it.isFinite() && it >= 0.0 } ?: ts.lastLiquidityUsd.takeIf { it.isFinite() && it > 0.0 } ?: Double.NaN,
+                                holderCount = ts.history.lastOrNull()?.holderCount?.takeIf { ts.holderDataResolved && it > 0 } ?: -1,
+                                topHolderPct = ts.topHolderPct?.takeIf { it.isFinite() && it in 0.0..100.0 } ?: ts.tokenMap.topHolderConcentrationPct?.takeIf { it.isFinite() && it in 0.0..100.0 } ?: ts.safety.topHolderPct.takeIf { ts.safety.topHolderObservedAtMs8522 in 1L..System.currentTimeMillis() && it.isFinite() && it in 0.0..100.0 } ?: Double.NaN,
+                                holderGrowthRate = ts.holderGrowthRate.takeIf { ts.holderDataResolved && it.isFinite() && ts.history.count { candle -> candle.holderCount > 0 } >= 2 } ?: Double.NaN,
+                                rugcheckScore = ts.safety.rugcheckScore.toDouble().takeIf { ts.safety.checkedAt in 1L..System.currentTimeMillis() && it.isFinite() && it in 0.0..100.0 } ?: Double.NaN,
                                 baseEntryScore = moonshotScore.score.toDouble(),
                                 narrativeCluster = moonshotNarrative,
                                 openClusterCount = moonshotOpenInCluster,
+                                executionMode = if (cfg.paperMode) "PAPER" else "LIVE",
                             )
                             if (moonshotScore.eligible &&
                                 (moonshotEdge.scoreNudge != 0.0 ||
@@ -30165,17 +30172,18 @@ if (hotExitHandledSweep) {
                         val shitCoinEdge = com.lifecyclebot.v3.scoring.MemeEdgeAI.evaluate(
                             layer = com.lifecyclebot.v3.scoring.MemeEdgeAI.Layer.SHITCOIN,
                             mcapUsd = ts.lastMcap,
-                            tokenAgeMinutes = tokenAgeMinutes,
-                            buyRatioPct = ts.lastBuyPressurePct,
-                            volumeUsd = ts.lastLiquidityUsd * 0.05,
-                            liquidityUsd = ts.lastLiquidityUsd,
-                            holderCount = ts.history.lastOrNull()?.holderCount ?: 0,
-                            topHolderPct = ts.topHolderPct ?: ts.safety.topHolderPct.takeIf { it >= 0 } ?: if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive()) 50.0 else 20.0,
-                            holderGrowthRate = ts.holderGrowthRate,
-                            rugcheckScore = ts.safety.rugcheckScore.toDouble(),
+                            tokenAgeMinutes = tokenAgeMinutes.takeIf { it.isFinite() && it >= 0.0 } ?: Double.NaN,
+                            buyRatioPct = LaneInputTruth8236.buyPressure8491(ts, System.currentTimeMillis()) ?: Double.NaN,
+                            volumeUsd = ts.tokenMap.volume24hUsd?.takeIf { it.isFinite() && it >= 0.0 } ?: Double.NaN,
+                            liquidityUsd = ts.tokenMap.liquidityUsd?.takeIf { it.isFinite() && it >= 0.0 } ?: ts.lastLiquidityUsd.takeIf { it.isFinite() && it > 0.0 } ?: Double.NaN,
+                            holderCount = ts.history.lastOrNull()?.holderCount?.takeIf { ts.holderDataResolved && it > 0 } ?: -1,
+                            topHolderPct = ts.topHolderPct?.takeIf { it.isFinite() && it in 0.0..100.0 } ?: ts.tokenMap.topHolderConcentrationPct?.takeIf { it.isFinite() && it in 0.0..100.0 } ?: ts.safety.topHolderPct.takeIf { ts.safety.topHolderObservedAtMs8522 in 1L..System.currentTimeMillis() && it.isFinite() && it in 0.0..100.0 } ?: Double.NaN,
+                            holderGrowthRate = ts.holderGrowthRate.takeIf { ts.holderDataResolved && it.isFinite() && ts.history.count { candle -> candle.holderCount > 0 } >= 2 } ?: Double.NaN,
+                            rugcheckScore = ts.safety.rugcheckScore.toDouble().takeIf { ts.safety.checkedAt in 1L..System.currentTimeMillis() && it.isFinite() && it in 0.0..100.0 } ?: Double.NaN,
                             baseEntryScore = shitCoinSignal.entryScore.toDouble(),
                             narrativeCluster = shitCoinNarrative,
                             openClusterCount = shitCoinOpenInCluster,
+                            executionMode = if (cfg.paperMode) "PAPER" else "LIVE",
                         )
                         if (shitCoinEdge.scoreNudge != 0.0 || shitCoinEdge.confidenceNudge != 0.0) {
                             shitCoinSignal = shitCoinSignal.copy(
@@ -32845,16 +32853,16 @@ if (hotExitHandledSweep) {
 
                 if (exitSignal == com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.PARTIAL_TAKE) {
                     // Sell 25%, let 75% ride
+                    val applyPartial8527 = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.partialProjection8527(ts)
                     val partialReceipt6566 = executor.requestPartialSellConfirmed6566(
                         ts = ts,
                         sellPercentage = 0.25,
                         reason = "SHITCOIN_PARTIAL_TAKE_25PCT",
                         wallet = wallet,
                         walletBalance = effectiveBalance,
+                        onConfirmedSlice8527 = applyPartial8527,
                     )
                     if (!partialReceipt6566.applied) { try { PipelineHealthCollector.labelInc("MEME_PARTIAL_NOT_APPLIED_6566_SHITCOIN") } catch (_: Throwable) {}; return }
-                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.markFirstTakeDone(ts.mint, isPaper = ts.position.isPaperPosition)
-                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.onPartialSell(ts.mint, 0.25, isPaper = ts.position.isPaperPosition) // V5.9.705
                     com.lifecyclebot.engine.PositionPersistence.savePosition(ts)               // V5.9.705
                     addLog("💰 SHITCOIN PARTIAL: ${ts.symbol} | sold 25%, riding 75%", ts.mint)
                     return
@@ -32928,15 +32936,16 @@ if (hotExitHandledSweep) {
                     com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.TAKE_PROFIT_100,
                 )
                 if (isLadderRung) {
+                    val applyPartial8527 = com.lifecyclebot.v3.scoring.ShitCoinExpress.partialProjection8527(ts)
                     val partialReceipt6566 = executor.requestPartialSellConfirmed6566(
                         ts = ts,
                         sellPercentage = 0.20,
                         reason = "EXPRESS_${exitSignal.name}_PARTIAL_20PCT",
                         wallet = wallet,
                         walletBalance = effectiveBalance,
+                        onConfirmedSlice8527 = applyPartial8527,
                     )
                     if (!partialReceipt6566.applied) { try { PipelineHealthCollector.labelInc("MEME_PARTIAL_NOT_APPLIED_6566_EXPRESS") } catch (_: Throwable) {}; return }
-                    com.lifecyclebot.v3.scoring.ShitCoinExpress.onPartialSell(ts.mint, 0.20) // V5.9.705
                     com.lifecyclebot.engine.PositionPersistence.savePosition(ts)              // V5.9.705
                     addLog("$exitEmoji EXPRESS PARTIAL: ${ts.symbol} | ${exitSignal.name} | sold 20%, riding 80%", ts.mint)
                     return
@@ -32980,15 +32989,16 @@ if (hotExitHandledSweep) {
             if (exitSignal != com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipExitSignal.HOLD) {
                 // V5.9.168 — laddered partial sell (20% per rung)
                 if (exitSignal == com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipExitSignal.PARTIAL_TAKE) {
+                    val applyPartial8527 = com.lifecyclebot.v3.scoring.ManipulatedTraderAI.partialProjection8527(ts)
                     val partialReceipt6566 = executor.requestPartialSellConfirmed6566(
                         ts = ts,
                         sellPercentage = 0.20,
                         reason = "MANIP_PARTIAL_TAKE_20PCT",
                         wallet = wallet,
                         walletBalance = effectiveBalance,
+                        onConfirmedSlice8527 = applyPartial8527,
                     )
                     if (!partialReceipt6566.applied) { try { PipelineHealthCollector.labelInc("MEME_PARTIAL_NOT_APPLIED_6566_MANIP") } catch (_: Throwable) {}; return }
-                    com.lifecyclebot.v3.scoring.ManipulatedTraderAI.onPartialSell(ts.mint, 0.20, isPaper = ts.position.isPaperPosition) // V5.9.705
                     com.lifecyclebot.engine.PositionPersistence.savePosition(ts)                  // V5.9.705
                     addLog("💰 MANIP PARTIAL: ${ts.symbol} | sold 20%, riding 80%", ts.mint)
                     return
@@ -33109,17 +33119,17 @@ if (hotExitHandledSweep) {
 
                 if (exitSignal == com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.PARTIAL_TAKE) {
                     // Sell 50%, let 50% ride to the moon
-                    val partialPct = com.lifecyclebot.v3.scoring.MoonshotTraderAI.getPartialSellPct(ts.mint)
+                    val partialPct = com.lifecyclebot.v3.scoring.MoonshotTraderAI.getPartialSellPct(ts.mint, ts.position.isPaperPosition)
+                    val applyPartial8527 = com.lifecyclebot.v3.scoring.MoonshotTraderAI.partialProjection8527(ts)
                     val partialReceipt6566 = executor.requestPartialSellConfirmed6566(
                         ts = ts,
                         sellPercentage = partialPct,
                         reason = "MOONSHOT_PARTIAL_TAKE_${(partialPct * 100).toInt()}PCT",
                         wallet = wallet,
                         walletBalance = effectiveBalance,
+                        onConfirmedSlice8527 = applyPartial8527,
                     )
                     if (!partialReceipt6566.applied) { try { PipelineHealthCollector.labelInc("MEME_PARTIAL_NOT_APPLIED_6566_MOONSHOT") } catch (_: Throwable) {}; return }
-                    // onPartialSell advances rung/firstTake only after canonical receipt.
-                    com.lifecyclebot.v3.scoring.MoonshotTraderAI.onPartialSell(ts.mint, partialPct, isPaper = ts.position.isPaperPosition) // V5.9.705
                     com.lifecyclebot.engine.PositionPersistence.savePosition(ts)                    // V5.9.705
                     addLog("💰 MOONSHOT PARTIAL: ${ts.symbol} | sold ${(partialPct*100).toInt()}%, riding rest", ts.mint)
                     return
@@ -33224,15 +33234,16 @@ if (hotExitHandledSweep) {
 
                 // V5.9.166 — laddered partial sell (20% per rung)
                 if (exitSignal == com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.PARTIAL_TAKE) {
+                    val applyPartial8527 = com.lifecyclebot.v3.scoring.QualityTraderAI.partialProjection8527(ts)
                     val partialReceipt6566 = executor.requestPartialSellConfirmed6566(
                         ts = ts,
                         sellPercentage = 0.20,
                         reason = "QUALITY_PARTIAL_TAKE_20PCT",
                         wallet = wallet,
                         walletBalance = effectiveBalance,
+                        onConfirmedSlice8527 = applyPartial8527,
                     )
                     if (!partialReceipt6566.applied) { try { PipelineHealthCollector.labelInc("MEME_PARTIAL_NOT_APPLIED_6566_QUALITY") } catch (_: Throwable) {}; return }
-                    com.lifecyclebot.v3.scoring.QualityTraderAI.onPartialSell(ts.mint, 0.20, isPaper = ts.position.isPaperPosition) // V5.9.705
                     com.lifecyclebot.engine.PositionPersistence.savePosition(ts)              // V5.9.705
                     addLog("💰 QUALITY PARTIAL: ${ts.symbol} | sold 20%, riding 80%", ts.mint)
                     return
@@ -33356,31 +33367,32 @@ if (hotExitHandledSweep) {
 
                 // V5.9.166 — laddered partial sell (20% per rung)
                 if (exitSignal == com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.PARTIAL_TAKE) {
+                    val applyPartial8527 = com.lifecyclebot.v3.scoring.BlueChipTraderAI.partialProjection8527(ts)
                     val partialReceipt6566 = executor.requestPartialSellConfirmed6566(
                         ts = ts,
                         sellPercentage = 0.20,
                         reason = "BLUECHIP_PARTIAL_TAKE_20PCT",
                         wallet = wallet,
                         walletBalance = effectiveBalance,
+                        onConfirmedSlice8527 = applyPartial8527,
                     )
                     if (!partialReceipt6566.applied) { try { PipelineHealthCollector.labelInc("MEME_PARTIAL_NOT_APPLIED_6566_BLUECHIP") } catch (_: Throwable) {}; return }
-                    com.lifecyclebot.v3.scoring.BlueChipTraderAI.onPartialSell(ts.mint, 0.20, isPaper = ts.position.isPaperPosition) // V5.9.705
                     com.lifecyclebot.engine.PositionPersistence.savePosition(ts)               // V5.9.705
                     addLog("💰 BLUECHIP PARTIAL: ${ts.symbol} | sold 20%, riding 80%", ts.mint)
                     return
                 }
 
-                executor.requestSell(
+                val closingLot8527 = ts.position.let { it.positionId to it.isPaperPosition }
+                val blueSellResult8527 = executor.requestSell(
                     ts = ts,
                     reason = "BLUECHIP_${exitSignal.name}",
                     wallet = wallet,
                     walletSol = effectiveBalance
                 )
-                
-                com.lifecyclebot.v3.scoring.BlueChipTraderAI.closePosition(ts.mint, currentPrice, exitSignal)
-                
-                // V5.6.8 FIX: Release exposure slot
-                com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
+                if (!blueSellResult8527.settled8521() || !specialistCloseConfirmed8521(ts.mint, closingLot8527)) return
+                com.lifecyclebot.v3.scoring.BlueChipTraderAI.closePosition(ts.mint, currentPrice, exitSignal,
+                    isPaper = closingLot8527.second)
+                releaseSharedSpecialist8521(ts.mint)
                 
                 addLog("$exitEmoji BLUECHIP SELL: ${ts.symbol} | ${exitSignal.name} | " +
                     "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
@@ -33403,19 +33415,19 @@ if (hotExitHandledSweep) {
             
             // V5.0.7389 — recovery target banks half; the rest rides the lock.
             if (exitSignal == com.lifecyclebot.v3.scoring.DipHunterAI.DipExitSignal.PARTIAL_TAKE) {
+                val applyPartial8527 = com.lifecyclebot.v3.scoring.DipHunterAI.partialProjection8527(ts)
                 val dipPartial7389 = executor.requestPartialSellConfirmed6566(
                     ts = ts,
                     sellPercentage = 0.50,
                     reason = "DIP_TARGET_PARTIAL_TAKE_PROFIT_50PCT",
                     wallet = wallet,
                     walletBalance = effectiveBalance,
+                    onConfirmedSlice8527 = applyPartial8527,
                 )
                 if (!dipPartial7389.applied) {
-                    com.lifecyclebot.v3.scoring.DipHunterAI.unbankRecovery(ts.mint)
                     try { PipelineHealthCollector.labelInc("MEME_PARTIAL_NOT_APPLIED_6566_DIP_HUNTER") } catch (_: Throwable) {}
                     return
                 }
-                com.lifecyclebot.v3.scoring.DipHunterAI.onRecoveryPartial(ts.mint, currentPrice, 0.50)
                 addLog("💰 DIP PARTIAL: ${ts.symbol} | recovery target banked 50% | ${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
                 return
             }
@@ -33428,17 +33440,16 @@ if (hotExitHandledSweep) {
                     else -> "⏱"
                 }
                 
-                executor.requestSell(
+                val closingLot8527 = ts.position.let { it.positionId to it.isPaperPosition }
+                val dipSellResult8527 = executor.requestSell(
                     ts = ts,
                     reason = "DIP_${exitSignal.name}",
                     wallet = wallet,
                     walletSol = effectiveBalance
                 )
-                
+                if (!dipSellResult8527.settled8521() || !specialistCloseConfirmed8521(ts.mint, closingLot8527)) return
                 com.lifecyclebot.v3.scoring.DipHunterAI.closeDip(ts.mint, currentPrice, exitSignal)
-                
-                // V5.6.8 FIX: Release exposure slot
-                com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
+                releaseSharedSpecialist8521(ts.mint)
                 
                 addLog("$exitEmoji DIP SELL: ${ts.symbol} | ${exitSignal.name} | " +
                     "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
@@ -33571,22 +33582,19 @@ if (hotExitHandledSweep) {
                     "pnl=${pnlPct.toInt()}% | peak=${sellOptSignal.peakPnlPct.toInt()}% | " +
                     "locked=${sellOptSignal.lockedProfitSol}SOL")
                 
-                // Execute partial sell
+                // Execute partial sell; only the actual canonical slice changes the chunk ledger.
+                val applyPartial8527 = com.lifecyclebot.v3.scoring.SellOptimizationAI.partialProjection8527(ts)
                 val partialReceipt6566 = executor.requestPartialSellConfirmed6566(
                     ts = ts,
                     sellPercentage = chunkPct,
                     reason = "[SELL_OPT] ${strategy.label}: ${sellOptSignal.reason}",
                     wallet = wallet,
                     walletBalance = effectiveBalance,
+                    onConfirmedSlice8527 = applyPartial8527,
                 )
                 
-                // Record chunk only after confirmed canonical/live mutation.
-                if (partialReceipt6566.applied) {
-                    val profitSol = (ts.position.costSol * chunkPct) * (pnlPct / 100.0)
-                    com.lifecyclebot.v3.scoring.SellOptimizationAI.recordChunkSell(
-                        ts.mint, ts.position.costSol * chunkPct, pnlPct, profitSol
-                    )
-                } else {
+                // The completion callback projects the actual chunk, including a later async settlement.
+                if (!partialReceipt6566.applied) {
                     try { PipelineHealthCollector.labelInc("MEME_PARTIAL_NOT_APPLIED_6566_SELL_OPT") } catch (_: Throwable) {}
                 }
                 
@@ -34385,14 +34393,14 @@ if (hotExitHandledSweep) {
                     ErrorLogger.warn("BotService",
                         "🛡️ [FALLBACK_EXIT][SHITCOIN] ${ts.symbol} | signal=$sig | price=$price (DexScreener down)")
                     if (sig == com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.PARTIAL_TAKE) {
+                        val applyPartial8527 = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.partialProjection8527(ts)
                         val partialReceipt6566 = executor.requestPartialSellConfirmed6566(
                             ts = ts, sellPercentage = 0.25,
                             reason = "FALLBACK_SHITCOIN_PARTIAL_TAKE",
                             wallet = wallet, walletBalance = effectiveBalance,
+                            onConfirmedSlice8527 = applyPartial8527,
                         )
                         if (!partialReceipt6566.applied) { try { PipelineHealthCollector.labelInc("MEME_PARTIAL_NOT_APPLIED_6566_FALLBACK_SHITCOIN") } catch (_: Throwable) {}; return }
-                        com.lifecyclebot.v3.scoring.ShitCoinTraderAI.markFirstTakeDone(ts.mint, isPaper = ts.position.isPaperPosition)
-                        com.lifecyclebot.v3.scoring.ShitCoinTraderAI.onPartialSell(ts.mint, 0.25, isPaper = ts.position.isPaperPosition) // V5.9.705
                         com.lifecyclebot.engine.PositionPersistence.savePosition(ts)               // V5.9.705
                     } else {
                         val closingLot8521 = ts.position.let { it.positionId to it.isPaperPosition }
@@ -34418,14 +34426,15 @@ if (hotExitHandledSweep) {
                     ErrorLogger.warn("BotService",
                         "🛡️ [FALLBACK_EXIT][MOONSHOT] ${ts.symbol} | signal=$sig | price=$price (DexScreener down)")
                     if (sig == com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.PARTIAL_TAKE) {
-                        val partialPct = com.lifecyclebot.v3.scoring.MoonshotTraderAI.getPartialSellPct(ts.mint)
+                        val partialPct = com.lifecyclebot.v3.scoring.MoonshotTraderAI.getPartialSellPct(ts.mint, ts.position.isPaperPosition)
+                        val applyPartial8527 = com.lifecyclebot.v3.scoring.MoonshotTraderAI.partialProjection8527(ts)
                         val partialReceipt6566 = executor.requestPartialSellConfirmed6566(
                             ts = ts, sellPercentage = partialPct,
                             reason = "FALLBACK_MOONSHOT_PARTIAL_TAKE_${(partialPct * 100).toInt()}PCT",
                             wallet = wallet, walletBalance = effectiveBalance,
+                            onConfirmedSlice8527 = applyPartial8527,
                         )
                         if (!partialReceipt6566.applied) { try { PipelineHealthCollector.labelInc("MEME_PARTIAL_NOT_APPLIED_6566_FALLBACK_MOONSHOT") } catch (_: Throwable) {}; return }
-                        com.lifecyclebot.v3.scoring.MoonshotTraderAI.onPartialSell(ts.mint, partialPct, isPaper = ts.position.isPaperPosition) // V5.9.705
                         com.lifecyclebot.engine.PositionPersistence.savePosition(ts)                    // V5.9.705
                     } else {
                         val closingLot8521 = ts.position.let { it.positionId to it.isPaperPosition }

@@ -824,6 +824,7 @@ object CanonicalPositionAuthority6441 {
         soldCostBasisSol: Double,
         feesSol: Double,
         paperMode: Boolean,
+        receiptCapture8527: CanonicalPartialReceipt8527.Capture8527? = null,
     ): MutateResult {
         lock.lock()
         try {
@@ -846,7 +847,7 @@ object CanonicalPositionAuthority6441 {
             val newRemaining = pos.remainingQtyRaw - soldQtyRaw
             val newLifecycle = if (newRemaining == BigInteger.ZERO) Lifecycle.CLOSED else Lifecycle.PARTIALLY_CLOSED
             val realizedDelta = proceedsSol - soldCostBasisSol - feesSol
-            positions[positionId] = pos.copy(
+            val appliedPosition8527 = pos.copy(
                 remainingQtyRaw = newRemaining,
                 soldCostBasisSol = pos.soldCostBasisSol + soldCostBasisSol,
                 realizedProceedsSol = pos.realizedProceedsSol + proceedsSol,
@@ -855,9 +856,11 @@ object CanonicalPositionAuthority6441 {
                 lifecycle = newLifecycle,
                 lastMutationMs = System.currentTimeMillis(),
             )
+            positions[positionId] = appliedPosition8527
             if (paperMode) paperCashSol.getAndUpdate { it + proceedsSol - feesSol }
             markKeyUsed(idempotencyKey)
             muts.incrementAndGet()
+            receiptCapture8527?.recordApplied8527(pos, appliedPosition8527, idempotencyKey)
             try {
                 PipelineHealthCollector.labelInc(
                     if (newLifecycle == Lifecycle.CLOSED) "CANONICAL_POSITION_CLOSE_6441"
@@ -954,6 +957,23 @@ object CanonicalPositionAuthority6441 {
     }
 
     // ─── Read-only accessors for consumers ─────────────────────────────────
+    /**
+     * Read-only downstream projection of a confirmed slice. Hold the existing mutation lock until the native
+     * projection is applied, so a newer canonical slice cannot race its validation/write boundary.
+     */
+    internal fun projectConfirmedSlice8527(receipt: CanonicalPartialReceipt8527,
+                                           project: (Position) -> Boolean): Boolean {
+        lock.lock()
+        try {
+            val current = positions[receipt.positionId] ?: return false
+            if (!receipt.belongsToHistory8527(current)) return false
+            if (positions.values.any { it.positionId != current.positionId && it.mint == current.mint &&
+                    it.mode == current.mode && it.remainingQtyRaw.signum() > 0 && it.lifecycle != Lifecycle.CLOSED })
+                return false
+            return project(current)
+        } finally { lock.unlock() }
+    }
+
     fun getPosition(positionId: String): Position? = positions[positionId]
 
     /** Shared mint tracking may retire only after this PAPER lot is terminal and no other liability owns it. */

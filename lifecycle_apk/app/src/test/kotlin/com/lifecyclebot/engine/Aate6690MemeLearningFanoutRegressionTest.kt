@@ -50,7 +50,9 @@ class Aate6690MemeLearningFanoutRegressionTest {
     @Test
     fun `canonical stream drives real learners not readiness counters only`() {
         assertTrue(subscribers.contains("MetaCognitionAI.onCanonicalOutcome(outcome)"))
-        assertTrue(subscribers.contains("AdaptiveLearningEngine.onCanonicalOutcome(outcome)"))
+        val terminalBridge = File("src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt").readText()
+        assertTrue(terminalBridge.contains("AdaptiveLearningEngine.onCanonicalTerminal8527(env)"))
+        assertFalse(subscribers.contains("AdaptiveLearningEngine.onCanonicalOutcome(outcome)"))
         assertTrue(subscribers.contains("BehaviorLearning.onCanonicalOutcome(outcome)"))
         assertTrue(subscribers.contains("RunTracker30D.onCanonicalOutcome(outcome)"))
     }

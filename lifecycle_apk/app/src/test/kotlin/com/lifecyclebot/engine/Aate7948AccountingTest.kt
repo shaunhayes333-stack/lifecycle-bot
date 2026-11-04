@@ -128,8 +128,12 @@ class Aate7948AccountingTest {
     // ── confirmed partial sells (SPIKE_CAPTURE_7943 → requestPartialSellConfirmed6566) ──
     @Test fun live_partial_leg_carries_canonical_identity_and_raw_quantities() {
         val exec = src("engine/Executor.kt")
-        val leg = exec.substringAfter("val settled7835 = commitVerifiedLiveSlice7835(ts, proof7835, reason) ?: return")
-            .substringBefore("recordTrade(ts, liveTrade)")
+        val settledCall = "val settled7835 = commitVerifiedLiveSlice7835(ts, proof7835, reason, partialCompletion8527) ?: return"
+        val partial = exec.substringAfter("private fun requestPartialSellWithDelivery8527(", "")
+        assertTrue(partial.contains("val partialCompletion8527 = com.lifecyclebot.engine.truth.CanonicalPartialReceipt8527.Capture8527(delivery8527)"))
+        assertTrue(partial.contains(settledCall))
+        val leg = partial.substringAfter(settledCall, "")
+            .substringBefore("recordTrade(ts, liveTrade)", "")
         assertTrue(leg.contains("positionId = pos.positionId.ifBlank"))
         assertTrue(leg.contains("canonicalConsumedRaw = settled7835.actualConsumedRaw"))
         assertTrue(leg.contains("remainingRawQty = settled7835.remainingRaw"))

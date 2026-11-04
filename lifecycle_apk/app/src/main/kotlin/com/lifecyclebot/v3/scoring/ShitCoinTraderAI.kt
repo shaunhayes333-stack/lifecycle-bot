@@ -447,10 +447,7 @@ object ShitCoinTraderAI {
         synchronized(livePositions) { livePositions[mint]?.lastSeenPrice = price }
     }
     // Called by BotService after executing a PARTIAL_TAKE sell to confirm the flag is set
-    fun markFirstTakeDone(mint: String, isPaper: Boolean = isPaperMode) {
-        val positions = if (isPaper) paperPositions else livePositions
-        synchronized(positions) { positions[mint]?.firstTakeDone = true }
-    }
+
 
     /**
      * V5.9.705 — Called by BotService after a PARTIAL_TAKE sell executes successfully.
@@ -458,21 +455,19 @@ object ShitCoinTraderAI {
      * restores the correct remaining size (not the original full size), and so
      * subsequent closePosition P&L accounting is correct.
      */
-    fun onPartialSell(mint: String, soldFraction: Double, isPaper: Boolean = isPaperMode) {
-        if (!soldFraction.isFinite() || soldFraction <= 0.0 || soldFraction > 1.0) return
-        val partialPositions7858 = if (isPaper) paperPositions else livePositions
-        synchronized(partialPositions7858) {
-            val pos = partialPositions7858[mint] ?: return
-            val newEntrySol = pos.entrySol * (1.0 - soldFraction)
-            // Only the confirmed receipt advances the rung; a rejected proposal stays retryable.
-            partialPositions7858[mint] = pos.copy(
-                entrySol = newEntrySol,
-                partialRungsTaken = (pos.partialRungsTaken + 1).coerceAtMost(PARTIAL_TAKE_LADDER_8527.size),
-                firstTakeDone = true,
-            )
-            ErrorLogger.debug(TAG, "💩🔪 onPartialSell ${pos.symbol}: entrySol ${pos.entrySol.fmt(4)} → ${newEntrySol.fmt(4)} (sold ${(soldFraction*100).toInt()}%)")
-        }
+    /** V5.0.8527 — capture the native generation before execution; project only the applied canonical slice. */
+    fun partialProjection8527(ts: com.lifecyclebot.data.TokenState):
+        (com.lifecyclebot.engine.truth.CanonicalPartialReceipt8527?) -> Boolean {
+        val book = if (ts.position.isPaperPosition) paperPositions else livePositions
+        return com.lifecyclebot.engine.truth.NativePartialProjection8527.capture8527(
+            book, ts, { it.isPaper }, { pos, receipt ->
+                pos.copy(entrySol = receipt.remainingCostSol, firstTakeDone = true,
+                    partialRungsTaken = (pos.partialRungsTaken + 1).coerceAtMost(PARTIAL_TAKE_LADDER_8527.size))
+            },
+        )
     }
+
+
 
 
     /**
@@ -598,15 +593,10 @@ object ShitCoinTraderAI {
         // V5.9.401 — Sentience hook #4: cross-engine telegraph (MEME).
         try { com.lifecyclebot.engine.SentienceHooks.recordEngineOutcome("MEME", pnlSol, pnlPct >= 1.0) } catch (_: Exception) {}
 
-        // V5.9.495z17 — wire operator-mandated 70/30 profit split.
-        if (pnlSol > 0.0) {
-            try {
-                com.lifecyclebot.engine.TreasuryManager.contributeFromMemeSell(
-                    pnlSol,
-                    com.lifecyclebot.engine.WalletManager.lastKnownSolPrice,
-                )
-            } catch (_: Exception) {}
-        }
+        // V5.0.8527: The canonical Executor books the confirmed fill and the
+        // treasury split once. This native close only updates lane-local
+        // results; a second treasury deposit here double-counted profit and
+        // could initiate another live transfer.
 
         
         // Record to daily P&L
@@ -683,61 +673,8 @@ object ShitCoinTraderAI {
                 com.lifecyclebot.engine.SentientPersonality.onTradeLoss(pos.symbol, pnlPct, "SHITCOIN", exitReason.name)
             }
 
-            // V5.9.305: WIRE STRATEGY TRUST + ADAPTIVE LEARNING — was missing from closePosition.
-            // Without this, ShitCoin closes never reached TradeLessonRecorder → StrategyTrustAI,
-            // leaving the trust dashboard with all 50%/UNTESTED for SHITCOIN despite hundreds of trades.
-            try {
-                // V4 lessons use canonical net economics and one position identity (8491).
-                val mfePct = if (pos.peakPnlPct > 0.0) pos.peakPnlPct else pnlPct.coerceAtLeast(0.0)
-                val maePct = pnlPct.coerceAtMost(0.0)
-                // Feed AdaptiveLearningEngine for V5.9.301 pattern matching
-                val label = when {
-                    pnlPct >= 100.0 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.GOOD_RUNNER
-                    pnlPct >= 30.0 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.GOOD_CONTINUATION
-                    pnlPct >= 10.0 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.GOOD_SECOND_LEG
-                    pnlPct >= 1.0 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.MID_SMALL_WIN
-                    pnlPct in -0.5..1.0 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.MID_FLAT_CHOP
-                    pnlPct in -5.0..-0.5 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.MID_WEAK_FOLLOW
-                    pnlPct in -15.0..-5.0 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.MID_STOPPED_OUT
-                    pnlPct <= -50.0 && exitReason == ExitSignal.RUG_DETECTED -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.BAD_RUG
-                    pnlPct <= -30.0 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.BAD_DUMP
-                    pnlPct <= -15.0 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.BAD_DEAD_CAT
-                    else -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.MID_CHOP
-                }
-                // V5.9.618 — REAL feature vector. Pre-V5.9.618 most fields were 0.0,
-                // making AdaptiveLearningEngine cluster all trades together regardless
-                // of entry conditions. Now we use the entry-context snapshot.
-                val volLiq = if (pos.liquidityUsd > 0.0) pos.entryVolumeUsd / pos.liquidityUsd else 0.0
-                val features = com.lifecyclebot.engine.AdaptiveLearningEngine.TradeFeatures(
-                    entryMcapUsd = pos.marketCapUsd,
-                    tokenAgeMinutes = pos.entryAgeMinutes,
-                    buyRatioPct = pos.entryBuyPressurePct,
-                    volumeUsd = pos.entryVolumeUsd,
-                    liquidityUsd = pos.liquidityUsd,
-                    holderCount = pos.entryHolderCount,
-                    topHolderPct = pos.entryTopHolderPct,
-                    holderGrowthRate = pos.entryHolderGrowthRate,
-                    devWalletPct = pos.bundlePct,
-                    bondingCurveProgress = pos.entryGraduationProgress,
-                    rugcheckScore = pos.entryRugcheckScore,
-                    emaFanState = pos.entryEmaFanState,
-                    entryScore = pos.entryScore.toDouble(),
-                    volumeLiquidityRatio = volLiq,
-                    priceFromAth = 0.0,
-                    pnlPct = pnlPct,
-                    maxGainPct = mfePct,
-                    maxDrawdownPct = maePct,
-                    timeToPeakMins = 0.0,
-                    holdTimeMins = holdMins,
-                    exitReason = exitReason.name,
-                    outcomeScore = if (isWin) 1 else if (pnlPct <= -1.0) -1 else 0,
-                    label = label,
-                    stableTradeKey = "${mint}:${pos.entryTime}",
-                )
-                com.lifecyclebot.engine.AdaptiveLearningEngine.learnFromTrade(features, if (pos.isPaper) com.lifecyclebot.engine.TradeEnvironment.PAPER else com.lifecyclebot.engine.TradeEnvironment.LIVE)
-            } catch (e: Exception) {
-                ErrorLogger.debug(TAG, "Lesson/Trust wiring error: ${e.message}")
-            }
+            // AdaptiveLearningEngine learns once from the canonical settled outcome and its frozen entry witness.
+
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "Sentience hook error: ${e.message}")
         }

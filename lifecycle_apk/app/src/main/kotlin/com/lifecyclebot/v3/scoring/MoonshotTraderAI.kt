@@ -1272,8 +1272,9 @@ object MoonshotTraderAI {
     private val PARTIAL_RUNG_FRACTIONS_7791 = doubleArrayOf(0.10,0.10,0.12,0.12,0.15,0.15,0.15)
 
     /** Fraction of remaining position sold at the NEXT rung. */
-    fun getPartialSellPct(mint: String): Double {
-        val idx=posOf8083(mint)?.partialRungsTaken?:0
+    fun getPartialSellPct(mint: String, isPaper: Boolean = isPaperMode): Double {
+        val book8527 = if (isPaper) paperPositions else livePositions
+        val idx = synchronized(book8527) { book8527[mint]?.partialRungsTaken } ?: 0
         return PARTIAL_RUNG_FRACTIONS_7791.getOrElse(idx.coerceAtLeast(0)){0.15}
     }
 
@@ -1282,21 +1283,28 @@ object MoonshotTraderAI {
      * Reduces the sub-trader's tracked entrySol so rehydratePositionFromSubTraders
      * restores the correct remaining size, not the original full size.
      */
-    fun onPartialSell(mint: String, soldFraction: Double, isPaper: Boolean = isPaperMode) {
-        val partialPositions7858 = if (isPaper) paperPositions else livePositions
-        val frac = soldFraction.coerceIn(0.0, 1.0)
-        if (frac <= 0.0) return
-        val pos = synchronized(partialPositions7858) { partialPositions7858[mint] } ?: return
-        val newEntrySol = pos.entrySol * (1.0 - frac)
-        val updated = pos.copy(
-            entrySol = newEntrySol,
-            partialRungsTaken = (pos.partialRungsTaken + 1).coerceAtMost(PARTIAL_TAKE_LADDER.size),
-            firstTakeDone = true,
-            partialSellPct = (pos.partialSellPct + frac).coerceAtMost(1.0),
+    /** V5.0.8527 — capture the native generation before execution; project only the applied canonical slice. */
+    fun partialProjection8527(ts: com.lifecyclebot.data.TokenState):
+        (com.lifecyclebot.engine.truth.CanonicalPartialReceipt8527?) -> Boolean {
+        val book = if (ts.position.isPaperPosition) paperPositions else livePositions
+        return com.lifecyclebot.engine.truth.NativePartialProjection8527.capture8527(
+            book, ts, { it.isPaperMode }, { pos, receipt ->
+                pos.copy(entrySol = receipt.remainingCostSol, firstTakeDone = true,
+                    partialRungsTaken = (pos.partialRungsTaken + 1).coerceAtMost(PARTIAL_TAKE_LADDER.size),
+                    partialSellPct = receipt.cumulativeSoldFraction)
+            },
+            applied = { previous, next, _ ->
+                // The restore-only alias must not resurrect the pre-partial object.
+                synchronized(activePositions) {
+                    if (activePositions[previous.mint] === previous) {
+                        if (next == null) activePositions.remove(previous.mint) else activePositions[previous.mint] = next
+                    }
+                }
+            },
         )
-        synchronized(partialPositions7858) { partialPositions7858[mint] = updated }
-        ErrorLogger.debug(TAG, "🌙🔪 onPartialSell ${pos.symbol}: entrySol ${pos.entrySol} → ${newEntrySol} (sold ${(frac*100).toInt()}%)")
     }
+
+
 
     
     fun getActivePositions(): List<MoonshotPosition> {
@@ -1449,17 +1457,18 @@ object MoonshotTraderAI {
         // V5.9.401 — Sentience hook #4: cross-engine telegraph.
         try { com.lifecyclebot.engine.SentienceHooks.recordEngineOutcome("MEME", pnlSol, isWin) } catch (_: Exception) {}
 
-        // V5.9.495z17 — wire operator-mandated 70/30 profit split.
-        // Captures the share returned so we can deduct it from the wallet
-        // credit below (otherwise we'd double-count: 100% to wallet AND
-        // 30% to treasury, inflating both ledgers).
-        val treasuryShare: Double = if (pnlSol > 0.0) {
-            try {
-                com.lifecyclebot.engine.TreasuryManager.contributeFromMemeSell(
-                    pnlSol,
-                    com.lifecyclebot.engine.WalletManager.lastKnownSolPrice,
-                )
-            } catch (_: Exception) { 0.0 }
+        // V5.0.8527: The canonical Executor owns every settled treasury deposit.
+        // This native close is an owner projection, not a second financial fill.
+        // In particular, never call contributeFromMemeSell here: it can move
+        // actual live SOL a second time. Only estimate the split for this lane's
+        // private balance; the canonical receipt/ledger is authoritative.
+        val treasuryShare: Double = if (pnlSol > 0.0 &&
+            pnlSol >= (if (pos.isPaperMode)
+                com.lifecyclebot.engine.TreasuryManager.MEME_SELL_MIN_PROFIT_SOL_PAPER
+            else
+                com.lifecyclebot.engine.TreasuryManager.MEME_SELL_MIN_PROFIT_SOL)
+        ) {
+            pnlSol * com.lifecyclebot.engine.TreasuryManager.currentSplitPct()
         } else 0.0
 
 
@@ -1502,11 +1511,9 @@ object MoonshotTraderAI {
         val walletDelta = pnlSol - treasuryShare
         val balanceRef = if (pos.isPaperMode) paperBalanceBps else liveBalanceBps
         balanceRef.addAndGet((walletDelta * 10000).toLong())
-            // V5.9.8: Sync paper P&L to shared wallet
-            if (pos.isPaperMode) {
-                com.lifecyclebot.engine.BotService.status.paperWalletSol =
-                    (com.lifecyclebot.engine.BotService.status.paperWalletSol + walletDelta).coerceAtLeast(0.0)
-            }
+            // The Executor's committed PaperAccountLedger already updates shared
+            // paper cash. Mirroring the same native P&L into BotService here
+            // re-credits a settled sell and corrupts position-sizing equity.
         
         // Update local learning progress
         updateLearning(pnlPct, isWin)
@@ -1562,61 +1569,8 @@ object MoonshotTraderAI {
                 com.lifecyclebot.engine.SentientPersonality.onTradeLoss(pos.symbol, pnlPct, "MOONSHOT", exitReason.name)
             }
 
-            // V5.9.305: WIRE STRATEGY TRUST + ADAPTIVE LEARNING — was missing from closePosition.
-            // Without this, 46/47 strategies showed [UNTESTED] because Moonshot/ShitCoin closes
-            // never reached TradeLessonRecorder.recordTrade → StrategyTrustAI.recordTrade.
-            try {
-                // V4 lessons use canonical net economics and one position identity (8491).
-                val mfePct = if (pos.peakPnlPct > 0.0) pos.peakPnlPct else pnlPct.coerceAtLeast(0.0)
-                val maePct = pnlPct.coerceAtMost(0.0)
-                // V5.9.305: Feed AdaptiveLearningEngine for pattern matching (V5.9.301 patterns)
-                val label = when {
-                    pnlPct >= 100.0 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.GOOD_RUNNER
-                    pnlPct >= 30.0 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.GOOD_CONTINUATION
-                    pnlPct >= 10.0 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.GOOD_SECOND_LEG
-                    pnlPct >= 1.0 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.MID_SMALL_WIN
-                    pnlPct in -0.5..1.0 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.MID_FLAT_CHOP
-                    pnlPct in -5.0..-0.5 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.MID_WEAK_FOLLOW
-                    pnlPct in -15.0..-5.0 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.MID_STOPPED_OUT
-                    pnlPct <= -50.0 && exitReason == ExitSignal.RUG_DETECTED -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.BAD_RUG
-                    pnlPct <= -30.0 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.BAD_DUMP
-                    pnlPct <= -15.0 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.BAD_DEAD_CAT
-                    else -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.MID_CHOP
-                }
-                // V5.9.618 — REAL feature vector. Pre-V5.9.618 every meme close fed
-                // AdaptiveLearningEngine an all-zero vector, so 5,000 trades produced
-                // pattern weights of pure noise. Now we use the entry-context snapshot
-                // captured at position open. volLiq derived; safe when liq=0.
-                val volLiq = if (pos.liquidityUsd > 0.0) pos.entryVolumeUsd / pos.liquidityUsd else 0.0
-                val features = com.lifecyclebot.engine.AdaptiveLearningEngine.TradeFeatures(
-                    entryMcapUsd = pos.marketCapUsd,
-                    tokenAgeMinutes = pos.entryAgeMinutes,
-                    buyRatioPct = pos.entryBuyPressurePct,
-                    volumeUsd = pos.entryVolumeUsd,
-                    liquidityUsd = pos.liquidityUsd,
-                    holderCount = pos.entryHolderCount,
-                    topHolderPct = pos.entryTopHolderPct,
-                    holderGrowthRate = pos.entryHolderGrowthRate,
-                    devWalletPct = 0.0, bondingCurveProgress = 0.0,
-                    rugcheckScore = pos.entryRugcheckScore,
-                    emaFanState = pos.entryEmaFanState,
-                    entryScore = pos.entryScore,
-                    volumeLiquidityRatio = volLiq,
-                    priceFromAth = 0.0,
-                    pnlPct = pnlPct,
-                    maxGainPct = mfePct,
-                    maxDrawdownPct = maePct,
-                    timeToPeakMins = 0.0,
-                    holdTimeMins = holdMins,
-                    exitReason = exitReason.name,
-                    outcomeScore = if (isWin) 1 else if (pnlPct <= -1.0) -1 else 0,
-                    label = label,
-                    stableTradeKey = "${mint}:${pos.entryTime}",
-                )
-                com.lifecyclebot.engine.AdaptiveLearningEngine.learnFromTrade(features, if (pos.isPaperMode) com.lifecyclebot.engine.TradeEnvironment.PAPER else com.lifecyclebot.engine.TradeEnvironment.LIVE)
-            } catch (e: Exception) {
-                ErrorLogger.debug(TAG, "Lesson/Trust wiring error: ${e.message}")
-            }
+            // AdaptiveLearningEngine learns once from the canonical settled outcome and its frozen entry witness.
+
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "Sentience hook error: ${e.message}")
         }

@@ -1,5 +1,10 @@
 package com.lifecyclebot.engine
 
+import com.lifecyclebot.data.Position
+import com.lifecyclebot.data.TokenState
+import com.lifecyclebot.engine.truth.CanonicalPartialReceipt8527 as Receipt
+import com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441 as Cpa
+import java.math.BigInteger
 import com.lifecyclebot.v3.scoring.MoonshotTraderAI as Moon
 import com.lifecyclebot.v3.scoring.ShitCoinTraderAI as Shit
 import org.junit.Assert.*
@@ -10,7 +15,10 @@ import java.io.File
 
 /** Exercise the native traders, not just the shared trail helper. */
 class Aate8527NativeRunnerCaptureTest {
-    @Before fun reset() { Moon.clearAllPositions(); Shit.clearAllPositions() }
+    @Before fun reset() {
+        Moon.clearAllPositions(); Shit.clearAllPositions(); Cpa.resetForTest()
+        com.lifecyclebot.engine.truth.NativePartialProjection8527.resetForTest8527()
+    }
     @After fun cleanup() { reset() }
 
     private fun shit(tag: String, ageMs: Long = 10_000L, peak: Double = 0.0, rungs: Int = 0): String {
@@ -25,6 +33,27 @@ class Aate8527NativeRunnerCaptureTest {
             partialRungsTaken = rungs, firstTakeDone = rungs > 0,
         ), isPaper = false)
         return mint
+    }
+
+    private fun boundShit(mint: String): TokenState {
+        val p = Shit.getActivePositionsForMode(false).single { it.mint == mint }
+        val pid = "LIVE:$mint:fixture8527"
+        assertEquals(Cpa.MutateResult.APPLIED, Cpa.openPosition("open:$pid", pid, mint, p.symbol, "SHITCOIN",
+            "8527", p.entrySol, BigInteger.valueOf(100L), 0, 0.0, false,
+            entryPriceUsd = p.entryPrice, entryPriceSource = "LIVE_FINALIZED"))
+        return TokenState(mint = mint, position = Position(positionId = pid, qtyToken = 100.0,
+            entryPrice = p.entryPrice, entryTime = Cpa.getPosition(pid)!!.openedAtMs,
+            costSol = p.entrySol, isPaperPosition = false))
+    }
+
+    private fun confirmQuarter(mint: String) {
+        val ts = boundShit(mint)
+        val apply = Shit.partialProjection8527(ts)
+        val before = Cpa.getPosition(ts.position.positionId)!!
+        val capture = Receipt.Capture8527()
+        assertEquals(Cpa.MutateResult.APPLIED, Cpa.partialSell("partial:${before.positionId}", before.positionId,
+            BigInteger.valueOf(25L), 0.30, 0.25, 0.0, false, receiptCapture8527 = capture))
+        assertTrue(apply(capture.receipt))
     }
 
     private fun moon(tag: String, peak: Double = 0.0, rungs: Int = 0): String {
@@ -51,7 +80,7 @@ class Aate8527NativeRunnerCaptureTest {
             assertEquals(30.0, pending.peakPnlPct, 1e-9)
             assertEquals(1.0, pending.entrySol, 0.0)
         }
-        Shit.onPartialSell(mint, 0.25, isPaper = false)
+        confirmQuarter(mint)
         val confirmed = Shit.getActivePositionsForMode(false).single { it.mint == mint }
         assertEquals(1, confirmed.partialRungsTaken)
         assertTrue(confirmed.firstTakeDone)
@@ -61,8 +90,11 @@ class Aate8527NativeRunnerCaptureTest {
 
     @Test fun invalidPartialInputsCannotAdvanceASpecialistRung() {
         val mint = shit("invalid")
-        for (fraction in listOf(Double.NaN, Double.POSITIVE_INFINITY, 0.0, -0.2, 1.1))
-            Shit.onPartialSell(mint, fraction, isPaper = false)
+        val ts = boundShit(mint)
+        val apply = Shit.partialProjection8527(ts)
+        val unchanged = Cpa.getPosition(ts.position.positionId)!!
+        assertFalse(apply(null))
+        assertFalse(apply(Receipt.fromApplied8527(true, unchanged, unchanged, "not-a-fill")))
         val p = Shit.getActivePositionsForMode(false).single { it.mint == mint }
         assertEquals(0, p.partialRungsTaken)
         assertFalse(p.firstTakeDone)
@@ -107,7 +139,7 @@ class Aate8527NativeRunnerCaptureTest {
         val mint = shit("live")
         val live = Shit.getActivePositionsForMode(false).single { it.mint == mint }
         Shit.restorePosition(live.copy(isPaper = true), isPaper = true)
-        Shit.onPartialSell(mint, 0.25, isPaper = false)
+        confirmQuarter(mint)
         assertEquals(1, Shit.getActivePositionsForMode(false).single { it.mint == mint }.partialRungsTaken)
         assertEquals(0, Shit.getActivePositionsForMode(true).single { it.mint == mint }.partialRungsTaken)
         assertEquals(1.0, Shit.getActivePositionsForMode(true).single { it.mint == mint }.entrySol, 0.0)
@@ -120,7 +152,9 @@ class Aate8527NativeRunnerCaptureTest {
             service.substringAfter("// ── ShitCoinTraderAI delegation").substringBefore("// ── MoonshotTraderAI delegation"),
         )) {
             assertTrue(region.indexOf("if (!partialReceipt6566.applied)") >= 0)
-            assertTrue(region.indexOf("if (!partialReceipt6566.applied)") < region.indexOf("ShitCoinTraderAI.onPartialSell("))
+            assertTrue(region.indexOf("onConfirmedSlice8527 = applyPartial8527,") >= 0)
+            assertTrue(region.indexOf("onConfirmedSlice8527 = applyPartial8527,") <
+                region.indexOf("if (!partialReceipt6566.applied)"))
         }
         val native = File("src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinTraderAI.kt").readText()
         assertFalse(native.substringAfter("fun checkExit(").substringBefore("// LEARNING").contains("pos.partialRungsTaken +="))

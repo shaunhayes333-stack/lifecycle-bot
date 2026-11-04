@@ -119,6 +119,7 @@ object CanonicalFinalizedTradeBus6464 {
         "CortexOutcome7885",
         "V4TradeLesson8492",
         "LiveWinDNAStore",
+        "AdaptiveLearningEngine8527",
     )
     fun ensureCanonicalConsumers6485() { CANONICAL_CONSUMERS_6485.forEach(::registerConsumer) }
 

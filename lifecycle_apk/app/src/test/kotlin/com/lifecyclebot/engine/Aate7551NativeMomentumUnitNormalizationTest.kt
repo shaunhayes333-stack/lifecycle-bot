@@ -34,10 +34,29 @@ class Aate7551NativeMomentumUnitNormalizationTest {
 
     @Test fun five_signed_percent_native_lanes_receive_normalized_mom() {
         val b=src("engine/SpecialistBrainBridge7542.kt")
-        listOf("BlueChipTraderAI.evaluate","ShitCoinTraderAI.evaluate","ShitCoinExpress.evaluate","ManipulatedTraderAI.evaluate","CashGenerationAI.evaluate")
+        listOf("BlueChipTraderAI.evaluate","ShitCoinTraderAI.evaluate","CashGenerationAI.evaluate")
             .forEach { assertTrue(b.contains(it)) }
         assertTrue(b.contains("momentum=mom"))
-        assertTrue(b.contains(",mom,bp,"))
         assertTrue(b.contains(",v3,v3c,mom,vol"))
+        // The other two lanes use shared preview/entry adapters, still in signed-percent units.
+        val shared=src("engine/SpecialistInputParity8527.kt")
+        val bot=src("engine/BotService.kt")
+        for ((adapter,native) in listOf("express8527" to "ShitCoinExpress.evaluate",
+            "manipulated8527" to "ManipulatedTraderAI.evaluate")) {
+            assertTrue(b.contains("SpecialistInputParity8527.$adapter("))
+            assertTrue(bot.contains("laneDoor8105(SpecialistInputParity8527.$adapter("))
+            val body=shared.substringAfter("fun $adapter(").substringBefore("\n    fun ")
+            assertTrue(body.contains(native))
+        }
+        assertTrue(shared.contains("i.momentumPct, i.buyPressurePct, i.volumeRatio, i.change5mPct"))
+        assertTrue(shared.contains("read.momentumPct ?: 0.0, read.buyPressurePct ?: 50.0"))
+        val read=SpecialistMarketInputs8522.Read(
+            NativeHistory8521.Read(listOf(100.0,95.0),listOf(100.0,95.0),100.0,1.0,emptyList()),
+            NativeLaneAge8521.Evidence(2.0,2.0),95.0,90.0,-5.0,-5.0,
+            ContinuationRead8348.Continuation8348(-5.0,ContinuationRead8348.Source8348.FROM_TAPE),70,60)
+        val express=SpecialistInputParity8527.expressInputs8527(read)
+        assertEquals(-5.0,express.momentumPct,0.0)
+        assertEquals(-5.0,express.change5mPct,0.0)
+        assertEquals(90.0,express.buyPressurePct,0.0)
     }
 }

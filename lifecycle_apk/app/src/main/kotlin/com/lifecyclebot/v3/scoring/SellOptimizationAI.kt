@@ -67,6 +67,8 @@ object SellOptimizationAI {
         var chunksSold: Int = 0,
         var lastChunkPnl: Double = 0.0,
         var lockedProfitSol: Double = 0.0,
+        val canonicalPositionId8527: String = "",
+        val mode8527: String = "",
     )
     
     private val activePositions = ConcurrentHashMap<String, PositionState>()
@@ -152,25 +154,31 @@ object SellOptimizationAI {
     /**
      * Update position after a chunk sell.
      */
-    fun recordChunkSell(mint: String, soldSizeSol: Double, pnlPct: Double, profitSol: Double) {
-        activePositions[mint]?.let { pos ->
-            pos.remainingSizeSol -= soldSizeSol
-            pos.chunksSold++
-            pos.lastChunkPnl = pnlPct
-            pos.lockedProfitSol += profitSol
-            ErrorLogger.info(TAG, "📊 CHUNK SOLD: $mint | chunk #${pos.chunksSold} | " +
-                "sold=${soldSizeSol}SOL @ ${pnlPct.toInt()}% | locked=${pos.lockedProfitSol}SOL")
-        }
+    /** V5.0.8527 — chunk economics come from the exact applied canonical slice, never mark x requested share. */
+    fun partialProjection8527(ts: TokenState):
+        (com.lifecyclebot.engine.truth.CanonicalPartialReceipt8527?) -> Boolean {
+        return com.lifecyclebot.engine.truth.NativePartialProjection8527.capture8527(
+            activePositions, ts, { it.mode8527 == "paper" }, { pos, receipt ->
+                pos.copy(remainingSizeSol = receipt.remainingCostSol,
+                    chunksSold = pos.chunksSold + 1, lastChunkPnl = receipt.realizedPnlPct,
+                    lockedProfitSol = pos.lockedProfitSol + receipt.realizedPnlSol)
+            },
+        )
     }
+
+
     
     /**
      * Remove position after full exit.
      */
-    fun closePosition(mint: String, finalPnlPct: Double) {
-        activePositions.remove(mint)?.let { pos ->
-            ErrorLogger.info(TAG, "🏁 POSITION CLOSED: $mint | " +
-                "chunks=${pos.chunksSold} | locked=${pos.lockedProfitSol}SOL | final=${finalPnlPct.toInt()}%")
-        }
+    fun closePosition(mint: String, finalPnlPct: Double,
+                      canonicalSlice8527: com.lifecyclebot.engine.truth.CanonicalPartialReceipt8527? = null) {
+        val pos = activePositions[mint] ?: return
+        if (canonicalSlice8527 != null && (!canonicalSlice8527.terminal ||
+            pos.canonicalPositionId8527 != canonicalSlice8527.positionId || pos.mode8527 != canonicalSlice8527.mode)) return
+        if (!activePositions.remove(mint, pos)) return
+        ErrorLogger.info(TAG, "🏁 POSITION CLOSED: $mint | " +
+            "chunks=${pos.chunksSold} | locked=${pos.lockedProfitSol}SOL | final=${finalPnlPct.toInt()}%")
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -222,33 +230,36 @@ object SellOptimizationAI {
         // the first real chunk sell and the chunk-sell branch then got
         // permanently gated off ("remainingSizeSol > 0" = false). Every real
         // position silently turned into a HOLD-only monster. Now we use the
-        // real size passed in from BotService, and when a stale entry exists
-        // we compare entryTime vs holdTimeMinutes to detect a re-entry and
-        // reset automatically.
-        val incomingEntryTime = System.currentTimeMillis() - (holdTimeMinutes * 60_000L)
+        // canonical remaining basis. Exact canonical identity + mode now distinguish re-entry;
+        // elapsed minutes and a falling peak are not evidence that this is the same lot.
+        val canonical8527 = com.lifecyclebot.engine.truth.CanonicalPartialReceipt8527.capture8527(ts)
+        val mode8527 = if (ts.position.isPaperPosition) "paper" else "live"
+        val identity8527 = canonical8527?.positionId ?: ts.position.positionId
+        val incomingEntryTime = canonical8527?.openedAtMs ?: ts.position.entryTime
         val pos = activePositions.compute(mint) { _, existing ->
-            val realSize = if (positionSizeSol > 0.0) positionSizeSol else 0.1
+            val realSize = canonical8527?.let { (it.entryCostSol - it.soldCostBasisSol).coerceAtLeast(0.0) }
+                ?: positionSizeSol.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
             if (existing == null) {
                 PositionState(
                     mint = mint,
                     entryPrice = entryPrice,
                     entryTime = incomingEntryTime,
-                    originalSizeSol = realSize,
+                    originalSizeSol = canonical8527?.entryCostSol ?: realSize,
                     remainingSizeSol = realSize,
+                    canonicalPositionId8527 = identity8527, mode8527 = mode8527,
                 )
             } else {
-                // Detect re-entry: bot's entryTime is newer than ours by > 90s
-                // AND PnL reset (went from large peak back near zero).
-                val looksLikeReentry =
-                    (incomingEntryTime - existing.entryTime) > 90_000L &&
-                    existing.peakPnlPct - currentPnlPct > 30.0
+                // A new canonical lot or account starts a fresh chunk projection immediately.
+                val looksLikeReentry = existing.canonicalPositionId8527 != identity8527 ||
+                    existing.mode8527 != mode8527 || existing.entryTime != incomingEntryTime
                 if (looksLikeReentry) {
                     PositionState(
                         mint = mint,
                         entryPrice = entryPrice,
                         entryTime = incomingEntryTime,
-                        originalSizeSol = realSize,
+                        originalSizeSol = canonical8527?.entryCostSol ?: realSize,
                         remainingSizeSol = realSize,
+                        canonicalPositionId8527 = identity8527, mode8527 = mode8527,
                     )
                 } else {
                     // Heal silently: if remaining ever went non-positive due to
@@ -256,9 +267,8 @@ object SellOptimizationAI {
                     // wiping peakPnlPct / chunksSold.
                     if (existing.remainingSizeSol <= 0.0 && realSize > 0.0) {
                         existing.copy(
-                            originalSizeSol = realSize,
-                            remainingSizeSol = (realSize * (1.0 - existing.chunksSold * 0.25))
-                                .coerceAtLeast(realSize * 0.05)
+                            originalSizeSol = canonical8527?.entryCostSol ?: realSize,
+                            remainingSizeSol = realSize
                         )
                     } else existing
                 }

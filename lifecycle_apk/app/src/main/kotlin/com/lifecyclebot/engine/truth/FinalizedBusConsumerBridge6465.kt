@@ -163,6 +163,7 @@ object FinalizedBusConsumerBridge6465 {
             "CortexOutcome7885" -> deliverToCortexOutcome7885(env)
             "V4TradeLesson8492" -> com.lifecyclebot.v4.meta.TradeLessonRecorder.onCanonicalMeme8492(env)
             "LiveWinDNAStore" -> com.lifecyclebot.engine.LiveWinDNAStore.recordCanonical8417(env)
+            "AdaptiveLearningEngine8527" -> deliverToAdaptive8527(env)
             "ExactStrategyPerformance7429" -> deliverToExactStrategyPerformance7429(env)
             "MemeCausalLearning6568" -> deliverToMemeCausalLearning6568(env)
             "ForwardOutcomeModel" -> deliverToForwardOutcomeModel6696(env)
@@ -332,6 +333,15 @@ object FinalizedBusConsumerBridge6465 {
      * A throw inside the delivery is caught by deliverOne6734 and retried on the consumer backoff path like any
      * other consumer — never silently dropped the way the old direct publish call was.
      */
+    private fun deliverToAdaptive8527(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean {
+        val reason = com.lifecyclebot.engine.AdaptiveLearningEngine.terminalExclusion8527(env)
+        if (reason != null) {
+            CanonicalFinalizedTradeBus6464.exclude("AdaptiveLearningEngine8527", env.tradeId, reason)
+            return false
+        }
+        return com.lifecyclebot.engine.AdaptiveLearningEngine.onCanonicalTerminal8527(env)
+    }
+
     private fun deliverToCortexOutcome7885(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean =
         (com.lifecyclebot.engine.cortex.Cortex7885.onCanonicalClose(env) ==
             com.lifecyclebot.engine.cortex.Cortex7885.CloseDelivery8198.ACKED).also { acked ->

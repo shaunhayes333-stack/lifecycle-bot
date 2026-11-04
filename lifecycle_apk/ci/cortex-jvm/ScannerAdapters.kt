@@ -5,6 +5,12 @@ object ErrorLogger {
     fun info(tag: String, message: String) = Unit
     fun warn(tag: String, message: String) = Unit
 }
+/** In-memory string store at the Android disk boundary. Production horizon serialization runs unchanged. */
+object LearningPersistence {
+    private val values = java.util.concurrent.ConcurrentHashMap<String, String>()
+    fun load(key: String): String? = values[key]
+    fun save(key: String, value: String) { values[key] = value }
+}
 object PipelineHealthCollector { fun labelInc(label: String) = Unit }
 object SentienceOrchestrator { fun noteRuntimeEvent(event: String, detail: String, severity: String = "INFO") = Unit }
 

@@ -115,7 +115,16 @@ class Aate8527ScannerSourceEvidenceTest {
         assertEquals(7.5, ScannerLearning.getDiscoveryBonus("MISSING", 500_000.0, 24.0), 0.0)
     }
 
-    @Test fun persistedValidSourceAndAgeEvidenceKeepsItsOriginalMeaning() {
+    @Test fun missingEntrySourceAndLiquidityCannotBecomeAnEmptySourceOrDeepPool() {
+        repeat(6) { ScannerLearning.recordTrade(" , ", Double.NaN, Double.NaN, true) }
+        assertTrue(values("sourceWins").isEmpty())
+        assertTrue(values("liqBucketWins").isEmpty())
+        values("liqBucketWins")["liq_100k_plus"] = 10
+        assertEquals(0.0, ScannerLearning.getDiscoveryBonus("", Double.NaN, Double.NaN), 0.0)
+        assertEquals(7.5, ScannerLearning.getDiscoveryBonus("", 200_000.0, Double.NaN), 0.0)
+    }
+
+    @Test fun sourceHistoryIsPreservedButLegacyWatchlistAgeIsNotRelabelledAsEntryBirthAge() {
         val context = mock(Context::class.java)
         val prefs = mock(SharedPreferences::class.java)
         val editor = mock(SharedPreferences.Editor::class.java, RETURNS_SELF)
@@ -124,17 +133,23 @@ class Aate8527ScannerSourceEvidenceTest {
         `when`(prefs.edit()).thenReturn(editor)
         `when`(prefs.getString("sourceWins", null)).thenReturn(JSONObject().put("A", 6).toString())
         `when`(prefs.getString("sourceLosses", null)).thenReturn(JSONObject().put("A", 4).toString())
-        `when`(prefs.getString("ageBucketWins", null)).thenReturn(JSONObject().put("age_6_24h", 8).toString())
-        `when`(prefs.getString("ageBucketLosses", null)).thenReturn(JSONObject().put("age_6_24h", 2).toString())
+        `when`(prefs.getString("ageBucketWins", null)).thenReturn(JSONObject().put("age_0_1h", 80).toString())
+        `when`(prefs.getString("ageBucketLosses", null)).thenReturn(JSONObject().put("age_0_1h", 2).toString())
         ScannerLearning.init(context)
         val evidence = ScannerLearning.sourceEvidence8527("A,B")!!
         assertEquals(10L, evidence.sampleCount)
         assertEquals(0.6, evidence.winRate, 0.0)
-        assertEquals(8, values("ageBucketWins")["age_6_24h"])
-        assertEquals(2, values("ageBucketLosses")["age_6_24h"])
-        ScannerLearning.recordTrade("C", 10_000.0, Double.NaN, true)
+        assertTrue(values("ageBucketWins").isEmpty())
+        assertEquals(0.0, ScannerLearning.getDiscoveryBonus("UNKNOWN", Double.NaN, 0.0), 0.0)
+        ScannerLearning.recordTrade("C", 10_000.0, 7.0, true)
+        assertEquals(mapOf("age_6_24h" to 1), values("ageBucketWins"))
+        verify(editor).putString(eq("ageBucketWinsBirth8527"), eq(JSONObject().put("age_6_24h", 1).toString()))
+        verify(editor, never()).putString(eq("ageBucketWins"), anyString())
+        verify(editor, never()).putString(eq("ageBucketLosses"), anyString())
+        `when`(prefs.getString("ageBucketWinsBirth8527", null)).thenReturn(JSONObject().put("age_6_24h", 8).toString())
+        `when`(prefs.getString("ageBucketLossesBirth8527", null)).thenReturn(JSONObject().put("age_6_24h", 2).toString())
+        ScannerLearning.init(context)
         assertEquals(mapOf("age_6_24h" to 8), values("ageBucketWins"))
         assertEquals(mapOf("age_6_24h" to 2), values("ageBucketLosses"))
-        verify(editor).putString(eq("ageBucketWins"), eq(JSONObject().put("age_6_24h", 8).toString()))
     }
 }

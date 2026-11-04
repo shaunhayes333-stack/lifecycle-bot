@@ -19,7 +19,12 @@ class Aate7677ExpressOwnershipContractTest {
     @Test fun expressRemainsDistinctNativeSpecialist() {
         val b = File("src/main/kotlin/com/lifecyclebot/engine/SpecialistBrainBridge7542.kt").readText()
         assertTrue(b.contains("out[\"EXPRESS\"]"))
-        assertTrue(b.contains("ShitCoinExpress.evaluate"))
+        assertTrue(b.contains("SpecialistInputParity8527.express8527("))
+        val shared = File("src/main/kotlin/com/lifecyclebot/engine/SpecialistInputParity8527.kt").readText()
+        val native = shared.substringAfter("fun express8527(").substringBefore("fun manipulated8527(")
+        assertTrue(native.contains("ShitCoinExpress.evaluate("))
+        val execution = File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(execution.contains("val expressSignal = laneDoor8105(SpecialistInputParity8527.express8527("))
         assertTrue(b.contains("express_native_"))
         assertTrue(b.contains("out[\"PROJECT_SNIPER\"]"))
     }

@@ -2,7 +2,6 @@ package com.lifecyclebot.v3.scoring
 
 import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.engine.TradeHistoryStore
-import com.lifecyclebot.engine.AdaptiveLearningEngine
 import com.lifecyclebot.engine.EdgeLearning
 import com.lifecyclebot.engine.TokenWinMemory
 import com.lifecyclebot.engine.BehaviorLearning
@@ -1012,38 +1011,17 @@ object EducationSubLayerAI {
             layersUpdated++
         } catch (e: Exception) { errors.add("FluidLearningAI: ${e.message}") }
         
-        // AdaptiveLearningEngine - Feature weight adjustment
+        // AdaptiveLearningEngine has one learning owner: the finalized whole-position bus ->
+        // onCanonicalTerminal8527, using the sealed entry witness and stable position identity.
+        // Education's old second write used 0/50 proxy fields and a different key, so a
+        // single position could train twice with contradictory features. Keep only this
+        // dashboard's layer accounting; never re-train or synthesize a fallback lesson.
         try {
-            val features = AdaptiveLearningEngine.captureFeatures(
-                entryMcapUsd = outcome.entryMcapUsd,
-                tokenAgeMinutes = outcome.tokenAgeMinutes,
-                buyRatioPct = outcome.buyRatioPct,
-                volumeUsd = outcome.volumeUsd,
-                liquidityUsd = outcome.liquidityUsd,
-                holderCount = outcome.holderCount,
-                topHolderPct = outcome.topHolderPct,
-                holderGrowthRate = outcome.holderGrowthRate,
-                devWalletPct = outcome.devWalletPct,
-                bondingCurveProgress = outcome.bondingCurveProgress,
-                rugcheckScore = outcome.rugcheckScore,
-                emaFanState = outcome.emaFanState,
-                entryScore = outcome.entryScore,
-                priceFromAth = outcome.priceFromAth,
-                pnlPct = outcome.pnlPct,
-                maxGainPct = outcome.maxGainPct,
-                maxDrawdownPct = outcome.maxDrawdownPct,
-                timeToPeakMins = outcome.timeToPeakMins,
-                holdTimeMins = outcome.holdTimeMinutes,
-                exitReason = outcome.exitReason,
-                entryPhase = outcome.entryPhase,
-                stableTradeKey = outcomeDedupKey(outcome),
-            )
             val adaptiveEnvironment7803 = when {
                 outcome.executionMode.contains("PAPER", ignoreCase = true) -> com.lifecyclebot.engine.TradeEnvironment.PAPER
                 outcome.executionMode.contains("SHADOW", ignoreCase = true) || outcome.isShadowTrade -> com.lifecyclebot.engine.TradeEnvironment.SHADOW
                 else -> com.lifecyclebot.engine.TradeEnvironment.LIVE
             }
-            AdaptiveLearningEngine.learnFromTrade(features, adaptiveEnvironment7803)
             markLayerOutcome("AdaptiveLearningEngine", outcome.isWin, outcome.pnlPct, isShadowTrade = adaptiveEnvironment7803 != com.lifecyclebot.engine.TradeEnvironment.LIVE, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("AdaptiveLearning: ${e.message}") }
