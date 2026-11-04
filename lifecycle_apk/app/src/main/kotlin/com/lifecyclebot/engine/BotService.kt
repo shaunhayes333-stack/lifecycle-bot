@@ -30515,7 +30515,7 @@ if (hotExitHandledSweep) {
                                             stopLossPct = shitcoinEffectiveSlPct,
                                             launchPlatform = shitCoinSignal.launchPlatform,
                                             devWallet = shitDevWallet4232,
-                                            bundlePct = bundlePct,
+                                            bundlePct = shitcoinInputs8527.bundlePct,
                                             socialScore = shitCoinSignal.socialScore,
                                             // V5.9.435 — preserve entry score for outcome attribution
                                             entryScore = shitCoinSignal.entryScore,
