@@ -3661,7 +3661,7 @@ class GoldenTapeRegressionTest {
         val express4223 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinExpress.kt").readText()
         val botService4223 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val positionPersistence4223 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PositionPersistence.kt").readText()
-        assertTrue("V5.0.4223: Express daily loss and live pendingVerify must preserve ride/exits", express4223.contains("EXPRESS_DAILY_LOSS_RECOVERY_PROBE_4223") && express4223.contains("if (dailyLossRecoveryProbe) positionSol *= 0.35") && express4223.contains("fun restoreRide(ride: ExpressRide)") && !express4223.contains("return noRide(\"DAILY_LOSS_LIMIT") && botService4223.contains("ts.position.qtyToken > 0.0 || ts.position.pendingVerify || ts.position.isOpen) com.lifecyclebot.v3.scoring.ShitCoinExpress.boardRide") && positionPersistence4223.contains("EXPRESS_RESTORED_ACTIVE_RIDE_4223"))
+        assertTrue("V5.0.8527: Express recovery sizing reads canonical measured daily P&L and preserves active ride ownership", express4223.contains("EXPRESS_DAILY_LOSS_RECOVERY_PROBE_4223") && express4223.contains("positionSol *= dailyLossSizeMult8527") && express4223.contains("fun restoreRide(ride: ExpressRide)") && !express4223.contains("return noRide(\"DAILY_LOSS_LIMIT") && botService4223.contains("ts.position.qtyToken > 0.0 || ts.position.pendingVerify || ts.position.isOpen) com.lifecyclebot.v3.scoring.ShitCoinExpress.boardRide") && positionPersistence4223.contains("EXPRESS_RESTORED_ACTIVE_RIDE_4223"))
         val blueChip4224 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/BlueChipTraderAI.kt").readText()
         val cashGen4224 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/CashGenerationAI.kt").readText()
         assertTrue("V5.0.4224: BlueChip/CashGen PAUSED must probe-size instead of hard-zeroing entries", blueChip4224.contains("BLUECHIP_DAILY_LOSS_RECOVERY_PROBE_4224") && blueChip4224.contains("if (dailyLossRecoveryProbe) positionSol *= 0.35") && !blueChip4224.contains("reason = \"PAUSED: Daily loss limit reached\"") && cashGen4224.contains("TREASURY_DAILY_LOSS_RECOVERY_PROBE_4224") && cashGen4224.contains("TreasuryMode.PAUSED -> 0.35") && !cashGen4224.contains("PAUSED: Daily loss limit"))
@@ -12542,8 +12542,8 @@ class GoldenTapeRegressionTest {
         // CORE's score is blended with its voters; V3 position/cooldown holds still bind TREASURY.
         assertTrue(bot.contains("laneScoredBase7389(base, native.score.toDouble(), native.confidence.toDouble())"))
         assertTrue(bot.contains("v3RejectReason7389 in setOf(\"TOO_OLD\", \"SCORE_TOO_LOW\", \"SIZE_ZERO\")"))
-        assertTrue(dip.contains("val pnlSol = pos.entrySol * pos.remainingFrac * pnlPct / 100"))
-        assertTrue(dip.contains("FluidLearningAI.fluidProfitFloor(pos.recoveryHighPct, holdSeconds = dipHoldSec7389)"))
+        assertTrue("Receipt-backed DIP close P&L must outrank a hypothetical percent projection", dip.contains("val pnlSol = settled8527?.realizedPnlSol ?: (pos.entrySol * pos.remainingFrac * pnlPct / 100)"))
+        assertTrue(dip.contains("FluidLearningAI.fluidProfitFloor(pos.recoveryHighPct, holdSeconds = dipHoldSec7389, lane = \"DIP_HUNTER\")"))
         assertTrue(bot.contains("DIP_TARGET_PARTIAL_TAKE_PROFIT_50PCT"))
         assertTrue(com.lifecyclebot.engine.sell.SellReasonClassifier.fromString("DIP_TARGET_PARTIAL_TAKE_PROFIT_50PCT") == com.lifecyclebot.engine.sell.ExitReason.PARTIAL_TAKE_PROFIT)
         // No orphaned owner: V3 defers only when QUALITY/BLUECHIP's block can buy.
@@ -13595,7 +13595,7 @@ class GoldenTapeRegressionTest {
         assertTrue(rec.contains("return if (trackerSaysBot || coverageSaysBot7730) BOT_HOLDING_ADOPTION_FLOOR_USD_7718 else ADOPTION_MIN_VALUE_USD_7706"))
         assertTrue(rec.contains("fun requestAdoptionAsync7718(mints: Collection<String>) {"))
         assertTrue(rec.contains("val n = recoverWalletSnapshot(BotService.status, subset, holdingProofs8527)"))
-        assertTrue(rec.contains("WalletAccountCache.snapshot(ttlMs = 60_000L)"))
+        assertTrue("Restored bot holdings must use owner-and-freshness wallet proof", rec.contains("WalletAccountCache.evidence()?.takeIf {") && rec.contains("it.owner == owner8527") && rec.contains("singleMintReads7962(due.filter"))
         assertTrue(rec.contains("private const val HEAL_KICK_MIN_INTERVAL_MS_7718 = 60_000L"))
         assertTrue(rec.contains("BOT_HOLDING_HEAL_KICKED_7718"))
         assertTrue(rec.contains("botHealKicks7718="))
@@ -14211,7 +14211,7 @@ class GoldenTapeRegressionTest {
         assertTrue(lab.contains("nowMs, MARK_MAX_AGE_MS_7731, ENTRY_MARK_MAX_AGE_MS_7735)"))
         assertTrue(lab.contains("FORWARD_LABEL_ENTRY_STALE_MARK_7735"))
         assertTrue(lab.contains(".putString(PENDING_KEY_7946, encodePending7735(now, selected))"))
-        assertTrue(lab.contains("restorePending7735(p.getString(PENDING_KEY_7946, null), System.currentTimeMillis())"))
+        assertTrue(lab.contains("restorePending7735(checkpoint8527.pending, System.currentTimeMillis())"))
         assertTrue(lab.contains("if (f.size !in 17..36) return@forEach"))   // V5.0.8410 — field 36 carries the booking-time decay
         assertTrue(lab.contains("private const val MAX_PERSISTED_PENDING_7735 = MAX_PENDING_7731"))
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
