@@ -191,11 +191,11 @@ object BehaviorAI {
             val pnlRef = perAssetReasonPnlSum.getOrPut(reasonKey) {
                 AtomicReference(0.0)
             }
-            // Lock-free additive update via compareAndSet loop.
-            var prev: Double
-            do {
-                prev = pnlRef.get()
-            } while (!pnlRef.compareAndSet(prev, prev + pnlPct))
+            // V5.0.8527: AtomicReference compares object identity. Reading into
+            // a Kotlin Double unboxes/reboxes the expected value, so a hand-written
+            // compareAndSet loop can spin forever even without another writer.
+            // Let the atomic updater retain the exact observed reference.
+            pnlRef.updateAndGet { current -> current + pnlPct }
         }
 
         if (cls != "MEME") return  // Skip global tilt / discipline state for non-meme classes.
