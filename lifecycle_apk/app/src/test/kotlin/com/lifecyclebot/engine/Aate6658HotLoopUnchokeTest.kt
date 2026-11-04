@@ -179,7 +179,7 @@ class Aate6658HotLoopUnchokeTest {
             "specialistLane = \"MANIPULATED\"",
             "specialistLane = \"EXPRESS\"",
             "specialistLane = \"DIP_HUNTER\"",
-            "specialistLane = cyclePrimaryLane",
+            "specialistLane = \"CORE\"",
         )
         required.forEach { needle ->
             assertTrue(

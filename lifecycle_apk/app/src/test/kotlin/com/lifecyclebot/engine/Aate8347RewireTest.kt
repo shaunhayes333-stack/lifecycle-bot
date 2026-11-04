@@ -159,7 +159,8 @@ class Aate8347RewireTest {
         assertTrue(spike.contains("RunnerLive8153.confirmTier8153(ts, tier, reason)"))
         assertTrue(src("engine/PipelineHealthCollector.kt").contains("RuntimeDoctor.faultsForReport8214(loopNow8214)"))
         assertFalse(src("engine/PipelineHealthCollector.kt").contains("RuntimeDoctor.currentFaults()"))
-        assertTrue(src("engine/BotService.kt").contains("val poolAgeSecs7389 = LaneAgeLiquidityTruth8140.chainAgeSecs8140(ts)"))
+        assertTrue(src("engine/BotService.kt").contains("SpecialistInputParity8527.express8527("))
+        assertTrue(src("engine/SpecialistInputParity8527.kt").contains("NativeLaneAge8521.review8521"))
     }
 }
 

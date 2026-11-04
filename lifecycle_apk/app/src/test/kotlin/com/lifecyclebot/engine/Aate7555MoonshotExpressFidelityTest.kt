@@ -33,8 +33,8 @@ class Aate7555MoonshotExpressFidelityTest {
         assertTrue(b.contains("val expressMomentum7555 = cont8348.pct"))
         assertTrue(src("engine/ContinuationRead8348.kt").contains("Continuation8348(lastChange1h, Source8348.FROM_1H)"))
         val line=b.lineSequence().first { it.contains("out[\"EXPRESS\"]=") }
-        assertTrue(line.contains("expressMomentum7555"))
-        assertTrue(line.contains("observedChange8491 ?: 0.0"))   // V5.0.8492 — the acute 5 m leg, freshly observed only
+        assertTrue(line.contains("SpecialistInputParity8527.express8527(ts, marketInputs8522)"))
+        assertTrue(src("engine/SpecialistInputParity8527.kt").contains("read.continuation.pct, read.change5mPct ?: 0.0"))   // V5.0.8492 — the acute 5 m leg, freshly observed only
         assertFalse(line.contains("lastLiquidityUsd,mom,bp,volVs,ts.lastPriceChange5m"))
     }
 

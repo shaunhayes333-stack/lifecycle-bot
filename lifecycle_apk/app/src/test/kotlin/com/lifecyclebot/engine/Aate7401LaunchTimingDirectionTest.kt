@@ -14,7 +14,9 @@ class Aate7401LaunchTimingDirectionTest {
         val router = src("engine/TokenMetricStageRouter.kt")
         val adapter = src("v3/bridge/V3Adapter.kt")
         assertTrue(router.contains("LaunchPhaseAuthority7401.snapshot"))
-        assertTrue(adapter.contains("CanonicalTokenBirthTime7440.resolvedAgeMs"))
+        assertTrue(adapter.contains("AdmissionBirth8144.readFor8144(ts, nowMs)"))
+        assertTrue(adapter.contains("val ageMinutes = age8527.exactMinutes ?: -1.0"))
+        assertTrue(adapter.contains("BIRTH_METADATA_HYDRATING_7441"))
         assertFalse(adapter.contains("val ageMinutes = ((now - discoveredAt).coerceAtLeast(0L)) / 60_000.0"))
     }
 

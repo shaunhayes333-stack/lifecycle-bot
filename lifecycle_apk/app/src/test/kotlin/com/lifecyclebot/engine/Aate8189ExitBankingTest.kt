@@ -129,7 +129,7 @@ class Aate8189ExitBankingTest {
         assertTrue(reason.startsWith(ProfitEscalation8189.REASON_PREFIX_8189))
         assertTrue("the full exit is still checked on its own executable quote", ProfitExitTruth8163.profitTaking(reason))
         // 8397 keeps the escalation door but passes through the actual full-exit result: a request is not a fill.
-        assertTrue(src("engine/Executor.kt").contains("profitEscalated8189(ts, reason, wallet, walletBalance)?.let { receipt6566?.invoke(it); return }"))
+        assertTrue(src("engine/Executor.kt").contains("profitEscalated8189(ts, reason, wallet, walletBalance, delivery8527)?.let { receipt6566?.invoke(it); return }"))
         assertTrue(src("engine/Executor.kt").contains("return ProfitEscalationReceipt8397.request8397 {"))
     }
 
