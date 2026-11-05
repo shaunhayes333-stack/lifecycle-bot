@@ -277,6 +277,11 @@ object SetupFeatureResolver8169 {
         val pair = try { PairFlow8169.peek8169(mint) } catch (_: Throwable) { null }
         val row = try { com.lifecyclebot.engine.market.MarketSweep7297.rowFor8169(mint, nowMs) } catch (_: Throwable) { null }
         val maxAge = maxEvidenceAge8170(ageMin)
+        // V5.0.8539 — the resolver read only pairs some other path had happened to fetch: 8539 run 11,085 evaluations read
+        // bp / chg / liq "dexPair:NOT_FETCHED" (meme lanes FEATURE_PRESENT 66-100 of ~1,600 evaluated). A Solana coin with no
+        // pair answer, or one older than its evidence window, is now put on the DexScreener pair lane itself (30 per call,
+        // 120 calls / min); the answer advances FeatureRevision8283 and the next read finds it.
+        try { if (pairWanted8539(pair?.atMs ?: 0L, nowMs, maxAge)) requestPair8539(mint, nowMs) } catch (_: Throwable) {}
         val launch8287 = try { com.lifecyclebot.engine.market.LaunchTape7921.features(mint, nowMs) } catch (_: Throwable) { null }
         // V5.0.8346 — an un-graduated pump coin's liquidity is its curve's real SOL (every PumpPortal frame / curve read):
         // a candidate after the stamped primary and before the DEX pair, so dexPair:NO_LIQUIDITY on a known curve is a
@@ -300,6 +305,26 @@ object SetupFeatureResolver8169 {
         } catch (_: Throwable) {}
         return fill
     }
+
+    private const val PAIR_ASK_GAP_MS_8539 = 20_000L
+    private val pairAsked8539 = ConcurrentHashMap<String, Long>()
+    private val pairRequested8539 = AtomicLong(0L)
+
+    /** Pure (V5.0.8539): is a fresh pair answer wanted — none held, or the held one older than [maxAgeMs]? */
+    fun pairWanted8539(pairAtMs: Long, nowMs: Long, maxAgeMs: Long): Boolean =
+        pairAtMs <= 0L || nowMs - pairAtMs > maxAgeMs
+
+    private fun requestPair8539(mint: String, nowMs: Long) {
+        if (!com.lifecyclebot.network.HeliusSolanaScope7819.isSolanaMint7819(mint)) return
+        val prev = pairAsked8539[mint]
+        if (prev != null && nowMs - prev in 0L until PAIR_ASK_GAP_MS_8539) return
+        if (pairAsked8539.size > 4_000) pairAsked8539.entries.removeIf { nowMs - it.value > PAIR_ASK_GAP_MS_8539 }
+        pairAsked8539[mint] = nowMs
+        if (CandidateMarkFresh8094.requestLane8359(listOf(mint), nowMs) > 0) pairRequested8539.incrementAndGet()
+    }
+
+    /** Report: pair answers the resolver asked for itself. */
+    fun pairRequested8539(): Long = pairRequested8539.get()
 
     // ── report: features8169[...] ──
 
@@ -358,7 +383,7 @@ object SetupFeatureResolver8169 {
         return "features8169[core=bp,chg,shape,liq complete=${complete.get()}/${evals.get()} bySource{$src} missing{$miss} " +
             "launchTape{${top(bySource, "launchTape:", 1)} missing=${top(missing, "launchTape|", 3)}} " +
             "swaps{${top(bySource, "swaps:", 1)} missing=${top(missing, "swaps|", 3)}} " +
-            "shapeRepair{${top(repairs, "", 6)}} pairFlows=${try { PairFlow8169.line8169() } catch (_: Throwable) { "-" }}]" +
+            "shapeRepair{${top(repairs, "", 6)}} pairFlows=${try { PairFlow8169.line8169() } catch (_: Throwable) { "-" }} pairAsked8539=${pairRequested8539()}]" +
             report8283() +
             " " + (try { MarketEvidence8346.liqLine8346() + " " + MarketEvidence8346.shapeLine8346() } catch (_: Throwable) { "evidence8346 -" })   // V5.0.8346
     }

@@ -92,9 +92,25 @@ class Aate8539CortexEarnsAndFluidFloorsTest {
         assertFalse("unread venue counts are not dead", FlatChart8027.venueTradesDead8539(null, null))
         assertTrue(FlatChart8027.venueTradesDead8539(FlatChart8027.DEAD_TX_H1_8539 - 1, 0))
         assertFalse(FlatChart8027.venueTradesDead8539(10, 5))
+        assertFalse("unfilled 0 / 0 counts are unread, not dead", FlatChart8027.venueTradesDead8539(0, 0, 0.0))
+        assertFalse("volume traded is alive", FlatChart8027.venueTradesDead8539(2, 3, FlatChart8027.DEAD_VOLUME_H1_USD_8539))
+        assertTrue(FlatChart8027.venueTradesDead8539(2, 3, 50.0))
         val src = src("engine/FlatChart8027.kt")
         assertTrue(src.contains("tapeBlindVerdict8539(mint, nowMs) ?: deadTapeOnPrints8476(mint, nowMs)"))
         assertTrue("a failed read is unknown, not dead", src.contains("} catch (_: Throwable) { false }  // V5.0.8539"))
+    }
+
+    @Test fun the_feature_resolver_fetches_the_pair_it_is_missing() {
+        // 8539 run: 11,085 evaluations read bp / chg / liq dexPair:NOT_FETCHED; meme lanes had features on 66-100 of ~1,600
+        val r = com.lifecyclebot.engine.truth.SetupFeatureResolver8169
+        assertTrue("never fetched", r.pairWanted8539(0L, 100_000L, 60_000L))
+        assertTrue("older than the evidence window", r.pairWanted8539(10_000L, 100_000L, 60_000L))
+        assertFalse("fresh", r.pairWanted8539(90_000L, 100_000L, 60_000L))
+        val src = src("engine/truth/SetupFeatureResolver8169.kt")
+        assertTrue(src.contains("if (pairWanted8539(pair?.atMs ?: 0L, nowMs, maxAge)) requestPair8539(mint, nowMs)"))
+        assertTrue("Solana mints only, once per 20 s", src.contains("isSolanaMint7819(mint)) return") && src.contains("PAIR_ASK_GAP_MS_8539 = 20_000L"))
+        assertTrue(src.contains("CandidateMarkFresh8094.requestLane8359(listOf(mint), nowMs)"))
+        assertTrue(src.contains("pairAsked8539=${'$'}{pairRequested8539()}"))
     }
 
     @Test fun the_8536_live_doors_are_learnt_and_unlearnt_too() {

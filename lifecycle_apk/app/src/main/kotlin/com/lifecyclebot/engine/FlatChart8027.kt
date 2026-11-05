@@ -122,16 +122,24 @@ object FlatChart8027 {
         val seen = com.lifecyclebot.engine.truth.TradeTape8100.executedCount8287(mint, nowMs, 60L * 60_000L)
         if (seen != null && seen > 0) return null
         val h = try { HandoffRoute8180.tokenFor8180(mint)?.let { t -> synchronized(t.history) { t.history.lastOrNull() } } } catch (_: Throwable) { null }
-        val dead = venueTradesDead8539(h?.buysH1, h?.sellsH1)
+        val dead = venueTradesDead8539(h?.buysH1, h?.sellsH1, h?.volumeH1)
         try { PipelineHealthCollector.labelInc(if (dead) "FLATLINE_TAPE_BLIND_VENUE_QUIET_8539" else "FLATLINE_WAIVED_VENUE_TRADES_8539") } catch (_: Throwable) {}
         return dead
     }
 
-    /** Pure (V5.0.8539): the venue's hour of trades is dead — unread counts are not dead (null -> false). */
-    fun venueTradesDead8539(buysH1: Int?, sellsH1: Int?): Boolean {
+    /**
+     * Pure (V5.0.8539): the venue's hour of trades is dead. Unread is not dead: a Candle defaults its counts to 0 when the
+     * source did not fill them (8539 run: TAPE_BLIND_VENUE_QUIET_8539 x18,870 on unfilled 0 / 0 rows), so 0 / 0 is a
+     * reading only beside the hour's volume; 0 / 0 with volume traded is alive, 0 / 0 without volume is unread.
+     */
+    fun venueTradesDead8539(buysH1: Int?, sellsH1: Int?, volumeH1: Double? = null): Boolean {
         if (buysH1 == null && sellsH1 == null) return false
-        return (buysH1 ?: 0) + (sellsH1 ?: 0) < DEAD_TX_H1_8539
+        val tx = (buysH1 ?: 0) + (sellsH1 ?: 0)
+        if (tx == 0) return false
+        return tx < DEAD_TX_H1_8539 && !(volumeH1 != null && volumeH1.isFinite() && volumeH1 >= DEAD_VOLUME_H1_USD_8539)
     }
+    /** An hour with this much USD volume traded is alive whatever its counted trades. */
+    const val DEAD_VOLUME_H1_USD_8539 = 2_000.0
 
     private fun deadTapeOnPrints8476(mint: String, nowMs: Long): Boolean = try {
         val exec = com.lifecyclebot.engine.truth.TradeTape8100.prints8128(mint, nowMs, FLAT_WINDOW_MS).filter { !it.priceOnly }
