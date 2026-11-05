@@ -2367,15 +2367,19 @@ object ForwardReturnLabeler7731 {
                     val missedChain8540 = batch.filter { it !in got }
                     if (missedChain8540.isNotEmpty()) {
                         val chain8540 = HashMap<String, Double>()
+                        val ask8543 = ArrayList<String>()
                         for (m in missedChain8540) {
                             val px = try { OnChainDepth8038.chainPriceUsd8540(m, CHAIN_MARK_MAX_AGE_MS_8540) } catch (_: Throwable) { Double.NaN }
                             if (px.isFinite() && px > 0.0) chain8540[m] = px
                             else {
-                                try { OnChainDepth8038.requestMint8540(m) } catch (_: Throwable) {}
+                                ask8543 += m
                                 offWatchAttemptAt7809.remove(m)   // retried on the next pass, when the vault read has landed
                                 chainRequested8540.incrementAndGet()
                             }
                         }
+                        // V5.0.8543 — pool discovery (token register, PDA derivation) runs on the depth reader's own thread, never on
+                        // this batch: 8542 batches averaged 8.2 s (max 287 s; 3.5 s / 21 s before) and 1,607 marks landed past their horizon.
+                        if (ask8543.isNotEmpty()) try { OnChainDepth8038.requestMints8543(ask8543) } catch (_: Throwable) {}
                         got.putAll(chain8540)
                         offWatchChainPriced8540.addAndGet(chain8540.size.toLong())
                         if (chain8540.isNotEmpty()) PipelineHealthCollector.labelAdd("FORWARD_LABEL_OFFWATCH_CHAIN_PRICED_8540", chain8540.size.toLong())

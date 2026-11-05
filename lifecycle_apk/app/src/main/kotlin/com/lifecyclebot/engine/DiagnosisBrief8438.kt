@@ -116,7 +116,10 @@ object DiagnosisBrief8438 {
             .joinToString(",") { "${it.key.removePrefix("PAPER_BUY_NOT_OPENED_").take(48)}=${it.value}" }
         val nonEconomic = PipelineHealthCollector.labelCountSnapshot("FDG_REJECT_TAXONOMY_4427_NON_ECONOMIC_APPROVAL_7835") +
             PipelineHealthCollector.labelsWithPrefix7156("NON_ECONOMIC_APPROVAL_7835").values.sum()
-        return paperFunnelLine8536(attempts, opened, notOpened, nonEconomic)
+        val book8543 = try {
+            com.lifecyclebot.engine.truth.MemePaperBook8543.statusLine8543(com.lifecyclebot.engine.truth.ExploreShadow8347.openNativeByLane8543())
+        } catch (_: Throwable) { "paperBook8543[read failed]" }
+        return paperFunnelLine8536(attempts, opened, notOpened, nonEconomic) + "\n               " + book8543   // V5.0.8543
     }
 
     /** Pure (V5.0.8536). */

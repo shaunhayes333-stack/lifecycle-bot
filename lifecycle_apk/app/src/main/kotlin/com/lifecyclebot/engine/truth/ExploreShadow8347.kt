@@ -1121,6 +1121,8 @@ object ExploreShadow8347 {
         if (t.kind8360 == KIND_NATIVE_8360 && leg.entry == Entry8347.NOW && why != ShadowAlign8366.UNLANDED_WHY_8366) try {
             val liveExit = liveExitStyle8351(t.lane, EvidenceHold8336.startMs8336) ?: Exit8347.RUNNER
             if (leg.exit == liveExit) ShadowAlign8366.noteShadow8366("EXPLORE", t.lane, t.mint, leg.entryAtMs, net, nowMs)
+            // V5.0.8543 — the same leg is the lane's paper trade beside LIVE (MemePaperBook8543; never touches a live slot)
+            if (leg.exit == liveExit) MemePaperBook8543.onClose8543(t.lane, t.mint, t.symbol, leg.entryAtMs, nowMs, net, why)
         } catch (_: Throwable) {}
         // Tactics learn from the variant closest to how live enters and exits; native rejects do not attribute a tactic.
         if (t.kind8360 == KIND_NATIVE_8360 && t.nativeEligible && leg.entry == Entry8347.NOW && leg.exit == Exit8347.RUNNER && t.scoreBand.isNotBlank() &&
@@ -1463,6 +1465,11 @@ object ExploreShadow8347 {
     }
 
     /** Pure: "KEY=n,..." sorted by count (desc) then key, "-" when empty. */
+    /** V5.0.8543 — per lane, the NATIVE picks whose NOW leg is open (the paper book's open trades). */
+    fun openNativeByLane8543(): Map<String, Int> = tickets.values
+        .filter { t -> t.kind8360 == KIND_NATIVE_8360 && t.legs.any { it.entry == Entry8347.NOW && it.active && !it.dead } }
+        .groupingBy { it.lane }.eachCount()
+
     fun countLine8360(m: Map<String, Long>): String =
         m.entries.sortedWith(compareByDescending<Map.Entry<String, Long>> { it.value }.thenBy { it.key }).joinToString(",") { "${it.key}=${it.value}" }.ifBlank { "-" }
 

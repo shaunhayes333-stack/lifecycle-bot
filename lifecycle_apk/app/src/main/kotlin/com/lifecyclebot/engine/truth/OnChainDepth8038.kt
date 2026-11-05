@@ -249,6 +249,30 @@ object OnChainDepth8038 {
         } catch (_: Throwable) { inFlight.remove(m) }
     }
 
+    private val askPending8543 = java.util.concurrent.ConcurrentLinkedQueue<String>()
+    private val askQueued8543 = ConcurrentHashMap.newKeySet<String>()
+    private val askRunning8543 = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /**
+     * V5.0.8543 — [mints] are asked for a vault read off the caller's thread (one drainer, de-duplicated, bounded at 2,000
+     * queued). The label batch hands its unpriced mints here and returns at once.
+     */
+    fun requestMints8543(mints: List<String>) {
+        for (m in mints) if (askQueued8543.size < 2_000 && askQueued8543.add(m)) askPending8543.add(m)
+        if (!askRunning8543.compareAndSet(false, true)) return
+        try {
+            Thread({
+                try {
+                    while (true) {
+                        val m = askPending8543.poll() ?: break
+                        askQueued8543.remove(m)
+                        try { requestMint8540(m) } catch (_: Throwable) {}
+                    }
+                } finally { askRunning8543.set(false) }
+            }, "onchain-ask-8543").apply { isDaemon = true }.start()
+        } catch (_: Throwable) { askRunning8543.set(false) }
+    }
+
     private val noPoolAt8541 = ConcurrentHashMap<String, Long>()
     private const val NO_POOL_RETRY_MS_8541 = 60_000L
     private val mintRequests8540 = AtomicLong(0)

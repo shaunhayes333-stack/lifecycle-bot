@@ -82,8 +82,26 @@ class WalletManager private constructor(private val ctx: Context) {
          * Age is now `nowMs - observedAt <= 300 s`, accepting an observation up to [SOL_PRICE_FUTURE_SKEW_MS_8512] newer than
          * the caller's clock; older than 5 minutes is still unknown and still refused.
          */
-        fun freshSolPrice8163(nowMs: Long = System.currentTimeMillis()): Double =
-            lastKnownSolPrice.takeIf { it.isFinite() && it > 0.0 && solPriceFresh8512(nowMs, lastObservedSolAt8163) } ?: 0.0
+        fun freshSolPrice8163(nowMs: Long = System.currentTimeMillis()): Double {
+            val fresh = lastKnownSolPrice.takeIf { it.isFinite() && it > 0.0 && solPriceFresh8512(nowMs, lastObservedSolAt8163) } ?: 0.0
+            if (fresh <= 0.0) refreshStaleSol8543(nowMs)
+            return fresh
+        }
+
+        /**
+         * V5.0.8543 — a stale rate asks the fetch chain (CoinGecko / Binance / Jupiter) in the background, at most every 30 s.
+         * 8542: markNoSolRate8508=1,092 curve marks and chainHistory NO_SOL_RATE=186 dropped while the Pyth stream was quiet:
+         * nothing re-fetched the rate between wallet refreshes. Unknown stays unknown for this read; the next one is fresh.
+         */
+        private val solRefreshAt8543 = java.util.concurrent.atomic.AtomicLong(0L)
+        private fun refreshStaleSol8543(nowMs: Long) {
+            val last = solRefreshAt8543.get()
+            if (nowMs - last < 30_000L || !solRefreshAt8543.compareAndSet(last, nowMs)) return
+            val ctx = try { com.lifecyclebot.AATEApp.appContextOrNull() } catch (_: Throwable) { null } ?: return
+            try {
+                Thread({ try { getInstance(ctx).fetchSolPrice() } catch (_: Throwable) {} }, "sol-refresh-8543").apply { isDaemon = true }.start()
+            } catch (_: Throwable) {}
+        }
 
         internal const val SOL_PRICE_FUTURE_SKEW_MS_8512 = 60_000L
 
@@ -148,6 +166,7 @@ class WalletManager private constructor(private val ctx: Context) {
             if (at8512 < lastObservedSolAt8163) return
             lastKnownSolPrice = price
             lastObservedSolAt8163 = at8512
+            try { SolRateHistory8543.note8543(price, at8512) } catch (_: Throwable) {}   // V5.0.8543
             try {
                 solPrefs7042?.edit()
                     ?.putFloat(KEY_SOL_PRICE_7042, price.toFloat())

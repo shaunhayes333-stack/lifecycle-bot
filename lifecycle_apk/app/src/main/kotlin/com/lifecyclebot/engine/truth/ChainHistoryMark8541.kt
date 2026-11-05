@@ -41,7 +41,10 @@ object ChainHistoryMark8541 {
     class Read8541(val mark: LabelMark8386?, val waiting: Boolean)
     private val NONE_8541 = Read8541(null, false)
     private val WAIT_8541 = Read8541(null, true)
-    private class Result8541(val mark: LabelMark8386?, val why: String)
+    private class Result8541(val mark: LabelMark8386?, val why: String, val retryAtMs: Long = 0L)
+    /** V5.0.8543 — a read that failed for a passing reason (no rate yet, an unanswered RPC) is retried, not filed as final. */
+    private val TRANSIENT_8543 = setOf("NO_SOL_RATE", "NO_TRANSACTION", "NO_SIGNATURES", "WORKER_FAILURE")
+    private const val RETRY_MS_8543 = 60_000L
 
     private val results = ConcurrentHashMap<String, Result8541>()
     private val pending = HashMap<String, MutableSet<Pair<Long, Long>>>()     // mint -> windows not yet read (guarded by lock)
@@ -71,7 +74,12 @@ object ChainHistoryMark8541 {
      */
     fun read8541(mint: String, fromMs: Long, toMs: Long, bootMs: Long, nowMs: Long): Read8541 {
         if (!BASE58_8541.matches(mint) || toMs >= bootMs || fromMs > toMs) return NONE_8541
-        results[key(mint, fromMs, toMs)]?.let { return Read8541(it.mark, false) }
+        val k8543 = key(mint, fromMs, toMs)
+        results[k8543]?.let { r ->
+            if (r.retryAtMs <= 0L || nowMs - bootMs > CHAIN_WINDOW_MS_8541) return Read8541(r.mark, false)
+            if (nowMs < r.retryAtMs) return WAIT_8541
+            results.remove(k8543)   // V5.0.8543 — retry a passing failure inside the window
+        }
         if (nowMs - bootMs > CHAIN_WINDOW_MS_8541) return NONE_8541
         if (com.lifecyclebot.AATEApp.appContextOrNull() == null) return NONE_8541
         val submit = synchronized(lock) {
@@ -100,7 +108,8 @@ object ChainHistoryMark8541 {
                 w
             }
             val got = try { readWindows8541(mint, windows) } catch (_: Throwable) { windows.associateWith { Result8541(null, "WORKER_FAILURE") } }
-            for ((w, r) in got) {
+            for ((w, r0) in got) {
+                val r = if (r0.mark == null && r0.why in TRANSIENT_8543) Result8541(null, r0.why, System.currentTimeMillis() + RETRY_MS_8543) else r0
                 results[key(mint, w.first, w.second)] = r
                 note(r.why)
             }
@@ -125,14 +134,18 @@ object ChainHistoryMark8541 {
             val oldest = rows.filter { it.second > 0L }.minOfOrNull { it.second } ?: Long.MAX_VALUE
             if (oldest < minFrom || rows.size < PAGE_8541) { reachedStart = true; break }
         }
-        val rate = solUsdAcross8541(
+        val fresh8543 = com.lifecyclebot.engine.WalletManager.freshSolPrice8163()
+        val now8543 = System.currentTimeMillis()
+        // V5.0.8543 — the rate observed at the pick's own time (SolRateHistory8543), else the pre-stop / fresh bracket.
+        fun rateFor8543(atMs: Long): Double = com.lifecyclebot.engine.SolRateHistory8543.rateAt8543(atMs, fresh8543, now8543)
+            .takeIf { it.isFinite() } ?: solUsdAcross8541(
             com.lifecyclebot.engine.WalletManager.bootPriorSol8541?.first ?: Double.NaN,
-            com.lifecyclebot.engine.WalletManager.bootPriorSol8541?.second ?: 0L,
-            com.lifecyclebot.engine.WalletManager.freshSolPrice8163(), System.currentTimeMillis(), minFrom)
+            com.lifecyclebot.engine.WalletManager.bootPriorSol8541?.second ?: 0L, fresh8543, now8543, atMs)
         val txs = HashMap<String, JSONObject?>()
         return windows.associateWith { (from, to) ->
             val pick = firstInWindow8541(sigs, from, to)
                 ?: return@associateWith Result8541(null, if (reachedStart) "NO_SWAP_IN_WINDOW" else "HISTORY_TOO_DEEP")
+            val rate = rateFor8543(pick.second)
             if (!(rate.isFinite() && rate > 0.0)) return@associateWith Result8541(null, "NO_SOL_RATE")
             val tx = txs.getOrPut(pick.first) { HeliusCadence8361.transaction8361(http, pick.first, keylessOnly = true, caller = CALLER_8541) }
                 ?: return@associateWith Result8541(null, "NO_TRANSACTION")
