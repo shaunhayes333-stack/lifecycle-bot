@@ -29,7 +29,9 @@ class Aate8553DataBundleTest {
         assertTrue(TokenFacts.validFor(Field.BUY_PRESSURE_PCT, 0.0)); assertTrue(TokenFacts.validFor(Field.BUY_PRESSURE_PCT, 100.0))
         assertFalse(TokenFacts.validFor(Field.BUY_PRESSURE_PCT, 100.5))
         assertFalse("a 0 cap is no reading", TokenFacts.validFor(Field.MCAP_USD, 0.0))
-        assertFalse(TokenFacts.validFor(Field.TOP_HOLDER_PCT, 0.0)); assertTrue(TokenFacts.validFor(Field.TOP_HOLDER_PCT, 12.5))
+        // superseded (8557): a measured 0 % top-holder share is a reading (both slots are nullable; Aate8527 witness)
+        assertTrue(TokenFacts.validFor(Field.TOP_HOLDER_PCT, 0.0)); assertTrue(TokenFacts.validFor(Field.TOP_HOLDER_PCT, 12.5))
+        assertFalse(TokenFacts.validFor(Field.TOP_HOLDER_PCT, -1.0)); assertFalse(TokenFacts.validFor(Field.TOP_HOLDER_PCT, 100.5))
         assertTrue(TokenFacts.validFor(Field.TX_PER_MIN, 0.0))
     }
 

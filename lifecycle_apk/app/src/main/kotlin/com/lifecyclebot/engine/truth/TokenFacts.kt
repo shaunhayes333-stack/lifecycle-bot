@@ -230,7 +230,7 @@ object TokenFacts {
     /** Pure: is [v] a reading of [field]? Changes may be 0 or negative; pressures and shares are percentages. */
     fun validFor(field: Field, v: Double): Boolean = v.isFinite() && when (field) {
         Field.BUY_PRESSURE_PCT, Field.SELL_PRESSURE_PCT -> v in 0.0..100.0
-        Field.TOP_HOLDER_PCT -> v > 0.0 && v <= 100.0
+        Field.TOP_HOLDER_PCT -> v in 0.0..100.0   // both slots are nullable: null is unread, a measured 0 % is a reading (8557)
         Field.CHANGE_5M_PCT, Field.CHANGE_1H_PCT -> v > -100.0
         Field.TX_PER_MIN -> v >= 0.0
         else -> v > 0.0

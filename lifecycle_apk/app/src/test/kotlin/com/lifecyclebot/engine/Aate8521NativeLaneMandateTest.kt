@@ -74,8 +74,12 @@ class Aate8521NativeLaneMandateTest {
 
     @Test fun provenOldEnoughQualifiesEstablishedLanesWithoutClaimingAnExactBirth() {
         val old = NativeLaneAge8521.Evidence(null, 180.0)
-        for (lane in listOf("QUALITY", "DIP_HUNTER", "CYCLIC"))
+        for (lane in listOf("QUALITY", "DIP_HUNTER"))
             assertTrue(lane, NativeLaneAge8521.review8521(opinion(lane), old).eligible)
+        // superseded (8555): CYCLIC trades established coins (>= 24 h); a 3 h bound is not proof of that, a 25 h one is
+        val cyclicMin = com.lifecyclebot.engine.cortex.LaneCheatSheet8323.CYCLIC_MIN_AGE_HOURS_8323 * 60.0
+        assertFalse(NativeLaneAge8521.review8521(opinion("CYCLIC"), old).eligible)
+        assertTrue(NativeLaneAge8521.review8521(opinion("CYCLIC"), NativeLaneAge8521.Evidence(null, cyclicMin + 60.0)).eligible)
         val tooOld = NativeLaneAge8521.review8521(opinion("MANIPULATED"), old)
         assertFalse(tooOld.eligible)
         assertTrue("a real bound proves this refusal", tooOld.gradeable)
