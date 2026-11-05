@@ -1249,7 +1249,10 @@ class UnifiedScorer(
      * setups stay penalised. Field Manual L357: missing evidence is uncertainty,
      * not negative expectancy; the tape's causal evidence is the evidence.
      */
-    private fun launchTimingComponent7809(candidate: CandidateSnapshot): ScoreComponent? {
+    private fun launchTimingComponent7809(candidate: CandidateSnapshot): ScoreComponent? =
+        LaunchBonusLiquidity8537.scaled8537(launchTimingRaw7809(candidate), candidate.liquidityUsd)
+
+    private fun launchTimingRaw7809(candidate: CandidateSnapshot): ScoreComponent? {
         val launchPhase7401 = candidate.extraString("launchPhase7401")
         return when {
             candidate.extraBoolean("launchPostPumpFade7401") ->

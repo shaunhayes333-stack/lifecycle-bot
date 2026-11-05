@@ -441,6 +441,8 @@ object ForwardReturnLabeler7731 {
         @Volatile var exitDeferred8006: Boolean = false
         /** V5.0.7972 — the decision's discrete facts (SpecialistMiner7972). */
         @Volatile var feats7972: List<String> = emptyList()
+        /** V5.0.8537 — the decision's frozen features and the edge model's prediction made then (EdgeModel8537). */
+        @Volatile var edge8537: EdgeModel8537.Snap? = null
         /** V5.0.7997 — the label value last given to the learners, the next checkpoint, liquidity at the decision. */
         @Volatile var bookedNet7997 = Double.NaN
         @Volatile var bookedGross7997 = Double.NaN
@@ -1198,6 +1200,7 @@ object ForwardReturnLabeler7731 {
                 it.reason7967 = reason.orEmpty().take(120)
                 it.stage = try { com.lifecyclebot.engine.TokenMetricStageRouter.snapshot(ts).stage.name } catch (_: Throwable) { "" }
                 it.feats7972 = try { SpecialistMiner7972.features7972(ts, l, nowMs) } catch (_: Throwable) { emptyList() }
+                it.edge8537 = EdgeModel8537.snapshot(ts, l, cost.coerceIn(0.0, 60.0), admitted, nowMs)  // V5.0.8537
                 it.entryLiq7997 = if (ts.lastLiquidityUsd.isFinite() && ts.lastLiquidityUsd > 0.0) ts.lastLiquidityUsd else 0.0
                 it.kind8063 = try { kindOf8063(ts) } catch (_: Throwable) { "" }
                 it.nativeTrigger8468 = try { com.lifecyclebot.engine.OwnershipChain8364.nativeEligible8364(ts.mint, l) == true } catch (_: Throwable) { false }
@@ -1644,6 +1647,7 @@ object ForwardReturnLabeler7731 {
         // otherwise a restart can restore the incremented tally with an unbooked observation and add it a second time.
         o.bookedNet7997 = net; o.bookedGross7997 = gross; o.bookedWitness8324 = witness
         book(o, 60, net, gross, witness)
+        o.edge8537?.let { o.edge8537 = null; EdgeModel8537.learn(it, net) }  // V5.0.8537 — once, scored out of sample first
         try { TradeShapeLearner7883.onLabel60(o.mint, o.lane, net, gross, o.atMs) } catch (_: Throwable) {}
         try { FallingHourCohort8418.onLabel60(o.mint, o.lane, net, gross) } catch (_: Throwable) {}
         teachForwardLearners8521(o, net, gross, nowMs)
@@ -3180,6 +3184,7 @@ object ForwardReturnLabeler7731 {
         persist(force = true)
         try { FreshLaunchSelector7737.persistNow7737() } catch (_: Throwable) {}
         try { SpecialistMiner7972.saveNow7972() } catch (_: Throwable) {}   // V5.0.7972
+        try { EdgeModel8537.saveNow() } catch (_: Throwable) {}             // V5.0.8537
         try {
             ForensicLogger.lifecycle(
                 "FORWARD_LABELER_PERSISTED_7731",

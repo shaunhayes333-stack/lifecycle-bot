@@ -195,6 +195,8 @@ object CandidateAdmission8136 {
         val fallingHourProof8418: Evidence8136? = null,
         /** Current predicate matches, independent of whether a historical performance book exists yet. */
         val firedSetups8528: Set<String> = emptySet(),
+        /** V5.0.8537 — the learned edge model's prediction for this coin and whether it has earned authority (EdgeModel8537). */
+        val edge8537: EdgeModel8537.Verdict? = null,
     ) {
         /** V5.0.8316 — every fired setup's record past the realised shortfall (support tests only). */
         val setupsProof8290: List<Evidence8136> get() = setups.map { LiveAdmissionProof8290.shift8290(it, liveShortfall8290) ?: it }
@@ -785,6 +787,7 @@ object CandidateAdmission8136 {
         // reclassify optional absence as a fake signal; retain the gap in its seal.
         if (c.missingInputs.isNotEmpty()) trace += "optionalUnobserved8170=${c.missingInputs.joinToString(",")}"
         if (nativeOptional8213) trace += "nativeOptionalCleared8213=${c.nativeSetup8213} score=${fmt8136(c.genericScore)}"
+        edgeModelRefusal8537(c, edge, trace)?.let { return done(Terminal8136.REFUSE, it, true, chosen) }
 
         // V5.0.8325 — a LIVE admit needs the lane's and the setup's own evidence positive after cost (tail / cohort reads support only).
         val own8325 = c.setupsProof8290.firstOrNull { it.id == chosen }
@@ -802,6 +805,9 @@ object CandidateAdmission8136 {
             trace += "edge=${edge.compact}${if (edge.runnerRate.isFinite()) " run=${(edge.runnerRate * 100).toInt()}%" else ""}"
             return done(Terminal8136.ADMIT, "SPECIFIC_EDGE_PROVEN_8136", true, chosen, edge.compact)
         }
+        // V5.0.8537 — the learned edge model's authoritative pick is candidate-specific proven evidence (EdgeModel8537).
+        if (EdgeModel8537.callOf(c.edge8537) == EdgeModel8537.Call.POSITIVE)
+            return done(Terminal8136.ADMIT, EDGE_MODEL_PROVEN_8537, true, chosen ?: c.nativeSetup8213, "EDGE_MODEL_8537:${c.lane}")
 
         // 7. no supported edge: thin positives are noted, never admitted; the generic prior decides.
         listOfNotNull(chosenRec, c.cell).filter { thinPositive8136(it) }
@@ -876,6 +882,23 @@ object CandidateAdmission8136 {
     }
 
     const val LIVE_NATIVE_OPINION_UNPROVEN_8536 = "LIVE_NATIVE_OPINION_UNPROVEN_8536"
+    const val EDGE_MODEL_NEGATIVE_8537 = "EDGE_MODEL_NEGATIVE_8537"
+    const val EDGE_MODEL_PROVEN_8537 = "EDGE_MODEL_PROVEN_8537"
+
+    /**
+     * V5.0.8537 — the learned edge model (EdgeModel8537) refuses, in paper and live, a coin it expects to lose after cost once
+     * its own out-of-sample picks in this lane have paid (authority). A candidate-specific supported record ([edge]) keeps the
+     * coin unless the model expects it to lose more than a full round trip. Without authority the model decides nothing.
+     */
+    internal fun edgeModelRefusal8537(c: Candidate8136, edge: Evidence8136?, trace: MutableList<String>): String? {
+        val v = c.edge8537 ?: return null
+        val call = EdgeModel8537.callOf(v)
+        trace += "edge8537=${fmt8136(v.predPct)} model=${v.modelKey} oos=n${v.oosSelN}/${fmt8136(v.oosSelMeanPct)} call=$call"
+        if (call != EdgeModel8537.Call.NEGATIVE) return null
+        if (edge != null && !(c.costPct.isFinite() && v.predPct <= -c.costPct)) { trace += "edge8537NegativeKeptBy=${edge.compact}"; return null }
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("${EDGE_MODEL_NEGATIVE_8537}_${c.lane.uppercase()}") } catch (_: Throwable) {}
+        return EDGE_MODEL_NEGATIVE_8537
+    }
     const val LIVE_UNPROVEN_EDGE_8536 = "LIVE_UNPROVEN_EDGE_8536"
     const val SHEET_FAVOUR_8323 = "FAVOUR"
     const val SHEET_AVOID_8323 = "AVOID"
@@ -1542,6 +1565,7 @@ object CandidateAdmission8136 {
             lane = lane,
             selectedSetup = selected,
             firedSetups8528 = try { pb.matchedSetups8083(ts, lane, nowMs).toSet() } catch (_: Throwable) { emptySet() },
+            edge8537 = EdgeModel8537.verdict(ts, lane, cost8153, nowMs),  // V5.0.8537
             regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "" },
             stage = fit?.stage?.name.orEmpty(),
             entryWait8506 = entry?.second,

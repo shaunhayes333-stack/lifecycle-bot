@@ -562,7 +562,8 @@ object LiveEdgeGate7877 {
         val l = CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
         val admission = candidateAdmission ?: try { CandidateAdmission8136.assess8136(ts, l, nowMs, candidateVersion) } catch (_: Throwable) { null }
         val proven = provenLive8536(
-            admission?.terminal == CandidateAdmission8136.Terminal8136.ADMIT && admission.specific && admission.reason == "SPECIFIC_EDGE_PROVEN_8136",
+            admission?.terminal == CandidateAdmission8136.Terminal8136.ADMIT && admission.specific &&
+                (admission.reason == "SPECIFIC_EDGE_PROVEN_8136" || admission.reason == CandidateAdmission8136.EDGE_MODEL_PROVEN_8537),
             try { com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetup8056(ts, l, nowMs) != null } catch (_: Throwable) { false },
             try { cellOrKindProven8094(ts, l, nowMs) } catch (_: Throwable) { false },
             try { SpecialistMiner7972.match7972(ts, l, nowMs) != null } catch (_: Throwable) { false },

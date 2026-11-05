@@ -108,10 +108,33 @@ object ReportCopyDialog8198 {
                 }
             } catch (t: Throwable) { "FAILED: ${t.javaClass.simpleName}" }
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc(if (where.startsWith("FAILED")) "REPORT_SAVE_DOWNLOADS_FAIL_8381" else "REPORT_SAVE_DOWNLOADS_OK_8381") } catch (_: Throwable) {}
+            // V5.0.8537 — the edge model's labelled dataset rides along, for the offline replay (ci/edge_replay_8537.py).
+            val dataset8537 = if (where.startsWith("FAILED")) null else saveEdgeDataset8537(app)
             activity.runOnUiThread {
-                Toast.makeText(app, if (where.startsWith("FAILED")) "Save failed ($where); use Share" else "Saved complete report (${fullText.length} chars) to $where", Toast.LENGTH_LONG).show()
+                Toast.makeText(app, if (where.startsWith("FAILED")) "Save failed ($where); use Share" else "Saved complete report (${fullText.length} chars) to $where" + (dataset8537?.let { " + $it" } ?: ""), Toast.LENGTH_LONG).show()
             }
         }, "AATE-ReportSave-8381").start()
+    }
+
+    /** V5.0.8537 — copy EdgeModel8537's dataset to Downloads/AATE; the saved name, or null when there is none / it failed. */
+    private fun saveEdgeDataset8537(app: android.content.Context): String? {
+      return try {
+        val src = com.lifecyclebot.engine.truth.EdgeModel8537.datasetFile() ?: return null
+        val name = "aate_edge_dataset_8537_${System.currentTimeMillis()}.jsonl"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+                put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/AATE")
+            }
+            val uri = app.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return null
+            app.contentResolver.openOutputStream(uri)?.use { out -> src.inputStream().use { it.copyTo(out) } } ?: return null
+        } else {
+            val dir = File(app.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "AATE").apply { mkdirs() }
+            src.copyTo(File(dir, name), overwrite = true)
+        }
+        name
+      } catch (_: Throwable) { try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EDGE_DATASET_SAVE_FAIL_8537") } catch (_: Throwable) {}; null }
     }
 
     fun share(activity: Activity, fullText: String, fullFile: File?, subject: String) {

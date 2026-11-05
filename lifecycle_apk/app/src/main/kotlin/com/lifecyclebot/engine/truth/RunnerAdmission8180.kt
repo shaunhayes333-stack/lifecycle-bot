@@ -140,7 +140,8 @@ object AdmissionEdge8180 {
 
     /** Pure: a decision that carries its edge downstream — ADMIT on candidate-specific evidence with a SUPPORTED record. */
     fun carriesEdge8180(d: CandidateAdmission8136.Decision8136): Boolean =
-        d.terminal == CandidateAdmission8136.Terminal8136.ADMIT && d.specific && d.reason == "SPECIFIC_EDGE_PROVEN_8136"
+        d.terminal == CandidateAdmission8136.Terminal8136.ADMIT && d.specific &&
+            (d.reason == "SPECIFIC_EDGE_PROVEN_8136" || d.reason == CandidateAdmission8136.EDGE_MODEL_PROVEN_8537)
 
     /**
      * Pure: the size a live sizer may use for an admitted edge: a sub-routable [riskSized] request is promoted to the
