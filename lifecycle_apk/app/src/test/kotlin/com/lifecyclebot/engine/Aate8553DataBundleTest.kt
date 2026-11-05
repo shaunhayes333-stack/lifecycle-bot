@@ -65,7 +65,7 @@ class Aate8553DataBundleTest {
         assertTrue("a stale count is not velocity", TokenFacts.txPerMin(ts, now + 6L * 60_000L).isNaN())
         assertTrue(src("engine/cortex/LanePlaybook7907.kt").contains("txVelocity = try { com.lifecyclebot.engine.truth.TokenFacts.txPerMin(ts, nowMs) }"))
         assertTrue(src("engine/cortex/CortexVoters7885.kt").contains("com.lifecyclebot.engine.truth.TokenFacts.txPerMin(ts).takeIf { it.isFinite() }?.let { fin(it) }"))
-        assertTrue(src("engine/BotService.kt").contains("F.writeSnapshot(ts, F.Field.TX_PER_MIN, m5 / 5.0, \"DEX_PAIR_POLL_M5\", F.Rank.PROVIDER, evidenceAt8553)"))
+        assertTrue(src("engine/BotService.kt").contains("TokenFacts.writeSnapshot(ts, TokenFacts.Field.TX_PER_MIN, m5 / 5.0, \"DEX_PAIR_POLL_M5\", TokenFacts.Rank.PROVIDER, evidenceAt8553)"))
     }
 
     @Test fun theDatasetSaysWhatItDoesNotKnow() {
@@ -92,7 +92,7 @@ class Aate8553DataBundleTest {
         root.walkTopDown().filter { it.isFile && it.name.endsWith(".kt") }.forEach { f ->
             val rel = f.relativeTo(root).path.replace('\\', '/')
             f.readLines().forEachIndexed { i, l ->
-                val c = l.substringBefore("//")
+                val c = l.substringBefore("//").let { x -> if (x.trimStart().startsWith("*") || x.trimStart().startsWith("/*")) "" else x }
                 if (Regex("""migratedOrGraduated\s*=(?!=)""").containsMatchIn(c) && rel !in setOf("engine/truth/TokenFacts.kt", "engine/RouteTruthHydrator.kt")) bad += "$rel:${i + 1}"
                 if (c.contains("markGraduated7392(") && !c.contains("fun markGraduated7392") && rel != "engine/truth/TokenFacts.kt") bad += "$rel:${i + 1}"
             }
@@ -130,7 +130,7 @@ class Aate8553DataBundleTest {
             val rel = f.relativeTo(root).path.replace('\\', '/')
             if (rel.startsWith("ui/")) return@forEach
             f.readLines().forEachIndexed { i, l ->
-                val c = l.substringBefore("//")
+                val c = l.substringBefore("//").let { x -> if (x.trimStart().startsWith("*") || x.trimStart().startsWith("/*")) "" else x }
                 if (rx.containsMatchIn(c) && rel !in allowed) bad += "$rel:${i + 1}"
                 if (map.containsMatchIn(c) && rel !in mapAllowed) bad += "$rel:${i + 1}"
             }

@@ -92,7 +92,7 @@ class Aate8551TokenFactsTest {
         root.walkTopDown().filter { it.isFile && it.name.endsWith(".kt") }.forEach { file ->
             val rel = file.relativeTo(root).path.replace('\\', '/')
             file.readLines().forEachIndexed { i, line ->
-                val code = line.substringBefore("//")
+                val code = line.substringBefore("//").let { c -> if (c.trimStart().startsWith("*") || c.trimStart().startsWith("/*")) "" else c }
                 if (tick.containsMatchIn(code) && rel !in tickAllowed) bad += "$rel:${i + 1}"
                 if (map.containsMatchIn(code) && rel !in mapAllowed) bad += "$rel:${i + 1}"
             }

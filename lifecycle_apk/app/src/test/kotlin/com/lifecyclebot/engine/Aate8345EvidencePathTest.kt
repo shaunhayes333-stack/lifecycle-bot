@@ -185,7 +185,9 @@ class Aate8345EvidencePathTest {
         HydrationReeval8343.pollLiquidity8345(ts, 0.0, curveKeep7323 = true)
         assertEquals(700.0, ts.lastLiquidityUsd, 1e-9)
         HydrationReeval8343.pollLiquidity8345(ts, 0.0, curveKeep7323 = false)
-        assertEquals(0.0, ts.lastLiquidityUsd, 1e-9)
+        // superseded (V5.0.8551 TokenFacts): a zero poll erased the depth; "not reported" is no reading — the last
+        // observation stays (the live buy still re-reads the vaults, OnChainDepth8038.verifyBeforeBuy)
+        assertEquals(700.0, ts.lastLiquidityUsd, 1e-9)
         // a task deferred for something liquidity cannot answer is found and NOT resumed, by name
         val p = "P".repeat(44)
         HandoffReceiverTasks8153.openTask8153(p, "SHITCOIN", "PROJECT_SNIPER", "RUN_TAPE_8293", 8L, t0, t0)!!

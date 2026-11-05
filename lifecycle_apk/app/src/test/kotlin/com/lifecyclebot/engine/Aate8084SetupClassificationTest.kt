@@ -157,7 +157,7 @@ class Aate8084SetupClassificationTest {
         val d = src("engine/DataOrchestrator.kt")
         assertFalse(d.contains("ts.lastBuyPressurePct = if (txns5m > 0) (buys5m.toDouble() / txns5m) * 100 else 50.0"))
         assertTrue(d.contains("Field.BUY_PRESSURE_PCT, bp, \"TAPE_FLOW_7401\", com.lifecyclebot.engine.truth.TokenFacts.Rank.CHAIN, now8553)"))  // superseded by V5.0.8553 — the write goes through the one store (TokenFacts): the stamp is the store's mirror
-        assertTrue(src("engine/BotService.kt").contains("F.writeSnapshot(ts, F.Field.CHANGE_5M_PCT, pair.priceChangeM5, \"DEX_PAIR_POLL\", F.Rank.PROVIDER, evidenceAt8553)"))  // superseded by V5.0.8553 — the write goes through the one store (TokenFacts) at the pair's fetch time
+        assertTrue(src("engine/BotService.kt").contains("TokenFacts.writeSnapshot(ts, TokenFacts.Field.CHANGE_5M_PCT, pair.priceChangeM5, \"DEX_PAIR_POLL\", TokenFacts.Rank.PROVIDER, evidenceAt8553)"))  // superseded by V5.0.8553 — the write goes through the one store (TokenFacts) at the pair's fetch time
         val g = src("engine/truth/LiveEdgeGate7877.kt")
         assertTrue(g.contains("LanePlaybook7907.liveRefusal(ts, l, nowMs)"))
         assertTrue(src("engine/cortex/LanePlaybook7907.kt").contains("if (c8084.outcome != Outcome8084.MATCHED && c8084.outcome != Outcome8084.NO_MATCH) return null"))

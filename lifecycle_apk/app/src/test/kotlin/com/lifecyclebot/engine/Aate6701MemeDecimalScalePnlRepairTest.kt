@@ -94,12 +94,10 @@ class Aate6701MemeDecimalScalePnlRepairTest {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/DataOrchestrator.kt").readText()
         val callback = src.substringAfter("V5.0.6701 — PRICE + PROVENANCE ARE ONE ATOMIC FACT")
             .substringBefore("ts.lastBuyPressurePct")
-        val sourceAt = callback.indexOf("ts.lastPriceSource = \"DEXSCREENER_WS\"")
-        val poolAt = callback.indexOf("ts.lastPricePoolAddr = dexPair6701")
-        val priceAt = callback.indexOf("ts.lastPrice = priceUsd")
-        assertTrue(sourceAt >= 0)
-        assertTrue(poolAt > sourceAt)
-        assertTrue(priceAt > poolAt)
+        // superseded (V5.0.8552 TokenFacts): three ordered field writes — the price, its source and its pool are now ONE
+        // store write (TokenFacts.writePrice), atomic by construction
+        assertTrue(callback.contains("TokenFacts.writePrice(ts, priceUsd, \"DEXSCREENER_WS\""))
+        assertTrue(callback.contains("pool = dexPair6701"))
     }
 
     @Test

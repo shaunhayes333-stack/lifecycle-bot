@@ -119,13 +119,14 @@ object DiagnosisBrief8438 {
         val book8544 = try { com.lifecyclebot.engine.truth.MemePaperTrader8544.statusLine8544() } catch (_: Throwable) { "memePaper8544[read failed]" } +
             "\n               " + (try { com.lifecyclebot.engine.truth.MemeStrategies8546.statusLine8546() } catch (_: Throwable) { "memeFamilies8546[read failed]" }) +
             " " + (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.sweepLine8555() } catch (_: Throwable) { "laneSweep8555{?}" })   // V5.0.8555
-        return paperFunnelLine8536(attempts, opened, notOpened, nonEconomic) + "\n               " + book8544   // V5.0.8544
+        // V5.0.8552 — the FDG's named zero sizes ride beside the funnel (kept out of the pure line)
+        return paperFunnelLine8536(attempts, opened, notOpened, nonEconomic) + " " +
+            (try { TicketExec8304.sizeZeroLine8552() } catch (_: Throwable) { "fdgSizeZero8552{?}" }) + "\n               " + book8544   // V5.0.8544
     }
 
     /** Pure (V5.0.8536). */
     fun paperFunnelLine8536(attempts: Long, opened: Long, notOpened: String, nonEconomic: Long): String =
-        "paper meme8536 buyAttempts=$attempts opened=$opened notOpened{${notOpened.ifBlank { "-" }}} nonEconomicApproval=$nonEconomic " +
-            (try { TicketExec8304.sizeZeroLine8552() } catch (_: Throwable) { "fdgSizeZero8552{?}" })
+        "paper meme8536 buyAttempts=$attempts opened=$opened notOpened{${notOpened.ifBlank { "-" }}} nonEconomicApproval=$nonEconomic"
 
     fun moneyVerdict8438(n: Int, expectancySol: Double): String = when {
         n < 10 -> "UNPROVEN"

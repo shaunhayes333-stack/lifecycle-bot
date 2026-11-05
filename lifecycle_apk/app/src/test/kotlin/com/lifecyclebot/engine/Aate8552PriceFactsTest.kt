@@ -80,7 +80,7 @@ class Aate8552PriceFactsTest {
             val rel = file.relativeTo(root).path.replace('\\', '/')
             if (rel in allowed) return@forEach
             file.readLines().forEachIndexed { i, line ->
-                val code = line.substringBefore("//")
+                val code = line.substringBefore("//").let { c -> if (c.trimStart().startsWith("*") || c.trimStart().startsWith("/*")) "" else c }
                 if (px.containsMatchIn(code) || at.containsMatchIn(code)) bad += "$rel:${i + 1}"
             }
         }

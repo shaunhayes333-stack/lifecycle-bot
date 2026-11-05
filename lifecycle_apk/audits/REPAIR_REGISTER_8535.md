@@ -305,3 +305,11 @@ proven (n >= 30, mean - se > 0, PF >= 1.3).
 | N-96 | CYCLIC on 12-minute coins | `LaneCheatSheet8323.CYCLIC_MIN_AGE_HOURS_8323` | a range lane on coins with no range | >= 24 h | same | FIXED |
 | N-97 | DIP_HUNTER waits for history first | `SpecialistBrainBridge7542` DIP block, `DipHunterAI.staticRefusal8555`, `LaneCheatSheet8323` source routing | 276 history waits on coins its static gates refuse; new pools routed to a >= 2 h lane | static gates first; new-pool routing removed | same | FIXED |
 | N-98 | Open (needs evidence / owner) | PumpPortal trade stream denied (FAST_CROWD … families need swaps — owner: fund the key's wallet); TREASURY / CASHGEN graded at 5 min for a 45 min thesis (needs 60-min label coverage first, h60m=0/43); cost model's flat 1 % slippage on deep pools; CORE ensemble of correlated votes; MOONSHOT break-even after +10 %; sniper re-scope to the first base | — | — | — | OPEN |
+
+## 5.0.8556 — CI on 8552 / 8553 / 8554
+
+| ID | Exact file:line | Root cause | Changed logic | Tests | Status |
+|---|---|---|---|---|---|
+| N-99 | 8553 / 8554 did not compile | `BotService.applyPollFlow7758` | `val F = TokenFacts` then `F.Field` / `F.Rank`: Kotlin does not reach a nested enum / object through a value | qualified `TokenFacts.Field` / `TokenFacts.Rank` | 3 pins follow | FIXED (pending CI) |
+| N-100 | 8552 full suite: 4 failures | `Aate8552PriceFactsTest` (and the 8551 / 8553 guards), `DiagnosisBrief8438.paperFunnelLine8536`, `Aate8345EvidencePathTest`, `Aate6701MemeDecimalScalePnlRepairTest` | the guards read a KDoc line as a write; the zero-size counters were put inside a pure line a test matches exactly; a zero poll no longer erases depth (8551, deliberate); the WS price write is one store call (8552) | guards skip comment lines; the counters ride beside the pure line; two pins superseded with notes | — | FIXED |
+| N-101 | A SHITCOIN parity fixture rode a +20 % print | `Aate8527ShitcoinObservedInputsTest` | the 8555 curve no longer pays a +20 % breakout | the fixture's early launch qualifies on a +4 % base (superseded note) | — | FIXED (verify in CI) |

@@ -1362,24 +1362,23 @@ class BotService : Service() {
         try {
             // V5.0.8553 D2 — the poll's flow and changes are facts of the store at the PAIR'S fetch time (evidenceAt7271):
             // superseded: stamped "now", so a pair cached up to 135 s passed every flow-freshness window as a fresh reading.
-            val F = com.lifecyclebot.engine.truth.TokenFacts
             val m5 = if (pair.buysM5 >= 0 && pair.sellsM5 >= 0) pair.buysM5 + pair.sellsM5 else 0
             val h1 = pair.candle.buysH1 + pair.candle.sellsH1
             when {
                 m5 > 0 -> {
-                    F.writeSnapshot(ts, F.Field.TX_PER_MIN, m5 / 5.0, "DEX_PAIR_POLL_M5", F.Rank.PROVIDER, evidenceAt8553)
-                    F.writeSnapshot(ts, F.Field.BUY_PRESSURE_PCT, pair.buysM5.toDouble() / m5 * 100.0, "DEX_PAIR_POLL_M5", F.Rank.PROVIDER, evidenceAt8553)
-                    F.writeSnapshot(ts, F.Field.SELL_PRESSURE_PCT, pair.sellsM5.toDouble() / m5 * 100.0, "DEX_PAIR_POLL_M5", F.Rank.PROVIDER, evidenceAt8553)
+                    TokenFacts.writeSnapshot(ts, TokenFacts.Field.TX_PER_MIN, m5 / 5.0, "DEX_PAIR_POLL_M5", TokenFacts.Rank.PROVIDER, evidenceAt8553)
+                    TokenFacts.writeSnapshot(ts, TokenFacts.Field.BUY_PRESSURE_PCT, pair.buysM5.toDouble() / m5 * 100.0, "DEX_PAIR_POLL_M5", TokenFacts.Rank.PROVIDER, evidenceAt8553)
+                    TokenFacts.writeSnapshot(ts, TokenFacts.Field.SELL_PRESSURE_PCT, pair.sellsM5.toDouble() / m5 * 100.0, "DEX_PAIR_POLL_M5", TokenFacts.Rank.PROVIDER, evidenceAt8553)
                 }
                 h1 > 0 -> {
                     // an hour's counts standing in for the 5-minute window: a derived reading, ranked as one
-                    F.writeSnapshot(ts, F.Field.TX_PER_MIN, h1 / 60.0, "DEX_PAIR_POLL_H1", F.Rank.AGGREGATE, evidenceAt8553)
-                    F.writeSnapshot(ts, F.Field.BUY_PRESSURE_PCT, pair.candle.buysH1.toDouble() / h1 * 100.0, "DEX_PAIR_POLL_H1", F.Rank.AGGREGATE, evidenceAt8553)
-                    F.writeSnapshot(ts, F.Field.SELL_PRESSURE_PCT, pair.candle.sellsH1.toDouble() / h1 * 100.0, "DEX_PAIR_POLL_H1", F.Rank.AGGREGATE, evidenceAt8553)
+                    TokenFacts.writeSnapshot(ts, TokenFacts.Field.TX_PER_MIN, h1 / 60.0, "DEX_PAIR_POLL_H1", TokenFacts.Rank.AGGREGATE, evidenceAt8553)
+                    TokenFacts.writeSnapshot(ts, TokenFacts.Field.BUY_PRESSURE_PCT, pair.candle.buysH1.toDouble() / h1 * 100.0, "DEX_PAIR_POLL_H1", TokenFacts.Rank.AGGREGATE, evidenceAt8553)
+                    TokenFacts.writeSnapshot(ts, TokenFacts.Field.SELL_PRESSURE_PCT, pair.candle.sellsH1.toDouble() / h1 * 100.0, "DEX_PAIR_POLL_H1", TokenFacts.Rank.AGGREGATE, evidenceAt8553)
                 }
             }
-            if (pair.priceChangeM5.isFinite()) F.writeSnapshot(ts, F.Field.CHANGE_5M_PCT, pair.priceChangeM5, "DEX_PAIR_POLL", F.Rank.PROVIDER, evidenceAt8553)
-            if (pair.priceChangeH1.isFinite()) F.writeSnapshot(ts, F.Field.CHANGE_1H_PCT, pair.priceChangeH1, "DEX_PAIR_POLL", F.Rank.PROVIDER, evidenceAt8553)
+            if (pair.priceChangeM5.isFinite()) TokenFacts.writeSnapshot(ts, TokenFacts.Field.CHANGE_5M_PCT, pair.priceChangeM5, "DEX_PAIR_POLL", TokenFacts.Rank.PROVIDER, evidenceAt8553)
+            if (pair.priceChangeH1.isFinite()) TokenFacts.writeSnapshot(ts, TokenFacts.Field.CHANGE_1H_PCT, pair.priceChangeH1, "DEX_PAIR_POLL", TokenFacts.Rank.PROVIDER, evidenceAt8553)
             if (pair.candle.volumeH1.isFinite() && pair.candle.volumeH1 > 0.0) ts.tokenMap.volume1hUsd = pair.candle.volumeH1
             if (pair.volumeM5.isFinite() && pair.volumeM5 >= 0.0) ts.tokenMap.volume5mUsd = pair.volumeM5
             // V5.0.7764 — tokenMap.creatorOrDevWallet had no writer; the creator is held

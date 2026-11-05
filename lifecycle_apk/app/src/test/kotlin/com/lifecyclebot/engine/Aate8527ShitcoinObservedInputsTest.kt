@@ -97,7 +97,9 @@ class Aate8527ShitcoinObservedInputsTest {
             fun evaluate() = ShitCoinTraderAI.evaluate(
                 mint = "ParityEarly8527", symbol = "ParityEarly8527", currentPrice = 1.0,
                 marketCapUsd = 80_000.0, liquidityUsd = 25_000.0, topHolderPct = 8.0,
-                buyPressurePct = i.buyPressurePct, momentum = 20.0, volatility = i.volatility,
+                // superseded momentum = 20.0 (V5.0.8555 §LANE_SWEEP: a +20 % print is the breakout the curve no longer pays
+                // for; an observed early launch qualifies on its base, not its spike)
+                buyPressurePct = i.buyPressurePct, momentum = 4.0, volatility = i.volatility,
                 tokenAgeMinutes = 2.0, launchPlatform = ShitCoinTraderAI.LaunchPlatform.PUMP_FUN,
                 devWallet = i.devWallet, devHoldPct = i.devHoldPct, bundlePct = 0.0,
                 socialScore = i.socialScore, hasWebsite = i.hasWebsite, hasTwitter = i.hasTwitter,

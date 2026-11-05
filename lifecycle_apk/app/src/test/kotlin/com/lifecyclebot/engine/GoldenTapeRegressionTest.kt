@@ -14699,8 +14699,8 @@ class GoldenTapeRegressionTest {
         assertTrue(cycle.contains("applyPollFlow7758(ts, pair, evidenceAt7271)"))  // superseded by V5.0.8553 — the pair's own fetch time
         assertFalse(cycle.contains("val candleTxns = pair.candle.buysH1 + pair.candle.sellsH1"))
         val helper = bot.substringAfter("private fun applyPollFlow7758(").substringBefore("\n    }\n")
-        assertTrue(helper.contains("F.writeSnapshot(ts, F.Field.SELL_PRESSURE_PCT, pair.sellsM5.toDouble() / m5 * 100.0, \"DEX_PAIR_POLL_M5\""))  // superseded by V5.0.8553 — through the store
-        assertTrue(helper.contains("if (pair.priceChangeM5.isFinite()) F.writeSnapshot(ts, F.Field.CHANGE_5M_PCT, pair.priceChangeM5, \"DEX_PAIR_POLL\", F.Rank.PROVIDER, evidenceAt8553)"))  // superseded by V5.0.8553 — finite-guarded, stamped at the fetch time   // V5.0.8084 — same finite-guarded write, now stamped
+        assertTrue(helper.contains("TokenFacts.writeSnapshot(ts, TokenFacts.Field.SELL_PRESSURE_PCT, pair.sellsM5.toDouble() / m5 * 100.0, \"DEX_PAIR_POLL_M5\""))  // superseded by V5.0.8553 — through the store
+        assertTrue(helper.contains("if (pair.priceChangeM5.isFinite()) TokenFacts.writeSnapshot(ts, TokenFacts.Field.CHANGE_5M_PCT, pair.priceChangeM5, \"DEX_PAIR_POLL\", TokenFacts.Rank.PROVIDER, evidenceAt8553)"))  // superseded by V5.0.8553 — finite-guarded, stamped at the fetch time   // V5.0.8084 — same finite-guarded write, now stamped
         assertTrue(helper.contains("ts.tokenMap.volume1hUsd = pair.candle.volumeH1"))
         val api = java.io.File("src/main/kotlin/com/lifecyclebot/network/DexscreenerApi.kt").readText()
         assertTrue(api.contains("priceChangeM5    = p.optJSONObject(\"priceChange\")"))
