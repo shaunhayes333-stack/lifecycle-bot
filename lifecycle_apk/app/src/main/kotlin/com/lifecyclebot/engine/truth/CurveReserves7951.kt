@@ -64,7 +64,7 @@ object CurveReserves7951 {
         if (!virtualSol.isFinite() || virtualSol <= 0.0) return
         val real8346 = realSolFromVirtual7951(virtualSol)
         if (put(mint, virtualSol, virtualTokens, real8346, atMs, false) == null) return
-        try { LiquidityTruth8037.onCurveObserved8346(mint, real8346, fromAccount = false) } catch (_: Throwable) {}   // V5.0.8346 — the frame writes the tick
+        try { LiquidityTruth8037.onCurveObserved8346(mint, real8346, fromAccount = false, atMs = atMs) } catch (_: Throwable) {}   // V5.0.8346 — the frame writes the tick
     }
 
     /** The RPC curve read: virtual and real reserves, in SOL and whole tokens. */
@@ -72,7 +72,7 @@ object CurveReserves7951 {
         if (!virtualSol.isFinite() || virtualSol <= 0.0) return
         if (!realSol.isFinite() || realSol < 0.0) return
         if (put(mint, virtualSol, virtualTokens, realSol, atMs, true) == null) return
-        try { LiquidityTruth8037.onCurveObserved8346(mint, realSol, fromAccount = true) } catch (_: Throwable) {}   // V5.0.8346 — the curve read writes the tick
+        try { LiquidityTruth8037.onCurveObserved8346(mint, realSol, fromAccount = true, atMs = atMs) } catch (_: Throwable) {}   // V5.0.8346 — the curve read writes the tick
     }
 
     data class AcceptedObservation8385(val atMs: Long, val source: String, val version: Long)

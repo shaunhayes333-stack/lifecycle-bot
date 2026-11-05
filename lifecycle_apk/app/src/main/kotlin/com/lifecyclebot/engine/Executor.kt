@@ -15062,7 +15062,7 @@ class Executor(
         var changed = false
         if (ts.lastPrice <= 0.0 && cached.lastPrice > 0.0) { ts.lastPrice = cached.lastPrice; changed = true }
         if (ts.lastMcap <= 0.0 && cached.lastMcap > 0.0) { ts.lastMcap = cached.lastMcap; changed = true }
-        if (ts.lastLiquidityUsd <= 0.0 && cached.lastLiquidityUsd > 0.0) { ts.lastLiquidityUsd = cached.lastLiquidityUsd; changed = true }
+        if (com.lifecyclebot.engine.truth.TokenFacts.restoreLiquidity(ts, cached.lastLiquidityUsd, "META_CACHE_RESTORE")) changed = true  // V5.0.8551
         if (ts.lastFdv <= 0.0 && cached.lastFdv > 0.0) { ts.lastFdv = cached.lastFdv; changed = true }
         if (ts.lastPriceDex.isBlank() && cached.lastPriceDex.isNotBlank()) { ts.lastPriceDex = cached.lastPriceDex; changed = true }
         val cachedPool = cached.lastPricePoolAddr.ifBlank { cached.pairAddress }
@@ -15466,7 +15466,7 @@ class Executor(
     private fun persistMintEntryMarketSnapshot(ts: TokenState, snap: MintEntryMarketSnapshot, reason: String) {
         ts.lastPrice = snap.priceUsd
         if (snap.marketCapUsd > 0.0) ts.lastMcap = snap.marketCapUsd
-        ts.lastLiquidityUsd = snap.liquidityUsd
+        com.lifecyclebot.engine.truth.TokenFacts.writeLiquidity(ts, snap.liquidityUsd, "ENTRY_SNAPSHOT_7382", com.lifecyclebot.engine.truth.TokenFacts.Rank.AGGREGATE, snap.capturedAtMs)  // V5.0.8551
         // V5.0.7356 — the MINT_ROUTE: sentinel belongs on the snapshot only. Written
         // into the token (and the meta cache below) it occupied the pool field, and
         // hydration only fills a BLANK pool, so the real pool was never recovered.
@@ -18948,8 +18948,8 @@ class Executor(
             // unavailable so we never fabricate a bad signal; the guard
             // only tightens on evidence.
             val guardVerdict: com.lifecyclebot.engine.ImmediateCollapseGuard.Verdict? = try {
-                val mintAuthLive = !ts.tokenMap.mintAuthority.isNullOrBlank()
-                val freezeAuthLive = !ts.tokenMap.freezeAuthority.isNullOrBlank()
+                val mintAuthLive = ts.safety.mintAuthorityDisabled == false  // V5.0.8551 D7 — the safety proof (the token-map field has no writer)
+                val freezeAuthLive = ts.safety.freezeAuthorityDisabled == false
                 val topHolderPct6326 = (ts.tokenMap.topHolderConcentrationPct ?: ts.topHolderPct ?: 0.0)
                 val priceAge6326 = (System.currentTimeMillis() - ts.lastPriceUpdate).coerceAtLeast(0L)
                 val advisorLabels6326: List<String> = try {
@@ -19024,8 +19024,8 @@ class Executor(
                             liquidityUsd = ts.tokenMap.liquidityUsd
                                 ?: ts.lastLiquidityUsd.takeIf { it > 0.0 },
                             lastSellPressurePct = ts.lastSellPressurePct,
-                            mintAuthorityLive = !ts.tokenMap.mintAuthority.isNullOrBlank(),
-                            freezeAuthorityLive = !ts.tokenMap.freezeAuthority.isNullOrBlank(),
+                            mintAuthorityLive = ts.safety.mintAuthorityDisabled == false,  // V5.0.8551 D7
+                            freezeAuthorityLive = ts.safety.freezeAuthorityDisabled == false,
                             isPaper = false,
                         ),
                     )

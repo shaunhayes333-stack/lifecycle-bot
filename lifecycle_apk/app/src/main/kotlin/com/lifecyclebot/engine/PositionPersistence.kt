@@ -375,7 +375,7 @@ object PositionPersistence {
                 existing.position = position
                 existing.lastPrice = saved.lastKnownPrice
                 if (restoredPriceUpdateMs > 0L) existing.lastPriceUpdate = restoredPriceUpdateMs
-                existing.lastLiquidityUsd = saved.lastKnownLiquidity
+                com.lifecyclebot.engine.truth.TokenFacts.restoreLiquidity(existing, saved.lastKnownLiquidity, "POSITION_RESTORE")  // V5.0.8551 — never over a live reading
                 existing.lastMcap = saved.lastKnownMcap
                 existing.lastPriceSource = saved.lastPriceSource
                 existing.lastPricePoolAddr = saved.lastPricePoolAddr

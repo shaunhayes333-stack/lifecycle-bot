@@ -343,6 +343,8 @@ object DiagnosisBrief8438 {
                 sb.append("               ").append(com.lifecyclebot.engine.truth.PriceAge8549.statusLine8549())
                     .append(" intakePairAsked8549=").append(com.lifecyclebot.engine.truth.DiscoveryCapture8400.intakePairAsked8549()).append('\n')
             } catch (_: Throwable) {}
+            // V5.0.8551 — the one data store: which sources' facts were kept / refused, and why (docs/DATA_MAP.md)
+            try { sb.append("               ").append(com.lifecyclebot.engine.truth.TokenFacts.statusLine()).append('\n') } catch (_: Throwable) {}
             // V5.0.8440 — 8439: "PROJECT_SNIPER cannot judge a launch" was wrong; its in-window launches (725) are dated by
             // create frames. Most walks are established coins (JUPITER_STRICT / MARKET_HUNT) with no launch to date. The
             // fault is the walks no rung answered (3379 of 5335), named by rpcRoute8359's per-host fails[].

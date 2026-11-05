@@ -1,5 +1,6 @@
 package com.lifecyclebot.engine
 
+import com.lifecyclebot.engine.truth.TokenFacts
 import com.lifecyclebot.network.SharedHttpClient
 
 import android.app.Notification
@@ -17053,7 +17054,7 @@ class BotService : Service() {
                             // post-boot when the scanner hasn't ticked yet.
                             if (cached.lastPrice > 0.0) fresh.lastPrice = cached.lastPrice
                             if (cached.lastMcap > 0.0) fresh.lastMcap = cached.lastMcap
-                            if (cached.lastLiquidityUsd > 0.0) fresh.lastLiquidityUsd = cached.lastLiquidityUsd
+                            TokenFacts.restoreLiquidity(fresh, cached.lastLiquidityUsd, "META_CACHE_RESTORE")  // V5.0.8551
                             if (cached.lastFdv > 0.0) fresh.lastFdv = cached.lastFdv
                             if (cached.lastPriceDex.isNotBlank()) fresh.lastPriceDex = cached.lastPriceDex
                             if (cached.lastPricePoolAddr.isNotBlank()) fresh.lastPricePoolAddr = cached.lastPricePoolAddr
@@ -17094,7 +17095,7 @@ class BotService : Service() {
                         }
                         if (cached == null && hiveForIntake != null) {
                             if (hiveForIntake.lastMcapUsd > 0.0) fresh.lastMcap = hiveForIntake.lastMcapUsd
-                            if (hiveForIntake.lastLiquidityUsd > 0.0) fresh.lastLiquidityUsd = hiveForIntake.lastLiquidityUsd
+                            TokenFacts.restoreLiquidity(fresh, hiveForIntake.lastLiquidityUsd, "HIVE_RESTORE")  // V5.0.8551
                             if (hiveForIntake.pairDex.isNotBlank()) fresh.lastPriceDex = hiveForIntake.pairDex
                             if (hiveForIntake.tokenDecimals >= 0) fresh.tokenMap.decimals = hiveForIntake.tokenDecimals
                             // V5.0.6908 — hive metadata is another instance's
@@ -17123,7 +17124,7 @@ class BotService : Service() {
                     if (ts.logoUrl.isBlank() && cachedForIntake.logoUrl.isNotBlank()) ts.logoUrl = cachedForIntake.logoUrl
                     if (ts.lastPrice <= 0.0 && cachedForIntake.lastPrice > 0.0) ts.lastPrice = cachedForIntake.lastPrice
                     if (ts.lastMcap <= 0.0 && cachedForIntake.lastMcap > 0.0) ts.lastMcap = cachedForIntake.lastMcap
-                    if (ts.lastLiquidityUsd <= 0.0 && cachedForIntake.lastLiquidityUsd > 0.0) ts.lastLiquidityUsd = cachedForIntake.lastLiquidityUsd
+                    TokenFacts.restoreLiquidity(ts, cachedForIntake.lastLiquidityUsd, "META_CACHE_RESTORE")  // V5.0.8551
                     if (ts.lastFdv <= 0.0 && cachedForIntake.lastFdv > 0.0) ts.lastFdv = cachedForIntake.lastFdv
                     if (ts.lastPriceDex.isBlank() && cachedForIntake.lastPriceDex.isNotBlank()) ts.lastPriceDex = cachedForIntake.lastPriceDex
                     if (ts.lastPricePoolAddr.isBlank() && cachedForIntake.lastPricePoolAddr.isNotBlank()) ts.lastPricePoolAddr = cachedForIntake.lastPricePoolAddr
@@ -17131,7 +17132,7 @@ class BotService : Service() {
                 } else if (hiveForIntake != null) {
                     if (ts.logoUrl.isBlank() && hiveForIntake.logoUrl.isNotBlank()) ts.logoUrl = hiveForIntake.logoUrl
                     if (ts.lastMcap <= 0.0 && hiveForIntake.lastMcapUsd > 0.0) ts.lastMcap = hiveForIntake.lastMcapUsd
-                    if (ts.lastLiquidityUsd <= 0.0 && hiveForIntake.lastLiquidityUsd > 0.0) ts.lastLiquidityUsd = hiveForIntake.lastLiquidityUsd
+                    TokenFacts.restoreLiquidity(ts, hiveForIntake.lastLiquidityUsd, "HIVE_RESTORE")  // V5.0.8551
                     if (ts.lastPriceDex.isBlank() && hiveForIntake.pairDex.isNotBlank()) ts.lastPriceDex = hiveForIntake.pairDex
                     if (ts.lastPriceSource.isBlank() && hiveForIntake.lastPriceSource.isNotBlank()) ts.lastPriceSource = hiveForIntake.lastPriceSource
                     if (hiveForIntake.socialCount > 0 || hiveForIntake.coingeckoId.isNotBlank()) {
@@ -24979,8 +24980,12 @@ if (hotExitHandledSweep) {
                 ts.lastPriceSource = cached.sourceScanner.ifBlank { "TOKEN_MAP_CACHE_6513" }
                 ts.lastPricePoolAddr = cached.poolAddress.ifBlank { cached.pairAddress }
                 ts.lastPriceDex = cached.dexId
-                ts.lastLiquidityUsd = cached.liquidityUsd ?: ts.lastLiquidityUsd
                 ts.tokenMap = cached
+                // V5.0.8551 — the cached route's depth is offered to the store at the cache's own time (it no longer
+                // overwrites a newer reading), and the swapped-in map is re-mirrored from the store's fact.
+                cached.liquidityUsd?.let { cl -> if (cached.updatedAtMs > 0L) com.lifecyclebot.engine.truth.TokenFacts.writeLiquidity(ts, cl, "TOKEN_MAP_CACHE_6513", com.lifecyclebot.engine.truth.TokenFacts.Rank.AGGREGATE, cached.updatedAtMs)
+                    else com.lifecyclebot.engine.truth.TokenFacts.writeLiquidity(ts, cl, "TOKEN_MAP_CACHE_6513", com.lifecyclebot.engine.truth.TokenFacts.Rank.RESTORE, 0L) }
+                com.lifecyclebot.engine.truth.TokenFacts.mirror(ts)
                 cacheHydrated++
             }
             val old = ts.position
@@ -34657,7 +34662,7 @@ if (hotExitHandledSweep) {
                     ts.lastPriceSource = "BIRDEYE_OVERVIEW"  // V5.9.744
                     // V5.0.7807 — an overview without liquidity is DATA UNKNOWN,
                     // never a 0.0 drain reading (Field Manual L190).
-                    if (ov.liquidity.isFinite() && ov.liquidity > 0.0) HydrationReeval8343.writeTick8345(ts, ov.liquidity, "BIRDEYE_OVERVIEW")  // V5.0.8345
+                    if (ov.liquidity.isFinite() && ov.liquidity > 0.0) HydrationReeval8343.writeTick8345(ts, ov.liquidity, "BIRDEYE_OVERVIEW", com.lifecyclebot.engine.truth.TokenFacts.Rank.PROVIDER)  // V5.0.8345
                     ts.lastMcap = ov.marketCap
                     ts.lastFdv = ov.marketCap
                     val syntheticCandle = com.lifecyclebot.data.Candle(

@@ -179,8 +179,7 @@ object DexBatchLane8287 {
         for ((mint, usd) in liq) {
             val ts = BotService.status.tokens[mint] ?: continue
             if (!lt.intakeWrites8418(ts.lastLiquidityUsd, usd, false, lt.chainHeld8418(ts))) continue
-            HydrationReeval8343.writeTick8345(ts, usd, "DEX_BATCH_8460")
-            try { ts.tokenMap.liquidityUsd = usd } catch (_: Throwable) {}
+            if (!HydrationReeval8343.writeTick8345(ts, usd, "DEX_BATCH_8460", com.lifecyclebot.engine.truth.TokenFacts.Rank.PROVIDER)) continue  // V5.0.8551 — the store mirrors the token map
             liquidityWritten8460.incrementAndGet()
             FeatureSourceCounters8285.note8285("liq", "dexBatch", FeatureSourceCounters8285.REPAIRED)
         }

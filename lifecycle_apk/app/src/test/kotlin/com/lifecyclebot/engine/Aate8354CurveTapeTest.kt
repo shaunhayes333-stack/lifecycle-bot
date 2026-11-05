@@ -256,7 +256,7 @@ class Aate8354CurveTapeTest {
         assertTrue(c.contains("mint, priceSol, ev.sol, ev.tokens, ev.isBuy, SRC_HELIUS_CURVE_8354,"))
         assertTrue(c.contains("pool = com.lifecyclebot.engine.truth.TradeTape8100.VENUE_CURVE_8285, signature = sig,"))
         // the frame path's reserve write carries the 8346 liquidity tick (CurveReserves7951 is the one writer both feeds share)
-        assertTrue(src("engine/truth/CurveReserves7951.kt").contains("LiquidityTruth8037.onCurveObserved8346(mint, real8346, fromAccount = false)"))
+        assertTrue(src("engine/truth/CurveReserves7951.kt").contains("LiquidityTruth8037.onCurveObserved8346(mint, real8346, fromAccount = false, atMs = atMs)"))  // superseded: no atMs — V5.0.8551 the frame's own time
         // the mark names its source on BotService's callback (a ThreadLocal set only around the Helius emission)
         assertTrue(src("engine/BotService.kt").contains("applyPumpTradeMark7278(mint, priceSol, mcapSol, com.lifecyclebot.network.PumpFunWS.currentMarkSource8354())"))
         assertEquals("PUMP_PORTAL_TRADE_WS_7278", PumpFunWS.currentMarkSource8354())

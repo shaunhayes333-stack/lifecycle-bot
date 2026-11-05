@@ -110,16 +110,17 @@ object HydrationReeval8343 {
     fun firstFill8345(before: Double, usd: Double): Boolean = !(before > 0.0) && usd.isFinite() && usd > 0.0
 
     /**
-     * THE tick write for every site that sets ts.lastLiquidityUsd outside LiquidityTruth8037: writes [usd] as the caller
-     * decided, and when it fills an unread tick, treats it as the hydration it is. Returns true when the field changed.
+     * The provider tick write: [usd] observed by [source] ([rank], at [observedAtMs]) is OFFERED to the one store
+     * (TokenFacts.writeLiquidity, V5.0.8551), which keeps it only when it is the newest / strongest reading and fires the
+     * hydration arrival on a first fill. Superseded (V5.0.8345): this function wrote the field itself, whatever the chain
+     * held a second earlier. Returns true when the stored value changed.
      */
-    fun writeTick8345(ts: TokenState, usd: Double, source: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+    fun writeTick8345(ts: TokenState, usd: Double, source: String, rank: Int,
+                      observedAtMs: Long = System.currentTimeMillis(), nowMs: Long = System.currentTimeMillis()): Boolean {
         val before = ts.lastLiquidityUsd
-        ts.lastLiquidityUsd = usd
-        if (!firstFill8345(before, usd)) return before != usd
-        tickWrites8345.computeIfAbsent(source) { AtomicLong(0) }.incrementAndGet()
-        try { arrival8345(ts.mint, ts, usd, nowMs, source) } catch (_: Throwable) {}
-        return true
+        val changed = com.lifecyclebot.engine.truth.TokenFacts.writeLiquidity(ts, usd, source, rank, observedAtMs, nowMs)
+        if (changed && firstFill8345(before, usd)) tickWrites8345.computeIfAbsent(source) { AtomicLong(0) }.incrementAndGet()
+        return changed
     }
 
     /**
@@ -138,13 +139,13 @@ object HydrationReeval8343 {
         }
         if (!lt.intakeWrites8418(ts.lastLiquidityUsd, liquidityUsd, false, lt.chainHeld8418(ts))) return false
         if (ts.lastLiquidityUsd > 0.0 && liquidityUsd < ts.lastLiquidityUsd) lt.noteIntake8418(capDerived = false, lowered = true)
-        return writeTick8345(ts, liquidityUsd, "INTAKE")
+        return writeTick8345(ts, liquidityUsd, "INTAKE", com.lifecyclebot.engine.truth.TokenFacts.Rank.AGGREGATE)
     }
 
     /** BotService.processTokenCycle: the DexScreener pair poll's figure, unless the 7323 curve-keep rule holds the last positive one. */
     fun pollLiquidity8345(ts: TokenState, pairLiquidityUsd: Double, curveKeep7323: Boolean, keptLabel7323: String = "CURVE_LIQUIDITY_KEPT_ON_ZERO_POLL_7323") {
         if (curveKeep7323) { try { PipelineHealthCollector.labelInc(keptLabel7323) } catch (_: Throwable) {}; return }
-        writeTick8345(ts, pairLiquidityUsd, "DEX_PAIR_POLL")
+        writeTick8345(ts, pairLiquidityUsd, "DEX_PAIR_POLL", com.lifecyclebot.engine.truth.TokenFacts.Rank.PROVIDER)
     }
 
     /** LiquidityTruth8037: the tick liquidity of [ts] was just written from 0 to [liquidityUsd]. */
@@ -161,7 +162,13 @@ object HydrationReeval8343 {
 
     /** OnChainDepth8038: the pool vaults of [mint] answered with [depthUsd]. */
     fun onDepthRead8343(mint: String, depthUsd: Double, nowMs: Long = System.currentTimeMillis()) {
-        arrival8345(mint, null, depthUsd, nowMs, "DEPTH_READ_8038")
+        // V5.0.8551 — the vault answer is a CHAIN fact of the store the moment it arrives (it used to wait for a decision
+        // to run LiquidityTruth8037.hydrate8037). A first fill fires the arrival inside the store's write.
+        val ts = try { BotService.status.tokens[mint.trim()] } catch (_: Throwable) { null }
+        val fills = ts != null && !(ts.lastLiquidityUsd > 0.0)
+        val wrote = ts != null && com.lifecyclebot.engine.truth.TokenFacts.writeLiquidity(ts, depthUsd, "CHAIN_VAULT_8038",
+            com.lifecyclebot.engine.truth.TokenFacts.Rank.CHAIN, nowMs)
+        if (!(fills && wrote)) arrival8345(mint, null, depthUsd, nowMs, "DEPTH_READ_8038")
     }
 
     /**

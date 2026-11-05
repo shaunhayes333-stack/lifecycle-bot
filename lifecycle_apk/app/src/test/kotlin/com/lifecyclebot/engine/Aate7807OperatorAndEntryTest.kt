@@ -173,7 +173,8 @@ class Aate7807OperatorAndEntryTest {
         assertFalse(sig.shouldBlock)
         LiquidityDepthAI.clearEntryLiquidity(mint)
         // superseded by V5.0.8345 — the same 7807 evidence guard; the write goes through HydrationReeval8343.writeTick8345 so a first fill resumes the mint's deferred hand-off task
-        assertTrue(src("engine/DataOrchestrator.kt").contains("if (LiquidityDepthAI.isLiquidityEvidence7807(liquidity)) HydrationReeval8343.writeTick8345(ts, liquidity, \"DEXSCREENER_WS\")"))
+        // superseded by V5.0.8551 — the same guard; the write names the WS frame's rank for the TokenFacts store
+        assertTrue(src("engine/DataOrchestrator.kt").contains("if (LiquidityDepthAI.isLiquidityEvidence7807(liquidity)) HydrationReeval8343.writeTick8345(ts, liquidity, \"DEXSCREENER_WS\", com.lifecyclebot.engine.truth.TokenFacts.Rank.PROVIDER)"))
     }
 
     // ── Entry late failures 52-55 ───────────────────────────────────────────

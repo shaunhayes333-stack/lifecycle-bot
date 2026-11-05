@@ -125,7 +125,7 @@ object LaneAgeLiquidityTruth8140 {
         } catch (_: Throwable) { 0.0 }
         if (!(tvl.isFinite() && tvl > 0.0)) return 0.0
         if (!(ts.lastLiquidityUsd > 0.0)) {
-            HydrationReeval8343.writeTick8345(ts, tvl, "RAYDIUM_TVL_8128")  // V5.0.8345 — a first fill resumes the deferred hand-off task
+            HydrationReeval8343.writeTick8345(ts, tvl, "RAYDIUM_TVL_8128", com.lifecyclebot.engine.truth.TokenFacts.Rank.AGGREGATE)  // V5.0.8345 — a first fill resumes the deferred hand-off task
             count8140("LANE_LIQ_RAYDIUM_TVL_FILLED_8140")
         }
         return tvl

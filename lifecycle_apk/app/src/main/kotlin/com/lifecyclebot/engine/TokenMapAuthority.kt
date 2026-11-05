@@ -25,14 +25,20 @@ object TokenMapAuthority {
      * all read this one value. Order: the tick, the token map, curve reserves ×
      * SOL price. Never inferred from market cap.
      */
-    fun observedLiquidityUsd(ts: TokenState): Double {
-        // V5.0.8048 — an active curve's own account (real SOL bought) outranks any stored figure, up or down.
-        // V5.0.8173 — the same stale-checked reading LiquidityTruth8037 uses (LaunchCohort8173.curveRealSolFor8173).
-        try { com.lifecyclebot.engine.truth.LaunchCohort8173.curveRealSolFor8173(ts) } catch (_: Throwable) { null }?.let { real ->
-            val px = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
-            if (px.isFinite() && px > 0.0) return real * px
-        }
-        ts.lastLiquidityUsd.takeIf { it.isFinite() && it > 0.0 }?.let { return it }
+    /**
+     * V5.0.8551 — the observed liquidity is the store's fact (TokenFacts via LiquidityTruth8037.hydrate8037). Superseded:
+     * this function kept its own ladder (curve, tick, token map, reserves) beside LiquidityTruth8037's (curve, vaults,
+     * tick, resolver), so V3 / HardRugPreFilter / ExecutableOpenGate / Executor and the lanes could read different depths
+     * for the same coin at the same moment (DATA_MAP D1).
+     */
+    fun observedLiquidityUsd(ts: TokenState): Double =
+        try { com.lifecyclebot.engine.truth.LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) { ts.lastLiquidityUsd.takeIf { it.isFinite() && it > 0.0 } ?: mapLiquidityUsd8551(ts) }
+
+    /**
+     * The token map's own depth figures (its liquidity, its curve reserves, the curve reserves cache) — the last rung of
+     * LiquidityTruth8037.hydrate8037's fill for an empty store slot. Not a decision read: call [observedLiquidityUsd].
+     */
+    fun mapLiquidityUsd8551(ts: TokenState): Double {
         val tm = ts.tokenMap
         tm.liquidityUsd?.takeIf { it.isFinite() && it > 0.0 }?.let { return it }
         // V5.0.7925 — a 0.0 realSolReserves is not "unknown": it hid liquiditySol, so a

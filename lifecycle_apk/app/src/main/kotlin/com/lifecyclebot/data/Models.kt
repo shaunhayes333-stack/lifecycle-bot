@@ -623,6 +623,13 @@ data class TokenState(
 ) {
     /** V5.0.8418 — what this mint's ACCOUNT said (supply in base units, decimals, slot, observed at); null = not yet read. */
     @Volatile var mintSupply8418: com.lifecyclebot.engine.truth.MintSupply8418.Supply8418? = null
+    /**
+     * V5.0.8551 — the observed facts of this mint (value, source, rank, observation time), one per migrated field. THE
+     * store every brain reads (docs/DATA_MAP.md); written only through com.lifecyclebot.engine.truth.TokenFacts, which
+     * mirrors each fact into its legacy field (lastLiquidityUsd, tokenMap.liquidityUsd).
+     */
+    val facts8551: java.util.concurrent.ConcurrentHashMap<com.lifecyclebot.engine.truth.TokenFacts.Field, com.lifecyclebot.engine.truth.TokenFacts.Fact> =
+        java.util.concurrent.ConcurrentHashMap()
     /** V5.0.8084 — wall clock of the last MEASURED buy/sell pressure write (0 = never measured; 50/50 is then the default). */
     @Volatile var buyPressureObservedAtMs8084: Long = 0L
     /** V5.0.8084 — wall clock of the last measured 5m/1h price-change write (0 = the 0.0 defaults are unobserved). */

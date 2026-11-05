@@ -195,11 +195,13 @@ class Aate8346MarketEvidenceTest {
         assertTrue("the curve is a liq candidate before the DEX pair", res.contains("Cand8169(PRIMARY, liqPrimary, \"UNKNOWN\"), curve8346, pairLiq8169(pair, nowMs, maxAge)"))
         assertTrue(res.contains("MarketEvidence8346.requestTape8346(mint, tapeWhy, nowMs)"))
         val liq = src("engine/truth/LiquidityTruth8037.kt")
-        assertTrue("a curve observation goes through the 8343 hydration write", liq.contains("fun onCurveObserved8346(mint: String, realSol: Double, fromAccount: Boolean)"))
-        assertTrue(liq.contains("write8343(ts, usd)\n        try { ts.tokenMap.liquidityUsd = usd }"))
+        // superseded: write8343(ts, usd) + a token-map copy — V5.0.8551 the curve reading is a CHAIN fact of the one store
+        // (TokenFacts mirrors the tick and the map and fires the 8343 hydration), stamped with the frame / read time
+        assertTrue("a curve observation goes through the store's write", liq.contains("fun onCurveObserved8346(mint: String, realSol: Double, fromAccount: Boolean, atMs: Long = System.currentTimeMillis())"))
+        assertTrue(liq.contains("if (!TokenFacts.writeLiquidity(ts, usd, if (fromAccount) \"CURVE_ACCOUNT_7951\" else \"CURVE_FRAME_7951\", TokenFacts.Rank.CHAIN, atMs)) return"))
         val curve = src("engine/truth/CurveReserves7951.kt")
-        assertTrue(curve.contains("LiquidityTruth8037.onCurveObserved8346(mint, real8346, fromAccount = false)"))
-        assertTrue(curve.contains("LiquidityTruth8037.onCurveObserved8346(mint, realSol, fromAccount = true)"))
+        assertTrue(curve.contains("LiquidityTruth8037.onCurveObserved8346(mint, real8346, fromAccount = false, atMs = atMs)"))
+        assertTrue(curve.contains("LiquidityTruth8037.onCurveObserved8346(mint, realSol, fromAccount = true, atMs = atMs)"))
         assertTrue("the 8343 resume hook in put() is untouched", curve.contains("HydrationReeval8343.onCurveRead8343(m, real, atMs)"))
         val metrics = src("engine/truth/TokenMetricsAuthority7069.kt")
         assertTrue(metrics.contains("MarketEvidence8346.noteIdentityBreak8346(source, ratio,"))

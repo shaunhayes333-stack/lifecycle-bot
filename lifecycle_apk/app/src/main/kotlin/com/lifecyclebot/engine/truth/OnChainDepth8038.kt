@@ -177,6 +177,13 @@ object OnChainDepth8038 {
         depthOnlyReads8418[mint]?.let { nowMs - it.atMs in 0L..maxAgeMs } == true
 
     /** LiquidityTruth8037: the fresh on-chain depth (USD, both sides) of [mint]'s pool, or NaN. Never requests. */
+    /** V5.0.8551 — [chainDepthUsd8038] with the vault read's own observation time (for the TokenFacts store), or null. */
+    fun chainDepthRead8551(mint: String, nowMs: Long = System.currentTimeMillis()): Pair<Double, Long>? {
+        val read = fresh(mint, nowMs) ?: depthOnlyReads8418[mint]?.takeIf { nowMs - it.atMs in 0L..FRESH_MS } ?: return null
+        val usd = depthUsd8038(read.quoteSol, solUsd())
+        return if (usd.isFinite() && usd > 0.0) usd to read.atMs else null
+    }
+
     fun chainDepthUsd8038(mint: String, nowMs: Long = System.currentTimeMillis()): Double =
         (fresh(mint, nowMs) ?: depthOnlyReads8418[mint]?.takeIf { nowMs - it.atMs in 0L..FRESH_MS })
             ?.let { depthUsd8038(it.quoteSol, solUsd()) } ?: Double.NaN
@@ -610,7 +617,7 @@ object OnChainDepth8038 {
             "chainPx=${"%.3g".format(chainPx)} buyPx=${"%.3g".format(ts.lastPrice)} chainLiq=${"%.0f".format(chainUsd)} apiLiq=${"%.0f".format(apiUsd)}"
         if (why == null) {
             verified.incrementAndGet()
-            if (chainUsd.isFinite() && chainUsd > 0.0) com.lifecyclebot.engine.HydrationReeval8343.writeTick8345(ts, chainUsd, "CHAIN_VERIFIED_8038")  // V5.0.8345
+            if (chainUsd.isFinite() && chainUsd > 0.0) com.lifecyclebot.engine.HydrationReeval8343.writeTick8345(ts, chainUsd, "CHAIN_VERIFIED_8038", TokenFacts.Rank.CHAIN, read.atMs)  // V5.0.8345
         }
         try {
             PipelineHealthCollector.labelInc(why?.let { "LIVE_BUY_REFUSED_$it" } ?: "ONCHAIN_POOL_VERIFIED_8038")

@@ -159,7 +159,8 @@ class Aate8345EvidencePathTest {
         assertTrue(HandoffReceiverTasks8153.awaitsHydration8343(HandoffReceiverTasks8153.taskOf8153(m, t0 + 2_000L)!!))
         // the write that fills the tick (no native deferral remembered: the task is still asked directly)
         val ts = TokenState(mint = m, symbol = "LQ")
-        assertTrue(HydrationReeval8343.writeTick8345(ts, 650.0, "INTAKE", t0 + 5_000L))
+        // superseded: writeTick8345(ts, usd, source, nowMs) — V5.0.8551 the write offers a ranked, timed fact to TokenFacts
+        assertTrue(HydrationReeval8343.writeTick8345(ts, 650.0, "INTAKE", com.lifecyclebot.engine.truth.TokenFacts.Rank.AGGREGATE, t0 + 5_000L, t0 + 5_000L))
         assertEquals(650.0, ts.lastLiquidityUsd, 1e-9)
         val r = HandoffReceiverTasks8153.taskOf8153(m, t0 + 5_001L)!!
         assertTrue(r.pending); assertEquals("", r.lastBlock); assertEquals(7L, r.version)
@@ -167,15 +168,18 @@ class Aate8345EvidencePathTest {
         assertTrue(HandoffReceiverTasks8153.resumeLine8330().contains("hydrationResumed8343=1"))
         assertEquals(1L, HydrationReeval8343.hydrationCounts8345().first["INTAKE"])
         // a later write to an already-read tick is not a hydration
-        assertTrue(HydrationReeval8343.writeTick8345(ts, 700.0, "DEX_PAIR_POLL", t0 + 6_000L))
+        assertTrue(HydrationReeval8343.writeTick8345(ts, 700.0, "DEX_PAIR_POLL", com.lifecyclebot.engine.truth.TokenFacts.Rank.PROVIDER, t0 + 6_000L, t0 + 6_000L))
         assertEquals(1L, HydrationReeval8343.hydrationCounts8345().first.values.sum())
         // superseded by V5.0.8418 — max-take kept the historical peak: a newer lower intake observation replaces it.
         assertTrue("a lower intake figure writes (newest replaces)", HydrationReeval8343.intakeLiquidity8345(ts, 100.0))
         assertEquals(100.0, ts.lastLiquidityUsd, 1e-9)
-        assertTrue(HydrationReeval8343.writeTick8345(ts, 700.0, "DEX_PAIR_POLL", t0 + 7_000L))
+        // V5.0.8551 — the intake write above is observed at the wall clock; a poll stamped before it is older and refused
+        assertFalse(HydrationReeval8343.writeTick8345(ts, 700.0, "DEX_PAIR_POLL", com.lifecyclebot.engine.truth.TokenFacts.Rank.PROVIDER, t0 + 7_000L, t0 + 7_000L))
+        val later8551 = System.currentTimeMillis() + 1_000L
+        assertTrue(HydrationReeval8343.writeTick8345(ts, 700.0, "DEX_PAIR_POLL", com.lifecyclebot.engine.truth.TokenFacts.Rank.PROVIDER, later8551, later8551))
         // a 0 write hydrates nothing
         val zero = TokenState(mint = "Z".repeat(44), symbol = "Z0")
-        assertFalse(HydrationReeval8343.writeTick8345(zero, 0.0, "DEXSCREENER_WS", t0))
+        assertFalse(HydrationReeval8343.writeTick8345(zero, 0.0, "DEXSCREENER_WS", com.lifecyclebot.engine.truth.TokenFacts.Rank.PROVIDER, t0, t0))
         assertFalse(HydrationReeval8343.firstFill8345(0.0, Double.NaN)); assertTrue(HydrationReeval8343.firstFill8345(0.0, 1.0)); assertFalse(HydrationReeval8343.firstFill8345(5.0, 9.0))
         // the curve-keep rule still holds the last positive figure on a zero poll
         HydrationReeval8343.pollLiquidity8345(ts, 0.0, curveKeep7323 = true)
@@ -221,14 +225,16 @@ class Aate8345EvidencePathTest {
         assertTrue("intake, existing state", bot.contains("if (HydrationReeval8343.intakeLiquidity8345(existing, liquidityUsd)) tokenEvidenceImproved7475 = true"))
         assertTrue("DexScreener pair poll", bot.contains("HydrationReeval8343.pollLiquidity8345(ts, pair.liquidity, curveKeep7323, \"CURVE_LIQUIDITY_KEPT_ON_ZERO_POLL_7323\")"))
         assertFalse(bot.contains("ts.lastLiquidityUsd = pair.liquidity"))
-        assertTrue("Birdeye overview fallback", bot.contains("HydrationReeval8343.writeTick8345(ts, ov.liquidity, \"BIRDEYE_OVERVIEW\")"))
-        assertTrue("DexScreener WS frame", src("engine/DataOrchestrator.kt").contains("HydrationReeval8343.writeTick8345(ts, liquidity, \"DEXSCREENER_WS\")"))
-        assertTrue("Raydium TVL fill", src("engine/LaneAgeLiquidityTruth8140.kt").contains("HydrationReeval8343.writeTick8345(ts, tvl, \"RAYDIUM_TVL_8128\")"))
-        assertTrue("verified chain depth", src("engine/truth/OnChainDepth8038.kt").contains("HydrationReeval8343.writeTick8345(ts, chainUsd, \"CHAIN_VERIFIED_8038\")"))
+        // superseded: writeTick8345(ts, x, "SOURCE") — V5.0.8551 every site names the source's rank (TokenFacts)
+        assertTrue("Birdeye overview fallback", bot.contains("HydrationReeval8343.writeTick8345(ts, ov.liquidity, \"BIRDEYE_OVERVIEW\", com.lifecyclebot.engine.truth.TokenFacts.Rank.PROVIDER)"))
+        assertTrue("DexScreener WS frame", src("engine/DataOrchestrator.kt").contains("HydrationReeval8343.writeTick8345(ts, liquidity, \"DEXSCREENER_WS\", com.lifecyclebot.engine.truth.TokenFacts.Rank.PROVIDER)"))
+        assertTrue("Raydium TVL fill", src("engine/LaneAgeLiquidityTruth8140.kt").contains("HydrationReeval8343.writeTick8345(ts, tvl, \"RAYDIUM_TVL_8128\", com.lifecyclebot.engine.truth.TokenFacts.Rank.AGGREGATE)"))
+        assertTrue("verified chain depth", src("engine/truth/OnChainDepth8038.kt").contains("HydrationReeval8343.writeTick8345(ts, chainUsd, \"CHAIN_VERIFIED_8038\", TokenFacts.Rank.CHAIN, read.atMs)"))
         val h = src("engine/HydrationReeval8343.kt")
         assertTrue("one arrival path asks the task whether or not a native deferral was remembered",
             h.contains("if (!queuedNow && liquidityUsd.isFinite() && liquidityUsd > 0.0)") && h.contains("HandoffReceiverTasks8153.onHydrated8343(mint, nowMs)"))
-        assertTrue("the 8343 hooks stay", src("engine/truth/LiquidityTruth8037.kt").contains("HydrationReeval8343.onHydrated8343(ts, usd)") &&
+        // superseded: the LiquidityTruth8037 private write fired onHydrated8343 — V5.0.8551 the one store's write fires it
+        assertTrue("the 8343 hooks stay", src("engine/truth/TokenFacts.kt").contains("HydrationReeval8343.onHydrated8343(ts, usd, nowMs, source)") &&
             src("engine/truth/CurveReserves7951.kt").contains("HydrationReeval8343.onCurveRead8343(m, real, atMs)") &&
             src("engine/truth/OnChainDepth8038.kt").contains("HydrationReeval8343.onDepthRead8343(mint, depthUsd8038(read.quoteSol, solUsd()), read.atMs)"))
         assertFalse("FinalDecisionGate.evaluate is untouched", src("engine/FinalDecisionGate.kt").contains("8345"))

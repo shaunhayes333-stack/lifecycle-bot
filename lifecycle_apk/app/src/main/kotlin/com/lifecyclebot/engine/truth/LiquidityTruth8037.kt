@@ -23,17 +23,11 @@ object LiquidityTruth8037 {
     private val stillUnknown = AtomicLong(0)
     private val chainApplied = AtomicLong(0)
     private val curveRealApplied8046 = AtomicLong(0)
+    private val restoredAsked8551 = AtomicLong(0)
 
-    /**
-     * V5.0.8343 — THE hydration write: a tick liquidity going from unread (<= 0) to a real reading ends every
-     * UNHYDRATED_DEFER on the mint — the lanes (and the grab lane) are re-queued at once with the original candidate
-     * version (HydrationReeval8343), not left to the next scanner cycle. Nothing is invented: a 0 write queues nothing.
-     */
-    private fun write8343(ts: TokenState, usd: Double) {
-        val first = !(ts.lastLiquidityUsd > 0.0)
-        ts.lastLiquidityUsd = usd
-        if (first && usd.isFinite() && usd > 0.0) try { com.lifecyclebot.engine.HydrationReeval8343.onHydrated8343(ts, usd) } catch (_: Throwable) {}
-    }
+    // V5.0.8551 — superseded V5.0.8343 `write8343` (this object's private field write): every reading below is OFFERED to
+    // the one store (TokenFacts.writeLiquidity) with its source, rank and observation time; the store keeps the newest /
+    // strongest, mirrors ts.lastLiquidityUsd + ts.tokenMap.liquidityUsd and fires the 8343 hydration arrival on a first fill.
 
     /**
      * V5.0.8346 — CurveReserves7951.noteFrame7951 / noteAccount7951: a curve observation ([realSol] real SOL, an active
@@ -42,16 +36,14 @@ object LiquidityTruth8037 {
      * Up or down — the curve's own account, as [hydrate8037] writes it. Nothing without a token row, a SOL price or a
      * positive reading (a 0 real SOL curve is "nobody bought": the lanes' floors judge it from the tick they hold).
      */
-    fun onCurveObserved8346(mint: String, realSol: Double, fromAccount: Boolean) {
+    fun onCurveObserved8346(mint: String, realSol: Double, fromAccount: Boolean, atMs: Long = System.currentTimeMillis()) {
         if (!(realSol.isFinite() && realSol > 0.0)) return
         if (try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(mint) } catch (_: Throwable) { true }) return
         val ts = try { com.lifecyclebot.engine.BotService.status.tokens[mint.trim()] } catch (_: Throwable) { null } ?: return
         val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
         if (!(solUsd.isFinite() && solUsd > 0.0)) return
         val usd = realSol * solUsd
-        if (ts.lastLiquidityUsd == usd) return
-        write8343(ts, usd)
-        try { ts.tokenMap.liquidityUsd = usd } catch (_: Throwable) {}
+        if (!TokenFacts.writeLiquidity(ts, usd, if (fromAccount) "CURVE_ACCOUNT_7951" else "CURVE_FRAME_7951", TokenFacts.Rank.CHAIN, atMs)) return
         try { MarketEvidence8346.noteCurveWrite8346(fromAccount) } catch (_: Throwable) {}
     }
 
@@ -62,9 +54,7 @@ object LiquidityTruth8037 {
     fun onPoolVaultObserved8418(mint: String, usd: Double) {
         if (!(usd.isFinite() && usd > 0.0)) return
         val ts = try { com.lifecyclebot.engine.BotService.status.tokens[mint.trim()] } catch (_: Throwable) { null } ?: return
-        if (ts.lastLiquidityUsd == usd) return
-        write8343(ts, usd)
-        try { ts.tokenMap.liquidityUsd = usd } catch (_: Throwable) {}
+        if (!TokenFacts.writeLiquidity(ts, usd, "POOL_VAULT_8418", TokenFacts.Rank.CHAIN, System.currentTimeMillis())) return
         try { MarketEvidence8346.noteCurveWrite8346(true) } catch (_: Throwable) {}
     }
 
@@ -72,40 +62,45 @@ object LiquidityTruth8037 {
     fun fill8037(tickUsd: Double, observedUsd: Double): Double? =
         if (!(tickUsd > 0.0) && observedUsd.isFinite() && observedUsd > 0.0) observedUsd else null
 
-    /** The liquidity every decision should read for [ts]; fills the tick field when it is missing. */
+    /**
+     * The liquidity every decision reads for [ts] — the store's fact (TokenFacts, V5.0.8551). Before answering, the
+     * readings only the chain and the curve can give are offered to the store with their own observation times (a curve /
+     * vault read already offered on arrival is simply refused as not newer), and an empty slot is filled from the newest
+     * observed figure (resolver: chain cache / DexScreener pair / sweep row; then the token map's own figures). The store's
+     * rule picks between them, so every reader — this function, TokenMapAuthority.observedLiquidityUsd, the raw field —
+     * returns the same number. A coin whose depth is unknown or only restored from an archive gets a chain read queued.
+     */
     fun hydrate8037(ts: TokenState): Double {
+        val now = System.currentTimeMillis()
         // V5.0.8046 — an active pump.fun curve's liquidity is the SOL buyers actually put in, not its 30 SOL of virtual
         // reserves: 5.0.8043 MOONSHOT read DOGO-type launches as liq=$2.6-3.1K at a $3-4K cap while the wallet showed
         // $1-2 (nobody had bought). Set up or down — this is the curve's own account.
         // V5.0.8173 — a stale curve reading is checked against a newer executed price and re-read from chain (LaunchCohort8173).
-        val curveReal = try { LaunchCohort8173.curveRealSolFor8173(ts) } catch (_: Throwable) { null }
+        val curveReal = try { LaunchCohort8173.curveRealSolFor8173(ts, now) } catch (_: Throwable) { null }
         if (curveReal != null) {
             val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
             if (solUsd.isFinite() && solUsd > 0.0) {
-                val usd = curveReal * solUsd
-                if (ts.lastLiquidityUsd != usd) { write8343(ts, usd); curveRealApplied8046.incrementAndGet() }
-                // V5.0.8048 — the token map keeps the same truth (it held the intake estimate, mcap x 0.85: BOWNARROW $2,608
-                // in the map while V3 read $0), so every reader of the map agrees with the curve's own account.
-                try { ts.tokenMap.liquidityUsd = usd } catch (_: Throwable) {}
-                return usd
+                // The curve's own reading is a CHAIN fact at its read time; a price-implied stand-in (stale curve) is derived.
+                val raw = try { CurveReserves7951.realSolIfActive8046(ts.mint, now) } catch (_: Throwable) { null }
+                val readAt = try { CurveReserves7951.readingAtMs8173(ts.mint) } catch (_: Throwable) { null }
+                val read = raw != null && readAt != null && raw == curveReal
+                if (TokenFacts.writeLiquidity(ts, curveReal * solUsd, if (read) "CURVE_READ_8046" else "CURVE_PRICE_IMPLIED_8173",
+                        if (read) TokenFacts.Rank.CHAIN else TokenFacts.Rank.AGGREGATE,
+                        if (read) readAt ?: now else ts.lastPriceUpdate.takeIf { it > 0L } ?: now, now)) curveRealApplied8046.incrementAndGet()
             }
         }
         // V5.0.8038 — a fresh on-chain read of the pool's vaults (OnChainDepth8038) is the depth, ahead of any API figure.
-        val chain = try { OnChainDepth8038.chainDepthUsd8038(ts.mint) } catch (_: Throwable) { Double.NaN }
-        if (chain.isFinite() && chain > 0.0) {
-            if (ts.lastLiquidityUsd != chain) {
-                try { OnChainDepth8038.noteApi8038(ts.mint, ts.lastLiquidityUsd) } catch (_: Throwable) {}
-                write8343(ts, chain); chainApplied.incrementAndGet()
+        val chain = try { OnChainDepth8038.chainDepthRead8551(ts.mint, now) } catch (_: Throwable) { null }
+        if (chain != null && TokenFacts.writeLiquidity(ts, chain.first, "CHAIN_VAULT_8038", TokenFacts.Rank.CHAIN, chain.second, now))
+            chainApplied.incrementAndGet()
+        if (!(ts.lastLiquidityUsd > 0.0)) {
+            val age = try { CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts, now) } catch (_: Throwable) { null } ?: Double.NaN
+            val obs = try { SetupFeatureResolver8169.observedLiquidity8170(ts.mint, age, now) } catch (_: Throwable) { null }
+                ?: try { com.lifecyclebot.engine.TokenMapAuthority.mapLiquidityUsd8551(ts) } catch (_: Throwable) { 0.0 }
+            fill8037(ts.lastLiquidityUsd, obs)?.let {
+                if (TokenFacts.writeLiquidity(ts, it, "OBSERVED_FILL_8037", TokenFacts.Rank.AGGREGATE, now, now)) hydrated.incrementAndGet()
             }
-            return chain
         }
-        val obs = if (ts.lastLiquidityUsd > 0.0) ts.lastLiquidityUsd else {
-            val now = System.currentTimeMillis()
-            val age = CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts, now) ?: Double.NaN
-            SetupFeatureResolver8169.observedLiquidity8170(ts.mint, age, now)
-                ?: try { com.lifecyclebot.engine.TokenMapAuthority.observedLiquidityUsd(ts) } catch (_: Throwable) { 0.0 }
-        }
-        fill8037(ts.lastLiquidityUsd, obs)?.let { write8343(ts, it); hydrated.incrementAndGet() }
         // V5.0.8164 — an ACTIVE pump.fun curve with a priced cap but no reserve frame inside the curve TTL: its real SOL
         // follows from the cap by the curve's own invariant ([curveRealSolFromCap8048]), so it is derived, not invented.
         // 5.0.8162 fresh run: SHITCOIN NATIVE_LANE_LIQ_UNHYDRATED_DEFER=1,633 and EXPRESS 1,606 on curve coins whose
@@ -116,6 +111,8 @@ object LiquidityTruth8037 {
         // estimate is only counted, so the diag shows how often it would have stood in.
         if (!(ts.lastLiquidityUsd > 0.0) && curveDepthFromCap8164(ts) != null) curveCapDerived8164.incrementAndGet()
         val v = ts.lastLiquidityUsd
+        // V5.0.8551 — an archive figure (restored, observation time unknown) is used, but a chain read is asked at once.
+        if (v > 0.0 && TokenFacts.liquidityRestoredOnly(ts)) { restoredAsked8551.incrementAndGet(); try { OnChainDepth8038.needDepth8047(ts) } catch (_: Throwable) {} }
         if (!(v > 0.0)) {
             stillUnknown.incrementAndGet()
             // V5.0.8039 — unknown depth: read the coin's curve from the chain in the next batch.
@@ -228,6 +225,6 @@ object LiquidityTruth8037 {
     }
 
     fun statusLine(): String =
-        "curveReal=${curveRealApplied8046.get()} curveCapEstimateNotWritten8418=${curveCapDerived8164.get()} capFromPrice8317=${capFromPrice8317.get()} chainApplied=${chainApplied.get()} hydrated=${hydrated.get()} stillUnknown=${stillUnknown.get()} ${try { OnChainDepth8038.derivedPoolLine8489() } catch (_: Throwable) { "-" }} " +
+        "curveReal=${curveRealApplied8046.get()} curveCapEstimateNotWritten8418=${curveCapDerived8164.get()} capFromPrice8317=${capFromPrice8317.get()} chainApplied=${chainApplied.get()} hydrated=${hydrated.get()} stillUnknown=${stillUnknown.get()} restoredAsked8551=${restoredAsked8551.get()} ${try { OnChainDepth8038.derivedPoolLine8489() } catch (_: Throwable) { "-" }} " +
             "intakeCapDerivedRefused8418=${capDerivedRefused8418.get()} intakeLowered8418=${intakeLowered8418.get()} rule=chain vaults / curve account first (§8038), then tick, then observed (token map, curve reserves); a newer real observation replaces an older one up or down; a cap is never a depth (§8418)"
 }

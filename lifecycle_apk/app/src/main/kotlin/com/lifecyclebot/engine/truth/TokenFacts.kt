@@ -1,0 +1,151 @@
+package com.lifecyclebot.engine.truth
+
+import com.lifecyclebot.data.TokenState
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
+
+/**
+ * V5.0.8551 §ONE_DATA_STORE — the single market-data store every brain and reader shares (docs/DATA_MAP.md).
+ *
+ * The store is the TokenState row of the mint in BotService.status.tokens (fed by DataOrchestrator, the scanners, the
+ * chain readers). Each migrated field holds ONE [Fact]: the value, who observed it, how strong that source is ([Rank])
+ * and WHEN it was observed (the provider's / chain's own time, never the time we happened to copy it). Exactly one write
+ * path per field lives here; the producers (DexScreener WS / pair poll / batch, Birdeye, Raydium TVL, the pump.fun curve
+ * frames and account reads, the pool vault reads, the restore caches) are callers of that path, not owners of the field.
+ * The legacy fields (ts.lastLiquidityUsd, ts.tokenMap.liquidityUsd) are MIRRORS of the fact, so every existing reader
+ * reads the store without being rewritten; Aate8551TokenFactsTest refuses any new direct write.
+ *
+ * The replacement rule ([accepts]) is the same for every field:
+ *  - a value that is not a reading (NaN, infinite, <= 0) is not a fact: "not reported" never erases an observation;
+ *  - a [Rank.RESTORE] value (archive, meta cache, saved position — observed at an unknown time) only fills an empty slot
+ *    or refreshes another restore; any real observation replaces it;
+ *  - an observation older than the held fact never replaces it, whatever its rank;
+ *  - a newer (or same-time) observation of equal or higher rank replaces the held fact, up or down;
+ *  - a newer observation of LOWER rank replaces it only once the stronger fact has aged past its hold window
+ *    ([holdMs]: 90 s for the chain, 30 s otherwise) — the chain's depth is not overwritten by an API's figure the next
+ *    second, and a dead chain read does not pin the field forever.
+ *
+ * Migrated: LIQUIDITY_USD (8551). The other fields follow the order in docs/DATA_MAP.md, one build per field family.
+ */
+object TokenFacts {
+    enum class Field { LIQUIDITY_USD }
+
+    /** Source strength. Higher outranks lower inside the hold window. */
+    object Rank {
+        /** Archive / meta cache / saved position: value without a trustworthy observation time. */
+        const val RESTORE = 0
+        /** Derived or aggregated (intake scanner figure, resolver fill, token-map copy, route cache). */
+        const val AGGREGATE = 1
+        /** A market-data provider's own figure for the pool (DexScreener pair / WS / batch, Birdeye, Raydium TVL). */
+        const val PROVIDER = 2
+        /** The chain itself: pool vault balances, the pump.fun curve account / its trade frames. */
+        const val CHAIN = 3
+    }
+
+    data class Fact(val value: Double, val source: String, val rank: Int, val observedAtMs: Long)
+
+    private const val CHAIN_HOLD_MS = 90_000L
+    private const val HOLD_MS = 30_000L
+    private const val FUTURE_SKEW_MS = 5_000L
+
+    /** Pure: how long a held fact of [rank] blocks a weaker source. */
+    fun holdMs(rank: Int): Long = if (rank >= Rank.CHAIN) CHAIN_HOLD_MS else HOLD_MS
+
+    /** Pure: is [value] a reading at all (finite and above 0)? */
+    fun isReading(value: Double): Boolean = value.isFinite() && value > 0.0
+
+    /**
+     * Pure — THE replacement rule. [legacyHeld]: the mirrored legacy field already holds a reading that no fact accounts for
+     * (a row created with a value, or a copy); a restore never overwrites it, a real observation does.
+     */
+    fun accepts(prior: Fact?, offered: Fact, legacyHeld: Boolean): Boolean {
+        if (!isReading(offered.value)) return false
+        if (offered.rank <= Rank.RESTORE) return if (prior == null) !legacyHeld else prior.rank <= Rank.RESTORE
+        if (prior == null || prior.rank <= Rank.RESTORE) return true
+        if (offered.observedAtMs < prior.observedAtMs) return false
+        if (offered.rank >= prior.rank) return true
+        return offered.observedAtMs - prior.observedAtMs >= holdMs(prior.rank)
+    }
+
+    /** Pure: the time a fact is stored with — restores carry 0, a clock ahead of [nowMs] is clamped to it. */
+    fun stampOf(rank: Int, observedAtMs: Long, nowMs: Long): Long = when {
+        rank <= Rank.RESTORE -> 0L
+        observedAtMs <= 0L -> nowMs
+        observedAtMs > nowMs + FUTURE_SKEW_MS -> nowMs
+        else -> observedAtMs
+    }
+
+    private val accepted = ConcurrentHashMap<String, AtomicLong>()   // "FIELD:source" -> accepted writes
+    private val refused = ConcurrentHashMap<String, AtomicLong>()    // "FIELD:why" -> refused offers
+
+    private fun count(map: ConcurrentHashMap<String, AtomicLong>, key: String) {
+        if (map.size >= 96 && !map.containsKey(key)) return
+        map.computeIfAbsent(key) { AtomicLong(0) }.incrementAndGet()
+    }
+
+    /** The fact [ts] holds for [field], or null when nothing has been observed through the store. */
+    fun fact(ts: TokenState, field: Field): Fact? = ts.facts8551[field]
+
+    /**
+     * THE liquidity write. Every producer offers its reading here with its source, [rank] and observation time; the store
+     * keeps it only under [accepts], mirrors it into ts.lastLiquidityUsd and ts.tokenMap.liquidityUsd, and treats a first
+     * reading as the hydration it is (HydrationReeval8343: the deferred lanes resume on the arrival, not the next cycle).
+     * Returns true when the stored value changed.
+     */
+    fun writeLiquidity(ts: TokenState, usd: Double, source: String, rank: Int, observedAtMs: Long,
+                       nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (!isReading(usd)) { count(refused, "LIQUIDITY_USD:NOT_A_READING"); return false }
+        val offered = Fact(usd, source, rank, stampOf(rank, observedAtMs, nowMs))
+        var before = 0.0
+        var prior: Fact? = null
+        synchronized(ts.facts8551) {
+            prior = ts.facts8551[Field.LIQUIDITY_USD]
+            before = ts.lastLiquidityUsd
+            if (!accepts(prior, offered, isReading(before) && prior == null)) {
+                count(refused, "LIQUIDITY_USD:" + refusal(prior, offered))
+                return false
+            }
+            ts.facts8551[Field.LIQUIDITY_USD] = offered
+            ts.lastLiquidityUsd = usd
+            try { ts.tokenMap.liquidityUsd = usd } catch (_: Throwable) {}
+        }
+        count(accepted, "LIQUIDITY_USD:$source")
+        // The chain replacing an API figure: keep the figure it replaced, so the buy-time cross-check (OnChainDepth8038
+        // .verifyBeforeBuy) still compares what the APIs claimed against what the vaults hold.
+        if (rank >= Rank.CHAIN && isReading(before) && (prior?.rank ?: Rank.AGGREGATE) < Rank.CHAIN && before != usd)
+            try { OnChainDepth8038.noteApi8038(ts.mint, before) } catch (_: Throwable) {}
+        // A restore is not an observation: it neither advances the feature revision nor counts as a hydration arrival.
+        if (rank <= Rank.RESTORE) return before != usd
+        if (before != usd) try { FeatureRevision8283.bumpThrottled8286(ts.mint, FeatureKind8283.LIQUIDITY, nowMs) } catch (_: Throwable) {}
+        if (!isReading(before)) try { com.lifecyclebot.engine.HydrationReeval8343.onHydrated8343(ts, usd, nowMs, source) } catch (_: Throwable) {}
+        return before != usd
+    }
+
+    /** Re-mirrors the held facts into the legacy fields after a caller swapped [ts]'s token map (route cache hydrate). */
+    fun mirror(ts: TokenState) {
+        val liq = ts.facts8551[Field.LIQUIDITY_USD] ?: return
+        try { ts.tokenMap.liquidityUsd = liq.value } catch (_: Throwable) {}
+    }
+
+    /** A restore (meta cache / hive / saved position): fills only an empty slot, observation time unknown. */
+    fun restoreLiquidity(ts: TokenState, usd: Double, source: String): Boolean = writeLiquidity(ts, usd, source, Rank.RESTORE, 0L)
+
+    /** Pure: why [accepts] refused (for the brief). */
+    fun refusal(prior: Fact?, offered: Fact): String = when {
+        !isReading(offered.value) -> "NOT_A_READING"
+        offered.rank <= Rank.RESTORE -> "RESTORE_UNDER_OBSERVATION"
+        prior == null -> "LEGACY"
+        offered.observedAtMs < prior.observedAtMs -> "OLDER_THAN_HELD"
+        else -> "HELD_BY_STRONGER"
+    }
+
+    /** True when [ts]'s liquidity is only a restore (no live observation yet): readers may use it, a fresh read is due. */
+    fun liquidityRestoredOnly(ts: TokenState): Boolean = ts.facts8551[Field.LIQUIDITY_USD]?.let { it.rank <= Rank.RESTORE } ?: false
+
+    fun statusLine(): String {
+        fun top(m: ConcurrentHashMap<String, AtomicLong>) = m.entries.sortedByDescending { it.value.get() }.take(8)
+            .joinToString(",") { "${it.key.substringAfter(':')}=${it.value.get()}" }.ifBlank { "-" }
+        return "tokenFacts8551[liq accepted{${top(accepted)}} refused{${top(refused)}} rule=newest wins; same time -> higher rank; " +
+            "weaker source waits out the hold (chain 90s, else 30s); restores fill only empty slots]"
+    }
+}

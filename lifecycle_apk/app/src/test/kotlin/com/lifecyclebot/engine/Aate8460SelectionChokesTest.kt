@@ -37,7 +37,8 @@ class Aate8460SelectionChokesTest {
             .contains("applyLiquidity8460(r.liquidity8460)"))
         val apply = lane.substringAfter("private fun applyLiquidity8460(")
         assertTrue(apply.contains("if (!lt.intakeWrites8418(ts.lastLiquidityUsd, usd, false, lt.chainHeld8418(ts))) continue"))
-        assertTrue("the first fill resumes deferred hand-offs", apply.contains("HydrationReeval8343.writeTick8345(ts, usd, \"DEX_BATCH_8460\")"))
+        // superseded by V5.0.8551 — the batch figure is a PROVIDER fact of the store (which mirrors the token map)
+        assertTrue("the first fill resumes deferred hand-offs", apply.contains("if (!HydrationReeval8343.writeTick8345(ts, usd, \"DEX_BATCH_8460\", com.lifecyclebot.engine.truth.TokenFacts.Rank.PROVIDER)) continue"))
         assertTrue(apply.contains("FeatureSourceCounters8285.note8285(\"liq\", \"dexBatch\", FeatureSourceCounters8285.REPAIRED)"))
     }
 
