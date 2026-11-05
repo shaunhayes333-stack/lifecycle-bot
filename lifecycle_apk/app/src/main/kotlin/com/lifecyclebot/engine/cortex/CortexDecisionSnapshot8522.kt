@@ -67,6 +67,8 @@ internal class CortexDecisionSnapshot8522(
             frozen.buyPressureObservedAtMs8084 = ts.buyPressureObservedAtMs8084
             frozen.priceChangeObservedAtMs8084 = ts.priceChangeObservedAtMs8084
             frozen.hourChangeObservedAtMs8506 = ts.hourChangeObservedAtMs8506
+            // V5.0.8554 D10 — the decision is graded on the facts it saw: source, rank and observation time travel with the copy
+            com.lifecyclebot.engine.truth.TokenFacts.freezeInto(frozen, ts)
         }
     }
 }

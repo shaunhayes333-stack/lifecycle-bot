@@ -47,6 +47,7 @@ object PairFlow8169 {
         // Every actual pair producer wakes its consumers, not just DataOrchestrator's poll.
         // V5.0.8283 — and advances the shared feature revision for the families this accepted answer actually carries.
         CandidateAdmission8136.evidenceArrived8252(mint, CandidateAdmission8136.PAIR_FEATURES_8252, f.atMs, FeatureRevision8283.pairKinds8283(f))
+        try { TokenFacts.notePairFlow(mint, f) } catch (_: Throwable) {}   // V5.0.8554 — the answer adds itself to the one store
         if (flows.size > CAP_8169) {
             flows.entries.removeIf { f.atMs - it.value.atMs > KEEP_MS_8169 }
             if (flows.size > CAP_8169) {
@@ -198,6 +199,21 @@ object SetupFeatureResolver8169 {
      * Entry authorization STILL requires canonical market-depth, route and quote
      * checks. A cached provider reading is not a safety/sellability bypass.
      */
+    /**
+     * V5.0.8554 — [observedLiquidity8170] with the observation time of the source that answered (vault read, pair answer,
+     * sweep row), so a fill offered to the store (LiquidityTruth8037.hydrate8037) carries its own time instead of "now".
+     */
+    fun observedLiquidityTimed8554(mint: String, ageMin: Double, nowMs: Long): Pair<Double, Long>? {
+        val maxAge = maxEvidenceAge8170(ageMin)
+        try { OnChainDepth8038.freshRead8198(mint, minOf(maxAge, 90_000L), nowMs) } catch (_: Throwable) { null }?.let { r ->
+            cachedChainLiquidity(mint, nowMs, maxAge).value?.let { return it to r.atMs }
+        }
+        val p = try { PairFlow8169.peek8169(mint) } catch (_: Throwable) { null }
+        pairLiq8169(p, nowMs, maxAge).value?.let { v -> return v to (p?.atMs ?: nowMs) }
+        val row = try { com.lifecyclebot.engine.market.MarketSweep7297.rowFor8169(mint, nowMs) } catch (_: Throwable) { null }
+        return sweepLiq8169(row, nowMs, maxAge).value?.let { v -> v to (row?.observedAtMs8169?.takeIf { it > 0L } ?: nowMs) }
+    }
+
     fun observedLiquidity8170(mint: String, ageMin: Double, nowMs: Long): Double? {
         val maxAge = maxEvidenceAge8170(ageMin)
         cachedChainLiquidity(mint, nowMs, maxAge).value?.let { return it }

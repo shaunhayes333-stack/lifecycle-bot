@@ -145,3 +145,28 @@ field, this map is updated, then tests + CI on main.
 | `phase` | "" on 418 — mature and age-unknown both blank | `MATURE` / `UNKNOWN_AGE` (model buckets unchanged) |
 | `holderVel` | NaN on 545 — needs candles carrying holder counts | open: no holder-count source on the candles |
 | `bp` = 100.0 on 66 | tape share from a handful of buys | kept: a real but thin tape reading (WhaleDetector.tapeBuyPressure7773); open: weight by print count |
+
+## 8. The cache is read AND added to (8554)
+
+The store is the one cache: every brain reads it, and every side cache a reader used to pull a market value from now
+**adds** that value to it, at the side cache's own observation time.
+
+| Side cache | Adds to the store | Rank / time |
+|---|---|---|
+| PairFlow8169 (every DexScreener pair answer: single pair, price batch, pair batch) | buy / sell pressure (5 m counts; hour counts as a stand-in), tx per minute, 5 m / 1 h change, pool liquidity (not for an active pump.fun curve) | PROVIDER (hour stand-in AGGREGATE), the answer's `atMs` |
+| MarketSweep7297 rows (rows of coins the bot holds) | 5 m change, observed 1 h change, liquidity (not for an active curve) | AGGREGATE, the row's `observedAtMs8169` (undated rows are not taken) |
+| TradeTape8100 reads (LaneInputTruth8236 fallbacks) | buy / sell pressure, 5 m change | CHAIN, the read's time |
+| SetupFeatureResolver8169 liquidity fill (`hydrate8037`) | liquidity | AGGREGATE at the vault / pair / sweep observation time (`observedLiquidityTimed8554`); a token-map figure at the map's update time |
+| MintSupply8418 | `SUPPLY_WHOLE`, stamped on the row the moment the chain answers | CHAIN, the account read's time |
+| Not taken | the pair's cap (a cap comes from verified supply), pair price (prices go through the mark paths) | — |
+
+**D10 (fixed 8554):** the Cortex frozen decision copy (`CortexDecisionSnapshot8522`) keeps the row's facts
+(`TokenFacts.freezeInto`), so a decision is graded on the facts it saw, with their sources, ranks and times.
+
+**Shared token map:** a cached map swapped in (`TokenMapAuthority.installShared6492`) is re-mirrored from the store
+(`TokenFacts.mirror`: liquidity, price, cap, FDV, top-holder share), so it can never override a fact.
+
+**The archive (TokenMetaCache) round trip:** after an observed write the store refreshes the mint's archive row from its
+facts (at most once a minute per mint; SQLite on the archive's own 60 s flush). The raw intake register no longer
+overwrites archived store values. A warm boot reads the archive back as RESTORE facts (time 0): an archive value is used
+until the first observation and never counts as one.

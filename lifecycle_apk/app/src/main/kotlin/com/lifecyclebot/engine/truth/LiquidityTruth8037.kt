@@ -95,10 +95,14 @@ object LiquidityTruth8037 {
             chainApplied.incrementAndGet()
         if (!(ts.lastLiquidityUsd > 0.0)) {
             val age = try { CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts, now) } catch (_: Throwable) { null } ?: Double.NaN
-            val obs = try { SetupFeatureResolver8169.observedLiquidity8170(ts.mint, age, now) } catch (_: Throwable) { null }
-                ?: try { com.lifecyclebot.engine.TokenMapAuthority.mapLiquidityUsd8551(ts) } catch (_: Throwable) { 0.0 }
+            // V5.0.8554 — the fill carries its source's own observation time (superseded: stamped "now" — a 15-minute-old
+            // pair or sweep figure entered the store as a fresh reading); the token map's own figure is dated by the map's update
+            val timed = try { SetupFeatureResolver8169.observedLiquidityTimed8554(ts.mint, age, now) } catch (_: Throwable) { null }
+            val obs = timed?.first ?: try { com.lifecyclebot.engine.TokenMapAuthority.mapLiquidityUsd8551(ts) } catch (_: Throwable) { 0.0 }
+            val at = timed?.second ?: ts.tokenMap.updatedAtMs.takeIf { it in 1L..now } ?: now
             fill8037(ts.lastLiquidityUsd, obs)?.let {
-                if (TokenFacts.writeLiquidity(ts, it, "OBSERVED_FILL_8037", TokenFacts.Rank.AGGREGATE, now, now)) hydrated.incrementAndGet()
+                if (TokenFacts.writeLiquidity(ts, it, if (timed != null) "OBSERVED_FILL_8037" else "TOKEN_MAP_FILL_8037",
+                        TokenFacts.Rank.AGGREGATE, at, now)) hydrated.incrementAndGet()
             }
         }
         // V5.0.8164 — an ACTIVE pump.fun curve with a priced cap but no reserve frame inside the curve TTL: its real SOL

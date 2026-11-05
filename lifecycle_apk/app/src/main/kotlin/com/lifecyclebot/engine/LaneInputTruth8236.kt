@@ -48,8 +48,10 @@ object LaneInputTruth8236 {
         ts.lastBuyPressurePct.takeIf {
             fresh8491(ts.buyPressureObservedAtMs8084, nowMs) && it.isFinite() && it in 0.0..100.0
         }?.let { return it }
+        // V5.0.8554 — the tape read adds itself to the one store (it used to be used here and dropped)
         return try { com.lifecyclebot.engine.truth.TradeTape8100.read8100(ts.mint, nowMs)?.bp }
             catch (_: Throwable) { null }
+            ?.also { try { com.lifecyclebot.engine.truth.TokenFacts.noteTapeRead(ts, it, null, nowMs) } catch (_: Throwable) {} }
     }
 
     internal fun change5m8491(ts: TokenState, nowMs: Long): Double? {
@@ -58,6 +60,7 @@ object LaneInputTruth8236 {
         }?.let { return it }
         return try { com.lifecyclebot.engine.truth.TradeTape8100.read8100(ts.mint, nowMs)?.chg?.first }
             catch (_: Throwable) { null }
+            ?.also { try { com.lifecyclebot.engine.truth.TokenFacts.noteTapeRead(ts, null, it, nowMs) } catch (_: Throwable) {} }
     }
 
     private val MCAP_RULES = listOf("MCAP_TOO_LOW", "MCAP TOO LOW", "MCAP_TOO_LOW_", "MCAP=UNKNOWN")

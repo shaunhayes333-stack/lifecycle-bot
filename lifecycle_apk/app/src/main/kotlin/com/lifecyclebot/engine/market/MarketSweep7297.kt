@@ -365,6 +365,12 @@ object MarketSweep7297 {
         last = snap
         // V5.0.8283 — a newly observed row advances its mint's shared feature revision (setup caches rebuild on it).
         try { com.lifecyclebot.engine.truth.FeatureRevision8283.noteSweepRows8283(previous7777?.rows, snap.rows, snap.atMs) } catch (_: Throwable) {}
+        // V5.0.8554 — the sweep adds what it observed for the coins the bot holds a row for (only dated rows; an unread
+        // flat hour stays unread), so the store — not each reader of rowFor8169 — carries it
+        for (r in snap.rows) try {
+            com.lifecyclebot.engine.truth.TokenFacts.noteSweepRow(r.mint, r.priceChange5mPct,
+                if (r.hourChangeObserved8417) r.priceChangeH1Pct else Double.NaN, r.liquidityUsd, r.observedAtMs8169)
+        } catch (_: Throwable) {}
         return snap
     }
 

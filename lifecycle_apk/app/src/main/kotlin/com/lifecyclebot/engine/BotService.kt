@@ -17508,12 +17508,15 @@ class BotService : Service() {
             // can hydrate without round-tripping any API. Cheap: pure memory
             // mutation, the next 60s flush ticks it to SQLite.
             try {
+                // V5.0.8554 — the store's values first (an intake figure only for an empty slot): superseded, this raw
+                // register ran after the mirror register above and overwrote the archived store values with intake figures
+                val row8554 = status.tokens[mint]
                 com.lifecyclebot.engine.TokenMetaCache.get(applicationContext).register(
                     mint = mint,
                     symbol = symbol.ifBlank { null },
                     name = name.ifBlank { null },
-                    lastMcap = trustedMarketCapUsd6492.takeIf { it > 0.0 },
-                    lastLiquidityUsd = liquidityUsd.takeIf { it > 0.0 },
+                    lastMcap = row8554?.lastMcap?.takeIf { it > 0.0 } ?: trustedMarketCapUsd6492.takeIf { it > 0.0 },
+                    lastLiquidityUsd = row8554?.lastLiquidityUsd?.takeIf { it > 0.0 } ?: liquidityUsd.takeIf { it > 0.0 },
                 )
             } catch (_: Throwable) { /* best-effort */ }
 

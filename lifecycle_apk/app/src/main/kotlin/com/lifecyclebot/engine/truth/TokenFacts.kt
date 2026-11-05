@@ -37,7 +37,7 @@ import java.util.concurrent.atomic.AtomicLong
  * Migrated: LIQUIDITY_USD (8551), PRICE_USD (8552), the snapshot fields + graduation (8553). See docs/DATA_MAP.md.
  */
 object TokenFacts {
-    enum class Field { LIQUIDITY_USD, PRICE_USD, BUY_PRESSURE_PCT, SELL_PRESSURE_PCT, CHANGE_5M_PCT, CHANGE_1H_PCT, MCAP_USD, FDV_USD, TOP_HOLDER_PCT, TX_PER_MIN }
+    enum class Field { LIQUIDITY_USD, PRICE_USD, BUY_PRESSURE_PCT, SELL_PRESSURE_PCT, CHANGE_5M_PCT, CHANGE_1H_PCT, MCAP_USD, FDV_USD, TOP_HOLDER_PCT, TX_PER_MIN, SUPPLY_WHOLE }
 
     /** Source strength. Higher outranks lower inside the hold window. */
     object Rank {
@@ -119,6 +119,7 @@ object TokenFacts {
             try { ts.tokenMap.liquidityUsd = usd } catch (_: Throwable) {}
         }
         count(accepted, "LIQUIDITY_USD:$source")
+        if (rank > Rank.RESTORE) archive(ts, nowMs)
         // The chain replacing an API figure: keep the figure it replaced, so the buy-time cross-check (OnChainDepth8038
         // .verifyBeforeBuy) still compares what the APIs claimed against what the vaults hold.
         if (rank >= Rank.CHAIN && isReading(before) && (prior?.rank ?: Rank.AGGREGATE) < Rank.CHAIN && before != usd)
@@ -136,6 +137,13 @@ object TokenFacts {
         ts.facts8551[Field.PRICE_USD]?.let { px ->
             try { val tm = ts.tokenMap; if (px.observedAtMs > tm.priceObservedAtMs7858) { tm.priceUsd = px.value; tm.priceObservedAtMs7858 = px.observedAtMs } } catch (_: Throwable) {}
         }
+        // V5.0.8554 — the swapped-in map carries the store's cap, FDV and top-holder share too (not the cached map's)
+        try {
+            val tm = ts.tokenMap
+            ts.facts8551[Field.MCAP_USD]?.let { tm.marketCap = it.value }
+            ts.facts8551[Field.FDV_USD]?.let { tm.fdv = it.value }
+            ts.facts8551[Field.TOP_HOLDER_PCT]?.let { tm.topHolderConcentrationPct = it.value }
+        } catch (_: Throwable) {}
     }
 
     /** A restore (meta cache / hive / saved position): fills only an empty slot, observation time unknown. */
@@ -190,6 +198,7 @@ object TokenFacts {
             } catch (_: Throwable) {}
         }
         count(accepted, "PRICE_USD:" + (source ?: "RESTORE").take(48))
+        if (rank > Rank.RESTORE) archive(ts, nowMs)
         if (rank > Rank.RESTORE) try { FeatureRevision8283.bumpThrottled8286(ts.mint, FeatureKind8283.PRICE, nowMs) } catch (_: Throwable) {}
         return true
     }
@@ -263,6 +272,7 @@ object TokenFacts {
             mirrorSnapshot(ts, field, value, offered.observedAtMs)
         }
         count(accepted, "${field.name}:" + source.take(40))
+        if (rank > Rank.RESTORE && (field == Field.MCAP_USD || field == Field.FDV_USD)) archive(ts, nowMs)
         if (rank > Rank.RESTORE) try {
             val kind = when (field) {
                 Field.BUY_PRESSURE_PCT, Field.SELL_PRESSURE_PCT -> FeatureKind8283.POOL_FLOW
@@ -305,6 +315,97 @@ object TokenFacts {
         if (flow != null && flow.known) return (flow.buys5m + flow.sells5m) / 5.0
         ts.facts8551[Field.TX_PER_MIN]?.takeIf { nowMs - it.observedAtMs in 0L..TX_FRESH_MS }?.let { return it.value }
         return try { com.lifecyclebot.engine.DataPipeline.cachedAlphaSignals6486(ts.mint)?.txVelocity } catch (_: Throwable) { null } ?: Double.NaN
+    }
+
+    // ── side caches add to the store (V5.0.8554 cache bundle) ─────────────────────────────────────────────────────────
+
+    /**
+     * A DexScreener pair answer (single pair, price batch or pair batch — every producer of PairFlow8169) ADDS what it
+     * carries to the row's facts at the answer's own time: buy / sell pressure (5-minute counts; the hour's counts as an
+     * AGGREGATE stand-in), transactions per minute, 5 m / 1 h change, and the pool's liquidity unless the coin is still on
+     * its pump.fun curve (the curve account is its depth). Superseded: these lived only in the pair cache, which the
+     * resolver, stage router, continuation read and entry flow each pulled from on their own; the store and every other
+     * reader never saw them. The cap is not taken here: a cap comes from verified supply (MintSupply8418).
+     */
+    fun notePairFlow(mint: String, f: PairFlow8169.Flow8169) {
+        val ts = try { com.lifecyclebot.engine.BotService.status.tokens[mint.trim()] } catch (_: Throwable) { null } ?: return
+        val at = f.atMs
+        val m5 = if (f.buysM5 >= 0 && f.sellsM5 >= 0) f.buysM5 + f.sellsM5 else 0
+        val h1 = if (f.buysH1 >= 0 && f.sellsH1 >= 0) f.buysH1 + f.sellsH1 else 0
+        when {
+            m5 > 0 -> {
+                writeSnapshot(ts, Field.BUY_PRESSURE_PCT, f.buysM5 * 100.0 / m5, "DEX_PAIR_M5", Rank.PROVIDER, at)
+                writeSnapshot(ts, Field.SELL_PRESSURE_PCT, f.sellsM5 * 100.0 / m5, "DEX_PAIR_M5", Rank.PROVIDER, at)
+                writeSnapshot(ts, Field.TX_PER_MIN, m5 / 5.0, "DEX_PAIR_M5", Rank.PROVIDER, at)
+            }
+            h1 > 0 -> {
+                writeSnapshot(ts, Field.BUY_PRESSURE_PCT, f.buysH1 * 100.0 / h1, "DEX_PAIR_H1", Rank.AGGREGATE, at)
+                writeSnapshot(ts, Field.SELL_PRESSURE_PCT, f.sellsH1 * 100.0 / h1, "DEX_PAIR_H1", Rank.AGGREGATE, at)
+                writeSnapshot(ts, Field.TX_PER_MIN, h1 / 60.0, "DEX_PAIR_H1", Rank.AGGREGATE, at)
+            }
+        }
+        if (f.chg5m.isFinite()) writeSnapshot(ts, Field.CHANGE_5M_PCT, f.chg5m, "DEX_PAIR", Rank.PROVIDER, at)
+        if (f.chg1h.isFinite()) writeSnapshot(ts, Field.CHANGE_1H_PCT, f.chg1h, "DEX_PAIR", Rank.PROVIDER, at)
+        val activeCurve = mint.endsWith("pump", ignoreCase = true) &&
+            !(try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(mint) } catch (_: Throwable) { false })
+        if (!activeCurve && isReading(f.liquidityUsd)) writeLiquidity(ts, f.liquidityUsd, "DEX_PAIR", Rank.PROVIDER, at)
+    }
+
+    /** A market-sweep row ADDS its changes and liquidity at the row's own observation time (0 = unknown: not taken). */
+    fun noteSweepRow(mint: String, chg5m: Double, chg1h: Double, liquidityUsd: Double, observedAtMs: Long) {
+        if (observedAtMs <= 0L) return
+        val ts = try { com.lifecyclebot.engine.BotService.status.tokens[mint.trim()] } catch (_: Throwable) { null } ?: return
+        if (chg5m.isFinite()) writeSnapshot(ts, Field.CHANGE_5M_PCT, chg5m, "MARKET_SWEEP", Rank.AGGREGATE, observedAtMs)
+        if (chg1h.isFinite()) writeSnapshot(ts, Field.CHANGE_1H_PCT, chg1h, "MARKET_SWEEP", Rank.AGGREGATE, observedAtMs)
+        val activeCurve = mint.endsWith("pump", ignoreCase = true) &&
+            !(try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(mint) } catch (_: Throwable) { false })
+        if (!activeCurve && isReading(liquidityUsd)) writeLiquidity(ts, liquidityUsd, "MARKET_SWEEP", Rank.AGGREGATE, observedAtMs)
+    }
+
+    /** The tape read a reader fell back to ADDS itself (executed swaps: CHAIN, at the read's time). */
+    fun noteTapeRead(ts: TokenState, bp: Double?, chg5m: Double?, nowMs: Long = System.currentTimeMillis()) {
+        if (bp != null && validFor(Field.BUY_PRESSURE_PCT, bp)) {
+            writeSnapshot(ts, Field.BUY_PRESSURE_PCT, bp, "TAPE_8100", Rank.CHAIN, nowMs, nowMs)
+            writeSnapshot(ts, Field.SELL_PRESSURE_PCT, 100.0 - bp, "TAPE_8100", Rank.CHAIN, nowMs, nowMs)
+        }
+        if (chg5m != null && chg5m.isFinite()) writeSnapshot(ts, Field.CHANGE_5M_PCT, chg5m, "TAPE_8100", Rank.CHAIN, nowMs, nowMs)
+    }
+
+    private val archivedAt = ConcurrentHashMap<String, Long>()
+    private const val ARCHIVE_EVERY_MS = 60_000L
+
+    /** Pure: is an archive refresh of a mint last archived at [lastMs] due at [nowMs]? */
+    fun archiveDue(lastMs: Long?, nowMs: Long): Boolean = lastMs == null || nowMs - lastMs !in 0L until ARCHIVE_EVERY_MS
+
+    /**
+     * V5.0.8554 — the archive round trip: the store refreshes the mint's TokenMetaCache row (in memory; SQLite on its own
+     * 60 s flush) from its facts, at most once a minute per mint, after an observed (non-restore) write. Superseded: the
+     * archive kept the first intake figures (a raw intake register even ran after the mirror register and overwrote it)
+     * and nothing refreshed it after later polls, so a warm boot restored stale numbers. A warm boot reads these back as
+     * RESTORE facts (time 0), never as observations.
+     */
+    fun archive(ts: TokenState, nowMs: Long = System.currentTimeMillis()) {
+        if (ts.mint.isBlank() || !archiveDue(archivedAt[ts.mint], nowMs)) return
+        if (archivedAt.size > 20_000) archivedAt.entries.removeIf { nowMs - it.value > 10L * ARCHIVE_EVERY_MS }
+        archivedAt[ts.mint] = nowMs
+        val ctx = try { com.lifecyclebot.AATEApp.appContextOrNull() } catch (_: Throwable) { null } ?: return
+        fun v(f: Field) = ts.facts8551[f]?.takeIf { it.rank > Rank.RESTORE }?.value
+        val px = ts.facts8551[Field.PRICE_USD]?.takeIf { it.rank > Rank.RESTORE }
+        try {
+            com.lifecyclebot.engine.TokenMetaCache.get(ctx).register(
+                mint = ts.mint,
+                lastPrice = px?.value, lastPriceSource = px?.source?.takeIf { it.isNotBlank() },
+                lastPricePoolAddr = ts.lastPricePoolAddr.takeIf { px != null && it.isNotBlank() },
+                lastPriceDex = ts.lastPriceDex.takeIf { px != null && it.isNotBlank() },
+                lastMcap = v(Field.MCAP_USD), lastLiquidityUsd = v(Field.LIQUIDITY_USD), lastFdv = v(Field.FDV_USD),
+            )
+            count(accepted, "ARCHIVE:REFRESH")
+        } catch (_: Throwable) {}
+    }
+
+    /** The frozen decision copy keeps the facts (source, rank, time) of the row it froze (DATA_MAP D10). */
+    fun freezeInto(frozen: TokenState, live: TokenState) {
+        try { synchronized(live.facts8551) { frozen.facts8551.putAll(live.facts8551) } } catch (_: Throwable) {}
     }
 
     /** The one top-holder share reader (DATA_MAP D3: five call sites read the two fields in different orders). */

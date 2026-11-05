@@ -160,6 +160,8 @@ object MintSupply8418 {
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MINT_SUPPLY_ACCEPTED_8418_${s.source.name}") } catch (_: Throwable) {}
         if (notifyMetrics) try { TokenMetricsAuthority7069.acceptOnChainSupply7075(s.mint, s.wholeTokens) } catch (_: Throwable) {}
         try { saveSoon8418(System.currentTimeMillis()) } catch (_: Throwable) {}
+        // V5.0.8554 — the row learns its supply the moment the chain answers (it used to wait for a TrustedMcap8019 read)
+        try { com.lifecyclebot.engine.BotService.status.tokens[s.mint]?.let { stamp8418(it) } } catch (_: Throwable) {}
         return true
     }
 
@@ -285,6 +287,8 @@ object MintSupply8418 {
     fun stamp8418(ts: com.lifecyclebot.data.TokenState): Supply8418? {
         val s = of8418(ts.mint) ?: return ts.mintSupply8418
         ts.mintSupply8418 = s
+        // V5.0.8554 — the one store carries it as a fact (source, chain rank, the account's own observation time)
+        try { TokenFacts.writeSnapshot(ts, TokenFacts.Field.SUPPLY_WHOLE, s.wholeTokens, "MINT_ACCOUNT_" + s.source.name, TokenFacts.Rank.CHAIN, s.observedAtMs) } catch (_: Throwable) {}
         try {
             val d = ts.tokenMap.decimals
             if (d == null || d < 0) ts.tokenMap.decimals = s.decimals

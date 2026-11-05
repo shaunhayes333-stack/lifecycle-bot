@@ -179,6 +179,8 @@ object TokenMapAuthority {
         ts.tokenMap = detached6492(shared).also {
             if (localAttempt.isNotBlank()) it.buyAttemptId = localAttempt
         }
+        // V5.0.8554 — a shared map swapped in never overrides the store: its mirrors are re-stamped from the row's facts
+        try { com.lifecyclebot.engine.truth.TokenFacts.mirror(ts) } catch (_: Throwable) {}
         return ts.tokenMap
     }
 
