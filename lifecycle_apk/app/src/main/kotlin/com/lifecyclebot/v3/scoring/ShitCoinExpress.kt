@@ -39,6 +39,9 @@ import kotlin.math.max
  * ═══════════════════════════════════════════════════════════════════════════════
  */
 object ShitCoinExpress {
+    /** Pure (V5.0.8555): an EXPRESS print is too extended to ride (5 m > +12 % or continuation > +20 %). */
+    fun chaseExtended8555(chg5mPct: Double, continuationPct: Double): Boolean = chg5mPct > 12.0 || continuationPct > 20.0
+
     
     private const val TAG = "💩Express"
     
@@ -368,7 +371,9 @@ object ShitCoinExpress {
 
         // Express is an early continuation desk, not a parabolic-top buyer.
         // Keep very extended prints out even if social/trending visibility is hot.
-        val chaseExtended7449 = priceChange5Min > 20.0 || effectiveMomentum > 30.0
+        // V5.0.8555 §LANE_SWEEP — superseded 20 / 30: EXPRESS's own score paid most for +8..+20 % (its BREAKOUT stage, -18.7 % at
+        // 5 minutes; 5-minute spikes > +10 % -7.5 %, > +30 % -11.2 %). FIELD_MANUAL §4B: an extended break waits for the retest.
+        val chaseExtended7449 = chaseExtended8555(priceChange5Min, effectiveMomentum)
         if (chaseExtended7449) {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXPRESS_CHASE_REJECTED_7449") } catch (_: Throwable) {}
             return noRide("CHASE_EXTENDED: mom=${effectiveMomentum.fmt(1)}% chg5m=${priceChange5Min.fmt(1)}%")
@@ -857,7 +862,8 @@ object ShitCoinExpress {
         // V5.0.7389 — any negative momentum tick cut winners at +1% while losers
         // ran to the -8% stop. Momentum must actually turn (< -2%), and once the
         // first rung is banked the runner belongs to the trail and locks.
-        if (currentMomentum < -2.0 && pnlPct > 0 && ride.partialRungsTaken == 0) {
+        // V5.0.8555 — PAPER (until proven): +0.1 % gross is a net loss after the round trip; paper waits for cost + 1 %
+        if (currentMomentum < -2.0 && com.lifecyclebot.engine.truth.LaneSweep8555.profitExitAllowed(pnlPct, ride.isPaper) && ride.partialRungsTaken == 0) {
             ride.ridePhase = RidePhase.BRAKING
             ErrorLogger.info(TAG, "💩📉 MOM DEATH! $mint | +${pnlPct.fmt(1)}% mom=${currentMomentum.fmt(1)}%")
             return ExitSignal.MOMENTUM_DEATH

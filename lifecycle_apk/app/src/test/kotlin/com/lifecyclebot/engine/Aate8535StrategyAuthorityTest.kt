@@ -92,7 +92,7 @@ class Aate8535StrategyAuthorityTest {
         assertEquals(18, SaturationPenalty8535.treasury8535(86.0, 92.0))
         val moon = File("src/main/kotlin/com/lifecyclebot/v3/scoring/MoonshotTraderAI.kt").readText()
         assertTrue(moon.contains("val saturation8535 = SaturationPenalty8535.moonshot8535(buyPressurePct, phase)") && moon.contains("score -= saturation8535"))
-        assertTrue("the rising-demand band is untouched", moon.contains("buyPressurePct > 75 -> 18"))
+        assertTrue("a crowded tape earns no more than healthy demand", moon.contains("buyPressurePct > 55 -> 10") && !moon.contains("buyPressurePct > 75 -> 18")) // superseded by V5.0.8555 §LANE_SWEEP: 5 of 6 MOONSHOT live closes bought the top
         val cash = File("src/main/kotlin/com/lifecyclebot/v3/scoring/CashGenerationAI.kt").readText()
         assertTrue(cash.contains("val overheat8535 = SaturationPenalty8535.scalp8535(buyPressurePct, momentum)"))
         assertTrue("the AGGRESSIVE anti-FOMO clamp stays", cash.contains("wr_recovery_anti_fomo=buyPressure="))

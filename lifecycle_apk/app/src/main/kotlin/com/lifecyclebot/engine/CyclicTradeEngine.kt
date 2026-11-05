@@ -721,7 +721,13 @@ object CyclicTradeEngine {
             //   HW ≥  6%: floor  0% (was: same)
             //   HW ≥  4%: floor -1% (was: same)
             //   HW ≥  2%: floor -3% (NEW — tighten on early gains)
+            // V5.0.8555 §LANE_SWEEP — PAPER (until proven): the sub-10 % floors (+1 / 0 / -1 / -3 %) bank net losses at a
+            // 1.6-2.8 % round trip (FIELD_MANUAL §8.4); paper locks only at cost + 1 % (LaneSweep8555) once the peak reached +8 %.
+            val paper8555 = !isLiveMode
+            val lockMin8555 = com.lifecyclebot.engine.truth.LaneSweep8555.PAPER_PROFIT_EXIT_MIN_PCT
             val runnerFloor: Double? = when {
+                paper8555 && positionHighWaterPnlPct >= 8.0 && positionHighWaterPnlPct < 15.0 -> lockMin8555
+                paper8555 && positionHighWaterPnlPct < 8.0 -> null
                 positionHighWaterPnlPct >= 200.0 -> positionHighWaterPnlPct * 0.70
                 positionHighWaterPnlPct >= 100.0 -> 70.0
                 positionHighWaterPnlPct >= 60.0  -> 40.0

@@ -623,6 +623,48 @@ object LanePlaybook7907 {
         RETIRED_8383[lane]?.contains(setup) == true && !(setup in EARLY_FAMILY_8389 && LaneCheatSheet8323.mcapMin8323(lane) < ENV_MCAP_MIN_8383) &&
             !LaneGradeHorizon8406.retirementSuspended8406(lane, setup)   // V5.0.8406 — 5-minute evidence does not retire patience on an hour-graded lane
 
+    // ── V5.0.8555 §LANE_SWEEP (per-lane setup & strategy audit of the 8550 log + the 559-decision edge export) ─────────
+    // Every meme lane's BREAKOUT / PEAK stage lost 12-22 % at 5 minutes while BASE was the only positive stage; buys within
+    // 8 % of the peak were the worst bucket (pxPeak 0.92-0.98 PF 0.05, 0.98+ PF 0.23; established coins at the high PF 0.01).
+    // Retirement keeps every setup's menu id and learned bins (no learning is reset); a retired setup just no longer fires.
+
+    /** The chase family: setups that buy strength at (or into) the high. */
+    internal val CHASE_8555 = setOf("BREAKOUT_RUNNER", "NEW_HIGH_PUSH", "BUYERS_DOMINATING", "TX_VELOCITY_BREAK", "IGNITION_5M",
+        "BAND_MOMENTUM_8383", "OPP_BREAKOUT_EXPANSION", "BASE_BREAKOUT_FLOW", "VOLUME_IGNITION", "STRONG_TREND_8383", "RS_LEADER")
+    const val CHASE_PX_PEAK_MAX_8555 = 0.92
+
+    /** Pure: a chase setup fires only below [CHASE_PX_PEAK_MAX_8555] of the peak (an unread peak position cannot be judged). */
+    fun chaseRefused8555(setup: String, pxPeak: Double): Boolean =
+        setup in CHASE_8555 && !(pxPeak.isFinite() && pxPeak <= CHASE_PX_PEAK_MAX_8555)
+
+    /**
+     * (lane, setup) pairs the sweep retired: contradictions with the lane's own gates (never-firing) and chase setups on
+     * lanes whose thesis is range / established / base.
+     */
+    internal val RETIRED_8555: Map<String, Set<String>> = mapOf(
+        // a pre-ignition sniper refuses graduated coins; POST_MIGRATION_HOLD needs a migrated one
+        "PROJECT_SNIPER" to setOf("POST_MIGRATION_HOLD"),
+        // FIRST_DIP_BOUGHT wants age 3-20 min; the lane requires >= 2 h
+        "DIP_HUNTER" to setOf("FIRST_DIP_BOUGHT"),
+        // spike-chasing setups borrowed from other lanes (MANIPULATED BREAKOUT -12.4 %, PEAK -13.0 %; BASE +28.4 %)
+        "MANIPULATED" to setOf("VOLUME_IGNITION", "BREAKOUT_RUNNER", "RS_LEADER", "BAND_MOMENTUM_8383"),
+        // MOONSHOT LAUNCH -28.4 %, BREAKOUT -22.3 %; 5 of 6 live closes LOSS_BOUGHT_TOP
+        "MOONSHOT" to setOf("BAND_MOMENTUM_8383", "IGNITION_5M", "BASE_BREAKOUT_FLOW", "NEW_HIGH_PUSH"),
+        // established-coin lanes: 1 h >= +100 % / age <= 60 min chases (TREASURY age<60m -7.75 %, chg1h>=30 -10.7 %)
+        "TREASURY" to setOf("STRONG_TREND_8383", "YOUNG_LIQUID_8383"),
+        "CASHGEN" to setOf("STRONG_TREND_8383", "YOUNG_LIQUID_8383"),
+        "BLUECHIP" to setOf("STRONG_TREND_8383", "TREND_PULLBACK_8383"),
+        // meme setups on a quality lane (SWEET_SPOT 10-50 k cannot fire under a 75 k floor; BAND_MOMENTUM is a chase)
+        "QUALITY" to setOf("SWEET_SPOT_8383", "BAND_MOMENTUM_8383"),
+        "CORE" to setOf("BAND_MOMENTUM_8383"),
+        // a range lane does not buy breakouts / 5-minute momentum
+        "CYCLIC" to setOf("BAND_MOMENTUM_8383", "PLAN_BASE_BREAKOUT"),
+    )
+    fun retired8555(lane: String, setup: String): Boolean = RETIRED_8555[canon(lane)]?.contains(setup) == true
+    private val sweepSkips8555 = ConcurrentHashMap<String, AtomicLong>()
+    fun sweepLine8555(): String = "laneSweep8555{" + sweepSkips8555.entries.sortedByDescending { it.value.get() }.take(10)
+        .joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } + "}"
+
     /**
      * V5.0.8389 — the launch / early-accumulation setups are an early-band lane's identity, not network-retirable: the
      * lane's own proven-losing refusal (7907, its own realised book) still refuses them where they lose for that lane.
@@ -1278,7 +1320,19 @@ object LanePlaybook7907 {
                 "outside tradable envelope: $why", envelope8383 = why)
         }
         // V5.0.8383 — network-proven losers no longer fire as this lane's strategy.
-        val fired = if (Cortex7885.nativeOwnsSelection8506(lane)) fired0 else fired0.filter { !retired8383(lane, it) }
+        // V5.0.8555 — superseded: skipped whenever the native brain owned selection (every lane without a Cortex entry grant —
+        // today all of them), so the retired losers kept firing and being chosen. Retirement, the sweep's retirements and the
+        // chase guard now apply to every lane in both modes (they only refuse).
+        val fired = fired0.filter { id ->
+            val why = when {
+                retired8383(lane, id) -> "RETIRED_8383"
+                retired8555(lane, id) -> "RETIRED_8555"
+                chaseRefused8555(id, f.pxPeak) -> "CHASE_AT_HIGH_8555"
+                else -> null
+            }
+            if (why != null && why != "RETIRED_8383") sweepSkips8555.computeIfAbsent("$lane:$why") { AtomicLong(0) }.incrementAndGet()
+            why == null
+        }
         if (fired.size != fired0.size) {
             retiredSkips8383.computeIfAbsent(lane) { AtomicLong(0) }.incrementAndGet()
             try { PipelineHealthCollector.labelInc("SETUP_RETIRED_SKIPPED_8383_$lane") } catch (_: Throwable) {}

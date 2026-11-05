@@ -41,6 +41,20 @@ import kotlin.math.abs
  * ═══════════════════════════════════════════════════════════════════════════════
  */
 object DipHunterAI {
+    /**
+     * Pure (V5.0.8555 §LANE_SWEEP): the dip lane's static refusal, judged BEFORE it waits for price history (the history wait
+     * ran first: 276 WAIT_FOR_DIP_HISTORY on coins its cap / liquidity / age rules refuse anyway, each asking for a fetch).
+     * Unread values (<= 0 / NaN) are not judged here: the lane's own evaluation keeps deciding those.
+     */
+    fun staticRefusal8555(mcapUsd: Double, liquidityUsd: Double, ageHours: Double): String? = when {
+        mcapUsd > 0.0 && mcapUsd < MIN_MCAP_USD -> "DIP_STATIC_MCAP_LOW_8555"
+        mcapUsd > MAX_MCAP_USD -> "DIP_STATIC_MCAP_HIGH_8555"
+        liquidityUsd > 0.0 && liquidityUsd < MIN_LIQUIDITY_USD -> "DIP_STATIC_LIQ_LOW_8555"
+        mcapUsd > 0.0 && liquidityUsd > 0.0 && liquidityUsd / mcapUsd < MIN_LIQUIDITY_RATIO -> "DIP_STATIC_LIQ_RATIO_8555"
+        ageHours.isFinite() && ageHours >= 0.0 && ageHours < MIN_TOKEN_AGE_HOURS -> "DIP_STATIC_TOO_YOUNG_8555"
+        else -> null
+    }
+
     
     private const val TAG = "DipHunter"
     

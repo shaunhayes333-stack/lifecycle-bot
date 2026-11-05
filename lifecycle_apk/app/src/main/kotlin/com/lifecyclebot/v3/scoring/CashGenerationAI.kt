@@ -58,7 +58,9 @@ object CashGenerationAI {
     private const val MIN_POSITION_SOL = 0.05         // V5.6.6: Raised from 0.03 - below this isn't worth fees
     private const val POSITION_SCALE_FACTOR = 1.25    // V5.6.6: Raised from 1.15 - confidence bonus
     private const val WALLET_SCALE_FACTOR = 0.08      // V5.6.6: Raised from 0.03 - 8% of balance per trade
-    private const val WIN_STREAK_SCALE = 0.15         // V5.6.6: NEW - 15% bonus per consecutive win (up to 5)
+    // V5.0.8555 §LANE_SWEEP — superseded 0.15 (+15 % size per consecutive win, up to 5): sizing follows the stop distance
+    // and the edge (cheat sheet), not a hot hand; the streak is still tracked and reported.
+    private const val WIN_STREAK_SCALE = 0.0
 
     // Exit strategy - V5.6.6: Dynamic TP/SL that Treasury controls
     private const val TAKE_PROFIT_PCT_PAPER = 15.0  // 8485: owner — "everything needs bigger win targets, 3% is bullshit"; trade-1 targets, cost ~3.3% a curve round trip
@@ -531,7 +533,10 @@ object CashGenerationAI {
         // real anti-rug depth floor but open the scalp pond ($5K paper / $10K
         // live). Score threshold + anti-FOMO clamp + FDG remain unchanged.
         // V5.0.7550 — identical Treasury/CashGen admission pond in PAPER and LIVE.
-        val learnedTreasuryMinLiq = 10_000.0
+        // V5.0.8555 §LANE_SWEEP — superseded 10_000: the treasury / cashgen pond is the lane's own cheat-sheet pond
+        // (TreasuryScannerFeed: $50k+ liquidity); the $10k pool admitted the fresh memes that made 200 of 338 TREASURY
+        // decisions (fresh TREASURY rows -8.1 %, age<60 min -7.75 %, chg1h>=30 -10.7 %).
+        val learnedTreasuryMinLiq = com.lifecyclebot.engine.TreasuryScannerFeed.MIN_TREASURY_LIQUIDITY
         val treasuryMinLiq = com.lifecyclebot.engine.ColdStartPriors.applyLiquidityFloor(ownerLane, learnedTreasuryMinLiq)
         if (liquidityUsd > 0.0 && liquidityUsd < treasuryMinLiq) {
             try { TreasuryCashflowMissionReport.recordRejected("treasury_liq_floor_${liquidityUsd.toInt()}_below_${treasuryMinLiq.toInt()}", mode.name, isPaperMode) } catch (_: Throwable) {}

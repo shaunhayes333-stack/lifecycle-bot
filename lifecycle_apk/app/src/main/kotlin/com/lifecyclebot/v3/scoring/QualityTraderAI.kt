@@ -59,12 +59,17 @@ object QualityTraderAI {
     const val MAX_MARKET_CAP_USD = 1_000_000.0 // $1M max (above this = BlueChip)
     
     // Liquidity requirements - higher standard than ShitCoin
-    internal const val MIN_LIQUIDITY_USD = 3_000.0      // V5.9.343: walk-back to V5.9.335
+    // V5.0.8555 §LANE_SWEEP — superseded 3_000: `coerceIn(3_000, MIN_LIQUIDITY_USD = 3_000)` pinned the "fluid" floor at $3k
+    // for ever, so a "quality" lane took $3k pools (QUALITY-band proxy n180 -6.5 %, PF 0.15). The ramp now works as designed.
+    internal const val MIN_LIQUIDITY_USD = 25_000.0
+    private const val MIN_LIQUIDITY_BOOTSTRAP_USD_8555 = 10_000.0
     
     // Token age - prefer established tokens
     // V5.2.12: Made fluid - lower during learning to gather data
-    internal const val MIN_AGE_MINUTES_BOOTSTRAP = 5      // V5.9.191: 5 mins (was 10) — catch early movers
-    private const val MIN_AGE_MINUTES_MATURE = 20        // V5.9.191: 20 mins (was 30)
+    // V5.0.8555 §LANE_SWEEP — superseded 5 / 20 min: a 5-minute-old $3k pool is a launch (FIELD_MANUAL: pools < 2 h), not the
+    // established coin this lane's thesis trades; launches belong to the launch lanes.
+    internal const val MIN_AGE_MINUTES_BOOTSTRAP = 120
+    private const val MIN_AGE_MINUTES_MATURE = 360
     private const val IDEAL_AGE_MINUTES = 60             // V5.9.191: 1+ hour ideal (was 2h — too selective)
     
     // Position sizing
@@ -268,7 +273,8 @@ object QualityTraderAI {
         // Liquidity filter — FLUID: lower during bootstrap for data gathering
         // V5.4: was hard $20K floor; now $5K bootstrap → $20K mature
         val learningProgress = FluidLearningAI.getLearningProgress()
-        val minLiqUsd = (3_000 + learningProgress * 7_000).coerceIn(3_000.0, MIN_LIQUIDITY_USD)  // V5.9.335: loosened
+        val minLiqUsd = (MIN_LIQUIDITY_BOOTSTRAP_USD_8555 + learningProgress * (MIN_LIQUIDITY_USD - MIN_LIQUIDITY_BOOTSTRAP_USD_8555))
+            .coerceIn(MIN_LIQUIDITY_BOOTSTRAP_USD_8555, MIN_LIQUIDITY_USD)   // V5.0.8555 — $10k bootstrap -> $25k mature
         // V5.0.8140 — an unread pool defers (never "low"); a real one below the floor refuses, naming QUALITY.
         com.lifecyclebot.engine.LaneAgeLiquidityTruth8140.laneLiquidityRefusal8140("QUALITY", liquidityUsd, minLiqUsd)?.let { return QualitySignal(false, reason = it) }
         if (liquidityUsd < minLiqUsd) {

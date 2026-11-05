@@ -64,7 +64,7 @@ class Aate7425LiveRuntimeCorrectnessTest {
         assertTrue(manip.contains("knownManipulation7425"))
         assertTrue(manip.contains("NO_KNOWN_MANIPULATION_EVIDENCE_7425"))
         assertTrue(manip.contains("bundlePct >= 40.0"))
-        assertTrue(manip.contains("buyPressurePct >= 70.0 && momentum >= 10.0"))
+        assertTrue(manip.contains("val knownManipulation7425 = manipulationEntry8555(bundlePct, momentum)")) // superseded by V5.0.8555 §LANE_SWEEP: the spike route bought the top
     }
 
     @Test fun healthReportNeverCallsLandedLiveTradingFullyBlocked() {

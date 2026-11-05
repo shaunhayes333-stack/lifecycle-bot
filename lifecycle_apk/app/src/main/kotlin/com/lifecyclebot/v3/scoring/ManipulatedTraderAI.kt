@@ -42,6 +42,9 @@ import kotlin.math.abs
  * ═══════════════════════════════════════════════════════════════════════════════
  */
 object ManipulatedTraderAI {
+    /** Pure (V5.0.8555): a bundled launch (>= 40 % of supply in the first block) that is not already spiking (5 m <= +5 %). */
+    fun manipulationEntry8555(bundlePct: Double, momentumPct: Double): Boolean = bundlePct >= 40.0 && !(momentumPct > 5.0)
+
 
     private const val TAG = "☠️ManipAI"
 
@@ -305,9 +308,10 @@ object ManipulatedTraderAI {
         // V5.0.7425: risky is NOT the same as manipulated. Source+young-age alone
         // can score 20 points and used to admit ordinary fresh tokens into the
         // danger lane without any actual manipulation evidence.
-        val knownManipulation7425 =
-            bundlePct >= 40.0 ||
-            (buyPressurePct >= 70.0 && momentum >= 10.0)
+        // V5.0.8555 §LANE_SWEEP — superseded the second route `bp >= 70 && momentum >= 10` (literally buying the spike:
+        // MANIPULATED BREAKOUT -12.4 %, PEAK -13.0 %, forward -13.1 % while its BASE was +28.4 %). Coordination is the
+        // bundle; the entry is the coordinated coin before it spikes.
+        val knownManipulation7425 = manipulationEntry8555(bundlePct, momentum)
         if (!knownManipulation7425) {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MANIPULATED_NO_KNOWN_DANGER_PROOF_7425") } catch (_: Throwable) {}
             return noEnter("NO_KNOWN_MANIPULATION_EVIDENCE_7425")

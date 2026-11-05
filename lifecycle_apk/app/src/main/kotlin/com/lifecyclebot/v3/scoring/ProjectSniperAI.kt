@@ -789,7 +789,8 @@ object ProjectSniperAI {
         // ═══════════════════════════════════════════════════════════════════
         
         // If buy pressure drops significantly, exit
-        if (currentBuyPressure < 45 && pnlPct > 0) {
+        // V5.0.8555 — PAPER (until proven): a fade exit at +0.1 % gross banks a net loss; paper waits for cost + 1 %
+        if (currentBuyPressure < 45 && com.lifecyclebot.engine.truth.LaneSweep8555.profitExitAllowed(pnlPct, isPaperMode)) {
             return ExitSignal(true, 100, "MOMENTUM_FADE: buy%=${currentBuyPressure.toInt()}", getRank(pnlPct))
         }
         

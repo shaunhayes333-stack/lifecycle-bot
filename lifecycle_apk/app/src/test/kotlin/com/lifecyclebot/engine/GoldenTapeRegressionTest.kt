@@ -254,8 +254,8 @@ class GoldenTapeRegressionTest {
     fun wr_recovery_tuning_tightens_shitcoin_never_green_and_express_floor() {
         val shit = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinTraderAI.kt").readText()
         val exp = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinExpress.kt").readText()
-        assertTrue(shit.contains("ageSec >= 30L"))
-        assertTrue(shit.contains("pnlPct < -3.5"))
+        assertTrue(shit.contains("fun neverGreenCut8555(paper: Boolean): Pair<Long, Double> = if (paper) 90L to -8.0 else 30L to -3.5")) // superseded by V5.0.8555 §LANE_SWEEP: LIVE keeps 30 s / -3.5 %, PAPER 90 s / -8 % until proven
+        assertTrue(shit.contains("if (ageSec >= ngSec8555 && pos.peakPnlPct <= 0.0 && pnlPct < ngPct8555)"))
         assertTrue(exp.contains("EXPRESS_SCORE_BOOTSTRAP = 10"))
         assertTrue(exp.contains("coerceIn(0.01, MAX_POSITION_SOL)"))
     }
@@ -12543,7 +12543,7 @@ class GoldenTapeRegressionTest {
         assertTrue(bc.contains("STOP_LOSS_BOOTSTRAP = -8.0"))
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinExpress.kt").readText()
         assertTrue(ex.contains("private const val MAX_POSITION_SOL = 0.25"))
-        assertTrue(ex.contains("currentMomentum < -2.0 && pnlPct > 0 && ride.partialRungsTaken == 0"))
+        assertTrue(ex.contains("currentMomentum < -2.0 && com.lifecyclebot.engine.truth.LaneSweep8555.profitExitAllowed(pnlPct, ride.isPaper) && ride.partialRungsTaken == 0")) // superseded by V5.0.8555 §LANE_SWEEP: LIVE keeps pnl > 0
         val moon = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/MoonshotTraderAI.kt").readText()
         assertTrue(moon.contains("ExitDoctrine8169.earlyRunnerStopMag8169(mint)"))
         // CORE's score is blended with its voters; V3 position/cooldown holds still bind TREASURY.

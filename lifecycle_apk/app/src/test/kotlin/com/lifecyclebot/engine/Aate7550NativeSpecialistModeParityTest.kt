@@ -34,7 +34,7 @@ class Aate7550NativeSpecialistModeParityTest {
     @Test fun cashgen_uses_same_liquidity_pond() {
         val s=src("v3/scoring/CashGenerationAI.kt")
         val eval=s.substringAfter("fun evaluate(").substringBefore("fun addPosition")
-        assertTrue(eval.contains("val learnedTreasuryMinLiq = 10_000.0"))
+        assertTrue(eval.contains("val learnedTreasuryMinLiq = com.lifecyclebot.engine.TreasuryScannerFeed.MIN_TREASURY_LIQUIDITY")) // superseded by V5.0.8555 §LANE_SWEEP: the lane's own $50k pond, same in PAPER and LIVE
         assertFalse(eval.contains("if (isPaperMode) 5_000.0 else 10_000.0"))
     }
 

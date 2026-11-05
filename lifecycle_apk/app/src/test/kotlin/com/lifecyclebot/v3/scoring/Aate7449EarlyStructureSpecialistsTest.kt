@@ -36,7 +36,7 @@ class Aate7449EarlyStructureSpecialistsTest {
     @Test fun express_scores_early_continuation_and_rejects_parabolic_chase() {
         val s = src("ShitCoinExpress.kt")
         assertTrue(s.contains("EXPRESS_CHASE_REJECTED_7449"))
-        assertTrue(s.contains("priceChange5Min > 20.0 || effectiveMomentum > 30.0"))
+        assertTrue(s.contains("fun chaseExtended8555(chg5mPct: Double, continuationPct: Double): Boolean = chg5mPct > 12.0 || continuationPct > 20.0")) // superseded by V5.0.8555 §LANE_SWEEP
         assertTrue(s.contains("effectiveMomentum in 7.0..15.0 -> 25"))
         assertTrue(s.contains("priceChange5Min in 2.0..8.0 -> 20"))
         assertFalse(s.contains("priceChange5Min >= 15 -> 15"))

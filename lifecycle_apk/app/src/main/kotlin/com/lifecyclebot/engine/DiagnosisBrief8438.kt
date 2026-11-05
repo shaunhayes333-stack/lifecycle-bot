@@ -117,7 +117,8 @@ object DiagnosisBrief8438 {
         val nonEconomic = PipelineHealthCollector.labelCountSnapshot("FDG_REJECT_TAXONOMY_4427_NON_ECONOMIC_APPROVAL_7835") +
             PipelineHealthCollector.labelsWithPrefix7156("NON_ECONOMIC_APPROVAL_7835").values.sum()
         val book8544 = try { com.lifecyclebot.engine.truth.MemePaperTrader8544.statusLine8544() } catch (_: Throwable) { "memePaper8544[read failed]" } +
-            "\n               " + (try { com.lifecyclebot.engine.truth.MemeStrategies8546.statusLine8546() } catch (_: Throwable) { "memeFamilies8546[read failed]" })
+            "\n               " + (try { com.lifecyclebot.engine.truth.MemeStrategies8546.statusLine8546() } catch (_: Throwable) { "memeFamilies8546[read failed]" }) +
+            " " + (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.sweepLine8555() } catch (_: Throwable) { "laneSweep8555{?}" })   // V5.0.8555
         return paperFunnelLine8536(attempts, opened, notOpened, nonEconomic) + "\n               " + book8544   // V5.0.8544
     }
 

@@ -52,6 +52,24 @@ import kotlin.math.max
  * ═══════════════════════════════════════════════════════════════════════════════
  */
 object ShitCoinTraderAI {
+    /**
+     * Pure (V5.0.8555): SHITCOIN's 5-minute momentum points. A chase (> +20 %) is docked, +8..+20 % earns nothing, a small
+     * rise earns most; [paperBase] (PAPER until the bar n>=30 / mean-se>0 / PF>=1.3 is met) scores a held pullback
+     * (-6..0 %) like flat instead of docking it; LIVE keeps the old 0 there. A real fall (< -6 % / < -5 % live) -15.
+     */
+    /** Pure (V5.0.8555): the never-green cut (seconds held, pnl %): LIVE 30 s / -3.5 %, PAPER 90 s / -8 % until proven. */
+    fun neverGreenCut8555(paper: Boolean): Pair<Long, Double> = if (paper) 90L to -8.0 else 30L to -3.5
+
+    fun momentumScore8555(momentum: Double, paperBase: Boolean): Int = when {
+        momentum > 20.0 -> -10
+        momentum >= 8.0 -> 0
+        momentum >= 2.0 -> 5
+        momentum >= 0.0 -> 3
+        paperBase && momentum >= -6.0 -> 3
+        momentum >= -5.0 -> 0
+        else -> -15
+    }
+
     
     private const val TAG = "ShitCoinAI"
     
@@ -853,15 +871,10 @@ object ShitCoinTraderAI {
         // memecoins almost always dump within minutes of peak momentum.
         // Cap the momentum reward at +10 (was +20 for momentum>=20). The lane still
         // rewards real upward movement, but doesn't double-pay for "already pumped".
-        val momentumScore = when {
-            momentum >= 20 -> 10   // V5.9.1332: was 20 — don't over-reward parabolic (top-of-pump trap)
-            momentum >= 10 -> 8    // V5.9.1332: was 15
-            momentum >= 5 -> 7     // V5.9.1332: was 10
-            momentum >= 2 -> 5     // V5.9.1332: was 7
-            momentum >= 0 -> 3     // V5.9.316: REVERT V5.9.218 — flat=3 (build #1941)
-            momentum >= -5 -> 0    // V5.9.316: REVERT V5.9.218 — slight fade=0 (build #1941)
-            else -> -15
-        }
+        // V5.0.8555 §LANE_SWEEP — superseded (>=20 → +10, >=10 → +8, >=5 → +7): the curve still paid for the breakout
+        // (SHITCOIN BREAKOUT -15.9 %, PEAK -21.0 %, 5 m > +20 % -10.1 % at 5 minutes; BASE +18.7 %).
+        val paper8555 = try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
+        val momentumScore = momentumScore8555(momentum, paper8555)
         shitScore += momentumScore
         if (momentumScore != 0) scoreReasons.add("mom${if(momentumScore>0)"+" else ""}$momentumScore")
 
@@ -1115,7 +1128,8 @@ object ShitCoinTraderAI {
         // now subtracts 12pts. Combined with the +10 floor bump above, only setups
         // with real buy pressure AND positive momentum pass. Train-First preserved —
         // not a hard block, just a tighter quality bar.
-        val hasWeakSignal = momentum < 0.0 || buyPressurePct < 45.0
+        // V5.0.8555 — PAPER (until proven): a held pullback (down to -6 %) is not a weak signal; LIVE keeps momentum < 0.
+        val hasWeakSignal = (if (paper8555) momentum < -6.0 else momentum < 0.0) || buyPressurePct < 45.0
         if (hasWeakSignal) {
             shitScore = (shitScore - 12).coerceAtLeast(0)
             ErrorLogger.debug(TAG, "💩 QUALITY_SOFT_GATE: ${symbol} | momentum=${"%.1f".format(momentum)} bp=${buyPressurePct.toInt()}% → -12pts → score=$shitScore")
@@ -1722,7 +1736,10 @@ object ShitCoinTraderAI {
             // never-green entries slide into hard-floor/gap-through losses. Cut the
             // no-MFE thesis earlier. Any token that printed even +0.1% MFE keeps the
             // normal breather/runner rules; unconditional -15% floor unchanged.
-            if (ageSec >= 30L && pos.peakPnlPct <= 0.0 && pnlPct < -3.5) {
+            // V5.0.8555 §LANE_SWEEP — PAPER (until proven): -3.5 % after 30 s sits inside the 2.5-5 % round trip + noise
+            // (FieldManual8392: a stop never inside the round trip); paper cuts a never-green entry at -8 % after 90 s.
+            val (ngSec8555, ngPct8555) = neverGreenCut8555(pos.isPaper)
+            if (ageSec >= ngSec8555 && pos.peakPnlPct <= 0.0 && pnlPct < ngPct8555) {
                 ErrorLogger.info(TAG, "💩⏱️ EARLY-WEAKNESS EXIT: ${pos.symbol} | " +
                     "never green by ${ageSec}s (peak ${pos.peakPnlPct.fmt(1)}%, now ${pnlPct.fmt(1)}%) — cutting dead entry")
                 return ExitSignal.STOP_LOSS
@@ -1918,8 +1935,9 @@ object ShitCoinTraderAI {
         // ceiling. Self-resets on any clear win or loss.
         val scratchStreakSc4160 = com.lifecyclebot.engine.ScratchStreakRegistry.streakFor("SHITCOIN")
         val scratchMult4160 = if (scratchStreakSc4160 >= com.lifecyclebot.engine.ScratchStreakRegistry.TRAP_STREAK_THRESHOLD) 2.0 else 1.0
-        val timeExitEarlyBad  = holdMinutes >= 7  && pnlPct < -5.0    // V5.9.449: revert V5.9.446 → V5.9.293 build-1941 levels
-        val timeExitDeepLoss  = holdMinutes >= 5  && pnlPct < -6.0    // V5.9.449: revert V5.9.446 → V5.9.293 build-1941 levels
+        // V5.0.8555 — PAPER (until proven): -5 % / -6 % time cuts sit inside cost + noise; paper cuts at -10 % after 10 min
+        val timeExitEarlyBad  = if (pos.isPaper) holdMinutes >= 10 && pnlPct < -10.0 else holdMinutes >= 7 && pnlPct < -5.0
+        val timeExitDeepLoss  = if (pos.isPaper) holdMinutes >= 10 && pnlPct < -10.0 else holdMinutes >= 5 && pnlPct < -6.0
         // V5.9.618 — WR-killer relaxation: was 35min/-0.5% which converted ~30-40%
         // of would-be small winners into locked-in small losses (memes routinely chop
         // -2% to +5% for 30-40min before the real move). Relaxed to 60min/-3% so the

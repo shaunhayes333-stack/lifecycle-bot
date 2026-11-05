@@ -445,9 +445,12 @@ object SpecialistBrainBridge7542 {
             // NOT_A_DIP 0 % on every unhydrated coin: 8529 PRICE_HISTORY_UNOBSERVED 735, 0 allows). The lane either waits
             // for its history and asks for it (WAIT_FOR_DIP_HISTORY_8535, a data state, not a market judgement), or reads
             // the hunter's dated row reference as a lower-bound prior high; the bounce witness still needs the bot's own tape.
+            val static8555 = DipHunterAI.staticRefusal8555(ts.lastMcap, ts.lastLiquidityUsd, ageMin / 60.0)   // V5.0.8555 — static gates first
             val dipRef8535 = com.lifecyclebot.engine.market.DipHistory8535.ref(ts.mint, now)
             val dipState8535 = com.lifecyclebot.engine.market.DipHistory8535.stateOf(nativeHistory8521.high, nativeHistory8521.bouncePrices.size, dipRef8535, price)
-            if (dipState8535 == com.lifecyclebot.engine.market.DipHistory8535.State.WAIT) {
+            if (static8555 != null) {
+                op("DIP_HUNTER",false,0,0,0.0,static8555,"PANIC_REVERSION_BOUNCE","dip_native_reclaim","dip_native_recovery_exit",1.25,1.0,1.05)
+            } else if (dipState8535 == com.lifecyclebot.engine.market.DipHistory8535.State.WAIT) {
                 try { DataDeferFetch8180.request8180(ts, listOf("history:UNOBSERVED"), now) } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("DIP_HUNTER_WAIT_FOR_HISTORY_8535") } catch (_: Throwable) {}
                 op("DIP_HUNTER",false,0,0,0.0,com.lifecyclebot.engine.market.DipHistory8535.WAIT_REASON+":bounce="+nativeHistory8521.bouncePrices.size+" high="+(nativeHistory8521.high?.let{"%.6g".format(it)}?:"-")+" ref="+(if(dipRef8535!=null)"row" else "-"),"PANIC_REVERSION_BOUNCE","dip_native_reclaim","dip_native_recovery_exit")

@@ -19,9 +19,7 @@ class Aate7555MoonshotExpressFidelityTest {
     @Test fun moonshot_scores_canonical_launch_phase_vocabulary() {
         val m=src("v3/scoring/MoonshotTraderAI.kt")
         val block=m.substringAfter("val phaseScore = when").substringBefore("score += phaseScore")
-        assertTrue(block.contains("\"PRE_IGNITION\" -> 15"))
-        assertTrue(block.contains("\"IGNITION\" -> 12"))
-        assertTrue(block.contains("\"EXPANDING\" -> 7"))
+        assertTrue(block.contains("\"PRE_IGNITION\", \"IGNITION\", \"EXPANDING\" -> 0")) // superseded by V5.0.8555 §LANE_SWEEP: launch / breakout stages lost 22-28 %
         assertTrue(block.contains("\"POST_PUMP_FADE\" -> -10"))
         assertTrue(block.contains("\"MATURE_OR_UNKNOWN\", \"METADATA_HYDRATING\", \"\" -> 0"))
         assertFalse(block.contains("contains(\"breakout\""))

@@ -450,6 +450,10 @@ object MoonshotTraderAI {
     // SCORING - The core moonshot detection logic
     // ═══════════════════════════════════════════════════════════════════════════
     
+    /** Pure (V5.0.8555): at (>= 0.92 of) the peak after a > 40 % run-up; an unread peak position is not judged here. */
+    fun nearHighRefused8555(pxPeak: Double, runupPct: Double): Boolean =
+        pxPeak.isFinite() && pxPeak >= 0.92 && runupPct.isFinite() && runupPct > 40.0
+
     fun scoreToken(
         mint: String,
         symbol: String,
@@ -488,6 +492,17 @@ object MoonshotTraderAI {
         if (marketCapUsd > MAX_MARKET_CAP_USD) {
             return MoonshotScore(false, 0, 0.0, "mcap_too_high_${(marketCapUsd/1_000_000).toInt()}M")
         }
+
+        // V5.0.8555 §LANE_SWEEP — a runner is not bought at its high: price within 8 % of the peak after a run-up of more than
+        // 40 % is refused (both modes; a refusal). 5 of 6 MOONSHOT live closes were LOSS_BOUGHT_TOP; buys within 8 % of the
+        // peak were the worst bucket of every export (pxPeak 0.92-0.98 PF 0.05). A base (run-up <= 40 %) at its high stays open.
+        try {
+            com.lifecyclebot.engine.BotService.status.tokens[mint]?.let { ts8555 ->
+                val f8555 = com.lifecyclebot.engine.cortex.LanePlaybook7907.features(ts8555, System.currentTimeMillis())
+                if (nearHighRefused8555(f8555.pxPeak, f8555.runup))
+                    return MoonshotScore(false, 0, 0.0, "near_high_8555_px${"%.2f".format(f8555.pxPeak)}_run${f8555.runup.toInt()}")
+            }
+        } catch (_: Throwable) {}
 
         // 2. Liquidity filter
         val minLiqStatic = if (learningProgress < 0.5) MIN_LIQUIDITY_USD_BOOTSTRAP else MIN_LIQUIDITY_USD_MATURE
@@ -613,9 +628,9 @@ object MoonshotTraderAI {
         score += volScore
         
         // Buy pressure - want strong buying
+        // V5.0.8555 §LANE_SWEEP — superseded >75 → 18 / >65 → 14: a crowded tape is the top for a runner lane (5 of 6 MOONSHOT
+        // live closes LOSS_BOUGHT_TOP); healthy demand (> 55 %) earns the same 10, a crowd earns no more.
         val buyScore = when {
-            buyPressurePct > 75 -> 18
-            buyPressurePct > 65 -> 14
             buyPressurePct > 55 -> 10
             buyPressurePct > 50 -> 6
             else -> 0
@@ -640,10 +655,10 @@ object MoonshotTraderAI {
         // Score the actual canonical lifecycle instead of stale textual labels.
         // Moonshot wants pre/early expansion; fade/unknown never receive free
         // bullish points.
+        // V5.0.8555 §LANE_SWEEP — superseded PRE_IGNITION +15 / IGNITION +12 / EXPANDING +7: the launch / breakout stages lost
+        // 22-28 % at 5 minutes for MOONSHOT (BASE +20.7 %); the phase no longer buys points, a fade still costs them.
         val phaseScore = when (phase.trim().uppercase()) {
-            "PRE_IGNITION" -> 15
-            "IGNITION" -> 12
-            "EXPANDING" -> 7
+            "PRE_IGNITION", "IGNITION", "EXPANDING" -> 0
             "POST_PUMP_FADE" -> -10
             "MATURE_OR_UNKNOWN", "METADATA_HYDRATING", "" -> 0
             else -> 0

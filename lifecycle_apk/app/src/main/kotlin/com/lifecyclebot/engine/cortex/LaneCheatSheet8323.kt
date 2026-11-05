@@ -71,7 +71,9 @@ object LaneCheatSheet8323 {
     private const val CYCLIC_MCAP_MIN_8323 = 10_000.0
     private const val CYCLIC_MCAP_MAX_8323 = 5_000_000.0
     const val CYCLIC_MIN_LIQ_8323 = 5_000.0
-    const val CYCLIC_MIN_AGE_HOURS_8323 = 0.20
+    // V5.0.8555 §LANE_SWEEP — superseded 0.20 h: a 12-minute-old coin has no established range for a range lane to revert in
+    // (CYCLIC forward n78 -11.3 %, SUPPORT_FLIP -11.0 %); the range lane trades coins with a day of history.
+    const val CYCLIC_MIN_AGE_HOURS_8323 = 24.0
     private const val CORE_MCAP_MIN_8323 = 1_500.0
     private const val CORE_MCAP_MAX_8323 = 5_000_000.0
     const val EXPRESS_MIN_LIQ_8323 = 1_000.0
@@ -82,7 +84,8 @@ object LaneCheatSheet8323 {
     /** Scanner source families -> the lanes they feed (TokenMergeQueue.inferLaneAffinity reads this; was inline there). */
     val SOURCE_LANES_8323: List<Pair<List<String>, List<String>>> = listOf(
         listOf("PUMP", "PORTAL") to listOf("SHITCOIN", "MOONSHOT", "MANIPULATED", "PROJECT_SNIPER"),
-        listOf("RAYDIUM", "NEW_POOL") to listOf("MOONSHOT", "SHITCOIN", "MANIPULATED", "DIP_HUNTER"),
+        // V5.0.8555 — superseded "+ DIP_HUNTER": a new pool cannot pass the dip lane's >= 2 h age rule (dead routing)
+        listOf("RAYDIUM", "NEW_POOL") to listOf("MOONSHOT", "SHITCOIN", "MANIPULATED"),
         listOf("METEORA", "ORCA", "PUMPSWAP", "JUPITER", "HELIUS", "SOLANA_RPC") to
             listOf("MOONSHOT", "PROJECT_SNIPER", "QUALITY", "BLUECHIP", "STANDARD", "CORE", "V3"),
         listOf("DEX_BOOSTED", "DEX_TRENDING", "COINGECKO", "BIRDEYE") to listOf("QUALITY", "BLUECHIP", "TREASURY", "STANDARD", "CORE", "V3"),

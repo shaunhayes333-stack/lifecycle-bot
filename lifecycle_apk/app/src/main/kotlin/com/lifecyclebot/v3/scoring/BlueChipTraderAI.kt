@@ -1099,8 +1099,10 @@ object BlueChipTraderAI {
     private const val BC_CONF_BOOST_MAX = 8.0       // Softer bootstrap boost
 
     // V5.9.83: Liq floor at bootstrap raised to filter out the thinnest rugs.
-    internal const val BC_LIQ_BOOTSTRAP = 7_000.0    // V5.9.343: walk-back to V5.9.335
-    private const val BC_LIQ_MATURE = 15_000.0      // V5.9.343: walk-back to V5.9.335
+    // V5.0.8555 §LANE_SWEEP — superseded 7_000 / 15_000: a $1M+ "blue chip" on a $7k pool (mcap/liq up to ~140x) while the
+    // lane's own declared MIN_LIQUIDITY_USD ($50k) was never read; the floor now starts there.
+    internal const val BC_LIQ_BOOTSTRAP = MIN_LIQUIDITY_USD
+    private const val BC_LIQ_MATURE = 100_000.0
     
     private fun lerp(bootstrap: Double, mature: Double): Double {
         val progress = FluidLearningAI.getLearningProgress()
