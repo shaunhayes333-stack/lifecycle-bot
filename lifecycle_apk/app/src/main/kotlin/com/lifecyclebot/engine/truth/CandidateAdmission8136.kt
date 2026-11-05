@@ -540,6 +540,11 @@ object CandidateAdmission8136 {
         // Compare them before a generic stage/flow-data wait: that optional context
         // is not an extra mandatory input of an independently observed setup.
         val bestSetup = bestSetup8153(c)
+        // V5.0.8539 — owner: "there are still 0 paper meme trades". PAPER is where the stack's strategies are tried: a coin its
+        // own lane qualified is explored through the generic entry waits, the falling-hour wait, an unread expected move and
+        // the economics margin (each recorded). Rug / safety / structure / stale price / critical facts still refuse paper.
+        val paperExplore8539 = paperExplores8539(c)
+        if (paperExplore8539) trace += "paperExplore8539"
         val nativePhase8528 = nativePhaseWitness8528(c)
         val strategyClock8535 = strategyClockWitness8535(c)
         if (strategyClock8535) {
@@ -579,7 +584,7 @@ object CandidateAdmission8136 {
             // no-match (NO_PHASE_TRIGGER): 8538 run CASHGEN native 53/100 Y refused ENTRY_NO_PHASE_TRIGGER_8506 x308.
             val specialistAnswers8539 = specialist8539 && (missing != null || wait == "NO_PHASE_TRIGGER")
             if (specialistAnswers8539 && missing == null) trace += "specialistQualified8539 ownTrigger=${c.nativeSetup8213 ?: c.lane}"
-            if (!fastTrack8520 && !specialistAnswers8539) {
+            if (!fastTrack8520 && !specialistAnswers8539 && !(paperExplore8539 && wait != "RUG_PRONE")) {
                 // The original 8511 binding door remains unchanged for ordinary candidates.
                 if (supported8511 == null && !nativePhase8528 && !strategyClock8535 && doorBinds8393("ENTRY_${wait}_8506"))
                     return done(Terminal8136.REFUSE, "ENTRY_${wait}_8506", true, c.selectedSetup)
@@ -745,7 +750,7 @@ object CandidateAdmission8136 {
         // V5.0.8418 (phone run: 403 MOONSHOT refusals) — the refusal now needs its own evidence: the lane's falling-hour
         //    record proven losing after cost (FallingHourCohort8418). Unproven, the candidate DEFERS on the hour reading and
         //    is re-judged when the hour turns (the hour is part of its identity, so a held defer is not reused across it).
-        if (!decisionGross.isFinite() && moveWaitChosen8418 == NetEdge8030.MOVE_WAIT_FALLING_8418) {
+        if (!decisionGross.isFinite() && moveWaitChosen8418 == NetEdge8030.MOVE_WAIT_FALLING_8418 && !paperExplore8539) {
             val proof8418 = c.fallingHourProof8418
             if (FallingHourCohort8418.provenLosing8418(proof8418) && !probe8429(c, trace, FALLING_HOUR_PROVEN_LOSING_8418)) {
                 trace += "fallingHour8418 setup=${chosen ?: "-"} noSupportedStrategy provenLosing=${proof8418?.compact} cost=${fmt8136(c.costPct)}"
@@ -760,7 +765,9 @@ object CandidateAdmission8136 {
 
         // 4. execution economics: the expected executable move must clear NetEdge8030.EDGE_MULT x the round trip.
         val econKnown = decisionGross.isFinite() && c.costPct.isFinite()
-        if (econKnown && !NetEdge8030.entryClears8030(decisionGross, c.costPct, c.costMargin8391)) {
+        if (econKnown && !NetEdge8030.entryClears8030(decisionGross, c.costPct, c.costMargin8391) && paperExplore8539) {
+            trace += "paperExplore8539 economicsAdvisory gross=${fmt8136(decisionGross)} cost=${fmt8136(c.costPct)}"
+        } else if (econKnown && !NetEdge8030.entryClears8030(decisionGross, c.costPct, c.costMargin8391)) {
             // V5.0.8204 — the refusal names its evidence: expected gross, round-trip cost at the ticket it was costed at
             // (CostMeter8151 last ticket / default), and the cost breakdown. 5.0.8202: 319 economic refusals, no record of
             // which notional or liquidity they were judged at.
@@ -785,7 +792,8 @@ object CandidateAdmission8136 {
         // go on to the evidence checks below, which still need positive after-cost evidence for a LIVE admit. superseded:
         // `|| (c.missingInputs.isNotEmpty() && edge == null && !nativeOptional8213 && !nativeLive8259)` (8527: DATA_INCOMPLETE
         // _DEFER_8136 x2,062, DATA_NEVER_ARRIVED x1,131 — tokens parked on launchTape / opp / age / chg / bp).
-        if (stale || !econKnown || criticalMissing8170.isNotEmpty()) {
+        if (!econKnown && paperExplore8539 && !stale && criticalMissing8170.isEmpty() && c.costPct.isFinite()) trace += "paperExplore8539 moveUnread"
+        if (stale || (!econKnown && !(paperExplore8539 && c.costPct.isFinite())) || criticalMissing8170.isNotEmpty()) {
             // V5.0.8418 — an unknown move names what it waits for (candles / the hour), so its fetch and its arrival match.
             val econMissing8418: List<String> = if (econKnown) emptyList()
                 else if (c.costPct.isFinite() && moveWaitChosen8418 == NetEdge8030.MOVE_WAIT_HISTORY_8418) listOf(StrategyMove8153.DEFER_FEATURE_8153)
@@ -909,6 +917,9 @@ object CandidateAdmission8136 {
      * its score clears the lane's fluid floor. Such a coin is the specialist's call: an unobservable flow / stage read is
      * optional for it. Hard safety, structure, stale price, unknown economics and every critical fact still bind.
      */
+    /** V5.0.8539 — pure: a PAPER candidate its own lane qualified is explored (paper is where strategies are tried). */
+    fun paperExplores8539(c: Candidate8136): Boolean = !c.live && specialistQualified8539(c)
+
     fun specialistQualified8539(c: Candidate8136): Boolean =
         c.nativeQualified8213 && c.genericScore.isFinite() && c.genericFloor.isFinite() && c.genericScore >= c.genericFloor
 

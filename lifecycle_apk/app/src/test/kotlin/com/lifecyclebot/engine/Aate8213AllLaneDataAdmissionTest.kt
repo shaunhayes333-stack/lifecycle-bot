@@ -72,7 +72,8 @@ class Aate8213AllLaneDataAdmissionTest {
         assertNotEquals(CandidateAdmission8136.Terminal8136.DEFER_DATA,
             CandidateAdmission8136.decide8136(c.copy(nativeSetup8213 = "NONE")).terminal)
         // economics, safety and critical facts still bind the native admit
-        assertEquals("EXECUTION_ECONOMICS_8136", CandidateAdmission8136.decide8136(c.copy(expectedGrossPct = 7.0)).reason)
+        // superseded (V5.0.8539): on a PAPER candidate its own lane qualified, economics is advisory (paper explores); LIVE binds.
+        assertEquals("EXECUTION_ECONOMICS_8136", CandidateAdmission8136.decide8136(c.copy(expectedGrossPct = 7.0, live = true)).reason)
         assertEquals(CandidateAdmission8136.Terminal8136.DEFER_DATA,
             CandidateAdmission8136.decide8136(c.copy(missingInputs = c.missingInputs + "sellability:UNKNOWN")).terminal)
         assertEquals(CandidateAdmission8136.Terminal8136.DEFER_DATA,
@@ -88,10 +89,11 @@ class Aate8213AllLaneDataAdmissionTest {
             CandidateAdmission8136.decide8136(c.copy(priceAgeMs = 360_000L)).terminal)
         assertEquals(CandidateAdmission8136.Terminal8136.DEFER_DATA,
             CandidateAdmission8136.decide8136(c.copy(costPct = Double.NaN)).terminal)
+        // superseded (V5.0.8539): on a PAPER candidate its own lane qualified, economics is advisory (paper explores); LIVE binds.
         assertEquals(CandidateAdmission8136.Terminal8136.REFUSE,
-            CandidateAdmission8136.decide8136(c.copy(expectedGrossPct = 7.0)).terminal)
+            CandidateAdmission8136.decide8136(c.copy(expectedGrossPct = 7.0, live = true)).terminal)
         assertEquals("EXECUTION_ECONOMICS_8136",
-            CandidateAdmission8136.decide8136(c.copy(expectedGrossPct = 7.0)).reason)
+            CandidateAdmission8136.decide8136(c.copy(expectedGrossPct = 7.0, live = true)).reason)
         assertEquals("SAFETY_REFUSED_8136",
             CandidateAdmission8136.decide8136(c.copy(safetyRefusal = "RUG")).reason)
         assertEquals("STRUCTURAL_RISK_8136",

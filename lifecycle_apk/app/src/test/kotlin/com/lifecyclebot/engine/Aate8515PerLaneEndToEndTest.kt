@@ -56,7 +56,9 @@ class Aate8515PerLaneEndToEndTest {
     @Test fun everyLaneRefusesAMoveThatDoesNotPayTheRoundTrip() {
         lanes.forEach { lane ->
             // expected 5% against a 4.5% round trip: positive gross, negative after the 1.5x cost margin
-            val c = winner(lane).copy(expectedGrossPct = 5.0, expectedGrossBySetup = mapOf(setup to 5.0),
+            // superseded (V5.0.8539): `winner(lane)` is a PAPER candidate its lane qualified, which explores past economics;
+            // the money rule is LIVE's.
+            val c = winner(lane, live = true).copy(expectedGrossPct = 5.0, expectedGrossBySetup = mapOf(setup to 5.0),
                 setups = listOf(Evidence8136("SETUP", setup, 60, 0.4, 1.4, 0.0, true)),
                 timing = Evidence8136("TIMING", setup, 45, 0.3, 1.6, 0.0, true))
             assertNotEquals("$lane bought a move that cannot pay its costs", Terminal8136.ADMIT, decide(c).terminal)

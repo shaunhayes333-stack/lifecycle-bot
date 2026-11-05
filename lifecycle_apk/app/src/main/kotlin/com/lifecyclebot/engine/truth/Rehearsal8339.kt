@@ -123,7 +123,9 @@ object Rehearsal8339 {
     fun doorBindsNow8342(reason: String, lane: String): Boolean {
         val paper = FdgGate8365.paperContext8393()
             ?: (try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false })
-        val rehearsal = EvidenceHold8336.enabled8336 && EvidenceHold8336.rehearsal8336
+        // V5.0.8539 — a PAPER book explores the record doors whether or not the evidence hold is on (8539 paper run: hold off
+        // -> every record door bound paper exactly as live, 0 paper meme trades); LIVE is unchanged.
+        val rehearsal = paper || (EvidenceHold8336.enabled8336 && EvidenceHold8336.rehearsal8336)
         val shadowOnly = FdgGate8365.shadowOnly8393()
         val demoted = !paper && !shadowOnly && !candidateEvidence8393(reason) &&
             (try { FdgGate8365.demoteNow8365(reason, lane) } catch (_: Throwable) { false })

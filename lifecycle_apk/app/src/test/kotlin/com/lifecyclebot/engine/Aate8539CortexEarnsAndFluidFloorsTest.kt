@@ -113,6 +113,37 @@ class Aate8539CortexEarnsAndFluidFloorsTest {
         assertTrue(src.contains("pairAsked8539=${'$'}{pairRequested8539()}"))
     }
 
+    @Test fun paper_explores_what_its_own_lane_qualified() {
+        // 8539 paper run: 0 paper meme trades — paper held to every live money door
+        val c = CandidateAdmission8136.Candidate8136("paper-8539", "MOONSHOT", null, live = false, priceAgeMs = 10L,
+            expectedGrossPct = 3.0, costPct = 4.5, genericScore = 40.0, genericFloor = 15.0, nativeQualified8213 = true)
+        assertTrue(CandidateAdmission8136.paperExplores8539(c))
+        assertFalse("live never explores", CandidateAdmission8136.paperExplores8539(c.copy(live = true)))
+        val econ = CandidateAdmission8136.decide8136(c)
+        assertEquals("economics is advisory to a paper exploration", CandidateAdmission8136.Terminal8136.ADMIT, econ.terminal)
+        assertTrue(econ.trace.any { it.startsWith("paperExplore8539 economicsAdvisory") })
+        assertEquals("unqualified paper still refuses", "EXECUTION_ECONOMICS_8136",
+            CandidateAdmission8136.decide8136(c.copy(nativeQualified8213 = false)).reason)
+        val unread = CandidateAdmission8136.decide8136(c.copy(expectedGrossPct = Double.NaN))
+        assertEquals("an unread move is explored on known cost", CandidateAdmission8136.Terminal8136.ADMIT, unread.terminal)
+        assertEquals("a stale price still defers", CandidateAdmission8136.Terminal8136.DEFER_DATA,
+            CandidateAdmission8136.decide8136(c.copy(priceAgeMs = Long.MAX_VALUE)).terminal)
+        assertEquals("SAFETY_REFUSED_8136", CandidateAdmission8136.decide8136(c.copy(safetyRefusal = "MINT_AUTH")).reason)
+        assertTrue(src("engine/truth/Rehearsal8339.kt").contains("val rehearsal = paper || (EvidenceHold8336.enabled8336 && EvidenceHold8336.rehearsal8336)"))
+    }
+
+    @Test fun a_paper_fill_needs_a_price_another_source_agrees_with() {
+        val t = com.lifecyclebot.engine.truth.PaperFillTruth8539
+        assertTrue("3x off the only reference (Jimothy $4.62M vs $1.53M)", t.disagrees(3.0, listOf(1.0)))
+        assertFalse(t.disagrees(1.5, listOf(1.0)))
+        assertFalse("one agreeing reference suffices", t.disagrees(3.0, listOf(1.0, 2.9)))
+        assertFalse("no reference: proceeds (counted)", t.disagrees(3.0, emptyList()))
+        assertEquals(2.0, t.MAX_RATIO, 0.0)
+        val ex = src("engine/Executor.kt")
+        assertTrue(ex.contains("PaperFillTruth8539.refusal(ts.mint, paperEntryMark7465.mark?.priceUsd?.value?.toDouble() ?: Double.NaN, now6616) != null"))
+        assertTrue("the partial path guards a phantom gain too", ex.contains("if (paperPartialGainUncorroborated8539(ts, pos.entryPrice, actualPrice)) return false"))
+    }
+
     @Test fun the_8536_live_doors_are_learnt_and_unlearnt_too() {
         val c = CandidateAdmission8136.Candidate8136(
             mint = "door-8539", lane = "MOONSHOT", selectedSetup = null, priceAgeMs = 500L,

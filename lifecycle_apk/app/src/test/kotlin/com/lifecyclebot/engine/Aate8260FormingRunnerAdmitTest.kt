@@ -48,7 +48,8 @@ class Aate8260FormingRunnerAdmitTest {
         assertFalse(CandidateAdmission8136.decide8136(c.copy(structuralRisk = "STAGE_RUG_PRONE")).terminal == CandidateAdmission8136.Terminal8136.ADMIT)
         assertEquals("DATA_INCOMPLETE_DEFER_8136", CandidateAdmission8136.decide8136(c.copy(priceAgeMs = 600_000L)).reason)
         assertEquals("DATA_INCOMPLETE_DEFER_8136", CandidateAdmission8136.decide8136(c.copy(missingInputs = listOf("ROUTE"))).reason)
-        assertFalse(CandidateAdmission8136.decide8136(c.copy(expectedGrossPct = 3.0)).terminal == CandidateAdmission8136.Terminal8136.ADMIT)
+        // superseded (V5.0.8539): on a PAPER candidate its own lane qualified, economics is advisory (paper explores); LIVE binds.
+        assertFalse(CandidateAdmission8136.decide8136(c.copy(expectedGrossPct = 3.0, live = true)).terminal == CandidateAdmission8136.Terminal8136.ADMIT)
         assertFalse(CandidateAdmission8136.runnerEntryAdmitted8252("never-admitted-8260", System.currentTimeMillis()))
     }
 }

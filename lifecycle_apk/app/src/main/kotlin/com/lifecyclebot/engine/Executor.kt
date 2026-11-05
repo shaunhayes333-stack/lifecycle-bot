@@ -10574,6 +10574,7 @@ class Executor(
             return false
         }
         if (pos.isPaperPosition) {
+            if (paperPartialGainUncorroborated8539(ts, pos.entryPrice, actualPrice)) return false  // V5.0.8539
             // V5.0.7029 — no convertible SOL/USD rate means this sale has no
             // SOL value, and booking the USD figure is what produced the
             // operator's 46.59 SOL of unsupported partial profit. Refuse; the
@@ -16256,6 +16257,8 @@ class Executor(
             } catch (_: Throwable) {}
             markPaperBuyNotOpened("NO_EXECUTABLE_MARK_6575")
             return
+        } else if (com.lifecyclebot.engine.truth.PaperFillTruth8539.refusal(ts.mint, paperEntryMark7465.mark?.priceUsd?.value?.toDouble() ?: Double.NaN, now6616) != null) {
+            markPaperBuyNotOpened(com.lifecyclebot.engine.truth.PaperFillTruth8539.REFUSAL); return  // V5.0.8539 — a wrong-pair price is no fill
         } else if (strictMark6575 == null) {
             // Paper-only: observation mark accepted; count separately so the
             // operator can see how many paper trades ran on provisional evidence.
@@ -25639,6 +25642,19 @@ class Executor(
      * stands. The fill still books at the mark, as any corroborated fill
      * does; only the evidence path changed.
      */
+    /**
+     * V5.0.8539 — the paper PARTIAL path had no uncorroborated-gain guard (the full paper sell has 7271/7272): 8539 paper run
+     * booked CASHGEN Hg5Ja5 partial_80pct at +2,126 % on a phantom mark (3.24 SOL out of 0.146 in). Above the same clamp the
+     * partial waits for a corroborated mark (fan-out or on-demand second feed), exactly like the full sell.
+     */
+    private fun paperPartialGainUncorroborated8539(ts: TokenState, entry: Double, mark: Double): Boolean {
+        if (!(entry > 0.0) || !mark.isFinite() || mark <= 0.0) return false
+        if ((mark - entry) / entry * 100.0 <= PAPER_GAIN_CLAMP_PCT_7271) return false
+        val corroborated = ts.lastPriceSource.contains("FANOUT_CORROBORATED", ignoreCase = true) || corroborateMarkOnDemand7272(ts, mark)
+        if (!corroborated) try { PipelineHealthCollector.labelInc("PAPER_PARTIAL_REFUSED_ABSURD_GAIN_UNCORROBORATED_8539") } catch (_: Throwable) {}
+        return !corroborated
+    }
+
     private fun corroborateMarkOnDemand7272(ts: TokenState, mark: Double): Boolean {
         if (!mark.isFinite() || mark <= 0.0) return false
         fun agrees(other: Double?): Boolean {
