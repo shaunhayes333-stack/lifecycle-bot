@@ -42,7 +42,7 @@ object SpecialistBrainBridge7542 {
     private val lastOpinion=ConcurrentHashMap<String,Opinion>()
 
     private fun bump(m:ConcurrentHashMap<String,AtomicLong>,lane:String){m.computeIfAbsent(lane){AtomicLong(0)}.incrementAndGet()}
-    private fun noGrade(reason:String)=NativeLaneConstraints8521.missingData8521(reason)||listOf("ALREADY_","MAX_","DAILY_LIMIT","RECENT_","HYDRATING","DISABLED","POSITION_ACTIVE","COOLDOWN").any{reason.uppercase().contains(it)}
+    private fun noGrade(reason:String)=NativeLaneConstraints8521.missingData8521(reason)||listOf("ALREADY_","MAX_","DAILY_LIMIT","RECENT_","HYDRATING","DISABLED","POSITION_ACTIVE","COOLDOWN","WAIT_FOR_").any{reason.uppercase().contains(it)}
     // V5.0.8535 §P0-07 — `record` ran inside `op`, as each opinion was first constructed, so NATIVE_BRAIN_ALLOW /
     // nativeAllow counted PRE-review positives that the cap, age, missing-input, retirement, grab-lane and opportunity
     // reviews later rewrote (8529: QUALITY 1,068 "allows", 0 owner-selected). The pre-review count keeps its own name;
@@ -369,7 +369,6 @@ object SpecialistBrainBridge7542 {
         val price = marketInputs8522.price
         val measuredVolume = nativeHistory8521.volumeRatio
         val volVs = measuredVolume ?: 1.0
-        val high = max(price, nativeHistory8521.high ?: price)
         val ageEvidence8521 = marketInputs8522.age
         val ageMin = ageEvidence8521.inputMinutes
         val observedBp8491 = marketInputs8522.buyPressurePct
@@ -425,7 +424,24 @@ object SpecialistBrainBridge7542 {
             // V5.0.8535 §P0-07 — MOONSHOT's conviction on ITS pass bar and 150 scale: 101 / 120 / 150 no longer tie at 100.
             .let{if(x.effectiveFloor8535>0)onLaneBar7948(it,x.effectiveFloor8535,(x.effectiveFloor8535*100.0/x.scaleMax8535).toInt()) else it}}catch(t:Throwable){err("MOONSHOT",t)}
         if (owns7828("PROJECT_SNIPER")) out["PROJECT_SNIPER"]=try{val x=ProjectSniperAI.assessTarget(ts,price);op("PROJECT_SNIPER",x.shouldEngage,x.confidence,x.confidence,x.positionSizeSol,x.reason,"DEGEN_MICRO_SNIPE","sniper_native_pre_ignition","sniper_native_fast_exit",0.45,0.55,0.85,setOf("SNIPER","LAUNCH_PHASE","BUYER_BREADTH","DEV_FLOW"))}catch(t:Throwable){err("PROJECT_SNIPER",t)}
-        if (owns7828("DIP_HUNTER")) out["DIP_HUNTER"]=try{val x=DipHunterAI.evaluate(ts.mint,ts.symbol,price,high,ts.lastMcap,ts.lastLiquidityUsd,bp,volVs,ageMin/60.0,holders,null,devSelling,bounce);op("DIP_HUNTER",x.shouldBuy,x.confidence,x.confidence,x.positionSizeSol,x.reason,"PANIC_REVERSION_BOUNCE","dip_native_reclaim","dip_native_recovery_exit",1.25,x.dipQuality.sizeMult.coerceIn(0.3,1.15),1.05,setOf("DIP_RECLAIM","BOUNCE","VOLUME_RETURN"))}catch(t:Throwable){err("DIP_HUNTER",t)}
+        if (owns7828("DIP_HUNTER")) out["DIP_HUNTER"]=try{
+            // V5.0.8535 §P0-10 — no observed high is not a 0 % dip (`high = max(price, history.high ?: price)` guaranteed
+            // NOT_A_DIP 0 % on every unhydrated coin: 8529 PRICE_HISTORY_UNOBSERVED 735, 0 allows). The lane either waits
+            // for its history and asks for it (WAIT_FOR_DIP_HISTORY_8535, a data state, not a market judgement), or reads
+            // the hunter's dated row reference as a lower-bound prior high; the bounce witness still needs the bot's own tape.
+            val dipRef8535 = com.lifecyclebot.engine.market.DipHistory8535.ref(ts.mint, now)
+            val dipState8535 = com.lifecyclebot.engine.market.DipHistory8535.stateOf(nativeHistory8521.high, nativeHistory8521.bouncePrices.size, dipRef8535, price)
+            if (dipState8535 == com.lifecyclebot.engine.market.DipHistory8535.State.WAIT) {
+                try { RunnerCapture8180.request8180(ts, listOf("history:UNOBSERVED"), now) } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("DIP_HUNTER_WAIT_FOR_HISTORY_8535") } catch (_: Throwable) {}
+                op("DIP_HUNTER",false,0,0,0.0,com.lifecyclebot.engine.market.DipHistory8535.WAIT_REASON+":bounce="+nativeHistory8521.bouncePrices.size+" high="+(nativeHistory8521.high?.let{"%.6g".format(it)}?:"-")+" ref="+(if(dipRef8535!=null)"row" else "-"),"PANIC_REVERSION_BOUNCE","dip_native_reclaim","dip_native_recovery_exit")
+            } else {
+                val dipHigh8535 = if (dipState8535 == com.lifecyclebot.engine.market.DipHistory8535.State.OBSERVED_HIGH) max(price, nativeHistory8521.high ?: price)
+                    else (com.lifecyclebot.engine.market.DipHistory8535.referenceHigh(dipRef8535, price) ?: price)
+                val x=DipHunterAI.evaluate(ts.mint,ts.symbol,price,dipHigh8535,ts.lastMcap,ts.lastLiquidityUsd,bp,volVs,ageMin/60.0,holders,null,devSelling,bounce)
+                val basis8535 = if (dipState8535 == com.lifecyclebot.engine.market.DipHistory8535.State.ROW_REFERENCE) " basis=ROW_REF_8535" else ""
+                op("DIP_HUNTER",x.shouldBuy,x.confidence,x.confidence,x.positionSizeSol,x.reason+basis8535,"PANIC_REVERSION_BOUNCE","dip_native_reclaim","dip_native_recovery_exit",1.25,x.dipQuality.sizeMult.coerceIn(0.3,1.15),1.05,setOf("DIP_RECLAIM","BOUNCE","VOLUME_RETURN"))
+            }}catch(t:Throwable){err("DIP_HUNTER",t)}
         if (owns7828("MANIPULATED")) out["MANIPULATED"]=try{val x=SpecialistInputParity8527.manipulated8527(ts, marketInputs8522, paper);op("MANIPULATED",x.shouldEnter,x.manipScore,x.manipScore,x.positionSizeSol,x.reason,"VOLUME_IGNITION_SCALP","manipulated_native_pump_ride","manipulated_native_fast_exit",0.4,0.6,0.82,setOf("MANIPULATION","BUNDLE","ORDER_FLOW"))}catch(t:Throwable){err("MANIPULATED",t)}
         if (owns7828("TREASURY")) out["TREASURY"]=try{val x=TreasuryBrain.evaluate(ts);val floor8031=treasuryFloorOk8031(ts);val ok=x.category!="SKIP"&&x.score>=50.0&&floor8031;op("TREASURY",ok,x.score.toInt(),x.score.toInt(),0.0,if(!floor8031)"TREASURY_ROLE_FLOOR_8031" else x.reasons.joinToString(";").ifBlank{x.category},"CASHFLOW_SCALP","treasury_native_confirmed_scalp","treasury_native_bank",0.75,x.sizeMultiplier.coerceIn(0.3,1.15),0.9,setOf("TREASURY_BRAIN","MOMENTUM_5M_15M","EMA_FAN","DEPTH"))}catch(t:Throwable){err("TREASURY",t)}
         if (owns7828("CASHGEN")) out["CASHGEN"]=try{val x=CashGenerationAI.evaluate(ts.mint,ts.symbol,price,ts.lastLiquidityUsd,top,bp,v3,v3c,mom,vol,ts.source,ts.lastPriceSource,ts.lastPriceDex,ageMin,ownerLane="CASHGEN");op("CASHGEN",x.shouldEnter,if(x.entryScore>0)x.entryScore else x.confidence,x.confidence,x.positionSizeSol,x.reason,"CASHFLOW_SCALP","cashgen_native_cashflow","cashgen_native_quick_bank",0.55,0.82,0.78,setOf("CASHGEN","LIQUIDITY_DEPTH","ORDER_FLOW","TURNOVER"))}catch(t:Throwable){err("CASHGEN",t)}
@@ -528,8 +544,14 @@ object SpecialistBrainBridge7542 {
             val views = s.opinions.mapValues { (lane, o) ->
                 val eligible = o.eligible && o.authoritative
                 // V5.0.8535 §P0-07 — proof that a FINAL eligible opinion was offered to the election (and whether it could own).
-                if (eligible) try { PipelineHealthCollector.labelInc(
-                    if (LaneExecutionCoordinator.laneCanOwnExecution6910(lane)) "NATIVE_FINAL_ELIGIBLE_OFFERED_8535_$lane" else "NATIVE_FINAL_ELIGIBLE_UNOWNABLE_8535_$lane") } catch (_: Throwable) {}
+                if (eligible) try {
+                    val ownable8535 = LaneExecutionCoordinator.laneCanOwnExecution6910(lane)
+                    PipelineHealthCollector.labelInc(if (ownable8535) "NATIVE_FINAL_ELIGIBLE_OFFERED_8535_$lane" else "NATIVE_FINAL_ELIGIBLE_UNOWNABLE_8535_$lane")
+                    // V5.0.8535 §P0-08 — the candidate's chain: fired, final, offered (OwnershipChain8364 carries it to the FDG and beyond).
+                    OwnershipChain8364.onStage8535(OwnershipChain8364.Step8364.NATIVE_FIRED, lane, s.mint, version, s.evaluatedAtMs)
+                    OwnershipChain8364.onStage8535(OwnershipChain8364.Step8364.READY_FINAL, lane, s.mint, version, s.evaluatedAtMs)
+                    if (ownable8535) OwnershipChain8364.onStage8535(OwnershipChain8364.Step8364.OWNER_OFFERED, lane, s.mint, version, s.evaluatedAtMs)
+                } catch (_: Throwable) {}
                 SpecialistElection8136.NativeView8136(
                     eligible = eligible,
                     normalised = NativeOpportunityPolicy8522.selectionPriority8522(o),

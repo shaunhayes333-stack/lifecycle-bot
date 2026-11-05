@@ -562,6 +562,10 @@ object LaneHunter7297 {
             }, { m -> onCooldown8169(requeuedAt8169[m], now8169) || HuntDelivery8293.cooling8293(m, now8169) ||
                 byMint[m]?.let { r -> HunterShape8293.losingShape8293(lane, r, HunterShape8293::live8293) } != null }, PICKS_PER_LANE)
         }
+        // V5.0.8535 §P0-10 — the DIP hunter's dated row (price, 1 h / 24 h change, venue) is the lane's history reference until
+        // the bot's own tape exists; the bridge reads it as a lower-bound prior high, never as a 0 % dip.
+        residentPicks7803["DIP_HUNTER"]?.forEach { m -> byMint[m]?.let { r ->
+            DipHistory8535.noteRow(r.mint, r.priceUsd, r.priceChangeH1Pct, r.priceChangeH24Pct, r.observedAtMs8169.takeIf { it > 0L } ?: snap.atMs, r.providers.joinToString("+")) } }
         OpportunityRoute8293.noteHunt8293(snap.rows, tests8293, residentPicks7803)
         noteHuntAudit8169(snap, nonMeme8169, residentPicks7803, now8169)
         val now = System.currentTimeMillis()

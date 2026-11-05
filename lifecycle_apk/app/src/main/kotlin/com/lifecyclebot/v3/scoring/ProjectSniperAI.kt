@@ -272,8 +272,10 @@ object ProjectSniperAI {
         // V5.0.8144 — an age (resolved, or a proven lower bound) already past the window is OLD: handed on by name and
         // recorded until a receiving lane has judged it, instead of reading BIRTH_METADATA_HYDRATING / a late phase.
         if (tokenAgeSecs > MAX_TOKEN_AGE_SECONDS) return handOff8144(ts, "TOO_OLD_8144: ${tokenAgeSecs}s > ${MAX_TOKEN_AGE_SECONDS}s", tokenAgeSecs)
+        // V5.0.8535 §P0-09 — the in-window age just proven (canonical birth or an 8144 witness) IS the phase read's birth:
+        // the phase authority no longer re-defers a witnessed launch as hydrating, nor reads its age as MAX_VALUE.
         val launch7449 = try {
-            com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts)
+            com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts, provenAgeMs8535 = resolvedAgeMs7440)
         } catch (_: Throwable) { null }
         if (launch7449 == null || !launch7449.birthResolved) {
             return noEngage("BIRTH_METADATA_HYDRATING_7449", tokenAgeSecs, ThreatLevel.RED)

@@ -148,16 +148,33 @@ object LaunchPhaseAuthority7401 {
         return Extras8136(read, state)
     }
 
-    fun snapshot(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Snapshot {
+    /**
+     * V5.0.8535 §P0-09 — pure: the launch age the phase read uses. The canonical birth first; else the admission's proven
+     * witness age ([provenAgeMs]: AdmissionBirth8144 create frame / chain mint init / pair created / pump coin record,
+     * already classified in-window by the caller); else unknown (MAX_VALUE, unresolved). The sniper proved an in-window
+     * age through those witnesses and was then re-deferred here as BIRTH_METADATA_HYDRATING_7449 because this read knew
+     * only the canonical birth (8529: 1,261 hydrating, 0 native allows) — and `lateByAge` read MAX_VALUE as "late".
+     */
+    fun birthRead8535(canonicalBirthMs: Long?, provenAgeMs: Long?, nowMs: Long): Pair<Long, Boolean> = when {
+        canonicalBirthMs != null -> (nowMs - canonicalBirthMs).coerceAtLeast(0L) to true
+        provenAgeMs != null && provenAgeMs >= 0L -> provenAgeMs to true
+        else -> Long.MAX_VALUE to false
+    }
+
+    fun snapshot(ts: TokenState, nowMs: Long = System.currentTimeMillis(), provenAgeMs8535: Long? = null): Snapshot {
         val mintKey7408 = ts.mint
         if (mintKey7408.isNotBlank()) {
             val cached7408 = cache7408[mintKey7408]
-            if (cached7408 != null && nowMs - cached7408.atMs in 0L..SNAPSHOT_TTL_MS_7408) {
+            // V5.0.8535 §P0-09 — a cached unresolved-birth read does not outlive a caller that now holds a proven witness age.
+            if (cached7408 != null && nowMs - cached7408.atMs in 0L..SNAPSHOT_TTL_MS_7408 &&
+                (provenAgeMs8535 == null || cached7408.snapshot.birthResolved)) {
                 return cached7408.snapshot
             }
         }
         val birth7440 = CanonicalTokenBirthTime7440.resolve(ts.mint, nowMs)
-        val age = birth7440?.let { (nowMs - it.birthMs).coerceAtLeast(0L) } ?: Long.MAX_VALUE
+        val (age, birthKnown8535) = birthRead8535(birth7440?.birthMs, provenAgeMs8535, nowMs)
+        val witnessBirth8535 = birth7440 == null && birthKnown8535
+        if (witnessBirth8535) try { PipelineHealthCollector.labelInc("LAUNCH_PHASE_BIRTH_FROM_WITNESS_8535") } catch (_: Throwable) {}
         val dev = try { OperatorRegistry.getDevWallet(ts.mint) } catch (_: Throwable) { null }
         val flow = try { WhaleDetector.launchFlow7401(ts.mint, dev, nowMs) }
             catch (_: Throwable) { WhaleDetector.LaunchFlow(0,0,0.0,0.0,0,0,0,0,0,false,50.0) }
@@ -235,8 +252,8 @@ object LaunchPhaseAuthority7401 {
         val ext8136 = extras8136(ts, mintKey7408, nowMs, if (birth7440 != null) age else null, flow, multiple, phase)
 
         val reason = buildString {
-            append("ageMs=").append(if (birth7440 != null) age else -1L)
-            append(" birth=").append(birth7440?.source?.name ?: "HYDRATING")
+            append("ageMs=").append(if (birthKnown8535) age else -1L)
+            append(" birth=").append(birth7440?.source?.name ?: if (witnessBirth8535) "WITNESS_8535" else "HYDRATING")
             append(" mult=").append(multiple?.let { "%.2f".format(it) } ?: "?")
             append(" flow=").append(flow.buyTx60s).append("B/").append(flow.sellTx60s).append("S")
             append(" buyShare=").append("%.0f".format(flow.buySharePct))
@@ -261,8 +278,8 @@ object LaunchPhaseAuthority7401 {
             flow.largestBuyerSharePct60s, flow.top3BuyerSharePct60s,
             flow.repeatBuyerWallets60s, smartMoney7450,
             peakPos, reason,
-            birthResolved = birth7440 != null,
-            birthSource = birth7440?.source?.name ?: "",
+            birthResolved = birthKnown8535,
+            birthSource = birth7440?.source?.name ?: if (witnessBirth8535) "WITNESS_8535" else "",
             flowProvenance8136 = ext8136.flow.provenance.name,
             buyersKnown8136 = ext8136.flow.buyers60s,
             buyTxKnown8136 = ext8136.flow.buyTx60s,

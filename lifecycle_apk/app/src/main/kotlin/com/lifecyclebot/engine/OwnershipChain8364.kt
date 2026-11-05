@@ -25,7 +25,9 @@ import java.util.concurrent.atomic.AtomicLong
  * Bookkeeping only: it never admits, sizes, elects or executes.
  */
 object OwnershipChain8364 {
-    enum class Step8364 { QUALIFIED, FDG_ALLOW, FDG_BLOCK, OWNER, INTENT, TICKET, EXEC }
+    // V5.0.8535 §P0-08 — the chain carries every stage the audit names: native_fired -> qualified -> ready_final ->
+    // owner_offered -> fdg_seen -> fdg_allow -> ticket -> execution -> close. Ordinal order is causal order.
+    enum class Step8364 { NATIVE_FIRED, QUALIFIED, READY_FINAL, OWNER_OFFERED, FDG_SEEN, FDG_ALLOW, FDG_BLOCK, OWNER, INTENT, TICKET, EXEC, CLOSE }
 
     data class CandidateId8364(val mint: String, val version: Long)
 
@@ -137,11 +139,21 @@ object OwnershipChain8364 {
         if (key == "T:EMPTY") return
         if (key.startsWith("LOST:")) {
             val stage = key.removePrefix("LOST:")
+            // V5.0.8535 §P0-08 — a native-eligible candidate that expired with no terminal ends either as a still-pending
+            // receiver task (its deadline on the example) or as a named loss: no silent lost work.
+            val task8535 = try { HandoffReceiverTasks8153.taskOf8153(c.mint, nowMs)?.takeIf { it.pending && it.lane == c.lane } } catch (_: Throwable) { null }
+            if (task8535 != null) {
+                bump8364(terminalCounts8364, "${c.lane}|PENDING_RECEIVER_TASK_8535")
+                if (lostExamples8528.size >= 64) lostExamples8528.removeFirst()
+                lostExamples8528.addLast(c.lane to "${c.mint}:v${c.version}:$stage:PENDING_TASK_UNTIL=${task8535.validUntilMs}")
+                return
+            }
             bump8364(lostCounts8364, "${c.lane}|$stage")
             bump8364(lostClosure8528, "${c.lane}|$cause")
             if (lostExamples8528.size >= 64) lostExamples8528.removeFirst()
             lostExamples8528.addLast(c.lane to "${c.mint}:v${c.version}:$stage:$cause:lastSeen=${c.touchedMs}:idleMs=${(nowMs - c.touchedMs).coerceAtLeast(0)}")
             try { PipelineHealthCollector.labelInc("OWNER_LOST_NO_TERMINAL_8364_$stage") } catch (_: Throwable) {}
+            if (stage in NATIVE_ELIGIBLE_STAGES_8535) try { PipelineHealthCollector.labelInc("OWNER_LOST_NATIVE_ELIGIBLE_NO_TERMINAL_8535_${c.lane}") } catch (_: Throwable) {}
         } else {
             bump8364(terminalCounts8364, "${c.lane}|${key.removePrefix("T:")}")
         }
@@ -188,6 +200,29 @@ object OwnershipChain8364 {
         return c
     }
 
+    private val NATIVE_ELIGIBLE_STAGES_8535 = setOf(Step8364.NATIVE_FIRED.name, Step8364.READY_FINAL.name, Step8364.OWNER_OFFERED.name)
+
+    /**
+     * V5.0.8535 §P0-08 — a stage stamped by its producer with the candidate identity: NATIVE_FIRED / READY_FINAL /
+     * OWNER_OFFERED (SpecialistBrainBridge7542.registerElection8136, the FINAL effective opinion), FDG_SEEN (every FDG
+     * verdict including a data deferral), CLOSE. Opens the record for the native stages so a candidate that never
+     * qualifies still has a chain to end on.
+     */
+    fun onStage8535(step: Step8364, laneRaw: String, mint: String, version: Long, nowMs: Long = System.currentTimeMillis()) {
+        try {
+            val lane = lane8364(laneRaw)
+            if (lane.isBlank() || mint.isBlank()) return
+            synchronized(lock8364) {
+                sweep8364(nowMs)
+                val opens = step == Step8364.NATIVE_FIRED || step == Step8364.READY_FINAL || step == Step8364.OWNER_OFFERED
+                val c = (if (version > 0L) recordFor8364(lane, CandidateId8364(mint, version), qualify = false, create = opens, nowMs = nowMs) else
+                    latestByLaneMint8364["$lane|$mint"]?.let { records8364[it] }) ?: return
+                addStep8364(c, step)
+                if (step == Step8364.CLOSE && c.terminal.isBlank()) c.terminal = "CLOSED"
+            }
+        } catch (_: Throwable) {}
+    }
+
     /** ToolkitSignalSheet.recordDeskStage (after its dedupe): every desk stage of a candidate joins its chain. */
     fun onDeskStage8364(laneRaw: String, stageRaw: String, eventId: String, nowMs: Long = System.currentTimeMillis()) {
         try {
@@ -228,6 +263,7 @@ object OwnershipChain8364 {
                 sweep8364(nowMs)
                 val c = (if (version > 0L) recordFor8364(lane, CandidateId8364(mint, version), qualify = false, create = false, nowMs = nowMs) else
                     latestByLaneMint8364["$lane|$mint"]?.let { records8364[it] }) ?: return
+                addStep8364(c, Step8364.FDG_SEEN)   // V5.0.8535 §P0-08 — the FDG saw this candidate, whatever it answered
                 if (FdgReceipt8397.outcome(allow, reason) == FdgReceipt8397.Outcome.DEFER_DATA) {
                     if (c.terminal.isBlank()) c.softTerminal = "FDG_DEFER_DATA_" + reasonKey8364(reason)
                     c.touchedMs = nowMs
@@ -304,8 +340,9 @@ object OwnershipChain8364 {
         val closure = laneMap8364(lostClosure8528, lane).entries.sortedBy { it.key }
             .joinToString(",") { "${it.key}=${it.value}" }.ifBlank { "0" }
         val examples = synchronized(lock8364) { lostExamples8528.filter { it.first == lane }.takeLast(2).joinToString(";") { it.second } }
-        return "$lane chain8364[qualified=${s(Step8364.QUALIFIED)} fdg=${s(Step8364.FDG_ALLOW)}/${s(Step8364.FDG_BLOCK)} " +
-            "owner=${s(Step8364.OWNER)} intent=${s(Step8364.INTENT)} ticket=${s(Step8364.TICKET)} exec=${s(Step8364.EXEC)} open=$open " +
+        return "$lane chain8364[nativeFired=${s(Step8364.NATIVE_FIRED)} qualified=${s(Step8364.QUALIFIED)} readyFinal=${s(Step8364.READY_FINAL)} " +
+            "ownerOffered=${s(Step8364.OWNER_OFFERED)} fdgSeen=${s(Step8364.FDG_SEEN)} fdg=${s(Step8364.FDG_ALLOW)}/${s(Step8364.FDG_BLOCK)} " +
+            "owner=${s(Step8364.OWNER)} intent=${s(Step8364.INTENT)} ticket=${s(Step8364.TICKET)} exec=${s(Step8364.EXEC)} close=${s(Step8364.CLOSE)} open=$open " +
             "ended{$terms} lostNoTerminal{$lost} missingReceiptClosure{$closure} examples{$examples}] (candidate records, not unique tokens; owner/intent follow FDG allow)"
     }
 
