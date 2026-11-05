@@ -128,7 +128,7 @@ object CurveReserves7951 {
         val supply8418 = try { MintSupply8418.wholeOrRequest8418(ts.mint) } catch (_: Throwable) { 0.0 }
         val mcap = mcapUsdFromCurve8399(vSol, vTok, solUsd, supply8418)
         if (!mcap.isFinite() || mcap <= 0.0) return Double.NaN
-        synchronized(ts) { if (!(ts.lastMcap.isFinite() && ts.lastMcap > 0.0)) ts.lastMcap = mcap }
+        if (!(ts.lastMcap.isFinite() && ts.lastMcap > 0.0)) TokenFacts.writeSnapshot(ts, TokenFacts.Field.MCAP_USD, mcap, "CURVE_RESERVES_7951", TokenFacts.Rank.CHAIN, atMs)   // V5.0.8553
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MCAP_HYDRATED_FROM_CURVE_8399") } catch (_: Throwable) {}
         return mcap
     }

@@ -29,10 +29,15 @@ import java.util.concurrent.atomic.AtomicLong
  * only a CHAIN tick holds the field (60 s, the ChainFedMarks8418 window), and a correction of the held observation (a unit
  * rebase, a capped paper exit) replaces the value but keeps the observation's own time ([correctPrice]).
  *
- * Migrated: LIQUIDITY_USD (8551), PRICE_USD (8552). The other fields follow the order in docs/DATA_MAP.md.
+ * The snapshot fields (V5.0.8553: buy / sell pressure, 5 m / 1 h change, market cap, FDV, top-holder share) follow the
+ * price rule ([acceptsPrice]: newest observation wins, a CHAIN fact holds 60 s, restores only fill empty slots) with their
+ * own validity ([validFor]: a change can be 0 or negative, a pressure is 0..100), through one writer ([writeSnapshot]).
+ * Graduation (D8) has its own sticky marker ([markGraduated]).
+ *
+ * Migrated: LIQUIDITY_USD (8551), PRICE_USD (8552), the snapshot fields + graduation (8553). See docs/DATA_MAP.md.
  */
 object TokenFacts {
-    enum class Field { LIQUIDITY_USD, PRICE_USD }
+    enum class Field { LIQUIDITY_USD, PRICE_USD, BUY_PRESSURE_PCT, SELL_PRESSURE_PCT, CHANGE_5M_PCT, CHANGE_1H_PCT, MCAP_USD, FDV_USD, TOP_HOLDER_PCT, TX_PER_MIN }
 
     /** Source strength. Higher outranks lower inside the hold window. */
     object Rank {
@@ -83,7 +88,7 @@ object TokenFacts {
     private val refused = ConcurrentHashMap<String, AtomicLong>()    // "FIELD:why" -> refused offers
 
     private fun count(map: ConcurrentHashMap<String, AtomicLong>, key: String) {
-        if (map.size >= 96 && !map.containsKey(key)) return
+        if (map.size >= 192 && !map.containsKey(key)) return
         map.computeIfAbsent(key) { AtomicLong(0) }.incrementAndGet()
     }
 
@@ -211,6 +216,127 @@ object TokenFacts {
         return true
     }
 
+    // ── snapshot fields (V5.0.8553, DATA_MAP D2 / D3 / D6) ─────────────────────────────────────────────────────────────
+
+    /** Pure: is [v] a reading of [field]? Changes may be 0 or negative; pressures and shares are percentages. */
+    fun validFor(field: Field, v: Double): Boolean = v.isFinite() && when (field) {
+        Field.BUY_PRESSURE_PCT, Field.SELL_PRESSURE_PCT -> v in 0.0..100.0
+        Field.TOP_HOLDER_PCT -> v > 0.0 && v <= 100.0
+        Field.CHANGE_5M_PCT, Field.CHANGE_1H_PCT -> v > -100.0
+        Field.TX_PER_MIN -> v >= 0.0
+        else -> v > 0.0
+    }
+
+    /** The held fact of a snapshot field, or the legacy fields read as one (observed at their stamp; a restore at 0). */
+    fun snapshotFact(ts: TokenState, field: Field): Fact? {
+        ts.facts8551[field]?.let { return it }
+        fun legacy(v: Double, at: Long) = if (validFor(field, v)) Fact(v, "LEGACY", if (at > 0L) Rank.AGGREGATE else Rank.RESTORE, at) else null
+        return when (field) {
+            // a pressure / change never stamped is the 50 / 0 default, not a reading
+            Field.BUY_PRESSURE_PCT -> if (ts.buyPressureObservedAtMs8084 > 0L) legacy(ts.lastBuyPressurePct, ts.buyPressureObservedAtMs8084) else null
+            Field.SELL_PRESSURE_PCT -> if (ts.buyPressureObservedAtMs8084 > 0L) legacy(ts.lastSellPressurePct, ts.buyPressureObservedAtMs8084) else null
+            Field.CHANGE_5M_PCT -> if (ts.priceChangeObservedAtMs8084 > 0L) legacy(ts.lastPriceChange5m, ts.priceChangeObservedAtMs8084) else null
+            Field.CHANGE_1H_PCT -> if (ts.hourChangeObservedAtMs8506 > 0L) legacy(ts.lastPriceChange1h, ts.hourChangeObservedAtMs8506) else null
+            Field.MCAP_USD -> legacy(ts.lastMcap, 0L)
+            Field.FDV_USD -> legacy(ts.lastFdv, 0L)
+            Field.TOP_HOLDER_PCT -> (ts.topHolderPct ?: ts.tokenMap.topHolderConcentrationPct)?.let { legacy(it, 0L) }
+            else -> null
+        }
+    }
+
+    /**
+     * THE snapshot-field write: [value] of [field] observed by [source] ([rank]) at [observedAtMs], kept under the price rule
+     * with [validFor]; then mirrored into the legacy fields and their observation stamps (pressure / change stamps are what the
+     * lanes' freshness windows read, so a refused offer can no longer re-date them). Returns true when the fact was kept.
+     */
+    fun writeSnapshot(ts: TokenState, field: Field, value: Double, source: String, rank: Int, observedAtMs: Long,
+                      nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (!validFor(field, value)) { count(refused, "${field.name}:NOT_A_READING"); return false }
+        val offered = Fact(value, source, rank, stampOf(rank, observedAtMs, nowMs))
+        synchronized(ts.facts8551) {
+            val prior = snapshotFact(ts, field)
+            val ok = if (offered.rank <= Rank.RESTORE) prior == null || prior.rank <= Rank.RESTORE
+                else prior == null || prior.rank <= Rank.RESTORE || (offered.observedAtMs >= prior.observedAtMs &&
+                    (offered.rank >= prior.rank || prior.rank < Rank.CHAIN || offered.observedAtMs - prior.observedAtMs > PRICE_CHAIN_HOLD_MS))
+            if (!ok) { count(refused, "${field.name}:" + if (prior != null && offered.observedAtMs < prior.observedAtMs) "OLDER_THAN_HELD" else "HELD_BY_STRONGER"); return false }
+            ts.facts8551[field] = offered
+            mirrorSnapshot(ts, field, value, offered.observedAtMs)
+        }
+        count(accepted, "${field.name}:" + source.take(40))
+        if (rank > Rank.RESTORE) try {
+            val kind = when (field) {
+                Field.BUY_PRESSURE_PCT, Field.SELL_PRESSURE_PCT -> FeatureKind8283.POOL_FLOW
+                Field.CHANGE_5M_PCT, Field.CHANGE_1H_PCT -> FeatureKind8283.PRICE
+                else -> null
+            }
+            if (kind != null) FeatureRevision8283.bumpThrottled8286(ts.mint, kind, nowMs)
+        } catch (_: Throwable) {}
+        return true
+    }
+
+    private fun mirrorSnapshot(ts: TokenState, field: Field, v: Double, at: Long) {
+        when (field) {
+            Field.BUY_PRESSURE_PCT -> { ts.lastBuyPressurePct = v; if (at > 0L) ts.buyPressureObservedAtMs8084 = at }
+            Field.SELL_PRESSURE_PCT -> ts.lastSellPressurePct = v
+            Field.CHANGE_5M_PCT -> { ts.lastPriceChange5m = v; if (at > 0L) ts.priceChangeObservedAtMs8084 = at }
+            Field.CHANGE_1H_PCT -> { ts.lastPriceChange1h = v; if (at > 0L) ts.hourChangeObservedAtMs8506 = at }
+            Field.MCAP_USD -> { ts.lastMcap = v; try { ts.tokenMap.marketCap = v } catch (_: Throwable) {} }
+            Field.FDV_USD -> { ts.lastFdv = v; try { ts.tokenMap.fdv = v } catch (_: Throwable) {} }
+            Field.TOP_HOLDER_PCT -> { ts.topHolderPct = v; try { ts.tokenMap.topHolderConcentrationPct = v } catch (_: Throwable) {} }
+            else -> {}
+        }
+    }
+
+    /** Restores (meta cache / hive / saved position): fill only an empty slot, stored at time 0. */
+    fun restoreMcap(ts: TokenState, usd: Double): Boolean = writeSnapshot(ts, Field.MCAP_USD, usd, "RESTORE", Rank.RESTORE, 0L)
+    fun restoreFdv(ts: TokenState, usd: Double): Boolean = writeSnapshot(ts, Field.FDV_USD, usd, "RESTORE", Rank.RESTORE, 0L)
+
+    private const val TX_FRESH_MS = 5L * 60_000L
+
+    /**
+     * V5.0.8553 — THE transaction-velocity reader (swaps per minute): the coin's own executed swaps when the tape holds a
+     * flow read (FlowRead8546: 5-minute prints), else the store's fact (the pair poll's 5-minute counts, or its hour's
+     * counts as a stand-in) while it is under 5 minutes old, else the live alpha cache. Superseded: only the alpha cache,
+     * which is filled on the LIVE buy path alone — the edge dataset read NaN on 559 of 559 decisions, and the
+     * TX_VELOCITY_BREAK setup / setup authority / Cortex tx voter never saw a value in paper.
+     */
+    fun txPerMin(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Double {
+        val flow = try { FlowRead8546.read8546(ts.mint, nowMs) } catch (_: Throwable) { null }
+        if (flow != null && flow.known) return (flow.buys5m + flow.sells5m) / 5.0
+        ts.facts8551[Field.TX_PER_MIN]?.takeIf { nowMs - it.observedAtMs in 0L..TX_FRESH_MS }?.let { return it.value }
+        return try { com.lifecyclebot.engine.DataPipeline.cachedAlphaSignals6486(ts.mint)?.txVelocity } catch (_: Throwable) { null } ?: Double.NaN
+    }
+
+    /** The one top-holder share reader (DATA_MAP D3: five call sites read the two fields in different orders). */
+    fun topHolderPct(ts: TokenState): Double? = snapshotFact(ts, Field.TOP_HOLDER_PCT)?.value
+
+    // ── GRADUATED (V5.0.8553, DATA_MAP D8) ────────────────────────────────────────────────────────────────────────────
+
+    /**
+     * THE graduation write. Two readers used to disagree: PumpCurveKeys7269.isGraduated7392 (the curve account said
+     * complete — 37 readers: curve depth, curve price witness, sell venue) and tokenMap.migratedOrGraduated (the WS / migration
+     * event / venue strings — 31 readers: route choice, lane contracts, Cortex). Each was set by its own producers and never
+     * told the other, so a coin could be "graduated" to the router and "on the curve" to the depth reader. A proven
+     * graduation ([source]: curve account complete, PumpPortal migration event, DEX WS migration) now sets both, sticky.
+     * Returns true when the row's flag flipped.
+     */
+    fun markGraduated(mint: String, source: String, ts: TokenState? = null): Boolean {
+        val m = mint.trim()
+        if (m.isBlank()) return false
+        try { com.lifecyclebot.network.PumpCurveKeys7269.markGraduated7392(m) } catch (_: Throwable) {}
+        val row = ts ?: try { com.lifecyclebot.engine.BotService.status.tokens[m] } catch (_: Throwable) { null }
+        var flipped = false
+        if (row != null) try {
+            val tm = row.tokenMap
+            if (!tm.migratedOrGraduated) { tm.migratedOrGraduated = true; flipped = true }
+            tm.pumpFunExecutable = false
+            tm.pumpFunBondingCurveStatus = "COMPLETED_MIGRATED"
+            tm.updatedAtMs = System.currentTimeMillis()
+        } catch (_: Throwable) {}
+        count(accepted, "GRADUATED:" + source.take(40))
+        return flipped
+    }
+
     /** Pure: why [accepts] refused (for the brief). */
     fun refusal(prior: Fact?, offered: Fact): String = when {
         !isReading(offered.value) -> "NOT_A_READING"
@@ -228,7 +354,10 @@ object TokenFacts {
             .joinToString(",") { "${it.key.substringAfter(':')}=${it.value.get()}" }.ifBlank { "-" }
         fun of(f: String, m: ConcurrentHashMap<String, AtomicLong>) = ConcurrentHashMap(m.filterKeys { it.startsWith("$f:") })
         return "tokenFacts8551[liq accepted{${top(of("LIQUIDITY_USD", accepted))}} refused{${top(of("LIQUIDITY_USD", refused))}} " +
-            "price accepted{${top(of("PRICE_USD", accepted))}} refused{${top(of("PRICE_USD", refused))}} rule=newest wins; same time -> higher rank; " +
-            "weaker source waits out the hold (liq: chain 90s, else 30s; price: chain 60s); restores fill only empty slots]"
+            "price accepted{${top(of("PRICE_USD", accepted))}} refused{${top(of("PRICE_USD", refused))}} " +
+            "snapshot{" + Field.values().drop(2).joinToString(",") { f ->
+                "${f.name.lowercase().substringBefore("_pct").substringBefore("_usd")}=${of(f.name, accepted).values.sumOf { it.get() }}/${of(f.name, refused).values.sumOf { it.get() }}"
+            } + "} graduated{${top(of("GRADUATED", accepted))}} " +
+            "rule=newest wins; same time -> higher rank; weaker source waits out the hold (liq: chain 90s, else 30s; price/snapshot: chain 60s); restores fill only empty slots]"
     }
 }

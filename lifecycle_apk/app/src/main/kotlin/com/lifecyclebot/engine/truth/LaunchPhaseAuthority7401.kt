@@ -78,8 +78,9 @@ object LaunchPhaseAuthority7401 {
     fun trueAgeMs(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Long =
         CanonicalTokenBirthTime7440.launchAgeMs7767(ts, nowMs) ?: Long.MAX_VALUE
 
+    // V5.0.8553 D4 — the one age (resolved birth, else the earliest birth already evidenced); superseded: the bare resolution
     fun resolvedAgeMs(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Long? =
-        CanonicalTokenBirthTime7440.resolvedAgeMs(ts, nowMs)
+        CanonicalTokenBirthTime7440.launchAgeMs7767(ts, nowMs)
 
 
     // V5.0.7402 — CI's kotlin_expression_body_return gate (and the real

@@ -95,7 +95,7 @@ object DiscoveryCapture8400 {
                 val row8533 = try { com.lifecyclebot.engine.market.MarketSweep7297.rowFor8169(ts.mint, now8533) } catch (_: Throwable) { null }
                 val pair8533 = try { PairFlow8169.peek8169(ts.mint) } catch (_: Throwable) { null }
                 val v8533 = providerCap8533(row8533?.mcapUsd, row8533?.observedAtMs8169, pair8533?.fdvUsd8533, pair8533?.atMs, now8533)
-                if (v8533 != null) { ts.lastMcap = v8533; how = PROVIDER_CAP; providerCap8533.incrementAndGet() }
+                if (v8533 != null && TokenFacts.writeSnapshot(ts, TokenFacts.Field.MCAP_USD, v8533, "PROVIDER_CAP_8533", TokenFacts.Rank.PROVIDER, row8533?.observedAtMs8169 ?: pair8533?.atMs ?: now8533)) { how = PROVIDER_CAP; providerCap8533.incrementAndGet() }
             }
         }
         // superseded by V5.0.8418 — step 4 (CURVE_FROM_LIQUIDITY: cap = (realSol + 30)^2 / 32.19 from ts.lastLiquidityUsd) is
@@ -128,7 +128,7 @@ object DiscoveryCapture8400 {
      */
     fun captureAtIntake8400(ts: TokenState, source: String, trustedMarketCapUsd: Double) {
         // V5.0.8418 — superseded V5.9.769 max-take: the source's newer cap replaces the older one, up or down.
-        if (trustedMarketCapUsd.isFinite() && trustedMarketCapUsd > 0.0) ts.lastMcap = trustedMarketCapUsd
+        TokenFacts.writeSnapshot(ts, TokenFacts.Field.MCAP_USD, trustedMarketCapUsd, "INTAKE", TokenFacts.Rank.AGGREGATE, System.currentTimeMillis())   // V5.0.8553
         try { captureMcap8400(ts, "INTAKE_$source") } catch (_: Throwable) {}
         // V5.0.8549 — the coin's DexScreener pair (buy / sell counts, 5m / 1h change, pool liquidity, pool address,
         // pairCreatedAt) is asked when the coin ARRIVES, in the batched pair lane (30 mints a call), not when a decision first

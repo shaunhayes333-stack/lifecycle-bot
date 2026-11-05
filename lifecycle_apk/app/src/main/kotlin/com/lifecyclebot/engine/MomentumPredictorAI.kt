@@ -83,6 +83,8 @@ object MomentumPredictorAI {
         
         // Calculated scores (0-100)
         var volumeAccelerationScore: Double = 0.0,
+        /** V5.0.8553 — the score above was computed from a real earlier volume (5+ samples); false = the 0.0 is a default. */
+        var volumeAccelObserved8553: Boolean = false,
         var coilingScore: Double = 0.0,
         var accumulationScore: Double = 0.0,
         var momentumScore: Double = 0.0,
@@ -195,6 +197,7 @@ object MomentumPredictorAI {
         val earlierVol = history.take(3).map { it.volume }.average()
         val volAcceleration = if (earlierVol > 0) (recentVol / earlierVol - 1) * 100 else 0.0
         momentum.volumeAccelerationScore = (volAcceleration * 2).coerceIn(0.0, 100.0)
+        momentum.volumeAccelObserved8553 = earlierVol > 0
         momentum.hasVolumeAcceleration = volAcceleration > 50  // 50%+ increase
         
         // 2. COILING PATTERN (price compression)

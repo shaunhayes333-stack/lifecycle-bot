@@ -57,9 +57,13 @@ object RouteTruthHydrator {
             "LIFINITY", "FLUXBEAM", "PHOENIX", "OPENBOOK",
         ).any { hay.contains(it) }
         if (!explicit && !ammVenue) return false
-        tm.migratedOrGraduated = true
-        tm.pumpFunExecutable = false
-        tm.pumpFunBondingCurveStatus = "COMPLETED_MIGRATED"
+        // V5.0.8553 — an explicit graduation / migration label is proof: both truths (TokenFacts.markGraduated). A post-curve
+        // AMM venue string is an inference: it routes this row to the AMM but does not tell the curve readers the curve closed.
+        if (explicit) com.lifecyclebot.engine.truth.TokenFacts.markGraduated(ts.mint, "ROUTE_LABEL_EXPLICIT", ts) else {
+            tm.migratedOrGraduated = true
+            tm.pumpFunExecutable = false
+            tm.pumpFunBondingCurveStatus = "COMPLETED_MIGRATED"
+        }
         try {
             PipelineHealthCollector.labelInc(
                 if (explicit) "GRADUATION_DETECTED_EXPLICIT" else "GRADUATION_DETECTED_AMM_VENUE"
@@ -75,11 +79,8 @@ object RouteTruthHydrator {
      * Same fields as [markGraduationIfDetected6852]. Returns true if this call flipped the flag.
      */
     fun markGraduatedByEvent7744(ts: TokenState): Boolean {
-        val tm = ts.tokenMap
-        if (tm.migratedOrGraduated) return false
-        tm.migratedOrGraduated = true
-        tm.pumpFunExecutable = false
-        tm.pumpFunBondingCurveStatus = "COMPLETED_MIGRATED"
+        // V5.0.8553 — both truths, every time (a row already flagged by venue inference still tells the curve readers)
+        if (!com.lifecyclebot.engine.truth.TokenFacts.markGraduated(ts.mint, "MIGRATION_EVENT_7744", ts)) return false
         try { PipelineHealthCollector.labelInc("GRADUATION_DETECTED_MIGRATION_EVENT_7744") } catch (_: Throwable) {}
         return true
     }

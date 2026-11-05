@@ -47,7 +47,7 @@ object CanonicalFeaturesBuilder {
         // discovery snapshot instead of marking otherwise-rich outcomes incomplete.
         val liqUsd = ts.lastLiquidityUsd.takeIf { it > 0.0 } ?: ts.tokenMap.liquidityUsd ?: 0.0
         val mcapUsd = ts.lastMcap.takeIf { it > 0.0 } ?: ts.tokenMap.marketCap ?: ts.tokenMap.fdv ?: ts.lastFdv
-        val topHolderPct = ts.topHolderPct ?: ts.safety.topHolderPct.takeIf { it >= 0.0 } ?: ts.tokenMap.topHolderConcentrationPct
+        val topHolderPct = com.lifecyclebot.engine.truth.TokenFacts.topHolderPct(ts) ?: ts.safety.topHolderPct.takeIf { it >= 0.0 }   // V5.0.8553 D3 — the one reader, then the raw safety report
         // V5.0.4038 — entry token-age feature fix.
         // CandidateFeatures.ageBucket is supposed to describe token/pool age at ENTRY.
         // The old code used now-entryTime, which is hold time at close and duplicates

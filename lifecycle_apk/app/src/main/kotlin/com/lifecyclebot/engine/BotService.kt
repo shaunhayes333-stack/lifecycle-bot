@@ -1358,27 +1358,28 @@ class BotService : Service() {
      * it. Field Manual §3: read the tape you trade — flow, change and volume
      * belong to the current window. A synthesised pair (no tape) writes nothing.
      */
-    private fun applyPollFlow7758(ts: com.lifecyclebot.data.TokenState, pair: com.lifecyclebot.network.PairInfo) {
+    private fun applyPollFlow7758(ts: com.lifecyclebot.data.TokenState, pair: com.lifecyclebot.network.PairInfo, evidenceAt8553: Long = System.currentTimeMillis()) {
         try {
+            // V5.0.8553 D2 — the poll's flow and changes are facts of the store at the PAIR'S fetch time (evidenceAt7271):
+            // superseded: stamped "now", so a pair cached up to 135 s passed every flow-freshness window as a fresh reading.
+            val F = com.lifecyclebot.engine.truth.TokenFacts
             val m5 = if (pair.buysM5 >= 0 && pair.sellsM5 >= 0) pair.buysM5 + pair.sellsM5 else 0
             val h1 = pair.candle.buysH1 + pair.candle.sellsH1
             when {
                 m5 > 0 -> {
-                    ts.lastBuyPressurePct = pair.buysM5.toDouble() / m5 * 100.0
-                    ts.lastSellPressurePct = pair.sellsM5.toDouble() / m5 * 100.0
-                    ts.buyPressureObservedAtMs8084 = System.currentTimeMillis()   // V5.0.8084 — measured
+                    F.writeSnapshot(ts, F.Field.TX_PER_MIN, m5 / 5.0, "DEX_PAIR_POLL_M5", F.Rank.PROVIDER, evidenceAt8553)
+                    F.writeSnapshot(ts, F.Field.BUY_PRESSURE_PCT, pair.buysM5.toDouble() / m5 * 100.0, "DEX_PAIR_POLL_M5", F.Rank.PROVIDER, evidenceAt8553)
+                    F.writeSnapshot(ts, F.Field.SELL_PRESSURE_PCT, pair.sellsM5.toDouble() / m5 * 100.0, "DEX_PAIR_POLL_M5", F.Rank.PROVIDER, evidenceAt8553)
                 }
                 h1 > 0 -> {
-                    ts.lastBuyPressurePct = pair.candle.buysH1.toDouble() / h1 * 100.0
-                    ts.lastSellPressurePct = pair.candle.sellsH1.toDouble() / h1 * 100.0
-                    ts.buyPressureObservedAtMs8084 = System.currentTimeMillis()
+                    // an hour's counts standing in for the 5-minute window: a derived reading, ranked as one
+                    F.writeSnapshot(ts, F.Field.TX_PER_MIN, h1 / 60.0, "DEX_PAIR_POLL_H1", F.Rank.AGGREGATE, evidenceAt8553)
+                    F.writeSnapshot(ts, F.Field.BUY_PRESSURE_PCT, pair.candle.buysH1.toDouble() / h1 * 100.0, "DEX_PAIR_POLL_H1", F.Rank.AGGREGATE, evidenceAt8553)
+                    F.writeSnapshot(ts, F.Field.SELL_PRESSURE_PCT, pair.candle.sellsH1.toDouble() / h1 * 100.0, "DEX_PAIR_POLL_H1", F.Rank.AGGREGATE, evidenceAt8553)
                 }
             }
-            if (pair.priceChangeM5.isFinite()) { ts.lastPriceChange5m = pair.priceChangeM5; ts.priceChangeObservedAtMs8084 = System.currentTimeMillis() }
-            if (pair.priceChangeH1.isFinite()) {
-                ts.lastPriceChange1h = pair.priceChangeH1
-                ts.hourChangeObservedAtMs8506 = System.currentTimeMillis()
-            }
+            if (pair.priceChangeM5.isFinite()) F.writeSnapshot(ts, F.Field.CHANGE_5M_PCT, pair.priceChangeM5, "DEX_PAIR_POLL", F.Rank.PROVIDER, evidenceAt8553)
+            if (pair.priceChangeH1.isFinite()) F.writeSnapshot(ts, F.Field.CHANGE_1H_PCT, pair.priceChangeH1, "DEX_PAIR_POLL", F.Rank.PROVIDER, evidenceAt8553)
             if (pair.candle.volumeH1.isFinite() && pair.candle.volumeH1 > 0.0) ts.tokenMap.volume1hUsd = pair.candle.volumeH1
             if (pair.volumeM5.isFinite() && pair.volumeM5 >= 0.0) ts.tokenMap.volume5mUsd = pair.volumeM5
             // V5.0.7764 — tokenMap.creatorOrDevWallet had no writer; the creator is held
@@ -11157,9 +11158,9 @@ class BotService : Service() {
                 onMigration = { mint ->
                     ErrorLogger.info("BotService", "🚀 PumpPortal migration: ${mint.take(8)}…")
                     // V5.0.8165 — the curve is complete: its reserves stop being a price witness (forward labels, liquidity).
-                    try { com.lifecyclebot.network.PumpCurveKeys7269.markGraduated7392(mint) } catch (_: Throwable) {}
                     // V5.0.7744 — a held curve token routes its exits to the AMM from this event on.
-                    try { status.tokens[mint]?.let { RouteTruthHydrator.markGraduatedByEvent7744(it) } } catch (_: Throwable) {}
+                    // V5.0.8553 — one write sets both graduation truths (TokenFacts.markGraduated): curve readers and the router.
+                    try { status.tokens[mint]?.let { RouteTruthHydrator.markGraduatedByEvent7744(it) } ?: com.lifecyclebot.engine.truth.TokenFacts.markGraduated(mint, "PUMP_PORTAL_MIGRATION") } catch (_: Throwable) {}
                     // V5.0.7384 — a graduation is a fresh, high-signal event; it only
                     // logged. Off the socket thread, give the new AMM pool a moment to
                     // index, read its OBSERVED pair liquidity, and admit it like a create.
@@ -13222,7 +13223,7 @@ class BotService : Service() {
                                     if (basisMismatch7273) {
                                         PipelineHealthCollector.labelInc("MCAP_STACK_REBUILD_BASIS_MISMATCH_7273")
                                     } else if (cap7269.isFinite() && cap7269 > 0.0) {
-                                        ts.lastMcap = cap7269
+                                        com.lifecyclebot.engine.truth.TokenFacts.writeSnapshot(ts, com.lifecyclebot.engine.truth.TokenFacts.Field.MCAP_USD, cap7269, "PRICE_X_SUPPLY_7269", com.lifecyclebot.engine.truth.TokenFacts.Rank.AGGREGATE, ts.lastPriceUpdate)   // V5.0.8553
                                         com.lifecyclebot.engine.truth.DerivedMarketCap7289.onRebuiltFromPrice(mint, cap7269)
                                         PipelineHealthCollector.labelInc("MCAP_REFRESHED_FROM_STACK_7269")
                                     }
@@ -16710,7 +16711,7 @@ class BotService : Service() {
                         // V5.0.8345 — the max-take write goes through the hydration hook (a first fill resumes the deferred task).
                         if (HydrationReeval8343.intakeLiquidity8345(existing, liquidityUsd)) tokenEvidenceImproved7475 = true
                         if (trustedMarketCapUsd6492 > 0.0 && trustedMarketCapUsd6492 != existing.lastMcap) {  // V5.0.8418 — newer replaces, up or down
-                            existing.lastMcap = trustedMarketCapUsd6492
+                            com.lifecyclebot.engine.truth.TokenFacts.writeSnapshot(existing, com.lifecyclebot.engine.truth.TokenFacts.Field.MCAP_USD, trustedMarketCapUsd6492, "INTAKE", com.lifecyclebot.engine.truth.TokenFacts.Rank.AGGREGATE, System.currentTimeMillis())
                             tokenEvidenceImproved7475 = true
                         }
                         val laneBefore7475 = existing.laneAffinity.size
@@ -17041,9 +17042,9 @@ class BotService : Service() {
                             // them; they only matter for the first few seconds
                             // post-boot when the scanner hasn't ticked yet.
                             TokenFacts.restorePrice(fresh, cached.lastPrice, null)  // V5.0.8552 — a restore fact (time 0)
-                            if (cached.lastMcap > 0.0) fresh.lastMcap = cached.lastMcap
+                            TokenFacts.restoreMcap(fresh, cached.lastMcap)
                             TokenFacts.restoreLiquidity(fresh, cached.lastLiquidityUsd, "META_CACHE_RESTORE")  // V5.0.8551
-                            if (cached.lastFdv > 0.0) fresh.lastFdv = cached.lastFdv
+                            TokenFacts.restoreFdv(fresh, cached.lastFdv)
                             if (cached.lastPriceDex.isNotBlank()) fresh.lastPriceDex = cached.lastPriceDex
                             if (cached.lastPricePoolAddr.isNotBlank()) fresh.lastPricePoolAddr = cached.lastPricePoolAddr
                             if (cached.decimals >= 0) fresh.tokenMap.decimals = cached.decimals
@@ -17081,7 +17082,7 @@ class BotService : Service() {
                             }
                         }
                         if (cached == null && hiveForIntake != null) {
-                            if (hiveForIntake.lastMcapUsd > 0.0) fresh.lastMcap = hiveForIntake.lastMcapUsd
+                            TokenFacts.restoreMcap(fresh, hiveForIntake.lastMcapUsd)
                             TokenFacts.restoreLiquidity(fresh, hiveForIntake.lastLiquidityUsd, "HIVE_RESTORE")  // V5.0.8551
                             if (hiveForIntake.pairDex.isNotBlank()) fresh.lastPriceDex = hiveForIntake.pairDex
                             if (hiveForIntake.tokenDecimals >= 0) fresh.tokenMap.decimals = hiveForIntake.tokenDecimals
@@ -17109,15 +17110,15 @@ class BotService : Service() {
                     // runtime tokens only refill mutable quote/visual fields here.
                     if (ts.logoUrl.isBlank() && cachedForIntake.logoUrl.isNotBlank()) ts.logoUrl = cachedForIntake.logoUrl
                     TokenFacts.restorePrice(ts, cachedForIntake.lastPrice, null)  // V5.0.8552
-                    if (ts.lastMcap <= 0.0 && cachedForIntake.lastMcap > 0.0) ts.lastMcap = cachedForIntake.lastMcap
+                    TokenFacts.restoreMcap(ts, cachedForIntake.lastMcap)
                     TokenFacts.restoreLiquidity(ts, cachedForIntake.lastLiquidityUsd, "META_CACHE_RESTORE")  // V5.0.8551
-                    if (ts.lastFdv <= 0.0 && cachedForIntake.lastFdv > 0.0) ts.lastFdv = cachedForIntake.lastFdv
+                    TokenFacts.restoreFdv(ts, cachedForIntake.lastFdv)
                     if (ts.lastPriceDex.isBlank() && cachedForIntake.lastPriceDex.isNotBlank()) ts.lastPriceDex = cachedForIntake.lastPriceDex
                     if (ts.lastPricePoolAddr.isBlank() && cachedForIntake.lastPricePoolAddr.isNotBlank()) ts.lastPricePoolAddr = cachedForIntake.lastPricePoolAddr
                     if (ts.lastPriceSource.isBlank() && cachedForIntake.lastPriceSource.isNotBlank()) ts.lastPriceSource = cachedForIntake.lastPriceSource
                 } else if (hiveForIntake != null) {
                     if (ts.logoUrl.isBlank() && hiveForIntake.logoUrl.isNotBlank()) ts.logoUrl = hiveForIntake.logoUrl
-                    if (ts.lastMcap <= 0.0 && hiveForIntake.lastMcapUsd > 0.0) ts.lastMcap = hiveForIntake.lastMcapUsd
+                    TokenFacts.restoreMcap(ts, hiveForIntake.lastMcapUsd)
                     TokenFacts.restoreLiquidity(ts, hiveForIntake.lastLiquidityUsd, "HIVE_RESTORE")  // V5.0.8551
                     if (ts.lastPriceDex.isBlank() && hiveForIntake.pairDex.isNotBlank()) ts.lastPriceDex = hiveForIntake.pairDex
                     if (ts.lastPriceSource.isBlank() && hiveForIntake.lastPriceSource.isNotBlank()) ts.lastPriceSource = hiveForIntake.lastPriceSource
@@ -25744,7 +25745,7 @@ if (hotExitHandledSweep) {
                 dex = if (pool8018.isNotBlank()) com.lifecyclebot.network.GradTicks8018.dexFor8419(source8018) else null)   // V5.0.8419 — the tick's venue; V5.0.8552 the one price write
             // superseded by V5.0.8418 — the venue's marketCapSol (price x an assumed 1e9 supply) is not written:
             // every print prices the mint account's verified supply; unread supply leaves the row's cap as it was (unknown stays unknown).
-            com.lifecyclebot.engine.truth.MintSupply8418.capUsd8418(mint, px).takeIf { it.isFinite() }?.let { ts.lastMcap = it }   // V5.0.8418 — verified supply x print; unread supply: cap stays unknown
+            com.lifecyclebot.engine.truth.MintSupply8418.capUsd8418(mint, px).takeIf { it.isFinite() }?.let { com.lifecyclebot.engine.truth.TokenFacts.writeSnapshot(ts, com.lifecyclebot.engine.truth.TokenFacts.Field.MCAP_USD, it, "CHAIN_PRINT_X_SUPPLY", com.lifecyclebot.engine.truth.TokenFacts.Rank.CHAIN, now) }   // V5.0.8418 — verified supply x print; unread supply: cap stays unknown
         }
         try {
             com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.note(
@@ -26587,7 +26588,7 @@ if (hotExitHandledSweep) {
                 pair.url.contains("orca", ignoreCase = true) -> "ORCA"
                 else -> "UNKNOWN"
             })
-            ts.lastMcap         = pair.candle.marketCap
+            com.lifecyclebot.engine.truth.TokenFacts.writeSnapshot(ts, com.lifecyclebot.engine.truth.TokenFacts.Field.MCAP_USD, pair.candle.marketCap, "DEX_PAIR_POLL", com.lifecyclebot.engine.truth.TokenFacts.Rank.PROVIDER, evidenceAt7271)   // V5.0.8553 — at the pair's fetch time; a 0 is no reading
             // V5.0.7323 — a bonding-curve pair has no liquidity object, so the
             // poll reported 0 and erased the create-time depth estimate:
             // MOONSHOT_FRESH_DECLINED LIQ_UNKNOWN, V3 ZERO_LIQUIDITY. A curve
@@ -26598,13 +26599,13 @@ if (hotExitHandledSweep) {
                 try { com.lifecyclebot.network.PumpCurveKeys7269.createPriceSol7280(ts.mint) != null } catch (_: Throwable) { false }
             // V5.0.8345 — the poll's figure is written through the hydration hook (a first fill resumes the deferred hand-off task).
             HydrationReeval8343.pollLiquidity8345(ts, pair.liquidity, curveKeep7323, "CURVE_LIQUIDITY_KEPT_ON_ZERO_POLL_7323")
-            ts.lastFdv          = pair.fdv
+            com.lifecyclebot.engine.truth.TokenFacts.writeSnapshot(ts, com.lifecyclebot.engine.truth.TokenFacts.Field.FDV_USD, pair.fdv, "DEX_PAIR_POLL", com.lifecyclebot.engine.truth.TokenFacts.Rank.PROVIDER, evidenceAt7271)
 
             // V5.9: Populate lastBuyPressurePct from polling candle data.
             // Previously only set by DexScreener WebSocket — tokens without an active
             // WS subscription were stuck at default 50.0, causing ShitCoinExpress (>=55)
             // and ManipulatedTraderAI to never trigger on polled tokens.
-            applyPollFlow7758(ts, pair)
+            applyPollFlow7758(ts, pair, evidenceAt7271)   // V5.0.8553 — the pair's own fetch time
 
             // V3.2: Update shadow learning engine with price
             if (pair.candle.priceUsd > 0) {
@@ -26865,7 +26866,7 @@ if (hotExitHandledSweep) {
                     // rug scoring. TokenSafetyChecker already resolves the real number;
                     // mirror it here at the one place safety is committed. -1.0 is the
                     // checker's "unknown" sentinel and must not be mirrored.
-                    r.topHolderPct.takeIf { it.isFinite() && it >= 0.0 }?.let { ts.topHolderPct = it }
+                    r.topHolderPct.takeIf { it.isFinite() && it >= 0.0 }?.let { com.lifecyclebot.engine.truth.TokenFacts.writeSnapshot(ts, com.lifecyclebot.engine.truth.TokenFacts.Field.TOP_HOLDER_PCT, it, "SAFETY_CHECK", com.lifecyclebot.engine.truth.TokenFacts.Rank.PROVIDER, r.topHolderObservedAtMs8522.takeIf { at -> at > 0L } ?: System.currentTimeMillis()) }   // V5.0.8553 D3
                 }
                 // V5.0.6853 §THE_LAYER_THAT_SAVES_MONEY_WAS_NEVER_FED — first and only
                 // feed for LiquidityFragilityAI. analyze() had zero callers, so its
@@ -34635,8 +34636,8 @@ if (hotExitHandledSweep) {
                     // V5.0.7807 — an overview without liquidity is DATA UNKNOWN,
                     // never a 0.0 drain reading (Field Manual L190).
                     if (ov.liquidity.isFinite() && ov.liquidity > 0.0) HydrationReeval8343.writeTick8345(ts, ov.liquidity, "BIRDEYE_OVERVIEW", com.lifecyclebot.engine.truth.TokenFacts.Rank.PROVIDER)  // V5.0.8345
-                    ts.lastMcap = ov.marketCap
-                    ts.lastFdv = ov.marketCap
+                    com.lifecyclebot.engine.truth.TokenFacts.writeSnapshot(ts, com.lifecyclebot.engine.truth.TokenFacts.Field.MCAP_USD, ov.marketCap, "BIRDEYE_OVERVIEW", com.lifecyclebot.engine.truth.TokenFacts.Rank.PROVIDER, System.currentTimeMillis())
+                    com.lifecyclebot.engine.truth.TokenFacts.writeSnapshot(ts, com.lifecyclebot.engine.truth.TokenFacts.Field.FDV_USD, ov.marketCap, "BIRDEYE_MCAP_AS_FDV", com.lifecyclebot.engine.truth.TokenFacts.Rank.AGGREGATE, System.currentTimeMillis())   // V5.0.8553 — the overview has no FDV: named a stand-in
                     val syntheticCandle = com.lifecyclebot.data.Candle(
                         ts = System.currentTimeMillis(), priceUsd = ov.priceUsd,
                         marketCap = ov.marketCap, volumeH1 = 0.0, volume24h = 0.0,
@@ -34753,8 +34754,8 @@ if (hotExitHandledSweep) {
                         if (mcap.isFinite() && mcap > 0 && priceUsd.isFinite() && priceUsd > 0) {
                             synchronized(ts) {
                                 TokenFacts.writePrice(ts, priceUsd, "PUMP_FUN_FRONTEND_API", TokenFacts.Rank.PROVIDER, System.currentTimeMillis(), dex = "PUMP_FUN")  // V5.9.744; V5.0.8552
-                                ts.lastMcap = mcap
-                                ts.lastFdv = mcap
+                                com.lifecyclebot.engine.truth.TokenFacts.writeSnapshot(ts, com.lifecyclebot.engine.truth.TokenFacts.Field.MCAP_USD, mcap, "PUMP_FUN_FRONTEND_API", com.lifecyclebot.engine.truth.TokenFacts.Rank.PROVIDER, System.currentTimeMillis())
+                                com.lifecyclebot.engine.truth.TokenFacts.writeSnapshot(ts, com.lifecyclebot.engine.truth.TokenFacts.Field.FDV_USD, mcap, "PUMP_FUN_FRONTEND_API", com.lifecyclebot.engine.truth.TokenFacts.Rank.AGGREGATE, System.currentTimeMillis())   // a curve coin's whole supply circulates
                                 // Market cap is not liquidity; retain independently observed depth.
                                 val syntheticCandle = com.lifecyclebot.data.Candle(
                                     ts = System.currentTimeMillis(), priceUsd = priceUsd,

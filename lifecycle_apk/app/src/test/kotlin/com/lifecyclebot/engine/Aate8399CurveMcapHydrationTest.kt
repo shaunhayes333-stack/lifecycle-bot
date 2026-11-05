@@ -56,6 +56,6 @@ class Aate8399CurveMcapHydrationTest {
         assertTrue(resolver.contains("CurveReserves7951.hydrateMcap8399(ts, solUsd)"))
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         // superseded by V5.0.8418 — the print mark prices the VERIFIED supply (was px x PUMP_TOTAL_SUPPLY_8399).
-        assertTrue(bot.contains("com.lifecyclebot.engine.truth.MintSupply8418.capUsd8418(mint, px).takeIf { it.isFinite() }?.let { ts.lastMcap = it }"))
+        assertTrue(bot.contains("com.lifecyclebot.engine.truth.MintSupply8418.capUsd8418(mint, px).takeIf { it.isFinite() }?.let { com.lifecyclebot.engine.truth.TokenFacts.writeSnapshot(ts, com.lifecyclebot.engine.truth.TokenFacts.Field.MCAP_USD, it, \"CHAIN_PRINT_X_SUPPLY\""))  // superseded by V5.0.8553 — the write goes through the one store (TokenFacts)
     }
 }

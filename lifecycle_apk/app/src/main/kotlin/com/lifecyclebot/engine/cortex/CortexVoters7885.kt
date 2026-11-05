@@ -201,7 +201,7 @@ object CortexVoters7885 {
             com.lifecyclebot.engine.MomentumPredictorAI.getMomentum(ts.mint)?.coilingScore?.let { fin(it) }
         },
         Voter("MOMENTUM_VOLUME_ACCEL", "UNUSED_TECH", e(20.0, 40.0, 60.0, 80.0), setOf("mom_predictor")) { ts, _, _ ->
-            com.lifecyclebot.engine.MomentumPredictorAI.getMomentum(ts.mint)?.volumeAccelerationScore?.let { fin(it) }
+            com.lifecyclebot.engine.MomentumPredictorAI.getMomentum(ts.mint)?.takeIf { it.volumeAccelObserved8553 }?.volumeAccelerationScore?.let { fin(it) }   // V5.0.8553
         },
         // liquidity depth trend (raw %; only a coarse signal was used)
         Voter("LIQUIDITY_TREND_PCT", "UNUSED_TECH", e(-10.0, -2.0, 2.0, 10.0, 20.0), setOf("liq_trend")) { ts, _, _ ->
@@ -264,7 +264,7 @@ object CortexVoters7885 {
             com.lifecyclebot.engine.DataPipeline.cachedAlphaSignals6486(ts.mint)?.buyClusteringScore?.let { fin(it) }
         },
         Voter("TX_VELOCITY", "UNUSED_DATA", e(1.0, 3.0, 8.0), setOf("alpha_pipeline")) { ts, _, _ ->
-            com.lifecyclebot.engine.DataPipeline.cachedAlphaSignals6486(ts.mint)?.txVelocity?.let { fin(it) }
+            com.lifecyclebot.engine.truth.TokenFacts.txPerMin(ts).takeIf { it.isFinite() }?.let { fin(it) }   // V5.0.8553 — tape / pair poll / alpha, one reader
         },
         // market sweep ranking (only a composite multiplier used)
         Voter("SWEEP_PERCENTILE", "UNUSED_DATA", e(0.5, 0.75, 0.9, 0.97), setOf("sweep")) { ts, _, _ ->

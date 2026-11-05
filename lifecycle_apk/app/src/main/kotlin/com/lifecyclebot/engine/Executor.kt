@@ -15057,9 +15057,9 @@ class Executor(
         val cached = try { TokenMetaCache.get(ctx).lookup(ts.mint) } catch (_: Throwable) { null } ?: return false
         var changed = false
         if (com.lifecyclebot.engine.truth.TokenFacts.restorePrice(ts, cached.lastPrice, null)) changed = true  // V5.0.8552 — an archive price: a restore fact (time 0)
-        if (ts.lastMcap <= 0.0 && cached.lastMcap > 0.0) { ts.lastMcap = cached.lastMcap; changed = true }
+        if (com.lifecyclebot.engine.truth.TokenFacts.restoreMcap(ts, cached.lastMcap)) changed = true
         if (com.lifecyclebot.engine.truth.TokenFacts.restoreLiquidity(ts, cached.lastLiquidityUsd, "META_CACHE_RESTORE")) changed = true  // V5.0.8551
-        if (ts.lastFdv <= 0.0 && cached.lastFdv > 0.0) { ts.lastFdv = cached.lastFdv; changed = true }
+        if (com.lifecyclebot.engine.truth.TokenFacts.restoreFdv(ts, cached.lastFdv)) changed = true
         if (ts.lastPriceDex.isBlank() && cached.lastPriceDex.isNotBlank()) { ts.lastPriceDex = cached.lastPriceDex; changed = true }
         val cachedPool = cached.lastPricePoolAddr.ifBlank { cached.pairAddress }
         if (ts.lastPricePoolAddr.isBlank() && cachedPool.isNotBlank()) { ts.lastPricePoolAddr = cachedPool; changed = true }
@@ -15461,7 +15461,7 @@ class Executor(
 
     private fun persistMintEntryMarketSnapshot(ts: TokenState, snap: MintEntryMarketSnapshot, reason: String) {
         com.lifecyclebot.engine.truth.TokenFacts.writePrice(ts, snap.priceUsd, snap.priceSource, com.lifecyclebot.engine.truth.TokenFacts.Rank.AGGREGATE, snap.capturedAtMs, dex = snap.dex)  // V5.0.8552
-        if (snap.marketCapUsd > 0.0) ts.lastMcap = snap.marketCapUsd
+        com.lifecyclebot.engine.truth.TokenFacts.writeSnapshot(ts, com.lifecyclebot.engine.truth.TokenFacts.Field.MCAP_USD, snap.marketCapUsd, "ENTRY_SNAPSHOT_7382", com.lifecyclebot.engine.truth.TokenFacts.Rank.AGGREGATE, snap.capturedAtMs)
         com.lifecyclebot.engine.truth.TokenFacts.writeLiquidity(ts, snap.liquidityUsd, "ENTRY_SNAPSHOT_7382", com.lifecyclebot.engine.truth.TokenFacts.Rank.AGGREGATE, snap.capturedAtMs)  // V5.0.8551
         // V5.0.7356 — the MINT_ROUTE: sentinel belongs on the snapshot only. Written
         // into the token (and the meta cache below) it occupied the pool field, and
@@ -18941,7 +18941,7 @@ class Executor(
             val guardVerdict: com.lifecyclebot.engine.ImmediateCollapseGuard.Verdict? = try {
                 val mintAuthLive = ts.safety.mintAuthorityDisabled == false  // V5.0.8551 D7 — the safety proof (the token-map field has no writer)
                 val freezeAuthLive = ts.safety.freezeAuthorityDisabled == false
-                val topHolderPct6326 = (ts.tokenMap.topHolderConcentrationPct ?: ts.topHolderPct ?: 0.0)
+                val topHolderPct6326 = (com.lifecyclebot.engine.truth.TokenFacts.topHolderPct(ts) ?: 0.0)   // V5.0.8553 D3 — the one reader
                 val priceAge6326 = (System.currentTimeMillis() - ts.lastPriceUpdate).coerceAtLeast(0L)
                 val advisorLabels6326: List<String> = try {
                     val snap = ts.lastPolicySnapshot
@@ -19010,8 +19010,7 @@ class Executor(
                         lane = layerTag,
                         s = com.lifecyclebot.engine.truth.LiveRugRiskGate6405.Signals(
                             advisorLabels = advisorLabels6405,
-                            topHolderConcentrationPct = ts.tokenMap.topHolderConcentrationPct
-                                ?: ts.topHolderPct,
+                            topHolderConcentrationPct = com.lifecyclebot.engine.truth.TokenFacts.topHolderPct(ts),   // V5.0.8553 D3
                             liquidityUsd = ts.tokenMap.liquidityUsd
                                 ?: ts.lastLiquidityUsd.takeIf { it > 0.0 },
                             lastSellPressurePct = ts.lastSellPressurePct,

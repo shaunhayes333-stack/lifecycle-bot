@@ -793,7 +793,8 @@ object LanePlaybook7907 {
         fun nn(v: Double?) = if (v != null && v.isFinite() && v >= 0.0) v else Double.NaN
         val plan = try { com.lifecyclebot.engine.truth.TradePlan7739.readForEntry7837(ts, nowMs).setup?.name } catch (_: Throwable) { null }
         val phase = try { com.lifecyclebot.engine.truth.FreshLaunchSelector7737.shapingRead7871(ts, nowMs)?.first?.substringBefore('|') } catch (_: Throwable) { null }
-        val volAcc = try { com.lifecyclebot.engine.MomentumPredictorAI.getMomentum(ts.mint)?.volumeAccelerationScore } catch (_: Throwable) { null }
+        // V5.0.8553 — an uncomputed momentum (under 5 samples / no earlier volume) reads NaN, not the 0.0 default (362 of 559 dataset rows)
+        val volAcc = try { com.lifecyclebot.engine.MomentumPredictorAI.getMomentum(ts.mint)?.takeIf { it.volumeAccelObserved8553 }?.volumeAccelerationScore } catch (_: Throwable) { null }
         val tape = try { com.lifecyclebot.engine.market.LaunchTape7921.features(ts.mint, nowMs) } catch (_: Throwable) { null }
         val flow = try { com.lifecyclebot.engine.WhaleDetector.launchFlow7401(ts.mint, nowMs = nowMs) } catch (_: Throwable) { null }
         val opp = try { com.lifecyclebot.engine.market.MarketSweep7297.opportunityFor7777(ts.mint) } catch (_: Throwable) { null }
@@ -903,7 +904,7 @@ object LanePlaybook7907 {
                     ?.takeIf { it.bundleRisk != com.lifecyclebot.engine.BundleDetector.BundleRisk.UNKNOWN }?.largestBundlePct
             } catch (_: Throwable) { null } ?: Double.NaN,
             lpLock = ts.safety.lpLockPct.takeIf { it >= 0.0 && it.isFinite() } ?: Double.NaN,
-            txVelocity = try { com.lifecyclebot.engine.DataPipeline.cachedAlphaSignals6486(ts.mint)?.txVelocity } catch (_: Throwable) { null } ?: Double.NaN,
+            txVelocity = try { com.lifecyclebot.engine.truth.TokenFacts.txPerMin(ts, nowMs) } catch (_: Throwable) { Double.NaN },   // V5.0.8553 — the one tx-velocity reader
             volatility = ts.volatility ?: Double.NaN,
             regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "" },
             launchLadderProven = try {

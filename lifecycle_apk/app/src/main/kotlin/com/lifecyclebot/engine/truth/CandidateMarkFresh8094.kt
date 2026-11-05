@@ -140,7 +140,7 @@ object CandidateMarkFresh8094 {
                     chainHeld8459(ts.lastPriceSource, ts.lastPriceUpdate, at)
                 if (chainHeld) chainKept8459.incrementAndGet()
                 if (ts.position.isOpen || fresher || suspect || chainHeld) false else {
-                    ts.lastMcap = rescaledMcap8094(ts.lastMcap, ts.lastPrice, px)
+                    TokenFacts.writeSnapshot(ts, TokenFacts.Field.MCAP_USD, rescaledMcap8094(ts.lastMcap, ts.lastPrice, px), "MARK_RESCALE_8094", TokenFacts.Rank.AGGREGATE, at)
                     TokenFacts.writePrice(ts, px, source8359, TokenFacts.Rank.PROVIDER, at)  // V5.0.8552
                     true
                 }

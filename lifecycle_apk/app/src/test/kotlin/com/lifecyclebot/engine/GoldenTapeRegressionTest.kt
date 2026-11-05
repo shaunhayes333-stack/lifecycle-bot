@@ -2755,7 +2755,7 @@ class GoldenTapeRegressionTest {
         assertTrue("pool metadata must not be an executable accounting-basis choke", exec.contains("pool/route id is route metadata") && exec.contains("MINT_ROUTE:") && exec.contains("MINT_ENTRY_MARKET_SNAPSHOT_POOL_SENTINEL") && !exec.contains("poolAddress.isNotBlank() && priceSource.isNotBlank()"))
         assertTrue("Style router must not re-choke mint-route entries on missing pool metadata", java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveStylePivotRouter.kt").readText().contains("Jupiter/executor remains the hard route authority later") && !java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveStylePivotRouter.kt").readText().contains("ts.lastPricePoolAddr.isNotBlank() || ts.pairAddress.isNotBlank()"))
         assertTrue("liveBuy must emit a BUY fail reason if the executable market snapshot is truly missing", exec.contains("ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED") && exec.contains("""emitLiveBuyFail(ts, sol, "ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED"""))
-        assertTrue("valid entry snapshots must be stored into TokenState and TokenMetaCache", exec.contains("MINT_ENTRY_MARKET_SNAPSHOT_STORED") && exec.contains("TokenMetaCache.get(ctx).register") && exec.contains("if (snap.marketCapUsd > 0.0) ts.lastMcap = snap.marketCapUsd") && exec.contains("lastLiquidityUsd = snap.liquidityUsd"))
+        assertTrue("valid entry snapshots must be stored into TokenState and TokenMetaCache", exec.contains("MINT_ENTRY_MARKET_SNAPSHOT_STORED") && exec.contains("TokenMetaCache.get(ctx).register") && exec.contains("Field.MCAP_USD, snap.marketCapUsd, \"ENTRY_SNAPSHOT_7382\"") /* superseded by V5.0.8553: the one store */ && exec.contains("lastLiquidityUsd = snap.liquidityUsd"))
         assertTrue("liveBuy must rehydrate executable snapshot fields from TokenMetaCache before deferring", exec.contains("hydrateMintEntryMarketSnapshotFromCache") && exec.contains("MINT_ENTRY_MARKET_SNAPSHOT_CACHE_HYDRATED") && exec.contains("cached.lastPriceSource") && exec.contains("TOKEN_META_CACHE"))
         assertTrue("intake cache hydration must restore cached price source as well as price/pool/dex", bot.contains("fresh.lastPriceSource = cached.lastPriceSource") && bot.contains("cachedForIntake.lastPriceSource"))
         assertTrue("live Position and BUY journal rows must stamp snapshot mcap/liquidity/source/pool", exec.contains("entryMcap    = entryMarketSnapshot.marketCapUsd") && exec.contains("entryLiquidityUsd = entryMarketSnapshot.liquidityUsd") && exec.contains("entryMcapUsd = com.lifecyclebot.engine.truth.EntryMcapReconcile8237.reconciled8237(entryMarketSnapshot.marketCapUsd, entryMarketSnapshot.priceUsd, verifiedEntryPrice)") && exec.contains("entryPriceSource = entryMarketSnapshot.priceSource") && exec.contains("entryPoolAddress = entryMarketSnapshot.poolAddress"))
@@ -9920,8 +9920,8 @@ class GoldenTapeRegressionTest {
         assertTrue(fan.contains(".put(\"method\", \"getMultipleAccounts\")"))
         assertTrue(fan.contains("val vTok = readU64Le7269(bytes, 8)"))
         assertTrue(fan.contains("val vSol = readU64Le7269(bytes, 16)"))
-        assertTrue(fan.contains("skippedComplete++; PumpCurveKeys7269.markGraduated7392(mint)"))
-        assertTrue(fan.indexOf("PumpCurveKeys7269.markGraduated7392(mint)") < fan.indexOf("TicketRetry8327.onVerifiedMigration8385(mint"))
+        assertTrue(fan.contains("skippedComplete++; try { com.lifecyclebot.engine.truth.TokenFacts.markGraduated(mint, \"CURVE_ACCOUNT_COMPLETE\") }"))  // superseded by V5.0.8553 — the write goes through the one store (TokenFacts) (one graduation marker)
+        assertTrue(fan.indexOf("TokenFacts.markGraduated(mint, \"CURVE_ACCOUNT_COMPLETE\")") in 0 until fan.indexOf("TicketRetry8327.onVerifiedMigration8385(mint"))  // superseded by V5.0.8553 — the write goes through the one store (TokenFacts)
         // Both go through HealthAwareHttp / the health-aware Jupiter client, never a raw call.
         assertTrue(fan.contains("HealthAwareHttp.execute(http, req, host = \"helius\")"))
 
@@ -9936,7 +9936,7 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("val supply7269 = com.lifecyclebot.engine.truth.OnChainSupplyAuthority7075.supplyOf7075(mint)"))
         // V5.0.7270 — a stale cap alone no longer triggers the rebuild.
         assertTrue(bot.contains("if (agreeing7188 >= 2 || fromStack7269 || ts.lastMcap <= 0.0) {"))
-        assertTrue(bot.contains("ts.lastMcap = cap7269"))
+        assertTrue(bot.contains("Field.MCAP_USD, cap7269, \"PRICE_X_SUPPLY_7269\""))  // superseded by V5.0.8553 — the write goes through the one store (TokenFacts)
         assertTrue(bot.contains("MCAP_REFRESHED_FROM_STACK_7269"))
         assertTrue(bot.contains("OnChainSupplyAuthority7075.requestAsync7075(mint)"))
 
@@ -14696,11 +14696,11 @@ class GoldenTapeRegressionTest {
     fun V5_0_7758_the_pair_poll_writes_the_five_minute_tape_and_momentum_is_one_scale() {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val cycle = bot.substringAfter("private fun processTokenCycle(").substringBefore("\n    private fun ")
-        assertTrue(cycle.contains("applyPollFlow7758(ts, pair)"))
+        assertTrue(cycle.contains("applyPollFlow7758(ts, pair, evidenceAt7271)"))  // superseded by V5.0.8553 — the pair's own fetch time
         assertFalse(cycle.contains("val candleTxns = pair.candle.buysH1 + pair.candle.sellsH1"))
         val helper = bot.substringAfter("private fun applyPollFlow7758(").substringBefore("\n    }\n")
-        assertTrue(helper.contains("ts.lastSellPressurePct = pair.sellsM5.toDouble() / m5 * 100.0"))
-        assertTrue(helper.contains("if (pair.priceChangeM5.isFinite()) { ts.lastPriceChange5m = pair.priceChangeM5; ts.priceChangeObservedAtMs8084 = System.currentTimeMillis() }"))   // V5.0.8084 — same finite-guarded write, now stamped
+        assertTrue(helper.contains("F.writeSnapshot(ts, F.Field.SELL_PRESSURE_PCT, pair.sellsM5.toDouble() / m5 * 100.0, \"DEX_PAIR_POLL_M5\""))  // superseded by V5.0.8553 — through the store
+        assertTrue(helper.contains("if (pair.priceChangeM5.isFinite()) F.writeSnapshot(ts, F.Field.CHANGE_5M_PCT, pair.priceChangeM5, \"DEX_PAIR_POLL\", F.Rank.PROVIDER, evidenceAt8553)"))  // superseded by V5.0.8553 — finite-guarded, stamped at the fetch time   // V5.0.8084 — same finite-guarded write, now stamped
         assertTrue(helper.contains("ts.tokenMap.volume1hUsd = pair.candle.volumeH1"))
         val api = java.io.File("src/main/kotlin/com/lifecyclebot/network/DexscreenerApi.kt").readText()
         assertTrue(api.contains("priceChangeM5    = p.optJSONObject(\"priceChange\")"))
@@ -14927,7 +14927,7 @@ class GoldenTapeRegressionTest {
         val orch = java.io.File("src/main/kotlin/com/lifecyclebot/engine/DataOrchestrator.kt").readText()
         assertTrue(orch.contains("onHeliusTrade7773(mint, wallet, safeSol, isBuy)"))
         assertTrue(orch.contains("if (System.currentTimeMillis() - pp < PUMPPORTAL_PRIORITY_MS_7773) return"))
-        assertTrue(orch.contains("ts.lastBuyPressurePct = bp"))
+        assertTrue(orch.contains("Field.BUY_PRESSURE_PCT, bp, \"TAPE_FLOW_7401\""))  // superseded by V5.0.8553 — the write goes through the one store (TokenFacts)
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
         assertTrue(fdg.contains("val laneProvenForLive7307 = config.paperMode || laneScoreClears7307 || laneProven7308(floorLane7266)"))
     }

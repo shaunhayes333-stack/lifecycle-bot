@@ -745,9 +745,7 @@ class DataOrchestrator(
                     // kept aiming exits at the dead bonding curve. Stamp it the moment
                     // the WS says so; RouteTruthHydrator also derives it from the venue,
                     // this is just the earliest and most authoritative signal.
-                    ts.tokenMap.migratedOrGraduated = true
-                    ts.tokenMap.pumpFunExecutable = false
-                    ts.tokenMap.updatedAtMs = System.currentTimeMillis()
+                    com.lifecyclebot.engine.truth.TokenFacts.markGraduated(mint, "DEX_WS_MIGRATION", ts)   // V5.0.8553 — both graduation truths, one write
                     try { PipelineHealthCollector.labelInc("GRADUATION_DETECTED_PUMP_WS") } catch (_: Throwable) {}
                     onNotify("🎓 Graduated", "${ts.symbol} moved to Raydium", com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
                 }
@@ -995,9 +993,10 @@ class DataOrchestrator(
         val ts = status.tokens[mint] ?: return
         val flow = WhaleDetector.launchFlow7401(mint)
         val bp = WhaleDetector.tapeBuyPressure7773(flow.buyTx60s, flow.sellTx60s, flow.buySharePct) ?: return
-        ts.lastBuyPressurePct = bp
-        ts.lastSellPressurePct = 100.0 - bp
-        ts.buyPressureObservedAtMs8084 = System.currentTimeMillis()   // V5.0.8084 — tape-measured
+        // V5.0.8084 — tape-measured; V5.0.8553 — executed swaps are a CHAIN fact of the store (a poll waits out the hold)
+        val now8553 = System.currentTimeMillis()
+        com.lifecyclebot.engine.truth.TokenFacts.writeSnapshot(ts, com.lifecyclebot.engine.truth.TokenFacts.Field.BUY_PRESSURE_PCT, bp, "TAPE_FLOW_7401", com.lifecyclebot.engine.truth.TokenFacts.Rank.CHAIN, now8553)
+        com.lifecyclebot.engine.truth.TokenFacts.writeSnapshot(ts, com.lifecyclebot.engine.truth.TokenFacts.Field.SELL_PRESSURE_PCT, 100.0 - bp, "TAPE_FLOW_7401", com.lifecyclebot.engine.truth.TokenFacts.Rank.CHAIN, now8553)
     }
 
     /** V5.0.7747 — BirdeyeWhaleFeeder's MIN_VOLUME_USD_TO_CLASSIFY, the same whale bar. */
@@ -1090,7 +1089,7 @@ class DataOrchestrator(
                 }
                 com.lifecyclebot.engine.truth.TokenFacts.writePrice(ts, priceUsd, "DEXSCREENER_WS", com.lifecyclebot.engine.truth.TokenFacts.Rank.PROVIDER, System.currentTimeMillis(),
                     pool = dexPair6701, dex = ts.tokenMap.dexId.ifBlank { "DEXSCREENER" })  // V5.0.8552 — the one price write
-                ts.lastMcap = mcap
+                com.lifecyclebot.engine.truth.TokenFacts.writeSnapshot(ts, com.lifecyclebot.engine.truth.TokenFacts.Field.MCAP_USD, mcap, "DEXSCREENER_WS", com.lifecyclebot.engine.truth.TokenFacts.Rank.PROVIDER, System.currentTimeMillis())   // V5.0.8553 — a 0 frame is no reading
                 // V5.0.7807 — a WS frame without a liquidity figure carries 0.0;
                 // that is DATA UNKNOWN, not a drained pool. Overwriting a real
                 // reading with it fed HARD_BLOCK_ZERO_LIQUIDITY and the
@@ -1106,19 +1105,17 @@ class DataOrchestrator(
                 ts.tokenMap.updatedAtMs = ts.lastPriceUpdate
                 // V5.0.8084 — a 5m window with no trades is no reading: it used to overwrite a measured tape with the
                 // 50/50 default. Only a counted window writes (and stamps) pressure.
+                val wsAt8553 = System.currentTimeMillis()
                 if (txns5m > 0) {
-                    ts.lastBuyPressurePct = (buys5m.toDouble() / txns5m) * 100
+                    com.lifecyclebot.engine.truth.TokenFacts.writeSnapshot(ts, com.lifecyclebot.engine.truth.TokenFacts.Field.BUY_PRESSURE_PCT, (buys5m.toDouble() / txns5m) * 100, "DEXSCREENER_WS", com.lifecyclebot.engine.truth.TokenFacts.Rank.PROVIDER, wsAt8553)
                     // V5.9.827 — wire previously-dropped distribution + hourly signals
-                    ts.lastSellPressurePct = (sells5m.toDouble() / txns5m) * 100
-                    ts.buyPressureObservedAtMs8084 = System.currentTimeMillis()
+                    com.lifecyclebot.engine.truth.TokenFacts.writeSnapshot(ts, com.lifecyclebot.engine.truth.TokenFacts.Field.SELL_PRESSURE_PCT, (sells5m.toDouble() / txns5m) * 100, "DEXSCREENER_WS", com.lifecyclebot.engine.truth.TokenFacts.Rank.PROVIDER, wsAt8553)
                 }
                 // V5.0.7425 — do not throw away the short-horizon direction.
-                // Lifecycle routing needs this exact feed to distinguish ignition
-                // from a token already cascading after its pump.
-                ts.lastPriceChange5m = priceChange5m
-                ts.lastPriceChange1h = priceChange1h
-                if (priceChange1h.isFinite()) ts.hourChangeObservedAtMs8506 = ts.lastPriceUpdate
-                if (priceChange5m.isFinite()) ts.priceChangeObservedAtMs8084 = System.currentTimeMillis()   // V5.0.8084
+                // V5.0.8553 — superseded: both written even when NaN (the 1h one stamped with the price's time); a frame's
+                // changes are facts of the store at the frame's time, and a NaN is no reading
+                if (priceChange5m.isFinite()) com.lifecyclebot.engine.truth.TokenFacts.writeSnapshot(ts, com.lifecyclebot.engine.truth.TokenFacts.Field.CHANGE_5M_PCT, priceChange5m, "DEXSCREENER_WS", com.lifecyclebot.engine.truth.TokenFacts.Rank.PROVIDER, wsAt8553)
+                if (priceChange1h.isFinite()) com.lifecyclebot.engine.truth.TokenFacts.writeSnapshot(ts, com.lifecyclebot.engine.truth.TokenFacts.Field.CHANGE_1H_PCT, priceChange1h, "DEXSCREENER_WS", com.lifecyclebot.engine.truth.TokenFacts.Rank.PROVIDER, wsAt8553)
                 
                 // Update volume scores in meta (copy with new values)
                 ts.meta = ts.meta.copy(

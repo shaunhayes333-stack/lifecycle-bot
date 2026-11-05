@@ -88,7 +88,7 @@ object TrustedMcap8019 {
                     }
                 } catch (_: Throwable) {}
             }
-            ts.lastMcap = v
+            TokenFacts.writeSnapshot(ts, TokenFacts.Field.MCAP_USD, v, "PRICE_IMPLIED_8019", TokenFacts.Rank.AGGREGATE, ts.lastPriceUpdate)   // V5.0.8553 D6 — a write-back is a fact at the price's time
         } else agreed.incrementAndGet()
         return v
     }

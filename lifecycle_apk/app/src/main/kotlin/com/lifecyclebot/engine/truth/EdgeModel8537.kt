@@ -219,6 +219,13 @@ object EdgeModel8537 {
         return Double.NaN to "COLD"
     }
 
+    /**
+     * Pure (V5.0.8553): the dataset's phase when the launch selector names none — it names a phase only for a dated coin under
+     * 30 minutes, so 418 of 559 exported rows read "" for both "mature" and "age unknown". Both stay in the model's "other"
+     * bucket (PHASES unchanged); the export now says which.
+     */
+    fun phaseOf8553(ageMin: Double): String = if (ageMin.isFinite() && ageMin > 30.0) "MATURE" else "UNKNOWN_AGE"
+
     /** Pure-ish: the raw observation of [ts] in [laneRaw] at [costPct] (playbook feature frame; unobserved stays NaN). */
     private fun rawOf(ts: TokenState, laneRaw: String, costPct: Double, nowMs: Long): Raw {
         val f = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.features(ts, nowMs) } catch (_: Throwable) { null }
@@ -228,7 +235,7 @@ object EdgeModel8537 {
             liq = pos(f?.liq ?: ts.lastLiquidityUsd), mcap = pos(f?.mcap ?: ts.lastMcap), ageMin = f?.age ?: Double.NaN,
             runup = f?.runup ?: Double.NaN, pxPeak = f?.pxPeak ?: Double.NaN, dd = f?.dd ?: Double.NaN, bp = f?.bp ?: Double.NaN,
             chg5m = f?.chg5m ?: Double.NaN, chg1h = f?.chg1h ?: Double.NaN, volAccel = f?.volAccel ?: Double.NaN,
-            top = f?.top ?: Double.NaN, phase = f?.launchPhase.orEmpty(),
+            top = f?.top ?: Double.NaN, phase = f?.launchPhase.orEmpty().ifBlank { phaseOf8553(f?.age ?: Double.NaN) },
             v3 = (ts.lastV3Score?.toDouble() ?: ts.entryScore).takeIf { it.isFinite() } ?: Double.NaN, costPct = costPct,
             holderVel = f?.holderVel7978 ?: Double.NaN, txVel = f?.txVelocity ?: Double.NaN, curve = f?.curve7978 ?: Double.NaN,
             turnover = f?.turnover7978 ?: Double.NaN,

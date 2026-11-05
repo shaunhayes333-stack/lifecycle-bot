@@ -160,7 +160,7 @@ object SellRouteVenueProbe8144 {
         val venue = SellRouteEndpoint8144.venueFrom8144(exists, complete, raydium, null)
         val probe = Probe8144(venue, exists, complete, raydium, System.currentTimeMillis())
         cache8144[mint] = probe
-        if (complete == true) try { com.lifecyclebot.network.PumpCurveKeys7269.markGraduated7392(mint) } catch (_: Throwable) {}
+        if (complete == true) try { com.lifecyclebot.engine.truth.TokenFacts.markGraduated(mint, "CURVE_ACCOUNT_COMPLETE") } catch (_: Throwable) {}  // V5.0.8553
         if (cache8144.size > 3_000) {
             val now = System.currentTimeMillis()
             cache8144.entries.removeIf { !fresh8144(it.value, now) }

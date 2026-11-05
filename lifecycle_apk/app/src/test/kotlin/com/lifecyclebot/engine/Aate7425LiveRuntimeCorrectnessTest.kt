@@ -47,7 +47,7 @@ class Aate7425LiveRuntimeCorrectnessTest {
         val launch = File("src/main/kotlin/com/lifecyclebot/engine/truth/LaunchPhaseAuthority7401.kt").readText()
         val stage = File("src/main/kotlin/com/lifecyclebot/engine/TokenMetricStageRouter.kt").readText()
         assertTrue(model.contains("lastPriceChange5m"))
-        assertTrue(orchestrator.contains("ts.lastPriceChange5m = priceChange5m"))
+        assertTrue(orchestrator.contains("Field.CHANGE_5M_PCT, priceChange5m, \"DEXSCREENER_WS\""))  // superseded by V5.0.8553 — the write goes through the one store (TokenFacts)
         assertTrue(launch.contains("acuteCascade7425"))
         assertTrue(launch.contains("observedPeakBreak7425"))
         assertTrue(launch.contains("Phase.POST_PUMP_FADE"))

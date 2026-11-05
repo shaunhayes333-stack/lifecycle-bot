@@ -174,6 +174,11 @@ object CanonicalTokenBirthTime7440 {
         return (nowMs - birth).coerceAtLeast(0L)
     }
 
+    /**
+     * V5.0.8553 §ONE_AGE (DATA_MAP D4) — the same age [launchAgeMs7767] gives: the resolved birth, else the earliest birth
+     * any evidence has already shown for this mint. Superseded: this read only the current resolution, so after a handoff
+     * dropped a witness the lanes / liquidity / features read "age unknown" for a coin the launch gate still dated.
+     */
     fun resolvedAgeMinutes(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Double? =
-        resolvedAgeMs(ts, nowMs)?.div(60_000.0)
+        launchAgeMs7767(ts, nowMs)?.div(60_000.0)
 }

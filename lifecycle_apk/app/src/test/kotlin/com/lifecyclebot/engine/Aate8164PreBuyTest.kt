@@ -110,7 +110,7 @@ class Aate8164PreBuyTest {
         assertTrue(ForwardReturnLabeler7731.curveDisagrees8165(curve / 3.0, curve))
         assertFalse(ForwardReturnLabeler7731.curveDisagrees8165(Double.NaN, curve))     // no witness, no verdict
         assertFalse(ForwardReturnLabeler7731.curveDisagrees8165(curve, 0.0))
-        assertTrue(src("engine/BotService.kt").contains("PumpCurveKeys7269.markGraduated7392(mint)"))
+        assertTrue(src("engine/BotService.kt").contains("com.lifecyclebot.engine.truth.TokenFacts.markGraduated(mint, \"PUMP_PORTAL_MIGRATION\")"))  // superseded by V5.0.8553 — the write goes through the one store (TokenFacts) (one graduation marker)
     }
 
     @Test fun oneThousandXLabelDoesNotFlipTheTypicalCoin() {

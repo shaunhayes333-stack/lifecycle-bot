@@ -27,7 +27,7 @@ object AdaptiveEntryWitness8527 {
             put("tokenAge", (nowMs - it) / 60_000.0)
         }
         put("buyRatio", com.lifecyclebot.engine.LaneInputTruth8236.buyPressure8491(ts, nowMs)) { it in 0.0..100.0 }
-        put("holderConc", ts.topHolderPct ?: tm.topHolderConcentrationPct) { it in 0.0..100.0 }
+        put("holderConc", TokenFacts.topHolderPct(ts)) { it in 0.0..100.0 }   // V5.0.8553 D3 — the one reader
         val safety = ts.safety
         if ("holderConc" !in observations && safety.topHolderObservedAtMs8522 in 1L..nowMs) {
             put("holderConc", safety.topHolderPct) { it in 0.0..100.0 }

@@ -377,7 +377,7 @@ object PositionPersistence {
                 if (restoredPriceUpdateMs > 0L) com.lifecyclebot.engine.truth.TokenFacts.writePrice(existing, saved.lastKnownPrice, saved.lastPriceSource, com.lifecyclebot.engine.truth.TokenFacts.Rank.AGGREGATE, restoredPriceUpdateMs)
                 else com.lifecyclebot.engine.truth.TokenFacts.restorePrice(existing, saved.lastKnownPrice, saved.lastPriceSource)
                 com.lifecyclebot.engine.truth.TokenFacts.restoreLiquidity(existing, saved.lastKnownLiquidity, "POSITION_RESTORE")  // V5.0.8551 — never over a live reading
-                existing.lastMcap = saved.lastKnownMcap
+                com.lifecyclebot.engine.truth.TokenFacts.restoreMcap(existing, saved.lastKnownMcap)   // V5.0.8553
                 existing.lastPricePoolAddr = saved.lastPricePoolAddr
                 existing.lastPriceDex = saved.lastPriceDex
                 ErrorLogger.info(TAG, "🔄 Restored position to existing ${saved.symbol}")
