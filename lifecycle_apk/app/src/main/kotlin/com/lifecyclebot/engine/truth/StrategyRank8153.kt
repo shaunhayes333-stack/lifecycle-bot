@@ -141,9 +141,12 @@ object StrategyRank8153 {
         // V5.0.8535 §P1-15 — cold start with uncertainty: among UNPROVEN fired setups, one whose thin record (5-11 labels) already
         // clears the bar by 1.5 SE names the identity over a default that does not. Its tier stays UNPROVEN: ordering evidence,
         // no admission authority, no 30-sample bypass, nothing synthetic.
+        // A REJECTED (proven losing) default is not displaced by a thin record: its refusal stands (8153 doctrine).
+        val defaultTier8535 = ranked.firstOrNull { it.option.id == defaultId }?.tier ?: Tier8153.UNPROVEN
         val forming = ranked.filter { it.tier == Tier8153.UNPROVEN && forming8535(it.option, costPct) }
             .maxByOrNull { it.scorePct.takeIf { s -> s.isFinite() } ?: Double.NEGATIVE_INFINITY }
-        if (forming != null && forming.option.id != defaultId && ranked.none { it.option.id == defaultId && forming8535(it.option, costPct) }) {
+        if (forming != null && forming.option.id != defaultId && defaultTier8535 == Tier8153.UNPROVEN &&
+            ranked.none { it.option.id == defaultId && forming8535(it.option, costPct) }) {
             return Pick8153(forming.option.id, Tier8153.UNPROVEN, "FORMING_8535:${forming.option.compact}", true, rejected)
         }
         val def = defaultId?.takeIf { it.isNotBlank() } ?: return Pick8153(null, Tier8153.UNPROVEN, "NONE", false, rejected)

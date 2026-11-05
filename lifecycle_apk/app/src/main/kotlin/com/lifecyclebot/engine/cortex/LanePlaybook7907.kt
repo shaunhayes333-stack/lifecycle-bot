@@ -2355,7 +2355,8 @@ object LanePlaybook7907 {
         // V5.0.8383 — the evidence-built setups appended after every earlier bin too.
         val added8383 = ADDED_8383.values.flatten().map { it.id }.distinct()
         val menu = nativeMenu8384(lane).map { it.id }.filter { it !in added7962 && it !in added8061 && it !in added8383 }
-        val appended = added7962 + added8061.filter { it !in added8383 } + added8383
+        // V5.0.8535 §P1-02 — the ignition / retest strategies take their own bins after every earlier one (no bin moves).
+        val appended = added7962 + added8061.filter { it !in added8383 } + added8383 + LAUNCH_8535.map { it.id }
         val i = menu.indexOf(id)
         val j = appended.indexOf(id)
         // V5.0.8384: NO_TRIGGER and every existing bin remain bit-for-bit stable; borrowed setups follow ALL
