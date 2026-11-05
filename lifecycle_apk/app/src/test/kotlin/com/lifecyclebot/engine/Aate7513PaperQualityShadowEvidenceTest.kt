@@ -10,6 +10,20 @@ class Aate7513PaperQualityShadowEvidenceTest {
     // superseded: learning_quality_reject_still_blocks_canonical_open_but_feeds_shadow and existing_6663_thresholds_are_not_relaxed —
     // V5.0.8536 removes the paper-only fixed score gate (66 / 70 / 11) the owner called too high and not fluid. Paper is admitted
     // on the same fluid floors as LIVE; the shadow book keeps its own observation path below.
+    // The baseline names stay (the full-suite delta reads a vanished test as a regression); their bodies pin the 8536 contract.
+    @Test fun learning_quality_reject_still_blocks_canonical_open_but_feeds_shadow() {
+        // superseded: the paper-only quality reject (`PAPER_QUALITY_REJECTED_SHADOWED_7513`) diverted paper buys to the shadow book.
+        val s = src()
+        assertFalse(s.contains("shouldSuppressPaperLearningEntry(ts, score, layerTag, identity)?.let"))
+        assertFalse(s.contains("markPaperBuyNotOpened(\"LEARNING_QUALITY_REJECTED_6663\")"))
+    }
+
+    @Test fun existing_6663_thresholds_are_not_relaxed() {
+        // superseded: SHITCOIN >= 66 / BLUECHIP >= 70 & $25k / EXPRESS >= 11 — removed in V5.0.8536 (owner: not fluid, too high).
+        val s = src()
+        assertFalse(s.contains("private fun shouldSuppressPaperLearningEntry"))
+    }
+
     @Test fun the_paper_only_fixed_score_gate_is_gone() {
         val s = src()
         assertFalse(s.contains("private fun shouldSuppressPaperLearningEntry"))

@@ -63,7 +63,7 @@ class Aate8538Edge8114RestoredTest {
         for (lane in listOf("MOONSHOT", "SHITCOIN", "EXPRESS", "PROJECT_SNIPER")) assertTrue(lane, com.lifecyclebot.engine.RunnerGrab7967.bornRunnerLadder8538(lane))
         for (lane in listOf("CASHGEN", "TREASURY", "QUALITY")) assertFalse(lane, com.lifecyclebot.engine.RunnerGrab7967.bornRunnerLadder8538(lane))
         val ts = com.lifecyclebot.data.TokenState(mint = "ladder8538", position = com.lifecyclebot.data.Position(qtyToken = 1_000_000.0,
-            entryPrice = 1.0, entryTime = System.currentTimeMillis() - 60_000L, tradingMode = "SHITCOIN", isPaperPosition = false,
+            entryPrice = 1.0, entryTime = System.currentTimeMillis() - 60_000L, tradingMode = "MOONSHOT", isPaperPosition = false,
             peakGainPct = 0.0, entryPolicySnapshot = "style=BREAKOUT_RUNNER;entryTactic=BREAKOUT"))
         assertEquals(com.lifecyclebot.engine.RunnerGrab7967.TIERS_7967, com.lifecyclebot.engine.RunnerGrab7967.tiersFor7967(ts))
         assertEquals("first rung +100 %", 100.0, com.lifecyclebot.engine.RunnerGrab7967.TIERS_7967.first().first, 0.0)
