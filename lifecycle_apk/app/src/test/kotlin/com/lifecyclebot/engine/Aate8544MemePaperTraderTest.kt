@@ -66,7 +66,8 @@ class Aate8544MemePaperTraderTest {
     @Test fun exitsUseTheLiveLeversAndTheSellLatency() {
         val k = trader.substringAfter("fun tick8544(").substringBefore("private fun trigger8544(")
         assertTrue(k.contains("ShadowAlign8366.liveStopLevel8366(p.runner, stopPct, p.peak, p.costPct)"))
-        assertTrue(k.contains("FieldManual7715.stopPct8392(p.lane, p.costPct)"))
+        // superseded: `stopPct8392(p.lane, …)` — V5.0.8546: a family position rides its exit lane's stop (p.exitLane = lane for lane picks)
+        assertTrue(k.contains("FieldManual7715.stopPct8392(p.exitLane, p.costPct)"))
         assertTrue(k.contains("if (p.runner) com.lifecyclebot.engine.RunnerGrab7967.TIERS_7967 else com.lifecyclebot.engine.SpikeCapture7943.TIERS"))
         assertTrue(k.contains("if (obs != null && obs.observedAtMs >= p.exitAtMs + latency) fill8544(p, g, nowMs)"))
         assertTrue(k.contains("nowMs - p.entryAtMs >= p.clockMs -> trigger8544(p, \"CLOCK\", 1.0, 0, nowMs)"))
