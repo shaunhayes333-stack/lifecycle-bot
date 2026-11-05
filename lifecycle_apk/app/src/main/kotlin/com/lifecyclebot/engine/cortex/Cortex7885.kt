@@ -1006,7 +1006,9 @@ object Cortex7885 {
         val original = originalOpinions8522 ?: SpecialistBrainBridge7542.cachedSnapshot7650(ts.mint)?.originalOpinions8522
         val source = operatorSource8522(ts, lane, mode, original) ?: CortexOpportunityPolarity8522.Source(ts.mint, lane, mode,
             0L, 0L, 0L, Double.NaN, 0L, Double.NaN, 0L, Double.NaN, 0L, Double.NaN, 0, 0L, Double.NaN, null, null)
-        val assessment = if (mode == currentMode && CortexOpportunityPolarity8522.appliesToLane8522(lane))
+        // V5.0.8539 — the operator's inverse opportunity is a Cortex lever too: LIVE only once the Cortex beats the main stack.
+        val assessment = if (mode == currentMode && CortexOpportunityPolarity8522.appliesToLane8522(lane) &&
+            (mode != "LIVE" || provenOverStack8539(lane)))
             try { cachedOrSchedule(ts, lane, nowMs, opportunitySource8522 = source) } catch (_: Throwable) { null } else null
         // A changed observation or account mode during the read cannot inherit the earlier projection.
         val latest = operatorSource8522(ts, lane, mode, original) ?: source.copy(priceAtMs = 0L, price = Double.NaN)
@@ -3485,15 +3487,48 @@ object Cortex7885 {
         // V5.0.8418 §INVERSION_REVOKES — a lane whose current STRONG cohort is proven inverted (worse than its NEUTRAL / REFUSE
         // reads) holds no authority. 8372 left inversion as a diagnostic only (the STRONG door / sizing kept the grant).
         if (invertedCurrent8372(lane)) { entryGrants8506.remove(lane); inc("AUTHORITY_REVOKED_INVERTED_8418_$lane"); return 0.0 }
+        // V5.0.8539 — no authority until the Cortex's picks beat the main stack's admits outright (CortexVsStack8539).
+        if (!beatsStack8539(lane)) { entryGrants8506.remove(lane); return 0.0 }
         val (n, mean) = realisedStrong8366(lane)
         return CortexAuthority8366.authority8366(authorityTest8366(lane), calibration.uncalibrated8372(lane, executableOffset8187(lane)), n, mean).also {
             if (it > 0.0) entryGrants8506[lane] = System.currentTimeMillis() else entryGrants8506.remove(lane)
         }
     }
 
+    private val stackVerdict8539 = ConcurrentHashMap<String, Pair<Long, String>>()
+
+    /** Caller holds the lock. V5.0.8539 — the lane's Cortex-vs-main-stack verdict (CortexVsStack8539), re-read every 30 s. */
+    private fun stackCode8539(lane: String): String {
+        val now = System.currentTimeMillis()
+        stackVerdict8539[lane]?.let { if (now - it.first in 0L until 30_000L) return it.second }
+        val r = authorityTest8366(lane)
+        val stack = try {
+            com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.laneAdmittedExecutable8539(lane)
+        } catch (_: Throwable) { null }
+        val code = CortexVsStack8539.code(r.topN, r.topMean, r.topSe, stack?.n60 ?: 0, stack?.meanNet60Pct ?: Double.NaN,
+            stack?.stderr60Pct ?: Double.NaN)
+        stackVerdict8539[lane] = now to code
+        if (code != CortexVsStack8539.PROVEN) inc("AUTHORITY_DENIED_8539_${lane}_$code")
+        return code
+    }
+
+    /** Caller holds the lock. V5.0.8539 — has the Cortex proven it out-picks the main stack in [lane]? */
+    private fun beatsStack8539(lane: String): Boolean = stackCode8539(lane) == CortexVsStack8539.PROVEN
+
+    /** V5.0.8539 — may the Cortex influence LIVE trading in [laneRaw] at all? (False on any failed read.) */
+    fun provenOverStack8539(laneRaw: String): Boolean =
+        try { ensureLoaded(); synchronized(this) { beatsStack8539(canon(laneRaw)) } } catch (_: Throwable) { false }
+
+    /** Brief: per lane, the Cortex-vs-stack verdict. */
+    fun stackLine8539(): String = try {
+        ensureLoaded()
+        synchronized(this) { "cortexVsStack8539[" + diagnosticLanes8521().joinToString(" ") { "$it=${stackCode8539(it)}" } + "]" }
+    } catch (_: Throwable) { "cortexVsStack8539[read failed]" }
+
     /** Caller holds the lock. What keeps [lane]'s authority at 0 (or OPEN). */
     private fun authorityCode8366(lane: String): String {
         if (invertedCurrent8372(lane)) return "INVERTED_CURRENT_COHORT"
+        stackCode8539(lane).let { if (it != CortexVsStack8539.PROVEN) return "STACK_$it" }  // V5.0.8539
         val (n, mean) = realisedStrong8366(lane)
         return CortexAuthority8366.code8366(authorityTest8366(lane), calibration.uncalibrated8372(lane, executableOffset8187(lane)), n, mean)
     }
@@ -3865,7 +3900,8 @@ object Cortex7885 {
                 else "CORTEX_8522_OPERATOR_INVERSE_OPPORTUNITY_${canon(laneRaw)}"
             }
             val operatorTake8522 = operator8522?.action == com.lifecyclebot.engine.NativeOpportunityPolicy8522.Action.TAKE_CANDIDATE
-            if (nativeOwnsSelection8506(laneRaw)) {
+            // V5.0.8539 — LIVE: no Cortex refusal (hard safety excepted) until it beats the main stack (CortexVsStack8539).
+            if (nativeOwnsSelection8506(laneRaw) || (!paper && !provenOverStack8539(laneRaw))) {
                 cachedOrSchedule(ts, laneRaw)
                 return if (!paper && ts.safety.tier == com.lifecyclebot.engine.SafetyTier.HARD_BLOCK)
                     "CORTEX_7885_C1_HARD_SAFETY_${canon(laneRaw)}" else null

@@ -161,6 +161,21 @@ object LaneAgeLiquidityTruth8140 {
     fun laneLiquidityRefusal8140(lane: String, liquidityUsd: Double, laneFloorUsd: Double): String? {
         val live = try { RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }
         val v = LaneAgeLiquidityScope8140.liquidityVerdict8140(lane, liquidityUsd, laneFloorUsd, live)
+        // V5.0.8539 — the floor is learnt and unlearnt from the lane's own record in this liquidity band (LearnedLiquidityFloor8539).
+        if (v.outcome != LaneAgeLiquidityScope8140.Outcome8140.DEFER) {
+            val l = LaneAgeLiquidityScope8140.canonical8140(lane)
+            val band = try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.liqBandStat8539(l, liquidityUsd) } catch (_: Throwable) { null }
+            when (LearnedLiquidityFloor8539.call(band?.n60 ?: 0, band?.meanNet60Pct ?: Double.NaN, band?.stderr60Pct ?: Double.NaN)) {
+                LearnedLiquidityFloor8539.Call.OPEN -> if (v.outcome == LaneAgeLiquidityScope8140.Outcome8140.REFUSE) {
+                    count8140("LANE_LIQ_FLOOR_LEARNED_OPEN_8539_$l"); return null
+                }
+                LearnedLiquidityFloor8539.Call.CLOSE -> if (v.outcome == LaneAgeLiquidityScope8140.Outcome8140.PASS) {
+                    count8140("LANE_LIQ_BAND_PROVEN_LOSING_8539_$l")
+                    return "LANE_LIQ_BAND_PROVEN_LOSING_8539_$l: \$${liquidityUsd.toInt()} band=${LearnedLiquidityFloor8539.band(liquidityUsd)}"
+                }
+                LearnedLiquidityFloor8539.Call.NONE -> Unit
+            }
+        }
         if (!v.blocksEntry) return null
         count8140(v.label)
         return LaneAgeLiquidityScope8140.refusalReason8140(

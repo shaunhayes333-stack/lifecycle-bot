@@ -1,0 +1,89 @@
+package com.lifecyclebot.engine
+
+import com.lifecyclebot.engine.cortex.CortexVsStack8539
+import com.lifecyclebot.engine.truth.CandidateAdmission8136
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import java.io.File
+
+/**
+ * V5.0.8539 — owner: the main stack trades on its own; the Cortex influences live trading only once it proves it finds
+ * winners better than that stack. And every floor is fluid — learnt and unlearnt from the stack's own record.
+ */
+class Aate8539CortexEarnsAndFluidFloorsTest {
+    private fun src(p: String) = File("src/main/kotlin/com/lifecyclebot/$p").readText()
+
+    @Test fun the_cortex_must_beat_the_main_stack_outright() {
+        // 8538 run: Cortex STRONG TREASURY n25 -12.0 %, CASHGEN n28 -4.7 %; stack admits -12.8 %
+        assertEquals("CORTEX_THIN", CortexVsStack8539.code(25, -12.0, 2.0, 300, -8.6, 1.0))
+        assertEquals("STACK_THIN", CortexVsStack8539.code(60, 6.0, 1.0, CortexVsStack8539.MIN_N - 1, -5.0, 1.0))
+        assertEquals("picks that lose never earn a say", "CORTEX_PICKS_LOSE", CortexVsStack8539.code(60, -1.0, 0.5, 300, -12.8, 1.0))
+        assertEquals("inside the combined error", "NOT_BETTER_THAN_STACK", CortexVsStack8539.code(60, 2.0, 2.0, 300, 0.0, 1.0))
+        assertEquals("UNREAD", CortexVsStack8539.code(60, Double.NaN, 1.0, 300, 0.0, 1.0))
+        assertTrue(CortexVsStack8539.beats(60, 6.0, 1.5, 300, -2.0, 1.0))
+        assertFalse(CortexVsStack8539.beats(60, 6.0, Double.POSITIVE_INFINITY, 300, -2.0, 1.0))
+    }
+
+    @Test fun every_live_cortex_lever_reads_the_stack_test() {
+        val cx = src("engine/cortex/Cortex7885.kt")
+        val auth = cx.substringAfter("private fun authorityFraction8366(lane: String): Double {").substringBefore("/** Caller holds the lock. What keeps")
+        assertTrue("authority (sizing, overrule, STRONG evidence, ordering, native grants) is zero until proven",
+            auth.contains("if (!beatsStack8539(lane)) { entryGrants8506.remove(lane); return 0.0 }"))
+        assertTrue("live refusals other than hard safety", cx.contains("if (nativeOwnsSelection8506(laneRaw) || (!paper && !provenOverStack8539(laneRaw))) {"))
+        assertTrue("the operator inverse opportunity in live", cx.contains("(mode != \"LIVE\" || provenOverStack8539(lane)))"))
+        assertTrue("the yardstick is the stack's own admits", cx.contains("ForwardReturnLabeler7731.laneAdmittedExecutable8539(lane)"))
+        assertTrue(src("engine/DiagnosisBrief8438.kt").contains("Cortex7885.stackLine8539()"))
+    }
+
+    @Test fun liquidity_floors_are_learnt_and_unlearnt() {
+        assertEquals("L0", LearnedLiquidityFloor8539.band(0.0))
+        assertEquals("L0", LearnedLiquidityFloor8539.band(Double.NaN))
+        assertEquals("L1", LearnedLiquidityFloor8539.band(135.0))
+        assertEquals("L2", LearnedLiquidityFloor8539.band(500.0))
+        assertEquals("L3", LearnedLiquidityFloor8539.band(2_000.0))
+        assertEquals("L5", LearnedLiquidityFloor8539.band(80_000.0))
+        assertEquals(LearnedLiquidityFloor8539.Call.OPEN, LearnedLiquidityFloor8539.call(40, 8.0, 3.0))
+        assertEquals(LearnedLiquidityFloor8539.Call.CLOSE, LearnedLiquidityFloor8539.call(40, -9.0, 3.0))
+        assertEquals("inside one SE", LearnedLiquidityFloor8539.Call.NONE, LearnedLiquidityFloor8539.call(40, 2.0, 3.0))
+        assertEquals("thin", LearnedLiquidityFloor8539.Call.NONE, LearnedLiquidityFloor8539.call(LearnedLiquidityFloor8539.MIN_N - 1, 50.0, 1.0))
+        val truth = src("engine/LaneAgeLiquidityTruth8140.kt")
+        assertTrue(truth.contains("ForwardReturnLabeler7731.liqBandStat8539(l, liquidityUsd)"))
+        assertTrue(truth.contains("LANE_LIQ_FLOOR_LEARNED_OPEN_8539_") && truth.contains("LANE_LIQ_BAND_PROVEN_LOSING_8539_"))
+        assertTrue("unread depth still defers", truth.contains("if (v.outcome != LaneAgeLiquidityScope8140.Outcome8140.DEFER) {"))
+        val frl = src("engine/truth/ForwardReturnLabeler7731.kt")
+        assertTrue(frl.contains("val withLiq8539 = if (pseudo) withStage else withStage + liqBandKey8539(o.lane, o.liqUsd8539)"))
+        assertTrue(frl.contains("it.liqUsd8539 = liq  // V5.0.8539"))
+    }
+
+    @Test fun a_specialist_qualified_coin_is_not_parked_on_flow_the_bot_cannot_observe() {
+        val c = CandidateAdmission8136.Candidate8136("flow-8539", "SHITCOIN", null, live = true, entryWait8506 = "FLOW_UNOBSERVED", liveEdge8114 = "CHART_BUY",
+            priceAgeMs = 10L, expectedGrossPct = 20.0, costPct = 4.5, genericScore = 40.0, genericFloor = 15.0,
+            nativeQualified8213 = true, nativeSetup8213 = "PRE_IGNITION_BASE")
+        assertTrue(CandidateAdmission8136.specialistQualified8539(c))
+        val d = CandidateAdmission8136.decide8136(c)
+        assertEquals("the specialist's own call stands", CandidateAdmission8136.Terminal8136.ADMIT, d.terminal)
+        assertTrue(d.trace.any { it.startsWith("specialistQualified8539 optionalFlow=") })
+        assertFalse("below the lane's floor it is no specialist pick", CandidateAdmission8136.specialistQualified8539(c.copy(genericScore = 10.0)))
+        assertFalse(CandidateAdmission8136.specialistQualified8539(c.copy(nativeSetup8213 = "NONE")))
+        assertEquals("no specialist: it still waits for the data", CandidateAdmission8136.Terminal8136.DEFER_DATA,
+            CandidateAdmission8136.decide8136(c.copy(nativeQualified8213 = false)).terminal)
+        assertEquals("critical facts still defer", CandidateAdmission8136.Terminal8136.DEFER_DATA,
+            CandidateAdmission8136.decide8136(c.copy(missingInputs = listOf("quote:UNKNOWN"))).terminal)
+        assertEquals("SAFETY_REFUSED_8136", CandidateAdmission8136.decide8136(c.copy(safetyRefusal = "MINT_AUTH")).reason)
+    }
+
+    @Test fun the_8536_live_doors_are_learnt_and_unlearnt_too() {
+        val c = CandidateAdmission8136.Candidate8136(
+            mint = "door-8539", lane = "MOONSHOT", selectedSetup = null, priceAgeMs = 500L,
+            missingInputs = listOf("shape:INVALID"), expectedGrossPct = 40.0, costPct = 6.0,
+            costSizeSol = 0.031, costBreakdown = "size=0.0310SOL known_liq_quote", genericScore = 20.0, genericFloor = 15.0,
+            nativeQualified8213 = true, nativeSetup8213 = CandidateAdmission8136.RUNNER_FORMING_8260, live = true)
+        assertEquals(CandidateAdmission8136.LIVE_NATIVE_OPINION_UNPROVEN_8536, CandidateAdmission8136.decide8136(c).reason)
+        val demoted = CandidateAdmission8136.decide8136(c) { it != CandidateAdmission8136.LIVE_NATIVE_OPINION_UNPROVEN_8536 }
+        assertEquals("a door its own record demotes stops binding", "NATIVE_QUALIFIED_ADMIT_8259", demoted.reason)
+        assertTrue(demoted.trace.contains("liveNativeOpinionDoorDemoted8539"))
+        assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("?.takeIf { Rehearsal8339.doorBindsNow8342(it, l) }  // V5.0.8539"))
+    }
+}

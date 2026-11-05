@@ -443,6 +443,8 @@ object ForwardReturnLabeler7731 {
         @Volatile var feats7972: List<String> = emptyList()
         /** V5.0.8537 — the decision's frozen features and the edge model's prediction made then (EdgeModel8537). */
         @Volatile var edge8537: EdgeModel8537.Snap? = null
+        /** V5.0.8539 — hydrated depth at the decision (curve / chain / map); 0 = unread (LearnedLiquidityFloor8539). */
+        @Volatile var liqUsd8539: Double = 0.0
         /** V5.0.7997 — the label value last given to the learners, the next checkpoint, liquidity at the decision. */
         @Volatile var bookedNet7997 = Double.NaN
         @Volatile var bookedGross7997 = Double.NaN
@@ -616,6 +618,11 @@ object ForwardReturnLabeler7731 {
     fun laneDecisionStats8094(lane: String): Pair<CellStat?, CellStat?> =
         cellStat(laneDecisionKey8094(lane, true)) to cellStat(laneDecisionKey8094(lane, false))
     private fun sourceKey(src: String) = "SRC|$src"
+    /** V5.0.8539 — the main stack's ADMITTED cohort in [lane], executable: the yardstick the Cortex must beat (CortexVsStack8539). */
+    fun laneAdmittedExecutable8539(lane: String): CellStat? = lane.trim().uppercase().let { executable8187(cellStat(laneDecisionKey8094(it, true)), it) }
+    /** V5.0.8539 — lane x liquidity band at the decision: the record that opens or closes a lane's floor (LearnedLiquidityFloor8539). */
+    fun liqBandKey8539(lane: String, liqUsd: Double) = "LIQB|${lane.trim().uppercase()}|${com.lifecyclebot.engine.LearnedLiquidityFloor8539.band(liqUsd)}"
+    fun liqBandStat8539(lane: String, liqUsd: Double): CellStat? = cellStat(liqBandKey8539(lane, liqUsd))
     /** V5.0.8292 — read-only: the 60-minute record of a discovery source's family (scanner ranking / probation throttle). */
     fun sourceStat8292(source: String): CellStat? = cellStat(sourceKey(sourceFamily(source)))
     /** V5.0.7928 — lane x lifecycle stage: does this lane's play pay at this stage? */
@@ -642,10 +649,11 @@ object ForwardReturnLabeler7731 {
         val staged = if (o.stage.isBlank() || o.stage.equals("UNKNOWN", true) || pseudo) base else base + stageKey7928(o.lane, o.stage)
         // V5.0.8468 — the lane's own trigger record: coins its native brain qualified, graded like every label.
         val withStage = if (o.nativeTrigger8468 && !pseudo) staged + triggerKey8468(o.lane) else staged
+        val withLiq8539 = if (pseudo) withStage else withStage + liqBandKey8539(o.lane, o.liqUsd8539)  // V5.0.8539
         // V5.0.8063 — the coin's kind: lane x venue x cap band, and lane x narrative.
         val k = o.kind8063.split('/')
-        if (pseudo || k.size != 2 || k[0].isBlank()) return withStage
-        return withStage + kindKey8063(o.lane, k[0], o.cell.split('|').getOrNull(2) ?: "MC_UNKNOWN") + narrKey8063(o.lane, k[1])
+        if (pseudo || k.size != 2 || k[0].isBlank()) return withLiq8539
+        return withLiq8539 + kindKey8063(o.lane, k[0], o.cell.split('|').getOrNull(2) ?: "MC_UNKNOWN") + narrKey8063(o.lane, k[1])
     }
 
     @Synchronized
@@ -1201,6 +1209,7 @@ object ForwardReturnLabeler7731 {
                 it.stage = try { com.lifecyclebot.engine.TokenMetricStageRouter.snapshot(ts).stage.name } catch (_: Throwable) { "" }
                 it.feats7972 = try { SpecialistMiner7972.features7972(ts, l, nowMs) } catch (_: Throwable) { emptyList() }
                 it.edge8537 = EdgeModel8537.snapshot(ts, l, cost.coerceIn(0.0, 60.0), admitted, nowMs)  // V5.0.8537
+                it.liqUsd8539 = liq  // V5.0.8539
                 it.entryLiq7997 = if (ts.lastLiquidityUsd.isFinite() && ts.lastLiquidityUsd > 0.0) ts.lastLiquidityUsd else 0.0
                 it.kind8063 = try { kindOf8063(ts) } catch (_: Throwable) { "" }
                 it.nativeTrigger8468 = try { com.lifecyclebot.engine.OwnershipChain8364.nativeEligible8364(ts.mint, l) == true } catch (_: Throwable) { false }

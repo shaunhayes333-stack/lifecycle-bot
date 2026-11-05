@@ -94,9 +94,14 @@ class Aate8506MemeSelectionTest {
         val c = CandidateAdmission8136.Candidate8136("m", "MOONSHOT", "IGNITION", live = true,
             nativeQualified8213 = true, nativeSetup8213 = "IGNITION", entryWait8506 = "FLOW_UNOBSERVED",
             expectedGrossPct = 20.0, costPct = 1.0, genericScore = 80.0, genericFloor = 15.0)
-        val wait = CandidateAdmission8136.decide8136(c) { false }
+        // superseded: the specialist-qualified coin DEFERRED on the unobserved flow (`wait.terminal == DEFER_DATA`, "swaps"
+        // missing) — V5.0.8539: the flow read is optional for a coin its own lane brain qualified; a coin no specialist
+        // qualified still defers for it.
+        val wait = CandidateAdmission8136.decide8136(c.copy(nativeQualified8213 = false)) { false }
         assertEquals(CandidateAdmission8136.Terminal8136.DEFER_DATA, wait.terminal)
         assertTrue("swaps" in CandidateAdmission8136.missingOf8144(wait))
+        val specialist = CandidateAdmission8136.decide8136(c) { false }
+        assertTrue(specialist.trace.any { it.startsWith("specialistQualified8539 optionalFlow=") })
         // superseded: `decide8136(c.copy(entryWait8506 = null)).admitted` on the LIVE native opinion alone — V5.0.8536 / 8538:
         // a live native admit needs a carried 8069–8114 edge.
         assertTrue(CandidateAdmission8136.decide8136(c.copy(entryWait8506 = null, liveEdge8114 = "CHART_BUY")).admitted)

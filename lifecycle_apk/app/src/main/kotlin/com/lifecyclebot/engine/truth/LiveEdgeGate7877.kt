@@ -528,6 +528,7 @@ object LiveEdgeGate7877 {
         // prior, watchlist re-check), a live entry with no proven record is refused here; paper is untouched.
         val proof8536 = if (paper || core != null || hold != null || niche != null || wait != null) null
             else (sourceRefusal8536(ts) ?: unprovenLive8536(ts, l, nowMs, candidateVersion, candidateAdmission))
+                ?.takeIf { Rehearsal8339.doorBindsNow8342(it, l) }  // V5.0.8539 — learnt and unlearnt (FdgGate8365 demotion)
         val final = core ?: hold ?: niche ?: wait ?: proof8536
         val provisional = context.assessment
         val verdict = when { final == null -> Verdict8083.ADMIT

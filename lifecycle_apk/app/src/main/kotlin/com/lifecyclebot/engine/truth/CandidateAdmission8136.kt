@@ -554,10 +554,17 @@ object CandidateAdmission8136 {
                 "STAGE_UNRESOLVED" -> "shape,chg,bp"
                 else -> null
             }
+            // V5.0.8539 — owner: the meme trader's specialists trade on their own. A flow / stage read the bot cannot observe
+            // (8538 run: DATA_INCOMPLETE_DEFER_8136 x3,614, launchTape missing on 36,617 classifications while the PumpPortal
+            // per-coin tape is denied) no longer parks a coin its own lane brain has qualified: the read is optional for it.
+            val specialist8539 = specialistQualified8539(c)
             if (missing != null && !fastTrack8520 && bestSetup == null) {
+                if (!specialist8539) {
                 trace += "entryWait8506=$wait"
                 trace += "missing=$missing"
                 return done(Terminal8136.DEFER_DATA, "DATA_INCOMPLETE_DEFER_8136", false, c.selectedSetup)
+                }
+                trace += "specialistQualified8539 optionalFlow=$missing"
             }
             if (missing != null && fastTrack8520) trace += "fastTrack8520=$wait executedTapeObserved; optionalStage=$missing"
             else if (missing != null) trace += "supportedSetup8521=${bestSetup?.id} optionalStage=$missing"
@@ -568,7 +575,7 @@ object CandidateAdmission8136 {
             // demoted door falls through to every later door: losing cell/stage, timing, economics at the quoted size.
             // Safety, structure and the critical input/economic gates below still bind.
             val supported8511 = bestSetup
-            if (!fastTrack8520) {
+            if (!fastTrack8520 && !(missing != null && specialist8539)) {  // V5.0.8539 — the specialist's optional flow read
                 // The original 8511 binding door remains unchanged for ordinary candidates.
                 if (supported8511 == null && !nativePhase8528 && !strategyClock8535 && doorBinds8393("ENTRY_${wait}_8506"))
                     return done(Terminal8136.REFUSE, "ENTRY_${wait}_8506", true, c.selectedSetup)
@@ -841,6 +848,9 @@ object CandidateAdmission8136 {
         // runner ticket, the chart reader's BUY): it admits, and LiveEdgeGate7877's live backstop reads the same proof.
         if (nativeLive8259 && c.live) {
             if (c.liveEdge8114 != null) trace += "liveNativeCarriedBy8538=${c.liveEdge8114}"
+            // V5.0.8539 — learnt and unlearnt: the door binds until its own refused record proves it turns away winners
+            // (FdgGate8365 demotion via doorBinds8393; 8538 run: refused n16 run 12 % vs admitted run 1 %).
+            else if (!doorBinds8393(LIVE_NATIVE_OPINION_UNPROVEN_8536)) trace += "liveNativeOpinionDoorDemoted8539"
             else {
                 trace += "liveNativeOpinionUnproven8536=${c.nativeSetup8213 ?: "-"} generic=${fmt8136(c.genericScore)}"
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_NATIVE_OPINION_UNPROVEN_8536_${c.lane.uppercase()}") } catch (_: Throwable) {}
@@ -890,6 +900,15 @@ object CandidateAdmission8136 {
     }
 
     const val LIVE_NATIVE_OPINION_UNPROVEN_8536 = "LIVE_NATIVE_OPINION_UNPROVEN_8536"
+    /**
+     * V5.0.8539 — pure: the coin's own lane brain qualified it (an authoritative native opinion with a named strategy) and
+     * its score clears the lane's fluid floor. Such a coin is the specialist's call: an unobservable flow / stage read is
+     * optional for it. Hard safety, structure, stale price, unknown economics and every critical fact still bind.
+     */
+    fun specialistQualified8539(c: Candidate8136): Boolean =
+        c.nativeQualified8213 && !c.nativeSetup8213.isNullOrBlank() && !c.nativeSetup8213.equals("NONE", true) &&
+            c.genericScore.isFinite() && c.genericFloor.isFinite() && c.genericScore >= c.genericFloor
+
     const val EDGE_MODEL_NEGATIVE_8537 = "EDGE_MODEL_NEGATIVE_8537"
     const val EDGE_MODEL_PROVEN_8537 = "EDGE_MODEL_PROVEN_8537"
 
