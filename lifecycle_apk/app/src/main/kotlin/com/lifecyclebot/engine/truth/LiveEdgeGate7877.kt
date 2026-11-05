@@ -591,6 +591,8 @@ object LiveEdgeGate7877 {
     fun edge8114Live8538(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis(), ticket: Boolean = true): String? {
         val l = CanonicalLaneIdentity6506.canonical(laneRaw).uppercase().ifBlank { laneRaw.trim().uppercase() }
         val name = when {
+            // V5.0.8546 — a strategy family proven in the paper book signalled on this coin within two minutes
+            (try { MemeStrategies8546.liveProven8546(ts.mint, nowMs) } catch (_: Throwable) { null }) != null -> CandidateAdmission8136.FAMILY_PROVEN_PREFIX_8546
             (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetup8056(ts, l, nowMs) } catch (_: Throwable) { null }) != null -> "PROVEN_SETUP"
             (try { measuredEdge8060(ts, l, nowMs) } catch (_: Throwable) { false }) -> "MEASURED_EDGE"
             (try { cellOrKindProven8094(ts, l, nowMs) } catch (_: Throwable) { false }) -> "CELL_OR_KIND"

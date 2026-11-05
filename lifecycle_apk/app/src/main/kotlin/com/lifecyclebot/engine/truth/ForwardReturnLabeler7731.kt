@@ -1261,6 +1261,8 @@ object ForwardReturnLabeler7731 {
 
     private fun book(o: Obs, horizon: Int, net: Double, gross: Double, witnessed8324: Boolean = false) {
         if (!eligible8386(o)) return
+        // V5.0.8546 — every 5-minute meme label feeds the market regime (breadth: mean net, share rising)
+        if (horizon == 60 && MemePaperTrader8544.memeLane8544(o.lane)) try { MemeRegime8546.note8546(System.currentTimeMillis(), net, gross) } catch (_: Throwable) {}
         val keys = keysOf7928(o)
         val scales8410 = DoubleArray(keys.size)   // V5.0.8410 — the 60-slot decay each key had when this label was booked
         for ((i, k) in keys.withIndex()) {

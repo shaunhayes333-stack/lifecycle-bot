@@ -56,8 +56,16 @@ object PumpCurveKeys7269 {
         val m = mint.trim()
         if (m.isBlank()) return
         if (graduated7392.size >= MAX_KEYS) graduated7392.clear()
-        if (graduated7392.add(m)) try { PipelineHealthCollector.labelInc("PUMP_CURVE_GRADUATED_SEEN_7392") } catch (_: Throwable) {}
+        if (graduated7392.add(m)) {
+            try { PipelineHealthCollector.labelInc("PUMP_CURVE_GRADUATED_SEEN_7392") } catch (_: Throwable) {}
+            // V5.0.8546 — when this process first saw it graduated (MemeStrategies8546 GRADUATION_RETEST window)
+            if (graduatedAt8546.size >= MAX_KEYS) graduatedAt8546.clear()
+            graduatedAt8546.putIfAbsent(m, System.currentTimeMillis())
+        }
     }
+    private val graduatedAt8546 = ConcurrentHashMap<String, Long>()
+    /** V5.0.8546 — when this process first saw [mint] graduated (null = not seen). */
+    fun graduatedAtMs8546(mint: String): Long? = graduatedAt8546[mint.trim()]
     fun isGraduated7392(mint: String): Boolean = graduated7392.contains(mint.trim())
 
     // ── V5.0.7392 — the curve address is a function of the mint ────────────────

@@ -47,6 +47,8 @@ object MemePaperTrader8544 {
     private class Pos8544(
         val id: String, val mint: String, val symbol: String, val lane: String, val setup: String,
         val entryPx: Double, val entryAtMs: Long, val costPct: Double, val sizeSol: Double, val runner: Boolean, val clockMs: Long,
+        /** V5.0.8546 — the lane whose exit levers this position rides (a strategy family books under FAM_<family>). */
+        val exitLane: String = lane,
     ) {
         var held = 1.0; var banked = 0.0; var peak = 0.0; var tiers = 0
         var lastPx = entryPx; var lastAtMs = entryAtMs
@@ -151,7 +153,7 @@ object MemePaperTrader8544 {
                 continue
             }
             if (nowMs - p.lastAtMs > LOST_MARK_MS_8544) { p.exitFraction = 1.0; p.exitWhy = "LOST_MARK"; fill8544(p, g, nowMs); continue }
-            val stopPct = try { FieldManual7715.stopPct8392(p.lane, p.costPct) } catch (_: Throwable) { 15.0 }
+            val stopPct = try { FieldManual7715.stopPct8392(p.exitLane, p.costPct) } catch (_: Throwable) { 15.0 }
             val level = try { ShadowAlign8366.liveStopLevel8366(p.runner, stopPct, p.peak, p.costPct) } catch (_: Throwable) { -stopPct }
             val ladder = if (p.runner) com.lifecyclebot.engine.RunnerGrab7967.TIERS_7967 else com.lifecyclebot.engine.SpikeCapture7943.TIERS
             val rung = rung8544(ladder, p.tiers, g)
@@ -197,7 +199,7 @@ object MemePaperTrader8544 {
 
     private fun posJson(p: Pos8544) = JSONArray().put(p.id).put(p.mint).put(p.symbol).put(p.lane).put(p.setup).put(p.entryPx)
         .put(p.entryAtMs).put(p.costPct).put(p.sizeSol).put(p.runner).put(p.clockMs).put(p.held).put(p.banked).put(p.peak)
-        .put(p.tiers).put(p.lastPx).put(p.lastAtMs)
+        .put(p.tiers).put(p.lastPx).put(p.lastAtMs).put(p.exitLane)
 
     private fun save8544(nowMs: Long, force: Boolean = false) {
         if (!dirty || (!force && nowMs - lastSaveMs < 10_000L) || !LearningPersistence.ready()) return
@@ -208,13 +210,13 @@ object MemePaperTrader8544 {
                 .put("closed", JSONArray().also { a -> recent.forEach { c ->
                     a.put(JSONArray().put(c.lane).put(c.mint).put(c.symbol).put(c.setup).put(c.entryAtMs).put(c.exitAtMs)
                         .put(c.netPct).put(c.pnlSol).put(c.why)) } })
-                .put("laneStats", JSONObject().also { o -> laneStats.forEach { (k, v) -> o.put(k, JSONArray().put(v[0]).put(v[1]).put(v[2]).put(v[3])) } })
+                .put("laneStats", JSONObject().also { o -> laneStats.forEach { (k, v) -> o.put(k, JSONArray().also { a -> v.forEach { x -> a.put(x) } }) } })
                 .toString()
         }
         try { LearningPersistence.save(KEY_8544, raw) } catch (_: Throwable) { dirty = true }
     }
 
-    /** lane -> [n, wins, sumNet, sumPnlSol] over every close since the book began (not only the recent list). */
+    /** lane -> [n, wins, sumNet, sumPnlSol, sumNetSq, sumWinNet, sumLossNet] over every close since the book began. */
     private val laneStats = ConcurrentHashMap<String, DoubleArray>()
 
     private fun restore8544() {
@@ -232,7 +234,8 @@ object MemePaperTrader8544 {
                 if (o != null) for (i in 0 until o.length()) {
                     val a = o.optJSONArray(i) ?: continue
                     val p = Pos8544(a.optString(0), a.optString(1), a.optString(2), a.optString(3), a.optString(4), a.optDouble(5),
-                        a.optLong(6), a.optDouble(7), a.optDouble(8), a.optBoolean(9), a.optLong(10))
+                        a.optLong(6), a.optDouble(7), a.optDouble(8), a.optBoolean(9), a.optLong(10),
+                        a.optString(17, "").ifBlank { a.optString(3) })
                     p.held = a.optDouble(11, 1.0); p.banked = a.optDouble(12, 0.0); p.peak = a.optDouble(13, 0.0)
                     p.tiers = a.optInt(14); p.lastPx = a.optDouble(15, p.entryPx); p.lastAtMs = a.optLong(16, p.entryAtMs)
                     if (p.mint.isNotBlank() && p.entryPx > 0.0) open[p.mint] = p
@@ -244,14 +247,70 @@ object MemePaperTrader8544 {
                         a.optDouble(6), a.optDouble(7), a.optString(8)))
                 }
                 val s = j.optJSONObject("laneStats")
-                s?.keys()?.forEach { k -> s.optJSONArray(k)?.let { a -> laneStats[k] = doubleArrayOf(a.optDouble(0), a.optDouble(1), a.optDouble(2), a.optDouble(3)) } }
+                s?.keys()?.forEach { k -> s.optJSONArray(k)?.let { a -> laneStats[k] = DoubleArray(STAT_FIELDS_8546) { i -> a.optDouble(i, 0.0).takeIf { it.isFinite() } ?: 0.0 } } }
             } catch (_: Throwable) {}
         }
     }
 
     private fun noteLane8544(c: Closed8544) {
-        val v = laneStats.getOrPut(c.lane) { DoubleArray(4) }
-        synchronized(v) { v[0] += 1.0; if (c.netPct > 0.0) v[1] += 1.0; v[2] += c.netPct; v[3] += c.pnlSol }
+        val v = laneStats.getOrPut(c.lane) { DoubleArray(STAT_FIELDS_8546) }
+        synchronized(v) {
+            v[0] += 1.0; if (c.netPct > 0.0) v[1] += 1.0; v[2] += c.netPct; v[3] += c.pnlSol
+            v[4] += c.netPct * c.netPct; if (c.netPct > 0.0) v[5] += c.netPct else v[6] += -c.netPct
+        }
+    }
+
+    private const val STAT_FIELDS_8546 = 7
+    const val FAMILY_PREFIX_8546 = "FAM_"
+
+    /** Pure (V5.0.8546): (n, mean, se, profit factor) of a [v] stats row. */
+    fun proofOf8546(v: DoubleArray): DoubleArray {
+        val n = v.getOrElse(0) { 0.0 }
+        if (n < 1.0) return doubleArrayOf(0.0, Double.NaN, Double.NaN, Double.NaN)
+        val mean = v[2] / n
+        val variance = (v.getOrElse(4) { 0.0 } / n - mean * mean).coerceAtLeast(0.0)
+        val se = if (n > 1.0) kotlin.math.sqrt(variance / n) else Double.NaN
+        val loss = v.getOrElse(6) { 0.0 }
+        val pf = if (loss > 0.0) v.getOrElse(5) { 0.0 } / loss else if (v.getOrElse(5) { 0.0 } > 0.0) Double.POSITIVE_INFINITY else Double.NaN
+        return doubleArrayOf(n, mean, se, pf)
+    }
+
+    /** V5.0.8546 — has [family]'s paper record earned LIVE money (MemeStrategies8546.provenRecord8546)? */
+    fun familyProven8546(family: String): Boolean {
+        restore8544()
+        val v = laneStats["$FAMILY_PREFIX_8546$family"] ?: return false
+        val p = synchronized(v) { proofOf8546(v) }
+        return MemeStrategies8546.provenRecord8546(p[0].toInt(), p[1], p[2], p[3])
+    }
+
+    /**
+     * V5.0.8546 — MemeStrategies8546: a family signalled on [ts]; open a paper position booked under FAM_<family>, riding the
+     * signal's exit lane. Same fill rules as a lane entry: fresh corroborated observed mark, priced round trip, room in the book.
+     */
+    fun openFamily8546(ts: TokenState, signal: MemeStrategies8546.Signal8546, nowMs: Long) {
+        restore8544()
+        val book = "$FAMILY_PREFIX_8546${signal.family.name}"
+        val why = roomFor8544(open.size, open.values.count { it.lane == book }, open.containsKey(ts.mint),
+            nowMs - (lastEntryAt[ts.mint] ?: Long.MIN_VALUE / 2), balanceSol)
+        if (why != null) { if (why != "MINT_OPEN") skip("FAMILY_$why"); return }
+        val cost = try { NetEdge8030.entryCost8209(ts, signal.exitLane, STAKE_SOL_8544).costPct } catch (_: Throwable) { Double.NaN }
+        if (!cost.isFinite() || cost < 0.0) { skip("FAMILY_COST_UNKNOWN"); return }
+        val mark = ShadowMark8360.observedTimed8372(ts, ts.mint, nowMs)
+        if (mark == null || nowMs - mark.observedAtMs !in 0L..ENTRY_MARK_MAX_AGE_MS_8544 || !(mark.priceUsd > 0.0)) { skip("FAMILY_NO_FRESH_MARK"); return }
+        if (PaperFillTruth8539.refusal(ts.mint, mark.priceUsd, nowMs) != null) { skip("FAMILY_FILL_UNCORROBORATED"); return }
+        val runner = try { com.lifecyclebot.engine.RunnerGrab7967.bornRunnerLadder8538(signal.exitLane) } catch (_: Throwable) { false }
+        val clock = if (runner) com.lifecyclebot.engine.cortex.CortexLabelHygiene8144.executableHorizonMs8392(true) else SCALP_CLOCK_MS_8544 * 3
+        val p = Pos8544("$book|${ts.mint}|$nowMs", ts.mint, ts.symbol, book, signal.why.take(60), mark.priceUsd, mark.observedAtMs,
+            cost, STAKE_SOL_8544, runner, clock, signal.exitLane)
+        synchronized(this) {
+            if (open.containsKey(ts.mint)) return
+            open[ts.mint] = p
+            lastEntryAt[ts.mint] = nowMs
+            balanceSol -= p.sizeSol
+            dirty = true
+        }
+        try { PipelineHealthCollector.labelInc("MEME_FAMILY_PAPER_OPEN_8546_${signal.family}") } catch (_: Throwable) {}
+        save8544(nowMs, force = true)
     }
 
     /** Brief / report: balance, open book, per-lane closed results, last closes, and why candidates were not opened. */
@@ -259,7 +318,9 @@ object MemePaperTrader8544 {
         restore8544()
         val lanes = laneStats.entries.sortedByDescending { it.value[0] }.joinToString(" ") { (k, v) ->
             val n = v[0].toInt()
-            if (n == 0) "$k[n0]" else "$k[n$n wr${(v[1] * 100 / v[0]).toInt()}% ${"%+.1f".format(v[2] / v[0])}% ${"%+.3f".format(v[3])}SOL]"
+            val p = proofOf8546(v)
+            if (n == 0) "$k[n0]" else "$k[n$n wr${(v[1] * 100 / v[0]).toInt()}% ${"%+.1f".format(p[1])}%${if (p[2].isFinite()) "±${"%.1f".format(p[2])}" else ""} " +
+                "pf${if (p[3].isFinite()) "%.2f".format(p[3]) else "-"} ${"%+.3f".format(v[3])}SOL]"
         }.ifBlank { "none yet" }
         val openLine = open.values.groupBy { it.lane }.entries.sortedByDescending { it.value.size }
             .joinToString(",") { "${it.key}=${it.value.size}" }.ifBlank { "-" }

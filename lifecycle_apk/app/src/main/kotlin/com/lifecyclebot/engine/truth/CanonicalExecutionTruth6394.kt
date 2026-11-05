@@ -390,5 +390,12 @@ object SmartMoneyFeed6394 {
             .count()
     }
     fun knownWhaleCount(): Int = whaleWallets.size
+
+    /** V5.0.8546 — distinct tracked wallets that bought [mint] in the last [windowMs] (the feed keeps 5 minutes). */
+    fun smartWallets8546(mint: String, windowMs: Long, nowMs: Long = System.currentTimeMillis()): Int {
+        val cutoff = nowMs - windowMs
+        return recentBuys.asSequence().filter { it.mint == mint && it.timestampMs >= cutoff && it.wallet.isNotBlank() }
+            .map { it.wallet }.distinct().count()
+    }
     internal fun clearForTest() { recentBuys.clear(); whaleWallets.clear() }
 }

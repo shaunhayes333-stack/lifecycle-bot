@@ -199,6 +199,8 @@ object CandidateAdmission8136 {
         val edge8537: EdgeModel8537.Verdict? = null,
         /** V5.0.8538 — LIVE: the 5.0.8069–8114 positive edge this coin carries (LiveEdgeGate7877.edge8114Live8538), else null. */
         val liveEdge8114: String? = null,
+        /** V5.0.8546 — LIVE, Solana meme lane, and MemeRegime8546 reads COLD (every source losing). */
+        val regimeCold8546: Boolean = false,
     ) {
         /** V5.0.8316 — every fired setup's record past the realised shortfall (support tests only). */
         val setupsProof8290: List<Evidence8136> get() = setups.map { LiveAdmissionProof8290.shift8290(it, liveShortfall8290) ?: it }
@@ -509,6 +511,13 @@ object CandidateAdmission8136 {
 
         // 1. hard safety and structural selling risk: nothing overrides them.
         c.safetyRefusal?.let { trace += "safety=$it"; return done(Terminal8136.REFUSE, "SAFETY_REFUSED_8136", true, c.selectedSetup) }
+        // V5.0.8546 — the regime master switch: in a COLD meme market (MemeRegime8546) LIVE opens nothing new unless a
+        // strategy family proven in the paper book carries the coin. A door: its refused record can unbind it.
+        if (c.live && c.regimeCold8546 && c.liveEdge8114?.startsWith(FAMILY_PROVEN_PREFIX_8546) != true && doorBinds8393(LIVE_REGIME_COLD_8546)) {
+            trace += "regimeCold8546"
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("${LIVE_REGIME_COLD_8546}_${c.lane.uppercase()}") } catch (_: Throwable) {}
+            return done(Terminal8136.REFUSE, LIVE_REGIME_COLD_8546, false, c.selectedSetup)
+        }
         // V5.0.8221 §P0d — a FRESH_LAUNCH statistical refusal (learned negative
         // setup record from FreshLaunchSelector7737) is NOT a hard structural
         // hazard. Pre-8221 the structuralRisk field conflated both and short-
@@ -866,6 +875,7 @@ object CandidateAdmission8136 {
         // markup or at its peak. A door: learnt and unlearnt through the refused record (doorBinds8393); paper and
         // the paper book keep entering these coins and grading them.
         if (c.live && liveIntoHigh8545(c.stage) && !supported8136(c.stageLoss8169 ?: c.stageRecord, c.costPct) &&
+            c.liveEdge8114?.startsWith(FAMILY_PROVEN_PREFIX_8546) != true &&   // V5.0.8546 — a proven family's own event
             doorBinds8393(LIVE_INTO_HIGH_UNPROVEN_8545)) {
             trace += "liveIntoHigh8545 stage=${c.stage} record=${(c.stageLoss8169 ?: c.stageRecord)?.compact ?: "-"}"
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("${LIVE_INTO_HIGH_UNPROVEN_8545}_${c.lane.uppercase()}_${c.stage}") } catch (_: Throwable) {}
@@ -926,6 +936,8 @@ object CandidateAdmission8136 {
 
     const val LIVE_NATIVE_OPINION_UNPROVEN_8536 = "LIVE_NATIVE_OPINION_UNPROVEN_8536"
     const val LIVE_INTO_HIGH_UNPROVEN_8545 = "LIVE_INTO_HIGH_UNPROVEN_8545"
+    const val LIVE_REGIME_COLD_8546 = "LIVE_REGIME_COLD_8546"
+    const val FAMILY_PROVEN_PREFIX_8546 = "FAMILY_PROVEN_8546"
 
     /**
      * Pure (V5.0.8545): a lifecycle stage where a buy goes into the coin's high (markup, peak). A dump is not here: a fired
@@ -1631,6 +1643,8 @@ object CandidateAdmission8136 {
             firedSetups8528 = try { pb.matchedSetups8083(ts, lane, nowMs).toSet() } catch (_: Throwable) { emptySet() },
             edge8537 = EdgeModel8537.verdict(ts, lane, cost8153, nowMs),  // V5.0.8537
             liveEdge8114 = if (live8290) LiveEdgeGate7877.edge8114Live8538(ts, lane, nowMs) else null,  // V5.0.8538
+            regimeCold8546 = live8290 && MemePaperTrader8544.memeLane8544(lane) &&
+                (try { MemeRegime8546.regime8546(nowMs) == MemeRegime8546.Regime8546.COLD } catch (_: Throwable) { false }),
             regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "" },
             stage = fit?.stage?.name.orEmpty(),
             entryWait8506 = entry?.second,

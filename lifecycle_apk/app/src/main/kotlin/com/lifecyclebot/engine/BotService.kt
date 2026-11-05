@@ -1634,6 +1634,10 @@ class BotService : Service() {
                     try { com.lifecyclebot.engine.truth.MemePaperTrader8544.tick8544(tokenStatesCopy, nowShadow7307) }
                     catch (cancelled: CancellationException) { throw cancelled }
                     catch (_: Throwable) { try { PipelineHealthCollector.labelInc("MEME_PAPER_TICK_ERROR_8544") } catch (_: Throwable) {} }
+                    // V5.0.8546 — the event strategy families scan the watchlist and paper-trade every signal
+                    try { com.lifecyclebot.engine.truth.MemeStrategies8546.tick8546(tokenStatesCopy, nowShadow7307) }
+                    catch (cancelled: CancellationException) { throw cancelled }
+                    catch (_: Throwable) { try { PipelineHealthCollector.labelInc("MEME_FAMILY_TICK_ERROR_8546") } catch (_: Throwable) {} }
                 } finally {
                     try { PipelineHealthCollector.labelInc("SHADOW_EVIDENCE_TICK_FINISHED_8372") } catch (_: Throwable) {}
                     if (System.currentTimeMillis() - t0 > 10_000L) {
