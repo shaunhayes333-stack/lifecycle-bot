@@ -97,7 +97,7 @@ class Aate8535StrategyClockTest {
             runupFromHourLowPct8529 = runup, roomToHourHighPct8529 = room)
         val base = launch(2.0, 1.0)
         val ran = launch(70.0, 5.0)
-        assertEquals("MANDATE", base.basis); assertEquals("MANDATE", ran.basis)
+        assertEquals("RANGE", base.basis); assertEquals("RANGE", ran.basis)   // a dense 36 % range is the hour read
         assertTrue("a +70 % in-window run is consumed move", ran.expectedGrossPct < base.expectedGrossPct)
         assertEquals(StrategyMove8153.remaining8529(base.expectedGrossPct, 70.0, 5.0)!!, ran.expectedGrossPct, 1e-9)
         assertEquals("below the documented-run bar the first move is not a spent hour", base.expectedGrossPct, launch(20.0, 3.0).expectedGrossPct, 1e-9)

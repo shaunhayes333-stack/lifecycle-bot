@@ -110,15 +110,16 @@ class Aate8535LabelPipelineTest {
 
     @Test fun every_queued_backfill_ends_with_one_named_receipt_and_recovery_is_source_timed() {
         DowntimeRecovery8430.resetForTest8430()
-        val boot = 10_000_000L
+        val boot = 1_762_300_000_000L   // a real epoch: candle times below 1e12 read as seconds
         val target = boot - 300_000L
         // a window that closed before boot queues (WAIT); its receipt is RECOVERED once the covering candle lands
         val first = DowntimeRecovery8430.candleMark8430("m1", target, target, target + 150_000L, boot, boot + 1_000L)
         assertTrue(first.waiting)
-        DowntimeRecovery8430.seedForTest8430("m1", listOf(candle(target - 60_000L, 1.0), candle(target - 60_000L + 60_000L, 1.1)))
+        // candle A opens 60 s before the target and closes AT it; candle B opens at the target and closes 60 s after
+        DowntimeRecovery8430.seedForTest8430("m1", listOf(candle(target - 60_000L, 1.0), candle(target, 1.1)))
         val read = DowntimeRecovery8430.candleMark8430("m1", target, target, target + 150_000L, boot, boot + 2_000L)
         assertNotNull(read.mark); assertEquals("RECOVERED", DowntimeRecovery8430.receipt8535("m1"))
-        assertEquals("the mark carries the candle's own close time, not the fetch time", target + 60_000L, read.mark!!.observedAtMs)
+        assertEquals("the mark carries the nearest completed candle's own close time, not the fetch time", target, read.mark!!.observedAtMs)
         // no candle covering the window: a named receipt, not a negative return
         DowntimeRecovery8430.seedForTest8430("m2", listOf(candle(target - 3_600_000L, 0.5)))
         assertNull(DowntimeRecovery8430.candleMark8430("m2", target, target, target + 150_000L, boot, boot + 2_000L).mark)

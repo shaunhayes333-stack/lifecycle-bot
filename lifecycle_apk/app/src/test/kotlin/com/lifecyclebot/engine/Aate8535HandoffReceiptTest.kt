@@ -28,7 +28,7 @@ class Aate8535HandoffReceiptTest {
         val steps = OwnershipChain8364.steps8438(lane)
         assertEquals(1L, steps["NATIVE_FIRED"]); assertEquals(1L, steps["READY_FINAL"]); assertEquals(1L, steps["OWNER_OFFERED"])
         OwnershipChain8364.flushForTests8364()
-        assertEquals("lost at the furthest stage it reached", 1L, OwnershipChain8364.lostNoTerminal8364()["$lane|OWNER_OFFERED"])
+        assertEquals("lost at the furthest stage it reached", 1L, OwnershipChain8364.lostNoTerminal8364()["OWNER_OFFERED"])   // keyed by stage across lanes
         assertTrue(OwnershipChain8364.reportLine8364(lane)!!.contains("ownerOffered=1"))
     }
 

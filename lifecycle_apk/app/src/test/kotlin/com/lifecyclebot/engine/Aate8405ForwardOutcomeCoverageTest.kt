@@ -29,10 +29,12 @@ class Aate8405ForwardOutcomeCoverageTest {
         val curveFirst = body.indexOf("ParallelMarkFanout7088.curvePrices7392(onCurve8418)")
         val dex = body.indexOf("for (chunk in dexBatch8418.chunked(OFFWATCH_DEX_CHUNK_8405)) {")
         val curve = body.indexOf("ParallelMarkFanout7088.curvePrices7392(missed7753)")
-        val jup = body.indexOf("PriceResolverFallback.jupiterBatchPrices7737(missedJup8405)")
+        // superseded by V5.0.8535 §P0-01 — the Jupiter rung covers every miss in 50-mint chunks (was one `take(50)` call).
+        val jup = body.indexOf("PriceResolverFallback.jupiterBatchPrices7737(jupChunk8535)")
         assertTrue(curveFirst in 0 until dex && dex < curve && curve < jup)
         assertFalse(body.contains("jupiterBatchPrices7737(batch)"))
-        assertTrue(body.contains("val missedJup8405 = batch.filter { it !in got }.take(50)"))
+        assertTrue(body.contains("val missedJup8405 = batch.filter { it !in got }.take(JUP_MAX_PER_BATCH_8535)"))
+        assertTrue(body.contains("for (jupChunk8535 in missedJup8405.chunked(50)) {"))
         assertTrue(body.contains("FORWARD_LABEL_OFFWATCH_JUP_PRICED_8405"))
         // every rung stays on the background thread the fetch already owned
         assertTrue(body.indexOf("Thread({") in 0 until curveFirst)

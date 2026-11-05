@@ -58,10 +58,15 @@ class Aate8529EntryExitTruthTest {
         val strat = StrategyMove8153.expected8153(50.0, 4.0, true, null, 40, 12.0, 3.0, 6.0, false,
             runupFromHourLowPct8529 = 70.0, roomToHourHighPct8529 = 0.0)
         assertEquals("STRATEGY", strat.basis); assertEquals(18.0, strat.expectedGrossPct, 1e-9)
-        // a coin inside its launch window has no prior hour to have spent
+        // a coin inside its launch window has no prior hour to have spent — UNLESS it has already documented a run.
+        // superseded: `assertEquals(36.0, launch.expectedGrossPct)` for a +36 % in-window run — V5.0.8535 §P0-04: a documented
+        // in-window run from the low (>= LAUNCH_SPENT_MIN_PCT_8535) is consumed move; only the undocumented first move is exempt.
         val launch = StrategyMove8153.expected8153(45.0, 36.0, true, null, 0, Double.NaN, Double.NaN, 6.0, true,
             inLaunchWindow8418 = true, runupFromHourLowPct8529 = 36.0, roomToHourHighPct8529 = 0.0)
-        assertEquals(36.0, launch.expectedGrossPct, 1e-9)
+        assertEquals(0.0, launch.expectedGrossPct, 1e-9)
+        val firstMove = StrategyMove8153.expected8153(45.0, 36.0, true, null, 0, Double.NaN, Double.NaN, 6.0, true,
+            inLaunchWindow8418 = true, runupFromHourLowPct8529 = 20.0, roomToHourHighPct8529 = 0.0)
+        assertEquals(36.0, firstMove.expectedGrossPct, 1e-9)
     }
 
     // ── 2. a stop-out is a real loss whatever the % ──

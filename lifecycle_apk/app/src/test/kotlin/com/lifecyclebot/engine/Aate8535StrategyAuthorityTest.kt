@@ -29,7 +29,8 @@ class Aate8535StrategyAuthorityTest {
     private fun f(bp: Double = 60.0, volAccel: Double = Double.NaN, txVelocity: Double = Double.NaN, chg5m: Double = 0.0,
                   runup: Double = 20.0, pxPeak: Double = 0.99, launchPhase: String = "", age: Double = 30.0, dd: Double = 0.0) =
         LanePlaybook7907.F(age = age, runup = runup, pxPeak = pxPeak, dd = dd, bp = bp, liq = 20_000.0, mcap = 80_000.0, top = 10.0,
-            chg5m = chg5m, chg1h = 10.0, holderGrowth = Double.NaN, volAccel = volAccel, planSetup = "", launchPhase = launchPhase)
+            chg5m = chg5m, chg1h = 10.0, holderGrowth = Double.NaN, volAccel = volAccel, planSetup = "", launchPhase = launchPhase,
+            txVelocity = txVelocity)
 
     // ── P1-01 / P1-03 / P1-13 ──
 
@@ -67,8 +68,8 @@ class Aate8535StrategyAuthorityTest {
         for (lane in listOf("SHITCOIN", "MOONSHOT", "EXPRESS", "PROJECT_SNIPER", "MANIPULATED")) {
             val ids = LanePlaybook7907.menuIds(lane)
             assertTrue(lane, ids.contains("IGNITION_BREAK") && ids.contains("POST_IGNITION_RETEST"))
-            assertTrue("LAUNCH_CONTINUATION keeps its id and bins", ids.contains("LAUNCH_CONTINUATION"))
         }
+        assertTrue("LAUNCH_CONTINUATION keeps its id, predicate and bins", pb.contains("private val LAUNCH_CONTINUATION = Setup(\"LAUNCH_CONTINUATION\", PROBE) { f ->"))
         assertTrue("appended after every earlier bin", LanePlaybook7907.menuIds("MOONSHOT").indexOf("IGNITION_BREAK") > LanePlaybook7907.menuIds("MOONSHOT").indexOf("LAUNCH_CONTINUATION"))
         assertFalse("not a swing desk's native strategy", LanePlaybook7907.menuIds("BLUECHIP").contains("IGNITION_BREAK"))
     }

@@ -21,7 +21,7 @@ class Aate8535ReceiptsTest {
 
     @Test fun every_projection_carries_its_receipt_and_unknowns_are_named() {
         val line = CortexOpportunityPolarity8522.receiptLine8535("ABSTAIN", "REFUSE", 0.41, -3.25, 0.12, 48.0, 0.25, 3.4, "REFUSE_BUCKET_INVERSION_UNPROVEN_8527")
-        assertEquals("ABSTAIN raw=REFUSE pUp=0.41 net=-3.2% tail=0.12 n=48 null=0.25 voters=3.4 why=REFUSE_BUCKET_INVERSION_UNPROVEN_8527", line)
+        assertEquals("ABSTAIN raw=REFUSE pUp=0.41 net=-3.3% tail=0.12 n=48 null=0.25 voters=3.4 why=REFUSE_BUCKET_INVERSION_UNPROVEN_8527", line)   // %.1f rounds half away from zero
         val unknown = CortexOpportunityPolarity8522.receiptLine8535("ABSTAIN", "-", Double.NaN, Double.NaN, Double.NaN, Double.NaN, Double.NaN, Double.NaN, "NO_CURRENT_ASSESSMENT")
         assertTrue(unknown.contains("pUp=? net=?% tail=? n=? null=? voters=?"))
         assertEquals(0.5, CortexOpportunityPolarity8522.nullFraction8535(doubleArrayOf(1.0, Double.NaN, 2.0, Double.NaN), 4), 0.0)

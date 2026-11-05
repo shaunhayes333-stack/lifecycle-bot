@@ -79,10 +79,11 @@ class Aate8364OwnershipTest {
         chain.onDeskStage8364("BLUECHIP", "QUALIFIED", "MintL:5", t0)
         chain.flushForTests8364()
         val moon = chain.reportLine8364("MOONSHOT")!!
-        assertTrue(moon, moon.contains("qualified=1 fdg=0/1"))
+        // superseded: `qualified=1 fdg=0/1` — V5.0.8535 §P0-08 prints readyFinal / ownerOffered / fdgSeen between them.
+        assertTrue(moon, moon.contains("qualified=1 ") && moon.contains(" fdgSeen=1 fdg=0/1 "))
         assertTrue(moon, moon.contains("FDG_TIMING_RECORD_NEGATIVE_8094=1"))
         val q = chain.reportLine8364("QUALITY")!!
-        assertTrue(q, q.contains("qualified=1 fdg=1/0 owner=1 intent=1 ticket=1"))
+        assertTrue(q, q.contains("qualified=1 ") && q.contains(" fdg=1/0 owner=1 intent=1 ticket=1"))   // superseded: see above (8535 §P0-08)
         assertTrue(q, q.contains("TICKET=1"))
         assertTrue(chain.reportLine8364("SHITCOIN")!!.contains("NOT_EVALUATED_NOT_PRIMARY_MOONSHOT=1"))
         assertTrue(chain.reportLine8364("EXPRESS")!!.contains("NATIVE_REFUSED_AFTER_QUALIFY=1"))
