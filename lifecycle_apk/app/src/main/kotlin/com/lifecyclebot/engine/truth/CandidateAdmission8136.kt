@@ -1441,6 +1441,8 @@ object CandidateAdmission8136 {
                 // V5.0.8535 §P2-01 — the admission's terminal joins the candidate's decision episode with its trace hash.
                 try { com.lifecyclebot.engine.DecisionEpisode8535.noteAdmission8535(candidate.lane, ts.mint, version, it.terminal.name, it.reason, it.chosenSetup, it.trace, nowMs) } catch (_: Throwable) {}
             }
+            // V5.0.8544 — a LIVE meme candidate is also decided the PAPER way for the separate paper book beside live
+            if (mode == "LIVE" && !FdgGate8365.shadowOnly8393()) try { MemePaperTrader8544.consider8544(ts, candidate, nowMs) } catch (_: Throwable) {}
             if (memos8153.size > 4_000) memos8153.entries.removeIf { e -> nowMs - e.value.atMs > MEMO_MS_8153 }
             memos8153[key] = Memo8153(nowMs, identity, it)
         }

@@ -1,6 +1,5 @@
 package com.lifecyclebot.engine
 
-import com.lifecyclebot.engine.truth.MemePaperBook8543
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -16,29 +15,7 @@ import java.io.File
 class Aate8543PaperBookAndLabelTimingTest {
     private fun src(p: String) = File("src/main/kotlin/com/lifecyclebot/$p").readText()
 
-    // 15. full simulated trade lifecycle and learning acknowledgment: each closed leg folds into its lane exactly once
-    @Test fun aPaperBookTallyFoldsEveryCloseOnce() {
-        val t = MemePaperBook8543.LaneTally8543()
-        listOf(12.0, -6.0, -3.0, 40.0).forEach { MemePaperBook8543.fold8543(t, it) }
-        MemePaperBook8543.fold8543(t, Double.NaN)   // an unpriced close is not a trade
-        assertEquals(4, t.n); assertEquals(2, t.wins)
-        assertEquals(43.0, t.sumNet, 1e-9); assertEquals(40.0, t.best, 0.0); assertEquals(-6.0, t.worst, 0.0)
-        val line = MemePaperBook8543.laneLine8543("MOONSHOT", t)
-        assertTrue(line, line.startsWith("MOONSHOT[n4 wr50% +10.8%"))
-        assertTrue("nominal stake, labelled", line.contains("SOL@${MemePaperBook8543.NOMINAL_STAKE_SOL_8543}"))
-        assertEquals("MOONSHOT[n0]", MemePaperBook8543.laneLine8543("MOONSHOT", MemePaperBook8543.LaneTally8543()))
-    }
-
-    @Test fun theBookRecordsTheLiveModelledLegAndNeverTouchesALiveSlot() {
-        val shadow = src("engine/truth/ExploreShadow8347.kt")
-        assertTrue(shadow.contains("if (leg.exit == liveExit) MemePaperBook8543.onClose8543(t.lane, t.mint, t.symbol, leg.entryAtMs, nowMs, net, why)"))
-        val book = src("engine/truth/MemePaperBook8543.kt")
-        for (forbidden in listOf("ts.position", "TradeHistoryStore", "CanonicalPaperTransaction6486", "CanonicalPositionAuthority6441", "Executor"))
-            assertTrue(forbidden, !book.contains(forbidden))
-        assertTrue(src("engine/DiagnosisBrief8438.kt").contains("MemePaperBook8543.statusLine8543(com.lifecyclebot.engine.truth.ExploreShadow8347.openNativeByLane8543())"))
-        // the meme executor's own paperBuy stays blocked in LIVE (unchanged)
-        assertTrue(src("engine/ExecutionRouteGuard.kt").contains("PAPER_ROUTE_BLOCKED_IN_LIVE_USE_SHADOW_PATH"))
-    }
+    // superseded by V5.0.8544 — the 8543 shadow-view paper book is replaced by MemePaperTrader8544 (Aate8544MemePaperTraderTest).
 
     // 2. delayed provider recovery: the label batch no longer does pool discovery itself
     @Test fun theLabelBatchHandsPoolDiscoveryOff() {

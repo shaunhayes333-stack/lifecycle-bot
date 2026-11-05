@@ -1630,6 +1630,10 @@ class BotService : Service() {
                         try { PipelineHealthCollector.labelInc("EXPLORE_SHADOW_TICK_ERROR_8372") } catch (_: Throwable) {}
                         ErrorLogger.debug("BotService", "Explore shadow tick error: ${e.message}")
                     }
+                    // V5.0.8544 — the meme paper book beside LIVE marks and exits its own positions (never a live slot)
+                    try { com.lifecyclebot.engine.truth.MemePaperTrader8544.tick8544(tokenStatesCopy, nowShadow7307) }
+                    catch (cancelled: CancellationException) { throw cancelled }
+                    catch (_: Throwable) { try { PipelineHealthCollector.labelInc("MEME_PAPER_TICK_ERROR_8544") } catch (_: Throwable) {} }
                 } finally {
                     try { PipelineHealthCollector.labelInc("SHADOW_EVIDENCE_TICK_FINISHED_8372") } catch (_: Throwable) {}
                     if (System.currentTimeMillis() - t0 > 10_000L) {

@@ -1,0 +1,272 @@
+package com.lifecyclebot.engine.truth
+
+import com.lifecyclebot.data.TokenState
+import com.lifecyclebot.engine.LearningPersistence
+import com.lifecyclebot.engine.PipelineHealthCollector
+import org.json.JSONArray
+import org.json.JSONObject
+import java.util.concurrent.ConcurrentHashMap
+
+/**
+ * V5.0.8544 §MEME_PAPER_BOOK_BESIDE_LIVE — owner: "build the separate paper book beside live, properly".
+ *
+ * In LIVE the meme executor's own paperBuy is blocked by design (ExecutionRouteGuard, V5.0.3725): one TokenState carries one
+ * position, and a paper row in the live journal contaminates live accounting. So no LIVE session ever paper-traded a meme
+ * lane. This is a second, fully separate book that trades the meme lanes on paper WHILE the runtime is LIVE:
+ *
+ *  ENTRY  — CandidateAdmission8136.assess8136 hands every LIVE meme-lane candidate here. The same candidate is decided the
+ *           way PAPER mode decides it (live = false, record doors advisory: the 8540 paper-explore rules; safety, structure,
+ *           stale price and critical facts still refuse). An ADMIT opens a paper position at the coin's OBSERVED mark
+ *           (ShadowMark8360: tick / labeler / curve / tape / pool vaults, at most [ENTRY_MARK_MAX_AGE_MS_8544] old) that at
+ *           least one independent read corroborates (PaperFillTruth8539). Nothing is opened on an unknown price or cost.
+ *  SIZE   — [STAKE_SOL_8544] per trade from the book's own paper balance (starts at [START_BALANCE_SOL_8544]); at most
+ *           [MAX_OPEN_8544] open, [MAX_OPEN_PER_LANE_8544] per lane, one per mint, [REOPEN_GAP_MS_8544] between entries.
+ *  EXITS  — the live levers of that lane: the stop live holds (ShadowAlign8366.liveStopLevel8366 — the lane stop widened
+ *           past the round trip, the cost-armed break-even, a runner's green floor), the runner ladder on born-runner lanes
+ *           (RunnerGrab7967.TIERS_7967) else the scalp ladder (SpikeCapture7943.TIERS), and the lane clock (10 min on a
+ *           scalp-exit lane, CortexLabelHygiene8144.executableHorizonMs8392 otherwise). A triggered exit fills at the first
+ *           observed mark after the measured sell latency (ShadowAlign8366.sellLatencyMs8366), like a live sell. A coin with
+ *           no mark for [LOST_MARK_MS_8544] closes at its last mark flagged LOST_MARK.
+ *  MONEY  — net = banked slices + remainder at the exit mark, less the round-trip cost the admission priced at entry.
+ *  BOOKS  — its own ledger (LearningPersistence key [KEY_8544]): open positions survive a restart, closes are kept with their
+ *           reason. It never touches a TokenState, the live / paper journals, the canonical ledger, the wallet, a live slot or
+ *           any live authority; its results are paper, never reported as realised money.
+ */
+object MemePaperTrader8544 {
+    const val STAKE_SOL_8544 = 0.1
+    const val START_BALANCE_SOL_8544 = 10.0
+    const val MAX_OPEN_8544 = 40
+    const val MAX_OPEN_PER_LANE_8544 = 8
+    const val REOPEN_GAP_MS_8544 = 15L * 60_000L
+    const val ENTRY_MARK_MAX_AGE_MS_8544 = 20_000L
+    private const val LOST_MARK_MS_8544 = 10L * 60_000L
+    private const val SCALP_CLOCK_MS_8544 = 10L * 60_000L
+    private const val KEY_8544 = "MEME_PAPER_TRADER_8544"
+    private const val RECENT_MAX_8544 = 60
+
+    private class Pos8544(
+        val id: String, val mint: String, val symbol: String, val lane: String, val setup: String,
+        val entryPx: Double, val entryAtMs: Long, val costPct: Double, val sizeSol: Double, val runner: Boolean, val clockMs: Long,
+    ) {
+        var held = 1.0; var banked = 0.0; var peak = 0.0; var tiers = 0
+        var lastPx = entryPx; var lastAtMs = entryAtMs
+        var exitWhy: String? = null; var exitAtMs = 0L; var exitFraction = 1.0; var exitTier = 0
+    }
+    private data class Closed8544(val lane: String, val mint: String, val symbol: String, val setup: String, val entryAtMs: Long,
+                          val exitAtMs: Long, val netPct: Double, val pnlSol: Double, val why: String)
+
+    private val open = ConcurrentHashMap<String, Pos8544>()          // mint -> position
+    private val lastEntryAt = ConcurrentHashMap<String, Long>()
+    private val recent = ArrayDeque<Closed8544>()
+    private val skips = ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
+    @Volatile private var balanceSol = START_BALANCE_SOL_8544
+    @Volatile private var realisedSol = 0.0
+    @Volatile private var restored = false
+    @Volatile private var dirty = false
+    @Volatile private var lastSaveMs = 0L
+
+    private fun skip(why: String) {
+        skips.computeIfAbsent(why) { java.util.concurrent.atomic.AtomicLong(0) }.incrementAndGet()
+    }
+
+    /** Pure: is [lane] a Solana meme lane this book trades? (crypto desks keep their own paper books) */
+    fun memeLane8544(lane: String): Boolean {
+        val l = lane.trim().uppercase()
+        return l.isNotBlank() && !l.startsWith("CRYPTO") && !l.startsWith("CHASEMISS") && !l.contains("PERPS")
+    }
+
+    /** Pure: may a new paper position open now? null = yes, else why not. */
+    fun roomFor8544(openTotal: Int, openInLane: Int, mintOpen: Boolean, sinceLastEntryMs: Long, balanceSol: Double): String? = when {
+        mintOpen -> "MINT_OPEN"
+        openTotal >= MAX_OPEN_8544 -> "BOOK_FULL"
+        openInLane >= MAX_OPEN_PER_LANE_8544 -> "LANE_FULL"
+        sinceLastEntryMs in 0L until REOPEN_GAP_MS_8544 -> "REOPEN_GAP"
+        balanceSol < STAKE_SOL_8544 -> "NO_PAPER_BALANCE"
+        else -> null
+    }
+
+    /**
+     * CandidateAdmission8136.assess8136, LIVE runtime only: decide [candidate] the PAPER way and, on ADMIT, open a paper position.
+     */
+    fun consider8544(ts: TokenState, candidate: CandidateAdmission8136.Candidate8136, nowMs: Long) {
+        if (!candidate.live || !memeLane8544(candidate.lane)) return
+        if (!com.lifecyclebot.network.HeliusSolanaScope7819.isSolanaMint7819(ts.mint)) return
+        restore8544()
+        val lane = candidate.lane.trim().uppercase()
+        val why = roomFor8544(open.size, open.values.count { it.lane == lane }, open.containsKey(ts.mint),
+            nowMs - (lastEntryAt[ts.mint] ?: Long.MIN_VALUE / 2), balanceSol)
+        if (why != null) { if (why != "MINT_OPEN") skip(why); return }
+        val paper = CandidateAdmission8136.decide8136(candidate.copy(live = false, liveEdge8114 = null)) { false }
+        if (paper.terminal != CandidateAdmission8136.Terminal8136.ADMIT) { skip("PAPER_REFUSED"); return }
+        if (!candidate.costPct.isFinite() || candidate.costPct < 0.0) { skip("COST_UNKNOWN"); return }
+        val mark = ShadowMark8360.observedTimed8372(ts, ts.mint, nowMs)
+        if (mark == null || nowMs - mark.observedAtMs !in 0L..ENTRY_MARK_MAX_AGE_MS_8544 || !(mark.priceUsd > 0.0)) { skip("NO_FRESH_MARK"); return }
+        if (PaperFillTruth8539.refusal(ts.mint, mark.priceUsd, nowMs) != null) { skip("FILL_UNCORROBORATED"); return }
+        val runner = try { com.lifecyclebot.engine.RunnerGrab7967.bornRunnerLadder8538(lane) } catch (_: Throwable) { false }
+        val scalp = try { ExploreShadow8347.liveExitStyle8351(lane, EvidenceHold8336.startMs8336) == ExploreShadow8347.Exit8347.SCALP } catch (_: Throwable) { false }
+        val clock = if (scalp && !runner) SCALP_CLOCK_MS_8544
+            else com.lifecyclebot.engine.cortex.CortexLabelHygiene8144.executableHorizonMs8392(runner)
+        val p = Pos8544("$lane|${ts.mint}|$nowMs", ts.mint, ts.symbol, lane, paper.chosenSetup ?: candidate.selectedSetup ?: "",
+            mark.priceUsd, mark.observedAtMs, candidate.costPct, STAKE_SOL_8544, runner, clock)
+        synchronized(this) {
+            if (open.containsKey(ts.mint)) return
+            open[ts.mint] = p
+            lastEntryAt[ts.mint] = nowMs
+            balanceSol -= p.sizeSol
+            dirty = true
+        }
+        try { PipelineHealthCollector.labelInc("MEME_PAPER_OPEN_8544_$lane") } catch (_: Throwable) {}
+        save8544(nowMs, force = true)
+    }
+
+    /** Pure: the gross % of [px] over [entry]. */
+    fun grossPct8544(entry: Double, px: Double): Double = if (entry > 0.0 && px > 0.0) (px / entry - 1.0) * 100.0 else Double.NaN
+
+    /** Pure: the next ladder rung reached at [gross] after [tiersTaken] rungs, as (tier index + 1, fraction of the remainder), or null. */
+    fun rung8544(ladder: List<Pair<Double, Double>>, tiersTaken: Int, gross: Double): Pair<Int, Double>? {
+        val next = ladder.getOrNull(tiersTaken) ?: return null
+        return if (gross >= next.first) (tiersTaken + 1) to next.second.coerceIn(0.0, 1.0) else null
+    }
+
+    /** Pure: the position's net % — banked slices plus the remainder at [gross], less the round trip [costPct]. */
+    fun netPct8544(banked: Double, held: Double, gross: Double, costPct: Double): Double =
+        banked + held * gross - (if (costPct.isFinite()) costPct else 0.0)
+
+    /** BotService loop (beside ExploreShadow8347.tick8347): mark, exit and close every open paper position. */
+    fun tick8544(tokens: Map<String, TokenState>, nowMs: Long = System.currentTimeMillis()) {
+        restore8544()
+        if (open.isEmpty()) { save8544(nowMs); return }
+        val latency = try { ShadowAlign8366.sellLatencyMs8366(false) } catch (_: Throwable) { 16_000L }
+        for (p in open.values.toList()) try {
+            val obs = ShadowMark8360.observedTimed8372(tokens[p.mint], p.mint, nowMs)?.takeIf { it.observedAtMs >= p.lastAtMs && it.priceUsd > 0.0 }
+            if (obs != null) { p.lastPx = obs.priceUsd; p.lastAtMs = obs.observedAtMs }
+            val g = grossPct8544(p.entryPx, p.lastPx)
+            if (!g.isFinite()) continue
+            if (g > p.peak) p.peak = g
+            val pending = p.exitWhy
+            if (pending != null) {
+                // a triggered exit fills at the first observed mark after the live sell latency
+                if (obs != null && obs.observedAtMs >= p.exitAtMs + latency) fill8544(p, g, nowMs)
+                else if (nowMs - p.lastAtMs > LOST_MARK_MS_8544) { p.exitFraction = 1.0; p.exitWhy = "LOST_MARK"; fill8544(p, g, nowMs) }
+                continue
+            }
+            if (nowMs - p.lastAtMs > LOST_MARK_MS_8544) { p.exitFraction = 1.0; p.exitWhy = "LOST_MARK"; fill8544(p, g, nowMs); continue }
+            val stopPct = try { FieldManual7715.stopPct8392(p.lane, p.costPct) } catch (_: Throwable) { 15.0 }
+            val level = try { ShadowAlign8366.liveStopLevel8366(p.runner, stopPct, p.peak, p.costPct) } catch (_: Throwable) { -stopPct }
+            val ladder = if (p.runner) com.lifecyclebot.engine.RunnerGrab7967.TIERS_7967 else com.lifecyclebot.engine.SpikeCapture7943.TIERS
+            val rung = rung8544(ladder, p.tiers, g)
+            when {
+                level.isFinite() && g <= level -> trigger8544(p, if (p.peak > 0.0 && level > -stopPct) "TRAIL_STOP" else "STOP", 1.0, 0, nowMs)
+                rung != null -> trigger8544(p, "TAKE_PROFIT_T${rung.first}", rung.second, rung.first, nowMs)
+                nowMs - p.entryAtMs >= p.clockMs -> trigger8544(p, "CLOCK", 1.0, 0, nowMs)
+            }
+        } catch (_: Throwable) {}
+        save8544(nowMs)
+    }
+
+    private fun trigger8544(p: Pos8544, why: String, fraction: Double, tier: Int, nowMs: Long) {
+        p.exitWhy = why; p.exitAtMs = nowMs; p.exitFraction = fraction; p.exitTier = tier
+        dirty = true
+    }
+
+    private fun fill8544(p: Pos8544, g: Double, nowMs: Long) {
+        val why = p.exitWhy ?: return
+        val sold = p.held * p.exitFraction.coerceIn(0.0, 1.0)
+        p.banked += sold * g; p.held -= sold
+        if (p.exitTier > 0) p.tiers = maxOf(p.tiers, p.exitTier)
+        p.exitWhy = null; p.exitAtMs = 0L; p.exitFraction = 1.0; p.exitTier = 0
+        dirty = true
+        if (p.held > 0.0001) { try { PipelineHealthCollector.labelInc("MEME_PAPER_PARTIAL_8544_${p.lane}") } catch (_: Throwable) {}; return }
+        val net = netPct8544(p.banked, 0.0, g, p.costPct)
+        val pnl = p.sizeSol * net / 100.0
+        synchronized(this) {
+            if (open.remove(p.mint, p)) {
+                balanceSol += p.sizeSol + pnl
+                realisedSol += pnl
+                val c = Closed8544(p.lane, p.mint, p.symbol, p.setup, p.entryAtMs, nowMs, net, pnl, why)
+                recent.addLast(c)
+                while (recent.size > RECENT_MAX_8544) recent.removeFirst()
+                noteLane8544(c)
+            }
+        }
+        try { PipelineHealthCollector.labelInc("MEME_PAPER_CLOSE_8544_${p.lane}_${why.substringBefore("_T")}") } catch (_: Throwable) {}
+        save8544(nowMs, force = true)
+    }
+
+    // ── persistence ──
+
+    private fun posJson(p: Pos8544) = JSONArray().put(p.id).put(p.mint).put(p.symbol).put(p.lane).put(p.setup).put(p.entryPx)
+        .put(p.entryAtMs).put(p.costPct).put(p.sizeSol).put(p.runner).put(p.clockMs).put(p.held).put(p.banked).put(p.peak)
+        .put(p.tiers).put(p.lastPx).put(p.lastAtMs)
+
+    private fun save8544(nowMs: Long, force: Boolean = false) {
+        if (!dirty || (!force && nowMs - lastSaveMs < 10_000L) || !LearningPersistence.ready()) return
+        val raw = synchronized(this) {
+            dirty = false; lastSaveMs = nowMs
+            JSONObject().put("balance", balanceSol).put("realised", realisedSol)
+                .put("open", JSONArray().also { a -> open.values.forEach { a.put(posJson(it)) } })
+                .put("closed", JSONArray().also { a -> recent.forEach { c ->
+                    a.put(JSONArray().put(c.lane).put(c.mint).put(c.symbol).put(c.setup).put(c.entryAtMs).put(c.exitAtMs)
+                        .put(c.netPct).put(c.pnlSol).put(c.why)) } })
+                .put("laneStats", JSONObject().also { o -> laneStats.forEach { (k, v) -> o.put(k, JSONArray().put(v[0]).put(v[1]).put(v[2]).put(v[3])) } })
+                .toString()
+        }
+        try { LearningPersistence.save(KEY_8544, raw) } catch (_: Throwable) { dirty = true }
+    }
+
+    /** lane -> [n, wins, sumNet, sumPnlSol] over every close since the book began (not only the recent list). */
+    private val laneStats = ConcurrentHashMap<String, DoubleArray>()
+
+    private fun restore8544() {
+        if (restored || !LearningPersistence.ready()) return
+        val raw = try { LearningPersistence.load(KEY_8544) } catch (_: Throwable) { null }
+        synchronized(this) {
+            if (restored) return
+            restored = true
+            if (raw == null) return
+            try {
+                val j = JSONObject(raw)
+                balanceSol = j.optDouble("balance", START_BALANCE_SOL_8544)
+                realisedSol = j.optDouble("realised", 0.0)
+                val o = j.optJSONArray("open")
+                if (o != null) for (i in 0 until o.length()) {
+                    val a = o.optJSONArray(i) ?: continue
+                    val p = Pos8544(a.optString(0), a.optString(1), a.optString(2), a.optString(3), a.optString(4), a.optDouble(5),
+                        a.optLong(6), a.optDouble(7), a.optDouble(8), a.optBoolean(9), a.optLong(10))
+                    p.held = a.optDouble(11, 1.0); p.banked = a.optDouble(12, 0.0); p.peak = a.optDouble(13, 0.0)
+                    p.tiers = a.optInt(14); p.lastPx = a.optDouble(15, p.entryPx); p.lastAtMs = a.optLong(16, p.entryAtMs)
+                    if (p.mint.isNotBlank() && p.entryPx > 0.0) open[p.mint] = p
+                }
+                val c = j.optJSONArray("closed")
+                if (c != null) for (i in 0 until c.length()) {
+                    val a = c.optJSONArray(i) ?: continue
+                    recent.addLast(Closed8544(a.optString(0), a.optString(1), a.optString(2), a.optString(3), a.optLong(4), a.optLong(5),
+                        a.optDouble(6), a.optDouble(7), a.optString(8)))
+                }
+                val s = j.optJSONObject("laneStats")
+                s?.keys()?.forEach { k -> s.optJSONArray(k)?.let { a -> laneStats[k] = doubleArrayOf(a.optDouble(0), a.optDouble(1), a.optDouble(2), a.optDouble(3)) } }
+            } catch (_: Throwable) {}
+        }
+    }
+
+    private fun noteLane8544(c: Closed8544) {
+        val v = laneStats.getOrPut(c.lane) { DoubleArray(4) }
+        synchronized(v) { v[0] += 1.0; if (c.netPct > 0.0) v[1] += 1.0; v[2] += c.netPct; v[3] += c.pnlSol }
+    }
+
+    /** Brief / report: balance, open book, per-lane closed results, last closes, and why candidates were not opened. */
+    fun statusLine8544(): String {
+        restore8544()
+        val lanes = laneStats.entries.sortedByDescending { it.value[0] }.joinToString(" ") { (k, v) ->
+            val n = v[0].toInt()
+            if (n == 0) "$k[n0]" else "$k[n$n wr${(v[1] * 100 / v[0]).toInt()}% ${"%+.1f".format(v[2] / v[0])}% ${"%+.3f".format(v[3])}SOL]"
+        }.ifBlank { "none yet" }
+        val openLine = open.values.groupBy { it.lane }.entries.sortedByDescending { it.value.size }
+            .joinToString(",") { "${it.key}=${it.value.size}" }.ifBlank { "-" }
+        val last = synchronized(this) { recent.toList().takeLast(6).reversed() }
+            .joinToString(" · ") { "${it.lane}:${it.symbol.ifBlank { it.mint.take(6) }} ${"%+.1f".format(it.netPct)}% ${it.why}" }.ifBlank { "-" }
+        val sk = skips.entries.sortedByDescending { it.value.get() }.take(6).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }
+        return "memePaper8544 (paper beside LIVE, separate book) balance=${"%.3f".format(balanceSol)}SOL realised=${"%+.3f".format(realisedSol)}SOL " +
+            "open{$openLine} closed: $lanes | last: $last | notOpened{$sk}"
+    }
+}
