@@ -524,7 +524,11 @@ object LiveEdgeGate7877 {
         if (laneWide) try {
             if (ExploreShadow8347.bestFor8351(l, EvidenceHold8336.startMs8336)?.dim != null) PipelineHealthCollector.labelInc("NICHE_PREFERENCE_NOT_VETO_8392_$l")
         } catch (_: Throwable) {}
-        val final = core ?: hold ?: niche ?: wait
+        // V5.0.8536 — owner: LIVE buys only on proven evidence. Whatever door admitted it (lane opinion, chart read, canonical
+        // prior, watchlist re-check), a live entry with no proven record is refused here; paper is untouched.
+        val proof8536 = if (paper || core != null || hold != null || niche != null || wait != null) null
+            else (sourceRefusal8536(ts) ?: unprovenLive8536(ts, l, nowMs, candidateVersion, candidateAdmission))
+        val final = core ?: hold ?: niche ?: wait ?: proof8536
         val provisional = context.assessment
         val verdict = when { final == null -> Verdict8083.ADMIT
             provisional?.verdict == Verdict8083.DEFER && final == core -> Verdict8083.DEFER
@@ -545,6 +549,55 @@ object LiveEdgeGate7877 {
             try { EvidenceShadow8344.open8344(ts, l, nowMs, advisoryEntry8393 = shadowOnly8393) } catch (_: Throwable) { PipelineHealthCollector.labelInc("EVIDENCE_SHADOW_OPEN_FAILED_8392") }
         if (paper && final == null) Rehearsal8339.notePaperAdmit8342(ts, l, result.second, nowMs)
         return final
+    }
+
+    /**
+     * V5.0.8536 — null when this live candidate carries PROVEN evidence of its own: a candidate-specific supported record
+     * (CandidateAdmission8136 SPECIFIC_EDGE_PROVEN_8136: setup / cell / Cortex-strong / runner-grab past cost), a proven fired
+     * setup (LanePlaybook7907.provenSetup8056), a proven cell or kind ([cellOrKindProven8094]) or a promoted specialist
+     * (SpecialistMiner7972); else [CandidateAdmission8136.LIVE_UNPROVEN_EDGE_8536]. A read that throws is not proof.
+     */
+    private fun unprovenLive8536(ts: TokenState, lane: String, nowMs: Long, candidateVersion: Long,
+                                 candidateAdmission: CandidateAdmission8136.Decision8136?): String? {
+        val l = CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
+        val admission = candidateAdmission ?: try { CandidateAdmission8136.assess8136(ts, l, nowMs, candidateVersion) } catch (_: Throwable) { null }
+        val proven = provenLive8536(
+            admission?.terminal == CandidateAdmission8136.Terminal8136.ADMIT && admission.specific && admission.reason == "SPECIFIC_EDGE_PROVEN_8136",
+            try { com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetup8056(ts, l, nowMs) != null } catch (_: Throwable) { false },
+            try { cellOrKindProven8094(ts, l, nowMs) } catch (_: Throwable) { false },
+            try { SpecialistMiner7972.match7972(ts, l, nowMs) != null } catch (_: Throwable) { false },
+        )
+        if (proven) return null
+        try { PipelineHealthCollector.labelInc("${CandidateAdmission8136.LIVE_UNPROVEN_EDGE_8536}_$l") } catch (_: Throwable) {}
+        return CandidateAdmission8136.LIVE_UNPROVEN_EDGE_8536
+    }
+
+    /** Pure (V5.0.8536): any one proof suffices; none is a refusal. */
+    fun provenLive8536(specificAdmit: Boolean, provenSetup: Boolean, provenCell: Boolean, promotedSpecialist: Boolean): Boolean =
+        specificAdmit || provenSetup || provenCell || promotedSpecialist
+
+    const val SOURCE_MIN_N_8536 = 30
+    const val LIVE_SOURCE_PROVEN_LOSING_8536 = "LIVE_SOURCE_PROVEN_LOSING_8536"
+
+    /** Pure (V5.0.8536): a discovery source's forward record is a clear loss — 30+ labels and mean + SE below zero. */
+    fun sourceProvenLosing8536(n: Int, meanPct: Double, sePct: Double): Boolean =
+        n >= SOURCE_MIN_N_8536 && meanPct.isFinite() && sePct.isFinite() && meanPct + sePct < 0.0
+
+    /**
+     * V5.0.8536 — owner: stop buying LIVE from discovery sources that are proven losers (8535: new pools -18.7 %, PumpPortal
+     * -14 %, Dex trending -14.3 % at 5 minutes). Every source that found the coin is read; the coin is refused only when ALL of
+     * its graded sources are proven losing (a coin a non-losing hunter also found keeps that source's standing). Unknown
+     * records refuse nothing. Paper keeps buying from every source so the records keep updating.
+     */
+    private fun sourceRefusal8536(ts: TokenState): String? {
+        val sources = (ts.source.split(',') + ts.tokenMap.sourceScanner).map { it.trim() }.filter { it.isNotBlank() }.distinct()
+        if (sources.isEmpty()) return null
+        val stats = sources.map { s -> try { ForwardReturnLabeler7731.sourceStat8292(s) } catch (_: Throwable) { null } }
+        if (stats.any { it == null }) return null
+        val losing = stats.filterNotNull().all { sourceProvenLosing8536(it.n60, it.meanNet60Pct, it.stderr60Pct) }
+        if (!losing) return null
+        try { PipelineHealthCollector.labelInc("${LIVE_SOURCE_PROVEN_LOSING_8536}_${ForwardReturnLabeler7731.sourceFamily(sources.first())}") } catch (_: Throwable) {}
+        return LIVE_SOURCE_PROVEN_LOSING_8536
     }
 
     private fun canonicalRefusal8392(

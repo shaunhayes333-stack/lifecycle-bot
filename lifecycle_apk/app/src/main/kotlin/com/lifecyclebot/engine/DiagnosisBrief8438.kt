@@ -103,6 +103,26 @@ object DiagnosisBrief8438 {
         (requested >= 200L && resolved * 2L < requested) || (locked >= 200L && locked > requested)
 
     /** Pure: the live book's money verdict. */
+    /**
+     * V5.0.8536 — the paper meme funnel in one line: buy attempts, opens and every named refusal (the executor's
+     * PAPER_BUY_NOT_OPENED_<reason>, the gate's non-economic approval), top reasons first.
+     */
+    internal fun paperFunnel8536(): String {
+        val attempts = PipelineHealthCollector.labelCountSnapshot("PAPER_BUY_ATTEMPT")
+        val opened = PipelineHealthCollector.labelCountSnapshot("PAPER_TICKET_TERMINAL_OPEN_6514")
+        val notOpened = PipelineHealthCollector.labelsWithPrefix7156("PAPER_BUY_NOT_OPENED_")
+            .filterKeys { !it.contains("_BUCKET_") }
+            .entries.sortedByDescending { it.value }.take(6)
+            .joinToString(",") { "${it.key.removePrefix("PAPER_BUY_NOT_OPENED_").take(48)}=${it.value}" }
+        val nonEconomic = PipelineHealthCollector.labelCountSnapshot("FDG_REJECT_TAXONOMY_4427_NON_ECONOMIC_APPROVAL_7835") +
+            PipelineHealthCollector.labelsWithPrefix7156("NON_ECONOMIC_APPROVAL_7835").values.sum()
+        return paperFunnelLine8536(attempts, opened, notOpened, nonEconomic)
+    }
+
+    /** Pure (V5.0.8536). */
+    fun paperFunnelLine8536(attempts: Long, opened: Long, notOpened: String, nonEconomic: Long): String =
+        "paper meme8536 buyAttempts=$attempts opened=$opened notOpened{${notOpened.ifBlank { "-" }}} nonEconomicApproval=$nonEconomic"
+
     fun moneyVerdict8438(n: Int, expectancySol: Double): String = when {
         n < 10 -> "UNPROVEN"
         expectancySol > 0.0 -> "PROFITABLE"
@@ -172,6 +192,8 @@ object DiagnosisBrief8438 {
                 "live book losing: n=${s.canonicalN} exp=${"%+.4f".format(s.expectancySol)} SOL -> per-lane rows in C (BLEEDING_LIVE) and the exits in E")
             // V5.0.8441 — trade quality: how runner-style entries ended (bought the top / gave the gain back / won).
             sb.append("               entry quality ").append(com.lifecyclebot.engine.truth.RunnerFunnel8297.outcomesLine8297()).append('\n')
+            // V5.0.8536 — why paper meme buys did or did not open, by name, on the first screen of every report.
+            sb.append("               ").append(paperFunnel8536()).append('\n')
         }
 
         section(sb, "C EDGE") {

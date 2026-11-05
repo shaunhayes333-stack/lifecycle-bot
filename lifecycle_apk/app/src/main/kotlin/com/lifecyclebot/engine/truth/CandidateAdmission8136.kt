@@ -824,6 +824,15 @@ object CandidateAdmission8136 {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_WATCHLIST_RECHECK_UNPROVEN_8507_${c.lane.uppercase()}") } catch (_: Throwable) {}
             return done(Terminal8136.REFUSE, "LIVE_WATCHLIST_RECHECK_UNPROVEN_8507", false, chosen)
         }
+        // V5.0.8536 — owner: no LIVE buy on the lane's opinion alone. 8535 live: 468 of 625 admissions were this door, every
+        // live buy came through it, 0 of 5 won, and its picks fell 9.3 % in 5 minutes against 6.9 % for the coins it refused.
+        // LIVE money needs a SUPPORTED record (step 6 above); paper keeps admitting the opinion and grades it, so each setup
+        // unlocks for LIVE by itself once its own labels prove it. Not a demotable door: specific, no veto-audit unbind.
+        if (nativeLive8259 && c.live) {
+            trace += "liveNativeOpinionUnproven8536=${c.nativeSetup8213 ?: "-"} generic=${fmt8136(c.genericScore)}"
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_NATIVE_OPINION_UNPROVEN_8536_${c.lane.uppercase()}") } catch (_: Throwable) {}
+            return done(Terminal8136.REFUSE, LIVE_NATIVE_OPINION_UNPROVEN_8536, true, chosen)
+        }
         if (nativeLive8259) {
             trace += "nativeQualifiedAdmit8259=${c.nativeSetup8213} generic=${fmt8136(c.genericScore)} floor=${fmt8136(c.genericFloor)} opinion8279"
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("NATIVE_QUALIFIED_ADMIT_8259_${c.lane.uppercase()}") } catch (_: Throwable) {}
@@ -866,6 +875,8 @@ object CandidateAdmission8136 {
         return setups8316.firstOrNull { it.id == best.id }
     }
 
+    const val LIVE_NATIVE_OPINION_UNPROVEN_8536 = "LIVE_NATIVE_OPINION_UNPROVEN_8536"
+    const val LIVE_UNPROVEN_EDGE_8536 = "LIVE_UNPROVEN_EDGE_8536"
     const val SHEET_FAVOUR_8323 = "FAVOUR"
     const val SHEET_AVOID_8323 = "AVOID"
 
@@ -1579,7 +1590,11 @@ object CandidateAdmission8136 {
             nativeQualified8213 = nativeOpinion8213 != null || nativeSetupBook8217 != null || runnerForming8260 != null,
             watchlistRecheck8507 = ts.source.trim().equals("WATCHLIST", ignoreCase = true),
             // V5.0.8535 §P0-06 — the native identity is the predicate that fired or the rule that decided, never the style label.
-            nativeSetup8213 = nativeOpinion8213?.let { com.lifecyclebot.engine.SpecialistBrainBridge7542.nativeSetupIdentity8535(it) } ?: nativeSetupBook8217 ?: runnerForming8260,
+            // V5.0.8536 — the native identity passes the same SetupAuthority8535 test as the selected setup: a near-high read
+            // with no breakout witness, a quality condition or a partial fire no longer re-enters as the native strategy
+            // (8535 live: BREAKOUT_RUNNER -15.6 %, TURNOVER_SPIKE -23.4 % came in this way).
+            nativeSetup8213 = (nativeOpinion8213?.let { com.lifecyclebot.engine.SpecialistBrainBridge7542.nativeSetupIdentity8535(it) } ?: nativeSetupBook8217 ?: runnerForming8260)
+                ?.takeIf { triggered8535(it) },
             sheet8323 = try { com.lifecyclebot.engine.cortex.LaneCheatSheet8323.admissionVerdicts8323(lane, setups.map { it.id }, selected, ts.mint, nowMs) } catch (_: Throwable) { emptyMap() },
             tailLaneRate8324 = pond8324?.pBook ?: Double.NaN,
             tailPremium8324 = pond8324?.premium ?: Double.NaN,

@@ -27,7 +27,13 @@ class Aate8260FormingRunnerAdmitTest {
         for (lane in listOf("MOONSHOT", "SHITCOIN", "EXPRESS")) {
             val c = forming(lane)
             val now = System.currentTimeMillis()
-            val d = CandidateAdmission8136.decide8136(c.copy(live = true))
+            // superseded: `decide8136(c.copy(live = true))` admitted — V5.0.8536 (owner): no LIVE buy on the lane opinion alone;
+            // the forming-runner opinion admits PAPER (graded there) and LIVE refuses it by name until a record proves it.
+            val liveD = CandidateAdmission8136.decide8136(c.copy(live = true))
+            assertEquals(lane, CandidateAdmission8136.Terminal8136.REFUSE, liveD.terminal)
+            assertEquals(lane, CandidateAdmission8136.LIVE_NATIVE_OPINION_UNPROVEN_8536, liveD.reason)
+            assertTrue(lane, liveD.specific)
+            val d = CandidateAdmission8136.decide8136(c.copy(live = false))
             assertEquals(lane, CandidateAdmission8136.Terminal8136.ADMIT, d.terminal)
             assertEquals(lane, "NATIVE_QUALIFIED_ADMIT_8259", d.reason)
             assertFalse(lane, d.specific)

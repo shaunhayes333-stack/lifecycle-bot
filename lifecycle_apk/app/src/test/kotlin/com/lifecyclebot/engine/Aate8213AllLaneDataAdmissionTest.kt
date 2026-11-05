@@ -49,9 +49,11 @@ class Aate8213AllLaneDataAdmissionTest {
             assertTrue(lane, d.trace.any { it.startsWith("nativeQualifiedAdmit8259=") })
             // live too: the 8238 "supported record only" lock does not refuse the lane's own judgment here — the 8114
             // proven-only door in LiveEdgeGate7877 is the live authority for an opinion admit
+            // superseded: live admitted NATIVE_QUALIFIED_ADMIT_8259 — V5.0.8536 (owner): LIVE needs a supported record; the
+            // lane's opinion alone is refused by name (paper admits it above and grades it).
             val live = CandidateAdmission8136.decide8136(candidate(lane, setup).copy(live = true))
-            assertEquals(lane, "NATIVE_QUALIFIED_ADMIT_8259", live.reason)
-            assertFalse(lane, live.specific)
+            assertEquals(lane, CandidateAdmission8136.LIVE_NATIVE_OPINION_UNPROVEN_8536, live.reason)
+            assertTrue(lane, live.specific)
             // 8279: the generic V3 floor (7843) is the second floor again — a native opinion under it is refused by name
             assertEquals(lane, "GENERIC_SCORE_FLOOR_8136", CandidateAdmission8136.decide8136(candidate(lane, setup).copy(genericScore = 12.0, missingInputs = emptyList())).reason)
             // and under the floor it no longer carries a candidate through optional gaps either

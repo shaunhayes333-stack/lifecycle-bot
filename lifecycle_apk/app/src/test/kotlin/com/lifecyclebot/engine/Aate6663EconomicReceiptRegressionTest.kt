@@ -75,12 +75,11 @@ class Aate6663EconomicReceiptRegressionTest {
 
     @Test
     fun `canonical paper positions cannot execute while learning is suppressed`() {
+        // superseded: V5.0.8536 — the paper-only fixed score gate (shouldSuppressPaperLearningEntry, 6663) is removed: LIVE
+        // never had it and it diverted every SHITCOIN / BLUECHIP / EXPRESS paper buy below 66 / 70 / 11. Paper uses LIVE's fluid floors.
         val exec = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        val gate = exec.substringAfter("shouldSuppressPaperLearningEntry(ts, score, layerTag, identity)?.let")
-            .substringBefore("// V5.9.1129")
-        assertTrue(gate.contains("markPaperBuyNotOpened(\"LEARNING_QUALITY_REJECTED_6663\")"))
-        assertTrue(gate.contains("return"))
-        assertFalse(gate.contains("execution continues"))
+        assertFalse(exec.contains("shouldSuppressPaperLearningEntry"))
+        assertFalse(exec.contains("markPaperBuyNotOpened(\"LEARNING_QUALITY_REJECTED_6663\")"))
     }
 
     @Test

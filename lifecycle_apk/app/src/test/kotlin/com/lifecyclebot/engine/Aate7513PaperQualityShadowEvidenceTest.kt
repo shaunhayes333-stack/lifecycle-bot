@@ -7,25 +7,15 @@ import org.junit.Test
 class Aate7513PaperQualityShadowEvidenceTest {
     private fun src() = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
 
-    @Test fun learning_quality_reject_still_blocks_canonical_open_but_feeds_shadow() {
+    // superseded: learning_quality_reject_still_blocks_canonical_open_but_feeds_shadow and existing_6663_thresholds_are_not_relaxed —
+    // V5.0.8536 removes the paper-only fixed score gate (66 / 70 / 11) the owner called too high and not fluid. Paper is admitted
+    // on the same fluid floors as LIVE; the shadow book keeps its own observation path below.
+    @Test fun the_paper_only_fixed_score_gate_is_gone() {
         val s = src()
-        val gate = s.substringAfter("shouldSuppressPaperLearningEntry(ts, score, layerTag, identity)?.let")
-            .substringBefore("// V5.9.1129")
-        assertTrue(gate.contains("runShadowPaperBuy("))
-        assertTrue(gate.contains("PAPER_QUALITY_REJECTED_SHADOWED_7513"))
-        assertTrue(gate.contains("markPaperBuyNotOpened(\"LEARNING_QUALITY_REJECTED_6663\")"))
-        assertTrue(gate.contains("return"))
-    }
-
-    @Test fun existing_6663_thresholds_are_not_relaxed() {
-        val s = src()
-        val fn = s.substringAfter("private fun shouldSuppressPaperLearningEntry")
-            .substringBefore("private fun buildTradePolicySnapshot")
-        assertTrue(fn.contains("score < 70.0"))
-        assertTrue(fn.contains("liq < 25_000.0"))
-        assertTrue(fn.contains("score < 11.0"))
-        assertTrue(fn.contains("score < 66.0"))
-        assertTrue(fn.contains("liq < 3_000.0"))
+        assertFalse(s.contains("private fun shouldSuppressPaperLearningEntry"))
+        assertFalse(s.contains("PAPER_QUALITY_REJECTED_SHADOWED_7513"))
+        assertFalse(s.contains("minScore=66"))
+        assertTrue(s.contains("V5.0.8536 — the paper-only fixed score gate"))
     }
 
     @Test fun shadow_book_remains_noncanonical_observation_path() {

@@ -14962,24 +14962,6 @@ class Executor(
     }
 
 
-    private fun shouldSuppressPaperLearningEntry(
-        ts: TokenState,
-        score: Double,
-        layerTag: String,
-        identity: TradeIdentity?,
-    ): String? {
-        val lane = (layerTag.ifBlank { ts.position.tradingMode.ifBlank { identity?.source ?: ts.source } }).uppercase()
-        val liq = ts.lastLiquidityUsd.takeIf { it.isFinite() } ?: 0.0
-        val dangerBucket = lane.contains("DANGER") || lane.contains("RUG") || lane.contains("HARD_FLOOR")
-        val familyStopLoss = try { MemeLossStreakGuard.blockedUntilMs(ts.mint) > System.currentTimeMillis() } catch (_: Throwable) { false }
-        return when {
-            lane.contains("BLUECHIP") && (score < 70.0 || liq < 25_000.0) -> "BLUECHIP score=${score.toInt()} liq=${liq.toInt()} minScore=70 minLiq=25000"
-            lane.contains("EXPRESS") && !dangerBucket && score < 11.0 -> "EXPRESS_S0_10 score=${score.toInt()} danger=$dangerBucket"
-            lane.contains("SHITCOIN") && (score < 66.0 || liq < 3_000.0 || familyStopLoss) -> "SHITCOIN score=${score.toInt()} liq=${liq.toInt()} familyStopLoss=$familyStopLoss minScore=66 minLiq=3000"
-            else -> null
-        }
-    }
-
     private data class LearningEntryWitness8527(
         val observedAtMs: Long, val adaptiveJson: String, val ageHours: Double?,
         val scanner: String, val liquidityUsd: Double?,
@@ -15253,7 +15235,10 @@ class Executor(
             if (!book8103 && com.lifecyclebot.engine.truth.LiveRiskPolicy7807.canonicalLane(tp.tradingMode) != canon) return@mapNotNull null
             val v = try { com.lifecyclebot.engine.truth.PositionDisplayTruth8078.view(t, now) } catch (_: Throwable) { null } ?: return@mapNotNull null
             val tail = try { TailBag8034.isTailMint8034(t.mint) } catch (_: Throwable) { true }
-            val eligible = com.lifecyclebot.engine.truth.OpportunityRotation8098.victimEligible8098(
+            // V5.0.8536 — a young position still inside its round trip + noise is not sold to free a slot (CostBandExit8536).
+            val inCostBand8536 = com.lifecyclebot.engine.truth.CostBandExit8536.rotationHolds(v.pnlPct, now - tp.entryTime,
+                try { com.lifecyclebot.engine.truth.NetEdge8030.entryCostPct8136(t, tp.tradingMode) } catch (_: Throwable) { Double.NaN })
+            val eligible = !inCostBand8536 && com.lifecyclebot.engine.truth.OpportunityRotation8098.victimEligible8098(
                 v.pnlPct, tp.peakGainPct, now - tp.entryTime, tail, v.markVerified && v.basisOk)
             if (eligible) com.lifecyclebot.engine.truth.OpportunityRotation8098.Held(t.mint, v.pnlPct) else null
         }
@@ -16444,30 +16429,10 @@ class Executor(
                 ForensicLogger.lifecycle("PAPER_BUY_ADVISOR_SOFT_SHAPED_6519", "mint=${ts.mint.take(10)} symbol=${ts.symbol} layer=$layerTag reason=${advisor.second} action=execute_and_learn_soft_advisor_6696")
             } catch (_: Throwable) {}
         }
-        shouldSuppressPaperLearningEntry(ts, score, layerTag, identity)?.let { why ->
-            // V5.0.7513 — preserve the 6663 canonical-capital invariant, but
-            // stop throwing away the observation. The always-on shadow book
-            // is explicitly non-canonical and already closes on observed marks
-            // into the paper exploration learner. This unlocks evidence without
-            // spending canonical paper capital or changing any entry floor.
-            try {
-                runShadowPaperBuy(
-                    ts = ts,
-                    sol = effectiveBuySol6451.coerceAtLeast(0.001),
-                    score = score,
-                    quality = quality,
-                    reason = "learning_quality_rejected_7513:${why.take(120)}",
-                )
-                PipelineHealthCollector.labelInc("PAPER_QUALITY_REJECTED_SHADOWED_7513")
-            } catch (_: Throwable) {
-                try { PipelineHealthCollector.labelInc("PAPER_QUALITY_REJECTED_SHADOW_ERROR_7513") } catch (_: Throwable) {}
-            }
-            try { PipelineHealthCollector.labelInc("PAPER_ENTRY_QUALITY_REJECTED_6663") } catch (_: Throwable) {}
-            try { ForensicLogger.lifecycle("PAPER_ENTRY_QUALITY_REJECTED_6663", "mint=${ts.mint.take(10)} symbol=${ts.symbol} layer=$layerTag reason=$why learningEligible=false openTrade=false shadowObservation=attempted_7513") } catch (_: Throwable) {}
-            ErrorLogger.debug("Executor", "🧪 PAPER_ENTRY_QUALITY_REJECTED_6663: ${ts.symbol} | $why")
-            markPaperBuyNotOpened("LEARNING_QUALITY_REJECTED_6663")
-            return
-        }
+        // V5.0.8536 — the paper-only fixed score gate (SHITCOIN score >= 66, BLUECHIP >= 70 / $25k, EXPRESS >= 11; 6663 / 7513)
+        // is removed: LIVE never had it, the lanes' real scores sit far below it (SHITCOIN 23-34) and it diverted every such
+        // paper meme buy to the shadow book. Paper is admitted on the same fluid floors as LIVE (CanonicalEntryFloor7266,
+        // NativeScoreFloor8528); hard safety above (advisor hard fail, live wall 8223, pegged) still refuses.
         // V5.9.1129 — route authority must run before open authority for direct
         // paperBuy() callers. In LIVE mode with shadowPaperEnabled=true this is
         // a SHADOW paper route, not a mixed PAPER/LIVE mode violation. Keep this

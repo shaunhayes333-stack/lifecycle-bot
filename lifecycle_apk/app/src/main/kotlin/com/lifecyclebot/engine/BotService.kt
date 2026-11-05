@@ -1075,6 +1075,14 @@ class BotService : Service() {
     /** V5.0.7928 — a stop that fires above entry is a profit lock; below, a stop. */
     private fun rapidStopKind7928(stopPct: Double): String = if (stopPct > 0.0) "TRAILING" else "FLUID"
 
+    /** V5.0.8536 — the fluid stop never sits inside this coin's round trip + noise (CostBandExit8536); hard floors are separate. */
+    private fun fluidStopOutsideCostBand8536(ts: com.lifecyclebot.data.TokenState, stopPct: Double): Double {
+        val cost = try { com.lifecyclebot.engine.truth.NetEdge8030.entryCostPct8136(ts, ts.position.tradingMode) } catch (_: Throwable) { Double.NaN }
+        val widened = com.lifecyclebot.engine.truth.CostBandExit8536.stopFloorPct(stopPct, cost)
+        if (widened != stopPct) try { PipelineHealthCollector.labelInc("FLUID_STOP_WIDENED_OUT_OF_COST_BAND_8536") } catch (_: Throwable) {}
+        return widened
+    }
+
     /** V5.0.7792 — 7791's Moonshot mcap zone (fluid floor .. MAX_MARKET_CAP_USD). */
     // V5.0.8105 — the lane's buy door applies the desk's native-veto retirement (SpecialistBrainBridge7542.doorRetires8105)
     // and names every in-lane refusal on the specialist liveness row, so a lane that evaluates but never intends shows why.
@@ -12398,10 +12406,11 @@ class BotService : Service() {
                         // exits driven by FluidLearningAI's adaptive stop.
                         // V5.0.7696 — see RUNNER_LANE_MIN_FLUID_STOP_PCT_7696.
                         val runnerLane7696 = try { RunnerExitProfile7277.isRunnerLane(ts.position.tradingMode) } catch (_: Throwable) { false }
+                        // V5.0.8536 — either branch passes fluidStopOutsideCostBand8536: the stop never sells the fee.
                         val dynamicStopPct7696 = if (runnerLane7696 && dynamicStopPct < 0.0 && dynamicStopPct > RUNNER_LANE_MIN_FLUID_STOP_PCT_7696) {
                             try { PipelineHealthCollector.labelInc("RUNNER_FLUID_STOP_HELD_AT_LANE_FLOOR_7696") } catch (_: Throwable) {}
-                            RUNNER_LANE_MIN_FLUID_STOP_PCT_7696
-                        } else dynamicStopPct
+                            fluidStopOutsideCostBand8536(ts, RUNNER_LANE_MIN_FLUID_STOP_PCT_7696)
+                        } else fluidStopOutsideCostBand8536(ts, dynamicStopPct)
                         if (pnlPct <= dynamicStopPct7696 && ExitDoctrine8169.fires8169(ts, dynamicStopPct7696, runnerDefer7322) &&  // V5.0.8169 — a deferred runner's protective floor fires
                             !planOwnsExit7754(ts, true, false, "RAPID_FLUID", stopSide = true) &&
                             StopMarkConfirm8418.confirmed8418(ts, pnlPct, dynamicStopPct7696, cfg.paperMode)) {
