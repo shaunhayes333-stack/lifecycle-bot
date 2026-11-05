@@ -33,7 +33,8 @@ class Aate8400RugcheckEdgeAndDiscoveryCaptureTest {
         assertTrue(intake.contains("DiscoveryCapture8400.captureAtIntake8400(ts, source, trustedMarketCapUsd6492)"))
         assertFalse(intake.contains("ts.lastMcap = trustedMarketCapUsd6492"))
         val helper = src("engine/truth/DiscoveryCapture8400.kt").substringAfter("fun captureAtIntake8400(")
-        val capWrite = helper.indexOf("ts.lastMcap = trustedMarketCapUsd")
+        // superseded (8553): the intake cap is a timed fact in the one store (was `ts.lastMcap = trustedMarketCapUsd`)
+        val capWrite = helper.indexOf("TokenFacts.writeSnapshot(ts, TokenFacts.Field.MCAP_USD, trustedMarketCapUsd, \"INTAKE\"")
         val capture = helper.indexOf("captureMcap8400(ts, \"INTAKE_\$source\")")
         val liq = helper.indexOf("LiquidityTruth8037.hydrate8037(ts)")
         assertTrue(capWrite in 0 until capture && capture < liq)   // cap before depth so the 8164 derivation has a cap

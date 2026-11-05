@@ -4123,7 +4123,10 @@ class GoldenTapeRegressionTest {
     fun canonical_features_use_token_map_market_fallbacks_to_avoid_feature_starvation() {
         val builder = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CanonicalFeaturesBuilder.kt").readText()
         assertTrue("Canonical learning must use TokenMap liquidity/mcap/top-holder fallbacks when TokenState display fields lag",
-            builder.contains("ts.tokenMap.liquidityUsd") && builder.contains("ts.tokenMap.marketCap") && builder.contains("ts.tokenMap.fdv") && builder.contains("ts.tokenMap.topHolderConcentrationPct"))
+            builder.contains("ts.tokenMap.liquidityUsd") && builder.contains("ts.tokenMap.marketCap") && builder.contains("ts.tokenMap.fdv") && builder.contains("TokenFacts.topHolderPct(ts)"))
+        // superseded (8553): the top-holder fallback to the TokenMap slot lives in the one reader (TokenFacts.snapshotFact)
+        assertTrue(java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/TokenFacts.kt").readText()
+            .contains("Field.TOP_HOLDER_PCT -> (ts.topHolderPct ?: ts.tokenMap.topHolderConcentrationPct)"))
         assertFalse("Canonical learning must not rely on the old two-line display-field-only market snapshot",
             builder.contains("""val liqUsd = ts.lastLiquidityUsd
         val mcapUsd = ts.lastMcap"""))
