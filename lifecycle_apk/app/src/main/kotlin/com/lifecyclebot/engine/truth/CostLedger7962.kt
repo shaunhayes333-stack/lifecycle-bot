@@ -127,6 +127,12 @@ object CostLedger7962 {
         return measuredMedianFrom8329(rowsOf(lane(laneRaw)), minN)
     }
 
+    /** V5.0.8535 §P1-11 — how many measured live round trips the lane's median rests on. */
+    fun measuredTrips8535(laneRaw: String?): Int {
+        ensureLoaded()
+        return rowsOf(lane(laneRaw)).size
+    }
+
     /** Pure: refuse when the measured cost exceeds the expected gross move (never on an unmeasured cost). */
     /**
      * Pure (8094 entry repair): before [MIN_LIVE_N], the CHEAPEST of [EARLY_LIVE_N]+ measured round trips. 8094 measured

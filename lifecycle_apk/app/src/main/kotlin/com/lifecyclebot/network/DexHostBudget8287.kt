@@ -152,12 +152,30 @@ object DexHostBudget8287 {
         bucket.noteLimited8287(nowMs, retryAfterMs)
     }
 
+    // V5.0.8535 §N-01 — one held coin's EXIT-class reads (8529: 508 calls in 6 minutes for one mint) drove the bucket to -burst
+    // and starved the bulk lane. An EXIT read of the SAME path inside the gap is coalesced: the previous answer is seconds old
+    // and the exit spine's own-pool / curve marks (8489) do not need it; the bucket is not charged for a call never made.
+    const val EXIT_PATH_MIN_GAP_MS_8535 = 2_000L
+    private val exitPathAt8535 = ConcurrentHashMap<String, Long>()
+    private val exitCoalesced8535 = AtomicLong(0L)
+
+    /** False when an EXIT read of [path] landed inside [EXIT_PATH_MIN_GAP_MS_8535] (counted); the map is bounded. */
+    fun exitPathAllowed8535(path: String, nowMs: Long): Boolean {
+        val last = exitPathAt8535[path]
+        if (last != null && nowMs - last in 0L until EXIT_PATH_MIN_GAP_MS_8535) { exitCoalesced8535.incrementAndGet(); return false }
+        if (exitPathAt8535.size > 2_048) exitPathAt8535.clear()
+        exitPathAt8535[path] = nowMs
+        return true
+    }
+
+    fun exitCoalesced8535(): Long = exitCoalesced8535.get()
+
     /** dexHost8287[perMin=180 tokens=.. taken{..} refused{..} waits=.. provider429=.. pausedLeftMs=..] */
     fun statusLine8287(nowMs: Long = System.currentTimeMillis()): String {
         fun m(x: ConcurrentHashMap<Prio8287, AtomicLong>) =
             Prio8287.values().joinToString(",") { "${it.name.lowercase()}=${x[it]?.get() ?: 0L}" }
         return "dexHost8287[perMin=$PER_MIN_8287 effPerMin8359=${bucket.perMin8359(nowMs)} tokens=${"%.1f".format(bucket.tokens8287(nowMs))} taken{${m(taken)}} " +
-            "refused{${m(refused)}} waits=${waits.get()} provider429=${limited.get()} pausedLeftMs=${bucket.pausedLeftMs8287(nowMs)}]"
+            "refused{${m(refused)}} waits=${waits.get()} provider429=${limited.get()} pausedLeftMs=${bucket.pausedLeftMs8287(nowMs)} exitCoalesced8535=${exitCoalesced8535.get()}]"
     }
 }
 
@@ -174,6 +192,15 @@ object DexRateInterceptor8287 : Interceptor {
         val prio = DexHostBudget8287.prioOf8287(req.header(DexHostBudget8287.PRIO_HEADER_8287), exit)
         val wire = if (req.header(DexHostBudget8287.PRIO_HEADER_8287) != null)
             req.newBuilder().removeHeader(DexHostBudget8287.PRIO_HEADER_8287).build() else req
+        // V5.0.8535 §N-01 — a repeated EXIT read of the same path inside the gap is coalesced before the bucket is charged.
+        if (prio == DexHostBudget8287.Prio8287.EXIT && !DexHostBudget8287.exitPathAllowed8535(req.url.encodedPath, System.currentTimeMillis())) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("DEX_EXIT_PATH_COALESCED_8535") } catch (_: Throwable) {}
+            return Response.Builder().request(req).protocol(Protocol.HTTP_1_1).code(599)
+                .message("DEX_EXIT_PATH_COALESCED_8535")
+                .header(HostCircuitInterceptor.SYNTHETIC_HEADER_6969, "1")
+                .body("".toResponseBody(null))
+                .build()
+        }
         val wait = DexHostBudget8287.take8287(System.currentTimeMillis(), prio)
         if (wait < 0L) {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("DEX_HOST_BUDGET_REFUSED_8287_${prio.name}") } catch (_: Throwable) {}

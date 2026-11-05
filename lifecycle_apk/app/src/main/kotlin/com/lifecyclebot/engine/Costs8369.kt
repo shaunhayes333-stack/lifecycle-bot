@@ -407,10 +407,13 @@ object Costs8369 {
         fun p(v: Double) = if (v.isFinite()) "%.2f".format(v) else "-"
         val reclaimed = try { RentReclaimer7927.reclaimedSol8369() } catch (_: Throwable) { Double.NaN }
         val locked = try { RentReclaimer7927.lockedSol8369() } catch (_: Throwable) { Double.NaN }
-        val mvm = modelByLane8369.entries.sortedBy { it.key }.joinToString(",") { e ->
-            val measured = try { com.lifecyclebot.engine.truth.CostLedger7962.measuredMedianPct8329(e.key, 1) } catch (_: Throwable) { null }
-            "${e.key}:${p(e.value)}/${measured?.let { p(it) } ?: "-"}"
-        }
+        // V5.0.8535 §P1-11 — model vs measured reconciled per lane with units and the trip count (CostReconciliation8535); a gap
+        // is a gap only on MIN_TRIPS_8535+ measured trips.
+        val mvm = com.lifecyclebot.engine.truth.CostReconciliation8535.line8535(modelByLane8369.entries.map { e ->
+            com.lifecyclebot.engine.truth.CostReconciliation8535.Row(e.key, e.value,
+                try { com.lifecyclebot.engine.truth.CostLedger7962.measuredMedianPct8329(e.key, 1) } catch (_: Throwable) { null },
+                try { com.lifecyclebot.engine.truth.CostLedger7962.measuredTrips8535(e.key) } catch (_: Throwable) { 0 })
+        })
         return "costs8369[rentReclaimed=${if (reclaimed.isFinite()) "%.5f".format(reclaimed) else "-"} " +
             "rentLocked=${if (locked.isFinite()) "%.5f".format(locked) else "-"} " +
             "route{jupiter=${jupiterChosen8369.get()},pumpportal=${pumpChosen8369.get()}} " +

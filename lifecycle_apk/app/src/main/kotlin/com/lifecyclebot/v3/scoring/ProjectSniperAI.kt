@@ -381,10 +381,10 @@ object ProjectSniperAI {
         // ═══════════════════════════════════════════════════════════════════
         
         // Calculate price change from first candle
-        val priceChange = if (ts.history.isNotEmpty()) {
-            val firstPrice = ts.history.firstOrNull()?.priceUsd ?: currentPrice
-            if (firstPrice > 0) ((currentPrice - firstPrice) / firstPrice * 100) else 0.0
-        } else 0.0
+        // V5.0.8535 §P1-08 — the basis is the EARLIEST dated real print (the feeds merge out of insertion order; a synthetic
+        // row is not a print); an unknown basis is named, never a 0 % surrogate that passes the dumping / pumped checks.
+        val priceChange = SniperPriceBasis8535.changeFromFirstPct8535(synchronized(ts.history) { ts.history.toList() }, currentPrice)
+            ?: return noEngage("${SniperPriceBasis8535.UNKNOWN_8535}: no dated first print", tokenAgeSecs, ThreatLevel.YELLOW)
         
         if (priceChange < MIN_PRICE_CHANGE_PCT) {
             return noEngage("DUMPING: ${priceChange.fmt(1)}% < ${MIN_PRICE_CHANGE_PCT}%", tokenAgeSecs, ThreatLevel.RED)

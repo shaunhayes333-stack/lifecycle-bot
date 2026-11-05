@@ -138,6 +138,14 @@ object StrategyRank8153 {
         if (early != null && early.option.entryTimingAdjustment8528 > defaultEarly) {
             return Pick8153(early.option.id, Tier8153.UNPROVEN, "EARLY_TIMING_8528:${early.option.id}", early.option.id != defaultId, rejected)
         }
+        // V5.0.8535 §P1-15 — cold start with uncertainty: among UNPROVEN fired setups, one whose thin record (5-11 labels) already
+        // clears the bar by 1.5 SE names the identity over a default that does not. Its tier stays UNPROVEN: ordering evidence,
+        // no admission authority, no 30-sample bypass, nothing synthetic.
+        val forming = ranked.filter { it.tier == Tier8153.UNPROVEN && forming8535(it.option, costPct) }
+            .maxByOrNull { it.scorePct.takeIf { s -> s.isFinite() } ?: Double.NEGATIVE_INFINITY }
+        if (forming != null && forming.option.id != defaultId && ranked.none { it.option.id == defaultId && forming8535(it.option, costPct) }) {
+            return Pick8153(forming.option.id, Tier8153.UNPROVEN, "FORMING_8535:${forming.option.compact}", true, rejected)
+        }
         val def = defaultId?.takeIf { it.isNotBlank() } ?: return Pick8153(null, Tier8153.UNPROVEN, "NONE", false, rejected)
         val defTier = ranked.firstOrNull { it.option.id == def }?.tier ?: Tier8153.UNPROVEN
         return Pick8153(def, defTier, "DEFAULT_${defTier.name}", false, rejected)
@@ -145,6 +153,15 @@ object StrategyRank8153 {
 
     /** Pure: may this tier carry the token's identity over the classifier default? */
     fun evidenced8153(t: Tier8153?): Boolean = t == Tier8153.SUPPORTED || t == Tier8153.VALID
+
+    internal const val FORMING_MIN_N_8535 = 5
+
+    /** Pure (V5.0.8535 §P1-15): a thin record (5-11 labels) whose mean - 1.5 SE already clears the bar — ordering evidence only. */
+    fun forming8535(o: Option8153, costPct: Double): Boolean {
+        if (o.n < FORMING_MIN_N_8535 || o.n >= VALID_MIN_N_8153) return false
+        val bar = bar8153(o, costPct)
+        return bar.isFinite() && o.meanPct.isFinite() && o.sePct.isFinite() && o.meanPct - VALID_SE_MULT_8153 * o.sePct > bar
+    }
 }
 
 /**

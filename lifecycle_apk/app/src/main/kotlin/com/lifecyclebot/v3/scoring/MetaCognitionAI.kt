@@ -305,7 +305,7 @@ object MetaCognitionAI {
     private const val MIN_PATTERN_OCCURRENCES = 3
 
     private val layerPerformance = ConcurrentHashMap<AILayer, LayerPerformance>()
-    private data class PendingForecast8527(
+    internal data class PendingForecast8527(
         val predictions: List<Prediction>,
         val metaAtEntry: MetaConfidenceResult,
     )

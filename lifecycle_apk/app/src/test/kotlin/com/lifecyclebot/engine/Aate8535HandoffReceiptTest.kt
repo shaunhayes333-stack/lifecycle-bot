@@ -87,7 +87,7 @@ class Aate8535HandoffReceiptTest {
         assertFalse(DipHistory8535.WAIT_REASON.contains("NOT_A_DIP"))
         val bridge = File("src/main/kotlin/com/lifecyclebot/engine/SpecialistBrainBridge7542.kt").readText()
         assertTrue(bridge.contains("DipHistory8535.stateOf(nativeHistory8521.high, nativeHistory8521.bouncePrices.size, dipRef8535, price)"))
-        assertTrue(bridge.contains("RunnerCapture8180.request8180(ts, listOf(\"history:UNOBSERVED\"), now)"))
+        assertTrue(bridge.contains("DataDeferFetch8180.request8180(ts, listOf(\"history:UNOBSERVED\"), now)"))   // the per-mint data request (RunnerCapture8180.kt)
         assertFalse("the 0 % fallback is gone", bridge.contains("val high = max(price, nativeHistory8521.high ?: price)"))
     }
 }

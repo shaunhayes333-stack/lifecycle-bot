@@ -92,6 +92,9 @@ object TreasuryBrain {
             score -= 15
             reasons += "exhaustion_or_spike_top"
         }
+        // V5.0.8535 §P1-05 — a saturated one-sided book or a maxed momentum composite is not a scalable scalp, in every mode.
+        val overheat8535 = com.lifecyclebot.v3.scoring.SaturationPenalty8535.treasury8535(press, mom)
+        if (overheat8535 > 0) { score -= overheat8535; reasons += "overheat8535_$overheat8535" }
 
         score = score.coerceIn(0.0, 100.0)
 

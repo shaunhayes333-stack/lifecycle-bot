@@ -2505,6 +2505,7 @@ object ForwardReturnLabeler7731 {
             else {
                 val cause8535 = (lastCause8535[o.mint] ?: OffWatchSchedule8535.Cause.NO_SOURCE).name   // V5.0.8535 §P0-01
                 lostByCause8535.computeIfAbsent(cause8535) { AtomicLong() }.incrementAndGet()
+                try { com.lifecyclebot.engine.DecisionEpisode8535.noteLabel8535(o.lane, o.mint, "TERMINAL:$why:$cause8535", nowMs) } catch (_: Throwable) {}   // V5.0.8535 §P2-01
                 val value=org.json.JSONObject().put("mint",o.mint).put("lane",o.lane).put("at",o.atMs).put("why",why)
                     .put("terminalAt",nowMs).put("entry",o.basis8386.json()).put("last",o.lastMark8386?.json())
                     .put("cause8535", cause8535)
@@ -3170,7 +3171,7 @@ object ForwardReturnLabeler7731 {
             "      tail8303: ${best.joinToString(" · ") { CellTail8303.line8303(it.key, it.meanNet60Pct, it.winRate60, it.runnerRate60) }.ifBlank { "-" }}\n" +  // V5.0.8303
             "      worst60: ${worst.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }}\n" +
             "      kinds8063 best: ${kindBest.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }} | worst: ${kindWorst.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none" }}\n" +
-            "      lanes60: ${lanes.joinToString(" · ").ifBlank { "no labels yet" }}" +
+            "      lanes60${com.lifecyclebot.engine.MetricTag8535.LANES60_8535.line()}: ${lanes.joinToString(" · ").ifBlank { "no labels yet" }}" +   // V5.0.8535 §P2-03
             " | ${terminalStatus8401()} robust8185[cap=${RobustLabelRead8185.CAP_LABEL_PCT_8185.toInt()}% capGT1M=${RobustLabelRead8185.CAP_LARGE_CAP_PCT_8185.toInt()}% suspectReads=${RobustLabelRead8185.suspectReads8185()} tailReadRaw8322=${tailReadRaw8322.get()}]"
     }
 

@@ -582,6 +582,10 @@ object CashGenerationAI {
         if (momentumScore != 0) {
             scoreReasons.add("mom${if (momentumScore > 0) "+" else ""}$momentumScore")
         }
+        // V5.0.8535 §P1-05 — the overheated scalp entry (the bands this file itself calls anti-predictive) is docked in EVERY
+        // recovery mode, not only behind the AGGRESSIVE anti-FOMO clamp below (which stays).
+        val overheat8535 = SaturationPenalty8535.scalp8535(buyPressurePct, momentum)
+        if (overheat8535 > 0) { treasuryScore -= overheat8535; scoreReasons.add("overheat8535-$overheat8535") }
 
         val volScore = when {
             volatility in 20.0..60.0 -> 15

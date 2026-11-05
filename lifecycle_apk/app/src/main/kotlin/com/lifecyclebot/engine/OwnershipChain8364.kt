@@ -218,6 +218,7 @@ object OwnershipChain8364 {
                 val c = (if (version > 0L) recordFor8364(lane, CandidateId8364(mint, version), qualify = false, create = opens, nowMs = nowMs) else
                     latestByLaneMint8364["$lane|$mint"]?.let { records8364[it] }) ?: return
                 addStep8364(c, step)
+                DecisionEpisode8535.noteStage8535(lane, mint, c.version, step.name, nowMs)   // V5.0.8535 §P2-01
                 if (step == Step8364.CLOSE && c.terminal.isBlank()) c.terminal = "CLOSED"
             }
         } catch (_: Throwable) {}
@@ -246,6 +247,7 @@ object OwnershipChain8364 {
                 val c = recordFor8364(lane, id, qualify = step == Step8364.QUALIFIED,
                     create = step == Step8364.QUALIFIED || step == Step8364.OWNER || step == Step8364.INTENT, nowMs = nowMs) ?: return
                 if (step != null) addStep8364(c, step)
+                if (step != null) DecisionEpisode8535.noteStage8535(lane, id.mint, c.version, step.name, nowMs)   // V5.0.8535 §P2-01
                 when {
                     step == Step8364.TICKET -> c.terminal = "TICKET"
                     step == null && c.terminal != "TICKET" -> c.terminal = "AUTH_$st"
@@ -264,6 +266,9 @@ object OwnershipChain8364 {
                 val c = (if (version > 0L) recordFor8364(lane, CandidateId8364(mint, version), qualify = false, create = false, nowMs = nowMs) else
                     latestByLaneMint8364["$lane|$mint"]?.let { records8364[it] }) ?: return
                 addStep8364(c, Step8364.FDG_SEEN)   // V5.0.8535 §P0-08 — the FDG saw this candidate, whatever it answered
+                DecisionEpisode8535.noteFdg8535(lane, mint, c.version, allow, reason, nowMs)   // V5.0.8535 §P2-01
+                // V5.0.8535 §P1-16 — the crypto desk's exact FDG refusal by asset (8529: CRYPTO_ALT 245 blocks, no reason by asset).
+                if (!allow && lane == "CRYPTO_ALT") try { PipelineHealthCollector.labelInc("CRYPTO_FDG_REJECT_8535_${mint.take(24)}_${reasonKey8364(reason)}") } catch (_: Throwable) {}
                 if (FdgReceipt8397.outcome(allow, reason) == FdgReceipt8397.Outcome.DEFER_DATA) {
                     if (c.terminal.isBlank()) c.softTerminal = "FDG_DEFER_DATA_" + reasonKey8364(reason)
                     c.touchedMs = nowMs
@@ -343,7 +348,8 @@ object OwnershipChain8364 {
         return "$lane chain8364[nativeFired=${s(Step8364.NATIVE_FIRED)} qualified=${s(Step8364.QUALIFIED)} readyFinal=${s(Step8364.READY_FINAL)} " +
             "ownerOffered=${s(Step8364.OWNER_OFFERED)} fdgSeen=${s(Step8364.FDG_SEEN)} fdg=${s(Step8364.FDG_ALLOW)}/${s(Step8364.FDG_BLOCK)} " +
             "owner=${s(Step8364.OWNER)} intent=${s(Step8364.INTENT)} ticket=${s(Step8364.TICKET)} exec=${s(Step8364.EXEC)} close=${s(Step8364.CLOSE)} open=$open " +
-            "ended{$terms} lostNoTerminal{$lost} missingReceiptClosure{$closure} examples{$examples}] (candidate records, not unique tokens; owner/intent follow FDG allow)"
+            "ended{$terms} lostNoTerminal{$lost} missingReceiptClosure{$closure} examples{$examples}] (candidate records, not unique tokens; owner/intent follow FDG allow) ${MetricTag8535.CHAIN_8535.line()}\n" +
+            "      ${DecisionEpisode8535.reportLine8535(lane)}"   // V5.0.8535 §P2-01
     }
 
     /** V5.0.8438 — DiagnosisBrief8438: [lane]'s stage counts (QUALIFIED, FDG_ALLOW, FDG_BLOCK, OWNER, INTENT, TICKET, EXEC). */

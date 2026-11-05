@@ -329,6 +329,16 @@ object LanePlaybook7907 {
     private val LAUNCH_LADDER_PROVEN = Setup("LAUNCH_LADDER_PROVEN", STRUCT) { f -> f.launchLadderProven }
     // V5.0.7962 — the owner's read: buyers dominate, lows refill into new highs (15 s / 1 m swings).
     private val HL_RECLAIM = Setup("HL_RECLAIM", STRUCT) { f -> f.structureHlReclaim }
+    // V5.0.8535 §P1-02 — the launch stages LAUNCH_CONTINUATION (PRE_IGNITION / EXPANDING) left in a semantic hole: the IGNITION
+    // break itself and the retest after it. Each is its own strategy with its own labels and timing; MOONSHOT's own phase
+    // scorer already pays IGNITION +12. Graded per lane like every setup; no stage falls through unnamed.
+    private val IGNITION_BREAK = Setup("IGNITION_BREAK", FLOW) { f ->
+        f.launchPhase == "IGNITION" && le(f.age, 120.0) && ge(f.bp, 55.0) && ge(f.chg5m, 3.0) && leOrUnknown(f.runup, 150.0) && leOrUnknown(f.top, 25.0)
+    }
+    private val POST_IGNITION_RETEST = Setup("POST_IGNITION_RETEST", FLOW) { f ->
+        (f.launchPhase == "IGNITION" || f.launchPhase == "EXPANDING") && le(f.age, 240.0) && ok(f.dd, 10.0, 35.0) && ge(f.chg5m, 0.0) && ge(f.bp, 50.0)
+    }
+    private val LAUNCH_8535 = listOf(IGNITION_BREAK, POST_IGNITION_RETEST)
 
     // ── V5.0.7924 — the expanded library. Each fires on measurable conditions;
     //    each starts at an educated prior and is graded per lane from trade one.
@@ -679,7 +689,8 @@ object LanePlaybook7907 {
         val upTo7978 = (if (lane in EXPERT_LANES_7962) base + EXPERT_ENTRY_7962 else base) +
             (if (lane in MEME_LANES_7978) MEME_EXTRAS_7978 else OTHER_EXTRAS_7978)   // V5.0.7978
         val upTo8061 = upTo7978 + extras8061(lane, upTo7978)   // V5.0.8061
-        val native = upTo8061 + added8383(lane, upTo8061)   // V5.0.8383
+        val native8383 = upTo8061 + added8383(lane, upTo8061)   // V5.0.8383
+        val native = native8383 + launch8535(lane, native8383)   // V5.0.8535 §P1-02
         if (!isEnsemble8384(lane)) native else {
             // V5.0.8384: reuse predicates, never a donor lane's record or mandate. Every fired setup is
             // still classified/ranked/graded as (receiving lane, setup), downstream of that desk's role checks.
@@ -694,7 +705,7 @@ object LanePlaybook7907 {
     // Evaluated once, after object initialization. Stable library order is append-only, independent of election order.
     private val sharedLibrary8384: List<Setup> by lazy {
         (MENU.values.flatten() + EXPERT_ENTRY_7962 + MEME_EXTRAS_7978 + OTHER_EXTRAS_7978 +
-            CROSS_8061.values.flatten() + SHAPE_8061 + EARLY_BUYER_EXPANSION_8170 + ADDED_8383.values.flatten())
+            CROSS_8061.values.flatten() + SHAPE_8061 + EARLY_BUYER_EXPANSION_8170 + ADDED_8383.values.flatten() + LAUNCH_8535)
             .distinctBy { it.id }
     }
 
@@ -705,6 +716,13 @@ object LanePlaybook7907 {
         val previous = old + extras8061(lane, old)
         previous + added8383(lane, previous)
     }.orEmpty()
+
+    /** V5.0.8535 §P1-02 — the meme launch lanes read the ignition / retest strategies (appended after every earlier bin). */
+    private fun launch8535(lane: String, existing: List<Setup>): List<Setup> {
+        if (lane !in MEME_LANES_7978) return emptyList()
+        val have = existing.map { it.id }.toHashSet()
+        return LAUNCH_8535.filter { have.add(it.id) }
+    }
 
     /** V5.0.8383 — this lane's evidence-built setups, never one its menu already has. */
     private fun added8383(lane: String, existing: List<Setup>): List<Setup> {

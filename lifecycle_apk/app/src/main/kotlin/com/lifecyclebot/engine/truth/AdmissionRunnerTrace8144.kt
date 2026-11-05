@@ -185,7 +185,7 @@ object AdmissionRunnerTrace8144 {
         // {QUALIFIED_LANE_STOPPED=65} said nothing about WHICH door; the gate stem is the actionable part).
         val wrong = v.filter { it.miss == Miss8144.WRONGLY_REFUSED }.groupingBy { wrongKey8428(it.gate) }.eachCount()
             .entries.sortedByDescending { it.value }.joinToString(",") { "${it.key}=${it.value}" }.ifBlank { "-" }
-        return "runners=${traces.size} $by wrongBy{$wrong}"
+        return "runners=${traces.size} $by wrongBy{$wrong} ${RunnerFunnel8535.line8535(traces)}"   // V5.0.8535 §P1-12
     }
 
     /** Pure (V5.0.8428): the wrongBy key of a verdict gate — the stem, plus the stopping gate for a stopped qualified lane. */

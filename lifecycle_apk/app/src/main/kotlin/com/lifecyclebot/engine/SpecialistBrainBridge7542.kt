@@ -432,7 +432,7 @@ object SpecialistBrainBridge7542 {
             val dipRef8535 = com.lifecyclebot.engine.market.DipHistory8535.ref(ts.mint, now)
             val dipState8535 = com.lifecyclebot.engine.market.DipHistory8535.stateOf(nativeHistory8521.high, nativeHistory8521.bouncePrices.size, dipRef8535, price)
             if (dipState8535 == com.lifecyclebot.engine.market.DipHistory8535.State.WAIT) {
-                try { RunnerCapture8180.request8180(ts, listOf("history:UNOBSERVED"), now) } catch (_: Throwable) {}
+                try { DataDeferFetch8180.request8180(ts, listOf("history:UNOBSERVED"), now) } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("DIP_HUNTER_WAIT_FOR_HISTORY_8535") } catch (_: Throwable) {}
                 op("DIP_HUNTER",false,0,0,0.0,com.lifecyclebot.engine.market.DipHistory8535.WAIT_REASON+":bounce="+nativeHistory8521.bouncePrices.size+" high="+(nativeHistory8521.high?.let{"%.6g".format(it)}?:"-")+" ref="+(if(dipRef8535!=null)"row" else "-"),"PANIC_REVERSION_BOUNCE","dip_native_reclaim","dip_native_recovery_exit")
             } else {
@@ -450,6 +450,14 @@ object SpecialistBrainBridge7542 {
         // V5.0.8535 §P0-06 — every opinion carries the playbook predicate that actually fired for its lane (or none) and the
         // signal time; the hard-coded style label stays what it is: the exit plan, not the strategy identity.
         for ((lane, opinion) in out.toList()) out[lane] = opinion.copy(firedSetup8535 = firedSetup8535(ts, lane, now), signalAtMs8535 = now)
+        // V5.0.8535 §P1-09 — CORE / CYCLIC READY must name a fired strategy of its own menu: a score band, a sellability pass or
+        // an ensemble vote is a voter, not an entry event. CORE may inherit the fired setup of a specialist it ensembles.
+        for ((lane, opinion) in out.toList()) {
+            if (!opinion.eligible || !com.lifecyclebot.engine.cortex.SetupAuthority8535.requiresNamedSetup8535(lane) || opinion.firedSetup8535 != null) continue
+            if (lane == "CORE" && out.values.any { it.lane != "CORE" && it.authoritative && it.eligible && it.firedSetup8535 != null }) continue
+            try { PipelineHealthCollector.labelInc("${lane}_READY_WITHOUT_NAMED_SETUP_8535") } catch (_: Throwable) {}
+            out[lane] = opinion.copy(eligible = false, reason = "${lane}_NO_NAMED_SETUP_8535:" + opinion.reason.take(60))
+        }
         // Birth evidence is shared; each desk applies only its own age rule.
         // A fresh watchlist insertion cannot make an old, unresolved token young.
         for ((lane, opinion) in out.toList()) {
@@ -543,6 +551,8 @@ object SpecialistBrainBridge7542 {
             val version = try { LaneExecutionCoordinator.candidateVersionFor(s.mint) } catch (_: Throwable) { -1L }
             val views = s.opinions.mapValues { (lane, o) ->
                 val eligible = o.eligible && o.authoritative
+                // V5.0.8535 §P2-01 — the native signed score and fired strategy open the candidate's decision episode.
+                try { DecisionEpisode8535.noteNative8535(lane, s.mint, version, o.rawScore8535.toDouble(), o.scaleMax8535.toDouble(), eligible, o.firedSetup8535, s.evaluatedAtMs) } catch (_: Throwable) {}
                 // V5.0.8535 §P0-07 — proof that a FINAL eligible opinion was offered to the election (and whether it could own).
                 if (eligible) try {
                     val ownable8535 = LaneExecutionCoordinator.laneCanOwnExecution6910(lane)

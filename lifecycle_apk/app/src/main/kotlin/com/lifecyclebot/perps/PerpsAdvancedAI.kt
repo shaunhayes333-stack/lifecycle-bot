@@ -883,8 +883,10 @@ object PerpsAdvancedAI {
 
     data class ObservedRsi8535(val rsi: Double, val asOfMs: Long, val ticks: Int)
 
-    private fun observedTicks8535(market: PerpsMarket): List<PricePoint> =
-        try { (priceHistory[market] ?: return emptyList()).toList().filter { !it.synthetic8535 } } catch (_: Throwable) { emptyList() }
+    private fun observedTicks8535(market: PerpsMarket): List<PricePoint> {
+        val history = try { priceHistory[market] } catch (_: Throwable) { null } ?: return emptyList()
+        return try { history.toList().filter { !it.synthetic8535 } } catch (_: Throwable) { emptyList() }
+    }
 
     /** RSI(14) over real ticks, stamped with the newest tick's time; null until 28 real ticks exist. */
     fun observedRsi8535(market: PerpsMarket): ObservedRsi8535? {

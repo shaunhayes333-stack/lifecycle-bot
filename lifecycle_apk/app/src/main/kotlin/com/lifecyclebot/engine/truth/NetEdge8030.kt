@@ -456,7 +456,12 @@ object NetEdge8030 {
     fun laneFitRefusal8054(ts: TokenState, laneRaw: String, admission: CandidateAdmission8136.Decision8136? = null): String? {
         val lane = laneRaw.trim().uppercase()
         if (lane in SCALP_LANES_8054) {
-            val realized = try { realizedMovePct8035(ts) } catch (_: Throwable) { null }
+            // V5.0.8535 §P1-06 — the strategy's style decides which realised figure proves TRADABILITY (ScalpStyle8535): the
+            // signed hour move for a momentum scalp, the dense hour range for a range / reclaim scalp that acts before the
+            // hour turns. Entry VALUE stays the admission's forward move at the quoted cost.
+            val style8535 = ScalpStyle8535.of8535(try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, lane) } catch (_: Throwable) { null })
+            val realized = try { ScalpStyle8535.tradabilityPct8535(style8535, realizedMovePct8035(ts), denseRangePct8535(ts)) } catch (_: Throwable) { null }
+            try { PipelineHealthCollector.labelInc("NET_EDGE_SCALP_STYLE_8535_${style8535.name}_$lane") } catch (_: Throwable) {}
             val cost = costPct8030(lane, entryTicket8151(), liquidity8037(ts), ts.mint, ts.lastMcap)
             scalpUnobserved8418(ts, lane, realized, admission)?.let { return it }   // V5.0.8418 — unobserved is not flat
             if (scalpMoveTooSmall8054(realized, cost, admission)) {
@@ -528,6 +533,14 @@ object NetEdge8030 {
         val p = prices.filter { it.isFinite() && it > 0.0 }
         if (p.size < minPrints) return null
         return (p.max() / p.min() - 1.0) * 100.0
+    }
+
+    /** V5.0.8535 §P1-06 — the coin's DENSE last-hour high-low range (either direction); null when sparse / unobserved. */
+    private fun denseRangePct8535(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Double? {
+        val bars = synchronized(ts.history) { ts.history.filter { !it.synthetic && nowMs - it.ts in 0L..3_600_000L }.toList() }
+        val range = rangePct8035(bars.flatMap { listOf(it.priceUsd, it.highUsd, it.lowUsd) }) ?: return null
+        val spanMs = if (bars.size >= 2) bars.maxOf { it.ts } - bars.minOf { it.ts } else 0L
+        return if (StrategyMove8153.dense8153(bars.size, spanMs)) range else null
     }
 
     /** The coin's own recent move: the last hour's high-low range from its real candles, or its 1h change; null if unknown. */

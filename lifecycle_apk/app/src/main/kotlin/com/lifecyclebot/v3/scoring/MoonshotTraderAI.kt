@@ -426,10 +426,11 @@ object MoonshotTraderAI {
     // ═══════════════════════════════════════════════════════════════════════════
 
     /** Zero retains explicit danger authority. Numeric nonzero risk is scored, then learned per lane by TradeShapeLearner. */
+    // V5.0.8535 §P1-14 — one RugCheck contract (RugCheckContract8535): the confirmed rug refuses, the danger band is graded.
     fun rugcheckRefusal8418(rugcheckScore: Int): String? =
-        if (rugcheckScore == 0) "rugcheck_0_confirmed_rug" else null
+        if (com.lifecyclebot.engine.truth.RugCheckContract8535.refuses8535(rugcheckScore)) "rugcheck_0_confirmed_rug" else null
 
-    internal fun rugcheckPenalty8528(score: Int): Int = if (score in 2..14) 15 - score else 0
+    internal fun rugcheckPenalty8528(score: Int): Int = com.lifecyclebot.engine.truth.RugCheckContract8535.penalty8535(score)
 
     private fun detectSpaceMode(marketCapUsd: Double, isCollectiveWinner: Boolean = false): SpaceMode {
         // Collective winners get JUPITER mode regardless of mcap
@@ -550,8 +551,10 @@ object MoonshotTraderAI {
         // every other confirmed score is a graded penalty on the fluid score below (RUGCHECK_SOFT_PENALTY_8400), and the
         // same reading already reaches FDG / TradeAuthorizer / LifecycleStrategy / QuarantineStore as penalties, the
         // SafetyReport ladder, and the learner's `rc` feature — the edge decides, not a constant.
-        // superseded by V5.0.8418 — the 8400 soft penalty is reverted: the danger band 2..14 (risk 86..98) is refused in both
-        // modes again (V5.0.7550), a confirmed rug (0) as before. Rug is hard safety; the count is RUGCHECK_RISK_BAND_8399_*.
+        // superseded by V5.0.8418 / 8528 — (the 8418 note said the danger band 2..14 was refused in both modes; the 8528 code
+        // grades it). V5.0.8535 §P1-14: the contract is RugCheckContract8535 — a CONFIRMED rug (0) refuses in both modes; the
+        // confirmed danger band 2..14 is GRADED (rugcheckPenalty8528), never a door, exactly as FDG (low_rc_penalty_only) and
+        // the authorizer (isConfirmedRugForLive7948) read it. The count is RUGCHECK_RISK_BAND_8399_*.
         rugcheckRefusal8418(rugcheckScore)?.let { why -> return MoonshotScore(false, 0, 0.0, why) }
 
         // V5.9.316: REVERTED V5.9.235 base44 HARD ENTRY GATES — they were
@@ -618,7 +621,11 @@ object MoonshotTraderAI {
             else -> 0
         }
         score += buyScore
-        
+        // V5.0.8535 §P1-04 — demonstrated saturation (a one-sided book once the launch is past pre-ignition) is docked here,
+        // as SHITCOIN (>= 85 %) and MANIPULATED (momentum x pressure) already dock it; rising demand keeps its band above.
+        val saturation8535 = SaturationPenalty8535.moonshot8535(buyPressurePct, phase)
+        score -= saturation8535
+
         // V3 score integration (use V3's intelligence)
         val v3Score = when {
             v3EntryScore > 90 -> 15
