@@ -350,7 +350,7 @@ object EdgeModel8537 {
     }
 
     /** Pure: one dataset row (JSON) — the raw observation, the frozen prediction and the outcome. */
-    fun datasetLine(s: Snap, net: Double): String {
+    fun datasetLine(s: Snap, net: Double, filled: Boolean = true): String {
         fun n(v: Double) = if (v.isFinite()) "%.6g".format(java.util.Locale.US, v) else "null"
         val r = s.raw
         return "{\"t\":${s.atMs},\"mint\":\"${s.mint.take(44)}\",\"lane\":\"${r.lane}\",\"src\":\"${r.source.replace("\"", "").take(60)}\"," +
@@ -358,11 +358,24 @@ object EdgeModel8537 {
             "\"dd\":${n(r.dd)},\"bp\":${n(r.bp)},\"chg5m\":${n(r.chg5m)},\"chg1h\":${n(r.chg1h)},\"volAccel\":${n(r.volAccel)}," +
             "\"top\":${n(r.top)},\"holderVel\":${n(r.holderVel)},\"txVel\":${n(r.txVel)},\"curve\":${n(r.curve)},\"turnover\":${n(r.turnover)}," +
             "\"flags\":${r.flags},\"phase\":\"${r.phase}\",\"v3\":${n(r.v3)},\"cost\":${n(r.costPct)},\"admitted\":${s.admitted}," +
-            "\"pred\":${n(s.pred)},\"model\":\"${s.modelKey}\",\"net\":${n(net)}}"
+            "\"pred\":${n(s.pred)},\"model\":\"${s.modelKey}\",\"net\":${n(net)},\"fill\":$filled}"
     }
 
-    private fun appendDataset(s: Snap, net: Double) {
-        val line = try { datasetLine(s, net) } catch (_: Throwable) { return }
+    /**
+     * V5.0.8546 — a 5-minute outcome whose entry could not be rebased to a fillable mark (fast meme coins: no reachable mark
+     * inside the rebase window) is written to the dataset flagged "fill":false — research coverage of every meme lane — and
+     * never trains the model (its entry price is not one a buy could have got). 8537 exports held TREASURY / CASHGEN / crypto
+     * only: not one SHITCOIN, MOONSHOT or EXPRESS decision.
+     */
+    fun recordUnfilled8546(s: Snap, netPct: Double) {
+        if (!netPct.isFinite()) return
+        unfilled8546.incrementAndGet()
+        appendDataset(s, netPct.coerceIn(Y_MIN, Y_MAX), filled = false)
+    }
+    private val unfilled8546 = AtomicLong(0)
+
+    private fun appendDataset(s: Snap, net: Double, filled: Boolean = true) {
+        val line = try { datasetLine(s, net, filled) } catch (_: Throwable) { return }
         io.execute {
             try {
                 val f = File(dir() ?: return@execute, DATASET_FILE)

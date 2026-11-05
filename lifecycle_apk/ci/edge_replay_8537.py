@@ -184,6 +184,9 @@ def main(argv):
                 r = json.loads(line)
             except ValueError:
                 continue
+            # V5.0.8546 - an unfillable entry ("fill": false) is research coverage, never a training row
+            if r.get("fill", True) is False:
+                continue
             if isinstance(r.get("net"), (int, float)) and math.isfinite(r["net"]):
                 rows.append(r)
     rows.sort(key=lambda r: r.get("t", 0))

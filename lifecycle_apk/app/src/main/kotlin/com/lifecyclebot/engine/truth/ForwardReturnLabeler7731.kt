@@ -1659,6 +1659,12 @@ object ForwardReturnLabeler7731 {
 
     /** A fixed decision target contributes once; later observations remain available to path and exit learners. */
     private fun bookEntryTarget8521(o: Obs, net: Double, gross: Double, witness: Boolean, nowMs: Long) {
+        // V5.0.8546 — an unfillable entry (no reachable mark in the rebase window: most fast meme coins) never books, but its
+        // 5-minute read still counts for the market regime's breadth and is written to the research dataset, flagged.
+        if (eligible8386(o) && net.isFinite() && !o.bookedNet7997.isFinite() && !entryFill8521(o) && MemePaperTrader8544.memeLane8544(o.lane)) {
+            try { MemeRegime8546.note8546(nowMs, net, gross) } catch (_: Throwable) {}
+            o.edge8537?.let { o.edge8537 = null; try { EdgeModel8537.recordUnfilled8546(it, net) } catch (_: Throwable) {} }
+        }
         if (!eligible8386(o) || !entryFill8521(o) || o.bookedNet7997.isFinite() || !net.isFinite() ||
             !horizonOpen7809((o.lastMark8386?.observedAtMs ?: 0L) - o.atMs, o.targetHorizon8521)) return
         // book() may trigger an atomic producer checkpoint. That checkpoint must already carry this target's receipt,

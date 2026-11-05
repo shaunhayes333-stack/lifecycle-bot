@@ -120,4 +120,18 @@ class Aate8546StrategyFamiliesTest {
         assertTrue(src("network/PumpCurveKeys7269.kt").contains("fun graduatedAtMs8546(mint: String): Long?"))
         assertTrue(src("engine/DiagnosisBrief8438.kt").contains("MemeStrategies8546.statusLine8546()"))
     }
+
+    // V5.0.8547 — the research dataset covers every meme lane: unfillable entries are written flagged and never trained on
+    @Test fun unfillableMemeOutcomesReachTheDatasetFlaggedAndNeverTrain() {
+        val l = src("engine/truth/ForwardReturnLabeler7731.kt").substringAfter("private fun bookEntryTarget8521(").substringBefore("o.bookedNet7997 = net;")
+        assertTrue(l.contains("!entryFill8521(o) && MemePaperTrader8544.memeLane8544(o.lane)"))
+        assertTrue(l.contains("EdgeModel8537.recordUnfilled8546(it, net)"))
+        assertTrue(l.contains("MemeRegime8546.note8546(nowMs, net, gross)"))
+        val e = src("engine/truth/EdgeModel8537.kt").substringAfter("fun recordUnfilled8546(").substringBefore("private val unfilled8546")
+        assertTrue(e.contains("appendDataset(s, netPct.coerceIn(Y_MIN, Y_MAX), filled = false)"))
+        assertFalse("never trains the model", e.contains("learn("))
+        val replay = File("../ci/edge_replay_8537.py").readText()
+        assertTrue(replay.contains("if r.get(\"fill\", True) is False:"))
+        assertTrue(File("../ci/edge_research_8546.py").exists())
+    }
 }

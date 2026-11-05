@@ -194,3 +194,17 @@ That session: PAPER 01:04-01:06 (one BLUECHIP paper buy, crypto paper desk), sto
 | N-47 | Setups buy strength; evidence too fragmented to prove | `engine/truth/MemeStrategies8546.kt` | 28/48 tops; BREAKOUT/PEAK −12..−22 %; n ~7 per cell | five shared event families — PULLBACK_RECLAIM, BASE_BREAKOUT_FLOW, GRADUATION_RETEST (graduation time now recorded in `PumpCurveKeys7269`), WALLET_CLUSTER, RANGE_LOW — scanned over the watchlist (120 coins a tick, 15 s per coin, never HARD_BLOCK), each signal paper-traded in the book (`openFamily8546`, family exit lane), per-family record n / mean ± se / PF | same | BUILT, paper only until proven |
 | N-48 | Promotion of new strategies to LIVE | `MemePaperTrader8544.familyProven8546`, `LiveEdgeGate7877.edge8114Live8538` | — | a family carries a LIVE candidate (`FAMILY_PROVEN_8546`, past regime and into-high doors) only after n ≥ 30 paper closes, mean − se > 0, PF ≥ 1.3; all other live gates and hard safety unchanged | same | BUILT |
 | N-49 | Social / attention signals, execution latency (Jito, executable-quote decision price), learned selector replacing lane rules | — | no social data source in the app; execution and selector changes are separate builds | not in this build | — | OPEN |
+
+## 5.0.8547 — owner's edge-dataset exports (`aate_edge_dataset_8537_1793892877348/840`, `_1793886685898`)
+
+Findings (`ci/edge_research_8546.py`, 545 unique decisions over 4.3 h): every bucket is negative after cost (all −5.6 %, win
+12 %, PF 0.35). Buys within 8 % of the peak are the worst (pxPeak 0.92–0.98: PF 0.05; 0.98+: PF 0.24) and 0.85–0.92 the
+least bad (PF 0.77) — the direction the 8545 into-high door takes. Chasing a 5-minute spike loses (chg5m > +30: −10.9 %).
+Established coins on a 5-minute target cannot beat the round trip (liq ≥ $100k and ≥ 1 day: n120, 3 % winners, PF 0.02).
+The regime split showed no difference in this window (COLD −5.3 % vs NEUTRAL −5.0 %). EdgeModel8537's out-of-sample picks
+were worse than taking everything (−12.6 % vs −5.6 %, n60): it has no live authority and keeps none until it beats the lane.
+
+| ID | Exact file:line | Root cause | Changed logic | Tests | Status |
+|---|---|---|---|---|---|
+| N-50 | The research dataset had no meme runner lane | `ForwardReturnLabeler7731.bookEntryTarget8521`, `EdgeModel8537.recordUnfilled8546` | only entries rebased to a fillable mark were exported; fast meme coins never are (exports held TREASURY / CASHGEN / crypto only) | unfillable meme outcomes are written flagged `"fill":false` and feed the regime's breadth; they never train the model; the replay skips them | `Aate8546StrategyFamiliesTest` | FIXED (pending CI) |
+| N-51 | No repeatable research tool | `lifecycle_apk/ci/edge_research_8546.py` | — | buckets, family proxies, regime filter (labels only once matured), sources, costs, on any exports | — | ADDED |
