@@ -97,7 +97,9 @@ class Aate8506MemeSelectionTest {
         val wait = CandidateAdmission8136.decide8136(c) { false }
         assertEquals(CandidateAdmission8136.Terminal8136.DEFER_DATA, wait.terminal)
         assertTrue("swaps" in CandidateAdmission8136.missingOf8144(wait))
-        assertTrue(CandidateAdmission8136.decide8136(c.copy(entryWait8506 = null)).admitted)
+        // superseded: `decide8136(c.copy(entryWait8506 = null)).admitted` on the LIVE native opinion alone — V5.0.8536 / 8538:
+        // a live native admit needs a carried 8069–8114 edge.
+        assertTrue(CandidateAdmission8136.decide8136(c.copy(entryWait8506 = null, liveEdge8114 = "CHART_BUY")).admitted)
     }
 
     @Test fun aConfirmedRecoveryLeadsTheDipDeskAndNotTheSniper() {

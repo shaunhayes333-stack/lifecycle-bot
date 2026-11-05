@@ -17,7 +17,10 @@ class Aate8528EarlySetupContinuityTest {
     @Test fun observed_early_setup_does_not_wait_for_generic_phase_or_historical_proof() {
         for (lane in listOf("MOONSHOT", "SHITCOIN", "EXPRESS", "QUALITY", "BLUECHIP", "TREASURY",
             "CASHGEN", "CORE", "CYCLIC", "MANIPULATED", "DIP_HUNTER", "PROJECT_SNIPER")) {
-            val d = Admission.decide8136(early(lane))
+            // superseded: `Admission.decide8136(early(lane))` admitted LIVE on the observed native setup alone — V5.0.8536
+            // (owner): no live buy on the lane opinion alone; V5.0.8538: it admits when an 8069–8114 live edge carries it.
+            assertEquals(lane, Admission.LIVE_NATIVE_OPINION_UNPROVEN_8536, Admission.decide8136(early(lane)).reason)
+            val d = Admission.decide8136(early(lane).copy(liveEdge8114 = "CHART_BUY"))
             assertEquals(lane, Admission.Terminal8136.ADMIT, d.terminal)
             assertFalse("current setup is not fabricated statistical proof", d.specific)
             assertTrue(d.nativePhaseWitness8528)
@@ -50,7 +53,8 @@ class Aate8528EarlySetupContinuityTest {
     }
 
     @Test fun same_phase_cannot_be_rejected_again_but_new_danger_and_costs_still_bind() {
-        val c = early()
+        // superseded: `val c = early()` — V5.0.8536 / 8538: a live native admit needs a carried 8069–8114 edge.
+        val c = early().copy(liveEdge8114 = "CHART_BUY")
         val d = Admission.decide8136(c)
         assertTrue(LiveEdgeGate7877.stagePriorAlreadyResolved(d, c.lane, "STAGE_LANE_MISFIT_7928_MOONSHOT_NO_SETUP"))
         for (why in listOf("STAGE_LANE_MISFIT_7928_MOONSHOT_DUMPING", "STAGE_LANE_MISFIT_7928_QUALITY_NO_SETUP",

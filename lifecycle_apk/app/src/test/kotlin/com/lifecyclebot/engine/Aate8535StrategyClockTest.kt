@@ -42,7 +42,10 @@ class Aate8535StrategyClockTest {
         for (setup in listOf("MOMENTUM_PULLBACK_5M", "FIRST_DIP_BOUGHT", "TREND_DIP_8383", "FIRST_PULLBACK_AFTER_RUN", "PEAK_RECLAIM_8383")) {
             val c = pullback(setup)
             assertTrue(setup, Admission.strategyClockWitness8535(c))
-            val d = Admission.decide8136(c)
+            // superseded: `Admission.decide8136(c)` admitted LIVE on the fired setup alone — V5.0.8536 (owner): no live buy on the
+            // lane opinion alone; V5.0.8538: it admits when an 8069–8114 live edge carries it.
+            assertEquals(setup, Admission.LIVE_NATIVE_OPINION_UNPROVEN_8536, Admission.decide8136(c).reason)
+            val d = Admission.decide8136(c.copy(liveEdge8114 = "CHART_BUY"))
             assertEquals(setup, Admission.Terminal8136.ADMIT, d.terminal)
             assertFalse("a fired setup is not statistical proof", d.specific)
             assertTrue(d.strategyClockWitness8535)
