@@ -767,7 +767,10 @@ object ForwardReturnLabeler7731 {
             // V5.0.8418 — a Cortex that is not loaded (checkpointForward8401 throws) no longer stops the labeler persisting its
             // own rows: the cells and observations are saved and the prior paired checkpoint is retained unchanged.
             val paired = try { com.lifecyclebot.engine.cortex.Cortex7885.checkpointForward8401(
-                selected.filter { !it.done60 || (!it.done240 && it.targetHorizon8521 > H60_MS_7731) }
+                // V5.0.8541 — only prediction observations (Cortex / native enrollment) can own a Cortex prediction at their
+                // own time; gate / plan / missed-lane observations never do and were counted as ORIGINAL_UNAVAILABLE (1,495).
+                selected.filter { (!it.done60 || (!it.done240 && it.targetHorizon8521 > H60_MS_7731)) &&
+                    com.lifecyclebot.engine.NativeDecisionEnrollment8372.predictionObservation8404(it.reason7967) }
                     .map { "${it.mint}|${it.lane}|${it.atMs}" }.toSet()) }
                 catch (_: Exception) { pairedSkipped8418.incrementAndGet(); null }
             val committed = p.edit().putString(CELLS_KEY_7946, enc).putString(PENDING_KEY_7946, encodePending7735(now, selected))

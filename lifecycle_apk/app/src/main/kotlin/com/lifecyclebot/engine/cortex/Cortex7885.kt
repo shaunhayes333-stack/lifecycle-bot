@@ -3506,7 +3506,7 @@ object Cortex7885 {
             com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.laneAdmittedExecutable8539(lane)
         } catch (_: Throwable) { null }
         val code = CortexVsStack8539.code(r.topN, r.topMean, r.topSe, stack?.n60 ?: 0, stack?.meanNet60Pct ?: Double.NaN,
-            stack?.stderr60Pct ?: Double.NaN)
+            stack?.stderr60Pct ?: Double.NaN, minOf(r.strongCoverage8392, r.restCoverage8392))   // V5.0.8541 — missing outcomes
         stackVerdict8539[lane] = now to code
         if (code != CortexVsStack8539.PROVEN) inc("AUTHORITY_DENIED_8539_${lane}_$code")
         return code

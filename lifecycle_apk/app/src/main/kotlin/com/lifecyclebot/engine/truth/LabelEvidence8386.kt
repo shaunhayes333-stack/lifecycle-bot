@@ -27,7 +27,10 @@ data class LabelBasis8386(val mark: LabelMark8386, val capUsd: Double, val capDe
 
 object LabelEvidence8386 {
     fun status(entry: LabelMark8386?, outcome: LabelMark8386?): String {
-        if (entry == null || outcome == null || !entry.known() || !outcome.known()) return "OBSERVED_ONLY_UNKNOWN_BASIS"
+        if (entry == null || !entry.known()) return "OBSERVED_ONLY_UNKNOWN_BASIS"
+        // V5.0.8541 — a known entry with no priced outcome is a missing OUTCOME mark, not an unknown basis (8539:
+        // LABEL_LOST_DEADLINE_UNKNOWN_BASIS_8187=328 counted provider silence at the horizon as a basis defect).
+        if (outcome == null || !outcome.known()) return "OBSERVED_ONLY_NO_OUTCOME_MARK"
         if (entry.mint != outcome.mint || entry.units != outcome.units) return "OBSERVED_ONLY_IDENTITY_UNITS"
         if (entry.decimals >= 0 && outcome.decimals >= 0 && entry.decimals != outcome.decimals) return "OBSERVED_ONLY_DECIMALS"
         if (outcome.observedAtMs < entry.observedAtMs) return "OBSERVED_ONLY_TIME_ORDER"

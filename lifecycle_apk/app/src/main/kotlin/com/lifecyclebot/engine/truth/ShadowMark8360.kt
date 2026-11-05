@@ -21,6 +21,8 @@ object ShadowMark8360 {
     const val SRC_LABELER_8360 = "LABELER"
     const val SRC_CURVE_8360 = "CURVE"
     const val SRC_TAPE_8360 = "TAPE"
+    /** V5.0.8541 — the coin's own pool vaults read on chain (OnChainDepth8038). */
+    const val SRC_POOL_8541 = "POOL"
 
     private fun ok(px: Double?): Boolean = px != null && px.isFinite() && px > 0.0
 
@@ -55,9 +57,20 @@ object ShadowMark8360 {
                     candidates += Observation8372(it.first * solUsd, it.second, SRC_TAPE_8360)
                 }
             } catch (_: Throwable) {}
+            // V5.0.8541 — the coin's own pool on chain (constant-product vault read; concentrated venues never price). 8539:
+            // SHADOW_EXIT_WAITS_FOR_MARK_8439_TIMEOUT=1,119 — a shadow coin off the watchlist had no tick price and often no
+            // labeler / curve / tape mark when its clock exit fired.
+            try {
+                OnChainDepth8038.freshRead8198(mint, MAX_AGE_MS_8360, nowMs)?.let {
+                    candidates += Observation8372(OnChainDepth8038.priceUsd8038(it.quoteSol, it.baseTokens, solUsd), it.atMs, SRC_POOL_8541)
+                }
+            } catch (_: Throwable) {}
         }
-        return candidates.filter { ok(it.priceUsd) && it.observedAtMs > 0L &&
+        val best = candidates.filter { ok(it.priceUsd) && it.observedAtMs > 0L &&
             nowMs - it.observedAtMs in 0L..MAX_AGE_MS_8360 }.maxByOrNull { it.observedAtMs }
+        // Nothing observed now: ask the pool's vaults so the next tick has a chain mark (bounded, de-duplicated by the reader).
+        if (best == null || nowMs - best.observedAtMs > MAX_AGE_MS_8360 / 2) try { OnChainDepth8038.requestMint8540(mint) } catch (_: Throwable) {}
+        return best
     }
 
     /**

@@ -233,8 +233,15 @@ object OnChainDepth8038 {
     fun requestMint8540(mint: String, maxAgeMs: Long = FRESH_MS) {
         val m = mint.trim()
         if (!BASE58.matches(m) || freshRead8198(m, maxAgeMs, System.currentTimeMillis()) != null || depthOnlyFresh8418(m, maxAgeMs) || !inFlight.add(m)) return
+        val now8541 = System.currentTimeMillis()
+        // V5.0.8541 — a mint with no known pool is not looked up again for a minute (the shadow tick asks every loop).
+        if (noPoolAt8541[m]?.let { now8541 - it < NO_POOL_RETRY_MS_8541 } == true) { inFlight.remove(m); return }
         val ps = poolsForMint8540(m)
-        if (ps.isEmpty()) { inFlight.remove(m); try { PipelineHealthCollector.labelInc("CHAIN_PRICE_NO_KNOWN_POOL_8540") } catch (_: Throwable) {}; return }
+        if (ps.isEmpty()) {
+            inFlight.remove(m); noPoolAt8541[m] = now8541
+            if (noPoolAt8541.size > 4_000) noPoolAt8541.entries.removeIf { now8541 - it.value >= NO_POOL_RETRY_MS_8541 }
+            try { PipelineHealthCollector.labelInc("CHAIN_PRICE_NO_KNOWN_POOL_8540") } catch (_: Throwable) {}; return
+        }
         mintRequests8540.incrementAndGet()
         if (PoolBatch8418.enqueue8418(m, ps.take(2))) return
         try {
@@ -242,6 +249,8 @@ object OnChainDepth8038 {
         } catch (_: Throwable) { inFlight.remove(m) }
     }
 
+    private val noPoolAt8541 = ConcurrentHashMap<String, Long>()
+    private const val NO_POOL_RETRY_MS_8541 = 60_000L
     private val mintRequests8540 = AtomicLong(0)
     fun mintRequests8540(): Long = mintRequests8540.get()
 

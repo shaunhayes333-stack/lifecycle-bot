@@ -22,9 +22,18 @@ object CortexVsStack8539 {
 
     const val PROVEN = "PROVEN_OVER_STACK"
 
+    /**
+     * V5.0.8541 — the share of matured Cortex outcomes that must be known (strong AND rest cohorts) before its picks are
+     * compared at all. 8539 TREASURY: coverageS=0.86, coverageRest=0.54 — a cohort missing half its outcomes cannot prove an
+     * edge (the missing ones are disproportionately coins no source priced, i.e. the dead ones). Same bar as CortexAuthority8366.
+     */
+    const val MIN_COVERAGE_8541 = 0.7
+
     /** Pure: why the Cortex has (PROVEN_OVER_STACK) or has not proven it beats the stack. */
-    fun code(cortexN: Int, cortexMean: Double, cortexSe: Double, stackN: Int, stackMean: Double, stackSe: Double): String = when {
+    fun code(cortexN: Int, cortexMean: Double, cortexSe: Double, stackN: Int, stackMean: Double, stackSe: Double,
+             cortexCoverage: Double = 1.0): String = when {
         cortexN < MIN_N -> "CORTEX_THIN"
+        !cortexCoverage.isFinite() || cortexCoverage < MIN_COVERAGE_8541 -> "CORTEX_INCOMPLETE_OUTCOMES"
         stackN < MIN_N -> "STACK_THIN"
         !cortexMean.isFinite() || !stackMean.isFinite() -> "UNREAD"
         cortexMean <= 0.0 -> "CORTEX_PICKS_LOSE"
