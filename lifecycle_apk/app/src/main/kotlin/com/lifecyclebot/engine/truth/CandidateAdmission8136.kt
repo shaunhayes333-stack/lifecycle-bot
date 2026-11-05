@@ -858,6 +858,19 @@ object CandidateAdmission8136 {
         // V5.0.8538 — the opinion is not alone when the coin carries one of the 8069–8114 live edges (a proven cell / kind /
         // setup / lane trigger, a runner cell beating its lane, a promoted specialist, an expert copy, a confirmed run, a
         // runner ticket, the chart reader's BUY): it admits, and LiveEdgeGate7877's live backstop reads the same proof.
+        // V5.0.8545 §LIVE_DOES_NOT_BUY_THE_HIGH_ON_AN_UNPROVEN_READ — 8542 live entry quality: at the high n3 w0, near the high
+        // n5 w0, CONTROLLED_MARKUP n5 w0; lifetime runner-style live buys LOSS_BOUGHT_TOP 28 of 48. Every runner lane's
+        // BREAKOUT / PEAK / DUMP stage records are -12 % .. -22 % (5-min executable net), and a lane-wide losing stage record
+        // was "carried" by a merely VALID setup / cell (StageCarry8180) into the lane-opinion admit below. LIVE money now
+        // needs this stage's own record SUPPORTED (or a supported setup / cell, which admitted above) to buy a coin in its
+        // markup or at its peak. A door: learnt and unlearnt through the refused record (doorBinds8393); paper and
+        // the paper book keep entering these coins and grading them.
+        if (c.live && liveIntoHigh8545(c.stage) && !supported8136(c.stageLoss8169 ?: c.stageRecord, c.costPct) &&
+            doorBinds8393(LIVE_INTO_HIGH_UNPROVEN_8545)) {
+            trace += "liveIntoHigh8545 stage=${c.stage} record=${(c.stageLoss8169 ?: c.stageRecord)?.compact ?: "-"}"
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("${LIVE_INTO_HIGH_UNPROVEN_8545}_${c.lane.uppercase()}_${c.stage}") } catch (_: Throwable) {}
+            return done(Terminal8136.REFUSE, LIVE_INTO_HIGH_UNPROVEN_8545, true, chosen)
+        }
         if (nativeLive8259 && c.live) {
             if (c.liveEdge8114 != null) trace += "liveNativeCarriedBy8538=${c.liveEdge8114}"
             // V5.0.8539 — learnt and unlearnt: the door binds until its own refused record proves it turns away winners
@@ -912,6 +925,14 @@ object CandidateAdmission8136 {
     }
 
     const val LIVE_NATIVE_OPINION_UNPROVEN_8536 = "LIVE_NATIVE_OPINION_UNPROVEN_8536"
+    const val LIVE_INTO_HIGH_UNPROVEN_8545 = "LIVE_INTO_HIGH_UNPROVEN_8545"
+
+    /**
+     * Pure (V5.0.8545): a lifecycle stage where a buy goes into the coin's high (markup, peak). A dump is not here: a fired
+     * rebound setup owns its own reclaim clock there, and a dump without a reclaim is already ENTRY_NO_RECLAIM_8506.
+     */
+    fun liveIntoHigh8545(stage: String?): Boolean =
+        stage?.trim()?.uppercase() in setOf("CONTROLLED_MARKUP", "PEAK_EXHAUSTION")
     /**
      * V5.0.8539 — pure: the coin's own lane brain qualified it (an authoritative, eligible native opinion of this lane) and
      * its score clears the lane's fluid floor. Such a coin is the specialist's call: an unobservable flow / stage read is

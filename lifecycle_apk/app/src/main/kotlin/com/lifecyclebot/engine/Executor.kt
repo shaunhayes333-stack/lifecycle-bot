@@ -20131,7 +20131,12 @@ class Executor(
                     "mint=${ts.mint.take(10)} sol=$sol reason=${buyLease.reason} backoffMs=${buyLease.backoffMs} processor=$buyLeaseProcessor",
                 )
             } catch (_: Throwable) {}
-            lastLiveBuyStop8252[ts.mint] = "BUY_LEASE_DEFERRED_8496"   // V5.0.8496 — the ticket names this stop (was UNNAMED_8330)
+            // V5.0.8545 — a BACKOFF means this mint's last buy attempt FAILED terminally (route, chase consumed, LP lock,
+            // economics). Holding the ticket and retrying the same stale decision for 90 s only buys the fading coin later
+            // (8542: SHITCOIN 10 tickets -> 0 buys, 6 ending RETRY_BUDGET; EXPRESS 8 -> 0, 4). The ticket ends; the coin is
+            // decided again from scratch on a fresh read. A busy lease (another attempt in flight) still holds and retries.
+            lastLiveBuyStop8252[ts.mint] = if (buyLease.reason == "BACKOFF_ACTIVE") "BUY_LEASE_BACKOFF_ENDS_TICKET_8545"
+                else "BUY_LEASE_DEFERRED_8496"   // V5.0.8496 — the ticket names this stop (was UNNAMED_8330)
             return false
         }
         // V5.0.8489 — one live position per mint, enforced at the send. 8488 live: EXPRESS bought 3qjBR3 while a QUALITY
