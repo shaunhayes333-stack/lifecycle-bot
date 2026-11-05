@@ -17,8 +17,9 @@ class Aate7605FDeadDispositionCompletenessTest {
         val fDead = source.readLines().drop(1).filter { it.startsWith("F_DEAD\t") }
         val rows = disposition.readLines().drop(1).filter { it.isNotBlank() }
 
-        assertEquals(1481, fDead.size)
-        assertEquals(1481, rows.size)
+        // superseded: 1,481 — the 8529b ledger regeneration lists 1,508 F_DEAD rows (33 new, 6 no longer dead); 8535 reconciled.
+        assertEquals(1508, fDead.size)
+        assertEquals(1508, rows.size)
         assertFalse(rows.any { it.contains("\tUNCLASSIFIED\t") })
 
         val keys = rows.map {
@@ -38,7 +39,8 @@ class Aate7605FDeadDispositionCompletenessTest {
     @Test
     fun `audit declares zero unresolved F DEAD rows`() {
         val audit = File("../audits/aate_strategy_unwired_worklist_2026-09-29.md").readText()
-        assertTrue(audit.contains("F_DEAD unresolved count: 0 / 1,481"))
-        assertTrue(audit.contains("1,481 / 1,481 classified"))
+        // superseded: 1,481 → 1,508 (8535 reconciliation of the 8529b ledger regeneration).
+        assertTrue(audit.contains("F_DEAD unresolved count: 0 / 1,508"))
+        assertTrue(audit.contains("1,508 / 1,508 classified"))
     }
 }

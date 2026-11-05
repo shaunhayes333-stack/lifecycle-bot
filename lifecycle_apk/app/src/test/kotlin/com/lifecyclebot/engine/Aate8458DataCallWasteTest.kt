@@ -48,7 +48,8 @@ class Aate8458DataCallWasteTest {
         assertFalse("base58 that decodes to 23 bytes", KeylessRpc8359.solanaKey8458("2".repeat(32)))
         val s = File("src/main/kotlin/com/lifecyclebot/engine/truth/OnChainSupplyAuthority7075.kt").readText()
         val ask = s.substringAfter("fun requestAsync7075(mint: String) {")
-        val guard = ask.indexOf("if (!com.lifecyclebot.network.KeylessRpc8359.solanaKey8458(mint)) { notSolanaKey8458.incrementAndGet(); return }")
+        // superseded: `{ notSolanaKey8458.incrementAndGet(); return }` — 8533 also counts the refused key's shape (bump8533); the order is unchanged.
+        val guard = ask.indexOf("if (!com.lifecyclebot.network.KeylessRpc8359.solanaKey8458(mint)) { notSolanaKey8458.incrementAndGet(); bump8533(keyShape8533(mint)); return }")
         assertTrue("checked before the mint is counted or batched", guard in 0 until ask.indexOf("requested.incrementAndGet()"))
         assertTrue(guard < ask.indexOf("if (enqueueBatch8445(mint, gate)) return"))
     }

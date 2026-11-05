@@ -194,10 +194,13 @@ class Aate8283FeatureCacheLifecycleTest {
 
     // P4 — the directive's test: a genuine early-launch setup is judged on its fresh launch evidence, no fake history.
     @Test fun earlyLaunchIsJudgedOnLaunchEvidenceWithItsUnavailableHistoryRecorded() {
-        // before 8283 the too-young history sat in missingInputs and the candidate waited for it
+        // before 8283 the too-young history sat in missingInputs and the candidate waited for it.
+        // superseded: `DEFER_DATA / DATA_INCOMPLETE_DEFER_8136` — since 8531 §MINIMUM_GATE_DECIDES only the minimum (price,
+        // economics, CRITICAL_MISSING_8170) defers; an optional chg / shape gap is recorded and the candidate is judged.
         val before = CandidateAdmission8136.decide8136(launch(missing = listOf("chg:DEFAULT_UNOBSERVED", "shape:UNKNOWN")))
-        assertEquals(Terminal8136.DEFER_DATA, before.terminal)
-        assertEquals("DATA_INCOMPLETE_DEFER_8136", before.reason)
+        assertEquals(before.compact, Terminal8136.ADMIT, before.terminal)
+        assertEquals("GENERIC_PRIOR_CLEARS_8136", before.reason)
+        assertTrue(before.compact, before.trace.any { it.startsWith("optionalUnobserved8170=chg:DEFAULT_UNOBSERVED,shape:UNKNOWN") })
         // now it is recorded apart and the candidate is judged (paper: the generic prior over its own launch evidence)
         val d = CandidateAdmission8136.decide8136(launch(unavailable = listOf("chg:DEFAULT_UNOBSERVED", "shape:UNKNOWN")))
         assertEquals(d.compact, Terminal8136.ADMIT, d.terminal)

@@ -3675,8 +3675,11 @@ Repair:
 
 ## 5.0.8513 reconciliation
 
-- F_DEAD unresolved count: 0 / 1,481 (dispositions explicit; open decisions listed below).
-- 1,481 / 1,481 classified.
+- F_DEAD unresolved count: 0 / 1,508 (dispositions explicit; open decisions listed below).
+- 1,508 / 1,508 classified.
+- 8535 reconciliation: the 8529b ledger regeneration added 33 F_DEAD rows and retired 6 (no longer dead); the 33 are
+  classified by a production + test reference sweep (2 referenced from another production file, 4 referenced in-file,
+  2 test reset hooks, 3 runtime-stop maintenance APIs, 12 test-only contracts, 10 zero-reference / readback / UI / legacy).
 
 Ledger regenerated from current source: 1,481 F_DEAD rows (454 historical rows no longer dead, 477 new). Historical dispositions kept verbatim; new rows classified by a full production+test reference sweep.
 
