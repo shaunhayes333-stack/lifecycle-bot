@@ -48,7 +48,31 @@ object CortexOpportunityPolarity8522 {
         val policy: String = POLICY_LABEL_8522,
         val featureRevision: Long = -1L,
         val source8522: Source? = null,
-    )
+        // V5.0.8535 §P0-11 — what the bound decision rests on, surfaced on every projection (abstentions included).
+        val pUp8535: Double = Double.NaN,
+        val expectedNetPct8535: Double = Double.NaN,
+        val tailProb8535: Double = Double.NaN,
+        val calibrationN8535: Double = Double.NaN,
+        val nullFraction8535: Double = Double.NaN,
+        val effectiveVoters8535: Double = Double.NaN,
+    ) {
+        /** One line: decision, raw polarity, P(up), expected net, tail, calibration sample, null fraction, voters, reason. */
+        val receipt8535: String get() = receiptLine8535(decision.name, rawBucket?.name ?: "-", pUp8535, expectedNetPct8535, tailProb8535,
+            calibrationN8535, nullFraction8535, effectiveVoters8535, reason)
+    }
+
+    /** Pure (V5.0.8535 §P0-11): the override / abstention receipt text. */
+    fun receiptLine8535(decision: String, rawPolarity: String, pUp: Double, expectedNetPct: Double, tailProb: Double,
+                        calibrationN: Double, nullFraction: Double, voters: Double, reason: String): String {
+        fun f(v: Double, p: String = "%.2f") = if (v.isFinite()) p.format(v) else "?"
+        return "$decision raw=$rawPolarity pUp=${f(pUp)} net=${f(expectedNetPct, "%+.1f")}% tail=${f(tailProb)} n=${f(calibrationN, "%.0f")} " +
+            "null=${f(nullFraction)} voters=${f(voters, "%.1f")} why=$reason"
+    }
+
+    /** Pure: the share of voter ids with no finite reading (unknown inputs are named, never scored as neutral). */
+    fun nullFraction8535(raws: DoubleArray, ids: Int): Double = if (ids <= 0) Double.NaN else raws.count { !it.isFinite() }.toDouble() / ids
+
+    private val recentReceipts8535 = java.util.ArrayDeque<String>()
 
     fun appliesToLane8522(lane: String): Boolean = lane in lanes
 
@@ -75,7 +99,14 @@ object CortexOpportunityPolarity8522 {
         fun result(decision: Decision, reason: String) = Projection(decision, assessment?.bucket,
             assessment?.calibratedEdge ?: Double.NaN, reason, source.mint, source.lane, source.mode,
             assessment?.atMs ?: 0L, assessment?.inputAtMs8522 ?: 0L, source.candidateVersion,
-            featureRevision = source.featureRevision, source8522 = source)
+            featureRevision = source.featureRevision, source8522 = source,
+            // V5.0.8535 §P0-11 — the receipt's fields from the assessment itself (NaN when there is none).
+            pUp8535 = assessment?.fused?.pWin ?: Double.NaN,
+            expectedNetPct8535 = assessment?.calibratedEdge ?: Double.NaN,
+            tailProb8535 = assessment?.fused?.let { f -> f.pRun8325.takeIf { it.isFinite() } ?: f.runnerRate } ?: Double.NaN,
+            calibrationN8535 = assessment?.fused?.laneN ?: Double.NaN,
+            nullFraction8535 = assessment?.let { nullFraction8535(it.raws, it.ids.size) } ?: Double.NaN,
+            effectiveVoters8535 = assessment?.fused?.effectiveVoters ?: Double.NaN)
         fun abstain(reason: String) = result(Decision.ABSTAIN, reason)
         if (source.mint.isBlank() || !appliesToLane8522(source.lane)) return abstain("OUTSIDE_SOLANA_NATIVE_SCOPE")
         if (source.mode !in setOf("PAPER", "LIVE") || source.mode != currentMode) return abstain("MODE_MISMATCH")
@@ -113,7 +144,15 @@ object CortexOpportunityPolarity8522 {
     private val evaluations = Array(Decision.values().size) { AtomicLong(0L) }
     internal fun note8522(projection: Projection): Projection = projection.also {
         evaluations[it.decision.ordinal].incrementAndGet()
+        // V5.0.8535 §P0-11 — every bound decision leaves its receipt (the last few are on the status line).
+        synchronized(recentReceipts8535) {
+            recentReceipts8535.addLast("${it.lane}:${it.mint.take(6)} ${it.receipt8535}")
+            while (recentReceipts8535.size > 6) recentReceipts8535.removeFirst()
+        }
     }
+
+    /** V5.0.8535 — the most recent projection receipts (newest last). */
+    fun recentReceipts8535(): List<String> = synchronized(recentReceipts8535) { recentReceipts8535.toList() }
 
     fun statusLine8522(): String = "$POLICY_LABEL_8522 scope=Solana/native opportunity only " +
         "projection evaluations: raw REFUSE→candidate=${evaluations[Decision.TAKE_CANDIDATE.ordinal].get()} " +

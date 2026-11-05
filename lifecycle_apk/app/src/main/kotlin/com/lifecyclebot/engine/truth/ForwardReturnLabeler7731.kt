@@ -446,6 +446,9 @@ object ForwardReturnLabeler7731 {
         @Volatile var bookedGross7997 = Double.NaN
         /** V5.0.8418 — reached its 5-minute read (counted once in labelMarks8418 due); its first mark there came after the window. */
         @Volatile var due8418 = false
+        /** V5.0.8535 §P0-01 — the 1-minute and 1-hour reads counted due (coverage by horizon). */
+        @Volatile var due15_8535 = false
+        @Volatile var due240_8535 = false
         @Volatile var lateMark8418 = false
         /** V5.0.8410 — decay each destination carried at booking (tally keys / allocator nodes); empty = legacy, weight unknown. */
         @Volatile var tallyScales8410: DoubleArray = DoubleArray(0)
@@ -2068,7 +2071,9 @@ object ForwardReturnLabeler7731 {
      * asked for waits [OFFWATCH_RETRY_MS_7809] before it is asked again, so the
      * batch rotates through every due observation.
      */
-    private const val OFFWATCH_RETRY_MS_7809 = 30_000L   // V5.0.8405 — inside the 1-minute horizon grace (was 90 s)
+    private const val OFFWATCH_RETRY_MS_7809 = 30_000L   // V5.0.8405 — inside the 1-minute horizon grace (was 90 s); V5.0.8535 — the ceiling of the window-scaled gap
+    /** V5.0.8535 §P0-01 — the Jupiter rung asks at most this many misses a batch (three calls of 50). */
+    private const val JUP_MAX_PER_BATCH_8535 = 150
     private val offWatchAttemptAt7809 = ConcurrentHashMap<String, Long>()
     private val offWatchDeferred7809 = AtomicLong(0)
     private val horizonMissed7809 = AtomicLong(0)
@@ -2143,6 +2148,7 @@ object ForwardReturnLabeler7731 {
                 end, nowMs, liveMark8454(mark), LabelEvidence8386.eligible(o.basis8386.mark, mark), mark.observedAtMs,
                 requiredAfterMs = requiredAt)) return
         try { KeylessMarks8359.noteLabelDue8418(o.mint, end, nowMs) } catch (_: Throwable) {}
+        if (end > nowMs) labelWindowEnd8535[o.mint] = end   // V5.0.8535 §P0-01
         val rank = labelOffWatchRank8521(o, age, first)
         due.add(o.mint to com.lifecyclebot.engine.cortex.CortexLabelFeed8291.offWatchKey8291(rank, end))
     }
@@ -2169,21 +2175,41 @@ object ForwardReturnLabeler7731 {
         " " + LabelClock8442.statusLine8442() + " shadowWanted8442=${shadowWanted8442.size} pendingMints8475=${pendingMintCount8475()}" +   // V5.0.8442 / 8475
         " flat8454[awaitingLive=${flatAwaitingLive8454.get()} liveBooked=${flatLiveBooked8454.get()}]" +   // V5.0.8454
         " downtimeUnobserved8505=${labelLostDowntime8505.get()} ${timingBook8528.line()}" +   // V5.0.8505
-        " " + chargedCostLine8534()   // V5.0.8534
+        " " + chargedCostLine8534() +   // V5.0.8534
+        " " + coverageLine8535()   // V5.0.8535
+
+    /** V5.0.8535 §P0-01 — priced / due by horizon and the provider cause of every unavailable terminal. */
+    private fun coverageLine8535(): String =
+        "labelCoverage8535[h1m=${booked15.get()}/${labelDue15_8535.get()} h5m=${booked60.get()}/${labelDue8418.get()} h60m=${booked240.get()}/${labelDue240_8535.get()} " +
+            "lostByCause{" + lostByCause8535.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } + "}]"
 
     /** Pure: a horizon label may book only from a mark at most the lost-mark grace past it. */
     fun horizonOpen7809(ageMs: Long, horizonMs: Long): Boolean =
         ageMs >= horizonMs && ageMs <= horizonMs + graceFor7946(horizonMs)
 
+    // V5.0.8535 §P0-01 — each due mint's window end (the grace it must be priced inside), so its retry gap follows ITS window:
+    // a 1-minute label (60 s grace) is re-asked every ~20 s, not once at 30 s; a 1-hour label keeps the 30 s gap.
+    private val labelWindowEnd8535 = ConcurrentHashMap<String, Long>()
+    private val lastCause8535 = ConcurrentHashMap<String, OffWatchSchedule8535.Cause>()
+    private val lostByCause8535 = ConcurrentHashMap<String, AtomicLong>()
+    private val labelDue15_8535 = AtomicLong(0)
+    private val labelDue240_8535 = AtomicLong(0)
+
+    private fun noteCause8535(mint: String, next: OffWatchSchedule8535.Cause) {
+        lastCause8535.compute(mint) { _, prior -> OffWatchSchedule8535.merge(prior, next) }
+    }
+
     private fun rotateDue7809(due: List<String>, nowMs: Long): List<String> {
         if (offWatchAttemptAt7809.size > MAX_SEEN_7731) {
             offWatchAttemptAt7809.entries.removeIf { nowMs - it.value > OFFWATCH_RETRY_MS_7809 }
+            labelWindowEnd8535.entries.removeIf { it.value < nowMs - LOST_GRACE_MS_7731 }
+            lastCause8535.keys.removeIf { !labelWindowEnd8535.containsKey(it) && !offWatchAttemptAt7809.containsKey(it) }
         }
-        val (recent, ready) = due.distinct().partition { m ->
-            val at = offWatchAttemptAt7809[m]
-            at != null && nowMs - at in 0L until OFFWATCH_RETRY_MS_7809
-        }
-        if (recent.isNotEmpty()) offWatchDeferred7809.addAndGet(recent.size.toLong())
+        // The caller's order (rank, then time) is kept for mints with no known window; a known window sorts by its close.
+        val (ready, deferred) = OffWatchSchedule8535.ready(
+            due.mapIndexed { i, m -> OffWatchSchedule8535.Due(m, labelWindowEnd8535[m] ?: (Long.MAX_VALUE - (due.size - i))) },
+            { m -> offWatchAttemptAt7809[m] }, nowMs)
+        if (deferred > 0) offWatchDeferred7809.addAndGet(deferred.toLong())
         return ready
     }
 
@@ -2281,10 +2307,15 @@ object ForwardReturnLabeler7731 {
                             com.lifecyclebot.network.DexscreenerApi().batchPriceFetchTyped8087(ask8418, LABEL_SLOT_WAIT_MS_8474, heldMarkTraffic = false)
                         } catch (_: Throwable) { null }
                         if (r8474 == null || r8474.cause == com.lifecyclebot.network.DexscreenerApi.BatchCause8087.LIMITER_REFUSED) {
+                            // V5.0.8535 §P0-01 — the cause travels with the mint: our refused slot is a retry, a failed call is UNAVAILABLE.
+                            for (m in ask8418) noteCause8535(m, OffWatchSchedule8535.dexCause(refused = r8474 != null, answered = false, listed = false))
                             limiterRetry8474.addAll(ask8418)
                             continue
                         }
                         val dex8405 = r8474.prices.filter { it.value.isFinite() && it.value > 0.0 }
+                        val answered8535 = r8474.cause != com.lifecyclebot.network.DexscreenerApi.BatchCause8087.PROVIDER_FAILED &&
+                            r8474.cause != com.lifecyclebot.network.DexscreenerApi.BatchCause8087.UNPARSEABLE
+                        for (m in ask8418) noteCause8535(m, OffWatchSchedule8535.dexCause(refused = false, answered = answered8535, listed = m in dex8405))
                         // Dex returns a snapshot without a trade timestamp. Its receipt time belongs to this response.
                         noteOffWatchResponse(dex8405)
                         got.putAll(dex8405)
@@ -2296,13 +2327,21 @@ object ForwardReturnLabeler7731 {
                         got.putAll(curve7753)
                         offWatchCurvePriced7753.addAndGet(curve7753.size.toLong())
                     }
-                    val missedJup8405 = batch.filter { it !in got }.take(50)
-                    if (missedJup8405.isNotEmpty()) {
-                        val jup = try { com.lifecyclebot.engine.sell.PriceResolverFallback.jupiterBatchPrices7737(missedJup8405) } catch (_: Throwable) { emptyMap() }
+                    // V5.0.8535 §P0-01 — the Jupiter rung covers every miss of the batch (bounded to JUP_MAX_PER_BATCH_8535 in
+                    // chunks of 50), not the first 50 only; a chunk that returns nothing leaves UNAVAILABLE on its mints.
+                    val missedJup8405 = batch.filter { it !in got }.take(JUP_MAX_PER_BATCH_8535)
+                    for (jupChunk8535 in missedJup8405.chunked(50)) {
+                        val jup = try { com.lifecyclebot.engine.sell.PriceResolverFallback.jupiterBatchPrices7737(jupChunk8535) } catch (_: Throwable) { emptyMap() }
                         noteOffWatchResponse(jup)
                         got.putAll(jup)
+                        for (m in jupChunk8535) noteCause8535(m, when {
+                            m in jup -> OffWatchSchedule8535.Cause.PRICED
+                            jup.isEmpty() -> OffWatchSchedule8535.Cause.UNAVAILABLE
+                            else -> OffWatchSchedule8535.Cause.NOT_LISTED
+                        })
                         if (jup.isNotEmpty()) PipelineHealthCollector.labelAdd("FORWARD_LABEL_OFFWATCH_JUP_PRICED_8405", jup.size.toLong())
                     }
+                    for (m in got.keys) noteCause8535(m, OffWatchSchedule8535.Cause.PRICED)
                     val at = System.currentTimeMillis()
                     // Curve prices are already available through activeExitObservation, with the account observation time.
                     // The end of a later fallback must never refresh earlier marks.
@@ -2464,8 +2503,12 @@ object ForwardReturnLabeler7731 {
             if (terminalOutbox8395.containsKey(id)) true
             else if (terminalOutbox8395.size >= MAX_PENDING_7731) { terminalCapacityRefusals8401.incrementAndGet(); false }
             else {
+                val cause8535 = (lastCause8535[o.mint] ?: OffWatchSchedule8535.Cause.NO_SOURCE).name   // V5.0.8535 §P0-01
+                lostByCause8535.computeIfAbsent(cause8535) { AtomicLong() }.incrementAndGet()
                 val value=org.json.JSONObject().put("mint",o.mint).put("lane",o.lane).put("at",o.atMs).put("why",why)
-                    .put("terminalAt",nowMs).put("entry",o.basis8386.json()).put("last",o.lastMark8386?.json()).toString()
+                    .put("terminalAt",nowMs).put("entry",o.basis8386.json()).put("last",o.lastMark8386?.json())
+                    .put("cause8535", cause8535)
+                    .put("downtime8535", if (downtime8505) (DowntimeRecovery8430.receipt8535(o.mint) ?: "NO_RECEIPT") else "-").toString()
                 val committed = putRow8409(id, value)   // V5.0.8409
                 if (committed) terminalOutbox8395[id]=value else terminalStorageFailures8401.incrementAndGet()
                 committed
@@ -2717,6 +2760,8 @@ object ForwardReturnLabeler7731 {
         for ((key, o) in pending.entries.toList()) {
             val age = nowMs - o.atMs
             if (!o.due8418 && !o.done60 && age >= H60_MS_7731) { o.due8418 = true; labelDue8418.incrementAndGet() }   // V5.0.8418
+            if (!o.due15_8535 && !o.done15 && age >= H15_MS_7731) { o.due15_8535 = true; labelDue15_8535.incrementAndGet() }   // V5.0.8535
+            if (!o.due240_8535 && !o.done240 && age >= H240_MS_7731) { o.due240_8535 = true; labelDue240_8535.incrementAndGet() }
             val observed8386 = typedMark8386(o.mint, priceFor, nowMs)
             // V5.0.8521 — queue before unknown-basis / unchanged-copy / curve rejection returns.
             // Otherwise a continuously re-stamped cached price prevents the real horizon price from ever being fetched.
@@ -2732,7 +2777,7 @@ object ForwardReturnLabeler7731 {
                 val first8291 = firstMarkDue8187(o.rebased8076, o.lastPxAtMs, age)
                 // V5.0.8418 — due in a window now: the pair lane and the curve read price it (KeylessMarks8359), in priority after held / shadow.
                 val end8418 = labelWindowEnd8418(o, age, first8291)
-                if (end8418 > nowMs) try { KeylessMarks8359.noteLabelDue8418(o.mint, end8418, nowMs) } catch (_: Throwable) {}
+                if (end8418 > nowMs) { labelWindowEnd8535[o.mint] = end8418; try { KeylessMarks8359.noteLabelDue8418(o.mint, end8418, nowMs) } catch (_: Throwable) {} }
                 val rank8291 = labelOffWatchRank8521(o, age, first8291)
                 if (first8291) dueUnpriced7737.add(o.mint to com.lifecyclebot.engine.cortex.CortexLabelFeed8291.offWatchKey8291(rank8291, o.atMs - REBASE_MAX_MS_8076))
                 else if (dueAtHorizon7737(o, age)) dueUnpriced7737.add(o.mint to com.lifecyclebot.engine.cortex.CortexLabelFeed8291.offWatchKey8291(rank8291,

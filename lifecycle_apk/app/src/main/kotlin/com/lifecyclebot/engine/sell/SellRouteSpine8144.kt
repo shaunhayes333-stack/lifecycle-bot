@@ -340,9 +340,54 @@ object SellRouteSpine8144 {
     }
 
     /** Close the spine and fold it into the aggregates. */
+    // ── V5.0.8535 §P0-12 — the emergency receipt ──
+    // 8529: emergency trigger -> broadcast max 7,079 ms against a 3 s protective bound, and the report named no stage. Every
+    // emergency spine now leaves a timestamped receipt: trigger, first broadcast, every pre-broadcast stage's time, the
+    // failing stage and its attempts, and the stage that ate the bound. Measurement only, like the rest of the spine.
+    /** The protective trigger -> broadcast bound (StopLatencyClasses6464.TRIGGER_TO_BROADCAST_SLA_MS_7807). */
+    const val EMERGENCY_T2B_BOUND_MS_8535 = 3_000L
+    private val emergencyReceipts8535 = java.util.ArrayDeque<String>()
+    private val breachByStage8535 = ConcurrentHashMap<String, AtomicLong>()
+
+    /** Pure: the pre-broadcast stage that took the most time (null when every one is zero). */
+    fun dominantStage8535(ms: Map<Stage8144, Long>): Stage8144? =
+        ms.entries.filter { it.key.ordinal in Stage8144.CLOSE_LEASE.ordinal..Stage8144.BROADCAST.ordinal && it.value > 0L }
+            .maxByOrNull { it.value }?.key
+
+    /** Pure: the receipt line. */
+    fun receiptLine8535(mint: String, positionId: String, triggerAtMs: Long, broadcastAtMs: Long, ms: Map<Stage8144, Long>,
+                        failedStage: Stage8144?, failures: Int, outcome: String): String {
+        val t2b = if (broadcastAtMs > 0L) broadcastAtMs - triggerAtMs else -1L
+        val dominant = dominantStage8535(ms)
+        return "EMRG ${mint.take(8)} pos=${positionId.take(12).ifBlank { "-" }} triggerAt=$triggerAtMs broadcastAt=${if (broadcastAtMs > 0L) broadcastAtMs else "-"} " +
+            "t2b=${if (t2b >= 0L) t2b else "-"}ms bound=${EMERGENCY_T2B_BOUND_MS_8535}ms " +
+            "stages{" + ms.entries.filter { it.value > 0L }.sortedBy { it.key.ordinal }.joinToString(",") { "${it.key.name}=${it.value}" } + "} " +
+            "dominant=${dominant?.name ?: "-"} failed=${failedStage?.name ?: "-"}x$failures outcome=$outcome" +
+            (if (t2b > EMERGENCY_T2B_BOUND_MS_8535) " BREACH" else "")
+    }
+
+    private fun receipt8535(t: Timer8144, outcome: String) {
+        val ms = Stage8144.values().associateWith { t.durationMs(it) }
+        val line = receiptLine8535(t.mint, t.positionId, t.triggerAtMs, t.broadcastAtMs, ms, t.failedStage, t.failures, outcome)
+        synchronized(emergencyReceipts8535) {
+            emergencyReceipts8535.addLast(line)
+            while (emergencyReceipts8535.size > 20) emergencyReceipts8535.removeFirst()
+        }
+        val t2b = t.triggerToBroadcastMs()
+        if (t2b > EMERGENCY_T2B_BOUND_MS_8535) {
+            val stage = dominantStage8535(ms)?.name ?: "UNKNOWN"
+            breachByStage8535.computeIfAbsent(stage) { AtomicLong() }.incrementAndGet()
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EMERGENCY_T2B_BREACH_STAGE_8535_$stage") } catch (_: Throwable) {}
+        }
+    }
+
+    /** V5.0.8535 — the most recent emergency receipts (newest last). */
+    fun emergencyReceipts8535(): List<String> = synchronized(emergencyReceipts8535) { emergencyReceipts8535.toList() }
+
     private fun finish8144(mint: String, outcome: String, nowMs: Long = System.currentTimeMillis()): Timer8144? {
         val t = open8144.remove(mint) ?: return null
         val c = cls(t)
+        if (t.emergency) try { receipt8535(t, outcome) } catch (_: Throwable) {}
         fun add(k: String, v: Long) = latency8144.computeIfAbsent("$c|$k") { Agg8144() }.add(v)
         add("trigger->broadcast", t.triggerToBroadcastMs())
         // V5.0.8223 — the paper exit simulator pays this measured latency (PaperExitLatency8223).
@@ -400,7 +445,10 @@ object SellRouteSpine8144 {
                 "failStage={$fails} outcomes={$outs}]"
         }
         val recent = synchronized(recent8144) { recent8144.joinToString(" | ") }
+        val breach8535 = breachByStage8535.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }
+        val receipts8535 = emergencyReceipts8535().takeLast(3).joinToString(" | ").ifBlank { "-" }
         return "open=${open8144.size} ${section("EMRG")} ${section("NORM")} ${preRouteLine8435()} recent=[${recent.ifBlank { "-" }}]" +
+            " t2bBreachByStage8535{$breach8535} emrgReceipts8535=[$receipts8535]" +
             " " + (try { com.lifecyclebot.engine.SellLanding8368.statusLine8368() } catch (_: Throwable) { "sellLanding8368=-" })  // V5.0.8368
     }
 

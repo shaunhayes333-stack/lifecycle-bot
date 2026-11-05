@@ -58,7 +58,13 @@ object DGradeLooperTracker {
         val confidence: Int
     )
 
-    private val recentProposals = mutableMapOf<String, MutableList<ProposalRecord>>()
+    // V5.0.8535 §P2-02 — `mutableMapOf` + `MutableList` were read and mutated from every FDG thread with no lock
+    // (8529: four DGradeLooperTracker exceptions). One lock, a bounded ring per mint, the same 2-minute / 10-proposal
+    // semantics; the clocks are injectable so the window is testable.
+    private val recentProposals = HashMap<String, ArrayDeque<ProposalRecord>>()
+    private val lock8535 = Any()
+    private const val MAX_PER_MINT_8535 = 64
+    private const val MAX_MINTS_8535 = 4_096
 
     private const val WINDOW_MS = 2 * 60 * 1000L          // 2 minute window
     private const val MAX_D_GRADE_PROPOSALS = 10          // Max D-grade low-conf proposals per window
@@ -67,39 +73,35 @@ object DGradeLooperTracker {
     /**
      * Record a proposal for a token.
      */
-    fun recordProposal(mint: String, quality: String, confidence: Int) {
-        val now = System.currentTimeMillis()
-        cleanOldRecords(now)
-
-        val records = recentProposals.getOrPut(mint) { mutableListOf() }
-        records.add(
-            ProposalRecord(
-                timestamp = now,
-                quality = quality,
-                confidence = confidence
-            )
-        )
+    fun recordProposal(mint: String, quality: String, confidence: Int, nowMs: Long = System.currentTimeMillis()) {
+        synchronized(lock8535) {
+            cleanOldRecords(nowMs)
+            if (recentProposals.size >= MAX_MINTS_8535 && !recentProposals.containsKey(mint)) return
+            val records = recentProposals.getOrPut(mint) { ArrayDeque() }
+            records.addLast(ProposalRecord(timestamp = nowMs, quality = quality, confidence = confidence))
+            while (records.size > MAX_PER_MINT_8535) records.removeFirst()
+        }
     }
 
     /**
      * Check if a D-grade token should be blocked from re-proposal.
      */
-    fun shouldBlockDGradeLooper(mint: String, quality: String, confidence: Int): Boolean {
+    fun shouldBlockDGradeLooper(mint: String, quality: String, confidence: Int, nowMs: Long = System.currentTimeMillis()): Boolean {
         // Only applies to D-grade with low confidence
         if (quality != "D" || confidence >= D_GRADE_CONF_THRESHOLD) {
             return false
         }
-
-        val now = System.currentTimeMillis()
-        cleanOldRecords(now)
-
-        val records = recentProposals[mint] ?: return false
-
-        val recentDGradeCount = records.count {
-            it.quality == "D" && it.confidence < D_GRADE_CONF_THRESHOLD
+        synchronized(lock8535) {
+            cleanOldRecords(nowMs)
+            val records = recentProposals[mint] ?: return false
+            val recentDGradeCount = records.count { it.quality == "D" && it.confidence < D_GRADE_CONF_THRESHOLD }
+            return recentDGradeCount >= MAX_D_GRADE_PROPOSALS
         }
+    }
 
-        return recentDGradeCount >= MAX_D_GRADE_PROPOSALS
+    /** V5.0.8535 — the proposals of [mint] inside the window (tests / diagnostics). */
+    fun proposalCount8535(mint: String, nowMs: Long = System.currentTimeMillis()): Int = synchronized(lock8535) {
+        cleanOldRecords(nowMs); recentProposals[mint]?.size ?: 0
     }
 
     /**
@@ -109,15 +111,14 @@ object DGradeLooperTracker {
         return shouldBlockDGradeLooper(mint, quality, confidence)
     }
 
+    /** Caller holds [lock8535]. */
     private fun cleanOldRecords(now: Long) {
         val cutoff = now - WINDOW_MS
-
-        recentProposals.entries.forEach { (_, records) ->
-            records.removeIf { it.timestamp < cutoff }
-        }
-
-        recentProposals.entries.removeIf { (_, records) ->
-            records.isEmpty()
+        val it = recentProposals.entries.iterator()
+        while (it.hasNext()) {
+            val records = it.next().value
+            while (records.isNotEmpty() && records.first().timestamp < cutoff) records.removeFirst()
+            if (records.isEmpty()) it.remove()
         }
     }
 
@@ -125,7 +126,7 @@ object DGradeLooperTracker {
      * Clear all tracking (for testing)
      */
     fun clear() {
-        recentProposals.clear()
+        synchronized(lock8535) { recentProposals.clear() }
     }
 }
 
