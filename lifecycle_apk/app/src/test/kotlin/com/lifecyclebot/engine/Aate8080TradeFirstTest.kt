@@ -133,7 +133,9 @@ class Aate8080TradeFirstTest {
         // constant-level edits only: evaluate() is at the ART verifier edge (589 registers)
         assertTrue(f.contains("val wouldPassLiveQuality = candidate.setupQuality in listOf(\"A+\", \"A\", \"B\", \"C\", \"D\")"))
         val c = f.substringAfter("§PAPER_ACCEPTS_WHAT_LIVE_ACCEPTS").substringBefore("tags.add(\"class:")
-        assertTrue(c.contains("confidenceProbe -> {"))
+        // superseded: V5.0.8535 §N-03 — the paper-only confidence probe class is gone (LIVE sizes low confidence and buys;
+        // paper refused the same candidate as NON_ECONOMIC_APPROVAL_7835). See Aate8535PaperBenchmarkTest.
+        assertFalse(c.contains("confidenceProbe -> {"))
         assertFalse(c.contains("isAnyProbe -> {"))
         assertTrue(f.contains("TradeMode.PAPER -> approvalClass == ApprovalClass.PAPER_BENCHMARK"))
         assertFalse(f.contains("paperApprovalClass8080"))

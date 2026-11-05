@@ -4232,7 +4232,6 @@ object FinalDecisionGate {
         val narrativeTag = if (narrativeAdjustment != 0) " [NAR:$narrativeAdjustment]" else ""
         val orthoTag = if (orthogonalBonus != 0) " [ORTHO:$orthogonalBonus]" else ""
 
-        var confidenceProbe = false
         var confidenceProbeSizeMultiplier = 1.0
 
         if (blockReason == null && adjustedConfidence < confidenceThreshold) {
@@ -4261,7 +4260,6 @@ object FinalDecisionGate {
             val hasMinLiquidity = ts.lastLiquidityUsd >= 3000.0
 
             if (isPaperMode && isBootstrap && fdgLenient && hasNoHardBlocks && hasMinLiquidity && (isRepeatWinner || hasPositiveMemory)) {
-                confidenceProbe = true
                 isProbeCandidate = true
 
                 val confidenceGap = confidenceThreshold - adjustedConfidence
@@ -5484,7 +5482,9 @@ object FinalDecisionGate {
             }"
             !config.paperMode -> ApprovalClass.LIVE to "live mode approval (adaptive conf: ${liveAdaptiveConf.toInt()}%)"
             else -> {
-                val wouldPassLiveEdge = edgeVerdict != EdgeVerdict.SKIP
+                // V5.0.8535 §N-03 — the gate's own edge verdict (PaperBenchmark8535): a "C" legacy grade reads SKIP here and
+                // LIVE still buys it on the 7431 evidence; paper filed the same decision EXPLORATION and refused it.
+                val wouldPassLiveEdge = PaperBenchmark8535.edgePassedAsLive8535(checks)
                 val wouldPassLiveQuality = candidate.setupQuality in listOf("A+", "A", "B", "C", "D")  // V5.0.8080 §PAPER_ACCEPTS_WHAT_LIVE_ACCEPTS: C/D are size-only in live (4099/4162)
                 // V5.0.8525 — LIVE never hard-blocks on confidence (4296: "LOW-CONF ADAPTIVE_SIZE … no hard block", the size
                 // is cut instead, in both modes). Paper's benchmark class demanded conf >= the live adaptive floor on top, so
@@ -5494,16 +5494,10 @@ object FinalDecisionGate {
                 val wouldPassLiveConfidence = adjustedConfidence >= liveAdaptiveConf
 
                 when {
-                    // V5.0.8080 — only the paper-only confidence rescue stays shadow; soft-shape probes
-                    // (danger zone / memory) are taken by LIVE at reduced size, so PAPER rehearses them.
-                    confidenceProbe -> {
-                        val probeReasons = mutableListOf<String>()
-                        if (dangerZonePenalty > 0) probeReasons.add("time_danger")
-                        if (memoryPenalty > 0) probeReasons.add("memory_neg")
-                        if (behaviorPenalty > 0) probeReasons.add("behavior_100pct")
-                        if (confidenceProbe) probeReasons.add("confidence_override")
-                        ApprovalClass.PAPER_PROBE to "probe: soft blocks→penalties (${probeReasons.joinToString(",")}), size×${combinedSizeMultiplier.format(2)}"
-                    }
+                    // V5.0.8080 — soft-shape probes (danger zone / memory) are taken by LIVE at reduced size, so PAPER
+                    // rehearses them. V5.0.8535 §N-03 — so is the low-confidence candidate: LIVE sizes it down (4296, the
+                    // same adaptive-size branch as paper) and buys; the paper-only "confidence probe" class refused the
+                    // repeat winner it meant to favour as NON_ECONOMIC_APPROVAL_7835 (PAPER_PROBE is no longer produced).
                     wouldPassLiveEdge && wouldPassLiveQuality -> {
                         ApprovalClass.PAPER_BENCHMARK to "benchmark: passes live rules (edge=$wouldPassLiveEdge quality=${candidate.setupQuality} conf=${adjustedConfidence.toInt()}%${if (wouldPassLiveConfidence) ">=" else "<"}${liveAdaptiveConf.toInt()}% sized-not-blocked)"
                     }
