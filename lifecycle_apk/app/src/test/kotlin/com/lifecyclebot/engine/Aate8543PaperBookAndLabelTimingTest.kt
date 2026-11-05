@@ -29,10 +29,12 @@ class Aate8543PaperBookAndLabelTimingTest {
     // 1 / 13. a past horizon converts at the SOL rate observed then; a gap needs agreeing sides; nothing invented
     @Test fun aPastHorizonUsesTheRateObservedThen() {
         val h = 3_600_000L
-        val obs = listOf(0L to 100.0, h to 101.0, 2 * h to 150.0)
-        assertEquals(101.0, SolRateHistory8543.rateAt8543(obs, h + 5 * 60_000L, Double.NaN, 3 * h), 0.0)
-        assertEquals("gap bracketed by agreeing sides", 100.0, SolRateHistory8543.rateAt8543(obs, 20 * 60_000L, Double.NaN, 3 * h), 0.0)
-        assertTrue("sides 101 -> 150 disagree: unknown", SolRateHistory8543.rateAt8543(obs, h + 30 * 60_000L, Double.NaN, 3 * h).isNaN())
+        // observation times are real clock times (> 0); time 0 is no observation
+        val obs = listOf(h to 100.0, 2 * h to 101.0, 3 * h to 150.0)
+        assertEquals(101.0, SolRateHistory8543.rateAt8543(obs, 2 * h + 5 * 60_000L, Double.NaN, 4 * h), 0.0)
+        assertEquals("gap bracketed by agreeing sides", 100.0, SolRateHistory8543.rateAt8543(obs, h + 20 * 60_000L, Double.NaN, 4 * h), 0.0)
+        assertTrue("sides 101 -> 150 disagree: unknown", SolRateHistory8543.rateAt8543(obs, 2 * h + 30 * 60_000L, Double.NaN, 4 * h).isNaN())
+        assertTrue("time 0 is not an observation", SolRateHistory8543.rateAt8543(listOf(0L to 100.0), 60_000L, Double.NaN, 4 * h).isNaN())
         assertTrue("nothing observed: unknown", SolRateHistory8543.rateAt8543(emptyList(), h, Double.NaN, 2 * h).isNaN())
         assertEquals(0.02, SolRateHistory8543.MAX_GAP_DRIFT_8543, 0.0)
         assertTrue(src("engine/WalletManager.kt").contains("try { SolRateHistory8543.note8543(price, at8512) } catch (_: Throwable) {}"))
