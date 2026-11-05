@@ -57,7 +57,12 @@ object RunnerTicket8073 {
     } catch (_: Throwable) { Double.POSITIVE_INFINITY }
 
     /** LiveEdgeGate7877: may [ts] take a runner ticket in place of proven edge? Issues the ticket when it may. */
-    fun admits8073(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Boolean {
+    fun admits8073(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Boolean = admitsOrIssues8538(ts, nowMs, issue = true)
+
+    /** V5.0.8538 — would [admits8073] admit [ts] now? The same checks, no ticket issued and no refusal counted. */
+    fun wouldAdmit8538(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Boolean = admitsOrIssues8538(ts, nowMs, issue = false)
+
+    private fun admitsOrIssues8538(ts: TokenState, nowMs: Long, issue: Boolean): Boolean {
         ensureSubscribed()
         if (ts.mint.isBlank()) return false
         if (isTicket8073(ts.mint)) return true
@@ -65,14 +70,15 @@ object RunnerTicket8073 {
         val dex = ts.lastPriceDex.ifBlank { try { ts.tokenMap.dexId } catch (_: Throwable) { "" } }
         val venue = com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.memeVenue8063(ts.mint, dex, curve)
         val mcap = try { com.lifecyclebot.engine.truth.TrustedMcap8019.mcap8019(ts) } catch (_: Throwable) { 0.0 }
-        if (!inGroup8073(venue, mcap)) { refusedKind.incrementAndGet(); return false }
-        if (nowMs - lastIssuedMs < TICKET_GAP_MS) { refusedBudget.incrementAndGet(); return false }
+        if (!inGroup8073(venue, mcap)) { if (issue) refusedKind.incrementAndGet(); return false }
+        if (nowMs - lastIssuedMs < TICKET_GAP_MS) { if (issue) refusedBudget.incrementAndGet(); return false }
         val walletSol = try { WalletManager.cachedSolBalance() } catch (_: Throwable) { 0.0 }
         val equity = try { com.lifecyclebot.engine.truth.LiveRiskPolicy7807.liveEquitySol(walletSol) } catch (_: Throwable) { walletSol }
         val ticketSol = try { com.lifecyclebot.engine.truth.NetEdge8030.DEFAULT_TICKET_SOL } catch (_: Throwable) { 0.03 }
-        if (!fits8073(openTicketSol(), ticketSol, equity)) { refusedBudget.incrementAndGet(); return false }
+        if (!fits8073(openTicketSol(), ticketSol, equity)) { if (issue) refusedBudget.incrementAndGet(); return false }
         // V5.0.8310 — the ticket door reads its own verified live record (SelectionDoors8310 D1): suspended while it loses.
-        if (!com.lifecyclebot.engine.truth.SelectionDoors8310.ticketMayIssue8310(nowMs)) { refusedRecord8310.incrementAndGet(); return false }
+        if (!com.lifecyclebot.engine.truth.SelectionDoors8310.ticketMayIssue8310(nowMs)) { if (issue) refusedRecord8310.incrementAndGet(); return false }
+        if (!issue) return true
         tickets[ts.mint] = nowMs
         lastIssuedMs = nowMs
         issued.incrementAndGet()

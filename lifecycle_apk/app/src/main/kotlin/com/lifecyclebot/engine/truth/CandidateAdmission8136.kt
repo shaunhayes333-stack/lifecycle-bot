@@ -197,6 +197,8 @@ object CandidateAdmission8136 {
         val firedSetups8528: Set<String> = emptySet(),
         /** V5.0.8537 — the learned edge model's prediction for this coin and whether it has earned authority (EdgeModel8537). */
         val edge8537: EdgeModel8537.Verdict? = null,
+        /** V5.0.8538 — LIVE: the 5.0.8069–8114 positive edge this coin carries (LiveEdgeGate7877.edge8114Live8538), else null. */
+        val liveEdge8114: String? = null,
     ) {
         /** V5.0.8316 — every fired setup's record past the realised shortfall (support tests only). */
         val setupsProof8290: List<Evidence8136> get() = setups.map { LiveAdmissionProof8290.shift8290(it, liveShortfall8290) ?: it }
@@ -834,10 +836,16 @@ object CandidateAdmission8136 {
         // live buy came through it, 0 of 5 won, and its picks fell 9.3 % in 5 minutes against 6.9 % for the coins it refused.
         // LIVE money needs a SUPPORTED record (step 6 above); paper keeps admitting the opinion and grades it, so each setup
         // unlocks for LIVE by itself once its own labels prove it. Not a demotable door: specific, no veto-audit unbind.
+        // V5.0.8538 — the opinion is not alone when the coin carries one of the 8069–8114 live edges (a proven cell / kind /
+        // setup / lane trigger, a runner cell beating its lane, a promoted specialist, an expert copy, a confirmed run, a
+        // runner ticket, the chart reader's BUY): it admits, and LiveEdgeGate7877's live backstop reads the same proof.
         if (nativeLive8259 && c.live) {
-            trace += "liveNativeOpinionUnproven8536=${c.nativeSetup8213 ?: "-"} generic=${fmt8136(c.genericScore)}"
-            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_NATIVE_OPINION_UNPROVEN_8536_${c.lane.uppercase()}") } catch (_: Throwable) {}
-            return done(Terminal8136.REFUSE, LIVE_NATIVE_OPINION_UNPROVEN_8536, true, chosen)
+            if (c.liveEdge8114 != null) trace += "liveNativeCarriedBy8538=${c.liveEdge8114}"
+            else {
+                trace += "liveNativeOpinionUnproven8536=${c.nativeSetup8213 ?: "-"} generic=${fmt8136(c.genericScore)}"
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_NATIVE_OPINION_UNPROVEN_8536_${c.lane.uppercase()}") } catch (_: Throwable) {}
+                return done(Terminal8136.REFUSE, LIVE_NATIVE_OPINION_UNPROVEN_8536, true, chosen)
+            }
         }
         if (nativeLive8259) {
             trace += "nativeQualifiedAdmit8259=${c.nativeSetup8213} generic=${fmt8136(c.genericScore)} floor=${fmt8136(c.genericFloor)} opinion8279"
@@ -853,7 +861,7 @@ object CandidateAdmission8136 {
             // CASHGEN|NONE, MOONSHOT|NONE, …) was a generic-prior admit: a V3 score over a fluid floor of 15 with no setup
             // record, no supported cell, no validated Cortex read. The 700% wins were proven setups. Live money needs a
             // supported record (step 6); the prior alone admits paper and the shadow book, where it is learnt from.
-            if (c.live && !cellSupported && doorBinds8393("LIVE_GENERIC_PRIOR_UNSUPPORTED_8238")) {
+            if (c.live && !cellSupported && doorBinds8393("LIVE_GENERIC_PRIOR_UNSUPPORTED_8238") && c.liveEdge8114 == null) {  // V5.0.8538
                 trace += "liveGenericPriorUnsupported8238 cell=${c.cell?.compact ?: "-"}"
                 return done(Terminal8136.REFUSE, "LIVE_GENERIC_PRIOR_UNSUPPORTED_8238", false, chosen)
             }
@@ -1566,6 +1574,7 @@ object CandidateAdmission8136 {
             selectedSetup = selected,
             firedSetups8528 = try { pb.matchedSetups8083(ts, lane, nowMs).toSet() } catch (_: Throwable) { emptySet() },
             edge8537 = EdgeModel8537.verdict(ts, lane, cost8153, nowMs),  // V5.0.8537
+            liveEdge8114 = if (live8290) LiveEdgeGate7877.edge8114Live8538(ts, lane, nowMs) else null,  // V5.0.8538
             regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "" },
             stage = fit?.stage?.name.orEmpty(),
             entryWait8506 = entry?.second,

@@ -569,8 +569,39 @@ object LiveEdgeGate7877 {
             try { SpecialistMiner7972.match7972(ts, l, nowMs) != null } catch (_: Throwable) { false },
         )
         if (proven) return null
+        // V5.0.8538 — every 5.0.8069–8114 live edge is proof too (8536 narrowed it to four and cut the runner edges).
+        edge8114Live8538(ts, l, nowMs, ticket = false)?.let { return null }
+        // The runner ticket last: it issues a ticket (a small capped budget) when it admits, exactly as 8073–8114 did.
+        if (try { com.lifecyclebot.engine.RunnerTicket8073.admits8073(ts, nowMs) } catch (_: Throwable) { false }) {
+            try { PipelineHealthCollector.labelInc("LIVE_EDGE_8114_RESTORED_8538_RUNNER_TICKET_$l") } catch (_: Throwable) {}
+            return null
+        }
         try { PipelineHealthCollector.labelInc("${CandidateAdmission8136.LIVE_UNPROVEN_EDGE_8536}_$l") } catch (_: Throwable) {}
         return CandidateAdmission8136.LIVE_UNPROVEN_EDGE_8536
+    }
+
+    /**
+     * V5.0.8538 — owner: 5.0.8069–8114 was the profitable range. Its live door admitted on ANY of these positive edges, each
+     * read here without side effects: a proven fired setup, the coin's measured edge (proven cell, proven lane trigger, kind,
+     * runner cell beating its lane, promoted specialist, expert-wallet copy clearing the round trip), its cell / kind proven
+     * by win rate, a confirmed run forming (8113), a runner ticket the coin qualifies for (not issued here), the specialist shadow audit (8113), the
+     * chart reader's BUY (7950) or a Cortex STRONG read with earned authority. Returns the first edge's name, else null.
+     */
+    fun edge8114Live8538(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis(), ticket: Boolean = true): String? {
+        val l = CanonicalLaneIdentity6506.canonical(laneRaw).uppercase().ifBlank { laneRaw.trim().uppercase() }
+        val name = when {
+            (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetup8056(ts, l, nowMs) } catch (_: Throwable) { null }) != null -> "PROVEN_SETUP"
+            (try { measuredEdge8060(ts, l, nowMs) } catch (_: Throwable) { false }) -> "MEASURED_EDGE"
+            (try { cellOrKindProven8094(ts, l, nowMs) } catch (_: Throwable) { false }) -> "CELL_OR_KIND"
+            (try { runnerForming8113(ts, nowMs) } catch (_: Throwable) { false }) -> "RUNNER_FORMING"
+            ticket && (try { com.lifecyclebot.engine.RunnerTicket8073.wouldAdmit8538(ts, nowMs) } catch (_: Throwable) { false }) -> "RUNNER_TICKET"
+            (try { shadowAuditAdmits8113(ts, l) } catch (_: Throwable) { false }) -> "SHADOW_AUDIT"
+            (try { chartAdmits7950(ts, l, nowMs) } catch (_: Throwable) { false }) -> "CHART_BUY"
+            (try { com.lifecyclebot.engine.cortex.Cortex7885.overrulesEdgeRefusal(ts, l, "LIVE_PROVEN_SETUP_ONLY_8059") } catch (_: Throwable) { false }) -> "CORTEX_STRONG"
+            else -> null
+        } ?: return null
+        try { PipelineHealthCollector.labelInc("LIVE_EDGE_8114_RESTORED_8538_${name}_$l") } catch (_: Throwable) {}
+        return name
     }
 
     /** Pure (V5.0.8536): any one proof suffices; none is a refusal. */

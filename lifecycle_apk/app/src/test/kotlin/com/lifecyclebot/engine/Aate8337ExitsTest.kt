@@ -136,12 +136,15 @@ class Aate8337ExitsTest {
         assertEquals(0.60, SpikeCapture7943.TIERS.first().second, 1e-9)
         assertEquals(100.0, RunnerGrab7967.TIERS_7967.first().first, 1e-9)
         // A live runner-from-entry position whose continuation is not yet confirmed reads the scalp tiers.
+        // superseded by V5.0.8538 — in a born-runner lane it rides the 8069–8114 runner ladder from entry (paper parity):
+        // `assertEquals(SpikeCapture7943.TIERS, RunnerGrab7967.tiersFor7967(ts))` for this MOONSHOT position.
         val ts = com.lifecyclebot.data.TokenState(mint = "fromEntry8337", position = com.lifecyclebot.data.Position(qtyToken = 1_000_000.0,
             entryPrice = 1.0, entryTime = System.currentTimeMillis() - 60_000L, tradingMode = "MOONSHOT", isPaperPosition = false,
             peakGainPct = 0.0, entryPolicySnapshot = "style=BREAKOUT_RUNNER;entryTactic=BREAKOUT"))
         assertTrue(TradeExitContract8077.runnerFromEntry8104(ts))
         assertFalse(RunnerLive8153.continuationConfirmed8153(ts))
-        assertEquals(SpikeCapture7943.TIERS, RunnerGrab7967.tiersFor7967(ts))
+        assertEquals(RunnerGrab7967.TIERS_7967, RunnerGrab7967.tiersFor7967(ts))
+        assertTrue(RunnerGrab7967.bornRunnerLadder8538("MOONSHOT") && !RunnerGrab7967.bornRunnerLadder8538("CASHGEN"))
         // A QUICK_FLIP scalp keeps no runner ladder at all.
         val quick = com.lifecyclebot.data.TokenState(mint = "quick8337", position = com.lifecyclebot.data.Position(qtyToken = 1_000_000.0,
             entryPrice = 1.0, entryTime = System.currentTimeMillis() - 60_000L, tradingMode = "MOONSHOT", isPaperPosition = false,

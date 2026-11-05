@@ -330,7 +330,9 @@ class Aate8153RunnerTest {
         assertTrue(RunnerGrab7967.holdingRunner8018(ts))
         // superseded by V5.0.8337 — a runner-from-entry position sells the scalp tier (SpikeCapture7943.TIERS) until its plan
         // is sealed AND its continuation is confirmed (owner's fix block 10a); this test never confirms a continuation.
-        assertEquals(SpikeCapture7943.TIERS, RunnerGrab7967.tiersFor7967(ts))
+        // superseded by V5.0.8538 — a live runner in a born-runner lane (MOONSHOT here) rides the 8069–8114 runner ladder
+        // from entry, as paper does: `assertEquals(SpikeCapture7943.TIERS, RunnerGrab7967.tiersFor7967(ts))`.
+        assertEquals(RunnerGrab7967.TIERS_7967, RunnerGrab7967.tiersFor7967(ts))
         assertFalse(RunnerGrab7967.isGrabbed7980("latch8153"))           // not written into the entry-admit map
         // A QUICK_FLIP in the CASHGEN scalp lane is never a runner, latched or not.
         val cash = token("cash8153", "QUICK_FLIP", peakPct = 30.0, lane = "CASHGEN")

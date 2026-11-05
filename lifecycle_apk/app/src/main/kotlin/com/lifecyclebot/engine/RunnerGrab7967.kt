@@ -478,8 +478,18 @@ object RunnerGrab7967 {
     fun scalpTiersUntilConfirmed8337(runnerFromEntry: Boolean, planSealed: Boolean, continuationConfirmed: Boolean): Boolean =
         runnerFromEntry && !(planSealed && continuationConfirmed)
 
+    /**
+     * V5.0.8538 — owner: 5.0.8069–8114 was the profitable range. There a live runner in a born-runner lane (MOONSHOT /
+     * SHITCOIN / EXPRESS / PROJECT_SNIPER, TradeExitContract8077 8104) rode the runner ladder from entry, first rung +100 %,
+     * and paper still does (a paper position never takes the scalp-first path below). 8337 FIX 10a sold those live runners on
+     * the scalp ladder (+40 % sells 60 %, +120 % sells 70 %) until a continuation was confirmed, so live banked the first pop
+     * the paper book rode. Pure: does a live runner in [lane] ride the runner ladder from entry? The peak-keep floor and
+     * give-back lock (8337 FIX 3) still protect the gain; scalp lanes and promoted runners elsewhere keep scalp-first.
+     */
+    fun bornRunnerLadder8538(lane: String?): Boolean = TradeExitContract8077.runnerFromEntryLane8104(lane, false)
+
     private fun scalpTierHolds8337(ts: TokenState): Boolean = try {
-        scalpTiersUntilConfirmed8337(TradeExitContract8077.runnerFromEntry8104(ts),
+        !bornRunnerLadder8538(ts.position.tradingMode) && scalpTiersUntilConfirmed8337(TradeExitContract8077.runnerFromEntry8104(ts),
             RunnerLive8153.plan8153(ts) != RunnerPlan8153.Plan8153.SCALP, RunnerLive8153.continuationConfirmed8153(ts))
     } catch (_: Throwable) { false }
 
