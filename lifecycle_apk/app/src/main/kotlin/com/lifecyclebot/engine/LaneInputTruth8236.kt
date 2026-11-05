@@ -82,6 +82,29 @@ object LaneInputTruth8236 {
         return "$defer:${reason.take(60)}"
     }
 
+    const val ELIGIBLE_UNOBSERVED_DEFER_8535 = "NATIVE_ELIGIBLE_ON_UNOBSERVED_INPUT_DEFER_8535"
+    /** Lanes whose native score takes buy pressure as a bullish witness (the bridge fed them 50.0 when it was unobserved). */
+    private val BP_WITNESS_LANES_8535 = setOf("QUALITY", "BLUECHIP", "MOONSHOT", "DIP_HUNTER", "CASHGEN", "MANIPULATED")
+    /** Lanes whose native score takes the volume ratio as a bullish witness (the bridge fed 1.0 when unmeasured). */
+    private val VOLUME_WITNESS_LANES_8535 = setOf("DIP_HUNTER")
+
+    /**
+     * V5.0.8535 §P0-05 — the 8236 correction ([deferFor8236]) mapped REFUSALS fired on an unobserved input to a DEFER but
+     * skipped ELIGIBLE opinions, so a lane whose rule scored the 50.0 buy-pressure default or the 1.0 volume default as a
+     * reading could still qualify a coin (QualityTraderAI / BlueChip / CashGen points for bp 50, DipHunter for volume 1.0).
+     * Pure: the DEFER that replaces an eligible opinion of [lane] built on an unobserved required witness, or null.
+     */
+    fun eligibleOnUnobserved8535(lane: String, inp: Inputs8236, volumeObserved: Boolean): String? {
+        val l = lane.uppercase()
+        val missing = when {
+            l in BP_WITNESS_LANES_8535 && !inp.buyPressure -> "BUY_PRESSURE"
+            l in VOLUME_WITNESS_LANES_8535 && !volumeObserved -> "VOLUME"
+            else -> return null
+        }
+        count8236("${ELIGIBLE_UNOBSERVED_DEFER_8535}_$l")
+        return "$ELIGIBLE_UNOBSERVED_DEFER_8535:$missing"
+    }
+
     /** Pure: the crypto desk's bp (50 from zero counts) and 24h change (exact 0.0) are defaults when no provider stated them. */
     fun cryptoInputsUnobserved8236(buys24h: Int, sells24h: Int, change24hPct: Double): Boolean =
         buys24h + sells24h <= 0 && (!change24hPct.isFinite() || change24hPct == 0.0)

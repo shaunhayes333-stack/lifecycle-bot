@@ -413,6 +413,14 @@ object SpecialistBrainBridge7542 {
             val defer8236 = LaneInputTruth8236.deferFor8236(lane, o.reason, inputs8236) ?: continue
             out[lane] = o.copy(reason = defer8236, gradeable = false)
         }
+        // V5.0.8535 §P0-05 — the loop above skips ELIGIBLE opinions: a lane that scored the 50.0 buy-pressure default or the
+        // 1.0 volume default as a reading could still qualify the coin. An eligible opinion built on an unobserved required
+        // witness is a DEFER (re-evaluated when the input lands), never a READY / native-qualified observation.
+        for ((lane, o) in out.toList()) {
+            if (!o.eligible || !o.authoritative) continue
+            val defer8535 = LaneInputTruth8236.eligibleOnUnobserved8535(lane, inputs8236, volumeObserved = measuredVolume != null) ?: continue
+            out[lane] = o.copy(eligible = false, reason = defer8535, gradeable = false)
+        }
         // V5.0.8348 — a momentum mandate that fired on an UNOBSERVED continuation defers (whatever buy pressure says); an
         // observed read below the bar refuses. Before the grab-lane review so the deferral is remembered for hydration.
         ContinuationRead8348.reviewMomentum8348(out, cont8348.observed, observedChange8491 != null || recentPrices.size >= 2 || cont8348.source == ContinuationRead8348.Source8348.FROM_TAPE)

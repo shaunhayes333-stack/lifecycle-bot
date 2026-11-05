@@ -310,6 +310,8 @@ object NetEdge8030 {
         val hour8399 = com.lifecyclebot.engine.cortex.LanePlaybook7907.resolvedChg1h8399(ts, nowMs)
         val h1 = StrategyMove8153.positiveHour8153(hour8399)
         val rec = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedRecord8153(ts, lane, setup, nowMs) } catch (_: Throwable) { null }
+        // V5.0.8535 §P1-07 — the strategy this move is costed for decides whether a falling hour is adverse (EntryClock8535).
+        val strategy8535 = setup ?: try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, lane, nowMs) } catch (_: Throwable) { null }
         val age = try { CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts, nowMs) } catch (_: Throwable) { null }
         // V5.0.8529 — where the price sits in the hour it just moved through (StrategyMove8153.remaining8529).
         val pos8529 = if (bars.isEmpty()) null else StrategyMove8153.hourPosition8529(
@@ -320,7 +322,7 @@ object NetEdge8030 {
             mandatePct = mandatePct, rangePct = range, rangeDense = StrategyMove8153.dense8153(bars.size, spanMs), h1Pct = h1,
             strategyN = rec?.get(0)?.toInt() ?: 0, strategyMeanPct = rec?.get(1) ?: Double.NaN, strategySePct = rec?.get(2) ?: Double.NaN,
             costPct = costPct, freshLaunch = StrategyMove8153.fresh8153(age),
-            signedHourPct = hour8399, momentumEntry = StrategyMove8153.momentumLane8153(lane),
+            signedHourPct = hour8399, momentumEntry = StrategyMove8153.momentumEntry8535(lane, strategy8535),
             inLaunchWindow8418 = FallingHourCohort8418.inLaunchWindow8418(age),
             runupFromHourLowPct8529 = pos8529?.first, roomToHourHighPct8529 = pos8529?.second,
         )

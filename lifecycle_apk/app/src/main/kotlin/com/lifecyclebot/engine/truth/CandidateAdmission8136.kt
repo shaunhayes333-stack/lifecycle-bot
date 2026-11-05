@@ -228,6 +228,8 @@ object CandidateAdmission8136 {
         val evaluatedStage: String = "",
         val evaluatedEntryWait: String? = null,
         val nativePhaseWitness8528: Boolean = false,
+        /** V5.0.8535 §P0-03 — the fired setup's own rebound clock settled the generic NO_RECLAIM wait. */
+        val strategyClockWitness8535: Boolean = false,
     ) {
         val admitted: Boolean get() = terminal == Terminal8136.ADMIT
         val compact: String get() = "${terminal.name}:$reason${chosenSetup?.let { " setup=$it" } ?: ""} [${trace.joinToString("; ")}]"
@@ -469,6 +471,20 @@ object CandidateAdmission8136 {
             c.sheet8323[c.selectedSetup] != SHEET_AVOID_8323 &&
             optionalNativeContextClears8213(c, c.expectedGrossPct)
 
+    /**
+     * V5.0.8535 §P0-03 — a strategy-owned entry clock. The generic NO_RECLAIM wait (stage DUMPING / PEAK_EXHAUSTION) is
+     * the momentum-breakout clock; a fired setup whose own clock IS the pullback / dip / reclaim (EntryClock8535:
+     * MOMENTUM_PULLBACK_5M, FIRST_DIP_BOUGHT, TREND_DIP_8383, PEAK_RECLAIM_8383 …) is judged on its own witness. Like
+     * [nativePhaseWitness8528] it grants no statistical edge and skips no later check: loss records, economics, the
+     * critical inputs, safety and structure still bind.
+     */
+    internal fun strategyClockWitness8535(c: Candidate8136): Boolean =
+        c.live && c.entryWait8506 == "NO_RECLAIM" &&
+            !c.selectedSetup.isNullOrBlank() && c.selectedSetup in c.firedSetups8528 &&
+            com.lifecyclebot.engine.cortex.EntryClock8535.ownsReclaim(c.selectedSetup) &&
+            c.sheet8323[c.selectedSetup] != SHEET_AVOID_8323 &&
+            optionalNativeContextClears8213(c, c.expectedGrossPct)
+
     // ── the decision ──
 
     /** Pure: the one terminal admission for [c]. Order: safety, structure, loss patterns, timing, economics, data, edge, prior. */
@@ -484,7 +500,8 @@ object CandidateAdmission8136 {
             Decision8136(t, reason, specific, setup, net, trace.toList(), basis.ifBlank { reason },
                 costPct = c.costPct, costSizeSol = c.costSizeSol, costBreakdown = c.costBreakdown, costMargin8391 = c.costMargin8391,
                 evaluatedStage = c.stage, evaluatedEntryWait = c.entryWait8506,
-                nativePhaseWitness8528 = t == Terminal8136.ADMIT && setup == c.selectedSetup && nativePhaseWitness8528(c))
+                nativePhaseWitness8528 = t == Terminal8136.ADMIT && setup == c.selectedSetup && nativePhaseWitness8528(c),
+                strategyClockWitness8535 = t == Terminal8136.ADMIT && setup == c.selectedSetup && strategyClockWitness8535(c))
 
         // 1. hard safety and structural selling risk: nothing overrides them.
         c.safetyRefusal?.let { trace += "safety=$it"; return done(Terminal8136.REFUSE, "SAFETY_REFUSED_8136", true, c.selectedSetup) }
@@ -520,6 +537,12 @@ object CandidateAdmission8136 {
         // is not an extra mandatory input of an independently observed setup.
         val bestSetup = bestSetup8153(c)
         val nativePhase8528 = nativePhaseWitness8528(c)
+        val strategyClock8535 = strategyClockWitness8535(c)
+        if (strategyClock8535) {
+            // V5.0.8535 §P0-03 — the strategy-specific signal and the generic clock it answered are both on the record.
+            trace += "strategyClock8535=${c.selectedSetup}@${com.lifecyclebot.engine.cortex.EntryClock8535.of(c.selectedSetup)} answers=${c.entryWait8506}"
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ENTRY_WAIT_STRATEGY_CLOCK_8535_${c.lane.uppercase()}_${c.selectedSetup}") } catch (_: Throwable) {}
+        }
         if (c.live && c.entryWait8506 != null) {
             val wait = c.entryWait8506
             val missing = when (wait) {
@@ -543,12 +566,13 @@ object CandidateAdmission8136 {
             val supported8511 = bestSetup
             if (!fastTrack8520) {
                 // The original 8511 binding door remains unchanged for ordinary candidates.
-                if (supported8511 == null && !nativePhase8528 && doorBinds8393("ENTRY_${wait}_8506"))
+                if (supported8511 == null && !nativePhase8528 && !strategyClock8535 && doorBinds8393("ENTRY_${wait}_8506"))
                     return done(Terminal8136.REFUSE, "ENTRY_${wait}_8506", true, c.selectedSetup)
             }
             trace += if (fastTrack8520) "entryWait8506=$wait overriddenBy=FRESH_EXECUTED_TAPE_8520"
                 else if (supported8511 != null) "entryWait8506=$wait overriddenBy=${supported8511.id}"
                 else if (nativePhase8528) "entryWait8506=$wait observedSetup8528=${c.selectedSetup} nativeOpinionNotProvenEdge"
+                else if (strategyClock8535) "entryWait8506=$wait ownClock8535=${c.selectedSetup} nativeOpinionNotProvenEdge"
                 else "entryWait8506=$wait doorAdvisory"
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
                 (if (supported8511 != null) "ENTRY_WAIT_SUPPORTED_SETUP_FALLTHROUGH_8511_" else "ENTRY_WAIT_DOOR_ADVISORY_8511_") + c.lane.uppercase()) } catch (_: Throwable) {}

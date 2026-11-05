@@ -47,6 +47,11 @@ object LiveEdgeGate7877 {
         if (admission.nativePhaseWitness8528 && admission.evaluatedStage == "NO_SETUP" &&
             admission.evaluatedEntryWait == "NO_PHASE_TRIGGER" &&
             prior == "STAGE_LANE_MISFIT_7928_${lane}_NO_SETUP") return true
+        // V5.0.8535 §P0-03 — the fired setup's own rebound clock settled the DUMPING / PEAK_EXHAUSTION misfit it was judged on;
+        // a PROVEN-losing stage record for the lane is measured evidence and still binds below.
+        if (admission.strategyClockWitness8535 && admission.evaluatedEntryWait == "NO_RECLAIM" &&
+            admission.evaluatedStage in setOf("DUMPING", "PEAK_EXHAUSTION") &&
+            prior == "STAGE_LANE_MISFIT_7928_${lane}_${admission.evaluatedStage}") return true
         return admission.specific && admission.evaluatedStage.isNotBlank() &&
             !admission.evaluatedStage.equals("UNKNOWN", true) &&
             prior == "STAGE_PROVEN_LOSING_7928_${lane}_${admission.evaluatedStage}"

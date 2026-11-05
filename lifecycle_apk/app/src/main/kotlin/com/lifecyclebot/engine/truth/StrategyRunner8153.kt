@@ -33,6 +33,14 @@ object StrategyMove8153 {
     fun momentumLane8153(lane: String): Boolean =
         lane.trim().uppercase() in setOf("SHITCOIN", "MOONSHOT", "EXPRESS", "PROJECT_SNIPER")
 
+    /**
+     * V5.0.8535 §P1-07 — the falling-hour rule is the MOMENTUM strategy's sign contract. A rebound / reclaim setup on the same
+     * lane (RECLAIM_AFTER_WEAKNESS, POST_EVENT_RECLAIM, MOMENTUM_PULLBACK_5M …) acts before the hour turns by design, so for it
+     * a negative hour is context, not FALLING_HOUR_UNPROVEN. Pure: is this (lane, selected setup) a momentum entry?
+     */
+    fun momentumEntry8535(lane: String, selectedSetup: String?): Boolean =
+        momentumLane8153(lane) && !com.lifecyclebot.engine.cortex.EntryClock8535.actsBeforeHourTurns(selectedSetup)
+
     /** Pure: is the last hour's history dense enough for its range to say how far the coin moves? */
     fun dense8153(bars: Int, spanMs: Long): Boolean = bars >= DENSE_MIN_BARS_8153 && spanMs >= DENSE_MIN_SPAN_MS_8153
 
@@ -65,10 +73,22 @@ object StrategyMove8153 {
     ): Move8153 {
         val m = expectedRaw8153(mandatePct, rangePct, rangeDense, h1Pct, strategyN, strategyMeanPct, strategySePct, costPct,
             freshLaunch, signedHourPct, momentumEntry, inLaunchWindow8418)
-        if (m.basis !in SPENT_BASES_8529 || inLaunchWindow8418) return m
+        if (m.basis !in SPENT_BASES_8529) return m
+        // V5.0.8535 §P0-04 — the launch window exempted EVERY fresh coin from the spent-move read, so a launch that had already
+        // printed +70 % from its low and sat at its high was still costed on the full mandate (8529: 25 LOSS_BOUGHT_TOP). The
+        // window now exempts a coin only from reading its very first move as a spent hour: a documented in-window run from the
+        // low of at least [LAUNCH_SPENT_MIN_PCT_8535] is consumed move like any other. A first-block base (run ~0) keeps its read.
+        if (inLaunchWindow8418 && !launchRunDocumented8535(runupFromHourLowPct8529)) return m
         val left = remaining8529(m.expectedGrossPct, runupFromHourLowPct8529, roomToHourHighPct8529) ?: return m
         return m.copy(expectedGrossPct = left)
     }
+
+    /** An in-window run from the low that counts as consumed move (below it, the coin's first move is not a spent hour). */
+    const val LAUNCH_SPENT_MIN_PCT_8535 = 25.0
+
+    /** Pure: has a launch-window coin documented a run from its low large enough to be consumed move? */
+    fun launchRunDocumented8535(runupFromHourLowPct: Double?): Boolean =
+        runupFromHourLowPct != null && runupFromHourLowPct.isFinite() && runupFromHourLowPct >= LAUNCH_SPENT_MIN_PCT_8535
 
     /**
      * V5.0.8529 §EXPECTED_MOVE_IS_WHAT_IS_LEFT — the range / 1h / mandate read measures how far the coin moved this hour, not
