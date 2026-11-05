@@ -71,9 +71,7 @@ object CrossAssetMarkRouter6530 {
                 com.lifecyclebot.network.KeylessPriceSources6996.crossChainPrice(ts.mint)
             } catch (_: Throwable) { 0.0 }
             if (keylessPx7004.isFinite() && keylessPx7004 > 0.0) {
-                ts.lastPrice = keylessPx7004
-                ts.lastPriceSource = "DEFILLAMA_CROSSCHAIN_7004"
-                ts.lastPriceUpdate = System.currentTimeMillis()
+                TokenFacts.writePrice(ts, keylessPx7004, "DEFILLAMA_CROSSCHAIN_7004", TokenFacts.Rank.PROVIDER, System.currentTimeMillis())  // V5.0.8552
                 try {
                     QuoteFreshnessGuard6452.note(
                         mint = ts.mint,
@@ -130,9 +128,7 @@ object CrossAssetMarkRouter6530 {
             val regAgeMs7178 = if (regTok7178 == null) Long.MAX_VALUE else
                 (System.currentTimeMillis() - regTok7178.lastUpdatedMs).coerceAtLeast(0L)
             if (regPx7178.isFinite() && regPx7178 > 0.0 && regAgeMs7178 <= REGISTRY_MARK_MAX_AGE_MS_7178) {
-                ts.lastPrice = regPx7178
-                ts.lastPriceSource = "ALT_REGISTRY_7178"
-                ts.lastPriceUpdate = System.currentTimeMillis()
+                TokenFacts.writePrice(ts, regPx7178, "ALT_REGISTRY_7178", TokenFacts.Rank.PROVIDER, System.currentTimeMillis())  // V5.0.8552
                 // Stamp, for the same reason V5.0.7010 had to stamp the branch
                 // above and V5.0.7175 the third path: the exit feed tests
                 // provenance, not ts.lastPrice. A mark committed without a
@@ -191,9 +187,7 @@ object CrossAssetMarkRouter6530 {
                 val px7274 = fan7274?.priceUsd?.takeIf { it.isFinite() && it > 0.0 && !contested7274 } ?: 0.0
                 if (px7274 > 0.0) {
                     val label7274 = if (fan7274!!.corroborated) "FANOUT_CORROBORATED_7088_x${fan7274.agreeingCount}" else "FANOUT_UNCORROBORATED_7088"
-                    ts.lastPrice = px7274
-                    ts.lastPriceSource = label7274
-                    ts.lastPriceUpdate = System.currentTimeMillis()
+                    TokenFacts.writePrice(ts, px7274, label7274, TokenFacts.Rank.PROVIDER, System.currentTimeMillis())  // V5.0.8552
                     try {
                         QuoteFreshnessGuard6452.note(
                             mint = ts.mint,
@@ -223,9 +217,7 @@ object CrossAssetMarkRouter6530 {
         return try {
             val data = withContext(Dispatchers.IO) { PerpsMarketDataFetcher.getMarketData(market) }
             if (data.price.isFinite() && data.price > 0.0) {
-                ts.lastPrice = data.price
-                ts.lastPriceSource = "CrossAssetMarkRouter6530/${assetClass.tag}/${market.name}"
-                ts.lastPriceUpdate = System.currentTimeMillis()
+                TokenFacts.writePrice(ts, data.price, "CrossAssetMarkRouter6530/${assetClass.tag}/${market.name}", TokenFacts.Rank.PROVIDER, System.currentTimeMillis())  // V5.0.8552
                 // V5.0.7010 §THE_OTHER_MARK_PATH_STILL_DID_NOT_STAMP.
                 //
                 // V5.0.6999 taught the SOLANA open-position loop to stamp

@@ -13,10 +13,10 @@ that decides between two readings**. It changes in the same commit as any code t
 | | |
 |---|---|
 | **Where** | The mint's `TokenState` row in `BotService.status.tokens` (fed by DataOrchestrator, the scanners and the chain readers). |
-| **Facts** | `TokenState.facts8551` — one `TokenFacts.Fact(value, source, rank, observedAtMs)` per migrated field. |
-| **Write path** | `engine/truth/TokenFacts.kt` — the **only** code that sets a migrated field. One writer per field (`writeLiquidity`, …). |
-| **Legacy fields** | Mirrors of the fact (`ts.lastLiquidityUsd`, `ts.tokenMap.liquidityUsd`). Every existing reader keeps working and reads the store. |
-| **Guard** | `Aate8551TokenFactsTest.noDirectLiquidityWritesOutsideTheStore` fails the build on any new direct write. |
+| **Facts** | `TokenState.facts8551` — one `TokenFacts.Fact(value, source, rank, observedAtMs)` per migrated field (`LIQUIDITY_USD`, `PRICE_USD`). |
+| **Write path** | `engine/truth/TokenFacts.kt` — the **only** code that sets a migrated field. One writer per field (`writeLiquidity` / `restoreLiquidity`, `writePrice` / `restorePrice` / `correctPrice`). |
+| **Legacy fields** | Mirrors of the fact (`ts.lastLiquidityUsd`, `ts.tokenMap.liquidityUsd`; `ts.lastPrice`, `lastPriceUpdate`, `lastPriceSource` (+ pool / dex), `ts.tokenMap.priceUsd` / `priceObservedAtMs7858`). Every existing reader keeps working and reads the store. |
+| **Guard** | `Aate8551TokenFactsTest.noDirectLiquidityWritesOutsideTheStore`, `Aate8552PriceFactsTest.noDirectPriceWritesOutsideTheStore` fail the build on any new direct write. |
 | **Brief** | `tokenFacts8551[...]` line in the diagnosis brief: facts accepted per source, offers refused per reason. |
 
 Existing components are **producers**, not owners: DexScreener WS / pair poll / batch lane, Birdeye overview, Raydium
@@ -39,6 +39,13 @@ the store with its source, rank and **own observation time**.
    (`holdMs`: **90 s for CHAIN**, 30 s otherwise). The chain's depth is not overwritten by an API figure the next second,
    and a dead chain read does not pin the field forever.
 
+**Price (8552)** uses the same rule with two stated differences (`TokenFacts.acceptsPrice`): a price moves on every
+trade, so only a **CHAIN** tick holds the field (**60 s**, the ChainFedMarks8418 window — before 8552 only 2 of 38 writers
+respected it); and a **correction** of the held observation (an Executor unit / basis rebase, a capped paper exit) replaces
+the value but keeps the observation's own time (`correctPrice`) — a repair never makes a mark look fresher than its reading.
+A row created or copied with a price (no fact yet) is read as a legacy fact observed at its `lastPriceUpdate` (a restore
+when that is 0), so "older never replaces" holds from the first write.
+
 Observation time: the provider's / chain's own time where the producer has it (vault read `atMs`, curve frame / account
 `atMs`, route cache `updatedAtMs`, entry snapshot `capturedAtMs`); a clock more than 5 s ahead is clamped to now.
 
@@ -51,6 +58,12 @@ Observation time: the provider's / chain's own time where the producer has it (v
 | `AGGREGATE` | 1 | `INTAKE` (scanner figure), `OBSERVED_FILL_8037` (resolver / token map), `RAYDIUM_TVL_8128` (cached TVL stand-in), `CURVE_PRICE_IMPLIED_8173`, `TOKEN_MAP_CACHE_6513`, `ENTRY_SNAPSHOT_7382` |
 | `RESTORE` | 0 | `META_CACHE_RESTORE`, `HIVE_RESTORE`, `POSITION_RESTORE` |
 
+Price ranks (8552): **CHAIN** — GradTicks8018 chain ticks (`source8018`), executable route quotes (`EXEC_QUOTE_8237`);
+**PROVIDER** — DexScreener WS / pair poll, Jupiter poll, Birdeye overview, pair / oracle fallbacks, fan-out marks, held hot
+marks, candidate mark refresh, cross-asset router; **AGGREGATE** — cap ÷ supply seeds, curve-reserve seed, intake WS cap
+reprice, entry snapshot, route cache (at its own time), saved position with a source time; **RESTORE** — meta cache, saved
+position without a source time, position rehydrate, an undated synthetic pair.
+
 ## 3. Fields
 
 Status: **STORE** = migrated (one writer, guard on); **LEGACY** = still written in several places, scheduled below.
@@ -58,7 +71,7 @@ Status: **STORE** = migrated (one writer, guard on); **LEGACY** = still written 
 | Field | Canonical slot | Status | Producers (write through) | Decision readers |
 |---|---|---|---|---|
 | Liquidity (USD) | `facts8551[LIQUIDITY_USD]` → mirrors `lastLiquidityUsd`, `tokenMap.liquidityUsd` | **STORE (8551)** | `TokenFacts.writeLiquidity` ← `HydrationReeval8343.writeTick8345` (WS / poll / batch / Birdeye / Raydium / intake / verify), `onDepthRead8343` (every vault read on arrival), `LiquidityTruth8037` (curve frames, pool vaults, `hydrate8037`), restores | `LiquidityTruth8037.hydrate8037` = `TokenMapAuthority.observedLiquidityUsd` = the raw field (V3Adapter, HardRugPreFilter, ExecutableOpenGate, Executor, FDG, lanes, Field Manual) |
-| Price (USD) + observation time | `lastPrice`, `lastPriceUpdate`, `lastPriceSource` | LEGACY | ~45 write sites | everything |
+| Price (USD) + observation time | `facts8551[PRICE_USD]` → mirrors `lastPrice`, `lastPriceUpdate`, `lastPriceSource` (+ pool / dex), `tokenMap.priceUsd` | **STORE (8552)** | `TokenFacts.writePrice` ← 38 sites (BotService 23, Executor 12, DataOrchestrator, ProfitExitTruth8163, HeldHotMarkAuthority7419, CandidateMarkFresh8094, CrossAssetMarkRouter6530 ×4, MemeChokes7951, PositionPersistence, BotServiceLifecycleExt) | everything (reads the mirrored fields) |
 | Buy pressure, 5 m / 1 h change | `lastBuyPressurePct`, `lastPriceChange5m/1h` (+ `*ObservedAtMs8084`) | LEGACY | DexScreener pair / WS, PairFlow8169, DexBatchLane8287 (flow not written), TradeTape8100 | LaneInputTruth8236 (120 s), SetupFeatureResolver8169 (15 min) |
 | Market cap / FDV | `lastMcap`, `lastFdv`, `tokenMap.marketCap` | LEGACY | scanners, TrustedMcap8019 (writes back) | lanes, TrustedMcap8019 |
 | Birth / age | several | LEGACY | AdmissionBirth8144 witnesses, CanonicalTokenBirthTime7440, TokenBirthHydrator7441 | `readFor8144`, `resolvedAgeMinutes`, `launchAgeMs7767` |
@@ -76,7 +89,7 @@ Status: **STORE** = migrated (one writer, guard on); **LEGACY** = still written 
 | D2 | Buy pressure / change: LaneInputTruth8236 120 s window vs SetupFeatureResolver8169 15 min; batch-lane flow never reaches the row | Phase 3 |
 | D3 | Top-10 holder share read in 5 different orders | Phase 6 |
 | D4 | Age: `AdmissionBirth8144.readFor8144` vs `CanonicalTokenBirthTime7440.resolvedAgeMinutes` vs `launchAgeMs7767` | Phase 5 |
-| D5 | Price age: Executor stamps now; BotService route-cache stamps the cache time; others unclear | Phase 2 |
+| D5 | Price age: the pair poll wrote the price but never its time; the meta-cache hydrate stamped an archive price "now" (it passed as a fresh entry quote); the route cache replaced newer marks with older; basis repairs re-dated to now; 36 of 38 writers ignored a recent chain tick | **Fixed 8552** |
 | D6 | Market cap: TrustedMcap8019 writes back into the row | Phase 4 |
 | D7 | Executor collapse guard read `tokenMap.mintAuthority / freezeAuthority`, which **nothing writes** — the guard never saw a live authority | **Fixed 8551** — reads `ts.safety.*AuthorityDisabled == false` |
 | D8 | Graduation: `tokenMap.migratedOrGraduated` vs `PumpCurveKeys7269.isGraduated7392` | Phase 9 |
@@ -90,7 +103,7 @@ rank / time, the duplicate ladders are retired, every reader reads the fact (or 
 field, this map is updated, then tests + CI on main.
 
 1. **Liquidity** — 8551 ✅
-2. Price + observation time (D5)
+2. **Price + observation time (D5)** — 8552 ✅
 3. Flow / changes (D2)
 4. Cap / FDV (D6)
 5. Birth / age (D4)

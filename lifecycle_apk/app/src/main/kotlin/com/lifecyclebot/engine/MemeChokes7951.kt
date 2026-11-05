@@ -97,9 +97,7 @@ object MemeChokes7951 {
         if (px.isFinite() && px > 0.0) {
             synchronized(ts) {
                 if (ts.lastPrice <= 0.0) {
-                    ts.lastPrice = px
-                    ts.lastPriceUpdate = now
-                    ts.lastPriceSource = "PUMP_CURVE_RESERVES_SEED_7951"
+                    com.lifecyclebot.engine.truth.TokenFacts.writePrice(ts, px, "PUMP_CURVE_RESERVES_SEED_7951", com.lifecyclebot.engine.truth.TokenFacts.Rank.AGGREGATE, now)  // V5.0.8552
                     if (ts.lastMcap <= 0.0) com.lifecyclebot.engine.truth.MintSupply8418.capUsd8418(mint, px).takeIf { it.isFinite() }?.let { ts.lastMcap = it }   // V5.0.8418 — verified supply, not 1e9
                 }
             }

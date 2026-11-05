@@ -163,9 +163,7 @@ object ProfitExitTruth8163 {
             val q = quoteImpliedUsd8237(outLamports, rawIn, dec, solUsd)
             if (!markDisproven8237(ts.lastPrice, q)) return
             val ratio = ts.lastPrice / q
-            ts.lastPrice = q
-            ts.lastPriceSource = "EXEC_QUOTE_8237"
-            ts.lastPriceUpdate = nowMs
+            com.lifecyclebot.engine.truth.TokenFacts.writePrice(ts, q, "EXEC_QUOTE_8237", com.lifecyclebot.engine.truth.TokenFacts.Rank.CHAIN, nowMs)  // V5.0.8552 — an executable route quote is the pools' own answer
             // This is a later executable observation, not a replay of the past high.
             // Preserve only the peak authority's exact-position, same-basis VERIFIED history.
             val excursion = com.lifecyclebot.engine.truth.PositionExcursion8082.forClose(canonical.positionId)

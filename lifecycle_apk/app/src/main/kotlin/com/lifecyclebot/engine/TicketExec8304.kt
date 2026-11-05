@@ -212,8 +212,31 @@ object TicketExec8304 {
         try {
             PipelineHealthCollector.labelInc("FDG_SIZE_ZERO_8304_${lane8304(lane)}_${reasonKey8304(cause).take(56)}")
         } catch (_: Throwable) {}
+        // V5.0.8552 — kept for the brief: 8550 PAPER refused 191 meme approvals SIZE_NOT_EXECUTABLE_7835 and no log line said why.
+        val key = "${lane8304(lane)}:${reasonKey8304(cause).take(48)}"
+        if (sizeZero8552.size < 64 || sizeZero8552.containsKey(key)) sizeZero8552.computeIfAbsent(key) { java.util.concurrent.atomic.AtomicLong(0) }.incrementAndGet()
         return 0.0
     }
+
+    private val sizeZero8552 = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
+
+    /**
+     * Pure (V5.0.8552): the most the FDG may seal. LIVE: the risk authority's size (LiveRiskPolicy7807 already promotes a
+     * sub-minimum to the route minimum when the loss budget holds). PAPER has no risk authority, so the market caps bound it
+     * (the pool-depth share and the curve share): a sub-floor paper request is promoted to the paper floor when the market can
+     * carry it — what LIVE does — instead of the resolver refusing it LANE_CAP_BELOW_MIN_EXECUTABLE_6490 (8550: 191 meme
+     * approvals, 0 paper meme trades).
+     */
+    fun sealCeiling8552(paper: Boolean, riskSized: Double, depthCap: Double, curveCap: Double): Double {
+        if (!paper) return riskSized
+        val market = minOf(depthCap, curveCap)
+        return if (market.isFinite() && market > riskSized) market else riskSized
+    }
+
+    /** The FDG's named zero sizes, most frequent first (the brief's B MONEY line). */
+    fun sizeZeroLine8552(): String =
+        "fdgSizeZero8552{" + sizeZero8552.entries.sortedByDescending { it.value.get() }.take(8)
+            .joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } + "}"
 
     // ── reconcile: a complete empty wallet read is a zero-balance proof ──
 

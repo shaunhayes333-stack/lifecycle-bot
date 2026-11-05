@@ -118,7 +118,7 @@ class Aate8304TicketExecTest {
         assertTrue(f.contains("return TicketExec8304.fdgSizeZero8304(lane, \"RISK_\" + risk.reason)"))
         assertTrue(f.contains("TicketExec8304.fdgSizeZero8304(lane, \"RESOLVER_\" + resolution.reason)"))
         // the route minimum stays real: the sealed size still must clear it
-        assertTrue(f.contains("resolution.finalSizeSol + 1e-9 < sealedMinimum8269) return 0.0"))
+        assertTrue(f.contains("resolution.finalSizeSol + 1e-9 < sealedMinimum8269) return TicketExec8304.fdgSizeZero8304(lane, \"BELOW_SEALED_MINIMUM\")"))  // superseded: silent return 0.0 — V5.0.8552 named
     }
 
     @Test fun aProvenCompleteEmptyWalletReadReachesTheReconciler() {

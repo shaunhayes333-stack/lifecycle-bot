@@ -123,7 +123,8 @@ object DiagnosisBrief8438 {
 
     /** Pure (V5.0.8536). */
     fun paperFunnelLine8536(attempts: Long, opened: Long, notOpened: String, nonEconomic: Long): String =
-        "paper meme8536 buyAttempts=$attempts opened=$opened notOpened{${notOpened.ifBlank { "-" }}} nonEconomicApproval=$nonEconomic"
+        "paper meme8536 buyAttempts=$attempts opened=$opened notOpened{${notOpened.ifBlank { "-" }}} nonEconomicApproval=$nonEconomic " +
+            (try { TicketExec8304.sizeZeroLine8552() } catch (_: Throwable) { "fdgSizeZero8552{?}" })
 
     fun moneyVerdict8438(n: Int, expectancySol: Double): String = when {
         n < 10 -> "UNPROVEN"

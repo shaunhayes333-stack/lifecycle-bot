@@ -397,9 +397,7 @@ object HeldHotMarkAuthority7419 {
                     if (ts != null) synchronized(ts) {
                         // V5.0.8418 — a chain-fed row keeps its tick (ChainFedMarks8418); the registry mark above still published
                         if (publishedAt7835 >= ts.lastPriceUpdate && !com.lifecyclebot.engine.ChainFedMarks8418.chainFed8418(p.mint, publishedAt7835)) {
-                            ts.lastPrice = px
-                            ts.lastPriceSource = source
-                            ts.lastPriceUpdate = publishedAt7835
+                            TokenFacts.writePrice(ts, px, source, TokenFacts.Rank.PROVIDER, publishedAt7835)  // V5.0.8552
                         }
                     }
                 } catch (_: Throwable) {}

@@ -124,8 +124,7 @@ internal fun BotService.synthesizeTreasuryTokenState(mint: String): com.lifecycl
         tradingMode        = "TREASURY",
         isPaperPosition    = pos.isPaper,
     )
-    ts.lastPrice = if (pos.currentPrice > 0) pos.currentPrice else pos.entryPrice
-    ts.lastPriceSource = "POSITION_REHYDRATE"  // V5.9.744
+    com.lifecyclebot.engine.truth.TokenFacts.restorePrice(ts, if (pos.currentPrice > 0) pos.currentPrice else pos.entryPrice, "POSITION_REHYDRATE")  // V5.9.744; V5.0.8552 a restore fact
     synchronized(BotService.status.tokens) {
         if (!BotService.status.tokens.containsKey(mint)) {
             BotService.status.tokens[mint] = ts

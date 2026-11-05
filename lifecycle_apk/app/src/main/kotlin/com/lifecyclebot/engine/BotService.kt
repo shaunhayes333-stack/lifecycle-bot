@@ -11468,9 +11468,7 @@ class BotService : Service() {
                                 // ts.lastPrice, and let normal PnL/exit logic run this cycle.
                                 val fbPrice = resolveStaleFallbackPrice(ts.mint)
                                 if (fbPrice != null && fbPrice > 0.0) {
-                                    ts.lastPrice = fbPrice
-                                    ts.lastPriceUpdate = System.currentTimeMillis()
-                                    ts.lastPriceSource = "ORACLE_FALLBACK"
+                                    TokenFacts.writePrice(ts, fbPrice, "ORACLE_FALLBACK", TokenFacts.Rank.PROVIDER, System.currentTimeMillis())  // V5.0.8552
                                     try { com.lifecyclebot.engine.sell.StalePriceExitGuard.clearStale(ts.mint) } catch (_: Throwable) {}  // V5.9.1533
                                     ErrorLogger.info("BotService",
                                         "🛟 STALE_FALLBACK_RECOVERED: ${ts.symbol} primary feed dark ${lastPriceAgeMs/1000}s → oracle price \$$fbPrice (NO forced dump)")
@@ -11676,9 +11674,7 @@ class BotService : Service() {
                                     // oracle is also dark we hold (unchanged behaviour).
                                     val zombieFb = try { resolveStaleFallbackPrice(ts.mint) } catch (_: Throwable) { null }
                                     if (zombieFb != null && zombieFb > 0.0) {
-                                        ts.lastPrice = zombieFb
-                                        ts.lastPriceUpdate = System.currentTimeMillis()
-                                        ts.lastPriceSource = "ORACLE_ZOMBIE_REFRESH"
+                                        TokenFacts.writePrice(ts, zombieFb, "ORACLE_ZOMBIE_REFRESH", TokenFacts.Rank.PROVIDER, System.currentTimeMillis())  // V5.0.8552
                                         try { com.lifecyclebot.engine.sell.StalePriceExitGuard.clearStale(ts.mint) } catch (_: Throwable) {}  // V5.9.1533
                                         val zPnlVerdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(
                                             entryPrice = ts.position.entryPrice,
@@ -11758,9 +11754,7 @@ class BotService : Service() {
                                 // the true price, not a guess) or proves it's a feed glitch.
                                 val fbLivePrice = resolveStaleFallbackPrice(ts.mint)
                                 if (fbLivePrice != null && fbLivePrice > 0.0) {
-                                    ts.lastPrice = fbLivePrice
-                                    ts.lastPriceUpdate = System.currentTimeMillis()
-                                    ts.lastPriceSource = "ORACLE_FALLBACK"
+                                    TokenFacts.writePrice(ts, fbLivePrice, "ORACLE_FALLBACK", TokenFacts.Rank.PROVIDER, System.currentTimeMillis())  // V5.0.8552
                                     try { com.lifecyclebot.engine.sell.StalePriceExitGuard.clearStale(ts.mint) } catch (_: Throwable) {}  // V5.9.1533
                                     val fbPnlVerdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(
                                         entryPrice = ts.position.entryPrice,
@@ -11862,9 +11856,7 @@ class BotService : Service() {
                             if (premarkPnl > -5.0 || posAgeMsDz <= 8_000L || markAgeMsDz <= 4_000L) return@run currentPrice
                             val freshDz = try { resolveStaleFallbackPrice(ts.mint) } catch (_: Throwable) { null }
                             if (freshDz == null || freshDz <= 0.0) return@run currentPrice
-                            ts.lastPrice = freshDz
-                            ts.lastPriceUpdate = System.currentTimeMillis()
-                            ts.lastPriceSource = "DANGER_ZONE_FRESH"
+                            TokenFacts.writePrice(ts, freshDz, "DANGER_ZONE_FRESH", TokenFacts.Rank.PROVIDER, System.currentTimeMillis())  // V5.0.8552
                             try {
                                 val dzPnlVerdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(
                                     entryPrice = preEntry,
@@ -13179,11 +13171,7 @@ class BotService : Service() {
                     val chainFed8418 = ChainFedMarks8418.chainFed8418(mint, now)
                     if (chainFed8418) ChainFedMarks8418.pollSkipped8418()
                     synchronized(ts) {
-                        if (!chainFed8418) {
-                            ts.lastPrice = priceUsd
-                            ts.lastPriceUpdate = now
-                            ts.lastPriceSource = resolvedSource6999
-                        }
+                        if (!chainFed8418) TokenFacts.writePrice(ts, priceUsd, resolvedSource6999, TokenFacts.Rank.PROVIDER, now)  // V5.0.8552
                         // V5.0.7269 §THE_CAP_COMES_FROM_THE_STACK_TOO.
                         //
                         // ts.lastMcap was written only by DexScreener, Birdeye and
@@ -17052,7 +17040,7 @@ class BotService : Service() {
                             // to seed because every fresh tick will overwrite
                             // them; they only matter for the first few seconds
                             // post-boot when the scanner hasn't ticked yet.
-                            if (cached.lastPrice > 0.0) fresh.lastPrice = cached.lastPrice
+                            TokenFacts.restorePrice(fresh, cached.lastPrice, null)  // V5.0.8552 — a restore fact (time 0)
                             if (cached.lastMcap > 0.0) fresh.lastMcap = cached.lastMcap
                             TokenFacts.restoreLiquidity(fresh, cached.lastLiquidityUsd, "META_CACHE_RESTORE")  // V5.0.8551
                             if (cached.lastFdv > 0.0) fresh.lastFdv = cached.lastFdv
@@ -17088,7 +17076,6 @@ class BotService : Service() {
                             // immutable facts about the token, not moving values.
                             if (cached.lastPrice > 0.0) {
                                 fresh.lastPriceSource = com.lifecyclebot.engine.truth.MarketDataProvenance6471.ARCHIVED_MARK_SOURCE_6908
-                                fresh.lastPriceUpdate = 0L
                             } else if (cached.lastPriceSource.isNotBlank()) {
                                 fresh.lastPriceSource = cached.lastPriceSource
                             }
@@ -17107,7 +17094,6 @@ class BotService : Service() {
                             // standing in as local live proof.
                             if (hiveForIntake.lastPriceSource.isNotBlank()) {
                                 fresh.lastPriceSource = com.lifecyclebot.engine.truth.MarketDataProvenance6471.ARCHIVED_MARK_SOURCE_6908
-                                fresh.lastPriceUpdate = 0L
                             }
                         }
                     }
@@ -17122,7 +17108,7 @@ class BotService : Service() {
                     // those are still hydrated on first creation above. Existing
                     // runtime tokens only refill mutable quote/visual fields here.
                     if (ts.logoUrl.isBlank() && cachedForIntake.logoUrl.isNotBlank()) ts.logoUrl = cachedForIntake.logoUrl
-                    if (ts.lastPrice <= 0.0 && cachedForIntake.lastPrice > 0.0) ts.lastPrice = cachedForIntake.lastPrice
+                    TokenFacts.restorePrice(ts, cachedForIntake.lastPrice, null)  // V5.0.8552
                     if (ts.lastMcap <= 0.0 && cachedForIntake.lastMcap > 0.0) ts.lastMcap = cachedForIntake.lastMcap
                     TokenFacts.restoreLiquidity(ts, cachedForIntake.lastLiquidityUsd, "META_CACHE_RESTORE")  // V5.0.8551
                     if (ts.lastFdv <= 0.0 && cachedForIntake.lastFdv > 0.0) ts.lastFdv = cachedForIntake.lastFdv
@@ -17327,8 +17313,6 @@ class BotService : Service() {
                             }
                         } catch (_: Throwable) {}
                     }
-                    ts.lastPrice = seedPrice7089
-                    ts.lastPriceUpdate = System.currentTimeMillis()
                     // V5.9.744 — tag synthetic source. Pump.Fun protocol guarantees
                     // 1B fixed supply on BC, so mcap/1B is the exact per-token price
                     // ON THAT SCALE. But when the token graduates to Raydium/Bonk,
@@ -17341,8 +17325,8 @@ class BotService : Service() {
                     // $0.96 under this label from a $683k cap over a 712k supply
                     // while two feeds quoted $90.8 — 20.7 SOL of fabricated
                     // unrealized on a 0.22 SOL ticket. The two cases are named apart.
-                    ts.lastPriceSource = if (isPumpMint7089) "PUMP_FUN_BC_SYNTHETIC" else com.lifecyclebot.engine.truth.EntryBasisSeed7280.CHAIN_SUPPLY_CAP_SEED
-                    ts.lastPriceDex = if (isPumpMint7089) "PUMP_FUN" else "CAP_OVER_CHAIN_SUPPLY"
+                    TokenFacts.writePrice(ts, seedPrice7089, if (isPumpMint7089) "PUMP_FUN_BC_SYNTHETIC" else com.lifecyclebot.engine.truth.EntryBasisSeed7280.CHAIN_SUPPLY_CAP_SEED,
+                        TokenFacts.Rank.AGGREGATE, System.currentTimeMillis(), dex = if (isPumpMint7089) "PUMP_FUN" else "CAP_OVER_CHAIN_SUPPLY")  // V5.0.8552
                 } else if (trustedMarketCapUsd6492 > 0.0 &&
                     (ts.lastPriceSource == "PUMP_FUN_BC_SYNTHETIC" || ts.lastPriceSource == com.lifecyclebot.engine.truth.EntryBasisSeed7280.CHAIN_SUPPLY_CAP_SEED)
                 ) {
@@ -17380,8 +17364,7 @@ class BotService : Service() {
                         else -> 0.0
                     }
                     if (newPrice > 0.0 && newPrice != ts.lastPrice) {
-                        ts.lastPrice = newPrice
-                        ts.lastPriceUpdate = System.currentTimeMillis()
+                        TokenFacts.writePrice(ts, newPrice, null, TokenFacts.Rank.AGGREGATE, System.currentTimeMillis())  // V5.0.8552
                         // V5.0.7055 — bin the observation into a 1m candle for
                         // this NOT-YET-OPEN candidate. Intake seeds one candle
                         // and stops, so ModeRouter classifies every candidate
@@ -24975,11 +24958,9 @@ if (hotExitHandledSweep) {
                 try { PipelineHealthCollector.labelInc("EXIT_CACHE_HYDRATE_JUMP_REJECTED_7273") } catch (_: Throwable) {}
             }
             if ((ts.lastPrice <= 0.0 || System.currentTimeMillis() - ts.lastPriceUpdate > 90_000L) && cached != null && !cacheJumpRejected7273) {
-                ts.lastPrice = cached.priceUsd ?: 0.0
-                ts.lastPriceUpdate = cached.updatedAtMs
-                ts.lastPriceSource = cached.sourceScanner.ifBlank { "TOKEN_MAP_CACHE_6513" }
-                ts.lastPricePoolAddr = cached.poolAddress.ifBlank { cached.pairAddress }
-                ts.lastPriceDex = cached.dexId
+                // V5.0.8552 D5 — the cached route price is offered at the cache's own time: it no longer replaces a newer mark
+                TokenFacts.writePrice(ts, cached.priceUsd ?: 0.0, cached.sourceScanner.ifBlank { "TOKEN_MAP_CACHE_6513" }, if (cached.updatedAtMs > 0L) TokenFacts.Rank.AGGREGATE else TokenFacts.Rank.RESTORE,
+                    cached.updatedAtMs, pool = cached.poolAddress.ifBlank { cached.pairAddress }, dex = cached.dexId)
                 ts.tokenMap = cached
                 // V5.0.8551 — the cached route's depth is offered to the store at the cache's own time (it no longer
                 // overwrites a newer reading), and the swapped-in map is re-mirrored from the store's fact.
@@ -25759,10 +25740,8 @@ if (hotExitHandledSweep) {
         }
         ChainFedMarks8418.note8418(mint, now)   // V5.0.8418 — a chain tick: the polls stop overwriting this row
         synchronized(ts) {
-            ts.lastPrice = px
-            ts.lastPriceSource = source8018
-            if (pool8018.isNotBlank()) { ts.lastPricePoolAddr = pool8018; ts.lastPriceDex = com.lifecyclebot.network.GradTicks8018.dexFor8419(source8018) }   // V5.0.8419 — the tick's venue, not "PUMPSWAP" for a Raydium / Meteora / Orca pool
-            ts.lastPriceUpdate = now
+            TokenFacts.writePrice(ts, px, source8018, TokenFacts.Rank.CHAIN, now, pool = pool8018,
+                dex = if (pool8018.isNotBlank()) com.lifecyclebot.network.GradTicks8018.dexFor8419(source8018) else null)   // V5.0.8419 — the tick's venue; V5.0.8552 the one price write
             // superseded by V5.0.8418 — the venue's marketCapSol (price x an assumed 1e9 supply) is not written:
             // every print prices the mint account's verified supply; unread supply leaves the row's cap as it was (unknown stays unknown).
             com.lifecyclebot.engine.truth.MintSupply8418.capUsd8418(mint, px).takeIf { it.isFinite() }?.let { ts.lastMcap = it }   // V5.0.8418 — verified supply x print; unread supply: cap stays unknown
@@ -26233,9 +26212,7 @@ if (hotExitHandledSweep) {
                 if (isPumpSource && ts.lastPrice <= 0.0 && ts.lastMcap > 0.0 && verifiedSupply8418 > 0.0) {
                     val seededPrice = ts.lastMcap / verifiedSupply8418
                     synchronized(ts) {
-                        ts.lastPrice = seededPrice
-                        ts.lastPriceUpdate = System.currentTimeMillis()
-                        ts.lastPriceSource = "PUMP_FUN_SOURCE_NATIVE_MCAP_SEED_6401"
+                        TokenFacts.writePrice(ts, seededPrice, "PUMP_FUN_SOURCE_NATIVE_MCAP_SEED_6401", TokenFacts.Rank.AGGREGATE, System.currentTimeMillis())  // V5.0.8552
                     }
                     val fastSynth6401 = synthesizeFallbackPair(ts)
                     if (fastSynth6401 != null) {
@@ -26599,17 +26576,17 @@ if (hotExitHandledSweep) {
             // was accepted — the executor boundary enforces the strict
             // rule via EXECUTION_WITH_PROVISIONAL_MARK.
             
-            ts.lastPrice        = validatedPrice
-            ts.lastPriceSource  = markSource7271  // V5.9.744; V5.0.7271 a synth pair keeps its seed's label
-            ts.lastPricePoolAddr = pair.pairAddress
-            ts.lastPriceDex     = when {  // V5.9.744 — derive DEX from pair URL (PairInfo has no dexId field)
+            // V5.0.8552 D5 — superseded: the poll wrote the price but never its time (it inherited the previous mark's clock);
+            // the price is now the pair's observation at its own fetch time (a synthetic pair keeps its seed's time)
+            TokenFacts.writePrice(ts, validatedPrice, markSource7271, if (!synthPair7271) TokenFacts.Rank.PROVIDER else if (evidenceAt7271 > 0L) TokenFacts.Rank.AGGREGATE else TokenFacts.Rank.RESTORE,
+                evidenceAt7271, pool = pair.pairAddress, dex = when {  // V5.9.744 — derive DEX from pair URL (PairInfo has no dexId field)
                 pair.url.contains("raydium", ignoreCase = true) -> "RAYDIUM"
                 pair.url.contains("pump.fun", ignoreCase = true) -> "PUMP_FUN"
                 pair.url.contains("bonk", ignoreCase = true) -> "BONK"
                 pair.url.contains("meteora", ignoreCase = true) -> "METEORA"
                 pair.url.contains("orca", ignoreCase = true) -> "ORCA"
                 else -> "UNKNOWN"
-            }
+            })
             ts.lastMcap         = pair.candle.marketCap
             // V5.0.7323 — a bonding-curve pair has no liquidity object, so the
             // poll reported 0 and erased the create-time depth estimate:
@@ -32442,8 +32419,7 @@ if (hotExitHandledSweep) {
                 // Push the capped price into ts so downstream close-recorders use it
                 if (isPaper) {
                     try {
-                        ts.lastPrice = effectiveExitPrice
-                        ts.lastPriceSource = "RUG_SAFETY_CAPPED_EXIT"  // V5.9.744
+                        TokenFacts.correctPrice(ts, effectiveExitPrice, "RUG_SAFETY_CAPPED_EXIT")  // V5.9.744; V5.0.8552 an exit cap corrects the value, not the time
                     } catch (_: Exception) {}
                 }
                 try {
@@ -34638,9 +34614,7 @@ if (hotExitHandledSweep) {
         } catch (_: Throwable) { null } ?: return false
         if (!mark.priceUsd.isFinite() || mark.priceUsd <= 0.0) return false
         synchronized(ts) {
-            ts.lastPrice = mark.priceUsd
-            ts.lastPriceUpdate = System.currentTimeMillis()
-            ts.lastPriceSource = mark.source
+            TokenFacts.writePrice(ts, mark.priceUsd, mark.source, TokenFacts.Rank.PROVIDER, System.currentTimeMillis())  // V5.0.8552
         }
         broadcastFallbackPrice(mint, mark.priceUsd, mark.source)
         return true
@@ -34657,9 +34631,7 @@ if (hotExitHandledSweep) {
             val ov = com.lifecyclebot.network.BirdeyeApi(cfg2.birdeyeApiKey).getTokenOverview(mint)
             if (ov != null && ov.priceUsd.isFinite() && ov.priceUsd > 0) {
                 synchronized(ts) {
-                    ts.lastPrice = ov.priceUsd
-                    ts.lastPriceUpdate = System.currentTimeMillis()
-                    ts.lastPriceSource = "BIRDEYE_OVERVIEW"  // V5.9.744
+                    TokenFacts.writePrice(ts, ov.priceUsd, "BIRDEYE_OVERVIEW", TokenFacts.Rank.PROVIDER, System.currentTimeMillis())  // V5.9.744; V5.0.8552
                     // V5.0.7807 — an overview without liquidity is DATA UNKNOWN,
                     // never a 0.0 drain reading (Field Manual L190).
                     if (ov.liquidity.isFinite() && ov.liquidity > 0.0) HydrationReeval8343.writeTick8345(ts, ov.liquidity, "BIRDEYE_OVERVIEW", com.lifecyclebot.engine.truth.TokenFacts.Rank.PROVIDER)  // V5.0.8345
@@ -34694,9 +34666,7 @@ if (hotExitHandledSweep) {
                 }
                 if (priceUsd != null && priceUsd.isFinite() && priceUsd > 0) {
                     synchronized(ts) {
-                        ts.lastPrice = priceUsd
-                        ts.lastPriceUpdate = System.currentTimeMillis()
-                        ts.lastPriceSource = "PAIR_FALLBACK"  // V5.9.744
+                        TokenFacts.writePrice(ts, priceUsd, "PAIR_FALLBACK", TokenFacts.Rank.PROVIDER, System.currentTimeMillis())  // V5.9.744; V5.0.8552
                     }
                     broadcastFallbackPrice(mint, priceUsd, "DEXSCREENER_TOKEN")   // V5.0.7175
                     addLog("📊 DexScreener(token): ${ts.symbol} \$${priceUsd}", mint)
@@ -34715,9 +34685,7 @@ if (hotExitHandledSweep) {
                 }
                 if (priceUsd != null && priceUsd.isFinite() && priceUsd > 0) {
                     synchronized(ts) {
-                        ts.lastPrice = priceUsd
-                        ts.lastPriceUpdate = System.currentTimeMillis()
-                        ts.lastPriceSource = "PAIR_FALLBACK"  // V5.9.744
+                        TokenFacts.writePrice(ts, priceUsd, "PAIR_FALLBACK", TokenFacts.Rank.PROVIDER, System.currentTimeMillis())  // V5.9.744; V5.0.8552
                     }
                     broadcastFallbackPrice(mint, priceUsd, "BIRDEYE_ORACLE")   // V5.0.7175
                     addLog("🐦 BirdeyeOracle: ${ts.symbol} \$${priceUsd}", mint)
@@ -34784,10 +34752,7 @@ if (hotExitHandledSweep) {
                         val priceUsd = com.lifecyclebot.engine.PumpFunPriceUnits7017.priceUsd(json)
                         if (mcap.isFinite() && mcap > 0 && priceUsd.isFinite() && priceUsd > 0) {
                             synchronized(ts) {
-                                ts.lastPrice = priceUsd
-                                ts.lastPriceUpdate = System.currentTimeMillis()
-                                ts.lastPriceSource = "PUMP_FUN_FRONTEND_API"  // V5.9.744
-                                ts.lastPriceDex = "PUMP_FUN"
+                                TokenFacts.writePrice(ts, priceUsd, "PUMP_FUN_FRONTEND_API", TokenFacts.Rank.PROVIDER, System.currentTimeMillis(), dex = "PUMP_FUN")  // V5.9.744; V5.0.8552
                                 ts.lastMcap = mcap
                                 ts.lastFdv = mcap
                                 // Market cap is not liquidity; retain independently observed depth.
@@ -34894,9 +34859,7 @@ if (hotExitHandledSweep) {
                     if (usable7273 && fan7273 != null) {
                         val label7273 = if (fan7273.corroborated) "FANOUT_CORROBORATED_7088_x${fan7273.agreeingCount}" else "FANOUT_UNCORROBORATED_7088"
                         synchronized(ts) {
-                            ts.lastPrice = fan7273.priceUsd
-                            ts.lastPriceUpdate = System.currentTimeMillis()
-                            ts.lastPriceSource = label7273
+                            TokenFacts.writePrice(ts, fan7273.priceUsd, label7273, TokenFacts.Rank.PROVIDER, System.currentTimeMillis())  // V5.0.8552
                         }
                         try {
                             com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.note(

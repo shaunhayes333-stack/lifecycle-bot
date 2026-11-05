@@ -25,10 +25,14 @@ import java.util.concurrent.atomic.AtomicLong
  *    ([holdMs]: 90 s for the chain, 30 s otherwise) — the chain's depth is not overwritten by an API's figure the next
  *    second, and a dead chain read does not pin the field forever.
  *
- * Migrated: LIQUIDITY_USD (8551). The other fields follow the order in docs/DATA_MAP.md, one build per field family.
+ * PRICE_USD (8552) follows the same rule with one difference stated in [acceptsPrice]: a price moves on every trade, so
+ * only a CHAIN tick holds the field (60 s, the ChainFedMarks8418 window), and a correction of the held observation (a unit
+ * rebase, a capped paper exit) replaces the value but keeps the observation's own time ([correctPrice]).
+ *
+ * Migrated: LIQUIDITY_USD (8551), PRICE_USD (8552). The other fields follow the order in docs/DATA_MAP.md.
  */
 object TokenFacts {
-    enum class Field { LIQUIDITY_USD }
+    enum class Field { LIQUIDITY_USD, PRICE_USD }
 
     /** Source strength. Higher outranks lower inside the hold window. */
     object Rank {
@@ -123,12 +127,89 @@ object TokenFacts {
 
     /** Re-mirrors the held facts into the legacy fields after a caller swapped [ts]'s token map (route cache hydrate). */
     fun mirror(ts: TokenState) {
-        val liq = ts.facts8551[Field.LIQUIDITY_USD] ?: return
-        try { ts.tokenMap.liquidityUsd = liq.value } catch (_: Throwable) {}
+        ts.facts8551[Field.LIQUIDITY_USD]?.let { liq -> try { ts.tokenMap.liquidityUsd = liq.value } catch (_: Throwable) {} }
+        ts.facts8551[Field.PRICE_USD]?.let { px ->
+            try { val tm = ts.tokenMap; if (px.observedAtMs > tm.priceObservedAtMs7858) { tm.priceUsd = px.value; tm.priceObservedAtMs7858 = px.observedAtMs } } catch (_: Throwable) {}
+        }
     }
 
     /** A restore (meta cache / hive / saved position): fills only an empty slot, observation time unknown. */
     fun restoreLiquidity(ts: TokenState, usd: Double, source: String): Boolean = writeLiquidity(ts, usd, source, Rank.RESTORE, 0L)
+
+    // ── PRICE_USD (V5.0.8552) ────────────────────────────────────────────────────────────────────────────────────────
+
+    /** = ChainFedMarks8418's window: a poll may replace a chain tick only once the chain feed has gone quiet. */
+    const val PRICE_CHAIN_HOLD_MS = 60_000L
+
+    /**
+     * Pure — the price rule. [prior] is the held fact, or the legacy fields read as one (a row created or copied with a
+     * price: observed at its lastPriceUpdate, a restore when that is 0). Not a reading -> no; a restore fills only an empty
+     * or restored slot; an older observation never replaces; a newer one replaces unless a CHAIN tick holds the field and
+     * the offer is weaker and within [PRICE_CHAIN_HOLD_MS] of it.
+     */
+    fun acceptsPrice(prior: Fact?, offered: Fact): Boolean {
+        if (!isReading(offered.value)) return false
+        if (offered.rank <= Rank.RESTORE) return prior == null || prior.rank <= Rank.RESTORE
+        if (prior == null || prior.rank <= Rank.RESTORE) return true
+        if (offered.observedAtMs < prior.observedAtMs) return false
+        if (offered.rank >= prior.rank || prior.rank < Rank.CHAIN) return true
+        return offered.observedAtMs - prior.observedAtMs > PRICE_CHAIN_HOLD_MS
+    }
+
+    /** The price [ts] holds, as a fact: the store's, else its legacy fields read as one (null when it has no price). */
+    fun priceFact(ts: TokenState): Fact? = ts.facts8551[Field.PRICE_USD]
+        ?: ts.lastPrice.takeIf { isReading(it) }?.let { Fact(it, ts.lastPriceSource, if (ts.lastPriceUpdate > 0L) Rank.AGGREGATE else Rank.RESTORE, ts.lastPriceUpdate) }
+
+    /**
+     * THE price write. [usd] observed by [source] ([rank]) at [observedAtMs] — the provider's / chain's own time; a restore
+     * is stored at 0 ("never observed here"). Kept only under [acceptsPrice]; then mirrored into ts.lastPrice /
+     * lastPriceUpdate / lastPriceSource (+ [pool] / [dex] when given) and the token map's price when it is newer there.
+     * [source] null keeps the row's source label (a restore whose caller labels it). Returns true when the fact was kept.
+     */
+    fun writePrice(ts: TokenState, usd: Double, source: String?, rank: Int, observedAtMs: Long,
+                   nowMs: Long = System.currentTimeMillis(), pool: String? = null, dex: String? = null): Boolean {
+        if (!isReading(usd)) { count(refused, "PRICE_USD:NOT_A_READING"); return false }
+        val offered = Fact(usd, source ?: ts.lastPriceSource, rank, stampOf(rank, observedAtMs, nowMs))
+        synchronized(ts.facts8551) {
+            val prior = priceFact(ts)
+            if (!acceptsPrice(prior, offered)) { count(refused, "PRICE_USD:" + refusal(prior, offered)); return false }
+            ts.facts8551[Field.PRICE_USD] = offered
+            ts.lastPrice = usd
+            ts.lastPriceUpdate = offered.observedAtMs
+            if (source != null) ts.lastPriceSource = source
+            if (!pool.isNullOrBlank()) ts.lastPricePoolAddr = pool
+            if (!dex.isNullOrBlank()) ts.lastPriceDex = dex
+            try {
+                val tm = ts.tokenMap
+                if (offered.observedAtMs > 0L && offered.observedAtMs >= tm.priceObservedAtMs7858) { tm.priceUsd = usd; tm.priceObservedAtMs7858 = offered.observedAtMs }
+            } catch (_: Throwable) {}
+        }
+        count(accepted, "PRICE_USD:" + (source ?: "RESTORE").take(48))
+        if (rank > Rank.RESTORE) try { FeatureRevision8283.bumpThrottled8286(ts.mint, FeatureKind8283.PRICE, nowMs) } catch (_: Throwable) {}
+        return true
+    }
+
+    /** A restore (archive / meta cache / saved position without a source time): fills only an empty slot, stored at time 0. */
+    fun restorePrice(ts: TokenState, usd: Double, source: String?): Boolean = writePrice(ts, usd, source, Rank.RESTORE, 0L)
+
+    /**
+     * The held observation CORRECTED, not a new one: a unit / basis rebase of the same reading (Executor 7017 / 7059) or a
+     * capped paper exit price. The value is replaced; the observation time stays the observation's (a repair never makes a
+     * mark look fresher than the reading it repairs). Returns false when there is no observation to correct.
+     */
+    fun correctPrice(ts: TokenState, usd: Double, source: String): Boolean {
+        if (!isReading(usd)) return false
+        // nothing held to correct: the value is offered as what it is, a derived reading now
+        if (priceFact(ts) == null) return writePrice(ts, usd, source, Rank.AGGREGATE, System.currentTimeMillis())
+        synchronized(ts.facts8551) {
+            val prior = priceFact(ts) ?: return false
+            ts.facts8551[Field.PRICE_USD] = prior.copy(value = usd, source = source)
+            ts.lastPrice = usd
+            ts.lastPriceSource = source
+        }
+        count(accepted, "PRICE_USD:CORRECTION")
+        return true
+    }
 
     /** Pure: why [accepts] refused (for the brief). */
     fun refusal(prior: Fact?, offered: Fact): String = when {
@@ -145,7 +226,9 @@ object TokenFacts {
     fun statusLine(): String {
         fun top(m: ConcurrentHashMap<String, AtomicLong>) = m.entries.sortedByDescending { it.value.get() }.take(8)
             .joinToString(",") { "${it.key.substringAfter(':')}=${it.value.get()}" }.ifBlank { "-" }
-        return "tokenFacts8551[liq accepted{${top(accepted)}} refused{${top(refused)}} rule=newest wins; same time -> higher rank; " +
-            "weaker source waits out the hold (chain 90s, else 30s); restores fill only empty slots]"
+        fun of(f: String, m: ConcurrentHashMap<String, AtomicLong>) = ConcurrentHashMap(m.filterKeys { it.startsWith("$f:") })
+        return "tokenFacts8551[liq accepted{${top(of("LIQUIDITY_USD", accepted))}} refused{${top(of("LIQUIDITY_USD", refused))}} " +
+            "price accepted{${top(of("PRICE_USD", accepted))}} refused{${top(of("PRICE_USD", refused))}} rule=newest wins; same time -> higher rank; " +
+            "weaker source waits out the hold (liq: chain 90s, else 30s; price: chain 60s); restores fill only empty slots]"
     }
 }

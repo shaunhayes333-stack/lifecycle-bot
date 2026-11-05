@@ -139,7 +139,7 @@ class Aate8419ReviewTest {
         assertTrue(bot.contains("val offBasis8418 = StopMarkConfirm8418.offBasis8419(offBasis, ts.lastPriceSource, ts.lastPricePoolAddr, ts.position.entryPoolAddress)"))
         assertTrue(bot.contains("StopMarkConfirm8418.executableConfirms8419(ts, maxOf(catastropheThreshold, -HARD_FLOOR_STOP_PCT_CONST))"))
         assertFalse("the rapid monitor no longer waits without bound on its own quote read", bot.contains("return@run execPnl <= catastropheThreshold || execPnl <= -HARD_FLOOR_STOP_PCT_CONST"))
-        assertTrue(bot.contains("ts.lastPriceDex = com.lifecyclebot.network.GradTicks8018.dexFor8419(source8018)"))
+        assertTrue(bot.contains("dex = if (pool8018.isNotBlank()) com.lifecyclebot.network.GradTicks8018.dexFor8419(source8018) else null)"))  // superseded: a direct ts.lastPriceDex write — V5.0.8552 the venue rides the one price write
         val grad = java.io.File("src/main/kotlin/com/lifecyclebot/network/GradTicks8018.kt").readText()
         assertTrue(grad.contains("if (!followable8419(owner8418)) continue"))
         assertTrue(grad.contains("!vaultRatioPrices8419(owner8418) -> null"))

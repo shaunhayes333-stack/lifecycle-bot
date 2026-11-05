@@ -6356,7 +6356,7 @@ object FinalDecisionGate {
     }
 
     private fun resolveExecutableSize7835(ts: TokenState, lane: String, requested: Double, config: BotConfig, candidateVersion8198: Long): Double {
-        if (!requested.isFinite() || requested <= 0.0) return 0.0
+        if (!requested.isFinite() || requested <= 0.0) return TicketExec8304.fdgSizeZero8304(lane, "REQUESTED_ZERO")
         val configuredMinimum7835 = if (config.paperMode) PaperPreTicketSizeFloor6511.boundedMinimum(config.minLiveBuySol)
             else if (config.allowLiveMicroProbe) 0.005 else config.minLiveBuySol.coerceAtLeast(0.0)
         val cash = if (config.paperMode) com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol()
@@ -6491,9 +6491,10 @@ object FinalDecisionGate {
         // convexity and funding checks, or refuses; never seal unsafe dust.
         val sealedMinimum8269 = com.lifecyclebot.engine.truth.LiveSizeTarget8094.sealedCostViableMinimum8269(
             minimum, risk8094?.reason, risk8094?.sizeSol ?: 0.0)
+        val ceiling8552 = TicketExec8304.sealCeiling8552(config.paperMode, riskSized, depthCap, curveCap)  // V5.0.8552 paper = live parity
         val resolution = com.lifecyclebot.engine.truth.OrderSizeResolver6441.resolve(
             requestedSol = riskSized, laneName = lane, walletSol = cash, paperMode = config.paperMode,
-            laneRiskCapSol = minOf(configuredCap, riskSized), laneMinExecutableSol = sealedMinimum8269,
+            laneRiskCapSol = minOf(configuredCap, ceiling8552), laneMinExecutableSol = sealedMinimum8269,
             mint = ts.mint, causalEventId = "",
             // V5.0.7925 — every path into the FDG already applied the streak reflex
             // (SmartSizer on the generic path, the trader's own resolve on specialist
@@ -6506,8 +6507,9 @@ object FinalDecisionGate {
             alreadyShaped7925 = com.lifecyclebot.engine.truth.CanonicalSizingBridge6532.shapedRecently7925(ts.mint),
         )
         if (!resolution.executable) TicketExec8304.fdgSizeZero8304(lane, "RESOLVER_" + resolution.reason)
-        if (!resolution.executable || resolution.finalSizeSol > riskSized + 1e-9 ||
-            resolution.finalSizeSol + 1e-9 < sealedMinimum8269) return 0.0
+        if (!resolution.executable) return 0.0
+        if (resolution.finalSizeSol > ceiling8552 + 1e-9) return TicketExec8304.fdgSizeZero8304(lane, "ABOVE_SEAL_CEILING")
+        if (resolution.finalSizeSol + 1e-9 < sealedMinimum8269) return TicketExec8304.fdgSizeZero8304(lane, "BELOW_SEALED_MINIMUM")
         com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealFor(ts.mint, resolution, lane)
         if (!config.paperMode) WalletCapacitySeal7868.record(ts.mint, resolution.finalSizeSol, cash, solUsd, candidateVersion = candidateVersion8198, lane = lane)
         if (!config.paperMode) try {

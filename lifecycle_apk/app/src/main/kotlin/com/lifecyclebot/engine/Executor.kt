@@ -1358,8 +1358,7 @@ class Executor(
                     pos.lastRoutePrice = mark7059.price
                     pos.lastRoutePriceTs = System.currentTimeMillis()
                     try {
-                        ts.lastPrice = mark7059.price
-                        ts.lastPriceUpdate = System.currentTimeMillis()
+                        // V5.0.8552 — a basis repair corrects the held observation (TokenFacts.correctPrice keeps its time)
                         // Provider stays as the prefix so
                         // MarkAuthorityIntegrityGate6496's prefix whitelist
                         // still matches (the 7046 regression, fixed in 7048);
@@ -1368,7 +1367,7 @@ class Executor(
                         val base7059 = ts.lastPriceSource
                             .substringBefore("+MCAP_RECONCILED_7059")
                             .takeIf { it.isNotBlank() } ?: "RECONCILED"
-                        ts.lastPriceSource = "$base7059+MCAP_RECONCILED_7059"
+                        com.lifecyclebot.engine.truth.TokenFacts.correctPrice(ts, mark7059.price, "$base7059+MCAP_RECONCILED_7059")
                         PipelineHealthCollector.labelInc("TS_LAST_PRICE_REPAIRED_7059")
                     } catch (_: Throwable) {}
                     return mark7059.price
@@ -1463,8 +1462,7 @@ class Executor(
                         // says how often, which is the measurement that tells us
                         // whether the upstream unit bug is still live.
                         try {
-                            ts.lastPrice = reconciled7017
-                            ts.lastPriceUpdate = System.currentTimeMillis()
+                            // V5.0.8552 — a basis repair corrects the held observation (TokenFacts.correctPrice keeps its time)
                             // V5.0.7048 — KEEP THE PROVIDER IN THE PROVENANCE.
                             //
                             // 7046 stamped a flat "MARK_BASIS_RECONCILED_7046".
@@ -1488,7 +1486,7 @@ class Executor(
                             val base7048 = ts.lastPriceSource
                                 .substringBefore("+RECONCILED_7046")
                                 .takeIf { it.isNotBlank() } ?: "RECONCILED"
-                            ts.lastPriceSource = "$base7048+RECONCILED_7046"
+                            com.lifecyclebot.engine.truth.TokenFacts.correctPrice(ts, reconciled7017, "$base7048+RECONCILED_7046")
                             PipelineHealthCollector.labelInc("TS_LAST_PRICE_REPAIRED_7046")
                         } catch (_: Throwable) {}
                         return reconciled7017
@@ -4281,9 +4279,7 @@ class Executor(
         }
         val label = if (fan.corroborated) "FANOUT_CORROBORATED_7088_x${fan.agreeingCount}" else "FANOUT_UNCORROBORATED_7088"
         synchronized(ts) {
-            ts.lastPrice = fan.priceUsd
-            ts.lastPriceSource = label
-            ts.lastPriceUpdate = now
+            com.lifecyclebot.engine.truth.TokenFacts.writePrice(ts, fan.priceUsd, label, com.lifecyclebot.engine.truth.TokenFacts.Rank.PROVIDER, now)  // V5.0.8552
         }
         try { PipelineHealthCollector.labelInc("PAPER_ENTRY_BASIS_CAP_DERIVED_OBSERVED_7280") } catch (_: Throwable) {}
         return snap.copy(priceUsd = fan.priceUsd, priceSource = label, capturedAtMs = now)
@@ -15060,7 +15056,7 @@ class Executor(
         val ctx = try { com.lifecyclebot.AATEApp.appContextOrNull() } catch (_: Throwable) { null } ?: return false
         val cached = try { TokenMetaCache.get(ctx).lookup(ts.mint) } catch (_: Throwable) { null } ?: return false
         var changed = false
-        if (ts.lastPrice <= 0.0 && cached.lastPrice > 0.0) { ts.lastPrice = cached.lastPrice; changed = true }
+        if (com.lifecyclebot.engine.truth.TokenFacts.restorePrice(ts, cached.lastPrice, null)) changed = true  // V5.0.8552 — an archive price: a restore fact (time 0)
         if (ts.lastMcap <= 0.0 && cached.lastMcap > 0.0) { ts.lastMcap = cached.lastMcap; changed = true }
         if (com.lifecyclebot.engine.truth.TokenFacts.restoreLiquidity(ts, cached.lastLiquidityUsd, "META_CACHE_RESTORE")) changed = true  // V5.0.8551
         if (ts.lastFdv <= 0.0 && cached.lastFdv > 0.0) { ts.lastFdv = cached.lastFdv; changed = true }
@@ -15074,7 +15070,7 @@ class Executor(
             }
         }
         if (changed) {
-            ts.lastPriceUpdate = System.currentTimeMillis()
+            // V5.0.8552 D5 — superseded: stamped the cached fields "now", so a meta-cache price passed as a fresh entry quote
             try {
                 ForensicLogger.lifecycle(
                     "MINT_ENTRY_MARKET_SNAPSHOT_CACHE_HYDRATED",
@@ -15464,7 +15460,7 @@ class Executor(
     }
 
     private fun persistMintEntryMarketSnapshot(ts: TokenState, snap: MintEntryMarketSnapshot, reason: String) {
-        ts.lastPrice = snap.priceUsd
+        com.lifecyclebot.engine.truth.TokenFacts.writePrice(ts, snap.priceUsd, snap.priceSource, com.lifecyclebot.engine.truth.TokenFacts.Rank.AGGREGATE, snap.capturedAtMs, dex = snap.dex)  // V5.0.8552
         if (snap.marketCapUsd > 0.0) ts.lastMcap = snap.marketCapUsd
         com.lifecyclebot.engine.truth.TokenFacts.writeLiquidity(ts, snap.liquidityUsd, "ENTRY_SNAPSHOT_7382", com.lifecyclebot.engine.truth.TokenFacts.Rank.AGGREGATE, snap.capturedAtMs)  // V5.0.8551
         // V5.0.7356 — the MINT_ROUTE: sentinel belongs on the snapshot only. Written
@@ -15472,9 +15468,6 @@ class Executor(
         // hydration only fills a BLANK pool, so the real pool was never recovered.
         val poolIsSentinel7356 = snap.poolAddress.startsWith("MINT_ROUTE:", true)
         if (!poolIsSentinel7356) ts.lastPricePoolAddr = snap.poolAddress
-        ts.lastPriceSource = snap.priceSource
-        ts.lastPriceDex = snap.dex
-        ts.lastPriceUpdate = snap.capturedAtMs
         if (poolIsSentinel7356) {
             try {
                 PipelineHealthCollector.labelInc("MINT_ENTRY_MARKET_SNAPSHOT_POOL_SENTINEL")
@@ -15756,10 +15749,8 @@ class Executor(
                         try { PipelineHealthCollector.labelInc("ENTRY_SNAPSHOT_SINGLE_FEED_AGREES_INTAKE_7371") } catch (_: Throwable) {}
                     }
                     synchronized(ts) {
-                        ts.lastPrice = fan7361.priceUsd
-                        ts.lastPriceUpdate = stamp7361
-                        ts.lastPriceSource = if (singleAgrees7371) "FANOUT_SINGLE_AGREES_INTAKE_7371"
-                            else "FANOUT_CORROBORATED_7088_x${fan7361.agreeingCount}"
+                        com.lifecyclebot.engine.truth.TokenFacts.writePrice(ts, fan7361.priceUsd, if (singleAgrees7371) "FANOUT_SINGLE_AGREES_INTAKE_7371"
+                            else "FANOUT_CORROBORATED_7088_x${fan7361.agreeingCount}", com.lifecyclebot.engine.truth.TokenFacts.Rank.PROVIDER, stamp7361)  // V5.0.8552
                     }
                     val repriced7361 = mintEntryMarketSnapshot(ts)
                     if (repriced7361 != null) {
@@ -25914,9 +25905,7 @@ class Executor(
                 if (observed7274 != null) {
                     val (px7274, label7274) = observed7274
                     synchronized(ts) {
-                        ts.lastPrice = px7274
-                        ts.lastPriceSource = label7274
-                        ts.lastPriceUpdate = System.currentTimeMillis()
+                        com.lifecyclebot.engine.truth.TokenFacts.writePrice(ts, px7274, label7274, com.lifecyclebot.engine.truth.TokenFacts.Rank.PROVIDER, System.currentTimeMillis())  // V5.0.8552
                     }
                     try {
                         com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.note(
@@ -30707,9 +30696,7 @@ class Executor(
                 System.currentTimeMillis() - m.observedAtMs8521 !in 0L..30_000L) continue
             val label = if (m.corroborated) "FANOUT_CORROBORATED_7088_x${m.agreeingCount}" else "FANOUT_UNCORROBORATED_7088"
             synchronized(ts) {
-                ts.lastPrice = m.priceUsd
-                ts.lastPriceSource = label
-                ts.lastPriceUpdate = m.observedAtMs8521
+                com.lifecyclebot.engine.truth.TokenFacts.writePrice(ts, m.priceUsd, label, com.lifecyclebot.engine.truth.TokenFacts.Rank.PROVIDER, m.observedAtMs8521)  // V5.0.8552
             }
             try {
                 com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.note(

@@ -373,11 +373,11 @@ object PositionPersistence {
             if (existing != null) {
                 // Update existing TokenState with restored position
                 existing.position = position
-                existing.lastPrice = saved.lastKnownPrice
-                if (restoredPriceUpdateMs > 0L) existing.lastPriceUpdate = restoredPriceUpdateMs
+                // V5.0.8552 — a saved price with its own source time is an observation at that time; without one it is a restore
+                if (restoredPriceUpdateMs > 0L) com.lifecyclebot.engine.truth.TokenFacts.writePrice(existing, saved.lastKnownPrice, saved.lastPriceSource, com.lifecyclebot.engine.truth.TokenFacts.Rank.AGGREGATE, restoredPriceUpdateMs)
+                else com.lifecyclebot.engine.truth.TokenFacts.restorePrice(existing, saved.lastKnownPrice, saved.lastPriceSource)
                 com.lifecyclebot.engine.truth.TokenFacts.restoreLiquidity(existing, saved.lastKnownLiquidity, "POSITION_RESTORE")  // V5.0.8551 — never over a live reading
                 existing.lastMcap = saved.lastKnownMcap
-                existing.lastPriceSource = saved.lastPriceSource
                 existing.lastPricePoolAddr = saved.lastPricePoolAddr
                 existing.lastPriceDex = saved.lastPriceDex
                 ErrorLogger.info(TAG, "🔄 Restored position to existing ${saved.symbol}")

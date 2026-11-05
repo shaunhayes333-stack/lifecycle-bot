@@ -1088,11 +1088,8 @@ class DataOrchestrator(
                 val dexPair6701 = ts.pairAddress.ifBlank {
                     ts.tokenMap.poolAddress.ifBlank { ts.tokenMap.pairAddress }
                 }
-                ts.lastPriceSource = "DEXSCREENER_WS"
-                ts.lastPricePoolAddr = dexPair6701
-                ts.lastPriceDex = ts.tokenMap.dexId.ifBlank { "DEXSCREENER" }
-                ts.lastPrice = priceUsd
-                ts.lastPriceUpdate = System.currentTimeMillis()
+                com.lifecyclebot.engine.truth.TokenFacts.writePrice(ts, priceUsd, "DEXSCREENER_WS", com.lifecyclebot.engine.truth.TokenFacts.Rank.PROVIDER, System.currentTimeMillis(),
+                    pool = dexPair6701, dex = ts.tokenMap.dexId.ifBlank { "DEXSCREENER" })  // V5.0.8552 — the one price write
                 ts.lastMcap = mcap
                 // V5.0.7807 — a WS frame without a liquidity figure carries 0.0;
                 // that is DATA UNKNOWN, not a drained pool. Overwriting a real

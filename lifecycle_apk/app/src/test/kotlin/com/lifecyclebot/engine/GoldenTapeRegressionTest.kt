@@ -3174,7 +3174,7 @@ class GoldenTapeRegressionTest {
         val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
 
         assertTrue("Executor stale-feed eviction must never use Long.MAX_VALUE as real feed age", executor.contains("val feedAnchorMs = ts.lastPriceUpdate.takeIf") && executor.contains("feedAgeMs != null && feedAgeMs >=") && !executor.contains("feedAgeMs = if (ts.lastPriceUpdate > 0L)"))
-        assertTrue("Restored persisted prices must restore a bounded price timestamp", persistence.contains("restoredPriceUpdateMs") && persistence.contains("existing.lastPriceUpdate = restoredPriceUpdateMs") && persistence.contains("lastPriceUpdate = restoredPriceUpdateMs"))
+        assertTrue("Restored persisted prices must restore a bounded price timestamp", persistence.contains("restoredPriceUpdateMs") && persistence.contains("TokenFacts.Rank.AGGREGATE, restoredPriceUpdateMs)") && /* superseded: existing.lastPriceUpdate = restoredPriceUpdateMs — V5.0.8552 the store write at the saved source time */ persistence.contains("lastPriceUpdate = restoredPriceUpdateMs"))
         assertTrue("CYCLIC must wait on unknown timestamp instead of force-closing Long.MAX stale", cyclic.contains("CYCLIC_PRICE_TS_UNKNOWN_WAIT") && cyclic.contains("ageText") && !cyclic.contains("priceAgeMs = if (ts.lastPriceUpdate > 0L)"))
         assertTrue("Pipeline PerformanceAnalytics must read bounded canonical TradeHistoryStore rows, not legacy TradeDatabase or full journal copies", phc.contains("canonicalPerformanceTrades") && (phc.contains("TradeHistoryStore.getRecentValidClosedTrades") || phc.contains("TradeHistoryStore.getRecentCleanStrategyTerminalTrades")) && !phc.contains("BotService.instance?.tradeDb"))
     }
@@ -10084,7 +10084,7 @@ class GoldenTapeRegressionTest {
         // carries its own fetch time (PriceAge8549.pairEvidenceAt8549), never the poll time.
         assertTrue(bot.contains("val evidenceAt7271 = if (synthPair7271) ts.lastPriceUpdate"))
         assertTrue(bot.contains("PriceAge8549.pairEvidenceAt8549(nowMs6575, try { dex.pairAgeMs7884(mint) }"))
-        assertTrue(bot.contains("ts.lastPriceSource  = markSource7271"))
+        assertTrue(bot.contains("TokenFacts.writePrice(ts, validatedPrice, markSource7271,"))  // superseded: ts.lastPriceSource  = markSource7271 — V5.0.8552 one price write
         assertFalse(bot.contains("ts.lastPriceSource  = \"DEXSCREENER_PAIR_POLL\"  // V5.9.744"))
         assertEquals(2, Regex("source = markSource7271,").findAll(bot).count())
         assertEquals(2, Regex("evidenceTimestampMs = evidenceAt7271,").findAll(bot).count())
@@ -10504,7 +10504,7 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("com.lifecyclebot.network.PumpFunWS.syncTradeSubscriptions7278(curveMints7278)"))
         // V5.0.8018 — the mark's source is a parameter defaulting to the PumpPortal trade label.
         assertTrue(bot.contains("private fun applyPumpTradeMark7278(\n        mint: String, priceSolPerToken: Double, marketCapSol: Double,"))
-        assertTrue(bot.contains("source8018: String = \"PUMP_PORTAL_TRADE_WS_7278\"") && bot.contains("ts.lastPriceSource = source8018"))
+        assertTrue(bot.contains("source8018: String = \"PUMP_PORTAL_TRADE_WS_7278\"") && bot.contains("TokenFacts.writePrice(ts, px, source8018, TokenFacts.Rank.CHAIN, now")  /* superseded: ts.lastPriceSource = source8018 — V5.0.8552 */)
 
         // Curve read: key is the evidence; every exit named.
         assertTrue(fan.contains("(PumpCurveKeys7269.canonicalCurveKey7392(m) ?: PumpCurveKeys7269.keyFor(m))?.let { m to it }"))
@@ -10624,7 +10624,7 @@ class GoldenTapeRegressionTest {
 
         // Cap-derived seed: its own label at intake; observed at the door.
         assertTrue(seed.contains("const val CHAIN_SUPPLY_CAP_SEED = \"CHAIN_SUPPLY_CAP_SEED_7280\""))
-        assertTrue(bot.contains("ts.lastPriceSource = if (isPumpMint7089) \"PUMP_FUN_BC_SYNTHETIC\" else com.lifecyclebot.engine.truth.EntryBasisSeed7280.CHAIN_SUPPLY_CAP_SEED"))
+        assertTrue(bot.contains("TokenFacts.writePrice(ts, seedPrice7089, if (isPumpMint7089) \"PUMP_FUN_BC_SYNTHETIC\" else com.lifecyclebot.engine.truth.EntryBasisSeed7280.CHAIN_SUPPLY_CAP_SEED,"))  // superseded: direct label write — V5.0.8552
         assertTrue(exec.contains("val entryMarketSnapshot = observeCapDerivedBasis7280(ts, entryMarketSnapshotRaw7280)"))
         assertTrue(exec.contains("PAPER_ENTRY_BASIS_CAP_DERIVED_CONTRADICTED_7280"))
         assertTrue(exec.contains("com.lifecyclebot.engine.truth.EntryBasisSeed7280.isCapDerived(pos.entryPriceSource, ts.mint) &&"))
@@ -11079,7 +11079,7 @@ class GoldenTapeRegressionTest {
     fun V5_0_7298_shutdown_reprices_absurd_marks_reping_and_built_brains_are_read() {
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(ex.contains("refreshMarksForShutdown7298(open)"))
-        assertTrue(ex.contains("ts.lastPriceUpdate = m.observedAtMs8521"))
+        assertTrue(ex.contains("TokenFacts.writePrice(ts, m.priceUsd, label, com.lifecyclebot.engine.truth.TokenFacts.Rank.PROVIDER, m.observedAtMs8521)"))  // superseded: direct stamp — V5.0.8552 the mark's own time through the store
         assertTrue(ex.contains("if (m.sourceCount >= 2 && !m.corroborated) continue"))
         val alt = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
         assertTrue(alt.contains("refreshMarksForStop7298(ids.toSet())"))

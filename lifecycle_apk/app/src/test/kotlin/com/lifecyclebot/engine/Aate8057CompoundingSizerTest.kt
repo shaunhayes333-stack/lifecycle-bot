@@ -72,7 +72,10 @@ class Aate8057CompoundingSizerTest {
         // Entry repair: live orders keep the adaptive / streak / bridge shrink (a losing run must cut size).
         assertFalse(g.contains("alreadyShaped7925 = !config.paperMode ||"))
         // resolver never enlarges, and (8269) never seals below the risk-approved cost-viable minimum
-        assertTrue(g.contains("if (!resolution.executable || resolution.finalSizeSol > riskSized + 1e-9 ||\n            resolution.finalSizeSol + 1e-9 < sealedMinimum8269) return 0.0"))
+        // superseded: one `final > riskSized` check — V5.0.8552 the ceiling is the risk size in LIVE (sealCeiling8552) and the
+        // market caps in PAPER; the sealed size still never exceeds it, and every zero is named
+        assertTrue(g.contains("if (resolution.finalSizeSol > ceiling8552 + 1e-9) return TicketExec8304.fdgSizeZero8304(lane, \"ABOVE_SEAL_CEILING\")"))
+        assertTrue(g.contains("if (resolution.finalSizeSol + 1e-9 < sealedMinimum8269) return TicketExec8304.fdgSizeZero8304(lane, \"BELOW_SEALED_MINIMUM\")"))
         val x = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(x.contains("LiveSizeTarget8094.walletShareFor8094(ts.mint, sol, liveCfg.maxWalletRiskPerTradePct)"))
     }

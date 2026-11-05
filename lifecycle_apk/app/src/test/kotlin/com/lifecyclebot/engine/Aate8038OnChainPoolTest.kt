@@ -47,6 +47,6 @@ class Aate8038OnChainPoolTest {
         assertFalse(OnChainDepth8038.priceCollapsed8038(1.0e-5, 1.6e-5))
         val exec = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(exec.contains("OnChainDepth8038.buyRefusal8038(ts, preflightAt8385)"))
-        assertTrue(File("src/main/kotlin/com/lifecyclebot/engine/truth/LiquidityTruth8037.kt").readText().contains("chainDepthUsd8038"))
+        assertTrue(File("src/main/kotlin/com/lifecyclebot/engine/truth/LiquidityTruth8037.kt").readText().contains("OnChainDepth8038.chainDepthRead8551(ts.mint, now)"))  // superseded: chainDepthUsd8038 — V5.0.8551 the vault read with its own time
     }
 }
