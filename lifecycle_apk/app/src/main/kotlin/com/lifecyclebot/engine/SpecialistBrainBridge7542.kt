@@ -20,6 +20,12 @@ object SpecialistBrainBridge7542 {
         // null = bar unknown, arbitration keeps the raw score/confidence.
         val ownershipConviction7948:Double?=null,
         val selectionPriority8522:Double?=null,
+        /** V5.0.8535 §P0-07 — the lane's native score BEFORE the 0..100 clip (MOONSHOT scores to 150) and its scale top. */
+        val rawScore8535:Int=score,
+        val scaleMax8535:Int=100,
+        /** V5.0.8535 §P0-06 — the playbook predicate that actually fired for this lane at evaluation (null = none). [setup] is the lane's STYLE plan, not the fired strategy. */
+        val firedSetup8535:String?=null,
+        val signalAtMs8535:Long=0L,
     )
     data class Snapshot(val mint:String,val fingerprint:Int,val evaluatedAtMs:Long,val opinions:Map<String,Opinion>,
                         val marketInputs8522: SpecialistMarketInputs8522.Read? = null,
@@ -37,12 +43,39 @@ object SpecialistBrainBridge7542 {
 
     private fun bump(m:ConcurrentHashMap<String,AtomicLong>,lane:String){m.computeIfAbsent(lane){AtomicLong(0)}.incrementAndGet()}
     private fun noGrade(reason:String)=NativeLaneConstraints8521.missingData8521(reason)||listOf("ALREADY_","MAX_","DAILY_LIMIT","RECENT_","HYDRATING","DISABLED","POSITION_ACTIVE","COOLDOWN").any{reason.uppercase().contains(it)}
-    private fun record(o:Opinion){lastOpinion[o.lane]=o;bump(called,o.lane);bump(if(o.eligible)allowed else rejected,o.lane);try{
+    // V5.0.8535 §P0-07 — `record` ran inside `op`, as each opinion was first constructed, so NATIVE_BRAIN_ALLOW /
+    // nativeAllow counted PRE-review positives that the cap, age, missing-input, retirement, grab-lane and opportunity
+    // reviews later rewrote (8529: QUALITY 1,068 "allows", 0 owner-selected). The pre-review count keeps its own name;
+    // the 7542 counters and lastOpinion now read the FINAL effective opinion (recordFinal8535, after every review).
+    private fun recordPre8535(o:Opinion){try{
+        PipelineHealthCollector.labelInc(if(o.eligible)"NATIVE_BRAIN_PRE_REVIEW_ALLOW_8535_${o.lane}" else "NATIVE_BRAIN_PRE_REVIEW_REJECT_8535_${o.lane}")
+    }catch(_:Throwable){}}
+    private fun recordFinal8535(o:Opinion){lastOpinion[o.lane]=o;bump(called,o.lane);bump(if(o.eligible)allowed else rejected,o.lane);try{
         PipelineHealthCollector.labelInc("NATIVE_BRAIN_CALLED_7542_${o.lane}")
         PipelineHealthCollector.labelInc(if(o.eligible)"NATIVE_BRAIN_ALLOW_7542_${o.lane}" else "NATIVE_BRAIN_REJECT_7542_${o.lane}")
     }catch(_:Throwable){}}
-    private fun op(lane:String,eligible:Boolean,score:Int,confidence:Int,size:Double,reason:String,setup:String,entry:String,exit:String,hold:Double=1.0,sizeMult:Double=1.0,tp:Double=1.0,tools:Set<String> = emptySet())=
-        Opinion(lane,eligible,score.coerceIn(0,100),confidence.coerceIn(0,100),size.coerceAtLeast(0.0),reason,setup,entry,exit,hold,sizeMult,tp,tools+"NATIVE_BRAIN_7542",!noGrade(reason),true).also(::record)
+    private fun op(lane:String,eligible:Boolean,score:Int,confidence:Int,size:Double,reason:String,setup:String,entry:String,exit:String,hold:Double=1.0,sizeMult:Double=1.0,tp:Double=1.0,tools:Set<String> = emptySet(),scaleMax:Int=100)=
+        Opinion(lane,eligible,score.coerceIn(0,100),confidence.coerceIn(0,100),size.coerceAtLeast(0.0),reason,setup,entry,exit,hold,sizeMult,tp,tools+"NATIVE_BRAIN_7542",!noGrade(reason),true,
+            rawScore8535=score.coerceAtLeast(0),scaleMax8535=scaleMax.coerceAtLeast(100)).also(::recordPre8535)
+
+    /**
+     * V5.0.8535 §P0-06 — the identity an admission may carry for a native opinion: the playbook predicate that FIRED, else
+     * the native rule that decided (its reason text), never the lane's hard-coded style label (VOLUME_IGNITION_SCALP /
+     * DIAMOND_HANDS_RUNNER …), which described the exit plan and not the event. Null = nothing fired and nothing decided.
+     */
+    fun nativeSetupIdentity8535(o: Opinion): String? =
+        o.firedSetup8535?.takeIf { it.isNotBlank() && !it.equals("NONE", true) && it != com.lifecyclebot.engine.cortex.LanePlaybook7907.NO_TRIGGER }
+            ?: o.reason.takeIf { it.isNotBlank() && !it.equals("NONE", true) }?.let { "NATIVE_RULE_8535:${it.take(40)}" }
+
+    /** The playbook predicate that fired for [lane] on [ts] now: the lane's selected pick when it fired, else the first fired. */
+    private fun firedSetup8535(ts: TokenState, lane: String, nowMs: Long): String? = try {
+        val c = com.lifecyclebot.engine.cortex.LanePlaybook7907.classify8084(ts, lane, nowMs)
+        val fired = c?.matched.orEmpty().filter { it != com.lifecyclebot.engine.cortex.LanePlaybook7907.NO_TRIGGER }
+        if (fired.isEmpty()) null else {
+            val pick = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, lane, nowMs) } catch (_: Throwable) { null }
+            pick?.takeIf { it in fired } ?: fired.first()
+        }
+    } catch (_: Throwable) { null }
     /** V5.0.8031 — READY means electable: the TREASURY role floor (mcap / liquidity) the election applies is applied here too. */
     private fun treasuryFloorOk8031(ts:com.lifecyclebot.data.TokenState):Boolean=
         ts.lastMcap>=TreasuryScannerFeed.MIN_TREASURY_MCAP&&ts.lastLiquidityUsd>=TreasuryScannerFeed.MIN_TREASURY_LIQUIDITY
@@ -119,8 +152,9 @@ object SpecialistBrainBridge7542 {
     }
 
     /** V5.0.7948 — SHITCOIN passes at score 15-48 while MOONSHOT needs 30-60; arbitrate on each lane's own bar. */
+    // V5.0.8535 §P0-07 — the conviction reads the RAW score on the lane's own scale (identical to 7948 on a 100 scale).
     private fun onLaneBar7948(o:Opinion,scoreBar:Int,confBar:Int):Opinion=
-        o.copy(ownershipConviction7948=SpecialistExecution7948.laneRelativeConviction7948(o.score,o.confidence,scoreBar,confBar))
+        o.copy(ownershipConviction7948=SpecialistExecution7948.laneRelativeConvictionOnScale8535(o.rawScore8535,o.confidence,scoreBar,confBar,o.scaleMax8535))
     private fun err(lane:String,t:Throwable):Opinion{bump(called,lane);bump(errors,lane);try{
         PipelineHealthCollector.labelInc("NATIVE_BRAIN_CALLED_7542_$lane");PipelineHealthCollector.labelInc("NATIVE_BRAIN_ERROR_7542_$lane")
         ForensicLogger.lifecycle("NATIVE_BRAIN_ERROR_7542","lane=$lane error=${t.javaClass.simpleName} message=${t.message?.take(100)?:""}")
@@ -387,7 +421,9 @@ object SpecialistBrainBridge7542 {
         if (owns7828("BLUECHIP")) out["BLUECHIP"]=try{val x=BlueChipTraderAI.evaluate(ts.mint,ts.symbol,price,ts.lastMcap,ts.lastLiquidityUsd,top,bp,v3,v3c,mom,vol);op("BLUECHIP",x.shouldEnter,if(x.entryScore>0)x.entryScore else x.confidence,x.confidence,x.positionSizeSol,x.reason,"MAINSTREAM_CRYPTO_SWING","bluechip_native_swing","bluechip_native_exit",2.1,1.0,1.35,setOf("BLUECHIP_DEPTH","MCAP_LIQ_SANITY","SWING"))}catch(t:Throwable){err("BLUECHIP",t)}
         if (owns7828("SHITCOIN")) out["SHITCOIN"]=try{val x=ShitCoinTraderAI.evaluate(mint=ts.mint,symbol=ts.symbol,currentPrice=price,marketCapUsd=ts.lastMcap,liquidityUsd=ts.lastLiquidityUsd,topHolderPct=top,buyPressurePct=shitcoinEvidence8527.buyPressurePct,momentum=shitcoinInputs8527.momentumPct,volatility=shitcoinEvidence8527.volatility,tokenAgeMinutes=ageMin,launchPlatform=platform,devWallet=shitcoinEvidence8527.devWallet,devHoldPct=shitcoinEvidence8527.devHoldPct,bundlePct=shitcoinInputs8527.bundlePct,socialScore=shitcoinEvidence8527.socialScore,hasWebsite=shitcoinEvidence8527.hasWebsite,hasTwitter=shitcoinEvidence8527.hasTwitter,hasTelegram=shitcoinEvidence8527.hasTelegram,hasGithub=false,isDexBoosted=boosted,dexTrendingRank=if(trending)1 else 0,graduationProgress=shitcoinEvidence8527.graduationProgress,recordEducationScores=true,tokenState8077=ts);op("SHITCOIN",x.shouldEnter,if(x.entryScore>0)x.entryScore else x.confidence,x.confidence,x.positionSizeSol,x.reason,"VOLUME_IGNITION_SCALP","shitcoin_native_meme_entry","shitcoin_native_exit",0.9,0.8,1.0,setOf("MEME_EDGE","BUNDLE","SOCIAL_CACHE","GRADUATION")).let{onLaneBar7948(it,ShitCoinTraderAI.getFluidScoreThreshold(),ShitCoinTraderAI.getFluidConfidenceThreshold())}}catch(t:Throwable){err("SHITCOIN",t)}
         if (owns7828("EXPRESS")) out["EXPRESS"]=try{val x=SpecialistInputParity8527.express8527(ts, marketInputs8522);op("EXPRESS",x.shouldRide,x.confidence,x.confidence,x.positionSizeSol,x.reason,"VOLUME_IGNITION_SCALP","express_native_${x.rideType.name.lowercase()}","express_native_exit",0.55,0.75,0.95,setOf("EXPRESS","MOMENTUM_1H","PRICE_5M","VOLUME_ACCELERATION"))}catch(t:Throwable){err("EXPRESS",t)}
-        if (owns7828("MOONSHOT")) out["MOONSHOT"]=try{val x=MoonshotTraderAI.scoreToken(ts.mint,ts.symbol,ts.lastMcap,ts.lastLiquidityUsd,moonshotInputs8527.volumeScore,bp,rug,v3.toDouble(),v3c.toDouble(),moonshotInputs8527.phase,paper,runner);op("MOONSHOT",x.eligible,x.score,x.confidence.toInt(),x.suggestedSizeSol,x.rejectReason.ifBlank{"MOONSHOT_NATIVE_ALLOW"},"DIAMOND_HANDS_RUNNER","moonshot_native_runner","moonshot_native_runner_exit",2.8,0.92,1.55,setOf("MOONSHOT","RUNNER","LAUNCH_PHASE","MFE_TRAIL"))}catch(t:Throwable){err("MOONSHOT",t)}
+        if (owns7828("MOONSHOT")) out["MOONSHOT"]=try{val x=MoonshotTraderAI.scoreToken(ts.mint,ts.symbol,ts.lastMcap,ts.lastLiquidityUsd,moonshotInputs8527.volumeScore,bp,rug,v3.toDouble(),v3c.toDouble(),moonshotInputs8527.phase,paper,runner);op("MOONSHOT",x.eligible,x.score,x.confidence.toInt(),x.suggestedSizeSol,x.rejectReason.ifBlank{"MOONSHOT_NATIVE_ALLOW"},"DIAMOND_HANDS_RUNNER","moonshot_native_runner","moonshot_native_runner_exit",2.8,0.92,1.55,setOf("MOONSHOT","RUNNER","LAUNCH_PHASE","MFE_TRAIL"),scaleMax=x.scaleMax8535)
+            // V5.0.8535 §P0-07 — MOONSHOT's conviction on ITS pass bar and 150 scale: 101 / 120 / 150 no longer tie at 100.
+            .let{if(x.effectiveFloor8535>0)onLaneBar7948(it,x.effectiveFloor8535,(x.effectiveFloor8535*100.0/x.scaleMax8535).toInt()) else it}}catch(t:Throwable){err("MOONSHOT",t)}
         if (owns7828("PROJECT_SNIPER")) out["PROJECT_SNIPER"]=try{val x=ProjectSniperAI.assessTarget(ts,price);op("PROJECT_SNIPER",x.shouldEngage,x.confidence,x.confidence,x.positionSizeSol,x.reason,"DEGEN_MICRO_SNIPE","sniper_native_pre_ignition","sniper_native_fast_exit",0.45,0.55,0.85,setOf("SNIPER","LAUNCH_PHASE","BUYER_BREADTH","DEV_FLOW"))}catch(t:Throwable){err("PROJECT_SNIPER",t)}
         if (owns7828("DIP_HUNTER")) out["DIP_HUNTER"]=try{val x=DipHunterAI.evaluate(ts.mint,ts.symbol,price,high,ts.lastMcap,ts.lastLiquidityUsd,bp,volVs,ageMin/60.0,holders,null,devSelling,bounce);op("DIP_HUNTER",x.shouldBuy,x.confidence,x.confidence,x.positionSizeSol,x.reason,"PANIC_REVERSION_BOUNCE","dip_native_reclaim","dip_native_recovery_exit",1.25,x.dipQuality.sizeMult.coerceIn(0.3,1.15),1.05,setOf("DIP_RECLAIM","BOUNCE","VOLUME_RETURN"))}catch(t:Throwable){err("DIP_HUNTER",t)}
         if (owns7828("MANIPULATED")) out["MANIPULATED"]=try{val x=SpecialistInputParity8527.manipulated8527(ts, marketInputs8522, paper);op("MANIPULATED",x.shouldEnter,x.manipScore,x.manipScore,x.positionSizeSol,x.reason,"VOLUME_IGNITION_SCALP","manipulated_native_pump_ride","manipulated_native_fast_exit",0.4,0.6,0.82,setOf("MANIPULATION","BUNDLE","ORDER_FLOW"))}catch(t:Throwable){err("MANIPULATED",t)}
@@ -395,6 +431,9 @@ object SpecialistBrainBridge7542 {
         if (owns7828("CASHGEN")) out["CASHGEN"]=try{val x=CashGenerationAI.evaluate(ts.mint,ts.symbol,price,ts.lastLiquidityUsd,top,bp,v3,v3c,mom,vol,ts.source,ts.lastPriceSource,ts.lastPriceDex,ageMin,ownerLane="CASHGEN");op("CASHGEN",x.shouldEnter,if(x.entryScore>0)x.entryScore else x.confidence,x.confidence,x.positionSizeSol,x.reason,"CASHFLOW_SCALP","cashgen_native_cashflow","cashgen_native_quick_bank",0.55,0.82,0.78,setOf("CASHGEN","LIQUIDITY_DEPTH","ORDER_FLOW","TURNOVER"))}catch(t:Throwable){err("CASHGEN",t)}
         if (owns7828("CYCLIC")) out["CYCLIC"]=try{val x=CyclicTradeEngine.evaluateCandidate7542(ts,!paper);op("CYCLIC",x.eligible,x.score,x.confidence,0.0,x.reason,"CYCLIC_COMPOUND","cyclic_native_compound_pick","cyclic_inherit_owner_exit",1.35,0.72,1.18,setOf("CYCLIC","COMPOUND","V3","SELLABILITY"))}catch(t:Throwable){err("CYCLIC",t)}
 
+        // V5.0.8535 §P0-06 — every opinion carries the playbook predicate that actually fired for its lane (or none) and the
+        // signal time; the hard-coded style label stays what it is: the exit plan, not the strategy identity.
+        for ((lane, opinion) in out.toList()) out[lane] = opinion.copy(firedSetup8535 = firedSetup8535(ts, lane, now), signalAtMs8535 = now)
         // Birth evidence is shared; each desk applies only its own age rule.
         // A fresh watchlist insertion cannot make an old, unresolved token young.
         for ((lane, opinion) in out.toList()) {
@@ -460,6 +499,8 @@ object SpecialistBrainBridge7542 {
         // assignment happened only in the return expression after both callbacks. No new assessment/compute lock.
         val original8522 = SpecialistOwnership7951.onCommonScale7951(ts.mint, out.toMap())
         val (effective8522, opportunity8522) = opportunityReview8522(ts, original8522, now, paper)
+        // V5.0.8535 §P0-07 — the 7542 counters count the FINAL opinion each lane publishes, after every review.
+        effective8522.values.forEach(::recordFinal8535)
         val snapshot8372 = Snapshot(ts.mint, f, now, effective8522, marketInputs8522, original8522, opportunity8522)
         cache[ts.mint] = Cached(snapshot8372)
         pruneOnInsert8169(now)
@@ -486,6 +527,9 @@ object SpecialistBrainBridge7542 {
             val version = try { LaneExecutionCoordinator.candidateVersionFor(s.mint) } catch (_: Throwable) { -1L }
             val views = s.opinions.mapValues { (lane, o) ->
                 val eligible = o.eligible && o.authoritative
+                // V5.0.8535 §P0-07 — proof that a FINAL eligible opinion was offered to the election (and whether it could own).
+                if (eligible) try { PipelineHealthCollector.labelInc(
+                    if (LaneExecutionCoordinator.laneCanOwnExecution6910(lane)) "NATIVE_FINAL_ELIGIBLE_OFFERED_8535_$lane" else "NATIVE_FINAL_ELIGIBLE_UNOWNABLE_8535_$lane") } catch (_: Throwable) {}
                 SpecialistElection8136.NativeView8136(
                     eligible = eligible,
                     normalised = NativeOpportunityPolicy8522.selectionPriority8522(o),

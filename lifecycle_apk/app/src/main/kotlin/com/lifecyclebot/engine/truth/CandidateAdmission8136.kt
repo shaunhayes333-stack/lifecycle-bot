@@ -1564,7 +1564,8 @@ object CandidateAdmission8136 {
             } catch (_: Throwable) { null },
             nativeQualified8213 = nativeOpinion8213 != null || nativeSetupBook8217 != null || runnerForming8260 != null,
             watchlistRecheck8507 = ts.source.trim().equals("WATCHLIST", ignoreCase = true),
-            nativeSetup8213 = nativeOpinion8213?.setup?.takeIf { it.isNotBlank() && !it.equals("NONE", true) } ?: nativeSetupBook8217 ?: runnerForming8260,
+            // V5.0.8535 §P0-06 — the native identity is the predicate that fired or the rule that decided, never the style label.
+            nativeSetup8213 = nativeOpinion8213?.let { com.lifecyclebot.engine.SpecialistBrainBridge7542.nativeSetupIdentity8535(it) } ?: nativeSetupBook8217 ?: runnerForming8260,
             sheet8323 = try { com.lifecyclebot.engine.cortex.LaneCheatSheet8323.admissionVerdicts8323(lane, setups.map { it.id }, selected, ts.mint, nowMs) } catch (_: Throwable) { emptyMap() },
             tailLaneRate8324 = pond8324?.pBook ?: Double.NaN,
             tailPremium8324 = pond8324?.premium ?: Double.NaN,

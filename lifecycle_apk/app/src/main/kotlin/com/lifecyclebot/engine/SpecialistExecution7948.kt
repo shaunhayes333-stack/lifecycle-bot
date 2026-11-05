@@ -38,6 +38,21 @@ internal object SpecialistExecution7948 {
     }
 
     /**
+     * V5.0.8535 §P0-07 — the same read on a lane whose native scale tops out above 100 (MOONSHOT: 150). The bar reads
+     * 50, the lane's own maximum reads 100, so 101 / 120 / 150 stay distinct instead of all clipping to 100 first.
+     */
+    fun relativeToBarOnScale8535(value: Int, bar: Int, scaleMax: Int): Double {
+        val top = scaleMax.coerceAtLeast(100)
+        val v = value.coerceIn(0, top).toDouble()
+        if (bar !in 1 until top) return v * 100.0 / top
+        return if (v >= bar) 50.0 + 50.0 * (v - bar) / (top - bar) else 50.0 * v / bar
+    }
+
+    /** V5.0.8535 — [laneRelativeConviction7948] with the score read on the lane's own scale. */
+    fun laneRelativeConvictionOnScale8535(rawScore: Int, conf: Int, scoreBar: Int, confBar: Int, scaleMax: Int): Double =
+        (relativeToBarOnScale8535(rawScore, scoreBar, scaleMax) * 0.60 + relativeToBar7948(conf, confBar) * 0.40).coerceIn(0.0, 100.0)
+
+    /**
      * Ownership conviction for cross-lane arbitration. Lanes calibrate their
      * native score on different bars (SHITCOIN passes at 15, MOONSHOT at 30-60),
      * so comparing the raw numbers starved the low-bar lane of every election

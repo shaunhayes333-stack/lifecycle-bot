@@ -281,6 +281,10 @@ object MoonshotTraderAI {
         val stopLossPct: Double = 0.0,
         val spaceMode: SpaceMode = SpaceMode.ORBITAL,
         val isCollectiveBoost: Boolean = false,
+        /** V5.0.8535 §P0-07 — the pass bar this score was judged against (0 = not judged), for cross-lane conviction. */
+        val effectiveFloor8535: Int = 0,
+        /** V5.0.8535 §P0-07 — MOONSHOT's native scale tops out at 150, not 100. */
+        val scaleMax8535: Int = 150,
     )
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -810,7 +814,8 @@ object MoonshotTraderAI {
             val gooseTag = gooseEdge?.tag ?: "no_goose"
             val tag = if (wrFloor > 0 && score < wrFloor) "wr_recovery_score_floor" else "score"
             return MoonshotScore(false, score, 0.0,
-                "${tag}_${score}_below_${effectiveMinScore}_(base=${minScore}_wr=${wrFloor}_gate=${gateTag}_goose=${gooseTag})")
+                "${tag}_${score}_below_${effectiveMinScore}_(base=${minScore}_wr=${wrFloor}_gate=${gateTag}_goose=${gooseTag})",
+                effectiveFloor8535 = effectiveMinScore)
         }
 
         // V5.0.4317 — learned expectancy is soft shaping, not a terminal
@@ -979,6 +984,7 @@ object MoonshotTraderAI {
             eligible = true,
             score = score,
             confidence = confidence,
+            effectiveFloor8535 = effectiveMinScore,
             suggestedSizeSol = _moonshotFinalSol,
             takeProfitPct = fluidTp,
             stopLossPct = clampedSl,  // V5.9.235: hard floor applied
