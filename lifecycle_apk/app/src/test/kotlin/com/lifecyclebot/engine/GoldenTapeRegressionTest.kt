@@ -10080,7 +10080,10 @@ class GoldenTapeRegressionTest {
         // as the non-synth branch.
         assertTrue(bot.contains("val synthPair7271 = pair.pairAddress.isBlank() && pair.dexId.isBlank()"))
         assertTrue(bot.contains("val markSource7271 = if (synthPair7271) ts.lastPriceSource.ifBlank { \"SYNTHETIC\" } else \"DEXSCREENER_PAIR_POLL\""))
-        assertTrue(bot.contains("val evidenceAt7271 = if (synthPair7271) ts.lastPriceUpdate else nowMs6575"))
+        // superseded: `val evidenceAt7271 = if (synthPair7271) ts.lastPriceUpdate else nowMs6575` — V5.0.8549: a cached pair
+        // carries its own fetch time (PriceAge8549.pairEvidenceAt8549), never the poll time.
+        assertTrue(bot.contains("val evidenceAt7271 = if (synthPair7271) ts.lastPriceUpdate"))
+        assertTrue(bot.contains("PriceAge8549.pairEvidenceAt8549(nowMs6575, try { dex.pairAgeMs7884(mint) }"))
         assertTrue(bot.contains("ts.lastPriceSource  = markSource7271"))
         assertFalse(bot.contains("ts.lastPriceSource  = \"DEXSCREENER_PAIR_POLL\"  // V5.9.744"))
         assertEquals(2, Regex("source = markSource7271,").findAll(bot).count())

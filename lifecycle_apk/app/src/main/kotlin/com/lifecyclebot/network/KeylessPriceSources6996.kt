@@ -121,7 +121,11 @@ object KeylessPriceSources6996 {
             // V5.0.8418 — Solana mints only: a single non-Solana id made Price v3 refuse the whole batch with 400.
             com.lifecyclebot.network.JupiterPriceIds8418.ids8418(mints, Int.MAX_VALUE).chunked(50).forEach { chunk ->
                 val ids = chunk.joinToString(",")
-                val body = get("https://lite-api.jup.ag/price/v3?ids=$ids", "jupiter") ?: return@forEach
+                // V5.0.8549 — the app's Jupiter key buys the keyed host first (8542: keyless lite-api sr 63 %, 429s on
+                // /price/v3 while keyedJupiter=true sat unused); the keyless host stays the fallback.
+                val key8549 = try { com.lifecyclebot.data.DefaultKeys.JUPITER } catch (_: Throwable) { "" }
+                val body = (if (key8549.isNotBlank()) get("https://api.jup.ag/price/v3?ids=$ids", "jupiter_price_keyed", key8549) else null)
+                    ?: get("https://lite-api.jup.ag/price/v3?ids=$ids", "jupiter") ?: return@forEach
                 val root = JSONObject(body)
                 // v3 returns a bare mint->object map; older shapes nest under "data".
                 val data = root.optJSONObject("data") ?: root
@@ -241,10 +245,11 @@ object KeylessPriceSources6996 {
         }
     }
 
-    private fun get(url: String, host: String): String? = try {
+    private fun get(url: String, host: String, apiKey: String = ""): String? = try {
         val req = Request.Builder().url(url)
             .header("User-Agent", "lifecycle-bot-android/6.0")
             .header("Accept", "application/json")
+            .also { if (apiKey.isNotBlank()) it.header("x-api-key", apiKey) }
             .build()
         HealthAwareHttp.execute(http, req, host = host).use { resp ->
             if (resp.isSuccessful) resp.body?.string() else null

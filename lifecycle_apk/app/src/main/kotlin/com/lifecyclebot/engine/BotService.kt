@@ -26496,7 +26496,9 @@ if (hotExitHandledSweep) {
             // dated at intake, and that label is authoritative for a pump mint.
             val synthPair7271 = pair.pairAddress.isBlank() && pair.dexId.isBlank()
             val markSource7271 = if (synthPair7271) ts.lastPriceSource.ifBlank { "SYNTHETIC" } else "DEXSCREENER_PAIR_POLL"
-            val evidenceAt7271 = if (synthPair7271) ts.lastPriceUpdate else nowMs6575
+            // V5.0.8549 — a cached pair (up to 45 s / 135 s) carries its own fetch time, never the poll time
+            val evidenceAt7271 = if (synthPair7271) ts.lastPriceUpdate
+                else com.lifecyclebot.engine.truth.PriceAge8549.pairEvidenceAt8549(nowMs6575, try { dex.pairAgeMs7884(mint) } catch (_: Throwable) { Long.MAX_VALUE })
             if (synthPair7271) {
                 try {
                     PipelineHealthCollector.labelInc("SYNTH_PAIR_SOURCE_PRESERVED_7271")

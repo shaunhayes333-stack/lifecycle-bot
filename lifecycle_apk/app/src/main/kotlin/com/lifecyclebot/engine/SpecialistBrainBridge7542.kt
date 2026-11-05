@@ -342,18 +342,34 @@ object SpecialistBrainBridge7542 {
 
     fun evaluate(ts:TokenState):Snapshot = SpecialistBuild8522.local8522(ts.mint) { evaluateLocal8522(ts) }
 
+    /** Pure (V5.0.8549): a crypto-desk overlay or any identity that is not a Solana mint key. */
+    fun cryptoDeskIdentity8549(mint: String, priceSource: String): Boolean =
+        NativeDecisionEnrollment8372.isCryptoDesk(priceSource) ||
+            !(try { com.lifecyclebot.network.KeylessRpc8359.solanaKey8458(mint) } catch (_: Throwable) { false })
+
+    /** V5.0.8549 — the lanes the crypto desk reads (CryptoLaneDesk7391); launch-only lanes need Solana chain facts. */
+    val CRYPTO_DESK_SCOPE_8549 = setOf("CORE", "EXPRESS", "DIP_HUNTER", "TREASURY", "CASHGEN", "QUALITY", "BLUECHIP", "SHITCOIN", "MOONSHOT")
+
+    /** Pure (V5.0.8549): a crypto-desk identity is read only by the crypto desk's lanes. */
+    fun cryptoDeskScope8549(cryptoDesk: Boolean, scope: Set<String>): Set<String> =
+        if (cryptoDesk) scope.intersect(CRYPTO_DESK_SCOPE_8549) else scope
+
     private fun evaluateLocal8522(ts:TokenState):Snapshot{
         // V5.0.8399 — a curve token's market cap comes from its own reserves before any specialist judges "mcap unknown".
         // V5.0.8400 §CAPTURED_WITH_THE_TOKEN_AT_DISCOVERY — the one resolver (DiscoveryCapture8400: reserves, price x supply,
         // curve-from-liquidity, else the batched chain read) runs at intake for every source; this is the backstop for a
         // row that reached a specialist still uncapped. 5.0.8399: MOONSHOT NATIVE_MCAP_UNHYDRATED_DEFER=925 with zero
         // MCAP_HYDRATED_FROM_CURVE_8399 — the deferred coins had no reserve observation and nothing else was tried.
-        try { com.lifecyclebot.engine.truth.DiscoveryCapture8400.captureMcap8400(ts, "BRIDGE") } catch (_: Throwable) {}
+        // V5.0.8549 — a crypto-desk identity ("solana|<mint>", CryptoLaneDesk7391) is not a Solana mint: no Solana reader can
+        // hydrate it, so none is asked (8542: discoveryMcap uncapped BRIDGE=1807, heliusSupply nonSolana=1807 — the same coins
+        // counted as MOONSHOT / MANIPULATED NATIVE_MCAP_UNHYDRATED_DEFER=1807 and sniper BIRTH_METADATA_HYDRATING=1608).
+        val cryptoDesk8549 = cryptoDeskIdentity8549(ts.mint, ts.lastPriceSource)
+        if (!cryptoDesk8549) try { com.lifecyclebot.engine.truth.DiscoveryCapture8400.captureMcap8400(ts, "BRIDGE") } catch (_: Throwable) {}
         val paper=try{RuntimeModeAuthority.isPaper()}catch(_:Throwable){try{BotRuntimeController.snapshot().paperMode}catch(_:Throwable){true}};ensureInitialized(paper)
         // V5.0.8037 — every native scorer reads ts.lastLiquidityUsd; fill it from the observed value first (LiquidityTruth8037).
-        try { com.lifecyclebot.engine.truth.LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) {}
+        if (!cryptoDesk8549) try { com.lifecyclebot.engine.truth.LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) {}
         // V5.0.8094 — a candidate priced more than 15 s ago gets a fresh mark requested before the next cycle.
-        try { com.lifecyclebot.engine.truth.CandidateMarkFresh8094.ensureFresh8094(ts) } catch (_: Throwable) {}
+        if (!cryptoDesk8549) try { com.lifecyclebot.engine.truth.CandidateMarkFresh8094.ensureFresh8094(ts) } catch (_: Throwable) {}
         val residentScope7828 = (try {
             com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.residentLanes(ts.mint)
         } catch (_: Throwable) { emptySet<String>() }) + handoffScope8180(ts.mint) + com.lifecyclebot.engine.market.LaneHunter7297.waveReaders8506(ts.mint, System.currentTimeMillis())
@@ -406,7 +422,7 @@ object SpecialistBrainBridge7542 {
 
         // 8168 — resident claims augment bounded native discovery; execution election remains separate.
         // V5.0.8169 — a token proven past the sniper's launch window leaves its scope before the native call (handed on, counted).
-        val nativeScope7828 = com.lifecyclebot.engine.truth.LaunchBirth8169.sniperScoped8169(ts, nativeScope8168(ts.lastMcap, residentScope7828))
+        val nativeScope7828 = cryptoDeskScope8549(cryptoDesk8549, com.lifecyclebot.engine.truth.LaunchBirth8169.sniperScoped8169(ts, nativeScope8168(ts.lastMcap, residentScope7828)))
         fun owns7828(lane: String): Boolean = lane in nativeScope7828
         try {
             PipelineHealthCollector.labelInc(

@@ -84,7 +84,8 @@ object DecisionReasons8031 {
         val nowMs = System.currentTimeMillis()
         for (o in verdicts) {
             val reason = "NATIVE_${if (o.eligible) "READY" else rule8031(o.reason)}"
-            try { SpecialistOwnership7951.notePreIntent7951(o.lane, reason) } catch (_: Throwable) {}
+            // V5.0.8549 — a crypto-desk overlay's verdict is not a meme lane's pre-intent (it polluted every meme counter)
+            if (!NativeDecisionEnrollment8372.isCryptoDesk(ts.lastPriceSource)) try { SpecialistOwnership7951.notePreIntent7951(o.lane, reason) } catch (_: Throwable) {}
             nativeNamed.incrementAndGet()
             val observation = NativeDecisionEnrollment8372.observation(o.lane, o.eligible, o.gradeable, o.score, o.reason)
             if (observation == null) { nativeUngradeable8372.incrementAndGet(); continue }

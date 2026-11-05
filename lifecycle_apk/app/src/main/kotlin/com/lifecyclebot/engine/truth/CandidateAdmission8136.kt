@@ -421,8 +421,9 @@ object CandidateAdmission8136 {
         e != null && e.n in 1 until SUPPORT_MIN_N_8136 && e.meanPct.isFinite() && e.meanPct > 0.0
 
     /** Pure: is the price too old to trade on? A hot launch moves faster, so its bar is tighter. */
-    fun priceStale8136(priceAgeMs: Long, hotLaunch: Boolean): Boolean =
-        priceAgeMs < 0L || priceAgeMs > (if (hotLaunch) HOT_STALE_PRICE_MS_8136 else STALE_PRICE_MS_8136)
+    fun priceStale8136(priceAgeMs: Long, hotLaunch: Boolean, live: Boolean = false): Boolean =
+        priceAgeMs < 0L || priceAgeMs > (if (live) { if (hotLaunch) PriceAge8549.LIVE_HOT_STALE_MS_8549 else PriceAge8549.LIVE_STALE_MS_8549 }
+            else if (hotLaunch) HOT_STALE_PRICE_MS_8136 else STALE_PRICE_MS_8136)   // V5.0.8549 — LIVE meme bars
 
     /**
      * Shared across all twelve native specialists. Missing optional classifier inputs are NOT an execution-safety
@@ -451,7 +452,7 @@ object CandidateAdmission8136 {
             !c.nativeSetup8213.isNullOrBlank() &&
             !c.nativeSetup8213.equals("NONE", true) &&
             c.costPct.isFinite() && c.costPct > 0.0 &&
-            !priceStale8136(c.priceAgeMs, c.hotLaunch) &&
+            !priceStale8136(c.priceAgeMs, c.hotLaunch, c.live) &&
             c.missingInputs.none(::criticalMissing8170) &&
             c.safetyRefusal == null && c.structuralRisk == null &&
             NetEdge8030.entryClears8030(gross, c.costPct, c.costMargin8391)
@@ -789,7 +790,7 @@ object CandidateAdmission8136 {
         //    with no supported evidence of its own (its setup cannot be judged yet).
         // V5.0.8283 — history the token is too young to have is recorded here, never waited for (LifecycleData8283).
         if (c.historyUnavailable8283.isNotEmpty()) trace += "historyUnavailable8283=${c.historyUnavailable8283.joinToString(",")} judgedOnLaunchEvidence"
-        val stale = priceStale8136(c.priceAgeMs, c.hotLaunch)
+        val stale = priceStale8136(c.priceAgeMs, c.hotLaunch, c.live)
         val criticalMissing8170 = c.missingInputs.filter(::criticalMissing8170)
         val nativeOptional8213 = c.missingInputs.isNotEmpty() && edge == null &&
             optionalNativeContextClears8213(c, decisionGross)
@@ -1298,7 +1299,7 @@ object CandidateAdmission8136 {
 
     /** Candidate price age affects admission only at the stale/fresh boundary. */
     private fun cacheIdentity8144(c: Candidate8136): Candidate8136 = c.copy(
-        priceAgeMs = if (priceStale8136(c.priceAgeMs, c.hotLaunch)) Long.MAX_VALUE else 0L,
+        priceAgeMs = if (priceStale8136(c.priceAgeMs, c.hotLaunch, c.live)) Long.MAX_VALUE else 0L,
         costBreakdown = "",   // V5.0.8209 — the numbers (costPct, costSizeSol) are identity; the prose is not
     )
 
@@ -1460,6 +1461,7 @@ object CandidateAdmission8136 {
         val built = candidateFor8136(ts, laneRaw, nowMs, sizeForQuote8223)
         val rawCandidate = if (prior8223 != null) built.copy(genericScore = prior8223.score, genericFloor = prior8223.floor) else built
         val candidate = rawCandidate.copy(candidateVersion = version, live = mode == "LIVE")
+        try { PriceAge8549.noteDecision8549(candidate.lane, candidate.priceAgeMs) } catch (_: Throwable) {}   // V5.0.8549
         // Policy-scoped results never overwrite the ordinary LIVE admission cache or its defer budget.
         val policyMode8393 = "$mode|${FdgGate8365.policyKey8393()}"
         val key = "$policyMode8393|${ts.mint}|${candidate.lane}|$version"

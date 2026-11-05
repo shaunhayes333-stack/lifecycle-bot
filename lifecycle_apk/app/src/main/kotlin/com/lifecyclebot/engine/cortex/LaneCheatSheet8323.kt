@@ -241,9 +241,19 @@ object LaneCheatSheet8323 {
         return if (fluid.isFinite() && fluid >= 0.0) fluid else liqBand8323(l).first
     }
 
+    /** Pure (V5.0.8549): SHITCOIN's decidable ceiling — the smallest of its own rule, V3's launch window and the provable age. */
+    fun shitcoinMaxAgeMin8549(ownMin: Double, launchWindowMin: Double, provableMin: Double): Double =
+        listOf(ownMin, launchWindowMin, provableMin).filter { it.isFinite() && it > 0.0 }.minOrNull() ?: ownMin
+
     /** The lane's birth-age band in minutes (0 / +inf = unbounded): the trader's own age rule. */
     fun ageBandMin8323(lane: String): Pair<Double, Double> = when (lane.trim().uppercase()) {
-        "SHITCOIN" -> 0.0 to com.lifecyclebot.v3.scoring.ShitCoinTraderAI.MAX_TOKEN_AGE_HOURS_BOOTSTRAP * 60.0
+        // V5.0.8549 — SHITCOIN's ceiling is the age a birth can actually be proven to and the launch window V3 enforces.
+        // 72 h was undecidable: the birth walk stops at 6 h (TokenBirthHydrator7441), so a 6..72 h coin could never get an
+        // exact age and deferred forever (8542: NATIVE_AGE_UNOBSERVED_DEFER=2291) while V3 refused it past 6 h anyway
+        // (LANE_AGE_PROVEN_PAST_LAUNCH_WINDOW_8144_SHITCOIN=823). A proven 6 h+ coin is now a final ABOVE_MAX.
+        "SHITCOIN" -> 0.0 to shitcoinMaxAgeMin8549(com.lifecyclebot.v3.scoring.ShitCoinTraderAI.MAX_TOKEN_AGE_HOURS_BOOTSTRAP * 60.0,
+            try { com.lifecyclebot.v3.V3EngineManager.launchAgeWindowMinutes8140() } catch (_: Throwable) { Double.NaN },
+            com.lifecyclebot.engine.truth.TokenBirthHydrator7441.BIRTH_PROVABLE_MINUTES_8549)
         "PROJECT_SNIPER" -> com.lifecyclebot.v3.scoring.ProjectSniperAI.MIN_TOKEN_AGE_SECONDS / 60.0 to
             com.lifecyclebot.v3.scoring.ProjectSniperAI.SNIPER_WINDOW_SECS_8169 / 60.0
         "MANIPULATED" -> 0.0 to com.lifecyclebot.v3.scoring.ManipulatedTraderAI.MAX_AGE_MINUTES_BOOTSTRAP

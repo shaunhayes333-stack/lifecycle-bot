@@ -130,6 +130,12 @@ object DiscoveryCapture8400 {
         // V5.0.8418 — superseded V5.9.769 max-take: the source's newer cap replaces the older one, up or down.
         if (trustedMarketCapUsd.isFinite() && trustedMarketCapUsd > 0.0) ts.lastMcap = trustedMarketCapUsd
         try { captureMcap8400(ts, "INTAKE_$source") } catch (_: Throwable) {}
+        // V5.0.8549 — the coin's DexScreener pair (buy / sell counts, 5m / 1h change, pool liquidity, pool address,
+        // pairCreatedAt) is asked when the coin ARRIVES, in the batched pair lane (30 mints a call), not when a decision first
+        // needs it: 8542 features8144 bp missing 15,406 / chg 15,491 with dexPair:NOT_FETCHED 13,313 — asked too late.
+        if (com.lifecyclebot.network.KeylessRpc8359.solanaKey8458(ts.mint)) try {
+            if (com.lifecyclebot.engine.DexBatchLane8287.enqueue8287(ts.mint)) intakePairAsked8549.incrementAndGet()
+        } catch (_: Throwable) {}
         if (!(ts.lastLiquidityUsd.isFinite() && ts.lastLiquidityUsd > 0.0)) {
             val liq = try { LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) { 0.0 }
             try { PipelineHealthCollector.labelInc(if (liq > 0.0) "DISCOVERY_LIQ_HYDRATED_8400" else "DISCOVERY_LIQ_MISSING_8400_${source.take(40)}") } catch (_: Throwable) {}
@@ -137,6 +143,10 @@ object DiscoveryCapture8400 {
         }
         try { seedShape8407(ts) } catch (_: Throwable) {}   // V5.0.8407 — and its shape, from the exchange's reported changes
     }
+
+    private val intakePairAsked8549 = AtomicLong(0)
+    /** V5.0.8549 — pairs asked at intake (report). */
+    fun intakePairAsked8549(): Long = intakePairAsked8549.get()
 
     // ── V5.0.8407 §SHAPE_FROM_THE_EXCHANGE_YOU_ALREADY_ASKED ──────────────────────────────────────────────────────────────
     // 5.0.8404: setup classification needs three time-separated price points ("shape"); a token discovered this cycle has one,

@@ -338,6 +338,11 @@ object DiagnosisBrief8438 {
                 .append(" noRpcAnswer=").append(noAnswer)
                 .append(" | sniper pastWindow=").append(sc[0]).append(" inWindow=").append(sc[1]).append(" undated=").append(sc[2])
                 .append(if (birthFault) " [FAULT walks unanswered]" else "").append('\n')
+            // V5.0.8549 — meme data timing: the price age each admission decided on, and pairs fetched at intake
+            try {
+                sb.append("               ").append(com.lifecyclebot.engine.truth.PriceAge8549.statusLine8549())
+                    .append(" intakePairAsked8549=").append(com.lifecyclebot.engine.truth.DiscoveryCapture8400.intakePairAsked8549()).append('\n')
+            } catch (_: Throwable) {}
             // V5.0.8440 — 8439: "PROJECT_SNIPER cannot judge a launch" was wrong; its in-window launches (725) are dated by
             // create frames. Most walks are established coins (JUPITER_STRICT / MARKET_HUNT) with no launch to date. The
             // fault is the walks no rung answered (3379 of 5335), named by rpcRoute8359's per-host fails[].

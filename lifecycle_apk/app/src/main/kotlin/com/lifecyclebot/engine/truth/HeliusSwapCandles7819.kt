@@ -170,7 +170,11 @@ object HeliusSwapCandles7819 {
             return
         }
         inFlight.add(mint)
-        val credits = HeliusCreditEconomy7881.reserve8386(HeliusCreditEconomy7881.Consumer.SWAP_CANDLES,
+        // V5.0.8549 — a near-decision coin gets a bounded priority lease: one page (100 credits), at most
+        // [NEAR_LEASES_PER_HOUR_8549] an hour. 8542: without any lease its jobs were refused at the wire (147 local 429s).
+        val nearLease8549 = priority == PRIORITY_NEAR_DECISION_8284 && claimNearLease8549(nowMs)
+        val credits = if (nearLease8549) HeliusCreditEconomy7881.reserve8386(HeliusCreditEconomy7881.Consumer.SWAP_CANDLES, 100.0, true, nowMs)
+            else HeliusCreditEconomy7881.reserve8386(HeliusCreditEconomy7881.Consumer.SWAP_CANDLES,
             200.0, priority >= PRIORITY_HELD_8284, nowMs)  // V5.0.8541 — the lease is the held chart's alone
         if (credits == null) {
             refusal8386("credit_pacing"); budgetSkips.incrementAndGet()
@@ -187,7 +191,7 @@ object HeliusSwapCandles7819 {
                     else if (!Thread.currentThread().isInterrupted && admission8386.start(mint, startedAt)) {
                         nextAllowedMs[mint] = startedAt + MINT_RETRY_MS
                         if (nextAllowedMs.size > 4_000) nextAllowedMs.entries.removeIf { it.value < startedAt }
-                        runJob(ts, marketAddress, key, credits)
+                        runJob(ts, marketAddress, key, credits, if (nearLease8549) 1 else MAX_PAGES)
                     } else refusal8386("cancelled_before_start")
                 } catch (_: Exception) { refusal8386("worker_failure") }
                 finally {
@@ -347,13 +351,26 @@ object HeliusSwapCandles7819 {
         return cachedKey
     }
 
-    private fun runJob(ts: TokenState, marketAddress: String, key: String, credits: HeliusCreditEconomy7881.Reservation8386) {
+    private val nearLeaseAt8549 = java.util.concurrent.ConcurrentLinkedDeque<Long>()
+    const val NEAR_LEASES_PER_HOUR_8549 = 12
+
+    /** V5.0.8549 — claim one of the hour's near-decision priority leases (true) or none is left (false). */
+    private fun claimNearLease8549(nowMs: Long): Boolean = synchronized(nearLeaseAt8549) {
+        while (nearLeaseAt8549.isNotEmpty() && nowMs - (nearLeaseAt8549.peekFirst() ?: nowMs) > 3_600_000L) nearLeaseAt8549.pollFirst()
+        if (!nearLeaseAvailable8549(nearLeaseAt8549.size)) return@synchronized false
+        nearLeaseAt8549.addLast(nowMs); true
+    }
+
+    /** Pure (V5.0.8549). */
+    fun nearLeaseAvailable8549(usedThisHour: Int): Boolean = usedThisHour < NEAR_LEASES_PER_HOUR_8549
+
+    private fun runJob(ts: TokenState, marketAddress: String, key: String, credits: HeliusCreditEconomy7881.Reservation8386, maxPages: Int = MAX_PAGES) {
         val startedAt = System.currentTimeMillis()
         jobs.incrementAndGet()
         val prints = ArrayList<SwapPrint7819>()
         var before = ""
         var page = 0
-        while (page < MAX_PAGES) {
+        while (page < maxPages) {
             page++
             // Correct Helius Enhanced History pagination is before-signature, NOT before.
             // A time floor excludes ancient transfers on very busy market accounts.
@@ -431,7 +448,12 @@ object HeliusSwapCandles7819 {
         return try {
             http.newCall(req).execute().use { resp ->
                 try { ApiHealthMonitor.record(HOST, resp.code, System.currentTimeMillis() - started) } catch (_: Throwable) {}
-                if (!resp.isSuccessful) {
+                // V5.0.8549 — our own budget / rate gate answered (X-AATE-Synthetic): a budget skip, never a provider error
+                if (!resp.isSuccessful && resp.header(com.lifecyclebot.network.HostCircuitInterceptor.SYNTHETIC_HEADER_6969) != null) {
+                    budgetSkips.incrementAndGet()
+                    try { PipelineHealthCollector.labelInc("HELIUS_SWAP_CANDLES_LOCAL_BUDGET_${resp.code}_8549") } catch (_: Throwable) {}
+                    null
+                } else if (!resp.isSuccessful) {
                     httpErrors.incrementAndGet()
                     try { PipelineHealthCollector.labelInc("HELIUS_SWAP_CANDLES_HTTP_${resp.code}_7819") } catch (_: Throwable) {}
                     null

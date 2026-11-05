@@ -181,6 +181,8 @@ object TokenBirthHydrator7441 {
     // publishes its lower bound (AdmissionBirth8144.noteHistoryFloor8144), and paging stops once the token is proven
     // older than the widest launch window — its exact birth no longer changes any lane's decision.
     private const val ESTABLISHED_PROOF_MS_8144 = 6L * 60L * 60_000L
+    /** V5.0.8549 — the oldest age the walk proves exactly; a lane ceiling above it can never be decided. */
+    const val BIRTH_PROVABLE_MINUTES_8549 = 360.0
     internal fun establishedWitness8417(mint: String, nowMs: Long): Boolean {
         val existedAt = AdmissionBirth8144.existenceFloorMs8417(mint) ?: return false
         return nowMs - existedAt >= ESTABLISHED_PROOF_MS_8144
