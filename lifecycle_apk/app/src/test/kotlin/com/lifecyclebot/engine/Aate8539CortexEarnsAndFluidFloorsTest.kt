@@ -66,12 +66,35 @@ class Aate8539CortexEarnsAndFluidFloorsTest {
         assertEquals("the specialist's own call stands", CandidateAdmission8136.Terminal8136.ADMIT, d.terminal)
         assertTrue(d.trace.any { it.startsWith("specialistQualified8539 optionalFlow=") })
         assertFalse("below the lane's floor it is no specialist pick", CandidateAdmission8136.specialistQualified8539(c.copy(genericScore = 10.0)))
-        assertFalse(CandidateAdmission8136.specialistQualified8539(c.copy(nativeSetup8213 = "NONE")))
+        assertFalse("no native qualification, no specialist pick", CandidateAdmission8136.specialistQualified8539(c.copy(nativeQualified8213 = false)))
         assertEquals("no specialist: it still waits for the data", CandidateAdmission8136.Terminal8136.DEFER_DATA,
             CandidateAdmission8136.decide8136(c.copy(nativeQualified8213 = false)).terminal)
         assertEquals("critical facts still defer", CandidateAdmission8136.Terminal8136.DEFER_DATA,
             CandidateAdmission8136.decide8136(c.copy(missingInputs = listOf("quote:UNKNOWN"))).terminal)
         assertEquals("SAFETY_REFUSED_8136", CandidateAdmission8136.decide8136(c.copy(safetyRefusal = "MINT_AUTH")).reason)
+    }
+
+    @Test fun the_owning_lane_answers_the_shared_menus_no_match() {
+        // 8538: CASHGEN native 53/100 Y, setup=NO_TRIGGER, refused ENTRY_NO_PHASE_TRIGGER_8506 (x308 in CASHGEN alone)
+        val c = CandidateAdmission8136.Candidate8136("phase-8539", "CASHGEN", null, live = true, stage = "NO_SETUP",
+            entryWait8506 = "NO_PHASE_TRIGGER", priceAgeMs = 10L, expectedGrossPct = 20.0, costPct = 4.5,
+            genericScore = 53.0, genericFloor = 15.0, nativeQualified8213 = true, liveEdge8114 = "CHART_BUY")
+        val d = CandidateAdmission8136.decide8136(c)
+        assertEquals(CandidateAdmission8136.Terminal8136.ADMIT, d.terminal)
+        assertTrue(d.trace.any { it.startsWith("specialistQualified8539 ownTrigger=") })
+        assertEquals("no lane brain qualified it: the shared wait still binds", "ENTRY_NO_PHASE_TRIGGER_8506",
+            CandidateAdmission8136.decide8136(c.copy(nativeQualified8213 = false)).reason)
+        assertEquals("a dump still needs its reclaim", "ENTRY_NO_RECLAIM_8506",
+            CandidateAdmission8136.decide8136(c.copy(stage = "DUMPING", entryWait8506 = "NO_RECLAIM")).reason)
+    }
+
+    @Test fun a_tape_blind_coin_is_not_a_flatline_while_its_venue_trades() {
+        assertFalse("unread venue counts are not dead", FlatChart8027.venueTradesDead8539(null, null))
+        assertTrue(FlatChart8027.venueTradesDead8539(FlatChart8027.DEAD_TX_H1_8539 - 1, 0))
+        assertFalse(FlatChart8027.venueTradesDead8539(10, 5))
+        val src = src("engine/FlatChart8027.kt")
+        assertTrue(src.contains("tapeBlindVerdict8539(mint, nowMs) ?: deadTapeOnPrints8476(mint, nowMs)"))
+        assertTrue("a failed read is unknown, not dead", src.contains("} catch (_: Throwable) { false }  // V5.0.8539"))
     }
 
     @Test fun the_8536_live_doors_are_learnt_and_unlearnt_too() {

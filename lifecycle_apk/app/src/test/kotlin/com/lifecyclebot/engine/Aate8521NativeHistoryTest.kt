@@ -69,6 +69,9 @@ class Aate8521NativeHistoryTest {
             2.0, now, "pool-A")
         assertEquals("real marks still state price and momentum", read.prices, marksOnly.prices)
         assertNull("a mark states no executed volume", marksOnly.volumeRatio)
-        assertFalse(marksOnly.bounce8521(18.0, 60.0))
+        // superseded: `assertFalse(marksOnly.bounce8521(18.0, 60.0))` — V5.0.8539: with fewer than four executed prints the
+        // venue's observed prices state the bounce's shape (DIP_HUNTER waited on WAIT_FOR_DIP_HISTORY_8535 x3,969); volume
+        // still needs executed prints (volumeRatio null above).
+        assertTrue(marksOnly.bounce8521(18.0, 60.0))
     }
 }

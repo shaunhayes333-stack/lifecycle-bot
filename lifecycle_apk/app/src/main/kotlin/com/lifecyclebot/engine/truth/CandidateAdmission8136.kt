@@ -575,7 +575,11 @@ object CandidateAdmission8136 {
             // demoted door falls through to every later door: losing cell/stage, timing, economics at the quoted size.
             // Safety, structure and the critical input/economic gates below still bind.
             val supported8511 = bestSetup
-            if (!fastTrack8520 && !(missing != null && specialist8539)) {  // V5.0.8539 — the specialist's optional flow read
+            // V5.0.8539 — the owning lane's own qualification answers an unobservable flow read and the shared menu's
+            // no-match (NO_PHASE_TRIGGER): 8538 run CASHGEN native 53/100 Y refused ENTRY_NO_PHASE_TRIGGER_8506 x308.
+            val specialistAnswers8539 = specialist8539 && (missing != null || wait == "NO_PHASE_TRIGGER")
+            if (specialistAnswers8539 && missing == null) trace += "specialistQualified8539 ownTrigger=${c.nativeSetup8213 ?: c.lane}"
+            if (!fastTrack8520 && !specialistAnswers8539) {
                 // The original 8511 binding door remains unchanged for ordinary candidates.
                 if (supported8511 == null && !nativePhase8528 && !strategyClock8535 && doorBinds8393("ENTRY_${wait}_8506"))
                     return done(Terminal8136.REFUSE, "ENTRY_${wait}_8506", true, c.selectedSetup)
@@ -901,13 +905,12 @@ object CandidateAdmission8136 {
 
     const val LIVE_NATIVE_OPINION_UNPROVEN_8536 = "LIVE_NATIVE_OPINION_UNPROVEN_8536"
     /**
-     * V5.0.8539 — pure: the coin's own lane brain qualified it (an authoritative native opinion with a named strategy) and
+     * V5.0.8539 — pure: the coin's own lane brain qualified it (an authoritative, eligible native opinion of this lane) and
      * its score clears the lane's fluid floor. Such a coin is the specialist's call: an unobservable flow / stage read is
      * optional for it. Hard safety, structure, stale price, unknown economics and every critical fact still bind.
      */
     fun specialistQualified8539(c: Candidate8136): Boolean =
-        c.nativeQualified8213 && !c.nativeSetup8213.isNullOrBlank() && !c.nativeSetup8213.equals("NONE", true) &&
-            c.genericScore.isFinite() && c.genericFloor.isFinite() && c.genericScore >= c.genericFloor
+        c.nativeQualified8213 && c.genericScore.isFinite() && c.genericFloor.isFinite() && c.genericScore >= c.genericFloor
 
     const val EDGE_MODEL_NEGATIVE_8537 = "EDGE_MODEL_NEGATIVE_8537"
     const val EDGE_MODEL_PROVEN_8537 = "EDGE_MODEL_PROVEN_8537"

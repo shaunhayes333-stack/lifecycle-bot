@@ -59,8 +59,14 @@ object NativeHistory8521 {
             return Read(emptyList(), emptyList(), null, null, emptyList())
         val volume = tapeVolume8521(tape.filter { sameVenue(it.pool) }, nowMs)
             ?: barVolume8521(closed.filter { sameVenue(CandleCoverage8284.tagOf8284(it)?.pool.orEmpty()) }, nowMs)
+        // V5.0.8539 — the bounce witness reads executed prints / closed candles first; where the bot holds fewer than four of
+        // them in five minutes (8538: GeckoTerminal served 26 of 1,868 asks, the PumpPortal tape denied) it reads the venue's
+        // observed price points instead — price states shape, never volume (volumeRatio above still needs executed prints).
+        // 8538 run: DIP_HUNTER WAIT_FOR_DIP_HISTORY_8535 x3,969, 0 qualified.
+        val shape5m = ordered.filter { it.shape && nowMs - it.atMs <= 300_000L }.map { it.price }
+        val bounce8539 = if (shape5m.size >= 4) shape5m else ordered.filter { nowMs - it.atMs <= 300_000L }.map { it.price }
         return Read(ordered.map { it.price }, ordered.filter { nowMs - it.atMs <= 300_000L }.map { it.price },
-            ordered.maxOf { it.high }, volume, ordered.filter { it.shape && nowMs - it.atMs <= 300_000L }.map { it.price })
+            ordered.maxOf { it.high }, volume, bounce8539)
     }
 
     private fun ratio8521(values: List<Double>): Double? {

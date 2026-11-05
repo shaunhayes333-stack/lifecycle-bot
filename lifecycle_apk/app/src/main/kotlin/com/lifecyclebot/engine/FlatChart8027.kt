@@ -108,6 +108,32 @@ object FlatChart8027 {
     fun deadTapePrints8476(executedPrints: Int, distinctMinutes: Int = DEAD_TAPE_MAX_PRINTS_8476): Boolean =
         executedPrints < DEAD_TAPE_MAX_PRINTS_8476 || distinctMinutes < DEAD_TAPE_MAX_PRINTS_8476
     internal fun deadTape8476(mint: String, nowMs: Long): Boolean = try {
+        tapeBlindVerdict8539(mint, nowMs) ?: deadTapeOnPrints8476(mint, nowMs)
+    } catch (_: Throwable) { false }  // V5.0.8539 — a read that failed proves nothing: unknown is not dead
+
+    /**
+     * V5.0.8539 — the tape is BLIND for a mint it has no executed print of in the last hour (the PumpPortal per-coin stream is
+     * denied, a pool no tape covers): "no prints" there means "not watching", not "nobody trades". 8538 run: 27 sealed
+     * tickets (SHITCOIN 9, EXPRESS 15, CORE 3) died AUTH_PRESEAL_FLATLINE_8027_8304 and the stage router named no BASE.
+     * Then the venue's own hour of trades decides ([DEAD_TX_H1_8539]+ buys and sells = alive). Null when the tape can see.
+     */
+    const val DEAD_TX_H1_8539 = 12
+    internal fun tapeBlindVerdict8539(mint: String, nowMs: Long): Boolean? {
+        val seen = com.lifecyclebot.engine.truth.TradeTape8100.executedCount8287(mint, nowMs, 60L * 60_000L)
+        if (seen != null && seen > 0) return null
+        val h = try { HandoffRoute8180.tokenFor8180(mint)?.let { t -> synchronized(t.history) { t.history.lastOrNull() } } } catch (_: Throwable) { null }
+        val dead = venueTradesDead8539(h?.buysH1, h?.sellsH1)
+        try { PipelineHealthCollector.labelInc(if (dead) "FLATLINE_TAPE_BLIND_VENUE_QUIET_8539" else "FLATLINE_WAIVED_VENUE_TRADES_8539") } catch (_: Throwable) {}
+        return dead
+    }
+
+    /** Pure (V5.0.8539): the venue's hour of trades is dead — unread counts are not dead (null -> false). */
+    fun venueTradesDead8539(buysH1: Int?, sellsH1: Int?): Boolean {
+        if (buysH1 == null && sellsH1 == null) return false
+        return (buysH1 ?: 0) + (sellsH1 ?: 0) < DEAD_TX_H1_8539
+    }
+
+    private fun deadTapeOnPrints8476(mint: String, nowMs: Long): Boolean = try {
         val exec = com.lifecyclebot.engine.truth.TradeTape8100.prints8128(mint, nowMs, FLAT_WINDOW_MS).filter { !it.priceOnly }
         val dead = deadTapePrints8476(exec.size, exec.map { it.atMs / 60_000L }.distinct().size)
         if (!dead) try { PipelineHealthCollector.labelInc("FLATLINE_WAIVED_TRADES_FLOWING_8476") } catch (_: Throwable) {}
