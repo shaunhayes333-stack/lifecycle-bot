@@ -14291,7 +14291,8 @@ class GoldenTapeRegressionTest {
         val lab = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
         // V5.0.8405 — the batch still prices off-watch marks in one background fetch; rungs are now ordered by measured health
         // (DexScreener over the whole batch, curve for pump mints, Jupiter last on the misses).
-        assertTrue(lab.contains("com.lifecyclebot.engine.sell.PriceResolverFallback.jupiterBatchPrices7737(missedJup8405)"))
+        // superseded: 8535 §P0-01 — the Jupiter rung asks every miss of the batch in chunks of 50
+        assertTrue(lab.contains("com.lifecyclebot.engine.sell.PriceResolverFallback.jupiterBatchPrices7737(jupChunk8535)"))
         // superseded by V5.0.8418 — on-curve mints are curve-read first; DexScreener takes the rest and the curve's misses
         // (was `for (chunk in batch.chunked(OFFWATCH_DEX_CHUNK_8405)) {`).
         assertTrue(lab.contains("for (chunk in dexBatch8418.chunked(OFFWATCH_DEX_CHUNK_8405)) {"))
