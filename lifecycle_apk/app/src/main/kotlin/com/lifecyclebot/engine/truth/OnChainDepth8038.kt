@@ -223,6 +223,59 @@ object OnChainDepth8038 {
         } catch (_: Throwable) { inFlight.remove(mint) }
     }
 
+    /**
+     * V5.0.8540 — owner: "everything is available on the block chain". A coin no longer on the watchlist (a forward label
+     * waiting for its horizon price, a shadow leg) has no TokenState, so [request8038] could never read its pool and the
+     * label fell to DexScreener / Jupiter alone (8539: 256 of 491 due marks unpriced, off-watch missed 2,867). The pool is
+     * found from the mint itself — the pair DexScreener chose for it (DexPools8285), the token register's sealed pool, or a
+     * pump.fun coin's canonical PumpSwap pool — and read through the same batched vault read. Returns immediately.
+     */
+    fun requestMint8540(mint: String, maxAgeMs: Long = FRESH_MS) {
+        val m = mint.trim()
+        if (!BASE58.matches(m) || freshRead8198(m, maxAgeMs, System.currentTimeMillis()) != null || depthOnlyFresh8418(m, maxAgeMs) || !inFlight.add(m)) return
+        val ps = poolsForMint8540(m)
+        if (ps.isEmpty()) { inFlight.remove(m); try { PipelineHealthCollector.labelInc("CHAIN_PRICE_NO_KNOWN_POOL_8540") } catch (_: Throwable) {}; return }
+        mintRequests8540.incrementAndGet()
+        if (PoolBatch8418.enqueue8418(m, ps.take(2))) return
+        try {
+            pool.execute { try { fetch(m, ps) } finally { inFlight.remove(m) } }
+        } catch (_: Throwable) { inFlight.remove(m) }
+    }
+
+    private val mintRequests8540 = AtomicLong(0)
+    fun mintRequests8540(): Long = mintRequests8540.get()
+
+    /**
+     * V5.0.8541 — [mint]'s constant-product pools whose vault history prices it: (pool, its two vaults). Concentrated venues
+     * (vault ratio is not the price) are left out. Blocking (decodes an unknown pool account); call off the main thread.
+     */
+    internal fun historyPools8541(mint: String): List<Pair<String, Pair<String, String>>> =
+        poolsForMint8540(mint.trim()).take(2).mapNotNull { p ->
+            val v = vaultsFor(p) ?: return@mapNotNull null
+            val o = poolOwner8418[p] ?: return@mapNotNull null
+            if (concentrated8418(o)) null else p to v
+        }
+
+    private fun poolsForMint8540(mint: String): List<String> {
+        val entry = try { com.lifecyclebot.AATEApp.appContextOrNull()?.let { com.lifecyclebot.engine.TokenMetaCache.get(it).lookup(mint) } } catch (_: Throwable) { null }
+        val hints = listOfNotNull(
+            try { com.lifecyclebot.network.DexPools8285.chosen8285(mint) } catch (_: Throwable) { null },
+            entry?.pairAddress, entry?.lastPricePoolAddr, derivedSolPool8489(mint),
+        )
+        return hints.map { it.trim() }.filter { BASE58.matches(it) && it != mint }.distinct()
+            .filter { p -> unsupported[p]?.let { System.currentTimeMillis() - it > UNSUPPORTED_RETRY_MS } ?: true }
+    }
+
+    /**
+     * V5.0.8540 — [mint]'s price from its own pool's vaults (SOL vault / coin vault x SOL/USD) read at most [maxAgeMs] ago,
+     * else NaN. Concentrated venues are depth-only (their vault ratio is not the price) and never answer here. Never requests.
+     */
+    fun chainPriceUsd8540(mint: String, maxAgeMs: Long, nowMs: Long = System.currentTimeMillis()): Double {
+        val r = freshRead8198(mint, maxAgeMs, nowMs) ?: return Double.NaN
+        val px = priceUsd8038(r.quoteSol, r.baseTokens, solUsd())
+        return if (px.isFinite() && px > 0.0) px else Double.NaN
+    }
+
     /** V5.0.8418 — PoolBatch8418 has finished with [mint] (answered or not): a later request may ask again. */
     internal fun batchDone8418(mint: String) { inFlight.remove(mint) }
 

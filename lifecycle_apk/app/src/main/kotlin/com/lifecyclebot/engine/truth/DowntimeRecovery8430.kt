@@ -237,7 +237,7 @@ object DowntimeRecovery8430 {
         "downtimeRecovery8430[queued=${queue.size} fetched=${fetched.get()} empty=${empty.get()} recovered=${recovered.get()} " +
             "gaveUp=${gaveUp.get()} slotBusy=${yielded8439.get()} retry8527=${requeued8527.get()} " +
             "localWait8527=${localWaits8527.get()} providerFail8527=${failed8527.get()} cap=$MAX_MINTS_PER_BOOT_8430 mints/${RECOVERY_WINDOW_MS_8430 / 60_000L}m " +
-            "gaveUpBy8535{" + gaveUpBy8535.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } + "} slotReadFailed8535=${slotReadFailed8535.get()}]"
+            "gaveUpBy8535{" + gaveUpBy8535.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } + "} slotReadFailed8535=${slotReadFailed8535.get()}] ${ChainHistoryMark8541.statusLine8541()}"
 
     internal fun seedForTest8430(mint: String, cs: List<Candle>) { candles[mint] = cs }
     internal fun resetForTest8430() {

@@ -332,6 +332,26 @@ object HeliusCadence8361 {
         return out
     }
 
+    /**
+     * V5.0.8541 — signatures of [address] with their block time (ms), newest first, failed ones skipped; a row without a
+     * block time is dropped (its position in time is unknown). Keyless-first like [signatures8361].
+     */
+    fun signaturesTimed8541(http: OkHttpClient, address: String, limit: Int, before: String?, keylessOnly: Boolean, caller: String): List<Pair<String, Long>> {
+        val opts = JSONObject().put("limit", limit.coerceIn(1, 1000)).put("commitment", "confirmed")
+        if (!before.isNullOrBlank()) opts.put("before", before)
+        val arr = postRoot8361(http, "getSignaturesForAddress", JSONArray().put(address).put(opts), keylessOnly, caller)?.optJSONArray("result") ?: return emptyList()
+        val out = ArrayList<Pair<String, Long>>(arr.length())
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val s = o.optString("signature", "")
+            val t = if (o.isNull("blockTime")) 0L else o.optLong("blockTime", 0L)
+            if (s.isBlank()) continue
+            // a failed row keeps its place as the page cursor, but carries no state
+            out.add(s to if (o.isNull("err") && t > 0L) t * 1000L else -1L)
+        }
+        return out
+    }
+
     /** One parsed transaction, keyless-first; null when no rung answered. */
     fun transaction8361(http: OkHttpClient, sig: String, keylessOnly: Boolean, caller: String): JSONObject? {
         val opts = JSONObject().put("encoding", "jsonParsed").put("maxSupportedTransactionVersion", 0).put("commitment", "confirmed")

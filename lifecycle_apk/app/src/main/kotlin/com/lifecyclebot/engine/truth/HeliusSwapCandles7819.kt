@@ -156,6 +156,7 @@ object HeliusSwapCandles7819 {
         // V5.0.8453 — the 100-credit Enhanced history read is for HELD positions only (their exits read the chart). 8450:
         // SWAP_CANDLES spent 109.7k of the day's 300k credits (near-decision coins claimed the decision reserve with a
         // priority lease) while the 1-credit safety-proof reads were refused. Everything else keeps the free bars above.
+        // V5.0.8541 — near-decision coins too, on SWAP_CANDLES' own paced share (no priority lease; held only).
         if (!heliusCandlesAllowed8453(priority)) { refusal8386("not_held_8453"); return }
         requests.incrementAndGet()
         // V5.0.7881 — up to two 100-credit pages per job (288k credits/day at the old
@@ -170,7 +171,7 @@ object HeliusSwapCandles7819 {
         }
         inFlight.add(mint)
         val credits = HeliusCreditEconomy7881.reserve8386(HeliusCreditEconomy7881.Consumer.SWAP_CANDLES,
-            200.0, priority >= PRIORITY_NEAR_DECISION_8284, nowMs)
+            200.0, priority >= PRIORITY_HELD_8284, nowMs)  // V5.0.8541 — the lease is the held chart's alone
         if (credits == null) {
             refusal8386("credit_pacing"); budgetSkips.incrementAndGet()
             inFlight.remove(mint); admission8386.finish(mint)
@@ -206,8 +207,11 @@ object HeliusSwapCandles7819 {
      * price bars and (curve coins) the cached keyless pump.fun candles. True only when HeliusCandleGate8418 leaves Helius
      * as the fallback: still short of 1 m bars, not a bulk coin, past the free grace (a held position does not wait).
      */
-    /** Pure (V5.0.8453): only a held position's chart may cost Enhanced-API credits. */
-    fun heliusCandlesAllowed8453(priority: Int): Boolean = priority >= PRIORITY_HELD_8284
+    /** Pure (V5.0.8453): only a held position's chart may cost Enhanced-API credits.
+     * superseded by V5.0.8541 — a near-decision coin's chart may too (its on-chain swap history is the only 1 m source the
+     * free pass left short: 8539 run, served=0, not_held_8453=565). The 8450 overspend was the priority lease, not the
+     * access: near-decision jobs now reserve inside SWAP_CANDLES' own paced share and never the decision reserve. */
+    fun heliusCandlesAllowed8453(priority: Int): Boolean = priority >= PRIORITY_NEAR_DECISION_8284
 
     private fun heliusAfterFree8418(ts: TokenState, nowMs: Long, priority: Int): Boolean {
         val firstAsk = HeliusCandleGate8418.firstAsk8418(ts.mint, nowMs)

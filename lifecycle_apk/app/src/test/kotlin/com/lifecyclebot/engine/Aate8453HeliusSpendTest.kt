@@ -24,7 +24,9 @@ class Aate8453HeliusSpendTest {
 
     @Test fun enhancedCandleHistoryIsForHeldPositionsOnly() {
         assertTrue(HeliusSwapCandles7819.heliusCandlesAllowed8453(HeliusSwapCandles7819.PRIORITY_HELD_8284))
-        assertFalse(HeliusSwapCandles7819.heliusCandlesAllowed8453(HeliusSwapCandles7819.PRIORITY_NEAR_DECISION_8284))
+        // superseded by V5.0.8541 — a near-decision coin may read its on-chain swap history, without the priority lease.
+        assertTrue(HeliusSwapCandles7819.heliusCandlesAllowed8453(HeliusSwapCandles7819.PRIORITY_NEAR_DECISION_8284))
+        assertTrue(src("engine/truth/HeliusSwapCandles7819.kt").contains("200.0, priority >= PRIORITY_HELD_8284, nowMs)"))
         assertFalse(HeliusSwapCandles7819.heliusCandlesAllowed8453(HeliusSwapCandles7819.PRIORITY_HANDOFF_8284))
         assertFalse(HeliusSwapCandles7819.heliusCandlesAllowed8453(0))
         val c = src("engine/truth/HeliusSwapCandles7819.kt")

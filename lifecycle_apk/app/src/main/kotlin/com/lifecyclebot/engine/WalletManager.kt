@@ -129,6 +129,14 @@ class WalletManager private constructor(private val ctx: Context) {
         @Volatile private var solPrefs7042: android.content.SharedPreferences? = null
 
         /**
+         * V5.0.8541 — the rate (and when) this device last observed before the process started, read once at restore and
+         * never overwritten by later observations. ChainHistoryMark8541 prices a horizon inside the downtime only when this
+         * and the fresh rate agree (no rate is invented for a time the app did not see).
+         */
+        @Volatile var bootPriorSol8541: Pair<Double, Long>? = null
+            private set
+
+        /**
          * Record a rate this device really saw. Only called from the fetch
          * chain's genuine successes, never from its fallback.
          */
@@ -157,6 +165,8 @@ class WalletManager private constructor(private val ctx: Context) {
             try {
                 val p = ctx.applicationContext.getSharedPreferences(PREFS_SOL_7042, Context.MODE_PRIVATE)
                 solPrefs7042 = p
+                if (bootPriorSol8541 == null) bootPriorSol8541 = p.getFloat(KEY_SOL_PRICE_7042, 0f).toDouble()
+                    .takeIf { it in 50.0..1000.0 }?.let { it to p.getLong(KEY_SOL_PRICE_AT_7042, 0L) }?.takeIf { it.second > 0L }
                 if (freshSolPrice8163() > 0.0) return
                 val v = p.getFloat(KEY_SOL_PRICE_7042, 0f).toDouble()
                 val at = p.getLong(KEY_SOL_PRICE_AT_7042, 0L)

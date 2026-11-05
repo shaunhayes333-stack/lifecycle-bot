@@ -200,7 +200,8 @@ class Aate8307DataTest {
         assertTrue(HeliusCreditEconomy7881.priorityAdmits8307(300_000.0, 0.5, 100_000.0, 200.0))
         assertFalse(HeliusCreditEconomy7881.priorityAdmits8307(300_000.0, 0.5, 162_400.0, 200.0))
         val c = src("engine/truth/HeliusSwapCandles7819.kt")
-        assertTrue(c.contains("200.0, priority >= PRIORITY_NEAR_DECISION_8284, nowMs)"))
+        // superseded by V5.0.8541 — the on-pace priority lease is the held chart's alone; near-decision jobs stay in the share.
+        assertTrue(c.contains("200.0, priority >= PRIORITY_HELD_8284, nowMs)"))
         assertTrue(src("engine/truth/HeliusCreditEconomy7881.kt").contains("if (priority) admitPriority8307(consumer, estimate, nowMs) else admit(consumer, estimate, nowMs)"))
     }
 
