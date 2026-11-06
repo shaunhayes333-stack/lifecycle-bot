@@ -166,5 +166,6 @@ class Aate8559RuntimeRepairTest {
         assertEquals("a unit factor stays broken", broken, k.classify8332(4.0, 0.02, 10_000L, 1_000L, unitFactor8565 = true))
         assertEquals("inside one write a 4x disagreement stays broken", broken, k.classify8332(4.0, 0.02, 1_000L, 1_000L, unitFactor8565 = false))
         assertEquals("beyond 10x stays broken (the wrong-pool class)", broken, k.classify8332(20.0, 0.02, 10_000L, 1_000L, unitFactor8565 = false))
+        assertEquals(0.1, k.LAG_RATIO_MIN_8565, 0.0); assertEquals(10.0, k.LAG_RATIO_MAX_8565, 0.0)
     }
 }
