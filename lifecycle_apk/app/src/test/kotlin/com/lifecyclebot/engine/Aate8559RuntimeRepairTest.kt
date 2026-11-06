@@ -145,4 +145,11 @@ class Aate8559RuntimeRepairTest {
         assertFalse(a.contains("onlyYoungOpen8322(nowMs, 10_000L)"))
         assertTrue("the wait stays bounded", a.contains("const val IN_FLIGHT_WAIT_GRACE_MS_8339 = 30_000L"))
     }
+
+    /** V5.0.8564 — the acceptance FAIL witness names what the journal replay skipped (the reason was logcat-only). */
+    @Test fun theAcceptanceFailureNamesTheReplaysSkippedEvents() {
+        assertEquals("-", com.lifecyclebot.engine.truth.JournalEconomicReplay6619.lastSkipped8563.takeIf { it == "-" } ?: "-")
+        assertTrue(src("engine/truth/ExecutionSpineAcceptance6647.kt").contains("append(\" replaySkipped8563=\${try { JournalEconomicReplay6619.lastSkipped8563 }"))
+        assertTrue(src("engine/truth/JournalEconomicReplay6619.kt").contains("lastSkipped8563 = if (skippedEvents6899 == 0) \"-\" else"))
+    }
 }

@@ -12,6 +12,10 @@ import java.util.concurrent.atomic.AtomicReference
  * Durable paper journal replay is the economic source for paper hero surfaces.
  */
 object JournalEconomicReplay6619 {
+    /** V5.0.8563 — the last replay's skipped events by reason, with one sample row each ("-" when none). */
+    @Volatile var lastSkipped8563: String = "-"
+        private set
+
 
     data class ReplayResult(
         val cashSol: Double,
@@ -256,6 +260,7 @@ object JournalEconomicReplay6619 {
         // default; the 6868 residual path applies both legs first and passes
         // skipped = false.
         var skippedEvents6899 = 0
+        val skippedSample8563 = LinkedHashMap<String, String>()
         fun reject(t: com.lifecyclebot.data.Trade, eventId: String, reason: String, skipped: Boolean = true): Boolean {
             val identity = "$eventId:$reason"
             failures += identity
@@ -283,6 +288,8 @@ object JournalEconomicReplay6619 {
                         }
                     }
                     skippedCountByReason7078[reason] = (skippedCountByReason7078[reason] ?: 0) + 1
+                    if (reason !in skippedSample8563) skippedSample8563[reason] =
+                        "${t.side}/${t.mint.take(8)}/${t.positionId.take(28).ifBlank { "-" }}/${t.reason.take(28).ifBlank { "-" }}"
                 } catch (_: Throwable) {}
             }
             try {
@@ -686,6 +693,10 @@ object JournalEconomicReplay6619 {
             } catch (_: Throwable) {}
         }
 
+        // V5.0.8563 — the acceptance FAIL witness names what the replay skipped (8562 smoke: accounting FAILED with every
+        // delta 0 and no receipt in flight; the reason lived only in a logcat line the CI log never carries).
+        lastSkipped8563 = if (skippedEvents6899 == 0) "-" else skippedCountByReason7078.entries.joinToString(",") { (r, n) ->
+            "$r=$n[${skippedSample8563[r] ?: "?"}]" }.take(400)
         val equity = cash + openCost
         val result = ReplayResult(
             cashSol = cash,

@@ -552,6 +552,7 @@ object ExecutionSpineAcceptanceWindow6647 {
                     append(" forensicCurrent=${forensic?.accountingCurrent8397}")
                     append(" forensicLine=${forensic?.healthLine8397?.take(520) ?: "UNAVAILABLE"}")
                     append(" incompleteReceipts=${forensic?.incompleteReceipts8397 ?: "unavailable"}")
+                    append(" replaySkipped8563=${try { JournalEconomicReplay6619.lastSkipped8563 } catch (_: Throwable) { "?" }}")
                     if ("PHANTOM_SIZED_ONLY" in result.failures) {
                         for (desk in desks) {
                             val snap = try { SpecialistCausalFunnel6625.laneSnapshot6647(desk) } catch (_: Throwable) { null }
