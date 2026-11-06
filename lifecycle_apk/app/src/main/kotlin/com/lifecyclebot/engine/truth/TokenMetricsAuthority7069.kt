@@ -418,7 +418,10 @@ object TokenMetricsAuthority7069 {
         if (!capStale7268 && !corroborated7268) {
             val priceAt8332 = lastPriceSeen7268[mint]?.changedAtMs ?: now7268
             val capAt8332 = lastCapSeen7268[mint]?.changedAtMs ?: now7268
-            if (IdentitySkew8332.classify8332(ratio, IDENTITY_EPSILON, priceAt8332, capAt8332) == IdentitySkew8332.Verdict8332.SKEW) {
+            val unitFactor8565 = try {
+                MarketEvidence8346.unitBreak8346(ratio, com.lifecyclebot.engine.WalletManager.lastKnownSolPrice) != MarketEvidence8346.Unit8346.OTHER
+            } catch (_: Throwable) { true }
+            if (IdentitySkew8332.classify8332(ratio, IDENTITY_EPSILON, priceAt8332, capAt8332, unitFactor8565) == IdentitySkew8332.Verdict8332.SKEW) {
                 unverifiable.incrementAndGet()
                 writeSkewClassified8332.incrementAndGet()
                 try { MarketEvidence8346.noteIdentitySkew8346() } catch (_: Throwable) {}   // V5.0.8346

@@ -152,4 +152,19 @@ class Aate8559RuntimeRepairTest {
         assertTrue(src("engine/truth/ExecutionSpineAcceptance6647.kt").contains("append(\" replaySkipped8563=\${try { JournalEconomicReplay6619.lastSkipped8563 }"))
         assertTrue(src("engine/truth/JournalEconomicReplay6619.kt").contains("lastSkipped8563 = if (skippedEvents6899 == 0) \"-\" else"))
     }
+
+    /** V5.0.8565 — 8562 LIVE: +2,600 % runners handed to a quarantined MOONSHOT; runner spike sells suppressed 29/29. */
+    @Test fun runnersReachALaneThatCanBuyAndTheirSpikeSellsAreNotSuppressedByALaggingCap() {
+        val h = com.lifecyclebot.engine.truth.AdmissionHandoff8144
+        assertTrue(h.liveBlocked8565("MOONSHOT", paper = false, quarantined = true))
+        assertFalse("paper still samples a quarantined lane", h.liveBlocked8565("MOONSHOT", paper = true, quarantined = true))
+        assertFalse(h.liveBlocked8565("MOONSHOT", paper = false, quarantined = false))
+        val k = com.lifecyclebot.engine.truth.IdentitySkew8332
+        val skew = com.lifecyclebot.engine.truth.IdentitySkew8332.Verdict8332.SKEW
+        val broken = com.lifecyclebot.engine.truth.IdentitySkew8332.Verdict8332.BROKEN
+        assertEquals("a 4x spike with the cap written 9 s earlier is a lagging cap", skew, k.classify8332(4.0, 0.02, 10_000L, 1_000L, unitFactor8565 = false))
+        assertEquals("a unit factor stays broken", broken, k.classify8332(4.0, 0.02, 10_000L, 1_000L, unitFactor8565 = true))
+        assertEquals("inside one write a 4x disagreement stays broken", broken, k.classify8332(4.0, 0.02, 1_000L, 1_000L, unitFactor8565 = false))
+        assertEquals("beyond 10x stays broken (the wrong-pool class)", broken, k.classify8332(20.0, 0.02, 10_000L, 1_000L, unitFactor8565 = false))
+    }
 }

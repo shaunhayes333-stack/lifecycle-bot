@@ -256,7 +256,8 @@ class Aate8332LearningDataTest {
         assertTrue(r.contains("MARK_REPAIR_SUCCEEDED_7236_PUMP_CURVE_8332"))
         val t = src("engine/truth/TokenMetricsAuthority7069.kt")
         assertTrue("the epsilon is not widened", t.contains("private const val IDENTITY_EPSILON = 0.005"))
-        assertTrue(t.contains("if (IdentitySkew8332.classify8332(ratio, IDENTITY_EPSILON, priceAt8332, capAt8332) == IdentitySkew8332.Verdict8332.SKEW) {"))
+        // superseded (8565): the call also says whether the gap is a unit factor (a non-unit lag up to 10x is the cap lagging a move)
+        assertTrue(t.contains("if (IdentitySkew8332.classify8332(ratio, IDENTITY_EPSILON, priceAt8332, capAt8332, unitFactor8565) == IdentitySkew8332.Verdict8332.SKEW) {"))
         assertTrue(t.contains("TOKEN_METRICS_UNVERIFIABLE_WRITE_SKEW_8332"))
         // The skew branch returns the provider's price untouched and never reaches the gate feed.
         val skewIdx = t.indexOf("TOKEN_METRICS_UNVERIFIABLE_WRITE_SKEW_8332")

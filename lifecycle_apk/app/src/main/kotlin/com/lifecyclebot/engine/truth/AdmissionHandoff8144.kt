@@ -60,8 +60,18 @@ object AdmissionHandoff8144 {
     /** V5.0.8395 — ONE schedulable-receiver policy for the ledger, the receiver tasks and the election. */
     fun schedulable8395(lane: String?): Boolean {
         val l = canon8144(lane)
-        return l.isNotBlank() && l !in com.lifecyclebot.engine.SpecialistElection8136.RESCUE_EXCLUDED_8136
+        return l.isNotBlank() && l !in com.lifecyclebot.engine.SpecialistElection8136.RESCUE_EXCLUDED_8136 &&
+            !liveBlocked8565(l, try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true },
+                try { com.lifecyclebot.engine.LaneQuarantineController.isQuarantined(l) } catch (_: Throwable) { false })
     }
+
+    /**
+     * Pure (V5.0.8565): a lane that cannot enter in this mode is no receiver. LIVE refuses every entry of a quarantined lane
+     * (BotService.laneEvaluationAllowed7951, LANE_QUARANTINE_6002), yet hand-offs kept naming it: 8562 LIVE sent the +2,600 %
+     * runners SKYE / CHARITY / GN to a quarantined MOONSHOT (NAMED_MOONSHOT_NEVER_EVALUATED=15, LANE_QUARANTINE no-receiver
+     * 17). Paper still samples a quarantined lane, so it stays a receiver there.
+     */
+    fun liveBlocked8565(lane: String, paper: Boolean, quarantined: Boolean): Boolean = !paper && quarantined
 
     /** Pure: the read's claim on one scale — calibrated conviction when known, else the raw score (0..100). */
     private fun conviction8395(r: LaneRead8144): Double =

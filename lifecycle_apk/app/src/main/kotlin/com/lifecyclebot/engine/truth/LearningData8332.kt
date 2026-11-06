@@ -171,11 +171,18 @@ object IdentitySkew8332 {
      * within a market move ([SKEW_RATIO_MIN_8332]..[SKEW_RATIO_MAX_8332]) are SKEW: unverifiable, the price passes through,
      * no gate feed. A unit break (outside that band) is BROKEN whatever the timing, and so is any disagreement inside one write.
      */
-    fun classify8332(ratio: Double, epsilon: Double, priceChangedAtMs: Long, capChangedAtMs: Long): Verdict8332 = when {
+    fun classify8332(ratio: Double, epsilon: Double, priceChangedAtMs: Long, capChangedAtMs: Long,
+                     unitFactor8565: Boolean = true): Verdict8332 = when {
         !ratio.isFinite() || ratio <= 0.0 -> Verdict8332.BROKEN
         ratio in (1.0 - epsilon)..(1.0 + epsilon) -> Verdict8332.HELD
         kotlin.math.abs(priceChangedAtMs - capChangedAtMs) <= SAME_WRITE_MS_8332 -> Verdict8332.BROKEN
         ratio in SKEW_RATIO_MIN_8332..SKEW_RATIO_MAX_8332 -> Verdict8332.SKEW
+        // V5.0.8565 — a runner moves its price 3-10x between two cap writes. Written at different times, a gap that is NOT a
+        // unit factor (SOL vs USD, 1e3 / 1e6 / 1e9) is the cap lagging a real move, not a broken identity: 8562 suppressed the
+        // runners' own spike sells this way (SPIKE_TRANCHE_REJECTED 29/29 behind PAPER_PARTIAL_BLOCKED_UNTRUSTED_MARK_7243).
+        !unitFactor8565 && ratio in LAG_RATIO_MIN_8565..LAG_RATIO_MAX_8565 -> Verdict8332.SKEW
         else -> Verdict8332.BROKEN
     }
+    const val LAG_RATIO_MIN_8565 = 0.1
+    const val LAG_RATIO_MAX_8565 = 10.0
 }
