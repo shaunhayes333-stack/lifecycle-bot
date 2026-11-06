@@ -18,7 +18,7 @@ import java.math.BigInteger
 class Aate8576WinCeilingTest {
     @Test fun the_proceeds_ceiling_scales_with_the_slice() {
         assertEquals(30.0, PartialSellUnitTypes6461.proceedsCeiling8576(0.001), 0.0)
-        assertEquals(40_000.0, PartialSellUnitTypes6461.proceedsCeiling8576(4.0), 0.0)
+        assertEquals(4.0 * PartialSellUnitTypes6461.WIN_MULT_CEILING_8576, PartialSellUnitTypes6461.proceedsCeiling8576(4.0), 0.0)
         assertEquals(30.0, PartialSellUnitTypes6461.proceedsCeiling8576(Double.NaN), 0.0)
         // a 24x on a 4 SOL slice (96 SOL) passes; a percent leak on a tiny slice does not
         assertTrue(PartialSellUnitTypes6461.solPlausible8576(96.0, PartialSellUnitTypes6461.proceedsCeiling8576(4.0)))
