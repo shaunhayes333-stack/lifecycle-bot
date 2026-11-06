@@ -438,6 +438,22 @@ object ForensicReconciliation6635 {
             cashDelta <= DELTA_TOLERANCE_SOL &&
             realizedDelta <= DELTA_TOLERANCE_SOL &&
             openCostDelta <= DELTA_TOLERANCE_SOL && quantityDeltaRaw6647 == java.math.BigInteger.ZERO
+        // V5.0.8591 — DEFER TO THE AUTHORITATIVE CANONICAL REPLAY. This witness reads the V5.0.6619 whole-history journal
+        // walk (replay6647); the V5.0.6464 CanonicalPaperReplay is the authoritative same-revision snapshot. The operator
+        // flagged (and JournalEconomicReplay6619.publishLedgerDivergence7343 already acts on it via the 6751 supersede) that
+        // the 6619 walk benignly diverges from the ledger while canonical balances exactly — "stale/noncanonical accounting
+        // diagnostics leaking into execution authority." Live 8590 dump: canonical paperReplay cashΔ=0.0000 realizedΔ=0.0000
+        // openCostΔ=0.0000 (clean) while the 6619 walk fired 16 divergences and failed this witness falsely. When the
+        // canonical replay is clean (same predicate as 6751: deltas within tolerance AND no revision race), a nonzero 6619
+        // walk delta is benign and must NOT fail the witness. A GENUINE mismatch still fails: then canonical is not clean
+        // either, canonicalClean8591 is false, and the status falls through to FAILED (operator mandate 6735 intact).
+        val canonicalClean8591 = try {
+            val p = CanonicalPaperReplay6464.lastParity()
+            p != null && !p.revisionRaceObserved &&
+                kotlin.math.abs(p.cashDelta) <= 0.001 &&
+                kotlin.math.abs(p.realizedDelta) <= 0.001 &&
+                kotlin.math.abs(p.openCostDelta) <= 0.01
+        } catch (_: Throwable) { false }
         // V5.0.6750 — deferred-main-thread replays MUST NOT downgrade
         // a prior RECONCILED status to FAILED. Preserve the last
         // status when the current sample was not authoritative.
@@ -445,7 +461,10 @@ object ForensicReconciliation6635 {
             try { PipelineHealthCollector.labelInc("FORENSIC_RECONCILE_MAIN_THREAD_DEFERRED_PRESERVED_6750") } catch (_: Throwable) {}
             return false
         }
-        lastReconciledStatus.set(if (allZero) "RECONCILED" else "FAILED")
+        if (!allZero && canonicalClean8591) {
+            try { PipelineHealthCollector.labelInc("FORENSIC_RECONCILE_SUPERSEDED_BY_CANONICAL_8591") } catch (_: Throwable) {}
+        }
+        lastReconciledStatus.set(if (allZero || canonicalClean8591) "RECONCILED" else "FAILED")
         return coherent8372
     }
 
