@@ -222,7 +222,8 @@ class Aate8169DataTest {
         assertTrue(pb.contains("\"bp\" to (if (tapeBp8100 != null || altBp8169 != null) Obs8084.OBSERVED else bpObs)"))
         val dx = src("network/DexscreenerApi.kt")
         assertTrue(dx.contains("PairFlow8169.notePair8169(tokenAddress, p, now)"))
-        assertTrue(dx.contains("PairFlow8169.fromJson8169(p, batchAtMs8169)"))
+        // superseded (8561): the flow is read from the chosen pool's JSON (DexPools8285.choose8285), not the last-highest-liquidity one
+        assertTrue(dx.contains("PairFlow8169.fromJson8169(json, batchAtMs8169)"))
         val cs = src("engine/chart/ChartSources7955.kt")
         assertTrue(cs.contains("SetupFeatureResolver8169.statusLine8169()"))
         assertTrue(cs.contains("TradeTape8100.statusLine8169(nowMs)"))
