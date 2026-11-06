@@ -201,12 +201,17 @@ object MemePaperTrader8544 {
             }
             if (nowMs - p.lastAtMs > LOST_MARK_MS_8544) { p.exitFraction = 1.0; p.exitWhy = "LOST_MARK"; fill8544(p, g, nowMs); continue }
             val stopPct = try { FieldManual7715.stopPct8392(p.exitLane, p.costPct) } catch (_: Throwable) { 15.0 }
-            val level = try { ShadowAlign8366.liveStopLevel8366(p.runner, stopPct, p.peak, p.costPct) } catch (_: Throwable) { -stopPct }
-            val ladder = if (p.runner) com.lifecyclebot.engine.RunnerGrab7967.TIERS_7967 else com.lifecyclebot.engine.SpikeCapture7943.TIERS
+            // V5.0.8584 — the paper meme book runs the live doctrine: the 2x / 5x / 10x ladder and the doctrine trail.
+            val doctrine8584 = com.lifecyclebot.engine.RunnerDoctrine8584.rides8584(p.exitLane)
+            val level = if (doctrine8584) com.lifecyclebot.engine.RunnerDoctrine8584.paperStopLevel8584(stopPct, p.peak)
+                else try { ShadowAlign8366.liveStopLevel8366(p.runner, stopPct, p.peak, p.costPct) } catch (_: Throwable) { -stopPct }
+            val ladder = if (doctrine8584) com.lifecyclebot.engine.RunnerGrab7967.TIERS_7967 else if (p.runner) com.lifecyclebot.engine.RunnerGrab7967.TIERS_7967 else com.lifecyclebot.engine.SpikeCapture7943.TIERS
             val rung = rung8544(ladder, p.tiers, g)
             when {
                 level.isFinite() && g <= level -> trigger8544(p, if (p.peak > 0.0 && level > -stopPct) "TRAIL_STOP" else "STOP", 1.0, 0, nowMs)
                 rung != null -> trigger8544(p, "TAKE_PROFIT_T${rung.first}", rung.second, rung.first, nowMs)
+                nowMs - p.entryAtMs >= p.clockMs && doctrine8584 &&
+                    com.lifecyclebot.engine.RunnerDoctrine8584.holds8584(p.exitLane, "CLOCK_TIME", g, p.peak) -> Unit
                 nowMs - p.entryAtMs >= p.clockMs -> trigger8544(p, "CLOCK", 1.0, 0, nowMs)
             }
         } catch (_: Throwable) {}

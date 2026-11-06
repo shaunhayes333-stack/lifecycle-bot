@@ -24220,6 +24220,8 @@ class Executor(
         // V5.0.8337 — the net-profit and uneconomic doors run BEFORE the share budget (which takes the arbiter ticket), so a
         // refused tranche never holds the position's ticket; they read the requested fraction.
         val requested8337 = sellPercentage.coerceIn(0.0, 1.0)
+        // V5.0.8584 — a meme winner sells slices only on the doctrine ladder (+100 / +400 / +900 %) or below its line.
+        if (runnerDoctrineHolds8584(ts, reason, "PARTIAL")) { receipt6566?.invoke(PartialSellReceipt6566(false)); return }
         // V5.0.8030 — a partial take-profit is profit-taking too: none below the round trip + 1%.
         if (try { com.lifecyclebot.engine.truth.NetEdge8030.exitRefusal8030(ts, reason, getActualPrice(ts), partial = true) } catch (_: Throwable) { false }) {
             try { DecisionReasons8031.hold8031(ts, "NET_PROFIT_PARTIAL_8030", reason) } catch (_: Throwable) {}
@@ -25078,6 +25080,7 @@ class Executor(
         // V5.0.8141 — tier 1 is never held by the moonbag / tail bag, on any lane, paper or live (TOKEN_FROZEN,
         // LIQUIDITY_PULLED were only ranks 1-2 of ProtectiveExitClass7807 when spelled its way).
         if (Tier1Deference8141.tier1(requestReason)) return tier1PassesMoonbag8141(ts, requestReason)
+        if (runnerDoctrineHolds8584(ts, requestReason, "FULL")) return SellResult.FAILED_RETRYABLE  // V5.0.8584 — meme winners run
         // V5.0.8468 — a fast lane's own designed exit before promotion sells whole: no moonbag / tail bag (LaneExitContract8468).
         if (try { LaneExitContract8468.acts8468(ts, requestReason) } catch (_: Throwable) { false }) return null
         if (!ts.position.isPaperPosition) tailBagGate8034(ts, requestReason, wallet, walletSol)?.let { return it }
@@ -25145,13 +25148,28 @@ class Executor(
      * in full and paper — where MOONSHOT learns — never held a bag. Pure check,
      * so the paper close stamp is only released when the gate will act.
      */
+    /** V5.0.8584 — RunnerDoctrine8584 at a sell door: a meme winner's profit exit above the doctrine line is held. */
+    private fun runnerDoctrineHolds8584(ts: TokenState, reason: String, door: String?): Boolean = try {
+        val px = ts.lastPrice.takeIf { it > 0.0 } ?: ts.position.entryPrice
+        val pnl = if (ts.position.entryPrice > 0.0) ((px - ts.position.entryPrice) / ts.position.entryPrice) * 100.0 else Double.NaN
+        val held = RunnerDoctrine8584.holds8584(ts.position.tradingMode, reason, pnl, ts.position.peakGainPct)
+        if (held && door != null) {
+            RunnerDoctrine8584.noteHeld8584(door, ts.position.tradingMode, reason)
+            if (door == "FULL") com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.withdrawDeferred7809(ts.mint, ts.position.positionId)
+        }
+        held
+    } catch (_: Throwable) { false }
+
     private fun moonbagWouldAct7349(ts: TokenState, reason: String): Boolean = try {
+        runnerDoctrineHolds8584(ts, reason, null) ||  // V5.0.8584 — paper reaches the doctrine through the moonbag gate
+        run {
         val key = ts.position.positionId.ifBlank { ts.mint }
         val px = ts.lastPrice.takeIf { it > 0.0 } ?: ts.position.entryPrice
         val pnl = if (ts.position.entryPrice > 0.0) ((px - ts.position.entryPrice) / ts.position.entryPrice) * 100.0 else Double.NaN
         val peak = maxOf(ts.position.peakGainPct, if (pnl.isFinite()) pnl else 0.0)
         MoonbagRunner7322.decide(ts.position.tradingMode, reason, pnl, peak, MoonbagRunner7322.bankedPeakFor(key)) !=
             MoonbagRunner7322.Action.PASS
+        }
     } catch (_: Throwable) { false }
 
     /** V5.0.7928 — a deep live stop is checked against the route's executable value first. */

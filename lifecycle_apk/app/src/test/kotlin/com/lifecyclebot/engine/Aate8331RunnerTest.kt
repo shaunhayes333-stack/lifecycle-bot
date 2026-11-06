@@ -114,7 +114,8 @@ class Aate8331RunnerTest {
         assertEquals(RunnerGrab7967.TIERS_7967, RunnerFunnel8331.ladderForPlan8331(Plan8153.RUNNER_PROMOTED))
         assertNull(RunnerFunnel8331.ladderForPlan8331(Plan8153.SCALP))
         // A QUICK_FLIP scalp keeps its scalp ladder (8136 / 8153 pins stand).
-        assertNull(RunnerGrab7967.tiersFor7967(token("quick8331", "QUICK_FLIP", sevenHoursAgo)))
+        // superseded by V5.0.8584 — a meme-lane position rides the doctrine ladder from entry whatever its style (RunnerDoctrine8584): `assertNull(RunnerGrab7967.tiersFor7967(token("quick8331", ...)))`.
+        assertEquals(RunnerGrab7967.TIERS_7967, RunnerGrab7967.tiersFor7967(token("quick8331", "QUICK_FLIP", sevenHoursAgo)))
         // The funnel counted both live positions in a runner-hosting lane as held (once each) and one plan as sealed.
         RunnerLive8153.plan8153(ts)
         assertEquals(2L, RunnerFunnel8331.count8331(Stage8331.HELD))

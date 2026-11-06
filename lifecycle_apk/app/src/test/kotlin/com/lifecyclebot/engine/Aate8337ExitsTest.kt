@@ -149,7 +149,9 @@ class Aate8337ExitsTest {
         val quick = com.lifecyclebot.data.TokenState(mint = "quick8337", position = com.lifecyclebot.data.Position(qtyToken = 1_000_000.0,
             entryPrice = 1.0, entryTime = System.currentTimeMillis() - 60_000L, tradingMode = "MOONSHOT", isPaperPosition = false,
             peakGainPct = 0.0, entryPolicySnapshot = "style=QUICK_FLIP;entryTactic=BREAKOUT"))
-        assertNull(RunnerGrab7967.tiersFor7967(quick))
+        // superseded by V5.0.8584 — every meme-lane position rides the doctrine ladder from entry (RunnerDoctrine8584, owner:
+        // "the goal is 5x and 10x"): `assertNull(RunnerGrab7967.tiersFor7967(quick))`.
+        assertEquals(RunnerGrab7967.TIERS_7967, RunnerGrab7967.tiersFor7967(quick))
         val grab = src("engine/RunnerGrab7967.kt")
         assertTrue(grab.contains("if (holding7967(ts)) (if (scalpTierHolds8337(ts)) SpikeCapture7943.TIERS else TIERS_7967)"))
         // The scalp tiers book on the SCALP ladder (ladder identity, 8331).

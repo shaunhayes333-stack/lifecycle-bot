@@ -323,7 +323,8 @@ class Aate8153RunnerTest {
         val ts = token("latch8153", "QUICK_FLIP", peakPct = 30.0)
         assertFalse(TradeExitContract8077.runnerFromEntry8104(ts))
         assertFalse(RunnerGrab7967.holdingRunner8018(ts))
-        assertNull(RunnerGrab7967.tiersFor7967(ts))
+        // superseded by V5.0.8584 — a meme-lane position rides the doctrine ladder from entry whatever its style (RunnerDoctrine8584): `assertNull(RunnerGrab7967.tiersFor7967(ts))`.
+        assertEquals(RunnerGrab7967.TIERS_7967, RunnerGrab7967.tiersFor7967(ts))
         assertTrue(RunnerGrab7967.promote8018(ts))                       // the promotion is latched on the position ...
         assertEquals(RunnerExitContract8136.RunnerBasis8136.PROVEN_PROMOTION, TradeExitContract8077.runnerBasis8136(ts))
         assertTrue(TradeExitContract8077.runnerFromEntry8104(ts))        // ... and every reader sees it

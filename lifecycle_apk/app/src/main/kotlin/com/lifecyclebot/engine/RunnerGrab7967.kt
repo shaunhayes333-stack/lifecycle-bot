@@ -46,7 +46,8 @@ object RunnerGrab7967 {
     private const val SELL_RETRY_MS = 20_000L
     private const val MISSED_PEAK_PCT = 400.0
     /** The owner's ladder for a grabbed runner: (gross %, fraction of the CURRENT holding sold). */
-    val TIERS_7967: List<Pair<Double, Double>> = listOf(100.0 to 0.50, 400.0 to 0.35, 1_000.0 to 0.35)
+    // V5.0.8584 — RunnerDoctrine8584: 2x banks 30 %, 5x 35 %, 10x 35 %; the rest rides the doctrine trail (was 100/50, 400/35, 1000/35).
+    val TIERS_7967: List<Pair<Double, Double>> = listOf(100.0 to 0.30, 400.0 to 0.35, 900.0 to 0.35)
 
     private val grabbed = ConcurrentHashMap<String, Long>()                  // mint -> first grab
     private val signals = ConcurrentHashMap<String, Pair<Double, Long>>()     // mint -> (px, at) awaiting grade
@@ -495,7 +496,8 @@ object RunnerGrab7967 {
 
     /** SpikeCapture7943.onMark: the runner ladder for a grabbed position, else null. */
     fun tiersFor7967(ts: TokenState): List<Pair<Double, Double>>? =
-        if (holding7967(ts)) (if (scalpTierHolds8337(ts)) SpikeCapture7943.TIERS else TIERS_7967)  // V5.0.8337
+        if (RunnerDoctrine8584.rides8584(ts.position.tradingMode)) TIERS_7967  // V5.0.8584 — every meme position rides the doctrine ladder
+        else if (holding7967(ts)) (if (scalpTierHolds8337(ts)) SpikeCapture7943.TIERS else TIERS_7967)  // V5.0.8337
         // V5.0.8331 — the ladder follows the one plan for the position's life: a sealed / promoted runner past the 6 h hold
         // window kept its plan (RunnerPlan8153) but fell back to the scalp ladder here, and bookSlice8153 then confirmed
         // the fill on the RUNNER ladder the request never used (ladder identity lost mid-position).

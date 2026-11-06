@@ -55,7 +55,8 @@ class Aate8136RunnerExitAuthorityTest {
         val quick = token("quick8136", "QUICK_FLIP")
         assertFalse(TradeExitContract8077.runnerFromEntry8104(quick))
         assertFalse(RunnerGrab7967.holdingRunner8018(quick))
-        assertNull(RunnerGrab7967.tiersFor7967(quick))                                    // keeps its scalp ladder
+        // superseded by V5.0.8584 — a meme-lane position rides the doctrine ladder from entry whatever its style (RunnerDoctrine8584): `assertNull(RunnerGrab7967.tiersFor7967(quick))`.
+        assertEquals(RunnerGrab7967.TIERS_7967, RunnerGrab7967.tiersFor7967(quick))
         assertEquals(TailBag8034.Decision.Pass, TailBag8034.decide8034(quick, "STRICT_SL_-15"))   // and no moonbag
         assertTrue(TradeExitContract8077.runnerFromEntry8104(token("proven8136", "QUICK_FLIP", peakPct = 150.0)))
         assertTrue(TradeExitContract8077.runnerFromEntry8104(token("sealed8136", "BREAKOUT_RUNNER")))

@@ -449,8 +449,10 @@ object LaneExitTuner {
         }
         // V5.0.7888 — in LIVE, profit exits that were followed by the price running on
         // widen the targets (ExitRegret7752.profitMultFor7888), as 7877 did for stops.
-        if (com.lifecyclebot.engine.LearningEnvironment7835.mode() == "PAPER") base7888
-        else (base7888 * com.lifecyclebot.engine.truth.ExitRegret7752.profitMultFor7888(lane)).coerceIn(TP_MIN, TP_REGRET_MAX_7888)
+        // V5.0.8584 — a meme lane's targets may widen, never shrink (RunnerDoctrine8584: the goal is 5x / 10x).
+        com.lifecyclebot.engine.RunnerDoctrine8584.tunerFloor8584(lane,
+            if (com.lifecyclebot.engine.LearningEnvironment7835.mode() == "PAPER") base7888
+            else (base7888 * com.lifecyclebot.engine.truth.ExitRegret7752.profitMultFor7888(lane)).coerceIn(TP_MIN, TP_REGRET_MAX_7888))
     } catch (_: Throwable) { 1.0 }
 
     fun getSlMult(lane: String): Double = try {
@@ -467,8 +469,10 @@ object LaneExitTuner {
         // what the price did next, so a lane whose stops cut runners (5.0.7876
         // HARD_STOP: realised -5.2%, price +24.9% after) was TIGHTENED to 0.75.
         // ExitRegret7752 measures the after; in LIVE it now overrules that.
-        if (mode7877 == "PAPER") base
-        else (base * com.lifecyclebot.engine.truth.ExitRegret7752.stopMultFor(lane)).coerceIn(SL_MIN, SL_REGRET_MAX_7877)
+        // V5.0.8584 — nor are a meme lane's stops tightened by the tuner (MOONSHOT slMult 0.91 on the 485eacbd log).
+        com.lifecyclebot.engine.RunnerDoctrine8584.tunerFloor8584(lane,
+            if (mode7877 == "PAPER") base
+            else (base * com.lifecyclebot.engine.truth.ExitRegret7752.stopMultFor(lane)).coerceIn(SL_MIN, SL_REGRET_MAX_7877))
     } catch (_: Throwable) { 1.0 }
 
     fun formatForPipelineDump(): String {
