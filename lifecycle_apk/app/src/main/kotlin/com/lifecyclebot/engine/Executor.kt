@@ -25658,7 +25658,12 @@ class Executor(
             return ratio in 0.60..1.67
         }
         val src = ts.lastPriceSource.uppercase()
-        if (src.contains("PUMP_CURVE_RPC") || src.contains("JUPITER_QUOTE")) {
+        // V5.0.8578 — every chain-state mark of the coin corroborates itself (the curve account / RPC read, the PumpPortal trade
+        // print, the PumpSwap / pool vault and pool-state subscriptions, the Helius tape: LabelEvidence8386.independentSource8418,
+        // the one list the stop path and the labels use). 8575 smoke: a PUMP_PORTAL_TRADE_WS_7278 mark asked DexScreener for
+        // permission to be believed.
+        if (src.contains("PUMP_CURVE_RPC") || src.contains("JUPITER_QUOTE") ||
+            com.lifecyclebot.engine.truth.LabelEvidence8386.independentSource8418(src)) {
             try { PipelineHealthCollector.labelInc("PAPER_SELL_GAIN_CORROBORATED_ON_DEMAND_7272_CHAIN") } catch (_: Throwable) {}
             return true
         }
@@ -25700,7 +25705,15 @@ class Executor(
     private fun markContradictedOnDemand7273(ts: TokenState, mark: Double): Boolean {
         if (!mark.isFinite() || mark <= 0.0) return false
         val src = ts.lastPriceSource.uppercase()
-        if (src.contains("PUMP_CURVE_RPC") || src.contains("JUPITER_QUOTE")) return false
+        // V5.0.8578 — a chain-state mark is the truth being asked about: no aggregator contradicts it. 8562 / 8572 / 8575 smokes:
+        // HZbiEpF2oM printed 2.2e-7 on its own curve (PUMP_PORTAL_TRADE_WS_7278, a -99.96 % rug) while DexScreener still read
+        // 5.2e-4; the paper close was refused on every tick (PAPER_CLOSE_FAILED ... ABSURD_LOSS_CONTRADICTED) and the position
+        // could never exit. The same door in LIVE would hold a real rug open.
+        if (src.contains("PUMP_CURVE_RPC") || src.contains("JUPITER_QUOTE") ||
+            com.lifecyclebot.engine.truth.LabelEvidence8386.independentSource8418(src)) {
+            try { PipelineHealthCollector.labelInc("PAPER_SELL_LOSS_CHAIN_MARK_IS_TRUTH_8578") } catch (_: Throwable) {}
+            return false
+        }
         fun contradicts(other: Double?): Boolean =
             other != null && other.isFinite() && other > 0.0 && other / mark >= 3.0
         val repaired = try {

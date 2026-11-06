@@ -10152,7 +10152,9 @@ class GoldenTapeRegressionTest {
         assertTrue(exec.contains("private fun corroborateMarkOnDemand7272(ts: TokenState, mark: Double): Boolean {"))
         assertTrue(exec.contains("corroborateMarkOnDemand7272(ts, price)"))
         assertTrue(exec.contains("return ratio in 0.60..1.67"))
-        assertTrue(exec.contains("if (src.contains(\"PUMP_CURVE_RPC\") || src.contains(\"JUPITER_QUOTE\")) {"))
+        // superseded by V5.0.8578 — "if (src.contains(\"PUMP_CURVE_RPC\") || src.contains(\"JUPITER_QUOTE\")) {": every chain-state
+        // mark (LabelEvidence8386.independentSource8418) corroborates itself, not only the curve RPC read and the Jupiter quote.
+        assertTrue(exec.contains("if (src.contains(\"PUMP_CURVE_RPC\") || src.contains(\"JUPITER_QUOTE\") ||\n            com.lifecyclebot.engine.truth.LabelEvidence8386.independentSource8418(src)) {"))
         assertTrue(exec.contains("com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.getRepairedPriceIfFresh(ts.mint)"))
         assertTrue(exec.contains("com.lifecyclebot.network.ParallelMarkFanout7088.resolve7088(listOf(ts.mint))[ts.mint]"))
         assertTrue(exec.contains("PAPER_SELL_GAIN_ON_DEMAND_DISAGREED_7272"))
@@ -10216,7 +10218,9 @@ class GoldenTapeRegressionTest {
         assertTrue(exec.contains("private fun markContradictedOnDemand7273(ts: TokenState, mark: Double): Boolean {"))
         assertTrue(exec.contains("price / entry7273 < 0.20 && ageMs7273 in 0L..600_000L &&"))
         assertTrue(exec.contains("other != null && other.isFinite() && other > 0.0 && other / mark >= 3.0"))
-        assertTrue(exec.contains("if (src.contains(\"PUMP_CURVE_RPC\") || src.contains(\"JUPITER_QUOTE\")) return false"))
+        // superseded by V5.0.8578 — "... || src.contains(\"JUPITER_QUOTE\")) return false": every chain-state mark is exempt from
+        // contradiction (the PumpPortal print, vault / pool-state subscriptions, the tape), counted PAPER_SELL_LOSS_CHAIN_MARK_IS_TRUTH_8578.
+        assertTrue(exec.contains("com.lifecyclebot.engine.truth.LabelEvidence8386.independentSource8418(src)) {\n            try { PipelineHealthCollector.labelInc(\"PAPER_SELL_LOSS_CHAIN_MARK_IS_TRUTH_8578\") } catch (_: Throwable) {}\n            return false"))
         assertTrue(exec.contains("PAPER_SELL_ABSURD_LOSS_CONTRADICTED_7273:\$reason"))
         val lossDoorIdx = exec.indexOf("PAPER_SELL_REFUSED_ABSURD_LOSS_CONTRADICTED_7273\")")
         val stampIdx = exec.indexOf("stampUnifiedExitForClose6920(ts, reason)")
