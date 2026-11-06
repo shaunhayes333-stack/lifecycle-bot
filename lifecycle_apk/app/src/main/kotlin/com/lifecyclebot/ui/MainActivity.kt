@@ -700,6 +700,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderPaperPortfolio8521(positions: List<TokenState>): Boolean {
         if (positions.isEmpty() || positions.any { !it.position.isPaperPosition }) return false
+        // V5.0.8581 — paper meme positions use the live cards (renderOpenPositions); this renderer is for non-meme books only.
+        if (positions.any { com.lifecyclebot.engine.truth.PaperPortfolioDisplay8521.assetClass8521(it) == com.lifecyclebot.engine.truth.AssetClass.SOLANA_TOKEN }) return false
         val ids = positions.mapTo(HashSet()) { it.position.positionId }
         val rows = openPositionsModelForMode8521(true).paperRows8521.filter { it.positionId in ids }
         laneCounts7011 = positions.groupingBy { it.position.tradingMode.ifBlank { "OTHER" }.uppercase() }.eachCount()
@@ -5716,7 +5718,12 @@ for legal compliance.
         } catch (_: Throwable) { /* presentation only */ }
     }
 
-    private fun renderOpenPositions(positions: List<TokenState>, preSorted6078: Boolean = false) {
+    private fun renderOpenPositions(positionsIn8581: List<TokenState>, preSorted6078: Boolean = false) {
+        // V5.0.8581 — owner: "the open positions display on the paper meme trader is totally different to live". A paper
+        // session's meme positions render on the SAME cards as live; its other desks' positions (crypto alts, stocks,
+        // perps ...) stay on their own desk screens, exactly as in LIVE. The compact portfolio rows remain only for a paper
+        // book that holds no meme position.
+        val positions = com.lifecyclebot.engine.truth.PaperPortfolioDisplay8521.memeCardsLikeLive8581(positionsIn8581)
         if (renderPaperPortfolio8521(positions)) return
         // V5.0.7012 — publish lane occupancy for the hero's pressure strip.
         // This function is the one place holding the canonical open-position

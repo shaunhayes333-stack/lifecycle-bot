@@ -90,6 +90,17 @@ object PaperPortfolioDisplay8521 {
         return rows8521(positions, marks, nowMs)
     }
 
+    /**
+     * Pure (V5.0.8581): the open-position list the main panel renders. A paper list holding at least one meme position
+     * shows its meme positions only, on the live cards; other asset classes live on their own desk screens, as in LIVE.
+     * A live list, a mixed list or a paper list without memes is returned unchanged.
+     */
+    fun memeCardsLikeLive8581(positions: List<TokenState>): List<TokenState> {
+        if (positions.isEmpty() || positions.any { !it.position.isPaperPosition }) return positions
+        val memes = positions.filter { assetClass8521(it) == AssetClass.SOLANA_TOKEN }
+        return if (memes.isEmpty()) positions else memes
+    }
+
     internal fun assetClass8521(ts: TokenState): AssetClass =
         AssetClass.values().firstOrNull { it.tag.equals(ts.position.canonicalAssetClassTag, true) }
             ?: AssetClass.fromLane(ts.position.tradingMode)
