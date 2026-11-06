@@ -227,7 +227,9 @@ object CanonicalPaperTerminalBridge6469 {
         }
         // V5.0.8576 — every refusal the later stores can make is read BEFORE the claim and the position cut: a sale the ledger or
         // the quantity boundary would refuse never leaves POSITION committed alone (8572 smoke: a PARTIAL_SELL pos=true led=false).
-        PaperAccountLedger6430.economicRefusal8576(grossProceedsSol, soldCostBasisSol, feesSol)?.let { why ->
+        // V5.0.8585 — the ledger's whole refusal (economics AND quarantine), the same function onSellAtomic6632 applies.
+        PaperAccountLedger6430.sellRefusal8585(grossProceedsSol, soldCostBasisSol, feesSol, mint, positionId,
+            canonicalBefore6522?.assetClass == AssetClass.SOLANA_TOKEN)?.let { why ->
             try { PipelineHealthCollector.labelInc("CANONICAL_PAPER_SELL_LEDGER_PRECHECK_8576_$why") } catch (_: Throwable) {}
             return Result(applied = false, terminalClaimed = false, busPublished = false, reason = "LEDGER_PRECHECK_8576_$why")
         }
@@ -281,6 +283,7 @@ object CanonicalPaperTerminalBridge6469 {
         try {
             if (!PaperAccountLedger6430.canApplySell6486(soldCostBasisSol)) {
                 try { PipelineHealthCollector.labelInc("PAPER_TERMINAL_LEDGER_BASIS_REJECTED_6486") } catch (_: Throwable) {}
+                CanonicalEconomicEvent6635.abandon8585(sellSig, "LEDGER_BASIS_REJECTED")   // V5.0.8585 — nothing moved: the event is closed, not left open
                 return Result(false, true, false, "LEDGER_BASIS_REJECTED")
             }
             // V5.0.6486 — cash may move only after the canonical position
@@ -316,6 +319,7 @@ object CanonicalPaperTerminalBridge6469 {
             feePositionApplied8391 = positionApplied6486
             if (!positionApplied6486) {
                 try { PipelineHealthCollector.labelInc("CANONICAL_PAPER_SELL_POSITION_REJECTED_6486") } catch (_: Throwable) {}
+                CanonicalEconomicEvent6635.abandon8585(sellSig, "POSITION_MUTATION_REJECTED")   // V5.0.8585 — nothing moved: the event is closed, not left open
                 return Result(applied = false, terminalClaimed = true, busPublished = false, reason = "POSITION_MUTATION_REJECTED")
             }
             CanonicalEconomicEvent6635.markCommitted(sellSig, CanonicalEconomicEvent6635.Store.POSITION, "CanonicalPaperTerminalBridge6469")
@@ -339,6 +343,7 @@ object CanonicalPaperTerminalBridge6469 {
                 // Solana positions and bypass only for an explicitly typed
                 // non-Solana canonical asset.
                 enforceSolanaMintQuarantine = canonicalBefore6522?.assetClass == AssetClass.SOLANA_TOKEN,
+                positionId8585 = positionId,
             )
             if (!ledgerApplied6486) {
                 try { PipelineHealthCollector.labelInc("PAPER_TERMINAL_LEDGER_COMMIT_FAILED_6486") } catch (_: Throwable) {}

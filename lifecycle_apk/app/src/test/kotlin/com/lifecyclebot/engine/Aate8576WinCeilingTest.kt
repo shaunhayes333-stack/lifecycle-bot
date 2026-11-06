@@ -44,7 +44,9 @@ class Aate8576WinCeilingTest {
     @Test fun the_bridge_checks_before_the_claim_and_the_position_cut() {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTerminalBridge6469.kt").readText()
         val fn = src.substringAfter("fun finalizeSell(")
-        val pre = fn.indexOf("PaperAccountLedger6430.economicRefusal8576(grossProceedsSol, soldCostBasisSol, feesSol)")
+        // superseded by V5.0.8585 — the pre-check is the ledger's WHOLE refusal (economics and quarantine), one shared function:
+        // `fn.indexOf("PaperAccountLedger6430.economicRefusal8576(grossProceedsSol, soldCostBasisSol, feesSol)")`.
+        val pre = fn.indexOf("PaperAccountLedger6430.sellRefusal8585(grossProceedsSol, soldCostBasisSol, feesSol, mint, positionId,")
         val qty = fn.indexOf("SellQtyBoundaryClamp6427.canCommitRaw8576(positionId, soldQtyRaw)")
         val claim = fn.indexOf("val claim = claimBeforeSideEffects(")
         val cut = fn.indexOf("Store.POSITION")

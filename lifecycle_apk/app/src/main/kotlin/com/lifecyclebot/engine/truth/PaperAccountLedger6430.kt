@@ -404,6 +404,30 @@ object PaperAccountLedger6430 {
         return null
     }
 
+    /**
+     * V5.0.8585 — the ledger's quarantine refusal, the ONE rule [onSellAtomic6632] applies and the canonical bridge reads
+     * before it cuts a position. 8576 left it out of the pre-check, so a sale on a quarantined mint cut the position, stamped
+     * POSITION, and only then had its cash refused: the receipt stayed pos=true led=false (8581 smoke, paper_full SELL).
+     * A canonical sale names its [positionId]: the learning quarantine binds THAT position, never a later position on the
+     * same mint (a learning exclusion of an earlier trade is not a reason to refuse this trade's proceeds). A legacy caller
+     * without a position id keeps the mint-wide rule. The quantity-invariant quarantine stays mint-wide.
+     */
+    fun quarantineRefusal8585(mint: String, positionId: String, enforce: Boolean): String? {
+        if (mint.isBlank() || !enforce) return null
+        if (try { QuantityInvariantAuthority6500.isQuarantined(mint) } catch (_: Throwable) { false }) return "QUARANTINED_INVARIANT"
+        val historical = try {
+            if (positionId.isNotBlank()) LearningQuarantineGate6470.isQuarantined(positionId = positionId, mint = null)
+            else LearningQuarantineGate6470.isQuarantined(positionId = null, mint = mint)
+        } catch (_: Throwable) { false }
+        return if (historical) "QUARANTINED_HISTORICAL" else null
+    }
+
+    /** V5.0.8585 — every refusal [onSellAtomic6632] can make for this sale, before any store moves; null = it will apply. */
+    fun sellRefusal8585(grossProceedsSol: Double, costBasisSoldSol: Double, feeSol: Double, mint: String,
+                        positionId: String, enforceSolanaMintQuarantine: Boolean): String? =
+        economicRefusal8576(grossProceedsSol, costBasisSoldSol, feeSol)
+            ?: quarantineRefusal8585(mint, positionId, enforceSolanaMintQuarantine)
+
     fun canApplySell6486(costBasisSoldSol: Double): Boolean =
         costBasisSoldSol.isFinite() && costBasisSoldSol >= 0.0 &&
             openCostBasisSol() + 1e-9 >= costBasisSoldSol
@@ -449,6 +473,7 @@ object PaperAccountLedger6430 {
         attemptKey: String,
         side: PaperEconomicAtomicCommit6632.Side = PaperEconomicAtomicCommit6632.Side.SELL,
         enforceSolanaMintQuarantine: Boolean = true,
+        positionId8585: String = "",
     ): Boolean {
         if (!grossProceedsSol.isFinite() || !costBasisSoldSol.isFinite()) return false
         // V5.0.6502 §1 — LEDGER QUARANTINE REJECT. Positions whose qty
@@ -459,16 +484,11 @@ object PaperAccountLedger6430 {
         // Executor.requestSell but the LEDGER now refuses the phantom
         // credit. Kills the +38.12 SOL phantom the operator saw on the
         // 6501 dump when 752 quarantined rows were being credited.
-        if (mint.isNotBlank() && enforceSolanaMintQuarantine) {
-            val invariantBroken = try {
-                com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500.isQuarantined(mint)
-            } catch (_: Throwable) { false }
-            val historicalQuarantined = try {
-                com.lifecyclebot.engine.truth.LearningQuarantineGate6470.isQuarantined(
-                    positionId = null, mint = mint,
-                )
-            } catch (_: Throwable) { false }
-            if (invariantBroken || historicalQuarantined) {
+        // V5.0.8585 — one quarantine rule, shared with the canonical bridge's pre-check ([quarantineRefusal8585]).
+        quarantineRefusal8585(mint, positionId8585, enforceSolanaMintQuarantine)?.let { why ->
+            val invariantBroken = why == "QUARANTINED_INVARIANT"
+            val historicalQuarantined = why == "QUARANTINED_HISTORICAL"
+            run {
                 try {
                     com.lifecyclebot.engine.ForensicLogger.lifecycle(
                         "LEDGER_REJECTED_QUARANTINED_CLOSE_6502",
@@ -478,6 +498,11 @@ object PaperAccountLedger6430 {
                 } catch (_: Throwable) {}
                 return false
             }
+        }
+        // V5.0.8585 — the economic refusal is the same function the canonical bridge pre-checks with (no second copy).
+        economicRefusal8576(grossProceedsSol, costBasisSoldSol, feeSol)?.let { why ->
+            try { PipelineHealthCollector.labelInc("PAPER_SELL_LEDGER_REFUSED_8585_$why") } catch (_: Throwable) {}
+            return false
         }
         val fee = if (feeSol.isFinite()) feeSol.coerceAtLeast(0.0) else 0.0
         // V5.0.6461 §P0-#1 FI4FAM FIREWALL — catch percent-into-SOL leaks

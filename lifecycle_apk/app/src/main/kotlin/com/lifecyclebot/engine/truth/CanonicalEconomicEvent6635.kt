@@ -284,6 +284,33 @@ object CanonicalEconomicEvent6635 {
         return state.listeners.toList().also { state.listeners.clear() }
     }
 
+    private val abandoned8585 = AtomicLong(0L)
+
+    /**
+     * V5.0.8585 — the transaction a refusal ends. Terminal.FAILED existed but nothing ever set it: every refusal after
+     * [openEvent] (the bridge's LEDGER_BASIS / POSITION_MUTATION returns, a paper buy rolled back after its event opened)
+     * left the event OPEN for good. An event with NO store committed is closed FAILED here — nothing moved, nothing is owed.
+     * An event with any store committed is a real half-commit and is NOT hidden: it stays for the witness. Returns true when
+     * the event is now FAILED.
+     */
+    fun abandon8585(economicEventId: String, reason: String): Boolean {
+        val state = events[economicEventId] ?: return false
+        val closed = synchronized(state) {
+            if (state.terminal != Terminal.OPEN || state.anyCommitted()) false
+            else { state.terminal = Terminal.FAILED; state.completedAtMs = System.currentTimeMillis(); true }
+        }
+        if (closed) {
+            abandoned8585.incrementAndGet()
+            receiptRevision8077.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("CANONICAL_EVENT_ABANDONED_8585_${reason.take(40)}") } catch (_: Throwable) {}
+        } else {
+            try { PipelineHealthCollector.labelInc("CANONICAL_EVENT_ABANDON_REFUSED_HALF_COMMIT_8585") } catch (_: Throwable) {}
+        }
+        return closed
+    }
+
+    fun abandonedCount8585(): Long = abandoned8585.get()
+
     /** A timeout exposes a partial write; it does not finalize the event or
      * permanently prevent completion when the actual remaining stores commit. */
     fun sweepPending6635(ttlMs: Long = 60_000L) {

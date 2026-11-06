@@ -122,7 +122,10 @@ class Aate6659CryptoRoundTripReconciliationTest {
             "src/main/kotlin/com/lifecyclebot/engine/truth/PaperAccountLedger6430.kt"
         ).readText()
         assertTrue(ledger.contains("enforceSolanaMintQuarantine: Boolean = true"))
-        assertTrue(ledger.contains("mint.isNotBlank() && enforceSolanaMintQuarantine"))
+        // superseded by V5.0.8585 — the ledger's quarantine is one shared rule (quarantineRefusal8585) the bridge pre-checks too:
+        // `assertTrue(ledger.contains("mint.isNotBlank() && enforceSolanaMintQuarantine"))`.
+        assertTrue(ledger.contains("quarantineRefusal8585(mint, positionId8585, enforceSolanaMintQuarantine)"))
+        assertTrue(ledger.contains("if (mint.isBlank() || !enforce) return null"))
         assertTrue(bridge.contains("enforceSolanaMintQuarantine = canonicalBefore6522?.assetClass == AssetClass.SOLANA_TOKEN"))
     }
 }

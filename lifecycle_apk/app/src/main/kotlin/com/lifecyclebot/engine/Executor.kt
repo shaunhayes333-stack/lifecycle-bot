@@ -16065,6 +16065,7 @@ class Executor(
             }
             try { PipelineHealthCollector.labelInc("PAPER_BUY_NOT_OPENED_BUCKET_${bucket6587}_6587") } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.truth.PaperEntryFinalityAuthority6497.markRejected(entryFinalityId6497, reason) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635.abandon8585(entryFinalityId6497, "PAPER_BUY_ROLLBACK") } catch (_: Throwable) {}   // V5.0.8585
             clearPaperAuthorities6514("PAPER_BUY_HARD_BLOCKED_$reason", nonTerminal = false)
             if (hasDispatchedTicket6514) try {
                 PipelineHealthCollector.labelInc("PAPER_TICKET_TERMINAL_BLOCK_6514")
@@ -17125,6 +17126,7 @@ class Executor(
                 paperBuyLeaseKey6369 = ""
             }
             try { com.lifecyclebot.engine.truth.PaperEntryFinalityAuthority6497.markRejected(entryFinalityId6497, reason) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635.abandon8585(entryFinalityId6497, "PAPER_BUY_ROLLBACK") } catch (_: Throwable) {}   // V5.0.8585
             clearPaperAuthorities6514("PAPER_BUY_HARD_BLOCKED_$reason", nonTerminal = false)
             if (hasDispatchedTicket6514) try {
                 PipelineHealthCollector.labelInc("PAPER_TICKET_TERMINAL_BLOCK_6514")
