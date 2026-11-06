@@ -23,16 +23,14 @@ internal object CortexForwardEpoch8521 {
     const val HIVE_PREFIX = "E8521|"
     const val HOUR_KIND = "FORWARD_HOUR_8521"
     private const val SCALP_KIND = "FORWARD_SCALP_8521"
-    // V5.0.8588 — the model grade for runner/momentum/dip/quality lanes (targetKind HOUR_KIND) was frozen at a 60-minute
-    // horizon. Memecoins almost never survive 60 min with a priceable mark, so the hour outcome never arrived, the deferHour
-    // path (8415) filed every 5-minute read observed-only, and the models never trained — Cortex graded ~0/h and no lane
-    // could prove edge (the frozen-grader starvation). The owner's intended grade schedule is 5m / 15m / 30m / 1h / 5h / 24h
-    // graded WHILE THE COIN IS STILL RUNNING; the first intermediate checkpoint that is both past the noisy pre-ignition base
-    // (the 5-minute mark that taught "everything loses", 8415) AND reachable before a meme dies is 15 minutes. Moving the
-    // long horizon to 15 min lets these lanes train on a mark that actually lands, without reviving the 5-minute noise
-    // problem. The constant name is kept to avoid rippling ~15 HOUR_KIND references; it now denotes the 15-minute momentum
-    // grade. SCALP_MS (fast lanes) is unchanged.
-    const val HOUR_MS = 15L * 60_000L
+    // V5.0.8590 — REVERTED 8588. 8588 moved the hour-lane grade target to 15 min to unstarve it, but matchesTarget requires
+    // the observed mark's horizon to EXACTLY equal the target, and ForwardReturnLabeler7731 only produces marks at its fixed
+    // grid — H60_MS_7731 = 5 min and H240_MS_7731 = 60 min (the constant NAMES are legacy slot ids, not minutes). A 15-minute
+    // target matches NO produced mark, so 8588 would have graded hour lanes ZERO (worse than the sparse 60-min grading it
+    // replaced). HOUR_MS must stay aligned to a mark the labeler actually emits (60 min). True 15m/30m grading requires
+    // ADDING those checkpoints to the labeler's grid (done15/done30 marks) AND the matching targets together — a coordinated
+    // labeler+epoch change, not a target-only flip. SCALP_MS (5 min) matches H60_MS_7731 and is unchanged.
+    const val HOUR_MS = 60L * 60_000L
     const val SCALP_MS = 5L * 60_000L
 
     fun current(root: JSONObject): Boolean = root.optInt(FIELD, 0) == EPOCH
