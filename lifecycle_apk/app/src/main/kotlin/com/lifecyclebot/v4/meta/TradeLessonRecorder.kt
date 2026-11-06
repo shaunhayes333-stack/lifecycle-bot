@@ -68,13 +68,24 @@ object TradeLessonRecorder {
         }
         if (env.assetClassTag != "SOLANA_TOKEN") return exclude("V4_NOT_MEME_8492")
         if (!com.lifecyclebot.engine.LearningPersistence.restoreComplete8086()) return false
-        val e = com.lifecyclebot.engine.truth.CanonicalFinalityPersistence6486.durableEventForPosition7459(env.positionId) ?: return false
+        // V5.0.8567 — a missing durable terminal / entry snapshot is waited for (retry) only while it can still arrive; past
+        // [MISSING_WAIT_MS_8567] it is named and excluded. 8562: refusedBy V4TradeLesson8492=1,251 deliveries retrying forever
+        // (entry snapshot missing=149), which kept the finalized bus busy and the lesson book silent.
+        val waited8567 = System.currentTimeMillis() - env.atMs
+        val e = com.lifecyclebot.engine.truth.CanonicalFinalityPersistence6486.durableEventForPosition7459(env.positionId)
+            ?: return if (missingSettled8567(waited8567)) exclude("V4_NO_DURABLE_TERMINAL_8567") else false
         if (e.mint != env.mint || !e.mode.equals(env.mode, true)) return exclude("V4_TERMINAL_IDENTITY_MISMATCH_8492")
         if (!com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.isCleanForLearning7807(e)) return exclude("V4_UNCLEAN_TERMINAL_8492")
-        val entry = com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.snapshot(e.positionId) ?: return false
+        val entry = com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.snapshot(e.positionId)
+            ?: return if (missingSettled8567(waited8567)) exclude("V4_NO_ENTRY_SNAPSHOT_8567") else false
         if (canonicalMemeLesson8491(e, entry) == null) return exclude("V4_UNSUPPORTED_TERMINAL_8492")
         return acceptCanonicalMeme8492(e, entry, com.lifecyclebot.engine.LearningPersistence::checkpointTradeLesson8492)
     }
+
+    const val MISSING_WAIT_MS_8567 = 10L * 60_000L
+
+    /** Pure (V5.0.8567): a store that has not delivered [waitedMs] after the close will not (the entry snapshot is sealed at fill). */
+    fun missingSettled8567(waitedMs: Long): Boolean = waitedMs > MISSING_WAIT_MS_8567
 
     internal fun acceptCanonicalMeme8492(
         e: com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Event,

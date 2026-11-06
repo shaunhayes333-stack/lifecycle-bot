@@ -11,6 +11,14 @@ import java.math.BigInteger
  * keeps every gate, ledger, journal and lifecycle step. No singleton, clock or I/O is read here: every input is passed.
  */
 object PaperFillCore8418 {
+    /**
+     * Pure (V5.0.8567): a liquidity reading may cap paper proceeds only when it can describe the coin's own pool. 8562 booked
+     * -100 % paper "losses" off ~$1 readings on coins still carrying a $10k cap (liq=$1 mcapLiq=10000; the whole proceeds
+     * became "fee"). A pool cannot hold 1/1000th of its own cap and still trade; a real rug moves the cap down with it.
+     */
+    fun liquidityCapUsable8567(liquidityUsd: Double, mcapUsd: Double): Boolean =
+        liquidityUsd.isFinite() && liquidityUsd > 0.0 && !(mcapUsd.isFinite() && mcapUsd > 0.0 && mcapUsd / liquidityUsd > 1_000.0)
+
 
     /**
      * The raw paper quantity for [effectiveSol] at [solUsd] and [priceUsd] (USD per token), encoded at [scale].

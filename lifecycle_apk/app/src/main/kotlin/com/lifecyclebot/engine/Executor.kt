@@ -26267,7 +26267,8 @@ class Executor(
         val solPriceUsd8418 = WalletManager.lastKnownSolPrice
         val close8418 = com.lifecyclebot.engine.truth.PaperFillCore8418.close8418(
             terminalRemainingCost6492, pos.entryPrice, effectivePrice, simulatedFeePct,
-            if (ts.lastLiquidityUsd > 0.0 && solPriceUsd8418 > 0.0) (ts.lastLiquidityUsd * 0.5) / solPriceUsd8418 else Double.NaN,
+            if (com.lifecyclebot.engine.truth.PaperFillCore8418.liquidityCapUsable8567(ts.lastLiquidityUsd, ts.lastMcap) && solPriceUsd8418 > 0.0)
+                (ts.lastLiquidityUsd * 0.5) / solPriceUsd8418 else Double.NaN,
         )
         // (3) Cost-basis paper proceeds — paper has no real token balance. Do
         // NOT book proceeds from qtyToken * price; a stale qty or source-basis

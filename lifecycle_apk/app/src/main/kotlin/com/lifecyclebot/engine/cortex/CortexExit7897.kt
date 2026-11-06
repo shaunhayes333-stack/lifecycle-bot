@@ -138,9 +138,32 @@ object CortexExit7897 {
 
     private fun posKey(ts: TokenState): String = ts.position.positionId.ifBlank { "${ts.mint}|${ts.position.entryTime}" }
 
-    /** Called per open position per tick (BotService.planTickRead7739); samples every 3 min. */
+    /**
+     * Called per open position per tick (BotService.planTickRead7739); samples every 3 min.
+     * V5.0.8567 — the sample (voter reads, ledger fuse, calibration, the periodic save) runs on its own worker, never on the
+     * held-position tick: 8562 showed the tick thread BLOCKED in CortexExit7897.observe for 63 s (maxHeldGapMs8418=66,089;
+     * catastrophic exits avg 62 s, max 242 s). The tick only checks the 3-minute cadence and hands the read off.
+     */
     fun observe(ts: TokenState, pnlPct: Double, peakPct: Double, nowMs: Long = System.currentTimeMillis()) {
         if (!ts.position.isOpen || !pnlPct.isFinite()) return
+        val key = posKey(ts)
+        if (nowMs - (lastSample[key] ?: 0L) < SAMPLE_EVERY_MS) return
+        if (!sampling8567.add(key)) return
+        try {
+            sampler8567.execute {
+                try { observeNow8567(ts, pnlPct, peakPct, nowMs) } catch (_: Throwable) {} finally { sampling8567.remove(key) }
+            }
+        } catch (_: Throwable) { sampling8567.remove(key); inc("SAMPLE_DROPPED_QUEUE_FULL_8567") }
+    }
+
+    private val sampling8567 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val sampler8567 = java.util.concurrent.ThreadPoolExecutor(
+        1, 1, 30L, java.util.concurrent.TimeUnit.SECONDS, java.util.concurrent.ArrayBlockingQueue<Runnable>(256),
+        java.util.concurrent.ThreadFactory { r -> Thread(r, "AATE-CortexExit-8567").apply { isDaemon = true } },
+        java.util.concurrent.ThreadPoolExecutor.AbortPolicy(),
+    ).apply { allowCoreThreadTimeOut(true) }
+
+    private fun observeNow8567(ts: TokenState, pnlPct: Double, peakPct: Double, nowMs: Long) {
         ensureLoaded()
         if (!loaded) return
         val key = posKey(ts)
@@ -574,8 +597,12 @@ object CortexExit7897 {
         if (dirty8091 && nowMs - lastPersistMs8091 >= 30_000L) persist()
     }
 
-    @Synchronized private fun persist() {
+    // V5.0.8567 — not @Synchronized: the books are encoded under the lock, the disk write happens outside it (a reader of
+    // this object no longer waits on the save; 8562 Cortex encode 75 s, assessLockWait max 11 s).
+    private val persisting8567 = java.util.concurrent.atomic.AtomicBoolean(false)
+    private fun persist() {
         if (!loaded) return
+        if (!persisting8567.compareAndSet(false, true)) return
         try {
             val json = synchronized(this) {
                 org.json.JSONObject().put("target8091", TARGET_8091).put("ledger", ledger.encode()).put("calibration", calibration.encode()).put("pending7960", encodePending7960())
@@ -589,7 +616,7 @@ object CortexExit7897 {
             LearningPersistence.save(PERSIST_KEY, json)
             lastPersistMs8091 = System.currentTimeMillis()
             dirty8091 = false
-        } catch (_: Throwable) {}
+        } catch (_: Throwable) {} finally { persisting8567.set(false) }
     }
 
     private fun fmt(s: CortexLedger7885.Stat): String = CortexLedger7885.fmt8187(s)  // V5.0.8187 — robust, raw beside

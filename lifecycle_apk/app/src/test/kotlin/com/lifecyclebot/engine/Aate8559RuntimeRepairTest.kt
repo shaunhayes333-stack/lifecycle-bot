@@ -168,4 +168,20 @@ class Aate8559RuntimeRepairTest {
         assertEquals("beyond 10x stays broken (the wrong-pool class)", broken, k.classify8332(20.0, 0.02, 10_000L, 1_000L, unitFactor8565 = false))
         assertEquals(0.1, k.LAG_RATIO_MIN_8565, 0.0); assertEquals(10.0, k.LAG_RATIO_MAX_8565, 0.0)
     }
+
+    /** V5.0.8567 — 8562: held ticks blocked 63 s in CortexExit7897.observe; -100 % paper fills off $1 liquidity; lessons retried forever. */
+    @Test fun exitsNeverWaitOnTheExitCortexAndPaperAndLessonsBookWhatHappened() {
+        val x = src("engine/cortex/CortexExit7897.kt")
+        val obs = x.substringAfter("fun observe(ts: TokenState").substringBefore("private val sampling8567")
+        assertTrue("the tick hands the read off", obs.contains("sampler8567.execute {"))
+        assertFalse("no voter read on the tick", obs.contains("CortexVoters7885.readAll"))
+        assertFalse(x.contains("@Synchronized private fun persist()"))
+        val p = com.lifecyclebot.engine.truth.PaperFillCore8418
+        assertFalse("$1 against a $10k cap is not this pool", p.liquidityCapUsable8567(1.0, 10_000.0))
+        assertTrue(p.liquidityCapUsable8567(5_000.0, 50_000.0))
+        assertTrue("a rug moves the cap with it", p.liquidityCapUsable8567(50.0, 20_000.0))
+        assertFalse(p.liquidityCapUsable8567(0.0, 10_000.0))
+        val t = com.lifecyclebot.v4.meta.TradeLessonRecorder
+        assertFalse(t.missingSettled8567(60_000L)); assertTrue(t.missingSettled8567(t.MISSING_WAIT_MS_8567 + 1))
+    }
 }
