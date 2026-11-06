@@ -102,7 +102,7 @@ class Aate8521ForwardLifecycleTest {
         try {
             for (lane in lanes) for (take in listOf(false, true)) {
                 val horizon = CortexForwardEpoch8521.targetHorizon(CortexForwardEpoch8521.targetKind(lane))
-                if (horizon != 3_600_000L) continue
+                if (horizon != CortexForwardEpoch8521.HOUR_MS) continue   // V5.0.8592 — hour target is now 15m
                 val mint = "interim-8521-$lane-$take"; val key = "$mint|$lane"
                 val obs = observation(mint, lane, take, at)
                 set(obs, "targetHorizon8521", horizon); set(obs, "rebased8076", true)
@@ -182,11 +182,11 @@ class Aate8521ForwardLifecycleTest {
                 set(obs, "lastMark8386", mark(mint, at + 300_000L, 1.2))
                 assertEquals(true, call("bookSixty7944", obs, 17.0, 20.0, at + 300_000L))
                 set(obs, "done60", true)
-                if (target == 3_600_000L) {
+                if (target > CortexForwardEpoch8521.SCALP_MS) {   // V5.0.8592 — hour lanes book the entry at their 15m target, not 5m
                     assertTrue("$lane/$take has no five-minute entry contribution", (get(obs, "bookedNet7997") as Double).isNaN())
                     assertEquals(0, cells[cell]?.n60 ?: 0)
                     assertNull(nodes["L8527|CELL|$cell"])
-                    set(obs, "lastMark8386", mark(mint, at + 3_605_000L, 1.7))
+                    set(obs, "lastMark8386", mark(mint, at + 905_000L, 1.7))
                     assertEquals(true, call("bookTwoForty7944", obs, 67.0, 70.0, true))
                 }
                 val fixed = get(obs, "bookedNet7997") as Double
@@ -246,7 +246,7 @@ class Aate8521ForwardLifecycleTest {
         val oldForward = "L|LANE|MOONSHOT=100.0,9000.0,810000.0,0.0,0.0,0.0"
         assertEquals("$actualLive;$actualPaper", CellAllocator7962.realisedNodes8521("$oldForward;$actualLive;$actualPaper"))
         assertEquals("", CellAllocator7962.realisedNodes8521(oldForward))
-        assertEquals(60.0, CellAllocator7962.labelHold8521("MOONSHOT"), 0.0)
+        assertEquals(15.0, CellAllocator7962.labelHold8521("MOONSHOT"), 0.0)   // V5.0.8592 — hour hold is now the 15m target
         assertEquals(5.0, CellAllocator7962.labelHold8521("TREASURY"), 0.0)
     }
 

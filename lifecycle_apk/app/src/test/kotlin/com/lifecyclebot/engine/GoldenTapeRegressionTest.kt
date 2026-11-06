@@ -9785,12 +9785,12 @@ class GoldenTapeRegressionTest {
         val snap = RegimeDetector.RegimeSnapshot(
             RegimeDetector.Regime.CHOP, 16.7, -5.01, -1, 13, 0L, ownTightened7266 = true,
         )
-        // V5.0.7277 — evidence weight is EvidenceMaturity7277 n/(n+30) (was n/(n+10)):
-        // 13 closes -> 0.302, so severity ~0.126 and the haircut ~0.918.
+        // V5.0.8589 — evidence weight is EvidenceMaturity7277 n/(n+12) (was n/(n+30)): the fluid-bar unlock.
+        // 13 closes -> 0.52, so severity ~0.217 and the haircut ~0.859.
         val sev = RegimeDetector.ownSeverity7266(snap)
-        assertTrue(sev > 0.10 && sev < 0.15)
+        assertTrue(sev > 0.21 && sev < 0.22)
         val fluidMult = 1.0 - (1.0 - 0.35) * sev
-        assertTrue(fluidMult > 0.90 && fluidMult < 0.94)
+        assertTrue(fluidMult > 0.85 && fluidMult < 0.87)
         val marketSnap = snap.copy(ownTightened7266 = false)
         assertTrue(RegimeDetector.ownSeverity7266(marketSnap) == 0.0)
 
@@ -10419,16 +10419,16 @@ class GoldenTapeRegressionTest {
         assertTrue(heliusIdx > 0)
 
         // Evidence bar: one object, four consumers.
-        assertTrue(ev.contains("const val LANE_OPINION_CLOSES = 30"))
-        assertTrue(ev.contains("const val AUTHORITATIVE_CLOSES = 100L"))
+        assertTrue(ev.contains("const val LANE_OPINION_CLOSES = 12"))
+        assertTrue(ev.contains("const val AUTHORITATIVE_CLOSES = 30L"))
         assertTrue(damper.contains("private const val MIN_TRADES = com.lifecyclebot.engine.truth.EvidenceMaturity7277.LANE_OPINION_CLOSES"))
         assertTrue(damper.contains("val evidence6715 = maxOf(com.lifecyclebot.engine.truth.EvidenceMaturity7277.weight(m.trades), labelEvidence7775)"))
         assertTrue(damper.contains("const val MATURE_EVIDENCE_CLOSES_7265 = MIN_TRADES"))
         assertTrue(regime.contains("val evidence = com.lifecyclebot.engine.truth.EvidenceMaturity7277.weight(n)"))
         assertTrue(head.contains("private const val AUTHORITY_AUTHORITATIVE = com.lifecyclebot.engine.truth.EvidenceMaturity7277.AUTHORITATIVE_CLOSES"))
         assertTrue(meta.contains("private const val MIN_SAMPLES        = com.lifecyclebot.engine.truth.EvidenceMaturity7277.LANE_OPINION_CLOSES"))
-        assertEquals(0.5, com.lifecyclebot.engine.truth.EvidenceMaturity7277.weight(30), 1e-9)
-        assertTrue(com.lifecyclebot.engine.truth.EvidenceMaturity7277.weight(3) < 0.1)
+        assertEquals(0.5, com.lifecyclebot.engine.truth.EvidenceMaturity7277.weight(12), 1e-9)
+        assertTrue(com.lifecyclebot.engine.truth.EvidenceMaturity7277.weight(3) < 0.25)
 
         // Fee-aware floor: ~0.107 SOL, wired into both paper minimums; the 0.05 literal stays for older pins.
         assertTrue(com.lifecyclebot.engine.truth.FeeAwareSizeFloor7277.minimumSol() in 0.10..0.11)

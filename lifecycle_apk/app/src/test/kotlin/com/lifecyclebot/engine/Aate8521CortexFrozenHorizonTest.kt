@@ -40,7 +40,7 @@ class Aate8521CortexFrozenHorizonTest {
             val r = decision(lane)
             val horizon = r.outcomeDueAtMs8394 - at
             assertTrue(book.addDecision(r))
-            assertEquals(if (LaneGradeHorizon8406.hourGraded8406(lane)) 60L * 60_000L else 5L * 60_000L, horizon)
+            assertEquals(if (LaneGradeHorizon8406.hourGraded8406(lane)) CortexForwardEpoch8521.HOUR_MS else CortexForwardEpoch8521.SCALP_MS, horizon)   // V5.0.8592 — hour target is now 15m
 
             if (horizon == CortexForwardEpoch8521.HOUR_MS) {
                 assertEquals(CortexOutcomeDisposition8395.OBSERVED_ONLY,
