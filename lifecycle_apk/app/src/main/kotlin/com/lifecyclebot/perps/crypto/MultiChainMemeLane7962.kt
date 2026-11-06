@@ -392,6 +392,12 @@ object MultiChainMemeLane7962 {
         return if (nowMs - m.second <= MARK_MAX_AGE_MS) m.first else null
     }
 
+    /** V5.0.8571 — [freshMark7962] with its receipt time (CrossAssetCortex7931.markAt8571). */
+    fun freshMarkAt8571(key: String, nowMs: Long = System.currentTimeMillis()): Pair<Double, Long>? {
+        val m = marks[key] ?: return null
+        return if (nowMs - m.second in 0L..MARK_MAX_AGE_MS) m else null
+    }
+
     /** CryptoAltTrader.start: the lane runs beside the crypto trader (idempotent). */
     fun start7962(context: Context) {
         appCtx = context.applicationContext

@@ -58,9 +58,17 @@ object LabelEvidence8386 {
         if (s.contains("JUPITER") || s.contains("QUOTE") || s.contains("BIRDEYE") || s.contains("DEXSCREENER") ||
             s.contains("GECKO") || s.contains("ESTIMATE") || s.contains("DERIVED")) return false
         if (s == "CURVE_ACCOUNT" || s == "CURVE_FRAME") return true
+        // V5.0.8571 — the chain feeds the stop path already trusts (StopFeed8327) are chain prints here too: the pump
+        // curve account read (keyless or not), the PumpPortal trade print (post-trade curve reserves) and the pool vault /
+        // pool state subscriptions. Missing them left most pump decisions without a chain-priced fill and every 10x+
+        // runner on them OBSERVED_ONLY_UNWITNESSED_EXTREME.
+        if (CHAIN_FEEDS_8571.any { s.contains(it) }) return true
         return s.contains("HELIUS") || s.contains("SWAP") || s.contains("TAPE") || s.contains("POOL_RESERVE") ||
             s.contains("RESERVES") || s.contains("ONCHAIN") || s.contains("ON_CHAIN")
     }
+
+    /** V5.0.8571 — chain-state feeds by source tag (one list with StopFeed8327's stop-path chain marks). */
+    val CHAIN_FEEDS_8571: List<String> = listOf("PUMP_CURVE_RPC", "PUMP_PORTAL_TRADE_WS_7278", "POOL_VAULT_WS_8418", "POOL_STATE_WS_8418", "PUMPSWAP_VAULT_WS_8018")
 
     /** Pure (V5.0.8418): a mark carries chain proof — stamped at capture, or from an [independentSource8418] source. */
     fun independent8418(m: LabelMark8386?): Boolean = m != null && (m.independentBasis || independentSource8418(m.source))

@@ -70,10 +70,14 @@ class Aate8527ForwardEntryBasisTest {
         val source = File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
         val observe = source.substringAfter("fun observe(ts: TokenState").substringBefore("lastSeenAt[key] = nowMs")
         assertTrue(observe.indexOf("val entryMark8527 =") < observe.indexOf("val liq ="))
-        assertTrue(observe.contains("it.basis8386 = LabelBasis8386(entryMark8527, it.entryMcap)"))
+        // superseded by V5.0.8571 — "it.basis8386 = LabelBasis8386(entryMark8527, ...)": the basis is the selected mark unless a
+        // fresh chain mark of the coin outranks it (preferChainEntry8571); still assigned once, without re-reading.
+        assertTrue(observe.contains("it.basis8386 = LabelBasis8386(basisMark8571, it.entryMcap)"))
         assertTrue(observe.contains("it.decisionBasis8386 = it.basis8386"))
         assertFalse(observe.contains("m.usd == px"))
-        assertTrue(observe.contains("curveContradicts8165(ts.mint, px, nowMs, entryMark8527.observedAtMs)"))
+        // superseded by V5.0.8571 — "curveContradicts8165(ts.mint, px, nowMs, entryMark8527.observedAtMs)": still compared on the
+        // mark's own time, now for each candidate basis (a contradicted price yields to an uncontradicted chain mark).
+        assertTrue(observe.contains("curveContradicts8165(ts.mint, it.usd, nowMs, it.observedAtMs)"))
         assertTrue(source.contains("KeylessMarks8359.laneCovered8418(m, leaseAt8527)"))
         assertFalse(source.contains("KeylessMarks8359.laneCovered8418(m, nowMs)"))
     }

@@ -12,7 +12,9 @@ package com.lifecyclebot.engine
 object StopFeed8327 {
     // V5.0.8419 — GradTicks8018's any-venue ticks (POOL_VAULT_WS_8418_<venue> / POOL_STATE_WS_8418_<venue>) are the held
     // pool's own account state like the PumpSwap vault pair.
-    private val CHAIN_SOURCES_8327 = listOf("PUMP_CURVE_RPC", "PUMP_PORTAL_TRADE_WS_7278", "PUMPSWAP_VAULT_WS_8018", "POOL_VAULT_WS_8418", "POOL_STATE_WS_8418")
+    // V5.0.8571 — one list with the label evidence (LabelEvidence8386.CHAIN_FEEDS_8571), so a print that stops a held
+    // coin is also a chain-witnessed label mark.
+    private val CHAIN_SOURCES_8327 = com.lifecyclebot.engine.truth.LabelEvidence8386.CHAIN_FEEDS_8571
 
     /** Pure: is [source] (TokenState.lastPriceSource, any case) a chain-state mark of the held coin? */
     fun chainMark8327(source: String?): Boolean {

@@ -85,7 +85,9 @@ class Aate8337LabelsGateTest {
         assertTrue(heldBlock.contains("continue"))
         assertFalse(heldBlock.contains("pending.remove"))                            // never dropped
         // the entry mark is compared on its own time
-        assertTrue(labeler.contains("if (curveContradicts8165(ts.mint, px, nowMs, entryMark8527.observedAtMs)) {"))
+        // superseded by V5.0.8571 — "if (curveContradicts8165(ts.mint, px, nowMs, entryMark8527.observedAtMs)) {": each candidate
+        // basis is compared on its own time; a contradicted price yields to an uncontradicted chain mark (preferChainEntry8571).
+        assertTrue(labeler.contains("curveContradicts8165(ts.mint, it.usd, nowMs, it.observedAtMs)"))
         assertTrue(labeler.contains("CurveReserves7951.readingAtMs8173(mint)"))
     }
 

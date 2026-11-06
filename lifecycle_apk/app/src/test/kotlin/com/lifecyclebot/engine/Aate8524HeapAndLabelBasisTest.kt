@@ -38,7 +38,8 @@ class Aate8524HeapAndLabelBasisTest {
         val observe = src.substringAfter("fun observe(ts: TokenState").substringBefore("lastSeenAt[key] = nowMs")
         // 8527: freeze price + source clock before any ancillary call; a later token update cannot erase the basis.
         assertTrue(observe.contains("val stateMark8527 = LabelMark8386(ts.mint, ts.lastPriceDex, ts.lastPrice, ts.lastPriceUpdate, nowMs, \"TOKEN_STATE\")"))
-        assertTrue(observe.contains("it.basis8386 = LabelBasis8386(entryMark8527, it.entryMcap)"))
+        // superseded by V5.0.8571 — the basis is the selected mark or the fresh chain mark that outranks it (preferChainEntry8571).
+        assertTrue(observe.contains("it.basis8386 = LabelBasis8386(basisMark8571, it.entryMcap)"))
         assertTrue(observe.indexOf("val entryMark8527 =") < observe.indexOf("val liq ="))
         assertFalse(observe.contains("takeIf { m -> m.usd == px }"))
         val tick = src.substringAfter("if (adoptBasis8418(o.basis8386.mark.known(), o.rebased8076, age, mark8386)) {")

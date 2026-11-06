@@ -214,6 +214,37 @@ object EdgeModel8537 {
     /** A decision's frozen features and the prediction made at that moment. */
     class Snap(val raw: Raw, val x: DoubleArray, val pred: Double, val modelKey: String, val atMs: Long, val mint: String, val admitted: Boolean)
 
+    // V5.0.8571 — the frozen decision snapshot travels with the labeler's pending checkpoint. It was memory-only, so every
+    // observation restored after a restart (2,414 in the 8562 session) could never train the model: an hour-graded meme
+    // lane rarely survives an hour of uptime, which is why the dataset held 1-10 rows per meme lane. NaN is "unobserved"
+    // and JSON has no NaN, so doubles travel as strings.
+    private fun d8571(v: Double): String = v.toString()
+    private fun d8571(j: org.json.JSONObject, k: String): Double = j.optString(k).toDoubleOrNull() ?: Double.NaN
+
+    fun encodeSnap8571(s: Snap): org.json.JSONObject {
+        val r = s.raw
+        val raw = org.json.JSONObject().put("lane", r.lane).put("source", r.source).put("phase", r.phase).put("flags", r.flags)
+        listOf("liq" to r.liq, "mcap" to r.mcap, "ageMin" to r.ageMin, "runup" to r.runup, "pxPeak" to r.pxPeak, "dd" to r.dd,
+            "bp" to r.bp, "chg5m" to r.chg5m, "chg1h" to r.chg1h, "volAccel" to r.volAccel, "top" to r.top, "v3" to r.v3,
+            "costPct" to r.costPct, "holderVel" to r.holderVel, "txVel" to r.txVel, "curve" to r.curve, "turnover" to r.turnover,
+        ).forEach { (k, v) -> raw.put(k, d8571(v)) }
+        return org.json.JSONObject().put("raw", raw).put("pred", d8571(s.pred))
+            .put("key", s.modelKey).put("at", s.atMs).put("mint", s.mint).put("admitted", s.admitted)
+    }
+
+    /** The feature vector is rebuilt from the frozen raw features ([vectorOf] is pure), so it is never stored. */
+    fun decodeSnap8571(j: org.json.JSONObject?): Snap? {
+        if (j == null) return null
+        return try {
+            val r = j.getJSONObject("raw")
+            val raw = Raw(r.optString("lane"), r.optString("source"), d8571(r, "liq"), d8571(r, "mcap"), d8571(r, "ageMin"),
+                d8571(r, "runup"), d8571(r, "pxPeak"), d8571(r, "dd"), d8571(r, "bp"), d8571(r, "chg5m"), d8571(r, "chg1h"),
+                d8571(r, "volAccel"), d8571(r, "top"), r.optString("phase"), d8571(r, "v3"), d8571(r, "costPct"),
+                d8571(r, "holderVel"), d8571(r, "txVel"), d8571(r, "curve"), d8571(r, "turnover"), r.optInt("flags"))
+            Snap(raw, vectorOf(raw), d8571(j, "pred"), j.optString("key"), j.optLong("at"), j.optString("mint"), j.optBoolean("admitted"))
+        } catch (_: Throwable) { null }
+    }
+
     data class Verdict(val predPct: Double, val authority: Boolean, val modelKey: String, val trainedN: Long,
                        val oosSelN: Int, val oosSelMeanPct: Double, val oosSelSePct: Double, val oosAllMeanPct: Double)
 

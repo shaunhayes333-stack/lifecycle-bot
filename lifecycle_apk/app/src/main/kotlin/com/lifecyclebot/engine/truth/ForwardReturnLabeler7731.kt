@@ -252,6 +252,22 @@ object ForwardReturnLabeler7731 {
     }
 
     /** V5.0.8337 (10d) — contradicted only by a curve read within 5 s of the mark ([markAtMs], the read time when unknown). */
+    private val chainEntry8571 = AtomicLong(0)
+    private val curveRebasedEntry8571 = AtomicLong(0)
+
+    /**
+     * Pure (V5.0.8571): the decision's entry basis. A fresh (<= [DECISION_FILL_MAX_AGE_MS_8567]) chain-provable mark of the
+     * coin ([LabelEvidence8386.independent8418]) outranks the selected one; a selected price [contradicted] by the coin's
+     * own curve is replaced by any in-age chain mark that is not itself contradicted; otherwise null (no buyable price).
+     */
+    internal fun preferChainEntry8571(selected: LabelMark8386, typed: LabelMark8386?, nowMs: Long,
+                                      contradicted: (LabelMark8386) -> Boolean): LabelMark8386? {
+        val chain = typed?.takeIf { it.known() && LabelEvidence8386.independent8418(it) && nowMs - it.observedAtMs in 0L..MARK_MAX_AGE_MS_7731 }
+        if (chain != null && chain != selected && nowMs - chain.observedAtMs <= DECISION_FILL_MAX_AGE_MS_8567 && !contradicted(chain)) return chain
+        if (!contradicted(selected)) return selected
+        return chain?.takeIf { it != selected && !contradicted(it) }
+    }
+
     private fun curveContradicts8165(mint: String, markUsd: Double, nowMs: Long, markAtMs: Long = nowMs): Boolean =
         curveWitnessAt8337(mint, markUsd, markAtMs, nowMs) == 1
 
@@ -853,6 +869,8 @@ object ForwardReturnLabeler7731 {
             .put("longNet", o.bookedLongNet8080.toString()).put("longGross", o.bookedLongGross8080.toString())
             .put("witness", o.witnessed8324).put("bookedWitness", o.bookedWitness8324)
             .put("nativeTrigger", o.nativeTrigger8468).put("gate", o.gate8418)
+            // V5.0.8571 — the frozen edge snapshot and the decision's liquidity band survive a restart.
+            .put("edge8571", o.edge8537?.let { EdgeModel8537.encodeSnap8571(it) }).put("liq8571", o.liqUsd8539.toString())
     }
 
     private fun restoreObservationState8521(o: Obs, e: org.json.JSONObject, nowMs: Long) {
@@ -871,6 +889,8 @@ object ForwardReturnLabeler7731 {
         o.bookedLongGross8080 = e.optString("longGross").toDoubleOrNull() ?: Double.NaN
         o.witnessed8324 = e.optBoolean("witness"); o.bookedWitness8324 = e.optBoolean("bookedWitness")
         o.nativeTrigger8468 = e.optBoolean("nativeTrigger"); o.gate8418 = e.optString("gate")
+        o.edge8537 = EdgeModel8537.decodeSnap8571(e.optJSONObject("edge8571"))  // V5.0.8571
+        o.liqUsd8539 = e.optString("liq8571").toDoubleOrNull()?.takeIf { it.isFinite() } ?: 0.0
         o.stagedProof8521 = com.lifecyclebot.engine.cortex.CortexOutcomeProof8395.decode8395(e.optString("stagedProof8521"))
         fun restoreRows(name: String, width: Int, limit: Int, add: (DoubleArray) -> Unit) {
             val rows = e.optJSONArray(name) ?: return
@@ -1123,17 +1143,25 @@ object ForwardReturnLabeler7731 {
             skippedNoPrice.incrementAndGet()
             return
         }
-        val px = entryMark8527.usd
         try {
             if (entryMark8527 !== stateMark8527) PipelineHealthCollector.labelInc("FORWARD_LABEL_ENTRY_FROM_CANONICAL_MARK_7733")
             else if (nowMs - entryMark8527.observedAtMs > MARK_MAX_AGE_MS_7731) PipelineHealthCollector.labelInc("FORWARD_LABEL_ENTRY_STALE_MARK_7735")
         } catch (_: Throwable) {}
         // V5.0.8165 — an entry price the coin's own bonding curve contradicts is not a buyable price.
         // V5.0.8337 (10d) — compared on the mark's own time: a curve read out of sync with it is no witness against it.
-        if (curveContradicts8165(ts.mint, px, nowMs, entryMark8527.observedAtMs)) {
+        // V5.0.8571 — the coin's own chain mark (curve account / print / vaults / tape) is the decision's basis when it is fresh
+        // (<= 5 s), and it replaces a contradicted price instead of dropping the decision (8562: curveWitness entry=459 lost).
+        val basisMark8571 = preferChainEntry8571(entryMark8527, typedMark8386(ts.mint, { null }, nowMs), nowMs) {
+            curveContradicts8165(ts.mint, it.usd, nowMs, it.observedAtMs)
+        } ?: run {
             curveRefusedEntry8165.incrementAndGet()
             return
         }
+        if (basisMark8571 != entryMark8527) {
+            if (curveContradicts8165(ts.mint, entryMark8527.usd, nowMs, entryMark8527.observedAtMs)) curveRebasedEntry8571.incrementAndGet()
+            else chainEntry8571.incrementAndGet()
+        }
+        val px = basisMark8571.usd
         // V5.0.7930 — an ADMIT supersedes a pending refusal of the same (mint, lane): a
         // token refused earlier (or by an advisory gate) and then bought was labelled
         // and graded as "refused" for up to four hours.
@@ -1207,8 +1235,8 @@ object ForwardReturnLabeler7731 {
                 } catch (_: Throwable) { "" }
                 it.entryMcap = if (ts.lastMcap.isFinite() && ts.lastMcap > 0.0) ts.lastMcap else 0.0
                 // The source mark selected above IS the basis; do not re-read a mutable token or registry here.
-                it.basis8386 = LabelBasis8386(entryMark8527, it.entryMcap)
-                if (entryMark8527.source == "TOKEN_STATE")
+                it.basis8386 = LabelBasis8386(basisMark8571, it.entryMcap)
+                if (basisMark8571.source == "TOKEN_STATE")
                     try { PipelineHealthCollector.labelInc("FORWARD_LABEL_BASIS_FROM_DECISION_PRICE_8524") } catch (_: Throwable) {}
                 it.decisionBasis8386 = it.basis8386
 
@@ -1900,7 +1928,8 @@ object ForwardReturnLabeler7731 {
 
     /** Pure (V5.0.8454): did this mark observe the market itself (not a possibly reused token-state value)? */
     fun liveMark8454(source: String?, independent: Boolean): Boolean =
-        independent || source == "OFFWATCH" || source?.startsWith("CURVE_") == true
+        independent || source == "OFFWATCH" || source?.startsWith("CURVE_") == true ||
+            source == CROSS_ASSET_MARK_SOURCE_8571   // V5.0.8571 — the identity's own feed, at its own observation time
 
     private fun liveMark8454(m: LabelMark8386?): Boolean = m != null && liveMark8454(m.source, m.independentBasis)
 
@@ -2054,6 +2083,18 @@ object ForwardReturnLabeler7731 {
             if (tp != null && solUsd.isFinite() && solUsd > 0.0)
                 candidates.add(LabelMark8386(mint, "", tp.first * solUsd, tp.second, nowMs, TAPE_MARK_SOURCE_8475, independentBasis = true))
         } catch (_: Throwable) {}
+        // V5.0.8571 — the coin's own pool vaults (the off-watch chain rung and every depth read): a chain mark at the vault read's
+        // own time. The chain rung priced these into its batch map only, so a vault read never reached a label (chain8540=169).
+        try {
+            val vr = OnChainDepth8038.freshRead8198(mint, MARK_MAX_AGE_MS_7731, nowMs)
+            val solUsd = com.lifecyclebot.engine.WalletManager.freshSolPrice8163(nowMs)
+            if (vr != null && !(solUsd.isFinite() && solUsd > 0.0)) noSolRate8508.incrementAndGet()
+            if (vr != null && solUsd.isFinite() && solUsd > 0.0) {
+                val px = OnChainDepth8038.priceUsd8038(vr.quoteSol, vr.baseTokens, solUsd)
+                if (px.isFinite() && px > 0.0) candidates.add(LabelMark8386(mint, vr.pool, px, vr.atMs, nowMs, VAULT_MARK_SOURCE_8571,
+                    independentBasis = true))
+            }
+        } catch (_: Throwable) {}
         // A bare loop price has no timestamp. It may only reuse the matching state observation, never this read's clock.
         try {
             val px = priceFor(mint)
@@ -2061,6 +2102,13 @@ object ForwardReturnLabeler7731 {
             if (px != null && ts != null && ts.mint == mint && ts.lastPrice == px)
                 candidates.add(LabelMark8386(mint, ts.lastPriceDex, px, ts.lastPriceUpdate, nowMs, "TOKEN_STATE"))
         } catch (_: Exception) {}
+        // V5.0.8571 — a cross-asset identity (crypto desk, multi-chain meme pair) is priced by its own feed with that feed's
+        // observation time; its TokenState is synthetic, so the untimed loop price above never matched it.
+        try {
+            com.lifecyclebot.engine.cortex.CrossAssetCortex7931.markAt8571(mint, nowMs)?.let { (px, at) ->
+                candidates.add(LabelMark8386(mint, "", px, at, nowMs, CROSS_ASSET_MARK_SOURCE_8571))
+            }
+        } catch (_: Throwable) {}
         // A market read (curve account / tape print / off-watch fetch / independent basis) outranks a re-stamped copy: token-state
         // and registry copies are stamped "now" by dozens of writers, so newest-first picked the cached entry price over a real
         // print and the label read flat (8479 report: rebased flat8322=632, flatLostMarks=266). A copy is used only when no
@@ -2078,6 +2126,10 @@ object ForwardReturnLabeler7731 {
     // ── V5.0.8475 — the mints with a forward label pending (for the Helius program tape's care filter) and the tape mark ──
     /** The source of a label mark taken from the coin's own trade tape (markFamily8418: TAPE). */
     const val TAPE_MARK_SOURCE_8475 = "TAPE_LAST_PRINT_8475"
+    /** V5.0.8571 — the source of a label mark taken from the coin's own pool vault read (OnChainDepth8038). */
+    const val VAULT_MARK_SOURCE_8571 = "POOL_RESERVES_VAULT_8571"
+    /** V5.0.8571 — the source of a label mark taken from a cross-asset identity's own price feed (CrossAssetCortex7931). */
+    const val CROSS_ASSET_MARK_SOURCE_8571 = "CROSS_ASSET_FEED_8571"
     /** A pending mint is kept this long after its last observation: the longest horizon (60 min) and its grace. */
     private const val PENDING_MINT_MS_8475 = 70L * 60_000L
     private const val MAX_PENDING_MINTS_8475 = 8_000
@@ -2579,7 +2631,13 @@ object ForwardReturnLabeler7731 {
             }
         }
         if (!durable) { try { PipelineHealthCollector.labelInc("FORWARD_TERMINAL_DURABILITY_WAIT_8395") } catch (_: Throwable) {}; return false }
-        val released8505 = pending.remove(key,o) && !o.done60
+        // V5.0.8571 — an hour-target lane's (MOONSHOT, SHITCOIN, ... targetHorizon8521 > 5 m) 5-minute read is interim, so its
+        // done60 is set without a booking. Losing the HOUR target then released nothing: meme lanes read lost=0 while their
+        // labels died. The target itself is lost when it was never booked (done240 false); a 5-minute lane's later follow-up
+        // read is not its target and stays uncounted, exactly as before.
+        val hourTargetLost8571 = o.targetHorizon8521 > H60_MS_7731 && !o.done240
+        val released8505 = pending.remove(key,o) && (!o.done60 || hourTargetLost8571)
+        if (released8505 && hourTargetLost8571 && o.done60) hourTargetLost8571Count.incrementAndGet()
         if (released8505 && downtime8505) {
             // V5.0.8505 §DOWNTIME_WINDOW_IS_NOT_A_LOST_MARK — the window closed while the process was down and its candle could
             // not be fetched: nothing observed it, so it is no evidence about pricing or the coin. Not a label, not a lost mark
@@ -2598,6 +2656,9 @@ object ForwardReturnLabeler7731 {
     }
 
     private val labelLostDowntime8505 = AtomicLong(0)
+    /** V5.0.8571 — hour-target labels lost at the hour (counted in lostMark too); interim 5-minute reads missed by them. */
+    private val hourTargetLost8571Count = AtomicLong(0)
+    private val interimMissed8571 = AtomicLong(0)
     private val terminalStorageFailures8401 = AtomicLong(0)
     private val terminalCapacityRefusals8401 = AtomicLong(0)
     private var lastTerminalCleanup8401 = 0L
@@ -2741,6 +2802,7 @@ object ForwardReturnLabeler7731 {
             // one-hour target or manufacture a missing hour outcome fifty-two minutes before that outcome is due.
             o.done60 = true; o.interimUnavailable8521 = true
             try { PipelineHealthCollector.labelInc("FORWARD_INTERIM_MISSING_AWAITS_HOUR_8521") } catch (_: Throwable) {}
+            interimMissed8571.incrementAndGet()   // V5.0.8571 — shown beside labelMarks (due = priced + lost + interim + late)
             return if (nowMs >= deadline8395(o)) expired8395(key, o, incoming, nowMs) else false
         }
         // V5.0.8541 — the pool's own swap history prices a window that closed while the app was down (vault balances after
@@ -3238,7 +3300,7 @@ object ForwardReturnLabeler7731 {
         val lanes = cells.keys.filter { it.startsWith("LANE|") }.map { it.removePrefix("LANE|") }.sorted()
             .mapNotNull { l -> laneStat(l)?.let { "$l[${fmtStat(it)}]" } }
         return "read=5m(slot60) early=1m late=60m pending=${pending.size} restored7735=${restoredPending7735.get()} observed=${observed.get()} booked15=${booked15.get()} booked60=${booked60.get()} booked240=${booked240.get()} " +
-            "lostMark=${lostMark.get()} vanished7944[lastMark=${vanishedLastMark7944.get()} dead=${vanishedDead7944.get()}] spikeCredited7945=${capturedLabels7945.get()} ${honestLine8366()} offWatch7737[priced=${offWatchPriced7737.get()} missed=${offWatchMissed7737.get()} limiterRetry8474=${offWatchLimiterRetry8474.get()} curve7753=${offWatchCurvePriced7753.get()} chain8540=${offWatchChainPriced8540.get()}/asked${chainRequested8540.get()}/reads${OnChainDepth8038.mintRequests8540()} deferred7809=${offWatchDeferred7809.get()} batches8508=${offWatchBatches8508.get()} avgMs8508=${offWatchBatches8508.get().let { n -> if (n > 0) offWatchBatchMsSum8508.get() / n else 0 }} maxMs8508=$offWatchBatchMsMax8508 stallReleased8508=${offWatchStallReleased8508.get()} running8508=${offWatchRunning8508.get()} markNoSolRate8508=${noSolRate8508.get()}] horizonMissed7809=${horizonMissed7809.get()} ${labelMarksLine8418()} basisSuspect7738=${basisSuspect7738.get()} curveWitness8165[entry=${curveRefusedEntry8165.get()} mark=${curveRefusedMark8165.get()} held8337=${curveHeldMark8337.get()}] hourSlot8337=${revisedToHour8337.get()} witnessedRunnerLabels8324=${witnessedLabels8324.get()} purged7738=${purgedCells7738.get()} curvePriced8062=${curvePriced8062.get()} rebased8076[up=${rebasedUp8076.get()} down=${rebasedDown8076.get()} flat8322=${rebasedFlat8322.get()} flatLostMarks8342=${flatMarks8322.get()} meanGap=${(rebasedUp8076.get() + rebasedDown8076.get() + rebasedFlat8322.get()).let { n -> if (n > 0) "%+.1f".format(rebaseGapSum8076 / n) else "-" }}% lateFirstPrice8153=${lateFirstCount8153.get()}] skipped[noPrice=${skippedNoPrice.get()} recent=${skippedRecent.get()} full=${skippedFull.get()}] cells=${cellStats.size}/${cells.size}\n" +
+            "lostMark=${lostMark.get()} vanished7944[lastMark=${vanishedLastMark7944.get()} dead=${vanishedDead7944.get()}] spikeCredited7945=${capturedLabels7945.get()} ${honestLine8366()} offWatch7737[priced=${offWatchPriced7737.get()} missed=${offWatchMissed7737.get()} limiterRetry8474=${offWatchLimiterRetry8474.get()} curve7753=${offWatchCurvePriced7753.get()} chain8540=${offWatchChainPriced8540.get()}/asked${chainRequested8540.get()}/reads${OnChainDepth8038.mintRequests8540()} deferred7809=${offWatchDeferred7809.get()} batches8508=${offWatchBatches8508.get()} avgMs8508=${offWatchBatches8508.get().let { n -> if (n > 0) offWatchBatchMsSum8508.get() / n else 0 }} maxMs8508=$offWatchBatchMsMax8508 stallReleased8508=${offWatchStallReleased8508.get()} running8508=${offWatchRunning8508.get()} markNoSolRate8508=${noSolRate8508.get()}] horizonMissed7809=${horizonMissed7809.get()} ${labelMarksLine8418()} hourTarget8571[lost=${hourTargetLost8571Count.get()} interimMissed=${interimMissed8571.get()}] basisSuspect7738=${basisSuspect7738.get()} entryBasis8571[chain=${chainEntry8571.get()} curveRebased=${curveRebasedEntry8571.get()}] curveWitness8165[entry=${curveRefusedEntry8165.get()} mark=${curveRefusedMark8165.get()} held8337=${curveHeldMark8337.get()}] hourSlot8337=${revisedToHour8337.get()} witnessedRunnerLabels8324=${witnessedLabels8324.get()} purged7738=${purgedCells7738.get()} curvePriced8062=${curvePriced8062.get()} rebased8076[up=${rebasedUp8076.get()} down=${rebasedDown8076.get()} flat8322=${rebasedFlat8322.get()} flatLostMarks8342=${flatMarks8322.get()} meanGap=${(rebasedUp8076.get() + rebasedDown8076.get() + rebasedFlat8322.get()).let { n -> if (n > 0) "%+.1f".format(rebaseGapSum8076 / n) else "-" }}% lateFirstPrice8153=${lateFirstCount8153.get()}] skipped[noPrice=${skippedNoPrice.get()} recent=${skippedRecent.get()} full=${skippedFull.get()}] cells=${cellStats.size}/${cells.size}\n" +
             "      admitted60[${fmtStat(cellStat(AGG_ADMITTED))}] refused60[${fmtStat(cellStat(AGG_REFUSED))}]\n" +
             "      best60: ${best.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }}\n" +
             "      tail8303: ${best.joinToString(" · ") { CellTail8303.line8303(it.key, it.meanNet60Pct, it.winRate60, it.runnerRate60) }.ifBlank { "-" }}\n" +  // V5.0.8303

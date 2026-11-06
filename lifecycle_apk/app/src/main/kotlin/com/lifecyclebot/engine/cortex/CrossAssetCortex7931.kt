@@ -222,6 +222,30 @@ object CrossAssetCortex7931 {
         } catch (_: Throwable) { null }
     }
 
+    /**
+     * V5.0.8571 — [priceFor] with the observation's own time (price to observedAtMs), for the forward labeler's typed mark.
+     * The labeler took the untimed price only when a TokenState row of the same identity held the same price; a cross-asset
+     * identity's TokenState is synthetic, so the feed's price was thrown away (CRYPTO_TREASURY lost=577, CRYPTO_CASHGEN 212).
+     * A multi-chain meme pair mark carries its receipt time; a price with no observation time is never answered.
+     */
+    fun markAt8571(key: String, nowMs: Long = System.currentTimeMillis()): Pair<Double, Long>? {
+        val a = assets[key] ?: return com.lifecyclebot.perps.crypto.MultiChainMemeLane7962.freshMarkAt8571(key, nowMs)
+        return try {
+            fun ok(px: Double, at: Long) = if (px.isFinite() && px > 0.0 && at > 0L && nowMs - at in 0L..PRICE_MAX_AGE_MS) px to at else null
+            if (a.nativePriceProvenance8372) return com.lifecyclebot.perps.DynamicAltTokenRegistry.learningMark8372(a.dynKey, nowMs)
+                ?.let { ok(it.price, it.observedAtMs) }
+            if (a.assetClass == AssetClass.CRYPTO_ALT || a.assetClass == AssetClass.SOLANA_TOKEN) {
+                val m = com.lifecyclebot.perps.DynamicAltTokenRegistry.heldMarkSnapshot7251(a.dynKey.ifBlank { key })
+                    .takeIf { it.freshObservation && it.price > 0.0 }
+                    ?: com.lifecyclebot.perps.DynamicAltTokenRegistry.heldMarkSnapshot7251(key).takeIf { it.freshObservation && it.price > 0.0 }
+                if (m != null) return ok(m.price, m.observedAtMs)
+            }
+            val market = marketsBySymbol[a.symbol.uppercase()] ?: return null
+            val d = com.lifecyclebot.perps.PerpsMarketDataFetcher.getCachedPrice(market) ?: return null
+            ok(d.price, d.lastUpdate)
+        } catch (_: Throwable) { null }
+    }
+
     private fun perpsPrice(symbol: String, nowMs: Long): Double? {
         val market = marketsBySymbol[symbol.uppercase()] ?: return null
         val d = com.lifecyclebot.perps.PerpsMarketDataFetcher.getCachedPrice(market) ?: return null
