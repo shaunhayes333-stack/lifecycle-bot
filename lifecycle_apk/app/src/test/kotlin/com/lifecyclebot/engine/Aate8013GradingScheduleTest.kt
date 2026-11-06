@@ -50,7 +50,7 @@ class Aate8013GradingScheduleTest {
         val hour = f.substring(hourStart, expiryStart)
         assertTrue(f.contains("recoveredHorizon8397(key, o, recovered, nowMs)"))
         assertTrue(recovery.contains("completeHour8397(key, o, net, gross, stop, bookable = true)"))
-        assertTrue(f.contains("completeHour8397(key, o, net, gross, stop7997, horizonOpen7809(observedAge8521, H240_MS_7731))"))
+        assertTrue(f.contains("completeHour8397(key, o, net, gross, stop7997, horizonOpen7809(observedAge8521, hourTargetMs8592))"))   // V5.0.8592 — hour lanes complete at their 15m target
         assertTrue(hour.contains("val follow = !stop && keepRunning7997(o, gross)"))
         assertTrue(hour.contains("bookTwoForty7944(o, net, gross, deferExit8006 = follow)"))
         assertTrue(hour.contains("if (!follow) pending.remove(key, o) else extended7997.incrementAndGet()"))

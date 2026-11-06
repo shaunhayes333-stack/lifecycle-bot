@@ -98,7 +98,7 @@ class Aate8337LabelsGateTest {
         assertFalse(ForwardReturnLabeler7731.runnerSlot8337("TREASURY"))
         val labeler = src("engine/truth/ForwardReturnLabeler7731.kt")
         val twoForty = labeler.substringAfter("private fun bookTwoForty7944(").substringBefore("private val exitRunSamples8006")
-        assertTrue(twoForty.contains("o.targetHorizon8521 == H240_MS_7731 && !o.bookedNet7997.isFinite()"))
+        assertTrue(twoForty.contains("o.targetHorizon8521 > H60_MS_7731 && !o.bookedNet7997.isFinite()"))   // V5.0.8592 — keyed off the per-obs hour target
         assertTrue(twoForty.indexOf("bookEntryTarget8521(") < twoForty.indexOf("book(o, 240, net, gross)"))
         val target = labeler.substringAfter("private fun bookEntryTarget8521(").substringBefore("private fun teachForwardLearners8521(")
         assertTrue(target.contains("o.bookedNet7997.isFinite()"))
