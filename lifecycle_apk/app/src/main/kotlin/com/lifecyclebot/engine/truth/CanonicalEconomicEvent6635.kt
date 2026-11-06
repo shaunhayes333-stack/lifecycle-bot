@@ -193,7 +193,8 @@ object CanonicalEconomicEvent6635 {
      * When all five stores are committed, `finalizeIfComplete6635` is
      * invoked automatically.
      */
-    fun markCommitted(economicEventId: String, store: Store, callSite: String): Boolean {
+    fun markCommitted(economicEventId: String, store: Store, callSite: String,
+                      offloadListeners8570: Boolean = false): Boolean {
         val state = events[economicEventId] ?: run {
             try {
                 PipelineHealthCollector.labelInc("CANONICAL_EVENT_STORE_COMMIT_UNKNOWN_ID_6635")
@@ -243,9 +244,33 @@ object CanonicalEconomicEvent6635 {
                 PipelineHealthCollector.labelInc("PAPER_ATOMIC_COMMIT_OK_6635")
             }
         } catch (_: Throwable) {}
-        ready?.forEach(::runCommitListener6736)
+        if (!ready.isNullOrEmpty() && offloadListeners8570) runListenersOffThread8570(ready)
+        else ready?.forEach(::runCommitListener6736)
         return true
     }
+
+    // V5.0.8570 — the durable journal insert is usually the last of the five stores, so every post-commit
+    // listener (Harvard fan-out, bus redelivery, pattern learner) ran ON the single journal write thread and
+    // every later journal insert queued behind it: CI receipts waited 33-60 s for their journal row, the
+    // device showed journalIO8368 p50=620 s. The writer hands its listeners to one FIFO thread instead.
+    // They still run strictly after COMMITTED and in commit order; only the writer stops waiting on them.
+    private val listenerThread8570 = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+        Thread(r, "CommitListener8570").apply { isDaemon = true }
+    }
+    private val listenerBatchCount8570 = AtomicLong(0L)
+
+    /** Run [listeners] on the commit-listener thread; inline only when that thread refuses the work. */
+    internal fun runListenersOffThread8570(listeners: List<() -> Unit>) {
+        try {
+            listenerThread8570.execute { listeners.forEach(::runCommitListener6736) }
+            listenerBatchCount8570.incrementAndGet()
+        } catch (_: Throwable) {
+            try { PipelineHealthCollector.labelInc("CANONICAL_LISTENER_OFFLOAD_REJECTED_8570") } catch (_: Throwable) {}
+            listeners.forEach(::runCommitListener6736)
+        }
+    }
+
+    fun listenerBatches8570(): Long = listenerBatchCount8570.get()
 
     /** Caller holds state. Null means incomplete; an empty list means committed
      * with no listeners. Detach callbacks under lock, invoke them outside it. */

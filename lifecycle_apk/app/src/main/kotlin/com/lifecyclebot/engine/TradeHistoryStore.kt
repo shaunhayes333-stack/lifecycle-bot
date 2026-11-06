@@ -2863,6 +2863,7 @@ object TradeHistoryStore {
         com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635.markCommitted(
             key, com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635.Store.JOURNAL,
             "TradeHistoryStore.SQLite.durable6641",
+            offloadListeners8570 = true,  // V5.0.8570 — the journal writer never runs learning listeners
         )
     }
 
