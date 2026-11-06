@@ -1,0 +1,40 @@
+package com.lifecyclebot.engine
+
+import com.lifecyclebot.engine.truth.CandidateAdmission8136.Candidate8136
+import com.lifecyclebot.engine.truth.CandidateAdmission8136.Decision8136
+import com.lifecyclebot.engine.truth.CandidateAdmission8136.Terminal8136
+import com.lifecyclebot.engine.truth.LaneAuthority8577
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import java.io.File
+
+/**
+ * V5.0.8582 §BUY_THE_PULLBACK — 8577 edge report, meme lanes: at the high n119 -26.9 % PF 0.02; up >= 10 % in 5 min PF ~0.1;
+ * buy pressure >= 60 % PF <= 0.03; 10-25 % off the peak n63 +12.5 % PF 1.81; buy pressure < 40 % n115 +9.4 % PF 1.72.
+ */
+class Aate8582BuyThePullbackTest {
+    @Test fun a_meme_lane_never_buys_the_high_but_buys_the_pullback() {
+        assertTrue(LaneAuthority8577.memeBuysTheHigh8582("SHITCOIN", 0.99, 40.0, 3.0, 55.0))     // at the high after a run
+        assertTrue(LaneAuthority8577.memeBuysTheHigh8582("MOONSHOT", 0.85, 20.0, 12.0, 50.0))    // spiking
+        assertTrue(LaneAuthority8577.memeBuysTheHigh8582("EXPRESS", 0.85, 20.0, 0.0, 72.0))      // buyers crowded
+        assertFalse(LaneAuthority8577.memeBuysTheHigh8582("SHITCOIN", 0.82, 40.0, -6.0, 35.0))   // 18 % off the peak, sellers in control
+        assertFalse(LaneAuthority8577.memeBuysTheHigh8582("SHITCOIN", 1.0, 0.0, 0.0, 50.0))      // flat, never ran: not "the high"
+        assertFalse(LaneAuthority8577.memeBuysTheHigh8582("SHITCOIN", Double.NaN, Double.NaN, Double.NaN, Double.NaN))  // unknown never refuses
+        assertFalse(LaneAuthority8577.memeBuysTheHigh8582("TREASURY", 0.99, 40.0, 15.0, 80.0))   // not a meme lane
+    }
+
+    @Test fun it_binds_on_a_live_admit_and_leaves_paper_alone() {
+        val c = Candidate8136(mint = "M8582", lane = "SHITCOIN", selectedSetup = "X", costPct = 2.0, live = true,
+            nativeQualified8213 = true, nativeSetup8213 = "X", genericScore = 40.0, genericFloor = 15.0)
+        val admit = Decision8136(Terminal8136.ADMIT, "NATIVE_QUALIFIED_ADMIT_8259", false, "X", 5.0, emptyList())
+        val r = LaneAuthority8577.apply8577(c, admit, LaneAuthority8577.MEME_BUYS_THE_HIGH_8582)
+        assertEquals(Terminal8136.REFUSE, r.terminal); assertEquals(LaneAuthority8577.MEME_BUYS_THE_HIGH_8582, r.reason)
+        assertSame(admit, LaneAuthority8577.apply8577(c.copy(live = false), admit, LaneAuthority8577.MEME_BUYS_THE_HIGH_8582))
+        assertTrue(LaneAuthority8577.binding8577("CHASE_AT_HIGH_8555") && LaneAuthority8577.binding8577("LIVE_INTO_HIGH_UNPROVEN_8545"))
+        val adm = File("src/main/kotlin/com/lifecyclebot/engine/truth/CandidateAdmission8136.kt").readText()
+        assertTrue(adm.contains("if (candidate.live) LaneAuthority8577.memeHighRefusal8582(ts, candidate.lane, nowMs) else null"))
+    }
+}

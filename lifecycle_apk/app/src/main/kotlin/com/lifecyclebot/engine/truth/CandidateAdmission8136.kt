@@ -1487,7 +1487,7 @@ object CandidateAdmission8136 {
         // V5.0.8577 — LIVE: the lane-qualified candidate's learned-door refusal is advisory (LaneAuthority8577.apply8577).
         cached ?: (if (FdgGate8365.policyKey8393() == "OUTSIDE") coalescedDefer8144(ts.mint, candidate.lane, identity, version, mode, nowMs) else null) ?: LaneAuthority8577.apply8577(candidate, decide8136(candidate) {
             Rehearsal8339.doorBindsNow8342(it, candidate.lane)
-        }).also {
+        }, if (candidate.live) LaneAuthority8577.memeHighRefusal8582(ts, candidate.lane, nowMs) else null).also {
             // A held shadow rehearsal must not publish an ADMIT into live sizing, strategy identity or the runner trace.
             if (!FdgGate8365.shadowOnly8393()) {
                 noteDecision8144(ts.mint, candidate.lane, candidate, it, version, mode, nowMs)

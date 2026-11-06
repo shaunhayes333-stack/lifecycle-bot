@@ -30,7 +30,36 @@ object LaneAuthority8577 {
         "BLIND", "BALANCE", "LEDGER_REJECT", "LEDGER_COMMIT", "LEDGER_BASIS", "LEDGER_PRECHECK", "DUPLICATE", "SINGLE_FLIGHT", "KILL_SWITCH", "HALT", "AT_LAUNCH_CAP", "DEAD_LAUNCH",
         "EMPTY_CURVE", "EARLY_LAUNCH", "ROUTE_MIN", "SIZE_NOT_EXECUTABLE", "NON_ECONOMIC_APPROVAL", "QUARANT", "REBUY",
         "DATA_", "STALE", "_FAILED", "GENERIC_SCORE_FLOOR",
+        // V5.0.8582 — buying a meme coin at its high is proven to lose (edge report below): these doors bind again.
+        "CHASE_AT_HIGH", "INTO_HIGH", "CHASING_SPIKE", "CHASE_EXTENDED", "NEAR_HIGH", MEME_BUYS_THE_HIGH_8582,
     )
+
+    /**
+     * V5.0.8582 §BUY_THE_PULLBACK — the 8577 edge report (2,105 decisions, 26 h, net at the lane's target horizon), meme lanes:
+     *   at the high (within 3 % of the peak) n119 -26.9 % PF 0.02 · up >= 10 % in 5 min n175 ~-24 % PF ~0.1 ·
+     *   buy pressure >= 60 % n187 -17..-31 % PF <= 0.03 · ran up 5-60 % n83 ~-35 %
+     *   10-25 % off the peak n63 +12.5 % PF 1.81 · buy pressure < 40 % n115 +9.4 % PF 1.72 · down > 10 % in 5 min n105 +2.2 %.
+     * 8577 made the chase doors advisory and LIVE went 8W/9L PF 0.64 buying tops. A LIVE meme entry at the high is refused
+     * whatever else admitted it; pullbacks and dips are what the meme lanes buy. Pure; unknown features never refuse.
+     */
+    const val MEME_BUYS_THE_HIGH_8582 = "MEME_BUYS_THE_HIGH_8582"
+    private val MEME_LANES_8582 = setOf("SHITCOIN", "MOONSHOT", "EXPRESS", "PROJECT_SNIPER", "MANIPULATED", "DIP_HUNTER",
+        "QUALITY", "BLUECHIP", "CORE", "CYCLIC")
+
+    fun memeBuysTheHigh8582(lane: String, pxPeak: Double, runupPct: Double, chg5mPct: Double, buyPressurePct: Double): Boolean {
+        if (lane.trim().uppercase() !in MEME_LANES_8582) return false
+        val atHigh = pxPeak.isFinite() && pxPeak >= 0.97 && runupPct.isFinite() && runupPct >= 5.0
+        val spiking = chg5mPct.isFinite() && chg5mPct >= 10.0
+        val buyersCrowded = buyPressurePct.isFinite() && buyPressurePct >= 60.0
+        return atHigh || spiking || buyersCrowded
+    }
+
+    /** Reads [ts]'s playbook features (the edge model's own frame); a read that fails never refuses. */
+    fun memeHighRefusal8582(ts: com.lifecyclebot.data.TokenState, lane: String, nowMs: Long): String? {
+        val f = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.features(ts, nowMs) } catch (_: Throwable) { null } ?: return null
+        return if (memeBuysTheHigh8582(lane, f.pxPeak, f.runup, f.chg5m, f.bp))
+            MEME_BUYS_THE_HIGH_8582 else null
+    }
 
     /** Pure: does [reason] bind under lane authority? Everything not listed is a learned door, advisory for a qualified coin. */
     fun binding8577(reason: String?): Boolean {
@@ -61,8 +90,15 @@ object LaneAuthority8577 {
      * carrying that door as advisory; a binding refusal and a paper / unqualified candidate pass through unchanged. Every
      * decision of a qualified LIVE candidate is marked [CandidateAdmission8136.Decision8136.laneQualified8577] for the gate.
      */
-    fun apply8577(c: CandidateAdmission8136.Candidate8136, d: CandidateAdmission8136.Decision8136): CandidateAdmission8136.Decision8136 {
+    fun apply8577(c: CandidateAdmission8136.Candidate8136, d: CandidateAdmission8136.Decision8136,
+                  highRefusal8582: String? = null): CandidateAdmission8136.Decision8136 {
         if (!enabled8577 || !c.live) return d
+        // V5.0.8582 — a LIVE meme entry at the high is refused whatever admitted it (lane opinion, edge, generic prior).
+        if (highRefusal8582 != null && d.terminal != CandidateAdmission8136.Terminal8136.REFUSE) {
+            try { PipelineHealthCollector.labelInc("${highRefusal8582}_${c.lane.uppercase()}") } catch (_: Throwable) {}
+            return d.copy(terminal = CandidateAdmission8136.Terminal8136.REFUSE, reason = highRefusal8582, specific = true,
+                trace = d.trace + "buysTheHigh8582 (pullback / dip entries only)", laneQualified8577 = CandidateAdmission8136.specialistQualified8539(c))
+        }
         if (!CandidateAdmission8136.specialistQualified8539(c)) return d
         if (d.admitted) return d.copy(laneQualified8577 = true)
         val costKnown = c.costPct.isFinite() && c.costPct >= 0.0

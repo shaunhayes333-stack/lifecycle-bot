@@ -77,7 +77,9 @@ class Aate8577LaneAuthorityTest {
     @Test fun at_the_gate_only_binding_refusals_hold_a_qualified_coin() {
         LaneAuthority8577.enabled8577 = true
         val q = Decision8136(Terminal8136.ADMIT, LaneAuthority8577.REASON_8577, false, "X", Double.NaN, emptyList(), laneQualified8577 = true)
-        for (advisory in listOf("CHASING_SPIKE_8065", "TIMING_RECORD_NEGATIVE_8094", "PICKED_SETUP_RECORD_NEGATIVE_8094", "WATCH_FIRST_8019",
+        // superseded by V5.0.8582 — "CHASING_SPIKE_8065" advisory: buying the high is proven to lose (MEME_BUYS_THE_HIGH_8582),
+        // the chase doors bind again (see Aate8582BuyThePullbackTest).
+        for (advisory in listOf("TIMING_RECORD_NEGATIVE_8094", "PICKED_SETUP_RECORD_NEGATIVE_8094", "WATCH_FIRST_8019",
                 "LIVE_UNPROVEN_EDGE_8536", "EVIDENCE_HOLD_8336_SHITCOIN", "LANE_REALISED_LOSING_8329_SHITCOIN", "NET_EDGE_COIN_TOO_SLOW_8035",
                 "CORTEX_REFUSE_SHITCOIN", "NICHE_ONLY_8351", "STAGE_PROVEN_LOSING_7928_SHITCOIN_DUMPING", "COST_LEDGER_7962_ABOVE_GROSS"))
             assertTrue(advisory, LaneAuthority8577.advisoryAtGate8577(advisory, q))
@@ -85,8 +87,8 @@ class Aate8577LaneAuthorityTest {
                 "DATA_DEFER_BUDGET_EXHAUSTED_8136", "EARLY_LAUNCH_EMPTY_CURVE_8048", "REBUY_LOCKOUT_8019", "KILL_SWITCH_HOLD", "CANONICAL_ENTRY_EVAL_FAILED_8392",
                 "SIZE_NOT_EXECUTABLE_7835", "NATIVE_LANE_LIQ_BELOW_FLOOR", "WALLET_BLIND", "QUANTITY_QUARANTINED"))
             assertFalse(binding, LaneAuthority8577.advisoryAtGate8577(binding, q))
-        assertFalse(LaneAuthority8577.advisoryAtGate8577("CHASING_SPIKE_8065", q.copy(laneQualified8577 = false)))
-        assertFalse(LaneAuthority8577.advisoryAtGate8577("CHASING_SPIKE_8065", null))
+        assertFalse(LaneAuthority8577.advisoryAtGate8577("WATCH_FIRST_8019", q.copy(laneQualified8577 = false)))
+        assertFalse(LaneAuthority8577.advisoryAtGate8577("WATCH_FIRST_8019", null))
         assertFalse(LaneAuthority8577.advisoryAtGate8577(null, q))
     }
 
