@@ -108,18 +108,21 @@ class Aate8417CortexHourDeliveryRuntimeTest {
                     checkpoint = requireNotNull(cortex.freezeForwardOutcome8404(mint, "QUALITY", at))
                     // Recreate the grade book and discard session-only deferral state as a restart would.
                     book.decode(book.encode()); paired.remove(id); deferred.remove(id)
-                    deliver(15, checkpoint)
-                    assertEquals("an intermediate return cannot train the hour predictor", "", book.decision(id)!!.modelContribution8395)
-                    assertTrue(book.decision(id)!!.executablePct.isNaN())
                 } else {
                     assertNull("no synthetic five-minute row was needed", book.decision(id))
                 }
-                deliver(60, checkpoint)
-                assertEquals("the exact original prediction learns once at its frozen horizon", id, book.decision(id)!!.modelContribution8395)
+                // V5.0.8592 — the hour target IS the 15-minute checkpoint now (was 60m, which memecoins never reached: the
+                // grader starved). The exact original prediction learns once here; the 5-minute read above stayed provisional.
+                deliver(15, checkpoint)
+                assertEquals("the exact original prediction learns once at its frozen 15-minute horizon", id, book.decision(id)!!.modelContribution8395)
                 assertEquals(5.0, book.decision(id)!!.executablePct, 0.0)
-                assertEquals(at + 60 * 60_000L, book.decision(id)!!.outcomeDueAtMs8394)
+                assertEquals(at + CortexForwardEpoch8521.HOUR_MS, book.decision(id)!!.outcomeDueAtMs8394)
                 assertFalse(deferred.contains(id))
                 assertFalse(paired.containsKey(id))
+                // A later 60-minute path may be displayed, but cannot retrain the frozen 15-minute target.
+                deliver(60, checkpoint)
+                assertEquals("a later checkpoint cannot retrain the frozen target", id, book.decision(id)!!.modelContribution8395)
+                assertEquals(5.0, book.decision(id)!!.executablePct, 0.0)
             } finally {
                 pool.submit {}.get(10, java.util.concurrent.TimeUnit.SECONDS)
                 pending.remove(key)
