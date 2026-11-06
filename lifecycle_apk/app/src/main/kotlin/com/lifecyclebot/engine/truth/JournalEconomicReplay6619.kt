@@ -241,7 +241,7 @@ object JournalEconomicReplay6619 {
 
         val lots = mutableMapOf<String, Lot>()
         val seenEvents = mutableSetOf<String>()
-        val seenFills = mutableSetOf<String>()
+        val seenFills = HashMap<String, com.lifecyclebot.data.Trade>()   // V5.0.8579 — fill key -> the row that owns it
         val failures = mutableListOf<String>()
 
         fun displayToRaw(value: Double, decimals: Int): java.math.BigInteger {
@@ -415,7 +415,15 @@ object JournalEconomicReplay6619 {
             if (!seenEvents.add(eventId)) { reject(t, eventId, "DUPLICATE_EVENT_ID"); continue }
             val fillKey = if (side == "BUY" || side == "QTY_RECONCILE") eventId
                 else "${t.positionId}:$side:${t.partialSequence}"
-            if (!seenFills.add(fillKey)) { reject(t, eventId, "DUPLICATE_FILL_INDEX"); continue }
+            val owner8579 = seenFills.putIfAbsent(fillKey, t)
+            if (owner8579 != null) {
+                // V5.0.8579 — a second row of the SAME receipt (the 7360 rebuild raced the real row, or a replayed projection)
+                // carries no economics the first did not: rejecting it abandons nothing, so the totals stay complete and the
+                // accounting witness is not failed at zero deltas (8562 / 8564 / 8566 / 8577 smokes: replaySkipped
+                // DUPLICATE_FILL_INDEX=1 on a JOURNAL_REBUILT_FROM_RECEIPT row, accountingStatus=FAILED, every delta 0).
+                if (sameEconomics8579(owner8579, t)) { reject(t, eventId, "DUPLICATE_FILL_INDEX_SAME_RECEIPT_8579", skipped = false); continue }
+                reject(t, eventId, "DUPLICATE_FILL_INDEX"); continue
+            }
 
             when {
                 side == "QTY_RECONCILE" -> {
@@ -988,6 +996,20 @@ object JournalEconomicReplay6619 {
      * Idempotent: the row's event id is derived from the terminal receipt, and
      * TradeHistoryStore acknowledges a durable event id without writing twice.
      */
+    const val REBUILD_RECEIPT_GRACE_MS_8579 = 90_000L
+
+    /** Pure (V5.0.8579): a terminal receipt old enough that its own journal row is not merely still on its way. */
+    fun receiptSettled8579(receiptAtMs: Long, nowMs: Long): Boolean =
+        receiptAtMs > 0L && nowMs - receiptAtMs >= REBUILD_RECEIPT_GRACE_MS_8579
+
+    /** Pure (V5.0.8579): two journal rows of one fill — same quantity, proceeds and basis (the second adds no economics). */
+    fun sameEconomics8579(a: com.lifecyclebot.data.Trade, b: com.lifecyclebot.data.Trade): Boolean {
+        fun close(x: Double, y: Double) = (x.isFinite() && y.isFinite() && kotlin.math.abs(x - y) <= 1e-9) || (!x.isFinite() && !y.isFinite())
+        return a.positionId == b.positionId && a.side.equals(b.side, true) && a.canonicalConsumedRaw == b.canonicalConsumedRaw &&
+            close(a.grossProceedsSol.takeIf { it > 0.0 } ?: a.sol, b.grossProceedsSol.takeIf { it > 0.0 } ?: b.sol) &&
+            close(a.soldCostBasisSol, b.soldCostBasisSol)
+    }
+
     private fun rebuildClosedLotFromReceipts7360(
         positionId: String,
         openBasis: Double,
@@ -1003,6 +1025,12 @@ object JournalEconomicReplay6619 {
         }
         val seed = positionBuys.firstOrNull() ?: return skip("NO_BUY_ROW")
         val terminal = receipts.firstOrNull { !it.partial } ?: return skip("NO_TERMINAL_RECEIPT")
+        // V5.0.8579 — the real closing row lands milliseconds after its receipt, on the caller's own thread; this rebuild runs
+        // on the reconcile thread every 30 s and read the journal snapshot in that gap, so it wrote a second SELL for the same
+        // receipt (DUPLICATE_FILL_INDEX on every later replay). A lot is rebuilt only once its terminal receipt is older than
+        // [REBUILD_RECEIPT_GRACE_MS_8579] and its row's journal write is not in flight; 7360's lots were journal-short for hours.
+        if (!receiptSettled8579(terminal.atMs, System.currentTimeMillis())) return skip("RECEIPT_YOUNG_8579")
+        if (receipts.any { TradeHistoryStore.isEconomicEventWriteInFlight8579(it.idempotencyKey) }) return skip("JOURNAL_WRITE_IN_FLIGHT_8579")
         val receiptKeys = receipts.map { it.idempotencyKey }.toSet()
         // V5.0.7367 — a stale 6662 orphan refund the replay rejected is not a sale;
         // it must not block the receipt rebuild (the lot is still open because of it).

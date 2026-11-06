@@ -15542,7 +15542,9 @@ class GoldenTapeRegressionTest {
             assertFalse(java.io.File(root,"engine/truth/$name.kt").exists())
         val gate=java.io.File(root,"engine/truth/LiveEdgeGate7877.kt").readText()
         assertTrue(gate.contains("canonicalRefusal8392(ts, l, paper, nowMs, candidateVersion, candidateAdmission)"))
-        assertTrue(gate.contains("val final = core ?: hold"))
+        // superseded by V5.0.8577 — "val final = core ?: hold ...": the doors' answer is doors8577; the verdict (final) is that
+        // answer unless lane authority makes it advisory for a lane-qualified LIVE candidate (LaneAuthority8577).
+        assertTrue(gate.contains("val doors8577 = core ?: hold"))
         assertTrue(gate.contains("if (!paper && core == null && hold != null && final == hold)"))
         // V5.0.8392 §STOP_NEVER_INSIDE_THE_ROUND_TRIP — one rule at the Field Manual, every stop consumer reads it
         fun src8392(p: String) = java.io.File("src/main/kotlin/com/lifecyclebot/" + p).readText()
@@ -15567,7 +15569,7 @@ class GoldenTapeRegressionTest {
         assertTrue(src8392("engine/truth/EvidenceShadow8344.kt").contains("com.lifecyclebot.engine.cortex.CortexLabelHygiene8144.horizonMsFor8468(lane, runner), advisoryEntry8393)"))
         assertTrue(src8392("engine/truth/ExploreShadow8347.kt").contains("OTHER_TIMEOUT_MS_8347 = com.lifecyclebot.engine.cortex.CortexLabelHygiene8144.executableHorizonMs8392(false)"))
         assertTrue("8392: a niche/timing choice is a preference, not a veto, on a lane-wide proven lane",
-            gate.contains("val final = core ?: hold ?: niche ?: wait") && gate.contains("EvidenceHold8336.laneWideProven8392(l, nowMs)"))
+            gate.contains("val doors8577 = core ?: hold ?: niche ?: wait") && gate.contains("EvidenceHold8336.laneWideProven8392(l, nowMs)"))   // superseded by V5.0.8577 (doors8577)
         assertTrue(gate.contains("entryContext8392.get()?.let { it.assessment = a; return }"))
         val cortex=java.io.File(root,"engine/cortex/Cortex7885.kt").readText()
         assertTrue(cortex.contains("authorityRows8392(lane, setup)"))
@@ -15582,7 +15584,9 @@ class GoldenTapeRegressionTest {
         fun source(p: String) = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/$p.kt").readText()
         val g = source("LiveEdgeGate7877")
         assertTrue(g.contains("Rehearsal8339.doorBindsNow8342"))
-        assertTrue(g.contains("val final = core ?: hold ?: niche ?: wait"))
+        // superseded by V5.0.8577 — "val final = core ?: hold ...": the doors' answer is doors8577; the verdict (final) is that
+        // answer unless lane authority makes it advisory for a lane-qualified LIVE candidate (LaneAuthority8577).
+        assertTrue(g.contains("val doors8577 = core ?: hold ?: niche ?: wait"))
         assertTrue(g.contains("advisoryEntry8393 = shadowOnly8393"))
         assertTrue(g.contains("if (!paper && final == null) LiveTruth8064.noteLiveAdmit8083"))
         val a = source("CandidateAdmission8136")

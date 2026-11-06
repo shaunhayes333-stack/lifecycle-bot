@@ -100,7 +100,9 @@ class Aate8393AdmissionRecoveryTest {
         val start = gate.indexOf("fun liveRefusal(")
         val code = gate.substring(start, gate.indexOf("private fun canonicalRefusal8392", start))
         assertTrue(code.indexOf("val hold =") < code.indexOf("canonicalRefusal8392(ts"))
-        assertTrue(code.contains("val final = core ?: hold ?: niche ?: wait"))
+        // superseded by V5.0.8577 — "val final = core ?: hold ...": the doors' answer is doors8577; the verdict (final) is that
+        // answer unless lane authority makes it advisory for a lane-qualified LIVE candidate (LaneAuthority8577).
+        assertTrue(code.contains("val doors8577 = core ?: hold ?: niche ?: wait"))
         assertTrue(code.contains("if (!paper && final == null) LiveTruth8064.noteLiveAdmit8083"))
         assertTrue(code.contains("if (!paper && core == null && hold != null && final == hold)"))
         assertTrue(code.contains("advisoryEntry8393 = shadowOnly8393"))

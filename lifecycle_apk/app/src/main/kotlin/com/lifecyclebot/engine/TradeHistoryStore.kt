@@ -652,6 +652,10 @@ object TradeHistoryStore {
     fun isDurableEconomicEvent7371(eventId: String): Boolean =
         eventId.isNotBlank() && eventId in durableEconomicEventIds
 
+    /** V5.0.8579 — the row for [eventId] has been handed to the journal writer and is not durable yet. */
+    fun isEconomicEventWriteInFlight8579(eventId: String): Boolean =
+        eventId.isNotBlank() && eventId in economicEventWritesInFlight
+
     fun isXrefRugRow7364(t: Trade): Boolean = t.economicEventId.startsWith("EXTERNAL_RUG_CLOSE_7362:")
 
     fun isValidAccountingTrade(t: Trade): Boolean = isValidAccountingTrade8397(t, null)
