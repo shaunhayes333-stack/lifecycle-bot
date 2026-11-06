@@ -1336,6 +1336,11 @@ object LanePlaybook7907 {
                 retired8383(lane, id) -> "RETIRED_8383"
                 retired8555(lane, id) -> "RETIRED_8555"
                 chaseRefused8555(id, f.pxPeak) -> "CHASE_AT_HIGH_8555"
+                // V5.0.8586 — PEAK band (timingBand8094: ran >=80% off the low AND within 12% of the high) is the top-chase the
+                // stage records show losing on every lane and LaneCheatSheet8323 lists in every lane's avoid band. Refuse it
+                // structurally so chase-at-high stops executing while the record-gated timingNegative8094 veto is grader-starved.
+                // EXTENDED stays record-gated so runner lanes can still buy early strength; only the unambiguous top is refused.
+                timingBand8094(f.runup, f.pxPeak) == "PEAK" -> "PEAK_BAND_CHASE_8586"
                 else -> null
             }
             if (why != null && why != "RETIRED_8383") sweepSkips8555.computeIfAbsent("$lane:$why") { AtomicLong(0) }.incrementAndGet()
