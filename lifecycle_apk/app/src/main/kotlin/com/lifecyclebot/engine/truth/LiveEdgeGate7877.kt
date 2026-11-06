@@ -529,20 +529,29 @@ object LiveEdgeGate7877 {
         val proof8536 = if (paper || core != null || hold != null || niche != null || wait != null) null
             else (sourceRefusal8536(ts) ?: unprovenLive8536(ts, l, nowMs, candidateVersion, candidateAdmission))
                 ?.takeIf { Rehearsal8339.doorBindsNow8342(it, l) }  // V5.0.8539 — learnt and unlearnt (FdgGate8365 demotion)
-        val final = core ?: hold ?: niche ?: wait ?: proof8536
+        val doors8577 = core ?: hold ?: niche ?: wait ?: proof8536
+        // V5.0.8577 §LANE_AUTHORITY — a lane-qualified LIVE candidate is refused only by a binding door (safety, structure,
+        // the executable minimum, the kill switch); every learned door's refusal is advisory: counted, traced and filed on
+        // its forward record below (observeTail7996 / noteFinal8365 read the door's answer), never the verdict.
+        val admission8577 = candidateAdmission ?: (if (!paper && doors8577 != null)
+            try { CandidateAdmission8136.assess8136(ts, l, nowMs, candidateVersion) } catch (_: Throwable) { null } else null)
+        val advisory8577 = !paper && LaneAuthority8577.advisoryAtGate8577(doors8577, admission8577)
+        if (advisory8577) LaneAuthority8577.noteAdvisory8577(doors8577!!, l)
+        val final = if (advisory8577) null else doors8577
         val provisional = context.assessment
         val verdict = when { final == null -> Verdict8083.ADMIT
             provisional?.verdict == Verdict8083.DEFER && final == core -> Verdict8083.DEFER
             else -> Verdict8083.REFUSE }
         recordAssessment8083(ts, l, provisional?.setup ?: candidateAdmission?.chosenSetup, verdict,
-            final ?: candidateAdmission?.reason ?: "CANONICAL_ADMIT_8392", provisional?.sizeFactor ?: 1.0, nowMs, paper)
+            final ?: (if (advisory8577) "${LaneAuthority8577.REASON_8577}:$doors8577" else candidateAdmission?.reason ?: "CANONICAL_ADMIT_8392"),
+            provisional?.sizeFactor ?: 1.0, nowMs, paper)
         if (!paper && final == null) LiveTruth8064.noteLiveAdmit8083(ts.mint, l,
             provisional?.setup ?: candidateAdmission?.chosenSetup, nowMs)
         // V5.0.8428 — a shut lane's probe slot is claimed by the coin the FDG ADMITS, not by every coin it evaluates.
         if (!paper && final == null) try { LaneRealisedProbe8424.claim8424(l, ts.mint, nowMs) } catch (_: Throwable) {}
-        observeTail7996(ts, l, final, nowMs)
-        FdgGate8365.noteFinal8365(final, l)
-        if (basis == FdgGate8365.BASIS_EXCEPTION_8418) FdgGate8365.noteException8418(final, l)   // V5.0.8418 — where the 100x door's candidates end
+        observeTail7996(ts, l, doors8577, nowMs)   // V5.0.8577 — the door's own answer keeps its forward record (advisory or not)
+        FdgGate8365.noteFinal8365(doors8577, l)
+        if (basis == FdgGate8365.BASIS_EXCEPTION_8418) FdgGate8365.noteException8418(doors8577, l)   // V5.0.8418 — where the 100x door's candidates end
         FdgGate8365.memoPut8365(key, final, nowMs)
         if (!paper && hold?.startsWith("EVIDENCE_HOLD_8336_") == true)
             try { EvidenceShadow8344.noteHoldRefusal8345(l, core != null, FdgGate8365.hardSafety8392(core)) } catch (_: Throwable) { PipelineHealthCollector.labelInc("EVIDENCE_SHADOW_TELEMETRY_FAILED_8392") }

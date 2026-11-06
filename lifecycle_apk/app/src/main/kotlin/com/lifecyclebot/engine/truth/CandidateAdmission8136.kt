@@ -236,6 +236,8 @@ object CandidateAdmission8136 {
         val nativePhaseWitness8528: Boolean = false,
         /** V5.0.8535 §P0-03 — the fired setup's own rebound clock settled the generic NO_RECLAIM wait. */
         val strategyClockWitness8535: Boolean = false,
+        /** V5.0.8577 — a LIVE candidate its own lane qualified: the gate's learned doors are advisory for it (LaneAuthority8577). */
+        val laneQualified8577: Boolean = false,
     ) {
         val admitted: Boolean get() = terminal == Terminal8136.ADMIT
         val compact: String get() = "${terminal.name}:$reason${chosenSetup?.let { " setup=$it" } ?: ""} [${trace.joinToString("; ")}]"
@@ -1482,9 +1484,10 @@ object CandidateAdmission8136 {
         val key = "$policyMode8393|${ts.mint}|${candidate.lane}|$version"
         val identity = cacheIdentity8144(candidate)
         val cached = memos8153[key]?.takeIf { nowMs - it.atMs in 0L..MEMO_MS_8153 && it.candidate == identity }?.decision
-        cached ?: (if (FdgGate8365.policyKey8393() == "OUTSIDE") coalescedDefer8144(ts.mint, candidate.lane, identity, version, mode, nowMs) else null) ?: decide8136(candidate) {
+        // V5.0.8577 — LIVE: the lane-qualified candidate's learned-door refusal is advisory (LaneAuthority8577.apply8577).
+        cached ?: (if (FdgGate8365.policyKey8393() == "OUTSIDE") coalescedDefer8144(ts.mint, candidate.lane, identity, version, mode, nowMs) else null) ?: LaneAuthority8577.apply8577(candidate, decide8136(candidate) {
             Rehearsal8339.doorBindsNow8342(it, candidate.lane)
-        }.also {
+        }).also {
             // A held shadow rehearsal must not publish an ADMIT into live sizing, strategy identity or the runner trace.
             if (!FdgGate8365.shadowOnly8393()) {
                 noteDecision8144(ts.mint, candidate.lane, candidate, it, version, mode, nowMs)
