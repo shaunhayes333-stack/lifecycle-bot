@@ -333,6 +333,10 @@ class TokenMetaCache private constructor(ctx: Context) :
         return null
     }
 
+    /** V5.0.8559 — is the mint's row in memory now (never a disk read, never a new row)? The store's archive refresh only
+     *  updates resident rows: creating one per fact-written mint grew the working set to 20k rows and the process died. */
+    fun resident8559(mint: String): Boolean = live.containsKey(com.lifecyclebot.data.CanonicalMint.normalize(mint))
+
     private val diskLoadsInFlight7979 = ConcurrentHashMap.newKeySet<String>()
     private val diskLoads7979 = AtomicLong(0L)
     private val diskLoader7979 = java.util.concurrent.ThreadPoolExecutor(

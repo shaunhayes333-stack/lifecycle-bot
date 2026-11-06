@@ -134,6 +134,41 @@ object MemePaperTrader8544 {
     fun netPct8544(banked: Double, held: Double, gross: Double, costPct: Double): Double =
         banked + held * gross - (if (costPct.isFinite()) costPct else 0.0)
 
+    /**
+     * Pure (V5.0.8559): is [px] within 20x of the position's last mark [lastPx] (the ForwardReturnLabeler7731 7738 basis rule)?
+     * Nothing is capped: a bigger jump is held for confirmation ([acceptMark8559]), never discarded as a win.
+     */
+    fun markPlausible8559(lastPx: Double, px: Double): Boolean =
+        !(lastPx > 0.0 && lastPx.isFinite()) || !ForwardReturnLabeler7731.basisSuspect7738(lastPx, px)
+
+    /** Pure (V5.0.8559): the mark after a held jump agrees with it (within 2x either way): the jump was real. */
+    fun jumpConfirmed8559(heldJumpPx: Double?, px: Double): Boolean =
+        heldJumpPx != null && heldJumpPx > 0.0 && px > 0.0 && (px / heldJumpPx) in 0.5..2.0
+
+    private val heldJump8559 = ConcurrentHashMap<String, Double>()
+    private val jumpsHeld8559 = java.util.concurrent.atomic.AtomicLong(0)
+    private val jumpsConfirmed8559 = java.util.concurrent.atomic.AtomicLong(0)
+
+    /**
+     * V5.0.8559 — 8557's book closed EXPRESS at +5,139,752 % mean on single off-basis marks (a cap / supply seed outranking the
+     * pair price). A > 20x jump from the last mark is held, not used, until the NEXT mark agrees with it; then it counts in
+     * full (a real runner keeps every % of its win). A one-off unit mix never agrees and is dropped.
+     */
+    fun acceptMark8559(key: String, lastPx: Double, px: Double): Boolean {
+        if (markPlausible8559(lastPx, px)) {
+            heldJump8559.remove(key)
+            return true
+        }
+        val held = heldJump8559.put(key, px)
+        if (heldJump8559.size > 4_096) heldJump8559.clear()
+        if (jumpConfirmed8559(held, px)) { heldJump8559.remove(key); jumpsConfirmed8559.incrementAndGet(); return true }
+        jumpsHeld8559.incrementAndGet()
+        return false
+    }
+
+    /** Brief: off-basis jumps held / later confirmed as real moves. */
+    fun jumpLine8559(): String = "markJumps8559{held=${jumpsHeld8559.get()} confirmed=${jumpsConfirmed8559.get()}}"
+
     /** BotService loop (beside ExploreShadow8347.tick8347): mark, exit and close every open paper position. */
     fun tick8544(tokens: Map<String, TokenState>, nowMs: Long = System.currentTimeMillis()) {
         restore8544()
@@ -141,6 +176,7 @@ object MemePaperTrader8544 {
         val latency = try { ShadowAlign8366.sellLatencyMs8366(false) } catch (_: Throwable) { 16_000L }
         for (p in open.values.toList()) try {
             val obs = ShadowMark8360.observedTimed8372(tokens[p.mint], p.mint, nowMs)?.takeIf { it.observedAtMs >= p.lastAtMs && it.priceUsd > 0.0 }
+                ?.takeIf { acceptMark8559("book:" + p.mint, p.lastPx, it.priceUsd) }
             if (obs != null) { p.lastPx = obs.priceUsd; p.lastAtMs = obs.observedAtMs }
             val g = grossPct8544(p.entryPx, p.lastPx)
             if (!g.isFinite()) continue

@@ -210,7 +210,9 @@ class Aate8283FeatureCacheLifecycleTest {
         // live money still needs supported evidence: the generic prior alone is refused (no bypass)
         val live = CandidateAdmission8136.decide8136(launch(unavailable = listOf("chg:UNKNOWN")).copy(live = true))
         assertEquals(Terminal8136.REFUSE, live.terminal)
-        assertEquals("LIVE_GENERIC_PRIOR_UNSUPPORTED_8238", live.reason)
+        // superseded (8559): a fresh launch on an unproven stage record is refused earlier, by the LIVE launch door
+        // (was LIVE_GENERIC_PRIOR_UNSUPPORTED_8238 — still a refusal, never a bypass)
+        assertEquals(CandidateAdmission8136.LIVE_LAUNCH_UNPROVEN_8559, live.reason)
     }
 
     // P4 — unpriceable / unsellable / uncosted / unfunded stay refused or deferred whatever the lifecycle.

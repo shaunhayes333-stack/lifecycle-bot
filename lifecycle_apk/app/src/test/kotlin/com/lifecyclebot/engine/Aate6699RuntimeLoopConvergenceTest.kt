@@ -81,7 +81,9 @@ class Aate6699RuntimeLoopConvergenceTest {
         assertTrue(recorder.contains("layer.equals(\"CYCLIC\", ignoreCase = true)"))
         assertTrue(recorder.contains("CanonicalPositionAuthority6441.openPositions()"))
         assertTrue(recorder.contains("CanonicalPositionAuthority6441.closedPositions()"))
-        assertTrue(recorder.contains("t.side.equals(\"BUY\", ignoreCase = true)"))
+        // superseded (8559): the canonical open / closed-and-nothing-open proof alone — the 20 s durable-row read raced the
+        // journal write and let duplicate rows without a positionId through (was `t.side.equals("BUY", ignoreCase = true)`)
+        assertFalse(recorder.contains("getAllValidTradesSnapshot"))
         assertTrue(recorder.contains("V3_\${side}_JOURNAL_SUPERSEDED_BY_EXECUTOR_6699"))
         assertTrue(recorder.contains("if (executorAlreadyJournaledCyclicOpen6699(mint, isPaper, layer)) return"))
         assertTrue(recorder.contains("if (executorAlreadyJournaledCyclicClose6699(mint, isPaper, layer)) return"))

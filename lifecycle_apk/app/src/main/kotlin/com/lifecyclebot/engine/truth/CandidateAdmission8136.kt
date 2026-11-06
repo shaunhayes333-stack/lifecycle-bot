@@ -882,6 +882,17 @@ object CandidateAdmission8136 {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("${LIVE_INTO_HIGH_UNPROVEN_8545}_${c.lane.uppercase()}_${c.stage}") } catch (_: Throwable) {}
             return done(Terminal8136.REFUSE, LIVE_INTO_HIGH_UNPROVEN_8545, true, chosen)
         }
+        // V5.0.8559 — the launch stage, same rule: 8557 stage records (5-min executable net) LAUNCH SHITCOIN -28.3 % / MOONSHOT
+        // -30.6 % / EXPRESS -27.5 % / PROJECT_SNIPER -29.6 % / MANIPULATED -25.4 % / DIP_HUNTER -34.6 %, run <= 5 %; BASE is the
+        // only positive stage. LIVE money buys a fresh launch only on that stage's own SUPPORTED record or a proven family;
+        // a learnt door (doorBinds8393); paper and the paper book keep entering launches and grading them.
+        if (c.live && liveIntoLaunch8559(c.stage) && !supported8136(c.stageLoss8169 ?: c.stageRecord, c.costPct) &&
+            c.liveEdge8114?.startsWith(FAMILY_PROVEN_PREFIX_8546) != true &&
+            doorBinds8393(LIVE_LAUNCH_UNPROVEN_8559)) {
+            trace += "liveLaunch8559 stage=${c.stage} record=${(c.stageLoss8169 ?: c.stageRecord)?.compact ?: "-"}"
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("${LIVE_LAUNCH_UNPROVEN_8559}_${c.lane.uppercase()}") } catch (_: Throwable) {}
+            return done(Terminal8136.REFUSE, LIVE_LAUNCH_UNPROVEN_8559, true, chosen)
+        }
         if (nativeLive8259 && c.live) {
             if (c.liveEdge8114 != null) trace += "liveNativeCarriedBy8538=${c.liveEdge8114}"
             // V5.0.8539 — learnt and unlearnt: the door binds until its own refused record proves it turns away winners
@@ -938,6 +949,10 @@ object CandidateAdmission8136 {
     const val LIVE_NATIVE_OPINION_UNPROVEN_8536 = "LIVE_NATIVE_OPINION_UNPROVEN_8536"
     const val LIVE_INTO_HIGH_UNPROVEN_8545 = "LIVE_INTO_HIGH_UNPROVEN_8545"
     const val LIVE_REGIME_COLD_8546 = "LIVE_REGIME_COLD_8546"
+    const val LIVE_LAUNCH_UNPROVEN_8559 = "LIVE_LAUNCH_UNPROVEN_8559"
+
+    /** Pure (V5.0.8559): the coin is in its launch stage (the brief's LAUNCH column). */
+    fun liveIntoLaunch8559(stage: String?): Boolean = stage?.trim()?.uppercase() == "FRESH_LAUNCH"
     const val FAMILY_PROVEN_PREFIX_8546 = "FAMILY_PROVEN_8546"
 
     /**

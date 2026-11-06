@@ -164,10 +164,21 @@ object TokenFacts {
         if (!isReading(offered.value)) return false
         if (offered.rank <= Rank.RESTORE) return prior == null || prior.rank <= Rank.RESTORE
         if (prior == null || prior.rank <= Rank.RESTORE) return true
+        // V5.0.8559 — a derived seed (intake cap / supply, curve synthesis) is re-stamped "now" on every intake sighting, so a
+        // provider's dated pair price (its fetch time, up to the pair cache's 135 s) could never replace it and the seed stayed
+        // the coin's mark (8557: the paper book's EXPRESS book read +5,139,752 %). A provider / chain reading replaces a seed
+        // it is no more than [SEED_YIELD_MS] older than.
+        if (seedPrice8559(prior.source) && offered.rank >= Rank.PROVIDER && !seedPrice8559(offered.source) &&
+            prior.observedAtMs - offered.observedAtMs <= SEED_YIELD_MS) return true
         if (offered.observedAtMs < prior.observedAtMs) return false
         if (offered.rank >= prior.rank || prior.rank < Rank.CHAIN) return true
         return offered.observedAtMs - prior.observedAtMs > PRICE_CHAIN_HOLD_MS
     }
+
+    const val SEED_YIELD_MS = 150_000L
+
+    /** Pure (V5.0.8559): a price derived from a cap / supply or a curve synthesis, not observed in a trade or a pool. */
+    fun seedPrice8559(source: String?): Boolean = source == "PUMP_FUN_BC_SYNTHETIC" || source == EntryBasisSeed7280.CHAIN_SUPPLY_CAP_SEED
 
     /** The price [ts] holds, as a fact: the store's, else its legacy fields read as one (null when it has no price). */
     fun priceFact(ts: TokenState): Fact? = ts.facts8551[Field.PRICE_USD]
@@ -217,7 +228,8 @@ object TokenFacts {
         if (priceFact(ts) == null) return writePrice(ts, usd, source, Rank.AGGREGATE, System.currentTimeMillis())
         synchronized(ts.facts8551) {
             val prior = priceFact(ts) ?: return false
-            ts.facts8551[Field.PRICE_USD] = prior.copy(value = usd, source = source)
+            // V5.0.8559 — a correction is derived: it never carries the CHAIN hold of the reading it repairs
+            ts.facts8551[Field.PRICE_USD] = prior.copy(value = usd, source = source, rank = minOf(prior.rank, Rank.AGGREGATE))
             ts.lastPrice = usd
             ts.lastPriceSource = source
         }
@@ -386,13 +398,19 @@ object TokenFacts {
      */
     fun archive(ts: TokenState, nowMs: Long = System.currentTimeMillis()) {
         if (ts.mint.isBlank() || !archiveDue(archivedAt[ts.mint], nowMs)) return
-        if (archivedAt.size > 20_000) archivedAt.entries.removeIf { nowMs - it.value > 10L * ARCHIVE_EVERY_MS }
+        // V5.0.8559 — only the bot's own live row refreshes, and only a row the archive already holds in memory: 8557 created a
+        // row for every fact-written mint (transient / desk / frozen rows too), the working set reached 20,145 rows (cap 4,000;
+        // dirty rows cannot be evicted) and the process died of OutOfMemoryError. The intake register still creates rows.
+        if (!archiveEligible8559(ts)) return
+        if (archivedAt.size > 2_000) archivedAt.entries.removeIf { nowMs - it.value > 10L * ARCHIVE_EVERY_MS }
         archivedAt[ts.mint] = nowMs
         val ctx = try { com.lifecyclebot.AATEApp.appContextOrNull() } catch (_: Throwable) { null } ?: return
+        val cache = try { com.lifecyclebot.engine.TokenMetaCache.get(ctx) } catch (_: Throwable) { null } ?: return
+        if (!cache.resident8559(ts.mint)) return
         fun v(f: Field) = ts.facts8551[f]?.takeIf { it.rank > Rank.RESTORE }?.value
         val px = ts.facts8551[Field.PRICE_USD]?.takeIf { it.rank > Rank.RESTORE }
         try {
-            com.lifecyclebot.engine.TokenMetaCache.get(ctx).register(
+            cache.register(
                 mint = ts.mint,
                 lastPrice = px?.value, lastPriceSource = px?.source?.takeIf { it.isNotBlank() },
                 lastPricePoolAddr = ts.lastPricePoolAddr.takeIf { px != null && it.isNotBlank() },
@@ -402,6 +420,10 @@ object TokenFacts {
             count(accepted, "ARCHIVE:REFRESH")
         } catch (_: Throwable) {}
     }
+
+    /** The bot's own live row for its mint (not a transient, desk or frozen copy). */
+    internal fun archiveEligible8559(ts: TokenState): Boolean =
+        try { com.lifecyclebot.engine.BotService.status.tokens[ts.mint] === ts } catch (_: Throwable) { false }
 
     /** The frozen decision copy keeps the facts (source, rank, time) of the row it froze (DATA_MAP D10). */
     fun freezeInto(frozen: TokenState, live: TokenState) {

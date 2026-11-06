@@ -6491,7 +6491,7 @@ object FinalDecisionGate {
         // convexity and funding checks, or refuses; never seal unsafe dust.
         val sealedMinimum8269 = com.lifecyclebot.engine.truth.LiveSizeTarget8094.sealedCostViableMinimum8269(
             minimum, risk8094?.reason, risk8094?.sizeSol ?: 0.0)
-        val ceiling8552 = TicketExec8304.sealCeiling8552(config.paperMode, riskSized, depthCap, curveCap)  // V5.0.8552 paper = live parity
+        val ceiling8552 = TicketExec8304.sealCeiling8552(config.paperMode, riskSized, depthCap, curveCap, sealedMinimum8269)  // V5.0.8552 paper = live parity
         val resolution = com.lifecyclebot.engine.truth.OrderSizeResolver6441.resolve(
             requestedSol = riskSized, laneName = lane, walletSol = cash, paperMode = config.paperMode,
             laneRiskCapSol = minOf(configuredCap, ceiling8552), laneMinExecutableSol = sealedMinimum8269,

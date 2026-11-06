@@ -227,10 +227,12 @@ object TicketExec8304 {
      * carry it — what LIVE does — instead of the resolver refusing it LANE_CAP_BELOW_MIN_EXECUTABLE_6490 (8550: 191 meme
      * approvals, 0 paper meme trades).
      */
-    fun sealCeiling8552(paper: Boolean, riskSized: Double, depthCap: Double, curveCap: Double): Double {
+    fun sealCeiling8552(paper: Boolean, riskSized: Double, depthCap: Double, curveCap: Double, floorSol: Double = Double.MAX_VALUE): Double {
         if (!paper) return riskSized
         val market = minOf(depthCap, curveCap)
-        return if (market.isFinite() && market > riskSized) market else riskSized
+        // V5.0.8559 — promote a sub-floor request TO the floor, no further: the market cap alone let the resolver's adaptive
+        // multiplier (up to 2.5x) and the runner ladder size paper above the FDG's risk size
+        return if (market.isFinite() && market > riskSized) minOf(market, maxOf(riskSized, floorSol)) else riskSized
     }
 
     /** The FDG's named zero sizes, most frequent first (the brief's B MONEY line). */

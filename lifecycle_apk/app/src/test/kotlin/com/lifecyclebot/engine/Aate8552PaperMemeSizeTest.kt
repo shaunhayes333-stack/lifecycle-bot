@@ -33,7 +33,8 @@ class Aate8552PaperMemeSizeTest {
 
     @Test fun theFdgUsesTheCeilingAndNamesEveryZero() {
         val f = src("engine/FinalDecisionGate.kt").substringAfter("private fun resolveExecutableSize7835(").substringBefore("fun logBlockedTrade(")
-        assertTrue(f.contains("val ceiling8552 = TicketExec8304.sealCeiling8552(config.paperMode, riskSized, depthCap, curveCap)"))
+        // superseded (8559): the ceiling also takes the sealed minimum — a sub-floor request is promoted to the floor, no further
+        assertTrue(f.contains("val ceiling8552 = TicketExec8304.sealCeiling8552(config.paperMode, riskSized, depthCap, curveCap, sealedMinimum8269)"))
         assertTrue(f.contains("laneRiskCapSol = minOf(configuredCap, ceiling8552), laneMinExecutableSol = sealedMinimum8269,"))
         assertFalse("superseded: `laneRiskCapSol = minOf(configuredCap, riskSized)` refused every sub-floor paper meme request",
             f.contains("laneRiskCapSol = minOf(configuredCap, riskSized)"))

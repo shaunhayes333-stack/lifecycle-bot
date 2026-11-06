@@ -792,6 +792,7 @@ object ExploreShadow8347 {
                     if (!marks.containsKey(t.mint)) marks[t.mint] = ShadowMark8360.observedTimed8372(tokens[t.mint], t.mint, nowMs)
                     // A cache/source handoff must not move this episode's price path backwards in time.
                     val observation = marks[t.mint]?.takeIf { it.observedAtMs >= t.lastPxAtMs }
+                        ?.takeIf { MemePaperTrader8544.acceptMark8559("shadow:$key", t.lastPx, it.priceUsd) }   // V5.0.8559 — a > 20x jump waits for the next mark to agree
                     val fresh: Double? = observation?.priceUsd
                     if (observation != null) { t.lastPx = observation.priceUsd; t.lastPxAtMs = observation.observedAtMs }
                     want8360(t.mint, nowMs)   // V5.0.8360 — keep the data side pricing an open ticket

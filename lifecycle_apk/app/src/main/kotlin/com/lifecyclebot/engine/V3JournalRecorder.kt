@@ -11,14 +11,13 @@ object V3JournalRecorder {
 
     private val recentCloseDedup = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private const val CLOSE_DEDUP_MS = 60_000L
-    private const val EXECUTOR_PROOF_WINDOW_MS_6699 = 20_000L
 
     /**
      * V5.0.6699 — CYCLIC uses Executor.treasuryBuy, which already commits the
      * canonical position and durable BUY journal row. Runtime 5.0.6698 showed
      * the second V3 recordOpen BUY seconds later with an incompatible quantity.
-     * Suppress only when a current canonical open AND a recent durable executor
-     * row carrying a real positionId prove that the economic BUY already exists.
+     * Suppress when the current canonical open proves the economic BUY exists (V5.0.8559: the canonical
+     * open alone; a recent durable-row read raced the journal write).
      */
     private fun executorAlreadyJournaledCyclicOpen6699(mint: String, isPaper: Boolean, layer: String): Boolean {
         if (!layer.equals("CYCLIC", ignoreCase = true) || mint.isBlank()) return false
@@ -30,17 +29,12 @@ object V3JournalRecorder {
             }
         } catch (_: Throwable) { false }
         if (!canonicalOpen) return false
-        val now = System.currentTimeMillis()
-        val durableBuy = try {
-            TradeHistoryStore.getAllValidTradesSnapshot(limit = 160).any { t ->
-                t.mint == mint && t.mode.equals(mode, ignoreCase = true) &&
-                    t.side.equals("BUY", ignoreCase = true) &&
-                    t.positionId.isNotBlank() &&
-                    now - t.ts in 0L..EXECUTOR_PROOF_WINDOW_MS_6699
-            }
-        } catch (_: Throwable) { false }
-        if (durableBuy) emitExecutorSupersession6699(mint, mode, layer, "BUY")
-        return durableBuy
+        // V5.0.8559 — the canonical open is the executor's proof (this recorder's rows carry no positionId and never open a
+        // canonical position). The 20 s durable-row read raced the journal write (8552+ paper: rows landed 12-15 s late), so the
+        // duplicate BUY slipped through without a positionId and the replay counted it skipped (totalsComplete6899=false,
+        // accountingStatus=FAILED with every delta 0, Runtime Smoke 8552-8558).
+        emitExecutorSupersession6699(mint, mode, layer, "BUY")
+        return true
     }
 
     /**
@@ -60,17 +54,16 @@ object V3JournalRecorder {
             }
         } catch (_: Throwable) { false }
         if (!canonicalClosed) return false
-        val now = System.currentTimeMillis()
-        val durableSell = try {
-            TradeHistoryStore.getAllValidTradesSnapshot(limit = 160).any { t ->
-                t.mint == mint && t.mode.equals(mode, ignoreCase = true) &&
-                    (t.side.equals("SELL", ignoreCase = true) || t.side.equals("PARTIAL_SELL", ignoreCase = true)) &&
-                    t.positionId.isNotBlank() &&
-                    now - t.ts in 0L..EXECUTOR_PROOF_WINDOW_MS_6699
+        // V5.0.8559 — closeCycle only reaches recordClose after the executor CONFIRMED the sell; with no canonical open left for
+        // this mint the executor's close is the economic row (the 20 s durable-row read raced the late journal write, as for BUY).
+        val stillOpen = try {
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions().any {
+                it.mint == mint && it.mode.equals(mode, ignoreCase = true) && it.remainingQtyRaw > java.math.BigInteger.ZERO
             }
-        } catch (_: Throwable) { false }
-        if (durableSell) emitExecutorSupersession6699(mint, mode, layer, "SELL")
-        return durableSell
+        } catch (_: Throwable) { true }
+        if (stillOpen) return false
+        emitExecutorSupersession6699(mint, mode, layer, "SELL")
+        return true
     }
 
     private fun emitExecutorSupersession6699(mint: String, mode: String, layer: String, side: String) {
@@ -78,7 +71,7 @@ object V3JournalRecorder {
             PipelineHealthCollector.labelInc("V3_${side}_JOURNAL_SUPERSEDED_BY_EXECUTOR_6699")
             ForensicLogger.lifecycle(
                 "V3_JOURNAL_SUPERSEDED_BY_EXECUTOR_6699",
-                "mint=${mint.take(10)} mode=${mode.uppercase()} layer=$layer side=$side action=skip_duplicate_economic_writer canonicalProof=true durablePositionRow=true",
+                "mint=${mint.take(10)} mode=${mode.uppercase()} layer=$layer side=$side action=skip_duplicate_economic_writer canonicalProof=true",
             )
         } catch (_: Throwable) {}
     }

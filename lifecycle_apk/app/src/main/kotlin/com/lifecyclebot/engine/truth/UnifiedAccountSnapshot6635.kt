@@ -94,14 +94,8 @@ object UnifiedAccountSnapshot6635 {
     private fun reconcileThrottled7302() {
         val now = System.currentTimeMillis()
         if (now - lastReconcileMs7302.get() < RECONCILE_EVERY_MS_7302) return
-        val onMain = try {
-            android.os.Looper.myLooper() == android.os.Looper.getMainLooper()
-        } catch (_: Throwable) { false }
-        if (!onMain) {
-            lastReconcileMs7302.set(now)
-            try { ForensicReconciliation6635.reconcile6635() } catch (_: Throwable) {}
-            return
-        }
+        // V5.0.8559 — never inline: a bot-loop read used to run the full reconcile inside this @Synchronized read, and the main
+        // thread's balance reads (MainActivity updateUi) waited behind it once paper trades moved the state key every cycle.
         if (!reconcileInFlight7302.compareAndSet(false, true)) return
         lastReconcileMs7302.set(now)
         try {
