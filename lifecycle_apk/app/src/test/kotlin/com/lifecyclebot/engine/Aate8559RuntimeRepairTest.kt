@@ -184,4 +184,27 @@ class Aate8559RuntimeRepairTest {
         val t = com.lifecyclebot.v4.meta.TradeLessonRecorder
         assertFalse(t.missingSettled8567(60_000L)); assertTrue(t.missingSettled8567(t.MISSING_WAIT_MS_8567 + 1))
     }
+
+    /** V5.0.8567 — the edge model learned 5-min nets clipped to -60..+200 %: a 20x taught the same as a 3x. */
+    @Test fun theEdgeModelLearnsHowBigAWinnerIs() {
+        val e = com.lifecyclebot.engine.truth.EdgeModel8537
+        assertEquals(0.0, e.target8567(0.0), 1e-9)
+        assertTrue("a 20x counts more than a 3x", e.target8567(1_900.0) > e.target8567(200.0) + 100.0)
+        assertTrue("a total loss is finite", e.target8567(-100.0).isFinite())
+        assertEquals(250.0, e.netOf8567(e.target8567(250.0)), 1e-6)
+        assertEquals(-9.53, e.target8567(-9.1), 0.05)
+        val src8537 = src("engine/truth/EdgeModel8537.kt")
+        assertFalse(src8537.contains("coerceIn(Y_MIN, Y_MAX)"))
+        assertTrue(src8537.contains("appendDataset(s, netPct)"))
+    }
+
+    /** V5.0.8567 — fast meme coins' outcomes never trained: no mark inside the 5-60 s rebase window. */
+    @Test fun aChainPricedMemeDecisionIsABuyableEntry() {
+        val f = com.lifecyclebot.engine.truth.ForwardReturnLabeler7731
+        assertTrue(f.decisionChainFill8567("CURVE_ACCOUNT", false, 1_200L))
+        assertTrue(f.decisionChainFill8567("TAPE_LAST_PRINT_8475", false, 4_000L))
+        assertTrue("stamped chain proof", f.decisionChainFill8567("X", true, 0L))
+        assertFalse("an aggregator price is never a fill", f.decisionChainFill8567("DEXSCREENER_BATCH", false, 500L))
+        assertFalse("too old at the decision", f.decisionChainFill8567("CURVE_ACCOUNT", false, f.DECISION_FILL_MAX_AGE_MS_8567 + 1))
+    }
 }

@@ -128,7 +128,8 @@ class Aate8546StrategyFamiliesTest {
         assertTrue(l.contains("EdgeModel8537.recordUnfilled8546(it, net)"))
         assertTrue(l.contains("MemeRegime8546.note8546(nowMs, net, gross)"))
         val e = src("engine/truth/EdgeModel8537.kt").substringAfter("fun recordUnfilled8546(").substringBefore("private val unfilled8546")
-        assertTrue(e.contains("appendDataset(s, netPct.coerceIn(Y_MIN, Y_MAX), filled = false)"))
+        // superseded (8568): the dataset keeps the true, uncapped net
+        assertTrue(e.contains("appendDataset(s, netPct, filled = false)"))
         assertFalse("never trains the model", e.contains("learn("))
         val replay = File("../ci/edge_replay_8537.py").readText()
         assertTrue(replay.contains("if r.get(\"fill\", True) is False:"))

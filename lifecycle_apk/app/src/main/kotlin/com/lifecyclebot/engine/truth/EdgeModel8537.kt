@@ -38,8 +38,15 @@ object EdgeModel8537 {
     const val AUTH_MIN_N = 30
     private const val FORGET = 0.9997
     private const val RIDGE = 4.0
-    private const val Y_MIN = -60.0
-    private const val Y_MAX = 200.0
+    /**
+     * V5.0.8567 — the model learns the LOG return, uncapped: was netPct.coerceIn(-60, 200), so a 20x runner taught the same
+     * as a 3x and the model could not learn what a big winner looks like. ln(1 + net) keeps a 50x from swamping the ridge
+     * while it still counts far more than a 3x; below -99.9 % (a total loss) is the floor of the log. Small returns are almost
+     * unchanged (+10 % -> +9.5, -10 % -> -10.5), so the stored model keeps learning without a reset.
+     */
+    fun target8567(netPct: Double): Double = 100.0 * kotlin.math.ln(1.0 + netPct.coerceAtLeast(-99.9) / 100.0)
+    /** The learned log return as the net % it means. */
+    fun netOf8567(target: Double): Double = if (target.isFinite()) 100.0 * (kotlin.math.exp(target / 100.0) - 1.0) else target
     private const val SOLVE_EVERY = 50
     private const val SAVE_EVERY = 400
     private const val DATASET_MAX_LINES = 60_000
@@ -259,14 +266,14 @@ object EdgeModel8537 {
     /** ForwardReturnLabeler7731.book (slot60): score the frozen prediction out of sample, THEN learn from the outcome. */
     fun learn(s: Snap, netPct: Double) {
         if (!netPct.isFinite()) return
-        val y = netPct.coerceIn(Y_MIN, Y_MAX)
+        val y = target8567(netPct)
         synchronized(this) {
             if (s.pred.isFinite()) oos.getOrPut(s.raw.lane) { Oos() }.add(s.pred, y) else skippedCold.incrementAndGet()
             global.learn(s.x, y)
             byLane.getOrPut(s.raw.lane) { Ridge(DIM) }.learn(s.x, y)
         }
         val k = learned.incrementAndGet()
-        appendDataset(s, y)
+        appendDataset(s, netPct)   // V5.0.8567 — the dataset keeps the true net, uncapped
         if (k % SAVE_EVERY == 0L) saveAsync()
         try { PipelineHealthCollector.labelInc("EDGE_MODEL_LEARNED_8537") } catch (_: Throwable) {}
     }
@@ -280,7 +287,7 @@ object EdgeModel8537 {
             val (p, key) = predictLocked(x, raw.lane)
             val o = oos[raw.lane]
             val trained = if (key == raw.lane) byLane[raw.lane]?.count ?: 0L else global.count
-            Verdict(p, p.isFinite() && o != null && authority(o.selN, o.selMean, o.selSe, o.allMean), key, trained,
+            Verdict(netOf8567(p), p.isFinite() && o != null && authority(o.selN, o.selMean, o.selSe, o.allMean), key, trained,
                 o?.selN ?: 0, o?.selMean ?: Double.NaN, o?.selSe ?: Double.NaN, o?.allMean ?: Double.NaN)
         }
     } catch (_: Throwable) { null }
@@ -365,7 +372,7 @@ object EdgeModel8537 {
             "\"dd\":${n(r.dd)},\"bp\":${n(r.bp)},\"chg5m\":${n(r.chg5m)},\"chg1h\":${n(r.chg1h)},\"volAccel\":${n(r.volAccel)}," +
             "\"top\":${n(r.top)},\"holderVel\":${n(r.holderVel)},\"txVel\":${n(r.txVel)},\"curve\":${n(r.curve)},\"turnover\":${n(r.turnover)}," +
             "\"flags\":${r.flags},\"phase\":\"${r.phase}\",\"v3\":${n(r.v3)},\"cost\":${n(r.costPct)},\"admitted\":${s.admitted}," +
-            "\"pred\":${n(s.pred)},\"model\":\"${s.modelKey}\",\"net\":${n(net)},\"fill\":$filled}"
+            "\"pred\":${n(netOf8567(s.pred))},\"model\":\"${s.modelKey}\",\"net\":${n(net)},\"fill\":$filled}"
     }
 
     /**
@@ -377,7 +384,7 @@ object EdgeModel8537 {
     fun recordUnfilled8546(s: Snap, netPct: Double) {
         if (!netPct.isFinite()) return
         unfilled8546.incrementAndGet()
-        appendDataset(s, netPct.coerceIn(Y_MIN, Y_MAX), filled = false)
+        appendDataset(s, netPct, filled = false)
     }
     private val unfilled8546 = AtomicLong(0)
 
@@ -423,7 +430,7 @@ object EdgeModel8537 {
     internal fun learnRawForTest8537(r: Raw, net: Double) = synchronized(this) {
         val x = vectorOf(r)
         val (p, key) = predictLocked(x, r.lane)
-        val y = net.coerceIn(Y_MIN, Y_MAX)
+        val y = target8567(net)
         if (p.isFinite()) oos.getOrPut(r.lane) { Oos() }.add(p, y)
         global.learn(x, y)
         byLane.getOrPut(r.lane) { Ridge(DIM) }.learn(x, y)

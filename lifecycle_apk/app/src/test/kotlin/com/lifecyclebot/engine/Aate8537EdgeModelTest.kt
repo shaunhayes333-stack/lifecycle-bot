@@ -143,7 +143,8 @@ class Aate8537EdgeModelTest {
     }
 
     @Test fun dataset_row_and_offline_replay_share_the_layout() {
-        val s = EdgeModel8537.Snap(raw(), EdgeModel8537.vectorOf(raw()), 2.5, "GLOBAL", 1_700_000_000_000L, "MintX", true)
+        // superseded (8567): the model holds log returns; the row prints the net % they mean (2.5 % = target8567(2.5))
+        val s = EdgeModel8537.Snap(raw(), EdgeModel8537.vectorOf(raw()), EdgeModel8537.target8567(2.5), "GLOBAL", 1_700_000_000_000L, "MintX", true)
         val line = EdgeModel8537.datasetLine(s, -4.25)
         assertTrue(line.startsWith("{\"t\":1700000000000,\"mint\":\"MintX\",\"lane\":\"SHITCOIN\""))
         assertTrue(line.contains("\"liq\":20000.0,") || line.contains("\"liq\":20000,"))

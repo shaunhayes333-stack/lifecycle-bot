@@ -1683,8 +1683,20 @@ object ForwardReturnLabeler7731 {
     }
 
     /** A forward outcome starts at the genuine fill-window observation, never an unreached decision price. */
-    private fun entryFill8521(o: Obs): Boolean = o.rebased8076 && !o.lateEntry8521 &&
-        o.basis8386.mark.observedAtMs - o.atMs in REBASE_MIN_MS_8076..REBASE_MAX_MS_8076
+    private fun entryFill8521(o: Obs): Boolean = (o.rebased8076 && !o.lateEntry8521 &&
+        o.basis8386.mark.observedAtMs - o.atMs in REBASE_MIN_MS_8076..REBASE_MAX_MS_8076) ||
+        ((!o.rebased8076 || o.lateEntry8521) && o.basis8386 == o.decisionBasis8386 && decisionChainFill8567(o.basis8386.mark.source, o.basis8386.mark.independentBasis,
+            o.atMs - o.basis8386.mark.observedAtMs))
+
+    /**
+     * Pure (V5.0.8567): with no mark inside the rebase window (most fast meme coins — their outcomes were written "unfilled" and
+     * never trained the edge model: 1,496 rows, 4-10 per meme lane), a decision priced from the chain itself (curve account /
+     * curve print / parsed swap / tape / pool reserves) no more than [DECISION_FILL_MAX_AGE_MS_8567] old IS a price a buy
+     * could get; the lane's chase stays charged (no rebase cleared it). Aggregator / pair-API prices never qualify.
+     */
+    fun decisionChainFill8567(source: String, independentBasis: Boolean, ageAtDecisionMs: Long): Boolean =
+        (independentBasis || LabelEvidence8386.independentSource8418(source)) && ageAtDecisionMs in 0L..DECISION_FILL_MAX_AGE_MS_8567
+    const val DECISION_FILL_MAX_AGE_MS_8567 = 5_000L
 
     /** The same frozen target teaches all entry learners, whether the decision was taken or refused. */
     private fun teachForwardLearners8521(o: Obs, net: Double, gross: Double, nowMs: Long) {
