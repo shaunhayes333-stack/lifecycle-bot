@@ -79,6 +79,26 @@ dismiss_system_dialogs() {  # dump file: accept Android's own background-run pro
     return 1
 }
 crashes_since() { since "$1" > "$OUT/crash_probe.txt"; h crashes "$OUT/crash_probe.txt"; }
+# V5.0.8585 — an ANR is diagnosed in the job log itself (the logcat artifact is not always reachable): the
+# ActivityManager's reason and CPU lines, then the app's main-thread stack from the newest /data/anr trace.
+anr_evidence() {  # crash_probe file
+    grep -q "ANR in $PKG" "$1" 2>/dev/null || return 0
+    echo "::group::ANR evidence (8585)"
+    grep -A 24 "ANR in $PKG" "$1" | head -40
+    timeout 10s adb root >/dev/null 2>&1 && sleep 2
+    local f
+    f=$(adb shell 'ls -t /data/anr/ 2>/dev/null | head -1' | tr -d '\r')
+    if [ -n "$f" ]; then
+        adb shell "cat /data/anr/$f" > "$OUT/anr_trace.txt" 2>/dev/null || true
+        echo "--- main thread ($f) ---"
+        awk '/^"main"/{p=1} p{print; n++} p&&/^$/{exit} n>60{exit}' "$OUT/anr_trace.txt"
+        echo "--- threads holding or waiting on monitors ---"
+        grep -B2 -A6 "waiting to lock\|- locked" "$OUT/anr_trace.txt" | head -80
+    else
+        echo "no /data/anr trace readable"
+    fi
+    echo "::endgroup::"
+}
 
 pipeline_report() {  # output-file -> 0 when a generated report carrying the §8324 store line was pulled
     # The 6308 watchdog may first write a bounded emergency snapshot and the full report
@@ -228,7 +248,7 @@ for A in "${SCREENS[@]}"; do
         adb shell dumpsys window | grep -E 'mCurrentFocus' > "$OUT/focus_$A.txt" || true
         if verdict=$(h screen "$OUT/screen_$A.xml" "$OUT/focus_$A.txt" "$A" "$SRC_MAIN"); then passed=1; break; fi
     done
-    cr=$(crashes_since "$M") || { passed=0; verdict="crash/ANR: $cr"; }
+    cr=$(crashes_since "$M") || { passed=0; verdict="crash/ANR: $cr"; anr_evidence "$OUT/crash_probe.txt"; }
     pid=$(app_pid)
     [ "$pid" = "$PID0" ] || { passed=0; verdict="process died pid=$PID0->${pid:-none}"; }
     echo "screen $A: $([ $passed -eq 1 ] && echo PASS || echo FAIL) $verdict"
