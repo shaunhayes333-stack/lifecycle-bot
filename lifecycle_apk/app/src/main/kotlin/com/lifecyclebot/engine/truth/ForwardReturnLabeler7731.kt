@@ -1707,7 +1707,7 @@ object ForwardReturnLabeler7731 {
         try { TradeShapeLearner7883.onLabel60(o.mint, o.lane, net, gross, o.atMs) } catch (_: Throwable) {}
         try { FallingHourCohort8418.onLabel60(o.mint, o.lane, net, gross) } catch (_: Throwable) {}
         teachForwardLearners8521(o, net, gross, nowMs)
-        if (o.targetHorizon8521 == H240_MS_7731) {
+        if (o.targetHorizon8521 > H60_MS_7731) {   // V5.0.8592 — the hour target (now 15 m for new obs, 60 m for old) just booked
             revisedToHour8337.incrementAndGet()
             try { PipelineHealthCollector.labelInc("FORWARD_LABEL_FROZEN_HOUR_TARGET_8521") } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.cortex.LaneGradeHorizon8406.noteHourGrade8408(o.lane) } catch (_: Throwable) {}
@@ -1885,11 +1885,11 @@ object ForwardReturnLabeler7731 {
     private fun bookTwoForty7944(o: Obs, net0: Double, gross0: Double, deferExit8006: Boolean = false): Boolean {
         if (!eligible8386(o)) return true
         var (net, gross) = captured7945(o, net0, gross0)
-        if (o.targetHorizon8521 == H240_MS_7731 && !flatMarkNow8342(o, gross0) &&
+        if (o.targetHorizon8521 > H60_MS_7731 && !flatMarkNow8342(o, gross0) &&   // V5.0.8592 — key off the per-obs hour target
             !stageForwardRevision8404(o, net, gross, System.currentTimeMillis())) return false
-        if (o.targetHorizon8521 == H240_MS_7731 && !o.bookedNet7997.isFinite() && !flatMarkNow8342(o, gross0)) {
+        if (o.targetHorizon8521 > H60_MS_7731 && !o.bookedNet7997.isFinite() && !flatMarkNow8342(o, gross0)) {   // V5.0.8592
             val episode = "${o.mint}|${o.lane}|${o.atMs}"
-            val fixed = forwardOutbox8404.firstRevisionForHorizon8521(episode, H240_MS_7731)?.second?.let {
+            val fixed = forwardOutbox8404.firstRevisionForHorizon8521(episode, o.targetHorizon8521)?.second?.let {
                 com.lifecyclebot.engine.cortex.ForwardOutcomeDelivery8404.decode(it)
             }
             if (fixed != null) {
@@ -2657,15 +2657,15 @@ object ForwardReturnLabeler7731 {
             revisionHorizon8521((o.lastMark8386?.observedAtMs ?: o.atMs) - o.atMs) else H60_MS_7731)
         if (revision && proof == null) return null
         val episode = "${o.mint}|${o.lane}|${o.atMs}"
-        if (revision && proof?.horizonMs == H240_MS_7731) {
-            forwardOutbox8404.firstRevisionForHorizon8521(episode, H240_MS_7731)?.let { (firstId, firstRaw) ->
+        if (revision && proof?.horizonMs == o.targetHorizon8521 && o.targetHorizon8521 > H60_MS_7731) {   // V5.0.8592 — coalesce at the hour target
+            forwardOutbox8404.firstRevisionForHorizon8521(episode, o.targetHorizon8521)?.let { (firstId, firstRaw) ->
                 return forwardOutbox8404.stagePayload(firstId, { firstRaw }, ::writeForward8404)
                     ?.let { com.lifecyclebot.engine.cortex.ForwardOutcomeDelivery8404.decode(it) }
             }
         }
         val id = if (revision) "$episode|R|${proof?.observedAtMs}|${proof?.horizonMs}" else episode
         if (revision) try {
-            val dropped = forwardOutbox8404.supersedeRevisions8418("$episode|R|", id, protectedHorizonMs = H240_MS_7731) { old ->
+            val dropped = forwardOutbox8404.supersedeRevisions8418("$episode|R|", id, protectedHorizonMs = o.targetHorizon8521) { old ->   // V5.0.8592 — protect the hour-target grade
                 removeRows8409(listOf(FORWARD_PREFIX_8404 + old)) }
             if (dropped > 0) PipelineHealthCollector.labelInc("FORWARD_REVISION_COALESCED_8418")
         } catch (_: Exception) {}
@@ -2687,8 +2687,8 @@ object ForwardReturnLabeler7731 {
         // Each due horizon carries evidence even when its return is unchanged. In hour-graded lanes this may be
         // the first model grade; the five-minute observation never made a contribution to revise.
         if (!net.isFinite()) return true
-        val firstHour = o.targetHorizon8521 == H240_MS_7731 &&
-            horizonOpen7809((o.lastMark8386?.observedAtMs ?: 0L) - o.atMs, H240_MS_7731)
+        val firstHour = o.targetHorizon8521 > H60_MS_7731 &&   // V5.0.8592 — stage the first grade at the per-obs hour target (15 m / 60 m)
+            horizonOpen7809((o.lastMark8386?.observedAtMs ?: 0L) - o.atMs, o.targetHorizon8521)
         if (!firstHour || o.bookedNet7997.isFinite()) return true
         return stageForwardOutcome8404(o, net, gross, doubleArrayOf(), false,
             gross >= RUNNER_PCT_7731 && witnessNow8324(o, nowMs), revision = true) != null
@@ -3169,8 +3169,11 @@ object ForwardReturnLabeler7731 {
             }
             // V5.0.7997 — progressive grading: 15 m, 30 m, 1 h, 4 h, 8 h, 12 h, 24 h while the coin lives.
             val stop7997 = if (o.done60) checkpoint7997(o, net, gross, observedAge8521, nowMs) else false
-            if (!o.done240 && observedAge8521 >= H240_MS_7731) {
-                completeHour8397(key, o, net, gross, stop7997, horizonOpen7809(observedAge8521, H240_MS_7731))
+            // V5.0.8592 — an hour lane completes at its own target (15 m for new obs, 60 m for old persisted obs); a scalp lane
+            // keeps the 60-min path read. bookable keys off the same horizon so completeHour8397 books, not horizonMissed.
+            val hourTargetMs8592 = if (o.targetHorizon8521 > H60_MS_7731) o.targetHorizon8521 else H240_MS_7731
+            if (!o.done240 && observedAge8521 >= hourTargetMs8592) {
+                completeHour8397(key, o, net, gross, stop7997, horizonOpen7809(observedAge8521, hourTargetMs8592))
             } else if (o.done240 && stop7997) {
                 endRun8006(o, gross)
                 pending.remove(key, o)

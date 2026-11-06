@@ -23,14 +23,19 @@ internal object CortexForwardEpoch8521 {
     const val HIVE_PREFIX = "E8521|"
     const val HOUR_KIND = "FORWARD_HOUR_8521"
     private const val SCALP_KIND = "FORWARD_SCALP_8521"
-    // V5.0.8590 — REVERTED 8588. 8588 moved the hour-lane grade target to 15 min to unstarve it, but matchesTarget requires
-    // the observed mark's horizon to EXACTLY equal the target, and ForwardReturnLabeler7731 only produces marks at its fixed
-    // grid — H60_MS_7731 = 5 min and H240_MS_7731 = 60 min (the constant NAMES are legacy slot ids, not minutes). A 15-minute
-    // target matches NO produced mark, so 8588 would have graded hour lanes ZERO (worse than the sparse 60-min grading it
-    // replaced). HOUR_MS must stay aligned to a mark the labeler actually emits (60 min). True 15m/30m grading requires
-    // ADDING those checkpoints to the labeler's grid (done15/done30 marks) AND the matching targets together — a coordinated
-    // labeler+epoch change, not a target-only flip. SCALP_MS (5 min) matches H60_MS_7731 and is unchanged.
-    const val HOUR_MS = 60L * 60_000L
+    // V5.0.8592 — THE COORDINATED 15-MIN HOUR TARGET (the change 8590 said 8588 lacked). 8588 moved HOUR_MS to 15 min alone;
+    // the labeler still only booked/staged the hour entry at its 60-min read (completeHour8397), and its hour-target machinery
+    // was gated on the literal `== H240_MS_7731` (60 min) in ~8 places, so a bare constant flip made every one of those gates
+    // go false and graded hour lanes ZERO. 8592 does the coordinated version: HOUR_MS = 15 min AND the labeler now (a) fires
+    // its hour completion at the per-obs targetHorizon8521 (15 min for new hour lanes, still 60 min for old persisted obs),
+    // (b) replaces the hour-target `== H240_MS_7731` gates with the per-obs target so booking/staging/coalescing key off the
+    // same horizon, (c) emits the revision proof at revisionHorizon8521 = CK_MS_7997[0] = 15 min, which matchesTarget now
+    // accepts (horizon equality holds, window [+15m,+22.5m]). The cortex side is driven entirely by HOUR_MS already
+    // (HOUR_GRADE_MIN_MS_8415, deferHour8415/matchesTarget), so it propagates with no cortex edit. 60 min was unreachable for
+    // memecoins (they die first) — the grader produced ~0 closes/h and the whole adaptive stack sat starved at ADVISORY. The
+    // single entry grade still contributes once at the frozen target; held runners keep being observed past it for exit
+    // learning. SCALP_MS (5 min) matches H60_MS_7731 and is unchanged. Revert = flip HOUR_MS back to 60 min.
+    const val HOUR_MS = 15L * 60_000L
     const val SCALP_MS = 5L * 60_000L
 
     fun current(root: JSONObject): Boolean = root.optInt(FIELD, 0) == EPOCH
