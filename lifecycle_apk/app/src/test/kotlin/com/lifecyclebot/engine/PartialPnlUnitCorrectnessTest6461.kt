@@ -66,10 +66,12 @@ class PartialPnlUnitCorrectnessTest6461 {
     fun `PaperAccountLedger6430 onSell firewalled against Fi4FaM values`() {
         PaperAccountLedger6430.resetForTest()
         PaperAccountLedger6430.initialize(startingCashSol = 1.0)
-        PaperAccountLedger6430.onBuy(costSol = 0.5, feeSol = 0.001)
+        // superseded by V5.0.8576 — "40.0 SOL proceeds on a 0.5 SOL basis is a percent leak": that is an 80x, a real meme win
+        // (owner: no caps on wins). The ceiling is now max(30 SOL, 10,000x the slice's basis); a leak on a tiny slice still clamps.
+        PaperAccountLedger6430.onBuy(costSol = 0.001, feeSol = 0.0)
         // Simulate the Fi4FaM bug — someone passes a "%" (say 40.0) into
-        // grossProceedsSol. The firewall must clamp it to 0.
-        PaperAccountLedger6430.onSell(grossProceedsSol = 40.0, costBasisSoldSol = 0.5, feeSol = 0.0)
+        // grossProceedsSol of a 0.001 SOL slice (40,000x). The firewall must clamp it to 0.
+        PaperAccountLedger6430.onSell(grossProceedsSol = 40.0, costBasisSoldSol = 0.001, feeSol = 0.0)
         // Cash should NOT jump by +40 SOL; it should reflect the clamped 0.
         // openCost drops by 0.5 (basis is plausible), realized becomes
         // 0 - 0.5 = -0.5 SOL because the clamped gross is 0.

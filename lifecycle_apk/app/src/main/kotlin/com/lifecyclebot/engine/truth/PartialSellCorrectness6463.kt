@@ -64,8 +64,11 @@ object PartialSellCorrectness6463 {
 
         // Firewall every SOL slot through PartialSellUnitTypes6461.
         val netProceedsRaw = result.solReceived - feesSol
+        // V5.0.8576 — proceeds and realised profit are bounded by the slice's own basis (proceedsCeiling8576), not a flat 30 SOL:
+        // a real win above 30 SOL is not a percent leak.
+        val winCeiling8576 = PartialSellUnitTypes6461.proceedsCeiling8576(result.realizedPnl.proportionalCostBasisSol)
         val netProceedsClamped = PartialSellUnitTypes6461.assertSolPlausible(
-            netProceedsRaw, "$siteTag.netProceeds",
+            netProceedsRaw, "$siteTag.netProceeds", winCeiling8576,
         )
         if (netProceedsClamped != netProceedsRaw) { ok = false; clamps.incrementAndGet(); notes += "netProceeds_clamped" }
 
@@ -77,7 +80,7 @@ object PartialSellCorrectness6463 {
 
         val realizedRaw = result.realizedPnl.realizedPnlSol
         val realizedClamped = PartialSellUnitTypes6461.assertSolPlausible(
-            realizedRaw, "$siteTag.realizedPnl",
+            realizedRaw, "$siteTag.realizedPnl", winCeiling8576,
         )
         if (realizedClamped != realizedRaw) { ok = false; clamps.incrementAndGet(); notes += "realizedPnl_clamped" }
 

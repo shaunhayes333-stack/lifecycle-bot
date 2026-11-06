@@ -109,7 +109,20 @@ object PartialSellUnitTypes6461 {
      */
     private const val SOL_PLAUSIBLE_MAX = 30.0
 
-    fun assertSolPlausible(candidateSol: Double, siteTag: String): Double {
+    /**
+     * V5.0.8576 — the proceeds ceiling of one sale: the absolute [SOL_PLAUSIBLE_MAX] OR [WIN_MULT_CEILING_8576]x the SOL basis
+     * sold, whichever is larger. The flat 30 SOL zeroed every real win above it ("looks like percent"): a 24x on a multi-SOL
+     * paper slice was refused by the ledger after the position had already been cut (8572 smoke: a stuck +2,323% partial).
+     * A percent leak is still caught on small positions, and the 7029 / 7056 mark reconstruction checks every partial upstream.
+     */
+    const val WIN_MULT_CEILING_8576 = 10_000.0
+    fun proceedsCeiling8576(basisSol: Double): Double =
+        if (basisSol.isFinite() && basisSol > 0.0) maxOf(SOL_PLAUSIBLE_MAX, basisSol * WIN_MULT_CEILING_8576) else SOL_PLAUSIBLE_MAX
+
+    /** Pure (V5.0.8576): is [v] a plausible SOL figure under [ceiling]? No counters, no clamp (the pre-commit check). */
+    fun solPlausible8576(v: Double, ceiling: Double = SOL_PLAUSIBLE_MAX): Boolean = v.isFinite() && kotlin.math.abs(v) <= ceiling
+
+    fun assertSolPlausible(candidateSol: Double, siteTag: String, ceiling: Double = SOL_PLAUSIBLE_MAX): Double {
         if (!candidateSol.isFinite()) {
             fi4famDetections.incrementAndGet(); fi4famClamps.incrementAndGet()
             try {
@@ -121,12 +134,12 @@ object PartialSellUnitTypes6461 {
             } catch (_: Throwable) {}
             return 0.0
         }
-        if (kotlin.math.abs(candidateSol) > SOL_PLAUSIBLE_MAX) {
+        if (kotlin.math.abs(candidateSol) > ceiling) {
             fi4famDetections.incrementAndGet(); fi4famClamps.incrementAndGet()
             try {
                 ForensicLogger.lifecycle(
                     "FI4FAM_UNIT_CORRUPTION_6461",
-                    "site=$siteTag value=${"%.4f".format(candidateSol)} reason=exceeds_${SOL_PLAUSIBLE_MAX}_sol_looks_like_percent clamped=0.0",
+                    "site=$siteTag value=${"%.4f".format(candidateSol)} reason=exceeds_${ceiling}_sol_looks_like_percent clamped=0.0",
                 )
                 PipelineHealthCollector.labelInc("FI4FAM_UNIT_CORRUPTION_6461")
             } catch (_: Throwable) {}

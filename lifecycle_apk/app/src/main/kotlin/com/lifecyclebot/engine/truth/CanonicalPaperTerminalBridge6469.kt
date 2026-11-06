@@ -225,6 +225,16 @@ object CanonicalPaperTerminalBridge6469 {
             try { PipelineHealthCollector.labelInc("CANONICAL_PAPER_SELL_QTY_REJECTED_6498") } catch (_: Throwable) {}
             return Result(applied = false, terminalClaimed = false, busPublished = false, reason = "SELL_QTY_${qtyAdmission6498.reason}")
         }
+        // V5.0.8576 — every refusal the later stores can make is read BEFORE the claim and the position cut: a sale the ledger or
+        // the quantity boundary would refuse never leaves POSITION committed alone (8572 smoke: a PARTIAL_SELL pos=true led=false).
+        PaperAccountLedger6430.economicRefusal8576(grossProceedsSol, soldCostBasisSol, feesSol)?.let { why ->
+            try { PipelineHealthCollector.labelInc("CANONICAL_PAPER_SELL_LEDGER_PRECHECK_8576_$why") } catch (_: Throwable) {}
+            return Result(applied = false, terminalClaimed = false, busPublished = false, reason = "LEDGER_PRECHECK_8576_$why")
+        }
+        if (!SellQtyBoundaryClamp6427.canCommitRaw8576(positionId, soldQtyRaw)) {
+            try { PipelineHealthCollector.labelInc("CANONICAL_PAPER_SELL_QTY_PRECHECK_8576") } catch (_: Throwable) {}
+            return Result(applied = false, terminalClaimed = false, busPublished = false, reason = "SELL_QTY_PRECHECK_8576")
+        }
         val claim = claimBeforeSideEffects(
             positionId = positionId,
             mint = mint,

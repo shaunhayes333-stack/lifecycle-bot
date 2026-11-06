@@ -99,6 +99,12 @@ object SellQtyBoundaryClamp6427 {
         }
     }
 
+    /** V5.0.8576 — would [commitRaw] accept [soldQtyRaw] now? Read before the position is mutated (no half-commit). */
+    fun canCommitRaw8576(positionId: String, soldQtyRaw: BigInteger): Boolean {
+        val slot = rawLedger[positionId] ?: return false
+        synchronized(slot) { return soldQtyRaw > BigInteger.ZERO && soldQtyRaw <= slot.remaining }
+    }
+
     fun commitRaw(positionId: String, soldQtyRaw: BigInteger, terminal: Boolean): Boolean {
         val slot = rawLedger[positionId] ?: return false
         synchronized(slot) {

@@ -387,6 +387,23 @@ object PaperAccountLedger6430 {
     }
 
     @Synchronized
+    /**
+     * V5.0.8576 — the ledger's own economic refusal of a sale (not the mint quarantine), readable BEFORE any store moves.
+     * The canonical bridge cut the position, stamped POSITION, and only then let the ledger refuse: the event stayed
+     * pos=true led=false forever (8572 smoke, QUANTITY_DELTA). Same rules as [onSellAtomic6632]; null = the ledger will apply.
+     */
+    fun economicRefusal8576(grossProceedsSol: Double, costBasisSoldSol: Double, feeSol: Double): String? {
+        if (!grossProceedsSol.isFinite() || !costBasisSoldSol.isFinite()) return "NON_FINITE"
+        val basis = costBasisSoldSol.coerceAtLeast(0.0)
+        val gross = grossProceedsSol.coerceAtLeast(0.0)
+        if (!PartialSellUnitTypes6461.solPlausible8576(basis)) return "BASIS_IMPLAUSIBLE"
+        if (!PartialSellUnitTypes6461.solPlausible8576(gross, PartialSellUnitTypes6461.proceedsCeiling8576(basis))) return "PROCEEDS_IMPLAUSIBLE"
+        if (!canApplySell6486(basis)) return "BASIS_EXCEEDS_OPEN"
+        val fee = if (feeSol.isFinite()) feeSol.coerceAtLeast(0.0) else 0.0
+        if (gross + 1e-9 < fee) return "FEE_EXCEEDS_GROSS"
+        return null
+    }
+
     fun canApplySell6486(costBasisSoldSol: Double): Boolean =
         costBasisSoldSol.isFinite() && costBasisSoldSol >= 0.0 &&
             openCostBasisSol() + 1e-9 >= costBasisSoldSol
@@ -466,7 +483,8 @@ object PaperAccountLedger6430 {
         // V5.0.6461 §P0-#1 FI4FAM FIREWALL — catch percent-into-SOL leaks
         // (30 SOL = 60x max entry; anything larger is a unit-mix bug).
         val gross = com.lifecyclebot.engine.truth.PartialSellUnitTypes6461
-            .assertSolPlausible(grossProceedsSol.coerceAtLeast(0.0), "PaperAccountLedger6430.onSell.gross")
+            .assertSolPlausible(grossProceedsSol.coerceAtLeast(0.0), "PaperAccountLedger6430.onSell.gross",
+                PartialSellUnitTypes6461.proceedsCeiling8576(costBasisSoldSol))   // V5.0.8576 — scaled to the slice, not 30 SOL
         val basis = com.lifecyclebot.engine.truth.PartialSellUnitTypes6461
             .assertSolPlausible(costBasisSoldSol.coerceAtLeast(0.0), "PaperAccountLedger6430.onSell.basis")
         if (!canApplySell6486(basis) || gross + 1e-9 < fee) {
