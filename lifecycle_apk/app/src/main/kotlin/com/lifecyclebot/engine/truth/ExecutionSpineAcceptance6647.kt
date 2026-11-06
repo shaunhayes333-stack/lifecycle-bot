@@ -440,7 +440,7 @@ object ExecutionSpineAcceptanceWindow6647 {
             // The receipt's completion must not remove our chance to observe the next current pass. Wait only within
             // the existing 8339 budget; at expiry the same unreconciled sentinels below still fail every invariant.
             val youngOpen8397 = forensic?.reconciled != true &&
-                (try { CanonicalEconomicEvent6635.onlyYoungOpen8322(nowMs, 10_000L) } catch (_: Throwable) { false })
+                (try { CanonicalEconomicEvent6635.onlyYoungOpen8322(nowMs, IN_FLIGHT_WAIT_GRACE_MS_8339) } catch (_: Throwable) { false })   // V5.0.8562: was 10 s — with paper trading live the durable journal row lands ~14 s after the fill on the emulator; the wait stays bounded by the same 30 s grace and an unlanded receipt still FAILS
             if (shouldDeferAccounting8397(forensic, youngOpen8397, inFlightWaitSinceMs8339, nowMs)) {
                 scheduleRetry8339(start)
                 return null

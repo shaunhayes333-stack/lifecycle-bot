@@ -137,4 +137,12 @@ class Aate8559RuntimeRepairTest {
         assertTrue(o.contains("com.lifecyclebot.network.DexPools8285.choose8285(rows8560,"))
         assertFalse(o.contains("if (price > 0 && liquidity > bestLiquidity)"))
     }
+
+    /** V5.0.8562 — Runtime Smoke 8560: the only failure left was one PAPER PARTIAL_SELL receipt whose journal row landed 14 s late. */
+    @Test fun anInFlightReceiptGetsTheWholeBoundedGraceNotTenSeconds() {
+        val a = src("engine/truth/ExecutionSpineAcceptance6647.kt")
+        assertTrue(a.contains("CanonicalEconomicEvent6635.onlyYoungOpen8322(nowMs, IN_FLIGHT_WAIT_GRACE_MS_8339)"))
+        assertFalse(a.contains("onlyYoungOpen8322(nowMs, 10_000L)"))
+        assertTrue("the wait stays bounded", a.contains("const val IN_FLIGHT_WAIT_GRACE_MS_8339 = 30_000L"))
+    }
 }
