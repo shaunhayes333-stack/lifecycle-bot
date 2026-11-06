@@ -495,9 +495,12 @@ object RunnerGrab7967 {
     } catch (_: Throwable) { false }
 
     /** SpikeCapture7943.onMark: the runner ladder for a grabbed position, else null. */
+    // V5.0.8584 — every meme position rides the doctrine ladder; the plan is still read first (the runner funnel counts it).
     fun tiersFor7967(ts: TokenState): List<Pair<Double, Double>>? =
-        if (RunnerDoctrine8584.rides8584(ts.position.tradingMode)) TIERS_7967  // V5.0.8584 — every meme position rides the doctrine ladder
-        else if (holding7967(ts)) (if (scalpTierHolds8337(ts)) SpikeCapture7943.TIERS else TIERS_7967)  // V5.0.8337
+        planTiers8584(ts).let { if (RunnerDoctrine8584.rides8584(ts.position.tradingMode)) TIERS_7967 else it }
+
+    private fun planTiers8584(ts: TokenState): List<Pair<Double, Double>>? =
+        if (holding7967(ts)) (if (scalpTierHolds8337(ts)) SpikeCapture7943.TIERS else TIERS_7967)  // V5.0.8337
         // V5.0.8331 — the ladder follows the one plan for the position's life: a sealed / promoted runner past the 6 h hold
         // window kept its plan (RunnerPlan8153) but fell back to the scalp ladder here, and bookSlice8153 then confirmed
         // the fill on the RUNNER ladder the request never used (ladder identity lost mid-position).
