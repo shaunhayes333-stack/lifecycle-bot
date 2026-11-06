@@ -479,23 +479,20 @@ object DexScreenerOracle {
                     val pairs = json.optJSONArray("pairs")
                     
                     if (pairs != null && pairs.length() > 0) {
-                        // Get the pair with highest liquidity
-                        var bestPrice = 0.0
-                        var bestLiquidity = 0.0
-                        
+                        // V5.0.8560 — the lanes' pool chooser (the pool in use, else the deepest SOL / stable-quoted pool), not
+                        // the highest reported liquidity: a pool against a thin overvalued token reports both an inflated
+                        // price and inflated "liquidity" (8559: OTHER@DANGER_ZONE_FRESH unit breaks 88).
+                        val rows8560 = ArrayList<com.lifecyclebot.network.DexPools8285.PoolRow8285>(pairs.length())
+                        val now8560 = System.currentTimeMillis()
                         for (i in 0 until pairs.length()) {
                             val pair = pairs.getJSONObject(i)
                             // V5.0.7928 — priceUsd is the BASE token's price: a pair quoting this
                             // token as the quote side prices a different asset.
                             if (!pair.optJSONObject("baseToken")?.optString("address", "").equals(address, ignoreCase = true)) continue
-                            val price = pair.optString("priceUsd", "0").toDoubleOrNull() ?: 0.0
-                            val liquidity = pair.optJSONObject("liquidity")?.optDouble("usd", 0.0) ?: 0.0
-                            
-                            if (price > 0 && liquidity > bestLiquidity) {
-                                bestPrice = price
-                                bestLiquidity = liquidity
-                            }
+                            com.lifecyclebot.network.DexPools8285.rowOf8285(pair, now8560)?.let { rows8560.add(it) }
                         }
+                        val bestPrice = com.lifecyclebot.network.DexPools8285.choose8285(rows8560,
+                            com.lifecyclebot.network.DexPools8285.chosen8285(address))?.priceUsd ?: 0.0
                         
                         if (bestPrice > 0) {
                             ErrorLogger.debug(TAG, "📊 DexScreener: $address = \$${bestPrice}")

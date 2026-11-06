@@ -66,17 +66,22 @@ class Aate8559RuntimeRepairTest {
         assertTrue(MemePaperTrader8544.markPlausible8559(1.0, 15.0))
         assertFalse(MemePaperTrader8544.markPlausible8559(1.0, 25.0))
         assertTrue("no prior mark: nothing to compare", MemePaperTrader8544.markPlausible8559(0.0, 25.0))
-        // a real 30x runner: held once, counted in full when the next mark agrees
-        assertFalse(MemePaperTrader8544.acceptMark8559("t:run", 1.0, 30.0))
-        assertTrue(MemePaperTrader8544.acceptMark8559("t:run", 1.0, 31.0))
+        // a real 30x runner: held once, counted in full when an INDEPENDENT source agrees (8560)
+        assertFalse(MemePaperTrader8544.acceptMark8559("t:run", 1.0, 30.0, "TICK:DEXSCREENER_BATCH"))
+        assertFalse("the same feed cannot confirm itself", MemePaperTrader8544.acceptMark8559("t:run", 1.0, 30.5, "TICK:DEXSCREENER_BATCH"))
+        assertTrue(MemePaperTrader8544.acceptMark8559("t:run", 1.0, 31.0, "CURVE"))
         // a one-off unit mix: never agrees, never used
-        assertFalse(MemePaperTrader8544.acceptMark8559("t:bad", 1.0, 50_000.0))
-        assertTrue("the true mark comes back and is used", MemePaperTrader8544.acceptMark8559("t:bad", 1.0, 1.1))
-        assertTrue(MemePaperTrader8544.jumpConfirmed8559(30.0, 45.0)); assertFalse(MemePaperTrader8544.jumpConfirmed8559(null, 30.0))
+        assertFalse(MemePaperTrader8544.acceptMark8559("t:bad", 1.0, 50_000.0, "TICK:DEXSCREENER_BATCH"))
+        assertTrue("the true mark comes back and is used", MemePaperTrader8544.acceptMark8559("t:bad", 1.0, 1.1, "TICK:DEXSCREENER_BATCH"))
+        assertTrue(MemePaperTrader8544.jumpConfirmed8559(30.0, "TICK:A", 45.0, "POOL"))
+        assertFalse(MemePaperTrader8544.jumpConfirmed8559(30.0, "TICK:A", 45.0, "TICK:A"))
+        assertFalse(MemePaperTrader8544.jumpConfirmed8559(null, null, 30.0, "POOL"))
+        assertEquals("TICK:DEXSCREENER_BATCH", MemePaperTrader8544.markSource8560("TICK", TokenState(mint = "m", lastPriceSource = "DEXSCREENER_BATCH")))
+        assertEquals("CURVE", MemePaperTrader8544.markSource8560("CURVE", null))
         val book = src("engine/truth/MemePaperTrader8544.kt")
         assertFalse("wins are not clamped", book.contains("coerceAtMost(PAPER_GAIN_CLAMP"))
         assertTrue(book.contains("val net = netPct8544(p.banked, 0.0, g, p.costPct)\n"))
-        assertTrue(src("engine/truth/ExploreShadow8347.kt").contains("MemePaperTrader8544.acceptMark8559(\"shadow:\$key\", t.lastPx, it.priceUsd)"))
+        assertTrue(src("engine/truth/ExploreShadow8347.kt").contains("MemePaperTrader8544.acceptMark8559(\"shadow:\$key\", t.lastPx, it.priceUsd, MemePaperTrader8544.markSource8560(it.source, tokens[t.mint]))"))
         assertTrue(src("engine/DiagnosisBrief8438.kt").contains("MemePaperTrader8544.jumpLine8559()"))
     }
 
@@ -119,5 +124,17 @@ class Aate8559RuntimeRepairTest {
         assertFalse(p.contains("if (rrM.isFinite() && rrM > 0.0) rrN else 0.0"))
         assertTrue(p.contains("Cortex7885.executableCopy8187(raw, Cortex7885.executableOffset8187(lane), realisedLift8559(rrN, rrM), rrM)"))
         assertTrue(p.contains("Cortex7885.executableCopy8187(local, Cortex7885.executableOffset8187(lane), realisedLift8559(rrN, rrM), rrM)"))
+    }
+
+    /** V5.0.8560 — the DexScreener batch priced the mint's highest-"liquidity" pool, whatever it traded against. */
+    @Test fun dexScreenerPricesComeFromTheLanesPoolChooser() {
+        val d = File("src/main/kotlin/com/lifecyclebot/network/DexscreenerApi.kt").readText()
+        val batch = d.substringAfter("val wanted8560 = ").substringBefore("} catch (_: Exception) {")
+        assertFalse(batch.contains("liq > bestLiq"))
+        assertTrue(batch.contains("if (mint !in wanted8560) continue"))
+        assertTrue(batch.contains("DexPools8285.choose8285(list.map { it.first }, DexPools8285.chosen8285(mint))"))
+        val o = File("src/main/kotlin/com/lifecyclebot/perps/AlternativeOracles.kt").readText()
+        assertTrue(o.contains("com.lifecyclebot.network.DexPools8285.choose8285(rows8560,"))
+        assertFalse(o.contains("if (price > 0 && liquidity > bestLiquidity)"))
     }
 }

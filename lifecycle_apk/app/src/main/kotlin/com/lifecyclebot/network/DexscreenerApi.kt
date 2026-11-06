@@ -439,9 +439,8 @@ class DexscreenerApi {
         val body = get8095(url, exit8095 = heldMarkTraffic) ?: return BatchResult8087(emptyMap(), BatchCause8087.PROVIDER_FAILED, emptyList())
 
         val out = HashMap<String, Double>(mints.size)
-        // V5.0.7026 — the liquidity behind each mint's currently-chosen pair,
-        // so "best" can actually be compared rather than asserted.
-        val bestLiqByMint = HashMap<String, Double>(mints.size)
+        val wanted8560 = mints.take(30).map { it.trim() }.toHashSet()
+        val rows8560 = HashMap<String, MutableList<Pair<DexPools8285.PoolRow8285, JSONObject>>>(mints.size)
         val batchAtMs8169 = System.currentTimeMillis()
         try {
             val arr = JSONArray(body)
@@ -452,47 +451,23 @@ class DexscreenerApi {
                 if (mint.isBlank()) continue
                 val priceUsd = p.optString("priceUsd", "0").toDoubleOrNull() ?: 0.0
                 if (priceUsd <= 0.0) continue
-                // V5.0.7026 §THE_COMMENT_SAID_BEST_LIQUIDITY_THE_CODE_SAID_LAST.
-                //
-                // Intent, unchanged since this was written: "If multiple pairs
-                // returned for the same mint, keep the best-liquidity one
-                // (higher = more trustworthy mid-price)."
-                //
-                // What it did: `if (existing == null || liq > 0.0)` overwrites
-                // on ANY pair carrying liquidity above zero, so the winner was
-                // simply the LAST such pair in DexScreener's response order.
-                // Nothing compared one liquidity against another — the only
-                // quantity the rule is about was never used as a comparison.
-                //
-                // That matters because a mint routinely returns several pairs
-                // and some are near-empty junk whose mid-price is meaningless.
-                // The operator's 5.0.7024 snapshot shows what arrives when one
-                // of those lands last:
-                //
-                //   STALE_PRICE_QUARANTINED mint=Dz9mQ9NzkB
-                //     entryPrice=2.53e-07 lastPrice=0.2521 gainMultiple=995863
-                //   HERO_OPENMV_PER_POSITION_QUARANTINE_6604 mint=XsqE9cRRpz
-                //     costBasis=0.0375 rawMark=14499.39 ratio=386650.3x
-                //
-                //   ... 2,400 quarantines in one session, all src=DEXSCREENER_BATCH.
-                //
-                // The downstream guards caught every one and refused to trade or
-                // learn on them, which is why this cost noise rather than money.
-                // But a mark that has to be thrown away is a mark the exit
-                // engine never got, and this is the fix at the source.
-                //
-                // Now genuinely best-of: remember the winning pair's liquidity
-                // and only replace when a strictly better one arrives.
-                val liq = p.optJSONObject("liquidity")?.optDouble("usd", 0.0) ?: 0.0
-                val bestLiq = bestLiqByMint[mint]
-                DexPools8285.rowOf8285(p, batchAtMs8169)?.let { DexPools8285.record8285(listOf(it)) }  // V5.0.8285 — every pool's identity kept
-                if (bestLiq == null || liq > bestLiq) {
-                    bestLiqByMint[mint] = liq
-                    out[mint] = priceUsd
-                    // V5.0.8169 — the same pair's flow (txns / priceChange / liquidity) was dropped after the price.
-                    // V5.0.8285 FEATURE_ARRIVED_POOL_FLOW(mint)
-                    try { com.lifecyclebot.engine.truth.PairFlow8169.note8169(mint, com.lifecyclebot.engine.truth.PairFlow8169.fromJson8169(p, batchAtMs8169)) } catch (_: Throwable) {}
-                }
+                // V5.0.7026 picked the mint's pool with the highest reported liquidity. V5.0.8560 — that is the wrong pool when
+                // the coin also trades against a thin, overvalued token: DexScreener values such a pool's price AND its
+                // liquidity through that token's USD price, so "deepest" chose the most overvalued pool (8559 paper: TREASURY /
+                // QUALITY / CYCLIC marks +1,577..+2,188 %, OTHER@DEXSCREENER_BATCH unit breaks 421, 136 paper sells refused as
+                // uncorroborated). Every pool row is collected; the price comes from the same chooser the lanes use
+                // (DexPools8285.choose8285: the pool already in use, else the deepest SOL / stable-quoted pool).
+                if (mint !in wanted8560) continue
+                val row = DexPools8285.rowOf8285(p, batchAtMs8169) ?: continue
+                DexPools8285.record8285(listOf(row))  // V5.0.8285 — every pool's identity kept
+                rows8560.getOrPut(mint) { ArrayList(2) }.add(row to p)
+            }
+            for ((mint, list) in rows8560) {
+                val pick = DexPools8285.choose8285(list.map { it.first }, DexPools8285.chosen8285(mint)) ?: continue
+                out[mint] = pick.priceUsd
+                val json = list.firstOrNull { it.first.pairAddress == pick.pairAddress }?.second ?: continue
+                // V5.0.8169 — the same pair's flow (txns / priceChange / liquidity) was dropped after the price.
+                try { com.lifecyclebot.engine.truth.PairFlow8169.note8169(mint, com.lifecyclebot.engine.truth.PairFlow8169.fromJson8169(json, batchAtMs8169)) } catch (_: Throwable) {}
             }
         } catch (_: Exception) {
             // return whatever we have; a body that parsed to nothing is UNPARSEABLE, not "no such token"
