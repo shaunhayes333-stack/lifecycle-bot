@@ -220,6 +220,10 @@ class Aate8521ForwardLifecycleTest {
             val noFillMint = "${prefix}no-fill"
             val noFillCell = "TEST_FROZEN_8521|TREASURY|NO_FILL"
             val noFill = observation(noFillMint, "TREASURY", false, at, noFillCell)
+            // superseded by V5.0.8568 — the helper's decision mark is a 0 s-old CURVE_ACCOUNT print, which IS a buyable fill
+            // (decisionChainFill8567). The no-fill case is now a decision priced by an aggregator with no rebase read.
+            val apiBasis8568 = LabelBasis8386(LabelMark8386(noFillMint, "TEST", 1.0, at, at, "DEXSCREENER", decimals = 6), 100_000.0)
+            set(noFill, "basis8386", apiBasis8568); set(noFill, "decisionBasis8386", apiBasis8568)
             set(noFill, "lastMark8386", mark(noFillMint, at + 300_000L, 2.0))
             assertEquals(true, call("bookSixty7944", noFill, 97.0, 100.0, at + 300_000L))
             assertTrue("a recovered outcome cannot invent an earlier executable fill", (get(noFill, "bookedNet7997") as Double).isNaN())
