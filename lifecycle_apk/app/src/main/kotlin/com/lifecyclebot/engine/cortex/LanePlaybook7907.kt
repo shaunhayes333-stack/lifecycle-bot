@@ -1041,7 +1041,7 @@ object LanePlaybook7907 {
         // bank); the 8187 blend keeps only its other direction here so a losing close is never counted twice.
         val rrN = rr?.getOrNull(0) ?: 0.0; val rrM = rr?.getOrNull(1) ?: Double.NaN
         val exec = try {
-            Cortex7885.executableCopy8187(raw, Cortex7885.executableOffset8187(lane), if (rrM.isFinite() && rrM > 0.0) rrN else 0.0, rrM)
+            Cortex7885.executableCopy8187(raw, Cortex7885.executableOffset8187(lane), realisedLift8559(rrN, rrM), rrM)
         } catch (_: Throwable) { raw }
         return try { LaneRealisedGovernor8295.governedCopy8295(exec, rr, laneRealised8295(lane)) } catch (_: Throwable) { exec }
     }
@@ -1054,10 +1054,18 @@ object LanePlaybook7907 {
         val rr = try { Cortex7885.setupRealised8187(lane, setup) } catch (_: Throwable) { null }
         val rrN = rr?.getOrNull(0) ?: 0.0; val rrM = rr?.getOrNull(1) ?: Double.NaN
         val exec = try {
-            Cortex7885.executableCopy8187(local, Cortex7885.executableOffset8187(lane), if (rrM.isFinite() && rrM > 0.0) rrN else 0.0, rrM)
+            Cortex7885.executableCopy8187(local, Cortex7885.executableOffset8187(lane), realisedLift8559(rrN, rrM), rrM)
         } catch (_: Throwable) { local }
         return try { LaneRealisedGovernor8295.governedCopy8295(exec, rr, laneRealised8295(lane)) } catch (_: Throwable) { exec }
     }
+
+    /**
+     * Pure (V5.0.8559): how many realised closes may LIFT a setup's label record (the 8187 blend weighs each close as 30 labels).
+     * Below [LOSING_N] closes, none: 8557's CASHGEN OUTSIDE_ENVELOPE_8383 read +223.5 % ±3.0 n30 PROVEN from ~60 labels at
+     * about -2.5 % plus 2 paper closes averaging ~+450 % (the edge dataset: the same coins -2..-3 % each), and that read lifted
+     * the LIVE envelope refusal. The losing direction stays with LaneRealisedGovernor8295, unchanged.
+     */
+    fun realisedLift8559(rrN: Double, rrM: Double): Double = if (rrM.isFinite() && rrM > 0.0 && rrN >= LOSING_N) rrN else 0.0
 
     /** V5.0.8295 — the lane's live realised record [closes, mean %] (account mode), cached; null with none. */
     private fun laneRealised8295(lane: String): DoubleArray? =

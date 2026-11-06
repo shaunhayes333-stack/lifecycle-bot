@@ -127,11 +127,11 @@ class Aate6616JournalHeroSingleAuthorityCoverageTest {
         ).readText()
         assertTrue(
             "V5.0.6616: PaperAccountLedger6430.onBuy must notify BUY mutation",
-            ledger.contains("JournalEconomicAuthority6616.notifyEconomicMutation(\"BUY\")")
+            ledger.contains("JournalEconomicAuthority6616.notifyEconomicMutationAsync8077(\"BUY\")")   // superseded (8559): the coalesced async publish (revision still advances synchronously; no journal replay inside the ledger lock)
         )
         assertTrue(
             "V5.0.6616: PaperAccountLedger6430.onSell must notify SELL mutation",
-            ledger.contains("JournalEconomicAuthority6616.notifyEconomicMutation(\"SELL\")")
+            ledger.contains("JournalEconomicAuthority6616.notifyEconomicMutationAsync8077(\"SELL\")")   // superseded (8559): the coalesced async publish (revision still advances synchronously; no journal replay inside the ledger lock)
         )
         assertTrue(
             "V5.0.6616: PaperAccountLedger6430.rollbackBuy must notify ROLLBACK_BUY mutation",

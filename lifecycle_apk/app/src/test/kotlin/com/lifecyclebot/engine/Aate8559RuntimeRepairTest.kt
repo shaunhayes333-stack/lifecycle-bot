@@ -87,7 +87,7 @@ class Aate8559RuntimeRepairTest {
         assertFalse(ledger.contains("JournalEconomicAuthority6616.notifyEconomicMutation(\"SELL\")"))
         assertTrue(ledger.contains("JournalEconomicAuthority6616.notifyEconomicMutationAsync8077(\"BUY\")"))
         assertTrue(ledger.contains("JournalEconomicAuthority6616.notifyEconomicMutationAsync8077(\"SELL\")"))
-        val snap = src("engine/truth/UnifiedAccountSnapshot6635.kt").substringAfter("private fun reconcileThrottled7302()").substringBefore("@Synchronized")
+        val snap = src("engine/truth/UnifiedAccountSnapshot6635.kt").substringAfter("private fun reconcileThrottled7302()").substringBefore("fun read(")
         assertFalse("never inline inside the synchronized read", snap.contains("if (!onMain)"))
         assertTrue(snap.contains("\"reconcile-6635\""))
     }
@@ -107,5 +107,17 @@ class Aate8559RuntimeRepairTest {
         assertEquals("a request above the floor stays its own size", 0.05, TicketExec8304.sealCeiling8552(true, 0.05, 0.4, Double.MAX_VALUE, 0.03), 1e-12)
         assertEquals("the market still binds", 0.02, TicketExec8304.sealCeiling8552(true, 0.012, 0.02, Double.MAX_VALUE, 0.03), 1e-12)
         assertEquals(0.012, TicketExec8304.sealCeiling8552(false, 0.012, 0.4, Double.MAX_VALUE, 0.03), 1e-12)
+    }
+
+    /** V5.0.8560 — two winning paper closes made a ~-2.5 % label record read +223.5 % ±3.0 n30 PROVEN (CASHGEN OUTSIDE_ENVELOPE). */
+    @Test fun aFewRealisedWinsCannotLiftALabelRecord() {
+        assertEquals(0.0, com.lifecyclebot.engine.cortex.LanePlaybook7907.realisedLift8559(2.0, 450.0), 0.0)
+        assertEquals(0.0, com.lifecyclebot.engine.cortex.LanePlaybook7907.realisedLift8559(29.0, 12.0), 0.0)
+        assertEquals(30.0, com.lifecyclebot.engine.cortex.LanePlaybook7907.realisedLift8559(30.0, 12.0), 0.0)
+        assertEquals("losing closes stay with the 8295 governor", 0.0, com.lifecyclebot.engine.cortex.LanePlaybook7907.realisedLift8559(40.0, -5.0), 0.0)
+        val p = src("engine/cortex/LanePlaybook7907.kt")
+        assertFalse(p.contains("if (rrM.isFinite() && rrM > 0.0) rrN else 0.0"))
+        assertTrue(p.contains("Cortex7885.executableCopy8187(raw, Cortex7885.executableOffset8187(lane), realisedLift8559(rrN, rrM), rrM)"))
+        assertTrue(p.contains("Cortex7885.executableCopy8187(local, Cortex7885.executableOffset8187(lane), realisedLift8559(rrN, rrM), rrM)"))
     }
 }
