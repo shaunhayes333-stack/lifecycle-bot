@@ -892,6 +892,7 @@ object JournalEconomicReplay6619 {
                             buys[positionId].orEmpty(),
                             paperSellReceipts7360[positionId].orEmpty(),
                             journalSellsByPosition7360[positionId].orEmpty(),
+                            canonical,
                         )
                     ) repaired++
                 } else {
@@ -1017,6 +1018,7 @@ object JournalEconomicReplay6619 {
         positionBuys: List<Trade>,
         receipts: List<EconomicEventSchema6464.Sell>,
         journalSells: List<Trade>,
+        canonical: CanonicalPositionAuthority6441.Position?,
     ): Boolean {
         val allJournalSells7367 = journalSells
         fun skip(reason: String): Boolean {
@@ -1024,7 +1026,11 @@ object JournalEconomicReplay6619 {
             return false
         }
         val seed = positionBuys.firstOrNull() ?: return skip("NO_BUY_ROW")
-        val terminal = receipts.firstOrNull { !it.partial } ?: return skip("NO_TERMINAL_RECEIPT")
+        // V5.0.8585b — a missing EconomicEventSchema receipt (recordSell swallowed under memory
+        // pressure at CanonicalPaperTerminalBridge6469) must not strand a ledger-closed lot
+        // journal-open forever. Reconcile from the authoritative canonical CLOSED position instead.
+        val terminal = receipts.firstOrNull { !it.partial }
+            ?: return rebuildClosedLotFromCanonical8585(positionId, openBasis, openRaw, seed, allJournalSells7367, canonical)
         // V5.0.8579 — the real closing row lands milliseconds after its receipt, on the caller's own thread; this rebuild runs
         // on the reconcile thread every 30 s and read the journal snapshot in that gap, so it wrote a second SELL for the same
         // receipt (DUPLICATE_FILL_INDEX on every later replay). A lot is rebuilt only once its terminal receipt is older than
@@ -1089,6 +1095,83 @@ object JournalEconomicReplay6619 {
                 "positionId=${positionId.take(24)} mint=${seed.mint.take(10)} receipts=${missing.size} " +
                     "gross=${"%.6f".format(gross)} fees=${"%.6f".format(fees)} basis=${"%.6f".format(openBasis)} " +
                     "pnl=${"%+.6f".format(pnl)} action=terminal_row_from_ledger_receipts",
+            )
+        } catch (_: Throwable) {}
+        return true
+    }
+
+    /**
+     * V5.0.8585b — reconcile a ledger-CLOSED lot to the journal when its EconomicEventSchema sell
+     * receipt is MISSING. The receipt-based rebuild [rebuildClosedLotFromReceipts7360] bails
+     * NO_TERMINAL_RECEIPT and the lot stays journal-open forever: that is the persistent PAPER
+     * ledger-vs-journal witness leak (accountingStatus=FAILED, ~0.1 SOL, builds 8566-8585). A receipt
+     * can be lost when CanonicalPaperTerminalBridge6469's EconomicEventSchema6464.recordSell is
+     * swallowed under memory pressure — but the canonical CLOSED position is authoritative settlement
+     * (the ledger already credited its proceeds), so project the terminal journal row straight from it.
+     * Idempotent (deterministic id + durable check), fill-index-safe (never writes if a terminal SELL is
+     * already journalled), and grace-guarded on the position's own close time so a real in-flight closing
+     * row is never duplicated.
+     */
+    private fun rebuildClosedLotFromCanonical8585(
+        positionId: String,
+        openBasis: Double,
+        openRaw: java.math.BigInteger,
+        seed: Trade,
+        allJournalSells7367: List<Trade>,
+        canonical: CanonicalPositionAuthority6441.Position?,
+    ): Boolean {
+        fun skip(reason: String): Boolean {
+            try { PipelineHealthCollector.labelInc("JOURNAL_RECEIPT_REBUILD_SKIPPED_7360_$reason") } catch (_: Throwable) {}
+            return false
+        }
+        val pos = canonical ?: return skip("NO_TERMINAL_RECEIPT")
+        if (pos.lifecycle != CanonicalPositionAuthority6441.Lifecycle.CLOSED) return skip("CANON_NOT_CLOSED_8585")
+        if (!pos.realizedProceedsSol.isFinite() || !pos.feesSol.isFinite()) return skip("CANON_NON_FINITE_8585")
+        // Wait out any real closing row still in flight before synthesising from canonical.
+        if (!receiptSettled8579(pos.lastMutationMs, System.currentTimeMillis())) return skip("CANON_CLOSE_YOUNG_8585")
+        // A terminal SELL already journalled owns this position's fill index; never write a second.
+        if (allJournalSells7367.any { it.side.equals("SELL", true) && !it.economicEventId.startsWith("PAPER6619:ORPHAN_REFUND:") }) {
+            return skip("TERMINAL_ALREADY_JOURNALED")
+        }
+        val gross = pos.realizedProceedsSol.coerceAtLeast(0.0)
+        val fees = pos.feesSol.coerceAtLeast(0.0)
+        if (!gross.isFinite() || !fees.isFinite()) return skip("CANON_NON_FINITE_8585")
+        val scale = seed.tokenDecimals.takeIf { it in 0..18 } ?: seed.entryDecimals.coerceIn(0, 18)
+        val displayQty = try { openRaw.toBigDecimal().movePointLeft(scale).toDouble() } catch (_: Throwable) { 0.0 }
+        val entryPx = seed.entryPriceSnapshot.takeIf { it.isFinite() && it > 0.0 }
+            ?: seed.price.takeIf { it.isFinite() && it > 0.0 } ?: return skip("NO_ENTRY_PRICE")
+        val pnl = gross - openBasis - fees
+        val rebuiltEventId8585 = "REBUILT7360CANON8585:$positionId:r$openRaw:b${(openBasis * 1e9).toLong()}"
+        if (TradeHistoryStore.isDurableEconomicEvent7371(rebuiltEventId8585)) return skip("CANON_REBUILD_ALREADY_DURABLE_8585")
+        PaperEconomicAtomicCommit6632.stampLedger(
+            rebuiltEventId8585, seed.mint, PaperEconomicAtomicCommit6632.Side.SELL,
+            "JournalEconomicReplay6619.canonicalProjection8585",
+        )
+        TradeHistoryStore.recordTrade(Trade(
+            side = "SELL", mode = "paper", sol = gross,
+            price = entryPx,
+            ts = pos.lastMutationMs.takeIf { it > 0L } ?: System.currentTimeMillis(),
+            reason = "JOURNAL_REBUILT_FROM_CANONICAL_8585",
+            pnlSol = pnl, pnlPct = if (openBasis > 0.0) (pnl / openBasis) * 100.0 else 0.0,
+            feeSol = fees, netPnlSol = pnl,
+            tradingMode = seed.tradingMode, tradingModeEmoji = seed.tradingModeEmoji,
+            mint = seed.mint, proofState = "PAPER_SIMULATED",
+            positionId = positionId, entryTsMs = seed.entryTsMs.takeIf { it > 0L } ?: seed.ts,
+            entryPriceSnapshot = entryPx,
+            entryCostSol = openBasis, entryDecimals = scale,
+            soldQtyToken = displayQty, remainingQtyToken = 0.0,
+            canonicalConsumedRaw = openRaw, remainingRawQty = java.math.BigInteger.ZERO,
+            tokenDecimals = scale, soldCostBasisSol = openBasis,
+            grossProceedsSol = gross, economicEventId = rebuiltEventId8585,
+            partialSequence = (allJournalSells7367.maxOfOrNull { it.partialSequence } ?: -1L) + 1L,
+        ))
+        try {
+            PipelineHealthCollector.labelInc("JOURNAL_CANONICAL_REBUILD_ENQUEUED_8585")
+            ForensicLogger.lifecycle(
+                "JOURNAL_CANONICAL_REBUILD_ENQUEUED_8585",
+                "positionId=${positionId.take(24)} mint=${seed.mint.take(10)} " +
+                    "gross=${"%.6f".format(gross)} fees=${"%.6f".format(fees)} basis=${"%.6f".format(openBasis)} " +
+                    "pnl=${"%+.6f".format(pnl)} action=terminal_row_from_canonical_position",
             )
         } catch (_: Throwable) {}
         return true

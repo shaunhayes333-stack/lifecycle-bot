@@ -531,7 +531,12 @@ object CanonicalPaperTerminalBridge6469 {
                 performanceFeeSol8391 = if (terminal) com.lifecyclebot.engine.PerformanceFees8391.fee(positionId) else 0.0,
                 basisDerived8418 = basisDerived8418,
             )
-        } catch (_: Throwable) {}
+        } catch (_: Throwable) {
+            // V5.0.8585b — never swallow a lost sell receipt silently. A dropped recordSell starves the
+            // journal's receipt-rebuild (NO_TERMINAL_RECEIPT) and strands the lot journal-open. Surface it;
+            // JournalEconomicReplay6619.rebuildClosedLotFromCanonical8585 reconciles from the canonical close.
+            try { PipelineHealthCollector.labelInc("PAPER_SELL_RECEIPT_WRITE_FAILED_8585") } catch (_: Throwable) {}
+        }
 
         var busPublished = false
         if (terminal && !suppressLearningFanout6490) try {
