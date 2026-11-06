@@ -96,4 +96,16 @@ class Aate8571LabelLossTest {
         assertTrue(fn.contains("val released8505 = pending.remove(key,o) && (!o.done60 || hourTargetLost8571)"))
         assertTrue(lab.contains("hourTarget8571[lost=\${hourTargetLost8571Count.get()} interimMissed=\${interimMissed8571.get()}]"))
     }
+
+    @Test fun vault_reads_are_asked_at_batch_start_with_the_label_freshness() {
+        val lab = labeler()
+        val fn = lab.substringAfter("private fun fetchOffWatchMarks7737(").substringBefore("val dexBatch8418 =")
+        assertTrue(fn.contains("OnChainDepth8038.requestMints8543(offCurve8418, CHAIN_MARK_MAX_AGE_MS_8540)"))
+        val depth = File("src/main/kotlin/com/lifecyclebot/engine/truth/OnChainDepth8038.kt").readText()
+        assertTrue(depth.contains("requestMint8540(m, askMaxAge8572.remove(m) ?: FRESH_MS)"))
+    }
+
+    @Test fun a_decision_with_no_token_row_is_counted_not_silent() {
+        assertTrue(labeler().contains("skippedNoState8572.incrementAndGet()"))
+    }
 }

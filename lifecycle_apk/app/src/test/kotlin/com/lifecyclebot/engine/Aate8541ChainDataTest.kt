@@ -94,7 +94,8 @@ class Aate8541ChainDataTest {
         assertTrue(rung > l.indexOf("FORWARD_LABEL_OFFWATCH_JUP_PRICED_8405"))
         assertTrue(rung < l.indexOf("for (m in got.keys) noteCause8535(m, OffWatchSchedule8535.Cause.PRICED)"))
         // superseded by V5.0.8543 — the unpriced mints are handed to one background drainer, not requested on the batch thread
-        assertTrue(l.contains("if (ask8543.isNotEmpty()) try { OnChainDepth8038.requestMints8543(ask8543) } catch (_: Throwable) {}"))
+        // superseded by V5.0.8572 — "requestMints8543(ask8543)": the ask carries the rung's own 20 s freshness.
+        assertTrue(l.contains("if (ask8543.isNotEmpty()) try { OnChainDepth8038.requestMints8543(ask8543, CHAIN_MARK_MAX_AGE_MS_8540) } catch (_: Throwable) {}"))
         val d = src("engine/truth/OnChainDepth8038.kt")
         assertTrue("concentrated venues never price", d.substringAfter("internal fun historyPools8541(").substringBefore("private fun poolsForMint8540(").contains("if (concentrated8418(o)) null else p to v"))
         val w = src("engine/WalletManager.kt")

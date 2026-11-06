@@ -21,9 +21,11 @@ class Aate8543PaperBookAndLabelTimingTest {
     @Test fun theLabelBatchHandsPoolDiscoveryOff() {
         val l = src("engine/truth/ForwardReturnLabeler7731.kt")
         val rung = l.substringAfter("val missedChain8540 = batch.filter { it !in got }").substringBefore("got.putAll(chain8540)")
-        assertTrue(rung.contains("OnChainDepth8038.requestMints8543(ask8543)"))
+        // superseded by V5.0.8572 — "requestMints8543(ask8543)": the ask carries the rung's own 20 s freshness.
+        assertTrue(rung.contains("OnChainDepth8038.requestMints8543(ask8543, CHAIN_MARK_MAX_AGE_MS_8540)"))
         assertTrue("no per-mint discovery on the batch thread", !rung.contains("OnChainDepth8038.requestMint8540(m)"))
-        assertTrue(src("engine/truth/OnChainDepth8038.kt").contains("fun requestMints8543(mints: List<String>)"))
+        // superseded by V5.0.8572 — "fun requestMints8543(mints: List<String>)": it also takes the caller's freshness.
+        assertTrue(src("engine/truth/OnChainDepth8038.kt").contains("fun requestMints8543(mints: List<String>, maxAgeMs: Long = FRESH_MS)"))
     }
 
     // 1 / 13. a past horizon converts at the SOL rate observed then; a gap needs agreeing sides; nothing invented

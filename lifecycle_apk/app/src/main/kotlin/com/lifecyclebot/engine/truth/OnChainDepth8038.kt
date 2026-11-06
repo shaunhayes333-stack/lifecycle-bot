@@ -259,13 +259,21 @@ object OnChainDepth8038 {
     private val askPending8543 = java.util.concurrent.ConcurrentLinkedQueue<String>()
     private val askQueued8543 = ConcurrentHashMap.newKeySet<String>()
     private val askRunning8543 = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val askMaxAge8572 = ConcurrentHashMap<String, Long>()
 
     /**
      * V5.0.8543 — [mints] are asked for a vault read off the caller's thread (one drainer, de-duplicated, bounded at 2,000
      * queued). The label batch hands its unpriced mints here and returns at once.
      */
-    fun requestMints8543(mints: List<String>) {
-        for (m in mints) if (askQueued8543.size < 2_000 && askQueued8543.add(m)) askPending8543.add(m)
+    fun requestMints8543(mints: List<String>, maxAgeMs: Long = FRESH_MS) {
+        // V5.0.8572 — the caller's freshness travels with the ask: the label batch prices only reads <= 20 s old, but every ask
+        // was dropped while a read under the default 90 s existed, so a 20-90 s-old read was asked for and never refreshed
+        // (8562: chain8540 priced 169 / asked 6,082).
+        for (m in mints) {
+            if (maxAgeMs < FRESH_MS) askMaxAge8572.merge(m, maxAgeMs) { a, b -> minOf(a, b) }
+            if (askQueued8543.size < 2_000 && askQueued8543.add(m)) askPending8543.add(m)
+        }
+        if (askMaxAge8572.size > 4_000) askMaxAge8572.keys.retainAll(askQueued8543)
         if (!askRunning8543.compareAndSet(false, true)) return
         try {
             Thread({
@@ -273,7 +281,7 @@ object OnChainDepth8038 {
                     while (true) {
                         val m = askPending8543.poll() ?: break
                         askQueued8543.remove(m)
-                        try { requestMint8540(m) } catch (_: Throwable) {}
+                        try { requestMint8540(m, askMaxAge8572.remove(m) ?: FRESH_MS) } catch (_: Throwable) {}
                     }
                 } finally { askRunning8543.set(false) }
             }, "onchain-ask-8543").apply { isDaemon = true }.start()
