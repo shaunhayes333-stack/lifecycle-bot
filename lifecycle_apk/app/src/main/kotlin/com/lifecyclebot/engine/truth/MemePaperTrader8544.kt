@@ -300,11 +300,32 @@ object MemePaperTrader8544 {
     }
 
     private fun noteLane8544(c: Closed8544) {
-        val v = laneStats.getOrPut(c.lane) { DoubleArray(STAT_FIELDS_8546) }
+        addStat8572(c.lane, c)
+        // V5.0.8572 — the lane's post-guard proof ledger: closes booked after the 8559 mark guard only (a pre-guard phantom,
+        // e.g. the EXPRESS +503,695 SOL row, can never prove a lane). Families keep their own FAM_ rows.
+        if (!c.lane.startsWith(FAMILY_PREFIX_8546)) addStat8572("$PROOF_PREFIX_8572${c.lane}", c)
+    }
+
+    private fun addStat8572(key: String, c: Closed8544) {
+        val v = laneStats.getOrPut(key) { DoubleArray(STAT_FIELDS_8546) }
         synchronized(v) {
             v[0] += 1.0; if (c.netPct > 0.0) v[1] += 1.0; v[2] += c.netPct; v[3] += c.pnlSol
             v[4] += c.netPct * c.netPct; if (c.netPct > 0.0) v[5] += c.netPct else v[6] += -c.netPct
         }
+    }
+
+    const val PROOF_PREFIX_8572 = "P8572|"
+
+    /**
+     * V5.0.8572 — has [lane]'s post-guard paper record earned LIVE money (the owner's bar: n >= 30, mean - se > 0, PF >= 1.3,
+     * MemeStrategies8546.provenRecord8546)? Paper SHITCOIN closed n138 +44.7%±31.5 PF 4.14 in 8562, but only strategy
+     * families could carry a paper proof to LIVE.
+     */
+    fun laneProven8572(lane: String): Boolean {
+        restore8544()
+        val v = laneStats["$PROOF_PREFIX_8572${lane.trim().uppercase()}"] ?: return false
+        val p = synchronized(v) { proofOf8546(v) }
+        return MemeStrategies8546.provenRecord8546(p[0].toInt(), p[1], p[2], p[3])
     }
 
     private const val STAT_FIELDS_8546 = 7

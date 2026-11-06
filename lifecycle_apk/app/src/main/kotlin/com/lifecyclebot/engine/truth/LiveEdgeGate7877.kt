@@ -593,6 +593,8 @@ object LiveEdgeGate7877 {
         val name = when {
             // V5.0.8546 — a strategy family proven in the paper book signalled on this coin within two minutes
             (try { MemeStrategies8546.liveProven8546(ts.mint, nowMs) } catch (_: Throwable) { null }) != null -> CandidateAdmission8136.FAMILY_PROVEN_PREFIX_8546
+            // V5.0.8572 — this lane's own post-guard paper record cleared the owner's proof bar; every other live door still binds
+            (try { MemePaperTrader8544.laneProven8572(l) } catch (_: Throwable) { false }) -> PAPER_LANE_PROVEN_8572
             (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetup8056(ts, l, nowMs) } catch (_: Throwable) { null }) != null -> "PROVEN_SETUP"
             (try { measuredEdge8060(ts, l, nowMs) } catch (_: Throwable) { false }) -> "MEASURED_EDGE"
             (try { cellOrKindProven8094(ts, l, nowMs) } catch (_: Throwable) { false }) -> "CELL_OR_KIND"
@@ -606,6 +608,8 @@ object LiveEdgeGate7877 {
         try { PipelineHealthCollector.labelInc("LIVE_EDGE_8114_RESTORED_8538_${name}_$l") } catch (_: Throwable) {}
         return name
     }
+
+    const val PAPER_LANE_PROVEN_8572 = "PAPER_LANE_PROVEN_8572"
 
     /** Pure (V5.0.8536): any one proof suffices; none is a refusal. */
     fun provenLive8536(specificAdmit: Boolean, provenSetup: Boolean, provenCell: Boolean, promotedSpecialist: Boolean): Boolean =
