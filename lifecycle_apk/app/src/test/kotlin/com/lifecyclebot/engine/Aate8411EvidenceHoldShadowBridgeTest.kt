@@ -19,7 +19,9 @@ class Aate8411EvidenceHoldShadowBridgeTest {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveEdgeGate7877.kt").readText()
         // superseded by V5.0.8418 — was assertTrue(src.contains("LaneShadowProof7307.onUnprovenRefusal(")) and the 8411 labels.
         assertFalse(src.contains("LANE_SHADOW_PROOF_OPENED_FROM_EVIDENCE_HOLD_8411"))
-        assertTrue(src.contains("val final = core ?: hold ?: niche ?: wait"))
+        // superseded by V5.0.8577 — "val final = core ?: hold ...": the doors' answer is doors8577; the verdict (final) is that
+        // answer unless lane authority makes it advisory for a lane-qualified LIVE candidate (LaneAuthority8577).
+        assertTrue(src.contains("val doors8577 = core ?: hold ?: niche ?: wait"))
         assertTrue(src.contains("if (!paper && core == null && hold != null && final == hold)"))
         assertTrue(src.contains("EvidenceShadow8344.open8344(ts, l, nowMs, advisoryEntry8393 = shadowOnly8393)"))
         assertTrue(src.contains("return final"))

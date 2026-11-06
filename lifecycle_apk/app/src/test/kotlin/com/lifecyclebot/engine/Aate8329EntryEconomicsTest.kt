@@ -36,7 +36,9 @@ class Aate8329EntryEconomicsTest {
     @Test fun realisedRefusalBindsOverThe8114AdmitButNotOverHardSafety() {
         val s=src("engine/truth/LiveEdgeGate7877.kt")
         assertTrue(s.contains("EntryEconomics8329.laneRealisedRefusal8329(l, nowMs, ts.mint)"))   // superseded by V5.0.8424 — by mint (the lane's one probe is this coin's claim); was `(l, nowMs)`
-        assertTrue(s.contains("val final = core ?: hold"))
+        // superseded by V5.0.8577 — "val final = core ?: hold ...": the doors' answer is doors8577; the verdict (final) is that
+        // answer unless lane authority makes it advisory for a lane-qualified LIVE candidate (LaneAuthority8577).
+        assertTrue(s.contains("val doors8577 = core ?: hold"))
         assertTrue(s.contains("EvidenceHold8336.refusal8336(ts, l, false, nowMs, candidateVersion8397 = candidateVersion)"))
         assertFalse(s.contains("Entry8114Mode8326"))
         assertFalse(com.lifecyclebot.engine.truth.FdgGate8365.hardSafety8392("LIVE_PROVEN_SETUP_ONLY_8059"))
@@ -59,7 +61,9 @@ class Aate8329EntryEconomicsTest {
     @Test fun modeDecisionConsultsTheRealisedLaneRead() {
         val s=src("engine/truth/LiveEdgeGate7877.kt")
         assertTrue(s.contains("EntryEconomics8329.laneRealisedRefusal8329(l, nowMs, ts.mint)"))   // superseded by V5.0.8424 — by mint (the lane's one probe is this coin's claim); was `(l, nowMs)`
-        assertTrue(s.contains("val final = core ?: hold"))
+        // superseded by V5.0.8577 — "val final = core ?: hold ...": the doors' answer is doors8577; the verdict (final) is that
+        // answer unless lane authority makes it advisory for a lane-qualified LIVE candidate (LaneAuthority8577).
+        assertTrue(s.contains("val doors8577 = core ?: hold"))
         assertTrue(s.contains("EvidenceHold8336.refusal8336(ts, l, false, nowMs, candidateVersion8397 = candidateVersion)"))
         assertFalse(s.contains("Entry8114Mode8326"))
         assertFalse(com.lifecyclebot.engine.truth.FdgGate8365.hardSafety8392("LIVE_PROVEN_SETUP_ONLY_8059"))
@@ -190,7 +194,9 @@ class Aate8329EntryEconomicsTest {
     @Test fun modeStaysOnByDefaultAndLabelRefusalsStayBypassed() {
         val s=src("engine/truth/LiveEdgeGate7877.kt")
         assertTrue(s.contains("EntryEconomics8329.laneRealisedRefusal8329(l, nowMs, ts.mint)"))   // superseded by V5.0.8424 — by mint (the lane's one probe is this coin's claim); was `(l, nowMs)`
-        assertTrue(s.contains("val final = core ?: hold"))
+        // superseded by V5.0.8577 — "val final = core ?: hold ...": the doors' answer is doors8577; the verdict (final) is that
+        // answer unless lane authority makes it advisory for a lane-qualified LIVE candidate (LaneAuthority8577).
+        assertTrue(s.contains("val doors8577 = core ?: hold"))
         assertTrue(s.contains("EvidenceHold8336.refusal8336(ts, l, false, nowMs, candidateVersion8397 = candidateVersion)"))
         assertFalse(s.contains("Entry8114Mode8326"))
         assertFalse(com.lifecyclebot.engine.truth.FdgGate8365.hardSafety8392("LIVE_PROVEN_SETUP_ONLY_8059"))
