@@ -2355,6 +2355,96 @@ object ForwardReturnLabeler7731 {
         (try { com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(mint) } catch (_: Throwable) { false }) &&
             !(try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(mint) } catch (_: Throwable) { true })
 
+    // ── V5.0.8583 §HORIZON_PRICER — every label window gets its own price read, on its own thread ──
+    //
+    // 8575 log: labelCoverage h1m=612/912, h5m=16/443, h60m=0/1,826 — the read that grades every hour lane was NEVER priced.
+    // A horizon was booked only if SOME source happened to hold a fresh mark inside its window: the coin's watch row (gone
+    // once it leaves the watchlist), or the shared off-watch batch, which re-asks all ~3,400 pending coins every 60 s from
+    // one 300-mint slot on the bot loop (avg 16-24 s a batch, 13,283 deferrals) and so reached a 60-minute window by luck.
+    // The pricer owns the windows instead: every 2 s, on its own thread, it takes each pending observation whose re-base,
+    // 1-minute, 5-minute or 60-minute read window is OPEN and unbooked, collapses them to their mints (lanes share coins),
+    // and prices each mint (at most once per [HP_READ_GAP_MS_8583]) through the curve account, DexScreener, Jupiter and the
+    // pool vaults, publishing each answer stamped at its read time — inside the window by construction. The tick then books it.
+    const val HP_TICK_MS_8583 = 2_000L
+    const val HP_READ_GAP_MS_8583 = 15_000L
+    const val HP_MAX_MINTS_8583 = 300
+    private val hpLastRead8583 = ConcurrentHashMap<String, Long>()
+    private val hpRunning8583 = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val hpPasses8583 = AtomicLong(0); private val hpAsked8583 = AtomicLong(0)
+    private val hpCurve8583 = AtomicLong(0); private val hpDex8583 = AtomicLong(0)
+    private val hpJup8583 = AtomicLong(0); private val hpChain8583 = AtomicLong(0); private val hpUnpriced8583 = AtomicLong(0)
+
+    /** Pure (V5.0.8583): an unbooked read window of a decision made [ageMs] ago is open now. */
+    fun horizonWindowOpen8583(ageMs: Long, rebased: Boolean, done15: Boolean, done60: Boolean, done240: Boolean): Boolean =
+        (!rebased && ageMs in REBASE_MIN_MS_8076..REBASE_MAX_MS_8076) ||
+            (!done15 && horizonOpen7809(ageMs, H15_MS_7731)) ||
+            (!done60 && horizonOpen7809(ageMs, H60_MS_7731)) ||
+            (!done240 && horizonOpen7809(ageMs, H240_MS_7731))
+
+    /** Pure (V5.0.8583): the mints to price now — open windows only, one per mint, none read in the last gap. */
+    fun hpDueMints8583(open: List<Pair<String, Long>>, lastRead: (String) -> Long?, nowMs: Long, cap: Int = HP_MAX_MINTS_8583): List<String> =
+        open.sortedBy { it.second }.map { it.first }.distinct()
+            .filter { m -> (lastRead(m) ?: 0L).let { nowMs - it >= HP_READ_GAP_MS_8583 } }.take(cap)
+
+    private fun startHorizonPricer8583() {
+        if (!hpRunning8583.compareAndSet(false, true)) return
+        try {
+            Thread({
+                while (true) {
+                    try { horizonPass8583(System.currentTimeMillis()) } catch (_: Throwable) {}
+                    try { Thread.sleep(HP_TICK_MS_8583) } catch (_: InterruptedException) { break }
+                }
+                hpRunning8583.set(false)
+            }, "label-horizon-8583").apply { isDaemon = true }.start()
+        } catch (_: Throwable) { hpRunning8583.set(false) }
+    }
+
+    private fun horizonPass8583(nowMs: Long) {
+        val open = ArrayList<Pair<String, Long>>()
+        for (o in pending.values) {
+            val age = nowMs - o.atMs
+            // the window's start orders the read: the oldest open window first
+            if (horizonWindowOpen8583(age, o.rebased8076, o.done15, o.done60, o.done240)) open += o.mint to o.atMs
+        }
+        val due = hpDueMints8583(open, { hpLastRead8583[it] }, nowMs)
+        if (hpLastRead8583.size > 8_000) hpLastRead8583.entries.removeIf { nowMs - it.value > 2 * H240_MS_7731 }
+        if (due.isEmpty()) return
+        hpPasses8583.incrementAndGet(); hpAsked8583.addAndGet(due.size.toLong())
+        for (m in due) hpLastRead8583[m] = nowMs
+        val got = HashMap<String, Double>()
+        fun keep(prices: Map<String, Double>, counter: AtomicLong) {
+            var n = 0
+            for ((m, px) in prices) if (m !in got && px.isFinite() && px > 0.0) { got[m] = px; n++ }
+            counter.addAndGet(n.toLong())
+            if (prices.isNotEmpty()) noteOffWatchResponse(prices.filterValues { it.isFinite() && it > 0.0 }, System.currentTimeMillis())
+        }
+        val (onCurve, _) = splitOnCurve8418(due) { m -> onActiveCurve8418(m) }
+        if (onCurve.isNotEmpty()) keep(try { com.lifecyclebot.network.ParallelMarkFanout7088.curvePrices7392(onCurve) } catch (_: Throwable) { emptyMap() }, hpCurve8583)
+        for (chunk in due.filter { it !in got }.chunked(OFFWATCH_DEX_CHUNK_8405)) {
+            val r = try { com.lifecyclebot.network.DexscreenerApi().batchPriceFetchTyped8087(chunk, LABEL_SLOT_WAIT_MS_8474, heldMarkTraffic = false) } catch (_: Throwable) { null }
+            if (r != null) keep(r.prices, hpDex8583)
+        }
+        for (chunk in due.filter { it !in got }.chunked(50))
+            keep(try { com.lifecyclebot.engine.sell.PriceResolverFallback.jupiterBatchPrices7737(chunk) } catch (_: Throwable) { emptyMap() }, hpJup8583)
+        val rest = due.filter { it !in got }
+        if (rest.isNotEmpty()) {
+            val chain = HashMap<String, Double>()
+            for (m in rest) {
+                val px = try { OnChainDepth8038.chainPriceUsd8540(m, CHAIN_MARK_MAX_AGE_MS_8540) } catch (_: Throwable) { Double.NaN }
+                if (px.isFinite() && px > 0.0) chain[m] = px
+            }
+            keep(chain, hpChain8583)
+            val ask = rest.filter { it !in got }
+            if (ask.isNotEmpty()) try { OnChainDepth8038.requestMints8543(ask, CHAIN_MARK_MAX_AGE_MS_8540) } catch (_: Throwable) {}
+            hpUnpriced8583.addAndGet(ask.size.toLong())
+            // an unpriced mint is retried at the next gap inside its window (the vault read requested above usually lands first)
+        }
+    }
+
+    fun horizonPricerLine8583(): String =
+        "horizonPricer8583[running=${hpRunning8583.get()} passes=${hpPasses8583.get()} asked=${hpAsked8583.get()} " +
+            "priced{curve=${hpCurve8583.get()} dex=${hpDex8583.get()} jup=${hpJup8583.get()} chain=${hpChain8583.get()}} unpriced=${hpUnpriced8583.get()}]"
+
     private fun fetchOffWatchMarks7737(due: List<String>, nowMs: Long) {
         if (due.isEmpty() || nowMs - offWatchLastFetchMs7737 < OFFWATCH_FETCH_GAP_MS_7737) return
         if (!offWatchInFlight7737.compareAndSet(false, true)) {
@@ -2897,6 +2987,7 @@ object ForwardReturnLabeler7731 {
         }
         // V5.0.7931 — crypto-universe and Markets identities are priced by their own feeds.
         val priceFor: (String) -> Double? = { m -> priceFor0(m) ?: com.lifecyclebot.engine.cortex.CrossAssetCortex7931.priceFor(m, nowMs) }
+        startHorizonPricer8583()   // V5.0.8583 — idempotent; every open label window is priced on its own thread
         val freshUnpriced7737 = try { FreshLaunchSelector7737.tick({ m -> markFor(m, priceFor, nowMs) }, nowMs) } catch (_: Throwable) { emptyList() }
         drainTerminals8395()
         try { DowntimeRecovery8430.drain8430(nowMs) } catch (_: Throwable) {}   // V5.0.8430 — one bounded candle fetch when the provider is idle
@@ -3309,7 +3400,7 @@ object ForwardReturnLabeler7731 {
         val lanes = cells.keys.filter { it.startsWith("LANE|") }.map { it.removePrefix("LANE|") }.sorted()
             .mapNotNull { l -> laneStat(l)?.let { "$l[${fmtStat(it)}]" } }
         return "read=5m(slot60) early=1m late=60m pending=${pending.size} restored7735=${restoredPending7735.get()} observed=${observed.get()} booked15=${booked15.get()} booked60=${booked60.get()} booked240=${booked240.get()} " +
-            "lostMark=${lostMark.get()} vanished7944[lastMark=${vanishedLastMark7944.get()} dead=${vanishedDead7944.get()}] spikeCredited7945=${capturedLabels7945.get()} ${honestLine8366()} offWatch7737[priced=${offWatchPriced7737.get()} missed=${offWatchMissed7737.get()} limiterRetry8474=${offWatchLimiterRetry8474.get()} curve7753=${offWatchCurvePriced7753.get()} chain8540=${offWatchChainPriced8540.get()}/asked${chainRequested8540.get()}/reads${OnChainDepth8038.mintRequests8540()} deferred7809=${offWatchDeferred7809.get()} batches8508=${offWatchBatches8508.get()} avgMs8508=${offWatchBatches8508.get().let { n -> if (n > 0) offWatchBatchMsSum8508.get() / n else 0 }} maxMs8508=$offWatchBatchMsMax8508 stallReleased8508=${offWatchStallReleased8508.get()} running8508=${offWatchRunning8508.get()} markNoSolRate8508=${noSolRate8508.get()}] horizonMissed7809=${horizonMissed7809.get()} ${labelMarksLine8418()} hourTarget8571[lost=${hourTargetLost8571Count.get()} interimMissed=${interimMissed8571.get()}] basisSuspect7738=${basisSuspect7738.get()} entryBasis8571[chain=${chainEntry8571.get()} curveRebased=${curveRebasedEntry8571.get()}] curveWitness8165[entry=${curveRefusedEntry8165.get()} mark=${curveRefusedMark8165.get()} held8337=${curveHeldMark8337.get()}] hourSlot8337=${revisedToHour8337.get()} witnessedRunnerLabels8324=${witnessedLabels8324.get()} purged7738=${purgedCells7738.get()} curvePriced8062=${curvePriced8062.get()} rebased8076[up=${rebasedUp8076.get()} down=${rebasedDown8076.get()} flat8322=${rebasedFlat8322.get()} flatLostMarks8342=${flatMarks8322.get()} meanGap=${(rebasedUp8076.get() + rebasedDown8076.get() + rebasedFlat8322.get()).let { n -> if (n > 0) "%+.1f".format(rebaseGapSum8076 / n) else "-" }}% lateFirstPrice8153=${lateFirstCount8153.get()}] skipped[noPrice=${skippedNoPrice.get()} noState8572=${skippedNoState8572.get()} recent=${skippedRecent.get()} full=${skippedFull.get()}] cells=${cellStats.size}/${cells.size}\n" +
+            "lostMark=${lostMark.get()} vanished7944[lastMark=${vanishedLastMark7944.get()} dead=${vanishedDead7944.get()}] spikeCredited7945=${capturedLabels7945.get()} ${honestLine8366()} offWatch7737[priced=${offWatchPriced7737.get()} missed=${offWatchMissed7737.get()} limiterRetry8474=${offWatchLimiterRetry8474.get()} curve7753=${offWatchCurvePriced7753.get()} chain8540=${offWatchChainPriced8540.get()}/asked${chainRequested8540.get()}/reads${OnChainDepth8038.mintRequests8540()} deferred7809=${offWatchDeferred7809.get()} batches8508=${offWatchBatches8508.get()} avgMs8508=${offWatchBatches8508.get().let { n -> if (n > 0) offWatchBatchMsSum8508.get() / n else 0 }} maxMs8508=$offWatchBatchMsMax8508 stallReleased8508=${offWatchStallReleased8508.get()} running8508=${offWatchRunning8508.get()} markNoSolRate8508=${noSolRate8508.get()}] horizonMissed7809=${horizonMissed7809.get()} ${horizonPricerLine8583()} ${labelMarksLine8418()} hourTarget8571[lost=${hourTargetLost8571Count.get()} interimMissed=${interimMissed8571.get()}] basisSuspect7738=${basisSuspect7738.get()} entryBasis8571[chain=${chainEntry8571.get()} curveRebased=${curveRebasedEntry8571.get()}] curveWitness8165[entry=${curveRefusedEntry8165.get()} mark=${curveRefusedMark8165.get()} held8337=${curveHeldMark8337.get()}] hourSlot8337=${revisedToHour8337.get()} witnessedRunnerLabels8324=${witnessedLabels8324.get()} purged7738=${purgedCells7738.get()} curvePriced8062=${curvePriced8062.get()} rebased8076[up=${rebasedUp8076.get()} down=${rebasedDown8076.get()} flat8322=${rebasedFlat8322.get()} flatLostMarks8342=${flatMarks8322.get()} meanGap=${(rebasedUp8076.get() + rebasedDown8076.get() + rebasedFlat8322.get()).let { n -> if (n > 0) "%+.1f".format(rebaseGapSum8076 / n) else "-" }}% lateFirstPrice8153=${lateFirstCount8153.get()}] skipped[noPrice=${skippedNoPrice.get()} noState8572=${skippedNoState8572.get()} recent=${skippedRecent.get()} full=${skippedFull.get()}] cells=${cellStats.size}/${cells.size}\n" +
             "      admitted60[${fmtStat(cellStat(AGG_ADMITTED))}] refused60[${fmtStat(cellStat(AGG_REFUSED))}]\n" +
             "      best60: ${best.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }}\n" +
             "      tail8303: ${best.joinToString(" · ") { CellTail8303.line8303(it.key, it.meanNet60Pct, it.winRate60, it.runnerRate60) }.ifBlank { "-" }}\n" +  // V5.0.8303
