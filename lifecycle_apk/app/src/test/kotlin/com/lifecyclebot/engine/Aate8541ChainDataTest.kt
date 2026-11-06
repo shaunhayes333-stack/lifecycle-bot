@@ -90,7 +90,9 @@ class Aate8541ChainDataTest {
         assertTrue(chain < l.indexOf("val downtime8430 = DowntimeRecovery8430.candleMark8430("))
         assertTrue(l.contains("if (recovered == null && chainWaiting8541) return false"))
         // the off-watch chain rung (live vault read) after Jupiter, before the batch is closed
-        val rung = l.indexOf("OnChainDepth8038.chainPriceUsd8540(m, CHAIN_MARK_MAX_AGE_MS_8540)")
+        // superseded by V5.0.8583 — the horizon pricer (declared above the batch) reads the same rung; the batch's own rung is
+        // located inside fetchOffWatchMarks7737.
+        val rung = l.indexOf("OnChainDepth8038.chainPriceUsd8540(m, CHAIN_MARK_MAX_AGE_MS_8540)", l.indexOf("private fun fetchOffWatchMarks7737("))
         assertTrue(rung > l.indexOf("FORWARD_LABEL_OFFWATCH_JUP_PRICED_8405"))
         assertTrue(rung < l.indexOf("for (m in got.keys) noteCause8535(m, OffWatchSchedule8535.Cause.PRICED)"))
         // superseded by V5.0.8543 — the unpriced mints are handed to one background drainer, not requested on the batch thread

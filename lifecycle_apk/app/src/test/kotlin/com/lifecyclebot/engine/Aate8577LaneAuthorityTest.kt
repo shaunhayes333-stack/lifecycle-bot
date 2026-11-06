@@ -27,7 +27,8 @@ class Aate8577LaneAuthorityTest {
 
     @Test fun the_learned_doors_are_advisory_for_a_lane_qualified_live_candidate() {
         LaneAuthority8577.enabled8577 = true
-        for (door in listOf("LIVE_NATIVE_OPINION_UNPROVEN_8536", "LIVE_INTO_HIGH_UNPROVEN_8545", "LIVE_LAUNCH_UNPROVEN_8559",
+        // superseded by V5.0.8582 — "LIVE_INTO_HIGH_UNPROVEN_8545" advisory: buying into the high binds again (Aate8582BuyThePullbackTest).
+        for (door in listOf("LIVE_NATIVE_OPINION_UNPROVEN_8536", "LIVE_LAUNCH_UNPROVEN_8559",
                 "LIVE_REGIME_COLD_8546", "EXECUTION_ECONOMICS_8136", "ENTRY_NO_RECLAIM_8506", "ENTRY_NO_BUY_VOLUME_8506",
                 "FALLING_HOUR_PROVEN_LOSING_8418", "CELL_PROVEN_LOSING_8136", "STAGE_PROVEN_LOSING_8136", "SETUP_RECORD_LOSING_8136",
                 "TIMING_ADVERSE_8136", "EDGE_MODEL_NEGATIVE_8537", "LIVE_GENERIC_PRIOR_UNSUPPORTED_8238", "SHEET_AVOID_8323")) {
