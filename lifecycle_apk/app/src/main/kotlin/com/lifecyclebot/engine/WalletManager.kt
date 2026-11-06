@@ -105,6 +105,24 @@ class WalletManager private constructor(private val ctx: Context) {
 
         internal const val SOL_PRICE_FUTURE_SKEW_MS_8512 = 60_000L
 
+        /**
+         * V5.0.8580 — the rate a forward LABEL may use: the 5-minute fresh rate, else the last observed rate up to
+         * [SOL_PRICE_LABEL_MAX_AGE_MS_8580] old (counted SOL_RATE_LABEL_AGED_8580, the fetch chain asked). A label compares
+         * two marks of the same coin converted at nearly the same rate, so a 30-minute-old SOL/USD moves the net by well under
+         * one percent; 8577 device run: markNoSolRate8508=1,770 curve / tape / vault marks dropped and 760 of 921 due labels
+         * unpriced while the fetch chain (CoinGecko, Binance, Jupiter) was failing. Execution keeps [freshSolPrice8163].
+         */
+        const val SOL_PRICE_LABEL_MAX_AGE_MS_8580 = 30L * 60_000L
+        fun labelSolPrice8580(nowMs: Long = System.currentTimeMillis()): Double {
+            val fresh = freshSolPrice8163(nowMs)
+            if (fresh > 0.0) return fresh
+            val px = lastKnownSolPrice
+            val at = lastObservedSolAt8163
+            if (!px.isFinite() || px <= 0.0 || at <= 0L || nowMs - at !in 0L..SOL_PRICE_LABEL_MAX_AGE_MS_8580) return 0.0
+            try { PipelineHealthCollector.labelInc("SOL_RATE_LABEL_AGED_8580") } catch (_: Throwable) {}
+            return px
+        }
+
         /** Pure: the rate observed at [observedAtMs] is fresh at [nowMs] (at most 5 minutes old, or newer than the read). */
         internal fun solPriceFresh8512(nowMs: Long, observedAtMs: Long): Boolean =
             observedAtMs > 0L && nowMs - observedAtMs in -SOL_PRICE_FUTURE_SKEW_MS_8512..300_000L

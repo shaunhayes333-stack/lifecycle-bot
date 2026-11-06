@@ -2034,7 +2034,7 @@ object ForwardReturnLabeler7731 {
             nowMs - off.second in 0L..MARK_MAX_AGE_MS_7731 && off.second > (freshest?.second ?: 0L)) freshest = off
         try {
             val reserves = CurveReserves7951.activeExitObservation(mint, nowMs, MARK_MAX_AGE_MS_7731)
-            val solUsd = com.lifecyclebot.engine.WalletManager.freshSolPrice8163(nowMs)
+            val solUsd = com.lifecyclebot.engine.WalletManager.labelSolPrice8580(nowMs)
             if (reserves != null && reserves.observedAtMs > (freshest?.second ?: 0L)) {
                 val px = CurveReserves7951.priceSol7951(reserves.virtualSol, reserves.virtualTokens) * solUsd
                 if (solUsd.isFinite() && solUsd > 0.0 && px.isFinite() && px > 0.0) freshest = px to reserves.observedAtMs
@@ -2066,7 +2066,7 @@ object ForwardReturnLabeler7731 {
                     independentBasis = LabelEvidence8386.independentSource8418(m.source)))   // V5.0.8418 — swap prints / pool reserves
             }
             val o = CurveReserves7951.activeExitObservation(mint, nowMs, MARK_MAX_AGE_MS_7731)
-            val solUsd = com.lifecyclebot.engine.WalletManager.freshSolPrice8163(nowMs)
+            val solUsd = com.lifecyclebot.engine.WalletManager.labelSolPrice8580(nowMs)
             val accepted = CurveReserves7951.acceptedObservation8385(mint)
             // V5.0.8508 — a curve read the label could not use because no fresh SOL/USD rate existed (counted, not guessed).
             if (o != null && !(solUsd.isFinite() && solUsd > 0)) noSolRate8508.incrementAndGet()
@@ -2082,7 +2082,7 @@ object ForwardReturnLabeler7731 {
         // print is a chain-exact mark. 8471: tape prints priced 6 labels while the tape taped thousands.
         try {
             val tp = TradeTape8100.lastPrint8360(mint)
-            val solUsd = com.lifecyclebot.engine.WalletManager.freshSolPrice8163(nowMs)
+            val solUsd = com.lifecyclebot.engine.WalletManager.labelSolPrice8580(nowMs)
             if (tp != null && !(solUsd.isFinite() && solUsd > 0.0)) noSolRate8508.incrementAndGet()
             if (tp != null && solUsd.isFinite() && solUsd > 0.0)
                 candidates.add(LabelMark8386(mint, "", tp.first * solUsd, tp.second, nowMs, TAPE_MARK_SOURCE_8475, independentBasis = true))
@@ -2091,7 +2091,7 @@ object ForwardReturnLabeler7731 {
         // own time. The chain rung priced these into its batch map only, so a vault read never reached a label (chain8540=169).
         try {
             val vr = OnChainDepth8038.freshRead8198(mint, MARK_MAX_AGE_MS_7731, nowMs)
-            val solUsd = com.lifecyclebot.engine.WalletManager.freshSolPrice8163(nowMs)
+            val solUsd = com.lifecyclebot.engine.WalletManager.labelSolPrice8580(nowMs)
             if (vr != null && !(solUsd.isFinite() && solUsd > 0.0)) noSolRate8508.incrementAndGet()
             if (vr != null && solUsd.isFinite() && solUsd > 0.0) {
                 val px = OnChainDepth8038.priceUsd8038(vr.quoteSol, vr.baseTokens, solUsd)
