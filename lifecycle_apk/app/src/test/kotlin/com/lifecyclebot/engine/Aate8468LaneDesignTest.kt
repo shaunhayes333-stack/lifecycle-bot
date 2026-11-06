@@ -127,7 +127,7 @@ class Aate8468LaneDesignTest {
         assertFalse(CortexLabelHygiene8144.revisionCountsFor8468("STANDARD", false, 50L * minute))
         assertTrue(CortexLabelHygiene8144.revisionCountsFor8468("MOONSHOT", true, 9L * minute))
         val at = 1_000_000L
-        for ((lane, horizon) in listOf("CASHGEN" to 5L * minute, "QUALITY" to 60L * minute)) {
+        for ((lane, horizon) in listOf("CASHGEN" to 5L * minute, "QUALITY" to 15L * minute)) {   // V5.0.8592 — hour grade target 60m -> 15m
             val kind = CortexForwardEpoch8521.targetKind(lane)
             assertEquals(lane, horizon, CortexForwardEpoch8521.targetHorizon(kind))
             assertTrue(CortexForwardEpoch8521.matchesTarget(kind, at, horizon, at + horizon))

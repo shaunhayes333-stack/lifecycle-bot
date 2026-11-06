@@ -17,8 +17,11 @@ class Aate8415CortexHourGradeTest {
         assertFalse("late voter read stays observed-only", Cortex7885.deferHourRule8415(true, true, true, false, true))
     }
 
-    @Test fun fifteen_minute_checkpoint_is_not_the_hour() {
-        assertFalse(Cortex7885.hourGradeDue8415(15L * 60_000L))
+    @Test fun fifteen_minute_checkpoint_is_the_hour_target() {
+        // V5.0.8592 — the hour grade target moved 60m -> 15m to unstarve the grader (60m was unreachable for memecoins);
+        // a 15-minute read IS now the frozen hour grade. The 5-minute read stays provisional.
+        assertFalse(Cortex7885.hourGradeDue8415(5L * 60_000L))
+        assertTrue(Cortex7885.hourGradeDue8415(15L * 60_000L))
         assertTrue(Cortex7885.hourGradeDue8415(60L * 60_000L))
         assertTrue(Cortex7885.hourGradeDue8415(4L * 3_600_000L))
     }
