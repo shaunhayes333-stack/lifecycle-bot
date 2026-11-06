@@ -31,7 +31,7 @@ object LaneAuthority8577 {
         "EMPTY_CURVE", "EARLY_LAUNCH", "ROUTE_MIN", "SIZE_NOT_EXECUTABLE", "NON_ECONOMIC_APPROVAL", "QUARANT", "REBUY",
         "DATA_", "STALE", "_FAILED", "GENERIC_SCORE_FLOOR",
         // V5.0.8582 — buying a meme coin at its high is proven to lose (edge report below): these doors bind again.
-        "CHASE_AT_HIGH", "INTO_HIGH", "CHASING_SPIKE", "CHASE_EXTENDED", "NEAR_HIGH", MEME_BUYS_THE_HIGH_8582,
+        "CHASE_AT_HIGH", "INTO_HIGH", "CHASING_SPIKE", "CHASE_EXTENDED", "NEAR_HIGH", "MEME_BUYS_THE_HIGH_8582",
     )
 
     /**
