@@ -657,8 +657,11 @@ object Cortex7885 {
         var n = 0
         for (e in victims) {
             val key = e.key; val pd = e.value
+            // V5.0.8575 — freeze the prediction (the forward outbox's own packed checkpoint) before the live object goes.
+            val packed8575 = try { ForwardCheckpoint8401.pack(synchronized(this) { pendingSnapshot8076(setOf("$key|${pd.atMs}")) }()) } catch (_: Throwable) { null }
             if (pending.remove(key, pd)) {
-                retainMissingOutcome8521("$key|${pd.atMs}", pd)
+                if (packed8575 != null) spill8575("$key|${pd.atMs}", packed8575)
+                else retainMissingOutcome8521("$key|${pd.atMs}", pd)
                 captureOwners8397.terminal(key, pd.atMs)
                 deferredLabels8397.remove("$key|${pd.atMs}")
                 pd.context8372?.let { pendingCtx8144.remove(key, it) }
@@ -672,6 +675,39 @@ object Cortex7885 {
         return n
     }
     private val pressureEvictedPending8524 = java.util.concurrent.atomic.AtomicLong(0L)
+
+    // ── V5.0.8575 — a pressure-evicted prediction is kept frozen, not lost ──
+    // CRITICAL heap evicted non-selected pending decisions (cap 1,200); when their forward outcome arrived the original was
+    // gone (8562: FORWARD_ORIGINAL_UNAVAILABLE_8404=410 + checkpoint misses 231 — outcomes graded against nothing). Each
+    // victim is packed into the forward outbox's own frozen checkpoint (gzip, a fraction of the live object) and served by
+    // freezeForwardOutcome8404 when its outcome is staged. Bounded by characters; the oldest frozen copy goes first (counted).
+    private val spillMap8575 = LinkedHashMap<String, String>()
+    private var spillChars8575 = 0L
+    const val SPILL_MAX_CHARS_8575 = 4_000_000L
+    private val spilled8575 = java.util.concurrent.atomic.AtomicLong(0L)
+    private val spillServed8575 = java.util.concurrent.atomic.AtomicLong(0L)
+    private val spillDropped8575 = java.util.concurrent.atomic.AtomicLong(0L)
+
+    /** Only the spill monitor is taken here (never the model lock), so it cannot invert freezeForwardOutcome8404's order. */
+    private fun spill8575(id: String, packed: String) = synchronized(spillMap8575) {
+        spillMap8575.remove(id)?.let { spillChars8575 -= it.length }
+        spillMap8575[id] = packed; spillChars8575 += packed.length
+        spilled8575.incrementAndGet()
+        while (spillChars8575 > SPILL_MAX_CHARS_8575 && spillMap8575.isNotEmpty()) {
+            val oldest = spillMap8575.entries.iterator().next()
+            spillMap8575.remove(oldest.key); spillChars8575 -= oldest.value.length
+            spillDropped8575.incrementAndGet()
+        }
+    }
+
+    /** The frozen prediction of a pressure-evicted decision [id], handed out once (the outbox persists it), else null. */
+    private fun takeSpilled8575(id: String): String? = synchronized(spillMap8575) {
+        spillMap8575.remove(id)?.also { spillChars8575 -= it.length; spillServed8575.incrementAndGet() }
+    }
+
+    fun spillLine8575(): String = synchronized(spillMap8575) {
+        "pressureSpill8575[held=${spillMap8575.size} chars=$spillChars8575 spilled=${spilled8575.get()} served=${spillServed8575.get()} dropped=${spillDropped8575.get()}]"
+    }
     private const val PENDING_CAP_CRITICAL_8524 = 1_200
 
     fun assessCacheCount8144(): Int = assessCache.size
@@ -1732,9 +1768,14 @@ object Cortex7885 {
         ensureLoaded()
         if (!loaded) return null
         val key = "$mint|${lane.trim().uppercase()}"
+        val id8575 = "$key|$atMs"
         val encode = synchronized(this) {
             if (captureOwners8397.awaiting(key, atMs)) return null
-            pendingSnapshot8076(setOf("$key|$atMs"))
+            // V5.0.8575 — the live original is gone (pressure eviction): serve its frozen copy.
+            val live8575 = pending[key]?.atMs == atMs || pairedPending8401.containsKey(id8575) || superseded8443.containsKey(id8575) ||
+                graded8006.containsKey(id8575)
+            if (!live8575) takeSpilled8575(id8575)?.let { return it }
+            pendingSnapshot8076(setOf(id8575))
         }
         return ForwardCheckpoint8401.pack(encode())
     }
@@ -5344,6 +5385,7 @@ object Cortex7885 {
         // read BEFORE the Cortex lock: 8323 held the monitor through all of them (assessLockWait8324 max 121 s).
         val ext8325 = statusExternals8325()
         val inversion8325 = inversionLine8324()
+        val spill8575 = spillLine8575()   // V5.0.8575 — read before the model lock
         return synchronized(this) {
             val n = assessed.get()
             val avgMs = if (n > 0) assessNanos.get() / n / 1_000_000.0 else 0.0
@@ -5367,7 +5409,7 @@ object Cortex7885 {
                     "| legacyAdmit=${fmtStat(b.legacyAdmitted)} legacyRefuse=${fmtStat(b.legacyRefused)} missedStrong=${fmtStat(b.missedStrong)} " +
                     "| authority: paperRefuse=${refusalPowerCurrent8372(lane, runner, true)} liveRefuse=${refusalPowerCurrent8372(lane, runner, false)} liveOverrule=${heldFraction8153(lane) >= OVERRULE_FRACTION_7955} auth=${"%.2f".format(heldFraction8153(lane))}"
             }
-            "bar=${CortexScoreboard7885.BAR_VERSION} voters=${CortexVoters7885.votersLine8003()} assessed=$n (${"%.2f".format(avgMs)}ms) captureQ=${captureQueued8187.get()} ${captureOverflowStatsLocked8399()} pending=${pending.size} graded=${graded.get()} implausibleRefused8388=${gradeBook8144.implausibleRefused8388} " +
+            "bar=${CortexScoreboard7885.BAR_VERSION} voters=${CortexVoters7885.votersLine8003()} assessed=$n (${"%.2f".format(avgMs)}ms) captureQ=${captureQueued8187.get()} ${captureOverflowStatsLocked8399()} pending=${pending.size} $spill8575 graded=${graded.get()} implausibleRefused8388=${gradeBook8144.implausibleRefused8388} " +
                 "seats=${seats.size} seated=${seated.size}\n" +
                 "      vote cleaning (§8007): ${synchronized(this) { ledger.cleanLine8007() }}\n" +
                 "      store (§8324 restore without reset): bootSeasoned=$bootSeasoned8324 calibrationLanes=${calibration.laneCount8324()} $restoreNote8324 ${assessWaitLine8324()}\n" +
