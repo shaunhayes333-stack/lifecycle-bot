@@ -97,7 +97,9 @@ object TokenMetricStageRouter {
             ?: SetupFeatureResolver8169.observedLiquidity8170(ts.mint, ageMin, now) ?: 0.0
         val mcap = ts.lastMcap.takeIf { it.isFinite() && it > 0.0 } ?: ts.lastFdv.coerceAtLeast(0.0)
         val mcapToLiq = if (liq > 0.0) (mcap / liq).coerceIn(0.0, 10_000.0) else 9999.0
-        val top = (ts.safety.topHolderPct.takeIf { it > 0.0 } ?: ts.topHolderPct ?: -1.0)
+        // V5.0.8568 — then the one store's reading (any source that measured it: safety, rugcheck holders, DAS), never a default
+        val top = (ts.safety.topHolderPct.takeIf { it > 0.0 } ?: ts.topHolderPct
+            ?: (try { com.lifecyclebot.engine.truth.TokenFacts.topHolderPct(ts) } catch (_: Throwable) { null }) ?: -1.0)
         val liqThin = liq in 1.0..2_500.0
         // V5.0.8500 §TOP10_IS_NOT_ONE_WALLET — [top] is the TOP-10 holders' combined share (rugcheck topHolders.top10Pct,
         // else OnChainHolderConcentration7379.top10Pct). Read at >= 35 % it staged ordinary young memecoins RUG_PRONE, a
