@@ -21,17 +21,24 @@ package com.lifecyclebot.engine.truth
  * closes have earned.
  */
 object EvidenceMaturity7277 {
+    // V5.0.8589 — UNLOCK AT A SMALLER, FLUID BAR. The 7277 bars (30/100/40/10) were raised to stop thin-evidence
+    // oscillation, but with the grader producing ~0 graded closes/h (frozen before 8588's 15-min horizon) a head needed
+    // 100 closes it could NEVER reach, so the whole adaptive stack sat permanently ADVISORY — dead, not fluid. The unlock
+    // is a much smaller target, kept fluid/adaptive by the machinery that already exists: the n/(n+k) weight below (a young
+    // head votes at the weight its closes have earned, not all-or-nothing), the Brier-calibration demotion (a head that
+    // stops predicting well is pulled back), and the degenerate-input cap (7389, holds a head at ADVISORY while its features
+    // are constant/duplicate). Authority is now earned fast AND lost fast if it does not hold — which is what "fluid" means.
     /** Closes a lane needs before its own expectancy is treated as an opinion (half weight). */
-    const val LANE_OPINION_CLOSES = 30
+    const val LANE_OPINION_CLOSES = 12
 
     /** Closes a per-cell head needs before it may override the stack (authoritative tier). */
-    const val AUTHORITATIVE_CLOSES = 100L
+    const val AUTHORITATIVE_CLOSES = 30L
 
     /** Closes a per-cell head needs before it is more than advisory. */
-    const val LEARNED_CLOSES = 40L
+    const val LEARNED_CLOSES = 15L
 
     /** Closes a per-cell head needs before it says anything at all. */
-    const val ADVISORY_CLOSES = 10L
+    const val ADVISORY_CLOSES = 5L
 
     /** n / (n + k): 0 at no evidence, half at k closes, asymptotically 1. */
     fun weight(n: Double, k: Double = LANE_OPINION_CLOSES.toDouble()): Double {
