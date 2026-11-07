@@ -43,7 +43,7 @@ class Aate8392CanonicalEntryTest {
     }
     @Test fun lossLockoutsCannotBeBypassedByLegacyScope() {
         val r=src("engine/RebuyLockout8019")
-        assertTrue(r.contains("if (fallingKnife8130(change1h8130, ticket))"))
+        assertFalse("V5.0.8603 — the falling-knife refusal is removed (it refused the dip-reclaims)", r.contains("fallingKnife8130("))
         assertTrue(r.contains("if (bigLossLocked8130(mint, nowMs, ticket))"))
         assertFalse(r.contains("legacyScope8326"))
     }

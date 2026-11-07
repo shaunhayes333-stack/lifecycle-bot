@@ -1067,10 +1067,8 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(r.bigLossWindow8130(now - 50 * 60_000L, now, ticket = false))
         assertFalse(r.bigLossWindow8130(now - 25L * 3_600_000L, now, ticket = false))
         assertFalse(r.bigLossWindow8130(now - 50 * 60_000L, now, ticket = true))   // a confirmed run reopens it
-        assertTrue(r.fallingKnife8130(-45.0, ticket = false))                 // DA at 2:30
-        assertFalse(r.fallingKnife8130(-20.0, ticket = false))
-        assertFalse(r.fallingKnife8130(null, ticket = false))
-        assertFalse(r.fallingKnife8130(-60.0, ticket = true))
+        // superseded by V5.0.8603 — the falling-knife (down >= 35 % in the hour) refusal is removed: the coins it refused
+        // netted +3.5 % with 5.4 % going +100 % vs -1.5 % / 1.9 % for the coins it passed (18,735 labelled decisions).
         assertEquals(2, r.MAX_LOSSES_8022)                                    // the 8022 rule is unchanged
     }
 

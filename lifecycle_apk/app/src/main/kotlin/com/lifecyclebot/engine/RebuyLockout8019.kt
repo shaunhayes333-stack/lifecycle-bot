@@ -97,11 +97,10 @@ object RebuyLockout8019 {
                 return "REPEAT_LOSER_8022"
             }
         }
-        val change1h8130 = try { synchronized(BotService.status.tokens) { BotService.status.tokens[mint] }?.lastPriceChange1h } catch (_: Throwable) { null }
-        if (fallingKnife8130(change1h8130, ticket)) {
-            try { PipelineHealthCollector.labelInc("FALLING_KNIFE_REFUSED_8130") } catch (_: Throwable) {}
-            return "FALLING_KNIFE_8130"
-        }
+        // V5.0.8603 — the 8130 falling-knife refusal (down >= 35 % over the hour) is removed. On 18,735 labelled meme
+        // decisions (edge 1794038024285, managed stop -20 / ride +400) the coins it refused netted +3.5 %/decision with 5.4 %
+        // going +100 %; the coins it passed netted -1.5 % with 1.9 %. It turned away the dip-reclaims — the entries 8582's own
+        // report found paying (10-25 % off the peak PF 1.81). A coin this bot itself just lost on stays locked below.
         if (bigLossLocked8130(mint, nowMs, ticket)) {
             try { PipelineHealthCollector.labelInc("BIG_LOSER_REFUSED_8130") } catch (_: Throwable) {}
             return "BIG_LOSER_8130"
@@ -122,15 +121,6 @@ object RebuyLockout8019 {
     @Volatile private var bigLossLoaded8130 = false
     private fun bigLossFile8130(): java.io.File? =
         com.lifecyclebot.AATEApp.appContextOrNull()?.let { java.io.File(it.filesDir, "big_losers_8130.txt") }
-
-    /**
-     * Pure (V5.0.8130): a coin down 35%+ over the last hour is a falling knife, not continuation (DA: bought on a
-     * +9% 5-minute bounce ~45% down the hour). Only a confirmed-run re-entry ticket buys it.
-     */
-    fun fallingKnife8130(change1hPct: Double?, ticket: Boolean): Boolean =
-        !ticket && change1hPct != null && change1hPct.isFinite() && change1hPct <= FALLING_KNIFE_1H_PCT_8130
-
-    private const val FALLING_KNIFE_1H_PCT_8130 = -35.0
 
     /**
      * Pure (V5.0.8529): a losing close made by a protective stop is a real loss whatever the realised % — a fast stop lands

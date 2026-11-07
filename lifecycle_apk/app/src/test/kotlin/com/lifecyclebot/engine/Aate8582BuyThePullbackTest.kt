@@ -17,13 +17,15 @@ import java.io.File
  */
 class Aate8582BuyThePullbackTest {
     @Test fun a_meme_lane_never_buys_the_high_but_buys_the_pullback() {
-        assertTrue(LaneAuthority8577.memeBuysTheHigh8582("SHITCOIN", 0.99, 40.0, 3.0, 55.0))     // at the high after a run
-        assertTrue(LaneAuthority8577.memeBuysTheHigh8582("MOONSHOT", 0.85, 20.0, 12.0, 50.0))    // spiking
-        assertTrue(LaneAuthority8577.memeBuysTheHigh8582("EXPRESS", 0.85, 20.0, 0.0, 72.0))      // buyers crowded
-        assertFalse(LaneAuthority8577.memeBuysTheHigh8582("SHITCOIN", 0.82, 40.0, -6.0, 35.0))   // 18 % off the peak, sellers in control
-        assertFalse(LaneAuthority8577.memeBuysTheHigh8582("SHITCOIN", 1.0, 0.0, 0.0, 50.0))      // flat, never ran: not "the high"
-        assertFalse(LaneAuthority8577.memeBuysTheHigh8582("SHITCOIN", Double.NaN, Double.NaN, Double.NaN, Double.NaN))  // unknown never refuses
-        assertFalse(LaneAuthority8577.memeBuysTheHigh8582("TREASURY", 0.99, 40.0, 15.0, 80.0))   // not a meme lane
+        assertTrue(LaneAuthority8577.memeBuysTheHigh8582("SHITCOIN", 0.99, 40.0, 55.0))     // at the high after a run
+        // V5.0.8603 — the "spiking" leg is removed: a launch up 12 % in 5 min is not refused (it refused the runners: 3.1 %
+        // went +100 % vs 1.7 % of the coins it passed, 18,735 labelled decisions).
+        assertFalse(LaneAuthority8577.memeBuysTheHigh8582("MOONSHOT", 0.85, 20.0, 50.0))
+        assertTrue(LaneAuthority8577.memeBuysTheHigh8582("EXPRESS", 0.85, 20.0, 72.0))      // buyers crowded
+        assertFalse(LaneAuthority8577.memeBuysTheHigh8582("SHITCOIN", 0.82, 40.0, 35.0))   // 18 % off the peak, sellers in control
+        assertFalse(LaneAuthority8577.memeBuysTheHigh8582("SHITCOIN", 1.0, 0.0, 50.0))      // flat, never ran: not "the high"
+        assertFalse(LaneAuthority8577.memeBuysTheHigh8582("SHITCOIN", Double.NaN, Double.NaN, Double.NaN))  // unknown never refuses
+        assertFalse(LaneAuthority8577.memeBuysTheHigh8582("TREASURY", 0.99, 40.0, 80.0))   // not a meme lane
     }
 
     @Test fun it_binds_on_a_live_admit_and_leaves_paper_alone() {
@@ -33,7 +35,8 @@ class Aate8582BuyThePullbackTest {
         val r = LaneAuthority8577.apply8577(c, admit, LaneAuthority8577.MEME_BUYS_THE_HIGH_8582)
         assertEquals(Terminal8136.REFUSE, r.terminal); assertEquals(LaneAuthority8577.MEME_BUYS_THE_HIGH_8582, r.reason)
         assertSame(admit, LaneAuthority8577.apply8577(c.copy(live = false), admit, LaneAuthority8577.MEME_BUYS_THE_HIGH_8582))
-        assertTrue(LaneAuthority8577.binding8577("CHASE_AT_HIGH_8555") && LaneAuthority8577.binding8577("LIVE_INTO_HIGH_UNPROVEN_8545"))
+        assertTrue(LaneAuthority8577.binding8577("LIVE_INTO_HIGH_UNPROVEN_8545"))
+        assertFalse("V5.0.8603 — the deleted 8555 chase guard no longer binds", LaneAuthority8577.binding8577("CHASE_AT_HIGH_8555"))
         val adm = File("src/main/kotlin/com/lifecyclebot/engine/truth/CandidateAdmission8136.kt").readText()
         assertTrue(adm.contains("if (candidate.live) LaneAuthority8577.memeHighRefusal8582(ts, candidate.lane, nowMs) else null"))
     }

@@ -31,7 +31,8 @@ object LaneAuthority8577 {
         "EMPTY_CURVE", "EARLY_LAUNCH", "ROUTE_MIN", "SIZE_NOT_EXECUTABLE", "NON_ECONOMIC_APPROVAL", "QUARANT", "REBUY",
         "DATA_", "STALE", "_FAILED", "GENERIC_SCORE_FLOOR",
         // V5.0.8582 — buying a meme coin at its high is proven to lose (edge report below): these doors bind again.
-        "CHASE_AT_HIGH", "INTO_HIGH", "CHASING_SPIKE", "CHASE_EXTENDED", "NEAR_HIGH", "MEME_BUYS_THE_HIGH_8582",
+        // V5.0.8603 — CHASE_AT_HIGH removed: the 8555 setup guard behind it is deleted (it kept the worse half; LanePlaybook7907).
+        "INTO_HIGH", "CHASING_SPIKE", "CHASE_EXTENDED", "NEAR_HIGH", "MEME_BUYS_THE_HIGH_8582",
     )
 
     /**
@@ -41,23 +42,28 @@ object LaneAuthority8577 {
      *   10-25 % off the peak n63 +12.5 % PF 1.81 · buy pressure < 40 % n115 +9.4 % PF 1.72 · down > 10 % in 5 min n105 +2.2 %.
      * 8577 made the chase doors advisory and LIVE went 8W/9L PF 0.64 buying tops. A LIVE meme entry at the high is refused
      * whatever else admitted it; pullbacks and dips are what the meme lanes buy. Pure; unknown features never refuse.
+     *
+     * V5.0.8603 — the "spiking" leg (up >= 10 % in 5 min) is removed. On 18,735 labelled decisions (edge 1794038024285,
+     * managed stop -20 / ride +400) the coins it refused were the RUNNERS: 3.1 % went +100 % vs 1.7 % of the coins it passed
+     * (all meme lanes 3.0 % vs 1.7 %). A launch being bought is up in its first 5 minutes by definition. The two legs that
+     * do separate losers stay: at the high after a run (refused -4.7 % / 1.1 % runners vs passed -1.6 % / 2.3 %) and crowded
+     * buyers (refused -4.4 % vs passed -0.4 %).
      */
     const val MEME_BUYS_THE_HIGH_8582 = "MEME_BUYS_THE_HIGH_8582"
     private val MEME_LANES_8582 = setOf("SHITCOIN", "MOONSHOT", "EXPRESS", "PROJECT_SNIPER", "MANIPULATED", "DIP_HUNTER",
         "QUALITY", "BLUECHIP", "CORE", "CYCLIC")
 
-    fun memeBuysTheHigh8582(lane: String, pxPeak: Double, runupPct: Double, chg5mPct: Double, buyPressurePct: Double): Boolean {
+    fun memeBuysTheHigh8582(lane: String, pxPeak: Double, runupPct: Double, buyPressurePct: Double): Boolean {
         if (lane.trim().uppercase() !in MEME_LANES_8582) return false
         val atHigh = pxPeak.isFinite() && pxPeak >= 0.97 && runupPct.isFinite() && runupPct >= 5.0
-        val spiking = chg5mPct.isFinite() && chg5mPct >= 10.0
         val buyersCrowded = buyPressurePct.isFinite() && buyPressurePct >= 60.0
-        return atHigh || spiking || buyersCrowded
+        return atHigh || buyersCrowded
     }
 
     /** Reads [ts]'s playbook features (the edge model's own frame); a read that fails never refuses. */
     fun memeHighRefusal8582(ts: com.lifecyclebot.data.TokenState, lane: String, nowMs: Long): String? {
         val f = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.features(ts, nowMs) } catch (_: Throwable) { null } ?: return null
-        return if (memeBuysTheHigh8582(lane, f.pxPeak, f.runup, f.chg5m, f.bp))
+        return if (memeBuysTheHigh8582(lane, f.pxPeak, f.runup, f.bp))
             MEME_BUYS_THE_HIGH_8582 else null
     }
 

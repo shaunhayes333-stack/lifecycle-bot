@@ -23,13 +23,13 @@ import java.io.File
 class Aate8555LaneSweepTest {
     private fun src(p: String) = File("src/main/kotlin/com/lifecyclebot/$p").readText()
 
-    @Test fun chaseSetupsDoNotFireAtTheHigh() {
-        assertTrue(LanePlaybook7907.chaseRefused8555("NEW_HIGH_PUSH", 0.99))
-        assertTrue(LanePlaybook7907.chaseRefused8555("BREAKOUT_RUNNER", 0.93))
-        assertFalse(LanePlaybook7907.chaseRefused8555("BREAKOUT_RUNNER", 0.90))
-        assertTrue("an unread peak position cannot be judged for a chase", LanePlaybook7907.chaseRefused8555("IGNITION_5M", Double.NaN))
-        assertFalse("a non-chase setup is not touched", LanePlaybook7907.chaseRefused8555("PLAN_PULLBACK_RECLAIM", 0.99))
-        assertEquals(0.92, LanePlaybook7907.CHASE_PX_PEAK_MAX_8555, 0.0)
+    // superseded by V5.0.8603 — chaseSetupsDoNotFireAtTheHigh pinned the CHASE_AT_HIGH_8555 setup guard, which is deleted:
+    // on 18,735 labelled decisions the coins it refused netted -1.0 % (launch lanes) vs -5.6 % for the coins it passed.
+    @Test fun theInvertedChaseGuardIsGoneAndTheDataBackedPeakGuardStays() {
+        val p = src("engine/cortex/LanePlaybook7907.kt")
+        assertFalse("the 8555 setup chase guard is deleted", p.contains("fun chaseRefused8555("))
+        assertFalse(p.contains("-> \"CHASE_AT_HIGH_8555\""))
+        assertTrue("the peak band still refuses the unambiguous top", p.contains("timingBand8094(f.runup, f.pxPeak) == \"PEAK\" -> \"PEAK_BAND_CHASE_8586\""))
     }
 
     @Test fun contradictionsAndChasesAreRetiredNotDeleted() {
@@ -41,7 +41,6 @@ class Aate8555LaneSweepTest {
         val p = src("engine/cortex/LanePlaybook7907.kt")
         assertFalse("superseded: retirement skipped whenever the native brain owned selection (every lane)",
             p.contains("val fired = if (Cortex7885.nativeOwnsSelection8506(lane)) fired0 else fired0.filter { !retired8383(lane, it) }"))
-        assertTrue(p.contains("chaseRefused8555(id, f.pxPeak) -> \"CHASE_AT_HIGH_8555\""))
         assertTrue(LanePlaybook7907.sweepLine8555().startsWith("laneSweep8555{"))
         assertTrue(src("engine/DiagnosisBrief8438.kt").contains("LanePlaybook7907.sweepLine8555()"))
     }

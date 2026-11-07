@@ -627,15 +627,14 @@ object LanePlaybook7907 {
     // Every meme lane's BREAKOUT / PEAK stage lost 12-22 % at 5 minutes while BASE was the only positive stage; buys within
     // 8 % of the peak were the worst bucket (pxPeak 0.92-0.98 PF 0.05, 0.98+ PF 0.23; established coins at the high PF 0.01).
     // Retirement keeps every setup's menu id and learned bins (no learning is reset); a retired setup just no longer fires.
-
-    /** The chase family: setups that buy strength at (or into) the high. */
-    internal val CHASE_8555 = setOf("BREAKOUT_RUNNER", "NEW_HIGH_PUSH", "BUYERS_DOMINATING", "TX_VELOCITY_BREAK", "IGNITION_5M",
-        "BAND_MOMENTUM_8383", "OPP_BREAKOUT_EXPANSION", "BASE_BREAKOUT_FLOW", "VOLUME_IGNITION", "STRONG_TREND_8383", "RS_LEADER")
-    const val CHASE_PX_PEAK_MAX_8555 = 0.92
-
-    /** Pure: a chase setup fires only below [CHASE_PX_PEAK_MAX_8555] of the peak (an unread peak position cannot be judged). */
-    fun chaseRefused8555(setup: String, pxPeak: Double): Boolean =
-        setup in CHASE_8555 && !(pxPeak.isFinite() && pxPeak <= CHASE_PX_PEAK_MAX_8555)
+    //
+    // V5.0.8603 §THE_CHASE_GUARD_WAS_INVERTED — removed CHASE_8555 / chaseRefused8555 (CHASE_AT_HIGH_8555). It refused every
+    // momentum setup above 0.92 of the peak AND every coin whose peak was unread, so a fresh launch (at its high by definition,
+    // no history below it) could never fire one. It was the single largest refusal in the bot (19:05 dump laneSweep: SHITCOIN
+    // 1,183, CORE 727, MOONSHOT 672, EXPRESS 668 ...). Tested on 18,735 labelled decisions (edge 1794038024285, managed
+    // stop -20 / ride +400): the coins it REFUSED netted -1.0 %/decision on the launch lanes, the coins it PASSED -5.6 % — it
+    // kept the worse half. The data-backed high guards stay: PEAK_BAND_CHASE_8586 below, and LaneAuthority8577's at-high /
+    // crowded-buyers legs.
 
     /**
      * (lane, setup) pairs the sweep retired: contradictions with the lane's own gates (never-firing) and chase setups on
@@ -1335,7 +1334,6 @@ object LanePlaybook7907 {
             val why = when {
                 retired8383(lane, id) -> "RETIRED_8383"
                 retired8555(lane, id) -> "RETIRED_8555"
-                chaseRefused8555(id, f.pxPeak) -> "CHASE_AT_HIGH_8555"
                 // V5.0.8586 — PEAK band (timingBand8094: ran >=80% off the low AND within 12% of the high) is the top-chase the
                 // stage records show losing on every lane and LaneCheatSheet8323 lists in every lane's avoid band. Refuse it
                 // structurally so chase-at-high stops executing while the record-gated timingNegative8094 veto is grader-starved.

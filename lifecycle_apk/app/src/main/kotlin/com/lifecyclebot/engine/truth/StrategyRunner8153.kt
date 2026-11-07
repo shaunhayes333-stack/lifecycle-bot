@@ -132,6 +132,16 @@ object StrategyMove8153 {
         }
         val range = rangePct?.takeIf { it.isFinite() && it >= 0.0 }
         val h1 = h1Pct?.takeIf { it.isFinite() && it > 0.0 }
+        // V5.0.8603 §A_LAUNCH_IS_PRICED_ON_ITS_MANDATE — a coin inside its launch window (known age 0-60 min) with no dense
+        // history and no provider 1h change was DEFERRED for history (6+ candles over 15+ min). A launch does not have that
+        // history in the window that pays: on 18,735 labelled decisions (edge 1794038024285, managed stop -20 / ride +400) the
+        // launch lanes' age 0-1 min bucket was the best in the dataset (+0.4 %/decision, 3.5 % went +100 %), the deferred
+        // under-15-min cohort -1.2 % / 2.7 % against -3.3 % / 1.3 % for the older coins that passed. The 19:05 dump's top LIVE
+        // FDG refusal was this defer (149). In its window a launch is priced on the lane's own mandate; the spent-move read in
+        // [expected8153] still cuts a launch that already ran LAUNCH_SPENT_MIN_PCT_8535 off its low to what is left.
+        if (inLaunchWindow8418 && h1 == null && (range == null || !rangeDense) && mandatePct.isFinite() && mandatePct > 0.0) {
+            return Move8153(mandatePct, "MANDATE", false)
+        }
         // V5.0.8418 §SPARSE_RANGE_IS_PRE_HISTORY — a sparse range (under DENSE_MIN_BARS over DENSE_MIN_SPAN) is the few minutes
         // the bot happened to watch, not the coin's hour: it defers for history at ANY age, never caps the move. 8416: an older
         // coin seen for two candles "moved 2%" and was refused EXECUTION_ECONOMICS / COIN_TOO_SLOW on that pre-history read.
