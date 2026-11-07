@@ -120,9 +120,17 @@ object SmartMoneyDiscovery7277 {
             if (added > 0) PipelineHealthCollector.labelInc("SMART_MONEY_LEADERBOARD_SEEDED_7277")
         } catch (_: Throwable) {}
 
-        // V5.0.8462 — the smart-money scan (runner mining on Helius, wallet promotion) runs only when switched on in
-        // Settings (owner: "kill the smart money scan"); the pump.fun / GMGN leaderboard seed above keeps running.
-        if (!com.lifecyclebot.data.ConfigStore.smartMoneyScan8462) { scanSkipped8462.incrementAndGet(); return }
+        // V5.0.8601 §THE_SELF_DISCOVERY_IS_THE_EDGE_NOT_THE_EXPENSIVE_SCAN — the 8462 toggle ("kill the smart money scan")
+        // was meant to stop the ~4872 cr/h Helius history alpha scan (ExpertWallets7962.fetchHistories), but it also gated
+        // THIS runner-mining self-discovery off — the one proprietary edge: the early buyers of the bot's OWN observed
+        // 3x/5x/10x runners, promoted to expert wallets that feed EXPERT_ENTRY. With it off, the only net-positive signal
+        // (copy / smart money) went dark — dump 175343: alpha list=0/25 rebuiltAgo=never buysSeen=0 copyFed=0, and
+        // EXPERT_ENTRY fired on 1 of 18,735 edge rows. This mining is cheap and already credit-paced
+        // (HeliusCreditEconomy7881.admit, SIGNATURE_PAGES_MAX+100 cr/runner, <=3 runners/cycle, once a day via
+        // alphaRebuildDue8361 = <=~300 cr/day), so it runs regardless of the toggle. Only the expensive external history
+        // scan (ExpertWallets7962 / HeliusCadence8361 alpha) stays behind smartMoneyScan8462. scanSkipped8462 keeps its
+        // meaning — cycles the expensive external scan was off — but no longer short-circuits the self-discovery.
+        if (!com.lifecyclebot.data.ConfigStore.smartMoneyScan8462) scanSkipped8462.incrementAndGet()
         // 2. Runners the bot itself observed — V5.0.8361: once a day (owner: discovery compiles a daily alpha list).
         val now8361 = System.currentTimeMillis()
         if (!HeliusCadence8361.alphaRebuildDue8361(lastMineMs8361, now8361)) return
