@@ -35,9 +35,13 @@ class Aate8582BuyThePullbackTest {
         val r = LaneAuthority8577.apply8577(c, admit, LaneAuthority8577.MEME_BUYS_THE_HIGH_8582)
         assertEquals(Terminal8136.REFUSE, r.terminal); assertEquals(LaneAuthority8577.MEME_BUYS_THE_HIGH_8582, r.reason)
         assertSame(admit, LaneAuthority8577.apply8577(c.copy(live = false), admit, LaneAuthority8577.MEME_BUYS_THE_HIGH_8582))
-        assertTrue(LaneAuthority8577.binding8577("LIVE_INTO_HIGH_UNPROVEN_8545"))
+        // superseded by V5.0.8604 — LIVE decides like the paper book: the re-bound chase / high doors are advisory, and the
+        // runtime no longer injects the buys-the-high veto into the live admission.
+        assertFalse(LaneAuthority8577.binding8577("LIVE_INTO_HIGH_UNPROVEN_8545"))
+        assertFalse(LaneAuthority8577.binding8577("CHASING_SPIKE_8065"))
         assertFalse("V5.0.8603 — the deleted 8555 chase guard no longer binds", LaneAuthority8577.binding8577("CHASE_AT_HIGH_8555"))
+        assertTrue("hard safety still binds", LaneAuthority8577.binding8577("RUG_PREFILTER_HARD_FAIL"))
         val adm = File("src/main/kotlin/com/lifecyclebot/engine/truth/CandidateAdmission8136.kt").readText()
-        assertTrue(adm.contains("if (candidate.live) LaneAuthority8577.memeHighRefusal8582(ts, candidate.lane, nowMs) else null"))
+        assertFalse(adm.contains("LaneAuthority8577.memeHighRefusal8582("))
     }
 }

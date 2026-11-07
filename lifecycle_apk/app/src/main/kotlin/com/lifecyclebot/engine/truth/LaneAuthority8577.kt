@@ -30,10 +30,19 @@ object LaneAuthority8577 {
         "BLIND", "BALANCE", "LEDGER_REJECT", "LEDGER_COMMIT", "LEDGER_BASIS", "LEDGER_PRECHECK", "DUPLICATE", "SINGLE_FLIGHT", "KILL_SWITCH", "HALT", "AT_LAUNCH_CAP", "DEAD_LAUNCH",
         "EMPTY_CURVE", "EARLY_LAUNCH", "ROUTE_MIN", "SIZE_NOT_EXECUTABLE", "NON_ECONOMIC_APPROVAL", "QUARANT", "REBUY",
         "DATA_", "STALE", "_FAILED", "GENERIC_SCORE_FLOOR",
-        // V5.0.8582 — buying a meme coin at its high is proven to lose (edge report below): these doors bind again.
-        // V5.0.8603 — CHASE_AT_HIGH removed: the 8555 setup guard behind it is deleted (it kept the worse half; LanePlaybook7907).
-        "INTO_HIGH", "CHASING_SPIKE", "CHASE_EXTENDED", "NEAR_HIGH", "MEME_BUYS_THE_HIGH_8582",
+        // superseded by V5.0.8604 — 8582 re-bound "INTO_HIGH", "CHASING_SPIKE", "CHASE_EXTENDED", "NEAR_HIGH",
+        // "MEME_BUYS_THE_HIGH_8582" here. LIVE now decides like the paper book beside it, which never had those doors and is
+        // the profitable book; they are learned opinions (advisory, still counted on their own forward records), not walls.
+        // The bot's own refused-coin record agreed for two of them: LIVE_INTO_HIGH_UNPROVEN refused +20.6 % (n8) and
+        // CHASING_SPIKE refused +0.7 % (n16) vs admitted -5.7 % / -15.0 %.
     )
+
+    /**
+     * V5.0.8604 — learned waits whose names happen to contain a binding word ("DATA_"). The paper book needs only a fresh
+     * mark and a known cost; these wait for a move history / a turned hour it never asks for. The executable minimum
+     * (DATA_INCOMPLETE_DEFER_8136: unknown cost / no price) still binds via [bindingAdmission8577].
+     */
+    private val LEARNED_WAITS_8604 = listOf("DATA_INCOMPLETE_MOVE_HISTORY", "FALLING_HOUR", "DATA_WAIT_SPENT")
 
     /**
      * V5.0.8582 §BUY_THE_PULLBACK — the 8577 edge report (2,105 decisions, 26 h, net at the lane's target horizon), meme lanes:
@@ -60,17 +69,14 @@ object LaneAuthority8577 {
         return atHigh || buyersCrowded
     }
 
-    /** Reads [ts]'s playbook features (the edge model's own frame); a read that fails never refuses. */
-    fun memeHighRefusal8582(ts: com.lifecyclebot.data.TokenState, lane: String, nowMs: Long): String? {
-        val f = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.features(ts, nowMs) } catch (_: Throwable) { null } ?: return null
-        return if (memeBuysTheHigh8582(lane, f.pxPeak, f.runup, f.bp))
-            MEME_BUYS_THE_HIGH_8582 else null
-    }
+    // V5.0.8604 — memeHighRefusal8582 (the runtime read that fed this veto into every LIVE admission) is deleted: LIVE now
+    // decides like the paper book. [memeBuysTheHigh8582] stays as the pure read of the two data-backed legs.
 
     /** Pure: does [reason] bind under lane authority? Everything not listed is a learned door, advisory for a qualified coin. */
     fun binding8577(reason: String?): Boolean {
         if (reason.isNullOrBlank()) return false
         val r = reason.uppercase()
+        if (LEARNED_WAITS_8604.any { r.contains(it) }) return false
         return BINDING_8577.any { r.contains(it) }
     }
 
@@ -120,8 +126,11 @@ object LaneAuthority8577 {
     }
 
     /** LiveEdgeGate7877.liveRefusal (LIVE): is the gate's refusal [reason] advisory for this lane-qualified candidate? */
+    // V5.0.8604 — advisory for every ADMITTED LIVE candidate (the paper-equivalent admission), not only a specialist-qualified
+    // one: the paper book buys generic-prior admits too, and the gate's learned doors are the layer it never had.
     fun advisoryAtGate8577(reason: String?, admission: CandidateAdmission8136.Decision8136?): Boolean =
-        enabled8577 && !reason.isNullOrBlank() && admission?.laneQualified8577 == true && !binding8577(reason)
+        enabled8577 && !reason.isNullOrBlank() && (admission?.laneQualified8577 == true || admission?.admitted == true) &&
+            !binding8577(reason)
 
     private val advisory8577 = ConcurrentHashMap<String, AtomicLong>()
     private val admittedByLane8577 = ConcurrentHashMap<String, AtomicLong>()

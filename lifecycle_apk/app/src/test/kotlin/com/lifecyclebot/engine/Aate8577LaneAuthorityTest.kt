@@ -88,14 +88,19 @@ class Aate8577LaneAuthorityTest {
                 "DATA_DEFER_BUDGET_EXHAUSTED_8136", "EARLY_LAUNCH_EMPTY_CURVE_8048", "REBUY_LOCKOUT_8019", "KILL_SWITCH_HOLD", "CANONICAL_ENTRY_EVAL_FAILED_8392",
                 "SIZE_NOT_EXECUTABLE_7835", "NATIVE_LANE_LIQ_BELOW_FLOOR", "WALLET_BLIND", "QUANTITY_QUARANTINED"))
             assertFalse(binding, LaneAuthority8577.advisoryAtGate8577(binding, q))
-        assertFalse(LaneAuthority8577.advisoryAtGate8577("WATCH_FIRST_8019", q.copy(laneQualified8577 = false)))
+        // V5.0.8604 — an ADMITTED live coin (the paper-equivalent admission) is advisory at the gate whether or not a specialist
+        // qualified it; a refused admission is not.
+        assertTrue(LaneAuthority8577.advisoryAtGate8577("WATCH_FIRST_8019", q.copy(laneQualified8577 = false)))
+        assertFalse(LaneAuthority8577.advisoryAtGate8577("WATCH_FIRST_8019",
+            q.copy(terminal = Terminal8136.REFUSE, reason = "SETUP_RECORD_LOSING_8136", laneQualified8577 = false)))
         assertFalse(LaneAuthority8577.advisoryAtGate8577("WATCH_FIRST_8019", null))
         assertFalse(LaneAuthority8577.advisoryAtGate8577(null, q))
     }
 
     @Test fun the_runtime_applies_it_at_the_admission_and_the_gate_and_the_doors_keep_learning() {
         val adm = File("src/main/kotlin/com/lifecyclebot/engine/truth/CandidateAdmission8136.kt").readText()
-        assertTrue(adm.contains("LaneAuthority8577.apply8577(candidate, decide8136(candidate) {"))
+        // V5.0.8604 — LIVE takes the paper book's exact decision (every learned door off) before lane authority.
+        assertTrue(adm.contains("LaneAuthority8577.apply8577(candidate,\n            decide8136(candidate.copy(live = false)) { false }, null)"))
         val gate = File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveEdgeGate7877.kt").readText()
         val fn = gate.substringAfter("fun liveRefusal(").substringBefore("private fun unprovenLive8536(")
         assertTrue(fn.contains("val advisory8577 = !paper && LaneAuthority8577.advisoryAtGate8577(doors8577, admission8577)"))

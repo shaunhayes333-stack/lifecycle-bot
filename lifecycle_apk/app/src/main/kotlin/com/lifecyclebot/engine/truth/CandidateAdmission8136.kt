@@ -1485,9 +1485,17 @@ object CandidateAdmission8136 {
         val identity = cacheIdentity8144(candidate)
         val cached = memos8153[key]?.takeIf { nowMs - it.atMs in 0L..MEMO_MS_8153 && it.candidate == identity }?.decision
         // V5.0.8577 — LIVE: the lane-qualified candidate's learned-door refusal is advisory (LaneAuthority8577.apply8577).
-        cached ?: (if (FdgGate8365.policyKey8393() == "OUTSIDE") coalescedDefer8144(ts.mint, candidate.lane, identity, version, mode, nowMs) else null) ?: LaneAuthority8577.apply8577(candidate, decide8136(candidate) {
-            Rehearsal8339.doorBindsNow8342(it, candidate.lane)
-        }, if (candidate.live) LaneAuthority8577.memeHighRefusal8582(ts, candidate.lane, nowMs) else null).also {
+        // V5.0.8604 §LIVE_DECIDES_LIKE_PAPER — owner, watching the paper book beside LIVE: "paper picks the right tokens at the
+        // right time to make money literally nearly every trade. so what the hell". The paper book (MemePaperTrader8544) is
+        // fed this same candidate and decides it with decide8136(candidate.copy(live = false, ...)) { false } — every learned
+        // door off, no live-only branch, no buys-the-high veto. LIVE now takes that exact decision: same call, same doors off.
+        // The coin's live-edge evidence (liveEdge8114) is kept — it can only add an admit. What still separates real money from
+        // the paper book is downstream and deliberate: the live edge gate's binding words (hard safety, structure, the
+        // executable minimum, the kill switch — LaneAuthority8577.binding8577), PreTradeHardGate's hard safety and this bot's
+        // own 24 h loss lock, and the real route / fill. superseded: decide8136(candidate) { Rehearsal8339.doorBindsNow8342(it,
+        // candidate.lane) } plus LaneAuthority8577.memeHighRefusal8582 for every LIVE candidate.
+        cached ?: (if (FdgGate8365.policyKey8393() == "OUTSIDE") coalescedDefer8144(ts.mint, candidate.lane, identity, version, mode, nowMs) else null) ?: LaneAuthority8577.apply8577(candidate,
+            decide8136(candidate.copy(live = false)) { false }, null).also {
             // A held shadow rehearsal must not publish an ADMIT into live sizing, strategy identity or the runner trace.
             if (!FdgGate8365.shadowOnly8393()) {
                 noteDecision8144(ts.mint, candidate.lane, candidate, it, version, mode, nowMs)
