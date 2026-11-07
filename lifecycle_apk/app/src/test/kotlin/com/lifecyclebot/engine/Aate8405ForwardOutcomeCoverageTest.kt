@@ -13,9 +13,9 @@ class Aate8405ForwardOutcomeCoverageTest {
     private val lab = File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
 
     @Test fun capacity_covers_the_horizon_demand() {
-        assertTrue(lab.contains("private const val OFFWATCH_FETCH_GAP_MS_7737 = 10_000L"))
+        assertTrue(lab.contains("private const val OFFWATCH_FETCH_GAP_MS_7737 = 3_000L"))  // V5.0.8618
         // superseded by V5.0.8442 — 150 a batch (was 90); V5.0.8455 — 300: continuous path reads for every tracked coin
-        assertTrue(lab.contains("private const val OFFWATCH_BATCH_7737 = 300"))
+        assertTrue(lab.contains("private const val OFFWATCH_BATCH_7737 = 120"))  // V5.0.8618
         assertTrue(lab.contains("private const val OFFWATCH_DEX_CHUNK_8405 = 30"))
         // a missed mint is re-asked inside the 1-minute horizon's grace, not after it
         assertTrue(lab.contains("private const val OFFWATCH_RETRY_MS_7809 = 30_000L"))

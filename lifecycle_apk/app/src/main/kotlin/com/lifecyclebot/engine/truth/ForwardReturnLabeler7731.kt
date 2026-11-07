@@ -122,12 +122,18 @@ object ForwardReturnLabeler7731 {
     // Jupiter (429-limited free tier, sr=63%), re-asking a missed mint only after 90 s — past the 1-minute horizon's grace —
     // while ~370 observations/min matured. Capacity, not data: DexScreener (sr=100%, 30 per call) now leads for the whole
     // batch, the curve read prices pump mints, Jupiter is the last rung; 90 mints every 10 s; a missed mint is re-asked at 30 s.
-    private const val OFFWATCH_FETCH_GAP_MS_7737 = 10_000L
+    // superseded by V5.0.8618 — 3 s (was 10 s): 03:50 dump (8613) horizonMissed7809=1,980, pendingMints8475=513, labels 45 %
+    // priced; one batch averaged 2.9 s, so the 10 s gap (not the providers) left a due coin waiting up to ~13 s plus its place
+    // in a 300-coin serial batch, past the 1-minute read's 60 s grace. Still one batch in flight at a time.
+    private const val OFFWATCH_FETCH_GAP_MS_7737 = 3_000L
     // superseded by V5.0.8442 — 150 a batch (was 90): ~370 label reads/min mature plus the open shadow tickets' marks
     // (noteShadowWanted8442); five DexScreener calls every 10 s is 30/min of a 270/min host budget that used ~112/min in 8439.
     // superseded by V5.0.8455 — 300 a batch: every tracked coin's path is read continuously (trackPath8455), ~2,800 coins at a
     // time; ten DexScreener calls every 10 s is 60/min of the 270/min host budget.
-    private const val OFFWATCH_BATCH_7737 = 300
+    // superseded by V5.0.8618 — 120 a batch every ~3 s (was 300 every 10 s): the batch is ordered soonest-closing window first,
+    // so a shorter batch prices the coins about to miss within seconds instead of after ten serial DexScreener chunks. Capacity
+    // rises (~2,400 coins/min vs ~1,800) at ~80 DexScreener calls/min of the 270/min host budget.
+    private const val OFFWATCH_BATCH_7737 = 120
     private const val OFFWATCH_DEX_CHUNK_8405 = 30
 
     // ── V5.0.8442 §SHADOW_TICKETS_SHARE_THE_LABEL_MARKS ──

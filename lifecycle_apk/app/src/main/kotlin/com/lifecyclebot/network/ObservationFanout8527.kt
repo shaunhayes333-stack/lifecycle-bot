@@ -29,7 +29,10 @@ internal object ObservationFanout8527 {
 
     // Eight source slots: one per source in the existing fan-out. Leaf slots
     // are separate; queues hold at most two source passes / two 12-mint batches.
-    private val background = Pools(prefix = "mark-background-8527")
+    // V5.0.8618 — the background pool is 12 source / 12 leaf workers with 24 / 36 queue slots (was 8 / 8, 16 / 24): 03:50 dump
+    // MARK_FANOUT_RETRYABLE_SATURATION_8527=228 (price passes rejected outright, the coins left on stale marks) and
+    // _DEADLINE_8527=260. Every job is a network wait, not CPU. The held-position pool keeps its own capacity.
+    private val background = Pools(sourceThreads = 12, leafThreads = 12, sourceQueue = 24, leafQueue = 36, prefix = "mark-background-8527")
     private val protective = Pools(sourceQueue = 8, leafQueue = 12, prefix = "mark-held-8527")
 
     internal class Batch(
