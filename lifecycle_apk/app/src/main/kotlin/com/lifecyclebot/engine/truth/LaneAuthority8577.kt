@@ -31,7 +31,7 @@ object LaneAuthority8577 {
         "EMPTY_CURVE", "EARLY_LAUNCH", "ROUTE_MIN", "SIZE_NOT_EXECUTABLE", "NON_ECONOMIC_APPROVAL", "QUARANT", "REBUY",
         // V5.0.8606 — this bot's own 24 h loss locks bind at the gate as they do at PreTradeHardGate: 19:23 dump, admitted locked
         // mints were ticketed, refused PRETRADE_BIG_LOSER_8130 after the ticket, backed off and re-ticketed (56 BACKOFF_ENDS_TICKET).
-        "BIG_LOSER", "REPEAT_LOSER",
+        "BIG_LOSER", "REPEAT_LOSER", "PAPER_LANE_PROVEN_LOSING",
         "DATA_", "STALE", "_FAILED", "GENERIC_SCORE_FLOOR",
         // superseded by V5.0.8604 — 8582 re-bound "INTO_HIGH", "CHASING_SPIKE", "CHASE_EXTENDED", "NEAR_HIGH",
         // "MEME_BUYS_THE_HIGH_8582" here. LIVE now decides like the paper book beside it, which never had those doors and is
@@ -45,6 +45,8 @@ object LaneAuthority8577 {
      * mark and a known cost; these wait for a move history / a turned hour it never asks for. The executable minimum
      * (DATA_INCOMPLETE_DEFER_8136: unknown cost / no price) still binds via [bindingAdmission8577].
      */
+    const val PAPER_LOSING_8608 = "PAPER_LANE_PROVEN_LOSING_8608"
+
     private val LEARNED_WAITS_8604 = listOf("DATA_INCOMPLETE_MOVE_HISTORY", "FALLING_HOUR", "DATA_WAIT_SPENT")
 
     /**
@@ -108,6 +110,13 @@ object LaneAuthority8577 {
     fun apply8577(c: CandidateAdmission8136.Candidate8136, d: CandidateAdmission8136.Decision8136,
                   highRefusal8582: String? = null): CandidateAdmission8136.Decision8136 {
         if (!enabled8577 || !c.live) return d
+        // V5.0.8608 §LIVE_TRADES_WHAT_PAPER_PROVES — live decides like the paper book; where that book has PROVEN the lane loses
+        // (MemePaperTrader8544.laneProvenLosing8608) live does not spend the wallet on it.
+        if (try { MemePaperTrader8544.laneProvenLosing8608(c.lane) } catch (_: Throwable) { false }) {
+            try { PipelineHealthCollector.labelInc("PAPER_LANE_PROVEN_LOSING_8608_${c.lane.uppercase()}") } catch (_: Throwable) {}
+            return d.copy(terminal = CandidateAdmission8136.Terminal8136.REFUSE, reason = PAPER_LOSING_8608, specific = true,
+                trace = d.trace + "paperLaneProvenLosing8608", laneQualified8577 = false)
+        }
         // V5.0.8582 — a LIVE meme entry at the high is refused whatever admitted it (lane opinion, edge, generic prior).
         if (highRefusal8582 != null && d.terminal != CandidateAdmission8136.Terminal8136.REFUSE) {
             try { PipelineHealthCollector.labelInc("${highRefusal8582}_${c.lane.uppercase()}") } catch (_: Throwable) {}

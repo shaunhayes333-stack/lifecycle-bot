@@ -333,6 +333,24 @@ object MemePaperTrader8544 {
         return MemeStrategies8546.provenRecord8546(p[0].toInt(), p[1], p[2], p[3])
     }
 
+    /**
+     * V5.0.8608 §LIVE_TRADES_WHAT_PAPER_PROVES — the other half of [laneProven8572]: has [lane]'s post-guard paper record
+     * PROVEN it loses (n >= 30, mean + se < 0, PF < 1)? 01:42 dump (8607): paper EXPRESS n44 -3.5 %+-2.6 PF 0.54 and MOONSHOT
+     * n40 -4.1 %+-2.7 PF 0.48 while both bled live too and took the 0.12 SOL wallet's route-minimum slots from SHITCOIN
+     * (paper n33 +29.7 % PF 3.20, live FDG_SIZE_NOT_EXECUTABLE_7835 25). Such a lane keeps trading in paper and earns its way
+     * back the moment its record stops proving a loss.
+     */
+    fun laneProvenLosing8608(lane: String): Boolean {
+        restore8544()
+        val v = laneStats["$PROOF_PREFIX_8572${lane.trim().uppercase()}"] ?: return false
+        val p = synchronized(v) { proofOf8546(v) }
+        return provenLosing8608(p[0].toInt(), p[1], p[2], p[3])
+    }
+
+    /** Pure (V5.0.8608): n >= 30 closes whose mean is below zero by more than its standard error, profit factor < 1. */
+    fun provenLosing8608(n: Int, mean: Double, se: Double, pf: Double): Boolean =
+        n >= 30 && mean.isFinite() && se.isFinite() && mean + se < 0.0 && pf.isFinite() && pf < 1.0
+
     private const val STAT_FIELDS_8546 = 7
     const val FAMILY_PREFIX_8546 = "FAM_"
 
