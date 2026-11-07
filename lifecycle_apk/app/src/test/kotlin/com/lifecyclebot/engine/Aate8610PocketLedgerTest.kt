@@ -28,11 +28,16 @@ class Aate8610PocketLedgerTest {
 
     private fun rec(n: Double, mean: Double, sd: Double) = doubleArrayOf(n, mean * n, n * (sd * sd + mean * mean))
 
-    @Test fun aCoinPaysOnlyWhenOneCellProvesProfitAndNoneProvesALoss() {
-        assertEquals(Call.PAYS, PocketLedger8610.callOf8610(listOf(rec(60.0, 20.0, 40.0), rec(80.0, -1.0, 30.0))))
-        assertEquals("one proven-losing cell vetoes", Call.LOSES, PocketLedger8610.callOf8610(listOf(rec(60.0, 20.0, 40.0), rec(200.0, -5.0, 8.0))))
+    // V5.0.8613 — the coin is scored by the weight of all its evidence (mean clipped t), not vetoed by its single worst cell.
+    @Test fun aCoinIsScoredByTheWeightOfAllItsEvidence() {
+        assertEquals("a strong paying cell outweighs a mildly losing one", Call.PAYS,
+            PocketLedger8610.callOf8610(listOf(rec(60.0, 20.0, 40.0), rec(80.0, -1.0, 30.0))))
+        assertEquals("a strong losing cell outweighs the paying one", Call.LOSES,
+            PocketLedger8610.callOf8610(listOf(rec(60.0, 20.0, 40.0), rec(200.0, -5.0, 8.0))))
+        assertEquals("one losing broad cell no longer vetoes three paying ones", Call.PAYS,
+            PocketLedger8610.callOf8610(listOf(rec(60.0, 20.0, 40.0), rec(60.0, 15.0, 40.0), rec(60.0, 12.0, 40.0), rec(3000.0, -2.6, 10.0))))
         assertEquals("a thin cell proves nothing", Call.UNPROVEN, PocketLedger8610.callOf8610(listOf(rec(20.0, 50.0, 10.0))))
-        assertEquals("inside two standard errors is unproven", Call.UNPROVEN, PocketLedger8610.callOf8610(listOf(rec(60.0, 5.0, 40.0))))
+        assertEquals("a near-zero score is unproven", Call.UNPROVEN, PocketLedger8610.callOf8610(listOf(rec(60.0, 0.5, 40.0))))
         assertEquals(Call.UNPROVEN, PocketLedger8610.callOf8610(emptyList()))
     }
 

@@ -16,8 +16,8 @@ import java.util.concurrent.atomic.AtomicLong
  * Every forward-labelled decision (ForwardReturnLabeler7731 -> EdgeModel8537.learn) is filed into coin-state cells: each
  * banded feature (phase, age, liquidity, mcap, buy pressure, 5 m and 1 h move, distance from the peak, top holder, volume
  * acceleration) and every pair of them, market-wide and per lane. Each cell keeps a recency-weighted record (decay 0.995 per
- * observation) of the managed outcome (stop -20 %, ride to +400 %). A coin PAYS when at least one of its cells has proven
- * positive (n >= 40, mean - 2 se > 0) and none of them has proven negative (mean + 2 se < 0).
+ * observation) of the managed outcome (stop -20 %, ride to +400 %). A coin is scored by all of its evidence (V5.0.8613:
+ * the mean clipped t of its cells with n >= 40, see [callOf8610]).
  *
  * Replayed online over 24,427 labelled decisions with the label held back 5 minutes (as on the device): 302 picks across
  * every lane, +19.9 % +-5.1 (first half +17.9 %, second +20.7 %), runner-shaped (15 % of coins win, 9 of 102 coins >= +100 %;
@@ -26,7 +26,6 @@ import java.util.concurrent.atomic.AtomicLong
  */
 object PocketLedger8610 {
     const val N_MIN = 40.0
-    const val Z = 2.0
     const val DECAY = 0.995
     private const val FILE = "pocket_ledger_8610.json"
 
@@ -90,17 +89,31 @@ object PocketLedger8610 {
 
     enum class Call { PAYS, UNPROVEN, LOSES }
 
-    /** Pure: the call of a set of cell records (n, sum, sumsq). */
+    /** V5.0.8613 — the coin's score: the mean of its mature cells' t-statistics (mean / se), each clipped to +-5. */
+    private const val T_CLIP = 5.0
+    private const val PAY_SCORE = 0.15
+
+    /**
+     * Pure: the call of a set of cell records (n, sum, sumsq). V5.0.8613 — superseded: "one cell proven > 0 and none proven < 0"
+     * (8610). With ~60 cells per coin and broad single-feature cells (MATURE, liq < 10k) proving a loss in a market that loses on
+     * average, one losing cell vetoed nearly every coin: 02:57 dump (8611, 15 min), ledger paying=20 losing=1683, live buys 0,
+     * LIVE_POCKET_PROVEN_LOSING_8610 on every lane. The coin is now scored by the weight of ALL its evidence: the mean clipped t
+     * of its cells with n >= 40; PAYS above +0.15, LOSES below -0.15. Same online replay (24,904 decisions, label held 5 min):
+     * 1,120 picks (4.5 % of decisions, 3.6x the veto rule) at +10.3 % +-2.3, first half +12.4 %, second +9.6 %, +2.0 % without
+     * the best five coins.
+     */
     fun callOf8610(records: List<DoubleArray>): Call {
-        var pays = false
+        var sumT = 0.0; var cnt = 0
         for (s in records) {
             val n = s[0]; if (n < N_MIN) continue
             val m = s[1] / n
             val se = kotlin.math.sqrt(((s[2] / n) - m * m).coerceAtLeast(0.0) / n)
-            if (m + Z * se < 0.0) return Call.LOSES
-            if (m - Z * se > 0.0) pays = true
+            val t = if (se > 0.0) m / se else 0.0
+            sumT += t.coerceIn(-T_CLIP, T_CLIP); cnt++
         }
-        return if (pays) Call.PAYS else Call.UNPROVEN
+        if (cnt == 0) return Call.UNPROVEN
+        val score = sumT / cnt
+        return when { score > PAY_SCORE -> Call.PAYS; score < -PAY_SCORE -> Call.LOSES; else -> Call.UNPROVEN }
     }
 
     /** The ledger's call for [ts] in [lane] now; null while the ledger is not yet seeded. */
@@ -178,6 +191,6 @@ object PocketLedger8610 {
         for (c in cells.values) synchronized(c) {
             when (callOf8610(listOf(doubleArrayOf(c.n, c.sum, c.sq)))) { Call.PAYS -> pays++; Call.LOSES -> loses++; else -> {} }
         }
-        return "pocket8610[ready=$ready cells=${cells.size} paying=$pays losing=$loses learned=${learned.get()} rule=one cell proven >0 & none proven <0, n>=40 z2 decay0.995]"
+        return "pocket8610[ready=$ready cells=${cells.size} paying=$pays losing=$loses learned=${learned.get()} rule=mean clipped t of cells n>=40 > +$PAY_SCORE, decay0.995]"
     }
 }
