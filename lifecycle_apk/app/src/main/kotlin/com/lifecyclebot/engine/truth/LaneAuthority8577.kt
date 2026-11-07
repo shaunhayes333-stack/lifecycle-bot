@@ -146,8 +146,8 @@ object LaneAuthority8577 {
         // else loses in every lane that saw it: MATURE -2.6 % (n3709), POST_PUMP_FADE -3.8 %, IGNITION -12.0 %, coins a day or
         // older -3.5 % +-0.3 (n2746, the desks' whole mandate). Live buys a coin only in that state, whichever lane found it;
         // PROJECT_SNIPER also keeps PRE_IGNITION (its flow proof: +46 % proven vs -14 % not). A lane whose own paper record is
-        // PROVEN (laneProven8572) trades whatever paper trades. The paper book is still fed every candidate.
-        }
+        // PROVEN (laneProven8572) trades whatever paper trades. The paper book is still fed every candidate. (Applied to the final
+        // ADMIT in apply8577; V5.0.8610 — PocketLedger8610 decides once seeded, this state rule is the fallback.)
         // V5.0.8608 §LIVE_TRADES_WHAT_PAPER_PROVES — live decides like the paper book; where that book has PROVEN the lane loses
         // (MemePaperTrader8544.laneProvenLosing8608) live does not spend the wallet on it.
         if (try { MemePaperTrader8544.laneProvenLosing8608(c.lane) } catch (_: Throwable) { false }) {
