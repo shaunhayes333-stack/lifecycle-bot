@@ -38,9 +38,15 @@ class Aate8462SmartMoneyToggleTest {
     @Test fun offStopsTheHeliusScanButKeepsTheLeaderboardCopyWallets() {
         val smd = src("engine/SmartMoneyDiscovery7277.kt").substringAfter("private fun runCycle(")
         val seed = smd.indexOf("engine?.autoDiscoverTopWallets(maxWallets = 5, minPnlSol = 25.0)")
-        val gate = smd.indexOf("if (!com.lifecyclebot.data.ConfigStore.smartMoneyScan8462) { scanSkipped8462.incrementAndGet(); return }")
-        assertTrue("the pump.fun / GMGN leaderboard seed runs first, whatever the switch", seed in 0 until gate)
-        assertTrue("runner mining waits on the switch", gate < smd.indexOf("observedRunners()"))
+        // V5.0.8601 — the toggle no longer short-circuits the cheap runner-mining self-discovery (the proprietary edge:
+        // early buyers of the bot's own observed runners -> expert wallets -> EXPERT_ENTRY). It is now a bare counter with
+        // no early return, and the mining runs regardless. Only the expensive external history scan (ExpertWallets7962 /
+        // HeliusCadence8361 alpha, asserted below) stays gated by the switch.
+        val skip = smd.indexOf("if (!com.lifecyclebot.data.ConfigStore.smartMoneyScan8462) scanSkipped8462.incrementAndGet()")
+        assertFalse("the old return-gate on the self-discovery is gone",
+            smd.contains("if (!com.lifecyclebot.data.ConfigStore.smartMoneyScan8462) { scanSkipped8462.incrementAndGet(); return }"))
+        assertTrue("the pump.fun / GMGN leaderboard seed runs first, whatever the switch", seed in 0 until skip)
+        assertTrue("the runner-mining self-discovery runs after the counter, regardless of the switch", skip < smd.indexOf("observedRunners()"))
 
         val ew = src("engine/ExpertWallets7962.kt").substringAfter("private fun runCycle(").substringBefore("learnPending()")
         assertTrue(ew.contains("if (scan8462 && key.isNotBlank() && KeyValidator.isUsableEnhancedHeliusKey(key)) fetchHistories(key)"))
