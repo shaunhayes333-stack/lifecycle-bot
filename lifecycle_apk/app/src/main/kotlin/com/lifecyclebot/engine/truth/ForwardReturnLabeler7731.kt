@@ -1691,6 +1691,15 @@ object ForwardReturnLabeler7731 {
 
     /** A fixed decision target contributes once; later observations remain available to path and exit learners. */
     private fun bookEntryTarget8521(o: Obs, net: Double, gross: Double, witness: Boolean, nowMs: Long) {
+        // V5.0.8617 — a 5-minute outcome no coin of that size can make is a mark on the wrong basis (03:50 export: a $2.96 M
+        // day-old coin at +1,406,280,000 %, a $112 k coin at +518,638 %). It reaches no learner: not the setup books, the shape /
+        // falling-hour / forward learners, the meme regime, EdgeModel8537 or PocketLedger8610.
+        if (net.isFinite() && !EdgeModel8537.plausible8617(o.edge8537?.raw?.mcap ?: Double.NaN, net)) {
+            o.edge8537 = null
+            try { PipelineHealthCollector.labelInc("FORWARD_LABEL_IMPLAUSIBLE_REJECTED_8617") } catch (_: Throwable) {}
+            try { ForensicLogger.lifecycle("FORWARD_LABEL_IMPLAUSIBLE_8617", "mint=${o.mint.take(10)} lane=${o.lane} net=${"%.0f".format(net)} entry=${o.entryPrice}") } catch (_: Throwable) {}
+            return
+        }
         // V5.0.8546 — an unfillable entry (no reachable mark in the rebase window: most fast meme coins) never books, but its
         // 5-minute read still counts for the market regime's breadth and is written to the research dataset, flagged.
         if (eligible8386(o) && net.isFinite() && !o.bookedNet7997.isFinite() && !entryFill8521(o) && MemePaperTrader8544.memeLane8544(o.lane)) {

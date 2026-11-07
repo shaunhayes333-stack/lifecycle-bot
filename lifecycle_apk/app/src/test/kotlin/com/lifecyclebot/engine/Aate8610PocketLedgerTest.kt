@@ -41,6 +41,20 @@ class Aate8610PocketLedgerTest {
         assertEquals(Call.UNPROVEN, PocketLedger8610.callOf8610(emptyList()))
     }
 
+    // V5.0.8617 — an implausible 5-minute outcome (a mark from the wrong basis) never trains the model or the ledger.
+    @Test fun implausibleOutcomesNeverTrain() {
+        val e = com.lifecyclebot.engine.truth.EdgeModel8537
+        assertTrue("a fresh launch can 20x", e.plausible8617(8_000.0, 2_000.0))
+        assertTrue(!e.plausible8617(2_956_010.0, 1_406_280_000.0))
+        assertTrue(!e.plausible8617(112_372.0, 518_638.0))
+        assertTrue(e.plausible8617(2_956_010.0, -60.0))
+        assertTrue(!e.plausible8617(Double.NaN, 1_000.0))
+        assertTrue(!e.plausible8617(50_000.0, Double.NaN))
+        val src = File("src/main/kotlin/com/lifecyclebot/engine/truth/EdgeModel8537.kt").readText()
+        assertTrue(src.indexOf("if (!plausible8617(s.raw.mcap, netPct))") in 0 until src.indexOf("PocketLedger8610.learn8610(s.raw, netPct)"))
+        assertTrue(File("src/main/kotlin/com/lifecyclebot/engine/truth/PocketLedger8610.kt").readText().contains("EdgeModel8537.plausible8617(d(o, \"mcap\"), net)"))
+    }
+
     @Test fun theLedgerLearnsFromEveryLabelAndDecidesLiveOnceSeeded() {
         val e = File("src/main/kotlin/com/lifecyclebot/engine/truth/EdgeModel8537.kt").readText()
         assertTrue(e.contains("PocketLedger8610.learn8610(s.raw, netPct)"))

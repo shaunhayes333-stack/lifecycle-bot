@@ -2,7 +2,6 @@ package com.lifecyclebot.engine.truth
 
 import com.lifecyclebot.data.TokenState
 import com.lifecyclebot.engine.PipelineHealthCollector
-import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
@@ -28,6 +27,11 @@ object PocketLedger8610 {
     const val N_MIN = 40.0
     const val DECAY = 0.995
     private const val FILE = "pocket_ledger_8610.json"
+    // V5.0.8617 — memory: the file is streamed line by line (key \t n \t sum \t sq), saved every 1,000 labels, and a cell
+    // decayed below half an observation is dropped; 8610 rebuilt a ~2 MB JSON string of every cell each 200 labels and held
+    // every seed row's ~64 cell keys (~1.6 M strings) at once before sorting, on a heap that peaked at 99 %.
+    private const val SAVE_EVERY_8617 = 1_000L
+    private const val DEAD_N_8617 = 0.5
 
     private class Cell { var n = 0.0; var sum = 0.0; var sq = 0.0 }
     private val cells = ConcurrentHashMap<String, Cell>()
@@ -77,7 +81,7 @@ object PocketLedger8610 {
         if (!net.isFinite()) return
         ensureLoaded()
         add(keys8610(r.lane, bandsOf(r)), managed8610(net))
-        if (learned.incrementAndGet() % 200L == 0L) io.execute { save() }
+        if (learned.incrementAndGet() % SAVE_EVERY_8617 == 0L) io.execute { save() }
     }
 
     private fun add(ks: List<String>, y: Double) {
@@ -141,8 +145,21 @@ object PocketLedger8610 {
                 val d = dir()
                 val f = d?.let { File(it, FILE) }
                 if (f != null && f.exists()) {
-                    val j = JSONObject(f.readText())
-                    j.keys().forEach { k -> j.optJSONArray(k)?.let { a -> cells[k] = Cell().apply { n = a.optDouble(0); sum = a.optDouble(1); sq = a.optDouble(2) } } }
+                    f.bufferedReader().use { rd ->
+                        val first = rd.readLine()
+                        if (first != null && first.startsWith("{")) {
+                            // the 8610 / 8613 JSON file: read once, rewritten as lines at the next save
+                            val j = JSONObject(first + rd.readText())
+                            j.keys().forEach { k -> j.optJSONArray(k)?.let { a -> cells[k] = Cell().apply { n = a.optDouble(0); sum = a.optDouble(1); sq = a.optDouble(2) } } }
+                        } else {
+                            var line = first
+                            while (line != null) {
+                                val p = line.split('\t')
+                                if (p.size == 4) cells[p[0]] = Cell().apply { n = p[1].toDouble(); sum = p[2].toDouble(); sq = p[3].toDouble() }
+                                line = rd.readLine()
+                            }
+                        }
+                    }
                     PipelineHealthCollector.labelInc("POCKET_8610_LOADED")
                 } else {
                     seedFromDataset()
@@ -157,20 +174,19 @@ object PocketLedger8610 {
         val f = EdgeModel8537.datasetFile() ?: return
         if (!f.exists()) return
         fun d(o: JSONObject, k: String) = if (o.isNull(k)) Double.NaN else o.optDouble(k, Double.NaN)
-        val rows = ArrayList<Pair<Long, Pair<List<String>, Double>>>()
+        var seeded = 0L
         f.forEachLine { line ->
             try {
                 val o = JSONObject(line)
                 if (!o.optBoolean("fill", true)) return@forEachLine
                 val net = d(o, "net"); if (!net.isFinite()) return@forEachLine
+                if (!EdgeModel8537.plausible8617(d(o, "mcap"), net)) return@forEachLine   // V5.0.8617 — bad-basis marks
                 val b = bands8610(d(o, "liq"), d(o, "mcap"), d(o, "age"), d(o, "bp"), d(o, "chg5m"), d(o, "chg1h"), d(o, "pxPeak"),
                     d(o, "volAccel"), d(o, "top"), o.optString("phase"))
-                rows += o.optLong("t") to (keys8610(o.optString("lane"), b) to managed8610(net))
+                add(keys8610(o.optString("lane"), b), managed8610(net)); seeded++   // the dataset is appended in time order
             } catch (_: Throwable) {}
         }
-        rows.sortBy { it.first }
-        for ((_, kv) in rows) add(kv.first, kv.second)
-        learned.addAndGet(rows.size.toLong())
+        learned.addAndGet(seeded)
         try { PipelineHealthCollector.labelInc("POCKET_8610_SEEDED_FROM_DATASET") } catch (_: Throwable) {}
         save()
     }
@@ -178,9 +194,14 @@ object PocketLedger8610 {
     private fun save() {
         try {
             val d = dir() ?: return
-            val j = JSONObject()
-            for ((k, c) in cells) synchronized(c) { j.put(k, JSONArray().put(c.n).put(c.sum).put(c.sq)) }
-            val tmp = File(d, "$FILE.tmp"); tmp.writeText(j.toString())
+            cells.entries.removeIf { e -> synchronized(e.value) { e.value.n < DEAD_N_8617 } }
+            val tmp = File(d, "$FILE.tmp")
+            tmp.bufferedWriter().use { w ->
+                for ((k, c) in cells) {
+                    val line = synchronized(c) { "$k\t${c.n}\t${c.sum}\t${c.sq}" }
+                    w.write(line); w.newLine()
+                }
+            }
             if (!tmp.renameTo(File(d, FILE))) tmp.delete()
         } catch (_: Throwable) {}
     }

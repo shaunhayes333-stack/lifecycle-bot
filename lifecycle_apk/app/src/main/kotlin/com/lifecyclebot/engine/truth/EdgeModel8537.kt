@@ -297,9 +297,34 @@ object EdgeModel8537 {
         Snap(raw, x, p, key, nowMs, ts.mint, admitted)
     } catch (_: Throwable) { null }
 
+    /**
+     * Pure (V5.0.8617): can a coin at [mcapUsd] really net [netPct] in five minutes? Under $100 k a launch can 50x (+5,000 %);
+     * under $1 M, +400 %; at $1 M or more, +100 %. An unknown cap allows +400 %. Losses are always plausible.
+     */
+    fun plausible8617(mcapUsd: Double, netPct: Double): Boolean {
+        if (!netPct.isFinite()) return false
+        val cap = when {
+            !mcapUsd.isFinite() || mcapUsd <= 0.0 -> 400.0
+            mcapUsd < 100_000.0 -> 5_000.0
+            mcapUsd < 1_000_000.0 -> 400.0
+            else -> 100.0
+        }
+        return netPct <= cap
+    }
+    private val implausible8617 = AtomicLong(0L)
+
     /** ForwardReturnLabeler7731.book (slot60): score the frozen prediction out of sample, THEN learn from the outcome. */
     fun learn(s: Snap, netPct: Double) {
         if (!netPct.isFinite()) return
+        // V5.0.8617 — an implausible 5-minute outcome never trains anything (the model, the pocket ledger, the dataset's
+        // training rows). The 03:50 export held a $2.96 M day-old coin at +1,406,280,000 % with a -1.9 % 5 m move and a
+        // $112 k coin at +518,638 %: 13 rows over 5 mints, each a mark from the wrong basis. The model learns ln(1 + net),
+        // so one such row weighed ~1,650 against a normal label's single digits.
+        if (!plausible8617(s.raw.mcap, netPct)) {
+            implausible8617.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("EDGE_LABEL_IMPLAUSIBLE_8617") } catch (_: Throwable) {}
+            return
+        }
         val y = target8567(netPct)
         synchronized(this) {
             if (s.pred.isFinite()) oos.getOrPut(s.raw.lane) { Oos() }.add(s.pred, y) else skippedCold.incrementAndGet()
@@ -451,7 +476,7 @@ object EdgeModel8537 {
             val auth = o != null && authority(o.selN, o.selMean, o.selSe, o.allMean)
             "$l[n${r?.count ?: 0} oosPicks=n${o?.selN ?: 0}/${pct(o?.selMean)}±${pct(o?.selSe)} all=${pct(o?.allMean)} avoid=${pct(o?.negMean)} ${if (auth) "AUTHORITY" else "learning"}]"
         }
-        "edge8537[trained=${global.count} learned=${learned.get()} cold=${skippedCold.get()} minEdge=+${MIN_EDGE_PCT}% authBar=n$AUTH_MIN_N,mean-se>0,>lane] ${rows.ifBlank { "no labels yet" }}"
+        "edge8537[trained=${global.count} learned=${learned.get()} cold=${skippedCold.get()} implausible8617=${implausible8617.get()} minEdge=+${MIN_EDGE_PCT}% authBar=n$AUTH_MIN_N,mean-se>0,>lane] ${rows.ifBlank { "no labels yet" }}"
     }
 
     private fun pct(v: Double?) = if (v != null && v.isFinite()) "%+.1f%%".format(v) else "-"

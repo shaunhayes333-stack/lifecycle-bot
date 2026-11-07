@@ -153,14 +153,20 @@ object RunnerCapture8017 {
 
     @Volatile private var restoredRuns8169 = 0
 
+    /** V5.0.8617 — the largest run a 24 h window can hold before it is read as a bad-basis mark (1,000x). */
+    private const val MAX_PLAUSIBLE_RUN_PCT_8617 = 100_000.0
+
     /** Pure (V5.0.8169): restored traces that are still runners of the last 24 h (finite peak at the bar). */
     fun restorableRuns8169(traces: List<AdmissionRunnerTrace8144.Trace8144>, nowMs: Long): List<AdmissionRunnerTrace8144.Trace8144> =
-        traces.filter { it.mint.isNotBlank() && it.peakPct.isFinite() && it.peakPct >= RUNNER_PEAK_PCT_8017 && nowMs - it.detectedAtMs in 0L..KEEP_MS }
+        traces.filter { it.mint.isNotBlank() && it.peakPct.isFinite() && it.peakPct >= RUNNER_PEAK_PCT_8017 && it.peakPct <= MAX_PLAUSIBLE_RUN_PCT_8617 && nowMs - it.detectedAtMs in 0L..KEEP_MS }
             .take(MAX_RUNS)
 
     /** ForwardReturnLabeler7731: a followed coin's peak passed (or rose further past) the runner bar. */
     fun onRunnerPeak8017(mint: String, symbol: String, lane: String, startPx: Double, peakPct: Double, refusedBy: String, nowMs: Long = System.currentTimeMillis(), observedAtMs: Long = nowMs) {
         if (mint.isBlank() || !peakPct.isFinite() || peakPct < RUNNER_PEAK_PCT_8017) return
+        // V5.0.8617 — a run over 1,000x in its 24 h window is a mark on the wrong basis, not a runner (03:50: GLITCH
+        // +1,413,645,606 %, FugyvQb7hr +964,338 %). It is not counted as a runner, a miss or a capture.
+        if (peakPct > MAX_PLAUSIBLE_RUN_PCT_8617) { try { PipelineHealthCollector.labelInc("RUNNER_PEAK_IMPLAUSIBLE_8617") } catch (_: Throwable) {}; return }
         try { AdmissionRunnerTrace8144.restore8169(nowMs) } catch (_: Throwable) {}  // V5.0.8169 — restored runs first, never duplicated
         val r = runs.getOrPut(mint) {
             if (runs.size >= MAX_RUNS) runs.entries.removeIf { nowMs - it.value.atMs > KEEP_MS }
