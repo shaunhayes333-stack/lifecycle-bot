@@ -31,7 +31,7 @@ object LaneAuthority8577 {
         "EMPTY_CURVE", "EARLY_LAUNCH", "ROUTE_MIN", "SIZE_NOT_EXECUTABLE", "NON_ECONOMIC_APPROVAL", "QUARANT", "REBUY",
         // V5.0.8606 — this bot's own 24 h loss locks bind at the gate as they do at PreTradeHardGate: 19:23 dump, admitted locked
         // mints were ticketed, refused PRETRADE_BIG_LOSER_8130 after the ticket, backed off and re-ticketed (56 BACKOFF_ENDS_TICKET).
-        "BIG_LOSER", "REPEAT_LOSER", "PAPER_LANE_PROVEN_LOSING",
+        "BIG_LOSER", "REPEAT_LOSER", "PAPER_LANE_PROVEN_LOSING", "LIVE_COIN_STATE_UNPAID",
         "DATA_", "STALE", "_FAILED", "GENERIC_SCORE_FLOOR",
         // superseded by V5.0.8604 — 8582 re-bound "INTO_HIGH", "CHASING_SPIKE", "CHASE_EXTENDED", "NEAR_HIGH",
         // "MEME_BUYS_THE_HIGH_8582" here. LIVE now decides like the paper book beside it, which never had those doors and is
@@ -46,6 +46,20 @@ object LaneAuthority8577 {
      * (DATA_INCOMPLETE_DEFER_8136: unknown cost / no price) still binds via [bindingAdmission8577].
      */
     const val PAPER_LOSING_8608 = "PAPER_LANE_PROVEN_LOSING_8608"
+    const val COIN_STATE_8609 = "LIVE_COIN_STATE_UNPAID_8609"
+
+    /** Pure-ish (V5.0.8609): null when a LIVE buy in [lane] at [launchPhase] is inside the market's measured paying state. */
+    fun liveCoinStateRefusal8609(lane: String, launchPhase: String?): String? {
+        val l = lane.trim().uppercase()
+        if (try { MemePaperTrader8544.laneProven8572(l) } catch (_: Throwable) { false }) return null
+        return if (coinStatePays8609(l, launchPhase)) null else COIN_STATE_8609
+    }
+
+    /** Pure (V5.0.8609): EXPANDING for every lane; PRE_IGNITION too for the sniper. */
+    fun coinStatePays8609(lane: String, launchPhase: String?): Boolean {
+        val p = launchPhase?.trim()?.uppercase().orEmpty()
+        return p == "EXPANDING" || (p == "PRE_IGNITION" && lane.trim().uppercase() == "PROJECT_SNIPER")
+    }
 
     private val LEARNED_WAITS_8604 = listOf("DATA_INCOMPLETE_MOVE_HISTORY", "FALLING_HOUR", "DATA_WAIT_SPENT")
 
@@ -108,8 +122,25 @@ object LaneAuthority8577 {
      * decision of a qualified LIVE candidate is marked [CandidateAdmission8136.Decision8136.laneQualified8577] for the gate.
      */
     fun apply8577(c: CandidateAdmission8136.Candidate8136, d: CandidateAdmission8136.Decision8136,
-                  highRefusal8582: String? = null): CandidateAdmission8136.Decision8136 {
+                  highRefusal8582: String? = null, launchPhase8609: String? = null): CandidateAdmission8136.Decision8136 {
+        val r = applyLane8577(c, d, highRefusal8582)
+        if (!enabled8577 || !c.live || !r.admitted) return r
+        val why = liveCoinStateRefusal8609(c.lane, launchPhase8609) ?: return r
+        try { PipelineHealthCollector.labelInc("${why}_${c.lane.uppercase()}") } catch (_: Throwable) {}
+        return r.copy(terminal = CandidateAdmission8136.Terminal8136.REFUSE, reason = why, specific = true,
+            trace = r.trace + "coinState8609=${launchPhase8609 ?: "-"}", laneQualified8577 = false)
+    }
+
+    private fun applyLane8577(c: CandidateAdmission8136.Candidate8136, d: CandidateAdmission8136.Decision8136,
+                              highRefusal8582: String?): CandidateAdmission8136.Decision8136 {
         if (!enabled8577 || !c.live) return d
+        // V5.0.8609 §ONE_MARKET_EDGE_FOR_EVERY_LANE — 7,491 unique coin-minutes across 13 edge exports, split by time: the coin
+        // state that pays is EXPANDING (+4.6 % +-1.6, early +1.5 % / late +9.4 %; under 1 min +8.5 % +-2.7, n748). Everything
+        // else loses in every lane that saw it: MATURE -2.6 % (n3709), POST_PUMP_FADE -3.8 %, IGNITION -12.0 %, coins a day or
+        // older -3.5 % +-0.3 (n2746, the desks' whole mandate). Live buys a coin only in that state, whichever lane found it;
+        // PROJECT_SNIPER also keeps PRE_IGNITION (its flow proof: +46 % proven vs -14 % not). A lane whose own paper record is
+        // PROVEN (laneProven8572) trades whatever paper trades. The paper book is still fed every candidate.
+        }
         // V5.0.8608 §LIVE_TRADES_WHAT_PAPER_PROVES — live decides like the paper book; where that book has PROVEN the lane loses
         // (MemePaperTrader8544.laneProvenLosing8608) live does not spend the wallet on it.
         if (try { MemePaperTrader8544.laneProvenLosing8608(c.lane) } catch (_: Throwable) { false }) {

@@ -27,6 +27,20 @@ class Aate8608PaperProvesLiveTest {
         assertTrue(adm.contains("MemePaperTrader8544.consider8544(ts, candidate, nowMs)"))
     }
 
+    // V5.0.8609 — one measured market edge for every lane: live buys only the paying coin state.
+    @Test fun liveBuysOnlyThePayingCoinState() {
+        for (lane in listOf("SHITCOIN", "MOONSHOT", "EXPRESS", "QUALITY", "BLUECHIP", "TREASURY", "CASHGEN", "CORE", "CYCLIC", "DIP_HUNTER"))
+            assertTrue(lane, LaneAuthority8577.coinStatePays8609(lane, "EXPANDING"))
+        for (p in listOf("MATURE", "POST_PUMP_FADE", "IGNITION", "UNKNOWN_AGE", "", null))
+            assertFalse("$p", LaneAuthority8577.coinStatePays8609("SHITCOIN", p))
+        assertTrue("the sniper keeps its proven pre-ignition entry", LaneAuthority8577.coinStatePays8609("PROJECT_SNIPER", "PRE_IGNITION"))
+        assertFalse(LaneAuthority8577.coinStatePays8609("MOONSHOT", "PRE_IGNITION"))
+        assertTrue(LaneAuthority8577.binding8577(LaneAuthority8577.COIN_STATE_8609))
+        val a = src("engine/truth/LaneAuthority8577.kt")
+        assertTrue("a lane proven in paper trades what paper trades", a.contains("MemePaperTrader8544.laneProven8572(l)) } catch (_: Throwable) { false }) return null"))
+        assertTrue("only a final ADMIT is turned away; data deferrals stay", a.contains("if (!enabled8577 || !c.live || !r.admitted) return r"))
+    }
+
     @Test fun anyAdmitPlansInsteadOfWaitingForAChartSetup() {
         val p = src("engine/truth/TradePlan7739.kt")
         assertTrue(p.contains("val evidenceAdmit8418 = specific8171?.admitted == true ||"))

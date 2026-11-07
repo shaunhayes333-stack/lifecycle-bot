@@ -18,6 +18,10 @@ import java.io.File
  * LIVE candidate and keeps learning. 8575 log: ~800 LIVE evaluations, 13 admitted, 0 bought.
  */
 class Aate8577LaneAuthorityTest {
+    // V5.0.8609 — these pin the lane layer, so the coin sits in the paying state (EXPANDING); the coin-state rule has its own test.
+    private fun ap8609(c: CandidateAdmission8136.Candidate8136, d: CandidateAdmission8136.Decision8136) =
+        LaneAuthority8577.apply8577(c, d, null, "EXPANDING")
+
     private fun qualified(live: Boolean = true, cost: Double = 2.0) = Candidate8136(
         mint = "Mint8577", lane = "SHITCOIN", selectedSetup = "LAUNCH_LADDER_PROVEN", priceAgeMs = 1_000L, costPct = cost,
         live = live, nativeQualified8213 = true, nativeSetup8213 = "LAUNCH_LADDER_PROVEN", genericScore = 42.0, genericFloor = 15.0,
@@ -32,7 +36,7 @@ class Aate8577LaneAuthorityTest {
                 "LIVE_REGIME_COLD_8546", "EXECUTION_ECONOMICS_8136", "ENTRY_NO_RECLAIM_8506", "ENTRY_NO_BUY_VOLUME_8506",
                 "FALLING_HOUR_PROVEN_LOSING_8418", "CELL_PROVEN_LOSING_8136", "STAGE_PROVEN_LOSING_8136", "SETUP_RECORD_LOSING_8136",
                 "TIMING_ADVERSE_8136", "EDGE_MODEL_NEGATIVE_8537", "LIVE_GENERIC_PRIOR_UNSUPPORTED_8238", "SHEET_AVOID_8323")) {
-            val d = LaneAuthority8577.apply8577(qualified(), refusal(door))
+            val d = ap8609(qualified(), refusal(door))
             assertEquals(door, Terminal8136.ADMIT, d.terminal)
             assertEquals(LaneAuthority8577.REASON_8577, d.reason)
             assertFalse(d.specific); assertTrue(d.laneQualified8577)
@@ -41,37 +45,37 @@ class Aate8577LaneAuthorityTest {
         }
         assertTrue(LaneAuthority8577.advisoryCount8577("EXECUTION_ECONOMICS_8136") >= 1L)
         // the falling-hour WAIT and the entry-wait data defer are learned doors too
-        assertEquals(Terminal8136.ADMIT, LaneAuthority8577.apply8577(qualified(), refusal(CandidateAdmission8136.FALLING_HOUR_DEFER_8418, terminal = Terminal8136.DEFER_DATA)).terminal)
-        assertEquals(Terminal8136.ADMIT, LaneAuthority8577.apply8577(qualified(),
+        assertEquals(Terminal8136.ADMIT, ap8609(qualified(), refusal(CandidateAdmission8136.FALLING_HOUR_DEFER_8418, terminal = Terminal8136.DEFER_DATA)).terminal)
+        assertEquals(Terminal8136.ADMIT, ap8609(qualified(),
             refusal("DATA_INCOMPLETE_DEFER_8136", listOf("entryWait8506=FLOW_UNOBSERVED", "missing=swaps,bp,chg"), Terminal8136.DEFER_DATA)).terminal)
     }
 
     @Test fun safety_structure_the_executable_minimum_and_the_v3_floor_still_bind() {
         LaneAuthority8577.enabled8577 = true
         for (door in listOf("SAFETY_REFUSED_8136", "STRUCTURAL_RISK_8136", "GENERIC_SCORE_FLOOR_8136")) {
-            val d = LaneAuthority8577.apply8577(qualified(), refusal(door))
+            val d = ap8609(qualified(), refusal(door))
             assertEquals(door, Terminal8136.REFUSE, d.terminal); assertEquals(door, d.reason); assertTrue(d.laneQualified8577)
         }
         // stale price / a critical fact unobserved / unknown cost: the executable minimum
         val stale = refusal("DATA_INCOMPLETE_DEFER_8136", listOf("missing=shape:UNKNOWN,price"), Terminal8136.DEFER_DATA)
-        assertEquals(Terminal8136.DEFER_DATA, LaneAuthority8577.apply8577(qualified(), stale).terminal)
+        assertEquals(Terminal8136.DEFER_DATA, ap8609(qualified(), stale).terminal)
         val critical = refusal("DATA_INCOMPLETE_DEFER_8136", listOf("missing=liquidity", "criticalUnobserved8170=liquidity"), Terminal8136.DEFER_DATA)
-        assertEquals(Terminal8136.DEFER_DATA, LaneAuthority8577.apply8577(qualified(), critical).terminal)
+        assertEquals(Terminal8136.DEFER_DATA, ap8609(qualified(), critical).terminal)
         val costUnknown = refusal("DATA_INCOMPLETE_DEFER_8136", listOf("missing=economics"), Terminal8136.DEFER_DATA)
-        assertEquals(Terminal8136.DEFER_DATA, LaneAuthority8577.apply8577(qualified(cost = Double.NaN), costUnknown).terminal)
+        assertEquals(Terminal8136.DEFER_DATA, ap8609(qualified(cost = Double.NaN), costUnknown).terminal)
     }
 
     @Test fun paper_and_unqualified_candidates_and_an_off_switch_change_nothing() {
         LaneAuthority8577.enabled8577 = true
         val r = refusal("LIVE_NATIVE_OPINION_UNPROVEN_8536")
-        assertSame(r, LaneAuthority8577.apply8577(qualified(live = false), r))
-        assertSame(r, LaneAuthority8577.apply8577(qualified().copy(nativeQualified8213 = false), r))
-        assertSame(r, LaneAuthority8577.apply8577(qualified().copy(genericScore = 10.0), r))
+        assertSame(r, ap8609(qualified(live = false), r))
+        assertSame(r, ap8609(qualified().copy(nativeQualified8213 = false), r))
+        assertSame(r, ap8609(qualified().copy(genericScore = 10.0), r))
         LaneAuthority8577.enabled8577 = false
-        try { assertSame(r, LaneAuthority8577.apply8577(qualified(), r)) } finally { LaneAuthority8577.enabled8577 = true }
+        try { assertSame(r, ap8609(qualified(), r)) } finally { LaneAuthority8577.enabled8577 = true }
         // an ADMIT is only marked qualified
         val a = Decision8136(Terminal8136.ADMIT, "NATIVE_QUALIFIED_ADMIT_8259", false, "X", 5.0, emptyList())
-        val m = LaneAuthority8577.apply8577(qualified(), a)
+        val m = ap8609(qualified(), a)
         assertEquals("NATIVE_QUALIFIED_ADMIT_8259", m.reason); assertTrue(m.laneQualified8577)
     }
 
@@ -100,7 +104,7 @@ class Aate8577LaneAuthorityTest {
     @Test fun the_runtime_applies_it_at_the_admission_and_the_gate_and_the_doors_keep_learning() {
         val adm = File("src/main/kotlin/com/lifecyclebot/engine/truth/CandidateAdmission8136.kt").readText()
         // V5.0.8604 — LIVE takes the paper book's exact decision (every learned door off) before lane authority.
-        assertTrue(adm.contains("LaneAuthority8577.apply8577(candidate,\n            decide8136(candidate.copy(live = false)) { false }, null)"))
+        assertTrue(adm.contains("LaneAuthority8577.apply8577(candidate,\n            decide8136(candidate.copy(live = false)) { false }, null,\n            launchPhase8609 = "))  // V5.0.8609
         val gate = File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveEdgeGate7877.kt").readText()
         val fn = gate.substringAfter("fun liveRefusal(").substringBefore("private fun unprovenLive8536(")
         assertTrue(fn.contains("val advisory8577 = !paper && LaneAuthority8577.advisoryAtGate8577(doors8577, admission8577)"))
