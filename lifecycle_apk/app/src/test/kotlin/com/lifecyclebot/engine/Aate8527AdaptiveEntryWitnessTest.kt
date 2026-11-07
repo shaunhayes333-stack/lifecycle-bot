@@ -53,7 +53,7 @@ class Aate8527AdaptiveEntryWitnessTest {
     @Test fun stalePressureCannotBeStampedAsNewEntryEvidence() {
         val token = TokenState("EntryWitness8527")
         token.lastBuyPressurePct = 72.0
-        token.buyPressureObservedAtMs8084 = now - 120_001L
+        token.buyPressureObservedAtMs8084 = now - 300_001L   // V5.0.8598 — just past the 300s fresh8491 window
         val values = JSONObject(AdaptiveEntryWitness8527.capture(token, now)).getJSONObject("values")
         assertFalse(values.has("buyRatio"))
     }

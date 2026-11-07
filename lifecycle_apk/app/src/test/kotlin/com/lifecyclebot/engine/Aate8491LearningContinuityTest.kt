@@ -153,7 +153,7 @@ class Aate8491LearningContinuityTest {
         assertEquals(50.0, LaneInputTruth8236.buyPressure8491(ts, now)!!, 0.0)
         assertEquals(0.0, LaneInputTruth8236.change5m8491(ts, now)!!, 0.0)
         assertTrue(V3Adapter.dataKnowledge7327(ts, now).momentum)
-        assertNull(LaneInputTruth8236.buyPressure8491(ts, now + 120_001))
+        assertNull(LaneInputTruth8236.buyPressure8491(ts, now + 300_001))   // V5.0.8598 — stale past the 300s fresh8491 window
         assertFalse(LaneInputTruth8236.fresh8491(now + 1, now))
         assertFalse(ToolkitSignalSheet.reusableDuringRefresh8491(17_000))
         assertFalse(ToolkitSignalSheet.reusableDuringRefresh8491(-1))

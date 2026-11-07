@@ -74,7 +74,7 @@ class Aate8527SecondScorerEvidenceTest {
         assertEquals(0, SecondScorer.score(ts).components.getValue("buy"))
         ts.buyPressureObservedAtMs8084 = System.currentTimeMillis()
         assertEquals(15, SecondScorer.score(ts).components.getValue("buy"))
-        ts.buyPressureObservedAtMs8084 = System.currentTimeMillis() - 180_000L
+        ts.buyPressureObservedAtMs8084 = System.currentTimeMillis() - 360_000L   // V5.0.8598 — stale past the 300s fresh8491 window
         assertEquals(0, SecondScorer.score(ts).components.getValue("buy"))
         ts.buyPressureObservedAtMs8084 = System.currentTimeMillis()
         listOf(Double.NaN, Double.POSITIVE_INFINITY, -1.0, 101.0).forEach {

@@ -47,7 +47,7 @@ class Aate8522SpecialistMarketInputsTest {
         val ts = TokenState("history8522", lastPrice = 90.0)
         ts.momentum = 55.0
         ts.lastPriceChange5m = 45.0
-        ts.priceChangeObservedAtMs8084 = now - 121_000L
+        ts.priceChangeObservedAtMs8084 = now - 301_000L   // V5.0.8598 — just past the 300s fresh8491 window
         val history = NativeHistory8521.Read(listOf(100.0, 90.0), listOf(100.0, 90.0), 100.0, null, emptyList())
         val read = SpecialistMarketInputs8522.read8522(ts, now, null, history)
         assertNull(read.change5mPct)
