@@ -49,6 +49,45 @@ object HeapLog8618 {
     fun growth8618(from: Map<String, Long>, to: Map<String, Long>, n: Int = 12): List<Pair<String, Long>> =
         to.map { (k, v) -> k to (v - (from[k] ?: 0L)) }.sortedByDescending { it.second }.take(n)
 
+    /** Pure: a thread name folded to its family ("mark-background-8527-3" -> "mark-background-#"). */
+    fun family8622(name: String): String = name.trim().replace(Regex("[-_#]?\\d+$"), "").replace(Regex("\\d+"), "#").take(32).ifBlank { "?" }
+
+    /** Pure: CPU ms per family from /proc/self/task/<tid>/stat lines (comm in parens; utime, stime = fields 14, 15 in ticks). */
+    fun cpuByFamily8622(stats: List<String>, msPerTick: Double = 10.0): Map<String, Double> {
+        val out = HashMap<String, Double>()
+        for (line in stats) {
+            val open = line.indexOf('('); val close = line.lastIndexOf(')')
+            if (open < 0 || close <= open) continue
+            val rest = line.substring(close + 1).trim().split(' ')
+            // rest[0] = state (field 3); utime = field 14 -> rest[11], stime = field 15 -> rest[12]
+            val ticks = (rest.getOrNull(11)?.toLongOrNull() ?: continue) + (rest.getOrNull(12)?.toLongOrNull() ?: 0L)
+            val fam = family8622(line.substring(open + 1, close))
+            out[fam] = (out[fam] ?: 0.0) + ticks * msPerTick
+        }
+        return out
+    }
+
+    @Volatile private var lastCpu8622: Pair<Long, Map<String, Double>>? = null
+
+    /**
+     * V5.0.8622 — where the CPU (and so the allocation) goes. 8621 spent 2.9 ks of 3.9 ks in blocking GC at 1.5-11 GB/min with
+     * no store growing: the allocator is a busy thread, not a resident store. Per thread family: CPU since start and since the
+     * last report, busiest first.
+     */
+    private fun cpuLine8622(nowMs: Long): String {
+        val dir = java.io.File("/proc/self/task")
+        val stats = dir.listFiles()?.mapNotNull { t -> try { java.io.File(t, "stat").readText() } catch (_: Throwable) { null } } ?: return ""
+        val now = cpuByFamily8622(stats)
+        val prev = lastCpu8622; lastCpu8622 = nowMs to now
+        val sinceMin = prev?.let { ((nowMs - it.first) / 60_000.0).coerceAtLeast(1.0 / 60.0) }
+        val rows = now.entries.map { (k, v) -> Triple(k, v, prev?.second?.let { v - (it[k] ?: 0.0) } ?: Double.NaN) }
+            .sortedByDescending { if (it.third.isFinite()) it.third else it.second }.take(14)
+        return "  CPU        by thread family (total s / s per min since last report" +
+            (if (sinceMin != null) ", ${"%.0f".format(sinceMin)}m" else ", first report") + "): " +
+            rows.joinToString(",") { r -> "${r.first}:${"%.0f".format(r.second / 1000.0)}" +
+                (if (r.third.isFinite() && sinceMin != null) "/${"%.1f".format(r.third / 1000.0 / sinceMin)}" else "") } + "\n"
+    }
+
     private fun f(v: Double) = if (v.isFinite() && v >= 0.0) "%.0f".format(v) else "?"
 
     /** The report section (built on the report thread; reads only — the PSS query is the one call that touches the OS). */
@@ -81,12 +120,11 @@ object HeapLog8618 {
             .append(" blocking=").append(stat("art.gc.blocking-gc-count")).append(" blockingMs=").append(stat("art.gc.blocking-gc-time"))
             .append(" allocatedMB=").append(f(stat("art.gc.bytes-allocated") / MB)).append(" freedMB=").append(f(stat("art.gc.bytes-freed") / MB)).append('\n')
         try {
-            val fam = Thread.getAllStackTraces().keys.groupingBy { t ->
-                t.name.replace(Regex("[-_#]?\\d+$"), "").replace(Regex("\\d+"), "#").take(32)
-            }.eachCount().entries.sortedByDescending { it.value }
+            val fam = Thread.getAllStackTraces().keys.groupingBy { t -> family8622(t.name) }.eachCount().entries.sortedByDescending { it.value }
             sb.append("  THREADS    live=").append(fam.sumOf { it.value }).append(" top=")
                 .append(fam.take(12).joinToString(",") { "${it.key}:${it.value}" }).append('\n')
         } catch (_: Throwable) {}
+        try { sb.append(cpuLine8622(nowMs)) } catch (_: Throwable) {}
         val snap = synchronized(samples) { samples.toList() }
         val first0 = first
         if (snap.isEmpty() || first0 == null) { sb.append("  TIMELINE   no census samples yet\n"); return sb.toString() }

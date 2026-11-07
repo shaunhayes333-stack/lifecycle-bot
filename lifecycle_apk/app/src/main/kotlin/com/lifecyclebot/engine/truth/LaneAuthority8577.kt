@@ -159,8 +159,13 @@ object LaneAuthority8577 {
         // lane whose paper book proves a loss. 03:50 dump (8613, 9 min): this lane ban refused 1,669 MOONSHOT / EXPRESS / QUALITY /
         // CASHGEN candidates, so the ledger could never pick a winner inside them (the lane's refused record: -16.2 % n35).
         if (pocket8610 != PocketLedger8610.Call.PAYS && (try { MemePaperTrader8544.laneProvenLosing8608(c.lane) } catch (_: Throwable) { false })) {
-            // V5.0.8620 — report-only (see apply8577): the lane's paper record is traced, not a live refusal.
-            try { PipelineHealthCollector.labelInc("PAPER_LANE_PROVEN_LOSING_8608_ADVISORY_8620_${c.lane.uppercase()}") } catch (_: Throwable) {}
+            // V5.0.8622 — re-armed on its own (the 8609 / 8610 coin-state and pocket rules stay report-only). 09:44 dump (8621,
+            // 65 min): paper MOONSHOT n43 -10.2 % +-4.6 PF0.28 on the very coins live admitted (TUNING: MOONSHOT|LIVE_ADMIT n26
+            // -17.5 %); live MOONSHOT took 131 tickets for 3 buys and its sealed reservations held the 0.17 SOL wallet while
+            // SHITCOIN (paper n24 +40.2 % on live-admitted coins) was refused ROUTE_MIN_EXCEEDS_TRADEABLE_8153 (565 across lanes).
+            try { PipelineHealthCollector.labelInc("PAPER_LANE_PROVEN_LOSING_8608_${c.lane.uppercase()}") } catch (_: Throwable) {}
+            return d.copy(terminal = CandidateAdmission8136.Terminal8136.REFUSE, reason = PAPER_LOSING_8608, specific = true,
+                trace = d.trace + "paperLaneProvenLosing8608", laneQualified8577 = false)
         }
         // V5.0.8582 — a LIVE meme entry at the high is refused whatever admitted it (lane opinion, edge, generic prior).
         if (highRefusal8582 != null && d.terminal != CandidateAdmission8136.Terminal8136.REFUSE) {

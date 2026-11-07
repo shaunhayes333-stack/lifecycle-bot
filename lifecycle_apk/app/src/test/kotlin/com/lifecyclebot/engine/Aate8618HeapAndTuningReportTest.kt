@@ -38,4 +38,21 @@ class Aate8618HeapAndTuningReportTest {
         val paper = File("src/main/kotlin/com/lifecyclebot/engine/truth/MemePaperTrader8544.kt").readText()
         assertTrue(paper.contains("TuningReport8618.notePaperOpen8618(") && paper.contains("TuningReport8618.notePaperClose8618("))
     }
+
+    // V5.0.8622 — per-thread-family CPU, so the GB/min allocator is named; and the sizer reads the admission's own generation.
+    @Test fun cpuIsFoldedByThreadFamilyFromProcStat() {
+        assertEquals("mark-background-#", HeapLog8618.family8622("mark-background-8527-3"))
+        val stats = listOf(
+            "101 (mark-background-8527-1) S 1 1 1 0 -1 0 0 0 0 0 300 200 0 0 20 0 1 0",
+            "102 (mark-background-8527-2) S 1 1 1 0 -1 0 0 0 0 0 100 0 0 0 20 0 1 0",
+            "103 (Binder:1_2) S 1 1 1 0 -1 0 0 0 0 0 5 5 0 0 20 0 1 0",
+        )
+        val m = HeapLog8618.cpuByFamily8622(stats)
+        assertEquals(6_000.0, m["mark-background-#"]!!, 1e-9)
+        assertEquals(100.0, m["Binder:#"]!!, 1e-9)
+        val fdg = File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue(fdg.contains("candidateVersion8622 = candidateVersion8198,"))
+        val pol = File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveRiskPolicy7807.kt").readText()
+        assertTrue(pol.contains("val version = candidateVersion8622.takeIf { it > 0L } ?: com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(mint)"))
+    }
 }

@@ -56,8 +56,8 @@ class Aate8608PaperProvesLiveTest {
         val a = src("engine/truth/LaneAuthority8577.kt")
         assertTrue(a.contains("return r.copy(trace = r.trace + \"advisory8620=\$why coinState8609="))
         assertFalse(a.contains("return r.copy(terminal = CandidateAdmission8136.Terminal8136.REFUSE, reason = why, specific = true,"))
-        assertFalse(a.contains("return d.copy(terminal = CandidateAdmission8136.Terminal8136.REFUSE, reason = PAPER_LOSING_8608"))
-        assertTrue(a.contains("PAPER_LANE_PROVEN_LOSING_8608_ADVISORY_8620_"))
+        // V5.0.8622 — the lane-record rule alone is re-armed; the coin-state / pocket rules stay report-only.
+        assertTrue(a.contains("return d.copy(terminal = CandidateAdmission8136.Terminal8136.REFUSE, reason = PAPER_LOSING_8608"))
     }
 
     @Test fun anyAdmitPlansInsteadOfWaitingForAChartSetup() {
