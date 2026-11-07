@@ -1231,7 +1231,10 @@ object Cortex7885 {
     // (SHADOW_UNAVAILABLE_8372_EXPIRED_ON_RESTORE=1734) and their labels came back ORIGINAL_UNAVAILABLE (1,158 thrown away).
     // The per-voter numbers are now written at 6 significant digits (compactNumber8498), which roughly halves a row, so
     // covering every live pending decision costs less than the old 1,000.
-    private const val PENDING_PERSIST_MAX = 2_000
+    // V5.0.8597 §HEAP — was 2_000. At ~6.7K chars/decision the persisted CORTEX_PENDING_8521 reached ~12.8M chars, and
+    // ForwardCheckpoint8401.unpack OOM'd rebuilding that string on a pressured 512MB heap (the largest restored state).
+    // 800 keeps the blob near a third of that; selected/executed rows are persisted on top of the cap (see pendingSnapshot8076).
+    private const val PENDING_PERSIST_MAX = 800
     private const val PENDING_PERSIST_EVERY_MS = 120_000L
     @Volatile private var lastPendingPersistMs = 0L
 
@@ -1293,9 +1296,15 @@ object Cortex7885 {
 
     private fun pendingSnapshot8076(episodes8401: Set<String>?, generation8403: Long?): () -> String {
         val now8144 = System.currentTimeMillis()
-        val ordinary = if (episodes8401 == null) pending.entries
-            .filter { persistablePending8144(it.value.atMs, now8144) }.sortedByDescending { it.value.atMs }.take(PENDING_PERSIST_MAX)
-            else emptyList()
+        // V5.0.8597 §HEAP — cap the persisted pending blob (it OOM'd unpack), but never drop a decision the desk selected
+        // or executed: persist ALL persistable selected rows, then fill with the most-recent non-selected up to the cap.
+        val ordinary = if (episodes8401 == null) {
+            val persistable8597 = pending.entries.filter { persistablePending8144(it.value.atMs, now8144) }
+            val selected8597 = persistable8597.filter { it.value.selected8153.isNotBlank() }
+            val fill8597 = persistable8597.asSequence().filter { it.value.selected8153.isBlank() }
+                .sortedByDescending { it.value.atMs }.take((PENDING_PERSIST_MAX - selected8597.size).coerceAtLeast(0)).toList()
+            (selected8597 + fill8597).sortedByDescending { it.value.atMs }
+        } else emptyList()
         val forwardRows8401 = episodes8401?.mapNotNull { id ->
             val key = id.substringBeforeLast('|')
             val at = id.substringAfterLast('|').toLongOrNull()

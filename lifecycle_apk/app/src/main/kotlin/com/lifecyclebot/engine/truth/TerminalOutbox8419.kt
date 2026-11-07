@@ -25,11 +25,28 @@ object TerminalOutbox8419 {
      */
     fun retainedRows8419(old: String, acknowledged: Set<String>, rowSep: Char, fieldSep: Char, terminalPrefix: String): String? {
         if (old.isEmpty() || acknowledged.isEmpty()) return null
-        val rows = old.split(rowSep)
-        val kept = rows.filterNot { row ->
+        // V5.0.8597 §HEAP — stream row-by-row into one builder. The previous split()+filter()+joinToString() held the full
+        // List<String> of every row AND a second joined copy of a multi-MB checkpoint at once, and OOM'd under heap pressure.
+        val kept = StringBuilder(old.length)
+        var i = 0
+        var removedAny = false
+        var first = true
+        while (i <= old.length) {
+            var end = old.indexOf(rowSep, i)
+            if (end < 0) end = old.length
+            val row = old.substring(i, end)
             val f = row.split(fieldSep)
-            f.size >= 13 && "$terminalPrefix${f[0]}|${f[4]}|${f[12]}" in acknowledged
+            val drop = f.size >= 13 && "$terminalPrefix${f[0]}|${f[4]}|${f[12]}" in acknowledged
+            if (drop) {
+                removedAny = true
+            } else {
+                if (!first) kept.append(rowSep)
+                kept.append(row)
+                first = false
+            }
+            if (end == old.length) break
+            i = end + 1
         }
-        return if (kept.size == rows.size) null else kept.joinToString(rowSep.toString())
+        return if (!removedAny) null else kept.toString()
     }
 }
