@@ -57,6 +57,8 @@ object LaneAuthority8577 {
     private fun liveCoinStateRefusal8609(lane: String, launchPhase: String?, pocket: PocketLedger8610.Call?): String? {
         val l = lane.trim().uppercase()
         if (try { MemePaperTrader8544.laneProven8572(l) } catch (_: Throwable) { false }) return null
+        // V5.0.8616 — a lane whose paper book makes money the runner way (MemePaperTrader8544.laneLeads8616) trades as paper does.
+        if (try { MemePaperTrader8544.laneLeads8616(l) } catch (_: Throwable) { false }) return null
         if (pocket != null) return if (pocket == PocketLedger8610.Call.PAYS) null else if (pocket == PocketLedger8610.Call.LOSES) POCKET_LOSES_8610 else POCKET_UNPROVEN_8610
         return if (coinStatePays8609(l, launchPhase)) null else COIN_STATE_8609
     }

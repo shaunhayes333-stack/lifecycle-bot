@@ -41,6 +41,16 @@ class Aate8608PaperProvesLiveTest {
         assertTrue("only a final ADMIT is turned away; data deferrals stay", a.contains("if (!enabled8577 || !c.live || !r.admitted) return r"))
     }
 
+    // V5.0.8616 — a runner-shaped paper winner leads live: positive mean and PF >= 1.5 over 30+ closes.
+    @Test fun aPaperWinnerLeadsLive() {
+        assertTrue("03:50 paper SHITCOIN n39 +20.0 % PF2.21", MemePaperTrader8544.leads8616(39, 20.0, 2.21))
+        assertFalse("paper MOONSHOT n82 -2.1 % PF0.71", MemePaperTrader8544.leads8616(82, -2.1, 0.71))
+        assertFalse("too few closes", MemePaperTrader8544.leads8616(20, 11.5, 1.83))
+        assertFalse("positive but a weak profit factor", MemePaperTrader8544.leads8616(60, 0.5, 1.1))
+        val a = src("engine/truth/LaneAuthority8577.kt")
+        assertTrue(a.contains("if (try { MemePaperTrader8544.laneLeads8616(l) } catch (_: Throwable) { false }) return null"))
+    }
+
     @Test fun anyAdmitPlansInsteadOfWaitingForAChartSetup() {
         val p = src("engine/truth/TradePlan7739.kt")
         assertTrue(p.contains("val evidenceAdmit8418 = specific8171?.admitted == true ||"))

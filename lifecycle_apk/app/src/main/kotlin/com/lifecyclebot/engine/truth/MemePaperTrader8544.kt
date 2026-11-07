@@ -347,6 +347,23 @@ object MemePaperTrader8544 {
         return provenLosing8608(p[0].toInt(), p[1], p[2], p[3])
     }
 
+    /**
+     * V5.0.8616 §PAPER_LEADS_LIVE — owner: "you can see how good paper is able to trade mate live should be better". Does [lane]'s
+     * post-guard paper record make money the way a runner lane does: n >= 30, mean > 0, PF >= 1.5? [laneProven8572]'s
+     * mean - se > 0 cannot pass a runner book, where one +1,000 % coin makes se as large as the mean. Paper SHITCOIN closed
+     * n20 +11.5 % PF1.83, n33 +29.7 % PF3.20, n35 +26.0 % PF2.77, n39 +20.0 % PF2.21 (+0.78 SOL) across the 8606-8613 dumps
+     * while 8613 live refused its coins LIVE_POCKET_PROVEN_LOSING_8610 (38). Such a lane trades live exactly as paper decides.
+     */
+    fun laneLeads8616(lane: String): Boolean {
+        restore8544()
+        val v = laneStats["$PROOF_PREFIX_8572${lane.trim().uppercase()}"] ?: return false
+        val p = synchronized(v) { proofOf8546(v) }
+        return leads8616(p[0].toInt(), p[1], p[3])
+    }
+
+    /** Pure (V5.0.8616): n >= 30 closes, positive mean, profit factor >= 1.5. */
+    fun leads8616(n: Int, mean: Double, pf: Double): Boolean = n >= 30 && mean.isFinite() && mean > 0.0 && pf >= 1.5
+
     /** Pure (V5.0.8608): n >= 30 closes whose mean is below zero by more than its standard error, profit factor < 1. */
     fun provenLosing8608(n: Int, mean: Double, se: Double, pf: Double): Boolean =
         n >= 30 && mean.isFinite() && se.isFinite() && mean + se < 0.0 && pf.isFinite() && pf < 1.0
