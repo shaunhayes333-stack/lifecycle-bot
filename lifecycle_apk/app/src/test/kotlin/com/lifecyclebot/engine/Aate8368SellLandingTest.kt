@@ -95,11 +95,11 @@ class Aate8368SellLandingTest {
     }
 
     @Test fun partialAndOrphanSellsNeverStartUnderThePolicyFloorAndKeepDynamicHeadroom() {
-        assertEquals(200, SellLanding8368.partialSellSlipBps8368(100, "PARTIAL_TAKE_PROFIT"))
-        assertEquals(200, SellLanding8368.partialSellSlipBps8368(10, "PARTIAL_TAKE_PROFIT"))
+        assertEquals(350, SellLanding8368.partialSellSlipBps8368(100, "PARTIAL_TAKE_PROFIT"))  // V5.0.8607 floor 350
+        assertEquals(350, SellLanding8368.partialSellSlipBps8368(10, "PARTIAL_TAKE_PROFIT"))
         assertEquals(400, SellLanding8368.partialSellSlipBps8368(200, "PARTIAL_TAKE_PROFIT"))
         assertEquals(500, SellLanding8368.partialSellSlipBps8368(400, "PARTIAL_TAKE_PROFIT"))
-        assertEquals(300, SellLanding8368.partialSellSlipBps8368(100, "ORPHAN_SELL", 3))
+        assertEquals(350, SellLanding8368.partialSellSlipBps8368(100, "ORPHAN_SELL", 3))
         assertTrue(SellLanding8368.partialSellSlipBps8368(10, "ORPHAN_SELL", 3) >= 200)
         assertEquals(500, SellLanding8368.sellDynCapBps8368(200))
         assertEquals(500, SellLanding8368.sellDynCapBps8368(500))

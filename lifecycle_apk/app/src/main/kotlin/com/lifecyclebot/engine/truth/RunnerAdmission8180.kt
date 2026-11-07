@@ -121,8 +121,18 @@ object AdmissionEdge8180 {
         if (proof.mode != "LIVE" || proof.mint != mint || proof.candidateVersion != version ||
             key8198(proof.mode, mint, lane) != key8198(proof.mode, mint, proof.lane) ||
             nowMs - proof.atMs !in 0L..TTL_MS_8180) return wait
-        return if (proof.evaluatedStage == stage && proof.evaluatedEntryWait == wait) null else wait
+        // V5.0.8607 §A_SOFT_WAIT_IS_SETTLED_BY_THE_ADMISSION — superseded: the wait cleared only when the stage AND the wait
+        // read at the send matched the admission's exactly. Since 8604 the admission decides like the paper book (these
+        // waits are its learned doors, off), and a launch changes stage between admission and send, so the executor
+        // re-imposed them: 21:22 dump, 56 of 124 LIVE_BUY_ENTRY deferred ENTRY_NO_PHASE_TRIGGER_8506 et al. A current LIVE
+        // proof for this candidate settles every soft wait above; any other (danger) wait still returns, and so does a soft
+        // wait on a coin that has since turned to a danger stage (DUMPING / RUG_PRONE / PEAK_EXHAUSTION).
+        if (stage in DANGER_STAGES_8607) return wait
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ENTRY_SOFT_WAIT_SETTLED_BY_ADMISSION_8607_$wait") } catch (_: Throwable) {}
+        return null
     }
+
+    private val DANGER_STAGES_8607 = setOf("DUMPING", "RUG_PRONE", "PEAK_EXHAUSTION")
 
     /** Was this exact candidate (mode, mint, lane, generation) admitted on a specific proven edge inside the TTL? */
     fun admitted8180(mode: String, mint: String, lane: String, candidateVersion: Long, nowMs: Long = System.currentTimeMillis()): Boolean =

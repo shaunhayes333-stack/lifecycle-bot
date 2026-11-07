@@ -84,9 +84,11 @@ object SellSafetyPolicy {
         else initialSlippageBpsLegacy(reason)
 
     private fun initialSlippageBpsLegacy(reason: String?): Int = when (classify(reason)) {
-        ExitReason.PROFIT_LOCK, ExitReason.PARTIAL_TAKE_PROFIT, ExitReason.CAPITAL_RECOVERY -> 200
+        // V5.0.8607 — 200 -> 350: 21:22 dump, Jupiter sells sent 39 landed 22, SLIPPAGE_EXCEEDED 17. A memecoin profit take that
+        // fails its first rung re-quotes into a falling print; the 500 bps hard cap is unchanged.
+        ExitReason.PROFIT_LOCK, ExitReason.PARTIAL_TAKE_PROFIT, ExitReason.CAPITAL_RECOVERY -> 350
         ExitReason.STOP_LOSS, ExitReason.HARD_STOP, ExitReason.RUG_DRAIN, ExitReason.MANUAL_FULL_EXIT -> 500
-        ExitReason.UNKNOWN -> 200
+        ExitReason.UNKNOWN -> 350
     }.coerceAtMost(maxSlippageBps(reason))
 
     /**
@@ -113,7 +115,7 @@ object SellSafetyPolicy {
             listOf(500, 1500, 3000, 5000, 7500, 9999)
         } else {
             // Hard-capped non-emergency walk. Never exceeds 500.
-            listOf(200, 350, 500)
+            listOf(350, 500)  // V5.0.8607 — the 200 bps rung failed on thin meme pools (see initialSlippageBpsLegacy)
         }
         return base.map { it.coerceAtMost(max) }.distinct()
     }

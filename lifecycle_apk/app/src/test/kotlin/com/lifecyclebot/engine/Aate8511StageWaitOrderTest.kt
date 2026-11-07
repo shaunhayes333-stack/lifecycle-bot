@@ -24,8 +24,10 @@ class Aate8511StageWaitOrderTest {
         assertEquals("NO_PHASE_TRIGGER", remaining("NO_PHASE_TRIGGER", version = 732L))
         assertEquals("NO_PHASE_TRIGGER", remaining("NO_PHASE_TRIGGER", lane = "QUALITY"))
         assertEquals("NO_PHASE_TRIGGER", remaining("NO_PHASE_TRIGGER", stage = "DUMPING"))
-        for (wait in listOf("RUG_PRONE", "FLOW_UNOBSERVED", "STAGE_UNRESOLVED", "NO_BUY_VOLUME"))
-            assertEquals(wait, remaining(wait))
+        assertEquals("a danger wait still binds", "RUG_PRONE", remaining("RUG_PRONE"))
+        // V5.0.8607 — the admission settles every soft wait on a non-danger stage, not only the exact one it read.
+        for (wait in listOf("FLOW_UNOBSERVED", "STAGE_UNRESOLVED", "NO_BUY_VOLUME"))
+            assertEquals(null, remaining(wait))
         assertEquals("NO_PHASE_TRIGGER", book.remainingLiveWait(c.mint, c.lane, c.candidateVersion, c.stage,
             "NO_PHASE_TRIGGER", 5001L + book.TTL_MS_8180))
     }

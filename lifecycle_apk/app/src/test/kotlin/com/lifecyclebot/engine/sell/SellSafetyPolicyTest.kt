@@ -23,9 +23,9 @@ class SellSafetyPolicyTest {
         // V5.9.1533 — operator spec item 2: HARD 500bps cap for all non-emergency
         // LIVE sells. The 800/1000bps ladder is GONE from live mode. Non-emergency
         // walk is 200→350→500, never exceeding 500.
-        assertEquals(listOf(200, 350, 500), SellSafetyPolicy.ladder("profit_lock_12.0x"))
+        assertEquals(listOf(350, 500), SellSafetyPolicy.ladder("profit_lock_12.0x"))
         assertEquals(500, SellSafetyPolicy.maxSlippageBps("profit_lock_12.0x"))
-        assertEquals(listOf(200, 350, 500), SellSafetyPolicy.ladder("capital_recovery_12.0x"))
+        assertEquals(listOf(350, 500), SellSafetyPolicy.ladder("capital_recovery_12.0x"))
         assertEquals(500, SellSafetyPolicy.maxSlippageBps("capital_recovery_12.0x"))
     }
 

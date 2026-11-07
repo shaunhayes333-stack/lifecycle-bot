@@ -111,7 +111,7 @@ class Aate7807ProtectiveExitPolicyTest {
         assertEquals(1_500, SellSafetyPolicy.initialSlippageBps("dev_dump"))
         assertEquals(500, SellSafetyPolicy.initialSlippageBps("STRICT_SL_-8"))
         // Non-emergency and manual ladders unchanged.
-        assertEquals(listOf(200, 350, 500), SellSafetyPolicy.ladder("profit_lock_12.0x", 3))
+        assertEquals(listOf(350, 500), SellSafetyPolicy.ladder("profit_lock_12.0x", 3))
         assertEquals(9999, SellSafetyPolicy.maxSlippageBps("MANUAL_EMERGENCY_RUG_DRAIN"))
         assertTrue(SellSafetyPolicy.ladder("STRICT_SL_-8", 1).all { it <= ProtectiveExitClass7807.EMERGENCY_SLIP_CAP_BPS_7807 })
     }
