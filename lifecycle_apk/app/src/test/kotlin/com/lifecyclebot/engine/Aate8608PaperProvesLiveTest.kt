@@ -37,7 +37,7 @@ class Aate8608PaperProvesLiveTest {
         assertFalse(LaneAuthority8577.coinStatePays8609("MOONSHOT", "PRE_IGNITION"))
         assertTrue(LaneAuthority8577.binding8577(LaneAuthority8577.COIN_STATE_8609))
         val a = src("engine/truth/LaneAuthority8577.kt")
-        assertTrue("a lane proven in paper trades what paper trades", a.contains("MemePaperTrader8544.laneProven8572(l)) } catch (_: Throwable) { false }) return null"))
+        assertTrue("a lane proven in paper trades what paper trades", a.contains("if (try { MemePaperTrader8544.laneProven8572(l) } catch (_: Throwable) { false }) return null"))
         assertTrue("only a final ADMIT is turned away; data deferrals stay", a.contains("if (!enabled8577 || !c.live || !r.admitted) return r"))
     }
 
