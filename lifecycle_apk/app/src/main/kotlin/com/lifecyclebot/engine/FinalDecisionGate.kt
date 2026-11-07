@@ -2549,7 +2549,11 @@ object FinalDecisionGate {
             // The base floor now actually binds. Still CONFIDENCE-level (recoverable)
             // and still honours canBypassConfidenceFloors, so probe/exploration paths
             // are unaffected.
-            if (confidence < effectiveFloor6830 && !canBypassConfidenceFloors) {
+            // V5.0.8606 — the floor is 22 plus deltas raised by the lane's rolling win rate and book heat: a second, loss-streak
+            // opinion on a candidate CandidateAdmission8136 already ADMITTED (the paper book's decision). 19:23 dump: SHITCOIN
+            // admitted coins at native 19-31 refused against a lifted floor of 42 (56). A LIVE admit is not re-judged here.
+            val liveAdmitted8606 = mode == TradeMode.LIVE && candidateAdmission8136?.admitted == true
+            if (confidence < effectiveFloor6830 && !canBypassConfidenceFloors && !liveAdmitted8606) {
                 blockReason = "SELECTION_QUALITY_FLOOR_6830 lane=$laneKeyForFloor6830 " +
                     "conf=${confidence.toInt()}% floor=${"%.1f".format(effectiveFloor6830)} " +
                     "qDelta=${"%.1f".format(qualityDelta6830)} pDelta=${"%.1f".format(pressureDelta6830)} " +
@@ -2679,6 +2683,13 @@ object FinalDecisionGate {
         }
 
         val WATCHLIST_FLOOR_RAW = FluidLearningAI.getWatchlistFloor()
+        // V5.0.8606 §ONE_LIQUIDITY_FLOOR_PER_RUNNER_LANE — the launch / runner lanes (SHITCOIN, EXPRESS, PROJECT_SNIPER,
+        // MANIPULATED, MOONSHOT) already refused on their own lane floor (LaneAgeLiquidityTruth8140) above the live exit-safe
+        // floor. FDG then added its own LIVE-only walls on top — the $8k weak-WR watchlist lift, MOONSHOT's flat $3k
+        // execution floor, the $300 -> $10k learning lerp — which the paper book passes straight through (19:23 dump:
+        // LIQUIDITY_BELOW_EXECUTION_FLOOR 46 + LIQUIDITY_BELOW_WATCHLIST_FLOOR 32 admitted meme entries; the labelled data
+        // shows those lanes' sub-$2k coins richer in runners). For a runner lane FDG's floor is the exit-safe hard floor.
+        val runnerLane8606 = (specialistLane?.trim()?.uppercase() ?: tradingModeTag?.name.orEmpty()) in LaneAgeLiquidityTruth8140.CURVE_FLOOR_LANES_8319
         // V5.0.4179 — F5: LIQUIDITY FLOOR LIFT when WR < 30%.
         // Field journal showed catastrophic exit slippage on $1.6K-$7K liq
         // tokens. While the bot is below its WR floor, gate harder at $8K
@@ -2711,7 +2722,7 @@ object FinalDecisionGate {
             if (isWeakWr && !isShitCoinLane && learnedWinner4523) {
                 try { PipelineHealthCollector.labelInc("FDG_GOLDEN_GOOSE_WR_LIFT_BYPASS_4523") } catch (_: Throwable) {}
             }
-            lifted
+            if (runnerLane8606) LaneAgeLiquidityScope8140.EXIT_SAFE_HARD_FLOOR_USD_8140 else lifted
         } catch (_: Throwable) { WATCHLIST_FLOOR_RAW }
         // V5.9.696 — Per-trader execution floor override.
         // FluidLearningAI.getExecutionFloor() lerps $800→$10000 as learning progresses.
@@ -2736,7 +2747,7 @@ object FinalDecisionGate {
         // Moonshot: $3,000 flat.
         //   Own scorer gates $2,000 (bootstrap) / $15,000 (mature).
         //   FDG at $3,000 adds a middle-tier quality bar without sterility.
-        val EXECUTION_FLOOR = when (tradingModeTag) {
+        val EXECUTION_FLOOR = if (runnerLane8606) LaneAgeLiquidityScope8140.EXIT_SAFE_HARD_FLOOR_USD_8140 else when (tradingModeTag) {
             ModeSpecificGates.TradingModeTag.SHITCOIN ->
                 // V5.9.788 — operator dump (build 2726): lerp(1500,4000) was
                 // blocking 98.8% of all FDG decisions (4883/4940 blocks) because

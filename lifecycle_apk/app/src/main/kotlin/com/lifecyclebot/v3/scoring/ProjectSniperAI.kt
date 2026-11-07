@@ -47,7 +47,9 @@ object ProjectSniperAI {
     // Target acquisition window
     private const val MAX_TOKEN_AGE_SECONDS = 180      // V5.0.7449 — true sniper window; EXPANDING hands off to Moonshot/Express
     internal const val MIN_TOKEN_AGE_SECONDS = 0        // V5.0.8605: 15→0 s — the first 15 s were the sniper's best cohort (+11.1 %)
-    internal const val MIN_LIQUIDITY_USD = 2_000.0      // V5.9.442: 3k→2k
+    // V5.0.8606 — $2k -> the $500 live exit-safe floor: the sniper's own labelled decisions in $500-$2k netted +4.4 % with 7.2 %
+    // going +100 % (n111) vs +3.1 % / 5.5 % above $2k (n73); under $500 -3.0 % / 2.2 % (n715) stays refused.
+    internal const val MIN_LIQUIDITY_USD = 500.0
     internal const val MAX_LIQUIDITY_USD = 250_000.0    // V5.9.442: 100k→250k — most sniper targets pass this now
     internal const val MIN_MCAP_USD = 2_000.0           // Early launch discovery; execution still prices depth and costs
     internal const val MAX_MCAP_USD = 500_000.0         // V5.9.442: 200k→500k — catch later-stage snipes too

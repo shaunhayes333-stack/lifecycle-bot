@@ -92,7 +92,8 @@ class Aate8319PeakAndPromotionTest {
         val l = src("engine/truth/LiveRiskPolicy7807.kt")
         assertTrue(l.contains("val admissionProven8319: Boolean = false,"))
         assertTrue(l.contains("admissionProven8319 = proofGross8232 != null,"))
-        assertTrue(l.contains("minCost7840, i.setupExpectedGrossPct8153, if (i.admissionProven8319) 0.0 else i.drawdownFrac,"))
+        assertTrue(l.contains("minCost7840, gross8606, if (i.admissionProven8319) 0.0 else i.drawdownFrac,"))  // V5.0.8606 — the admitted gross is not re-judged
+        assertTrue(l.contains("val gross8606 = if (i.admissionProven8319) Double.NaN else i.setupExpectedGrossPct8153"))
         assertTrue(l.contains("explorationSlotFree = i.admissionProven8319 || (try { LaneScoreAdmission7308.runnerSlotFreeNow(i.lane) } catch (_: Throwable) { false }))"))
         assertTrue(l.contains("labels += \"RISK_SAFE_EXECUTABLE_MIN_PROMOTED_7840\"\n                if (i.admissionProven8319) labels += \"ADMITTED_MIN_PROMOTED_8319\""))
         assertTrue(l.contains("MinPromotion8188.doctrineBudgetSol8236(size, tradeable8153, i.solUsd),"))

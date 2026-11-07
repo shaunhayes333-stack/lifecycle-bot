@@ -666,6 +666,14 @@ object LiveRiskPolicy7807 {
         val stop = if (!planless) i.planStopPct!! else (try { FieldManual7715.laneStopPct8392(canonicalLane(i.lane)) } catch (_: Throwable) { mandate?.invalidationPct ?: 10.0 })
         val firstTarget = i.planFirstTargetPct?.takeIf { it.isFinite() && it > 0.0 } ?: (mandate?.expectedGrossPct ?: 20.0)
         if (planless) labels += "NO_PLAN_STOP_LANE_MANDATE_USED_7807"
+        // V5.0.8606 §THE_ADMISSION_DECIDES_THE_SIZER_SIZES — a candidate holding this generation's LIVE admission proof was
+        // already judged net of cost by CandidateAdmission8136 (the same decision the paper book trades). The sizer re-read
+        // the setup's expected gross and refused it three more ways (NET_EV_NONPOSITIVE_AT_SIZE_8153, ROUTE_MIN_NET_EV_
+        // NONPOSITIVE_8153, ROUTE_MIN_PROMOTION_REFUSED_NEGATIVE / UNMEASURED_EDGE_8188): 19:23 dump, 187 + 11 admitted meme
+        // entries sized to zero that paper bought. With a proof the edge is not re-judged here; the loss budget at the stop,
+        // tradeable SOL, the lane envelope, depth, the plan-target cost test and the fixed-cost floor still bind.
+        val gross8606 = if (i.admissionProven8319) Double.NaN else i.setupExpectedGrossPct8153
+        if (i.admissionProven8319) labels += "SIZER_DEFERS_EDGE_TO_ADMISSION_8606"
 
         if (i.laneOpenLive >= b.maxConcurrentLive) {
             return Decision(false, 0.0, "LANE_SLOT_CAP_7807", labels, stop, 0.0, 0.0)
@@ -684,7 +692,7 @@ object LiveRiskPolicy7807 {
         }
         // V5.0.8153 — a plan target clearing 2x the cost is not an expectation: the selected setup's expected gross
         // must clear the round trip at this size (+5% gross on a 7.5% trip is a loss whatever the target says).
-        if (SizingNetEdge8153.netNonPositive8153(i.setupExpectedGrossPct8153, cost0)) {
+        if (SizingNetEdge8153.netNonPositive8153(gross8606, cost0)) {
             return Decision(false, 0.0, SizingNetEdge8153.NET_EV_REFUSAL_8153, labels, stop, cost0, 0.0)
         }
 
@@ -793,7 +801,7 @@ object LiveRiskPolicy7807 {
                 // V5.0.8153 — risk-safe is not enough: the minimum must be payable from tradeable SOL, fit the lane's
                 // book envelope and still clear the cost (and the setup's expected return) at THAT size, or it is refused.
                 val envelopeRefusal8153 = SizingNetEdge8153.promotionRefusal8153(
-                    executableFloor8269, tradeable8153, laneRoom8153, firstTarget, minCost7840, i.setupExpectedGrossPct8153)
+                    executableFloor8269, tradeable8153, laneRoom8153, firstTarget, minCost7840, gross8606)
                 if (envelopeRefusal8153 != null) {
                     return Decision(false, 0.0, envelopeRefusal8153, labels, stop, minCost7840, total, sizing8094)
                 }
@@ -804,7 +812,7 @@ object LiveRiskPolicy7807 {
                 MinPromotion8188.refusal8188(size, executableFloor8269, stop, if (size > 0.0) costAtSizePct8153(i, size) else Double.NaN,
                     // V5.0.8319 — an ADMITTED candidate is not refused for drawdown or a busy exploration slot; the loss budget,
                     // the 8153 envelope and NEGATIVE_EDGE on the admission's own gross (8232) at the promoted size still bind.
-                    minCost7840, i.setupExpectedGrossPct8153, if (i.admissionProven8319) 0.0 else i.drawdownFrac,
+                    minCost7840, gross8606, if (i.admissionProven8319) 0.0 else i.drawdownFrac,
                     MinPromotion8188.doctrineBudgetSol8236(size, tradeable8153, i.solUsd),
                     explorationSlotFree = i.admissionProven8319 || (try { LaneScoreAdmission7308.runnerSlotFreeNow(i.lane) } catch (_: Throwable) { false }))
                     ?.let { refusal ->
@@ -842,7 +850,7 @@ object LiveRiskPolicy7807 {
         }
         // V5.0.8153 — the final size's own round trip (a compounding size pays more impact than the probe).
         val costFinal8153 = costAtSizePct8153(i, size)
-        if (SizingNetEdge8153.netNonPositive8153(i.setupExpectedGrossPct8153, costFinal8153)) {
+        if (SizingNetEdge8153.netNonPositive8153(gross8606, costFinal8153)) {
             return Decision(false, 0.0, SizingNetEdge8153.NET_EV_REFUSAL_8153, labels, stop, costFinal8153, total, sizing8094)
         }
         fixedCostRefusal8169(i, size)?.let { return Decision(false, 0.0, it, labels, stop, costFinal8153, total, sizing8094) }

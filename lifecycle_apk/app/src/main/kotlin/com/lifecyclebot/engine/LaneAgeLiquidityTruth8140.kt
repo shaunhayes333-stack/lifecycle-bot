@@ -207,7 +207,7 @@ object LaneAgeLiquidityTruth8140 {
      * LaneAgeLiquidityScope8140.EXIT_SAFE_HARD_FLOOR_USD_8140 stays 500.0.
      */
     const val CURVE_EXIT_MIN_REAL_SOL_8319 = 0.5
-    private val CURVE_FLOOR_LANES_8319 = setOf("SHITCOIN", "EXPRESS", "PROJECT_SNIPER", "MANIPULATED", "MOONSHOT")
+    internal val CURVE_FLOOR_LANES_8319 = setOf("SHITCOIN", "EXPRESS", "PROJECT_SNIPER", "MANIPULATED", "MOONSHOT")
 
     fun activeCurveExitSafe8319(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean = try {
         val real = if (mint.isBlank()) null else com.lifecyclebot.engine.truth.CurveReserves7951.realSolIfActive8046(mint, nowMs)

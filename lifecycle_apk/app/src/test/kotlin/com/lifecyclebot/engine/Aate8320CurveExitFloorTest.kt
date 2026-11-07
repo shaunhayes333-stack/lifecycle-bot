@@ -73,7 +73,7 @@ class Aate8320CurveExitFloorTest {
     @Test fun launchScorersPassTheMintAndSkipTheLegacyRecheck() {
         val sites = mapOf(
             "ShitCoinTraderAI" to "laneLiquidityRefusal8140(\"SHITCOIN\", liquidityUsd, minLiq, mint)",
-            "ShitCoinExpress" to "laneLiquidityRefusal8140(\"EXPRESS\", liquidityUsd, 1_000.0, mint)",
+            "ShitCoinExpress" to "laneLiquidityRefusal8140(\"EXPRESS\", liquidityUsd, com.lifecyclebot.engine.cortex.LaneCheatSheet8323.EXPRESS_MIN_LIQ_8323, mint)",  // V5.0.8606 — one EXPRESS floor ($500)
             "MoonshotTraderAI" to "laneLiquidityRefusal8140(\"MOONSHOT\", liquidityObserved7389, minLiq, mint)",
             "ProjectSniperAI" to "laneLiquidityRefusal8140(\"PROJECT_SNIPER\", ts.lastLiquidityUsd, MIN_LIQUIDITY_USD, ts.mint)",
             "ManipulatedTraderAI" to "laneLiquidityRefusal8140(\"MANIPULATED\", liquidityUsd, minLiq, mint)",

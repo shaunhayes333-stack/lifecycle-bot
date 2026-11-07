@@ -76,7 +76,9 @@ object LaneCheatSheet8323 {
     const val CYCLIC_MIN_AGE_HOURS_8323 = 24.0
     private const val CORE_MCAP_MIN_8323 = 1_500.0
     private const val CORE_MCAP_MAX_8323 = 5_000_000.0
-    const val EXPRESS_MIN_LIQ_8323 = 1_000.0
+    // V5.0.8606 — $1k -> $500 (the live exit-safe floor): EXPRESS $500-$1k netted +3.5 % / 3.8 % runners (n104) vs -1.9 % /
+    // 1.8 % at or above $1k (n875); under $500 -2.6 % stays refused.
+    const val EXPRESS_MIN_LIQ_8323 = 500.0
     /** The mandate band a merge-queue mcap print may sit outside of before routing refuses (prints lag a moving coin). */
     private const val ROUTE_MCAP_TOLERANCE_8323 = 0.80
     private const val ROUTE_LIQ_TOLERANCE_8323 = 0.50
