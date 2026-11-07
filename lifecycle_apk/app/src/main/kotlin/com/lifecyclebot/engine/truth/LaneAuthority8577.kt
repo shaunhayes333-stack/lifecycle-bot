@@ -49,7 +49,7 @@ object LaneAuthority8577 {
     const val COIN_STATE_8609 = "LIVE_COIN_STATE_UNPAID_8609"
 
     /** Pure-ish (V5.0.8609): null when a LIVE buy in [lane] at [launchPhase] is inside the market's measured paying state. */
-    fun liveCoinStateRefusal8609(lane: String, launchPhase: String?): String? {
+    private fun liveCoinStateRefusal8609(lane: String, launchPhase: String?): String? {
         val l = lane.trim().uppercase()
         if (try { MemePaperTrader8544.laneProven8572(l) } catch (_: Throwable) { false }) return null
         return if (coinStatePays8609(l, launchPhase)) null else COIN_STATE_8609
