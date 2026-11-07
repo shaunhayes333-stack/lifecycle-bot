@@ -130,7 +130,7 @@ object LaneAuthority8577 {
     fun apply8577(c: CandidateAdmission8136.Candidate8136, d: CandidateAdmission8136.Decision8136,
                   highRefusal8582: String? = null, launchPhase8609: String? = null,
                   pocket8610: PocketLedger8610.Call? = null): CandidateAdmission8136.Decision8136 {
-        val r = applyLane8577(c, d, highRefusal8582)
+        val r = applyLane8577(c, d, highRefusal8582, pocket8610)
         if (!enabled8577 || !c.live || !r.admitted) return r
         val why = liveCoinStateRefusal8609(c.lane, launchPhase8609, pocket8610) ?: return r
         try { PipelineHealthCollector.labelInc("${why}_${c.lane.uppercase()}") } catch (_: Throwable) {}
@@ -139,7 +139,7 @@ object LaneAuthority8577 {
     }
 
     private fun applyLane8577(c: CandidateAdmission8136.Candidate8136, d: CandidateAdmission8136.Decision8136,
-                              highRefusal8582: String?): CandidateAdmission8136.Decision8136 {
+                              highRefusal8582: String?, pocket8610: PocketLedger8610.Call? = null): CandidateAdmission8136.Decision8136 {
         if (!enabled8577 || !c.live) return d
         // V5.0.8609 §ONE_MARKET_EDGE_FOR_EVERY_LANE — 7,491 unique coin-minutes across 13 edge exports, split by time: the coin
         // state that pays is EXPANDING (+4.6 % +-1.6, early +1.5 % / late +9.4 %; under 1 min +8.5 % +-2.7, n748). Everything
@@ -150,7 +150,10 @@ object LaneAuthority8577 {
         // ADMIT in apply8577; V5.0.8610 — PocketLedger8610 decides once seeded, this state rule is the fallback.)
         // V5.0.8608 §LIVE_TRADES_WHAT_PAPER_PROVES — live decides like the paper book; where that book has PROVEN the lane loses
         // (MemePaperTrader8544.laneProvenLosing8608) live does not spend the wallet on it.
-        if (try { MemePaperTrader8544.laneProvenLosing8608(c.lane) } catch (_: Throwable) { false }) {
+        // V5.0.8615 — the coin's own evidence outranks its lane's average: a coin PocketLedger8610 scores PAYS is bought even in a
+        // lane whose paper book proves a loss. 03:50 dump (8613, 9 min): this lane ban refused 1,669 MOONSHOT / EXPRESS / QUALITY /
+        // CASHGEN candidates, so the ledger could never pick a winner inside them (the lane's refused record: -16.2 % n35).
+        if (pocket8610 != PocketLedger8610.Call.PAYS && (try { MemePaperTrader8544.laneProvenLosing8608(c.lane) } catch (_: Throwable) { false })) {
             try { PipelineHealthCollector.labelInc("PAPER_LANE_PROVEN_LOSING_8608_${c.lane.uppercase()}") } catch (_: Throwable) {}
             return d.copy(terminal = CandidateAdmission8136.Terminal8136.REFUSE, reason = PAPER_LOSING_8608, specific = true,
                 trace = d.trace + "paperLaneProvenLosing8608", laneQualified8577 = false)
