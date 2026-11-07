@@ -39,8 +39,9 @@ import kotlin.math.max
  * ═══════════════════════════════════════════════════════════════════════════════
  */
 object ShitCoinExpress {
-    /** Pure (V5.0.8555): an EXPRESS print is too extended to ride (5 m > +12 % or continuation > +20 %). */
-    fun chaseExtended8555(chg5mPct: Double, continuationPct: Double): Boolean = chg5mPct > 12.0 || continuationPct > 20.0
+    // V5.0.8605 — chaseExtended8555 (refuse 5 m > +12 % or continuation > +20 %) is deleted: on EXPRESS's own labelled
+    // decisions the coins it refused netted -0.1 %/decision managed with 3.7 % going +100 % (n561), the coins it allowed
+    // -2.7 % / 1.6 % (n1,445). The continuation desk was turning away its strongest continuations.
 
     
     private const val TAG = "💩Express"
@@ -369,15 +370,7 @@ object ShitCoinExpress {
             return noRide("NO_CONTINUATION: ${effectiveMomentum.fmt(1)}% < ${fluidMinMomentum.fmt(1)}% (learning=${(learningProgress*100).toInt()}%)")
         }
 
-        // Express is an early continuation desk, not a parabolic-top buyer.
-        // Keep very extended prints out even if social/trending visibility is hot.
-        // V5.0.8555 §LANE_SWEEP — superseded 20 / 30: EXPRESS's own score paid most for +8..+20 % (its BREAKOUT stage, -18.7 % at
-        // 5 minutes; 5-minute spikes > +10 % -7.5 %, > +30 % -11.2 %). FIELD_MANUAL §4B: an extended break waits for the retest.
-        val chaseExtended7449 = chaseExtended8555(priceChange5Min, effectiveMomentum)
-        if (chaseExtended7449) {
-            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXPRESS_CHASE_REJECTED_7449") } catch (_: Throwable) {}
-            return noRide("CHASE_EXTENDED: mom=${effectiveMomentum.fmt(1)}% chg5m=${priceChange5Min.fmt(1)}%")
-        }
+        // superseded by V5.0.8605 — the CHASE_EXTENDED refusal (chaseExtended8555) is removed; see the note on the object.
         
         // CRITICAL: Must have strong buy pressure (fluid gate)
         if (buyPressurePct < fluidMinBuyPressure) {

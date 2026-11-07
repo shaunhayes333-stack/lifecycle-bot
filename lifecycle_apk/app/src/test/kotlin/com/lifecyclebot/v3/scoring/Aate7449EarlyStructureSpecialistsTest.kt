@@ -35,8 +35,10 @@ class Aate7449EarlyStructureSpecialistsTest {
 
     @Test fun express_scores_early_continuation_and_rejects_parabolic_chase() {
         val s = src("ShitCoinExpress.kt")
-        assertTrue(s.contains("EXPRESS_CHASE_REJECTED_7449"))
-        assertTrue(s.contains("fun chaseExtended8555(chg5mPct: Double, continuationPct: Double): Boolean = chg5mPct > 12.0 || continuationPct > 20.0")) // superseded by V5.0.8555 §LANE_SWEEP
+        // superseded by V5.0.8605 — the parabolic-chase refusal is deleted: EXPRESS's own labelled decisions showed the coins it
+        // refused (5 m > +12 %) netted -0.1 % with 3.7 % runners against -2.7 % / 1.6 % for the coins it allowed.
+        assertFalse(s.contains("EXPRESS_CHASE_REJECTED_7449"))
+        assertFalse(s.contains("fun chaseExtended8555("))
         assertTrue(s.contains("effectiveMomentum in 7.0..15.0 -> 25"))
         assertTrue(s.contains("priceChange5Min in 2.0..8.0 -> 20"))
         assertFalse(s.contains("priceChange5Min >= 15 -> 15"))

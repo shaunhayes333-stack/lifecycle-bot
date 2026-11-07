@@ -64,8 +64,8 @@ object ManipulatedTraderAI {
     internal const val MAX_MARKET_CAP_USD = 300_000.0        // $300K maximum
     
     // Liquidity thresholds (fluid) - LOW for manipulation plays
-    internal const val MIN_LIQUIDITY_BOOTSTRAP = 1_500.0     // V5.6.8: $1.5K during bootstrap
-    private const val MIN_LIQUIDITY_MATURE = 3_000.0        // V5.6.8: $3K when mature
+    internal const val MIN_LIQUIDITY_BOOTSTRAP = 500.0       // V5.0.8605: 1.5k→500 (= the live exit-safe floor) — under $1.5k netted -1.7 % / 2.3 % runners vs -1.0 % / 2.0 %
+    private const val MIN_LIQUIDITY_MATURE = 500.0          // V5.0.8605: 3k→500 — the floor no longer tightens away the lane's runners
     
     // Token age (fluid - tighter when experienced)
     internal const val MAX_AGE_MINUTES_BOOTSTRAP = 12.0      // V5.6.8: 12 min during bootstrap

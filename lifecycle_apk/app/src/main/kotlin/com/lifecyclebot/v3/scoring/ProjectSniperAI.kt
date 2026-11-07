@@ -46,7 +46,7 @@ object ProjectSniperAI {
     
     // Target acquisition window
     private const val MAX_TOKEN_AGE_SECONDS = 180      // V5.0.7449 — true sniper window; EXPANDING hands off to Moonshot/Express
-    internal const val MIN_TOKEN_AGE_SECONDS = 15       // V5.9.442: 30→15s — fresher launches OK with tighter TP
+    internal const val MIN_TOKEN_AGE_SECONDS = 0        // V5.0.8605: 15→0 s — the first 15 s were the sniper's best cohort (+11.1 %)
     internal const val MIN_LIQUIDITY_USD = 2_000.0      // V5.9.442: 3k→2k
     internal const val MAX_LIQUIDITY_USD = 250_000.0    // V5.9.442: 100k→250k — most sniper targets pass this now
     internal const val MIN_MCAP_USD = 2_000.0           // Early launch discovery; execution still prices depth and costs
@@ -347,10 +347,10 @@ object ProjectSniperAI {
             return noEngage("TOO_OLD: ${tokenAgeSecs}s > ${MAX_TOKEN_AGE_SECONDS}s", tokenAgeSecs)
         }
         
-        if (tokenAgeSecs < MIN_TOKEN_AGE_SECONDS) {
-            return noEngage("TOO_FRESH: ${tokenAgeSecs}s < ${MIN_TOKEN_AGE_SECONDS}s (waiting)", tokenAgeSecs)
-        }
-        
+        // V5.0.8605 — the TOO_FRESH wait (under MIN_TOKEN_AGE_SECONDS) is removed: on the sniper's own labelled decisions the
+        // under-15 s coins it skipped were the best cohort in the dataset (+11.1 %/decision managed, 5.8 % went +100 %, n240)
+        // against -0.6 % / 3.1 % for the coins it allowed. Rug proof (mint / freeze authority, holders) still gates the buy.
+
         // ═══════════════════════════════════════════════════════════════════
         // MARKET ASSESSMENT
         // ═══════════════════════════════════════════════════════════════════

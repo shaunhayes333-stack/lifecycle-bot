@@ -85,7 +85,7 @@ object ShitCoinTraderAI {
     
     // Liquidity requirements — V5.5: Hard $5K minimum across all phases
     internal const val MIN_LIQUIDITY_USD_BOOTSTRAP = 300.0     // V5.9.615: pump.fun bonding curves at $500 mcap have ~$425 estimated liq; this lets fresh memes through
-    private const val MIN_LIQUIDITY_USD_MATURE = 2_000.0      // V5.9.615: still tightens as the bot learns, but the floor is realistic for sub-graduation tokens
+    private const val MIN_LIQUIDITY_USD_MATURE = 300.0        // V5.0.8605: 2k→300 (= bootstrap) — SHITCOIN's own decisions under $2k liq netted -1.3 % / 2.8 % runners vs -3.2 % / 1.0 %
     
     // Position sizing - V5.6: DYNAMIC scaling based on wallet balance
     private const val BASE_POSITION_SOL = 0.05        // Very small base (0.05 SOL ~ $7.50)

@@ -92,8 +92,8 @@ object MoonshotTraderAI {
     // exactly the volume we want the scorer to learn from.
     // V5.0.7389 — public: MoonshotFreshLaunchAdmission7044.LIQ_FLOOR_USD reads it so
     // election and the lane refuse the same pools.
-    const val MIN_LIQUIDITY_USD_BOOTSTRAP = 2_000.0    // V5.9.343: walk-back to pre-V5.9.341
-    private const val MIN_LIQUIDITY_USD_MATURE = 15_000.0     // Higher when mature
+    const val MIN_LIQUIDITY_USD_BOOTSTRAP = 500.0      // V5.0.8605: 2k→500 (= the live exit-safe floor) — MOONSHOT's own decisions under $2k liq netted -2.2 % with 2.7 % runners vs -2.4 % / 1.2 %
+    private const val MIN_LIQUIDITY_USD_MATURE = 500.0        // V5.0.8605: 15k→500 — under $15k netted -1.7 % / 2.9 % runners vs -3.5 % / 0.1 % above it
 
     /** V5.0.8180 — the liquidity floor scoreToken applies right now (HandoffRoute8180 names MOONSHOT only above it). */
     fun minLiquidityUsdNow8180(): Double = if (learningProgress < 0.5) MIN_LIQUIDITY_USD_BOOTSTRAP else MIN_LIQUIDITY_USD_MATURE

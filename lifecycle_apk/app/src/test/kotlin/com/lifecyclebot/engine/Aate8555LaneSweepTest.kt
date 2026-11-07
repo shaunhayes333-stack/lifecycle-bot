@@ -55,8 +55,8 @@ class Aate8555LaneSweepTest {
     }
 
     @Test fun launchLanesStopChasing() {
-        assertTrue(ShitCoinExpress.chaseExtended8555(13.0, 5.0)); assertTrue(ShitCoinExpress.chaseExtended8555(2.0, 21.0))
-        assertFalse(ShitCoinExpress.chaseExtended8555(10.0, 18.0))
+        // superseded by V5.0.8605 — EXPRESS's chaseExtended8555 is deleted (refused -0.1 % / 3.7 % runners vs allowed -2.7 % / 1.6 %).
+        assertFalse(java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinExpress.kt").readText().contains("fun chaseExtended8555("))
         assertTrue(ManipulatedTraderAI.manipulationEntry8555(45.0, 2.0))
         assertFalse("the spike route is gone", ManipulatedTraderAI.manipulationEntry8555(10.0, 25.0))
         assertFalse("a bundle already spiking is not entered", ManipulatedTraderAI.manipulationEntry8555(45.0, 12.0))
