@@ -42,7 +42,12 @@ object LaneInputTruth8236 {
         v3 = ts.lastV3Score != null,
     )
 
-    internal fun fresh8491(atMs: Long, nowMs: Long): Boolean = atMs > 0L && nowMs - atMs in 0L..120_000L
+    // V5.0.8598 §FEED — was 120_000L. The trade tape's own freshness was widened 120 s -> 300 s in 8317 ("a read two
+    // minutes after the last print returned null STALE"), but this gate — which decides whether the specialist brain
+    // treats buy pressure / 5m change as OBSERVED (SpecialistBrainBridge7542.observedBp8491) — was never aligned. At 120 s
+    // the brain read ~91% of buy-pressure snapshots as unobserved (dump: buy_pressure 13270/1189) and deferred eligible
+    // runners with NATIVE_ELIGIBLE_ON_UNOBSERVED_INPUT_DEFER_8535:BUY_PRESSURE. Match the tape's 300 s window.
+    internal fun fresh8491(atMs: Long, nowMs: Long): Boolean = atMs > 0L && nowMs - atMs in 0L..300_000L
 
     internal fun buyPressure8491(ts: TokenState, nowMs: Long): Double? {
         ts.lastBuyPressurePct.takeIf {
