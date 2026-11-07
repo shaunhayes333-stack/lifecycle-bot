@@ -51,6 +51,15 @@ class Aate8608PaperProvesLiveTest {
         assertTrue(a.contains("if (try { MemePaperTrader8544.laneLeads8616(l) } catch (_: Throwable) { false }) return null"))
     }
 
+    // V5.0.8620 — the lane-record (8608) and coin-state / pocket (8609 / 8610) verdicts are report-only: traced, never a refusal.
+    @Test fun theLearnedLiveFiltersAreReportOnly() {
+        val a = src("engine/truth/LaneAuthority8577.kt")
+        assertTrue(a.contains("return r.copy(trace = r.trace + \"advisory8620=\$why coinState8609="))
+        assertFalse(a.contains("return r.copy(terminal = CandidateAdmission8136.Terminal8136.REFUSE, reason = why, specific = true,"))
+        assertFalse(a.contains("return d.copy(terminal = CandidateAdmission8136.Terminal8136.REFUSE, reason = PAPER_LOSING_8608"))
+        assertTrue(a.contains("PAPER_LANE_PROVEN_LOSING_8608_ADVISORY_8620_"))
+    }
+
     @Test fun anyAdmitPlansInsteadOfWaitingForAChartSetup() {
         val p = src("engine/truth/TradePlan7739.kt")
         assertTrue(p.contains("val evidenceAdmit8418 = specific8171?.admitted == true ||"))

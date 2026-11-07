@@ -135,9 +135,12 @@ object LaneAuthority8577 {
         val r = applyLane8577(c, d, highRefusal8582, pocket8610)
         if (!enabled8577 || !c.live || !r.admitted) return r
         val why = liveCoinStateRefusal8609(c.lane, launchPhase8609, pocket8610) ?: return r
-        try { PipelineHealthCollector.labelInc("${why}_${c.lane.uppercase()}") } catch (_: Throwable) {}
-        return r.copy(terminal = CandidateAdmission8136.Terminal8136.REFUSE, reason = why, specific = true,
-            trace = r.trace + "coinState8609=${launchPhase8609 ?: "-"}", laneQualified8577 = false)
+        // V5.0.8620 §REPORT_ONLY_UNTIL_PROVEN — owner (8616 live): "still has 0 live buys". 8607 traded live and was net positive
+        // (10 closes, PF 1.15); 8608 / 8609 / 8610 then each refused nearly every live candidate in a cold market. The coin-state /
+        // pocket verdict is now counted and traced on the admit (the tuning report shows what it would have refused and how those
+        // coins did), never a refusal, until its record against live closes earns it the right to bind.
+        try { PipelineHealthCollector.labelInc("${why}_ADVISORY_8620_${c.lane.uppercase()}") } catch (_: Throwable) {}
+        return r.copy(trace = r.trace + "advisory8620=$why coinState8609=${launchPhase8609 ?: "-"}")
     }
 
     private fun applyLane8577(c: CandidateAdmission8136.Candidate8136, d: CandidateAdmission8136.Decision8136,
@@ -156,9 +159,8 @@ object LaneAuthority8577 {
         // lane whose paper book proves a loss. 03:50 dump (8613, 9 min): this lane ban refused 1,669 MOONSHOT / EXPRESS / QUALITY /
         // CASHGEN candidates, so the ledger could never pick a winner inside them (the lane's refused record: -16.2 % n35).
         if (pocket8610 != PocketLedger8610.Call.PAYS && (try { MemePaperTrader8544.laneProvenLosing8608(c.lane) } catch (_: Throwable) { false })) {
-            try { PipelineHealthCollector.labelInc("PAPER_LANE_PROVEN_LOSING_8608_${c.lane.uppercase()}") } catch (_: Throwable) {}
-            return d.copy(terminal = CandidateAdmission8136.Terminal8136.REFUSE, reason = PAPER_LOSING_8608, specific = true,
-                trace = d.trace + "paperLaneProvenLosing8608", laneQualified8577 = false)
+            // V5.0.8620 — report-only (see apply8577): the lane's paper record is traced, not a live refusal.
+            try { PipelineHealthCollector.labelInc("PAPER_LANE_PROVEN_LOSING_8608_ADVISORY_8620_${c.lane.uppercase()}") } catch (_: Throwable) {}
         }
         // V5.0.8582 — a LIVE meme entry at the high is refused whatever admitted it (lane opinion, edge, generic prior).
         if (highRefusal8582 != null && d.terminal != CandidateAdmission8136.Terminal8136.REFUSE) {
