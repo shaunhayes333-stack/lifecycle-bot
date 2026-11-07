@@ -118,6 +118,10 @@ object MemePaperTrader8544 {
             dirty = true
         }
         try { PipelineHealthCollector.labelInc("MEME_PAPER_OPEN_8544_$lane") } catch (_: Throwable) {}
+        try {   // V5.0.8618 — the tuning report's paper-vs-live and entry-state cuts
+            val f8618 = com.lifecyclebot.engine.cortex.LanePlaybook7907.features(ts, nowMs)
+            TuningReport8618.notePaperOpen8618(ts.mint, lane, TuningReport8618.liveVerdictFor8618(ts.mint, lane, nowMs), f8618.launchPhase, f8618.age, nowMs)
+        } catch (_: Throwable) {}
         save8544(nowMs, force = true)
     }
 
@@ -241,6 +245,7 @@ object MemePaperTrader8544 {
                 recent.addLast(c)
                 while (recent.size > RECENT_MAX_8544) recent.removeFirst()
                 noteLane8544(c)
+                try { TuningReport8618.notePaperClose8618(c.mint, c.lane, c.netPct, c.pnlSol, c.why, c.exitAtMs - c.entryAtMs) } catch (_: Throwable) {}   // V5.0.8618
             }
         }
         try { PipelineHealthCollector.labelInc("MEME_PAPER_CLOSE_8544_${p.lane}_${why.substringBefore("_T")}") } catch (_: Throwable) {}

@@ -684,6 +684,7 @@ object MemoryGuard7977 {
         bookInsertEvictions8144()
         val rows = registry8144.census8144()
         censusRows8144 = rows
+        try { HeapLog8618.sample8618(rows) } catch (_: Throwable) {}   // V5.0.8618 — the report's heap timeline
         censusLine8144 = MemoryRegistry8144.line8144(rows)
         censusStatus8144 = buildCensusStatus8144()
         storesLine8305 = storesLine8305(rows)

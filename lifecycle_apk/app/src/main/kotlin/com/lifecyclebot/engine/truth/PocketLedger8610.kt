@@ -206,6 +206,31 @@ object PocketLedger8610 {
         } catch (_: Throwable) {}
     }
 
+    /**
+     * V5.0.8618 — the tuning report: the [n] strongest paying and losing pockets the ledger has learned (cells with n >= 40,
+     * ranked by t = mean / se of the managed outcome), so the operator sees WHERE the bot thinks the money is.
+     */
+    fun topPockets8618(n: Int = 15): String {
+        val rows = ArrayList<Triple<String, Double, DoubleArray>>()
+        for ((k, c) in cells) {
+            val v = synchronized(c) { doubleArrayOf(c.n, c.sum, c.sq) }
+            if (v[0] < N_MIN) continue
+            val m = v[1] / v[0]
+            val se = kotlin.math.sqrt(((v[2] / v[0]) - m * m).coerceAtLeast(0.0) / v[0])
+            if (se > 0.0) rows += Triple(k, m / se, doubleArrayOf(v[0], m))
+        }
+        if (rows.isEmpty()) return "  POCKETS    none mature yet (a pocket needs n >= 40)\n"
+        rows.sortByDescending { it.second }
+        fun line(r: Triple<String, Double, DoubleArray>) =
+            "    ${r.first.take(70).padEnd(70)} n=${"%.0f".format(r.third[0])} mean=${"%+.1f".format(r.third[1])}% t=${"%+.2f".format(r.second)}\n"
+        return buildString {
+            append("  POCKETS PAYING (strongest first; M| = market-wide, LANE| = that lane only)\n")
+            rows.take(n).filter { it.second > 0.0 }.forEach { append(line(it)) }
+            append("  POCKETS LOSING (strongest first)\n")
+            rows.takeLast(n).reversed().filter { it.second < 0.0 }.forEach { append(line(it)) }
+        }
+    }
+
     /** Brief: how many cells the ledger holds and how many of them have proven a pay or a loss. */
     fun statusLine8610(): String {
         var pays = 0; var loses = 0

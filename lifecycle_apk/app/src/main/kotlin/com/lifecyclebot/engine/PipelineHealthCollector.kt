@@ -1660,6 +1660,20 @@ object PipelineHealthCollector {
             sb.append("  DIAGNOSIS BRIEF (§8438) FAILED ").append(t.javaClass.simpleName).append('\n')
         }
         appendLaneScorecard8280(sb)
+        appendTuning8618(sb)
+    }
+
+    /**
+     * V5.0.8618 — owner: "add a heap log to the report ... and any additional data and detail that will help us better tune the
+     * bot towards its intended design". The heap log (HeapLog8618) and the tuning cuts (TuningReport8618: paper result by live
+     * verdict on the same coin, paper exits, paper entry state; PocketLedger8610's strongest paying / losing pockets).
+     */
+    private fun appendTuning8618(sb: StringBuilder) {
+        sb.append("\n===== TUNING (§8618) — paper vs live on the same coins, exits, entry states, learned pockets =====\n")
+        try { sb.append(com.lifecyclebot.engine.truth.TuningReport8618.section8618()) } catch (t: Throwable) { sb.append("  TUNING FAILED ").append(t.javaClass.simpleName).append('\n') }
+        try { sb.append(com.lifecyclebot.engine.truth.PocketLedger8610.topPockets8618()) } catch (t: Throwable) { sb.append("  POCKETS FAILED ").append(t.javaClass.simpleName).append('\n') }
+        sb.append("\n===== HEAP LOG (§8618) =====\n")
+        try { sb.append(HeapLog8618.section8618()) } catch (t: Throwable) { sb.append("  HEAP LOG FAILED ").append(t.javaClass.simpleName).append('\n') }
     }
 
     private fun appendLaneScorecard8280(sb: StringBuilder) {
