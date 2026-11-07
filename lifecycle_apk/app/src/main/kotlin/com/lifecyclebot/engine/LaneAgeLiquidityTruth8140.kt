@@ -170,8 +170,22 @@ object LaneAgeLiquidityTruth8140 {
                     count8140("LANE_LIQ_FLOOR_LEARNED_OPEN_8539_$l"); return null
                 }
                 LearnedLiquidityFloor8539.Call.CLOSE -> if (v.outcome == LaneAgeLiquidityScope8140.Outcome8140.PASS) {
-                    count8140("LANE_LIQ_BAND_PROVEN_LOSING_8539_$l")
-                    return "LANE_LIQ_BAND_PROVEN_LOSING_8539_$l: \$${liquidityUsd.toInt()} band=${LearnedLiquidityFloor8539.band(liquidityUsd)}"
+                    // V5.0.8600 §A_FAT_TAIL_LANE_IS_NOT_JUDGED_BY_ITS_AVERAGE — the launch / curve lanes (CURVE_FLOOR_LANES_8319:
+                    // SHITCOIN, EXPRESS, PROJECT_SNIPER, MANIPULATED, MOONSHOT) buy fresh launches where the EDGE is the rare
+                    // runner, not the mean. The forward-return record of every launch liquidity band is negative (most launches
+                    // dump — edge dataset 1794038024285: launch-lane admit-all forward net ~-10 %/decision in every liq band),
+                    // so the learned floor kept CLOSING the whole launch cohort as "proven losing" and refused the runners with
+                    // it — the same loss the comments below document (PUMP +2,140 %, DARK +14,114 % missed on this floor; 24 h:
+                    // 126 of 135 runners refused, 94 % at the native mcap / liq / ensemble floors). A band's negative MEAN is
+                    // the cost of carry a runner lane is built to pay, not a reason to shut the lane. Hard safety, the exit-safe
+                    // active-curve / $500 pool floor below, and the runner stops / ladder that manage the fat tail all still
+                    // bind; only this average-based refusal steps aside for the runner lanes.
+                    if (l in CURVE_FLOOR_LANES_8319) {
+                        count8140("LANE_LIQ_BAND_RUNNER_LANE_KEPT_8600_$l")
+                    } else {
+                        count8140("LANE_LIQ_BAND_PROVEN_LOSING_8539_$l")
+                        return "LANE_LIQ_BAND_PROVEN_LOSING_8539_$l: \$${liquidityUsd.toInt()} band=${LearnedLiquidityFloor8539.band(liquidityUsd)}"
+                    }
                 }
                 LearnedLiquidityFloor8539.Call.NONE -> Unit
             }
