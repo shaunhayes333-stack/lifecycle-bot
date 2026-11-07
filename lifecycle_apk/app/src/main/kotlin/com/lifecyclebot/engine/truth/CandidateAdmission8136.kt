@@ -1496,7 +1496,8 @@ object CandidateAdmission8136 {
         // candidate.lane) } plus LaneAuthority8577.memeHighRefusal8582 for every LIVE candidate.
         cached ?: (if (FdgGate8365.policyKey8393() == "OUTSIDE") coalescedDefer8144(ts.mint, candidate.lane, identity, version, mode, nowMs) else null) ?: LaneAuthority8577.apply8577(candidate,
             decide8136(candidate.copy(live = false)) { false }, null,
-            launchPhase8609 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.features(ts, nowMs).launchPhase } catch (_: Throwable) { null }).also {
+            launchPhase8609 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.features(ts, nowMs).launchPhase } catch (_: Throwable) { null },
+            pocket8610 = if (candidate.live) PocketLedger8610.verdict8610(ts, candidate.lane, nowMs) else null).also {
             // A held shadow rehearsal must not publish an ADMIT into live sizing, strategy identity or the runner trace.
             if (!FdgGate8365.shadowOnly8393()) {
                 noteDecision8144(ts.mint, candidate.lane, candidate, it, version, mode, nowMs)

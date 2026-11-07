@@ -1,0 +1,183 @@
+package com.lifecyclebot.engine.truth
+
+import com.lifecyclebot.data.TokenState
+import com.lifecyclebot.engine.PipelineHealthCollector
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicLong
+
+/**
+ * V5.0.8610 §THE_BOT_LEARNS_WHERE_THE_MONEY_IS — owner: "it has to learn to hunt better opportunities then. its not a Sniper
+ * bot." 8609 hard-coded the one coin state the data paid on (EXPANDING). This replaces the rule with what the bot learns.
+ *
+ * Every forward-labelled decision (ForwardReturnLabeler7731 -> EdgeModel8537.learn) is filed into coin-state cells: each
+ * banded feature (phase, age, liquidity, mcap, buy pressure, 5 m and 1 h move, distance from the peak, top holder, volume
+ * acceleration) and every pair of them, market-wide and per lane. Each cell keeps a recency-weighted record (decay 0.995 per
+ * observation) of the managed outcome (stop -20 %, ride to +400 %). A coin PAYS when at least one of its cells has proven
+ * positive (n >= 40, mean - 2 se > 0) and none of them has proven negative (mean + 2 se < 0).
+ *
+ * Replayed online over 24,427 labelled decisions with the label held back 5 minutes (as on the device): 302 picks across
+ * every lane, +19.9 % +-5.1 (first half +17.9 %, second +20.7 %), runner-shaped (15 % of coins win, 9 of 102 coins >= +100 %;
+ * +5.1 % without the best five coins); 70 % EXPANDING but also mature, post-pump and day-old pockets. Taking any positive
+ * cell without the veto made ~0 %. Until the ledger is seeded, live falls back to the 8609 state rule.
+ */
+object PocketLedger8610 {
+    const val N_MIN = 40.0
+    const val Z = 2.0
+    const val DECAY = 0.995
+    private const val FILE = "pocket_ledger_8610.json"
+
+    private class Cell { var n = 0.0; var sum = 0.0; var sq = 0.0 }
+    private val cells = ConcurrentHashMap<String, Cell>()
+    @Volatile private var ready = false
+    @Volatile private var loading = false
+    private val learned = AtomicLong(0L)
+    private val io = Executors.newSingleThreadExecutor { r -> Thread(r, "pocket8610").apply { isDaemon = true } }
+
+    /** Pure: the managed outcome a cell records — the -20 % stop, the +400 % ride cap. */
+    fun managed8610(net: Double): Double = if (net <= -20.0) -20.0 else minOf(net, 400.0)
+
+    /** Pure: the banded features of an observation; an unobserved value is left out. */
+    fun bands8610(liq: Double, mcap: Double, ageMin: Double, bp: Double, chg5m: Double, chg1h: Double, pxPeak: Double,
+                  volAccel: Double, top: Double, phase: String): Map<String, String> {
+        val b = LinkedHashMap<String, String>()
+        if (phase.isNotBlank()) b["phase"] = phase.trim().uppercase()
+        if (ageMin.isFinite()) b["age"] = when { ageMin < 1 -> "<1m"; ageMin < 5 -> "<5m"; ageMin < 30 -> "<30m"; ageMin < 180 -> "<3h"; ageMin < 1440 -> "<24h"; else -> ">=1d" }
+        if (liq.isFinite()) b["liq"] = when { liq < 2e3 -> "<2k"; liq < 1e4 -> "<10k"; liq < 5e4 -> "<50k"; liq < 2.5e5 -> "<250k"; else -> ">=250k" }
+        if (mcap.isFinite()) b["mcap"] = when { mcap < 1e4 -> "<10k"; mcap < 5e4 -> "<50k"; mcap < 2.5e5 -> "<250k"; mcap < 2e6 -> "<2M"; else -> ">=2M" }
+        if (bp.isFinite()) b["bp"] = when { bp < 45 -> "<45"; bp < 55 -> "<55"; bp < 65 -> "<65"; bp < 80 -> "<80"; else -> ">=80" }
+        if (chg5m.isFinite()) b["chg5m"] = when { chg5m < -10 -> "<-10"; chg5m < -2 -> "<-2"; chg5m < 2 -> "<2"; chg5m < 10 -> "<10"; chg5m < 30 -> "<30"; else -> ">=30" }
+        if (pxPeak.isFinite()) b["pxPeak"] = when { pxPeak < 0.6 -> "<0.6"; pxPeak < 0.8 -> "<0.8"; pxPeak < 0.92 -> "<0.92"; pxPeak < 0.98 -> "<0.98"; else -> ">=0.98" }
+        if (top.isFinite()) b["top"] = when { top < 15 -> "<15"; top < 30 -> "<30"; else -> ">=30" }
+        if (chg1h.isFinite()) b["chg1h"] = when { chg1h < -20 -> "<-20"; chg1h < 0 -> "<0"; chg1h < 20 -> "<20"; chg1h < 100 -> "<100"; else -> ">=100" }
+        if (volAccel.isFinite()) b["volAccel"] = when { volAccel <= 0 -> "0"; volAccel < 1 -> "<1"; volAccel < 2 -> "<2"; else -> ">=2" }
+        return b
+    }
+
+    /** Pure: the cells an observation in [lane] belongs to — each feature and each pair market-wide, each pair per lane. */
+    fun keys8610(lane: String, b: Map<String, String>): List<String> {
+        val l = lane.trim().uppercase()
+        val f = b.entries.toList()
+        val out = ArrayList<String>(f.size + f.size * f.size)
+        for (e in f) out += "M|${e.key}=${e.value}"
+        for (i in f.indices) for (j in i + 1 until f.size) {
+            val pair = "${f[i].key}=${f[i].value}&${f[j].key}=${f[j].value}"
+            out += "M|$pair"; out += "$l|$pair"
+        }
+        return out
+    }
+
+    private fun bandsOf(r: EdgeModel8537.Raw) =
+        bands8610(r.liq, r.mcap, r.ageMin, r.bp, r.chg5m, r.chg1h, r.pxPeak, r.volAccel, r.top, r.phase)
+
+    /** EdgeModel8537.learn: file one labelled decision. */
+    fun learn8610(r: EdgeModel8537.Raw, net: Double) {
+        if (!net.isFinite()) return
+        ensureLoaded()
+        add(keys8610(r.lane, bandsOf(r)), managed8610(net))
+        if (learned.incrementAndGet() % 200L == 0L) io.execute { save() }
+    }
+
+    private fun add(ks: List<String>, y: Double) {
+        for (k in ks) {
+            val c = cells.getOrPut(k) { Cell() }
+            synchronized(c) { c.n = c.n * DECAY + 1.0; c.sum = c.sum * DECAY + y; c.sq = c.sq * DECAY + y * y }
+        }
+    }
+
+    enum class Call { PAYS, UNPROVEN, LOSES }
+
+    /** Pure: the call of a set of cell records (n, sum, sumsq). */
+    fun callOf8610(records: List<DoubleArray>): Call {
+        var pays = false
+        for (s in records) {
+            val n = s[0]; if (n < N_MIN) continue
+            val m = s[1] / n
+            val se = kotlin.math.sqrt(((s[2] / n) - m * m).coerceAtLeast(0.0) / n)
+            if (m + Z * se < 0.0) return Call.LOSES
+            if (m - Z * se > 0.0) pays = true
+        }
+        return if (pays) Call.PAYS else Call.UNPROVEN
+    }
+
+    /** The ledger's call for [ts] in [lane] now; null while the ledger is not yet seeded. */
+    fun verdict8610(ts: TokenState, lane: String, nowMs: Long = System.currentTimeMillis()): Call? = try {
+        ensureLoaded()
+        if (!ready) null else {
+            val r = EdgeModel8537.rawFor8610(ts, lane, nowMs)
+            val recs = keys8610(r.lane, bandsOf(r)).mapNotNull { k -> cells[k]?.let { c -> synchronized(c) { doubleArrayOf(c.n, c.sum, c.sq) } } }
+            callOf8610(recs).also { try { PipelineHealthCollector.labelInc("POCKET_8610_${it.name}") } catch (_: Throwable) {} }
+        }
+    } catch (_: Throwable) { null }
+
+    // ── persistence: the ledger file, else a replay of the device's own edge dataset ─────────────────────────────────
+
+    private fun dir(): File? = try { com.lifecyclebot.AATEApp.appContextOrNull()?.filesDir } catch (_: Throwable) { null }
+
+    private fun ensureLoaded() {
+        if (ready || loading) return
+        synchronized(this) {
+            if (ready || loading) return
+            loading = true
+        }
+        io.execute {
+            try {
+                val d = dir()
+                val f = d?.let { File(it, FILE) }
+                if (f != null && f.exists()) {
+                    val j = JSONObject(f.readText())
+                    j.keys().forEach { k -> j.optJSONArray(k)?.let { a -> cells[k] = Cell().apply { n = a.optDouble(0); sum = a.optDouble(1); sq = a.optDouble(2) } } }
+                    PipelineHealthCollector.labelInc("POCKET_8610_LOADED")
+                } else {
+                    seedFromDataset()
+                }
+            } catch (_: Throwable) { try { PipelineHealthCollector.labelInc("POCKET_8610_LOAD_FAILED") } catch (_: Throwable) {} }
+            ready = true
+        }
+    }
+
+    /** Replay the device's own labelled decisions in time order (the dataset EdgeModel8537 exports). */
+    private fun seedFromDataset() {
+        val f = EdgeModel8537.datasetFile() ?: return
+        if (!f.exists()) return
+        fun d(o: JSONObject, k: String) = if (o.isNull(k)) Double.NaN else o.optDouble(k, Double.NaN)
+        val rows = ArrayList<Pair<Long, Pair<List<String>, Double>>>()
+        f.forEachLine { line ->
+            try {
+                val o = JSONObject(line)
+                if (!o.optBoolean("fill", true)) return@forEachLine
+                val net = d(o, "net"); if (!net.isFinite()) return@forEachLine
+                val b = bands8610(d(o, "liq"), d(o, "mcap"), d(o, "age"), d(o, "bp"), d(o, "chg5m"), d(o, "chg1h"), d(o, "pxPeak"),
+                    d(o, "volAccel"), d(o, "top"), o.optString("phase"))
+                rows += o.optLong("t") to (keys8610(o.optString("lane"), b) to managed8610(net))
+            } catch (_: Throwable) {}
+        }
+        rows.sortBy { it.first }
+        for ((_, kv) in rows) add(kv.first, kv.second)
+        learned.addAndGet(rows.size.toLong())
+        try { PipelineHealthCollector.labelInc("POCKET_8610_SEEDED_FROM_DATASET") } catch (_: Throwable) {}
+        save()
+    }
+
+    private fun save() {
+        try {
+            val d = dir() ?: return
+            val j = JSONObject()
+            for ((k, c) in cells) synchronized(c) { j.put(k, JSONArray().put(c.n).put(c.sum).put(c.sq)) }
+            val tmp = File(d, "$FILE.tmp"); tmp.writeText(j.toString())
+            if (!tmp.renameTo(File(d, FILE))) tmp.delete()
+        } catch (_: Throwable) {}
+    }
+
+    /** Brief: how many cells the ledger holds and how many of them have proven a pay or a loss. */
+    fun statusLine8610(): String {
+        var pays = 0; var loses = 0
+        for (c in cells.values) synchronized(c) {
+            when (callOf8610(listOf(doubleArrayOf(c.n, c.sum, c.sq)))) { Call.PAYS -> pays++; Call.LOSES -> loses++; else -> {} }
+        }
+        return "pocket8610[ready=$ready cells=${cells.size} paying=$pays losing=$loses learned=${learned.get()} rule=one cell proven >0 & none proven <0, n>=40 z2 decay0.995]"
+    }
+}

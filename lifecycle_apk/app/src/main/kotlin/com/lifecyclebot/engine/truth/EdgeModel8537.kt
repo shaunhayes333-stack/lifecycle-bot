@@ -264,6 +264,9 @@ object EdgeModel8537 {
      */
     fun phaseOf8553(ageMin: Double): String = if (ageMin.isFinite() && ageMin > 30.0) "MATURE" else "UNKNOWN_AGE"
 
+    /** V5.0.8610 — PocketLedger8610.verdict8610: the same observation the ledger learned from, read now. */
+    fun rawFor8610(ts: TokenState, laneRaw: String, nowMs: Long): Raw = rawOf(ts, laneRaw, Double.NaN, nowMs)
+
     /** Pure-ish: the raw observation of [ts] in [laneRaw] at [costPct] (playbook feature frame; unobserved stays NaN). */
     private fun rawOf(ts: TokenState, laneRaw: String, costPct: Double, nowMs: Long): Raw {
         val f = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.features(ts, nowMs) } catch (_: Throwable) { null }
@@ -305,6 +308,7 @@ object EdgeModel8537 {
         }
         val k = learned.incrementAndGet()
         appendDataset(s, netPct)   // V5.0.8567 — the dataset keeps the true net, uncapped
+        try { PocketLedger8610.learn8610(s.raw, netPct) } catch (_: Throwable) {}   // V5.0.8610 — the learned pocket ledger
         if (k % SAVE_EVERY == 0L) saveAsync()
         try { PipelineHealthCollector.labelInc("EDGE_MODEL_LEARNED_8537") } catch (_: Throwable) {}
     }

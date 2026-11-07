@@ -203,6 +203,7 @@ object DiagnosisBrief8438 {
             // V5.0.8536 — why paper meme buys did or did not open, by name, on the first screen of every report.
             sb.append("               ").append(paperFunnel8536()).append('\n')
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.EdgeModel8537.statusLine() } catch (_: Throwable) { "edge8537[read failed]" }).append('\n')  // V5.0.8537
+            sb.append("               ").append(try { com.lifecyclebot.engine.truth.PocketLedger8610.statusLine8610() } catch (_: Throwable) { "pocket8610[read failed]" }).append('\n')  // V5.0.8610
             sb.append("               ").append(com.lifecyclebot.engine.cortex.Cortex7885.stackLine8539()).append('\n')  // V5.0.8539
         }
 

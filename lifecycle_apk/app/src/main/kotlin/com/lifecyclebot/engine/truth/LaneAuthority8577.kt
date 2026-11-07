@@ -31,7 +31,7 @@ object LaneAuthority8577 {
         "EMPTY_CURVE", "EARLY_LAUNCH", "ROUTE_MIN", "SIZE_NOT_EXECUTABLE", "NON_ECONOMIC_APPROVAL", "QUARANT", "REBUY",
         // V5.0.8606 — this bot's own 24 h loss locks bind at the gate as they do at PreTradeHardGate: 19:23 dump, admitted locked
         // mints were ticketed, refused PRETRADE_BIG_LOSER_8130 after the ticket, backed off and re-ticketed (56 BACKOFF_ENDS_TICKET).
-        "BIG_LOSER", "REPEAT_LOSER", "PAPER_LANE_PROVEN_LOSING", "LIVE_COIN_STATE_UNPAID",
+        "BIG_LOSER", "REPEAT_LOSER", "PAPER_LANE_PROVEN_LOSING", "LIVE_COIN_STATE_UNPAID", "LIVE_POCKET_",
         "DATA_", "STALE", "_FAILED", "GENERIC_SCORE_FLOOR",
         // superseded by V5.0.8604 — 8582 re-bound "INTO_HIGH", "CHASING_SPIKE", "CHASE_EXTENDED", "NEAR_HIGH",
         // "MEME_BUYS_THE_HIGH_8582" here. LIVE now decides like the paper book beside it, which never had those doors and is
@@ -47,11 +47,17 @@ object LaneAuthority8577 {
      */
     const val PAPER_LOSING_8608 = "PAPER_LANE_PROVEN_LOSING_8608"
     const val COIN_STATE_8609 = "LIVE_COIN_STATE_UNPAID_8609"
+    const val POCKET_UNPROVEN_8610 = "LIVE_POCKET_UNPROVEN_8610"
+    const val POCKET_LOSES_8610 = "LIVE_POCKET_PROVEN_LOSING_8610"
 
     /** Pure-ish (V5.0.8609): null when a LIVE buy in [lane] at [launchPhase] is inside the market's measured paying state. */
-    private fun liveCoinStateRefusal8609(lane: String, launchPhase: String?): String? {
+    // V5.0.8610 — the learned PocketLedger8610 decides once it is seeded: a coin whose cells have proven they pay (and none
+    // proven a loss) is bought in ANY state — a mature bounce, a post-pump base, a day-old coin — and a coin in an unproven or
+    // losing pocket is left to the paper book. The hard-coded 8609 EXPANDING rule is only the fallback before the seed.
+    private fun liveCoinStateRefusal8609(lane: String, launchPhase: String?, pocket: PocketLedger8610.Call?): String? {
         val l = lane.trim().uppercase()
         if (try { MemePaperTrader8544.laneProven8572(l) } catch (_: Throwable) { false }) return null
+        if (pocket != null) return if (pocket == PocketLedger8610.Call.PAYS) null else if (pocket == PocketLedger8610.Call.LOSES) POCKET_LOSES_8610 else POCKET_UNPROVEN_8610
         return if (coinStatePays8609(l, launchPhase)) null else COIN_STATE_8609
     }
 
@@ -122,10 +128,11 @@ object LaneAuthority8577 {
      * decision of a qualified LIVE candidate is marked [CandidateAdmission8136.Decision8136.laneQualified8577] for the gate.
      */
     fun apply8577(c: CandidateAdmission8136.Candidate8136, d: CandidateAdmission8136.Decision8136,
-                  highRefusal8582: String? = null, launchPhase8609: String? = null): CandidateAdmission8136.Decision8136 {
+                  highRefusal8582: String? = null, launchPhase8609: String? = null,
+                  pocket8610: PocketLedger8610.Call? = null): CandidateAdmission8136.Decision8136 {
         val r = applyLane8577(c, d, highRefusal8582)
         if (!enabled8577 || !c.live || !r.admitted) return r
-        val why = liveCoinStateRefusal8609(c.lane, launchPhase8609) ?: return r
+        val why = liveCoinStateRefusal8609(c.lane, launchPhase8609, pocket8610) ?: return r
         try { PipelineHealthCollector.labelInc("${why}_${c.lane.uppercase()}") } catch (_: Throwable) {}
         return r.copy(terminal = CandidateAdmission8136.Terminal8136.REFUSE, reason = why, specific = true,
             trace = r.trace + "coinState8609=${launchPhase8609 ?: "-"}", laneQualified8577 = false)
