@@ -38,6 +38,10 @@ object TokenMergeQueue {
         // Real DEX / Raydium / cross-app Solana sources outrank Pump-only feeds.
         "DEX_BOOSTED" to 72,
         "DEX_TRENDING" to 64,
+        // V5.0.8633 — honest endpoint names: profiles rank where its dedicated reader (DEX_TRENDING) ranked,
+        // Meteora pools where Meteora already ranked (they were RAYDIUM_NEW_POOL before).
+        "DEX_PROFILES" to 64,
+        "METEORA_POOL" to 66,
         "RAYDIUM_NEW_POOL" to 62,
         "RAYDIUM_NEW" to 62,
         "V3_PREMIUM" to 60,
@@ -296,7 +300,7 @@ object TokenMergeQueue {
         val delta8292 = readyEntries6877.associate { it.mint to mergeDelta8292(it, now) }
         val selected6877 = readyEntries6877.sortedWith(
             compareByDescending<MergeEntry> { it.confidence + agePressure6877(it) + (delta8292[it.mint] ?: 0) }
-                .thenByDescending { it.scanners.size }
+                .thenByDescending { SourceTruth8633.endpointCount8633(it.scanners) }  // V5.0.8633 — endpoints, not names
                 .thenByDescending { it.liquidityUsd }
                 .thenBy { it.firstSeenAt }
         ).take(maxEmit.coerceAtLeast(1))
@@ -323,7 +327,7 @@ object TokenMergeQueue {
                 primaryScanner = entry.firstScanner,
                 allScanners = entry.scanners.toSet(),
                 confidence = entry.confidence,
-                multiScannerBoost = entry.scanners.size > 1,
+                multiScannerBoost = SourceTruth8633.endpointCount8633(entry.scanners) > 1,  // V5.0.8633 — aliases of one feed are one scanner
                 laneAffinity = entry.laneAffinity.toSet(),
                 toolAffinity = entry.toolAffinity.toSet(),
                 firstObservedAtMs8394 = entry.firstSeenAt,
@@ -378,9 +382,11 @@ object TokenMergeQueue {
             scannerConfidence[it] ?: (scannerConfidence["UNKNOWN"] ?: 20)
         } ?: (scannerConfidence["UNKNOWN"] ?: 20)
 
-        val singleSourceBonus = if (scanners.size == 1) SINGLE_SOURCE_BONUS else 0
+        // V5.0.8633 — aliases of one endpoint (PUMP_PORTAL / PUMP_PORTAL_WS, two lanes' MARKET_HUNT_ rows) are one source.
+        val independent8633 = SourceTruth8633.endpointCount8633(scanners)
+        val singleSourceBonus = if (independent8633 == 1) SINGLE_SOURCE_BONUS else 0
 
-        val multiSourceBonus = when (scanners.size) {
+        val multiSourceBonus = when (independent8633) {
             1 -> 0
             2 -> MULTI_SOURCE_BOOST
             3 -> MULTI_SOURCE_BOOST + 10
@@ -394,17 +400,17 @@ object TokenMergeQueue {
         val leadingSource7403 = bestScanner.uppercase() in
             setOf("PUMP_PORTAL", "PUMP_PORTAL_WS", "PUMP_FUN_NEW")
         val laggingMarketSource7403 = bestScanner.uppercase() in
-            setOf("DEX_BOOSTED", "DEX_TRENDING", "V3_PREMIUM", "WHALE_COPY")
+            setOf("DEX_BOOSTED", "DEX_TRENDING", SourceTruth8633.DEX_PROFILES_8633, "V3_PREMIUM", "WHALE_COPY")
 
         val fastTrackBonus = when {
-            scanners.size != 1 -> 0
+            independent8633 != 1 -> 0
             bestScanner == "INSIDER_SHARK" -> HIGH_QUALITY_SINGLE_BONUS
             leadingSource7403 && trueLaunch7403 -> 22
             laggingMarketSource7403 && !trueLaunch7403 &&
                 liquidityUsd >= HIGH_QUALITY_SINGLE_LIQUIDITY -> HIGH_QUALITY_SINGLE_BONUS
             else -> 0
         }
-        if (leadingSource7403 && trueLaunch7403 && scanners.size == 1) {
+        if (leadingSource7403 && trueLaunch7403 && independent8633 == 1) {
             try { PipelineHealthCollector.labelInc("MERGE_TRUE_LAUNCH_FASTTRACK_7403") } catch (_: Throwable) {}
         }
 
@@ -491,7 +497,7 @@ object TokenMergeQueue {
      * confirmed tokens (≥2 sources within 5s = strong signal regardless of liq).
      */
     fun priorScannerCount(mint: String): Int =
-        pendingDiscoveries[mint]?.scanners?.size ?: 0
+        pendingDiscoveries[mint]?.scanners?.let { SourceTruth8633.endpointCount8633(it) } ?: 0  // V5.0.8633 — distinct endpoints
 
     fun getPendingCount(): Int = pendingDiscoveries.size
 
@@ -527,7 +533,7 @@ object TokenMergeQueue {
                 primaryScanner = entry.firstScanner,
                 allScanners = entry.scanners.toSet(),
                 confidence = entry.confidence,
-                multiScannerBoost = entry.scanners.size > 1,
+                multiScannerBoost = SourceTruth8633.endpointCount8633(entry.scanners) > 1,  // V5.0.8633
                 laneAffinity = entry.laneAffinity.toSet(),
                 toolAffinity = entry.toolAffinity.toSet(),
             )

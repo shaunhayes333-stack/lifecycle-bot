@@ -8415,14 +8415,16 @@ class BotService : Service() {
 
         // V5.0.6282 — WATCHLIST BOOT WARMUP hydrate. After MemeMintRegistry
         // restore, re-seed intake with the persisted top-conviction hot list
-        // (live-held mints + WinMemory winners + high-touch watchlist rows).
-        // This skips the ~90s cold-start starvation window shown in
+        // (WinMemory winners). This skips the ~90s cold-start starvation window shown in
         // op-report V5.0.6275 where the watchlist was 0 while scanners
         // spun up. Uses the same admitProtectedMemeIntake path so all
         // downstream safety/lane/FDG gates apply unchanged.
+        // V5.0.8633 — D8: superseded re-seeding live-held mints and high-touch watchlist rows as candidates
+        // (was `HotConvictionWarmup.getAll()`): a held coin is the exit supervisor's only (held rows ran -21.6% at 5 min
+        // as candidates in 8622). Held = the canonical roster or, before it is restored, the persisted position store.
         try {
             HotConvictionWarmup.init(applicationContext)
-            val hotList = HotConvictionWarmup.getAll()
+            val hotList = HotConvictionWarmup.reseedCandidates8633 { heldAtBoot8633(it) }
             var warmed = 0
             for (h in hotList) {
                 if (h.mint.isBlank()) continue
@@ -16212,7 +16214,7 @@ class BotService : Service() {
             } catch (_: Throwable) {}
             return false
         }
-        val (laneAffinity, toolAffinity) = intakeAffinity8394(source, allSources, mcapUsd, liquidityUsd, claims8394)
+        val (laneAffinity, toolAffinity) = intakeAffinity8394(source, allSources, mcapUsd, liquidityUsd, claims8394, mint)
         val added = try {
             GlobalTradeRegistry.addToProbationOnly(
                 mint = mint,
@@ -16238,10 +16240,20 @@ class BotService : Service() {
         return added?.probation == true
     }
 
-    private fun intakeAffinity8394(source: String, sources: Set<String>, mcapUsd: Double, liquidityUsd: Double,
-                                   claims: IntakeClaims8394?): Pair<Set<String>, Set<String>> =
-        (inferIntakeLaneAffinity(source, sources, mcapUsd, liquidityUsd) + claims?.lanes.orEmpty()) to
+    // V5.0.8633 — D8: held at boot = the canonical held roster, or the persisted position store while that roster is
+    // still being restored (the warmup runs before wallet reconcile hands positions to HeldPositionSupervisor7246).
+    private fun heldAtBoot8633(mint: String): Boolean =
+        HeldPositionSupervisor7246.isHeld(mint) || PositionPersistence.hasPersistedPosition(mint)
+
+    // V5.0.8633 — a DexScreener listing row (DEX_PROFILES / DEX_BOOSTED) names no venue; the coin's mint does. A pump.fun
+    // mint keeps the pump lane/tool affinity its young rows had under the old PUMP_FUN_* label. Affinity only: the venue
+    // tag never enters provenance, source counting or learning.
+    private fun intakeAffinity8394(source: String, feedSources: Set<String>, mcapUsd: Double, liquidityUsd: Double,
+                                   claims: IntakeClaims8394?, mint: String): Pair<Set<String>, Set<String>> {
+        val sources = feedSources + SourceTruth8633.venueTags8633(source, feedSources, mint)
+        return (inferIntakeLaneAffinity(source, sources, mcapUsd, liquidityUsd) + claims?.lanes.orEmpty()) to
             (inferIntakeToolAffinity(source, sources, mcapUsd, liquidityUsd) + claims?.tools.orEmpty())
+    }
 
     private fun admitProtectedMemeIntake(
         mint: String,
@@ -16672,7 +16684,7 @@ class BotService : Service() {
                 } catch (_: Throwable) {}
             }
             if (coldPump) {
-                val (laneAffinity, toolAffinity) = intakeAffinity8394(source, allSources, trustedMarketCapUsd6492, liquidityUsd, claims8394)
+                val (laneAffinity, toolAffinity) = intakeAffinity8394(source, allSources, trustedMarketCapUsd6492, liquidityUsd, claims8394, mint)
                 val added = try {
                     GlobalTradeRegistry.addToProbationOnly(
                         mint = mint,
@@ -16763,7 +16775,7 @@ class BotService : Service() {
         // re-serves it every poll (trending / boosted / hunts) is held to the 5-minute window, not
         // 30 s (5.0.7983: SIB re-intaken 26x, STUTUTU 19x in 7 minutes). New evidence still merges.
         if (prevAt != null && (nowMs - prevAt) < dedupTtl7984(mint, prevAt, nowMs)) {
-            val (lanes6566, tools6566) = intakeAffinity8394(source, incomingSources6566, trustedMarketCapUsd6492, liquidityUsd, claims8394)
+            val (lanes6566, tools6566) = intakeAffinity8394(source, incomingSources6566, trustedMarketCapUsd6492, liquidityUsd, claims8394, mint)
             val registryBefore7475 = GlobalTradeRegistry.getEntry(mint)
             val affinityChanged7475 = GlobalTradeRegistry.mergeAffinity(mint, lanes6566, tools6566)
             val registryEvidenceImproved7475 = registryBefore7475 != null && (
@@ -16903,7 +16915,7 @@ class BotService : Service() {
         )
 
         val joinedSources = allSources.ifEmpty { setOf(source) }.joinToString(",")
-        val (laneAffinity, toolAffinity) = intakeAffinity8394(source, allSources, trustedMarketCapUsd6492, liquidityUsd, claims8394)
+        val (laneAffinity, toolAffinity) = intakeAffinity8394(source, allSources, trustedMarketCapUsd6492, liquidityUsd, claims8394, mint)
         try {
             val affinitySymbol = if (symbol.isBlank()) mint.take(6) else symbol
             val laneAffinityLabel = laneAffinity.joinToString("+")

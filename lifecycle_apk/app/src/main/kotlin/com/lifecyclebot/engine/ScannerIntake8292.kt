@@ -24,14 +24,12 @@ object ScannerSourceTags8292 {
     val PATHWAY_TAGS_8292: Set<String> = setOf("SCANNER_DIRECT", "SCANNER_HEAL", "REGISTRY_DUPLICATE_HYDRATE")
 
     /** Feed wrappers / cohorts that are real provenance but never an independent second source. */
-    private val WRAPPER_TAGS_8292: Set<String> = setOf("CHAIN_LAUNCH_8179", "PROBATION")
+    // V5.0.8633 — the boot warmup re-seed is a pathway too: {WIN_MEMORY, HOT_CONVICTION_WARMUP_6282} is one memory, not two feeds.
+    private val WRAPPER_TAGS_8292: Set<String> = setOf("CHAIN_LAUNCH_8179", "PROBATION", "HOT_CONVICTION_WARMUP_6282")
 
-    /** One feed under two names. */
-    private val ALIASES_8292: Map<String, String> = mapOf(
-        "PUMP_PORTAL_WS" to "PUMP_PORTAL",
-        "PUMPPORTAL" to "PUMP_PORTAL",
-        "RAYDIUM_NEW" to "RAYDIUM_NEW_POOL",
-    )
+    // V5.0.8633 — superseded ALIASES_8292 (PUMP_PORTAL_WS/PUMPPORTAL -> PUMP_PORTAL, RAYDIUM_NEW -> RAYDIUM_NEW_POOL):
+    // the endpoint map now lives in SourceTruth8633.endpointOf8633, which keeps those and adds the DexScreener /
+    // market-sweep aliases, so every counter reads one endpoint table.
 
     fun isPathwayTag8292(raw: String): Boolean = raw.trim().uppercase() in PATHWAY_TAGS_8292
 
@@ -52,7 +50,7 @@ object ScannerSourceTags8292 {
     fun independentSourceCount8292(source: String, allSources: Collection<String>): Int =
         (allSources + source).flatMap { realSources8292(it) }
             .filter { it !in WRAPPER_TAGS_8292 }
-            .map { ALIASES_8292[it] ?: it }
+            .map { SourceTruth8633.endpointOf8633(it) }
             .distinct().size
 
     /**

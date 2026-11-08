@@ -318,7 +318,9 @@ object ManipulatedTraderAI {
         }
 
         // Calculate manipulation score
-        var score = calcManipScore(bundlePct, buyPressurePct, momentum, source, ageMinutes, rugcheckScore)
+        // V5.0.8633 — "common manipulation venue" is the coin's venue: a DexScreener listing row reads it from the mint.
+        val venueSource8633 = com.lifecyclebot.engine.SourceTruth8633.withVenueHint8633(source, mint)
+        var score = calcManipScore(bundlePct, buyPressurePct, momentum, venueSource8633, ageMinutes, rugcheckScore)
 
         // ═══════════════════════════════════════════════════════════════════
         // V5.9.933 — HARVARD BRAIN PATTERN MEMORY (Pass 3: Manipulated lane).

@@ -744,6 +744,14 @@ class SolanaMarketScanner(
         // with a DexScreener market before intake. Candidates only: same intake,
         // no bonus, no bypass. Field Manual L201 / L309.
         TELEGRAM_CALL,
+        // V5.0.8633 — D6: the endpoint's own name (SourceTruth8633). DexScreener token-profiles/latest is
+        // DEX_PROFILES whichever scanner reads it (it was DEX_TRENDING / PUMP_FUN_NEW / PUMP_FUN_GRADUATE /
+        // RAYDIUM_NEW_POOL by scanner and pair age); GeckoTerminal Meteora pools are METEORA_POOL (were
+        // RAYDIUM_NEW_POOL); MarketSweep7297 snapshot rows on the emergency fallback are MARKET_SWEEP (were
+        // DEX_TRENDING). Boosts keep DEX_BOOSTED; Gecko trending_pools keeps COINGECKO_TRENDING.
+        DEX_PROFILES,
+        METEORA_POOL,
+        MARKET_SWEEP,
     }
 
     data class ScannedToken(
@@ -1435,7 +1443,7 @@ class SolanaMarketScanner(
                     mint = mint,
                     symbol = pair.baseSymbol,
                     name = pair.baseName,
-                    source = TokenSource.RAYDIUM_NEW_POOL,
+                    source = TokenSource.DEX_PROFILES,  // V5.0.8633 — token-profiles/latest (was RAYDIUM_NEW_POOL)
                     liquidityUsd = liq,
                     volumeH1 = pair.candle.volumeH1,
                     mcapUsd = pair.candle.marketCap,
@@ -1727,7 +1735,7 @@ class SolanaMarketScanner(
                 mint = r.mint,
                 symbol = r.symbol.ifBlank { r.mint.take(6) },
                 name = r.name.ifBlank { r.symbol.ifBlank { r.mint.take(6) } },
-                source = TokenSource.DEX_TRENDING,
+                source = TokenSource.MARKET_SWEEP,  // V5.0.8633 — the market sweep snapshot (was DEX_TRENDING)
                 liquidityUsd = r.liquidityUsd,
                 volumeH1 = r.volumeH1Usd,
                 mcapUsd = r.mcapUsd,
@@ -1788,7 +1796,7 @@ class SolanaMarketScanner(
                     mint = mint,
                     symbol = symbol,
                     name = name,
-                    source = TokenSource.DEX_TRENDING,
+                    source = TokenSource.DEX_PROFILES,  // V5.0.8633 — token-profiles/latest (was DEX_TRENDING)
                     liquidityUsd = liq,
                     volumeH1 = vol,
                     mcapUsd = mcap,
@@ -1868,7 +1876,7 @@ class SolanaMarketScanner(
                     mint = mint,
                     symbol = sym,
                     name = pair?.baseName ?: sym,
-                    source = TokenSource.RAYDIUM_NEW_POOL,
+                    source = TokenSource.DEX_PROFILES,  // V5.0.8633 — token-profiles/latest (was RAYDIUM_NEW_POOL)
                     liquidityUsd = liq,
                     volumeH1 = vol,
                     mcapUsd = mcap,
@@ -2187,7 +2195,7 @@ class SolanaMarketScanner(
                     mint = mint,
                     symbol = sym,
                     name = pair?.baseName ?: sym,
-                    source = TokenSource.RAYDIUM_NEW_POOL,
+                    source = TokenSource.DEX_PROFILES,  // V5.0.8633 — token-profiles/latest (was RAYDIUM_NEW_POOL)
                     liquidityUsd = liq,
                     volumeH1 = vol,
                     mcapUsd = mcap,
@@ -2449,7 +2457,7 @@ class SolanaMarketScanner(
                     val symbol = item.optString("tokenAddress", mint.take(8))
                     val token = ScannedToken(
                         mint = mint, symbol = symbol, name = symbol,
-                        source = TokenSource.DEX_TRENDING,
+                        source = TokenSource.DEX_PROFILES,  // V5.0.8633 — token-profiles/latest (was DEX_TRENDING)
                         liquidityUsd = 0.0, volumeH1 = 0.0, mcapUsd = 0.0,
                         pairCreatedHoursAgo = 0.5, dexId = "solana",
                         priceChangeH1 = 0.0, txCountH1 = 0,
@@ -2466,7 +2474,7 @@ class SolanaMarketScanner(
                     // V5.0.8292 — no mcap x 10% liquidity estimate (superseded by V5.0.8292): an unmeasured pool depth stays 0 (unknown), never fabricated.
                 }
 
-                val token = buildScannedToken(mint, pair, TokenSource.DEX_TRENDING, fallbackLiq) ?: continue
+                val token = buildScannedToken(mint, pair, TokenSource.DEX_PROFILES, fallbackLiq) ?: continue  // V5.0.8633 — was DEX_TRENDING
                 if (passesFilter(token)) {
                     val ageHours = (System.currentTimeMillis() - pair.pairCreatedAtMs) / 3_600_000.0
                     emitWithRugcheck(token)
@@ -2546,11 +2554,9 @@ class SolanaMarketScanner(
                     mint = mint,
                     symbol = sym,
                     name = pair?.baseName ?: sym,
-                    source = when {
-                        ageHours < 6 -> TokenSource.PUMP_FUN_NEW
-                        ageHours < 24 -> TokenSource.PUMP_FUN_GRADUATE
-                        else -> TokenSource.RAYDIUM_NEW_POOL
-                    },
+                    // V5.0.8633 — superseded the label-by-age (PUMP_FUN_NEW < 6 h, PUMP_FUN_GRADUATE < 24 h, else
+                    // RAYDIUM_NEW_POOL): this is the token-profiles/latest feed whatever the pair's age or venue.
+                    source = TokenSource.DEX_PROFILES,
                     liquidityUsd = liq,
                     volumeH1 = vol,
                     mcapUsd = mcap,
@@ -2687,7 +2693,7 @@ class SolanaMarketScanner(
                     mint = mint,
                     symbol = pair.baseSymbol,
                     name = pair.baseName,
-                    source = TokenSource.PUMP_FUN_GRADUATE,
+                    source = TokenSource.DEX_BOOSTED,  // V5.0.8633 — token-boosts/top (was PUMP_FUN_GRADUATE)
                     liquidityUsd = liq,
                     volumeH1 = vol,
                     mcapUsd = mcap,
@@ -2808,7 +2814,7 @@ class SolanaMarketScanner(
                     mint = mint,
                     symbol = pair.baseSymbol,
                     name = pair.baseName,
-                    source = TokenSource.DEX_TRENDING,
+                    source = TokenSource.DEX_PROFILES,  // V5.0.8633 — token-profiles/latest (was DEX_TRENDING)
                     liquidityUsd = liq,
                     volumeH1 = vol,
                     mcapUsd = mcap,
@@ -3760,7 +3766,7 @@ class SolanaMarketScanner(
                     mint = mint,
                     symbol = name.substringBefore("/").trim(),
                     name = name,
-                    source = TokenSource.DEX_TRENDING,
+                    source = TokenSource.COINGECKO_TRENDING,  // V5.0.8633 — the same trending_pools endpoint scanCoinGeckoTrending reads (was DEX_TRENDING)
                     liquidityUsd = liqUsd,
                     volumeH1 = volH1,
                     mcapUsd = mcap,
@@ -3890,7 +3896,7 @@ class SolanaMarketScanner(
                     mint = mint,
                     symbol = name.substringBefore("/").trim(),
                     name = name,
-                    source = TokenSource.RAYDIUM_NEW_POOL,
+                    source = TokenSource.METEORA_POOL,  // V5.0.8633 — GeckoTerminal Meteora pools (was RAYDIUM_NEW_POOL)
                     liquidityUsd = liqUsd,
                     volumeH1 = volH1,
                     mcapUsd = mcap,
@@ -4078,8 +4084,8 @@ class SolanaMarketScanner(
         }
 
         val liqQuality = when (token.source) {
-            TokenSource.RAYDIUM_NEW_POOL -> EfficiencyLayer.LiqSourceQuality.DIRECT_POOL
-            TokenSource.DEX_BOOSTED, TokenSource.DEX_TRENDING -> EfficiencyLayer.LiqSourceQuality.DEX_AGGREGATOR
+            TokenSource.RAYDIUM_NEW_POOL, TokenSource.METEORA_POOL -> EfficiencyLayer.LiqSourceQuality.DIRECT_POOL  // V5.0.8633 — Meteora: a pool read
+            TokenSource.DEX_BOOSTED, TokenSource.DEX_TRENDING, TokenSource.DEX_PROFILES, TokenSource.MARKET_SWEEP -> EfficiencyLayer.LiqSourceQuality.DEX_AGGREGATOR
             TokenSource.MARKET_HUNT_SHITCOIN, TokenSource.MARKET_HUNT_QUALITY, TokenSource.MARKET_HUNT_BLUECHIP,
             TokenSource.MARKET_HUNT_DIP_HUNTER, TokenSource.MARKET_HUNT_MOONSHOT, TokenSource.MARKET_HUNT_TREASURY,
             TokenSource.MARKET_HUNT_CASHGEN, TokenSource.MARKET_HUNT_EXPRESS, TokenSource.MARKET_HUNT_PROJECT_SNIPER,

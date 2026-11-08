@@ -23,6 +23,8 @@ object ProtectedIntakeAdmissionGate {
             "PUMP_PORTAL", "PUMPPORTAL", "PUMP.FUN", "PUMPFUN", "PUMP_FUN",
             // DexScreener families
             "DEXSCREENER", "DEX_SCREENER", "DEX_TREND", "DEX_TRENDING", "DEX_GAIN", "DEX_GAINERS", "DEX_BOOST", "DEX_BOOSTED",
+            "DEX_PROFILE",  // V5.0.8633 — token-profiles/latest under its own name (DEX_PROFILES)
+            "MARKET_SWEEP",  // V5.0.8633 — the market-sweep fallback rows (were DEX_TRENDING)
             // CoinGecko / GeckoTerminal / CoinMarketCap-backed dynamic universe
             "COINGECKO", "COIN_GECKO", "GECKO", "GECKOTERMINAL", "GECKO_TERMINAL", "COINMARKETCAP", "COIN_MARKET_CAP", "CMC",
             // DEX/venue discovery

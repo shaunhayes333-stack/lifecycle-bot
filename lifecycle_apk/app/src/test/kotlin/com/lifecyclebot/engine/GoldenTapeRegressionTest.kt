@@ -15611,7 +15611,8 @@ class GoldenTapeRegressionTest {
         // superseded by V5.0.8418 — 26cdf3e47: the unread-liquidity probation arm (intakeDustOrUnread8418) is a fourth
         // intake path, and it carries the same claims.
         assertEquals(4, Regex("intakeAffinity8394\\(").findAll(bot).count() - 1)
-        assertTrue(bot.contains("intakeAffinity8394(source, allSources, mcapUsd, liquidityUsd, claims8394)"))
+        // superseded by V5.0.8633 — the affinity reads the coin's venue from its mint for venue-agnostic DexScreener feeds, so every call passes the mint; was: assertTrue(bot.contains("intakeAffinity8394(source, allSources, mcapUsd, liquidityUsd, claims8394)"))
+        assertTrue(bot.contains("intakeAffinity8394(source, allSources, mcapUsd, liquidityUsd, claims8394, mint)"))
         assertTrue(bot.contains("HandoffReceiverTasks8153.deferForScheduler8394(mint, until, now)"))
         val cortex = src("engine/cortex/Cortex7885")
         val encoding = cortex.substringAfter("return {\n            val dict = LinkedHashMap<String, Int>()")

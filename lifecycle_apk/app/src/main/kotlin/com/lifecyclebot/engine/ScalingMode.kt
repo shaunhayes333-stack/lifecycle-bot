@@ -98,7 +98,7 @@ object ScalingMode {
             requireTopHolder30      = false,
             requireCoinGeckoListed  = false,
             requireVolFloor24h      = 0.0,
-            scanSources             = setOf("PUMP_FUN_NEW","PUMP_FUN_GRADUATE","DEX_TRENDING","DEX_GAINERS","RAYDIUM_NEW_POOL"),
+            scanSources             = setOf("PUMP_FUN_NEW","PUMP_FUN_GRADUATE","DEX_TRENDING","DEX_GAINERS","RAYDIUM_NEW_POOL","DEX_PROFILES","METEORA_POOL"),  // V5.0.8633 — honest endpoint names keep their tier fit
             icon                    = "🌱",
         ),
         STANDARD(
@@ -114,7 +114,7 @@ object ScalingMode {
             requireTopHolder30      = false,
             requireCoinGeckoListed  = false,
             requireVolFloor24h      = 0.0,
-            scanSources             = setOf("PUMP_FUN_GRADUATE","DEX_TRENDING","DEX_GAINERS","BIRDEYE_TRENDING"),
+            scanSources             = setOf("PUMP_FUN_GRADUATE","DEX_TRENDING","DEX_GAINERS","BIRDEYE_TRENDING","DEX_PROFILES"),  // V5.0.8633
             icon                    = "📊",
         ),
         GROWTH(
@@ -130,7 +130,7 @@ object ScalingMode {
             requireTopHolder30      = true,
             requireCoinGeckoListed  = false,
             requireVolFloor24h      = 50_000.0,
-            scanSources             = setOf("DEX_TRENDING","BIRDEYE_TRENDING","COINGECKO_TRENDING","NARRATIVE_SCAN"),
+            scanSources             = setOf("DEX_TRENDING","BIRDEYE_TRENDING","COINGECKO_TRENDING","NARRATIVE_SCAN","DEX_PROFILES"),  // V5.0.8633
             icon                    = "🚀",
         ),
         SCALED(
@@ -146,7 +146,7 @@ object ScalingMode {
             requireTopHolder30      = true,
             requireCoinGeckoListed  = true,
             requireVolFloor24h      = 500_000.0,
-            scanSources             = setOf("COINGECKO_TRENDING","BIRDEYE_TRENDING","DEX_TRENDING"),
+            scanSources             = setOf("COINGECKO_TRENDING","BIRDEYE_TRENDING","DEX_TRENDING","DEX_PROFILES"),  // V5.0.8633
             icon                    = "📈",
         ),
         INSTITUTIONAL(

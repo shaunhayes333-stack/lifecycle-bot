@@ -62,7 +62,8 @@ class Aate7819LoopSupervisorTest {
     @Test fun registry_uses_the_unwrapped_source_test_on_both_probation_doors() {
         val reg = src("engine/GlobalTradeRegistry.kt")
         assertTrue(reg.contains("val priorSources7475 = probationSourceKeys7819(existingProbation.source, existingProbation.addedBy)"))
-        assertTrue(reg.contains("incoming7819 !in probationSourceKeys7819(existing.source, existing.addedBy)"))
+        // superseded by V5.0.8633 — the probation door compares ENDPOINTS so an alias of the creating feed is no second scanner; was: assertTrue(reg.contains("incoming7819 !in probationSourceKeys7819(existing.source, existing.addedBy)"))
+        assertTrue(reg.contains("!SourceTruth8633.sameEndpointAsAny8633(incoming7819, probationSourceKeys7819(existing.source, existing.addedBy))"))
         assertFalse("same-source re-sighting must not count as a scanner", reg.contains("existing.additionalScanners.add(addedBy)"))
         assertTrue(reg.contains("elapsed >= PROBATION_MAX_TIME_MS && !demotedAwaitingEvidence7819(entry, elapsed)"))
         assertTrue(reg.contains("TIMEOUT_AUTO_PROMOTE"))

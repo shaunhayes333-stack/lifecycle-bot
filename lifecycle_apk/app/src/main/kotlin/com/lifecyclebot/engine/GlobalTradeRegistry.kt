@@ -710,7 +710,9 @@ object GlobalTradeRegistry {
             // that created the row is not mistaken for a second scanner (Field Manual L384).
             val priorSources7475 = probationSourceKeys7819(existingProbation.source, existingProbation.addedBy)
             val incomingSource7475 = normalizeProbationSource7819(addedBy)
-            val distinctSource7475 = incomingSource7475.isNotBlank() && incomingSource7475 !in priorSources7475 &&
+            // V5.0.8633 — distinct by ENDPOINT: an alias of the creating feed (PUMP_PORTAL vs PUMP_PORTAL_WS, another
+            // lane's MARKET_HUNT_ row of the same sweep) is the same evidence, not a second scanner.
+            val distinctSource7475 = incomingSource7475.isNotBlank() && !SourceTruth8633.sameEndpointAsAny8633(incomingSource7475, priorSources7475) &&
                 existingProbation.additionalScanners.add(incomingSource7475)
             for (lane in laneAffinity) existingProbation.laneAffinity.add(lane.uppercase())
             for (tool in toolAffinity) existingProbation.toolAffinity.add(tool.uppercase())
@@ -951,7 +953,8 @@ object GlobalTradeRegistry {
             // a re-sighting by the creating scanner made processProbation fire
             // MULTI_CONFIRM 30s later and re-run full intake (Field Manual L384).
             val incoming7819 = normalizeProbationSource7819(addedBy)
-            if (incoming7819.isNotBlank() && incoming7819 !in probationSourceKeys7819(existing.source, existing.addedBy)) {
+            // V5.0.8633 — by endpoint: an alias of the row's own feed is no second scanner.
+            if (incoming7819.isNotBlank() && !SourceTruth8633.sameEndpointAsAny8633(incoming7819, probationSourceKeys7819(existing.source, existing.addedBy))) {
                 existing.additionalScanners.add(incoming7819)
             }
             existing.laneAffinity.addAll(laneAffinity.map { it.uppercase() })
@@ -1027,7 +1030,8 @@ object GlobalTradeRegistry {
         val entry = probation[mint] ?: return false
         // V5.0.8292 — same identity rule as 7475/7819: the row's own scanner (or a pathway tag) is no confirmation.
         val incoming8292 = normalizeProbationSource7819(scanner)
-        if (incoming8292.isBlank() || incoming8292 in probationSourceKeys7819(entry.source, entry.addedBy)) return false
+        // V5.0.8633 — by endpoint: an alias of the row's own feed is no confirmation either.
+        if (incoming8292.isBlank() || SourceTruth8633.sameEndpointAsAny8633(incoming8292, probationSourceKeys7819(entry.source, entry.addedBy))) return false
         entry.additionalScanners.add(incoming8292)
 
         // Auto-promote if multi-scanner confirmed

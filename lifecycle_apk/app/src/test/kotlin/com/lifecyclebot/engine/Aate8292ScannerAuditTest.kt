@@ -71,7 +71,8 @@ class Aate8292ScannerAuditTest {
         val keys = GlobalTradeRegistry.probationSourceKeys7819("PUMP_FUN_NEW+SCANNER_DIRECT", "SCANNER_DIRECT_PUMP_FUN_NEW")
         assertEquals(setOf("PUMP_FUN_NEW"), keys)
         val reg = src("engine/GlobalTradeRegistry.kt")
-        assertTrue(reg.contains("if (incoming8292.isBlank() || incoming8292 in probationSourceKeys7819(entry.source, entry.addedBy)) return false"))
+        // superseded by V5.0.8633 — the row's own scanner is matched by ENDPOINT (aliases of one feed are one scanner); was: assertTrue(reg.contains("if (incoming8292.isBlank() || incoming8292 in probationSourceKeys7819(entry.source, entry.addedBy)) return false"))
+        assertTrue(reg.contains("if (incoming8292.isBlank() || SourceTruth8633.sameEndpointAsAny8633(incoming8292, probationSourceKeys7819(entry.source, entry.addedBy))) return false"))
     }
 
     @Test fun probationPromotionKeepsItsDiscoveringScanner() {

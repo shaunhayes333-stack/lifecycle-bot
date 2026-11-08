@@ -149,7 +149,8 @@ object CortexAudit8169 {
                 "filterRejected=${labelPrefixSum(labels, "MARKET_HUNT_7301_FILTER_REJECTED_")} multiLane=${labelPrefixSum(labels, "MARKET_HUNT_7807_MULTI_LANE_CLAIM_")}")
         val th = safe { com.lifecyclebot.engine.truth.TailHunter7996.statusLine7996() }
         row(sb, "Tail hunter §7996", numOf(th, "observed"), "LiveEdgeGate decisions -> ladder replay", th)
-        for (src in listOf("PUMP_FUN_NEW", "RAYDIUM_NEW_POOL", "DEX_TRENDING", "DEX_BOOSTED", "SOLANA_BLUECHIP_WATCHLIST")) {
+        // V5.0.8633 — DEX_PROFILES / METEORA_POOL: the endpoints that hid under PUMP_FUN_* / RAYDIUM_NEW_POOL / DEX_TRENDING.
+        for (src in listOf("PUMP_FUN_NEW", "RAYDIUM_NEW_POOL", "DEX_TRENDING", "DEX_BOOSTED", "DEX_PROFILES", "METEORA_POOL", "SOLANA_BLUECHIP_WATCHLIST")) {
             val n = intake.entries.sumOf { (k, v) -> if (k.contains(src)) v else 0L }
             row(sb, "Scanner $src", n, "watchlist intake", "intake=$n (all intake keys containing $src)")
         }

@@ -21,9 +21,9 @@ import java.util.concurrent.atomic.AtomicBoolean
  * the existing MEME_REGISTRY_RESTORE path).
  *
  * Conviction ranking (top-N, N=50):
- *   1. Mints currently on the live-held wallet (highest priority)
- *   2. Mints with recent net-positive PnL in TokenWinMemory
- *   3. Mints with high probation processCount + strong intake liquidity
+ *   Mints with recent net-positive PnL in TokenWinMemory that are not held.
+ *   V5.0.8633 — superseded layers 1 (live-held wallet mints, LIVE_HELD) and 3 (high processCount watchlist rows,
+ *   WATCHLIST_HIGH_TOUCH): held coins go to the exit supervisor only, never back to the buy lanes (audit_8629 D8).
  *
  * Stored as a plain JSON file in filesDir; capped at 50 entries; entries
  * older than 24h are dropped on the next snapshot pass. Idempotent —
@@ -77,6 +77,22 @@ object HotConvictionWarmup {
 
     fun count(): Int = entries.size
 
+    /** V5.0.8633 — D8: warmup layers that are never buy candidates (a held coin is the exit supervisor's; high-touch is stale repeats). */
+    private val NOT_CANDIDATE_SOURCES_8633: Set<String> = setOf("LIVE_HELD", "WATCHLIST_HIGH_TOUCH")
+
+    /** Pure: a warmup row may be re-offered to intake only from a candidate layer, and never while its coin is held. */
+    fun reseedEligible8633(source: String, held: Boolean): Boolean =
+        !held && source.trim().uppercase() !in NOT_CANDIDATE_SOURCES_8633
+
+    /** The boot re-seed list: [getAll] minus held coins and non-candidate layers (a pre-8633 file still carries them for 24 h). */
+    fun reseedCandidates8633(isHeld: (String) -> Boolean): List<HotMint> =
+        getAll().filter { reseedEligible8633(it.source, isHeld(it.mint)) }
+
+    /** Every open position (live or paper): the exit supervisor owns it, so it is no warmup candidate. */
+    private fun heldMintsNow8633(): Set<String> = try {
+        BotService.status.openPositions.map { it.mint }.toSet()
+    } catch (_: Throwable) { emptySet() }
+
     /**
      * Capture a fresh snapshot of the top-conviction mints from the live
      * bot state and persist it. Called every ~60s while running.
@@ -97,29 +113,19 @@ object HotConvictionWarmup {
         val candidates = mutableMapOf<String, HotMint>()
         val now = System.currentTimeMillis()
 
-        // Layer 1 — live-held wallet positions (highest conviction).
-        try {
-            val open = BotService.status.openPositions.toList()
-            for (ts in open) {
-                if (ts.position.isPaperPosition) continue
-                if (ts.mint.isBlank()) continue
-                candidates[ts.mint] = HotMint(
-                    mint = ts.mint,
-                    symbol = ts.symbol.ifBlank { ts.mint.take(6) },
-                    source = "LIVE_HELD",
-                    convictionScore = 1000.0,
-                    lastSeenMs = now,
-                    liquidityUsdEstimate = ts.lastLiquidityUsd,
-                    mcapUsdEstimate = ts.lastMcap,
-                )
-            }
-        } catch (_: Throwable) {}
+        // V5.0.8633 — D8: superseded Layer 1 (live-held wallet positions as LIVE_HELD, conviction 1000) and Layer 3
+        // (GlobalTradeRegistry watchlist rows ranked by processCount as WATCHLIST_HIGH_TOUCH). A held coin belongs to
+        // the exit supervisor (HeldPositionSupervisor7246), which wallet reconcile / position restore hand it to on
+        // boot; re-offering it to the buy lanes ran -21.6% at 5 min (8622). High-touch = the most-repeated, oldest
+        // rows (median -3.3%). Only recent winners not currently held are remembered.
+        val held8633 = heldMintsNow8633()
 
         // Layer 2 — TokenWinMemory recent winners.
         try {
             val winners = TokenWinMemory.getAllSaneWinners()
             for (w in winners.take(40)) {
                 if (w.mint.isBlank()) continue
+                if (w.mint in held8633) continue
                 if (candidates.containsKey(w.mint)) continue
                 val score = 200.0 + (w.pnlPercent.coerceIn(-500.0, 5_000.0))
                 candidates[w.mint] = HotMint(
@@ -130,31 +136,6 @@ object HotConvictionWarmup {
                     lastSeenMs = w.timestamp.takeIf { it > 0L } ?: now,
                     liquidityUsdEstimate = w.entryLiquidity,
                     mcapUsdEstimate = w.entryMcap,
-                )
-            }
-        } catch (_: Throwable) {}
-
-        // Layer 3 — GlobalTradeRegistry high-touch watchlist entries.
-        try {
-            val watch = GlobalTradeRegistry.getWatchlistEntries()
-            val ranked = watch
-                .filter { it.mint.isNotBlank() && it.initialLiquidityUsd >= 1_000.0 }
-                .sortedWith(
-                    compareByDescending<GlobalTradeRegistry.WatchlistEntry> { it.processCount }
-                        .thenByDescending { it.initialLiquidityUsd }
-                )
-                .take(30)
-            for (r in ranked) {
-                if (candidates.containsKey(r.mint)) continue
-                val score = 50.0 + r.processCount.coerceAtMost(200) + kotlin.math.ln(1.0 + r.initialLiquidityUsd) * 5.0
-                candidates[r.mint] = HotMint(
-                    mint = r.mint,
-                    symbol = r.symbol.ifBlank { r.mint.take(6) },
-                    source = "WATCHLIST_HIGH_TOUCH",
-                    convictionScore = score,
-                    lastSeenMs = r.lastSightedAt,  // V5.0.8631 — addedAt is the first admission now; the last sighting is this
-                    liquidityUsdEstimate = r.initialLiquidityUsd,
-                    mcapUsdEstimate = r.initialMcap,
                 )
             }
         } catch (_: Throwable) {}
@@ -230,6 +211,7 @@ object HotConvictionWarmup {
             if (mint.isBlank()) continue
             val lastSeen = o.optLong("lastSeenMs", now)
             if ((now - lastSeen) > ENTRY_TTL_MS) continue
+            if (!reseedEligible8633(o.optString("source"), held = false)) continue  // V5.0.8633 — legacy LIVE_HELD / high-touch rows
             entries[mint] = HotMint(
                 mint = mint,
                 symbol = o.optString("symbol").ifBlank { mint.take(6) },

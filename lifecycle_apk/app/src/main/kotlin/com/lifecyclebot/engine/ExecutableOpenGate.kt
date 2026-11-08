@@ -1297,6 +1297,8 @@ object ExecutableOpenGate {
         "COINGECKO", "COINGECKO_TRENDING",
         "SCANNER_DIRECT", "SCANNER_DIRECT_RAYDIUM_NEW_POOL", "SCANNER_DIRECT_DEX_TRENDING",
         "SCANNER_DIRECT_PUMP_FUN_NEW", "SCANNER_DIRECT_PUMP_FUN_GRADUATE",
+        // V5.0.8633 — the honest endpoint names (SourceTruth8633) are source buckets too, exactly as the labels they replace.
+        "DEX_PROFILES", "METEORA_POOL", "MARKET_SWEEP", "SCANNER_DIRECT_DEX_PROFILES", "SCANNER_DIRECT_METEORA_POOL",
     )
 
     private fun isSourceBucketLane(lane: String): Boolean =

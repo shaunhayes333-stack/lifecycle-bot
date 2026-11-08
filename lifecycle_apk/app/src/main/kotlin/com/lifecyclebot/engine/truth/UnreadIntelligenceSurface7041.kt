@@ -58,6 +58,7 @@ object UnreadIntelligenceSurface7041 {
             listOf(
                 "PUMP_FUN_NEW", "DEX_TRENDING", "PUMP_FUN_GRADUATE",
                 "RAYDIUM_NEW_POOL", "MEME_REGISTRY_RESTORE",
+                "DEX_PROFILES", "METEORA_POOL",  // V5.0.8633 — honest endpoint names
             ).map { it to com.lifecyclebot.engine.ScannerLearning.getSourceWinRate(it) }
         }?.let { rates ->
             sb.append("  ScannerLearning source WR (0.5 = no evidence yet):\n")

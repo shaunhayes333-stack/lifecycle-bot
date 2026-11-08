@@ -16,7 +16,7 @@ object ScannerDiversityBandit {
     // PUMP_FUN_GRADUATE. These are match tokens against the real enum names, pooled
     // by ScannerSourceBrain.familyIntakeMultiplier6856.
     private val familyMatchTokens = mapOf(
-        "DEX" to listOf("DEX_TRENDING", "DEX_GAINERS", "DEX_BOOSTED", "DEXSCREENER"),
+        "DEX" to listOf("DEX_TRENDING", "DEX_GAINERS", "DEX_BOOSTED", "DEXSCREENER", "DEX_PROFILES"),  // V5.0.8633 — profiles feed
         "COINGECKO" to listOf("COINGECKO"),
         "CMC" to listOf("COINMARKETCAP", "CMC"),
         "RAYDIUM" to listOf("RAYDIUM"),

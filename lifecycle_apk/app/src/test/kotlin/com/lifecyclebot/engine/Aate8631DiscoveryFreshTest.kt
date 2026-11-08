@@ -120,7 +120,8 @@ class Aate8631DiscoveryFreshTest {
         assertFalse("no re-sighting writes the admission time", reg.contains("existing.addedAt = now\n"))
         assertTrue(reg.contains("shouldDivertPumpToProbation(addedBy, source, initialMcap, laneAffinity, toolAffinity) &&\n            !freshCreatePumpShareExempt8631(mint, now)) {"))
         assertTrue(src("engine/FreshLaunchIntake8303.kt").substringAfter("fun park8303(").contains("noteHot8631(mint, nowMs)"))
-        assertTrue(src("engine/HotConvictionWarmup.kt").contains("lastSeenMs = r.lastSightedAt,"))
+        // superseded by V5.0.8633 — D8 drops the high-touch watchlist layer from the warmup entirely, so no watchlist row's time is read there any more; was: assertTrue(src("engine/HotConvictionWarmup.kt").contains("lastSeenMs = r.lastSightedAt,"))
+        assertFalse(src("engine/HotConvictionWarmup.kt").contains("source = \"WATCHLIST_HIGH_TOUCH\""))
         assertTrue(src("engine/truth/LaneAuthority8577.kt").contains(
             "private val RUNNER_LANES_8627: Set<String> = com.lifecyclebot.engine.DiscoveryFresh8631.RUNNER_LANE_MAX_AGE_MS_8631.keys"))
 

@@ -891,7 +891,7 @@ object CyclicTradeEngine {
         try {
             val src = best.source.uppercase()
             val phase = best.phase.lowercase()
-            if (src in setOf("DEX_BOOSTED", "DEX_TRENDING") &&
+            if (src in setOf("DEX_BOOSTED", "DEX_TRENDING", "DEX_PROFILES") &&  // V5.0.8633 — profiles under its own name
                 phase in setOf("early_unknown", "pre_pump", "unknown", "scanning", "idle")) {
                 val gate = 50 + ChopFilter.chopPenalty()
                 val tokenScore = (best.lastV3Score ?: best.entryScore.toInt())

@@ -51,7 +51,7 @@ object ScannerCanonicalDedupe6411 {
             s.contains("RAYDIUM") -> "RAYDIUM"
             s.contains("PUMP") -> "PUMP"
             s.contains("MEME_REGISTRY") -> "MEME_REGISTRY"
-            s.contains("DEX_TRENDING") || s.contains("DEX_BOOSTED") -> "DEXSCREENER"
+            s.contains("DEX_TRENDING") || s.contains("DEX_BOOSTED") || s.contains("DEX_PROFILES") -> "DEXSCREENER"  // V5.0.8633
             s.contains("COINGECKO") -> "COINGECKO"
             s.contains("SOLANA_BLUECHIP") -> "BLUECHIP"
             s.contains("BIRDEYE") -> "BIRDEYE"

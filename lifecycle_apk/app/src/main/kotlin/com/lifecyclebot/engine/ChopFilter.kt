@@ -30,6 +30,8 @@ object ChopFilter {
     private val CHOP_SOURCES = setOf(
         "DEX_BOOSTED",
         "DEX_TRENDING",
+        // V5.0.8633 — the profiles feed most DEX_TRENDING chop rows came from, under its own name now.
+        "DEX_PROFILES",
     )
 
     /** Phases where price direction is still unresolved. */
