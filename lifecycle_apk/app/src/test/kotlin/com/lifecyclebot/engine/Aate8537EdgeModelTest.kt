@@ -155,7 +155,9 @@ class Aate8537EdgeModelTest {
         // superseded (8567): the model holds log returns; the row prints the net % they mean (2.5 % = target8567(2.5))
         val s = EdgeModel8537.Snap(raw(), EdgeModel8537.vectorOf(raw()), EdgeModel8537.target8567(2.5), "GLOBAL", 1_700_000_000_000L, "MintX", true)
         val line = EdgeModel8537.datasetLine(s, -4.25)
-        assertTrue(line.startsWith("{\"t\":1700000000000,\"mint\":\"MintX\",\"lane\":\"SHITCOIN\""))
+        // superseded by V5.0.8628 — each row carries its label horizon after the time: was
+        // `line.startsWith("{\"t\":1700000000000,\"mint\":\"MintX\",\"lane\":\"SHITCOIN\"")`.
+        assertTrue(line.startsWith("{\"t\":1700000000000,\"horizonMs\":${s.horizonMs},\"mint\":\"MintX\",\"lane\":\"SHITCOIN\""))
         assertTrue(line.contains("\"liq\":20000.0,") || line.contains("\"liq\":20000,"))
         assertTrue(line.contains("\"pred\":2.50000") && line.contains("\"net\":-4.25000") && line.contains("\"flags\":0"))
         val py = File("../ci/edge_replay_8537.py").readText()
