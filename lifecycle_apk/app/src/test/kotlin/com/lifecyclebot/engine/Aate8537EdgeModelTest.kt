@@ -15,6 +15,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.io.File
+import org.json.JSONObject
 import kotlin.random.Random
 
 /**
@@ -30,6 +31,21 @@ class Aate8537EdgeModelTest {
     private fun raw(lane: String = "SHITCOIN", liq: Double = 20_000.0, bp: Double = 60.0, src: String = "PUMP_PORTAL",
                     phase: String = "IGNITION", flags: Int = 0) =
         Raw(lane, src, liq, 80_000.0, 12.0, 30.0, 0.8, 10.0, bp, 3.0, 20.0, 60.0, 15.0, phase, 40.0, 5.0, flags = flags)
+
+    @Test fun legacyGhostsAndUnfillableOutcomesNeverRebuildThePredictionModel() {
+        fun row(fill: Boolean, horizon: Long, cap: Double, net: Double) = JSONObject()
+            .put("lane", "MOONSHOT").put("fill", fill).put("horizonMs", horizon).put("mcap", cap).put("net", net)
+        assertTrue("genuine confirmed 10x low-cap launches remain learnable",
+            EdgeModel8537.replayAccept8642(row(true, 900_000, 15_000.0, 1_000.0)))
+        assertTrue(EdgeModel8537.replayAccept8642(row(true, 900_000, 200_000.0, -30.0)))
+        assertFalse("unfillable ghosts do not teach", EdgeModel8537.replayAccept8642(row(false, 900_000, 15_000.0, 1_000_000.0)))
+        assertFalse("legacy rows without horizon have no matching learning objective",
+            EdgeModel8537.replayAccept8642(row(true, 0, 15_000.0, 40.0)))
+        assertFalse("wrong horizon cannot distort a long-hold strategy",
+            EdgeModel8537.replayAccept8642(row(true, 300_000, 15_000.0, 40.0)))
+        assertFalse("million-dollar-cap million-percent seed ghosts are rejected",
+            EdgeModel8537.replayAccept8642(row(true, 900_000, 2_960_000.0, 1_406_280_000.0)))
+    }
 
     @Test fun bins_and_vector_layout() {
         assertEquals(0, EdgeModel8537.binOf(Double.NaN, EdgeModel8537.LIQ_EDGES))

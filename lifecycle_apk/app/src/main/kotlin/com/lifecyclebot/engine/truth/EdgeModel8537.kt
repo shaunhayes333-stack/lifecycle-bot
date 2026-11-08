@@ -52,6 +52,9 @@ object EdgeModel8537 {
     private const val DATASET_MAX_LINES = 60_000
     private const val MODEL_FILE = "edge_model_8537.bin"
     private const val DATASET_FILE = "edge_dataset_8537.jsonl"
+    // V5.0.8642 — the old binary included false-priced/seed-basis outcomes before 8617 started excluding them.
+    // DIM alone cannot attest the model's evidence quality, so a validated epoch is now part of the format.
+    internal const val MODEL_EPOCH_8642 = 8642
 
     // ── features ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -144,7 +147,7 @@ object EdgeModel8537 {
         var weights: DoubleArray? = null
         private var sinceSolve = 0
 
-        fun learn(x: DoubleArray, y: Double, forget: Double = FORGET) {
+        fun learn(x: DoubleArray, y: Double, forget: Double = FORGET, solveNow: Boolean = true) {
             if (forget < 1.0) { for (i in xtx.indices) xtx[i] *= forget; for (i in xty.indices) xty[i] *= forget; n *= forget }
             for (i in 0 until dim) {
                 val xi = x[i]; if (xi == 0.0) continue
@@ -153,7 +156,15 @@ object EdgeModel8537 {
                 for (j in 0 until dim) { val xj = x[j]; if (xj != 0.0) xtx[row + j] += xi * xj }
             }
             n += 1.0; count++
-            if (++sinceSolve >= SOLVE_EVERY || weights == null) { weights = solve(); sinceSolve = 0 }
+            sinceSolve++
+            if (solveNow && (sinceSolve >= SOLVE_EVERY || weights == null)) { weights = solve(); sinceSolve = 0 }
+        }
+
+        fun finishReplay8642() { weights = solve(); sinceSolve = 0 }
+
+        fun clear8642() {
+            java.util.Arrays.fill(xtx, 0.0); java.util.Arrays.fill(xty, 0.0)
+            n = 0.0; count = 0; weights = null; sinceSolve = 0
         }
 
         fun predict(x: DoubleArray): Double {
@@ -212,11 +223,14 @@ object EdgeModel8537 {
     private val oos = HashMap<String, Oos>()
     private val learned = AtomicLong(0)
     private val skippedCold = AtomicLong(0)
+    private val oldPredictionsIgnored8642 = AtomicLong(0)
+    @Volatile private var replayStatus8642 = "not-needed"
     @Volatile private var loaded = false
     private val io = Executors.newSingleThreadExecutor { r -> Thread(r, "AATE-EdgeModel8537").apply { isDaemon = true } }
 
     /** A decision's frozen features and the prediction made at that moment. */
-    class Snap(val raw: Raw, val x: DoubleArray, val pred: Double, val modelKey: String, val atMs: Long, val mint: String, val admitted: Boolean, val horizonMs: Long = 0L)
+    class Snap(val raw: Raw, val x: DoubleArray, val pred: Double, val modelKey: String, val atMs: Long, val mint: String,
+               val admitted: Boolean, val horizonMs: Long = 0L, val modelEpoch: Int = MODEL_EPOCH_8642)
 
     // V5.0.8571 — the frozen decision snapshot travels with the labeler's pending checkpoint. It was memory-only, so every
     // observation restored after a restart (2,414 in the 8562 session) could never train the model: an hour-graded meme
@@ -233,6 +247,7 @@ object EdgeModel8537 {
             "costPct" to r.costPct, "holderVel" to r.holderVel, "txVel" to r.txVel, "curve" to r.curve, "turnover" to r.turnover,
         ).forEach { (k, v) -> raw.put(k, d8571(v)) }
         return org.json.JSONObject().put("raw", raw).put("pred", d8571(s.pred)).put("horizonMs", s.horizonMs)
+            .put("modelEpoch", s.modelEpoch)
             .put("key", s.modelKey).put("at", s.atMs).put("mint", s.mint).put("admitted", s.admitted)
     }
 
@@ -245,7 +260,8 @@ object EdgeModel8537 {
                 d8571(r, "runup"), d8571(r, "pxPeak"), d8571(r, "dd"), d8571(r, "bp"), d8571(r, "chg5m"), d8571(r, "chg1h"),
                 d8571(r, "volAccel"), d8571(r, "top"), r.optString("phase"), d8571(r, "v3"), d8571(r, "costPct"),
                 d8571(r, "holderVel"), d8571(r, "txVel"), d8571(r, "curve"), d8571(r, "turnover"), r.optInt("flags"))
-            Snap(raw, vectorOf(raw), d8571(j, "pred"), j.optString("key"), j.optLong("at"), j.optString("mint"), j.optBoolean("admitted"), j.optLong("horizonMs"))
+            Snap(raw, vectorOf(raw), d8571(j, "pred"), j.optString("key"), j.optLong("at"), j.optString("mint"),
+                j.optBoolean("admitted"), j.optLong("horizonMs"), j.optInt("modelEpoch", 0))
         } catch (_: Throwable) { null }
     }
 
@@ -331,7 +347,11 @@ object EdgeModel8537 {
         }
         val y = target8567(netPct)
         synchronized(this) {
-            if (s.pred.isFinite()) oos.getOrPut(recordKey(s.raw.lane, s.modelKey)) { Oos() }.add(s.pred, netPct) else skippedCold.incrementAndGet()
+            // A pending observation from the old model can teach its verified outcome, but its prediction
+            // was made under a contaminated model. It must never earn walk-forward authority in this epoch.
+            if (s.modelEpoch != MODEL_EPOCH_8642) oldPredictionsIgnored8642.incrementAndGet()
+            else if (s.pred.isFinite()) oos.getOrPut(recordKey(s.raw.lane, s.modelKey)) { Oos() }.add(s.pred, netPct)
+            else skippedCold.incrementAndGet()
             global.learn(s.x, y)
             byLane.getOrPut(s.raw.lane) { Ridge(DIM) }.learn(s.x, y)
         }
@@ -373,12 +393,64 @@ object EdgeModel8537 {
         if (loaded) return
         synchronized(this) {
             if (loaded) return
-            loaded = true
             try {
                 val f = File(dir() ?: return, MODEL_FILE)
-                if (f.exists()) DataInputStream(f.inputStream().buffered()).use { readLocked(it) }
-            } catch (_: Throwable) { try { PipelineHealthCollector.labelInc("EDGE_MODEL_LOAD_FAILED_8537") } catch (_: Throwable) {} }
+                val current = f.exists() && DataInputStream(f.inputStream().buffered()).use { readLocked(it) }
+                if (!current) {
+                    // No opaque pre-8617 sufficient statistics or OOS verdicts survive. Original file remains
+                    // untouched until a clean replay is saved; the raw labelled dataset is never deleted.
+                    clearModel8642()
+                    val (seen, used) = replayDataset8642(File(f.parentFile, DATASET_FILE))
+                    replayStatus8642 = "rebuilt:$used/$seen"
+                    try { PipelineHealthCollector.labelInc("EDGE_MODEL_REPLAY_VERIFIED_8642") } catch (_: Throwable) {}
+                }
+                loaded = true
+                if (!current) saveNow()
+            } catch (_: Throwable) {
+                clearModel8642(); loaded = true; replayStatus8642 = "failed-cold"
+                try { PipelineHealthCollector.labelInc("EDGE_MODEL_LOAD_FAILED_8537") } catch (_: Throwable) {}
+            }
         }
+    }
+
+    private fun clearModel8642() {
+        global.clear8642(); byLane.clear(); oos.clear()
+    }
+
+    /** Only real, fillable, plausible labels at the lane's intended horizon can seed a prediction model. */
+    internal fun replayAccept8642(row: org.json.JSONObject): Boolean {
+        if (!row.optBoolean("fill", false)) return false
+        val lane = row.optString("lane")
+        val horizon = row.optLong("horizonMs", 0L)
+        if (lane.isBlank() || horizon <= 0L || horizon != PocketLedger8610.targetHorizon(lane)) return false
+        val net = row.optDouble("net", Double.NaN)
+        return plausible8617(row.optDouble("mcap", Double.NaN), net)
+    }
+
+    /** One streaming replay, not readLines(): the 24 MB dataset cannot be copied wholesale onto Android's heap. */
+    private fun replayDataset8642(file: File): Pair<Int, Int> {
+        if (!file.isFile) return 0 to 0
+        var seen = 0; var used = 0
+        file.forEachLine { line ->
+            if (seen++ >= DATASET_MAX_LINES) return@forEachLine
+            try {
+                val o = org.json.JSONObject(line)
+                if (!replayAccept8642(o)) return@forEachLine
+                fun d(k: String) = o.optDouble(k, Double.NaN)
+                val r = Raw(o.optString("lane").trim().uppercase(), o.optString("src"), d("liq"), d("mcap"), d("age"),
+                    d("runup"), d("pxPeak"), d("dd"), d("bp"), d("chg5m"), d("chg1h"), d("volAccel"), d("top"),
+                    o.optString("phase"), d("v3"), d("cost"), d("holderVel"), d("txVel"), d("curve"), d("turnover"), o.optInt("flags"))
+                val x = vectorOf(r)
+                val y = target8567(d("net"))
+                global.learn(x, y, solveNow = false)
+                byLane.getOrPut(r.lane) { Ridge(DIM) }.learn(x, y, solveNow = false)
+                used++
+            } catch (_: Throwable) { /* corrupted dataset row is excluded, never used as an outcome */ }
+        }
+        if (used > 0) { global.finishReplay8642(); byLane.values.forEach { it.finishReplay8642() } }
+        // Historical predictions cannot supply a valid OOS bar; newly issued epochs earn authority afresh.
+        oos.clear()
+        return seen to used
     }
 
     private fun writeRidge(o: DataOutputStream, r: Ridge) {
@@ -394,8 +466,8 @@ object EdgeModel8537 {
         r.weights = r.solve()
     }
 
-    private fun readLocked(i: DataInputStream) {
-        if (i.readInt() != DIM) return            // a changed feature layout starts fresh rather than misreading
+    private fun readLocked(i: DataInputStream): Boolean {
+        if (i.readInt() != DIM || i.readInt() != MODEL_EPOCH_8642) return false
         readRidge(i, global)
         repeat(i.readInt()) { val l = i.readUTF(); readRidge(i, byLane.getOrPut(l) { Ridge(DIM) }) }
         repeat(i.readInt()) {
@@ -404,6 +476,7 @@ object EdgeModel8537 {
             o.selN = i.readInt(); o.selSum = i.readDouble(); o.selSq = i.readDouble(); o.selWin = i.readInt()
             o.allN = i.readInt(); o.allSum = i.readDouble(); o.negN = i.readInt(); o.negSum = i.readDouble()
         }
+        return true
     }
 
     private fun saveAsync() { io.execute { saveNow() } }
@@ -417,6 +490,7 @@ object EdgeModel8537 {
             DataOutputStream(tmp.outputStream().buffered()).use { o ->
                 synchronized(this) {
                     o.writeInt(DIM)
+                    o.writeInt(MODEL_EPOCH_8642)
                     writeRidge(o, global)
                     o.writeInt(byLane.size); for ((l, r) in byLane) { o.writeUTF(l); writeRidge(o, r) }
                     o.writeInt(oos.size); for ((l, s) in oos) {
@@ -438,7 +512,7 @@ object EdgeModel8537 {
             "\"dd\":${n(r.dd)},\"bp\":${n(r.bp)},\"chg5m\":${n(r.chg5m)},\"chg1h\":${n(r.chg1h)},\"volAccel\":${n(r.volAccel)}," +
             "\"top\":${n(r.top)},\"holderVel\":${n(r.holderVel)},\"txVel\":${n(r.txVel)},\"curve\":${n(r.curve)},\"turnover\":${n(r.turnover)}," +
             "\"flags\":${r.flags},\"phase\":\"${r.phase}\",\"v3\":${n(r.v3)},\"cost\":${n(r.costPct)},\"admitted\":${s.admitted}," +
-            "\"pred\":${n(netOf8567(s.pred))},\"model\":\"${s.modelKey}\",\"net\":${n(net)},\"fill\":$filled}"
+            "\"pred\":${n(netOf8567(s.pred))},\"model\":\"${s.modelKey}\",\"modelEpoch\":${s.modelEpoch},\"net\":${n(net)},\"fill\":$filled}"
     }
 
     /**
@@ -453,6 +527,7 @@ object EdgeModel8537 {
         appendDataset(s, netPct, filled = false)
     }
     private val unfilled8546 = AtomicLong(0)
+    private val lastTrimMilestone8642 = AtomicLong(0)
 
     private fun appendDataset(s: Snap, net: Double, filled: Boolean = true) {
         val line = try { datasetLine(s, net, filled) } catch (_: Throwable) { return }
@@ -460,12 +535,27 @@ object EdgeModel8537 {
             try {
                 val f = File(dir() ?: return@execute, DATASET_FILE)
                 f.appendText(line + "\n")
-                if (learned.get() % 5_000L == 0L && f.length() > 0) {
-                    val lines = f.readLines()
-                    if (lines.size > DATASET_MAX_LINES) f.writeText(lines.takeLast(DATASET_MAX_LINES / 2 * 3 / 2).joinToString("\n", postfix = "\n"))
+                // 8642: readLines() materialised 24+ MB of JSON and its objects during a heap-starved trading loop.
+                // Count/check once per 5k fresh labels; stream the retained tail on the model's single IO worker.
+                val milestone = learned.get() / 5_000L
+                if (milestone > lastTrimMilestone8642.get() && lastTrimMilestone8642.getAndSet(milestone) < milestone) {
+                    trimDataset8642(f)
                 }
             } catch (_: Throwable) {}
         }
+    }
+
+    private fun trimDataset8642(file: File) {
+        var lines = 0
+        file.forEachLine { lines++ }
+        if (lines <= DATASET_MAX_LINES) return
+        val skip = lines - 45_000
+        val tmp = File(file.parentFile, "$DATASET_FILE.trim")
+        var idx = 0
+        tmp.bufferedWriter().use { out ->
+            file.forEachLine { line -> if (idx++ >= skip) out.appendLine(line) }
+        }
+        if (!tmp.renameTo(file)) tmp.delete() // preserve the original if replacement fails
     }
 
     /** The dataset file (for the report's Save to Downloads), or null. */
@@ -482,14 +572,14 @@ object EdgeModel8537 {
             val auth = o != null && authority(o.selN, o.selMean, o.selSe, o.allMean)
             "$l[n${r?.count ?: 0} oosPicks=n${o?.selN ?: 0}/${pct(o?.selMean)}±${pct(o?.selSe)} all=${pct(o?.allMean)} avoid=${pct(o?.negMean)} ${if (auth) "AUTHORITY" else "learning"}]"
         }
-        "edge8537[trained=${global.count} learned=${learned.get()} cold=${skippedCold.get()} implausible8617=${implausible8617.get()} minEdge=+${MIN_EDGE_PCT}% authBar=n$AUTH_MIN_N,mean-se>0,>lane] ${rows.ifBlank { "no labels yet" }}"
+        "edge8537[trained=${global.count} learned=${learned.get()} cold=${skippedCold.get()} implausible8617=${implausible8617.get()} oldPredIgnored8642=${oldPredictionsIgnored8642.get()} replay8642=$replayStatus8642 minEdge=+${MIN_EDGE_PCT}% authBar=n$AUTH_MIN_N,mean-se>0,>lane] ${rows.ifBlank { "no labels yet" }}"
     }
 
     private fun pct(v: Double?) = if (v != null && v.isFinite()) "%+.1f%%".format(v) else "-"
 
     internal fun resetForTest8537() = synchronized(this) {
         byLane.clear(); oos.clear(); learned.set(0); skippedCold.set(0); loaded = true
-        java.util.Arrays.fill(global.xtx, 0.0); java.util.Arrays.fill(global.xty, 0.0); global.n = 0.0; global.count = 0; global.weights = null
+        global.clear8642(); oldPredictionsIgnored8642.set(0); replayStatus8642 = "test"
     }
 
     /** Test seam: learn one labelled raw observation directly (no file IO). */

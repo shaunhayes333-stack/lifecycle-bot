@@ -16,6 +16,7 @@ object LaunchHour8628 {
     private class Write(val sql: String, val args: Array<out Any>)
     private val queue = ArrayBlockingQueue<Write>(8192)
     private val dropped = AtomicLong()
+    private val rejectedUnitMismatch8642 = AtomicLong()
     private val worker by lazy {
         Thread({ drain() }, "AATE-launch-hour").apply { isDaemon = true; start() }
     }
@@ -30,10 +31,24 @@ object LaunchHour8628 {
             record("INSERT OR IGNORE INTO birth VALUES(?,?)", mint, ms)
     }
 
-    fun trade(mint: String, at: Long, sig: String, buy: Boolean, sol: Double, qty: Double) {
+    /**
+     * A signed trade's SOL/token quantity must agree with its independently decoded pool/curve price.
+     * When one feed uses raw token units rather than UI-decimal tokens, sol/qty can print a phantom 10^6x peak.
+     * Do not put that print into the first-hour runner/learning record. The tolerance accommodates steep curves.
+     */
+    internal fun observedPrice8642(sol: Double, qty: Double, referencePriceSol: Double): Double? {
+        if (!sol.isFinite() || sol <= 0 || !qty.isFinite() || qty <= 0 ||
+            !referencePriceSol.isFinite() || referencePriceSol <= 0) return null
         val px = sol / qty
-        if (sig.isBlank() || sol <= 0 || qty <= 0 || !px.isFinite() || px <= 0 ||
-            System.currentTimeMillis() - at !in 0L..RETENTION) return
+        if (!px.isFinite() || px <= 0) return null
+        val multiple = px / referencePriceSol
+        return px.takeIf { multiple.isFinite() && multiple in (1.0 / 8.0)..8.0 }
+    }
+
+    fun trade(mint: String, at: Long, sig: String, buy: Boolean, sol: Double, qty: Double, referencePriceSol: Double) {
+        if (sig.isBlank() || System.currentTimeMillis() - at !in 0L..RETENTION) return
+        val px = observedPrice8642(sol, qty, referencePriceSol)
+        if (px == null) { rejectedUnitMismatch8642.incrementAndGet(); return }
         record("INSERT OR IGNORE INTO trade VALUES(?,?,?,?,?)", mint, at, sig, if (buy) 1 else 0, px)
     }
 
@@ -134,7 +149,8 @@ object LaunchHour8628 {
                 }
 
                 out.bufferedWriter().use { w ->
-                    w.appendLine(JSONObject().put("exportMs", now).put("droppedThisProcess", dropped.get()).toString())
+                    w.appendLine(JSONObject().put("exportMs", now).put("droppedThisProcess", dropped.get())
+                        .put("unitMismatchRejected8642", rejectedUnitMismatch8642.get()).toString())
                     db.rawQuery("SELECT m,min(b) FROM birth WHERE rowid <= ${limits[0]} GROUP BY m HAVING min(b)>=CAST(? AS INTEGER) ORDER BY min(b)",
                         arrayOf((now - RETENTION).toString())).use { births ->
                         while (births.moveToNext()) {

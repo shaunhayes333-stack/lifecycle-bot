@@ -328,7 +328,8 @@ object HeliusCurveTape8354 {
         // real SOL and liquidity tick of that coin (bounded store, 60-min TTL). 8471 dropped 1,828 of 2,368 decoded prints
         // and their reserves with them, while the labeler lost 1,519 marks for want of a source.
         try { com.lifecyclebot.engine.truth.CurveReserves7951.noteFrame7951(mint, ev.virtualSol, ev.virtualTokens) } catch (_: Throwable) {}
-        com.lifecyclebot.engine.truth.LaunchHour8628.trade(mint, PumpSwapTape8307.eventMs8307(ev.timestampSec, nowMs), sig, ev.isBuy, ev.sol, ev.tokens)
+        com.lifecyclebot.engine.truth.LaunchHour8628.trade(mint, PumpSwapTape8307.eventMs8307(ev.timestampSec, nowMs), sig,
+            ev.isBuy, ev.sol, ev.tokens, priceSol)
         if (!cares8354(mint, nowMs)) { dropped.incrementAndGet(); return false }
         val key = com.lifecyclebot.engine.truth.LaunchEvidence8136.dedupKey8136(mint, sig, ev.user, ev.isBuy, ev.sol, ev.virtualSol, ev.virtualTokens)
         if (!com.lifecyclebot.engine.truth.LaunchEvidence8136.noteSwap8136(mint, key)) { duplicates.incrementAndGet(); return false }

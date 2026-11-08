@@ -80,4 +80,14 @@ class Aate8584RunnerDoctrineTest {
         assertTrue(RunnerDoctrine8584.heldCount8584() >= 1L)
         assertTrue(RunnerDoctrine8584.statusLine8584().startsWith("runnerDoctrine8584[on="))
     }
+
+    @Test fun rapidLegacyPeakProfitRulesCannotOutraceTheDoctrineOnMemeRunners() {
+        val rapid = File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val legacyPeak = rapid.substringAfter("val doctrineOwnsProfit8642 =").substringBefore("val explicitPeakLockFloor4301")
+        assertTrue("legacy full cuts and trails are not a second meme profit owner", legacyPeak.contains("!doctrineOwnsProfit8642"))
+        assertTrue("actual distribution safety remains live", legacyPeak.contains("Verdict.DISTRIBUTION_EXIT"))
+        assertTrue(rapid.contains("doctrineOwnsProfit8642 -> Double.NEGATIVE_INFINITY"))
+        assertTrue(rapid.contains("val giveBackTrigger = !RunnerDoctrine8584.profitTakingOwned8630("))
+        assertTrue(rapid.contains("if (doctrineTrail8630(ts, pnlPct, peakGainPct, wallet, effectiveBalance)) return true"))
+    }
 }

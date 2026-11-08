@@ -21,7 +21,10 @@ class Aate8582BuyThePullbackTest {
         // V5.0.8603 — the "spiking" leg is removed: a launch up 12 % in 5 min is not refused (it refused the runners: 3.1 %
         // went +100 % vs 1.7 % of the coins it passed, 18,735 labelled decisions).
         assertFalse(LaneAuthority8577.memeBuysTheHigh8582("MOONSHOT", 0.85, 20.0, 50.0))
-        assertTrue(LaneAuthority8577.memeBuysTheHigh8582("EXPRESS", 0.85, 20.0, 72.0))      // buyers crowded
+        assertFalse("a breakout can have strong buyers without being a chase",
+            LaneAuthority8577.memeBuysTheHigh8582("EXPRESS", 0.85, 20.0, 72.0))
+        assertTrue("an actual price peak still binds with strong buyers",
+            LaneAuthority8577.memeBuysTheHigh8582("EXPRESS", 0.99, 20.0, 72.0))
         assertFalse(LaneAuthority8577.memeBuysTheHigh8582("SHITCOIN", 0.82, 40.0, 35.0))   // 18 % off the peak, sellers in control
         assertFalse(LaneAuthority8577.memeBuysTheHigh8582("SHITCOIN", 1.0, 0.0, 50.0))      // flat, never ran: not "the high"
         assertFalse(LaneAuthority8577.memeBuysTheHigh8582("SHITCOIN", Double.NaN, Double.NaN, Double.NaN))  // unknown never refuses

@@ -85,9 +85,10 @@ object LaneAuthority8577 {
      *
      * V5.0.8603 — the "spiking" leg (up >= 10 % in 5 min) is removed. On 18,735 labelled decisions (edge 1794038024285,
      * managed stop -20 / ride +400) the coins it refused were the RUNNERS: 3.1 % went +100 % vs 1.7 % of the coins it passed
-     * (all meme lanes 3.0 % vs 1.7 %). A launch being bought is up in its first 5 minutes by definition. The two legs that
-     * do separate losers stay: at the high after a run (refused -4.7 % / 1.1 % runners vs passed -1.6 % / 2.3 %) and crowded
-     * buyers (refused -4.4 % vs passed -0.4 %).
+     * (all meme lanes 3.0 % vs 1.7 %). A launch being bought is up in its first 5 minutes by definition.
+     * V5.0.8642 — buy pressure alone is not an at-the-high signal. BASE_BREAKOUT_FLOW requires >=60% buy share,
+     * and the November 9 filled-horizon export does not justify vetoing that feature independently of price.
+     * Keep the actual price-versus-peak chase guard; leave tape quality to the setup.
      */
     const val MEME_BUYS_THE_HIGH_8582 = "MEME_BUYS_THE_HIGH_8582"
     private val MEME_LANES_8582 = setOf("SHITCOIN", "MOONSHOT", "EXPRESS", "PROJECT_SNIPER", "MANIPULATED", "DIP_HUNTER",
@@ -96,8 +97,7 @@ object LaneAuthority8577 {
     fun memeBuysTheHigh8582(lane: String, pxPeak: Double, runupPct: Double, buyPressurePct: Double): Boolean {
         if (lane.trim().uppercase() !in MEME_LANES_8582) return false
         val atHigh = pxPeak.isFinite() && pxPeak >= 0.97 && runupPct.isFinite() && runupPct >= 5.0
-        val buyersCrowded = buyPressurePct.isFinite() && buyPressurePct >= 60.0
-        return atHigh || buyersCrowded
+        return atHigh
     }
 
     // superseded by V5.0.8626 — 8604 deleted the runtime read that fed [memeBuysTheHigh8582] into LIVE so live would "decide
