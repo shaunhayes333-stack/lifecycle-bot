@@ -288,7 +288,7 @@ class Aate8144AdmissionTest {
         val admission = src("engine/truth/CandidateAdmission8136.kt")
         // superseded by V5.0.8577 — the decision passes through LaneAuthority8577.apply8577 (learned doors advisory for a lane-qualified LIVE coin).
         // superseded by V5.0.8604 — LIVE takes the paper book's decision (doors off) inside the same coalesced-defer chain.
-        assertTrue(admission.contains("coalescedDefer8144(ts.mint, candidate.lane, identity, version, mode, nowMs) else null) ?: LaneAuthority8577.apply8577(candidate,\n            decide8136(candidate.copy(live = false)) { false }, null,\n            launchPhase8609 = "))  // V5.0.8609
+        assertTrue(admission.contains("coalescedDefer8144(ts.mint, candidate.lane, identity, version, mode, nowMs) else null) ?: LaneAuthority8577.apply8577(candidate,\n            decide8136(candidate.copy(live = false)) { false },\n            if (candidate.live) LaneAuthority8577.memeEntryRefusal8626(ts, candidate.lane, candidate.stage, nowMs) else null,  // V5.0.8626\n            launchPhase8609 = "))  // V5.0.8609
         assertTrue(admission.contains("if (h.candidateVersion != candidateVersion || h.mode != mode) return null"))
         assertTrue(admission.contains("if (h.candidate != cacheIdentity8144(candidate)) return null"))
     }

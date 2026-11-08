@@ -35,13 +35,26 @@ class Aate8582BuyThePullbackTest {
         val r = LaneAuthority8577.apply8577(c, admit, LaneAuthority8577.MEME_BUYS_THE_HIGH_8582)
         assertEquals(Terminal8136.REFUSE, r.terminal); assertEquals(LaneAuthority8577.MEME_BUYS_THE_HIGH_8582, r.reason)
         assertSame(admit, LaneAuthority8577.apply8577(c.copy(live = false), admit, LaneAuthority8577.MEME_BUYS_THE_HIGH_8582))
-        // superseded by V5.0.8604 — LIVE decides like the paper book: the re-bound chase / high doors are advisory, and the
-        // runtime no longer injects the buys-the-high veto into the live admission.
+        // V5.0.8604 — the other chase / high doors stay advisory (their refused records were thin and not negative).
         assertFalse(LaneAuthority8577.binding8577("LIVE_INTO_HIGH_UNPROVEN_8545"))
         assertFalse(LaneAuthority8577.binding8577("CHASING_SPIKE_8065"))
         assertFalse("V5.0.8603 — the deleted 8555 chase guard no longer binds", LaneAuthority8577.binding8577("CHASE_AT_HIGH_8555"))
         assertTrue("hard safety still binds", LaneAuthority8577.binding8577("RUG_PREFILTER_HARD_FAIL"))
         val adm = File("src/main/kotlin/com/lifecyclebot/engine/truth/CandidateAdmission8136.kt").readText()
-        assertFalse(adm.contains("LaneAuthority8577.memeHighRefusal8582("))
+        // V5.0.8626 — the read is back in the live admission (paper's profit was stale lost marks), with the coin's stage.
+        assertTrue(adm.contains("if (candidate.live) LaneAuthority8577.memeEntryRefusal8626(ts, candidate.lane, candidate.stage, nowMs) else null"))
+        assertTrue(LaneAuthority8577.binding8577(LaneAuthority8577.MEME_BUYS_THE_HIGH_8582))
+        assertTrue(LaneAuthority8577.binding8577(LaneAuthority8577.LIVE_STAGE_LOSES_8626))
+    }
+
+    @Test fun liveDoesNotBuyAtThePeakOrInTheDumpUntilTheLaneProvesItThere() {
+        assertTrue("14:12 SHITCOIN PEAK n23 -52.1", LaneAuthority8577.stageLoses8626("PEAK_EXHAUSTION", 23, -52.1, 10.0))
+        assertTrue("14:12 EXPRESS DUMP n56 -39.5", LaneAuthority8577.stageLoses8626("DUMPING", 56, -39.5, 5.0))
+        assertTrue("a thin positive record has not turned", LaneAuthority8577.stageLoses8626("DUMPING", 12, 20.0, 5.0))
+        assertFalse("a lane that proves the stage pays may buy it", LaneAuthority8577.stageLoses8626("DUMPING", 40, 12.0, 4.0))
+        assertFalse(LaneAuthority8577.stageLoses8626("FRESH_LAUNCH", 50, -10.0, 2.0))
+        assertFalse(LaneAuthority8577.stageLoses8626("CONTROLLED_MARKUP", 50, -10.0, 2.0))
+        assertFalse("unknown stage never refuses", LaneAuthority8577.stageLoses8626(null, 0, Double.NaN, Double.NaN))
+        assertFalse(LaneAuthority8577.stageLoses8626("", 0, Double.NaN, Double.NaN))
     }
 }

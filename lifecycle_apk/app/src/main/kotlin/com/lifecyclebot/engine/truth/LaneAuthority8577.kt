@@ -24,6 +24,8 @@ object LaneAuthority8577 {
 
     /** A refusal the designed authority keeps: hard safety, structure, the executable minimum, the kill switch. */
     private val BINDING_8577 = listOf(
+        // V5.0.8626 — the live entry-state refusals (memeEntryRefusal8626) bind.
+        "MEME_BUYS_THE_HIGH_8582", "LIVE_STAGE_LOSES_8626",
         "SAFETY_REFUSED", "STRUCTURAL_RISK", "RUG", "FREEZE", "MINT_AUTH", "TOKEN_2022", "TOKEN2022", "T22_", "HOSTILE",
         "HONEYPOT", "SELLAB", "UNSELLABLE", "MAYHEM", "BLACKLIST", "HARD_BLOCK", "LIQ_TOO_LOW", "LIQUIDITY_FLOOR",
         "LIQUIDITY_COLLAPSE", "LANE_LIQ", "EXIT_SAFE", "IDENTITY", "PRICE_BASIS", "BASIS_PROOF", "UNTRUSTED_MARK", "WALLET",
@@ -96,8 +98,38 @@ object LaneAuthority8577 {
         return atHigh || buyersCrowded
     }
 
-    // V5.0.8604 — memeHighRefusal8582 (the runtime read that fed this veto into every LIVE admission) is deleted: LIVE now
-    // decides like the paper book. [memeBuysTheHigh8582] stays as the pure read of the two data-backed legs.
+    // superseded by V5.0.8626 — 8604 deleted the runtime read that fed [memeBuysTheHigh8582] into LIVE so live would "decide
+    // like the paper book". That book's profit was lost-mark closes at stale marks (8622: 198 of 241 closes, +6.3 SOL, while
+    // every priced exit lost -0.6 SOL; fixed 8623), and live went on buying tops: 14:12 dump runnerAdmits8297 live
+    // LOSS_BOUGHT_TOP=40 of 63. The read is restored below as [memeEntryRefusal8626], with the coin's stage.
+
+    /**
+     * V5.0.8626 §NO_LIVE_BUY_AT_THE_PEAK_OR_IN_THE_DUMP — the bot's own forward record by the coin's stage at decision
+     * (14:12 dump, 5-min executable net): PEAK_EXHAUSTION SHITCOIN n23 -52.1 %, MOONSHOT n24 -34.2 %, EXPRESS n21 -20.0 %,
+     * PROJECT_SNIPER n13 -49.9 %, MANIPULATED n16 -14.7 %, DIP_HUNTER n8 -33.0 %; DUMPING n50 -33.0 %, n55 -38.5 %, n56 -39.5 %,
+     * n22 -44.4 %, n46 -39.2 %, n11 -51.9 % — every lane, both stages, and they are ~3/4 of what the lanes are offered. LAUNCH
+     * and BREAKOUT were the positive cells. A live meme entry in either stage is refused unless that lane's own record at that
+     * stage has turned: n >= 30 and mean - se > 0. Unknown stage never refuses.
+     */
+    const val LIVE_STAGE_LOSES_8626 = "LIVE_STAGE_LOSES_8626"
+    private val LOSING_STAGES_8626 = setOf("PEAK_EXHAUSTION", "DUMPING")
+
+    /** Pure: is a live entry at [stage] refused, given the lane's own record there (n, mean %, se %)? */
+    fun stageLoses8626(stage: String?, n: Int, mean: Double, se: Double): Boolean {
+        val st = stage?.trim()?.uppercase() ?: return false
+        return st in LOSING_STAGES_8626 && !(n >= 30 && mean.isFinite() && se.isFinite() && mean - se > 0.0)
+    }
+
+    /** CandidateAdmission8136.assess8136 (LIVE): the refusal of a meme entry at the high or at a losing stage, else null. */
+    fun memeEntryRefusal8626(ts: com.lifecyclebot.data.TokenState, lane: String, stage: String?, nowMs: Long): String? {
+        val l = lane.trim().uppercase()
+        if (l !in MEME_LANES_8582) return null
+        val f = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.features(ts, nowMs) } catch (_: Throwable) { null }
+        if (f != null && memeBuysTheHigh8582(l, f.pxPeak, f.runup, f.bp)) return MEME_BUYS_THE_HIGH_8582
+        val st = if (stage.isNullOrBlank()) null else try { ForwardReturnLabeler7731.stageStatFor7928(l, stage) } catch (_: Throwable) { null }
+        return if (stageLoses8626(stage, st?.n60 ?: 0, st?.meanNet60Pct ?: Double.NaN, st?.stderr60Pct ?: Double.NaN))
+            LIVE_STAGE_LOSES_8626 else null
+    }
 
     /** Pure: does [reason] bind under lane authority? Everything not listed is a learned door, advisory for a qualified coin. */
     fun binding8577(reason: String?): Boolean {

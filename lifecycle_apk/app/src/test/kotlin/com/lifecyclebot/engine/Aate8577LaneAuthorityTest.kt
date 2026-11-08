@@ -104,7 +104,7 @@ class Aate8577LaneAuthorityTest {
     @Test fun the_runtime_applies_it_at_the_admission_and_the_gate_and_the_doors_keep_learning() {
         val adm = File("src/main/kotlin/com/lifecyclebot/engine/truth/CandidateAdmission8136.kt").readText()
         // V5.0.8604 — LIVE takes the paper book's exact decision (every learned door off) before lane authority.
-        assertTrue(adm.contains("LaneAuthority8577.apply8577(candidate,\n            decide8136(candidate.copy(live = false)) { false }, null,\n            launchPhase8609 = "))  // V5.0.8609
+        assertTrue(adm.contains("LaneAuthority8577.apply8577(candidate,\n            decide8136(candidate.copy(live = false)) { false },\n            if (candidate.live) LaneAuthority8577.memeEntryRefusal8626(ts, candidate.lane, candidate.stage, nowMs) else null,  // V5.0.8626\n            launchPhase8609 = "))  // V5.0.8609
         val gate = File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveEdgeGate7877.kt").readText()
         val fn = gate.substringAfter("fun liveRefusal(").substringBefore("private fun unprovenLive8536(")
         assertTrue(fn.contains("val advisory8577 = !paper && LaneAuthority8577.advisoryAtGate8577(doors8577, admission8577)"))

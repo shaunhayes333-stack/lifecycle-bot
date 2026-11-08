@@ -1495,7 +1495,8 @@ object CandidateAdmission8136 {
         // own 24 h loss lock, and the real route / fill. superseded: decide8136(candidate) { Rehearsal8339.doorBindsNow8342(it,
         // candidate.lane) } plus LaneAuthority8577.memeHighRefusal8582 for every LIVE candidate.
         cached ?: (if (FdgGate8365.policyKey8393() == "OUTSIDE") coalescedDefer8144(ts.mint, candidate.lane, identity, version, mode, nowMs) else null) ?: LaneAuthority8577.apply8577(candidate,
-            decide8136(candidate.copy(live = false)) { false }, null,
+            decide8136(candidate.copy(live = false)) { false },
+            if (candidate.live) LaneAuthority8577.memeEntryRefusal8626(ts, candidate.lane, candidate.stage, nowMs) else null,  // V5.0.8626
             launchPhase8609 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.features(ts, nowMs).launchPhase } catch (_: Throwable) { null },
             pocket8610 = if (candidate.live) PocketLedger8610.verdict8610(ts, candidate.lane, nowMs) else null).also {
             // A held shadow rehearsal must not publish an ADMIT into live sizing, strategy identity or the runner trace.
