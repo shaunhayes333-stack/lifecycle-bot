@@ -216,10 +216,12 @@ object StopMarkConfirm8418 {
     fun stopRefutedByVenue8489(ts: TokenState, reason: String, nowMs: Long = System.currentTimeMillis()): Boolean {
         if (ts.position.isPaperPosition || !ts.position.isOpen || !priceLossStop8489(reason)) return false
         val pnl = venuePnlPct8489(ts, nowMs)
+        val key8631 = ts.position.positionId.ifBlank { ts.mint }
         if (pnl == null) {
             try { com.lifecyclebot.engine.truth.OnChainDepth8038.request8038(ts, RESERVE_ASK_MS_8486) } catch (_: Throwable) {}
-            return false
+            return holdForVenueRead8631(ts, key8631, nowMs)
         }
+        noReadSince8631.remove(key8631)
         val depth = stopDepthPct8489(reason)
         if (!venueRefutes8489(pnl, depth)) {
             try { PipelineHealthCollector.labelInc("STOP_CONFIRMED_BY_VENUE_8489") } catch (_: Throwable) {}
@@ -234,5 +236,28 @@ object StopMarkConfirm8418 {
         return true
     }
 
-    internal fun resetForTest8419() { awaitSince8419.clear() }
+    /**
+     * V5.0.8631 §NO_READ_NO_STOP_FOR_A_MOMENT — audit_exits_now §3: three "-15 %" stops filled at -2.5 %, -3.8 % and +1.3 %:
+     * the venue refute (8489) was fail-open, so with no fresh venue read the stop fired on the bad mark. A live price-loss stop
+     * now waits up to [NO_READ_HOLD_MS_8631] for the read it asked for; then it fires. A mark at or below [BYPASS_PCT_8418]
+     * fires at once. Pure rule in [holdsAwaitingRead8631].
+     */
+    const val NO_READ_HOLD_MS_8631 = 6_000L
+    private val noReadSince8631 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    /** Pure: does a stop first left unread at [firstAskMs] still wait at [nowMs], with the mark at [markPnlPct]? */
+    fun holdsAwaitingRead8631(firstAskMs: Long, nowMs: Long, markPnlPct: Double): Boolean =
+        !(markPnlPct.isFinite() && markPnlPct <= BYPASS_PCT_8418) && nowMs - firstAskMs in 0L until NO_READ_HOLD_MS_8631
+
+    private fun holdForVenueRead8631(ts: TokenState, key: String, nowMs: Long): Boolean {
+        if (noReadSince8631.size > MAX_AWAITS_8419) noReadSince8631.clear()
+        val first = noReadSince8631.putIfAbsent(key, nowMs) ?: nowMs
+        val mark = if (ts.position.entryPrice > 0.0 && ts.lastPrice > 0.0) (ts.lastPrice / ts.position.entryPrice - 1.0) * 100.0 else Double.NaN
+        val hold = holdsAwaitingRead8631(first, nowMs, mark)
+        if (!hold) noReadSince8631.remove(key)
+        try { PipelineHealthCollector.labelInc(if (hold) "STOP_HELD_AWAITING_VENUE_READ_8631" else "STOP_FIRED_NO_VENUE_READ_8631") } catch (_: Throwable) {}
+        return hold
+    }
+
+    internal fun resetForTest8419() { awaitSince8419.clear(); noReadSince8631.clear() }
 }

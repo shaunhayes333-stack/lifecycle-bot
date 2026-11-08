@@ -26,7 +26,22 @@ object HunterWindow8293 {
         return (HandoffPriority8190.dueTargets8190(otherMints, nowMs) + leaders).distinct()
     }
 
-    private fun leaders8293(pool: Collection<String>, nowMs: Long, revisitMs: Long): List<String> = try {
+    /**
+     * V5.0.8631 §NO_FORCED_LEADERS — DIAG_AND_BUILD_8629 Step 1.4 (audit_discovery_now D4): the opportunity "leaders" are
+     * top-of-move coins from trending lists, forced into every cycle slice every 15 s with no forward record of their own;
+     * runner-lane hunted rows lose in every 1 h-move band (8622 export: PF 0.23-0.54) and the forced slots starve fresh
+     * launches. Off until the leader cohort earns it; what it would have forced is still counted.
+     */
+    @Volatile var forceLeaders8631: Boolean = false
+
+    private fun leaders8293(pool: Collection<String>, nowMs: Long, revisitMs: Long): List<String> {
+        val picked = leadersPicked8293(pool, nowMs, revisitMs)
+        if (forceLeaders8631 || picked.isEmpty()) return picked
+        try { PipelineHealthCollector.labelAdd("OPPORTUNITY_LEADER_NOT_FORCED_8631", picked.size.toLong()) } catch (_: Throwable) {}
+        return emptyList()
+    }
+
+    private fun leadersPicked8293(pool: Collection<String>, nowMs: Long, revisitMs: Long): List<String> = try {
         val top = MarketSweep7297.topOpportunities8293()
         if (top.isEmpty() || pool.isEmpty()) emptyList()
         else OpportunityRoute8293.select8293(top, pool.toHashSet(), { m ->
