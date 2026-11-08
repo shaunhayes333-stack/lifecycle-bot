@@ -29,6 +29,18 @@ class Aate8577LaneAuthorityTest {
     private fun refusal(reason: String, trace: List<String> = emptyList(), terminal: Terminal8136 = Terminal8136.REFUSE) =
         Decision8136(terminal, reason, true, "LAUNCH_LADDER_PROVEN", Double.NaN, trace)
 
+    @Test fun anAdvisoryRefusalCannotHideAStaleRunnerOrACostLoss() {
+        val soft = refusal("ENTRY_NO_RECLAIM_8506")
+        val stale = LaneAuthority8577.LIVE_RUNNER_STALE_COIN_8627
+        assertEquals(stale, LaneAuthority8577.apply8577(qualified(), soft, stale).reason)
+        assertEquals("STRUCTURAL_RISK_8136", LaneAuthority8577.apply8577(qualified(), refusal("STRUCTURAL_RISK_8136"), stale).reason)
+        for (net in listOf(-2.0, 0.0)) {
+            val priced = ap8609(qualified(), soft.copy(terminal = Terminal8136.ADMIT, expectedNetPct = net))
+            assertEquals(Terminal8136.REFUSE, priced.terminal)
+            assertTrue(LaneAuthority8577.binding8577(priced.reason))
+        }
+    }
+
     @Test fun the_learned_doors_are_advisory_for_a_lane_qualified_live_candidate() {
         LaneAuthority8577.enabled8577 = true
         // superseded by V5.0.8582 — "LIVE_INTO_HIGH_UNPROVEN_8545" advisory: buying into the high binds again (Aate8582BuyThePullbackTest).
@@ -104,7 +116,7 @@ class Aate8577LaneAuthorityTest {
     @Test fun the_runtime_applies_it_at_the_admission_and_the_gate_and_the_doors_keep_learning() {
         val adm = File("src/main/kotlin/com/lifecyclebot/engine/truth/CandidateAdmission8136.kt").readText()
         // V5.0.8604 — LIVE takes the paper book's exact decision (every learned door off) before lane authority.
-        assertTrue(adm.contains("LaneAuthority8577.apply8577(candidate,\n            decide8136(candidate.copy(live = false)) { false },\n            if (candidate.live) LaneAuthority8577.memeEntryRefusal8626(ts, candidate.lane, candidate.stage, nowMs) else null,  // V5.0.8626\n            launchPhase8609 = "))  // V5.0.8609
+        assertTrue(adm.contains("LaneAuthority8577.apply8577(candidate,\n            decide8136(candidate) { false },\n            if (candidate.live) LaneAuthority8577.memeEntryRefusal8626(ts, candidate.lane, candidate.stage, nowMs) else null,  // V5.0.8626\n            launchPhase8609 = "))  // V5.0.8609
         val gate = File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveEdgeGate7877.kt").readText()
         val fn = gate.substringAfter("fun liveRefusal(").substringBefore("private fun unprovenLive8536(")
         assertTrue(fn.contains("val advisory8577 = !paper && LaneAuthority8577.advisoryAtGate8577(doors8577, admission8577)"))

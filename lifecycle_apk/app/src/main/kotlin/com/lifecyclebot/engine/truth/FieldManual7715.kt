@@ -274,12 +274,12 @@ object FieldManual7715 {
         stopPct8392(lane, try { CostLedger7962.laneCostPct7962(lane.orEmpty()) } catch (_: Throwable) { Double.NaN })
 
     fun mandateFor(lane: String?): LaneMandate {
-        val l = lane?.trim()?.uppercase().orEmpty()
+        val l = CanonicalLaneIdentity6506.desk8392(lane)
         return when {
             l.isEmpty() -> GENERIC_LANE
             l.contains("CYCLIC") -> CYCLIC_LANE.copy(lane = l)  // V5.0.8418
             l.contains("MOONSHOT") || l.contains("SHITCOIN") || l.contains("SNIPER") ||
-                l.contains("SNIPE") || l.contains("MICRO_CAP") || l.contains("MANIPULATED") ||
+                l.contains("SNIPE") || l == "MICRO" || l.contains("MICRO_CAP") || l.contains("MANIPULATED") ||
                 l.contains("PUMP") || l.contains("LAUNCH") -> RUNNER_LANE.copy(lane = l)
             l.contains("EXPRESS") || l.contains("NARRATIVE") || l.contains("CULT") ||
                 l.contains("MOMENTUM") || l.contains("AGGRESSIVE") || l.contains("WHALE") ||

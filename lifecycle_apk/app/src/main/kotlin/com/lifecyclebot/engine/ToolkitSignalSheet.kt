@@ -74,10 +74,7 @@ object ToolkitSignalSheet {
         return true
     }
 
-    private val configuredMemeDesks6599 = listOf(
-        "QUALITY", "BLUECHIP", "SHITCOIN", "CYCLIC", "EXPRESS", "CORE", "MOONSHOT",
-        "PROJECT_SNIPER", "DIP_HUNTER", "MANIPULATED", "TREASURY", "CASHGEN",
-    )
+    private val configuredMemeDesks6599 get() = com.lifecyclebot.engine.cortex.LaneCheatSheet8323.LANES_8323
     fun configuredMemeDesks6647(): List<String> = configuredMemeDesks6599.toList()
 
     enum class Setup {
@@ -144,8 +141,9 @@ object ToolkitSignalSheet {
 
     /** Lane-local view of the cached sheet. Entry/hold/exit fields belong to the same elected hypothesis. */
     internal fun forDesk8384(sheet: Sheet, lane: String): Sheet {
-        if (!com.lifecyclebot.engine.cortex.LanePlaybook7907.isEnsemble8384(lane)) return sheet
-        val h = sheet.deskHypotheses[lane.trim().uppercase()] ?: return sheet.copy(
+        val key = com.lifecyclebot.engine.cortex.LaneCheatSheet8323.key8323(lane)
+        if (key !in configuredMemeDesks6599) return sheet
+        val h = sheet.deskHypotheses[key] ?: return sheet.copy(
             setup = Setup.NONE, confidence = 0.0, entryStyle = "none", exitStyle = "none",
             holdMult = 1.0, sizeMult = 1.0, tpMult = 1.0, toolVotes = emptySet())
         return sheet.copy(setup = h.setup, confidence = h.conviction, entryStyle = h.entryStyle,
@@ -463,13 +461,13 @@ object ToolkitSignalSheet {
 
         val candidates = mutableListOf<Candidate>()
 
-        fun add(c: Candidate) { if (c.score > 0.0) candidates += c }
+        fun add(c: Candidate) { if (c.setup != Setup.NONE && c.score > 0.0) candidates += c }
 
         // Core movement signal: operator-grade chart-pattern-to-movement recognition.
         // This runs on the same in-memory history as the rest of the sheet and makes
         // movement patterns visible to style routing immediately, not only after the
         // async SmartChart scanner warms the cache.
-        movementSignal?.let { ms ->
+        movementSignal?.takeIf { MovementPatternSignal.supportsLongEntry(it.pattern) }?.let { ms ->
             add(Candidate(
                 setup = when (ms.pattern) {
                     "BREAKOUT_CONTINUATION" -> Setup.CHART_BREAKOUT

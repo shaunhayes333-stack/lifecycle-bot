@@ -1818,7 +1818,7 @@ object CryptoAltTrader {
 
                 // ── CORE ensemble (V5.0.7391) — two or more desks rate it, none leads ─
                 if (desk7391.lane == "CORE" && desk7391.voters >= 2 && buyPct >= 50.0 &&
-                    desk7391.movementPattern !in setOf("FREEFALL_NO_RECLAIM", "EXHAUSTION_CHASE")) {
+                    com.lifecyclebot.engine.MovementPatternSignal.supportsLongEntry(desk7391.movementPattern)) {
                     val coreScore7391 = maxOf(desk7391.conviction, cryptoDecision7244.score.toDouble()).toInt().coerceIn(0, 100)
                     dynExecutableSignals.add(AltSignal(
                         market = PerpsMarket.DYN, direction = PerpsDirection.LONG,

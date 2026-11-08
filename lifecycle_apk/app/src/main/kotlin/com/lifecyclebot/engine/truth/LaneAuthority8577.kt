@@ -27,7 +27,7 @@ object LaneAuthority8577 {
         // V5.0.8626 — the live entry-state refusals (memeEntryRefusal8626) bind.
         "MEME_BUYS_THE_HIGH_8582", "LIVE_STAGE_LOSES_8626",
         // V5.0.8627 — a runner lane's live buy of a coin more than a day old binds too (memeEntryRefusal8626).
-        "LIVE_RUNNER_STALE_COIN_8627",
+        "LIVE_RUNNER_STALE_COIN_8627", "EXECUTION_NET_NONPOSITIVE_8629",
         "SAFETY_REFUSED", "STRUCTURAL_RISK", "RUG", "FREEZE", "MINT_AUTH", "TOKEN_2022", "TOKEN2022", "T22_", "HOSTILE",
         "HONEYPOT", "SELLAB", "UNSELLABLE", "MAYHEM", "BLACKLIST", "HARD_BLOCK", "LIQ_TOO_LOW", "LIQUIDITY_FLOOR",
         "LIQUIDITY_COLLAPSE", "LANE_LIQ", "EXIT_SAFE", "IDENTITY", "PRICE_BASIS", "BASIS_PROOF", "UNTRUSTED_MARK", "WALLET",
@@ -135,7 +135,7 @@ object LaneAuthority8577 {
 
     /** Pure: is a live buy in [lane] of a coin [launchAgeMs] old refused as stale? */
     fun runnerCoinStale8627(lane: String, launchAgeMs: Long?): Boolean =
-        lane.trim().uppercase() in RUNNER_LANES_8627 && launchAgeMs != null && launchAgeMs > RUNNER_MAX_AGE_MS_8627
+        com.lifecyclebot.engine.cortex.LaneCheatSheet8323.key8323(lane) in RUNNER_LANES_8627 && launchAgeMs != null && launchAgeMs > RUNNER_MAX_AGE_MS_8627
 
     /** CandidateAdmission8136.assess8136 (LIVE): the refusal of a meme entry at the high or at a losing stage, else null. */
     fun memeEntryRefusal8626(ts: com.lifecyclebot.data.TokenState, lane: String, stage: String?, nowMs: Long): String? {
@@ -197,6 +197,13 @@ object LaneAuthority8577 {
     private fun applyLane8577(c: CandidateAdmission8136.Candidate8136, d: CandidateAdmission8136.Decision8136,
                               highRefusal8582: String?, pocket8610: PocketLedger8610.Call? = null): CandidateAdmission8136.Decision8136 {
         if (!enabled8577 || !c.live) return d
+        val qualified = CandidateAdmission8136.specialistQualified8539(c)
+        val costKnown = c.costPct.isFinite() && c.costPct >= 0.0
+        if (!d.admitted && bindingAdmission8577(d, costKnown)) return d.copy(laneQualified8577 = qualified)
+        if (costKnown && d.expectedNetPct.isFinite() && d.expectedNetPct <= 0.0) {
+            return d.copy(terminal = CandidateAdmission8136.Terminal8136.REFUSE, reason = "EXECUTION_NET_NONPOSITIVE_8629",
+                specific = true, trace = d.trace + "netAfterCost=${d.expectedNetPct} cost=${c.costPct}", laneQualified8577 = qualified)
+        }
         // V5.0.8609 §ONE_MARKET_EDGE_FOR_EVERY_LANE — 7,491 unique coin-minutes across 13 edge exports, split by time: the coin
         // state that pays is EXPANDING (+4.6 % +-1.6, early +1.5 % / late +9.4 %; under 1 min +8.5 % +-2.7, n748). Everything
         // else loses in every lane that saw it: MATURE -2.6 % (n3709), POST_PUMP_FADE -3.8 %, IGNITION -12.0 %, coins a day or
@@ -219,15 +226,13 @@ object LaneAuthority8577 {
                 trace = d.trace + "paperLaneProvenLosing8608", laneQualified8577 = false)
         }
         // V5.0.8582 — a LIVE meme entry at the high is refused whatever admitted it (lane opinion, edge, generic prior).
-        if (highRefusal8582 != null && d.terminal != CandidateAdmission8136.Terminal8136.REFUSE) {
+        if (highRefusal8582 != null) {
             try { PipelineHealthCollector.labelInc("${highRefusal8582}_${c.lane.uppercase()}") } catch (_: Throwable) {}
             return d.copy(terminal = CandidateAdmission8136.Terminal8136.REFUSE, reason = highRefusal8582, specific = true,
-                trace = d.trace + "buysTheHigh8582 (pullback / dip entries only)", laneQualified8577 = CandidateAdmission8136.specialistQualified8539(c))
+                trace = d.trace + "entryState=$highRefusal8582", laneQualified8577 = qualified)
         }
-        if (!CandidateAdmission8136.specialistQualified8539(c)) return d
+        if (!qualified) return d
         if (d.admitted) return d.copy(laneQualified8577 = true)
-        val costKnown = c.costPct.isFinite() && c.costPct >= 0.0
-        if (bindingAdmission8577(d, costKnown)) return d.copy(laneQualified8577 = true)
         noteAdvisory8577(d.reason, c.lane)
         return d.copy(
             terminal = CandidateAdmission8136.Terminal8136.ADMIT, reason = REASON_8577, specific = false,

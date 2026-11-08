@@ -3,7 +3,6 @@ package com.lifecyclebot.engine.truth
 import com.lifecyclebot.data.TokenState
 import com.lifecyclebot.engine.PipelineHealthCollector
 import org.json.JSONObject
-import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
@@ -15,7 +14,7 @@ import java.util.concurrent.atomic.AtomicLong
  * Every forward-labelled decision (ForwardReturnLabeler7731 -> EdgeModel8537.learn) is filed into coin-state cells: each
  * banded feature (phase, age, liquidity, mcap, buy pressure, 5 m and 1 h move, distance from the peak, top holder, volume
  * acceleration) and every pair of them, market-wide and per lane. Each cell keeps a recency-weighted record (decay 0.995 per
- * observation) of the managed outcome (stop -20 %, ride to +400 %). A coin is scored by all of its evidence (V5.0.8613:
+ * observation) of the observed downside and conservatively capped upside. A coin is scored by all of its evidence (V5.0.8613:
  * the mean clipped t of its cells with n >= 40, see [callOf8610]).
  *
  * Replayed online over 24,427 labelled decisions with the label held back 5 minutes (as on the device): 302 picks across
@@ -26,12 +25,13 @@ import java.util.concurrent.atomic.AtomicLong
 object PocketLedger8610 {
     const val N_MIN = 40.0
     const val DECAY = 0.995
-    private const val FILE = "pocket_ledger_8610.json"
-    // V5.0.8617 — memory: the file is streamed line by line (key \t n \t sum \t sq), saved every 1,000 labels, and a cell
-    // decayed below half an observation is dropped; 8610 rebuilt a ~2 MB JSON string of every cell each 200 labels and held
-    // every seed row's ~64 cell keys (~1.6 M strings) at once before sorting, on a heap that peaked at 99 %.
-    private const val SAVE_EVERY_8617 = 1_000L
-    private const val DEAD_N_8617 = 0.5
+    private const val MAX_RECENT_OBSERVATIONS = 32_768
+
+    internal fun targetHorizon(lane: String): Long =
+        com.lifecyclebot.engine.cortex.CortexForwardEpoch8521.run { targetHorizon(targetKind(lane)) }
+
+    // Accessed only on the single ledger worker, including dataset replay.
+    private val recent = LinkedHashMap<String, MutableSet<String>>()
 
     private class Cell { var n = 0.0; var sum = 0.0; var sq = 0.0 }
     private val cells = ConcurrentHashMap<String, Cell>()
@@ -40,8 +40,8 @@ object PocketLedger8610 {
     private val learned = AtomicLong(0L)
     private val io = Executors.newSingleThreadExecutor { r -> Thread(r, "pocket8610").apply { isDaemon = true } }
 
-    /** Pure: the managed outcome a cell records — the -20 % stop, the +400 % ride cap. */
-    fun managed8610(net: Double): Double = if (net <= -20.0) -20.0 else minOf(net, 400.0)
+    /** Pure: the managed outcome a cell records — the observed downside and a conservative +400 % gain cap. */
+    fun managed8610(net: Double): Double = minOf(net, 400.0)
 
     /** Pure: the banded features of an observation; an unobserved value is left out. */
     fun bands8610(liq: Double, mcap: Double, ageMin: Double, bp: Double, chg5m: Double, chg1h: Double, pxPeak: Double,
@@ -56,7 +56,7 @@ object PocketLedger8610 {
         if (pxPeak.isFinite()) b["pxPeak"] = when { pxPeak < 0.6 -> "<0.6"; pxPeak < 0.8 -> "<0.8"; pxPeak < 0.92 -> "<0.92"; pxPeak < 0.98 -> "<0.98"; else -> ">=0.98" }
         if (top.isFinite()) b["top"] = when { top < 15 -> "<15"; top < 30 -> "<30"; else -> ">=30" }
         if (chg1h.isFinite()) b["chg1h"] = when { chg1h < -20 -> "<-20"; chg1h < 0 -> "<0"; chg1h < 20 -> "<20"; chg1h < 100 -> "<100"; else -> ">=100" }
-        if (volAccel.isFinite()) b["volAccel"] = when { volAccel <= 0 -> "0"; volAccel < 1 -> "<1"; volAccel < 2 -> "<2"; else -> ">=2" }
+        if (volAccel.isFinite()) b["volAccel"] = EdgeModel8537.VOLACC_EDGES.firstOrNull { volAccel < it }?.let { "<${it.toInt()}" } ?: ">=80"
         return b
     }
 
@@ -77,11 +77,22 @@ object PocketLedger8610 {
         bands8610(r.liq, r.mcap, r.ageMin, r.bp, r.chg5m, r.chg1h, r.pxPeak, r.volAccel, r.top, r.phase)
 
     /** EdgeModel8537.learn: file one labelled decision. */
-    fun learn8610(r: EdgeModel8537.Raw, net: Double) {
-        if (!net.isFinite()) return
+    fun learn8610(s: EdgeModel8537.Snap, net: Double) {
+        if (!net.isFinite() || s.horizonMs <= 0L) return
         ensureLoaded()
-        add(keys8610(r.lane, bandsOf(r)), managed8610(net))
-        if (learned.incrementAndGet() % SAVE_EVERY_8617 == 0L) io.execute { save() }
+        io.execute { record(s.mint, s.atMs, s.horizonMs, s.raw.lane, bandsOf(s.raw), net) }
+    }
+
+    private fun record(mint: String, at: Long, horizon: Long, lane: String, bands: Map<String, String>, net: Double) {
+        if (mint.isBlank() || lane.isBlank() || at <= 0L || horizon <= 0L) return
+        val id = "$mint|$at|$horizon"
+        val lanes = recent.getOrPut(id) { mutableSetOf() }
+        val first = lanes.isEmpty()
+        if (!lanes.add(lane)) return
+        if (recent.size > MAX_RECENT_OBSERVATIONS) recent.entries.iterator().run { next(); remove() }
+        val keys = keys8610(lane, bands).filter { first || !it.startsWith("M|") }
+        add(keys.map { "$horizon|$it" }, managed8610(net))
+        learned.incrementAndGet()
     }
 
     private fun add(ks: List<String>, y: Double) {
@@ -112,7 +123,7 @@ object PocketLedger8610 {
             val n = s[0]; if (n < N_MIN) continue
             val m = s[1] / n
             val se = kotlin.math.sqrt(((s[2] / n) - m * m).coerceAtLeast(0.0) / n)
-            val t = if (se > 0.0) m / se else 0.0
+            val t = if (se > 0.0) m / se else kotlin.math.sign(m) * T_CLIP
             sumT += t.coerceIn(-T_CLIP, T_CLIP); cnt++
         }
         if (cnt == 0) return Call.UNPROVEN
@@ -125,47 +136,26 @@ object PocketLedger8610 {
         ensureLoaded()
         if (!ready) null else {
             val r = EdgeModel8537.rawFor8610(ts, lane, nowMs)
-            val recs = keys8610(r.lane, bandsOf(r)).mapNotNull { k -> cells[k]?.let { c -> synchronized(c) { doubleArrayOf(c.n, c.sum, c.sq) } } }
+            val horizon = targetHorizon(r.lane)
+            val recs = keys8610(r.lane, bandsOf(r)).mapNotNull { k -> cells["$horizon|$k"]?.let { c -> synchronized(c) { doubleArrayOf(c.n, c.sum, c.sq) } } }
             callOf8610(recs).also { try { PipelineHealthCollector.labelInc("POCKET_8610_${it.name}") } catch (_: Throwable) {} }
         }
     } catch (_: Throwable) { null }
 
     // ── persistence: the ledger file, else a replay of the device's own edge dataset ─────────────────────────────────
 
-    private fun dir(): File? = try { com.lifecyclebot.AATEApp.appContextOrNull()?.filesDir } catch (_: Throwable) { null }
-
-    private fun ensureLoaded() {
+    @Synchronized private fun ensureLoaded() {
         if (ready || loading) return
-        synchronized(this) {
-            if (ready || loading) return
-            loading = true
-        }
+        loading = true
         io.execute {
             try {
-                val d = dir()
-                val f = d?.let { File(it, FILE) }
-                if (f != null && f.exists()) {
-                    f.bufferedReader().use { rd ->
-                        val first = rd.readLine()
-                        if (first != null && first.startsWith("{")) {
-                            // the 8610 / 8613 JSON file: read once, rewritten as lines at the next save
-                            val j = JSONObject(first + rd.readText())
-                            j.keys().forEach { k -> j.optJSONArray(k)?.let { a -> cells[k] = Cell().apply { n = a.optDouble(0); sum = a.optDouble(1); sq = a.optDouble(2) } } }
-                        } else {
-                            var line = first
-                            while (line != null) {
-                                val p = line.split('\t')
-                                if (p.size == 4) cells[p[0]] = Cell().apply { n = p[1].toDouble(); sum = p[2].toDouble(); sq = p[3].toDouble() }
-                                line = rd.readLine()
-                            }
-                        }
-                    }
-                    PipelineHealthCollector.labelInc("POCKET_8610_LOADED")
-                } else {
-                    seedFromDataset()
-                }
-            } catch (_: Throwable) { try { PipelineHealthCollector.labelInc("POCKET_8610_LOAD_FAILED") } catch (_: Throwable) {} }
-            ready = true
+                seedFromDataset()
+                ready = true
+            } catch (_: Exception) {
+                PipelineHealthCollector.labelInc("POCKET_8610_LOAD_FAILED")
+            } finally {
+                loading = false
+            }
         }
     }
 
@@ -174,36 +164,19 @@ object PocketLedger8610 {
         val f = EdgeModel8537.datasetFile() ?: return
         if (!f.exists()) return
         fun d(o: JSONObject, k: String) = if (o.isNull(k)) Double.NaN else o.optDouble(k, Double.NaN)
-        var seeded = 0L
         f.forEachLine { line ->
             try {
+                if (!line.contains("\"horizonMs\"")) return@forEachLine
                 val o = JSONObject(line)
-                if (!o.optBoolean("fill", true)) return@forEachLine
+                if (o.optLong("horizonMs") <= 0L || !o.optBoolean("fill", false)) return@forEachLine
                 val net = d(o, "net"); if (!net.isFinite()) return@forEachLine
                 if (!EdgeModel8537.plausible8617(d(o, "mcap"), net)) return@forEachLine   // V5.0.8617 — bad-basis marks
                 val b = bands8610(d(o, "liq"), d(o, "mcap"), d(o, "age"), d(o, "bp"), d(o, "chg5m"), d(o, "chg1h"), d(o, "pxPeak"),
                     d(o, "volAccel"), d(o, "top"), o.optString("phase"))
-                add(keys8610(o.optString("lane"), b), managed8610(net)); seeded++   // the dataset is appended in time order
+                record(o.optString("mint"), o.optLong("t"), o.optLong("horizonMs"), o.optString("lane"), b, net)
             } catch (_: Throwable) {}
         }
-        learned.addAndGet(seeded)
         try { PipelineHealthCollector.labelInc("POCKET_8610_SEEDED_FROM_DATASET") } catch (_: Throwable) {}
-        save()
-    }
-
-    private fun save() {
-        try {
-            val d = dir() ?: return
-            cells.entries.removeIf { e -> synchronized(e.value) { e.value.n < DEAD_N_8617 } }
-            val tmp = File(d, "$FILE.tmp")
-            tmp.bufferedWriter().use { w ->
-                for ((k, c) in cells) {
-                    val line = synchronized(c) { "$k\t${c.n}\t${c.sum}\t${c.sq}" }
-                    w.write(line); w.newLine()
-                }
-            }
-            if (!tmp.renameTo(File(d, FILE))) tmp.delete()
-        } catch (_: Throwable) {}
     }
 
     /**

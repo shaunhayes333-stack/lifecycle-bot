@@ -14,6 +14,8 @@ import kotlin.math.abs
  * sizing/hold dynamics, not just an optional dashboard/router decoration.
  */
 object MovementPatternSignal {
+    fun supportsLongEntry(pattern: String): Boolean = pattern != "FREEFALL_NO_RECLAIM" && pattern != "EXHAUSTION_CHASE"
+
     data class Signal(
         val pattern: String,
         val confidence: Double,

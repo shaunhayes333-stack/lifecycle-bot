@@ -72,7 +72,9 @@ class Aate8384SharedSpecialistLifecycleTest {
             assertEquals(ToolkitSignalSheet.Setup.NONE, local.setup); assertEquals(0.0, local.confidence, 0.0)
             assertFalse(AgenticStyleRouter.toolkitFitsLane8080(donor, lane))
         }
-        assertSame(donor, ToolkitSignalSheet.forDesk8384(donor, "MOONSHOT"))
+        assertEquals(ToolkitSignalSheet.Setup.NONE, ToolkitSignalSheet.forDesk8384(donor, "MOONSHOT").setup)
+        val own = h("MOONSHOT", 83.0)
+        assertEquals(own.setup, ToolkitSignalSheet.forDesk8384(sheet(own), "MOON_SHOT").setup)
         assertEquals("CORE", ToolkitSignalSheet.preferDesk8384(h("CASHGEN", 99.0), h("CORE", 60.0)).lane)
     }
     @Test fun namedSpecialistHoldsUseTheirFieldGuideNotSilentStandardFallback() {

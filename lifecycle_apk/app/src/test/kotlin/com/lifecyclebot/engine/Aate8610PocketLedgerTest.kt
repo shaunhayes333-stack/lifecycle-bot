@@ -11,7 +11,9 @@ import java.io.File
 /** V5.0.8610 — the bot learns which coin-state pockets pay, in any lane and any state, and live hunts those. */
 class Aate8610PocketLedgerTest {
     @Test fun aCellRecordsTheManagedOutcome() {
-        assertEquals(-20.0, PocketLedger8610.managed8610(-55.0), 0.0)
+        assertEquals(-55.0, PocketLedger8610.managed8610(-55.0), 0.0)
+        val book = listOf(-80.0, -80.0, -80.0, -80.0, 120.0)
+        assertEquals(-40.0, book.map(PocketLedger8610::managed8610).average(), 0.0)
         assertEquals(400.0, PocketLedger8610.managed8610(2_000.0), 0.0)
         assertEquals(7.5, PocketLedger8610.managed8610(7.5), 0.0)
     }
@@ -51,13 +53,13 @@ class Aate8610PocketLedgerTest {
         assertTrue(!e.plausible8617(Double.NaN, 1_000.0))
         assertTrue(!e.plausible8617(50_000.0, Double.NaN))
         val src = File("src/main/kotlin/com/lifecyclebot/engine/truth/EdgeModel8537.kt").readText()
-        assertTrue(src.indexOf("if (!plausible8617(s.raw.mcap, netPct))") in 0 until src.indexOf("PocketLedger8610.learn8610(s.raw, netPct)"))
+        assertTrue(src.indexOf("if (!plausible8617(s.raw.mcap, netPct))") in 0 until src.indexOf("PocketLedger8610.learn8610(s, netPct)"))
         assertTrue(File("src/main/kotlin/com/lifecyclebot/engine/truth/PocketLedger8610.kt").readText().contains("EdgeModel8537.plausible8617(d(o, \"mcap\"), net)"))
     }
 
     @Test fun theLedgerLearnsFromEveryLabelAndDecidesLiveOnceSeeded() {
         val e = File("src/main/kotlin/com/lifecyclebot/engine/truth/EdgeModel8537.kt").readText()
-        assertTrue(e.contains("PocketLedger8610.learn8610(s.raw, netPct)"))
+        assertTrue(e.contains("PocketLedger8610.learn8610(s, netPct)"))
         val a = File("src/main/kotlin/com/lifecyclebot/engine/truth/LaneAuthority8577.kt").readText()
         assertTrue(a.contains("if (pocket != null) return if (pocket == PocketLedger8610.Call.PAYS) null"))
         assertTrue("V5.0.8615 — a coin the ledger scores PAYS is bought even in a lane paper proves losing",

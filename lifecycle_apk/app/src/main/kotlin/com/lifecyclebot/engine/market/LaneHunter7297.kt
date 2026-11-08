@@ -496,7 +496,8 @@ object LaneHunter7297 {
         if (!wave.active || maxOf(wave.linkedBuyers, wave.fundedBuyers) >= 5) return native
         val r = MarketSweep7297.rowFor8169(mint, now) ?: return native
         return native + profiles.filter { p ->
-            r.mcapUsd in p.baseMin..p.baseMax && r.liquidityUsd >= com.lifecyclebot.engine.cortex.LaneCheatSheet8323.liqMin8389(p.lane) &&
+            val (lo, hi) = fluidBandFor(p.lane) ?: (p.baseMin to p.baseMax)
+            r.mcapUsd in lo..hi &&
                 p.fits(r) && com.lifecyclebot.engine.cortex.LaneCheatSheet8323.hunterFits8323(p.lane, r.ageHours, r.liquidityUsd)
         }.map { it.lane }
     }

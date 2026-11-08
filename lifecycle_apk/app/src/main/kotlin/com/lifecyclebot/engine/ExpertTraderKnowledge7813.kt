@@ -451,7 +451,7 @@ object ExpertTraderKnowledge7813 {
             val ts = try { BotService.status.tokens[mint] } catch (_: Throwable) { null } ?: return false
             buildSnapshot(ts, l, ts.source, ts.entryScore.toInt(), 0.50).copy(mode = canonicalMode)
         }
-        byPosition[positionId] = s
+        if (byPosition.putIfAbsent(positionId, s) != null) return true
         binds.incrementAndGet()
         if (byPosition.size > MAX_BOUND) {
             byPosition.entries.sortedBy { it.value.atMs }.take(byPosition.size - MAX_BOUND)
@@ -484,8 +484,8 @@ object ExpertTraderKnowledge7813 {
 
     private fun onFinalized(e: CanonicalTradeFinalizedBus6450.Event) {
         if (!CanonicalTradeFinalizedBus6450.isCleanForLearning7807(e)) return
-        if (!settled.add(e.positionId)) return
         val s = byPosition.remove(e.positionId) ?: return
+        if (!settled.add(e.positionId)) return
         updateStats(s, e.netReturnPct, 1.0)
         terminalGrades.incrementAndGet()
         try {
@@ -504,15 +504,20 @@ object ExpertTraderKnowledge7813 {
         admitted: Boolean,
         observedAtMs: Long,
     ) {
-        if (mint.isBlank() || lane.isBlank() || !netPct.isFinite()) return
+        if (mint.isBlank() || lane.isBlank() || !netPct.isFinite() || observedAtMs <= 0L) return
         ensureSubscribed()
         val l = canonicalLane(lane)
         val candidates = listOf("LIVE", "PAPER").mapNotNull { pending[pendingKey(it, l, mint)] }
-        val s = candidates
-            .filter { observedAtMs <= 0L || it.atMs <= observedAtMs + 5_000L }
-            .minByOrNull { kotlin.math.abs(it.atMs - observedAtMs) }
-            ?: candidates.maxByOrNull { it.atMs }
-            ?: return
+        val s = candidates.singleOrNull { it.atMs == observedAtMs } ?: return
+        recordFrozenForward(s, netPct, admitted)
+    }
+
+    fun freezeForLabel(ts: TokenState, lane: String, score: Int, atMs: Long): Snapshot =
+        buildSnapshot(ts, lane, ts.source, score, 0.5).copy(atMs = atMs)
+
+    fun recordFrozenForward(s: Snapshot, netPct: Double, admitted: Boolean) {
+        if (!netPct.isFinite()) return
+        ensureSubscribed()
         updateStats(s, netPct, COUNTERFACTUAL_WEIGHT, forwardStats8527)
         forwardGrades.incrementAndGet()
         try {
@@ -553,13 +558,13 @@ object ExpertTraderKnowledge7813 {
         captures.set(0L); binds.set(0L); terminalGrades.set(0L); forwardGrades.set(0L)
     }
 
-    private fun snapshotJson(s: Snapshot): JSONObject = JSONObject().apply {
+    internal fun snapshotJson(s: Snapshot): JSONObject = JSONObject().apply {
         put("mint", s.mint); put("lane", s.lane); put("mode", s.mode); put("source", s.source)
         put("regime", s.regime); put("score", s.score); put("confidence", s.confidence); put("at", s.atMs)
-        put("v", JSONObject().apply { s.values.forEach { (k, v) -> put(k.name, v) } })
+        put("v", JSONObject().apply { s.values.forEach { (k, v) -> if (v.isFinite()) put(k.name, v) } })
     }
 
-    private fun snapshotFromJson(o: JSONObject): Snapshot? = try {
+    internal fun snapshotFromJson(o: JSONObject): Snapshot? = try {
         val values = linkedMapOf<Feature, Double>()
         val vo = o.optJSONObject("v") ?: JSONObject()
         val it = vo.keys()

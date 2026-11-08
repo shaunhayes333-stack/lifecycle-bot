@@ -481,6 +481,7 @@ object ForwardReturnLabeler7731 {
         /** V5.0.7972 — the decision's discrete facts (SpecialistMiner7972). */
         @Volatile var feats7972: List<String> = emptyList()
         /** V5.0.8537 — the decision's frozen features and the edge model's prediction made then (EdgeModel8537). */
+        var expertAtDecision: com.lifecyclebot.engine.ExpertTraderKnowledge7813.Snapshot? = null
         @Volatile var edge8537: EdgeModel8537.Snap? = null
         /** V5.0.8539 — hydrated depth at the decision (curve / chain / map); 0 = unread (LearnedLiquidityFloor8539). */
         @Volatile var liqUsd8539: Double = 0.0
@@ -889,6 +890,7 @@ object ForwardReturnLabeler7731 {
             .put("witness", o.witnessed8324).put("bookedWitness", o.bookedWitness8324)
             .put("nativeTrigger", o.nativeTrigger8468).put("gate", o.gate8418)
             // V5.0.8571 — the frozen edge snapshot and the decision's liquidity band survive a restart.
+            .put("expert8629", o.expertAtDecision?.let { com.lifecyclebot.engine.ExpertTraderKnowledge7813.snapshotJson(it) })
             .put("edge8571", o.edge8537?.let { EdgeModel8537.encodeSnap8571(it) }).put("liq8571", o.liqUsd8539.toString())
     }
 
@@ -908,6 +910,7 @@ object ForwardReturnLabeler7731 {
         o.bookedLongGross8080 = e.optString("longGross").toDoubleOrNull() ?: Double.NaN
         o.witnessed8324 = e.optBoolean("witness"); o.bookedWitness8324 = e.optBoolean("bookedWitness")
         o.nativeTrigger8468 = e.optBoolean("nativeTrigger"); o.gate8418 = e.optString("gate")
+        o.expertAtDecision = e.optJSONObject("expert8629")?.let { com.lifecyclebot.engine.ExpertTraderKnowledge7813.snapshotFromJson(it) }
         o.edge8537 = EdgeModel8537.decodeSnap8571(e.optJSONObject("edge8571"))  // V5.0.8571
         o.liqUsd8539 = e.optString("liq8571").toDoubleOrNull()?.takeIf { it.isFinite() } ?: 0.0
         o.stagedProof8521 = com.lifecyclebot.engine.cortex.CortexOutcomeProof8395.decode8395(e.optString("stagedProof8521"))
@@ -1272,6 +1275,7 @@ object ForwardReturnLabeler7731 {
                 it.reason7967 = reason.orEmpty().take(120)
                 it.stage = try { com.lifecyclebot.engine.TokenMetricStageRouter.snapshot(ts).stage.name } catch (_: Throwable) { "" }
                 it.feats7972 = try { SpecialistMiner7972.features7972(ts, l, nowMs) } catch (_: Throwable) { emptyList() }
+                it.expertAtDecision = try { com.lifecyclebot.engine.ExpertTraderKnowledge7813.freezeForLabel(ts, l, score8051, nowMs) } catch (_: Throwable) { null }
                 it.edge8537 = EdgeModel8537.snapshot(ts, l, cost.coerceIn(0.0, 60.0), admitted, nowMs)  // V5.0.8537
                 it.liqUsd8539 = liq  // V5.0.8539
                 it.entryLiq7997 = if (ts.lastLiquidityUsd.isFinite() && ts.lastLiquidityUsd > 0.0) ts.lastLiquidityUsd else 0.0
@@ -1776,7 +1780,7 @@ object ForwardReturnLabeler7731 {
         // V5.0.7734 — the same label teaches the forecast model the admission stack reads.
         try { com.lifecyclebot.engine.ForwardOutcomeModel.recordLabel7734(o.lane, o.score, o.quality, o.regime, o.phase, net, "${o.mint}|${o.lane}|${o.atMs}") } catch (_: Throwable) {}
         // V5.0.7813 — counterfactual entry-quality learning, graded whether FDG admitted or refused.
-        try { com.lifecyclebot.engine.ExpertTraderKnowledge7813.recordForwardOutcome7813(o.mint, o.lane, net, o.admitted, o.atMs) } catch (_: Throwable) {}
+        try { o.expertAtDecision?.let { com.lifecyclebot.engine.ExpertTraderKnowledge7813.recordFrozenForward(it, net, o.admitted) } } catch (_: Throwable) {}
     }
 
     /** Pure (V5.0.8418): the value the learners booked while Cortex staging waits: [net, gross, flat, witness, family x4]. */

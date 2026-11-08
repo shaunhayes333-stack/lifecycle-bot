@@ -30,7 +30,8 @@ class Aate8623HonestPaperAndHeapTest {
         val leads = paper.substringAfter("fun laneLeads8616(").substringBefore("/** Pure (V5.0.8616)")
         assertTrue(leads.contains("pricedProof8623(lane) ?: return false"))
         val bench = paper.substringAfter("fun laneProvenLosing8608(").substringBefore("fun laneLeads8616(")
-        assertTrue(bench.contains("priced?.takeIf { it[0] >= 30.0 }"))
+        assertTrue(bench.contains("pricedProof8623(lane) ?: return false"))
+        assertFalse(bench.contains("PROOF_PREFIX_8572"))
     }
 
     @Test fun everyOpenPaperPositionAsksForItsOwnMark() {

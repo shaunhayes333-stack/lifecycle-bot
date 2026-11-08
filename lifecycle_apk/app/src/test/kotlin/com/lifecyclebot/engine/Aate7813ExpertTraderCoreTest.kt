@@ -48,7 +48,7 @@ class Aate7813ExpertTraderCoreTest {
         val open = src("engine/truth/CanonicalPositionAuthority6441.kt")
         val labels = src("engine/truth/ForwardReturnLabeler7731.kt")
         assertTrue(open.contains("ExpertTraderKnowledge7813.bindPosition7813(positionId, mint, lane, canonicalMode6490)"))
-        assertTrue(labels.contains("ExpertTraderKnowledge7813.recordForwardOutcome7813(o.mint, o.lane, net, o.admitted, o.atMs)"))
+        assertTrue(labels.contains("ExpertTraderKnowledge7813.recordFrozenForward(it, net, o.admitted)"))
     }
 
     @Test fun statePersistsResetsAndIsVisibleInRuntimeDoctor() {

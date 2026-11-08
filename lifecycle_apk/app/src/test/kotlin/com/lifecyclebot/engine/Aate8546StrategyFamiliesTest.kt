@@ -44,6 +44,16 @@ class Aate8546StrategyFamiliesTest {
         assertNull("no base", MemeStrategies8546.baseBreakout8546((0..11).map { bar(it, if (it % 2 == 0) 1.0 else 1.3) } + bar(12, 1.40)))
     }
 
+    @Test fun shorterBaseAndPostMigrationRetestHaveTheirOwnClocks() {
+        val base = listOf(bar(0, 1.10)) + (1..8).map { bar(it, 1.0) } + bar(9, 1.06)
+        assertNotNull(MemeStrategies8546.baseBreakout8546(base))
+        val retest = listOf(bar(0, 1.5), bar(1, 1.2), bar(2, 1.03), bar(3, 1.05), bar(4, 1.08))
+        assertNotNull(MemeStrategies8546.graduationRetest(retest, 60_000L))
+        assertNull(MemeStrategies8546.graduationRetest(retest, 120_000L))
+        assertTrue(MemeStrategies8546.provenRecord8546(30, 10.0, 1.0, Double.POSITIVE_INFINITY))
+        assertFalse(MemeStrategies8546.provenRecord8546(30, 10.0, 1.0, Double.NaN))
+    }
+
     @Test fun rangeLowBuysTheBottomQuarterOfAnIntactRange() {
         val range = (0..15).map { bar(it, 1.15, hi = 1.30, lo = 1.00) }
         assertNotNull(MemeStrategies8546.rangeLow8546(range + (16..19).map { bar(it, 1.05, hi = 1.07, lo = 1.03) }))

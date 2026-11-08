@@ -110,13 +110,7 @@ object MemePaperTrader8544 {
             else com.lifecyclebot.engine.cortex.CortexLabelHygiene8144.executableHorizonMs8392(runner)
         val p = Pos8544("$lane|${ts.mint}|$nowMs", ts.mint, ts.symbol, lane, paper.chosenSetup ?: candidate.selectedSetup ?: "",
             mark.priceUsd, mark.observedAtMs, candidate.costPct, STAKE_SOL_8544, runner, clock)
-        synchronized(this) {
-            if (open.containsKey(ts.mint)) return
-            open[ts.mint] = p
-            lastEntryAt[ts.mint] = nowMs
-            balanceSol -= p.sizeSol
-            dirty = true
-        }
+        if (!reserve(p, nowMs)) return
         try { PipelineHealthCollector.labelInc("MEME_PAPER_OPEN_8544_$lane") } catch (_: Throwable) {}
         try {   // V5.0.8618 — the tuning report's paper-vs-live and entry-state cuts
             val f8618 = com.lifecyclebot.engine.cortex.LanePlaybook7907.features(ts, nowMs)
@@ -125,13 +119,27 @@ object MemePaperTrader8544 {
         save8544(nowMs, force = true)
     }
 
+    @Synchronized private fun reserve(p: Pos8544, nowMs: Long): Boolean {
+        val why = roomFor8544(open.size, open.values.count { it.lane == p.lane }, open.containsKey(p.mint),
+            nowMs - (lastEntryAt[p.mint] ?: Long.MIN_VALUE / 2), balanceSol)
+        if (why != null) return false
+        open[p.mint] = p
+        lastEntryAt[p.mint] = nowMs
+        balanceSol -= p.sizeSol
+        dirty = true
+        return true
+    }
+
     /** Pure: the gross % of [px] over [entry]. */
     fun grossPct8544(entry: Double, px: Double): Double = if (entry > 0.0 && px > 0.0) (px / entry - 1.0) * 100.0 else Double.NaN
 
     /** Pure: the next ladder rung reached at [gross] after [tiersTaken] rungs, as (tier index + 1, fraction of the remainder), or null. */
     fun rung8544(ladder: List<Pair<Double, Double>>, tiersTaken: Int, gross: Double): Pair<Int, Double>? {
-        val next = ladder.getOrNull(tiersTaken) ?: return null
-        return if (gross >= next.first) (tiersTaken + 1) to next.second.coerceIn(0.0, 1.0) else null
+        val reached = com.lifecyclebot.engine.SpikeCapture7943.tierReached(gross, ladder)
+        if (tiersTaken < 0 || reached <= tiersTaken) return null
+        val fraction = if (reached == tiersTaken + 1) ladder[tiersTaken].second.coerceIn(0.0, 1.0)
+            else com.lifecyclebot.engine.SpikeCapture7943.crossedTierFraction8079(ladder, tiersTaken, reached)
+        return reached to fraction
     }
 
     /** Pure: the position's net % — banked slices plus the remainder at [gross], less the round trip [costPct]. */
@@ -278,8 +286,9 @@ object MemePaperTrader8544 {
     private fun posJson(p: Pos8544) = JSONArray().put(p.id).put(p.mint).put(p.symbol).put(p.lane).put(p.setup).put(p.entryPx)
         .put(p.entryAtMs).put(p.costPct).put(p.sizeSol).put(p.runner).put(p.clockMs).put(p.held).put(p.banked).put(p.peak)
         .put(p.tiers).put(p.lastPx).put(p.lastAtMs).put(p.exitLane)
+        .put(p.exitWhy.orEmpty()).put(p.exitAtMs).put(p.exitFraction).put(p.exitTier)
 
-    private fun save8544(nowMs: Long, force: Boolean = false) {
+    @Synchronized private fun save8544(nowMs: Long, force: Boolean = false) {
         if (!dirty || (!force && nowMs - lastSaveMs < 10_000L) || !LearningPersistence.ready()) return
         val raw = synchronized(this) {
             dirty = false; lastSaveMs = nowMs
@@ -316,6 +325,15 @@ object MemePaperTrader8544 {
                         a.optString(17, "").ifBlank { a.optString(3) })
                     p.held = a.optDouble(11, 1.0); p.banked = a.optDouble(12, 0.0); p.peak = a.optDouble(13, 0.0)
                     p.tiers = a.optInt(14); p.lastPx = a.optDouble(15, p.entryPx); p.lastAtMs = a.optLong(16, p.entryAtMs)
+                    val pending = a.optString(18, "")
+                    val at = a.optLong(19, 0L)
+                    val fraction = a.optDouble(20, 1.0)
+                    if (pending.isNotBlank() && at >= p.entryAtMs && fraction > 0.0 && fraction <= 1.0) {
+                        p.exitWhy = pending
+                        p.exitAtMs = at
+                        p.exitFraction = fraction
+                        p.exitTier = a.optInt(21, 0)
+                    }
                     if (p.mint.isNotBlank() && p.entryPx > 0.0) open[p.mint] = p
                 }
                 val c = j.optJSONArray("closed")
@@ -334,7 +352,7 @@ object MemePaperTrader8544 {
         // V5.0.8623 — an unpriced close proves nothing about the lane: it is counted on its own row, outside every lane record.
         if (c.why == LOST_MARK_8623) { addStat8572("$UNPRICED_PREFIX_8623${c.lane}", c); return }
         addStat8572(c.lane, c)
-        if (!c.lane.startsWith(FAMILY_PREFIX_8546)) addStat8572("$PRICED_PREFIX_8623${c.lane}", c)
+        addStat8572("$PRICED_PREFIX_8623${c.lane}", c)
         // V5.0.8572 — the lane's post-guard proof ledger: closes booked after the 8559 mark guard only (a pre-guard phantom,
         // e.g. the EXPRESS +503,695 SOL row, can never prove a lane). Families keep their own FAM_ rows.
         if (!c.lane.startsWith(FAMILY_PREFIX_8546)) addStat8572("$PROOF_PREFIX_8572${c.lane}", c)
@@ -381,11 +399,7 @@ object MemePaperTrader8544 {
      */
     fun laneProvenLosing8608(lane: String): Boolean {
         restore8544()
-        // V5.0.8623 — the priced record once it has 30 closes; until then the older P8572 record may still bench (its lost-mark
-        // rows were booked at stale marks, which flattered it — a lane it proves losing loses at least that much).
-        val priced = pricedProof8623(lane)
-        val p = priced?.takeIf { it[0] >= 30.0 }
-            ?: laneStats["$PROOF_PREFIX_8572${lane.trim().uppercase()}"]?.let { v -> synchronized(v) { proofOf8546(v) } } ?: return false
+        val p = pricedProof8623(lane) ?: return false
         return provenLosing8608(p[0].toInt(), p[1], p[2], p[3])
     }
 
@@ -427,8 +441,7 @@ object MemePaperTrader8544 {
     /** V5.0.8546 — has [family]'s paper record earned LIVE money (MemeStrategies8546.provenRecord8546)? */
     fun familyProven8546(family: String): Boolean {
         restore8544()
-        val v = laneStats["$FAMILY_PREFIX_8546$family"] ?: return false
-        val p = synchronized(v) { proofOf8546(v) }
+        val p = pricedProof8623("$FAMILY_PREFIX_8546$family") ?: return false
         return MemeStrategies8546.provenRecord8546(p[0].toInt(), p[1], p[2], p[3])
     }
 
@@ -451,13 +464,7 @@ object MemePaperTrader8544 {
         val clock = if (runner) com.lifecyclebot.engine.cortex.CortexLabelHygiene8144.executableHorizonMs8392(true) else SCALP_CLOCK_MS_8544 * 3
         val p = Pos8544("$book|${ts.mint}|$nowMs", ts.mint, ts.symbol, book, signal.why.take(60), mark.priceUsd, mark.observedAtMs,
             cost, STAKE_SOL_8544, runner, clock, signal.exitLane)
-        synchronized(this) {
-            if (open.containsKey(ts.mint)) return
-            open[ts.mint] = p
-            lastEntryAt[ts.mint] = nowMs
-            balanceSol -= p.sizeSol
-            dirty = true
-        }
+        if (!reserve(p, nowMs)) return
         try { PipelineHealthCollector.labelInc("MEME_FAMILY_PAPER_OPEN_8546_${signal.family}") } catch (_: Throwable) {}
         save8544(nowMs, force = true)
     }

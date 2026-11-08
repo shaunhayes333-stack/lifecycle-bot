@@ -86,10 +86,27 @@ object MemeStrategies8546 {
             val top = base.maxOf { hi(it) }; val bottom = base.minOf { lo(it) }
             if (bottom <= 0.0 || top / bottom > 1.15) continue
             val brk = last.priceUsd / top
-            if (brk < 1.02 || brk > 1.12) return null
+            if (brk < 1.02 || brk > 1.12) continue
             return "base=${len}bars range=${"%.0f".format((top / bottom - 1) * 100)}% break=+${"%.1f".format((brk - 1) * 100)}%"
         }
         return null
+    }
+
+    /** A migration starts a new pool. Only its own bars can establish and reclaim the retest low. */
+    fun graduationRetest(bars: List<Candle>, graduatedAtMs: Long): String? {
+        val post = bars.filter { it.ts >= graduatedAtMs && it.priceUsd.isFinite() && it.priceUsd > 0.0 }
+        if (post.size < 4) return null
+        val peakIdx = post.indices.maxByOrNull { hi(post[it]) } ?: return null
+        if (peakIdx > post.size - 4) return null
+        val peak = hi(post[peakIdx])
+        val after = post.subList(peakIdx + 1, post.size)
+        val lowIdx = after.indices.minByOrNull { lo(after[it]) } ?: return null
+        val low = lo(after[lowIdx])
+        if (lowIdx > after.size - 3 || low > peak * 0.90) return null
+        if (after.subList(lowIdx + 1, after.size).any { lo(it) <= low }) return null
+        val close = after.last().priceUsd
+        if (close >= peak || close <= hi(after[lowIdx]) || close <= after[after.lastIndex - 1].priceUsd) return null
+        return "postMigration peak=$peak retest=$low reclaim=$close"
     }
 
     /** Pure: established-coin range low on 15-minute [bars]; the why, or null. */
@@ -125,7 +142,7 @@ object MemeStrategies8546 {
     // ── live evaluation ──
 
     private val lastEvalAt = ConcurrentHashMap<String, Long>()
-    private val lastSignal = ConcurrentHashMap<String, Pair<Family8546, Long>>()
+    private val lastSignal = ConcurrentHashMap<String, Map<Family8546, Long>>()
     private val fired = ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
     @Volatile private var cursor = 0
 
@@ -140,7 +157,7 @@ object MemeStrategies8546 {
         add(Family8546.BASE_BREAKOUT_FLOW, baseBreakout8546(m1))
         val gradAt = try { com.lifecyclebot.network.PumpCurveKeys7269.graduatedAtMs8546(ts.mint) } catch (_: Throwable) { null }
         if (gradAt != null && nowMs - gradAt in 0L..3_600_000L)
-            add(Family8546.GRADUATION_RETEST, pullbackReclaim8546(m1.filter { it.ts >= gradAt - 60_000L })?.let { "graduated ${(nowMs - gradAt) / 60_000L}m ago $it" })
+            add(Family8546.GRADUATION_RETEST, graduationRetest(m1, gradAt)?.let { "graduated ${(nowMs - gradAt) / 60_000L}m ago $it" })
         if (flow.smartWallets5m >= 2) {
             val low15 = m1.takeLast(15).filter { it.priceUsd > 0.0 }.minOfOrNull { lo(it) }
             val px = ts.lastPrice
@@ -168,8 +185,10 @@ object MemeStrategies8546 {
             lastEvalAt[ts.mint] = nowMs
             done++
             val sigs = try { signals8546(ts, nowMs) } catch (_: Throwable) { emptyList() }
+            if (sigs.isNotEmpty()) lastSignal.compute(ts.mint) { _, old ->
+                old.orEmpty().filterValues { nowMs - it in 0L..SIGNAL_TTL_MS_8546 } + sigs.associate { it.family to nowMs }
+            }
             for (s in sigs) {
-                lastSignal[ts.mint] = s.family to nowMs
                 fired.computeIfAbsent(s.family.name) { java.util.concurrent.atomic.AtomicLong(0) }.incrementAndGet()
                 try { PipelineHealthCollector.labelInc("MEME_FAMILY_SIGNAL_8546_${s.family}") } catch (_: Throwable) {}
                 try { MemePaperTrader8544.openFamily8546(ts, s, nowMs) } catch (_: Throwable) {}
@@ -177,7 +196,7 @@ object MemeStrategies8546 {
         }
         cursor = i
         if (lastEvalAt.size > 6_000) lastEvalAt.entries.removeIf { nowMs - it.value > 600_000L }
-        if (lastSignal.size > 3_000) lastSignal.entries.removeIf { nowMs - it.value.second > SIGNAL_TTL_MS_8546 }
+        if (lastSignal.size > 3_000) lastSignal.entries.removeIf { it.value.values.none { at -> nowMs - at in 0L..SIGNAL_TTL_MS_8546 } }
     }
 
     private fun eligible8546(ts: TokenState, nowMs: Long): Boolean {
@@ -190,13 +209,14 @@ object MemeStrategies8546 {
     /** Pure: may a family's paper record carry LIVE money? */
     fun provenRecord8546(n: Int, meanPct: Double, sePct: Double, profitFactor: Double): Boolean =
         n >= PROVEN_MIN_N_8546 && meanPct.isFinite() && sePct.isFinite() && meanPct - sePct > 0.0 &&
-            profitFactor.isFinite() && profitFactor >= PROVEN_MIN_PF_8546
+            profitFactor >= PROVEN_MIN_PF_8546
 
     /** LiveEdgeGate7877: the proven family that signalled on [mint] in the last two minutes, else null. */
     fun liveProven8546(mint: String, nowMs: Long = System.currentTimeMillis()): String? {
-        val (family, at) = lastSignal[mint] ?: return null
-        if (nowMs - at > SIGNAL_TTL_MS_8546) return null
-        return if (MemePaperTrader8544.familyProven8546(family.name)) "FAMILY_PROVEN_8546:${family.name}" else null
+        val family = lastSignal[mint]?.entries?.filter {
+            nowMs - it.value in 0L..SIGNAL_TTL_MS_8546 && MemePaperTrader8544.familyProven8546(it.key.name)
+        }?.maxByOrNull { it.value }?.key ?: return null
+        return "FAMILY_PROVEN_8546:${family.name}"
     }
 
     fun statusLine8546(): String =

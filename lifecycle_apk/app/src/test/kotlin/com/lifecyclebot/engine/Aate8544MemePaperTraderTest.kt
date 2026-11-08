@@ -41,7 +41,10 @@ class Aate8544MemePaperTraderTest {
         assertNull(MemePaperTrader8544.rung8544(runner, 0, 99.0))
         // superseded by V5.0.8584 — RunnerDoctrine8584: the runner ladder is 2x sells 30 %, 5x 35 %, 10x 35 % (was 100/50, 400/35, 1000/35).
         assertEquals(1 to 0.30, MemePaperTrader8544.rung8544(runner, 0, 100.0))
-        assertNull("one rung at a time", MemePaperTrader8544.rung8544(runner, 3, 5_000.0))
+        val gap = MemePaperTrader8544.rung8544(runner, 0, 1_100.0)!!
+        assertEquals(3, gap.first)
+        assertEquals(SpikeCapture7943.crossedTierFraction8079(runner, 0, 3), gap.second, 1e-12)
+        assertNull("all rungs taken", MemePaperTrader8544.rung8544(runner, 3, 5_000.0))
         assertEquals(1 to 0.60, MemePaperTrader8544.rung8544(SpikeCapture7943.TIERS, 0, 40.0))
         assertEquals(50.0, MemePaperTrader8544.grossPct8544(1.0, 1.5), 1e-9)
         assertTrue(MemePaperTrader8544.grossPct8544(0.0, 1.5).isNaN())

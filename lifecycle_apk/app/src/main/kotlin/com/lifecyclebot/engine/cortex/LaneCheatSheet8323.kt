@@ -174,10 +174,10 @@ object LaneCheatSheet8323 {
     // ── lane keys ──
 
     /** The sheet key of [lane] (canonical upper-case lane; aliases resolved). */
-    private fun key8323(lane: String?): String {
+    fun key8323(lane: String?): String {
         val s = lane?.trim()?.uppercase().orEmpty()
         if (s in LANES_8323) return s
-        val c = try { com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(s).uppercase() } catch (_: Throwable) { "" }
+        val c = try { com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.desk8392(s) } catch (_: Throwable) { "" }
         return if (c.isBlank()) s else c
     }
 
@@ -297,7 +297,7 @@ object LaneCheatSheet8323 {
 
     /** The stages the stage sheet (TokenMetricStageRouter.LANE_STAGE_SHEET_7928) gives [lane]. */
     fun stagesOf8323(lane: String): Set<String> = try {
-        val l = lane.trim().uppercase()
+        val l = key8323(lane)
         com.lifecyclebot.engine.TokenMetricStageRouter.LANE_STAGE_SHEET_7928.filterValues { l in it }.keys.map { it.name }.toSet()
     } catch (_: Throwable) { emptySet() }
 
@@ -351,7 +351,7 @@ object LaneCheatSheet8323 {
 
     /** Does a coin fit [lane]'s mandate for routing? Lanes without a sheet (STANDARD, V3, INSIDER_SHARK…) always fit. */
     fun laneFits8323(lane: String, mcapUsd: Double, liqUsd: Double): Boolean {
-        val l = lane.trim().uppercase()
+        val l = key8323(lane)
         if (l !in LANES_8323) return true
         return routeFits8323(mcapBandNow8323(l), liqFloorNow8323(l), mcapUsd, liqUsd)
     }
@@ -389,7 +389,7 @@ object LaneCheatSheet8323 {
 
     /** LaneHunter7297: does the row fit [lane]'s mandate (the lane's own liquidity floor now and its age band)? */
     fun hunterFits8323(lane: String, ageHours: Double, liqUsd: Double): Boolean {
-        val l = lane.trim().uppercase()
+        val l = key8323(lane)
         if (l !in LANES_8323) return true
         return hunterFitsPure8323(ageBandMin8323(l), ageMaxNowMin8323(l), liqFloorNow8323(l), ageHours, liqUsd)
     }

@@ -216,7 +216,7 @@ object EdgeModel8537 {
     private val io = Executors.newSingleThreadExecutor { r -> Thread(r, "AATE-EdgeModel8537").apply { isDaemon = true } }
 
     /** A decision's frozen features and the prediction made at that moment. */
-    class Snap(val raw: Raw, val x: DoubleArray, val pred: Double, val modelKey: String, val atMs: Long, val mint: String, val admitted: Boolean)
+    class Snap(val raw: Raw, val x: DoubleArray, val pred: Double, val modelKey: String, val atMs: Long, val mint: String, val admitted: Boolean, val horizonMs: Long = 0L)
 
     // V5.0.8571 — the frozen decision snapshot travels with the labeler's pending checkpoint. It was memory-only, so every
     // observation restored after a restart (2,414 in the 8562 session) could never train the model: an hour-graded meme
@@ -232,7 +232,7 @@ object EdgeModel8537 {
             "bp" to r.bp, "chg5m" to r.chg5m, "chg1h" to r.chg1h, "volAccel" to r.volAccel, "top" to r.top, "v3" to r.v3,
             "costPct" to r.costPct, "holderVel" to r.holderVel, "txVel" to r.txVel, "curve" to r.curve, "turnover" to r.turnover,
         ).forEach { (k, v) -> raw.put(k, d8571(v)) }
-        return org.json.JSONObject().put("raw", raw).put("pred", d8571(s.pred))
+        return org.json.JSONObject().put("raw", raw).put("pred", d8571(s.pred)).put("horizonMs", s.horizonMs)
             .put("key", s.modelKey).put("at", s.atMs).put("mint", s.mint).put("admitted", s.admitted)
     }
 
@@ -245,7 +245,7 @@ object EdgeModel8537 {
                 d8571(r, "runup"), d8571(r, "pxPeak"), d8571(r, "dd"), d8571(r, "bp"), d8571(r, "chg5m"), d8571(r, "chg1h"),
                 d8571(r, "volAccel"), d8571(r, "top"), r.optString("phase"), d8571(r, "v3"), d8571(r, "costPct"),
                 d8571(r, "holderVel"), d8571(r, "txVel"), d8571(r, "curve"), d8571(r, "turnover"), r.optInt("flags"))
-            Snap(raw, vectorOf(raw), d8571(j, "pred"), j.optString("key"), j.optLong("at"), j.optString("mint"), j.optBoolean("admitted"))
+            Snap(raw, vectorOf(raw), d8571(j, "pred"), j.optString("key"), j.optLong("at"), j.optString("mint"), j.optBoolean("admitted"), j.optLong("horizonMs"))
         } catch (_: Throwable) { null }
     }
 
@@ -298,7 +298,7 @@ object EdgeModel8537 {
         val raw = rawOf(ts, laneRaw, costPct, nowMs)
         val x = vectorOf(raw)
         val (p, key) = predictLocked(x, raw.lane)
-        Snap(raw, x, p, key, nowMs, ts.mint, admitted)
+        Snap(raw, x, p, key, nowMs, ts.mint, admitted, PocketLedger8610.targetHorizon(raw.lane))
     } catch (_: Throwable) { null }
 
     /**
@@ -337,7 +337,7 @@ object EdgeModel8537 {
         }
         val k = learned.incrementAndGet()
         appendDataset(s, netPct)   // V5.0.8567 — the dataset keeps the true net, uncapped
-        try { PocketLedger8610.learn8610(s.raw, netPct) } catch (_: Throwable) {}   // V5.0.8610 — the learned pocket ledger
+        try { PocketLedger8610.learn8610(s, netPct) } catch (_: Throwable) {}   // V5.0.8610 — the learned pocket ledger
         if (k % SAVE_EVERY == 0L) saveAsync()
         try { PipelineHealthCollector.labelInc("EDGE_MODEL_LEARNED_8537") } catch (_: Throwable) {}
     }
@@ -433,7 +433,7 @@ object EdgeModel8537 {
     fun datasetLine(s: Snap, net: Double, filled: Boolean = true): String {
         fun n(v: Double) = if (v.isFinite()) "%.6g".format(java.util.Locale.US, v) else "null"
         val r = s.raw
-        return "{\"t\":${s.atMs},\"mint\":\"${s.mint.take(44)}\",\"lane\":\"${r.lane}\",\"src\":\"${r.source.replace("\"", "").take(60)}\"," +
+        return "{\"t\":${s.atMs},\"horizonMs\":${s.horizonMs},\"mint\":\"${s.mint.take(44)}\",\"lane\":\"${r.lane}\",\"src\":\"${r.source.replace("\"", "").take(60)}\"," +
             "\"liq\":${n(r.liq)},\"mcap\":${n(r.mcap)},\"age\":${n(r.ageMin)},\"runup\":${n(r.runup)},\"pxPeak\":${n(r.pxPeak)}," +
             "\"dd\":${n(r.dd)},\"bp\":${n(r.bp)},\"chg5m\":${n(r.chg5m)},\"chg1h\":${n(r.chg1h)},\"volAccel\":${n(r.volAccel)}," +
             "\"top\":${n(r.top)},\"holderVel\":${n(r.holderVel)},\"txVel\":${n(r.txVel)},\"curve\":${n(r.curve)},\"turnover\":${n(r.turnover)}," +

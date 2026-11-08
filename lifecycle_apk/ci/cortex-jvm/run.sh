@@ -58,6 +58,7 @@ production=(
   "$sources/truth/SetupTimingGrades8528.kt"
   "$sources/truth/EntryFloorEvidence8528.kt"
   "$sources/cortex/CortexLabelFeed8291.kt"
+  "$sources/truth/CanonicalLaneIdentity6506.kt"
   "$sources/truth/LabelEvidence8386.kt"
   "$sources/truth/LearningEpoch8164.kt"
   "$sources/cortex/CortexForwardEpoch8521.kt"

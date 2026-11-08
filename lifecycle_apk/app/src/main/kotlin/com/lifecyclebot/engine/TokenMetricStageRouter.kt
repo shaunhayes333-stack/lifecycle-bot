@@ -410,7 +410,7 @@ object TokenMetricStageRouter {
     }
 
     private fun laneFit(ts: TokenState, laneRaw: String, now: Long, flow: EntryFlow8506?): LaneFit {
-        val lane = laneRaw.uppercase()
+        val lane = com.lifecyclebot.engine.cortex.LaneCheatSheet8323.key8323(laneRaw)
         return laneFit(ts, lane, now, flow, snapshot(ts, now, flow))
     }
 
