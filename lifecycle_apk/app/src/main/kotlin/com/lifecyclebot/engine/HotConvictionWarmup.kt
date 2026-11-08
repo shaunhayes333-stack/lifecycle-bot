@@ -152,7 +152,7 @@ object HotConvictionWarmup {
                     symbol = r.symbol.ifBlank { r.mint.take(6) },
                     source = "WATCHLIST_HIGH_TOUCH",
                     convictionScore = score,
-                    lastSeenMs = r.addedAt,
+                    lastSeenMs = r.lastSightedAt,  // V5.0.8631 — addedAt is the first admission now; the last sighting is this
                     liquidityUsdEstimate = r.initialLiquidityUsd,
                     mcapUsdEstimate = r.initialMcap,
                 )

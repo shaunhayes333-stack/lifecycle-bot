@@ -243,7 +243,9 @@ object GlobalTradeRegistry {
     data class WatchlistEntry(
         val mint: String,
         val symbol: String,
-        var addedAt: Long,  // V5.9.1328 — mutable: refreshed on duplicate intake so WATCHLIST_RR fresh-window stays honest
+        // superseded by V5.0.8631 — the FIRST admission time, never refreshed (audit_8629 D1); was: var addedAt, refreshed on
+        // every duplicate intake (V5.9.1328), which kept list re-served coins in the fresh tier and out of the eviction pool.
+        val addedAt: Long,
         val addedBy: String,  // "SCANNER", "USER", "DEX_BOOSTED", "PUMP_FUN", etc.
         val source: String,   // More specific: "pump.fun", "raydium", "moonshot"
         val initialMcap: Double,
@@ -253,7 +255,29 @@ object GlobalTradeRegistry {
         val toolAffinity: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet<String>(),
         var lastProcessedAt: Long = 0,
         var processCount: Int = 0,
+        /** V5.0.8631 — the latest sighting (first admission or any re-intake); [addedAt] stays the first admission. */
+        var lastSightedAt: Long = addedAt,
     )
+
+    /**
+     * V5.0.8631 (D1) — a re-sighting of a watched coin records [WatchlistEntry.lastSightedAt] only. Its admission time
+     * stays the first one, so a coin trending lists re-serve every few minutes ages out of the selector's 120 s fresh tier
+     * and into the oldest-admission eviction order (WatchlistEviction8398) like any other coin.
+     */
+    internal fun noteResighting8631(entry: WatchlistEntry, now: Long) {
+        if (now > entry.lastSightedAt) entry.lastSightedAt = now
+    }
+
+    /**
+     * V5.0.8631 (D5) — a fresh PumpPortal create that went hot through FreshLaunchIntake8303 (witnessed, inside the
+     * sniper window, under its per-minute budget) is not diverted by the 35 % pump share. Called only when the share
+     * would divert, so the counter is the number of creates it let through.
+     */
+    private fun freshCreatePumpShareExempt8631(mint: String, now: Long): Boolean {
+        val exempt = try { FreshLaunchIntake8303.hotCreate8631(mint, now) } catch (_: Throwable) { false }
+        if (exempt) try { PipelineHealthCollector.labelInc("PUMP_SHARE_EXEMPT_FRESH_CREATE_8631") } catch (_: Throwable) {}
+        return exempt
+    }
 
     data class RejectionEntry(
         val mint: String,
@@ -404,7 +428,9 @@ object GlobalTradeRegistry {
             // V5.0.8418 — superseded max-take: the newest positive intake figure replaces the older one, up or down.
             if (initialLiquidityUsd.isFinite() && initialLiquidityUsd > 0.0) existing.initialLiquidityUsd = initialLiquidityUsd
             if (confidence > existing.initialConfidence) existing.initialConfidence = confidence
-            // V5.9.1328 — ROOT FIX B: Refresh addedAt on duplicate intake.
+            // superseded by V5.0.8631 — a re-sighting records lastSightedAt only; addedAt stays the first admission
+            // (audit_8629 D1: re-served trending coins monopolised the fresh tier and were never the eviction victim).
+            // was: existing.addedAt = now — V5.9.1328 — ROOT FIX B: Refresh addedAt on duplicate intake.
             // Without this, brand-new pump-portal tokens (which keep re-arriving
             // from the WS feed every few seconds) carry an addedAt timestamp
             // from their FIRST sighting, instantly aging out of the
@@ -413,7 +439,7 @@ object GlobalTradeRegistry {
             // arrived in the last minute, so the round-robin starves the
             // execution path of fresh candidates. Refreshing addedAt restores
             // the "fresh" classification semantics the round-robin assumes.
-            existing.addedAt = now
+            noteResighting8631(existing, now)
             duplicatesBlocked.incrementAndGet()
             return AddResult(false, "DUPLICATE: already watching since ${(now - existing.addedAt)/1000}s ago")
         }
@@ -459,7 +485,8 @@ object GlobalTradeRegistry {
         val alreadyProbationVetted6273 = addedBy.contains("PROBATION", ignoreCase = true) ||
             addedBy.contains("PROMOTED", ignoreCase = true) ||
             source.contains("PROBATION", ignoreCase = true)
-        if (!alreadyProbationVetted6273 && shouldDivertPumpToProbation(addedBy, source, initialMcap, laneAffinity, toolAffinity)) {
+        if (!alreadyProbationVetted6273 && shouldDivertPumpToProbation(addedBy, source, initialMcap, laneAffinity, toolAffinity) &&
+            !freshCreatePumpShareExempt8631(mint, now)) {  // V5.0.8631 — a witnessed fresh create is not share-capped
             pumpPortalProbationDiversions.incrementAndGet()
             val current = pumpPortalConcurrentCount()
             val cap = pumpHotCapFor(watchlist.size + 1)

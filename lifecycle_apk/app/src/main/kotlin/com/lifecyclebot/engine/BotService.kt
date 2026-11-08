@@ -11159,8 +11159,9 @@ class BotService : Service() {
                                 "🆕 PumpPortal protected intake: $symbol ($name) mcap=${mcapSol.toInt()}SOL liqEst=\$${estLiq.toInt()}"
                             )
                             // V5.0.7277 — evaluate on the event, not on the next tick.
-                            // Sub-$2k pools stay on the ordinary loop (discovery probes).
-                            if (estLiq >= 2_000.0) {
+                            // superseded by V5.0.8631 — a witnessed create on the hot list fires it (pumpFastLaneDue8631); was:
+                            // estLiq >= 2_000.0 ("Sub-$2k pools stay on the ordinary loop"), which a ~$3-real fresh create never met.
+                            if (pumpFastLaneDue8631(mint)) {
                                 try { fastLaneEvaluate7277(mint, liveCfg, "PUMP_PORTAL_WS") } catch (_: Throwable) {}
                             }
                         }
@@ -15141,6 +15142,48 @@ class BotService : Service() {
 
     private val RESCUE_EXCLUDED_8031 = setOf("CORE", "CYCLIC")
 
+    /**
+     * V5.0.8631 (D3, audit_8629) — SHITCOIN / MOONSHOT / EXPRESS / PROJECT_SNIPER / MANIPULATED do not evaluate a coin whose
+     * known launch age is over the lane's cap (DiscoveryFresh8631.RUNNER_LANE_MAX_AGE_MS_8631); an unknown age never blocks.
+     * The age only grows, so the named gate reason is final; it reads as a lane-fit refusal (TOO_OLD), so a waiting hand-off
+     * task is handed on to a lane that may take the coin.
+     */
+    private fun runnerLaneAgeSkip8631(ts: com.lifecyclebot.data.TokenState, lane: String): Boolean {
+        if (DiscoveryFresh8631.runnerAgeCapMs8631(lane) == null) return false
+        val age = try { com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.launchAgeMs7767(ts, System.currentTimeMillis()) } catch (_: Throwable) { null }
+        if (!DiscoveryFresh8631.runnerLaneTooOld8631(lane, age)) return false
+        laneGateCount("RUNNER_AGE_SCOPE_8631", lane)
+        SpecialistElection8136.noteGateReason8144(ts.mint, lane, "RUNNER_LANE_TOKEN_TOO_OLD_8631")
+        return true
+    }
+
+    /**
+     * V5.0.8631 (D1) — the selector's fresh tier: the FIRST admission (a re-sighting no longer refreshes addedAt) inside
+     * the window, and not a coin whose known launch age is past every runner lane's cap. Such a coin goes to the unseen /
+     * cold tiers like any other.
+     */
+    private fun freshTier8631(mint: String, addedAt: Long, nowMs: Long, windowMs: Long): Boolean {
+        if (nowMs - addedAt >= windowMs) return false
+        val ts = try { status.tokens[mint] } catch (_: Throwable) { null } ?: return true
+        val age = try { com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.launchAgeMs7767(ts, nowMs) } catch (_: Throwable) { null }
+        val fresh = DiscoveryFresh8631.freshTier8631(addedAt, nowMs, windowMs, age)
+        if (!fresh) try { PipelineHealthCollector.labelInc("SELECTOR_FRESH_TIER_OLD_COIN_8631") } catch (_: Throwable) {}
+        return fresh
+    }
+
+    /**
+     * V5.0.8631 (D5) — the PumpPortal create fast lane fires on a witnessed create inside the sniper window that reached
+     * the hot list, not on estimated liquidity >= $2k (a fresh create reads ~0.02 SOL real, so 129 fast-lane passes met
+     * ~1,000 creates). The fast lane runs the ordinary full cycle: every safety, FDG and buy-door gate still applies.
+     */
+    private fun pumpFastLaneDue8631(mint: String): Boolean {
+        val watched = try { GlobalTradeRegistry.isWatching(mint) } catch (_: Throwable) { false }
+        val due = DiscoveryFresh8631.fastLaneTrigger8631(FreshLaunchIntake8303.SOURCE_8303,
+            FreshLaunchIntake8303.createBirthMs8303(mint), System.currentTimeMillis(), watched)
+        try { PipelineHealthCollector.labelInc(if (due) "FAST_LANE_WITNESSED_CREATE_8631" else "FAST_LANE_CREATE_NOT_DUE_8631") } catch (_: Throwable) {}
+        return due
+    }
+
     private fun laneEvaluationAllowed7951(ts: com.lifecyclebot.data.TokenState, lane: String, primaryLane: String,
                                          cycleSheet8522: ToolkitSignalSheet.Sheet): Boolean {
         // V5.0.6002 — LANE QUARANTINE (operator directive 2026-07-02).
@@ -15209,6 +15252,7 @@ class BotService : Service() {
         //      lane shapes — but we still cap fanout per the operator P1 spec:
         //      "primary lane + at most one rescue lane".
         val l = lane.uppercase()
+        if (runnerLaneAgeSkip8631(ts, l)) return false  // V5.0.8631 (D3) — a runner lane does not evaluate a coin past its age cap
         // V5.0.8429 §EVERY_LANE_JUDGES_ITS_OWN_PREY — this lane's resident book holds a READY proposal for the coin: its own
         // brain qualified it. 8422 (8.5 min): CORE qualified 296 coins and evaluated 0, CYCLIC 531 / 0, TREASURY 440 / 0,
         // MANIPULATED 62 / 0 — READY_NOT_EVALUATED_PRIMARY_SHITCOIN 249 on CORE alone — because a sealed owner (below) and the
@@ -16035,7 +16079,7 @@ class BotService : Service() {
             // acquisitions become 2. The reads and the decision order are
             // otherwise identical — demotions in this pass cannot change another
             // mint's open state, so hoisting the check is equivalent.
-            val candidates6968 = pumpEntries.take(excess)
+            val candidates6968 = pumpEntries.filter { !FreshLaunchIntake8303.hotCreate8631(it.mint) }.take(excess)  // V5.0.8631 — fresh creates exempt
             val snap6968: Map<String, Pair<Boolean, Double>> = try {
                 synchronized(status.tokens) {
                     candidates6968.associate { e ->
@@ -18911,7 +18955,7 @@ class BotService : Service() {
             }
             when {
                 entry == null -> unseen.add(mint)
-                (nowMs - entry.addedAt) < FRESH_WINDOW_MS -> fresh.add(mint)
+                freshTier8631(mint, entry.addedAt, nowMs, FRESH_WINDOW_MS) -> fresh.add(mint)  // V5.0.8631 — first admission + age scope
                 entry.processCount == 0 -> unseen.add(mint)
                 else -> cold.add(mint to entry.lastProcessedAt)
             }

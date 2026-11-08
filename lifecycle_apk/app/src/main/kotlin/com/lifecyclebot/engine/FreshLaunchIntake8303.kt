@@ -60,6 +60,14 @@ object FreshLaunchIntake8303 {
     fun parkDecision8303(wouldPark: Boolean, pressurePark: Boolean, exempt: Boolean): Boolean =
         pressurePark || (wouldPark && !exempt)
 
+    /**
+     * Pure (V5.0.8631, D5): a create that went hot through [park8303] at [hotAtMs] is exempt from the hot list's 35 % pump
+     * share while it is inside the sniper window. The share cap was meant to stop dust, which the cold-pump park and this
+     * object's per-minute budget already handle; every intake, safety and buy-door gate still applies.
+     */
+    fun pumpShareExempt8631(hotAtMs: Long?, nowMs: Long): Boolean =
+        hotAtMs != null && hotAtMs > 0L && nowMs - hotAtMs in -CLOCK_SKEW_MS_8303..HOT_WINDOW_MS_8303
+
     /** Pure: an existing row blocks a band entry only while it is still evaluated (watched) or held. */
     fun rowBlocksBandEntry8303(rowExists: Boolean, watched: Boolean, held: Boolean): Boolean =
         rowExists && (watched || held)
@@ -81,6 +89,9 @@ object FreshLaunchIntake8303 {
     private val parkedBudget = AtomicLong(0)
     private val parkedStale = AtomicLong(0)
     private val bandReadmits = AtomicLong(0)
+    /** V5.0.8631 — mint -> when it went hot through [park8303] (bounded; read by the pump-share exemption). */
+    private val hotAt8631 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private const val HOT_AT_CAP_8631 = 512
 
     private fun count8303(label: String) {
         try { PipelineHealthCollector.labelInc(label) } catch (_: Throwable) {}
@@ -114,8 +125,19 @@ object FreshLaunchIntake8303 {
         if (!open) { parkedBudget.incrementAndGet(); count8303("FRESH_CREATE_PARKED_BUDGET_8303"); return true }
         hot.incrementAndGet()
         count8303("FRESH_CREATE_HOT_8303")
+        noteHot8631(mint, nowMs)
         return parkDecision8303(wouldPark, pressurePark, exempt = true)
     }
+
+    private fun noteHot8631(mint: String, nowMs: Long) {
+        if (hotAt8631.size >= HOT_AT_CAP_8631) hotAt8631.entries.removeIf { !pumpShareExempt8631(it.value, nowMs) }
+        if (hotAt8631.size >= HOT_AT_CAP_8631) hotAt8631.clear()
+        hotAt8631[mint.trim()] = nowMs
+    }
+
+    /** GlobalTradeRegistry pump-share cap / BotService source rebalance (V5.0.8631): [mint] went hot here and is still fresh. */
+    fun hotCreate8631(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean =
+        pumpShareExempt8631(hotAt8631[mint.trim()], nowMs)
 
     /** BotService.bandEntry8118: true when an existing row is still evaluated or held (the band entry then stands down). */
     fun rowWatched8303(rowExists: Boolean, mint: String): Boolean {

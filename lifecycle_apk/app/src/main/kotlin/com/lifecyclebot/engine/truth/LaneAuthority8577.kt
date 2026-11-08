@@ -131,7 +131,10 @@ object LaneAuthority8577 {
      */
     const val LIVE_RUNNER_STALE_COIN_8627 = "LIVE_RUNNER_STALE_COIN_8627"
     const val RUNNER_MAX_AGE_MS_8627 = 24L * 3_600_000L
-    private val RUNNER_LANES_8627 = setOf("SHITCOIN", "MOONSHOT", "EXPRESS", "PROJECT_SNIPER", "MANIPULATED")
+    // superseded by V5.0.8631 — the runner lanes are the keys of the one per-lane age table (DiscoveryFresh8631), whose
+    // tighter caps stop those lanes evaluating older coins at BotService.laneEvaluationAllowed7951; this 24 h live refusal
+    // stays as the outer bound at the gate. was: setOf("SHITCOIN", "MOONSHOT", "EXPRESS", "PROJECT_SNIPER", "MANIPULATED")
+    private val RUNNER_LANES_8627: Set<String> = com.lifecyclebot.engine.DiscoveryFresh8631.RUNNER_LANE_MAX_AGE_MS_8631.keys
 
     /** Pure: is a live buy in [lane] of a coin [launchAgeMs] old refused as stale? */
     fun runnerCoinStale8627(lane: String, launchAgeMs: Long?): Boolean =
