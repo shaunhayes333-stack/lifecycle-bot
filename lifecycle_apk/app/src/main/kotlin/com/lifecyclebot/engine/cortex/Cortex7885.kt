@@ -4945,8 +4945,8 @@ object Cortex7885 {
             if (loaded) return
             try {
                 // V5.0.8623 — the retired voter graph's pending row (26.7 M chars) is not read; the next checkpoint rewrites it small.
-                val stored8521 = CortexForwardEpoch8521.readStoredRows(LearningPersistence::load, LearningPersistence::readFailed8086,
-                    readPending = !VOTER_GRAPH_RETIRED_8623)
+                val stored8521 = if (VOTER_GRAPH_RETIRED_8623) CortexForwardEpoch8521.readStoredBooks8623(LearningPersistence::load, LearningPersistence::readFailed8086)
+                    else CortexForwardEpoch8521.readStoredRows(LearningPersistence::load, LearningPersistence::readFailed8086)
                     ?: run { loaded = false; inc("CORTEX_CHECKPOINT_READ_RETRY_8521"); return }
                 gradeBook8144.decode(stored8521.grades)
                 val raw8324 = stored8521.books

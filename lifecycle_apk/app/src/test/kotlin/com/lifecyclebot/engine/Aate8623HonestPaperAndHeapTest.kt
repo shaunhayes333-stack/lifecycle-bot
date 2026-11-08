@@ -51,7 +51,9 @@ class Aate8623HonestPaperAndHeapTest {
         val capture = c.substringAfter("fun capture(ts: TokenState, labelLane: String").substringBefore("val captureKey8397")
         assertTrue("the playbook tag still belongs to every decision", capture.contains("LanePlaybook7907.capture(ts, labelLane, labelLane, nowMs, snap, sel, timing)"))
         assertTrue(capture.contains("ForwardReturnLabeler7731.freezeTiming8528(ts.mint, labelLane, nowMs, sel, timing)"))
-        assertTrue("the pending row is not read", c.contains("readPending = !VOTER_GRAPH_RETIRED_8623)"))
+        assertTrue("the pending row is not read", c.contains("if (VOTER_GRAPH_RETIRED_8623) CortexForwardEpoch8521.readStoredBooks8623("))
+        val books = com.lifecyclebot.engine.cortex.CortexForwardEpoch8521.readStoredBooks8623({ k -> "row:" + k }, { false })!!
+        assertEquals(null, books.pending)
         val gradle = File("build.gradle.kts").readText()
         assertTrue(gradle.contains("it.systemProperty(\"aate.cortexVoterGraph8623\", \"on\")"))
     }
