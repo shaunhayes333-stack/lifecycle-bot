@@ -63,6 +63,14 @@ class Aate8623HonestPaperAndHeapTest {
         assertTrue(capture.contains("ForwardReturnLabeler7731.freezeTiming8528(ts.mint, labelLane, nowMs, sel, timing)"))
         assertTrue(capture.contains("VOTER_GRAPH_RETIRED_8623 || unsampled8644"))
         assertTrue("repeated decisions cannot multiply pending voter captures", capture.contains("claimCapture8644(key8644, hot8644.atMs, nowMs)"))
+        // V5.0.8647: sampled production assessments must be attached to an actual label,
+        // or the 30-second quota produces reads with no executable learning outcomes.
+        val schedule = c.substringAfter("private fun cachedOrSchedule(").substringBefore("private fun operatorSource8522(")
+        assertTrue(schedule.contains("!provenOverStack8539(laneRaw)"))
+        assertTrue(schedule.indexOf("!provenOverStack8539(laneRaw)") < schedule.indexOf("reserveSample8644(nowMs)"))
+        assertTrue(capture.contains("assess(frozen8647, labelLane, nowMs"))
+        assertTrue(capture.indexOf("assess(frozen8647, labelLane, nowMs") < capture.indexOf("val unsampled8644"))
+        assertTrue(capture.contains("decisionSnapshots8522.capture(ts, nowMs)"))
         assertEquals("CORTEX_PENDING_8644", com.lifecyclebot.engine.cortex.CortexForwardEpoch8521.PENDING)
         assertTrue("the pending row is not read", c.contains("if (VOTER_GRAPH_RETIRED_8623) CortexForwardEpoch8521.readStoredBooks8623("))
         val books = com.lifecyclebot.engine.cortex.CortexForwardEpoch8521.readStoredBooks8623({ k -> "row:" + k }, { false })!!

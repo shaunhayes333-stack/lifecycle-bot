@@ -1047,6 +1047,16 @@ object Cortex7885 {
             if (opportunitySource8522 == null) { if (nowMs - it.atMs in 0L..ASSESS_TTL_MS) return it }
             else if (CortexOpportunityPolarity8522.currentInput8522(opportunitySource8522, it, nowMs)) return it
         }
+        // V5.0.8647 — in the bounded APK the 30-second budget used to be spent by speculative
+        // prewarms and unproven gate reads. The 8644 runtime produced 13 predictions, zero
+        // captured predictions and 1,051 playbook-only decisions: these reads almost never
+        // belonged to the later ForwardReturnLabeler observation. Reserve the scarce fresh
+        // reads for capture() while the Cortex is unproven. Once a lane has genuine OOS
+        // authority, speculative scoring may again use the same bounded budget.
+        if (BOUNDED_VOTER_GRAPH_8644 && !provenOverStack8539(laneRaw)) {
+            inc("CORTEX_UNPAIRED_PREWARM_SKIPPED_8647")
+            return null
+        }
         if (!reserveSample8644(nowMs)) return null
         // A job the full queue dropped never reaches its finally: a key may be
         // rescheduled after 30 s, so a dropped assessment cannot block a mint forever.
@@ -1158,8 +1168,17 @@ object Cortex7885 {
         // rate, almost all decisions keep their cheap setup/timing labels without scheduling a
         // cold 331-voter read AFTER the decision (which cannot be valid walk-forward evidence).
         val key8644 = "${ts.mint}|${canon(labelLane)}"
-        val hot8644 = if (BOUNDED_VOTER_GRAPH_8644)
-            assessCache[key8644]?.takeIf { nowMs - it.atMs in 0L..ASSESS_TTL_MS } else null
+        // V5.0.8647 — sample at the actual forward-labelled decision, not at an unrelated
+        // earlier native prewarm. This is still at most two full voter reads a minute and
+        // uses the label's frozen decision inputs. The read-completion clock is retained;
+        // lateVoterRead8169 refuses to train if any read crosses the executable-fill clock.
+        val hot8644 = if (BOUNDED_VOTER_GRAPH_8644) {
+            assessCache[key8644]?.takeIf { nowMs - it.atMs in 0L..ASSESS_TTL_MS }
+                ?: try {
+                    val frozen8647 = decisionSnapshots8522.capture(ts, nowMs)
+                    assess(frozen8647, labelLane, nowMs, inputAtMs8522 = nowMs)
+                } catch (_: Throwable) { inc("CORTEX_LABEL_SAMPLE_FAILED_8647"); null }
+        } else null
         val unsampled8644 = BOUNDED_VOTER_GRAPH_8644 &&
             (hot8644 == null || !claimCapture8644(key8644, hot8644.atMs, nowMs))
         if (VOTER_GRAPH_RETIRED_8623 || unsampled8644) {

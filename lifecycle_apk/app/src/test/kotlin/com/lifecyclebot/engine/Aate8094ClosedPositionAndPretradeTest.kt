@@ -283,7 +283,8 @@ class Aate8094ClosedPositionAndPretradeTest {
         assertTrue(ws.authReprobeDue8094(denied = true, deniedAtMs = 1_000L, nowMs = 1_000L + reprobe))
         assertFalse(ws.authReprobeDue8094(denied = false, deniedAtMs = 1_000L, nowMs = 1_000L + 10 * reprobe))
         val src = File("src/main/kotlin/com/lifecyclebot/network/PumpFunWS.kt").readText()
-        assertTrue(src.contains("tradeAuthDeniedAtMs8094 = System.currentTimeMillis()"))
+        // 8645: one frame's timestamp is frozen once for the same error and denial event.
+        assertTrue(src.contains("tradeAuthDeniedAtMs8094 = now8645"))
         assertTrue(src.substringAfter("fun syncTradeSubscriptions7278(").take(200).contains("maybeReprobeAuth8094()"))
     }
 

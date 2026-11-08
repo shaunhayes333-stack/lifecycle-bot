@@ -1,5 +1,34 @@
 # V5.0.8644 — Cortex recovery and conflicting-entry-authority repair
 
+## 8647 follow-up from the 03:14 Nov 9 log
+
+The actual 5.0.8644 runtime (`61bcfc277`) observed authenticated PumpPortal
+executed-trade traffic: `tradeConfirmed8182=YES`, `denials8182=0`, >2,300 real
+trade frames on the current connection. The earlier external-auth denial did
+not persist in this newer capture, and the key's live funding/entitlement must
+not be inferred from a stale log. The bot still recorded 28 canonical closed
+trades at 32% wins and PF 0.70; no live buys in this six-minute session.
+
+The Cortex's bounded recovery produced `assessed=13`, `captures=0`, `graded=0`
+and `CORTEX_PLAYBOOK_ONLY_UNSAMPLED_8644=1051` in the same log. Source tracing
+confirmed the mismatch: `SpecialistBrainBridge7542.prewarmNative8196` and
+`entryRefusal` scheduled sampled assessments on arbitrary pre-FDG candidates,
+while `ForwardReturnLabeler7731.observe` later opened labelled decisions on
+different mints. The scarce global 30-second full-read slots therefore had
+no prediction/label pairing. V5.0.8647 reserves unproven bounded reads for
+`Cortex7885.capture` on actual forward-labelled decisions, freezing its input
+snapshot and retaining `lateVoterRead8169` protection at the executable-fill
+clock. This does not add new live vetoes or silently turn paper wins into
+live economic proof. Once OOS-proven, a lane can again prewarm scored reads.
+
+GitHub 8645/8646 each compiled and ran 2,205 release unit tests with **one
+failing stale source-text assertion**: `Aate8094ClosedPositionAndPretradeTest`
+expected the old direct auth-denial timestamp assignment, whereas 8645 now
+freezes a single `now8645` for the paired PumpSwap/generic error and sets the
+same timestamp on the denial. 8647 updates that assertion to match the new
+semantics. No failed unverified APK is eligible for release; 8647 must pass
+both full test and emulator smoke workflows before main merge.
+
 **Status:** follow-on source changes; they are not evidence that live profits improved until a new APK runs, the gate outcomes mature, and canonical fills/exits are reconciled.
 
 ## Why this is necessary
