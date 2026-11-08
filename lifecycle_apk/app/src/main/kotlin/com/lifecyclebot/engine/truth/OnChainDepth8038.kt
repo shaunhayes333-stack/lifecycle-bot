@@ -289,7 +289,11 @@ object OnChainDepth8038 {
     }
 
     private val noPoolAt8541 = ConcurrentHashMap<String, Long>()
-    private const val NO_POOL_RETRY_MS_8541 = 60_000L
+    // V5.0.8641 — a fresh launch whose AMM pool is not indexed yet moves in seconds; a 60 s no-pool wait read its liquidity
+    // once while the runner ran (hydrationReeval LIQUIDITY_STILL_UNREAD=11,312, 170 of 193 4x+ runners missed). 20 s gives it
+    // three reads in its first minute. Kept bounded on purpose: the no-pool set is large (pre-graduation curve coins have no
+    // AMM pool), so this is NOT dropped to per-loop — the floor stays well above the cycle to cap the credit cost.
+    private const val NO_POOL_RETRY_MS_8541 = 20_000L
     private val mintRequests8540 = AtomicLong(0)
     fun mintRequests8540(): Long = mintRequests8540.get()
 
