@@ -54,6 +54,18 @@ class Aate8640LiveCurveFreshnessTest {
         assertNotEquals(CandidateAdmission8136.Terminal8136.DEFER_DATA, d.terminal)
     }
 
+    @Test fun aSupportedCandidateStillTradesThroughAnUnobservedShape() {
+        // The 818-820 contract: a candidate with POSITIVE candidate-specific evidence (a supported cell) trades through an
+        // optional shape gap. The curve-freshness defer is scoped to edge == null, so it must NOT fire here.
+        val supported = CandidateAdmission8136.Candidate8136(
+            mint = "supported8640", lane = "MOONSHOT", selectedSetup = "supported", live = true, stage = "EXPANDING",
+            priceAgeMs = 1_000L, expectedGrossPct = 30.0, costPct = 3.0, missingInputs = listOf("shape:UNKNOWN"),
+            cell = CandidateAdmission8136.Evidence8136("CELL", "fixture", 60, 20.0, 2.0),
+        )
+        assertNotEquals("a supported cell trades through the shape gap",
+            CandidateAdmission8136.Terminal8136.DEFER_DATA, CandidateAdmission8136.decide8136(supported).terminal)
+    }
+
     @Test fun onlyShapeIsLiveCritical_notEveryOptionalInput() {
         assertTrue(CandidateAdmission8136.liveCurveUnobserved8640("shape:UNKNOWN"))
         assertTrue(CandidateAdmission8136.liveCurveUnobserved8640("SHAPE:DEFAULT_UNOBSERVED"))

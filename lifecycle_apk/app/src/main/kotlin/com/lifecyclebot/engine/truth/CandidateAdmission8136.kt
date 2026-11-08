@@ -806,10 +806,13 @@ object CandidateAdmission8136 {
         // V5.0.8283 — history the token is too young to have is recorded here, never waited for (LifecycleData8283).
         if (c.historyUnavailable8283.isNotEmpty()) trace += "historyUnavailable8283=${c.historyUnavailable8283.joinToString(",")} judgedOnLaunchEvidence"
         val stale = priceStale8136(c.priceAgeMs, c.hotLaunch, c.live)
-        // V5.0.8640 — a LIVE buy adds the curve position (shape) to the minimum it will not proceed without; paper keeps the
-        // 8531 optional treatment and goes on to the evidence checks. A too-young coin's shape is historyUnavailable8283, not here.
+        // V5.0.8640 — a LIVE buy with NO supported candidate-specific evidence (edge == null: no supported setup / cell / proof)
+        // adds the curve position (shape) to the minimum it will not proceed without — that is the blind lane-opinion admit that
+        // bought the top (edge-8537: shape-unobserved live admits median -11.9% vs -4.1% observed). A candidate that IS supported
+        // trades through the optional shape gap exactly as before (the 818-820 contract; Aate8253 fallback-liquidity tests). Paper
+        // keeps the 8531 optional treatment throughout. A too-young coin's shape is historyUnavailable8283, never here.
         val criticalMissing8170 = c.missingInputs.filter(::criticalMissing8170) +
-            (if (c.live) c.missingInputs.filter(::liveCurveUnobserved8640) else emptyList())
+            (if (c.live && edge == null) c.missingInputs.filter(::liveCurveUnobserved8640) else emptyList())
         val nativeOptional8213 = c.missingInputs.isNotEmpty() && edge == null &&
             optionalNativeContextClears8213(c, decisionGross)
         // V5.0.8279 — the native admit sits behind the generic V3 floor again (8114 doctrine, 7843 second floor).
