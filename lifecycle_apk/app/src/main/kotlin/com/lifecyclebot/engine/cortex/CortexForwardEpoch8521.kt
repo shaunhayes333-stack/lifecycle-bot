@@ -43,11 +43,11 @@ internal object CortexForwardEpoch8521 {
     data class StoredRows(val books: String?, val grades: String?, val pending: String?)
 
     /** All three rows belong to one checkpoint. A failed read is not an absent first-boot row. */
-    fun readStoredRows(read: (String) -> String?, failed: (String) -> Boolean): StoredRows? {
+    fun readStoredRows(read: (String) -> String?, failed: (String) -> Boolean, readPending: Boolean = true): StoredRows? {
         val books = read(BOOKS)
         val grades = read(GRADES)
-        val pending = read(PENDING)
-        if (listOf(BOOKS, GRADES, PENDING).any(failed)) return null
+        val pending = if (readPending) read(PENDING) else null
+        if (listOf(BOOKS, GRADES).any(failed) || (readPending && failed(PENDING))) return null
         return StoredRows(books, grades, pending)
     }
 

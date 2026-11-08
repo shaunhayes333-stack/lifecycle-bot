@@ -1183,6 +1183,16 @@ object ExploreShadow8347 {
 
     private val reportMemo8398 = ThreadLocal<HashMap<String, List<Double>>?>()
 
+    /** The (count, sum) of [key]'s proof-eligible nets since [sinceMs], read in place (no list, no boxing). */
+    private fun countSumSince8623(key: String, sinceMs: Long): Pair<Int, Double> {
+        val q = books[key] ?: return 0 to 0.0
+        var n = 0; var sum = 0.0
+        synchronized(q) {
+            for (it in q) if (it[0] >= sinceMs && ShadowPersist8355.proofEligible8394(it.getOrNull(2), it.getOrNull(3), sinceMs)) { n++; sum += it[1] }
+        }
+        return n to sum
+    }
+
     // superseded by V5.0.8418 — runtime 8416 choice8399[staleServed=35569 cached=24]: the cache was only time-stamped, so every
     // read after 30 s was "stale" whether or not a close had landed, all 24 keys expired together, and each refresh walked the
     // whole 22k-key book index per variant on one MIN_PRIORITY thread (cold SQLite reads), so refreshes never kept up and an
@@ -1477,12 +1487,14 @@ object ExploreShadow8347 {
             val rest = k.removePrefix(prefix)                 // ENTRY|EXIT|DIM:VALUE
             val parts = rest.split('|')
             if (parts.size < 3 || parts[2].substringBefore(':') != dim) continue
-            val nets = netsSince(k, sinceMs)
-            if (nets.size < MIN_COHORT_SHOW_N_8360) continue
-            val mean = nets.average()
+            // V5.0.8623 — count and sum in place: the boxed per-key list (memoised across the whole report walk, every cohort
+            // key of every lane) was the allocation the 8622 OutOfMemoryError landed in (shadow-report-8401, Double.valueOf).
+            val (n, sum) = countSumSince8623(k, sinceMs)
+            if (n < MIN_COHORT_SHOW_N_8360) continue
+            val mean = sum / n
             if (mean.isFinite() && mean > bestMean) {
                 bestMean = mean
-                best = "${parts[2]}@${parts[0].take(4)}/${parts[1].take(4)} n${nets.size} ${"%+.1f".format(mean)}%"
+                best = "${parts[2]}@${parts[0].take(4)}/${parts[1].take(4)} n$n ${"%+.1f".format(mean)}%"
             }
         }
         return best

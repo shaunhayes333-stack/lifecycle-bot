@@ -218,6 +218,21 @@ object Cortex7885 {
     private fun isRunner(lane: String): Boolean =
         try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) } catch (_: Throwable) { false }
 
+    /**
+     * V5.0.8623 §VOTER_GRAPH_RETIRED — the ~400-voter per-decision read (assess / capture / grade) is retired. 14:12 dump
+     * (8622, 143 min): it assessed 9,086 decisions, graded 127, and held no power on any lane (every lane SUSPENDED / INVERTED
+     * / INSUFFICIENT; "did: refusedPaper=0 refusedLive=0 overruled=0 sizedUp=0"), while its threads burned ~18 CPU-s a minute
+     * (cortex, cortex-persist, cortex-capture), its pending book was the largest restored blob (CORTEX_PENDING_8521 26.7 M
+     * chars, re-encoded on every checkpoint) and the 512 MB heap sat at 100 % with blocking GC 7,704 s of 8,598 s uptime until
+     * an OutOfMemoryError. The realised books (live closes per lane / setup, the label-to-bank offset, the veto record) are
+     * still restored, read and fed by closes; only the voter graph stops. Every reader of an assessment already treats null
+     * as "no Cortex read" (no overrule, no paper choice, conviction x1).
+     */
+    private val VOTER_GRAPH_RETIRED_8623: Boolean = voterGraphRetired8623(System.getProperty("aate.cortexVoterGraph8623"))
+
+    /** Pure: retired unless the JVM was started with aate.cortexVoterGraph8623=on (the unit-test JVM, which tests the graph itself). */
+    fun voterGraphRetired8623(prop: String?): Boolean = prop != "on"
+
     /** Snapshot + votes + fusion for (ts, lane); cached briefly so the gate and the labeler see one read. */
     fun assess(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis(),
                inputAtMs8522: Long = nowMs,
@@ -227,6 +242,7 @@ object Cortex7885 {
         val key = "${ts.mint}|$lane"
         // V5.0.8418 — the coin reached scoring: a first-block scan deferred at its safety check is released now.
         try { com.lifecyclebot.engine.BundleScanScope8418.noteScored8418(ts.mint, nowMs) } catch (_: Throwable) {}
+        if (VOTER_GRAPH_RETIRED_8623) return null
         assessCache[key]?.let {
             if (opportunitySource8522 == null) { if (nowMs - it.atMs in 0L..ASSESS_TTL_MS) return it }
             else if (CortexOpportunityPolarity8522.currentInput8522(opportunitySource8522, it, nowMs)) return it
@@ -985,6 +1001,7 @@ object Cortex7885 {
                                  onScheduled8417: (() -> Unit)? = null,
                                  opportunitySource8522: CortexOpportunityPolarity8522.Source? = null): Assessment? {
         if (ts.mint.isBlank() || laneRaw.isBlank()) return null
+        if (VOTER_GRAPH_RETIRED_8623) return null
         val key = "${ts.mint}|${canon(laneRaw)}"
         assessCache[key]?.let {
             if (opportunitySource8522 == null) { if (nowMs - it.atMs in 0L..ASSESS_TTL_MS) return it }
@@ -1096,6 +1113,15 @@ object Cortex7885 {
     /** ForwardReturnLabeler7731.observe: one graded decision opens here (1:1 with its observation). */
     fun capture(ts: TokenState, labelLane: String, admitted: Boolean, nowMs: Long = System.currentTimeMillis(), reason: String? = null, incumbent8506: Boolean? = null) {
         if (labelLane.startsWith("PLANWAIT_") || labelLane.startsWith("PLANADMIT_")) return
+        if (VOTER_GRAPH_RETIRED_8623) {
+            // The playbook's decision-time setup tag and the labeler's frozen timing still belong to every decision.
+            val snap = try { LanePlaybook7907.decisionSnapshot8084(ts, labelLane, nowMs) } catch (_: Throwable) { null }
+            val sel = try { LanePlaybook7907.selectedSetup8094(ts, labelLane, nowMs) } catch (_: Throwable) { null }
+            val timing = try { LanePlaybook7907.timingBandOf8094(ts) } catch (_: Throwable) { LanePlaybook7907.TIMING_UNKNOWN_8094 }
+            try { LanePlaybook7907.capture(ts, labelLane, labelLane, nowMs, snap, sel, timing) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.freezeTiming8528(ts.mint, labelLane, nowMs, sel, timing) } catch (_: Throwable) {}
+            return
+        }
         val captureKey8397 = "${ts.mint}|${labelLane.trim().uppercase()}"
         val ticket8397 = synchronized(this) {
             captureOwners8397.claim(captureKey8397, nowMs, pending[captureKey8397]?.atMs ?: 0L)?.also {
@@ -1449,6 +1475,7 @@ object Cortex7885 {
     }
 
     fun restoreForward8401(raw: String): Boolean {
+        if (VOTER_GRAPH_RETIRED_8623) return true  // V5.0.8623 — the companion checkpoint holds voter-graph predictions only
         ensureLoaded()
         if (!loaded) return false
         val unpacked = ForwardCheckpoint8401.unpack(raw)
@@ -4917,7 +4944,9 @@ object Cortex7885 {
         synchronized(this) {
             if (loaded) return
             try {
-                val stored8521 = CortexForwardEpoch8521.readStoredRows(LearningPersistence::load, LearningPersistence::readFailed8086)
+                // V5.0.8623 — the retired voter graph's pending row (26.7 M chars) is not read; the next checkpoint rewrites it small.
+                val stored8521 = CortexForwardEpoch8521.readStoredRows(LearningPersistence::load, LearningPersistence::readFailed8086,
+                    readPending = !VOTER_GRAPH_RETIRED_8623)
                     ?: run { loaded = false; inc("CORTEX_CHECKPOINT_READ_RETRY_8521"); return }
                 gradeBook8144.decode(stored8521.grades)
                 val raw8324 = stored8521.books
@@ -4935,7 +4964,7 @@ object Cortex7885 {
                 o.optJSONObject("joint7961")?.let { j -> for (k in j.keys()) jointBook7961[k] = CortexLedger7885.labelStat8187().also { it.decode(j.optString(k)) } }
                 restoreJointGenerations8372(o)
                 try { shadowLedger8418.decode(o.optJSONObject("shadowLedger8418")) } catch (_: Throwable) { inc("SHADOW_LEDGER_DECODE_FAILED_8418") }
-                try { restorePending(stored8521.pending, System.currentTimeMillis()) }
+                if (!VOTER_GRAPH_RETIRED_8623) try { restorePending(stored8521.pending, System.currentTimeMillis()) }
                     catch (pendingFailure8394: Throwable) {
                         if (pendingFailure8394 is VirtualMachineError) throw pendingFailure8394
                         LearningPersistence.decodeFailed8086(PENDING_PERSIST_KEY, pendingFailure8394)

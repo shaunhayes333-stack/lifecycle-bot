@@ -157,6 +157,8 @@ android {
                 // Local HTTP fixtures can resolve localhost. Provider names must never resolve in JVM tests.
                 it.systemProperty("jdk.net.hosts.file", file("src/test/resources/offline-hosts").absolutePath)
                 it.systemProperty("java.net.useSystemProxies", "false")
+                // V5.0.8623 — the Cortex voter graph is retired on the device; its own unit tests keep exercising it (Cortex7885).
+                it.systemProperty("aate.cortexVoterGraph8623", "on")
             }
         }
     }

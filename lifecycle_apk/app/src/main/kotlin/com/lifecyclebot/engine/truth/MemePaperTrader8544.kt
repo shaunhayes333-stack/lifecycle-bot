@@ -190,6 +190,7 @@ object MemePaperTrader8544 {
         if (open.isEmpty()) { save8544(nowMs); return }
         val latency = try { ShadowAlign8366.sellLatencyMs8366(false) } catch (_: Throwable) { 16_000L }
         for (p in open.values.toList()) try {
+            wantMark8623(p.mint, nowMs)
             val obs = ShadowMark8360.observedTimed8372(tokens[p.mint], p.mint, nowMs)?.takeIf { it.observedAtMs >= p.lastAtMs && it.priceUsd > 0.0 }
                 ?.takeIf { acceptMark8559("book:" + p.mint, p.lastPx, it.priceUsd, markSource8560(it.source, tokens[p.mint])) }
             if (obs != null) { p.lastPx = obs.priceUsd; p.lastAtMs = obs.observedAtMs }
@@ -222,6 +223,25 @@ object MemePaperTrader8544 {
         save8544(nowMs)
     }
 
+    /**
+     * V5.0.8623 §PAPER_ASKS_FOR_ITS_OWN_MARKS — the book never asked the data side to keep pricing its open coins: once a coin
+     * left the watchlist nothing priced it and it closed LOST_MARK at its last mark. 8622 (14:12 dump): LOST_MARK was 216 of 263
+     * paper closes, and they carried the whole book's profit (CORE LOST_MARK n11 +403.6 %, SHITCOIN n36 +57.1 %) while every
+     * priced exit lost. Each open position now asks the keyless pair feed and the labeler's off-watch batch, like the shadow
+     * book's tickets (ExploreShadow8347.want8360), at most once per [WANT_EVERY_MS_8623].
+     */
+    private fun wantMark8623(mint: String, nowMs: Long) {
+        val last = wantedAt8623[mint]
+        if (last != null && nowMs - last in 0L until WANT_EVERY_MS_8623) return
+        wantedAt8623[mint] = nowMs
+        if (wantedAt8623.size > 512) wantedAt8623.keys.retainAll(open.keys)
+        val until = nowMs + LOST_MARK_MS_8544
+        try { KeylessMarks8359.noteWanted8359(mint, until) } catch (_: Throwable) {}
+        try { ForwardReturnLabeler7731.noteShadowWanted8442(mint, until) } catch (_: Throwable) {}
+    }
+    private const val WANT_EVERY_MS_8623 = 30_000L
+    private val wantedAt8623 = ConcurrentHashMap<String, Long>()
+
     private fun trigger8544(p: Pos8544, why: String, fraction: Double, tier: Int, nowMs: Long) {
         p.exitWhy = why; p.exitAtMs = nowMs; p.exitFraction = fraction; p.exitTier = tier
         dirty = true
@@ -230,7 +250,8 @@ object MemePaperTrader8544 {
     private fun fill8544(p: Pos8544, g: Double, nowMs: Long) {
         val why = p.exitWhy ?: return
         val sold = p.held * p.exitFraction.coerceIn(0.0, 1.0)
-        p.banked += sold * g; p.held -= sold
+        // V5.0.8623 — a lost mark is no exit price: the unsold remainder is valued flat (entry), never at a stale last mark.
+        p.banked += sold * (if (why == LOST_MARK_8623) 0.0 else g); p.held -= sold
         if (p.exitTier > 0) p.tiers = maxOf(p.tiers, p.exitTier)
         p.exitWhy = null; p.exitAtMs = 0L; p.exitFraction = 1.0; p.exitTier = 0
         dirty = true
@@ -310,7 +331,10 @@ object MemePaperTrader8544 {
     }
 
     private fun noteLane8544(c: Closed8544) {
+        // V5.0.8623 — an unpriced close proves nothing about the lane: it is counted on its own row, outside every lane record.
+        if (c.why == LOST_MARK_8623) { addStat8572("$UNPRICED_PREFIX_8623${c.lane}", c); return }
         addStat8572(c.lane, c)
+        if (!c.lane.startsWith(FAMILY_PREFIX_8546)) addStat8572("$PRICED_PREFIX_8623${c.lane}", c)
         // V5.0.8572 — the lane's post-guard proof ledger: closes booked after the 8559 mark guard only (a pre-guard phantom,
         // e.g. the EXPRESS +503,695 SOL row, can never prove a lane). Families keep their own FAM_ rows.
         if (!c.lane.startsWith(FAMILY_PREFIX_8546)) addStat8572("$PROOF_PREFIX_8572${c.lane}", c)
@@ -325,6 +349,17 @@ object MemePaperTrader8544 {
     }
 
     const val PROOF_PREFIX_8572 = "P8572|"
+    /**
+     * V5.0.8623 — the lane proof counted on priced closes only. P8572 rows hold LOST_MARK closes booked at stale marks (8622:
+     * CORE n17 +259.5 % PF 51 was 11 lost marks), so they can no longer prove a lane earns; they can still bench one (below).
+     */
+    const val PRICED_PREFIX_8623 = "P8623|"
+    private const val UNPRICED_PREFIX_8623 = "U8623|"
+    private const val LOST_MARK_8623 = "LOST_MARK"
+
+    /** The (n, mean, se, pf) of [lane]'s priced paper record, or null. */
+    private fun pricedProof8623(lane: String): DoubleArray? =
+        laneStats["$PRICED_PREFIX_8623${lane.trim().uppercase()}"]?.let { v -> synchronized(v) { proofOf8546(v) } }
 
     /**
      * V5.0.8572 — has [lane]'s post-guard paper record earned LIVE money (the owner's bar: n >= 30, mean - se > 0, PF >= 1.3,
@@ -333,8 +368,7 @@ object MemePaperTrader8544 {
      */
     fun laneProven8572(lane: String): Boolean {
         restore8544()
-        val v = laneStats["$PROOF_PREFIX_8572${lane.trim().uppercase()}"] ?: return false
-        val p = synchronized(v) { proofOf8546(v) }
+        val p = pricedProof8623(lane) ?: return false
         return MemeStrategies8546.provenRecord8546(p[0].toInt(), p[1], p[2], p[3])
     }
 
@@ -347,8 +381,11 @@ object MemePaperTrader8544 {
      */
     fun laneProvenLosing8608(lane: String): Boolean {
         restore8544()
-        val v = laneStats["$PROOF_PREFIX_8572${lane.trim().uppercase()}"] ?: return false
-        val p = synchronized(v) { proofOf8546(v) }
+        // V5.0.8623 — the priced record once it has 30 closes; until then the older P8572 record may still bench (its lost-mark
+        // rows were booked at stale marks, which flattered it — a lane it proves losing loses at least that much).
+        val priced = pricedProof8623(lane)
+        val p = priced?.takeIf { it[0] >= 30.0 }
+            ?: laneStats["$PROOF_PREFIX_8572${lane.trim().uppercase()}"]?.let { v -> synchronized(v) { proofOf8546(v) } } ?: return false
         return provenLosing8608(p[0].toInt(), p[1], p[2], p[3])
     }
 
@@ -361,8 +398,7 @@ object MemePaperTrader8544 {
      */
     fun laneLeads8616(lane: String): Boolean {
         restore8544()
-        val v = laneStats["$PROOF_PREFIX_8572${lane.trim().uppercase()}"] ?: return false
-        val p = synchronized(v) { proofOf8546(v) }
+        val p = pricedProof8623(lane) ?: return false
         return leads8616(p[0].toInt(), p[1], p[3])
     }
 

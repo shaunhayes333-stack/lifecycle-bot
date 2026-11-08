@@ -1,0 +1,65 @@
+package com.lifecyclebot.engine
+
+import com.lifecyclebot.engine.cortex.Cortex7885
+import com.lifecyclebot.engine.truth.MemePaperTrader8544
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import java.io.File
+
+/**
+ * V5.0.8623 — 14:12 dump (8622): the paper book's profit was lost-mark closes booked at stale marks, and the heap died of a
+ * voter graph that held no power on any lane.
+ */
+class Aate8623HonestPaperAndHeapTest {
+    private fun src(p: String) = File("src/main/kotlin/com/lifecyclebot/$p").readText()
+
+    @Test fun aLostMarkIsNotAPaperExitPriceAndProvesNoLane() {
+        val paper = src("engine/truth/MemePaperTrader8544.kt")
+        // the unsold remainder of a lost-mark close is valued flat, never at the stale last mark
+        assertTrue(paper.contains("p.banked += sold * (if (why == LOST_MARK_8623) 0.0 else g); p.held -= sold"))
+        // and the close is kept out of every lane record
+        val note = paper.substringAfter("private fun noteLane8544(").substringBefore("private fun addStat8572(")
+        assertTrue(note.indexOf("if (c.why == LOST_MARK_8623)") < note.indexOf("addStat8572(c.lane, c)"))
+        assertEquals("P8623|", MemePaperTrader8544.PRICED_PREFIX_8623)
+        // promotion reads only the priced record; the bench may still read the older record while the priced one is thin
+        val proven = paper.substringAfter("fun laneProven8572(").substringBefore("fun laneProvenLosing8608(")
+        assertTrue(proven.contains("pricedProof8623(lane) ?: return false"))
+        assertFalse(proven.contains("PROOF_PREFIX_8572"))
+        val leads = paper.substringAfter("fun laneLeads8616(").substringBefore("/** Pure (V5.0.8616)")
+        assertTrue(leads.contains("pricedProof8623(lane) ?: return false"))
+        val bench = paper.substringAfter("fun laneProvenLosing8608(").substringBefore("fun laneLeads8616(")
+        assertTrue(bench.contains("priced?.takeIf { it[0] >= 30.0 }"))
+    }
+
+    @Test fun everyOpenPaperPositionAsksForItsOwnMark() {
+        val paper = src("engine/truth/MemePaperTrader8544.kt")
+        val tick = paper.substringAfter("fun tick8544(").substringBefore("private fun trigger8544(")
+        assertTrue(tick.contains("wantMark8623(p.mint, nowMs)"))
+        assertTrue(paper.contains("KeylessMarks8359.noteWanted8359(mint, until)"))
+        assertTrue(paper.contains("ForwardReturnLabeler7731.noteShadowWanted8442(mint, until)"))
+    }
+
+    @Test fun theVoterGraphIsRetiredOnTheDeviceAndKeptUnderTest() {
+        assertTrue(Cortex7885.voterGraphRetired8623(null))
+        assertTrue(Cortex7885.voterGraphRetired8623("off"))
+        assertFalse(Cortex7885.voterGraphRetired8623("on"))
+        val c = src("engine/cortex/Cortex7885.kt")
+        val assess = c.substringAfter("fun assess(ts: TokenState, laneRaw: String").substringBefore("assessCache[key]?.let")
+        assertTrue("scan release still runs first", assess.indexOf("noteScored8418") < assess.indexOf("if (VOTER_GRAPH_RETIRED_8623) return null"))
+        val capture = c.substringAfter("fun capture(ts: TokenState, labelLane: String").substringBefore("val captureKey8397")
+        assertTrue("the playbook tag still belongs to every decision", capture.contains("LanePlaybook7907.capture(ts, labelLane, labelLane, nowMs, snap, sel, timing)"))
+        assertTrue(capture.contains("ForwardReturnLabeler7731.freezeTiming8528(ts.mint, labelLane, nowMs, sel, timing)"))
+        assertTrue("the pending row is not read", c.contains("readPending = !VOTER_GRAPH_RETIRED_8623)"))
+        val gradle = File("build.gradle.kts").readText()
+        assertTrue(gradle.contains("it.systemProperty(\"aate.cortexVoterGraph8623\", \"on\")"))
+    }
+
+    @Test fun theShadowReportCountsInPlace() {
+        val s = src("engine/truth/ExploreShadow8347.kt")
+        val cohort = s.substringAfter("private fun bestCohort8360(").substringBefore("private data class Report8401")
+        assertTrue(cohort.contains("countSumSince8623(k, sinceMs)"))
+        assertFalse(cohort.contains("netsSince("))
+    }
+}

@@ -41,7 +41,9 @@ class Aate8574PaperLaneProofTest {
         val note = paper.substringAfter("private fun noteLane8544(").substringBefore("private fun addStat8572(")
         assertTrue(note.contains("addStat8572(c.lane, c)"))
         assertTrue(note.contains("if (!c.lane.startsWith(FAMILY_PREFIX_8546)) addStat8572(\"\$PROOF_PREFIX_8572\${c.lane}\", c)"))
-        assertTrue(paper.contains("val v = laneStats[\"\$PROOF_PREFIX_8572\${lane.trim().uppercase()}\"] ?: return false"))
+        // V5.0.8623 — the lane is proven on its priced record (P8623|), never on lost-mark closes
+        assertTrue(paper.contains("laneStats[\"\$PRICED_PREFIX_8623\${lane.trim().uppercase()}\"]"))
+        assertTrue(note.contains("if (c.why == LOST_MARK_8623) { addStat8572(\"\$UNPRICED_PREFIX_8623\${c.lane}\", c); return }"))
         assertEquals("P8572|", MemePaperTrader8544.PROOF_PREFIX_8572)
         val gate = src("engine/truth/LiveEdgeGate7877.kt")
         val w = gate.substringAfter("fun edge8114Live8538(").substringBefore("/** Pure (V5.0.8536)")
