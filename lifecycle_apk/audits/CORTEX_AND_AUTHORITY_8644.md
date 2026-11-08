@@ -29,6 +29,14 @@ same timestamp on the denial. 8647 updates that assertion to match the new
 semantics. No failed unverified APK is eligible for release; 8647 must pass
 both full test and emulator smoke workflows before main merge.
 
+V5.0.8648 follows the signed 8647 build's full 8,790-test run. The targeted regressions passed,
+but two remaining full-suite source-contract tests asserted the *old* PumpPortal logic:
+`Aate8193PumpStreamBudgetSharedTest` expected daily-budget exhaustion to return false rather than
+request the independent, budget-governed Helius fallback, and `Aate8307DataTest` expected the old
+one-line PumpSwap refusal branch instead of the 8645 bounded paired-error probe. Both assertions
+now test the actual fallback and scoped refusal invariants; the executable code is unchanged in
+8648. No red build, including 8647, is promoted to `main`.
+
 **Status:** follow-on source changes; they are not evidence that live profits improved until a new APK runs, the gate outcomes mature, and canonical fills/exits are reconciled.
 
 ## Why this is necessary

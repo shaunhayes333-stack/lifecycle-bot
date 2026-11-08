@@ -45,8 +45,11 @@ class Aate8193PumpStreamBudgetSharedTest {
     @Test fun everyMeteredSubscriptionPathChecksTheBudget() {
         val s = File("src/main/kotlin/com/lifecyclebot/network/PumpFunWS.kt").readText()
         val setup = s.substringAfter("fun watchForSetup8191(").substringBefore("setupMints8191[mint] = nowMs")
-        // superseded by V5.0.8317: a setup watch is exempt from the per-coin frame cap (the day's budget still binds).
-        assertTrue(setup.contains("if (!meteredSubAllowed8193(mint, setup8317 = true)) return false"))
+        // V5.0.8646: the daily PumpPortal budget still binds, but an exhausted paid budget
+        // must route the same setup watch to the independently governed Helius tape.
+        assertTrue(setup.contains("if (!meteredSubAllowed8193(mint, setup8317 = true)) {"))
+        assertTrue(setup.contains("return HeliusCurveTape8354.ask8354(mint, nowMs)"))
+        assertTrue(setup.contains("setupNeedsHeliusFallback8646(tradeStreamEnabled8354, tradeStreamKeyed7284())"))
         val fresh = s.substringAfter("private fun registerFreshLifecycle7420(").substringBefore("lifecycleMints7420[mint] = now")
         assertTrue(fresh.contains("(framesByMint8192[mint]?.get() ?: 0L) >= LAUNCH_FRAME_CAP_8192"))
         assertTrue(fresh.contains("launchSubAllowed8192(framesToday8192.get())"))
