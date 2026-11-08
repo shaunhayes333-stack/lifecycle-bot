@@ -26,6 +26,8 @@ object LaneAuthority8577 {
     private val BINDING_8577 = listOf(
         // V5.0.8626 — the live entry-state refusals (memeEntryRefusal8626) bind.
         "MEME_BUYS_THE_HIGH_8582", "LIVE_STAGE_LOSES_8626",
+        // V5.0.8627 — a runner lane's live buy of a coin more than a day old binds too (memeEntryRefusal8626).
+        "LIVE_RUNNER_STALE_COIN_8627",
         "SAFETY_REFUSED", "STRUCTURAL_RISK", "RUG", "FREEZE", "MINT_AUTH", "TOKEN_2022", "TOKEN2022", "T22_", "HOSTILE",
         "HONEYPOT", "SELLAB", "UNSELLABLE", "MAYHEM", "BLACKLIST", "HARD_BLOCK", "LIQ_TOO_LOW", "LIQUIDITY_FLOOR",
         "LIQUIDITY_COLLAPSE", "LANE_LIQ", "EXIT_SAFE", "IDENTITY", "PRICE_BASIS", "BASIS_PROOF", "UNTRUSTED_MARK", "WALLET",
@@ -120,9 +122,26 @@ object LaneAuthority8577 {
         return st in LOSING_STAGES_8626 && !(n >= 30 && mean.isFinite() && se.isFinite() && mean - se > 0.0)
     }
 
+    /**
+     * V5.0.8627 §RUNNER_LANES_BUY_YOUNG_COINS — 8537 edge export (14:12 / 8622, 33,008 rows, age in minutes, 5-min executable
+     * net, the 13 seed-basis labels excluded): the runner lanes' decisions on coins more than 24 h old were n1,541 mean -6.2 %
+     * PF 0.24 with two 2x moves in 1,541; LIVE admitted 202 of them (28 % of its runner-lane admits: MOONSHOT, EXPRESS) and
+     * none went 2x — the "chip trades". Coins under 24 h held every other runner. A runner lane does not buy a coin whose
+     * known launch age is over [RUNNER_MAX_AGE_MS_8627]; an unknown age never refuses.
+     */
+    const val LIVE_RUNNER_STALE_COIN_8627 = "LIVE_RUNNER_STALE_COIN_8627"
+    const val RUNNER_MAX_AGE_MS_8627 = 24L * 3_600_000L
+    private val RUNNER_LANES_8627 = setOf("SHITCOIN", "MOONSHOT", "EXPRESS", "PROJECT_SNIPER", "MANIPULATED")
+
+    /** Pure: is a live buy in [lane] of a coin [launchAgeMs] old refused as stale? */
+    fun runnerCoinStale8627(lane: String, launchAgeMs: Long?): Boolean =
+        lane.trim().uppercase() in RUNNER_LANES_8627 && launchAgeMs != null && launchAgeMs > RUNNER_MAX_AGE_MS_8627
+
     /** CandidateAdmission8136.assess8136 (LIVE): the refusal of a meme entry at the high or at a losing stage, else null. */
     fun memeEntryRefusal8626(ts: com.lifecyclebot.data.TokenState, lane: String, stage: String?, nowMs: Long): String? {
         val l = lane.trim().uppercase()
+        val age8627 = try { CanonicalTokenBirthTime7440.launchAgeMs7767(ts, nowMs) } catch (_: Throwable) { null }
+        if (runnerCoinStale8627(l, age8627)) return LIVE_RUNNER_STALE_COIN_8627
         if (l !in MEME_LANES_8582) return null
         val f = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.features(ts, nowMs) } catch (_: Throwable) { null }
         if (f != null && memeBuysTheHigh8582(l, f.pxPeak, f.runup, f.bp)) return MEME_BUYS_THE_HIGH_8582

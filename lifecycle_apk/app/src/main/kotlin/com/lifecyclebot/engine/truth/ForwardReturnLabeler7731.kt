@@ -316,6 +316,18 @@ object ForwardReturnLabeler7731 {
         if (mint.isBlank() || !px.isFinite() || px <= 0.0 || atMs <= 0L) null
         else LabelMark8386(mint, "", px, atMs, atMs, "LEGACY_PRE8386")
 
+    private val seedBasisUnknown8627 = AtomicLong(0L)
+
+    /** Pure (V5.0.8627): the decision's basis — UNKNOWN when it is the token-state price and that price is an intake seed. */
+    internal fun seedBasis8627(chosen: LabelMark8386, stateMark: LabelMark8386, stateSource: String?): LabelMark8386 {
+        if (chosen !== stateMark || !TokenFacts.seedPrice8559(stateSource)) return chosen
+        seedBasisUnknown8627.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("FORWARD_LABEL_SEED_BASIS_UNKNOWN_8627") } catch (_: Throwable) {}
+        return chosen.copy(source = "UNKNOWN")
+    }
+
+    fun seedBasisUnknownCount8627(): Long = seedBasisUnknown8627.get()
+
     /** Pure (V5.0.8418): may an UNKNOWN basis adopt [mark]? Only before the re-base and inside its window. */
     internal fun adoptBasis8418(basisKnown: Boolean, rebased: Boolean, ageMs: Long, mark: LabelMark8386?): Boolean =
         !basisKnown && !rebased && ageMs in 0L..REBASE_MAX_MS_8076 && mark != null && mark.known()
@@ -1161,13 +1173,18 @@ object ForwardReturnLabeler7731 {
         // V5.0.8337 (10d) — compared on the mark's own time: a curve read out of sync with it is no witness against it.
         // V5.0.8571 — the coin's own chain mark (curve account / print / vaults / tape) is the decision's basis when it is fresh
         // (<= 5 s), and it replaces a contradicted price instead of dropping the decision (8562: curveWitness entry=459 lost).
-        val basisMark8571 = preferChainEntry8571(entryMark8527, typedMark8386(ts.mint, { null }, nowMs), nowMs) {
+        val basisChosen8571 = preferChainEntry8571(entryMark8527, typedMark8386(ts.mint, { null }, nowMs), nowMs) {
             curveContradicts8165(ts.mint, it.usd, nowMs, it.observedAtMs)
         } ?: run {
             curveRefusedEntry8165.incrementAndGet()
             return
         }
-        if (basisMark8571 != entryMark8527) {
+        // V5.0.8627 — a decision priced by the intake seed (cap / supply, PUMP_FUN_BC_SYNTHETIC) has no traded basis: the seed
+        // reached the label as "TOKEN_STATE", and the first real curve price 27-30x above it was refused as a suspect re-base,
+        // so 13 fresh launches booked +2,600..+2,930 % at 5 min (8622 export) and made PROJECT_SNIPER read PF 3.3 to every
+        // learner. The basis is UNKNOWN instead: the first typed mark in the re-base window becomes it (adoptBasis8418).
+        val basisMark8571 = seedBasis8627(basisChosen8571, stateMark8527, ts.lastPriceSource)
+        if (basisChosen8571 != entryMark8527) {
             if (curveContradicts8165(ts.mint, entryMark8527.usd, nowMs, entryMark8527.observedAtMs)) curveRebasedEntry8571.incrementAndGet()
             else chainEntry8571.incrementAndGet()
         }
