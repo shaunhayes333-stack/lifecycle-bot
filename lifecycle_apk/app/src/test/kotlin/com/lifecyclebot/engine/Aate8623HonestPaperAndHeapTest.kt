@@ -62,6 +62,7 @@ class Aate8623HonestPaperAndHeapTest {
         assertTrue("the playbook tag still belongs to every decision", capture.contains("LanePlaybook7907.capture(ts, labelLane, labelLane, nowMs, snap, sel, timing)"))
         assertTrue(capture.contains("ForwardReturnLabeler7731.freezeTiming8528(ts.mint, labelLane, nowMs, sel, timing)"))
         assertTrue(capture.contains("VOTER_GRAPH_RETIRED_8623 || unsampled8644"))
+        assertTrue("repeated decisions cannot multiply pending voter captures", capture.contains("claimCapture8644(key8644, hot8644.atMs, nowMs)"))
         assertEquals("CORTEX_PENDING_8644", com.lifecyclebot.engine.cortex.CortexForwardEpoch8521.PENDING)
         assertTrue("the pending row is not read", c.contains("if (VOTER_GRAPH_RETIRED_8623) CortexForwardEpoch8521.readStoredBooks8623("))
         val books = com.lifecyclebot.engine.cortex.CortexForwardEpoch8521.readStoredBooks8623({ k -> "row:" + k }, { false })!!

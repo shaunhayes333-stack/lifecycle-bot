@@ -239,6 +239,8 @@ object Cortex7885 {
     private val BOUNDED_VOTER_GRAPH_8644 = voterGraphBounded8644(System.getProperty("aate.cortexVoterGraph8623"))
     private const val GRAPH_SAMPLE_GAP_MS_8644 = 30_000L
     private val lastSampleAt8644 = AtomicLong(0L)
+    /** One labelled capture per sampled graph read; repeated same-mint decisions retain their cheap playbook labels. */
+    private val capturedSampleEpoch8644 = ConcurrentHashMap<String, Long>()
 
     /** Only two fresh reads a minute globally; reused cached reads cost no additional graph work. */
     fun sampleDue8644(previousMs: Long, nowMs: Long): Boolean =
@@ -252,6 +254,20 @@ object Cortex7885 {
             if (lastSampleAt8644.compareAndSet(before, nowMs)) { inc("CORTEX_SAMPLE_GRANTED_8644"); return true }
         }
         inc("CORTEX_SAMPLE_CONTENTION_8644")
+        return false
+    }
+
+    private fun claimCapture8644(key: String, assessedAtMs: Long, nowMs: Long): Boolean {
+        if (!BOUNDED_VOTER_GRAPH_8644) return true
+        if (capturedSampleEpoch8644.size > 4_000)
+            capturedSampleEpoch8644.entries.removeIf { nowMs - it.value > 120_000L }
+        repeat(8) {
+            val previous = capturedSampleEpoch8644.putIfAbsent(key, assessedAtMs)
+            if (previous == null) return true
+            if (previous >= assessedAtMs) return false
+            if (capturedSampleEpoch8644.replace(key, previous, assessedAtMs)) return true
+        }
+        inc("CORTEX_CAPTURE_SAMPLE_CONTENTION_8644")
         return false
     }
 
@@ -1141,8 +1157,11 @@ object Cortex7885 {
         // Only frozen pre-decision predictions can be paired with their labels. At the sampled
         // rate, almost all decisions keep their cheap setup/timing labels without scheduling a
         // cold 331-voter read AFTER the decision (which cannot be valid walk-forward evidence).
+        val key8644 = "${ts.mint}|${canon(labelLane)}"
+        val hot8644 = if (BOUNDED_VOTER_GRAPH_8644)
+            assessCache[key8644]?.takeIf { nowMs - it.atMs in 0L..ASSESS_TTL_MS } else null
         val unsampled8644 = BOUNDED_VOTER_GRAPH_8644 &&
-            assessCache["${ts.mint}|${canon(labelLane)}"]?.let { nowMs - it.atMs in 0L..ASSESS_TTL_MS } != true
+            (hot8644 == null || !claimCapture8644(key8644, hot8644.atMs, nowMs))
         if (VOTER_GRAPH_RETIRED_8623 || unsampled8644) {
             // The playbook's decision-time setup tag and the labeler's frozen timing still belong to every decision.
             val snap = try { LanePlaybook7907.decisionSnapshot8084(ts, labelLane, nowMs) } catch (_: Throwable) { null }
