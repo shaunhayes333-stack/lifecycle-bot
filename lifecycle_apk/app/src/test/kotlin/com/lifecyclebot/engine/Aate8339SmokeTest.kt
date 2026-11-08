@@ -2,6 +2,7 @@ package com.lifecyclebot.engine
 
 import com.lifecyclebot.data.Trade
 import com.lifecyclebot.engine.truth.ExecutionSpineAcceptanceWindow6647
+import com.lifecyclebot.engine.truth.PaperEconomicAtomicCommit6632
 import com.lifecyclebot.engine.truth.Rehearsal8339
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -63,6 +64,28 @@ class Aate8339SmokeTest {
         // The 6668 scheduler is still single-shot (BotService untouched): the re-tick lives in the window.
         val bs = src("engine/BotService.kt")
         assertTrue(bs.contains("acceptanceWindowFuture6668 = acceptanceWindowExecutor6668.schedule({"))
+    }
+
+    @Test fun recentTypedPaperHalfWriteUsesExistingBoundedReceiptGraceButNeverPassesAsReconciled() {
+        val pair = PaperEconomicAtomicCommit6632
+        pair.resetForTest()
+        try {
+            assertFalse(pair.onlyYoungUnpaired6632(System.currentTimeMillis(), 30_000L))
+            assertEquals(PaperEconomicAtomicCommit6632.Verdict.PROCEED,
+                pair.stampLedger("add:runner:1", "runner", PaperEconomicAtomicCommit6632.Side.BUY, "test"))
+            val stamped = System.currentTimeMillis()
+            assertTrue("real ledger-first paper ADD is in flight", pair.onlyYoungUnpaired6632(stamped, 30_000L))
+            assertFalse("a missing journal side past the existing 30s cannot receive more grace",
+                pair.onlyYoungUnpaired6632(stamped + 30_000L, 30_000L))
+            assertEquals(PaperEconomicAtomicCommit6632.Verdict.PROCEED,
+                pair.stampJournal("add:runner:1", "runner", PaperEconomicAtomicCommit6632.Side.BUY, "test"))
+            assertFalse("completed BUY receipt needs no grace", pair.onlyYoungUnpaired6632(System.currentTimeMillis(), 30_000L))
+            val acceptance = src("engine/truth/ExecutionSpineAcceptance6647.kt")
+            assertTrue(acceptance.contains("PaperEconomicAtomicCommit6632.onlyYoungUnpaired6632(nowMs, IN_FLIGHT_WAIT_GRACE_MS_8339)"))
+            assertTrue(acceptance.contains("if (forensic?.reconciled == true && value != null) value else Double.NaN"))
+        } finally {
+            pair.resetForTest()
+        }
     }
 
     // ── 2. rehearsal: live wallet door / shadow book ──
