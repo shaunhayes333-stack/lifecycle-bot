@@ -83,7 +83,8 @@ object LifecycleHold8065 {
         return r.startsWith("LIFECYCLE_") || TailBag8034.structural8034(r) || rotation8098(r) ||
             com.lifecyclebot.engine.sell.ProtectiveExitClass7807.of(r).rank <=
                 com.lifecyclebot.engine.sell.ProtectiveExitClass7807.Priority.STRUCTURAL_EMERGENCY.rank ||
-            RunnerExitContract8136.emergency8136(r)  // V5.0.8136 — tier 1 is never held
+            RunnerExitContract8136.emergency8136(r)  // V5.0.8136 — tier 1 is never held ||
+            RunnerDoctrine8584.ownExit8630(r)  // V5.0.8630 — the doctrine's own trail is never held
     }
 
     private fun rotation8098(r: String) = r.startsWith(com.lifecyclebot.engine.truth.OpportunityRotation8098.REASON)

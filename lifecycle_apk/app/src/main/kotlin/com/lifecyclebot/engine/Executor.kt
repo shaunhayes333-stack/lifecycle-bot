@@ -6789,6 +6789,7 @@ class Executor(
     }
     
     fun checkProfitLock(ts: TokenState, wallet: SolanaWallet?, walletSol: Double): Boolean {
+        if (RunnerDoctrine8584.profitTakingOwned8630(RunnerDoctrine8584.entryLane8630(ts))) return false  // V5.0.8630 — ladder + trail own it
         val c = cfg()
         normalizePositionScaleIfNeeded(ts)
         val prePricePos = ts.position
@@ -10187,6 +10188,7 @@ class Executor(
     private val exitAiPendingPartial6922 = java.util.concurrent.ConcurrentHashMap<String, Int>()
 
     fun checkPartialSell(ts: TokenState, wallet: SolanaWallet?, walletSol: Double): Boolean {
+        if (RunnerDoctrine8584.profitTakingOwned8630(RunnerDoctrine8584.entryLane8630(ts))) return false  // V5.0.8630 — ladder + trail own it
         val c   = cfg()
         normalizePositionScaleIfNeeded(ts)
         val pos = ts.position
@@ -25083,6 +25085,7 @@ class Executor(
         // LIQUIDITY_PULLED were only ranks 1-2 of ProtectiveExitClass7807 when spelled its way).
         if (Tier1Deference8141.tier1(requestReason)) return tier1PassesMoonbag8141(ts, requestReason)
         if (runnerDoctrineHolds8584(ts, requestReason, "FULL")) return SellResult.FAILED_RETRYABLE  // V5.0.8584 — meme winners run
+        if (RunnerDoctrine8584.ownExit8630(requestReason)) return null  // V5.0.8630 — the doctrine's trail sells whole
         // V5.0.8468 — a fast lane's own designed exit before promotion sells whole: no moonbag / tail bag (LaneExitContract8468).
         if (try { LaneExitContract8468.acts8468(ts, requestReason) } catch (_: Throwable) { false }) return null
         if (!ts.position.isPaperPosition) tailBagGate8034(ts, requestReason, wallet, walletSol)?.let { return it }
@@ -25154,9 +25157,10 @@ class Executor(
     private fun runnerDoctrineHolds8584(ts: TokenState, reason: String, door: String?): Boolean = try {
         val px = ts.lastPrice.takeIf { it > 0.0 } ?: ts.position.entryPrice
         val pnl = if (ts.position.entryPrice > 0.0) ((px - ts.position.entryPrice) / ts.position.entryPrice) * 100.0 else Double.NaN
-        val held = RunnerDoctrine8584.holds8584(ts.position.tradingMode, reason, pnl, ts.position.peakGainPct)
+        val lane8630 = RunnerDoctrine8584.entryLane8630(ts)  // V5.0.8630 — the entry lane, folded
+        val held = RunnerDoctrine8584.holds8584(lane8630, reason, pnl, ts.position.peakGainPct)
         if (held && door != null) {
-            RunnerDoctrine8584.noteHeld8584(door, ts.position.tradingMode, reason)
+            RunnerDoctrine8584.noteHeld8584(door, lane8630, reason)
             if (door == "FULL") com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.withdrawDeferred7809(ts.mint, ts.position.positionId)
         }
         held

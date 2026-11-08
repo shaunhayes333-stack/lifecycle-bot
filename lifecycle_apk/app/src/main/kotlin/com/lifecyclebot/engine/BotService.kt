@@ -1669,6 +1669,20 @@ class BotService : Service() {
         try { com.lifecyclebot.engine.truth.ExploreShadow8347.flushOnStop8418() } catch (_: Throwable) {}   // V5.0.8418 — forced book flush on stop
     }
 
+    /** V5.0.8630 — RunnerDoctrine8584's trail, in the 500 ms monitor: a doctrine winner that falls to its line sells whole. */
+    private fun doctrineTrail8630(ts: com.lifecyclebot.data.TokenState, pnlPct: Double, peakPct: Double,
+                                  wallet: com.lifecyclebot.network.SolanaWallet?, balance: Double): Boolean {
+        val lane = try { RunnerDoctrine8584.entryLane8630(ts) } catch (_: Throwable) { return false }
+        if (!RunnerDoctrine8584.trailBreached8630(lane, pnlPct, peakPct)) return false
+        try {
+            PipelineHealthCollector.labelInc("RUNNER_DOCTRINE_TRAIL_8630_${RunnerDoctrine8584.foldLane8630(lane)}")
+            ForensicLogger.lifecycle("RUNNER_DOCTRINE_TRAIL_8630", "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=$lane pnl=${pnlPct.toInt()} peak=${peakPct.toInt()}")
+        } catch (_: Throwable) {}
+        requestSellOffLoop7288(ts, RunnerDoctrine8584.TRAIL_REASON_8630, wallet, balance)
+        TradeStateMachine.startCooldown(ts.mint)
+        return true
+    }
+
     private fun requestSellOffLoop7288(
         ts: com.lifecyclebot.data.TokenState,
         reason: String,
@@ -19479,6 +19493,7 @@ class BotService : Service() {
         val HARD_FLOOR_STOP_PCT_CONST = ExitDoctrine8169.rapidHardFloorMag8169(ts)  // V5.0.8169 — under the ordinary stop, 15..30%
         val catastropheThreshold = ExitDoctrine8169.rapidCatastrophePct8169(ts, getCatastropheThreshold(cfg.paperMode))  // V5.0.8169 — never above the hard floor / lifecycle floor
         val peakGainPct = ts.position.peakGainPct
+        if (doctrineTrail8630(ts, pnlPct, peakGainPct, wallet, effectiveBalance)) return true  // V5.0.8630 — the doctrine sells at its line
         val drawdownFromPeak = peakGainPct - pnlPct
         // V5.0.6836 §GIVE_BACK_WAS_FLAT_POINTS — drawdownFromPeak is in pnl POINTS, so
         // comparing it to a flat 25.0 made the trigger scale-blind: peak +30% fired on a

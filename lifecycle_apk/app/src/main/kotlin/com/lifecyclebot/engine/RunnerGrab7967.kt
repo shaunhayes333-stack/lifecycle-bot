@@ -497,7 +497,7 @@ object RunnerGrab7967 {
     /** SpikeCapture7943.onMark: the runner ladder for a grabbed position, else null. */
     // V5.0.8584 — every meme position rides the doctrine ladder; the plan is still read first (the runner funnel counts it).
     fun tiersFor7967(ts: TokenState): List<Pair<Double, Double>>? =
-        planTiers8584(ts).let { if (RunnerDoctrine8584.rides8584(ts.position.tradingMode)) TIERS_7967 else it }
+        planTiers8584(ts).let { if (RunnerDoctrine8584.rides8584(RunnerDoctrine8584.entryLane8630(ts))) TIERS_7967 else it }  // V5.0.8630 — entry lane
 
     private fun planTiers8584(ts: TokenState): List<Pair<Double, Double>>? =
         if (holding7967(ts)) (if (scalpTierHolds8337(ts)) SpikeCapture7943.TIERS else TIERS_7967)  // V5.0.8337

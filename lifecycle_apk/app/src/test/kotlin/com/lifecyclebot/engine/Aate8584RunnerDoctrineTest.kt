@@ -69,7 +69,8 @@ class Aate8584RunnerDoctrineTest {
         assertTrue(partial.indexOf("runnerDoctrineHolds8584(ts, reason, \"PARTIAL\")") in 0 until partial.indexOf("NetEdge8030.exitRefusal8030("))
         assertTrue(ex.substringAfter("private fun moonbagWouldAct7349(").take(200).contains("runnerDoctrineHolds8584(ts, reason, null) ||"))
         assertTrue(File("src/main/kotlin/com/lifecyclebot/engine/RunnerGrab7967.kt").readText()
-            .contains("planTiers8584(ts).let { if (RunnerDoctrine8584.rides8584(ts.position.tradingMode)) TIERS_7967 else it }"))
+            .contains("planTiers8584(ts).let { if (RunnerDoctrine8584.rides8584(RunnerDoctrine8584.entryLane8630(ts))) TIERS_7967 else it }"))
+        // superseded by V5.0.8630 — the ladder keys on the folded entry lane: was rides8584(ts.position.tradingMode).
         val paper = File("src/main/kotlin/com/lifecyclebot/engine/truth/MemePaperTrader8544.kt").readText()
         assertTrue(paper.contains("RunnerDoctrine8584.paperStopLevel8584(stopPct, p.peak)"))
         val tuner = File("src/main/kotlin/com/lifecyclebot/engine/learning/LaneExitTuner.kt").readText()

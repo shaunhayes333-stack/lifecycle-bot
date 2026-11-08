@@ -35,7 +35,50 @@ object RunnerDoctrine8584 {
     )
     private val TIME_EXIT_8584 = listOf("TIME", "MAX_HOLD", "STALE", "EXPIRED", "TIMEOUT", "FLAT")
 
-    fun memeLane8584(lane: String?): Boolean = !lane.isNullOrBlank() && lane.trim().uppercase() in MEME_LANES_8584
+    fun memeLane8584(lane: String?): Boolean = !lane.isNullOrBlank() && foldLane8630(lane) in MEME_LANES_8584
+
+    /**
+     * V5.0.8630 — the doctrine keys on the lane the position was BOUGHT in, folded. It matched the raw tradingMode, so every
+     * MOONSHOT_<mode> position and every STANDARD relabel (the 8622 session's only green trade, bought as SHITCOIN, ran as
+     * STANDARD and a +8 % profit lock sold it) had no doctrine at all (audit_exits_now §0.3).
+     */
+    fun foldLane8630(lane: String?): String {
+        val d = try { com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.desk8392(lane) } catch (_: Throwable) { lane.orEmpty().trim().uppercase() }
+        return if (d.startsWith("MOONSHOT_")) "MOONSHOT" else d
+    }
+
+    /** The position's entry lane: the canonical position's own lane (immutable), else its trading mode. */
+    fun entryLane8630(ts: com.lifecyclebot.data.TokenState): String {
+        val canonical = try {
+            val pid = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint, ts.position.isPaperPosition)
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(pid)?.lane
+        } catch (_: Throwable) { null }
+        return canonical?.takeIf { it.isNotBlank() && !it.equals("STANDARD", ignoreCase = true) } ?: ts.position.tradingMode
+    }
+
+    /**
+     * V5.0.8630 — the doctrine SELLS, not only holds: once a doctrine position's confirmed peak reached
+     * [TRAIL_ARM_PEAK_PCT_8630], falling to the doctrine line sells the whole remainder ([TRAIL_REASON_8630]). Before this
+     * the doctrine held profit exits above its line and relied on whatever other exit happened to fire below it.
+     */
+    const val TRAIL_REASON_8630 = "RUNNER_DOCTRINE_TRAIL_8630"
+    const val TRAIL_ARM_PEAK_PCT_8630 = 25.0
+
+    /** Pure: has a doctrine position at [pnlPct] after a peak of [peakPct] fallen to its line? */
+    fun trailBreached8630(lane: String?, pnlPct: Double, peakPct: Double): Boolean {
+        if (!rides8584(lane) || !pnlPct.isFinite() || !peakPct.isFinite() || peakPct < TRAIL_ARM_PEAK_PCT_8630) return false
+        return 1.0 + pnlPct / 100.0 <= line8584(1.0 + peakPct / 100.0)
+    }
+
+    /** Pure: is [reason] one of the doctrine's own exits (never held, deferred or banked as a partial by another door)? */
+    fun ownExit8630(reason: String?): Boolean = reason?.trim()?.uppercase()?.startsWith("RUNNER_DOCTRINE_") == true
+
+    /**
+     * V5.0.8630 — profit-taking on a doctrine position is owned by the doctrine (ladder + trail). Executor.checkProfitLock
+     * (fresh-launch quick take 60 % at +50 %, capital recovery at 1.5-3x, wallet-growth harvest, PROFIT_LOCK_5X, ultra bank)
+     * and Executor.checkPartialSell (milestones +50 / +150 / +1000 %) never consulted the doctrine (audit_exits_now §0.2).
+     */
+    fun profitTakingOwned8630(lane: String?): Boolean = rides8584(lane)
 
     /** Pure: does the position in [lane] ride the doctrine ladder from entry? */
     fun rides8584(lane: String?): Boolean = enabled8584 && memeLane8584(lane)
@@ -50,6 +93,7 @@ object RunnerDoctrine8584 {
      */
     fun holds8584(lane: String?, reason: String?, pnlPct: Double, peakPct: Double): Boolean {
         if (!rides8584(lane) || reason.isNullOrBlank() || !pnlPct.isFinite()) return false
+        if (ownExit8630(reason)) return false
         val r = reason.uppercase()
         if (r.contains("SPIKE_CAPTURE_7943")) return false
         if (NEVER_HELD_8584.any { r.contains(it) }) return false
