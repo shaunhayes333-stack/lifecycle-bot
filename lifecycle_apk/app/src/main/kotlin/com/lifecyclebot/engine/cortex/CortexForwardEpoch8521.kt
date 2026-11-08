@@ -14,7 +14,9 @@ internal object CortexForwardEpoch8521 {
     const val SCORE_VERSION = 2
     const val FIELD = "forwardEpoch8521"
     const val BOOKS = "CORTEX_7885_V8521"
-    const val PENDING = "CORTEX_PENDING_8521"
+    // V5.0.8644 — the unbounded 8622 voter checkpoint was 26.7M characters and crashed the
+    // phone. Leave it untouched and start a fresh, sampled-prediction companion ledger.
+    const val PENDING = "CORTEX_PENDING_8644"
     const val GRADES = "CORTEX_GRADES_8521"
     const val BACKUP = "CORTEX_7885_V8521_BOOT"
     const val OLD_BOOKS = "CORTEX_7885_V8076"

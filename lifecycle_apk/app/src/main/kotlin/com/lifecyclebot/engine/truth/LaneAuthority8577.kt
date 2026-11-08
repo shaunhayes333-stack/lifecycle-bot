@@ -100,6 +100,9 @@ object LaneAuthority8577 {
         return atHigh
     }
 
+    /** A proven, contemporaneously triggered breakout has its own entry clock, not a generic peak-chase clock. */
+    fun breakoutProofOwnsHigh8643(family: String?): Boolean = family == "FAMILY_PROVEN_8546:BASE_BREAKOUT_FLOW"
+
     // superseded by V5.0.8626 — 8604 deleted the runtime read that fed [memeBuysTheHigh8582] into LIVE so live would "decide
     // like the paper book". That book's profit was lost-mark closes at stale marks (8622: 198 of 241 closes, +6.3 SOL, while
     // every priced exit lost -0.6 SOL; fixed 8623), and live went on buying tops: 14:12 dump runnerAdmits8297 live
@@ -146,6 +149,12 @@ object LaneAuthority8577 {
         val age8627 = try { CanonicalTokenBirthTime7440.launchAgeMs7767(ts, nowMs) } catch (_: Throwable) { null }
         if (runnerCoinStale8627(l, age8627)) return LIVE_RUNNER_STALE_COIN_8627
         if (l !in MEME_LANES_8582) return null
+        // The actual breakout setup requires a fresh price break and >=60% executed buy share.
+        // Once its independently priced paper record PROVES positive after costs, applying the
+        // broad "near peak" / generic lifecycle stage doors again would invert its buy clock.
+        // Without a current proved family signal all of the 8626 guards still bind.
+        val family8643 = try { MemeStrategies8546.liveProven8546(ts.mint, nowMs) } catch (_: Throwable) { null }
+        if (breakoutProofOwnsHigh8643(family8643)) return null
         val f = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.features(ts, nowMs) } catch (_: Throwable) { null }
         if (f != null && memeBuysTheHigh8582(l, f.pxPeak, f.runup, f.bp)) return MEME_BUYS_THE_HIGH_8582
         val st = if (stage.isNullOrBlank()) null else try { ForwardReturnLabeler7731.stageStatFor7928(l, stage) } catch (_: Throwable) { null }
@@ -177,6 +186,16 @@ object LaneAuthority8577 {
         if (d.reason == CandidateAdmission8136.FALLING_HOUR_DEFER_8418) return false
         return binding8577(d.reason)
     }
+
+    /**
+     * V5.0.8643 — a lane-wide losing paper average is a PRIOR, not a veto of an independently
+     * verified candidate-specific trade. The exact chosen setup/cell, or this coin's post-cost
+     * walk-forward model edge, has already passed CandidateAdmission's safety and economics.
+     * A generic native opinion, a broad lane prior and a non-economic approval are NOT proof.
+     */
+    fun specificBeatsLanePrior8643(d: CandidateAdmission8136.Decision8136): Boolean =
+        d.admitted && d.specific && d.reason in setOf("SPECIFIC_EDGE_PROVEN_8136", CandidateAdmission8136.EDGE_MODEL_PROVEN_8537) &&
+            d.expectedNetPct.isFinite() && d.expectedNetPct > 0.0 && d.costPct.isFinite() && d.costPct >= 0.0
 
     /**
      * CandidateAdmission8136.assess8136 (LIVE): the lane-qualified candidate's refusal by a learned door becomes an ADMIT
@@ -219,7 +238,8 @@ object LaneAuthority8577 {
         // V5.0.8615 — the coin's own evidence outranks its lane's average: a coin PocketLedger8610 scores PAYS is bought even in a
         // lane whose paper book proves a loss. 03:50 dump (8613, 9 min): this lane ban refused 1,669 MOONSHOT / EXPRESS / QUALITY /
         // CASHGEN candidates, so the ledger could never pick a winner inside them (the lane's refused record: -16.2 % n35).
-        if (pocket8610 != PocketLedger8610.Call.PAYS && (try { MemePaperTrader8544.laneProvenLosing8608(c.lane) } catch (_: Throwable) { false })) {
+        if (pocket8610 != PocketLedger8610.Call.PAYS && !specificBeatsLanePrior8643(d) &&
+            (try { MemePaperTrader8544.laneProvenLosing8608(c.lane) } catch (_: Throwable) { false })) {
             // V5.0.8622 — re-armed on its own (the 8609 / 8610 coin-state and pocket rules stay report-only). 09:44 dump (8621,
             // 65 min): paper MOONSHOT n43 -10.2 % +-4.6 PF0.28 on the very coins live admitted (TUNING: MOONSHOT|LIVE_ADMIT n26
             // -17.5 %); live MOONSHOT took 131 tickets for 3 buys and its sealed reservations held the 0.17 SOL wallet while
@@ -228,6 +248,9 @@ object LaneAuthority8577 {
             return d.copy(terminal = CandidateAdmission8136.Terminal8136.REFUSE, reason = PAPER_LOSING_8608, specific = true,
                 trace = d.trace + "paperLaneProvenLosing8608", laneQualified8577 = false)
         }
+        if (specificBeatsLanePrior8643(d)) try {
+            PipelineHealthCollector.labelInc("LANE_LOSS_YIELDS_TO_SPECIFIC_EDGE_8643_${c.lane.uppercase()}")
+        } catch (_: Throwable) {}
         // V5.0.8582 — a LIVE meme entry at the high is refused whatever admitted it (lane opinion, edge, generic prior).
         if (highRefusal8582 != null) {
             try { PipelineHealthCollector.labelInc("${highRefusal8582}_${c.lane.uppercase()}") } catch (_: Throwable) {}

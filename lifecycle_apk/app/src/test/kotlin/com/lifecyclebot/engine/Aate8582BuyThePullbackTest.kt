@@ -60,4 +60,11 @@ class Aate8582BuyThePullbackTest {
         assertFalse("unknown stage never refuses", LaneAuthority8577.stageLoses8626(null, 0, Double.NaN, Double.NaN))
         assertFalse(LaneAuthority8577.stageLoses8626("", 0, Double.NaN, Double.NaN))
     }
+
+    @Test fun aProvenBreakoutFamilyDoesNotHaveItsFreshEntryClockReVetoedAsChase() {
+        assertTrue(LaneAuthority8577.breakoutProofOwnsHigh8643("FAMILY_PROVEN_8546:BASE_BREAKOUT_FLOW"))
+        assertFalse(LaneAuthority8577.breakoutProofOwnsHigh8643("FAMILY_PROVEN_8546:PULLBACK_RECLAIM"))
+        assertFalse(LaneAuthority8577.breakoutProofOwnsHigh8643("FAMILY_UNPROVEN_8546:BASE_BREAKOUT_FLOW"))
+        assertFalse(LaneAuthority8577.breakoutProofOwnsHigh8643(null))
+    }
 }

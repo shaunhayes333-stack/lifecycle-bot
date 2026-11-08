@@ -230,13 +230,36 @@ object Cortex7885 {
      */
     private val VOTER_GRAPH_RETIRED_8623: Boolean = voterGraphRetired8623(System.getProperty("aate.cortexVoterGraph8623"))
 
-    /** Pure: retired unless the JVM was started with aate.cortexVoterGraph8623=on (the unit-test JVM, which tests the graph itself). */
-    fun voterGraphRetired8623(prop: String?): Boolean = prop != "on"
+    /** `off` fully retires; `on` keeps the unthrottled test graph; normal devices run bounded shadow learning. */
+    fun voterGraphRetired8623(prop: String?): Boolean = prop == "off"
+
+    /** Pure: normal APKs use a strictly sampled graph, preserving the expensive full read for explicit tests only. */
+    fun voterGraphBounded8644(prop: String?): Boolean = prop != "off" && prop != "on"
+
+    private val BOUNDED_VOTER_GRAPH_8644 = voterGraphBounded8644(System.getProperty("aate.cortexVoterGraph8623"))
+    private const val GRAPH_SAMPLE_GAP_MS_8644 = 30_000L
+    private val lastSampleAt8644 = AtomicLong(0L)
+
+    /** Only two fresh reads a minute globally; reused cached reads cost no additional graph work. */
+    fun sampleDue8644(previousMs: Long, nowMs: Long): Boolean =
+        nowMs > 0L && (previousMs == 0L || nowMs < previousMs || nowMs - previousMs >= GRAPH_SAMPLE_GAP_MS_8644)
+
+    private fun reserveSample8644(nowMs: Long): Boolean {
+        if (!BOUNDED_VOTER_GRAPH_8644) return true
+        repeat(8) {
+            val before = lastSampleAt8644.get()
+            if (!sampleDue8644(before, nowMs)) { inc("CORTEX_SAMPLE_QUOTA_8644"); return false }
+            if (lastSampleAt8644.compareAndSet(before, nowMs)) { inc("CORTEX_SAMPLE_GRANTED_8644"); return true }
+        }
+        inc("CORTEX_SAMPLE_CONTENTION_8644")
+        return false
+    }
 
     /** Snapshot + votes + fusion for (ts, lane); cached briefly so the gate and the labeler see one read. */
     fun assess(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis(),
                inputAtMs8522: Long = nowMs,
-               opportunitySource8522: CortexOpportunityPolarity8522.Source? = null): Assessment? {
+               opportunitySource8522: CortexOpportunityPolarity8522.Source? = null,
+               sampleReserved8644: Boolean = false): Assessment? {
         if (ts.mint.isBlank() || laneRaw.isBlank()) return null
         val lane = canon(laneRaw)
         val key = "${ts.mint}|$lane"
@@ -247,6 +270,7 @@ object Cortex7885 {
             if (opportunitySource8522 == null) { if (nowMs - it.atMs in 0L..ASSESS_TTL_MS) return it }
             else if (CortexOpportunityPolarity8522.currentInput8522(opportunitySource8522, it, nowMs)) return it
         }
+        if (!sampleReserved8644 && !reserveSample8644(nowMs)) return null
         // Only the explicitly frozen operator read can bind an opportunity action. Older learning-cache reads
         // remain valid learning observations, but were not captured under this source-identity contract.
         val source8522 = opportunitySource8522
@@ -1007,6 +1031,7 @@ object Cortex7885 {
             if (opportunitySource8522 == null) { if (nowMs - it.atMs in 0L..ASSESS_TTL_MS) return it }
             else if (CortexOpportunityPolarity8522.currentInput8522(opportunitySource8522, it, nowMs)) return it
         }
+        if (!reserveSample8644(nowMs)) return null
         // A job the full queue dropped never reaches its finally: a key may be
         // rescheduled after 30 s, so a dropped assessment cannot block a mint forever.
         val prev = scheduled.putIfAbsent(key, nowMs)
@@ -1014,7 +1039,7 @@ object Cortex7885 {
             onScheduled8417?.invoke()
             CortexVoters7885.stampLaneBrains8366(ts, nowMs)  // V5.0.8366 — the queued assessment keeps the brains' votes
             if (opportunitySource8522 == null) {
-                submit("ASSESS") { try { assess(ts, laneRaw) } finally { scheduled.remove(key, nowMs) } }
+                submit("ASSESS") { try { assess(ts, laneRaw, sampleReserved8644 = true) } finally { scheduled.remove(key, nowMs) } }
             } else {
                 val frozen8522 = try { decisionSnapshots8522.capture(ts, nowMs) } catch (_: Throwable) {
                     scheduled.remove(key, nowMs); return null
@@ -1023,7 +1048,7 @@ object Cortex7885 {
                     scheduled.remove(key, nowMs); return null
                 }
                 submit("ASSESS") { try {
-                    assess(frozen8522, laneRaw, nowMs, nowMs, opportunitySource8522)
+                    assess(frozen8522, laneRaw, nowMs, nowMs, opportunitySource8522, sampleReserved8644 = true)
                 } finally { scheduled.remove(key, nowMs) } }
             }
         } else inc("ASYNC_ALREADY_SCHEDULED")
@@ -1113,13 +1138,19 @@ object Cortex7885 {
     /** ForwardReturnLabeler7731.observe: one graded decision opens here (1:1 with its observation). */
     fun capture(ts: TokenState, labelLane: String, admitted: Boolean, nowMs: Long = System.currentTimeMillis(), reason: String? = null, incumbent8506: Boolean? = null) {
         if (labelLane.startsWith("PLANWAIT_") || labelLane.startsWith("PLANADMIT_")) return
-        if (VOTER_GRAPH_RETIRED_8623) {
+        // Only frozen pre-decision predictions can be paired with their labels. At the sampled
+        // rate, almost all decisions keep their cheap setup/timing labels without scheduling a
+        // cold 331-voter read AFTER the decision (which cannot be valid walk-forward evidence).
+        val unsampled8644 = BOUNDED_VOTER_GRAPH_8644 &&
+            assessCache["${ts.mint}|${canon(labelLane)}"]?.let { nowMs - it.atMs in 0L..ASSESS_TTL_MS } != true
+        if (VOTER_GRAPH_RETIRED_8623 || unsampled8644) {
             // The playbook's decision-time setup tag and the labeler's frozen timing still belong to every decision.
             val snap = try { LanePlaybook7907.decisionSnapshot8084(ts, labelLane, nowMs) } catch (_: Throwable) { null }
             val sel = try { LanePlaybook7907.selectedSetup8094(ts, labelLane, nowMs) } catch (_: Throwable) { null }
             val timing = try { LanePlaybook7907.timingBandOf8094(ts) } catch (_: Throwable) { LanePlaybook7907.TIMING_UNKNOWN_8094 }
             try { LanePlaybook7907.capture(ts, labelLane, labelLane, nowMs, snap, sel, timing) } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.freezeTiming8528(ts.mint, labelLane, nowMs, sel, timing) } catch (_: Throwable) {}
+            if (unsampled8644) inc("CORTEX_PLAYBOOK_ONLY_UNSAMPLED_8644")
             return
         }
         val captureKey8397 = "${ts.mint}|${labelLane.trim().uppercase()}"
@@ -1260,7 +1291,7 @@ object Cortex7885 {
     // V5.0.8597 §HEAP — was 2_000. At ~6.7K chars/decision the persisted CORTEX_PENDING_8521 reached ~12.8M chars, and
     // ForwardCheckpoint8401.unpack OOM'd rebuilding that string on a pressured 512MB heap (the largest restored state).
     // 800 keeps the blob near a third of that; selected/executed rows are persisted on top of the cap (see pendingSnapshot8076).
-    private const val PENDING_PERSIST_MAX = 800
+    private const val PENDING_PERSIST_MAX = 128
     private const val PENDING_PERSIST_EVERY_MS = 120_000L
     @Volatile private var lastPendingPersistMs = 0L
 
@@ -1476,6 +1507,12 @@ object Cortex7885 {
 
     fun restoreForward8401(raw: String): Boolean {
         if (VOTER_GRAPH_RETIRED_8623) return true  // V5.0.8623 — the companion checkpoint holds voter-graph predictions only
+        // Old unbounded companion checkpoints may exceed 26 MB; never inflate those in the
+        // new bounded shadow epoch. Such decisions had already lost their predictive grade.
+        if (BOUNDED_VOTER_GRAPH_8644 && raw.length > 1_500_000) {
+            inc("CORTEX_LEGACY_COMPANION_RETIRED_8644")
+            return true
+        }
         ensureLoaded()
         if (!loaded) return false
         val unpacked = ForwardCheckpoint8401.unpack(raw)

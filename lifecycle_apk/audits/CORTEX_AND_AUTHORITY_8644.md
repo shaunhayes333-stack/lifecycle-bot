@@ -1,0 +1,27 @@
+# V5.0.8644 — Cortex recovery and conflicting-entry-authority repair
+
+**Status:** follow-on source changes; they are not evidence that live profits improved until a new APK runs, the gate outcomes mature, and canonical fills/exits are reconciled.
+
+## Why this is necessary
+
+- 5.0.8632 (9 November 2026): `Cortex7885.assessed=0`, `graded=0`. The 8623 permanent retirement eliminates the entire voter/forecast learning graph in production. This followed a genuine 512 MB OOM: the graph ran ~9,086 assessments in 143 minutes and persisted a 26.7-million-character pending book.
+- The pipeline calls different decisions at `CandidateAdmission8136`, `LaneAuthority8577`, `LiveEdgeGate7877`, `TradePlan7739`, and FinalDecisionGate/Executor. An **independently supported, after-cost setup** was still refused solely because the broad *lane paper book* had previously lost. That is the wrong precedence: a lane average is context, not a substitute for this coin's current setup, cost, and executable evidence.
+- `MemeStrategies8546.BASE_BREAKOUT_FLOW` requires a genuine broken base and >=60% executed buy share. Its *proven, freshly fired* strategy can still be labelled `MEME_BUYS_THE_HIGH_8582` by an unrelated at-peak heuristic, refusing precisely the event this entry style is built to trade.
+
+## Source-level changes
+
+1. `Cortex7885.kt`: normal APK runtime runs the original prediction/voter graph in sampled shadow mode. A shared 30-second budget allows at most two new expensive reads per minute, and cached reads are reused. Most candidate decisions still capture their setup and timing for ordinary learning, without scheduling an after-the-fact cold voter read. Full graph (`-Daate.cortexVoterGraph8623=on`) remains available for the test JVM; explicit `off` retains full retirement. **Cortex authority still must beat the main stack on genuine out-of-sample labels** (`CortexVsStack8539`); this change adds zero new vetoes or live-sizing authority.
+2. `CortexForwardEpoch8521.kt`: the former large `CORTEX_PENDING_8521` file is preserved but no longer loaded by the sampled runtime. New predictions use `CORTEX_PENDING_8644`, with a lower default hot pending persistence cap. Oversized legacy paired checkpoints are skipped instead of unpacked. Existing realised-trade books remain intact.
+3. `LaneAuthority8577.kt`: the paper-lane losing prior remains protective for generic/native unproven admits. It now yields **only** if CandidateAdmission has already admitted this exact candidate on a specific setup/cell or epoch-clean EdgeModel proof, with a finite positive net return at a known nonnegative cost. All actual hard safety, sellability, structure, quote, route, wallet, and at-high rules remain in place.
+4. `LaneAuthority8577.kt`: an immediately signalled and independently paper-proven `BASE_BREAKOUT_FLOW` family owns its breakout clock. Its entry is not vetoed a second time as a generic high/dumping stage. Unproven signals and other families retain those existing guards.
+5. Regression tests cover bounded/default/off Cortex states, the sampling interval, checkpoint key migration, the distinction between coin-specific proof and generic prior, and a proven versus unproven breakout family.
+
+## Explicit remaining work / acceptance
+
+- Build, instrumented emulator smoke, and Android 512 MB heap/runtime measurement must pass. Use a continuous run to verify assessments > 0, graded > 0 after target horizons, no runaway checkpoint growth, no UI stalls, and zero new Cortex live vetoes before `PROVEN_OVER_STACK` is genuinely achieved.
+- Live and refused opportunity cohorts need correct net-of-cost, fillable, horizon-matched labels. The 5.0.8642 epoch rebuild must be observed to complete; OOS status initially resets and earns evidence again. A positive *forward* edge is not equivalent to banked SOL.
+- Restore per-coin executed tape coverage for the five meme event families. No price-only print may be turned into fictitious buy pressure. PumpPortal's keyed per-coin trade stream is denied by the external service; alternative Helius/pool evidence must remain independently verified.
+- Evaluate candidate → owner → admission → FDG → sealed size → executor → confirmed trade as one coherent decision. In particular, stop plans and quotes must not re-interpret the accepted setup without a material, measured change. No new gate may compensate for a proven bad threshold; tune the owner strategy from correctly priced realised returns.
+- Resolve emergency sell trigger-to-broadcast latency (>7 seconds in 8632) and the held-route quote starvation before judging profit capture. Grade actual profit capture on immutable entry basis and verified MFE/MAE, not raw uncorroborated `peakGainPct`.
+
+**Profitability is an empirical acceptance criterion, not a code assertion.** These repairs restore machinery and precedence; they do not justify claiming the bot is profitable until the live trade and counterfactual records demonstrate it.

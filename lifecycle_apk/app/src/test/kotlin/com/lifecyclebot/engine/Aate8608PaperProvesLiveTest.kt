@@ -2,6 +2,8 @@ package com.lifecyclebot.engine
 
 import com.lifecyclebot.engine.truth.LaneAuthority8577
 import com.lifecyclebot.engine.truth.MemePaperTrader8544
+import com.lifecyclebot.engine.truth.CandidateAdmission8136.Decision8136
+import com.lifecyclebot.engine.truth.CandidateAdmission8136.Terminal8136
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -10,6 +12,26 @@ import java.io.File
 /** V5.0.8608 — live trades what the paper book proves: a lane paper has PROVEN losing does not spend the live wallet. */
 class Aate8608PaperProvesLiveTest {
     private fun src(p: String) = File("src/main/kotlin/com/lifecyclebot/$p").readText()
+
+    @Test fun aMeasuredCoinSetupBeatsTheLosingLanePriorWithoutExemptingGenericBuys() {
+        fun decision(reason: String, specific: Boolean, net: Double, cost: Double = 3.0) =
+            Decision8136(Terminal8136.ADMIT, reason, specific, "BASE_BREAKOUT_FLOW", net, emptyList(), costPct = cost)
+        assertTrue(LaneAuthority8577.specificBeatsLanePrior8643(decision("SPECIFIC_EDGE_PROVEN_8136", true, 8.0)))
+        assertTrue(LaneAuthority8577.specificBeatsLanePrior8643(
+            decision("EDGE_MODEL_PROVEN_8537", true, 4.0)))
+        assertFalse(LaneAuthority8577.specificBeatsLanePrior8643(
+            decision("NATIVE_QUALIFIED_ADMIT_8259", false, 8.0)))
+        assertFalse(LaneAuthority8577.specificBeatsLanePrior8643(
+            decision("GENERIC_PRIOR_CLEARS_8136", false, 8.0)))
+        assertFalse(LaneAuthority8577.specificBeatsLanePrior8643(
+            decision("SPECIFIC_EDGE_PROVEN_8136", true, 0.0)))
+        assertFalse(LaneAuthority8577.specificBeatsLanePrior8643(
+            decision("SPECIFIC_EDGE_PROVEN_8136", true, -2.0)))
+        assertFalse(LaneAuthority8577.specificBeatsLanePrior8643(
+            decision("SPECIFIC_EDGE_PROVEN_8136", true, 8.0, Double.NaN)))
+        assertFalse(LaneAuthority8577.specificBeatsLanePrior8643(
+            decision("SPECIFIC_EDGE_PROVEN_8136", true, 8.0).copy(terminal = Terminal8136.REFUSE)))
+    }
 
     @Test fun aProvenLosingPaperLaneIsKeptOutOfLive() {
         assertTrue("01:42 paper EXPRESS n44 -3.5+-2.6 PF0.54", MemePaperTrader8544.provenLosing8608(44, -3.5, 2.6, 0.54))
