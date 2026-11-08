@@ -123,12 +123,14 @@ class Aate8546StrategyFamiliesTest {
     @Test fun theFamiliesRunInTheLoopAndNeverTradeHardSafetyOrTouchLiveSlots() {
         assertTrue(src("engine/BotService.kt").contains("com.lifecyclebot.engine.truth.MemeStrategies8546.tick8546(tokenStatesCopy, nowShadow7307)"))
         val s = src("engine/truth/MemeStrategies8546.kt")
-        assertTrue(s.contains("if (ts.safety.tier == com.lifecyclebot.engine.SafetyTier.HARD_BLOCK) return false"))
+        assertTrue(s.contains("ts.safety.tier == com.lifecyclebot.engine.SafetyTier.HARD_BLOCK") && s.contains("SKIP_HARD_BLOCK"))
         assertTrue(s.contains("MemePaperTrader8544.openFamily8546(ts, s, nowMs)"))
         for (forbidden in listOf("ts.position", "TradeHistoryStore", "liveBuy", "Executor."))
             assertFalse(forbidden, s.substringAfter("object MemeStrategies8546 {").contains(forbidden))
         assertTrue(src("network/PumpCurveKeys7269.kt").contains("fun graduatedAtMs8546(mint: String): Long?"))
         assertTrue(src("engine/DiagnosisBrief8438.kt").contains("MemeStrategies8546.statusLine8546()"))
+        assertTrue("a zero-signal run must reveal whether the chart or executed-flow evidence is missing",
+            s.contains("funnel8644{") && s.contains("FLOW_UNKNOWN") && s.contains("M1_EMPTY") && s.contains("RAW_") && s.contains("FLOW_REFUSED_"))
     }
 
     // V5.0.8547 — the research dataset covers every meme lane: unfillable entries are written flagged and never trained on

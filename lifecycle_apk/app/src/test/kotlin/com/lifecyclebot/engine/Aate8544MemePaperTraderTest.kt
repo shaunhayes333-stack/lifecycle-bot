@@ -35,11 +35,26 @@ class Aate8544MemePaperTraderTest {
         assertEquals(10.0, MemePaperTrader8544.START_BALANCE_SOL_8544, 0.0)
     }
 
+    @Test fun eventFamiliesCanLearnWhileOrdinaryPaperBookIsFullButNeverGrowUnbounded() {
+        val ordinary = MemePaperTrader8544.MAX_OPEN_8544
+        val family = MemePaperTrader8544.MAX_FAMILY_OPEN_8644
+        val fresh = Long.MAX_VALUE / 4
+        val room = MemePaperTrader8544::roomForFamily8644
+        assertNull("forty ordinary opens cannot starve an event family", room(ordinary, 0, 0, false, fresh, 5.0))
+        assertNull(room(ordinary + family - 1, family - 1, 2, false, fresh, 5.0))
+        assertEquals("FAMILY_BOOK_FULL", room(ordinary + family, family, 2, false, fresh, 5.0))
+        assertEquals("FAMILY_BOOK_FULL", room(family, family, 2, false, fresh, 5.0))
+        assertEquals("MINT_OPEN", room(ordinary, 0, 0, true, fresh, 5.0))
+        assertEquals("NO_PAPER_BALANCE", room(ordinary, 0, 0, false, fresh, 0.0))
+        assertEquals("BOOK_FULL", MemePaperTrader8544.roomFor8544(ordinary, 0, false, fresh, 5.0))
+        assertTrue(trader.contains("roomForFamily8644(open.size, familyOpen8644()"))
+    }
+
     // 5 / 15 — exits ride the lane's ladder and the money is net of the round trip
     @Test fun ladderAndNetFollowTheLane() {
         val runner = RunnerGrab7967.TIERS_7967
         assertNull(MemePaperTrader8544.rung8544(runner, 0, 99.0))
-        // V5.0.8644 — paper uses the same 25/18/70%-of-remainder ladder as live.
+        // V5.0.8644 — paper uses the same 25/18/67%-of-remainder ladder as live (unclamped by residual reserve).
         assertEquals(1 to 0.25, MemePaperTrader8544.rung8544(runner, 0, 100.0))
         val gap = MemePaperTrader8544.rung8544(runner, 0, 1_100.0)!!
         assertEquals(3, gap.first)

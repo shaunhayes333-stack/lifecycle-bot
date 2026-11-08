@@ -36,6 +36,9 @@ object MemePaperTrader8544 {
     const val STAKE_SOL_8544 = 0.1
     const val START_BALANCE_SOL_8544 = 10.0
     const val MAX_OPEN_8544 = 40
+    /** Family paper entries used to starve behind 40 ordinary paper slots (8632: BOOK_FULL=2812).
+     * Keep the existing ordinary book budget and give independent event-family research a small bounded allocation. */
+    const val MAX_FAMILY_OPEN_8644 = 8
     const val MAX_OPEN_PER_LANE_8544 = 8
     const val REOPEN_GAP_MS_8544 = 15L * 60_000L
     const val ENTRY_MARK_MAX_AGE_MS_8544 = 20_000L
@@ -87,6 +90,20 @@ object MemePaperTrader8544 {
         else -> null
     }
 
+    /** Separate bounded family capacity, which never consumes the 40 ordinary paper strategy slots. */
+    fun roomForFamily8644(openTotal: Int, openFamilies: Int, openInFamily: Int, mintOpen: Boolean,
+                           sinceLastEntryMs: Long, balanceSol: Double): String? = when {
+        mintOpen -> "MINT_OPEN"
+        openTotal >= MAX_OPEN_8544 + MAX_FAMILY_OPEN_8644 || openFamilies >= MAX_FAMILY_OPEN_8644 -> "FAMILY_BOOK_FULL"
+        openInFamily >= MAX_OPEN_PER_LANE_8544 -> "LANE_FULL"
+        sinceLastEntryMs in 0L until REOPEN_GAP_MS_8544 -> "REOPEN_GAP"
+        balanceSol < STAKE_SOL_8544 -> "NO_PAPER_BALANCE"
+        else -> null
+    }
+
+    private fun familyOpen8644() = open.values.count { it.lane.startsWith(FAMILY_PREFIX_8546) }
+    private fun ordinaryOpen8644() = open.size - familyOpen8644()
+
     /**
      * CandidateAdmission8136.assess8136, LIVE runtime only: decide [candidate] the PAPER way and, on ADMIT, open a paper position.
      */
@@ -95,7 +112,7 @@ object MemePaperTrader8544 {
         if (!com.lifecyclebot.network.HeliusSolanaScope7819.isSolanaMint7819(ts.mint)) return
         restore8544()
         val lane = candidate.lane.trim().uppercase()
-        val why = roomFor8544(open.size, open.values.count { it.lane == lane }, open.containsKey(ts.mint),
+        val why = roomFor8544(ordinaryOpen8644(), open.values.count { it.lane == lane }, open.containsKey(ts.mint),
             nowMs - (lastEntryAt[ts.mint] ?: Long.MIN_VALUE / 2), balanceSol)
         if (why != null) { if (why != "MINT_OPEN") skip(why); return }
         val paper = CandidateAdmission8136.decide8136(candidate.copy(live = false, liveEdge8114 = null)) { false }
@@ -120,8 +137,11 @@ object MemePaperTrader8544 {
     }
 
     @Synchronized private fun reserve(p: Pos8544, nowMs: Long): Boolean {
-        val why = roomFor8544(open.size, open.values.count { it.lane == p.lane }, open.containsKey(p.mint),
-            nowMs - (lastEntryAt[p.mint] ?: Long.MIN_VALUE / 2), balanceSol)
+        val since = nowMs - (lastEntryAt[p.mint] ?: Long.MIN_VALUE / 2)
+        val inLane = open.values.count { it.lane == p.lane }
+        val why = if (p.lane.startsWith(FAMILY_PREFIX_8546))
+            roomForFamily8644(open.size, familyOpen8644(), inLane, open.containsKey(p.mint), since, balanceSol)
+        else roomFor8544(ordinaryOpen8644(), inLane, open.containsKey(p.mint), since, balanceSol)
         if (why != null) return false
         open[p.mint] = p
         lastEntryAt[p.mint] = nowMs
@@ -452,7 +472,7 @@ object MemePaperTrader8544 {
     fun openFamily8546(ts: TokenState, signal: MemeStrategies8546.Signal8546, nowMs: Long) {
         restore8544()
         val book = "$FAMILY_PREFIX_8546${signal.family.name}"
-        val why = roomFor8544(open.size, open.values.count { it.lane == book }, open.containsKey(ts.mint),
+        val why = roomForFamily8644(open.size, familyOpen8644(), open.values.count { it.lane == book }, open.containsKey(ts.mint),
             nowMs - (lastEntryAt[ts.mint] ?: Long.MIN_VALUE / 2), balanceSol)
         if (why != null) { if (why != "MINT_OPEN") skip("FAMILY_$why"); return }
         val cost = try { NetEdge8030.entryCost8209(ts, signal.exitLane, STAKE_SOL_8544).costPct } catch (_: Throwable) { Double.NaN }
