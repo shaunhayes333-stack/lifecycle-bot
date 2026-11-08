@@ -188,6 +188,17 @@ class Aate8354CurveTapeTest {
         assertTrue(HeliusCurveTape8354.statusLine8354(t0).contains("source=HELIUS_PER_MINT"))
     }
 
+    @Test fun paidEnabledWithRejectedOrMissingKeyStillAsksTheRealHeliusTape() {
+        assertTrue(PumpFunWS.setupNeedsHeliusFallback8646(paidEnabled = false, keyedCapability = false))
+        assertTrue(PumpFunWS.setupNeedsHeliusFallback8646(paidEnabled = true, keyedCapability = false))
+        assertFalse(PumpFunWS.setupNeedsHeliusFallback8646(paidEnabled = true, keyedCapability = true))
+        val source = src("network/PumpFunWS.kt")
+        assertTrue(source.contains("setupNeedsHeliusFallback8646(tradeStreamEnabled8354, tradeStreamKeyed7284())"))
+        assertTrue(source.contains("return HeliusCurveTape8354.ask8354(mint, nowMs)"))
+        assertTrue(source.contains("PUMP_SETUP_HELIUS_FALLBACK_8646"))
+        assertTrue(source.contains("if (!meteredSubAllowed8193(mint, setup8317 = true)) {"))
+    }
+
     // ── the PumpPortal stream is opt-in ──
 
     @Test fun thePumpPortalTradeStreamIsOffByDefault() {

@@ -461,6 +461,10 @@ object PumpFunWS {
 
     private fun setupWatched8191(mint: String, nowMs: Long): Boolean = (setupMints8191[mint] ?: 0L).let { it > 0L && nowMs - it <= SETUP_TTL_MS_8191 }
 
+    /** Pure: a paid switch is not an authenticated stream. The existing Helius per-mint ask must serve denied/missing keys. */
+    internal fun setupNeedsHeliusFallback8646(paidEnabled: Boolean, keyedCapability: Boolean): Boolean =
+        !paidEnabled || !keyedCapability
+
     /**
      * Pure: the setup set after admitting [mint] at [nowMs]: expired entries out, then the eldest while over [cap].
      * Returns the mints to unsubscribe (never one that [keep] still needs).
@@ -475,11 +479,21 @@ object PumpFunWS {
     /** DataOrchestrator.refreshMissingInputs8087: put [mint] on the keyed trade stream for a while. True when subscribed now. */
     fun watchForSetup8191(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean {
         if (!HeliusSolanaScope7819.isSolanaMint7819(mint)) return false
-        // V5.0.8354 — PumpPortal's metered stream is off: the ask goes to the Helius program tape (or its per-mint fallback).
-        if (!tradeStreamEnabled8354) { setupRoutedHelius8354.incrementAndGet(); return HeliusCurveTape8354.ask8354(mint, nowMs) }
+        // V5.0.8646 — the metered switch can be ON while the provider refuses the current key (8632: 640 no-key setup
+        // skips and zero Helius fallback asks). An unverified switch must not starve the already-built, bounded Helius
+        // program/per-mint tape. This is an authentic decoded-trade request, not a synthetic buy-pressure substitute.
+        if (setupNeedsHeliusFallback8646(tradeStreamEnabled8354, tradeStreamKeyed7284())) {
+            setupRoutedHelius8354.incrementAndGet()
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_SETUP_HELIUS_FALLBACK_8646") } catch (_: Throwable) {}
+            return HeliusCurveTape8354.ask8354(mint, nowMs)
+        }
         setupRequested8191.incrementAndGet()
         // V5.0.8193 — the metered stream's budget governs setup watches too (one budget, one per-coin cap).
-        if (!meteredSubAllowed8193(mint, setup8317 = true)) return false   // V5.0.8317 — a setup watch is exempt from the per-coin cap
+        if (!meteredSubAllowed8193(mint, setup8317 = true)) {
+            // PumpPortal's daily cap must not silently disable the independently bounded Helius source.
+            setupRoutedHelius8354.incrementAndGet()
+            return HeliusCurveTape8354.ask8354(mint, nowMs)
+        }   // V5.0.8317 — a setup watch is exempt from the per-coin cap
         val drop = setupEvictions8191(setupMints8191, mint, nowMs, SETUP_MAX_8191, SETUP_TTL_MS_8191) { m -> lifecycleMints7420.containsKey(m) }
         for (m in drop) setupMints8191.remove(m)
         val unsub = drop.filter { tradeSubscriptions7278.remove(it) }
