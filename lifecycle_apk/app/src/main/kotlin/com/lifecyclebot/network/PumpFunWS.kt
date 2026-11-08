@@ -75,7 +75,7 @@ object PumpFunWS {
     private val unsupportedTradeDemandCoalesced7485 = AtomicLong(0L)
     private val tradeAuthDenied7432 = AtomicBoolean(false)
 
-    /** V5.0.8439 — DiagnosisBrief8438: a key is set and PumpPortal refused its metered trade stream (linked wallet < 0.02 SOL). */
+    /** A key is set and PumpPortal refused its metered trade stream; the app has NOT measured the key wallet's balance. */
     fun keyedStreamDenied8439(): Boolean = apiKey7284.isNotBlank() && tradeAuthDenied7432.get()
     // V5.0.8094 — owner: "it is funded". The denial latched for the whole process: a key funded AFTER PumpPortal's
     // "only available when ... funded with at least 0.02 SOL" refusal stayed locked out (8093: tradeStream=AUTH_DENIED,
@@ -148,8 +148,10 @@ object PumpFunWS {
     /** Pure: what the owner must know about the trade stream's key, without printing the key. */
     internal fun keyState8181(key: String, denied: Boolean, connectedKeyed: Boolean): String = when {
         key.isBlank() -> "NONE(enter the PumpPortal data key in Settings)"
-        denied -> "SET(..${key.takeLast(4)}) connectedKeyed=$connectedKeyed ACTION=PumpPortal says the wallet LINKED to this key " +
-            "(created with the key, not the trading wallet) is under 0.02 SOL; re-checked by a fresh keyed connection every 10m"
+        denied -> "SET(..${key.takeLast(4)}) connectedKeyed=$connectedKeyed ACTION=PumpPortal REFUSED keyed trade subscriptions " +
+            "(server reports a 0.02 SOL API-key funding requirement; actual linked-wallet balance NOT VERIFIED). " +
+            "Check that Settings uses the intended paid key and that its data entitlement/billing state is active; " +
+            "the app retries on fresh keyed connections"
         else -> "SET(..${key.takeLast(4)}) connectedKeyed=$connectedKeyed"
     }
     private val createStreamObserved7432 = AtomicBoolean(false)
@@ -199,6 +201,54 @@ object PumpFunWS {
     private val coverageSuspect8307 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     @Volatile private var lastSubscribeKeys8307: List<String> = emptyList()
     @Volatile private var lastSubscribeAtMs8307 = 0L
+
+    // V5.0.8645 — one PumpPortal socket can emit both a PumpSwap-specific refusal and the generic subscribeTokenTrade
+    // funding text. The latter may really reject the *entire* keyed stream; a correlated error pair alone cannot prove
+    // which scope failed. Once per keyed connection, ask for ONE eligible, non-migrated bonding-curve mint in isolation.
+    // The reply can still deny global auth, and only an actual trade print proves stream availability. No invented flow.
+    private const val PAIRED_DENIAL_WINDOW_MS_8645 = 5_000L
+    private val curveProbeUsed8645 = AtomicBoolean(false)
+    private val curveProbeFrames8645 = AtomicLong(0L)
+    private val curveProbeDenied8645 = AtomicLong(0L)
+    private val curveProbeConfirmedOnSocket8645 = AtomicBoolean(false)
+    private val curveProbeDeniedOnSocket8645 = AtomicBoolean(false)
+    @Volatile private var lastPumpSwapErrorAtMs8645 = 0L
+    @Volatile private var lastGenericErrorAtMs8645 = 0L
+    @Volatile private var curveProbeMint8645 = ""
+    @Volatile private var curveProbeAtMs8645 = 0L
+
+    /** Pure: a close-together refusal pair warrants one scoped check, not automatic permission or permanent lockout. */
+    internal fun pairedDenialsNeedCurveProbe8645(genericAtMs: Long, swapAtMs: Long, nowMs: Long, alreadyTried: Boolean): Boolean =
+        !alreadyTried && genericAtMs > 0L && swapAtMs > 0L &&
+            kotlin.math.abs(genericAtMs - swapAtMs) <= PAIRED_DENIAL_WINDOW_MS_8645 &&
+            nowMs - maxOf(genericAtMs, swapAtMs) in 0L..PAIRED_DENIAL_WINDOW_MS_8645
+
+    /** This check never subscribes a migrated mint, bypasses the metered budget, or declares auth successful. */
+    private fun probeCurveOnly8645(nowMs: Long): Boolean {
+        if (!tradeStreamEnabled8354 || !connectedKeyed8094 || curveProbeUsed8645.get()) return false
+        val mint = (heldMints8192.asSequence() + setupMints8191.keys.asSequence() +
+            lifecycleMints7420.keys.asSequence() + tradeSubscriptions7278.asSequence())
+            .firstOrNull { it.isNotBlank() && !pumpSwapMint8307(it) && meteredSubAllowed8193(it, setup8317 = true) }
+            ?: return false
+        if (!curveProbeUsed8645.compareAndSet(false, true)) return false
+        val sent = try {
+            ws?.send(JSONObject().put("method", "subscribeTokenTrade").put("keys", JSONArray().put(mint)).toString()) == true
+        } catch (_: Throwable) { false }
+        if (!sent) return false
+        curveProbeMint8645 = mint
+        curveProbeAtMs8645 = nowMs
+        // If the generic text arrived first, undo its *tentative* latch only for this one bounded verification frame.
+        // A second generic refusal on this same socket re-latches immediately.
+        tradeAuthDenied7432.set(false)
+        tradeAuthDeniedAtMs8094 = 0L
+        tradeSubscriptions7278.add(mint)
+        noteSubscribeFrame8307(listOf(mint))
+        try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_CURVE_AUTH_SCOPE_PROBE_8645")
+            ErrorLogger.warn(TAG, "PumpPortal emitted paired PumpSwap/general refusals; one curve-only auth probe sent (no trade-frame proof yet)")
+        } catch (_: Throwable) {}
+        return true
+    }
 
     /** Pure: is [message] PumpPortal's PumpSwap-data balance refusal (scoped to post-migration mints)? */
     internal fun isPumpSwapRefusal8307(message: String): Boolean {
@@ -310,7 +360,9 @@ object PumpFunWS {
     private fun pumpSwapLine8307(nowMs: Long = System.currentTimeMillis()): String {
         val left = if (pumpSwapBlockedNow8307(nowMs))
             ((pumpSwapRefusedAtMs8307 + pumpSwapRetryDelayMs8307(pumpSwapRefusals8307.get()) - nowMs) / 1000L).coerceAtLeast(0L) else 0L
-        return "pumpswap=${pumpSwapState8307(nowMs)} pumpSwap8307[refusals=${pumpSwapRefusals8307.get()} nextRetryS=$left " +
+        return "curveAuthScope8645[probed=${curveProbeUsed8645.get()} frameProof=${curveProbeFrames8645.get()} " +
+            "probeDenied=${curveProbeDenied8645.get()} pending=${curveProbeMint8645.isNotBlank() && !curveProbeConfirmedOnSocket8645.get() && !curveProbeDeniedOnSocket8645.get()} ageS=${if (curveProbeAtMs8645 > 0L) (nowMs - curveProbeAtMs8645).coerceAtLeast(0L) / 1000L else 0L}] " +
+            "pumpswap=${pumpSwapState8307(nowMs)} pumpSwap8307[refusals=${pumpSwapRefusals8307.get()} nextRetryS=$left " +
             "parked=${pumpSwapParked8307.size} skippedSubs=${pumpSwapSkipped8307.get()} frames=${pumpSwapFrames8307.get()} " +
             "coverageSuspect=${coverageSuspect8307.size} migratedSeen=${migratedSeen8307.size}]"
     }
@@ -803,6 +855,14 @@ object PumpFunWS {
         override fun onOpen(webSocket: WebSocket, response: Response) {
             reconnectAttempt.set(0)
             tokenTradeStreamObserved7432.set(false)
+            // This scope check is bounded per *socket*, including the scheduled auth re-probes.
+            curveProbeUsed8645.set(false)
+            curveProbeMint8645 = ""
+            curveProbeAtMs8645 = 0L
+            lastPumpSwapErrorAtMs8645 = 0L
+            lastGenericErrorAtMs8645 = 0L
+            curveProbeConfirmedOnSocket8645.set(false)
+            curveProbeDeniedOnSocket8645.set(false)
             ErrorLogger.info(TAG, "✅ connected — subscribing to subscribeNewToken + subscribeMigration (free)")
             webSocket.send(JSONObject().put("method", "subscribeNewToken").toString())
             webSocket.send(JSONObject().put("method", "subscribeMigration").toString())
@@ -826,18 +886,33 @@ object PumpFunWS {
                 // free create/migration and the independent RPC curve ladder remain.
                 val error7432 = listOf(j.optString("message"), j.optString("error"),
                     j.optString("errors")).joinToString(" ").lowercase()
-                if (isPumpSwapRefusal8307(error7432)) notePumpSwapRefusal8307(System.currentTimeMillis())  // V5.0.8307 — scoped
-                else if (!tradeAuthDenied7432.get() && isTradeAuthRefusal7432(error7432)) {
-                    tradeAuthDenied7432.set(true)
-                    tradeAuthDeniedAtMs8094 = System.currentTimeMillis()
-                    authDenials8182.incrementAndGet()
-                    tokenTradeStreamObserved7432.set(false)
-                    tradeSubscriptions7278.clear()
-                    subFail7420.incrementAndGet()
-                    try {
-                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TOKEN_TRADE_STREAM_UNAVAILABLE_AUTH_7432")
-                        ErrorLogger.warn(TAG, "token trade subscription unavailable for current key; RPC curve ladder remains independent")
-                    } catch (_: Throwable) {}
+                if (isPumpSwapRefusal8307(error7432)) {
+                    val now8645 = System.currentTimeMillis()
+                    lastPumpSwapErrorAtMs8645 = now8645
+                    notePumpSwapRefusal8307(now8645) // V5.0.8307 — migrated mints only
+                    // The generic error may have arrived *before* this PumpSwap error. Verify its scope once.
+                    if (pairedDenialsNeedCurveProbe8645(lastGenericErrorAtMs8645, now8645, now8645, curveProbeUsed8645.get()))
+                        probeCurveOnly8645(now8645)
+                } else if (isTradeAuthRefusal7432(error7432)) {
+                    val now8645 = System.currentTimeMillis()
+                    lastGenericErrorAtMs8645 = now8645
+                    val ambiguous8645 = pairedDenialsNeedCurveProbe8645(now8645, lastPumpSwapErrorAtMs8645, now8645,
+                        curveProbeUsed8645.get()) && probeCurveOnly8645(now8645)
+                    if (!ambiguous8645 && !tradeAuthDenied7432.get()) {
+                        // A generic denial to the *isolated curve-only request* confirms this is not just PumpSwap.
+                        if (curveProbeMint8645.isNotBlank() && !curveProbeConfirmedOnSocket8645.get() &&
+                            curveProbeDeniedOnSocket8645.compareAndSet(false, true)) curveProbeDenied8645.incrementAndGet()
+                        tradeAuthDenied7432.set(true)
+                        tradeAuthDeniedAtMs8094 = now8645
+                        authDenials8182.incrementAndGet()
+                        tokenTradeStreamObserved7432.set(false)
+                        tradeSubscriptions7278.clear()
+                        subFail7420.incrementAndGet()
+                        try {
+                            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TOKEN_TRADE_STREAM_UNAVAILABLE_AUTH_7432")
+                            ErrorLogger.warn(TAG, "PumpPortal refused keyed token trades; separate key billing/entitlement confirmation is needed; RPC fallback continues")
+                        } catch (_: Throwable) {}
+                    }
                 }
                 // V5.0.7279 — every frame is counted by its own type, so a stream
                 // that delivers no buy/sell frames is distinguishable from one
@@ -880,6 +955,12 @@ object PumpFunWS {
                         try { com.lifecyclebot.engine.truth.CurveReserves7951.noteFrame7951(mint, vSol, vTok) } catch (_: Throwable) {}
                         val priceSol = vSol / vTok
                         if (!priceSol.isFinite() || priceSol <= 0.0) return
+                        // A true executed curve swap on the isolated mint is the sole positive proof of the probe.
+                        if (mint == curveProbeMint8645 && connectedKeyed8094 &&
+                            curveProbeConfirmedOnSocket8645.compareAndSet(false, true)) {
+                            curveProbeFrames8645.incrementAndGet()
+                            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_CURVE_PROBE_FRAME_CONFIRMED_8645") } catch (_: Throwable) {}
+                        }
                         if (!tradeAuthDenied7432.get()) tokenTradeStreamObserved7432.set(true)
                         coverageSuspect8307.remove(mint)   // V5.0.8307 — its first print: the stream does carry it
                         // V5.0.8182 — an actual trade frame is the only proof the paid stream works.
