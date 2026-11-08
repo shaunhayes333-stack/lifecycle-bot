@@ -12125,8 +12125,10 @@ class GoldenTapeRegressionTest {
     @Test
     fun V5_0_7366_live_runner_exits_match_proven_paper() {
         val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        // The give-back profit lock never sells a loser and honours runner deferral.
-        assertTrue(bs.contains("val giveBackTrigger = peakGainPct >= 20.0 && pnlPct > 0.0 && !runnerDefer7366 &&"))
+        // 8642: the legacy give-back profit lock is inactive on doctrine-owned meme runners;
+        // non-doctrine lanes still require positive PnL and honour their own deferral.
+        assertTrue(bs.contains("val giveBackTrigger = !RunnerDoctrine8584.profitTakingOwned8630("))
+        assertTrue(bs.contains("peakGainPct >= 20.0 && pnlPct > 0.0 && !runnerDefer7366 &&"))
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         // Runner lanes settle in live exactly as in paper (V5.0.7730: every lane does).
         assertTrue(ex.contains("if (!isPaperRT() && !runnerLiveSettle7366 && !liveSettleAllLanes7730) return@run false"))

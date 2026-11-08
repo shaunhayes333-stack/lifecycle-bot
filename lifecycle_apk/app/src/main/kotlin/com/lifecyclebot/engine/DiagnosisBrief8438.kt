@@ -378,9 +378,9 @@ object DiagnosisBrief8438 {
                     "gRPC validator feed $validator8509: set an endpoint/key the provider authorises for Yellowstone mainnet (validatorEndpoint / validatorKey) -> ValidatorFeed8506")
             }
             if (try { com.lifecyclebot.network.PumpFunWS.keyedStreamDenied8439() } catch (_: Throwable) { false }) {
-                sb.append("               PumpPortal: keyed trade stream DENIED (the wallet linked to the API key holds < 0.02 SOL) — launch creates still arrive free; per-coin trade tapes do not\n")
+                sb.append("               PumpPortal: keyed token-trade subscriptions REFUSED by provider (reported 0.02 SOL API-key funding requirement; linked-wallet balance NOT MEASURED by AATE) — free launches can still arrive, but per-coin executed-trade coverage is unconfirmed\n")
                 fixes += Fix8438(150.0, "OWNER_ACTION",
-                    "fund the wallet linked to the PumpPortal API key with >= 0.02 SOL (it is the key's own wallet, not the trading wallet): the per-coin trade tape (buy pressure, shape) for pump launches comes from it")
+                    "verify the PumpPortal API key suffix configured in AATE matches the intended paid key and inspect the provider's linked-key wallet balance / metered data entitlement / charging history; AATE cannot verify the balance and does not assert that a funded wallet is empty. Curve-only scope recheck: PumpFunWS.curveAuthScope8645")
             }
             // V5.0.8471 — RugCheck: reports with findings, fresh mints it has not indexed, and its number beside its findings.
             sb.append("               ").append(try { RugcheckScore8399.statusLine8471() } catch (_: Throwable) { "rugcheck8471[-]" }).append('\n')

@@ -77,7 +77,7 @@ object TradeTape8100 {
         if (mint.isBlank() || !priceSol.isFinite() || priceSol <= 0.0) return false
         val src = source.ifBlank { "other" }
         val sig = signature.trim()
-        if (eventMs in 1L..recvMs) LaunchHour8628.trade(mint, eventMs, sig, isBuy, sol, tokenQty)
+        if (eventMs in 1L..recvMs) LaunchHour8628.trade(mint, eventMs, sig, isBuy, sol, tokenQty, priceSol)
         if (sig.isNotBlank()) {
             val prior = seenSig8285.put("$mint|$sig|$isBuy", src)
             if (prior != null) {

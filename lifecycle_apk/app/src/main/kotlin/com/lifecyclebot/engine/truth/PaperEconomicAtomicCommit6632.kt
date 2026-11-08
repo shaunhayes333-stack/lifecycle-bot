@@ -103,6 +103,29 @@ object PaperEconomicAtomicCommit6632 {
     const val DEFAULT_UNPAIRED_TTL_MS: Long = 60_000L
 
     /**
+     * V5.0.8644 — typed paper ADD/OPEN can debit the ledger before their durable journal BUY is written. Unlike a
+     * canonical 6635 event, an ADD has no five-store receipt, so a 120s execution-spine close used to treat its
+     * fresh ledger-only stamp as a permanent CASH/BASIS failure. The smoke seed has 8192 history events and the
+     * async journal writer may still be catching up when acceptance samples. This query is read-only evidence:
+     * wait only when EVERY unpaired stamp is younger than the existing 30s allowance; an old/missing counterpart
+     * is always a real failure. A completed pair does not qualify for a grace period.
+     */
+    fun onlyYoungUnpaired6632(nowMs: Long, graceMs: Long): Boolean {
+        if (graceMs <= 0L) return false
+        var young = 0
+        for (e in entries.values) {
+            if (e.committedAtMs > 0L) continue
+            val ledgerOnly = e.ledgerAtMs > 0L && e.journalAtMs == 0L
+            val journalOnly = e.journalAtMs > 0L && e.ledgerAtMs == 0L
+            if (!ledgerOnly && !journalOnly) continue
+            val stampAt = if (ledgerOnly) e.ledgerAtMs else e.journalAtMs
+            if (nowMs - stampAt !in 0L until graceMs) return false
+            young++
+        }
+        return young > 0
+    }
+
+    /**
      * Build a stable atomic-commit key.  If `attemptId` is present,
      * key = `attemptId|side|terminalFillIndex`.  Otherwise the caller
      * falls back to a payload signature so a repeated identical

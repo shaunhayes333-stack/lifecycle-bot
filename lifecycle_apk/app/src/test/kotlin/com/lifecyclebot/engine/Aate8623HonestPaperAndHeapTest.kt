@@ -42,16 +42,36 @@ class Aate8623HonestPaperAndHeapTest {
         assertTrue(paper.contains("ForwardReturnLabeler7731.noteShadowWanted8442(mint, until)"))
     }
 
-    @Test fun theVoterGraphIsRetiredOnTheDeviceAndKeptUnderTest() {
-        assertTrue(Cortex7885.voterGraphRetired8623(null))
+    @Test fun theVoterGraphReturnsOnlyAsBoundedLearningAndDoesNotReloadTheOomCheckpoint() {
+        // V5.0.8644 — no wholesale retirement: the normal APK samples predictive reads,
+        // while an explicit off switch retires them and the unit-test JVM exercises full reads.
+        assertFalse(Cortex7885.voterGraphRetired8623(null))
         assertTrue(Cortex7885.voterGraphRetired8623("off"))
         assertFalse(Cortex7885.voterGraphRetired8623("on"))
+        assertTrue(Cortex7885.voterGraphBounded8644(null))
+        assertFalse(Cortex7885.voterGraphBounded8644("off"))
+        assertFalse(Cortex7885.voterGraphBounded8644("on"))
+        assertTrue(Cortex7885.sampleDue8644(0L, 1_000L))
+        assertFalse(Cortex7885.sampleDue8644(1_000L, 2_000L))
+        assertFalse(Cortex7885.sampleDue8644(1_000L, 30_999L))
+        assertTrue(Cortex7885.sampleDue8644(1_000L, 31_000L))
         val c = src("engine/cortex/Cortex7885.kt")
         val assess = c.substringAfter("fun assess(ts: TokenState, laneRaw: String").substringBefore("assessCache[key]?.let")
         assertTrue("scan release still runs first", assess.indexOf("noteScored8418") < assess.indexOf("if (VOTER_GRAPH_RETIRED_8623) return null"))
         val capture = c.substringAfter("fun capture(ts: TokenState, labelLane: String").substringBefore("val captureKey8397")
         assertTrue("the playbook tag still belongs to every decision", capture.contains("LanePlaybook7907.capture(ts, labelLane, labelLane, nowMs, snap, sel, timing)"))
         assertTrue(capture.contains("ForwardReturnLabeler7731.freezeTiming8528(ts.mint, labelLane, nowMs, sel, timing)"))
+        assertTrue(capture.contains("VOTER_GRAPH_RETIRED_8623 || unsampled8644"))
+        assertTrue("repeated decisions cannot multiply pending voter captures", capture.contains("claimCapture8644(key8644, hot8644.atMs, nowMs)"))
+        // V5.0.8647: sampled production assessments must be attached to an actual label,
+        // or the 30-second quota produces reads with no executable learning outcomes.
+        val schedule = c.substringAfter("private fun cachedOrSchedule(").substringBefore("private fun operatorSource8522(")
+        assertTrue(schedule.contains("!provenOverStack8539(laneRaw)"))
+        assertTrue(schedule.indexOf("!provenOverStack8539(laneRaw)") < schedule.indexOf("reserveSample8644(nowMs)"))
+        assertTrue(capture.contains("assess(frozen8647, labelLane, nowMs"))
+        assertTrue(capture.indexOf("assess(frozen8647, labelLane, nowMs") < capture.indexOf("val unsampled8644"))
+        assertTrue(capture.contains("decisionSnapshots8522.capture(ts, nowMs)"))
+        assertEquals("CORTEX_PENDING_8644", com.lifecyclebot.engine.cortex.CortexForwardEpoch8521.PENDING)
         assertTrue("the pending row is not read", c.contains("if (VOTER_GRAPH_RETIRED_8623) CortexForwardEpoch8521.readStoredBooks8623("))
         val books = com.lifecyclebot.engine.cortex.CortexForwardEpoch8521.readStoredBooks8623({ k -> "row:" + k }, { false })!!
         assertEquals(null, books.pending)

@@ -144,15 +144,27 @@ object MemeStrategies8546 {
     private val lastEvalAt = ConcurrentHashMap<String, Long>()
     private val lastSignal = ConcurrentHashMap<String, Map<Family8546, Long>>()
     private val fired = ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
+    /** Bounded funnel counts: distinguish no chart setup, no executed buy/sell flow, and a genuine flow-confirmed entry. */
+    private val probe8644 = ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
+    private fun note8644(key: String) { probe8644.computeIfAbsent(key) { java.util.concurrent.atomic.AtomicLong(0) }.incrementAndGet() }
+    private fun count8644(key: String) = probe8644[key]?.get() ?: 0L
     @Volatile private var cursor = 0
 
     /** Every signal [ts] shows now (no side effects). */
     private fun signals8546(ts: TokenState, nowMs: Long): List<Signal8546> {
         val out = ArrayList<Signal8546>(2)
-        val m1 = try { MultiTimeframeCharts8521.snapshot8521(ts, MultiTimeframeCharts8521.Frame8521.M1, nowMs) } catch (_: Throwable) { emptyList() }
+        val m1 = try { MultiTimeframeCharts8521.snapshot8521(ts, MultiTimeframeCharts8521.Frame8521.M1, nowMs) }
+            catch (_: Throwable) { note8644("M1_ERROR"); emptyList() }
         val flow = FlowRead8546.read8546(ts.mint, nowMs)
+        note8644(if (m1.size >= 9) "M1_READY" else if (m1.isEmpty()) "M1_EMPTY" else "M1_SHORT")
+        note8644(if (flow.known) "FLOW_KNOWN" else "FLOW_UNKNOWN")
         val mcap = ts.lastMcap
-        fun add(f: Family8546, why: String?) { if (why != null && flowConfirms8546(f, flow)) out += Signal8546(f, exitLane8546(f, mcap), why) }
+        fun add(f: Family8546, why: String?) {
+            if (why == null) return
+            note8644("RAW_${f.name}")
+            if (flowConfirms8546(f, flow)) out += Signal8546(f, exitLane8546(f, mcap), why)
+            else note8644("FLOW_REFUSED_${f.name}")
+        }
         add(Family8546.PULLBACK_RECLAIM, pullbackReclaim8546(m1))
         add(Family8546.BASE_BREAKOUT_FLOW, baseBreakout8546(m1))
         val gradAt = try { com.lifecyclebot.network.PumpCurveKeys7269.graduatedAtMs8546(ts.mint) } catch (_: Throwable) { null }
@@ -182,9 +194,10 @@ object MemeStrategies8546 {
             val ts = all[i]; i = (i + 1) % all.size; visited++
             if (nowMs - (lastEvalAt[ts.mint] ?: 0L) < EVAL_GAP_MS_8546) continue
             if (!eligible8546(ts, nowMs)) continue
+            note8644("EVALUATED")
             lastEvalAt[ts.mint] = nowMs
             done++
-            val sigs = try { signals8546(ts, nowMs) } catch (_: Throwable) { emptyList() }
+            val sigs = try { signals8546(ts, nowMs) } catch (_: Throwable) { note8644("SIGNALS_ERROR"); emptyList() }
             if (sigs.isNotEmpty()) lastSignal.compute(ts.mint) { _, old ->
                 old.orEmpty().filterValues { nowMs - it in 0L..SIGNAL_TTL_MS_8546 } + sigs.associate { it.family to nowMs }
             }
@@ -200,10 +213,17 @@ object MemeStrategies8546 {
     }
 
     private fun eligible8546(ts: TokenState, nowMs: Long): Boolean {
-        if (ts.mint.isBlank() || !(ts.lastPrice > 0.0) || nowMs - ts.lastPriceUpdate > 60_000L) return false
-        if (ts.safety.tier == com.lifecyclebot.engine.SafetyTier.HARD_BLOCK) return false
-        if (!(ts.lastLiquidityUsd >= 3_000.0)) return false
-        return try { com.lifecyclebot.network.HeliusSolanaScope7819.isSolanaMint7819(ts.mint) } catch (_: Throwable) { false }
+        if (ts.mint.isBlank() || !(ts.lastPrice > 0.0) || nowMs - ts.lastPriceUpdate > 60_000L) {
+            note8644("SKIP_PRICE"); return false
+        }
+        if (ts.safety.tier == com.lifecyclebot.engine.SafetyTier.HARD_BLOCK) {
+            note8644("SKIP_HARD_BLOCK"); return false
+        }
+        if (!(ts.lastLiquidityUsd >= 3_000.0)) { note8644("SKIP_LIQUIDITY"); return false }
+        val solana = try { com.lifecyclebot.network.HeliusSolanaScope7819.isSolanaMint7819(ts.mint) }
+            catch (_: Throwable) { false }
+        if (!solana) note8644("SKIP_NON_SOLANA")
+        return solana
     }
 
     /** Pure: may a family's paper record carry LIVE money? */
@@ -221,6 +241,11 @@ object MemeStrategies8546 {
 
     fun statusLine8546(): String =
         "memeFamilies8546[signals{" + Family8546.values().joinToString(",") { "${it.name}=${fired[it.name]?.get() ?: 0}" } +
-            "} liveProven{" + Family8546.values().filter { MemePaperTrader8544.familyProven8546(it.name) }.joinToString(",").ifBlank { "none yet" } + "}] " +
+            "} liveProven{" + Family8546.values().filter { MemePaperTrader8544.familyProven8546(it.name) }.joinToString(",").ifBlank { "none yet" } +
+            "} funnel8644{evaluated=${count8644("EVALUATED")} skipped=price:${count8644("SKIP_PRICE")}/safety:${count8644("SKIP_HARD_BLOCK")}/liq:${count8644("SKIP_LIQUIDITY")}/chain:${count8644("SKIP_NON_SOLANA")} " +
+            "m1=empty:${count8644("M1_EMPTY")}/short:${count8644("M1_SHORT")}/ready:${count8644("M1_READY")}/error:${count8644("M1_ERROR")} " +
+            "flow=known:${count8644("FLOW_KNOWN")}/unknown:${count8644("FLOW_UNKNOWN")} raw{" +
+            Family8546.values().joinToString(",") { "${it.name}=${count8644("RAW_${it.name}")}/${count8644("FLOW_REFUSED_${it.name}")}noFlow" } +
+            "} errors=${count8644("SIGNALS_ERROR")}}] " +
             MemeRegime8546.statusLine8546()
 }

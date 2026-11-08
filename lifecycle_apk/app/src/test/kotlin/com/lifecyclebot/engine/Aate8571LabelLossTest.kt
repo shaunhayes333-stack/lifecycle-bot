@@ -51,6 +51,10 @@ class Aate8571LabelLossTest {
         assertArrayEquals(snap.x, back.x, 0.0)
         assertTrue(back.pred.isNaN())
         assertEquals("COLD", back.modelKey); assertEquals(now, back.atMs); assertEquals("MintA", back.mint); assertTrue(back.admitted)
+        assertEquals(EdgeModel8537.MODEL_EPOCH_8642, back.modelEpoch)
+        val old = org.json.JSONObject(json).apply { remove("modelEpoch") }
+        assertEquals("legacy frozen predictions cannot earn new out-of-sample authority", 0,
+            EdgeModel8537.decodeSnap8571(old)!!.modelEpoch)
         assertNull(EdgeModel8537.decodeSnap8571(null))
         assertNull(EdgeModel8537.decodeSnap8571(org.json.JSONObject("{}")))
         val lab = labeler()

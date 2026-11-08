@@ -6,7 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
-/** V5.0.8181 — the PumpPortal data key reaches the socket and a funded wallet is re-checked on a fresh connection. */
+/** V5.0.8181 — the PumpPortal data key reaches the socket; provider denial is not a measured wallet balance. */
 class Aate8181PumpPortalKeyTest {
     private fun src(path: String) = File("src/main/kotlin/com/lifecyclebot/$path").readText()
 
@@ -26,12 +26,29 @@ class Aate8181PumpPortalKeyTest {
         assertFalse(PumpFunWS.keyChanged8181("working5555", ""))
     }
 
-    @Test fun keyStateNamesTheLinkedWalletWithoutPrintingTheKey() {
+    @Test fun keyStateReportsProviderDenialWithoutClaimingToMeasureWalletBalanceOrPrintingKey() {
         val denied = PumpFunWS.keyState8181("secretkeyWXYZ", denied = true, connectedKeyed = true)
         assertTrue(denied.contains("..WXYZ"))
         assertFalse(denied.contains("secretkey"))
-        assertTrue(denied.contains("LINKED"))
+        assertTrue(denied.contains("NOT VERIFIED"))
+        assertTrue(denied.contains("REFUSED"))
+        assertFalse(denied.contains("is under 0.02 SOL"))
         assertTrue(PumpFunWS.keyState8181("", denied = false, connectedKeyed = false).startsWith("NONE"))
+    }
+
+    @Test fun correlatedPumpSwapAndGenericRefusalsGetOneCurveOnlyProbeNotAuthority() {
+        val origin = 1_000_000L
+        assertTrue(PumpFunWS.pairedDenialsNeedCurveProbe8645(origin, origin + 900L, origin + 1_000L, false))
+        assertTrue(PumpFunWS.pairedDenialsNeedCurveProbe8645(origin + 900L, origin, origin + 1_000L, false))
+        assertFalse(PumpFunWS.pairedDenialsNeedCurveProbe8645(origin, origin + 900L, origin + 1_000L, true))
+        assertFalse(PumpFunWS.pairedDenialsNeedCurveProbe8645(origin, origin + 5_001L, origin + 5_001L, false))
+        assertFalse(PumpFunWS.pairedDenialsNeedCurveProbe8645(origin, 0L, origin + 1_000L, false))
+        assertFalse(PumpFunWS.pairedDenialsNeedCurveProbe8645(origin, origin + 900L, origin + 6_000L, false))
+        val source = src("network/PumpFunWS.kt")
+        assertTrue(source.contains("!pumpSwapMint8307(it) && meteredSubAllowed8193(it, setup8317 = true)"))
+        assertTrue(source.contains("curveProbeUsed8645.compareAndSet(false, true)"))
+        assertTrue(source.contains("PUMP_CURVE_PROBE_FRAME_CONFIRMED_8645"))
+        assertTrue(source.contains("if (!ambiguous8645 && !tradeAuthDenied7432.get())"))
     }
 
     @Test fun everyReprobeReconnectsAndTheKeyIsReReadFromSettings() {

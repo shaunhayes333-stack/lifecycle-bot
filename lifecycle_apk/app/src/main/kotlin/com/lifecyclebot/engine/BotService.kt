@@ -12364,7 +12364,14 @@ class BotService : Service() {
                         // past +100% banks its moonbag instead of closing. Partial
                         // verdicts stay advisory: LADDER_PARTIAL overlaps the rapid
                         // capture tiers, and a half cut has no per-position latch.
+                        // V5.0.8642 — one profit owner for launch runners. The 6394 FULL_CUT/TRAIL path
+                        // still fired on stored phantom peaks (peak +12,105%, realised -3%) even though
+                        // RunnerDoctrine8584 now owns the ladder and trail. Real whale/distribution safety
+                        // continues to bypass the doctrine; ordinary profit exits cannot race it.
+                        val doctrineOwnsProfit8642 = RunnerDoctrine8584.profitTakingOwned8630(
+                            RunnerDoctrine8584.entryLane8630(ts))
                         val peakExit7358 = peakDecision?.takeIf {
+                            (!doctrineOwnsProfit8642 || it.verdict == com.lifecyclebot.engine.truth.PeakCaptureAuthority6390.Verdict.DISTRIBUTION_EXIT) &&
                             it.sellFraction >= 0.999 && it.verdict in setOf(
                                 com.lifecyclebot.engine.truth.PeakCaptureAuthority6390.Verdict.TRAIL_EXIT,
                                 com.lifecyclebot.engine.truth.PeakCaptureAuthority6390.Verdict.DISTRIBUTION_EXIT,
@@ -12386,6 +12393,7 @@ class BotService : Service() {
                             continue
                         }
                         val explicitPeakLockFloor4301 = when {
+                            doctrineOwnsProfit8642 -> Double.NEGATIVE_INFINITY // the 500ms doctrine trail owns this winner
                             runnerDefer7322 -> Double.NEGATIVE_INFINITY
                             peakPnlPct >= 20.0 -> try {
                                 // V5.0.7267 — the lane's learned give-back band shapes this lock.
@@ -19569,7 +19577,8 @@ class BotService : Service() {
         val runnerDefer7366 = try {
             RunnerExitProfile7277.deferGiveBackLock(ts.position.tradingMode, peakGainPct)
         } catch (_: Throwable) { false }
-        val giveBackTrigger = peakGainPct >= 20.0 && pnlPct > 0.0 && !runnerDefer7366 &&
+        val giveBackTrigger = !RunnerDoctrine8584.profitTakingOwned8630(RunnerDoctrine8584.entryLane8630(ts)) &&
+            peakGainPct >= 20.0 && pnlPct > 0.0 && !runnerDefer7366 &&
             drawdownFromPeak >= requiredGiveBackPts6836
 
         // V5.9.1521 — UNCONDITIONAL SAFETY MUST PRECEDE SETTLE-IN.

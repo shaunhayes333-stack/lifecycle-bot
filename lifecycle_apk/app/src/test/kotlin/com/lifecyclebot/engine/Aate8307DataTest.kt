@@ -73,8 +73,14 @@ class Aate8307DataTest {
         assertFalse(body.contains("tradeAuthDenied7432.set(true)"))
         assertFalse(body.contains("tradeSubscriptions7278.clear()"))
         assertTrue(body.contains("pumpSwapMint8307(it)"))
-        // The PumpSwap check comes first, so the whole-stream refusal branch never sees it.
-        assertTrue(ws.contains("if (isPumpSwapRefusal8307(error7432)) notePumpSwapRefusal8307(System.currentTimeMillis())  // V5.0.8307 — scoped\n                else if (!tradeAuthDenied7432.get() && isTradeAuthRefusal7432(error7432)) {"))
+        // V5.0.8645: PumpSwap still takes the distinct first branch, while a separate
+        // generic auth refusal may require one bounded curve-only probe before it locks
+        // the whole keyed stream. The PumpSwap-only message must never enter that branch.
+        assertTrue(ws.contains("if (isPumpSwapRefusal8307(error7432)) {"))
+        assertTrue(ws.contains("notePumpSwapRefusal8307(now8645)"))
+        assertTrue(ws.contains("} else if (isTradeAuthRefusal7432(error7432)) {"))
+        assertTrue(ws.contains("pairedDenialsNeedCurveProbe8645"))
+        assertTrue(ws.contains("if (!ambiguous8645 && !tradeAuthDenied7432.get()) {"))
         // Every subscribe path filters migrated mints while refused; coverage is never claimed for them.
         assertTrue(ws.contains("val add = admitForSubscribe8307(wanted - tradeSubscriptions7278).toSet()"))
         assertTrue(ws.contains("if (admitForSubscribe8307(listOf(mint), nowMs).isEmpty()) return false"))

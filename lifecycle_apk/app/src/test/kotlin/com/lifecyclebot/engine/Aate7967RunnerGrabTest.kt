@@ -38,8 +38,9 @@ class Aate7967RunnerGrabTest {
         assertFalse(RunnerGrab7967.deferrable7967("DEV_SOLD", 20.0))
         assertFalse(RunnerGrab7967.deferrable7967("RUG_LIQUIDITY_PULLED", 5.0))
         assertFalse(RunnerGrab7967.deferrable7967("RUNNER_STRUCTURE_BREAK_7967_1M_300PCT", 300.0))
-        // superseded by V5.0.8584 — RunnerDoctrine8584: the runner ladder is 2x sells 30 %, 5x 35 %, 10x 35 % (was 100/50, 400/35, 1000/35).
-        assertEquals(listOf(100.0 to 0.30, 400.0 to 0.35, 900.0 to 0.35), RunnerGrab7967.TIERS_7967)
+        // V5.0.8644 — preserve more inventory for 5x-10x runners; a separate 8584 test models the
+        // actual remaining-position ladder and the minimum 20% original-budget moonbag.
+        assertEquals(listOf(100.0 to 0.25, 400.0 to 0.18, 900.0 to 0.67), RunnerGrab7967.TIERS_7967)
     }
 
     @Test fun recordStandsDownWhenGrabsLose() {

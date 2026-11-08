@@ -1,0 +1,71 @@
+# V5.0.8644 — Cortex recovery and conflicting-entry-authority repair
+
+## 8647 follow-up from the 03:14 Nov 9 log
+
+The actual 5.0.8644 runtime (`61bcfc277`) observed authenticated PumpPortal
+executed-trade traffic: `tradeConfirmed8182=YES`, `denials8182=0`, >2,300 real
+trade frames on the current connection. The earlier external-auth denial did
+not persist in this newer capture, and the key's live funding/entitlement must
+not be inferred from a stale log. The bot still recorded 28 canonical closed
+trades at 32% wins and PF 0.70; no live buys in this six-minute session.
+
+The Cortex's bounded recovery produced `assessed=13`, `captures=0`, `graded=0`
+and `CORTEX_PLAYBOOK_ONLY_UNSAMPLED_8644=1051` in the same log. Source tracing
+confirmed the mismatch: `SpecialistBrainBridge7542.prewarmNative8196` and
+`entryRefusal` scheduled sampled assessments on arbitrary pre-FDG candidates,
+while `ForwardReturnLabeler7731.observe` later opened labelled decisions on
+different mints. The scarce global 30-second full-read slots therefore had
+no prediction/label pairing. V5.0.8647 reserves unproven bounded reads for
+`Cortex7885.capture` on actual forward-labelled decisions, freezing its input
+snapshot and retaining `lateVoterRead8169` protection at the executable-fill
+clock. This does not add new live vetoes or silently turn paper wins into
+live economic proof. Once OOS-proven, a lane can again prewarm scored reads.
+
+GitHub 8645/8646 each compiled and ran 2,205 release unit tests with **one
+failing stale source-text assertion**: `Aate8094ClosedPositionAndPretradeTest`
+expected the old direct auth-denial timestamp assignment, whereas 8645 now
+freezes a single `now8645` for the paired PumpSwap/generic error and sets the
+same timestamp on the denial. 8647 updates that assertion to match the new
+semantics. No failed unverified APK is eligible for release; 8647 must pass
+both full test and emulator smoke workflows before main merge.
+
+V5.0.8648 follows the signed 8647 build's full 8,790-test run. The targeted regressions passed,
+but two remaining full-suite source-contract tests asserted the *old* PumpPortal logic:
+`Aate8193PumpStreamBudgetSharedTest` expected daily-budget exhaustion to return false rather than
+request the independent, budget-governed Helius fallback, and `Aate8307DataTest` expected the old
+one-line PumpSwap refusal branch instead of the 8645 bounded paired-error probe. Both assertions
+now test the actual fallback and scoped refusal invariants; the executable code is unchanged in
+8648. No red build, including 8647, is promoted to `main`.
+
+**Status:** follow-on source changes; they are not evidence that live profits improved until a new APK runs, the gate outcomes mature, and canonical fills/exits are reconciled.
+
+## Why this is necessary
+
+- 5.0.8632 (9 November 2026): `Cortex7885.assessed=0`, `graded=0`. The 8623 permanent retirement eliminates the entire voter/forecast learning graph in production. This followed a genuine 512 MB OOM: the graph ran ~9,086 assessments in 143 minutes and persisted a 26.7-million-character pending book.
+- The pipeline calls different decisions at `CandidateAdmission8136`, `LaneAuthority8577`, `LiveEdgeGate7877`, `TradePlan7739`, and FinalDecisionGate/Executor. An **independently supported, after-cost setup** was still refused solely because the broad *lane paper book* had previously lost. That is the wrong precedence: a lane average is context, not a substitute for this coin's current setup, cost, and executable evidence.
+- `MemeStrategies8546.BASE_BREAKOUT_FLOW` requires a genuine broken base and >=60% executed buy share. Its *proven, freshly fired* strategy can still be labelled `MEME_BUYS_THE_HIGH_8582` by an unrelated at-peak heuristic, refusing precisely the event this entry style is built to trade.
+
+## Source-level changes
+
+1. `Cortex7885.kt`: normal APK runtime runs the original prediction/voter graph in sampled shadow mode. A shared 30-second budget allows at most two new expensive reads per minute; only one Cortex-grade capture can bind to each sampled assessment, even when a mint repeats its decision dozens of times. Cached reads are reused. Most candidate decisions still capture their setup and timing for ordinary learning, without scheduling an after-the-fact cold voter read. Full graph (`-Daate.cortexVoterGraph8623=on`) remains available for the test JVM; explicit `off` retains full retirement. **Cortex authority still must beat the main stack on genuine out-of-sample labels** (`CortexVsStack8539`); this change adds zero new vetoes or live-sizing authority.
+2. `CortexForwardEpoch8521.kt`: the former large `CORTEX_PENDING_8521` file is preserved but no longer loaded by the sampled runtime. New predictions use `CORTEX_PENDING_8644`, with a lower default hot pending persistence cap. Oversized legacy paired checkpoints are skipped instead of unpacked. Existing realised-trade books remain intact.
+3. `LaneAuthority8577.kt`: the paper-lane losing prior remains protective for generic/native unproven admits. It now yields **only** if CandidateAdmission has already admitted this exact candidate on a specific setup/cell or epoch-clean EdgeModel proof, with a finite positive net return at a known nonnegative cost. All actual hard safety, sellability, structure, quote, route, wallet, and at-high rules remain in place.
+4. `LaneAuthority8577.kt`: an immediately signalled and independently paper-proven `BASE_BREAKOUT_FLOW` family owns its breakout clock. Its entry is not vetoed a second time as a generic high/dumping stage. Unproven signals and other families retain those existing guards.
+5. Regression tests cover bounded/default/off Cortex states, the sampling interval, checkpoint key migration, the distinction between coin-specific proof and generic prior, and a proven versus unproven breakout family.
+6. `lifecycle_apk/AATE_VERSION` (the production authority) is advanced to `5.0.8644`, with the repository mirror aligned, so the new signed release can upgrade 5.0.8632 without reusing its version code.
+7. `RunnerGrab7967.TIERS_7967` and `RunnerDoctrine8584`: replaced the fixed meme runner ladder that front-loaded the 2x/5x sells and left too much of the original position unbanked at 10x. The shared **live/paper** ladder sells 25% of the current holding at +100%, 18% of the remainder at +400%, then **67%** of the remainder at +900%. A staged +900% peak followed by the existing +450% doctrine trail models **+514.695% whole-position gross** after the repo's 5% assumed slippage on rung fills (formerly +387.325%), with 1.11625x of initial capital back by the 5x rung and 20.295% remaining after the 10x tier. The 67% rung is explicitly below `RunnerExitContract8136`'s live share-budget cap at this point: the 70% proposal was silently clipped to preserve 20% of the original holding, so its unbounded +522.075% calculation was NOT the real live path. A further 5% closing-trail fill penalty still models ~+509.11%. This is exit potential under a modeled price path: confirmed partial fills, trailing fill quality, fees and actual runnable opportunities remain necessary for a live result. Safety/stop authority and the doctrine give-back line are unchanged.
+8. `PaperEconomicAtomicCommit6632` / `ExecutionSpineAcceptance6647`: CI's max-history emulator had 8,251 ledger stamps and 8,250 journal stamps at report time, with the 120-second acceptance snapshot intermittently catching a 0.107333 SOL paper BUY awaiting its journal counterpart. An ADD has no canonical five-store receipt, so the old `onlyYoungOpen8322` filter did not grant the already-existing bounded in-flight accounting retry. A new read-only typed half-write query allows that same 30-second wait **only while all incomplete journal/ledger stamps are fresh**. It cannot certify any unreconciled cash, basis or quantity, and a genuinely unpaired stamp still fails at the original deadline. This closes an acceptance-observation gap, not an economic write repair; a red emulator still blocks release.
+9. `MemePaperTrader8544`: all 40 ordinary shadow-paper positions were open in the 8632 log (`BOOK_FULL=2812`). The event-family strategy paper book competed with that same global count, so an independently detected `BASE_BREAKOUT_FLOW` could never grow its evidence ledger when the ordinary book was full. Keep **40 ordinary positions plus at most 8 family-specific positions**, with the same observed-price, cost and corroboration checks, 8-per-family bound, same-mint dedup and balance guard. This changes **no LIVE allocation or admission**.
+10. `MemeStrategies8546`: add an explicit low-cost funnel separating eligible token evaluations, missing/short/usable observed 1m bars, verified executed-flow availability, raw chart pattern detection and genuine flow-confirmed signals. Exceptions are counted rather than silently converted into a meaningless zero. This helps distinguish a dead detector from a missing provider feed without turning curve price observations into fictitious buyers.
+
+## Explicit remaining work / acceptance
+
+- Build, instrumented emulator smoke, and Android 512 MB heap/runtime measurement must pass. Use a continuous run to verify assessments > 0, graded > 0 after target horizons, no runaway checkpoint growth, no UI stalls, and zero new Cortex live vetoes before `PROVEN_OVER_STACK` is genuinely achieved.
+- Live and refused opportunity cohorts need correct net-of-cost, fillable, horizon-matched labels. The 5.0.8642 epoch rebuild must be observed to complete; OOS status initially resets and earns evidence again. A positive *forward* edge is not equivalent to banked SOL.
+- Restore per-coin executed tape coverage for the five meme event families. No price-only print may be turned into fictitious buy pressure. PumpPortal's keyed per-coin trade stream is denied by the external service; alternative Helius/pool evidence must remain independently verified.
+- User-owned external dependency: the 8632 report received a **provider denial** for generic `subscribeTokenTrade` with a 0.02 SOL API-key funding requirement, as well as a separately worded PumpSwap-only balance refusal. This **does not establish the actual linked-wallet balance**; AATE has not queried it. V5.0.8645 corrects the false claim and, where both errors cluster on one socket, sends **at most one metered-budget-controlled, non-migrated curve-only verification subscription** per socket. A further generic refusal preserves the global keyed-auth latch, and only a real executed-trade frame proves availability. Check the configured key suffix against the provider's paid-account key, metered entitlement and billing record; no static patch can fabricate missing buyer prints. Verify the `funnel8644` counts and family priced closes before granting new live strategy authority.
+- V5.0.8646 closes a separate **confirmed fallback wiring defect**: when PumpPortal's paid switch was ON but the keyed subscription refused, `PumpFunWS.watchForSetup8191` logged no-key and returned without calling `HeliusCurveTape8354.ask8354`. The 8632 report had 640 such setup skips and zero Helius curve asks. Now missing/denied keyed capability **or a spent PumpPortal metered frame budget** routes eligible setup watches into the existing Helius program/per-mint fallback (bounded 64 asks, source/credit governor unchanged). A queued request is still `UNKNOWN`, never a synthetic buyer print or a false positive.
+- Evaluate candidate → owner → admission → FDG → sealed size → executor → confirmed trade as one coherent decision. In particular, stop plans and quotes must not re-interpret the accepted setup without a material, measured change. No new gate may compensate for a proven bad threshold; tune the owner strategy from correctly priced realised returns.
+- Resolve emergency sell trigger-to-broadcast latency (>7 seconds in 8632) and the held-route quote starvation before judging profit capture. Grade actual profit capture on immutable entry basis and verified MFE/MAE, not raw uncorroborated `peakGainPct`.
+
+**Profitability is an empirical acceptance criterion, not a code assertion.** These repairs restore machinery and precedence; they do not justify claiming the bot is profitable until the live trade and counterfactual records demonstrate it.
