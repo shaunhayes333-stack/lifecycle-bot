@@ -11,7 +11,7 @@ import java.util.concurrent.atomic.AtomicLong
  * One exit doctrine for the meme launch lanes, enforced at both sell doors (Executor.moonbagGate7322 for a full exit,
  * Executor.requestPartialSellWithDelivery8527 for a slice), so no tuner, take-profit, partial ladder, tail bag or
  * peak-drawdown lock can shrink a winner again:
- *  - the ladder is RunnerGrab7967.TIERS_7967 (+100 % sells 25 %, +400 % sells 18 %, +900 % sells 70 % of what remains) for every meme
+ *  - the ladder is RunnerGrab7967.TIERS_7967 (+100 % sells 25 %, +400 % sells 18 %, +900 % sells 67 % of what remains) for every meme
  *    position from entry;
  *  - any other profit exit is held while the price stays above the doctrine line: below a 2x peak the line keeps half the
  *    peak gain (never under +5 %), from a 2x peak it is a 45 % give-back trail of the multiple (never under 1.5x);
@@ -129,7 +129,7 @@ object RunnerDoctrine8584 {
     fun statusLine8584(): String {
         val top = held8584.entries.sortedByDescending { it.value.get() }.take(8)
             .joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }
-        return "runnerDoctrine8584[on=$enabled8584 held=${heldCount8584()} {$top} ladder=+100%:25/+400%:18/+900%:70-of-remainder " +
+        return "runnerDoctrine8584[on=$enabled8584 held=${heldCount8584()} {$top} ladder=+100%:25/+400%:18/+900%:67-of-remainder " +
             "line<2x=half the peak gain (>=+5%) >=2x=45% give-back (>=1.5x); stops/safety pass; tuner never shrinks meme exits]"
     }
 }

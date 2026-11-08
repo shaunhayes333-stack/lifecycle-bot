@@ -12,7 +12,7 @@ import java.io.File
  */
 class Aate8584RunnerDoctrineTest {
     @Test fun the_ladder_banks_at_2x_5x_and_10x() {
-        assertEquals(listOf(100.0 to 0.25, 400.0 to 0.18, 900.0 to 0.70), RunnerGrab7967.TIERS_7967)
+        assertEquals(listOf(100.0 to 0.25, 400.0 to 0.18, 900.0 to 0.67), RunnerGrab7967.TIERS_7967)
         for (lane in RunnerDoctrine8584.MEME_LANES_8584) assertTrue(lane, RunnerDoctrine8584.rides8584(lane.lowercase()))
         for (lane in listOf("BLUECHIP", "QUALITY", "TREASURY", "CASHGEN", "", null)) assertFalse("$lane", RunnerDoctrine8584.rides8584(lane))
         assertTrue(RunnerDoctrine8584.memeLane8584("MOONSHOT"))
@@ -24,7 +24,7 @@ class Aate8584RunnerDoctrineTest {
         val tiers = RunnerGrab7967.TIERS_7967
         val trailingGrossPct = (RunnerDoctrine8584.line8584(10.0) - 1.0) * 100.0
         assertEquals(450.0, trailingGrossPct, 1e-9)
-        assertEquals(522.075, SpikeCapture7943.realisableGrossPct(900.0, trailingGrossPct, tiers), 1e-6)
+        assertEquals(514.695, SpikeCapture7943.realisableGrossPct(900.0, trailingGrossPct, tiers), 1e-6)
         assertTrue("a real 10x winner can now bank +500% across the entire position in the modeled path",
             SpikeCapture7943.realisableGrossPct(900.0, trailingGrossPct, tiers) >= 500.0)
 
@@ -34,7 +34,16 @@ class Aate8584RunnerDoctrineTest {
         val capitalReturnedAt5x = (first * 2.0 + second * 5.0) * 0.95
         assertTrue("the first two tier fills return the original stake despite 5% slippage", capitalReturnedAt5x >= 1.0)
         assertEquals(0.615, 1.0 - first - second, 1e-9)
-        assertEquals(0.1845, (1.0 - first - second) * (1.0 - tiers[2].second), 1e-9)
+        val originalRemainderAt10x = (1.0 - first - second) * (1.0 - tiers[2].second)
+        assertEquals(0.20295, originalRemainderAt10x, 1e-9)
+        assertTrue("live share-budget's 20% reserve must not silently clamp the +900% rung", originalRemainderAt10x >= RunnerExitContract8136.RUNNER_RESIDUAL_SHARE_8136)
+        assertEquals(tiers[2].second, RunnerExitContract8136.budgetedFraction8136(
+            tiers[2].second, 1.0 - first - second, RunnerExitContract8136.RUNNER_RESIDUAL_SHARE_8136,
+            "SPIKE_CAPTURE_7943_T3_900PCT"), 1e-9)
+        // A 5% additional penalty on the closing trail still models a whole-position 500%+ capture.
+        val afterTrailingSlip = SpikeCapture7943.realisableGrossPct(900.0, trailingGrossPct, tiers) -
+            originalRemainderAt10x * (1.0 + trailingGrossPct / 100.0) * 0.05 * 100.0
+        assertTrue(afterTrailingSlip >= 500.0)
 
         // Merely reaching 2x is not a promise of a 500% trade; stop/fill/safety exits still apply.
         assertTrue(SpikeCapture7943.realisableGrossPct(100.0, -35.0, tiers) < 0.0)
