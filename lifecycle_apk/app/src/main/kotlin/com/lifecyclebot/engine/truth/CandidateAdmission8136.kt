@@ -284,19 +284,6 @@ object CandidateAdmission8136 {
     fun criticalMissing8170(missing: String): Boolean =
         missing.substringBefore(':').trim().uppercase() in CRITICAL_MISSING_8170
 
-    /**
-     * V5.0.8640 §LIVE_NEEDS_THE_CURVE — inputs a LIVE buy may not proceed blind to: the coin's own position on its curve
-     * (shape = pxPeak / run-up from the local low). The 8531 minimum gate made shape OPTIONAL (chart/tape/context), but the
-     * forward record is decisive — LIVE-admitted coins whose entry shape was unobserved returned a median -11.9% (edge 8537
-     * export, n1124) against -4.1% when it was observed, and they are the bot's own LOSS_BOUGHT_TOP: the 8545 / 8582 high
-     * guards cannot refuse a peak they cannot see. A shape the coin is too young to have is UNAVAILABLE_FOR_AGE
-     * (LifecycleData8283.split -> Candidate8136.historyUnavailable8283), never in [missingInputs], so a fresh launch still
-     * trades on its launch evidence; only a shape that COULD be read but was not reaches here and defers the live buy until
-     * it is. LIVE only — paper / shadow keep entering blind and grading, so the book that teaches the stack is untouched.
-     */
-    private val LIVE_CURVE_8640 = setOf("SHAPE")
-    fun liveCurveUnobserved8640(missing: String): Boolean =
-        missing.substringBefore(':').trim().uppercase() in LIVE_CURVE_8640
 
     internal fun fmt8136(v: Double): String = if (v.isFinite()) "%+.1f".format(v) else "-"
 
@@ -806,13 +793,7 @@ object CandidateAdmission8136 {
         // V5.0.8283 — history the token is too young to have is recorded here, never waited for (LifecycleData8283).
         if (c.historyUnavailable8283.isNotEmpty()) trace += "historyUnavailable8283=${c.historyUnavailable8283.joinToString(",")} judgedOnLaunchEvidence"
         val stale = priceStale8136(c.priceAgeMs, c.hotLaunch, c.live)
-        // V5.0.8640 — a LIVE buy with NO supported candidate-specific evidence (edge == null: no supported setup / cell / proof)
-        // adds the curve position (shape) to the minimum it will not proceed without — that is the blind lane-opinion admit that
-        // bought the top (edge-8537: shape-unobserved live admits median -11.9% vs -4.1% observed). A candidate that IS supported
-        // trades through the optional shape gap exactly as before (the 818-820 contract; Aate8253 fallback-liquidity tests). Paper
-        // keeps the 8531 optional treatment throughout. A too-young coin's shape is historyUnavailable8283, never here.
-        val criticalMissing8170 = c.missingInputs.filter(::criticalMissing8170) +
-            (if (c.live && edge == null) c.missingInputs.filter(::liveCurveUnobserved8640) else emptyList())
+        val criticalMissing8170 = c.missingInputs.filter(::criticalMissing8170)
         val nativeOptional8213 = c.missingInputs.isNotEmpty() && edge == null &&
             optionalNativeContextClears8213(c, decisionGross)
         // V5.0.8279 — the native admit sits behind the generic V3 floor again (8114 doctrine, 7843 second floor).
