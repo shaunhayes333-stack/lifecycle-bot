@@ -12,10 +12,32 @@ import java.io.File
  */
 class Aate8584RunnerDoctrineTest {
     @Test fun the_ladder_banks_at_2x_5x_and_10x() {
-        assertEquals(listOf(100.0 to 0.30, 400.0 to 0.35, 900.0 to 0.35), RunnerGrab7967.TIERS_7967)
+        assertEquals(listOf(100.0 to 0.25, 400.0 to 0.18, 900.0 to 0.70), RunnerGrab7967.TIERS_7967)
         for (lane in RunnerDoctrine8584.MEME_LANES_8584) assertTrue(lane, RunnerDoctrine8584.rides8584(lane.lowercase()))
         for (lane in listOf("BLUECHIP", "QUALITY", "TREASURY", "CASHGEN", "", null)) assertFalse("$lane", RunnerDoctrine8584.rides8584(lane))
         assertTrue(RunnerDoctrine8584.memeLane8584("MOONSHOT"))
+    }
+
+    @Test fun tenXRunnerCanBankFiveHundredPercentAfterTierSlippageAndRetainMoonbag() {
+        // Slow path: fills all three rungs at their thresholds, peaks at 10x, and trails to 5.5x.
+        // SpikeCapture's pure replay deducts 5 % assumed fill slippage at each rung.
+        val tiers = RunnerGrab7967.TIERS_7967
+        val trailingGrossPct = (RunnerDoctrine8584.line8584(10.0) - 1.0) * 100.0
+        assertEquals(450.0, trailingGrossPct, 1e-9)
+        assertEquals(522.075, SpikeCapture7943.realisableGrossPct(900.0, trailingGrossPct, tiers), 1e-6)
+        assertTrue("a real 10x winner can now bank +500% across the entire position in the modeled path",
+            SpikeCapture7943.realisableGrossPct(900.0, trailingGrossPct, tiers) >= 500.0)
+
+        // Only completed tier proceeds count as recovered cash; do not confuse unrealised MFE with realised SOL.
+        val first = tiers[0].second
+        val second = (1.0 - first) * tiers[1].second
+        val capitalReturnedAt5x = (first * 2.0 + second * 5.0) * 0.95
+        assertTrue("the first two tier fills return the original stake despite 5% slippage", capitalReturnedAt5x >= 1.0)
+        assertEquals(0.615, 1.0 - first - second, 1e-9)
+        assertEquals(0.1845, (1.0 - first - second) * (1.0 - tiers[2].second), 1e-9)
+
+        // Merely reaching 2x is not a promise of a 500% trade; stop/fill/safety exits still apply.
+        assertTrue(SpikeCapture7943.realisableGrossPct(100.0, -35.0, tiers) < 0.0)
     }
 
     @Test fun the_line_keeps_half_the_gain_then_trails_45_percent_from_2x() {

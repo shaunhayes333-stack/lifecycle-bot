@@ -24,8 +24,8 @@ import java.util.concurrent.atomic.AtomicLong
  * refusal; hard safety (safety-tier HARD_BLOCK, Mayhem, dev sold) still refuses. Size is
  * raised to 2x (inside the existing 2.5x cap).
  *
- * HOLD: a grabbed position runs the owner's play instead of the scalp ladder: half off at
- * +100% (stake and profit banked), 35% of the rest at +400%, 35% at +1000%; every soft exit
+ * HOLD: a grabbed position runs the owner's play instead of the scalp ladder: 25% of the
+ * current holding at +100%, 18% of what remains at +400%, 70% of what remains at +900%; every soft exit
  * (profit locks, trails, early-rug backstops, tick floors, catastrophe stops above -35%) is
  * deferred while the 1-minute structure holds; it exits on the structure break (the first
  * lower low after the run), at -35%, or on rug / dev / liquidity evidence.
@@ -46,8 +46,13 @@ object RunnerGrab7967 {
     private const val SELL_RETRY_MS = 20_000L
     private const val MISSED_PEAK_PCT = 400.0
     /** The owner's ladder for a grabbed runner: (gross %, fraction of the CURRENT holding sold). */
-    // V5.0.8584 — RunnerDoctrine8584: 2x banks 30 %, 5x 35 %, 10x 35 %; the rest rides the doctrine trail (was 100/50, 400/35, 1000/35).
-    val TIERS_7967: List<Pair<Double, Double>> = listOf(100.0 to 0.30, 400.0 to 0.35, 900.0 to 0.35)
+    // V5.0.8644 — The prior 30/35/35-of-remainder ladder captured only ~+387 % on a gradual 10x
+    // followed by the 45 % doctrine trail (+450 %), after SpikeCapture7943's 5 % tier-fill penalty.
+    // 25/18/70 returns the original stake by the 5x rung even after that penalty (1.11625x initial
+    // stake in confirmed-tier proceeds), preserves 61.5 % of the original bag for a 10x opportunity,
+    // then retains 18.45 % as a moonbag. On the same path the modeled whole-position capture is +522 %.
+    // These are *potential* exit economics, NOT predicted live winners or executable fill guarantees.
+    val TIERS_7967: List<Pair<Double, Double>> = listOf(100.0 to 0.25, 400.0 to 0.18, 900.0 to 0.70)
 
     private val grabbed = ConcurrentHashMap<String, Long>()                  // mint -> first grab
     private val signals = ConcurrentHashMap<String, Pair<Double, Long>>()     // mint -> (px, at) awaiting grade
