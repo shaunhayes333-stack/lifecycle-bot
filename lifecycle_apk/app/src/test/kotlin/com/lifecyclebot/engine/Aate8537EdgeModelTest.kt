@@ -84,6 +84,15 @@ class Aate8537EdgeModelTest {
         assertTrue(EdgeModel8537.authority(40, 3.0, 1.0, -3.0))
     }
 
+    @Test fun runnerOutcomesAreGradedInNetPercent() {
+        val tally = EdgeModel8537.Oos()
+        val pick = EdgeModel8537.target8567(1.004)
+        repeat(9) { tally.add(pick, -20.0) }
+        tally.add(pick, 300.0)
+        assertEquals(10, tally.selN)
+        assertEquals(12.0, tally.selMean, 1e-9)
+    }
+
     @Test fun noise_earns_no_authority() {
         val rnd = Random(1)
         repeat(2_500) { EdgeModel8537.learnRawForTest8537(raw(liq = listOf(800.0, 5_000.0, 100_000.0).random(rnd), bp = rnd.nextDouble(30.0, 90.0)), -4.0 + rnd.nextDouble(-8.0, 8.0)) }

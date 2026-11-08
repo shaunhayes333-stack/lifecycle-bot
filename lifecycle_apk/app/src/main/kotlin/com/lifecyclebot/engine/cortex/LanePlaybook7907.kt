@@ -2158,8 +2158,10 @@ object LanePlaybook7907 {
     } catch (_: Throwable) { emptyList() }
 
     /** V5.0.8323 — the cached classification of [mint] in [laneRaw] (fired setups, chosen tag), never computed here; null when none. */
-    fun peekMatched8323(mint: String, laneRaw: String): Pair<List<String>, String?>? {
-        val c = classifyCache["$mint|${canon(laneRaw)}"]?.c ?: return null
+    fun peekMatched8323(mint: String, laneRaw: String, decisionMs: Long? = null): Pair<List<String>, String?>? {
+        val cached = classifyCache["$mint|${canon(laneRaw)}"] ?: return null
+        if (decisionMs != null && cached.pinnedAt != decisionMs) return null
+        val c = cached.c
         return c.matched to c.chosen
     }
 

@@ -110,17 +110,27 @@ object ReportCopyDialog8198 {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc(if (where.startsWith("FAILED")) "REPORT_SAVE_DOWNLOADS_FAIL_8381" else "REPORT_SAVE_DOWNLOADS_OK_8381") } catch (_: Throwable) {}
             // V5.0.8537 — the edge model's labelled dataset rides along, for the offline replay (ci/edge_replay_8537.py).
             val dataset8537 = if (where.startsWith("FAILED")) null else saveEdgeDataset8537(app)
+            val hour = if (where.startsWith("FAILED")) "" else try {
+                com.lifecyclebot.engine.truth.LaunchHour8628.export(app.cacheDir, System.currentTimeMillis())?.let { file ->
+                    try { saveDataset(app, file, "aate_launch_hour_${System.currentTimeMillis()}.jsonl") ?: "hour export failed" }
+                    finally { file.delete() }
+                } ?: "no launch observations yet"
+            } catch (_: Exception) { "hour export failed" }
             activity.runOnUiThread {
-                Toast.makeText(app, if (where.startsWith("FAILED")) "Save failed ($where); use Share" else "Saved complete report (${fullText.length} chars) to $where" + (dataset8537?.let { " + $it" } ?: ""), Toast.LENGTH_LONG).show()
+                Toast.makeText(app, if (where.startsWith("FAILED")) "Save failed ($where); use Share" else "Saved complete report (${fullText.length} chars) to $where" + (dataset8537?.let { " + $it" } ?: "") + " · $hour", Toast.LENGTH_LONG).show()
             }
         }, "AATE-ReportSave-8381").start()
     }
 
     /** V5.0.8537 — copy EdgeModel8537's dataset to Downloads/AATE; the saved name, or null when there is none / it failed. */
     private fun saveEdgeDataset8537(app: android.content.Context): String? {
-      return try {
         val src = com.lifecyclebot.engine.truth.EdgeModel8537.datasetFile() ?: return null
         val name = "aate_edge_dataset_8537_${System.currentTimeMillis()}.jsonl"
+        return saveDataset(app, src, name)
+    }
+
+    private fun saveDataset(app: android.content.Context, src: File, name: String): String? {
+      return try {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val values = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, name)

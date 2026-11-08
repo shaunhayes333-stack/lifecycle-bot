@@ -94,7 +94,7 @@ object ForwardReturnLabeler7731 {
     private const val PERSIST_EVERY_BOOKINGS_7731 = 25
     private const val PREFS_7731 = "forward_return_labeler_7731"
     /** Routable-minimum ticket, the size every cell is costed at. */
-    private const val COST_SIZE_USD_7731 = 5.0
+    internal const val COST_SIZE_USD_7731 = 5.0
     /** A gross move at the read (spike tiers credited) above this is a runner. */
     private const val RUNNER_PCT_7731 = 50.0
     /** V5.0.7735 — oldest decision-time price a label may start from. */
@@ -1152,6 +1152,8 @@ object ForwardReturnLabeler7731 {
 
     fun observe(ts: TokenState, lane: String, admitted: Boolean, reason: String?, nowMs: Long = System.currentTimeMillis(), score: Int = -1, incumbent8506: Boolean? = null) {
         val l = lane.trim().uppercase().ifBlank { "UNKNOWN" }
+        // Capture the decision even when the forward labeler cannot establish an entry mark.
+        try { LaunchHour8628.observeDecision(ts, l, admitted, nowMs) } catch (_: Exception) { PipelineHealthCollector.labelInc("LAUNCH_HOUR_DECISION_MISSING_8628") }
         val key = "${ts.mint}|$l"
         // V5.0.8418 — the buy-path gate that ruled on a candidate whose observation is already pending (GateOutcome8418).
         pending[key]?.let { p ->
@@ -1282,6 +1284,8 @@ object ForwardReturnLabeler7731 {
         try { FallingHourCohort8418.capture8418(ts, l, nowMs) } catch (_: Throwable) {}  // V5.0.8418 — the falling-hour rule's own evidence
         // V5.0.7885 — the Cortex snapshot + every voter's opinion at this decision.
         try { com.lifecyclebot.engine.cortex.Cortex7885.capture(ts, l, admitted, nowMs, reason, incumbent8506) } catch (_: Throwable) {}
+        // The normal Cortex capture has now frozen the exact playbook matches for this decision.
+        try { LaunchHour8628.observeDecision(ts, l, admitted, nowMs) } catch (_: Exception) { PipelineHealthCollector.labelInc("LAUNCH_HOUR_DECISION_MISSING_8628") }
         // V5.0.7955 — the setup this decision is traded as keys its exit profile (classify is cached by the capture above).
         try { pending[key]?.setup7955 = com.lifecyclebot.engine.ExitProfile7955.entrySetup7955(ts, l, nowMs) } catch (_: Throwable) {}
         // V5.0.7737 — a fresh launch is also followed by first touch (+50% / -30%).

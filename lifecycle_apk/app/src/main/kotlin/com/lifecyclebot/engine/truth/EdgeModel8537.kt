@@ -187,7 +187,8 @@ object EdgeModel8537 {
         var selN = 0; var selSum = 0.0; var selSq = 0.0; var selWin = 0
         var allN = 0; var allSum = 0.0
         var negN = 0; var negSum = 0.0
-        fun add(pred: Double, net: Double) {
+        fun add(logPrediction: Double, net: Double) {
+            val pred = netOf8567(logPrediction)
             allN++; allSum += net
             if (pred >= MIN_EDGE_PCT) { selN++; selSum += net; selSq += net * net; if (net > 0.0) selWin++ }
             else if (pred < 0.0) { negN++; negSum += net }
@@ -205,6 +206,9 @@ object EdgeModel8537 {
 
     private val global = Ridge(DIM)
     private val byLane = HashMap<String, Ridge>()
+    // Legacy records used log outcomes and pooled global and specialist predictions.
+    private fun recordKey(lane: String, model: String) = "net|$lane|$model"
+    private fun activeModel(l: String) = if ((byLane[l]?.count ?: 0L) >= LANE_OWN_MIN_N) l else "GLOBAL"
     private val oos = HashMap<String, Oos>()
     private val learned = AtomicLong(0)
     private val skippedCold = AtomicLong(0)
@@ -327,7 +331,7 @@ object EdgeModel8537 {
         }
         val y = target8567(netPct)
         synchronized(this) {
-            if (s.pred.isFinite()) oos.getOrPut(s.raw.lane) { Oos() }.add(s.pred, y) else skippedCold.incrementAndGet()
+            if (s.pred.isFinite()) oos.getOrPut(recordKey(s.raw.lane, s.modelKey)) { Oos() }.add(s.pred, netPct) else skippedCold.incrementAndGet()
             global.learn(s.x, y)
             byLane.getOrPut(s.raw.lane) { Ridge(DIM) }.learn(s.x, y)
         }
@@ -345,7 +349,7 @@ object EdgeModel8537 {
         val x = vectorOf(raw)
         synchronized(this) {
             val (p, key) = predictLocked(x, raw.lane)
-            val o = oos[raw.lane]
+            val o = oos[recordKey(raw.lane, key)]
             val trained = if (key == raw.lane) byLane[raw.lane]?.count ?: 0L else global.count
             Verdict(netOf8567(p), p.isFinite() && o != null && authority(o.selN, o.selMean, o.selSe, o.allMean), key, trained,
                 o?.selN ?: 0, o?.selMean ?: Double.NaN, o?.selSe ?: Double.NaN, o?.allMean ?: Double.NaN)
@@ -395,7 +399,8 @@ object EdgeModel8537 {
         readRidge(i, global)
         repeat(i.readInt()) { val l = i.readUTF(); readRidge(i, byLane.getOrPut(l) { Ridge(DIM) }) }
         repeat(i.readInt()) {
-            val l = i.readUTF(); val o = oos.getOrPut(l) { Oos() }
+            val l = i.readUTF(); val o = Oos()
+            if (l.startsWith("net|")) oos[l] = o
             o.selN = i.readInt(); o.selSum = i.readDouble(); o.selSq = i.readDouble(); o.selWin = i.readInt()
             o.allN = i.readInt(); o.allSum = i.readDouble(); o.negN = i.readInt(); o.negSum = i.readDouble()
         }
@@ -404,7 +409,8 @@ object EdgeModel8537 {
     private fun saveAsync() { io.execute { saveNow() } }
 
     /** Persist the model and its out-of-sample record (also called when the service stops). */
-    fun saveNow() {
+    @Synchronized fun saveNow() {
+        ensureLoaded()
         try {
             val d = dir() ?: return
             val tmp = File(d, "$MODEL_FILE.tmp")
@@ -470,9 +476,9 @@ object EdgeModel8537 {
 
     /** Brief: per lane, the out-of-sample record and authority. */
     fun statusLine(): String = synchronized(this.also { ensureLoaded() }) {
-        val lanes = (oos.keys + byLane.keys).toSortedSet()
+        val lanes = byLane.keys.toSortedSet()
         val rows = lanes.joinToString(" · ") { l ->
-            val o = oos[l]; val r = byLane[l]
+            val o = oos[recordKey(l, activeModel(l))]; val r = byLane[l]
             val auth = o != null && authority(o.selN, o.selMean, o.selSe, o.allMean)
             "$l[n${r?.count ?: 0} oosPicks=n${o?.selN ?: 0}/${pct(o?.selMean)}±${pct(o?.selSe)} all=${pct(o?.allMean)} avoid=${pct(o?.negMean)} ${if (auth) "AUTHORITY" else "learning"}]"
         }
@@ -491,7 +497,7 @@ object EdgeModel8537 {
         val x = vectorOf(r)
         val (p, key) = predictLocked(x, r.lane)
         val y = target8567(net)
-        if (p.isFinite()) oos.getOrPut(r.lane) { Oos() }.add(p, y)
+        if (p.isFinite()) oos.getOrPut(recordKey(r.lane, key)) { Oos() }.add(p, net)
         global.learn(x, y)
         byLane.getOrPut(r.lane) { Ridge(DIM) }.learn(x, y)
         learned.incrementAndGet()
@@ -500,5 +506,5 @@ object EdgeModel8537 {
 
     internal fun predictRawForTest8537(r: Raw): Pair<Double, String> = predictLocked(vectorOf(r), r.lane)
 
-    internal fun oosForTest8537(lane: String): Oos? = synchronized(this) { oos[lane(lane)] }
+    internal fun oosForTest8537(lane: String): Oos? = synchronized(this) { oos[recordKey(lane(lane), activeModel(lane(lane)))] }
 }

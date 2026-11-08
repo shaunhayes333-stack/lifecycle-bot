@@ -501,7 +501,8 @@ object LiveEdgeGate7877 {
         // A held decision may rehearse evidence doors, but this captured hold remains the final live veto.
         val shadowOnly8393 = !paper && hold != null &&
             (hold.startsWith("EVIDENCE_HOLD_8336_") || hold.contains("LANE_REALISED_LOSING"))
-        val key = FdgGate8365.memoKey8365(ts.mint, l, candidateVersion, paper) + "|$basis|$hold"
+        val lockout = if (paper) null else com.lifecyclebot.engine.RebuyLockout8019.refusal8019(ts.mint, nowMs)
+        val key = FdgGate8365.memoKey8365(ts.mint, l, candidateVersion, paper) + "|$basis|$hold|$lockout"
         FdgGate8365.memoGet8365(key, nowMs)?.let { return it.second }
         val context = EntryContext8392(paper)
         val previous = entryContext8392.get()
@@ -509,7 +510,7 @@ object LiveEdgeGate7877 {
         val result = try {
             Rehearsal8339.collecting8342 {
                 FdgGate8365.inContext8365(ts, l, basis, paper, shadowOnly8393) {
-                    canonicalRefusal8392(ts, l, paper, nowMs, candidateVersion, candidateAdmission)
+                    lockout ?: canonicalRefusal8392(ts, l, paper, nowMs, candidateVersion, candidateAdmission)
                 }
             }
         } catch (_: Throwable) { "CANONICAL_ENTRY_EVAL_FAILED_8392" to emptyList<String>() }
@@ -1325,7 +1326,7 @@ object LiveEdgeGate7877 {
         val cortex7950 = com.lifecyclebot.engine.cortex.Cortex7885.entryRefusal(ts, lane, paper)
         if (paper && !(EvidenceHold8336.heldLane8342(lane) && EvidenceHold8336.enabled8336 && EvidenceHold8336.rehearsal8336)) return cortex7950
         // V5.0.8019 — a coin any lane closed in the last 10 minutes is not reopened (the re-entry ticket excepted).
-        com.lifecyclebot.engine.RebuyLockout8019.refusal8019(ts.mint, nowMs)?.let { return it }
+        if (paper) com.lifecyclebot.engine.RebuyLockout8019.refusal8019(ts.mint, nowMs)?.let { return it }
         // V5.0.8030 — positive EV only: the lane's expected move must be at least 2x the round trip. Hard: no
         // chart read, specialist, ticket or Cortex overrule buys a trade whose cost eats half its move.
         // 8213: both canonical ADMIT paths already priced this lane/mint/size and cleared 1.5x cost.

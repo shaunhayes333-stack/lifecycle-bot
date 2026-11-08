@@ -130,6 +130,7 @@ object AdmissionBirth8144 {
     /** PumpFunWS: a create frame arrived for [mint] (recorded before the create throttle, with or without reserves). */
     fun noteCreateFrame8144(mint: String, atMs: Long = System.currentTimeMillis()) {
         if (!createFrames.containsKey(mint.trim())) try { MarketEvidence8346.noteBirthPumpCreate8346() } catch (_: Throwable) {}   // V5.0.8346
+        LaunchHour8628.birth(mint.trim(), atMs)
         putEarliest8144(createFrames, mint, atMs)
     }
 
@@ -138,6 +139,7 @@ object AdmissionBirth8144 {
         val ms = epochMs8144(createdTimestampRaw)
         if (ms > 0L) {
             if (!pumpRecords.containsKey(mint.trim())) try { MarketEvidence8346.noteBirthPumpCreate8346() } catch (_: Throwable) {}   // V5.0.8346
+            LaunchHour8628.birth(mint.trim(), ms)
             putEarliest8144(pumpRecords, mint, ms)
         }
     }
@@ -151,6 +153,7 @@ object AdmissionBirth8144 {
      */
     fun noteOldestSignature8144(mint: String, ms: Long) {
         if (!oldestSigs.containsKey(mint.trim())) try { MarketEvidence8346.noteBirthSignatureWalk8346() } catch (_: Throwable) {}   // V5.0.8346
+        LaunchHour8628.birth(mint.trim(), ms)
         putEarliest8144(oldestSigs, mint, ms)
     }
 
@@ -166,6 +169,7 @@ object AdmissionBirth8144 {
         when (LaunchBirth8169.pairProof8169(mint, dexId.orEmpty(), createdMs, System.currentTimeMillis())) {
             LaunchBirth8169.PairProof8169.BIRTH -> {
                 if (!curvePairs8169.containsKey(mint.trim())) try { MarketEvidence8346.noteBirthPairCreated8346() } catch (_: Throwable) {}   // V5.0.8346
+                LaunchHour8628.birth(mint.trim(), createdMs)
                 putEarliest8144(curvePairs8169, mint, createdMs)
             }
             LaunchBirth8169.PairProof8169.FLOOR -> putEarliest8144(poolFloors8169, mint, createdMs)
@@ -180,6 +184,7 @@ object AdmissionBirth8144 {
      */
     fun noteChainMintInit8179(mint: String, blockTimeMs: Long) {
         if (!chainMintInits8179.containsKey(mint.trim())) try { MarketEvidence8346.noteBirthChainLaunch8346() } catch (_: Throwable) {}   // V5.0.8346
+        LaunchHour8628.birth(mint.trim(), blockTimeMs)
         putEarliest8144(chainMintInits8179, mint, blockTimeMs)
     }
 
