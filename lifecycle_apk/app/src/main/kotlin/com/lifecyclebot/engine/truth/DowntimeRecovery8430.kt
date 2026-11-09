@@ -26,7 +26,13 @@ object DowntimeRecovery8430 {
     const val SOURCE_8430 = "OHLCV_RECOVERED_8430"
     const val MAX_MINTS_PER_BOOT_8430 = 150
     const val RECOVERY_WINDOW_MS_8430 = 15L * 60_000L
-    const val FETCH_GAP_MS_8430 = 10_000L
+    // V5.0.8651 — 150 mints in a 15-minute recovery window cannot be drained
+    // with the old one-per-10s cadence: at most 90 requests could even start,
+    // before provider cooldown or live chart traffic. A 4s dispatch gap allows
+    // 225 theoretical starts while the Gecko slot's adaptive 2.5-6s rate gate,
+    // its cooldown and the existing single in-flight request still bind.
+    // The hard 150-unique-mint cap and original candle/basis checks are unchanged.
+    const val FETCH_GAP_MS_8430 = 4_000L
     private const val CANDLE_MS_8430 = 60_000L
     private const val CANDLES_8430 = 180
     /** V5.0.8435 — a provider interval gap up to this long is slept on the fetch thread rather than skipped. */

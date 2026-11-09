@@ -105,6 +105,10 @@ class Aate8430DowntimeRecoveryTest {
         assertTrue("the candle goes through the SAME recovery filter as every other mark", l.contains("recovered = downtime8430.mark?.takeIf(recoverable8435)"))
         assertTrue(l.contains("try { DowntimeRecovery8430.drain8430(nowMs) } catch (_: Throwable) {}"))
         assertEquals(150, DowntimeRecovery8430.MAX_MINTS_PER_BOOT_8430)
-        assertEquals(10_000L, DowntimeRecovery8430.FETCH_GAP_MS_8430)
+        // The queue must be theoretically drainable BEFORE its boot window expires;
+        // the provider's adaptive rate gate and live chart reads still have priority.
+        assertEquals(4_000L, DowntimeRecovery8430.FETCH_GAP_MS_8430)
+        assertTrue(DowntimeRecovery8430.RECOVERY_WINDOW_MS_8430 / DowntimeRecovery8430.FETCH_GAP_MS_8430 >=
+            DowntimeRecovery8430.MAX_MINTS_PER_BOOT_8430)
     }
 }

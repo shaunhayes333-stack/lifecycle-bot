@@ -522,10 +522,39 @@ object SpecialistBrainBridge7542 {
         // exit-safe venue, forming-run evidence, economics at the route minimum, chase cap; live: the evidence hold's door);
         // UNHYDRATED_DEFER refusals are remembered for the hydration re-evaluation. Safety / rug / dev refusals are never re-asked.
         try { RunnerGrabLane8343.reviewNative8343(ts, out, now) } catch (_: Throwable) {}
-        val s=out.values.filter{it.authoritative&&it.eligible}.sortedByDescending{maxOf(it.score,it.confidence)};val a=s.getOrNull(0);val b=s.getOrNull(1);val av=a?.let{maxOf(it.score,it.confidence)}?:0;val bv=b?.let{maxOf(it.score,it.confidence)}?:0
-        val ensemble=a!=null&&b!=null&&av<75&&(av-bv<=10||av<65);val fallback=s.isEmpty()&&v3>=40&&v3c>=45&&bp>=50&&ts.lastLiquidityUsd>0&&!ts.safety.isBlocked;val coreOk=ensemble||fallback
+        // V5.0.8651 — MOONSHOT's native score has a 150-point scale. The old CORE
+        // consensus sorted and compared its CLIPPED 100-point value, which could
+        // override a stronger 100-scale specialist and suppress CORE's own vote.
+        val s = out.values.filter { it.authoritative && it.eligible }
+            .sortedByDescending { NativeCandidateValues8527.coreRank8651(it) }
+        val a = s.getOrNull(0); val b = s.getOrNull(1)
+        val av = a?.let { NativeCandidateValues8527.coreRank8651(it) } ?: 0.0
+        val bv = b?.let { NativeCandidateValues8527.coreRank8651(it) } ?: 0.0
+        val ensemble = a != null && b != null && av < 75.0 && (av - bv <= 10.0 || av < 65.0)
+        // 50% was the default for a MISSING buy-pressure reading, not an observed
+        // vote. The fallback must never turn that default into a live native BUY.
+        val fallback = NativeCandidateValues8527.coreFallback8651(s.size, v3, v3c, observedBp8491,
+            ts.lastLiquidityUsd, ts.safety.isBlocked)
+        val coreOk = ensemble || fallback
         val (coreScore, coreConfidence) = NativeCandidateValues8527.coreEnsemble8527(s, v3, v3c)
-        if (owns7828("CORE")) out["CORE"]=op("CORE",coreOk,coreScore,coreConfidence,0.0,when{ensemble->"CORE_ENSEMBLE_${s.take(4).joinToString("+"){it.lane}}";fallback->"CORE_GENERALIST_NO_SPECIALIST_FIT";else->RunnerGrabLane8343.coreYieldReason8343(s.isEmpty(),out.values)},a?.setup?:"MAINSTREAM_CRYPTO_SWING","core_native_ensemble","core_inherit_ensemble_exit",1.0,0.8,1.0,s.take(4).flatMap{it.tools}.toSet()+"CORE_ENSEMBLE")
+        if (owns7828("CORE")) {
+            // CORE was constructed AFTER the common fired-setup/signal-time and
+            // native-age passes. Its READY verdict was therefore never stamped
+            // with the actual trigger, and CandidateAdmission could not bind it.
+            val fired8651 = firedSetup8535(ts, "CORE", now) ?: s.firstNotNullOfOrNull { it.firedSetup8535 }
+            val base8651 = op("CORE", coreOk, coreScore, coreConfidence, 0.0,
+                when { ensemble -> "CORE_ENSEMBLE_${s.take(4).joinToString("+") { it.lane }}"
+                    fallback -> "CORE_GENERALIST_NO_SPECIALIST_FIT"
+                    else -> RunnerGrabLane8343.coreYieldReason8343(s.isEmpty(), out.values) },
+                a?.setup ?: "MAINSTREAM_CRYPTO_SWING", "core_native_ensemble", "core_inherit_ensemble_exit",
+                1.0, 0.8, 1.0, s.take(4).flatMap { it.tools }.toSet() + "CORE_ENSEMBLE")
+                .copy(firedSetup8535 = fired8651, signalAtMs8535 = now)
+            val triggered8651 = if (base8651.eligible && fired8651 == null &&
+                com.lifecyclebot.engine.cortex.SetupAuthority8535.requiresNamedSetup8535("CORE")) {
+                base8651.copy(eligible = false, reason = "CORE_NO_NAMED_SETUP_8535")
+            } else base8651
+            out["CORE"] = NativeLaneAge8521.review8521(triggered8651, ageEvidence8521)
+        }
         out["CORE"]?.let { original ->
             val reviewed = reviewCoreYield8077(original) { rule, lane ->
                 try { com.lifecyclebot.engine.cortex.Cortex7885.ownLaneVetoRefusesWinners8076(rule, lane) }
