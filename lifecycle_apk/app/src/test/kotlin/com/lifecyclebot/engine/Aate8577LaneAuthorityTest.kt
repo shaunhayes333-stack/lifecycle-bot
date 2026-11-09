@@ -27,7 +27,7 @@ class Aate8577LaneAuthorityTest {
         live = live, nativeQualified8213 = true, nativeSetup8213 = "LAUNCH_LADDER_PROVEN", genericScore = 42.0, genericFloor = 15.0,
     )
     private fun refusal(reason: String, trace: List<String> = emptyList(), terminal: Terminal8136 = Terminal8136.REFUSE) =
-        Decision8136(terminal, reason, true, "LAUNCH_LADDER_PROVEN", Double.NaN, trace)
+        Decision8136(terminal, reason, true, "LAUNCH_LADDER_PROVEN", 8.0, trace, costPct = 2.0)
 
     @Test fun anAdvisoryRefusalCannotHideAStaleRunnerOrACostLoss() {
         val soft = refusal("ENTRY_NO_RECLAIM_8506")
@@ -60,6 +60,13 @@ class Aate8577LaneAuthorityTest {
         assertEquals(Terminal8136.ADMIT, ap8609(qualified(), refusal(CandidateAdmission8136.FALLING_HOUR_DEFER_8418, terminal = Terminal8136.DEFER_DATA)).terminal)
         assertEquals(Terminal8136.ADMIT, ap8609(qualified(),
             refusal("DATA_INCOMPLETE_DEFER_8136", listOf("entryWait8506=FLOW_UNOBSERVED", "missing=swaps,bp,chg"), Terminal8136.DEFER_DATA)).terminal)
+        // V5.0.8649 — a missing executable move is never upgraded to a LIVE buy
+        // just because a native opinion and a generic V3 score passed.
+        val missingGross = refusal("DATA_INCOMPLETE_DEFER_8136", listOf("missing=economics"), Terminal8136.DEFER_DATA)
+            .copy(expectedNetPct = Double.NaN)
+        assertEquals(Terminal8136.DEFER_DATA, ap8609(qualified(), missingGross).terminal)
+        val smallGross = refusal("EXECUTION_ECONOMICS_8136").copy(expectedNetPct = 0.5)
+        assertEquals(Terminal8136.REFUSE, ap8609(qualified(), smallGross).terminal)
     }
 
     @Test fun safety_structure_the_executable_minimum_and_the_v3_floor_still_bind() {
@@ -134,6 +141,8 @@ class Aate8577LaneAuthorityTest {
         assertFalse(LaneAuthority8577.binding8577("EXECUTION_ECONOMICS_8136")); assertFalse(LaneAuthority8577.binding8577(null)); assertFalse(LaneAuthority8577.binding8577(""))
         assertTrue(LaneAuthority8577.bindingAdmission8577(refusal("DATA_INCOMPLETE_DEFER_8136", listOf("missing=economics")), costKnown = false))
         assertFalse(LaneAuthority8577.bindingAdmission8577(refusal("DATA_INCOMPLETE_DEFER_8136", listOf("missing=swaps,bp,chg")), costKnown = true))
+        assertTrue("cost known does not make the missing move executable",
+            LaneAuthority8577.bindingAdmission8577(refusal("DATA_INCOMPLETE_DEFER_8136", listOf("missing=economics")).copy(expectedNetPct = Double.NaN), costKnown = true))
         assertFalse(LaneAuthority8577.bindingAdmission8577(refusal(CandidateAdmission8136.FALLING_HOUR_DEFER_8418), costKnown = true))
         assertTrue(LaneAuthority8577.bindingAdmission8577(refusal("STRUCTURAL_RISK_8136"), costKnown = true))
     }

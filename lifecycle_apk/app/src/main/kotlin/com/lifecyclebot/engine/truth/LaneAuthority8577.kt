@@ -177,7 +177,10 @@ object LaneAuthority8577 {
      */
     fun bindingAdmission8577(d: CandidateAdmission8136.Decision8136, costKnown: Boolean): Boolean {
         if (d.reason == "DATA_INCOMPLETE_DEFER_8136") {
-            if (!costKnown) return true
+            // V5.0.8649 — a known fee is not a known, executable forecast.
+            // 8648 promoted a native-qualified DATA defer with cost=known,
+            // expected move=NaN to LIVE ADMIT, only to fail at the send boundary.
+            if (!costKnown || !d.expectedNetPct.isFinite()) return true
             return d.trace.any { line ->
                 line.startsWith("criticalUnobserved8170=") ||
                     (line.startsWith("missing=") && line.removePrefix("missing=").split(',').any { it.trim() == "price" })
@@ -222,6 +225,15 @@ object LaneAuthority8577 {
         val qualified = CandidateAdmission8136.specialistQualified8539(c)
         val costKnown = c.costPct.isFinite() && c.costPct >= 0.0
         if (!d.admitted && bindingAdmission8577(d, costKnown)) return d.copy(laneQualified8577 = qualified)
+        // V5.0.8649 — lane authority changes only the WEIGHT of learned refusals;
+        // it must not reverse CandidateAdmission's immutable executable economics.
+        // The native opinion does not create a missing move forecast or waive the
+        // same net-at-size/margin requirement the executor checks at broadcast.
+        if (!d.admitted && !NetEdge8030.entryClears8030(
+                d.expectedNetPct + d.costPct, d.costPct, d.costMargin8391)) {
+            try { PipelineHealthCollector.labelInc("LANE_AUTHORITY_ECONOMICS_STILL_BIND_8649_${c.lane.uppercase()}") } catch (_: Throwable) {}
+            return d.copy(laneQualified8577 = qualified)
+        }
         if (costKnown && d.expectedNetPct.isFinite() && d.expectedNetPct <= 0.0) {
             return d.copy(terminal = CandidateAdmission8136.Terminal8136.REFUSE, reason = "EXECUTION_NET_NONPOSITIVE_8629",
                 specific = true, trace = d.trace + "netAfterCost=${d.expectedNetPct} cost=${c.costPct}", laneQualified8577 = qualified)
