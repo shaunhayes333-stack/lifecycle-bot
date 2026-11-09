@@ -20,7 +20,9 @@ class Aate8536LiveProvenOnlyTest {
 
     @Test fun the_native_identity_takes_the_same_setup_authority_test() {
         val adm = src("engine/truth/CandidateAdmission8136.kt")
-        assertTrue(adm.contains("?: nativeSetupBook8217 ?: runnerForming8260)\n                ?.takeIf { triggered8535(it) },"))
+        assertTrue("native choices need the very same fired-predicate test as playbook choices",
+            adm.contains("val nativeIdentity8650 = (nativeOpinionId8650 ?: nativeSetupBook8217 ?: runnerForming8260)\n            ?.takeIf { it.isNotBlank() && !it.equals(\"NONE\", true) && triggered8535(it) }"))
+        assertTrue(adm.contains("val selected = selectedRaw8535?.takeIf { triggered8535(it) }"))
     }
 
     @Test fun live_needs_proven_evidence_and_paper_keeps_the_lane_opinion() {

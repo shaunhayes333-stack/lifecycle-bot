@@ -44,6 +44,31 @@ class Aate8546StrategyFamiliesTest {
         assertNull("no base", MemeStrategies8546.baseBreakout8546((0..11).map { bar(it, if (it % 2 == 0) 1.0 else 1.3) } + bar(12, 1.40)))
     }
 
+    @Test fun anEarlyCurveReclaimUsesExecuted15sEventsBeforeNineOneMinuteCandlesExist() {
+        val now = 1_000_000L
+        val prices = listOf(1.00, 1.04, 1.16, 1.33, 1.40, 1.35, 1.20, 1.10,
+            1.02, 1.00, 1.04, 1.05, 1.12, 1.15, 1.18, 1.20)
+        val prints = prices.mapIndexed { i, px ->
+            TradeTape8100.Print8128(now - 90_000L + i * 6_000L, px, 0.35, i % 5 != 0,
+                source = "helius", pool = "same_curve")
+        }
+        val why = MemeStrategies8546.earlyFlowReclaim8650(prints, now)
+        assertNotNull("early real-swap reclaim before M1 history is ready", why)
+        assertTrue(why!!.contains("15sBars="))
+        assertNull("price-only curve marks never count as executed buys",
+            MemeStrategies8546.earlyFlowReclaim8650(prints.map { it.copy(priceOnly = true) }, now))
+        assertNull("a 20-second-stale signal is not an entry now",
+            MemeStrategies8546.earlyFlowReclaim8650(prints, now + 20_000L))
+        assertNull("a return to the peak is an adverse chase",
+            MemeStrategies8546.earlyFlowReclaim8650(prints.dropLast(1) + prints.last().copy(priceSol = 1.42), now))
+        val flow = FlowRead8546.of8546(prints, now)
+        assertTrue(MemeStrategies8546.flowConfirms8546(Family8546.EARLY_FLOW_RECLAIM, flow))
+        assertFalse(MemeStrategies8546.flowConfirms8546(Family8546.EARLY_FLOW_RECLAIM,
+            flow.copy(buySol2m = 0.1, sellSol2m = 4.0)))
+        assertFalse("young run-up cannot automatically turn into a LIVE buy without paper proof",
+            MemeStrategies8546.provenRecord8546(5, 200.0, 1.0, 10.0))
+    }
+
     @Test fun shorterBaseAndPostMigrationRetestHaveTheirOwnClocks() {
         val base = listOf(bar(0, 1.10)) + (1..8).map { bar(it, 1.0) } + bar(9, 1.06)
         assertNotNull(MemeStrategies8546.baseBreakout8546(base))
@@ -137,11 +162,11 @@ class Aate8546StrategyFamiliesTest {
     @Test fun unfillableMemeOutcomesReachTheDatasetFlaggedAndNeverTrain() {
         val l = src("engine/truth/ForwardReturnLabeler7731.kt").substringAfter("private fun bookEntryTarget8521(").substringBefore("o.bookedNet7997 = net;")
         assertTrue(l.contains("!entryFill8521(o) && MemePaperTrader8544.memeLane8544(o.lane)"))
-        assertTrue(l.contains("EdgeModel8537.recordUnfilled8546(it, net)"))
+        assertTrue(l.contains("EdgeModel8537.recordUnfilled8546(it, net, witness)"))
         assertTrue(l.contains("MemeRegime8546.note8546(nowMs, net, gross)"))
         val e = src("engine/truth/EdgeModel8537.kt").substringAfter("fun recordUnfilled8546(").substringBefore("private val unfilled8546")
         // superseded (8568): the dataset keeps the true, uncapped net
-        assertTrue(e.contains("appendDataset(s, netPct, filled = false)"))
+        assertTrue(e.contains("appendDataset(s, netPct, filled = false, witnessed = chainWitness)"))
         assertFalse("never trains the model", e.contains("learn("))
         val replay = File("../ci/edge_replay_8537.py").readText()
         assertTrue(replay.contains("if r.get(\"fill\", True) is False:"))

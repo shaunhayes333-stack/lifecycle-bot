@@ -62,6 +62,8 @@ class Aate8273HandoffRetentionTest {
         // R9: a cold capture freezes decision-time features before the asynchronous voter read
         val c = java.io.File("src/main/kotlin/com/lifecyclebot/engine/cortex/Cortex7885.kt").readText()
         assertTrue(c.contains("val frozen8273 = decisionSnapshots8522.capture(ts, nowMs)"))
-        assertTrue(c.contains("captureCold8178(frozen8273, labelLane, admitted, nowMs, reason, snap8084, sel8153, ctxCold8178, sourceCold8178,"))
+        assertTrue(c.contains("captureCold8178(frozen8273, labelLane, admitted, nowMs, reason, snap8084, sel8153,"))
+        assertTrue(c.indexOf("val frozen8273 = decisionSnapshots8522.capture(ts, nowMs)") <
+            c.indexOf("captureCold8178(frozen8273, labelLane, admitted, nowMs, reason"))
     }
 }

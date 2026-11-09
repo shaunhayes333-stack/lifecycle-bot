@@ -53,8 +53,8 @@ class Aate8610PocketLedgerTest {
         assertTrue(!e.plausible8617(Double.NaN, 1_000.0))
         assertTrue(!e.plausible8617(50_000.0, Double.NaN))
         val src = File("src/main/kotlin/com/lifecyclebot/engine/truth/EdgeModel8537.kt").readText()
-        assertTrue(src.indexOf("if (!plausible8617(s.raw.mcap, netPct))") in 0 until src.indexOf("PocketLedger8610.learn8610(s, netPct)"))
-        assertTrue(File("src/main/kotlin/com/lifecyclebot/engine/truth/PocketLedger8610.kt").readText().contains("EdgeModel8537.plausible8617(d(o, \"mcap\"), net)"))
+        assertTrue(src.indexOf("if (!plausible8617(s.raw.mcap, netPct, chainWitness))") in 0 until src.indexOf("PocketLedger8610.learn8610(s, netPct)"))
+        assertTrue(File("src/main/kotlin/com/lifecyclebot/engine/truth/PocketLedger8610.kt").readText().contains("EdgeModel8537.plausible8617(d(o, \"mcap\"), net, o.optBoolean(\"witness\", false))"))
     }
 
     @Test fun theLedgerLearnsFromEveryLabelAndDecidesLiveOnceSeeded() {

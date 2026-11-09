@@ -27,7 +27,7 @@ class Aate8583HorizonPricerTest {
         assertFalse(f(65 * m, true, true, true, true))             // booked
     }
 
-    @Test fun one_read_per_mint_oldest_window_first_and_never_twice_inside_the_gap() {
+    @Test fun one_read_per_mint_nearest_deadline_first_and_never_twice_inside_the_gap() {
         val now = 10_000_000L
         val open = listOf("B" to 300L, "A" to 100L, "A" to 200L, "C" to 50L)
         val last = mapOf("C" to now - 1_000L)
@@ -35,7 +35,20 @@ class Aate8583HorizonPricerTest {
         assertEquals(listOf("C", "A", "B"), ForwardReturnLabeler7731.hpDueMints8583(open, { null }, now))
         assertEquals(listOf("C"), ForwardReturnLabeler7731.hpDueMints8583(open, { null }, now, cap = 1))
         assertTrue(ForwardReturnLabeler7731.HP_READ_GAP_MS_8583 < 60_000L)   // several tries inside even a 1-minute window
-        assertTrue(ForwardReturnLabeler7731.HP_TICK_MS_8583 <= 5_000L && ForwardReturnLabeler7731.HP_MAX_MINTS_8583 >= 100)
+        assertTrue(ForwardReturnLabeler7731.HP_TICK_MS_8583 <= 5_000L && ForwardReturnLabeler7731.HP_MAX_MINTS_8583 in 60..120)
+    }
+
+    @Test fun an_imminent_1m_label_beats_an_older_60m_label_and_a_15m_runner_target_is_not_invisible() {
+        val f = ForwardReturnLabeler7731::horizonDeadline8650
+        val now = 5_000_000L
+        val hour = f(now - 61 * m, now, true, true, true, false, 60 * m)
+        val oneMinute = f(now - 90 * s, now, true, false, false, false, 15 * m)
+        assertTrue(hour != null && oneMinute != null && oneMinute < hour)
+        assertEquals(listOf("YOUNG", "OLD"), ForwardReturnLabeler7731.hpDueMints8583(
+            listOf("OLD" to hour!!, "YOUNG" to oneMinute!!), { null }, now, cap = 2))
+        assertTrue("a 15-minute runner needs its own priced target", f(now - 16 * m, now, true, true, true, false, 15 * m) != null)
+        assertEquals("the same coin was not due for its old 60-minute slot yet", null,
+            f(now - 16 * m, now, true, true, true, false, 60 * m))
     }
 
     @Test fun the_pricer_runs_from_the_tick_on_its_own_thread_and_publishes_inside_the_window() {

@@ -54,7 +54,9 @@ object EdgeModel8537 {
     private const val DATASET_FILE = "edge_dataset_8537.jsonl"
     // V5.0.8642 — the old binary included false-priced/seed-basis outcomes before 8617 started excluding them.
     // DIM alone cannot attest the model's evidence quality, so a validated epoch is now part of the format.
-    internal const val MODEL_EPOCH_8642 = 8642
+    // V5.0.8650: replay verified, fillable horizons under the corrected runner-return contract.
+    // The prior epoch mathematically discarded genuine 5x-12x outcomes on >$100k coins.
+    internal const val MODEL_EPOCH_8642 = 8650
 
     // ── features ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -318,29 +320,31 @@ object EdgeModel8537 {
     } catch (_: Throwable) { null }
 
     /**
-     * Pure (V5.0.8617): can a coin at [mcapUsd] really net [netPct] in five minutes? Under $100 k a launch can 50x (+5,000 %);
-     * under $1 M, +400 %; at $1 M or more, +100 %. An unknown cap allows +400 %. Losses are always plausible.
+     * V5.0.8650: a cap at the DECISION instant cannot impose a 100%-400% ceiling on a FUTURE realised runner.
+     * That 8617 outlier filter correctly rejected the old +518,638% and +1.4-billion-percent basis errors, but
+     * silently dropped legitimate 500%-1,100% opportunities from every setup, sheet, model and forward learner.
+     * A real same-venue chain price witness can validate a still larger move; without it the conservative 12x/50x
+     * ceilings remain. An unknown market cap by itself supplies no evidence for a large win.
      */
-    fun plausible8617(mcapUsd: Double, netPct: Double): Boolean {
+    fun plausible8617(mcapUsd: Double, netPct: Double, chainWitness: Boolean = false): Boolean {
         if (!netPct.isFinite()) return false
-        val cap = when {
+        val unwitnessedCap = when {
             !mcapUsd.isFinite() || mcapUsd <= 0.0 -> 400.0
             mcapUsd < 100_000.0 -> 5_000.0
-            mcapUsd < 1_000_000.0 -> 400.0
-            else -> 100.0
+            else -> 1_200.0
         }
-        return netPct <= cap
+        return netPct <= unwitnessedCap || (chainWitness && netPct <= 10_000.0)
     }
     private val implausible8617 = AtomicLong(0L)
 
     /** ForwardReturnLabeler7731.book (slot60): score the frozen prediction out of sample, THEN learn from the outcome. */
-    fun learn(s: Snap, netPct: Double) {
+    fun learn(s: Snap, netPct: Double, chainWitness: Boolean = false) {
         if (!netPct.isFinite()) return
         // V5.0.8617 — an implausible 5-minute outcome never trains anything (the model, the pocket ledger, the dataset's
         // training rows). The 03:50 export held a $2.96 M day-old coin at +1,406,280,000 % with a -1.9 % 5 m move and a
         // $112 k coin at +518,638 %: 13 rows over 5 mints, each a mark from the wrong basis. The model learns ln(1 + net),
         // so one such row weighed ~1,650 against a normal label's single digits.
-        if (!plausible8617(s.raw.mcap, netPct)) {
+        if (!plausible8617(s.raw.mcap, netPct, chainWitness)) {
             implausible8617.incrementAndGet()
             try { PipelineHealthCollector.labelInc("EDGE_LABEL_IMPLAUSIBLE_8617") } catch (_: Throwable) {}
             return
@@ -356,7 +360,7 @@ object EdgeModel8537 {
             byLane.getOrPut(s.raw.lane) { Ridge(DIM) }.learn(s.x, y)
         }
         val k = learned.incrementAndGet()
-        appendDataset(s, netPct)   // V5.0.8567 — the dataset keeps the true net, uncapped
+        appendDataset(s, netPct, witnessed = chainWitness)   // retain independently provable multi-X outcomes
         try { PocketLedger8610.learn8610(s, netPct) } catch (_: Throwable) {}   // V5.0.8610 — the learned pocket ledger
         if (k % SAVE_EVERY == 0L) saveAsync()
         try { PipelineHealthCollector.labelInc("EDGE_MODEL_LEARNED_8537") } catch (_: Throwable) {}
@@ -424,7 +428,7 @@ object EdgeModel8537 {
         val horizon = row.optLong("horizonMs", 0L)
         if (lane.isBlank() || horizon <= 0L || horizon != PocketLedger8610.targetHorizon(lane)) return false
         val net = row.optDouble("net", Double.NaN)
-        return plausible8617(row.optDouble("mcap", Double.NaN), net)
+        return plausible8617(row.optDouble("mcap", Double.NaN), net, row.optBoolean("witness", false))
     }
 
     /** One streaming replay, not readLines(): the 24 MB dataset cannot be copied wholesale onto Android's heap. */
@@ -504,7 +508,7 @@ object EdgeModel8537 {
     }
 
     /** Pure: one dataset row (JSON) — the raw observation, the frozen prediction and the outcome. */
-    fun datasetLine(s: Snap, net: Double, filled: Boolean = true): String {
+    fun datasetLine(s: Snap, net: Double, filled: Boolean = true, witnessed: Boolean = false): String {
         fun n(v: Double) = if (v.isFinite()) "%.6g".format(java.util.Locale.US, v) else "null"
         val r = s.raw
         return "{\"t\":${s.atMs},\"horizonMs\":${s.horizonMs},\"mint\":\"${s.mint.take(44)}\",\"lane\":\"${r.lane}\",\"src\":\"${r.source.replace("\"", "").take(60)}\"," +
@@ -512,7 +516,7 @@ object EdgeModel8537 {
             "\"dd\":${n(r.dd)},\"bp\":${n(r.bp)},\"chg5m\":${n(r.chg5m)},\"chg1h\":${n(r.chg1h)},\"volAccel\":${n(r.volAccel)}," +
             "\"top\":${n(r.top)},\"holderVel\":${n(r.holderVel)},\"txVel\":${n(r.txVel)},\"curve\":${n(r.curve)},\"turnover\":${n(r.turnover)}," +
             "\"flags\":${r.flags},\"phase\":\"${r.phase}\",\"v3\":${n(r.v3)},\"cost\":${n(r.costPct)},\"admitted\":${s.admitted}," +
-            "\"pred\":${n(netOf8567(s.pred))},\"model\":\"${s.modelKey}\",\"modelEpoch\":${s.modelEpoch},\"net\":${n(net)},\"fill\":$filled}"
+            "\"pred\":${n(netOf8567(s.pred))},\"model\":\"${s.modelKey}\",\"modelEpoch\":${s.modelEpoch},\"net\":${n(net)},\"fill\":$filled,\"witness\":$witnessed}"
     }
 
     /**
@@ -521,16 +525,16 @@ object EdgeModel8537 {
      * never trains the model (its entry price is not one a buy could have got). 8537 exports held TREASURY / CASHGEN / crypto
      * only: not one SHITCOIN, MOONSHOT or EXPRESS decision.
      */
-    fun recordUnfilled8546(s: Snap, netPct: Double) {
+    fun recordUnfilled8546(s: Snap, netPct: Double, chainWitness: Boolean = false) {
         if (!netPct.isFinite()) return
         unfilled8546.incrementAndGet()
-        appendDataset(s, netPct, filled = false)
+        appendDataset(s, netPct, filled = false, witnessed = chainWitness)
     }
     private val unfilled8546 = AtomicLong(0)
     private val lastTrimMilestone8642 = AtomicLong(0)
 
-    private fun appendDataset(s: Snap, net: Double, filled: Boolean = true) {
-        val line = try { datasetLine(s, net, filled) } catch (_: Throwable) { return }
+    private fun appendDataset(s: Snap, net: Double, filled: Boolean = true, witnessed: Boolean = false) {
+        val line = try { datasetLine(s, net, filled, witnessed) } catch (_: Throwable) { return }
         io.execute {
             try {
                 val f = File(dir() ?: return@execute, DATASET_FILE)

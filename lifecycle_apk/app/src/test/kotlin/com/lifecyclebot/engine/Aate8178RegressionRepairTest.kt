@@ -25,10 +25,12 @@ class Aate8178RegressionRepairTest {
         val cap = s.substringAfter("fun capture(ts: TokenState, labelLane: String, admitted: Boolean").substringBefore("private fun captureCold8178(")
         val cold = cap.substringAfter("if (a8174 == null) {").substringBefore("val ctx8174 =")
         // superseded by V5.0.8187: the cold capture is queued per mint|lane (coalesced, refusals counted).
-        assertTrue(cold.contains("admitted) { captureCold8178("))
+        // 8649 moved the heavy voter graph off the decision thread.
+        assertTrue(cold.contains("submitCaptureKeyed8187(ticket8397, admitted) {"))
+        assertTrue(cold.contains("captureCold8178(frozen8273, labelLane, admitted"))
         assertFalse(cold.contains("cachedOrSchedule(ts, labelLane, nowMs)"))
         val body = s.substringAfter("private fun captureCold8178(").substringBefore("private fun captureNow(")
-        assertTrue(body.contains("val a = assess(ts, labelLane, inputAtMs8522 = decisionAtMs)"))
+        assertTrue(body.contains("val a = assess(ts, labelLane, inputAtMs8522 = decisionAtMs, sampleReserved8644 = sampleReserved8649)"))
         assertTrue(body.contains("captureNow(ts.mint, labelLane, admitted, decisionAtMs,"))
         assertTrue(body.contains("!p.lateRead8169"))
     }

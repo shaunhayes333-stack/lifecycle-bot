@@ -53,8 +53,10 @@ class Aate8623HonestPaperAndHeapTest {
         assertFalse(Cortex7885.voterGraphBounded8644("on"))
         assertTrue(Cortex7885.sampleDue8644(0L, 1_000L))
         assertFalse(Cortex7885.sampleDue8644(1_000L, 2_000L))
-        assertFalse(Cortex7885.sampleDue8644(1_000L, 30_999L))
-        assertTrue(Cortex7885.sampleDue8644(1_000L, 31_000L))
+        // 8648's global 30-second ceiling left only 120 reads/hour over all lanes.
+        // The same bounded quota now permits one worker read every six seconds.
+        assertFalse(Cortex7885.sampleDue8644(1_000L, 6_999L))
+        assertTrue(Cortex7885.sampleDue8644(1_000L, 7_000L))
         val c = src("engine/cortex/Cortex7885.kt")
         val assess = c.substringAfter("fun assess(ts: TokenState, laneRaw: String").substringBefore("assessCache[key]?.let")
         assertTrue("scan release still runs first", assess.indexOf("noteScored8418") < assess.indexOf("if (VOTER_GRAPH_RETIRED_8623) return null"))
@@ -63,14 +65,25 @@ class Aate8623HonestPaperAndHeapTest {
         assertTrue(capture.contains("ForwardReturnLabeler7731.freezeTiming8528(ts.mint, labelLane, nowMs, sel, timing)"))
         assertTrue(capture.contains("VOTER_GRAPH_RETIRED_8623 || unsampled8644"))
         assertTrue("repeated decisions cannot multiply pending voter captures", capture.contains("claimCapture8644(key8644, hot8644.atMs, nowMs)"))
-        // V5.0.8647: sampled production assessments must be attached to an actual label,
-        // or the 30-second quota produces reads with no executable learning outcomes.
+        // V5.0.8649: the old prewarm-requires-proven-OOS loop was circular.
+        // Bounded prewarm restores frozen decisions without taking the capture budget.
         val schedule = c.substringAfter("private fun cachedOrSchedule(").substringBefore("private fun operatorSource8522(")
-        assertTrue(schedule.contains("!provenOverStack8539(laneRaw)"))
-        assertTrue(schedule.indexOf("!provenOverStack8539(laneRaw)") < schedule.indexOf("reserveSample8644(nowMs)"))
-        assertTrue(capture.contains("assess(frozen8647, labelLane, nowMs"))
-        assertTrue(capture.indexOf("assess(frozen8647, labelLane, nowMs") < capture.indexOf("val unsampled8644"))
-        assertTrue(capture.contains("decisionSnapshots8522.capture(ts, nowMs)"))
+        assertFalse("a cold lane must be allowed to learn", schedule.contains("!provenOverStack8539(laneRaw)"))
+        assertTrue(schedule.indexOf("reservePrewarm8649(nowMs)") < schedule.indexOf("reserveSample8644(nowMs)"))
+        assertTrue(schedule.contains("val frozenPrewarm8649 = try { decisionSnapshots8522.capture(ts, nowMs) }"))
+        assertTrue(schedule.contains("assess(frozenPrewarm8649, laneRaw, nowMs, nowMs, sampleReserved8644 = true)"))
+        // V5.0.8649 — the sampled 331-voter graph must never run inline in the
+        // ForwardReturnLabeler decision callback. Only the already-bounded worker
+        // may read it after freezing the immutable decision input.
+        assertFalse("a heavy voter assessment must not block a live decision", capture.contains("assess("))
+        assertTrue(capture.contains("val coldSampleReserved8649 = BOUNDED_VOTER_GRAPH_8644"))
+        assertTrue(capture.contains("reserveSample8644(nowMs)"))
+        val prepare = c.substringAfter("val captureKey8397").substringBefore("private fun captureNow(")
+        assertTrue("capture input is frozen before enqueue", prepare.contains("val frozen8273 = decisionSnapshots8522.capture(ts, nowMs)"))
+        assertTrue("the cold capture uses the reserved bounded slot", prepare.contains("ticket8397, coldSampleReserved8649)"))
+        assertTrue("the worker does the expensive assessment", prepare.contains("sampleReserved8644 = sampleReserved8649"))
+        assertTrue("each sampled read attaches only once", prepare.contains("CORTEX_LABEL_SAMPLE_DUPLICATE_8649"))
+        assertTrue(prepare.indexOf("submitCaptureKeyed8187(ticket8397, admitted) {") < prepare.indexOf("sampleReserved8644 = sampleReserved8649"))
         assertEquals("CORTEX_PENDING_8644", com.lifecyclebot.engine.cortex.CortexForwardEpoch8521.PENDING)
         assertTrue("the pending row is not read", c.contains("if (VOTER_GRAPH_RETIRED_8623) CortexForwardEpoch8521.readStoredBooks8623("))
         val books = com.lifecyclebot.engine.cortex.CortexForwardEpoch8521.readStoredBooks8623({ k -> "row:" + k }, { false })!!
@@ -84,5 +97,26 @@ class Aate8623HonestPaperAndHeapTest {
         val cohort = s.substringAfter("private fun bestCohort8360(").substringBefore("private data class Report8401")
         assertTrue(cohort.contains("countSumSince8623(k, sinceMs)"))
         assertFalse(cohort.contains("netsSince("))
+    }
+
+    @Test fun anOriginalMissingForwardReceiptAcksOnlyWhenDurableAndNeverForgesLearning() {
+        val missing = """{"id":"mint|MOONSHOT|123","disposition":"ORIGINAL_PREDICTION_UNAVAILABLE"}"""
+        val learned = """{"id":"mint|MOONSHOT|123","disposition":"LEARNED"}"""
+        val observed = """{"id":"mint|MOONSHOT|123","disposition":"OBSERVED_ONLY"}"""
+        val receipt = "CORTEX_FORWARD_RECEIPT_8404|mint|MOONSHOT|123"
+        var writes = 0
+        val saver: (Map<String, String>) -> Boolean = { rows ->
+            writes++
+            assertEquals(mapOf(receipt to missing), rows)
+            true
+        }
+        assertTrue(Cortex7885.durableUnpairedForward8649(receipt, missing, saver))
+        assertEquals(1, writes)
+        assertFalse(Cortex7885.durableUnpairedForward8649(receipt, learned, saver))
+        assertFalse(Cortex7885.durableUnpairedForward8649(receipt, observed, saver))
+        assertFalse(Cortex7885.durableUnpairedForward8649(receipt, "{bad JSON", saver))
+        assertEquals("no model-bearing receipt was separately acknowledged", 1, writes)
+        assertFalse(Cortex7885.durableUnpairedForward8649(receipt, missing) { false })
+        assertFalse(Cortex7885.durableUnpairedForward8649(receipt, missing) { throw IllegalStateException("DB closed") })
     }
 }

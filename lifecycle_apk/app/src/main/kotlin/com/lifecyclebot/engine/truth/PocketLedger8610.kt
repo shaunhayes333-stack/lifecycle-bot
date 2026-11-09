@@ -170,7 +170,7 @@ object PocketLedger8610 {
                 val o = JSONObject(line)
                 if (o.optLong("horizonMs") <= 0L || !o.optBoolean("fill", false)) return@forEachLine
                 val net = d(o, "net"); if (!net.isFinite()) return@forEachLine
-                if (!EdgeModel8537.plausible8617(d(o, "mcap"), net)) return@forEachLine   // V5.0.8617 — bad-basis marks
+                if (!EdgeModel8537.plausible8617(d(o, "mcap"), net, o.optBoolean("witness", false))) return@forEachLine
                 val b = bands8610(d(o, "liq"), d(o, "mcap"), d(o, "age"), d(o, "bp"), d(o, "chg5m"), d(o, "chg1h"), d(o, "pxPeak"),
                     d(o, "volAccel"), d(o, "top"), o.optString("phase"))
                 record(o.optString("mint"), o.optLong("t"), o.optLong("horizonMs"), o.optString("lane"), b, net)

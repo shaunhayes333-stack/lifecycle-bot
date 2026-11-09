@@ -74,14 +74,14 @@ class Aate8539CortexEarnsAndFluidFloorsTest {
         assertEquals("SAFETY_REFUSED_8136", CandidateAdmission8136.decide8136(c.copy(safetyRefusal = "MINT_AUTH")).reason)
     }
 
-    @Test fun the_owning_lane_answers_the_shared_menus_no_match() {
-        // 8538: CASHGEN native 53/100 Y, setup=NO_TRIGGER, refused ENTRY_NO_PHASE_TRIGGER_8506 (x308 in CASHGEN alone)
+    @Test fun a_bare_native_score_does_not_turn_no_fired_setup_into_a_live_buy() {
+        // 8650: CASHGEN native 53/100 without a fired rule is not a named, executable trade.
         val c = CandidateAdmission8136.Candidate8136("phase-8539", "CASHGEN", null, live = true, stage = "NO_SETUP",
             entryWait8506 = "NO_PHASE_TRIGGER", priceAgeMs = 10L, expectedGrossPct = 20.0, costPct = 4.5,
             genericScore = 53.0, genericFloor = 15.0, nativeQualified8213 = true, liveEdge8114 = "CHART_BUY")
         val d = CandidateAdmission8136.decide8136(c)
-        assertEquals(CandidateAdmission8136.Terminal8136.ADMIT, d.terminal)
-        assertTrue(d.trace.any { it.startsWith("specialistQualified8539 ownTrigger=") })
+        assertFalse(CandidateAdmission8136.specialistQualified8539(c))
+        assertEquals("ENTRY_NO_PHASE_TRIGGER_8506", d.reason)
         assertEquals("no lane brain qualified it: the shared wait still binds", "ENTRY_NO_PHASE_TRIGGER_8506",
             CandidateAdmission8136.decide8136(c.copy(nativeQualified8213 = false)).reason)
         assertEquals("a dump still needs its reclaim", "ENTRY_NO_RECLAIM_8506",
@@ -116,7 +116,8 @@ class Aate8539CortexEarnsAndFluidFloorsTest {
     @Test fun paper_explores_what_its_own_lane_qualified() {
         // 8539 paper run: 0 paper meme trades — paper held to every live money door
         val c = CandidateAdmission8136.Candidate8136("paper-8539", "MOONSHOT", null, live = false, priceAgeMs = 10L,
-            expectedGrossPct = 3.0, costPct = 4.5, genericScore = 40.0, genericFloor = 15.0, nativeQualified8213 = true)
+            expectedGrossPct = 3.0, costPct = 4.5, genericScore = 40.0, genericFloor = 15.0,
+            nativeQualified8213 = true, nativeSetup8213 = "NATIVE_RULE_8535:MOONSHOT_READY")
         assertTrue(CandidateAdmission8136.paperExplores8539(c))
         assertFalse("live never explores", CandidateAdmission8136.paperExplores8539(c.copy(live = true)))
         val econ = CandidateAdmission8136.decide8136(c)

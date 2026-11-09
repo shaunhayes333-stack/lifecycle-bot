@@ -17,7 +17,9 @@ class Aate8217CrossLaneAndNativeTest {
 
     @Test fun nativeBookAndDexLabelFallbackAreWired() {
         val a = File("src/main/kotlin/com/lifecyclebot/engine/truth/CandidateAdmission8136.kt").readText()
-        assertTrue(a.contains("nativeQualified8213 = nativeOpinion8213 != null || nativeSetupBook8217 != null || runnerForming8260 != null,"))
+        assertTrue("one executable native setup identity is the qualification, not a bare BUY flag",
+            a.contains("nativeQualified8213 = nativeIdentity8650 != null,"))
+        assertTrue(a.contains("nativeSetup8213 = nativeIdentity8650,"))
         assertTrue(a.contains("SpecialistCandidateBooks7803.State.READY"))
         val f = File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
         // V5.0.8405 — DexScreener (sr=100%) now leads the off-watch batch over every chunk; the curve prices the pump mints it
