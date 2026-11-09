@@ -116,7 +116,14 @@ class Aate8546StrategyFamiliesTest {
         assertFalse("15m outcomes cannot be counted as 5m market breadth", MemeRegime8546.eligibleBreadth8655(15 * 60_000L, true))
         assertFalse("unfillable paper rockets cannot heat an executable regime", MemeRegime8546.eligibleBreadth8655(5 * 60_000L, false))
         val labeler = src("engine/truth/ForwardReturnLabeler7731.kt")
-        assertTrue("only 5m fillable targets feed market breadth", labeler.contains("MemeRegime8546.eligibleBreadth8655(o.targetHorizon8521, entryFill8521(o))"))
+        val fiveMinRead = labeler.substringAfter("private fun bookSixty7944(").substringBefore("val scalp8080 =")
+        assertTrue("5m interim is the market breadth observation, even on 15m runner lanes",
+            fiveMinRead.contains("MemeRegime8546.eligibleBreadth8655(H60_MS_7731, entryFill8521(o))"))
+        assertTrue("market breadth must use the actual 5m observed close, not simulated peak capture",
+            fiveMinRead.contains("MemeRegime8546.note8546(nowMs, net0, gross0)"))
+        assertFalse("final target bookings must not double count a 5m regime vote",
+            labeler.substringAfter("private fun book(o: Obs,").substringBefore("val keys = keysOf7928(o)")
+                .contains("MemeRegime8546.note8546("))
     }
 
     @Test fun aFamilyEarnsLiveMoneyOnlyOnAProvenPaperRecord() {

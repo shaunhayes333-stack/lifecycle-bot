@@ -29,8 +29,8 @@ object MemeRegime8546 {
     /**
      * V5.0.8655: regime breadth is a *fillable five-minute* price experiment, not a mix of
      * 5m and 15m target slots or an unfillable runner whose paper mark jumped 20x.
-     * The original book(o, 60, ...) uses 60 as its TALLY SLOT, not a 60-minute or
-     * necessarily five-minute duration. Missing real fill evidence never means a win.
+     * The market uses each lane's genuine 5m INTERIM read, not the final learning
+     * target (which can be 15m), so runner lanes retain fair representation.
      */
     fun eligibleBreadth8655(targetHorizonMs: Long, fillable: Boolean): Boolean =
         fillable && targetHorizonMs == 5L * 60_000L
