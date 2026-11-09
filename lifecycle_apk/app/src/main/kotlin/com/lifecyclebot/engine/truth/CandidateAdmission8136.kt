@@ -981,7 +981,7 @@ object CandidateAdmission8136 {
      */
     private val VERIFIED_RECORD_DOORS_8650 = setOf(
         "SETUP_RECORD_LOSING_8136", "TIMING_ADVERSE_8136", "CELL_PROVEN_LOSING_8136",
-        "SHEET_AVOID_8323", EDGE_MODEL_NEGATIVE_8537,
+        "SHEET_AVOID_8323", "EDGE_MODEL_NEGATIVE_8537",
     )
     internal fun verifiedRecordDoor8650(reason: String): Boolean = reason in VERIFIED_RECORD_DOORS_8650
 
