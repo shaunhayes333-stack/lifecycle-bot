@@ -1164,23 +1164,19 @@ object Cortex7885 {
     /** ForwardReturnLabeler7731.observe: one graded decision opens here (1:1 with its observation). */
     fun capture(ts: TokenState, labelLane: String, admitted: Boolean, nowMs: Long = System.currentTimeMillis(), reason: String? = null, incumbent8506: Boolean? = null) {
         if (labelLane.startsWith("PLANWAIT_") || labelLane.startsWith("PLANADMIT_")) return
-        // Only frozen pre-decision predictions can be paired with their labels. At the sampled
-        // rate, almost all decisions keep their cheap setup/timing labels without scheduling a
-        // cold 331-voter read AFTER the decision (which cannot be valid walk-forward evidence).
+        // V5.0.8649 — the 8647 label-time sample called the full voter graph inline
+        // on the ForwardReturnLabeler / scanner decision thread (a regression of the
+        // nonblocking Cortex contract). Reserve the same two-per-minute budget HERE,
+        // freeze the decision inputs HERE, and run the costly read on the capture pool.
+        // Late worker reads remain ineligible for authority via lateVoterRead8169;
+        // never pretend the worker completed at the earlier decision timestamp.
         val key8644 = "${ts.mint}|${canon(labelLane)}"
-        // V5.0.8647 — sample at the actual forward-labelled decision, not at an unrelated
-        // earlier native prewarm. This is still at most two full voter reads a minute and
-        // uses the label's frozen decision inputs. The read-completion clock is retained;
-        // lateVoterRead8169 refuses to train if any read crosses the executable-fill clock.
-        val hot8644 = if (BOUNDED_VOTER_GRAPH_8644) {
-            assessCache[key8644]?.takeIf { nowMs - it.atMs in 0L..ASSESS_TTL_MS }
-                ?: try {
-                    val frozen8647 = decisionSnapshots8522.capture(ts, nowMs)
-                    assess(frozen8647, labelLane, nowMs, inputAtMs8522 = nowMs)
-                } catch (_: Throwable) { inc("CORTEX_LABEL_SAMPLE_FAILED_8647"); null }
-        } else null
+        val hot8644 = if (BOUNDED_VOTER_GRAPH_8644)
+            assessCache[key8644]?.takeIf { nowMs - it.atMs in 0L..ASSESS_TTL_MS } else null
+        val coldSampleReserved8649 = BOUNDED_VOTER_GRAPH_8644 && hot8644 == null && reserveSample8644(nowMs)
         val unsampled8644 = BOUNDED_VOTER_GRAPH_8644 &&
-            (hot8644 == null || !claimCapture8644(key8644, hot8644.atMs, nowMs))
+            (if (hot8644 == null) !coldSampleReserved8649
+             else !claimCapture8644(key8644, hot8644.atMs, nowMs))
         if (VOTER_GRAPH_RETIRED_8623 || unsampled8644) {
             // The playbook's decision-time setup tag and the labeler's frozen timing still belong to every decision.
             val snap = try { LanePlaybook7907.decisionSnapshot8084(ts, labelLane, nowMs) } catch (_: Throwable) { null }
@@ -1223,7 +1219,11 @@ object Cortex7885 {
                 // All native lanes in this same decision share the frozen input, allowing their lane-free voters to share work.
                 val frozen8273 = decisionSnapshots8522.capture(ts, nowMs)
                 inc("CAPTURE_COLD_FEATURES_FROZEN_8273")
-                submitCaptureKeyed8187(ticket8397, admitted) { captureCold8178(frozen8273, labelLane, admitted, nowMs, reason, snap8084, sel8153, ctxCold8178, sourceCold8178, decisionMode8196, ticket8397) }
+                if (coldSampleReserved8649) inc("CORTEX_LABEL_SAMPLE_QUEUED_8649")
+                submitCaptureKeyed8187(ticket8397, admitted) {
+                    captureCold8178(frozen8273, labelLane, admitted, nowMs, reason, snap8084, sel8153,
+                        ctxCold8178, sourceCold8178, decisionMode8196, ticket8397, coldSampleReserved8649)
+                }
                 return@prepareCapture8397
             }
             val ctx8174 = try { decisionCtx8144(ts, a8174.lane, admitted, reason, incumbent8506) } catch (_: Throwable) { null }
@@ -1238,9 +1238,16 @@ object Cortex7885 {
     /** V5.0.8178 — a cold decision: one voter read on the capture pool (stamped with its own read time), then captureNow. */
     private fun captureCold8178(ts: TokenState, labelLane: String, admitted: Boolean, decisionAtMs: Long, reason: String?,
                                 snap8084: LanePlaybook7907.Classification8084?, sel8153: String?,
-                                ctx: DecisionCtx8144?, source: String, decisionMode8196: String, ticket8397: CortexCaptureOwnership8397.Ticket) {
+                                ctx: DecisionCtx8144?, source: String, decisionMode8196: String, ticket8397: CortexCaptureOwnership8397.Ticket,
+                                sampleReserved8649: Boolean = false) {
         if (!captureOwners8397.current(ticket8397)) { inc("CAPTURE_SUPERSEDED_BEFORE_READ_8397"); return }
-        val a = assess(ts, labelLane, inputAtMs8522 = decisionAtMs) ?: run { inc("CAPTURE_COLD_ASSESS_FAILED_8178"); return }
+        val a = assess(ts, labelLane, inputAtMs8522 = decisionAtMs, sampleReserved8644 = sampleReserved8649)
+            ?: run { inc("CAPTURE_COLD_ASSESS_FAILED_8178"); return }
+        if (sampleReserved8649 && !claimCapture8644("${ts.mint}|${canon(labelLane)}", a.atMs, decisionAtMs)) {
+            inc("CORTEX_LABEL_SAMPLE_DUPLICATE_8649")
+            return
+        }
+        if (sampleReserved8649) inc("CORTEX_LABEL_SAMPLE_WORKER_READ_8649")
         inc("CAPTURE_COLD_READ_8178")
         captureNow(ts.mint, labelLane, admitted, decisionAtMs, reason, snap8084, sel8153, a, ctx?.takeIf { a.lane == canon(labelLane) }, source, decisionMode8196, ticket8397)
         // Timing needs the decision's price: only a read that still preceded the label start opens a timing sample.
