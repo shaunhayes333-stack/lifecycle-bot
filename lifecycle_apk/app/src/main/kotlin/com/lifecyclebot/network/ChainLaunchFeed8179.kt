@@ -873,6 +873,7 @@ object ChainLaunchFeed8179 {
      */
     fun onHeliusTradeEvent8179(mint: String, signature: String, bytes: ByteArray) {
         try {
+            if (!PumpCurveKeys7269.isPumpMint8658(mint)) return
             val ev = decodeTradeEvent8179(bytes) ?: return
             if (ev.mint != mint || !(ev.sol > 0.0)) return
             tradeEvents.incrementAndGet()

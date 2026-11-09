@@ -28,7 +28,8 @@ class Aate8657PumpCurveOnlyTest {
         assertTrue(ws.contains("val priceSol0 = if (curveFrame8657 && vSol0.isFinite()"))
         assertTrue(ws.contains("if (curveFrame8657) try {\n                            PumpCurveKeys7269.remember(mint, j.optString(\"bondingCurveKey\", \"\"))"))
         val fan = File("src/main/kotlin/com/lifecyclebot/network/ParallelMarkFanout7088.kt").readText()
-        assertTrue(fan.contains("val pumpLike7392 = explicitCurve7392 || m.endsWith(\"pump\", ignoreCase = true)"))
+        assertTrue(fan.contains("val pumpLike7392 = PumpCurveKeys7269.isPumpMint8658(m)"))
+        assertFalse("held-position reads cannot bypass the curve namespace", fan.contains("explicitCurve7392"))
         assertEquals(0, Regex("PumpCurveKeys7269\\.keyFor\\(m\\) != null \\|\\|\\n").findAll(fan).count())
     }
 }

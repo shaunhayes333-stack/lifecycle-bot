@@ -24,18 +24,18 @@ class Aate8399CurveMcapHydrationTest {
         CurveReserves7951.resetForTest7951()
         MintSupply8418.resetForTest8418()
         val now = 1_000_000L
-        CurveReserves7951.noteFrame7951("mint8399", 34.0, 9.4e8, now - 1_000L)
-        val ts = TokenState(mint = "mint8399", symbol = "CURVE")
+        CurveReserves7951.noteFrame7951("mint8399pump", 34.0, 9.4e8, now - 1_000L)
+        val ts = TokenState(mint = "mint8399pump", symbol = "CURVE")
         assertEquals(0.0, ts.lastMcap, 0.0)
         // V5.0.8418 — before the mint account is read the curve cannot state a cap.
         assertTrue(CurveReserves7951.hydrateMcap8399(ts, 150.0, now).isNaN())
         assertEquals(0.0, ts.lastMcap, 0.0)
-        MintSupply8418.accept8418(MintSupply8418.Supply8418("mint8399", java.math.BigInteger("1000000000000000"), 6, 300L, now, MintSupply8418.Source8418.TOKEN_SUPPLY), notifyMetrics = false)
+        MintSupply8418.accept8418(MintSupply8418.Supply8418("mint8399pump", java.math.BigInteger("1000000000000000"), 6, 300L, now, MintSupply8418.Source8418.TOKEN_SUPPLY), notifyMetrics = false)
         val written = CurveReserves7951.hydrateMcap8399(ts, 150.0, now)
         assertTrue(written > 0.0)
         assertEquals(written, ts.lastMcap, 0.0)
         // An observed market cap is never overwritten by the derived one.
-        val observed = TokenState(mint = "mint8399", symbol = "CURVE").apply { lastMcap = 12_345.0 }
+        val observed = TokenState(mint = "mint8399pump", symbol = "CURVE").apply { lastMcap = 12_345.0 }
         assertTrue(CurveReserves7951.hydrateMcap8399(observed, 150.0, now).isNaN())
         assertEquals(12_345.0, observed.lastMcap, 0.0)
     }
@@ -43,8 +43,8 @@ class Aate8399CurveMcapHydrationTest {
     @Test fun staleOrAbsentReservesDoNotInventAMarketCap() {
         CurveReserves7951.resetForTest7951()
         val now = 1_000_000L
-        CurveReserves7951.noteFrame7951("stale8399", 34.0, 9.4e8, now - 16L * 60_000L)
-        assertTrue(CurveReserves7951.hydrateMcap8399(TokenState(mint = "stale8399", symbol = "S"), 150.0, now).isNaN())
+        CurveReserves7951.noteFrame7951("stale8399pump", 34.0, 9.4e8, now - 16L * 60_000L)
+        assertTrue(CurveReserves7951.hydrateMcap8399(TokenState(mint = "stale8399pump", symbol = "S"), 150.0, now).isNaN())
         assertTrue(CurveReserves7951.hydrateMcap8399(TokenState(mint = "absent8399", symbol = "A"), 150.0, now).isNaN())
     }
 

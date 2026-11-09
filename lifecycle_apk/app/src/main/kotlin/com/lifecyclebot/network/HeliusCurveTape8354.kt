@@ -316,6 +316,8 @@ object HeliusCurveTape8354 {
      */
     fun onTradeEvent8354(ev: ChainLaunchFeed8179.TradeEvent8179, sig: String, nowMs: Long = System.currentTimeMillis()): Boolean {
         val mint = ev.mint
+        // A decoded pump.fun-shaped event is not authority to apply its invariant to a non-pump launchpad.
+        if (!PumpCurveKeys7269.isPumpMint8658(mint)) { dropped.incrementAndGet(); return false }
         if (mint.isBlank() || !(ev.sol.isFinite() && ev.sol > 0.0 && ev.tokens.isFinite() && ev.tokens > 0.0 &&
                 ev.virtualSol.isFinite() && ev.virtualSol > 0.0 && ev.virtualTokens.isFinite() && ev.virtualTokens > 0.0)) {
             malformed.incrementAndGet(); return false

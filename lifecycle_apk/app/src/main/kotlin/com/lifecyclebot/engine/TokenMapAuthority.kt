@@ -363,7 +363,11 @@ object TokenMapAuthority {
         // expectedOutAmount=1.0 and returned early — the real DEX branch below never
         // ran, and every downstream buy/sell route pointed at a dead curve.
         try { RouteTruthHydrator.markGraduationIfDetected6852(ts) } catch (_: Throwable) {}
-        if (!tm.migratedOrGraduated &&
+        // V5.0.8658 — PumpPortal is a multi-venue trade router. Source names containing PUMP and cached
+        // virtual reserves are NOT evidence that a non-pump mint has a pump.fun curve.
+        val pumpCurveMint8658 = com.lifecyclebot.network.PumpCurveKeys7269.isPumpMint8658(ts.mint)
+        if (!pumpCurveMint8658) tm.pumpFunExecutable = false
+        if (pumpCurveMint8658 && !tm.migratedOrGraduated &&
             (tm.pumpFunExecutable || source.contains("PUMP") || (tm.expectedOutAmount > 0.0 && tm.pumpFunBondingCurveStatus.equals("ACTIVE", true)) || (tm.realSolReserves ?: 0.0) > 0.0 || (tm.virtualSolReserves ?: 0.0) > 0.0)) {
             tm.pumpFunExecutable = true
             if (tm.pumpFunBondingCurveStatus.isBlank() || tm.pumpFunBondingCurveStatus == "UNKNOWN") tm.pumpFunBondingCurveStatus = "DISCOVERY_ACTIVE_CANDIDATE"

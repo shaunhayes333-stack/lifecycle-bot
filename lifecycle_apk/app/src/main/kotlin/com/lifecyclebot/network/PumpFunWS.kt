@@ -433,7 +433,7 @@ object PumpFunWS {
      * is not in the TradeEvent, so soldFractionOfHolding is 0 (unknown), never estimated.
      */
     fun emitHeliusCurve8354(mint: String, priceSol: Double, marketCapSol: Double, isBuy: Boolean, wallet: String, solAmount: Double, vSolInCurve: Double) {
-        if (mint.isBlank() || !priceSol.isFinite() || priceSol <= 0.0) return
+        if (!PumpCurveKeys7269.isPumpMint8658(mint) || !priceSol.isFinite() || priceSol <= 0.0) return
         markSource8354.set(HeliusCurveTape8354.SRC_HELIUS_CURVE_8354)
         try {
             onTradeCb?.invoke(mint, priceSol, marketCapSol, isBuy)
@@ -1142,7 +1142,7 @@ object PumpFunWS {
      */
     internal fun pumpCurveFrame8657(pool: String, mint: String): Boolean {
         val p = pool.trim().lowercase()
-        return (p.isEmpty() || p == "pump") && mint.trim().endsWith("pump")
+        return (p.isEmpty() || p == "pump") && PumpCurveKeys7269.isPumpMint8658(mint)
     }
 
     private fun nonPumpCurveFrame8657(kind: String) {

@@ -11121,10 +11121,15 @@ class BotService : Service() {
                             try { com.lifecyclebot.engine.BotRuntimeController.markScannerActive(com.lifecyclebot.engine.BotRuntimeController.currentGeneration(), true) } catch (_: Throwable) {}
                             val solUsd = SolUsd8418.liveOrRefuse("PUMP_WS_INTAKE")
                                 ?: return@onNewToken  // V5.0.8418 — no $150 constant
-                            val mcapUsd = mcapSol * solUsd
+                            // PumpPortal carries OTHER launchpads too. Its marketCapSol/virtual-curve fields are
+                            // pump.fun metrics only for a pump-suffixed mint; the other venues hydrate their own cap.
+                            val pumpCurveMint8658 = com.lifecyclebot.network.PumpCurveKeys7269.isPumpMint8658(mint)
+                            val mcapUsd = if (pumpCurveMint8658) mcapSol * solUsd else Double.NaN
                             // V5.0.8048 — the curve's real SOL from its cap (was mcap x 0.85: a fresh launch read ~$2.6K deep
                             // with nobody in it — BOWNARROW). The chain read (CurveReserves7951) replaces it once it lands.
-                            val estLiq = com.lifecyclebot.engine.truth.LiquidityTruth8037.capDerived8418(mint, com.lifecyclebot.engine.truth.LiquidityTruth8037.curveRealSolFromCap8048(mcapSol) * solUsd)  // V5.0.8418 — tagged: never the tick
+                            val estLiq = if (pumpCurveMint8658)
+                                com.lifecyclebot.engine.truth.LiquidityTruth8037.capDerived8418(mint, com.lifecyclebot.engine.truth.LiquidityTruth8037.curveRealSolFromCap8048(mcapSol) * solUsd)
+                            else Double.NaN  // Non-pump launches have no witnessed curve depth; ask their actual venue.
                             // V5.9.1463 — DERIVED intake confidence (was hardcoded 80 for
                             // EVERY WS token). That constant lie was the root of the 6.3% WR:
                             // a brand-new bonding-curve launch with vol1h=$0 and ~$1.5k liq is
@@ -25801,6 +25806,14 @@ if (hotExitHandledSweep) {
         source8018: String = "PUMP_PORTAL_TRADE_WS_7278", pool8018: String = "",
         liquidityUsd8418: Double = 0.0,   // V5.0.8418 — a vault tick knows the pool's SOL side; the registry may then promote it
     ) {
+        // V5.0.8658 — a PumpPortal/Helius curve mark cannot become a non-pump mint's price or sell trigger.
+        // Actual pool/vault/swap marks retain their original venue routing.
+        val curveMark8658 = (source8018 == "PUMP_PORTAL_TRADE_WS_7278" || source8018.contains("CURVE", ignoreCase = true)) &&
+            (pool8018.isBlank() || pool8018 == com.lifecyclebot.engine.truth.TradeTape8100.VENUE_CURVE_8285)
+        if (curveMark8658 && !com.lifecyclebot.network.PumpCurveKeys7269.isPumpMint8658(mint)) {
+            PipelineHealthCollector.labelInc("NON_PUMP_CURVE_MARK_REFUSED_8658")
+            return
+        }
         val ts = status.tokens[mint] ?: return
         val solUsd = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
         if (!solUsd.isFinite() || solUsd <= 0.0) return
@@ -25947,7 +25960,10 @@ if (hotExitHandledSweep) {
                 val solUsd8165 = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
                 val pxSol8165 = try { com.lifecyclebot.engine.market.LaunchTape7921.lastPriceSol8165(mint) } catch (_: Throwable) { 0.0 }
                 val capUsd8165 = com.lifecyclebot.engine.truth.MintSupply8418.capSol8418(mint, pxSol8165) * solUsd8165   // V5.0.8418 — verified supply x print; NaN = unknown (was x 1e9)
-                val liqUsd8165 = com.lifecyclebot.engine.truth.LiquidityTruth8037.capDerived8418(mint, com.lifecyclebot.engine.truth.CurveReserves7951.curveDepthUsdFromPrice8418(pxSol8165, solUsd8165) ?: 0.0)  // V5.0.8418 — derived (not a reserve read): marked so it never overwrites a chain tick
+                // A non-pump launch obtains its depth from the actual venue, never the pump.fun invariant.
+                val liqUsd8165 = if (com.lifecyclebot.network.PumpCurveKeys7269.isPumpMint8658(mint))
+                    com.lifecyclebot.engine.truth.LiquidityTruth8037.capDerived8418(mint, com.lifecyclebot.engine.truth.CurveReserves7951.curveDepthUsdFromPrice8418(pxSol8165, solUsd8165) ?: 0.0)
+                else Double.NaN
                 admitProtectedMemeIntake(
                     mint = mint,
                     symbol = symbol.ifBlank { mint.take(6) },
@@ -26035,6 +26051,8 @@ if (hotExitHandledSweep) {
 
     /** V5.0.8118 — a PumpPortal launch with no token row entering the proven $10k-$100k band is admitted (PumpBandEntry8118). */
     private fun bandEntry8118(mint: String, priceSol: Double, mcapSol: Double, cfg: BotConfig, generation: Long) {
+        // This fast path's liquidity estimate uses pump.fun's invariant; other launchpads use their own venue depths.
+        if (!com.lifecyclebot.network.PumpCurveKeys7269.isPumpMint8658(mint)) return
         if (mint.isBlank() || FreshLaunchIntake8303.rowWatched8303(status.tokens.containsKey(mint), mint)) return  // V5.0.8303 — an evicted row no longer blocks
         val solUsd = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
         if (!(solUsd.isFinite() && solUsd > 0.0)) return

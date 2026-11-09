@@ -27,12 +27,15 @@ object PumpCurveKeys7269 {
 
     private const val MAX_KEYS = 6_000
 
+    /** V5.0.8658 — exclusive namespace for pump.fun curve *metrics*, not for PumpPortal transaction routing. */
+    fun isPumpMint8658(mint: String): Boolean = mint.trim().endsWith("pump", ignoreCase = true)
+
     private val keys = ConcurrentHashMap<String, String>()
 
     fun remember(mint: String, bondingCurveKey: String) {
         val m = mint.trim()
         val k = bondingCurveKey.trim()
-        if (m.isBlank() || k.isBlank() || k.length < 32) return
+        if (!isPumpMint8658(m) || k.isBlank() || k.length < 32) return
         if (keys.size >= MAX_KEYS && !keys.containsKey(m)) {
             // Oldest-insertion is not tracked; drop an arbitrary entry to stay
             // bounded. The WS re-announces nothing, but held mints are read
@@ -47,14 +50,14 @@ object PumpCurveKeys7269 {
         }
     }
 
-    fun keyFor(mint: String): String? = keys[mint.trim()]
+    fun keyFor(mint: String): String? = mint.trim().takeIf(::isPumpMint8658)?.let(keys::get)
 
     // V5.0.7392 — mints whose curve read says complete=true (graduated to an AMM):
     // their locked venue moves to the pool.
     private val graduated7392 = java.util.Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
     fun markGraduated7392(mint: String) {
         val m = mint.trim()
-        if (m.isBlank()) return
+        if (!isPumpMint8658(m)) return
         if (graduated7392.size >= MAX_KEYS) graduated7392.clear()
         if (graduated7392.add(m)) {
             try { PipelineHealthCollector.labelInc("PUMP_CURVE_GRADUATED_SEEN_7392") } catch (_: Throwable) {}
@@ -65,8 +68,8 @@ object PumpCurveKeys7269 {
     }
     private val graduatedAt8546 = ConcurrentHashMap<String, Long>()
     /** V5.0.8546 — when this process first saw [mint] graduated (null = not seen). */
-    fun graduatedAtMs8546(mint: String): Long? = graduatedAt8546[mint.trim()]
-    fun isGraduated7392(mint: String): Boolean = graduated7392.contains(mint.trim())
+    fun graduatedAtMs8546(mint: String): Long? = mint.trim().takeIf(::isPumpMint8658)?.let(graduatedAt8546::get)
+    fun isGraduated7392(mint: String): Boolean = isPumpMint8658(mint) && graduated7392.contains(mint.trim())
 
     // ── V5.0.7392 — the curve address is a function of the mint ────────────────
     //
@@ -84,7 +87,7 @@ object PumpCurveKeys7269 {
     /** The canonical bonding-curve PDA for [mint], or null if [mint] is not a valid key. */
     fun canonicalCurveKey7392(mint: String): String? {
         val m = mint.trim()
-        if (m.length !in 32..44) return null
+        if (!isPumpMint8658(m) || m.length !in 32..44) return null
         derived7392[m]?.let { return it }
         val key = try { findProgramAddress7392(listOf("bonding-curve".toByteArray(), base58Decode7392(m) ?: return null), PUMP_PROGRAM_7392) } catch (_: Throwable) { null }
             ?: return null
@@ -146,7 +149,7 @@ object PumpCurveKeys7269 {
 
     fun rememberCreate7280(mint: String, priceSol: Double, atMs: Long) {
         val m = mint.trim()
-        if (m.isBlank() || !priceSol.isFinite() || priceSol <= 0.0) return
+        if (!isPumpMint8658(m) || !priceSol.isFinite() || priceSol <= 0.0) return
         if (createPriceSol7280.size >= MAX_KEYS && !createPriceSol7280.containsKey(m)) {
             // V5.0.8118 — evict the OLDEST launch, not an arbitrary one (a seconds-old mint lost its create time).
             val victim = createdAtMs7280.entries.minByOrNull { it.value }?.key ?: createPriceSol7280.keys.firstOrNull()
@@ -156,6 +159,6 @@ object PumpCurveKeys7269 {
         createdAtMs7280.putIfAbsent(m, atMs)
     }
 
-    fun createPriceSol7280(mint: String): Double? = createPriceSol7280[mint.trim()]
-    fun createdAtMs7280(mint: String): Long? = createdAtMs7280[mint.trim()]
+    fun createPriceSol7280(mint: String): Double? = mint.trim().takeIf(::isPumpMint8658)?.let(createPriceSol7280::get)
+    fun createdAtMs7280(mint: String): Long? = mint.trim().takeIf(::isPumpMint8658)?.let(createdAtMs7280::get)
 }
