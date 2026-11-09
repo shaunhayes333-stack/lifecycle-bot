@@ -5334,7 +5334,9 @@ object Cortex7885 {
         // The save runs on the persistence thread; a main-thread caller waits at most FLUSH_WAIT_MS_8094 for it.
         val work = Runnable {
             lastPendingPersistMs = System.currentTimeMillis()
-            persistBlocking8094()
+            // V5.0.8652 — a user/shutdown flush is not a periodic hint: bypass
+            // the measured-cost backpressure and preserve the existing delivery.
+            persistBlocking8094(force8652 = true)
             try { LanePlaybook7907.persistNow7930() } catch (_: Throwable) {}
             try { CortexExit7897.persistNow7930() } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.ExitProfile7955.persistNow7955() } catch (_: Throwable) {} // V5.0.7955
@@ -5375,7 +5377,7 @@ object Cortex7885 {
      */
     private val persistLock8325 = Any()
 
-    private fun persistBlocking8094() { synchronized(persistLock8325) {
+    private fun persistBlocking8094(force8652: Boolean = false) { synchronized(persistLock8325) {
         if (!loaded) return
         // 8198 — never write a snapshot that separates the graded state from its receipt: while a close grade
         // awaits its durable commit, the close commit itself carries the state (see durableCloseCommit8198).
@@ -5385,8 +5387,19 @@ object Cortex7885 {
         // (encode=6916 ms, assessLockWait max 12465 ms: assessments and marks stalled behind it). A periodic save under
         // pressure now runs at most every [PRESSURE_SNAPSHOT_GAP_MS_8429]; close commits (durableCloseCommit8198) are untouched.
         val now8429 = System.currentTimeMillis()
-        if (periodicSnapshotDeferred8429(snapshotEncodesInLock8418(memoryPressure8418()), now8429 - lastPeriodicSnapshotMs8429)) {
+        if (!force8652 && periodicSnapshotDeferred8429(snapshotEncodesInLock8418(memoryPressure8418()), now8429 - lastPeriodicSnapshotMs8429)) {
             inc("CHECKPOINT_DEFERRED_UNDER_PRESSURE_8429"); return
+        }
+        // V5.0.8652 — snapshots were being rebuilt 318 times in 63 minutes on
+        // 8648, despite each encode taking ~6.3s (5.9s pending graph) and
+        // thousands of GCs. A 65% *instantaneous* Java heap measurement did not
+        // activate the pressure-only 8429 governor. Pace optional periodic saves
+        // by their actual measured CPU/DB cost; a retry after failed save, a
+        // forced/shutdown flush, and every atomic close/shadow receipt commit
+        // retain their original durability behavior.
+        if (!force8652 && lastPeriodicSnapshotMs8429 > 0L &&
+            periodicSnapshotCostDeferred8652(lastSaveCostMs8497(), now8429 - lastPeriodicSnapshotMs8429)) {
+            inc("CHECKPOINT_DEFERRED_ENCODER_COST_8652"); return
         }
         try {
             // V5.0.8325 — one consistent snapshot under the Cortex lock (re-checked: no close grade awaiting its receipt), written
@@ -5403,6 +5416,14 @@ object Cortex7885 {
 
     private const val PRESSURE_SNAPSHOT_GAP_MS_8429 = 5L * 60_000L
     @Volatile private var lastPeriodicSnapshotMs8429 = 0L
+
+    /** Pure measured-cost pace for OPTIONAL periodic snapshots only. An unmeasured first save runs normally. */
+    internal fun periodicSnapshotCostGapMs8652(lastCostMs: Long): Long =
+        if (lastCostMs <= 0L) 0L else maxOf(30_000L,
+            minOf(SAVE_GAP_CAP_MS_8497, lastCostMs.coerceAtMost(SAVE_GAP_CAP_MS_8497) * SAVE_COST_GAP_MULT_8497))
+
+    internal fun periodicSnapshotCostDeferred8652(lastCostMs: Long, sinceLastMs: Long): Boolean =
+        sinceLastMs >= 0L && periodicSnapshotCostGapMs8652(lastCostMs) > sinceLastMs
 
     /** Pure (V5.0.8429): a periodic save that would encode under the lock waits out the gap since the last one. */
     internal fun periodicSnapshotDeferred8429(encodesInLock: Boolean, sinceLastMs: Long): Boolean =

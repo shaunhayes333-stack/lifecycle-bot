@@ -86,7 +86,7 @@ class Aate8198CortexCloseDeliveryTest {
         assertTrue(commitFn.contains("CORTEX_CLOSE_DURABLE_RETRY_8198"))
         assertFalse(commitFn.contains("GlobalScope"))
         // the periodic writer never splits graded state from its receipt while a close grade is uncommitted
-        val persistFn = c.substringAfter("private fun persistBlocking8094() { synchronized(persistLock8325) {")  // superseded by V5.0.8325 (persist lock, not the Cortex monitor)
+        val persistFn = c.substringAfter("private fun persistBlocking8094(force8652: Boolean = false) { synchronized(persistLock8325) {")
         assertTrue(persistFn.contains("if (uncommittedCloseGrades8198.isNotEmpty()) return"))
     }
 
