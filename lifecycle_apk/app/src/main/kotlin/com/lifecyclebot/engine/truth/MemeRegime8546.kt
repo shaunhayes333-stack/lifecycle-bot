@@ -26,6 +26,15 @@ object MemeRegime8546 {
 
     private val rows = ArrayDeque<Triple<Long, Double, Double>>()   // (atMs, net, gross); guarded by this
 
+    /**
+     * V5.0.8655: regime breadth is a *fillable five-minute* price experiment, not a mix of
+     * 5m and 15m target slots or an unfillable runner whose paper mark jumped 20x.
+     * The original book(o, 60, ...) uses 60 as its TALLY SLOT, not a 60-minute or
+     * necessarily five-minute duration. Missing real fill evidence never means a win.
+     */
+    fun eligibleBreadth8655(targetHorizonMs: Long, fillable: Boolean): Boolean =
+        fillable && targetHorizonMs == 5L * 60_000L
+
     /** ForwardReturnLabeler7731.book: a 5-minute label of a Solana meme lane was booked. */
     fun note8546(atMs: Long, netPct: Double, grossPct: Double) {
         if (!netPct.isFinite() || !grossPct.isFinite() || atMs <= 0L) return

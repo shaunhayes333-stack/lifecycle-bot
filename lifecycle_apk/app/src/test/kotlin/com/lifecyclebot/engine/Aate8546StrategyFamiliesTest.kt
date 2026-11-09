@@ -112,7 +112,11 @@ class Aate8546StrategyFamiliesTest {
         assertEquals(MemeRegime8546.Regime8546.HOT, MemeRegime8546.regimeOf8546(List(n) { 5.0 }, List(n) { 8.0 }))
         assertEquals(MemeRegime8546.Regime8546.NEUTRAL, MemeRegime8546.regimeOf8546(List(n) { -10.0 }, List(n) { if (it % 2 == 0) 3.0 else -3.0 }))
         assertTrue(MemeRegime8546.statusLine8546().startsWith("memeRegime8546["))
-        assertTrue(src("engine/truth/ForwardReturnLabeler7731.kt").contains("if (horizon == 60 && MemePaperTrader8544.memeLane8544(o.lane)) try { MemeRegime8546.note8546("))
+        assertTrue(MemeRegime8546.eligibleBreadth8655(5 * 60_000L, true))
+        assertFalse("15m outcomes cannot be counted as 5m market breadth", MemeRegime8546.eligibleBreadth8655(15 * 60_000L, true))
+        assertFalse("unfillable paper rockets cannot heat an executable regime", MemeRegime8546.eligibleBreadth8655(5 * 60_000L, false))
+        val labeler = src("engine/truth/ForwardReturnLabeler7731.kt")
+        assertTrue("only 5m fillable targets feed market breadth", labeler.contains("MemeRegime8546.eligibleBreadth8655(o.targetHorizon8521, entryFill8521(o))"))
     }
 
     @Test fun aFamilyEarnsLiveMoneyOnlyOnAProvenPaperRecord() {
@@ -168,7 +172,8 @@ class Aate8546StrategyFamiliesTest {
         val l = src("engine/truth/ForwardReturnLabeler7731.kt").substringAfter("private fun bookEntryTarget8521(").substringBefore("o.bookedNet7997 = net;")
         assertTrue(l.contains("!entryFill8521(o) && MemePaperTrader8544.memeLane8544(o.lane)"))
         assertTrue(l.contains("EdgeModel8537.recordUnfilled8546(it, net, witness)"))
-        assertTrue(l.contains("MemeRegime8546.note8546(nowMs, net, gross)"))
+        assertFalse("unfillable entries must not contaminate regime breadth",
+            l.contains("MemeRegime8546.note8546(nowMs, net, gross)"))
         val e = src("engine/truth/EdgeModel8537.kt").substringAfter("fun recordUnfilled8546(").substringBefore("private val unfilled8546")
         // superseded (8568): the dataset keeps the true, uncapped net
         assertTrue(e.contains("appendDataset(s, netPct, filled = false, witnessed = chainWitness)"))

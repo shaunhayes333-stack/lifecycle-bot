@@ -1324,8 +1324,11 @@ object ForwardReturnLabeler7731 {
 
     private fun book(o: Obs, horizon: Int, net: Double, gross: Double, witnessed8324: Boolean = false) {
         if (!eligible8386(o)) return
-        // V5.0.8546 — every 5-minute meme label feeds the market regime (breadth: mean net, share rising)
-        if (horizon == 60 && MemePaperTrader8544.memeLane8544(o.lane)) try { MemeRegime8546.note8546(System.currentTimeMillis(), net, gross) } catch (_: Throwable) {}
+        // V5.0.8655: the 60 tally slot can be a 15m (or legacy 60m) target.
+        // Regime8521 consumes only fillable 5m outcomes on a single horizon.
+        if (horizon == 60 && MemePaperTrader8544.memeLane8544(o.lane) &&
+            MemeRegime8546.eligibleBreadth8655(o.targetHorizon8521, entryFill8521(o)))
+            try { MemeRegime8546.note8546(System.currentTimeMillis(), net, gross) } catch (_: Throwable) {}
         val keys = keysOf7928(o)
         val scales8410 = DoubleArray(keys.size)   // V5.0.8410 — the 60-slot decay each key had when this label was booked
         for ((i, k) in keys.withIndex()) {
@@ -1731,10 +1734,10 @@ object ForwardReturnLabeler7731 {
             try { ForensicLogger.lifecycle("FORWARD_LABEL_IMPLAUSIBLE_8617", "mint=${o.mint.take(10)} lane=${o.lane} net=${"%.0f".format(net)} entry=${o.entryPrice}") } catch (_: Throwable) {}
             return
         }
-        // V5.0.8546 — an unfillable entry (no reachable mark in the rebase window: most fast meme coins) never books, but its
-        // 5-minute read still counts for the market regime's breadth and is written to the research dataset, flagged.
+        // V5.0.8655: unfillable marks remain *research-only* and are never counted as
+        // fillable market breadth. A 20x mark on a price nobody could execute must
+        // neither make the regime HOT nor teach any executable strategy.
         if (eligible8386(o) && net.isFinite() && !o.bookedNet7997.isFinite() && !entryFill8521(o) && MemePaperTrader8544.memeLane8544(o.lane)) {
-            try { MemeRegime8546.note8546(nowMs, net, gross) } catch (_: Throwable) {}
             o.edge8537?.let { o.edge8537 = null; try { EdgeModel8537.recordUnfilled8546(it, net, witness) } catch (_: Throwable) {} }
         }
         if (!eligible8386(o) || !entryFill8521(o) || o.bookedNet7997.isFinite() || !net.isFinite() ||

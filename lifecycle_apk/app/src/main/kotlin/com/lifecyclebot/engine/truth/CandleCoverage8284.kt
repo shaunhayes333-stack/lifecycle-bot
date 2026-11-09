@@ -208,19 +208,16 @@ object CandleCoverage8284 {
         return seen.size
     }
 
-    /** [ts]'s 1 m bars (history when it is the 1 m series, plus the compatible store). */
-    private fun bars1m8284(ts: TokenState): List<Candle> {
-        val fromHistory: List<Candle> = if (ts.candleTimeframeMinutes > 1) emptyList()
-            else (try { synchronized(ts) { ts.history.toList() } } catch (_: Throwable) { emptyList() })
-        return fromHistory + oneMinuteBars8284(ts.mint)
-    }
-
     /** The 15 s / 1 m / 5 m / 15 m coverage of [ts] now, each stated on its own (index order = [TIMEFRAMES_8284]). */
     fun coverage8284(ts: TokenState, nowMs: Long, ageMs: Long? = ageOf(ts, nowMs)): Array<Coverage8284> {
         val p15 = try { TradeTape8100.prints8128(ts.mint, nowMs, 3L * 60_000L) } catch (_: Throwable) { emptyList() }
         val c15 = coverageOf8284(ageMs, p15.map { it.atMs / 15_000L }.toSet().size, 15_000L, MIN_TF_BARS_8284)
-        val c1 = coverageOf8284(ageMs, distinctBuckets(bars1m8284(ts), BUCKET_MS, nowMs - 30L * 60_000L, Quality8284.MARK_ONLY.rank),
-            BUCKET_MS, min1mBars8317(ageMs))
+        // V5.0.8655: a MARK_ONLY price path is not a candle a trading strategy can use.
+        // Previous coverage counted those marks as complete and stopped the Helius/free-source
+        // backfill, while MemeStrategies8546 read an EMPTY M1 chart from snapshot8521.
+        // Use the SAME closed, quality-proven and fresh chart contract as the consumer.
+        val usableM1 = MultiTimeframeCharts8521.snapshot8521(ts, MultiTimeframeCharts8521.Frame8521.M1, nowMs)
+        val c1 = coverageOf8284(ageMs, usableM1.size, BUCKET_MS, min1mBars8317(ageMs))
         val h5 = try { synchronized(ts.history5m) { ts.history5m.toList() } } catch (_: Throwable) { emptyList() }
         val c5 = coverageOf8284(ageMs, distinctBuckets(h5, 5L * BUCKET_MS, nowMs - 2L * 3_600_000L, Quality8284.UNKNOWN.rank),
             5L * BUCKET_MS, MIN_TF_BARS_8284)
