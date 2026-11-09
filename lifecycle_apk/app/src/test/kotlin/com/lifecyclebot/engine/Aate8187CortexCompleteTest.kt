@@ -394,7 +394,8 @@ class Aate8187CortexCompleteTest {
         assertTrue(drain.contains("if (!captureAdmits8187(captureQueued8187.get(), e.value.admitted)) return"))
         assertTrue(drain.contains("if (!captureOwners8397.current(o!!.ticket))"))
         assertTrue(cx.contains("captureQ=${'$'}{captureQueued8187.get()} ${'$'}{captureOverflowStatsLocked8399()}"))
-        assertTrue(cx.contains("submitCaptureKeyed8187(ticket8397, admitted) { captureCold8178("))
+        assertTrue(cx.contains("submitCaptureKeyed8187(ticket8397, admitted) {"))
+        assertTrue(cx.contains("captureCold8178(frozen8273, labelLane, admitted"))
         assertTrue(cx.contains("submitCaptureKeyed8187(ticket8397, admitted) { captureNow("))
     }
 
