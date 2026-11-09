@@ -7,6 +7,7 @@ import com.lifecyclebot.engine.truth.CandleCoverage8284.Coverage8284
 import com.lifecyclebot.engine.truth.CandleCoverage8284.Quality8284
 import com.lifecyclebot.engine.truth.HeliusSwapCandles7819
 import com.lifecyclebot.engine.truth.LocalCandleSynthesis7055
+import com.lifecyclebot.engine.truth.MultiTimeframeCharts8521
 import com.lifecyclebot.engine.truth.TradeTape8100
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -160,6 +161,35 @@ class Aate8284HeliusCandleMergeTest {
         assertFalse(h.contains("ts.position.isOpen || ts.candleTimeframeMinutes > 1) return"))
     }
 
+    @Test fun coveredOneMinuteMeansStrategyCanActuallyReadFreshTradeProvenCandles8655() {
+        val ts = TokenState(mint = mint)
+        val onlyMarks = (1..8).map { i ->
+            CandleCoverage8284.tag8284(trade(now - i * min, 2.0 + i), Quality8284.MARK_ONLY, "price_snapshot")
+        }
+        ts.history.addAll(onlyMarks)
+        val frame = MultiTimeframeCharts8521.Frame8521.M1
+        val actual = MultiTimeframeCharts8521.snapshot8521(ts, frame, now)
+        assertTrue("mark-only OHLC must never satisfy the strategy's real-candle input", actual.isEmpty())
+        assertEquals("do not short-circuit authentic backfill on cheap price marks",
+            Coverage8284.MISSING, CandleCoverage8284.coverage8284(ts, now, 30 * min)[1])
+
+        val actualTrades = (1..8).map { i -> trade(now - i * min, 2.0 + i) }
+        assertEquals(8, CandleCoverage8284.merge8284(ts, actualTrades,
+            Quality8284.TRADE_OHLCV, "helius_enhanced_tx", pool, now).replaced)
+        assertEquals(8, MultiTimeframeCharts8521.snapshot8521(ts, frame, now).size)
+        assertEquals("coverage and strategy use one exact 1m evidence contract",
+            Coverage8284.COVERED, CandleCoverage8284.coverage8284(ts, now, 30 * min)[1])
+    }
+
+    @Test fun oldAuthenticOneMinuteBarsCannotMaskMissingFreshChart8655() {
+        val ts = TokenState(mint = mint)
+        val staleTrades = (4..11).map { trade(now - it * min, 1.0) }
+        CandleCoverage8284.merge8284(ts, staleTrades, Quality8284.TRADE_OHLCV, "helius_enhanced_tx", pool, now)
+        assertTrue(MultiTimeframeCharts8521.snapshot8521(ts, MultiTimeframeCharts8521.Frame8521.M1, now).isEmpty())
+        assertEquals("stale OHLCV cannot stop fresh-signal backfill",
+            Coverage8284.MISSING, CandleCoverage8284.coverage8284(ts, now, 30 * min)[1])
+    }
+
     @Test fun coverageIsIndependentPerTimeframeAndAYoungTokenHasNoFiveMinuteHistory() {
         val ts = TokenState(mint = mint)
         val nowL = System.currentTimeMillis()
@@ -285,9 +315,13 @@ class Aate8284HeliusCandleMergeTest {
         val ts = TokenState(mint = mint)
         ts.candleTimeframeMinutes = 240
         val nowL = System.currentTimeMillis()
+        // A strategy-usable M1 candle is anchored to the start of its minute.
+        // The former fixture used nowL-it*min, inheriting the wall-clock second;
+        // those were never closed, aligned provider candles and must not count.
+        val closedMinute = nowL / min * min
         val age = 10L * 3_600_000L
         assertEquals(Coverage8284.MISSING, CandleCoverage8284.noteNeed8284(ts, nowL - 20_000L, age))
-        CandleCoverage8284.merge8284(ts, (1..7).map { trade(nowL - it * min, 1.0) }, Quality8284.TRADE_OHLCV, "helius_enhanced_tx", pool, nowL)
+        CandleCoverage8284.merge8284(ts, (1..7).map { trade(closedMinute - it * min, 1.0) }, Quality8284.TRADE_OHLCV, "helius_enhanced_tx", pool, nowL)
         CandleCoverage8284.noteArrived8284(ts, nowL, age)
         val line = CandleCoverage8284.statusLine8284()
         assertTrue(line, line.contains("store1m=1mints/7bars"))

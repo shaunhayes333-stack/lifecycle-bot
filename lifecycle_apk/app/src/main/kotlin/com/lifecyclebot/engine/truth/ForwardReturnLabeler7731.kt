@@ -1324,8 +1324,8 @@ object ForwardReturnLabeler7731 {
 
     private fun book(o: Obs, horizon: Int, net: Double, gross: Double, witnessed8324: Boolean = false) {
         if (!eligible8386(o)) return
-        // V5.0.8546 — every 5-minute meme label feeds the market regime (breadth: mean net, share rising)
-        if (horizon == 60 && MemePaperTrader8544.memeLane8544(o.lane)) try { MemeRegime8546.note8546(System.currentTimeMillis(), net, gross) } catch (_: Throwable) {}
+        // V5.0.8655: no market breadth from this legacy 60 TALLY SLOT. It can
+        // represent a 5m/15m/60m target; the real 5m read owns the regime once.
         val keys = keysOf7928(o)
         val scales8410 = DoubleArray(keys.size)   // V5.0.8410 — the 60-slot decay each key had when this label was booked
         for ((i, k) in keys.withIndex()) {
@@ -1671,6 +1671,15 @@ object ForwardReturnLabeler7731 {
         // 8322 booked it first and flagged it after, so every lane / cell / shape / specialist book read "lost the round trip".
         var flat8322 = com.lifecyclebot.engine.cortex.CortexFlatMark8322.flatMark8322(gross0, o.peakPct, o.minPct7962)
         if (flat8322 && liveMark8454(o.lastMark8386)) { flat8322 = false; flatLiveBooked8454.incrementAndGet() }   // V5.0.8454 — the market's own flat read
+        // V5.0.8655: a single honest 5m market mark feeds regime breadth for ALL
+        // meme lanes, including runner lanes whose frozen LEARNING target is 15m.
+        // Use actual observed price net/gross, not simulated peak-capture returns.
+        // Staging retries return at the top of this function, so they cannot count
+        // one observation twice; unfillable, non-live and implausible marks never vote.
+        if (!flat8322 && liveMark8454(o.lastMark8386) && MemePaperTrader8544.memeLane8544(o.lane) &&
+            MemeRegime8546.eligibleBreadth8655(H60_MS_7731, entryFill8521(o)) &&
+            EdgeModel8537.plausible8617(o.edge8537?.raw?.mcap ?: Double.NaN, net0, w8324))
+            try { MemeRegime8546.note8546(nowMs, net0, gross0) } catch (_: Throwable) {}
         val scalp8080 = captured7945(o, net0, gross0, longFamily8080 = false)
         val long8080 = captured7945(o, net0, gross0, longFamily8080 = true)
         val fam8080 = doubleArrayOf(scalp8080.first, scalp8080.second, long8080.first, long8080.second)
@@ -1731,10 +1740,10 @@ object ForwardReturnLabeler7731 {
             try { ForensicLogger.lifecycle("FORWARD_LABEL_IMPLAUSIBLE_8617", "mint=${o.mint.take(10)} lane=${o.lane} net=${"%.0f".format(net)} entry=${o.entryPrice}") } catch (_: Throwable) {}
             return
         }
-        // V5.0.8546 — an unfillable entry (no reachable mark in the rebase window: most fast meme coins) never books, but its
-        // 5-minute read still counts for the market regime's breadth and is written to the research dataset, flagged.
+        // V5.0.8655: unfillable marks remain *research-only* and are never counted as
+        // fillable market breadth. A 20x mark on a price nobody could execute must
+        // neither make the regime HOT nor teach any executable strategy.
         if (eligible8386(o) && net.isFinite() && !o.bookedNet7997.isFinite() && !entryFill8521(o) && MemePaperTrader8544.memeLane8544(o.lane)) {
-            try { MemeRegime8546.note8546(nowMs, net, gross) } catch (_: Throwable) {}
             o.edge8537?.let { o.edge8537 = null; try { EdgeModel8537.recordUnfilled8546(it, net, witness) } catch (_: Throwable) {} }
         }
         if (!eligible8386(o) || !entryFill8521(o) || o.bookedNet7997.isFinite() || !net.isFinite() ||

@@ -67,7 +67,11 @@ class Aate8317AgeAwareBarsTest {
         fun trade(ts: Long, px: Double) = Candle(ts = ts, priceUsd = px, marketCap = 0.0, volumeH1 = 10.0, volume24h = 0.0,
             buysH1 = 3, sellsH1 = 1, highUsd = px * 1.1, lowUsd = px * 0.9, openUsd = px * 0.95)
         assertEquals(Coverage8284.NOT_YET_POSSIBLE, CandleCoverage8284.coverage8284(ts, now, 2L * min)[1])   // 2 min old: not yet
-        CandleCoverage8284.merge8284(ts, (1..3).map { trade(now - it * min, 1.0 + it) }, Quality8284.TRADE_OHLCV, "helius_enhanced_tx", "", now)
+        // V5.0.8655: genuine provider OHLCV is stamped on the minute boundary.
+        // The old fixture used :30 timestamps, which the strategy correctly
+        // rejects while 8284 incorrectly counted them as complete coverage.
+        val closedMinute = now / min * min
+        CandleCoverage8284.merge8284(ts, (1..3).map { trade(closedMinute - it * min, 1.0 + it) }, Quality8284.TRADE_OHLCV, "helius_enhanced_tx", "", now)
         assertEquals(Coverage8284.COVERED, CandleCoverage8284.coverage8284(ts, now, 4L * min)[1])            // a 4-minute launch: three bars cover
         assertEquals(Coverage8284.PARTIAL, CandleCoverage8284.coverage8284(ts, now, 20L * min)[1])          // at 20 min the same three are partial
         assertEquals(Coverage8284.PARTIAL, CandleCoverage8284.coverage8284(ts, now, null)[1])               // unknown age: today's six
