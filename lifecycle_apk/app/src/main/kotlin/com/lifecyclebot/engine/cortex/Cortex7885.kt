@@ -237,12 +237,18 @@ object Cortex7885 {
     fun voterGraphBounded8644(prop: String?): Boolean = prop != "off" && prop != "on"
 
     private val BOUNDED_VOTER_GRAPH_8644 = voterGraphBounded8644(System.getProperty("aate.cortexVoterGraph8623"))
-    private const val GRAPH_SAMPLE_GAP_MS_8644 = 30_000L
+    // V5.0.8649 — 8648 sampled only 120 graphs per hour across every lane and graded none.
+    // The measured graph read was p50=28ms, p90=265ms. A still-bounded 6s global
+    // budget plus an independent 20s ceiling for speculative prewarm restores
+    // pre-decision evidence without running voters on the scanner thread.
+    private const val GRAPH_SAMPLE_GAP_MS_8644 = 6_000L
+    private const val PREWARM_SAMPLE_GAP_MS_8649 = 20_000L
     private val lastSampleAt8644 = AtomicLong(0L)
+    private val lastPrewarmAt8649 = AtomicLong(0L)
     /** One labelled capture per sampled graph read; repeated same-mint decisions retain their cheap playbook labels. */
     private val capturedSampleEpoch8644 = ConcurrentHashMap<String, Long>()
 
-    /** Only two fresh reads a minute globally; reused cached reads cost no additional graph work. */
+    /** At most ten fresh reads a minute globally; reused cached reads cost no additional graph work. */
     fun sampleDue8644(previousMs: Long, nowMs: Long): Boolean =
         nowMs > 0L && (previousMs == 0L || nowMs < previousMs || nowMs - previousMs >= GRAPH_SAMPLE_GAP_MS_8644)
 
@@ -254,6 +260,24 @@ object Cortex7885 {
             if (lastSampleAt8644.compareAndSet(before, nowMs)) { inc("CORTEX_SAMPLE_GRANTED_8644"); return true }
         }
         inc("CORTEX_SAMPLE_CONTENTION_8644")
+        return false
+    }
+
+    /** Prewarm does not consume every graph slot ahead of real native decision captures. */
+    private fun reservePrewarm8649(nowMs: Long): Boolean {
+        if (!BOUNDED_VOTER_GRAPH_8644) return true
+        repeat(8) {
+            val before = lastPrewarmAt8649.get()
+            if (before != 0L && nowMs >= before && nowMs - before < PREWARM_SAMPLE_GAP_MS_8649) {
+                inc("CORTEX_PREWARM_QUOTA_8649")
+                return false
+            }
+            if (lastPrewarmAt8649.compareAndSet(before, nowMs)) {
+                inc("CORTEX_PREWARM_GRANTED_8649")
+                return true
+            }
+        }
+        inc("CORTEX_PREWARM_CONTENTION_8649")
         return false
     }
 
@@ -1047,16 +1071,12 @@ object Cortex7885 {
             if (opportunitySource8522 == null) { if (nowMs - it.atMs in 0L..ASSESS_TTL_MS) return it }
             else if (CortexOpportunityPolarity8522.currentInput8522(opportunitySource8522, it, nowMs)) return it
         }
-        // V5.0.8647 — in the bounded APK the 30-second budget used to be spent by speculative
-        // prewarms and unproven gate reads. The 8644 runtime produced 13 predictions, zero
-        // captured predictions and 1,051 playbook-only decisions: these reads almost never
-        // belonged to the later ForwardReturnLabeler observation. Reserve the scarce fresh
-        // reads for capture() while the Cortex is unproven. Once a lane has genuine OOS
-        // authority, speculative scoring may again use the same bounded budget.
-        if (BOUNDED_VOTER_GRAPH_8644 && !provenOverStack8539(laneRaw)) {
-            inc("CORTEX_UNPAIRED_PREWARM_SKIPPED_8647")
-            return null
-        }
+        // V5.0.8649 — prewarm-before-proof was forbidden in 8647. Every one of the
+        // 119 live label samples in 8648 consequently read cold; Cortex could not
+        // earn the very forward proof required to turn prewarm back on. A separate
+        // three/minute prewarm ceiling leaves most graph slots for real captures.
+        // This samples predictive evidence; it never grants live trade authority.
+        if (!reservePrewarm8649(nowMs)) return null
         if (!reserveSample8644(nowMs)) return null
         // A job the full queue dropped never reaches its finally: a key may be
         // rescheduled after 30 s, so a dropped assessment cannot block a mint forever.
@@ -1065,7 +1085,14 @@ object Cortex7885 {
             onScheduled8417?.invoke()
             CortexVoters7885.stampLaneBrains8366(ts, nowMs)  // V5.0.8366 — the queued assessment keeps the brains' votes
             if (opportunitySource8522 == null) {
-                submit("ASSESS") { try { assess(ts, laneRaw, sampleReserved8644 = true) } finally { scheduled.remove(key, nowMs) } }
+                // Freeze the original token observation now, not the mutable scanner
+                // object at an arbitrarily later worker time.
+                val frozenPrewarm8649 = try { decisionSnapshots8522.capture(ts, nowMs) } catch (_: Throwable) {
+                    scheduled.remove(key, nowMs); return null
+                }
+                submit("ASSESS") { try {
+                    assess(frozenPrewarm8649, laneRaw, nowMs, nowMs, sampleReserved8644 = true)
+                } finally { scheduled.remove(key, nowMs) } }
             } else {
                 val frozen8522 = try { decisionSnapshots8522.capture(ts, nowMs) } catch (_: Throwable) {
                     scheduled.remove(key, nowMs); return null
@@ -1877,6 +1904,20 @@ object Cortex7885 {
     }
 
     private const val FORWARD_RECEIPT_8404 = "CORTEX_FORWARD_RECEIPT_8404|"
+
+    /** No original prediction means no model, calibration or grade mutation. This
+     * explicit disposition is safe to persist separately from the 35MB graph
+     * checkpoint; a false/throwing saver must never ACK an outbox item. */
+    internal fun durableUnpairedForward8649(
+        receipt: String, disposition: String, write: (Map<String, String>) -> Boolean
+    ): Boolean {
+        val missing = try {
+            org.json.JSONObject(disposition).optString("disposition") == "ORIGINAL_PREDICTION_UNAVAILABLE"
+        } catch (_: Throwable) { false }
+        if (!missing) return false
+        return try { write(mapOf(receipt to disposition)) } catch (_: Throwable) { false }
+    }
+
     private val forwardReady8404 = ConcurrentHashMap<String, String>()
     private val forwardLearned8404 = ConcurrentHashMap.newKeySet<String>()
     private val forwardDelivering8404 = ConcurrentHashMap.newKeySet<String>()
@@ -1915,7 +1956,16 @@ object Cortex7885 {
             if (saved) inc("FORWARD_DELIVERY_ARCHIVED_EPOCH_8521")
             return saved
         }
-        if (forwardReady8404.containsKey(receipt) || !forwardDelivering8404.add(id)) return false
+        // Earlier attempts may have already queued a missing-original disposition
+        // for the slow whole-Cortex checkpoint. Complete only that no-mutation
+        // receipt directly, leaving LEARNED/OBSERVED_ONLY behind their atomic snapshot.
+        forwardReady8404[receipt]?.let { staged ->
+            if (!durableUnpairedForward8649(receipt, staged, LearningPersistence::saveTogetherVerified8386)) return false
+            forwardReady8404.remove(receipt, staged)
+            inc("FORWARD_UNPAIRED_DIRECT_ACK_8649")
+            return true
+        }
+        if (!forwardDelivering8404.add(id)) return false
         try {
             val key = "${d.mint}|${d.lane}"
             val original = synchronized(this) {
@@ -1930,9 +1980,17 @@ object Cortex7885 {
             val firstHourRead8521 = d.revision && original?.outcomeKind8394 == CortexForwardEpoch8521.HOUR_KIND &&
                 synchronized(this) { gradeBook8144.decision(id) == null }
             if (original == null) {
-                forwardReady8404[receipt] = org.json.JSONObject().put("id", id)
+                val missing = org.json.JSONObject().put("id", id)
                     .put("disposition", "ORIGINAL_PREDICTION_UNAVAILABLE").toString()
                 inc("FORWARD_ORIGINAL_UNAVAILABLE_8404")
+                if (durableUnpairedForward8649(receipt, missing, LearningPersistence::saveTogetherVerified8386)) {
+                    inc("FORWARD_UNPAIRED_DIRECT_ACK_8649")
+                    return true
+                }
+                // A busy/closed store still owns the outcome in its durable
+                // producer outbox. The checkpoint path may save it later.
+                forwardReady8404[receipt] = missing
+                inc("FORWARD_UNPAIRED_DIRECT_DEFER_8649")
                 return false
             }
             if (d.revision && !firstHourRead8521 && synchronized(this) { gradeBook8144.decision(id) == null } &&
