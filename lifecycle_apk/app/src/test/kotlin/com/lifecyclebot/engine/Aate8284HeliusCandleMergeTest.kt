@@ -173,7 +173,7 @@ class Aate8284HeliusCandleMergeTest {
         assertEquals("do not short-circuit authentic backfill on cheap price marks",
             Coverage8284.MISSING, CandleCoverage8284.coverage8284(ts, now, 30 * min)[1])
 
-        val actualTrades = (1..8).map { trade(now - i * min, 2.0 + i) }
+        val actualTrades = (1..8).map { i -> trade(now - i * min, 2.0 + i) }
         assertEquals(8, CandleCoverage8284.merge8284(ts, actualTrades,
             Quality8284.TRADE_OHLCV, "helius_enhanced_tx", pool, now).replaced)
         assertEquals(8, MultiTimeframeCharts8521.snapshot8521(ts, frame, now).size)
