@@ -59,7 +59,10 @@ class Aate8537EdgeModelTest {
         val witnessed = JSONObject(EdgeModel8537.datasetLine(s, 3_000.0, witnessed = true))
         assertTrue(witnessed.getBoolean("witness"))
         assertTrue("the new epoch can replay independently witnessed runners", EdgeModel8537.replayAccept8642(witnessed))
-        assertFalse("unknown basis cannot replay the same mark", EdgeModel8537.replayAccept8642(JSONObject(EdgeModel8537.datasetLine(s, 3_000.0))))
+        // At this snapshot's actual $80k cap a 30x result is within the conservative 50x bound.
+        // An unverified 30x at a $2m cap is not: it needs the independent price witness above.
+        val unwitnessedLargeCap = JSONObject(EdgeModel8537.datasetLine(s, 3_000.0)).put("mcap", 2_000_000.0)
+        assertFalse("unwitnessed large-cap mark cannot replay as a runner", EdgeModel8537.replayAccept8642(unwitnessedLargeCap))
     }
 
     @Test fun bins_and_vector_layout() {
