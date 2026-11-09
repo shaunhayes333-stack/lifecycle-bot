@@ -11,7 +11,10 @@ class Aate7439IdentityAndCoreCausalRepairTest {
         // V5.0.7542 / V5.0.7796 — the CORE ensemble (>=2 voters, strongest < 75,
         // gap <= 10) is decided by CORE's native brain; the toolkit only consumes it.
         val brain = src("engine/SpecialistBrainBridge7542.kt")
-        assertTrue(brain.contains("val ensemble=a!=null&&b!=null&&av<75&&(av-bv<=10||av<65)"))
+        assertTrue("CORE's ensemble must rank specialists on the same scale",
+            brain.contains("NativeCandidateValues8527.coreRank8651(it)"))
+        assertTrue("two independent specialists and the original consensus margin still determine an ensemble",
+            brain.contains("val ensemble = a != null && b != null && av < 75.0 && (av - bv <= 10.0 || av < 65.0)"))
         val s = src("engine/ToolkitSignalSheet.kt")
         assertTrue(s.contains("nativeBrains7542.opinions[\"CORE\"]?.takeIf { it.authoritative && it.eligible }"))
         assertFalse(s.contains("deskHypotheses[\"CORE\"] = strongest.copy("))

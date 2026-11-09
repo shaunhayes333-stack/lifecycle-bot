@@ -214,7 +214,8 @@ class Aate8343RunnerGrabTest {
         assertTrue("CORE's own refusal is a judgement the veto audit may retire, never a wall", SpecialistBrainBridge7542.nativeRuleRetirable8048(RunnerGrabLane8343.CORE_OWN_BAR_8343))
         assertFalse("and it is not a lane-fit hand-off to a receiver that does not exist", SpecialistOwnership7951.laneFitRefusal8132(RunnerGrabLane8343.CORE_OWN_BAR_8343))
         val brain = src("engine/SpecialistBrainBridge7542.kt")
-        assertTrue("CORE's yield-clear is conditional on a specialist taking it", brain.contains("else->RunnerGrabLane8343.coreYieldReason8343(s.isEmpty(),out.values)"))
+        assertTrue("CORE's yield-clear is conditional on a specialist taking it",
+            brain.contains("else -> RunnerGrabLane8343.coreYieldReason8343(s.isEmpty(), out.values)"))
         assertTrue("the own-bar refusal is audited like the yield", brain.contains("o.reason != RunnerGrabLane8343.CORE_OWN_BAR_8343"))
         val reviewed = SpecialistBrainBridge7542.reviewCoreYield8077(op("CORE", false, RunnerGrabLane8343.CORE_OWN_BAR_8343)) { _, _ -> true }
         assertTrue(reviewed.eligible && reviewed.reason.startsWith("NATIVE_VETO_RETIRED_8048"))
