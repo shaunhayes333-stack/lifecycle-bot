@@ -47,6 +47,21 @@ class Aate8537EdgeModelTest {
             EdgeModel8537.replayAccept8642(row(true, 900_000, 2_960_000.0, 1_406_280_000.0)))
     }
 
+    @Test fun a_five_to_twelve_x_runner_at_a_real_market_cap_must_not_be_deleted_from_learning() {
+        assertTrue("5x net is possible at a $200k initial cap", EdgeModel8537.plausible8617(200_000.0, 500.0))
+        assertTrue("the old 100% ceiling erased 11x winners at $2m", EdgeModel8537.plausible8617(2_000_000.0, 1_100.0))
+        assertFalse("an extreme unsupported jump still needs source proof", EdgeModel8537.plausible8617(2_000_000.0, 3_000.0))
+        assertTrue("a same-venue chain witness can validate an extraordinary runner", EdgeModel8537.plausible8617(2_000_000.0, 3_000.0, true))
+        assertFalse("a billion-percent wrong-basis mark is never valid", EdgeModel8537.plausible8617(2_956_010.0, 1_406_280_000.0, true))
+        val r = raw(lane = "MOONSHOT")
+        val s = EdgeModel8537.Snap(r, EdgeModel8537.vectorOf(r), Double.NaN, "COLD", 10_000_000L, "ValidRunnerPump", false,
+            900_000L)
+        val witnessed = JSONObject(EdgeModel8537.datasetLine(s, 3_000.0, witnessed = true))
+        assertTrue(witnessed.getBoolean("witness"))
+        assertTrue("the new epoch can replay independently witnessed runners", EdgeModel8537.replayAccept8642(witnessed))
+        assertFalse("unknown basis cannot replay the same mark", EdgeModel8537.replayAccept8642(JSONObject(EdgeModel8537.datasetLine(s, 3_000.0))))
+    }
+
     @Test fun bins_and_vector_layout() {
         assertEquals(0, EdgeModel8537.binOf(Double.NaN, EdgeModel8537.LIQ_EDGES))
         assertEquals(1, EdgeModel8537.binOf(167.0, EdgeModel8537.LIQ_EDGES))
@@ -158,7 +173,7 @@ class Aate8537EdgeModelTest {
     @Test fun wiring_labeler_candidate_live_proof_brief_and_export() {
         val lab = src("engine/truth/ForwardReturnLabeler7731.kt")
         assertTrue(lab.contains("it.edge8537 = EdgeModel8537.snapshot(ts, l, cost.coerceIn(0.0, 60.0), admitted, nowMs)"))
-        assertTrue(lab.contains("o.edge8537?.let { o.edge8537 = null; EdgeModel8537.learn(it, net) }"))
+        assertTrue(lab.contains("o.edge8537?.let { o.edge8537 = null; EdgeModel8537.learn(it, net, witness) }"))
         assertTrue(lab.contains("EdgeModel8537.saveNow()"))
         val adm = src("engine/truth/CandidateAdmission8136.kt")
         assertTrue(adm.contains("edge8537 = EdgeModel8537.verdict(ts, lane, cost8153, nowMs),"))

@@ -35,7 +35,9 @@ import java.util.concurrent.ConcurrentHashMap
  * Hard safety (HARD_BLOCK tier) is never traded, paper or live.
  */
 object MemeStrategies8546 {
-    enum class Family8546 { PULLBACK_RECLAIM, BASE_BREAKOUT_FLOW, GRADUATION_RETEST, WALLET_CLUSTER, RANGE_LOW }
+    // V5.0.8650 — the initial curve move is often over before nine CLOSED 1m candles exist.
+    // Preserve the older families' minute-scale evidence and learn this early episode separately.
+    enum class Family8546 { PULLBACK_RECLAIM, BASE_BREAKOUT_FLOW, GRADUATION_RETEST, WALLET_CLUSTER, RANGE_LOW, EARLY_FLOW_RECLAIM }
 
     data class Signal8546(val family: Family8546, val exitLane: String, val why: String)
 
@@ -123,6 +125,41 @@ object MemeStrategies8546 {
         return "range=${"%.0f".format(width * 100)}% pos=${"%.0f".format(pos * 100)}%"
     }
 
+    /**
+     * V5.0.8650: an executable young-curve setup from REAL, one-venue swaps. The tape's 15-second
+     * event buckets are NOT presented as completed 1-minute candles, nor mixed into the older
+     * families' proof. Requires an initial impulse, a real 10-45% retrace, a held higher low and
+     * a fresh reclaim still below the high. At least ten executed, sized prints across >=45 seconds;
+     * price-only snapshots cannot establish either shape or buying pressure for this family.
+     */
+    fun earlyFlowReclaim8650(prints: List<TradeTape8100.Print8128>, nowMs: Long): String? {
+        val executed = prints.asSequence().filter {
+            !it.priceOnly && it.sol.isFinite() && it.sol > 0.0 && it.priceSol.isFinite() && it.priceSol > 0.0 &&
+                nowMs - it.atMs in 0L..180_000L
+        }.sortedBy { it.atMs }.toList().takeLast(120)
+        if (executed.size < 10 || nowMs - executed.last().atMs > 15_000L ||
+            executed.last().atMs - executed.first().atMs < 45_000L) return null
+        data class TickBar(val at: Long, val high: Double, val low: Double, val close: Double)
+        val bars = executed.groupBy { it.atMs / 15_000L }.toSortedMap().map { (bucket, xs) ->
+            TickBar(bucket * 15_000L, xs.maxOf { it.priceSol }, xs.minOf { it.priceSol }, xs.last().priceSol)
+        }
+        if (bars.size < 5 || bars.zipWithNext().any { (a, b) -> b.at - a.at > 45_000L }) return null
+        val peakIdx = bars.indices.maxByOrNull { bars[it].high } ?: return null
+        if (peakIdx < 1 || peakIdx > bars.size - 3) return null
+        val base = bars.take(peakIdx).minOf { it.low }
+        val peak = bars[peakIdx].high
+        if (peak / base !in 1.20..6.0) return null
+        val after = bars.drop(peakIdx + 1)
+        val troughIdx = after.indices.minByOrNull { after[it].low } ?: return null
+        val trough = after[troughIdx].low
+        val depth = 1.0 - trough / peak
+        if (depth !in 0.10..0.45 || troughIdx > after.size - 3) return null
+        if (after.drop(troughIdx + 1).any { it.low <= trough }) return null
+        val last = bars.last().close
+        if (last <= after[troughIdx].high || last <= bars[bars.lastIndex - 1].close || last >= peak * 0.92) return null
+        return "realSwaps=${executed.size} 15sBars=${bars.size} dip=${"%.0f".format(depth * 100)}% belowPeak=${"%.0f".format((1 - last / peak) * 100)}%"
+    }
+
     /** Pure: the buyers are in control enough for [family]. */
     fun flowConfirms8546(family: Family8546, f: FlowRead8546.Flow8546): Boolean = when (family) {
         Family8546.PULLBACK_RECLAIM, Family8546.GRADUATION_RETEST ->
@@ -131,6 +168,7 @@ object MemeStrategies8546 {
             f.known && f.buys2m >= 6 && f.buyShareSol2m >= 0.60 && (!f.buySizeTrend.isFinite() || f.buySizeTrend >= 0.8)
         Family8546.WALLET_CLUSTER -> f.smartWallets5m >= 2 && (!f.known || f.buyShareSol2m >= 0.50)
         Family8546.RANGE_LOW -> f.known && f.netSol5m > 0.0
+        Family8546.EARLY_FLOW_RECLAIM -> f.known && f.buys2m >= 4 && f.netSol2m > 0.0 && f.buyShareSol2m >= 0.58
     }
 
     /** Pure: the exit style (lane whose levers the paper position rides) for [family] on a coin of [mcapUsd]. */
@@ -167,6 +205,12 @@ object MemeStrategies8546 {
         }
         add(Family8546.PULLBACK_RECLAIM, pullbackReclaim8546(m1))
         add(Family8546.BASE_BREAKOUT_FLOW, baseBreakout8546(m1))
+        // The launch's first 45-180s cannot pass a 9-closed-minute strategy. Read only
+        // actual executed prints from the canonical same-venue tape; never infer buy-side volume.
+        val early = if (flow.known) try { TradeTape8100.prints8128(ts.mint, nowMs, 180_000L) } catch (_: Throwable) { emptyList() }
+            else emptyList()
+        note8644(if (early.size >= 10) "EARLY_PRINTS_READY_8650" else "EARLY_PRINTS_SHORT_8650")
+        add(Family8546.EARLY_FLOW_RECLAIM, earlyFlowReclaim8650(early, nowMs))
         val gradAt = try { com.lifecyclebot.network.PumpCurveKeys7269.graduatedAtMs8546(ts.mint) } catch (_: Throwable) { null }
         if (gradAt != null && nowMs - gradAt in 0L..3_600_000L)
             add(Family8546.GRADUATION_RETEST, graduationRetest(m1, gradAt)?.let { "graduated ${(nowMs - gradAt) / 60_000L}m ago $it" })
@@ -244,7 +288,7 @@ object MemeStrategies8546 {
             "} liveProven{" + Family8546.values().filter { MemePaperTrader8544.familyProven8546(it.name) }.joinToString(",").ifBlank { "none yet" } +
             "} funnel8644{evaluated=${count8644("EVALUATED")} skipped=price:${count8644("SKIP_PRICE")}/safety:${count8644("SKIP_HARD_BLOCK")}/liq:${count8644("SKIP_LIQUIDITY")}/chain:${count8644("SKIP_NON_SOLANA")} " +
             "m1=empty:${count8644("M1_EMPTY")}/short:${count8644("M1_SHORT")}/ready:${count8644("M1_READY")}/error:${count8644("M1_ERROR")} " +
-            "flow=known:${count8644("FLOW_KNOWN")}/unknown:${count8644("FLOW_UNKNOWN")} raw{" +
+            "flow=known:${count8644("FLOW_KNOWN")}/unknown:${count8644("FLOW_UNKNOWN")} early=ready:${count8644("EARLY_PRINTS_READY_8650")}/short:${count8644("EARLY_PRINTS_SHORT_8650")} raw{" +
             Family8546.values().joinToString(",") { "${it.name}=${count8644("RAW_${it.name}")}/${count8644("FLOW_REFUSED_${it.name}")}noFlow" } +
             "} errors=${count8644("SIGNALS_ERROR")}}] " +
             MemeRegime8546.statusLine8546()

@@ -971,8 +971,24 @@ object CandidateAdmission8136 {
     /** V5.0.8539 — pure: a PAPER candidate its own lane qualified is explored (paper is where strategies are tried). */
     fun paperExplores8539(c: Candidate8136): Boolean = !c.live && specialistQualified8539(c)
 
+    /**
+     * V5.0.8650: the existing CLEARLY losing, candidate-local evidence is part of the ONE admission verdict.
+     * The 8604 caller passed { false } for EVERY learned record (including a setup's own repeated losses),
+     * after which LaneAuthority8577 promoted the resulting native opinion to LIVE. Keep general lane priors,
+     * regime guesses and optional market-data waits adaptive; only already-verified setup/cell/timing loss and an
+     * out-of-sample-authoritative negative model verdict bind. CandidateAdmission's supported-alternative and
+     * one-per-lane re-probe paths remain the sole exceptions, without a second downstream gate.
+     */
+    private val VERIFIED_RECORD_DOORS_8650 = setOf(
+        "SETUP_RECORD_LOSING_8136", "TIMING_ADVERSE_8136", "CELL_PROVEN_LOSING_8136",
+        "SHEET_AVOID_8323", EDGE_MODEL_NEGATIVE_8537,
+    )
+    internal fun verifiedRecordDoor8650(reason: String): Boolean = reason in VERIFIED_RECORD_DOORS_8650
+
     fun specialistQualified8539(c: Candidate8136): Boolean =
-        c.nativeQualified8213 && c.genericScore.isFinite() && c.genericFloor.isFinite() && c.genericScore >= c.genericFloor
+        c.nativeQualified8213 && !c.nativeSetup8213.isNullOrBlank() &&
+            !c.nativeSetup8213.equals("NONE", ignoreCase = true) &&
+            c.genericScore.isFinite() && c.genericFloor.isFinite() && c.genericScore >= c.genericFloor
 
     const val EDGE_MODEL_NEGATIVE_8537 = "EDGE_MODEL_NEGATIVE_8537"
     const val EDGE_MODEL_PROVEN_8537 = "EDGE_MODEL_PROVEN_8537"
@@ -1487,7 +1503,7 @@ object CandidateAdmission8136 {
         // V5.0.8577 — LIVE: the lane-qualified candidate's learned-door refusal is advisory (LaneAuthority8577.apply8577).
         // Share the strategy rules while preserving the actual execution mode for freshness, costs and paper exploration.
         cached ?: (if (FdgGate8365.policyKey8393() == "OUTSIDE") coalescedDefer8144(ts.mint, candidate.lane, identity, version, mode, nowMs) else null) ?: LaneAuthority8577.apply8577(candidate,
-            decide8136(candidate) { false },
+            decide8136(candidate) { reason -> candidate.live && verifiedRecordDoor8650(reason) },
             if (candidate.live) LaneAuthority8577.memeEntryRefusal8626(ts, candidate.lane, candidate.stage, nowMs) else null,  // V5.0.8626
             launchPhase8609 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.features(ts, nowMs).launchPhase } catch (_: Throwable) { null },
             pocket8610 = if (candidate.live) PocketLedger8610.verdict8610(ts, candidate.lane, nowMs) else null).also {
@@ -1554,7 +1570,12 @@ object CandidateAdmission8136 {
         // V5.0.8217 — the lane's native qualification must not depend on one per-mint snapshot surviving in the cache.
         // A live QUALIFIED/READY entry in that lane's own candidate book (its hunter+brain qualified THIS mint) is the
         // same native verdict; its setup is the lane's own fired pick. Nothing is qualified that the lane did not qualify.
-        val nativeBook8217 = if (nativeOpinion8213 != null) null else try {
+        val nativeOpinionId8650 = nativeOpinion8213
+            ?.let { com.lifecyclebot.engine.SpecialistBrainBridge7542.nativeSetupIdentity8535(it) }
+            ?.takeIf { it.isNotBlank() && !it.equals("NONE", true) && triggered8535(it) }
+        // An authoritative opinion whose identity was actually rejected by SetupAuthority8535
+        // cannot mask a separate fresh READY verdict from this same lane's book.
+        val nativeBook8217 = if (nativeOpinionId8650 != null) null else try {
             // V5.0.8270 — only the lane's authoritative READY verdict is native readiness; a QUALIFIED observation is
             // wider watching, not executable readiness. Stale readiness (older than NATIVE_READY_FRESH_MS_8270) does
             // not outlive a fresher refusal: the book rewrites the entry on refusal, so a fresh READY is the proof.
@@ -1584,6 +1605,8 @@ object CandidateAdmission8136 {
         val runnerForming8260 = if (lane.uppercase() in RUNNER_LANES_8260) try {
             com.lifecyclebot.engine.RunnerGrab7967.formingNative8260(ts, nowMs)
         } catch (_: Throwable) { null } else null
+        val nativeIdentity8650 = (nativeOpinionId8650 ?: nativeSetupBook8217 ?: runnerForming8260)
+            ?.takeIf { it.isNotBlank() && !it.equals("NONE", true) && triggered8535(it) }
         if (nativeSetupBook8217 != null) try {
             com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ADMISSION_NATIVE_FROM_BOOK_8217_$lane")
             if (nativeSetupBook8217.startsWith("NATIVE_READY_8270:")) com.lifecyclebot.engine.PipelineHealthCollector
@@ -1715,14 +1738,13 @@ object CandidateAdmission8136 {
             runnerGrab8245 = try {
                 com.lifecyclebot.engine.RunnerGrab7967.grabEvidence8245(ts, nowMs)?.let { Evidence8136(KIND_RUNNER_GRAB_8245, it.key, it.n, it.meanNetPct, it.sePct) }  // V5.0.8316 — shifted in decide8136
             } catch (_: Throwable) { null },
-            nativeQualified8213 = nativeOpinion8213 != null || nativeSetupBook8217 != null || runnerForming8260 != null,
+            nativeQualified8213 = nativeIdentity8650 != null,
             watchlistRecheck8507 = ts.source.trim().equals("WATCHLIST", ignoreCase = true),
             // V5.0.8535 §P0-06 — the native identity is the predicate that fired or the rule that decided, never the style label.
             // V5.0.8536 — the native identity passes the same SetupAuthority8535 test as the selected setup: a near-high read
             // with no breakout witness, a quality condition or a partial fire no longer re-enters as the native strategy
             // (8535 live: BREAKOUT_RUNNER -15.6 %, TURNOVER_SPIKE -23.4 % came in this way).
-            nativeSetup8213 = (nativeOpinion8213?.let { com.lifecyclebot.engine.SpecialistBrainBridge7542.nativeSetupIdentity8535(it) } ?: nativeSetupBook8217 ?: runnerForming8260)
-                ?.takeIf { triggered8535(it) },
+            nativeSetup8213 = nativeIdentity8650,
             sheet8323 = try { com.lifecyclebot.engine.cortex.LaneCheatSheet8323.admissionVerdicts8323(lane, setups.map { it.id }, selected, ts.mint, nowMs) } catch (_: Throwable) { emptyMap() },
             tailLaneRate8324 = pond8324?.pBook ?: Double.NaN,
             tailPremium8324 = pond8324?.premium ?: Double.NaN,

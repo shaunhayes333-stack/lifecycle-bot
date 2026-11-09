@@ -1725,7 +1725,7 @@ object ForwardReturnLabeler7731 {
         // V5.0.8617 — a 5-minute outcome no coin of that size can make is a mark on the wrong basis (03:50 export: a $2.96 M
         // day-old coin at +1,406,280,000 %, a $112 k coin at +518,638 %). It reaches no learner: not the setup books, the shape /
         // falling-hour / forward learners, the meme regime, EdgeModel8537 or PocketLedger8610.
-        if (net.isFinite() && !EdgeModel8537.plausible8617(o.edge8537?.raw?.mcap ?: Double.NaN, net)) {
+        if (net.isFinite() && !EdgeModel8537.plausible8617(o.edge8537?.raw?.mcap ?: Double.NaN, net, witness)) {
             o.edge8537 = null
             try { PipelineHealthCollector.labelInc("FORWARD_LABEL_IMPLAUSIBLE_REJECTED_8617") } catch (_: Throwable) {}
             try { ForensicLogger.lifecycle("FORWARD_LABEL_IMPLAUSIBLE_8617", "mint=${o.mint.take(10)} lane=${o.lane} net=${"%.0f".format(net)} entry=${o.entryPrice}") } catch (_: Throwable) {}
@@ -1735,7 +1735,7 @@ object ForwardReturnLabeler7731 {
         // 5-minute read still counts for the market regime's breadth and is written to the research dataset, flagged.
         if (eligible8386(o) && net.isFinite() && !o.bookedNet7997.isFinite() && !entryFill8521(o) && MemePaperTrader8544.memeLane8544(o.lane)) {
             try { MemeRegime8546.note8546(nowMs, net, gross) } catch (_: Throwable) {}
-            o.edge8537?.let { o.edge8537 = null; try { EdgeModel8537.recordUnfilled8546(it, net) } catch (_: Throwable) {} }
+            o.edge8537?.let { o.edge8537 = null; try { EdgeModel8537.recordUnfilled8546(it, net, witness) } catch (_: Throwable) {} }
         }
         if (!eligible8386(o) || !entryFill8521(o) || o.bookedNet7997.isFinite() || !net.isFinite() ||
             !horizonOpen7809((o.lastMark8386?.observedAtMs ?: 0L) - o.atMs, o.targetHorizon8521)) return
@@ -1743,7 +1743,7 @@ object ForwardReturnLabeler7731 {
         // otherwise a restart can restore the incremented tally with an unbooked observation and add it a second time.
         o.bookedNet7997 = net; o.bookedGross7997 = gross; o.bookedWitness8324 = witness
         book(o, 60, net, gross, witness)
-        o.edge8537?.let { o.edge8537 = null; EdgeModel8537.learn(it, net) }  // V5.0.8537 — once, scored out of sample first
+        o.edge8537?.let { o.edge8537 = null; EdgeModel8537.learn(it, net, witness) }  // V5.0.8650 — preserve same-basis runner proof
         try { TradeShapeLearner7883.onLabel60(o.mint, o.lane, net, gross, o.atMs) } catch (_: Throwable) {}
         try { FallingHourCohort8418.onLabel60(o.mint, o.lane, net, gross) } catch (_: Throwable) {}
         teachForwardLearners8521(o, net, gross, nowMs)
@@ -2407,7 +2407,9 @@ object ForwardReturnLabeler7731 {
     // pool vaults, publishing each answer stamped at its read time — inside the window by construction. The tick then books it.
     const val HP_TICK_MS_8583 = 2_000L
     const val HP_READ_GAP_MS_8583 = 15_000L
-    const val HP_MAX_MINTS_8583 = 300
+    // V5.0.8650 — no 300-mint serial provider trip ahead of a one-minute deadline.
+    // Three 30-mint Dex chunks fit the off-watch host lane and keep retry opportunities open.
+    const val HP_MAX_MINTS_8583 = 90
     private val hpLastRead8583 = ConcurrentHashMap<String, Long>()
     private val hpRunning8583 = java.util.concurrent.atomic.AtomicBoolean(false)
     private val hpPasses8583 = AtomicLong(0); private val hpAsked8583 = AtomicLong(0)
@@ -2421,7 +2423,29 @@ object ForwardReturnLabeler7731 {
             (!done60 && horizonOpen7809(ageMs, H60_MS_7731)) ||
             (!done240 && horizonOpen7809(ageMs, H240_MS_7731))
 
-    /** Pure (V5.0.8583): the mints to price now — open windows only, one per mint, none read in the last gap. */
+    /**
+     * V5.0.8650: the ACTUAL earliest closing mark window for this observation. The 8583 loop ranked oldest
+     * decisions first, so 60-minute reads consumed bandwidth while short 1/5-minute windows expired. It also
+     * never opened the new 15-minute long-lane target (8592): it waited for the old 60-minute slot instead.
+     * Pure, constant-memory and based only on already promised deadlines, not a new trading gate.
+     */
+    internal fun horizonDeadline8650(atMs: Long, nowMs: Long, rebased: Boolean, done15: Boolean,
+                                     done60: Boolean, done240: Boolean, targetHorizonMs: Long): Long? {
+        val age = nowMs - atMs
+        var first = Long.MAX_VALUE
+        if (!rebased && age in REBASE_MIN_MS_8076..REBASE_MAX_MS_8076)
+            first = minOf(first, atMs + REBASE_MAX_MS_8076)
+        if (!done15 && horizonOpen7809(age, H15_MS_7731))
+            first = minOf(first, atMs + H15_MS_7731 + graceFor7946(H15_MS_7731))
+        if (!done60 && horizonOpen7809(age, H60_MS_7731))
+            first = minOf(first, atMs + H60_MS_7731 + graceFor7946(H60_MS_7731))
+        val hourTarget = if (targetHorizonMs > H60_MS_7731) targetHorizonMs else H240_MS_7731
+        if (!done240 && horizonOpen7809(age, hourTarget))
+            first = minOf(first, atMs + hourTarget + graceFor7946(hourTarget))
+        return first.takeIf { it != Long.MAX_VALUE }
+    }
+
+    /** Pure: [open.second] is its nearest DEADLINE, not the age of its oldest decision. */
     fun hpDueMints8583(open: List<Pair<String, Long>>, lastRead: (String) -> Long?, nowMs: Long, cap: Int = HP_MAX_MINTS_8583): List<String> =
         open.sortedBy { it.second }.map { it.first }.distinct()
             .filter { m -> (lastRead(m) ?: 0L).let { nowMs - it >= HP_READ_GAP_MS_8583 } }.take(cap)
@@ -2442,9 +2466,8 @@ object ForwardReturnLabeler7731 {
     private fun horizonPass8583(nowMs: Long) {
         val open = ArrayList<Pair<String, Long>>()
         for (o in pending.values) {
-            val age = nowMs - o.atMs
-            // the window's start orders the read: the oldest open window first
-            if (horizonWindowOpen8583(age, o.rebased8076, o.done15, o.done60, o.done240)) open += o.mint to o.atMs
+            val deadline = horizonDeadline8650(o.atMs, nowMs, o.rebased8076, o.done15, o.done60, o.done240, o.targetHorizon8521)
+            if (deadline != null) open += o.mint to deadline
         }
         val due = hpDueMints8583(open, { hpLastRead8583[it] }, nowMs)
         if (hpLastRead8583.size > 8_000) hpLastRead8583.entries.removeIf { nowMs - it.value > 2 * H240_MS_7731 }

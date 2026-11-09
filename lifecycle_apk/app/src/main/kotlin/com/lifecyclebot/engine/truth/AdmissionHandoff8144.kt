@@ -111,6 +111,30 @@ object AdmissionHandoff8144 {
         com.lifecyclebot.engine.HandoffRefusal8190.classify8190(reason, fit = false, binding = false) ==  // V5.0.8190 — the same data words as the task
             com.lifecyclebot.engine.HandoffReceiverTasks8153.Block8153.DATA
 
+    /**
+     * V5.0.8650 — the named receiver is in the native scope but cannot yet judge its liquidity.
+     * In 8648, 104 MOONSHOT handoffs expired NAMED_MOONSHOT_NEVER_EVALUATED while the lane
+     * returned LIQ_UNHYDRATED. Such a pending handoff previously created NO receiver task,
+     * so it got none of the task's priority evidence requests. Still not an eligible buy.
+     */
+    internal fun pendingReceiverLiquidity8650(h: Handoff8144, reads: Collection<LaneRead8144>): Boolean =
+        h.open && h.state == State8144.EMITTED && h.named != null && reads.any { r ->
+            canon8144(r.lane) == h.named && !r.eligible && dataPending8167(r.reason) &&
+                (r.reason.contains("LIQ_UNHYDRATED", true) || r.reason.contains("LIQ_UNKNOWN", true))
+        }
+
+    /** Priority changes only the already-existing batched chain-evidence queue; it never admits a token. */
+    private fun requestPendingLiquidity8650(mint: String, nowMs: Long) {
+        val ts = try { com.lifecyclebot.engine.HandoffRoute8180.tokenFor8180(mint) } catch (_: Throwable) { null } ?: return
+        try { OnChainDepth8038.needDepth8047(ts, nowMs) } catch (_: Throwable) {}
+        val curveCoin = ts.mint.endsWith("pump", true) ||
+            (try { com.lifecyclebot.network.PumpCurveKeys7269.keyFor(ts.mint) != null } catch (_: Throwable) { false }) ||
+            (try { CurveReserves7951.known7951(ts.mint) } catch (_: Throwable) { false })
+        val graduated = try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(ts.mint) } catch (_: Throwable) { false }
+        if (curveCoin && !graduated) try { OnChainDepth8038.needCurve8039(ts.mint, nowMs, approved8385 = true) } catch (_: Throwable) {}
+        count8144("PENDING_RECEIVER_LIQ_PRIORITY_8650")
+    }
+
     /** Pure: a native assessment of every lane in scope ([reads], computed at [atMs]) applied to [h]. */
     fun onNative8144(h: Handoff8144, reads: Collection<LaneRead8144>, atMs: Long): Handoff8144 {
         if (!h.open || atMs + SAME_READ_SLACK_MS_8144 < h.emittedAtMs) return h
@@ -346,6 +370,7 @@ object AdmissionHandoff8144 {
         val prior = ledger[mint] ?: return
         // V5.0.8153 — a fit refusal by the receiver hands it on; a qualified receiver becomes a task the cycle consumes.
         val live = reopenOnMaterial8395(expireLive8153(prior, atMs), reads, atMs)
+        if (pendingReceiverLiquidity8650(live, reads)) requestPendingLiquidity8650(mint, atMs)
         // V5.0.8190 — a lane floor / band (LANE_LIQ_BELOW_FLOOR ...) hands the receiver on here too, as the task does.
         val judged = onNativeTransfer8153(live, reads, atMs) { r -> try { com.lifecyclebot.engine.HandoffTaskRuntime8153.blockOf8153(r) == com.lifecyclebot.engine.HandoffReceiverTasks8153.Block8153.FIT } catch (_: Throwable) { false } }
         val next = followTask8153(live, judged, reads, atMs)

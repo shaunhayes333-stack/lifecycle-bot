@@ -143,6 +143,21 @@ class Aate8144AdmissionTest {
 
     // ── hand-off: arrival only when the receiver has judged ──────────────────
 
+    @Test fun aNamedReceiverMissingLiquidityMustRequestPriorityEvidenceWithoutBecomingEligible() {
+        val hand = AdmissionHandoff8144.emit8144(null, "M8650", "PROJECT_SNIPER", "MOONSHOT",
+            "PHASE_HANDOFF_8136_BIRTH_TO_MOONSHOT", t0)
+        val pending = listOf(LaneRead8144("MOONSHOT", false, 0, "LANE_LIQ_UNHYDRATED_DEFER_8140_MOONSHOT"))
+        assertTrue(AdmissionHandoff8144.pendingReceiverLiquidity8650(hand, pending))
+        assertEquals(State8144.EMITTED, AdmissionHandoff8144.onNative8144(hand, pending, t0 + 1_000L).state)
+        assertFalse(AdmissionHandoff8144.pendingReceiverLiquidity8650(hand,
+            listOf(LaneRead8144("MOONSHOT", false, 0, "NATIVE_RUG_BLOCK"))))
+        assertFalse(AdmissionHandoff8144.pendingReceiverLiquidity8650(hand,
+            listOf(LaneRead8144("SHITCOIN", false, 0, "LANE_LIQ_UNHYDRATED_DEFER"))))
+        val source = src("engine/truth/AdmissionHandoff8144.kt")
+        assertTrue(source.contains("OnChainDepth8038.needCurve8039(ts.mint, nowMs, approved8385 = true)"))
+        assertTrue(source.contains("if (pendingReceiverLiquidity8650(live, reads)) requestPendingLiquidity8650(mint, atMs)"))
+    }
+
     @Test fun handoffArrivesOnlyWhenTheReceiverEvaluated() {
         val a = AdmissionHandoff8144
         val h0 = a.emit8144(null, "M8144", "PROJECT_SNIPER", "MOONSHOT", "PHASE_HANDOFF_8136_EXPANDING_TO_MOONSHOT", t0)
@@ -287,8 +302,8 @@ class Aate8144AdmissionTest {
         assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("CandidateAdmission8136.deferBudgetFor8144(ts.mint, missing, nowMs)"))
         val admission = src("engine/truth/CandidateAdmission8136.kt")
         // superseded by V5.0.8577 — the decision passes through LaneAuthority8577.apply8577 (learned doors advisory for a lane-qualified LIVE coin).
-        // superseded by V5.0.8604 — LIVE takes the paper book's decision (doors off) inside the same coalesced-defer chain.
-        assertTrue(admission.contains("coalescedDefer8144(ts.mint, candidate.lane, identity, version, mode, nowMs) else null) ?: LaneAuthority8577.apply8577(candidate,\n            decide8136(candidate) { false },\n            if (candidate.live) LaneAuthority8577.memeEntryRefusal8626(ts, candidate.lane, candidate.stage, nowMs) else null,  // V5.0.8626\n            launchPhase8609 = "))  // V5.0.8609
+        // V5.0.8650 — the existing proven candidate-local loss records are binding in that one decision, not a second gate.
+        assertTrue(admission.contains("coalescedDefer8144(ts.mint, candidate.lane, identity, version, mode, nowMs) else null) ?: LaneAuthority8577.apply8577(candidate,\n            decide8136(candidate) { reason -> candidate.live && verifiedRecordDoor8650(reason) },\n            if (candidate.live) LaneAuthority8577.memeEntryRefusal8626(ts, candidate.lane, candidate.stage, nowMs) else null,  // V5.0.8626\n            launchPhase8609 = "))
         assertTrue(admission.contains("if (h.candidateVersion != candidateVersion || h.mode != mode) return null"))
         assertTrue(admission.contains("if (h.candidate != cacheIdentity8144(candidate)) return null"))
     }

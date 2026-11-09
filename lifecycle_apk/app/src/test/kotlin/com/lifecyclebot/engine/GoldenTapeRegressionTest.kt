@@ -15596,7 +15596,7 @@ class GoldenTapeRegressionTest {
         assertTrue(a.contains("val policyMode8393"))
         // superseded by V5.0.8604 — LIVE admission no longer binds the learned doors through Rehearsal8339; it takes the paper
         // book's decision (doors off). The rehearsal still binds the live edge gate's proof door (LiveEdgeGate7877, above).
-        assertTrue(a.contains("decide8136(candidate) { false }"))
+        assertTrue(a.contains("decide8136(candidate) { reason -> candidate.live && verifiedRecordDoor8650(reason) }"))
         assertTrue(source("ShadowPersist8355").contains("advisoryEntry8393 = pb(p.getOrNull(19)) ?: false"))
         assertTrue(source("EvidenceShadow8344").contains("it.size >= 3 && it[0] >= sinceMs && it[2] == 1.0"))
         assertTrue(source("FdgGate8365").contains("EvidenceShadow8344.advisoryProof8393"))

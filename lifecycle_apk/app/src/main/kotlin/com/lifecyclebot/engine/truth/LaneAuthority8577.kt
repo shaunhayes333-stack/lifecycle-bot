@@ -27,7 +27,7 @@ object LaneAuthority8577 {
         // V5.0.8626 — the live entry-state refusals (memeEntryRefusal8626) bind.
         "MEME_BUYS_THE_HIGH_8582", "LIVE_STAGE_LOSES_8626",
         // V5.0.8627 — a runner lane's live buy of a coin more than a day old binds too (memeEntryRefusal8626).
-        "LIVE_RUNNER_STALE_COIN_8627", "EXECUTION_NET_NONPOSITIVE_8629",
+        "LIVE_RUNNER_STALE_COIN_8627", "EXECUTION_NET_NONPOSITIVE_8629", "EXECUTION_ECONOMICS_8136", "COST_LEDGER_7962_ABOVE_GROSS",
         "SAFETY_REFUSED", "STRUCTURAL_RISK", "RUG", "FREEZE", "MINT_AUTH", "TOKEN_2022", "TOKEN2022", "T22_", "HOSTILE",
         "HONEYPOT", "SELLAB", "UNSELLABLE", "MAYHEM", "BLACKLIST", "HARD_BLOCK", "LIQ_TOO_LOW", "LIQUIDITY_FLOOR",
         "LIQUIDITY_COLLAPSE", "LANE_LIQ", "EXIT_SAFE", "IDENTITY", "PRICE_BASIS", "BASIS_PROOF", "UNTRUSTED_MARK", "WALLET",
@@ -166,6 +166,9 @@ object LaneAuthority8577 {
     fun binding8577(reason: String?): Boolean {
         if (reason.isNullOrBlank()) return false
         val r = reason.uppercase()
+        // V5.0.8650 — the single admission's actual negative setup/cell/timing verdict cannot
+        // be reversed by a generic native score at this layer or again at LiveEdgeGate.
+        if (CandidateAdmission8136.verifiedRecordDoor8650(r)) return true
         if (LEARNED_WAITS_8604.any { r.contains(it) }) return false
         return BINDING_8577.any { r.contains(it) }
     }
