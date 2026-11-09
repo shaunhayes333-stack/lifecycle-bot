@@ -400,6 +400,14 @@ object CanonicalEconomicEvent6635 {
         return young > 0
     }
 
+    /** Reconciliation must not replace an account snapshot while any paper
+     * fill is OPEN or PENDING. This includes stale receipts: a timeout does
+     * not turn an incomplete trade into a safely settled transaction. */
+    fun hasUnsettledPaperForReconcile8656(): Boolean = events.values.any { state ->
+        state.event.mode.equals("paper", ignoreCase = true) &&
+            state.terminal != Terminal.COMMITTED && state.terminal != Terminal.FAILED
+    }
+
     /**
      * V5.0.8367 — the unfinished receipts when EVERY one of them is still OPEN (none PENDING_RECONCILIATION): how many,
      * which kinds ("<position prefix>:<side>:missing=<stores>") and the oldest age. Null when nothing is open or when any

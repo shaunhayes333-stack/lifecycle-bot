@@ -125,6 +125,15 @@ object PaperEconomicAtomicCommit6632 {
         return young > 0
     }
 
+    /** An unpaired economic stamp is a transaction in flight, NOT authority
+     * to overwrite the ledger with a journal replay which predates it. Unlike
+     * the acceptance grace query, an OLD unpaired stamp is also a blocker:
+     * it needs diagnosis, not silent deletion of a debit/credit. */
+    fun hasUnpairedForReconcile8656(): Boolean = entries.values.any { e ->
+        e.committedAtMs == 0L &&
+            ((e.ledgerAtMs > 0L) != (e.journalAtMs > 0L))
+    }
+
     /**
      * Build a stable atomic-commit key.  If `attemptId` is present,
      * key = `attemptId|side|terminalFillIndex`.  Otherwise the caller

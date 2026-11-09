@@ -823,7 +823,24 @@ object PaperAccountLedger6430 {
     @Synchronized
     fun reconcileFromJournal6663(
         cashSol: Double, openCostSol: Double, realizedSol: Double, feesSol: Double,
+        expectedLedgerOperations8656: Long,
+        expectedJournalRevision8656: Long,
     ): Boolean {
+        // 5.0.8655 smoke: a canonical BUY debited the ledger during replay;
+        // the journal was 5-8s behind. Reconciliation adopted the older replay
+        // and undid the real debit; when the BUY journal finally landed, cash
+        // and open cost diverged by exactly one ticket. Check the versions
+        // INSIDE the ledger monitor so a racing debit cannot slip between the
+        // check and scalar replacement. Do not conceal any mismatch by tolerance.
+        if (!reconcileFenceAllows8656(
+                expectedLedgerOperations8656, opCount.get(),
+                expectedJournalRevision8656, com.lifecyclebot.engine.TradeHistoryStore.journalRevision7343(),
+                PaperEconomicAtomicCommit6632.hasUnpairedForReconcile8656() ||
+                    CanonicalEconomicEvent6635.hasUnsettledPaperForReconcile8656(),
+            )) {
+            try { PipelineHealthCollector.labelInc("PAPER_RECONCILE_UNSETTLED_OR_MOVED_8656") } catch (_: Throwable) {}
+            return false
+        }
         val values = listOf(cashSol, openCostSol, realizedSol, feesSol)
         if (values.any { !it.isFinite() } || openCostSol < -1e-9 || feesSol < -1e-9) return false
         val starting = fromPico(startingCashPico.get())
@@ -857,6 +874,15 @@ object PaperAccountLedger6430 {
         try { CanonicalPositionAuthority6441.setPaperCash(fromPico(cashPico.get()), "ledger_journal_reconcile_6663_8169") } catch (_: Throwable) {}
         return true
     }
+
+    /** Pure predicate, also used in the stale-replay regression tests. */
+    internal fun reconcileFenceAllows8656(
+        expectedLedgerOperations: Long, currentLedgerOperations: Long,
+        expectedJournalRevision: Long, currentJournalRevision: Long,
+        hasIncompleteEconomicCommit: Boolean,
+    ): Boolean = expectedLedgerOperations == currentLedgerOperations &&
+        expectedJournalRevision >= 0L && expectedJournalRevision == currentJournalRevision &&
+        !hasIncompleteEconomicCommit
 
     @Synchronized
     fun rebuildRealizedFromCanonicalEvents6502(): Double {

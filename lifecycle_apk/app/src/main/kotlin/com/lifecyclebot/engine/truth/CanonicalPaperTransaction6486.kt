@@ -24,6 +24,11 @@ object CanonicalPaperTransaction6486 {
      * journal and canonical raw lots agree exactly. */
     fun reconcileJournalAuthority6663(): Boolean = lock.withLock {
         if (!awaitJournalBoundary6669("pre_replay")) return@withLock false
+        // The typed transaction lock does NOT cover Executor.paperBuy/SELL.
+        // Capture the ledger revision before repairs and replay: any direct
+        // mutation during this pass must make the final scalar replacement
+        // fail closed rather than erase a new, not-yet-journaled fill.
+        val ledgerOpsBefore8656 = PaperAccountLedger6430.snapshotAtomic6643().operationCount
         // V5.0.6692 — repair missing journal legs from immutable canonical/typed
         // receipts before replay. Throttled so reconciliation never becomes an
         // intake hot path; first pass always runs, later passes run only while
@@ -55,12 +60,19 @@ object CanonicalPaperTransaction6486 {
         repairJournalQuantityDrift6666(replay.openRawQtyByPosition, canonicalRaw)
         if (!awaitJournalBoundary6669("post_quantity_repair")) return@withLock false
         replay = JournalEconomicReplay6619.replay()
+        if (replay.journalRevision8358 < 0L ||
+            TradeHistoryStore.journalRevision7343() != replay.journalRevision8358) {
+            try { PipelineHealthCollector.labelInc("PAPER_RECONCILE_JOURNAL_MOVED_8656") } catch (_: Throwable) {}
+            return@withLock false
+        }
         if (canonicalRaw != replay.openRawQtyByPosition) {
             try { PipelineHealthCollector.labelInc("JOURNAL_CANONICAL_RAW_MISMATCH_BLOCKED_6663") } catch (_: Throwable) {}
             return@withLock false
         }
         val reconciled = PaperAccountLedger6430.reconcileFromJournal6663(
             replay.cashSol, replay.openCostBasisSol, replay.realizedPnlSol, replay.feesSol,
+            expectedLedgerOperations8656 = ledgerOpsBefore8656,
+            expectedJournalRevision8656 = replay.journalRevision8358,
         )
         if (reconciled) {
             // Publish only after the ledger has adopted the exact durable
