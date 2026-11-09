@@ -20,11 +20,22 @@ class Aate8395EntrySealTest {
         assertEquals(State.UNSEALED, s.resolve(k, 9).state)
         assertTrue(s.seal(k, 9, null, 1_000))
         assertEquals(State.PENDING, s.resolve(k, 9).state)
-        assertTrue("a read decided after the seal is a reassessment, not A", s.fillLate(k, "B", 9_000, 5_000).isEmpty())
+        assertFalse("a read decided after the seal is a reassessment, not A", s.fillExact(k, 9, "B", 9_000, 5_000))
         assertEquals(State.PENDING, s.resolve(k, 9).state)
-        assertEquals(listOf(9L), s.fillLate(k, "A", 900, 5_000))
+        assertTrue(s.fillExact(k, 9, "A", 900, 5_000))
         assertEquals("A", s.resolve(k, 9).read)
-        assertTrue("filled once", s.fillLate(k, "C", 900, 5_000).isEmpty())
+        assertFalse("filled once", s.fillExact(k, 9, "C", 900, 5_000))
+    }
+    @Test fun twoPendingVersionsNeverShareOneRead8654() {
+        val s = CortexEntrySeal8395<String>()
+        assertTrue(s.seal(k, 1001, null, 10_000))
+        assertTrue(s.seal(k, 1002, null, 10_100))
+        assertTrue("A was captured for version 1001", s.fillExact(k, 1001, "A", 10_020, 5_000))
+        assertEquals("A", s.resolve(k, 1001).read)
+        assertEquals("other approving version must NOT inherit A", State.PENDING, s.resolve(k, 1002).state)
+        assertFalse("no third-party version", s.fillExact(k, 1003, "X", 10_030, 5_000))
+        assertTrue(s.fillExact(k, 1002, "B", 10_120, 5_000))
+        assertEquals("B", s.resolve(k, 1002).read)
     }
     @Test fun versionsAndModesAreIsolated() {
         val s = CortexEntrySeal8395<String>()

@@ -2198,6 +2198,7 @@ object Cortex7885 {
         val key = "${ts.mint}|$lane"
         val hot = assessCache[key]?.takeIf { nowMs - it.atMs in 0L..5_000L }
         if (hot != null) {
+            registerCandidateRead8654(ts.mint, "LIVE", lane, candidateVersion, hot)
             noteEntryRead(ts.mint, false, hot, nowMs)
             inc("LIVE_ENTRY_PRIORITY_REUSED_8653")
             return true
@@ -2215,6 +2216,7 @@ object Cortex7885 {
                     if (a != null) {
                         // The model cannot claim the earlier FDG timestamp;
                         // only the completed read can enter the versioned seal.
+                        registerCandidateRead8654(frozen.mint, "LIVE", lane, candidateVersion, a)
                         noteEntryRead(frozen.mint, false, a, a.atMs)
                         inc("LIVE_ENTRY_PRIORITY_READ_READY_8653")
                     } else inc("LIVE_ENTRY_PRIORITY_READ_UNAVAILABLE_8653")
@@ -4695,6 +4697,14 @@ object Cortex7885 {
     private val entryReads = ConcurrentHashMap<String, Assessment>()   // mint|MODE|LANE
     /** V5.0.8395 (R9) — the read each FDG intent sealed, by candidate version; the fill binds exactly this one. */
     private val entrySeals8395 = CortexEntrySeal8395<Assessment>()
+    /**
+     * V5.0.8654: pre-publish read handoff keyed by the same immutable FDG
+     * version as its seal. It is intentionally small and short lived; generic
+     * scanner assessments cannot claim another candidate's sealed trade.
+     */
+    private val candidateReads8654 = ConcurrentHashMap<String, Assessment>()
+    private const val CANDIDATE_READ_CACHE_MAX_8654 = 512
+    private const val CANDIDATE_READ_MAX_AGE_MS_8654 = 30_000L
     private const val SEAL_MAX_AGE_MS_8395 = 6L * 60L * 60_000L
     private const val SAME_SEAL_SLACK_MS_8395 = 5_000L
 
@@ -4704,13 +4714,50 @@ object Cortex7885 {
     }
 
     /**
-     * ExecutableOpenGate.publishFdgIntent6519: seal the approving entry read A into this candidate version. A read still
-     * being captured leaves the seal PENDING; only a read decided no later than the seal may fill it.
+     * The actual FDG-winner worker carries candidateVersion end-to-end.
+     * It may finish BEFORE publication (stage once for the seal), or AFTER
+     * publication (fill the exact pending seal, then retry its confirmed fill).
+     * The cache/resolve double-check handles the race between these cases.
+     */
+    private fun registerCandidateRead8654(mint: String, mode: String, lane: String, version: Long, read: Assessment) {
+        if (version <= 0L || mint.isBlank()) return
+        val rk = readKey8395(mint, mode, lane)
+        val versionKey = entrySeals8395.key(rk, version)
+        val detached = detachAssessment8386(read)
+        if (candidateReads8654.size > CANDIDATE_READ_CACHE_MAX_8654) {
+            val now = System.currentTimeMillis()
+            candidateReads8654.entries.removeIf { now - it.value.atMs > CANDIDATE_READ_MAX_AGE_MS_8654 }
+            if (candidateReads8654.size > CANDIDATE_READ_CACHE_MAX_8654)
+                candidateReads8654.keys.take(64).forEach { candidateReads8654.remove(it) }
+        }
+        candidateReads8654[versionKey] = detached
+        when (entrySeals8395.resolve(rk, version).state) {
+            CortexEntrySeal8395.State.PENDING -> {
+                // Another publication may have already consumed the staged read.
+                val staged = candidateReads8654.remove(versionKey) ?: return
+                if (entrySeals8395.fillExact(rk, version, staged, staged.atMs, SAME_SEAL_SLACK_MS_8395)) {
+                    inc("ENTRY_READ_EXACT_VERSION_FILLED_8654")
+                    retryDeferredBinds8187(rk, staged)
+                } else inc("ENTRY_READ_EXACT_VERSION_TOO_LATE_8654")
+            }
+            CortexEntrySeal8395.State.SEALED -> candidateReads8654.remove(versionKey)
+            CortexEntrySeal8395.State.UNSEALED -> Unit // sealEntryRead8395 consumes this after publication.
+        }
+    }
+
+    /**
+     * ExecutableOpenGate.publishFdgIntent6519: seal the exact versioned read if
+     * already ready; otherwise remain PENDING until that version's capture
+     * completes. A generic mint/lane read cannot substitute for an FDG winner.
      */
     fun sealEntryRead8395(mint: String, mode: String, lane: String, candidateVersion: Long, nowMs: Long = System.currentTimeMillis()): Boolean {
         if (candidateVersion <= 0L || mint.isBlank()) return false
         val k = readKey8395(mint, mode, lane)
-        val a = entryReads[k]?.takeIf { nowMs - entryDecisionAt8187(it, k) in 0L..ENTRY_READ_MATCH_MS }
+        val versionKey = entrySeals8395.key(k, candidateVersion)
+        val a = candidateReads8654.remove(versionKey)?.takeIf { nowMs - it.atMs in 0L..CANDIDATE_READ_MAX_AGE_MS_8654 }
+            ?: if (mode.equals("PAPER", ignoreCase = true))
+                entryReads[k]?.takeIf { nowMs - entryDecisionAt8187(it, k) in 0L..ENTRY_READ_MATCH_MS }
+               else null
         val sealed = entrySeals8395.seal(k, candidateVersion, a?.let { detachAssessment8386(it) }, nowMs)
         if (sealed) inc(if (a != null) "ENTRY_READ_SEALED_8395" else "ENTRY_READ_SEAL_PENDING_8395")
         if (entrySeals8395.size() > 3_000) entrySeals8395.prune(nowMs, SEAL_MAX_AGE_MS_8395)
@@ -4867,12 +4914,9 @@ object Cortex7885 {
 
     private fun retryDeferredBinds8187(key: String, a: Assessment) {
         val decidedAt = entryDecisionAt8187(a, key)
-        // V5.0.8395 — a late read fills only the PENDING seals it was decided for, then their versioned binds.
-        // The capture can finish before the transaction confirms. Fill its pending intent seal even
-        // when there is no position waiting yet; otherwise that confirmed fill loses the original
-        // prediction and its eventual outcome cannot teach the entry decision that produced it.
-        val filled8395 = entrySeals8395.fillLate(key, detachAssessment8386(a), decidedAt, SAME_SEAL_SLACK_MS_8395)
-        if (filled8395.isNotEmpty()) inc("ENTRY_READ_SEAL_FILLED_LATE_8395")
+        // V5.0.8654: generic reads can retry only unversioned (legacy) binds.
+        // Versioned seals are filled exclusively by registerCandidateRead8654,
+        // never by a scan of unrelated pending candidate versions.
         if (deferredBinds8187.isEmpty()) return
         for (d in deferredBinds8187.values.toList()) {
             if (d.key != key) continue

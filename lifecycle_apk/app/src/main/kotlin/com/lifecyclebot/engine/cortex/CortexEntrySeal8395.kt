@@ -27,15 +27,22 @@ class CortexEntrySeal8395<A>(private val cap: Int = 4_000) {
         return seals.putIfAbsent(key(readKey, version), Entry(read, sealedAtMs)) == null
     }
 
-    /** A read captured asynchronously fills only PENDING seals it was decided for (decision <= seal + [slackMs]). */
-    fun fillLate(readKey: String, read: A, decisionAtMs: Long, slackMs: Long): List<Long> {
-        val out = ArrayList<Long>(1)
-        val prefix = "$readKey|v"
-        for ((k, e) in seals) {
-            if (!k.startsWith(prefix) || e.read != null || decisionAtMs > e.sealedAtMs + slackMs) continue
-            synchronized(e) { if (e.read == null) { e.read = read; k.substring(prefix.length).toLongOrNull()?.let(out::add) } }
+    /**
+     * V5.0.8654: fill ONLY the approving candidate's seal. The former fillLate
+     * walked every pending version for a mint/lane, and one async assessment
+     * was silently credited to unrelated approved trades. The callback must
+     * carry candidateVersion from the FDG winner; timestamps alone cannot
+     * establish which of several overlapping intents owned the prediction.
+     */
+    fun fillExact(readKey: String, version: Long, read: A, completedAtMs: Long, slackMs: Long): Boolean {
+        if (version <= 0L || completedAtMs <= 0L || slackMs < 0L) return false
+        val e = seals[key(readKey, version)] ?: return false
+        if (completedAtMs > e.sealedAtMs + slackMs) return false
+        synchronized(e) {
+            if (e.read != null) return false
+            e.read = read
+            return true
         }
-        return out
     }
 
     fun resolve(readKey: String, version: Long): Resolution<A> {
