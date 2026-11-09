@@ -2378,6 +2378,29 @@ object ExecutableOpenGate {
                             )
                         } catch (_: Throwable) {}
                     }
+                    // V5.0.8653: the actual winning LIVE FDG BUY freezes/queues
+                    // a Cortex witness BEFORE the executable intent can reach
+                    // the executor. The 8648 speculative sample saw
+                    // 120 coins but none of the six closing trades had a bound
+                    // verdict. Actual voter scoring stays on its own bounded worker:
+                    // no extra live gate or costly FDG-thread blocking. A read after
+                    // a fast fill cannot be attributed to that earlier position.
+                    if (!paperRuntime && winner.candidateVersion == candidateVersion &&
+                        canonicalLane(winner.selectedLane) == canonicalLane(lane)) {
+                        try {
+                            val ts8653 = synchronized(com.lifecyclebot.engine.BotService.status.tokens) {
+                                com.lifecyclebot.engine.BotService.status.tokens[mint]
+                            }
+                            if (ts8653 != null) {
+                                val queued8653 = com.lifecyclebot.engine.cortex.Cortex7885.scheduleLiveExecutionRead8653(
+                                    ts8653, winner.selectedLane, winner.candidateVersion, System.currentTimeMillis())
+                                PipelineHealthCollector.labelInc(if (queued8653) "FDG_LIVE_ENTRY_READ_QUEUED_8653"
+                                    else "FDG_LIVE_ENTRY_READ_NOT_QUEUED_8653")
+                            } else PipelineHealthCollector.labelInc("FDG_LIVE_ENTRY_STATE_MISSING_8653")
+                        } catch (_: Throwable) {
+                            PipelineHealthCollector.labelInc("FDG_LIVE_ENTRY_READ_FAILED_8653")
+                        }
+                    }
                     val mode6512 = if (paperRuntime) "PAPER" else "LIVE"
                     val immutableAuthority6519 = com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510
                         .currentForMint(mint, winner.candidateVersion, mode6512)

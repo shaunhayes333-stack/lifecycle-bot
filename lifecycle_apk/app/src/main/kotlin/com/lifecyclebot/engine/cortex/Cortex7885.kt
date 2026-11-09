@@ -299,7 +299,8 @@ object Cortex7885 {
     fun assess(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis(),
                inputAtMs8522: Long = nowMs,
                opportunitySource8522: CortexOpportunityPolarity8522.Source? = null,
-               sampleReserved8644: Boolean = false): Assessment? {
+               sampleReserved8644: Boolean = false,
+               maxCacheAgeMs8653: Long = ASSESS_TTL_MS): Assessment? {
         if (ts.mint.isBlank() || laneRaw.isBlank()) return null
         val lane = canon(laneRaw)
         val key = "${ts.mint}|$lane"
@@ -307,7 +308,7 @@ object Cortex7885 {
         try { com.lifecyclebot.engine.BundleScanScope8418.noteScored8418(ts.mint, nowMs) } catch (_: Throwable) {}
         if (VOTER_GRAPH_RETIRED_8623) return null
         assessCache[key]?.let {
-            if (opportunitySource8522 == null) { if (nowMs - it.atMs in 0L..ASSESS_TTL_MS) return it }
+            if (opportunitySource8522 == null) { if (nowMs - it.atMs in 0L..maxCacheAgeMs8653) return it }
             else if (CortexOpportunityPolarity8522.currentInput8522(opportunitySource8522, it, nowMs)) return it
         }
         if (!sampleReserved8644 && !reserveSample8644(nowMs)) return null
@@ -382,7 +383,7 @@ object Cortex7885 {
             // Publish only after ownership exists. A concurrent capture must not see a prediction whose
             // forward alias cannot yet bind. Coalesced assessments also keep the first immutable prediction.
             assessCache[key]?.let {
-                if (opportunitySource8522 == null) { if (nowMs - it.atMs in 0L..ASSESS_TTL_MS) return it }
+                if (opportunitySource8522 == null) { if (nowMs - it.atMs in 0L..maxCacheAgeMs8653) return it }
                 else if (CortexOpportunityPolarity8522.currentInput8522(opportunitySource8522, it, nowMs)) return it
             }
             outcomeBook8372.prune(nowMs - GRADED_KEEP_MS_8013)
@@ -2174,6 +2175,59 @@ object Cortex7885 {
         val a = assessCache["${ts.mint}|${canon(laneRaw)}"]?.takeIf { nowMs - it.atMs in 0L..ASSESS_TTL_MS } ?: return false
         noteEntryRead(ts.mint, accountMode8077() == "PAPER", a, nowMs)
         return true
+    }
+
+    /**
+     * V5.0.8653 — LIVE FDG winners have a priority *passive* learning capture.
+     * The full voter graph NEVER runs on the buy/FDG thread: it was previously
+     * a multi-second last-mile choke. An actual FDG winner freezes input now,
+     * queues a bounded worker, and seals/trades immediately. A voter read that
+     * finishes after the fill is not pre-entry evidence (bindPosition8076 and
+     * retryDeferredBinds8187 enforce the completed-read timestamp).
+     */
+    private val priorityPool8653: java.util.concurrent.ThreadPoolExecutor = java.util.concurrent.ThreadPoolExecutor(
+        1, 1, 30L, java.util.concurrent.TimeUnit.SECONDS, java.util.concurrent.ArrayBlockingQueue(16),
+        { r -> Thread(r, "cortex-live-entry-8653").apply { isDaemon = true; priority = Thread.MIN_PRIORITY } },
+        java.util.concurrent.ThreadPoolExecutor.AbortPolicy(),
+    )
+    private val priorityQueued8653 = ConcurrentHashMap.newKeySet<String>()
+
+    fun scheduleLiveExecutionRead8653(ts: TokenState, laneRaw: String, candidateVersion: Long, nowMs: Long): Boolean {
+        if (VOTER_GRAPH_RETIRED_8623 || ts.mint.isBlank() || candidateVersion <= 0L) return false
+        val lane = canon(laneRaw)
+        val key = "${ts.mint}|$lane"
+        val hot = assessCache[key]?.takeIf { nowMs - it.atMs in 0L..5_000L }
+        if (hot != null) {
+            noteEntryRead(ts.mint, false, hot, nowMs)
+            inc("LIVE_ENTRY_PRIORITY_REUSED_8653")
+            return true
+        }
+        val ticket = "$key|v$candidateVersion"
+        if (!priorityQueued8653.add(ticket)) return true
+        val frozen = try { decisionSnapshots8522.capture(ts, nowMs) } catch (_: Throwable) {
+            priorityQueued8653.remove(ticket); inc("LIVE_ENTRY_PRIORITY_FREEZE_FAILED_8653"); return false
+        }
+        return try {
+            priorityPool8653.execute {
+                try {
+                    val a = assess(frozen, lane, nowMs, inputAtMs8522 = nowMs,
+                        sampleReserved8644 = true, maxCacheAgeMs8653 = 5_000L)
+                    if (a != null) {
+                        // The model cannot claim the earlier FDG timestamp;
+                        // only the completed read can enter the versioned seal.
+                        noteEntryRead(frozen.mint, false, a, a.atMs)
+                        inc("LIVE_ENTRY_PRIORITY_READ_READY_8653")
+                    } else inc("LIVE_ENTRY_PRIORITY_READ_UNAVAILABLE_8653")
+                } catch (_: Throwable) { inc("LIVE_ENTRY_PRIORITY_WORKER_FAILED_8653") }
+                finally { priorityQueued8653.remove(ticket) }
+            }
+            inc("LIVE_ENTRY_PRIORITY_QUEUED_8653")
+            true
+        } catch (_: Throwable) {
+            priorityQueued8653.remove(ticket)
+            inc("LIVE_ENTRY_PRIORITY_QUEUE_FULL_8653")
+            false
+        }
     }
 
     /**
@@ -4683,7 +4737,16 @@ object Cortex7885 {
             val res = entrySeals8395.resolve(rk, candidateVersion8395)
             when (res.state) {
                 CortexEntrySeal8395.State.SEALED -> {
-                    bindRead8187(positionId, mint, canonicalMint, m, res.read!!, openedAtMs)
+                    val sealedRead = res.read!!
+                    if (!readBindable8187(sealedRead.atMs, openedAtMs)) {
+                        // A worker may have finished after an exceptionally fast fill.
+                        // The decision inputs were frozen earlier, but the voter verdict
+                        // DID NOT EXIST when that fill happened; it cannot learn from it.
+                        inc("ENTRY_BIND_SEALED_POST_FILL_READ_REFUSED_8653")
+                        entrySeals8395.release(rk, candidateVersion8395)
+                        return
+                    }
+                    bindRead8187(positionId, mint, canonicalMint, m, sealedRead, openedAtMs)
                     entrySeals8395.release(rk, candidateVersion8395)
                     inc("ENTRY_BOUND_SEALED_8395")
                 }
@@ -4815,7 +4878,17 @@ object Cortex7885 {
             if (d.key != key) continue
             if (d.version8395 > 0L) {
                 val res = entrySeals8395.resolve(key, d.version8395)
-                if (res.state != CortexEntrySeal8395.State.SEALED || !deferredBinds8187.remove(d.positionId, d)) continue
+                if (res.state != CortexEntrySeal8395.State.SEALED) continue
+                if (!readBindable8187(res.read!!.atMs, d.openedAtMs)) {
+                    // An async read after the actual open cannot become that
+                    // trade's pre-entry prediction, even with a versioned seal.
+                    if (deferredBinds8187.remove(d.positionId, d)) {
+                        inc("ENTRY_BIND_DEFERRED_POST_FILL_READ_REFUSED_8653")
+                        entrySeals8395.release(key, d.version8395)
+                    }
+                    continue
+                }
+                if (!deferredBinds8187.remove(d.positionId, d)) continue
                 val canonicalMint = try { CrossAssetCortex7931.normalizeCloseKey(d.mint) } catch (_: Throwable) { d.mint }
                 bindRead8187(d.positionId, d.mint, canonicalMint, key.substringBeforeLast('|').substringAfterLast('|'), res.read!!, d.openedAtMs)
                 entrySeals8395.release(key, d.version8395)

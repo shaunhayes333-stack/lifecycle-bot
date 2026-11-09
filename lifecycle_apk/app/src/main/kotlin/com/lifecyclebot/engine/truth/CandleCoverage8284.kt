@@ -4,7 +4,8 @@ import com.lifecyclebot.data.Candle
 import com.lifecyclebot.data.TokenState
 import java.util.Collections
 import java.util.IdentityHashMap
-import java.util.WeakHashMap
+import java.lang.ref.ReferenceQueue
+import java.lang.ref.WeakReference
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
@@ -45,8 +46,26 @@ object CandleCoverage8284 {
     private const val MIN_TF_BARS_8284 = 3
     val TIMEFRAMES_8284 = listOf("15s", "1m", "5m", "15m", "1h", "4h")
 
-    /** Candle -> what it is. Weak: an entry goes when no history holds the candle any more. */
-    private val tags = Collections.synchronizedMap(WeakHashMap<Candle, Tag8284>())
+    /**
+     * V5.0.8653: provenance belongs to a *particular observed bar*, not to its value.
+     * Candle is a data class: WeakHashMap compares OHLC values, so an authentic trade
+     * bar could overwrite the provenance of an equal-valued synthetic mark (or vice versa).
+     * Weak identity keys retain no candles and are drained whenever a source tags bars.
+     */
+    private class CandleIdentity8653(c: Candle, queue: ReferenceQueue<Candle>? = null) : WeakReference<Candle>(c, queue) {
+        private val identityHash = System.identityHashCode(c)
+        override fun hashCode(): Int = identityHash
+        override fun equals(other: Any?): Boolean = this === other ||
+            (other is CandleIdentity8653 && get() != null && get() === other.get())
+    }
+
+    private val tagQueue8653 = ReferenceQueue<Candle>()
+    private val tags = ConcurrentHashMap<CandleIdentity8653, Tag8284>()
+    private fun reapTags8653() {
+        while (true) tags.remove(tagQueue8653.poll() ?: break)
+    }
+
+    private fun tagOfIdentity8653(c: Candle): Tag8284? = tags[CandleIdentity8653(c)]
 
     /** 1 m bars for a mint whose ts.history is on a longer timeframe (or is a held position's tick tape). */
     private val store1m = ConcurrentHashMap<String, ArrayDeque<Candle>>()
@@ -61,13 +80,14 @@ object CandleCoverage8284 {
     private val storeBars = AtomicLong(0L)
 
     fun tag8284(c: Candle, quality: Quality8284, source: String, pool: String = ""): Candle {
-        tags[c] = Tag8284(quality, source, pool)
+        reapTags8653()
+        tags[CandleIdentity8653(c, tagQueue8653)] = Tag8284(quality, source, pool)
         return c
     }
 
-    fun tagOf8284(c: Candle): Tag8284? = tags[c]
+    fun tagOf8284(c: Candle): Tag8284? = tagOfIdentity8653(c)
 
-    fun qualityOf8284(c: Candle): Quality8284 = tags[c]?.quality ?: infer8284(c)
+    fun qualityOf8284(c: Candle): Quality8284 = tagOfIdentity8653(c)?.quality ?: infer8284(c)
 
     /**
      * Pure: the quality an untagged candle shows on its face. A point without open/high/low is INCOMPLETE; a full OHLC
@@ -113,7 +133,9 @@ object CandleCoverage8284 {
         for ((m, bar) in incoming) {
             val existing = byMinute[m]
             if (existing.isNullOrEmpty()) { add.add(bar); added++; continue }
-            if (m >= openMinute || existing.any { it == bar }) { kept++; continue }
+            // Structural equality is not provenance equality: a byte-identical trade
+            // observation can still outrank a mark from another provider.
+            if (m >= openMinute || existing.any { it === bar }) { kept++; continue }
             val best = existing.reduce { a, b -> if (better8284(b, a)) b else a }
             if (better8284(bar, best)) {
                 existing.forEach { remove.add(it) }
@@ -133,7 +155,7 @@ object CandleCoverage8284 {
         val qa = qualityOf8284(a); val qb = qualityOf8284(b)
         if (qa.rank != qb.rank) return qa.rank > qb.rank
         if (qa.rank < Quality8284.TRADE_AGGREGATED.rank) return false
-        val pa = tags[a]?.pool.orEmpty(); val pb = tags[b]?.pool.orEmpty()
+        val pa = tagOfIdentity8653(a)?.pool.orEmpty(); val pb = tagOfIdentity8653(b)?.pool.orEmpty()
         if (pa.isNotBlank() && pb.isNotBlank() && pa != pb) return false
         return trades(a) > trades(b)
     }
@@ -268,7 +290,7 @@ object CandleCoverage8284 {
     private const val TAG_BYTES_8289 = 88L
     const val BAR_BYTES_8289 = 128L
 
-    fun tagCount8289(): Int = tags.size
+    fun tagCount8289(): Int { reapTags8653(); return tags.size }
     fun storeMints8289(): Int = store1m.size
     internal fun needCount8289(): Int = needAt.size
     fun storeBarCount8289(): Int {
