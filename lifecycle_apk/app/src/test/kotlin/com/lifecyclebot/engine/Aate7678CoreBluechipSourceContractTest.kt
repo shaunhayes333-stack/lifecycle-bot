@@ -10,7 +10,9 @@ class Aate7678CoreBluechipSourceContractTest {
 
     @Test fun coreIsExecutableEnsembleNotGenericTrunk() {
         val brain = src("engine/SpecialistBrainBridge7542.kt")
-        assertTrue(brain.contains("val ensemble=a!=null&&b!=null"))
+        assertTrue(brain.contains("val ensemble = a != null && b != null"))
+        assertTrue("the ensemble compares a 150-point MOONSHOT opinion against 100-point desks on one scale",
+            brain.contains("NativeCandidateValues8527.coreRank8651(it)"))
         assertTrue(brain.contains("CORE_GENERALIST_NO_SPECIALIST_FIT"))
         assertTrue(brain.contains("CORE_YIELD_CLEAR_SPECIALIST_OWNER"))
         val p = src("engine/ExecutionAuthorityPolicy6533.kt")

@@ -146,7 +146,12 @@ class Aate8546StrategyFamiliesTest {
     }
 
     @Test fun theFamiliesRunInTheLoopAndNeverTradeHardSafetyOrTouchLiveSlots() {
-        assertTrue(src("engine/BotService.kt").contains("com.lifecyclebot.engine.truth.MemeStrategies8546.tick8546(tokenStatesCopy, nowShadow7307)"))
+        val worker = src("engine/BotService.kt").substringAfter("private fun dispatchShadowEvidenceTicks8372(")
+            .substringBefore("shadowEvidenceTickJob8372.set(job)")
+        assertTrue(worker.contains("com.lifecyclebot.engine.truth.MemeStrategies8546.tick8546(tokenStatesCopy, nowShadow7307)"))
+        assertTrue("short-lived meme setups must not wait behind two shadow-book sweeps",
+            worker.indexOf("MemeStrategies8546.tick8546") < worker.indexOf("EvidenceShadow8344.tick8344") &&
+                worker.indexOf("EvidenceShadow8344.tick8344") < worker.indexOf("ExploreShadow8347.tick8347"))
         val s = src("engine/truth/MemeStrategies8546.kt")
         assertTrue(s.contains("ts.safety.tier == com.lifecyclebot.engine.SafetyTier.HARD_BLOCK") && s.contains("SKIP_HARD_BLOCK"))
         assertTrue(s.contains("MemePaperTrader8544.openFamily8546(ts, s, nowMs)"))

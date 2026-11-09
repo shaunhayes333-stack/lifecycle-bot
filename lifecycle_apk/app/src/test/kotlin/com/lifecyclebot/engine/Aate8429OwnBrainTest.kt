@@ -84,7 +84,22 @@ class Aate8429OwnBrainTest {
         assertFalse("at NORMAL pressure every save runs", Cortex7885.periodicSnapshotDeferred8429(false, 1_000L))
         assertFalse(Cortex7885.periodicSnapshotDeferred8429(true, -1L))
         val c = File("src/main/kotlin/com/lifecyclebot/engine/cortex/Cortex7885.kt").readText()
-        assertTrue(c.contains("if (periodicSnapshotDeferred8429(snapshotEncodesInLock8418(memoryPressure8418()), now8429 - lastPeriodicSnapshotMs8429)) {"))
+        assertTrue(c.contains("if (!force8652 && periodicSnapshotDeferred8429(snapshotEncodesInLock8418(memoryPressure8418()), now8429 - lastPeriodicSnapshotMs8429)) {"))
         assertTrue("close commits are untouched", c.contains("val encode = snapshotEncoder8386(periodic = false) ?: return false"))
+    }
+
+    @Test fun measuredSnapshotEncoderCostThrottlesOnlyOptionalPeriodicSaves() {
+        assertEquals(0L, Cortex7885.periodicSnapshotCostGapMs8652(0L))
+        assertEquals(30_000L, Cortex7885.periodicSnapshotCostGapMs8652(1_000L))
+        assertEquals(90_000L, Cortex7885.periodicSnapshotCostGapMs8652(6_300L))
+        assertFalse(Cortex7885.periodicSnapshotCostDeferred8652(0L, 1L))
+        assertTrue(Cortex7885.periodicSnapshotCostDeferred8652(6_300L, 60_000L))
+        assertFalse(Cortex7885.periodicSnapshotCostDeferred8652(6_300L, 90_000L))
+        assertFalse(Cortex7885.periodicSnapshotCostDeferred8652(6_300L, -1L))
+        val c = File("src/main/kotlin/com/lifecyclebot/engine/cortex/Cortex7885.kt").readText()
+        assertTrue(c.contains("persistBlocking8094(force8652 = true)"))
+        assertTrue(c.contains("if (!force8652 && lastPeriodicSnapshotMs8429 > 0L &&"))
+        assertTrue(c.contains("periodicSnapshotCostDeferred8652(lastSaveCostMs8497(), now8429 - lastPeriodicSnapshotMs8429)"))
+        assertTrue("the close barrier still commits the full snapshot", c.contains("val encode = snapshotEncoder8386(periodic = false) ?: return false"))
     }
 }

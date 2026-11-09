@@ -208,7 +208,11 @@ class Aate8418CortexRestartHorizonTest {
                 val calibrationLine = cortex.calibrationLine8169()
                 val recordBefore = book.decision(decisionId)!!
 
-                cortex.javaClass.getDeclaredMethod("persistBlocking8094").apply { isAccessible = true }.invoke(cortex)
+                // V5.0.8652 — an explicit restart-proof checkpoint bypasses ONLY
+                // the periodic-save governor; the production periodic call keeps
+                // its measured-cost throttle.
+                cortex.javaClass.getDeclaredMethod("persistBlocking8094", Boolean::class.javaPrimitiveType)
+                    .apply { isAccessible = true }.invoke(cortex, true)
                 val saved = LearningPersistence.load("CORTEX_7885_V8521")
                 assertNotNull("the snapshot must reach the store (an Android-only call on this path would drop it)", saved)
                 assertTrue(saved!!.contains("$voter|$lane"))

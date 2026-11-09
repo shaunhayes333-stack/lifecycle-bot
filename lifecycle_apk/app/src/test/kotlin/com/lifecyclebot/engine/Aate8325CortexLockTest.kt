@@ -82,7 +82,7 @@ class Aate8325CortexLockTest {
         }
         // the save is serialised on its own lock, not on the Cortex monitor
         assertFalse(cx.contains("@Synchronized private fun persistBlocking8094()"))
-        assertTrue(cx.contains("private fun persistBlocking8094() { synchronized(persistLock8325) {"))
+        assertTrue(cx.contains("private fun persistBlocking8094(force8652: Boolean = false) { synchronized(persistLock8325) {"))
         // 8372 adds exact shadow receipts to the same ordered transaction; the Cortex monitor still covers only snapshots.
         val durable = fn("private fun durableCloseCommit8198(", "/** V5.0.8325 — [durableCloseCommit8198]")
         assertTrue(durable.contains("additionalBlobs8372: Map<String, String> = emptyMap()"))

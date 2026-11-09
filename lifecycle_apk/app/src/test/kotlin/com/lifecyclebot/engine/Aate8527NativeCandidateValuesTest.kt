@@ -34,6 +34,34 @@ class Aate8527NativeCandidateValuesTest {
         assertEquals(31 to 17, p.coreEnsemble8527(emptyList(), 31, 17))
     }
 
+    @Test fun coreEnsembleNormalisesMoonshot150ScaleBeforeRankingOrAveraging() {
+        val moonshot = SpecialistBrainBridge7542.Opinion("MOONSHOT", true, 100, 69, 0.01,
+            "READY", "MOONSHOT_RUNNER", "", "", rawScore8535 = 105, scaleMax8535 = 150)
+        val shitcoin = SpecialistBrainBridge7542.Opinion("SHITCOIN", true, 82, 79, 0.01,
+            "READY", "SHITCOIN_SETUP", "", "", rawScore8535 = 82, scaleMax8535 = 100)
+        assertEquals(70.0, p.coreScorePct8651(moonshot), 0.01)
+        assertEquals(70.0, p.coreRank8651(moonshot), 0.01)
+        assertEquals(82.0, p.coreRank8651(shitcoin), 0.01)
+        assertEquals(76 to 74, p.coreEnsemble8527(listOf(shitcoin, moonshot), 0, 0))
+        val bridge = File("src/main/kotlin/com/lifecyclebot/engine/SpecialistBrainBridge7542.kt").readText()
+        assertTrue(bridge.contains(".sortedByDescending { NativeCandidateValues8527.coreRank8651(it) }"))
+        assertTrue(bridge.contains(".copy(firedSetup8535 = fired8651, signalAtMs8535 = now)"))
+        assertTrue(bridge.contains("NativeLaneAge8521.review8521(triggered8651, ageEvidence8521)"))
+    }
+
+    @Test fun coreFallbackRequiresAnObservedBuyShareAndNamedNativeSetup() {
+        assertFalse(p.coreFallback8651(0, 75, 75, null, 3_000.0, false))
+        assertFalse(p.coreFallback8651(0, 75, 75, Double.NaN, 3_000.0, false))
+        assertFalse(p.coreFallback8651(0, 75, 75, 49.9, 3_000.0, false))
+        assertFalse(p.coreFallback8651(0, 75, 75, 50.0, 3_000.0, true))
+        assertFalse(p.coreFallback8651(0, 75, 75, 50.0, 0.0, false))
+        assertFalse(p.coreFallback8651(1, 75, 75, 55.0, 3_000.0, false))
+        assertTrue(p.coreFallback8651(0, 75, 75, 55.0, 3_000.0, false))
+        val bridge = File("src/main/kotlin/com/lifecyclebot/engine/SpecialistBrainBridge7542.kt").readText()
+        assertTrue(bridge.contains("NativeCandidateValues8527.coreFallback8651"))
+        assertTrue(bridge.contains("CORE_NO_NAMED_SETUP_8535"))
+    }
+
     @Test fun activeCallsitesPassEachAvailableNativeMeasurementAndKeepExactFdgValues() {
         val b = File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val pairs = listOf(
@@ -60,7 +88,7 @@ class Aate8527NativeCandidateValuesTest {
         assertTrue(b.contains("preResolvedSizeSol = sniperFdg8527.sizeSol"))
         val native = File("src/main/kotlin/com/lifecyclebot/engine/SpecialistBrainBridge7542.kt").readText()
         assertTrue(native.contains("NativeCandidateValues8527.coreEnsemble8527(s, v3, v3c)"))
-        assertTrue(native.contains("coreOk,coreScore,coreConfidence"))
+        assertTrue(native.contains("coreOk, coreScore, coreConfidence"))
     }
 
     @Test fun cashgenIdentityAndSizeRemainBoundAcrossMemoryFdgAuthorizerExecutorAndLearning() {

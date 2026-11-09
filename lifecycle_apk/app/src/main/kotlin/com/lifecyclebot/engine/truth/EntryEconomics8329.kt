@@ -111,6 +111,16 @@ object EntryEconomics8329 {
 
     const val CHASE_CONSUMED_8329 = "ENTRY_CHASE_CONSUMED_8329"
     const val MISSED_LANE_PREFIX_8329 = "CHASEMISS_"
+
+    /**
+     * A nullable admission proof is not necessarily a usable gross forecast: an
+     * earlier unpriced observation may have sealed NaN. Kotlin's `?:` does not
+     * replace NaN. Re-evaluate the SAME selected setup at the fresh executable
+     * quote/cost only when the bound forecast is non-finite. An unpriced fresh
+     * result remains non-finite and the existing execution refusal still wins.
+     */
+    internal fun expectedGrossAtExecution8653(bound: Double?, fresh: () -> Double): Double =
+        bound?.takeIf { it.isFinite() } ?: try { fresh() } catch (_: Exception) { Double.NaN }
     const val CAP_LAUNCH_PCT_8329 = 8.0
     const val CAP_MOMENTUM_PCT_8329 = 5.0
     const val CAP_DEFAULT_PCT_8329 = 4.0
@@ -203,7 +213,9 @@ object EntryEconomics8329 {
             (try { LiveEdgeGate7877.chasing8065(snap.runupFromLocalLowPct, snap.currentVsPeak, ts.lastPriceChange5m) } catch (_: Throwable) { false })
         val liq = try { LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) { ts.lastLiquidityUsd }
         val cost = try { NetEdge8030.preTradeCostPct8329(lane, sizeSol, liq, ts.mint, ts.lastMcap) } catch (_: Throwable) { Double.NaN }
-        val expected = intent.admissionProof?.expectedGrossPct ?: NetEdge8030.expectedGrossFor8153(ts, lane, sel, cost)
+        val expected = expectedGrossAtExecution8653(intent.admissionProof?.expectedGrossPct) {
+            NetEdge8030.expectedGrossFor8153(ts, lane, sel, cost)
+        }
         if (!expected.isFinite() || !cost.isFinite()) return "ENTRY_CHASE_ECONOMICS_UNAVAILABLE_$lane"
         val cap = chaseCapPct8329(setup, tactic, exhausted)
         val why = consumed8329(move, cap, expected, cost, NetEdge8030.margin8391(lane, sizeSol, cost))
@@ -294,8 +306,9 @@ object EntryEconomics8329 {
         val liquidity = LiquidityTruth8037.hydrate8037(ts)
         val cost = NetEdge8030.preTradeCostPct8329(lane, sizeSol, liquidity, ts.mint, ts.lastMcap)
         val modelFixed = NetEdge8030.fixedRoundTripForCurrentCost8521()
-        val expected = intent.admissionProof?.expectedGrossPct
-            ?: NetEdge8030.expectedGrossFor8153(ts, lane, intent.admissionProof?.chosenSetup, cost)
+        val expected = expectedGrossAtExecution8653(intent.admissionProof?.expectedGrossPct) {
+            NetEdge8030.expectedGrossFor8153(ts, lane, intent.admissionProof?.chosenSetup, cost)
+        }
         val fixed = com.lifecyclebot.engine.CostMeter8151.fixedLegs8521()
         val roundTripFixed = fixed.roundTripFixedSol
         val sellFixed = fixed.sellFixedSol

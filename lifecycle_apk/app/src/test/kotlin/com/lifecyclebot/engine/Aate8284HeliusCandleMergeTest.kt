@@ -67,6 +67,28 @@ class Aate8284HeliusCandleMergeTest {
         assertEquals(pool, CandleCoverage8284.tagOf8284(tagged)?.pool)
     }
 
+    @Test fun equalValuedBarsKeepIndependentProvenanceAndAuthenticTradeReplacesMark8653() {
+        val minute = now - 5 * min
+        val mark = trade(minute, 2.0)
+        val chainTrade = trade(minute, 2.0)
+        assertEquals("the same numerical bar can come from two different sources", mark, chainTrade)
+        assertFalse("these are two distinct observations", mark === chainTrade)
+        CandleCoverage8284.tag8284(mark, Quality8284.MARK_ONLY, "snapshot")
+        CandleCoverage8284.tag8284(chainTrade, Quality8284.TRADE_OHLCV, "helius_enhanced_tx", pool)
+        assertEquals(Quality8284.MARK_ONLY, CandleCoverage8284.qualityOf8284(mark))
+        assertEquals(Quality8284.TRADE_OHLCV, CandleCoverage8284.qualityOf8284(chainTrade))
+        assertEquals("snapshot", CandleCoverage8284.tagOf8284(mark)?.source)
+        assertEquals(pool, CandleCoverage8284.tagOf8284(chainTrade)?.pool)
+
+        val history = ArrayDeque<Candle>()
+        history.addLast(mark)
+        val result = CandleCoverage8284.mergeInto8284(history, listOf(chainTrade), now)
+        assertEquals(1, result.replaced)
+        assertEquals(1, history.size)
+        assertTrue("the chain bar has actual quality provenance", history.first() === chainTrade)
+        assertEquals(Quality8284.TRADE_OHLCV, CandleCoverage8284.qualityOf8284(history.first()))
+    }
+
     @Test fun incompleteOneMinuteMarkIsReplacedByAuthenticHeliusCandleWithoutDuplicatingTheMinute() {
         val ts = TokenState(mint = mint)
         val m = now - 5 * min

@@ -32,11 +32,18 @@ class Aate8417CortexEntryContinuityTest {
             "noteEntryRead", String::class.java, Boolean::class.javaPrimitiveType,
             Cortex7885.Assessment::class.java, Long::class.javaPrimitiveType,
         ).apply { isAccessible = true }
+        val exactCapture = cortex.javaClass.getDeclaredMethod(
+            "registerCandidateRead8654", String::class.java, String::class.java, String::class.java,
+            Long::class.javaPrimitiveType, Cortex7885.Assessment::class.java,
+        ).apply { isAccessible = true }
         try {
             binds.clear() // No confirmed position exists yet.
             assertTrue(cortex.sealEntryRead8395(mint, "LIVE", "MOONSHOT", 8417L, at))
             assertEquals(CortexEntrySeal8395.State.PENDING, seals.resolve(key, 8417L).state)
             capture.invoke(cortex, mint, false, assessment(12.0, at - 100), at - 100)
+            assertEquals("an unversioned scan cannot claim this intent", CortexEntrySeal8395.State.PENDING,
+                seals.resolve(key, 8417L).state)
+            exactCapture.invoke(cortex, mint, "LIVE", "MOONSHOT", 8417L, assessment(12.0, at - 100))
             val sealed = seals.resolve(key, 8417L)
             assertEquals("the fill must already find its original prediction", CortexEntrySeal8395.State.SEALED, sealed.state)
             assertEquals(12.0, sealed.read!!.calibratedEdge, 0.0)
@@ -49,11 +56,20 @@ class Aate8417CortexEntryContinuityTest {
 
             seals.seal(key, 8418L, null, at)
             capture.invoke(cortex, mint, false, assessment(95.0, at + 20_000), at + 20_000)
+            exactCapture.invoke(cortex, mint, "LIVE", "MOONSHOT", 8418L, assessment(95.0, at + 20_000))
             assertEquals("a future reassessment cannot fill an earlier missing decision",
+                CortexEntrySeal8395.State.PENDING, seals.resolve(key, 8418L).state)
+
+            // The reverse order is also real: a hot Cortex read can be ready
+            // before FDG publishes the winning executable intent.
+            exactCapture.invoke(cortex, mint, "LIVE", "MOONSHOT", 8419L, assessment(44.0, at - 30))
+            assertTrue(cortex.sealEntryRead8395(mint, "LIVE", "MOONSHOT", 8419L, at))
+            assertEquals(44.0, seals.resolve(key, 8419L).read!!.calibratedEdge, 0.0)
+            assertEquals("one staged read must not fill another pending candidate",
                 CortexEntrySeal8395.State.PENDING, seals.resolve(key, 8418L).state)
         } finally {
             binds.clear(); binds.putAll(savedBinds)
-            seals.release(key, 8417L); seals.release(key, 8418L)
+            seals.release(key, 8417L); seals.release(key, 8418L); seals.release(key, 8419L)
             reads.remove(key); readTimes.remove(key)
         }
     }
