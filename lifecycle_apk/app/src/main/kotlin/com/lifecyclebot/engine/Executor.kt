@@ -20973,7 +20973,9 @@ class Executor(
                     srcUpperForRoute.contains("PUMP_FUN") ||
                     srcUpperForRoute.contains("PUMPSWAP") ||
                     srcUpperForRoute.contains("RAYDIUM_NEW_POOL") ||
-                    srcUpperForRoute.contains("SCANNER_DIRECT_RAYDIUM_NEW_POOL")
+                    srcUpperForRoute.contains("SCANNER_DIRECT_RAYDIUM_NEW_POOL") ||
+                    // V5.0.8633 — the DexScreener profiles feed was filed as RAYDIUM_NEW_POOL / PUMP_FUN_*; it keeps that route.
+                    srcUpperForRoute.contains(com.lifecyclebot.engine.SourceTruth8633.DEX_PROFILES_8633)
             )
             val freshPumpRoute = pumpPortalAutoEligible4559 && !costAggregatorFirst8151(ts, wallet) && !com.lifecyclebot.engine.truth.LaunchCohort8173.pumpFallback8173(ts.mint)  // V5.0.8151 — cheapest executable route; V5.0.8173 — PumpPortal just failed for this mint: the route that lands
             val pumpBuyPlan = if (!freshPumpRoute) {

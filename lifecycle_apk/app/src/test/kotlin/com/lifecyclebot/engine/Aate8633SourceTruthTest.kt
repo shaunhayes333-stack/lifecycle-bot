@@ -160,4 +160,9 @@ class Aate8633SourceTruthTest {
         assertTrue(warm.contains("if (w.mint in held8633) continue"))
         assertTrue(warm.contains("if (!reseedEligible8633(o.optString(\"source\"), held = false)) continue"))
     }
+
+    @Test fun the_profiles_feed_keeps_the_pumpportal_first_route() {
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("srcUpperForRoute.contains(com.lifecyclebot.engine.SourceTruth8633.DEX_PROFILES_8633)"))
+    }
 }
