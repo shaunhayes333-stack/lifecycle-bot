@@ -27,7 +27,9 @@ class Aate7542NativeSpecialistAuthorityTest {
             assertTrue("execution must use the same $adapter",
                 bot.contains("laneDoor8105(SpecialistInputParity8527.$adapter("))
         }
-        assertTrue(b.contains("out[\"CORE\"]=op"))
+        // CORE's final opinion must pass through the native age evidence review;
+        // directly writing an unreviewed op bypassed the shared entry contract.
+        assertTrue(b.contains("out[\"CORE\"] = NativeLaneAge8521.review8521(triggered8651, ageEvidence8521)"))
     }
 
     @Test fun toolkit_cannot_resurrect_native_rejected_lane(){
