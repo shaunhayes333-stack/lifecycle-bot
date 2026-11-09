@@ -773,8 +773,8 @@ object ParallelMarkFanout7088 {
             try { com.lifecyclebot.engine.truth.KeylessMarks8359.withWantedCurves8359(mints, CURVE_MAX_MINTS_7269) } catch (_: Throwable) { mints }
         val now8458 = System.currentTimeMillis()
         val targets = HeliusSolanaScope7819.solanaMintsOnly7819(mints8359).mapNotNull { m ->
-            val pumpLike7392 = explicitCurve7392 || PumpCurveKeys7269.keyFor(m) != null ||
-                m.endsWith("pump", ignoreCase = true)
+            // V5.0.8657 — a remembered key alone is no proof of a pump.fun curve (PumpPortal streamed other launchpads' keys).
+            val pumpLike7392 = explicitCurve7392 || m.endsWith("pump", ignoreCase = true)
             if (pumpLike7392 && !curveReadable8458(noCurve8458[m], PumpCurveKeys7269.keyFor(m) != null, now8458)) { noCurveSkipped8458.incrementAndGet(); null }
             else if (!pumpLike7392 || PumpCurveKeys7269.isGraduated7392(m)) null
             else (PumpCurveKeys7269.canonicalCurveKey7392(m) ?: PumpCurveKeys7269.keyFor(m))?.let { m to it }

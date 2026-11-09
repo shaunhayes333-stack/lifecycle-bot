@@ -960,6 +960,8 @@ object PumpFunWS {
                         if (venue8285(j.optString("pool", "")) == com.lifecyclebot.engine.truth.TradeTape8100.VENUE_AMM_8285) {
                             notePumpSwapFrame8307(); ammFrame8307(j, mint, txType == "buy"); return
                         }
+                        // V5.0.8657 — pump.fun curve math (vSol / vTok, the curve-account layout) only for a pump.fun curve frame.
+                        if (!pumpCurveFrame8657(j.optString("pool", ""), mint)) { nonPumpCurveFrame8657("TRADE"); return }
                         try { PumpCurveKeys7269.remember(mint, j.optString("bondingCurveKey", "")) } catch (_: Throwable) {}
                         val vSol = j.optDouble("vSolInBondingCurve", 0.0)
                         val vTok = j.optDouble("vTokensInBondingCurve", 0.0)
@@ -1035,7 +1037,9 @@ object PumpFunWS {
                         // it so the mark fan-out can read the curve from chain state
                         // when no aggregator lists the mint. Recorded before the
                         // throttle so a held mint is never left without its key.
-                        try {
+                        val curveFrame8657 = pumpCurveFrame8657(j.optString("pool", ""), mint)  // V5.0.8657
+                        if (!curveFrame8657) nonPumpCurveFrame8657("CREATE")
+                        if (curveFrame8657) try {
                             PumpCurveKeys7269.remember(mint, j.optString("bondingCurveKey", ""))
                         } catch (_: Throwable) {}
                         // V5.0.4168 — PumpPortal WS adaptive throttle. Drops
@@ -1053,7 +1057,7 @@ object PumpFunWS {
                         // throttle, so a later ticket's multiple over it is known.
                         val vSol0 = j.optDouble("vSolInBondingCurve", 0.0)
                         val vTok0 = j.optDouble("vTokensInBondingCurve", 0.0)
-                        val priceSol0 = if (vSol0.isFinite() && vTok0.isFinite() && vSol0 > 0.0 && vTok0 > 0.0) vSol0 / vTok0 else 0.0
+                        val priceSol0 = if (curveFrame8657 && vSol0.isFinite() && vTok0.isFinite() && vSol0 > 0.0 && vTok0 > 0.0) vSol0 / vTok0 else 0.0
                         try { com.lifecyclebot.engine.truth.AdmissionBirth8144.noteCreateFrame8144(mint) } catch (_: Throwable) {}  // V5.0.8144 — every frame's birth, before the throttle
                         try { com.lifecyclebot.engine.truth.LaunchCohort8173.noteCreateIntake8173(mint, priceSol0.isFinite() && priceSol0 > 0.0) } catch (_: Throwable) {}  // V5.0.8173 — no reserves in the frame: read the curve now
                         if (priceSol0.isFinite() && priceSol0 > 0.0) {
@@ -1128,6 +1132,23 @@ object PumpFunWS {
     // ── V5.0.8285 — trade-frame provenance (the 8192 frame budget above is untouched) ──
 
     /** Pure: the venue a PumpPortal trade frame executed on, from its `pool` field (blank / "pump" = the bonding curve). */
+    /**
+     * V5.0.8657 §PUMP_CURVE_MATH_ONLY_ON_PUMP_CURVES — the 8655 edge export held ~96 PumpPortal launches whose 5-minute
+     * label read the same +2,9xx % from a ~$2,450 cap on different coins, none a "...pump" mint and none fillable. PumpPortal
+     * also streams other launchpads (bonk / LaunchLab / ...), and every frame was priced as vSol / vTok, its
+     * `bondingCurveKey` remembered as a pump.fun curve and later decoded with pump.fun's account layout. A frame is
+     * priced as a pump.fun curve only when its pool is the pump curve ("" or "pump") AND the mint is a pump.fun mint.
+     * Other launchpads' coins are priced by the venues that list them (DexScreener / Jupiter / pool vaults).
+     */
+    internal fun pumpCurveFrame8657(pool: String, mint: String): Boolean {
+        val p = pool.trim().lowercase()
+        return (p.isEmpty() || p == "pump") && mint.trim().endsWith("pump")
+    }
+
+    private fun nonPumpCurveFrame8657(kind: String) {
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMPPORTAL_NON_PUMP_CURVE_FRAME_UNPRICED_8657_$kind") } catch (_: Throwable) {}
+    }
+
     internal fun venue8285(pool: String): String = when (pool.trim().lowercase()) {
         "", "pump" -> com.lifecyclebot.engine.truth.TradeTape8100.VENUE_CURVE_8285
         "pump-amm", "pumpswap" -> com.lifecyclebot.engine.truth.TradeTape8100.VENUE_AMM_8285
