@@ -111,8 +111,11 @@ class Aate8372ReplayMemoTest {
         assertFalse(publication.finish(first, "101|p2|r2|cash2", coherent = true))
         assertFalse(publication.isBusy())
         assertNull(publication.completedKey())
+        assertTrue("The owner owes a fresh pass even without a competing caller", publication.takePending8418())
+        assertFalse(publication.takePending8418())
         val retry = requireNotNull(publication.claim("101|p2|r2|cash2"))
         assertTrue(publication.finish(retry, retry.key, coherent = true))
+        assertFalse(publication.takePending8418())
         assertEquals(retry.key, publication.completedKey())
     }
 

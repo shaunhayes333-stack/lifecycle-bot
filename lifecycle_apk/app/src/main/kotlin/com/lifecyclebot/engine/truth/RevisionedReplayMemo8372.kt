@@ -55,6 +55,12 @@ internal class ReconciliationPublication8372(
         if (active.get() !== lease || !lease.finished.compareAndSet(false, true)) return false
         var published = false
         try {
+            // A receipt may settle during replay without a second caller claiming a pass.
+            // Let the owner's bounded follow-up read that revision before going idle.
+            if (lease.key != null && currentKey != null && lease.key != currentKey) {
+                notePending8418()
+                return false
+            }
             if (coherent && lease.key != null && lease.key == currentKey) {
                 // The callback installs the immutable result before its completed key becomes reusable.
                 publish()

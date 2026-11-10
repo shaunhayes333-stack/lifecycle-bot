@@ -94,7 +94,12 @@ class Aate8253RepairTest {
         CandidateAdmission8136.evidenceArrived8252("mintD", CandidateAdmission8136.TAPE_FEATURES_8252, now + 1_000L)
         assertFalse(CandidateAdmission8136.reevalDueForTest8252("mintE", "tape:NO_PRINTS", now + 1_000L))
         val orch = src("engine/DataOrchestrator.kt")
-        assertTrue(orch.substringAfter("private fun onTapeTrade7773(").substringBefore("LaunchTape7921.onTrade").contains("evidenceArrived8252(mint, com.lifecyclebot.engine.truth.CandidateAdmission8136.TAPE_FEATURES_8252)"))
+        val handler = orch.substringAfter("private fun onTapeTrade7773(").substringBefore("private fun applyTapeBuyPressure7773(")
+        val trade = handler.indexOf("LaunchTape7921.onTrade(mint,")
+        val pressure = handler.indexOf("applyTapeBuyPressure7773(mint)")
+        val wake = handler.indexOf("evidenceArrived8252(mint, com.lifecyclebot.engine.truth.CandidateAdmission8136.TAPE_FEATURES_8252)")
+        assertTrue("Publish the trade and its pressure before waking the deferred decision",
+            trade >= 0 && pressure > trade && wake > pressure)
         // superseded by V5.0.8285 — the pair fetch is batched (DexScreener /tokens/v1, 30 mints); every answered mint wakes its defer
         // superseded by V5.0.8287 — the batch lane moved from DataOrchestrator into DexBatchLane8287 (the orchestrator delegates)
         assertTrue(orch.contains("private fun drainPairLane8285() = DexBatchLane8287.kick8287()"))
