@@ -853,6 +853,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun android.widget.TextView.setTextIfChanged(value: CharSequence) {
+        // Dynamic status/position TextViews use the same fast first-frame contract.
+        // EditText retains its own insertion-friendly default and selection semantics.
+        if (this !is EditText && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (breakStrategy != android.text.Layout.BREAK_STRATEGY_SIMPLE)
+                breakStrategy = android.text.Layout.BREAK_STRATEGY_SIMPLE
+            if (hyphenationFrequency != android.text.Layout.HYPHENATION_FREQUENCY_NONE)
+                hyphenationFrequency = android.text.Layout.HYPHENATION_FREQUENCY_NONE
+        }
         if (this.text?.toString() != value.toString()) this.text = value
     }
 
@@ -912,6 +920,33 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * V5.0.8662 — 8661's actual Android ANR was the MAIN thread in
+     * LineBreaker.nComputeLineBreaks -> StaticLayout -> TextView.onMeasure,
+     * while the massive NestedScrollView was being measured during Splash→Main.
+     * TextView defaults to HIGH_QUALITY whole-paragraph optimisation; this
+     * dashboard is dense operational data, not print typesetting. Configure
+     * its static labels BEFORE their first frame, without hiding content,
+     * moving reads onto the UI thread or altering any trading authority.
+     */
+    private fun useFastDashboardTextLayout8662(root: View) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+        val queue = java.util.ArrayDeque<View>()
+        queue.add(root)
+        while (queue.isNotEmpty()) {
+            val view = queue.removeFirst()
+            if (view is TextView && view !is EditText) {
+                if (view.breakStrategy != android.text.Layout.BREAK_STRATEGY_SIMPLE)
+                    view.breakStrategy = android.text.Layout.BREAK_STRATEGY_SIMPLE
+                if (view.hyphenationFrequency != android.text.Layout.HYPHENATION_FREQUENCY_NONE)
+                    view.hyphenationFrequency = android.text.Layout.HYPHENATION_FREQUENCY_NONE
+            }
+            if (view is android.view.ViewGroup) {
+                for (i in 0 until view.childCount) queue.addLast(view.getChildAt(i))
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         // V5.9.1244 — KILL COLD-START ANR. Forensic 5.0.3211 showed onCreate
         // blocking the main thread up to 3.8s with the stack rooted at
@@ -948,6 +983,9 @@ class MainActivity : AppCompatActivity() {
 
         try {
             setContentView(R.layout.activity_main)
+            // V5.0.8662 — before first measure, avoid many high-quality
+            // paragraph layouts under a busy live engine.
+            findViewById<View>(R.id.mainScrollView)?.let(::useFastDashboardTextLayout8662)
             supportActionBar?.hide()
 
             // Transparent status bar
