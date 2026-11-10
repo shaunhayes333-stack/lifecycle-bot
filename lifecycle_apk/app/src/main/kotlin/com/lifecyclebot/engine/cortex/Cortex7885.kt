@@ -230,11 +230,13 @@ object Cortex7885 {
      */
     private val VOTER_GRAPH_RETIRED_8623: Boolean = voterGraphRetired8623(System.getProperty("aate.cortexVoterGraph8623"))
 
-    /** `off` fully retires; `on` keeps the unthrottled test graph; normal devices run bounded shadow learning. */
-    fun voterGraphRetired8623(prop: String?): Boolean = prop == "off"
+    /** Owner authority: the inverted voter graph stays OFF on live APKs until proven.
+     * Tests opt into `on`; an explicit `sampled` diagnostic can run a bounded shadow graph.
+     * Neither changes V3/V4's native decision authority. */
+    fun voterGraphRetired8623(prop: String?): Boolean = prop != "on" && prop != "sampled"
 
-    /** Pure: normal APKs use a strictly sampled graph, preserving the expensive full read for explicit tests only. */
-    fun voterGraphBounded8644(prop: String?): Boolean = prop != "off" && prop != "on"
+    /** No implicit 400-voter reads on a memory-constrained production device. */
+    fun voterGraphBounded8644(prop: String?): Boolean = prop == "sampled"
 
     private val BOUNDED_VOTER_GRAPH_8644 = voterGraphBounded8644(System.getProperty("aate.cortexVoterGraph8623"))
     // V5.0.8649 — 8648 sampled only 120 graphs per hour across every lane and graded none.
@@ -1925,6 +1927,10 @@ object Cortex7885 {
 
     /** Null means capture is still in flight; a durable outcome must not freeze a temporary cache miss. */
     fun freezeForwardOutcome8404(mint: String, lane: String, atMs: Long): String? {
+        // The disabled graph has no admissible original prediction. Publish a tiny durable
+        // no-graph witness so the label clock can progress and ACK without reviving old blobs.
+        if (VOTER_GRAPH_RETIRED_8623) return ForwardCheckpoint8401.pack(
+            "{\"forwardEpoch8521\":${CortexForwardEpoch8521.EPOCH},\"p\":[]}")
         ensureLoaded()
         if (!loaded) return null
         val key = "$mint|${lane.trim().uppercase()}"
@@ -1942,6 +1948,21 @@ object Cortex7885 {
 
     /** Called from the producer's durable outbox. A scheduling/in-memory grade is never an acknowledgement. */
     fun deliverForwardOutcome8404(d: ForwardOutcomeDelivery8404): Boolean {
+        if (VOTER_GRAPH_RETIRED_8623) {
+            // Old outbox items can contain >26 MB frozen predictions. Never decode them to
+            // discover that the voter graph was explicitly retired: ACK only after a durable
+            // no-model disposition, without training or inventing a priced result.
+            if (!LearningPersistence.ready()) return false
+            val receipt = FORWARD_RECEIPT_8404 + d.deliveryId
+            val existing = LearningPersistence.load(receipt)
+            if (LearningPersistence.readFailed8086(receipt)) return false
+            if (existing != null) return true
+            val archived = org.json.JSONObject().put("id", d.id)
+                .put("disposition", "VOTER_GRAPH_RETIRED_NO_MODEL_8659").toString()
+            val saved = LearningPersistence.saveTogetherVerified8386(mapOf(receipt to archived))
+            if (saved) inc("FORWARD_RETIRED_GRAPH_DURABLE_ACK_8659")
+            return saved
+        }
         ensureLoaded()
         if (!loaded || !LearningPersistence.ready()) return false
         val id = d.id; val receipt = FORWARD_RECEIPT_8404 + d.deliveryId

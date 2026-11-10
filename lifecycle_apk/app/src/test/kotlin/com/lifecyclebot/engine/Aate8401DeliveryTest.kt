@@ -23,6 +23,15 @@ class Aate8401DeliveryTest {
         assertThrows(Exception::class.java) { ForwardCheckpoint8401.unpack("gzip8401:bad") }
     }
 
+    @Test fun legacyFrozenGraphCannotInflateBeyondThePhoneHeapBudget() {
+        val oversized = "x".repeat(6_000_001)
+        val tinyCompressed = ForwardCheckpoint8401.pack(oversized)
+        assertTrue(tinyCompressed.length < 100_000)
+        assertThrows(IllegalArgumentException::class.java) { ForwardCheckpoint8401.unpack(tinyCompressed) }
+        assertThrows(IllegalArgumentException::class.java) { ForwardCheckpoint8401.unpack(oversized) }
+        assertThrows(IllegalArgumentException::class.java) { ForwardCheckpoint8401.unpack("gzip8401:" + "A".repeat(1_500_001)) }
+    }
+
     @Test fun blockedVerdictsAreNotReportedAsMissingIntentOrDeadDiscovery() {
         assertEquals("FDG_BLOCKED_ALL", ToolkitSignalSheet.preExecutionStatus8401(100, 10, 0, 0, 50))
         assertEquals("FDG_BLOCKED_ALL", ToolkitSignalSheet.preExecutionStatus8401(0, 0, 0, 0, 1))
