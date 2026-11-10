@@ -2798,6 +2798,9 @@ object TradeHistoryStore {
                     if (trade.economicEventId.isNotBlank()) durableEconomicEventIds.add(trade.economicEventId)
                     stampDurableJournalCommit6641(trade)
                     noteJournalCommitLatency8368(enqueuedMs8368, trade)
+                    if (trade.mode.equals("paper", true)) {
+                        com.lifecyclebot.engine.truth.JournalEconomicAuthority6616.refreshAfterDurableJournal()
+                    }
                 }
                 else try { PipelineHealthCollector.labelInc("PAPER_JOURNAL_DURABLE_INSERT_FAILED_6641") } catch (_: Throwable) {}
             } catch (e: Exception) {

@@ -134,6 +134,40 @@ class Aate8368JournalIoTest {
         }
     }
 
+    @Test fun durable_paper_commit_requests_read_only_projection_after_receipt_stamp() {
+        val store = src("engine/TradeHistoryStore.kt")
+        val insert = store.substringAfter("private fun insertTradeAsync").substringBefore("fun awaitDurableJournalBoundary6669")
+        val success = insert.substringAfter("if (rowId > 0L) {").substringBefore("else try")
+        assertTrue(success.contains("trade.mode.equals(\"paper\", true)"))
+        assertTrue(success.indexOf("stampDurableJournalCommit6641(trade)") < success.indexOf("refreshAfterDurableJournal()"))
+        assertTrue(success.contains("refreshAfterDurableJournal()"))
+        val authority = src("engine/truth/JournalEconomicAuthority6616.kt")
+        val refresh = authority.substringAfter("fun refreshAfterDurableJournal()").substringBefore("\n    }")
+        assertTrue(refresh.contains("snapshotWork8077.request(\"JOURNAL_DURABLE\")"))
+        assertFalse(refresh.contains("incrementAndGet"))
+        assertFalse(refresh.contains("reconcileFromJournal"))
+        assertFalse(refresh.contains("replay()"))
+    }
+
+    @Test fun delayed_durability_republishes_after_the_early_ledger_projection_has_finished() {
+        val queue = java.util.ArrayDeque<Runnable>()
+        var durable = false
+        val observations = mutableListOf<Boolean>()
+        val work = com.lifecyclebot.engine.truth.CoalescedJournalWork8077(
+            schedule = { queue.add(it) },
+            publish = { observations.add(durable) },
+        )
+        work.request("BUY")
+        queue.remove().run()
+        assertEquals(listOf(false), observations)
+        durable = true
+        repeat(10) { work.request("JOURNAL_DURABLE") }
+        assertEquals(1, queue.size)
+        queue.remove().run()
+        assertEquals(listOf(false, true), observations)
+        assertTrue(queue.isEmpty())
+    }
+
     @Test fun other_sqlite_mutations_share_the_journal_fifo_so_order_is_unchanged() {
         val store = src("engine/TradeHistoryStore.kt")
         assertFalse(store.contains("ioHandler?.post {"))

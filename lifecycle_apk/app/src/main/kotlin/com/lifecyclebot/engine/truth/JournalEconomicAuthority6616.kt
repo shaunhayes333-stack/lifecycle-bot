@@ -105,6 +105,11 @@ object JournalEconomicAuthority6616 {
         snapshotWork8077.request(kind)
     }
 
+    /** Complete the read-only projection after the journal receipt lands. The ledger already counted the mutation. */
+    fun refreshAfterDurableJournal() {
+        snapshotWork8077.request("JOURNAL_DURABLE")
+    }
+
     /**
      * Called from PaperAccountLedger6430 after every economic mutation.
      * Atomically increments the revision and republishes the snapshot.
