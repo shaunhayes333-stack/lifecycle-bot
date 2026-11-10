@@ -9,16 +9,18 @@ import java.io.File
 
 class Aate6663RuntimeReconciliationTest {
     @Test fun journalIdentityReplacesDriftedLedgerScalarsAtomically() {
+        com.lifecyclebot.engine.truth.PaperEconomicAtomicCommit6632.resetForTest()
         PaperAccountLedger6430.initialize(10.0)
         assertTrue(PaperAccountLedger6430.reconcileFromJournal6663(
             cashSol = 7.5, openCostSol = 2.0, realizedSol = -0.25, feesSol = 0.25,
+            expected = PaperAccountLedger6430.captureJournalReconcileToken8674(),
         ))
         val s = PaperAccountLedger6430.snapshotAtomic6643()
         assertEquals(7.5, s.cashSol, 1e-9)
         assertEquals(2.0, s.openCostBasisSol, 1e-9)
         assertEquals(-0.25, s.realizedPnlSol, 1e-9)
         assertEquals(0.25, s.feesSol, 1e-9)
-        assertFalse(PaperAccountLedger6430.reconcileFromJournal6663(7.5, 9.0, -0.25, 0.25))
+        assertFalse(PaperAccountLedger6430.reconcileFromJournal6663(7.5, 9.0, -0.25, 0.25, PaperAccountLedger6430.captureJournalReconcileToken8674()))
     }
 
     @Test fun runtimeStartsReconciliationOffMainAndSealsActualSpecialistSize() {

@@ -54,13 +54,21 @@ object CanonicalPaperTransaction6486 {
             .associate { it.positionId to it.remainingQtyRaw }
         repairJournalQuantityDrift6666(replay.openRawQtyByPosition, canonicalRaw)
         if (!awaitJournalBoundary6669("post_quantity_repair")) return@withLock false
+        // Capture before the final replay, then read canonical lots again:
+        // the earlier quantity-repair snapshot can predate a concurrent SELL.
+        val expected8674 = PaperAccountLedger6430.captureJournalReconcileToken8674()
         replay = JournalEconomicReplay6619.replay()
-        if (canonicalRaw != replay.openRawQtyByPosition) {
+        if (!replay.reconciled) return@withLock false
+        val finalCanonicalRaw8674 = CanonicalPositionAuthority6441.openPositions()
+            .filter { it.mode.equals("paper", true) }
+            .associate { it.positionId to it.remainingQtyRaw }
+        if (finalCanonicalRaw8674 != replay.openRawQtyByPosition) {
             try { PipelineHealthCollector.labelInc("JOURNAL_CANONICAL_RAW_MISMATCH_BLOCKED_6663") } catch (_: Throwable) {}
             return@withLock false
         }
         val reconciled = PaperAccountLedger6430.reconcileFromJournal6663(
             replay.cashSol, replay.openCostBasisSol, replay.realizedPnlSol, replay.feesSol,
+            expected = expected8674,
         )
         if (reconciled) {
             // Publish only after the ledger has adopted the exact durable

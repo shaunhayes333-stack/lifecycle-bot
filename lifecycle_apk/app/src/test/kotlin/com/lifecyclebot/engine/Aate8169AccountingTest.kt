@@ -108,7 +108,7 @@ class Aate8169AccountingTest {
         assertEquals(10.0, CanonicalPositionAuthority6441.paperCashSol(), 1e-9)
         assertTrue(PaperAccountLedger6430.assertInvariant() == null)
         // a balanced journal replay that needs negative cash is refused
-        assertFalse(PaperAccountLedger6430.reconcileFromJournal6663(cashSol = -1.0, openCostSol = 11.0, realizedSol = 0.0, feesSol = 0.0))
+        assertFalse(PaperAccountLedger6430.reconcileFromJournal6663(cashSol = -1.0, openCostSol = 11.0, realizedSol = 0.0, feesSol = 0.0, expected = PaperAccountLedger6430.captureJournalReconcileToken8674()))
         assertTrue(PaperAccountLedger6430.statusLine().contains("cashGuard8169[refused="))
         assertTrue(src("engine/truth/CanonicalPositionAuthority6441.kt").contains("cashAgree8169="))
         PaperAccountLedger6430.resetForTest()

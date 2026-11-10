@@ -71,6 +71,26 @@ object PaperAccountLedger6430 {
     // in cash), which is exactly what "build the treasury" means.
     private val treasuryPico = AtomicLong(0L)
     private val opCount = AtomicLong(0L)
+    // Process-local and never reset/restored: an old replay cannot survive a
+    // wallet reset or a concurrent economic mutation (including an ABA).
+    private val mutationRevision8674 = AtomicLong(0L)
+    private fun recordMutation8674() {
+        opCount.incrementAndGet()
+        mutationRevision8674.incrementAndGet()
+    }
+
+    data class JournalReconcileToken8674(
+        val ledgerRevision: Long,
+        val journalRevision: Long,
+        val positionRevision: Long,
+    )
+
+    @Synchronized
+    fun captureJournalReconcileToken8674(): JournalReconcileToken8674 = JournalReconcileToken8674(
+        mutationRevision8674.get(),
+        com.lifecyclebot.engine.TradeHistoryStore.journalRevision7343(),
+        CanonicalPositionAuthority6441.mutationCount7387(),
+    )
     @Volatile private var prefs6487: SharedPreferences? = null
     private const val PREFS_6487 = "paper_account_ledger_6487"
     private const val STATE_6487 = "canonical_state"
@@ -97,6 +117,7 @@ object PaperAccountLedger6430 {
             openCostBasisPico.set(open); realizedPnlPico.set(realized); feesPico.set(fees)
             treasuryPico.set(treasury)
             opCount.set(o.optLong("ops", 0L))
+            mutationRevision8674.incrementAndGet()
             try { PipelineHealthCollector.labelInc("PAPER_LEDGER_AUTHORITY_RESTORED_6487") } catch (_: Throwable) {}
             // V5.0.6616 §STARTUP_ORDER — journal replay complete;
             //   publish the authoritative snapshot at rev 0 so UI
@@ -155,6 +176,7 @@ object PaperAccountLedger6430 {
     fun equitySolNoLock7354(): Double =
         fromPico(cashPico.get()) + fromPico(openCostBasisPico.get())
 
+    @Synchronized
     fun initialize(startingCashSol: Double) {
         val p = toPico(startingCashSol.coerceAtLeast(0.0))
         startingCashPico.set(p)
@@ -165,6 +187,7 @@ object PaperAccountLedger6430 {
         feesPico.set(0L)
         treasuryPico.set(0L)
         opCount.set(0L)
+        mutationRevision8674.incrementAndGet()
         // V5.0.6616 — cold-start publishes a rev-0 economic snapshot so
         //   hero binders never fall back to a stale SharedPreferences
         //   value between initialize() and the first onBuy/onSell.
@@ -213,6 +236,7 @@ object PaperAccountLedger6430 {
         feesPico.set(0L)
         treasuryPico.set(0L)
         opCount.set(0L)
+        mutationRevision8674.incrementAndGet()
         // Persist the fresh state immediately so any process restart in
         // the next second still sees the reset value.
         persistCurrent6487()
@@ -296,7 +320,7 @@ object PaperAccountLedger6430 {
         cashPico.addAndGet(-toPico(total))
         openCostBasisPico.addAndGet(toPico(costSol))
         feesPico.addAndGet(toPico(feeSol.coerceAtLeast(0.0)))
-        opCount.incrementAndGet()
+        recordMutation8674()
         persistCurrent6487()
         // V5.0.6616 §JOURNAL_BALANCE_HERO_SINGLE_AUTHORITY_REPAIR —
         //   Every ledger mutation increments the monotonic
@@ -320,7 +344,7 @@ object PaperAccountLedger6430 {
         cashPico.addAndGet(toPico(costSol + fee))
         openCostBasisPico.addAndGet(-toPico(costSol))
         feesPico.addAndGet(-toPico(fee))
-        opCount.incrementAndGet()
+        recordMutation8674()
         persistCurrent6487()
         try { ForensicLogger.lifecycle("PAPER_BUY_ROLLED_BACK_6485", "cost=$costSol fee=$fee reason=${reason.take(100)}") } catch (_: Throwable) {}
         // V5.0.6616 — rollback is a journal-visible mutation too.
@@ -328,11 +352,13 @@ object PaperAccountLedger6430 {
         return true
     }
 
+    @Synchronized
     fun repairCashFromDisplayed6448(displayedCashSol: Double, source: String): Boolean {
         if (!displayedCashSol.isFinite() || displayedCashSol < 0.0) return false
         val before = cashSol()
         if (before >= 0.0) return false
         cashPico.set(toPico(displayedCashSol))
+        recordMutation8674()
         persistCurrent6487()
         try {
             ForensicLogger.lifecycle("PAPER_LEDGER_CASH_REPAIRED_FROM_DISPLAYED_6448", "source=$source before=${"%.6f".format(before)} after=${"%.6f".format(displayedCashSol)} openCost=${"%.6f".format(openCostBasisSol())}")
@@ -374,7 +400,7 @@ object PaperAccountLedger6430 {
         val release = costBasisSol.coerceAtMost(before)
         if (release <= 0.0) return false
         openCostBasisPico.addAndGet(-toPico(release))
-        opCount.incrementAndGet()
+        recordMutation8674()
         persistCurrent6487()
         try {
             ForensicLogger.lifecycle("PAPER_ORPHAN_COST_RELEASED_6475", "source=$source released=$release before=$before after=${openCostBasisSol()}")
@@ -544,7 +570,7 @@ object PaperAccountLedger6430 {
         openCostBasisPico.addAndGet(-toPico(basis))
         realizedPnlPico.addAndGet(toPico(gross - basis)) // GROSS pnl
         feesPico.addAndGet(toPico(fee))
-        opCount.incrementAndGet()
+        recordMutation8674()
         persistCurrent6487()
         // V5.0.6616 §JOURNAL_BALANCE_HERO_SINGLE_AUTHORITY_REPAIR —
         //   Sell is the primary mutation that must fan out one causal
@@ -586,7 +612,7 @@ object PaperAccountLedger6430 {
             realizedPnlPico.set(toPico(realizedPnlSol))
             feesPico.set(toPico(feesSol))
             treasuryPico.set(0L)
-            opCount.incrementAndGet()
+            recordMutation8674()
         }
         persistCurrent6487()
         try {
@@ -614,7 +640,7 @@ object PaperAccountLedger6430 {
         if (p <= 0L) return 0.0
         cashPico.addAndGet(-p)
         treasuryPico.addAndGet(p)
-        opCount.incrementAndGet()
+        recordMutation8674()
         persistCurrent6487()
         try {
             PipelineHealthCollector.labelInc("PAPER_TREASURY_DEPOSIT_7294")
@@ -639,7 +665,7 @@ object PaperAccountLedger6430 {
         if (p <= 0L) return 0.0
         treasuryPico.addAndGet(-p)
         cashPico.addAndGet(p)
-        opCount.incrementAndGet()
+        recordMutation8674()
         persistCurrent6487()
         try {
             PipelineHealthCollector.labelInc("PAPER_TREASURY_BACKFUND_7294")
@@ -714,7 +740,7 @@ object PaperAccountLedger6430 {
         val delta = projectionOpenCostSol - prior
         if (kotlin.math.abs(delta) > 0.001) {
             openCostBasisPico.set(toPico(projectionOpenCostSol))
-            opCount.incrementAndGet()
+            recordMutation8674()
             persistCurrent6487()
             try {
                 ForensicLogger.lifecycle(
@@ -740,7 +766,7 @@ object PaperAccountLedger6430 {
     fun overrideRealizedFromFillLots6504(fillLotRealizedSol: Double) {
         val prior = fromPico(realizedPnlPico.get())
         realizedPnlPico.set(toPico(fillLotRealizedSol))
-        opCount.incrementAndGet()
+        recordMutation8674()
         persistCurrent6487()
         try {
             ForensicLogger.lifecycle(
@@ -798,7 +824,7 @@ object PaperAccountLedger6430 {
         }
         if (kotlin.math.abs(delta) > 0.001) {
             cashPico.set(toPico(recomputed))
-            opCount.incrementAndGet()
+            recordMutation8674()
             persistCurrent6487()
             try {
                 ForensicLogger.lifecycle(
@@ -823,7 +849,20 @@ object PaperAccountLedger6430 {
     @Synchronized
     fun reconcileFromJournal6663(
         cashSol: Double, openCostSol: Double, realizedSol: Double, feesSol: Double,
+        expected: JournalReconcileToken8674,
     ): Boolean {
+        // The typed transaction lock does not cover meme terminal bridges.
+        // Validate under the SAME monitor as onBuy/onSell, and never replace a
+        // ledger whose receipt is still waiting for its durable journal leg.
+        // No journal/store monitor is acquired here (avoids lock inversion).
+        if (PaperEconomicAtomicCommit6632.hasUnpaired8674() ||
+            expected.ledgerRevision != mutationRevision8674.get() ||
+            expected.journalRevision != com.lifecyclebot.engine.TradeHistoryStore.journalRevision7343() ||
+            expected.positionRevision != CanonicalPositionAuthority6441.mutationCount7387()
+        ) {
+            try { PipelineHealthCollector.labelInc("PAPER_JOURNAL_REPLAY_SUPERSEDED_8674") } catch (_: Throwable) {}
+            return false
+        }
         val values = listOf(cashSol, openCostSol, realizedSol, feesSol)
         if (values.any { !it.isFinite() } || openCostSol < -1e-9 || feesSol < -1e-9) return false
         val starting = fromPico(startingCashPico.get())
@@ -844,7 +883,7 @@ object PaperAccountLedger6430 {
         realizedPnlPico.set(toPico(realizedSol))
         feesPico.set(toPico(feesSol.coerceAtLeast(0.0)))
         reservedCashPico.set(0L)
-        opCount.incrementAndGet()
+        recordMutation8674()
         persistCurrent6487()
         try {
             PipelineHealthCollector.labelInc("PAPER_LEDGER_RECONCILED_FROM_JOURNAL_6663")
@@ -886,7 +925,7 @@ object PaperAccountLedger6430 {
         }
         val priorRealized = fromPico(realizedPnlPico.get())
         realizedPnlPico.set(toPico(cleanSum))
-        opCount.incrementAndGet()
+        recordMutation8674()
         persistCurrent6487()
         try {
             ForensicLogger.lifecycle(
@@ -922,7 +961,9 @@ object PaperAccountLedger6430 {
         "cash=${"%.4f".format(cashSol())} openCost=${"%.4f".format(openCostBasisSol())} realized=${"%+.4f".format(realizedPnlSol())} fees=${"%.4f".format(feesSol())} treasury=${"%.4f".format(treasurySol7294())} ops=${opCount.get()} " +
             AccountingIntegrity8169.cashGuardLine8169()
 
+    @Synchronized
     internal fun resetForTest() {
+        mutationRevision8674.incrementAndGet()
         startingCashPico.set(0); cashPico.set(0); reservedCashPico.set(0)
         openCostBasisPico.set(0); realizedPnlPico.set(0); feesPico.set(0); opCount.set(0)
         treasuryPico.set(0)

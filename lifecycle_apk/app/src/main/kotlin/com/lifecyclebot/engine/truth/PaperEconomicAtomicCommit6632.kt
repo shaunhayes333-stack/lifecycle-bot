@@ -99,6 +99,10 @@ object PaperEconomicAtomicCommit6632 {
     fun hasLedgerStamp7407(key: String): Boolean =
         key.isNotBlank() && (entries[key]?.ledgerAtMs ?: 0L) > 0L
 
+    /** Reconciliation must not undo a ledger leg while its journal is in
+     * flight. Unlike acceptance grace, age never makes a half-write safe. */
+    fun hasUnpaired8674(): Boolean = entries.values.any { !it.bothStamped() }
+
     /** Default half-write TTL — matches `PAPER_CLOSE_NO_JOURNAL_ROW_6623`. */
     const val DEFAULT_UNPAIRED_TTL_MS: Long = 60_000L
 
