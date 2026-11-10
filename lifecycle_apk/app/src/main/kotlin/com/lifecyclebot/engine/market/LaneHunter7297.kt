@@ -490,8 +490,8 @@ object LaneHunter7297 {
      * Each lane picks from the sweep. Returns lane → rows, and records every
      * pick as a claim the election honours while the token stays in band.
      */
-    internal fun waveReaders8506(mint: String, now: Long): Set<String> {
-        val wave = KineticFlow8506.current(mint, now) ?: return emptySet()
+    internal fun waveReaders8506(mint: String, now: Long, wave: KineticFlow8506.Vector? = KineticFlow8506.current(mint, now)): Set<String> {
+        if (wave == null) return emptySet()
         val native = wave.readers()
         if (!wave.active || maxOf(wave.linkedBuyers, wave.fundedBuyers) >= 5) return native
         val r = MarketSweep7297.rowFor8169(mint, now) ?: return native
@@ -514,7 +514,7 @@ object LaneHunter7297 {
         val leaders = snap.rows.mapNotNull { r ->
             MarketSweep7297.opportunityFor7777(r.mint)?.takeIf { OpportunityRoute8293.isTop8293(it) }
         }
-        val waves = snap.rows.mapNotNull { r -> KineticFlow8506.current(r.mint, now8169)?.takeIf { it.active }?.let { r.mint to it } }.toMap()
+        val waves = snap.rows.mapNotNull { r -> KineticFlow8506.current(r.mint, now8169)?.let { r.mint to it } }.toMap()
         val tests8293 = ArrayList<OpportunityRoute8293.LaneTest8293>()
         val ranked = profiles.associate { p ->
             val (lo, hi) = fluidBand(HunterMandates8293.baseMin8293(p.lane, p.baseMin), p.baseMax, bucketStatsFor(p.lane))  // V5.0.8293 native floor
@@ -522,7 +522,9 @@ object LaneHunter7297 {
                 p.fits(it) && com.lifecyclebot.engine.cortex.LaneCheatSheet8323.hunterFits8323(p.lane, it.ageHours, it.liquidityUsd)
             }
             tests8293 += OpportunityRoute8293.LaneTest8293(p.lane, { r -> r.mcapUsd in lo..hi && r.mint !in nonMeme8169 }, fits)
-            val top8293 = leaders.filter { OpportunityRoute8293.leadsLane8506(p.lane, it.setup) }.mapTo(HashSet()) { it.mint }
+            val top8293 = leaders.filter { leader ->
+                OpportunityRoute8293.leadsLane8506(p.lane, leader.setup) && waves[leader.mint]?.fadingFor(p.lane) != true
+            }.mapTo(HashSet()) { it.mint }
             val inBand8168 = snap.rows.filter { it.mcapUsd in lo..hi && it.mint !in nonMeme8169 }
             val eligible8168 = inBand8168.filter(fits)  // V5.0.8323 — the lane's mandate (age band, liquidity floor now)
             p.lane to eligible8168

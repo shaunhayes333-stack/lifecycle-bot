@@ -266,6 +266,13 @@ object ShitCoinExpress {
     // CORE EVALUATION - Express ride qualification
     // ═══════════════════════════════════════════════════════════════════════════
     
+    internal fun entryMomentum8670(momentum: Double, observed: Boolean, minimum: Double,
+                                   buyPressurePct: Double, fluidMinBuyPressure: Double, volumeChange: Double): Double {
+        val flowIgnitionProxy7449 = !observed && momentum == 0.0 &&
+            buyPressurePct >= maxOf(58.0, fluidMinBuyPressure + 8.0) && volumeChange >= 1.5
+        return if (flowIgnitionProxy7449) minimum else momentum
+    }
+
     fun evaluate(
         mint: String,
         symbol: String,
@@ -279,6 +286,7 @@ object ShitCoinExpress {
         isTrending: Boolean,
         isBoosted: Boolean,
         tokenAgeMinutes: Double,
+        momentumObserved: Boolean = momentum != 0.0,
     ): ExpressSignal {
         
         // ═══════════════════════════════════════════════════════════════════
@@ -342,26 +350,9 @@ object ShitCoinExpress {
         val learningProgress = FluidLearningAI.getLearningProgress()
         val fluidMinMomentum = (1.0 + learningProgress * 2.0).coerceIn(1.0, MIN_MOMENTUM_PCT)
         val fluidMinBuyPressure = (45.0 + learningProgress * 5.0).coerceIn(45.0, MIN_BUY_PRESSURE_PCT)
-        // If fresh launch with no usable momentum history yet, let strong buys
-        // stand in for momentum (buyPressure >= 65% is itself a pump signal).
-        // V5.9.686 — lower proxy from 65→55% to match BotService pre-filter fix.
-        // Tokens from PumpPortal WS arrive with no candle history → momentum=0
-        // and buyPressure=50 (default). Old 65% floor silenced Express entirely
-        // for fresh launches. 55% gives them a synthetic momentum read.
-        // V5.9.1481 — DEAD-BAND FIX: proxy floor 55 -> 50. The PumpPortal WS
-        // default for lastBuyPressurePct IS 50.0, but the proxy only fired at
-        // >=55 — so the single most common fresh-token state (exactly 50%) fell
-        // into a 50-55 dead band: momentum stayed 0 -> NO_MOMENTUM skip ->
-        // Express went dead quiet. Synthesise from >=50 so the WS-default tokens
-        // get a minimal momentum read (max(fluidMinMomentum) keeps it honest).
-        // V5.0.7449 — neutral 50% pressure is not momentum. The old proxy
-        // manufactured a positive read from the PumpPortal default and admitted
-        // tokens with no observed directional evidence. Proxy only when flow is
-        // genuinely strong AND volume is accelerating.
-        val flowIgnitionProxy7449 = momentum <= 0.0 &&
-            buyPressurePct >= maxOf(58.0, fluidMinBuyPressure + 8.0) &&
-            volumeChange >= 1.5
-        val effectiveMomentum = if (flowIgnitionProxy7449) fluidMinMomentum else momentum
+        // Flow can stand in for missing price history. A measured flat or falling price is evidence.
+        val effectiveMomentum = entryMomentum8670(momentum, momentumObserved, fluidMinMomentum,
+            buyPressurePct, fluidMinBuyPressure, volumeChange)
 
         if (effectiveMomentum < fluidMinMomentum) {
             return noRide("NO_CONTINUATION: ${effectiveMomentum.fmt(1)}% < ${fluidMinMomentum.fmt(1)}% (learning=${(learningProgress*100).toInt()}%)")

@@ -27,7 +27,8 @@ object StrategyElection8243 {
 
     /** One lane's candidate-specific admission read for the election. */
     data class Verdict8243(val lane: String, val terminal: CandidateAdmission8136.Terminal8136?, val specific: Boolean,
-                           val netPct: Double, val setup: String?, val reason: String) {
+                           val netPct: Double, val setup: String?, val reason: String,
+                           val entryWitness: Boolean = false) {
         val provenAdmit: Boolean get() = terminal == CandidateAdmission8136.Terminal8136.ADMIT && specific
         val nativeAdmit: Boolean get() = terminal == CandidateAdmission8136.Terminal8136.ADMIT &&
             reason == "NATIVE_QUALIFIED_ADMIT_8259" && !setup.isNullOrBlank() && setup != "NO_TRIGGER" && netPct.isFinite() && netPct > 0.0
@@ -40,7 +41,7 @@ object StrategyElection8243 {
     internal const val MEMO_MS_8243 = 5_000L
     private const val MAX_MEMO_8243 = 4_000
 
-    private class Memo8243(val atMs: Long, val verdict: Verdict8243?)
+    private class Memo8243(val atMs: Long, val featureRevision: Long, val verdict: Verdict8243?)
     private val memos8243 = ConcurrentHashMap<String, Memo8243>()
 
     fun invalidateEvidence(mint: String) {
@@ -70,6 +71,7 @@ object StrategyElection8243 {
             compareBy<String> { tier8243(v(it)) }
                 .thenByDescending { if (tier8243(v(it)) == TIER_ADMIT) net(it) else 0.0 }
                 .thenByDescending { v(it)?.nativeAdmit == true }
+                .thenByDescending { v(it)?.let { candidate -> candidate.nativeAdmit && candidate.entryWitness } == true }
                 .thenByDescending { scores[it] ?: Double.NEGATIVE_INFINITY }
                 .thenBy { it },
         ).firstOrNull()
@@ -90,11 +92,13 @@ object StrategyElection8243 {
         val l = lane.trim().uppercase()
         val paper = FdgGate8365.paperContext8393() ?: com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
         val key = "${ts.mint}|$l|$candidateVersion|$paper|${FdgGate8365.policyKey8393()}"
-        memos8243[key]?.takeIf { nowMs - it.atMs in 0L..MEMO_MS_8243 }?.let { return it.verdict }
+        val revision = FeatureRevision8283.revision8283(ts.mint)
+        memos8243[key]?.takeIf { it.featureRevision == revision && nowMs - it.atMs in 0L..MEMO_MS_8243 }?.let { return it.verdict }
         val d = try { CandidateAdmission8136.assess8136(ts, l, nowMs, candidateVersion) } catch (_: Throwable) { null }
-        val v = d?.let { Verdict8243(l, it.terminal, it.specific, it.expectedNetPct, it.chosenSetup, it.reason) }
+        val v = d?.let { Verdict8243(l, it.terminal, it.specific, it.expectedNetPct, it.chosenSetup, it.reason,
+            it.nativePhaseWitness8528 || it.strategyClockWitness8535) }
         if (memos8243.size > MAX_MEMO_8243) memos8243.entries.removeIf { nowMs - it.value.atMs > MEMO_MS_8243 }
-        memos8243[key] = Memo8243(nowMs, v)
+        memos8243[key] = Memo8243(nowMs, revision, v)
         if (v?.provenAdmit == true) try { com.lifecyclebot.engine.SpecialistElection8136.noteStrategyAdmit8243(ts.mint, l) } catch (_: Throwable) {}
         return v
     }

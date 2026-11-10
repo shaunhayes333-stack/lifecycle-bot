@@ -156,7 +156,7 @@ class Aate8348ContinuationTest {
         val inputs = src("engine/SpecialistMarketInputs8522.kt")
         assertTrue(b.contains("val cont8348 = marketInputs8522.continuation"))
         assertTrue(inputs.contains("ContinuationRead8348.read8348(ts, historyPct ?: 0.0, recent.size,"))
-        assertTrue(inputs.contains("if (recent.size < 2) ExpressMomentum8190.sinceLaunchPct8190(ts, age.inputMinutes) else null, nowMs)"))
+        assertTrue(inputs.contains("if (recent.size < 2) ExpressMomentum8190.sinceLaunchPct8190(ts, age.inputMinutes) else null, nowMs, wave)"))
         assertTrue(b.contains("val expressMomentum7555 = cont8348.pct"))
         assertTrue(inputs.contains("ContinuationRead8348.Source8348.FROM_TAPE && it.pct.isFinite()"))
         // superseded by V5.0.8492 — momentum counts as observed from a fresh 5 m change, 2+ prices or the coin's own tape

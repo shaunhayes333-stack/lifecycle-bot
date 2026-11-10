@@ -22,6 +22,29 @@ class KineticFlow8506Test {
         assertTrue(v.readers().containsAll(setOf("PROJECT_SNIPER", "EXPRESS", "MOONSHOT", "CORE")))
         assertNull(Flow.current(m, now + 5001))
     }
+    @Test fun scannerAndRunnerHuntersFollowTheCurrentLegOfTheSameMint() {
+        val m = "spent-wave"
+        Flow.observe(fill(m, 0, price = 1.0, age = 8_000), now)
+        for (i in 1..5) Flow.observe(fill(m, i, price = 2.0 - i * 0.1), now)
+        val fading = Flow.current(m, now)!!
+        assertTrue(fading.priceMove > 0.0)
+        assertTrue(fading.recentMovePct!! < 0.0)
+        assertFalse(fading.active)
+        assertEquals(0, fading.scannerRankPoints())
+        Flow.observe(fill(m, 6, price = 1.4, buy = false, age = 0L).copy(sol = 50.0, qty = 50.0 / 1.4), now)
+        val selling = Flow.current(m, now)!!
+        assertTrue(selling.scannerRankPoints() < 0)
+        assertTrue(selling.rankMultiplier("MOONSHOT") < 1.0)
+        assertEquals(1.0, selling.rankMultiplier("DIP_HUNTER"), 0.0)
+
+        val rising = "new-buyers"
+        for (i in 1..5) Flow.observe(fill(rising, i), now)
+        val wave = Flow.current(rising, now)!!
+        assertTrue(wave.scannerRankPoints() > 0)
+        assertTrue("Even before a market-sweep row exists", "SHITCOIN" in wave.readers())
+        assertNull(Flow.current(rising, now + 5_001))
+    }
+
     @Test fun commonFundingAndKnownWalletsRequireObservedIdentityAndOrderedSlots() {
         val m = "funded"
         Flow.trackedWallet = { it == "fundUser1" || it == "fundUser2" }

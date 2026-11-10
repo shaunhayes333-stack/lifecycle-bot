@@ -10,9 +10,21 @@ object KineticFlow8506 {
 
     data class Vector(val buyers: Int, val netSol: Double, val priceMove: Double, val accelerating: Boolean,
         val linkedBuyers: Int, val tippingBuyers: Int, val maxTipLamports: Long, val mentionGapMs: Long?,
-        val venue: String, val priceSol: Double, val trackedBuyers: Int, val fundedBuyers: Int) {
-        val active get() = buyers >= 3 && netSol > 0 && priceMove > 0 && accelerating
+        val venue: String, val priceSol: Double, val trackedBuyers: Int, val fundedBuyers: Int,
+        val recentMovePct: Double? = null, val pool: String = "") {
+        // A burst can still be up over ten seconds after it has already turned down.
+        val active get() = buyers >= 3 && netSol > 0 && priceMove > 0 && accelerating &&
+            (recentMovePct == null || recentMovePct > 0.0)
+        private val distributing get() = netSol < 0.0 && (recentMovePct ?: 0.0) < 0.0
+
+        fun scannerRankPoints(): Int = when {
+            active && maxOf(linkedBuyers, fundedBuyers) < 5 -> 12
+            distributing -> -12
+            else -> 0
+        }
+        fun fadingFor(lane: String): Boolean = distributing && lane in momentumLanes
         fun rankMultiplier(lane: String): Double {
+            if (fadingFor(lane)) return 0.88
             if (lane !in readers()) return 1.0
             // Independent participation carries the rank. Transaction tips and a dated mention only corroborate it.
             return 1.12 + (if (tippingBuyers >= 2 && maxTipLamports >= 100_000L) 0.06 else 0.0) +
@@ -21,12 +33,14 @@ object KineticFlow8506 {
         fun readers(): Set<String> {
             if (!active) return emptySet()
             if (maxOf(linkedBuyers, fundedBuyers) >= 5) return setOf("MANIPULATED")
-            val readers = mutableSetOf("EXPRESS", "MOONSHOT", "CORE")
+            val readers = mutableSetOf("EXPRESS", "MOONSHOT", "SHITCOIN", "CORE")
             if (venue == "CURVE") readers.add("PROJECT_SNIPER")
             else if (venue == "RAYDIUM" || venue == "PUMPSWAP") readers.add("CASHGEN")
             return readers
         }
     }
+
+    private val momentumLanes = setOf("MOONSHOT", "EXPRESS", "SHITCOIN")
 
     private class Window {
         val swaps = LinkedHashMap<String, Swap>()
@@ -109,9 +123,17 @@ object KineticFlow8506 {
         val first = sample.minByOrNull { it.atMs } ?: return null
         val move = 100.0 * ((last.sol / last.qty) / (first.sol / first.qty) - 1)
         val gap = mention?.let { at -> buys.filter { it.sourceTime }.minOfOrNull { abs(it.atMs - at) } }?.takeIf { it <= 3_000L }
+        // An unlabelled swap cannot establish direction across two pools for the same mint.
+        val prices = if (pool.isBlank()) recent else recent.filter { it.pool == pool }
+        val recentFirst = prices.minByOrNull { it.atMs }
+        val recentLast = prices.maxByOrNull { it.atMs }
+        val recentMove = if (recentFirst != null && recentLast != null && recentLast.atMs == last.atMs &&
+            recentLast.atMs - recentFirst.atMs >= 1_000L && prices.distinctBy { it.signature }.size >= 3) {
+            (100.0 * ((recentLast.sol / recentLast.qty) / (recentFirst.sol / recentFirst.qty) - 1.0)).takeIf { it.isFinite() }
+        } else null
         return Vector(buys.distinctBy { it.buyer }.size, recent.sumOf { if (it.isBuy) it.sol else -it.sol }, move,
             buys.size >= 3 && buys.size > prev.count { it.isBuy } && buys.sumOf { it.sol } > prev.filter { it.isBuy }.sumOf { it.sol },
             clustered, buys.filter { it.tip > 0 }.distinctBy { it.buyer }.size, buys.maxOfOrNull { it.tip } ?: 0, gap, last.venue, last.sol / last.qty,
-            sameSlots.map { it.buyer }.distinct().count(trackedWallet), funded)
+            sameSlots.map { it.buyer }.distinct().count(trackedWallet), funded, recentMove, pool)
     }
 }

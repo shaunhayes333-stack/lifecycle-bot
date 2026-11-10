@@ -116,7 +116,8 @@ internal object SpecialistInputParity8527 {
         val raw = ShitCoinExpress.evaluate(ts.mint, ts.symbol, read.price, ts.lastMcap, ts.lastLiquidityUsd,
             i.momentumPct, i.buyPressurePct, i.volumeRatio, i.change5mPct,
             ts.source.contains("TREND", true) || ts.toolAffinity.any { it.contains("TREND", true) },
-            ts.source.contains("BOOST", true) || ts.toolAffinity.any { it.contains("BOOST", true) }, i.ageMinutes)
+            ts.source.contains("BOOST", true) || ts.toolAffinity.any { it.contains("BOOST", true) }, i.ageMinutes,
+            momentumObserved = read.continuation.observed)
         val (eligible, reason) = ageDecision8527("EXPRESS", raw.shouldRide, raw.reason, read.age)
         return raw.copy(shouldRide = eligible, reason = observedReason8527(ts, "EXPRESS", eligible, reason, read))
     }

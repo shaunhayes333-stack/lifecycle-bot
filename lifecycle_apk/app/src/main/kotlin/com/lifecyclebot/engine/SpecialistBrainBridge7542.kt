@@ -287,9 +287,9 @@ object SpecialistBrainBridge7542 {
     // native brains actually consume. The old fingerprint omitted momentum,
     // volatility, holder/bundle state and Treasury meta fields, allowing a
     // 2.5-second stale ALLOW/VETO to survive a fast lifecycle change.
-    private fun fp(ts:TokenState,paper:Boolean,residents8168:Set<String>,birthFingerprint8521:Int)=listOf(
+    private fun fp(ts:TokenState,paper:Boolean,residents8168:Set<String>,birthFingerprint8521:Int, recentMove:Double?)=listOf(
         ts.mint,paper,ts.history.size,ts.buyPressureObservedAtMs8084,ts.priceChangeObservedAtMs8084,
-        birthFingerprint8521,
+        birthFingerprint8521, recentMove,
         com.lifecyclebot.engine.truth.FeatureRevision8283.revision8283(ts.mint),
         residents8168.hashCode(),
         if(ts.lastPrice>0)(kotlin.math.ln(ts.lastPrice)*10000).toLong()else 0L,
@@ -370,15 +370,16 @@ object SpecialistBrainBridge7542 {
         if (!cryptoDesk8549) try { com.lifecyclebot.engine.truth.LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) {}
         // V5.0.8094 — a candidate priced more than 15 s ago gets a fresh mark requested before the next cycle.
         if (!cryptoDesk8549) try { com.lifecyclebot.engine.truth.CandidateMarkFresh8094.ensureFresh8094(ts) } catch (_: Throwable) {}
+        val now = System.currentTimeMillis()
+        val wave = com.lifecyclebot.engine.market.KineticFlow8506.current(ts.mint, now)
         val residentScope7828 = (try {
             com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.residentLanes(ts.mint)
-        } catch (_: Throwable) { emptySet<String>() }) + handoffScope8180(ts.mint) + com.lifecyclebot.engine.market.LaneHunter7297.waveReaders8506(ts.mint, System.currentTimeMillis())
-        val now = System.currentTimeMillis()
+        } catch (_: Throwable) { emptySet<String>() }) + handoffScope8180(ts.mint) + com.lifecyclebot.engine.market.LaneHunter7297.waveReaders8506(ts.mint, now, wave)
         val birthRead8521 = try { com.lifecyclebot.engine.truth.AdmissionBirth8144.readFor8144(ts, now) }
             catch (_: Throwable) { null }
-        val f = fp(ts, paper, residentScope7828, NativeLaneAge8521.fingerprint8521(birthRead8521, now))
+        val f = fp(ts, paper, residentScope7828, NativeLaneAge8521.fingerprint8521(birthRead8521, now), wave?.recentMovePct)
         cache[ts.mint]?.snapshot?.let { if (it.fingerprint == f && now - it.evaluatedAtMs in 0L..CACHE_MS) return it }
-        val marketInputs8522 = SpecialistMarketInputs8522.read8522(ts, now, birthRead8521)
+        val marketInputs8522 = SpecialistMarketInputs8522.read8522(ts, now, birthRead8521, wave = wave)
         val nativeHistory8521 = marketInputs8522.history
         val prices = nativeHistory8521.prices
         val recentPrices = nativeHistory8521.recentPrices

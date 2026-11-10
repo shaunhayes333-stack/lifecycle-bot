@@ -23,12 +23,13 @@ object SpecialistMarketInputs8522 {
 
     fun read8522(ts: TokenState, nowMs: Long = System.currentTimeMillis(),
                  birth: AdmissionBirth8144.Read8144? = try { AdmissionBirth8144.readFor8144(ts, nowMs) } catch (_: Throwable) { null },
-                 history: NativeHistory8521.Read = NativeHistory8521.read8521(ts, nowMs)): Read {
+                 history: NativeHistory8521.Read = NativeHistory8521.read8521(ts, nowMs),
+                 wave: com.lifecyclebot.engine.market.KineticFlow8506.Vector? = com.lifecyclebot.engine.market.KineticFlow8506.current(ts.mint, nowMs)): Read {
         val age = NativeLaneAge8521.evidence8521(birth)
         val recent = history.recentPrices
         val historyPct = historyMomentum8522(recent)
         val continuation = ContinuationRead8348.read8348(ts, historyPct ?: 0.0, recent.size,
-            age.inputMinutes, if (recent.size < 2) ExpressMomentum8190.sinceLaunchPct8190(ts, age.inputMinutes) else null, nowMs)
+            age.inputMinutes, if (recent.size < 2) ExpressMomentum8190.sinceLaunchPct8190(ts, age.inputMinutes) else null, nowMs, wave)
         val change = LaneInputTruth8236.change5m8491(ts, nowMs)
         val momentum = signedMomentum8522(change, historyPct, continuation)
         return Read(history, age,
@@ -49,7 +50,8 @@ object SpecialistMarketInputs8522 {
     /** The legacy momentum field has no observation stamp/window; native and entry reads use the same dated change. */
     internal fun signedMomentum8522(change5m: Double?, historyPct: Double?,
                                    continuation: ContinuationRead8348.Continuation8348): Double? =
-        change5m?.takeIf { it.isFinite() }
+        continuation.recentSwapMovePct?.takeIf { it.isFinite() }
+            ?: change5m?.takeIf { it.isFinite() }
             ?: historyPct?.takeIf { it.isFinite() }
             ?: continuation.takeIf { it.source == ContinuationRead8348.Source8348.FROM_TAPE && it.pct.isFinite() }?.pct
 

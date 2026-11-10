@@ -7,6 +7,14 @@ import org.junit.Test
 class Aate7449EarlyStructureSpecialistsTest {
     private fun src(name: String) = File("src/main/kotlin/com/lifecyclebot/v3/scoring/$name").readText()
 
+    @Test fun strongFlowCanFillMissingMomentumButCannotReverseAnObservedPriceMove() {
+        fun read(momentum: Double, observed: Boolean) =
+            ShitCoinExpress.entryMomentum8670(momentum, observed, 2.0, 80.0, 48.0, 2.0)
+        assertTrue(read(-4.0, true) == -4.0)
+        assertTrue(read(0.0, true) == 0.0)
+        assertTrue(read(0.0, false) == 2.0)
+    }
+
     @Test fun sniper_owns_only_pre_ignition_or_ignition_and_three_minute_window() {
         val s = src("ProjectSniperAI.kt")
         assertTrue(s.contains("MAX_TOKEN_AGE_SECONDS = 180"))

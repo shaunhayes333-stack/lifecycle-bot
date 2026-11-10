@@ -359,7 +359,9 @@ object TokenMergeQueue {
     private fun mergeDelta8292(e: MergeEntry, now: Long): Int {
         if (lastEmitAt8292.size > 20_000) lastEmitAt8292.entries.removeIf { now - it.value > ScannerSourceQuality8292.REPEAT_WINDOW_MS_8292 }
         val adj = try { ScannerSourceQuality8292.rankAdj8292(ScannerSourceQuality8292.record8292(e.firstScanner, now)) } catch (_: Throwable) { 0 }
-        return ScannerSourceQuality8292.mergeRankDelta8292(adj, lastEmitAt8292[e.mint]?.let { now - it })
+        val sourceRank = ScannerSourceQuality8292.mergeRankDelta8292(adj, lastEmitAt8292[e.mint]?.let { now - it })
+        val tape = com.lifecyclebot.engine.market.KineticFlow8506.current(e.mint, now)
+        return sourceRank + (tape?.scannerRankPoints() ?: 0)
     }
 
     /**

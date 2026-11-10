@@ -29,7 +29,7 @@ import java.util.concurrent.atomic.AtomicLong
 object ContinuationRead8348 {
     enum class Source8348 { FROM_TAPE, FROM_1H, FROM_HISTORY, FROM_LAUNCH, FROM_5M, UNOBSERVED }
 
-    data class Continuation8348(val pct: Double, val source: Source8348) {
+    data class Continuation8348(val pct: Double, val source: Source8348, val recentSwapMovePct: Double? = null) {
         val observed: Boolean get() = source != Source8348.UNOBSERVED
     }
 
@@ -79,8 +79,16 @@ object ContinuationRead8348 {
     } catch (_: Throwable) { null }
 
     /** SpecialistBrainBridge7542.evaluate: the one continuation read of [ts] this cycle (its source counted). */
-    fun read8348(ts: TokenState, histPct: Double, histPoints: Int, ageMin: Double?, sinceLaunchPct: Double?, nowMs: Long): Continuation8348 {
-        val tape = if (youngCoin8348(ageMin)) tapeChangeOverAge8348(ts.mint, nowMs) else null
+    fun read8348(ts: TokenState, histPct: Double, histPoints: Int, ageMin: Double?, sinceLaunchPct: Double?, nowMs: Long,
+                 wave: com.lifecyclebot.engine.market.KineticFlow8506.Vector? = com.lifecyclebot.engine.market.KineticFlow8506.current(ts.mint, nowMs)): Continuation8348 {
+        val young = youngCoin8348(ageMin)
+        val expectedPool = ts.lastPricePoolAddr.ifBlank { ts.tokenMap.poolAddress.ifBlank { ts.pairAddress } }
+        val currentMove = if (young) wave
+            ?.takeIf { expectedPool.isBlank() || it.pool == expectedPool ||
+                (it.pool.isBlank() && it.venue == "CURVE" && !ts.tokenMap.migratedOrGraduated &&
+                    com.lifecyclebot.engine.truth.CurveReserves7951.activeExitObservation(ts.mint, nowMs, 5_000L) != null) }?.recentMovePct
+        else null
+        val tape = if (young) currentMove ?: tapeChangeOverAge8348(ts.mint, nowMs) else null
         val pair = com.lifecyclebot.engine.truth.PairFlow8169.peek8169(ts.mint)
             ?.takeIf { LaneInputTruth8236.fresh8491(it.atMs, nowMs) && it.chg1h.isFinite() }
         val row = com.lifecyclebot.engine.market.MarketSweep7297.rowFor8169(ts.mint, nowMs)
@@ -103,7 +111,7 @@ object ContinuationRead8348 {
             Source8348.FROM_5M -> from5m.incrementAndGet()
             Source8348.UNOBSERVED -> unobserved.incrementAndGet()
         }
-        return c
+        return if (currentMove == null) c else c.copy(recentSwapMovePct = currentMove)
     }
 
     /**

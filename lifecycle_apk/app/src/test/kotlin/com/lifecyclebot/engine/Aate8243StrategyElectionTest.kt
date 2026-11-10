@@ -26,6 +26,14 @@ class Aate8243StrategyElectionTest {
             mapOf("EXPRESS" to native.copy(setup = "NO_TRIGGER"))))
     }
 
+    @Test fun triggeredNativeSetupOwnsAheadOfAHigherScoringNativeWithoutATriggerWitness() {
+        val native = Verdict8243("EXPRESS", Terminal8136.ADMIT, false, 4.0, "IGNITION", "NATIVE_QUALIFIED_ADMIT_8259")
+        val both = mapOf("EXPRESS" to native.copy(entryWitness = true), "MOONSHOT" to native.copy(lane = "MOONSHOT"))
+        val scores = mapOf("EXPRESS" to 40.0, "MOONSHOT" to 90.0)
+        assertEquals("EXPRESS", StrategyElection8243.ownerOrder8243(scores, both))
+        assertEquals("MOONSHOT", StrategyElection8243.ownerOrder8243(scores, both + ("MOONSHOT" to admit("MOONSHOT", 4.0))))
+    }
+
     @Test fun zfrogTheProvenStrategyOutranksTheConvictionWinner() {
         // 8241: MOONSHOT 80 (DATA_INCOMPLETE_DEFER) owned ZFROG +129,601%; SHITCOIN 37 held ADMIT:SPECIFIC_EDGE_PROVEN.
         val scores = mapOf("MOONSHOT" to 80.0, "SHITCOIN" to 37.0)
