@@ -1503,7 +1503,7 @@ object CandidateAdmission8136 {
         // V5.0.8577 — LIVE: the lane-qualified candidate's learned-door refusal is advisory (LaneAuthority8577.apply8577).
         // Share the strategy rules while preserving the actual execution mode for freshness, costs and paper exploration.
         cached ?: (if (FdgGate8365.policyKey8393() == "OUTSIDE") coalescedDefer8144(ts.mint, candidate.lane, identity, version, mode, nowMs) else null) ?: LaneAuthority8577.apply8577(candidate,
-            decide8136(candidate) { reason -> candidate.live && verifiedRecordDoor8650(reason) },
+            decide8136(candidate, ::verifiedRecordDoor8650),
             if (candidate.live) LaneAuthority8577.memeEntryRefusal8626(ts, candidate.lane, candidate.stage, nowMs) else null,  // V5.0.8626
             launchPhase8609 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.features(ts, nowMs).launchPhase } catch (_: Throwable) { null },
             pocket8610 = if (candidate.live) PocketLedger8610.verdict8610(ts, candidate.lane, nowMs) else null).also {
@@ -1561,7 +1561,7 @@ object CandidateAdmission8136 {
         fun triggered8535(id: String): Boolean =
             com.lifecyclebot.engine.cortex.SetupAuthority8535.executable8535(id, features8535)
         val options8153 = try { pb.strategyOptions8153(ts, lane, nowMs).filter { triggered8535(it.id) } } catch (_: Throwable) { emptyList() }
-        val selectedRaw8535 = pick8153?.id ?: try { pb.selectedSetup8094(ts, lane, nowMs) } catch (_: Throwable) { null }
+        val selectedRaw8535 = pick8153?.id
         val selected = selectedRaw8535?.takeIf { triggered8535(it) }
         if (selectedRaw8535 != null && selected == null) try {
             com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SETUP_AUTHORITY_NOT_EXECUTABLE_8535_" +
@@ -1613,7 +1613,7 @@ object CandidateAdmission8136 {
                 .labelInc("ADMISSION_NATIVE_READY_VERDICT_SETUP_8270_$lane")
         } catch (_: Throwable) {}
         val setups = try {
-            pb.firedSetupRecords8136(ts, lane, nowMs).map { (id, r) ->
+            pb.firedSetupRecords8136(ts, lane, nowMs).filter { triggered8535(it.first) }.map { (id, r) ->
                 Evidence8136(KIND_SETUP, id, r[0].toInt(), r[1], r[2], r[3], suspect8290 = r.getOrNull(4) == 1.0)   // raw (8316)
             }
         } catch (_: Throwable) { emptyList() }
@@ -1626,11 +1626,7 @@ object CandidateAdmission8136 {
         val cell = cellStat?.takeIf { it.resolvedShare >= LiveEdgeGate7877.MIN_RESOLVED_SHARE_7944 }
             ?.let { Evidence8136(KIND_CELL, it.key.take(40), it.n60, it.meanNet60Pct, it.stderr60Pct, it.runnerRate60, suspect8290 = it.outlierSuspect8185) }   // raw (8316)
         // V5.0.8153 — the timing record of the strategy selected here (not of whatever selectedSetup8094 held).
-        val timing = if (selected != null && options8153.any { it.id == selected }) setupTimings[selected] else try {
-            pb.timingStat8094(ts, lane, nowMs)?.let { a ->
-                Evidence8136(KIND_TIMING, "${selected ?: "-"}@${pb.timingBandOf8094(ts)}", a[2].toInt(), a[0], stdErr8136(a[1], a[2]))   // raw (8316)
-            }
-        } catch (_: Throwable) { null }
+        val timing = selected?.let(setupTimings::get)
         val memeLane = com.lifecyclebot.engine.TokenMetricStageRouter.memeEntry8506(lane, ts.mint)
         val entry = if (memeLane) com.lifecyclebot.engine.TokenMetricStageRouter.entryRead8506(ts, lane, nowMs) else null
         val fit = entry?.first ?: try { com.lifecyclebot.engine.TokenMetricStageRouter.laneFit(ts, lane) } catch (_: Throwable) { null }
@@ -1688,7 +1684,7 @@ object CandidateAdmission8136 {
             mint = ts.mint,
             lane = lane,
             selectedSetup = selected,
-            firedSetups8528 = try { pb.matchedSetups8083(ts, lane, nowMs).toSet() } catch (_: Throwable) { emptySet() },
+            firedSetups8528 = try { pb.matchedSetups8083(ts, lane, nowMs).filter(::triggered8535).toSet() } catch (_: Throwable) { emptySet() },
             edge8537 = EdgeModel8537.verdict(ts, lane, cost8153, nowMs),  // V5.0.8537
             liveEdge8114 = if (live8290) LiveEdgeGate7877.edge8114Live8538(ts, lane, nowMs) else null,  // V5.0.8538
             regimeCold8546 = live8290 && MemePaperTrader8544.memeLane8544(lane) &&
@@ -1722,7 +1718,7 @@ object CandidateAdmission8136 {
             cell = cell,
             timing = timing,
             stageRecord = stageRecord,
-            losingTactic = try { com.lifecyclebot.engine.learning.TacticSwitcher.losingTacticFor8094(ts, lane) } catch (_: Throwable) { null },
+            losingTactic = try { com.lifecyclebot.engine.learning.TacticSwitcher.losingTacticFor8094(ts, lane, selected ?: nativeIdentity8650) } catch (_: Throwable) { null },
             hotLaunch = launch != null && launch.verdict != FreshLaunchSelector7737.LaunchVerdict.NOT_FRESH,
             safetyRefusal = safety,
             structuralRisk = if (fit?.stage == com.lifecyclebot.engine.TokenMetricStageRouter.Stage.RUG_PRONE)

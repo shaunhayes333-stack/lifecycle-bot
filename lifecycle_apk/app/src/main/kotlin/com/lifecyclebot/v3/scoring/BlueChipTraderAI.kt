@@ -1119,10 +1119,7 @@ object BlueChipTraderAI {
         // During bootstrap: 25% base + 10% boost = 35% effective
         // At maturity: 50% base + 0% boost = 50% effective
         val raw = (baseConf + boost).toInt()
-        // V5.9.966 — apply z38 LiveLayerGateRelaxer (was file-dead).
-        return try {
-            com.lifecyclebot.engine.LiveLayerGateRelaxer.relaxFloor(raw, "BLUECHIP", !isPaperMode)
-        } catch (_: Throwable) { raw }
+        return raw
     }
     
     fun getFluidMinLiquidity(): Double = lerp(BC_LIQ_BOOTSTRAP, BC_LIQ_MATURE)

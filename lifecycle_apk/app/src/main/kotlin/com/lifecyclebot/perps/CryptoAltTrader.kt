@@ -4844,6 +4844,7 @@ object CryptoAltTrader {
         val settlementPnl6486 = pos.getPnlSol()
         if (pos.isPaper) {
             val canonicalClose6486 = com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.close(
+                exitMarkUsd = pos.currentPrice,
                 positionId = pos.id, mint = pos.canonicalAssetKey, symbol = mktSym,
                 grossProceedsSol = (pos.sizeSol + settlementPnl6486).coerceAtLeast(0.0),
                 exitReason = reason, terminalSequence = System.currentTimeMillis(),

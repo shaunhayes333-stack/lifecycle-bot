@@ -303,7 +303,7 @@ class Aate8144AdmissionTest {
         val admission = src("engine/truth/CandidateAdmission8136.kt")
         // superseded by V5.0.8577 — the decision passes through LaneAuthority8577.apply8577 (learned doors advisory for a lane-qualified LIVE coin).
         // V5.0.8650 — the existing proven candidate-local loss records are binding in that one decision, not a second gate.
-        assertTrue(admission.contains("coalescedDefer8144(ts.mint, candidate.lane, identity, version, mode, nowMs) else null) ?: LaneAuthority8577.apply8577(candidate,\n            decide8136(candidate) { reason -> candidate.live && verifiedRecordDoor8650(reason) },\n            if (candidate.live) LaneAuthority8577.memeEntryRefusal8626(ts, candidate.lane, candidate.stage, nowMs) else null,  // V5.0.8626\n            launchPhase8609 = "))
+        assertTrue(admission.contains("coalescedDefer8144(ts.mint, candidate.lane, identity, version, mode, nowMs) else null) ?: LaneAuthority8577.apply8577(candidate,\n            decide8136(candidate, ::verifiedRecordDoor8650),\n            if (candidate.live) LaneAuthority8577.memeEntryRefusal8626(ts, candidate.lane, candidate.stage, nowMs) else null,  // V5.0.8626\n            launchPhase8609 = "))
         assertTrue(admission.contains("if (h.candidateVersion != candidateVersion || h.mode != mode) return null"))
         assertTrue(admission.contains("if (h.candidate != cacheIdentity8144(candidate)) return null"))
     }

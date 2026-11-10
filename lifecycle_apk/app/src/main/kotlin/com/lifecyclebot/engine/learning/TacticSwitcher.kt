@@ -243,9 +243,11 @@ object TacticSwitcher {
         // V5.0.8094 — a coin admitted on a PROVEN setup trades as that setup's tactic (the one its labels were graded on),
         // not as whatever the token-wide classification maps to; the stamp, the style and the tactic record then agree.
         // V5.0.8153 — the strategy the admission selected (StrategyIdentity8153 / StrategyRank8153) is the tactic's setup.
-        val selected8153 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, lane) } catch (_: Throwable) { null }
-        val proven8094 = selected8153 ?: try { com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetup8056(ts, lane)?.first } catch (_: Throwable) { null }
-        val setup = proven8094 ?: try { com.lifecyclebot.engine.cortex.LanePlaybook7907.classify(ts, lane) } catch (_: Throwable) { null }
+        val setup = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, lane) } catch (_: Throwable) { null }
+        return tacticForSetup(ts, lane, setup)
+    }
+
+    fun tacticForSetup(ts: com.lifecyclebot.data.TokenState, lane: String, setup: String?): Tactic {
         if (!setup.isNullOrBlank() && setup !in setOf("NO_TRIGGER", "SPECIALIST_EDGE", "EXPERT_ENTRY", "LAUNCH_LADDER_PROVEN")) {
             try { PipelineHealthCollector.labelInc("TACTIC_FROM_TOKEN_8050") } catch (_: Throwable) {}
             return seedTactic8049(lane, setup)
@@ -280,8 +282,9 @@ object TacticSwitcher {
      * V5.0.8094 — the tactic this token would be stamped and traded as (tacticForToken8050) when that tactic's own
      * realised record in this lane is losing (8094 live: SHITCOIN MOMENTUM 0W/3L -15.6% kept being stamped). Null otherwise.
      */
-    fun losingTacticFor8094(ts: com.lifecyclebot.data.TokenState, lane: String): String? = try {
-        val t = tacticForToken8050(ts, lane, 0)
+    fun losingTacticFor8094(ts: com.lifecyclebot.data.TokenState, lane: String,
+                           setup: String? = com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, lane)): String? = try {
+        val t = tacticForSetup(ts, lane, setup)
         val (n, w, mean) = tacticRecord8094(lane, t)
         if (tacticLosing8094(n, w, mean)) t.name else null
     } catch (_: Throwable) { null }

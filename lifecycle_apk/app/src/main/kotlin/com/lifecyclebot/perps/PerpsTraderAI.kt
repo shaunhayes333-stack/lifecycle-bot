@@ -1073,6 +1073,7 @@ object PerpsTraderAI {
             val marked = position.copy(currentPrice = exitPrice)
             val paperPnlSol = marked.getPnlSol()
             val canonicalClose6486 = com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.close(
+                exitMarkUsd = exitPrice,
                 positionId = position.id, mint = position.market.symbol, symbol = position.market.symbol,
                 grossProceedsSol = (position.sizeSol + paperPnlSol).coerceAtLeast(0.0),
                 exitReason = exitReason.name, terminalSequence = System.currentTimeMillis(),

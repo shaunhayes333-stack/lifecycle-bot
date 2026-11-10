@@ -61,6 +61,8 @@ class Aate8546StrategyFamiliesTest {
             MemeStrategies8546.earlyFlowReclaim8650(prints, now + 20_000L))
         assertNull("a return to the peak is an adverse chase",
             MemeStrategies8546.earlyFlowReclaim8650(prints.dropLast(1) + prints.last().copy(priceSol = 1.42), now))
+        assertNull("old buys cannot fund a sell-dominated recovery leg", MemeStrategies8546.earlyFlowReclaim8650(
+            prints.mapIndexed { i, p -> if (i >= 11) p.copy(isBuy = false) else p }, now))
         val flow = FlowRead8546.of8546(prints, now)
         assertTrue(MemeStrategies8546.flowConfirms8546(Family8546.EARLY_FLOW_RECLAIM, flow))
         assertFalse(MemeStrategies8546.flowConfirms8546(Family8546.EARLY_FLOW_RECLAIM,

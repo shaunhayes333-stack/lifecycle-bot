@@ -97,6 +97,8 @@ object LanePlaybook7907 {
         val migrated8308: Boolean = false,
         /** 8666: independent wallets whose first observed buy landed in the most recent 15 seconds. */
         val newBuyers15s8666: Double = Double.NaN,
+        val sustainedDemand: Boolean = false,
+        val marketReclaim: Boolean = false,
     ) {
         /** V5.0.8084 — provenance of the core inputs (bp / chg / shape / age / liq ...): OBSERVED, STALE, UNKNOWN, INVALID, DEFAULT_UNOBSERVED. */
         var obs8084: Map<String, Obs8084> = emptyMap()
@@ -115,7 +117,7 @@ object LanePlaybook7907 {
             d(bundleLargest); d(lpLock); d(txVelocity); d(volatility); t(regime); b(launchLadderProven); b(expertEntry7962); b(structureHlReclaim)
             b(secondWave7974); d(holderVel7978); d(turnover7978); d(curve7978); b(live7978); b(beta7978); b(colourBuy7978); b(specialistEdge7978)
             b(migrated8308)
-            d(newBuyers15s8666)
+            d(newBuyers15s8666); b(sustainedDemand); b(marketReclaim)
             return h
         }
     }
@@ -728,6 +730,14 @@ object LanePlaybook7907 {
     // V5.0.7962 — EXPERT_ENTRY: an expert wallet's live buy on this mint (ExpertWallets7962), graded
     // per lane on forward labels like every setup (flow prior; a proven loser refuses as usual).
     private val EXPERT_ENTRY_7962 = Setup("EXPERT_ENTRY", FLOW) { f -> f.expertEntry7962 }
+    private val degenSetups = listOf(
+        Setup("EARLY_SUSTAINED_DEMAND", FLOW) { f ->
+            f.sustainedDemand && ok(f.age, 0.0, 3.0) &&
+                (f.launchPhase == "IGNITION" || f.launchPhase == "PRE_IGNITION") &&
+                ok(f.tapeFromFirst, 0.0, 40.0) && le(f.tapeDevSold, 0.0)
+        },
+        Setup("MARKET_SECOND_WAVE_RECLAIM", STRUCT) { f -> f.marketReclaim },
+    )
     private val EXPERT_LANES_7962 = setOf("SHITCOIN", "EXPRESS", "MOONSHOT", "PROJECT_SNIPER")
     private fun menuOf7962(lane: String): List<Setup>? = MENU[lane]?.let { base ->
         val upTo7978 = (if (lane in EXPERT_LANES_7962) base + EXPERT_ENTRY_7962 else base) +
@@ -735,11 +745,13 @@ object LanePlaybook7907 {
         val upTo8061 = upTo7978 + extras8061(lane, upTo7978)   // V5.0.8061
         val native8383 = upTo8061 + added8383(lane, upTo8061)   // V5.0.8383
         val native = native8383 + launch8535(lane, native8383)   // V5.0.8535 §P1-02
-        if (!isEnsemble8384(lane)) native else {
+        if (!isEnsemble8384(lane)) {
+            if (lane in MEME_LANES_7978 || lane == "DIP_HUNTER") native + degenSetups.filter { lane != "DIP_HUNTER" || it.id == "MARKET_SECOND_WAVE_RECLAIM" } else native
+        } else {
             // V5.0.8384: reuse predicates, never a donor lane's record or mandate. Every fired setup is
             // still classified/ranked/graded as (receiving lane, setup), downstream of that desk's role checks.
             val have = native.map { it.id }.toHashSet()
-            native + sharedLibrary8384.filter { have.add(it.id) }
+            native + sharedLibrary8384.filter { have.add(it.id) } + degenSetups
         }
     }
 
@@ -993,6 +1005,8 @@ object LanePlaybook7907 {
             colourBuy7978 = try { com.lifecyclebot.engine.chart.ChartReader7950.cachedRead7955(ts.mint)?.colorBuy7968 == true } catch (_: Throwable) { false },
             migrated8308 = try { ts.tokenMap.migratedOrGraduated } catch (_: Throwable) { false },
             newBuyers15s8666 = buyerFlow8666?.newBuyers15s?.toDouble() ?: Double.NaN,
+            sustainedDemand = buyerFlow8666?.sustainedDemand == true,
+            marketReclaim = com.lifecyclebot.engine.truth.MemeStrategies8546.currentMarketReclaim(ts.mint, nowMs),
         ).also { f ->
             f.obs8084 = mapOf("bp" to (if (tapeBp8100 != null || altBp8169 != null) Obs8084.OBSERVED else bpObs),
                 "chg" to (if (tapeChg8100 != null || altChg8169 != null) Obs8084.OBSERVED else chgObs),
@@ -1608,9 +1622,7 @@ object LanePlaybook7907 {
     fun selectedSetup8094(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): String? =
         (try { admittedSetup8153(ts, laneRaw, nowMs) } catch (_: Throwable) { null })  // V5.0.8153 — the admission's one identity
             ?: (try { rankedSetup8153(ts, laneRaw, nowMs) } catch (_: Throwable) { null })  // V5.0.8153 — best evidenced fired setup
-            ?: (try { provenSetup8056(ts, laneRaw, nowMs)?.first } catch (_: Throwable) { null })
-            ?: (try { validAlternative8144(ts, laneRaw, nowMs) } catch (_: Throwable) { null })  // V5.0.8144
-            ?: classify(ts, canon(laneRaw), nowMs)
+            ?: classify8084(ts, laneRaw, nowMs)?.takeIf { it.noMatchCohort }?.consumerTag8087
 
     /**
      * V5.0.8144 §COMPETING_STRATEGIES — when the classifier's default setup for this coin is losing on its own record and
@@ -1675,7 +1687,11 @@ object LanePlaybook7907 {
     fun strategyPick8153(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis(),
                          frame: F? = runCatching { features(ts, nowMs) }.getOrNull()): com.lifecyclebot.engine.truth.StrategyRank8153.Pick8153? = try {
         val lane = canon(laneRaw)
-        val default8323 = classify(ts, lane, nowMs)?.takeIf { SetupAuthority8535.executable8535(it, frame) }
+        val fired = matchedSetups8083(ts, lane, nowMs)
+        val triggered = fired.filter { SetupAuthority8535.executable8535(it, frame) }
+        val default8323 = synchronized(this) {
+            LaneCheatSheet8323.choose8323(lane, triggered.map { setupEvidence8077(lane, it) })?.id
+        }
         val opts8323 = strategyOptions8153(ts, lane, nowMs).filter { SetupAuthority8535.executable8535(it.id, frame) }
         // V5.0.8323 — the lane's cheat sheet: a favoured fired setup first, an avoided one only on its re-probe slot.
         LaneCheatSheet8323.refresh8323(nowMs)
@@ -1687,7 +1703,6 @@ object LanePlaybook7907 {
     /** V5.0.8153 — the best SUPPORTED / VALID fired setup on its own record and timing band, else null (the default decides). */
     fun rankedSetup8153(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): String? {
         val p = strategyPick8153(ts, laneRaw, nowMs) ?: return null
-        if (!com.lifecyclebot.engine.truth.StrategyRank8153.evidenced8153(p.tier) && !LaneCheatSheet8323.favourBasis8323(p.basis) && !p.basis.startsWith("EARLY_TIMING_8528:")) return null  // V5.0.8323
         if (p.overDefault) try { PipelineHealthCollector.labelInc("SETUP_RANKED_OVER_DEFAULT_8153_${canon(laneRaw)}") } catch (_: Throwable) {}
         return p.id
     }
@@ -2444,6 +2459,8 @@ object LanePlaybook7907 {
         // reserved slots (including absent legacy entries), not the length of the newly enlarged menu.
         val borrowed = if (isEnsemble8384(lane)) sharedLibrary8384.map { it.id }
             .filter { it !in menu && it !in appended } else emptyList()
+        val extra = degenSetups.indexOfFirst { it.id == id }
+        if (extra >= 0) return (menu.size + 1 + appended.size + borrowed.size + extra).toDouble()
         val k = borrowed.indexOf(id)
         return (if (i >= 0) i else if (j >= 0) menu.size + 1 + j
             else if (k >= 0) menu.size + 1 + appended.size + k else menu.size).toDouble()

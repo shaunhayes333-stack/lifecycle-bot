@@ -794,7 +794,8 @@ object CanonicalPaperTransaction6486 {
     fun close(positionId: String, mint: String, symbol: String, grossProceedsSol: Double,
               soldQtyRaw: BigInteger? = null, soldCostBasisSol: Double? = null,
               sellFeeSol: Double = 0.0, exitReason: String, terminalSequence: Long,
-              expectedRealizedPnlSol6569: Double? = null, leveragedReturnPct6569: Double? = null): Result = lock.withLock {
+              expectedRealizedPnlSol6569: Double? = null, leveragedReturnPct6569: Double? = null,
+              exitMarkUsd: Double = 0.0): Result = lock.withLock {
         val eligibility6570 = CanonicalPositionAuthority6441.exitEligibility6570(positionId, mint, expectedMode = "paper")
         val pos = eligibility6570.position
             ?: return@withLock Result(false, positionId, eligibility6570.reason)
@@ -804,6 +805,7 @@ object CanonicalPaperTransaction6486 {
         if (qty <= BigInteger.ZERO || qty > pos.remainingQtyRaw || !grossProceedsSol.isFinite() ||
             grossProceedsSol < 0.0 || !basis.isFinite() || basis < 0.0)
             return@withLock Result(false, positionId, "INVALID_CLOSE")
+        val observedMark = exitMarkUsd.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
         val terminal = qty >= pos.remainingQtyRaw
         val staleEmergencyExit6692 = exitReason.startsWith("STALE_QUOTE_EMERGENCY_25PCT_BACKSTOP", ignoreCase = true)
         val effectiveGrossProceeds6692 = if (staleEmergencyExit6692) {
@@ -852,9 +854,10 @@ object CanonicalPaperTransaction6486 {
             grossProceedsSol = effectiveGrossProceeds6692, soldCostBasisSol = basis,
             feesSol = sellFeeSol, lane = pos.lane, exitReason = exitReason,
             terminal = terminal, directPositionMutation6486 = true,
+            exitPriceUsd7032 = observedMark, basisDerivedProceeds8083 = true,
         )
         if (!r.applied) return@withLock Result(false, positionId, r.reason)
-        recordCloseProjection6659(pos, r, exitReason, terminal)
+        recordCloseProjection6659(pos, r, exitReason, terminal, observedMark)
         if (terminal) CanonicalMintOccupancyRegistry6464.markClosed("paper", mint)
         try { PipelineHealthCollector.labelInc(if (terminal) "PAPER_TRANSACTION_CLOSE_COMMITTED_6486" else "PAPER_TRANSACTION_PARTIAL_COMMITTED_6486") } catch (_: Throwable) {}
         Result(
@@ -877,6 +880,7 @@ object CanonicalPaperTransaction6486 {
         receipt: CanonicalPaperTerminalBridge6469.Result,
         exitReason: String,
         terminal: Boolean,
+        observedMark: Double = 0.0,
     ) {
         if (receipt.economicEventId.isBlank()) return
         val scale = receipt.tokenDecimals.takeIf { it in 0..18 }
@@ -890,13 +894,13 @@ object CanonicalPaperTransaction6486 {
         val realized = gross - basis - fee
         val pnlPct = if (basis > 0.0) realized * 100.0 / basis else 0.0
         val soldQty = tokenQty(receipt.canonicalConsumedRaw)
-        val exitPrice = if (soldQty > 0.0) gross / soldQty else position.entryPriceUsd
+        // The settlement includes collateral and can be leveraged. Only the market mark prices the asset.
         TradeHistoryStore.recordTrade(
             Trade(
                 side = if (terminal) "SELL" else "PARTIAL_SELL",
                 mode = "paper",
                 sol = gross,
-                price = exitPrice,
+                price = observedMark,
                 ts = System.currentTimeMillis(),
                 reason = exitReason,
                 pnlSol = realized,

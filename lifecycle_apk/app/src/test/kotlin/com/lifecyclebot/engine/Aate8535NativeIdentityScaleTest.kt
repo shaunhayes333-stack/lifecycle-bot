@@ -21,7 +21,9 @@ class Aate8535NativeIdentityScaleTest {
 
     @Test fun the_admission_identity_is_the_fired_predicate_or_the_native_rule_never_the_style_label() {
         assertEquals("IGNITION_5M", SpecialistBrainBridge7542.nativeSetupIdentity8535(opinion("SHITCOIN_NATIVE_ALLOW", "IGNITION_5M")))
-        assertEquals("NATIVE_RULE_8535:SHITCOIN_NATIVE_ALLOW", SpecialistBrainBridge7542.nativeSetupIdentity8535(opinion("SHITCOIN_NATIVE_ALLOW", null)))
+        for (status in listOf("SHITCOIN_NATIVE_ALLOW", "MOONSHOT_NATIVE_ALLOW", "ALLOW", "NO_TRIGGER", "UNKNOWN")) {
+            assertNull(SpecialistBrainBridge7542.nativeSetupIdentity8535(opinion(status, null)))
+        }
         assertEquals("a NO_TRIGGER classification is not a fired predicate", "NATIVE_RULE_8535:R", SpecialistBrainBridge7542.nativeSetupIdentity8535(opinion("R", "NO_TRIGGER")))
         assertNull(SpecialistBrainBridge7542.nativeSetupIdentity8535(opinion("", null)))
         assertNull(SpecialistBrainBridge7542.nativeSetupIdentity8535(opinion("NONE", "NONE")))

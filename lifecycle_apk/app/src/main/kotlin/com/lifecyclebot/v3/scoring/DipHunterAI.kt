@@ -745,14 +745,17 @@ object DipHunterAI {
                  canonicalSlice8527: com.lifecyclebot.engine.truth.CanonicalPartialReceipt8527? = null) {
         val pos = synchronized(activeDips) { activeDips[mint] } ?: return
         if (!com.lifecyclebot.engine.SpecialistCloseProjection7858.mayClose(mint, pos.isPaper, pos.entryTime)) return
-        if (!activeDips.remove(mint, pos)) return
         
         val settled8527 = canonicalSlice8527?.takeIf { receipt ->
             receipt.terminal && receipt.mint == mint && receipt.mode == (if (pos.isPaper) "paper" else "live")
         }?.takeIf { receipt ->
             val row = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(receipt.positionId)
-            row != null && receipt.belongsToHistory8527(row) && receipt.openedAtMs >= pos.entryTime
+            row != null && receipt.belongsToHistory8527(row) &&
+                com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(row.lane).equals("DIP_HUNTER", true) &&
+                pos.entryTime in row.openedAtMs..row.lastMutationMs
         }
+        if (canonicalSlice8527 != null && settled8527 == null) return
+        if (!activeDips.remove(mint, pos)) return
         val whole8527 = settled8527?.let { receipt ->
             com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(receipt.positionId)
                 ?.let { com.lifecyclebot.engine.truth.WholePositionEconomics7835.from(it) }

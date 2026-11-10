@@ -254,8 +254,9 @@ object AgenticStyleRouter {
 
     /** V5.0.8080: the setup to seal for [laneHint]: the sheet's when this lane can run it, else the coin's own lane setup. */
     fun sealedSetup8080(ts: TokenState, sheet: ToolkitSignalSheet.Sheet?, laneHint: String): String =
-        if (toolkitFitsLane8080(sheet, laneHint)) ToolkitSignalSheet.forDesk8384(sheet!!, laneHint).setup.name
-        else (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, laneHint) } catch (_: Throwable) { null } ?: "NONE")  // V5.0.8153 — the admitted strategy
+        (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, laneHint) } catch (_: Throwable) { null })
+            ?.takeUnless { it == "NO_TRIGGER" }
+            ?: if (toolkitFitsLane8080(sheet, laneHint)) ToolkitSignalSheet.forDesk8384(sheet!!, laneHint).setup.name else "NONE"
 
     /** Pure (V5.0.8080): may a style declared for [styleLanes] run in [laneHint]? Blank lane / ensemble desks accept shared tools, never donor ownership. */
     /** Pure (V5.0.8418): is a style declared only for runner lanes? Empty = no declaration (not runner-only). */
@@ -290,7 +291,9 @@ object AgenticStyleRouter {
             com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(laneHint) &&
                 com.lifecyclebot.engine.truth.LiveEdgeGate7877.cellOrKindProven8094(ts, laneHint)
         } catch (_: Throwable) { false }
-        val provenLead8094 = laneHint.isNotBlank() && try { com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetup8056(ts, laneHint) != null } catch (_: Throwable) { false }
+        val provenLead8094 = laneHint.isNotBlank() && try {
+            com.lifecyclebot.engine.cortex.LanePlaybook7907.admittedSetup8153(ts, laneHint) != null
+        } catch (_: Throwable) { false }
         val ddAgg = try { com.lifecyclebot.v3.scoring.DrawdownCircuitAI.getAggression() } catch (_: Throwable) { 1.0 }
         val launch7402 = try { com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts) } catch (_: Throwable) { null }
         val ageMin = try { (launch7402?.ageMs ?: com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.trueAgeMs(ts)) / 60_000.0 } catch (_: Throwable) { 999.0 }

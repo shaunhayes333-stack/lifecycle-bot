@@ -160,6 +160,9 @@ object MemeStrategies8546 {
         if (after.drop(troughIdx + 1).any { it.low <= trough }) return null
         val last = bars.last().close
         if (last <= after[troughIdx].high || last <= bars[bars.lastIndex - 1].close || last >= peak * 0.92) return null
+        val recovery = executed.filter { it.atMs >= after[troughIdx].at + 15_000L }
+        if (recovery.none { it.isBuy } ||
+            recovery.filter { it.isBuy }.sumOf { it.sol } <= recovery.filterNot { it.isBuy }.sumOf { it.sol }) return null
         return "realSwaps=${executed.size} 15sBars=${bars.size} dip=${"%.0f".format(depth * 100)}% belowPeak=${"%.0f".format((1 - last / peak) * 100)}%"
     }
 
@@ -244,14 +247,16 @@ object MemeStrategies8546 {
         var done = 0
         fun evaluate(ts: TokenState, priority: Boolean): Boolean {
             if (nowMs - (lastEvalAt[ts.mint] ?: 0L) < EVAL_GAP_MS_8546) return false
-            if (!eligible8546(ts, nowMs)) return false
+            if (!eligible8546(ts, nowMs)) {
+                lastSignal.remove(ts.mint)
+                return false
+            }
             note8644("EVALUATED")
             if (priority) note8644("TAPE_PRIORITY_EVALUATED_8663")
             lastEvalAt[ts.mint] = nowMs
             val sigs = try { signals8546(ts, nowMs) } catch (_: Throwable) { note8644("SIGNALS_ERROR"); emptyList() }
-            if (sigs.isNotEmpty()) lastSignal.compute(ts.mint) { _, old ->
-                old.orEmpty().filterValues { nowMs - it in 0L..SIGNAL_TTL_MS_8546 } + sigs.associate { it.family to nowMs }
-            }
+            if (sigs.isEmpty()) lastSignal.remove(ts.mint)
+            else lastSignal[ts.mint] = sigs.associate { it.family to nowMs }
             for (s in sigs) {
                 fired.computeIfAbsent(s.family.name) { java.util.concurrent.atomic.AtomicLong(0) }.incrementAndGet()
                 try { PipelineHealthCollector.labelInc("MEME_FAMILY_SIGNAL_8546_${s.family}") } catch (_: Throwable) {}
@@ -304,6 +309,14 @@ object MemeStrategies8546 {
     fun provenRecord8546(n: Int, meanPct: Double, sePct: Double, profitFactor: Double): Boolean =
         n >= PROVEN_MIN_N_8546 && meanPct.isFinite() && sePct.isFinite() && meanPct - sePct > 0.0 &&
             profitFactor >= PROVEN_MIN_PF_8546
+
+    /** The latest evaluation saw the pullback hold and reclaim on same-venue swaps or closed bars. */
+    fun currentMarketReclaim(mint: String, nowMs: Long): Boolean {
+        val signals = lastSignal[mint] ?: return false
+        return listOf(Family8546.EARLY_FLOW_RECLAIM, Family8546.PULLBACK_RECLAIM).any { family ->
+            signals[family]?.let { nowMs - it in 0L until EVAL_GAP_MS_8546 } == true
+        }
+    }
 
     /** LiveEdgeGate7877: the proven family that signalled on [mint] in the last two minutes, else null. */
     fun liveProven8546(mint: String, nowMs: Long = System.currentTimeMillis()): String? {

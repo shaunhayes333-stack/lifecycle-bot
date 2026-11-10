@@ -44,6 +44,6 @@ class Aate8050TokenTacticTest {
         assertEquals(3, Regex("TacticSwitcher\\.tacticForToken8050\\(ts, ").findAll(e).count())
         assertTrue(!e.contains("TacticSwitcher.currentTactic(safeLane, score.toInt())"))
         val t = File("src/main/kotlin/com/lifecyclebot/engine/learning/TacticSwitcher.kt").readText()
-        assertTrue(t.contains("LanePlaybook7907.classify(ts, lane)"))
+        assertTrue(t.contains("LanePlaybook7907.selectedSetup8094(ts, lane)"))
     }
 }

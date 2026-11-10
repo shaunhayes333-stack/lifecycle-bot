@@ -52,25 +52,17 @@ import kotlin.math.max
  * ═══════════════════════════════════════════════════════════════════════════════
  */
 object ShitCoinTraderAI {
-    /**
-     * Pure (V5.0.8555): SHITCOIN's 5-minute momentum points. A chase (> +20 %) is docked, +8..+20 % earns nothing, a small
-     * rise earns most; [paperBase] (PAPER until the bar n>=30 / mean-se>0 / PF>=1.3 is met) scores a held pullback
-     * (-6..0 %) like flat instead of docking it; LIVE keeps the old 0 there. A real fall (< -6 % / < -5 % live) -15.
-     */
-    /** Pure (V5.0.8555): the never-green cut (seconds held, pnl %): LIVE 30 s / -3.5 %, PAPER 90 s / -8 % until proven. */
-    fun neverGreenCut8555(paper: Boolean): Pair<Long, Double> = if (paper) 90L to -8.0 else 30L to -3.5
+    // Apply the live risk limit in both books so paper measures the same hold policy.
+    fun neverGreenCut8555(): Pair<Long, Double> = 30L to -3.5
 
-    fun momentumScore8555(momentum: Double, paperBase: Boolean): Int = when {
+    fun momentumScore8555(momentum: Double): Int = when {
         momentum > 20.0 -> -10
         momentum >= 8.0 -> 0
         momentum >= 2.0 -> 5
-        momentum >= 0.0 -> 3
-        paperBase && momentum >= -6.0 -> 3
-        momentum >= -5.0 -> 0
+        momentum >= -6.0 -> 3
         else -> -15
     }
 
-    
     private const val TAG = "ShitCoinAI"
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -868,8 +860,7 @@ object ShitCoinTraderAI {
         // rewards real upward movement, but doesn't double-pay for "already pumped".
         // V5.0.8555 §LANE_SWEEP — superseded (>=20 → +10, >=10 → +8, >=5 → +7): the curve still paid for the breakout
         // (SHITCOIN BREAKOUT -15.9 %, PEAK -21.0 %, 5 m > +20 % -10.1 % at 5 minutes; BASE +18.7 %).
-        val paper8555 = try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
-        val momentumScore = momentumScore8555(momentum, paper8555)
+        val momentumScore = momentumScore8555(momentum)
         shitScore += momentumScore
         if (momentumScore != 0) scoreReasons.add("mom${if(momentumScore>0)"+" else ""}$momentumScore")
 
@@ -1124,7 +1115,7 @@ object ShitCoinTraderAI {
         // with real buy pressure AND positive momentum pass. Train-First preserved —
         // not a hard block, just a tighter quality bar.
         // V5.0.8555 — PAPER (until proven): a held pullback (down to -6 %) is not a weak signal; LIVE keeps momentum < 0.
-        val hasWeakSignal = (if (paper8555) momentum < -6.0 else momentum < 0.0) || buyPressurePct < 45.0
+        val hasWeakSignal = momentum < -6.0 || buyPressurePct < 45.0
         if (hasWeakSignal) {
             shitScore = (shitScore - 12).coerceAtLeast(0)
             ErrorLogger.debug(TAG, "💩 QUALITY_SOFT_GATE: ${symbol} | momentum=${"%.1f".format(momentum)} bp=${buyPressurePct.toInt()}% → -12pts → score=$shitScore")
@@ -1731,7 +1722,7 @@ object ShitCoinTraderAI {
             // normal breather/runner rules; unconditional -15% floor unchanged.
             // V5.0.8555 §LANE_SWEEP — PAPER (until proven): -3.5 % after 30 s sits inside the 2.5-5 % round trip + noise
             // (FieldManual8392: a stop never inside the round trip); paper cuts a never-green entry at -8 % after 90 s.
-            val (ngSec8555, ngPct8555) = neverGreenCut8555(pos.isPaper)
+            val (ngSec8555, ngPct8555) = neverGreenCut8555()
             if (ageSec >= ngSec8555 && pos.peakPnlPct <= 0.0 && pnlPct < ngPct8555) {
                 ErrorLogger.info(TAG, "💩⏱️ EARLY-WEAKNESS EXIT: ${pos.symbol} | " +
                     "never green by ${ageSec}s (peak ${pos.peakPnlPct.fmt(1)}%, now ${pnlPct.fmt(1)}%) — cutting dead entry")
@@ -2049,12 +2040,7 @@ object ShitCoinTraderAI {
             if (com.lifecyclebot.engine.MemeWREmergencyBrake.isEngaged()) 2 else 0
         } catch (_: Throwable) { 0 }
         val raw = (baseConf + boost).toInt() + brakeBoost
-        // V5.9.966 — apply z38 LiveLayerGateRelaxer (was file-dead). Live
-        // mode multiplies the floor by 0.85 so the lane can actually fire
-        // in live where paper-tuned thresholds were starving it.
-        return try {
-            com.lifecyclebot.engine.LiveLayerGateRelaxer.relaxFloor(raw, "SHITCOIN", !isPaperMode)
-        } catch (_: Throwable) { raw }
+        return raw
     }
     fun getFluidMinLiquidity(): Double = lerp(MIN_LIQUIDITY_USD_BOOTSTRAP, MIN_LIQUIDITY_USD_MATURE)
     // V5.9.1380 — closed-loop lane exit tuner overlays the fluid base. tpMult/slMult

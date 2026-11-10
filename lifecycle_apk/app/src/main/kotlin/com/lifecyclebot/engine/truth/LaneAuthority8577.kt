@@ -272,27 +272,14 @@ object LaneAuthority8577 {
             return d.copy(terminal = CandidateAdmission8136.Terminal8136.REFUSE, reason = highRefusal8582, specific = true,
                 trace = d.trace + "entryState=$highRefusal8582", laneQualified8577 = qualified)
         }
-        if (!qualified) return d
-        if (d.admitted) return d.copy(laneQualified8577 = true)
-        noteAdvisory8577(d.reason, c.lane)
-        return d.copy(
-            terminal = CandidateAdmission8136.Terminal8136.ADMIT, reason = REASON_8577, specific = false,
-            chosenSetup = d.chosenSetup ?: c.nativeSetup8213 ?: c.selectedSetup,
-            trace = d.trace + "advisory8577=${d.reason} laneQualified=${c.nativeSetup8213 ?: c.lane} generic=${"%.1f".format(c.genericScore)} floor=${"%.1f".format(c.genericFloor)}",
-            basis = "$REASON_8577:${c.lane}:${c.nativeSetup8213 ?: "-"}",
-            laneQualified8577 = true,
-        )
+        return if (qualified) d.copy(laneQualified8577 = true) else d
     }
 
     /** LiveEdgeGate7877.liveRefusal (LIVE): is the gate's refusal [reason] advisory for this lane-qualified candidate? */
     // V5.0.8604 — advisory for every ADMITTED LIVE candidate (the paper-equivalent admission), not only a specialist-qualified
     // one: the paper book buys generic-prior admits too, and the gate's learned doors are the layer it never had.
     fun advisoryAtGate8577(reason: String?, admission: CandidateAdmission8136.Decision8136?): Boolean =
-        enabled8577 && !reason.isNullOrBlank() && admission != null &&
-            (admission.admitted || admission.laneQualified8577) &&
-            !(admission.terminal == CandidateAdmission8136.Terminal8136.REFUSE &&
-                CandidateAdmission8136.verifiedRecordDoor8650(admission.reason)) &&
-            !binding8577(reason)
+        enabled8577 && admission?.admitted == true && !reason.isNullOrBlank() && !binding8577(reason)
 
     private val advisory8577 = ConcurrentHashMap<String, AtomicLong>()
     private val admittedByLane8577 = ConcurrentHashMap<String, AtomicLong>()

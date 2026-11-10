@@ -63,17 +63,22 @@ object SpecialistBrainBridge7542 {
      * the native rule that decided (its reason text), never the lane's hard-coded style label (VOLUME_IGNITION_SCALP /
      * DIAMOND_HANDS_RUNNER …), which described the exit plan and not the event. Null = nothing fired and nothing decided.
      */
-    fun nativeSetupIdentity8535(o: Opinion): String? =
-        o.firedSetup8535?.takeIf { it.isNotBlank() && !it.equals("NONE", true) && it != com.lifecyclebot.engine.cortex.LanePlaybook7907.NO_TRIGGER }
-            ?: o.reason.takeIf { it.isNotBlank() && !it.equals("NONE", true) }?.let { "NATIVE_RULE_8535:${it.take(40)}" }
+    private fun namesSetup(value: String): Boolean = when (val id = value.trim().uppercase()) {
+        "", "NONE", "ALLOW", "UNKNOWN", "NO_SETUP", "NO_TRIGGER" -> false
+        else -> !id.endsWith("_NATIVE_ALLOW")
+    }
 
-    /** The playbook predicate that fired for [lane] on [ts] now: the lane's selected pick when it fired, else the first fired. */
+    fun nativeSetupIdentity8535(o: Opinion): String? =
+        o.firedSetup8535?.takeIf(::namesSetup)
+            ?: o.reason.takeIf(::namesSetup)?.let { "NATIVE_RULE_8535:${it.take(40)}" }
+
+    /** The playbook predicate that fired for [lane] on [ts] now: the selected executable pick, when it fired. */
     private fun firedSetup8535(ts: TokenState, lane: String, nowMs: Long): String? = try {
         val c = com.lifecyclebot.engine.cortex.LanePlaybook7907.classify8084(ts, lane, nowMs)
         val fired = c?.matched.orEmpty().filter { it != com.lifecyclebot.engine.cortex.LanePlaybook7907.NO_TRIGGER }
         if (fired.isEmpty()) null else {
             val pick = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.selectedSetup8094(ts, lane, nowMs) } catch (_: Throwable) { null }
-            pick?.takeIf { it in fired } ?: fired.first()
+            pick?.takeIf { it in fired }
         }
     } catch (_: Throwable) { null }
     /** V5.0.8031 — READY means electable: the TREASURY role floor (mcap / liquidity) the election applies is applied here too. */

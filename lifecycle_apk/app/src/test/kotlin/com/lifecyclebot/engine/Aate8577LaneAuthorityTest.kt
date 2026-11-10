@@ -41,24 +41,14 @@ class Aate8577LaneAuthorityTest {
         }
     }
 
-    @Test fun the_learned_doors_are_advisory_for_a_lane_qualified_live_candidate() {
+    @Test fun qualification_preserves_the_admission_and_its_setup_for_every_terminal() {
         LaneAuthority8577.enabled8577 = true
-        // superseded by V5.0.8582 — "LIVE_INTO_HIGH_UNPROVEN_8545" advisory: buying into the high binds again (Aate8582BuyThePullbackTest).
-        for (door in listOf("LIVE_NATIVE_OPINION_UNPROVEN_8536", "LIVE_LAUNCH_UNPROVEN_8559",
-                "LIVE_REGIME_COLD_8546", "ENTRY_NO_RECLAIM_8506", "ENTRY_NO_BUY_VOLUME_8506",
-                "FALLING_HOUR_PROVEN_LOSING_8418", "STAGE_PROVEN_LOSING_8136", "LIVE_GENERIC_PRIOR_UNSUPPORTED_8238")) {
-            val d = ap8609(qualified(), refusal(door))
-            assertEquals(door, Terminal8136.ADMIT, d.terminal)
-            assertEquals(LaneAuthority8577.REASON_8577, d.reason)
-            assertFalse(d.specific); assertTrue(d.laneQualified8577)
-            assertTrue(d.trace.any { it.startsWith("advisory8577=$door") })
-            assertEquals("LAUNCH_LADDER_PROVEN", d.chosenSetup)
+        for (terminal in Terminal8136.values()) {
+            val original = refusal("ENTRY_NO_RECLAIM_8506", listOf("fresh tape"), terminal)
+            val decision = ap8609(qualified(), original)
+            assertEquals(original.copy(laneQualified8577 = true), decision)
+            assertEquals(original.admitted, LaneAuthority8577.advisoryAtGate8577("WATCH_FIRST_8019", decision))
         }
-        assertTrue(LaneAuthority8577.advisoryCount8577("ENTRY_NO_RECLAIM_8506") >= 1L)
-        // the falling-hour WAIT and the entry-wait data defer are learned doors too
-        assertEquals(Terminal8136.ADMIT, ap8609(qualified(), refusal(CandidateAdmission8136.FALLING_HOUR_DEFER_8418, terminal = Terminal8136.DEFER_DATA)).terminal)
-        assertEquals(Terminal8136.ADMIT, ap8609(qualified(),
-            refusal("DATA_INCOMPLETE_DEFER_8136", listOf("entryWait8506=FLOW_UNOBSERVED", "missing=swaps,bp,chg"), Terminal8136.DEFER_DATA)).terminal)
         // V5.0.8649 — a missing executable move is never upgraded to a LIVE buy
         // just because a native opinion and a generic V3 score passed.
         val missingGross = refusal("DATA_INCOMPLETE_DEFER_8136", listOf("missing=economics"), Terminal8136.DEFER_DATA)
@@ -163,7 +153,7 @@ class Aate8577LaneAuthorityTest {
     @Test fun the_runtime_applies_it_at_the_admission_and_the_gate_and_the_doors_keep_learning() {
         val adm = File("src/main/kotlin/com/lifecyclebot/engine/truth/CandidateAdmission8136.kt").readText()
         // V5.0.8650 — the source retains the single judgment, including its measured candidate-local negatives.
-        assertTrue(adm.contains("LaneAuthority8577.apply8577(candidate,\n            decide8136(candidate) { reason -> candidate.live && verifiedRecordDoor8650(reason) },\n            if (candidate.live) LaneAuthority8577.memeEntryRefusal8626(ts, candidate.lane, candidate.stage, nowMs) else null,  // V5.0.8626\n            launchPhase8609 = "))
+        assertTrue(adm.contains("LaneAuthority8577.apply8577(candidate,\n            decide8136(candidate, ::verifiedRecordDoor8650),\n            if (candidate.live) LaneAuthority8577.memeEntryRefusal8626(ts, candidate.lane, candidate.stage, nowMs) else null,  // V5.0.8626\n            launchPhase8609 = "))
         val gate = File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveEdgeGate7877.kt").readText()
         val fn = gate.substringAfter("fun liveRefusal(").substringBefore("private fun unprovenLive8536(")
         assertTrue(fn.contains("val advisory8577 = !paper && LaneAuthority8577.advisoryAtGate8577(doors8577, admission8577)"))

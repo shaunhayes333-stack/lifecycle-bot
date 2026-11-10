@@ -844,7 +844,7 @@ object ShitCoinExpress {
         // ran to the -8% stop. Momentum must actually turn (< -2%), and once the
         // first rung is banked the runner belongs to the trail and locks.
         // V5.0.8555 — PAPER (until proven): +0.1 % gross is a net loss after the round trip; paper waits for cost + 1 %
-        if (currentMomentum < -2.0 && com.lifecyclebot.engine.truth.LaneSweep8555.profitExitAllowed(pnlPct, ride.isPaper) && ride.partialRungsTaken == 0) {
+        if (currentMomentum < -2.0 && com.lifecyclebot.engine.truth.LaneSweep8555.profitExitAllowed(pnlPct) && ride.partialRungsTaken == 0) {
             ride.ridePhase = RidePhase.BRAKING
             ErrorLogger.info(TAG, "💩📉 MOM DEATH! $mint | +${pnlPct.fmt(1)}% mom=${currentMomentum.fmt(1)}%")
             return ExitSignal.MOMENTUM_DEATH
@@ -871,6 +871,7 @@ object ShitCoinExpress {
         if (canonicalSlice8527 != null) {
             val row8527 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
                 .getPosition(canonicalSlice8527.positionId) ?: return
+            if (!com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(row8527.lane).equals("EXPRESS", true)) return
             if (!canonicalSlice8527.terminal || canonicalSlice8527.mint != mint ||
                 candidate8527.mint != mint ||
                 candidate8527.isPaper != (canonicalSlice8527.mode == "paper") ||

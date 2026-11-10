@@ -359,7 +359,7 @@ class Aate8094ClosedPositionAndPretradeTest {
 
     @Test fun aProvenSetupTradesAsItsOwnTacticAndStyle() {
         val t = src("engine/learning/TacticSwitcher.kt")
-        assertTrue(t.contains("val setup = proven8094 ?: try { com.lifecyclebot.engine.cortex.LanePlaybook7907.classify(ts, lane) }"))
+        assertTrue(t.contains("return tacticForSetup(ts, lane, setup)"))
         val r = src("engine/AgenticStyleRouter.kt")
         val provenBranch = r.indexOf("provenLead8094 && tactic == TacticSwitcher.Tactic.BREAKOUT -> Style.BREAKOUT_RUNNER")
         assertTrue(provenBranch > 0 && provenBranch < r.indexOf("toolkitStyle != null -> toolkitStyle"))

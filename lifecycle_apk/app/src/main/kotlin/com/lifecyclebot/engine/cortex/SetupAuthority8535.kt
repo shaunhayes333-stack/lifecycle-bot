@@ -26,7 +26,8 @@ object SetupAuthority8535 {
     /** Token-quality / ranking conditions (no actionable entry event in the predicate). */
     val QUALITY_ONLY_8535: Set<String> = setOf(
         "SWEET_SPOT_8383", "YOUNG_LIQUID_8383", "DEEP_RATIO_8383", "STRONG_TREND_8383", "BAND_MOMENTUM_8383", "TREND_DIP_8383",
-        "RS_LEADER", "DEEP_LIQ_TREND", "LP_LOCKED_BASE",
+        "RS_LEADER", "DEEP_LIQ_TREND", "LP_LOCKED_BASE", "NO_BUNDLE_CLEAN",
+        "BROAD_DISTRIBUTION", "BOOSTED_LAUNCH", "SOCIAL_LAUNCH", "INSIDER_ACCUMULATION",
     )
 
     /** Predicates that fire on the price sitting at / near its high: they need a fresh breakout witness to be an entry. */

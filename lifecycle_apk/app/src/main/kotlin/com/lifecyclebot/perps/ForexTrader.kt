@@ -973,6 +973,7 @@ positionMap[position.id] = position
         val isWin = pnl >= 0
         if (position.isPaper) {
             val canonicalClose6486 = com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.close(
+                exitMarkUsd = position.currentPrice,
                 positionId = position.id, mint = position.market.symbol, symbol = position.market.symbol,
                 grossProceedsSol = (position.size + grossPnl).coerceAtLeast(0.0),
                 sellFeeSol = position.size * feePercent, exitReason = reason,

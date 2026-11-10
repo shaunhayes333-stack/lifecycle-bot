@@ -362,7 +362,7 @@ class Aate8144CortexTest {
         assertTrue(rv.substringAfter("private fun reviseModelsLocked8372(").contains("ledger.revise8006("))
         assertTrue(cx.contains("FirstSight8026.grant8026(ts, a.lane, refusal, if (barred8144) -1.0 else evidence, strong, maturity)"))
         val pb = src("engine/cortex/LanePlaybook7907.kt")
-        assertTrue(pb.contains("?: (try { validAlternative8144(ts, laneRaw, nowMs) } catch (_: Throwable) { null })  // V5.0.8144"))
+        assertFalse(pb.substringAfter("fun selectedSetup8094(").substringBefore("fun validAlternative8144(").contains("validAlternative8144(ts, laneRaw"))
         assertTrue(pb.contains("if (setup == null || alt8144 != null) null else synchronized(this) {"))
         // 8521: first proof-bound lane target is final; later path readings cannot re-target an entry cohort.
         val playbookRevision = pb.substringAfter("fun reviseLabel7997(").substringBefore("/** Register every Cortex experiment")

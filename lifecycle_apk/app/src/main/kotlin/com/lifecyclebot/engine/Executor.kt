@@ -14986,16 +14986,18 @@ class Executor(
         } catch (_: Throwable) { null }
         // V5.0.8080 — seal only a setup this lane can run. A token-wide sheet setup declared for another desk
         // (CASHFLOW_SCALP on MOONSHOT) is replaced by the coin's own lane setup, and its exit rule is not inherited.
+        val laneSetup8080 = AgenticStyleRouter.sealedSetup8080(ts, strategyDecision7427?.toolkit, safeLane)
         val sheetFit8080 = AgenticStyleRouter.toolkitFitsLane8080(strategyDecision7427?.toolkit, safeLane)
         val strategySheet7427 = strategyDecision7427?.toolkit?.takeIf { sheetFit8080 }
-        val laneSetup8080 = if (sheetFit8080) null else AgenticStyleRouter.sealedSetup8080(ts, null, safeLane)
         val safeStyle = strategyDecision7427?.style?.name ?: style.ifBlank { safeLane }
         val scannerSource = learningWitness8527.scanner.ifBlank { "UNKNOWN" }
         val source = ts.lastPriceSource.ifBlank { scannerSource }
         val entryAgeHours8527 = learningWitness8527.ageHours
         val mult = if (plannedSol > 0.0) (finalSol / plannedSol).coerceIn(0.0, 50.0) else 1.0
         val reasonText = reasons.filter { it.isNotBlank() }.joinToString("|").take(240)
-        val electedTactic6568 = try { com.lifecyclebot.engine.learning.TacticSwitcher.tacticForToken8050(ts, safeLane, score.toInt()).name } catch (_: Throwable) { "UNKNOWN" }  // V5.0.8050 — the token's shape
+        val electedTactic6568 = strategyDecision7427?.tactic?.name ?: try {
+            com.lifecyclebot.engine.learning.TacticSwitcher.tacticForSetup(ts, safeLane, laneSetup8080.takeUnless { it == "NONE" }).name
+        } catch (_: Throwable) { "UNKNOWN" }  // V5.0.8050 — the token's shape
         val brainVerdict6568 = if (ts.lastConsensusObjections.isEmpty()) "ALLOW" else "SOFT_BLOCK"
         val policySignals6568 = UnifiedPolicyHead.Signals(
             mlEntryConf = (score / 100.0).coerceIn(0.0, 1.0), symGreenLight = 0.5, evRatio = 0.5,
@@ -15010,7 +15012,7 @@ class Executor(
             "lane=$safeLane",
             "style=$safeStyle",
             "tradeType7427=${strategyClass7427?.tradeType?.name ?: "UNKNOWN"}",
-            "setup7427=${strategySheet7427?.setup?.name ?: laneSetup8080 ?: "NONE"}",
+            "setup7427=$laneSetup8080",
             "entryStyle7427=${strategySheet7427?.entryStyle?.replace(";", "_")?.take(80) ?: ""}",
             "exitStyle7427=${strategySheet7427?.exitStyle?.replace(";", "_")?.take(80) ?: ""}",
             "entryTactic=$electedTactic6568",
@@ -26771,25 +26773,7 @@ class Executor(
                             else com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipExitSignal.STOP_LOSS
                 com.lifecyclebot.v3.scoring.ManipulatedTraderAI.closePosition(ts.mint, price, manEx, isPaper = true)
             } catch (_: Exception) {}
-            try {
-                val dipEx = if (isWin) com.lifecyclebot.v3.scoring.DipHunterAI.DipExitSignal.RECOVERY_TARGET
-                            else com.lifecyclebot.v3.scoring.DipHunterAI.DipExitSignal.STOP_LOSS
-                com.lifecyclebot.v3.scoring.DipHunterAI.closeDip(ts.mint, price, dipEx)
-            } catch (_: Exception) {}
-            try {
-                val snEx = com.lifecyclebot.v3.scoring.ProjectSniperAI.ExitSignal(
-                    shouldExit = true,
-                    exitPct = 100,
-                    reason = if (isWin) "TAKE_PROFIT" else "STOP_LOSS",
-                    rank = com.lifecyclebot.v3.scoring.ProjectSniperAI.SniperRank.PENDING,
-                )
-                com.lifecyclebot.v3.scoring.ProjectSniperAI.completeMission(ts.mint, price, snEx)
-            } catch (_: Exception) {}
-            try {
-                val expEx = if (isWin) com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.TAKE_PROFIT_30
-                            else com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.STOP_LOSS
-                com.lifecyclebot.v3.scoring.ShitCoinExpress.exitRide(ts.mint, price, expEx)
-            } catch (_: Exception) {}
+            // The receipt-bound terminal callback below owns DIP_HUNTER, PROJECT_SNIPER and EXPRESS.
 
             ErrorLogger.debug("Executor", "✅ Closed all 9 sub-trader positions for ${ts.symbol}")
         } catch (e: Exception) {
@@ -27472,25 +27456,12 @@ class Executor(
                         else com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipExitSignal.STOP_LOSS
             com.lifecyclebot.v3.scoring.ManipulatedTraderAI.closePosition(tradeId.mint, price, manEx, isPaper = true)
         } catch (_: Exception) {}
-        try {
-            val dipEx = if (isProfit6) com.lifecyclebot.v3.scoring.DipHunterAI.DipExitSignal.RECOVERY_TARGET
-                        else com.lifecyclebot.v3.scoring.DipHunterAI.DipExitSignal.STOP_LOSS
-            com.lifecyclebot.v3.scoring.DipHunterAI.closeDip(tradeId.mint, price, dipEx)
-        } catch (_: Exception) {}
-        try {
-            val snEx = com.lifecyclebot.v3.scoring.ProjectSniperAI.ExitSignal(
-                shouldExit = true,
-                exitPct = 100,
-                reason = if (isProfit6) "TAKE_PROFIT" else "STOP_LOSS",
-                rank = com.lifecyclebot.v3.scoring.ProjectSniperAI.SniperRank.PENDING,
-            )
-            com.lifecyclebot.v3.scoring.ProjectSniperAI.completeMission(tradeId.mint, price, snEx)
-        } catch (_: Exception) {}
-        try {
-            val expEx = if (isProfit6) com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.TAKE_PROFIT_30
-                        else com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.STOP_LOSS
-            com.lifecyclebot.v3.scoring.ShitCoinExpress.exitRide(tradeId.mint, price, expEx)
-        } catch (_: Exception) {}
+        if (pos.tradingMode == "EXPRESS" || pos.tradingMode == "PROJECT_SNIPER" || pos.tradingMode == "DIP_HUNTER") {
+            val closed = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(terminalPid6455)
+            val receipt = com.lifecyclebot.engine.truth.CanonicalPartialReceipt8527.fromApplied8527(
+                true, canonicalTerminalPosition6492, closed, "paper-close:$terminalPid6455")
+            if (receipt?.terminal == true) com.lifecyclebot.engine.truth.NativeTerminalClose8527.closeReceiptOwner(receipt, price)
+        }
 
         // Position already cleared before heavy learning fanout (V5.9.1133).
         ts.lastExitTs       = System.currentTimeMillis()
@@ -30497,12 +30468,16 @@ class Executor(
                     reason = if (isWin) "TAKE_PROFIT" else "STOP_LOSS",
                     rank = com.lifecyclebot.v3.scoring.ProjectSniperAI.SniperRank.PENDING,
                 )
-                com.lifecyclebot.v3.scoring.ProjectSniperAI.completeMission(tradeId.mint, exitPrice, snEx)
+                nativeCompletion8527.receipt?.takeIf { it.terminal }?.let { receipt ->
+                    com.lifecyclebot.v3.scoring.ProjectSniperAI.completeMission(tradeId.mint, exitPrice, snEx, canonicalSlice8527 = receipt)
+                }
             } catch (_: Exception) {}
             try {
                 val expEx = if (isWin) com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.TAKE_PROFIT_30
                             else com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.STOP_LOSS
-                com.lifecyclebot.v3.scoring.ShitCoinExpress.exitRide(tradeId.mint, exitPrice, expEx)
+                nativeCompletion8527.receipt?.takeIf { it.terminal }?.let { receipt ->
+                    com.lifecyclebot.v3.scoring.ShitCoinExpress.exitRide(tradeId.mint, exitPrice, expEx, canonicalSlice8527 = receipt)
+                }
             } catch (_: Exception) {}
 
             TradeAuthorizer.releasePosition(

@@ -789,7 +789,7 @@ object ProjectSniperAI {
         
         // If buy pressure drops significantly, exit
         // V5.0.8555 — PAPER (until proven): a fade exit at +0.1 % gross banks a net loss; paper waits for cost + 1 %
-        if (currentBuyPressure < 45 && com.lifecyclebot.engine.truth.LaneSweep8555.profitExitAllowed(pnlPct, isPaperMode)) {
+        if (currentBuyPressure < 45 && com.lifecyclebot.engine.truth.LaneSweep8555.profitExitAllowed(pnlPct)) {
             return ExitSignal(true, 100, "MOMENTUM_FADE: buy%=${currentBuyPressure.toInt()}", getRank(pnlPct))
         }
         
@@ -850,6 +850,7 @@ object ProjectSniperAI {
         if (canonicalSlice8527 != null) {
             val row8527 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
                 .getPosition(canonicalSlice8527.positionId) ?: return
+            if (!com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(row8527.lane).equals("PROJECT_SNIPER", true)) return
             if (!canonicalSlice8527.terminal || canonicalSlice8527.mint != mint ||
                 candidate8527.mint != mint || !canonicalSlice8527.belongsToHistory8527(row8527)) return
             // Legacy missions have no mode or position ID. A unique canonical lifetime is evidence;

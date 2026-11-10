@@ -43,6 +43,7 @@ object BuyerFlow8666 {
         val txPerMin: Double,
         /** Same 0..100 momentum score scale as MomentumPredictorAI, but actual adjacent 15s trade windows. */
         val volumeAccelScore: Double,
+        val sustainedDemand: Boolean = false,
     )
 
     private val prints = ConcurrentHashMap<String, MintWindow>()
@@ -112,6 +113,11 @@ object BuyerFlow8666 {
             repeatBuyers60s = buys.groupingBy { it.wallet }.eachCount().count { it.value > 1 },
             txPerMin = recent.size.toDouble(), // actual swaps in the trailing minute
             volumeAccelScore = accel,
+            sustainedDemand = newBuyers >= 2 && prior15.any { !it.buy } &&
+                prior15.sumOf { if (it.buy) it.sol else -it.sol } > 0.0 &&
+                recent15.sumOf { if (it.buy) it.sol else -it.sol } > 0.0 &&
+                recent15.filter { it.buy }.groupBy { it.wallet }.values.maxOfOrNull { group -> group.sumOf { it.sol } }
+                    ?.let { it <= recent15.filter { p -> p.buy }.sumOf { p -> p.sol } * 0.5 } == true,
         )
     }
 

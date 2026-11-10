@@ -5756,6 +5756,13 @@ for legal compliance.
         } catch (_: Throwable) { /* presentation only */ }
     }
 
+    private fun openPositionStructureHash(positions: List<TokenState>): Int = positions.map {
+            val p = it.position
+            val verdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(it, "MainActivity.openHash/${it.symbol}/${it.mint.take(8)}", emit = false)
+            val gainBand = if (verdict.ok) kotlin.math.floor(verdict.pnlPct / 5.0).toInt() else 0
+            "${it.mint}|${p.costSol}|${p.qtyToken}|${p.isPaperPosition}|${p.pendingVerify}|$gainBand"
+        }.hashCode()
+
     private fun renderOpenPositions(positionsIn8581: List<TokenState>, preSorted6078: Boolean = false) {
         // V5.0.8581 — owner: "the open positions display on the paper meme trader is totally different to live". A paper
         // session's meme positions render on the SAME cards as live; its other desks' positions (crypto alts, stocks,
@@ -5788,12 +5795,7 @@ for legal compliance.
         // Per-row live numbers continue to repaint in-place via the throttled
         // refresh path without a full rebuild. (operator doctrine: fix at the
         // structural source, never throttle the loop.)
-        val openHash = positions.map {
-            val p = it.position
-            val verdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(it, "MainActivity.openHash/${it.symbol}/${it.mint.take(8)}", emit = false)
-            val gainBand = if (verdict.ok) kotlin.math.floor(verdict.pnlPct / 5.0).toInt() else 0
-            "${it.mint}|${p.costSol}|${p.qtyToken}|${p.isPaperPosition}|${p.pendingVerify}|$gainBand"
-        }.hashCode()
+        val openHash = openPositionStructureHash(positions)
         // V5.9.1337 — STRUCTURAL CHANGES RENDER IMMEDIATELY; only redundant
         // price-tick repaints are throttled. The previous 20s blanket throttle
         // (while runtimeActive) blacked out the Open Positions LIST for up to

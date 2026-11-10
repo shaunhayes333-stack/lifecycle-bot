@@ -221,7 +221,7 @@ class Aate8153StrategyTest {
         val sel = pb.substringAfter("fun selectedSetup8094(").substringBefore("fun validAlternative8144(")
         assertTrue(sel.indexOf("admittedSetup8153(ts, laneRaw, nowMs)") in 0 until sel.indexOf("rankedSetup8153(ts, laneRaw, nowMs)"))
         // superseded by V5.0.8326 — the 8114 legacy branch reads provenSetup8056 first; the current branch keeps admitted < ranked < proven
-        assertTrue(sel.indexOf("rankedSetup8153(ts, laneRaw, nowMs)") < sel.lastIndexOf("provenSetup8056(ts, laneRaw, nowMs)"))
+        assertFalse(sel.contains("provenSetup8056(ts, laneRaw, nowMs)"))
         assertTrue(pb.contains("primaryTag8153(c, try { selectedSetup8094(ts, c.lane, nowMs) } catch (_: Throwable) { null })"))
         // V5.0.8392 — one strategy read: the coin trades as strategyFor8153 (no legacy classified-tag branch)
         assertTrue(pb.contains("val setup = strategyFor8153(ts, lane, c8084, nowMs) ?: return null"))

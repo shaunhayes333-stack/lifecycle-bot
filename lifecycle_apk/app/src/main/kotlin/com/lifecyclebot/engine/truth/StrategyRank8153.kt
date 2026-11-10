@@ -216,8 +216,10 @@ object StrategyIdentity8153 {
     fun heldFor8153(mint: String, lane: String, nowMs: Long, fired: Collection<String>,
         mode8198: String = "", candidateVersion8198: Long = 0L, revision8198: Long = -1L): String? {
         val key = key8153(mint, lane, mode8198, candidateVersion8198)
-        val h = held[key]?.takeIf { valid8153(it, nowMs, fired) } ?: return null
-        if (!freshEvidence8198(h, revision8198, sealed8198(mint, lane, h))) {
+        val h = held[key]?.takeIf { nowMs - it.atMs in 0L..TTL_MS_8153 } ?: return null
+        if (sealed8198(mint, lane, h)) return h.setup
+        if (!valid8153(h, nowMs, fired)) return null
+        if (!freshEvidence8198(h, revision8198, false)) {
             if (held.remove(key, h)) try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("STRATEGY_PIVOT_REEVALUATE_8198_${mode8198}_${lane.uppercase()}") } catch (_: Throwable) {}
             return null
         }

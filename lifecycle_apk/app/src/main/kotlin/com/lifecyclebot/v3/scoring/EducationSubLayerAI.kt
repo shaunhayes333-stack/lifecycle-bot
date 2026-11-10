@@ -843,10 +843,7 @@ object EducationSubLayerAI {
      * the cross-asset MetaCognition / Personality accumulators. Does NOT
      * drive the 41-layer meme brain, which must stay pure-meme.
      */
-    internal fun memeOutcomeOwner(lane: String): String = when (val owner = lane.trim().uppercase()) {
-        "BLUE_CHIP" -> "BLUECHIP"
-        "SHITCOIN_EXPRESS", "SHITCOINEXPRESS" -> "EXPRESS"
-        "CASH_GENERATION" -> "CASHGEN"
+    internal fun memeOutcomeOwner(lane: String): String = when (val owner = com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(lane)) {
         "SHITCOIN", "BLUECHIP", "QUALITY", "DIP_HUNTER", "MANIPULATED", "EXPRESS", "PROJECT_SNIPER",
         "TREASURY", "CASHGEN", "CORE", "CYCLIC" -> owner
         else -> if (owner.startsWith("MOONSHOT")) "MOONSHOT" else "MEME"

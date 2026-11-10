@@ -1635,6 +1635,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         val isWin = netPnlPct > 0
         if (position.isPaper) {
             val canonicalClose6486 = com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.close(
+                exitMarkUsd = position.currentPrice,
                 positionId = position.id, mint = position.market.symbol, symbol = position.market.symbol,
                 grossProceedsSol = (position.sizeSol + grossPnlSol).coerceAtLeast(0.0),
                 sellFeeSol = position.sizeSol * feePercent, exitReason = reason,

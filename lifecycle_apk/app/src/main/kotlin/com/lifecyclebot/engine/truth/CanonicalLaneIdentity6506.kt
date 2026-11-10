@@ -88,6 +88,8 @@ object CanonicalLaneIdentity6506 {
         // V5.0.7115 — absorbed from the hand-copies found by
         // ci/lane_identity_authority_scan.py. There were THIRTEEN of them.
         "SHIT_COIN" to "SHITCOIN",
+        "SHITCOIN_EXPRESS" to "EXPRESS",
+        "SHITCOINEXPRESS" to "EXPRESS",
         "MANIP" to "MANIPULATED",
         "DIP" to "DIP_HUNTER",
         "DIPHUNTER" to "DIP_HUNTER",
