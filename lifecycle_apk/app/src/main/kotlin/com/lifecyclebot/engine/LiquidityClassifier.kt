@@ -66,6 +66,7 @@ object LiquidityClassifier {
     }
 
     fun isBondingCurveQuote(ts: TokenState): Boolean {
+        if (!com.lifecyclebot.network.PumpCurveKeys7269.isPumpMint8658(ts.mint)) return false
         val dex = ts.lastPriceDex.uppercase()
         val src = ts.lastPriceSource.uppercase()
         // Explicit PUMP_FUN dex label is the strongest signal; otherwise

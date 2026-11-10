@@ -27,8 +27,9 @@ import java.io.File
 class Aate8354CurveTapeTest {
     private fun src(rel: String) = File("src/main/kotlin/com/lifecyclebot/$rel").readText()
 
-    private val MINT = "7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr"
-    private val OTHER = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"
+    private val MINT = "B6DfUsHYvvDjunsCWFiYcJSNMghfW7W3Hr82wSGqpump"
+    private val OTHER = "EcZndAERfzNhLirHwfsy44dAyPSZazjDU83pa6RApump"
+    private val NON_PUMP = "7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr"
     private val USER = "4Nd1mBQtrMJVYVfKf2PJy9NZUZdTAsp7D4xWLs4gDB4T"
     private val t0 = 1_760_000_000_000L
 
@@ -108,6 +109,14 @@ class Aate8354CurveTapeTest {
         assertEquals(1, TradeTape8100.prints8128(MINT, t0 + 1L, 600_000L).size)
         val line = HeliusCurveTape8354.statusLine8354(t0)
         assertTrue(line, line.contains("kept=1") && line.contains("prints{helius=1,pumpportal=0}") && line.contains("dup=1"))
+    }
+
+    @Test fun a_non_pump_decoded_event_does_not_publish_curve_reserves_or_marks() {
+        val ev = ChainLaunchFeed8179.decodeTradeEvent8179(tradeEventBytes(NON_PUMP, true,
+            1_500_000_000L, 52_000_000_000_000L, 41_500_000_000L, 775_000_000_000_000L))!!
+        assertFalse(HeliusCurveTape8354.onTradeEvent8354(ev, "nonPumpGuard8658", t0))
+        assertFalse(CurveReserves7951.known7951(NON_PUMP))
+        assertTrue(TradeTape8100.prints8128(NON_PUMP, t0, 600_000L).isEmpty())
     }
 
     @Test fun theHeliusPrintIsAnAuthoritativeCurveMarkForTheRungTriggers() {

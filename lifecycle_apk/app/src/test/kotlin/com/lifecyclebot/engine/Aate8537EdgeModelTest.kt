@@ -34,6 +34,7 @@ class Aate8537EdgeModelTest {
 
     @Test fun legacyGhostsAndUnfillableOutcomesNeverRebuildThePredictionModel() {
         fun row(fill: Boolean, horizon: Long, cap: Double, net: Double) = JSONObject()
+            .put("mint", "Abcdefghijkmnpqrstuvwxyz123456789pump")
             .put("lane", "MOONSHOT").put("fill", fill).put("horizonMs", horizon).put("mcap", cap).put("net", net)
         assertTrue("genuine confirmed 10x low-cap launches remain learnable",
             EdgeModel8537.replayAccept8642(row(true, 900_000, 15_000.0, 1_000.0)))
@@ -45,6 +46,48 @@ class Aate8537EdgeModelTest {
             EdgeModel8537.replayAccept8642(row(true, 300_000, 15_000.0, 40.0)))
         assertFalse("million-dollar-cap million-percent seed ghosts are rejected",
             EdgeModel8537.replayAccept8642(row(true, 900_000, 2_960_000.0, 1_406_280_000.0)))
+    }
+
+    @Test fun preCurveFixNonpumpPhantomRunnersCannotSeedEdgeOrPocketAuthority() {
+        val oldOtherLaunchpad = JSONObject()
+            .put("mint", "7auXAVSYz1wmDHFMSn8wTQmJRCXssuwKTBzLJkoavEDt")
+            .put("src", "PUMP_PORTAL_WS,PUMP_PORTAL").put("lane", "CORE")
+            .put("fill", true).put("horizonMs", 900_000L)
+            .put("mcap", 2506.24).put("net", 3011.16)
+        assertTrue("a +3000% observation at a $2500 cap passes the old numerical plausibility gate",
+            EdgeModel8537.plausible8617(2506.24, 3011.16))
+        assertFalse("no trustworthy venue provenance, even if the old row claimed a fill",
+            EdgeModel8537.replayAccept8642(oldOtherLaunchpad))
+        val postFixOtherLaunchpad = JSONObject(oldOtherLaunchpad.toString())
+            .put("venueScopeEpoch", EdgeModel8537.VENUE_SCOPE_EPOCH_8660)
+            .put("net", 12.5)
+        assertTrue("a verified-scope non-pump venue may still teach the bot",
+            EdgeModel8537.replayAccept8642(postFixOtherLaunchpad))
+        val genuinePump = JSONObject(oldOtherLaunchpad.toString())
+            .put("mint", "Abcdefghijkmnpqrstuvwxyz123456789pump")
+        assertTrue("do not delete historical real pump.fun runner training",
+            EdgeModel8537.replayAccept8642(genuinePump))
+        val nonSolana = JSONObject(oldOtherLaunchpad.toString())
+            .put("mint", "0x1234567890abcdef1234567890abcdef12345678")
+        assertTrue("non-Solana venue history was not affected by the Solana curve bug",
+            EdgeModel8537.replayAccept8642(nonSolana))
+        val s = EdgeModel8537.Snap(raw(lane="CORE"), EdgeModel8537.vectorOf(raw(lane="CORE")),
+            Double.NaN, "COLD", 10_000_000L, postFixOtherLaunchpad.getString("mint"), false, 900_000L)
+        val written = JSONObject(EdgeModel8537.datasetLine(s, 12.5))
+        assertEquals(EdgeModel8537.VENUE_SCOPE_EPOCH_8660, written.getInt("venueScopeEpoch"))
+        assertTrue(EdgeModel8537.replayAccept8642(written))
+        val priorFrozen = EdgeModel8537.Snap(raw(lane="CORE"), EdgeModel8537.vectorOf(raw(lane="CORE")),
+            Double.NaN, "COLD", 9_000_000L, postFixOtherLaunchpad.getString("mint"), false, 900_000L,
+            modelEpoch = 8650)
+        val oldSerializedToday = JSONObject(EdgeModel8537.datasetLine(priorFrozen, 3011.16))
+        assertEquals("the new writer cannot retrofit an old prediction with venue proof", 0,
+            oldSerializedToday.getInt("venueScopeEpoch"))
+        assertFalse(EdgeModel8537.replayAccept8642(oldSerializedToday))
+        EdgeModel8537.learn(priorFrozen, 3011.16)
+        assertTrue("old in-flight phantom outcomes must not seed the live new model",
+            EdgeModel8537.statusLine().contains("trained=0"))
+        assertTrue("the pocket learner must use the same clean forward replay eligibility",
+            src("engine/truth/PocketLedger8610.kt").contains("if (!EdgeModel8537.replayAccept8642(o)) return@forEachLine"))
     }
 
     @Test fun a_five_to_twelve_x_runner_at_a_real_market_cap_must_not_be_deleted_from_learning() {

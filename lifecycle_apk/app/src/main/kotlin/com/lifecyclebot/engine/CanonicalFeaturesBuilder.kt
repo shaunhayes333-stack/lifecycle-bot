@@ -209,14 +209,15 @@ object CanonicalFeaturesBuilder {
         val dex = ts.lastPriceDex.uppercase()
         val src = ts.lastPriceSource.uppercase()
         val source = ts.source.uppercase()
-        val bondingDirect = src.contains("PUMP_FUN_BC") || src.contains("PUMP_PORTAL")
+        val pumpCurveMint8658 = com.lifecyclebot.network.PumpCurveKeys7269.isPumpMint8658(ts.mint)
+        val bondingDirect = pumpCurveMint8658 && (src.contains("PUMP_FUN_BC") || src.contains("PUMP_PORTAL"))
         val migratedDirect = dex.contains("RAYDIUM") || dex.contains("BONK") || dex.contains("METEORA")
         val venue = when {
             tmVenue.contains("RAYDIUM") || tmDex.contains("RAYDIUM") || tmRoute.contains("RAYDIUM") -> "RAYDIUM"
             tmVenue.contains("METEORA") || tmDex.contains("METEORA") || tmRoute.contains("METEORA") -> "METEORA"
             tmVenue.contains("ORCA") || tmDex.contains("ORCA") || tmRoute.contains("ORCA") -> "ORCA"
             tmVenue.contains("BONK") || tmDex.contains("BONK") || tmRoute.contains("BONK") -> "BONK"
-            tm.pumpFunExecutable || tm.pumpFunBondingCurveStatus.equals("ACTIVE", ignoreCase = true) -> "PUMP_FUN_BONDING"
+            pumpCurveMint8658 && (tm.pumpFunExecutable || tm.pumpFunBondingCurveStatus.equals("ACTIVE", ignoreCase = true)) -> "PUMP_FUN_BONDING"
             tm.jupiterQuoteOk || tm.dexRouteOk || tmRoute.contains("JUPITER") || tmRoute.contains("ROUTE_OK") -> "JUPITER"
             bondingDirect && !migratedDirect -> "PUMP_FUN_BONDING"
             dex.contains("PUMP") -> "PUMPSWAP"
@@ -228,13 +229,13 @@ object CanonicalFeaturesBuilder {
             else -> "UNKNOWN"
         }
         val route = when {
-            tm.pumpFunExecutable || venue == "PUMP_FUN_BONDING" -> "PUMP_NATIVE"
+            pumpCurveMint8658 && (tm.pumpFunExecutable || venue == "PUMP_FUN_BONDING") -> "PUMP_NATIVE"
             venue == "PUMPSWAP" -> "PUMPPORTAL"
             tm.jupiterQuoteOk || venue == "JUPITER" || venue == "RAYDIUM" || venue == "ORCA" || venue == "METEORA" -> "JUPITER"
             tm.dexRouteOk -> "DEX_DIRECT"
             else -> "UNKNOWN"
         }
-        val isBondingCurve = tm.pumpFunExecutable || (venue == "PUMP_FUN_BONDING")
+        val isBondingCurve = pumpCurveMint8658 && (tm.pumpFunExecutable || venue == "PUMP_FUN_BONDING")
         val isMigrated = tm.migratedOrGraduated || migratedDirect || source.contains("GRADUATE") || source.contains("MIGRATED")
         return Tuple4(venue, route, isBondingCurve, isMigrated)
     }
@@ -257,7 +258,8 @@ object CanonicalFeaturesBuilder {
         // learners can separate thin/high-friction routes from deep executable routes.
         val tm = ts.tokenMap
         val liqUsd = ts.lastLiquidityUsd.takeIf { it > 0.0 } ?: tm.liquidityUsd ?: 0.0
-        val liqSol = tm.liquiditySol ?: tm.realSolReserves ?: tm.virtualSolReserves ?: 0.0
+        // Virtual SOL is not saleable depth; and a non-pump mint never inherits curve reserves.
+        val liqSol = tm.liquiditySol ?: (if (com.lifecyclebot.network.PumpCurveKeys7269.isPumpMint8658(ts.mint)) tm.realSolReserves else null) ?: 0.0
         val expectedOut = tm.expectedOutAmount
         return when {
             !tm.pumpFunExecutable && !tm.jupiterQuoteOk && !tm.dexRouteOk && expectedOut <= 0.0 -> "SLIP_UNKNOWN"

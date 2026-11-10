@@ -92,6 +92,20 @@ object TokenFacts {
         map.computeIfAbsent(key) { AtomicLong(0) }.incrementAndGet()
     }
 
+    /** V5.0.8658 — only these pump.fun-specific price/reserve sources require the pump mint suffix.
+     * Ordinary AMM/PumpSwap/DEX quotes remain valid for other launchpads. */
+    internal fun pumpCurveMetricSource8658(source: String?): Boolean {
+        val s = source?.uppercase().orEmpty()
+        return s == "PUMP_FUN_BC_SYNTHETIC" || s.startsWith("PUMP_CURVE_RPC") ||
+            s == "PUMP_PORTAL_TRADE_WS_7278" || s.startsWith("HELIUS_CURVE_8354") ||
+            s.startsWith("CURVE_RESERVES_7951") || s.startsWith("CURVE_FRAME_7951") ||
+            s.startsWith("CURVE_ACCOUNT_7951") || s.startsWith("CURVE_READ_8046") ||
+            s.startsWith("CURVE_PRICE_IMPLIED_8173")
+    }
+
+    private fun nonPumpCurveOffer8658(ts: TokenState, source: String?): Boolean =
+        pumpCurveMetricSource8658(source) && !com.lifecyclebot.network.PumpCurveKeys7269.isPumpMint8658(ts.mint)
+
     /** The fact [ts] holds for [field], or null when nothing has been observed through the store. */
     fun fact(ts: TokenState, field: Field): Fact? = ts.facts8551[field]
 
@@ -103,6 +117,7 @@ object TokenFacts {
      */
     fun writeLiquidity(ts: TokenState, usd: Double, source: String, rank: Int, observedAtMs: Long,
                        nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (nonPumpCurveOffer8658(ts, source)) { count(refused, "LIQUIDITY_USD:NON_PUMP_CURVE_8658"); return false }
         if (!isReading(usd)) { count(refused, "LIQUIDITY_USD:NOT_A_READING"); return false }
         val offered = Fact(usd, source, rank, stampOf(rank, observedAtMs, nowMs))
         var before = 0.0
@@ -192,6 +207,7 @@ object TokenFacts {
      */
     fun writePrice(ts: TokenState, usd: Double, source: String?, rank: Int, observedAtMs: Long,
                    nowMs: Long = System.currentTimeMillis(), pool: String? = null, dex: String? = null): Boolean {
+        if (nonPumpCurveOffer8658(ts, source ?: ts.lastPriceSource)) { count(refused, "PRICE_USD:NON_PUMP_CURVE_8658"); return false }
         if (!isReading(usd)) { count(refused, "PRICE_USD:NOT_A_READING"); return false }
         val offered = Fact(usd, source ?: ts.lastPriceSource, rank, stampOf(rank, observedAtMs, nowMs))
         synchronized(ts.facts8551) {
@@ -272,6 +288,7 @@ object TokenFacts {
      */
     fun writeSnapshot(ts: TokenState, field: Field, value: Double, source: String, rank: Int, observedAtMs: Long,
                       nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (nonPumpCurveOffer8658(ts, source)) { count(refused, "${field.name}:NON_PUMP_CURVE_8658"); return false }
         if (!validFor(field, value)) { count(refused, "${field.name}:NOT_A_READING"); return false }
         val offered = Fact(value, source, rank, stampOf(rank, observedAtMs, nowMs))
         synchronized(ts.facts8551) {

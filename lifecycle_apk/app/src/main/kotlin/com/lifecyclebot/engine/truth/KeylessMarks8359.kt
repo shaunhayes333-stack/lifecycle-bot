@@ -173,9 +173,9 @@ object KeylessMarks8359 {
         return out.toList()
     }
 
-    /** Pure: a mint the curve reader can derive a curve for (remembered key or pump suffix) and not graduated. */
-    fun curveLike8359(mint: String, hasKey: Boolean, graduated: Boolean): Boolean =
-        !graduated && (hasKey || mint.endsWith("pump", ignoreCase = true))
+    /** Pure: a pump.fun curve requires the pump suffix; cached keys from other venues do not qualify. */
+    fun curveLike8359(mint: String, @Suppress("UNUSED_PARAMETER") hasKey: Boolean, graduated: Boolean): Boolean =
+        !graduated && com.lifecyclebot.network.PumpCurveKeys7269.isPumpMint8658(mint)
 
     private fun curveMints8418(mints: List<String>): List<String> = mints.filter { m ->
         val keys = com.lifecyclebot.network.PumpCurveKeys7269
@@ -202,12 +202,13 @@ object KeylessMarks8359 {
         val now = System.currentTimeMillis()
         // V5.0.8418 — a label mint's curve read already wrote the reserves the labeler reads as its CURVE mark; counted here.
         if (labelWanted8418.isNotEmpty()) {
-            val lab = prices.keys.filter { isLabelWanted8418(it, now) && (prices[it] ?: 0.0).let { p -> p.isFinite() && p > 0.0 } }
+            val lab = prices.keys.filter { com.lifecyclebot.network.PumpCurveKeys7269.isPumpMint8658(it) && isLabelWanted8418(it, now) && (prices[it] ?: 0.0).let { p -> p.isFinite() && p > 0.0 } }
             for (m in lab) labelCurveMarkMs8418[m] = now
             if (lab.isNotEmpty()) labelCurveMarks8418.addAndGet(lab.size.toLong())
         }
         if (wanted.isEmpty()) return
-        val mine = prices.filterKeys { isWanted8359(it, now) }.filterValues { it.isFinite() && it > 0.0 }
+        val mine = prices.filterKeys { com.lifecyclebot.network.PumpCurveKeys7269.isPumpMint8658(it) && isWanted8359(it, now) }
+            .filterValues { it.isFinite() && it > 0.0 }
         if (mine.isEmpty()) return
         for (m in mine.keys) lastCurveMarkMs[m] = now
         curveMarks.addAndGet(mine.size.toLong())

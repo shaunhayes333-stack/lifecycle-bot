@@ -78,7 +78,7 @@ class Aate8385ReserveWaitTest {
         assertFalse(TicketRetry8327.triggerMatches8330(OnChainDepth8038.STALE_RESERVES_8385, TicketRetry8327.TRIGGER_GUARD_8330))
     }
     @Test fun onlyAcceptedCurveObservationUpdatesStoredVersionAndFreshness() {
-        val mint = "test8385-${java.util.UUID.randomUUID()}"
+        val mint = "test8385-${java.util.UUID.randomUUID()}pump"
         CurveReserves7951.noteAccount7951(mint, 40.0, 1_000.0, 10.0, 100_000)
         val first = CurveReserves7951.acceptedObservation8385(mint)!!
         CurveReserves7951.noteAccount7951(mint, 80.0, 2_000.0, 50.0, 99_000)

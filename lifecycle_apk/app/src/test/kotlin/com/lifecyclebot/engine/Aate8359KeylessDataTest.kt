@@ -144,7 +144,8 @@ class Aate8359KeylessDataTest {
         assertEquals(listOf("H1", "H2", "W1"), KeylessMarks8359.priorityOrder8359(listOf("H1", "H2"), listOf("W1", "W2"), 3))
         assertEquals(listOf("H1"), KeylessMarks8359.priorityOrder8359(listOf("H1", "H2"), listOf("W1"), 1))
         assertTrue(KeylessMarks8359.curveLike8359("abcpump", hasKey = false, graduated = false))
-        assertTrue(KeylessMarks8359.curveLike8359("abc", hasKey = true, graduated = false))
+        assertFalse("a remembered key cannot opt a non-pump mint into pump.fun pricing",
+            KeylessMarks8359.curveLike8359("abc", hasKey = true, graduated = false))
         assertFalse(KeylessMarks8359.curveLike8359("abcpump", hasKey = false, graduated = true))
         assertFalse(KeylessMarks8359.curveLike8359("abc", hasKey = false, graduated = false))
         KeylessMarks8359.resetForTests8359()

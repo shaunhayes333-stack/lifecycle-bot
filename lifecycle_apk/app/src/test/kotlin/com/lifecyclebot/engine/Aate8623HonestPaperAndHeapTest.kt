@@ -42,15 +42,17 @@ class Aate8623HonestPaperAndHeapTest {
         assertTrue(paper.contains("ForwardReturnLabeler7731.noteShadowWanted8442(mint, until)"))
     }
 
-    @Test fun theVoterGraphReturnsOnlyAsBoundedLearningAndDoesNotReloadTheOomCheckpoint() {
-        // V5.0.8644 — no wholesale retirement: the normal APK samples predictive reads,
-        // while an explicit off switch retires them and the unit-test JVM exercises full reads.
-        assertFalse(Cortex7885.voterGraphRetired8623(null))
+    @Test fun theVoterGraphStaysOffInProductionAndDoesNotReloadTheOomCheckpoint() {
+        // The inverted voter graph has no live authority and repeatedly exhausted the phone.
+        // Production stays off; only explicit test/diagnostic properties can revive it.
+        assertTrue(Cortex7885.voterGraphRetired8623(null))
         assertTrue(Cortex7885.voterGraphRetired8623("off"))
         assertFalse(Cortex7885.voterGraphRetired8623("on"))
-        assertTrue(Cortex7885.voterGraphBounded8644(null))
+        assertFalse(Cortex7885.voterGraphRetired8623("sampled"))
+        assertFalse(Cortex7885.voterGraphBounded8644(null))
         assertFalse(Cortex7885.voterGraphBounded8644("off"))
         assertFalse(Cortex7885.voterGraphBounded8644("on"))
+        assertTrue(Cortex7885.voterGraphBounded8644("sampled"))
         assertTrue(Cortex7885.sampleDue8644(0L, 1_000L))
         assertFalse(Cortex7885.sampleDue8644(1_000L, 2_000L))
         // 8648's global 30-second ceiling left only 120 reads/hour over all lanes.
@@ -86,6 +88,14 @@ class Aate8623HonestPaperAndHeapTest {
         assertTrue(prepare.indexOf("submitCaptureKeyed8187(ticket8397, admitted) {") < prepare.indexOf("sampleReserved8644 = sampleReserved8649"))
         assertEquals("CORTEX_PENDING_8644", com.lifecyclebot.engine.cortex.CortexForwardEpoch8521.PENDING)
         assertTrue("the pending row is not read", c.contains("if (VOTER_GRAPH_RETIRED_8623) CortexForwardEpoch8521.readStoredBooks8623("))
+        val drain = c.substringAfter("fun deliverForwardOutcome8404(").substringBefore("val frozenEpoch8521")
+        assertTrue("retired outbox must be ACKed durably before decompressing old graphs",
+            drain.contains("if (VOTER_GRAPH_RETIRED_8623) {") &&
+                drain.contains("VOTER_GRAPH_RETIRED_NO_MODEL_8659") &&
+                drain.contains("LearningPersistence.saveTogetherVerified8386(mapOf(receipt to archived))"))
+        assertTrue("retirement must freeze a small epoch witness rather than live voter state",
+            c.substringAfter("fun freezeForwardOutcome8404(").substringBefore("fun deliverForwardOutcome8404(")
+                .contains("if (VOTER_GRAPH_RETIRED_8623) return ForwardCheckpoint8401.pack("))
         val books = com.lifecyclebot.engine.cortex.CortexForwardEpoch8521.readStoredBooks8623({ k -> "row:" + k }, { false })!!
         assertEquals(null, books.pending)
         val gradle = File("build.gradle.kts").readText()

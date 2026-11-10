@@ -168,9 +168,11 @@ object PocketLedger8610 {
             try {
                 if (!line.contains("\"horizonMs\"")) return@forEachLine
                 val o = JSONObject(line)
-                if (o.optLong("horizonMs") <= 0L || !o.optBoolean("fill", false)) return@forEachLine
+                // Share the model's exact venue/epoch/fillability/horizon proof. The old
+                // path replayed poisoned non-pump curve outcomes into the pocket cells even
+                // when the edge model discarded them, creating false paying pockets.
+                if (!EdgeModel8537.replayAccept8642(o)) return@forEachLine
                 val net = d(o, "net"); if (!net.isFinite()) return@forEachLine
-                if (!EdgeModel8537.plausible8617(d(o, "mcap"), net, o.optBoolean("witness", false))) return@forEachLine
                 val b = bands8610(d(o, "liq"), d(o, "mcap"), d(o, "age"), d(o, "bp"), d(o, "chg5m"), d(o, "chg1h"), d(o, "pxPeak"),
                     d(o, "volAccel"), d(o, "top"), o.optString("phase"))
                 record(o.optString("mint"), o.optLong("t"), o.optLong("horizonMs"), o.optString("lane"), b, net)

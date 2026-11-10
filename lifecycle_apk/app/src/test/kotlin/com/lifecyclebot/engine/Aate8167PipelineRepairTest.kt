@@ -114,7 +114,12 @@ class Aate8167PipelineRepairTest {
         TokenMapAuthority.ensureDiscoveryTokenMap(ts)
         assertTrue(TokenMapVersionGuard6411.stamp7460(ts.mint).mappingVersion > first.mappingVersion)
 
-        val curve = TokenState("8167MigrationMint111111111111111111111", symbol = "MIGRATE")
+        // The curve route is legal only for an actual pump.fun mint. A discovery label is not venue proof.
+        val nonPump = TokenState("8167MigrationMint111111111111111111111", symbol = "OTHER")
+        assertEquals("LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP",
+            TokenMapAuthority.ensureDiscoveryTokenMap(nonPump, "PUMP_FUN_NEW").routeStatus)
+        assertFalse(nonPump.tokenMap.pumpFunExecutable)
+        val curve = TokenState("8167MigrationMint11111111111111111pump", symbol = "MIGRATE")
         assertEquals("PUMPFUN_BONDING_CURVE_EXECUTABLE",
             TokenMapAuthority.ensureDiscoveryTokenMap(curve, "PUMP_FUN_NEW").routeStatus)
         val curveVersion = TokenMapVersionGuard6411.stamp7460(curve.mint).mappingVersion

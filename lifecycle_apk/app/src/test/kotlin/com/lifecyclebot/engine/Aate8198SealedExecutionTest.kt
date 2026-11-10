@@ -103,7 +103,9 @@ class Aate8198SealedExecutionTest {
         assertFalse(map.jupiterQuoteOk)
         assertTrue(TokenMapAuthority.executableForLiveBuy(ts))
         assertEquals(0.0, ts.tokenMap.expectedOutAmount, 0.0)
-        val pump = com.lifecyclebot.data.TokenState("Discovery8198Pump11111111111111111111111")
+        // Only a mint ending in `pump` is eligible for pump.fun curve execution.
+        // A scanner name containing PUMP is not sufficient for a non-pump mint.
+        val pump = com.lifecyclebot.data.TokenState("Discovery8198Pump11111111111111111111pump")
         pump.lastPrice = 0.01
         pump.lastPriceUpdate = System.currentTimeMillis()
         pump.lastLiquidityUsd = 10_000.0

@@ -174,7 +174,7 @@ object LaunchCohort8173 {
 
     /** PumpFunWS create frame: a frame without reserves asks the chain for the curve now (single-flight batch). */
     fun noteCreateIntake8173(mint: String, hasReserves: Boolean, nowMs: Long = System.currentTimeMillis()) {
-        if (mint.isBlank() || hasReserves) return
+        if (!com.lifecyclebot.network.PumpCurveKeys7269.isPumpMint8658(mint) || hasReserves) return
         try { OnChainDepth8038.needCurve8039(mint, nowMs); intakeAsked.incrementAndGet() } catch (_: Throwable) {}
         count8173("CURVE_READ_AT_INTAKE_8173")
     }

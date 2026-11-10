@@ -732,23 +732,20 @@ object ParallelMarkFanout7088 {
      * these are curve positions, from the token register). Uses the derived PDA.
      */
     internal fun curvePrices7392(mints: List<String>, latencyCritical8527: Boolean = false): Map<String, Double> =
-        pumpCurveRpcFanout7269(mints, explicitCurve7392 = true, latencyCritical8527 = latencyCritical8527)
+        pumpCurveRpcFanout7269(mints, latencyCritical8527 = latencyCritical8527)
 
     /** V5.0.8359 — one keyless-first getMultipleAccounts pass for the shadow books' wanted curve mints (KeylessMarks8359). */
     internal fun wantedCurvePass8359(): Map<String, Double> = pumpCurveRpcFanout7269(emptyList())
 
     private fun pumpCurveRpcFanout7269(
-        mints: List<String>, explicitCurve7392: Boolean = false, latencyCritical8527: Boolean = false,
+        mints: List<String>, latencyCritical8527: Boolean = false,
     ): Map<String, Double> {
         val url = rpcUrl
         if (url.isBlank()) return emptyMap()
         val solUsd = solUsd7269()
         if (solUsd <= 0.0) return emptyMap()
-        // V5.0.7278 — a remembered curve key IS the evidence the mint is on a
-        // curve; the "pump" suffix is optional on pump.fun since 2025 and
-        // excluded most of the launches the fast lane was buying. And every
-        // silent exit below has a name, because on 5.0.7277 this task
-        // produced zero marks for 31 held positions and nothing said why.
+        // V5.0.8658 — neither a remembered key nor an explicit held-position request proves a pump.fun curve.
+        // Other launchpads can announce bondingCurveKey and must receive their own venue prices.
         //
         // V5.0.7279 §ONE READ FOR ALL HELD CURVES, DOWN THE LADDER.
         //
@@ -773,10 +770,10 @@ object ParallelMarkFanout7088 {
             try { com.lifecyclebot.engine.truth.KeylessMarks8359.withWantedCurves8359(mints, CURVE_MAX_MINTS_7269) } catch (_: Throwable) { mints }
         val now8458 = System.currentTimeMillis()
         val targets = HeliusSolanaScope7819.solanaMintsOnly7819(mints8359).mapNotNull { m ->
-            // V5.0.8657 — a remembered key alone is no proof of a pump.fun curve (PumpPortal streamed other launchpads' keys).
-            val pumpLike7392 = explicitCurve7392 || m.endsWith("pump", ignoreCase = true)
-            if (pumpLike7392 && !curveReadable8458(noCurve8458[m], PumpCurveKeys7269.keyFor(m) != null, now8458)) { noCurveSkipped8458.incrementAndGet(); null }
-            else if (!pumpLike7392 || PumpCurveKeys7269.isGraduated7392(m)) null
+            // V5.0.8658 — the suffix is mandatory on every path, including latency-critical held reads.
+            val pumpLike7392 = PumpCurveKeys7269.isPumpMint8658(m)
+            if (!pumpLike7392 || PumpCurveKeys7269.isGraduated7392(m)) null
+            else if (!curveReadable8458(noCurve8458[m], PumpCurveKeys7269.keyFor(m) != null, now8458)) { noCurveSkipped8458.incrementAndGet(); null }
             else (PumpCurveKeys7269.canonicalCurveKey7392(m) ?: PumpCurveKeys7269.keyFor(m))?.let { m to it }
         }.take(CURVE_MAX_MINTS_7269)
         if (targets.isEmpty()) return emptyMap()

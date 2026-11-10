@@ -77,13 +77,6 @@ object LockedVenueMarks7392 {
     private fun validPool(addr: String?): String? =
         addr?.trim()?.takeIf { it.length in 32..44 && it.none { c -> c == ':' || c == '|' || c == '/' } }
 
-    private fun curveByRegister(entry: TokenMetaCache.Entry?): Boolean {
-        if (entry == null) return false
-        val tag = (entry.lastPriceSource + " " + entry.lastPriceDex).uppercase()
-        return tag.contains("BONDING") || tag.contains("PUMP_FUN_BC") || tag.contains("PUMPFUN_BC") ||
-            tag.contains("CURVE")
-    }
-
     /** Price [mints] from their locked venues. Blocking; call off the main thread. */
     fun resolve(mints: List<String>, dex: DexscreenerApi): Map<String, Mark> {
         val wanted = mints.map { it.trim() }.filter { it.length in 32..44 }.distinct()
@@ -94,11 +87,9 @@ object LockedVenueMarks7392 {
         val out = HashMap<String, Mark>(wanted.size)
 
         // 1. Bonding curves (chain state).
+        // A cached curve source / remembered key is not a licence to price another launchpad with pump.fun reserves.
         val curveMints = wanted.filter { m ->
-            !PumpCurveKeys7269.isGraduated7392(m) && (
-                PumpCurveKeys7269.keyFor(m) != null || m.endsWith("pump", ignoreCase = true) ||
-                    curveByRegister(try { register?.lookup(m) } catch (_: Throwable) { null })
-                )
+            PumpCurveKeys7269.isPumpMint8658(m) && !PumpCurveKeys7269.isGraduated7392(m)
         }
         if (curveMints.isNotEmpty()) {
             val curve = boundedProvider7432("CURVE") {

@@ -708,6 +708,7 @@ object OnChainDepth8038 {
 
     /** LiquidityTruth8037: [mint]'s depth is unknown — read its curve from the chain in the next batch. Returns immediately. */
     fun needCurve8039(mint: String, nowMs: Long = System.currentTimeMillis(), approved8385: Boolean = false) {
+        if (!com.lifecyclebot.network.PumpCurveKeys7269.isPumpMint8658(mint)) return
         refresh8385.request(mint, approved8385, nowMs)
     }
 

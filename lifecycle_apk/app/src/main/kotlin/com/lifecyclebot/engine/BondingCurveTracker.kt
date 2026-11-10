@@ -77,6 +77,11 @@ object BondingCurveTracker {
     fun evaluate(ts: TokenState): CurveState {
         val mcap = ts.lastMcap.takeIf { it > 0 } ?: 0.0
 
+        // These thresholds and SOL-raised estimates are pump.fun protocol metrics, not generic launchpad stages.
+        if (!com.lifecyclebot.network.PumpCurveKeys7269.isPumpMint8658(ts.mint))
+            return CurveState(mcap, -1.0, 0.0, CurveStage.UNKNOWN, false,
+                0.0, -1.0, 1.0, 0.0, "Not a pump.fun curve", 0.0)
+
         // V5.0.7402 — CURVE STATE MUST COME FROM THE CURVE.
         // The old code called mcap/SOLUSD "SOL raised". A price pump therefore
         // manufactured PRE_GRAD/GRADUATING state after the move — exactly the

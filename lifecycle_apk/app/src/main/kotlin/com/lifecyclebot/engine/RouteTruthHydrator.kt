@@ -88,6 +88,9 @@ object RouteTruthHydrator {
     fun hydrate(ts: TokenState): Result {
         val now = System.currentTimeMillis()
         val tm = ts.tokenMap
+        // PumpPortal routing is universal, but its pump.fun *curve* flag is not.
+        val pumpCurveMint8658 = com.lifecyclebot.network.PumpCurveKeys7269.isPumpMint8658(ts.mint)
+        if (!pumpCurveMint8658) tm.pumpFunExecutable = false
         if (tm.canonicalTargetMint.isBlank()) tm.canonicalTargetMint = ts.mint
         if (tm.symbol.isBlank()) tm.symbol = ts.symbol
         if (tm.name.isBlank()) tm.name = ts.name
@@ -121,7 +124,7 @@ object RouteTruthHydrator {
             if (tm.sourceScanner.isBlank()) tm.sourceScanner = ts.source
             val hay = listOf(heldEntrySource6099, heldEntryPool6099, ts.source, tm.venue, tm.dexId, tm.routeStatus).joinToString(" ").uppercase()
             return when {
-                hay.contains("PUMP") && !tm.migratedOrGraduated -> {
+                pumpCurveMint8658 && hay.contains("PUMP") && !tm.migratedOrGraduated -> {
                     if (tm.pumpFunBondingCurveAddress.isBlank()) tm.pumpFunBondingCurveAddress = heldEntryPool6099
                     tm.pumpFunExecutable = true
                     hit("ENTRY_PUMP", "heldEntrySource=$heldEntrySource6099 pool=${heldEntryPool6099.take(12)}")
@@ -141,7 +144,7 @@ object RouteTruthHydrator {
 
         // 1. PumpPortal / Pump.fun bonding route from source/TokenMap.
         val pumpSource = ts.source.contains("PUMP", ignoreCase = true) || ts.lastPriceSource.contains("PUMP", ignoreCase = true)
-        if (tm.pumpFunExecutable && (tm.pumpFunBondingCurveAddress.isNotBlank() || pumpSource) && !tm.migratedOrGraduated) {
+        if (pumpCurveMint8658 && tm.pumpFunExecutable && (tm.pumpFunBondingCurveAddress.isNotBlank() || pumpSource) && !tm.migratedOrGraduated) {
             if (tm.pumpFunBondingCurveAddress.isBlank()) tm.pumpFunBondingCurveAddress = ts.pairAddress.ifBlank { ts.lastPricePoolAddr }
             return hit("PUMP", "pumpFunExecutable=${tm.pumpFunExecutable} bonding=${tm.pumpFunBondingCurveAddress.take(12)}")
         }

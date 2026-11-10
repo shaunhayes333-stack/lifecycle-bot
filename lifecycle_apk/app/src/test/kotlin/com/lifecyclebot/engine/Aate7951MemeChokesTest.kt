@@ -42,7 +42,7 @@ class Aate7951MemeChokesTest {
 
     @Test fun framesAreKeptByMintBeforeAnyTokenRowExists() {
         CurveReserves7951.resetForTest7951()
-        val mint = "Curve7951AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        val mint = "Curve7951AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAApump"
         val now = System.currentTimeMillis()
         assertFalse(CurveReserves7951.known7951(mint))
         CurveReserves7951.noteFrame7951(mint, 34.0, 9.4e8, now - 1_000L)

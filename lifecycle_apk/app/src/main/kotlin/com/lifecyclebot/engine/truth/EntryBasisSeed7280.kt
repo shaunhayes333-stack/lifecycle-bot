@@ -1,7 +1,6 @@
 package com.lifecyclebot.engine.truth
 
 import com.lifecyclebot.network.PumpCurveKeys7269
-import com.lifecyclebot.network.PumpFunDirectApi
 
 /**
  * V5.0.7280 §A CAP OVER A SUPPLY IS A SEED, NOT A QUOTE.
@@ -33,7 +32,7 @@ object EntryBasisSeed7280 {
         if (s == CHAIN_SUPPLY_CAP_SEED) return true
         if (s != "PUMP_FUN_BC_SYNTHETIC") return false
         val onCurve = try {
-            PumpCurveKeys7269.keyFor(mint) != null || PumpFunDirectApi.isPumpFunMint(mint)
+            PumpCurveKeys7269.isPumpMint8658(mint)
         } catch (_: Throwable) { false }
         return !onCurve
     }

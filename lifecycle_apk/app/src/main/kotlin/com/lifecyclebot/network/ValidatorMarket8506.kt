@@ -69,6 +69,7 @@ internal object ValidatorMarket8506 {
         val prints = ArrayList<Pair<KineticFlow8506.Swap, String>>()
         for (line in owned[SolanaSwapEvidence8506.PUMP].orEmpty()) {
             val trade = ChainLaunchFeed8179.decodeTradeEventLine8179(line) ?: continue
+            if (!PumpCurveKeys7269.isPumpMint8658(trade.mint)) continue
             val time = trade.timestampSec * 1000L
             if (time <= 0 || now - time !in 0L..15_000L || trade.sol <= 0 || trade.tokens <= 0) continue
             if (preview == null && trade.virtualSol > 0 && trade.virtualTokens > 0) com.lifecyclebot.engine.truth.CurveReserves7951.noteAccount7951(

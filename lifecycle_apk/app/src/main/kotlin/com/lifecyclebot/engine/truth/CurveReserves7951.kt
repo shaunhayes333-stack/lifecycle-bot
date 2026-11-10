@@ -1,6 +1,7 @@
 package com.lifecyclebot.engine.truth
 
 import com.lifecyclebot.engine.PipelineHealthCollector
+import com.lifecyclebot.network.PumpCurveKeys7269
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
@@ -61,6 +62,7 @@ object CurveReserves7951 {
 
     /** A PumpPortal create/trade frame: virtual SOL and virtual tokens (whole units). */
     fun noteFrame7951(mint: String, virtualSol: Double, virtualTokens: Double, atMs: Long = System.currentTimeMillis()) {
+        if (!PumpCurveKeys7269.isPumpMint8658(mint)) return
         if (!virtualSol.isFinite() || virtualSol <= 0.0) return
         val real8346 = realSolFromVirtual7951(virtualSol)
         if (put(mint, virtualSol, virtualTokens, real8346, atMs, false) == null) return
@@ -69,6 +71,7 @@ object CurveReserves7951 {
 
     /** The RPC curve read: virtual and real reserves, in SOL and whole tokens. */
     fun noteAccount7951(mint: String, virtualSol: Double, virtualTokens: Double, realSol: Double, atMs: Long = System.currentTimeMillis()) {
+        if (!PumpCurveKeys7269.isPumpMint8658(mint)) return
         if (!virtualSol.isFinite() || virtualSol <= 0.0) return
         if (!realSol.isFinite() || realSol < 0.0) return
         if (put(mint, virtualSol, virtualTokens, realSol, atMs, true) == null) return
@@ -120,6 +123,7 @@ object CurveReserves7951 {
      * row has no market cap and a fresh reserve observation exists, the row is hydrated from it. Returns the value written, or NaN.
      */
     fun hydrateMcap8399(ts: com.lifecyclebot.data.TokenState, solUsd: Double, nowMs: Long = System.currentTimeMillis()): Double {
+        if (!PumpCurveKeys7269.isPumpMint8658(ts.mint)) return Double.NaN
         if (ts.lastMcap.isFinite() && ts.lastMcap > 0.0) return Double.NaN
         val r = rows[ts.mint] ?: return Double.NaN
         val (vSol, vTok, atMs) = synchronized(r) { Triple(r.virtualSol, r.virtualTokens, r.atMs) }
@@ -134,6 +138,7 @@ object CurveReserves7951 {
     }
 
     fun acceptedObservation8385(mint: String): AcceptedObservation8385? {
+        if (!PumpCurveKeys7269.isPumpMint8658(mint)) return null
         val r = rows[mint] ?: return null
         return synchronized(r) { AcceptedObservation8385(r.atMs, if (r.accountObserved) "ACCOUNT" else "FRAME", r.version8385) }
     }
@@ -147,7 +152,7 @@ object CurveReserves7951 {
 
     private fun put(mint: String, vSol: Double, vTok: Double, real: Double, atMs: Long, accountObserved: Boolean): AcceptedObservation8385? {
         val m = mint.trim()
-        if (m.isBlank() || atMs <= 0L) return null
+        if (!PumpCurveKeys7269.isPumpMint8658(m) || atMs <= 0L) return null
         if (rows.size >= MAX_MINTS && !rows.containsKey(m)) trim(atMs)
         val r = rows.computeIfAbsent(m) { Row(vSol, vTok, real, 0L, accountObserved) }
         val accepted = synchronized(r) {
@@ -190,6 +195,7 @@ object CurveReserves7951 {
 
     /** Observed curve liquidity in SOL for [mint], or 0.0 when none is known. */
     fun liquiditySol7951(mint: String, nowMs: Long = System.currentTimeMillis()): Double {
+        if (!PumpCurveKeys7269.isPumpMint8658(mint)) return 0.0
         val r = rows[mint.trim()] ?: return 0.0
         val graduated = try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(mint) } catch (_: Throwable) { false }
         val sol = liquiditySolFor7951(r.realSol, nowMs - r.atMs, graduated)
@@ -206,6 +212,7 @@ object CurveReserves7951 {
                                       val realSol: Double, val observedAtMs: Long)
 
     fun activeExitObservation(mint: String, nowMs: Long, maxAgeMs: Long): ExitReserveObservation? {
+        if (!PumpCurveKeys7269.isPumpMint8658(mint)) return null
         val r = rows[mint.trim()] ?: return null
         if (try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(mint) } catch (_: Throwable) { true }) return null
         return synchronized(r) {
@@ -218,6 +225,7 @@ object CurveReserves7951 {
     }
 
     fun priceSolFor7951(mint: String, nowMs: Long, maxAgeMs: Long): Double {
+        if (!PumpCurveKeys7269.isPumpMint8658(mint)) return 0.0
         val r = rows[mint.trim()] ?: return 0.0
         if (nowMs - r.atMs !in 0L..maxAgeMs) return 0.0
         if (try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(mint) } catch (_: Throwable) { false }) return 0.0
@@ -229,6 +237,7 @@ object CurveReserves7951 {
      * curve TTL; null when the curve is unknown, stale or graduated. 0.2 means "nobody bought": distinct from unknown.
      */
     fun realSolIfActive8046(mint: String, nowMs: Long = System.currentTimeMillis()): Double? {
+        if (!PumpCurveKeys7269.isPumpMint8658(mint)) return null
         val r = rows[mint.trim()] ?: return null
         if (nowMs - r.atMs !in 0L..CURVE_TTL_MS) return null
         if (try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(mint) } catch (_: Throwable) { false }) return null
@@ -237,6 +246,7 @@ object CurveReserves7951 {
 
     /** A fresh account read, distinct from virtual-reserve arithmetic on a stream frame. */
     fun accountRealSol8253(mint: String, nowMs: Long): Double? {
+        if (!PumpCurveKeys7269.isPumpMint8658(mint)) return null
         val r = rows[mint.trim()] ?: return null
         if (try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(mint) } catch (_: Throwable) { true }) return null
         return synchronized(r) {
@@ -247,6 +257,7 @@ object CurveReserves7951 {
 
     /** One atomic, dated account observation for safety; stream arithmetic and stale rows are not ownership proof. */
     fun accountObservation8522(mint: String, nowMs: Long, maxAgeMs: Long = 30_000L): ExitReserveObservation? {
+        if (!PumpCurveKeys7269.isPumpMint8658(mint)) return null
         val r = rows[mint.trim()] ?: return null
         if (try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(mint) } catch (_: Throwable) { true }) return null
         return synchronized(r) {
@@ -260,10 +271,10 @@ object CurveReserves7951 {
     }
 
     /** V5.0.8173 — when [mint]'s curve reading was observed (epoch ms), or null when none is held (LaunchCohort8173). */
-    fun readingAtMs8173(mint: String): Long? = rows[mint.trim()]?.atMs
+    fun readingAtMs8173(mint: String): Long? = if (PumpCurveKeys7269.isPumpMint8658(mint)) rows[mint.trim()]?.atMs else null
 
     /** True when this mint's curve reserves have been observed. */
-    fun known7951(mint: String): Boolean = rows.containsKey(mint.trim())
+    fun known7951(mint: String): Boolean = PumpCurveKeys7269.isPumpMint8658(mint) && rows.containsKey(mint.trim())
 
     fun statusLine7951(): String = "curveReserves7951 mints=${rows.size} notes=${notes.get()} liqServed=${liquidityServed.get()}"
 

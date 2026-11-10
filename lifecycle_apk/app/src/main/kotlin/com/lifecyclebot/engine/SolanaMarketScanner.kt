@@ -1966,6 +1966,8 @@ class SolanaMarketScanner(
                         .ifBlank { coin.optString("token_address", "") }
 
                     if (mint.isBlank() || isSeen(mint)) continue
+                    // The pump.fun API can surface non-pump launches; its virtual reserves are not their liquidity.
+                    if (!com.lifecyclebot.network.PumpCurveKeys7269.isPumpMint8658(mint)) continue
 
                     val symbol = coin.optString("symbol", "")
                         .ifBlank { coin.optString("ticker", "") }
