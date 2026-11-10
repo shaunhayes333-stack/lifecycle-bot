@@ -343,6 +343,8 @@ object TokenFacts {
         val flow = try { FlowRead8546.read8546(ts.mint, nowMs) } catch (_: Throwable) { null }
         if (flow != null && flow.known) return (flow.buys5m + flow.sells5m) / 5.0
         ts.facts8551[Field.TX_PER_MIN]?.takeIf { nowMs - it.observedAtMs in 0L..TX_FRESH_MS }?.let { return it.value }
+        // Use the wallet stream while the wider tape and the dated pair count are unavailable.
+        com.lifecyclebot.engine.market.BuyerFlow8666.read(ts.mint, nowMs)?.let { return it.txPerMin }
         return try { com.lifecyclebot.engine.DataPipeline.cachedAlphaSignals6486(ts.mint)?.txVelocity } catch (_: Throwable) { null } ?: Double.NaN
     }
 

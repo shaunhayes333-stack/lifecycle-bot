@@ -108,6 +108,11 @@ object TradePlan7739 {
     /** Pure: may a fresh launch with this bar read be planned LAUNCH_EARLY? */
     fun barsPermitLaunch7742(barWhy: String): Boolean = barWhy in NO_SETUP_YET_7742
 
+    // A young chart can lack a setup. A chart showing a failed reclaim or selling
+    // requires coin-specific evidence before admission alone can supply the plan.
+    internal fun optionalChartForAdmit(specific: Boolean, chartReason: String): Boolean =
+        specific || barsPermitLaunch7742(chartReason)
+
     /** Size tier: thresholds a token of this size can plausibly print. */
     data class Tier(val minImpulsePct: Double, val maxStopPct: Double, val maxBaseWidthPct: Double)
 
@@ -487,7 +492,7 @@ object TradePlan7739 {
             try { PipelineHealthCollector.labelInc("PLAN_WAIT_8418_EVIDENCE_ADMIT_NO_PULLBACK") } catch (_: Throwable) {}
             return waitOrOverrule7757(ts, read8418.why, "NO_PLAN_WAIT_7739:NO_PULLBACK_YET_8418", nowMs, runner7878).also { notePlanWait8136(read8418.why, it) }
         }
-        if (specific8171?.admitted == true) {
+        if (specific8171?.admitted == true && optionalChartForAdmit(specific8171.specific, read8418.why)) {
             plans[ts.mint] = Plan(Setup.LAUNCH_EARLY, -gradedStopMag8094(lane), LAUNCH_FIRST_TARGET_PCT_7742, LAUNCH_TARGET_PCT_7742, nowMs)
             admitted.computeIfAbsent(Setup.LAUNCH_EARLY) { AtomicLong(0) }.incrementAndGet()
             try { PipelineHealthCollector.labelInc("PLAN_GRADED_EDGE_OPTIONAL_BARS_ADMIT_8171") } catch (_: Throwable) {}

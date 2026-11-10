@@ -70,6 +70,15 @@ class Aate8553DataBundleTest {
         assertTrue(src("engine/BotService.kt").contains("TokenFacts.writeSnapshot(ts, TokenFacts.Field.TX_PER_MIN, m5 / 5.0, \"DEX_PAIR_POLL_M5\", TokenFacts.Rank.PROVIDER, evidenceAt8553)"))
     }
 
+    @Test fun aSingleObservedSwapDoesNotOutrankTheCanonicalTransactionCount() {
+        val ts = TokenState(mint = "velocity-source-order")
+        val now = System.currentTimeMillis()
+        com.lifecyclebot.engine.market.BuyerFlow8666.note(ts.mint, "buyer", 1.0, true, now)
+        assertEquals(1.0, TokenFacts.txPerMin(ts, now), 0.0)
+        assertTrue(TokenFacts.writeSnapshot(ts, Field.TX_PER_MIN, 9.0, "DEX_PAIR_POLL_M5", Rank.PROVIDER, now, now))
+        assertEquals(9.0, TokenFacts.txPerMin(ts, now), 0.0)
+    }
+
     @Test fun theDatasetSaysWhatItDoesNotKnow() {
         assertEquals("MATURE", EdgeModel8537.phaseOf8553(240.0))
         assertEquals("UNKNOWN_AGE", EdgeModel8537.phaseOf8553(Double.NaN))

@@ -956,8 +956,7 @@ object LanePlaybook7907 {
                     ?.takeIf { it.bundleRisk != com.lifecyclebot.engine.BundleDetector.BundleRisk.UNKNOWN }?.largestBundlePct
             } catch (_: Throwable) { null } ?: Double.NaN,
             lpLock = ts.safety.lpLockPct.takeIf { it >= 0.0 && it.isFinite() } ?: Double.NaN,
-            txVelocity = buyerFlow8666?.txPerMin
-                ?: try { com.lifecyclebot.engine.truth.TokenFacts.txPerMin(ts, nowMs) } catch (_: Throwable) { Double.NaN },
+            txVelocity = try { com.lifecyclebot.engine.truth.TokenFacts.txPerMin(ts, nowMs) } catch (_: Throwable) { Double.NaN },
             volatility = ts.volatility ?: Double.NaN,
             regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "" },
             launchLadderProven = try {

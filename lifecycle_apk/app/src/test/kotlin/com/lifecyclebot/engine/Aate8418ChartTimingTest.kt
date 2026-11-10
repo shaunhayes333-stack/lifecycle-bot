@@ -11,7 +11,7 @@ class Aate8418ChartTimingTest {
         val plan = src("truth/TradePlan7739.kt")
         val body = plan.substringAfter("fun liveBlockReason(").substringBefore("private fun chartPlanRefusal8136(")
         val read = body.indexOf("val read8418 = readForEntry7837(ts, nowMs)")
-        val specificPlan = body.indexOf("if (specific8171?.admitted == true) {")  // V5.0.8608 — any admit plans
+        val specificPlan = body.indexOf("if (specific8171?.admitted == true && optionalChartForAdmit(specific8171.specific, read8418.why)) {")
         assertTrue("the chart is read before any evidence admit plans", read in 0 until specificPlan)
         assertTrue(body.contains("if (evidenceAdmit8418 && read8418.setup != null)"))
         // superseded by V5.0.8419 — NO_PULLBACK_YET alone is not the owner's shape (true of every three-bar tape); the wait

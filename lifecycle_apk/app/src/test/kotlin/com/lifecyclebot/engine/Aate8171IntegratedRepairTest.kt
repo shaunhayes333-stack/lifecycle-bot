@@ -108,7 +108,7 @@ class Aate8171IntegratedRepairTest {
         val wait = p.indexOf("val read8418 = readForEntry7837(ts, nowMs)")
         assertTrue(start > 0)
         assertTrue(start < wait)
-        assertTrue(p.contains("if (specific8171?.admitted == true) {"))  // V5.0.8608 — any admit plans, specific or not
+        assertTrue(p.contains("if (specific8171?.admitted == true && optionalChartForAdmit(specific8171.specific, read8418.why)) {"))
         assertTrue(p.contains("PLAN_GRADED_EDGE_OPTIONAL_BARS_ADMIT_8171"))
         assertTrue(p.indexOf("LiveEdgeGate7877.liveRefusal(ts, lane, paper, nowMs, candidateVersion, candidateAdmission)?.let { return it }") in 0 until start)
         val c = CandidateAdmission8136

@@ -110,7 +110,7 @@ object BuyerFlow8666 {
             buyTx15s = recent15.count { it.buy },
             buyTxPrev15s = prior15.count { it.buy },
             repeatBuyers60s = buys.groupingBy { it.wallet }.eachCount().count { it.value > 1 },
-            txPerMin = recent.size * 60_000.0 / span,
+            txPerMin = recent.size.toDouble(), // actual swaps in the trailing minute
             volumeAccelScore = accel,
         )
     }

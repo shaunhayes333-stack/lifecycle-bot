@@ -82,7 +82,13 @@ class Aate8608PaperProvesLiveTest {
         assertTrue(a.contains("return d.copy(terminal = CandidateAdmission8136.Terminal8136.REFUSE, reason = PAPER_LOSING_8608"))
     }
 
-    @Test fun anyAdmitPlansInsteadOfWaitingForAChartSetup() {
+    @Test fun aYoungChartCanUseLaneAdmissionButAnObservedFailureNeedsSpecificEvidence() {
+        val planner = com.lifecyclebot.engine.truth.TradePlan7739
+        assertTrue(planner.optionalChartForAdmit(false, "TOO_FEW_BARS"))
+        for (reason in listOf("SELL_DOMINANT_TAPE", "STILL_FALLING", "CHASING_THE_HIGH", "PULLBACK_TOO_DEEP")) {
+            assertFalse(reason, planner.optionalChartForAdmit(false, reason))
+            assertTrue(reason, planner.optionalChartForAdmit(true, reason))
+        }
         val p = src("engine/truth/TradePlan7739.kt")
         assertTrue(p.contains("val evidenceAdmit8418 = specific8171?.admitted == true ||"))
         assertFalse(p.contains("if (specific8171?.admitted == true && specific8171.specific) {"))
