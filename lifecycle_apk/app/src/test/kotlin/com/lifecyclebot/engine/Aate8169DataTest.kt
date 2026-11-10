@@ -210,7 +210,8 @@ class Aate8169DataTest {
         assertTrue(d.contains("keylessFetch7809(mint, \"1m\", 120, poolHint6916, attempts = 3)"))
         assertTrue(d.contains("SEED_RETRY_FLOOR_MS_7809 = 2_600L"))
         assertTrue(d.contains("if (repairShape8168 && repairShapeFromCodex8169(ts)) return"))
-        assertTrue(d.contains("SetupHistoryRepair8168.canReplace(ts.history.toList(), bars, System.currentTimeMillis())"))
+        assertTrue(d.contains("SetupHistoryRepair8168.canReplace(ts.history.toList(), bars, now)"))
+        assertTrue(d.contains("val installed = canRepair && MultiTimeframeCharts8521.install8521(ts, Frame8521.M1, bars, now,"))
         assertTrue(src("engine/chart/ChartSources7955.kt").contains("fun codexCandles8169("))
     }
 

@@ -29,15 +29,15 @@ class Aate8527ConfirmedPartialProjectionTest {
     }
     @After fun cleanup() { reset() }
 
-    private fun lot(tag: String, mint: String = "partial8527-$tag-${System.nanoTime()}"): TokenState {
+    private fun lot(tag: String, mint: String = "partial8527-$tag-${System.nanoTime()}", lane: String = "SHITCOIN"): TokenState {
         val pid = "LIVE:$mint:$tag"
-        assertEquals(Cpa.MutateResult.APPLIED, Cpa.openPosition("open:$pid", pid, mint, tag, "SHITCOIN",
+        assertEquals(Cpa.MutateResult.APPLIED, Cpa.openPosition("open:$pid", pid, mint, tag, lane,
             "8527", 1.0, BigInteger.valueOf(100L), 0, 0.0, false,
             entryPriceUsd = 1.0, entryPriceSource = "LIVE_FINALIZED"))
         val c = Cpa.getPosition(pid)!!
         return TokenState(mint = mint, symbol = tag, position = Position(
             positionId = pid, qtyToken = 100.0, costSol = 1.0, entryPrice = 1.0,
-            entryTime = c.openedAtMs, isPaperPosition = false, tradingMode = "SHITCOIN"))
+            entryTime = c.openedAtMs, isPaperPosition = false, tradingMode = lane))
     }
 
     private fun native(ts: TokenState, paper: Boolean = false) {
@@ -230,7 +230,7 @@ class Aate8527ConfirmedPartialProjectionTest {
     }
 
     @Test fun asyncTerminalCompletionWaitsForSettlementThenDeliversOnceOutsideTheMutationLock() {
-        val ts = lot("async-full")
+        val ts = lot("async-full", lane = "MOONSHOT")
         Moon.restorePosition(Moon.MoonshotPosition(ts.mint, ts.symbol, 1.0, 1.0, ts.position.entryTime,
             200.0, -20.0, 50_000.0, 50_000.0, 80.0, Moon.SpaceMode.LUNAR, false))
         val nativeProjection = Moon.partialProjection8527(ts)
@@ -304,7 +304,7 @@ class Aate8527ConfirmedPartialProjectionTest {
     }
 
     @Test fun moonshotUsesTheRequestedModesRungAndUpdatesItsRestoreAliasExactly() {
-        val ts = lot("moon")
+        val ts = lot("moon", lane = "MOONSHOT")
         val p = Moon.MoonshotPosition(ts.mint, ts.symbol, 1.0, 1.0, ts.position.entryTime,
             200.0, -20.0, 50_000.0, 50_000.0, 80.0, Moon.SpaceMode.LUNAR, false)
         Moon.restorePosition(p)
@@ -321,7 +321,7 @@ class Aate8527ConfirmedPartialProjectionTest {
     }
 
     @Test fun moonshotFractionCatchesUpFromAnEarlierGenericCanonicalPartial() {
-        val ts = lot("moon-generic")
+        val ts = lot("moon-generic", lane = "MOONSHOT")
         Moon.restorePosition(Moon.MoonshotPosition(ts.mint, ts.symbol, 1.0, 1.0, ts.position.entryTime,
             200.0, -20.0, 50_000.0, 50_000.0, 80.0, Moon.SpaceMode.LUNAR, false))
         fill(ts, 25L, 0.30, "generic") // earlier generic partial did not update the native fraction
@@ -333,13 +333,13 @@ class Aate8527ConfirmedPartialProjectionTest {
     }
 
     @Test fun qualityBluechipAndExpressProposalsStayRetryableUntilConfirmed() {
-        val q = lot("quality")
+        val q = lot("quality", lane = "QUALITY")
         Quality.restorePosition(Quality.QualityPosition(q.mint, q.symbol, 1.0, q.position.entryTime,
             1.0, 50_000.0, 100.0, -15.0), false)
-        val b = lot("blue")
+        val b = lot("blue", lane = "BLUECHIP")
         Blue.restorePosition(Blue.BlueChipPosition(b.mint, b.symbol, 1.0, 1.0, b.position.entryTime,
             50_000.0, 50_000.0, false, 100.0, -15.0), false)
-        val e = lot("express")
+        val e = lot("express", lane = "EXPRESS")
         Express.restoreRide(Express.ExpressRide(e.mint, e.symbol, 1.0, 1.0, e.position.entryTime,
             5.0, 70.0, false))
         repeat(3) {
@@ -359,15 +359,15 @@ class Aate8527ConfirmedPartialProjectionTest {
     }
 
     @Test fun invalidMarkDoesNotInventZeroPnlOrOverwriteARealPeak() {
-        val b = lot("invalid-blue")
+        val b = lot("invalid-blue", lane = "BLUECHIP")
         val blue = Blue.BlueChipPosition(b.mint, b.symbol, 1.0, 1.0, b.position.entryTime,
             50_000.0, 50_000.0, false, 100.0, -15.0, highWaterMark = 6.0, peakPnlPct = 500.0)
         Blue.restorePosition(blue, false)
-        val e = lot("invalid-express")
+        val e = lot("invalid-express", lane = "EXPRESS")
         val ride = Express.ExpressRide(e.mint, e.symbol, 1.0, 1.0, e.position.entryTime,
             5.0, 70.0, false, highWaterMark = 6.0, peakPnlPct = 500.0)
         Express.restoreRide(ride)
-        val d = lot("invalid-dip")
+        val d = lot("invalid-dip", lane = "DIP_HUNTER")
         Dip.restoreDip(Dip.DipPosition(d.mint, d.symbol, 1.0, 1.0, d.position.entryTime,
             10.0, 50.0, 50_000.0, 1_000.0, false, recoveryHighPct = 500.0))
         for (bad in listOf(Double.NaN, 0.0, Double.POSITIVE_INFINITY)) {
@@ -383,7 +383,7 @@ class Aate8527ConfirmedPartialProjectionTest {
     }
 
     @Test fun dipBanksActualCanonicalNetOnceAndKeepsItsActualRemainder() {
-        val ts = lot("dip")
+        val ts = lot("dip", lane = "DIP_HUNTER")
         Dip.restoreDip(Dip.DipPosition(ts.mint, ts.symbol, 1.0, 1.0, ts.position.entryTime,
             10.0, 50.0, 50_000.0, 1_000.0, false))
         val triggerPrice = 1.0 + (Dip.getFluidRecoveryTarget() + 1.0) / 100.0
@@ -402,7 +402,7 @@ class Aate8527ConfirmedPartialProjectionTest {
     }
 
     @Test fun rejectedOrQueuedFullCloseCannotEraseDipOwnershipOrBankAnUnsettledMark() {
-        val ts = lot("dip-full-proof")
+        val ts = lot("dip-full-proof", lane = "DIP_HUNTER")
         Dip.restoreDip(Dip.DipPosition(ts.mint, ts.symbol, 1.0, 1.0, ts.position.entryTime,
             10.0, 50.0, 50_000.0, 1_000.0, false))
         repeat(2) { Dip.closeDip(ts.mint, 1.10, Dip.DipExitSignal.RECOVERY_TARGET) }
@@ -417,7 +417,7 @@ class Aate8527ConfirmedPartialProjectionTest {
     }
 
     @Test fun dipFinalSliceUsesExactNetWithoutLosingEarlierPartialsOrMisclassifyingTheWholeLot() {
-        val ts = lot("dip-final-accounting")
+        val ts = lot("dip-final-accounting", lane = "DIP_HUNTER")
         Dip.restoreDip(Dip.DipPosition(ts.mint, ts.symbol, 1.0, 1.0, ts.position.entryTime,
             10.0, 50.0, 50_000.0, 1_000.0, false))
         val firstProjection = Dip.partialProjection8527(ts)
@@ -444,7 +444,7 @@ class Aate8527ConfirmedPartialProjectionTest {
     }
 
     @Test fun subCentiSolSlicesAndPersistenceKeepActualLamports() {
-        val ts = lot("small-dip")
+        val ts = lot("small-dip", lane = "DIP_HUNTER")
         Dip.importState("""{"dailyPnlSolBps":-2,"dipBalanceBps":100}""")
         assertEquals(-0.02, Dip.getDailyPnlSol(), 1e-12)
         Dip.restoreDip(Dip.DipPosition(ts.mint, ts.symbol, 1.0, 1.0, ts.position.entryTime,
@@ -476,7 +476,7 @@ class Aate8527ConfirmedPartialProjectionTest {
             }
         }
         try {
-            val ts = lot("cashgen-terminal")
+            val ts = lot("cashgen-terminal", lane = "TREASURY")
             val live = CashGen.TreasuryPosition(ts.mint, ts.symbol, 1.0, 1.0, ts.position.entryTime,
                 1.10, 0.90, 1.0, 0.0, false)
             CashGen.restorePosition(live, false)
@@ -510,7 +510,7 @@ class Aate8527ConfirmedPartialProjectionTest {
         val beforeKills = kills.get()
         val beforePnl = pnl.get()
         try {
-            val ts = lot("sniper-terminal")
+            val ts = lot("sniper-terminal", lane = "PROJECT_SNIPER")
             Sniper.restoreMission(sniper(ts))
             val receipt = fill(ts, 100L, 1.10)
             assertTrue(com.lifecyclebot.engine.truth.NativeTerminalClose8527.close8527(receipt, 1.10))
@@ -525,8 +525,19 @@ class Aate8527ConfirmedPartialProjectionTest {
         }
     }
 
+    @Test fun anotherLanesTerminalReceiptCannotCompleteASniperMission() {
+        val ts = lot("sniper-wrong-owner", lane = "SHITCOIN")
+        val mission = sniper(ts)
+        Sniper.restoreMission(mission)
+        val receipt = fill(ts, 100L, 1.10)
+        assertTrue(com.lifecyclebot.engine.truth.NativeTerminalClose8527.close8527(receipt, 1.10))
+        assertSame(mission, Sniper.getMission(ts.mint))
+        Sniper.completeMission(ts.mint, 1.10, sniperExit(), canonicalSlice8527 = receipt)
+        assertSame(mission, Sniper.getMission(ts.mint))
+    }
+
     @Test fun sniperReceiptCannotRemoveAReplacementGenerationOrOppositeModeLiability() {
-        val ts = lot("sniper-generation")
+        val ts = lot("sniper-generation", lane = "PROJECT_SNIPER")
         val expected = sniper(ts)
         Sniper.restoreMission(expected)
         val receipt = fill(ts, 100L, 1.10)
@@ -550,7 +561,7 @@ class Aate8527ConfirmedPartialProjectionTest {
     }
 
     @Test fun expressTerminalClaimBindsCapturedGenerationAndReceiptModeAtomically() {
-        val ts = lot("express-terminal-generation")
+        val ts = lot("express-terminal-generation", lane = "EXPRESS")
         val expected = Express.ExpressRide(ts.mint, ts.symbol, 1.0, 1.0, ts.position.entryTime,
             5.0, 75.0, false)
         Express.restoreRide(expected)

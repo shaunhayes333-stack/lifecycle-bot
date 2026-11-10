@@ -41,7 +41,10 @@ class Aate8049LaneTacticSeedTest {
 class Aate8050TokenTacticTest {
     @Test fun stampedFromTheToken() {
         val e = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertEquals(3, Regex("TacticSwitcher\\.tacticForToken8050\\(ts, ").findAll(e).count())
+        assertTrue(e.contains("TacticSwitcher.tacticForToken8050(ts, entryLane6450, score.toInt())"))
+        assertTrue(e.contains("TacticSwitcher.tacticForToken8050(ts, liveEntryLane6568, ts.position.entryScore.toInt())"))
+        assertTrue(e.contains("val electedTactic6568 = strategyDecision7427?.tactic?.name ?: try {"))
+        assertTrue(e.contains("TacticSwitcher.tacticForSetup(ts, safeLane, laneSetup8080.takeUnless"))
         assertTrue(!e.contains("TacticSwitcher.currentTactic(safeLane, score.toInt())"))
         val t = File("src/main/kotlin/com/lifecyclebot/engine/learning/TacticSwitcher.kt").readText()
         assertTrue(t.contains("LanePlaybook7907.selectedSetup8094(ts, lane)"))
