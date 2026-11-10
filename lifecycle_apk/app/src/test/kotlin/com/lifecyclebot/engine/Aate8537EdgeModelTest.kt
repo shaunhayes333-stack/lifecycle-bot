@@ -76,6 +76,16 @@ class Aate8537EdgeModelTest {
         val written = JSONObject(EdgeModel8537.datasetLine(s, 12.5))
         assertEquals(EdgeModel8537.VENUE_SCOPE_EPOCH_8660, written.getInt("venueScopeEpoch"))
         assertTrue(EdgeModel8537.replayAccept8642(written))
+        val priorFrozen = EdgeModel8537.Snap(raw(lane="CORE"), EdgeModel8537.vectorOf(raw(lane="CORE")),
+            Double.NaN, "COLD", 9_000_000L, postFixOtherLaunchpad.getString("mint"), false, 900_000L,
+            modelEpoch = 8650)
+        val oldSerializedToday = JSONObject(EdgeModel8537.datasetLine(priorFrozen, 3011.16))
+        assertEquals("the new writer cannot retrofit an old prediction with venue proof", 0,
+            oldSerializedToday.getInt("venueScopeEpoch"))
+        assertFalse(EdgeModel8537.replayAccept8642(oldSerializedToday))
+        EdgeModel8537.learn(priorFrozen, 3011.16)
+        assertTrue("old in-flight phantom outcomes must not seed the live new model",
+            EdgeModel8537.statusLine().contains("trained=0"))
         assertTrue("the pocket learner must use the same clean forward replay eligibility",
             src("engine/truth/PocketLedger8610.kt").contains("if (!EdgeModel8537.replayAccept8642(o)) return@forEachLine"))
     }

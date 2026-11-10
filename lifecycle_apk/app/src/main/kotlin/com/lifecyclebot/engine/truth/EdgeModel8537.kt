@@ -61,6 +61,10 @@ object EdgeModel8537 {
     internal const val MODEL_EPOCH_8642 = 8660
     internal const val VENUE_SCOPE_EPOCH_8660 = 8660
     private val SOLANA_MINT_8660 = Regex("^[1-9A-HJ-NP-Za-km-z]{32,44}$")
+    private fun unscopedSolana8661(mint: String, scopeEpoch: Int): Boolean =
+        SOLANA_MINT_8660.matches(mint) &&
+            !com.lifecyclebot.network.PumpCurveKeys7269.isPumpMint8658(mint) &&
+            scopeEpoch < VENUE_SCOPE_EPOCH_8660
 
     // ── features ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -344,6 +348,13 @@ object EdgeModel8537 {
     /** ForwardReturnLabeler7731.book (slot60): score the frozen prediction out of sample, THEN learn from the outcome. */
     fun learn(s: Snap, netPct: Double, chainWitness: Boolean = false) {
         if (!netPct.isFinite()) return
+        // An in-flight decision captured before the curve fix can arrive AFTER the new
+        // model's first boot. Its stored prediction epoch identifies that old price basis;
+        // never reintroduce its phantom outcome through the live learn path or pocket ledger.
+        if (unscopedSolana8661(s.mint, if (s.modelEpoch == MODEL_EPOCH_8642) VENUE_SCOPE_EPOCH_8660 else 0)) {
+            try { PipelineHealthCollector.labelInc("EDGE_LEGACY_NONPUMP_UNSCOPED_8661") } catch (_: Throwable) {}
+            return
+        }
         // V5.0.8617 — an implausible 5-minute outcome never trains anything (the model, the pocket ledger, the dataset's
         // training rows). The 03:50 export held a $2.96 M day-old coin at +1,406,280,000 % with a -1.9 % 5 m move and a
         // $112 k coin at +518,638 %: 13 rows over 5 mints, each a mark from the wrong basis. The model learns ln(1 + net),
@@ -434,9 +445,7 @@ object EdgeModel8537 {
         // learned authorities; keep their raw JSONL untouched. Other chains are unaffected.
         val mint8660 = row.optString("mint")
         if (mint8660.isBlank()) return false
-        if (SOLANA_MINT_8660.matches(mint8660) &&
-            !com.lifecyclebot.network.PumpCurveKeys7269.isPumpMint8658(mint8660) &&
-            row.optInt("venueScopeEpoch", 0) < VENUE_SCOPE_EPOCH_8660) return false
+        if (unscopedSolana8661(mint8660, row.optInt("venueScopeEpoch", 0))) return false
         val lane = row.optString("lane")
         val horizon = row.optLong("horizonMs", 0L)
         if (lane.isBlank() || horizon <= 0L || horizon != PocketLedger8610.targetHorizon(lane)) return false
@@ -524,12 +533,15 @@ object EdgeModel8537 {
     fun datasetLine(s: Snap, net: Double, filled: Boolean = true, witnessed: Boolean = false): String {
         fun n(v: Double) = if (v.isFinite()) "%.6g".format(java.util.Locale.US, v) else "null"
         val r = s.raw
+        // The device may still be delivering decisions frozen on a PRE-fix APK. An 8661
+        // serializer must never retroactively stamp those old observations as venue-safe.
+        val venueScope8661 = if (s.modelEpoch == MODEL_EPOCH_8642) VENUE_SCOPE_EPOCH_8660 else 0
         return "{\"t\":${s.atMs},\"horizonMs\":${s.horizonMs},\"mint\":\"${s.mint.take(44)}\",\"lane\":\"${r.lane}\",\"src\":\"${r.source.replace("\"", "").take(60)}\"," +
             "\"liq\":${n(r.liq)},\"mcap\":${n(r.mcap)},\"age\":${n(r.ageMin)},\"runup\":${n(r.runup)},\"pxPeak\":${n(r.pxPeak)}," +
             "\"dd\":${n(r.dd)},\"bp\":${n(r.bp)},\"chg5m\":${n(r.chg5m)},\"chg1h\":${n(r.chg1h)},\"volAccel\":${n(r.volAccel)}," +
             "\"top\":${n(r.top)},\"holderVel\":${n(r.holderVel)},\"txVel\":${n(r.txVel)},\"curve\":${n(r.curve)},\"turnover\":${n(r.turnover)}," +
             "\"flags\":${r.flags},\"phase\":\"${r.phase}\",\"v3\":${n(r.v3)},\"cost\":${n(r.costPct)},\"admitted\":${s.admitted}," +
-            "\"pred\":${n(netOf8567(s.pred))},\"model\":\"${s.modelKey}\",\"modelEpoch\":${s.modelEpoch},\"venueScopeEpoch\":$VENUE_SCOPE_EPOCH_8660,\"net\":${n(net)},\"fill\":$filled,\"witness\":$witnessed}"
+            "\"pred\":${n(netOf8567(s.pred))},\"model\":\"${s.modelKey}\",\"modelEpoch\":${s.modelEpoch},\"venueScopeEpoch\":$venueScope8661,\"net\":${n(net)},\"fill\":$filled,\"witness\":$witnessed}"
     }
 
     /**
