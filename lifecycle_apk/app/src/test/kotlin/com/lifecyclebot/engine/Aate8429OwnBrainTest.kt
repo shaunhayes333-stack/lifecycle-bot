@@ -25,9 +25,13 @@ class Aate8429OwnBrainTest {
         val sealed = b.indexOf("val claimedOwner6600 = LaneExecutionCoordinator.currentElection6600(ts.mint)?.takeIf { it.sealed }?.primaryLane")
         assertTrue(own in 1 until sealed)
         assertTrue(b.contains("val ownBrain8429 = ownBrainReady8429 && !ExecutionAuthorityPolicy6533.isTrunkLane(lane) &&"))
-        // the golden tape's order holds: the metric-stage rug check reads before the first trunk read of `l`
-        assertTrue(b.indexOf("metricFit.stage == TokenMetricStageRouter.Stage.RUG_PRONE") < b.indexOf("ExecutionAuthorityPolicy6533.isTrunkLane(l)"))
-        assertTrue(b.contains("if (!ownBrain8429) {"))
+        // A receiver may be identified before the metric-stage check, but may not execute
+        // through the trunk or bounded rescue until the rug-prone stage is checked.
+        assertTrue(b.indexOf("metricFit.stage == TokenMetricStageRouter.Stage.RUG_PRONE") <
+            b.indexOf("if (ExecutionAuthorityPolicy6533.isTrunkLane(l)) return true"))
+        assertTrue(b.contains("val dueReceiver8663 = !ExecutionAuthorityPolicy6533.isTrunkLane(l) &&"))
+        assertTrue(b.contains("HandoffReceiverTasks8153.isDue8153(ts.mint, l, System.currentTimeMillis(),"))
+        assertTrue(b.contains("if (!ownBrain8429 && !dueReceiver8663) {"))
         assertTrue(b.contains("ownBrainReady8429 ||   // V5.0.8429 — the lane's own READY resident proposal is its qualification"))
         assertTrue(b.contains("huntedByLane7297 || designatedDeskHypothesis6599 != null || ownBrainReady8429))"))
         assertEquals(6, SpecialistElection8136.NATIVE_EVAL_CAP_8214)

@@ -4063,7 +4063,7 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val mode = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ModeRouter.kt").readText()
         assertTrue("Stage router must identify base/mid/markup/peak/dump/rug states", router.contains("BASE_START") && router.contains("MID_ACCUMULATION") && router.contains("CONTROLLED_MARKUP") && router.contains("PEAK_EXHAUSTION") && router.contains("RUG_PRONE"))
-        assertTrue("Metric-stage rug safety must run before causal trunk handling", bot.contains("TOKEN_METRIC_STAGE_LANE_SOFT_MISMATCH_4162") && bot.contains("TokenMetricStageRouter.laneFit(ts, l)") && bot.contains("metricFit.stage == TokenMetricStageRouter.Stage.RUG_PRONE") && bot.indexOf("metricFit.stage == TokenMetricStageRouter.Stage.RUG_PRONE") < bot.indexOf("ExecutionAuthorityPolicy6533.isTrunkLane(l)"))
+        assertTrue("Metric-stage rug safety must run before causal trunk execution, including a due handoff receiver", bot.contains("TOKEN_METRIC_STAGE_LANE_SOFT_MISMATCH_4162") && bot.contains("TokenMetricStageRouter.laneFit(ts, l)") && bot.contains("metricFit.stage == TokenMetricStageRouter.Stage.RUG_PRONE") && bot.indexOf("metricFit.stage == TokenMetricStageRouter.Stage.RUG_PRONE") < bot.indexOf("if (ExecutionAuthorityPolicy6533.isTrunkLane(l)) return true"))
         assertTrue("V3 trunk must also obey metric-stage fit", bot.contains("V3_TOKEN_METRIC_STAGE_DEFERRED") && bot.contains("TokenMetricStageRouter.laneFit(ts, \"V3\")"))
         assertTrue("Primary lane election must be metric-aware, not only style/source aware", bot.contains("TokenMetricStageRouter.preferredPrimaryLane") && bot.contains("TOKEN_METRIC_STAGE_PRIMARY"))
         assertTrue("ModeRouter must not reward extended near-high peak chasing as breakout", mode.contains("BREAKOUT_REJECT: peak exhaustion") && mode.contains("controlled approach below local high"))
@@ -8170,9 +8170,11 @@ class GoldenTapeRegressionTest {
             bot.contains("ExecutionAuthorityPolicy6533.isTrunkLane(l)") &&
                 bot.contains("boundedRescue6600") && bot.contains("specialistEvaluationAllowed6600") &&
                 bot.contains("claimedOwner6600") && !bot.contains("strongestDesk6599") && !bot.contains("LANE_READ_ONLY_NON_PRIMARY_6491"))
-        assertTrue("6491 toxic SHITCOIN/TREASURY shaping must use learned lane-local entry floors, not global pauses",
+        assertTrue("8663 learned lane-local floor remains advisory; lane admission and FDG retain final trade authority",
             probability.contains("learnedEntryFloorDelta6491") && probability.contains("lane == " + '"' + "SHITCOIN" + '"') &&
-                probability.contains("lane == " + '"' + "TREASURY" + '"') && bot.contains("LANE_LOCAL_LEARNED_FLOOR_READ_ONLY_6491"))
+                probability.contains("lane == " + '"' + "TREASURY" + '"') &&
+                bot.contains("LANE_LOCAL_LEARNED_FLOOR_ADVISORY_8663_\$l") &&
+                !bot.contains("laneGateCount(\"PRIMARY_LEARNED_SCORE_FLOOR\", l)"))
         assertTrue("6491 acceptance failures must expose exact failed invariants and observed count",
             acceptance.contains("invariants=") && acceptance.contains("expected=all_invariants_pass") &&
                 acceptance.contains("failedInvariants=") && report.contains("executable fan-out/intake"))
