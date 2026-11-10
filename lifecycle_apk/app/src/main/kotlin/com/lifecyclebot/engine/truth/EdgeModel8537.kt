@@ -50,13 +50,17 @@ object EdgeModel8537 {
     private const val SOLVE_EVERY = 50
     private const val SAVE_EVERY = 400
     private const val DATASET_MAX_LINES = 60_000
-    private const val MODEL_FILE = "edge_model_8537.bin"
+    // Keep the pre-8658 curve-tainted sufficient statistics intact for inspection; never load them as authority.
+    private const val MODEL_FILE = "edge_model_8660.bin"
     private const val DATASET_FILE = "edge_dataset_8537.jsonl"
     // V5.0.8642 — the old binary included false-priced/seed-basis outcomes before 8617 started excluding them.
     // DIM alone cannot attest the model's evidence quality, so a validated epoch is now part of the format.
-    // V5.0.8650: replay verified, fillable horizons under the corrected runner-return contract.
-    // The prior epoch mathematically discarded genuine 5x-12x outcomes on >$100k coins.
-    internal const val MODEL_EPOCH_8642 = 8650
+    // V5.0.8660: 8657/8658 fixed non-pump PumpPortal frames priced with pump.fun's curve, but the 8650 model
+    // remained loaded with those phantom 2,900% labels and reported CORE/TREASURY authority. A fresh model
+    // must replay only venue-scoped rows and earn OOS authority again, never inherit the poisoned old OOS bar.
+    internal const val MODEL_EPOCH_8642 = 8660
+    internal const val VENUE_SCOPE_EPOCH_8660 = 8660
+    private val SOLANA_MINT_8660 = Regex("^[1-9A-HJ-NP-Za-km-z]{32,44}$")
 
     // ── features ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -424,6 +428,15 @@ object EdgeModel8537 {
     /** Only real, fillable, plausible labels at the lane's intended horizon can seed a prediction model. */
     internal fun replayAccept8642(row: org.json.JSONObject): Boolean {
         if (!row.optBoolean("fill", false)) return false
+        // The older export has no captured venue-price provenance. Its non-pump Solana mints
+        // could have received a pump.fun curve mark from PumpPortal, RPC, Helius or cache,
+        // regardless of their later discovery label. Reject those old observations from ALL
+        // learned authorities; keep their raw JSONL untouched. Other chains are unaffected.
+        val mint8660 = row.optString("mint")
+        if (mint8660.isBlank()) return false
+        if (SOLANA_MINT_8660.matches(mint8660) &&
+            !com.lifecyclebot.network.PumpCurveKeys7269.isPumpMint8658(mint8660) &&
+            row.optInt("venueScopeEpoch", 0) < VENUE_SCOPE_EPOCH_8660) return false
         val lane = row.optString("lane")
         val horizon = row.optLong("horizonMs", 0L)
         if (lane.isBlank() || horizon <= 0L || horizon != PocketLedger8610.targetHorizon(lane)) return false
@@ -516,7 +529,7 @@ object EdgeModel8537 {
             "\"dd\":${n(r.dd)},\"bp\":${n(r.bp)},\"chg5m\":${n(r.chg5m)},\"chg1h\":${n(r.chg1h)},\"volAccel\":${n(r.volAccel)}," +
             "\"top\":${n(r.top)},\"holderVel\":${n(r.holderVel)},\"txVel\":${n(r.txVel)},\"curve\":${n(r.curve)},\"turnover\":${n(r.turnover)}," +
             "\"flags\":${r.flags},\"phase\":\"${r.phase}\",\"v3\":${n(r.v3)},\"cost\":${n(r.costPct)},\"admitted\":${s.admitted}," +
-            "\"pred\":${n(netOf8567(s.pred))},\"model\":\"${s.modelKey}\",\"modelEpoch\":${s.modelEpoch},\"net\":${n(net)},\"fill\":$filled,\"witness\":$witnessed}"
+            "\"pred\":${n(netOf8567(s.pred))},\"model\":\"${s.modelKey}\",\"modelEpoch\":${s.modelEpoch},\"venueScopeEpoch\":$VENUE_SCOPE_EPOCH_8660,\"net\":${n(net)},\"fill\":$filled,\"witness\":$witnessed}"
     }
 
     /**
