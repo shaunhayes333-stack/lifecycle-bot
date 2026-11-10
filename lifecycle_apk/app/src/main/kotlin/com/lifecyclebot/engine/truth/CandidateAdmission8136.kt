@@ -1553,19 +1553,19 @@ object CandidateAdmission8136 {
         val pb = com.lifecyclebot.engine.cortex.LanePlaybook7907
         // V5.0.8153 — the strategy is ranked fresh over every fired setup (StrategyRank8153), not read back from the
         //    identity this record itself holds; its choice is then that identity for every later reader.
-        val pick8153 = try { pb.strategyPick8153(ts, lane, nowMs) } catch (_: Throwable) { null }
         // V5.0.8535 §P1-01 / §P1-03 / §P1-13 — a fire's AUTHORITY (SetupAuthority8535): a token-quality condition, a fire on
         //    partial evidence or a near-high read with no fresh breakout witness is graded, never the executable strategy or a
         //    fired option; the candidate then takes the generic path like a coin with no fired setup.
         val features8535 = try { pb.features(ts, nowMs) } catch (_: Throwable) { null }
-        fun triggered8535(id: String): Boolean = features8535 == null ||
+        val pick8153 = try { pb.strategyPick8153(ts, lane, nowMs, features8535) } catch (_: Throwable) { null }
+        fun triggered8535(id: String): Boolean =
             com.lifecyclebot.engine.cortex.SetupAuthority8535.executable8535(id, features8535)
         val options8153 = try { pb.strategyOptions8153(ts, lane, nowMs).filter { triggered8535(it.id) } } catch (_: Throwable) { emptyList() }
         val selectedRaw8535 = pick8153?.id ?: try { pb.selectedSetup8094(ts, lane, nowMs) } catch (_: Throwable) { null }
         val selected = selectedRaw8535?.takeIf { triggered8535(it) }
         if (selectedRaw8535 != null && selected == null) try {
             com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SETUP_AUTHORITY_NOT_EXECUTABLE_8535_" +
-                com.lifecyclebot.engine.cortex.SetupAuthority8535.authorityOf8535(selectedRaw8535, features8535!!).name + "_$lane")
+                com.lifecyclebot.engine.cortex.SetupAuthority8535.authorityOf8535(selectedRaw8535, features8535).name + "_$lane")
         } catch (_: Throwable) {}
         // V5.0.8217 — the lane's native qualification must not depend on one per-mint snapshot surviving in the cache.
         // A live QUALIFIED/READY entry in that lane's own candidate book (its hunter+brain qualified THIS mint) is the

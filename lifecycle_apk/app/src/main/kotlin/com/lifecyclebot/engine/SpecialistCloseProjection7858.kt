@@ -4,6 +4,18 @@ import com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
 
 /** Specialist inventory is a projection. A sell request alone cannot close it. */
 internal object SpecialistCloseProjection7858 {
+    /** Only a unique settled lot belonging to this owner and overlapping its native position can train it. */
+    fun settledOutcome(mint: String, paper: Boolean, entryTimeMs: Long, ownerLane: String):
+        com.lifecyclebot.engine.truth.WholePositionEconomics7835.Outcome? {
+        val mode = if (paper) "PAPER" else "LIVE"
+        val row = CanonicalPositionAuthority6441.closedPositions().singleOrNull {
+            it.mint == mint && it.mode.equals(mode, true) &&
+                it.lane.replace("_", "").equals(ownerLane.replace("_", ""), true) &&
+                entryTimeMs in it.openedAtMs..it.lastMutationMs && it.remainingQtyRaw.signum() == 0
+        } ?: return null
+        return runCatching { com.lifecyclebot.engine.truth.WholePositionEconomics7835.from(row) }.getOrNull()
+    }
+
     fun mayClose(mint: String, paper: Boolean, entryTimeMs: Long): Boolean {
         val mode = if (paper) "PAPER" else "LIVE"
         val finalized = try {

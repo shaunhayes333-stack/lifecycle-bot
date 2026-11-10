@@ -429,13 +429,29 @@ object AateDecisionFabric6512 {
                 ToolkitSignalSheet.recordDeskStage(lane, "LEARNING", env.positionId)
             } catch (_: Throwable) {}
         }
-        val graphBefore = SemanticPatternGraph.nodeCount6512()
-        val graphId = try { SemanticPatternGraph.recordOutcome(
-            lane = env.lane, source = e?.context?.source ?: "CANONICAL_FINALITY",
-            setup = contributors.joinToString("|") { "${it.brain}:${"%.3f".format(it.weight)}:${"%.3f".format(it.effect)}" }.ifBlank { "lane=${env.lane}|tactic=${env.entryTactic}" },
-            exitReason = env.proofState, pnlPct = env.realizedReturnPct,
-        ) } catch (_: Throwable) { "" }
-        if (graphId.isNotBlank() && SemanticPatternGraph.nodeCount6512() > graphBefore) updated += "SemanticPatternGraph"
+        val graphId = try {
+            val proven = env.mode.equals("PAPER", true) || AccountingIntegrity8169.chainProvenProofState8169(env.proofState)
+            val entry = EntryStrategySnapshot6450.snapshot(env.positionId)?.takeIf {
+                it.mint == env.mint && it.mode8090.equals(env.mode, true)
+            }
+            val source = env.entrySource.ifBlank { entry?.entrySource.orEmpty().ifBlank { e?.context?.source.orEmpty() } }
+            val setup = listOf(env.entrySetup, env.entryStyle, env.entryTactic.ifBlank { e?.tactic.orEmpty() },
+                env.entryTradeType, env.entryStrategyVariantId).filter { it.isNotBlank() && !it.equals("UNKNOWN", true) && !it.equals("NONE", true) }.joinToString(" ")
+            if (env.terminal && env.learningEligible && proven && setup.isNotBlank() && !env.exitReason.contains("MANUAL", true)) {
+                val signature = buildString {
+                    append(setup)
+                    if (source.isNotBlank()) append(" source=$source")
+                    entry?.entryMarketCapUsd?.takeIf { it.isFinite() && it > 0 }?.let { append(" mcap=${it.toLong()}") }
+                    entry?.entryLiquidityUsd?.takeIf { it.isFinite() && it > 0 }?.let { append(" liq=${it.toInt()}") }
+                }
+                SemanticPatternGraph.recordOutcome(
+                    positionId = env.positionId, mode = env.mode, lane = env.lane, source = source, setup = signature,
+                    deployer = entry?.entryDeployer.orEmpty(), exitReason = env.exitReason, failureMode = if (env.realizedReturnPct < 0.0) env.exitReason else "",
+                    pnlPct = env.realizedReturnPct, peakGainPct = env.mfePct.takeIf { it.isFinite() } ?: 0.0,
+                )
+            } else ""
+        } catch (_: Throwable) { "" }
+        if (graphId.isNotBlank()) updated += "SemanticPatternGraph"
         rewards.incrementAndGet()
         // V5.0.6617 §POSITION_LIFECYCLE_FORMALIZATION — learner consumed finality.
         try { PositionLifecycleFormalization6617.markLearned(env.positionId) } catch (_: Throwable) {}

@@ -39,7 +39,11 @@ object PositionDisplayTruth8078 {
         val valueSol: Double,
         val executablePnlPct: Double? = null,
         val executablePnlSol: Double? = null,
+        val solanaPosition: Boolean = true,
     ) {
+        fun canDisplayPnl(paper: Boolean): Boolean = basisOk &&
+            (paper || !solanaPosition || (executablePnlPct?.isFinite() == true && executablePnlSol?.isFinite() == true))
+
         /** Short tag for the mark line: the operator can see which price they are reading. */
         val markTag: String get() = if (markVerified) "exit estimate" else "indicative"
     }
@@ -205,7 +209,7 @@ object PositionDisplayTruth8078 {
             pnlPct = if (ok && exitPnl != null) exitPnl / costSol * 100.0 else pct,
             pnlSol = if (ok) exitPnl ?: pnlSol else 0.0,
             valueSol = if (ok) costSol + (exitPnl ?: pnlSol) else costSol,
-            executablePnlPct = exitPnl?.let { it / costSol * 100.0 }, executablePnlSol = exitPnl,
+            solanaPosition = solanaPosition, executablePnlPct = exitPnl?.let { it / costSol * 100.0 }, executablePnlSol = exitPnl,
         )
     }
 

@@ -56,6 +56,7 @@ object MemePositionPopout {
         val current: Double,
         val basisOk: Boolean,
         val basisReason: String,
+        val canDisplayPnl: Boolean,
         val executablePnl: Boolean,
         val pnlPct: Double,
         val pnlSol: Double,
@@ -119,12 +120,13 @@ object MemePositionPopout {
         // V5.0.8078 — the same view the Open Positions card paints (canonical basis + verified mark).
         val view8078 = try { com.lifecyclebot.engine.truth.PositionDisplayTruth8078.view(t) } catch (_: Throwable) { null }
         val basisOk = open && view8078?.basisOk == true
-        val pnlPct = if (basisOk) view8078!!.pnlPct else 0.0
+        val canDisplayPnl = open && view8078?.canDisplayPnl(pos.isPaperPosition) == true
+        val pnlPct = if (canDisplayPnl) view8078!!.pnlPct else 0.0
         val costSol = view8078?.costSol ?: try { pos.costSol } catch (_: Throwable) { 0.0 }
         val now = System.currentTimeMillis()
         val holdMs = if (pos.entryTime > 0L) (now - pos.entryTime).coerceAtLeast(0L) else 0L
-        val peak = if (basisOk) kotlin.math.max(pos.peakGainPct, pnlPct) else pos.peakGainPct
-        val stop: Double = if (!basisOk) Double.NaN else {
+        val peak = if (canDisplayPnl) kotlin.math.max(pos.peakGainPct, pnlPct) else pos.peakGainPct
+        val stop: Double = if (!canDisplayPnl) Double.NaN else {
             try {
                 com.lifecyclebot.v3.scoring.FluidLearningAI.getDynamicFluidStop(
                     modeDefaultStop = 20.0,
@@ -161,10 +163,11 @@ object MemePositionPopout {
             entry = view8078?.entryUsd ?: pos.entryPrice,
             current = view8078?.markUsd ?: t.ref,
             basisOk = basisOk,
+            canDisplayPnl = canDisplayPnl,
             basisReason = view8078?.basisReason.orEmpty(),
             executablePnl = view8078?.executablePnlSol != null,
             pnlPct = pnlPct,
-            pnlSol = if (basisOk) view8078!!.pnlSol else 0.0,
+            pnlSol = if (canDisplayPnl) view8078!!.pnlSol else 0.0,
             costSol = costSol,
             qty = view8078?.qty ?: pos.qtyToken,
             holdMs = holdMs,
@@ -365,12 +368,12 @@ object MemePositionPopout {
 
     private fun bind(c: Cells, r: Readout) {
         val col = when {
-            !r.basisOk -> AateUi.TEXT_MUTED
+            !r.canDisplayPnl -> AateUi.TEXT_MUTED
             r.pnlPct >= 0.0 -> AateUi.GREEN
             else -> AateUi.RED
         }
         c.price.text = price(r.current)
-        c.pnlPct.text = if (r.basisOk) "%+.2f%%".format(r.pnlPct) else if (r.open) "basis wait" else "closed"
+        c.pnlPct.text = if (r.canDisplayPnl) "%+.2f%%".format(r.pnlPct) else if (r.basisOk) "exit quote pending" else if (r.open) "basis wait" else "closed"
         c.pnlPct.setTextColor(col)
         c.pnlSol.text = if (r.basisOk && r.executablePnl) "%+.4f◎ estimated exit".format(r.pnlSol)
             else if (r.basisOk && !r.paper) "Indicative move · executable PnL unavailable"
@@ -396,7 +399,7 @@ object MemePositionPopout {
         }
         v["STAGE"]?.text = r.stage
         v["VALUE"]?.apply {
-            text = if (r.basisOk) "%.4f◎".format(r.costSol + r.pnlSol) else "—"
+            text = if (r.canDisplayPnl) "%.4f◎".format(r.costSol + r.pnlSol) else "—"
             setTextColor(col)
         }
         v["LIQUIDITY"]?.text = usd(r.liqUsd)
@@ -428,7 +431,7 @@ object MemePositionPopout {
             toast(activity, "Bot service not running — start the bot first", false)
             return
         }
-        val pnlTxt = if (r.basisOk) "%+.2f%%  (%+.4f SOL)".format(r.pnlPct, r.pnlSol) else "basis not verified"
+        val pnlTxt = if (r.canDisplayPnl) "%+.2f%%  (%+.4f SOL)".format(r.pnlPct, r.pnlSol) else if (r.basisOk) "exit quote pending" else "basis not verified"
         AlertDialog.Builder(activity)
             .setTitle("Manual SELL — ${r.symbol}  [${if (r.paper) "PAPER" else "LIVE"}]")
             .setMessage(

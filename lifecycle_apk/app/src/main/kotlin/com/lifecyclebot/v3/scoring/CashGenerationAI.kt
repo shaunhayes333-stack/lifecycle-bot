@@ -1556,8 +1556,14 @@ object CashGenerationAI {
             ErrorLogger.warn(TAG, "💰⚠️ Failed to release Treasury lock for ${pos.symbol}: ${e.message}")
         }
 
-        val pnlPct = (exitPrice - pos.entryPrice) / pos.entryPrice * 100
-        val pnlSol = pos.entrySol * pnlPct / 100
+        val settled = com.lifecyclebot.engine.SpecialistCloseProjection7858.settledOutcome(mint, isPaper, pos.entryTime, pos.ownerLane)
+        if (settled == null) {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SPECIALIST_CLOSE_UNATTRIBUTED_8672")
+            save()
+            return
+        }
+        val pnlPct = settled.returnPct
+        val pnlSol = settled.netSol
         try { TreasuryCashflowMissionReport.recordClosed(mint, pos.symbol, pos.isPaper, pnlSol, exitReason.name) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.TreasuryOpportunityEngine.closeDeployment(mint, pos.entrySol + pnlSol, pnlPct) } catch (_: Throwable) {}  // V5.0.4339 ledger-only; CashGen executed the sell
         try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(mint, pos.symbol, pos.ownerLane, "${pos.ownerLane}_CLOSE", pnlPct.toInt().coerceIn(-100, 100), "exit_${exitReason.name}_pnl_${pnlPct.fmt(2)}") } catch (_: Throwable) {}

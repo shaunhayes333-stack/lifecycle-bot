@@ -66,11 +66,12 @@ object SetupAuthority8535 {
         else -> Authority.SETUP_TRIGGERED
     }
 
-    fun authorityOf8535(setup: String, f: LanePlaybook7907.F): Authority =
-        authorityOf8535(setup, f.bp, f.volAccel, f.txVelocity, f.chg5m, f.runup)
+    fun authorityOf8535(setup: String, f: LanePlaybook7907.F?): Authority =
+        authorityOf8535(setup, f?.bp ?: Double.NaN, f?.volAccel ?: Double.NaN, f?.txVelocity ?: Double.NaN,
+            f?.chg5m ?: Double.NaN, f?.runup ?: Double.NaN)
 
     /** Pure: may this fire be the admission's executable strategy? */
-    fun executable8535(setup: String, f: LanePlaybook7907.F): Boolean = authorityOf8535(setup, f) == Authority.SETUP_TRIGGERED
+    fun executable8535(setup: String, f: LanePlaybook7907.F?): Boolean = authorityOf8535(setup, f) == Authority.SETUP_TRIGGERED
 
     /** V5.0.8535 §P1-09 — desks whose READY must name one of their own fired strategies (a score band is not an entry). */
     val NAMED_SETUP_LANES_8535: Set<String> = setOf("CORE", "CYCLIC")

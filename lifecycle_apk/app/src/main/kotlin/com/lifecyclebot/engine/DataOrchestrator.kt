@@ -253,7 +253,7 @@ class DataOrchestrator(
                 dexWs?.subscribeToken(mint, ts.pairAddress)
             }
             try { PipelineHealthCollector.labelInc("LAUNCH_LIVE_STREAMS_ARMED_BEFORE_HISTORY_7401") } catch (_: Throwable) {}
-            onLog("$symbol: live streams armed before history seed", mint)
+            onLog("$symbol: live subscriptions requested · seeding chart history", mint)
 
             // Historical enrichment is confirmation. It must never delay the
             // first-minute launch tape.
@@ -499,16 +499,10 @@ class DataOrchestrator(
         if (!r.claimCodexRepair8169(ts.mint)) return false
         val bars = try { com.lifecyclebot.engine.chart.ChartSources7955.codexCandles8169(ts.mint) } catch (_: Throwable) { null }
         if (bars == null || bars.size < 3) { r.noteShapeRepair8169("codex", "none"); return false }
-        val installed = synchronized(ts.history) {
-            if (!SetupHistoryRepair8168.canReplace(ts.history.toList(), bars, System.currentTimeMillis())) false
-            else {
-                ts.history.clear()
-                bars.forEach { ts.history.addLast(it) }
-                while (ts.history.size > 300) ts.history.removeFirst()
-                ts.candleTimeframeMinutes = 1
-                true
-            }
-        }
+        val now = System.currentTimeMillis()
+        val canRepair = synchronized(ts.history) { SetupHistoryRepair8168.canReplace(ts.history.toList(), bars, now) }
+        val installed = canRepair && MultiTimeframeCharts8521.install8521(ts, Frame8521.M1, bars, now,
+            "codex", provider8521 = true) > 0
         r.noteShapeRepair8169("codex", if (installed) "ok" else "rejected")
         if (installed) try { PipelineHealthCollector.labelInc("SETUP_SHAPE_REPAIRED_CODEX_8169") } catch (_: Throwable) {}
         return installed
@@ -569,20 +563,15 @@ class DataOrchestrator(
             // queued behind (Field Manual L404).
             val k1m = if (codexFirst8191) emptyList() else keylessFetch7809(mint, "1m", 120, poolHint6916, attempts = 3)
             val k1mOk7809 = k1m.size >= 2
-            if (k1m.size >= 2) {
-                synchronized(ts.history) {
-                    if (if (repairShape8168) SetupHistoryRepair8168.canReplace(ts.history.toList(), k1m, System.currentTimeMillis()) else ts.history.size < 10) {
-                        ts.history.clear()
-                        k1m.forEach { ts.history.addLast(it) }
-                        while (ts.history.size > 300) ts.history.removeFirst()
-                        ts.candleTimeframeMinutes = 1
-                        keylessSeeded6916 += k1m.size
-                        if (repairShape8168) PipelineHealthCollector.labelInc("SETUP_SHAPE_REPAIRED_KEYLESS_8168")
-                    }
+            if (k1mOk7809) {
+                val now = System.currentTimeMillis()
+                val canSeed = !repairShape8168 || synchronized(ts.history) {
+                    SetupHistoryRepair8168.canReplace(ts.history.toList(), k1m, now)
                 }
+                if (canSeed) keylessSeeded6916 += MultiTimeframeCharts8521.install8521(ts, Frame8521.M1,
+                    k1m, now, "keyless", poolHint6916, provider8521 = true)
+                if (repairShape8168 && keylessSeeded6916 > 0) PipelineHealthCollector.labelInc("SETUP_SHAPE_REPAIRED_KEYLESS_8168")
             }
-            // V5.0.8284 — a fuller history no longer drops the pool klines: they merge by minute and quality.
-            if (k1mOk7809 && keylessSeeded6916 == 0 && !repairShape8168) keylessSeeded6916 += com.lifecyclebot.engine.truth.HeliusSwapCandles7819.mergeIntoHistory7819(ts, k1m)
             if (repairShape8168 && keylessSeeded6916 > 0) return
             // V5.0.8169 — a cooling or empty keyless feed hands the shape repair to Codex before the budget-gated backup.
             if (repairShape8168 && repairShapeFromCodex8169(ts)) return
@@ -681,16 +670,13 @@ class DataOrchestrator(
             // V5.0.8191 — a timeframe another source already filled is never bought again from Birdeye.
             val candles1m = if (ts.history.size >= 10 && !repairShape8168) emptyList() else birdeye.getCandles(mint, "1m", 120)
             if (candles1m.isNotEmpty()) {
-                synchronized(ts.history) {
-                    if (if (repairShape8168) SetupHistoryRepair8168.canReplace(ts.history.toList(), candles1m, System.currentTimeMillis()) else ts.history.size < 10) {
-                        if (repairShape8168) ts.history.clear()
-                        candles1m.forEach { ts.history.addLast(it) }
-                        while (ts.history.size > 300) ts.history.removeFirst()
-                        ts.candleTimeframeMinutes = 1   // explicitly mark as 1M
-                        seeded += candles1m.size
-                        if (repairShape8168) PipelineHealthCollector.labelInc("SETUP_SHAPE_REPAIRED_BACKUP_8168")
-                    }
+                val now = System.currentTimeMillis()
+                val canSeed = !repairShape8168 || synchronized(ts.history) {
+                    SetupHistoryRepair8168.canReplace(ts.history.toList(), candles1m, now)
                 }
+                if (canSeed) seeded += MultiTimeframeCharts8521.install8521(ts, Frame8521.M1,
+                    candles1m, now, "birdeye", provider8521 = true)
+                if (repairShape8168 && seeded > 0) PipelineHealthCollector.labelInc("SETUP_SHAPE_REPAIRED_BACKUP_8168")
             }
         } catch (_: Exception) {}
 
@@ -714,7 +700,7 @@ class DataOrchestrator(
         if (seeded > 0)
             onLog("$symbol: seeded $seeded candles (tf=${ts.candleTimeframeMinutes}m/5m/15m)", mint)
         else
-            onLog("$symbol: Birdeye seed failed — will use real-time data", mint)
+            onLog("$symbol: history top-up added no bars · live subscriptions continue", mint)
     }
 
     // ── Pump.fun WebSocket ────────────────────────────────────────────
@@ -1472,15 +1458,8 @@ class DataOrchestrator(
     private fun codexSeed8191(ts: TokenState): Boolean {
         val bars = try { com.lifecyclebot.engine.chart.ChartSources7955.codexCandles8169(ts.mint) } catch (_: Throwable) { null }
         if (bars == null || bars.size < 2) { DataPipeline8191.noteSeed8191(DataPipeline8191.SRC_CODEX, "none"); return false }
-        val installed = synchronized(ts.history) {
-            if (ts.history.size >= 10) false else {
-                ts.history.clear()
-                bars.forEach { ts.history.addLast(it) }
-                while (ts.history.size > 300) ts.history.removeFirst()
-                ts.candleTimeframeMinutes = 1
-                true
-            }
-        }
+        val installed = MultiTimeframeCharts8521.install8521(ts, Frame8521.M1, bars,
+            System.currentTimeMillis(), "codex", provider8521 = true) > 0
         DataPipeline8191.noteSeed8191(DataPipeline8191.SRC_CODEX, if (installed) "ok" else "unneeded")
         return installed
     }

@@ -1402,8 +1402,14 @@ object MoonshotTraderAI {
             com.lifecyclebot.engine.ErrorLogger.debug(TAG, "Failed to release Moonshot lock: ${e.message}")
         }
         
-        val pnlPct = (exitPrice - pos.entryPrice) / pos.entryPrice * 100
-        val pnlSol = pos.entrySol * (pnlPct / 100)
+        val settled = com.lifecyclebot.engine.SpecialistCloseProjection7858.settledOutcome(mint, isPaper, pos.entryTime, "MOONSHOT")
+        if (settled == null) {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SPECIALIST_CLOSE_UNATTRIBUTED_8672")
+            save()
+            return
+        }
+        val pnlPct = settled.returnPct
+        val pnlSol = settled.netSol
         try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(pos.mint, pos.symbol, "MOONSHOT", "MOONSHOT_CLOSE", pnlPct.toInt().coerceIn(-100, 100), "exit_${exitReason.name}_pnl_${pnlPct.fmt(2)}") } catch (_: Throwable) {}
         // V5.9.1509 — NET-OF-FEE WIN (operator: "win alerts but the gain doesn't
         // represent true gains"). pnlPct here is GROSS price move. A live trade pays
@@ -1531,15 +1537,7 @@ object MoonshotTraderAI {
         // V5.9.211: Sentience wiring — all 41 layers + personality memory update
         try {
             val holdMins = (System.currentTimeMillis() - pos.entryTime) / 60_000.0
-            com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordSimpleTradeOutcome(
-                symbol    = pos.symbol,
-                mint      = pos.mint,
-                pnlPct    = pnlPct,
-                holdMins  = holdMins,
-                traderTag = "MOONSHOT",
-                exitReason = exitReason.name,
-                entryTimeMs = pos.entryTime,
-            )
+            // Executor delivers the position-bound education outcome for this same close.
             com.lifecyclebot.engine.PersonalityMemoryStore.recordTradeOutcome(
                 pnlPct              = pnlPct,
                 gaveBackFromPeakPct = (pos.peakPnlPct - pnlPct).coerceAtLeast(0.0),

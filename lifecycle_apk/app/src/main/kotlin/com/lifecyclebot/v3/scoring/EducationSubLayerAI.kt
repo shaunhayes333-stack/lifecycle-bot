@@ -843,6 +843,15 @@ object EducationSubLayerAI {
      * the cross-asset MetaCognition / Personality accumulators. Does NOT
      * drive the 41-layer meme brain, which must stay pure-meme.
      */
+    internal fun memeOutcomeOwner(lane: String): String = when (val owner = lane.trim().uppercase()) {
+        "BLUE_CHIP" -> "BLUECHIP"
+        "SHITCOIN_EXPRESS", "SHITCOINEXPRESS" -> "EXPRESS"
+        "CASH_GENERATION" -> "CASHGEN"
+        "SHITCOIN", "BLUECHIP", "QUALITY", "DIP_HUNTER", "MANIPULATED", "EXPRESS", "PROJECT_SNIPER",
+        "TREASURY", "CASHGEN", "CORE", "CYCLIC" -> owner
+        else -> if (owner.startsWith("MOONSHOT")) "MOONSHOT" else "MEME"
+    }
+
     private fun recordTradeOutcomeForSubTrader(outcome: TradeOutcomeData) {
         // V5.9.495z21 — same gate as the meme-base fan-out. Sub-trader layers
         // (ShitCoin/Quality/BlueChip/Moonshot/CashGen + PerpsLearningBridge
@@ -858,7 +867,10 @@ object EducationSubLayerAI {
             "QUALITY"                                         -> "QualityTraderAI"
             "BLUECHIP", "BLUE_CHIP"                           -> "BlueChipTraderAI"
             "MOONSHOT"                                        -> "MoonshotTraderAI"
-            "TREASURY", "CASHGEN", "CASH_GENERATION"          -> "CashGenerationAI"
+            "TREASURY", "CASHGEN", "CASH_GENERATION", "CORE", "CYCLIC" -> "CashGenerationAI"
+            "PROJECT_SNIPER" -> "ProjectSniperAI"
+            "DIP_HUNTER" -> "DipHunterAI"
+            "MANIPULATED" -> "ManipulatedTraderAI"
             else                                              -> null
         }
         if (selfLayer != null) {

@@ -4567,9 +4567,9 @@ class GoldenTapeRegressionTest {
     @Test
     fun semanticAndCounterfactual4241FeedOnlyTerminalClosedLearningOutcomes() {
         val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("V5.0.4241: SemanticPatternGraph and CounterfactualReplayEngine must be fed from Executor terminal outcome choke point", executor.contains("SEMANTIC_COUNTERFACTUAL_OUTCOME_4241") && executor.contains("SemanticPatternGraph.recordOutcome") && executor.contains("CounterfactualReplayEngine.recordTerminalTrade"))
+        assertTrue("Terminal research stays in the executor and entry learning has one canonical producer", executor.contains("CounterfactualReplayEngine.recordTerminalTrade") && !executor.contains("SemanticPatternGraph.recordOutcome"))
         assertTrue("V5.0.4241: semantic/counterfactual fanout must be terminal SELL plus closed-learning/accounting trainable gated", executor.contains("""tradeWithMint.side.equals("SELL", true) && ledgerAllowsClosedLearning && accountingTrainable"""))
-        assertTrue("V5.0.4241: semantic/counterfactual fanout must run in side-effect background and never block sell finality", executor.contains("GlobalScope.launch(AppDispatchers.sideEffect)") && executor.contains("never rewrites journal truth") && executor.contains("blocks sell finality"))
+        assertTrue("V5.0.4241: semantic/counterfactual fanout must run in side-effect background and never block sell finality", executor.contains("GlobalScope.launch(AppDispatchers.sideEffect)") && executor.contains("CounterfactualReplayEngine.recordTerminalTrade"))
     }
 
     @Test
@@ -4637,8 +4637,8 @@ class GoldenTapeRegressionTest {
     @Test
     fun terminalFanout4252SnapshotsMutableTokenStateBeforeCoroutine() {
         val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("V5.0.4252: terminal semantic/research fanout must snapshot mint/symbol/deployer before side-effect coroutine", executor.contains("val graphMint = graphTrade.mint.ifBlank { ts.mint }") && executor.contains("val graphSymbol = ts.symbol") && executor.contains("val graphDeployer = ts.tokenMap.creatorOrDevWallet"))
-        assertTrue("V5.0.4252: side-effect fanout must use event-local snapshots for deployer and ResearchScout request", executor.contains("deployer = graphDeployer") && executor.contains("mint = graphMint") && executor.contains("symbol = graphSymbol"))
+        assertTrue("V5.0.4252: terminal research fanout must snapshot mint/symbol before side-effect coroutine", executor.contains("val graphMint = graphTrade.mint.ifBlank { ts.mint }") && executor.contains("val graphSymbol = ts.symbol"))
+        assertTrue("V5.0.4252: research fanout must use event-local identity", executor.contains("mint = graphMint") && executor.contains("symbol = graphSymbol"))
     }
 
     @Test

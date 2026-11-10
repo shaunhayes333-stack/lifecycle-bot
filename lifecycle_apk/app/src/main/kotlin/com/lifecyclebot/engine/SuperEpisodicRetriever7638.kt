@@ -87,6 +87,7 @@ object SuperEpisodicRetriever7638 {
                     source = sourceFamily,
                     dnaKey = "tradeType=" + tradeType + "|setup=" + setup + "|style=" + style,
                     limit = 8,
+                    mode = if (liveMode) "LIVE" else "PAPER",
                 )
                 semanticMult = sem.sizeMult
                 semanticDelta = sem.scoreDelta

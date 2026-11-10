@@ -12561,118 +12561,23 @@ class BotService : Service() {
                 if (System.currentTimeMillis() % 1000L < 550L) {
                     try {
                         val subFloor = -15.0  // unconditional -15% hard floor
-                        // List of (mint, entryPrice, closeFn) triples built from each sub-trader
-                        val subPositions = mutableListOf<Triple<String, Double, (Double) -> Unit>>()
+                        // A stop requests execution. Only the confirmed close may retire inventory or publish a lesson.
+                        val subPositions = mutableSetOf<Pair<String, Double>>()
+                        try { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions().forEach { subPositions.add(it.mint to it.entryPrice) } } catch (_: Throwable) {}
+                        try { com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions().forEach { subPositions.add(it.mint to it.entryPrice) } } catch (_: Throwable) {}
+                        try { com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositions().forEach { subPositions.add(it.mint to it.entryPrice) } } catch (_: Throwable) {}
+                        try { com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions().forEach { subPositions.add(it.mint to it.entryPrice) } } catch (_: Throwable) {}
+                        try { com.lifecyclebot.v3.scoring.ManipulatedTraderAI.getActivePositions().forEach { subPositions.add(it.mint to it.entryPrice) } } catch (_: Throwable) {}
+                        try { com.lifecyclebot.v3.scoring.DipHunterAI.getActiveDips().forEach { subPositions.add(it.mint to it.entryPrice) } } catch (_: Throwable) {}
+                        try { com.lifecyclebot.v3.scoring.ProjectSniperAI.getActiveMissions().forEach { subPositions.add(it.mint to it.entryPrice) } } catch (_: Throwable) {}
+                        try { com.lifecyclebot.v3.scoring.ShitCoinExpress.getActiveRides().forEach { subPositions.add(it.mint to it.entryPrice) } } catch (_: Throwable) {}
 
-                        try {
-                            com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions().forEach { p ->
-                                subPositions.add(Triple(p.mint, p.entryPrice) { price ->
-                                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(
-                                        p.mint, price,
-                                        com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.STOP_LOSS)
-                                })
-                            }
-                        } catch (_: Throwable) {}
-
-                        try {
-                            com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions().forEach { p ->
-                                subPositions.add(Triple(p.mint, p.entryPrice) { price ->
-                                    com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(
-                                        p.mint, price,
-                                        com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.STOP_LOSS)
-                                })
-                            }
-                        } catch (_: Throwable) {}
-
-                        try {
-                            com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositions().forEach { p ->
-                                subPositions.add(Triple(p.mint, p.entryPrice) { price ->
-                                    com.lifecyclebot.v3.scoring.QualityTraderAI.closePosition(
-                                        p.mint, price, com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.STOP_LOSS)
-                                })
-                            }
-                        } catch (_: Throwable) {}
-
-                        try {
-                            com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions().forEach { p ->
-                                subPositions.add(Triple(p.mint, p.entryPrice) { price ->
-                                    com.lifecyclebot.v3.scoring.BlueChipTraderAI.closePosition(
-                                        p.mint, price, com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.STOP_LOSS)
-                                })
-                            }
-                        } catch (_: Throwable) {}
-
-                        // V5.9.963 — EXTEND SWEEP TO ALL 9 SUB-TRADERS.
-                        // Pre-fix only 4 of 9 sub-traders were swept. The other 5
-                        // (Moonshot, Quality, Manipulated, DipHunter, ProjectSniper,
-                        // ShitCoinExpress) could leak zombies that paperSell missed.
-                        // With the V5.9.963 universal close in Executor.kt this is
-                        // belt-and-braces, but it also guarantees that ANY future
-                        // entry path that bypasses paperSell's close block still
-                        // gets cleaned up.
-                        try {
-                            com.lifecyclebot.v3.scoring.ManipulatedTraderAI.getActivePositions().forEach { p ->
-                                subPositions.add(Triple(p.mint, p.entryPrice) { price ->
-                                    com.lifecyclebot.v3.scoring.ManipulatedTraderAI.closePosition(
-                                        p.mint, price,
-                                        com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipExitSignal.STOP_LOSS)
-                                })
-                            }
-                        } catch (_: Throwable) {}
-                        try {
-                            com.lifecyclebot.v3.scoring.DipHunterAI.getActiveDips().forEach { p ->
-                                subPositions.add(Triple(p.mint, p.entryPrice) { price ->
-                                    com.lifecyclebot.v3.scoring.DipHunterAI.closeDip(
-                                        p.mint, price,
-                                        com.lifecyclebot.v3.scoring.DipHunterAI.DipExitSignal.STOP_LOSS)
-                                })
-                            }
-                        } catch (_: Throwable) {}
-                        try {
-                            com.lifecyclebot.v3.scoring.ProjectSniperAI.getActiveMissions().forEach { p ->
-                                subPositions.add(Triple(p.mint, p.entryPrice) { price ->
-                                    val snEx = com.lifecyclebot.v3.scoring.ProjectSniperAI.ExitSignal(
-                                        shouldExit = true,
-                                        exitPct = 100,
-                                        reason = "STOP_LOSS",
-                                        rank = com.lifecyclebot.v3.scoring.ProjectSniperAI.SniperRank.PENDING,
-                                    )
-                                    com.lifecyclebot.v3.scoring.ProjectSniperAI.completeMission(p.mint, price, snEx)
-                                })
-                            }
-                        } catch (_: Throwable) {}
-                        try {
-                            com.lifecyclebot.v3.scoring.ShitCoinExpress.getActiveRides().forEach { p ->
-                                subPositions.add(Triple(p.mint, p.entryPrice) { price ->
-                                    com.lifecyclebot.v3.scoring.ShitCoinExpress.exitRide(
-                                        p.mint, price,
-                                        com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.STOP_LOSS)
-                                })
-                            }
-                        } catch (_: Throwable) {}
-
-                        for ((mint, entryPrice, closeFn) in subPositions) {
-                            if (entryPrice <= 0.0) continue
-                            // V5.9.963 — SELF-CLEANING ZOMBIE PURGE.
-                            // If the main status.tokens position is already closed
-                            // (qtyToken=0 / pendingVerify) the sub-trader's private
-                            // map is stale -- the bleed source for V5.9.962's
-                            // SELL_LOCK churn (417 sets / 3 real sells). Purge
-                            // the sub-trader entry silently so the next sweep
-                            // tick is a no-op for this mint.
-                            val tsPurge = synchronized(status.tokens) { status.tokens[mint] }
-                            if (tsPurge != null && !tsPurge.position.isOpen) {
-                                try { closeFn(tsPurge.lastPrice.coerceAtLeast(entryPrice)) }
-                                catch (_: Throwable) {}
-                                ForensicLogger.lifecycle(
-                                    "SUB_TRADER_ZOMBIE_PURGE",
-                                    "mint=${mint.take(10)} entryPrice=$entryPrice — main pos closed, purging sub-trader map"
-                                )
-                                continue
-                            }
-                            // Cheapest price source: status.tokens (no RPC hit)
-                            val ts = synchronized(status.tokens) { status.tokens[mint] }
-                            val currentPrice = ts?.lastPrice?.takeIf { it > 0.0 } ?: continue
+                        for ((mint, nativeEntryPrice) in subPositions) {
+                            val ts = synchronized(status.tokens) { status.tokens[mint] } ?: continue
+                            if (!ts.position.isOpen || ts.position.isPaperPosition != cfg.paperMode) continue
+                            val entryPrice = ts.position.entryPrice.takeIf { it.isFinite() && it > 0.0 }
+                                ?: nativeEntryPrice.takeIf { it.isFinite() && it > 0.0 } ?: continue
+                            val currentPrice = ts.lastPrice.takeIf { it.isFinite() && it > 0.0 } ?: continue
                             val subPnlVerdict = subTraderPnl8032(ts, entryPrice, currentPrice)
                             if (!subPnlVerdict.ok) continue
                             val pnlPct = subPnlVerdict.pnlPct
@@ -12680,19 +12585,10 @@ class BotService : Service() {
                                 ErrorLogger.warn("BotService",
                                     "🚨 RAPID_SUB_TRADER_HARD_FLOOR: $mint pnl=${pnlPct.toInt()}% — force-closing")
                                 addLog("🛑 SUB-TRADER RAPID STOP: $mint ${pnlPct.toInt()}%")
-                                try { closeFn(currentPrice) } catch (e2: Exception) {
-                                    ErrorLogger.warn("BotService", "Sub-trader closeFn failed $mint: ${e2.message}")
-                                }
-                                // Belt-and-suspenders: also fire executor path if we have a TokenState
-                                if (ts != null) {
-                                    try {
-                                        executor.requestSell(
-                                            ts = ts,
-                                            reason = "RAPID_SUB_TRADER_HARD_FLOOR",
-                                            wallet = wallet,
-                                            walletSol = effectiveBalance)
-                                    } catch (_: Throwable) {}
-                                }
+                                try {
+                                    executor.requestSell(ts = ts, reason = "RAPID_SUB_TRADER_HARD_FLOOR",
+                                        wallet = wallet, walletSol = effectiveBalance)
+                                } catch (_: Throwable) {}
                             }
                         }
                     } catch (e: Exception) {

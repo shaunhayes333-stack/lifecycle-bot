@@ -801,8 +801,14 @@ object QualityTraderAI {
             return
         }
 
-        val pnlPct = (exitPrice - pos.entryPrice) / pos.entryPrice * 100
-        val pnlSol = pos.entrySol * pnlPct / 100
+        val settled = com.lifecyclebot.engine.SpecialistCloseProjection7858.settledOutcome(mint, isPaper, pos.entryTime, "QUALITY")
+        if (settled == null) {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SPECIALIST_CLOSE_UNATTRIBUTED_8672")
+            save()
+            return
+        }
+        val pnlPct = settled.returnPct
+        val pnlSol = settled.netSol
         val isWin = pnlPct > 0.0  // V5.9.408: restored pre-225 win-threshold
         val holdMinutesLong = (System.currentTimeMillis() - pos.entryTime) / 60_000L
         try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(pos.mint, pos.symbol, "QUALITY", "QUALITY_CLOSE", pnlPct.toInt().coerceIn(-100, 100), "exit_${exitSignal.name}_pnl_${pnlPct.fmt(2)}") } catch (_: Throwable) {}

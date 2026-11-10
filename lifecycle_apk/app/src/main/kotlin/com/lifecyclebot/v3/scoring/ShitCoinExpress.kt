@@ -933,15 +933,7 @@ object ShitCoinExpress {
         try {
             val isWin = outcomePnlPct8527 > 0.0  // V5.9.408: restored pre-225 threshold
             val holdMins = (System.currentTimeMillis() - ride.entryTime) / 60_000.0
-            com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordSimpleTradeOutcome(
-                symbol     = ride.symbol,
-                mint       = ride.mint,
-                pnlPct     = outcomePnlPct8527,
-                holdMins   = holdMins,
-                traderTag  = "EXPRESS",
-                exitReason = exitSignal.name,
-                entryTimeMs = ride.entryTime,
-            )
+            // Executor delivers the position-bound education outcome for this same close.
             com.lifecyclebot.engine.PersonalityMemoryStore.recordTradeOutcome(
                 pnlPct              = outcomePnlPct8527,
                 gaveBackFromPeakPct = (ride.peakPnlPct - outcomePnlPct8527).coerceAtLeast(0.0),

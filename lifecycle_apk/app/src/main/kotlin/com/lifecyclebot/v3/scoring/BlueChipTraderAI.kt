@@ -407,10 +407,14 @@ object BlueChipTraderAI {
         }
         
         // Guard: if entryPrice was zero/near-zero, pnlPct blows up — cap to realistic range
-        val pnlPct = if (pos.entryPrice > 0) {
-            ((exitPrice - pos.entryPrice) / pos.entryPrice * 100).coerceIn(-100.0, 10_000.0)
-        } else 0.0
-        val pnlSol = pos.entrySol * pnlPct / 100
+        val settled = com.lifecyclebot.engine.SpecialistCloseProjection7858.settledOutcome(mint, isPaper, pos.entryTime, "BLUECHIP")
+        if (settled == null) {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SPECIALIST_CLOSE_UNATTRIBUTED_8672")
+            save()
+            return
+        }
+        val pnlPct = settled.returnPct
+        val pnlSol = settled.netSol
         try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(pos.mint, pos.symbol, "BLUECHIP", "BLUECHIP_CLOSE", pnlPct.toInt().coerceIn(-100, 100), "exit_${exitReason.name}_pnl_${pnlPct.fmt(2)}") } catch (_: Throwable) {}
         val holdMinutesLong = (System.currentTimeMillis() - pos.entryTime) / 60_000L
 

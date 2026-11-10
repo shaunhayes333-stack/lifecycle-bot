@@ -105,7 +105,8 @@ object UltimateEdgeEngine {
         val capitalEfficiency7777 = try {
             CapitalEfficiencyBrain.sizeMultiplier(safeLane, safeSource).coerceIn(0.50, 1.50)
         } catch (_: Throwable) { 1.0 }
-        val semantic = try {
+        // SHITCOIN already consumes this evidence directly in ShitCoinTraderAI.
+        val semantic = if (safeLane == "SHITCOIN") SemanticPatternGraph.EntryBias(1.0, 0, "direct_reader") else try {
             SemanticPatternGraph.entryDnaBias(
                 setup = "$symbol $safeLane $safeSource score_$entryScore ${reason.take(80)}",
                 lane = safeLane,
@@ -177,7 +178,7 @@ object UltimateEdgeEngine {
     fun exportState(): String = JSONArray().also { a ->
         cards.values.sortedByDescending { it.generatedAtMs }.take(240).forEach { c ->
             a.put(JSONObject()
-                .put("mint", c.mint).put("symbol", c.symbol).put("lane", c.lane).put("source", c.source)
+                .put("schema", 2).put("mint", c.mint).put("symbol", c.symbol).put("lane", c.lane).put("source", c.source)
                 .put("scoreBias", c.scoreBias).put("sizeMult", c.sizeMult)
                 .put("semanticReason", c.semanticReason).put("sourceSummary", c.sourceSummary)
                 .put("routeSummary", c.routeSummary).put("researchHint", c.researchHint)
@@ -196,6 +197,8 @@ object UltimateEdgeEngine {
             cards.clear()
             for (i in 0 until a.length().coerceAtMost(240)) {
                 val o = a.optJSONObject(i) ?: continue
+                // Older composite cards can contain duplicate or unscoped training signals.
+                if (o.optInt("schema") != 2) continue
                 val card = LaneEdgeCard(
                     mint = o.optString("mint"),
                     symbol = o.optString("symbol"),

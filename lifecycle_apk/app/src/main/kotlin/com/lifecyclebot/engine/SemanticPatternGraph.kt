@@ -26,6 +26,7 @@ object SemanticPatternGraph {
         val failureMode: String,
         val pnlPct: Double,
         val peakGainPct: Double,
+        val mode: String = "",
         val createdAtMs: Long = System.currentTimeMillis(),
     )
 
@@ -62,24 +63,28 @@ object SemanticPatternGraph {
         failureMode: String = "",
         pnlPct: Double = 0.0,
         peakGainPct: Double = 0.0,
+        positionId: String,
+        mode: String,
     ): String {
         val safeSetup = setup.trim().take(600)
-        if (safeSetup.isBlank()) return ""
-        val id = stableId(lane, source, safeSetup, deployer, exitReason, failureMode, pnlPct, peakGainPct)
+        val book = mode.uppercase()
+        if (safeSetup.isBlank() || positionId.isBlank() || book !in setOf("LIVE", "PAPER") || !pnlPct.isFinite()) return ""
+        val id = "position|$book|$positionId"
         val node = PatternNode(
             id = id,
+            mode = book,
             lane = lane.uppercase().take(32),
             source = source.uppercase().take(64),
             setup = safeSetup,
-            deployer = deployer.lowercase().take(96),
+            deployer = deployer.trim().take(96),
             exitReason = exitReason.uppercase().take(96),
             failureMode = failureMode.uppercase().take(96),
             pnlPct = pnlPct.coerceIn(-500.0, 10_000.0),
             peakGainPct = peakGainPct.coerceIn(-100.0, 100_000.0),
         )
         synchronized(nodes) {
-            nodes.removeAll { it.id == id }
-            val prior = nodes.takeLast(MAX_PRIOR_EDGE_SCAN)
+            if (nodes.any { it.id == id }) return id
+            val prior = nodes.takeLast(MAX_PRIOR_EDGE_SCAN).filter { it.mode == book }
             nodes.add(node)
             buildEdgesFor(node, prior)
             while (nodes.size > MAX_NODES) nodes.removeAt(0)
@@ -88,11 +93,12 @@ object SemanticPatternGraph {
         return id
     }
 
-    fun querySimilar(setup: String, lane: String = "", limit: Int = 8): List<PatternNode> {
+    fun querySimilar(setup: String, lane: String = "", limit: Int = 8, mode: String? = null): List<PatternNode> {
         val q = tokenSet(setup)
         if (q.isEmpty()) return emptyList()
         return synchronized(nodes) {
             nodes.asSequence()
+                .filter { mode == null || it.mode == mode }
                 .filter { lane.isBlank() || it.lane.equals(lane, ignoreCase = true) }
                 .map { it to jaccard(q, tokenSet(it.setup)) }
                 .filter { it.second >= 0.25 }
@@ -105,9 +111,9 @@ object SemanticPatternGraph {
 
 
     /** V5.0.4255 — cached entry readback only. No API, no hard block. */
-    fun entryBias(setup: String, lane: String = "", limit: Int = 12): EntryBias {
+    fun entryBias(setup: String, lane: String = "", limit: Int = 12, mode: String = "LIVE"): EntryBias {
         return try {
-            val similar = querySimilar(setup, lane, limit.coerceIn(3, 20))
+            val similar = querySimilar(setup, lane, limit.coerceIn(3, 20), mode)
             if (similar.isEmpty()) return EntryBias(1.0, 0, "semantic:none")
             biasFromNodes(similar, "semantic")
         } catch (_: Throwable) { EntryBias(1.0, 0, "semantic:error") }
@@ -121,14 +127,16 @@ object SemanticPatternGraph {
         source: String = "",
         dnaKey: String = "",
         limit: Int = 16,
+        mode: String = "LIVE",
     ): EntryBias {
         return try {
             val setupTokens = tokenSet(setup + " " + dnaKey)
-            val deployerKey = deployer.lowercase().take(96)
+            val deployerKey = deployer.trim().take(96)
             val sourceKey = source.uppercase().take(64)
             val laneKey = lane.uppercase().take(32)
             val similar = synchronized(nodes) {
                 nodes.asSequence()
+                    .filter { it.mode == mode && mode in setOf("LIVE", "PAPER") }
                     .filter { laneKey.isBlank() || it.lane.equals(laneKey, ignoreCase = true) }
                     .map { node ->
                         val setupSim = jaccard(setupTokens, tokenSet(node.setup)).coerceIn(0.0, 1.0)
@@ -171,9 +179,9 @@ object SemanticPatternGraph {
      */
     private fun biasFromNodes(similar: List<PatternNode>, prefix: String): EntryBias {
         val avgPnl = similar.map { it.pnlPct }.average()
-        val runnerRate = similar.count { it.peakGainPct >= 100.0 || it.pnlPct >= 50.0 }.toDouble() / similar.size.toDouble()
+        val runnerRate = similar.count { it.pnlPct >= 50.0 }.toDouble() / similar.size.toDouble()
         return when {
-            avgPnl >= 25.0 || runnerRate >= 0.35 -> EntryBias(1.06, 4, "$prefix:runner avg=${avgPnl.fmt1()} rr=${runnerRate.fmt1()}")
+            avgPnl >= 25.0 || (avgPnl > 0.0 && runnerRate >= 0.35) -> EntryBias(1.06, 4, "$prefix:runner avg=${avgPnl.fmt1()} rr=${runnerRate.fmt1()}")
             avgPnl <= -15.0 -> EntryBias(0.94, -4, "$prefix:weak avg=${avgPnl.fmt1()}")
             else -> EntryBias(1.0, 0, "$prefix:neutral avg=${avgPnl.fmt1()}")
         }
@@ -190,7 +198,7 @@ object SemanticPatternGraph {
         val n = JSONArray()
         nodes.takeLast(MAX_NODES).forEach { x ->
             n.put(JSONObject().apply {
-                put("id", x.id); put("lane", x.lane); put("source", x.source); put("setup", x.setup)
+                put("mode", x.mode); put("id", x.id); put("lane", x.lane); put("source", x.source); put("setup", x.setup)
                 put("deployer", x.deployer); put("exitReason", x.exitReason); put("failureMode", x.failureMode)
                 put("pnlPct", x.pnlPct); put("peakGainPct", x.peakGainPct); put("createdAt", x.createdAtMs)
             })
@@ -213,7 +221,7 @@ object SemanticPatternGraph {
             for (i in 0 until n.length()) {
                 val x = n.optJSONObject(i) ?: continue
                 restoredNodes.add(PatternNode(
-                    id = x.optString("id"), lane = x.optString("lane"), source = x.optString("source"), setup = x.optString("setup"),
+                    mode = x.optString("mode"), id = x.optString("id"), lane = x.optString("lane"), source = x.optString("source"), setup = x.optString("setup"),
                     deployer = x.optString("deployer"), exitReason = x.optString("exitReason"), failureMode = x.optString("failureMode"),
                     pnlPct = x.optDouble("pnlPct", 0.0), peakGainPct = x.optDouble("peakGainPct", 0.0), createdAtMs = x.optLong("createdAt", System.currentTimeMillis())
                 ))
@@ -251,11 +259,6 @@ object SemanticPatternGraph {
             if (node.failureMode.isNotBlank() && node.failureMode == old.failureMode) addEdge(PatternEdge(node.id, old.id, EdgeKind.SAME_FAILURE_MODE, 0.9))
             if ((node.peakGainPct >= 100.0 && old.peakGainPct >= 100.0) || (node.pnlPct >= 50.0 && old.pnlPct >= 50.0)) addEdge(PatternEdge(node.id, old.id, EdgeKind.RUNNER_FAMILY, 0.8))
         }
-    }
-
-    private fun stableId(vararg parts: Any): String {
-        val raw = parts.joinToString("|") { it.toString().take(120) }
-        return "spg_" + java.lang.Long.toUnsignedString(raw.hashCode().toLong() xor raw.length.toLong())
     }
 
     private fun tokenSet(s: String): Set<String> = s.lowercase()

@@ -35,7 +35,7 @@ internal object SpecialistInputParity8527 {
         website: String?, twitter: String?, telegram: String?, devWallet: String?,
         migrated: Boolean,
     ): ShitcoinEvidence = ShitcoinEvidence(
-        buyPressurePct?.takeIf { it.isFinite() && it in 0.0..100.0 } ?: 50.0,
+        buyPressurePct?.takeIf { it.isFinite() && it in 0.0..100.0 } ?: Double.NaN,
         volatility?.takeIf { it.isFinite() && it >= 0.0 } ?: 0.0,
         socialScore?.takeIf { it.isFinite() }?.toInt()?.coerceIn(0, 100) ?: 0,
         !website.isNullOrBlank(), !twitter.isNullOrBlank(), !telegram.isNullOrBlank(),

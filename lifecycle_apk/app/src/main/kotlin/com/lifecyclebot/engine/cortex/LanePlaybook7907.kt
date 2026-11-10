@@ -1672,10 +1672,11 @@ object LanePlaybook7907 {
     private const val OPTIONS_TTL_MS_8153 = 1_000L
 
     /** V5.0.8153 — the ranked strategy pick over this coin's fired setups (default = the classifier's consumer tag). */
-    fun strategyPick8153(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): com.lifecyclebot.engine.truth.StrategyRank8153.Pick8153? = try {
+    fun strategyPick8153(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis(),
+                         frame: F? = runCatching { features(ts, nowMs) }.getOrNull()): com.lifecyclebot.engine.truth.StrategyRank8153.Pick8153? = try {
         val lane = canon(laneRaw)
-        val default8323 = classify(ts, lane, nowMs)
-        val opts8323 = strategyOptions8153(ts, lane, nowMs)
+        val default8323 = classify(ts, lane, nowMs)?.takeIf { SetupAuthority8535.executable8535(it, frame) }
+        val opts8323 = strategyOptions8153(ts, lane, nowMs).filter { SetupAuthority8535.executable8535(it.id, frame) }
         // V5.0.8323 — the lane's cheat sheet: a favoured fired setup first, an avoided one only on its re-probe slot.
         LaneCheatSheet8323.refresh8323(nowMs)
         val memo8323 = HashMap<String, LaneCheatSheet8323.Verdict8323>()

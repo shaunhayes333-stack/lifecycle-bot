@@ -6120,13 +6120,20 @@ for legal compliance.
                 basisTrusted = view8078.basisOk
                 gainPct = if (view8078.basisOk) view8078.pnlPct else 0.0
             }
+            val needsExitQuote = !pos.isPaperPosition && (view8078?.solanaPosition ?: !ts.mint.contains('|'))
+            if (needsExitQuote) {
+                basisTrusted = basisTrusted && view8078?.canDisplayPnl(false) == true
+                gainPct = if (basisTrusted) view8078?.executablePnlPct ?: 0.0 else 0.0
+            }
+            val pnlPending = if (needsExitQuote && view8078?.basisOk == true &&
+                view8078.executablePnlSol == null) "exit quote pending" else "basis wait"
             val gainCol = if (!basisTrusted) muted else if (gainPct >= 0) green else red
-            val pnlSol  = if (basisTrusted) repairedCostSol6412 * gainPct / 100.0 else 0.0
+            val pnlSol  = if (basisTrusted) view8078?.executablePnlSol ?: (repairedCostSol6412 * gainPct / 100.0) else 0.0
 
             // V5.6.18: Use actual token quantity from position, not calculated value
             // V5.0.6321 — prefer canonical qty when available (wallet-verified).
             val tokenAmount = entryQtyForCard6321
-            val currentValue = repairedCostSol6412 + pnlSol  // Current value in SOL (V5.0.6412 uses repaired basis)
+            val currentValue = if (basisTrusted && needsExitQuote) view8078?.valueSol ?: 0.0 else repairedCostSol6412 + pnlSol  // Current value in SOL (V5.0.6412 uses repaired basis)
             val valueUsd = currentValue * solPrice
             val routeTruth6030 = try { com.lifecyclebot.engine.RealPriceLock.lastRouteTruth(ts.mint) } catch (_: Throwable) { null }
             val entryRoute6100 = listOf(pos.entryPriceSource, pos.entryPoolAddress, ts.lastPricePoolAddr, ts.pairAddress, ts.source, ts.tokenMap.routeStatus)
@@ -6134,7 +6141,7 @@ for legal compliance.
                 ?.take(28)
                 ?: ""
             val routeTruthText6030 = when {
-                !basisTrusted -> "basis wait"
+                !basisTrusted -> pnlPending
                 pos.isPaperPosition -> "PAPER unrealized"
                 routeTruth6030 != null -> "UNREALIZED · ROUTE ~${"%.1f".format(routeTruth6030.impliedRatio)}x${if (routeTruth6030.ok) " ok" else " claim-mismatch"}"
                 gainPct >= 500.0 && entryRoute6100.isNotBlank() -> "UNREALIZED · entry route ${entryRoute6100}"
@@ -6178,11 +6185,11 @@ for legal compliance.
             val cached = openPosCardCache[ts.mint]
             if (cached != null && cached.staticHash == staticHash) {
                 // ── REUSE PATH — update only the live fields, no View construction.
-                cached.pnlPctTv.text = if (basisTrusted) "%+.1f%%".format(gainPct) else "basis wait"
+                cached.pnlPctTv.text = if (basisTrusted) "%+.1f%%".format(gainPct) else pnlPending
                 cached.pnlPctTv.setTextColor(gainCol)
                 cached.pnlSolTv.text = if (basisTrusted) "%+.4f◎".format(pnlSol) else "—"
                 cached.pnlSolTv.setTextColor(gainCol)
-                cached.usdTv.text = if (basisTrusted && solPrice > 0) "≈\$%.2f · %s".format(valueUsd, routeTruthText6030) else "≈\$— · basis wait"
+                cached.usdTv.text = if (basisTrusted && solPrice > 0) "≈\$%.2f · %s".format(valueUsd, routeTruthText6030) else "≈\$— · $pnlPending"
                 cached.markTv7807?.text = markLine7807
                 cached.barView.setBackgroundColor(gainCol)
                 // live trail + lock (mirror the build-path math). Never mutate peak/lock off untrusted basis.
@@ -6517,7 +6524,7 @@ for legal compliance.
             }
             // PnL percentage
             right.addView(TextView(this).apply {
-                text = if (basisTrusted) "%+.1f%%".format(gainPct) else "basis wait"
+                text = if (basisTrusted) "%+.1f%%".format(gainPct) else pnlPending
                 textSize = resources.getDimension(R.dimen.token_name_size) / resources.displayMetrics.scaledDensity
                 setTextColor(gainCol)
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
@@ -6535,7 +6542,7 @@ for legal compliance.
             })
             // Current value in USD — only show if we have real price data
             right.addView(TextView(this).apply {
-                text = if (basisTrusted && solPrice > 0) "≈\$%.2f · %s".format(valueUsd, routeTruthText6030) else "≈\$— · basis wait"
+                text = if (basisTrusted && solPrice > 0) "≈\$%.2f · %s".format(valueUsd, routeTruthText6030) else "≈\$— · $pnlPending"
                 textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
                 setTextColor(muted)
                 typeface = android.graphics.Typeface.MONOSPACE

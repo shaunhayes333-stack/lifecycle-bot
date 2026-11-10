@@ -86,6 +86,7 @@ object EntryStrategySnapshot6450 {
         val v4EntryContext8491: String = "",
         // Optional, immutable, presence-aware numeric observations captured before this entry executed.
         val adaptiveEntry8527: String = "",
+        val entryDeployer: String = "",
     )
 
     private val snapshots = ConcurrentHashMap<String, Snapshot>() // positionId -> Snapshot
@@ -164,7 +165,7 @@ object EntryStrategySnapshot6450 {
                 .put("brainConfidence", snap.brainConsensusConfidence).put("brainObjections", snap.brainConsensusObjections)
                 .put("policyAuthority", snap.policyAuthority).put("policyProbability", snap.policyProbability)
                 .put("metaPolicy", snap.metaPolicyContext).put("specialists", snap.specialistContributions)
-                .put("liqUsd", snap.entryLiquidityUsd).put("velocity", snap.entryVolumeVelocity)
+                .put("entryDeployer", snap.entryDeployer).put("liqUsd", snap.entryLiquidityUsd).put("velocity", snap.entryVolumeVelocity)
                 .put("buyPressure", snap.entryBuyPressurePct).put("sellPressure", snap.entrySellPressurePct)
                 .put("holders", snap.entryHolderConcentrationPct).put("rug", snap.entryRugEvidence)
                 .put("ageMs", snap.entryTokenAgeMs).put("priceUsd", snap.entryPriceUsd)
@@ -246,7 +247,7 @@ object EntryStrategySnapshot6450 {
             brainConsensusConfidence = j.optDouble("brainConfidence", 0.0), brainConsensusObjections = j.optString("brainObjections", ""),
             policyAuthority = j.optString("policyAuthority", "BOOTSTRAP"), policyProbability = j.optDouble("policyProbability", 0.5),
             metaPolicyContext = j.optString("metaPolicy", ""), specialistContributions = j.optString("specialists", ""),
-            entryLiquidityUsd = j.optDouble("liqUsd", 0.0), entryVolumeVelocity = j.optDouble("velocity", 0.0),
+            entryDeployer = j.optString("entryDeployer"), entryLiquidityUsd = j.optDouble("liqUsd", 0.0), entryVolumeVelocity = j.optDouble("velocity", 0.0),
             entryBuyPressurePct = j.optDouble("buyPressure", 50.0), entrySellPressurePct = j.optDouble("sellPressure", 50.0),
             entryHolderConcentrationPct = j.optDouble("holders", 0.0), entryRugEvidence = j.optString("rug", ""),
             entryTokenAgeMs = j.optLong("ageMs", 0L), entryPriceUsd = j.optDouble("priceUsd", 0.0),

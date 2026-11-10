@@ -5457,18 +5457,11 @@ class Executor(
         // profitable exit not-optimal and nearly every losing exit optimal. It is now
         // fed by ExitRegret7752.tick with the real price after the exit.
 
-        // V5.0.4241 — ASI/A18/A19 terminal-outcome fanout.
-        // Feed the new SemanticPatternGraph and CounterfactualReplayEngine from
-        // the same terminal SELL + closed-learning + accounting-trainable gate
-        // used by SellOptimizationAI. This is side-effect/background only:
-        // it never rewrites journal truth, never touches entry gates, and never
-        // blocks sell finality.
+        // Counterfactual exit research consumes terminal path data here. Entry learning consumes canonical finality.
         try {
             if (tradeWithMint.side.equals("SELL", true) && ledgerAllowsClosedLearning && accountingTrainable && rowLearningAdmitted4349) {
                 val graphTrade = tradeWithMint
                 val graphLane = graphTrade.tradingMode.ifBlank { "STANDARD" }
-                val graphSource = ts.source.ifBlank { ts.lastPriceSource.ifBlank { "UNKNOWN" } }
-                val graphSetup = "phase=${ts.phase}|ema=${ts.meta.emafanAlignment}|rsi=${ts.meta.rsi}|liq=${ts.lastLiquidityUsd.toInt()}|mcap=${ts.lastMcap.toLong()}|score=${graphTrade.score.toInt()}|source=$graphSource"
                 val graphEntry = ts.position.entryPrice
                 val graphPeak = ts.position.highestPrice
                 val graphLow = ts.position.lowestPrice
@@ -5478,19 +5471,8 @@ class Executor(
                 val runnerReplayHint = try { CounterfactualReplayEngine.policyHints(graphLane) } catch (_: Throwable) { "" }
                 val graphMint = graphTrade.mint.ifBlank { ts.mint }
                 val graphSymbol = ts.symbol
-                val graphDeployer = ts.tokenMap.creatorOrDevWallet
                 GlobalScope.launch(AppDispatchers.sideEffect) {
                     try {
-                        com.lifecyclebot.engine.SemanticPatternGraph.recordOutcome(
-                            lane = graphLane,
-                            source = graphSource,
-                            setup = graphSetup,
-                            deployer = graphDeployer,
-                            exitReason = graphTrade.reason,
-                            failureMode = if (graphTrade.pnlPct < 0.0) graphTrade.reason else "",
-                            pnlPct = graphTrade.pnlPct,
-                            peakGainPct = graphPeakPct,
-                        )
                         com.lifecyclebot.engine.CounterfactualReplayEngine.recordTerminalTrade(
                             lane = graphLane,
                             exitReason = graphTrade.reason,
@@ -11214,6 +11196,7 @@ class Executor(
             val snap = ts.position.entryPolicySnapshot
             com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.setEntry(
                 com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.Snapshot(
+                    entryDeployer = ts.tokenMap.creatorOrDevWallet.orEmpty(),
                     positionId = positionIdHint, mint = ts.mint, entryLane = intent.canonicalLane,
                     entryStrategyPid = "", entryTactic = policyField6568(snap, "entryTactic").ifBlank { "UNKNOWN" },
                     entryRiskProfile = "", entryExitProfile = "", entrySource = ts.source.ifBlank { "LIVE" },
@@ -13966,6 +13949,7 @@ class Executor(
         val ts = try { BotService.status.tokens[intent.mint] } catch (_: Throwable) { null }
         val policy = ts?.position?.entryPolicySnapshot.orEmpty()
         com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.Snapshot(
+            entryDeployer = ts?.tokenMap?.creatorOrDevWallet.orEmpty(),
             positionId = "", mint = intent.mint, entryLane = lane, entryStrategyPid = "",
             candidateVersion8090 = intent.candidateVersion, mode8090 = intent.mode,
             entryTactic = policyField6568(policy, "entryTactic").ifBlank { "UNKNOWN" },
@@ -15805,6 +15789,7 @@ class Executor(
             entryDeskHypothesis6599?.let { ts.styleHoldMult = it.holdMult.coerceIn(0.30, 3.50) }
             com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.setEntry(
                 com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.Snapshot(
+                    entryDeployer = ts.tokenMap.creatorOrDevWallet.orEmpty(),
                     positionId = pid6450, candidateVersion8090 = tradeId.fdgCandidateVersion, mode8090 = "PAPER",
                     runnerEntry = sealedIntent6613?.runnerEntry == true,
                     mint = tradeId.mint,
@@ -21912,6 +21897,7 @@ class Executor(
                     liveDeskHypothesis6599?.let { ts.styleHoldMult = it.holdMult.coerceIn(0.30, 3.50) }
                     com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.setEntry(
                         com.lifecyclebot.engine.truth.EntryStrategySnapshot6450.Snapshot(
+                            entryDeployer = ts.tokenMap.creatorOrDevWallet.orEmpty(),
                             positionId = pidLive6486, mint = verifyMint, entryLane = liveEntryLane6568,
                             candidateVersion8090 = requireNotNull(sealedLiveIntent6613).candidateVersion, mode8090 = "LIVE",
                             runnerEntry = sealedLiveIntent6613.runnerEntry,
@@ -27596,18 +27582,7 @@ class Executor(
                 },
                 timeToPeakMins = holdTimeDouble * 0.5,
                 // V5.9.320: derive traderSource from actual trading mode, not hardcoded
-                traderSource = when {
-                    pos.tradingMode.startsWith("MOONSHOT") -> "MOONSHOT"
-                    pos.tradingMode == "SHITCOIN"   -> "SHITCOIN"
-                    pos.tradingMode == "BLUE_CHIP" || pos.tradingMode == "BLUECHIP" -> "BLUECHIP"
-                    pos.tradingMode == "QUALITY"    -> "QUALITY"
-                    pos.tradingMode == "TREASURY"   -> "TREASURY"
-                    pos.tradingMode == "DIP_HUNTER" -> "DIP_HUNTER"
-                    pos.tradingMode == "MANIPULATED" -> "MANIPULATED"
-                    pos.tradingMode == "EXPRESS" -> "EXPRESS"
-                    pos.tradingMode == "PROJECT_SNIPER" -> "PROJECT_SNIPER"
-                    else -> "MEME"
-                },
+                traderSource = com.lifecyclebot.v3.scoring.EducationSubLayerAI.memeOutcomeOwner(pos.tradingMode),
                 lossReason = if (pnlP < -2.0) reason else "",
                 entryCostSol = pos.costSol,
                 pnlSol = pnl,
@@ -30609,16 +30584,7 @@ class Executor(
                 },
                 timeToPeakMins = holdMinutes * 0.5,
                 // V5.9.320: derive traderSource from actual trading mode — was hardcoded "Meme"
-                traderSource = when {
-                    pos.tradingMode.startsWith("MOONSHOT") -> "MOONSHOT"
-                    pos.tradingMode == "SHITCOIN"   -> "SHITCOIN"
-                    pos.tradingMode == "BLUE_CHIP"  -> "BLUECHIP"
-                    pos.tradingMode == "QUALITY"    -> "QUALITY"
-                    pos.tradingMode == "TREASURY"   -> "TREASURY"
-                    pos.tradingMode == "DIP_HUNTER" -> "DIP_HUNTER"
-                    pos.tradingMode == "MANIPULATED" -> "MANIPULATED"
-                    else -> "MEME"
-                },
+                traderSource = com.lifecyclebot.v3.scoring.EducationSubLayerAI.memeOutcomeOwner(pos.tradingMode),
                 lossReason = if (pnlP < -2.0) reason else "",
                 entryCostSol = pos.costSol,
                 pnlSol = pnl,

@@ -19,11 +19,21 @@ class Aate8078PositionDisplayTruthTest {
         assertFalse(v.contains("position.entryPrice ="))
     }
 
+    @Test fun liveSolanaProfitRequiresAQuantityBoundExitEstimate() {
+        val spot = com.lifecyclebot.engine.truth.PositionDisplayTruth8078.View(
+            1.0, 10.0, 1.0, 1.2, "spot", 0, false, true, true, "", 20.0, 0.2, 1.2)
+        assertFalse(spot.canDisplayPnl(false))
+        assertTrue(spot.canDisplayPnl(true))
+        assertTrue(spot.copy(executablePnlSol = -0.1, executablePnlPct = -10.0).canDisplayPnl(false))
+        assertFalse(spot.copy(basisOk = false, executablePnlSol = 0.1, executablePnlPct = 10.0).canDisplayPnl(false))
+    }
+
     @Test fun cardAndDetailSheetConsumeTheSameView() {
         val ui = src("ui/MainActivity.kt")
         val pop = src("ui/MemePositionPopout.kt")
         assertTrue(ui.contains("PositionDisplayTruth8078.view(ts)"))
-        assertTrue(ui.contains("gainPct = if (view8078.basisOk) view8078.pnlPct else 0.0"))
+        assertTrue(ui.contains("view8078?.canDisplayPnl(false)"))
+        assertTrue(pop.contains("view8078?.canDisplayPnl(pos.isPaperPosition)"))
         assertTrue(ui.contains("\"Mark \$mk · \${view8078.markTag} \$age\""))
         assertTrue(ui.contains("val entryToRender6634 = view8078?.takeIf { it.canonicalBasis }?.entryUsd"))
         assertTrue(pop.contains("PositionDisplayTruth8078.view(t)"))

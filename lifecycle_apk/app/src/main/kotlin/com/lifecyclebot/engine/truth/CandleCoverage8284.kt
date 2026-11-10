@@ -170,7 +170,7 @@ object CandleCoverage8284 {
         val open = try { ts.position.isOpen } catch (_: Throwable) { true }
         val toHistory = ts.candleTimeframeMinutes <= 1 && !open
         val r = try {
-            if (toHistory) synchronized(ts) { mergeInto8284(ts.history, bars, nowMs) } else mergeStore8284(ts.mint, bars, nowMs)
+            if (toHistory) synchronized(ts.history) { mergeInto8284(ts.history, bars, nowMs) } else mergeStore8284(ts.mint, bars, nowMs)
         } catch (_: Throwable) { Merge8284(bars.size, 0, 0, bars.size) }
         noteMerge8284(source, r)
         return r
@@ -211,7 +211,7 @@ object CandleCoverage8284 {
     /** [ts]'s 1 m bars (history when it is the 1 m series, plus the compatible store). */
     private fun bars1m8284(ts: TokenState): List<Candle> {
         val fromHistory: List<Candle> = if (ts.candleTimeframeMinutes > 1) emptyList()
-            else (try { synchronized(ts) { ts.history.toList() } } catch (_: Throwable) { emptyList() })
+            else (try { synchronized(ts.history) { ts.history.toList() } } catch (_: Throwable) { emptyList() })
         return fromHistory + oneMinuteBars8284(ts.mint)
     }
 

@@ -579,8 +579,14 @@ object ShitCoinTraderAI {
             com.lifecyclebot.engine.ErrorLogger.debug(TAG, "Failed to release ShitCoin lock: ${e.message}")
         }
 
-        val pnlPct = (exitPrice - pos.entryPrice) / pos.entryPrice * 100
-        val pnlSol = pos.entrySol * pnlPct / 100
+        val settled = com.lifecyclebot.engine.SpecialistCloseProjection7858.settledOutcome(mint, isPaper, pos.entryTime, "SHITCOIN")
+        if (settled == null) {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SPECIALIST_CLOSE_UNATTRIBUTED_8672")
+            save()
+            return
+        }
+        val pnlPct = settled.returnPct
+        val pnlSol = settled.netSol
         try { ShitCoinDecisionMatrixReport.recordClosed(mint, pos.symbol, pos.isPaper, pnlPct, pnlSol, exitReason.name, pos.entryScore) } catch (_: Throwable) {}
         val holdMinutes = (System.currentTimeMillis() - pos.entryTime) / 60_000L
 
@@ -670,15 +676,7 @@ object ShitCoinTraderAI {
         try {
             val isWin = pnlPct > 0.0  // V5.9.408 build-fix: redefine in this try scope
             val holdMins = (System.currentTimeMillis() - pos.entryTime) / 60_000.0
-            com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordSimpleTradeOutcome(
-                symbol    = pos.symbol,
-                mint      = pos.mint,
-                pnlPct    = pnlPct,
-                holdMins  = holdMins,
-                traderTag = "SHITCOIN",
-                exitReason = exitReason.name,
-                entryTimeMs = pos.entryTime,
-            )
+            // Executor delivers the position-bound education outcome for this same close.
             com.lifecyclebot.engine.PersonalityMemoryStore.recordTradeOutcome(
                 pnlPct              = pnlPct,
                 gaveBackFromPeakPct = (pos.peakPnlPct - pnlPct).coerceAtLeast(0.0),
@@ -1163,16 +1161,13 @@ object ShitCoinTraderAI {
         run {
             val hasRealOrderflow = buyPressurePct > 0.0
             val hasRealMovement  = momentum > 0.0
-            val hasRealHolders   = topHolderPct > 0.0
-            val liveSignals = (if (hasRealOrderflow) 1 else 0) +
-                              (if (hasRealMovement) 1 else 0) +
-                              (if (hasRealHolders) 1 else 0)
+            val liveSignals = (if (hasRealOrderflow) 1 else 0) + (if (hasRealMovement) 1 else 0)
             // Zero confirmed live signals = pure cosmetics → cannot be S61+.
             if (liveSignals == 0 && shitScore > 60) {
                 val before = shitScore
                 shitScore = 60
                 scoreReasons.add("livenesscap-${before - 60}")
-                ErrorLogger.debug(TAG, "💩 S61_LIVENESS_CAP: ${symbol} | no orderflow/movement/holders → score $before→60 (kept out of S61+)")
+                ErrorLogger.debug(TAG, "💩 S61_LIVENESS_CAP: ${symbol} | no observed orderflow or movement → score $before→60 (kept out of S61+)")
             }
         }
 
@@ -1289,6 +1284,7 @@ object ShitCoinTraderAI {
                 deployer = devWallet.orEmpty(),
                 source = launchPlatform.name,
                 dnaKey = dnaKey4278,
+                mode = if (isPaperMode) "PAPER" else "LIVE",
             )
             semanticEntrySizeMult4255 = semanticBias.sizeMult.coerceIn(0.92, 1.08)
             // V5.0.7112 — accept the graph's negative verdict too. Still soft:
