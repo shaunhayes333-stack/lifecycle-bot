@@ -9,11 +9,11 @@ class Aate8001HiveInheritTest {
 
     @Test fun everyBookIsSharedAndBoostInherits() {
         val h = src("engine/truth/HiveEdge8000.kt")
-        listOf("\"FRL8527|\$k\"", "\"SPEC8527|\$k\"", "\"PB|\$k\"", "\"TAIL|\$k\"", "\"CX|\$k\"", "\"DEV8527|\$k\"", "\"EXP|\$k\"").forEach { assertTrue(it, h.contains(it)) }
+        listOf("\"FRL8527|\$k\"", "\"SPEC8663|\$k\"", "\"PB|\$k\"", "\"TAIL|\$k\"", "\"CX|\$k\"", "\"DEV8663|\$k\"", "\"EXP|\$k\"").forEach { assertTrue(it, h.contains(it)) }
         assertTrue(h.contains("suspend fun boost8001(client: com.lifecyclebot.collective.TursoClient): String"))
         assertTrue(src("ui/CollectiveBrainActivity.kt").contains("HiveEdge8000.boost8001(c)"))
         assertTrue(src("engine/cortex/Cortex7885.kt").contains("fun hiveInherit8001(): Int"))
-        assertTrue(src("engine/truth/SpecialistMiner7972.kt").contains("HiveEdge8000.net8000(\"DEV8527|\$dev\")"))
+        assertTrue(src("engine/truth/SpecialistMiner7972.kt").contains("HiveEdge8000.net8000(\"DEV8663|\$dev\")"))
         assertTrue(src("engine/ExpertWallets7962.kt").contains("fun hiveInherit8001(): Int"))
     }
 }

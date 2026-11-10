@@ -1722,6 +1722,16 @@ object ForwardReturnLabeler7731 {
 
     /** A fixed decision target contributes once; later observations remain available to path and exit learners. */
     private fun bookEntryTarget8521(o: Obs, net: Double, gross: Double, witness: Boolean, nowMs: Long) {
+        // 8663: pre-8660 non-pump Solana observations can carry the pump.fun curve
+        // price basis. Previously only EdgeModel declined their labels; book(), the
+        // cell miner, setup/shape learners and developer reputation still learned
+        // those phantom runners. One provenance guard protects every consumer.
+        // A missing frozen epoch is not evidence of a corrected non-pump venue.
+        if (!EdgeModel8537.venueScopedForLearning8663(o.mint, o.edge8537?.modelEpoch)) {
+            o.edge8537 = null
+            try { PipelineHealthCollector.labelInc("FORWARD_VENUE_UNSCOPED_LEARNING_REFUSED_8663") } catch (_: Throwable) {}
+            return
+        }
         // V5.0.8617 — a 5-minute outcome no coin of that size can make is a mark on the wrong basis (03:50 export: a $2.96 M
         // day-old coin at +1,406,280,000 %, a $112 k coin at +518,638 %). It reaches no learner: not the setup books, the shape /
         // falling-hour / forward learners, the meme regime, EdgeModel8537 or PocketLedger8610.

@@ -79,7 +79,7 @@ object LearningResetSweep7781 {
      */
     internal val LEARNING_DBS_7975: List<String> = listOf("learning_kv.db", "shadow_cold_8397.db")
     // V5.0.8169 — the learned lane stops are learning too (a reset left 5.0.8168's 5% BLUECHIP / QUALITY stops in force).
-    internal val LEARNING_FILES_7975: List<String> = listOf("specialists7972.bin", "specialists8064.bin", "specialists8076.bin", "specialists8521.bin", "specialists8527.bin", "runner_grab_7989.txt", "tail_hunter_7996.txt", "tail_hunter_birth_8527.txt", "stop_learner_8042.txt")
+    internal val LEARNING_FILES_7975: List<String> = listOf("specialists7972.bin", "specialists8064.bin", "specialists8076.bin", "specialists8521.bin", "specialists8527.bin", "specialists8663.bin", "runner_grab_7989.txt", "tail_hunter_7996.txt", "tail_hunter_birth_8527.txt", "stop_learner_8042.txt")
 
     @Volatile private var bootSweeps = 0
     @Volatile private var requestSweeps = 0

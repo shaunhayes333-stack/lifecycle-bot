@@ -39,6 +39,10 @@ class Aate8537EdgeModelTest {
         assertTrue("genuine confirmed 10x low-cap launches remain learnable",
             EdgeModel8537.replayAccept8642(row(true, 900_000, 15_000.0, 1_000.0)))
         assertTrue(EdgeModel8537.replayAccept8642(row(true, 900_000, 200_000.0, -30.0)))
+        assertFalse("a filled -102.69% spot return is corrupted accounting, not a profitable-model label",
+            EdgeModel8537.replayAccept8642(row(true, 900_000, 15_000.0, -102.69)))
+        assertTrue("an exact loss of the entire cost basis is mathematically valid",
+            EdgeModel8537.replayAccept8642(row(true, 900_000, 15_000.0, -100.0)))
         assertFalse("unfillable ghosts do not teach", EdgeModel8537.replayAccept8642(row(false, 900_000, 15_000.0, 1_000_000.0)))
         assertFalse("legacy rows without horizon have no matching learning objective",
             EdgeModel8537.replayAccept8642(row(true, 0, 15_000.0, 40.0)))
@@ -58,6 +62,12 @@ class Aate8537EdgeModelTest {
             EdgeModel8537.plausible8617(2506.24, 3011.16))
         assertFalse("no trustworthy venue provenance, even if the old row claimed a fill",
             EdgeModel8537.replayAccept8642(oldOtherLaunchpad))
+        assertFalse("legacy non-pump outcome must be blocked before ALL other learners too",
+            EdgeModel8537.venueScopedForLearning8663(oldOtherLaunchpad.getString("mint"), 8650))
+        assertFalse("missing provenance is not a corrected venue", EdgeModel8537.venueScopedForLearning8663(oldOtherLaunchpad.getString("mint"), null))
+        assertTrue("a new non-pump venue observation remains eligible",
+            EdgeModel8537.venueScopedForLearning8663(oldOtherLaunchpad.getString("mint"), EdgeModel8537.MODEL_EPOCH_8642))
+        assertTrue("pump curve history is still valid", EdgeModel8537.venueScopedForLearning8663("Abcdefghijkmnpqrstuvwxyz123456789pump", 8650))
         val postFixOtherLaunchpad = JSONObject(oldOtherLaunchpad.toString())
             .put("venueScopeEpoch", EdgeModel8537.VENUE_SCOPE_EPOCH_8660)
             .put("net", 12.5)
@@ -88,6 +98,10 @@ class Aate8537EdgeModelTest {
             EdgeModel8537.statusLine().contains("trained=0"))
         assertTrue("the pocket learner must use the same clean forward replay eligibility",
             src("engine/truth/PocketLedger8610.kt").contains("if (!EdgeModel8537.replayAccept8642(o)) return@forEachLine"))
+        val forward = src("engine/truth/ForwardReturnLabeler7731.kt")
+        assertTrue("the venue-scope guard must execute before the shared forward learner book",
+            forward.indexOf("venueScopedForLearning8663(o.mint, o.edge8537?.modelEpoch)") in
+                0 until forward.indexOf("book(o, 60, net, gross, witness)"))
     }
 
     @Test fun a_five_to_twelve_x_runner_at_a_real_market_cap_must_not_be_deleted_from_learning() {

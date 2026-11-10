@@ -242,7 +242,7 @@ object SpecialistMiner7972 {
     private fun devFor(mint: String): String {
         val dev = try { com.lifecyclebot.engine.OperatorRegistry.getDevWallet(mint) } catch (_: Throwable) { null } ?: return "NA"
         // V5.0.8001 — the hive's record of this dev rides on the local one.
-        val hive = try { HiveEdge8000.net8000("DEV8527|$dev") } catch (_: Throwable) { null }
+        val hive = try { HiveEdge8000.net8000("DEV8663|$dev") } catch (_: Throwable) { null }
         val s = devs[dev] ?: if (hive == null) return "NEW" else Stat()
         return synchronized(s) {
             val n = s.n + (hive?.get(0)?.toInt() ?: 0)
@@ -261,7 +261,9 @@ object SpecialistMiner7972 {
         if (file != null) return
         // Both discovery and held-out "live" specialist samples below come from forward labels, not actual fills.
         // Keep the previous file intact; all new combinations/developer reputations use the fixed target contract.
-        val f = File(context.applicationContext.filesDir, "specialists8527.bin")
+        // Preserve the pre-8660 file for audit. Its forward-price basis had no venue
+        // scope and could promote phantom +1000% specialists across the whole stack.
+        val f = File(context.applicationContext.filesDir, "specialists8663.bin")
         file = f
         Thread({ try { load(f) } catch (_: Throwable) {} finally { loaded = true } }, "specialists-7972-load").apply { isDaemon = true }.start()
     }
@@ -375,8 +377,8 @@ object SpecialistMiner7972 {
     /** V5.0.8000 — a combination the network (local + hive evidence) proves is promoted here too. Returns promotions. */
     fun hivePromote8000(): Int {
         var n = 0
-        for (hk in HiveEdge8000.netKeys8000("SPEC8527|")) {
-            val k = hk.removePrefix("SPEC8527|")
+        for (hk in HiveEdge8000.netKeys8000("SPEC8663|")) {
+            val k = hk.removePrefix("SPEC8663|")
             if (promoted.containsKey(k)) continue
             val net = HiveEdge8000.net8000(hk) ?: continue
             val local = keys[k]
@@ -530,7 +532,7 @@ object SpecialistMiner7972 {
         val top = promoted.values.sortedByDescending { it.disc.mean() - 2.0 * it.disc.se() }.take(4).joinToString(" · ") {
             "${it.key.take(70)}[n${it.disc.n} ${"%+.0f".format(it.disc.mean())}% live n${it.live.n} ${"%+.0f".format(it.live.mean())}%]"
         }.ifBlank { "-" }
-        return "loaded=$loaded labels=${labels.get()} keys=${keys.size} specialists=${promoted.size} [$byLane] confirmed=$confirmed " +
+        return "epoch=8663 loaded=$loaded labels=${labels.get()} keys=${keys.size} specialists=${promoted.size} [$byLane] confirmed=$confirmed " +
             "promoted=${promotions.get()} demoted=${demotions.get()} liveMatches=${liveMatches.get()} devs=${devs.size} corruptRefused8419=${corruptRefused8419.get()} bar=n>=$MIN_N,mean-2SE>=+$BAR_PCT% top[$top]"
     }
 

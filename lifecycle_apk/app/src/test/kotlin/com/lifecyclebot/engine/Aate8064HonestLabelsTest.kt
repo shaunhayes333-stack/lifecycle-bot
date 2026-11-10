@@ -30,7 +30,7 @@ class Aate8064HonestLabelsTest {
         // 8527: archive synthetic runner-remainder labels; keep realised books separate.
         assertTrue(src("engine/cortex/LanePlaybook7907.kt").contains("\"LANE_PLAYBOOK_OBSERVED_8521\""))
         assertTrue(src("engine/cortex/CortexForwardEpoch8521.kt").contains("\"CORTEX_7885_V8076\""))
-        assertTrue(src("engine/truth/SpecialistMiner7972.kt").contains("\"specialists8527.bin\""))
+        assertTrue(src("engine/truth/SpecialistMiner7972.kt").contains("\"specialists8663.bin\""))
         assertTrue(src("engine/truth/HiveEdge8000.kt").contains("\"hive_edge_8076\""))
     }
 

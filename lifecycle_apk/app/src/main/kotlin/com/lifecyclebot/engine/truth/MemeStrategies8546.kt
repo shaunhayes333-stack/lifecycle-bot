@@ -45,6 +45,9 @@ object MemeStrategies8546 {
     private const val PROVEN_MIN_PF_8546 = 1.3
     private const val EVAL_GAP_MS_8546 = 15_000L
     private const val PER_TICK_8546 = 120
+    // 8663: reserve a bounded first look at executed-print mints; the original
+    // round-robin still gets the rest of its budget each cycle.
+    private const val PRIORITY_TAPE_PER_TICK_8663 = 48
     private const val SIGNAL_TTL_MS_8546 = 120_000L
 
     // ── pure detectors (closed 1-minute bars, oldest first) ──
@@ -188,6 +191,13 @@ object MemeStrategies8546 {
     private fun count8644(key: String) = probe8644[key]?.get() ?: 0L
     @Volatile private var cursor = 0
 
+    /** Early paper observation only. The live route, economics and safety gates remain separate. */
+    internal fun earlyTapeLiquidityEligible8663(mint: String, liquidityUsd: Double, routeStatus: String, executedPrints: Int): Boolean =
+        liquidityUsd.isFinite() && liquidityUsd >= 500.0 && executedPrints >= 10 &&
+            (routeStatus.uppercase() == "DEX_ROUTABLE" ||
+                (routeStatus.uppercase() == "PUMPFUN_BONDING_CURVE_EXECUTABLE" &&
+                    com.lifecyclebot.network.PumpCurveKeys7269.isPumpMint8658(mint)))
+
     /** Every signal [ts] shows now (no side effects). */
     private fun signals8546(ts: TokenState, nowMs: Long): List<Signal8546> {
         val out = ArrayList<Signal8546>(2)
@@ -232,15 +242,12 @@ object MemeStrategies8546 {
         val all = tokens.values.toList()
         if (all.isEmpty()) return
         var done = 0
-        var i = cursor % all.size
-        var visited = 0
-        while (done < PER_TICK_8546 && visited < all.size) {
-            val ts = all[i]; i = (i + 1) % all.size; visited++
-            if (nowMs - (lastEvalAt[ts.mint] ?: 0L) < EVAL_GAP_MS_8546) continue
-            if (!eligible8546(ts, nowMs)) continue
+        fun evaluate(ts: TokenState, priority: Boolean): Boolean {
+            if (nowMs - (lastEvalAt[ts.mint] ?: 0L) < EVAL_GAP_MS_8546) return false
+            if (!eligible8546(ts, nowMs)) return false
             note8644("EVALUATED")
+            if (priority) note8644("TAPE_PRIORITY_EVALUATED_8663")
             lastEvalAt[ts.mint] = nowMs
-            done++
             val sigs = try { signals8546(ts, nowMs) } catch (_: Throwable) { note8644("SIGNALS_ERROR"); emptyList() }
             if (sigs.isNotEmpty()) lastSignal.compute(ts.mint) { _, old ->
                 old.orEmpty().filterValues { nowMs - it in 0L..SIGNAL_TTL_MS_8546 } + sigs.associate { it.family to nowMs }
@@ -250,6 +257,23 @@ object MemeStrategies8546 {
                 try { PipelineHealthCollector.labelInc("MEME_FAMILY_SIGNAL_8546_${s.family}") } catch (_: Throwable) {}
                 try { MemePaperTrader8544.openFamily8546(ts, s, nowMs) } catch (_: Throwable) {}
             }
+            return true
+        }
+        // The tape holds at most 400 mints. Only active *executed* swaps earn
+        // priority; price-only polling cannot starve either these mints or the
+        // rest of the round-robin. No second worker or additional execution gate.
+        val tape = try { TradeTape8100.activeMints8293(nowMs, 120_000L) } catch (_: Throwable) { emptyList() }
+        var tapeDone = 0
+        for (mint in tape) {
+            if (tapeDone >= PRIORITY_TAPE_PER_TICK_8663) break
+            val ts = tokens[mint] ?: continue
+            if (evaluate(ts, true)) { done++; tapeDone++ }
+        }
+        var i = cursor % all.size
+        var visited = 0
+        while (done < PER_TICK_8546 && visited < all.size) {
+            val ts = all[i]; i = (i + 1) % all.size; visited++
+            if (evaluate(ts, false)) done++
         }
         cursor = i
         if (lastEvalAt.size > 6_000) lastEvalAt.entries.removeIf { nowMs - it.value > 600_000L }
@@ -263,7 +287,13 @@ object MemeStrategies8546 {
         if (ts.safety.tier == com.lifecyclebot.engine.SafetyTier.HARD_BLOCK) {
             note8644("SKIP_HARD_BLOCK"); return false
         }
-        if (!(ts.lastLiquidityUsd >= 3_000.0)) { note8644("SKIP_LIQUIDITY"); return false }
+        if (!(ts.lastLiquidityUsd >= 3_000.0)) {
+            val executed = try { TradeTape8100.executedCount8287(ts.mint, nowMs, 180_000L) ?: 0 } catch (_: Throwable) { 0 }
+            if (!earlyTapeLiquidityEligible8663(ts.mint, ts.lastLiquidityUsd, ts.tokenMap.routeStatus, executed)) {
+                note8644("SKIP_LIQUIDITY"); return false
+            }
+            note8644("EARLY_EXECUTED_TAPE_PAPER_ELIGIBLE_8663")
+        }
         val solana = try { com.lifecyclebot.network.HeliusSolanaScope7819.isSolanaMint7819(ts.mint) }
             catch (_: Throwable) { false }
         if (!solana) note8644("SKIP_NON_SOLANA")
@@ -286,7 +316,7 @@ object MemeStrategies8546 {
     fun statusLine8546(): String =
         "memeFamilies8546[signals{" + Family8546.values().joinToString(",") { "${it.name}=${fired[it.name]?.get() ?: 0}" } +
             "} liveProven{" + Family8546.values().filter { MemePaperTrader8544.familyProven8546(it.name) }.joinToString(",").ifBlank { "none yet" } +
-            "} funnel8644{evaluated=${count8644("EVALUATED")} skipped=price:${count8644("SKIP_PRICE")}/safety:${count8644("SKIP_HARD_BLOCK")}/liq:${count8644("SKIP_LIQUIDITY")}/chain:${count8644("SKIP_NON_SOLANA")} " +
+            "} funnel8644{evaluated=${count8644("EVALUATED")} tapePriority8663=${count8644("TAPE_PRIORITY_EVALUATED_8663")} earlyLowLiq8663=${count8644("EARLY_EXECUTED_TAPE_PAPER_ELIGIBLE_8663")} skipped=price:${count8644("SKIP_PRICE")}/safety:${count8644("SKIP_HARD_BLOCK")}/liq:${count8644("SKIP_LIQUIDITY")}/chain:${count8644("SKIP_NON_SOLANA")} " +
             "m1=empty:${count8644("M1_EMPTY")}/short:${count8644("M1_SHORT")}/ready:${count8644("M1_READY")}/error:${count8644("M1_ERROR")} " +
             "flow=known:${count8644("FLOW_KNOWN")}/unknown:${count8644("FLOW_UNKNOWN")} early=ready:${count8644("EARLY_PRINTS_READY_8650")}/short:${count8644("EARLY_PRINTS_SHORT_8650")} raw{" +
             Family8546.values().joinToString(",") { "${it.name}=${count8644("RAW_${it.name}")}/${count8644("FLOW_REFUSED_${it.name}")}noFlow" } +

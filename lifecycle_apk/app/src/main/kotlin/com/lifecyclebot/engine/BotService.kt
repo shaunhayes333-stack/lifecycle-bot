@@ -15280,13 +15280,21 @@ class BotService : Service() {
         val ownBrainReady8429 = l in cycleSheet8522.executableLanes7863
         val claimedOwner6600 = LaneExecutionCoordinator.currentElection6600(ts.mint)?.takeIf { it.sealed }?.primaryLane
         if (!claimedOwner6600.isNullOrBlank() && !claimedOwner6600.equals(l, true)) {
+            // 8663: a version-matched named receiver was already selected by
+            // another desk. It must get to the *existing bounded rescue claim*
+            // below; the sealed-owner shortcut previously returned before
+            // handOffAllowed7960 could consume it (47 expired tasks in 8662).
+            // This does not grant execution or a second owner.
+            val dueReceiver8663 = !ExecutionAuthorityPolicy6533.isTrunkLane(l) &&
+                HandoffReceiverTasks8153.isDue8153(ts.mint, l, System.currentTimeMillis(),
+                    LaneExecutionCoordinator.candidateVersionFor(ts.mint))
             val ownBrain8429 = ownBrainReady8429 && !ExecutionAuthorityPolicy6533.isTrunkLane(lane) &&   // (raw name: the golden tape pins the rug check before the first trunk read of `l`)
                 SpecialistElection8136.nativeEvalSlot8214(ts.mint, l, claimedOwner6600, LaneExecutionCoordinator.candidateVersionFor(ts.mint), true)
-            if (!ownBrain8429) {
+            if (!ownBrain8429 && !dueReceiver8663) {
                 try { ToolkitSignalSheet.recordDeskStage(l, "CONTRIBUTOR_ONLY", "${ts.mint}:${LaneExecutionCoordinator.candidateVersionFor(ts.mint)}") } catch (_: Throwable) {}
                 return false
             }
-            try { PipelineHealthCollector.labelInc("OWN_BRAIN_EVALUATES_PAST_SEALED_OWNER_8429_$l") } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc(if (dueReceiver8663) "DUE_RECEIVER_REACHES_RESCUE_CLAIM_8663_$l" else "OWN_BRAIN_EVALUATES_PAST_SEALED_OWNER_8429_$l") } catch (_: Throwable) {}
         }
         // V5.0.6533 — specialist execution is bounded below to primary + one deterministic rescue.
         // Trunk handling occurs after metric-stage hard safety below.
@@ -15554,11 +15562,12 @@ class BotService : Service() {
             val learnedFloor6491 = 45 + learnedFloorDelta6491
             if (learnedFloorDelta6491 > 0 && score6491 < learnedFloor6491) {
                 try {
-                    PipelineHealthCollector.labelInc("LANE_LOCAL_LEARNED_FLOOR_READ_ONLY_6491_$l")
-                    ForensicLogger.lifecycle("LANE_LOCAL_LEARNED_FLOOR_READ_ONLY_6491", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$l score=$score6491 floor=$learnedFloor6491 delta=$learnedFloorDelta6491 action=lane_local_selectivity_not_pause")
+                    PipelineHealthCollector.labelInc("LANE_LOCAL_LEARNED_FLOOR_ADVISORY_8663_$l")
+                    ForensicLogger.lifecycle("LANE_LOCAL_LEARNED_FLOOR_ADVISORY_8663", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$l score=$score6491 floor=$learnedFloor6491 delta=$learnedFloorDelta6491 action=let_lane_candidate_admission_and_fdg_decide")
                 } catch (_: Throwable) {}
-                laneGateCount("PRIMARY_LEARNED_SCORE_FLOOR", l)
-                return false
+                // 8663: this was a SECOND learned score veto before the lane's
+                // setup/admission and FDG could grade the trade. Keep the learning
+                // signal, but leave the decision to the existing authorities.
             }
             return true
         }

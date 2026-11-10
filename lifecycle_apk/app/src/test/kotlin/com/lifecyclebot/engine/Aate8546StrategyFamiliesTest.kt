@@ -69,6 +69,45 @@ class Aate8546StrategyFamiliesTest {
             MemeStrategies8546.provenRecord8546(5, 200.0, 1.0, 10.0))
     }
 
+    @Test fun earlyLaunchPaperGetsATapeFirstLookWithoutInventingLiquidityOrBuyFlow() {
+        val proof = "PUMPFUN_BONDING_CURVE_EXECUTABLE"
+        val pump = "Abcdefghijkmnpqrstuvwxyz123456789pump"
+        assertTrue("real swaps and executable curve allow $2k-market-cap discovery below the old $3k-liquidity scan floor",
+            MemeStrategies8546.earlyTapeLiquidityEligible8663(pump, 744.0, proof, 10))
+        assertTrue(MemeStrategies8546.earlyTapeLiquidityEligible8663("OtherSolanaMint", 2_000.0, "DEX_ROUTABLE", 12))
+        assertFalse("price-only updates cannot supply volume", MemeStrategies8546.earlyTapeLiquidityEligible8663(pump, 744.0, proof, 0))
+        assertFalse("non-pump tokens cannot inherit the pump curve route", MemeStrategies8546.earlyTapeLiquidityEligible8663("OtherSolanaMint", 744.0, proof, 20))
+        assertFalse("an unknown route is not a paper fill", MemeStrategies8546.earlyTapeLiquidityEligible8663(pump, 744.0, "LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP", 20))
+        assertFalse("too little usable depth stays out", MemeStrategies8546.earlyTapeLiquidityEligible8663(pump, 100.0, proof, 20))
+        val s = src("engine/truth/MemeStrategies8546.kt")
+        assertTrue(s.contains("TradeTape8100.activeMints8293(nowMs, 120_000L)"))
+        assertTrue(s.contains("if (evaluate(ts, true)) { done++; tapeDone++ }"))
+        assertTrue("the rest of the round-robin still runs", s.contains("while (done < PER_TICK_8546 && visited < all.size)"))
+    }
+
+    @Test fun aDueHandoffGetsTheBoundedRescueClaimAndTheGenericPrimaryLearnedFloorIsAdvisory() {
+        val bot = src("engine/BotService.kt")
+        assertTrue(bot.contains("val dueReceiver8663 = !ExecutionAuthorityPolicy6533.isTrunkLane(l)"))
+        assertTrue(bot.contains("if (!ownBrain8429 && !dueReceiver8663)"))
+        assertTrue(bot.contains("SpecialistOwnership7951.handOffAllowed7960(l, ts.mint, primaryLane)"))
+        val learned = bot.substringAfter("if (learnedFloorDelta6491 > 0 && score6491 < learnedFloor6491)")
+            .substringBefore("return true")
+        assertTrue(learned.contains("LANE_LOCAL_LEARNED_FLOOR_ADVISORY_8663"))
+        assertFalse("the second score opinion must never veto ahead of CandidateAdmission", learned.contains("return false"))
+    }
+
+    @Test fun heliusExecutedSwapIsTapedBeforeOptionalCopyTradeAndBroadCallbacks() {
+        val o = src("engine/DataOrchestrator.kt")
+        val callback = o.substringAfter("private fun startHeliusWebSocket(apiKey: String)")
+            .substringBefore("// ── DexScreener WebSocket")
+        val tape = callback.indexOf("ProofDataSwapTape8144.noteHelius8144(")
+        val copy = callback.indexOf("copyTradeEngine?.onSwapDetected(")
+        val broad = callback.indexOf("onHeliusTrade7773(")
+        assertTrue("a Helius event must hit the executed tape before the optional downstream consumers",
+            tape >= 0 && copy > tape && broad > tape)
+        assertTrue("urgent held mark is still dispatched first", callback.indexOf("onHeldTradeMark7787?.invoke(") in 0 until tape)
+    }
+
     @Test fun shorterBaseAndPostMigrationRetestHaveTheirOwnClocks() {
         val base = listOf(bar(0, 1.10)) + (1..8).map { bar(it, 1.0) } + bar(9, 1.06)
         assertNotNull(MemeStrategies8546.baseBreakout8546(base))

@@ -1025,13 +1025,11 @@ class DataOrchestrator(
             apiKey            = apiKey,
             onSwap            = { mint, isBuy, solAmt, tokenAmt, wallet, sig ->
                 val safeSol = normalizeTradeSolAmount(solAmt, "helius_ws", mint) ?: return@HeliusWebSocket
-                lastWsEventMs[mint] = System.currentTimeMillis()
-                // V5.9: route to CopyTradeEngine for copy-buy detection
-                if (isBuy && wallet.isNotBlank()) {
-                    copyTradeEngine?.onSwapDetected(mint, wallet, safeSol, isBuy = true)
-                }
-                // V5.0.7773 — the tape (launch flow, candles, whales, dev sells, buy pressure).
-                onHeliusTrade7773(mint, wallet, safeSol, isBuy)
+                val receivedMs8663 = System.currentTimeMillis()
+                lastWsEventMs[mint] = receivedMs8663
+                // Keep curve-inference dedupe aware of this streamed trade even
+                // while the price-critical consumers below are still running.
+                lastHeliusTradeMs8252[mint] = receivedMs8663
                 // V5.0.7787 — a decoded pump.fun TradeEvent (wallet present) carries the
                 // exact SOL and token amounts, so its executed price is a live mark for a
                 // HELD position. Without the PumpPortal trade stream (no key) held curve
@@ -1041,11 +1039,19 @@ class DataOrchestrator(
                 if (wallet.isNotBlank() && tokenAmt.isFinite() && tokenAmt > 0.0) {
                     val held7787 = try { status.tokens[mint]?.position?.isOpen == true } catch (_: Throwable) { false }
                     if (held7787) try { onHeldTradeMark7787?.invoke(mint, safeSol / tokenAmt) } catch (_: Throwable) {}
+                    // 8663: put the genuine executable swap in the tape FIRST.
+                    // Previously copy-trading and the broad onHeliusTrade callback
+                    // ran before this record, delaying early shape/flow and stops
+                    // behind unrelated downstream work in the single WS worker.
+                    try { com.lifecyclebot.engine.truth.ProofDataSwapTape8144.noteHelius8144(mint, sig, safeSol, tokenAmt, isBuy, lastPumpPortalTradeMs7773[mint] ?: 0L) } catch (_: Throwable) {}
                     // V5.0.7819 — the same executed price is a candidate's candle print.
                     if (!held7787) onTradePrint7819(mint, safeSol / tokenAmt)
-                    // V5.0.8144 — the same decoded swap reaches the executed-trade tape when PumpPortal is not delivering this mint.
-                    try { com.lifecyclebot.engine.truth.ProofDataSwapTape8144.noteHelius8144(mint, sig, safeSol, tokenAmt, isBuy, lastPumpPortalTradeMs7773[mint] ?: 0L) } catch (_: Throwable) {}
                 }
+                // Keep every existing consumer, after the price-critical path.
+                if (isBuy && wallet.isNotBlank()) {
+                    copyTradeEngine?.onSwapDetected(mint, wallet, safeSol, isBuy = true)
+                }
+                onHeliusTrade7773(mint, wallet, safeSol, isBuy)
             },
             onLargeWalletMove = { wallet, mint, solAmt, isBuy ->
                 // Check if this is a dev wallet selling

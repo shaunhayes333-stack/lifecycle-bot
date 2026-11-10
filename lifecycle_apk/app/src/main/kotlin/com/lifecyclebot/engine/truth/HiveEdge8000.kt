@@ -155,12 +155,12 @@ object HiveEdge8000 {
     private fun snapshot(): Map<String, DoubleArray> {
         val out = HashMap<String, DoubleArray>(8_000)
         try { for ((k, v) in ForwardReturnLabeler7731.hiveSnapshot8000()) out["FRL8527|$k"] = v } catch (_: Throwable) {}
-        try { for ((k, v) in SpecialistMiner7972.hiveSnapshot8000()) out["SPEC8527|$k"] = v } catch (_: Throwable) {}
+        try { for ((k, v) in SpecialistMiner7972.hiveSnapshot8000()) out["SPEC8663|$k"] = v } catch (_: Throwable) {}
         try { for ((k, v) in com.lifecyclebot.engine.cortex.LanePlaybook7907.hiveSnapshot8000()) out["PB|$k"] = v } catch (_: Throwable) {}
         try { for ((k, v) in TailHunter7996.hiveSnapshot8000()) out["TAIL|$k"] = v } catch (_: Throwable) {}
         // V5.0.8001 — the Cortex's voter seats, dev reputations and expert wallets.
         try { for ((k, v) in com.lifecyclebot.engine.cortex.Cortex7885.hiveSnapshot8001()) out["CX|$k"] = v } catch (_: Throwable) {}
-        try { for ((k, v) in SpecialistMiner7972.hiveDevSnapshot8001()) out["DEV8527|$k"] = v } catch (_: Throwable) {}
+        try { for ((k, v) in SpecialistMiner7972.hiveDevSnapshot8001()) out["DEV8663|$k"] = v } catch (_: Throwable) {}
         try { for ((k, v) in com.lifecyclebot.engine.ExpertWallets7962.hiveSnapshot8001()) out["EXP|$k"] = v } catch (_: Throwable) {}
         return out
     }

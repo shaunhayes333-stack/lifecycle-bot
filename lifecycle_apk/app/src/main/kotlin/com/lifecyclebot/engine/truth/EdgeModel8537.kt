@@ -66,6 +66,10 @@ object EdgeModel8537 {
             !com.lifecyclebot.network.PumpCurveKeys7269.isPumpMint8658(mint) &&
             scopeEpoch < VENUE_SCOPE_EPOCH_8660
 
+    /** Same venue-price provenance gate for every downstream learner, not only this model's private replay. */
+    internal fun venueScopedForLearning8663(mint: String, modelEpoch: Int?): Boolean =
+        !unscopedSolana8661(mint, if (modelEpoch == MODEL_EPOCH_8642) VENUE_SCOPE_EPOCH_8660 else 0)
+
     // ── features ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
     /** The raw, human-readable observation (also the exported dataset row). NaN / "" = unobserved. */
@@ -335,7 +339,9 @@ object EdgeModel8537 {
      * ceilings remain. An unknown market cap by itself supplies no evidence for a large win.
      */
     fun plausible8617(mcapUsd: Double, netPct: Double, chainWitness: Boolean = false): Boolean {
-        if (!netPct.isFinite()) return false
+        // A spot position cannot lose more than the entire cost basis. Reject broken quote/basis
+        // arithmetic from ALL learners; the log transform's -99.9% mathematical floor is not proof.
+        if (!netPct.isFinite() || netPct < -100.0) return false
         val unwitnessedCap = when {
             !mcapUsd.isFinite() || mcapUsd <= 0.0 -> 400.0
             mcapUsd < 100_000.0 -> 5_000.0

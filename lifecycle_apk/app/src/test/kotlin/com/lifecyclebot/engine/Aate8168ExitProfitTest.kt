@@ -17,7 +17,9 @@ class Aate8168ExitProfitTest {
 
     @Test fun profitMilestonesAreCoveredWithoutGatingRiskExits() {
         for (reason in listOf("PARTIAL_TAKE_PROFIT", "RUNNER_MILESTONE_8136_T2_70PCT",
-            "TAIL_MILESTONE_400", "LIFECYCLE_PROFIT_TAKE2", "PEAK_CAPTURE"))
+            "TAIL_MILESTONE_400", "LIFECYCLE_PROFIT_TAKE2", "PEAK_CAPTURE",
+            "QUICK_RUNNER_MOONBAG_BANK_7349_2157PCT", "QUICK_RUNNER_6X_BANK_95PCT",
+            "QUICK_RUNNER_10X_FULL_EXIT"))
             assertTrue(reason, ProfitExitTruth8163.profitTaking(reason))
         for (reason in listOf("PROTECTIVE_EXIT_STOP_LOSS_6450_RISKCLOCK", "RAPID_CATASTROPHE_STOP",
             "HARD_STOP", "THIN_LIQ_EARLY_RUG_BACKSTOP_-10", "MANUAL", "ORPHAN_SWEEP"))

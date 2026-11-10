@@ -18,6 +18,12 @@ object ProfitExitTruth8163 {
         if (try { ProfitLock8363.profitLock8363(reason) } catch (_: Throwable) { false }) return false
         val r = reason.uppercase()
         if (listOf("STOP_LOSS", "STRICT_SL", "CATASTROPH", "BACKSTOP", "RUG", "MANUAL", "EMERGENCY", "ORPHAN", "RECONCIL").any { r.contains(it) }) return false
+        // 8663: the live A2rbjf partial was triggered as a +2157% QUICK_RUNNER_MOONBAG_BANK,
+        // yet its chain-finalised proceeds were below the exact slice's cost.  This name was
+        // absent from the profit-taking classifier, so preflight/route requote truth did not
+        // protect it.  Classify the actual gain-bank reasons; protective stops stay exempt.
+        if (r.startsWith("QUICK_RUNNER_") &&
+            (r.contains("_BANK_") || r.contains("_FULL_EXIT"))) return true
         return RecoveredHoldGuard.isProfitTakingExit7931(reason) ||
             listOf("HARVEST", "RUNNER_BANK", "RUNNER_LIVE_BANK", "STALE_RUNNER_FORCE", "CAPITAL_RECOVERY", "SPIKE_CAPTURE", "RUNNER_MILESTONE", "TAIL_MILESTONE", "LIFECYCLE_PROFIT_TAKE").any { r.contains(it) }
     }
