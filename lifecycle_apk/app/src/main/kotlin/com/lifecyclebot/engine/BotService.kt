@@ -27541,31 +27541,21 @@ if (hotExitHandledSweep) {
     // Runs asynchronously to avoid blocking main evaluation loop
     // Feeds insights to SuperBrainEnhancements for learning
     // ═══════════════════════════════════════════════════════════════════
-    if (ts.history.size >= 10) {
+    if (ts.history.size >= 3 || ts.history5m.size >= 3 || ts.position.isOpen) {
         scope.launch {
             try {
-                // V5.9.495z14 — every 10th scan (per-token), run a FULL
-                // multi-timeframe scan instead of the 5-min quickScan. Long-
-                // horizon patterns (Cup & Handle, Head & Shoulders, Wedges,
-                // Dead Cat Bounce, etc.) need 1h+ candles which quickScan
-                // never reaches. Sample 1-in-10 to cap CPU cost.
                 val tick = smartChartScanCounter.incrementAndGet()
-                val results = if (tick % 10 == 0L) SmartChartScanner.scan(ts)
-                              else listOfNotNull(SmartChartScanner.quickScan(ts))
-                val scanResult = results.maxByOrNull { it.confidence }
-                if (scanResult != null && scanResult.confidence >= 60) {
-                    // V5.9.495z14 — push pattern enum names into cache so the
-                    // entry decision can read them via getPatternNames() and
-                    // apply PatternAutoTuner.getPatternMultiplier(name).
-                    val patternNames = results.flatMap { r ->
-                        r.candlePatterns.map { it.name } + r.chartPatterns.map { it.name }
-                    }.distinct()
-                    SmartChartCache.update(
-                        mint = ts.mint,
-                        bias = scanResult.overallBias,
-                        confidence = scanResult.confidence,
-                        patternNames = patternNames,
-                    )
+                val results = if (tick % 10 == 0L) SmartChartScanner.scan(ts) else {
+                    val minute = SmartChartScanner.quickScan(ts, SmartChartScanner.Timeframe.M1)
+                    listOfNotNull(minute ?: SmartChartScanner.quickScan(ts))
+                }
+                // The short chart owns the entry clock. Higher frames still publish their own insights.
+                val scanResult = results.firstOrNull { it.timeframe == SmartChartScanner.Timeframe.M1 }
+                    ?: results.firstOrNull { it.timeframe == SmartChartScanner.Timeframe.M5 }
+                if (scanResult != null) {
+                    val patternNames = scanResult.candlePatterns.map { it.name } + scanResult.chartPatterns.map { it.name }
+                    SmartChartCache.update(ts.mint, scanResult.overallBias, scanResult.confidence,
+                        patternNames, scanResult.timestampMs, scanResult.entryShape)
                     val patternStr = buildString {
                         scanResult.candlePatterns.forEach { append(it.emoji) }
                         scanResult.chartPatterns.forEach { append(it.emoji) }

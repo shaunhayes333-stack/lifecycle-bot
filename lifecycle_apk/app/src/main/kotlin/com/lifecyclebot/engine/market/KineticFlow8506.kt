@@ -131,9 +131,22 @@ object KineticFlow8506 {
             recentLast.atMs - recentFirst.atMs >= 1_000L && prices.distinctBy { it.signature }.size >= 3) {
             (100.0 * ((recentLast.sol / recentLast.qty) / (recentFirst.sol / recentFirst.qty) - 1.0)).takeIf { it.isFinite() }
         } else null
+        val currentLeg = if (recentMove != null && recentMove > 0.0) {
+            val ordered = prices.filter { it.sourceTime && (pool.isNotBlank() || it.venue == "CURVE") }
+                .distinctBy { it.signature }.sortedBy { it.atMs }
+            val tail = ordered.takeLast(3)
+            if (tail.size == 3 && tail.last().atMs == last.atMs &&
+                tail.first().atMs > recentFirst!!.atMs && tail.last().atMs - tail.first().atMs >= 1_000L &&
+                tail.zipWithNext().all { (a, b) -> a.atMs < b.atMs && a.sol / a.qty > b.sol / b.qty }) {
+                val peak = tail.first().sol / tail.first().qty
+                val end = tail.last().sol / tail.last().qty
+                val start = recentFirst.sol / recentFirst.qty
+                if (end - start <= (peak - start) / 2.0) 100.0 * (end / peak - 1.0) else recentMove
+            } else recentMove
+        } else recentMove
         return Vector(buys.distinctBy { it.buyer }.size, recent.sumOf { if (it.isBuy) it.sol else -it.sol }, move,
             buys.size >= 3 && buys.size > prev.count { it.isBuy } && buys.sumOf { it.sol } > prev.filter { it.isBuy }.sumOf { it.sol },
             clustered, buys.filter { it.tip > 0 }.distinctBy { it.buyer }.size, buys.maxOfOrNull { it.tip } ?: 0, gap, last.venue, last.sol / last.qty,
-            sameSlots.map { it.buyer }.distinct().count(trackedWallet), funded, recentMove, pool)
+            sameSlots.map { it.buyer }.distinct().count(trackedWallet), funded, currentLeg, pool)
     }
 }

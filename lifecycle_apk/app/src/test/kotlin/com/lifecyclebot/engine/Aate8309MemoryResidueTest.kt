@@ -83,9 +83,11 @@ class Aate8309MemoryResidueTest {
     // ── the largest residue: one 200-candle chart copy per mint ever full-scanned ──
 
     @Test fun theSmartChartCandleCacheHoldsItsCapAcrossManyMints() {
+        val minute = System.currentTimeMillis() / 60_000L * 60_000L
         for (i in 0 until 1_200) {
             val ts = TokenState(mint = mint(i, "sc"), symbol = "SC$i")
-            for (j in 0 until 12) ts.history.addLast(Candle(ts = 1_000L * j, priceUsd = 1.0 + j * 0.01, marketCap = 10_000.0, volumeH1 = 100.0, volume24h = 1_000.0))
+            for (j in 0 until 12) ts.history.addLast(Candle(ts = minute - (12 - j) * 60_000L, priceUsd = 1.0 + j * 0.01, marketCap = 10_000.0, volumeH1 = 0.0, volume24h = 0.0,
+                openUsd = 1.0, lowUsd = 0.99, highUsd = 1.2, intervalMs8521 = 60_000L, periodVolumeUsd8521 = 10.0))
             SmartChartScanner.scan(ts)
         }
         val n = SmartChartScanner.residueMap8309().size

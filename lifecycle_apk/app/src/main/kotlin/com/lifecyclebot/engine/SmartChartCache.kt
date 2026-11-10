@@ -18,6 +18,7 @@ object SmartChartCache {
         val bias: String,                   // "BULLISH" / "BEARISH" / "NEUTRAL"
         val confidence: Double,             // 0..100
         val timestamp: Long,
+        val entryShape: SmartChartScanner.EntryShape = SmartChartScanner.EntryShape.UNFORMED,
         val patternNames: List<String>,     // V5.9.495z14 — both candle + chart pattern enum names
     )
 
@@ -25,7 +26,7 @@ object SmartChartCache {
 
     fun update(mint: String, bias: String, confidence: Double) {
         // Legacy callers without pattern names — preserve previous behavior.
-        store[mint] = Entry(bias.uppercase(), confidence.coerceIn(0.0, 100.0), System.currentTimeMillis(), emptyList())
+        store[mint] = Entry(bias.uppercase(), confidence.coerceIn(0.0, 100.0), System.currentTimeMillis(), patternNames = emptyList())
     }
 
     /**
@@ -34,14 +35,17 @@ object SmartChartCache {
      * entry layer can ask PatternAutoTuner.getPatternMultiplier(name) and
      * blend learned per-pattern win-rate weights into entry scoring.
      */
-    fun update(mint: String, bias: String, confidence: Double, patternNames: List<String>) {
-        store[mint] = Entry(
-            bias.uppercase(),
-            confidence.coerceIn(0.0, 100.0),
-            System.currentTimeMillis(),
-            patternNames,
-        )
+    fun update(mint: String, bias: String, confidence: Double, patternNames: List<String>,
+               observedAtMs: Long = System.currentTimeMillis(),
+               entryShape: SmartChartScanner.EntryShape = SmartChartScanner.EntryShape.UNFORMED) {
+        store.compute(mint) { _, prior ->
+            if (prior != null && prior.timestamp > observedAtMs) prior
+            else Entry(bias.uppercase(), confidence.coerceIn(0.0, 100.0), observedAtMs, entryShape, patternNames)
+        }
     }
+
+    internal fun shapeAt(mint: String, nowMs: Long): SmartChartScanner.EntryShape =
+        store[mint]?.takeIf { nowMs - it.timestamp in 0L..MAX_AGE_MS }?.entryShape ?: SmartChartScanner.EntryShape.UNFORMED
 
     /**
      * Returns bearish confidence (0..100) when we have a fresh bearish read

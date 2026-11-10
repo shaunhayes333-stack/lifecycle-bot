@@ -1,5 +1,7 @@
 package com.lifecyclebot.engine.market
 
+import com.lifecyclebot.engine.SmartChartCache
+import com.lifecyclebot.engine.SmartChartScanner.EntryShape
 import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.engine.PipelineHealthCollector
 import com.lifecyclebot.network.HostCircuitInterceptor
@@ -160,6 +162,9 @@ object MarketSweep7297 {
         val providerAgreement: Int,
         val regime: String,
         val generatedAtMs: Long,
+        val flowSetup: String = setup,
+        val activeFlow: Boolean = false,
+        val scoreBeforeShape: Double = score,
     )
 
     private const val JUP = "https://lite-api.jup.ag/tokens/v2"
@@ -262,8 +267,29 @@ object MarketSweep7297 {
         }
     }
 
-    fun opportunityFor7777(mint: String): OpportunitySignal? = opportunity7777[mint]?.takeIf {
-        System.currentTimeMillis() - it.generatedAtMs in 0L..120_000L
+    internal fun chartSetup(flowSetup: String, shape: EntryShape, active: Boolean, buyPct: Double): String {
+        if (flowSetup == "DISTRIBUTION" || flowSetup == "EXHAUSTION") return flowSetup
+        return when (shape) {
+            EntryShape.FAILED_BREAKOUT -> "EXHAUSTION"
+            EntryShape.LOWER_HIGHS -> "DISTRIBUTION"
+            EntryShape.RECLAIM -> if (active && buyPct > 50.0) "DIP_RECOVERY" else flowSetup
+            EntryShape.BREAKOUT -> if (active && buyPct > 50.0) "BREAKOUT_EXPANSION" else flowSetup
+            EntryShape.UNFORMED -> flowSetup
+        }
+    }
+
+    private fun shapePenalty(setup: String): Double = when (setup) {
+        "EXHAUSTION" -> 15.0
+        "DISTRIBUTION" -> 10.0
+        else -> 0.0
+    }
+
+    fun opportunityFor7777(mint: String): OpportunitySignal? {
+        val now = System.currentTimeMillis()
+        val signal = opportunity7777[mint]?.takeIf { now - it.generatedAtMs in 0L..120_000L } ?: return null
+        val setup = chartSetup(signal.flowSetup, SmartChartCache.shapeAt(mint, now), signal.activeFlow, signal.buyPressurePct)
+        return if (setup == signal.setup) signal else signal.copy(setup = setup,
+            score = (signal.scoreBeforeShape - shapePenalty(setup)).coerceIn(0.0, 100.0))
     }
 
     // V5.0.8293 — the rebuild's leaders, kept in rank order so the cycle window reads them without re-sorting the map.
@@ -559,13 +585,13 @@ object MarketSweep7297 {
             val providerAgreement = r.providers.size.coerceAtLeast(1)
             val turnover = if (r.liquidityUsd > 0.0) (r.volumeH1Usd / r.liquidityUsd).coerceAtLeast(0.0) else 0.0
 
-            val setup = when {
+            val flowSetup = when {
                 (r.priceChangeH1Pct >= 35.0 && price5 <= -6.0) || bp <= 38.0 -> "EXHAUSTION"
                 price5 <= -8.0 && r.priceChangeH1Pct > 0.0 -> "DISTRIBUTION"
                 !active -> "OBSERVING"
                 r.priceChangeH1Pct <= -4.0 && price5 >= 1.5 && bp >= 55.0 -> "DIP_RECOVERY"
                 price5 >= 2.0 && bp >= 58.0 && volAccel >= 1.35 -> "EARLY_MOMENTUM_IGNITION"
-                price5 >= 5.0 && relative >= 5.0 && bp > 50.0 -> "BREAKOUT_EXPANSION"
+                price5 >= 5.0 && relative >= 5.0 && bp > 50.0 -> "RELATIVE_STRENGTH_LEADER"
                 liqDelta >= 12.0 && bp >= 52.0 -> "LIQUIDITY_EXPANSION"
                 // V5.0.7867 — a leader needs live tape. 5.0.7866's top ranks were
                 // "Transforme"/"ChatGPT"/"NVIDIA" at rs=+1000 with v5=0 and volx=1.0:
@@ -575,6 +601,7 @@ object MarketSweep7297 {
                 else -> "OBSERVING"
             }
 
+            val setup = chartSetup(flowSetup, SmartChartCache.shapeAt(r.mint, now), active, bp)
             val regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "NORMAL" }
             val regimeFit = when {
                 regime == "BULL_RIPPING" && setup in setOf("EARLY_MOMENTUM_IGNITION", "BREAKOUT_EXPANSION", "CONTINUATION", "RELATIVE_STRENGTH_LEADER") -> 5.0
@@ -594,9 +621,8 @@ object MarketSweep7297 {
             score += (r.organicScore / 15.0).coerceIn(0.0, 6.0)
             score += (kotlin.math.log10(1.0 + turnover) * 4.0).coerceIn(0.0, 6.0)
             score += regimeFit
-            if (setup == "EXHAUSTION") score -= 15.0
-            if (setup == "DISTRIBUTION") score -= 10.0
-            score = score.coerceIn(0.0, 100.0)
+            val scoreBeforeShape = score
+            score = (score - shapePenalty(setup)).coerceIn(0.0, 100.0)
 
             provisional += OpportunitySignal(
                 mint = r.mint,
@@ -605,7 +631,7 @@ object MarketSweep7297 {
                 rank = 0,
                 universe = current.rows.size,
                 percentile = 0.0,
-                setup = setup,
+                setup = setup, flowSetup = flowSetup, activeFlow = active, scoreBeforeShape = scoreBeforeShape,
                 relativeStrengthPct = relative,
                 priceVelocity5mPct = price5,
                 volumeAcceleration = volAccel,

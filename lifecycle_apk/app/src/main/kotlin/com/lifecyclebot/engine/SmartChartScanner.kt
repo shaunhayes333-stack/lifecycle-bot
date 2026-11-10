@@ -1,6 +1,9 @@
 package com.lifecyclebot.engine
 
 import com.lifecyclebot.data.TokenState
+import com.lifecyclebot.engine.truth.MultiTimeframeCharts8521
+import com.lifecyclebot.engine.truth.MultiTimeframeCharts8521.Frame8521
+import com.lifecyclebot.engine.truth.CandleCoverage8284
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.abs
 
@@ -109,8 +112,34 @@ object SmartChartScanner {
         val overallBias: String,  // "BULLISH", "BEARISH", "NEUTRAL"
         val confidence: Double,   // 0-100
         val timestampMs: Long,
+        val closeUsd: Double = Double.NaN,
+        val entryShape: EntryShape = EntryShape.UNFORMED,
     )
     
+    enum class EntryShape { BREAKOUT, RECLAIM, FAILED_BREAKOUT, LOWER_HIGHS, UNFORMED }
+
+    /** Read the last close against levels that existed before that candle opened. */
+    internal fun entryShape(bars: List<PriceCandle>): EntryShape {
+        if (bars.size < 5) return EntryShape.UNFORMED
+        val last = bars.last()
+        val prior = bars.takeLast(9).dropLast(1)
+        val prev = prior.last()
+        val before = prior[prior.lastIndex - 1]
+        val ceiling = prior.maxOf { it.high }
+        val priorCeiling = prior.dropLast(1).maxOf { it.high }
+        return when {
+            (last.high > ceiling && last.close < ceiling && last.isBearish) ||
+                (prev.close > priorCeiling && last.close < priorCeiling && last.isBearish) -> EntryShape.FAILED_BREAKOUT
+            last.high < prev.high && prev.high < before.high &&
+                last.low < prev.low && prev.low < before.low && last.close < prev.close -> EntryShape.LOWER_HIGHS
+            prior.size == 8 && ceiling / prior.minOf { it.low } <= 1.15 &&
+                last.close / ceiling in 1.02..1.12 && last.isBullish -> EntryShape.BREAKOUT
+            prev.low > before.low && before.low < prior[prior.lastIndex - 2].low &&
+                last.low >= prev.low && last.close > prev.high && last.isBullish -> EntryShape.RECLAIM
+            else -> EntryShape.UNFORMED
+        }
+    }
+
     enum class VolumeSignal {
         SURGE,        // Volume spike (>2x average)
         INCREASING,   // Above average
@@ -171,28 +200,18 @@ object SmartChartScanner {
         return try {
             val results = mutableListOf<ScanResult>()
             
-            // Build candles from token history
-            val candles = buildCandles(ts)
-            if (candles.size < 5) {
-                return emptyList()  // Not enough data
-            }
-            
-            // Cache for later analysis
-            priceCache[ts.mint] = candles.toMutableList()
-            MintResidue8309.capMap8309(priceCache, PRICE_CACHE_MINTS_8309)   // V5.0.8309
-            
-            // Analyze each timeframe we have data for
-            Timeframe.values().forEach { tf ->
-                val tfCandles = aggregateToTimeframe(candles, tf)
-                if (tfCandles.size >= 3) {
-                    val result = analyzeTimeframe(ts.mint, ts.symbol, tf, tfCandles)
-                    results.add(result)
-                    
-                    // Record insights to SuperBrain
-                    recordInsights(result)
+            val now = System.currentTimeMillis()
+            for (tf in Timeframe.values()) {
+                val bars = chartBars(ts, tf, now)
+                if (bars.size < 3) continue
+                if (tf == Timeframe.M1) {
+                    priceCache[ts.mint] = bars.toMutableList()
+                    MintResidue8309.capMap8309(priceCache, PRICE_CACHE_MINTS_8309)
                 }
+                val result = analyzeTimeframe(ts.mint, ts.symbol, tf, bars)
+                results.add(result)
+                recordInsights(result)
             }
-            
             results
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "scan error: ${e.message}")
@@ -205,13 +224,9 @@ object SmartChartScanner {
      */
     fun quickScan(ts: TokenState, timeframe: Timeframe = Timeframe.M5): ScanResult? {
         return try {
-            val candles = buildCandles(ts)
-            if (candles.size < 5) return null
-            
-            val tfCandles = aggregateToTimeframe(candles, timeframe)
-            if (tfCandles.size < 3) return null
-            
-            analyzeTimeframe(ts.mint, ts.symbol, timeframe, tfCandles)
+            val bars = chartBars(ts, timeframe, System.currentTimeMillis())
+            if (bars.size < 3) return null
+            analyzeTimeframe(ts.mint, ts.symbol, timeframe, bars)
         } catch (e: Exception) {
             null
         }
@@ -221,55 +236,34 @@ object SmartChartScanner {
     // CANDLE BUILDING
     // ═══════════════════════════════════════════════════════════════════
     
-    private fun buildCandles(ts: TokenState): List<PriceCandle> {
-        return try {
-            ts.history.mapNotNull { candle ->
-                try {
-                    // Use actual OHLC if available, otherwise derive from priceUsd
-                    val open = if (candle.openUsd > 0) candle.openUsd else candle.priceUsd
-                    val high = if (candle.highUsd > 0) candle.highUsd else candle.priceUsd * 1.005
-                    val low = if (candle.lowUsd > 0) candle.lowUsd else candle.priceUsd * 0.995
-                    val close = candle.priceUsd
-                    
-                    PriceCandle(
-                        open = open,
-                        high = high,
-                        low = low,
-                        close = close,
-                        volume = candle.vol,
-                        timestampMs = candle.ts,
-                    )
-                } catch (e: Exception) {
-                    null
-                }
-            }.takeLast(MAX_CANDLES)
-        } catch (e: Exception) {
-            emptyList()
+    // Read the existing canonical timeframe store. A gap or venue change starts a new shape.
+    // D1 is derived only from 24 consecutive completed hours.
+    private fun chartBars(ts: TokenState, tf: Timeframe, now: Long): List<PriceCandle> {
+        val frame = if (tf == Timeframe.D1) Frame8521.H1 else Frame8521.valueOf(tf.name)
+        val direct = MultiTimeframeCharts8521.snapshot8521(ts, frame, now)
+        val bars = if (direct.size < 3 && frame == Frame8521.M5) {
+            val minute = MultiTimeframeCharts8521.snapshot8521(ts, Frame8521.M1, now)
+            val local = MultiTimeframeCharts8521.resample8521(minute, Frame8521.M1, frame, now)
+            if (local.size >= 3 && now - (local.last().ts + frame.intervalMs) <= frame.intervalMs) local else direct
+        } else direct
+        if (bars.isEmpty()) return emptyList()
+        val pool = CandleCoverage8284.tagOf8284(bars.last())?.pool.orEmpty()
+        var start = bars.lastIndex
+        while (start > 0 && bars.size - start < MAX_CANDLES &&
+            bars[start].ts - bars[start - 1].ts == frame.intervalMs &&
+            CandleCoverage8284.tagOf8284(bars[start - 1])?.pool.orEmpty() == pool) start--
+        val observed = bars.subList(start, bars.size).map {
+            PriceCandle(it.openUsd, it.highUsd, it.lowUsd, it.priceUsd,
+                it.periodVolumeUsd8521 ?: Double.NaN, it.ts)
+        }
+        if (tf != Timeframe.D1) return observed
+        val dayMs = 86_400_000L
+        return observed.groupBy { it.timestampMs / dayMs }.values.filter { it.size == 24 }.map { day ->
+            PriceCandle(day.first().open, day.maxOf { it.high }, day.minOf { it.low },
+                day.last().close, day.sumOf { it.volume }, day.first().timestampMs)
         }
     }
-    
-    private fun aggregateToTimeframe(candles: List<PriceCandle>, tf: Timeframe): List<PriceCandle> {
-        return try {
-            if (candles.isEmpty()) return emptyList()
-            
-            val periodMs = tf.minutes * 60_000L
-            val grouped = candles.groupBy { it.timestampMs / periodMs }
-            
-            grouped.map { (_, group) ->
-                PriceCandle(
-                    open = group.first().open,
-                    high = group.maxOf { it.high },
-                    low = group.minOf { it.low },
-                    close = group.last().close,
-                    volume = group.sumOf { it.volume },
-                    timestampMs = group.first().timestampMs,
-                )
-            }.sortedBy { it.timestampMs }
-        } catch (e: Exception) {
-            candles
-        }
-    }
-    
+
     // ═══════════════════════════════════════════════════════════════════
     // PATTERN DETECTION
     // ═══════════════════════════════════════════════════════════════════
@@ -290,10 +284,14 @@ object SmartChartScanner {
         var bearishScore = 0
         
         candlePatterns.forEach { p ->
-            if (p.bullish) bullishScore++ else bearishScore++
+            if (p != CandlePattern.DOJI) {
+                if (p.bullish) bullishScore++ else bearishScore++
+            }
         }
         chartPatterns.forEach { p ->
-            if (p.bullish) bullishScore += 2 else bearishScore += 2
+            if (p != ChartPattern.SYMMETRIC_TRIANGLE) {
+                if (p.bullish) bullishScore += 2 else bearishScore += 2
+            }
         }
         
         when (volumeSignal) {
@@ -324,7 +322,9 @@ object SmartChartScanner {
             holderSignal = holderSignal,
             overallBias = bias,
             confidence = confidence.coerceIn(0.0, 100.0),
-            timestampMs = System.currentTimeMillis(),
+            timestampMs = candles.last().timestampMs + tf.minutes * 60_000L,
+            closeUsd = candles.last().close,
+            entryShape = entryShape(candles),
         )
     }
     
@@ -473,15 +473,13 @@ object SmartChartScanner {
 
             if (recent.size < 10) return patterns
 
-            val high     = recent.max()
-            val low      = recent.min()
             val last     = recent.last()
             val avgPrice = recent.average()
 
             // ── Breakout / Breakdown (wide range take-out) ────────────────
-            val priorHigh = prices.dropLast(5).takeLast(20).maxOrNull() ?: high
+            val priorHigh = highs.dropLast(1).takeLast(20).max()
             if (last > priorHigh * 1.05) patterns.add(ChartPattern.BREAKOUT)
-            val priorLow = prices.dropLast(5).takeLast(20).minOrNull() ?: low
+            val priorLow = lows.dropLast(1).takeLast(20).min()
             if (last < priorLow * 0.95) patterns.add(ChartPattern.BREAKDOWN)
 
             // ── Double / Triple Bottom + Top ──────────────────────────────
@@ -669,7 +667,7 @@ object SmartChartScanner {
     
     private fun analyzeVolume(candles: List<PriceCandle>): VolumeSignal {
         return try {
-            if (candles.size < 5) return VolumeSignal.NORMAL
+            if (candles.size < 5 || candles.any { !it.volume.isFinite() || it.volume < 0.0 }) return VolumeSignal.UNKNOWN
             
             val volumes = candles.map { it.volume }
             val avgVolume = volumes.dropLast(1).average()
@@ -705,7 +703,7 @@ object SmartChartScanner {
                     pattern = pattern.name,
                     timeframe = result.timeframe.label,
                     confidence = result.confidence,
-                    priceAtDetection = 0.0,  // Not tracked here
+                    priceAtDetection = result.closeUsd,
                 )
             }
             
@@ -717,7 +715,7 @@ object SmartChartScanner {
                     pattern = pattern.name,
                     timeframe = result.timeframe.label,
                     confidence = result.confidence + 10,  // Chart patterns are higher confidence
-                    priceAtDetection = 0.0,
+                    priceAtDetection = result.closeUsd,
                 )
             }
             
