@@ -940,8 +940,6 @@ class DataOrchestrator(
         // Walletless curve-snapshot inferences are ignored by BuyerFlow8666; they cannot
         // establish independent buyers or genuine executed trade volume.
         try { com.lifecyclebot.engine.market.BuyerFlow8666.note(mint, wallet, solAmount, isBuy) } catch (_: Throwable) {}
-        // V5.0.8252 — a print is tape / swaps / buy-pressure evidence: a held defer waiting for it is due now.
-        try { com.lifecyclebot.engine.truth.CandidateAdmission8136.evidenceArrived8252(mint, com.lifecyclebot.engine.truth.CandidateAdmission8136.TAPE_FEATURES_8252) } catch (_: Throwable) {}
         // V5.0.7921 — the launch tape since birth (crowd, flow, heat, promotion).
         try { com.lifecyclebot.engine.market.LaunchTape7921.onTrade(mint, wallet, solAmount, isBuy) } catch (_: Throwable) {}
         // V5.0.7950 — the chart reader's buy/sell volume split and dev-sold flag.
@@ -953,6 +951,8 @@ class DataOrchestrator(
         } catch (_: Throwable) {}
         try { synchronized(pendingTrades) { handlePumpTrade(mint, isBuy, solAmount, wallet) } } catch (_: Throwable) {}
         try { applyTapeBuyPressure7773(mint) } catch (_: Throwable) {}
+        // V5.0.8252 — a print is tape / swaps / buy-pressure evidence: a held defer waiting for it is due now.
+        try { com.lifecyclebot.engine.truth.CandidateAdmission8136.evidenceArrived8252(mint, com.lifecyclebot.engine.truth.CandidateAdmission8136.TAPE_FEATURES_8252) } catch (_: Throwable) {}
         // V5.0.7747 — WhaleTrackerAI's only feeder was BirdeyeWhaleFeeder (Birdeye
         // 401), so every scorer reading it saw stale data. A single trade at or above
         // the feeder's own whale bar (MIN_VOLUME_USD_TO_CLASSIFY, $1,000) is recorded.

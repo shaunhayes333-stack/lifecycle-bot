@@ -436,8 +436,8 @@ object PumpFunWS {
         if (!PumpCurveKeys7269.isPumpMint8658(mint) || !priceSol.isFinite() || priceSol <= 0.0) return
         markSource8354.set(HeliusCurveTape8354.SRC_HELIUS_CURVE_8354)
         try {
+            try { onTradeDetailCb7743?.invoke(mint, wallet, if (solAmount.isFinite() && solAmount > 0.0) solAmount else 0.0, isBuy, 0.0, vSolInCurve) } catch (_: Throwable) {}
             onTradeCb?.invoke(mint, priceSol, marketCapSol, isBuy)
-            onTradeDetailCb7743?.invoke(mint, wallet, if (solAmount.isFinite() && solAmount > 0.0) solAmount else 0.0, isBuy, 0.0, vSolInCurve)
         } catch (_: Throwable) {
         } finally { markSource8354.remove() }
     }
@@ -496,7 +496,7 @@ object PumpFunWS {
         }   // V5.0.8317 — a setup watch is exempt from the per-coin cap
         val drop = setupEvictions8191(setupMints8191, mint, nowMs, SETUP_MAX_8191, SETUP_TTL_MS_8191) { m -> lifecycleMints7420.containsKey(m) }
         for (m in drop) setupMints8191.remove(m)
-        val unsub = drop.filter { tradeSubscriptions7278.remove(it) }
+        val unsub = drop.filter { it !in heldMints8192 && tradeSubscriptions7278.remove(it) }
         if (unsub.isNotEmpty() && tradeStreamKeyed7284()) ws?.send(JSONObject().put("method", "unsubscribeTokenTrade").put("keys", JSONArray(unsub)).toString())
         setupMints8191[mint] = nowMs
         if (!tradeStreamKeyed7284()) { setupNoKey8191.incrementAndGet(); return false }
@@ -1006,18 +1006,17 @@ object PumpFunWS {
                                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TRADE_EVENT_SELL")
                             }
                         } catch (_: Throwable) {}
-                        onTradeCb?.invoke(mint, priceSol, mcapSol, txType == "buy")
                         try {
                             val sol7743 = j.optDouble("solAmount", 0.0).takeIf { it.isFinite() && it > 0.0 } ?: 0.0
                             val tok7743 = j.optDouble("tokenAmount", 0.0)
                             val left7743 = j.optDouble("newTokenBalance", -1.0)
                             val soldFrac7743 = if (txType == "sell" && tok7743.isFinite() && tok7743 > 0.0 && left7743.isFinite() && left7743 >= 0.0)
                                 tok7743 / (tok7743 + left7743) else 0.0
+                            // The detail callback can release a deferred evaluation. Publish this swap first.
+                            try { tapeFrame8285(j, mint, priceSol, sol7743, tok7743, txType == "buy") } catch (_: Throwable) {}
                             onTradeDetailCb7743?.invoke(mint, j.optString("traderPublicKey", ""), sol7743, txType == "buy", soldFrac7743, vSol)
-                            // V5.0.8100 — the executed-trade tape (buy pressure / change / shape for a coin no provider covers yet).
-                            // V5.0.8285 — with its provenance: signature (one trade across PumpPortal / Helius), venue, token size.
-                            tapeFrame8285(j, mint, priceSol, sol7743, tok7743, txType == "buy")
                         } catch (_: Throwable) {}
+                        onTradeCb?.invoke(mint, priceSol, mcapSol, txType == "buy")
                     }
                     txType == "create" || j.has("name") && j.has("symbol") && j.has("mint") -> {
                         val mint = j.optString("mint", "")

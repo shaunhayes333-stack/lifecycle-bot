@@ -168,7 +168,7 @@ object LaneAuthority8577 {
         val r = reason.uppercase()
         // V5.0.8650 — the single admission's actual negative setup/cell/timing verdict cannot
         // be reversed by a generic native score at this layer or again at LiveEdgeGate.
-        if (CandidateAdmission8136.verifiedRecordDoor8650(r)) return true
+        if (CandidateAdmission8136.verifiedRecordDoor8650(r.removePrefix("CANDIDATE_ADMISSION_8136_"))) return true
         if (LEARNED_WAITS_8604.any { r.contains(it) }) return false
         return BINDING_8577.any { r.contains(it) }
     }
@@ -288,7 +288,10 @@ object LaneAuthority8577 {
     // V5.0.8604 — advisory for every ADMITTED LIVE candidate (the paper-equivalent admission), not only a specialist-qualified
     // one: the paper book buys generic-prior admits too, and the gate's learned doors are the layer it never had.
     fun advisoryAtGate8577(reason: String?, admission: CandidateAdmission8136.Decision8136?): Boolean =
-        enabled8577 && !reason.isNullOrBlank() && (admission?.laneQualified8577 == true || admission?.admitted == true) &&
+        enabled8577 && !reason.isNullOrBlank() && admission != null &&
+            (admission.admitted || admission.laneQualified8577) &&
+            !(admission.terminal == CandidateAdmission8136.Terminal8136.REFUSE &&
+                CandidateAdmission8136.verifiedRecordDoor8650(admission.reason)) &&
             !binding8577(reason)
 
     private val advisory8577 = ConcurrentHashMap<String, AtomicLong>()

@@ -329,9 +329,6 @@ object ShitCoinExpress {
         
         // Minimum liquidity — V5.0.8140: an unread pool defers (never "low"); a real one below $1k refuses, naming EXPRESS.
         com.lifecyclebot.engine.LaneAgeLiquidityTruth8140.laneLiquidityRefusal8140("EXPRESS", liquidityUsd, com.lifecyclebot.engine.cortex.LaneCheatSheet8323.EXPRESS_MIN_LIQ_8323, mint)?.let { return noRide(it) }  // V5.0.8606 — one EXPRESS floor ($500, was a 1_000.0 literal)
-        if (liquidityUsd < 1_000 && !com.lifecyclebot.engine.LaneAgeLiquidityTruth8140.activeCurveExitSafe8319(mint)) {   // V5.0.8319: an exit-safe active curve passed above
-            return noRide("LIQ_TOO_LOW: \$${liquidityUsd.toInt()}")
-        }
         
         // ═══════════════════════════════════════════════════════════════════
         // EXPRESS REQUIREMENTS - Must have MOMENTUM

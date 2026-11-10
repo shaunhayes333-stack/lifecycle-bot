@@ -81,7 +81,7 @@ class Aate8320CurveExitFloorTest {
         for ((file, call) in sites) {
             val s = src("v3/scoring/$file.kt")
             assertTrue(file, s.contains(call))
-            assertTrue(file, s.contains("!com.lifecyclebot.engine.LaneAgeLiquidityTruth8140.activeCurveExitSafe8319("))
+            assertFalse(file, s.contains("!com.lifecyclebot.engine.LaneAgeLiquidityTruth8140.activeCurveExitSafe8319("))
         }
         // Established lanes keep the 3-arg floor.
         assertTrue(src("v3/scoring/QualityTraderAI.kt").contains("laneLiquidityRefusal8140(\"QUALITY\", liquidityUsd, minLiqUsd)"))

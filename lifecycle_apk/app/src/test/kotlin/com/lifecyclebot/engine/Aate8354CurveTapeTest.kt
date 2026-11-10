@@ -268,6 +268,18 @@ class Aate8354CurveTapeTest {
         assertTrue(src("engine/DataOrchestrator.kt").contains("HeliusCurveTape8354.sync8354(held, near, nowMs, { m -> status.tokens.containsKey(m) }) { m -> heliusWs?.subscribeTokenState8386(m)"))
     }
 
+    @Test fun curveSwapEvidencePrecedesFastLaneEvaluation() {
+        val ws = src("network/PumpFunWS.kt")
+        val portal = ws.substringAfter("val swapKey8136 =").substringBefore("txType == \"create\"")
+        val tape = portal.indexOf("tapeFrame8285(")
+        val detail = portal.indexOf("onTradeDetailCb7743?.invoke(")
+        assertTrue(tape in 0 until detail && detail < portal.indexOf("onTradeCb?.invoke("))
+        val helius = src("network/HeliusCurveTape8354.kt").substringAfter("fun onTradeEvent8354(")
+        assertTrue(helius.indexOf("TradeTape8100.note8285(") in 0 until helius.indexOf("PumpFunWS.emitHeliusCurve8354("))
+        val emit = ws.substringAfter("fun emitHeliusCurve8354(").substringBefore("private fun tradeStreamKeyed7284")
+        assertTrue(emit.indexOf("onTradeDetailCb7743?.invoke(") in 0 until emit.indexOf("onTradeCb?.invoke("))
+    }
+
     @Test fun aKeptTradeWritesWhatAPumpPortalFrameWroteAndThe8346HookStillFires() {
         val c = src("network/HeliusCurveTape8354.kt")
         assertTrue(c.contains("CurveReserves7951.noteFrame7951(mint, ev.virtualSol, ev.virtualTokens)"))

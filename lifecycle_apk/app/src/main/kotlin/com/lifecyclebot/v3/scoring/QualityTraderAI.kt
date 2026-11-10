@@ -277,9 +277,6 @@ object QualityTraderAI {
             .coerceIn(MIN_LIQUIDITY_BOOTSTRAP_USD_8555, MIN_LIQUIDITY_USD)   // V5.0.8555 — $10k bootstrap -> $25k mature
         // V5.0.8140 — an unread pool defers (never "low"); a real one below the floor refuses, naming QUALITY.
         com.lifecyclebot.engine.LaneAgeLiquidityTruth8140.laneLiquidityRefusal8140("QUALITY", liquidityUsd, minLiqUsd)?.let { return QualitySignal(false, reason = it) }
-        if (liquidityUsd < minLiqUsd) {
-            return QualitySignal(false, reason = "Liquidity too low: $${liquidityUsd.toInt()} < $${minLiqUsd.toInt()} (learning=${(learningProgress*100).toInt()}%)")
-        }
 
         // Age filter - FLUID: Lower during learning to gather data
         // V5.9.663b — operator: 'theres 9 traders total on the memetrader

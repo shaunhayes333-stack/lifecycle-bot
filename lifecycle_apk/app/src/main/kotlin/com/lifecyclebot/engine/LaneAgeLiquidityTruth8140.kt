@@ -162,7 +162,8 @@ object LaneAgeLiquidityTruth8140 {
         val live = try { RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }
         val v = LaneAgeLiquidityScope8140.liquidityVerdict8140(lane, liquidityUsd, laneFloorUsd, live)
         // V5.0.8539 — the floor is learnt and unlearnt from the lane's own record in this liquidity band (LearnedLiquidityFloor8539).
-        if (v.outcome != LaneAgeLiquidityScope8140.Outcome8140.DEFER) {
+        val belowLiveExitFloor = live && liquidityUsd < LaneAgeLiquidityScope8140.EXIT_SAFE_HARD_FLOOR_USD_8140
+        if (v.outcome != LaneAgeLiquidityScope8140.Outcome8140.DEFER && !belowLiveExitFloor) {
             val l = LaneAgeLiquidityScope8140.canonical8140(lane)
             val band = try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.liqBandStat8539(l, liquidityUsd) } catch (_: Throwable) { null }
             when (LearnedLiquidityFloor8539.call(band?.n60 ?: 0, band?.meanNet60Pct ?: Double.NaN, band?.stderr60Pct ?: Double.NaN)) {

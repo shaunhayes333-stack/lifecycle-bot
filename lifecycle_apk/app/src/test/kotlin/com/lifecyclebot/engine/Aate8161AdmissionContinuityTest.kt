@@ -32,7 +32,7 @@ class Aate8161AdmissionContinuityTest {
         val fdg = File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
         val executor = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
 
-        assertTrue(gate.contains("val admission8136 = try { CandidateAdmission8136.assess8136(ts, l8059, nowMs, candidateVersion)"))
+        assertTrue(gate.contains("val admission8136 = if (candidateAdmission != null && !paper && !FdgGate8365.shadowOnly8393()) candidateAdmission"))
         assertTrue(gate.contains("candidateSpecificAdmission8136 = admission8136?.specific == true"))
         // superseded (8480, owner: "no evidence is not proven bad"): the proven-only door this admission cleared is removed
         assertFalse(gate.contains("return \"LIVE_PROVEN_SETUP_ONLY_8059\""))

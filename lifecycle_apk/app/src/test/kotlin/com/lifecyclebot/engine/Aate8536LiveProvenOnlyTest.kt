@@ -42,7 +42,7 @@ class Aate8536LiveProvenOnlyTest {
         // verdict (final) is that answer unless lane authority makes it advisory for a lane-qualified LIVE candidate.
         assertTrue(gate.contains("val doors8577 = core ?: hold ?: niche ?: wait ?: proof8536"))
         assertTrue(gate.contains("val final = if (advisory8577) null else doors8577"))
-        assertTrue(gate.contains("else (sourceRefusal8536(ts) ?: unprovenLive8536(ts, l, nowMs, candidateVersion, candidateAdmission))"))
+        assertTrue(gate.contains("else (sourceRefusal8536(ts) ?: unprovenLive8536(ts, l, nowMs, candidateVersion, context.evaluatedAdmission ?: candidateAdmission))"))
         assertTrue(gate.contains("admission.reason == \"SPECIFIC_EDGE_PROVEN_8136\""))
         assertEquals("LIVE_UNPROVEN_EDGE_8536", CandidateAdmission8136.LIVE_UNPROVEN_EDGE_8536)
     }

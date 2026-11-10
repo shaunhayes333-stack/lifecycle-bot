@@ -338,7 +338,6 @@ object HeliusCurveTape8354 {
         kept.incrementAndGet()   // V5.0.8356 — a kept print is one that passed the dedup, not one that merely passed the filter
         // The mark (band entry, position mark, candles) and the detail (launch tape, candles) PumpFunWS's frame fires.
         val mcapSol = com.lifecyclebot.engine.truth.MintSupply8418.capSolOrZero8418(mint, priceSol)   // V5.0.8418 — verified supply x print; 0 = unknown (was x 1e9)
-        try { PumpFunWS.emitHeliusCurve8354(mint, priceSol, mcapSol, ev.isBuy, ev.user, ev.sol, ev.virtualSol) } catch (_: Throwable) {}
         val taped = try {
             com.lifecyclebot.engine.truth.TradeTape8100.note8285(
                 mint, priceSol, ev.sol, ev.tokens, ev.isBuy, SRC_HELIUS_CURVE_8354,
@@ -346,6 +345,7 @@ object HeliusCurveTape8354 {
                 eventMs = PumpSwapTape8307.eventMs8307(ev.timestampSec, nowMs), recvMs = nowMs,
             )
         } catch (_: Throwable) { false }
+        try { PumpFunWS.emitHeliusCurve8354(mint, priceSol, mcapSol, ev.isBuy, ev.user, ev.sol, ev.virtualSol) } catch (_: Throwable) {}
         if (taped) {
             heliusPrints.incrementAndGet()
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc(if (ev.isBuy) "CURVE_TAPE_PRINT_BUY_8354" else "CURVE_TAPE_PRINT_SELL_8354") } catch (_: Throwable) {}

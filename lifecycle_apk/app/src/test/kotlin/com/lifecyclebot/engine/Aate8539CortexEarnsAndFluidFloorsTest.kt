@@ -51,7 +51,7 @@ class Aate8539CortexEarnsAndFluidFloorsTest {
         val truth = src("engine/LaneAgeLiquidityTruth8140.kt")
         assertTrue(truth.contains("ForwardReturnLabeler7731.liqBandStat8539(l, liquidityUsd)"))
         assertTrue(truth.contains("LANE_LIQ_FLOOR_LEARNED_OPEN_8539_") && truth.contains("LANE_LIQ_BAND_PROVEN_LOSING_8539_"))
-        assertTrue("unread depth still defers", truth.contains("if (v.outcome != LaneAgeLiquidityScope8140.Outcome8140.DEFER) {"))
+        assertTrue("unread depth and the live exit floor retain their verdicts", truth.contains("if (v.outcome != LaneAgeLiquidityScope8140.Outcome8140.DEFER && !belowLiveExitFloor) {"))
         val frl = src("engine/truth/ForwardReturnLabeler7731.kt")
         assertTrue(frl.contains("val withLiq8539 = if (pseudo) withStage else withStage + liqBandKey8539(o.lane, o.liqUsd8539)"))
         assertTrue(frl.contains("it.liqUsd8539 = liq  // V5.0.8539"))

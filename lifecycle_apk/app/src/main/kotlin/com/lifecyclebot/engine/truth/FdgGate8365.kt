@@ -206,23 +206,25 @@ object FdgGate8365 {
 
     // ── one decision per candidate per FDG pass (FDG's live edge block and TradePlan7739's chokepoint both asked) ──
 
-    private val memo8365 = ConcurrentHashMap<String, Pair<Long, String?>>()
+    private data class GateMemo(val result: Pair<Long, String?>, val admission: CandidateAdmission8136.Decision8136?)
+    private val memo8365 = ConcurrentHashMap<String, GateMemo>()
     private val memoHits8365 = AtomicLong(0)
 
     fun memoKey8365(mint: String, lane: String, candidateVersion: Long, paper: Boolean): String = "$mint|$lane|$candidateVersion|$paper"
 
     /** The memoised verdict for [key] (wrapped: Pair.second null = admit), or null when absent / stale. */
-    fun memoGet8365(key: String, nowMs: Long): Pair<Long, String?>? {
+    fun memoGet8365(key: String, nowMs: Long, admission: CandidateAdmission8136.Decision8136? = null): Pair<Long, String?>? {
         val m = memo8365[key] ?: return null
-        if (!memoFresh8365(m.first, nowMs)) { memo8365.remove(key); return null }
+        if (!memoFresh8365(m.result.first, nowMs)) { memo8365.remove(key, m); return null }
+        if (m.admission != admission) return null
         memoHits8365.incrementAndGet()
         try { PipelineHealthCollector.labelInc("FDG8365_DECISION_REUSED") } catch (_: Throwable) {}
-        return m
+        return m.result
     }
 
-    fun memoPut8365(key: String, verdict: String?, nowMs: Long) {
-        memo8365[key] = nowMs to verdict
-        if (memo8365.size > 2_000) memo8365.entries.removeIf { !memoFresh8365(it.value.first, nowMs) }
+    fun memoPut8365(key: String, verdict: String?, nowMs: Long, admission: CandidateAdmission8136.Decision8136? = null) {
+        memo8365[key] = GateMemo(nowMs to verdict, admission)
+        if (memo8365.size > 2_000) memo8365.entries.removeIf { !memoFresh8365(it.value.result.first, nowMs) }
     }
 
     // ── attribution ──

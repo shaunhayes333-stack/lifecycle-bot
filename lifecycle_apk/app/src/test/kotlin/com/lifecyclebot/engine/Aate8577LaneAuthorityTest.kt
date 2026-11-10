@@ -82,6 +82,32 @@ class Aate8577LaneAuthorityTest {
         assertEquals(Terminal8136.REFUSE, ap8609(unnamed, refusal("LIVE_NATIVE_OPINION_UNPROVEN_8536")).terminal)
     }
 
+    @Test fun finalGatePreservesVerifiedLossOnAQualifiedCandidate() {
+        val candidate = qualified()
+        for (reason in listOf("CELL_PROVEN_LOSING_8136", "SETUP_RECORD_LOSING_8136", "TIMING_ADVERSE_8136",
+                "SHEET_AVOID_8323", "EDGE_MODEL_NEGATIVE_8537")) {
+            val decision = ap8609(candidate, refusal(reason))
+            assertEquals(Terminal8136.REFUSE, decision.terminal)
+            assertTrue(decision.laneQualified8577)
+            assertFalse(LaneAuthority8577.advisoryAtGate8577("CANDIDATE_ADMISSION_8136_${decision.reason}", decision))
+            assertFalse(LaneAuthority8577.advisoryAtGate8577("WATCH_FIRST_8019", decision))
+        }
+        val alternative = refusal("SPECIFIC_EDGE_PROVEN_8136").copy(terminal = Terminal8136.ADMIT)
+        assertTrue(LaneAuthority8577.advisoryAtGate8577("WATCH_FIRST_8019", alternative))
+        assertFalse(LaneAuthority8577.binding8577("CANDIDATE_ADMISSION_8136_LIVE_REGIME_COLD_8546"))
+    }
+
+    @Test fun cachedGateVerdictIsBoundToTheActualAdmission() {
+        val gate = com.lifecyclebot.engine.truth.FdgGate8365
+        val key = "8668_same_mint_lane_generation"
+        val rejected = refusal("CELL_PROVEN_LOSING_8136")
+        val allowed = rejected.copy(terminal = Terminal8136.ADMIT, reason = "SPECIFIC_EDGE_PROVEN_8136")
+        gate.memoPut8365(key, null, 10_000L, allowed)
+        assertTrue(gate.memoGet8365(key, 10_001L, allowed) != null)
+        assertEquals(null, gate.memoGet8365(key, 10_001L, rejected))
+        assertEquals(null, gate.memoGet8365(key, 10_001L))
+    }
+
     @Test fun safety_structure_the_executable_minimum_and_the_v3_floor_still_bind() {
         LaneAuthority8577.enabled8577 = true
         for (door in listOf("SAFETY_REFUSED_8136", "STRUCTURAL_RISK_8136", "GENERIC_SCORE_FLOOR_8136")) {
@@ -144,7 +170,7 @@ class Aate8577LaneAuthorityTest {
         assertTrue(fn.contains("val final = if (advisory8577) null else doors8577"))
         assertTrue("the door's own answer is filed on its forward record", fn.contains("observeTail7996(ts, l, doors8577, nowMs)"))
         assertTrue(fn.contains("FdgGate8365.noteFinal8365(doors8577, l)"))
-        assertTrue("the FDG memo and the live admit read the verdict", fn.contains("FdgGate8365.memoPut8365(key, final, nowMs)") &&
+        assertTrue("the FDG memo and the live admit read the verdict", fn.contains("FdgGate8365.memoPut8365(key, final, nowMs, candidateAdmission)") &&
             fn.contains("if (!paper && final == null) LiveTruth8064.noteLiveAdmit8083(ts.mint, l,"))
         assertTrue(File("src/main/kotlin/com/lifecyclebot/engine/DiagnosisBrief8438.kt").readText().contains("LaneAuthority8577.statusLine8577()"))
         assertTrue(LaneAuthority8577.statusLine8577().startsWith("laneAuthority8577[on="))

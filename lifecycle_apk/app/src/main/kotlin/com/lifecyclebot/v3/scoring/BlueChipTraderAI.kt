@@ -655,18 +655,6 @@ object BlueChipTraderAI {
                 isPaperMode = isPaperMode
             )
         }
-        if (liquidityUsd < minLiq) {
-            return BlueChipSignal(
-                shouldEnter = false,
-                positionSizeSol = 0.0,
-                takeProfitPct = 0.0,
-                stopLossPct = 0.0,
-                confidence = 0,
-                reason = "LIQ_TOO_LOW: \$${liquidityUsd.toInt()} < \$${minLiq.toInt()}",
-                mode = mode,
-                isPaperMode = isPaperMode
-            )
-        }
         
         // V5.0.7552 — local BlueChip position maps are projection state.
         // Canonical occupancy/slot authority decides whether execution may open.

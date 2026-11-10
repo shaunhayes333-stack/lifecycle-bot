@@ -479,7 +479,10 @@ object LiveEdgeGate7877 {
             com.lifecyclebot.engine.truth.NetEdge8030.entryClears8030(it.expectedNetPct + it.costPct, it.costPct, it.costMargin8391)
     } == true
 
-    private class EntryContext8392(val paper: Boolean) { var assessment: Assessment8083? = null }
+    private class EntryContext8392(val paper: Boolean) {
+        var assessment: Assessment8083? = null
+        var evaluatedAdmission: CandidateAdmission8136.Decision8136? = null
+    }
     private val entryContext8392 = ThreadLocal<EntryContext8392>()
 
     /** One admission path. Scope buffers intermediate telemetry, never changes evidence or policy. */
@@ -503,7 +506,7 @@ object LiveEdgeGate7877 {
             (hold.startsWith("EVIDENCE_HOLD_8336_") || hold.contains("LANE_REALISED_LOSING"))
         val lockout = if (paper) null else com.lifecyclebot.engine.RebuyLockout8019.refusal8019(ts.mint, nowMs)
         val key = FdgGate8365.memoKey8365(ts.mint, l, candidateVersion, paper) + "|$basis|$hold|$lockout"
-        FdgGate8365.memoGet8365(key, nowMs)?.let { return it.second }
+        FdgGate8365.memoGet8365(key, nowMs, candidateAdmission)?.let { return it.second }
         val context = EntryContext8392(paper)
         val previous = entryContext8392.get()
         entryContext8392.set(context)
@@ -528,13 +531,13 @@ object LiveEdgeGate7877 {
         // V5.0.8536 — owner: LIVE buys only on proven evidence. Whatever door admitted it (lane opinion, chart read, canonical
         // prior, watchlist re-check), a live entry with no proven record is refused here; paper is untouched.
         val proof8536 = if (paper || core != null || hold != null || niche != null || wait != null) null
-            else (sourceRefusal8536(ts) ?: unprovenLive8536(ts, l, nowMs, candidateVersion, candidateAdmission))
+            else (sourceRefusal8536(ts) ?: unprovenLive8536(ts, l, nowMs, candidateVersion, context.evaluatedAdmission ?: candidateAdmission))
                 ?.takeIf { Rehearsal8339.doorBindsNow8342(it, l) }  // V5.0.8539 — learnt and unlearnt (FdgGate8365 demotion)
         val doors8577 = core ?: hold ?: niche ?: wait ?: proof8536
         // V5.0.8577 §LANE_AUTHORITY — a lane-qualified LIVE candidate is refused only by a binding door (safety, structure,
         // the executable minimum, the kill switch); every learned door's refusal is advisory: counted, traced and filed on
         // its forward record below (observeTail7996 / noteFinal8365 read the door's answer), never the verdict.
-        val admission8577 = candidateAdmission ?: (if (!paper && doors8577 != null)
+        val admission8577 = context.evaluatedAdmission ?: candidateAdmission ?: (if (!paper && doors8577 != null)
             try { CandidateAdmission8136.assess8136(ts, l, nowMs, candidateVersion) } catch (_: Throwable) { null } else null)
         val advisory8577 = !paper && LaneAuthority8577.advisoryAtGate8577(doors8577, admission8577)
         if (advisory8577) LaneAuthority8577.noteAdvisory8577(doors8577!!, l)
@@ -553,7 +556,7 @@ object LiveEdgeGate7877 {
         observeTail7996(ts, l, doors8577, nowMs)   // V5.0.8577 — the door's own answer keeps its forward record (advisory or not)
         FdgGate8365.noteFinal8365(doors8577, l)
         if (basis == FdgGate8365.BASIS_EXCEPTION_8418) FdgGate8365.noteException8418(doors8577, l)   // V5.0.8418 — where the 100x door's candidates end
-        FdgGate8365.memoPut8365(key, final, nowMs)
+        FdgGate8365.memoPut8365(key, final, nowMs, candidateAdmission)
         if (!paper && hold?.startsWith("EVIDENCE_HOLD_8336_") == true)
             try { EvidenceShadow8344.noteHoldRefusal8345(l, core != null, FdgGate8365.hardSafety8392(core)) } catch (_: Throwable) { PipelineHealthCollector.labelInc("EVIDENCE_SHADOW_TELEMETRY_FAILED_8392") }
         if (!paper && core == null && hold != null && final == hold)
@@ -683,8 +686,10 @@ object LiveEdgeGate7877 {
             // FDG's generic floor when candidate evidence is unchanged. Specific loss / safety / economics refusals are
             // terminal here; missing inputs remain a bounded data deferral; only a candidate-specific ADMIT clears a
             // generic edge prior. The measured-negative checks below remain binding.
-            val admission8136 = try { CandidateAdmission8136.assess8136(ts, l8059, nowMs, candidateVersion) } catch (_: Throwable) { null }
-                ?: candidateAdmission // same score/size snapshot carried by 8223; policy-scoped cache in 8393
+            val admission8136 = if (candidateAdmission != null && !paper && !FdgGate8365.shadowOnly8393()) candidateAdmission
+                else try { CandidateAdmission8136.assess8136(ts, l8059, nowMs, candidateVersion) } catch (_: Throwable) { null }
+                    ?: candidateAdmission
+            entryContext8392.get()?.evaluatedAdmission = admission8136
             resolvedAdmission = admission8136
             genericNative8211 = genericNativeClearsProvenOnly8211(admission8136)
             when (RunnerDefer8297.terminalFor8297(ts, admission8136, nowMs) {   // V5.0.8297 — a confirmed run passes an optional-only data defer

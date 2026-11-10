@@ -322,9 +322,6 @@ object DipHunterAI {
         
         // Liquidity check — V5.0.8140: an unread pool defers (never "low"); a real one below the floor refuses, naming DIP_HUNTER.
         com.lifecyclebot.engine.LaneAgeLiquidityTruth8140.laneLiquidityRefusal8140("DIP_HUNTER", liquidityUsd, MIN_LIQUIDITY_USD)?.let { return noDip(it) }
-        if (liquidityUsd < MIN_LIQUIDITY_USD) {
-            return noDip("LIQ_TOO_LOW: \$${liquidityUsd.toInt()}")
-        }
         
         val liqRatio = liquidityUsd / marketCapUsd
         if (liqRatio < MIN_LIQUIDITY_RATIO) {
