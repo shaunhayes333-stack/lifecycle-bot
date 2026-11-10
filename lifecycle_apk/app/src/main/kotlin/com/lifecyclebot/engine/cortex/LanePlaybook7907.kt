@@ -95,6 +95,8 @@ object LanePlaybook7907 {
         var specialistEdge7978: Boolean = false,
         /** V5.0.8308 — the token's route truth says the bonding curve completed (migrated / graduated to an AMM pool). */
         val migrated8308: Boolean = false,
+        /** 8666: independent wallets whose first observed buy landed in the most recent 15 seconds. */
+        val newBuyers15s8666: Double = Double.NaN,
     ) {
         /** V5.0.8084 — provenance of the core inputs (bp / chg / shape / age / liq ...): OBSERVED, STALE, UNKNOWN, INVALID, DEFAULT_UNOBSERVED. */
         var obs8084: Map<String, Obs8084> = emptyMap()
@@ -113,6 +115,7 @@ object LanePlaybook7907 {
             d(bundleLargest); d(lpLock); d(txVelocity); d(volatility); t(regime); b(launchLadderProven); b(expertEntry7962); b(structureHlReclaim)
             b(secondWave7974); d(holderVel7978); d(turnover7978); d(curve7978); b(live7978); b(beta7978); b(colourBuy7978); b(specialistEdge7978)
             b(migrated8308)
+            d(newBuyers15s8666)
             return h
         }
     }
@@ -836,6 +839,9 @@ object LanePlaybook7907 {
         val phase = try { com.lifecyclebot.engine.truth.FreshLaunchSelector7737.shapingRead7871(ts, nowMs)?.first?.substringBefore('|') } catch (_: Throwable) { null }
         // V5.0.8553 — an uncomputed momentum (under 5 samples / no earlier volume) reads NaN, not the 0.0 default (362 of 559 dataset rows)
         val volAcc = try { com.lifecyclebot.engine.MomentumPredictorAI.getMomentum(ts.mint)?.takeIf { it.volumeAccelObserved8553 }?.volumeAccelerationScore } catch (_: Throwable) { null }
+        // 8666: signed/live trade callbacks already carry buyer wallets and SOL sizes.
+        // A walletless curve snapshot must never manufacture a buyer or volume print.
+        val buyerFlow8666 = try { com.lifecyclebot.engine.market.BuyerFlow8666.read(ts.mint, nowMs) } catch (_: Throwable) { null }
         val tape = try { com.lifecyclebot.engine.market.LaunchTape7921.features(ts.mint, nowMs) } catch (_: Throwable) { null }
         val flow = try { com.lifecyclebot.engine.WhaleDetector.launchFlow7401(ts.mint, nowMs = nowMs) } catch (_: Throwable) { null }
         val opp = try { com.lifecyclebot.engine.market.MarketSweep7297.opportunityFor7777(ts.mint) } catch (_: Throwable) { null }
@@ -905,25 +911,30 @@ object LanePlaybook7907 {
             chg1h = if (chgKnown) ts.lastPriceChange1h.takeIf { it.isFinite() } ?: Double.NaN else tapeChg8100?.second ?: altChg8169?.second ?: Double.NaN,
             holderGrowth = ts.holderGrowthRate.takeIf { ts.holderDataResolved && it.isFinite() } ?: Double.NaN,
             // V5.0.7925 — 0 is a real reading (flat or falling volume), not "unknown".
-            volAccel = volAcc?.takeIf { it.isFinite() } ?: Double.NaN,
+            volAccel = buyerFlow8666?.volumeAccelScore?.takeIf { it.isFinite() }
+                ?: volAcc?.takeIf { it.isFinite() } ?: Double.NaN,
             planSetup = plan.orEmpty(), launchPhase = phase.orEmpty(),
             crowdForming = try {
                 com.lifecyclebot.engine.market.LaunchTape7921.promoted(ts.mint) ||
                     tape?.let { com.lifecyclebot.engine.market.LaunchTape7921.priorPass(it) } == true
             } catch (_: Throwable) { false },
             // V5.0.7924 — every input below is a read-only cache peek; none fetches.
-            tapeCrowd = tape?.crowdBuyers?.toDouble() ?: Double.NaN,
-            tapeNetSol = tape?.crowdNetSol ?: Double.NaN,
-            tapeBuyersPerMin = tape?.buyersPerMin ?: Double.NaN,
-            tapeBuyShare = tape?.takeIf { it.crowdBuyers > 0 }?.buySharePct ?: Double.NaN,
+            tapeCrowd = tape?.crowdBuyers?.toDouble() ?: buyerFlow8666?.distinctBuyers60s?.toDouble() ?: Double.NaN,
+            tapeNetSol = tape?.crowdNetSol ?: buyerFlow8666?.netSol60s ?: Double.NaN,
+            // A lifetime launch average can mask a fresh 15/60-second buyer surge.
+            // Prefer the newer executed window; keep the launch witness as fallback.
+            tapeBuyersPerMin = buyerFlow8666?.buyersPerMin ?: tape?.buyersPerMin ?: Double.NaN,
+            tapeBuyShare = buyerFlow8666?.buySharePct?.takeIf { it.isFinite() }
+                ?: tape?.takeIf { it.crowdBuyers > 0 }?.buySharePct ?: Double.NaN,
             tapeLargest = tape?.takeIf { it.crowdBuyers > 0 }?.largestBuyerPct ?: Double.NaN,
             tapeTop3 = tape?.takeIf { it.crowdBuyers > 0 }?.top3Pct ?: Double.NaN,
             tapeDevSold = tape?.let { if (it.devSold) 1.0 else 0.0 } ?: Double.NaN,
             tapeFromPeak = tape?.fromPeakPct ?: Double.NaN,
             tapeFromFirst = tape?.fromFirstPct ?: Double.NaN,
-            buyTx15s = flow?.buyTx15s?.toDouble() ?: Double.NaN,
-            buyTxPrev15s = flow?.buyTxPrev15s?.toDouble() ?: Double.NaN,
-            repeatBuyers60s = flow?.repeatBuyerWallets60s?.toDouble() ?: Double.NaN,
+            buyTx15s = buyerFlow8666?.buyTx15s?.toDouble() ?: flow?.buyTx15s?.toDouble() ?: Double.NaN,
+            buyTxPrev15s = buyerFlow8666?.buyTxPrev15s?.toDouble() ?: flow?.buyTxPrev15s?.toDouble() ?: Double.NaN,
+            repeatBuyers60s = buyerFlow8666?.repeatBuyers60s?.toDouble()
+                ?: flow?.repeatBuyerWallets60s?.toDouble() ?: Double.NaN,
             oppSetup = opp?.setup.orEmpty(),
             oppPercentile = opp?.percentile ?: Double.NaN,
             oppRs = opp?.relativeStrengthPct ?: Double.NaN,
@@ -945,7 +956,8 @@ object LanePlaybook7907 {
                     ?.takeIf { it.bundleRisk != com.lifecyclebot.engine.BundleDetector.BundleRisk.UNKNOWN }?.largestBundlePct
             } catch (_: Throwable) { null } ?: Double.NaN,
             lpLock = ts.safety.lpLockPct.takeIf { it >= 0.0 && it.isFinite() } ?: Double.NaN,
-            txVelocity = try { com.lifecyclebot.engine.truth.TokenFacts.txPerMin(ts, nowMs) } catch (_: Throwable) { Double.NaN },   // V5.0.8553 — the one tx-velocity reader
+            txVelocity = buyerFlow8666?.txPerMin
+                ?: try { com.lifecyclebot.engine.truth.TokenFacts.txPerMin(ts, nowMs) } catch (_: Throwable) { Double.NaN },
             volatility = ts.volatility ?: Double.NaN,
             regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "" },
             launchLadderProven = try {
@@ -981,6 +993,7 @@ object LanePlaybook7907 {
             beta7978 = try { com.lifecyclebot.engine.market.MemeMeta7973.beta7973(ts.mint, ts.symbol, ts.name, nowMs) } catch (_: Throwable) { false },
             colourBuy7978 = try { com.lifecyclebot.engine.chart.ChartReader7950.cachedRead7955(ts.mint)?.colorBuy7968 == true } catch (_: Throwable) { false },
             migrated8308 = try { ts.tokenMap.migratedOrGraduated } catch (_: Throwable) { false },
+            newBuyers15s8666 = buyerFlow8666?.newBuyers15s?.toDouble() ?: Double.NaN,
         ).also { f ->
             f.obs8084 = mapOf("bp" to (if (tapeBp8100 != null || altBp8169 != null) Obs8084.OBSERVED else bpObs),
                 "chg" to (if (tapeChg8100 != null || altChg8169 != null) Obs8084.OBSERVED else chgObs),
@@ -989,7 +1002,7 @@ object LanePlaybook7907 {
                 "age" to (if (f.age.isFinite()) Obs8084.OBSERVED else Obs8084.UNKNOWN),
                 "mcap" to (if (f.mcap.isFinite()) Obs8084.OBSERVED else Obs8084.UNKNOWN),
                 "tape" to (if (tape != null) Obs8084.OBSERVED else Obs8084.UNKNOWN),
-                "flow" to (if (flow != null) Obs8084.OBSERVED else Obs8084.UNKNOWN),
+                "flow" to (if (flow != null || buyerFlow8666 != null) Obs8084.OBSERVED else Obs8084.UNKNOWN),
                 "holders" to (if (f.holders.isFinite() || f.holderGrowth.isFinite()) Obs8084.OBSERVED else Obs8084.UNKNOWN),
                 "opp" to (if (opp != null) Obs8084.OBSERVED else Obs8084.UNKNOWN),
                 "volAccel" to (if (f.volAccel.isFinite()) Obs8084.OBSERVED else Obs8084.UNKNOWN))

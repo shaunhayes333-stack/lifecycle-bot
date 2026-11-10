@@ -936,6 +936,10 @@ class DataOrchestrator(
     }
 
     private fun onTapeTrade7773(mint: String, wallet: String, solAmount: Double, isBuy: Boolean, soldFractionOfHolding: Double) {
+        // 8666: make executed buyer arrivals/volume visible BEFORE waking a waiting decision.
+        // Walletless curve-snapshot inferences are ignored by BuyerFlow8666; they cannot
+        // establish independent buyers or genuine executed trade volume.
+        try { com.lifecyclebot.engine.market.BuyerFlow8666.note(mint, wallet, solAmount, isBuy) } catch (_: Throwable) {}
         // V5.0.8252 — a print is tape / swaps / buy-pressure evidence: a held defer waiting for it is due now.
         try { com.lifecyclebot.engine.truth.CandidateAdmission8136.evidenceArrived8252(mint, com.lifecyclebot.engine.truth.CandidateAdmission8136.TAPE_FEATURES_8252) } catch (_: Throwable) {}
         // V5.0.7921 — the launch tape since birth (crowd, flow, heat, promotion).

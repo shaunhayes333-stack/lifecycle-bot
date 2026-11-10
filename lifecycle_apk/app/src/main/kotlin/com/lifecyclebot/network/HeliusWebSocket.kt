@@ -109,9 +109,14 @@ class HeliusWebSocket(
         // process died in OkHttp's TLS reader. Held mints are pinned; 64 slots keep every hot launch.
         // V5.0.8066 — 64 -> 16: each logsSubscribe on a busy coin streams every log that mentions it; 5.0.8063 streamed
         // 6.9 GB in 16 minutes (~138k credits) and the month's Helius credits were gone. PumpPortal carries launch tape free.
-        // V5.0.8094 — 16 -> 8: the 16 mention streams still moved 557 MB in 30 min and the process died out of memory in
-        // OkHttp's WebSocketReader (RUNTIME_CRASH OutOfMemoryError). Held mints stay pinned; launch tape comes from PumpPortal.
-        const val MAX_TOKEN_SUBSCRIPTIONS_7794 = 8
+        // 8666: grow the eight-slot starvation point with measured backpressure. The prior 16-slot static setting
+        // OOM'd; 16 is now an absolute CEILING, not the permanent default. Start with 12 and shed to 8 whenever
+        // websocket bytes / heap pressure make the old crash likely. Held mints remain pinned.
+        const val MAX_TOKEN_SUBSCRIPTIONS_7794 = 16
+        const val MIN_TOKEN_SUBSCRIPTIONS_8666 = 8
+        const val START_TOKEN_SUBSCRIPTIONS_8666 = 12
+        const val WS_LIMIT_BYTES_PER_MIN_8666 = 12_000_000L
+        const val WS_GROW_BYTES_PER_MIN_8666 = 6_000_000L
         // V5.0.8096 — a stream whose first 40 frames decoded no trade is released for 30 minutes.
         const val UNDECODED_RELEASE_AFTER_8096 = 40
         const val UNDECODABLE_HOLD_MS_8096 = 30L * 60_000L
@@ -131,9 +136,68 @@ class HeliusWebSocket(
                 Thread(task, "AATE-HeliusWS-Reconnect").apply { isDaemon = true }
             }
     }
+    @Volatile private var adaptiveTokenCap8666 = START_TOKEN_SUBSCRIPTIONS_8666
+    private var minuteStart8666 = 0L
+    private var minuteBytes8666 = 0L
+    private var noGrowthUntil8666 = 0L
+
+    /** Pure backpressure decision: never exceed the old proven emergency ceiling of eight when overloaded. */
+    internal fun capForLoad8666(current: Int, bytesPerMin: Long, heapFraction: Double, allowGrowth: Boolean): Int = when {
+        heapFraction >= 0.72 || bytesPerMin >= WS_LIMIT_BYTES_PER_MIN_8666 -> MIN_TOKEN_SUBSCRIPTIONS_8666
+        allowGrowth && heapFraction < 0.52 && bytesPerMin < WS_GROW_BYTES_PER_MIN_8666 -> (current + 2).coerceAtMost(MAX_TOKEN_SUBSCRIPTIONS_7794)
+        else -> current
+    }
+
+    /** On the receive path: constant memory, one evaluation a minute; never parse a large frame twice. */
+    private fun inboundLoad8666(bytes: Int, nowMs: Long): Boolean {
+        synchronized(this) {
+            if (minuteStart8666 == 0L) minuteStart8666 = nowMs
+            minuteBytes8666 += bytes.coerceAtLeast(0).toLong()
+            val elapsed = nowMs - minuteStart8666
+            if (elapsed < 60_000L) return false
+            val bytesPerMin = minuteBytes8666 * 60_000L / elapsed.coerceAtLeast(1L)
+            minuteStart8666 = nowMs; minuteBytes8666 = 0L
+            val rt = Runtime.getRuntime()
+            val heap = (rt.totalMemory() - rt.freeMemory()).toDouble() / rt.maxMemory().coerceAtLeast(1L)
+            val oldCap = adaptiveTokenCap8666
+            val overBudget = try { com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.exhaustedLatched8094(nowMs) } catch (_: Throwable) { false }
+            val next = if (overBudget) MIN_TOKEN_SUBSCRIPTIONS_8666 else capForLoad8666(oldCap, bytesPerMin, heap, nowMs >= noGrowthUntil8666)
+            adaptiveTokenCap8666 = next
+            HeliusSubscriptionTelemetry7807.cap8666 = next
+            HeliusSubscriptionTelemetry7807.bytesPerMin8666 = bytesPerMin
+            HeliusSubscriptionTelemetry7807.heapPct8666 = (heap * 100.0).toInt()
+            if (next < oldCap) {
+                noGrowthUntil8666 = nowMs + 5L * 60_000L
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HELIUS_SUB_BACKPRESSURE_8666") } catch (_: Throwable) {}
+            } else if (next > oldCap) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HELIUS_SUB_GROWN_8666") } catch (_: Throwable) {}
+            }
+            return next < oldCap
+        }
+    }
+
+    private fun trimSubscriptions8666() {
+        val removed = ArrayList<Pair<String, Int?>>()
+        val pinned = pinnedMints7807()
+        synchronized(subscriptions) {
+            val iter = subscriptions.entries.iterator()
+            while (subscriptions.size > adaptiveTokenCap8666 && iter.hasNext()) {
+                val entry = iter.next()
+                if (entry.key in pinned) continue
+                removed.add(entry.key to entry.value)
+                iter.remove()
+            }
+        }
+        for ((mint, serverId) in removed) {
+            decisionTape8397.release(mint)
+            subscriptionToMint7765.entries.removeIf { it.value == mint }
+            serverId?.let { sendUnsubscribe7803("logsUnsubscribe", it) }
+        }
+        if (removed.isNotEmpty()) publishGauges7807()
+    }
     /** V5.0.8269: reserve held slots and leave headroom for one urgent discovery promotion. */
     fun focusCapacity8269(pinnedHeldCount: Int): Int =
-        (MAX_TOKEN_SUBSCRIPTIONS_7794 - pinnedHeldCount.coerceAtLeast(0)).coerceIn(0, 6)
+        (adaptiveTokenCap8666 - pinnedHeldCount.coerceAtLeast(0)).coerceIn(0, (adaptiveTokenCap8666 - 2).coerceAtLeast(0))
 
     // Desired membership and server subscription identity are distinct.
     // null means the mint is desired but the current socket has not ACKed it yet.
@@ -349,7 +413,7 @@ class HeliusWebSocket(
                 subscriptions.get(mint) // V5.0.7807 — access-order touch: re-added mint is fresh again
                 return
             }
-            if (subscriptions.size >= MAX_TOKEN_SUBSCRIPTIONS_7794) {
+            if (subscriptions.size >= adaptiveTokenCap8666) {
                 // V5.0.7807 — eldest NON-held mint is the victim; discovery goes first.
                 // V5.0.7921 — the coldest launch past its 2-minute grace goes first (hot tapes stay).
                 val evictable7921 = subscriptions.keys.filter { it !in pinned }
@@ -507,6 +571,7 @@ class HeliusWebSocket(
                 // ids; never let it touch the current socket's maps.
                 val current = ws
                 if (current != null && current !== webSocket) return
+                if (inboundLoad8666(text.length, System.currentTimeMillis())) trimSubscriptions8666()
                 lastInboundMs7819 = System.currentTimeMillis()
                 if (HeliusSocketShare8191.offer8191(text)) return   // V5.0.8191 — the chain launch feed's own reply / stream
                 lastFrameBytes8096 = text.length
@@ -985,6 +1050,9 @@ object HeliusSubscriptionTelemetry7807 {
     @Volatile internal var walletSubs: Int = 0
     @Volatile internal var serverWalletSubs: Int = 0
     @Volatile internal var pinnedHeld: Int = 0
+    @Volatile internal var cap8666: Int = 12
+    @Volatile internal var bytesPerMin8666: Long = 0L
+    @Volatile internal var heapPct8666: Int = 0
     internal val evictions = AtomicInteger(0)
     internal val lateAckUnsubscribes = AtomicInteger(0)
     internal val reconnectResubscribes = AtomicInteger(0)
@@ -1023,6 +1091,7 @@ object HeliusSubscriptionTelemetry7807 {
 
     fun line7807(): String =
         "desiredTokenSubs=$desiredTokenSubs serverTokenSubs=$serverTokenSubs requestMapSize=$requestMapSize " +
+            "adaptiveCap8666=$cap8666 wsMBpm8666=${"%.1f".format(bytesPerMin8666 / 1_000_000.0)} heapPct8666=$heapPct8666 " +
             "walletSubs=$walletSubs serverWalletSubs=$serverWalletSubs pinnedHeld=$pinnedHeld " +
             "evictions=${evictions.get()} lateAckUnsubscribes=${lateAckUnsubscribes.get()} " +
             "reconnectResubscribes=${reconnectResubscribes.get()} expiredRequests=${expiredRequests.get()} " +

@@ -27432,25 +27432,11 @@ if (hotExitHandledSweep) {
     // ═══════════════════════════════════════════════════════════════════
     
     // ═══════════════════════════════════════════════════════════════════
-    // MOMENTUM PREDICTOR AI: Record price/volume data for pattern detection
+    // 8666: DataOrchestrator's real 8-second candle close is the ONE source
+    // for MomentumPredictorAI.recordPricePoint. Recording the same last candle
+    // again on every candidate evaluation counted duplicates as fresh volume
+    // observations and corrupted the acceleration window.
     // ═══════════════════════════════════════════════════════════════════
-    try {
-        if (ts.history.size >= 2) {
-            val lastCandle = ts.history.lastOrNull()
-            if (lastCandle != null) {
-                MomentumPredictorAI.recordPricePoint(
-                    mint = mint,
-                    symbol = ts.symbol,
-                    price = lastCandle.priceUsd,
-                    volume = lastCandle.vol,
-                    buyPressure = (lastCandle.buyRatio * 100),
-                    txCount = lastCandle.buysH1 + lastCandle.sellsH1,
-                )
-            }
-        }
-    } catch (e: Exception) {
-        ErrorLogger.debug("BotService", "MomentumPredictorAI record error: ${e.message}")
-    }
 
     // ═══════════════════════════════════════════════════════════════════
     // V5.9.978 — TIER 1 FEEDER-CONSUMER ASYMMETRY FIX

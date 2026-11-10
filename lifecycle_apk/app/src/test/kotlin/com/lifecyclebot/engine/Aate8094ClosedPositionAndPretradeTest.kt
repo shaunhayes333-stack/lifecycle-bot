@@ -466,7 +466,7 @@ class Aate8094ClosedPositionAndPretradeTest {
         com.lifecyclebot.network.PumpCurveKeys7269.remember(mint, "BondingCurveKey8094XXXXXXXXXXXXXXXXXXXXXXX")
         assertTrue(d.pumpProgramMint8094(mint))
         assertEquals(d.PUMP_FUN_DECIMALS_8094, d.resolveDecimalsStrict(mint, null, null, null))
-        assertTrue(src("network/HeliusWebSocket.kt").contains("MAX_TOKEN_SUBSCRIPTIONS_7794 = 8"))
+        assertTrue(src("network/HeliusWebSocket.kt").contains("MAX_TOKEN_SUBSCRIPTIONS_7794 = 16"))  // 8666: adaptive 8..16, starts at 12
         // One strategy identity: refusals, sizing, cost and the admission record read the selected setup.
         val pb = src("engine/cortex/LanePlaybook7907.kt")
         assertTrue(pb.contains("provenLosingNamedSetupRefusal(laneRaw, selectedSetup8094(ts, canon(laneRaw), nowMs))"))

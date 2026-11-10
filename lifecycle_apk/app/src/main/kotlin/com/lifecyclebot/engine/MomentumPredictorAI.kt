@@ -192,9 +192,11 @@ object MomentumPredictorAI {
         if (history.size < 5) return
         
         // 1. VOLUME ACCELERATION
-        // Compare recent volume to earlier volume
+        // 8666: compare adjacent windows, not the latest samples against the
+        // first three ever retained (which can be nearly half an hour old).
+        // The two groups must not overlap when a mint has only five samples.
         val recentVol = history.takeLast(3).map { it.volume }.average()
-        val earlierVol = history.take(3).map { it.volume }.average()
+        val earlierVol = history.dropLast(3).takeLast(3).map { it.volume }.average()
         val volAcceleration = if (earlierVol > 0) (recentVol / earlierVol - 1) * 100 else 0.0
         momentum.volumeAccelerationScore = (volAcceleration * 2).coerceIn(0.0, 100.0)
         momentum.volumeAccelObserved8553 = earlierVol > 0

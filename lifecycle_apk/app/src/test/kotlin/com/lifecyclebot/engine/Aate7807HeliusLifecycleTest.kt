@@ -43,7 +43,7 @@ class Aate7807HeliusLifecycleTest {
         ws.subscribeToken("HELD_MINT")
         for (i in 0 until 400) ws.subscribeToken("DISCOVERY_$i")
         val d = desired(ws)
-        assertEquals(8, d.size)
+        assertEquals(12, d.size)
         assertTrue("held position must keep its subscription", d.containsKey("HELD_MINT"))
         assertTrue(d.containsKey("DISCOVERY_399"))
         assertFalse(d.containsKey("DISCOVERY_0"))
@@ -60,7 +60,7 @@ class Aate7807HeliusLifecycleTest {
         held.add("LATE_BUY") // bought after its discovery slot rolled off
         ws.ensurePinnedSubscriptions7807()
         assertTrue(desired(ws).containsKey("LATE_BUY"))
-        assertEquals(8, desired(ws).size)
+        assertEquals(12, desired(ws).size)
     }
 
     @Test fun lateAckForEvictedMintIsUnsubscribedNotResurrected() {
@@ -112,7 +112,7 @@ class Aate7807HeliusLifecycleTest {
 
     @Test fun reconnectRegistersOncePerMemberAndOrphansAreUnsubscribed() {
         val h = src("network/HeliusWebSocket.kt")
-        assertTrue(h.contains("MAX_TOKEN_SUBSCRIPTIONS_7794 = 8"))  // V5.0.8094 — Helius OOM + credit budget
+        assertTrue(h.contains("MAX_TOKEN_SUBSCRIPTIONS_7794 = 16"))  // 8666: adaptive 8..16, starts at 12
         val open = h.substringAfter("override fun onOpen").substringBefore("override fun onMessage")
         assertTrue(open.contains("if (!requestToMint7765.containsValue(mint))"))
         assertFalse("onOpen must not wipe requests queued on the new socket", open.contains("requestToMint7765.clear()"))

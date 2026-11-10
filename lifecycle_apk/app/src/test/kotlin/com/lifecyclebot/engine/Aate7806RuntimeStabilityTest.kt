@@ -9,7 +9,7 @@ class Aate7806RuntimeStabilityTest {
 
     @Test fun heliusSubscriptionsRemainBoundedAndEvictServerSide() {
         val h = src("network/HeliusWebSocket.kt")
-        assertTrue(h.contains("MAX_TOKEN_SUBSCRIPTIONS_7794 = 8"))  // V5.0.8094 — Helius OOM + credit budget
+        assertTrue(h.contains("MAX_TOKEN_SUBSCRIPTIONS_7794 = 16"))  // 8666: adaptive 8..16 with memory/traffic backoff
         assertTrue(h.contains("sendUnsubscribe7803"))
         assertTrue(h.contains("HELIUS_WS_TOKEN_SUB_EVICTED_7794"))
     }
