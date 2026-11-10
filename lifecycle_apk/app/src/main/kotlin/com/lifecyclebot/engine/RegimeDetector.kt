@@ -1,6 +1,9 @@
 package com.lifecyclebot.engine
 
 import com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
 
@@ -37,9 +40,22 @@ object RegimeDetector {
         val ownTightened7266: Boolean = false,
     )
 
-    private val cached = AtomicReference<RegimeSnapshot?>(null)
+    // V5.0.8665 — Android device ANR: concurrent scanner callbacks all saw the
+    // same expired cache and simultaneously ran StrategyTruthLedger.clean() on
+    // thousands of rows. The 8664 emulator trace captured 312 ART threads,
+    // workers in RegimeDetector.recompute(), and the UI waiting for GC.
+    // Publish mode and snapshot atomically, and compute only on one background
+    // worker. Regime classification and the current-mode trade corpus are unchanged.
+    private data class ModeSnapshot8665(val mode: String, val snapshot: RegimeSnapshot)
+    private val cached = AtomicReference<ModeSnapshot8665?>(null)
     @Volatile private var cachedMode6679: String = ""
     private const val CACHE_TTL_MS = 30_000L
+    private val refreshRunning8665 = AtomicBoolean(false)
+    private val refreshGeneration8665 = AtomicLong(0L)
+    private val refreshPublishLock8665 = Any()
+    private val refreshExecutor8665 = Executors.newSingleThreadExecutor { task ->
+        Thread(task, "RegimeSnapshot8665").apply { isDaemon = true }
+    }
 
     /**
      * V5.0.7173 — how old CrossMarketRegimeAI's last assessment may be and
@@ -57,18 +73,49 @@ object RegimeDetector {
         val now = System.currentTimeMillis()
         val mode6679 = currentMode6679()
         val c = cached.get()
-        if (c != null && cachedMode6679 == mode6679 && (now - c.computedAtMs) < CACHE_TTL_MS) return c
-        val fresh = recompute(now, mode6679)
-        cachedMode6679 = mode6679
-        cached.set(fresh)
-        return fresh
+        if (c != null && c.mode == mode6679 && (now - c.snapshot.computedAtMs) < CACHE_TTL_MS) {
+            return c.snapshot
+        }
+        // No caller — including the scanner, main thread or executor — may
+        // perform the journal sort/dedup pass here. The first caller enqueues
+        // it; subsequent callers get the last same-mode snapshot immediately.
+        if (refreshRunning8665.compareAndSet(false, true)) {
+            val generation = refreshGeneration8665.get()
+            try {
+                refreshExecutor8665.execute {
+                    try {
+                        val fresh = recompute(System.currentTimeMillis(), mode6679)
+                        synchronized(refreshPublishLock8665) {
+                            if (refreshGeneration8665.get() == generation) {
+                                cachedMode6679 = mode6679
+                                cached.set(ModeSnapshot8665(mode6679, fresh))
+                            }
+                        }
+                    } catch (_: Throwable) {
+                        try { PipelineHealthCollector.labelInc("REGIME_REFRESH_FAILURE_8665") } catch (_: Throwable) {}
+                    } finally {
+                        refreshRunning8665.set(false)
+                    }
+                }
+            } catch (_: Throwable) {
+                refreshRunning8665.set(false)
+            }
+        }
+        // Cold-start / mode-change: neutral, no false DUMP decision from the
+        // other mode. Once computed, stale same-mode state remains available
+        // until its successor is ready; there is no extra admission gate.
+        return if (c != null && c.mode == mode6679) c.snapshot
+        else RegimeSnapshot(Regime.NORMAL, 0.0, 0.0, -1, 0, now)
     }
 
     fun currentRegime(): Regime = current().regime
 
     fun bustCache() {
-        cachedMode6679 = ""
-        cached.set(null)
+        synchronized(refreshPublishLock8665) {
+            refreshGeneration8665.incrementAndGet()
+            cachedMode6679 = ""
+            cached.set(null)
+        }
     }
 
     /** V5.0.7173 — name the market reading behind the regime, or say it is absent. */
