@@ -21,6 +21,7 @@ object AsiSsiReauditSweeper {
     fun auditSourceTree(root: File): List<Finding> {
         fun src(path: String): String = try { File(root, path).readText() } catch (_: Throwable) { "" }
         val executor = src("src/main/kotlin/com/lifecyclebot/engine/Executor.kt")
+        val outcome = src("src/main/kotlin/com/lifecyclebot/engine/truth/AateDecisionEnvelope6512.kt")
         val semantic = src("src/main/kotlin/com/lifecyclebot/engine/SemanticPatternGraph.kt")
         val replay = src("src/main/kotlin/com/lifecyclebot/engine/CounterfactualReplayEngine.kt")
         val lab = src("src/main/kotlin/com/lifecyclebot/engine/AsyncStrategyLab.kt")
@@ -78,7 +79,11 @@ object AsiSsiReauditSweeper {
                 id = "TERMINAL_FANOUT_EVENT_LOCAL_BOUNDED_4257",
                 passed = executor.contains("val graphMint = graphTrade.mint.ifBlank { ts.mint }") &&
                     executor.contains("val graphSymbol = ts.symbol") &&
-                    executor.contains("val graphDeployer = ts.tokenMap.creatorOrDevWallet") &&
+                    !executor.contains("SemanticPatternGraph.recordOutcome(") &&
+                    outcome.contains("env.terminal && env.learningEligible && proven") &&
+                    outcome.contains("EntryStrategySnapshot6450.snapshot(env.positionId)") &&
+                    outcome.contains("SemanticPatternGraph.recordOutcome(") &&
+                    outcome.contains("deployer = entry?.entryDeployer.orEmpty()") &&
                     semantic.contains("MAX_PRIOR_EDGE_SCAN") && semantic.contains("MAX_EDGES_PER_NODE") &&
                     gepa.contains("MIN_REFLECTION_INTERVAL_MS"),
                 detail = "terminal sell fanout must snapshot mutable state and bound sell-storm work",
