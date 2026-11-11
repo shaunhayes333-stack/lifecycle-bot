@@ -134,14 +134,16 @@ object CanonicalIntegrityGuards6449 {
 
     fun auditConservation(toleranceSol: Double = 1e-4): Double {
         conservationChecks.incrementAndGet()
-        val startingCash = PaperCapitalAuthority6577.startingCashSol()
-        val cash = PaperCapitalAuthority6577.cashSol()
-        val openCost = PaperCapitalAuthority6577.openCostBasisSol()
-        val realized = PaperCapitalAuthority6577.realizedPnlSol()
-        val fees = PaperCapitalAuthority6577.feesSol()
+        // V5.0.8685 — one ledger snapshot: six separate reads straddled trades and treasury moves.
+        val s8685 = PaperAccountLedger6430.snapshotAtomic6643()
+        val startingCash = s8685.startingCashSol
+        val cash = s8685.cashSol
+        val openCost = s8685.openCostBasisSol
+        val realized = s8685.realizedPnlSol
+        val fees = s8685.feesSol
         val expected = startingCash + realized - fees
         // V5.0.7294 — paper treasury transfers leave cash but stay in the account.
-        val actual = cash + openCost + PaperCapitalAuthority6577.treasurySol7294()
+        val actual = cash + openCost + s8685.treasurySol
         val delta = actual - expected
         // V5.0.8684 — the tolerance scales with the book: 8680 flagged 101 of 101 checks on a 175 SOL paper book whose float
         // drift was 0.000275 SOL (1.6 ppm), so the counter carried no signal. Real leaks (a missed fee, a lost fill) are

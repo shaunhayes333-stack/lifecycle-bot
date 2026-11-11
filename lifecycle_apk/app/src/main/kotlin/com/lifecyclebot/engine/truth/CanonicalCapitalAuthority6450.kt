@@ -162,17 +162,20 @@ object CanonicalCapitalAuthority6450 {
     fun snapshot(markProvider: (String) -> Double): Snapshot {
         // V5.0.6487 — PaperAccountLedger is the sole capital read authority.
         // Replay is parity diagnostics only and may never replace wallet surfaces.
-        val startingCash = PaperCapitalAuthority6577.startingCashSol()
-        val cash = PaperCapitalAuthority6577.cashSol()
-        val realized = PaperCapitalAuthority6577.realizedPnlSol()
-        val fees = PaperCapitalAuthority6577.feesSol()
+        // V5.0.8685 — every ledger figure from ONE snapshot. Separate reads straddled trades and treasury moves, and the
+        // identity below then reported a breach that no ledger state ever held.
+        val ledger8685 = PaperAccountLedger6430.snapshotAtomic6643()
+        val startingCash = ledger8685.startingCashSol
+        val cash = ledger8685.cashSol
+        val realized = ledger8685.realizedPnlSol
+        val fees = ledger8685.feesSol
         // V5.0.6489 — the mark provider returns WHOLE-MINT market value from
         // TokenState.position. Canonical storage may contain multiple economic lots
         // for one mint, so value each mint once; summing one provider value per lot
         // multiplied equity whenever historical same-mint lots coexisted.
         val activeMints = try { CanonicalPositionAuthority6441.activeMintProjections6490("paper") } catch (_: Throwable) { emptyList() }
         val reserved = 0.0 // no reserved event currently exists; remains explicit
-        val openCost = PaperCapitalAuthority6577.openCostBasisSol()
+        val openCost = ledger8685.openCostBasisSol
         var staleMarkMints6492 = 0
         var fallbackMarkMints6492 = 0
         // V5.0.6508 §P0-3 — TRACK AUTHORITATIVE MARK VALUE SEPARATELY.
@@ -450,7 +453,7 @@ object CanonicalCapitalAuthority6450 {
         val unrealized = authoritativeOpenMv6508 - authoritativeOpenCost6508
         // V5.0.7294 — the paper treasury is owned (equity) but not tradeable
         // (not cash); it closes the identity alongside reserved and open cost.
-        val treasury7294 = PaperCapitalAuthority6577.treasurySol7294()
+        val treasury7294 = ledger8685.treasurySol
         val equity = cash + reserved + openMv + treasury7294
         val expected = startingCash + realized - fees
         val actual = cash + reserved + openCost + treasury7294

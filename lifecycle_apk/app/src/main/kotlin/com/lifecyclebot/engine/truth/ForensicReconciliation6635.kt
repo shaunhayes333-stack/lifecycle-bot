@@ -98,8 +98,19 @@ object ForensicReconciliation6635 {
         "${com.lifecyclebot.engine.TradeHistoryStore.journalRevision7343()}|" +
             "${CanonicalPositionAuthority6441.mutationCount7387()}|" +
             "${CanonicalEconomicEvent6635.receiptRevision8077()}|" +
-            "${"%.9f".format(PaperCapitalAuthority6577.cashSol() + PaperCapitalAuthority6577.treasurySol7294())}"
+            "${"%.9f".format(ledgerCashWithTreasury8685(PaperAccountLedger6430.snapshotAtomic6643()))}"
     } catch (_: Throwable) { null }
+
+    /**
+     * V5.0.8685 — ledger cash as the journal sees it (trading cash + paper treasury), from ONE ledger snapshot.
+     *
+     * The 8681 and 8683 Runtime Smoke Tests failed accountingStatus=FAILED with a cash-only split (8683: cashLedger
+     * 10.639922 vs cashJournal 10.613088, realized and open cost exact, quantity 0; 8681: 74.68 SOL). Both sides were read
+     * with separate lock acquisitions — cashSol() then treasurySol7294() — so a treasury move landing between them counted
+     * the moved SOL twice or not at all. A treasury move leaves cash + treasury unchanged, so the state key did not move
+     * either and the torn figure stayed "current" until the next trade. One snapshot cannot straddle a mutation.
+     */
+    internal fun ledgerCashWithTreasury8685(s: PaperAccountLedger6430.LedgerSnapshot6643): Double = s.cashSol + s.treasurySol
 
     private fun completedCurrent8372(snapshot: CompletedAccounting8372): Boolean =
         snapshot.key != null && snapshot.key == lastKey7387.get() && snapshot.key == stateKey8372()
@@ -169,9 +180,8 @@ object ForensicReconciliation6635 {
         checks.incrementAndGet()
         // V5.0.7294 — the journal has no treasury transfers, so its cash is
         // trading cash + paper treasury; compare like with like.
-        val cashLedger = try {
-            PaperCapitalAuthority6577.cashSol() + PaperCapitalAuthority6577.treasurySol7294()
-        } catch (_: Throwable) { Double.NaN }
+        val ledger8685 = try { PaperAccountLedger6430.snapshotAtomic6643() } catch (_: Throwable) { null }
+        val cashLedger = ledger8685?.let { ledgerCashWithTreasury8685(it) } ?: Double.NaN
         val replayFirst8358 = precomputedReplay6699 ?: try { JournalEconomicReplay6619.replay() } catch (_: Throwable) { null }
         // V5.0.8358 — a replay from another journal revision is not evidence for this key (see ReconLag8358).
         val replay6647 = ReconLag8358.currentReplay8358(replayFirst8358, key7387?.substringBefore('|')?.toLongOrNull() ?: -1L, { JournalEconomicReplay6619.replay() }, { lastKey7387.set(null) })
@@ -206,9 +216,9 @@ object ForensicReconciliation6635 {
             try { PipelineHealthCollector.labelInc("FORENSIC_RECONCILE_BOOT_TRIVIAL_6750") } catch (_: Throwable) {}
         }
         val cashJournal = replay6647?.cashSol ?: Double.NaN
-        val realizedLedger = try { PaperCapitalAuthority6577.realizedPnlSol() } catch (_: Throwable) { 0.0 }
+        val realizedLedger = ledger8685?.realizedPnlSol ?: 0.0
         val realizedJournal = replay6647?.realizedPnlSol ?: Double.NaN
-        val openCostLedger = try { PaperCapitalAuthority6577.openCostBasisSol() } catch (_: Throwable) { 0.0 }
+        val openCostLedger = ledger8685?.openCostBasisSol ?: 0.0
         val openCostJournal = replay6647?.openCostBasisSol ?: Double.NaN
 
         val cashDelta = kotlin.math.abs(cashJournal - cashLedger)
