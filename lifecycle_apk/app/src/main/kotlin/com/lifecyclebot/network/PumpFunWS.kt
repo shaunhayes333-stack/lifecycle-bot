@@ -621,13 +621,43 @@ object PumpFunWS {
 
     private fun rollDay8192(nowMs: Long) {
         val day = nowMs / 86_400_000L
-        if (day != frameDay8192) { frameDay8192 = day; framesToday8192.set(0L); framesByMint8192.clear() }
+        if (day != frameDay8192) {
+            // V5.0.8691 — a process start is not a new day: the count resumes from what this UTC day already streamed.
+            val restored = if (frameDay8192 == 0L) restoreFrames8691(day) else 0L
+            frameDay8192 = day; framesToday8192.set(restored); framesByMint8192.clear()
+        }
+    }
+
+    // ── V5.0.8691 §THE_DAILY_DATA_BUDGET_SURVIVES_A_RESTART ──
+    // 8689 (key funded, keyed stream confirmed): 9,037 frames in ~14 minutes across 88 subscriptions, ~0.9 SOL/day at the
+    // provider's 0.01 SOL per 10k frames. The 100k-frame (0.10 SOL) day cap was an in-memory counter, so every app start
+    // reset it to zero and the cap never bound across the restarts a day of debugging makes. It is now persisted per UTC day.
+    private const val FRAME_PERSIST_EVERY_8691 = 250L
+    private fun frameFile8691(): java.io.File? =
+        com.lifecyclebot.AATEApp.appContextOrNull()?.let { java.io.File(it.filesDir, "pump_frame_budget_8691.txt") }
+
+    /** Pure: the frames already streamed on [today] by an earlier process ("day,frames"), else 0. */
+    internal fun restoredFrames8691(saved: String?, today: Long): Long {
+        val parts = saved?.trim()?.split(',') ?: return 0L
+        if (parts.size != 2) return 0L
+        val day = parts[0].toLongOrNull() ?: return 0L
+        val frames = parts[1].toLongOrNull() ?: return 0L
+        return if (day == today) frames.coerceAtLeast(0L) else 0L
+    }
+
+    private fun restoreFrames8691(today: Long): Long = try {
+        restoredFrames8691(frameFile8691()?.takeIf { it.isFile }?.readText(), today)
+    } catch (_: Throwable) { 0L }
+
+    private fun persistFrames8691(day: Long, frames: Long) {
+        try { frameFile8691()?.writeText("$day,$frames") } catch (_: Throwable) {}
     }
 
     private fun noteTradeFrame8192(mint: String) {
         val now = System.currentTimeMillis()
         rollDay8192(now)
         val today = framesToday8192.incrementAndGet()
+        if (today % FRAME_PERSIST_EVERY_8691 == 0L) persistFrames8691(frameDay8192, today)
         if (framesByMint8192.size > 2_000) framesByMint8192.keys.retainAll(tradeSubscriptions7278 + heldMints8192)
         val mintFrames = framesByMint8192.computeIfAbsent(mint) { AtomicLong(0L) }.incrementAndGet()
         val held = mint in heldMints8192
