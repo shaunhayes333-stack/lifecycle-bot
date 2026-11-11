@@ -523,8 +523,12 @@ object LiveEdgeGate7877 {
         // a preference (sizing / priority read it), never a refusal of the whole desk (MOONSHOT: 462 NICHE_ONLY refusals on a
         // shadow book +60.1% pf4.42 PROVEN).
         val laneWide = !paper && core == null && hold == null && (try { EvidenceHold8336.laneWideProven8392(l, nowMs) } catch (_: Throwable) { false })
-        val niche = if (paper || laneWide) null else try { ExploreShadow8347.nicheRefusal8351(ts, l, EvidenceHold8336.startMs8336) } catch (_: Throwable) { "NICHE_EVIDENCE_READ_FAILED_8392" }
-        val wait = if (paper || laneWide || niche != null) null else try { ExploreShadow8347.liveEntryWait8347(ts, l, EvidenceHold8336.startMs8336, nowMs) } catch (_: Throwable) { "ENTRY_TIMING_READ_FAILED_8392" }
+        // V5.0.8683 — owner: "the shadow book trades absolutely terribly and that's helping steer live". The shadow books may
+        // UNLOCK live (lane / family / evidence proofs) but never restrict it: their fills are pessimistic (8680: shadow
+        // 24W/156L, meme paper -2.81 SOL, live beat shadow by +6.4 pts on the same coins; paper stops fire on any mark with no
+        // venue confirmation). A niche or entry-timing choice the shadow proved is recorded as advisory on LIVE, never a refusal.
+        val niche = if (paper || laneWide) null else shadowAdvisoryOnLive8683(l, try { ExploreShadow8347.nicheRefusal8351(ts, l, EvidenceHold8336.startMs8336) } catch (_: Throwable) { null })
+        val wait = if (paper || laneWide || niche != null) null else shadowAdvisoryOnLive8683(l, try { ExploreShadow8347.liveEntryWait8347(ts, l, EvidenceHold8336.startMs8336, nowMs) } catch (_: Throwable) { null })
         if (laneWide) try {
             if (ExploreShadow8347.bestFor8351(l, EvidenceHold8336.startMs8336)?.dim != null) PipelineHealthCollector.labelInc("NICHE_PREFERENCE_NOT_VETO_8392_$l")
         } catch (_: Throwable) {}
@@ -627,6 +631,19 @@ object LiveEdgeGate7877 {
     /** Pure (V5.0.8536): any one proof suffices; none is a refusal. */
     fun provenLive8536(specificAdmit: Boolean, provenSetup: Boolean, provenCell: Boolean, promotedSpecialist: Boolean): Boolean =
         specificAdmit || provenSetup || provenCell || promotedSpecialist
+
+    /**
+     * V5.0.8683 — a shadow-book restriction on a LIVE candidate is counted, never applied (the shadow unlocks, it does not veto).
+     * Returns null (no refusal) always; [refusal] is what the shadow would have done.
+     */
+    internal fun shadowAdvisoryOnLive8683(lane: String, refusal: String?): String? {
+        if (refusal.isNullOrBlank()) return null
+        try {
+            PipelineHealthCollector.labelInc("SHADOW_RESTRICTION_ADVISORY_8683_${refusal.substringBefore(':').take(40)}")
+            PipelineHealthCollector.labelInc("SHADOW_RESTRICTION_ADVISORY_8683_LANE_${lane.uppercase()}")
+        } catch (_: Throwable) {}
+        return null
+    }
 
     const val SOURCE_MIN_N_8536 = 30
     const val LIVE_SOURCE_PROVEN_LOSING_8536 = "LIVE_SOURCE_PROVEN_LOSING_8536"

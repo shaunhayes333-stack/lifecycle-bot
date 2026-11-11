@@ -56,7 +56,21 @@ object MemePaperTrader8544 {
         var held = 1.0; var banked = 0.0; var peak = 0.0; var tiers = 0
         var lastPx = entryPx; var lastAtMs = entryAtMs
         var exitWhy: String? = null; var exitAtMs = 0L; var exitFraction = 1.0; var exitTier = 0
+        /** V5.0.8683 — the observed-mark time of the first read at or below the stop level (0 = none pending). */
+        var stopSeenAtMs8683 = 0L
     }
+
+    /**
+     * Pure (V5.0.8683): may a paper stop fire? Live no longer sells on one bad mark (StopMarkConfirm8418: a venue read or an
+     * executable quote must agree), but this book did: a lone wick print at or below the level triggered the stop, which then
+     * filled at the first mark after the live sell latency. 8680: paper STOP closes averaged -23 % to -36 % on 15-25 % stops,
+     * shadow 24W/156L, live beat shadow by +6.4 pts on the same coins. The stop fires when a SECOND observed mark (a later
+     * observation than the first breach) still reads at or below the level, or at once at [PAPER_STOP_BYPASS_PCT_8683].
+     */
+    fun paperStopConfirmed8683(firstBreachObsMs: Long, obsMs: Long, grossPct: Double): Boolean =
+        grossPct <= PAPER_STOP_BYPASS_PCT_8683 || (firstBreachObsMs > 0L && obsMs > firstBreachObsMs)
+
+    private const val PAPER_STOP_BYPASS_PCT_8683 = -60.0
     private data class Closed8544(val lane: String, val mint: String, val symbol: String, val setup: String, val entryAtMs: Long,
                           val exitAtMs: Long, val netPct: Double, val pnlSol: Double, val why: String)
 
@@ -240,8 +254,14 @@ object MemePaperTrader8544 {
                 else try { ShadowAlign8366.liveStopLevel8366(p.runner, stopPct, p.peak, p.costPct) } catch (_: Throwable) { -stopPct }
             val ladder = if (doctrine8584) com.lifecyclebot.engine.RunnerGrab7967.TIERS_7967 else if (p.runner) com.lifecyclebot.engine.RunnerGrab7967.TIERS_7967 else com.lifecyclebot.engine.SpikeCapture7943.TIERS
             val rung = rung8544(ladder, p.tiers, g)
+            // V5.0.8683 — a breach must be seen on two observed marks (a wick is one print); a recovery clears it.
+            val breached8683 = level.isFinite() && g <= level
+            if (!breached8683) p.stopSeenAtMs8683 = 0L
+            else if (p.stopSeenAtMs8683 == 0L) p.stopSeenAtMs8683 = p.lastAtMs
             when {
-                level.isFinite() && g <= level -> trigger8544(p, if (p.peak > 0.0 && level > -stopPct) "TRAIL_STOP" else "STOP", 1.0, 0, nowMs)
+                breached8683 && paperStopConfirmed8683(p.stopSeenAtMs8683, p.lastAtMs, g) ->
+                    trigger8544(p, if (p.peak > 0.0 && level > -stopPct) "TRAIL_STOP" else "STOP", 1.0, 0, nowMs)
+                breached8683 -> try { PipelineHealthCollector.labelInc("MEME_PAPER_STOP_AWAITS_SECOND_MARK_8683") } catch (_: Throwable) {}
                 rung != null -> trigger8544(p, "TAKE_PROFIT_T${rung.first}", rung.second, rung.first, nowMs)
                 nowMs - p.entryAtMs >= p.clockMs && doctrine8584 &&
                     com.lifecyclebot.engine.RunnerDoctrine8584.holds8584(p.exitLane, "CLOCK_TIME", g, p.peak) -> Unit
