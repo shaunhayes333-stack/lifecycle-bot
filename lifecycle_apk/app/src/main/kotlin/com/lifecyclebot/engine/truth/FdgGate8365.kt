@@ -313,9 +313,24 @@ object FdgGate8365 {
         return HARD_MARKERS_8392.any { r.contains(it) }
     }
 
+    /**
+     * V5.0.8690 — the consensus veto's reason carries its live numbers ("FUSED_LIVE_NEGATIVE=pWin=0.18 E=-9.1 n=12"), so its
+     * forward record was filed one key per number (8680: BRAIN_CONSENSUS_VETO_FUSED_LIVE_NEGATIVE_PWIN_0_18_E__9_ n20) and
+     * could never reach the graded-refusal audit. Pure: the veto filed by its objection names alone, sorted.
+     */
+    fun consensusVetoKey8690(reasonUpper: String): String {
+        val names = reasonUpper.removePrefix(CONSENSUS_VETO_PREFIX_8690).split('+')
+            .map { it.substringBefore('=').trim() }.filter { OBJECTION_NAME_8690.matches(it) }.distinct().sorted()
+        return ("BRAIN_CONSENSUS_VETO_" + names.joinToString("_")).replace(Regex("[^A-Z0-9_]"), "_").take(96)
+    }
+    const val CONSENSUS_VETO_PREFIX_8690 = "BRAIN_CONSENSUS_VETO:"
+    /** An objection name; "+" also appears inside a signed number ("E=+2.0"), whose fragment is not a name. */
+    private val OBJECTION_NAME_8690 = Regex("^[A-Z][A-Z0-9_]*$")
+
     /** Pure: the gate a refusal belongs to, for ENTRY8114_BYPASSED_<gate>. */
     fun gateKey8392(reason: String): String {
         val r = reason.uppercase().trim()
+        if (r.startsWith(CONSENSUS_VETO_PREFIX_8690)) return consensusVetoKey8690(r)
         val body = if (r.startsWith("CANDIDATE_ADMISSION_8136_")) "ADMISSION8136_" + r.removePrefix("CANDIDATE_ADMISSION_8136_") else r
         val m = Regex("^(.*?_\\d{4})(?:_|$)").find(body)
         val head = m?.groupValues?.getOrNull(1) ?: body

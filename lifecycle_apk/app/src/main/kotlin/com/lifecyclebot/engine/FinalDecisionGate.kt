@@ -1657,6 +1657,16 @@ object FinalDecisionGate {
         return finalSize
     }
 
+    /** V5.0.8690 — the consensus veto's block reason (its objections, as filed in the gate record). */
+    private fun consensusVetoReason8690(objections: List<String>): String =
+        "BRAIN_CONSENSUS_VETO:${objections.joinToString("+").take(120)}"
+
+    /** V5.0.8690 — LIVE only: has the veto's own graded record in [lane] proven it refuses winners (GateOutcome8418)? */
+    private fun consensusVetoRetired8690(live: Boolean, objections: List<String>, lane: String): Boolean =
+        live && (try {
+            com.lifecyclebot.engine.truth.GateOutcome8418.retiresAt100_8418(consensusVetoReason8690(objections), lane)
+        } catch (_: Throwable) { false })
+
     fun evaluate(
         ts: TokenState,
         candidate: CandidateDecision,
@@ -5712,9 +5722,17 @@ object FinalDecisionGate {
                 when (BrainConsensusGate.recordForAdmission(ts, report, tags, candidateAdmission8136, floorLane7266)) {
                     BrainConsensusGate.Verdict.HARD_BLOCK -> {
                         // V5.0.8687 — no paper-book override (8616's laneLeads8616 is gone: paper records never authorise LIVE).
-                        shouldTradeFinal = false
-                        blockReasonFinal = "BRAIN_CONSENSUS_VETO:${report.objections.joinToString("+").take(120)}"
-                        blockLevelFinal = BlockLevel.HARD
+                        // V5.0.8690 — learned, not fixed: the veto stands aside on LIVE only once its own graded refusals in
+                        // this lane prove it refuses winners (GateOutcome8418, the bar every evidence door is retired on:
+                        // 100+ graded, mean - SE > +2 % net, robust read). 8680: FUSED_LIVE_NEGATIVE refusals n20 +40.4 %
+                        // wr45 % run25 %; this cannot fire before that record is long enough.
+                        if (consensusVetoRetired8690(mode == TradeMode.LIVE, report.objections, specialistLane ?: modeTag)) {
+                            tags.add("bcg_hard_block_retired_by_record_8690")
+                        } else {
+                            shouldTradeFinal = false
+                            blockReasonFinal = consensusVetoReason8690(report.objections)
+                            blockLevelFinal = BlockLevel.HARD
+                        }
                     }
                     BrainConsensusGate.Verdict.SOFT_BLOCK -> {
                         // V5.0.7259 — the operator contract is unanimous

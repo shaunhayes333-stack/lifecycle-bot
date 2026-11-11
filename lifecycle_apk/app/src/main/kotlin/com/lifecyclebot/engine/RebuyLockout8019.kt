@@ -108,8 +108,16 @@ object RebuyLockout8019 {
         // report found paying (10-25 % off the peak PF 1.81). A coin this bot itself just lost on stays locked below.
         loadBigLosses8130()
         if (bigLossLocked8130(mint, nowMs, RunnerPlay8018.ticketPostdates8681(runStart8681, bigLossAt8130[mint]))) {
-            try { PipelineHealthCollector.labelInc("BIG_LOSER_REFUSED_8130") } catch (_: Throwable) {}
-            return "BIG_LOSER_8130"
+            // V5.0.8690 — learned, not fixed: the 24 h lock stands aside once its own graded refusals (GateOutcome8418, all
+            // lanes: the lock is per coin) prove it refuses winners on the bar every evidence door is retired on. 8680:
+            // BIG_LOSER_8130 refusals n81 +17.9 % wr38 % (COSTING_MONEY) — below that bar's 100, so it still binds today.
+            // The short rebuy lockout (8019) below still applies to a coin this bot just closed.
+            if (bigLossRetiredByRecord8690()) {
+                try { PipelineHealthCollector.labelInc("BIG_LOSER_RETIRED_BY_RECORD_8690") } catch (_: Throwable) {}
+            } else {
+                try { PipelineHealthCollector.labelInc("BIG_LOSER_REFUSED_8130") } catch (_: Throwable) {}
+                return "BIG_LOSER_8130"
+            }
         }
         val at = closedAt[mint] ?: return null
         if (!locked8019(nowMs - at, RunnerPlay8018.ticketPostdates8681(runStart8681, at))) return null
@@ -117,6 +125,10 @@ object RebuyLockout8019 {
         try { PipelineHealthCollector.labelInc("REBUY_LOCKOUT_REFUSED_8019") } catch (_: Throwable) {}
         return "REBUY_LOCKOUT_8019"
     }
+
+    private fun bigLossRetiredByRecord8690(): Boolean = try {
+        com.lifecyclebot.engine.truth.GateOutcome8418.refusesWinners8418(com.lifecyclebot.engine.truth.GateOutcome8418.stat8418("BIG_LOSER_8130"))
+    } catch (_: Throwable) { false }
 
     // ── V5.0.8130 — one real loss is enough ──
     // Owner, DA (ALrNcQ): closed at -22%, then EXPRESS bought it again 50 min later into a -62% downtrend on a +9%
