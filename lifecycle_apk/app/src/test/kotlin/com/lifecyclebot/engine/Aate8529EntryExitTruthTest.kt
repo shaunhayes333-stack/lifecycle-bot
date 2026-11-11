@@ -125,7 +125,8 @@ class Aate8529EntryExitTruthTest {
         assertEquals(setOf(Route8144.RAYDIUM, Route8144.PUMPPORTAL), d)
         assertEquals(listOf(Route8144.JUPITER, Route8144.RAYDIUM, Route8144.PUMPPORTAL),
             SellRouteEndpoint8144.reorder8529(SellRouteEndpoint8144.routeOrder8144(Venue8144.RAYDIUM), d))
-        assertEquals(listOf(Route8144.JUPITER, Route8144.PUMPPORTAL, Route8144.RAYDIUM),
+        // V5.0.8693 — a graduated pool already sells Jupiter first (PumpPortal only on the curve)
+        assertEquals(listOf(Route8144.JUPITER, Route8144.RAYDIUM, Route8144.PUMPPORTAL),
             SellRouteEndpoint8144.reorder8529(SellRouteEndpoint8144.routeOrder8144(Venue8144.PUMPSWAP), d))
         // too few resolved sells is not a record; every route failing keeps the venue order
         assertTrue(SellRouteEndpoint8144.demoted8529(mapOf(Route8144.RAYDIUM to (0 to 2))).isEmpty())

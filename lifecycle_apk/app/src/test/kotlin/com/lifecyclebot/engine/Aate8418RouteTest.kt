@@ -65,7 +65,7 @@ class Aate8418RouteTest {
     @Test fun everyRouteDecisionReadsTheOneRule() {
         val ex = src("engine/Executor.kt")
         // top-ups take the fresh-buy route choice instead of PumpPortal first for every mint
-        assertTrue(ex.contains("val pumpTopUpPlan = if (costAggregatorFirst8151(ts, wallet)) null else recalcBuyPlanForProcessor("))
+        assertTrue(ex.contains("val pumpTopUpPlan = if (!onActivePumpCurve8693(ts.mint) || costAggregatorFirst8151(ts, wallet)) null else recalcBuyPlanForProcessor("))
         // the fresh-buy choice (liveBuy) is the 8369 helper, counted on every eligible buy
         assertTrue(ex.contains("Costs8369.noteBuyRoute8369(ts.mint, if (jupiterFirst8369) \"JUPITER\" else \"PUMPPORTAL\")"))
         val fn = ex.substring(ex.indexOf("private fun shouldTryPumpDirectFirst6099"), ex.indexOf("Executor v3 — SecurityGuard integrated"))

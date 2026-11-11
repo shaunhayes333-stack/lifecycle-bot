@@ -2757,6 +2757,13 @@ class Executor(
      * aggregator routes without PumpPortal's 0.5% fee. Once per mint per 10 min (a second attempt keeps PumpPortal
      * first). Never blocks on the network: an unconfirmed venue keeps the legacy order and warms the probe.
      */
+    /** V5.0.8693 — is [mint] on an active (not graduated) pump.fun bonding curve: the only place PumpPortal may trade. */
+    private fun onActivePumpCurve8693(mint: String): Boolean = try {
+        com.lifecyclebot.engine.sell.SellRouteEndpoint8144.pumpPortalVenue8693(
+            com.lifecyclebot.network.PumpCurveKeys7269.keyFor(mint) != null || com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(mint),
+            com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(mint))
+    } catch (_: Throwable) { false }
+
     private fun costAggregatorFirst8151(ts: TokenState, wallet: SolanaWallet): Boolean {
         val cached = try { com.lifecyclebot.engine.sell.SellRouteVenueProbe8144.cached8144(ts.mint).name } catch (_: Throwable) { "UNKNOWN" }
         val graduated = try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(ts.mint) } catch (_: Throwable) { false }
@@ -13687,7 +13694,7 @@ class Executor(
             // Same universal-auto routing the entry/exit ladder uses.
             // V5.0.8418 — a top-up took PumpPortal first for every mint with no route choice at all (not counted in
             // costs8369 route{}). It now takes the same choice as a fresh buy: Jupiter unless Jupiter has no route.
-            val pumpTopUpPlan = if (costAggregatorFirst8151(ts, wallet)) null else recalcBuyPlanForProcessor(
+            val pumpTopUpPlan = if (!onActivePumpCurve8693(ts.mint) || costAggregatorFirst8151(ts, wallet)) null else recalcBuyPlanForProcessor(
                 ts = ts,
                 wallet = wallet,
                 processor = "PUMPPORTAL_TOP_UP",
@@ -20950,20 +20957,12 @@ class Executor(
             // PumpPortal auto first for Pump/Raydium/PumpSwap discovery routes;
             // keep deep Orca/Meteora as Jupiter-first.
             val deepUnsupportedAmm4559 = srcUpperForRoute.contains("METEORA") || srcUpperForRoute.contains("ORCA")
-            val pumpPortalAutoEligible4559 = !deepUnsupportedAmm4559 && (
-                com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(ts.mint) ||
-                    // V5.0.8476 — a coin on an ACTIVE pump.fun curve is PumpPortal-routable whatever scanner found it (its key is
-                    // remembered from the curve read / tape); the source test alone sent DEX_BOOSTED curve coins to Jupiter.
-                    (try { com.lifecyclebot.network.PumpCurveKeys7269.keyFor(ts.mint) != null && !com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(ts.mint) } catch (_: Throwable) { false }) ||
-                    srcUpperForRoute.contains("PUMP_PORTAL") ||
-                    srcUpperForRoute.contains("PUMP_FUN_NEW") ||
-                    srcUpperForRoute.contains("PUMP_FUN") ||
-                    srcUpperForRoute.contains("PUMPSWAP") ||
-                    srcUpperForRoute.contains("RAYDIUM_NEW_POOL") ||
-                    srcUpperForRoute.contains("SCANNER_DIRECT_RAYDIUM_NEW_POOL") ||
-                    // V5.0.8633 — the DexScreener profiles feed was filed as RAYDIUM_NEW_POOL / PUMP_FUN_*; it keeps that route.
-                    srcUpperForRoute.contains(com.lifecyclebot.engine.SourceTruth8633.DEX_PROFILES_8633)
-            )
+            // V5.0.8693 — owner: "stop trading thru pumpfun unless its a pumpfun coin ... helius sender is free". PumpPortal's
+            // trade API takes 0.5 % per trade; Jupiter built + Helius Sender takes none. PumpPortal is eligible ONLY for a coin
+            // on an ACTIVE pump.fun bonding curve (superseded: every PUMP_* / PUMPSWAP / RAYDIUM_NEW_POOL / DexScreener-profile
+            // source, which sent graduated and non-pump coins there), and even then only when Jupiter has no route
+            // (costAggregatorFirst8151 below).
+            val pumpPortalAutoEligible4559 = !deepUnsupportedAmm4559 && onActivePumpCurve8693(ts.mint)
             val freshPumpRoute = pumpPortalAutoEligible4559 && !costAggregatorFirst8151(ts, wallet) && !com.lifecyclebot.engine.truth.LaunchCohort8173.pumpFallback8173(ts.mint)  // V5.0.8151 — cheapest executable route; V5.0.8173 — PumpPortal just failed for this mint: the route that lands
             val pumpBuyPlan = if (!freshPumpRoute) {
                 try { ForensicLogger.lifecycle("PUMP_DIRECT_SKIPPED_ROUTE_POLICY", "mint=${ts.mint.take(10)} symbol=${ts.symbol} src=${ts.source.take(80)} reason=deep_amm_use_jupiter_first pumpPortalAutoEligible4559=false") } catch (_: Throwable) {}

@@ -210,9 +210,17 @@ object SellRouteEndpoint8144 {
         else -> Venue8144.UNKNOWN
     }
 
-    /** Pure: route order for a confirmed venue. UNKNOWN keeps the legacy order (PumpPortal first). */
+    /** Pure (V5.0.8693): PumpPortal (0.5 % per trade) may trade a pump.fun coin only while it is still on its bonding curve. */
+    fun pumpPortalVenue8693(pumpCoin: Boolean, graduated: Boolean): Boolean = pumpCoin && !graduated
+
+    /**
+     * Pure: route order for a confirmed venue. V5.0.8693 — owner: PumpPortal only for a pump.fun coin on its curve; every
+     * other venue (a graduated PumpSwap pool, an unconfirmed venue) sells through Jupiter + Helius Sender first, which
+     * charges no trade fee, and keeps PumpPortal only as the last rescue. (Was: PUMPSWAP and UNKNOWN PumpPortal-first.)
+     */
     fun routeOrder8144(venue: Venue8144): List<Route8144> = when (venue) {
-        Venue8144.PUMP_CURVE, Venue8144.PUMPSWAP, Venue8144.UNKNOWN -> listOf(Route8144.PUMPPORTAL, Route8144.JUPITER, Route8144.RAYDIUM)
+        Venue8144.PUMP_CURVE -> listOf(Route8144.PUMPPORTAL, Route8144.JUPITER, Route8144.RAYDIUM)
+        Venue8144.PUMPSWAP, Venue8144.UNKNOWN -> listOf(Route8144.JUPITER, Route8144.RAYDIUM, Route8144.PUMPPORTAL)
         Venue8144.RAYDIUM -> listOf(Route8144.RAYDIUM, Route8144.JUPITER, Route8144.PUMPPORTAL)
         Venue8144.AGGREGATOR_ONLY -> listOf(Route8144.JUPITER, Route8144.RAYDIUM, Route8144.PUMPPORTAL)
     }

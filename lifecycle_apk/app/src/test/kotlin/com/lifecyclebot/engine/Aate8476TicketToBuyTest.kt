@@ -58,6 +58,6 @@ class Aate8476TicketToBuyTest {
         val ex = src("engine/Executor.kt")
         assertTrue(ex.contains("Costs8369.pumpBuysLanding8418(), degraded8476)"))
         assertTrue("an active-curve coin is PumpPortal-routable whatever found it",
-            ex.contains("PumpCurveKeys7269.keyFor(ts.mint) != null && !com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(ts.mint) } catch (_: Throwable) { false }) ||"))
+            ex.contains("val pumpPortalAutoEligible4559 = !deepUnsupportedAmm4559 && onActivePumpCurve8693(ts.mint)"))   // V5.0.8693 — and ONLY an active-curve coin
     }
 }
