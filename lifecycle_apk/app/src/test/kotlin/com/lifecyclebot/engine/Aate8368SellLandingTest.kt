@@ -120,7 +120,8 @@ class Aate8368SellLandingTest {
         // V5.0.8378 (owner-approved) — the tip follows the sell: urgent / protective / unlanded-retry sells keep the full
         // floor (CostTrim8151.sellProtective8378, Aate8378SellCostTest); ordinary exits pay the SWQOS ordinary tip.
         assertTrue(ladder.contains("senderTipLamports = sellTip8378(c, reason, ts, fastLand7980)"))
-        assertTrue(exec.contains("val legacy = effectiveSenderTipLamports(c, urgent)\n        val protective = CostTrim8151.sellProtective8378(reason, urgent, mint.isNotBlank() && sellUnlanded8164(mint))"))
+        // V5.0.8694 — the unlanded read is named once and also scales the protective tip.
+        assertTrue(exec.contains("val legacy = effectiveSenderTipLamports(c, urgent)\n        val unlanded8694 = mint.isNotBlank() && sellUnlanded8164(mint)\n        val protective = CostTrim8151.sellProtective8378(reason, urgent, unlanded8694)"))
         assertFalse(ladder.contains("ordinary8151 = true"))
         assertTrue(exec.contains("private fun entryOrdinary8151(mint: String): Boolean = false"))
     }
