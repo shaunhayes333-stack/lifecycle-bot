@@ -184,7 +184,7 @@ object ForensicReconciliation6635 {
         // V5.0.8685 — a keyed fill already on the ledger whose journal row is still being written: this pass compares two
         // different instants, so it may record its figures but must not publish them as the account's settled state.
         val ledgerAhead8685 = try {
-            PaperEconomicAtomicCommit6632.ledgerAheadOfJournal8685(System.currentTimeMillis(), ExecutionSpineAcceptance6647.IN_FLIGHT_WAIT_GRACE_MS_8339)
+            PaperEconomicAtomicCommit6632.ledgerAheadOfJournal8685(System.currentTimeMillis(), ExecutionSpineAcceptanceWindow6647.IN_FLIGHT_WAIT_GRACE_MS_8339)
         } catch (_: Throwable) { false }
         if (ledgerAhead8685) try { PipelineHealthCollector.labelInc("FORENSIC_RECONCILE_LEDGER_AHEAD_OF_JOURNAL_8685") } catch (_: Throwable) {}
         val cashLedger = ledger8685?.let { ledgerCashWithTreasury8685(it) } ?: Double.NaN
