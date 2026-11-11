@@ -1298,6 +1298,7 @@ object CandidateAdmission8136 {
         val key = "$mint|$laneRaw"
         if (d.terminal == Terminal8136.DEFER_DATA) {
             val f = features8144(missingOf8144(d))
+            if (mode == "LIVE") deferCauses8700(d.trace).forEach { deferCauseCounts8700.computeIfAbsent("${candidate.lane}|$it") { AtomicLong(0) }.incrementAndGet() }
             scheduleDue8144(mint, f, nowMs)
             if (held8144.size > 4_000) held8144.entries.removeIf { nowMs - it.value.atMs > REEVAL_MAX_MS_8144 }
             held8144[key] = Held8144(cacheIdentity8144(candidate), d, f, nowMs, candidateVersion, mode)
@@ -1375,6 +1376,32 @@ object CandidateAdmission8136 {
         return r
     }
 
+    // ── V5.0.8700 — what each DATA defer is waiting on ──
+    // 8689: DATA_INCOMPLETE_DEFER_8136 x1,298 and DATA_DEFER_FALLING_HOUR_8418 x598 on LIVE with one shared reason name and
+    // no count of which wait produced them (a stage / flow read, a stale price, an unread move, an unknown cost, a critical
+    // fact). Each fresh defer is counted once under every cause its own trace names.
+    private val deferCauseCounts8700 = ConcurrentHashMap<String, AtomicLong>()
+
+    /** Pure: the causes a DEFER_DATA decision's [trace] names. Optional gaps listed beside a cause are not causes. */
+    internal fun deferCauses8700(trace: List<String>): List<String> {
+        val out = ArrayList<String>(3)
+        trace.firstOrNull { it.startsWith("entryWait8506=") }?.let { out += "ENTRY_WAIT_" + it.removePrefix("entryWait8506=").trim().uppercase() }
+        val critical = trace.firstOrNull { it.startsWith("criticalUnobserved8170=") }?.removePrefix("criticalUnobserved8170=")
+            ?.split(',')?.map { it.substringBefore(':').trim().uppercase() }?.filter { it.isNotBlank() }.orEmpty()
+        critical.distinct().forEach { out += "CRITICAL_$it" }
+        val costKnown = trace.firstOrNull { it.startsWith("gross=") }?.substringAfter(" cost=", "")?.substringBefore(' ')
+            ?.toDoubleOrNull()?.isFinite() == true
+        val missing = trace.firstOrNull { it.startsWith("missing=") }?.removePrefix("missing=")?.split(',')?.map { it.trim() }.orEmpty()
+        if ("price" in missing) out += "PRICE_STALE"
+        if (FALLING_HOUR_WAIT_8418 in missing) out += "FALLING_HOUR"
+        else if (StrategyMove8153.DEFER_FEATURE_8153 in missing) out += "MOVE_HISTORY_SPARSE"
+        else if ("economics" in missing) out += if (costKnown) "MOVE_UNREAD" else "COST_UNKNOWN"
+        return out.ifEmpty { listOf("UNNAMED") }
+    }
+
+    private fun deferCauseLine8700(): String =
+        "deferCause8700{" + deferCauseCounts8700.entries.sortedByDescending { it.value.get() }.take(12).joinToString(",") { "${it.key}=${it.value.get()}" } + "}"
+
     private fun deferTerminalLine8418(): String =
         "deferTerminal8418{" + deferTerminals8418.entries.sortedByDescending { it.value.get() }.take(10).joinToString(",") { "${it.key}=${it.value.get()}" } + "}"
 
@@ -1451,7 +1478,7 @@ object CandidateAdmission8136 {
         }
         val top = counts8136.entries.sortedByDescending { it.value.get() }.take(12)
             .joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "none" }
-        return "admission8136[$byTerminal reasons{$top}] coalescedReevals8144=${coalesced8144.get()} arrivalReevals8252=${arrivalReevals8252.get()} ${deferTerminalLine8418()}"
+        return "admission8136[$byTerminal reasons{$top}] coalescedReevals8144=${coalesced8144.get()} arrivalReevals8252=${arrivalReevals8252.get()} ${deferTerminalLine8418()} ${deferCauseLine8700()}"
     }
 
     // ── live adapter: the record from the bot's own stores (read-only peeks; no fetch, no synthetic data) ──
