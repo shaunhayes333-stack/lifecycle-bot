@@ -72,8 +72,25 @@ object RunnerTicket8073 {
      * the pocket ledger (PocketLedger8610, learned from every forward-labelled decision) currently calls PAYING on the runner
      * lane: the group follows where the money is instead of one hard-coded band.
      */
-    fun groupFluid8681(legacyGroup: Boolean, pocket: com.lifecyclebot.engine.truth.PocketLedger8610.Call?): Boolean =
-        legacyGroup || pocket == com.lifecyclebot.engine.truth.PocketLedger8610.Call.PAYS
+    fun groupFluid8681(legacyGroup: Boolean, pocket: com.lifecyclebot.engine.truth.PocketLedger8610.Call?, cohortPays8695: Boolean = false): Boolean =
+        legacyGroup || pocket == com.lifecyclebot.engine.truth.PocketLedger8610.Call.PAYS || cohortPays8695
+
+    /**
+     * V5.0.8695 — the coin's own forward-label cohort on the runner lane passes the runner bar (LiveEdgeGate7877
+     * .runnerCohortAllows: 30+ graded, mean - SE > 0 net of cost, or a positive mean with a 10 %+ runner rate): its
+     * source x lane x cap x age cell, or the lane's cap band while that cell is still thin. 8689: 83 of 84 ticket asks
+     * were refused for kind (only graduated PumpSwap $10k-$100k or a PAYING pocket qualified) and no ticket issued, while
+     * the brief's own fix queue read "pays only as many small entries held to the runner exit (RunnerTicket8073)".
+     */
+    private fun cohortPays8695(ts: TokenState, nowMs: Long): Boolean = try {
+        val gate = com.lifecyclebot.engine.truth.LiveEdgeGate7877
+        val labels = com.lifecyclebot.engine.truth.ForwardReturnLabeler7731
+        val cell = labels.cellStatFor(ts, POCKET_LANE_8681, nowMs)
+        if (cell != null && cell.n60 >= COHORT_MIN_N_8695) gate.runnerCohortAllows(cell)
+        else gate.runnerCohortAllows(labels.bandStatFor8019(ts, POCKET_LANE_8681))
+    } catch (_: Throwable) { false }
+    private const val COHORT_MIN_N_8695 = 30
+    private val cohortKind8695 = AtomicLong(0)
 
     private fun openTicketSol(): Double = try {
         com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
@@ -98,7 +115,8 @@ object RunnerTicket8073 {
         val legacyGroup = inGroup8073(venue, mcap)
         val pocket8681 = if (legacyGroup) null
             else try { com.lifecyclebot.engine.truth.PocketLedger8610.verdict8610(ts, POCKET_LANE_8681, nowMs) } catch (_: Throwable) { null }
-        if (!groupFluid8681(legacyGroup, pocket8681)) { if (issue) refusedKind.incrementAndGet(); return false }
+        val cohort8695 = !legacyGroup && pocket8681 != com.lifecyclebot.engine.truth.PocketLedger8610.Call.PAYS && cohortPays8695(ts, nowMs)
+        if (!groupFluid8681(legacyGroup, pocket8681, cohort8695)) { if (issue) refusedKind.incrementAndGet(); return false }
         if (nowMs - lastIssuedMs < TICKET_GAP_MS) { if (issue) refusedBudget.incrementAndGet(); return false }
         val walletSol = try { WalletManager.cachedSolBalance() } catch (_: Throwable) { 0.0 }
         val equity = try { com.lifecyclebot.engine.truth.LiveRiskPolicy7807.liveEquitySol(walletSol) } catch (_: Throwable) { walletSol }
@@ -110,11 +128,11 @@ object RunnerTicket8073 {
         tickets[ts.mint] = nowMs
         lastIssuedMs = nowMs
         issued.incrementAndGet()
-        if (!legacyGroup) pocketKind8681.incrementAndGet()
+        if (cohort8695) cohortKind8695.incrementAndGet() else if (!legacyGroup) pocketKind8681.incrementAndGet()
         try { PipelineHealthCollector.labelInc("RUNNER_TICKET_ATTEMPT_8092") } catch (_: Throwable) {}
         try {
             PipelineHealthCollector.labelInc("RUNNER_TICKET_8073_ISSUED")
-            ForensicLogger.lifecycle("RUNNER_TICKET_8073", "mint=${ts.mint.take(10)} sym=${ts.symbol} venue=$venue mcap=${mcap.toLong()} equity=${"%.4f".format(equity)} group=${if (legacyGroup) "PUMPSWAP_10K_100K" else "POCKET_PAYS_8681"}")
+            ForensicLogger.lifecycle("RUNNER_TICKET_8073", "mint=${ts.mint.take(10)} sym=${ts.symbol} venue=$venue mcap=${mcap.toLong()} equity=${"%.4f".format(equity)} group=${if (legacyGroup) "PUMPSWAP_10K_100K" else if (cohort8695) "COHORT_PAYS_8695" else "POCKET_PAYS_8681"}")
         } catch (_: Throwable) {}
         return true
     }
@@ -170,5 +188,5 @@ object RunnerTicket8073 {
 
     fun statusLine(): String =
         "issued=${issued.get()} confirmed=${confirmed8092.get()} open=${tickets.size} record[paid=${paid.get()} died=${died.get()}] refused[kind=${refusedKind.get()} budget=${refusedBudget.get()} record8310=${refusedRecord8310.get()}] " +
-            "pocketGroup8681=${pocketKind8681.get()} rule=PumpSwap \$10k-\$100k or a pocket PocketLedger8610 calls PAYS ($POCKET_LANE_8681), <= ${(BUDGET_FRAC * 100).toInt()}% of equity (one ticket floor <= ${(MAX_SINGLE_TICKET_FRAC_8681 * 100).toInt()}% of equity), 1 per 2 min, held on lifecycle rules"
+            "pocketGroup8681=${pocketKind8681.get()} cohortGroup8695=${cohortKind8695.get()} rule=PumpSwap \$10k-\$100k or a pocket PocketLedger8610 calls PAYS ($POCKET_LANE_8681), <= ${(BUDGET_FRAC * 100).toInt()}% of equity (one ticket floor <= ${(MAX_SINGLE_TICKET_FRAC_8681 * 100).toInt()}% of equity), 1 per 2 min, held on lifecycle rules"
 }

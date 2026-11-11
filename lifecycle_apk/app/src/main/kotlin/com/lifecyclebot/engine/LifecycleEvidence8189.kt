@@ -28,7 +28,8 @@ import java.util.concurrent.atomic.AtomicLong
  */
 object LifecycleEvidence8189 {
 
-    enum class Evidence8189 { PROVEN_PEAK, SEALED_RUNNER_PROVEN_SETUP, UNPROVEN }
+    // V5.0.8695 — RUNNER_TICKET: a runner ticket (RunnerTicket8073) is held as its own contract says.
+    enum class Evidence8189 { PROVEN_PEAK, SEALED_RUNNER_PROVEN_SETUP, RUNNER_TICKET, UNPROVEN }
 
     /** A hold that releases more than this many gross points below its first deferral is regret, not noise. */
     private const val REGRET_PP_8189 = 1.0
@@ -67,6 +68,15 @@ object LifecycleEvidence8189 {
     fun evidenceFor8189(ts: TokenState, lane: String, nowMs: Long = System.currentTimeMillis()): Evidence8189 {
         val peak = ts.position.peakGainPct
         if (RunnerExitContract8136.provenPromotion8136(peak)) return Evidence8189.PROVEN_PEAK
+        // V5.0.8695 §A_TICKET_IS_HELD_LIKE_A_TICKET — RunnerTicket8073's contract is a small, budgeted buy "held under the
+        // lifecycle rules ... so most tickets lose and the few that run pay for all of them". 8189 put this evidence test
+        // ahead of the ticket check in LifecycleHold8065.holding8065, so a ticket took its lane's ordinary stops and was cut
+        // on noise before it could run: 8689 tickets paid 0 / died 3, live closes held 1-4 minutes at -4 .. -15 %, while the
+        // same lane's labels are negative at 5 minutes and positive at the hour (8680 MOONSHOT 60 m +5.8 %, runner-carried).
+        // The ticket is bounded by its own budget (<= 10 % of equity) and record door (SelectionDoors8310), and the hold
+        // still releases a ticket that never ran (LifecycleHold8065.unprovenLoser8109: -20 %, or red for 45 minutes), whose
+        // metrics collapsed, or that hits a tier-1 / structural exit.
+        if (try { RunnerTicket8073.isTicket8073(ts.mint, nowMs) } catch (_: Throwable) { false }) return Evidence8189.RUNNER_TICKET
         if (!sealedRunner8189(ts)) return Evidence8189.UNPROVEN
         return evidence8189(true, setupProven8189(ts, lane, nowMs), peak)
     }
