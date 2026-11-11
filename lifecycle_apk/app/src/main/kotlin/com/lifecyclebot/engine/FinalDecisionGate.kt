@@ -1486,6 +1486,177 @@ object FinalDecisionGate {
         return "BASE_SIGNAL_NOT_EXECUTABLE_8203:${sig.ifBlank { "NONE" }.uppercase().take(24)}"
     }
 
+    /** Keep learned sizing out of the oversized decision method so ART can verify its registers. */
+    private fun applyLearnedSizing(
+        initialSize: Double, ts: TokenState, candidate: CandidateDecision,
+        canonicalPrimaryLane6658: String, laneScoreBanded: Int, effectiveGateScore6025: Double,
+        candidateVersion7623: Long, mode: TradeMode,
+        mlPrediction: com.lifecyclebot.ml.OnDeviceMLEngine.MLPrediction?,
+        evResult: EVCalculator.EVResult?, symGreenLight: Double, adjustedConfidence: Double,
+        tags: MutableList<String>, checks: MutableList<GateCheck>,
+    ): Double {
+        var finalSize = initialSize
+        try {
+            val mpRegime = try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "NORMAL" }
+            // V5.0.7534 — closed-loop learning identity is the canonical execution
+            // owner, not the broader/legacy TradingModeTag spelling. Terminal
+            // finality is credited by canonical position lane; entry-time
+            // predictors must use the same key or their decisions cannot bind.
+            val learningOwnerLane7534 = canonicalPrimaryLane6658
+            // V5.9.1296 — bucket the learning context by the lane's REAL score,
+            // not the shared base V3 score (~7 for memes) that collapsed every
+            // context into S00. laneScore defaults to candidate.entryScore so
+            // non-lane callers are identical.
+            val mpScore = laneScoreBanded  // V5.9.1299 reuse hoisted banded lane score
+            val conv = AutonomousMetaPolicy.conviction(learningOwnerLane7534, mpScore, mpRegime, mode.name)
+            AutonomousMetaPolicy.stampDecision(ts.mint, learningOwnerLane7534, mpScore, mpRegime, mode.name)
+            if (conv != 1.0) {
+                val before = finalSize
+                finalSize = (finalSize * conv).coerceAtLeast(0.01)
+                tags.add("metapolicy:${"%.2f".format(conv)}")
+                checks.add(GateCheck("autonomous_meta_policy", true, "conviction=${"%.2f".format(conv)} size ${before.format(3)}→${finalSize.format(3)} ctx=$learningOwnerLane7534/S$mpScore/$mpRegime"))
+            }
+
+            // V5.9.1289 — CATASTROPHIC-CONTEXT STARVE. conviction()'s
+            // 0.55 floor deliberately never starves volume — right for
+            // exploration, wrong for a MATURE proven-dead pocket (e.g.
+            // SHITCOIN|S00|NORMAL learned at winP=0% / -28% avg). When a
+            // context is statistically dead (n>=20, winP<12%, avg<-18%),
+            // starve size to dust so a known grave can't drain the wallet.
+            // NOT a veto — candidate still flows; pool & FDG fail-open intact.
+            val starve = AutonomousMetaPolicy.starveFactor(learningOwnerLane7534, mpScore, mpRegime, mode.name)
+            if (starve < 1.0) {
+                val beforeS = finalSize
+                finalSize = (finalSize * starve).coerceAtLeast(0.001)
+                tags.add("starve:${"%.2f".format(starve)}")
+                checks.add(GateCheck("catastrophic_starve", true, "proven-dead ctx ×${"%.2f".format(starve)} size ${beforeS.format(3)}→${finalSize.format(3)} ctx=$learningOwnerLane7534/S${effectiveGateScore6025.toInt()}/$mpRegime"))
+            }
+
+            // V5.9.1261 — FORWARD OUTCOME MODEL (counterfactual planning).
+            // Predict the outcome distribution for this exact setup BEFORE
+            // entry (pWin / E[pnl] / pRug / dispersion), learned online from
+            // settled trades keyed by lane×band×quality×regime×edgePhase.
+            // The nudge plans against the predicted distribution. Soft-shape,
+            // stamped for closed-loop credit. Fail-open.
+            val fwd = ForwardOutcomeModel.forecast(learningOwnerLane7534, mpScore, candidate.setupQuality, mpRegime, candidate.edgePhase)
+            ForwardOutcomeModel.stamp(ts.mint, learningOwnerLane7534, mpScore, candidate.setupQuality, mpRegime, candidate.edgePhase)
+            // V5.9.1271 — grade the predictor: stamp pWin+E[pnl] so the close can score accuracy.
+            try { com.lifecyclebot.engine.SignalQualityTracker.stamp(ts.mint, learningOwnerLane7534, fwd.pWin, fwd.expectedPnl) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.MomentumPredictorAI.stampEntryPrediction7441(ts.mint) } catch (_: Throwable) {}
+
+            // V5.9.1358 — DUAL-BRAIN VETO → SIZE-SHAPE (operator mandate:
+            // never refuse/disable a context, learn the right way to trade it
+            // from trade one). When Meta-Policy AND Forward Model both condemn
+            // a context with real evidence, we no longer STOP the trade — we
+            // shrink it hard (the learned heads already do this, this is the
+            // floor-deepener for the gravest pockets) so the bot keeps getting
+            // real outcomes there and can find the sweet spot / heal. Never
+            // zero: a small live position is how the brain learns the bucket.
+            // -15% hard SL + 500-token pool + FDG fail-open all untouched.
+            if (AutonomousMetaPolicy.shouldVeto(learningOwnerLane7534, mpScore, mpRegime, fwd.pWin, fwd.expectedPnl, fwd.samples, mode.name)) {
+                val beforePd = finalSize
+                finalSize = (finalSize * 0.15).coerceAtLeast(0.01)
+                tags.add("proven_dead_size_shaped")
+                checks.add(GateCheck("proven_dead_shape", true, "dual-brain weak ctx=$learningOwnerLane7534/S${effectiveGateScore6025.toInt()}/$mpRegime → small learn-size ${beforePd.format(3)}→${finalSize.format(3)} fwd[pWin=${(fwd.pWin*100).toInt()}% E=${"%+.1f".format(fwd.expectedPnl)}% n=${fwd.samples}]"))
+            }
+            if (fwd.convictionNudge != 1.0 && fwd.source != "bootstrap") {
+                val before = finalSize
+                finalSize = (finalSize * fwd.convictionNudge).coerceAtLeast(0.01)
+                tags.add("fwdsim:${"%.2f".format(fwd.convictionNudge)}")
+                checks.add(GateCheck("forward_outcome_model", true, "pWin=${(fwd.pWin*100).toInt()}% E[pnl]=${"%+.1f".format(fwd.expectedPnl)}% pRug=${(fwd.pRug*100).toInt()}% ±${fwd.dispersion.toInt()} n=${fwd.samples}(${fwd.source}) size ${before.format(3)}→${finalSize.format(3)}"))
+            }
+
+            // V5.9.1262 — UNIFIED POLICY HEAD (one learned decider).
+            // A single online-logistic head over ALL committee signals
+            // (ML conf, symbolic green-light, EV, meta conviction, fwd pWin,
+            // candidate confidence). Learns from real outcomes how to weigh
+            // its own sub-brains into one coherent win-probability → soft
+            // size multiplier. Stamped for closed-loop training. Fail-open.
+            val uphSignals = UnifiedPolicyHead.Signals(
+                mlEntryConf  = try { (mlPrediction?.entryConfidence?.toDouble()) ?: 0.5 } catch (_: Throwable) { 0.5 },
+                symGreenLight = symGreenLight,
+                evRatio      = try { (((evResult?.expectedValue ?: 1.0) - 0.8) / 0.8).coerceIn(0.0, 1.0) } catch (_: Throwable) { 0.5 },
+                metaConviction = ((conv - 0.55) / 0.9).coerceIn(0.0, 1.0),
+                fwdPWin      = fwd.pWin,
+                candConf     = (adjustedConfidence / 100.0).coerceIn(0.0, 1.0),
+            )
+            UnifiedPolicyHead.stamp(ts.mint, learningOwnerLane7534, uphSignals)
+            // V5.0.4094 — AGI MULTI-HEAD: per-lane authority. The lane-
+            // specific head drives sizing once it earns LEARNED tier.
+            // Brier-score-aware calibration demotes drifting heads.
+            val authConv = UnifiedPolicyHead.authoritativeConviction(learningOwnerLane7534, uphSignals)
+            if (authConv != null) {
+                val before = finalSize
+                // V5.0.7925 — the head already weighs the meta conviction and the forward
+                // model's pWin (its inputs above), so their own multipliers are divided
+                // back out: the evidence counts once, through the head that earned it.
+                finalSize = (finalSize / (conv.coerceAtLeast(0.05) *
+                    (if (fwd.convictionNudge != 1.0 && fwd.source != "bootstrap") fwd.convictionNudge.coerceAtLeast(0.05) else 1.0)) *
+                    authConv).coerceAtLeast(0.01)
+                tags.add("agi_auth:${learningOwnerLane7534}:${UnifiedPolicyHead.currentAuthority(learningOwnerLane7534).name}:${"%.2f".format(authConv)}")
+                checks.add(GateCheck("agi_authority_head", true, "lane=$learningOwnerLane7534 tier=${UnifiedPolicyHead.currentAuthority(learningOwnerLane7534).name} pWin=${(UnifiedPolicyHead.predictWinProb(learningOwnerLane7534, uphSignals)*100).toInt()}% mult=${"%.2f".format(authConv)} brier=${"%.3f".format(UnifiedPolicyHead.brierScore(learningOwnerLane7534))} size ${before.format(3)}→${finalSize.format(3)} (rule-stack soft damps superseded)"))
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("AGI_AUTHORITATIVE_OVERRIDE")
+                } catch (_: Throwable) {}
+                // V5.0.4096 — emit override into sentience family so
+                // cross-talk + personality see the AGI taking the wheel.
+                try { com.lifecyclebot.engine.SentienceOrchestrator.noteRuntimeEvent(
+                    "AGI_AUTHORITATIVE_OVERRIDE",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$learningOwnerLane7534 tier=${UnifiedPolicyHead.currentAuthority(learningOwnerLane7534).name} mult=${"%.2f".format(authConv)} brier=${"%.3f".format(UnifiedPolicyHead.brierScore(learningOwnerLane7534))}",
+                    "INFO"
+                ) } catch (_: Throwable) {}
+            } else {
+                val uph = UnifiedPolicyHead.conviction(learningOwnerLane7534, uphSignals)
+                if (uph != 1.0) {
+                    val before = finalSize
+                    finalSize = (finalSize * uph).coerceAtLeast(0.01)
+                    tags.add("policyhead:${learningOwnerLane7534}:${"%.2f".format(uph)}")
+                    checks.add(GateCheck("unified_policy_head", true, "lane=$learningOwnerLane7534 pWin=${(UnifiedPolicyHead.predictWinProb(learningOwnerLane7534, uphSignals)*100).toInt()}% mult=${"%.2f".format(uph)} size ${before.format(3)}→${finalSize.format(3)}"))
+                }
+            }
+
+            // V5.9.1263 — STRATEGY HYPOTHESIS ENGINE (self-directed A/B).
+            // The bot proposes its OWN size-bias mutations per context, splits
+            // trades control vs variant by mint, measures real PnL per arm, and
+            // promotes winners / retires losers with a Welch t-stat. Bounded
+            // soft nudge [0.85,1.20]; never touches the -15% hard floor. Stamped.
+            // V5.0.7430 — bind the hypothesis to the exact playbook
+            // FDG is authorising, not merely lane|band|regime. This is
+            // read from the same candidate TokenState at decision time;
+            // execution later binds this mint/version/lane stamp to the
+            // canonical position, so terminal credit cannot drift.
+            val exactStrategyIdentity7430 = try {
+                val cls7430 = ModeRouter.classify(ts)
+                val style7430 = AgenticStyleRouter.decide(ts, cls7430, learningOwnerLane7534)
+                listOf(
+                    cls7430.tradeType.name,
+                    AgenticStyleRouter.sealedSetup8080(ts, style7430.toolkit, learningOwnerLane7534),  // V5.0.8080
+                    style7430.style.name,
+                    style7430.tactic.name,
+                ).joinToString(">")
+            } catch (_: Throwable) { "" }
+            if (exactStrategyIdentity7430.isNotBlank()) try {
+                PipelineHealthCollector.labelInc("FDG_EXACT_STRATEGY_IDENTITY_7430")
+            } catch (_: Throwable) {}
+            val hypoBias = StrategyHypothesisEngine.getSizeBias(
+                learningOwnerLane7534,
+                effectiveGateScore6025.toInt(),
+                mpRegime,
+                ts.mint,
+                exactStrategyIdentity7430,
+                candidateVersion7623,
+                com.lifecyclebot.engine.cortex.LanePlaybook7907.entryTag8091(ts, learningOwnerLane7534).orEmpty(),
+            )
+            if (hypoBias != 1.0) {
+                val before = finalSize
+                finalSize = (finalSize * hypoBias).coerceAtLeast(0.01)
+                tags.add("hypo:${"%.2f".format(hypoBias)}")
+                checks.add(GateCheck("strategy_hypothesis", true, "sizeBias=${"%.2f".format(hypoBias)} size ${before.format(3)}→${finalSize.format(3)}"))
+            }
+        } catch (_: Throwable) { /* meta-policy must never break entry */ }
+        return finalSize
+    }
+
     fun evaluate(
         ts: TokenState,
         candidate: CandidateDecision,
@@ -5766,8 +5937,8 @@ object FinalDecisionGate {
                 // Operator: "less trades overall but higher conviction and higher
                 // probability of profitability." A live entry now needs the
                 // owning lane's own specialist brain to be eligible for this mint
-                // when it holds an authoritative opinion, and no danger-bucket /
-                // toxic-lane / proven-dead consensus objection. Paper is untouched.
+                // when it holds an authoritative opinion. Statistical consensus has
+                // already been resolved upstream. Paper is untouched.
                 if (shouldTradeFinal && blockReasonFinal == null) {
                     try {
                         val live7697 = !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
@@ -5775,7 +5946,7 @@ object FinalDecisionGate {
                             val lane7697 = specialistLane?.trim()?.uppercase().orEmpty()
                                 .ifBlank { tradingModeTag?.name?.trim()?.uppercase().orEmpty() }
                             val conviction7697 = com.lifecyclebot.engine.truth.LiveConcentrationDoctrine7697
-                                .convictionVerdict(ts.mint, lane7697, report.objections)
+                                .convictionVerdict(ts.mint, lane7697)
                             if (!conviction7697.allow) {
                                 shouldTradeFinal = false
                                 blockReasonFinal = "LIVE_CONVICTION_7697:${conviction7697.reason.take(100)}"
@@ -5800,164 +5971,9 @@ object FinalDecisionGate {
                 // settled outcome is credited back to the SAME context (closed
                 // loop). Fail-open.
                 if (shouldTradeFinal && blockReasonFinal == null) {
-                    try {
-                        val mpRegime = try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "NORMAL" }
-                        // V5.0.7534 — closed-loop learning identity is the canonical execution
-                        // owner, not the broader/legacy TradingModeTag spelling. Terminal
-                        // finality is credited by canonical position lane; entry-time
-                        // predictors must use the same key or their decisions cannot bind.
-                        val learningOwnerLane7534 = canonicalPrimaryLane6658
-                        // V5.9.1296 — bucket the learning context by the lane's REAL score,
-                        // not the shared base V3 score (~7 for memes) that collapsed every
-                        // context into S00. laneScore defaults to candidate.entryScore so
-                        // non-lane callers are identical.
-                        val mpScore = laneScoreBanded  // V5.9.1299 reuse hoisted banded lane score
-                        val conv = AutonomousMetaPolicy.conviction(learningOwnerLane7534, mpScore, mpRegime, mode.name)
-                        AutonomousMetaPolicy.stampDecision(ts.mint, learningOwnerLane7534, mpScore, mpRegime, mode.name)
-                        if (conv != 1.0) {
-                            val before = finalSize
-                            finalSize = (finalSize * conv).coerceAtLeast(0.01)
-                            tags.add("metapolicy:${"%.2f".format(conv)}")
-                            checks.add(GateCheck("autonomous_meta_policy", true, "conviction=${"%.2f".format(conv)} size ${before.format(3)}→${finalSize.format(3)} ctx=$learningOwnerLane7534/S$mpScore/$mpRegime"))
-                        }
-
-                        // V5.9.1289 — CATASTROPHIC-CONTEXT STARVE. conviction()'s
-                        // 0.55 floor deliberately never starves volume — right for
-                        // exploration, wrong for a MATURE proven-dead pocket (e.g.
-                        // SHITCOIN|S00|NORMAL learned at winP=0% / -28% avg). When a
-                        // context is statistically dead (n>=20, winP<12%, avg<-18%),
-                        // starve size to dust so a known grave can't drain the wallet.
-                        // NOT a veto — candidate still flows; pool & FDG fail-open intact.
-                        val starve = AutonomousMetaPolicy.starveFactor(learningOwnerLane7534, mpScore, mpRegime, mode.name)
-                        if (starve < 1.0) {
-                            val beforeS = finalSize
-                            finalSize = (finalSize * starve).coerceAtLeast(0.001)
-                            tags.add("starve:${"%.2f".format(starve)}")
-                            checks.add(GateCheck("catastrophic_starve", true, "proven-dead ctx ×${"%.2f".format(starve)} size ${beforeS.format(3)}→${finalSize.format(3)} ctx=$learningOwnerLane7534/S${effectiveGateScore6025.toInt()}/$mpRegime"))
-                        }
-
-                        // V5.9.1261 — FORWARD OUTCOME MODEL (counterfactual planning).
-                        // Predict the outcome distribution for this exact setup BEFORE
-                        // entry (pWin / E[pnl] / pRug / dispersion), learned online from
-                        // settled trades keyed by lane×band×quality×regime×edgePhase.
-                        // The nudge plans against the predicted distribution. Soft-shape,
-                        // stamped for closed-loop credit. Fail-open.
-                        val fwd = ForwardOutcomeModel.forecast(learningOwnerLane7534, mpScore, candidate.setupQuality, mpRegime, candidate.edgePhase)
-                        ForwardOutcomeModel.stamp(ts.mint, learningOwnerLane7534, mpScore, candidate.setupQuality, mpRegime, candidate.edgePhase)
-                        // V5.9.1271 — grade the predictor: stamp pWin+E[pnl] so the close can score accuracy.
-                        try { com.lifecyclebot.engine.SignalQualityTracker.stamp(ts.mint, learningOwnerLane7534, fwd.pWin, fwd.expectedPnl) } catch (_: Throwable) {}
-                        try { com.lifecyclebot.engine.MomentumPredictorAI.stampEntryPrediction7441(ts.mint) } catch (_: Throwable) {}
-
-                        // V5.9.1358 — DUAL-BRAIN VETO → SIZE-SHAPE (operator mandate:
-                        // never refuse/disable a context, learn the right way to trade it
-                        // from trade one). When Meta-Policy AND Forward Model both condemn
-                        // a context with real evidence, we no longer STOP the trade — we
-                        // shrink it hard (the learned heads already do this, this is the
-                        // floor-deepener for the gravest pockets) so the bot keeps getting
-                        // real outcomes there and can find the sweet spot / heal. Never
-                        // zero: a small live position is how the brain learns the bucket.
-                        // -15% hard SL + 500-token pool + FDG fail-open all untouched.
-                        if (AutonomousMetaPolicy.shouldVeto(learningOwnerLane7534, mpScore, mpRegime, fwd.pWin, fwd.expectedPnl, fwd.samples, mode.name)) {
-                            val beforePd = finalSize
-                            finalSize = (finalSize * 0.15).coerceAtLeast(0.01)
-                            tags.add("proven_dead_size_shaped")
-                            checks.add(GateCheck("proven_dead_shape", true, "dual-brain weak ctx=$learningOwnerLane7534/S${effectiveGateScore6025.toInt()}/$mpRegime → small learn-size ${beforePd.format(3)}→${finalSize.format(3)} fwd[pWin=${(fwd.pWin*100).toInt()}% E=${"%+.1f".format(fwd.expectedPnl)}% n=${fwd.samples}]"))
-                        }
-                        if (fwd.convictionNudge != 1.0 && fwd.source != "bootstrap") {
-                            val before = finalSize
-                            finalSize = (finalSize * fwd.convictionNudge).coerceAtLeast(0.01)
-                            tags.add("fwdsim:${"%.2f".format(fwd.convictionNudge)}")
-                            checks.add(GateCheck("forward_outcome_model", true, "pWin=${(fwd.pWin*100).toInt()}% E[pnl]=${"%+.1f".format(fwd.expectedPnl)}% pRug=${(fwd.pRug*100).toInt()}% ±${fwd.dispersion.toInt()} n=${fwd.samples}(${fwd.source}) size ${before.format(3)}→${finalSize.format(3)}"))
-                        }
-
-                        // V5.9.1262 — UNIFIED POLICY HEAD (one learned decider).
-                        // A single online-logistic head over ALL committee signals
-                        // (ML conf, symbolic green-light, EV, meta conviction, fwd pWin,
-                        // candidate confidence). Learns from real outcomes how to weigh
-                        // its own sub-brains into one coherent win-probability → soft
-                        // size multiplier. Stamped for closed-loop training. Fail-open.
-                        val uphSignals = UnifiedPolicyHead.Signals(
-                            mlEntryConf  = try { (mlPrediction?.entryConfidence?.toDouble()) ?: 0.5 } catch (_: Throwable) { 0.5 },
-                            symGreenLight = symGreenLight,
-                            evRatio      = try { (((evResult?.expectedValue ?: 1.0) - 0.8) / 0.8).coerceIn(0.0, 1.0) } catch (_: Throwable) { 0.5 },
-                            metaConviction = ((conv - 0.55) / 0.9).coerceIn(0.0, 1.0),
-                            fwdPWin      = fwd.pWin,
-                            candConf     = (adjustedConfidence / 100.0).coerceIn(0.0, 1.0),
-                        )
-                        UnifiedPolicyHead.stamp(ts.mint, learningOwnerLane7534, uphSignals)
-                        // V5.0.4094 — AGI MULTI-HEAD: per-lane authority. The lane-
-                        // specific head drives sizing once it earns LEARNED tier.
-                        // Brier-score-aware calibration demotes drifting heads.
-                        val authConv = UnifiedPolicyHead.authoritativeConviction(learningOwnerLane7534, uphSignals)
-                        if (authConv != null) {
-                            val before = finalSize
-                            // V5.0.7925 — the head already weighs the meta conviction and the forward
-                            // model's pWin (its inputs above), so their own multipliers are divided
-                            // back out: the evidence counts once, through the head that earned it.
-                            finalSize = (finalSize / (conv.coerceAtLeast(0.05) *
-                                (if (fwd.convictionNudge != 1.0 && fwd.source != "bootstrap") fwd.convictionNudge.coerceAtLeast(0.05) else 1.0)) *
-                                authConv).coerceAtLeast(0.01)
-                            tags.add("agi_auth:${learningOwnerLane7534}:${UnifiedPolicyHead.currentAuthority(learningOwnerLane7534).name}:${"%.2f".format(authConv)}")
-                            checks.add(GateCheck("agi_authority_head", true, "lane=$learningOwnerLane7534 tier=${UnifiedPolicyHead.currentAuthority(learningOwnerLane7534).name} pWin=${(UnifiedPolicyHead.predictWinProb(learningOwnerLane7534, uphSignals)*100).toInt()}% mult=${"%.2f".format(authConv)} brier=${"%.3f".format(UnifiedPolicyHead.brierScore(learningOwnerLane7534))} size ${before.format(3)}→${finalSize.format(3)} (rule-stack soft damps superseded)"))
-                            try {
-                                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("AGI_AUTHORITATIVE_OVERRIDE")
-                            } catch (_: Throwable) {}
-                            // V5.0.4096 — emit override into sentience family so
-                            // cross-talk + personality see the AGI taking the wheel.
-                            try { com.lifecyclebot.engine.SentienceOrchestrator.noteRuntimeEvent(
-                                "AGI_AUTHORITATIVE_OVERRIDE",
-                                "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$learningOwnerLane7534 tier=${UnifiedPolicyHead.currentAuthority(learningOwnerLane7534).name} mult=${"%.2f".format(authConv)} brier=${"%.3f".format(UnifiedPolicyHead.brierScore(learningOwnerLane7534))}",
-                                "INFO"
-                            ) } catch (_: Throwable) {}
-                        } else {
-                            val uph = UnifiedPolicyHead.conviction(learningOwnerLane7534, uphSignals)
-                            if (uph != 1.0) {
-                                val before = finalSize
-                                finalSize = (finalSize * uph).coerceAtLeast(0.01)
-                                tags.add("policyhead:${learningOwnerLane7534}:${"%.2f".format(uph)}")
-                                checks.add(GateCheck("unified_policy_head", true, "lane=$learningOwnerLane7534 pWin=${(UnifiedPolicyHead.predictWinProb(learningOwnerLane7534, uphSignals)*100).toInt()}% mult=${"%.2f".format(uph)} size ${before.format(3)}→${finalSize.format(3)}"))
-                            }
-                        }
-
-                        // V5.9.1263 — STRATEGY HYPOTHESIS ENGINE (self-directed A/B).
-                        // The bot proposes its OWN size-bias mutations per context, splits
-                        // trades control vs variant by mint, measures real PnL per arm, and
-                        // promotes winners / retires losers with a Welch t-stat. Bounded
-                        // soft nudge [0.85,1.20]; never touches the -15% hard floor. Stamped.
-                        // V5.0.7430 — bind the hypothesis to the exact playbook
-                        // FDG is authorising, not merely lane|band|regime. This is
-                        // read from the same candidate TokenState at decision time;
-                        // execution later binds this mint/version/lane stamp to the
-                        // canonical position, so terminal credit cannot drift.
-                        val exactStrategyIdentity7430 = try {
-                            val cls7430 = ModeRouter.classify(ts)
-                            val style7430 = AgenticStyleRouter.decide(ts, cls7430, learningOwnerLane7534)
-                            listOf(
-                                cls7430.tradeType.name,
-                                AgenticStyleRouter.sealedSetup8080(ts, style7430.toolkit, learningOwnerLane7534),  // V5.0.8080
-                                style7430.style.name,
-                                style7430.tactic.name,
-                            ).joinToString(">")
-                        } catch (_: Throwable) { "" }
-                        if (exactStrategyIdentity7430.isNotBlank()) try {
-                            PipelineHealthCollector.labelInc("FDG_EXACT_STRATEGY_IDENTITY_7430")
-                        } catch (_: Throwable) {}
-                        val hypoBias = StrategyHypothesisEngine.getSizeBias(
-                            learningOwnerLane7534,
-                            effectiveGateScore6025.toInt(),
-                            mpRegime,
-                            ts.mint,
-                            exactStrategyIdentity7430,
-                            candidateVersion7623,
-                            com.lifecyclebot.engine.cortex.LanePlaybook7907.entryTag8091(ts, learningOwnerLane7534).orEmpty(),
-                        )
-                        if (hypoBias != 1.0) {
-                            val before = finalSize
-                            finalSize = (finalSize * hypoBias).coerceAtLeast(0.01)
-                            tags.add("hypo:${"%.2f".format(hypoBias)}")
-                            checks.add(GateCheck("strategy_hypothesis", true, "sizeBias=${"%.2f".format(hypoBias)} size ${before.format(3)}→${finalSize.format(3)}"))
-                        }
-                    } catch (_: Throwable) { /* meta-policy must never break entry */ }
+                    finalSize = applyLearnedSizing(finalSize, ts, candidate, canonicalPrimaryLane6658,
+                        laneScoreBanded, effectiveGateScore6025, candidateVersion7623, mode,
+                        mlPrediction, evResult, symGreenLight, adjustedConfidence, tags, checks)
                 }
             }
         } catch (_: Throwable) {

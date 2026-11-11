@@ -105,7 +105,7 @@ class Aate8675EvidencePathTest {
             HeliusSwapCandles7819.SwapPrint7819(now - 1000, 0.01, 1.0, true),
             HeliusSwapCandles7819.SwapPrint7819(now + 1000, 0.02, 5.0, true)), 100.0, now)
         assertEquals(1, bars.size)
-        assertEquals(100.0, bars.single().periodVolumeUsd8521, 0.0)
+        assertEquals(100.0, requireNotNull(bars.single().periodVolumeUsd8521), 0.0)
     }
 
     @Test fun realDataProgressReopensSpentWaitButRepeatedMissingDataDoesNot() {
@@ -160,6 +160,16 @@ class Aate8675EvidencePathTest {
                 admitted.copy(terminal = CandidateAdmission8136.Terminal8136.REFUSE), "MOONSHOT"))
         assertEquals(BrainConsensusGate.Verdict.HARD_BLOCK,
             BrainConsensusGate.executionVerdict(BrainConsensusGate.Verdict.HARD_BLOCK, null, "MOONSHOT"))
+    }
+
+    @Test fun downstreamConvictionOnlyEnforcesTheCurrentNativeSpecialist() {
+        val refusal = SpecialistBrainBridge7542.Opinion("MOONSHOT", false, 40, 60, 0.01,
+            "NO_BREAKOUT", "BREAKOUT", "BREAKOUT", "TRAIL")
+        assertNotNull(LiveConcentrationDoctrine7697.specialistRejection(refusal))
+        assertNull(LiveConcentrationDoctrine7697.specialistRejection(null))
+        assertNull(LiveConcentrationDoctrine7697.specialistRejection(refusal.copy(eligible = true)))
+        assertNull(LiveConcentrationDoctrine7697.specialistRejection(refusal.copy(authoritative = false)))
+        assertNull(LiveConcentrationDoctrine7697.specialistRejection(refusal.copy(reason = "LIVE_WALLET_TOO_SMALL")))
     }
 
     @Test fun exactSetupLossAndNonEconomicAdmissionStillBind() {

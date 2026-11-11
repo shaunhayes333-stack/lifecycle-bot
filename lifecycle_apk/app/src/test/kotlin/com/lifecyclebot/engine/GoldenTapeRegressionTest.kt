@@ -13209,7 +13209,7 @@ class GoldenTapeRegressionTest {
         // Admission: the live conviction gate runs after the consensus verdict
         // and before the meta-policy, and only downgrades an allow.
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
-        val gateAt = fdg.indexOf(".convictionVerdict(ts.mint, lane7697, report.objections)")
+        val gateAt = fdg.indexOf(".convictionVerdict(ts.mint, lane7697)")
         val allowAt = fdg.indexOf("BrainConsensusGate.Verdict.ALLOW -> { /* normal path */ }")
         val metaAt = fdg.indexOf("// V5.9.1260 — AUTONOMOUS META-POLICY (deliberative layer).")
         assertTrue(allowAt in 1 until gateAt && gateAt < metaAt)

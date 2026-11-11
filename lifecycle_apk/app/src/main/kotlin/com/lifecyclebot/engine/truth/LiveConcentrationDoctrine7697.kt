@@ -172,33 +172,28 @@ object LiveConcentrationDoctrine7697 {
 
     data class ConvictionVerdict(val allow: Boolean, val reason: String)
 
-    private val DANGER_OBJECTIONS_7697 = listOf("LOSING_PATTERN_DANGER_ZONE", "LEARNED_TOXIC_LANE", "PROVEN_DEAD_CONTEXT")
-
     /**
-     * Live only. The owning lane's specialist must not have rejected this mint
-     * (an authoritative, fresh opinion with eligible=false refuses; no opinion
-     * fails open — absence of a view is not a view), and the brain consensus
-     * must not carry a danger-bucket objection.
+     * Validate the current owning specialist only. Statistical consensus is resolved
+     * upstream by BrainConsensusGate and CandidateAdmission; replaying its objections
+     * here would turn an advisory lane prior back into a second execution veto.
      */
-    fun convictionVerdict(mint: String, lane: String, objections: Collection<String>): ConvictionVerdict {
-        val danger = objections.firstOrNull { o -> DANGER_OBJECTIONS_7697.any { o.contains(it) } }
-        if (danger != null) return refuse(mint, lane, "DANGER_OBJECTION:${danger.take(60)}")
+    fun convictionVerdict(mint: String, lane: String): ConvictionVerdict {
         val laneKey = lane.trim().uppercase()
         if (laneKey.isNotBlank()) {
             val opinion = try {
                 com.lifecyclebot.engine.SpecialistBrainBridge7542.cachedSnapshot7650(mint)?.opinions?.get(laneKey)
             } catch (_: Throwable) { null }
-            if (opinion != null && opinion.authoritative && !opinion.eligible) {
-                // V5.0.7951 — "LIVE_WALLET_TOO_SMALL" (CASHGEN score=90, 5.0.7949) is a statement
-                // about the wallet, not the token. Capital is answered by canonical sizing and
-                // capital rotation, never as a conviction refusal.
-                if (!com.lifecyclebot.engine.MemeChokes7951.isCapitalArtefactReason7951(opinion.reason)) {
-                    return refuse(mint, laneKey, "SPECIALIST_REJECTS:$laneKey:score=${opinion.score}:${opinion.reason.take(60)}")
-                }
-            }
+            specialistRejection(opinion)?.let { return refuse(mint, laneKey, it) }
         }
         convictionAllows.incrementAndGet()
         return ConvictionVerdict(true, "OK")
+    }
+
+    internal fun specialistRejection(opinion: com.lifecyclebot.engine.SpecialistBrainBridge7542.Opinion?): String? {
+        if (opinion == null || !opinion.authoritative || opinion.eligible) return null
+        // Capital availability belongs to sizing, not token conviction.
+        if (com.lifecyclebot.engine.MemeChokes7951.isCapitalArtefactReason7951(opinion.reason)) return null
+        return "SPECIALIST_REJECTS:${opinion.lane}:score=${opinion.score}:${opinion.reason.take(60)}"
     }
 
     private fun refuse(mint: String, lane: String, reason: String): ConvictionVerdict {
