@@ -1222,7 +1222,8 @@ object Cortex7885 {
     /** ForwardReturnLabeler7731.observe: one graded decision opens here (1:1 with its observation). */
     fun capture(ts: TokenState, labelLane: String, admitted: Boolean, nowMs: Long = System.currentTimeMillis(), reason: String? = null, incumbent8506: Boolean? = null) {
         if (labelLane.startsWith("PLANWAIT_") || labelLane.startsWith("PLANADMIT_") ||
-            com.lifecyclebot.engine.truth.ExpertSetups8692.setupCohort8692(labelLane)) return
+            com.lifecyclebot.engine.truth.ExpertSetups8692.setupCohort8692(labelLane) ||
+            com.lifecyclebot.engine.truth.MarketCohort8701.isCohort8701(labelLane)) return
         // V5.0.8649 — the 8647 label-time sample called the full voter graph inline
         // on the ForwardReturnLabeler / scanner decision thread (a regression of the
         // nonblocking Cortex contract). Reserve the same two-per-minute budget HERE,

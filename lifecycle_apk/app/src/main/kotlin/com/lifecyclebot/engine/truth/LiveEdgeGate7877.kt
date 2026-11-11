@@ -615,6 +615,8 @@ object LiveEdgeGate7877 {
             // V5.0.8692 — a setup (the families + the expert playbook) whose own forward-label cohort is proven positive
             (try { MemeStrategies8546.measuredProven8692(ts.mint, nowMs) } catch (_: Throwable) { null }) != null -> "SETUP_MEASURED_8692"
             (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetup8056(ts, l, nowMs) } catch (_: Throwable) { null }) != null -> "PROVEN_SETUP"
+            // V5.0.8701 — the coin's origin x pool-depth cohort, proven positive on its own forward record
+            (try { MarketCohort8701.measuredProven8701(ts) } catch (_: Throwable) { null }) != null -> "ORIGIN_MEASURED_8701"
             (try { measuredEdge8060(ts, l, nowMs) } catch (_: Throwable) { false }) -> "MEASURED_EDGE"
             (try { cellOrKindProven8094(ts, l, nowMs) } catch (_: Throwable) { false }) -> "CELL_OR_KIND"
             (try { runnerForming8113(ts, nowMs) } catch (_: Throwable) { false }) -> "RUNNER_FORMING"
