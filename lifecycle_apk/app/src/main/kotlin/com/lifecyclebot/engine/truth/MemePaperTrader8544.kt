@@ -230,7 +230,11 @@ object MemePaperTrader8544 {
     fun tick8544(tokens: Map<String, TokenState>, nowMs: Long = System.currentTimeMillis()) {
         restore8544()
         if (open.isEmpty()) { save8544(nowMs); return }
-        val latency = try { ShadowAlign8366.sellLatencyMs8366(false) } catch (_: Throwable) { 16_000L }
+        // V5.0.8699 — a paper stop waits the latency LIVE's stops are measured at (the protective class), a take-profit the
+        // normal class's. Every exit waited the normal class's never-measured 16 s prior, so a paper stop on a dumping coin
+        // filled 16 s late: paper STOP -23 .. -37 % against live -5 .. -17 % on the same candidates (8689 tuning report).
+        val stopLatency8699 = try { ShadowAlign8366.sellLatencyMs8366(true) } catch (_: Throwable) { 6_000L }
+        val normalLatency8699 = try { ShadowAlign8366.sellLatencyMs8366(false) } catch (_: Throwable) { 16_000L }
         for (p in open.values.toList()) try {
             wantMark8623(p.mint, nowMs)
             val obs = ShadowMark8360.observedTimed8372(tokens[p.mint], p.mint, nowMs)?.takeIf { it.observedAtMs >= p.lastAtMs && it.priceUsd > 0.0 }
@@ -242,6 +246,7 @@ object MemePaperTrader8544 {
             val pending = p.exitWhy
             if (pending != null) {
                 // a triggered exit fills at the first observed mark after the live sell latency
+                val latency = if (stopExit8699(pending)) stopLatency8699 else normalLatency8699
                 if (obs != null && obs.observedAtMs >= p.exitAtMs + latency) fill8544(p, g, nowMs)
                 else if (nowMs - p.lastAtMs > LOST_MARK_MS_8544) { p.exitFraction = 1.0; p.exitWhy = "LOST_MARK"; fill8544(p, g, nowMs) }
                 continue
@@ -289,6 +294,9 @@ object MemePaperTrader8544 {
     }
     private const val WANT_EVERY_MS_8623 = 30_000L
     private val wantedAt8623 = ConcurrentHashMap<String, Long>()
+
+    /** Pure (V5.0.8699): is a paper exit a stop (live sends it as a protective exit)? */
+    fun stopExit8699(why: String?): Boolean = why == "STOP" || why == "TRAIL_STOP"
 
     private fun trigger8544(p: Pos8544, why: String, fraction: Double, tier: Int, nowMs: Long) {
         p.exitWhy = why; p.exitAtMs = nowMs; p.exitFraction = fraction; p.exitTier = tier

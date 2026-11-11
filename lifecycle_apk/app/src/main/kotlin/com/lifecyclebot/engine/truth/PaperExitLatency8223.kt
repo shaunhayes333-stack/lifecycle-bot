@@ -71,9 +71,21 @@ object PaperExitLatency8223 {
 
     internal fun latencyMs8223(emergency: Boolean): Long {
         ensureLoaded()
-        return if (emergency) latencyFrom8223(emergencyN.get(), emergencySumMs.get(), PRIOR_EMERGENCY_MS_8223)
-        else latencyFrom8223(normalN.get(), normalSumMs.get(), PRIOR_NORMAL_MS_8223)
+        val emergencyMs = latencyFrom8223(emergencyN.get(), emergencySumMs.get(), PRIOR_EMERGENCY_MS_8223)
+        return if (emergency) emergencyMs
+        else normalLatency8699(normalN.get(), normalSumMs.get(), emergencyN.get(), emergencyMs)
     }
+
+    /**
+     * Pure (V5.0.8699): the normal class's latency. Its own measurement at [MIN_N_8223]; while it is unmeasured, the SAME
+     * spine's measured emergency latency stands in for the 8220 forensic prior. 8689: `norm=16000ms(n=0,prior)
+     * emrg=745ms(n=3)` — every live sell is a stop (the emergency class), so the normal class never measured and every paper
+     * exit waited a 16 s figure from a sell path that no longer exists.
+     */
+    internal fun normalLatency8699(normalN: Long, normalSumMs: Long, emergencyN: Long, emergencyMeasuredMs: Long): Long =
+        if (normalN >= MIN_N_8223 && normalSumMs > 0L) latencyFrom8223(normalN, normalSumMs, PRIOR_NORMAL_MS_8223)
+        else if (emergencyN >= MIN_N_8223) emergencyMeasuredMs
+        else PRIOR_NORMAL_MS_8223
 
     internal fun measured8223(emergency: Boolean): Boolean {
         ensureLoaded()
