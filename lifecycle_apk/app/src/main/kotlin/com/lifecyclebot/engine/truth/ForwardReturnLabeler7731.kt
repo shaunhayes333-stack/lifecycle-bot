@@ -683,7 +683,7 @@ object ForwardReturnLabeler7731 {
             "BAND|${o.lane}|${o.cell.split('|').getOrNull(2) ?: "MC_UNKNOWN"}",  // V5.0.8019 — lane x cap band
             laneDecisionKey8094(o.lane, o.admitted))
         // V5.0.7930 — plan pseudo-lanes (PLANWAIT_/PLANADMIT_) carry no stage book.
-        val pseudo = o.lane.startsWith("PLANWAIT_") || o.lane.startsWith("PLANADMIT_")
+        val pseudo = o.lane.startsWith("PLANWAIT_") || o.lane.startsWith("PLANADMIT_") || ExpertSetups8692.setupCohort8692(o.lane)
         // UNKNOWN is not a measured lifecycle stage. Never teach a catch-all
         // STAGE|lane|UNKNOWN that later refuses legitimate classified strategies.
         val staged = if (o.stage.isBlank() || o.stage.equals("UNKNOWN", true) || pseudo) base else base + stageKey7928(o.lane, o.stage)

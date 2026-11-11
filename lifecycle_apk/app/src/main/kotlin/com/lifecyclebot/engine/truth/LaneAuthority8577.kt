@@ -145,9 +145,30 @@ object LaneAuthority8577 {
         if (l !in MEME_LANES_8582) return null
         val f = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.features(ts, nowMs) } catch (_: Throwable) { null }
         if (f != null && memeBuysTheHigh8582(l, f.pxPeak, f.runup, f.bp)) return MEME_BUYS_THE_HIGH_8582
+        // V5.0.8692 — the expert playbook's avoid shapes (spike-and-fade, staircase down), learned: each stands aside once its
+        // own graded refusals prove it refuses winners (GateOutcome8418, the 8690 bar).
+        expertAvoid8692(ts, nowMs)?.let { return it }
         val st = if (stage.isNullOrBlank()) null else try { ForwardReturnLabeler7731.stageStatFor7928(l, stage) } catch (_: Throwable) { null }
         return if (stageLoses8626(stage, st?.n60 ?: 0, st?.meanNet60Pct ?: Double.NaN, st?.stderr60Pct ?: Double.NaN))
             LIVE_STAGE_LOSES_8626 else null
+    }
+
+    private fun expertAvoid8692(ts: com.lifecyclebot.data.TokenState, nowMs: Long): String? {
+        val m1 = try { MultiTimeframeCharts8521.snapshot8521(ts, MultiTimeframeCharts8521.Frame8521.M1, nowMs) } catch (_: Throwable) { return null }
+        val flow = try { FlowRead8546.read8546(ts.mint, nowMs) } catch (_: Throwable) { null }
+        val sellDominant = flow?.takeIf { it.known }?.let { it.sellSol2m > it.buySol2m }
+        val why = when {
+            ExpertSetups8692.spikeFade8692(m1, sellDominant) -> ExpertSetups8692.SPIKE_FADE_8692
+            ExpertSetups8692.staircaseDown8692(m1) -> ExpertSetups8692.STAIRCASE_DOWN_8692
+            else -> return null
+        }
+        val record = try { GateOutcome8418.stat8418(FdgGate8365.gateKey8392("CANDIDATE_ADMISSION_8136_$why")) } catch (_: Throwable) { null }
+        if (GateOutcome8418.refusesWinners8418(record)) {
+            try { PipelineHealthCollector.labelInc("${why}_RETIRED_BY_RECORD") } catch (_: Throwable) {}
+            return null
+        }
+        try { PipelineHealthCollector.labelInc(why) } catch (_: Throwable) {}
+        return why
     }
 
     /** Pure: does [reason] bind under lane authority? Everything not listed is a learned door, advisory for a qualified coin. */

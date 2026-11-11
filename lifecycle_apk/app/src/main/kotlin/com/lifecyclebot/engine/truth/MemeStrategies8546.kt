@@ -37,7 +37,9 @@ import java.util.concurrent.ConcurrentHashMap
 object MemeStrategies8546 {
     // V5.0.8650 — the initial curve move is often over before nine CLOSED 1m candles exist.
     // Preserve the older families' minute-scale evidence and learn this early episode separately.
-    enum class Family8546 { PULLBACK_RECLAIM, BASE_BREAKOUT_FLOW, GRADUATION_RETEST, WALLET_CLUSTER, RANGE_LOW, EARLY_FLOW_RECLAIM }
+    // V5.0.8692 — DIP_BUY_VOLUME and FOLLOW_SIZE: the expert playbook's dip-buy and follow-size entries (ExpertSetups8692).
+    enum class Family8546 { PULLBACK_RECLAIM, BASE_BREAKOUT_FLOW, GRADUATION_RETEST, WALLET_CLUSTER, RANGE_LOW, EARLY_FLOW_RECLAIM,
+        DIP_BUY_VOLUME, FOLLOW_SIZE }
 
     data class Signal8546(val family: Family8546, val exitLane: String, val why: String)
 
@@ -175,6 +177,8 @@ object MemeStrategies8546 {
         Family8546.WALLET_CLUSTER -> f.smartWallets5m >= 2 && (!f.known || f.buyShareSol2m >= 0.50)
         Family8546.RANGE_LOW -> f.known && f.netSol5m > 0.0
         Family8546.EARLY_FLOW_RECLAIM -> f.known && f.buys2m >= 4 && f.netSol2m > 0.0 && f.buyShareSol2m >= 0.58
+        // V5.0.8692 — a flush is a sell-off by definition and the size buys are the flow: neither needs a buy-share read.
+        Family8546.DIP_BUY_VOLUME, Family8546.FOLLOW_SIZE -> true
     }
 
     /** Pure: the exit style (lane whose levers the paper position rides) for [family] on a coin of [mcapUsd]. */
@@ -224,6 +228,12 @@ object MemeStrategies8546 {
             else emptyList()
         note8644(if (early.size >= 10) "EARLY_PRINTS_READY_8650" else "EARLY_PRINTS_SHORT_8650")
         add(Family8546.EARLY_FLOW_RECLAIM, earlyFlowReclaim8650(early, nowMs))
+        // V5.0.8692 — the expert playbook's dip buy (closed 1m bars with real volume) and follow-size (executed prints).
+        add(Family8546.DIP_BUY_VOLUME, ExpertSetups8692.dipBuyVolume8692(m1))
+        val ageMin8692 = try { CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts, nowMs) } catch (_: Throwable) { null }
+        if (ageMin8692 != null && ageMin8692 < 5.0)
+            add(Family8546.FOLLOW_SIZE, ExpertSetups8692.followSize8692(
+                try { TradeTape8100.prints8128(ts.mint, nowMs, 60_000L) } catch (_: Throwable) { emptyList() }, nowMs, ageMin8692))
         val gradAt = try { com.lifecyclebot.network.PumpCurveKeys7269.graduatedAtMs8546(ts.mint) } catch (_: Throwable) { null }
         if (gradAt != null && nowMs - gradAt in 0L..3_600_000L)
             add(Family8546.GRADUATION_RETEST, graduationRetest(m1, gradAt)?.let { "graduated ${(nowMs - gradAt) / 60_000L}m ago $it" })
@@ -259,6 +269,9 @@ object MemeStrategies8546 {
             else lastSignal[ts.mint] = sigs.associate { it.family to nowMs }
             for (s in sigs) {
                 fired.computeIfAbsent(s.family.name) { java.util.concurrent.atomic.AtomicLong(0) }.incrementAndGet()
+                // V5.0.8692 — every setup signal is graded on executable marks under its own cohort, independent of the
+                // paper book's exits; that record alone can make it a LIVE edge ([measuredProven8692]).
+                try { ForwardReturnLabeler7731.observe(ts, ExpertSetups8692.cohort8692(s.family.name), false, "SETUP_SIGNAL_8692", nowMs) } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("MEME_FAMILY_SIGNAL_8546_${s.family}") } catch (_: Throwable) {}
                 try { MemePaperTrader8544.openFamily8546(ts, s, nowMs) } catch (_: Throwable) {}
             }
@@ -316,6 +329,19 @@ object MemeStrategies8546 {
         return listOf(Family8546.EARLY_FLOW_RECLAIM, Family8546.PULLBACK_RECLAIM).any { family ->
             signals[family]?.let { nowMs - it in 0L until EVAL_GAP_MS_8546 } == true
         }
+    }
+
+    /**
+     * V5.0.8692 — LiveEdgeGate7877: the setup that signalled on [mint] in the last two minutes whose own forward-label cohort
+     * (executable marks, net of cost) is proven positive, else null. Measured, not the paper book's P&L.
+     */
+    fun measuredProven8692(mint: String, nowMs: Long = System.currentTimeMillis()): String? {
+        val recent = lastSignal[mint]?.entries?.filter { nowMs - it.value in 0L..SIGNAL_TTL_MS_8546 } ?: return null
+        val proven = recent.sortedByDescending { it.value }.firstOrNull { (family, _) ->
+            LiveEdgeGate7877.cohortProvenPositive7948(
+                try { ForwardReturnLabeler7731.laneStatFor7737(ExpertSetups8692.cohort8692(family.name)) } catch (_: Throwable) { null })
+        } ?: return null
+        return "SETUP_MEASURED_8692:${proven.key.name}"
     }
 
     fun statusLine8546(): String =

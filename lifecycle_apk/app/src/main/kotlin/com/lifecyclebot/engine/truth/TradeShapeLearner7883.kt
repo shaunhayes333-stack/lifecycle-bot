@@ -127,7 +127,7 @@ object TradeShapeLearner7883 {
     private val sincePersist = AtomicLong(0)
 
     private fun learnable(lane: String): Boolean =
-        lane.isNotBlank() && !lane.startsWith("PLANWAIT_") && !lane.startsWith("PLANADMIT_")
+        lane.isNotBlank() && !lane.startsWith("PLANWAIT_") && !lane.startsWith("PLANADMIT_") && !ExpertSetups8692.setupCohort8692(lane)
 
     private fun canon(lane: String): String =
         CanonicalLaneIdentity6506.canonical(lane).uppercase().ifBlank { lane.trim().uppercase() }
