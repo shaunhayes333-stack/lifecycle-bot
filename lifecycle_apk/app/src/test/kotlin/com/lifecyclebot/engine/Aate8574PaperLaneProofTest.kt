@@ -48,6 +48,8 @@ class Aate8574PaperLaneProofTest {
         val gate = src("engine/truth/LiveEdgeGate7877.kt")
         val w = gate.substringAfter("fun edge8114Live8538(").substringBefore("/** Pure (V5.0.8536)")
         assertFalse(w.contains("MemePaperTrader8544"))
-        assertFalse(w.contains("MemeStrategies8546"))
+        assertFalse(w.contains("liveProven8546"))
+        // V5.0.8692 — a setup reaches LIVE only through its own measured forward cohort
+        assertTrue(w.contains("MemeStrategies8546.measuredProven8692(ts.mint, nowMs)"))
     }
 }

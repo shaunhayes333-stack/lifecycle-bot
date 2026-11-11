@@ -53,7 +53,7 @@ class Aate8193PumpStreamBudgetSharedTest {
         val fresh = s.substringAfter("private fun registerFreshLifecycle7420(").substringBefore("lifecycleMints7420[mint] = now")
         assertTrue(fresh.contains("(framesByMint8192[mint]?.get() ?: 0L) >= LAUNCH_FRAME_CAP_8192"))
         assertTrue(fresh.contains("launchSubAllowed8192(framesToday8192.get())"))
-        assertTrue(s.contains("framesToday8192.set(0L); framesByMint8192.clear()"))
+        assertTrue(s.contains("framesToday8192.set(restored); framesByMint8192.clear()"))   // V5.0.8691 — a new day resets; a restart resumes the day's count
         assertTrue(s.contains("fun watchLaunch8190(") && s.substringAfter("fun watchLaunch8190(").take(300).contains("registerFreshLifecycle7420(mint)"))
     }
 }
