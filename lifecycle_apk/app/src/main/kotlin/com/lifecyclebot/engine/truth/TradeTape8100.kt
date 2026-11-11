@@ -187,6 +187,7 @@ object TradeTape8100 {
             val newest = maxOf(atMs, q.last().atMs)
             while (q.size > MAX_TRADES || (q.isNotEmpty() && newest - q.first().atMs > KEEP_MS)) q.removeFirst()
         }
+        bumpVersion8681(mint)
         if (t.priceOnly) {
             // V5.0.8285 FEATURE_ARRIVED_PRICE(mint)
             try { FeatureRevision8283.bumpThrottled8286(mint, FeatureKind8283.PRICE) } catch (_: Throwable) {}  // V5.0.8286
@@ -200,7 +201,7 @@ object TradeTape8100 {
         bySource8169.computeIfAbsent(source.ifBlank { "other" }) { AtomicLong(0) }.incrementAndGet()
         if (tapes.size > MAX_MINTS) {
             val drop = tapes.entries.sortedBy { e -> synchronized(e.value) { e.value.lastOrNull()?.atMs ?: 0L } }.take(MAX_MINTS / 10)
-            for (e in drop) tapes.remove(e.key)
+            for (e in drop) { tapes.remove(e.key); forget8681(e.key) }
         }
     }
 
@@ -258,6 +259,34 @@ object TradeTape8100 {
     /** LanePlaybook7907: the tape's readings for [mint] now, each null when the tape cannot state it. */
     fun read8100(mint: String, nowMs: Long = System.currentTimeMillis()): Read? {
         val q = tapes[mint] ?: return null
+        // V5.0.8681 — every lane reads the same coin in the same cycle (8680: reads=257,124 in 98 min, ~86 feature evals/s).
+        // Each read copied the whole tape (up to 800 prints), filtered, boxed and grouped it: a large share of the ~3 GB/min
+        // allocation churn behind the GC pauses and the heap-driven Helius cap. One computed read per tape version is
+        // reused for [READ_TTL_MS_8681]; any new or trimmed print bumps the version and the next read recomputes.
+        val version = tapeVersion8681[mint]?.get() ?: 0L
+        readCache8681[mint]?.let { c ->
+            if (c.version == version && nowMs - c.atMs in 0L..READ_TTL_MS_8681) {
+                readCacheHits8681.incrementAndGet()
+                c.read?.let { r -> reads.incrementAndGet(); if (r.bp != null || r.chg != null || r.shape != null) filled.incrementAndGet() }
+                return c.read
+            }
+        }
+        val computed = compute8100(mint, q, nowMs)
+        if (readCache8681.size > MAX_MINTS * 2) readCache8681.clear()
+        readCache8681[mint] = CachedRead8681(version, nowMs, computed)
+        return computed
+    }
+
+    // ── V5.0.8681 — tape versions and the short-lived read cache ──
+    private class CachedRead8681(val version: Long, val atMs: Long, val read: Read?)
+    internal const val READ_TTL_MS_8681 = 1_000L
+    private val readCache8681 = ConcurrentHashMap<String, CachedRead8681>()
+    private val tapeVersion8681 = ConcurrentHashMap<String, AtomicLong>()
+    private val readCacheHits8681 = AtomicLong(0)
+    private fun bumpVersion8681(mint: String) { tapeVersion8681.computeIfAbsent(mint) { AtomicLong(0) }.incrementAndGet() }
+    private fun forget8681(mint: String) { tapeVersion8681.remove(mint); readCache8681.remove(mint) }
+
+    private fun compute8100(mint: String, q: ArrayDeque<Trade>, nowMs: Long): Read? {
         val all8285 = synchronized(q) { q.toList() }
         // V5.0.8285 — one venue: prints from another pool of the same token never distort this venue's change, shape or flow.
         val venue8285 = venueOf8285(all8285)
@@ -370,7 +399,7 @@ object TradeTape8100 {
         return synchronized(q) { q.lastOrNull { !it.priceOnly && it.sourceTimeKnown8386 && it.sol > 0 && it.tokenQty > 0 }?.atMs ?: 0L }
     }
 
-    fun statusLine8100(): String = "mints=${tapes.size} trades=${notes.get()} reads=${reads.get()} filledReads=${filled.get()} youngShape15s8220=${youngShapes8220.get()}"
+    fun statusLine8100(): String = "mints=${tapes.size} trades=${notes.get()} reads=${reads.get()} filledReads=${filled.get()} youngShape15s8220=${youngShapes8220.get()} readCacheHits8681=${readCacheHits8681.get()}"
 
     /** V5.0.8169 — why the tape could state nothing for [mint] now: NO_PRINTS (never received) or STALE (newest > [FRESH_MS]: 5 min since 8317). */
     fun absentWhy8169(mint: String, nowMs: Long = System.currentTimeMillis()): String {
@@ -448,10 +477,11 @@ object TradeTape8100 {
             val stale = nowMs - newest > KEEP_MS
             val isProtected = !stale && (try { protect(mint) } catch (_: Throwable) { true })
             val drop = stale || (!isProtected && hard && (nowMs - newest > quietMs || (critical && unprotectedKept >= 150)))
-            if (drop) { if (tapes.remove(mint, q)) freed += synchronized(q) { q.size }; continue }
+            if (drop) { if (tapes.remove(mint, q)) { freed += synchronized(q) { q.size }; forget8681(mint) }; continue }
             if (isProtected || !hard) continue
             unprotectedKept++
-            synchronized(q) { while (q.size > keepPrints) { q.removeFirst(); freed++ } }
+            val trimmed8681 = synchronized(q) { var n = 0; while (q.size > keepPrints) { q.removeFirst(); freed++; n++ }; n }
+            if (trimmed8681 > 0) bumpVersion8681(mint)
         }
         if (hard) MemoryBounds8289.trimEldest8289(seenSig8285, if (critical) 5_000 else 10_000)
         MemoryBounds8289.capByAge8289(lastSigned8285, if (hard) 2_000 else 8_000, 10L * 60_000L, nowMs) { it }
@@ -472,5 +502,6 @@ object TradeTape8100 {
         seenSig8285.clear(); lastSigned8285.clear(); latency8285.clear(); noEventTs8285.clear()
         crossFeedDup8285.set(0); sameFeedDup8285.set(0); unsigned8285.set(0); executed8285.set(0)
         priceOnly8285.set(0); inferred8285.set(0); venueSplitReads8285.set(0)
+        readCache8681.clear(); tapeVersion8681.clear(); readCacheHits8681.set(0)
     }
 }

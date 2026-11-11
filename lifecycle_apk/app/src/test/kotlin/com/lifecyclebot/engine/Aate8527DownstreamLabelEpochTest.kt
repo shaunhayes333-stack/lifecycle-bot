@@ -188,21 +188,20 @@ class Aate8527DownstreamLabelEpochTest {
 
     @Suppress("UNCHECKED_CAST")
     @Test(timeout = 5_000L) fun hiveCurrentNamespaceCannotReadLegacyPeersAndOtherNamespacesRemainIndependent() {
-        val field = HiveEdge8000.javaClass.getDeclaredField("aggregate").apply { isAccessible = true }
-        val aggregate = field.get(HiveEdge8000) as ConcurrentHashMap<String, DoubleArray>
+        // V5.0.8681 — the network book is a store (HiveBook8681), not a resident map: seeded through its test hooks.
         val unique = "epoch8527-" + System.nanoTime()
         val old = "FRL8521|" + unique
         val current = "FRL8527|" + unique
         val actual = "EXP|" + unique
         try {
-            aggregate[old] = doubleArrayOf(100.0, 90_000.0, 81_000_000.0, 100.0, 100.0, 900.0)
-            aggregate[actual] = doubleArrayOf(20.0, 20.0, 20.0, 20.0, 0.0, 1.0)
+            HiveEdge8000.putAggregateForTest8681(old, doubleArrayOf(100.0, 90_000.0, 81_000_000.0, 100.0, 100.0, 900.0))
+            HiveEdge8000.putAggregateForTest8681(actual, doubleArrayOf(20.0, 20.0, 20.0, 20.0, 0.0, 1.0))
             assertNull(HiveEdge8000.net8000(current))
             assertNotNull(HiveEdge8000.net8000(actual))
-            aggregate[current] = doubleArrayOf(12.0, 60.0, 300.0, 12.0, 0.0, 5.0)
+            HiveEdge8000.putAggregateForTest8681(current, doubleArrayOf(12.0, 60.0, 300.0, 12.0, 0.0, 5.0))
             assertEquals(60.0, HiveEdge8000.net8000(current)!![1], 0.0)
-            assertEquals(90_000.0, aggregate.getValue(old)[1], 0.0)
-        } finally { aggregate.remove(old); aggregate.remove(current); aggregate.remove(actual) }
+            assertEquals(90_000.0, HiveEdge8000.net8000(old)!![1], 0.0)
+        } finally { HiveEdge8000.removeAggregateForTest8681(listOf(old, current, actual)) }
     }
 
     @Test(timeout = 5_000L) fun allCurrentForwardConsumersShareTheObservedEpochAndActualKeysDoNotMove() {

@@ -375,9 +375,9 @@ object MemoryGuard7977 {
         // boot): at the HARD cap it sat under the cap and every hard trim freed nothing. Estimated at ~290 B a key (key string,
         // map node, DoubleArray(6)) for both the network book and this install's uploaded baseline.
         r.register8144("hiveBook", com.lifecyclebot.engine.truth.HiveEdge8000.AGGREGATE_KEY_BYTES_8144, {
-            com.lifecyclebot.engine.truth.HiveEdge8000.aggregateCount8144() + com.lifecyclebot.engine.truth.HiveEdge8000.uploadedCount8144()
+            com.lifecyclebot.engine.truth.HiveEdge8000.residentCount8681()   // V5.0.8681 — the book is on disk; only the read cache is resident
         }, { p -> com.lifecyclebot.engine.truth.HiveEdge8000.trim8144(if (hard(p)) RetentionPolicy8136.Pressure.CRITICAL else p) }) {
-            (com.lifecyclebot.engine.truth.HiveEdge8000.aggregateCount8144() + com.lifecyclebot.engine.truth.HiveEdge8000.uploadedCount8144()).toLong() * 290L
+            com.lifecyclebot.engine.truth.HiveEdge8000.residentCount8681().toLong() * 290L
         }
         // Evidence with its own insert-time caps (6,000 observations / 1,000 cells; 3,000 / 4,000 policy stamps).
         r.register8144("labeler", 1_536L, { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.pendingCount8144() }, null) {
