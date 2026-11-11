@@ -62,7 +62,7 @@ class Aate8252CurveTradeTest {
         assertTrue(fn.contains("lastPumpPortalTradeMs7773[mint]"))
         assertTrue(fn.contains("lastHeliusTradeMs8252[mint]"))
         assertTrue(fn.contains("TradeTape8100.note8100(mint, priceSol, sol, isBuy, now, com.lifecyclebot.engine.truth.TradeTape8100.SRC_CURVE_8169)"))
-        assertTrue(fn.contains("onTapeTrade7773(mint, \"\", sol, isBuy, 0.0)"))
+        assertFalse(fn.contains("onTapeTrade7773(mint, \"\", sol, isBuy, 0.0)"))
         assertTrue(orch.substringAfter("fun onHeliusTrade7773(").substringBefore("}").contains("lastHeliusTradeMs8252[mint] = System.currentTimeMillis()"))
         assertTrue(src("engine/BotService.kt").contains("CurveTicks7968.onTrade8252 { mint, priceSol, sol, isBuy ->"))
     }

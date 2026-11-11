@@ -11016,7 +11016,7 @@ class BotService : Service() {
             // Helius standard WS (the PumpPortal trade stream needs a paid key). Same path as a PumpPortal trade.
             com.lifecyclebot.network.CurveTicks7968.start7968({ try { ConfigStore.load(applicationContext).heliusApiKey } catch (_: Throwable) { cfg.heliusApiKey } }) { mint, priceSol, mcapSol ->
                 try { applyPumpTradeMark7278(mint, priceSol, mcapSol) } catch (_: Throwable) {}
-                try { orchestrator?.onTradePrint7819(mint, priceSol) } catch (_: Throwable) {}
+                try { orchestrator?.onTradePrint7819(mint, priceSol, executed = false) } catch (_: Throwable) {}
             }
             // V5.0.8252 — two curve snapshots are the trade: taped with side and size unless a keyed stream has the mint.
             com.lifecyclebot.network.CurveTicks7968.onTrade8252 { mint, priceSol, sol, isBuy ->
@@ -11038,7 +11038,7 @@ class BotService : Service() {
                 try { applyPumpTradeMark7278(mint, priceSol, 0.0, source8418, pool, liq8418) } catch (_: Throwable) {}
                 // V5.0.8418 — the held pool's SOL side is its liquidity, written the moment the vault changes
                 if (liq8418 > 0.0) try { com.lifecyclebot.engine.truth.LiquidityTruth8037.onPoolVaultObserved8418(mint, liq8418) } catch (_: Throwable) {}
-                try { orchestrator?.onTradePrint7819(mint, priceSol) } catch (_: Throwable) {}
+                try { orchestrator?.onTradePrint7819(mint, priceSol, executed = false) } catch (_: Throwable) {}
             }
             // Every decoded provider shares the executed tape's deduplication,
             // event-time freshness and venue. Backfill cannot refresh a held mark.

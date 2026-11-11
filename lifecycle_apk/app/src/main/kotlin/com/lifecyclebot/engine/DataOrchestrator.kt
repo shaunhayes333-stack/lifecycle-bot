@@ -855,13 +855,7 @@ class DataOrchestrator(
         onTapeTrade7773(mint, wallet, solAmount, isBuy, 0.0)
     }
 
-    /**
-     * V5.0.8252 — a trade stated by two consecutive bonding-curve snapshots (CurveTicks7968.tradeBetween8252). It is
-     * the same executed trade a keyed stream would deliver, so when PumpPortal or the Helius log stream delivered this
-     * mint inside the priority window the curve print stays price-only (nothing counted twice). Otherwise it is taped
-     * with its side and size and walks the one tape path (launch tape, chart reader, whales, candle, buy pressure).
-     * No wallet (the account does not name the trader): never a dev-sell or whale attribution.
-     */
+    /** Curve reserve deltas preserve the observed price; they cannot identify an executed transaction or its buyers. */
     fun onCurveTrade8252(mint: String, priceSol: Double, sol: Double, isBuy: Boolean): Boolean {
         if (mint.isBlank() || !sol.isFinite() || sol <= 0.0 || !priceSol.isFinite() || priceSol <= 0.0) return false
         val now = System.currentTimeMillis()
@@ -873,7 +867,8 @@ class DataOrchestrator(
         }
         try { com.lifecyclebot.engine.truth.TradeTape8100.note8100(mint, priceSol, sol, isBuy, now, com.lifecyclebot.engine.truth.TradeTape8100.SRC_CURVE_8169) } catch (_: Throwable) {}
         try { PipelineHealthCollector.labelInc("TAPE_TRADE_FROM_CURVE_8252") } catch (_: Throwable) {}
-        onTapeTrade7773(mint, "", sol, isBuy, 0.0)
+        // Reserve deltas are observations, not identified executed swaps.
+        // The executed tape alone supplies transaction counts and demand.
         return true
     }
 
@@ -886,7 +881,7 @@ class DataOrchestrator(
      * TradePlan7739 reads. USD at the cached SOL/USD, the mark the rest of the
      * book uses (Field Manual L186: one basis for every source).
      */
-    fun onTradePrint7819(mint: String, priceSolPerToken: Double) {
+    fun onTradePrint7819(mint: String, priceSolPerToken: Double, executed: Boolean = true) {
         if (!priceSolPerToken.isFinite() || priceSolPerToken <= 0.0) return
         // V5.0.7921 — the launch tape keeps each launch's price path since birth.
         try { com.lifecyclebot.engine.market.LaunchTape7921.onPrice(mint, priceSolPerToken) } catch (_: Throwable) {}
@@ -897,9 +892,9 @@ class DataOrchestrator(
         try { com.lifecyclebot.engine.truth.MarkBars7948.note7948(mint, priceSolPerToken * solUsd, System.currentTimeMillis()) } catch (_: Throwable) {}
         val ts = status.tokens[mint] ?: return
         try {
-            com.lifecyclebot.engine.truth.LocalCandleSynthesis7055.noteTrade7819(
+            if (executed) com.lifecyclebot.engine.truth.LocalCandleSynthesis7055.noteTrade7819(
                 ts, priceSolPerToken * solUsd, ts.lastMcap, System.currentTimeMillis(),
-            )
+            ) else com.lifecyclebot.engine.truth.LocalCandleSynthesis7055.note(ts, priceSolPerToken * solUsd, ts.lastMcap)
         } catch (_: Throwable) {}
     }
 

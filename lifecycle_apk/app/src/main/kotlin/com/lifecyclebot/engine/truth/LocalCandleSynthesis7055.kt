@@ -97,8 +97,8 @@ object LocalCandleSynthesis7055 {
      * Deliberately a no-op when a real feed has already supplied bars for this
      * mint beyond what we have synthesised — never degrade a fetched series.
      */
-    fun note(ts: TokenState, priceUsd: Double, mcapUsd: Double) =
-        bin7819(ts, priceUsd, mcapUsd, System.currentTimeMillis(), trade = false)
+    fun note(ts: TokenState, priceUsd: Double, mcapUsd: Double, observedAtMs: Long = System.currentTimeMillis()) =
+        bin7819(ts, priceUsd, mcapUsd, observedAtMs, trade = false)
 
     /**
      * V5.0.7819 — bin one executed trade print (a real swap at its real time).

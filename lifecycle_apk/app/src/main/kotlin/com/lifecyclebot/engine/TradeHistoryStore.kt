@@ -972,6 +972,11 @@ object TradeHistoryStore {
      * the finalized bus reaches it after its learning consumers. 8529 live: 5tdWkb RAPID_CATASTROPHE_STOP at -13 %
      * (02:02:31), bought again by MOONSHOT 26 s later (02:02:57). The bus call stays; the same close is counted once.
      */
+    /** A signature or a display-normalized reason is not settlement proof. */
+    internal fun terminalLiveCloseForRebuy(t: Trade): Boolean =
+        t.mode.equals("live", true) && t.side.equals("SELL", true) && t.mint.isNotBlank() &&
+            com.lifecyclebot.engine.truth.LiveTerminalSemanticsAuthority7236.isTerminalOutcome(t.mode, t.proofState)
+
     private fun lockOnLiveSell8531(t: Trade) {
         if (!t.mode.equals("live", true) || !t.side.equals("SELL", true) || t.mint.isBlank()) return
         if (!com.lifecyclebot.engine.truth.LiveTerminalSemanticsAuthority7236.isTerminalOutcome(t.mode, t.proofState)) return
@@ -1130,7 +1135,7 @@ object TradeHistoryStore {
             } catch (_: Throwable) {}
             return
         }
-        lockOnLiveSell8531(tradeToStore)
+        if (terminalLiveCloseForRebuy(trade)) lockOnLiveSell8531(tradeToStore)
         try { LearningRejectLabelSentinel.inspect(tradeToStore, "TradeHistoryStore.recordTrade.prePersistence") } catch (_: Throwable) {}
 
         // V5.0.7669 - Project Sniper's partial ladder previously never advanced:

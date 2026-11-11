@@ -14,7 +14,7 @@ class Aate8675EvidencePathTest {
     private val now = 1_800_000_000_000L
     @Before fun reset() {
         BuyerFlow8666.clearForTest(); TradeTape8100.resetForTest8100()
-        CandleCoverage8284.resetForTest8284(); HeliusSwapCandles7819.resetForTest()
+        CandleCoverage8284.resetForTest8284(); HeliusSwapCandles7819.resetForTest(); LocalCandleSynthesis7055.resetForTest()
         EdgeModel8537.resetForTest8537()
     }
     @After fun cleanup() = reset()
@@ -88,6 +88,18 @@ class Aate8675EvidencePathTest {
         assertTrue(MultiTimeframeCharts8521.snapshot8521(ts, MultiTimeframeCharts8521.Frame8521.M1, now + 180_000).isEmpty())
     }
 
+    @Test fun accountSnapshotsMixedWithTradesDoNotBecomeExecutedOhlcv() {
+        val ts = TokenState(mint = "mixedPrices")
+        val at = now + 10_000L
+        val minute = at / 60_000L * 60_000L
+        LocalCandleSynthesis7055.note(ts, 1.0, 0.0, at)
+        LocalCandleSynthesis7055.noteTrade7819(ts, 1.1, 0.0, at)
+        LocalCandleSynthesis7055.noteTrade7819(ts, 1.2, 0.0, minute + 60_001)
+        val candle = ts.history.first()
+        assertEquals(CandleCoverage8284.Quality8284.MARK_ONLY, CandleCoverage8284.qualityOf8284(candle))
+        assertTrue(MultiTimeframeCharts8521.snapshot8521(ts, MultiTimeframeCharts8521.Frame8521.M1, minute + 60_002).isEmpty())
+    }
+
     @Test fun futurePrintDoesNotEnterHistoricalCandles() {
         val bars = HeliusSwapCandles7819.binPrints7819(listOf(
             HeliusSwapCandles7819.SwapPrint7819(now - 1000, 0.01, 1.0, true),
@@ -125,6 +137,17 @@ class Aate8675EvidencePathTest {
         assertEquals(10, ws.capForLoad8666(8, 1_000_000, 0.64, true))
         assertEquals(8, ws.capForLoad8666(8, 1_000_000, 0.64, false))
         assertEquals(8, ws.capForLoad8666(16, 1_000_000, 0.72, true))
+    }
+
+    @Test fun aSignedBroadcastCannotTeachALossLockBeforeSettlement() {
+        val sell = com.lifecyclebot.data.Trade("SELL", "live", 0.01, 1.0, now,
+            mint = "mint", sig = "broadcast-signature", pnlSol = -0.005, entryCostSol = 0.01)
+        assertFalse(TradeHistoryStore.terminalLiveCloseForRebuy(sell))
+        assertFalse(TradeHistoryStore.terminalLiveCloseForRebuy(sell.copy(proofState = "LIVE_BROADCAST")))
+        val settled = sell.copy(proofState = "LIVE_FINALIZED")
+        assertTrue(TradeHistoryStore.terminalLiveCloseForRebuy(settled))
+        assertFalse(TradeHistoryStore.terminalLiveCloseForRebuy(settled.copy(side = "PARTIAL_SELL")))
+        assertFalse(TradeHistoryStore.terminalLiveCloseForRebuy(settled.copy(mode = "paper")))
     }
 
     @Test fun consensusCannotReDecideAnAdmittedMemeButCannotPromoteARefusal() {
