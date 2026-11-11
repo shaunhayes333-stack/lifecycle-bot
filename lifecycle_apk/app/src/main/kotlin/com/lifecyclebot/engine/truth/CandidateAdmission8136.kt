@@ -1684,7 +1684,11 @@ object CandidateAdmission8136 {
             StrategyMove8153.liquidityRead8153(ts.lastLiquidityUsd) == "UNKNOWN" &&
             observedLiq8170 == null
         val safety = if (ts.safety.tier == com.lifecyclebot.engine.SafetyTier.HARD_BLOCK)
-            "HARD_BLOCK:${ts.safety.hardBlockReasons.firstOrNull().orEmpty().take(40)}" else null
+            "HARD_BLOCK:${ts.safety.hardBlockReasons.firstOrNull().orEmpty().take(40)}"
+            // V5.0.8684 — LIVE: the buy door's confirmed top-holder block refuses here, before FDG / ticket / lease are spent.
+            else if (try { !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false })
+                (try { com.lifecyclebot.engine.PreTradeHardGate.holderBlock8684(ts, nowMs) } catch (_: Throwable) { null })
+            else null
         val canonicalPrice = CanonicalPriceMarkRegistry6522.getFresh6734(
             ts.mint, CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE, nowMs)
         val localAt = ts.lastPriceUpdate.takeIf { ts.lastPrice.isFinite() && ts.lastPrice > 0.0 && it in 1L..nowMs } ?: 0L

@@ -69,9 +69,12 @@ object AccountingIntegrity7948 {
         val qtyUi = try { p.originalQtyRaw.toBigDecimal().movePointLeft(scale).toDouble() } catch (_: Throwable) { 0.0 }
         if (!(qtyUi.isFinite() && qtyUi > 0.0)) return null
         val ts = p.openedAtMs.takeIf { it > 0L } ?: p.lastMutationMs
+        // V5.0.8684 — the decision's own entry score (the immutable entry snapshot) travels with the backfilled row; 8680's muni
+        // was journaled with score 0 and read as a buy with no decision behind it.
+        val score8684 = try { EntryStrategySnapshot6450.snapshot(p.positionId)?.entryScore?.toDouble() } catch (_: Throwable) { null } ?: 0.0
         return Trade(
             side = "BUY", mode = "live", sol = p.entryCostSol, price = p.entryPriceUsd, ts = ts,
-            reason = "LIVE_BUY_JOURNAL_BACKFILL_7948", sig = sig,
+            reason = "LIVE_BUY_JOURNAL_BACKFILL_7948", sig = sig, score = score8684,
             tradingMode = p.lane.ifBlank { "STANDARD" }, mint = p.mint,
             proofState = if (sig.isNotBlank()) "LIVE_SIG_CONFIRMED" else "LIVE_BALANCE_CONFIRMED",
             positionId = p.positionId, entryTsMs = ts,

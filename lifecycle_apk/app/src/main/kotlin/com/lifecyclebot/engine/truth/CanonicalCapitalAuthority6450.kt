@@ -480,7 +480,10 @@ object CanonicalCapitalAuthority6450 {
         invariantChecks.incrementAndGet()
         val s = snapshot()
         lastDeltaMicros.set((s.conservationDeltaSol * 1_000_000.0).toLong())
-        if (kotlin.math.abs(s.conservationDeltaSol) > toleranceSol) {
+        // V5.0.8684 — the same book-scaled tolerance as CanonicalIntegrityGuards6449 (8680: 101 of 101 "violations" were
+        // 0.000275 SOL of float drift on a ~189 SOL paper book).
+        val tol8684 = CanonicalIntegrityGuards6449.toleranceFor8684(toleranceSol, s.totalEquitySol, s.startingCashSol)
+        if (kotlin.math.abs(s.conservationDeltaSol) > tol8684) {
             invariantViolations.incrementAndGet()
             try {
                 ForensicLogger.lifecycle(

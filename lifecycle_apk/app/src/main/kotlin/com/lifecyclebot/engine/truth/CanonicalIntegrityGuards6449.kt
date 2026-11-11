@@ -126,6 +126,12 @@ object CanonicalIntegrityGuards6449 {
      * CAPITAL_CONSERVATION_VIOLATION_6449 with the first-offending mint
      * attribution on breach.
      */
+    /** Pure (V5.0.8684): the absolute floor, or 10 ppm of the larger side of the book, whichever is larger. */
+    fun toleranceFor8684(floorSol: Double, expectedSol: Double, actualSol: Double): Double {
+        val scale = maxOf(kotlin.math.abs(expectedSol), kotlin.math.abs(actualSol)).takeIf { it.isFinite() } ?: 0.0
+        return maxOf(floorSol, scale * 1e-5)
+    }
+
     fun auditConservation(toleranceSol: Double = 1e-4): Double {
         conservationChecks.incrementAndGet()
         val startingCash = PaperCapitalAuthority6577.startingCashSol()
@@ -137,7 +143,10 @@ object CanonicalIntegrityGuards6449 {
         // V5.0.7294 — paper treasury transfers leave cash but stay in the account.
         val actual = cash + openCost + PaperCapitalAuthority6577.treasurySol7294()
         val delta = actual - expected
-        if (kotlin.math.abs(delta) > toleranceSol) {
+        // V5.0.8684 — the tolerance scales with the book: 8680 flagged 101 of 101 checks on a 175 SOL paper book whose float
+        // drift was 0.000275 SOL (1.6 ppm), so the counter carried no signal. Real leaks (a missed fee, a lost fill) are
+        // orders of magnitude larger than [toleranceFor8684].
+        if (kotlin.math.abs(delta) > toleranceFor8684(toleranceSol, expected, actual)) {
             conservationViolations.incrementAndGet()
             val open = try { CanonicalPositionAuthority6441.openPositions() } catch (_: Throwable) { emptyList() }
             // First offending mint = the open position whose entryCost is

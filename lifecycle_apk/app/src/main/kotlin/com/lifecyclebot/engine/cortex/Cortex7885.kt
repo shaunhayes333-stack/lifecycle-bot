@@ -228,7 +228,18 @@ object Cortex7885 {
      * still restored, read and fed by closes; only the voter graph stops. Every reader of an assessment already treats null
      * as "no Cortex read" (no overrule, no paper choice, conviction x1).
      */
-    private val VOTER_GRAPH_RETIRED_8623: Boolean = voterGraphRetired8623(System.getProperty("aate.cortexVoterGraph8623"))
+    private val VOTER_GRAPH_RETIRED_8623: Boolean = voterGraphRetired8623(graphMode8684(System.getProperty("aate.cortexVoterGraph8623")))
+
+    /**
+     * V5.0.8684 — owner: "I'd like the Cortex returned to use ... make what's there work correctly". The production default is
+     * the BOUNDED sampled graph (8644/8649: one fresh worker read per [GRAPH_SAMPLE_GAP_MS_8644] across all lanes, one prewarm per
+     * [PREWARM_SAMPLE_GAP_MS_8649], never inline on a decision, persisted pending capped at 128 rows), not the retired graph.
+     * The 8623 OOM was the unbounded graph: 9,086 reads in 143 min and a 26.7 M-char pending blob. Its authority is unchanged:
+     * a read binds nothing until the lane's scoreboard proof earns it (overrule / size / refuse), so a cold Cortex only learns.
+     * An explicit property still selects "off" (retired) or "on" (unbounded, tests).
+     */
+    internal const val GRAPH_MODE_DEFAULT_8684 = "sampled"
+    fun graphMode8684(prop: String?): String = prop?.trim()?.takeIf { it.isNotEmpty() } ?: GRAPH_MODE_DEFAULT_8684
 
     /** Owner authority: the inverted voter graph stays OFF on live APKs until proven.
      * Tests opt into `on`; an explicit `sampled` diagnostic can run a bounded shadow graph.
@@ -238,7 +249,11 @@ object Cortex7885 {
     /** No implicit 400-voter reads on a memory-constrained production device. */
     fun voterGraphBounded8644(prop: String?): Boolean = prop == "sampled"
 
-    private val BOUNDED_VOTER_GRAPH_8644 = voterGraphBounded8644(System.getProperty("aate.cortexVoterGraph8623"))
+    private val BOUNDED_VOTER_GRAPH_8644 = voterGraphBounded8644(graphMode8684(System.getProperty("aate.cortexVoterGraph8623")))
+
+    /** V5.0.8684 — the in-memory pending decisions the sampled graph may hold (~10 decisions a minute over 5 h horizons is far less). */
+    private const val PENDING_CAP_SAMPLED_8684 = 1_500
+    private fun pendingCap8684(): Int = if (BOUNDED_VOTER_GRAPH_8644) PENDING_CAP_SAMPLED_8684 else MAX_PENDING
     // V5.0.8649 — 8648 sampled only 120 graphs per hour across every lane and graded none.
     // The measured graph read was p50=28ms, p90=265ms. A still-bounded 6s global
     // budget plus an independent 20s ceiling for speculative prewarm restores
@@ -263,6 +278,19 @@ object Cortex7885 {
         }
         inc("CORTEX_SAMPLE_CONTENTION_8644")
         return false
+    }
+
+    // V5.0.8684 — an ADMITTED decision (the ones that become trades) gets a graph read from its own small quota when the global
+    // one is spent: 8680 bound 0 of 16 live closes to a Cortex decision record (binding8187 unmatched=16), so the Cortex could
+    // never learn from a real fill. FDG allowed ~2.4 decisions a minute; one admitted read per [ADMITTED_SAMPLE_GAP_MS_8684].
+    private const val ADMITTED_SAMPLE_GAP_MS_8684 = 2_000L
+    private val lastAdmittedSampleAt8684 = AtomicLong(0L)
+
+    private fun reserveAdmitted8684(nowMs: Long): Boolean {
+        if (!BOUNDED_VOTER_GRAPH_8644) return true
+        val before = lastAdmittedSampleAt8684.get()
+        if (before != 0L && nowMs >= before && nowMs - before < ADMITTED_SAMPLE_GAP_MS_8684) { inc("CORTEX_ADMITTED_QUOTA_8684"); return false }
+        return lastAdmittedSampleAt8684.compareAndSet(before, nowMs).also { if (it) inc("CORTEX_ADMITTED_SAMPLE_GRANTED_8684") }
     }
 
     /** Prewarm does not consume every graph slot ahead of real native decision captures. */
@@ -1203,7 +1231,8 @@ object Cortex7885 {
         val key8644 = "${ts.mint}|${canon(labelLane)}"
         val hot8644 = if (BOUNDED_VOTER_GRAPH_8644)
             assessCache[key8644]?.takeIf { nowMs - it.atMs in 0L..ASSESS_TTL_MS } else null
-        val coldSampleReserved8649 = BOUNDED_VOTER_GRAPH_8644 && hot8644 == null && reserveSample8644(nowMs)
+        val coldSampleReserved8649 = BOUNDED_VOTER_GRAPH_8644 && hot8644 == null &&
+            (reserveSample8644(nowMs) || (admitted && reserveAdmitted8684(nowMs)))   // V5.0.8684 — admitted decisions keep their own slot
         val unsampled8644 = BOUNDED_VOTER_GRAPH_8644 &&
             (if (hot8644 == null) !coldSampleReserved8649
              else !claimCapture8644(key8644, hot8644.atMs, nowMs))
@@ -1293,8 +1322,8 @@ object Cortex7885 {
         // Decision-time immutable assessment. An asynchronous fresh read is NEVER evidence from an earlier decision.
         val late8169 = lateVoterRead8169(labelLane, nowMs, a.atMs)
         pruneDeadPending8144(nowMs)
-        if (pending.size >= MAX_PENDING) pending.entries.removeIf { nowMs - it.value.atMs > PENDING_TTL_MS }
-        if (pending.size >= MAX_PENDING) { inc("PENDING_FULL"); return }
+        if (pending.size >= pendingCap8684()) pending.entries.removeIf { nowMs - it.value.atMs > PENDING_TTL_MS }
+        if (pending.size >= pendingCap8684()) { inc("PENDING_FULL"); return }
         val veto = if (admitted || reason.isNullOrBlank()) null else vetoRuleOf(reason)
         val setup7961 = snap8084?.takeIf { it.lane == a.lane }?.consumerTag8087.orEmpty()
         // V5.0.8088 — a decision whose coin could not be classified (DATA_INCOMPLETE / MATCHES_UNRANKABLE /

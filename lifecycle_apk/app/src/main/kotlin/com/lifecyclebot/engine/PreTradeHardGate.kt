@@ -93,6 +93,14 @@ object PreTradeHardGate {
         return HolderProof8522(topHolderPct8522(statePct, report.topHolderPct), fresh)
     }
 
+    /**
+     * V5.0.8684 — the buy door's confirmed top-holder hard block, readable BEFORE a ticket is spent (CandidateAdmission8136).
+     * 8680: PRETRADE_HARD_BLOCK_TOP_HOLDER_CONCENTRATION=24 — candidates admitted, FDG-allowed and ticketed, then refused here,
+     * each one a dropped ticket and a lease backoff (BUY_LEASE_BACKOFF_ENDS_TICKET_8545). Same proof, same threshold.
+     */
+    fun holderBlock8684(ts: TokenState, nowMs: Long = System.currentTimeMillis()): String? =
+        if (holderProof8522(ts.topHolderPct, ts.safety, nowMs).adversePct >= TOP_HOLDER_FATAL_PCT) "TOP_HOLDER_CONCENTRATION" else null
+
     private fun allowWithPendingProof(ts: TokenState, pending: List<String>, callSite: String): Verdict {
         val essentialPending = criticalProofPending8373(pending)
         if (essentialPending.isNotEmpty()) {

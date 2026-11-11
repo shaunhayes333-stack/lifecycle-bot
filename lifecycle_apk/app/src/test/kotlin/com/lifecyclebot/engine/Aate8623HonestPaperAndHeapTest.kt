@@ -44,7 +44,13 @@ class Aate8623HonestPaperAndHeapTest {
 
     @Test fun theVoterGraphStaysOffInProductionAndDoesNotReloadTheOomCheckpoint() {
         // The inverted voter graph has no live authority and repeatedly exhausted the phone.
-        // Production stays off; only explicit test/diagnostic properties can revive it.
+        // superseded by V5.0.8684 (owner: "the Cortex returned to use"): production runs the BOUNDED sampled graph by default;
+        // the unbounded graph stays test-only and "off" still retires it.
+        assertEquals("sampled", Cortex7885.graphMode8684(null))
+        assertEquals("off", Cortex7885.graphMode8684("off"))
+        assertFalse(Cortex7885.voterGraphRetired8623(Cortex7885.graphMode8684(null)))
+        assertTrue(Cortex7885.voterGraphBounded8644(Cortex7885.graphMode8684(null)))
+        assertTrue(Cortex7885.voterGraphRetired8623(Cortex7885.graphMode8684("off")))
         assertTrue(Cortex7885.voterGraphRetired8623(null))
         assertTrue(Cortex7885.voterGraphRetired8623("off"))
         assertFalse(Cortex7885.voterGraphRetired8623("on"))
