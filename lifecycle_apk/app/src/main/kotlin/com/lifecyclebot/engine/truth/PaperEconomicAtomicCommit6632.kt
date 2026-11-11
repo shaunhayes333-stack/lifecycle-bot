@@ -103,6 +103,17 @@ object PaperEconomicAtomicCommit6632 {
      * flight. Unlike acceptance grace, age never makes a half-write safe. */
     fun hasUnpaired8674(): Boolean = entries.values.any { !it.bothStamped() }
 
+    /**
+     * V5.0.8685 — a ledger leg younger than [graceMs] whose durable journal leg has not landed yet. The ledger commits a
+     * keyed paper fill a moment before its journal row; an accounting pass that reads inside that gap sees the ledger one
+     * fill ahead of an unchanged journal revision. 8684 smoke: one stopped sell (basis 0.2147, proceeds ~0.096) applied to
+     * the ledger and not yet journalled published cash/realized/openCost/quantity deltas that described no settled state.
+     * Older half-writes are not in flight; they stay real failures.
+     */
+    fun ledgerAheadOfJournal8685(nowMs: Long, graceMs: Long): Boolean = entries.values.any {
+        it.committedAtMs == 0L && it.ledgerAtMs > 0L && it.journalAtMs == 0L && nowMs - it.ledgerAtMs in 0L until graceMs
+    }
+
     /** Default half-write TTL — matches `PAPER_CLOSE_NO_JOURNAL_ROW_6623`. */
     const val DEFAULT_UNPAIRED_TTL_MS: Long = 60_000L
 

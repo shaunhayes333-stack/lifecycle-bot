@@ -181,6 +181,12 @@ object ForensicReconciliation6635 {
         // V5.0.7294 — the journal has no treasury transfers, so its cash is
         // trading cash + paper treasury; compare like with like.
         val ledger8685 = try { PaperAccountLedger6430.snapshotAtomic6643() } catch (_: Throwable) { null }
+        // V5.0.8685 — a keyed fill already on the ledger whose journal row is still being written: this pass compares two
+        // different instants, so it may record its figures but must not publish them as the account's settled state.
+        val ledgerAhead8685 = try {
+            PaperEconomicAtomicCommit6632.ledgerAheadOfJournal8685(System.currentTimeMillis(), ExecutionSpineAcceptance6647.IN_FLIGHT_WAIT_GRACE_MS_8339)
+        } catch (_: Throwable) { false }
+        if (ledgerAhead8685) try { PipelineHealthCollector.labelInc("FORENSIC_RECONCILE_LEDGER_AHEAD_OF_JOURNAL_8685") } catch (_: Throwable) {}
         val cashLedger = ledger8685?.let { ledgerCashWithTreasury8685(it) } ?: Double.NaN
         val replayFirst8358 = precomputedReplay6699 ?: try { JournalEconomicReplay6619.replay() } catch (_: Throwable) { null }
         // V5.0.8358 — a replay from another journal revision is not evidence for this key (see ReconLag8358).
@@ -205,7 +211,7 @@ object ForensicReconciliation6635 {
         // status normally. Deltas from the deferred sample are still
         // recorded diagnostically but do NOT drive the failure flag.
         val replayDeferredOnMainThread6750 = replay6647?.invariantFailures?.contains("MAIN_THREAD_REPLAY_DEFERRED") == true
-        val coherent8372 = !replayDeferredOnMainThread6750 && key7387 != null && replay6647 != null &&
+        val coherent8372 = !replayDeferredOnMainThread6750 && !ledgerAhead8685 && key7387 != null && replay6647 != null &&
             replay6647.journalRevision8358 >= 0L && replay6647.journalRevision8358 == key7387.substringBefore('|').toLongOrNull()
         // V5.0.6750 §BOOT_TRIVIAL_RECONCILED — a fresh account has no history to walk. Still build this pass's
         // figures below: a reset/repair must not republish a previous pass's deltas under a new empty-journal key.
@@ -471,6 +477,8 @@ object ForensicReconciliation6635 {
             try { PipelineHealthCollector.labelInc("FORENSIC_RECONCILE_MAIN_THREAD_DEFERRED_PRESERVED_6750") } catch (_: Throwable) {}
             return false
         }
+        // V5.0.8685 — same for a sample taken while a fill's journal row is in flight: it is not evidence of a split.
+        if (ledgerAhead8685) return false
         if (!allZero && canonicalClean8591) {
             try { PipelineHealthCollector.labelInc("FORENSIC_RECONCILE_SUPERSEDED_BY_CANONICAL_8591") } catch (_: Throwable) {}
         }

@@ -61,5 +61,22 @@ class Aate8685ReconcileTearTest {
         assertFalse(capital.contains("val cash = PaperCapitalAuthority6577.cashSol()"))
     }
 
+    @Test fun aFillOnTheLedgerWithItsJournalRowInFlightIsNotASettledState() {
+        val key = "8685:SELL:pos|SELL|0"
+        assertTrue(Ledger.onSellAtomic6632(0.096, 0.25, 0.0016, "MINT8685", key, enforceSolanaMintQuarantine = false))
+        val now = System.currentTimeMillis()
+        assertTrue("ledger leg landed, journal leg not yet", Receipts.ledgerAheadOfJournal8685(now, 30_000L))
+        assertFalse("an old half-write is not in flight; it stays a real failure", Receipts.ledgerAheadOfJournal8685(now + 31_000L, 30_000L))
+        Receipts.stampJournal(key, "MINT8685", Receipts.Side.SELL, "durable_test")
+        assertFalse("paired: the pass may publish", Receipts.ledgerAheadOfJournal8685(now, 30_000L))
+    }
+
+    @Test fun reconcilerWillNotPublishAPassTakenMidCommit() {
+        val recon = src("engine/truth/ForensicReconciliation6635.kt")
+        assertTrue(recon.contains("PaperEconomicAtomicCommit6632.ledgerAheadOfJournal8685("))
+        assertTrue(recon.contains("val coherent8372 = !replayDeferredOnMainThread6750 && !ledgerAhead8685 &&"))
+        assertTrue(recon.contains("if (ledgerAhead8685) return false"))
+    }
+
     private fun src(p: String) = File("src/main/kotlin/com/lifecyclebot/$p").readText()
 }
