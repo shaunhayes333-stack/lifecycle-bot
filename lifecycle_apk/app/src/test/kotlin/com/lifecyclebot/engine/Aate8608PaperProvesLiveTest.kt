@@ -48,18 +48,16 @@ class Aate8608PaperProvesLiveTest {
         assertFalse(LaneAuthority8577.coinStatePays8609("MOONSHOT", "PRE_IGNITION"))
         assertTrue(LaneAuthority8577.binding8577(LaneAuthority8577.COIN_STATE_8609))
         val a = src("engine/truth/LaneAuthority8577.kt")
-        assertTrue("a lane proven in paper trades what paper trades", a.contains("if (try { MemePaperTrader8544.laneProven8572(l) } catch (_: Throwable) { false }) return null"))
+        assertFalse("V5.0.8687 — a paper lane record no longer opens the live coin-state door", a.contains("laneProven8572"))
         assertTrue("only a final ADMIT is turned away; data deferrals stay", a.contains("if (!enabled8577 || !c.live || !r.admitted) return r"))
     }
 
-    // V5.0.8616 — a runner-shaped paper winner leads live: positive mean and PF >= 1.5 over 30+ closes.
-    @Test fun aPaperWinnerLeadsLive() {
-        assertTrue("03:50 paper SHITCOIN n39 +20.0 % PF2.21", MemePaperTrader8544.leads8616(39, 20.0, 2.21))
-        assertFalse("paper MOONSHOT n82 -2.1 % PF0.71", MemePaperTrader8544.leads8616(82, -2.1, 0.71))
-        assertFalse("too few closes", MemePaperTrader8544.leads8616(20, 11.5, 1.83))
-        assertFalse("positive but a weak profit factor", MemePaperTrader8544.leads8616(60, 0.5, 1.1))
-        val a = src("engine/truth/LaneAuthority8577.kt")
-        assertTrue(a.contains("if (try { MemePaperTrader8544.laneLeads8616(l) } catch (_: Throwable) { false }) return null"))
+    // V5.0.8687 — a paper winner no longer leads live (8616 is gone): paper SHITCOIN led at +29.7 % PF3.20 and live
+    // followed it into -68.6 % / -75.3 % closes; its exits are not live's.
+    @Test fun aPaperWinnerNoLongerLeadsLive() {
+        assertFalse(src("engine/truth/LaneAuthority8577.kt").contains("laneLeads8616"))
+        assertFalse(src("engine/FinalDecisionGate.kt").contains("MemePaperTrader8544.laneLeads8616"))
+        assertFalse(src("engine/truth/MemePaperTrader8544.kt").contains("fun leads8616("))
     }
 
     // V5.0.8620 — the lane-record (8608) and coin-state / pocket (8609 / 8610) verdicts are report-only: traced, never a refusal.

@@ -60,9 +60,6 @@ object LaneAuthority8577 {
     // losing pocket is left to the paper book. The hard-coded 8609 EXPANDING rule is only the fallback before the seed.
     private fun liveCoinStateRefusal8609(lane: String, launchPhase: String?, pocket: PocketLedger8610.Call?): String? {
         val l = lane.trim().uppercase()
-        if (try { MemePaperTrader8544.laneProven8572(l) } catch (_: Throwable) { false }) return null
-        // V5.0.8616 — a lane whose paper book makes money the runner way (MemePaperTrader8544.laneLeads8616) trades as paper does.
-        if (try { MemePaperTrader8544.laneLeads8616(l) } catch (_: Throwable) { false }) return null
         if (pocket != null) return if (pocket == PocketLedger8610.Call.PAYS) null else if (pocket == PocketLedger8610.Call.LOSES) POCKET_LOSES_8610 else POCKET_UNPROVEN_8610
         return if (coinStatePays8609(l, launchPhase)) null else COIN_STATE_8609
     }
@@ -99,9 +96,6 @@ object LaneAuthority8577 {
         val atHigh = pxPeak.isFinite() && pxPeak >= 0.97 && runupPct.isFinite() && runupPct >= 5.0
         return atHigh
     }
-
-    /** A proven, contemporaneously triggered breakout has its own entry clock, not a generic peak-chase clock. */
-    fun breakoutProofOwnsHigh8643(family: String?): Boolean = family == "FAMILY_PROVEN_8546:BASE_BREAKOUT_FLOW"
 
     // superseded by V5.0.8626 — 8604 deleted the runtime read that fed [memeBuysTheHigh8582] into LIVE so live would "decide
     // like the paper book". That book's profit was lost-mark closes at stale marks (8622: 198 of 241 closes, +6.3 SOL, while
@@ -149,12 +143,6 @@ object LaneAuthority8577 {
         val age8627 = try { CanonicalTokenBirthTime7440.launchAgeMs7767(ts, nowMs) } catch (_: Throwable) { null }
         if (runnerCoinStale8627(l, age8627)) return LIVE_RUNNER_STALE_COIN_8627
         if (l !in MEME_LANES_8582) return null
-        // The actual breakout setup requires a fresh price break and >=60% executed buy share.
-        // Once its independently priced paper record PROVES positive after costs, applying the
-        // broad "near peak" / generic lifecycle stage doors again would invert its buy clock.
-        // Without a current proved family signal all of the 8626 guards still bind.
-        val family8643 = try { MemeStrategies8546.liveProven8546(ts.mint, nowMs) } catch (_: Throwable) { null }
-        if (breakoutProofOwnsHigh8643(family8643)) return null
         val f = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.features(ts, nowMs) } catch (_: Throwable) { null }
         if (f != null && memeBuysTheHigh8582(l, f.pxPeak, f.runup, f.bp)) return MEME_BUYS_THE_HIGH_8582
         val st = if (stage.isNullOrBlank()) null else try { ForwardReturnLabeler7731.stageStatFor7928(l, stage) } catch (_: Throwable) { null }

@@ -514,9 +514,9 @@ object CandidateAdmission8136 {
 
         // 1. hard safety and structural selling risk: nothing overrides them.
         c.safetyRefusal?.let { trace += "safety=$it"; return done(Terminal8136.REFUSE, "SAFETY_REFUSED_8136", true, c.selectedSetup) }
-        // V5.0.8546 — the regime master switch: in a COLD meme market (MemeRegime8546) LIVE opens nothing new unless a
-        // strategy family proven in the paper book carries the coin. A door: its refused record can unbind it.
-        if (c.live && c.regimeCold8546 && c.liveEdge8114?.startsWith(FAMILY_PROVEN_PREFIX_8546) != true && doorBinds8393(LIVE_REGIME_COLD_8546)) {
+        // V5.0.8546 — the regime master switch: in a COLD meme market (MemeRegime8546) LIVE opens nothing new. A door: its
+        // refused record can unbind it. (V5.0.8687 — a paper-book family proof no longer carries a coin past it.)
+        if (c.live && c.regimeCold8546 && doorBinds8393(LIVE_REGIME_COLD_8546)) {
             trace += "regimeCold8546"
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("${LIVE_REGIME_COLD_8546}_${c.lane.uppercase()}") } catch (_: Throwable) {}
             return done(Terminal8136.REFUSE, LIVE_REGIME_COLD_8546, false, c.selectedSetup)
@@ -878,7 +878,6 @@ object CandidateAdmission8136 {
         // markup or at its peak. A door: learnt and unlearnt through the refused record (doorBinds8393); paper and
         // the paper book keep entering these coins and grading them.
         if (c.live && liveIntoHigh8545(c.stage) && !supported8136(c.stageLoss8169 ?: c.stageRecord, c.costPct) &&
-            c.liveEdge8114?.startsWith(FAMILY_PROVEN_PREFIX_8546) != true &&   // V5.0.8546 — a proven family's own event
             doorBinds8393(LIVE_INTO_HIGH_UNPROVEN_8545)) {
             trace += "liveIntoHigh8545 stage=${c.stage} record=${(c.stageLoss8169 ?: c.stageRecord)?.compact ?: "-"}"
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("${LIVE_INTO_HIGH_UNPROVEN_8545}_${c.lane.uppercase()}_${c.stage}") } catch (_: Throwable) {}
@@ -886,10 +885,9 @@ object CandidateAdmission8136 {
         }
         // V5.0.8559 — the launch stage, same rule: 8557 stage records (5-min executable net) LAUNCH SHITCOIN -28.3 % / MOONSHOT
         // -30.6 % / EXPRESS -27.5 % / PROJECT_SNIPER -29.6 % / MANIPULATED -25.4 % / DIP_HUNTER -34.6 %, run <= 5 %; BASE is the
-        // only positive stage. LIVE money buys a fresh launch only on that stage's own SUPPORTED record or a proven family;
+        // only positive stage. LIVE money buys a fresh launch only on that stage's own SUPPORTED record;
         // a learnt door (doorBinds8393); paper and the paper book keep entering launches and grading them.
         if (c.live && liveIntoLaunch8559(c.stage) && !supported8136(c.stageLoss8169 ?: c.stageRecord, c.costPct) &&
-            c.liveEdge8114?.startsWith(FAMILY_PROVEN_PREFIX_8546) != true &&
             doorBinds8393(LIVE_LAUNCH_UNPROVEN_8559)) {
             trace += "liveLaunch8559 stage=${c.stage} record=${(c.stageLoss8169 ?: c.stageRecord)?.compact ?: "-"}"
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("${LIVE_LAUNCH_UNPROVEN_8559}_${c.lane.uppercase()}") } catch (_: Throwable) {}
@@ -955,7 +953,6 @@ object CandidateAdmission8136 {
 
     /** Pure (V5.0.8559): the coin is in its launch stage (the brief's LAUNCH column). */
     fun liveIntoLaunch8559(stage: String?): Boolean = stage?.trim()?.uppercase() == "FRESH_LAUNCH"
-    const val FAMILY_PROVEN_PREFIX_8546 = "FAMILY_PROVEN_8546"
 
     /**
      * Pure (V5.0.8545): a lifecycle stage where a buy goes into the coin's high (markup, peak). A dump is not here: a fired

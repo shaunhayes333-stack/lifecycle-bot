@@ -61,10 +61,9 @@ class Aate8582BuyThePullbackTest {
         assertFalse(LaneAuthority8577.stageLoses8626("", 0, Double.NaN, Double.NaN))
     }
 
-    @Test fun aProvenBreakoutFamilyDoesNotHaveItsFreshEntryClockReVetoedAsChase() {
-        assertTrue(LaneAuthority8577.breakoutProofOwnsHigh8643("FAMILY_PROVEN_8546:BASE_BREAKOUT_FLOW"))
-        assertFalse(LaneAuthority8577.breakoutProofOwnsHigh8643("FAMILY_PROVEN_8546:PULLBACK_RECLAIM"))
-        assertFalse(LaneAuthority8577.breakoutProofOwnsHigh8643("FAMILY_UNPROVEN_8546:BASE_BREAKOUT_FLOW"))
-        assertFalse(LaneAuthority8577.breakoutProofOwnsHigh8643(null))
+    @Test fun aPaperFamilyNoLongerExemptsALiveEntryFromTheHighDoor() {
+        assertFalse("V5.0.8687", src8687("engine/truth/LaneAuthority8577.kt").contains("breakoutProofOwnsHigh8643"))
     }
+
+    private fun src8687(p: String) = java.io.File("src/main/kotlin/com/lifecyclebot/$p").readText()
 }

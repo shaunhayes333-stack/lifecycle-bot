@@ -23,13 +23,10 @@ class Aate8623HonestPaperAndHeapTest {
         val note = paper.substringAfter("private fun noteLane8544(").substringBefore("private fun addStat8572(")
         assertTrue(note.indexOf("if (c.why == LOST_MARK_8623)") < note.indexOf("addStat8572(c.lane, c)"))
         assertEquals("P8623|", MemePaperTrader8544.PRICED_PREFIX_8623)
-        // promotion reads only the priced record; the bench may still read the older record while the priced one is thin
-        val proven = paper.substringAfter("fun laneProven8572(").substringBefore("fun laneProvenLosing8608(")
-        assertTrue(proven.contains("pricedProof8623(lane) ?: return false"))
-        assertFalse(proven.contains("PROOF_PREFIX_8572"))
-        val leads = paper.substringAfter("fun laneLeads8616(").substringBefore("/** Pure (V5.0.8616)")
-        assertTrue(leads.contains("pricedProof8623(lane) ?: return false"))
-        val bench = paper.substringAfter("fun laneProvenLosing8608(").substringBefore("fun laneLeads8616(")
+        // the lane record reads only the priced closes (V5.0.8687: promotion to LIVE is gone; the record is reported)
+        assertFalse(paper.contains("fun laneProven8572("))
+        assertFalse(paper.contains("fun laneLeads8616("))
+        val bench = paper.substringAfter("fun laneProvenLosing8608(").substringBefore("/** Pure (V5.0.8608)")
         assertTrue(bench.contains("pricedProof8623(lane) ?: return false"))
         assertFalse(bench.contains("PROOF_PREFIX_8572"))
     }

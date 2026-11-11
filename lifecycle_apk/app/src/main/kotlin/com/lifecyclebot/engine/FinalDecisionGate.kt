@@ -5711,19 +5711,10 @@ object FinalDecisionGate {
                 val report = BrainConsensusGate.evaluate(ts, fdgGateCandidate6025, modeTag)
                 when (BrainConsensusGate.recordForAdmission(ts, report, tags, candidateAdmission8136, floorLane7266)) {
                     BrainConsensusGate.Verdict.HARD_BLOCK -> {
-                        // V5.0.8616 — a lane whose paper book leads (MemePaperTrader8544.laneLeads8616: 30+ closes, mean > 0,
-                        // PF >= 1.5) is not vetoed by the consensus's losing-pattern / forecast history: the paper closes outrank it.
-                        val leads8616 = mode == TradeMode.LIVE && (try {
-                            com.lifecyclebot.engine.truth.MemePaperTrader8544.laneLeads8616(specialistLane ?: modeTag)
-                        } catch (_: Throwable) { false })
-                        if (leads8616) {
-                            tags.add("bcg_hard_block_advisory_paper_leads_8616")
-                            try { PipelineHealthCollector.labelInc("BRAIN_CONSENSUS_ADVISORY_PAPER_LEADS_8616") } catch (_: Throwable) {}
-                        } else {
-                            shouldTradeFinal = false
-                            blockReasonFinal = "BRAIN_CONSENSUS_VETO:${report.objections.joinToString("+").take(120)}"
-                            blockLevelFinal = BlockLevel.HARD
-                        }
+                        // V5.0.8687 — no paper-book override (8616's laneLeads8616 is gone: paper records never authorise LIVE).
+                        shouldTradeFinal = false
+                        blockReasonFinal = "BRAIN_CONSENSUS_VETO:${report.objections.joinToString("+").take(120)}"
+                        blockLevelFinal = BlockLevel.HARD
                     }
                     BrainConsensusGate.Verdict.SOFT_BLOCK -> {
                         // V5.0.7259 — the operator contract is unanimous

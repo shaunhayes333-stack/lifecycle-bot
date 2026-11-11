@@ -29,9 +29,9 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * Every signal opens a PAPER position in MemePaperTrader8544's book (both runtime modes; it never touches a live slot),
  * exits on the family's exit style (runner families on a born-runner lane's levers for young / small coins, the scalp
- * ladder otherwise) and books net of the priced round trip. A family earns LIVE money only through [liveProven8546]: n >= 30
- * paper closes, mean net minus one standard error > 0 and profit factor >= 1.3 — then a current signal on a coin carries
- * that coin's LIVE candidate (LiveEdgeGate7877.edge8114Live8538 "FAMILY_PROVEN_8546"), past the regime and into-high doors.
+ * ladder otherwise) and books net of the priced round trip. V5.0.8687 — a family's paper record is reported (statusLine
+ * "paperProven"), never a LIVE edge: the paper book's exits are not live's (8680: 40% of its closes LOST_MARK, its stops
+ * averaging -23% against live's -4..-13%), so its record cannot carry a coin past a live door.
  * Hard safety (HARD_BLOCK tier) is never traded, paper or live.
  */
 object MemeStrategies8546 {
@@ -318,17 +318,9 @@ object MemeStrategies8546 {
         }
     }
 
-    /** LiveEdgeGate7877: the proven family that signalled on [mint] in the last two minutes, else null. */
-    fun liveProven8546(mint: String, nowMs: Long = System.currentTimeMillis()): String? {
-        val family = lastSignal[mint]?.entries?.filter {
-            nowMs - it.value in 0L..SIGNAL_TTL_MS_8546 && MemePaperTrader8544.familyProven8546(it.key.name)
-        }?.maxByOrNull { it.value }?.key ?: return null
-        return "FAMILY_PROVEN_8546:${family.name}"
-    }
-
     fun statusLine8546(): String =
         "memeFamilies8546[signals{" + Family8546.values().joinToString(",") { "${it.name}=${fired[it.name]?.get() ?: 0}" } +
-            "} liveProven{" + Family8546.values().filter { MemePaperTrader8544.familyProven8546(it.name) }.joinToString(",").ifBlank { "none yet" } +
+            "} paperProven{" + Family8546.values().filter { MemePaperTrader8544.familyProven8546(it.name) }.joinToString(",").ifBlank { "none yet" } +
             "} funnel8644{evaluated=${count8644("EVALUATED")} tapePriority8663=${count8644("TAPE_PRIORITY_EVALUATED_8663")} earlyLowLiq8663=${count8644("EARLY_EXECUTED_TAPE_PAPER_ELIGIBLE_8663")} skipped=price:${count8644("SKIP_PRICE")}/safety:${count8644("SKIP_HARD_BLOCK")}/liq:${count8644("SKIP_LIQUIDITY")}/chain:${count8644("SKIP_NON_SOLANA")} " +
             "m1=empty:${count8644("M1_EMPTY")}/short:${count8644("M1_SHORT")}/ready:${count8644("M1_READY")}/error:${count8644("M1_ERROR")} " +
             "flow=known:${count8644("FLOW_KNOWN")}/unknown:${count8644("FLOW_UNKNOWN")} early=ready:${count8644("EARLY_PRINTS_READY_8650")}/short:${count8644("EARLY_PRINTS_SHORT_8650")} raw{" +

@@ -166,9 +166,9 @@ class Aate8546StrategyFamiliesTest {
         assertEquals(3.0, p[0], 0.0); assertEquals(5.0, p[1], 1e-9); assertEquals(4.0, p[3], 1e-9); assertTrue(p[2] > 0.0)
         assertFalse(MemePaperTrader8544.familyProven8546("PULLBACK_RECLAIM"))
         assertEquals("FAM_", MemePaperTrader8544.FAMILY_PREFIX_8546)
-        assertNull(MemeStrategies8546.liveProven8546("no-signal-mint"))
-        val gate = src("engine/truth/LiveEdgeGate7877.kt")
-        assertTrue(gate.contains("MemeStrategies8546.liveProven8546(ts.mint, nowMs)"))
+        // V5.0.8687 — a family's paper record is reported, never a LIVE edge
+        assertFalse(src("engine/truth/LiveEdgeGate7877.kt").contains("liveProven8546"))
+        assertTrue(MemeStrategies8546.statusLine8546().contains("paperProven{"))
     }
 
     private fun liveCandidate(stage: String = "NO_SETUP") = CandidateAdmission8136.Candidate8136(
@@ -176,14 +176,15 @@ class Aate8546StrategyFamiliesTest {
         expectedGrossPct = 30.0, costPct = 4.5, genericScore = 70.0, genericFloor = 15.0,
         nativeQualified8213 = true, nativeSetup8213 = "BREAKOUT_RUNNER", liveEdge8114 = "CHART_BUY")
 
-    @Test fun aColdRegimeStopsNewLiveEntriesUnlessAProvenFamilyCarriesThem() {
+    @Test fun aColdRegimeStopsNewLiveEntriesAndNoPaperFamilyCarriesThem() {
         val cold = liveCandidate().copy(regimeCold8546 = true)
         assertEquals(CandidateAdmission8136.LIVE_REGIME_COLD_8546, CandidateAdmission8136.decide8136(cold).reason)
-        assertTrue(CandidateAdmission8136.decide8136(cold.copy(liveEdge8114 = CandidateAdmission8136.FAMILY_PROVEN_PREFIX_8546)).reason != CandidateAdmission8136.LIVE_REGIME_COLD_8546)
+        assertEquals("V5.0.8687 — a paper family edge carries nothing past the cold regime", CandidateAdmission8136.LIVE_REGIME_COLD_8546,
+            CandidateAdmission8136.decide8136(cold.copy(liveEdge8114 = "FAMILY_PROVEN_8546:PULLBACK_RECLAIM")).reason)
         assertTrue("paper trades every regime", CandidateAdmission8136.decide8136(cold.copy(live = false)) { false }.reason != CandidateAdmission8136.LIVE_REGIME_COLD_8546)
-        assertTrue("a proven family's own event is not an unproven buy into the high",
-            CandidateAdmission8136.decide8136(liveCandidate("CONTROLLED_MARKUP").copy(liveEdge8114 = CandidateAdmission8136.FAMILY_PROVEN_PREFIX_8546)).reason !=
-                CandidateAdmission8136.LIVE_INTO_HIGH_UNPROVEN_8545)
+        val markup = liveCandidate("CONTROLLED_MARKUP")
+        assertEquals("nor past the into-high door", CandidateAdmission8136.decide8136(markup).reason,
+            CandidateAdmission8136.decide8136(markup.copy(liveEdge8114 = "FAMILY_PROVEN_8546:BASE_BREAKOUT_FLOW")).reason)
     }
 
     @Test fun theFamiliesRunInTheLoopAndNeverTradeHardSafetyOrTouchLiveSlots() {

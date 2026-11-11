@@ -1,6 +1,5 @@
 package com.lifecyclebot.engine
 
-import com.lifecyclebot.engine.truth.LiveEdgeGate7877
 import com.lifecyclebot.engine.truth.MemePaperTrader8544
 import com.lifecyclebot.engine.truth.MemeStrategies8546
 import org.junit.Assert.assertEquals
@@ -45,11 +44,10 @@ class Aate8574PaperLaneProofTest {
         assertTrue(paper.contains("laneStats[\"\$PRICED_PREFIX_8623\${lane.trim().uppercase()}\"]"))
         assertTrue(note.contains("if (c.why == LOST_MARK_8623) { addStat8572(\"\$UNPRICED_PREFIX_8623\${c.lane}\", c); return }"))
         assertEquals("P8572|", MemePaperTrader8544.PROOF_PREFIX_8572)
+        // V5.0.8687 — a paper lane record is no longer a LIVE edge
         val gate = src("engine/truth/LiveEdgeGate7877.kt")
         val w = gate.substringAfter("fun edge8114Live8538(").substringBefore("/** Pure (V5.0.8536)")
-        assertTrue(w.contains("MemePaperTrader8544.laneProven8572(l)"))
-        assertEquals("PAPER_LANE_PROVEN_8572", LiveEdgeGate7877.PAPER_LANE_PROVEN_8572)
-        // an unknown lane has no proof
-        assertFalse(MemePaperTrader8544.laneProven8572("NO_SUCH_LANE_8574"))
+        assertFalse(w.contains("MemePaperTrader8544"))
+        assertFalse(w.contains("MemeStrategies8546"))
     }
 }

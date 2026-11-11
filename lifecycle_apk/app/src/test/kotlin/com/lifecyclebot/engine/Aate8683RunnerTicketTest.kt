@@ -44,7 +44,9 @@ class Aate8683RunnerTicketTest {
         assertNull(LiveEdgeGate7877.shadowAdvisoryOnLive8683("EXPRESS", null))
         val g = File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveEdgeGate7877.kt").readText()
         assertTrue(g.contains("shadowAdvisoryOnLive8683(l, try { ExploreShadow8347.nicheRefusal8351("))
-        assertTrue(g.contains("shadowAdvisoryOnLive8683(l, try { ExploreShadow8347.liveEntryWait8347("))
+        // V5.0.8687 — the proven entry-timing wait (a relative verdict) binds on LIVE again; only the niche stays advisory
+        assertFalse(g.contains("shadowAdvisoryOnLive8683(l, try { ExploreShadow8347.liveEntryWait8347("))
+        assertTrue(g.contains("else try { ExploreShadow8347.liveEntryWait8347(ts, l, EvidenceHold8336.startMs8336, nowMs) }"))
     }
 
     @Test fun aPaperStopNeedsASecondMarkLikeLive() {

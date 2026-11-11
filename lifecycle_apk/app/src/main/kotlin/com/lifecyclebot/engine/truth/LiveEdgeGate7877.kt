@@ -528,7 +528,11 @@ object LiveEdgeGate7877 {
         // 24W/156L, meme paper -2.81 SOL, live beat shadow by +6.4 pts on the same coins; paper stops fire on any mark with no
         // venue confirmation). A niche or entry-timing choice the shadow proved is recorded as advisory on LIVE, never a refusal.
         val niche = if (paper || laneWide) null else shadowAdvisoryOnLive8683(l, try { ExploreShadow8347.nicheRefusal8351(ts, l, EvidenceHold8336.startMs8336) } catch (_: Throwable) { null })
-        val wait = if (paper || laneWide || niche != null) null else shadowAdvisoryOnLive8683(l, try { ExploreShadow8347.liveEntryWait8347(ts, l, EvidenceHold8336.startMs8336, nowMs) } catch (_: Throwable) { null })
+        // V5.0.8687 — the entry-timing wait binds again. It is the shadow's RELATIVE verdict (pullback vs buy-now on the same
+        // coins through the same exits), so the shadow's broken absolute exits cancel out of it: 8680 MOONSHOT PULL/RUNN n83
+        // +46.3% and PULL/SCAL n108 +42.4% (proven) against NOW/RUNN n170 -7.4% and NOW/SCAL n237 -0.9%, while live bought
+        // nearHigh n16 -10.8% / atHigh n6 -25.4%. It delays a buy until the pullback; it never refuses the coin.
+        val wait = if (paper || laneWide || niche != null) null else try { ExploreShadow8347.liveEntryWait8347(ts, l, EvidenceHold8336.startMs8336, nowMs) } catch (_: Throwable) { null }
         if (laneWide) try {
             if (ExploreShadow8347.bestFor8351(l, EvidenceHold8336.startMs8336)?.dim != null) PipelineHealthCollector.labelInc("NICHE_PREFERENCE_NOT_VETO_8392_$l")
         } catch (_: Throwable) {}
@@ -608,10 +612,6 @@ object LiveEdgeGate7877 {
     fun edge8114Live8538(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis(), ticket: Boolean = true): String? {
         val l = CanonicalLaneIdentity6506.canonical(laneRaw).uppercase().ifBlank { laneRaw.trim().uppercase() }
         val name = when {
-            // V5.0.8546 — a strategy family proven in the paper book signalled on this coin within two minutes
-            (try { MemeStrategies8546.liveProven8546(ts.mint, nowMs) } catch (_: Throwable) { null }) != null -> CandidateAdmission8136.FAMILY_PROVEN_PREFIX_8546
-            // V5.0.8572 — this lane's own post-guard paper record cleared the owner's proof bar; every other live door still binds
-            (try { MemePaperTrader8544.laneProven8572(l) } catch (_: Throwable) { false }) -> PAPER_LANE_PROVEN_8572
             (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.provenSetup8056(ts, l, nowMs) } catch (_: Throwable) { null }) != null -> "PROVEN_SETUP"
             (try { measuredEdge8060(ts, l, nowMs) } catch (_: Throwable) { false }) -> "MEASURED_EDGE"
             (try { cellOrKindProven8094(ts, l, nowMs) } catch (_: Throwable) { false }) -> "CELL_OR_KIND"
@@ -625,8 +625,6 @@ object LiveEdgeGate7877 {
         try { PipelineHealthCollector.labelInc("LIVE_EDGE_8114_RESTORED_8538_${name}_$l") } catch (_: Throwable) {}
         return name
     }
-
-    const val PAPER_LANE_PROVEN_8572 = "PAPER_LANE_PROVEN_8572"
 
     /** Pure (V5.0.8536): any one proof suffices; none is a refusal. */
     fun provenLive8536(specificAdmit: Boolean, provenSetup: Boolean, provenCell: Boolean, promotedSpecialist: Boolean): Boolean =
