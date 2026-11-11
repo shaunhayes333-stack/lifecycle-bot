@@ -129,6 +129,18 @@ jobs:
             --output "$GITHUB_WORKSPACE/runtime_evidence.json" \
             --summary "$GITHUB_WORKSPACE/funnel_summary.txt"
 
+      # V5.0.8690 — the accounting failures (CASH/BASIS/REALIZED/QUANTITY_DELTA) are diagnosed from the app's own
+      # ledger/journal forensic lines, which live only in the logcat artifact. Print them into the job log when the
+      # witness fails so the failing mutation can be read without downloading the artifact. Read-only; never gates.
+      - name: Accounting forensic lines (on failure)
+        if: ${{ failure() }}
+        working-directory: .
+        run: |
+          f="$GITHUB_WORKSPACE/logcat_full.txt"
+          [ -f "$f" ] || { echo "no logcat"; exit 0; }
+          grep -E "FORENSIC_(CASH|OPEN_COST|REALIZED|QUANTITY|POSITION_SET|SELL_ECONOMICS)|PAPER_LEDGER_|PAPER_ORPHAN_COST|PAPER_BUY_ROLLED_BACK|PAPER_TREASURY_|JOURNAL_(TERMINAL|EMBEDDED|ORPHAN|REPLAY|OPEN_LOT|QTY)|ORPHANED_OPEN_LOT|LEDGER_REJECTED|PAPER_JOURNAL_REPLAY_SUPERSEDED|CANONICAL_PAPER_TERMINAL_BRIDGE|PAPER_ATOMIC_COMMIT" "$f" \
+            | cut -c1-600 | tail -n 250 || true
+
       # V5.0.8418 — each device check is PASS only with its own evidence; a check that never ran
       # (because the smoke before it failed) is NOT_RUN and fails this step.
       - name: Enforce V5.0.8418 device checks (background, doze, screens, restart)
