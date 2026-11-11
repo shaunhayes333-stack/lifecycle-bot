@@ -13179,9 +13179,9 @@ class GoldenTapeRegressionTest {
         assertTrue(slotsFn.contains("LIVE_SLOT_LIMIT_7728"))
         assertFalse(slotsFn.contains("routableMin"))
         assertTrue(doc.contains("kotlin.math.min(MAX_SHARE_7697, 1.0 / slots(tradeableSol))"))
-        // Conviction: specialist must not have rejected; danger objections refuse.
-        assertTrue(doc.contains("if (opinion != null && opinion.authoritative && !opinion.eligible) {"))
-        assertTrue(doc.contains("\"LOSING_PATTERN_DANGER_ZONE\", \"LEARNED_TOXIC_LANE\", \"PROVEN_DEAD_CONTEXT\""))
+        // Conviction retains native ownership; consensus statistics are resolved upstream once.
+        assertTrue(doc.contains("if (opinion == null || !opinion.authoritative || opinion.eligible) return null"))
+        assertFalse(doc.contains("DANGER_OBJECTIONS_7697"))
 
         // Sizing: the doctrine's position is the live floor when larger, and the
         // share guard is lifted to the same share in BOTH compute() and the

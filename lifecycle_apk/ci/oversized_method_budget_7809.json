@@ -60,8 +60,8 @@
   "tokens": 7750
  },
  "com/lifecyclebot/engine/FinalDecisionGate.kt::evaluate#0": {
-  "lines": 3207,
-  "tokens": 28383
+  "lines": 3053,
+  "tokens": 27076
  },
  "com/lifecyclebot/engine/LifecycleStrategy.kt::evaluate#0": {
   "lines": 667,

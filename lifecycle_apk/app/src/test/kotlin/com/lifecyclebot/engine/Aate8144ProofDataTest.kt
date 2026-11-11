@@ -270,7 +270,7 @@ class Aate8144ProofDataTest {
         val bucket = bars.map { it.t / 60_000L }.toSet()
         for (gap in 10..14) assertFalse(bucket.contains((t0 + 60_000L + gap * 60_000L) / 60_000L))
         assertTrue(ProofDataSwapTape8144.statusLine8144().contains("taped="))
-        assertTrue(src("engine/DataOrchestrator.kt").contains("ProofDataSwapTape8144.noteHelius8144(mint, sig, safeSol, tokenAmt, isBuy, lastPumpPortalTradeMs7773[mint] ?: 0L)"))
+        assertTrue(src("engine/DataOrchestrator.kt").contains("ProofDataSwapTape8144.noteHelius8144(mint, sig, safeSol, tokenAmt, isBuy, lastPumpPortalTradeMs7773[mint] ?: 0L, wallet = wallet)"))
         TradeTape8100.resetForTest8100()
     }
 

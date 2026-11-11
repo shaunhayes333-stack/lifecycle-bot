@@ -178,7 +178,7 @@ class Aate8285TapeProvidersTest {
         // superseded by V5.0.8307: the decoded PumpSwap swap also states its pool and block time
         val pd = src("engine/truth/ProofDataSwapTape8144.kt")
         assertTrue(pd.contains("TradeTape8100.note8285(mint, sol / tokenAmount, sol, tokenAmount, isBuy, TradeTape8100.SRC_HELIUS_8169,"))
-        assertTrue(pd.contains("pool = amm8307?.pool.orEmpty(), signature = signature, eventMs = amm8307?.eventMs ?: 0L, recvMs = nowMs)"))
+        assertTrue(pd.contains("pool = amm8307?.pool.orEmpty(), signature = signature, eventMs = amm8307?.eventMs ?: 0L, recvMs = nowMs,\n                wallet = wallet)"))
         assertTrue(src("engine/truth/TradeTape8100.kt").contains("val curve8285 = source == SRC_CURVE_8169"))
     }
 
