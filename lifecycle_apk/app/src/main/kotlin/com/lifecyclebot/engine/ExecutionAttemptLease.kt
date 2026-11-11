@@ -169,6 +169,7 @@ object ExecutionAttemptLease {
             }
             if (st.backoffUntilMs > n && (st.lastProcessor.equals(processor, true) || st.failures >= BUY_CAP_FAILURES)) {
                 emit("EXEC_RETRY_BACKOFF_ACTIVE", side, mint, symbol, "processor=$processor failures=${st.failures} ttlMs=${st.backoffUntilMs - n} last=${st.lastReason}")
+                if (side.equals("BUY", true)) count8702(buyBackoffHits8702, st.lastReason)
                 return Verdict(false, existingKey, "BACKOFF_ACTIVE", st.backoffUntilMs - n)
             }
             if (st.activeUntilMs <= n) {
@@ -219,6 +220,7 @@ object ExecutionAttemptLease {
             emit("EXEC_LEASE_CLEARED", side, mint, symbol, "terminal=FAIL_NO_BACKOFF reason=$reason")
             return
         }
+        if (side.equals("BUY", true)) count8702(buyFails8702, reason)
         val backoff = backoffFor(failures, side)
         if (old != null) {
             states[key] = old.copy(
@@ -252,8 +254,27 @@ object ExecutionAttemptLease {
         val backs = activeBackoffs()
         val top = states.values.sortedByDescending { maxOf(it.activeUntilMs, it.backoffUntilMs) }.take(5)
             .joinToString(" · ") { st -> "${st.side}:${st.mint.take(6)}:${st.lastProcessor}:f${st.failures}:ttl=${maxOf(st.activeUntilMs, st.backoffUntilMs) - n}ms" }
-        return "buy=$buy sell=$sell backoff=$backs" + if (top.isNotBlank()) " | $top" else ""
+        return "buy=$buy sell=$sell backoff=$backs" + (if (top.isNotBlank()) " | $top" else "") +
+            " buyFails8702{${line8702(buyFails8702)}} backoffEndedTicketAfter8702{${line8702(buyBackoffHits8702)}}"
     }
+
+    // ── V5.0.8702 — which failed buy set each backoff ──
+    // 8689: 30 sealed LIVE tickets, 5 buys. 9 tickets ended on a lease backoff (BUY_LEASE_BACKOFF_ENDS_TICKET_8545) set by
+    // an earlier failed attempt on the same coin, and 18 BUY_TERMINAL_FAILs were counted with no reason beside them.
+    private val buyFails8702 = ConcurrentHashMap<String, AtomicLong>()
+    private val buyBackoffHits8702 = ConcurrentHashMap<String, AtomicLong>()
+
+    /** Pure: a failure reason's family — its first two ':' segments, without the per-coin detail after them. */
+    internal fun reasonFamily8702(reason: String): String =
+        reason.trim().split(':').take(2).joinToString(":").replace(Regex("[^A-Za-z0-9_:]"), "_").take(64).ifBlank { "UNNAMED" }
+
+    private fun count8702(into: ConcurrentHashMap<String, AtomicLong>, reason: String) {
+        if (into.size > 200) return
+        into.computeIfAbsent(reasonFamily8702(reason)) { AtomicLong(0) }.incrementAndGet()
+    }
+
+    private fun line8702(from: ConcurrentHashMap<String, AtomicLong>): String =
+        from.entries.sortedByDescending { it.value.get() }.take(8).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "none" }
 
     private fun emit(tag: String, side: String, mint: String, symbol: String, detail: String) {
         try { PipelineHealthCollector.labelInc(tag) } catch (_: Throwable) {}
