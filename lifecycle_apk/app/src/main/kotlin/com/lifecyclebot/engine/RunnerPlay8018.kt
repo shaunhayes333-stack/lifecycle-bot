@@ -177,6 +177,10 @@ object RunnerPlay8018 {
         if (px.isFinite() && px > 0.0 && signals.size < 2_000) signals.putIfAbsent(mint, px to nowMs)
         val open = armed.keys.count { m -> m != mint && try { BotService.status.tokens[m]?.position?.isOpen == true } catch (_: Throwable) { false } }
         if (!issueTicket8397(mint, nowMs, open)) return
+        // V5.0.8681 — where this run was measured FROM (the labeler decision it is +100 % over), so a lockout can tell a run
+        // after the bot's own sale from one that began before it (RebuyLockout8019.refusal8019).
+        if (runStart8681.size > 2_000) runStart8681.keys.retainAll(armed.keys)
+        runStart8681[mint] = nowMs - runAgeMs.coerceAtLeast(0L)
         try {
             RunnerGrab7967.holdAsRunner7972(ts, nowMs)
             PipelineHealthCollector.labelInc("RUN_REENTRY_TICKET_8018")
@@ -232,6 +236,20 @@ object RunnerPlay8018 {
     fun ticketActive8018(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean =
         armed[mint]?.let { nowMs - it in 0L..TICKET_TTL_MS } == true &&
             synchronized(reentryRecord) { !standsDown8018(reentryRecord) }
+
+    private val runStart8681 = ConcurrentHashMap<String, Long>()
+
+    /**
+     * V5.0.8681 — when an ACTIVE ticket's run began (its decision time), else null. 8680 live: bro was stopped out at
+     * -7.9 % (01:10:40, a 24 h big-loser lock) and CORE bought it again at 01:29:40 for another -4 %: the ticket's
+     * "+100 %" was measured from a 00:06 decision, i.e. a run that happened BEFORE the bot's own losing trade.
+     */
+    fun ticketRunStart8681(mint: String, nowMs: Long = System.currentTimeMillis()): Long? =
+        if (ticketActive8018(mint, nowMs)) runStart8681[mint] else null
+
+    /** Pure (V5.0.8681): a ticket whose run began at [runStartMs] clears a lock set at [lockedAtMs] only if it began after it. */
+    fun ticketPostdates8681(runStartMs: Long?, lockedAtMs: Long?): Boolean =
+        runStartMs != null && lockedAtMs != null && runStartMs >= lockedAtMs
 
     /** TraderSizingBridge6444: a re-entry opens at the executable minimum (the run has to prove itself again). */
     fun sizeMult8018(mint: String, mult: Double): Double {

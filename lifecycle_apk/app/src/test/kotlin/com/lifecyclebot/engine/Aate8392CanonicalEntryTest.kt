@@ -44,7 +44,8 @@ class Aate8392CanonicalEntryTest {
     @Test fun lossLockoutsCannotBeBypassedByLegacyScope() {
         val r=src("engine/RebuyLockout8019")
         assertFalse("V5.0.8603 — the falling-knife refusal is removed (it refused the dip-reclaims)", r.contains("fallingKnife8130("))
-        assertTrue(r.contains("if (bigLossLocked8130(mint, nowMs, ticket))"))
+        // V5.0.8681 — the ticket clears the big-loser lock only when its run began after the losing close.
+        assertTrue(r.contains("if (bigLossLocked8130(mint, nowMs, RunnerPlay8018.ticketPostdates8681(runStart8681, bigLossAt8130[mint])))"))
         assertFalse(r.contains("legacyScope8326"))
     }
     @Test fun invertedRefusalsStillStandDownWithoutAdmittingTheCoin() {

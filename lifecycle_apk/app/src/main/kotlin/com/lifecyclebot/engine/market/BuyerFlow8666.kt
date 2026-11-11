@@ -132,7 +132,10 @@ object BuyerFlow8666 {
             repeatBuyers60s = buys.groupingBy { it.wallet }.eachCount().count { it.value > 1 },
             txPerMin = recent.size.toDouble(), // actual swaps in the trailing minute
             volumeAccelScore = accel,
-            sustainedDemand = newBuyers >= 2 && prior15.any { !it.buy } &&
+            // V5.0.8681 — "sustained" means demand present in BOTH windows, not "a seller appeared first". The old
+            // prior15.any { !it.buy } term made a pure two-window buy run ineligible: the 8680 session recorded zero
+            // sustained-demand reads. A real baseline (two or more prior prints, net bought) is the requirement now.
+            sustainedDemand = newBuyers >= 2 && prior15.size >= 2 &&
                 prior15.sumOf { if (it.buy) it.sol else -it.sol } > 0.0 &&
                 recent15.sumOf { if (it.buy) it.sol else -it.sol } > 0.0 &&
                 recent15.filter { it.buy }.groupBy { it.wallet }.values.maxOfOrNull { group -> group.sumOf { it.sol } }

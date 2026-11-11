@@ -38,6 +38,10 @@ object LabelEvidence8386 {
         // V5.0.8418 §EXTREME_MOVES_TRAIN — a <= 0.1x move (a rug, a dead coin) is always booked: identity, units, decimals and
         // time order were checked above, and dropping the downside taught the books that rugs never happen.
         // superseded by V5.0.8418 — 8386 "(ratio >= 10.0 || ratio <= 0.1) && !(both independentBasis) -> UNWITNESSED_EXTREME".
+        // V5.0.8681 — a <= 0.1x move read on a DIFFERENT venue than the entry (a dead second pair, a pre-migration curve
+        // against a pool, a pair switch) is not proof of a rug unless the outcome mark is itself a chain read of the coin.
+        if (ratio <= 0.1 && venuesDisagree8681(entry.venue, outcome.venue) && !independent8418(outcome))
+            return "OBSERVED_ONLY_VENUE_MISMATCH_EXTREME"
         if (ratio <= 0.1) return "VALID_8386"
         // A >= 10x move needs both marks chain-provable ([independent8418]: curve account / curve tape print / parsed swap /
         // pool reserve read). A proof requirement, never a cap: a witnessed 100x / 1000x trains at its full value.
@@ -45,6 +49,12 @@ object LabelEvidence8386 {
         return "VALID_8386"
     }
     fun eligible(entry: LabelMark8386?, outcome: LabelMark8386?) = status(entry, outcome) == "VALID_8386"
+
+    /** Pure (V5.0.8681): both venues are named and differ (case-insensitive); an unnamed venue proves nothing either way. */
+    fun venuesDisagree8681(a: String, b: String): Boolean {
+        val x = a.trim(); val y = b.trim()
+        return x.isNotEmpty() && y.isNotEmpty() && !x.equals(y, ignoreCase = true)
+    }
 
     /**
      * Pure (V5.0.8418): is [source] an on-chain observation of the price itself? The curve account read (CURVE_ACCOUNT), the

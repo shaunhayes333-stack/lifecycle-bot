@@ -40,6 +40,9 @@ object StopMarkConfirm8418 {
     /** Pure: is a mark from [source] (pool [markPool]) on the basis of a position entered on [entryPool]? */
     fun onBasis8418(source: String, markPool: String, entryPool: String): Boolean {
         val s = source.uppercase()
+        // V5.0.8681 — identity before name: a mark that names a DIFFERENT pool than the one the position was filled on is
+        // not this bag's price, whatever chain feed produced it (a migrated coin's old curve, a second pool, a pair switch).
+        if (poolsDisagree8681(markPool, entryPool)) return false
         // V5.0.8419 — the coin's own chain state (curve account, decoded curve trade, pool vault / state) is the basis.
         if (StopFeed8327.chainMark8327(s)) return true
         if (CHAIN_8418.any { s.contains(it) }) return true
@@ -54,7 +57,16 @@ object StopMarkConfirm8418 {
      * another pool) still marks a non-chain source off-basis, but it never overrides a chain mark of the coin itself.
      */
     fun offBasis8419(legacyOffBasis: Boolean, source: String, markPool: String, entryPool: String): Boolean =
-        if (StopFeed8327.chainMark8327(source)) false else legacyOffBasis || !onBasis8418(source, markPool, entryPool)
+        if (poolsDisagree8681(markPool, entryPool)) true
+        else if (StopFeed8327.chainMark8327(source)) false else legacyOffBasis || !onBasis8418(source, markPool, entryPool)
+
+    /** Pure (V5.0.8681): both pools are known, real addresses, and differ. Blank or sentinel pools prove nothing. */
+    fun poolsDisagree8681(markPool: String, entryPool: String): Boolean {
+        val m = markPool.trim(); val e = entryPool.trim()
+        if (m.length < 32 || e.length < 32) return false
+        if (m.startsWith("MINT_ROUTE:") || e.startsWith("MINT_ROUTE:")) return false
+        return m != e
+    }
 
     /** Pure: the verdict given the executable price when one is fresh (null = not yet known). */
     fun executableBreaches8418(execPx: Double?, entryPx: Double, thresholdPct: Double): Boolean? {
@@ -192,6 +204,23 @@ object StopMarkConfirm8418 {
     fun stopDepthPct8489(reason: String): Double? =
         STOP_PCT_8489.findAll(reason).lastOrNull()?.groupValues?.get(1)?.toDoubleOrNull()?.let { -it }?.takeIf { it < 0.0 && it >= -100.0 }
 
+    /**
+     * Pure (V5.0.8681): the depth a catastrophe-family stop implies when its reason names none. 8680 live: all four
+     * RAPID_CATASTROPHE_STOP exits filled at -3.8 % .. -5.9 % (two within 33 s of the buy). With no named depth the venue
+     * leg refuted only a GREEN read, so a fresh pool read at -4 % could not stop a "catastrophe" sale. The rapid
+     * catastrophe band is never shallower than the 15 % hard floor (ExitDoctrine8169.rapidCatastrophePct8169), and
+     * DEEP_CATASTROPHE_NET fires only at -30 % (BotService), so those are the depths they claim.
+     */
+    fun impliedStopDepthPct8681(reason: String): Double? {
+        val r = reason.uppercase()
+        return when {
+            r.contains("DEEP_CATASTROPH") -> -30.0
+            r.contains("CATASTROPH") -> -15.0
+            r.contains("HARD_FLOOR") -> -15.0
+            else -> null
+        }
+    }
+
     /** Pure: does an executable [venuePnlPct] refute a stop of depth [depthPct] (null = unnamed)? */
     fun venueRefutes8489(venuePnlPct: Double, depthPct: Double?): Boolean {
         if (!venuePnlPct.isFinite()) return false
@@ -212,17 +241,36 @@ object StopMarkConfirm8418 {
         } catch (_: Throwable) { null }
     }
 
+    /** V5.0.8681 — the bag's PnL % from an executable quote observed at or after this stop's first unanswered ask, else null. */
+    private fun executablePnlSinceAsk8681(ts: TokenState, key: String): Double? {
+        val asked = noReadSince8631[key] ?: return null
+        val entry = ts.position.entryPrice
+        if (!entry.isFinite() || entry <= 0.0) return null
+        return try {
+            val px = com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.getExecutablePriceIfFresh7301(ts.mint) ?: return null
+            val at = com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.executableObservedAtMs7884(ts.mint)
+            if (at < asked || !px.isFinite() || px <= 0.0) null else (px / entry - 1.0) * 100.0
+        } catch (_: Throwable) { null }
+    }
+
     /** Executor.requestSellCore7948: true when a fresh venue read refutes this live loss stop (it holds this tick). */
     fun stopRefutedByVenue8489(ts: TokenState, reason: String, nowMs: Long = System.currentTimeMillis()): Boolean {
         if (ts.position.isPaperPosition || !ts.position.isOpen || !priceLossStop8489(reason)) return false
-        val pnl = venuePnlPct8489(ts, nowMs)
         val key8631 = ts.position.positionId.ifBlank { ts.mint }
+        // V5.0.8681 — a pool the reserve reader cannot price (concentrated / depth-only venues) never answered, so the stop
+        // fired on its mark after the wait (8680 DACITYCOIN: CATASTROPHIC_HARD_BACKSTOP_-25 filled at -7.5 %). The executable
+        // sell quote asked during the same wait answers too, when it was observed after the first ask.
+        val pnl = venuePnlPct8489(ts, nowMs) ?: executablePnlSinceAsk8681(ts, key8631)
         if (pnl == null) {
             try { com.lifecyclebot.engine.truth.OnChainDepth8038.request8038(ts, RESERVE_ASK_MS_8486) } catch (_: Throwable) {}
+            try {
+                val dec = com.lifecyclebot.engine.truth.MintDecimalsAuthority6392.get(ts.mint) ?: ts.tokenMap.decimals ?: 6
+                com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.requestExecutableQuote7301(ts.mint, dec, minGapMs = REASK_GAP_MS_8419)
+            } catch (_: Throwable) {}
             return holdForVenueRead8631(ts, key8631, nowMs)
         }
         noReadSince8631.remove(key8631)
-        val depth = stopDepthPct8489(reason)
+        val depth = stopDepthPct8489(reason) ?: impliedStopDepthPct8681(reason)
         if (!venueRefutes8489(pnl, depth)) {
             try { PipelineHealthCollector.labelInc("STOP_CONFIRMED_BY_VENUE_8489") } catch (_: Throwable) {}
             return false

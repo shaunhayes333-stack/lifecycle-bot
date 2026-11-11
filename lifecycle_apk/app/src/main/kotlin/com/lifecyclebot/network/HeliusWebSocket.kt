@@ -140,6 +140,11 @@ class HeliusWebSocket(
     private var minuteStart8666 = 0L
     private var minuteBytes8666 = 0L
     private var noGrowthUntil8666 = 0L
+    private var minuteMinHeap8681 = 1.0
+
+    /** Pure (V5.0.8681): the minute's lowest heap reading is the live set; with no sample yet, the current reading. */
+    internal fun liveHeapFraction8681(minuteMin: Double, current: Double): Double =
+        if (minuteMin.isFinite() && minuteMin in 0.0..1.0 && minuteMin < 1.0) minuteMin else current
 
     /** Pure backpressure decision: never exceed the old proven emergency ceiling of eight when overloaded. */
     internal fun capForLoad8666(current: Int, bytesPerMin: Long, heapFraction: Double, allowGrowth: Boolean): Int = when {
@@ -153,12 +158,19 @@ class HeliusWebSocket(
         synchronized(this) {
             if (minuteStart8666 == 0L) minuteStart8666 = nowMs
             minuteBytes8666 += bytes.coerceAtLeast(0).toLong()
+            // V5.0.8681 — sample the heap on every frame and keep the minute's LOW: under ~3 GB/min allocation churn the
+            // used heap swings 320 -> 512 MB between collections, so a single instantaneous read at the minute boundary
+            // counted uncollected garbage and pinned the cap at 8 for the whole 8680 session (heapPct 75-85%). The
+            // minute's minimum approximates the post-GC live set, which is what an extra subscription actually adds to.
+            val rtNow = Runtime.getRuntime()
+            val heapNow = (rtNow.totalMemory() - rtNow.freeMemory()).toDouble() / rtNow.maxMemory().coerceAtLeast(1L)
+            if (heapNow.isFinite() && heapNow < minuteMinHeap8681) minuteMinHeap8681 = heapNow
             val elapsed = nowMs - minuteStart8666
             if (elapsed < 60_000L) return false
             val bytesPerMin = minuteBytes8666 * 60_000L / elapsed.coerceAtLeast(1L)
             minuteStart8666 = nowMs; minuteBytes8666 = 0L
-            val rt = Runtime.getRuntime()
-            val heap = (rt.totalMemory() - rt.freeMemory()).toDouble() / rt.maxMemory().coerceAtLeast(1L)
+            val heap = liveHeapFraction8681(minuteMinHeap8681, heapNow)
+            minuteMinHeap8681 = 1.0
             val oldCap = adaptiveTokenCap8666
             val overBudget = try { com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.exhaustedLatched8094(nowMs) } catch (_: Throwable) { false }
             val next = if (overBudget) MIN_TOKEN_SUBSCRIPTIONS_8666 else capForLoad8666(oldCap, bytesPerMin, heap, nowMs >= noGrowthUntil8666)

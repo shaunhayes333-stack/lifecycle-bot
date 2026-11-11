@@ -88,10 +88,15 @@ object RebuyLockout8019 {
 
     /** Live entry gates: the refusal label when [mint] was closed inside the lockout, else null. */
     fun refusal8019(mint: String, nowMs: Long = System.currentTimeMillis()): String? {
-        val ticket = try { RunnerPlay8018.ticketActive8018(mint, nowMs) } catch (_: Throwable) { false }
+        // V5.0.8681 — a re-entry ticket clears a lock only when its run began AFTER the close that set the lock
+        // (RunnerPlay8018.ticketRunStart8681): a run measured from a decision before the bot's own loss is not "the coin
+        // kept running after we sold it". 8680: bro stopped -7.9 %, re-bought 19 min later on such a ticket, -4 % again.
+        val runStart8681 = try { RunnerPlay8018.ticketRunStart8681(mint, nowMs) } catch (_: Throwable) { null }
         loadLosses8022()
         losses[mint]?.let { l ->
-            if (lossLocked8022(synchronized(l) { l.toList() }, nowMs, ticket)) {
+            val times = synchronized(l) { l.toList() }
+            val ticket = RunnerPlay8018.ticketPostdates8681(runStart8681, times.maxOrNull())
+            if (lossLocked8022(times, nowMs, ticket)) {
                 lossRefused.incrementAndGet()
                 try { PipelineHealthCollector.labelInc("REPEAT_LOSER_REFUSED_8022") } catch (_: Throwable) {}
                 return "REPEAT_LOSER_8022"
@@ -101,12 +106,13 @@ object RebuyLockout8019 {
         // decisions (edge 1794038024285, managed stop -20 / ride +400) the coins it refused netted +3.5 %/decision with 5.4 %
         // going +100 %; the coins it passed netted -1.5 % with 1.9 %. It turned away the dip-reclaims — the entries 8582's own
         // report found paying (10-25 % off the peak PF 1.81). A coin this bot itself just lost on stays locked below.
-        if (bigLossLocked8130(mint, nowMs, ticket)) {
+        loadBigLosses8130()
+        if (bigLossLocked8130(mint, nowMs, RunnerPlay8018.ticketPostdates8681(runStart8681, bigLossAt8130[mint]))) {
             try { PipelineHealthCollector.labelInc("BIG_LOSER_REFUSED_8130") } catch (_: Throwable) {}
             return "BIG_LOSER_8130"
         }
         val at = closedAt[mint] ?: return null
-        if (!locked8019(nowMs - at, ticket)) return null
+        if (!locked8019(nowMs - at, RunnerPlay8018.ticketPostdates8681(runStart8681, at))) return null
         refused.incrementAndGet()
         try { PipelineHealthCollector.labelInc("REBUY_LOCKOUT_REFUSED_8019") } catch (_: Throwable) {}
         return "REBUY_LOCKOUT_8019"

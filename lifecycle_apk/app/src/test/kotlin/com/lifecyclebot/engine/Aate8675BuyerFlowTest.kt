@@ -23,6 +23,23 @@ class Aate8675BuyerFlowTest {
         assertEquals(1, f.repeatBuyers60s)
         assertEquals(1, f.buyTxPrev15s)
     }
+    @Test fun buyOnlyRunAcrossBothWindowsIsSustainedDemand8681() {
+        BuyerFlow8666.note("mint", "bob", 1.0, true, now - 20_000, "b", now)
+        BuyerFlow8666.note("mint", "carol", 1.0, true, now - 18_000, "c", now)
+        BuyerFlow8666.note("mint", "dave", 1.0, true, now - 5_000, "d", now)
+        BuyerFlow8666.note("mint", "erin", 1.0, true, now - 3_000, "e", now)
+        assertTrue(BuyerFlow8666.read("mint", now)!!.sustainedDemand)
+    }
+    @Test fun oneWhaleOrNoBaselineIsNotSustainedDemand8681() {
+        BuyerFlow8666.note("mint", "dave", 5.0, true, now - 5_000, "d", now)
+        BuyerFlow8666.note("mint", "erin", 0.1, true, now - 3_000, "e", now)
+        assertFalse(BuyerFlow8666.read("mint", now)!!.sustainedDemand)
+        BuyerFlow8666.clearForTest()
+        BuyerFlow8666.note("mint", "bob", 1.0, true, now - 20_000, "b", now)
+        BuyerFlow8666.note("mint", "dave", 1.0, true, now - 5_000, "d", now)
+        BuyerFlow8666.note("mint", "erin", 1.0, true, now - 3_000, "e", now)
+        assertFalse(BuyerFlow8666.read("mint", now)!!.sustainedDemand)
+    }
     @Test fun staleAndWalletlessObservationsNeverManufactureDemand() {
         BuyerFlow8666.note("mint", "alice", 1.0, true, now - 61_000, "old", now)
         BuyerFlow8666.note("mint", "", 1.0, true, now, "missing", now)
