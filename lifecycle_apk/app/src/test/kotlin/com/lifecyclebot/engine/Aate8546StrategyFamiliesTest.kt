@@ -215,7 +215,7 @@ class Aate8546StrategyFamiliesTest {
         assertTrue(e.contains("appendDataset(s, netPct, filled = false, witnessed = chainWitness)"))
         assertFalse("never trains the model", e.contains("learn("))
         val replay = File("../ci/edge_replay_8537.py").readText()
-        assertTrue(replay.contains("if r.get(\"fill\", True) is False:"))
+        assertTrue(replay.contains("row.get(\"fill\") is not True"))
         assertTrue(File("../ci/edge_research_8546.py").exists())
     }
 }

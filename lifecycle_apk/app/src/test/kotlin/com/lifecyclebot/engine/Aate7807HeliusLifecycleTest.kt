@@ -31,6 +31,10 @@ class Aate7807HeliusLifecycleTest {
     private fun requests(ws: HeliusWebSocket): MutableMap<Int, String> = field(ws, "requestToMint7765")
     private fun serverSubs(ws: HeliusWebSocket): MutableMap<Int, String> = field(ws, "subscriptionToMint7765")
     private fun sentAt(ws: HeliusWebSocket): MutableMap<Int, Long> = field(ws, "requestSentAtMs7807")
+    private fun expireObservationLeases(ws: HeliusWebSocket) {
+        val starts: MutableMap<String, Long> = field(ws, "subscriptionStartedAt")
+        starts.keys.toList().forEach { starts[it] = System.currentTimeMillis() - 61_000L }
+    }
 
     private fun parse(ws: HeliusWebSocket, json: String) {
         HeliusWebSocket::class.java.getDeclaredMethod("parseMessage", String::class.java)
@@ -41,13 +45,21 @@ class Aate7807HeliusLifecycleTest {
         val ws = newWs()
         ws.setPinnedMintsProvider7807 { setOf("HELD_MINT") }
         ws.subscribeToken("HELD_MINT")
+        val evictionsBefore = HeliusSubscriptionTelemetry7807.evictions.get()
         for (i in 0 until 400) ws.subscribeToken("DISCOVERY_$i")
         val d = desired(ws)
         assertEquals(12, d.size)
         assertTrue("held position must keep its subscription", d.containsKey("HELD_MINT"))
+        assertTrue("a new feed must survive long enough to receive evidence", d.containsKey("DISCOVERY_0"))
+        assertFalse(d.containsKey("DISCOVERY_399"))
+        assertEquals(evictionsBefore, HeliusSubscriptionTelemetry7807.evictions.get())
+        expireObservationLeases(ws)
+        ws.subscribeToken("DISCOVERY_399")
+        assertEquals(12, d.size)
+        assertTrue(d.containsKey("HELD_MINT"))
         assertTrue(d.containsKey("DISCOVERY_399"))
         assertFalse(d.containsKey("DISCOVERY_0"))
-        assertTrue(HeliusSubscriptionTelemetry7807.evictions.get() > 0)
+        assertTrue(HeliusSubscriptionTelemetry7807.evictions.get() > evictionsBefore)
     }
 
     @Test fun evictedHeldMintIsReArmedByHousekeeping() {
@@ -56,6 +68,9 @@ class Aate7807HeliusLifecycleTest {
         ws.setPinnedMintsProvider7807 { held.toSet() }
         ws.subscribeToken("LATE_BUY")
         for (i in 0 until 200) ws.subscribeToken("SCAN_$i")
+        assertTrue(desired(ws).containsKey("LATE_BUY"))
+        expireObservationLeases(ws)
+        ws.subscribeToken("SCAN_AFTER_LEASE")
         assertFalse(desired(ws).containsKey("LATE_BUY"))
         held.add("LATE_BUY") // bought after its discovery slot rolled off
         ws.ensurePinnedSubscriptions7807()
