@@ -101,6 +101,32 @@ object PreTradeHardGate {
     fun holderBlock8684(ts: TokenState, nowMs: Long = System.currentTimeMillis()): String? =
         if (holderProof8522(ts.topHolderPct, ts.safety, nowMs).adversePct >= TOP_HOLDER_FATAL_PCT) "TOP_HOLDER_CONCENTRATION" else null
 
+    /**
+     * V5.0.8703 — the buy door's certain proof deferrals, readable BEFORE a ticket is spent (CandidateAdmission8136), from the
+     * token's own state: no fetch, no log. The same three tests [requireLiveBuyAllowed] defers on below, in its order: a
+     * safety report that is missing or older than [SAFETY_FRESH_MS], a report evaluated under the paper policy, and a holder
+     * distribution nobody has read (no fresh holder figure and a blind RugCheck). 8689: 30 sealed LIVE tickets, 5 buys —
+     * the door deferred 22 times on proof, 5 tickets ended DEFERRED_DATA_SAFETY_PROOF_8270, and the backoff each failure set
+     * ended 9 later tickets on the same coins. A confirmed block is not a wait: it stays the door's (and admission's) refusal.
+     */
+    fun proofWait8703(ts: TokenState, nowMs: Long = System.currentTimeMillis()): String? {
+        val safety = ts.safety
+        if (safety.tier == SafetyTier.HARD_BLOCK || safety.isBlocked) return null
+        return proofWaitOf8703(safety.checkedAt, nowMs, safety.evaluatedForPaper8522 == false,
+            holderProof8522(ts.topHolderPct, safety, nowMs).freshPct != null, safety.rugcheckStatus)
+    }
+
+    /** Pure: [proofWait8703] on its inputs. */
+    internal fun proofWaitOf8703(checkedAtMs: Long, nowMs: Long, livePolicy: Boolean, holderFresh: Boolean, rugcheckStatus: String): String? = when {
+        checkedAtMs <= 0L || nowMs - checkedAtMs !in 0L..SAFETY_FRESH_MS -> "SAFETY_REPORT_NOT_FRESH"
+        !livePolicy -> "SAFETY_POLICY_NOT_LIVE"
+        !holderFresh && rugcheckStatus.trim().uppercase() in setOf("", "UNKNOWN", "TIMEOUT", "PENDING", "PENDING_REVIEW", "ERROR") -> "HOLDER_DISTRIBUTION_UNVERIFIED"
+        else -> null
+    }
+
+    /** Pure (V5.0.8703): a report past half its freshness is refreshed while the candidate is still being judged. */
+    internal fun proofAgeing8703(checkedAtMs: Long, nowMs: Long): Boolean = checkedAtMs > 0L && nowMs - checkedAtMs > SAFETY_FRESH_MS / 2
+
     private fun allowWithPendingProof(ts: TokenState, pending: List<String>, callSite: String): Verdict {
         val essentialPending = criticalProofPending8373(pending)
         if (essentialPending.isNotEmpty()) {

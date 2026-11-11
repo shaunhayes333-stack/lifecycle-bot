@@ -25,7 +25,7 @@ object LaneAuthority8577 {
     /** A refusal the designed authority keeps: hard safety, structure, the executable minimum, the kill switch. */
     private val BINDING_8577 = listOf(
         // V5.0.8626 — the live entry-state refusals (memeEntryRefusal8626) bind.
-        "MEME_BUYS_THE_HIGH_8582", "LIVE_STAGE_LOSES_8626",
+        "MEME_BUYS_THE_HIGH_8582", "LIVE_STAGE_LOSES_8626", "LIVE_ORIGIN_COHORT_LOSES_8703",
         // V5.0.8627 — a runner lane's live buy of a coin more than a day old binds too (memeEntryRefusal8626).
         "LIVE_RUNNER_STALE_COIN_8627", "EXECUTION_NET_NONPOSITIVE_8629", "EXECUTION_ECONOMICS_8136", "COST_LEDGER_7962_ABOVE_GROSS",
         "SAFETY_REFUSED", "STRUCTURAL_RISK", "RUG", "FREEZE", "MINT_AUTH", "TOKEN_2022", "TOKEN2022", "T22_", "HOSTILE",
@@ -151,6 +151,7 @@ object LaneAuthority8577 {
         val l = lane.trim().uppercase()
         val age8627 = try { CanonicalTokenBirthTime7440.launchAgeMs7767(ts, nowMs) } catch (_: Throwable) { null }
         if (runnerCoinStale8627(l, age8627)) return LIVE_RUNNER_STALE_COIN_8627
+        if (originLoses8703(ts, l, nowMs)) return LIVE_ORIGIN_COHORT_LOSES_8703
         if (l !in MEME_LANES_8582) return null
         val f = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.features(ts, nowMs) } catch (_: Throwable) { null }
         if (f != null && memeBuysTheHigh8582(l, f.pxPeak, f.runup, f.bp)) return MEME_BUYS_THE_HIGH_8582
@@ -159,6 +160,22 @@ object LaneAuthority8577 {
         val st = if (stage.isNullOrBlank()) null else try { ForwardReturnLabeler7731.stageStatFor7928(l, stage) } catch (_: Throwable) { null }
         return if (stageLoses8626(stage, st?.n60 ?: 0, st?.meanNet60Pct ?: Double.NaN, st?.stderr60Pct ?: Double.NaN))
             LIVE_STAGE_LOSES_8626 else null
+    }
+
+    const val LIVE_ORIGIN_COHORT_LOSES_8703 = "LIVE_ORIGIN_COHORT_LOSES_8703"
+
+    /**
+     * V5.0.8703 — owner: "it's meant to be the entire sol network, not just pump fun". 8689: 73 % of everything judged was
+     * pump.fun-minted and every band of it lost (-4 .. -20 % net), so the wallet's one or two slots filled with it. A coin
+     * whose origin x pool-depth cohort is proven losing on its own forward record takes LIVE capital only when it carries a
+     * proven edge of its own (LiveEdgeGate7877.edge8114Live8538: proven setup / cell / kind, measured edge, runner forming,
+     * shadow audit, chart BUY, Cortex strong).
+     */
+    private fun originLoses8703(ts: com.lifecyclebot.data.TokenState, lane: String, nowMs: Long): Boolean {
+        val cohort = try { MarketCohort8701.provenLosing8703(ts) } catch (_: Throwable) { null } ?: return false
+        val ownEdge = try { LiveEdgeGate7877.edge8114Live8538(ts, lane, nowMs, ticket = false) } catch (_: Throwable) { null }
+        try { PipelineHealthCollector.labelInc("ORIGIN_COHORT_LOSING_8703_${cohort}_${if (ownEdge != null) "OWN_EDGE_$ownEdge" else "REFUSED"}") } catch (_: Throwable) {}
+        return ownEdge == null
     }
 
     private fun expertAvoid8692(ts: com.lifecyclebot.data.TokenState, nowMs: Long): String? {

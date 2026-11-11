@@ -1619,10 +1619,12 @@ class SolanaMarketScanner(
                     // staggered through the existing Gecko budget so they cannot wedge the
                     // hot scanner loop or exceed free-tier limits. This wakes Orca/Meteora/
                     // established Solana assets that Dex profile/boost endpoints miss.
+                    // V5.0.8703 — Meteora's own keyless pool API, every rotation and off the Gecko budget (MeteoraPools8703).
+                    deepScans += "scanMeteoraPools8703" to { scanMeteoraPools8703() }
                     when (rot % 4) {
                         0 -> deepScans += "scanGeckoTrendingPools" to { scanGeckoTrendingPools() }
                         1 -> deepScans += "scanGeckoTopPoolsByVolume" to { scanGeckoTopPoolsByVolume() }
-                        2 -> deepScans += "scanMeteoraPoolsViaGecko" to { scanMeteoraPoolsViaGecko() }
+                        2 -> deepScans += "scanMeteoraPoolsViaGecko" to { if (meteoraDirectFound8703 == 0) scanMeteoraPoolsViaGecko() }
                         3 -> {
                             deepScans += "scanCoinGeckoTrending" to { scanCoinGeckoTrending() }
                             deepScans += "scanCoinGeckoEstablished" to { scanCoinGeckoEstablished() }
@@ -3858,6 +3860,46 @@ class SolanaMarketScanner(
             }
         }
         if (totalFound > 0) onLog("📊 GeckoTop: $totalFound tokens across 3 pages")
+    }
+
+    /** Coins the last [scanMeteoraPools8703] pass emitted; the GeckoTerminal page is asked only while this is 0. */
+    @Volatile private var meteoraDirectFound8703 = 0
+
+    /** V5.0.8703 — Meteora DAMM v2 / DLMM pools from Meteora's own API (see MeteoraPools8703). Same intake as every scanner source. */
+    private suspend fun scanMeteoraPools8703() {
+        var found = 0
+        val now = System.currentTimeMillis()
+        for ((feed, url) in com.lifecyclebot.network.MeteoraPools8703.REQUESTS_8703) {
+            try {
+                val body = get(url)
+                if (body.isNullOrBlank()) { PipelineHealthCollector.labelInc("METEORA_DIRECT_8703_CALL_EMPTY_$feed"); continue }
+                val pools = com.lifecyclebot.network.MeteoraPools8703.parse8703(body, now)
+                if (pools.isEmpty()) PipelineHealthCollector.labelInc("METEORA_DIRECT_8703_NO_POOLS_$feed")
+                for (p in pools) {
+                    if (found >= 40) break
+                    if (isSeen(p.mint)) continue
+                    val ageHours = if (p.ageHours.isFinite()) p.ageHours else 6.0   // unknown age: the Gecko path's same neutral figure
+                    val token = ScannedToken(
+                        mint = p.mint, symbol = p.symbol, name = p.name, source = TokenSource.METEORA_POOL,
+                        liquidityUsd = p.liquidityUsd, volumeH1 = p.volumeH1Usd, mcapUsd = p.mcapUsd,
+                        pairCreatedHoursAgo = ageHours, dexId = "meteora", priceChangeH1 = 0.0, txCountH1 = 0,
+                        score = scoreToken(p.liquidityUsd, p.volumeH1Usd, 0, p.mcapUsd, 0.0, ageHours),
+                    )
+                    if (passesFilter(token)) {
+                        emitWithRugcheck(token)
+                        found++
+                        PipelineHealthCollector.labelInc("METEORA_DIRECT_8703_EMITTED_$feed")
+                        onLog("🌊 Meteora: ${token.symbol} | $feed${if (p.launchpad.isNotBlank()) " via ${p.launchpad}" else ""} | liq=\$${p.liquidityUsd.toInt()}")
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                PipelineHealthCollector.labelInc("METEORA_DIRECT_8703_CALL_FAILED_$feed")
+                ErrorLogger.debug("Scanner", "scanMeteoraPools8703 $feed error: ${e.message}")
+            }
+        }
+        meteoraDirectFound8703 = found
     }
 
     private suspend fun scanMeteoraPoolsViaGecko() {

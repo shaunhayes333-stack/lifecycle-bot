@@ -70,11 +70,24 @@ object MarketCohort8701 {
         return if (LiveEdgeGate7877.cohortProvenPositive7948(stat)) cohort else null
     }
 
+    /**
+     * V5.0.8703 — LaneAuthority8577: [ts]'s cohort when its own forward record is proven LOSING, else null. Live capital is
+     * steered by the same record that can grant an edge: a coin from a cohort the bot has watched lose 100+ times (net of
+     * cost, at executable marks) is bought LIVE only on proven evidence of its own. The record is live — a cohort that
+     * stops losing stops refusing — and the door itself retires on the one selection-gate rule if the coins it refuses win.
+     */
+    fun provenLosing8703(ts: TokenState): String? {
+        if (!solana(ts)) return null
+        val cohort = cohort8701(ts.mint, depth(ts))
+        val stat = try { ForwardReturnLabeler7731.laneStatFor7737(cohort) } catch (_: Throwable) { null }
+        return if (LiveEdgeGate7877.cohortProvenLosing8703(stat)) cohort else null
+    }
+
     fun statusLine8701(): String = "marketCohort8701[" + ORIGINS_8701.joinToString(" | ") { o ->
         o + "{" + BANDS_8701.joinToString(",") { b ->
             val s = try { ForwardReturnLabeler7731.laneStatFor7737("$PREFIX_8701${o}_$b") } catch (_: Throwable) { null }
             b.removePrefix("POOL_") + "=" + (if (s == null) "n0" else "n${s.n60}/${"%+.1f".format(s.meanNet60Pct)}%" +
-                (if (LiveEdgeGate7877.cohortProvenPositive7948(s)) "/PROVEN" else ""))
+                (if (LiveEdgeGate7877.cohortProvenPositive7948(s)) "/PROVEN" else if (LiveEdgeGate7877.cohortProvenLosing8703(s)) "/LOSING" else ""))
         } + "}"
     } + "]"
 }

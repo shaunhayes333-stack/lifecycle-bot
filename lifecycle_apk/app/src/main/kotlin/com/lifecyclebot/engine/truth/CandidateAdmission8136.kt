@@ -1376,6 +1376,34 @@ object CandidateAdmission8136 {
         return r
     }
 
+    // ── V5.0.8703 — the buy door's proof is awaited as a candidate, not as a ticket ──
+    // 8689: 30 sealed LIVE tickets, 5 buys. A coin admitted here whose safety proof the buy door would defer on was FDG-
+    // allowed, sized and ticketed, deferred at the door three times, ended DEFERRED_DATA_SAFETY_PROOF_8270, and the lease
+    // backoff that failure set ended the next tickets on the same coin (BUY_LEASE_BACKOFF_ENDS_TICKET_8545 x9). The same
+    // proof is read here: a LIVE admit whose proof is not ready waits as a data defer (its refresh requested now, at the
+    // front of the safety queue) and is decided again, at a fresh price, when the proof is in.
+    internal fun proofDeferred8703(d: Decision8136, wait: String): Decision8136 = d.copy(
+        terminal = Terminal8136.DEFER_DATA, reason = "DATA_INCOMPLETE_DEFER_8136", specific = false,
+        trace = d.trace.filterNot { it.startsWith("missing=") } + "buyDoorProof8703=$wait wouldAdmit=${d.reason}" + "missing=proof:$wait",
+        nativePhaseWitness8528 = false, strategyClockWitness8535 = false)
+
+    private fun awaitBuyDoorProof8703(ts: TokenState, live: Boolean, d: Decision8136, nowMs: Long): Decision8136 {
+        if (!live || !d.admitted) return d
+        val wait = try { com.lifecyclebot.engine.PreTradeHardGate.proofWait8703(ts, nowMs) } catch (_: Throwable) { null }
+        if (wait == null) {
+            // admitted with a proof past half its life: refreshed now so it is still current at the buy door
+            if (com.lifecyclebot.engine.PreTradeHardGate.proofAgeing8703(ts.safety.checkedAt, nowMs))
+                try { com.lifecyclebot.engine.SafetyRefreshQueue.request(ts.mint) } catch (_: Throwable) {}
+            return d
+        }
+        try {
+            com.lifecyclebot.engine.SafetyRefreshQueue.request(ts.mint)
+            com.lifecyclebot.engine.SafetyProofPriority8310.noteDeferred8310(ts.mint, "ADMISSION_$wait", nowMs)
+            PipelineHealthCollector.labelInc("ADMISSION_AWAITS_BUY_DOOR_PROOF_8703_$wait")
+        } catch (_: Throwable) {}
+        return proofDeferred8703(d, wait)
+    }
+
     // ── V5.0.8700 — what each DATA defer is waiting on ──
     // 8689: DATA_INCOMPLETE_DEFER_8136 x1,298 and DATA_DEFER_FALLING_HOUR_8418 x598 on LIVE with one shared reason name and
     // no count of which wait produced them (a stage / flow read, a stale price, an unread move, an unknown cost, a critical
@@ -1392,6 +1420,7 @@ object CandidateAdmission8136 {
         val costKnown = trace.firstOrNull { it.startsWith("gross=") }?.substringAfter(" cost=", "")?.substringBefore(' ')
             ?.toDoubleOrNull()?.isFinite() == true
         val missing = trace.firstOrNull { it.startsWith("missing=") }?.removePrefix("missing=")?.split(',')?.map { it.trim() }.orEmpty()
+        missing.firstOrNull { it.startsWith("proof:") }?.let { out += "BUY_DOOR_PROOF_" + it.removePrefix("proof:").uppercase() }   // V5.0.8703
         if ("price" in missing) out += "PRICE_STALE"
         if (FALLING_HOUR_WAIT_8418 in missing) out += "FALLING_HOUR"
         else if (StrategyMove8153.DEFER_FEATURE_8153 in missing) out += "MOVE_HISTORY_SPARSE"
@@ -1550,7 +1579,8 @@ object CandidateAdmission8136 {
             decide8136(candidate, ::verifiedRecordDoor8650),
             if (candidate.live) LaneAuthority8577.memeEntryRefusal8626(ts, candidate.lane, candidate.stage, nowMs) else null,  // V5.0.8626
             launchPhase8609 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.features(ts, nowMs).launchPhase } catch (_: Throwable) { null },
-            pocket8610 = if (candidate.live) PocketLedger8610.verdict8610(ts, candidate.lane, nowMs) else null).also {
+            pocket8610 = if (candidate.live) PocketLedger8610.verdict8610(ts, candidate.lane, nowMs) else null)
+            .let { awaitBuyDoorProof8703(ts, candidate.live, it, nowMs) }.also {
             // A held shadow rehearsal must not publish an ADMIT into live sizing, strategy identity or the runner trace.
             if (!FdgGate8365.shadowOnly8393()) {
                 noteDecision8144(ts.mint, candidate.lane, candidate, it, version, mode, nowMs)

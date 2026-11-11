@@ -288,6 +288,17 @@ object LiveEdgeGate7877 {
         return stat.meanNet60Pct - se > 0.0
     }
 
+    /**
+     * Pure (V5.0.8703): the mirror of [cohortProvenPositive7948] — a cohort proven to LOSE on its own labels: the same 100+
+     * reads, mostly resolved, and mean plus one standard error below zero.
+     */
+    fun cohortProvenLosing8703(stat: ForwardReturnLabeler7731.CellStat?): Boolean {
+        if (stat == null || stat.n60 < COHORT_MIN_N_7948) return false
+        if (stat.resolvedShare < MIN_RESOLVED_SHARE_7944) return false
+        val se = if (stat.stderr60Pct.isFinite()) stat.stderr60Pct else return false
+        return stat.meanNet60Pct.isFinite() && stat.meanNet60Pct + se < 0.0
+    }
+
     /** Pure: does [cohort] (proven positive) outweigh a refusal measured on [refusalSampleN] labels? */
     fun cohortOverrulesSmaller7948(cohort: ForwardReturnLabeler7731.CellStat?, refusalSampleN: Int): Boolean =
         cohort != null && cohortProvenPositive7948(cohort) && cohort.n60 > refusalSampleN.coerceAtLeast(0)
