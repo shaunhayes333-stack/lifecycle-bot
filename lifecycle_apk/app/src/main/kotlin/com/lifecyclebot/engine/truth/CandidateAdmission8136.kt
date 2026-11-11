@@ -1383,7 +1383,9 @@ object CandidateAdmission8136 {
             // Reopen only after an actual missing fact is now present in the
             // assessed candidate. Repeated ticks/notifications cannot refill a budget.
             val remainingKinds = remaining.map { it.substringBefore(':').lowercase() }.toSet()
-            val progressed = previousMissing?.any { it.substringBefore(':').lowercase() !in remainingKinds } == true
+            val previousKinds = previousMissing?.map { it.substringBefore(':').lowercase() }?.toSet()
+            val progressed = previousKinds != null && remainingKinds.size < previousKinds.size &&
+                previousKinds.containsAll(remainingKinds)
             if (prev == null || nowMs < prev.firstMs || nowMs - prev.firstMs >= DEFER_RESET_MS_8136 || progressed) {
                 firstMissing8204[mint] = remaining
                 if (progressed) {

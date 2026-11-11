@@ -114,6 +114,9 @@ class Aate8675EvidencePathTest {
         assertTrue(CandidateAdmission8136.deferBudgetFor8144(mint, missing, now))
         assertFalse(CandidateAdmission8136.deferBudgetFor8144(mint, missing, now + 601_000))
         assertFalse(CandidateAdmission8136.deferBudgetFor8144(mint, missing, now + 602_000))
+        // A different lane asking for different facts is not evidence delivery.
+        assertFalse(CandidateAdmission8136.deferBudgetFor8144(mint, listOf("bp:UNKNOWN", "flow:UNKNOWN"), now + 602_100))
+        assertFalse(CandidateAdmission8136.deferBudgetFor8144(mint, missing + "flow:UNKNOWN", now + 602_200))
         assertTrue(CandidateAdmission8136.deferBudgetFor8144(mint, listOf("bp:UNKNOWN"), now + 603_000))
         assertFalse(CandidateAdmission8136.deferUnanswered8204(mint, emptyList(), now + 604_000))
     }
