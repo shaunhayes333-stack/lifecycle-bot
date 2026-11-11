@@ -318,12 +318,12 @@ object FdgGate8365 {
      * forward record was filed one key per number (8680: BRAIN_CONSENSUS_VETO_FUSED_LIVE_NEGATIVE_PWIN_0_18_E__9_ n20) and
      * could never reach the graded-refusal audit. Pure: the veto filed by its objection names alone, sorted.
      */
-    fun consensusVetoKey8690(reasonUpper: String): String {
+    private fun consensusVetoKey8690(reasonUpper: String): String {
         val names = reasonUpper.removePrefix(CONSENSUS_VETO_PREFIX_8690).split('+')
             .map { it.substringBefore('=').trim() }.filter { OBJECTION_NAME_8690.matches(it) }.distinct().sorted()
         return ("BRAIN_CONSENSUS_VETO_" + names.joinToString("_")).replace(Regex("[^A-Z0-9_]"), "_").take(96)
     }
-    const val CONSENSUS_VETO_PREFIX_8690 = "BRAIN_CONSENSUS_VETO:"
+    private const val CONSENSUS_VETO_PREFIX_8690 = "BRAIN_CONSENSUS_VETO:"
     /** An objection name; "+" also appears inside a signed number ("E=+2.0"), whose fragment is not a name. */
     private val OBJECTION_NAME_8690 = Regex("^[A-Z][A-Z0-9_]*$")
 
