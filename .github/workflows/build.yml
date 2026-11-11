@@ -503,6 +503,9 @@ jobs:
       # Keep required release checks strict while measuring every historical
       # test against the unchanged recorded 8089 baseline and rejecting regressions.
       - name: Complete historical suite and reject new failures
+        # A required-test failure must not hide the remaining historical failures.
+        # The job stays failed, and APK publication still requires both suites green.
+        if: ${{ !cancelled() && steps.release_verify.outcome == 'success' }}
         run: |
           set +e
           ./gradlew testReleaseUnitTest --no-daemon --stacktrace -PbuildNumber=$AATE_BUILD_NUMBER -PaateVersionName=$AATE_VERSION_NAME

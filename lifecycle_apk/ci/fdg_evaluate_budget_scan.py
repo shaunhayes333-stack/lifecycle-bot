@@ -39,8 +39,9 @@ import sys
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 FDG = os.path.join(REPO, "lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt")
 
-# Pinned to the last build proven on the operator's device (5.0.7716).
-MAX_DECLARATIONS = 514
+# 8677 extracted learned sizing after ART rejected the old method below its old budget.
+# Keep the reclaimed register headroom; device acceptance remains mandatory.
+MAX_DECLARATIONS = 484
 MAX_FINAL_DECISION_RETURNS = 11
 
 DECL = re.compile(r"\b(?:val|var)\s+[A-Za-z_]\w*")

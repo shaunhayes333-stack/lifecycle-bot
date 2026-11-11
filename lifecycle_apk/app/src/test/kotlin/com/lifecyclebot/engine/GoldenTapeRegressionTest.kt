@@ -13751,7 +13751,7 @@ class GoldenTapeRegressionTest {
         assertTrue(helper.contains("blockReason = v.blockReason,"))
         // The budget is a required build step, not a diagnostic test.
         val scan = java.io.File("../ci/fdg_evaluate_budget_scan.py").readText()
-        assertTrue(scan.contains("MAX_DECLARATIONS = 514"))
+        assertTrue(scan.contains("MAX_DECLARATIONS = 484"))
         assertTrue(scan.contains("MAX_FINAL_DECISION_RETURNS = 11"))
         val wf = java.io.File("../../.github/workflows/build.yml").readText()
         assertTrue(wf.contains("run: python3 ci/fdg_evaluate_budget_scan.py"))

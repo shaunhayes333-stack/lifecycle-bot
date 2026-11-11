@@ -7,6 +7,8 @@ import com.lifecyclebot.engine.truth.MarkBarsStore7951
 import com.lifecyclebot.engine.truth.TradePlan7739
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -174,7 +176,12 @@ class Aate7951MemeChokesTest {
         assertFalse(MemeChokes7951.isCapitalArtefactReason7951("REJECTED: S0_10_BLEED_GUARD"))
         assertFalse(MemeChokes7951.isCapitalArtefactReason7951("MCAP_TOO_LOW: \$48K < \$1M"))
         val doc = src("engine/truth/LiveConcentrationDoctrine7697.kt")
-        assertTrue(doc.contains("if (!com.lifecyclebot.engine.MemeChokes7951.isCapitalArtefactReason7951(opinion.reason)) {"))
+        assertTrue(doc.contains("specialistRejection(opinion)"))
+        val capital = SpecialistBrainBridge7542.Opinion("CASHGEN", false, 90, 90, 0.01,
+            "LIVE_WALLET_TOO_SMALL", "BREAKOUT", "BREAKOUT", "TRAIL")
+        assertNull(com.lifecyclebot.engine.truth.LiveConcentrationDoctrine7697.specialistRejection(capital))
+        assertNotNull(com.lifecyclebot.engine.truth.LiveConcentrationDoctrine7697.specialistRejection(
+            capital.copy(reason = "S0_10_BLEED_GUARD")))
     }
 
     @Test fun chartBuyStarvedOfCapitalIsDemandForRotation() {
