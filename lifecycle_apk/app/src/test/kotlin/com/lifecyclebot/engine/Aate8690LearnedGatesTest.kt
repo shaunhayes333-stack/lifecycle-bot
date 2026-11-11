@@ -37,10 +37,10 @@ class Aate8690LearnedGatesTest {
 
     @Test fun bothGatesConsultTheirOwnRecord() {
         val lockout = src("engine/RebuyLockout8019.kt")
-        assertTrue(lockout.contains("GateOutcome8418.refusesWinners8418(com.lifecyclebot.engine.truth.GateOutcome8418.stat8418(\"BIG_LOSER_8130\"))"))
+        assertTrue(lockout.contains("GateOutcome8418.selectionGateRetired8696(\"BIG_LOSER_8130\")"))
         assertTrue(lockout.indexOf("if (bigLossRetiredByRecord8690())") < lockout.indexOf("return \"BIG_LOSER_8130\""))
         val fdg = src("engine/FinalDecisionGate.kt")
-        assertTrue(fdg.contains("GateOutcome8418.retiresAt100_8418(consensusVetoReason8690(objections), lane)"))
+        assertTrue(fdg.contains("GateOutcome8418.selectionGateRetired8696(consensusVetoReason8690(objections), lane)"))
         assertTrue(fdg.contains("if (consensusVetoRetired8690(mode == TradeMode.LIVE, report.objections, specialistLane ?: modeTag))"))
     }
 

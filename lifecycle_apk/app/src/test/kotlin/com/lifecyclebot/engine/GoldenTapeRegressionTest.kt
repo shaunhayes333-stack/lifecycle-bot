@@ -15668,8 +15668,8 @@ class GoldenTapeRegressionTest {
         val cap = java.io.File(root, "truth/RunnerCapture8017.kt").readText()
         assertTrue(cap.contains("EntryReceipt8500.onLiveClose8500(env.mint, env.mode, env.terminal, env.realizedReturnPct, env.mfePct, env.positionId, env.atMs, env.holdingTimeMs, env.lane, env.assetClassTag)"))  // V5.0.8522
         val router = java.io.File(root, "TokenMetricStageRouter.kt").readText()
-        assertTrue(router.contains("const val TOP10_RUG_PRONE_PCT_8500 = 60.0"))
-        assertTrue(router.contains("val topHeavy = top >= TOP10_RUG_PRONE_PCT_8500"))
+        assertFalse("V5.0.8696: top-10 concentration no longer stages RUG_PRONE (the safety owner keeps it)", router.contains("TOP10_RUG_PRONE_PCT_8500"))
+        assertTrue(router.contains("val rugProne = airRug8500 || thinRug8500"))
         assertTrue(router.contains("val thinRug8500 = liqThin && runup >= 80.0"))
         val safety = java.io.File(root, "TokenSafetyChecker.kt").readText()
         assertTrue(safety.contains("topHolderPct > 80.0 ->"))

@@ -50,13 +50,13 @@ class Aate8500EntryReceiptTest {
     }
 
     @Test fun rugProneReadsTop10AtTheSafetyOwnersConcentratedTierAndNamesItsTrigger() {
-        assertEquals(60.0, TokenMetricStageRouter.TOP10_RUG_PRONE_PCT_8500, 0.0)
-        assertEquals("TOP10", TokenMetricStageRouter.rugWhy8500(true, false, false))
-        assertEquals("VALUATION_AIR+THIN_LIQ_RUNUP", TokenMetricStageRouter.rugWhy8500(false, true, true))
+        // V5.0.8696 — top-10 concentration left the structural stage (its refusals did better than the rest); it names the
+        // two tests that remain.
+        assertEquals("VALUATION_AIR", TokenMetricStageRouter.rugWhy8500(true, false))
+        assertEquals("VALUATION_AIR+THIN_LIQ_RUNUP", TokenMetricStageRouter.rugWhy8500(true, true))
         val r = src("engine/TokenMetricStageRouter.kt")
-        assertTrue(r.contains("val topHeavy = top >= TOP10_RUG_PRONE_PCT_8500"))
-        assertTrue(!r.contains("val topHeavy = top >= 35.0"))
-        assertTrue(r.contains("val rugProne = topHeavy || airRug8500 || thinRug8500"))
+        assertTrue(!r.contains("val topHeavy"))
+        assertTrue(r.contains("val rugProne = airRug8500 || thinRug8500"))
         // hard safety on the same number is untouched
         assertTrue(src("engine/TokenSafetyChecker.kt").contains("topHolderPct > 80.0 ->"))
         assertTrue(src("engine/truth/CandidateAdmission8136.kt").contains("STRUCTURAL_RISK_8136_WHY_"))

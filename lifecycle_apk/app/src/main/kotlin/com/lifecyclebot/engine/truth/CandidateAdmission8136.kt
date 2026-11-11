@@ -532,13 +532,19 @@ object CandidateAdmission8136 {
         // alternative-setup evaluation; a true RUG_PRONE still refuses hard.
         c.structuralRisk?.let {
             val isLaunchLearned = it.startsWith("FRESH_LAUNCH_")
-            if (!isLaunchLearned) {
+            // V5.0.8696 — the structural stage is a selection judgement: it stands aside once its own graded refusals prove
+            // it refuses winners (GateOutcome8418.selectionGateRetired8696). Was: "nothing overrides".
+            val retired8696 = !isLaunchLearned && c.live && GateOutcome8418.selectionGateRetired8696("CANDIDATE_ADMISSION_8136_STRUCTURAL_RISK_8136", c.lane)
+            if (retired8696) trace += "structureRetiredByRecord8696=$it"
+            if (!isLaunchLearned && !retired8696) {
                 trace += "structure=$it"
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("STRUCTURAL_RISK_8136_WHY_${it.take(40)}") } catch (_: Throwable) {}  // V5.0.8500
                 return done(Terminal8136.REFUSE, "STRUCTURAL_RISK_8136", true, c.selectedSetup)
             }
-            trace += "launchLearned=$it"
-            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ADMISSION_LAUNCH_LEARNED_FALLTHROUGH_8221") } catch (_: Throwable) {}
+            if (isLaunchLearned) {
+                trace += "launchLearned=$it"
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ADMISSION_LAUNCH_LEARNED_FALLTHROUGH_8221") } catch (_: Throwable) {}
+            }
         }
 
         // 2. candidate-specific loss patterns. The coin's own cell proven to pay, or another fired setup supported on its

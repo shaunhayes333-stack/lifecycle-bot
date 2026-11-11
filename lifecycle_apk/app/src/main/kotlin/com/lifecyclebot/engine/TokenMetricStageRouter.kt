@@ -101,13 +101,6 @@ object TokenMetricStageRouter {
         val top = (ts.safety.topHolderPct.takeIf { it > 0.0 } ?: ts.topHolderPct
             ?: (try { com.lifecyclebot.engine.truth.TokenFacts.topHolderPct(ts) } catch (_: Throwable) { null }) ?: -1.0)
         val liqThin = liq in 1.0..2_500.0
-        // V5.0.8500 §TOP10_IS_NOT_ONE_WALLET — [top] is the TOP-10 holders' combined share (rugcheck topHolders.top10Pct,
-        // else OnChainHolderConcentration7379.top10Pct). Read at >= 35 % it staged ordinary young memecoins RUG_PRONE, a
-        // refusal nothing overrides (STRUCTURAL_RISK_8136: 22 of 61 wrongly refused runners on 5.0.8499), while the safety
-        // owner of the same number (TokenSafetyChecker) penalises it from 40 %, flags "concentrated" from 60 % and refuses
-        // hard over 80 %. The stage now reads top-10 concentration at the safety owner's own "concentrated" tier; the hard
-        // safety refusal over 80 %, valuation air and the thin-liquidity run-up tests are unchanged.
-        val topHeavy = top >= TOP10_RUG_PRONE_PCT_8500
         // V5.0.7306 — a single pool's depth against a large cap's whole
         // valuation is normally hundreds of x (BONK read mcapLiq=780 on one
         // $428K pool and was staged RUG_PRONE, so it could never be BLUECHIP).
@@ -117,14 +110,18 @@ object TokenMetricStageRouter {
         // (liq 0 -> mcapToLiq 9999) with the default 50 / 50 buy pressure (bp < 52) staged every non-established $150k+ coin
         // RUG_PRONE: refused STRUCTURAL_RISK_8136, routed observation-only and blocked live (8457: STRUCTURAL_RISK n47 with a
         // 21 % runner share, 28 of the 65 wrongly refused runners). A read pool and a real book still stage it RUG_PRONE;
-        // the top-holder and thin-liquidity-runup tests are unchanged.
+        // the thin-liquidity-runup test is unchanged.
         val bookObserved8464 = freshLocalBook || flow?.buyPct?.isFinite() == true
         val valuationAir = liq > 0.0 && mcapToLiq >= 85.0 && mcap >= 150_000.0 && !isEstablished7306(ts, mcap, liq, ageMin)
         val airRug8500 = valuationAir && bookObserved8464 && (sp >= 55.0 || bp < 52.0)
         val thinRug8500 = liqThin && runup >= 80.0
-        val rugProne = topHeavy || airRug8500 || thinRug8500
+        // V5.0.8696 — top-10 concentration no longer stages a coin RUG_PRONE. On 13,321 labelled meme decisions the coins it
+        // refused (top-10 >= 60 %, n366) did BETTER than the rest in both halves (-0.4 % / -6.0 % against -6.1 % / -8.2 %):
+        // it was not protecting. Concentration stays with its owner: TokenSafetyChecker penalises it from 40 % and refuses
+        // hard over 80 %. Thin-liquidity run-ups (median -35 .. -47 %) and valuation air (no runners refused) still stage.
+        val rugProne = airRug8500 || thinRug8500
         // V5.0.8500 — which structural test staged it, so a refusal names its trigger (was "topHeavy/liquidityAir/thinRunup").
-        val rugWhy8500 = rugWhy8500(topHeavy, airRug8500, thinRug8500)
+        val rugWhy8500 = rugWhy8500(airRug8500, thinRug8500)
         val acute5m7425 = flow?.move ?: ts.lastPriceChange5m.takeIf { LaneInputTruth8236.fresh8491(ts.priceChangeObservedAtMs8084, now) } ?: Double.NaN
         val hour = ts.lastPriceChange1h.takeIf { LaneInputTruth8236.fresh8491(ts.hourChangeObservedAtMs8506, now) }
             ?: com.lifecyclebot.engine.truth.PairFlow8169.peek8169(ts.mint)?.takeIf { LaneInputTruth8236.fresh8491(it.atMs, now) }?.chg1h ?: Double.NaN
@@ -544,16 +541,13 @@ object TokenMetricStageRouter {
         else -> "N_FADING"
     }
 
-    /** V5.0.8500 — the top-10 share at which a coin stages RUG_PRONE (TokenSafetyChecker's own "concentrated" tier). */
-    const val TOP10_RUG_PRONE_PCT_8500 = 60.0
-
     /** Pure (V5.0.8500): the structural test(s) that staged a coin RUG_PRONE. */
-    fun rugWhy8500(topHeavy: Boolean, valuationAir: Boolean, thinRunup: Boolean): String =
-        listOfNotNull("TOP10".takeIf { topHeavy }, "VALUATION_AIR".takeIf { valuationAir }, "THIN_LIQ_RUNUP".takeIf { thinRunup })
+    fun rugWhy8500(valuationAir: Boolean, thinRunup: Boolean): String =
+        listOfNotNull("VALUATION_AIR".takeIf { valuationAir }, "THIN_LIQ_RUNUP".takeIf { thinRunup })
             .joinToString("+").ifBlank { "NONE" }
 
     fun reasonFor(stage: Stage, rug: Boolean, peak: Boolean, dump: Boolean, base: Boolean, mid: Boolean, markup: Boolean, fresh: Boolean = false): String = when (stage) {
-        Stage.RUG_PRONE -> "rugProne=$rug topHeavy/liquidityAir/thinRunup"
+        Stage.RUG_PRONE -> "rugProne=$rug liquidityAir/thinRunup"
         Stage.PEAK_EXHAUSTION -> "peakExhaustion=$peak nearHigh+extended+sellPressure"
         Stage.DUMPING -> "dumping=$dump drawdown_or_acute5m_cascade_reclaim_required"
         Stage.FRESH_LAUNCH -> "freshLaunch=$fresh trueLaunchAge+ignitionOrExpansion+notPostPumpFade"

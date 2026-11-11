@@ -127,7 +127,7 @@ object RebuyLockout8019 {
     }
 
     private fun bigLossRetiredByRecord8690(): Boolean = try {
-        com.lifecyclebot.engine.truth.GateOutcome8418.refusesWinners8418(com.lifecyclebot.engine.truth.GateOutcome8418.stat8418("BIG_LOSER_8130"))
+        com.lifecyclebot.engine.truth.GateOutcome8418.selectionGateRetired8696("BIG_LOSER_8130")   // V5.0.8696 — the one rule
     } catch (_: Throwable) { false }
 
     // ── V5.0.8130 — one real loss is enough ──

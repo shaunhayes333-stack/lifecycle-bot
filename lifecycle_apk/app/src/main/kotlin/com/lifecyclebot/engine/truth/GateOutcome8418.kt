@@ -103,6 +103,22 @@ object GateOutcome8418 {
         return synchronized(st) { Stat8418().also { c -> c.n = st.n; c.sum = st.sum; c.sumSq = st.sumSq; c.wins = st.wins; c.runners = st.runners } }
     }
 
+    /**
+     * V5.0.8696 §ONE_RULE_FOR_EVERY_SELECTION_GATE — owner: "the structural risk gate has to either be fixed, fed the correct
+     * data we already hold, redesigned or retired. same for other chokes and blockers. we can't keep refusing good trades".
+     * A gate that judges whether a coin will PAY (structure, entry state, a loss lock, a consensus forecast) binds only
+     * until its own graded refusals prove it refuses winners: this lane's record, or the gate's record across all lanes
+     * ([refusesWinners8418]: 100+ graded, mean - SE > +2 % net, the robust read). Integrity gates (safety, sellability,
+     * price, cost, wallet) never come here. Replaces the per-gate copies 8690 added (RebuyLockout8019, FinalDecisionGate,
+     * LaneAuthority8577's expert doors) and the "nothing overrides" structural refusal.
+     */
+    fun selectionGateRetired8696(reason: String, lane: String = ""): Boolean {
+        val gate = FdgGate8365.gateKey8392(reason)
+        val retired = (lane.isNotBlank() && refusesWinners8418(stat8418(gate, lane))) || refusesWinners8418(stat8418(gate))
+        if (retired) try { PipelineHealthCollector.labelInc("SELECTION_GATE_RETIRED_BY_RECORD_8696_$gate") } catch (_: Throwable) {}
+        return retired
+    }
+
     /** FdgGate8365: does [reason]'s own lane record of graded refusals prove it refuses winners (100+, robust)? */
     fun retiresAt100_8418(reason: String, lane: String): Boolean {
         val retired = refusesWinners8418(stat8418(FdgGate8365.gateKey8392(reason), lane))

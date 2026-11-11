@@ -1664,7 +1664,7 @@ object FinalDecisionGate {
     /** V5.0.8690 — LIVE only: has the veto's own graded record in [lane] proven it refuses winners (GateOutcome8418)? */
     private fun consensusVetoRetired8690(live: Boolean, objections: List<String>, lane: String): Boolean =
         live && (try {
-            com.lifecyclebot.engine.truth.GateOutcome8418.retiresAt100_8418(consensusVetoReason8690(objections), lane)
+            com.lifecyclebot.engine.truth.GateOutcome8418.selectionGateRetired8696(consensusVetoReason8690(objections), lane)   // V5.0.8696 — the one rule
         } catch (_: Throwable) { false })
 
     fun evaluate(

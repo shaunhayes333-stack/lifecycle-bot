@@ -72,7 +72,7 @@ class Aate8692ExpertPlaybookTest {
         assertTrue(src("engine/truth/ForwardReturnLabeler7731.kt").contains("|| ExpertSetups8692.setupCohort8692(o.lane)"))
         val lane = src("engine/truth/LaneAuthority8577.kt")
         assertTrue(lane.contains("expertAvoid8692(ts, nowMs)?.let { return it }"))
-        assertTrue(lane.contains("if (GateOutcome8418.refusesWinners8418(record))"))
+        assertTrue(lane.contains("if (GateOutcome8418.selectionGateRetired8696(\"CANDIDATE_ADMISSION_8136_\$why\", lane)) return null"))
     }
 
     private fun src(p: String) = File("src/main/kotlin/com/lifecyclebot/$p").readText()
