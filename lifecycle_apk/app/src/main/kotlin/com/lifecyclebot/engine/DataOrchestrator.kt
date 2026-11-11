@@ -903,11 +903,6 @@ class DataOrchestrator(
         } catch (_: Throwable) {}
     }
 
-    /** V5.0.7787 — (mint, SOL per token) for a held position's on-chain trade; wired by BotService. */
-    @Volatile private var onHeldTradeMark7787: ((String, Double) -> Unit)? = null
-
-    fun setOnHeldTradeMark7787(cb: (String, Double) -> Unit) { onHeldTradeMark7787 = cb }
-
     private val lastPumpPortalTradeMs7773 = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val lastHeliusTradeMs8252 = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val PUMPPORTAL_PRIORITY_MS_7773 = 20_000L
@@ -925,7 +920,7 @@ class DataOrchestrator(
         // 8666: make executed buyer arrivals/volume visible BEFORE waking a waiting decision.
         // Walletless curve-snapshot inferences are ignored by BuyerFlow8666; they cannot
         // establish independent buyers or genuine executed trade volume.
-        try { com.lifecyclebot.engine.market.BuyerFlow8666.note(mint, wallet, solAmount, isBuy) } catch (_: Throwable) {}
+        // BuyerFlow is published once by TradeTape at the signed swap boundary.
         // V5.0.7921 — the launch tape since birth (crowd, flow, heat, promotion).
         try { com.lifecyclebot.engine.market.LaunchTape7921.onTrade(mint, wallet, solAmount, isBuy) } catch (_: Throwable) {}
         // V5.0.7950 — the chart reader's buy/sell volume split and dev-sold flag.
@@ -1028,12 +1023,11 @@ class DataOrchestrator(
                 // -15% floor. Field Manual §7: in a fast market stale quotes cost most.
                 if (wallet.isNotBlank() && tokenAmt.isFinite() && tokenAmt > 0.0) {
                     val held7787 = try { status.tokens[mint]?.position?.isOpen == true } catch (_: Throwable) { false }
-                    if (held7787) try { onHeldTradeMark7787?.invoke(mint, safeSol / tokenAmt) } catch (_: Throwable) {}
                     // 8663: put the genuine executable swap in the tape FIRST.
                     // Previously copy-trading and the broad onHeliusTrade callback
                     // ran before this record, delaying early shape/flow and stops
                     // behind unrelated downstream work in the single WS worker.
-                    try { com.lifecyclebot.engine.truth.ProofDataSwapTape8144.noteHelius8144(mint, sig, safeSol, tokenAmt, isBuy, lastPumpPortalTradeMs7773[mint] ?: 0L) } catch (_: Throwable) {}
+                    try { com.lifecyclebot.engine.truth.ProofDataSwapTape8144.noteHelius8144(mint, sig, safeSol, tokenAmt, isBuy, lastPumpPortalTradeMs7773[mint] ?: 0L, wallet = wallet) } catch (_: Throwable) {}
                     // V5.0.7819 — the same executed price is a candidate's candle print.
                     if (!held7787) onTradePrint7819(mint, safeSol / tokenAmt)
                 }

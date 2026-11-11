@@ -5538,13 +5538,7 @@ object FinalDecisionGate {
             if (shouldTrade && blockReason == null) {
                 val modeTag = tradingModeTag?.name ?: "STANDARD"
                 val report = BrainConsensusGate.evaluate(ts, fdgGateCandidate6025, modeTag)
-                BrainConsensusGate.recordOutcome(report.verdict)
-                // V5.0.6405 §17 — expose consensus objections to downstream
-                // gates (LiveRugRiskGate6405 reads this to complete its
-                // advisor-label coverage when lastPolicySnapshot is empty).
-                try { ts.lastConsensusObjections = report.objections.toList() } catch (_: Throwable) {}
-                tags.add("bcg:${report.verdict.name}")
-                when (report.verdict) {
+                when (BrainConsensusGate.recordForAdmission(ts, report, tags, candidateAdmission8136, floorLane7266)) {
                     BrainConsensusGate.Verdict.HARD_BLOCK -> {
                         // V5.0.8616 — a lane whose paper book leads (MemePaperTrader8544.laneLeads8616: 30+ closes, mean > 0,
                         // PF >= 1.5) is not vetoed by the consensus's losing-pattern / forecast history: the paper closes outrank it.

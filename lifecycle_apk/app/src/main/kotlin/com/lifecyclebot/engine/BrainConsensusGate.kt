@@ -51,6 +51,21 @@ object BrainConsensusGate {
         val predictiveAuthority: Boolean = false,
     )
 
+    /** The candidate record owns meme setup/timing/economics; consensus remains an observed opinion. */
+    internal fun executionVerdict(verdict: Verdict,
+        admission: com.lifecyclebot.engine.truth.CandidateAdmission8136.Decision8136?, lane: String): Verdict =
+        if (admission?.admitted == true && lane in com.lifecyclebot.engine.truth.EdgeModel8537.LANES) Verdict.ALLOW else verdict
+
+    internal fun recordForAdmission(ts: TokenState, report: ConsensusReport, tags: MutableCollection<String>,
+        admission: com.lifecyclebot.engine.truth.CandidateAdmission8136.Decision8136?, lane: String): Verdict {
+        recordOutcome(report.verdict)
+        try { ts.lastConsensusObjections = report.objections.toList() } catch (_: Throwable) {}
+        tags.add("bcg:${report.verdict.name}")
+        val action = executionVerdict(report.verdict, admission, lane)
+        if (action != report.verdict) tags.add("bcg_advisory_single_admission")
+        return action
+    }
+
     private const val MIN_MATURE_SAMPLES_6782 = 8L
     private const val MIN_STRONG_SAMPLES_6782 = 15L
     private const val REJECT_PWIN_6782 = 0.30

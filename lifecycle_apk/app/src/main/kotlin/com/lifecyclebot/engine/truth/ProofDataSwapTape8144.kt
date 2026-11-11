@@ -49,6 +49,7 @@ object ProofDataSwapTape8144 {
     fun noteHelius8144(
         mint: String, signature: String, sol: Double, tokenAmount: Double, isBuy: Boolean,
         pumpPortalLastMs: Long, nowMs: Long = System.currentTimeMillis(),
+        wallet: String = "",
     ): Boolean {
         if (mint.isBlank()) return false
         if (!(sol.isFinite() && sol > 0.0 && tokenAmount.isFinite() && tokenAmount > 0.0)) { skippedUnpriced.incrementAndGet(); return false }
@@ -61,7 +62,8 @@ object ProofDataSwapTape8144 {
         // V5.0.8307 — a decoded PumpSwap swap states its pool and block time (PumpSwapTape8307): the print keeps both.
         val amm8307: com.lifecyclebot.network.PumpSwapTape8307.AmmPrint8307? = try { com.lifecyclebot.network.PumpSwapTape8307.takePool8307(signature, mint) } catch (_: Throwable) { null }
         if (!TradeTape8100.note8285(mint, sol / tokenAmount, sol, tokenAmount, isBuy, TradeTape8100.SRC_HELIUS_8169,
-                pool = amm8307?.pool.orEmpty(), signature = signature, eventMs = amm8307?.eventMs ?: 0L, recvMs = nowMs)) {
+                pool = amm8307?.pool.orEmpty(), signature = signature, eventMs = amm8307?.eventMs ?: 0L, recvMs = nowMs,
+                wallet = wallet)) {
             skippedDuplicate.incrementAndGet(); crossFeedDup8285.incrementAndGet(); return false
         }
         taped.incrementAndGet()

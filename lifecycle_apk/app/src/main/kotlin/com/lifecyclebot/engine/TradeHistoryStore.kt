@@ -974,6 +974,7 @@ object TradeHistoryStore {
      */
     private fun lockOnLiveSell8531(t: Trade) {
         if (!t.mode.equals("live", true) || !t.side.equals("SELL", true) || t.mint.isBlank()) return
+        if (!com.lifecyclebot.engine.truth.LiveTerminalSemanticsAuthority7236.isTerminalOutcome(t.mode, t.proofState)) return
         val pct = if (t.entryCostSol > 0.0 && t.pnlSol.isFinite()) t.pnlSol / t.entryCostSol * 100.0 else t.pnlPct
         try { RebuyLockout8019.onClose8019(t.mint, if (t.ts > 0L) t.ts else System.currentTimeMillis(), pct, t.reason) } catch (_: Throwable) {}
     }
@@ -986,7 +987,6 @@ object TradeHistoryStore {
 
     fun recordTrade(inputTrade8422: Trade) {
         val trade = liveSellKey8422(inputTrade8422)?.let { inputTrade8422.copy(economicEventId = it) } ?: inputTrade8422
-        lockOnLiveSell8531(trade)
         ensureInitialized()
         // V5.0.6653 — canonical economic identity outranks heuristic mint/time
         // dedupe.  The old 30-second mint+size filter could discard the real
@@ -1130,6 +1130,7 @@ object TradeHistoryStore {
             } catch (_: Throwable) {}
             return
         }
+        lockOnLiveSell8531(tradeToStore)
         try { LearningRejectLabelSentinel.inspect(tradeToStore, "TradeHistoryStore.recordTrade.prePersistence") } catch (_: Throwable) {}
 
         // V5.0.7669 - Project Sniper's partial ladder previously never advanced:

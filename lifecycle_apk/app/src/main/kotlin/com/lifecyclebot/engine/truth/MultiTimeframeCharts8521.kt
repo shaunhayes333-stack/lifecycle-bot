@@ -48,6 +48,11 @@ object MultiTimeframeCharts8521 {
 
     /** Chronological distinct bars, with neither the current unfinished candle nor stale data treated as current evidence. */
     fun snapshot8521(ts: TokenState, frame: Frame8521, nowMs: Long): List<Candle> {
+        if (frame == Frame8521.M1) {
+            // Consume the already received executed tape even when no history
+            // fetch was requested. This is bounded local arithmetic, not I/O.
+            HeliusSwapCandles7819.localTape8284(ts, nowMs, "chart_read")
+        }
         val q = history8521(ts, frame)
         val rows = if (frame == Frame8521.M1 && ts.candleTimeframeMinutes > 1) emptyList()
             else try { synchronized(q) { q.toList() } } catch (_: ConcurrentModificationException) { emptyList() }

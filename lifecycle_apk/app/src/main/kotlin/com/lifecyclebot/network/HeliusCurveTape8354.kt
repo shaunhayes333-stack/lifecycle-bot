@@ -343,6 +343,7 @@ object HeliusCurveTape8354 {
                 mint, priceSol, ev.sol, ev.tokens, ev.isBuy, SRC_HELIUS_CURVE_8354,
                 pool = com.lifecyclebot.engine.truth.TradeTape8100.VENUE_CURVE_8285, signature = sig,
                 eventMs = PumpSwapTape8307.eventMs8307(ev.timestampSec, nowMs), recvMs = nowMs,
+                wallet = ev.user,
             )
         } catch (_: Throwable) { false }
         try { PumpFunWS.emitHeliusCurve8354(mint, priceSol, mcapSol, ev.isBuy, ev.user, ev.sol, ev.virtualSol) } catch (_: Throwable) {}

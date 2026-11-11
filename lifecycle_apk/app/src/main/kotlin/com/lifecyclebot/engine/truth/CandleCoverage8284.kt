@@ -67,7 +67,7 @@ object CandleCoverage8284 {
 
     private fun tagOfIdentity8653(c: Candle): Tag8284? = tags[CandleIdentity8653(c)]
 
-    /** 1 m bars for a mint whose ts.history is on a longer timeframe (or is a held position's tick tape). */
+    /** Authoritative minute history, independent of candidate snapshots and held-position tick history. */
     private val store1m = ConcurrentHashMap<String, ArrayDeque<Candle>>()
 
     private val latest = ConcurrentHashMap<String, Array<Coverage8284>>()
@@ -170,7 +170,10 @@ object CandleCoverage8284 {
         val open = try { ts.position.isOpen } catch (_: Throwable) { true }
         val toHistory = ts.candleTimeframeMinutes <= 1 && !open
         val r = try {
-            if (toHistory) synchronized(ts.history) { mergeInto8284(ts.history, bars, nowMs) } else mergeStore8284(ts.mint, bars, nowMs)
+            // Scanner snapshots and the candidate-to-held handoff can replace
+            // ts.history. Preserve the observed minute series across both.
+            val stored = mergeStore8284(ts.mint, bars, nowMs)
+            if (toHistory) synchronized(ts.history) { mergeInto8284(ts.history, bars, nowMs) } else stored
         } catch (_: Throwable) { Merge8284(bars.size, 0, 0, bars.size) }
         noteMerge8284(source, r)
         return r

@@ -131,8 +131,8 @@ class Aate8537EdgeModelTest {
         val x = EdgeModel8537.vectorOf(raw(flags = EdgeModel8537.flagsOf(true, false, true)))
         assertEquals(EdgeModel8537.DIM, x.size)
         assertEquals(1.0, x[0], 0.0)
-        // one hot per block: bias + 15 bins + phase + source + lane + 2 flags, plus the cost and V3 numerics
-        assertEquals(1 + 15 + 3 + 2, x.count { it == 1.0 })
+        // one hot per block: bias + 16 bins + phase + source + lane + 2 flags, plus the cost and V3 numerics
+        assertEquals(1 + 16 + 3 + 2, x.count { it == 1.0 })
         assertEquals(5, EdgeModel8537.flagsOf(true, false, true))
         assertEquals(EdgeModel8537.FLAGS.size, 7)
         assertEquals(EdgeModel8537.LANES.size, 12)

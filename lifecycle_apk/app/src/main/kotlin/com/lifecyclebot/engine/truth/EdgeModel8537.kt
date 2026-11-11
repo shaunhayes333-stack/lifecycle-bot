@@ -51,14 +51,14 @@ object EdgeModel8537 {
     private const val SAVE_EVERY = 400
     private const val DATASET_MAX_LINES = 60_000
     // Keep the pre-8658 curve-tainted sufficient statistics intact for inspection; never load them as authority.
-    private const val MODEL_FILE = "edge_model_8660.bin"
+    private const val MODEL_FILE = "edge_model_8675.bin"
     private const val DATASET_FILE = "edge_dataset_8537.jsonl"
     // V5.0.8642 — the old binary included false-priced/seed-basis outcomes before 8617 started excluding them.
     // DIM alone cannot attest the model's evidence quality, so a validated epoch is now part of the format.
     // V5.0.8660: 8657/8658 fixed non-pump PumpPortal frames priced with pump.fun's curve, but the 8650 model
     // remained loaded with those phantom 2,900% labels and reported CORE/TREASURY authority. A fresh model
     // must replay only venue-scoped rows and earn OOS authority again, never inherit the poisoned old OOS bar.
-    internal const val MODEL_EPOCH_8642 = 8660
+    internal const val MODEL_EPOCH_8642 = 8675
     internal const val VENUE_SCOPE_EPOCH_8660 = 8660
     private val SOLANA_MINT_8660 = Regex("^[1-9A-HJ-NP-Za-km-z]{32,44}$")
     private fun unscopedSolana8661(mint: String, scopeEpoch: Int): Boolean =
@@ -68,7 +68,7 @@ object EdgeModel8537 {
 
     /** Same venue-price provenance gate for every downstream learner, not only this model's private replay. */
     internal fun venueScopedForLearning8663(mint: String, modelEpoch: Int?): Boolean =
-        !unscopedSolana8661(mint, if (modelEpoch == MODEL_EPOCH_8642) VENUE_SCOPE_EPOCH_8660 else 0)
+        !unscopedSolana8661(mint, if (modelEpoch != null && modelEpoch >= VENUE_SCOPE_EPOCH_8660) VENUE_SCOPE_EPOCH_8660 else 0)
 
     // ── features ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -79,7 +79,7 @@ object EdgeModel8537 {
         val top: Double, val phase: String, val v3: Double, val costPct: Double,
         val holderVel: Double = Double.NaN, val txVel: Double = Double.NaN, val curve: Double = Double.NaN,
         val turnover: Double = Double.NaN, val flags: Int = 0,
-        // Observed buyer arrivals are exported now; do not silently reinterpret old persisted ridge weights.
+        // The persisted model schema includes buyer arrivals and observed demand/reclaim.
         val newBuyers15s8666: Double = Double.NaN,
         val sustainedDemand: Boolean = false,
         val marketReclaim: Boolean = false,
@@ -111,11 +111,13 @@ object EdgeModel8537 {
     val CURVE_EDGES = doubleArrayOf(0.2, 0.5, 0.8, 0.98)
     val TURNOVER_EDGES = doubleArrayOf(0.1, 0.5, 2.0, 6.0)
 
+    val NEW_BUYER_EDGES = doubleArrayOf(1.0, 2.0, 5.0, 10.0)
+
     private val NUMERIC_BINS: List<DoubleArray> = listOf(LIQ_EDGES, MCAP_EDGES, AGE_EDGES, RUNUP_EDGES, PEAK_EDGES, DD_EDGES,
-        BP_EDGES, CHG5_EDGES, CHG1H_EDGES, VOLACC_EDGES, TOP_EDGES, HOLDERVEL_EDGES, TXVEL_EDGES, CURVE_EDGES, TURNOVER_EDGES)
+        BP_EDGES, CHG5_EDGES, CHG1H_EDGES, VOLACC_EDGES, TOP_EDGES, HOLDERVEL_EDGES, TXVEL_EDGES, CURVE_EDGES, TURNOVER_EDGES, NEW_BUYER_EDGES)
 
     /** Width of the feature vector: bias + every binned block (+1 unknown each) + phase + source + lane (+1 other each) + flags + 2 numerics. */
-    val DIM: Int = 1 + NUMERIC_BINS.sumOf { it.size + 2 } + (PHASES.size + 1) + (SOURCES.size + 1) + (LANES.size + 1) + FLAGS.size + 2
+    val DIM: Int = 1 + NUMERIC_BINS.sumOf { it.size + 2 } + (PHASES.size + 1) + (SOURCES.size + 1) + (LANES.size + 1) + FLAGS.size + 4
 
     /** Pure: the bin of [v] for [edges] — 0 unknown, 1..edges.size+1 by value. */
     fun binOf(v: Double, edges: DoubleArray): Int {
@@ -137,7 +139,7 @@ object EdgeModel8537 {
         var o = 0
         x[o++] = 1.0
         val values = doubleArrayOf(r.liq, r.mcap, r.ageMin, r.runup, r.pxPeak, r.dd, r.bp, r.chg5m, r.chg1h, r.volAccel, r.top,
-            r.holderVel, r.txVel, r.curve, r.turnover)
+            r.holderVel, r.txVel, r.curve, r.turnover, r.newBuyers15s8666)
         for ((k, edges) in NUMERIC_BINS.withIndex()) {
             x[o + binOf(values[k], edges)] = 1.0
             o += edges.size + 2
@@ -151,6 +153,8 @@ object EdgeModel8537 {
         o += FLAGS.size
         x[o++] = if (r.costPct.isFinite()) (r.costPct / 10.0).coerceIn(0.0, 3.0) else 0.5
         x[o++] = if (r.v3.isFinite()) (r.v3 / 100.0).coerceIn(-1.0, 1.5) else 0.0
+        x[o++] = if (r.sustainedDemand) 1.0 else 0.0
+        x[o] = if (r.marketReclaim) 1.0 else 0.0
         return x
     }
 
@@ -366,7 +370,7 @@ object EdgeModel8537 {
         // An in-flight decision captured before the curve fix can arrive AFTER the new
         // model's first boot. Its stored prediction epoch identifies that old price basis;
         // never reintroduce its phantom outcome through the live learn path or pocket ledger.
-        if (unscopedSolana8661(s.mint, if (s.modelEpoch == MODEL_EPOCH_8642) VENUE_SCOPE_EPOCH_8660 else 0)) {
+        if (!venueScopedForLearning8663(s.mint, s.modelEpoch)) {
             try { PipelineHealthCollector.labelInc("EDGE_LEGACY_NONPUMP_UNSCOPED_8661") } catch (_: Throwable) {}
             return
         }
@@ -386,8 +390,9 @@ object EdgeModel8537 {
             if (s.modelEpoch != MODEL_EPOCH_8642) oldPredictionsIgnored8642.incrementAndGet()
             else if (s.pred.isFinite()) oos.getOrPut(recordKey(s.raw.lane, s.modelKey)) { Oos() }.add(s.pred, netPct)
             else skippedCold.incrementAndGet()
-            global.learn(s.x, y)
-            byLane.getOrPut(s.raw.lane) { Ridge(DIM) }.learn(s.x, y)
+            val x = if (s.modelEpoch == MODEL_EPOCH_8642 && s.x.size == DIM) s.x else vectorOf(s.raw)
+            global.learn(x, y)
+            byLane.getOrPut(s.raw.lane) { Ridge(DIM) }.learn(x, y)
         }
         val k = learned.incrementAndGet()
         appendDataset(s, netPct, witnessed = chainWitness)   // retain independently provable multi-X outcomes
@@ -480,7 +485,8 @@ object EdgeModel8537 {
                 fun d(k: String) = o.optDouble(k, Double.NaN)
                 val r = Raw(o.optString("lane").trim().uppercase(), o.optString("src"), d("liq"), d("mcap"), d("age"),
                     d("runup"), d("pxPeak"), d("dd"), d("bp"), d("chg5m"), d("chg1h"), d("volAccel"), d("top"),
-                    o.optString("phase"), d("v3"), d("cost"), d("holderVel"), d("txVel"), d("curve"), d("turnover"), o.optInt("flags"))
+                    o.optString("phase"), d("v3"), d("cost"), d("holderVel"), d("txVel"), d("curve"), d("turnover"), o.optInt("flags"),
+                    d("newBuyers15s8666"), o.optBoolean("sustainedDemand"), o.optBoolean("marketReclaim"))
                 val x = vectorOf(r)
                 val y = target8567(d("net"))
                 global.learn(x, y, solveNow = false)
@@ -545,18 +551,18 @@ object EdgeModel8537 {
     }
 
     /** Pure: one dataset row (JSON) — the raw observation, the frozen prediction and the outcome. */
-    fun datasetLine(s: Snap, net: Double, filled: Boolean = true, witnessed: Boolean = false): String {
+    fun datasetLine(s: Snap, net: Double, filled: Boolean = true, witnessed: Boolean = false, labelObservedAtMs: Long? = null): String {
         fun n(v: Double) = if (v.isFinite()) "%.6g".format(java.util.Locale.US, v) else "null"
         val r = s.raw
         // The device may still be delivering decisions frozen on a PRE-fix APK. An 8661
         // serializer must never retroactively stamp those old observations as venue-safe.
-        val venueScope8661 = if (s.modelEpoch == MODEL_EPOCH_8642) VENUE_SCOPE_EPOCH_8660 else 0
+        val venueScope8661 = if (s.modelEpoch >= VENUE_SCOPE_EPOCH_8660) VENUE_SCOPE_EPOCH_8660 else 0
         return "{\"t\":${s.atMs},\"horizonMs\":${s.horizonMs},\"mint\":\"${s.mint.take(44)}\",\"lane\":\"${r.lane}\",\"src\":\"${r.source.replace("\"", "").take(60)}\"," +
             "\"liq\":${n(r.liq)},\"mcap\":${n(r.mcap)},\"age\":${n(r.ageMin)},\"runup\":${n(r.runup)},\"pxPeak\":${n(r.pxPeak)}," +
             "\"dd\":${n(r.dd)},\"bp\":${n(r.bp)},\"chg5m\":${n(r.chg5m)},\"chg1h\":${n(r.chg1h)},\"volAccel\":${n(r.volAccel)}," +
             "\"top\":${n(r.top)},\"holderVel\":${n(r.holderVel)},\"txVel\":${n(r.txVel)},\"curve\":${n(r.curve)},\"turnover\":${n(r.turnover)},\"newBuyers15s8666\":${n(r.newBuyers15s8666)},\"sustainedDemand\":${r.sustainedDemand},\"marketReclaim\":${r.marketReclaim}," +
             "\"flags\":${r.flags},\"phase\":\"${r.phase}\",\"v3\":${n(r.v3)},\"cost\":${n(r.costPct)},\"admitted\":${s.admitted}," +
-            "\"pred\":${n(netOf8567(s.pred))},\"model\":\"${s.modelKey}\",\"modelEpoch\":${s.modelEpoch},\"venueScopeEpoch\":$venueScope8661,\"net\":${n(net)},\"fill\":$filled,\"witness\":$witnessed}"
+            "\"pred\":${n(netOf8567(s.pred))},\"model\":\"${s.modelKey}\",\"modelEpoch\":${s.modelEpoch},\"venueScopeEpoch\":$venueScope8661,\"net\":${n(net)},\"fill\":$filled,\"witness\":$witnessed,\"labelObservedAtMs\":${labelObservedAtMs ?: "null"}}"
     }
 
     /**
@@ -574,7 +580,7 @@ object EdgeModel8537 {
     private val lastTrimMilestone8642 = AtomicLong(0)
 
     private fun appendDataset(s: Snap, net: Double, filled: Boolean = true, witnessed: Boolean = false) {
-        val line = try { datasetLine(s, net, filled, witnessed) } catch (_: Throwable) { return }
+        val line = try { datasetLine(s, net, filled, witnessed, System.currentTimeMillis()) } catch (_: Throwable) { return }
         io.execute {
             try {
                 val f = File(dir() ?: return@execute, DATASET_FILE)

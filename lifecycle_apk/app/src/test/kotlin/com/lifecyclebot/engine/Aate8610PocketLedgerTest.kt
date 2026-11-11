@@ -66,9 +66,9 @@ class Aate8610PocketLedgerTest {
         assertTrue(e.contains("PocketLedger8610.learn8610(s, netPct)"))
         val a = File("src/main/kotlin/com/lifecyclebot/engine/truth/LaneAuthority8577.kt").readText()
         assertTrue(a.contains("if (pocket != null) return if (pocket == PocketLedger8610.Call.PAYS) null"))
-        assertTrue("V5.0.8615 — a coin the ledger scores PAYS is bought even in a lane paper proves losing",
-            a.contains("if (pocket8610 != PocketLedger8610.Call.PAYS && !specificBeatsLanePrior8643(d) &&"))
-        assertTrue(a.contains("val r = applyLane8577(c, d, highRefusal8582, pocket8610)"))
+        assertTrue("the paper aggregate is recorded without a second veto",
+            a.contains("val resolved = withPaperPrior(d, paperLosing)"))
+        assertTrue(a.contains("val r = applyLane8577(c, d, highRefusal8582)"))
         assertTrue("both pocket refusals bind at the gate", LaneAuthority8577.binding8577(LaneAuthority8577.POCKET_UNPROVEN_8610) &&
             LaneAuthority8577.binding8577(LaneAuthority8577.POCKET_LOSES_8610))
         assertTrue(File("src/main/kotlin/com/lifecyclebot/engine/truth/CandidateAdmission8136.kt").readText()

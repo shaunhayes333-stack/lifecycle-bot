@@ -54,6 +54,7 @@ classpath="$deps_dir/kotlin-stdlib-1.9.24.jar:$deps_dir/annotations-13.0.jar:$de
 python3 "$script_dir/extract_field_manual.py" "$sources/truth/FieldManual7715.kt" "$output_dir/FieldManual7715.kt"
 python3 "$script_dir/extract_strategy_rank.py" "$sources/truth/StrategyRank8153.kt" "$output_dir/StrategyRank8153.kt"
 production=(
+  "$sources/market/BuyerFlow8666.kt"
   "$output_dir/StrategyRank8153.kt"
   "$sources/truth/SetupTimingGrades8528.kt"
   "$sources/truth/EntryFloorEvidence8528.kt"
@@ -105,7 +106,7 @@ printf 'Compiling tests against the separate production module (Gradle-style fri
 java -Xmx1536m -cp "$deps_dir/*" org.jetbrains.kotlin.cli.jvm.K2JVMCompiler \
   -jvm-target 17 -no-stdlib -no-reflect -classpath "$classpath:$output_dir/production.jar" \
   -Xfriend-paths="$output_dir/production.jar" -d "$output_dir/tests.jar" \
-  "$tests/Aate8528SetupTimingTest.kt" "$tests/Aate8528FluidFloorTest.kt" \
+  "$tests/Aate8675BuyerFlowTest.kt" "$tests/Aate8528SetupTimingTest.kt" "$tests/Aate8528FluidFloorTest.kt" \
   "$script_dir/ScannerSourceBrainIntegrationTest.kt" \
   "$tests/Aate8076CortexRevisionTest.kt" "$tests/Aate8372CortexLearningTest.kt" \
   "$tests/Aate8372CortexCalibrationTest.kt" "$tests/Aate8372ShadowLearningTest.kt" \
@@ -118,6 +119,7 @@ java -Xmx1536m -cp "$deps_dir/*" org.jetbrains.kotlin.cli.jvm.K2JVMCompiler \
 printf 'Running pure-model behavior tests (not Android/service integration).\n'
 cd -- "$apk_dir/app"
 java -cp "$output_dir/tests.jar:$output_dir/production.jar:$classpath" org.junit.runner.JUnitCore \
+  com.lifecyclebot.engine.Aate8675BuyerFlowTest \
   com.lifecyclebot.engine.Aate8528SetupTimingTest \
   com.lifecyclebot.engine.Aate8528FluidFloorTest \
   com.lifecyclebot.engine.Aate8076CortexRevisionTest \

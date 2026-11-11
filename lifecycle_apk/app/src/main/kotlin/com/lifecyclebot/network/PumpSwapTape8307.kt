@@ -102,6 +102,7 @@ object PumpSwapTape8307 {
             if (com.lifecyclebot.engine.truth.TradeTape8100.note8285(
                     mint, ev.sol / ev.tokens, ev.sol, ev.tokens, ev.isBuy, com.lifecyclebot.engine.truth.TradeTape8100.SRC_HELIUS_8169,
                     pool = ev.pool, signature = signature, eventMs = eventMs8307(ev.tsSec, nowMs), recvMs = nowMs,
+                    wallet = ev.user,
                 )) { n++; programTaped.incrementAndGet() }
         }
         n
@@ -224,6 +225,7 @@ object PumpSwapTape8307 {
                         ev.mint, ev.sol / ev.tokens, ev.sol, ev.tokens, ev.isBuy, com.lifecyclebot.engine.truth.TradeTape8100.SRC_HELIUS_8169,
                         pool = com.lifecyclebot.engine.truth.TradeTape8100.VENUE_CURVE_8285, signature = sig,
                         eventMs = eventMs8307(ev.timestampSec, nowMs), recvMs = nowMs,
+                        wallet = ev.user,
                     )) { n++; enhancedCurvePrints.incrementAndGet() }
             }
             // PumpSwap: the event names its pool; the pool's mint is known, or it is the one included mint the transaction touched.
@@ -237,6 +239,7 @@ object PumpSwapTape8307 {
                     if (com.lifecyclebot.engine.truth.TradeTape8100.note8285(
                             mint, ev.sol / ev.tokens, ev.sol, ev.tokens, ev.isBuy, com.lifecyclebot.engine.truth.TradeTape8100.SRC_HELIUS_8169,
                             pool = ev.pool, signature = sig, eventMs = eventMs8307(ev.tsSec, nowMs), recvMs = nowMs,
+                            wallet = ev.user,
                         )) { n++; enhancedAmmPrints.incrementAndGet() }
                 }
             }

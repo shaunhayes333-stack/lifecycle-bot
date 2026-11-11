@@ -129,7 +129,7 @@ class Aate7807HeliusLifecycleTest {
         assertTrue(o.contains("startSubscriptionHousekeeping7807()"))
         assertTrue(o.contains("lastWsEventMs.entries.removeIf"))
         assertTrue(o.contains("lastPumpPortalTradeMs7773.entries.removeIf"))
-        assertTrue(o.contains("onHeldTradeMark7787?.invoke(mint, safeSol / tokenAmt)"))
+        assertTrue(src("engine/BotService.kt").contains("TradeTape8100.setOnExecutedTrade"))
     }
 
     @Test fun cardinalityTelemetryIsInTheHealthDump() {

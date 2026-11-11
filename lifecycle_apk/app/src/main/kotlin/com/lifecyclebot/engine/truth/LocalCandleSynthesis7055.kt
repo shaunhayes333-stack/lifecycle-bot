@@ -217,9 +217,10 @@ object LocalCandleSynthesis7055 {
                 highUsd = b.high,
                 lowUsd = b.low,
                 openUsd = b.open,
+                intervalMs8521 = BUCKET_MS,
             )
             // V5.0.8284 — what this bar is: one or more executed prints (TRADE_AGGREGATED) or polled marks (MARK_ONLY).
-            CandleCoverage8284.tag8284(candle, if (b.trades > 0) CandleCoverage8284.Quality8284.TRADE_AGGREGATED
+            CandleCoverage8284.tag8284(candle, if (b.trades == b.ticks) CandleCoverage8284.Quality8284.TRADE_AGGREGATED
                 else CandleCoverage8284.Quality8284.MARK_ONLY, SYNTHETIC_SOURCE)
             // V5.0.7215 — this module's producer is now Executor.getActualPrice
             // (~17k observations per session, off several threads), where the

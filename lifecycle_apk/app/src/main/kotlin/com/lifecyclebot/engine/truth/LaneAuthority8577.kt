@@ -35,7 +35,7 @@ object LaneAuthority8577 {
         "EMPTY_CURVE", "EARLY_LAUNCH", "ROUTE_MIN", "SIZE_NOT_EXECUTABLE", "NON_ECONOMIC_APPROVAL", "QUARANT", "REBUY",
         // V5.0.8606 — this bot's own 24 h loss locks bind at the gate as they do at PreTradeHardGate: 19:23 dump, admitted locked
         // mints were ticketed, refused PRETRADE_BIG_LOSER_8130 after the ticket, backed off and re-ticketed (56 BACKOFF_ENDS_TICKET).
-        "BIG_LOSER", "REPEAT_LOSER", "PAPER_LANE_PROVEN_LOSING", "LIVE_COIN_STATE_UNPAID", "LIVE_POCKET_",
+        "BIG_LOSER", "REPEAT_LOSER", "LIVE_COIN_STATE_UNPAID", "LIVE_POCKET_",
         "DATA_", "STALE", "_FAILED", "GENERIC_SCORE_FLOOR",
         // superseded by V5.0.8604 — 8582 re-bound "INTO_HIGH", "CHASING_SPIKE", "CHASE_EXTENDED", "NEAR_HIGH",
         // "MEME_BUYS_THE_HIGH_8582" here. LIVE now decides like the paper book beside it, which never had those doors and is
@@ -193,15 +193,8 @@ object LaneAuthority8577 {
         return binding8577(d.reason)
     }
 
-    /**
-     * V5.0.8643 — a lane-wide losing paper average is a PRIOR, not a veto of an independently
-     * verified candidate-specific trade. The exact chosen setup/cell, or this coin's post-cost
-     * walk-forward model edge, has already passed CandidateAdmission's safety and economics.
-     * A generic native opinion, a broad lane prior and a non-economic approval are NOT proof.
-     */
-    fun specificBeatsLanePrior8643(d: CandidateAdmission8136.Decision8136): Boolean =
-        d.admitted && d.specific && d.reason in setOf("SPECIFIC_EDGE_PROVEN_8136", CandidateAdmission8136.EDGE_MODEL_PROVEN_8537) &&
-            d.expectedNetPct.isFinite() && d.expectedNetPct > 0.0 && d.costPct.isFinite() && d.costPct >= 0.0
+    internal fun withPaperPrior(d: CandidateAdmission8136.Decision8136, losing: Boolean): CandidateAdmission8136.Decision8136 =
+        if (losing) d.copy(trace = d.trace + "paperLanePrior=$PAPER_LOSING_8608") else d
 
     /**
      * CandidateAdmission8136.assess8136 (LIVE): the lane-qualified candidate's refusal by a learned door becomes an ADMIT
@@ -211,7 +204,7 @@ object LaneAuthority8577 {
     fun apply8577(c: CandidateAdmission8136.Candidate8136, d: CandidateAdmission8136.Decision8136,
                   highRefusal8582: String? = null, launchPhase8609: String? = null,
                   pocket8610: PocketLedger8610.Call? = null): CandidateAdmission8136.Decision8136 {
-        val r = applyLane8577(c, d, highRefusal8582, pocket8610)
+        val r = applyLane8577(c, d, highRefusal8582)
         if (!enabled8577 || !c.live || !r.admitted) return r
         val why = liveCoinStateRefusal8609(c.lane, launchPhase8609, pocket8610) ?: return r
         // V5.0.8620 §REPORT_ONLY_UNTIL_PROVEN — owner (8616 live): "still has 0 live buys". 8607 traded live and was net positive
@@ -223,7 +216,7 @@ object LaneAuthority8577 {
     }
 
     private fun applyLane8577(c: CandidateAdmission8136.Candidate8136, d: CandidateAdmission8136.Decision8136,
-                              highRefusal8582: String?, pocket8610: PocketLedger8610.Call? = null): CandidateAdmission8136.Decision8136 {
+                              highRefusal8582: String?): CandidateAdmission8136.Decision8136 {
         if (!enabled8577 || !c.live) return d
         val qualified = CandidateAdmission8136.specialistQualified8539(c)
         val costKnown = c.costPct.isFinite() && c.costPct >= 0.0
@@ -241,38 +234,18 @@ object LaneAuthority8577 {
             return d.copy(terminal = CandidateAdmission8136.Terminal8136.REFUSE, reason = "EXECUTION_NET_NONPOSITIVE_8629",
                 specific = true, trace = d.trace + "netAfterCost=${d.expectedNetPct} cost=${c.costPct}", laneQualified8577 = qualified)
         }
-        // V5.0.8609 §ONE_MARKET_EDGE_FOR_EVERY_LANE — 7,491 unique coin-minutes across 13 edge exports, split by time: the coin
-        // state that pays is EXPANDING (+4.6 % +-1.6, early +1.5 % / late +9.4 %; under 1 min +8.5 % +-2.7, n748). Everything
-        // else loses in every lane that saw it: MATURE -2.6 % (n3709), POST_PUMP_FADE -3.8 %, IGNITION -12.0 %, coins a day or
-        // older -3.5 % +-0.3 (n2746, the desks' whole mandate). Live buys a coin only in that state, whichever lane found it;
-        // PROJECT_SNIPER also keeps PRE_IGNITION (its flow proof: +46 % proven vs -14 % not). A lane whose own paper record is
-        // PROVEN (laneProven8572) trades whatever paper trades. The paper book is still fed every candidate. (Applied to the final
-        // ADMIT in apply8577; V5.0.8610 — PocketLedger8610 decides once seeded, this state rule is the fallback.)
-        // V5.0.8608 §LIVE_TRADES_WHAT_PAPER_PROVES — live decides like the paper book; where that book has PROVEN the lane loses
-        // (MemePaperTrader8544.laneProvenLosing8608) live does not spend the wallet on it.
-        // V5.0.8615 — the coin's own evidence outranks its lane's average: a coin PocketLedger8610 scores PAYS is bought even in a
-        // lane whose paper book proves a loss. 03:50 dump (8613, 9 min): this lane ban refused 1,669 MOONSHOT / EXPRESS / QUALITY /
-        // CASHGEN candidates, so the ledger could never pick a winner inside them (the lane's refused record: -16.2 % n35).
-        if (pocket8610 != PocketLedger8610.Call.PAYS && !specificBeatsLanePrior8643(d) &&
-            (try { MemePaperTrader8544.laneProvenLosing8608(c.lane) } catch (_: Throwable) { false })) {
-            // V5.0.8622 — re-armed on its own (the 8609 / 8610 coin-state and pocket rules stay report-only). 09:44 dump (8621,
-            // 65 min): paper MOONSHOT n43 -10.2 % +-4.6 PF0.28 on the very coins live admitted (TUNING: MOONSHOT|LIVE_ADMIT n26
-            // -17.5 %); live MOONSHOT took 131 tickets for 3 buys and its sealed reservations held the 0.17 SOL wallet while
-            // SHITCOIN (paper n24 +40.2 % on live-admitted coins) was refused ROUTE_MIN_EXCEEDS_TRADEABLE_8153 (565 across lanes).
-            try { PipelineHealthCollector.labelInc("PAPER_LANE_PROVEN_LOSING_8608_${c.lane.uppercase()}") } catch (_: Throwable) {}
-            return d.copy(terminal = CandidateAdmission8136.Terminal8136.REFUSE, reason = PAPER_LOSING_8608, specific = true,
-                trace = d.trace + "paperLaneProvenLosing8608", laneQualified8577 = false)
-        }
-        if (specificBeatsLanePrior8643(d)) try {
-            PipelineHealthCollector.labelInc("LANE_LOSS_YIELDS_TO_SPECIFIC_EDGE_8643_${c.lane.uppercase()}")
-        } catch (_: Throwable) {}
+        // A paper lane aggregate describes experiments across many setups. It
+        // cannot replace this candidate's safety, setup, timing and cost verdict.
+        // Keep it in the record so its counterfactual remains measurable.
+        val paperLosing = try { MemePaperTrader8544.laneProvenLosing8608(c.lane) } catch (_: Throwable) { false }
+        val resolved = withPaperPrior(d, paperLosing)
         // V5.0.8582 — a LIVE meme entry at the high is refused whatever admitted it (lane opinion, edge, generic prior).
         if (highRefusal8582 != null) {
             try { PipelineHealthCollector.labelInc("${highRefusal8582}_${c.lane.uppercase()}") } catch (_: Throwable) {}
             return d.copy(terminal = CandidateAdmission8136.Terminal8136.REFUSE, reason = highRefusal8582, specific = true,
                 trace = d.trace + "entryState=$highRefusal8582", laneQualified8577 = qualified)
         }
-        return if (qualified) d.copy(laneQualified8577 = true) else d
+        return if (qualified) resolved.copy(laneQualified8577 = true) else resolved
     }
 
     /** LiveEdgeGate7877.liveRefusal (LIVE): is the gate's refusal [reason] advisory for this lane-qualified candidate? */

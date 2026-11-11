@@ -109,8 +109,8 @@ internal object ValidatorMarket8506 {
             val signed = unique && event.buyer in signers && payer in signers
             val s = event.copy(sponsor = if (signed && payer != event.buyer) payer else "",
                 pool = pool, tip = if (signed) SolanaSwapEvidence8506.buyerTip(ixs, event.buyer, payer) else 0L)
-            if (source != "helius" || s.venue == "RAYDIUM") TradeTape8100.note8285(s.mint, s.sol / s.qty, s.sol, s.qty, s.isBuy, source,
-                pool = pool, signature = sig, eventMs = if (s.sourceTime) s.atMs else 0L, recvMs = now)
+            TradeTape8100.note8285(s.mint, s.sol / s.qty, s.sol, s.qty, s.isBuy, source,
+                pool = pool, signature = sig, eventMs = if (s.sourceTime) s.atMs else 0L, recvMs = now, wallet = s.buyer)
             KineticFlow8506.observe(s, now)
             if (source == "yellowstone" && s.sourceTime && now - s.atMs in 0L..2_000L) onConfirmed?.invoke(s)
         }

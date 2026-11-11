@@ -13,27 +13,16 @@ import java.io.File
 class Aate8608PaperProvesLiveTest {
     private fun src(p: String) = File("src/main/kotlin/com/lifecyclebot/$p").readText()
 
-    @Test fun aMeasuredCoinSetupBeatsTheLosingLanePriorWithoutExemptingGenericBuys() {
-        fun decision(reason: String, specific: Boolean, net: Double, cost: Double = 3.0) =
-            Decision8136(Terminal8136.ADMIT, reason, specific, "BASE_BREAKOUT_FLOW", net, emptyList(), costPct = cost)
-        assertTrue(LaneAuthority8577.specificBeatsLanePrior8643(decision("SPECIFIC_EDGE_PROVEN_8136", true, 8.0)))
-        assertTrue(LaneAuthority8577.specificBeatsLanePrior8643(
-            decision("EDGE_MODEL_PROVEN_8537", true, 4.0)))
-        assertFalse(LaneAuthority8577.specificBeatsLanePrior8643(
-            decision("NATIVE_QUALIFIED_ADMIT_8259", false, 8.0)))
-        assertFalse(LaneAuthority8577.specificBeatsLanePrior8643(
-            decision("GENERIC_PRIOR_CLEARS_8136", false, 8.0)))
-        assertFalse(LaneAuthority8577.specificBeatsLanePrior8643(
-            decision("SPECIFIC_EDGE_PROVEN_8136", true, 0.0)))
-        assertFalse(LaneAuthority8577.specificBeatsLanePrior8643(
-            decision("SPECIFIC_EDGE_PROVEN_8136", true, -2.0)))
-        assertFalse(LaneAuthority8577.specificBeatsLanePrior8643(
-            decision("SPECIFIC_EDGE_PROVEN_8136", true, 8.0, Double.NaN)))
-        assertFalse(LaneAuthority8577.specificBeatsLanePrior8643(
-            decision("SPECIFIC_EDGE_PROVEN_8136", true, 8.0).copy(terminal = Terminal8136.REFUSE)))
+    @Test fun aLosingPaperPriorPreservesTheCandidateVerdictAndEconomics() {
+        for (terminal in Terminal8136.values()) {
+            val original = Decision8136(terminal, "candidate_reason", true, "BASE_BREAKOUT_FLOW", 8.0, emptyList(), costPct = 3.0)
+            val result = LaneAuthority8577.withPaperPrior(original, true)
+            org.junit.Assert.assertEquals(original, result.copy(trace = emptyList()))
+            assertTrue(result.trace.any { it.startsWith("paperLanePrior=") })
+        }
     }
 
-    @Test fun aProvenLosingPaperLaneIsKeptOutOfLive() {
+    @Test fun paperLaneLossesRemainMeasurableButDoNotOwnCandidateAdmission() {
         assertTrue("01:42 paper EXPRESS n44 -3.5+-2.6 PF0.54", MemePaperTrader8544.provenLosing8608(44, -3.5, 2.6, 0.54))
         assertTrue("01:42 paper MOONSHOT n40 -4.1+-2.7 PF0.48", MemePaperTrader8544.provenLosing8608(40, -4.1, 2.7, 0.48))
         assertFalse("paper SHITCOIN n33 +29.7 PF3.20 stays live", MemePaperTrader8544.provenLosing8608(33, 29.7, 29.7, 3.20))
@@ -42,8 +31,8 @@ class Aate8608PaperProvesLiveTest {
         assertFalse(MemePaperTrader8544.provenLosing8608(60, -3.0, Double.NaN, 0.5))
         val a = src("engine/truth/LaneAuthority8577.kt")
         assertTrue(a.contains("MemePaperTrader8544.laneProvenLosing8608(c.lane)"))
-        assertTrue("the refusal binds at the live gate", a.contains("\"PAPER_LANE_PROVEN_LOSING\","))
-        assertTrue(LaneAuthority8577.binding8577(LaneAuthority8577.PAPER_LOSING_8608))
+        assertFalse("a paper aggregate is not a candidate veto", a.contains("\"PAPER_LANE_PROVEN_LOSING\","))
+        assertFalse(LaneAuthority8577.binding8577(LaneAuthority8577.PAPER_LOSING_8608))
         // the paper book is still fed the candidate, so a demoted lane can earn its way back
         val adm = src("engine/truth/CandidateAdmission8136.kt")
         assertTrue(adm.contains("MemePaperTrader8544.consider8544(ts, candidate, nowMs)"))
@@ -79,7 +68,7 @@ class Aate8608PaperProvesLiveTest {
         assertTrue(a.contains("return r.copy(trace = r.trace + \"advisory8620=\$why coinState8609="))
         assertFalse(a.contains("return r.copy(terminal = CandidateAdmission8136.Terminal8136.REFUSE, reason = why, specific = true,"))
         // V5.0.8622 — the lane-record rule alone is re-armed; the coin-state / pocket rules stay report-only.
-        assertTrue(a.contains("return d.copy(terminal = CandidateAdmission8136.Terminal8136.REFUSE, reason = PAPER_LOSING_8608"))
+        assertFalse(a.contains("return d.copy(terminal = CandidateAdmission8136.Terminal8136.REFUSE, reason = PAPER_LOSING_8608"))
     }
 
     @Test fun aYoungChartCanUseLaneAdmissionButAnObservedFailureNeedsSpecificEvidence() {

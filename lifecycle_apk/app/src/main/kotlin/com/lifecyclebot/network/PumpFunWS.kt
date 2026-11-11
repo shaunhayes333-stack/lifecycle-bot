@@ -1175,6 +1175,7 @@ object PumpFunWS {
             mint, priceSol, sol, tokenQty, isBuy, com.lifecyclebot.engine.truth.TradeTape8100.SRC_PUMPPORTAL_8285,
             pool = venue8285(j.optString("pool", "")), signature = j.optString("signature", ""),
             eventMs = frameEventMs8285(j.optLong("timestamp", 0L)), recvMs = System.currentTimeMillis(),
+            wallet = j.optString("traderPublicKey", ""),
         )
         com.lifecyclebot.engine.market.KineticFlow8506.observe(com.lifecyclebot.engine.market.KineticFlow8506.Swap(
             mint, venue, j.optString("signature"), j.optString("traderPublicKey"), isBuy, sol, tokenQty,

@@ -23,6 +23,12 @@ import java.util.concurrent.atomic.AtomicLong
  * LanePlaybook7907 reads it ONLY for an input its usual source left unobserved; it never overrides a provider reading.
  */
 object TradeTape8100 {
+    @Volatile private var onExecutedTrade: ((String, Trade) -> Unit)? = null
+    internal fun setOnExecutedTrade(listener: ((String, Trade) -> Unit)?) { onExecutedTrade = listener }
+
+    internal fun freshExecutedMark(t: Trade, nowMs: Long): Boolean =
+        !t.priceOnly && t.sol > 0.0 && t.tokenQty > 0.0 && nowMs - t.atMs in 0L..5_000L
+
     private const val KEEP_MS = 65L * 60_000L
     private const val MAX_TRADES = 800
     private const val MAX_MINTS = 400
@@ -73,13 +79,20 @@ object TradeTape8100 {
     fun note8285(
         mint: String, priceSol: Double, sol: Double, tokenQty: Double, isBuy: Boolean, source: String,
         pool: String = "", signature: String = "", eventMs: Long = 0L, recvMs: Long = System.currentTimeMillis(),
+        wallet: String = "",
     ): Boolean {
         if (mint.isBlank() || !priceSol.isFinite() || priceSol <= 0.0) return false
         val src = source.ifBlank { "other" }
         val sig = signature.trim()
+        // All decoded providers publish buyer evidence at the same boundary as
+        // the executed tape. Unknown wallets remain unknown; marks never enter.
+        if (tokenQty.isFinite() && tokenQty > 0.0) com.lifecyclebot.engine.market.BuyerFlow8666.note(mint, wallet, sol, isBuy,
+            if (eventMs > 0L) eventMs else recvMs, sig, recvMs)
         if (eventMs in 1L..recvMs) LaunchHour8628.trade(mint, eventMs, sig, isBuy, sol, tokenQty, priceSol)
         if (sig.isNotBlank()) {
-            val prior = seenSig8285.put("$mint|$sig|$isBuy", src)
+            val prior = synchronized(seenSig8285) {
+                seenSig8285.putIfAbsent("$mint|$sig|$isBuy", src)
+            }
             if (prior != null) {
                 (if (prior == src) sameFeedDup8285 else crossFeedDup8285).incrementAndGet()
                 return false
@@ -98,6 +111,9 @@ object TradeTape8100 {
             pool = MemoryBounds8289.intern8289(poolKey8285(src, pool)), signature = "", recvMs = recvMs,
             tokenQty = if (tokenQty.isFinite() && tokenQty > 0.0) tokenQty else 0.0, sourceTimeKnown8386 = eventKnown)
         add8169(mint, t, at, src)
+        val q = tapes[mint]
+        val newest = q != null && synchronized(q) { q.lastOrNull()?.atMs == t.atMs }
+        if (newest && freshExecutedMark(t, recvMs)) try { onExecutedTrade?.invoke(mint, t) } catch (_: Throwable) {}
         if (eventKnown && sol.isFinite() && sol > 0 && tokenQty.isFinite() && tokenQty > 0)
             com.lifecyclebot.network.HeliusCurveTape8354.onValidEvent8386(mint, eventMs, recvMs)
         return true
@@ -451,6 +467,7 @@ object TradeTape8100 {
     }
 
     internal fun resetForTest8100() {
+        onExecutedTrade = null
         tapes.clear(); notes.set(0); reads.set(0); filled.set(0); bySource8169.clear()
         seenSig8285.clear(); lastSigned8285.clear(); latency8285.clear(); noEventTs8285.clear()
         crossFeedDup8285.set(0); sameFeedDup8285.set(0); unsigned8285.set(0); executed8285.set(0)

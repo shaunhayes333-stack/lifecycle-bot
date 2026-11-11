@@ -107,7 +107,7 @@ class Aate8546StrategyFamiliesTest {
         val broad = callback.indexOf("onHeliusTrade7773(")
         assertTrue("a Helius event must hit the executed tape before the optional downstream consumers",
             tape >= 0 && copy > tape && broad > tape)
-        assertTrue("urgent held mark is still dispatched first", callback.indexOf("onHeldTradeMark7787?.invoke(") in 0 until tape)
+        assertTrue("held marks subscribe to the deduplicated tape", src("engine/BotService.kt").contains("TradeTape8100.setOnExecutedTrade"))
     }
 
     @Test fun shorterBaseAndPostMigrationRetestHaveTheirOwnClocks() {

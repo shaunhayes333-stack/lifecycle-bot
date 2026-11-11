@@ -28,6 +28,7 @@ object BuyerFlow8666 {
     private class MintWindow {
         val prints = ArrayDeque<Print>()
         val seenBuyerAtMs = LinkedHashMap<String, Long>()
+        val signatures = LinkedHashMap<String, Long>()
     }
 
     data class View(
@@ -48,21 +49,39 @@ object BuyerFlow8666 {
 
     private val prints = ConcurrentHashMap<String, MintWindow>()
 
-    fun note(mint: String, wallet: String, sol: Double, buy: Boolean, nowMs: Long = System.currentTimeMillis()) {
+    fun note(mint: String, wallet: String, sol: Double, buy: Boolean, nowMs: Long = System.currentTimeMillis(),
+             signature: String = "", receivedAtMs: Long = nowMs) {
         // The unified path also carries walletless curve-snapshot inferences. They are NOT executed buyer prints.
-        if (mint.isBlank() || wallet.isBlank() || !sol.isFinite() || sol <= 0.0 || nowMs <= 0L) return
+        if (mint.isBlank() || wallet.isBlank() || !sol.isFinite() || sol <= 0.0 || nowMs <= 0L ||
+            receivedAtMs - nowMs !in 0L..WINDOW_MS) return
         val q = prints.computeIfAbsent(mint) { MintWindow() }
         synchronized(q) {
-            val wallets = q.seenBuyerAtMs.entries.iterator()
-            while (wallets.hasNext()) {
-                val first = wallets.next()
-                if (nowMs - first.value > BUYER_MEMORY_MS || q.seenBuyerAtMs.size >= MAX_KNOWN_WALLETS) wallets.remove()
-                else break // insertion order is first-seen order
+            // The same signed swap may arrive from several providers. A later
+            // provider may supply the wallet omitted by the first; count it once.
+            q.signatures.entries.removeAll { receivedAtMs - it.value > WINDOW_MS }
+            if (signature.isNotBlank() && q.signatures.putIfAbsent("$signature|$buy", receivedAtMs) != null) return
+            while (q.signatures.size > MAX_PRINTS_PER_MINT * 2) q.signatures.remove(q.signatures.keys.first())
+            q.seenBuyerAtMs.entries.removeAll { receivedAtMs - it.value > BUYER_MEMORY_MS }
+            val previousFirst = q.seenBuyerAtMs[wallet]
+            val firstSeen = buy && (previousFirst == null || nowMs < previousFirst)
+            if (firstSeen) {
+                q.seenBuyerAtMs[wallet] = nowMs
+                // An older event can arrive after a newer buy from the same wallet.
+                // Move the first-buy flag to its event time, never count both as new.
+                if (previousFirst != null) {
+                    val corrected = q.prints.map { if (it.wallet == wallet && it.buy) it.copy(firstSeenBuyer = false) else it }
+                    q.prints.clear(); q.prints.addAll(corrected)
+                }
             }
-            val firstSeen = buy && wallet !in q.seenBuyerAtMs
-            if (firstSeen) q.seenBuyerAtMs[wallet] = nowMs
-            q.prints.addLast(Print(nowMs, wallet, sol, buy, firstSeen))
-            while (q.prints.isNotEmpty() && (q.prints.size > MAX_PRINTS_PER_MINT || nowMs - q.prints.peekFirst().atMs > WINDOW_MS)) q.prints.removeFirst()
+            while (q.seenBuyerAtMs.size > MAX_KNOWN_WALLETS) q.seenBuyerAtMs.remove(q.seenBuyerAtMs.keys.first())
+            val row = Print(nowMs, wallet, sol, buy, firstSeen)
+            if (q.prints.isEmpty() || q.prints.peekLast().atMs <= nowMs) q.prints.addLast(row)
+            else {
+                val ordered = (q.prints.toList() + row).sortedBy { it.atMs }
+                q.prints.clear(); q.prints.addAll(ordered)
+            }
+            while (q.prints.isNotEmpty() && (q.prints.size > MAX_PRINTS_PER_MINT ||
+                        receivedAtMs - q.prints.peekFirst().atMs > WINDOW_MS)) q.prints.removeFirst()
         }
         if (prints.size > MAX_MINTS) {
             // Bounded memory; evict quiet mints, never broaden the Helius subscription cap.

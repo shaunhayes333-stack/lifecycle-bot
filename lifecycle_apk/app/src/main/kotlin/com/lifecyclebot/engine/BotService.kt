@@ -5484,6 +5484,7 @@ class BotService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        com.lifecyclebot.engine.truth.TradeTape8100.setOnExecutedTrade(null)
         super.onDestroy()
         cancelShadowEvidenceTicks8372("onDestroy")
         // V5.0.6431 §K — stop the independent reconciler scheduler.
@@ -11039,11 +11040,13 @@ class BotService : Service() {
                 if (liq8418 > 0.0) try { com.lifecyclebot.engine.truth.LiquidityTruth8037.onPoolVaultObserved8418(mint, liq8418) } catch (_: Throwable) {}
                 try { orchestrator?.onTradePrint7819(mint, priceSol) } catch (_: Throwable) {}
             }
-            // V5.0.7787 — the same mark from Helius-decoded pump.fun trades on held mints.
-            orchestrator?.setOnHeldTradeMark7787 { mint: String, priceSol: Double ->
-                try { applyPumpTradeMark7278(mint, priceSol, 0.0) } catch (_: Throwable) {}
-                try { PipelineHealthCollector.labelInc("HELD_MARK_FROM_HELIUS_TRADE_7787") } catch (_: Throwable) {}
-                Unit
+            // Every decoded provider shares the executed tape's deduplication,
+            // event-time freshness and venue. Backfill cannot refresh a held mark.
+            com.lifecyclebot.engine.truth.TradeTape8100.setOnExecutedTrade { mint, trade ->
+                if (status.tokens[mint]?.position?.isOpen == true) {
+                    applyPumpTradeMark7278(mint, trade.priceSol, 0.0,
+                        "${trade.source.uppercase()}_EXECUTED_TRADE", trade.pool)
+                }
             }
             // V5.0.7743 — wallet, size and side reach the launch tape, the
             // real-time candles and the dev-sell exit (DataOrchestrator).

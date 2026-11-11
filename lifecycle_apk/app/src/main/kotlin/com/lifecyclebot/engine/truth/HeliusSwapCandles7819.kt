@@ -296,7 +296,7 @@ object HeliusSwapCandles7819 {
 
     /** Pure (V5.0.8284): 1 m bars from observed executed tape prints only; a minute without a print gets no bar. */
     fun localTapeBars8284(prints: List<TradeTape8100.Print8128>, solUsd: Double, nowMs: Long): List<Candle> =
-        binPrints7819(prints.map { SwapPrint7819(it.atMs, it.priceSol, it.sol, it.isBuy) }, solUsd, nowMs)
+        binPrints7819(prints.filter { !it.priceOnly }.map { SwapPrint7819(it.atMs, it.priceSol, it.sol, it.isBuy) }, solUsd, nowMs)
 
     /**
      * V5.0.8284 — the cheap path for a request that will not reach Helius (budget, retry wait, no market account, too
@@ -575,7 +575,8 @@ object HeliusSwapCandles7819 {
      */
     fun binPrints7819(prints: List<SwapPrint7819>, solUsd: Double, nowMs: Long): List<Candle> {
         if (!solUsd.isFinite() || solUsd <= 0.0) return emptyList()
-        val inWindow = prints.filter { it.tsMs in (nowMs - WINDOW_MS)..(nowMs + BUCKET_MS) }
+        val inWindow = prints.filter { it.tsMs in (nowMs - WINDOW_MS)..nowMs &&
+            it.priceSol.isFinite() && it.priceSol > 0.0 && it.sol.isFinite() && it.sol > 0.0 }
         if (inWindow.isEmpty()) return emptyList()
         val sorted = inWindow.map { it.priceSol }.sorted()
         val median = sorted[sorted.size / 2]
@@ -595,6 +596,8 @@ object HeliusSwapCandles7819 {
                 highUsd = prices.maxOrNull() ?: prices.last(),
                 lowUsd = prices.minOrNull() ?: prices.last(),
                 openUsd = prices.first(),
+                intervalMs8521 = BUCKET_MS,
+                periodVolumeUsd8521 = ps.sumOf { it.sol } * solUsd,
             )
         }
     }

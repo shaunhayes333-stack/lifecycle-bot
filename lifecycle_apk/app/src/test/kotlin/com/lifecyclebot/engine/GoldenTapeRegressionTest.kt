@@ -15111,10 +15111,10 @@ class GoldenTapeRegressionTest {
         val hook = o.substringAfter("V5.0.7787 — a decoded pump.fun TradeEvent").substringBefore("onLargeWalletMove")
         assertTrue(hook.contains("wallet.isNotBlank() && tokenAmt.isFinite() && tokenAmt > 0.0"))
         assertTrue(hook.contains("position?.isOpen == true"))
-        assertTrue(hook.contains("onHeldTradeMark7787?.invoke(mint, safeSol / tokenAmt)"))
+        assertTrue(hook.contains("ProofDataSwapTape8144.noteHelius8144("))
         val b = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue(b.contains("orchestrator?.setOnHeldTradeMark7787 { mint: String, priceSol: Double ->"))
-        assertTrue(b.contains("applyPumpTradeMark7278(mint, priceSol, 0.0)"))
+        assertTrue(b.contains("TradeTape8100.setOnExecutedTrade { mint, trade ->"))
+        assertTrue(b.contains("applyPumpTradeMark7278(mint, trade.priceSol, 0.0,"))
     }
 
     @org.junit.Test

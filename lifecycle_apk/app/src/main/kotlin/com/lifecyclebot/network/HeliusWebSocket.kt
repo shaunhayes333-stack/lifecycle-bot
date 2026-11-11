@@ -144,7 +144,7 @@ class HeliusWebSocket(
     /** Pure backpressure decision: never exceed the old proven emergency ceiling of eight when overloaded. */
     internal fun capForLoad8666(current: Int, bytesPerMin: Long, heapFraction: Double, allowGrowth: Boolean): Int = when {
         heapFraction >= 0.72 || bytesPerMin >= WS_LIMIT_BYTES_PER_MIN_8666 -> MIN_TOKEN_SUBSCRIPTIONS_8666
-        allowGrowth && heapFraction < 0.52 && bytesPerMin < WS_GROW_BYTES_PER_MIN_8666 -> (current + 2).coerceAtMost(MAX_TOKEN_SUBSCRIPTIONS_7794)
+        allowGrowth && heapFraction < 0.65 && bytesPerMin < WS_GROW_BYTES_PER_MIN_8666 -> (current + 2).coerceAtMost(MAX_TOKEN_SUBSCRIPTIONS_7794)
         else -> current
     }
 
@@ -184,6 +184,7 @@ class HeliusWebSocket(
             while (subscriptions.size > adaptiveTokenCap8666 && iter.hasNext()) {
                 val entry = iter.next()
                 if (entry.key in pinned) continue
+                subscriptionStartedAt.remove(entry.key)
                 removed.add(entry.key to entry.value)
                 iter.remove()
             }
@@ -360,8 +361,10 @@ class HeliusWebSocket(
         val pinned = pinnedMints7807()
         val released = ArrayList<Pair<String, Int?>>()
         synchronized(subscriptions) {
+            val now = System.currentTimeMillis()
             val drop = releasableSubs7948(subscriptions.keys.toList(), pinned, keep)
-            for (m in drop) released.add(m to subscriptions.remove(m))
+                .filterNot { observationLeaseActive(subscriptionStartedAt[it], now) }
+            for (m in drop) { subscriptionStartedAt.remove(m); released.add(m to subscriptions.remove(m)) }
         }
         if (released.isEmpty()) return 0
         for ((mint, serverId) in released) {
@@ -389,6 +392,11 @@ class HeliusWebSocket(
 
     /** Subscribe to all swaps for a specific token mint. */
     private val decisionTape8397 = DecisionTapeLeases8397()
+    private val subscriptionStartedAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    /** Let a selected mint ACK and deliver evidence before rotating discovery. */
+    internal fun observationLeaseActive(startedAt: Long?, nowMs: Long): Boolean =
+        startedAt != null && nowMs - startedAt in 0L until 60_000L
 
     fun subscribeToken(mint: String, decisionEvidence8397: Boolean = false) {
         if (mint.isBlank()) return
@@ -416,13 +424,16 @@ class HeliusWebSocket(
             if (subscriptions.size >= adaptiveTokenCap8666) {
                 // V5.0.7807 — eldest NON-held mint is the victim; discovery goes first.
                 // V5.0.7921 — the coldest launch past its 2-minute grace goes first (hot tapes stay).
-                val evictable7921 = subscriptions.keys.filter { it !in pinned }
+                val evictable7921 = subscriptions.keys.filter {
+                    it !in pinned && (mint in pinned || !observationLeaseActive(subscriptionStartedAt[it], now8397))
+                }
                 // A promoted or in-grace launch is never the fallback victim of a non-held mint.
                 val victim = (try { com.lifecyclebot.engine.market.LaunchTape7921.evictionVictim(evictable7921) } catch (_: Throwable) { null })
                     ?: if (mint in pinned) evictable7921.firstOrNull() else null
                 if (victim != null) {
                     evictedMint = victim
                     evictedServerId = subscriptions.remove(victim)
+                    subscriptionStartedAt.remove(victim)
                 } else if (mint in pinned) {
                     overCap = true // every slot is a held position; held set is bounded by open positions
                 } else {
@@ -432,6 +443,7 @@ class HeliusWebSocket(
             if (!deferred) {
                 requestId = idCounter.getAndIncrement()
                 subscriptions[mint] = null
+                subscriptionStartedAt[mint] = now8397
             }
         }
         if (deferred) {
@@ -512,7 +524,7 @@ class HeliusWebSocket(
         walletServerSubscription7803.clear()
         requestSentAtMs7807.clear()
         synchronized(recentUnsubscribed7807) { recentUnsubscribed7807.clear() }
-        synchronized(subscriptions) { subscriptions.keys.toList().forEach { subscriptions[it] = null } }
+        synchronized(subscriptions) { subscriptions.keys.toList().forEach { subscriptions[it] = null; subscriptionStartedAt[it] = System.currentTimeMillis() } }
 
         val listener7819 = object : WebSocketListener() {
             // V5.0.7819 — set when this socket died before newWebSocket() returned,
@@ -673,7 +685,10 @@ class HeliusWebSocket(
                 })
             })
         }.toString())
-        if (!sent7807) { requestToMint7765.remove(id); requestSentAtMs7807.remove(id) }
+        if (!sent7807) {
+            requestToMint7765.remove(id); requestSentAtMs7807.remove(id)
+            releaseUnackedMint7807(mint)
+        }
     }
 
     private fun sendAccountSubscribe(id: Int, address: String) {
@@ -924,6 +939,7 @@ class HeliusWebSocket(
         if (undecodableUntil8096.size > 2_000) undecodableUntil8096.entries.removeIf { it.value < nowMs }
         logStats8096.remove(mint)
         val serverId = synchronized(subscriptions) { if (subscriptions.containsKey(mint)) subscriptions.remove(mint) else return }
+        subscriptionStartedAt.remove(mint)
         subscriptionToMint7765.entries.removeIf { it.value == mint }
         serverId?.let { sendUnsubscribe7803("logsUnsubscribe", it) }
         HeliusSubscriptionTelemetry7807.undecodableReleased8096.incrementAndGet()
@@ -954,7 +970,10 @@ class HeliusWebSocket(
     /** V5.0.7807 — drop a desired mint whose subscribe was refused/never ACKed, if still unfilled. */
     private fun releaseUnackedMint7807(mint: String) {
         synchronized(subscriptions) {
-            if (subscriptions.containsKey(mint) && subscriptions[mint] == null) subscriptions.remove(mint)
+            if (!requestToMint7765.containsValue(mint) && subscriptions.containsKey(mint) && subscriptions[mint] == null) {
+                subscriptions.remove(mint)
+                subscriptionStartedAt.remove(mint)
+            }
         }
     }
 

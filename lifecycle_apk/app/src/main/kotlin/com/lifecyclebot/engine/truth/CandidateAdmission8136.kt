@@ -1378,7 +1378,19 @@ object CandidateAdmission8136 {
     fun deferBudgetFor8144(mint: String, missing: List<String>, nowMs: Long = System.currentTimeMillis()): Boolean {
         if (mint.isNotBlank()) {
             val prev = defers8136[mint]
-            if (prev == null || nowMs < prev.firstMs || nowMs - prev.firstMs >= DEFER_RESET_MS_8136) firstMissing8204[mint] = missing.map { it.trim() }.filter { it.isNotBlank() }.toSet()
+            val remaining = missing.map { it.trim() }.filter { it.isNotBlank() }.toSet()
+            val previousMissing = firstMissing8204[mint]
+            // Reopen only after an actual missing fact is now present in the
+            // assessed candidate. Repeated ticks/notifications cannot refill a budget.
+            val remainingKinds = remaining.map { it.substringBefore(':').lowercase() }.toSet()
+            val progressed = previousMissing?.any { it.substringBefore(':').lowercase() !in remainingKinds } == true
+            if (prev == null || nowMs < prev.firstMs || nowMs - prev.firstMs >= DEFER_RESET_MS_8136 || progressed) {
+                firstMissing8204[mint] = remaining
+                if (progressed) {
+                    defers8136.remove(mint)
+                    reevals8144.keys.removeIf { it.startsWith("$mint|") }
+                }
+            }
             if (firstMissing8204.size > 4096) firstMissing8204.keys.take(1024).forEach { firstMissing8204.remove(it) }
         }
         if (mint.isBlank()) return false
