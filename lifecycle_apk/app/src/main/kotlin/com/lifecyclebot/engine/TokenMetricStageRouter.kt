@@ -114,7 +114,14 @@ object TokenMetricStageRouter {
         val bookObserved8464 = freshLocalBook || flow?.buyPct?.isFinite() == true
         val valuationAir = liq > 0.0 && mcapToLiq >= 85.0 && mcap >= 150_000.0 && !isEstablished7306(ts, mcap, liq, ageMin)
         val airRug8500 = valuationAir && bookObserved8464 && (sp >= 55.0 || bp < 52.0)
-        val thinRug8500 = liqThin && runup >= 80.0
+        // V5.0.8698 §A_BONDING_CURVE_IS_NOT_A_THIN_POOL — on an ACTIVE pump.fun curve [liq] is the real SOL raised, and price
+        // is a function of it: a coin at ~10-15 SOL raised reads "liquidity <= $2,500 and up >= 80 % from its low" by
+        // construction, so the thin-liquidity run-up test staged ordinary curve progress RUG_PRONE. 8689 runner trace: 41 of
+        // the 64 wrongly refused runners were lane-qualified coins stopped by STRUCTURAL_RISK_8136. A curve trades against
+        // its VIRTUAL reserve (30 + real SOL — the depth FieldManual7715.depthUsdForImpact8337 already prices impact on), so
+        // the thin-POOL test applies to pools only. A curve coin is still judged by its own cell / stage / setup records.
+        val onActiveCurve8698 = try { com.lifecyclebot.engine.truth.CurveReserves7951.realSolIfActive8046(ts.mint, now) != null } catch (_: Throwable) { false }
+        val thinRug8500 = thinPoolRunup8698(liqThin, runup, onActiveCurve8698)
         // V5.0.8696 — top-10 concentration no longer stages a coin RUG_PRONE. On 13,321 labelled meme decisions the coins it
         // refused (top-10 >= 60 %, n366) did BETTER than the rest in both halves (-0.4 % / -6.0 % against -6.1 % / -8.2 %):
         // it was not protecting. Concentration stays with its owner: TokenSafetyChecker penalises it from 40 % and refuses
@@ -540,6 +547,10 @@ object TokenMetricStageRouter {
         buyPressurePct >= 50.0 -> "N_PULLBACK"
         else -> "N_FADING"
     }
+
+    /** Pure (V5.0.8698): a thin POOL that has already run — never an active bonding curve, whose depth is its virtual reserve. */
+    fun thinPoolRunup8698(liqThin: Boolean, runupPct: Double, onActiveCurve: Boolean): Boolean =
+        liqThin && runupPct >= 80.0 && !onActiveCurve
 
     /** Pure (V5.0.8500): the structural test(s) that staged a coin RUG_PRONE. */
     fun rugWhy8500(valuationAir: Boolean, thinRunup: Boolean): String =

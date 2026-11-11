@@ -15670,7 +15670,7 @@ class GoldenTapeRegressionTest {
         val router = java.io.File(root, "TokenMetricStageRouter.kt").readText()
         assertFalse("V5.0.8696: top-10 concentration no longer stages RUG_PRONE (the safety owner keeps it)", router.contains("TOP10_RUG_PRONE_PCT_8500"))
         assertTrue(router.contains("val rugProne = airRug8500 || thinRug8500"))
-        assertTrue(router.contains("val thinRug8500 = liqThin && runup >= 80.0"))
+        assertTrue(router.contains("liqThin && runupPct >= 80.0 && !onActiveCurve"))   // V5.0.8698 — a curve is not a thin pool
         val safety = java.io.File(root, "TokenSafetyChecker.kt").readText()
         assertTrue(safety.contains("topHolderPct > 80.0 ->"))
     }

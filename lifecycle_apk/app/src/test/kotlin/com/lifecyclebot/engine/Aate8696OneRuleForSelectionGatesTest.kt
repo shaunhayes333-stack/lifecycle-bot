@@ -36,5 +36,14 @@ class Aate8696OneRuleForSelectionGatesTest {
         assertFalse(src("engine/TokenMetricStageRouter.kt").contains("topHeavy ||"))
     }
 
+    // V5.0.8698 — a bonding curve's real SOL is not a thin pool: 41 of 64 wrongly refused runners were stopped by this test.
+    @Test fun anActiveBondingCurveIsNotAThinPoolRunup() {
+        assertTrue(TokenMetricStageRouter.thinPoolRunup8698(liqThin = true, runupPct = 120.0, onActiveCurve = false))
+        assertFalse(TokenMetricStageRouter.thinPoolRunup8698(liqThin = true, runupPct = 120.0, onActiveCurve = true))
+        assertFalse(TokenMetricStageRouter.thinPoolRunup8698(liqThin = true, runupPct = 40.0, onActiveCurve = false))
+        assertFalse(TokenMetricStageRouter.thinPoolRunup8698(liqThin = false, runupPct = 120.0, onActiveCurve = false))
+        assertTrue(src("engine/TokenMetricStageRouter.kt").contains("CurveReserves7951.realSolIfActive8046(ts.mint, now) != null"))
+    }
+
     private fun src(p: String) = File("src/main/kotlin/com/lifecyclebot/$p").readText()
 }
