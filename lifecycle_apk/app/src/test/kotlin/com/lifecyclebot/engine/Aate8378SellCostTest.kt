@@ -46,8 +46,8 @@ class Aate8378SellCostTest {
         assertTrue("full sell", body.contains("senderTipLamports = sellTip8378(c, reason, ts, fastLand7980)"))
         assertEquals("both dust-buster legs", 2, Regex("dustTip8378\\(c, ts\\)").findAll(body).count())
         assertTrue("orphan sell", exec.contains("sellSenderTip8378(c, \"ORPHAN_SELL\", mint, urgent = false)"))
-        assertTrue(exec.contains("sellSenderTip8378(c, reason, ts.mint, urgent = isDrainExit || spike7944)"))
-        assertTrue(exec.contains("sellSenderTip8378(c, reason, ts.mint, urgent = isDrainExit)"))
+        assertTrue(exec.contains("sellSenderTip8378(c, reason, ts.mint, urgent = isDrainExit || spike7944, positionSol8694 = ts.position.costSol)"))
+        assertTrue(exec.contains("sellSenderTip8378(c, reason, ts.mint, urgent = isDrainExit, positionSol8694 = ts.position.costSol)"))
     }
 
     @Test fun withheldFeeAccountsAreHarvestedThenClosed() {

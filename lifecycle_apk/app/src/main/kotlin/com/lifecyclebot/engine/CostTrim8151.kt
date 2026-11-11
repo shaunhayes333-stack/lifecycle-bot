@@ -106,6 +106,21 @@ object CostTrim8151 {
         return r.contains("PEAK_CAPTURE") || r.contains("STRUCTURE_BREAK") || r.contains("PEAK_GIVEBACK")
     }
 
+    /**
+     * V5.0.8694 — Pure: a protective SELL's Sender tip scaled to the position. The protective tip was a flat floor
+     * (200,000+ lamports whatever the size): 8689's five stop sells averaged 252,480 lamports, 0.7 % of a 0.036 SOL position
+     * on the tip alone (EXPRESS measured round trip 6.22 %, 5.42 % of it the sell side). A stop / trail / floor sell now
+     * tips at most [PROTECTIVE_TIP_SHARE_8694] of the position's value, never under the ordinary tip. The full [legacy]
+     * tip stays for a rug / drain / emergency / manual exit ([fullTip]) and for a retry after a sell that did not land.
+     */
+    fun protectiveTipLamports8694(legacy: Long, positionLamports: Long, fullTip: Boolean, previousSellUnlanded: Boolean): Long {
+        if (fullTip || previousSellUnlanded || positionLamports <= 0L) return legacy
+        val scaled = (positionLamports.toDouble() * PROTECTIVE_TIP_SHARE_8694).toLong()
+        return legacy.coerceAtMost(scaled.coerceAtLeast(ORDINARY_SENDER_TIP_LAMPORTS_8151))
+    }
+    /** A protective sell's tip may be at most this share of the position (the share ordinary priority already uses). */
+    internal const val PROTECTIVE_TIP_SHARE_8694 = ORDINARY_PRIORITY_SHARE_8151
+
     fun sellProtective8378(reason: String?, urgent: Boolean, previousSellUnlanded: Boolean): Boolean {
         if (urgent || previousSellUnlanded) return true
         val r = reason.orEmpty()
