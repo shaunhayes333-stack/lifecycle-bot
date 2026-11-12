@@ -333,7 +333,12 @@ object LaneHunter7297 {
     }
 
     /** The trader's effective floor: its own constant, or lower where its closes earned it. */
-    fun floorFor(lane: String, base: Double): Double = fluidBandFor(lane)?.first?.coerceAtMost(base) ?: base
+    // V5.0.8719 — and lower where the forward labels of the coins the floor refused prove the lane would have banked them
+    // (ManagedBands8719): the closes-only rule could not move, because the floor refuses the trades it needed to see.
+    fun floorFor(lane: String, base: Double): Double {
+        val byCloses = fluidBandFor(lane)?.first?.coerceAtMost(base) ?: base
+        return try { com.lifecyclebot.engine.truth.ManagedBands8719.capFloor8719(lane, byCloses, MAX_EDGE_STEPS) } catch (_: Throwable) { byCloses }
+    }
 
     /** The trader's effective ceiling: its own constant, or higher where its closes earned it. */
     fun ceilingFor(lane: String, base: Double): Double = fluidBandFor(lane)?.second?.coerceAtLeast(base) ?: base

@@ -29,7 +29,7 @@ class Aate8630DoctrineSellsTest {
         assertEquals(25.0, RunnerDoctrine8584.TRAIL_ARM_PEAK_PCT_8630, 0.0)
         assertFalse("not armed below a +25 % peak", RunnerDoctrine8584.trailBreached8630("SHITCOIN", 2.0, 20.0))
         assertFalse("above half the peak gain it holds", RunnerDoctrine8584.trailBreached8630("SHITCOIN", 20.0, 30.0))
-        assertTrue("at half the peak gain it sells", RunnerDoctrine8584.trailBreached8630("SHITCOIN", 15.0, 30.0))
+        assertTrue("at half the peak gain it sells (no stop read; 8719 widens it by the stop)", RunnerDoctrine8584.trailBreached8630("SHITCOIN", 15.0, 30.0, Double.NaN))
         assertFalse("a 5x on a 45 % give-back line holds at 3x", RunnerDoctrine8584.trailBreached8630("MOONSHOT_LUNAR", 200.0, 400.0))
         assertTrue("and sells at 2.75x", RunnerDoctrine8584.trailBreached8630("MOONSHOT_LUNAR", 175.0, 400.0))
         assertFalse("other lanes keep their exits", RunnerDoctrine8584.trailBreached8630("QUALITY", 0.0, 80.0))

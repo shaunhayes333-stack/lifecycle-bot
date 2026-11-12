@@ -192,6 +192,12 @@ object LaneAgeLiquidityTruth8140 {
             }
         }
         if (!v.blocksEntry) return null
+        // V5.0.8719 — the lane's floor is a prior: a band whose managed record (what the lane's stop and ladder would have
+        // banked on every coin it judged there) is proven positive opens it. Never below the live exit-safe floor.
+        if (v.outcome == LaneAgeLiquidityScope8140.Outcome8140.REFUSE && !belowLiveExitFloor &&
+            (try { com.lifecyclebot.engine.truth.ManagedBands8719.liquidityOpen8719(lane, liquidityUsd) } catch (_: Throwable) { false })) {
+            count8140("LANE_LIQ_FLOOR_MANAGED_OPEN_8719_${LaneAgeLiquidityScope8140.canonical8140(lane)}"); return null
+        }
         count8140(v.label)
         return LaneAgeLiquidityScope8140.refusalReason8140(
             v, liquidityUsd, LaneAgeLiquidityScope8140.effectiveLiquidityFloor8140(laneFloorUsd, live),

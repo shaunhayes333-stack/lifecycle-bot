@@ -423,6 +423,7 @@ object EdgeModel8537 {
         val k = learned.incrementAndGet()
         appendDataset(s, netPct, witnessed = chainWitness)   // retain independently provable multi-X outcomes
         try { PocketLedger8610.learn8610(s, netPct) } catch (_: Throwable) {}   // V5.0.8610 — the learned pocket ledger
+        try { ManagedBands8719.learn8719(s.raw.lane, s.raw.liq, s.raw.mcap, netPct, s.raw.costPct) } catch (_: Throwable) {}   // V5.0.8719 — the floors' record
         if (k % SAVE_EVERY == 0L) saveAsync()
         try { PipelineHealthCollector.labelInc("EDGE_MODEL_LEARNED_8537") } catch (_: Throwable) {}
     }

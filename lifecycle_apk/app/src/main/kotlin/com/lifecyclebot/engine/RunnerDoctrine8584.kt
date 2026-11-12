@@ -65,10 +65,33 @@ object RunnerDoctrine8584 {
     const val TRAIL_ARM_PEAK_PCT_8630 = 25.0
 
     /** Pure: has a doctrine position at [pnlPct] after a peak of [peakPct] fallen to its line? */
-    fun trailBreached8630(lane: String?, pnlPct: Double, peakPct: Double): Boolean {
+    fun trailBreached8630(lane: String?, pnlPct: Double, peakPct: Double, stopPct: Double = stopFor8719(lane)): Boolean {
         if (!rides8584(lane) || !pnlPct.isFinite() || !peakPct.isFinite() || peakPct < TRAIL_ARM_PEAK_PCT_8630) return false
-        return 1.0 + pnlPct / 100.0 <= line8584(1.0 + peakPct / 100.0)
+        return 1.0 + pnlPct / 100.0 <= lineWithStop8719(1.0 + peakPct / 100.0, stopPct)
     }
+
+    /**
+     * V5.0.8719 §A_WINNER_GETS_THE_ROOM_ITS_STOP_GAVE_IT — owner: "are we starting to narrow into the 4x and 10x runners".
+     * 8712, 24 h: 60 coins went 4x+, live held 5 of them and sold every one early; no ladder rung has ever triggered
+     * (runnerFunnel8331 rungTriggered=0). The session's two MOONSHOT winners: AJFnmp peaked about +31 % and was sold at
+     * +15.7 %, 5v5zdV was sold 43 s after the buy at +13.9 % — both by this trail. Below 2x the line kept half the peak
+     * gain, so from a +28 % peak an 11 % dip sold the position, while the same position's own stop (cost + twice its
+     * one-minute range, 25 % here; noise1m 3.9 %) had allowed a 25 % dip a minute earlier. A winner was given less than
+     * half the room it had at entry, and a memecoin does not get to 2x without a pullback of its own noise.
+     *
+     * Below a 2x peak the line is now the LOWER of half the peak gain and the peak less the position's own stop distance,
+     * never under +5 % (unchanged: once armed, a winner is not given back to a loss). From 2x the 45 % give-back trail is
+     * unchanged, and the two meet at 2x. The paper book runs the same line, so its record measures the change.
+     */
+    fun lineWithStop8719(peakMult: Double, stopPct: Double): Double {
+        val half = line8584(peakMult)
+        if (peakMult >= 2.0 || !stopPct.isFinite() || stopPct <= 0.0) return half
+        return maxOf(1.05, minOf(half, peakMult * (1.0 - stopPct.coerceAtMost(95.0) / 100.0)))
+    }
+
+    /** The stop distance (%) a position of [lane] carries: the lane's stop at its measured round trip; NaN when unreadable. */
+    private fun stopFor8719(lane: String?): Double =
+        try { com.lifecyclebot.engine.truth.FieldManual7715.laneStopPct8392(foldLane8630(lane)) } catch (_: Throwable) { Double.NaN }
 
     /** Pure: is [reason] one of the doctrine's own exits (never held, deferred or banked as a partial by another door)? */
     fun ownExit8630(reason: String?): Boolean = reason?.trim()?.uppercase()?.startsWith("RUNNER_DOCTRINE_") == true
@@ -91,7 +114,7 @@ object RunnerDoctrine8584 {
      * Pure: is the exit [reason] of a [lane] position at [pnlPct] (peak [peakPct]) held by the doctrine? The doctrine's own
      * ladder rungs (SPIKE_CAPTURE_7943) and every never-held exit pass; nothing at or below the line is held.
      */
-    fun holds8584(lane: String?, reason: String?, pnlPct: Double, peakPct: Double): Boolean {
+    fun holds8584(lane: String?, reason: String?, pnlPct: Double, peakPct: Double, stopPct: Double = stopFor8719(lane)): Boolean {
         if (!rides8584(lane) || reason.isNullOrBlank() || !pnlPct.isFinite()) return false
         if (ownExit8630(reason)) return false
         val r = reason.uppercase()
@@ -101,7 +124,7 @@ object RunnerDoctrine8584 {
         val now = 1.0 + pnlPct / 100.0
         val peak = 1.0 + maxOf(if (peakPct.isFinite()) peakPct else pnlPct, pnlPct) / 100.0
         if (peak < 1.5 && TIME_EXIT_8584.any { r.contains(it) }) return false
-        return now > line8584(peak)
+        return now > lineWithStop8719(peak, stopPct)
     }
 
     /**
@@ -109,7 +132,7 @@ object RunnerDoctrine8584 {
      * +10 %, then the doctrine line.
      */
     fun paperStopLevel8584(stopPct: Double, peakPct: Double): Double =
-        if (peakPct.isFinite() && peakPct >= 10.0) (line8584(1.0 + peakPct / 100.0) - 1.0) * 100.0 else -stopPct
+        if (peakPct.isFinite() && peakPct >= 10.0) (lineWithStop8719(1.0 + peakPct / 100.0, stopPct) - 1.0) * 100.0 else -stopPct
 
     /** LaneExitTuner: a meme lane's take-profit / stop multiplier may widen, never shrink. */
     fun tunerFloor8584(lane: String?, mult: Double): Double =
@@ -130,6 +153,6 @@ object RunnerDoctrine8584 {
         val top = held8584.entries.sortedByDescending { it.value.get() }.take(8)
             .joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }
         return "runnerDoctrine8584[on=$enabled8584 held=${heldCount8584()} {$top} ladder=+100%:25/+400%:18/+900%:67-of-remainder " +
-            "line<2x=half the peak gain (>=+5%) >=2x=45% give-back (>=1.5x); stops/safety pass; tuner never shrinks meme exits]"
+            "line<2x=lower of half the peak gain and peak less the stop distance (>=+5%, 8719) >=2x=45% give-back (>=1.5x); stops/safety pass; tuner never shrinks meme exits]"
     }
 }

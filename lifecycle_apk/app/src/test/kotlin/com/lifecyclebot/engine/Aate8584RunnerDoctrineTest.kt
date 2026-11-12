@@ -63,7 +63,7 @@ class Aate8584RunnerDoctrineTest {
         for (r in listOf("partial_25pct", "partial_43pct", "TAIL_SET_ASIDE", "RAPID_DRAWDOWN_FROM_PEAK", "TAKE_PROFIT",
                 "MOONBAG_BANK_7322_peak60_now55", "RAPID_INSTANT_PROFIT_CAPTURE_4301", "TRAILING_STOP"))
             assertTrue(r, RunnerDoctrine8584.holds8584("MOONSHOT", r, 55.0, 60.0))
-        assertFalse("below half the peak gain it sells", RunnerDoctrine8584.holds8584("MOONSHOT", "TRAILING_STOP", 25.0, 60.0))
+        assertFalse("below half the peak gain it sells (no stop read; 8719 widens it by the stop)", RunnerDoctrine8584.holds8584("MOONSHOT", "TRAILING_STOP", 25.0, 60.0, Double.NaN))
         assertTrue("a 6x runner rides", RunnerDoctrine8584.holds8584("SHITCOIN", "RAPID_DRAWDOWN_FROM_PEAK", 400.0, 500.0))
         assertFalse("a 45 % give-back from 6x sells", RunnerDoctrine8584.holds8584("SHITCOIN", "RAPID_DRAWDOWN_FROM_PEAK", 220.0, 500.0))
         assertFalse("nothing at or below +5 % is held", RunnerDoctrine8584.holds8584("SHITCOIN", "TAKE_PROFIT", 5.0, 5.0))

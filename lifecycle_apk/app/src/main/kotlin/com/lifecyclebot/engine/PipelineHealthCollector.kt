@@ -1582,6 +1582,7 @@ object PipelineHealthCollector {
         ).append("\n")
         sb.append("  Market RPC outcomes (§8418): ").append(com.lifecyclebot.network.RpcOutcome8418.reportLine8418()).append("\n")  // V5.0.8418
         sb.append("  Leaderboard routes (§8418): ").append(try { LeaderboardRoutes8418.statusLine8418() } catch (_: Throwable) { "unavailable" }).append("\n")
+        sb.append("  Floors (§8719): ").append(try { com.lifecyclebot.engine.truth.ManagedBands8719.statusLine8719() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Smart-money miner (§7277): ").append(try { SmartMoneyDiscovery7277.statusLine() } catch (_: Throwable) { "unavailable" }).append("\n")   // V5.0.8713
         sb.append("  Lane participation (§8029): ").append(
             try { LaneParticipation8029.statusLine() } catch (_: Throwable) { "unavailable" }
