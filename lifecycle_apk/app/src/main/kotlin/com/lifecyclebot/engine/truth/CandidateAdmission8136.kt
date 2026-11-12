@@ -1380,6 +1380,7 @@ object CandidateAdmission8136 {
     // 8689: 30 sealed LIVE tickets, 5 buys. A coin admitted here whose safety proof the buy door would defer on was FDG-
     // allowed, sized and ticketed, deferred at the door three times, ended DEFERRED_DATA_SAFETY_PROOF_8270, and the lease
     // backoff that failure set ended the next tickets on the same coin (BUY_LEASE_BACKOFF_ENDS_TICKET_8545 x9). The same
+    // V5.0.8705 — "the same proof" is now the door itself, run as a probe (PreTradeHardGate.proofWait8703), not a copy of it.
     // proof is read here: a LIVE admit whose proof is not ready waits as a data defer (its refresh requested now, at the
     // front of the safety queue) and is decided again, at a fresh price, when the proof is in.
     internal fun proofDeferred8703(d: Decision8136, wait: String): Decision8136 = d.copy(
@@ -1389,7 +1390,7 @@ object CandidateAdmission8136 {
 
     private fun awaitBuyDoorProof8703(ts: TokenState, live: Boolean, d: Decision8136, nowMs: Long): Decision8136 {
         if (!live || !d.admitted) return d
-        val wait = try { com.lifecyclebot.engine.PreTradeHardGate.proofWait8703(ts, nowMs) } catch (_: Throwable) { null }
+        val wait = try { com.lifecyclebot.engine.PreTradeHardGate.proofWait8703(ts) } catch (_: Throwable) { null }
         if (wait == null) {
             // admitted with a proof past half its life: refreshed now so it is still current at the buy door
             if (com.lifecyclebot.engine.PreTradeHardGate.proofAgeing8703(ts.safety.checkedAt, nowMs))

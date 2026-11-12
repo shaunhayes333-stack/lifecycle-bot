@@ -16,12 +16,18 @@ import java.io.File
 class Aate8703WholeNetworkAndTicketsTest {
     @Test fun theBuyDoorsProofIsReadBeforeATicketIsSpent() {
         val now = 10_000_000L
-        assertEquals("SAFETY_REPORT_NOT_FRESH", PreTradeHardGate.proofWaitOf8703(0L, now, true, true, "OK"))
-        assertEquals("SAFETY_REPORT_NOT_FRESH", PreTradeHardGate.proofWaitOf8703(now - 120_001L, now, true, true, "OK"))
-        assertEquals("SAFETY_POLICY_NOT_LIVE", PreTradeHardGate.proofWaitOf8703(now - 5_000L, now, false, true, "OK"))
-        assertEquals("HOLDER_DISTRIBUTION_UNVERIFIED", PreTradeHardGate.proofWaitOf8703(now - 5_000L, now, true, false, "timeout"))
-        assertNull("a read holder figure is proof even when RugCheck is blind", PreTradeHardGate.proofWaitOf8703(now - 5_000L, now, true, true, ""))
-        assertNull("RugCheck answered: the holder question is the door's, not a wait", PreTradeHardGate.proofWaitOf8703(now - 5_000L, now, true, false, "OK"))
+        // V5.0.8705 — the wait is the door's own verdict, probed; not a copy of some of its tests.
+        assertEquals("LIVE_CRITICAL_PROOF_PENDING_8373", PreTradeHardGate.proofWaitOf8705(
+            PreTradeHardGate.Verdict(false, "DEFER_SAFETY_PROOF", "LIVE_CRITICAL_PROOF_PENDING_8373|MINT_AUTHORITY_UNKNOWN|HOLDER_DATA_UNKNOWN")))
+        assertEquals("PROOF_PENDING", PreTradeHardGate.proofWaitOf8705(PreTradeHardGate.Verdict(false, "DEFER_SAFETY_PROOF", "")))
+        assertNull("an allow is not a wait", PreTradeHardGate.proofWaitOf8705(PreTradeHardGate.Verdict(true, "ALLOW", "site=x")))
+        assertNull("a hard block is the door's refusal, not a wait", PreTradeHardGate.proofWaitOf8705(PreTradeHardGate.Verdict(false, "SAFETY_HARD_BLOCK", "rug")))
+        assertNull(PreTradeHardGate.proofWaitOf8705(null))
+        val door = src("engine/PreTradeHardGate.kt")
+        assertTrue(door.contains("val v = try { requireLiveBuyAllowed(ts, \"ADMISSION_PROBE_8705\") } catch (_: Throwable) { null } finally { probe8705.remove() }"))
+        assertTrue("a probe writes no log, counter or priority note",
+            door.contains("if (probing8705()) return Verdict(false, \"DEFER_SAFETY_PROOF\", \"\$reason|\$detail\")") &&
+                door.contains("if (probing8705()) return Verdict(false, reason, detail)"))
         assertFalse(PreTradeHardGate.proofAgeing8703(now - 60_000L, now))
         assertTrue(PreTradeHardGate.proofAgeing8703(now - 60_001L, now))
         assertFalse("never checked is a wait, not ageing", PreTradeHardGate.proofAgeing8703(0L, now))

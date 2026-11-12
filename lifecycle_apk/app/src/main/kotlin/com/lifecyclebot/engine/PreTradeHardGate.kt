@@ -34,6 +34,7 @@ object PreTradeHardGate {
     private const val SAFETY_FRESH_MS = 120_000L
 
     private fun block(ts: TokenState, reason: String, detail: String): Verdict {
+        if (probing8705()) return Verdict(false, reason, detail)
         try {
             ForensicLogger.lifecycle(
                 "PRETRADE_HARD_BLOCK",
@@ -50,6 +51,7 @@ object PreTradeHardGate {
 
     private fun deferSafetyProof(ts: TokenState, reason: String, pending: List<String>, callSite: String): Verdict {
         val detail = pending.joinToString("|").take(220)
+        if (probing8705()) return Verdict(false, "DEFER_SAFETY_PROOF", "$reason|$detail")
         SafetyProofPriority8310.noteDeferred8310(ts.mint, reason)  // V5.0.8310 — current proof + cycle slot next
         try {
             ForensicLogger.lifecycle(
@@ -102,27 +104,26 @@ object PreTradeHardGate {
         if (holderProof8522(ts.topHolderPct, ts.safety, nowMs).adversePct >= TOP_HOLDER_FATAL_PCT) "TOP_HOLDER_CONCENTRATION" else null
 
     /**
-     * V5.0.8703 — the buy door's certain proof deferrals, readable BEFORE a ticket is spent (CandidateAdmission8136), from the
-     * token's own state: no fetch, no log. The same three tests [requireLiveBuyAllowed] defers on below, in its order: a
-     * safety report that is missing or older than [SAFETY_FRESH_MS], a report evaluated under the paper policy, and a holder
-     * distribution nobody has read (no fresh holder figure and a blind RugCheck). 8689: 30 sealed LIVE tickets, 5 buys —
-     * the door deferred 22 times on proof, 5 tickets ended DEFERRED_DATA_SAFETY_PROOF_8270, and the backoff each failure set
-     * ended 9 later tickets on the same coins. A confirmed block is not a wait: it stays the door's (and admission's) refusal.
+     * V5.0.8705 — the buy door, asked BEFORE a ticket is spent (CandidateAdmission8136). 8703 read three of the door's proof
+     * waits from the token's state; the 8704 capture: 35 MOONSHOT tickets, 2 buys, DEFERRED_DATA_SAFETY_PROOF_8270 x10 first
+     * failures and 50 later tickets ended by the backoff they set — the door defers on eleven proofs (RugCheck pending, mint
+     * authority unread, liquidity / ownership / depth proof, holder data, route liquidity ...), and a copy of three of them
+     * is not the door. Admission now runs [requireLiveBuyAllowed] itself as a probe: the same code, the same state, no log,
+     * no counter and no priority note. The proof's name when the door would defer on proof; null when it would allow or
+     * hard-block (a block is the door's refusal, not a wait).
      */
-    fun proofWait8703(ts: TokenState, nowMs: Long = System.currentTimeMillis()): String? {
-        val safety = ts.safety
-        if (safety.tier == SafetyTier.HARD_BLOCK || safety.isBlocked) return null
-        return proofWaitOf8703(safety.checkedAt, nowMs, safety.evaluatedForPaper8522 == false,
-            holderProof8522(ts.topHolderPct, safety, nowMs).freshPct != null, safety.rugcheckStatus)
+    fun proofWait8703(ts: TokenState): String? {
+        probe8705.set(true)
+        val v = try { requireLiveBuyAllowed(ts, "ADMISSION_PROBE_8705") } catch (_: Throwable) { null } finally { probe8705.remove() }
+        return proofWaitOf8705(v)
     }
 
-    /** Pure: [proofWait8703] on its inputs. */
-    internal fun proofWaitOf8703(checkedAtMs: Long, nowMs: Long, livePolicy: Boolean, holderFresh: Boolean, rugcheckStatus: String): String? = when {
-        checkedAtMs <= 0L || nowMs - checkedAtMs !in 0L..SAFETY_FRESH_MS -> "SAFETY_REPORT_NOT_FRESH"
-        !livePolicy -> "SAFETY_POLICY_NOT_LIVE"
-        !holderFresh && rugcheckStatus.trim().uppercase() in setOf("", "UNKNOWN", "TIMEOUT", "PENDING", "PENDING_REVIEW", "ERROR") -> "HOLDER_DISTRIBUTION_UNVERIFIED"
-        else -> null
-    }
+    /** Pure: the proof a probed door [v] waits on, or null. */
+    internal fun proofWaitOf8705(v: Verdict?): String? =
+        if (v != null && !v.allowed && v.reason == "DEFER_SAFETY_PROOF") v.detail.substringBefore('|').trim().ifBlank { "PROOF_PENDING" } else null
+
+    private val probe8705 = ThreadLocal<Boolean>()
+    private fun probing8705(): Boolean = probe8705.get() == true
 
     /** Pure (V5.0.8703): a report past half its freshness is refreshed while the candidate is still being judged. */
     internal fun proofAgeing8703(checkedAtMs: Long, nowMs: Long): Boolean = checkedAtMs > 0L && nowMs - checkedAtMs > SAFETY_FRESH_MS / 2
@@ -145,7 +146,7 @@ object PreTradeHardGate {
         if (routeOrLiquidityPending != null) {
             return deferSafetyProof(ts, "LIVE_ROUTE_LIQUIDITY_PROOF_PENDING", listOf(routeOrLiquidityPending), callSite)
         }
-        if (pending.isNotEmpty()) {
+        if (pending.isNotEmpty() && !probing8705()) {
             try {
                 val detail = pending.joinToString("|").take(180)
                 ForensicLogger.lifecycle(
@@ -286,7 +287,7 @@ object PreTradeHardGate {
         }
         if (liquidityUsd8522 > 0.0 && liquidityUsd8522 < MIN_LIVE_LIQ_USD) {
             pendingProofs.add("LOW_LIQUIDITY_SIZE_REDUCED:liq=$liquidityUsd8522 min=$MIN_LIVE_LIQ_USD")
-            try { ForensicLogger.lifecycle("BUY_GATE_DECISION", "mint=${ts.mint.take(10)} symbol=${ts.symbol} decision=PENALTY_ONLY reason=LOW_LIQUIDITY_SIZE_REDUCED source=PreTradeHardGate liveEligible=true") } catch (_: Throwable) {}
+            if (!probing8705()) try { ForensicLogger.lifecycle("BUY_GATE_DECISION", "mint=${ts.mint.take(10)} symbol=${ts.symbol} decision=PENALTY_ONLY reason=LOW_LIQUIDITY_SIZE_REDUCED source=PreTradeHardGate liveEligible=true") } catch (_: Throwable) {}
         }
 
         val holder8522 = holderProof8522(ts.topHolderPct, safety, System.currentTimeMillis())
@@ -362,7 +363,7 @@ object PreTradeHardGate {
         val proven = mintRevoked && topHolderPct.isFinite() && topHolderPct >= 0.0 && topHolderPct < TOP_HOLDER_FATAL_PCT &&
             executableExit && liquidityOwnershipProven
         if (!proven) return pending
-        try { PipelineHealthCollector.labelInc("RUGCHECK_NO_FINDINGS_CHAIN_PROVEN_8471") } catch (_: Throwable) {}
+        if (!probing8705()) try { PipelineHealthCollector.labelInc("RUGCHECK_NO_FINDINGS_CHAIN_PROVEN_8471") } catch (_: Throwable) {}
         return pending.map { if (it.startsWith(RUGCHECK_PENDING_8471)) "RUGCHECK_NO_FINDINGS_CHAIN_PROVEN_8471:" + it.substringAfter(':') else it }
     }
 

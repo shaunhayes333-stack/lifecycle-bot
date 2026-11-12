@@ -310,7 +310,6 @@ jobs:
             --tests '*Aate8691*' \
             --tests '*Aate8692*' \
             --tests '*Aate8693*' \
-            --tests '*Aate8694*' \
             --tests '*Aate8695*' \
             --tests '*Aate8696*' \
             --tests '*Aate8699*' \

@@ -2704,25 +2704,17 @@ class Executor(
      * send ([urgent]: drain / profit capture / runner break), a stop / hard stop / rug / manual exit, a structural
      * emergency, and any mint whose previous sell was accepted and never landed (pay to land on the retry).
      */
-    private fun sellSenderTip8378(c: com.lifecyclebot.data.BotConfig, reason: String?, mint: String, urgent: Boolean, positionSol8694: Double = 0.0): Long {
+    private fun sellSenderTip8378(c: com.lifecyclebot.data.BotConfig, reason: String?, mint: String, urgent: Boolean): Long {
         val legacy = effectiveSenderTipLamports(c, urgent)
-        val unlanded8694 = mint.isNotBlank() && sellUnlanded8164(mint)
-        val protective = CostTrim8151.sellProtective8378(reason, urgent, unlanded8694)
-        // V5.0.8694 — a protective sell's tip is scaled to the position; a rug / emergency / manual exit keeps the full tip.
-        val fullTip8694 = reason.orEmpty().let { r ->
-            com.lifecyclebot.engine.sell.SellSafetyPolicy.isEmergencyExit(r) || com.lifecyclebot.engine.sell.SellSafetyPolicy.isHardRug(r) ||
-                com.lifecyclebot.engine.sell.SellSafetyPolicy.isManualEmergency(r)
-        }
-        val tip = if (protective) CostTrim8151.protectiveTipLamports8694(legacy,
-                if (positionSol8694.isFinite() && positionSol8694 > 0.0) (positionSol8694 * 1_000_000_000.0).toLong() else 0L, fullTip8694, unlanded8694)
-            else CostTrim8151.senderTipLamports8151(CostTrim8151.Urgency8151.ORDINARY, legacy)
+        val protective = CostTrim8151.sellProtective8378(reason, urgent, mint.isNotBlank() && sellUnlanded8164(mint))
+        val tip = if (protective) legacy else CostTrim8151.senderTipLamports8151(CostTrim8151.Urgency8151.ORDINARY, legacy)
         try { CostMeter8151.noteSellTip8378(tip, protective) } catch (_: Throwable) {}
         return tip
     }
 
     /** V5.0.8378 — liveSellInScope7314's short forms (ART method budget: that method may only shrink). */
     private fun sellTip8378(c: com.lifecyclebot.data.BotConfig, reason: String, ts: TokenState, urgent: Boolean): Long =
-        sellSenderTip8378(c, reason, ts.mint, urgent, try { ts.position.costSol } catch (_: Throwable) { 0.0 })
+        sellSenderTip8378(c, reason, ts.mint, urgent)
     private fun dustTip8378(c: com.lifecyclebot.data.BotConfig, ts: TokenState): Long = sellSenderTip8378(c, "DUST_BUSTER", ts.mint, false)
 
     /** V5.0.8151 — an entry is ORDINARY unless the runner grab marked it to land next slot (RunnerGrab7967). */
@@ -7886,7 +7878,7 @@ class Executor(
                     val dynSlipCap = com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason).coerceAtLeast(currentSlip)
                     val txResult = buildTxWithRetry(
                         activeQuote7228, wallet.publicKeyB58, dynamicSlippageMaxBps = dynSlipCap,
-                        senderTipLamports = sellSenderTip8378(c, reason, ts.mint, urgent = isDrainExit, positionSol8694 = ts.position.costSol),
+                        senderTipLamports = sellSenderTip8378(c, reason, ts.mint, urgent = isDrainExit),
                     )
                     LiveTradeLogStore.log(
                         sellTradeKey, ts.mint, ts.symbol, "SELL",
@@ -24764,7 +24756,7 @@ class Executor(
                             }
                             val txResult = buildTxWithRetry(
                                 quote, activeWallet.publicKeyB58, dynamicSlippageMaxBps = dynSlipCap,
-                                senderTipLamports = sellSenderTip8378(c, reason, ts.mint, urgent = isDrainExit || spike7944, positionSol8694 = ts.position.costSol),
+                                senderTipLamports = sellSenderTip8378(c, reason, ts.mint, urgent = isDrainExit || spike7944),
                             )
                             LiveTradeLogStore.log(
                                 sellTradeKey, ts.mint, ts.symbol, "SELL",
