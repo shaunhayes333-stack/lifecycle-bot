@@ -148,6 +148,20 @@ object EntryEconomics8329 {
     }
 
     /**
+     * V5.0.8723 §THE_CHASE_CAP_IS_A_DOOR_LIKE_ANY_OTHER — owner: "there isnt meant to be anything fixed". The caps above
+     * (8 / 5 / 4 / 2.5 % by setup) are hand numbers; 8720 live: all three EXPRESS tickets died on this check. The economic
+     * test in [consumed8329] is not a hand number: the move that is left after paying up must still clear the round trip
+     * at its margin, and an exhausted rally buys no move up. The fixed cap now binds a lane only once that lane's own
+     * chase-miss record (the coins this check turned away, graded forward under [MISSED_LANE_PREFIX_8329]) proves they
+     * lose, on the bar every learned door earns its right to bind (GateOutcome8418.protects8715: 40+ graded, mean + SE
+     * below zero). Until then the economics and the exhaustion test decide.
+     */
+    fun chaseCapBinds8723(n: Int, meanPct: Double, sePct: Double): Boolean =
+        n >= 40 && meanPct.isFinite() && sePct.isFinite() && meanPct + sePct < 0.0
+    /** The cap handed to [consumed8329] when the fixed one has not earned its right to bind. */
+    const val UNCAPPED_8723 = 1.0e9
+
+    /**
      * Pure: why the edge is consumed at the quote, else null. [movePct] = quote vs decision price (positive = dearer),
      * [capPct] from [chaseCapPct8329], [expectedGrossPct] the move the entry was admitted on, [costPct] the round trip at
      * this size. A cheaper or unchanged quote never refuses.
@@ -217,7 +231,10 @@ object EntryEconomics8329 {
             NetEdge8030.expectedGrossFor8153(ts, lane, sel, cost)
         }
         if (!expected.isFinite() || !cost.isFinite()) return "ENTRY_CHASE_ECONOMICS_UNAVAILABLE_$lane"
-        val cap = chaseCapPct8329(setup, tactic, exhausted)
+        val setupCap = chaseCapPct8329(setup, tactic, exhausted)
+        val missed8723 = try { ForwardReturnLabeler7731.laneStatFor7737("$MISSED_LANE_PREFIX_8329$lane") } catch (_: Throwable) { null }
+        val cap = if (!setupCap.isFinite() || chaseCapBinds8723(missed8723?.n60 ?: 0, missed8723?.meanNet60Pct ?: Double.NaN, missed8723?.stderr60Pct ?: Double.NaN)) setupCap
+            else UNCAPPED_8723.also { labelInc("ENTRY_CHASE_CAP_UNPROVEN_8723_$lane") }
         val why = consumed8329(move, cap, expected, cost, NetEdge8030.margin8391(lane, sizeSol, cost))
         synchronized(book) {
             book.checked.incrementAndGet()
@@ -232,7 +249,7 @@ object EntryEconomics8329 {
         labelInc("${label}_$why")
         try {
             ForensicLogger.lifecycle(CHASE_CONSUMED_8329,
-                "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=$lane why=$why move=${"%.2f".format(move)}% cap=${if (cap.isFinite()) "%.1f".format(cap) else "none"}% " +
+                "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=$lane why=$why move=${"%.2f".format(move)}% cap=${if (cap.isFinite() && cap < UNCAPPED_8723) "%.1f".format(cap) else "none"}% " +
                     "expected=${"%.2f".format(expected)}% cost=${"%.2f".format(cost)}% setup=${setup?.name ?: "-"} tactic=${tactic?.name ?: "-"} source=$source " +
                     "decisionPx=$decisionPx quotePx=$px latencyMs=${nowMs - observedAt} action=do_not_buy_wait_for_structural_reentry")
             // Graded against what happened next: a refused forward label in the lane's chase-miss pond.

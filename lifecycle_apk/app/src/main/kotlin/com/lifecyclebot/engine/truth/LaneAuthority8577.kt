@@ -143,6 +143,12 @@ object LaneAuthority8577 {
     /** CandidateAdmission8136.assess8136 (LIVE): the refusal of a meme entry at the high or at a losing stage, else null. */
     fun memeEntryRefusal8626(ts: com.lifecyclebot.data.TokenState, lane: String, stage: String?, nowMs: Long): String? {
         val why = memeEntryState8696(ts, lane, stage, nowMs) ?: return null
+        // V5.0.8723 — the entry-state doors are lane-wide selection priors (stage unread, at its high, losing stage / origin
+        // cohort / setup tag). A coin in a market cell proven to pay (PayingCell8723) is bought on that cell's record.
+        if (PayingCell8723.pays8723(ts, lane, nowMs)) {
+            try { PipelineHealthCollector.labelInc("${why}_CARRIED_BY_MARKET_CELL_8723") } catch (_: Throwable) {}
+            return null
+        }
         // V5.0.8696 — every entry-state door is learned by the one rule: it stands aside once its own graded refusals prove
         // it refuses winners.
         if (GateOutcome8418.selectionGateRetired8696("CANDIDATE_ADMISSION_8136_$why", lane)) return null

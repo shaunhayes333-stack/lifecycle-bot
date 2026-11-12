@@ -199,6 +199,8 @@ object CandidateAdmission8136 {
         val edge8537: EdgeModel8537.Verdict? = null,
         /** V5.0.8538 — LIVE: the 5.0.8069–8114 positive edge this coin carries (LiveEdgeGate7877.edge8114Live8538), else null. */
         val liveEdge8114: String? = null,
+        /** V5.0.8723 — the coin's origin x age x pool cell when that cell is proven to pay (PayingCell8723); else null. */
+        val marketCell8723: Evidence8136? = null,
         /** V5.0.8546 — LIVE, Solana meme lane, and MemeRegime8546 reads COLD (every source losing). */
         val regimeCold8546: Boolean = false,
     ) {
@@ -552,7 +554,18 @@ object CandidateAdmission8136 {
         // Pre-8210 all-mode cells are audit history, not candidate-specific live approval evidence.
         val liveCell8210 = if (c.lossEpochAware8169) c.cellLoss8169 else c.cell
         // V5.0.8316 — support is read on the cell past the realised shortfall; the loss tests below read the raw cell.
-        val liveCellProof8290 = if (c.lossEpochAware8169) c.cellLossProof8290 else c.cellProof8290
+        val laneCellProof8290 = if (c.lossEpochAware8169) c.cellLossProof8290 else c.cellProof8290
+        // V5.0.8723 — the coin's market cell (origin x age x pool, PayingCell8723), proven to pay past the lane's realised
+        // shortfall, is the candidate's cell evidence when the lane's own cell supports nothing: it carries the lane-wide
+        // priors below (flow / stage waits, a cold or losing setup tag, the lane cell, stage and timing records) and its
+        // measured net is the economics. Safety, structure, price, critical facts and the size checks still decide.
+        val market8723 = LiveAdmissionProof8290.shift8290(c.marketCell8723, c.liveShortfall8290)?.takeIf { supported8136(it, c.costPct) }
+        val liveCellProof8290 = if (market8723 != null && !supported8136(laneCellProof8290, c.costPct)) market8723 else laneCellProof8290
+        val carried8723 = market8723 != null
+        if (carried8723) {
+            trace += "marketCell8723=${market8723?.compact}"
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKET_CELL_PAYS_8723_${c.lane.uppercase()}") } catch (_: Throwable) {}
+        }
         val fastTrack8520 = highVelocityFastTrack8520(c)
         // The runtime adapter supplies only setups whose current predicates fired.
         // Compare them before a generic stage/flow-data wait: that optional context
@@ -581,7 +594,7 @@ object CandidateAdmission8136 {
             // (8538 run: DATA_INCOMPLETE_DEFER_8136 x3,614, launchTape missing on 36,617 classifications while the PumpPortal
             // per-coin tape is denied) no longer parks a coin its own lane brain has qualified: the read is optional for it.
             val specialist8539 = specialistQualified8539(c)
-            if (missing != null && !fastTrack8520 && bestSetup == null) {
+            if (missing != null && !fastTrack8520 && bestSetup == null && !carried8723) {
                 if (!specialist8539) {
                 trace += "entryWait8506=$wait"
                 trace += "missing=$missing"
@@ -604,7 +617,7 @@ object CandidateAdmission8136 {
             if (specialistAnswers8539 && missing == null) trace += "specialistQualified8539 ownTrigger=${c.nativeSetup8213 ?: c.lane}"
             if (!fastTrack8520 && !specialistAnswers8539 && !(paperExplore8539 && wait != "RUG_PRONE")) {
                 // The original 8511 binding door remains unchanged for ordinary candidates.
-                if (supported8511 == null && !nativePhase8528 && !strategyClock8535 && doorBinds8393("ENTRY_${wait}_8506"))
+                if (supported8511 == null && !carried8723 && !nativePhase8528 && !strategyClock8535 && doorBinds8393("ENTRY_${wait}_8506"))
                     return done(Terminal8136.REFUSE, "ENTRY_${wait}_8506", true, c.selectedSetup)
             }
             trace += if (fastTrack8520) "entryWait8506=$wait overriddenBy=FRESH_EXECUTED_TAPE_8520"
@@ -638,7 +651,9 @@ object CandidateAdmission8136 {
             //    evidence about THIS executable strategy. Only an independently supported alternative setup (a different
             //    strategy, with its own economics) replaces it; a positive cell record names no strategy and no longer
             //    lets the proven-losing setup trade ("carried by cell" admitted it under SPECIFIC_EDGE_PROVEN).
-            if (bestSetup == null) {
+            if (bestSetup == null && carried8723) {
+                trace += "setupLosing=${selectedRec?.compact} carried by market cell"
+            } else if (bestSetup == null) {
                 trace += "setupLosing=${selectedRec?.compact}${if (cellSupported) " cellSupported=${c.cell?.compact} names_no_strategy" else ""}"
                 // V5.0.8257 — a thin record inside one SE of zero is advisory, not a live refusal (see clearlyLosing8136).
                 if (clearlyLosing8136(selectedRec) && doorBinds8393("SETUP_RECORD_LOSING_8136") && !probe8429(c, trace, "SETUP_RECORD_LOSING_8136")) return done(Terminal8136.REFUSE, "SETUP_RECORD_LOSING_8136", true, c.selectedSetup)
@@ -661,7 +676,7 @@ object CandidateAdmission8136 {
             } else {
                 trace += "sheetAvoid8323=$chosen"
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SHEET_AVOID_REFUSED_8323_${c.lane.uppercase()}") } catch (_: Throwable) {}
-                if (doorBinds8393("SHEET_AVOID_8323") && !probe8429(c, trace, "SHEET_AVOID_8323")) return done(Terminal8136.REFUSE, "SHEET_AVOID_8323", true, chosen)
+                if (!carried8723 && doorBinds8393("SHEET_AVOID_8323") && !probe8429(c, trace, "SHEET_AVOID_8323")) return done(Terminal8136.REFUSE, "SHEET_AVOID_8323", true, chosen)
             }
         }
         // V5.0.8169 — a loss pattern refuses on the record graded since the epoch; an older one is noted and decays to
@@ -680,7 +695,7 @@ object CandidateAdmission8136 {
             //    the strategy; without one the cell prior refuses. Economics, data and the edge test below still decide.
             if (bestSetup == null) {
                 trace += "cellLosing=${cellLoss?.compact}"
-                if (!probe8429(c, trace, "CELL_PROVEN_LOSING_8136")) return done(Terminal8136.REFUSE, "CELL_PROVEN_LOSING_8136", true, chosen)
+                if (!carried8723 && !probe8429(c, trace, "CELL_PROVEN_LOSING_8136")) return done(Terminal8136.REFUSE, "CELL_PROVEN_LOSING_8136", true, chosen)
             } else {
                 trace += "cellLosing=${cellLoss?.compact} carried by supported setup ${bestSetup.compact}"
                 if (chosen != bestSetup.id) chooseSetup(bestSetup.id)
@@ -700,7 +715,7 @@ object CandidateAdmission8136 {
             // V5.0.8180 — bestSetup (SUPPORTED) was null on nearly every live candidate (thin books): the coin's own
             //    evidence at the VALID margin (a fired setup, else its own cell) carries the lane-wide stage loss too.
             val carry8180 = bestSetup ?: StageCarry8180.carry8180(c)
-            if (carry8180 == null || (losing8136(cellLoss) && bestSetup == null)) {
+            if (!carried8723 && (carry8180 == null || (losing8136(cellLoss) && bestSetup == null))) {
                 trace += "stageLosing=${stageLoss?.compact}"
                 if (!probe8429(c, trace, "STAGE_PROVEN_LOSING_8136")) return done(Terminal8136.REFUSE, "STAGE_PROVEN_LOSING_8136", true, chosen)
             } else {
@@ -759,6 +774,14 @@ object CandidateAdmission8136 {
             decisionGross = edge.lowerPct + c.costPct
             net = edge.lowerPct
             trace += "grossFromProvenNetLower8171=${fmt8136(edge.lowerPct)} cost=${fmt8136(c.costPct)}"
+        }
+        // V5.0.8723 — the market cell's measured net (its proven lower bound, after cost) is the move this coin is bought
+        // for: a first-minutes coin has no chart for a setup to forecast from, and the cell's labels are what such coins did.
+        if (edge != null && edge.kind == PayingCell8723.KIND_8723 && edge.lowerPct.isFinite() && edge.lowerPct > 0.0 &&
+            c.costPct.isFinite() && c.costPct >= 0.0 && !(decisionGross.isFinite() && decisionGross >= edge.lowerPct + c.costPct)) {
+            decisionGross = edge.lowerPct + c.costPct
+            net = edge.lowerPct
+            trace += "grossFromMarketCell8723=${fmt8136(edge.lowerPct)} cost=${fmt8136(c.costPct)}"
         }
 
         // V5.0.8418 — the selected setup's move is NaN because its momentum lane's hour is FALLING and nothing supports a
@@ -833,7 +856,8 @@ object CandidateAdmission8136 {
         liveLocalGuard8325(c, edge, own8325)?.let { why ->
             trace += "liveLocal8325=$why edge=${edge?.compact ?: "-"} setup=${own8325?.compact ?: "-"}"
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("${why}_${c.lane.uppercase()}") } catch (_: Throwable) {}
-            if (doorBinds8393(why)) return done(Terminal8136.REFUSE, why, true, chosen)
+            // V5.0.8723 — the lane's losses were on other kinds of coin; a coin admitted on its market cell answers to that cell.
+            if (edge?.kind != PayingCell8723.KIND_8723 && doorBinds8393(why)) return done(Terminal8136.REFUSE, why, true, chosen)
         }
         // 6. supported candidate-specific edge: the generic score is only a prior.
         if (edge != null) {
@@ -1790,6 +1814,7 @@ object CandidateAdmission8136 {
             firedSetups8528 = try { pb.matchedSetups8083(ts, lane, nowMs).filter(::triggered8535).toSet() } catch (_: Throwable) { emptySet() },
             edge8537 = EdgeModel8537.verdict(ts, lane, cost8153, nowMs),  // V5.0.8537
             liveEdge8114 = if (live8290) LiveEdgeGate7877.edge8114Live8538(ts, lane, nowMs) else null,  // V5.0.8538
+            marketCell8723 = PayingCell8723.evidence8723(ts, lane, nowMs),
             regimeCold8546 = live8290 && MemePaperTrader8544.memeLane8544(lane) &&
                 (try { MemeRegime8546.regime8546(nowMs) == MemeRegime8546.Regime8546.COLD } catch (_: Throwable) { false }),
             regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "" },

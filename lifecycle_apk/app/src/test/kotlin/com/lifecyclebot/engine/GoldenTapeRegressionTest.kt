@@ -15798,9 +15798,11 @@ class GoldenTapeRegressionTest {
         // superseded by V5.0.8528 — a named setup that fired (nativePhaseWitness8528) settles NO_PHASE_TRIGGER only; it grants
         // no edge and skips no later check. Was: `if (supported8511 == null && doorBinds8393("ENTRY_${'$'}{wait}_8506"))`.
         // superseded: 8535 §P0-03 — a fired rebound-clock setup (strategyClock8535) also answers its own generic wait
-        assertTrue(c.contains("if (supported8511 == null && !nativePhase8528 && !strategyClock8535 && doorBinds8393(\"ENTRY_\${wait}_8506\"))"))
+        // superseded by V5.0.8723 — a coin in a market cell proven to pay (PayingCell8723) is carried past the generic wait too.
+        // Was: `if (supported8511 == null && !nativePhase8528 && !strategyClock8535 && doorBinds8393(...))`.
+        assertTrue(c.contains("if (supported8511 == null && !carried8723 && !nativePhase8528 && !strategyClock8535 && doorBinds8393(\"ENTRY_\${wait}_8506\"))"))
         assertTrue(wait < c.indexOf("val cellSupported = supported8136(liveCellProof8290, c.costPct)"))
-        assertTrue(c.contains("if (missing != null && !fastTrack8520 && bestSetup == null)"))
+        assertTrue(c.contains("if (missing != null && !fastTrack8520 && bestSetup == null && !carried8723)"))   // V5.0.8723
         Aate8521SetupAdmissionContinuityTest().apply {
             everyLaneCanEvaluateItsObservedSupportedSetupBeforeAnOptionalContextDeferral()
             missingRequiredSetupInputsLeaveNoFiredEvidenceAndStillDefer()
