@@ -499,6 +499,8 @@ object ForwardReturnLabeler7731 {
         @Volatile var allocScales8410: DoubleArray = DoubleArray(0)
         /** V5.0.8418 — the first buy-path gate that ruled on this candidate (GateOutcome8418), "" = none; not persisted. */
         @Volatile var gate8418: String = ""
+        /** V5.0.8709 — the origin x pool-depth cohort this observation is also graded into ("" = none). Not persisted. */
+        @Volatile var origin8701: String = ""
         @Volatile var ck7997 = 0
         @Volatile var entryLiq7997 = 0.0
         /** V5.0.8063 — the coin's kind at the decision: "VENUE/NARRATIVE" (memes), blank for cross-asset rows. */
@@ -678,14 +680,17 @@ object ForwardReturnLabeler7731 {
     fun laneTriggerStat8468(lane: String): CellStat? = cellStat(triggerKey8468(lane))
     /** V5.0.8019 — LiveEdgeGate7877: the lane's 60-minute record in [ts]'s cap band (local + hive). */
     fun bandStatFor8019(ts: TokenState, lane: String): CellStat? = cellStat(bandKey8019(lane, TrustedMcap8019.mcap8019(ts)))
-    private fun keysOf7928(o: Obs): List<String> {
+    // V5.0.8709 — the coin's origin x pool-depth cohort (MarketCohort8701) is one more book the SAME observation is graded
+    // into. 8701 filed a second observation per coin for it: every pending label, its feature row and the restart
+    // snapshot doubled (learning store 13 MB -> 22 MB; Runtime Smoke ANR in SplashActivity on restart, 8706 and 8708).
+    private fun keysOf7928(o: Obs): List<String> =
+        laneKeys7928(o).let { if (o.origin8701.isEmpty()) it else it + laneKey(o.origin8701) }
+
+    private fun laneKeys7928(o: Obs): List<String> {
         val base = listOf(o.cell, laneKey(o.lane), sourceKey(o.source), if (o.admitted) AGG_ADMITTED else AGG_REFUSED,
             "BAND|${o.lane}|${o.cell.split('|').getOrNull(2) ?: "MC_UNKNOWN"}",  // V5.0.8019 — lane x cap band
             laneDecisionKey8094(o.lane, o.admitted))
         // V5.0.7930 — plan pseudo-lanes (PLANWAIT_/PLANADMIT_) carry no stage book.
-        // V5.0.8701 — an origin cohort is one record of its own: it never adds a second copy of the decision to the source,
-        // band or admitted / refused aggregates the coin's real lane observation already fed.
-        if (MarketCohort8701.isCohort8701(o.lane)) return listOf(laneKey(o.lane))
         val pseudo = o.lane.startsWith("PLANWAIT_") || o.lane.startsWith("PLANADMIT_") || ExpertSetups8692.setupCohort8692(o.lane)
         // UNKNOWN is not a measured lifecycle stage. Never teach a catch-all
         // STAGE|lane|UNKNOWN that later refuses legitimate classified strategies.
@@ -1158,12 +1163,8 @@ object ForwardReturnLabeler7731 {
 
     fun observe(ts: TokenState, lane: String, admitted: Boolean, reason: String?, nowMs: Long = System.currentTimeMillis(), score: Int = -1, incumbent8506: Boolean? = null) {
         val l = lane.trim().uppercase().ifBlank { "UNKNOWN" }
-        // V5.0.8701 — every coin a real lane judges is also filed under where it was minted and how deep its pool is.
-        val originCohort8701 = MarketCohort8701.isCohort8701(l)
-        if (!originCohort8701 && !l.startsWith("PLANWAIT_") && !l.startsWith("PLANADMIT_") && !ExpertSetups8692.setupCohort8692(l))
-            try { MarketCohort8701.observe8701(ts, nowMs) } catch (_: Throwable) {}
         // Capture the decision even when the forward labeler cannot establish an entry mark.
-        if (!originCohort8701) try { LaunchHour8628.observeDecision(ts, l, admitted, nowMs) } catch (_: Exception) { PipelineHealthCollector.labelInc("LAUNCH_HOUR_DECISION_MISSING_8628") }
+        try { LaunchHour8628.observeDecision(ts, l, admitted, nowMs) } catch (_: Exception) { PipelineHealthCollector.labelInc("LAUNCH_HOUR_DECISION_MISSING_8628") }
         val key = "${ts.mint}|$l"
         // V5.0.8418 — the buy-path gate that ruled on a candidate whose observation is already pending (GateOutcome8418).
         pending[key]?.let { p ->
@@ -1266,7 +1267,10 @@ object ForwardReturnLabeler7731 {
                 it.honest8366 = true  // V5.0.8366
                 it.targetHorizon8521 = com.lifecyclebot.engine.cortex.CortexForwardEpoch8521.targetHorizon(
                     com.lifecyclebot.engine.cortex.CortexForwardEpoch8521.targetKind(l))
-                it.gate8418 = if (originCohort8701) "" else GateOutcome8418.attachGate8418("", nowMs, admitted, reason, l, nowMs).orEmpty()  // V5.0.8418
+                it.gate8418 = GateOutcome8418.attachGate8418("", nowMs, admitted, reason, l, nowMs).orEmpty()  // V5.0.8418
+                // V5.0.8701 / 8709 — a real lane's observation also carries the coin's origin x pool-depth cohort, once per coin per 15 minutes
+                if (!l.startsWith("PLANWAIT_") && !l.startsWith("PLANADMIT_") && !ExpertSetups8692.setupCohort8692(l))
+                    it.origin8701 = (try { MarketCohort8701.claim8701(ts, nowMs) } catch (_: Throwable) { null }).orEmpty()
                 it.windowEnd8379 = launchWindowEnd8379(l, (try { CanonicalTokenBirthTime7440.launchAgeMs7767(ts, nowMs) } catch (_: Throwable) { null }) ?: -1L, nowMs)  // V5.0.8379 — the live window's one age rule
                 it.chase8094 = chase8094.coerceAtLeast(0.0)
                 it.entryStyle8077 = try {
@@ -1761,8 +1765,6 @@ object ForwardReturnLabeler7731 {
         // otherwise a restart can restore the incremented tally with an unbooked observation and add it a second time.
         o.bookedNet7997 = net; o.bookedGross7997 = gross; o.bookedWitness8324 = witness
         book(o, 60, net, gross, witness)
-        // V5.0.8701 — an origin cohort is a record, not a second decision: no entry learner and no edge-model row is fed twice.
-        if (MarketCohort8701.isCohort8701(o.lane)) { o.edge8537 = null; return }
         o.edge8537?.let { o.edge8537 = null; EdgeModel8537.learn(it, net, witness) }  // V5.0.8650 — preserve same-basis runner proof
         try { TradeShapeLearner7883.onLabel60(o.mint, o.lane, net, gross, o.atMs) } catch (_: Throwable) {}
         try { FallingHourCohort8418.onLabel60(o.mint, o.lane, net, gross) } catch (_: Throwable) {}

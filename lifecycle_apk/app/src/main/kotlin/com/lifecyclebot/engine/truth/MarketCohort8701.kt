@@ -14,7 +14,7 @@ import java.util.concurrent.ConcurrentHashMap
  * No lane, source or score separated winners from losers in that data; where the coin was minted and how deep its pool is did.
  *
  * Nothing here is trusted on one dataset. Every Solana coin a lane judges is also filed, once per 15 minutes, under its
- * origin x pool-depth cohort (a pseudo-lane on ForwardReturnLabeler7731: executable marks, net of cost). A cohort becomes a
+ * origin x pool-depth cohort (one more book of the lane's own forward label: executable marks, net of cost). A cohort becomes a
  * LIVE edge only when its own record is proven positive on the bar every plan cohort is held to
  * (LiveEdgeGate7877.cohortProvenPositive7948: 100+ labels, mean minus one standard error above zero, not outlier-suspect).
  * Nothing here refuses a coin.
@@ -41,9 +41,6 @@ object MarketCohort8701 {
     /** Pure: the forward-label cohort of a coin minted at [mint] with a pool of [liqUsd]. */
     fun cohort8701(mint: String, liqUsd: Double): String = PREFIX_8701 + origin8701(mint) + "_" + poolBand8701(liqUsd)
 
-    /** Pure: is [lane] an origin cohort (a pseudo-lane: no stage, trigger, liquidity, kind, source or aggregate books)? */
-    fun isCohort8701(lane: String): Boolean = lane.startsWith(PREFIX_8701)
-
     /** Pure: is a coin last filed at [lastMs] due again at [nowMs]? */
     internal fun due8701(lastMs: Long?, nowMs: Long): Boolean = lastMs == null || nowMs < lastMs || nowMs - lastMs >= REFILE_MS_8701
 
@@ -53,13 +50,18 @@ object MarketCohort8701 {
     private fun depth(ts: TokenState): Double =
         try { LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) { ts.lastLiquidityUsd }
 
-    /** ForwardReturnLabeler7731.observe: file a judged Solana coin under its cohort, once per coin per 15 minutes. */
-    fun observe8701(ts: TokenState, nowMs: Long) {
-        if (!solana(ts)) return
-        if (!due8701(lastFiled8701[ts.mint], nowMs)) return
+    /**
+     * ForwardReturnLabeler7731.observe: the cohort a new observation of [ts] is also graded into, at most once per coin per
+     * 15 minutes; null when the coin is not a Solana mint or was claimed inside that window. V5.0.8709 — no second
+     * observation is made: the cohort is one more book of the lane's own label (8701 filed a duplicate observation per
+     * coin, doubling the pending labels and the restart snapshot).
+     */
+    fun claim8701(ts: TokenState, nowMs: Long): String? {
+        if (!solana(ts)) return null
+        if (!due8701(lastFiled8701[ts.mint], nowMs)) return null
         if (lastFiled8701.size > 6_000) lastFiled8701.entries.removeIf { nowMs - it.value > REFILE_MS_8701 }
         lastFiled8701[ts.mint] = nowMs
-        ForwardReturnLabeler7731.observe(ts, cohort8701(ts.mint, depth(ts)), false, "ORIGIN_COHORT_8701", nowMs)
+        return cohort8701(ts.mint, depth(ts))
     }
 
     /** LiveEdgeGate7877: [ts]'s cohort when its own forward record is proven positive, else null. */

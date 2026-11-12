@@ -23,8 +23,6 @@ class Aate8701MarketCohortTest {
         assertEquals("an unread pool is not a thin pool", "POOL_UNREAD", MarketCohort8701.poolBand8701(Double.NaN))
         assertEquals("POOL_UNREAD", MarketCohort8701.poolBand8701(0.0))
         assertEquals("ORIGIN8701_OTHER_POOL_5K_20K", MarketCohort8701.cohort8701("3nN4GVY7eS9JwWiiTFwzJBMTCv6rD8a2gofADeq6Qm63", 9_124.0))
-        assertTrue(MarketCohort8701.isCohort8701("ORIGIN8701_PUMP_POOL_LT5K"))
-        assertFalse(MarketCohort8701.isCohort8701("MOONSHOT"))
     }
 
     @Test fun aCoinIsFiledOncePerFifteenMinutes() {
@@ -36,14 +34,14 @@ class Aate8701MarketCohortTest {
 
     @Test fun theCohortIsARecordOfItsOwnAndEarnsLiveOnlyWhenProven() {
         val labeler = src("engine/truth/ForwardReturnLabeler7731.kt")
-        assertTrue(labeler.contains("try { MarketCohort8701.observe8701(ts, nowMs) } catch (_: Throwable) {}"))
-        assertTrue(labeler.contains("if (MarketCohort8701.isCohort8701(o.lane)) return listOf(laneKey(o.lane))"))
-        assertTrue(labeler.contains("if (MarketCohort8701.isCohort8701(o.lane)) { o.edge8537 = null; return }"))
+        // V5.0.8709 — one observation, graded into the lane's books and the cohort's; never a second observation per coin.
+        assertTrue(labeler.contains("it.origin8701 = (try { MarketCohort8701.claim8701(ts, nowMs) } catch (_: Throwable) { null }).orEmpty()"))
+        assertTrue(labeler.contains("laneKeys7928(o).let { if (o.origin8701.isEmpty()) it else it + laneKey(o.origin8701) }"))
+        assertFalse(labeler.contains("MarketCohort8701.observe8701("))
         val cohort = src("engine/truth/MarketCohort8701.kt")
         assertTrue(cohort.contains("return if (LiveEdgeGate7877.cohortProvenPositive7948(stat)) cohort else null"))
         val gate = src("engine/truth/LiveEdgeGate7877.kt")
         assertTrue(gate.contains("MarketCohort8701.measuredProven8701(ts) } catch (_: Throwable) { null }) != null -> \"ORIGIN_MEASURED_8701\""))
-        assertTrue(src("engine/cortex/Cortex7885.kt").contains("com.lifecyclebot.engine.truth.MarketCohort8701.isCohort8701(labelLane)) return"))
     }
 
     private fun src(p: String) = File("src/main/kotlin/com/lifecyclebot/$p").readText()
