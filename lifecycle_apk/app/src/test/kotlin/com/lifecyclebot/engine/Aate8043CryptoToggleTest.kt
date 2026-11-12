@@ -9,7 +9,8 @@ class Aate8043CryptoToggleTest {
     @Test fun toggleOffAndSolanaOwnershipAreHardReasons() {
         val ct = File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
         assertTrue(ct.contains("if (!paper7803 && cryptoToggleOff8043()) \"CRYPTO_TOGGLE_OFF_8043\" else null"))
-        assertTrue(ct.contains("\"SOLANA_COIN_OWNED_BY_MEME_STACK_8043\""))
+        // superseded by V5.0.8714 — Solana coins trade on the crypto desk again; the ownership refusal is gone.
+        org.junit.Assert.assertFalse(ct.contains("\"SOLANA_COIN_OWNED_BY_MEME_STACK_8043\""))
         // Entries only: the monitor loop's gate is untouched, so open crypto positions keep their exits.
         assertTrue(ct.contains("try { monitorPositions() }"))
     }

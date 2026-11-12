@@ -25,7 +25,7 @@ object LaneAuthority8577 {
     /** A refusal the designed authority keeps: hard safety, structure, the executable minimum, the kill switch. */
     private val BINDING_8577 = listOf(
         // V5.0.8626 — the live entry-state refusals (memeEntryRefusal8626) bind.
-        "MEME_BUYS_THE_HIGH_8582", "LIVE_STAGE_LOSES_8626", "LIVE_ORIGIN_COHORT_LOSES_8703", "LIVE_STAGE_UNREAD_8711",
+        "MEME_BUYS_THE_HIGH_8582", "LIVE_STAGE_LOSES_8626", "LIVE_ORIGIN_COHORT_LOSES_8703", "LIVE_STAGE_UNREAD_8711", "LIVE_SETUP_LOSES_8714",
         // V5.0.8627 — a runner lane's live buy of a coin more than a day old binds too (memeEntryRefusal8626).
         "LIVE_RUNNER_STALE_COIN_8627", "EXECUTION_NET_NONPOSITIVE_8629", "EXECUTION_ECONOMICS_8136", "COST_LEDGER_7962_ABOVE_GROSS",
         "SAFETY_REFUSED", "STRUCTURAL_RISK", "RUG", "FREEZE", "MINT_AUTH", "TOKEN_2022", "TOKEN2022", "T22_", "HOSTILE",
@@ -162,8 +162,26 @@ object LaneAuthority8577 {
         expertAvoid8692(ts, nowMs)?.let { return it }
         if (stageUnread8711(stage)) return LIVE_STAGE_UNREAD_8711
         val st = if (stage.isNullOrBlank()) null else try { ForwardReturnLabeler7731.stageStatFor7928(l, stage) } catch (_: Throwable) { null }
-        return if (stageLoses8626(stage, st?.n60 ?: 0, st?.meanNet60Pct ?: Double.NaN, st?.stderr60Pct ?: Double.NaN))
-            LIVE_STAGE_LOSES_8626 else null
+        if (stageLoses8626(stage, st?.n60 ?: 0, st?.meanNet60Pct ?: Double.NaN, st?.stderr60Pct ?: Double.NaN)) return LIVE_STAGE_LOSES_8626
+        return setupLoses8714(ts, l, nowMs)
+    }
+
+    /**
+     * V5.0.8714 §LIVE_DOES_NOT_BUY_THE_SETUP_ITS_OWN_RECORD_SAYS_LOSES — owner: "cortex and setups still show signs of being
+     * completely backwards pretty much everywhere". The Cortex setups panel, 8712: MOONSHOT RS_LEADER n12 -29.2 % ±7.4,
+     * BREAKOUT_RUNNER n12 -17.6 % ±4.1, HIGHER_LOW_PULLBACK -23.4 %, no-setup (NO_TRIGGER) n22 -13.5 % ±6.6 — and live bought
+     * them: a setup's record refused only through the playbook's own doors, which stopped binding with 8577/8696, and those
+     * waited for 30 labels. The strategy a coin trades as now refuses a live entry when its own record in that lane is
+     * losing by the mirror of the cold-start proof (LanePlaybook7907.coldLosing8714: the same 12 labels, mean + 1.5 SE below
+     * zero). Paper keeps trading every setup, so a record that turns stops refusing, and the door retires on the one
+     * selection-gate rule if the coins it refuses win (memeEntryRefusal8626).
+     */
+    const val LIVE_SETUP_LOSES_8714 = "LIVE_SETUP_LOSES_8714"
+
+    private fun setupLoses8714(ts: com.lifecyclebot.data.TokenState, lane: String, nowMs: Long): String? {
+        val setup = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.losingSetup8714(ts, lane, nowMs) } catch (_: Throwable) { null } ?: return null
+        try { PipelineHealthCollector.labelInc("LIVE_SETUP_LOSES_8714_${lane}_${setup.take(32)}") } catch (_: Throwable) {}
+        return LIVE_SETUP_LOSES_8714
     }
 
     /**

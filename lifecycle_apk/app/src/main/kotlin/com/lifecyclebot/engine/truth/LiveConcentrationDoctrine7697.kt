@@ -85,8 +85,28 @@ object LiveConcentrationDoctrine7697 {
     fun slots(tradeableSol: Double): Int { return LIVE_SLOT_LIMIT_7728 }
 
     /** Share of tradeable one live position takes. */
-    fun share(tradeableSol: Double): Double =
-        kotlin.math.min(MAX_SHARE_7697, 1.0 / slots(tradeableSol))
+    fun share(tradeableSol: Double): Double = shareFor8714(tradeableSol, fixedRoundTripSolNow8714())
+
+    /**
+     * V5.0.8714 — owner: "increase the base entry size to clear the costs". 8712: positionSol=0.0366 on 0.2074 tradeable
+     * (5 % = 1/20 slots, lifted to the routable minimum), the two fixed legs 1.6-4.4 % of every ticket. The base ticket is
+     * now the size at which the fixed round trip (network fee + tips, both legs, as measured) fits inside the net buffer
+     * the exit rule already holds back (NetEdge8030.NET_BUFFER_PCT), never more than MAX_SHARE_7697 of the wallet: fewer,
+     * larger positions. A wallet large enough that 1/slots already clears it is sized as before.
+     */
+    fun costClearingSol8714(fixedRoundTripSol: Double): Double =
+        if (fixedRoundTripSol.isFinite() && fixedRoundTripSol > 0.0) fixedRoundTripSol / (NetEdge8030.NET_BUFFER_PCT / 100.0) else 0.0
+
+    /** Pure: the wallet share one live position takes — the larger of 1/slots and the cost-clearing ticket, capped. */
+    fun shareFor8714(tradeableSol: Double, fixedRoundTripSol: Double): Double {
+        val bySlots = 1.0 / slots(tradeableSol)
+        val byCost = if (tradeableSol.isFinite() && tradeableSol > 0.0) costClearingSol8714(fixedRoundTripSol) / tradeableSol else 0.0
+        return kotlin.math.min(MAX_SHARE_7697, kotlin.math.max(bySlots, byCost))
+    }
+
+    private fun fixedRoundTripSolNow8714(): Double = try {
+        com.lifecyclebot.engine.CostMeter8151.roundTripFixedSol8151().takeIf { it.isFinite() && it > 0.0 } ?: FIXED_ROUND_TRIP_COST_SOL_7731
+    } catch (_: Throwable) { FIXED_ROUND_TRIP_COST_SOL_7731 }
 
     /**
      * Target size of one live position, in SOL.
@@ -218,13 +238,13 @@ object LiveConcentrationDoctrine7697 {
     const val FIXED_ROUND_TRIP_COST_SOL_7731 = 0.0016
 
     fun fixedCostSharePct7731(positionSol: Double): Double =
-        if (positionSol.isFinite() && positionSol > 0.0) FIXED_ROUND_TRIP_COST_SOL_7731 / positionSol * 100.0 else Double.NaN
+        if (positionSol.isFinite() && positionSol > 0.0) fixedRoundTripSolNow8714() / positionSol * 100.0 else Double.NaN
 
     fun statusLine(): String {
         val t = liveTradeableSol()
         val rm = routableMinNow7706(t)
         val pos7731 = positionSol(t, rm)
-        return "slots=${slots(t)} share=${"%.0f".format(share(t) * 100)}% positionSol=${"%.4f".format(pos7731)} routableMin=${"%.4f".format(rm)} " +
+        return "slots=${slots(t)} share=${"%.0f".format(share(t) * 100)}% costClearing8714=${"%.4f".format(costClearingSol8714(fixedRoundTripSolNow8714()))} positionSol=${"%.4f".format(pos7731)} routableMin=${"%.4f".format(rm)} " +
             "fixedCostShare7731=${"%.1f".format(fixedCostSharePct7731(pos7731))}% " +
             "liveOpen=${liveOpenCount()} tradeable=${"%.4f".format(t)} " +
             "slotRefusals=${slotRefusals.get()} convictionAllow=${convictionAllows.get()} convictionRefused=${convictionRefusals.get()} " +

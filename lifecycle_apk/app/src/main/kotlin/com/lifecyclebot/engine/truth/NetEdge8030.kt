@@ -485,23 +485,6 @@ object NetEdge8030 {
         }
         return null
     }
-    private val cryptoRefused8042 = AtomicLong(0)
-
-    /**
-     * V5.0.8042 — the crypto lane through the same rule. 5.0.8041: CRYPTO_ALT bought SHIB live (a large-cap wrapped
-     * token whose day moves a few percent) on a lane whose 120 live closes read WR 19%, -6.7% a trade, -0.69 SOL. The
-     * expected move is no more than the coin's own 24 h move (the crypto mandate caps it); it must clear 2x the round
-     * trip at this size and depth. Returns the refusal, or null.
-     */
-    fun cryptoEntryRefusal8042(change24hPct: Double, sizeSol: Double, liquidityUsd: Double): String? {
-        val mandate = try { FieldManual7715.mandateFor("CRYPTO_ALT").expectedGrossPct } catch (_: Exception) { return "NET_EDGE_CRYPTO_MANDATE_UNAVAILABLE_8042" }
-        val realized = kotlin.math.abs(change24hPct).takeIf { it.isFinite() } ?: return "NET_EDGE_CRYPTO_MOVE_UNOBSERVED_8042"
-        val cost = costPct8030("CRYPTO_ALT", sizeSol, liquidityUsd)
-        if (entryClears8030(expectedMove8035(mandate, realized), cost, margin8391("CRYPTO_ALT", sizeSol, cost))) return null
-        cryptoRefused8042.incrementAndGet()
-        try { PipelineHealthCollector.labelInc("NET_EDGE_CRYPTO_REFUSED_8042") } catch (_: Throwable) {}
-        return "NET_EDGE_CRYPTO_TOO_SLOW_8042"
-    }
     private val unpricedDepth8037 = AtomicLong(0)
 
     /** Price the candidate's expected impact from the same dated, positive
@@ -609,7 +592,7 @@ object NetEdge8030 {
     }
 
     fun statusLine(): String =
-        "entryRefused=${entryRefused.get()} coinTooSlow=${slowRefused8035.get()} moveHistoryDeferred8153=${historyDeferred8153.get()} scalpTooFlat8054=${scalpRefused8054.get()} swingAlreadyRan8054=${overextendedRefused8054.get()} cryptoRefused=${cryptoRefused8042.get()} depthUnknown=${unpricedDepth8037.get()} profitExitsHeld=${exitHeld.get()} giveBackReleased8048=${giveBackReleased.get()} partialsHeld=${partialHeld.get()} lastCost=${if (lastCostPct.isFinite()) "%.2f".format(lastCostPct) + "%" else "-"} " +
+        "entryRefused=${entryRefused.get()} coinTooSlow=${slowRefused8035.get()} moveHistoryDeferred8153=${historyDeferred8153.get()} scalpTooFlat8054=${scalpRefused8054.get()} swingAlreadyRan8054=${overextendedRefused8054.get()} depthUnknown=${unpricedDepth8037.get()} profitExitsHeld=${exitHeld.get()} giveBackReleased8048=${giveBackReleased.get()} partialsHeld=${partialHeld.get()} lastCost=${if (lastCostPct.isFinite()) "%.2f".format(lastCostPct) + "%" else "-"} " +
             "rule=entry move>=${EDGE_MULT}x cost · exit only at >= cost+${NET_BUFFER_PCT}% (stops never held)" +
             " · lastCost8169=[$lastBreakdown8169] lastEntryCost8169=[$lastEntryBreakdown8169]" +
             " · cost8151 " + com.lifecyclebot.engine.CostMeter8151.statusLine8151(DEFAULT_TICKET_SOL)

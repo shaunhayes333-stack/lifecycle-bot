@@ -8,7 +8,8 @@ import java.io.File
 class Aate8045SolanaHandoffTest {
     @Test fun handoffAndBuyDoorDepth() {
         val ct = File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
-        assertTrue(ct.contains("\"SOLANA_COIN_OWNED_BY_MEME_STACK_8043\".also { handOffSolanaToMeme8045(signal, candidate.liquidityUsd, candidate.marketCapUsd6493) }"))
+        // V5.0.8714 — the hand-off now follows a refusal by the crypto desk, not a blanket ownership rule.
+        assertTrue(ct.contains("if (solanaCoinRefused8714(paper7803, signal.market == PerpsMarket.DYN, signal.dynChainId))"))
         assertTrue(ct.contains("com.lifecyclebot.engine.TokenMergeQueue.enqueue("))
         val od = File("src/main/kotlin/com/lifecyclebot/engine/truth/OnChainDepth8038.kt").readText()
         assertTrue(od.contains("ParallelMarkFanout7088.curvePrices7392(listOf(ts.mint), latencyCritical8527 = true)"))

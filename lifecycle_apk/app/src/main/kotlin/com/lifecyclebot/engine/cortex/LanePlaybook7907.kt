@@ -1926,6 +1926,25 @@ object LanePlaybook7907 {
         return mean - COLD_SE_MULT_8080 * kotlin.math.sqrt(variance / n) > 0.0
     }
 
+    /** Pure (V5.0.8714): the mirror of [coldStartPositive8080] — the same label count and margin, below zero. */
+    fun coldLosing8714(n: Double, mean: Double, variance: Double): Boolean {
+        if (!n.isFinite() || n < COLD_MIN_N_8080 || !mean.isFinite() || !variance.isFinite() || variance < 0.0) return false
+        return mean + COLD_SE_MULT_8080 * kotlin.math.sqrt(variance / n) < 0.0
+    }
+
+    /**
+     * V5.0.8714 — the strategy this coin trades as in [laneRaw] (a fired setup, or its no-setup cohort: NO_TRIGGER /
+     * outside the envelope) when that strategy's own record in the lane is losing by [coldLosing8714]; else null. An
+     * unclassified read (inputs missing, classifier error) is not a strategy and never answers.
+     */
+    fun losingSetup8714(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): String? = try {
+        val lane = canon(laneRaw)
+        val setup = selectedSetup8094(ts, lane, nowMs)
+        if (setup == null || setup in UNCLASSIFIED_8087) null else synchronized(this) {
+            stat(lane, setup)?.takeIf { coldLosing8714(it.n, it.mean(), it.variance()) }?.let { setup }
+        }
+    } catch (_: Throwable) { null }
+
     internal const val COLD_MIN_N_8080 = 12.0
     internal const val COLD_SE_MULT_8080 = 1.5
 

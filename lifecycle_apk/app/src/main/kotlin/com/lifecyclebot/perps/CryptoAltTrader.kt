@@ -837,6 +837,10 @@ object CryptoAltTrader {
     private val handedOff8045 = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val SOLANA_MINT_8045 = Regex("^[1-9A-HJ-NP-Za-km-z]{32,44}$")
 
+    /** Pure (V5.0.8714): a live Solana coin the crypto desk refused goes to the meme intake. */
+    internal fun solanaCoinRefused8714(paper: Boolean, dynamic: Boolean, chainId: String?): Boolean =
+        !paper && dynamic && chainId.orEmpty().trim().equals("solana", true)
+
     private fun handOffSolanaToMeme8045(signal: AltSignal, liquidityUsd: Double, mcapUsd: Double) {
         try {
             val mint = signal.dynMint?.trim().orEmpty()
@@ -3696,14 +3700,11 @@ object CryptoAltTrader {
                     // entry here (the monitor keeps managing positions already open). 6015's sidecar rule ran the crypto
                     // universe whenever the meme trader was on, regardless of the toggle.
                     if (!paper7803 && cryptoToggleOff8043()) "CRYPTO_TOGGLE_OFF_8043" else null,
-                    // V5.0.8043 — "the crypto trader claimed several sol coins": a coin discovered on Solana belongs to the
-                    // meme stack (its lanes, its capital); the crypto lane never opens one live.
-                    if (!paper7803 && signal.market == PerpsMarket.DYN && (signal.dynChainId ?: "").trim().equals("solana", true))
-                        "SOLANA_COIN_OWNED_BY_MEME_STACK_8043".also { handOffSolanaToMeme8045(signal, candidate.liquidityUsd, candidate.marketCapUsd6493) } else null,
-                    // V5.0.8042 — live money only where the coin's own move clears 2x the round trip.
-                    if (paper7803) null else try {
-                        com.lifecyclebot.engine.truth.NetEdge8030.cryptoEntryRefusal8042(signal.priceChange24h, finalSize, candidate.liquidityUsd)
-                    } catch (_: Exception) { "NET_EDGE_CRYPTO_ECONOMICS_UNAVAILABLE_8042" },
+                    // V5.0.8714 — owner: "sol majors can trade on the crypto trader again. hell if it qualifies any coin and
+                    // looks forward positive let it trade it." 8043's SOLANA_COIN_OWNED_BY_MEME_STACK and 8042's 24-hour-move
+                    // rule are removed (8712 live: 138 candidates, 0 admitted). What decides a live crypto entry now is the
+                    // crypto brain's qualification, the canonical contract's forward expectancy (LIVE_NON_POSITIVE_EXPECTANCY_7828)
+                    // and the live edge gate. A coin either book already holds is never evaluated (HeldPositionSupervisor7246).
                     if (remainingExposure7835 <= 0.0) "CRYPTO_EXPOSURE_CAP_7835" else null,
                 ), candidateVersion = candidate.candidateVersion,
                 diagnosticSignal = candidate.preFdgVerdict.name,
@@ -3713,6 +3714,9 @@ object CryptoAltTrader {
             is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Allowed -> canonicalCryptoAdmission6565.intent
             is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Probe -> canonicalCryptoAdmission6565.intent
             is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Blocked -> {
+                // V5.0.8714 — a Solana coin the crypto desk does not take is still offered to the meme lanes (8045).
+                if (solanaCoinRefused8714(paper7803, signal.market == PerpsMarket.DYN, signal.dynChainId))
+                    handOffSolanaToMeme8045(signal, candidate.liquidityUsd, candidate.marketCapUsd6493)
                 terminalDisposition6613("CANONICAL_BLOCKED:${canonicalCryptoAdmission6565.reason}", "AUTHORITY")
                 return
             }
