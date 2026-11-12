@@ -43,6 +43,8 @@ CI test; "Inferred" means reasoned from source and not yet observed live. Nothin
 - Entries: 5 of the 7 losses were real 13-21 % drops within 10-90 s of buying, after the coin had just run 28-35 %
   (run tape: marsoperator +28 %, EBreGK +35 %). runnerAdmits8297: live LOSS_BOUGHT_TOP 78 of 113 admits.
 
+| D11 | `RunTape8293.detect8293` | The only tape entry signal fires on a coin already +15..150 % off its low | Live buys the move after it happened: 8727 marsoperator handed at +28 %, stopped -14 % in 10 s; 78 of 113 live admits bought the top | 8729: `detectBreak8729` (a base holding a range, the first leg out of it on executed buying) is read first, with its own graded record | `Aate8729BaseBreakTest`. Not yet proven live |
+
 ## Open — not repaired
 
 | # | Where | What | Why it is open |
@@ -51,6 +53,8 @@ CI test; "Inferred" means reasoned from source and not yet observed live. Nothin
 | O2 | `RunnerDoctrine8584` (`TRAIL_ARM_PEAK_PCT_8630 = 25`, 45 % give-back) | Hand numbers | No price-path data in the captures; replay below shows the path they do not survive |
 | O3 | `RunnerGrab7967.TIERS_7967` | +900 % rung sells 67 % of the remainder | A fifth of the position rides past 10x; a 25x move banks ~8x |
 | O4 | `EdgeModel8537` | One target (banked outcome, gain capped at +400 %) | No separate P(2x) / P(5x) / P(10x), drawdown or time objectives yet |
+| O6 | Trade visibility | Executed trades are seen on about 6 coins at a time (Helius per-mint tape); the program-wide pump.fun tape (`HeliusCurveTape8354`) is off (`fallback=BYTES_OVER_3MB_MIN`); 90 % of evaluated coins have no flow read, 1-minute candles exist for 57 of ~3,000 | Owner decision: data spend. Helius credits were 260k of a 300k day, 3.5 GB of it on per-mint streams |
+| O7 | Crypto trader live | 8727: 84 candidates, 84 blocked; 1,752 evaluations ended `CRYPTO_BRAIN_NO_ACTIONABLE_SIGNAL_7244`, 61 `ROUTE_UNAVAILABLE` | Not yet traced per symbol |
 | O5 | Directive §3, §5, §7, §8, §11, §12, §13, §14 | Inventory, setup executability, data supply, authority consolidation, retired setups, paper/live parity, dead code, historical replay | Not started |
 
 ## Runner replay (doctrine rules as written, before cost and slippage)
