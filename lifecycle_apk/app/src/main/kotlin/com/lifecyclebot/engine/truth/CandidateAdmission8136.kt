@@ -1715,7 +1715,7 @@ object CandidateAdmission8136 {
         val nativeSetupBook8217 = when {
             nativeBook8217 == null -> null
             pick8153?.id != null && pick8153.id.isNotBlank() && !pick8153.id.equals("NONE", true) -> pick8153.id
-            nativeBook8217.reason.isNotBlank() && !nativeBook8217.reason.equals("NONE", true) -> "NATIVE_READY_8270:${nativeBook8217.reason.take(40)}"
+            nativeBook8217.reason.isNotBlank() && !nativeBook8217.reason.equals("NONE", true) -> "${com.lifecyclebot.engine.cortex.SetupAuthority8535.NATIVE_READY_PREFIX_8727}${nativeBook8217.reason.take(40)}"
             else -> null
         }
         // V5.0.8260 — the forming runner on an unlearned book is the runner lanes' own qualification.
@@ -1726,7 +1726,7 @@ object CandidateAdmission8136 {
             ?.takeIf { it.isNotBlank() && !it.equals("NONE", true) && triggered8535(it) }
         if (nativeSetupBook8217 != null) try {
             com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ADMISSION_NATIVE_FROM_BOOK_8217_$lane")
-            if (nativeSetupBook8217.startsWith("NATIVE_READY_8270:")) com.lifecyclebot.engine.PipelineHealthCollector
+            if (nativeSetupBook8217.startsWith(com.lifecyclebot.engine.cortex.SetupAuthority8535.NATIVE_READY_PREFIX_8727)) com.lifecyclebot.engine.PipelineHealthCollector
                 .labelInc("ADMISSION_NATIVE_READY_VERDICT_SETUP_8270_$lane")
         } catch (_: Throwable) {}
         val setups = try {

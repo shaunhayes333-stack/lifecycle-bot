@@ -28,6 +28,8 @@ CI test; "Inferred" means reasoned from source and not yet observed live. Nothin
 | D7 | `ExecutionAttemptLease.terminalFail`, report | A failed live buy kept only a reason name and a count | The six 8720 failures cannot be traced to coin, pool, lock % or quote move | 8726: last 16 failed buys kept with safety, pool, age and chase numbers | `Aate8726…aFailedBuyKeepsItsFacts` |
 | D8 | `MarketCohort8701` FRESH cohort (8717) | Needs 100 labels of a chain-proven birth; splits the $10k–50k band | The paying cell could never be proven by it | Superseded by `PayingCell8723` (edge-model age, lane record) | Verified on the dataset |
 
+| D9 | `SetupAuthority8535.authorityOf8535` (`else -> SETUP_TRIGGERED`) | `NATIVE_READY_8270:<text>` (a lane READY verdict with no playbook setup) and the three 8720 structure reads were executable entries on their name alone | A verdict or a description of the coin could be the executed strategy with no entry event (8720 runner record: live admits 75 bought the top, 17 won) | 8727: NATIVE_READY needs the observed breakout witness; FRESH_DEEP_POOL / DISTRIBUTED_HOLDERS are token-quality, EARLY_CURVE_AT_HIGH is a near-high read | `Aate8727SetupExecutabilityTest`. Still open: other native opinion ids not in the playbook default to triggered (pinned by `Aate8672…` as intended) |
+
 ## Open — not repaired
 
 | # | Where | What | Why it is open |

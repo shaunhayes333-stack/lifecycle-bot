@@ -28,11 +28,14 @@ object SetupAuthority8535 {
         "SWEET_SPOT_8383", "YOUNG_LIQUID_8383", "DEEP_RATIO_8383", "STRONG_TREND_8383", "BAND_MOMENTUM_8383", "TREND_DIP_8383",
         "RS_LEADER", "DEEP_LIQ_TREND", "LP_LOCKED_BASE", "NO_BUNDLE_CLEAN",
         "BROAD_DISTRIBUTION", "BOOSTED_LAUNCH", "SOCIAL_LAUNCH", "INSIDER_ACCUMULATION",
+        // V5.0.8727 — the 8720 structure reads (pool depth on a young coin, holder spread) describe the coin, not an entry.
+        "FRESH_DEEP_POOL_8720", "DISTRIBUTED_HOLDERS_8720",
     )
 
     /** Predicates that fire on the price sitting at / near its high: they need a fresh breakout witness to be an entry. */
     val NEAR_HIGH_8535: Set<String> = setOf(
         "BREAKOUT_HOLD", "BREAKOUT_RUNNER", "TX_VELOCITY_BREAK", "NEW_HIGH_PUSH", "BUYERS_DOMINATING", "LOW_RUNUP_BASE", "LOW_VOL_COIL",
+        "EARLY_CURVE_AT_HIGH_8720",   // V5.0.8727 — price at its high on an early curve is a near-high read like the others
     )
 
     /** Predicates that pass an UNKNOWN buy pressure (`geOrUnknown(bp, ..)`): a fire without the measurement is partial. */
@@ -41,6 +44,8 @@ object SetupAuthority8535 {
         "FRESH_LAUNCH_MOMENTUM",
     )
 
+    /** The prefix CandidateAdmission8136 gives a lane READY verdict that names no playbook setup. */
+    const val NATIVE_READY_PREFIX_8727 = "NATIVE_READY_8270:"
     const val WITNESS_VOL_ACCEL_8535 = 55.0
     const val WITNESS_TX_VELOCITY_8535 = 2.0
     const val WITNESS_CHG5M_PCT_8535 = 2.0
@@ -64,6 +69,12 @@ object SetupAuthority8535 {
         setup in QUALITY_ONLY_8535 -> Authority.TOKEN_QUALITY
         setup in PARTIAL_ON_UNKNOWN_BP_8535 && !bp.isFinite() -> Authority.SETUP_FORMING
         setup in NEAR_HIGH_8535 && !breakoutWitness8535(bp, volAccel, txVelocity, chg5m, runup) -> Authority.SETUP_FORMING
+        // V5.0.8727 — owner's directive §5: "an unrecognised setup name must not automatically be considered executable
+        // unless independently verified native-event evidence authorises it". NATIVE_READY_8270:<text> is a lane's READY
+        // verdict carried as free text when no playbook setup fired (CandidateAdmission8136.candidateFor8136); it fell to
+        // the `else` below and was a triggered entry on its name alone. It is an entry only with the same observed witness
+        // a near-high read needs: buyers measured, an observed acceleration, and the run not already spent.
+        setup.startsWith(NATIVE_READY_PREFIX_8727) && !breakoutWitness8535(bp, volAccel, txVelocity, chg5m, runup) -> Authority.SETUP_FORMING
         else -> Authority.SETUP_TRIGGERED
     }
 
