@@ -737,6 +737,19 @@ object LanePlaybook7907 {
                 ok(f.tapeFromFirst, 0.0, 40.0) && le(f.tapeDevSold, 0.0)
         },
         Setup("MARKET_SECOND_WAVE_RECLAIM", STRUCT) { f -> f.marketReclaim },
+        // V5.0.8720 §THE_SETUPS_THE_DATA_HAD_AND_THE_MENU_DID_NOT — the 8712 edge dataset, one row per coin (11,358), outcome
+        // as a stop and a ladder would bank it; base -2.7 %, 1.7 % of coins run 100 %+. Every setup on the menu reads heat
+        // (run-up, 5-minute change, new buyers, breakouts) and every such read loses; what paid was structure nobody read:
+        //   a pool of $10k-50k on a coin under five minutes old      n77  +35 % (10 % run 100 %+)
+        //   top holder under 15 % with a $10k-50k pool               n300 +11 % (t 3.1)
+        //   a curve under 2 % filled, price at its own high          n478 +10 % first half, +9 % second half
+        // Cells chosen on the first half of the data paid +8.5 % in the second half against a -3.0 % base. They are setups
+        // like any other from here: graded per lane on their own forward labels, refused live when their record loses
+        // (LaneAuthority8577.LIVE_SETUP_LOSES_8714), admitted on it only once it is proven. Band edges are the pocket
+        // ledger's own (PocketLedger8610.bands8610).
+        Setup("FRESH_DEEP_POOL_8720", STRUCT) { f -> ok(f.age, 0.0, 5.0) && ge(f.liq, 10_000.0) && f.liq < 50_000.0 },
+        Setup("DISTRIBUTED_HOLDERS_8720", STRUCT) { f -> f.top.isFinite() && f.top < 15.0 && ge(f.liq, 10_000.0) && f.liq < 50_000.0 },
+        Setup("EARLY_CURVE_AT_HIGH_8720", STRUCT) { f -> f.curve7978.isFinite() && f.curve7978 < 0.02 && ge(f.pxPeak, 0.98) },
     )
     private val EXPERT_LANES_7962 = setOf("SHITCOIN", "EXPRESS", "MOONSHOT", "PROJECT_SNIPER")
     private fun menuOf7962(lane: String): List<Setup>? = MENU[lane]?.let { base ->
