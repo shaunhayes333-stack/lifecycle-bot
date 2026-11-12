@@ -314,9 +314,26 @@ object StopMarkConfirm8418 {
     private fun markOnVenue8706(ts: TokenState): Boolean =
         try { onBasis8418(ts.lastPriceSource, ts.lastPricePoolAddr, ts.position.entryPoolAddress) } catch (_: Throwable) { false }
 
+    /**
+     * V5.0.8712 §THE_WAIT_IS_ONE_UNBROKEN_BREACH — 8711 live: SHITCOIN bought 22:41:12 and sold 22:41:29 on
+     * RAPID_CATASTROPHE_STOP at -4.0 % realised; EXPRESS bought 22:41:30, sold 22:42:38 on its -15 % stop at -3.3 %. Both
+     * were BASE-stage entries, the one stage that pays, closed inside 70 seconds for the round-trip cost. The unread wait was
+     * timed from the FIRST time the stop ever asked and never restarted: one wick on the pool started the clock, the price
+     * came back, and the next wick - any time later - was already "past the wait" and sold at once. The wait is now one
+     * unbroken breach: if the stop stopped asking for longer than [BREACH_GAP_MS_8712] (the price was back above its line),
+     * the next ask starts a new wait.
+     */
+    const val BREACH_GAP_MS_8712 = NO_READ_HOLD_MS_8631 / 2
+    private val lastUnreadAsk8712 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    /** Pure: when the breach now being asked about began, given its recorded [first] ask and the [lastAsk] before this one. */
+    fun breachStart8712(first: Long?, lastAsk: Long?, nowMs: Long): Long =
+        if (first == null || lastAsk == null || nowMs - lastAsk !in 0L..BREACH_GAP_MS_8712) nowMs else first
+
     private fun holdForVenueRead8631(ts: TokenState, key: String, nowMs: Long): Boolean {
-        if (noReadSince8631.size > MAX_AWAITS_8419) noReadSince8631.clear()
-        val first = noReadSince8631.putIfAbsent(key, nowMs) ?: nowMs
+        if (noReadSince8631.size > MAX_AWAITS_8419) { noReadSince8631.clear(); lastUnreadAsk8712.clear() }
+        val first = breachStart8712(noReadSince8631[key], lastUnreadAsk8712.put(key, nowMs), nowMs)
+        noReadSince8631[key] = first
         val onVenue = markOnVenue8706(ts)
         val fires = unreadStopFires8706(first, nowMs, markPnlPct8706(ts), onVenue)
         if (fires) noReadSince8631.remove(key)

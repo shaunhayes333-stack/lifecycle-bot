@@ -38,10 +38,13 @@ class Aate8696OneRuleForSelectionGatesTest {
 
     // V5.0.8698 — a bonding curve's real SOL is not a thin pool: 41 of 64 wrongly refused runners were stopped by this test.
     @Test fun anActiveBondingCurveIsNotAThinPoolRunup() {
-        assertTrue(TokenMetricStageRouter.thinPoolRunup8698(liqThin = true, runupPct = 120.0, onActiveCurve = false))
-        assertFalse(TokenMetricStageRouter.thinPoolRunup8698(liqThin = true, runupPct = 120.0, onActiveCurve = true))
-        assertFalse(TokenMetricStageRouter.thinPoolRunup8698(liqThin = true, runupPct = 40.0, onActiveCurve = false))
-        assertFalse(TokenMetricStageRouter.thinPoolRunup8698(liqThin = false, runupPct = 120.0, onActiveCurve = false))
+        assertTrue(TokenMetricStageRouter.thinPoolRunup8698(liqThin = true, runupPct = 120.0, onActiveCurve = false, currentVsPeak = 0.97))
+        assertFalse(TokenMetricStageRouter.thinPoolRunup8698(liqThin = true, runupPct = 120.0, onActiveCurve = true, currentVsPeak = 0.97))
+        assertFalse(TokenMetricStageRouter.thinPoolRunup8698(liqThin = true, runupPct = 40.0, onActiveCurve = false, currentVsPeak = 0.97))
+        assertFalse(TokenMetricStageRouter.thinPoolRunup8698(liqThin = false, runupPct = 120.0, onActiveCurve = false, currentVsPeak = 0.97))
+        // V5.0.8712 — a run is not a life sentence: off its high the coin is a pullback or a base, judged by that stage's record.
+        assertFalse(TokenMetricStageRouter.thinPoolRunup8698(liqThin = true, runupPct = 120.0, onActiveCurve = false, currentVsPeak = 0.70))
+        assertTrue(TokenMetricStageRouter.thinPoolRunup8698(liqThin = true, runupPct = 120.0, onActiveCurve = false, currentVsPeak = 0.88))
         assertTrue(src("engine/TokenMetricStageRouter.kt").contains("CurveReserves7951.realSolIfActive8046(ts.mint, now) != null"))
     }
 

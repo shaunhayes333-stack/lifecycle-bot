@@ -93,7 +93,10 @@ object TokenMetricStageRouter {
         val freshLocalBook = LaneInputTruth8236.fresh8491(ts.buyPressureObservedAtMs8084, now)
         val bp = flow?.buyPct?.takeIf { it.isFinite() } ?: if (freshLocalBook) ts.lastBuyPressurePct else 50.0
         val sp = if (flow?.buyPct?.isFinite() == true) 100.0 - bp else if (freshLocalBook) ts.lastSellPressurePct else 50.0
-        val liq = ts.lastLiquidityUsd.takeIf { it.isFinite() && it > 0 }
+        // V5.0.8712 — the pool depth every other owner reads (LiquidityTruth8037: the venue's own reserves when it has them),
+        // before the raw last field: a graduated coin still carrying its curve-era figure read "thin" for life.
+        val liq = (try { com.lifecyclebot.engine.truth.LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) { Double.NaN }).takeIf { it.isFinite() && it > 0.0 }
+            ?: ts.lastLiquidityUsd.takeIf { it.isFinite() && it > 0 }
             ?: SetupFeatureResolver8169.observedLiquidity8170(ts.mint, ageMin, now) ?: 0.0
         val mcap = ts.lastMcap.takeIf { it.isFinite() && it > 0.0 } ?: ts.lastFdv.coerceAtLeast(0.0)
         val mcapToLiq = if (liq > 0.0) (mcap / liq).coerceIn(0.0, 10_000.0) else 9999.0
@@ -121,7 +124,14 @@ object TokenMetricStageRouter {
         // its VIRTUAL reserve (30 + real SOL — the depth FieldManual7715.depthUsdForImpact8337 already prices impact on), so
         // the thin-POOL test applies to pools only. A curve coin is still judged by its own cell / stage / setup records.
         val onActiveCurve8698 = try { com.lifecyclebot.engine.truth.CurveReserves7951.realSolIfActive8046(ts.mint, now) != null } catch (_: Throwable) { false }
-        val thinRug8500 = thinPoolRunup8698(liqThin, runup, onActiveCurve8698)
+        // V5.0.8712 §A_RUN_IS_NOT_A_LIFE_SENTENCE — "up >= 80 % from its low" stays true for every coin that ever ran and kept
+        // half of it, so a thin pool that ran was RUG_PRONE for good: through the pullback, through the base, through the
+        // second leg. Runner funnel, two captures running: STRUCTURAL_RISK_8136 refused 13 of 40 and 15 of 46 of the coins that
+        // went 4x in 24 h - the largest single cause - while its own 5-minute record (n21 -27.1 %) kept it "protecting", because
+        // the refusals it is graded on are the ones made at the top. The test is a chase test: a thin pool that has run AND
+        // is still at its high. Off the high the coin is staged by what it is doing (pullback, base, dump) and each of those
+        // stages answers to its own record on LIVE (LaneAuthority8577.stageLoses8626).
+        val thinRug8500 = thinPoolRunup8698(liqThin, runup, onActiveCurve8698, currentVsPeak)
         // V5.0.8696 — top-10 concentration no longer stages a coin RUG_PRONE. On 13,321 labelled meme decisions the coins it
         // refused (top-10 >= 60 %, n366) did BETTER than the rest in both halves (-0.4 % / -6.0 % against -6.1 % / -8.2 %):
         // it was not protecting. Concentration stays with its owner: TokenSafetyChecker penalises it from 40 % and refuses
@@ -548,9 +558,15 @@ object TokenMetricStageRouter {
         else -> "N_FADING"
     }
 
-    /** Pure (V5.0.8698): a thin POOL that has already run — never an active bonding curve, whose depth is its virtual reserve. */
-    fun thinPoolRunup8698(liqThin: Boolean, runupPct: Double, onActiveCurve: Boolean): Boolean =
-        liqThin && runupPct >= 80.0 && !onActiveCurve
+    /** A price at or above this share of its recent peak is "at the high" (the peak-exhaustion test's own figure). */
+    private const val AT_HIGH_SHARE_8712 = 0.88
+
+    /**
+     * Pure (V5.0.8698 / 8712): a thin POOL that has already run and is still at its high — never an active bonding curve
+     * (its depth is its virtual reserve), and never a coin that has come off the high (that is a pullback or a base).
+     */
+    fun thinPoolRunup8698(liqThin: Boolean, runupPct: Double, onActiveCurve: Boolean, currentVsPeak: Double): Boolean =
+        liqThin && runupPct >= 80.0 && !onActiveCurve && currentVsPeak.isFinite() && currentVsPeak >= AT_HIGH_SHARE_8712
 
     /** Pure (V5.0.8500): the structural test(s) that staged a coin RUG_PRONE. */
     fun rugWhy8500(valuationAir: Boolean, thinRunup: Boolean): String =

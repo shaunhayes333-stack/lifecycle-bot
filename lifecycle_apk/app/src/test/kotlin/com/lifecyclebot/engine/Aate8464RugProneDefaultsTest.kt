@@ -26,7 +26,7 @@ class Aate8464RugProneDefaultsTest {
         assertTrue(src.contains("val valuationAir = liq > 0.0 && mcapToLiq >= 85.0 && mcap >= 150_000.0 && !isEstablished7306(ts, mcap, liq, ageMin)"))
         // V5.0.8500 — the same three tests, named so a refusal states its trigger; valuation air still needs an observed book.
         assertTrue(src.contains("val airRug8500 = valuationAir && bookObserved8464 && (sp >= 55.0 || bp < 52.0)"))
-        assertTrue(src.contains("val thinRug8500 = thinPoolRunup8698(liqThin, runup, onActiveCurve8698)"))   // V5.0.8698 — pools only
+        assertTrue(src.contains("val thinRug8500 = thinPoolRunup8698(liqThin, runup, onActiveCurve8698, currentVsPeak)"))   // V5.0.8698 — pools only
         assertTrue(src.contains("val rugProne = airRug8500 || thinRug8500"))   // V5.0.8696 — top-10 left the stage
         assertTrue(src.contains("val bookObserved8464 = freshLocalBook || flow?.buyPct?.isFinite() == true"))
     }
