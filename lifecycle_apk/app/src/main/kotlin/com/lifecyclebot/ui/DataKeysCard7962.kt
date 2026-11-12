@@ -28,6 +28,7 @@ internal object DataKeysCard7962 {
             MARKET_IDS.forEachIndexed { i, id -> field(a, id)?.setText(keys.getOrNull(i).orEmpty()) }
             field(a, R.id.etPumpPortalKeyMain7962)?.setText(current().pumpPortalApiKey)
             field(a, R.id.etPumpFunApiKeyMain8713)?.setText(ConfigStore.pumpFunApiKey8713(a))
+            field(a, R.id.etHeliusDailyCredits8731)?.setText(ConfigStore.heliusDailyCredits8731(a).takeIf { it > 0.0 }?.toLong()?.toString().orEmpty())
             a.findViewById<Button?>(R.id.btnSaveDataKeys7962)?.setOnClickListener {
                 save(a, current, saveConfig)
                 Toast.makeText(a, "Data keys saved — sources pick them up within a minute", Toast.LENGTH_SHORT).show()
@@ -40,6 +41,7 @@ internal object DataKeysCard7962 {
         try {
             ConfigStore.saveMarketDataKeys7958(a, MARKET_IDS.map { id -> field(a, id)?.text?.toString()?.trim().orEmpty() })
             savePumpFunKey8713(a)
+            saveHeliusCredits8731(a)
             if (!includePumpPortal) return
             // V5.0.8181 — an empty card (not yet bound, or not typed in) never erases the saved key.
             val pp = pumpPortal(a)?.takeIf { it.isNotBlank() } ?: return
@@ -54,6 +56,14 @@ internal object DataKeysCard7962 {
         if (typed.isBlank() || typed == ConfigStore.pumpFunApiKey8713(a)) return
         ConfigStore.savePumpFunApiKey8713(a, typed)
         try { com.lifecyclebot.engine.LeaderboardRoutes8418.keyChanged8713() } catch (_: Throwable) {}
+    }
+
+    /** V5.0.8731 — the Helius plan's daily credits; a blank or unchanged field keeps what is saved. */
+    private fun saveHeliusCredits8731(a: Activity) {
+        val typed = field(a, R.id.etHeliusDailyCredits8731)?.text?.toString()?.trim()?.toDoubleOrNull() ?: return
+        if (typed == ConfigStore.heliusDailyCredits8731(a)) return
+        ConfigStore.saveHeliusDailyCredits8731(a, typed)
+        try { com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.setDailyBudget8731(typed) } catch (_: Throwable) {}
     }
 
     /** The PumpPortal key typed on the card, or null when the card is not on screen. */

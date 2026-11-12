@@ -6285,6 +6285,23 @@
                         android:layout_marginBottom="10dp"/>
 
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Helius credits per day (your plan's monthly credits ÷ 30)"
+                        android:textColor="@color/aate_green" android:textSize="10sp" android:fontFamily="monospace"
+                        android:layout_marginBottom="2dp"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Blank = 400000. A bigger plan widens the market-wide pump.fun trade feed"
+                        android:textColor="@color/aate_text_muted" android:textSize="9sp" android:fontFamily="monospace"
+                        android:layout_marginBottom="4dp"/>
+                    <EditText android:id="@+id/etHeliusDailyCredits8731"
+                        android:layout_width="match_parent" android:layout_height="@dimen/input_height"
+                        android:background="@drawable/input_bg" android:textColor="@color/aate_text"
+                        android:textColorHint="@color/aate_text_muted" android:textSize="@dimen/input_text_size"
+                        android:fontFamily="monospace" android:hint="e.g. 3333333 for a 100M plan"
+                        android:inputType="number"
+                        android:paddingStart="@dimen/input_padding_h"
+                        android:layout_marginBottom="10dp"/>
+
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="SOLANATRACKER KEY — solanatracker.io/data-api"
                         android:textColor="@color/aate_green" android:textSize="10sp" android:fontFamily="monospace"
                         android:layout_marginBottom="2dp"/>

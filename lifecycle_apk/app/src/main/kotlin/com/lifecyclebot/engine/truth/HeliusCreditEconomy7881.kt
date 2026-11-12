@@ -61,7 +61,17 @@ object HeliusCreditEconomy7881 {
     // dramatically". 400k (was 300k; the 10M plan is ~333k a day, the rest is autoscaled). The waste cut in the same build:
     // Enhanced swap-candle history for held positions only (HeliusSwapCandles7819.heliusCandlesAllowed8453), the
     // whale-only wallets off the smart-money stream (HeliusCadence8361.watchList8361), enrichment capped at 25 % (8452).
-    internal const val DAILY_BUDGET_CREDITS = 400_000.0
+    internal const val DEFAULT_DAILY_BUDGET_CREDITS_8731 = 400_000.0
+    /**
+     * V5.0.8731 — the day's budget is the owner's plan (Settings: Helius credits per day, ConfigStore.heliusDailyCredits8731),
+     * else [DEFAULT_DAILY_BUDGET_CREDITS_8731]. A setting below 100k is a typo, not a plan, and keeps the default.
+     */
+    internal val DAILY_BUDGET_CREDITS: Double get() = budget8731.takeIf { it >= 100_000.0 } ?: DEFAULT_DAILY_BUDGET_CREDITS_8731
+    @Volatile private var budget8731: Double = run {
+        try { com.lifecyclebot.AATEApp.appContextOrNull()?.let { com.lifecyclebot.data.ConfigStore.heliusDailyCredits8731(it) } ?: 0.0 } catch (_: Throwable) { 0.0 }
+    }
+    /** Settings: the owner changed the plan's daily credits. */
+    fun setDailyBudget8731(credits: Double) { budget8731 = credits }
     private const val ENRICHMENT_POOL_SHARE = 0.50
     // superseded by V5.0.8452 — 15 % (was 5 %) and ENRICHMENT_WIRE_SHARE_8452 below. 8450 (one day, 300k budget): ENRICHMENT
     // 155.8k (Enhanced v0/addresses/*/transactions, 100 credits a call: SWAP_CANDLES 109.7k, BUNDLE_SCAN 27.1k), DECISION
@@ -120,6 +130,10 @@ object HeliusCreditEconomy7881 {
 
     /** Pure: websocket bytes to credits. */
     fun creditsForWsBytes(bytes: Long): Double = bytes.coerceAtLeast(0L) / 100_000.0 * WS_CREDITS_PER_100KB
+
+    /** Pure (V5.0.8731): the websocket bytes [credits] pay for (the inverse of [creditsForWsBytes]). */
+    fun wsBytesForCredits8731(credits: Double): Long =
+        if (!credits.isFinite() || credits <= 0.0) 0L else (credits / WS_CREDITS_PER_100KB * 100_000.0).toLong()
 
     /**
      * Pure: may [consumer] spend [estCredits] more right now?

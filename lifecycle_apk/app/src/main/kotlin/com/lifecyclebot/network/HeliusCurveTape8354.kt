@@ -66,11 +66,30 @@ object HeliusCurveTape8354 {
         held || watched || lifecycle || near || asked
 
     /** Pure: the next governor level after a minute of [bytesLastMinute] (PumpSwapTape8307's marks: >3 MB down, <0.4 MB up). */
-    fun nextLevel8354(level: Int, bytesLastMinute: Long): Int = when {
-        bytesLastMinute > HIGH_BYTES_PER_MIN_8354 -> (level + 1).coerceAtMost(LEVEL_PER_MINT_8354)
-        bytesLastMinute < LOW_BYTES_PER_MIN_8354 -> (level - 1).coerceAtLeast(LEVEL_ENHANCED_8354)
+    fun nextLevel8354(level: Int, bytesLastMinute: Long, high: Long = HIGH_BYTES_PER_MIN_8354, low: Long = LOW_BYTES_PER_MIN_8354): Int = when {
+        bytesLastMinute > high -> (level + 1).coerceAtMost(LEVEL_PER_MINT_8354)
+        bytesLastMinute < low -> (level - 1).coerceAtLeast(LEVEL_ENHANCED_8354)
         else -> level.coerceIn(LEVEL_ENHANCED_8354, LEVEL_PER_MINT_8354)
     }
+
+    /**
+     * V5.0.8731 — owner: "1 and 2" (fund the market-wide trade feed; raise the Helius plan). 8727 live: the program tape sat
+     * in its per-mint fallback (fallback=BYTES_OVER_3MB_MIN, stepDowns=2) while the per-mint streams moved 3.5 GB (HELIUS_TAPE
+     * 2.3 GB, MINT_LOGS 1.2 GB) and the bot saw executed trades on about six coins. The 3 MB/min mark was a fixed number
+     * beside a credit budget that already bounds the stream (programAffordable8354). The mark is now what the program's share
+     * of the day's credits pays for per minute ([highBytesPerMin8731]), never below the old 3 MB: a bigger plan is a wider
+     * tape, the 400k default is about 5.5 MB/min. The step-back mark keeps the same ratio.
+     */
+    fun highBytesPerMin8731(dailyCredits: Double, share: Double = PROGRAM_SHARE_8354): Long {
+        val perMinCredits = dailyCredits.coerceAtLeast(0.0) * share / 1_440.0
+        val bytes = com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.wsBytesForCredits8731(perMinCredits)
+        return maxOf(HIGH_BYTES_PER_MIN_8354, bytes)
+    }
+
+    /** Pure: the step-back mark for a step-down mark of [high] (the 0.4 MB : 3 MB ratio). */
+    fun lowBytesPerMin8731(high: Long): Long = high * LOW_BYTES_PER_MIN_8354 / HIGH_BYTES_PER_MIN_8354
+
+    private fun dailyCredits8731(): Double = try { com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.DAILY_BUDGET_CREDITS } catch (_: Throwable) { 400_000.0 }
 
     /** Pure: how long the per-mint fallback holds after the [nth] (1-based) step-down: 30 min doubling, capped at 4 h. */
     fun fallbackHoldMs8354(nth: Int): Long = (FALLBACK_BASE_MS_8354 shl (nth - 1).coerceIn(0, 3)).coerceAtMost(FALLBACK_MAX_MS_8354)
@@ -114,7 +133,7 @@ object HeliusCurveTape8354 {
         src == Source8354.HELIUS_PROGRAM -> "-"
         overBudget -> "HELIUS_OVER_BUDGET"
         !affordable -> "PROGRAM_SHARE_EXHAUSTED"
-        inHold -> "BYTES_OVER_${HIGH_BYTES_PER_MIN_8354 / 1_048_576L}MB_MIN"
+        inHold -> "BYTES_OVER_${highBytesPerMin8731(dailyCredits8731()) / 1_048_576L}MB_MIN"
         level >= LEVEL_PER_MINT_8354 -> "BYTES_LEVEL"
         transport == Transport8354.NONE -> "NO_TRANSPORT"
         pumpPortalOn -> "PUMPPORTAL_ON"
@@ -176,7 +195,10 @@ object HeliusCurveTape8354 {
             if (m != minute) {
                 val last = bytesMinute.getAndSet(0L)
                 bytesLastMinute = last
-                if (minute != 0L && transport != Transport8354.NONE) level = nextLevel8354(level, last)
+                if (minute != 0L && transport != Transport8354.NONE) {
+                    val high = highBytesPerMin8731(dailyCredits8731())
+                    level = nextLevel8354(level, last, high, lowBytesPerMin8731(high))
+                }
                 minute = m
             }
         }
@@ -258,7 +280,7 @@ object HeliusCurveTape8354 {
             val over = try { com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.overHardBudget8399(nowMs) } catch (_: Throwable) { false }
             val inHold = nowMs < fallbackUntilMs
             if (!inHold && fallbackUntilMs > 0L) { fallbackUntilMs = 0L; level = LEVEL_LOGS_8354 }   // the hold served: re-probe logs only
-            val affordable = programAffordable8354(programCreditsToday(), bytesLastMinute, dayFraction(nowMs), over)
+            val affordable = programAffordable8354(programCreditsToday(), bytesLastMinute, dayFraction(nowMs), over, budget = dailyCredits8731())
             val enhancedOk = try { HeliusEnhancedWS.enhancedOk8354() } catch (_: Throwable) { false }
             val sharedUp = sharedLogsEligible8509(HeliusSocketShare8191.attached8191(), logsRefusedUntilMs8509, nowMs)
             val (src, tr) = decide8354(pumpPortalOn, level, inHold, affordable, enhancedOk, sharedUp)
@@ -305,7 +327,7 @@ object HeliusCurveTape8354 {
         rollClocks(nowMs)
         frames.incrementAndGet()
         bytesToday.addAndGet(bytes.toLong())
-        if (bytesMinute.addAndGet(bytes.toLong()) > HIGH_BYTES_PER_MIN_8354 && transport != Transport8354.NONE) stepDownNow(nowMs)
+        if (bytesMinute.addAndGet(bytes.toLong()) > highBytesPerMin8731(dailyCredits8731()) && transport != Transport8354.NONE) stepDownNow(nowMs)
     }
 
     // ── decoded trades ──

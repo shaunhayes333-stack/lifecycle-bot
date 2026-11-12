@@ -467,6 +467,19 @@ object ConfigStore {
     }
     private const val PUMPFUN_API_KEY_8713 = "pumpfun_developer_api_key"
 
+    /**
+     * V5.0.8731 — owner: options "1 and 2": the market-wide trade feed, paid for by a larger Helius plan. The Helius credits
+     * the bot may spend per day (the plan's monthly credits / 30). 0 = not set: the built-in 400k day (the 10M plan + its
+     * autoscaling allowance, V5.0.8453).
+     */
+    fun heliusDailyCredits8731(ctx: Context): Double =
+        try { prefs(ctx).getFloat(HELIUS_DAILY_CREDITS_8731, 0f).toDouble() } catch (_: Throwable) { 0.0 }
+
+    fun saveHeliusDailyCredits8731(ctx: Context, credits: Double) {
+        try { prefs(ctx).edit().putFloat(HELIUS_DAILY_CREDITS_8731, credits.coerceAtLeast(0.0).toFloat()).apply() } catch (_: Throwable) {}
+    }
+    private const val HELIUS_DAILY_CREDITS_8731 = "helius_daily_credits_8731"
+
     /** Pure (V5.0.8286): keep the saved key when the incoming value is blank and clearing wasn't explicitly allowed. */
     internal fun keepSavedKey8286(saved: String, incoming: String, allowClear: Boolean): Boolean =
         incoming.isBlank() && saved.isNotBlank() && !allowClear
