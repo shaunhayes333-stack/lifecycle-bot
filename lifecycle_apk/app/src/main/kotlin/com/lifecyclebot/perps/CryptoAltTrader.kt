@@ -3885,7 +3885,9 @@ object CryptoAltTrader {
                 } catch (_: Throwable) {}
                 return
             }
-            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markDispatch(canonicalCryptoIntent6565)
+            // V5.0.8721 — the paper executor marks this intent DISPATCHED itself, under the lock that also confirms it
+            // (CanonicalPaperTransaction6486.open). Marking it here, before that lock, left the attempt dispatched with no
+            // terminal for as long as the open waited on the lock: DISPATCH_TERMINAL_CARDINALITY on a busy device.
             val canonicalOpen6486 = try {
                 com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.open(
                     positionId = position.id, mint = position.canonicalAssetKey, symbol = mktSym,
