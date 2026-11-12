@@ -142,11 +142,14 @@ object LaneAuthority8577 {
 
     /** CandidateAdmission8136.assess8136 (LIVE): the refusal of a meme entry at the high or at a losing stage, else null. */
     fun memeEntryRefusal8626(ts: com.lifecyclebot.data.TokenState, lane: String, stage: String?, nowMs: Long): String? {
+        val first8724 = memeEntryState8696(ts, lane, stage, nowMs) ?: return null
         // V5.0.8723 / 8724 — the lane's own record of the coin's market cell (PayingCell8723) answers the lane-wide and broader
-        // entry-state priors (origin cohort, at-its-high, stage unread, lane stage record). The coin's own chart shapes and
-        // the losing record of the setup it trades as are narrower evidence and still refuse.
-        val cellPays8723 = try { PayingCell8723.pays8723(ts, lane, nowMs) } catch (_: Throwable) { false }
-        val why = memeEntryState8696(ts, lane, stage, nowMs, cellPays8723) ?: return null
+        // entry-state priors ([CELL_ANSWERS_8724]). The coin's own chart shapes and the losing record of the setup it trades
+        // as are narrower evidence: they are read again and still refuse.
+        val why = if (first8724 in CELL_ANSWERS_8724 && (try { PayingCell8723.pays8723(ts, lane, nowMs) } catch (_: Throwable) { false })) {
+            try { PipelineHealthCollector.labelInc("${first8724}_ANSWERED_BY_MARKET_CELL_8724") } catch (_: Throwable) {}
+            narrowerRefusal8724(ts, lane.trim().uppercase(), nowMs) ?: return null
+        } else first8724
         // V5.0.8696 — every entry-state door is learned by the one rule: it stands aside once its own graded refusals prove
         // it refuses winners.
         if (GateOutcome8418.selectionGateRetired8696("CANDIDATE_ADMISSION_8136_$why", lane)) return null
@@ -154,17 +157,25 @@ object LaneAuthority8577 {
         return why
     }
 
-    private fun memeEntryState8696(ts: com.lifecyclebot.data.TokenState, lane: String, stage: String?, nowMs: Long, cellPays8723: Boolean = false): String? {
+    /** The entry-state doors a lane's paying market cell answers: priors over more coins than the cell holds. */
+    private val CELL_ANSWERS_8724 = setOf(LIVE_ORIGIN_COHORT_LOSES_8703, MEME_BUYS_THE_HIGH_8582, LIVE_STAGE_UNREAD_8711, LIVE_STAGE_LOSES_8626)
+
+    /** The refusals narrower than a market cell: the coin's own avoid shape, else the losing record of the setup it trades as. */
+    private fun narrowerRefusal8724(ts: com.lifecyclebot.data.TokenState, l: String, nowMs: Long): String? {
+        if (l !in MEME_LANES_8582) return null
+        return expertAvoid8692(ts, nowMs) ?: setupLoses8714(ts, l, nowMs)
+    }
+
+    private fun memeEntryState8696(ts: com.lifecyclebot.data.TokenState, lane: String, stage: String?, nowMs: Long): String? {
         val l = lane.trim().uppercase()
         val age8627 = try { CanonicalTokenBirthTime7440.launchAgeMs7767(ts, nowMs) } catch (_: Throwable) { null }
         if (runnerCoinStale8627(l, age8627)) return LIVE_RUNNER_STALE_COIN_8627
-        if (!cellPays8723 && originLoses8703(ts, l, nowMs)) return LIVE_ORIGIN_COHORT_LOSES_8703
+        if (originLoses8703(ts, l, nowMs)) return LIVE_ORIGIN_COHORT_LOSES_8703
         if (l !in MEME_LANES_8582) return null
         val f = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.features(ts, nowMs) } catch (_: Throwable) { null }
-        if (!cellPays8723 && f != null && memeBuysTheHigh8582(l, f.pxPeak, f.runup, f.bp)) return MEME_BUYS_THE_HIGH_8582
+        if (f != null && memeBuysTheHigh8582(l, f.pxPeak, f.runup, f.bp)) return MEME_BUYS_THE_HIGH_8582
         // V5.0.8692 — the expert playbook's avoid shapes (spike-and-fade, staircase down).
         expertAvoid8692(ts, nowMs)?.let { return it }
-        if (cellPays8723) return setupLoses8714(ts, l, nowMs)
         if (stageUnread8711(stage)) return LIVE_STAGE_UNREAD_8711
         val st = if (stage.isNullOrBlank()) null else try { ForwardReturnLabeler7731.stageStatFor7928(l, stage) } catch (_: Throwable) { null }
         if (stageLoses8626(stage, st?.n60 ?: 0, st?.meanNet60Pct ?: Double.NaN, st?.stderr60Pct ?: Double.NaN)) return LIVE_STAGE_LOSES_8626

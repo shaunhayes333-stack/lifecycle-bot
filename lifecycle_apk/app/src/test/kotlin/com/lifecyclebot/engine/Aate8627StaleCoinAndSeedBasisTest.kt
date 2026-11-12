@@ -27,7 +27,7 @@ class Aate8627StaleCoinAndSeedBasisTest {
         assertTrue("it binds at the live gate", LaneAuthority8577.binding8577(LaneAuthority8577.LIVE_RUNNER_STALE_COIN_8627))
         val src = File("src/main/kotlin/com/lifecyclebot/engine/truth/LaneAuthority8577.kt").readText()
         // V5.0.8696 — the entry-state doors live in memeEntryState8696; memeEntryRefusal8626 applies the one retirement rule to them.
-        assertTrue(src.substringAfter("fun memeEntryRefusal8626(").substringBefore("\n    }\n").contains("memeEntryState8696(ts, lane, stage, nowMs) ?: return null"))
+        assertTrue(src.substringAfter("fun memeEntryRefusal8626(").substringBefore("\n    }\n").contains("memeEntryState8696(ts, lane, stage, nowMs) ?: return null"))   // (8724: bound to first8724, same call)
         val fn = src.substringAfter("private fun memeEntryState8696(").substringBefore("\n    }\n")
         assertTrue(fn.indexOf("runnerCoinStale8627(l, age8627)") in 0 until fn.indexOf("if (l !in MEME_LANES_8582) return null"))
     }
