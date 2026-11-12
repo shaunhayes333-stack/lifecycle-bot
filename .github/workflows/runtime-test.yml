@@ -141,6 +141,26 @@ jobs:
           grep -E "FORENSIC_(CASH|OPEN_COST|REALIZED|QUANTITY|POSITION_SET|SELL_ECONOMICS)|PAPER_LEDGER_|PAPER_ORPHAN_COST|PAPER_BUY_ROLLED_BACK|PAPER_TREASURY_|JOURNAL_(TERMINAL|EMBEDDED|ORPHAN|REPLAY|OPEN_LOT|QTY)|ORPHANED_OPEN_LOT|LEDGER_REJECTED|PAPER_JOURNAL_REPLAY_SUPERSEDED|CANONICAL_PAPER_TERMINAL_BRIDGE|PAPER_ATOMIC_COMMIT" "$f" \
             | cut -c1-600 | tail -n 250 || true
 
+      # V5.0.8710 — a process death or ANR during the device checks is diagnosed from logcat, which lives only in the
+      # artifact. Print the crash / ANR / kill lines into the job log on failure. Read-only; never gates.
+      - name: Crash, ANR and kill lines (on failure)
+        if: ${{ failure() }}
+        working-directory: .
+        run: |
+          for f in "$GITHUB_WORKSPACE"/logcat_full.txt "$GITHUB_WORKSPACE"/logcat_second_start.txt "$GITHUB_WORKSPACE"/device_checks_8418/*.txt "$GITHUB_WORKSPACE"/device_checks_8418/*.log; do
+            [ -f "$f" ] || continue
+            echo "=== $(basename "$f")"
+            grep -n -E "FATAL EXCEPTION|AndroidRuntime: (java|kotlin|Caused by|\s+at com\.lifecyclebot)|OutOfMemoryError|ANR in com\.lifecyclebot|Reason: |lowmemorykiller|Killing [0-9]+:com\.lifecyclebot|Process com\.lifecyclebot\.aate .* has died|am_proc_died|am_anr|VerifyError|Verifier rejected|StackOverflowError|SERVICE_BOOTSTRAP_(STALL|FAILED)|MAIN_THREAD_BLOCK|ANR_WATCHDOG|main-thread blocked" "$f" \
+              | cut -c1-420 | tail -n 60 || true
+          done
+          if [ -d "$GITHUB_WORKSPACE/runtime_anr" ]; then
+            for t in "$GITHUB_WORKSPACE"/runtime_anr/*; do
+              [ -f "$t" ] || continue
+              echo "=== $(basename "$t") (main thread)"
+              grep -n -A28 '"main" prio' "$t" | cut -c1-300 | head -n 45 || true
+            done
+          fi
+
       # V5.0.8418 — each device check is PASS only with its own evidence; a check that never ran
       # (because the smoke before it failed) is NOT_RUN and fails this step.
       - name: Enforce V5.0.8418 device checks (background, doze, screens, restart)
