@@ -165,7 +165,9 @@ class Aate8361CadenceTest {
         assertTrue(ew.contains("keylessOnly = true, caller = HeliusCadence8361.CALLER_ALPHA_8361"))
         assertFalse(ew.contains("PROVEN_LIVE"))
         val sm = src("engine/SmartMoneyDiscovery7277.kt")
-        assertTrue(sm.contains("if (!HeliusCadence8361.alphaRebuildDue8361(lastMineMs8361, now8361)) return"))
+        // V5.0.8707 — superseded: runner mining was once a day; it is paced by the credit economy per runner now.
+        assertFalse(sm.contains("if (!HeliusCadence8361.alphaRebuildDue8361(lastMineMs8361, now8361)) return"))
+        assertTrue(sm.contains("com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.Consumer.SMART_MONEY_DISCOVERY"))
         assertFalse(sm.contains("mainnet.helius-rpc.com"))
         val proof = src("engine/truth/SignalSourceProof7291.kt")
         assertTrue(proof.contains("else -> \"PAPER_ONLY\""))

@@ -1674,6 +1674,7 @@ object ForwardReturnLabeler7731 {
         var (net, gross) = captured7945(o, net0, gross0)
         // V5.0.8324 §PROVENANCE — a runner label whose marks the chain witnessed (curve reserves / launch-scale cap) is real at any size.
         var w8324 = gross >= RUNNER_PCT_7731 && witnessNow8324(o, nowMs)
+        try { ObservedRunners8707.note8707(o.mint, gross0, w8324, nowMs) } catch (_: Throwable) {}   // V5.0.8707 — the smart-money miner's runners
         // V5.0.8337 (FIX 2) — a flat mark (no price other than the entry ever seen) is a LOST mark, never a -cost label:
         // 8322 booked it first and flagged it after, so every lane / cell / shape / specialist book read "lost the round trip".
         var flat8322 = com.lifecyclebot.engine.cortex.CortexFlatMark8322.flatMark8322(gross0, o.peakPct, o.minPct7962)

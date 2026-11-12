@@ -109,7 +109,8 @@ object SmartMoneyDiscovery7277 {
 
     fun statusLine(): String =
         "SmartMoney7277: cycles=${cycles.get()} minedRunners=${minedRunners.size} walletsSeen=${walletHits.size} promoted=${promoted.get()} " +
-            "scan8462=${if (com.lifecyclebot.data.ConfigStore.smartMoneyScan8462) "ON" else "OFF"} scanSkipped8462=${scanSkipped8462.get()}"
+            "scan8462=${if (com.lifecyclebot.data.ConfigStore.smartMoneyScan8462) "ON" else "OFF"} scanSkipped8462=${scanSkipped8462.get()} " +
+            com.lifecyclebot.engine.truth.ObservedRunners8707.statusLine8707()
 
     private fun runCycle(key: String, engine: CopyTradeEngine?, onWatchlistChanged: (List<String>) -> Unit) {
         cycles.incrementAndGet()
@@ -131,9 +132,11 @@ object SmartMoneyDiscovery7277 {
         // scan (ExpertWallets7962 / HeliusCadence8361 alpha) stays behind smartMoneyScan8462. scanSkipped8462 keeps its
         // meaning — cycles the expensive external scan was off — but no longer short-circuits the self-discovery.
         if (!com.lifecyclebot.data.ConfigStore.smartMoneyScan8462) scanSkipped8462.incrementAndGet()
-        // 2. Runners the bot itself observed — V5.0.8361: once a day (owner: discovery compiles a daily alpha list).
+        // 2. Runners the bot itself observed. superseded by V5.0.8707 — 8361 mined once a day, three runners at most, from the
+        // bot's own closed trades: with no live winner there was never a runner, and three a day cannot find a wallet that is
+        // early twice. Every cycle now mines up to MAX_RUNNERS_PER_CYCLE of the runners the forward labeler watched
+        // (ObservedRunners8707), each one admitted by the Helius credit economy below (~106 credits a runner).
         val now8361 = System.currentTimeMillis()
-        if (!HeliusCadence8361.alphaRebuildDue8361(lastMineMs8361, now8361)) return
         lastMineMs8361 = now8361
         try { prefs?.edit()?.putLong("last_mine_8361", now8361)?.apply() } catch (_: Throwable) {}
         val runners = observedRunners().filter { it !in minedRunners }.take(MAX_RUNNERS_PER_CYCLE)
@@ -183,9 +186,10 @@ object SmartMoneyDiscovery7277 {
         }
     }
 
-    /** Mints this bot watched run: closed at >= +150%, or open with a peak >= +200%. */
+    /** Mints this bot watched run: forward-labelled +100 % or more (V5.0.8707), closed at >= +150%, or open with a peak >= +200%. */
     private fun observedRunners(): List<String> {
         val out = LinkedHashSet<String>()
+        try { out.addAll(com.lifecyclebot.engine.truth.ObservedRunners8707.mints8707()) } catch (_: Throwable) {}
         try {
             TradeHistoryStore.getRecentValidClosedTrades(limit = 600, includePartials = false)
                 .asSequence()

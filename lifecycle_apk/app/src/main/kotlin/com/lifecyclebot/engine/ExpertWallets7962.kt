@@ -97,7 +97,8 @@ object ExpertWallets7962 {
     private const val MAX_EXPERTS = 60
     private const val MAX_LEGS = 1_200
     private const val MAX_LEARNED = 1_500
-    private const val MINTS_PER_CYCLE = 4
+    /** V5.0.8707 — a cycle learns queued trips for this long (was four mints per ten-minute cycle). */
+    private const val LEARN_BUDGET_MS_8707 = CYCLE_MS / 3
     private const val DUST_FRAC = 0.02
     private const val MIN_LEG_SOL = 0.005
     private const val LIVE_ENTRY_MS = 15L * 60_000L
@@ -367,6 +368,7 @@ object ExpertWallets7962 {
     private val hists = ConcurrentHashMap<String, Hist>()
     private val cells = HashMap<String, Cell>()
     private val pendingLearn = LinkedHashMap<String, MutableList<Pair<String, RoundTrip7962>>>()
+    private val learnFailed8707 = AtomicLong(0L)
     private val recentExpertBuys = ConcurrentHashMap<String, Pair<Long, Tier7962>>()
     private val poolCache = ConcurrentHashMap<String, String>()
     private val createdCache = ConcurrentHashMap<String, Long>()
@@ -645,16 +647,27 @@ object ExpertWallets7962 {
         if (tier == Tier7962.OWNER) try { PipelineHealthCollector.labelInc("EXPERT_OWNER_HISTORY_7962") } catch (_: Throwable) {}
     }
 
+    /**
+     * V5.0.8707 §THE_OWNERS_TRADES_ARE_ACTUALLY_LEARNED — 8704: `ownerTrades=137 ... learned=0 pendingLearn=118 motifs=0
+     * topCells=-`, and LearnerAttribution8418 `ExpertWallets7962: replayRefused=15`. Three faults, one rewrite:
+     *  - a trip's once-only id was spent in a second ledger BEFORE [learnTrip] ran, and a throw inside it was swallowed, so
+     *    a trip that failed once could never be learned (the id replayed for ever while the book stayed empty);
+     *  - four mints were learned per ten-minute cycle: 118 queued trips are five hours of uptime, and a session is shorter;
+     *  - an emptied book (learned=0, no cells) kept the per-wallet receipts that say every trip is already in it.
+     * Now the wallet's own receipt ([Hist.learned], saved with its history) is the only once-only record and is written
+     * only after the trip is booked; a cycle learns for [LEARN_BUDGET_MS_8707]; and [forgetReceiptsOfAnEmptyBook8707]
+     * re-queues every trip when the book they were booked into is gone. LearnerAttribution8418 still counts each ingest.
+     */
     private fun learnPending() {
-        val batch = synchronized(pendingLearn) {
-            val keys = pendingLearn.keys.take(MINTS_PER_CYCLE)
-            keys.map { it to (pendingLearn.remove(it) ?: mutableListOf()) }
-        }
-        if (batch.isEmpty()) return
+        val deadline = System.currentTimeMillis() + LEARN_BUDGET_MS_8707
         val solUsd = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
         val touched = HashSet<String>()
         var geckoCalls = 0
-        for ((mint, trips) in batch) {
+        while (System.currentTimeMillis() < deadline) {
+            val (mint, trips) = synchronized(pendingLearn) {
+                val k = pendingLearn.keys.firstOrNull() ?: return@synchronized null
+                k to (pendingLearn.remove(k) ?: mutableListOf())
+            } ?: break
             var bars = try { pumpBars(mint) } catch (_: Throwable) { emptyList() }
             val created = try { createdMs(mint, bars) } catch (_: Throwable) { -1L }
             for ((wallet, trip) in trips) {
@@ -665,10 +678,12 @@ object ExpertWallets7962 {
                     if (bars.isEmpty()) bars = g
                 }
                 val tier = if (wallet == OWNER_WALLET_7962) Tier7962.OWNER else experts[wallet]?.tier ?: Tier7962.SMART
-                // V5.0.8418 — another wallet's round trip is a market observation (label book), learned once across restarts
-                // (the per-wallet learned set is saved per batch; a crash before the save re-queued the trip).
-                if (com.lifecyclebot.engine.truth.LearnerAttribution8418.admit8418("ExpertWallets7962", "$wallet|${trip.mint}|${trip.entryMs}", "LABEL"))
-                    try { learnTrip(tier, trip, useBars, created, solUsd) } catch (_: Throwable) {}
+                val booked = try { learnTrip(tier, trip, useBars, created, solUsd); true } catch (_: Throwable) { false }
+                if (!booked) { learnFailed8707.incrementAndGet(); continue }   // no receipt: it is queued again on the next start
+                try {
+                    com.lifecyclebot.engine.truth.LearnerAttribution8418.observe8418("ExpertWallets7962", "LABEL",
+                        com.lifecyclebot.engine.truth.LearnerAttribution8418.Verdict8418.ADMIT)
+                } catch (_: Throwable) {}
                 hists[wallet]?.let { h ->
                     h.learned += "${trip.mint}|${trip.entryMs}"
                     while (h.learned.size > MAX_LEARNED) h.learned.remove(h.learned.first())
@@ -677,6 +692,16 @@ object ExpertWallets7962 {
             }
         }
         for (w in touched) hists[w]?.let { saveHist(it) }
+    }
+
+    /** Pure: are per-wallet receipts stale — a book with no learned trip and no cell cannot already hold them? */
+    internal fun receiptsStale8707(tripsLearned: Long, cellCount: Int): Boolean = tripsLearned <= 0L && cellCount == 0
+
+    private fun forgetReceiptsOfAnEmptyBook8707() {
+        if (!receiptsStale8707(tripsLearned.get(), synchronized(cells) { cells.size })) return
+        var cleared = 0
+        for (e in experts.values) { val h = hist(e.address); if (h.learned.isNotEmpty()) { cleared += h.learned.size; h.learned.clear(); saveHist(h) } }
+        if (cleared > 0) try { ForensicLogger.lifecycle("EXPERT_RECEIPTS_FORGOTTEN_EMPTY_BOOK_8707", "receipts=$cleared action=relearn_every_trip") } catch (_: Throwable) {}
     }
 
     private fun entryIndex(bars: List<Bar7950>, entryMs: Long): Int = bars.indexOfLast { it.t + 60_000L <= entryMs }
@@ -834,6 +859,7 @@ object ExpertWallets7962 {
             } catch (_: Throwable) {}
             loaded = true
         }
+        forgetReceiptsOfAnEmptyBook8707()   // V5.0.8707
         // Resume: every stored history re-queues its unlearned closed trips.
         for (e in experts.values) {
             val h = hist(e.address)
@@ -1022,7 +1048,7 @@ object ExpertWallets7962 {
         val pending = synchronized(pendingLearn) { pendingLearn.values.sumOf { it.size } }
         return "wallets=${experts.size} histories=$histories roundTrips=$roundTrips ownerTrades=$ownerTrades motifs=${motifsAdded.get()} " +
             "topCells=$top copyTier=$tier | learned=${tripsLearned.get()} pendingLearn=$pending noBars=${barsMissing.get()} " +
-            "exitSamples=${exitSamples.get()} pages=${pagesFetched.get()} creditDeferred=${creditDeferred.get()} cycles=${cycles.get()} " +
+            "exitSamples=${exitSamples.get()} learnFailed8707=${learnFailed8707.get()} pages=${pagesFetched.get()} creditDeferred=${creditDeferred.get()} cycles=${cycles.get()} " +
             "liveExpertBuys=${liveBuys.get()} untrackedTape=${untrackedTape.get()} leaderboard=$leaderboard"
     }
 }
