@@ -25,7 +25,7 @@ object LaneAuthority8577 {
     /** A refusal the designed authority keeps: hard safety, structure, the executable minimum, the kill switch. */
     private val BINDING_8577 = listOf(
         // V5.0.8626 — the live entry-state refusals (memeEntryRefusal8626) bind.
-        "MEME_BUYS_THE_HIGH_8582", "LIVE_STAGE_LOSES_8626", "LIVE_ORIGIN_COHORT_LOSES_8703",
+        "MEME_BUYS_THE_HIGH_8582", "LIVE_STAGE_LOSES_8626", "LIVE_ORIGIN_COHORT_LOSES_8703", "LIVE_STAGE_UNREAD_8711",
         // V5.0.8627 — a runner lane's live buy of a coin more than a day old binds too (memeEntryRefusal8626).
         "LIVE_RUNNER_STALE_COIN_8627", "EXECUTION_NET_NONPOSITIVE_8629", "EXECUTION_ECONOMICS_8136", "COST_LEDGER_7962_ABOVE_GROSS",
         "SAFETY_REFUSED", "STRUCTURAL_RISK", "RUG", "FREEZE", "MINT_AUTH", "TOKEN_2022", "TOKEN2022", "T22_", "HOSTILE",
@@ -160,10 +160,25 @@ object LaneAuthority8577 {
         if (f != null && memeBuysTheHigh8582(l, f.pxPeak, f.runup, f.bp)) return MEME_BUYS_THE_HIGH_8582
         // V5.0.8692 — the expert playbook's avoid shapes (spike-and-fade, staircase down).
         expertAvoid8692(ts, nowMs)?.let { return it }
+        if (stageUnread8711(stage)) return LIVE_STAGE_UNREAD_8711
         val st = if (stage.isNullOrBlank()) null else try { ForwardReturnLabeler7731.stageStatFor7928(l, stage) } catch (_: Throwable) { null }
         return if (stageLoses8626(stage, st?.n60 ?: 0, st?.meanNet60Pct ?: Double.NaN, st?.stderr60Pct ?: Double.NaN))
             LIVE_STAGE_LOSES_8626 else null
     }
+
+    /**
+     * V5.0.8711 §A_COIN_WHOSE_STAGE_NOBODY_READ_IS_NOT_BOUGHT_LIVE — 8708 live, every admit by the stage it was bought at
+     * (runnerAdmits8297 byStage): MOONSHOT|UNKNOWN n7 0 wins, 7 bought the top; CASHGEN|UNKNOWN n2 0 wins; EXPRESS / MOONSHOT
+     * NO_SETUP n4 0 wins — all through NATIVE_QUALIFIED_ADMIT_8259, 17 of 17 at the top. The stage door "never refuses an
+     * unknown stage", so the coins it could say nothing about were the ones live bought, while the only stage that pays on
+     * the bot's own record (BASE: MOONSHOT +2.2 %, SHITCOIN +2.3 %, MANIPULATED +4.5 %, 14-16 % running) needs the stage
+     * read to be recognised at all. A live meme entry whose stage is unread is refused until it is read; the coin is
+     * judged again every cycle, and the door retires on the one selection-gate rule if the coins it refuses win.
+     */
+    const val LIVE_STAGE_UNREAD_8711 = "LIVE_STAGE_UNREAD_8711"
+
+    /** Pure: is [stage] unread (absent or the UNKNOWN placeholder)? */
+    fun stageUnread8711(stage: String?): Boolean = stage.isNullOrBlank() || stage.trim().equals("UNKNOWN", ignoreCase = true)
 
     const val LIVE_ORIGIN_COHORT_LOSES_8703 = "LIVE_ORIGIN_COHORT_LOSES_8703"
 
