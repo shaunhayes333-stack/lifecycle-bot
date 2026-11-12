@@ -240,6 +240,7 @@ object JournalEconomicReplay6619 {
             .toSet()
 
         val lots = mutableMapOf<String, Lot>()
+        val writtenOffResidual8710 = mutableMapOf<String, Lot>()   // positionId -> the residual its terminal SELL wrote off
         val seenEvents = mutableSetOf<String>()
         val seenFills = HashMap<String, com.lifecyclebot.data.Trade>()   // V5.0.8579 — fill key -> the row that owns it
         val failures = mutableListOf<String>()
@@ -498,6 +499,26 @@ object JournalEconomicReplay6619 {
                     // cannot evidence it.
                     val recoverableSide7078 = (side == "SELL" && t.economicEventId.startsWith("paper_full_")) ||
                         side == "PARTIAL_SELL"
+                    // V5.0.8710 §A_LATE_SELL_CLAIMS_THE_RESIDUAL_IT_EXPLAINS — the Runtime Smoke cash-only split (run 43179074042:
+                    // ledger 12.195534 vs journal 12.154210, delta 0.041323, realized and open cost exact, nothing in flight; the
+                    // same shape on 8681 / 8683 / 8705). A position's terminal SELL row was walked BEFORE one of its partial
+                    // sells: 6868 wrote the partial's 0.041323 of basis off as a residual and closed the lot, then the partial
+                    // found no lot and 6664 "recovered" an entry for it — debiting cash by a basis the position's real BUY row
+                    // had already paid. Cash came out short by exactly the residual. The residual a terminal sell wrote off is
+                    // the lot a later sell of the same position is selling: it is re-opened from that write-off, with no second
+                    // cash debit, before any entry is rebuilt from a receipt.
+                    if (lot == null) {
+                        val claimed = writtenOffResidual8710[t.positionId]
+                        if (claimed != null && basis.isFinite() && basis > 0.0 && basis <= claimed.basisSol + 1e-9) {
+                            writtenOffResidual8710.remove(t.positionId)
+                            lot = claimed
+                            lots[t.positionId] = claimed
+                            openCost += claimed.basisSol
+                            residualBasisWrittenOff6868 -= claimed.basisSol
+                            residualLotCount6868 -= 1
+                            try { PipelineHealthCollector.labelInc("JOURNAL_RESIDUAL_CLAIMED_BY_LATE_SELL_8710") } catch (_: Throwable) {}
+                        }
+                    }
                     if (lot == null && recoverableSide7078) {
                         val recoveredRaw = t.canonicalConsumedRaw.takeIf { it > java.math.BigInteger.ZERO }
                             ?: displayToRaw(t.soldQtyToken, t.tokenDecimals.takeIf { it >= 0 } ?: t.entryDecimals)
@@ -614,6 +635,8 @@ object JournalEconomicReplay6619 {
                         // The position is terminally closed on the ledger, so its residual
                         // basis is not open cost any more. Release it here instead of
                         // carrying a phantom open position for the rest of the replay.
+                        // V5.0.8710 — kept by position: a sell of this position walked later is selling this residual.
+                        if (nextBasis > 1e-9) writtenOffResidual8710[t.positionId] = Lot(nextBasis, nextRaw.max(java.math.BigInteger.ZERO), nextDisplay.coerceAtLeast(0.0))
                         openCost -= nextBasis.coerceAtLeast(0.0)
                         lot.basisSol = 0.0
                         lot.rawQty = java.math.BigInteger.ZERO
