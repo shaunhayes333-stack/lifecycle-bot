@@ -133,7 +133,7 @@ object HeliusCurveTape8354 {
         src == Source8354.HELIUS_PROGRAM -> "-"
         overBudget -> "HELIUS_OVER_BUDGET"
         !affordable -> "PROGRAM_SHARE_EXHAUSTED"
-        inHold -> "BYTES_OVER_${highBytesPerMin8731(dailyCredits8731()) / 1_048_576L}MB_MIN"
+        inHold -> "BYTES_OVER_${HIGH_BYTES_PER_MIN_8354 / 1_048_576L}MB_MIN"   // pure: the floor mark (the plan's mark is on the status line)
         level >= LEVEL_PER_MINT_8354 -> "BYTES_LEVEL"
         transport == Transport8354.NONE -> "NO_TRANSPORT"
         pumpPortalOn -> "PUMPPORTAL_ON"
