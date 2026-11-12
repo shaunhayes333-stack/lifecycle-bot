@@ -6425,7 +6425,11 @@ object FinalDecisionGate {
         val edgeKelly8094 = if (config.paperMode) 0.0 else
             try { com.lifecyclebot.engine.truth.LiveRiskPolicy7807.edgeKellyFracFor8057(ts, lane) } catch (_: Throwable) { 0.0 }
         val tier8094 = com.lifecyclebot.engine.truth.LiveSizeTarget8094.tierOf8094(edgeKelly8094)
-        val walletShare8094 = com.lifecyclebot.engine.truth.LiveSizeTarget8094.walletShareCeiling8094(tier8094, config.maxWalletRiskPerTradePct)
+        // V5.0.8716 — the ceiling admits the cost-clearing base ticket (LiveConcentrationDoctrine7697.share, 8714): the fixed 18 %
+        // wallet share clamped that ticket back to 0.046 SOL on a 0.256 SOL wallet, so 8714's larger base never reached a fill.
+        val walletShare8094 = com.lifecyclebot.engine.truth.LiveSizeTarget8094.ceilingWithBaseTicket8716(
+            com.lifecyclebot.engine.truth.LiveSizeTarget8094.walletShareCeiling8094(tier8094, config.maxWalletRiskPerTradePct),
+            if (config.paperMode) 0.0 else try { com.lifecyclebot.engine.truth.LiveConcentrationDoctrine7697.share(tradeable8079) } catch (_: Throwable) { 0.0 })
         // Same cap the seal and the executor enforce (route floor bridge includes the headroom, LiveRiskPolicy7807).
         val cap8079 = if (routeFloorBinds8079) try {
             com.lifecyclebot.engine.truth.LiveRiskPolicy7807.routeAwareSpendCap7842(

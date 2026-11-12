@@ -33,6 +33,10 @@ object LiveSizeTarget8094 {
     fun tierOf8094(edgeKellyFrac: Double): ProofTier =
         if (edgeKellyFrac.isFinite() && edgeKellyFrac > 0.0) ProofTier.PROVEN else ProofTier.UNPROVEN
 
+    /** Pure (V5.0.8716): the ceiling is never under the doctrine's base-ticket share [baseShare] (a share, 0..1). */
+    fun ceilingWithBaseTicket8716(ceiling: Double, baseShare: Double): Double =
+        if (baseShare.isFinite() && baseShare > ceiling) baseShare.coerceAtMost(LiveConcentrationDoctrine7697.MAX_SHARE_7697) else ceiling
+
     /** Pure: the wallet-share ceiling for [tier]; the configured baseline is never lowered and never raised for UNPROVEN. */
     fun walletShareCeiling8094(tier: ProofTier, configuredPct: Double): Double {
         val base = if (configuredPct.isFinite()) configuredPct.coerceIn(0.0, 1.0) else 0.0
