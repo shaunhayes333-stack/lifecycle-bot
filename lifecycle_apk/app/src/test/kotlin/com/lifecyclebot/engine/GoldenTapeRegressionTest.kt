@@ -14041,7 +14041,7 @@ class GoldenTapeRegressionTest {
         val doc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveConcentrationDoctrine7697.kt").readText()
         assertTrue(doc.contains("const val FIXED_ROUND_TRIP_COST_SOL_7731 = 0.0016"))
         assertTrue(doc.contains("fixedCostShare7731="))
-        assertEquals(3.8, com.lifecyclebot.engine.truth.LiveConcentrationDoctrine7697.fixedCostSharePct7731(0.042), 0.05)
+        assertEquals(3.8, com.lifecyclebot.engine.truth.LiveConcentrationDoctrine7697.fixedCostSharePct7731(0.042, com.lifecyclebot.engine.truth.LiveConcentrationDoctrine7697.FIXED_ROUND_TRIP_COST_SOL_7731), 0.05)
         assertEquals(java.io.File("../../AATE_VERSION").readText().trim(), java.io.File("../AATE_VERSION").readText().trim())
         assertTrue(java.io.File("../../AATE_VERSION").readText().trim().matches(Regex("5\\.0\\.\\d{4}")))
     }

@@ -57,13 +57,14 @@ class Aate8715AuditInversionsTest {
     @Test fun aLearnedDoorBindsOnceItsRecordProtects() {
         GateOutcome8418.resetForTests8418()
         val door = "WATCH_FIRST_7994_CELL_NEGATIVE"
+        val key = com.lifecyclebot.engine.truth.FdgGate8365.gateKey8392(door)   // the record a door's labels are filed under
         assertFalse("no record: advisory", LaneAuthority8577.binding8577(door))
-        repeat(39) { GateOutcome8418.book8418(door, "QUALITY", -9.0 + (it % 3), false) }
+        repeat(39) { GateOutcome8418.book8418(key, "QUALITY", -9.0 + (it % 3), false) }
         assertFalse("39 graded: still advisory", LaneAuthority8577.binding8577(door))
-        GateOutcome8418.book8418(door, "QUALITY", -9.0, false)
+        GateOutcome8418.book8418(key, "QUALITY", -9.0, false)
         assertTrue("40 graded, proven losing: binds", LaneAuthority8577.binding8577(door))
         // a door whose refused coins do not lose stays advisory, and one that refuses winners is not protecting
-        repeat(60) { GateOutcome8418.book8418("CHASING_SPIKE_8065", "EXPRESS", if (it % 2 == 0) 12.0 else -10.0, false) }
+        repeat(60) { GateOutcome8418.book8418(com.lifecyclebot.engine.truth.FdgGate8365.gateKey8392("CHASING_SPIKE_8065"), "EXPRESS", if (it % 2 == 0) 12.0 else -10.0, false) }
         assertFalse(LaneAuthority8577.binding8577("CHASING_SPIKE_8065"))
         assertFalse(GateOutcome8418.protects8715(null))
         GateOutcome8418.resetForTests8418()

@@ -237,8 +237,8 @@ object LiveConcentrationDoctrine7697 {
      */
     const val FIXED_ROUND_TRIP_COST_SOL_7731 = 0.0016
 
-    fun fixedCostSharePct7731(positionSol: Double): Double =
-        if (positionSol.isFinite() && positionSol > 0.0) fixedRoundTripSolNow8714() / positionSol * 100.0 else Double.NaN
+    fun fixedCostSharePct7731(positionSol: Double, fixedRoundTripSol: Double = fixedRoundTripSolNow8714()): Double =
+        if (positionSol.isFinite() && positionSol > 0.0) fixedRoundTripSol / positionSol * 100.0 else Double.NaN
 
     fun statusLine(): String {
         val t = liveTradeableSol()
