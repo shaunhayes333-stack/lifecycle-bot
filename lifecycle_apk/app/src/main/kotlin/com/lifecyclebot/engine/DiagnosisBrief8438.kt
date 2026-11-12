@@ -213,7 +213,13 @@ object DiagnosisBrief8438 {
             val ref = ForwardReturnLabeler7731.aggregate8438(false)
             // V5.0.8474 — no verdict from a cohort whose labels were mostly lost (covered8474).
             val coveredBoth8474 = covered8474(adm) && covered8474(ref)
-            val separates = coveredBoth8474 && adm != null && ref != null && adm.n60 >= 30 && ref.n60 >= 30 && adm.meanNet60Pct > ref.meanNet60Pct
+            // V5.0.8715 — 8712 printed "admitted +28.8 % vs refused -12.1 % -> doors SEPARATE winners from losers" while the same
+            // book's dataset had the admitted coin's median at -6.6 % against -3.5 % refused: the mean was a handful of
+            // runners, each filed once per lane. The gap must clear its own noise and the admitted mean must not be tail-only.
+            val gapNoise8715 = if (adm != null && ref != null) kotlin.math.hypot(adm.stderr60Pct, ref.stderr60Pct) else Double.NaN
+            val admTailOnly8715 = adm != null && adm.meanNet60Pct > 0.0 && tailOnly8439(adm.meanNet60Pct, adm.winRate60, adm.runnerRate60)
+            val separates = coveredBoth8474 && adm != null && ref != null && adm.n60 >= 30 && ref.n60 >= 30 && !admTailOnly8715 &&
+                gapNoise8715.isFinite() && adm.meanNet60Pct - ref.meanNet60Pct > gapNoise8715
             // V5.0.8439 — 8438: admitted +38.3% run16% vs refused -57.5% run35%: the refused side held MORE runners, which a
             // mean comparison hides (and a -57.5% mean with 35% runners is below what its own runners allow: a mixed book).
             val runnerConflict = separates && adm!!.runnerRate60 + 0.05 < ref!!.runnerRate60
@@ -222,6 +228,7 @@ object DiagnosisBrief8438 {
                     !coveredBoth8474 && adm != null && ref != null -> "UNRELIABLE: most labels lost (no verdict until coverage >= ${(MIN_COVERAGE_8474 * 100).toInt()}%)"
                     runnerConflict -> "CONFLICT means separate but the REFUSED side holds more runners"
                     separates -> "doors SEPARATE winners from losers"
+                    admTailOnly8715 -> "admitted mean is RUNNER-CARRIED (wr ${(adm!!.winRate60 * 100).toInt()}%): the median admitted coin loses; doors do NOT separate"
                     else -> "doors do NOT separate (or thin)"
                 }).append('\n')
             if (!coveredBoth8474 && adm != null && ref != null) fixes += Fix8438(10_000.0, "FAULT",

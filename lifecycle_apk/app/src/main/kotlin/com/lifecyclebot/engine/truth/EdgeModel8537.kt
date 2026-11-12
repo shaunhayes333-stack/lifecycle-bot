@@ -52,6 +52,7 @@ object EdgeModel8537 {
     private const val DATASET_MAX_LINES = 60_000
     // Keep the pre-8658 curve-tainted sufficient statistics intact for inspection; never load them as authority.
     private const val MODEL_FILE = "edge_model_8675.bin"
+    private const val REFUSAL_BLOCK_8715 = 8715
     private const val DATASET_FILE = "edge_dataset_8537.jsonl"
     // V5.0.8642 — the old binary included false-priced/seed-basis outcomes before 8617 started excluding them.
     // DIM alone cannot attest the model's evidence quality, so a validated epoch is now part of the format.
@@ -220,12 +221,21 @@ object EdgeModel8537 {
         var selN = 0; var selSum = 0.0; var selSq = 0.0; var selWin = 0
         var allN = 0; var allSum = 0.0
         var negN = 0; var negSum = 0.0
+        // V5.0.8715 — the refusal record: what the coins it predicted to lose ([refN]) and the rest ([keepN]) went on to do.
+        var refN = 0; var refSum = 0.0; var refSq = 0.0
+        var keepN = 0; var keepSum = 0.0
         fun add(logPrediction: Double, net: Double) {
             val pred = netOf8567(logPrediction)
             allN++; allSum += net
             if (pred >= MIN_EDGE_PCT) { selN++; selSum += net; selSq += net * net; if (net > 0.0) selWin++ }
             else if (pred < 0.0) { negN++; negSum += net }
+            // the outcome is clipped as the model's own target is, so one runner cannot acquit a cohort
+            val clipped = net.coerceIn(-100.0, REFUSAL_CLIP_PCT_8715)
+            if (pred < 0.0) { refN++; refSum += clipped; refSq += clipped * clipped } else { keepN++; keepSum += clipped }
         }
+        val refMean: Double get() = if (refN > 0) refSum / refN else Double.NaN
+        val refSe: Double get() = if (refN > 1) kotlin.math.sqrt(((refSq / refN) - refMean * refMean).coerceAtLeast(0.0) / refN) else Double.POSITIVE_INFINITY
+        val keepMean: Double get() = if (keepN > 0) keepSum / keepN else Double.NaN
         val selMean: Double get() = if (selN > 0) selSum / selN else Double.NaN
         val selSe: Double get() = if (selN > 1) kotlin.math.sqrt(((selSq / selN) - selMean * selMean).coerceAtLeast(0.0) / selN) else Double.POSITIVE_INFINITY
         val allMean: Double get() = if (allN > 0) allSum / allN else Double.NaN
@@ -236,6 +246,20 @@ object EdgeModel8537 {
     fun authority(selN: Int, selMean: Double, selSe: Double, allMean: Double): Boolean =
         selN >= AUTH_MIN_N && selMean.isFinite() && selSe.isFinite() && selMean - selSe > 0.0 &&
             (!allMean.isFinite() || selMean > allMean)
+
+    /**
+     * V5.0.8715 §THE_MODEL_REFUSES_ON_ITS_REFUSAL_RECORD — the 8712 edge dataset (72,220 labelled decisions, 3 days): the
+     * prediction made before each outcome ranks it (rank IC +0.31; worst fifth -22 % net, best fifth -3 %), and LIVE-side
+     * admission ignored it — 53 % of everything admitted carried a prediction of -20 % or worse and averaged -18.7 %; the
+     * admitted coins predicted >= 0 averaged 0.0 %. The model could refuse only after its positive PICKS had paid
+     * ([authority]); in a market where nothing pays that never happens, so the part of the model that works was switched
+     * off by the part that has nothing to find. The right to refuse is now earned on the refusal's own out-of-sample
+     * record: [AUTH_MIN_N]+ coins it predicted to lose, proven losing (mean + SE < 0) and worse than the coins it kept.
+     */
+    fun refusalAuthority8715(refN: Int, refMean: Double, refSe: Double, keepMean: Double): Boolean =
+        refN >= AUTH_MIN_N && refMean.isFinite() && refSe.isFinite() && refMean + refSe < 0.0 &&
+            (!keepMean.isFinite() || refMean < keepMean)
+    const val REFUSAL_CLIP_PCT_8715 = 200.0
 
     private val global = Ridge(DIM)
     private val byLane = HashMap<String, Ridge>()
@@ -291,7 +315,9 @@ object EdgeModel8537 {
     }
 
     data class Verdict(val predPct: Double, val authority: Boolean, val modelKey: String, val trainedN: Long,
-                       val oosSelN: Int, val oosSelMeanPct: Double, val oosSelSePct: Double, val oosAllMeanPct: Double)
+                       val oosSelN: Int, val oosSelMeanPct: Double, val oosSelSePct: Double, val oosAllMeanPct: Double,
+                       /** V5.0.8715 — the model's refusals have earned authority on their own record ([refusalAuthority8715]). */
+                       val refuses8715: Boolean = false)
 
     private fun lane(l: String) = l.trim().uppercase()
 
@@ -411,16 +437,17 @@ object EdgeModel8537 {
             val o = oos[recordKey(raw.lane, key)]
             val trained = if (key == raw.lane) byLane[raw.lane]?.count ?: 0L else global.count
             Verdict(netOf8567(p), p.isFinite() && o != null && authority(o.selN, o.selMean, o.selSe, o.allMean), key, trained,
-                o?.selN ?: 0, o?.selMean ?: Double.NaN, o?.selSe ?: Double.NaN, o?.allMean ?: Double.NaN)
+                o?.selN ?: 0, o?.selMean ?: Double.NaN, o?.selSe ?: Double.NaN, o?.allMean ?: Double.NaN,
+                refuses8715 = p.isFinite() && o != null && refusalAuthority8715(o.refN, o.refMean, o.refSe, o.keepMean))
         }
     } catch (_: Throwable) { null }
 
     /** Pure: the decision a verdict supports — NEGATIVE refuses, POSITIVE is proven evidence, NONE decides nothing. */
     enum class Call { NEGATIVE, POSITIVE, NONE }
     fun callOf(v: Verdict?): Call = when {
-        v == null || !v.authority || !v.predPct.isFinite() -> Call.NONE
-        v.predPct < 0.0 -> Call.NEGATIVE
-        v.predPct >= MIN_EDGE_PCT -> Call.POSITIVE
+        v == null || !v.predPct.isFinite() -> Call.NONE
+        v.predPct < 0.0 && (v.authority || v.refuses8715) -> Call.NEGATIVE
+        v.authority && v.predPct >= MIN_EDGE_PCT -> Call.POSITIVE
         else -> Call.NONE
     }
 
@@ -523,6 +550,14 @@ object EdgeModel8537 {
             o.selN = i.readInt(); o.selSum = i.readDouble(); o.selSq = i.readDouble(); o.selWin = i.readInt()
             o.allN = i.readInt(); o.allSum = i.readDouble(); o.negN = i.readInt(); o.negSum = i.readDouble()
         }
+        // V5.0.8715 — the refusal records follow the 8675 body; a file written before them simply ends here.
+        try {
+            if (i.readInt() == REFUSAL_BLOCK_8715) repeat(i.readInt()) {
+                val l = i.readUTF(); val refN = i.readInt(); val refSum = i.readDouble(); val refSq = i.readDouble()
+                val keepN = i.readInt(); val keepSum = i.readDouble()
+                oos[l]?.let { o -> o.refN = refN; o.refSum = refSum; o.refSq = refSq; o.keepN = keepN; o.keepSum = keepSum }
+            }
+        } catch (_: java.io.EOFException) {}
         return true
     }
 
@@ -543,6 +578,9 @@ object EdgeModel8537 {
                     o.writeInt(oos.size); for ((l, s) in oos) {
                         o.writeUTF(l); o.writeInt(s.selN); o.writeDouble(s.selSum); o.writeDouble(s.selSq); o.writeInt(s.selWin)
                         o.writeInt(s.allN); o.writeDouble(s.allSum); o.writeInt(s.negN); o.writeDouble(s.negSum)
+                    }
+                    o.writeInt(REFUSAL_BLOCK_8715); o.writeInt(oos.size); for ((l, s) in oos) {
+                        o.writeUTF(l); o.writeInt(s.refN); o.writeDouble(s.refSum); o.writeDouble(s.refSq); o.writeInt(s.keepN); o.writeDouble(s.keepSum)
                     }
                 }
             }
@@ -620,7 +658,7 @@ object EdgeModel8537 {
         val rows = lanes.joinToString(" · ") { l ->
             val o = oos[recordKey(l, activeModel(l))]; val r = byLane[l]
             val auth = o != null && authority(o.selN, o.selMean, o.selSe, o.allMean)
-            "$l[n${r?.count ?: 0} oosPicks=n${o?.selN ?: 0}/${pct(o?.selMean)}±${pct(o?.selSe)} all=${pct(o?.allMean)} avoid=${pct(o?.negMean)} ${if (auth) "AUTHORITY" else "learning"}]"
+            "$l[n${r?.count ?: 0} oosPicks=n${o?.selN ?: 0}/${pct(o?.selMean)}±${pct(o?.selSe)} all=${pct(o?.allMean)} avoid=${pct(o?.negMean)} refuse8715=n${o?.refN ?: 0}/${pct(o?.refMean)}±${pct(o?.refSe)}vsKept${pct(o?.keepMean)} ${if (auth) "AUTHORITY" else if (o != null && refusalAuthority8715(o.refN, o.refMean, o.refSe, o.keepMean)) "REFUSES" else "learning"}]"
         }
         "edge8537[trained=${global.count} learned=${learned.get()} cold=${skippedCold.get()} implausible8617=${implausible8617.get()} oldPredIgnored8642=${oldPredictionsIgnored8642.get()} replay8642=$replayStatus8642 minEdge=+${MIN_EDGE_PCT}% authBar=n$AUTH_MIN_N,mean-se>0,>lane] ${rows.ifBlank { "no labels yet" }}"
     }

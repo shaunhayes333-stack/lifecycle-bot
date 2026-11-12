@@ -499,6 +499,8 @@ object ForwardReturnLabeler7731 {
         @Volatile var allocScales8410: DoubleArray = DoubleArray(0)
         /** V5.0.8418 — the first buy-path gate that ruled on this candidate (GateOutcome8418), "" = none; not persisted. */
         @Volatile var gate8418: String = ""
+        /** V5.0.8715 — the learned door lane authority overrode to admit this coin; its outcome is that door's record too. */
+        @Volatile var advisoryGate8715: String = ""
         /** V5.0.8709 — the origin x pool-depth cohort this observation is also graded into ("" = none). Not persisted. */
         @Volatile var origin8701: String = ""
         @Volatile var ck7997 = 0
@@ -896,7 +898,7 @@ object ForwardReturnLabeler7731 {
             .put("lows", rows(o.lows8366)).put("postLows", rows(o.postLows8379))
             .put("longNet", o.bookedLongNet8080.toString()).put("longGross", o.bookedLongGross8080.toString())
             .put("witness", o.witnessed8324).put("bookedWitness", o.bookedWitness8324)
-            .put("nativeTrigger", o.nativeTrigger8468).put("gate", o.gate8418)
+            .put("nativeTrigger", o.nativeTrigger8468).put("gate", o.gate8418).put("advisoryGate", o.advisoryGate8715)
             // V5.0.8571 — the frozen edge snapshot and the decision's liquidity band survive a restart.
             .put("expert8629", o.expertAtDecision?.let { com.lifecyclebot.engine.ExpertTraderKnowledge7813.snapshotJson(it) })
             .put("edge8571", o.edge8537?.let { EdgeModel8537.encodeSnap8571(it) }).put("liq8571", o.liqUsd8539.toString())
@@ -917,7 +919,7 @@ object ForwardReturnLabeler7731 {
         o.bookedLongNet8080 = e.optString("longNet").toDoubleOrNull() ?: Double.NaN
         o.bookedLongGross8080 = e.optString("longGross").toDoubleOrNull() ?: Double.NaN
         o.witnessed8324 = e.optBoolean("witness"); o.bookedWitness8324 = e.optBoolean("bookedWitness")
-        o.nativeTrigger8468 = e.optBoolean("nativeTrigger"); o.gate8418 = e.optString("gate")
+        o.nativeTrigger8468 = e.optBoolean("nativeTrigger"); o.gate8418 = e.optString("gate"); o.advisoryGate8715 = e.optString("advisoryGate")
         o.expertAtDecision = e.optJSONObject("expert8629")?.let { com.lifecyclebot.engine.ExpertTraderKnowledge7813.snapshotFromJson(it) }
         o.edge8537 = EdgeModel8537.decodeSnap8571(e.optJSONObject("edge8571"))  // V5.0.8571
         o.liqUsd8539 = e.optString("liq8571").toDoubleOrNull()?.takeIf { it.isFinite() } ?: 0.0
@@ -1102,9 +1104,27 @@ object ForwardReturnLabeler7731 {
     fun cellKey(source: String, lane: String, mcapUsd: Double, ageMs: Long): String =
         "${sourceFamily(source)}|${lane.trim().uppercase().ifBlank { "UNKNOWN" }.take(24)}|${mcapBand(mcapUsd)}|${ageBand(ageMs)}"
 
+    private val overridden8715 = ConcurrentHashMap<String, Pair<String, Long>>()
+
+    /**
+     * V5.0.8715 — LiveEdgeGate7877: lane authority admitted ([mint], [lane]) over the learned door [door]. The coin's forward
+     * label is filed on that door's record as well (GateOutcome8418), so an overridden door keeps being graded.
+     */
+    fun noteOverriddenDoor8715(mint: String, lane: String, door: String, nowMs: Long = System.currentTimeMillis()) {
+        if (mint.isBlank() || door.isBlank()) return
+        val key = "$mint|${lane.trim().uppercase().ifBlank { "UNKNOWN" }}"
+        val gate = FdgGate8365.gateKey8392(door)
+        val p = pending[key]
+        if (p != null && nowMs - p.atMs in 0L..GateOutcome8418.ATTACH_MAX_AGE_MS_8418) { if (p.advisoryGate8715.isEmpty()) p.advisoryGate8715 = gate; return }
+        if (overridden8715.size > 2_000) overridden8715.entries.removeIf { nowMs - it.value.second > GateOutcome8418.ATTACH_MAX_AGE_MS_8418 }
+        overridden8715[key] = gate to nowMs
+    }
+
     /** Pure: the net return of one observation at a mark, in percent. */
+    // V5.0.8715 — floored at the stake: 770 of the 72,220 rows of the 8712 edge dataset read below -100 % (to -158 %), a
+    // -98 % mark with a 60 % modelled cost subtracted on top. No position loses more than it cost.
     fun netPct(entryPrice: Double, markPrice: Double, costPct: Double): Double =
-        (markPrice / entryPrice - 1.0) * 100.0 - costPct
+        ((markPrice / entryPrice - 1.0) * 100.0 - costPct).coerceAtLeast(-100.0)
 
     // ── observation (called from ExecutableOpenGate.recordFdg for every distinct verdict) ──
 
@@ -1268,6 +1288,7 @@ object ForwardReturnLabeler7731 {
                 it.targetHorizon8521 = com.lifecyclebot.engine.cortex.CortexForwardEpoch8521.targetHorizon(
                     com.lifecyclebot.engine.cortex.CortexForwardEpoch8521.targetKind(l))
                 it.gate8418 = GateOutcome8418.attachGate8418("", nowMs, admitted, reason, l, nowMs).orEmpty()  // V5.0.8418
+                it.advisoryGate8715 = overridden8715.remove(key)?.takeIf { d -> nowMs - d.second in 0L..GateOutcome8418.ATTACH_MAX_AGE_MS_8418 }?.first.orEmpty()
                 // V5.0.8701 / 8709 — a real lane's observation also carries the coin's origin x pool-depth cohort, once per coin per 15 minutes
                 if (!l.startsWith("PLANWAIT_") && !l.startsWith("PLANADMIT_") && !ExpertSetups8692.setupCohort8692(l))
                     it.origin8701 = (try { MarketCohort8701.claim8701(ts, nowMs) } catch (_: Throwable) { null }).orEmpty()
@@ -1353,6 +1374,8 @@ object ForwardReturnLabeler7731 {
         }
         if (horizon == 60) o.tallyScales8410 = scales8410
         if (horizon == 60 && o.gate8418.isNotEmpty()) try { GateOutcome8418.book8418(o.gate8418, o.lane, net, gross >= RUNNER_PCT_7731) } catch (_: Throwable) {}  // V5.0.8418
+        if (horizon == 60 && o.advisoryGate8715.isNotEmpty() && o.advisoryGate8715 != o.gate8418)
+            try { GateOutcome8418.book8418(o.advisoryGate8715, o.lane, net, gross >= RUNNER_PCT_7731) } catch (_: Throwable) {}
         when (horizon) { 15 -> booked15.incrementAndGet(); 60 -> booked60.incrementAndGet(); else -> booked240.incrementAndGet() }
         if (horizon == 60) bookFresh8169(o, keys, net, gross, witnessed8324)
         // V5.0.8198 — the late (60-minute) read books into the fresh tally too: the stage rule spares a stage that pays late.

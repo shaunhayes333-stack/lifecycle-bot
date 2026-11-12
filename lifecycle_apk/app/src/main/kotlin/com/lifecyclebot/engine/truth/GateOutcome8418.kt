@@ -77,6 +77,26 @@ object GateOutcome8418 {
         return FdgGate8365.vetoDemotes8365(st.n, proven)
     }
 
+    /**
+     * V5.0.8715 §A_DOOR_THAT_PROTECTS_BINDS — the mirror of [refusesWinners8418]. 8712 live: lane authority overrode 461
+     * refusals in half an hour — WATCH_FIRST cell negative 242, band negative 73, chasing spike 46, source proven losing
+     * 21, picked setup record negative 21 — every one a measured "this loses", demoted to advice by a hand list
+     * (LaneAuthority8577.BINDING_8577), and the coins it admitted through them went on to lose. A learned door now earns
+     * the right to bind exactly as it earns retirement: on the graded forward record of the coins it said no to (refused
+     * or overridden — [book8418] files both): 40+ graded and mean + SE below zero.
+     */
+    fun protects8715(st: Stat8418?): Boolean =
+        st != null && st.n >= 40.0 && st.mean().isFinite() && st.se().isFinite() && st.mean() + st.se() < 0.0
+
+    /** Does [reason]'s own record (this lane's, else every lane's) prove the coins it refuses lose? */
+    fun doorProtects8715(reason: String, lane: String = ""): Boolean {
+        val gate = FdgGate8365.gateKey8392(reason)
+        val own = if (lane.isNotBlank()) stat8418(gate, lane) else null
+        val protects = if (own != null && own.n >= 40.0) protects8715(own) else protects8715(stat8418(gate))
+        if (protects) try { PipelineHealthCollector.labelInc("DOOR_BINDS_BY_RECORD_8715_$gate") } catch (_: Throwable) {}
+        return protects
+    }
+
     private fun key(gate: String, lane: String) = "$gate@${CanonicalLaneIdentity6506.desk8392(lane)}"
 
     // ── book ──

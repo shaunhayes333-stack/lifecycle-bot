@@ -225,7 +225,7 @@ object LaneAuthority8577 {
         }
     }
 
-    /** Pure: does [reason] bind under lane authority? Everything not listed is a learned door, advisory for a qualified coin. */
+    /** Does [reason] bind under lane authority? The listed integrity doors always; a learned door once its record protects (8715). */
     fun binding8577(reason: String?): Boolean {
         if (reason.isNullOrBlank()) return false
         val r = reason.uppercase()
@@ -233,7 +233,9 @@ object LaneAuthority8577 {
         // be reversed by a generic native score at this layer or again at LiveEdgeGate.
         if (CandidateAdmission8136.verifiedRecordDoor8650(r.removePrefix("CANDIDATE_ADMISSION_8136_"))) return true
         if (LEARNED_WAITS_8604.any { r.contains(it) }) return false
-        return BINDING_8577.any { r.contains(it) }
+        if (BINDING_8577.any { r.contains(it) }) return true
+        // V5.0.8715 — a learned door binds once its own graded record proves the coins it says no to lose.
+        return try { GateOutcome8418.doorProtects8715(r) } catch (_: Throwable) { false }
     }
 
     /**
@@ -337,6 +339,6 @@ object LaneAuthority8577 {
             .joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }
         val lanes = admittedByLane8577.entries.sortedByDescending { it.value.get() }
             .joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }
-        return "laneAuthority8577[on=$enabled8577 overrides=${total8577.get()} doors{$doors} lanes{$lanes} rule=V3+lane qualify; safety/structure/minimum/kill veto; learned doors advisory]"
+        return "laneAuthority8577[on=$enabled8577 overrides=${total8577.get()} doors{$doors} lanes{$lanes} rule=V3+lane qualify; safety/structure/minimum/kill veto; a learned door binds once its own record protects (8715)]"
     }
 }

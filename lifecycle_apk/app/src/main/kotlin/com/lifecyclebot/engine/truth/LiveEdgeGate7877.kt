@@ -559,7 +559,10 @@ object LiveEdgeGate7877 {
         val admission8577 = context.evaluatedAdmission ?: candidateAdmission ?: (if (!paper && doors8577 != null)
             try { CandidateAdmission8136.assess8136(ts, l, nowMs, candidateVersion) } catch (_: Throwable) { null } else null)
         val advisory8577 = !paper && LaneAuthority8577.advisoryAtGate8577(doors8577, admission8577)
-        if (advisory8577) LaneAuthority8577.noteAdvisory8577(doors8577!!, l)
+        if (advisory8577) {
+            LaneAuthority8577.noteAdvisory8577(doors8577!!, l)
+            try { ForwardReturnLabeler7731.noteOverriddenDoor8715(ts.mint, l, doors8577!!, nowMs) } catch (_: Throwable) {}   // V5.0.8715
+        }
         val final = if (advisory8577) null else doors8577
         val provisional = context.assessment
         val verdict = when { final == null -> Verdict8083.ADMIT

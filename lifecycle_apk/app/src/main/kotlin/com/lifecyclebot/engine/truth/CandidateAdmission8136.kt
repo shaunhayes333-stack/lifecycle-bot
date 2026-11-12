@@ -1006,6 +1006,9 @@ object CandidateAdmission8136 {
         val call = EdgeModel8537.callOf(v)
         trace += "edge8537=${fmt8136(v.predPct)} model=${v.modelKey} oos=n${v.oosSelN}/${fmt8136(v.oosSelMeanPct)} call=$call"
         if (call != EdgeModel8537.Call.NEGATIVE) return null
+        // V5.0.8715 — a refusal earned on the refusal record alone binds LIVE money; paper keeps trading those coins, which
+        // is what keeps the record honest.
+        if (!v.authority && !c.live) { trace += "edge8537RefusalLiveOnly8715"; return null }
         if (edge != null && !(c.costPct.isFinite() && v.predPct <= -c.costPct)) { trace += "edge8537NegativeKeptBy=${edge.compact}"; return null }
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("${EDGE_MODEL_NEGATIVE_8537}_${c.lane.uppercase()}") } catch (_: Throwable) {}
         return EDGE_MODEL_NEGATIVE_8537
