@@ -664,10 +664,7 @@ object ExpertWallets7962 {
         val touched = HashSet<String>()
         var geckoCalls = 0
         while (System.currentTimeMillis() < deadline) {
-            val (mint, trips) = synchronized(pendingLearn) {
-                val k = pendingLearn.keys.firstOrNull() ?: return@synchronized null
-                k to (pendingLearn.remove(k) ?: mutableListOf())
-            } ?: break
+            val (mint, trips) = nextPending8707() ?: break
             var bars = try { pumpBars(mint) } catch (_: Throwable) { emptyList() }
             val created = try { createdMs(mint, bars) } catch (_: Throwable) { -1L }
             for ((wallet, trip) in trips) {
@@ -692,6 +689,12 @@ object ExpertWallets7962 {
             }
         }
         for (w in touched) hists[w]?.let { saveHist(it) }
+    }
+
+    /** The oldest queued mint and its trips, taken off the queue; null when nothing is queued. */
+    private fun nextPending8707(): Pair<String, MutableList<Pair<String, RoundTrip7962>>>? = synchronized(pendingLearn) {
+        val k = pendingLearn.keys.firstOrNull()
+        if (k == null) null else Pair(k, pendingLearn.remove(k) ?: mutableListOf())
     }
 
     /** Pure: are per-wallet receipts stale — a book with no learned trip and no cell cannot already hold them? */

@@ -38,7 +38,7 @@ class Aate8707SmartMoneyFedTest {
         assertFalse(ExpertWallets7962.receiptsStale8707(12L, 0))
         assertFalse(ExpertWallets7962.receiptsStale8707(0L, 3))
         val x = src("engine/ExpertWallets7962.kt")
-        val fn = x.substringAfter("private fun learnPending() {").substringBefore("/** Pure: are per-wallet receipts stale")
+        val fn = x.substringAfter("private fun learnPending() {").substringBefore("/** The oldest queued mint and its trips")
         assertTrue(fn.contains("val booked = try { learnTrip(tier, trip, useBars, created, solUsd); true } catch (_: Throwable) { false }"))
         assertTrue(fn.indexOf("if (!booked)") < fn.indexOf("h.learned += "))
         assertFalse("the second ledger no longer spends the id before the trip is booked", fn.contains("LearnerAttribution8418.admit8418("))
