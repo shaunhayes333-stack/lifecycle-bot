@@ -1423,15 +1423,19 @@ object CryptoAltTrader {
                 // the token is genuinely unresolvable.
                 var priceNow = tok.price
                 if (priceNow <= 0.0) {
+                    // V5.0.8717 — a token whose last lookup found no price waits out its backoff; no call, no pass time.
+                    if (PriceMissBackoff8717.cooling(tok.canonicalIdentity6544)) continue
                     priceNow = withContext(Dispatchers.IO) {
                         DynamicAltTokenRegistry.refreshPriceForMintBlocking(tok.canonicalIdentity6544)
                     }
                     if (priceNow <= 0.0) {
+                        PriceMissBackoff8717.noteMiss(tok.canonicalIdentity6544)
                         if (!DynamicAltTokenRegistry.markEvaluationStarted6567(tok)) continue
                         DynamicAltTokenRegistry.releaseEvaluationForRetry7418(tok, "PRICE_UNAVAILABLE")
                         try { PipelineHealthCollector.labelInc("CRYPTO_PRICE_UNAVAILABLE_RETRY_7418") } catch (_: Throwable) {}
                         continue
                     }
+                    PriceMissBackoff8717.notePriced(tok.canonicalIdentity6544)
                 }
                 val price   = priceNow
                 // Re-read the freshly hydrated row so downstream fields are current.
@@ -2058,7 +2062,7 @@ object CryptoAltTrader {
 
         com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.completeProducerWindow6569(
             com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT, isEnabled.get(), isRunning.get(),
-            "batch=${batch.size} scanned=$scanned cryptoBrainSignals=$cryptoBrainSignals7244 specialistSignals=$signals sharedCandidates=${dynExecutableSignals.size}"
+            "batch=${batch.size} scanned=$scanned cryptoBrainSignals=$cryptoBrainSignals7244 specialistSignals=$signals sharedCandidates=${dynExecutableSignals.size} ${PriceMissBackoff8717.statusLine()}"
         )
         if (signals > 0 || cryptoBrainSignals7244 > 0 || scanned % 200 == 0) {
             ErrorLogger.info(TAG, "🪙⚡ DynScan done: scanned=$scanned execSignals=${dynExecutableSignals.size} (universe=${universe7823.size})")

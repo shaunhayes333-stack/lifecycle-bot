@@ -23,7 +23,11 @@ object GeckoHostBudget8382 : Interceptor {
     private const val HOST_8382 = "api.geckoterminal.com"
     const val PER_MIN_8382 = 10
     const val BURST_8382 = 3.0
-    const val BULK_RESERVE_8382 = 1.0
+    // V5.0.8717 — a list read takes a token only from a FULL bucket (was: while one remained). 8712, 31 min: lists took 151
+    // of the host's 268 calls, candle / trade reads 117, the host still answered 429 twenty times and each 429 cooled the
+    // candle lane: 1,673 one-minute-chart asks delivered 24, and the setup families read an empty chart for 10,666 of the
+    // 11,827 coins they evaluated. The candle reads are what this host is kept for.
+    const val BULK_RESERVE_8382 = BURST_8382 - 1.0
     const val DECISION_WAIT_MS_8382 = 1_500L
 
     private val bucket = DexHostBudget8287.Bucket8287(PER_MIN_8382, BURST_8382, BULK_RESERVE_8382, 0, Long.MAX_VALUE)

@@ -118,6 +118,16 @@ object PreTradeHardGate {
         return proofWaitOf8705(v)
     }
 
+    /** V5.0.8717 — the probed door's whole answer (null when the probe itself failed): admission reads its block as well as its wait. */
+    fun probeDoor8717(ts: TokenState): Verdict? {
+        probe8705.set(true)
+        return try { requireLiveBuyAllowed(ts, "ADMISSION_PROBE_8705") } catch (_: Throwable) { null } finally { probe8705.remove() }
+    }
+
+    /** Pure (V5.0.8717): the hard block a probed door [v] would answer (its reason), or null when it allows or only waits on proof. */
+    internal fun doorBlockOf8717(v: Verdict?): String? =
+        if (v != null && !v.allowed && v.reason != "DEFER_SAFETY_PROOF") v.reason.trim().ifBlank { null } else null
+
     /** Pure: the proof a probed door [v] waits on, or null. */
     internal fun proofWaitOf8705(v: Verdict?): String? =
         if (v != null && !v.allowed && v.reason == "DEFER_SAFETY_PROOF") v.detail.substringBefore('|').trim().ifBlank { "PROOF_PENDING" } else null

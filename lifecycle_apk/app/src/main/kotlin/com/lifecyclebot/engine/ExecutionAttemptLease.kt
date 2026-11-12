@@ -244,6 +244,15 @@ object ExecutionAttemptLease {
 
     fun activeBuyLeases(): Int { val n = now(); pruneExpired(n); return states.values.count { it.side.equals("BUY", true) && it.activeUntilMs > n } }
     fun activeSellLeases(): Int { val n = now(); pruneExpired(n); return states.values.count { it.side.equals("SELL", true) && it.activeUntilMs > n } }
+    /**
+     * V5.0.8717 — how long a LIVE buy of [mint] by [processor] would still be refused by the backoff a failed attempt set
+     * (0 = none). The same test [acquire] applies, read without acquiring: admission asks it before a ticket is spent.
+     */
+    fun buyBackoffLeftMs8717(mint: String, processor: String, nowMs: Long = now()): Long =
+        states.values.filter { it.side.equals("BUY", true) && it.mode.equals("LIVE", true) && it.mint == mint && it.backoffUntilMs > nowMs &&
+            (it.lastProcessor.equals(processor, true) || it.failures >= BUY_CAP_FAILURES) }
+            .maxOfOrNull { it.backoffUntilMs - nowMs } ?: 0L
+
     fun activeBackoffs(): Int { val n = now(); pruneExpired(n); return states.values.count { it.backoffUntilMs > n } }
 
     fun formatForReport(): String {

@@ -156,7 +156,7 @@ object TokenBirthHydrator7441 {
     fun statusLine7441(): String =
         "birthHydrator7441[requests=${requests8265.get()} launched=${launched8265.get()} busDropped=${busDropped8265.get()} " +
             "cooldownSkips=${cooldownSkips8265.get()} dropped8287=${dropped8287.get()} resolved=${resolved8265.get()} mintInitProven8418=${initProven8418.get()} unproven8418=${initUnproven8418.get()} noRpc=${noRpc8265.get()} noAnswer=${noAnswer8265.get()} " +
-            "inFlight=${inFlight.size} queued8509=${pool8287.queue.size} started8509=${started8509.get()} completed8509=${completed8509.get()} progress=${progress.size} cooling=${cooldownUntil.size} txOtherRung8509=${txFallbackFound8509.get()}/${txFallbackAsked8509.get()}] ${walkOutcomes8435()} ${StoredBirth8418.statusLine8418()}"
+            "inFlight=${inFlight.size} queued8509=${pool8287.queue.size} started8509=${started8509.get()} completed8509=${completed8509.get()} progress=${progress.size} cooling=${cooldownUntil.size} txOtherRung8509=${txFallbackFound8509.get()}/${txFallbackAsked8509.get()}] ${walkOutcomes8435()} ${txMissLine8717()} ${StoredBirth8418.statusLine8418()}"
 
     /**
      * V5.0.8435 — 8434: launched=1769 resolved=13, and where the other walks ended (another page owed, the page budget, a
@@ -466,16 +466,29 @@ object TokenBirthHydrator7441 {
                 .put("maxSupportedTransactionVersion", 0).put("commitment", "confirmed")))
         val req = Request.Builder().url(rpc).header("Content-Type", "application/json")
             .post(body.toString().toRequestBody("application/json".toMediaType())).build()
-        if (!com.lifecyclebot.network.KeylessRpc8359.beforeCall8359(rpc)) return null
+        if (!com.lifecyclebot.network.KeylessRpc8359.beforeCall8359(rpc)) { txMiss8717(rpc, "governor"); return null }
         return try {
             HealthAwareHttp.execute(http, req, host = rpcLabel8439(rpc)).use { resp ->
-                if (!resp.isSuccessful) { com.lifecyclebot.network.KeylessRpc8359.afterCall8359(rpc, resp.code); return null }
-                val root = JSONObject(resp.body?.string() ?: return null)
-                com.lifecyclebot.network.KeylessRpc8359.afterCall8359(rpc, resp.code, root.optJSONObject("error")?.optInt("code", -1) ?: 0)
-                root.optJSONObject("result")
+                if (!resp.isSuccessful) { com.lifecyclebot.network.KeylessRpc8359.afterCall8359(rpc, resp.code); txMiss8717(rpc, "http${resp.code}"); return null }
+                val root = JSONObject(resp.body?.string() ?: run { txMiss8717(rpc, "emptyBody"); return null })
+                val err = root.optJSONObject("error")
+                // V5.0.8717 — a node that does not serve transaction history leaves the getTransaction ladder (as 8441 does
+                // for the signature walk); it was asked again for every proof.
+                err?.let { e -> com.lifecyclebot.network.KeylessRpc8359.noteRpcError8441(rpc, "getTransaction", e.optInt("code", -1), e.optString("message")) }
+                com.lifecyclebot.network.KeylessRpc8359.afterCall8359(rpc, resp.code, err?.optInt("code", -1) ?: 0)
+                root.optJSONObject("result") ?: run { txMiss8717(rpc, if (err != null) "rpcError${err.optInt("code", -1)}" else "nullResult"); null }
             }
-        } catch (_: Throwable) { com.lifecyclebot.network.KeylessRpc8359.afterCall8359(rpc, 0); null }
+        } catch (t: Throwable) { com.lifecyclebot.network.KeylessRpc8359.afterCall8359(rpc, 0); txMiss8717(rpc, "transport"); null }
     }
+
+    // V5.0.8717 — 8712: initTxPending=1,132, proofRetry=931, other rungs asked 2,264 times and answered none, and nothing
+    // recorded WHY a rung returned no transaction (its governor, an HTTP code, an RPC error, a null result). Counted per rung.
+    private val txMisses8717 = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
+    private fun txMiss8717(rpc: String, why: String) {
+        txMisses8717.computeIfAbsent("${rpcLabel8439(rpc)}:$why") { java.util.concurrent.atomic.AtomicLong(0L) }.incrementAndGet()
+    }
+    private fun txMissLine8717(): String = "txMiss8717{" + txMisses8717.entries.sortedByDescending { it.value.get() }.take(8)
+        .joinToString(" ") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } + "}"
 
     /** A completed read with no successful signature is not a negative creation proof. */
     internal fun rememberCompletedHistory8527(state: Progress, rpc: String): Boolean {

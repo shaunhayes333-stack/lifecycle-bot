@@ -1391,9 +1391,30 @@ object CandidateAdmission8136 {
         trace = d.trace.filterNot { it.startsWith("missing=") } + "buyDoorProof8703=$wait wouldAdmit=${d.reason}" + "missing=proof:$wait",
         nativePhaseWitness8528 = false, strategyClockWitness8535 = false)
 
-    private fun awaitBuyDoorProof8703(ts: TokenState, live: Boolean, d: Decision8136, nowMs: Long): Decision8136 {
+    /** Pure (V5.0.8717): an admit the buy door would hard-block is a refusal carrying the door's own reason. */
+    internal fun doorBlocked8717(d: Decision8136, block: String): Decision8136 = d.copy(
+        terminal = Terminal8136.REFUSE, reason = "PRETRADE_HARD_BLOCK_$block", specific = true,
+        trace = d.trace + "buyDoorBlock8717=$block wouldAdmit=${d.reason}",
+        nativePhaseWitness8528 = false, strategyClockWitness8535 = false)
+
+    private fun awaitBuyDoorProof8703(ts: TokenState, live: Boolean, d: Decision8136, nowMs: Long, lane: String): Decision8136 {
         if (!live || !d.admitted) return d
-        val wait = try { com.lifecyclebot.engine.PreTradeHardGate.proofWait8703(ts) } catch (_: Throwable) { null }
+        // V5.0.8717 — 8712: of 16 CASHGEN tickets 2 filled. The door's HARD blocks were not read here (only its proof waits),
+        // so a coin it would refuse outright was admitted, sized and ticketed, then died at the door
+        // (LP_LOCK_BELOW_REQUIRED_8522 x5 first failures); and a coin still inside the backoff an earlier failed buy set kept
+        // being ticketed, each ticket ended by that backoff (ENTRY_CHASE_CONSUMED x11, SEALED_SIZE x14, SAFETY_PROOF x26).
+        // One probe answers all three: a block refuses here, a backoff or a proof wait defers here; no ticket is spent.
+        val door8717 = try { com.lifecyclebot.engine.PreTradeHardGate.probeDoor8717(ts) } catch (_: Throwable) { null }
+        com.lifecyclebot.engine.PreTradeHardGate.doorBlockOf8717(door8717)?.let { block ->
+            try { PipelineHealthCollector.labelInc("ADMISSION_REFUSED_BY_BUY_DOOR_8717_${block.take(40)}") } catch (_: Throwable) {}
+            return doorBlocked8717(d, block)
+        }
+        val backoffMs8717 = try { com.lifecyclebot.engine.ExecutionAttemptLease.buyBackoffLeftMs8717(ts.mint, lane.trim().uppercase(), nowMs) } catch (_: Throwable) { 0L }
+        if (backoffMs8717 > 0L) {
+            try { PipelineHealthCollector.labelInc("ADMISSION_AWAITS_BUY_BACKOFF_8717") } catch (_: Throwable) {}
+            return proofDeferred8703(d, "BUY_BACKOFF")
+        }
+        val wait = com.lifecyclebot.engine.PreTradeHardGate.proofWaitOf8705(door8717)
         if (wait == null) {
             // admitted with a proof past half its life: refreshed now so it is still current at the buy door
             if (com.lifecyclebot.engine.PreTradeHardGate.proofAgeing8703(ts.safety.checkedAt, nowMs))
@@ -1584,7 +1605,7 @@ object CandidateAdmission8136 {
             if (candidate.live) LaneAuthority8577.memeEntryRefusal8626(ts, candidate.lane, candidate.stage, nowMs) else null,  // V5.0.8626
             launchPhase8609 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.features(ts, nowMs).launchPhase } catch (_: Throwable) { null },
             pocket8610 = if (candidate.live) PocketLedger8610.verdict8610(ts, candidate.lane, nowMs) else null)
-            .let { awaitBuyDoorProof8703(ts, candidate.live, it, nowMs) }.also {
+            .let { awaitBuyDoorProof8703(ts, candidate.live, it, nowMs, candidate.lane) }.also {
             // A held shadow rehearsal must not publish an ADMIT into live sizing, strategy identity or the runner trace.
             if (!FdgGate8365.shadowOnly8393()) {
                 noteDecision8144(ts.mint, candidate.lane, candidate, it, version, mode, nowMs)

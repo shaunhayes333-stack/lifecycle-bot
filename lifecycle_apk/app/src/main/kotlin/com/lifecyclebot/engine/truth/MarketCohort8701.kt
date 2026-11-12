@@ -41,6 +41,27 @@ object MarketCohort8701 {
     /** Pure: the forward-label cohort of a coin minted at [mint] with a pool of [liqUsd]. */
     fun cohort8701(mint: String, liqUsd: Double): String = PREFIX_8701 + origin8701(mint) + "_" + poolBand8701(liqUsd)
 
+    /**
+     * V5.0.8717 §A_FRESH_LAUNCH_IS_ITS_OWN_COHORT — the 8712 edge dataset, one row per coin: under five minutes old with a
+     * $10k-50k pool, 124 coins, +13.7 % net at 15 minutes (41 % win, 27 % ran 50 %+), positive in each third of the three
+     * days (+4.8 / +16.1 / +20.1), 63 % of them not pump.fun — while the same pool bands at every older age lost. The
+     * origin x pool book pooled both, so the one paying group read as a small loss (OTHER 5K_20K +0.8 %, 20K_100K -3.8 %)
+     * and could never be proven. A coin whose birth is known and under [FRESH_MIN_8717] minutes old is filed, and read,
+     * under its own FRESH cohort; a coin of unknown birth stays where it was. The age edge is the edge model's first
+     * (EdgeModel8537.AGE_EDGES), not a new number.
+     */
+    val FRESH_MIN_8717: Double get() = EdgeModel8537.AGE_EDGES.first()
+
+    /** Pure: the cohort of a coin [ageMin] minutes old (NaN / negative = unknown birth). */
+    fun cohortAt8717(mint: String, liqUsd: Double, ageMin: Double): String =
+        if (ageMin.isFinite() && ageMin >= 0.0 && ageMin < FRESH_MIN_8717) PREFIX_8701 + origin8701(mint) + "_FRESH_" + poolBand8701(liqUsd)
+        else cohort8701(mint, liqUsd)
+
+    private fun ageMin8717(ts: TokenState, nowMs: Long): Double =
+        try { CanonicalTokenBirthTime7440.launchAgeMs7767(ts, nowMs)?.let { it / 60_000.0 } } catch (_: Throwable) { null } ?: Double.NaN
+
+    private fun cohortOf8717(ts: TokenState, nowMs: Long): String = cohortAt8717(ts.mint, depth(ts), ageMin8717(ts, nowMs))
+
     /** Pure: is a coin last filed at [lastMs] due again at [nowMs]? */
     internal fun due8701(lastMs: Long?, nowMs: Long): Boolean = lastMs == null || nowMs < lastMs || nowMs - lastMs >= REFILE_MS_8701
 
@@ -61,13 +82,13 @@ object MarketCohort8701 {
         if (!due8701(lastFiled8701[ts.mint], nowMs)) return null
         if (lastFiled8701.size > 6_000) lastFiled8701.entries.removeIf { nowMs - it.value > REFILE_MS_8701 }
         lastFiled8701[ts.mint] = nowMs
-        return cohort8701(ts.mint, depth(ts))
+        return cohortOf8717(ts, nowMs)
     }
 
     /** LiveEdgeGate7877: [ts]'s cohort when its own forward record is proven positive, else null. */
     fun measuredProven8701(ts: TokenState): String? {
         if (!solana(ts)) return null
-        val cohort = cohort8701(ts.mint, depth(ts))
+        val cohort = cohortOf8717(ts, System.currentTimeMillis())
         val stat = try { ForwardReturnLabeler7731.laneStatFor7737(cohort) } catch (_: Throwable) { null }
         return if (LiveEdgeGate7877.cohortProvenPositive7948(stat)) cohort else null
     }
@@ -80,14 +101,14 @@ object MarketCohort8701 {
      */
     fun provenLosing8703(ts: TokenState): String? {
         if (!solana(ts)) return null
-        val cohort = cohort8701(ts.mint, depth(ts))
+        val cohort = cohortOf8717(ts, System.currentTimeMillis())
         val stat = try { ForwardReturnLabeler7731.laneStatFor7737(cohort) } catch (_: Throwable) { null }
         return if (LiveEdgeGate7877.cohortProvenLosing8703(stat)) cohort else null
     }
 
-    fun statusLine8701(): String = "marketCohort8701[" + ORIGINS_8701.joinToString(" | ") { o ->
-        o + "{" + BANDS_8701.joinToString(",") { b ->
-            val s = try { ForwardReturnLabeler7731.laneStatFor7737("$PREFIX_8701${o}_$b") } catch (_: Throwable) { null }
+    fun statusLine8701(): String = "marketCohort8701[" + ORIGINS_8701.flatMap { o -> listOf(o to "", o to "FRESH_") }.joinToString(" | ") { (o, fresh) ->
+        o + (if (fresh.isEmpty()) "" else "_FRESH") + "{" + BANDS_8701.joinToString(",") { b ->
+            val s = try { ForwardReturnLabeler7731.laneStatFor7737("$PREFIX_8701${o}_$fresh$b") } catch (_: Throwable) { null }
             b.removePrefix("POOL_") + "=" + (if (s == null) "n0" else "n${s.n60}/${"%+.1f".format(s.meanNet60Pct)}%" +
                 (if (LiveEdgeGate7877.cohortProvenPositive7948(s)) "/PROVEN" else if (LiveEdgeGate7877.cohortProvenLosing8703(s)) "/LOSING" else ""))
         } + "}"

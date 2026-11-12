@@ -1373,9 +1373,9 @@ object ForwardReturnLabeler7731 {
             }
         }
         if (horizon == 60) o.tallyScales8410 = scales8410
-        if (horizon == 60 && o.gate8418.isNotEmpty()) try { GateOutcome8418.book8418(o.gate8418, o.lane, net, gross >= RUNNER_PCT_7731) } catch (_: Throwable) {}  // V5.0.8418
+        if (horizon == 60 && o.gate8418.isNotEmpty()) try { GateOutcome8418.book8418(o.gate8418, o.lane, net, gross >= RUNNER_PCT_7731, o.mint) } catch (_: Throwable) {}  // V5.0.8418
         if (horizon == 60 && o.advisoryGate8715.isNotEmpty() && o.advisoryGate8715 != o.gate8418)
-            try { GateOutcome8418.book8418(o.advisoryGate8715, o.lane, net, gross >= RUNNER_PCT_7731) } catch (_: Throwable) {}
+            try { GateOutcome8418.book8418(o.advisoryGate8715, o.lane, net, gross >= RUNNER_PCT_7731, o.mint) } catch (_: Throwable) {}
         when (horizon) { 15 -> booked15.incrementAndGet(); 60 -> booked60.incrementAndGet(); else -> booked240.incrementAndGet() }
         if (horizon == 60) bookFresh8169(o, keys, net, gross, witnessed8324)
         // V5.0.8198 — the late (60-minute) read books into the fresh tally too: the stage rule spares a stage that pays late.

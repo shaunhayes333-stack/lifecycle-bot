@@ -102,16 +102,33 @@ object GateOutcome8418 {
     // ── book ──
 
     /** ForwardReturnLabeler7731.book (60-minute grade): file [net] (% executable) under [gate] for [lane] and all lanes. */
-    fun book8418(gate: String, lane: String, net: Double, runner: Boolean) {
+    fun book8418(gate: String, lane: String, net: Double, runner: Boolean, mint: String = "", nowMs: Long = System.currentTimeMillis()) {
         if (gate.isBlank() || !net.isFinite()) return
         load()
-        for (k in listOf(gate, key(gate, lane))) {
+        // V5.0.8717 — the all-lanes record counts a coin once. One coin is judged by up to 17 lanes in the same minute
+        // (52 % of the 8712 dataset's decisions are filed in four or more), and each lane's label was added to the gate's
+        // all-lanes record: its n and its standard error read several times more evidence than there was coins.
+        val allLanes = mint.isBlank() || firstForCoin8717(gate, mint, nowMs)
+        for (k in listOfNotNull(gate.takeIf { allLanes }, key(gate, lane))) {
             if (!book.containsKey(k) && book.size >= MAX_KEYS_8418) continue
             val st = book.getOrPut(k) { Stat8418() }
             synchronized(st) { st.add(net, runner) }
         }
         try { PipelineHealthCollector.labelInc("GATE_OUTCOME_BOOKED_8418") } catch (_: Throwable) {}
         if (booked.incrementAndGet() % PERSIST_EVERY_8418 == 0L) save()
+    }
+
+    private const val COIN_WINDOW_MS_8717 = 15L * 60_000L
+    private val coinSeen8717 = ConcurrentHashMap<String, Long>()
+
+    /** Is this the first label of ([gate], [mint]) inside the window? (Marks it seen.) */
+    internal fun firstForCoin8717(gate: String, mint: String, nowMs: Long): Boolean {
+        if (coinSeen8717.size > 8_000) coinSeen8717.entries.removeIf { nowMs - it.value > COIN_WINDOW_MS_8717 }
+        val k = "$gate|$mint"
+        val last = coinSeen8717[k]
+        if (last != null && nowMs - last in 0L until COIN_WINDOW_MS_8717) return false
+        coinSeen8717[k] = nowMs
+        return true
     }
 
     fun noteAttached8418() { attached.incrementAndGet() }
@@ -203,5 +220,5 @@ object GateOutcome8418 {
         } catch (_: Throwable) {}
     }
 
-    internal fun resetForTests8418() { book.clear(); booked.set(0); attached.set(0); loaded = true }
+    internal fun resetForTests8418() { coinSeen8717.clear(); book.clear(); booked.set(0); attached.set(0); loaded = true }
 }

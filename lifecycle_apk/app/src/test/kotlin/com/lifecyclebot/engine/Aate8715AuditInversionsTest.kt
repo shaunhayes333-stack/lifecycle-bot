@@ -71,7 +71,7 @@ class Aate8715AuditInversionsTest {
         val gate = src("engine/truth/LiveEdgeGate7877.kt")
         assertTrue(gate.contains("ForwardReturnLabeler7731.noteOverriddenDoor8715(ts.mint, l, doors8577!!, nowMs)"))
         val lab = src("engine/truth/ForwardReturnLabeler7731.kt")
-        assertTrue(lab.contains("GateOutcome8418.book8418(o.advisoryGate8715, o.lane, net, gross >= RUNNER_PCT_7731)"))
+        assertTrue(lab.contains("GateOutcome8418.book8418(o.advisoryGate8715, o.lane, net, gross >= RUNNER_PCT_7731, o.mint)"))
         assertTrue(lab.contains(".put(\"advisoryGate\", o.advisoryGate8715)"))
     }
 
