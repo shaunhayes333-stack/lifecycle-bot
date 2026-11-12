@@ -25196,7 +25196,8 @@ class Executor(
             val sellCost8521 = try { CostMeter8151.sellLegFixedSol8151() } catch (_: Throwable) { Double.NaN }
             if (reason.startsWith("PROTECTIVE_EXIT_") && (depth == null || !depth.isFinite() || depth >= 0.0)) true
             else com.lifecyclebot.engine.truth.ExitQuoteCorroboration7928.allowSell(ts.mint, ts.symbol, reason, trigger, cost,
-                positionIdentity8521 = "$pid|$raw|${held?.lastMutationMs}", stopThresholdPct8521 = depth, sellCostSol8521 = sellCost8521) {
+                positionIdentity8521 = "$pid|$raw|${held?.lastMutationMs}", stopThresholdPct8521 = depth, sellCostSol8521 = sellCost8521,
+                sellsUnquoted8706 = { StopMarkConfirm8418.sellsWithoutRouteQuote8706(ts, reason) }) {
                 if (raw == null || raw.signum() <= 0 || raw.bitLength() > 63) null else {
                     val asked8521 = System.currentTimeMillis()
                     // V5.0.8288 — no quote within the bounded budget still allows a real emergency to route.

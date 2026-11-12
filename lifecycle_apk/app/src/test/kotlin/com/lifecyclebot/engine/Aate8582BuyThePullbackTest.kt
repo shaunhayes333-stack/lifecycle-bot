@@ -50,15 +50,16 @@ class Aate8582BuyThePullbackTest {
         assertTrue(LaneAuthority8577.binding8577(LaneAuthority8577.LIVE_STAGE_LOSES_8626))
     }
 
-    @Test fun liveDoesNotBuyAtThePeakOrInTheDumpUntilTheLaneProvesItThere() {
-        assertTrue("14:12 SHITCOIN PEAK n23 -52.1", LaneAuthority8577.stageLoses8626("PEAK_EXHAUSTION", 23, -52.1, 10.0))
+    @Test fun liveDoesNotBuyAStageItsOwnRecordProvesLosing() {
+        // V5.0.8706 — no named stages: every stage answers to its own record (8704: MOONSHOT LAUNCH n287 -17.3 %, unlisted).
+        assertTrue("8704 MOONSHOT LAUNCH", LaneAuthority8577.stageLoses8626("FRESH_LAUNCH", 287, -17.3, 2.0))
         assertTrue("14:12 EXPRESS DUMP n56 -39.5", LaneAuthority8577.stageLoses8626("DUMPING", 56, -39.5, 5.0))
-        assertTrue("a thin positive record has not turned", LaneAuthority8577.stageLoses8626("DUMPING", 12, 20.0, 5.0))
-        assertFalse("a lane that proves the stage pays may buy it", LaneAuthority8577.stageLoses8626("DUMPING", 40, 12.0, 4.0))
-        assertFalse(LaneAuthority8577.stageLoses8626("FRESH_LAUNCH", 50, -10.0, 2.0))
-        assertFalse(LaneAuthority8577.stageLoses8626("CONTROLLED_MARKUP", 50, -10.0, 2.0))
-        assertFalse("unknown stage never refuses", LaneAuthority8577.stageLoses8626(null, 0, Double.NaN, Double.NaN))
-        assertFalse(LaneAuthority8577.stageLoses8626("", 0, Double.NaN, Double.NaN))
+        assertFalse("8704 MOONSHOT BASE n192 -0.2 %: not proven losing, 16 % ran", LaneAuthority8577.stageLoses8626("BASE", 192, -0.2, 2.1))
+        assertFalse("a thin record never refuses", LaneAuthority8577.stageLoses8626("PEAK_EXHAUSTION", 23, -52.1, 10.0))
+        assertFalse("a stage that pays is bought", LaneAuthority8577.stageLoses8626("DUMPING", 40, 12.0, 4.0))
+        assertFalse("unknown stage never refuses", LaneAuthority8577.stageLoses8626(null, 500, -30.0, 1.0))
+        assertFalse(LaneAuthority8577.stageLoses8626("", 500, -30.0, 1.0))
+        assertFalse(java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/LaneAuthority8577.kt").readText().contains("LOSING_STAGES_8626"))
     }
 
     @Test fun aPaperFamilyNoLongerExemptsALiveEntryFromTheHighDoor() {

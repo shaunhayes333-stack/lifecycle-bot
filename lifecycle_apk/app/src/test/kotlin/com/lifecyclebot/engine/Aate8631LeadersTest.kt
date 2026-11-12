@@ -12,9 +12,11 @@ import java.io.File
 class Aate8631LeadersTest {
     @Test fun an_unread_live_stop_waits_briefly_for_the_venue() {
         val t0 = 1_800_000_000_000L
-        assertTrue(StopMarkConfirm8418.holdsAwaitingRead8631(t0, t0 + 1_000L, -16.0))
-        assertFalse("after the wait it fires", StopMarkConfirm8418.holdsAwaitingRead8631(t0, t0 + StopMarkConfirm8418.NO_READ_HOLD_MS_8631, -16.0))
-        assertFalse("a mark at -60 % or worse fires at once", StopMarkConfirm8418.holdsAwaitingRead8631(t0, t0 + 1_000L, -65.0))
+        // V5.0.8706 — after the wait only the position's own venue's mark fires; another venue's mark keeps asking.
+        assertFalse(StopMarkConfirm8418.unreadStopFires8706(t0, t0 + 1_000L, -16.0, markOnVenue = true))
+        assertTrue("after the wait its own venue's mark fires", StopMarkConfirm8418.unreadStopFires8706(t0, t0 + StopMarkConfirm8418.NO_READ_HOLD_MS_8631, -16.0, markOnVenue = true))
+        assertFalse("another venue's mark is not a sell", StopMarkConfirm8418.unreadStopFires8706(t0, t0 + 10L * 60_000L, -40.0, markOnVenue = false))
+        assertTrue("a mark at -60 % or worse fires at once", StopMarkConfirm8418.unreadStopFires8706(t0, t0 + 1_000L, -65.0, markOnVenue = false))
         val src = File("src/main/kotlin/com/lifecyclebot/engine/StopMarkConfirm8418.kt").readText()
         val fn = src.substringAfter("fun stopRefutedByVenue8489(").substringBefore("val depth = stopDepthPct8489(reason)")
         assertTrue(fn.contains("return holdForVenueRead8631(ts, key8631, nowMs)"))

@@ -103,20 +103,23 @@ object LaneAuthority8577 {
     // LOSS_BOUGHT_TOP=40 of 63. The read is restored below as [memeEntryRefusal8626], with the coin's stage.
 
     /**
-     * V5.0.8626 §NO_LIVE_BUY_AT_THE_PEAK_OR_IN_THE_DUMP — the bot's own forward record by the coin's stage at decision
-     * (14:12 dump, 5-min executable net): PEAK_EXHAUSTION SHITCOIN n23 -52.1 %, MOONSHOT n24 -34.2 %, EXPRESS n21 -20.0 %,
-     * PROJECT_SNIPER n13 -49.9 %, MANIPULATED n16 -14.7 %, DIP_HUNTER n8 -33.0 %; DUMPING n50 -33.0 %, n55 -38.5 %, n56 -39.5 %,
-     * n22 -44.4 %, n46 -39.2 %, n11 -51.9 % — every lane, both stages, and they are ~3/4 of what the lanes are offered. LAUNCH
-     * and BREAKOUT were the positive cells. A live meme entry in either stage is refused unless that lane's own record at that
-     * stage has turned: n >= 30 and mean - se > 0. Unknown stage never refuses.
+     * V5.0.8706 §A_STAGE_IS_REFUSED_ON_ITS_OWN_RECORD — the live stage door, rewritten. 8626 named two stages by hand
+     * (PEAK_EXHAUSTION, DUMPING: refused until proven positive) from one dump in which "LAUNCH and BREAKOUT were the positive
+     * cells", and every other stage was never refused whatever its record said. The 8704 capture, same lanes, 5-min net:
+     *   MOONSHOT  LAUNCH n287 -17.3 %  BASE n192 -0.2 % (16 % ran)  BREAKOUT n135 -3.0 %  PULLBACK n72 -8.7 %  PEAK n773 -12.3 %  DUMP n1007 -24.7 %
+     *   SHITCOIN  LAUNCH n403 -24.9 %  EXPRESS LAUNCH n371 -22.2 %  — and live runner admits LOSS_BOUGHT_TOP=76 of 110.
+     * LAUNCH was unlisted, so live kept buying the worst cell on the board. There is no list now: a live meme entry at a known
+     * stage is refused when that lane's own forward record AT THAT STAGE is proven losing (n >= 30, mean + se < 0), and at no
+     * other time. A thin record, an unknown stage and a stage that stops losing never refuse; paper trades every stage, so
+     * every record keeps moving. The door retires on the one selection-gate rule (memeEntryRefusal8626).
      */
     const val LIVE_STAGE_LOSES_8626 = "LIVE_STAGE_LOSES_8626"
-    private val LOSING_STAGES_8626 = setOf("PEAK_EXHAUSTION", "DUMPING")
+    private const val STAGE_RECORD_MIN_N_8706 = 30
 
     /** Pure: is a live entry at [stage] refused, given the lane's own record there (n, mean %, se %)? */
     fun stageLoses8626(stage: String?, n: Int, mean: Double, se: Double): Boolean {
-        val st = stage?.trim()?.uppercase() ?: return false
-        return st in LOSING_STAGES_8626 && !(n >= 30 && mean.isFinite() && se.isFinite() && mean - se > 0.0)
+        if (stage.isNullOrBlank()) return false
+        return n >= STAGE_RECORD_MIN_N_8706 && mean.isFinite() && se.isFinite() && mean + se < 0.0
     }
 
     /**

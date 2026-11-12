@@ -285,26 +285,65 @@ object StopMarkConfirm8418 {
     }
 
     /**
-     * V5.0.8631 §NO_READ_NO_STOP_FOR_A_MOMENT — audit_exits_now §3: three "-15 %" stops filled at -2.5 %, -3.8 % and +1.3 %:
-     * the venue refute (8489) was fail-open, so with no fresh venue read the stop fired on the bad mark. A live price-loss stop
-     * now waits up to [NO_READ_HOLD_MS_8631] for the read it asked for; then it fires. A mark at or below [BYPASS_PCT_8418]
-     * fires at once. Pure rule in [holdsAwaitingRead8631].
+     * V5.0.8706 §ANOTHER_VENUES_MARK_DOES_NOT_SELL_THIS_BAG — the unread stop, rewritten. 8631 waited [NO_READ_HOLD_MS_8631]
+     * for the venue read it asked for and then fired on whatever mark had triggered it; Executor's sell-time route quote
+     * allowed the sell when no quote came back. 8704 live: 61 stop triggers were refuted by an executable read (quote x38,
+     * venue x13, held quote x10), the five that sold filled 22 points ABOVE their trigger marks, and three "-15 % / -25 %"
+     * stops realised -0.9 %, -3.3 % and -3.4 % — the fills that got through were the ones no executable read answered for
+     * (held quotes asked 217, answered 98). A live price-loss stop with no executable answer now fires only on:
+     *   - a mark of the position's own venue ([onBasis8418]: its curve / pool chain state, or a print naming its pool),
+     *     after the same short wait for the read; or
+     *   - a mark at or below [BYPASS_PCT_8418], at once.
+     * A mark from another pool, a seed, an uncorroborated fan-out or a source that names no pool keeps asking the venue and
+     * the route every tick and is not a sell. Rug, drain, structural, time and operator exits are not price-loss stops and
+     * never pass through here. One rule, [unreadStopFires8706], for the request path and the sell-time check.
      */
     const val NO_READ_HOLD_MS_8631 = 6_000L
     private val noReadSince8631 = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
-    /** Pure: does a stop first left unread at [firstAskMs] still wait at [nowMs], with the mark at [markPnlPct]? */
-    fun holdsAwaitingRead8631(firstAskMs: Long, nowMs: Long, markPnlPct: Double): Boolean =
-        !(markPnlPct.isFinite() && markPnlPct <= BYPASS_PCT_8418) && nowMs - firstAskMs in 0L until NO_READ_HOLD_MS_8631
+    /** Pure: may a stop left unread since [firstAskMs] fire at [nowMs] on a mark at [markPnlPct] that is / is not [markOnVenue]? */
+    fun unreadStopFires8706(firstAskMs: Long, nowMs: Long, markPnlPct: Double, markOnVenue: Boolean): Boolean = when {
+        markPnlPct.isFinite() && markPnlPct <= BYPASS_PCT_8418 -> true
+        nowMs - firstAskMs in 0L until NO_READ_HOLD_MS_8631 -> false
+        else -> markOnVenue
+    }
+
+    private fun markPnlPct8706(ts: TokenState): Double =
+        if (ts.position.entryPrice > 0.0 && ts.lastPrice > 0.0) (ts.lastPrice / ts.position.entryPrice - 1.0) * 100.0 else Double.NaN
+
+    private fun markOnVenue8706(ts: TokenState): Boolean =
+        try { onBasis8418(ts.lastPriceSource, ts.lastPricePoolAddr, ts.position.entryPoolAddress) } catch (_: Throwable) { false }
 
     private fun holdForVenueRead8631(ts: TokenState, key: String, nowMs: Long): Boolean {
         if (noReadSince8631.size > MAX_AWAITS_8419) noReadSince8631.clear()
         val first = noReadSince8631.putIfAbsent(key, nowMs) ?: nowMs
-        val mark = if (ts.position.entryPrice > 0.0 && ts.lastPrice > 0.0) (ts.lastPrice / ts.position.entryPrice - 1.0) * 100.0 else Double.NaN
-        val hold = holdsAwaitingRead8631(first, nowMs, mark)
-        if (!hold) noReadSince8631.remove(key)
-        try { PipelineHealthCollector.labelInc(if (hold) "STOP_HELD_AWAITING_VENUE_READ_8631" else "STOP_FIRED_NO_VENUE_READ_8631") } catch (_: Throwable) {}
-        return hold
+        val onVenue = markOnVenue8706(ts)
+        val fires = unreadStopFires8706(first, nowMs, markPnlPct8706(ts), onVenue)
+        if (fires) noReadSince8631.remove(key)
+        try {
+            PipelineHealthCollector.labelInc(when {
+                fires -> "STOP_FIRED_NO_VENUE_READ_8631"
+                nowMs - first < NO_READ_HOLD_MS_8631 -> "STOP_HELD_AWAITING_VENUE_READ_8631"
+                else -> "STOP_HELD_OFF_VENUE_MARK_UNREAD_8706"
+            })
+            if (!fires && nowMs - first >= NO_READ_HOLD_MS_8631) ForensicLogger.lifecycle("STOP_HELD_OFF_VENUE_MARK_UNREAD_8706",
+                "mint=${ts.mint.take(10)} markSource=${ts.lastPriceSource} markPool=${ts.lastPricePoolAddr.take(8)} entryPool=${ts.position.entryPoolAddress.take(8)} unreadMs=${nowMs - first} action=hold_and_reask")
+        } catch (_: Throwable) {}
+        return !fires
+    }
+
+    /**
+     * Executor.stopCorroboratedByQuote7928: the sell-time route quote did not come back — may this stop still sell? Yes when
+     * it is not a price-loss stop, when the venue itself has a fresh read (it was asked on the request path and did not
+     * refute), or when its mark may fire unread ([unreadStopFires8706], the wait counted from the request path's first ask).
+     */
+    fun sellsWithoutRouteQuote8706(ts: TokenState, reason: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (ts.position.isPaperPosition || !priceLossStop8489(reason)) return true
+        if (venuePnlPct8489(ts, nowMs) != null) return true
+        val first = noReadSince8631[ts.position.positionId.ifBlank { ts.mint }] ?: nowMs
+        val fires = unreadStopFires8706(first, nowMs, markPnlPct8706(ts), markOnVenue8706(ts))
+        if (!fires) try { PipelineHealthCollector.labelInc("STOP_HELD_NO_ROUTE_QUOTE_OFF_VENUE_MARK_8706") } catch (_: Throwable) {}
+        return fires
     }
 
     internal fun resetForTest8419() { awaitSince8419.clear(); noReadSince8631.clear() }

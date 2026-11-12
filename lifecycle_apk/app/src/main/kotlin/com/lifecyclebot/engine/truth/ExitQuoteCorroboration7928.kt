@@ -70,7 +70,8 @@ object ExitQuoteCorroboration7928 {
      */
     fun allowSell(mint: String, symbol: String, reason: String, triggerPnlPct: Double, costSol: Double,
                   nowMs: Long = System.currentTimeMillis(), positionIdentity8521: String = "",
-                  stopThresholdPct8521: Double? = null, sellCostSol8521: Double = 0.0, quoteOutSol: () -> Double?): Boolean {
+                  stopThresholdPct8521: Double? = null, sellCostSol8521: Double = 0.0,
+                  sellsUnquoted8706: () -> Boolean = { true }, quoteOutSol: () -> Double?): Boolean {
         // 8519: eight quote refutations and forty pre-route retries; each cached veto was a FAILED_RETRYABLE result.
         // A pre-dump quote must not veto the next emergency; a partial or re-entry must not inherit its old value.
         if (!sellCostSol8521.isFinite() || sellCostSol8521 < 0.0) return true // unknown net value cannot refute a stop
@@ -80,7 +81,8 @@ object ExitQuoteCorroboration7928 {
                 v.reason == reason && v.sellCostSol == sellCostSol8521)
                 return !quoteRefutes8521(triggerPnlPct, v.quotePnl, stopThresholdPct8521)
         }
-        val out = try { quoteOutSol() } catch (_: Throwable) { null } ?: return true
+        // V5.0.8706 — no quote is not a confirmation: [sellsUnquoted8706] (StopMarkConfirm8418.sellsWithoutRouteQuote8706) decides.
+        val out = try { quoteOutSol() } catch (_: Throwable) { null } ?: return (try { sellsUnquoted8706() } catch (_: Throwable) { true })
         val qPnl = quotePnlPct((out - sellCostSol8521).coerceAtLeast(0.0), costSol)
         if (!qPnl.isFinite()) return true
         val bad = quoteRefutes8521(triggerPnlPct, qPnl, stopThresholdPct8521)
