@@ -1631,6 +1631,8 @@ object CandidateAdmission8136 {
             // V5.0.8544 — a LIVE meme candidate is also decided the PAPER way for the separate paper book beside live
             // V5.0.8618 — the tuning report files the paper close under what LIVE decided on this same candidate.
             if (mode == "LIVE") try { TuningReport8618.noteLiveVerdict8618(ts.mint, candidate.lane, it.admitted, it.reason, nowMs) } catch (_: Throwable) {}
+            // V5.0.8725 — a coin in its lane's paying cell is filed by what the live buy door says of it (measured, never bought on).
+            if (mode == "LIVE" && candidate.marketCell8723 != null && !FdgGate8365.shadowOnly8393()) LpStateRecord8725.note8725(ts, nowMs)
             if (mode == "LIVE" && !FdgGate8365.shadowOnly8393()) try { MemePaperTrader8544.consider8544(ts, candidate, nowMs) } catch (_: Throwable) {}
             if (memos8153.size > 4_000) memos8153.entries.removeIf { e -> nowMs - e.value.atMs > MEMO_MS_8153 }
             memos8153[key] = Memo8153(nowMs, identity, it)
