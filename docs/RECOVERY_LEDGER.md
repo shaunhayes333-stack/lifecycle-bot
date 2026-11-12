@@ -30,6 +30,19 @@ CI test; "Inferred" means reasoned from source and not yet observed live. Nothin
 
 | D9 | `SetupAuthority8535.authorityOf8535` (`else -> SETUP_TRIGGERED`) | `NATIVE_READY_8270:<text>` (a lane READY verdict with no playbook setup) and the three 8720 structure reads were executable entries on their name alone | A verdict or a description of the coin could be the executed strategy with no entry event (8720 runner record: live admits 75 bought the top, 17 won) | 8727: NATIVE_READY needs the observed breakout witness; FRESH_DEEP_POOL / DISTRIBUTED_HOLDERS are token-quality, EARLY_CURVE_AT_HIGH is a near-high read | `Aate8727SetupExecutabilityTest`. Still open: other native opinion ids not in the playbook default to triggered (pinned by `Aate8672…` as intended) |
 
+| D10 | `StopMarkConfirm8418.sellsWithoutRouteQuote8706` | With no route quote inside the emergency budget, a fresh venue read meant "sell" whatever it said | 8727 live, jjaemu: a -15 % lane stop on a bad mark was refuted by the quote 9 times, the 10th quote took 3.9 s, the stop sold at -0.46 % | 8728: the read decides by its value (`venueRefutes8489`) | `Aate8728StopReadDecidesTest` |
+
+### Price audit (8727 live capture + trade CSV, 06:35)
+
+- Fills and accounting: correct. Entry price x token qty = SOL cost at the export's SOL price on every row; sells are chain-finalised with signatures.
+- Forward labels: not biased. Deep pools (>= $250k, cap >= $5M, n4,060) read gross median 0.0 % at the label horizon.
+- Exit marks: wrong often enough to matter. 24 stop triggers contradicted by an executable quote in 707 s of uptime;
+  jjaemu -15 % stop sold at -0.46 %; 6DrxES -25 % backstop filled at -15.3 %. The stop triggers on the worst of two marks
+  (`Executor` quote-outage block: `min(livePnl, cachedPnl)`), and the cached mark takes single trade prints. Still open:
+  the triggers read prints; the quote / venue checks downstream are what keep it from selling.
+- Entries: 5 of the 7 losses were real 13-21 % drops within 10-90 s of buying, after the coin had just run 28-35 %
+  (run tape: marsoperator +28 %, EBreGK +35 %). runnerAdmits8297: live LOSS_BOUGHT_TOP 78 of 113 admits.
+
 ## Open — not repaired
 
 | # | Where | What | Why it is open |

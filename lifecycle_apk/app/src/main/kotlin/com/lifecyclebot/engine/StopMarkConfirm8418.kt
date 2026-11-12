@@ -356,7 +356,17 @@ object StopMarkConfirm8418 {
      */
     fun sellsWithoutRouteQuote8706(ts: TokenState, reason: String, nowMs: Long = System.currentTimeMillis()): Boolean {
         if (ts.position.isPaperPosition || !priceLossStop8489(reason)) return true
-        if (venuePnlPct8489(ts, nowMs) != null) return true
+        // V5.0.8728 §AN_EXECUTABLE_READ_IS_READ_NOT_COUNTED — 8727 live, jjaemu (SHITCOIN): LANE_HARD_15PCT_SL fired on a mark
+        // 15 % under the price, the executable quote refuted it nine times (SIGNAL_INVALIDATED_QUOTE_8521 x9), the tenth quote
+        // took 3.9 s, past the emergency check budget, and the stop sold at -0.46 %. Here a fresh venue read meant "sell"
+        // whatever it said. A fresh venue read, else the executable quote asked since this breach began, now decides by its
+        // value: one that refutes the stop holds it ([venueRefutes8489], the same rule the request path applies).
+        val read8728 = venuePnlPct8489(ts, nowMs) ?: executablePnlSinceAsk8681(ts, ts.position.positionId.ifBlank { ts.mint })
+        if (read8728 != null) {
+            val refutes = venueRefutes8489(read8728, stopDepthPct8489(reason) ?: impliedStopDepthPct8681(reason))
+            if (refutes) try { PipelineHealthCollector.labelInc("STOP_HELD_NO_QUOTE_READ_REFUTES_8728") } catch (_: Throwable) {}
+            return !refutes
+        }
         val first = noReadSince8631[ts.position.positionId.ifBlank { ts.mint }] ?: nowMs
         val fires = unreadStopFires8706(first, nowMs, markPnlPct8706(ts), markOnVenue8706(ts))
         if (!fires) try { PipelineHealthCollector.labelInc("STOP_HELD_NO_ROUTE_QUOTE_OFF_VENUE_MARK_8706") } catch (_: Throwable) {}
