@@ -33,7 +33,10 @@ class Aate8719RunnerRoomAndFluidFloorsTest {
     }
 
     @Test fun aFloorOpensOnWhatTheLaneWouldHaveBanked() {
-        assertEquals("the loss stops at the stop plus one round trip", -23.0, ManagedBands8719.managed8719(-60.0, 20.0, 3.0), 0.0)
+        assertEquals("the loss stops at the stop plus one round trip", -23.0, ManagedBands8719.managed8719(-40.0, 20.0, 3.0), 0.0)
+        // V5.0.8724 — through twice that distance the stop did not fill: the label counts as it printed
+        assertEquals(-60.0, ManagedBands8719.managed8719(-60.0, 20.0, 3.0), 0.0)
+        assertEquals(-100.0, ManagedBands8719.managed8719(-140.0, 20.0, 3.0), 0.0)
         assertEquals(-10.0, ManagedBands8719.managed8719(-10.0, 20.0, 3.0), 0.0)
         assertEquals("the runner is kept to the ledger's cap", 400.0, ManagedBands8719.managed8719(2_500.0, 20.0, 3.0), 0.0)
         assertTrue(ManagedBands8719.proven8719(30.0, 90.0, 3_000.0))
@@ -43,7 +46,7 @@ class Aate8719RunnerRoomAndFluidFloorsTest {
         ManagedBands8719.resetForTest8719()
         // forty coins of $15k cap / $1.5k pool (the record decays, so forty weigh about 36): most stop out, a few run —
         // positive once the loss is the stop
-        repeat(40) { i -> ManagedBands8719.addForTest8719("MOONSHOT", 1_500.0, 15_000.0, if (i % 5 == 0) 300.0 else -60.0, 3.0, 20.0) }
+        repeat(40) { i -> ManagedBands8719.addForTest8719("MOONSHOT", 1_500.0, 15_000.0, if (i % 5 == 0) 300.0 else -40.0, 3.0, 20.0) }
         assertTrue(ManagedBands8719.liquidityOpen8719("MOONSHOT", 1_200.0))
         assertFalse("another band stays shut", ManagedBands8719.liquidityOpen8719("MOONSHOT", 300.0))
         assertFalse("another lane's record is its own", ManagedBands8719.liquidityOpen8719("EXPRESS", 1_200.0))

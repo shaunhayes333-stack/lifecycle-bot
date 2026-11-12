@@ -54,9 +54,12 @@ object EdgeModel8537 {
      * right to refuse live, and live could only be offered the coins that do not run.
      *
      * The target is now the outcome the lane's own exits bank on the label (ManagedBands8719.managed8719: the loss stops
-     * at the lane's stop plus a round trip, the gain is kept to the pocket cap), in net %. Same data, same walk-forward,
-     * with the three structure crosses below: the coins predicted >= +1 % banked -1.0 % each with 2.6 % running, >= +8 %
-     * banked +1.9 % with 3.8 % running, and the coins predicted to lose banked -5.2 % with 1.1 % running. Predictions,
+     * at the lane's stop plus a round trip unless the label fell through twice that distance, the gain is kept to the
+     * pocket cap), in net %. Same data, same walk-forward, with the three structure crosses below.
+     * V5.0.8724 correction: the 8722 note here read -1.0 % / +1.9 % for the kept coins; that counted every pulled pool as
+     * a filled stop. With a pull counted as it printed the kept coins bank -3 .. -5 % each (2 - 3.7 % running, against
+     * 0.1 % under the log target) and the refused coins -8 % (1.3 % running). The model keeps the runners and names the
+     * losers; it is not by itself a profitable selector. Predictions,
      * the out-of-sample records and both authorities are in this unit; the epoch moves so the stored log model is rebuilt
      * from the device's own dataset and earns its records again.
      */
@@ -472,7 +475,7 @@ object EdgeModel8537 {
         appendDataset(s, netPct, witnessed = chainWitness)   // retain independently provable multi-X outcomes
         try { PocketLedger8610.learn8610(s, netPct) } catch (_: Throwable) {}   // V5.0.8610 — the learned pocket ledger
         try { ManagedBands8719.learn8719(s.raw.lane, s.raw.liq, s.raw.mcap, netPct, s.raw.costPct) } catch (_: Throwable) {}   // V5.0.8719 — the floors' record
-        try { PayingCell8723.learn8723(s.mint, s.raw.lane, s.raw.ageMin, s.raw.liq, netPct, s.raw.costPct, s.atMs) } catch (_: Throwable) {}   // V5.0.8723
+        try { PayingCell8723.learn8723(s.mint, s.raw.lane, s.raw.ageMin, s.raw.liq, netPct, s.atMs) } catch (_: Throwable) {}   // V5.0.8723
         if (k % SAVE_EVERY == 0L) saveAsync()
         try { PipelineHealthCollector.labelInc("EDGE_MODEL_LEARNED_8537") } catch (_: Throwable) {}
     }

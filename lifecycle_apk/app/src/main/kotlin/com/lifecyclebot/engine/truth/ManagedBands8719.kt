@@ -43,7 +43,11 @@ object ManagedBands8719 {
     fun managed8719(netPct: Double, stopPct: Double, costPct: Double): Double {
         val stop = if (stopPct.isFinite() && stopPct > 0.0) stopPct else 100.0
         val cost = if (costPct.isFinite() && costPct > 0.0) costPct else 0.0
-        return PocketLedger8610.managed8610(netPct).coerceAtLeast(-(stop + cost).coerceAtMost(100.0))
+        val distance = (stop + cost).coerceAtMost(100.0)
+        // V5.0.8724 — owner's audit: "a simulated stop fill is not automatically a real stop fill". A label that fell through
+        // twice the stop's distance was a pulled pool or a gap the stop never filled: it counts as it printed.
+        if (netPct <= -2.0 * distance) return netPct.coerceAtLeast(-100.0)
+        return PocketLedger8610.managed8610(netPct).coerceAtLeast(-distance)
     }
 
     private fun liqKey(lane: String, liqUsd: Double): String = "LIQ|${lane.trim().uppercase()}|${com.lifecyclebot.engine.LearnedLiquidityFloor8539.band(liqUsd)}"

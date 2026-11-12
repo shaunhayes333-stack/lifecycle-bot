@@ -142,13 +142,11 @@ object LaneAuthority8577 {
 
     /** CandidateAdmission8136.assess8136 (LIVE): the refusal of a meme entry at the high or at a losing stage, else null. */
     fun memeEntryRefusal8626(ts: com.lifecyclebot.data.TokenState, lane: String, stage: String?, nowMs: Long): String? {
-        val why = memeEntryState8696(ts, lane, stage, nowMs) ?: return null
-        // V5.0.8723 — the entry-state doors are lane-wide selection priors (stage unread, at its high, losing stage / origin
-        // cohort / setup tag). A coin in a market cell proven to pay (PayingCell8723) is bought on that cell's record.
-        if (PayingCell8723.pays8723(ts, lane, nowMs)) {
-            try { PipelineHealthCollector.labelInc("${why}_CARRIED_BY_MARKET_CELL_8723") } catch (_: Throwable) {}
-            return null
-        }
+        // V5.0.8723 / 8724 — the lane's own record of the coin's market cell (PayingCell8723) answers the lane-wide and broader
+        // entry-state priors (origin cohort, at-its-high, stage unread, lane stage record). The coin's own chart shapes and
+        // the losing record of the setup it trades as are narrower evidence and still refuse.
+        val cellPays8723 = try { PayingCell8723.pays8723(ts, lane, nowMs) } catch (_: Throwable) { false }
+        val why = memeEntryState8696(ts, lane, stage, nowMs, cellPays8723) ?: return null
         // V5.0.8696 — every entry-state door is learned by the one rule: it stands aside once its own graded refusals prove
         // it refuses winners.
         if (GateOutcome8418.selectionGateRetired8696("CANDIDATE_ADMISSION_8136_$why", lane)) return null
@@ -156,16 +154,17 @@ object LaneAuthority8577 {
         return why
     }
 
-    private fun memeEntryState8696(ts: com.lifecyclebot.data.TokenState, lane: String, stage: String?, nowMs: Long): String? {
+    private fun memeEntryState8696(ts: com.lifecyclebot.data.TokenState, lane: String, stage: String?, nowMs: Long, cellPays8723: Boolean = false): String? {
         val l = lane.trim().uppercase()
         val age8627 = try { CanonicalTokenBirthTime7440.launchAgeMs7767(ts, nowMs) } catch (_: Throwable) { null }
         if (runnerCoinStale8627(l, age8627)) return LIVE_RUNNER_STALE_COIN_8627
-        if (originLoses8703(ts, l, nowMs)) return LIVE_ORIGIN_COHORT_LOSES_8703
+        if (!cellPays8723 && originLoses8703(ts, l, nowMs)) return LIVE_ORIGIN_COHORT_LOSES_8703
         if (l !in MEME_LANES_8582) return null
         val f = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.features(ts, nowMs) } catch (_: Throwable) { null }
-        if (f != null && memeBuysTheHigh8582(l, f.pxPeak, f.runup, f.bp)) return MEME_BUYS_THE_HIGH_8582
+        if (!cellPays8723 && f != null && memeBuysTheHigh8582(l, f.pxPeak, f.runup, f.bp)) return MEME_BUYS_THE_HIGH_8582
         // V5.0.8692 — the expert playbook's avoid shapes (spike-and-fade, staircase down).
         expertAvoid8692(ts, nowMs)?.let { return it }
+        if (cellPays8723) return setupLoses8714(ts, l, nowMs)
         if (stageUnread8711(stage)) return LIVE_STAGE_UNREAD_8711
         val st = if (stage.isNullOrBlank()) null else try { ForwardReturnLabeler7731.stageStatFor7928(l, stage) } catch (_: Throwable) { null }
         if (stageLoses8626(stage, st?.n60 ?: 0, st?.meanNet60Pct ?: Double.NaN, st?.stderr60Pct ?: Double.NaN)) return LIVE_STAGE_LOSES_8626

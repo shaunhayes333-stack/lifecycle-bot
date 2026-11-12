@@ -11,25 +11,30 @@ import java.util.concurrent.atomic.AtomicLong
  * V5.0.8723 §THE_CELL_THAT_PAYS_IS_BOUGHT — owner: "its made money before theres no reason it shouldn't be now".
  *
  * The 8720 edge dataset (78,859 labelled decisions, 75 hours), one row per coin per 15 minutes, by where the coin was
- * minted x its age x its pool: 45 cells, 44 of them flat or losing, and one that pays —
- *   not pump.fun, under five minutes old, pool $10k-50k: 91 fillable decisions, +37 % banked each (+37 % in the first
- *   half of the run, +38 % in the second), half of them winners, one in five doubling inside 15 minutes, about 29 a day.
- * The bot judged every one of them and bought none live: each learned door (stage unread, at its high, launch stage
- * loses, setup cold, flow unobserved, chart economics) is graded on everything it refuses, and this cell is a few
- * coins an hour inside thousands, so no door's record ever shows it. MarketCohort8701's FRESH cohort (8717) could not
- * prove it either: it waits for 100 labels of a coin whose birth is chain-proven and splits the pool band in two.
+ * minted x its age x its pool: 45 cells, 44 of them flat or losing, and one that pays — not pump.fun, under five minutes
+ * old, pool $10k-50k: 91 fillable decisions, +34.5 % net each at the label (+-11.7), in both halves of the run, half of
+ * them winners, one in five doubling inside 15 minutes, about 29 a day. The bot judged every one and bought none live:
+ * each learned door is graded on everything it refuses, and this cell is a few coins an hour inside thousands.
  *
- * One record per origin x age band x pool band (the edge model's own edges), one label per coin per cell per 15
- * minutes, seeded from the device's own dataset and learned from every later label (EdgeModel8537.learn). The outcome
- * is what a position banks, read conservatively: the lane's stop caps a loss ([ManagedBands8719.managed8719]) unless
- * the label fell through twice that distance — a pulled pool does not fill a stop, so that label counts as it printed.
- * A cell is PAYING at [MIN_N]+ labels with the mean above zero by [PROOF_SE] standard errors (two, not one: 45 cells are
- * read at once, and at one the dataset also "proves" a thin outlier cell). The record decays, so a cell that stops
- * paying stops admitting.
+ * V5.0.8724 §ONE_LANE_ONE_RECORD_NO_SIMULATED_STOP — owner's audit of 8723: "the cell identity does not include the
+ * lane ... a simulated stop fill is not automatically a real stop fill". 8723 pooled every lane's label into one cell and
+ * graded each with the labelling lane's stop, so one lane's outcomes could authorise another with a different horizon,
+ * stop and cost. Now:
+ *  - one record per LANE x origin x age band x pool band (the edge model's own edges): a lane is authorised only by its
+ *    own labels, at its own horizon and cost, one label per coin per cell per 15 minutes;
+ *  - the outcome is the label's executable net as it printed (a total loss is -100 %); no stop is assumed to fill. Only
+ *    the gain is kept to the pocket cap, so one outlier cannot prove a cell;
+ *  - PAYING at [MIN_N]+ labels with the mean above zero by two standard errors (many cells are read at once).
+ * Same dataset, per lane, no stop: CORE n64 +47.5 % (lower bound +17.9), MANIPULATED n65 +49.0 (+19.7), MOONSHOT n62
+ * +44.1 (+13.5), EXPRESS n61 +44.4 (+12.1), SHITCOIN n54 +40.9 (+6.1), CYCLIC n32 +63.7 (+22.7) are proven, each
+ * positive in both halves; BLUECHIP, QUALITY, TREASURY, CASHGEN and PROJECT_SNIPER are not and stay unauthorised.
  *
- * A paying cell is candidate-specific evidence (CandidateAdmission8136: the cell slot), and the entry-state selection
- * doors stand aside for its coins (LaneAuthority8577.memeEntryRefusal8626). Safety, sellability, LP ownership, the
- * route, the price freshness and the size checks are untouched.
+ * Precedence (CandidateAdmission8136 / LaneAuthority8577): a lane's paying cell is positive lane-specific evidence about
+ * a narrower group of coins than the lane's stage record or an origin cohort, so it answers those and the generic
+ * unobserved-flow / unread-stage waits, and it is an admitting edge. Hard safety, structure, sellability, LP ownership,
+ * executable economics, the coin's own chart shapes, the losing record of the setup it trades as, its timing band, the
+ * cheat sheet, the lane's losing cell and the lane's realised live losses all outrank it. The record decays, so a cell
+ * that stops paying stops admitting.
  */
 object PayingCell8723 {
     const val MIN_N = 30.0
@@ -47,23 +52,16 @@ object PayingCell8723 {
     private val carried = ConcurrentHashMap<String, AtomicLong>()
     private val io = Executors.newSingleThreadExecutor { r -> Thread(r, "payingCell8723").apply { isDaemon = true } }
 
-    /** Pure: the cell of a coin minted at [mint], [ageMin] minutes old, with a pool of [liqUsd]; null when either is unread. */
-    fun key8723(mint: String, ageMin: Double, liqUsd: Double): String? {
-        if (mint.isBlank() || !(ageMin.isFinite() && ageMin >= 0.0) || !(liqUsd.isFinite() && liqUsd > 0.0)) return null
-        return MarketCohort8701.origin8701(mint) + "_A" + EdgeModel8537.binOf(ageMin, EdgeModel8537.AGE_EDGES) +
+    /** Pure: [lane]'s cell of a coin minted at [mint], [ageMin] minutes old, with a pool of [liqUsd]; null when any is unread. */
+    fun key8723(lane: String, mint: String, ageMin: Double, liqUsd: Double): String? {
+        val l = lane.trim().uppercase()
+        if (l.isBlank() || mint.isBlank() || !(ageMin.isFinite() && ageMin >= 0.0) || !(liqUsd.isFinite() && liqUsd > 0.0)) return null
+        return l + "_" + MarketCohort8701.origin8701(mint) + "_A" + EdgeModel8537.binOf(ageMin, EdgeModel8537.AGE_EDGES) +
             "_L" + EdgeModel8537.binOf(liqUsd, EdgeModel8537.LIQ_EDGES)
     }
 
-    /**
-     * Pure: what a position with a [stopPct] stop and a [costPct] round trip banks of a label's [netPct], when a label that
-     * fell through twice the stop's distance is a pull the stop never filled.
-     */
-    fun outcome8723(netPct: Double, stopPct: Double, costPct: Double): Double {
-        val stop = if (stopPct.isFinite() && stopPct > 0.0) stopPct else 100.0
-        val cost = if (costPct.isFinite() && costPct > 0.0) costPct else 0.0
-        val distance = (stop + cost).coerceAtMost(100.0)
-        return if (netPct <= -2.0 * distance) netPct.coerceAtLeast(-100.0) else ManagedBands8719.managed8719(netPct, stopPct, costPct)
-    }
+    /** Pure: the outcome a label of [netPct] is recorded as: as it printed, the gain kept to the pocket cap; no stop is assumed. */
+    fun outcome8723(netPct: Double): Double = PocketLedger8610.managed8610(netPct).coerceAtLeast(-100.0)
 
     /** Pure: a record of [n] labels (sum and sum of squares of the outcome) is proven to pay. */
     fun paying8723(n: Double, sum: Double, sq: Double): Boolean {
@@ -73,14 +71,12 @@ object PayingCell8723 {
         return m.isFinite() && se.isFinite() && m - PROOF_SE * se > 0.0
     }
 
-    private fun stopOf(lane: String): Double = try { FieldManual7715.laneStopPct8392(lane) } catch (_: Throwable) { Double.NaN }
-
-    private fun add(mint: String, key: String, atMs: Long, net: Double, stopPct: Double, costPct: Double) {
+    private fun add(mint: String, key: String, atMs: Long, net: Double) {
         val last = lastFiled["$mint|$key"]
         if (last != null && atMs >= last && atMs - last < REFILE_MS) return
         if (lastFiled.size > 20_000) lastFiled.entries.removeIf { atMs - it.value > REFILE_MS }
         lastFiled["$mint|$key"] = atMs
-        val y = outcome8723(net, stopPct, costPct)
+        val y = outcome8723(net)
         val c = cells.getOrPut(key) { Cell() }
         synchronized(c) {
             c.n = c.n * DECAY + 1.0; c.sum = c.sum * DECAY + y; c.sq = c.sq * DECAY + y * y
@@ -90,11 +86,11 @@ object PayingCell8723 {
     }
 
     /** EdgeModel8537.learn: file one labelled decision. */
-    fun learn8723(mint: String, lane: String, ageMin: Double, liqUsd: Double, net: Double, costPct: Double, atMs: Long) {
+    fun learn8723(mint: String, lane: String, ageMin: Double, liqUsd: Double, net: Double, atMs: Long) {
         if (!net.isFinite()) return
-        val key = key8723(mint, ageMin, liqUsd) ?: return
+        val key = key8723(lane, mint, ageMin, liqUsd) ?: return
         ensureLoaded()
-        io.execute { try { add(mint, key, atMs, net, stopOf(lane.trim().uppercase()), costPct) } catch (_: Throwable) {} }
+        io.execute { try { add(mint, key, atMs, net) } catch (_: Throwable) {} }
     }
 
     private fun recordOf(key: String): DoubleArray? {
@@ -116,14 +112,14 @@ object PayingCell8723 {
     fun evidence8723(ts: TokenState, lane: String, nowMs: Long = System.currentTimeMillis()): CandidateAdmission8136.Evidence8136? = try {
         val solana = try { com.lifecyclebot.network.HeliusSolanaScope7819.isSolanaMint7819(ts.mint) } catch (_: Throwable) { false }
         val raw = if (solana) EdgeModel8537.rawFor8610(ts, lane, nowMs) else null
-        val key = raw?.let { key8723(ts.mint, it.ageMin, it.liq) }
+        val key = raw?.let { key8723(it.lane, ts.mint, it.ageMin, it.liq) }
         if (key == null) null else evidenceOf8723(key, recordOf(key))
     } catch (_: Throwable) { null }
 
     /** LaneAuthority8577: does [ts] sit in a paying cell now? Counted per lane when it does. */
     fun pays8723(ts: TokenState, lane: String, nowMs: Long = System.currentTimeMillis()): Boolean {
         val e = evidence8723(ts, lane, nowMs) ?: return false
-        carried.computeIfAbsent("${lane.trim().uppercase()}:${e.id}") { AtomicLong(0L) }.incrementAndGet()
+        carried.computeIfAbsent(e.id) { AtomicLong(0L) }.incrementAndGet()
         return true
     }
 
@@ -142,7 +138,6 @@ object PayingCell8723 {
         val f = EdgeModel8537.datasetFile() ?: return
         if (!f.exists()) return
         fun d(o: JSONObject, k: String) = if (o.isNull(k)) Double.NaN else o.optDouble(k, Double.NaN)
-        val stops = HashMap<String, Double>()
         f.forEachLine { line ->
             try {
                 if (!line.contains("\"horizonMs\"")) return@forEachLine
@@ -150,9 +145,8 @@ object PayingCell8723 {
                 if (!EdgeModel8537.replayAccept8642(o)) return@forEachLine
                 val net = d(o, "net"); if (!net.isFinite()) return@forEachLine
                 val mint = o.optString("mint")
-                val key = key8723(mint, d(o, "age"), d(o, "liq")) ?: return@forEachLine
-                val lane = o.optString("lane").trim().uppercase()
-                add(mint, key, o.optLong("t", 0L), net, stops.getOrPut(lane) { stopOf(lane) }, d(o, "cost"))
+                val key = key8723(o.optString("lane"), mint, d(o, "age"), d(o, "liq")) ?: return@forEachLine
+                add(mint, key, o.optLong("t", 0L), net)
             } catch (_: Throwable) {}
         }
     }
@@ -162,12 +156,12 @@ object PayingCell8723 {
         val paying = rows.filter { it.third }.sortedBy { it.first }.joinToString(",") { (k, r, _) ->
             "$k=n${r[0].toInt()}/${"%+.1f".format(r[1] / r[0])}%/run${(100.0 * r[3] / r[0]).toInt()}%" }.ifBlank { "-" }
         val used = carried.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }
-        return "payingCell8723[ready=$ready cells=${rows.size} learned=${learned.get()} paying{$paying} carried{$used} rule=origin x age x pool, one label per coin per 15 min, loss capped at the stop unless it fell through twice, n>=${MIN_N.toInt()} mean-${PROOF_SE.toInt()}SE>0]"
+        return "payingCell8723[ready=$ready cells=${rows.size} learned=${learned.get()} paying{$paying} carried{$used} rule=lane x origin x age x pool, one label per coin per 15 min, net as printed (no stop assumed), n>=${MIN_N.toInt()} mean-${PROOF_SE.toInt()}SE>0]"
     }
 
     internal fun resetForTest8723() { cells.clear(); lastFiled.clear(); carried.clear(); learned.set(0L); ready = true }
-    internal fun addForTest8723(mint: String, ageMin: Double, liqUsd: Double, net: Double, atMs: Long, stopPct: Double = 35.0, costPct: Double = 4.0) {
-        add(mint, key8723(mint, ageMin, liqUsd) ?: return, atMs, net, stopPct, costPct)
+    internal fun addForTest8723(lane: String, mint: String, ageMin: Double, liqUsd: Double, net: Double, atMs: Long) {
+        add(mint, key8723(lane, mint, ageMin, liqUsd) ?: return, atMs, net)
     }
-    internal fun recordForTest8723(mint: String, ageMin: Double, liqUsd: Double): DoubleArray? = key8723(mint, ageMin, liqUsd)?.let { recordOf(it) }
+    internal fun recordForTest8723(lane: String, mint: String, ageMin: Double, liqUsd: Double): DoubleArray? = key8723(lane, mint, ageMin, liqUsd)?.let { recordOf(it) }
 }
