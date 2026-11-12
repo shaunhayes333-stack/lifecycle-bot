@@ -38,7 +38,7 @@ class Aate8453HeliusSpendTest {
     @Test fun whaleOnlyWalletsLeaveTheSmartMoneyStream() {
         val s = src("engine/HeliusCadence8361.kt")
         val wl = s.substring(s.indexOf("fun watchList8361("), s.indexOf("fun copyWatched8361("))
-        assertTrue(wl.contains("watchListOf8361(emptyList(), alpha, copyActive, ExpertWallets7962.OWNER_WALLET_7962)"))
+        assertTrue(wl.contains("watchListOf8361(emptyList(), alpha, mined, ExpertWallets7962.OWNER_WALLET_7962)"))
         // the pure builder still orders whales first when given them (unchanged contract)
         assertEquals(listOf("W1", "A1"), HeliusCadence8361.watchListOf8361(listOf("W1"), listOf("A1"), emptyList(), "OWN"))
         assertEquals(listOf("A1"), HeliusCadence8361.watchListOf8361(emptyList(), listOf("A1"), emptyList(), "OWN"))

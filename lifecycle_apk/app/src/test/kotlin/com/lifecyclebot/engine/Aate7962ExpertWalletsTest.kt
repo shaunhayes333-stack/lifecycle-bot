@@ -121,7 +121,7 @@ class Aate7962ExpertWalletsTest {
         assertEquals(100.0, rows[0].second, 1e-9)
         assertTrue(ExpertWallets7962.parseLeaderboard7962("<!doctype html>", 150.0).isEmpty())
         assertTrue(ExpertWallets7962.parseLeaderboard7962("", 150.0).isEmpty())
-        assertEquals(2, ExpertWallets7962.LEADERBOARD_URLS_7962.size)
+        assertEquals(2, ExpertWallets7962.leaderboardUrls8713(true).size)
     }
 
     @Test fun peakAndTradeOutcomeFromBars() {
@@ -158,7 +158,7 @@ class Aate7962ExpertWalletsTest {
         ExpertWallets7962.onTrackedBuy7962("Untracked1111111111111111111111111111pump", "nobody", now)
         assertFalse(ExpertWallets7962.expertEntryLive7962("Untracked1111111111111111111111111111pump", now))
         ExpertWallets7962.noteUntrackedTape7962()
-        ExpertWallets7962.noteLeaderboard7962(ExpertWallets7962.LEADERBOARD_URLS_7962[1], 7)
+        ExpertWallets7962.noteLeaderboard7962(ExpertWallets7962.leaderboardUrls8713(true)[1], 7)
         val line = ExpertWallets7962.statusLine7962()
         assertTrue(line.startsWith("wallets="))
         for (k in listOf("histories=", "roundTrips=", "ownerTrades=", "motifs=", "topCells=", "copyTier=", "leaderboard=gmgn.ai:7")) assertTrue(k, line.contains(k))

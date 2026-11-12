@@ -37,7 +37,7 @@ class Aate8462SmartMoneyToggleTest {
 
     @Test fun offStopsTheHeliusScanButKeepsTheLeaderboardCopyWallets() {
         val smd = src("engine/SmartMoneyDiscovery7277.kt").substringAfter("private fun runCycle(")
-        val seed = smd.indexOf("engine?.autoDiscoverTopWallets(maxWallets = 5, minPnlSol = 25.0)")
+        val seed = smd.indexOf("engine?.autoDiscoverTopWallets()")
         // V5.0.8601 — the toggle no longer short-circuits the cheap runner-mining self-discovery (the proprietary edge:
         // early buyers of the bot's own observed runners -> expert wallets -> EXPERT_ENTRY). It is now a bare counter with
         // no early return, and the mining runs regardless. Only the expensive external history scan (ExpertWallets7962 /
@@ -55,7 +55,7 @@ class Aate8462SmartMoneyToggleTest {
 
         val cad = src("engine/HeliusCadence8361.kt").substringAfter("fun watchList8361(").substringBefore("fun copyWatched8361(")
         assertTrue(cad.contains("val alpha = if (!com.lifecyclebot.data.ConfigStore.smartMoneyScan8462) emptyList()"))
-        assertTrue("copy wallets stay on the stream", cad.contains("watchListOf8361(emptyList(), alpha, copyActive, ExpertWallets7962.OWNER_WALLET_7962)"))
+        assertTrue("copy wallets stay on the stream", cad.contains("watchListOf8361(emptyList(), alpha, mined, ExpertWallets7962.OWNER_WALLET_7962)"))
     }
 
     @Test fun theHeliusPumpTapeStandsDownOnlyWhilePumpPortalDelivers() {

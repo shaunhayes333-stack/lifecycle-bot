@@ -121,11 +121,21 @@ object ExpertWallets7962 {
     /** Labels read +20% where live read -8% (5.0.7958): a label must clear this gap, not just zero. */
     private const val LABEL_LIVE_GAP_7962 = 0.10
 
-    /** Leaderboard routes, tried in order (CopyTradeEngine.discoverTopWallets). */
-    val LEADERBOARD_URLS_7962 = listOf(
-        "https://frontend-api-v3.pump.fun/leaderboard?timeframe=7d&limit=20",
-        "https://gmgn.ai/defi/quotation/v1/rank/sol/wallets/7d?orderby=pnl_7d&direction=desc",
-    )
+    /**
+     * V5.0.8713 — pump.fun's top-50 list is the smart-wallet list (owner). The route coded in 7962 was a guessed path on
+     * the website's own frontend API: it never answered a row (Cloudflare 403). The list is
+     * published on the developer API — `GET /v1/pnl-leaderboard` → `entries[]{rank, walletAddress, realizedPnlSol, pnlSol}`
+     * — behind a Bearer developer key, so it is asked only when a key is saved.
+     */
+    const val BOARD_SIZE_8713 = 50
+    const val PUMPFUN_API_HOST_8713 = "api.pump.fun"
+    const val PUMPFUN_BOARD_URL_8713 =
+        "https://$PUMPFUN_API_HOST_8713/v1/pnl-leaderboard?period=weekly&sort=realized&limit=$BOARD_SIZE_8713&positionsLimit=0"
+    private const val GMGN_BOARD_URL_7962 = "https://gmgn.ai/defi/quotation/v1/rank/sol/wallets/7d?orderby=pnl_7d&direction=desc"
+
+    /** Pure: the leaderboard routes, tried in order (CopyTradeEngine.discoverTopWallets); pump.fun's only with a key. */
+    fun leaderboardUrls8713(hasPumpFunKey: Boolean): List<String> =
+        (if (hasPumpFunKey) listOf(PUMPFUN_BOARD_URL_8713) else emptyList()) + GMGN_BOARD_URL_7962
 
     // ── pure ──
 
@@ -139,7 +149,7 @@ object ExpertWallets7962 {
 
     /**
      * Pure: (wallet, realized PnL in SOL) rows of a leaderboard body. Tolerates a bare
-     * array or a wrapper (data / data.rank / leaderboard / users / traders / items),
+     * array or a wrapper (entries / data / data.rank / leaderboard / users / traders / items),
      * pump.fun-style SOL fields (lamports when implausibly large) and GMGN-style USD
      * fields (converted at [solUsd]). Rows with a win rate under 40% or bot-like
      * activity (over 3,000 trades a week) are skipped. Malformed input -> empty.
@@ -151,8 +161,8 @@ object ExpertWallets7962 {
             if (t.startsWith("[")) JSONArray(t) else {
                 val o = JSONObject(t)
                 val d = o.optJSONObject("data")
-                o.optJSONArray("data")
-                    ?: d?.optJSONArray("rank") ?: d?.optJSONArray("items") ?: d?.optJSONArray("leaderboard") ?: d?.optJSONArray("users")
+                o.optJSONArray("entries") ?: o.optJSONArray("data")
+                    ?: d?.optJSONArray("entries") ?: d?.optJSONArray("rank") ?: d?.optJSONArray("items") ?: d?.optJSONArray("leaderboard") ?: d?.optJSONArray("users")
                     ?: o.optJSONArray("leaderboard") ?: o.optJSONArray("users") ?: o.optJSONArray("traders")
                     ?: o.optJSONArray("items") ?: o.optJSONArray("rank") ?: JSONArray()
             }
@@ -162,13 +172,13 @@ object ExpertWallets7962 {
         val out = ArrayList<Pair<String, Double>>()
         for (i in 0 until arr.length()) {
             val o = arr.optJSONObject(i) ?: continue
-            val addr = listOf("user", "address", "wallet", "wallet_address", "userAddress", "owner", "trader")
+            val addr = listOf("walletAddress", "user", "address", "wallet", "wallet_address", "userAddress", "owner", "trader")
                 .map { o.optString(it, "").trim() }.firstOrNull { isAddress(it) } ?: continue
             val wr = listOf("winrate_7d", "winrate", "win_rate").map { o.optDouble(it, Double.NaN) }.firstOrNull { it.isFinite() }
             if (wr != null && (if (wr > 1.0) wr / 100.0 else wr) < 0.40) continue
             val trades = listOf("txs_7d", "buy_7d", "trades", "trade_count").map { o.optDouble(it, Double.NaN) }.firstOrNull { it.isFinite() }
             if (trades != null && trades > 3_000.0) continue
-            var pnl = listOf("realized_pnl", "realizedPnl", "pnl_sol", "total_pnl", "profit", "pnl").map { num(o, it) }.firstOrNull { it > 0.0 } ?: 0.0
+            var pnl = listOf("realizedPnlSol", "pnlSol", "realized_pnl", "realizedPnl", "pnl_sol", "total_pnl", "profit", "pnl").map { num(o, it) }.firstOrNull { it > 0.0 } ?: 0.0
             if (pnl > 1e7) pnl /= 1e9
             if (pnl <= 0.0) {
                 val usd = listOf("realized_profit_7d", "realized_profit", "pnl_usd", "realizedPnlUsd").map { num(o, it) }.firstOrNull { it > 0.0 } ?: 0.0

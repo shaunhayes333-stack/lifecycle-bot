@@ -451,6 +451,22 @@ object ConfigStore {
         } catch (_: Throwable) {}
     }
 
+    /**
+     * V5.0.8713 — the pump.fun developer API key (`pf_live_…`, developers.pump.fun): the Bearer token of api.pump.fun's
+     * PnL leaderboard. Stored with the other secrets; a blank save never erases a saved key (8286).
+     */
+    fun pumpFunApiKey8713(ctx: Context): String = try { secrets(ctx).getString(PUMPFUN_API_KEY_8713, "").orEmpty().trim() } catch (_: Throwable) { "" }
+
+    fun savePumpFunApiKey8713(ctx: Context, key: String, allowClear: Boolean = false) {
+        try {
+            val s = secrets(ctx)
+            val v = key.trim()
+            if (keepSavedKey8286(s.getString(PUMPFUN_API_KEY_8713, "").orEmpty(), v, allowClear)) return
+            s.edit().putString(PUMPFUN_API_KEY_8713, v).apply()
+        } catch (_: Throwable) {}
+    }
+    private const val PUMPFUN_API_KEY_8713 = "pumpfun_developer_api_key"
+
     /** Pure (V5.0.8286): keep the saved key when the incoming value is blank and clearing wasn't explicitly allowed. */
     internal fun keepSavedKey8286(saved: String, incoming: String, allowClear: Boolean): Boolean =
         incoming.isBlank() && saved.isNotBlank() && !allowClear

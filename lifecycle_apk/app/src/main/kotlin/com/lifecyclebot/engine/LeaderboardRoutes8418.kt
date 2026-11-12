@@ -5,14 +5,13 @@ import java.util.concurrent.ConcurrentHashMap
 /**
  * V5.0.8418 §A_DEAD_LEADERBOARD_IS_NOT_ASKED_AGAIN — 5.0.8416: `copytrade_other sr=0% 4xx=3`.
  *
- * CopyTradeEngine.discoverTopWallets walks ExpertWallets7962.LEADERBOARD_URLS_7962: pump.fun's `/leaderboard` (its
- * published API has no such path — 7962's own note) and GMGN's 7-day wallet rank (Cloudflare-fronted: a non-browser
- * client is answered 403 or a challenge page). Neither has answered a row, and both were asked again every cycle.
+ * CopyTradeEngine.discoverTopWallets walks ExpertWallets7962.leaderboardUrls8713: pump.fun's developer-API PnL
+ * leaderboard (V5.0.8713; Bearer key, asked only when one is saved) and GMGN's 7-day wallet rank (Cloudflare-fronted: a
+ * non-browser client is answered 403 or a challenge page). A route that does not answer is not asked again every cycle.
  *
- * The data they would have given — wallets with a proven record — is already produced keyless from what the app pays
- * Helius for: SmartMoneyDiscovery7277 step 2 compiles the daily alpha list from Helius-parsed swaps of observed runners
+ * Beside the board, wallets with a proven record are produced keyless from what the app pays Helius for: SmartMoneyDiscovery7277 step 2 compiles the daily alpha list from Helius-parsed swaps of observed runners
  * (ExpertWallets7962.alphaRows8362, ranked by the lower confidence bound of realized net per trip), and
- * HeliusCadence8361.watchList8361 already watches those wallets. So the leaderboard routes are disabled cleanly: a route
+ * HeliusCadence8361.watchList8361 watches those wallets too. A dead route is disabled cleanly: a route
  * that answers 401/403/404/410, a challenge page, or three answers with no rows is benched for a day (doubling to a week)
  * and not asked while benched; one answer with rows clears it. Nothing is fabricated in its place.
  */
@@ -63,13 +62,21 @@ object LeaderboardRoutes8418 {
         } catch (_: Throwable) {}
     }
 
+    /** V5.0.8713 — is a pump.fun developer key saved (its route is not asked without one)? */
+    @Volatile private var pumpFunKey8713: Boolean? = null
+    fun noteKey8713(has: Boolean) { pumpFunKey8713 = has }
+
+    /** V5.0.8713 — a new key was saved: the pump.fun route's bench (a 401 from the old key) no longer describes it. */
+    fun keyChanged8713() { states.remove(ExpertWallets7962.PUMPFUN_BOARD_URL_8713); pumpFunKey8713 = true }
+
     /** leaderboard8418[host=benched(why,leftH)|live ...] */
     fun statusLine8418(nowMs: Long = System.currentTimeMillis()): String {
         val rows = states.entries.sortedBy { it.key }.joinToString(" ") { (u, s) ->
             val host = u.substringAfter("://").substringBefore('/')
             if (s.benchedUntilMs > nowMs) "$host=benched(${s.lastWhy},${(s.benchedUntilMs - nowMs) / 3_600_000L}h)" else "$host=live"
         }.ifBlank { "-" }
-        return "leaderboard8418[$rows]"
+        val key = when (pumpFunKey8713) { true -> "set"; false -> "MISSING(developers.pump.fun)"; null -> "unasked" }
+        return "leaderboard8418[$rows pumpFunKey8713=$key topTraders8713=${CopyTradeEngine.boardWallets8713().size}/${ExpertWallets7962.BOARD_SIZE_8713}]"
     }
 
     internal fun resetForTests8418() { states.clear() }

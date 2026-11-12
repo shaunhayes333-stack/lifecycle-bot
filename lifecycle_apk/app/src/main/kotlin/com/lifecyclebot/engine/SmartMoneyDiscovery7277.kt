@@ -117,8 +117,12 @@ object SmartMoneyDiscovery7277 {
         // 1. Public leaderboard seed, when it answers. Cheap, and it was the
         //    only source before this object existed.
         try {
-            val added = engine?.autoDiscoverTopWallets(maxWallets = 5, minPnlSol = 25.0) ?: 0
-            if (added > 0) PipelineHealthCollector.labelInc("SMART_MONEY_LEADERBOARD_SEEDED_7277")
+            val added = engine?.autoDiscoverTopWallets() ?: 0
+            if (added > 0) {
+                PipelineHealthCollector.labelInc("SMART_MONEY_LEADERBOARD_SEEDED_7277")
+                // V5.0.8713 — the board's wallets go onto the push subscription now, not at the next runner promotion.
+                pushWatchlist8713(engine, onWatchlistChanged)
+            }
         } catch (_: Throwable) {}
 
         // V5.0.8601 §THE_SELF_DISCOVERY_IS_THE_EDGE_NOT_THE_EXPENSIVE_SCAN — the 8462 toggle ("kill the smart money scan")
@@ -168,7 +172,8 @@ object SmartMoneyDiscovery7277 {
             .filter { it.value.size >= PROMOTE_AT_RUNNER_HITS && it.key !in current }
             .sortedByDescending { it.value.size }
         for ((wallet, hits) in candidates) {
-            if ((engine?.getWallets()?.size ?: 0) >= MAX_TRACKED_WALLETS) break
+            // V5.0.8713 — the cap is on the wallets this miner promotes; the board's fifty are not counted against it.
+            if ((engine?.getWallets()?.count { !CopyTradeEngine.isBoardWallet8713(it) } ?: 0) >= MAX_TRACKED_WALLETS) break
             try {
                 engine?.addWallet(wallet, "SMART_MONEY_x${hits.size}")
                 promoted.incrementAndGet()
@@ -180,10 +185,12 @@ object SmartMoneyDiscovery7277 {
                 )
             } catch (_: Throwable) {}
         }
-        if (changed) {
-            val all = (engine?.getWallets()?.filter { it.isActive && !it.isPaused }?.map { it.address } ?: emptyList()).distinct()
-            try { onWatchlistChanged(all) } catch (_: Throwable) {}
-        }
+        if (changed) pushWatchlist8713(engine, onWatchlistChanged)
+    }
+
+    private fun pushWatchlist8713(engine: CopyTradeEngine?, onWatchlistChanged: (List<String>) -> Unit) {
+        val all = (engine?.getWallets()?.filter { it.isActive && !it.isPaused }?.map { it.address } ?: emptyList()).distinct()
+        try { onWatchlistChanged(all) } catch (_: Throwable) {}
     }
 
     /** Mints this bot watched run: forward-labelled +100 % or more (V5.0.8707), closed at >= +150%, or open with a peak >= +200%. */

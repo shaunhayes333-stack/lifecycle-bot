@@ -225,50 +225,81 @@ class CopyTradeEngine(
      * Used to seed the copy wallet list with proven performers.
      */
     fun discoverTopWallets(): List<Pair<String, Double>> {
-        // V5.0.7962 — pump.fun's published API has no /leaderboard path (5.0.7958:
-        // LEADERBOARD_SEEDED=0) and the old parse read a bare array only. Each route is
-        // parsed tolerantly (bare array or wrapped; SOL or USD PnL) and GMGN's 7-day
-        // wallet rank answers when pump.fun does not. Fail-soft: empty on any failure.
+        // V5.0.8713 — pump.fun's top-50 PnL list (developer API, Bearer key) first, GMGN's 7-day rank after it. Each route
+        // is parsed tolerantly (bare array or wrapped; SOL or USD PnL). Fail-soft: empty on any failure.
         val solUsd = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
-        // V5.0.8418 — a benched (dead / Cloudflare-closed) route is not asked; the keyless replacement is the Helius-swap
-        // alpha list (SmartMoneyDiscovery7277 / LeaderboardRoutes8418).
-        for (url in LeaderboardRoutes8418.live8418(ExpertWallets7962.LEADERBOARD_URLS_7962)) {
+        val hasKey = pumpFunKey8713().isNotBlank()
+        LeaderboardRoutes8418.noteKey8713(hasKey)
+        // V5.0.8418 — a benched (dead / Cloudflare-closed) route is not asked.
+        for (url in LeaderboardRoutes8418.live8418(ExpertWallets7962.leaderboardUrls8713(hasKey))) {
             val body = get(url)
             if (body == null) { LeaderboardRoutes8418.note8418(url, lastGetCode8418, lastGetChallenge8418, -1); continue }
             val rows = ExpertWallets7962.parseLeaderboard7962(body, solUsd)
             LeaderboardRoutes8418.note8418(url, lastGetCode8418, lastGetChallenge8418, rows.size)
             ExpertWallets7962.noteLeaderboard7962(url, rows.size)
-            if (rows.isNotEmpty()) return rows.sortedByDescending { it.second }.take(10)
+            if (rows.isNotEmpty()) return rows.sortedByDescending { it.second }.take(ExpertWallets7962.BOARD_SIZE_8713)
         }
         return emptyList()
     }
 
+    private fun pumpFunKey8713(): String = try { com.lifecyclebot.data.ConfigStore.pumpFunApiKey8713(ctx) } catch (_: Throwable) { "" }
+
+    @Volatile private var lastBoardAskMs8713 = 0L
+
     /**
-     * Auto-discover and add top performing wallets from Pump.fun leaderboard.
+     * V5.0.8713 — the leaderboard IS the top-trader list. 7962 added at most five wallets a pass, and only those above a
+     * typed SOL floor, from a route that never answered; the list stayed empty. Every wallet the board lists is tracked, and
+     * a top trader that has left the board stays only while its own copies are net positive (boardSync8713). An empty
+     * answer changes nothing. Returns the number of wallets added or dropped.
      */
-    fun autoDiscoverTopWallets(maxWallets: Int = 5, minPnlSol: Double = 10.0): Int {
-        val topWallets = discoverTopWallets()
-        var added = 0
-        
-        for ((addr, pnl) in topWallets) {
-            if (added >= maxWallets) break
-            if (wallets.containsKey(addr)) continue
-            if (pnl < minPnlSol) continue
-            
-            val pnlLabel = if (pnl >= 100) "+${pnl.toInt()}" else "+${String.format("%.1f", pnl)}"
-            val label = "TopTrader_${addr.take(4)}_$pnlLabel"
-            
+    fun autoDiscoverTopWallets(nowMs: Long = System.currentTimeMillis()): Int {
+        if (nowMs - lastBoardAskMs8713 < BOARD_REFRESH_MS_8713) return 0
+        lastBoardAskMs8713 = nowMs
+        val board = discoverTopWallets()
+        if (board.isEmpty()) return 0
+        val (add, drop) = boardSync8713(wallets.values.toList(), board)
+        for ((addr, pnl) in add) {
+            val label = boardLabel8713(addr, pnl)
             wallets[addr] = CopyWallet(
                 address = addr, label = label, isActive = true,
                 totalCopied = 0, wins = 0, losses = 0, totalPnlSol = 0.0,
-                addedAt = System.currentTimeMillis(), lastSeenMs = 0L
+                addedAt = nowMs, lastSeenMs = 0L
             )
-            added++
-            onLog("🐋 Auto-added: $label")
         }
-        
-        if (added > 0) saveWallets()
-        return added
+        drop.forEach { wallets.remove(it) }
+        boardAddrs8713 = wallets.values.filter { isBoardWallet8713(it) }.map { it.address }.toSet()
+        if (add.isNotEmpty() || drop.isNotEmpty()) {
+            saveWallets()
+            onLog("🐋 Top traders: +${add.size} -${drop.size} | board ${board.size} | tracking ${boardAddrs8713.size}")
+        }
+        return add.size + drop.size
+    }
+
+    companion object {
+        const val BOARD_LABEL_8713 = "TopTrader_"
+        const val BOARD_REFRESH_MS_8713 = 10L * 60_000L
+        @Volatile private var boardAddrs8713: Set<String> = emptySet()
+
+        /** The top-trader wallets currently tracked (the stream's board slots; the report). */
+        fun boardWallets8713(): Set<String> = boardAddrs8713
+
+        fun isBoardWallet8713(w: CopyWallet): Boolean = w.label.startsWith(BOARD_LABEL_8713)
+
+        fun boardLabel8713(addr: String, pnlSol: Double): String =
+            BOARD_LABEL_8713 + addr.take(4) + "_+" + (if (pnlSol >= 100) pnlSol.toInt().toString() else String.format(java.util.Locale.US, "%.1f", pnlSol))
+
+        /**
+         * Pure: what one board answer changes — (rows to add, addresses to drop). A listed wallet not yet tracked is added
+         * (a wallet tracked from another source keeps its own entry). A top trader no longer listed is dropped unless its
+         * own copies have paid.
+         */
+        fun boardSync8713(tracked: List<CopyWallet>, board: List<Pair<String, Double>>): Pair<List<Pair<String, Double>>, List<String>> {
+            val have = tracked.map { it.address }.toSet()
+            val listed = board.map { it.first }.toSet()
+            val add = board.filter { it.first !in have }.distinctBy { it.first }
+            val drop = tracked.filter { isBoardWallet8713(it) && it.address !in listed && it.totalPnlSol <= 0.0 }.map { it.address }
+            return add to drop
+        }
     }
 
     /**
@@ -323,6 +354,7 @@ class CopyTradeEngine(
                 )
             }
         } catch (_: Exception) {}
+        boardAddrs8713 = wallets.values.filter { isBoardWallet8713(it) }.map { it.address }.toSet()   // V5.0.8713
     }
 
     /** V5.0.8418 — the last get()'s HTTP code (0 = transport failure) and whether it was a challenge page. */
@@ -343,6 +375,12 @@ class CopyTradeEngine(
             .header("Accept", "application/json")
             // V5.0.7962 — GMGN (leaderboard fallback) is Cloudflare-fronted and wants a browser UA.
             .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36")
+            // V5.0.8713 — the developer key goes to pump.fun's API host and nowhere else.
+            .apply {
+                if (effectiveUrl.substringAfter("://").substringBefore('/') == ExpertWallets7962.PUMPFUN_API_HOST_8713) {
+                    pumpFunKey8713().takeIf { it.isNotBlank() }?.let { header("Authorization", "Bearer $it") }
+                }
+            }
             .build()
         val start = System.currentTimeMillis()
         lastGetCode8418 = 0

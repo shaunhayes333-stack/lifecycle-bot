@@ -244,7 +244,11 @@ object HeliusCadence8361 {
         // V5.0.8453 — whale-only wallets leave the stream (owner: "reduce the amount of wasted data calls dramatically"):
         // 8450's smart-money stream moved 242 MB (5.1k credits) with Smart Money detected=0; the busy whale wallets carry
         // most of it and fed only WHALE_BIG_* signals. Owner, alpha and active copy wallets stay subscribed.
-        val out = watchListOf8361(emptyList(), alpha, copyActive, ExpertWallets7962.OWNER_WALLET_7962)
+        // V5.0.8713 — the alpha + copy slots are sized for the mined list (25); pump.fun's top fifty have their own.
+        val board = CopyTradeEngine.boardWallets8713()
+        val mined = copyActive.filter { it !in board }
+        val out = (watchListOf8361(emptyList(), alpha, mined, ExpertWallets7962.OWNER_WALLET_7962) +
+            copyActive.filter { it in board }.take(ExpertWallets7962.BOARD_SIZE_8713)).distinct()
         watching = out.size
         return out
     }

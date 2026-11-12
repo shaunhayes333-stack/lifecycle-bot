@@ -21475,7 +21475,7 @@ class BotService : Service() {
                         if (aiStatusLoop6447 % 35 == 0) {
                             addLog("☁️ ${CloudLearningSync.getStatus()}")
                             try {
-                                val added = copyTradeEngine.autoDiscoverTopWallets(maxWallets = 3, minPnlSol = 20.0)
+                                val added = copyTradeEngine.autoDiscoverTopWallets()
                                 if (added > 0) {
                                     val stats = copyTradeEngine.getStats()
                                     addLog("🐋 Whale discovery: +$added | tracking ${stats.activeWallets}")
