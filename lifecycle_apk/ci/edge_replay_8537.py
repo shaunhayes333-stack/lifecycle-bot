@@ -206,6 +206,8 @@ def replay_predictions(rows, args, ridge_factory=Ridge):
             _, _, past = heapq.heappop(pending)
             lane = past["lane"].strip().upper()
             x = features(past)
+            # The phone model (V5.0.8722) now learns the outcome the lane's exits bank and reads three feature crosses;
+            # this offline replay still fits the log return on the single-feature bins.
             y = 100.0 * math.log1p(max(-99.9, past["net"]) / 100.0)
             for key, model in (("GLOBAL", glob), (lane, lanes.setdefault(lane, ridge_factory(DIM, args.ridge)))):
                 model.learn(x, y)

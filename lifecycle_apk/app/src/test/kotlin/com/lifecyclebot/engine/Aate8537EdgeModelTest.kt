@@ -131,8 +131,9 @@ class Aate8537EdgeModelTest {
         val x = EdgeModel8537.vectorOf(raw(flags = EdgeModel8537.flagsOf(true, false, true)))
         assertEquals(EdgeModel8537.DIM, x.size)
         assertEquals(1.0, x[0], 0.0)
-        // one hot per block: bias + 16 bins + phase + source + lane + 2 flags, plus the cost and V3 numerics
-        assertEquals(1 + 16 + 3 + 2, x.count { it == 1.0 })
+        // one hot per block: bias + 16 bins + phase + source + lane + 2 flags + the 3 structure crosses (8722), plus the
+        // cost and V3 numerics
+        assertEquals(1 + 16 + 3 + 2 + 3, x.count { it == 1.0 })
         assertEquals(5, EdgeModel8537.flagsOf(true, false, true))
         assertEquals(EdgeModel8537.FLAGS.size, 7)
         assertEquals(EdgeModel8537.LANES.size, 12)
@@ -177,7 +178,7 @@ class Aate8537EdgeModelTest {
 
     @Test fun runnerOutcomesAreGradedInNetPercent() {
         val tally = EdgeModel8537.Oos()
-        val pick = EdgeModel8537.target8567(1.004)
+        val pick = 1.004   // V5.0.8722 — predictions are in net % (was the log return of it)
         repeat(9) { tally.add(pick, -20.0) }
         tally.add(pick, 300.0)
         assertEquals(10, tally.selN)
@@ -243,8 +244,8 @@ class Aate8537EdgeModelTest {
     }
 
     @Test fun dataset_row_and_offline_replay_share_the_layout() {
-        // superseded (8567): the model holds log returns; the row prints the net % they mean (2.5 % = target8567(2.5))
-        val s = EdgeModel8537.Snap(raw(), EdgeModel8537.vectorOf(raw()), EdgeModel8537.target8567(2.5), "GLOBAL", 1_700_000_000_000L, "MintX", true)
+        // V5.0.8722 — the model holds the net % the lane banks, and the row prints it as held
+        val s = EdgeModel8537.Snap(raw(), EdgeModel8537.vectorOf(raw()), 2.5, "GLOBAL", 1_700_000_000_000L, "MintX", true)
         val line = EdgeModel8537.datasetLine(s, -4.25)
         // superseded by V5.0.8628 — each row carries its label horizon after the time: was
         // `line.startsWith("{\"t\":1700000000000,\"mint\":\"MintX\",\"lane\":\"SHITCOIN\"")`.

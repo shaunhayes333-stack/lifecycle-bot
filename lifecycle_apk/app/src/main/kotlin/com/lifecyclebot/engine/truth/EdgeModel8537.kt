@@ -45,13 +45,30 @@ object EdgeModel8537 {
      * unchanged (+10 % -> +9.5, -10 % -> -10.5), so the stored model keeps learning without a reset.
      */
     fun target8567(netPct: Double): Double = 100.0 * kotlin.math.ln(1.0 + netPct.coerceAtLeast(-99.9) / 100.0)
+    /**
+     * V5.0.8722 §THE_MODEL_LEARNS_WHAT_THE_LANE_BANKS — owner (8720, live, 70 minutes, no trade): "its totally dead now".
+     * The model learned [target8567], the LOG return. A log return charges variance: a -60 % coin is -92, a +400 % coin is
+     * +161, so the launch coins that hold every 4x average far below zero and the model's positive picks are the quiet coins
+     * that cannot move. 8720 dataset, 75,931 labels walk-forward: the coins it predicted >= +1 % banked -4.4 % each
+     * (the round trip) and 0.1 % of them ran 100 %; 1.6 % of the coins it refused did. 8715 then gave that prediction the
+     * right to refuse live, and live could only be offered the coins that do not run.
+     *
+     * The target is now the outcome the lane's own exits bank on the label (ManagedBands8719.managed8719: the loss stops
+     * at the lane's stop plus a round trip, the gain is kept to the pocket cap), in net %. Same data, same walk-forward,
+     * with the three structure crosses below: the coins predicted >= +1 % banked -1.0 % each with 2.6 % running, >= +8 %
+     * banked +1.9 % with 3.8 % running, and the coins predicted to lose banked -5.2 % with 1.1 % running. Predictions,
+     * the out-of-sample records and both authorities are in this unit; the epoch moves so the stored log model is rebuilt
+     * from the device's own dataset and earns its records again.
+     */
+    fun managedTarget8722(lane: String, netPct: Double, costPct: Double): Double =
+        ManagedBands8719.managed8719(netPct, try { FieldManual7715.laneStopPct8392(lane.trim().uppercase()) } catch (_: Throwable) { Double.NaN }, costPct)
     /** The learned log return as the net % it means. */
     fun netOf8567(target: Double): Double = if (target.isFinite()) 100.0 * (kotlin.math.exp(target / 100.0) - 1.0) else target
     private const val SOLVE_EVERY = 50
     private const val SAVE_EVERY = 400
     private const val DATASET_MAX_LINES = 60_000
     // Keep the pre-8658 curve-tainted sufficient statistics intact for inspection; never load them as authority.
-    private const val MODEL_FILE = "edge_model_8675.bin"
+    private const val MODEL_FILE = "edge_model_8722.bin"
     private const val REFUSAL_BLOCK_8715 = 8715
     private const val DATASET_FILE = "edge_dataset_8537.jsonl"
     // V5.0.8642 — the old binary included false-priced/seed-basis outcomes before 8617 started excluding them.
@@ -59,7 +76,7 @@ object EdgeModel8537 {
     // V5.0.8660: 8657/8658 fixed non-pump PumpPortal frames priced with pump.fun's curve, but the 8650 model
     // remained loaded with those phantom 2,900% labels and reported CORE/TREASURY authority. A fresh model
     // must replay only venue-scoped rows and earn OOS authority again, never inherit the poisoned old OOS bar.
-    internal const val MODEL_EPOCH_8642 = 8675
+    internal const val MODEL_EPOCH_8642 = 8722
     internal const val VENUE_SCOPE_EPOCH_8660 = 8660
     private val SOLANA_MINT_8660 = Regex("^[1-9A-HJ-NP-Za-km-z]{32,44}$")
     private fun unscopedSolana8661(mint: String, scopeEpoch: Int): Boolean =
@@ -117,8 +134,16 @@ object EdgeModel8537 {
     private val NUMERIC_BINS: List<DoubleArray> = listOf(LIQ_EDGES, MCAP_EDGES, AGE_EDGES, RUNUP_EDGES, PEAK_EDGES, DD_EDGES,
         BP_EDGES, CHG5_EDGES, CHG1H_EDGES, VOLACC_EDGES, TOP_EDGES, HOLDERVEL_EDGES, TXVEL_EDGES, CURVE_EDGES, TURNOVER_EDGES, NEW_BUYER_EDGES)
 
+    /**
+     * V5.0.8722 — the pairs read together (indices into [NUMERIC_BINS]): age x pool, curve x distance from the high, top
+     * holder x pool. A sum of single-feature bins cannot say "a deep pool on a five-minute-old coin"; the 8712 dataset paid
+     * on exactly those three pairs (+35 %, +10 %, +11 % banked) and on neither feature alone.
+     */
+    private val CROSSES_8722: List<Pair<Int, Int>> = listOf(2 to 0, 13 to 4, 10 to 0)
+
     /** Width of the feature vector: bias + every binned block (+1 unknown each) + phase + source + lane (+1 other each) + flags + 2 numerics. */
-    val DIM: Int = 1 + NUMERIC_BINS.sumOf { it.size + 2 } + (PHASES.size + 1) + (SOURCES.size + 1) + (LANES.size + 1) + FLAGS.size + 4
+    val DIM: Int = 1 + NUMERIC_BINS.sumOf { it.size + 2 } + (PHASES.size + 1) + (SOURCES.size + 1) + (LANES.size + 1) + FLAGS.size + 4 +
+        CROSSES_8722.sumOf { (a, b) -> (NUMERIC_BINS[a].size + 2) * (NUMERIC_BINS[b].size + 2) }
 
     /** Pure: the bin of [v] for [edges] — 0 unknown, 1..edges.size+1 by value. */
     fun binOf(v: Double, edges: DoubleArray): Int {
@@ -141,8 +166,10 @@ object EdgeModel8537 {
         x[o++] = 1.0
         val values = doubleArrayOf(r.liq, r.mcap, r.ageMin, r.runup, r.pxPeak, r.dd, r.bp, r.chg5m, r.chg1h, r.volAccel, r.top,
             r.holderVel, r.txVel, r.curve, r.turnover, r.newBuyers15s8666)
+        val bins = IntArray(NUMERIC_BINS.size)
         for ((k, edges) in NUMERIC_BINS.withIndex()) {
-            x[o + binOf(values[k], edges)] = 1.0
+            bins[k] = binOf(values[k], edges)
+            x[o + bins[k]] = 1.0
             o += edges.size + 2
         }
         val ph = PHASES.indexOf(r.phase.trim().uppercase()).let { if (it < 0) PHASES.size else it }
@@ -155,7 +182,12 @@ object EdgeModel8537 {
         x[o++] = if (r.costPct.isFinite()) (r.costPct / 10.0).coerceIn(0.0, 3.0) else 0.5
         x[o++] = if (r.v3.isFinite()) (r.v3 / 100.0).coerceIn(-1.0, 1.5) else 0.0
         x[o++] = if (r.sustainedDemand) 1.0 else 0.0
-        x[o] = if (r.marketReclaim) 1.0 else 0.0
+        x[o++] = if (r.marketReclaim) 1.0 else 0.0
+        for ((a, b) in CROSSES_8722) {
+            val wb = NUMERIC_BINS[b].size + 2
+            x[o + bins[a] * wb + bins[b]] = 1.0
+            o += (NUMERIC_BINS[a].size + 2) * wb
+        }
         return x
     }
 
@@ -169,14 +201,28 @@ object EdgeModel8537 {
         var count = 0L
         var weights: DoubleArray? = null
         private var sinceSolve = 0
+        // V5.0.8722 — the decay is carried as one factor (the statistics are stored / gain) instead of multiplying the whole
+        // matrix on every label: a 60,000-row replay of the wider vector was 7 billion multiplications on the first read.
+        private var gain = 1.0
+
+        /** Bring the stored statistics back to their true scale (before a write, and before the factor underflows). */
+        fun fold8722() {
+            if (gain == 1.0) return
+            for (i in xtx.indices) xtx[i] *= gain
+            for (i in xty.indices) xty[i] *= gain
+            gain = 1.0
+        }
 
         fun learn(x: DoubleArray, y: Double, forget: Double = FORGET, solveNow: Boolean = true) {
-            if (forget < 1.0) { for (i in xtx.indices) xtx[i] *= forget; for (i in xty.indices) xty[i] *= forget; n *= forget }
-            for (i in 0 until dim) {
-                val xi = x[i]; if (xi == 0.0) continue
+            if (forget < 1.0) { gain *= forget; n *= forget; if (gain < 1e-120) fold8722() }
+            val inc = 1.0 / gain
+            val on = IntArray(dim); var m = 0
+            for (i in 0 until dim) if (x[i] != 0.0) on[m++] = i
+            for (a in 0 until m) {
+                val i = on[a]; val xi = x[i] * inc
                 xty[i] += xi * y
                 val row = i * dim
-                for (j in 0 until dim) { val xj = x[j]; if (xj != 0.0) xtx[row + j] += xi * xj }
+                for (b in 0 until m) { val j = on[b]; xtx[row + j] += xi * x[j] }
             }
             n += 1.0; count++
             sinceSolve++
@@ -187,7 +233,7 @@ object EdgeModel8537 {
 
         fun clear8642() {
             java.util.Arrays.fill(xtx, 0.0); java.util.Arrays.fill(xty, 0.0)
-            n = 0.0; count = 0; weights = null; sinceSolve = 0
+            n = 0.0; count = 0; weights = null; sinceSolve = 0; gain = 1.0
         }
 
         fun predict(x: DoubleArray): Double {
@@ -199,7 +245,7 @@ object EdgeModel8537 {
 
         /** (X'X + λI) w = X'y by Cholesky; the bias (index 0) is barely penalised. */
         fun solve(lambda: Double = RIDGE): DoubleArray? {
-            val a = xtx.copyOf()
+            val a = DoubleArray(xtx.size) { xtx[it] * gain }
             for (i in 0 until dim) a[i * dim + i] += if (i == 0) 1e-3 else lambda
             val l = DoubleArray(dim * dim)
             for (i in 0 until dim) for (j in 0..i) {
@@ -209,7 +255,7 @@ object EdgeModel8537 {
                 else l[i * dim + j] = s / l[j * dim + j]
             }
             val z = DoubleArray(dim)
-            for (i in 0 until dim) { var s = xty[i]; for (k in 0 until i) s -= l[i * dim + k] * z[k]; z[i] = s / l[i * dim + i] }
+            for (i in 0 until dim) { var s = xty[i] * gain; for (k in 0 until i) s -= l[i * dim + k] * z[k]; z[i] = s / l[i * dim + i] }
             val w = DoubleArray(dim)
             for (i in dim - 1 downTo 0) { var s = z[i]; for (k in i + 1 until dim) s -= l[k * dim + i] * w[k]; w[i] = s / l[i * dim + i] }
             return if (w.all { it.isFinite() }) w else weights
@@ -224,8 +270,8 @@ object EdgeModel8537 {
         // V5.0.8715 — the refusal record: what the coins it predicted to lose ([refN]) and the rest ([keepN]) went on to do.
         var refN = 0; var refSum = 0.0; var refSq = 0.0
         var keepN = 0; var keepSum = 0.0
-        fun add(logPrediction: Double, net: Double) {
-            val pred = netOf8567(logPrediction)
+        /** [pred] and [net] in the model's unit since 8722: the net % the lane banks ([managedTarget8722]). */
+        fun add(pred: Double, net: Double) {
             allN++; allSum += net
             if (pred >= MIN_EDGE_PCT) { selN++; selSum += net; selSq += net * net; if (net > 0.0) selWin++ }
             else if (pred < 0.0) { negN++; negSum += net }
@@ -265,6 +311,8 @@ object EdgeModel8537 {
     private val byLane = HashMap<String, Ridge>()
     // Legacy records used log outcomes and pooled global and specialist predictions.
     private fun recordKey(lane: String, model: String) = "net|$lane|$model"
+    /** V5.0.8722 — a lane the vector names keeps its own model; every other label (crypto, EVM, shadow tags) learns the global one. */
+    private fun ownModel8722(l: String): Ridge? = if (l in LANES) byLane.getOrPut(l) { Ridge(DIM) } else null
     private fun activeModel(l: String) = if ((byLane[l]?.count ?: 0L) >= LANE_OWN_MIN_N) l else "GLOBAL"
     private val oos = HashMap<String, Oos>()
     private val learned = AtomicLong(0)
@@ -409,16 +457,16 @@ object EdgeModel8537 {
             try { PipelineHealthCollector.labelInc("EDGE_LABEL_IMPLAUSIBLE_8617") } catch (_: Throwable) {}
             return
         }
-        val y = target8567(netPct)
+        val y = managedTarget8722(s.raw.lane, netPct, s.raw.costPct)
         synchronized(this) {
             // A pending observation from the old model can teach its verified outcome, but its prediction
             // was made under a contaminated model. It must never earn walk-forward authority in this epoch.
             if (s.modelEpoch != MODEL_EPOCH_8642) oldPredictionsIgnored8642.incrementAndGet()
-            else if (s.pred.isFinite()) oos.getOrPut(recordKey(s.raw.lane, s.modelKey)) { Oos() }.add(s.pred, netPct)
+            else if (s.pred.isFinite()) oos.getOrPut(recordKey(s.raw.lane, s.modelKey)) { Oos() }.add(s.pred, y)
             else skippedCold.incrementAndGet()
             val x = if (s.modelEpoch == MODEL_EPOCH_8642 && s.x.size == DIM) s.x else vectorOf(s.raw)
             global.learn(x, y)
-            byLane.getOrPut(s.raw.lane) { Ridge(DIM) }.learn(x, y)
+            ownModel8722(s.raw.lane)?.learn(x, y)
         }
         val k = learned.incrementAndGet()
         appendDataset(s, netPct, witnessed = chainWitness)   // retain independently provable multi-X outcomes
@@ -437,7 +485,7 @@ object EdgeModel8537 {
             val (p, key) = predictLocked(x, raw.lane)
             val o = oos[recordKey(raw.lane, key)]
             val trained = if (key == raw.lane) byLane[raw.lane]?.count ?: 0L else global.count
-            Verdict(netOf8567(p), p.isFinite() && o != null && authority(o.selN, o.selMean, o.selSe, o.allMean), key, trained,
+            Verdict(p, p.isFinite() && o != null && authority(o.selN, o.selMean, o.selSe, o.allMean), key, trained,
                 o?.selN ?: 0, o?.selMean ?: Double.NaN, o?.selSe ?: Double.NaN, o?.allMean ?: Double.NaN,
                 refuses8715 = p.isFinite() && o != null && refusalAuthority8715(o.refN, o.refMean, o.refSe, o.keepMean))
         }
@@ -516,9 +564,9 @@ object EdgeModel8537 {
                     o.optString("phase"), d("v3"), d("cost"), d("holderVel"), d("txVel"), d("curve"), d("turnover"), o.optInt("flags"),
                     d("newBuyers15s8666"), o.optBoolean("sustainedDemand"), o.optBoolean("marketReclaim"))
                 val x = vectorOf(r)
-                val y = target8567(d("net"))
+                val y = managedTarget8722(r.lane, d("net"), r.costPct)
                 global.learn(x, y, solveNow = false)
-                byLane.getOrPut(r.lane) { Ridge(DIM) }.learn(x, y, solveNow = false)
+                ownModel8722(r.lane)?.learn(x, y, solveNow = false)
                 used++
             } catch (_: Throwable) { /* corrupted dataset row is excluded, never used as an outcome */ }
         }
@@ -529,6 +577,7 @@ object EdgeModel8537 {
     }
 
     private fun writeRidge(o: DataOutputStream, r: Ridge) {
+        r.fold8722()
         o.writeDouble(r.n); o.writeLong(r.count)
         for (v in r.xtx) o.writeDouble(v)
         for (v in r.xty) o.writeDouble(v)
@@ -601,7 +650,7 @@ object EdgeModel8537 {
             "\"dd\":${n(r.dd)},\"bp\":${n(r.bp)},\"chg5m\":${n(r.chg5m)},\"chg1h\":${n(r.chg1h)},\"volAccel\":${n(r.volAccel)}," +
             "\"top\":${n(r.top)},\"holderVel\":${n(r.holderVel)},\"txVel\":${n(r.txVel)},\"curve\":${n(r.curve)},\"turnover\":${n(r.turnover)},\"newBuyers15s8666\":${n(r.newBuyers15s8666)},\"sustainedDemand\":${r.sustainedDemand},\"marketReclaim\":${r.marketReclaim}," +
             "\"flags\":${r.flags},\"phase\":\"${r.phase}\",\"v3\":${n(r.v3)},\"cost\":${n(r.costPct)},\"admitted\":${s.admitted}," +
-            "\"pred\":${n(netOf8567(s.pred))},\"model\":\"${s.modelKey}\",\"modelEpoch\":${s.modelEpoch},\"venueScopeEpoch\":$venueScope8661,\"net\":${n(net)},\"fill\":$filled,\"witness\":$witnessed,\"labelObservedAtMs\":${labelObservedAtMs ?: "null"}}"
+            "\"pred\":${n(s.pred)},\"model\":\"${s.modelKey}\",\"modelEpoch\":${s.modelEpoch},\"venueScopeEpoch\":$venueScope8661,\"net\":${n(net)},\"fill\":$filled,\"witness\":$witnessed,\"labelObservedAtMs\":${labelObservedAtMs ?: "null"}}"
     }
 
     /**
@@ -675,10 +724,10 @@ object EdgeModel8537 {
     internal fun learnRawForTest8537(r: Raw, net: Double) = synchronized(this) {
         val x = vectorOf(r)
         val (p, key) = predictLocked(x, r.lane)
-        val y = target8567(net)
-        if (p.isFinite()) oos.getOrPut(recordKey(r.lane, key)) { Oos() }.add(p, net)
+        val y = managedTarget8722(r.lane, net, r.costPct)
+        if (p.isFinite()) oos.getOrPut(recordKey(r.lane, key)) { Oos() }.add(p, y)
         global.learn(x, y)
-        byLane.getOrPut(r.lane) { Ridge(DIM) }.learn(x, y)
+        ownModel8722(r.lane)?.learn(x, y)
         learned.incrementAndGet()
         key
     }
