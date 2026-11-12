@@ -192,6 +192,10 @@ object EntryEconomics8329 {
         return raw - impact
     }
 
+    private val lastChase8726 = ConcurrentHashMap<String, String>()
+    /** The numbers the last chase refusal of [mint] was made on, or null. */
+    fun lastChaseDetail8726(mint: String): String? = lastChase8726[mint]
+
     private class ChaseBook8329 { val checked = AtomicLong(0); val consumed = AtomicLong(0); val moves = ArrayDeque<Double>() }
     private val chase8329 = ConcurrentHashMap<String, ChaseBook8329>()
     private val consumedAt8329 = ConcurrentHashMap<String, Long>()
@@ -245,6 +249,10 @@ object EntryEconomics8329 {
         book.consumed.incrementAndGet()
         consumedAt8329[ts.mint] = nowMs
         val label = "${CHASE_CONSUMED_8329}_$lane"
+        // V5.0.8726 — the numbers this refusal was made on, kept for the failed-buy record (ExecutionAttemptLease).
+        if (lastChase8726.size > 400) lastChase8726.clear()
+        lastChase8726[ts.mint] = "why=$why move=${"%.2f".format(move)}% cap=${if (cap.isFinite() && cap < UNCAPPED_8723) "%.1f".format(cap) else "none"}% " +
+            "expected=${"%.2f".format(expected)}% cost=${"%.2f".format(cost)}% setup=${setup?.name ?: sel ?: "-"} latencyMs=${nowMs - observedAt} source=$source"
         labelInc(label)
         labelInc("${label}_$why")
         try {

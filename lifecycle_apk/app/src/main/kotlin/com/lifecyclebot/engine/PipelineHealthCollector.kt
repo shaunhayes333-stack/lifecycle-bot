@@ -2334,6 +2334,7 @@ object PipelineHealthCollector {
         }
         sb.append("  Recent journal rows:  ${liveRecentRows}\n")
         sb.append("  Execution leases:     ${ExecutionAttemptLease.formatForReport()}\n")
+        sb.append("  Failed live buys (§8726, last 16, with the facts each failed on): ${try { ExecutionAttemptLease.buyTerminalsForReport8726() } catch (_: Throwable) { "unavailable" }}\n")
         try { sb.append("  ${SourceChokeDiagnostics4584.summary()}\n") } catch (_: Throwable) {}
         sb.append("\n")
         val paperJournalRows = labelCounts["PAPER_JOURNAL_ROWS"]?.get() ?: paperRecentRows.toLong()

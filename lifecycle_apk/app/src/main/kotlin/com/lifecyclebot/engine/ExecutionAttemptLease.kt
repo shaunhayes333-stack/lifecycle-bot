@@ -220,7 +220,7 @@ object ExecutionAttemptLease {
             emit("EXEC_LEASE_CLEARED", side, mint, symbol, "terminal=FAIL_NO_BACKOFF reason=$reason")
             return
         }
-        if (side.equals("BUY", true)) count8702(buyFails8702, reason)
+        if (side.equals("BUY", true)) { count8702(buyFails8702, reason); noteBuyTerminal8726(n, mint, symbol, processor, reason) }
         val backoff = backoffFor(failures, side)
         if (old != null) {
             states[key] = old.copy(
@@ -265,6 +265,41 @@ object ExecutionAttemptLease {
             .joinToString(" · ") { st -> "${st.side}:${st.mint.take(6)}:${st.lastProcessor}:f${st.failures}:ttl=${maxOf(st.activeUntilMs, st.backoffUntilMs) - n}ms" }
         return "buy=$buy sell=$sell backoff=$backs" + (if (top.isNotBlank()) " | $top" else "") +
             " buyFails8702{${line8702(buyFails8702)}} backoffEndedTicketAfter8702{${line8702(buyBackoffHits8702)}}"
+    }
+
+    // ── V5.0.8726 — each failed LIVE buy, with the facts it failed on ──
+    // 8720: six tickets, six terminal failures, and the report held two reason names and two counts. Which coin, which
+    // pool, what lock the provider reported, how far the quote had moved against which cap: none of it survived, so the
+    // owner's "trace each of the six failures" could not be answered from the capture. The last [BUY_TERMINALS_KEPT_8726]
+    // are kept with the coin's safety and pool facts at that moment and the chase check's own numbers.
+    private const val BUY_TERMINALS_KEPT_8726 = 16
+    private val buyTerminals8726 = java.util.ArrayDeque<String>()
+
+    /** Pure: one kept line. */
+    internal fun buyTerminalLine8726(atMs: Long, mint: String, symbol: String, processor: String, reason: String, facts: String): String =
+        "${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date(atMs))} ${mint.take(10)} ${symbol.take(12)} $processor ${reason.take(140)} | ${facts.ifBlank { "-" }}"
+
+    private fun noteBuyTerminal8726(atMs: Long, mint: String, symbol: String, processor: String, reason: String) {
+        val facts = try {
+            val ts = com.lifecyclebot.engine.BotService.status.tokens[mint]
+            val chase = try { com.lifecyclebot.engine.truth.EntryEconomics8329.lastChaseDetail8726(mint) } catch (_: Throwable) { null }
+            if (ts == null) chase.orEmpty() else {
+                val sf = ts.safety
+                val ageMin = try { com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.launchAgeMs7767(ts, atMs)?.let { it / 60_000L } } catch (_: Throwable) { null }
+                "lpLock=${sf.lpLockPct} safetyAgeS=${if (sf.checkedAt > 0L) (atMs - sf.checkedAt) / 1000L else -1L} tier=${sf.tier} pool=${ts.tokenMap.poolAddress.ifBlank { ts.pairAddress }.take(10)} " +
+                    "liq=${ts.lastLiquidityUsd.toLong()} mcap=${ts.lastMcap.toLong()} ageMin=${ageMin ?: "?"} priceAgeS=${if (ts.lastPriceUpdate > 0L) (atMs - ts.lastPriceUpdate) / 1000L else -1L}" +
+                    (if (chase != null) " chase[$chase]" else "")
+            }
+        } catch (_: Throwable) { "" }
+        synchronized(buyTerminals8726) {
+            buyTerminals8726.addLast(buyTerminalLine8726(atMs, mint, symbol, processor, reason, facts))
+            while (buyTerminals8726.size > BUY_TERMINALS_KEPT_8726) buyTerminals8726.removeFirst()
+        }
+    }
+
+    /** The report's block: the last failed live buys, oldest first. */
+    fun buyTerminalsForReport8726(): String = synchronized(buyTerminals8726) {
+        if (buyTerminals8726.isEmpty()) "none" else buyTerminals8726.joinToString("\n    ", prefix = "\n    ")
     }
 
     // ── V5.0.8702 — which failed buy set each backoff ──

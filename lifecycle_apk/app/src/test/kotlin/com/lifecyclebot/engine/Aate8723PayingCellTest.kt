@@ -76,7 +76,7 @@ class Aate8723PayingCellTest {
         assertTrue(adm.contains("if (provenLosing8136(stageLoss) && !cellSupported && !carried8723 && !stageLatePays8198(stageLoss) && doorBinds8393(\"STAGE_PROVEN_LOSING_8136\")) {"))
         assertTrue(adm.contains("market8723?.takeIf { !losing8136(cellLoss) })   // V5.0.8723"))
         val lane = File("src/main/kotlin/com/lifecyclebot/engine/truth/LaneAuthority8577.kt").readText()
-        assertTrue(lane.contains("private val CELL_ANSWERS_8724 = setOf(LIVE_ORIGIN_COHORT_LOSES_8703, MEME_BUYS_THE_HIGH_8582, LIVE_STAGE_UNREAD_8711, LIVE_STAGE_LOSES_8626)"))
+        assertTrue(lane.contains("private val CELL_ANSWERS_8724: Set<String> get() = setOf(LIVE_ORIGIN_COHORT_LOSES_8703, MEME_BUYS_THE_HIGH_8582, LIVE_STAGE_UNREAD_8711, LIVE_STAGE_LOSES_8626)"))
         assertTrue("the coin's own chart shape and its setup's losing record are read again and still refuse",
             lane.contains("return expertAvoid8692(ts, nowMs) ?: setupLoses8714(ts, l, nowMs)") &&
                 lane.contains("narrowerRefusal8724(ts, lane.trim().uppercase(), nowMs) ?: return null"))

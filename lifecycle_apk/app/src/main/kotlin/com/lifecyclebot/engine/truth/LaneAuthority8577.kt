@@ -158,7 +158,7 @@ object LaneAuthority8577 {
     }
 
     /** The entry-state doors a lane's paying market cell answers: priors over more coins than the cell holds. */
-    private val CELL_ANSWERS_8724 = setOf(LIVE_ORIGIN_COHORT_LOSES_8703, MEME_BUYS_THE_HIGH_8582, LIVE_STAGE_UNREAD_8711, LIVE_STAGE_LOSES_8626)
+    private val CELL_ANSWERS_8724: Set<String> get() = setOf(LIVE_ORIGIN_COHORT_LOSES_8703, MEME_BUYS_THE_HIGH_8582, LIVE_STAGE_UNREAD_8711, LIVE_STAGE_LOSES_8626)
 
     /** The refusals narrower than a market cell: the coin's own avoid shape, else the losing record of the setup it trades as. */
     private fun narrowerRefusal8724(ts: com.lifecyclebot.data.TokenState, l: String, nowMs: Long): String? {
