@@ -78,7 +78,7 @@ class Aate8723PayingCellTest {
         val lane = File("src/main/kotlin/com/lifecyclebot/engine/truth/LaneAuthority8577.kt").readText()
         assertTrue(lane.contains("private val CELL_ANSWERS_8724: Set<String> get() = setOf(LIVE_ORIGIN_COHORT_LOSES_8703, MEME_BUYS_THE_HIGH_8582, LIVE_STAGE_UNREAD_8711, LIVE_STAGE_LOSES_8626)"))
         assertTrue("the coin's own chart shape and its setup's losing record are read again and still refuse",
-            lane.contains("return expertAvoid8692(ts, nowMs) ?: setupLoses8714(ts, l, nowMs)") &&
+            lane.contains("return if (l in MEME_LANES_8582) expertAvoid8692(ts, nowMs) ?: setupLoses8714(ts, l, nowMs) else null") &&
                 lane.contains("narrowerRefusal8724(ts, lane.trim().uppercase(), nowMs) ?: return null"))
         assertTrue(File("src/main/kotlin/com/lifecyclebot/engine/truth/EdgeModel8537.kt").readText().contains("PayingCell8723.learn8723(s.mint, s.raw.lane, s.raw.ageMin, s.raw.liq, netPct, s.atMs)"))
     }

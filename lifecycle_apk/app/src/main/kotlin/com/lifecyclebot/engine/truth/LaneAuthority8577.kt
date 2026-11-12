@@ -162,8 +162,7 @@ object LaneAuthority8577 {
 
     /** The refusals narrower than a market cell: the coin's own avoid shape, else the losing record of the setup it trades as. */
     private fun narrowerRefusal8724(ts: com.lifecyclebot.data.TokenState, l: String, nowMs: Long): String? {
-        if (l !in MEME_LANES_8582) return null
-        return expertAvoid8692(ts, nowMs) ?: setupLoses8714(ts, l, nowMs)
+        return if (l in MEME_LANES_8582) expertAvoid8692(ts, nowMs) ?: setupLoses8714(ts, l, nowMs) else null
     }
 
     private fun memeEntryState8696(ts: com.lifecyclebot.data.TokenState, lane: String, stage: String?, nowMs: Long): String? {
