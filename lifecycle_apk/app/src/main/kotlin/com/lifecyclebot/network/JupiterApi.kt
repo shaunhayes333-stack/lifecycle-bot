@@ -394,9 +394,7 @@ class JupiterApi(
             throw RuntimeException("Jupiter v2 quote returned outAmount=0")
         }
 
-        val priceImpactPct = parseDoubleSafely(
-            json.opt("priceImpactPct") ?: json.opt("priceImpact")
-        )
+        val priceImpactPct = JupiterImpact8730.pctPoints8730(json)   // V5.0.8730 — percentage points, one reader
 
         val router = json.optString("router", "unknown")
         val isRfqRoute = isRfqRouter(router)
@@ -468,9 +466,7 @@ class JupiterApi(
 
         val requestId = json.optString("requestId", "")
         val swapTx = json.optString("transaction", "")
-        val priceImpactPct = parseDoubleSafely(
-            json.opt("priceImpactPct") ?: json.opt("priceImpact")
-        )
+        val priceImpactPct = JupiterImpact8730.pctPoints8730(json)   // V5.0.8730 — percentage points, one reader
         val router = json.optString("router", "unknown")
         val isRfqRoute = isRfqRouter(router)
 
@@ -589,7 +585,7 @@ class JupiterApi(
             throw RuntimeException("Jupiter v6 quote returned outAmount=0")
         }
 
-        val priceImpactPct = parseDoubleSafely(json.opt("priceImpactPct"))
+        val priceImpactPct = JupiterImpact8730.pctPoints8730(json)   // V5.0.8730 — was the raw fraction
 
         log("✅ V6 QUOTE OK: out=$outAmount impact=${fmt2(priceImpactPct)}% params=$picked (${elapsed}ms)")
 
@@ -1242,23 +1238,6 @@ class JupiterApi(
                 ?: 0L
             else -> 0L
         }
-    }
-
-    private fun parseDoubleSafely(value: Any?): Double {
-        return when (value) {
-            null -> 0.0
-            is Double -> sanitizeDouble(value)
-            is Float -> sanitizeDouble(value.toDouble())
-            is Int -> value.toDouble()
-            is Long -> value.toDouble()
-            is Number -> sanitizeDouble(value.toDouble())
-            is String -> sanitizeDouble(value.toDoubleOrNull() ?: 0.0)
-            else -> 0.0
-        }
-    }
-
-    private fun sanitizeDouble(value: Double): Double {
-        return if (value.isNaN() || value.isInfinite()) 0.0 else value
     }
 
     private fun isRfqRouter(router: String): Boolean {

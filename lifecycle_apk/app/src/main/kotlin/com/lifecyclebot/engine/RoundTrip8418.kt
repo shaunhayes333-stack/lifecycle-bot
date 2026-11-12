@@ -82,8 +82,8 @@ object RoundTrip8418 {
 
     /**
      * Pure: round-trip impact (%). The depth model [depthRtPct], raised to the quote's own one-way impact [quotedOneWayPct]
-     * (codebase convention: percent) scaled from the quote's size [quoteSizeSol] to [sizeSol], both ways. The quote only
-     * ever raises the figure: its unit has not been proven on a device, so it is never used to price below the depth seen.
+     * (percentage points since 8730: JupiterImpact8730 reads Jupiter's documented units) scaled from the quote's size
+     * [quoteSizeSol] to [sizeSol], both ways. The quote only ever raises the figure above the depth model.
      */
     fun impactRoundTripPct8418(depthRtPct: Double, quotedOneWayPct: Double?, quoteSizeSol: Double, sizeSol: Double): Double {
         val depth = if (depthRtPct.isFinite() && depthRtPct > 0.0) depthRtPct else 0.0
@@ -250,7 +250,7 @@ object RealisedSlip8418 {
         }
         val inA = amount8418(json.opt("inAmount") ?: json.opt("inputAmount")) ?: return
         val outA = amount8418(json.opt("outAmount") ?: json.opt("outputAmount")) ?: return
-        val imp = (json.opt("priceImpactPct") ?: json.opt("priceImpact"))?.toString()?.toDoubleOrNull() ?: Double.NaN
+        val imp = com.lifecyclebot.network.JupiterImpact8730.pctPoints8730(json, absent = Double.NaN)   // V5.0.8730
         quotes[key] = Quote8418(inA, outA, imp, nowMs)
         if (quotes.size > 1024) quotes.entries.removeIf { nowMs - it.value.atMs > QUOTE_MATCH_MS_8418 }
     }

@@ -43,6 +43,7 @@ object StopMarkConfirm8418 {
         // V5.0.8681 — identity before name: a mark that names a DIFFERENT pool than the one the position was filled on is
         // not this bag's price, whatever chain feed produced it (a migrated coin's old curve, a second pool, a pair switch).
         if (poolsDisagree8681(markPool, entryPool)) return false
+        if (identityUnproven8730(s, markPool, entryPool)) return false
         // V5.0.8419 — the coin's own chain state (curve account, decoded curve trade, pool vault / state) is the basis.
         if (StopFeed8327.chainMark8327(s)) return true
         if (CHAIN_8418.any { s.contains(it) }) return true
@@ -58,7 +59,24 @@ object StopMarkConfirm8418 {
      */
     fun offBasis8419(legacyOffBasis: Boolean, source: String, markPool: String, entryPool: String): Boolean =
         if (poolsDisagree8681(markPool, entryPool)) true
+        else if (identityUnproven8730(source.uppercase(), markPool, entryPool)) true
         else if (StopFeed8327.chainMark8327(source)) false else legacyOffBasis || !onBasis8418(source, markPool, entryPool)
+
+    /**
+     * Pure (V5.0.8730) — owner's second diagnostic: "a recognised source label can sometimes establish trust even without a
+     * definitive match to the actual pool used by the position". [poolsDisagree8681] rejects a mark only when BOTH pools are
+     * known; a chain-feed label (curve read, curve trade frame, vault stream) with no pool on it was then this bag's price by
+     * its name, for a position filled on a known pool (a migrated coin's stale curve, a second pool's vault). A position
+     * whose entry pool is a real address now needs the mark to carry that pool; an executable quote for the held amount is
+     * the one exception (it prices this bag wherever it routes). Mint-route (curve) entries and unknown entry pools are
+     * unchanged. An unproven mark is off basis: the stop asks the venue and the route ([stopRefutedByVenue8489]).
+     */
+    private fun identityUnproven8730(sourceUpper: String, markPool: String, entryPool: String): Boolean {
+        val e = entryPool.trim()
+        if (e.length < 32 || e.startsWith("MINT_ROUTE:")) return false
+        if (markPool.isNotBlank()) return false
+        return !(sourceUpper.contains("EXEC_QUOTE") || sourceUpper.contains("JUPITER_QUOTE") || sourceUpper.contains("EXECUTABLE"))
+    }
 
     /** Pure (V5.0.8681): both pools are known, real addresses, and differ. Blank or sentinel pools prove nothing. */
     fun poolsDisagree8681(markPool: String, entryPool: String): Boolean {

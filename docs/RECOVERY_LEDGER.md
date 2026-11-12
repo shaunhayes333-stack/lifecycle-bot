@@ -45,6 +45,18 @@ CI test; "Inferred" means reasoned from source and not yet observed live. Nothin
 
 | D11 | `RunTape8293.detect8293` | The only tape entry signal fires on a coin already +15..150 % off its low | Live buys the move after it happened: 8727 marsoperator handed at +28 %, stopped -14 % in 10 s; 78 of 113 live admits bought the top | 8729: `detectBreak8729` (a base holding a range, the first leg out of it on executed buying) is read first, with its own graded record | `Aate8729BaseBreakTest`. Not yet proven live |
 
+| D12 | `JupiterApi` (Metis quote, v2 order, Ultra order), `RoundTrip8418.noteQuote8418` | `priceImpactPct` is a decimal fraction (Jupiter: "0 to 1, not a percentage"); the order API's `priceImpact` is signed percentage points. Both were read raw into one field labelled % | Every impact gate (SecurityGuard 3 %, sell abort 25 %, ExecutableQuoteGate 50 %, MarketsLiveExecutor 3 %) and the round-trip cost saw 1/100 of the impact | 8730: `JupiterImpact8730.pctPoints8730`, one reader, percentage points | `Aate8730PriceTruthTest` |
+| D13 | `StopMarkConfirm8418.onBasis8418 / offBasis8419` | A chain-feed label with no pool on it counted as the bag's price for a position filled on a known pool | A stale curve or another pool's vault could trip or clear a stop | 8730: a pool-bought bag needs the mark to carry its pool (executable quotes excepted); curve entries unchanged | `Aate8730PriceTruthTest` |
+
+### Second-diagnostic items checked (8727 capture)
+
+- `METRICS_IDENTITY_BROKEN_7069` 302, worst 20.77x: 267 of the 302 are `DEXSCREENER_LANE_8287` (price x mint supply vs DexScreener's reported cap). DexScreener's cap is circulating-supply based for many tokens; the bot does not repair the price on a break (retired 7087), it holds the break. Affects market-cap bands, not stop prices. Open.
+- `CANONICAL_MARK_RATIO_QUARANTINE_6727` 1,182: marks more than 100x off the held value, refused. The guard working.
+- `TICK_PROFIT_LOCK_EXEC_PRICE_REBASE` 30: profit locks re-priced on an executable quote. The guard working.
+- `PRICE_FALLBACK_ALL_LIVE_SOURCES_FAILED_6914` 118: every live price source failed for a held / near coin. Open (data supply).
+- Fees: the CSV fee column is display only. Buy cost basis includes the buy's fixed legs (jjaemu: order 0.03793 SOL, basis 0.038128). Sell P&L is grossOut - basis. Wallet: 0.2619 SOL at 03:52, 0.2014 at 06:34, a drop of 0.0605 SOL; realised P&L over the same trades -0.0171 SOL. About 0.043 SOL is not in the export. Open: tips, priority fees, unclosed token-account rent, the 0.5 % app fee, and one on-chain lot the reconcile line reports (buys=10 sells=9 lots=1, OWNER_UNOWNED=1).
+- `GlobalEntryPolicy6405.evaluate` and `PairPriceIdentity6395.validate`: UNWIRED (tests only). `CapitalRecyclingOrchestrator6405` writes per-mint loss cooldowns into GlobalEntryPolicy6405 that nothing reads. Pool identity is enforced by StopMarkConfirm8418; re-buy cooldown by the live re-buy lock. Not wired (would duplicate authority); recorded.
+
 ## Open — not repaired
 
 | # | Where | What | Why it is open |
