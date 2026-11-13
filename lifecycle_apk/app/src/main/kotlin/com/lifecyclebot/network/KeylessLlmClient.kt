@@ -550,13 +550,17 @@ object KeylessLlmClient {
         mistral: String = "",
         extraEndpoints: String = "",
     ) {
-        operatorGroqKey = groq.trim()
+        // V5.0.8742 — owner: "I have a paid grok/groq key". A Groq key is gsk_...; an xAI Grok key is xai-... and was sent
+        // to Groq's API (refused). An xai- key in the Groq field joins the council as the xAI Grok member instead.
+        val xai8742 = groq.trim().startsWith("xai-")
+        operatorGroqKey = if (xai8742) "" else groq.trim()
         operatorOpenRouterKey = openRouter.trim()
         operatorAnthropicKey = anthropic.trim()
         operatorGeminiKey = gemini.trim()
         operatorCerebrasKey = cerebras.trim()
         operatorMistralKey = mistral.trim()
-        operatorExtraEndpoints7276 = extraEndpoints.trim()
+        operatorExtraEndpoints7276 = listOfNotNull(extraEndpoints.trim().ifBlank { null },
+            if (xai8742) "grok|${groq.trim()}" else null).joinToString("\n")
     }
 
     /**

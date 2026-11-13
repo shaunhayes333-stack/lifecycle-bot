@@ -29,6 +29,8 @@ object LlmProviderPresets8418 {
         Preset8418("chutes", "https://llm.chutes.ai/v1", 20, 2, emptyList()),
         Preset8418("huggingface", "https://router.huggingface.co/v1", 20, 2, emptyList()),
         Preset8418("deepinfra", "https://api.deepinfra.com/v1/openai", 30, 2, emptyList()),
+        // V5.0.8742 — xAI Grok (OpenAI-compatible); the owner's paid key ("xai-...") is routed here from the Groq field
+        Preset8418("grok", "https://api.x.ai/v1", 60, 2, emptyList()),
     ).associateBy { it.name }
 
     fun preset8418(name: String): Preset8418? = PRESETS_8418[name.trim().lowercase()]

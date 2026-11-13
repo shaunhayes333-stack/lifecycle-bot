@@ -1900,13 +1900,14 @@ class MainActivity : AppCompatActivity() {
     /** Save current settings from UI fields */
     private fun saveCurrentSettings() {
         try {
+            val stored8742 = ConfigStore.load(this)   // V5.0.8742 — the keys as saved now (another screen may have changed them)
             val state = vm.ui.value
             val cfg = state.config.copy(
-                heliusApiKey          = etHeliusKey.text.toString().trim(),
-                birdeyeApiKey         = etBirdeyeKey.text.toString().trim(),
-                groqApiKey            = etGroqKey.text.toString().trim(),
-                geminiApiKey          = etGeminiKey.text.toString().trim(),
-                jupiterApiKey         = etJupiterKey.text.toString().trim(),
+                heliusApiKey          = key8742(etHeliusKey, stored8742.heliusApiKey),
+                birdeyeApiKey         = key8742(etBirdeyeKey, stored8742.birdeyeApiKey),
+                groqApiKey            = key8742(etGroqKey, stored8742.groqApiKey),
+                geminiApiKey          = key8742(etGeminiKey, stored8742.geminiApiKey),
+                jupiterApiKey         = key8742(etJupiterKey, stored8742.jupiterApiKey),
                 telegramBotToken      = etTgBotToken.text.toString().trim(),
                 telegramChatId        = etTgChatId.text.toString().trim(),
                 watchlist             = etWatchlist.text.toString()
@@ -10605,10 +10606,27 @@ This cannot be undone!
         etGroqKey.setText(cfg.groqApiKey)
         etGeminiKey.setText(cfg.geminiApiKey)
         etJupiterKey.setText(cfg.jupiterApiKey)
+        loadedKeys8742[etHeliusKey] = cfg.heliusApiKey; loadedKeys8742[etBirdeyeKey] = cfg.birdeyeApiKey
+        loadedKeys8742[etGroqKey] = cfg.groqApiKey; loadedKeys8742[etGeminiKey] = cfg.geminiApiKey
+        loadedKeys8742[etJupiterKey] = cfg.jupiterApiKey
+    }
+
+    /**
+     * V5.0.8742 — owner: "I have a paid groq key ... same as the gemini ... its there too" while the council read
+     * "gemini: no key configured". The main screen's autosave (onPause/onStop) wrote every API key from ITS OWN fields,
+     * loaded when it opened: a key saved later in the Settings sheet was overwritten by the stale main-screen value (blank
+     * Gemini; blank Groq -> the shipped default key). A key field the owner did not edit on THIS screen (or left blank)
+     * now keeps the key as saved; only an edit made here writes. Clear Keys still clears (it saves directly).
+     */
+    private val loadedKeys8742 = java.util.WeakHashMap<EditText, String>()
+    private fun key8742(field: EditText, stored: String): String {
+        val typed = field.text.toString().trim()
+        return if (typed.isBlank() || typed == loadedKeys8742[field]) stored else typed
     }
 
     private fun saveSettings() {
         DataKeysCard7962.save(this, { vm.ui.value.config }, { c -> vm.saveConfig(c, allowRestart = false) }, includePumpPortal = false)  // V5.0.7962
+        val stored8742 = ConfigStore.load(this)   // V5.0.8742 — the keys as saved now (another screen may have changed them)
         val wl = etWatchlist.text.toString()
             .split(",").map { it.trim() }.filter { it.isNotBlank() }
         val cfg = ConfigStore.load(this).copy(
@@ -10625,11 +10643,11 @@ This cannot be undone!
             treasuryWalletAddress = etTreasuryWalletAddress.text.toString().trim(),
             telegramBotToken      = etTgBotToken.text.toString().trim(),
             telegramChatId        = etTgChatId.text.toString().trim(),  // V5.2 FIX: Was missing!
-            heliusApiKey          = etHeliusKey.text.toString().trim(),
-            birdeyeApiKey         = etBirdeyeKey.text.toString().trim(),
-            groqApiKey            = etGroqKey.text.toString().trim(),
-            geminiApiKey          = etGeminiKey.text.toString().trim(),
-            jupiterApiKey         = etJupiterKey.text.toString().trim(),
+            heliusApiKey          = key8742(etHeliusKey, stored8742.heliusApiKey),
+            birdeyeApiKey         = key8742(etBirdeyeKey, stored8742.birdeyeApiKey),
+            groqApiKey            = key8742(etGroqKey, stored8742.groqApiKey),
+            geminiApiKey          = key8742(etGeminiKey, stored8742.geminiApiKey),
+            jupiterApiKey         = key8742(etJupiterKey, stored8742.jupiterApiKey),
             pumpPortalApiKey      = DataKeysCard7962.pumpPortal(this)?.takeIf { it.isNotBlank() } ?: ConfigStore.load(this).pumpPortalApiKey,  // V5.0.7962 · V5.0.8181 a blank card never wipes the key
             watchlist             = wl,
             notificationsEnabled  = switchNotifications.isChecked,
