@@ -61,7 +61,8 @@ object HeliusCreditEconomy7881 {
     // dramatically". 400k (was 300k; the 10M plan is ~333k a day, the rest is autoscaled). The waste cut in the same build:
     // Enhanced swap-candle history for held positions only (HeliusSwapCandles7819.heliusCandlesAllowed8453), the
     // whale-only wallets off the smart-money stream (HeliusCadence8361.watchList8361), enrichment capped at 25 % (8452).
-    internal const val DEFAULT_DAILY_BUDGET_CREDITS_8731 = 400_000.0
+    // V5.0.8733 — owner, 13 Nov: "100 million helius monthly limit ... consider 85 million as our monthly limit": 85M / 30.
+    internal const val DEFAULT_DAILY_BUDGET_CREDITS_8731 = 2_833_333.0
     /**
      * V5.0.8731 — the day's budget is the owner's plan (Settings: Helius credits per day, ConfigStore.heliusDailyCredits8731),
      * else [DEFAULT_DAILY_BUDGET_CREDITS_8731]. A setting below 100k is a typo, not a plan, and keeps the default.

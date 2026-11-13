@@ -20673,6 +20673,7 @@ class Executor(
 
         var livePendingProofPenalty = false
         var livePendingProofPenaltyDetail = ""
+        var liveExplore8733 = false
 
         // V5.0.3706 — RESTORE FINAL LIVE PRE-BROADCAST RUG DEFENSE.
         // This was added in 3692 and removed by the rollback to 3690 parity.
@@ -20683,6 +20684,7 @@ class Executor(
         run {
             val preTrade = PreTradeHardGate.requireLiveBuyAllowed(ts, "Executor.liveBuy.main")
             livePendingProofPenalty = preTrade.allowed && preTrade.detail.contains("pending_penalty", ignoreCase = true)
+            liveExplore8733 = preTrade.allowed && preTrade.detail.contains(com.lifecyclebot.engine.truth.ExploreLive8733.LP_EXPLORE_8733)
             if (livePendingProofPenalty) livePendingProofPenaltyDetail = preTrade.detail.take(180)
             if (!preTrade.allowed) {
                 if (preTrade.reason == "DEFER_SAFETY_PROOF") {
@@ -20749,6 +20751,18 @@ class Executor(
                 buyTerminalFail("BUY_TERMINAL_NO_EXECUTABLE_ROUTE:PRETRADE_${preTrade.reason}")
                 return false
             }
+        }
+
+        // V5.0.8733 — an explore verdict (unread LP in a paying cell) buys at explore size, inside the explore budget.
+        if (liveExplore8733) {
+            val now8733 = System.currentTimeMillis()
+            val why8733 = com.lifecyclebot.engine.truth.ExploreLive8733.spendRefusal8733(sol, now8733)
+            if (why8733 != null) {
+                pretradeFail8094(ts, sol, why8733)
+                buyTerminalFail("BUY_TERMINAL_NO_EXECUTABLE_ROUTE:PRETRADE_$why8733")
+                return false
+            }
+            com.lifecyclebot.engine.truth.ExploreLive8733.noteSpend8733(ts.mint, now8733)
         }
 
         // V5.0.7724 — one shared observation point for every live lane. At

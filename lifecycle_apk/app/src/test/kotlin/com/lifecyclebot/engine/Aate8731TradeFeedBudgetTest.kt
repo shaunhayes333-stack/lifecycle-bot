@@ -23,7 +23,7 @@ class Aate8731TradeFeedBudgetTest {
         // the governor steps on the plan's marks
         assertEquals(0, HeliusCurveTape8354.nextLevel8354(0, 4_000_000L, atDefault, HeliusCurveTape8354.lowBytesPerMin8731(atDefault)))
         assertEquals(1, HeliusCurveTape8354.nextLevel8354(0, 6_000_000L, atDefault, HeliusCurveTape8354.lowBytesPerMin8731(atDefault)))
-        assertEquals(HeliusCreditEconomy7881.DEFAULT_DAILY_BUDGET_CREDITS_8731, 400_000.0, 0.0)
+        assertEquals(HeliusCreditEconomy7881.DEFAULT_DAILY_BUDGET_CREDITS_8731, 2_833_333.0, 0.0)
     }
 
     @Test fun theSettingReachesTheBudget() {

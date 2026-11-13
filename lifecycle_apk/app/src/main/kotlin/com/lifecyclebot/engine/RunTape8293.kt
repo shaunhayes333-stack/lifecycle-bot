@@ -157,6 +157,20 @@ object RunTape8293 {
         prints.filter { kotlin.math.abs(it.atMs - targetMs) <= GRADE_TOLERANCE_MS_8293 && it.priceSol.isFinite() && it.priceSol > 0.0 }
             .minByOrNull { kotlin.math.abs(it.atMs - targetMs) }?.priceSol
 
+    /**
+     * V5.0.8733 — 8732: record30m read n86/+76.8 % while 11 of ~17 detections matured that session were never graded — the
+     * trade feed drops a coin after ~6 minutes and a coin that died leaves no print at +30 min, so the record was the
+     * survivors. The 5-minute grade reads while the coin is still on the feed: the print nearest +5 min, else the last
+     * print after detection (the coin went quiet; that is its last traded price), else silent (counted, never graded).
+     * Pure: the grade price of a detection at [atMs], or null when no print followed it.
+     */
+    fun price5m8733(prints: List<TradeTape8100.Print8128>, atMs: Long): Double? =
+        priceNear8293(prints, atMs + GRADE_5M_MS_8733)
+            ?: prints.filter { it.atMs > atMs && it.atMs <= atMs + GRADE_5M_MS_8733 + GRADE_TOLERANCE_MS_8293 &&
+                it.priceSol.isFinite() && it.priceSol > 0.0 }.maxByOrNull { it.atMs }?.priceSol
+
+    private const val GRADE_5M_MS_8733 = 5L * 60_000L
+
     /** Pure: a detection record that has proven it loses (n >= 20, mean + SE < 0). */
     fun standsDown8293(st: CortexLedger7885.Stat): Boolean {
         if (st.n < 20.0) return false
@@ -176,6 +190,10 @@ object RunTape8293 {
     private val detectedAt = ConcurrentHashMap<String, Long>()
     private val evidence = ConcurrentHashMap<String, Run8293>()
     private val signals = ConcurrentHashMap<String, Run8293>()
+    private val signals5m8733 = ConcurrentHashMap<String, Run8293>()
+    private val record5m8733 = CortexLedger7885.realisedStat8187()
+    private val silent5m8733 = AtomicLong(0)
+    private val quiet5m8733 = AtomicLong(0)
     private val record = CortexLedger7885.realisedStat8187()
     /** V5.0.8729 — the breakout detector's own 30-minute record (never mixed with the run record). */
     private val breakRecord = CortexLedger7885.realisedStat8187()
@@ -264,6 +282,7 @@ object RunTape8293 {
         detectedAt[mint] = nowMs
         detections.incrementAndGet()
         if (signals.size < MAX_TRACKED_8293) signals.putIfAbsent(mint, run)
+        if (signals5m8733.size < MAX_TRACKED_8293) signals5m8733.putIfAbsent(mint, run)
         try { PipelineHealthCollector.labelInc("RUN_TAPE_DETECTED_8293") } catch (_: Throwable) {}
         if (ts != null && (ts.safety.tier == SafetyTier.HARD_BLOCK ||
                 (try { MayhemMode7943.liveRefusal(ts, nowMs) } catch (_: Throwable) { null }) != null)) {
@@ -327,6 +346,16 @@ object RunTape8293 {
 
     /** Grade every detection whose 30-minute horizon has passed, on the same tape; no print there = ungraded. */
     private fun gradeDue8293(nowMs: Long) {
+        for ((mint, sig) in signals5m8733.entries.toList()) {
+            if (nowMs < sig.atMs + GRADE_5M_MS_8733 + GRADE_TOLERANCE_MS_8293) continue
+            signals5m8733.remove(mint, sig)
+            val prints = try { TradeTape8100.prints8128(mint, nowMs, nowMs - sig.atMs + 1_000L) } catch (_: Throwable) { emptyList() }
+            val px = price5m8733(prints, sig.atMs)
+            if (px == null || !(sig.pxSol > 0.0)) { silent5m8733.incrementAndGet(); continue }
+            if (priceNear8293(prints, sig.atMs + GRADE_5M_MS_8733) == null) quiet5m8733.incrementAndGet()
+            val g = ((px / sig.pxSol - 1.0) * 100.0).coerceIn(-100.0, 1_000.0)
+            synchronized(record5m8733) { record5m8733.add(g, g >= 100.0) }
+        }
         for ((mint, sig) in signals.entries.toList()) {
             val target = sig.atMs + GRADE_AFTER_MS_8293
             if (nowMs < target + GRADE_TOLERANCE_MS_8293) continue
@@ -370,12 +399,15 @@ object RunTape8293 {
         return "runTape8293: scans=${scans.get()} detected=${detections.get()} handed=${handed.get()} requeued=${requeued.get()} " +
             "safetyRefused=${refusedSafety.get()} shadow=${shadow.get()} record30m=$st${if (down) " STOOD_DOWN" else ""} " +
             "pendingGrades=${signals.size} ungraded=${ungraded.get()} recent=[${lastRecent.ifBlank { "-" }}] " +
+            "record5m8733=${synchronized(record5m8733) { if (record5m8733.n >= 1.0) "n${record5m8733.n.toInt()}/${"%+.1f".format(record5m8733.mean())}%" else "-" }}" +
+            "(quietLastPrint=${quiet5m8733.get()} silent=${silent5m8733.get()} gross,noCost) " +
             "breaks8729=${breaks8729.get()} breakRecord30m=${synchronized(breakRecord) { if (breakRecord.n >= 1.0) "n${breakRecord.n.toInt()}/${"%+.1f".format(breakRecord.mean())}%" else "-" }}" +
             (if (synchronized(breakRecord) { standsDown8293(breakRecord) }) " BREAK_STOOD_DOWN" else "")
     }
 
     internal fun resetForTest8293() {
         detectedAt.clear(); evidence.clear(); signals.clear(); loaded8293 = true
+        signals5m8733.clear(); synchronized(record5m8733) { record5m8733.scale(0.0) }; silent5m8733.set(0); quiet5m8733.set(0)
         synchronized(record) { record.scale(0.0) }
         synchronized(breakRecord) { breakRecord.scale(0.0) }
     }
