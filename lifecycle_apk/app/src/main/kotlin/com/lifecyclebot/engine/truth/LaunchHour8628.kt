@@ -49,7 +49,8 @@ object LaunchHour8628 {
         if (sig.isBlank() || System.currentTimeMillis() - at !in 0L..RETENTION) return
         val px = observedPrice8642(sol, qty, referencePriceSol)
         if (px == null) { rejectedUnitMismatch8642.incrementAndGet(); return }
-        record("INSERT OR IGNORE INTO trade VALUES(?,?,?,?,?)", mint, at, sig, if (buy) 1 else 0, px)
+        // V5.0.8741 — the SOL size of every print too: a replay of exits needs the flow, not just the price
+        record("INSERT OR IGNORE INTO trade(m,t,s,side,p,v) VALUES(?,?,?,?,?,?)", mint, at, sig, if (buy) 1 else 0, px, sol)
     }
 
     fun observeDecision(ts: com.lifecyclebot.data.TokenState, lane: String, admit: Boolean, at: Long) {
@@ -84,6 +85,7 @@ object LaunchHour8628 {
                         execSQL("CREATE TABLE IF NOT EXISTS birth(m TEXT,b INTEGER, PRIMARY KEY(m,b))")
                         execSQL("CREATE TABLE IF NOT EXISTS trade(m TEXT,t INTEGER,s TEXT,side INTEGER,p REAL, PRIMARY KEY(m,s,side))")
                         execSQL("CREATE INDEX IF NOT EXISTS trade_time ON trade(m,t)")
+                        try { execSQL("ALTER TABLE trade ADD COLUMN v REAL") } catch (_: Exception) {}   // V5.0.8741 (exists after first run)
                         execSQL("CREATE TABLE IF NOT EXISTS decision(m TEXT,t INTEGER,l TEXT,k TEXT,a INTEGER,c REAL, PRIMARY KEY(m,t,l,k,a))")
                     }.also { db = it }
                 }
@@ -102,6 +104,31 @@ object LaunchHour8628 {
                 } finally { store.endTransaction() }
             } catch (_: Exception) { dropped.addAndGet(batch.size.toLong()) }
         }
+    }
+
+    private const val PATH_MIN_PRINTS_8741 = 20
+    private const val BAR_MS_8741 = 10_000L
+
+    /** One launch's first hour as 10-second bars: [secFromBirth, open, high, low, close, buys, sells, buySol, sellSol]. */
+    private fun pathRow8741(db: SQLiteDatabase, mint: String, born: Long, until: Long, maxRow: Long): JSONObject {
+        val bars = java.util.TreeMap<Long, DoubleArray>()
+        db.rawQuery("SELECT t,p,side,v FROM trade WHERE rowid <= $maxRow AND m=? AND t BETWEEN ? AND ? ORDER BY t,s,side",
+            arrayOf(mint, born.toString(), until.toString())).use { c ->
+            while (c.moveToNext()) bars8741(bars, c.getLong(0) - born, c.getDouble(1), c.getInt(2) == 1,
+                if (c.isNull(3)) Double.NaN else c.getDouble(3))
+        }
+        val arr = org.json.JSONArray()
+        for ((k, b) in bars) arr.put(org.json.JSONArray().put(k * BAR_MS_8741 / 1000L).put(b[0]).put(b[1]).put(b[2]).put(b[3])
+            .put(b[4].toLong()).put(b[5].toLong()).put(b[6]).put(b[7]))
+        return JSONObject().put("kind", "PATH_8741").put("mint", mint).put("birthMs", born).put("barSec", BAR_MS_8741 / 1000L).put("bars", arr)
+    }
+
+    /** Pure: fold one print at [offsetMs] from birth into its 10-second bar (open, high, low, close, buys, sells, buySol, sellSol). */
+    internal fun bars8741(bars: java.util.TreeMap<Long, DoubleArray>, offsetMs: Long, px: Double, buy: Boolean, sol: Double) {
+        if (!px.isFinite() || px <= 0.0 || offsetMs < 0L) return
+        val b = bars.getOrPut(offsetMs / BAR_MS_8741) { doubleArrayOf(px, px, px, px, 0.0, 0.0, 0.0, 0.0) }
+        b[1] = maxOf(b[1], px); b[2] = minOf(b[2], px); b[3] = px
+        if (buy) { b[4] += 1.0; if (sol.isFinite()) b[6] += sol } else { b[5] += 1.0; if (sol.isFinite()) b[7] += sol }
     }
 
     internal data class Grade(val entry: Pair<Long, Double>?, val last: Pair<Long, Double>?,
@@ -176,6 +203,9 @@ object LaunchHour8628 {
                                 w.appendLine(j.toString())
                             }
                             row(born, "ALL_LAUNCHES", "", null, FieldManual7715.BASE_ROUND_TRIP_COST_PCT_7715)
+                            // V5.0.8741 — the coin's first-hour PATH for an offline replay of entries and exits (owner: "see these
+                            // developing at 10k ... even if it gets out at 40k 50k"): 10-second bars of every observed print.
+                            if (prints.size >= PATH_MIN_PRINTS_8741) w.appendLine(pathRow8741(db, mint, born, minOf(now, end - 1L), limits[1]).toString())
                             db.rawQuery("SELECT t,l,k,a,c FROM decision d WHERE rowid <= ${limits[2]} AND m=? AND t BETWEEN ? AND ? AND (k!='UNATTRIBUTED' OR NOT EXISTS (SELECT 1 FROM decision x WHERE x.rowid <= ${limits[2]} AND x.m=d.m AND x.t=d.t AND x.l=d.l AND x.a=d.a AND x.k!='UNATTRIBUTED')) ORDER BY t", args).use { c ->
                                 while (c.moveToNext()) row(c.getLong(0), c.getString(1), c.getString(2), c.getInt(3), c.getDouble(4))
                             }
