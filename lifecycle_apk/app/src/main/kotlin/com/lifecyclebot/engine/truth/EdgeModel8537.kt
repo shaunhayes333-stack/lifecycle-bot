@@ -372,6 +372,18 @@ object EdgeModel8537 {
 
     private fun lane(l: String) = l.trim().uppercase()
 
+    /** V5.0.8747 — the paying-cell voter read at most once a minute per coin and lane (it rebuilds the playbook frame). */
+    private val cellCache8747 = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, Double>>()
+    private fun cellCached8747(ts: TokenState?, lane: String, now: Long): Double? {
+        ts ?: return null
+        val k = ts.mint + "|" + lane
+        cellCache8747[k]?.let { if (now - it.first in 0L..60_000L) return it.second.takeIf { v -> v.isFinite() } }
+        val v = try { PayingCell8723.evidence8723(ts, lane, now)?.meanPct } catch (_: Throwable) { null }
+        if (cellCache8747.size > 20_000) cellCache8747.clear()
+        cellCache8747[k] = now to (v ?: Double.NaN)
+        return v
+    }
+
     /**
      * V5.0.8737 — the boosted-tree ranker predicts once it has trained on this device's dataset; its record key is its own,
      * so it earns authority from nothing on its own out-of-sample picks and refusals. Until then the ridge answers.
@@ -382,7 +394,7 @@ object EdgeModel8537 {
         val tree = try { TreeRanker8737.predict8737(raw, mint) } catch (_: Throwable) { null }
         // V5.0.8746 — the mind: every voter, stacked; it answers only once it has learned (else tree / ridge as before).
         val ridge = predictLocked(x, raw.lane)
-        val cell = try { ts?.let { PayingCell8723.evidence8723(it, raw.lane, now)?.meanPct } } catch (_: Throwable) { null }
+        val cell = cellCached8747(ts, raw.lane, now)
         if (tree != null && tree >= 0.0) try { LlmAnalyst8746.request8746(raw, mint, now) } catch (_: Throwable) {}
         val llmP = try { LlmAnalyst8746.prob8746(mint, now) } catch (_: Throwable) { null }
         val f = Mind8746.features8746(tree ?: Double.NaN, ridge.first, cell ?: Double.NaN, llmP ?: Double.NaN)
@@ -510,8 +522,10 @@ object EdgeModel8537 {
         ensureLoaded()
         val raw = rawOf(ts, laneRaw, costPct, nowMs)
         val x = vectorOf(raw)
+        // V5.0.8747 — the voters (tree, paying cell, LLM cache, the mind) are read BEFORE the model lock; only the ridge
+        // read inside predict8737 takes it (predictLocked). 8746 held the lock across the paying-cell feature read.
+        val (p, key) = predict8737(raw, x, ts.mint, ts)
         synchronized(this) {
-            val (p, key) = predict8737(raw, x, ts.mint, ts)
             val o = oos[recordKey(raw.lane, key)]
             val trained = when (key) {
                 TreeRanker8737.KEY_8737 -> TreeRanker8737.trainedRows8737()

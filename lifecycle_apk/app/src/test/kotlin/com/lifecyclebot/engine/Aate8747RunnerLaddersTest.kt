@@ -31,4 +31,11 @@ class Aate8747RunnerLaddersTest {
         val bus = File("src/main/kotlin/com/lifecyclebot/engine/CanonicalLearning.kt").readText()
         assertEquals(2, Regex("ExitCensus8747\\.noteClose8747\\(").findAll(bus).count())
     }
+
+    @Test fun theVotersAreReadOutsideTheModelLock() {
+        val edge = File("src/main/kotlin/com/lifecyclebot/engine/truth/EdgeModel8537.kt").readText()
+        val verdict = edge.substringAfter("fun verdict(ts: TokenState").substringBefore("refuses8715 =")
+        assertTrue(verdict.indexOf("predict8737(raw, x, ts.mint, ts)") in 0 until verdict.indexOf("synchronized(this)"))
+        assertTrue(edge.contains("val cell = cellCached8747(ts, raw.lane, now)"))
+    }
 }
