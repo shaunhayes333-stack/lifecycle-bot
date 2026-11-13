@@ -26,7 +26,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 object TreeRanker8737 {
     const val KEY_8737 = "TREE8737"
-    private const val TREES = 200
+    private const val TREES = 150
     private const val LR = 0.05
     private const val DEPTH = 4
     private const val MIN_LEAF_W = 40.0
@@ -37,7 +37,7 @@ object TreeRanker8737 {
     private const val MIN_ROWS = 2_000
     private const val RETRAIN_MS = 2L * 60L * 60_000L
     private const val WINDOW_MS = 15L * 60_000L
-    private const val MAX_LINES_8737 = 60_000
+    private const val MAX_LINES_8737 = 25_000
 
     /** Feature names, in vector order (the dataset's own keys; isPump and lane added). */
     val FEATURES = listOf("liq", "mcap", "age", "runup", "dd", "bp", "chg5m", "chg1h", "top", "txVel", "turnover", "curve",
@@ -86,7 +86,11 @@ object TreeRanker8737 {
         lastTryMs = nowMs
         exec.execute {
             try {
-                val rows = dataset.useLines { rowsOf8737(it.take(MAX_LINES_8737)) }   // streamed: the export is ~40 MB
+                // V5.0.8740 — 8739 phone: training on 45,557 rows took 349 s of CPU on a loaded phone. The newest
+                // [MAX_LINES_8737] lines only (the market the bot trades now), streamed through a bounded tail.
+                val tail = java.util.ArrayDeque<String>(MAX_LINES_8737)
+                dataset.useLines { seq -> seq.forEach { if (tail.size == MAX_LINES_8737) tail.removeFirst(); tail.addLast(it) } }
+                val rows = rowsOf8737(tail.asSequence())
                 if (rows.size < MIN_ROWS) { lastStatus = "waiting rows=${rows.size}/$MIN_ROWS"; return@execute }
                 val t0 = System.currentTimeMillis()
                 model = train8737(rows.map { it.first }, rows.map { it.second }, rows.map { it.third }, System.currentTimeMillis())
