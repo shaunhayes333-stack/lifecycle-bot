@@ -372,6 +372,16 @@ object EdgeModel8537 {
 
     private fun lane(l: String) = l.trim().uppercase()
 
+    /**
+     * V5.0.8737 — the boosted-tree ranker predicts once it has trained on this device's dataset; its record key is its own,
+     * so it earns authority from nothing on its own out-of-sample picks and refusals. Until then the ridge answers.
+     */
+    private fun predict8737(raw: Raw, x: DoubleArray, mint: String): Pair<Double, String> {
+        try { TreeRanker8737.maybeRetrain8737(dir()?.let { File(it, DATASET_FILE) }, System.currentTimeMillis()) } catch (_: Throwable) {}
+        val tree = try { TreeRanker8737.predict8737(raw, mint) } catch (_: Throwable) { null }
+        return if (tree != null) tree to TreeRanker8737.KEY_8737 else predictLocked(x, raw.lane)
+    }
+
     @Synchronized private fun predictLocked(x: DoubleArray, laneKey: String): Pair<Double, String> {
         val own = byLane[laneKey]
         if (own != null && own.count >= LANE_OWN_MIN_N) return own.predict(x) to laneKey
@@ -417,7 +427,7 @@ object EdgeModel8537 {
         ensureLoaded()
         val raw = rawOf(ts, laneRaw, costPct, nowMs)
         val x = vectorOf(raw)
-        val (p, key) = predictLocked(x, raw.lane)
+        val (p, key) = predict8737(raw, x, ts.mint)
         Snap(raw, x, p, key, nowMs, ts.mint, admitted, PocketLedger8610.targetHorizon(raw.lane))
     } catch (_: Throwable) { null }
 
@@ -486,9 +496,13 @@ object EdgeModel8537 {
         val raw = rawOf(ts, laneRaw, costPct, nowMs)
         val x = vectorOf(raw)
         synchronized(this) {
-            val (p, key) = predictLocked(x, raw.lane)
+            val (p, key) = predict8737(raw, x, ts.mint)
             val o = oos[recordKey(raw.lane, key)]
-            val trained = if (key == raw.lane) byLane[raw.lane]?.count ?: 0L else global.count
+            val trained = when (key) {
+                TreeRanker8737.KEY_8737 -> TreeRanker8737.trainedRows8737()
+                raw.lane -> byLane[raw.lane]?.count ?: 0L
+                else -> global.count
+            }
             Verdict(p, p.isFinite() && o != null && authority(o.selN, o.selMean, o.selSe, o.allMean), key, trained,
                 o?.selN ?: 0, o?.selMean ?: Double.NaN, o?.selSe ?: Double.NaN, o?.allMean ?: Double.NaN,
                 refuses8715 = p.isFinite() && o != null && refusalAuthority8715(o.refN, o.refMean, o.refSe, o.keepMean))
