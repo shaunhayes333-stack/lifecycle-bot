@@ -58,7 +58,8 @@ class Aate8397DecisionEvidenceTest {
         // superseded by V5.0.8452 — the reserve is 15 % of the day (was 5 %: 75 leases of 200); the bound is the same rule
         val n = (Economy.DAILY_BUDGET_CREDITS * Economy.DECISION_RESERVE_SHARE_8397 / 200.0).toInt()
         val leases = (1..n).map { Economy.reserveDecision8397(Economy.Consumer.SWAP_CANDLES, 200.0, now)!! }
-        assertNull(Economy.reserveDecision8397(Economy.Consumer.SWAP_CANDLES, 1.0, now))
+        // V5.0.8733 — a day that is not a multiple of 200 leaves under one lease of reserve: no further full lease fits
+        assertNull(Economy.reserveDecision8397(Economy.Consumer.SWAP_CANDLES, 200.0, now))
         leases.forEach(Economy::finish8386)
         assertEquals(0.0, read("decisionReserved8397"), 1e-9)
         set("total", Economy.DAILY_BUDGET_CREDITS - 50.0)   // superseded by V5.0.8453 — the day cap is the constant (was 299,950)

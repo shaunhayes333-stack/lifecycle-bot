@@ -17,9 +17,10 @@ class Aate8453HeliusSpendTest {
     private fun src(p: String) = File("src/main/kotlin/com/lifecyclebot/$p").readText()
 
     @Test fun theDayIsRaisedAndEnrichmentStaysAQuarterOfIt() {
-        assertEquals(400_000.0, HeliusCreditEconomy7881.DAILY_BUDGET_CREDITS, 0.0)
-        assertFalse(HeliusCreditEconomy7881.enrichmentCapped8452(99_000.0, 100.0, HeliusCreditEconomy7881.DAILY_BUDGET_CREDITS, 1.0))
-        assertTrue(HeliusCreditEconomy7881.enrichmentCapped8452(100_000.0, 100.0, HeliusCreditEconomy7881.DAILY_BUDGET_CREDITS, 1.0))
+        // superseded by V5.0.8733 — owner's plan: 85M credits a month = 2,833,333 a day (was 400k); enrichment stays a quarter
+        assertEquals(2_833_333.0, HeliusCreditEconomy7881.DAILY_BUDGET_CREDITS, 0.0)
+        assertFalse(HeliusCreditEconomy7881.enrichmentCapped8452(708_000.0, 100.0, HeliusCreditEconomy7881.DAILY_BUDGET_CREDITS, 1.0))
+        assertTrue(HeliusCreditEconomy7881.enrichmentCapped8452(708_300.0, 100.0, HeliusCreditEconomy7881.DAILY_BUDGET_CREDITS, 1.0))
     }
 
     @Test fun enhancedCandleHistoryIsForHeldPositionsOnly() {

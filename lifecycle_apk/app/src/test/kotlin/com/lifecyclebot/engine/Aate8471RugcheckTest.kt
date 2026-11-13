@@ -85,7 +85,8 @@ class Aate8471RugcheckTest {
         assertEquals(listOf("MINT_AUTHORITY_UNKNOWN"), PreTradeHardGate.criticalProofPending8373(withHolders))
         // the gate passes its own chain readings, after the freeze / Token-2022 chain re-read and the fatal-holder block
         val gate = src("engine/PreTradeHardGate.kt")
-        assertTrue(gate.contains("chainProvenRugcheckSubstitute8471(pendingProofs.distinct(), authorityMint8522 == true,\n            holder8522.freshPct ?: -1.0, executableExit8522,\n            ownership8522.status == LiquidityOwnership8522.Status.PROVEN)"))
+        // superseded by V5.0.8733 — an UNREAD LP in a proven paying cell (owner "3 yes") also counts; unlocked stays BLOCKED
+        assertTrue(gate.contains("chainProvenRugcheckSubstitute8471(pendingProofs.distinct(), authorityMint8522 == true,\n            holder8522.freshPct ?: -1.0, executableExit8522,\n            ownership8522.status == LiquidityOwnership8522.Status.PROVEN || explore8733)"))
         assertTrue(gate.indexOf("FreezeAuthorityHardBlock7238.evaluateLive(ts)") in 0 until gate.indexOf("val pending8471 = chainProvenRugcheckSubstitute8471("))
         assertTrue(gate.indexOf("return block(ts, \"TOP_HOLDER_CONCENTRATION\"") in 0 until gate.indexOf("val pending8471 = chainProvenRugcheckSubstitute8471("))
         assertTrue(src("engine/DiagnosisBrief8438.kt").contains("RugcheckScore8399.statusLine8471()"))
