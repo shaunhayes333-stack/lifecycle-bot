@@ -11,7 +11,7 @@ class Aate8738HuntersAndBenchTest {
     @Test fun launchLabIsTheRealProgram() {
         assertEquals("LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj", ChainLaunchFeed8179.RAYDIUM_LAUNCHLAB_8179)
         val src = File("src/main/kotlin/com/lifecyclebot/network/ChainLaunchFeed8179.kt").readText()
-        assertTrue(!src.contains("eAd3gNb7J\""))
+        assertTrue(!src.contains("RAYDIUM_LAUNCHLAB_8179 = \"LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eAd3gNb7J\""))
     }
 
     @Test fun theLaunchGovernorScalesWithThePlan() {

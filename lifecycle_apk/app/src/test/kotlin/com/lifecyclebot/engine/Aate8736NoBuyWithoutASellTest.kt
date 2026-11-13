@@ -29,6 +29,7 @@ class Aate8736NoBuyWithoutASellTest {
 
     @Test fun everyJupiterBuyProvesTheSellAndExploreIsOff() {
         val ex = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+            .substringAfter("private fun buySend8085(").substringBefore("\n    }\n")
         val sign = ex.indexOf("BuyRouteSafety8522.requireAllowed(ts, BuyRouteSafety8522.jupiter(tx.executionQuote8521), \"JUPITER_FINAL_SIGN\")")
         val sell = ex.indexOf("BuyRouteSafety8522.requireSellable8736(ts, tx.executionQuote8521,")
         val send = ex.indexOf("wallet.signSendAndConfirm(tx.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, tx.isRfqRoute, tx.senderCompatible)")
