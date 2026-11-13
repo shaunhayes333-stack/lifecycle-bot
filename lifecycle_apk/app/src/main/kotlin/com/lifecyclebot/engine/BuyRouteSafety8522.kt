@@ -94,6 +94,7 @@ object BuyRouteSafety8522 {
     internal fun assess(
         mint: String, report: SafetyReport, route: Route, activeCurve: Boolean,
         curveAddress: String, whitelisted: Boolean, nowMs: Long,
+        exploreLp8735: Boolean = false,
     ): LiquidityOwnership8522.Result {
         fun pending(reason: String, detail: String) = LiquidityOwnership8522.Result(LiquidityOwnership8522.Status.PENDING, reason, detail)
         if (route.inputMint != JupiterApi.SOL_MINT || route.outputMint != mint)
@@ -117,7 +118,19 @@ object BuyRouteSafety8522 {
         for (pool in pools) {
             val proof = LiquidityOwnership8522.assess(report, pool, activeCurve, whitelisted,
                 curveAddress, nowMs, expectedMint = mint)
-            if (proof.status != LiquidityOwnership8522.Status.PROVEN) return proof
+            if (proof.status != LiquidityOwnership8522.Status.PROVEN) {
+                // V5.0.8735 — 8734 live: the one explore buy (ExploreLive8733) passed the buy door and was refused here,
+                // because this route check asked the same unread LP ownership to be PROVEN again. When the door's own
+                // verdict was the explore one, an UNREAD (PENDING) pool is accepted here too; a BLOCKED pool (reported
+                // unlocked, under the lock) still refuses, and an observed depth under the exit floor still blocks.
+                if (!(exploreLp8735 && proof.status == LiquidityOwnership8522.Status.PENDING)) return proof
+                val seen = LiquidityOwnership8522.observedPoolDepth8522(report, pool, nowMs, expectedMint = mint)
+                if (seen != null && seen < 500.0) return LiquidityOwnership8522.Result(LiquidityOwnership8522.Status.BLOCKED,
+                    "BUY_ROUTE_LIQUIDITY_BELOW_EXIT_FLOOR_8522", "pool=$pool liquidityUsd=$seen requiredUsd=500.0")
+                accepted = LiquidityOwnership8522.Result(LiquidityOwnership8522.Status.PROVEN,
+                    com.lifecyclebot.engine.truth.ExploreLive8733.LP_EXPLORE_8733, proof.detail)
+                continue
+            }
             if (proof.reason != "ACTIVE_CURVE_LP_NOT_APPLICABLE_8522") {
                 val depth = LiquidityOwnership8522.observedPoolDepth8522(report, pool, nowMs, expectedMint = mint)
                     ?: return pending("BUY_ROUTE_LIQUIDITY_PROOF_PENDING_8522", "pool=$pool has no fresh observed depth")
@@ -129,7 +142,7 @@ object BuyRouteSafety8522 {
         return accepted ?: pending("BUY_ROUTE_POOL_PROOF_PENDING_8522", "route=${route.source}")
     }
 
-    private fun checkedReport(ts: TokenState, route: Route, callSite: String): SafetyReport {
+    private fun checkedReport(ts: TokenState, route: Route, callSite: String): Pair<SafetyReport, Boolean> {
         repeat(2) {
             val before = ts.safety
             val gate = PreTradeHardGate.requireLiveBuyAllowed(ts, callSite,
@@ -140,7 +153,8 @@ object BuyRouteSafety8522 {
             // The gate may legitimately add its just-read mint/freeze account proof. Any
             // other concurrent replacement (including PAPER policy) needs another full gate.
             if (before.copy(mintAuthorityDisabled = after.mintAuthorityDisabled,
-                    freezeAuthorityDisabled = after.freezeAuthorityDisabled) == after) return after
+                    freezeAuthorityDisabled = after.freezeAuthorityDisabled) == after)
+                return after to gate.detail.contains(com.lifecyclebot.engine.truth.ExploreLive8733.LP_EXPLORE_8733)
         }
         throw Refused("BUY_FINAL_SAFETY_CHANGED_8522", "safety changed during both final evaluations; retry with current evidence",
             LiquidityOwnership8522.Status.PENDING)
@@ -149,11 +163,12 @@ object BuyRouteSafety8522 {
     fun requireAllowed(ts: TokenState, route: Route, callSite: String) {
         // Deliberately read current safety after all asynchronous quote/build/freshen work.
         // Top-ups and route fallbacks have the same live prerequisite as the first buy.
-        val report = checkedReport(ts, route, callSite)
+        val (report, explore8735) = checkedReport(ts, route, callSite)
         val now = System.currentTimeMillis()
         val active = !ts.tokenMap.migratedOrGraduated && LiquidityOwnership8522.activeCurveVerified(ts.mint, now)
         val curve = if (active) try { PumpCurveKeys7269.canonicalCurveKey7392(ts.mint).orEmpty() } catch (_: Throwable) { "" } else ""
-        val verdict = assess(ts.mint, report, route, active, curve, TokenSafetyChecker.isWhitelisted(ts.mint), now)
+        val verdict = assess(ts.mint, report, route, active, curve, TokenSafetyChecker.isWhitelisted(ts.mint), now,
+            exploreLp8735 = explore8735)
         if (verdict.status != LiquidityOwnership8522.Status.PROVEN) {
             if (verdict.status == LiquidityOwnership8522.Status.PENDING) {
                 try { SafetyRefreshQueue.request(ts.mint) } catch (_: Throwable) {}
