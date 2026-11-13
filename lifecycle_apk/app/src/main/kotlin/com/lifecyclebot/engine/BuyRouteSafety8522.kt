@@ -160,6 +160,38 @@ object BuyRouteSafety8522 {
             LiquidityOwnership8522.Status.PENDING)
     }
 
+    /**
+     * V5.0.8736 §NO_BUY_WITHOUT_A_SELL — owner, 8735: "your now letting it buy tokens that cant be sold at all".
+     * Before any Jupiter buy is signed, the exact quantity it buys must be quotable back to SOL now, and that sell must
+     * return at least [MIN_ROUND_TRIP_8736] of the SOL spent. No sell route, a failed quote, or a round trip that loses
+     * more than half (transfer tax, hook, honeypot, no depth) refuses the buy. Never waived by any lane, cell or explore.
+     */
+    fun requireSellable8736(ts: TokenState, buyQuote: SwapQuote?, sellQuote: (Long) -> SwapQuote, callSite: String) {
+        val why = sellableRefusal8736(buyQuote, try { buyQuote?.takeIf { it.outAmount > 0L }?.let { sellQuote(it.outAmount) } }
+            catch (e: Exception) { null })
+        if (why == null) { try { PipelineHealthCollector.labelInc("BUY_SELL_PROVEN_8736") } catch (_: Throwable) {}; return }
+        try {
+            PipelineHealthCollector.labelInc(why.first)
+            ForensicLogger.lifecycle("BUY_UNSELLABLE_REFUSED_8736", "mint=${ts.mint} site=$callSite reason=${why.first} ${why.second}")
+        } catch (_: Throwable) {}
+        throw Refused(why.first, why.second, LiquidityOwnership8522.Status.BLOCKED)
+    }
+
+    /** Pure: why a buy of [buy] whose tokens quote back as [sell] is refused, or null when the round trip is proven. */
+    fun sellableRefusal8736(buy: SwapQuote?, sell: SwapQuote?): Pair<String, String>? {
+        val spent = buy?.inAmount ?: 0L
+        return when {
+            buy == null || spent <= 0L || buy.outAmount <= 0L -> "BUY_SELL_UNPROVEN_NO_BUY_QUOTE_8736" to "buy quote missing"
+            sell == null -> "BUY_SELL_UNPROVEN_NO_SELL_ROUTE_8736" to "no sell quote for ${buy.outAmount} raw"
+            sell.outAmount <= 0L -> "BUY_SELL_UNPROVEN_ZERO_OUT_8736" to "sell quote returns 0"
+            sell.outAmount.toDouble() / spent.toDouble() < MIN_ROUND_TRIP_8736 ->
+                "BUY_ROUND_TRIP_LOSES_TOO_MUCH_8736" to "spent=$spent sellBack=${sell.outAmount}"
+            else -> null
+        }
+    }
+
+    private const val MIN_ROUND_TRIP_8736 = 0.5
+
     fun requireAllowed(ts: TokenState, route: Route, callSite: String) {
         // Deliberately read current safety after all asynchronous quote/build/freshen work.
         // Top-ups and route fallbacks have the same live prerequisite as the first buy.

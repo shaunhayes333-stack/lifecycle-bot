@@ -25,6 +25,16 @@ import java.util.concurrent.atomic.AtomicLong
  */
 object ExploreLive8733 {
     const val LP_EXPLORE_8733 = "LP_UNREAD_EXPLORE_8733"
+
+    /**
+     * V5.0.8736 — OFF. Owner, 8735 capture: "your now letting it buy tokens that cant be sold at all". The explore path
+     * let a coin through on chain substitutes for RugCheck, and the bot's "executable exit" is pool depth, not a sell:
+     * nothing proved the token itself could be sold (RugCheck's own findings — Token-2022 transfer hooks, permanent
+     * delegate, pausable, non-transferable, transfer fees — are what the substitute skipped). The one explore buy that
+     * landed (Cw1CLZ, 0.039 SOL) then failed every sell quote. No buy is let through on unread proofs again until a real
+     * token->SOL sell is proven for the coin before the buy.
+     */
+    private const val ENABLED_8736 = false
     const val MAX_OPEN_8733 = 2
     const val MAX_PER_DAY_8733 = 8
     private const val MAX_SOL_8733 = 0.05
@@ -47,6 +57,7 @@ object ExploreLive8733 {
 
     /** PreTradeHardGate: may [ts]'s unread LP ownership be bought at explore size now? */
     fun eligible8733(ts: TokenState, nowMs: Long): Boolean {
+        if (!ENABLED_8736) return false
         if (!withinBudget8733(openCount8733(), spentToday8733(nowMs))) return false
         val cell = cellPaying8733(ts, nowMs) ?: return false
         lastCell = cell

@@ -2422,6 +2422,8 @@ class Executor(
                             jitoTip: Long, ultraReqId: String?, c: com.lifecyclebot.data.BotConfig,
                             submission8397: BuySubmissionReceipt8397? = null, owner8418: com.lifecyclebot.network.SignedTxLedger8085.Intent? = null): String {
         BuyRouteSafety8522.requireAllowed(ts, BuyRouteSafety8522.jupiter(tx.executionQuote8521), "JUPITER_FINAL_SIGN")
+        BuyRouteSafety8522.requireSellable8736(ts, tx.executionQuote8521,
+            { raw -> jupiter.getQuote(ts.mint, JupiterApi.SOL_MINT, raw, 1_500) }, "JUPITER_FINAL_SIGN")
         com.lifecyclebot.network.SignedTxLedger8085.intend(com.lifecyclebot.network.SignedTxLedger8085.Intent(ts.mint, "BUY", positionId = owner8418?.positionId.orEmpty(), intentId = submission8397?.attemptId ?: owner8418?.intentId.orEmpty(), route = if (ultraReqId != null) "JUPITER_ULTRA" else "JUPITER"))
         return BuySubmissionReceipt8397.observe8397(submission8397) {
             wallet.signSendAndConfirm(tx.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, tx.isRfqRoute, tx.senderCompatible)
