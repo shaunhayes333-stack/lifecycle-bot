@@ -66,7 +66,8 @@ class Aate8398WatchlistEvictionTest {
     fun `registry eviction reads the 8398 pool instead of the lowest process count order`() {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/GlobalTradeRegistry.kt").readText()
         assertTrue(src.contains("WatchlistEviction8398.pool8398("))
-        assertTrue(src.contains("WatchlistEviction8398.victim8398(pool8398, pumpOver8029)"))
+        // superseded by V5.0.8738 — the ranked victim falls back to victim8398 (same order) when nothing is rated
+        assertTrue(src.contains("WatchlistEviction8398.victim8738(pool8398, now, pumpOver8029, { LaneParticipation8029.pumpFamily8029(it) })"))
         assertTrue(src.contains("WATCHLIST_EVICT_UNDECIDED_PROTECTED_8398"))
         assertFalse(src.contains("compareBy<WatchlistEntry> { it.processCount }"))
     }

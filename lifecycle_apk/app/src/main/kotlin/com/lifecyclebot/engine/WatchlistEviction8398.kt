@@ -67,6 +67,24 @@ object WatchlistEviction8398 {
         return Pool(evictable, protectedUndecided, protectedAwaiting)
     }
 
+    /**
+     * V5.0.8738 §THE_BENCH_KEEPS_WHAT_THE_RANKER_RATES — owner: "rework the hunters, filter and watchlist scanner".
+     * The bench evicted by age and pump.fun share; the 8736 export says nothing in that order separates (admitted -7.9 %,
+     * refused -7.3 %). The victim is now the evictable coin the learned ranker (TreeRanker8737, walk-forward AUC 0.74)
+     * rates lowest, among the [RANK_SCAN_8738] oldest evictable (bounded work per eviction). A coin it cannot rate after
+     * the undecided window ([MAX_UNDECIDED_AGE_MS_8398]: still no features) goes first. Untrained ranker, or nothing
+     * rated: the 8029 / 8398 order, unchanged. Pure.
+     */
+    fun victim8738(pool: Pool, now: Long, pumpOverShare: Boolean, pumpFamily: (String) -> Boolean, rank: (String) -> Double?): Row? {
+        val scan = pool.evictable.take(RANK_SCAN_8738)
+        val rated = scan.map { it to rank(it.mint)?.takeIf { r -> r.isFinite() } }
+        if (rated.none { it.second != null }) return victim8398(pool, pumpOverShare, pumpFamily)
+        rated.firstOrNull { it.second == null && now - it.first.addedAt >= MAX_UNDECIDED_AGE_MS_8398 }?.let { return it.first }
+        return rated.filter { it.second != null }.minByOrNull { it.second!! }?.first
+    }
+
+    internal const val RANK_SCAN_8738 = 24
+
     /** The victim: a pump.fun coin first while pump.fun holds over its share (V5.0.8029), else the oldest evictable. */
     fun victim8398(pool: Pool, pumpOverShare: Boolean, pumpFamily: (String) -> Boolean): Row? =
         (if (pumpOverShare) pool.evictable.firstOrNull { pumpFamily(it.source) } else null) ?: pool.evictable.firstOrNull()

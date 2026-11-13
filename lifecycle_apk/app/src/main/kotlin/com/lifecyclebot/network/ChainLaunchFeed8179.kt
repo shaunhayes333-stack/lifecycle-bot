@@ -131,7 +131,9 @@ object ChainLaunchFeed8179 {
 
     const val RAYDIUM_AMM_V4_8179 = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
     private const val RAYDIUM_CPMM_8179 = "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C"
-    private const val RAYDIUM_LAUNCHLAB_8179 = "LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eAd3gNb7J"
+    // V5.0.8738 — the real LaunchLab id (docs.raydium.io/reference/program-addresses). It read "...eAd3gNb7J", an address
+    // no transaction mentions: notes{RAY_LAUNCHLAB=0} in every capture — no bonk.fun / LaunchLab coin was ever heard at birth.
+    internal const val RAYDIUM_LAUNCHLAB_8179 = "LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj"
     private const val METEORA_DLMM_8179 = "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo"
     private const val METEORA_DAMM_V1_8179 = "Eo7WjKq67rjJQSZxS6z3YkapzY3eMj6Xy8X5EQVn5UaB"
     private const val METEORA_DAMM_V2_8179 = "cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG"
@@ -458,6 +460,19 @@ object ChainLaunchFeed8179 {
 
     const val GOVERNOR_WINDOW_MS = 10_000L
     const val GOVERNOR_MAX_PER_WINDOW = 40
+
+    /**
+     * V5.0.8738 — 8735 capture: in 30 minutes the feed heard 4 launches; MET_DBC and MET_DAMM_V1 were parked for
+     * exceeding 40 notifications / 10 s, the ceiling sized for the 400k-credit day. Every DBC / DAMM / DLMM / LaunchLab
+     * swap mentions its program, so the streams that carry the non-pump.fun births were parked most of the time. The
+     * ceiling scales with the owner's plan (85M/month = 2.83M a day -> 283 / 10 s), never under 40, never over 400. Pure.
+     */
+    fun governorMax8738(dailyCredits: Double): Int =
+        (GOVERNOR_MAX_PER_WINDOW * (if (dailyCredits.isFinite()) dailyCredits else 0.0) / 400_000.0).toInt()
+            .coerceIn(GOVERNOR_MAX_PER_WINDOW, 400)
+
+    private fun dailyCredits8738(): Double =
+        try { com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.DAILY_BUDGET_CREDITS } catch (_: Throwable) { 0.0 }
     private const val PARK_BASE_MS = 30L * 60_000L
     private const val PARK_MAX_MS = 4L * 60L * 60_000L
     const val MAX_DISCOVERIES_PER_MIN = 20
@@ -737,7 +752,7 @@ object ChainLaunchFeed8179 {
         notifications.incrementAndGet()
         notesByTarget.computeIfAbsent(targetKey) { AtomicLong(0) }.incrementAndGet()
         val now = System.currentTimeMillis()
-        if (governors.computeIfAbsent(targetKey) { StreamGovernor8179(GOVERNOR_MAX_PER_WINDOW, GOVERNOR_WINDOW_MS) }.note8179(now)) {
+        if (governors.computeIfAbsent(targetKey) { StreamGovernor8179(governorMax8738(dailyCredits8738()), GOVERNOR_WINDOW_MS) }.note8179(now)) {
             // Stop future delivery. This notification already arrived and can be the actual pool creation.
             park8179(targetKey, now)
         }

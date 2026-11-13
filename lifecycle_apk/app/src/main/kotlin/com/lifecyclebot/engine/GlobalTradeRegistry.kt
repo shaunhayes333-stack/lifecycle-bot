@@ -570,7 +570,13 @@ object GlobalTradeRegistry {
             // (5.0.8027: ~95% of intake was pump.fun and 476 evictions in 23 min pushed the market hunters' coins out).
             val pumpOver8029 = watchlist.values.count { LaneParticipation8029.pumpFamily8029(it.source) } >=
                 LaneParticipation8029.PUMP_MAX_SHARE * watchlist.size
-            val victimRow8398 = WatchlistEviction8398.victim8398(pool8398, pumpOver8029) { LaneParticipation8029.pumpFamily8029(it) }
+            val victimRow8398 = WatchlistEviction8398.victim8738(pool8398, now, pumpOver8029, { LaneParticipation8029.pumpFamily8029(it) }) { m ->
+                // V5.0.8738 — the learned ranker's rating of the resident (null while untrained or unreadable)
+                try {
+                    val ts = BotService.status.tokens[m] ?: return@victim8738 null
+                    com.lifecyclebot.engine.truth.TreeRanker8737.predict8737(com.lifecyclebot.engine.truth.EdgeModel8537.rawFor8610(ts, "", now), m)
+                } catch (_: Throwable) { null }
+            }
             if (victimRow8398 != null && pumpOver8029 && LaneParticipation8029.pumpFamily8029(victimRow8398.source)) LaneParticipation8029.notePumpEviction8029()
             val victim = victimRow8398?.let { watchlist[it.mint] }
             if (pool8398.protectedUndecided > 0) try { PipelineHealthCollector.labelInc("WATCHLIST_EVICT_UNDECIDED_PROTECTED_8398") } catch (_: Throwable) {}
