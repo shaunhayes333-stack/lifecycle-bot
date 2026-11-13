@@ -19,7 +19,7 @@ class Aate8745OutcomeLessonTest {
 
     @Test fun theBusWithholdsThemFromEverySubscriber() {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/CanonicalLearning.kt").readText()
-        assertTrue(Regex("OutcomeLesson8745\\.teaches8745\\(normalized\\.closeReason\\)\\)\\) return").findAll(src).count() == 2)
+        assertTrue(Regex("OutcomeLesson8745\\.teaches8745\\(normalized\\.closeReason\\)\\) return").findAll(src).count() == 2)
         val pub = src.substringAfter("fun publish(raw: CanonicalTradeOutcome)").substringBefore("fun publishUnchecked(")
         assertTrue(pub.indexOf("teaches8745") < pub.indexOf("for (s in subscribers)"))
         assertTrue(pub.indexOf("bumpCounters(normalized)") < pub.indexOf("teaches8745"))

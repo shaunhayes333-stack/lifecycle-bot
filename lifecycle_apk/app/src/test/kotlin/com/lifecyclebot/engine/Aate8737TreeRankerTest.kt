@@ -32,8 +32,8 @@ class Aate8737TreeRankerTest {
 
     @Test fun theEdgeModelUsesItUnderItsOwnRecord() {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/truth/EdgeModel8537.kt").readText()
-        assertTrue(src.contains("return if (tree != null) tree to TreeRanker8737.KEY_8737 else predictLocked(x, raw.lane)"))
-        assertTrue(src.contains("val (p, key) = predict8737(raw, x, ts.mint)"))
+        assertTrue(src.contains("tree != null -> tree to TreeRanker8737.KEY_8737"))   // V5.0.8746: the mind answers first once warm
+        assertTrue(src.contains("val (p, key) = predict8737(raw, x, ts.mint, ts"))
         assertTrue(src.contains("Verdict(p, p.isFinite() && o != null && authority(o.selN, o.selMean, o.selSe, o.allMean), key, trained,"))
     }
 }
