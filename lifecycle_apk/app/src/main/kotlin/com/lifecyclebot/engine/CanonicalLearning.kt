@@ -714,6 +714,7 @@ object CanonicalOutcomeBus {
         while (recentEvents.size > RECENT_MAX) recentEvents.pollLast()
         // Route to layers — strategy vs execution separation.
         try { LayerEducationRouter.dispatch(normalized) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.truth.ExitCensus8747.noteClose8747(normalized.mint, normalized.closeReason, normalized.exitPrice, normalized.exitTimeMs) } catch (_: Throwable) {}   // V5.0.8747
         // V5.0.8745 — a close the bot's machinery forced is recorded above, never taught to the strategy brains.
         if (!com.lifecyclebot.engine.truth.OutcomeLesson8745.teaches8745(normalized.closeReason)) return
         // Fan out to subscribers.
@@ -749,6 +750,7 @@ object CanonicalOutcomeBus {
         recentEvents.addFirst(normalized)
         while (recentEvents.size > RECENT_MAX) recentEvents.pollLast()
         try { LayerEducationRouter.dispatch(normalized) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.truth.ExitCensus8747.noteClose8747(normalized.mint, normalized.closeReason, normalized.exitPrice, normalized.exitTimeMs) } catch (_: Throwable) {}   // V5.0.8747
         if (!com.lifecyclebot.engine.truth.OutcomeLesson8745.teaches8745(normalized.closeReason)) return   // V5.0.8745
         for (s in subscribers) {
             try { s.onOutcome(normalized) } catch (t: Throwable) {

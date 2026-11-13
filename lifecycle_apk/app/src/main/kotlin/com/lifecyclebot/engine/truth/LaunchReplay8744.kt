@@ -19,8 +19,15 @@ import java.util.concurrent.atomic.AtomicBoolean
  * mean - SE (n >= [MIN_N]). Measurement only: it trades nothing.
  */
 object LaunchReplay8744 {
-    data class Rule(val capUsd: Double, val minBuys: Int, val takeX: Double, val stopPct: Double)
-    data class Result(val rule: Rule, val n: Int, val mean: Double, val se: Double, val win: Double, val twoX: Double)
+    /**
+     * V5.0.8747 — how the position is unwound (owner: "the bot should be able to hit 50x trades"):
+     *  HALF_TRAIL  half at [Rule.takeX], the rest trailed 30 % from its peak;
+     *  DOCTRINE    the bot's runner ladder today: 25 % at 2x, 18 % at 5x, 67 % of the rest at 10x, the rest trailed 45 %;
+     *  MOONBAG     half at [Rule.takeX], 30 % at 10x, the last 20 % trailed 60 % from its peak (a 50x keeps a real bag).
+     */
+    enum class Ladder { HALF_TRAIL, DOCTRINE, MOONBAG }
+    data class Rule(val capUsd: Double, val minBuys: Int, val takeX: Double, val stopPct: Double, val ladder: Ladder = Ladder.HALF_TRAIL)
+    data class Result(val rule: Rule, val n: Int, val mean: Double, val se: Double, val win: Double, val twoX: Double, val tenX: Double = 0.0)
 
     private const val DELAY_MS = 2_000L
     private const val TRAIL_PCT = 30.0
@@ -31,8 +38,8 @@ object LaunchReplay8744 {
     private const val SUPPLY = 1.0e9
 
     val GRID: List<Rule> = buildList {
-        for (cap in listOf(5_000.0, 8_000.0, 10_000.0, 15_000.0, 20_000.0)) for (b in listOf(3, 8, 15, 30))
-            for (tx in listOf(2.0, 3.0, 4.0, 5.0)) for (st in listOf(20.0, 35.0, 50.0)) add(Rule(cap, b, tx, st))
+        for (cap in listOf(5_000.0, 10_000.0, 15_000.0)) for (b in listOf(3, 8, 15))
+            for (tx in listOf(2.0, 3.0, 5.0)) for (st in listOf(20.0, 35.0)) for (l in Ladder.values()) add(Rule(cap, b, tx, st, l))
     }
 
     /** Pure: the net % of [rule] on one launch's prints, or null when it never triggered. */
@@ -53,16 +60,25 @@ object LaunchReplay8744 {
         val entry = p[e]
         if (!(entry > 0.0)) return null
         var held = 1.0; var banked = 0.0; var peak = entry; var tookHalf = false
+        val rungs = when (rule.ladder) {   // (multiple, fraction of the ORIGINAL position)
+            Ladder.HALF_TRAIL -> listOf(rule.takeX to 0.5)
+            Ladder.DOCTRINE -> listOf(2.0 to 0.25, 5.0 to 0.18, 10.0 to 0.57 * 0.67)
+            Ladder.MOONBAG -> listOf(rule.takeX to 0.5, 10.0 to 0.3)
+        }
+        val trailPct = when (rule.ladder) { Ladder.HALF_TRAIL -> TRAIL_PCT; Ladder.DOCTRINE -> 45.0; Ladder.MOONBAG -> 60.0 }
+        var nextRung = 0
         for (k in e + 1 until t.size) {
             val px = p[k]
             if (!(px > 0.0)) continue
             val g = px / entry - 1.0
             if (px > peak) peak = px
-            if (!tookHalf && px >= entry * rule.takeX) { banked += 0.5 * g; held -= 0.5; tookHalf = true }
-            val stopHit = px <= entry * (1.0 - rule.stopPct / 100.0)
-            val trailHit = tookHalf && px <= peak * (1.0 - TRAIL_PCT / 100.0)
+            while (nextRung < rungs.size && px >= entry * rungs[nextRung].first) {
+                val sell = minOf(rungs[nextRung].second, held); banked += sell * g; held -= sell; nextRung++; tookHalf = true
+            }
+            val stopHit = !tookHalf && px <= entry * (1.0 - rule.stopPct / 100.0)
+            val trailHit = tookHalf && px <= peak * (1.0 - trailPct / 100.0)
             val timeHit = !tookHalf && t[k] - t[e] >= TIME_STOP_MS && peak < entry * 1.2
-            if (stopHit || trailHit || timeHit) { banked += held * g; held = 0.0; break }
+            if (stopHit || trailHit || timeHit || held <= 1e-9) { banked += held * g; held = 0.0; break }
         }
         if (held > 0.0) banked += held * (p.last() / entry - 1.0)
         return banked * 100.0 - (if (costPct.isFinite()) costPct else 0.0)
@@ -75,7 +91,7 @@ object LaunchReplay8744 {
         if (v.size < 2) return@mapNotNull null
         val m = v.average(); val sd = kotlin.math.sqrt(v.sumOf { (it - m) * (it - m) } / (v.size - 1))
         Result(r, v.size, m, sd / kotlin.math.sqrt(v.size.toDouble()), v.count { it > 0.0 }.toDouble() / v.size,
-            v.count { it >= 100.0 }.toDouble() / v.size)
+            v.count { it >= 100.0 }.toDouble() / v.size, v.count { it >= 900.0 }.toDouble() / v.size)
     }.sortedWith(compareByDescending<Result> { it.n >= MIN_N }.thenByDescending { it.mean - it.se })
 
     @Volatile private var last: List<Result> = emptyList()
@@ -105,8 +121,8 @@ object LaunchReplay8744 {
     fun statusLine8744(): String {
         maybeRun8744()
         val top = last.take(6).joinToString(" · ") { r ->
-            "cap\$${(r.rule.capUsd / 1000).toInt()}k buys>=${r.rule.minBuys} tp${r.rule.takeX.toInt()}x stop${r.rule.stopPct.toInt()}% " +
-                "n${r.n} ${"%+.1f".format(r.mean)}±${"%.1f".format(r.se)}% win${(r.win * 100).toInt()}% 2x+${(r.twoX * 100).toInt()}%"
+            "cap\$${(r.rule.capUsd / 1000).toInt()}k buys>=${r.rule.minBuys} tp${r.rule.takeX.toInt()}x stop${r.rule.stopPct.toInt()}% ${r.rule.ladder} " +
+                "n${r.n} ${"%+.1f".format(r.mean)}±${"%.1f".format(r.se)}% win${(r.win * 100).toInt()}% 2x+${(r.twoX * 100).toInt()}% 10x+${"%.1f".format(r.tenX * 100)}%"
         }.ifBlank { "-" }
         return "launchReplay8744[$status launches=$launches rules=${GRID.size} best{$top} " +
             "rule=entry on cap+buys/60s after ${DELAY_MS / 1000}s, half at tp, trail ${TRAIL_PCT.toInt()}%, stop, 10m time stop, cost in]"
