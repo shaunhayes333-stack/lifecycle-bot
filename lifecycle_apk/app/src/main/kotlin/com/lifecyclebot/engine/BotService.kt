@@ -12584,7 +12584,17 @@ class BotService : Service() {
                             val subPnlVerdict = subTraderPnl8032(ts, entryPrice, currentPrice)
                             if (!subPnlVerdict.ok) continue
                             val pnlPct = subPnlVerdict.pnlPct
-                            if (pnlPct <= subFloor) {
+                            // V5.0.8743 — owner, paper decision log: "see how badly the subtrader is running". This sweep cut
+                            // every sub-trader position at a flat -15 % on a raw mark, under the lane's own stop and without the
+                            // rapid monitor's executable confirmation, so a runner's ordinary wick was sold (and booked as a
+                            // lesson) before the lane's exits were asked. It now uses the SAME floor as the rapid monitor
+                            // (ExitDoctrine8169.rapidHardFloorMag8169: the lane's earned floor, else 15 %) and, live, the same
+                            // executable confirmation of the loss before it sells.
+                            val laneFloor8743 = -(try { ExitDoctrine8169.rapidHardFloorMag8169(ts) } catch (_: Throwable) { -subFloor })
+                            val confirmed8743 = cfg.paperMode || (try {
+                                StopMarkConfirm8418.executableConfirms8419(ts, laneFloor8743)
+                            } catch (_: Throwable) { true })
+                            if (pnlPct <= laneFloor8743 && confirmed8743) {
                                 ErrorLogger.warn("BotService",
                                     "🚨 RAPID_SUB_TRADER_HARD_FLOOR: $mint pnl=${pnlPct.toInt()}% — force-closing")
                                 addLog("🛑 SUB-TRADER RAPID STOP: $mint ${pnlPct.toInt()}%")
