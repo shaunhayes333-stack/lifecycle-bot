@@ -1585,6 +1585,8 @@ object PipelineHealthCollector {
         sb.append("  Floors (§8719): ").append(try { com.lifecyclebot.engine.truth.ManagedBands8719.statusLine8719() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Paying cells (§8723): ").append(try { com.lifecyclebot.engine.truth.PayingCell8723.statusLine8723() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  LP state of paying-cell coins (§8725): ").append(try { com.lifecyclebot.engine.truth.LpStateRecord8725.statusLine8725() } catch (_: Throwable) { "unavailable" }).append("\n")
+        sb.append("  Mind (§8746): ").append(try { com.lifecyclebot.engine.truth.Mind8746.statusLine8746() } catch (_: Throwable) { "unavailable" }).append("\n")
+        sb.append("  LLM analyst (§8746): ").append(try { com.lifecyclebot.engine.truth.LlmAnalyst8746.statusLine8746() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Outcome lessons (§8745): ").append(try { com.lifecyclebot.engine.truth.OutcomeLesson8745.statusLine8745() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Launch replay (§8744): ").append(try { com.lifecyclebot.engine.truth.LaunchReplay8744.statusLine8744() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Tree ranker (§8737): ").append(try { com.lifecyclebot.engine.truth.TreeRanker8737.statusLine8737() } catch (_: Throwable) { "unavailable" }).append("\n")

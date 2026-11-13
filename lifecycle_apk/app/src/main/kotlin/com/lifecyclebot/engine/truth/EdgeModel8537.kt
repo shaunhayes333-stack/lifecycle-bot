@@ -376,10 +376,24 @@ object EdgeModel8537 {
      * V5.0.8737 — the boosted-tree ranker predicts once it has trained on this device's dataset; its record key is its own,
      * so it earns authority from nothing on its own out-of-sample picks and refusals. Until then the ridge answers.
      */
-    private fun predict8737(raw: Raw, x: DoubleArray, mint: String): Pair<Double, String> {
-        try { TreeRanker8737.maybeRetrain8737(dir()?.let { File(it, DATASET_FILE) }, System.currentTimeMillis()) } catch (_: Throwable) {}
+    private fun predict8737(raw: Raw, x: DoubleArray, mint: String, ts: TokenState? = null, freezeAtMs: Long? = null): Pair<Double, String> {
+        val now = System.currentTimeMillis()
+        try { TreeRanker8737.maybeRetrain8737(dir()?.let { File(it, DATASET_FILE) }, now) } catch (_: Throwable) {}
         val tree = try { TreeRanker8737.predict8737(raw, mint) } catch (_: Throwable) { null }
-        return if (tree != null) tree to TreeRanker8737.KEY_8737 else predictLocked(x, raw.lane)
+        // V5.0.8746 — the mind: every voter, stacked; it answers only once it has learned (else tree / ridge as before).
+        val ridge = predictLocked(x, raw.lane)
+        val cell = try { ts?.let { PayingCell8723.evidence8723(it, raw.lane, now)?.meanPct } } catch (_: Throwable) { null }
+        if (tree != null && tree >= 0.0) try { LlmAnalyst8746.request8746(raw, mint, now) } catch (_: Throwable) {}
+        val llmP = try { LlmAnalyst8746.prob8746(mint, now) } catch (_: Throwable) { null }
+        val f = Mind8746.features8746(tree ?: Double.NaN, ridge.first, cell ?: Double.NaN, llmP ?: Double.NaN)
+        if (freezeAtMs != null) try { Mind8746.freeze8746(mint, freezeAtMs, f) } catch (_: Throwable) {}
+        val mind = try { Mind8746.predict8746(f) } catch (_: Throwable) { null }
+        try { Mind8746.note8746(mint, f, mind, now) } catch (_: Throwable) {}
+        return when {
+            mind != null -> mind to Mind8746.KEY_8746
+            tree != null -> tree to TreeRanker8737.KEY_8737
+            else -> ridge
+        }
     }
 
     @Synchronized private fun predictLocked(x: DoubleArray, laneKey: String): Pair<Double, String> {
@@ -427,7 +441,7 @@ object EdgeModel8537 {
         ensureLoaded()
         val raw = rawOf(ts, laneRaw, costPct, nowMs)
         val x = vectorOf(raw)
-        val (p, key) = predict8737(raw, x, ts.mint)
+        val (p, key) = predict8737(raw, x, ts.mint, ts, freezeAtMs = nowMs)
         Snap(raw, x, p, key, nowMs, ts.mint, admitted, PocketLedger8610.targetHorizon(raw.lane))
     } catch (_: Throwable) { null }
 
@@ -471,6 +485,7 @@ object EdgeModel8537 {
             return
         }
         val y = managedTarget8722(s.raw.lane, netPct, s.raw.costPct)
+        try { Mind8746.learn8746(s.mint, s.atMs, y) } catch (_: Throwable) {}   // V5.0.8746 — the mind learns the same label
         synchronized(this) {
             // A pending observation from the old model can teach its verified outcome, but its prediction
             // was made under a contaminated model. It must never earn walk-forward authority in this epoch.
@@ -496,10 +511,11 @@ object EdgeModel8537 {
         val raw = rawOf(ts, laneRaw, costPct, nowMs)
         val x = vectorOf(raw)
         synchronized(this) {
-            val (p, key) = predict8737(raw, x, ts.mint)
+            val (p, key) = predict8737(raw, x, ts.mint, ts)
             val o = oos[recordKey(raw.lane, key)]
             val trained = when (key) {
                 TreeRanker8737.KEY_8737 -> TreeRanker8737.trainedRows8737()
+                Mind8746.KEY_8746 -> TreeRanker8737.trainedRows8737()
                 raw.lane -> byLane[raw.lane]?.count ?: 0L
                 else -> global.count
             }

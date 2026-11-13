@@ -445,6 +445,11 @@ internal object CortexVotersWide8004 {
                 ts.meta.rsi, ts.meta.emafanAlignment, age / 60_000L,
             ).takeIf { it.trajectoryClass != "BOOTSTRAP" && it.trajectoryClass != "UNAVAILABLE" }?.entryConfidence?.toDouble()
         },
+        // V5.0.8746 — the new brains as Cortex voters: the Cortex learns, lane by lane, which of them pay.
+        v("MIND_STACKED_PRED", "FORECASTER", e(-20.0, -5.0, 0.0, 5.0, 20.0), "mind8746") { ts, _, now -> com.lifecyclebot.engine.truth.Mind8746.mindFor8746(ts.mint, now) },
+        v("TREE_RANKER_PRED", "FORECASTER", e(-20.0, -5.0, 0.0, 5.0, 20.0), "tree8737") { ts, _, now -> com.lifecyclebot.engine.truth.Mind8746.treeFor8746(ts.mint, now) },
+        v("LLM_ANALYST_P_UP", "FORECASTER", PROB, "llm8746") { ts, _, now -> com.lifecyclebot.engine.truth.Mind8746.llmFor8746(ts.mint, now) },
+        v("BRAIN_DISAGREEMENT_SSI", "FORECASTER", e(2.0, 5.0, 10.0, 20.0), "ssi8746") { ts, _, now -> com.lifecyclebot.engine.truth.Mind8746.spreadFor8746(ts.mint, now) },
         // ── raw TokenState fields no voter read ──
         v("META_VELOCITY", "TOKEN", e(10.0, 30.0, 60.0, 100.0), "meta_velocity") { ts, _, _ -> fin(ts.meta.velocityScore) },
         v("META_CURVE_PROGRESS", "TOKEN", e(20.0, 50.0, 80.0, 95.0), "meta_curve") { ts, _, _ -> pos(ts.meta.curveProgress) },
