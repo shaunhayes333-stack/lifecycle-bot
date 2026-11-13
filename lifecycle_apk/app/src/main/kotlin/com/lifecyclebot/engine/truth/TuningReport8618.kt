@@ -69,6 +69,7 @@ object TuningReport8618 {
     /** MemePaperTrader8544.fill8544: the paper position on [mint] closed at [net] % ([pnlSol]) for [why]. */
     fun notePaperClose8618(mint: String, lane: String, net: Double, pnlSol: Double, why: String, holdMs: Long) {
         if (!net.isFinite()) return
+        restore8744()
         val o = opens.remove(mint)
         add(byExit, "$lane|${why.substringBefore("_T").ifBlank { "?" }}", net, pnlSol, holdMs)
         if (o != null) {
@@ -76,6 +77,50 @@ object TuningReport8618 {
             add(byState, "$lane|phase=${o.phase}", net, pnlSol, holdMs)
             add(byState, "$lane|age=${o.ageBand}", net, pnlSol, holdMs)
         }
+        save8744()
+    }
+
+    // ── V5.0.8744 — owner: "build both now" (the launch replay and the paper/live parity check). This report IS the parity
+    // check (each paper close filed by LIVE's verdict on the same candidate) but it restarted empty with every process:
+    // the 8739 capture held 2 closes after 8.5 min. The three records now persist and accumulate across restarts.
+    @Volatile private var restored8744 = false
+    private fun file8744(): java.io.File? = try {
+        com.lifecyclebot.AATEApp.appContextOrNull()?.filesDir?.let { java.io.File(it, "tuning_8744.json") }
+    } catch (_: Throwable) { null }
+
+    /** Pure: the records as JSON. */
+    private fun json8744(): org.json.JSONObject = org.json.JSONObject().apply {
+        for ((name, m) in listOf("verdict" to byVerdict, "exit" to byExit, "state" to byState)) {
+            val o = org.json.JSONObject()
+            for ((k, a) in m) synchronized(a) {
+                o.put(k, org.json.JSONArray().put(a.n).put(a.wins).put(a.runners).put(a.sum).put(a.pnl).put(a.holdMs))
+            }
+            put(name, o)
+        }
+    }
+
+    private fun save8744() {
+        val f = file8744() ?: return
+        try { val tmp = java.io.File(f.parentFile, f.name + ".tmp"); tmp.writeText(json8744().toString()); if (!tmp.renameTo(f)) tmp.delete() } catch (_: Throwable) {}
+    }
+
+    @Synchronized private fun restore8744() {
+        if (restored8744) return
+        restored8744 = true
+        val f = file8744()?.takeIf { it.exists() } ?: return
+        try {
+            val j = org.json.JSONObject(f.readText())
+            for ((name, m) in listOf("verdict" to byVerdict, "exit" to byExit, "state" to byState)) {
+                val o = j.optJSONObject(name) ?: continue
+                for (k in o.keys()) {
+                    val a = o.optJSONArray(k) ?: continue
+                    m.getOrPut(k) { Agg() }.apply {
+                        n += a.optInt(0); wins += a.optInt(1); runners += a.optInt(2); sum += a.optDouble(3, 0.0)
+                        pnl += a.optDouble(4, 0.0); holdMs += a.optLong(5)
+                    }
+                }
+            }
+        } catch (_: Throwable) {}
     }
 
     private fun rows(m: ConcurrentHashMap<String, Agg>, title: String): String {
@@ -96,6 +141,7 @@ object TuningReport8618 {
 
     /** The report section. */
     fun section8618(): String = buildString {
+        restore8744()
         append("  READ       paper trades every meme candidate the paper way; each close is filed by what LIVE decided on that same\n")
         append("             candidate. A LIVE_REFUSE row with a positive mean is a live gate costing money; a negative one is a gate saving it.\n")
         append(rows(byVerdict, "PAPER RESULT BY LIVE VERDICT (lane | live verdict on the same candidate)"))

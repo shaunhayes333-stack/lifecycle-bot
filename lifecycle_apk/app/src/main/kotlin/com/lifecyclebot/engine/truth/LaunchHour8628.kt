@@ -106,6 +106,29 @@ object LaunchHour8628 {
         }
     }
 
+    /**
+     * V5.0.8744 — LaunchReplay8744's read: each stored launch (born in the retention window, >= [PATH_MIN_PRINTS_8741]
+     * prints) with its first-hour prints in time order: times (ms from birth), prices (SOL/token), buy flags. Read-only.
+     */
+    internal fun forEachLaunch8744(now: Long, maxLaunches: Int, cb: (mint: String, t: LongArray, p: DoubleArray, buy: BooleanArray) -> Unit) {
+        val path = AATEApp.appContextOrNull()?.getDatabasePath(NAME) ?: return
+        if (!path.exists()) return
+        SQLiteDatabase.openDatabase(path.path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
+            db.rawQuery("SELECT m,min(b) FROM birth GROUP BY m HAVING min(b)>=CAST(? AS INTEGER) ORDER BY min(b) DESC LIMIT $maxLaunches",
+                arrayOf((now - RETENTION).toString())).use { births ->
+                while (births.moveToNext()) {
+                    val mint = births.getString(0); val born = births.getLong(1)
+                    val ts = ArrayList<Long>(); val ps = ArrayList<Double>(); val bs = ArrayList<Boolean>()
+                    db.rawQuery("SELECT t,p,side FROM trade WHERE m=? AND t BETWEEN ? AND ? ORDER BY t,s,side",
+                        arrayOf(mint, born.toString(), (born + HOUR).toString())).use { c ->
+                        while (c.moveToNext()) { ts.add(c.getLong(0) - born); ps.add(c.getDouble(1)); bs.add(c.getInt(2) == 1) }
+                    }
+                    if (ts.size >= PATH_MIN_PRINTS_8741) cb(mint, ts.toLongArray(), ps.toDoubleArray(), bs.toBooleanArray())
+                }
+            }
+        }
+    }
+
     private const val PATH_MIN_PRINTS_8741 = 20
     private const val BAR_MS_8741 = 10_000L
 
