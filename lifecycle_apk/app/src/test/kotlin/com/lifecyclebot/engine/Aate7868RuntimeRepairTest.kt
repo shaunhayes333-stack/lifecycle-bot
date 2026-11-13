@@ -73,7 +73,7 @@ class Aate7868RuntimeRepairTest {
 
     @Test fun protectiveSellReadsTheSoldMintFirst() {
         val exec = src("engine/Executor.kt")
-        assertTrue(exec.contains("?: sellWalletBalances7868(wallet, ts)"))
+        assertTrue(exec.contains("?: sellWalletBalances7868(wallet, ts, reason)"))   // V5.0.8739: the exit reason bounds a protective read
         assertTrue(src("network/SolanaWallet.kt").contains("fun getSingleMintBalanceBounded7868("))
     }
 

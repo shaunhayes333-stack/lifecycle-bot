@@ -27723,18 +27723,30 @@ class Executor(
         return SellResult.WAITING_BALANCE_PROOF
     }
 
-    private fun sellWalletBalances7868(wallet: SolanaWallet, ts: TokenState): Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount> {
+    private fun sellWalletBalances7868(wallet: SolanaWallet, ts: TokenState, reason: String = ""): Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount> {
         // V5.0.8153 — an emergency answers from the proven holding, else one bounded parallel read (StopLatencyWiring8153):
         // no serial 2.5 s + 5 s + 6 s ladder and no multi-provider corroboration for a holding the wallet already shows.
         val hot8153 = try { com.lifecyclebot.engine.sell.StopLatencyWiring8153.hotPathBalances8153(wallet, ts.mint) } catch (_: Throwable) { null }
         if (hot8153 != null) return hot8153
-        val one = try { wallet.getSingleMintBalanceBounded7868(ts.mint) } catch (_: Throwable) { null }
+        // V5.0.8739 — 8735 EMRG receipts: TOKEN_BALANCE 6.1-16.6 s per protective sell (bound 3 s), the dominant stage:
+        // the single-mint read (2.5 s) then the whole-wallet scan (5 s + 6 s known-mints fallback). A protective exit now
+        // waits for one bounded single-mint read only; when it does not answer, the read is indeterminate and the stop
+        // broadcasts on the canonical buy-receipt quantity (StopBroadcast8363.rescue8363, clamped to the last wallet read
+        // after the last landed sell) — the swap fails cleanly if the tokens are not there. Non-protective sells unchanged.
+        val protective8739 = try { com.lifecyclebot.engine.sell.SellAmountAuthority.isEmergencyExitReason(reason) } catch (_: Throwable) { false }
+        val one = try { wallet.getSingleMintBalanceBounded7868(ts.mint, if (protective8739) PROTECTIVE_BALANCE_MS_8739 else 2_500L) } catch (_: Throwable) { null }
         if (one != null) {
             try { PipelineHealthCollector.labelInc("SELL_SINGLE_MINT_BALANCE_7868") } catch (_: Throwable) {}
             return mapOf(ts.mint to one)
         }
+        if (protective8739) {
+            try { PipelineHealthCollector.labelInc("SELL_PROTECTIVE_SKIPS_WALLET_SCAN_8739") } catch (_: Throwable) {}
+            throw RuntimeException("protective sell: single-mint balance unanswered in ${PROTECTIVE_BALANCE_MS_8739} ms; canonical quantity decides")
+        }
         return wallet.getTokenAccountsWithDecimalsBounded(5_000L)
     }
+
+    private val PROTECTIVE_BALANCE_MS_8739 = 1_500L
 
     private fun liveSellInScope7314(ts: TokenState, reason: String,
                          wallet: SolanaWallet, walletSol: Double,
@@ -28128,7 +28140,7 @@ class Executor(
             var onChainBalances: Map<String, com.lifecyclebot.engine.truth.CanonicalTokenAmount> = try {
                 com.lifecyclebot.engine.sell.SellAmountAuthority.emergencyWalletSnapshotBalance7730(ts.mint, reason)
                     ?.let { mapOf(ts.mint to com.lifecyclebot.engine.truth.CanonicalTokenAmount(it.rawAmount, it.decimals)) }
-                    ?: sellWalletBalances7868(wallet, ts)
+                    ?: sellWalletBalances7868(wallet, ts, reason)
             } catch (e: Throwable) {
                 walletReadIndeterminate = true
                 try { ForensicLogger.lifecycle("SELL_WALLET_READ_INDETERMINATE_NO_RESCUE", "mint=${ts.mint.take(10)} symbol=${ts.symbol} err=${e.message?.take(120)} action=wait_current_wallet_proof") } catch (_: Throwable) {}
