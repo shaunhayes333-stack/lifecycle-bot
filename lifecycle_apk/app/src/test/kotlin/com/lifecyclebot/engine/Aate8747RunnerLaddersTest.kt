@@ -18,10 +18,11 @@ class Aate8747RunnerLaddersTest {
     private fun net(l: Ladder) = LaunchReplay8744.simulate8744(t, p, b, LaunchReplay8744.Rule(10_000.0, 3, 3.0, 35.0, l), solUsd, 0.0)!!
 
     @Test fun eachLadderBanksAFiftyXByItsOwnRungs() {
-        // first print >= 3x is the 5x print (+400 %); the 10x print is +900 %; the hour ends at 30x (+2900 %), 40 % under the peak
-        assertEquals(0.5 * 400.0 + 0.5 * 2900.0, net(Ladder.HALF_TRAIL), 1e-6)            // 30 % trail fires at the 40 % give-back
-        assertEquals(0.5 * 400.0 + 0.3 * 900.0 + 0.2 * 2900.0, net(Ladder.MOONBAG), 1e-6)  // 60 % trail never fires
-        assertEquals(0.25 * 100.0 + 0.18 * 400.0 + 0.57 * 0.67 * 900.0 + 0.57 * 0.33 * 2900.0, net(Ladder.DOCTRINE), 1e-6)
+        // trigger at 3 s ($10k, 3 buys); the 2 s delay fills on the 60 s print (2e-7). From there: 2.5x, 5x (+400 %),
+        // 10x (+900 %), 25x peak, and the hour ends at 15x (+1400 %), 40 % under the peak.
+        assertEquals(0.5 * 400.0 + 0.5 * 1400.0, net(Ladder.HALF_TRAIL), 1e-6)            // 30 % trail fires at the 40 % give-back
+        assertEquals(0.5 * 400.0 + 0.3 * 900.0 + 0.2 * 1400.0, net(Ladder.MOONBAG), 1e-6)  // 60 % trail never fires
+        assertEquals(0.25 * 150.0 + 0.18 * 400.0 + 0.57 * 0.67 * 900.0 + 0.57 * 0.33 * 1400.0, net(Ladder.DOCTRINE), 1e-6)
     }
 
     @Test fun exitReasonsAreFamilies() {
