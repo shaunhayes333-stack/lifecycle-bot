@@ -116,9 +116,9 @@ object PumpSwapTape8307 {
         return first + mints.filter { it !in first }
     }
 
-    /** The Helius focus order: a migrated coin PumpPortal refuses PumpSwap data for gets a Helius slot first. */
+    /** The Helius focus order: a migrated coin PumpPortal refuses PumpSwap data for, and (8734) any non-pump.fun coin PumpPortal cannot stream at all, gets a Helius slot first. */
     fun migratedFirst8307(mints: List<String>): List<String> =
-        migratedFirst8307(mints) { PumpFunWS.pumpSwapMint8307(it) && !PumpFunWS.tradeStreamCoversMint8136(it) }
+        migratedFirst8307(mints) { (PumpFunWS.pumpSwapMint8307(it) && !PumpFunWS.tradeStreamCoversMint8136(it)) || !it.trim().endsWith("pump") }
 
     // ── V5.0.8307 §ONE_PARSED_STREAM_FOR_THE_COINS_THAT_MATTER (owner: "use all the data Helius is sending, don't go stupid") ──
     //
@@ -143,24 +143,43 @@ object PumpSwapTape8307 {
     private val enhancedCurvePrints = AtomicLong(0)
     private val enhancedAmmPrints = AtomicLong(0)
     private val enhancedNoSwap = AtomicLong(0)
+    private val balancePrints8734 = AtomicLong(0)
     private val enhancedUnattributed = AtomicLong(0)
     private val enhancedFailedTx = AtomicLong(0)
     private val eventsThisMinute = AtomicLong(0)
     @Volatile private var eventsLastMinute = 0L
 
     /** Pure: the next tape width after a minute that delivered [bytes] at [width] (min [TAPE_MIN_8307], max [TAPE_MAX_8307]). */
-    internal fun nextTapeWidth8307(width: Int, bytes: Long): Int = when {
-        bytes > TAPE_HIGH_BYTES_PER_MIN_8307 -> (width / 2).coerceAtLeast(TAPE_MIN_8307)
-        bytes < TAPE_LOW_BYTES_PER_MIN_8307 -> (width + 2).coerceAtMost(TAPE_MAX_8307)
-        else -> width.coerceIn(TAPE_MIN_8307, TAPE_MAX_8307)
+    internal fun nextTapeWidth8307(width: Int, bytes: Long, high: Long = TAPE_HIGH_BYTES_PER_MIN_8307,
+                                   max: Int = TAPE_MAX_8307): Int {
+        val low = high * TAPE_LOW_BYTES_PER_MIN_8307 / TAPE_HIGH_BYTES_PER_MIN_8307
+        return when {
+            bytes > high -> (width / 2).coerceAtLeast(TAPE_MIN_8307)
+            bytes < low -> (width + 2).coerceAtMost(max)
+            else -> width.coerceIn(TAPE_MIN_8307, max)
+        }
     }
+
+    /**
+     * V5.0.8734 — the owner's plan (85M credits a month) pays for a wider parsed stream: its byte mark is the plan's
+     * [TAPE_SHARE_8734] of the day's credits in websocket bytes (never under the old 3 MB), and a plan above that mark
+     * may include up to [TAPE_PLAN_MAX_8734] coins. Pure.
+     */
+    internal fun tapeHighBytes8734(dailyCredits: Double): Long =
+        maxOf(TAPE_HIGH_BYTES_PER_MIN_8307, HeliusCurveTape8354.highBytesPerMin8731(dailyCredits, TAPE_SHARE_8734))
+
+    internal fun tapeMax8734(high: Long): Int = if (high > TAPE_HIGH_BYTES_PER_MIN_8307) TAPE_PLAN_MAX_8734 else TAPE_MAX_8307
+
+    private const val TAPE_SHARE_8734 = 0.20
+    private const val TAPE_PLAN_MAX_8734 = 30
 
     /** HeliusEnhancedWS: bytes of one tape-subscription frame (the byte governor's clock). */
     fun noteTapeBytes8307(bytes: Int, nowMs: Long = System.currentTimeMillis()) {
         val minute = nowMs / 60_000L
         if (minute != tapeMinute) synchronized(this) {
             if (minute != tapeMinute) {
-                tapeWidth = nextTapeWidth8307(tapeWidth, tapeBytesMinute.getAndSet(0L))
+                val high8734 = tapeHighBytes8734(try { com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.DAILY_BUDGET_CREDITS } catch (_: Throwable) { 0.0 })
+                tapeWidth = nextTapeWidth8307(tapeWidth, tapeBytesMinute.getAndSet(0L), high8734, tapeMax8734(high8734))
                 eventsLastMinute = eventsThisMinute.getAndSet(0L)
                 tapeMinute = minute
             }
@@ -243,6 +262,16 @@ object PumpSwapTape8307 {
                         )) { n++; enhancedAmmPrints.incrementAndGet() }
                 }
             }
+            // V5.0.8734 — any other venue: the pool's own vault moves (PoolBalanceSwap8734), one pool or no print.
+            if (n == 0 && amm.isEmpty()) {
+                val mint8734 = attributeMint8307(PoolBalanceSwap8734.mintsOf8734(meta), included)
+                val signer8734 = keysOf8307(msg).firstOrNull().orEmpty()
+                val sw: PoolBalanceSwap8734.Swap8734? = mint8734?.let { PoolBalanceSwap8734.swapOf8734(meta, it, signer8734) }
+                if (mint8734 != null && sw != null && com.lifecyclebot.engine.truth.TradeTape8100.note8285(
+                        mint8734, sw.priceSol, sw.sol, sw.tokens, sw.isBuy, com.lifecyclebot.engine.truth.TradeTape8100.SRC_HELIUS_8169,
+                        pool = "", signature = sig, recvMs = nowMs, wallet = signer8734,
+                    )) { n++; balancePrints8734.incrementAndGet() }
+            }
             if (n == 0 && amm.isEmpty()) enhancedNoSwap.incrementAndGet()
             enhancedPrints.addAndGet(n.toLong())
             eventsThisMinute.addAndGet(n.toLong())
@@ -261,7 +290,7 @@ object PumpSwapTape8307 {
         val projected = if (f > 0.01) today / f else today
         return "helius8307[capabilities{${try { HeliusEnhancedWS.capabilityLine8307() } catch (_: Throwable) { "-" }}} " +
             "tape{width=$tapeWidth tx=${enhancedTx.get()} prints=${enhancedPrints.get()} curve=${enhancedCurvePrints.get()} " +
-            "amm=${enhancedAmmPrints.get()} printsLastMin=$eventsLastMinute noSwap=${enhancedNoSwap.get()} " +
+            "amm=${enhancedAmmPrints.get()} anyDex8734=${balancePrints8734.get()} printsLastMin=$eventsLastMinute noSwap=${enhancedNoSwap.get()} " +
             "unattributed=${enhancedUnattributed.get()} failedTx=${enhancedFailedTx.get()}} " +
             "das{${try { HeliusDasAuthority8307.line8307() } catch (_: Throwable) { "-" }} tapeMintsWithFacts=${dasFacts8307()}} tapeBudget8399=${tapeBudget8399()} " +
             "credits{today=${"%.0f".format(today)} projectedDay=${"%.0f".format(projected)}}]"

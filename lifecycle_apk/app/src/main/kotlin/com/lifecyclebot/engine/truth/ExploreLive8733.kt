@@ -2,7 +2,7 @@ package com.lifecyclebot.engine.truth
 
 import com.lifecyclebot.engine.BotService
 import com.lifecyclebot.engine.PipelineHealthCollector
-import com.lifecyclebot.engine.TokenState
+import com.lifecyclebot.data.TokenState
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
