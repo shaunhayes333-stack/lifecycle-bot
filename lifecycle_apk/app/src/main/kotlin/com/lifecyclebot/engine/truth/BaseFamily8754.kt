@@ -122,6 +122,16 @@ object BaseFamily8754 {
         return out
     }
 
+    /** V5.0.8755 — StrategyLab8755: one base rule (any parameters) on one path, or null when its trigger never fired. */
+    internal fun simulateRule8755(x: LaunchReplay8744.Path8748, rule: Rule, solUsd: Double, costPct: Double): Double? {
+        val st = State(rule.trigger)
+        for (i in x.t.indices) {
+            val sp = st.onPrint(x.t[i], x.p[i], x.buy[i], x.live[i], solUsd) ?: continue
+            return LaunchReplay8744.exitNet8754(x, LaunchReplay8744.entryIndex8754(x, i, rule.delayMs), rule.ladder, 2.0, sp, TIME_STOP_MS, costPct)
+        }
+        return null
+    }
+
     /** Pure: the rule the sniper may trade, or null. */
     internal fun provenOf8754(results: List<Graded>, minDelayMs: Long): Graded? = results.filter {
         it.rule.ladder == Ladder.DOCTRINE && it.rule.delayMs >= maxOf(10_000L, minDelayMs) && it.n >= PROVEN_MIN_N &&

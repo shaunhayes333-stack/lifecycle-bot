@@ -53,10 +53,13 @@ object LabPromotedFeed {
         if (liveRevoked.contains(strategyId)) return false
         if (liveAuthorised.contains(strategyId)) return true
         val s = try { LlmLabStore.getStrategy(strategyId) } catch (_: Throwable) { null } ?: return false
+        // V5.0.8755 — a Solana-meme strategy also needs its honest record (StrategyLab8755): lab paper fills at marks without
+        // cost promoted 17 strategies to +205.9 SOL of paper while every live lane lost
         return s.status == LabStrategyStatus.PROMOTED &&
             s.paperTrades >= LlmLabStore.MIN_TRADES_BEFORE_PROMOTION &&
             s.winRatePct() >= LlmLabStore.MIN_WR_FOR_PROMOTION_PCT &&
-            s.paperPnlSol >= LlmLabStore.MIN_PAPER_PNL_SOL_FOR_PROMOTION
+            s.paperPnlSol >= LlmLabStore.MIN_PAPER_PNL_SOL_FOR_PROMOTION &&
+            StrategyLab8755.honestPass8755(s)
     }
 
     fun requireLiveApproval(strategyId: String): Boolean = !isLiveAuthorised(strategyId)
@@ -196,6 +199,8 @@ object LabPromotedFeed {
             if (s.paperTrades < LIVE_MIN_TRADES_7106) return "LIVE_BAR_TRADES_${s.paperTrades}_OF_$LIVE_MIN_TRADES_7106"
             if (s.winRatePct() < LIVE_MIN_WR_PCT_7106) return "LIVE_BAR_WR_${"%.0f".format(s.winRatePct())}_OF_${LIVE_MIN_WR_PCT_7106.toInt()}"
             if (s.paperPnlSol < LIVE_MIN_PNL_SOL_7106) return "LIVE_BAR_PNL_${"%.3f".format(s.paperPnlSol)}_OF_$LIVE_MIN_PNL_SOL_7106"
+            // V5.0.8755 — and a Solana-meme strategy's honest held-out record (StrategyLab8755); lab paper is not that record
+            if (!StrategyLab8755.honestPass8755(s)) return "LIVE_BAR_HONEST_RECORD_8755_n${s.honestN8755}"
         }
         val cap = exposureCapSol7107()
         // V5.0.7107 — a cap of zero means the cash reading failed or the wallet

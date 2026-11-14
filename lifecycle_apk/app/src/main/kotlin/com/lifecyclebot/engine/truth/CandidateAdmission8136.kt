@@ -536,7 +536,9 @@ object CandidateAdmission8136 {
             val isLaunchLearned = it.startsWith("FRESH_LAUNCH_")
             // V5.0.8696 — the structural stage is a selection judgement: it stands aside once its own graded refusals prove
             // it refuses winners (GateOutcome8418.selectionGateRetired8696). Was: "nothing overrides".
-            val retired8696 = !isLaunchLearned && c.live && GateOutcome8418.selectionGateRetired8696("CANDIDATE_ADMISSION_8136_STRUCTURAL_RISK_8136", c.lane)
+            // V5.0.8755 — and it binds only while its own record protects (GateOutcome8418.structureBindsByRecord8755)
+            val retired8696 = !isLaunchLearned && c.live && (GateOutcome8418.selectionGateRetired8696("CANDIDATE_ADMISSION_8136_STRUCTURAL_RISK_8136", c.lane) ||
+                !GateOutcome8418.structureBindsByRecord8755("CANDIDATE_ADMISSION_8136_STRUCTURAL_RISK_8136", c.lane))
             if (retired8696) trace += "structureRetiredByRecord8696=$it"
             if (!isLaunchLearned && !retired8696) {
                 trace += "structure=$it"
@@ -1810,7 +1812,8 @@ object CandidateAdmission8136 {
             edge8537 = EdgeModel8537.verdict(ts, lane, cost8153, nowMs),  // V5.0.8537
             liveEdge8114 = if (live8290) LiveEdgeGate7877.edge8114Live8538(ts, lane, nowMs) else null,  // V5.0.8538
             // V5.0.8748 — a coin the armed launch sniper fired on carries the replay rule's record as its market evidence
-            marketCell8723 = PayingCell8723.evidence8723(ts, lane, nowMs) ?: LaunchSniper8748.evidence8748(ts.mint, nowMs),
+            marketCell8723 = PayingCell8723.evidence8723(ts, lane, nowMs) ?: LaunchSniper8748.evidence8748(ts.mint, nowMs)
+                ?: try { com.lifecyclebot.engine.lab.StrategyLab8755.evidence8755(ts, lane, nowMs) } catch (_: Throwable) { null },
             regimeCold8546 = live8290 && MemePaperTrader8544.memeLane8544(lane) &&
                 (try { MemeRegime8546.regime8546(nowMs) == MemeRegime8546.Regime8546.COLD } catch (_: Throwable) { false }),
             regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "" },

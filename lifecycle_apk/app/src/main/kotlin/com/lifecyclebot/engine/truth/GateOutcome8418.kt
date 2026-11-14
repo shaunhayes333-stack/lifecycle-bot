@@ -156,6 +156,22 @@ object GateOutcome8418 {
         return retired
     }
 
+    /**
+     * V5.0.8755 — owner (asked whether the structural-risk check may lose its veto when its record shows it costs runners): "build
+     * it all now". 8753 report: the structural-risk door refused 35 coins that went on +3.1 % with 11 % runners (NEUTRAL) and 19 of
+     * the 101 missed 4x runners in 24 h. It is a selection judgement (valuation air, thin-liquidity run-up), not the safety door.
+     * It now binds only while its own graded refusals PROTECT (refused mean + SE < 0, this lane's record at 40+, else all lanes);
+     * a thin record (< 40) still binds. Rugcheck, authorities, LP and sellability are the safety door, which this never touches.
+     */
+    fun structureBindsByRecord8755(reason: String, lane: String): Boolean {
+        val gate = FdgGate8365.gateKey8392(reason)
+        val st = stat8418(gate, lane)?.takeIf { it.n >= 40.0 } ?: stat8418(gate) ?: return true
+        if (st.n < 40.0) return true
+        val binds = st.mean() + st.se() < 0.0
+        if (!binds) try { PipelineHealthCollector.labelInc("STRUCTURAL_RISK_RELEASED_BY_RECORD_8755") } catch (_: Throwable) {}
+        return binds
+    }
+
     /** FdgGate8365: does [reason]'s own lane record of graded refusals prove it refuses winners (100+, robust)? */
     fun retiresAt100_8418(reason: String, lane: String): Boolean {
         val retired = refusesWinners8418(stat8418(FdgGate8365.gateKey8392(reason), lane))

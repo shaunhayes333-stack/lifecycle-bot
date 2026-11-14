@@ -157,6 +157,9 @@ object LlmLabEngine {
             lastCullMs.set(now)
             runCatching { runCullCycle() }
         }
+
+        // 4. V5.0.8755 — the honest grade: mine, train the runner head, grade every Solana-meme strategy (background, hourly)
+        runCatching { StrategyLab8755.maybeRun8755(now) }
     }
 
     /**
@@ -467,14 +470,36 @@ object LlmLabEngine {
                 "- ${s.name} (${s.asset}, gen ${s.generation}) trades=${s.paperTrades} wr=${"%.0f".format(s.winRatePct())}% pnl=${"%.2f".format(s.paperPnlSol)}◎ status=${s.status}"
             }
 
+        // V5.0.8755 — the strategist is briefed with MEASURED evidence (the discovery split of the bot's own labelled decisions
+        // and the witnessed replays) and answers with a typed hypothesis the lab can grade on data it has not seen.
+        val evidence8755 = try { StrategyLab8755.brief8755() } catch (_: Throwable) { "" }
+        val honest8755 = LlmLabStore.allStrategies().filter { it.honestAt8755 > 0L }.sortedByDescending { it.honestAt8755 }.take(8)
+            .joinToString("\n") { s -> "- ${s.name}: ${s.spec8755.take(140)} graded n=${s.honestN8755} exTop3=${"%.1f".format(s.honestExTop3_8755)}%±${"%.1f".format(s.honestSe8755)} status=${s.status}" }
         val prompt = """
-You are the AATE Lab strategist. Invent ONE new paper-trading strategy for the
-lab to try, distinct from the existing list below. Output STRICT JSON only.
+You are the AATE Lab strategist for Solana memecoins. Most new memecoins lose: in the evidence below the typical decision
+loses after costs and profit comes from a few runners. Propose ONE new hypothesis, different from those already graded,
+that the evidence suggests could earn money NET OF COST without relying on its 3 best trades. Output STRICT JSON only.
+
+MEASURED EVIDENCE (15-minute executable net per decision; exTop3 = mean without the 3 best):
+$evidence8755
+
+ALREADY GRADED (held-out / replay):
+$honest8755
+
+ANSWER WITH ONE OF THESE FAMILIES (preferred), plus name and rationale:
+  {"name","rationale","family":"CELL","lane":"ANY|<LANE>","source":"ANY|<SOURCE>","conds":[{"f":"<feature>","lo":<num>,"hi":<num>}, ... up to 3]}
+     features: liq mcap age(minutes) runup dd bp chg5m chg1h top txVel turnover curve pxPeak cost volAccel v3 newBuyers15s8666
+  {"name","rationale","family":"BASE","peakCapUsd":5000..200000,"pullback":0.2..0.9,"baseWinMs":30000..900000,"maxRange":1.05..3,"minBuys":0..60,"mode":"IN_BASE|BREAKOUT","ladder":"DOCTRINE|HALF_TRAIL|MOONBAG","delayMs":10000..60000}
+  {"name","rationale","family":"LAUNCH","capUsd":3000..60000,"minBuys":1..60,"takeX":1.5..10,"stopPct":5..60,"ladder":"DOCTRINE|HALF_TRAIL|MOONBAG","delayMs":10000..60000}
+  {"name","rationale","family":"RUNNER","pct":90|95|98}
+Only DOCTRINE-ladder LAUNCH / BASE rules at the bot's real latency can be traded live; others are graded for insight.
+
+LEGACY PAPER STRATEGIES (non-meme assets only) still use the old fields below.
 
 EXISTING STRATEGIES:
 $recent
 
-OUTPUT JSON FIELDS (all required):
+LEGACY OUTPUT JSON FIELDS:
   name           short tag, <= 32 chars
   rationale      one sentence, <= 120 chars
   asset          one of: MEME, ALT, MARKETS, STOCK, FOREX, METAL, COMMODITY, ANY
@@ -567,7 +592,11 @@ Reply with just the JSON object, nothing else.
                 sizingSol = o.optDouble("sizingSol", 0.25).coerceIn(0.05, 2.0),
                 generation = 1,
                 status = LabStrategyStatus.ACTIVE,
-            )
+            ).let { s ->
+                // V5.0.8755 — a typed hypothesis (family + parameters) is a Solana-meme strategy graded by StrategyLab8755
+                val spec = if (o.has("family")) StrategyLab8755.specOf8755(o) else null
+                if (spec == null) s else s.copy(asset = LabAssetClass.MEME, spec8755 = StrategyLab8755.specJson8755(spec))
+            }
         } catch (e: Throwable) {
             ErrorLogger.warn(TAG, "JSON parse error: ${e.message}")
             null
@@ -612,6 +641,7 @@ Reply with just the JSON object, nothing else.
         if (active.isEmpty()) return
 
         for (s in active) {
+            if (s.spec8755.isNotBlank()) continue   // V5.0.8755 — typed hypotheses are graded on evidence, not traded on lab paper
             val openForStrategy = LlmLabStore.positionsForStrategy(s.id).size
             if (openForStrategy >= MAX_PER_STRATEGY_OPEN) continue
 
@@ -649,6 +679,15 @@ Reply with just the JSON object, nothing else.
     private fun runCullCycle() {
         for (s in LlmLabStore.allStrategies()) {
             if (s.status == LabStrategyStatus.ARCHIVED) continue
+            // V5.0.8755 — typed hypotheses are promoted, demoted and archived by StrategyLab8755 alone
+            if (s.spec8755.isNotBlank()) continue
+            // V5.0.8755 — a legacy Solana-meme strategy keeps PROMOTED only while its honest held-out record passes
+            val meme8755 = s.asset == LabAssetClass.MEME || s.asset == LabAssetClass.ANY
+            if (meme8755 && s.status == LabStrategyStatus.PROMOTED && s.honestAt8755 > 0L && !StrategyLab8755.honestPass8755(s)) {
+                LlmLabStore.updateStrategy(s.copy(status = LabStrategyStatus.ACTIVE))
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LAB_DEMOTED_BY_HONEST_RECORD_8755") } catch (_: Throwable) {}
+                continue
+            }
 
             // Loser cull
             if (s.paperTrades >= LlmLabStore.ARCHIVE_LOSER_AFTER_TRADES &&
@@ -677,7 +716,8 @@ Reply with just the JSON object, nothing else.
             if (s.status == LabStrategyStatus.ACTIVE &&
                 s.paperTrades >= LlmLabStore.MIN_TRADES_FOR_PAPER_PROMOTION_7293 &&
                 s.winRatePct() >= LlmLabStore.MIN_WR_FOR_PROMOTION_PCT &&
-                s.paperPnlSol > 0.0
+                s.paperPnlSol > 0.0 &&
+                (!meme8755 || StrategyLab8755.honestPass8755(s))   // V5.0.8755 paper alone no longer promotes a meme strategy
             ) {
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LAB_PAPER_PROMOTED_7293") } catch (_: Throwable) {}
                 LlmLabStore.updateStrategy(s.copy(status = LabStrategyStatus.PROMOTED))

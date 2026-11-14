@@ -562,6 +562,9 @@ object EdgeModel8537 {
 
     private fun dir(): File? = try { com.lifecyclebot.AATEApp.appContextOrNull()?.filesDir } catch (_: Throwable) { null }
 
+    /** V5.0.8755 — StrategyLab8755 grades lab strategies on the same labelled decisions the edge model and the trees learn from. */
+    internal fun datasetFile8755(): File? = dir()?.let { File(it, DATASET_FILE) }
+
     private fun ensureLoaded() {
         if (loaded) return
         synchronized(this) {

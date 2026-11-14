@@ -61,6 +61,16 @@ data class LabStrategy(
     val createdAt: Long = System.currentTimeMillis(),
     var lastTradeAt: Long = 0L,
     var lastEvaluatedAt: Long = 0L,
+    // V5.0.8755 — the strategy's family and parameters (StrategyLab8755.Spec as JSON; blank = the legacy score strategy) and
+    // its HONEST record: graded on witnessed replays / held-out labelled decisions, net of cost, without its 3 best trades.
+    val spec8755: String = "",
+    var honestN8755: Int = 0,
+    var honestMean8755: Double = Double.NaN,
+    var honestMedian8755: Double = Double.NaN,
+    var honestExTop3_8755: Double = Double.NaN,
+    var honestSe8755: Double = Double.NaN,
+    var honestTenX8755: Double = Double.NaN,
+    var honestAt8755: Long = 0L,
 ) {
     fun winRatePct(): Double =
         if (paperTrades > 0) paperWins * 100.0 / paperTrades else 0.0
@@ -76,6 +86,10 @@ data class LabStrategy(
         put("paperTrades", paperTrades); put("paperWins", paperWins); put("paperPnlSol", paperPnlSol)
         put("liveTrades", liveTrades); put("liveWins", liveWins); put("livePnlSol", livePnlSol)
         put("createdAt", createdAt); put("lastTradeAt", lastTradeAt); put("lastEvaluatedAt", lastEvaluatedAt)
+        put("spec8755", spec8755); put("honestN8755", honestN8755); put("honestAt8755", honestAt8755)
+        fun pd(k: String, v: Double) { if (v.isFinite()) put(k, v) }
+        pd("honestMean8755", honestMean8755); pd("honestMedian8755", honestMedian8755); pd("honestExTop3_8755", honestExTop3_8755)
+        pd("honestSe8755", honestSe8755); pd("honestTenX8755", honestTenX8755)
     }
 
     companion object {
@@ -102,6 +116,14 @@ data class LabStrategy(
             createdAt = o.optLong("createdAt", System.currentTimeMillis()),
             lastTradeAt = o.optLong("lastTradeAt"),
             lastEvaluatedAt = o.optLong("lastEvaluatedAt"),
+            spec8755 = o.optString("spec8755", ""),
+            honestN8755 = o.optInt("honestN8755", 0),
+            honestMean8755 = o.optDouble("honestMean8755", Double.NaN),
+            honestMedian8755 = o.optDouble("honestMedian8755", Double.NaN),
+            honestExTop3_8755 = o.optDouble("honestExTop3_8755", Double.NaN),
+            honestSe8755 = o.optDouble("honestSe8755", Double.NaN),
+            honestTenX8755 = o.optDouble("honestTenX8755", Double.NaN),
+            honestAt8755 = o.optLong("honestAt8755", 0L),
         )
     }
 }

@@ -59,7 +59,7 @@ class Aate8723PayingCellTest {
         val market = adm.indexOf("val market8723 = LiveAdmissionProof8290.shift8290(c.marketCell8723, c.liveShortfall8290)?.takeIf { supported8136(it, c.costPct) }")
         assertTrue(market > 0)
         // V5.0.8748 (supersedes the cell-only line): an armed launch-sniper fire is read when the coin has no proven cell
-        assertTrue(adm.contains("marketCell8723 = PayingCell8723.evidence8723(ts, lane, nowMs) ?: LaunchSniper8748.evidence8748(ts.mint, nowMs),"))
+        assertTrue(adm.contains("marketCell8723 = PayingCell8723.evidence8723(ts, lane, nowMs) ?: LaunchSniper8748.evidence8748(ts.mint, nowMs)\n"))   // V5.0.8755: then the Lab's promoted strategies
         // 1. safety and structure are decided before the cell is read, and a RUG_PRONE wait is never answered by it
         assertTrue(adm.indexOf("return done(Terminal8136.REFUSE, \"SAFETY_REFUSED_8136\", true, c.selectedSetup)") in 1 until market)
         assertTrue(adm.indexOf("return done(Terminal8136.REFUSE, \"STRUCTURAL_RISK_8136\", true, c.selectedSetup)") in 1 until market)

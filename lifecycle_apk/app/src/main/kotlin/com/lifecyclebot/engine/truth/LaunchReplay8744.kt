@@ -119,6 +119,18 @@ object LaunchReplay8744 {
         return exitNet8754(x, e, rule.ladder, rule.takeX, entry * (1.0 - rule.stopPct / 100.0), TIME_STOP_MS, costPct)
     }
 
+    /** V5.0.8755 — StrategyLab8755: one launch rule (any parameters, not only the grid's) on one path, or null when it never fired. */
+    internal fun simulateRule8755(x: Path8748, rule: Rule, solUsd: Double, costPct: Double): Double? {
+        if (x.t.isEmpty()) return null
+        val trig = trigger8748(x, rule.capUsd, rule.minBuys, solUsd)
+        return if (trig < 0) null else run8748(x, trig, rule, costPct)
+    }
+
+    /** V5.0.8755 — the last run's launch paths, SOL price and cost, kept so the lab can grade the rules it invents. */
+    @Volatile internal var paths8755: List<Path8748> = emptyList()
+    @Volatile internal var solUsd8755 = Double.NaN
+    @Volatile internal var cost8755 = Double.NaN
+
     /** V5.0.8754 — the entry print for a trigger at [trig] after [delayMs]: where the curve stood then (BaseFamily8754 too). */
     internal fun entryIndex8754(x: Path8748, trig: Int, delayMs: Long): Int = stateAt(x.t, trig, x.t[trig] + delayMs)
 
@@ -243,6 +255,7 @@ object LaunchReplay8744 {
                 val need = try { LaunchSniper8748.requiredDelayMs8749() } catch (_: Throwable) { ARM_MIN_DELAY_MS_8748 }
                 last = res; proven = provenOf8748(res, need); shadow = shadowOf8748(res, need)
                 try { BaseFamily8754.evaluate8754(set, solUsd, cost, need) } catch (_: Throwable) {}   // V5.0.8754 the base family, same paths
+                paths8755 = set; solUsd8755 = solUsd; cost8755 = cost
                 val births = try { LaunchHour8628.births8749(nowMs) } catch (_: Throwable) { -1 }
                 status = "ran births48h=$births launches>=20prints=${set.size} withLivePrints=$liveN needDelay=${need / 1000}s spikesDropped=$spikes solUsd=${"%.0f".format(solUsd)} cost=${"%.1f".format(cost)}%"
             } catch (t: Throwable) { status = "failed:${t.javaClass.simpleName}" } finally { running.set(false) }

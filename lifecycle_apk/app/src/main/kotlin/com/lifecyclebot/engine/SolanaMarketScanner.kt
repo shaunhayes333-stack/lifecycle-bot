@@ -4490,7 +4490,9 @@ class SolanaMarketScanner(
         // as a multiplicative shape on top of the additive boosts, but clamped
         // so a poor brain can never zero a score (doctrine: soft-shape only).
         val brainMult = try {
-            ScannerSourceBrain.intakeMultiplier(token.source.name)
+            // V5.0.8755 — times the source's measured runner rate against the tape's (StrategyLab8755, 0.5..2.0, 1.0 unmeasured)
+            ScannerSourceBrain.intakeMultiplier(token.source.name) *
+                (try { com.lifecyclebot.engine.lab.StrategyLab8755.sourceFactor8755(token.source.name) } catch (_: Throwable) { 1.0 })
         } catch (_: Throwable) { 1.0 }
         val brainShaped = (token.score + totalBoost) * brainMult
         val adjustedScore = brainShaped.coerceIn(0.0, 100.0)

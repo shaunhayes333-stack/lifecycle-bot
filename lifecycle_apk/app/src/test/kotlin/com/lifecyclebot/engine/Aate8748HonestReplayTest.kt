@@ -75,7 +75,7 @@ class Aate8748HonestReplayTest {
         assertFalse(LaunchSniper8748.triggers8748(rule, 9_000.0, 30))
         assertFalse(LaunchSniper8748.triggers8748(rule, 50_000.0, 2))
         val adm = File("src/main/kotlin/com/lifecyclebot/engine/truth/CandidateAdmission8136.kt").readText()
-        assertTrue(adm.contains("marketCell8723 = PayingCell8723.evidence8723(ts, lane, nowMs) ?: LaunchSniper8748.evidence8748(ts.mint, nowMs),"))
+        assertTrue(adm.contains("marketCell8723 = PayingCell8723.evidence8723(ts, lane, nowMs) ?: LaunchSniper8748.evidence8748(ts.mint, nowMs)\n"))   // V5.0.8755: then the Lab's promoted strategies
         val helius = File("src/main/kotlin/com/lifecyclebot/network/HeliusCurveTape8354.kt").readText()
         // V5.0.8750 (supersedes the direct call): every program print takes the one witnessed launch-evidence route first
         assertTrue(helius.indexOf("TradeTape8100.launchEvidence8750(") in 0 until helius.indexOf("if (!cares8354(mint, nowMs))"))

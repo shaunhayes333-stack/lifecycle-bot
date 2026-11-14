@@ -102,9 +102,10 @@ object LaunchSniper8748 {
             lagHist.incrementAndGet(LAG_EDGES_S.indexOfFirst { lagS < it }.let { if (it < 0) LAG_EDGES_S.size else it })
             val live = recvMs - eventMs in -5_000L..LaunchReplay8744.LIVE_LAG_MS_8748
             if (live) livePrints.incrementAndGet() else latePrints.incrementAndGet()
-            val proven = LaunchReplay8744.proven8748()
+            // V5.0.8755 — a rule the Lab promoted (StrategyLab8755) is traded when the replays have not proven their own
+            val proven = LaunchReplay8744.proven8748() ?: com.lifecyclebot.engine.lab.StrategyLab8755.launchProven8755()
             val result = proven ?: LaunchReplay8744.shadow8748()
-            val baseProven = BaseFamily8754.proven8754()
+            val baseProven = BaseFamily8754.proven8754() ?: com.lifecyclebot.engine.lab.StrategyLab8755.baseProven8755()
             val baseRule = baseProven ?: BaseFamily8754.shadow8754()
             if (result == null && baseRule == null) return
             var s = st[mint]

@@ -44,6 +44,8 @@ class Aate7106LiveProofBarTest {
         takeProfitPct = 20.0, stopLossPct = -8.0, maxHoldMins = 60,
         sizingSol = 0.1, generation = 2, status = status,
         paperTrades = trades, paperWins = wins, paperPnlSol = pnlSol,
+        // V5.0.8755 — a passing honest held-out record, so these cases still read the 7106 / 7107 bars they were written for
+        honestN8755 = 120, honestExTop3_8755 = 6.0, honestSe8755 = 1.0, honestAt8755 = 1L,
     )
 
     @Test
