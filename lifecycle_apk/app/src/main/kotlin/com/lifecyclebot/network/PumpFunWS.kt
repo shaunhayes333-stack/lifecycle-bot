@@ -1043,7 +1043,7 @@ object PumpFunWS {
                             val soldFrac7743 = if (txType == "sell" && tok7743.isFinite() && tok7743 > 0.0 && left7743.isFinite() && left7743 >= 0.0)
                                 tok7743 / (tok7743 + left7743) else 0.0
                             // The detail callback can release a deferred evaluation. Publish this swap first.
-                            try { tapeFrame8285(j, mint, priceSol, sol7743, tok7743, txType == "buy", reservesPrice8750 = true) } catch (_: Throwable) {}
+                            try { tapeFrame8285(j, mint, priceSol, sol7743, tok7743, txType == "buy") } catch (_: Throwable) {}
                             onTradeDetailCb7743?.invoke(mint, j.optString("traderPublicKey", ""), sol7743, txType == "buy", soldFrac7743, vSol)
                         } catch (_: Throwable) {}
                         onTradeCb?.invoke(mint, priceSol, mcapSol, txType == "buy")
@@ -1192,8 +1192,7 @@ object PumpFunWS {
     }
 
     /** One PumpPortal trade frame onto the executed-trade tape with its signature, venue, token size and timestamps. */
-    private fun tapeFrame8285(j: JSONObject, mint: String, priceSol: Double, sol: Double, tokenQty: Double, isBuy: Boolean,
-                              reservesPrice8750: Boolean = false) {
+    private fun tapeFrame8285(j: JSONObject, mint: String, priceSol: Double, sol: Double, tokenQty: Double, isBuy: Boolean) {
         val recv = System.currentTimeMillis()
         val at = frameEventMs8285(j.optLong("timestamp", 0L))
         val venue = when (val v = venue8285(j.optString("pool", ""))) {
@@ -1207,9 +1206,11 @@ object PumpFunWS {
             pool = venue8285(j.optString("pool", "")), signature = j.optString("signature", ""),
             eventMs = frameEventMs8285(j.optLong("timestamp", 0L)), recvMs = System.currentTimeMillis(),
             wallet = j.optString("traderPublicKey", ""),
-            // V5.0.8750 — a curve frame's price is its virtual reserves; an AMM frame's is its own SOL / tokens
-            priceBasis8750 = if (reservesPrice8750) com.lifecyclebot.engine.truth.PrintWitness8750.Basis.RESERVES
-                else com.lifecyclebot.engine.truth.PrintWitness8750.Basis.TRADE_RATIO,
+            // V5.0.8750 — the frame itself declares the price basis: a bonding-curve frame carrying its reserves fields is priced
+            // from them (vSol / vTokens); every other frame (the AMM's) prices itself from its own SOL / tokens
+            priceBasis8750 = if (venue8285(j.optString("pool", "")) == com.lifecyclebot.engine.truth.TradeTape8100.VENUE_CURVE_8285 &&
+                j.optDouble("vSolInBondingCurve", 0.0) > 0.0 && j.optDouble("vTokensInBondingCurve", 0.0) > 0.0)
+                com.lifecyclebot.engine.truth.PrintWitness8750.Basis.RESERVES else com.lifecyclebot.engine.truth.PrintWitness8750.Basis.TRADE_RATIO,
         )
         com.lifecyclebot.engine.market.KineticFlow8506.observe(com.lifecyclebot.engine.market.KineticFlow8506.Swap(
             mint, venue, j.optString("signature"), j.optString("traderPublicKey"), isBuy, sol, tokenQty,
