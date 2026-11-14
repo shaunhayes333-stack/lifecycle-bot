@@ -255,7 +255,7 @@ object MemePaperTrader8544 {
      */
     fun onPrint8756(mint: String, priceSol: Double, eventMs: Long) {
         val p = open[mint] ?: return
-        val solUsd = try { com.lifecyclebot.engine.WalletManager.freshSolPrice8163(eventMs) } catch (_: Throwable) { 0.0 }
+        val solUsd = ShadowMark8360.solUsd8756(eventMs)
         if (!(solUsd > 0.0) || !(priceSol > 0.0)) return
         val now = System.currentTimeMillis()
         val stopLatency = try { ShadowAlign8366.sellLatencyMs8366(true) } catch (_: Throwable) { 6_000L }

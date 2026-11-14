@@ -29,6 +29,10 @@ object ShadowMark8360 {
     /** Cached observation, not a newly invented mark at the time of this read. */
     data class Observation8372(val priceUsd: Double, val observedAtMs: Long, val source: String)
 
+    /** V5.0.8756 — the fresh SOL price the observed marks convert tape prints with (0 when unknown); MemePaperTrader8544's print path. */
+    fun solUsd8756(nowMs: Long = System.currentTimeMillis()): Double =
+        (try { com.lifecyclebot.engine.WalletManager.freshSolPrice8163(nowMs) } catch (_: Throwable) { 0.0 }).takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+
     /**
      * V5.0.8372 — timestamped version for executable shadow fills. The freshest
      * qualifying observation wins so an old TICK cannot hide a post-trigger tape
