@@ -121,6 +121,15 @@ object LaunchHour8628 {
      * whether each print reached this process live: received within [liveLagMs] of its chain time (rows from before 8748
      * carry no receive time and are not live). Read-only.
      */
+    /** V5.0.8749 — launches born in the last 48 h (the replay's coverage denominator). Read-only; -1 when unreadable. */
+    internal fun births8749(now: Long): Int {
+        val ctx = AATEApp.appContextOrNull() ?: return -1
+        val f = ctx.getDatabasePath(NAME); if (!f.exists()) return -1
+        return SQLiteDatabase.openDatabase(f.path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
+            db.rawQuery("SELECT COUNT(DISTINCT m) FROM birth WHERE b >= ?", arrayOf((now - RETENTION).toString())).use { c -> if (c.moveToFirst()) c.getInt(0) else -1 }
+        }
+    }
+
     internal fun forEachLaunch8744(now: Long, maxLaunches: Int, liveLagMs: Long,
                                    cb: (mint: String, t: LongArray, p: DoubleArray, buy: BooleanArray, live: BooleanArray) -> Unit) {
         val path = AATEApp.appContextOrNull()?.getDatabasePath(NAME) ?: return

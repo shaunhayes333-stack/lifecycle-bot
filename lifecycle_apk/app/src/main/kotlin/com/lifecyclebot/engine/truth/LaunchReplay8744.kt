@@ -64,10 +64,12 @@ object LaunchReplay8744 {
     private const val MAX_LAUNCHES = 6_000
     private const val SUPPLY = 1.0e9
 
+    /** V5.0.8749 — 5 s and 20 s join 2 / 10 / 30 s: the armed rule must match the latency the bot measures (LaunchSniper8748). */
+    private val DELAYS_8749 = listOf(2_000L, 5_000L, 10_000L, 20_000L, 30_000L)
     val GRID: List<Rule> = buildList {
         for (cap in listOf(5_000.0, 10_000.0, 15_000.0)) for (b in listOf(3, 8, 15))
             for (tx in listOf(2.0, 3.0, 5.0)) for (st in listOf(20.0, 35.0)) for (l in Ladder.values())
-                for (d in listOf(2_000L, 10_000L, 30_000L)) add(Rule(cap, b, tx, st, l, d))
+                for (d in DELAYS_8749) add(Rule(cap, b, tx, st, l, d))
     }
 
     /** Pure: the isolated spikes of a print series (true = drop): more than [SPIKE_X_8748] x off the prints on both sides. */
@@ -184,14 +186,14 @@ object LaunchReplay8744 {
     }
 
     /** Pure: the rule the live sniper may trade from [results], or null (see the class note). */
-    internal fun provenOf8748(results: List<Result>): Result? = results.filter {
-        it.rule.ladder == Ladder.DOCTRINE && it.rule.delayMs >= ARM_MIN_DELAY_MS_8748 && it.n >= PROVEN_MIN_N_8748 &&
+    internal fun provenOf8748(results: List<Result>, minDelayMs: Long = ARM_MIN_DELAY_MS_8748): Result? = results.filter {
+        it.rule.ladder == Ladder.DOCTRINE && it.rule.delayMs >= maxOf(ARM_MIN_DELAY_MS_8748, minDelayMs) && it.n >= PROVEN_MIN_N_8748 &&
             it.exTop3.isFinite() && it.exTop3Se.isFinite() && it.exTop3 - it.exTop3Se > 0.0
     }.maxByOrNull { it.exTop3 - it.exTop3Se }
 
     /** Pure: the rule the sniper watches in shadow while none is proven: the best one it could trade, by the same order. */
-    internal fun shadowOf8748(results: List<Result>): Result? = results.firstOrNull {
-        it.rule.ladder == Ladder.DOCTRINE && it.rule.delayMs >= ARM_MIN_DELAY_MS_8748 && it.n >= MIN_N
+    internal fun shadowOf8748(results: List<Result>, minDelayMs: Long = ARM_MIN_DELAY_MS_8748): Result? = results.firstOrNull {
+        it.rule.ladder == Ladder.DOCTRINE && it.rule.delayMs >= maxOf(ARM_MIN_DELAY_MS_8748, minDelayMs) && it.n >= MIN_N
     }
 
     @Volatile private var last: List<Result> = emptyList()
@@ -223,8 +225,10 @@ object LaunchReplay8744 {
                 }
                 val cost = FieldManual7715.roundTripCostPct7766(SIZE_SOL_8748, SIZE_SOL_8748 * solUsd, 2.0 * CURVE_SOL_8748 * solUsd)
                 val res = evaluate8748(set, solUsd, cost)
-                last = res; proven = provenOf8748(res); shadow = shadowOf8748(res)
-                status = "ran launches=${set.size} live=$liveN spikesDropped=$spikes solUsd=${"%.0f".format(solUsd)} cost=${"%.1f".format(cost)}%"
+                val need = try { LaunchSniper8748.requiredDelayMs8749() } catch (_: Throwable) { ARM_MIN_DELAY_MS_8748 }
+                last = res; proven = provenOf8748(res, need); shadow = shadowOf8748(res, need)
+                val births = try { LaunchHour8628.births8749(nowMs) } catch (_: Throwable) { -1 }
+                status = "ran births48h=$births launches>=20prints=${set.size} withLivePrints=$liveN needDelay=${need / 1000}s spikesDropped=$spikes solUsd=${"%.0f".format(solUsd)} cost=${"%.1f".format(cost)}%"
             } catch (t: Throwable) { status = "failed:${t.javaClass.simpleName}" } finally { running.set(false) }
         }
     }

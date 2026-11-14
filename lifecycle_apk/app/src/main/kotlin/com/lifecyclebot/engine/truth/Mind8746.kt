@@ -53,8 +53,61 @@ object Mind8746 {
     @Volatile private var spreadMedian = Double.NaN
     private val llm = DoubleArray(3)   // n, Brier sum, hits
 
+    /**
+     * V5.0.8749 — the mind's learning survives a restart. 8748 phone, 20:42: learned=135 warm=false — every app restart threw
+     * away the stacker's normal equations and its SSI / LLM records, so it re-learned from nothing each session and never
+     * reached authority. They are written to [FILE_8749] every [SAVE_EVERY_8749] lessons and read back once at first use.
+     * (Frozen decisions still waiting for their label are not kept: a label that lands after a restart is simply missed.)
+     */
+    private const val FILE_8749 = "mind_8746.json"
+    private const val SAVE_EVERY_8749 = 25L
+    private val restored8749 = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /** Pure: the persisted state as JSON. */
+    internal fun toJson8749(xtx: Array<DoubleArray>, xty: DoubleArray, n: Long, agree: DoubleArray, disagree: DoubleArray,
+                            llm: DoubleArray, spreadMedian: Double): String {
+        fun arr(a: DoubleArray) = org.json.JSONArray().apply { a.forEach { put(if (it.isFinite()) it else 0.0) } }
+        return org.json.JSONObject()
+            .put("v", 1).put("n", n).put("spreadMedian", if (spreadMedian.isFinite()) spreadMedian else null)
+            .put("xtx", org.json.JSONArray().apply { xtx.forEach { put(arr(it)) } }).put("xty", arr(xty))
+            .put("agree", arr(agree)).put("disagree", arr(disagree)).put("llm", arr(llm)).toString()
+    }
+
+    private fun restore8749() {
+        if (!restored8749.compareAndSet(false, true)) return
+        try {
+            val ctx = com.lifecyclebot.AATEApp.appContextOrNull() ?: run { restored8749.set(false); return }
+            val f = java.io.File(ctx.filesDir, FILE_8749)
+            if (!f.exists()) return
+            val j = org.json.JSONObject(f.readText())
+            fun read(a: org.json.JSONArray?, into: DoubleArray) { if (a != null && a.length() == into.size) for (i in into.indices) into[i] = a.optDouble(i, 0.0) }
+            synchronized(this) {
+                val m = j.optJSONArray("xtx")
+                if (m != null && m.length() == DIM) for (i in 0 until DIM) read(m.optJSONArray(i), xtx[i])
+                read(j.optJSONArray("xty"), xty); read(j.optJSONArray("agree"), agree); read(j.optJSONArray("disagree"), disagree)
+                read(j.optJSONArray("llm"), llm)
+                n = j.optLong("n", 0L)
+                spreadMedian = if (j.isNull("spreadMedian")) Double.NaN else j.optDouble("spreadMedian", Double.NaN)
+                w = if (n > 0L) solve() else null
+            }
+            try { PipelineHealthCollector.labelInc("MIND_RESTORED_8749") } catch (_: Throwable) {}
+        } catch (_: Throwable) { try { PipelineHealthCollector.labelInc("MIND_RESTORE_FAILED_8749") } catch (_: Throwable) {} }
+    }
+
+    private fun save8749() {
+        try {
+            val ctx = com.lifecyclebot.AATEApp.appContextOrNull() ?: return
+            val text = synchronized(this) { toJson8749(xtx, xty, n, agree, disagree, llm, spreadMedian) }
+            val dst = java.io.File(ctx.filesDir, FILE_8749)
+            val tmp = java.io.File(ctx.filesDir, "$FILE_8749.tmp")
+            tmp.writeText(text)
+            if (!tmp.renameTo(dst)) { dst.writeText(text); tmp.delete() }
+        } catch (_: Throwable) { try { PipelineHealthCollector.labelInc("MIND_SAVE_FAILED_8749") } catch (_: Throwable) {} }
+    }
+
     /** EdgeModel8537: the stacked prediction for these voters, or null while cold. */
     fun predict8746(f: DoubleArray): Double? {
+        restore8749()
         val ww = w ?: return null
         if (n < WARM_N) return null
         var s = 0.0; for (i in 0 until DIM) s += ww[i] * f[i]
@@ -82,6 +135,7 @@ object Mind8746 {
 
     /** EdgeModel8537.learn: the decision on [mint] at [atMs] produced [y] (managed target). */
     fun learn8746(mint: String, atMs: Long, y: Double) {
+        restore8749()
         val f = frozen.remove("$mint|$atMs") ?: return
         if (!y.isFinite()) return
         val yy = y.coerceIn(-100.0, 200.0)
@@ -101,6 +155,7 @@ object Mind8746 {
             }
         }
         try { PipelineHealthCollector.labelInc("MIND_LEARNED_8746") } catch (_: Throwable) {}
+        if (n % SAVE_EVERY_8749 == 0L) save8749()
     }
 
     private fun solve(): DoubleArray? {
@@ -123,10 +178,11 @@ object Mind8746 {
     private fun mse(a: DoubleArray): String = if (a[0] < 2) "-" else "n${a[0].toInt()}/${"%+.1f".format(a[1] / a[0])}%"
 
     fun statusLine8746(): String {
+        restore8749()
         val ww = w
         val names = listOf("bias", "tree", "tree?", "ridge", "cell", "cell?", "llm", "llm?", "ssi", "ssi?")
         val weights = ww?.let { v -> names.indices.joinToString(",") { "${names[it]}=${"%.2f".format(v[it])}" } } ?: "-"
-        return "mind8746[learned=$n warm=${n >= WARM_N} frozen=${frozen.size} weights{$weights} " +
+        return "mind8746[learned=$n warm=${n >= WARM_N} kept=$FILE_8749 frozen=${frozen.size} weights{$weights} " +
             "ssi{agree=${mse(agree)} disagree=${mse(disagree)}} llmGrade{${llmGrade()}} key=$KEY_8746 rule=stacked voters earn authority only on the mind's own out-of-sample record]"
     }
 }

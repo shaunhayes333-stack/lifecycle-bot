@@ -33,7 +33,51 @@ object LaunchSniper8748 {
         var fired = false
         var lastSeen = 0L
     }
-    data class Fire(val mint: String, val atMs: Long, val ageMs: Long, val capUsd: Double, val result: LaunchReplay8744.Result, val armed: Boolean)
+    data class Fire(val mint: String, val atMs: Long, val ageMs: Long, val capUsd: Double, val result: LaunchReplay8744.Result, val armed: Boolean,
+                    val triggerEventMs: Long = atMs)
+
+    /**
+     * V5.0.8749 §THE_LATENCY_THE_BOT_ACTUALLY_HAS — the owner's own launch export (968 launch paths, 582 seen from birth):
+     * entering a $10-15k launch 10 s after the trigger averaged +26..+50 % (carried by 6-10x runners); entering 30 s after
+     * averaged -4..-6 %, and -23 % without the three best. The delay decides the strategy, so the sniper trades only a
+     * rule graded at a delay the bot really has:
+     *   - the tape's own lag, chain time -> this process, measured on every pump.fun print ([LAG_EDGES_S]);
+     *   - plus the bot's decide-and-send time: [DECIDE_SEND_MS_8749] until armed buys land, then the measured lag from the
+     *     trigger print's chain time to the buy's on-chain confirmation (p75 of the last [MAX_LANDED_8749]).
+     * [requiredDelayMs8749] is that sum (never under LaunchReplay8744's 10 s floor); LaunchReplay8744 arms only rules graded
+     * at or beyond it.
+     */
+    private val LAG_EDGES_S = longArrayOf(1, 2, 3, 5, 8, 12, 15, 20, 30, 60, 120)
+    private val lagHist = java.util.concurrent.atomic.AtomicLongArray(LAG_EDGES_S.size + 1)
+    private const val DECIDE_SEND_MS_8749 = 8_000L
+    private const val MAX_LANDED_8749 = 50
+    private val landed = java.util.ArrayDeque<Long>()
+
+    /** Pure: the upper edge (ms) of the bucket holding the [q] quantile of [hist] over [edgesS]; null when empty. */
+    fun quantileMs8749(hist: LongArray, edgesS: LongArray, q: Double): Long? {
+        val total = hist.sum(); if (total <= 0L) return null
+        var acc = 0L
+        for (i in hist.indices) { acc += hist[i]; if (acc >= q * total) return if (i < edgesS.size) edgesS[i] * 1_000L else edgesS.last() * 2_000L }
+        return edgesS.last() * 2_000L
+    }
+
+    private fun lagHistSnapshot(): LongArray = LongArray(lagHist.length()) { lagHist.get(it) }
+
+    /** The delay (ms) a rule must be graded at to be traded: tape lag p75 + decide-and-send, or measured trigger->landed p75. */
+    fun requiredDelayMs8749(): Long {
+        val measured = synchronized(landed) { if (landed.size >= 3) landed.sorted()[(landed.size * 3) / 4] else null }
+        val need = measured ?: ((quantileMs8749(lagHistSnapshot(), LAG_EDGES_S, 0.75) ?: 2_000L) + DECIDE_SEND_MS_8749)
+        return maxOf(10_000L, need)
+    }
+
+    /** SignedTxLedger8085 (via LaunchCohort8173): a BUY of [mint] confirmed on chain at [nowMs]. */
+    fun noteBuyConfirmed8749(mint: String, nowMs: Long) {
+        val f = fires[mint]?.takeIf { it.armed } ?: return
+        val ms = nowMs - f.triggerEventMs
+        if (ms !in 0L..600_000L) return
+        synchronized(landed) { landed.addLast(ms); while (landed.size > MAX_LANDED_8749) landed.removeFirst() }
+        try { PipelineHealthCollector.labelInc("LAUNCH_SNIPER_BUY_LANDED_8749") } catch (_: Throwable) {}
+    }
 
     private val st = ConcurrentHashMap<String, St>()
     private val fires = ConcurrentHashMap<String, Fire>()
@@ -50,6 +94,8 @@ object LaunchSniper8748 {
     fun onPrint8748(mint: String, eventMs: Long, priceSol: Double, isBuy: Boolean, recvMs: Long, sig: String) {
         try {
             if (!com.lifecyclebot.network.PumpCurveKeys7269.isPumpMint8658(mint) || !(priceSol > 0.0) || !priceSol.isFinite()) return
+            val lagS = (recvMs - eventMs).coerceAtLeast(0L) / 1_000L
+            lagHist.incrementAndGet(LAG_EDGES_S.indexOfFirst { lagS < it }.let { if (it < 0) LAG_EDGES_S.size else it })
             if (recvMs - eventMs !in -5_000L..LaunchReplay8744.LIVE_LAG_MS_8748) { latePrints.incrementAndGet(); return }
             livePrints.incrementAndGet()
             val proven = LaunchReplay8744.proven8748()
@@ -73,7 +119,7 @@ object LaunchSniper8748 {
                 while (s.buys.isNotEmpty() && s.buys.first() < eventMs - 60_000L) s.buys.removeFirst()
                 if (!triggers8748(result.rule, cap, s.buys.size)) return
                 s.fired = true
-                Fire(mint, recvMs, eventMs - s.bornMs, cap, result, armed = proven != null)
+                Fire(mint, recvMs, eventMs - s.bornMs, cap, result, armed = proven != null, triggerEventMs = eventMs)
             }
             onFire(fire)
         } catch (_: Throwable) {}
@@ -106,7 +152,11 @@ object LaunchSniper8748 {
         val p = LaunchReplay8744.proven8748(); val sh = LaunchReplay8744.shadow8748()
         val mode = when { p != null -> "ARMED on ${p.rule.id}"; sh != null -> "SHADOW on ${sh.rule.id}"; else -> "IDLE (no replay rule with n>=50 yet)" }
         val lf = lastFire?.let { "${it.mint.take(6)} age=${it.ageMs / 1000}s cap=\$${"%.0f".format(it.capUsd)} ${if (it.armed) "armed" else "shadow"}" } ?: "-"
-        return "sniper8748[$mode tracked=${st.size} livePrints=${livePrints.get()} latePrints=${latePrints.get()} noBirth=${unborn.get()} " +
+        val h = lagHistSnapshot()
+        val lag = "p50=${quantileMs8749(h, LAG_EDGES_S, 0.5)?.div(1000) ?: "-"}s p75=${quantileMs8749(h, LAG_EDGES_S, 0.75)?.div(1000) ?: "-"}s " +
+            "p90=${quantileMs8749(h, LAG_EDGES_S, 0.9)?.div(1000) ?: "-"}s"
+        val landedLine = synchronized(landed) { if (landed.isEmpty()) "-" else "n${landed.size} p50=${landed.sorted()[landed.size / 2] / 1000}s" }
+        return "sniper8748[$mode needDelay=${requiredDelayMs8749() / 1000}s tapeLag{$lag} armedLanded{$landedLine} tracked=${st.size} livePrints=${livePrints.get()} latePrints=${latePrints.get()} noBirth=${unborn.get()} " +
             "fires{shadow=${shadowFires.get()} armed=${armedFires.get()}} watchAdds=${watchAdds.get()} evidenceServed=${evidenceServed.get()} " +
             "lastFire=$lf rule=every live pump.fun print checked against the replay's own trigger; buys only through admission + every safety door]"
     }
