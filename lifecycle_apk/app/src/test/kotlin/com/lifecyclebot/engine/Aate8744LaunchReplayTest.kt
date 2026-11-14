@@ -35,6 +35,7 @@ class Aate8744LaunchReplayTest {
         assertTrue(rep.contains("Launch replay (§8744): "))
         val tune = File("src/main/kotlin/com/lifecyclebot/engine/truth/TuningReport8618.kt").readText()
         assertTrue(tune.contains("tuning_8744.json") && tune.contains("save8744()") && tune.contains("restore8744()"))
-        assertTrue(LaunchReplay8744.GRID.size == 162)   // V5.0.8747: 3 caps x 3 buys x 3 takes x 2 stops x 3 ladders
+        // V5.0.8748 (supersedes 8747's 162): 3 caps x 3 buys x 3 takes x 2 stops x 3 ladders x 3 entry latencies
+        assertTrue(LaunchReplay8744.GRID.size == 486)
     }
 }

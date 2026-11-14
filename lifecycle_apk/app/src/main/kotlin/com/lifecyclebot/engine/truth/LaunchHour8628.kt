@@ -45,12 +45,19 @@ object LaunchHour8628 {
         return px.takeIf { multiple.isFinite() && multiple in (1.0 / 8.0)..8.0 }
     }
 
-    fun trade(mint: String, at: Long, sig: String, buy: Boolean, sol: Double, qty: Double, referencePriceSol: Double) {
+    /**
+     * V5.0.8748 — [recvMs] is when THIS process received the print and [src] the feed that delivered it. A print received
+     * long after its chain time is a backfill (a pool-trades page read because the coin had already moved): the launch
+     * replay may not enter on it, because the bot could not have seen it then (LaunchReplay8744.LIVE_LAG_MS_8748).
+     */
+    fun trade(mint: String, at: Long, sig: String, buy: Boolean, sol: Double, qty: Double, referencePriceSol: Double,
+              recvMs: Long = System.currentTimeMillis(), src: String = "") {
         if (sig.isBlank() || System.currentTimeMillis() - at !in 0L..RETENTION) return
         val px = observedPrice8642(sol, qty, referencePriceSol)
         if (px == null) { rejectedUnitMismatch8642.incrementAndGet(); return }
         // V5.0.8741 — the SOL size of every print too: a replay of exits needs the flow, not just the price
-        record("INSERT OR IGNORE INTO trade(m,t,s,side,p,v) VALUES(?,?,?,?,?,?)", mint, at, sig, if (buy) 1 else 0, px, sol)
+        record("INSERT OR IGNORE INTO trade(m,t,s,side,p,v,r,src) VALUES(?,?,?,?,?,?,?,?)", mint, at, sig, if (buy) 1 else 0, px, sol,
+            recvMs, src.take(24))
     }
 
     fun observeDecision(ts: com.lifecyclebot.data.TokenState, lane: String, admit: Boolean, at: Long) {
@@ -86,6 +93,8 @@ object LaunchHour8628 {
                         execSQL("CREATE TABLE IF NOT EXISTS trade(m TEXT,t INTEGER,s TEXT,side INTEGER,p REAL, PRIMARY KEY(m,s,side))")
                         execSQL("CREATE INDEX IF NOT EXISTS trade_time ON trade(m,t)")
                         try { execSQL("ALTER TABLE trade ADD COLUMN v REAL") } catch (_: Exception) {}   // V5.0.8741 (exists after first run)
+                        try { execSQL("ALTER TABLE trade ADD COLUMN r INTEGER") } catch (_: Exception) {}   // V5.0.8748 received at
+                        try { execSQL("ALTER TABLE trade ADD COLUMN src TEXT") } catch (_: Exception) {}    // V5.0.8748 feed
                         execSQL("CREATE TABLE IF NOT EXISTS decision(m TEXT,t INTEGER,l TEXT,k TEXT,a INTEGER,c REAL, PRIMARY KEY(m,t,l,k,a))")
                     }.also { db = it }
                 }
@@ -108,9 +117,12 @@ object LaunchHour8628 {
 
     /**
      * V5.0.8744 — LaunchReplay8744's read: each stored launch (born in the retention window, >= [PATH_MIN_PRINTS_8741]
-     * prints) with its first-hour prints in time order: times (ms from birth), prices (SOL/token), buy flags. Read-only.
+     * prints) with its first-hour prints in time order: times (ms from birth), prices (SOL/token), buy flags, and (V5.0.8748)
+     * whether each print reached this process live: received within [liveLagMs] of its chain time (rows from before 8748
+     * carry no receive time and are not live). Read-only.
      */
-    internal fun forEachLaunch8744(now: Long, maxLaunches: Int, cb: (mint: String, t: LongArray, p: DoubleArray, buy: BooleanArray) -> Unit) {
+    internal fun forEachLaunch8744(now: Long, maxLaunches: Int, liveLagMs: Long,
+                                   cb: (mint: String, t: LongArray, p: DoubleArray, buy: BooleanArray, live: BooleanArray) -> Unit) {
         val path = AATEApp.appContextOrNull()?.getDatabasePath(NAME) ?: return
         if (!path.exists()) return
         SQLiteDatabase.openDatabase(path.path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
@@ -118,12 +130,16 @@ object LaunchHour8628 {
                 arrayOf((now - RETENTION).toString())).use { births ->
                 while (births.moveToNext()) {
                     val mint = births.getString(0); val born = births.getLong(1)
-                    val ts = ArrayList<Long>(); val ps = ArrayList<Double>(); val bs = ArrayList<Boolean>()
-                    db.rawQuery("SELECT t,p,side FROM trade WHERE m=? AND t BETWEEN ? AND ? ORDER BY t,s,side",
+                    val ts = ArrayList<Long>(); val ps = ArrayList<Double>(); val bs = ArrayList<Boolean>(); val ls = ArrayList<Boolean>()
+                    db.rawQuery("SELECT t,p,side,r FROM trade WHERE m=? AND t BETWEEN ? AND ? ORDER BY t,s,side",
                         arrayOf(mint, born.toString(), (born + HOUR).toString())).use { c ->
-                        while (c.moveToNext()) { ts.add(c.getLong(0) - born); ps.add(c.getDouble(1)); bs.add(c.getInt(2) == 1) }
+                        while (c.moveToNext()) {
+                            val t = c.getLong(0)
+                            ts.add(t - born); ps.add(c.getDouble(1)); bs.add(c.getInt(2) == 1)
+                            ls.add(!c.isNull(3) && c.getLong(3) - t in -5_000L..liveLagMs)
+                        }
                     }
-                    if (ts.size >= PATH_MIN_PRINTS_8741) cb(mint, ts.toLongArray(), ps.toDoubleArray(), bs.toBooleanArray())
+                    if (ts.size >= PATH_MIN_PRINTS_8741) cb(mint, ts.toLongArray(), ps.toDoubleArray(), bs.toBooleanArray(), ls.toBooleanArray())
                 }
             }
         }

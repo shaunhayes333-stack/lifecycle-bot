@@ -20,15 +20,23 @@ object LlmAnalyst8746 {
     private val inflight = ConcurrentHashMap.newKeySet<String>()
     private val calls = java.util.ArrayDeque<Long>()
     private val asked = AtomicLong(0L); private val answered = AtomicLong(0L); private val unparsed = AtomicLong(0L)
+    private val noAnswer = AtomicLong(0L)
+    @Volatile private var lastUnparsed = "-"
     private val exec = Executors.newSingleThreadExecutor { r -> Thread(r, "llm-analyst-8746").apply { isDaemon = true } }
 
     /** The cached probability for [mint], or null. */
     fun prob8746(mint: String, nowMs: Long): Double? = answers[mint]?.takeIf { nowMs - it.first in 0L..CACHE_MS }?.second
 
-    /** Pure: the probability in an answer, or null. */
+    /**
+     * Pure: the probability in an answer, or null. V5.0.8748 — 8747 phone: 40 of 60 answers unread. Models quote the number
+     * ("p_up": "0.12"), write a percent ("p_up": 12%), or wrap the JSON in prose or a ```json fence; all of those are read.
+     * A number over 1 without a percent sign is read as a percent only when it is at most 100.
+     */
     fun parse8746(text: String?): Double? {
-        val m = Regex("\"?p_up\"?\\s*[:=]\\s*([0-9]*\\.?[0-9]+)").find(text ?: return null) ?: return null
-        return m.groupValues[1].toDoubleOrNull()?.takeIf { it in 0.0..1.0 }
+        val m = Regex("p_up[\"']?\\s*[:=]\\s*[\"']?\\s*([0-9]*\\.?[0-9]+)\\s*(%?)", RegexOption.IGNORE_CASE).find(text ?: return null) ?: return null
+        val v = m.groupValues[1].toDoubleOrNull() ?: return null
+        val p = if (m.groupValues[2] == "%" || v > 1.0) v / 100.0 else v
+        return p.takeIf { it in 0.0..1.0 }
     }
 
     /** Pure: the facts the analyst reads. */
@@ -56,16 +64,20 @@ object LlmAnalyst8746 {
             exec.execute {
                 try {
                     val text = com.lifecyclebot.network.KeylessLlmClient.runChat(
-                        "You are a disciplined crypto market analyst. Most new memecoins fall; be calibrated, not hopeful.", user, 80)
+                        "You are a disciplined crypto market analyst. Most new memecoins fall; be calibrated, not hopeful.", user, 160)
                     val p = parse8746(text)
-                    if (p != null) { answers[mint] = System.currentTimeMillis() to p; answered.incrementAndGet() } else unparsed.incrementAndGet()
+                    when {
+                        p != null -> { answers[mint] = System.currentTimeMillis() to p; answered.incrementAndGet() }
+                        text.isNullOrBlank() -> noAnswer.incrementAndGet()   // V5.0.8748 — no provider answered: not a parse failure
+                        else -> { unparsed.incrementAndGet(); lastUnparsed = text.take(120).replace('\n', ' ') }
+                    }
                     if (answers.size > 5_000) answers.entries.removeIf { System.currentTimeMillis() - it.value.first > CACHE_MS }
-                } catch (_: Throwable) { unparsed.incrementAndGet() } finally { inflight.remove(mint) }
+                } catch (_: Throwable) { noAnswer.incrementAndGet() } finally { inflight.remove(mint) }
             }
         } catch (_: Throwable) { inflight.remove(mint) }
         try { PipelineHealthCollector.labelInc("LLM_ANALYST_ASKED_8746") } catch (_: Throwable) {}
     }
 
     fun statusLine8746(): String = "llmAnalyst8746[asked=${asked.get()} answered=${answered.get()} unparsed=${unparsed.get()} " +
-        "cached=${answers.size} maxPerHour=$MAX_PER_HOUR rule=one voter in the mind; weight only from its graded record]"
+        "noAnswer=${noAnswer.get()} lastUnparsed={$lastUnparsed} cached=${answers.size} maxPerHour=$MAX_PER_HOUR rule=one voter in the mind; weight only from its graded record]"
 }

@@ -23,7 +23,8 @@ class Aate8741LaunchPathTest {
 
     @Test fun theExportCarriesPathsAndSizes() {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/truth/LaunchHour8628.kt").readText()
-        assertTrue(src.contains("INSERT OR IGNORE INTO trade(m,t,s,side,p,v) VALUES(?,?,?,?,?,?)"))
+        // V5.0.8748 (supersedes the 6-column insert): the receive time and feed ride with every print
+        assertTrue(src.contains("INSERT OR IGNORE INTO trade(m,t,s,side,p,v,r,src) VALUES(?,?,?,?,?,?,?,?)"))
         assertTrue(src.contains("ALTER TABLE trade ADD COLUMN v REAL"))
         assertTrue(src.contains("if (prints.size >= PATH_MIN_PRINTS_8741) w.appendLine(pathRow8741("))
     }

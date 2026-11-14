@@ -88,7 +88,10 @@ object TradeTape8100 {
         // the executed tape. Unknown wallets remain unknown; marks never enter.
         if (tokenQty.isFinite() && tokenQty > 0.0) com.lifecyclebot.engine.market.BuyerFlow8666.note(mint, wallet, sol, isBuy,
             if (eventMs > 0L) eventMs else recvMs, sig, recvMs)
-        if (eventMs in 1L..recvMs) LaunchHour8628.trade(mint, eventMs, sig, isBuy, sol, tokenQty, priceSol)
+        if (eventMs in 1L..recvMs) {
+            LaunchHour8628.trade(mint, eventMs, sig, isBuy, sol, tokenQty, priceSol, recvMs, src)
+            LaunchSniper8748.onPrint8748(mint, eventMs, priceSol, isBuy, recvMs, sig)   // V5.0.8748 — live prints only (it checks the lag)
+        }
         if (sig.isNotBlank()) {
             val prior = synchronized(seenSig8285) {
                 seenSig8285.putIfAbsent("$mint|$sig|$isBuy", src)

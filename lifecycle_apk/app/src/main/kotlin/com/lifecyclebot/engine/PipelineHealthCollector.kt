@@ -1590,6 +1590,7 @@ object PipelineHealthCollector {
         sb.append("  LLM analyst (§8746): ").append(try { com.lifecyclebot.engine.truth.LlmAnalyst8746.statusLine8746() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Outcome lessons (§8745): ").append(try { com.lifecyclebot.engine.truth.OutcomeLesson8745.statusLine8745() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Launch replay (§8744): ").append(try { com.lifecyclebot.engine.truth.LaunchReplay8744.statusLine8744() } catch (_: Throwable) { "unavailable" }).append("\n")
+        sb.append("  Launch sniper (§8748): ").append(try { com.lifecyclebot.engine.truth.LaunchSniper8748.statusLine8748() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Tree ranker (§8737): ").append(try { com.lifecyclebot.engine.truth.TreeRanker8737.statusLine8737() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Explore live buys (§8733): ").append(try { com.lifecyclebot.engine.truth.ExploreLive8733.statusLine8733() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Paying-cell waits (§8732): ").append(try { com.lifecyclebot.engine.truth.LpStateRecord8725.waitLine8732() } catch (_: Throwable) { "unavailable" }).append("\n")

@@ -1809,7 +1809,8 @@ object CandidateAdmission8136 {
             firedSetups8528 = try { pb.matchedSetups8083(ts, lane, nowMs).filter(::triggered8535).toSet() } catch (_: Throwable) { emptySet() },
             edge8537 = EdgeModel8537.verdict(ts, lane, cost8153, nowMs),  // V5.0.8537
             liveEdge8114 = if (live8290) LiveEdgeGate7877.edge8114Live8538(ts, lane, nowMs) else null,  // V5.0.8538
-            marketCell8723 = PayingCell8723.evidence8723(ts, lane, nowMs),
+            // V5.0.8748 — a coin the armed launch sniper fired on carries the replay rule's record as its market evidence
+            marketCell8723 = PayingCell8723.evidence8723(ts, lane, nowMs) ?: LaunchSniper8748.evidence8748(ts.mint, nowMs),
             regimeCold8546 = live8290 && MemePaperTrader8544.memeLane8544(lane) &&
                 (try { MemeRegime8546.regime8546(nowMs) == MemeRegime8546.Regime8546.COLD } catch (_: Throwable) { false }),
             regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "" },
