@@ -58,7 +58,7 @@ class Aate8754BaseFamilyTest {
         // fired at 140 s (1.0e-7); +10 s the curve stood at 150 s (1.1e-7); half sold at 2x on the 4e-7 print, the rest held
         val e = 1.1e-7
         assertEquals((0.5 * (4.0e-7 / e - 1.0) + 0.5 * (4.0e-7 / e - 1.0)) * 100.0, out[r]!!, 1e-6)
-        assertEquals(96 * 9, BaseFamily8754.GRID.size)
+        assertEquals(96 * 12, BaseFamily8754.GRID.size)   // V5.0.8756: four ladders (SCALE_OUT) x three delays
         assertTrue(out.keys.all { it in BaseFamily8754.GRID })
     }
 

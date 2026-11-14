@@ -23621,11 +23621,24 @@ class Executor(
         // was killed mid quote / broadcast / verifySell and redispatched (5.0.7947: 355
         // worker timeouts, 285 sell redispatches). On those threads the sell now runs on
         // its own pool; CloseLease and the sell locks still single-flight it per mint.
-        if (com.lifecyclebot.engine.sell.ExitDispatchLatency7948.runsOffCallerThread(Thread.currentThread().name)) {
-            return requestSellOffSupervisor7948(ts, reason, wallet, walletSol, receiptCapture8527)
-        }
-        return requestSellCore7948(ts, reason, wallet, walletSol, receiptCapture8527)
+        val slipKey8756 = stopSlipTrigger8756(ts, reason)
+        val result8756 = if (com.lifecyclebot.engine.sell.ExitDispatchLatency7948.runsOffCallerThread(Thread.currentThread().name))
+            requestSellOffSupervisor7948(ts, reason, wallet, walletSol, receiptCapture8527)
+        else requestSellCore7948(ts, reason, wallet, walletSol, receiptCapture8527)
+        if (slipKey8756 != null && result8756 == SellResult.CONFIRMED)
+            try { com.lifecyclebot.engine.truth.StopSlip8756.noteLiveFill8756(slipKey8756, ts.lastExitPnlPct, ts.lastExitTs) } catch (_: Throwable) {}
+        return result8756
     }
+
+    /** V5.0.8756 — a live price-loss stop's trigger (StopSlip8756): its key, or null for any other exit / paper. */
+    private fun stopSlipTrigger8756(ts: TokenState, reason: String): String? = try {
+        val pos = ts.position
+        if (pos.isPaperPosition || !pos.isOpen || pos.entryPrice <= 0.0 || ts.lastPrice <= 0.0 ||
+            !StopMarkConfirm8418.priceLossStop8489(reason)) null
+        else "${ts.mint}|${pos.entryTime}".also {
+            com.lifecyclebot.engine.truth.StopSlip8756.noteLiveTrigger8756(it, reason, (ts.lastPrice / pos.entryPrice - 1.0) * 100.0, System.currentTimeMillis())
+        }
+    } catch (_: Throwable) { null }
 
     /**
      * V5.0.8096 — SOL / USDC / USDT / LST mints are never a bot position, so the bot never sells one on its own. 8095 live:

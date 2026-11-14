@@ -36,8 +36,9 @@ class Aate7948ExitLatencyTest {
         // The exact receipt capture must survive both direct execution and the
         // supervisor hand-off (including its rejected-submission fallback).
         val direct = ex.substringAfter("fun requestSell(ts:").substringBefore("internal fun baseQuoteSellRefused8096")
-        assertTrue(direct.contains("return requestSellCore7948(ts, reason, wallet, walletSol, receiptCapture8527)"))
-        assertTrue(direct.contains("return requestSellOffSupervisor7948(ts, reason, wallet, walletSol, receiptCapture8527)"))
+        // V5.0.8756 — the two routes are one expression now (the stop-slip record wraps the result)
+        assertTrue(direct.contains("else requestSellCore7948(ts, reason, wallet, walletSol, receiptCapture8527)"))
+        assertTrue(direct.contains("    requestSellOffSupervisor7948(ts, reason, wallet, walletSol, receiptCapture8527)"))
         val offSupervisor = ex.substringAfter("private fun requestSellOffSupervisor7948(")
             .substringBefore("private fun retireClosedRuntimePosition8094(")
         assertTrue(offSupervisor.contains("Callable { requestSellCore7948(ts, reason, wallet, walletSol, receiptCapture8527) }"))

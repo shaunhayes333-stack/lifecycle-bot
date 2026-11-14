@@ -483,7 +483,7 @@ object HeliusCurveTape8354 {
         // through the one witnessed route; the verdict travels with the print into the tape below.
         val witness8750 = try {
             com.lifecyclebot.engine.truth.TradeTape8100.launchEvidence8750(mint, priceSol, ev.sol, ev.tokens, ev.isBuy, SRC_HELIUS_CURVE_8354,
-                sig.trim(), eventMs8748, nowMs, com.lifecyclebot.engine.truth.PrintWitness8750.Basis.RESERVES)
+                sig.trim(), eventMs8748, nowMs, com.lifecyclebot.engine.truth.PrintWitness8750.Basis.RESERVES, wallet = ev.user)
         } catch (_: Throwable) { com.lifecyclebot.engine.truth.PrintWitness8750.Verdict.UNWITNESSED }
         if (witness8750 == com.lifecyclebot.engine.truth.PrintWitness8750.Verdict.OUT_OF_BAND) { malformed.incrementAndGet(); return false }
         if (source == Source8354.HELIUS_PROGRAM) lastProgramPrintAt8751 = nowMs

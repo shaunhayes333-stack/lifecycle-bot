@@ -1592,6 +1592,8 @@ object PipelineHealthCollector {
         sb.append("  Launch replay (§8744): ").append(try { com.lifecyclebot.engine.truth.LaunchReplay8744.statusLine8744() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Strategy lab (§8755): ").append(try { com.lifecyclebot.engine.lab.StrategyLab8755.statusLine8755() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Base replay (§8754): ").append(try { com.lifecyclebot.engine.truth.BaseFamily8754.statusLine8754() } catch (_: Throwable) { "unavailable" }).append("\n")
+        sb.append("  Smart money (§8756): ").append(try { com.lifecyclebot.engine.truth.SmartMoney8756.statusLine8756() } catch (_: Throwable) { "unavailable" }).append("\n")
+        sb.append("  Stop slip (§8756): ").append(try { com.lifecyclebot.engine.truth.StopSlip8756.statusLine8756() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Print witness (§8750): ").append(try { com.lifecyclebot.engine.truth.PrintWitness8750.statusLine8750() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Quiet curve marks (§8750): ").append(try { com.lifecyclebot.engine.truth.QuietCurve8750.statusLine8750() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Launch sniper (§8748): ").append(try { com.lifecyclebot.engine.truth.LaunchSniper8748.statusLine8748() } catch (_: Throwable) { "unavailable" }).append("\n")

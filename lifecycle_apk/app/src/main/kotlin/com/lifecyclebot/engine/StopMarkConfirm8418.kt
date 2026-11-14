@@ -155,6 +155,14 @@ object StopMarkConfirm8418 {
         // V5.0.8485/8486 — the coin's own pool or curve reserves (chain-read within the last 20 s) answer first: they price what
         // selling this bag at its venue returns now, and they do not 429. Jupiter's quote is the second answer. Same rule as the
         // quote: a breach confirms at any age; a refutation counts only from a read made at or after the ask.
+        // V5.0.8756 — the coin's own executed trades answer before any read is asked for: two witnessed prints on the
+        // position's venue, the newest received in the last [TAPE_FRESH_MS_8756], both at or past the stop, are what selling
+        // there returns now (a single wick print is not enough). They only confirm; a refutation still needs the venue or route.
+        if (tapeConfirms8756(ts, thresholdPct, nowMs)) {
+            try { PipelineHealthCollector.labelInc("STOP_MARK_CONFIRMED_TAPE_8756") } catch (_: Throwable) {}
+            awaitSince8419.remove(key)
+            return true
+        }
         reserveVerdict8485(ts, asked, nowMs, thresholdPct)?.let { breached ->
             try { PipelineHealthCollector.labelInc(if (breached) "STOP_MARK_CONFIRMED_VENUE_RESERVE_8485" else "STOP_MARK_REFUTED_VENUE_RESERVE_8485") } catch (_: Throwable) {}
             if (breached) awaitSince8419.remove(key) else awaitSince8419[key] = nowMs
@@ -185,6 +193,37 @@ object StopMarkConfirm8418 {
         try { PipelineHealthCollector.labelInc("STOP_MARK_AWAITING_EXECUTABLE_8418") } catch (_: Throwable) {}
         return false
     }
+
+    private const val TAPE_FRESH_MS_8756 = 3_000L
+
+    /**
+     * Pure (V5.0.8756): do [prints] (price USD, received ms, venue; newest first) confirm a stop at [thresholdPct] for a position
+     * entered at [entryPx] on [entryPool]? Two prints, the newest fresh, both on the position's venue ([onVenue]), both breached.
+     */
+    fun tapeVerdict8756(prints: List<Triple<Double, Long, String>>, entryPx: Double, thresholdPct: Double, nowMs: Long,
+                        onVenue: (String) -> Boolean): Boolean {
+        if (prints.size < 2 || !(entryPx > 0.0) || !thresholdPct.isFinite()) return false
+        if (nowMs - prints[0].second !in 0L..TAPE_FRESH_MS_8756) return false
+        return prints.take(2).all { (px, _, venue) -> px > 0.0 && px.isFinite() && onVenue(venue) && (px / entryPx - 1.0) * 100.0 <= thresholdPct }
+    }
+
+    /** Pure (V5.0.8756): is a print on [venue] the position's own venue? Its real pool address, or the curve while it trades there. */
+    fun tapeOnVenue8756(venue: String, entryPool: String, onCurve: Boolean, curveKey: String?): Boolean {
+        val v = venue.trim(); val e = entryPool.trim()
+        if (v.length >= 32 && e.length >= 32 && !e.startsWith("MINT_ROUTE:")) return v == e
+        return onCurve && v == com.lifecyclebot.engine.truth.TradeTape8100.VENUE_CURVE_8285 &&
+            (e.isBlank() || e.startsWith("MINT_ROUTE:") || (curveKey != null && e == curveKey))
+    }
+
+    private fun tapeConfirms8756(ts: TokenState, thresholdPct: Double, nowMs: Long): Boolean = try {
+        val pos = ts.position
+        val solUsd = WalletManager.freshSolPrice8163(nowMs)
+        val mint = ts.mint
+        val onCurve = com.lifecyclebot.network.PumpCurveKeys7269.isPumpMint8658(mint) && com.lifecyclebot.network.PumpCurveKeys7269.graduatedAtMs8546(mint) == null
+        val curveKey = com.lifecyclebot.network.PumpCurveKeys7269.keyFor(mint)
+        solUsd > 0.0 && tapeVerdict8756(com.lifecyclebot.engine.truth.TradeTape8100.lastExecuted8756(mint).map { Triple(it.first * solUsd, it.second, it.third) },
+            pos.entryPrice, thresholdPct, nowMs) { tapeOnVenue8756(it, pos.entryPoolAddress, onCurve, curveKey) }
+    } catch (_: Throwable) { false }
 
     /** V5.0.8485 — the venue-reserve leg: null when no fresh pool / curve read exists (or it pre-dates the ask unbreached). */
     private fun reserveVerdict8485(ts: TokenState, askedAtMs: Long, nowMs: Long, thresholdPct: Double): Boolean? {

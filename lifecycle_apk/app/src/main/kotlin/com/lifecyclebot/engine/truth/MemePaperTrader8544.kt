@@ -58,6 +58,8 @@ object MemePaperTrader8544 {
         var exitWhy: String? = null; var exitAtMs = 0L; var exitFraction = 1.0; var exitTier = 0
         /** V5.0.8683 — the observed-mark time of the first read at or below the stop level (0 = none pending). */
         var stopSeenAtMs8683 = 0L
+        /** V5.0.8756 — the pending stop's level and trigger gross (%), and whether a tape print (not the sweep) triggered it. */
+        var slipLevel8756 = Double.NaN; var slipTrig8756 = Double.NaN; var slipByPrint8756 = false
     }
 
     /**
@@ -237,44 +239,76 @@ object MemePaperTrader8544 {
         val normalLatency8699 = try { ShadowAlign8366.sellLatencyMs8366(false) } catch (_: Throwable) { 16_000L }
         for (p in open.values.toList()) try {
             wantMark8623(p.mint, nowMs)
-            val obs = ShadowMark8360.observedTimed8372(tokens[p.mint], p.mint, nowMs)?.takeIf { it.observedAtMs >= p.lastAtMs && it.priceUsd > 0.0 }
-                ?.takeIf { acceptMark8559("book:" + p.mint, p.lastPx, it.priceUsd, markSource8560(it.source, tokens[p.mint])) }
-            if (obs != null) { p.lastPx = obs.priceUsd; p.lastAtMs = obs.observedAtMs }
-            val g = grossPct8544(p.entryPx, p.lastPx)
-            if (!g.isFinite()) continue
-            if (g > p.peak) p.peak = g
-            val pending = p.exitWhy
-            if (pending != null) {
-                // a triggered exit fills at the first observed mark after the live sell latency
-                val latency = if (stopExit8699(pending)) stopLatency8699 else normalLatency8699
-                if (obs != null && obs.observedAtMs >= p.exitAtMs + latency) fill8544(p, g, nowMs)
-                else if (nowMs - p.lastAtMs > LOST_MARK_MS_8544) { p.exitFraction = 1.0; p.exitWhy = "LOST_MARK"; fill8544(p, g, nowMs) }
-                continue
-            }
-            if (nowMs - p.lastAtMs > LOST_MARK_MS_8544) { p.exitFraction = 1.0; p.exitWhy = "LOST_MARK"; fill8544(p, g, nowMs); continue }
-            val stopPct = try { FieldManual7715.stopPct8392(p.exitLane, p.costPct) } catch (_: Throwable) { 15.0 }
-            // V5.0.8584 — the paper meme book runs the live doctrine: the 2x / 5x / 10x ladder and the doctrine trail.
-            val doctrine8584 = com.lifecyclebot.engine.RunnerDoctrine8584.rides8584(p.exitLane)
-            val level = if (doctrine8584) com.lifecyclebot.engine.RunnerDoctrine8584.paperStopLevel8584(stopPct, p.peak)
-                else try { ShadowAlign8366.liveStopLevel8366(p.runner, stopPct, p.peak, p.costPct) } catch (_: Throwable) { -stopPct }
-            val ladder = if (doctrine8584) com.lifecyclebot.engine.RunnerGrab7967.TIERS_7967 else if (p.runner) com.lifecyclebot.engine.RunnerGrab7967.TIERS_7967 else com.lifecyclebot.engine.SpikeCapture7943.TIERS
-            val rung = rung8544(ladder, p.tiers, g)
-            // V5.0.8683 — a breach must be seen on two observed marks (a wick is one print); a recovery clears it.
-            val breached8683 = level.isFinite() && g <= level
-            if (!breached8683) p.stopSeenAtMs8683 = 0L
-            else if (p.stopSeenAtMs8683 == 0L) p.stopSeenAtMs8683 = p.lastAtMs
-            when {
-                breached8683 && paperStopConfirmed8683(p.stopSeenAtMs8683, p.lastAtMs, g) ->
-                    trigger8544(p, if (p.peak > 0.0 && level > -stopPct) "TRAIL_STOP" else "STOP", 1.0, 0, nowMs)
-                breached8683 -> try { PipelineHealthCollector.labelInc("MEME_PAPER_STOP_AWAITS_SECOND_MARK_8683") } catch (_: Throwable) {}
-                rung != null -> trigger8544(p, "TAKE_PROFIT_T${rung.first}", rung.second, rung.first, nowMs)
-                nowMs - p.entryAtMs >= p.clockMs && doctrine8584 &&
-                    com.lifecyclebot.engine.RunnerDoctrine8584.holds8584(p.exitLane, "CLOCK_TIME", g, p.peak) -> Unit
-                nowMs - p.entryAtMs >= p.clockMs -> trigger8544(p, "CLOCK", 1.0, 0, nowMs)
-            }
+            val obs = ShadowMark8360.observedTimed8372(tokens[p.mint], p.mint, nowMs)
+            step8756(p, obs, markSource8560(obs?.source.orEmpty(), tokens[p.mint]), nowMs, stopLatency8699, normalLatency8699, byPrint = false)
         } catch (_: Throwable) {}
         save8544(nowMs)
     }
+
+    /**
+     * V5.0.8756 §THE_STOP_RUNS_ON_THE_PRINT — the book's exits ran on the shadow-evidence sweep, which runs after two shadow
+     * books on one worker: a dumping coin was looked at once per sweep, its stop then needed a second sweep's mark, then the
+     * sell latency. 8755 paper STOP closes: FAM_FOLLOW_SIZE -60.8 % after 1.9 min, SHITCOIN -36.4 %, EXPRESS -30.2 % on
+     * 15-25 % stops. Every witnessed print of an open coin (TradeTape8100.launchEvidence8750) now runs the same exit step at
+     * once: the second-mark rule and the measured live sell latency are unchanged, so the fill is what a live stop gets, and
+     * [slipLine8756] records level vs trigger vs fill per lane so the gap is measured, not guessed.
+     */
+    fun onPrint8756(mint: String, priceSol: Double, eventMs: Long) {
+        val p = open[mint] ?: return
+        val solUsd = try { com.lifecyclebot.engine.WalletManager.freshSolPrice8163(eventMs) } catch (_: Throwable) { 0.0 }
+        if (!(solUsd > 0.0) || !(priceSol > 0.0)) return
+        val now = System.currentTimeMillis()
+        val stopLatency = try { ShadowAlign8366.sellLatencyMs8366(true) } catch (_: Throwable) { 6_000L }
+        val normalLatency = try { ShadowAlign8366.sellLatencyMs8366(false) } catch (_: Throwable) { 16_000L }
+        try {
+            step8756(p, ShadowMark8360.Observation8372(priceSol * solUsd, eventMs, ShadowMark8360.SRC_TAPE_8360), ShadowMark8360.SRC_TAPE_8360,
+                now, stopLatency, normalLatency, byPrint = true)
+        } catch (_: Throwable) {}
+    }
+
+    /** One exit step of [p] on the observation [seen] (the sweep's mark, or a tape print). */
+    private fun step8756(p: Pos8544, seen: ShadowMark8360.Observation8372?, source: String, nowMs: Long,
+                         stopLatency8699: Long, normalLatency8699: Long, byPrint: Boolean) { synchronized(p) {
+        if (open[p.mint] !== p) return
+        val obs = seen?.takeIf { it.observedAtMs >= p.lastAtMs && it.priceUsd > 0.0 }
+            ?.takeIf { acceptMark8559("book:" + p.mint, p.lastPx, it.priceUsd, source) }
+        if (obs != null) { p.lastPx = obs.priceUsd; p.lastAtMs = obs.observedAtMs }
+        val g = grossPct8544(p.entryPx, p.lastPx)
+        if (!g.isFinite()) return
+        if (g > p.peak) p.peak = g
+        val pending = p.exitWhy
+        if (pending != null) {
+            // a triggered exit fills at the first observed mark after the live sell latency
+            val latency = if (stopExit8699(pending)) stopLatency8699 else normalLatency8699
+            if (obs != null && obs.observedAtMs >= p.exitAtMs + latency) fill8544(p, g, nowMs)
+            else if (nowMs - p.lastAtMs > LOST_MARK_MS_8544) { p.exitFraction = 1.0; p.exitWhy = "LOST_MARK"; fill8544(p, g, nowMs) }
+            return
+        }
+        if (byPrint && obs == null) return
+        if (nowMs - p.lastAtMs > LOST_MARK_MS_8544) { p.exitFraction = 1.0; p.exitWhy = "LOST_MARK"; fill8544(p, g, nowMs); return }
+        val stopPct = try { FieldManual7715.stopPct8392(p.exitLane, p.costPct) } catch (_: Throwable) { 15.0 }
+        // V5.0.8584 — the paper meme book runs the live doctrine: the 2x / 5x / 10x ladder and the doctrine trail.
+        val doctrine8584 = com.lifecyclebot.engine.RunnerDoctrine8584.rides8584(p.exitLane)
+        val level = if (doctrine8584) com.lifecyclebot.engine.RunnerDoctrine8584.paperStopLevel8584(stopPct, p.peak)
+            else try { ShadowAlign8366.liveStopLevel8366(p.runner, stopPct, p.peak, p.costPct) } catch (_: Throwable) { -stopPct }
+        val ladder = if (doctrine8584) com.lifecyclebot.engine.RunnerGrab7967.TIERS_7967 else if (p.runner) com.lifecyclebot.engine.RunnerGrab7967.TIERS_7967 else com.lifecyclebot.engine.SpikeCapture7943.TIERS
+        val rung = rung8544(ladder, p.tiers, g)
+        // V5.0.8683 — a breach must be seen on two observed marks (a wick is one print); a recovery clears it.
+        val breached8683 = level.isFinite() && g <= level
+        if (!breached8683) p.stopSeenAtMs8683 = 0L
+        else if (p.stopSeenAtMs8683 == 0L) p.stopSeenAtMs8683 = p.lastAtMs
+        when {
+            breached8683 && paperStopConfirmed8683(p.stopSeenAtMs8683, p.lastAtMs, g) -> {
+                p.slipLevel8756 = level; p.slipTrig8756 = g; p.slipByPrint8756 = byPrint
+                trigger8544(p, if (p.peak > 0.0 && level > -stopPct) "TRAIL_STOP" else "STOP", 1.0, 0, nowMs)
+            }
+            breached8683 -> try { PipelineHealthCollector.labelInc("MEME_PAPER_STOP_AWAITS_SECOND_MARK_8683") } catch (_: Throwable) {}
+            rung != null -> trigger8544(p, "TAKE_PROFIT_T${rung.first}", rung.second, rung.first, nowMs)
+            nowMs - p.entryAtMs >= p.clockMs && doctrine8584 &&
+                com.lifecyclebot.engine.RunnerDoctrine8584.holds8584(p.exitLane, "CLOCK_TIME", g, p.peak) -> Unit
+            nowMs - p.entryAtMs >= p.clockMs -> trigger8544(p, "CLOCK", 1.0, 0, nowMs)
+        }
+    } }
 
     /**
      * V5.0.8623 §PAPER_ASKS_FOR_ITS_OWN_MARKS — the book never asked the data side to keep pricing its open coins: once a coin
@@ -305,6 +339,8 @@ object MemePaperTrader8544 {
 
     private fun fill8544(p: Pos8544, g: Double, nowMs: Long) {
         val why = p.exitWhy ?: return
+        if (stopExit8699(why) && p.slipTrig8756.isFinite()) StopSlip8756.notePaper8756(p.exitLane, p.slipLevel8756, p.slipTrig8756, g, p.slipByPrint8756)
+        p.slipLevel8756 = Double.NaN; p.slipTrig8756 = Double.NaN
         val sold = p.held * p.exitFraction.coerceIn(0.0, 1.0)
         // V5.0.8623 — a lost mark is no exit price: the unsold remainder is valued flat (entry), never at a stale last mark.
         p.banked += sold * (if (why == LOST_MARK_8623) 0.0 else g); p.held -= sold

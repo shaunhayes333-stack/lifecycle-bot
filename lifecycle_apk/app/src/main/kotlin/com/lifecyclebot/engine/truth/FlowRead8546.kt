@@ -50,7 +50,8 @@ object FlowRead8546 {
     /** [mint]'s flow now (tape + tracked wallets). */
     fun read8546(mint: String, nowMs: Long = System.currentTimeMillis()): Flow8546 {
         val prints = try { TradeTape8100.prints8128(mint, nowMs, 300_000L) } catch (_: Throwable) { emptyList() }
-        val smart = try { SmartMoneyFeed6394.smartWallets8546(mint, 300_000L, nowMs) } catch (_: Throwable) { 0 }
+        // V5.0.8756 — the wallets with a graded follower record (SmartMoney8756), not every whale CopyTradeEngine saw
+        val smart = try { SmartMoney8756.provenBuyers8756(mint, 300_000L, nowMs) } catch (_: Throwable) { 0 }
         return of8546(prints, nowMs, smart)
     }
 }

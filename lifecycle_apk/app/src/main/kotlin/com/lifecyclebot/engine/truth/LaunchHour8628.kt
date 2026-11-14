@@ -51,13 +51,14 @@ object LaunchHour8628 {
      * replay may not enter on it, because the bot could not have seen it then (LaunchReplay8744.LIVE_LAG_MS_8748).
      */
     fun trade(mint: String, at: Long, sig: String, buy: Boolean, sol: Double, qty: Double, referencePriceSol: Double,
-              recvMs: Long = System.currentTimeMillis(), src: String = "") {
+              recvMs: Long = System.currentTimeMillis(), src: String = "", wallet: String = "") {
         if (sig.isBlank() || System.currentTimeMillis() - at !in 0L..RETENTION) return
         val px = observedPrice8642(sol, qty, referencePriceSol)
         if (px == null) { rejectedUnitMismatch8642.incrementAndGet(); return }
         // V5.0.8741 — the SOL size of every print too: a replay of exits needs the flow, not just the price
-        record("INSERT OR IGNORE INTO trade(m,t,s,side,p,v,r,src) VALUES(?,?,?,?,?,?,?,?)", mint, at, sig, if (buy) 1 else 0, px, sol,
-            recvMs, src.take(24))
+        // V5.0.8756 — the trader's wallet too (SmartMoney8756 grades every wallet's early buys on these same paths)
+        record("INSERT OR IGNORE INTO trade(m,t,s,side,p,v,r,src,w) VALUES(?,?,?,?,?,?,?,?,?)", mint, at, sig, if (buy) 1 else 0, px, sol,
+            recvMs, src.take(24), wallet.trim().take(44))
     }
 
     fun observeDecision(ts: com.lifecyclebot.data.TokenState, lane: String, admit: Boolean, at: Long) {
@@ -95,6 +96,7 @@ object LaunchHour8628 {
                         try { execSQL("ALTER TABLE trade ADD COLUMN v REAL") } catch (_: Exception) {}   // V5.0.8741 (exists after first run)
                         try { execSQL("ALTER TABLE trade ADD COLUMN r INTEGER") } catch (_: Exception) {}   // V5.0.8748 received at
                         try { execSQL("ALTER TABLE trade ADD COLUMN src TEXT") } catch (_: Exception) {}    // V5.0.8748 feed
+                        try { execSQL("ALTER TABLE trade ADD COLUMN w TEXT") } catch (_: Exception) {}      // V5.0.8756 trader wallet
                         execSQL("CREATE TABLE IF NOT EXISTS decision(m TEXT,t INTEGER,l TEXT,k TEXT,a INTEGER,c REAL, PRIMARY KEY(m,t,l,k,a))")
                     }.also { db = it }
                 }
@@ -131,24 +133,42 @@ object LaunchHour8628 {
     }
 
     internal fun forEachLaunch8744(now: Long, maxLaunches: Int, liveLagMs: Long,
-                                   cb: (mint: String, t: LongArray, p: DoubleArray, buy: BooleanArray, live: BooleanArray) -> Unit) {
+                                   cb: (mint: String, t: LongArray, p: DoubleArray, buy: BooleanArray, live: BooleanArray) -> Unit) =
+        forEachLaunch8756(now, maxLaunches, liveLagMs) { r -> cb(r.mint, r.t, r.p, r.buy, r.live) }
+
+    /**
+     * V5.0.8756 — one stored launch with everything the replays grade: [bornMs] (wall clock), times from birth, prices,
+     * sides, live flags, SOL sizes (0 when unrecorded) and trader wallets ("" when the feed or an older row named none).
+     */
+    internal class Launch8756(val mint: String, val bornMs: Long, val t: LongArray, val p: DoubleArray, val buy: BooleanArray,
+                              val live: BooleanArray, val sol: DoubleArray, val wallet: Array<String>)
+
+    internal fun forEachLaunch8756(now: Long, maxLaunches: Int, liveLagMs: Long, cb: (Launch8756) -> Unit) {
         val path = AATEApp.appContextOrNull()?.getDatabasePath(NAME) ?: return
         if (!path.exists()) return
         SQLiteDatabase.openDatabase(path.path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
+            val hasWallet = db.rawQuery("PRAGMA table_info(trade)", null).use { c ->
+                var found = false; while (c.moveToNext()) if (c.getString(1) == "w") found = true; found
+            }
+            val cols = if (hasWallet) "t,p,side,r,v,w" else "t,p,side,r,v"
             db.rawQuery("SELECT m,min(b) FROM birth GROUP BY m HAVING min(b)>=CAST(? AS INTEGER) ORDER BY min(b) DESC LIMIT $maxLaunches",
                 arrayOf((now - RETENTION).toString())).use { births ->
                 while (births.moveToNext()) {
                     val mint = births.getString(0); val born = births.getLong(1)
                     val ts = ArrayList<Long>(); val ps = ArrayList<Double>(); val bs = ArrayList<Boolean>(); val ls = ArrayList<Boolean>()
-                    db.rawQuery("SELECT t,p,side,r FROM trade WHERE m=? AND t BETWEEN ? AND ? ORDER BY t,s,side",
+                    val vs = ArrayList<Double>(); val ws = ArrayList<String>()
+                    db.rawQuery("SELECT $cols FROM trade WHERE m=? AND t BETWEEN ? AND ? ORDER BY t,s,side",
                         arrayOf(mint, born.toString(), (born + HOUR).toString())).use { c ->
                         while (c.moveToNext()) {
                             val t = c.getLong(0)
                             ts.add(t - born); ps.add(c.getDouble(1)); bs.add(c.getInt(2) == 1)
                             ls.add(!c.isNull(3) && c.getLong(3) - t in -5_000L..liveLagMs)
+                            vs.add(if (c.isNull(4)) 0.0 else c.getDouble(4))
+                            ws.add(if (hasWallet && !c.isNull(5)) c.getString(5) else "")
                         }
                     }
-                    if (ts.size >= PATH_MIN_PRINTS_8741) cb(mint, ts.toLongArray(), ps.toDoubleArray(), bs.toBooleanArray(), ls.toBooleanArray())
+                    if (ts.size >= PATH_MIN_PRINTS_8741) cb(Launch8756(mint, born, ts.toLongArray(), ps.toDoubleArray(), bs.toBooleanArray(),
+                        ls.toBooleanArray(), vs.toDoubleArray(), ws.toTypedArray()))
                 }
             }
         }

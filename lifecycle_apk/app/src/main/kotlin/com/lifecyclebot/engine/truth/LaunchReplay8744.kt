@@ -38,7 +38,13 @@ object LaunchReplay8744 {
      *  DOCTRINE    the bot's runner ladder today: 25 % at 2x, 18 % at 5x, 67 % of the rest at 10x, the rest trailed 45 %;
      *  MOONBAG     half at [Rule.takeX], 30 % at 10x, the last 20 % trailed 60 % from its peak (a 50x keeps a real bag).
      */
-    enum class Ladder { HALF_TRAIL, DOCTRINE, MOONBAG }
+    /**
+     * V5.0.8756 — SCALE_OUT is the exit the runner literature recommends (sell a quarter at 3x and another at each further
+     * doubling, 6x and 12x, the last quarter a moonbag on a 50 % trail). It is graded beside the bot's own DOCTRINE ladder
+     * on the same paths so the record, not an opinion, says which one keeps more of a runner; only DOCTRINE (what the live
+     * exits run) can be proven for the sniper.
+     */
+    enum class Ladder { HALF_TRAIL, DOCTRINE, MOONBAG, SCALE_OUT }
     data class Rule(val capUsd: Double, val minBuys: Int, val takeX: Double, val stopPct: Double, val ladder: Ladder = Ladder.HALF_TRAIL,
                     val delayMs: Long = 2_000L) {
         val id: String get() = "cap\$${(capUsd / 1000).toInt()}k buys>=$minBuys tp${takeX.toInt()}x stop${stopPct.toInt()}% $ladder +${delayMs / 1000}s"
@@ -88,13 +94,17 @@ object LaunchReplay8744 {
     }
 
     /** One launch's first hour with its spikes removed. */
-    internal class Path8748(val t: LongArray, val p: DoubleArray, val buy: BooleanArray, val live: BooleanArray, val spikes: Int)
+    /** V5.0.8756 — [sol] / [wallet] per print (SmartMoney8756), [bornMs] the launch's wall-clock birth; absent on old rows. */
+    internal class Path8748(val t: LongArray, val p: DoubleArray, val buy: BooleanArray, val live: BooleanArray, val spikes: Int,
+                            val sol: DoubleArray? = null, val wallet: Array<String>? = null, val bornMs: Long = 0L)
 
-    internal fun clean8748(t: LongArray, p: DoubleArray, buy: BooleanArray, live: BooleanArray?): Path8748 {
+    internal fun clean8748(t: LongArray, p: DoubleArray, buy: BooleanArray, live: BooleanArray?,
+                           sol: DoubleArray? = null, wallet: Array<String>? = null, bornMs: Long = 0L): Path8748 {
         val drop = spikes8748(p)
         val keep = p.indices.filter { !drop[it] }
         return Path8748(LongArray(keep.size) { t[keep[it]] }, DoubleArray(keep.size) { p[keep[it]] },
-            BooleanArray(keep.size) { buy[keep[it]] }, BooleanArray(keep.size) { live?.get(keep[it]) ?: true }, p.size - keep.size)
+            BooleanArray(keep.size) { buy[keep[it]] }, BooleanArray(keep.size) { live?.get(keep[it]) ?: true }, p.size - keep.size,
+            sol?.let { v -> DoubleArray(keep.size) { v[keep[it]] } }, wallet?.let { w -> Array(keep.size) { w[keep[it]] } }, bornMs)
     }
 
     /** Pure: the first live print where the cap is reached with [minBuys] live buys in the 60 s before it; -1 when none. */
@@ -150,8 +160,9 @@ object LaunchReplay8744 {
             Ladder.HALF_TRAIL -> listOf(takeX to 0.5)
             Ladder.DOCTRINE -> listOf(2.0 to 0.25, 5.0 to 0.18, 10.0 to 0.57 * 0.67)
             Ladder.MOONBAG -> listOf(takeX to 0.5, 10.0 to 0.3)
+            Ladder.SCALE_OUT -> listOf(3.0 to 0.25, 6.0 to 0.25, 12.0 to 0.25)
         }
-        val trailPct = when (ladder) { Ladder.HALF_TRAIL -> TRAIL_PCT; Ladder.DOCTRINE -> 45.0; Ladder.MOONBAG -> 60.0 }
+        val trailPct = when (ladder) { Ladder.HALF_TRAIL -> TRAIL_PCT; Ladder.DOCTRINE -> 45.0; Ladder.MOONBAG -> 60.0; Ladder.SCALE_OUT -> 50.0 }
         var nextRung = 0
         for (k in e + 1 until t.size) {
             val px = p[k]
@@ -233,6 +244,8 @@ object LaunchReplay8744 {
 
     /** LaunchSniper8748: the proven rule (trade it) and the shadow rule (watch it), from the last run. */
     fun proven8748(): Result? = proven
+    /** V5.0.8756 — the last run's graded rules (the Lab's ladder comparison). */
+    internal fun results8756(): List<Result> = last
     fun shadow8748(): Result? = shadow
 
     /** Re-run in the background when due; never blocks the caller. */
@@ -245,8 +258,8 @@ object LaunchReplay8744 {
                 if (!(solUsd > 0.0)) { status = "no SOL price"; return@execute }
                 val set = ArrayList<Path8748>()
                 var spikes = 0L; var liveN = 0
-                LaunchHour8628.forEachLaunch8744(nowMs, MAX_LAUNCHES, LIVE_LAG_MS_8748) { _, t, p, b, l ->
-                    val x = clean8748(t, p, b, l); spikes += x.spikes
+                LaunchHour8628.forEachLaunch8756(nowMs, MAX_LAUNCHES, LIVE_LAG_MS_8748) { r ->
+                    val x = clean8748(r.t, r.p, r.buy, r.live, r.sol, r.wallet, r.bornMs); spikes += x.spikes
                     if (x.live.any { it }) liveN++
                     set.add(x)
                 }
@@ -255,12 +268,20 @@ object LaunchReplay8744 {
                 val need = try { LaunchSniper8748.requiredDelayMs8749() } catch (_: Throwable) { ARM_MIN_DELAY_MS_8748 }
                 last = res; proven = provenOf8748(res, need); shadow = shadowOf8748(res, need)
                 try { BaseFamily8754.evaluate8754(set, solUsd, cost, need) } catch (_: Throwable) {}   // V5.0.8754 the base family, same paths
+                try { SmartMoney8756.evaluate8756(set, cost, need) } catch (_: Throwable) {}            // V5.0.8756 the wallets, same paths
                 paths8755 = set; solUsd8755 = solUsd; cost8755 = cost
                 val births = try { LaunchHour8628.births8749(nowMs) } catch (_: Throwable) { -1 }
                 status = "ran births48h=$births launches>=20prints=${set.size} withLivePrints=$liveN needDelay=${need / 1000}s spikesDropped=$spikes solUsd=${"%.0f".format(solUsd)} cost=${"%.1f".format(cost)}%"
             } catch (t: Throwable) { status = "failed:${t.javaClass.simpleName}" } finally { running.set(false) }
         }
     }
+
+    /** V5.0.8756 — pure: each exit ladder's best rule (n >= MIN_N, by the ex-top-3 mean less its SE): which exit keeps more of a run. */
+    internal fun ladderLine8756(results: List<Result>): String = "ladders{" + Ladder.values().joinToString(" ") { l ->
+        val b = results.filter { it.rule.ladder == l && it.n >= MIN_N && it.exTop3.isFinite() && it.exTop3Se.isFinite() }
+            .maxByOrNull { it.exTop3 - it.exTop3Se }
+        "$l=" + (b?.let { "exTop3${"%+.1f".format(it.exTop3)}±${"%.1f".format(it.exTop3Se)}%/10x+${"%.1f".format(it.tenX * 100)}%/n${it.n}" } ?: "-")
+    } + "}"
 
     private fun line(r: Result): String =
         "${r.rule.id} n${r.n} med${"%+.0f".format(r.median)}% mean${"%+.0f".format(r.mean)}% exTop3${"%+.1f".format(r.exTop3)}±${"%.1f".format(r.exTop3Se)}% " +
@@ -269,7 +290,7 @@ object LaunchReplay8744 {
     fun statusLine8744(): String {
         maybeRun8744()
         val top = last.take(5).joinToString(" · ") { line(it) }.ifBlank { "-" }
-        return "launchReplay8744[$status rules=${GRID.size} proven{${proven?.let { line(it) } ?: "none"}} " +
+        return "launchReplay8744[$status rules=${GRID.size} proven{${proven?.let { line(it) } ?: "none"}} ${ladderLine8756(last)} " +
             "shadow{${shadow?.let { line(it) } ?: "none"}} best{$top} rule=live prints only, spikes dropped, fills at the curve after " +
             "the latency, ranked by the mean without each rule's 3 best launches; proven = DOCTRINE ladder, >=${ARM_MIN_DELAY_MS_8748 / 1000}s, " +
             "n>=$PROVEN_MIN_N_8748, ex-top-3 mean - SE > 0]"

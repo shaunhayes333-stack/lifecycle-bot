@@ -181,6 +181,9 @@ object MemeStrategies8546 {
         Family8546.DIP_BUY_VOLUME, Family8546.FOLLOW_SIZE -> true
     }
 
+    /** Pure (V5.0.8756): a follow-size signal stands only with at least one graded, proven wallet among the last minute's buyers. */
+    fun followProven8756(why: String?, provenBuyers: Int): String? = if (why != null && provenBuyers >= 1) "$why provenWallets=$provenBuyers" else null
+
     /** Pure: the exit style (lane whose levers the paper position rides) for [family] on a coin of [mcapUsd]. */
     fun exitLane8546(family: Family8546, mcapUsd: Double): String = when (family) {
         Family8546.RANGE_LOW -> "QUALITY"
@@ -231,9 +234,12 @@ object MemeStrategies8546 {
         // V5.0.8692 — the expert playbook's dip buy (closed 1m bars with real volume) and follow-size (executed prints).
         add(Family8546.DIP_BUY_VOLUME, ExpertSetups8692.dipBuyVolume8692(m1))
         val ageMin8692 = try { CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts, nowMs) } catch (_: Throwable) { null }
+        // V5.0.8756 — follow size only where a PROVEN wallet is among the buyers (SmartMoney8756): a large buy in the first
+        // minutes is a sniper or a bundle by default (8755 paper: FAM_FOLLOW_SIZE stops -60.8 % after 1.9 min).
+        val proven8756 = try { SmartMoney8756.provenBuyers8756(ts.mint, 60_000L, nowMs) } catch (_: Throwable) { 0 }
         if (ageMin8692 != null && ageMin8692 < 5.0)
-            add(Family8546.FOLLOW_SIZE, ExpertSetups8692.followSize8692(
-                try { TradeTape8100.prints8128(ts.mint, nowMs, 60_000L) } catch (_: Throwable) { emptyList() }, nowMs, ageMin8692))
+            add(Family8546.FOLLOW_SIZE, followProven8756(ExpertSetups8692.followSize8692(
+                try { TradeTape8100.prints8128(ts.mint, nowMs, 60_000L) } catch (_: Throwable) { emptyList() }, nowMs, ageMin8692), proven8756))
         val gradAt = try { com.lifecyclebot.network.PumpCurveKeys7269.graduatedAtMs8546(ts.mint) } catch (_: Throwable) { null }
         if (gradAt != null && nowMs - gradAt in 0L..3_600_000L)
             add(Family8546.GRADUATION_RETEST, graduationRetest(m1, gradAt)?.let { "graduated ${(nowMs - gradAt) / 60_000L}m ago $it" })

@@ -82,13 +82,24 @@ object TradeTape8100 {
      * care filter) both use it; the verdict is returned so a print taken through it once is not judged twice.
      */
     fun launchEvidence8750(mint: String, priceSol: Double, sol: Double, tokenQty: Double, isBuy: Boolean, src: String, sig: String,
-                           eventMs: Long, recvMs: Long, basis: PrintWitness8750.Basis): PrintWitness8750.Verdict {
+                           eventMs: Long, recvMs: Long, basis: PrintWitness8750.Basis, wallet: String = ""): PrintWitness8750.Verdict {
         val v = PrintWitness8750.check8750(mint, priceSol, sol, tokenQty, if (eventMs > 0L) eventMs else recvMs, recvMs, basis)
         if ((v == PrintWitness8750.Verdict.RESERVES || v == PrintWitness8750.Verdict.WITNESSED) && eventMs in 1L..recvMs) {
-            LaunchHour8628.trade(mint, eventMs, sig, isBuy, sol, tokenQty, priceSol, recvMs, src)
+            LaunchHour8628.trade(mint, eventMs, sig, isBuy, sol, tokenQty, priceSol, recvMs, src, wallet)
             LaunchSniper8748.onPrint8748(mint, eventMs, priceSol, isBuy, recvMs, sig)   // V5.0.8748 — live prints only (it checks the lag)
+            // V5.0.8756 — a witnessed print is also the fast exit's tick (the paper book stops on the print, not the next sweep)
+            // and, with its wallet, the graded smart-money signal's input.
+            try { MemePaperTrader8544.onPrint8756(mint, priceSol, eventMs) } catch (_: Throwable) {}
+            if (wallet.isNotBlank()) try { SmartMoney8756.onPrint8756(mint, wallet, eventMs, isBuy, sol, recvMs) } catch (_: Throwable) {}
         }
         return v
+    }
+
+    /** V5.0.8756 — StopMarkConfirm8418's tape leg: [mint]'s newest two executed (sized, sided) prints as (price SOL, received ms, venue), newest first. */
+    fun lastExecuted8756(mint: String): List<Triple<Double, Long, String>> {
+        val q = tapes[mint] ?: return emptyList()
+        return synchronized(q) { q.asReversed().asSequence().filter { !it.priceOnly && it.sol > 0.0 && it.tokenQty > 0.0 }.take(2)
+            .map { Triple(it.priceSol, it.recvMs, it.pool) }.toList() }
     }
 
     fun note8285(
@@ -112,7 +123,7 @@ object TradeTape8100 {
         // Historic decoded prints fill data only. A late replay cannot awaken the launch sniper.
         val verdict8750 = witness8750 ?: if (historyOnly8751)
             PrintWitness8750.check8750(mint, priceSol, sol, tokenQty, if (eventMs > 0L) eventMs else recvMs, recvMs, priceBasis8750)
-        else launchEvidence8750(mint, priceSol, sol, tokenQty, isBuy, src, sig, eventMs, recvMs, priceBasis8750)
+        else launchEvidence8750(mint, priceSol, sol, tokenQty, isBuy, src, sig, eventMs, recvMs, priceBasis8750, wallet)
         if (verdict8750 == PrintWitness8750.Verdict.OUT_OF_BAND) return false
         if (sig.isNotBlank()) {
             val prior = synchronized(seenSig8285) {

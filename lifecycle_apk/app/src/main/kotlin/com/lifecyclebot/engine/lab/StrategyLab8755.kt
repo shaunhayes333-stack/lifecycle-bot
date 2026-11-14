@@ -379,7 +379,11 @@ object StrategyLab8755 {
         sb.append("BEST CELLS (discovery): ").append(mined.take(6).joinToString(" | ") { (s, sc, _) -> "${s.lane} ${s.conds.joinToString("&") { "${it.feature}${fmtRange(it)}" }} score${"%+.1f".format(sc)}" }).append('\n')
         head?.let { h -> sb.append("RUNNER HEAD base rate ${"%.1f".format(h.baseRate * 100)}% (doubled in 15 min)\n") }
         sb.append("LAUNCH REPLAY: ").append(LaunchReplay8744.statusLine8744().substringAfter("best{").take(400)).append('\n')
-        sb.append("BASE REPLAY: ").append(BaseFamily8754.statusLine8754().substringAfter("best{").take(400))
+        sb.append("BASE REPLAY: ").append(BaseFamily8754.statusLine8754().substringAfter("best{").take(400)).append('\n')
+        // V5.0.8756 — which exit ladder keeps more of a run, the graded smart-money signal, and where stops lose their level
+        sb.append("EXIT LADDERS (launch replay): ").append(LaunchReplay8744.ladderLine8756(LaunchReplay8744.results8756()).take(400)).append('\n')
+        sb.append("SMART MONEY: ").append(com.lifecyclebot.engine.truth.SmartMoney8756.statusLine8756().take(400)).append('\n')
+        sb.append("STOP SLIP: ").append(com.lifecyclebot.engine.truth.StopSlip8756.statusLine8756().take(400))
         return sb.toString()
     }
 
