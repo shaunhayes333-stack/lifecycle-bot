@@ -30,12 +30,17 @@ object LlmAnalyst8746 {
     /**
      * Pure: the probability in an answer, or null. V5.0.8748 — 8747 phone: 40 of 60 answers unread. Models quote the number
      * ("p_up": "0.12"), write a percent ("p_up": 12%), or wrap the JSON in prose or a ```json fence; all of those are read.
-     * A number over 1 without a percent sign is read as a percent only when it is at most 100.
+     * A number over 1 without a percent sign is read as a percent only when it is a whole number up to 100.
      */
     fun parse8746(text: String?): Double? {
         val m = Regex("p_up[\"']?\\s*[:=]\\s*[\"']?\\s*([0-9]*\\.?[0-9]+)\\s*(%?)", RegexOption.IGNORE_CASE).find(text ?: return null) ?: return null
         val v = m.groupValues[1].toDoubleOrNull() ?: return null
-        val p = if (m.groupValues[2] == "%" || v > 1.0) v / 100.0 else v
+        val p = when {
+            m.groupValues[2] == "%" -> v / 100.0
+            v <= 1.0 -> v
+            v == kotlin.math.floor(v) -> v / 100.0   // a whole number 2..100 is a percent; 1.7 is a malformed probability
+            else -> return null
+        }
         return p.takeIf { it in 0.0..1.0 }
     }
 
