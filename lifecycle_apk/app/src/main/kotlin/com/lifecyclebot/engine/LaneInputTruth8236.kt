@@ -113,8 +113,15 @@ object LaneInputTruth8236 {
         return "$ELIGIBLE_UNOBSERVED_DEFER_8535:$missing"
     }
 
-    /** Pure: the crypto desk's bp (50 from zero counts) and 24h change (exact 0.0) are defaults when no provider stated them. */
-    fun cryptoInputsUnobserved8236(buys24h: Int, sells24h: Int, change24hPct: Double): Boolean =
+    /**
+     * Pure: missing provider fields defer. A provider-confirmed zero count / 0% move is
+     * observed inactivity, not an excuse to retry the same token indefinitely.
+     * Legacy callers without provenance retain their conservative behavior.
+     */
+    fun cryptoInputsUnobserved8236(
+        buys24h: Int, sells24h: Int, change24hPct: Double,
+        observedTransactions: Boolean = false, observedPriceChange: Boolean = false,
+    ): Boolean = !observedTransactions && !observedPriceChange &&
         buys24h + sells24h <= 0 && (!change24hPct.isFinite() || change24hPct == 0.0)
 
     private fun count8236(label: String) {

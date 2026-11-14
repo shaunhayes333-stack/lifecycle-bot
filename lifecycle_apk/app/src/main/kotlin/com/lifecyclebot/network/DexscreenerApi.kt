@@ -42,6 +42,11 @@ data class PairInfo(
     val volumeM5: Double = Double.NaN,
     val priceChangeM5: Double = Double.NaN,
     val priceChangeH1: Double = Double.NaN,
+    // The provider also returns h24 change and exact h24 transaction presence.
+    // The crypto universe previously dropped both at parse time, leaving a
+    // priced token with invented 0% momentum and unobserved buyer flow.
+    val priceChangeH24: Double = Double.NaN,
+    val txnsH24Observed: Boolean = false,
 )
 
 class DexscreenerApi {
@@ -361,6 +366,8 @@ class DexscreenerApi {
             volumeM5         = vol?.takeIf { it.has("m5") }?.optDouble("m5", Double.NaN) ?: Double.NaN,
             priceChangeM5    = p.optJSONObject("priceChange")?.takeIf { it.has("m5") }?.optDouble("m5", Double.NaN) ?: Double.NaN,
             priceChangeH1    = p.optJSONObject("priceChange")?.takeIf { it.has("h1") }?.optDouble("h1", Double.NaN) ?: Double.NaN,
+            priceChangeH24   = p.optJSONObject("priceChange")?.takeIf { it.has("h24") }?.optDouble("h24", Double.NaN) ?: Double.NaN,
+            txnsH24Observed  = h24?.let { it.has("buys") && it.has("sells") } == true,
         )
     }
 

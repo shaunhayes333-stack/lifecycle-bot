@@ -281,6 +281,14 @@ object CryptoAltTrader {
     private val cryptoResidentLastScanAt7823 = ConcurrentHashMap<String, Long>()
     private const val CRYPTO_RESIDENT_SCAN_QUOTA_7823 = 64
     private const val CRYPTO_FRESH_SCAN_QUOTA_7922 = 64
+    // V5.0.8752 — missing buyer/change readings are enriched off the scan hot
+    // path with a bounded shared-host budget; a priced token is not assumed
+    // hydrated. Failed requests rest two minutes and never mint fake readings.
+    private val cryptoSignalHydrationAt8752 = ConcurrentHashMap<String, Long>()
+    private val cryptoSignalHydrationInFlight8752 = ConcurrentHashMap.newKeySet<String>()
+    private const val CRYPTO_SIGNAL_HYDRATION_RETRY_MS_8752 = 120_000L
+    private const val CRYPTO_SIGNAL_HYDRATION_SCAN_BUDGET_8752 = 12
+    private const val CRYPTO_SIGNAL_HYDRATION_CONCURRENCY_8752 = 3
 
     // V5.0.7825 — identity-level anti-churn. CryptoAlt previously had no
     // post-close re-entry memory, so the same few high-ranked coins could be
@@ -1387,6 +1395,7 @@ object CryptoAltTrader {
         var scanned = 0
         var signals = 0  // legacy meme-specialist signals (diagnostic only)
         var cryptoBrainSignals7244 = 0
+        var scheduledSignalHydrations8752 = 0
         val dynExecutableSignals = mutableListOf<AltSignal>()
 
         for (tok in batch) {
@@ -1411,11 +1420,12 @@ object CryptoAltTrader {
                     try { PipelineHealthCollector.labelInc("CRYPTO_HELD_DISCOVERY_BYPASS_7246") } catch (_: Throwable) {}
                     continue
                 }
-                if (SOL_PERPS_SYMBOLS.contains(tok.symbol.uppercase())) {
-                    if (!DynamicAltTokenRegistry.markEvaluationStarted6567(tok)) continue
-                    DynamicAltTokenRegistry.markEvaluationDisposition6567(tok, "OWNED_BY_SOL_PERPS")
-                    continue
-                }
+                // V5.0.8752 — symbol != execution ownership. In 8750, 98
+                // actual chain+mint identities were discarded as
+                // OWNED_BY_SOL_PERPS even though PERPS started=0. Dynamic
+                // spot candidates (including Solana mints named BTC/ETH/SOL)
+                // must reach the crypto brain. The exact chain+mint route,
+                // direction, sellability and canonical safety still decide.
                 // V5.9.147 — lazy price hydration. Jupiter-seeded mints arrive
                 // with price=0 and used to be skipped forever, which is why
                 // DynScan was reporting scanned=0 on a 200-token universe.
@@ -1441,6 +1451,44 @@ object CryptoAltTrader {
                 // Re-read the freshly hydrated row so downstream fields are current.
                 val refreshed = DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(tok.canonicalIdentity6544)
                     ?: DynamicAltTokenRegistry.getTokenByMint(tok.mint) ?: tok
+                val hydrationNow8752 = System.currentTimeMillis()
+                val signalUnknown8752 = refreshed.buys24h + refreshed.sells24h == 0 &&
+                    refreshed.priceChange24h == 0.0 &&
+                    !com.lifecyclebot.engine.LaneInputTruth8236.fresh8491(refreshed.txns24hObservedAtMs8752, hydrationNow8752) &&
+                    !com.lifecyclebot.engine.LaneInputTruth8236.fresh8491(refreshed.change24hObservedAtMs8752, hydrationNow8752)
+                if (signalUnknown8752 && refreshed.chainId.equals("solana", true) &&
+                    refreshed.volume24h > 0.0 && scheduledSignalHydrations8752 < CRYPTO_SIGNAL_HYDRATION_SCAN_BUDGET_8752 &&
+                    cryptoSignalHydrationInFlight8752.size < CRYPTO_SIGNAL_HYDRATION_CONCURRENCY_8752 &&
+                    hydrationNow8752 - (cryptoSignalHydrationAt8752[refreshed.canonicalIdentity6544] ?: 0L) >= CRYPTO_SIGNAL_HYDRATION_RETRY_MS_8752 &&
+                    cryptoSignalHydrationInFlight8752.add(refreshed.canonicalIdentity6544)
+                ) {
+                    val identity8752 = refreshed.canonicalIdentity6544
+                    cryptoSignalHydrationAt8752[identity8752] = hydrationNow8752
+                    scheduledSignalHydrations8752++
+                    scope.launch(Dispatchers.IO) {
+                        try {
+                            if (isRunning.get() && !com.lifecyclebot.engine.BotService.isShuttingDown) {
+                                DynamicAltTokenRegistry.refreshPriceForMintBlocking(
+                                    identity8752, forceRefresh = true, requireSignalInputs8752 = true,
+                                )
+                                PipelineHealthCollector.labelInc("CRYPTO_SIGNAL_ENRICHMENT_ATTEMPT_8752")
+                                val enriched8752 = DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(identity8752)
+                                val observationNow8752 = System.currentTimeMillis()
+                                val filled8752 = enriched8752 != null && (
+                                    com.lifecyclebot.engine.LaneInputTruth8236.fresh8491(enriched8752.txns24hObservedAtMs8752, observationNow8752) ||
+                                    com.lifecyclebot.engine.LaneInputTruth8236.fresh8491(enriched8752.change24hObservedAtMs8752, observationNow8752)
+                                )
+                                PipelineHealthCollector.labelInc(if (filled8752)
+                                    "CRYPTO_SIGNAL_ENRICHMENT_FILLED_8752" else "CRYPTO_SIGNAL_ENRICHMENT_STILL_UNKNOWN_8752")
+                            }
+                        } catch (e: Throwable) {
+                            if (e is kotlinx.coroutines.CancellationException) throw e
+                            try { PipelineHealthCollector.labelInc("CRYPTO_SIGNAL_ENRICHMENT_FAILURE_8752") } catch (_: Throwable) {}
+                        } finally {
+                            cryptoSignalHydrationInFlight8752.remove(identity8752)
+                        }
+                    }
+                }
                 if (!DynamicAltTokenRegistry.markEvaluationStarted6567(refreshed)) continue
                 DynamicAltTokenRegistry.markEvaluation6544(refreshed)
                 com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT, "MARKET_DATA_OK")
@@ -1573,7 +1621,12 @@ object CryptoAltTrader {
                 } else {
                     // V5.0.8236 — bp=50 from zero counts and chg=0.0 from a provider row that stated neither are defaults,
                     // not a flat market: the desk defers the asset instead of filing it as observed-and-unactionable.
-                    val unobserved8236 = com.lifecyclebot.engine.LaneInputTruth8236.cryptoInputsUnobserved8236(buys24h7391, sells24h7391, change)
+                    val now8752 = System.currentTimeMillis()
+                    val unobserved8236 = com.lifecyclebot.engine.LaneInputTruth8236.cryptoInputsUnobserved8236(
+                        buys24h7391, sells24h7391, change,
+                        observedTransactions = com.lifecyclebot.engine.LaneInputTruth8236.fresh8491(refreshed.txns24hObservedAtMs8752, now8752),
+                        observedPriceChange = com.lifecyclebot.engine.LaneInputTruth8236.fresh8491(refreshed.change24hObservedAtMs8752, now8752),
+                    )
                     if (unobserved8236) try { PipelineHealthCollector.labelInc(com.lifecyclebot.engine.LaneInputTruth8236.CRYPTO_DEFER) } catch (_: Throwable) {}
                     DynamicAltTokenRegistry.markEvaluationProgress6570(
                         refreshed,
@@ -3093,7 +3146,12 @@ object CryptoAltTrader {
         }
         val pre = when {
             hardNo.isNotEmpty() -> CryptoFinalBuyCandidate.PreFdgVerdict.HARD_NO_BUY
-            signal.score >= 50 && signal.confidence >= 40 -> CryptoFinalBuyCandidate.PreFdgVerdict.BUY
+            // V5.0.8752 — AltSignal is already an elected actionable signal
+            // from CryptoBrain or a specialist. The old independent 50/40 bar
+            // downgraded otherwise-qualified signals to WATCH; the 8750 tape
+            // records seven such canonical refusals. No safety/route/EV rule
+            // is relaxed: all hardNo and canonical checks remain binding.
+            signal.score > 0 && signal.confidence > 0 -> CryptoFinalBuyCandidate.PreFdgVerdict.BUY
             else -> CryptoFinalBuyCandidate.PreFdgVerdict.WATCH
         }
         val adapter = when {

@@ -58,14 +58,16 @@ object CryptoUniverseRouteResolver {
         val cfg = CryptoUniverseConfigStore.get()
         val sym = assetSymbol6493?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: market.symbol.uppercase()
 
-        // Solana meme tokens belong to MemeTrader. The PerpsMarket
-        // enum doesn't include pump.fun memes, so this is mostly a
-        // safety net for any future overlap.
-        if (sym == "SOL") {
-            return Resolution(sym, CryptoExecutionRoute.SOLANA_SPL_DIRECT, null,
-                CryptoUniverseDiagCodes.ROUTE_SOLANA_SPL,
-                "SOL is the base asset — handled by core executor.",
-                executable = true)
+        // V5.0.8752 — a symbol is not a mint. The former SOL shortcut ran
+        // before checking a dynamic chain+token identity, declared a null-mint
+        // order executable, and could silently hide a legitimate Solana spot
+        // token using the symbol SOL. A genuine native-SOL cash balance is
+        // not a target-token buy: there is no SOL→SOL position to open.
+        if (sym == "SOL" && targetMint6493.isNullOrBlank()) {
+            return Resolution(sym, CryptoExecutionRoute.PAPER_ONLY, null,
+                CryptoUniverseDiagCodes.ROUTE_NO_EXECUTOR,
+                "Native SOL is existing wallet cash, not a target-token swap; explicit chain+mint required.",
+                executable = false)
         }
 
         // Unknown RPC wallet state is not a proven empty wallet. Fail closed

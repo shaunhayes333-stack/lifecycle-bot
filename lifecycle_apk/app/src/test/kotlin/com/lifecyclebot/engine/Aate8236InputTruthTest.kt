@@ -56,6 +56,9 @@ class Aate8236InputTruthTest {
         assertTrue(LaneInputTruth8236.cryptoInputsUnobserved8236(0, 0, 0.0))
         assertFalse(LaneInputTruth8236.cryptoInputsUnobserved8236(0, 0, 1.7))
         assertFalse(LaneInputTruth8236.cryptoInputsUnobserved8236(12, 9, 0.0))
+        // 8752 — zero is real information when the provider actually sent it.
+        assertFalse(LaneInputTruth8236.cryptoInputsUnobserved8236(0, 0, 0.0, observedTransactions = true))
+        assertFalse(LaneInputTruth8236.cryptoInputsUnobserved8236(0, 0, 0.0, observedPriceChange = true))
     }
 
     @Test fun curveSubscriptionsFollowHeldThenFreshestCandidates() {

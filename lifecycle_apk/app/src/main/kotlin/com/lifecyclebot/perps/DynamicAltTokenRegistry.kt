@@ -74,6 +74,11 @@ object DynamicAltTokenRegistry {
         val volume24h: Double = 0.0,
         val buys24h: Int = 0,
         val sells24h: Int = 0,
+        // V5.0.8752 — zero is a legitimate provider reading, not necessarily
+        // missing data. Preserve independent provenance for price movement and
+        // transaction flow; discovery metadata cannot fabricate either one.
+        val change24hObservedAtMs8752: Long = 0L,
+        val txns24hObservedAtMs8752: Long = 0L,
         val ageHours: Double = 0.0,
         val source: String = "unknown",
         val isTrending: Boolean = false,
@@ -112,7 +117,8 @@ object DynamicAltTokenRegistry {
         }).coerceIn(0, 120)
 
         val hasTrustedMarketCap6492: Boolean get() = mcap.isFinite() && mcap > 0.0 && mcapSource in setOf(
-            "COINGECKO_MARKET_CAP", "DEXSCREENER_BASE_MINT_MARKET_CAP", "BIRDEYE_MARKET_CAP", "STATIC_TRUSTED_MARKET_CAP"
+            "COINGECKO_MARKET_CAP", "DEXSCREENER_BASE_MINT_MARKET_CAP", "GECKOTERMINAL_MARKET_CAP",
+            "BIRDEYE_MARKET_CAP", "STATIC_TRUSTED_MARKET_CAP"
         )
 
         val emoji: String get() = when {
@@ -578,6 +584,8 @@ object DynamicAltTokenRegistry {
                     put("volume24h", tok.volume24h)
                     put("buys24h", tok.buys24h)
                     put("sells24h", tok.sells24h)
+                    put("change24hObservedAtMs8752", tok.change24hObservedAtMs8752)
+                    put("txns24hObservedAtMs8752", tok.txns24hObservedAtMs8752)
                     put("ageHours", tok.ageHours)
                     put("source", tok.source)
                     put("isTrending", tok.isTrending)
@@ -635,7 +643,8 @@ object DynamicAltTokenRegistry {
                 val existing = registry[restoredKey6544]
                 if (existing != null && !existing.isStatic && existing.lastUpdatedMs > o.optLong("lastUpdatedMs", 0L)) continue
                 val restoredMcapSource6493 = o.optString("mcapSource", "").takeIf {
-                    it in setOf("DEXSCREENER_BASE_MINT_MARKET_CAP", "BIRDEYE_MARKET_CAP", "STATIC_TRUSTED_MARKET_CAP")
+                    it in setOf("DEXSCREENER_BASE_MINT_MARKET_CAP", "GECKOTERMINAL_MARKET_CAP",
+                        "BIRDEYE_MARKET_CAP", "STATIC_TRUSTED_MARKET_CAP")
                 } ?: ""
                 val restoredMcap6493 = o.optDouble("mcap", 0.0).takeIf {
                     restoredMcapSource6493.isNotBlank() && it.isFinite() && it > 0.0
@@ -661,6 +670,8 @@ object DynamicAltTokenRegistry {
                     volume24h      = o.optDouble("volume24h", 0.0),
                     buys24h        = o.optInt("buys24h", 0),
                     sells24h       = o.optInt("sells24h", 0),
+                    change24hObservedAtMs8752 = o.optLong("change24hObservedAtMs8752", 0L),
+                    txns24hObservedAtMs8752 = o.optLong("txns24hObservedAtMs8752", 0L),
                     ageHours       = o.optDouble("ageHours", 0.0),
                     source         = o.optString("source", "restored"),
                     isTrending     = o.optBoolean("isTrending", false),
@@ -1406,6 +1417,8 @@ object DynamicAltTokenRegistry {
                         priceObservedAtMs8372 = row.optLong("last_updated_at", 0L).takeIf { it in 1L..Long.MAX_VALUE / 1000L }?.times(1000L) ?: 0L,
                         priceChange24h = row.optDouble("usd_24h_change", tok.priceChange24h)
                             .takeIf { it.isFinite() } ?: tok.priceChange24h,
+                        change24hObservedAtMs8752 = if (row.has("usd_24h_change") && !row.isNull("usd_24h_change"))
+                            System.currentTimeMillis() else tok.change24hObservedAtMs8752,
                         volume24h = row.optDouble("usd_24h_vol", 0.0)
                             .takeIf { it.isFinite() && it > 0.0 } ?: tok.volume24h,
                         lastUpdatedMs = System.currentTimeMillis(),
@@ -1563,10 +1576,16 @@ object DynamicAltTokenRegistry {
         }
     }
 
-    fun refreshPriceForMintBlocking(identityOrAddress: String, forceRefresh: Boolean = false): Double {
+    fun refreshPriceForMintBlocking(
+        identityOrAddress: String, forceRefresh: Boolean = false, requireSignalInputs8752: Boolean = false,
+    ): Double {
         val existing = registry[identityOrAddress] ?: getTokenByMint(identityOrAddress) ?: return 0.0
         val ageMs = (System.currentTimeMillis() - existing.lastUpdatedMs).coerceAtLeast(0L)
-        if (existing.price > 0.0 && (!forceRefresh || ageMs <= PRICE_TTL_MS)) return existing.price
+        // A priced registry row may still have zero observed transactions AND
+        // no price-change reading. A normal mark refresh can reuse its price;
+        // a bounded crypto signal-hydration request must instead ask for the
+        // provider's missing fields, even while that price is fresh.
+        if (existing.price > 0.0 && (!forceRefresh || (ageMs <= PRICE_TTL_MS && !requireSignalInputs8752))) return existing.price
         // V5.0.7164 — a CoinGecko identity has no DEX mint route, but it does
         // have a price; ask the source that issued the id. Only when that comes
         // back empty do we fall back to carrying the last known mark.
@@ -1619,21 +1638,30 @@ object DynamicAltTokenRegistry {
         val price = pair.candle.priceUsd
         if (price <= 0.0) return rescueSolanaPriceBlocking7167(existing)
         val key = existing.canonicalIdentity6544
-        registry[key] = existing.copy(
+        // The HTTP call can overlap discovery/upsert. Merge the fetched fields
+        // into the newest row rather than replacing freshly discovered data
+        // with the pre-request snapshot.
+        val latest8752 = registry[key] ?: existing
+        registry[key] = latest8752.copy(
             price = price,
             priceObservedAtMs8372 = pair.candle.ts,
-            mcap = pair.candle.marketCap.takeIf { it.isFinite() && it > 0.0 } ?: existing.mcap,
-            fdv = pair.fdv.takeIf { it.isFinite() && it > 0.0 } ?: existing.fdv,
+            priceChange24h = pair.priceChangeH24.takeIf { it.isFinite() } ?: latest8752.priceChange24h,
+            change24hObservedAtMs8752 = if (pair.priceChangeH24.isFinite())
+                System.currentTimeMillis() else latest8752.change24hObservedAtMs8752,
+            txns24hObservedAtMs8752 = if (pair.txnsH24Observed)
+                System.currentTimeMillis() else latest8752.txns24hObservedAtMs8752,
+            mcap = pair.candle.marketCap.takeIf { it.isFinite() && it > 0.0 } ?: latest8752.mcap,
+            fdv = pair.fdv.takeIf { it.isFinite() && it > 0.0 } ?: latest8752.fdv,
             mcapSource = if (pair.candle.marketCap.isFinite() && pair.candle.marketCap > 0.0)
-                "DEXSCREENER_BASE_MINT_MARKET_CAP" else existing.mcapSource,
-            liquidityUsd = pair.liquidity.takeIf { it > 0.0 } ?: existing.liquidityUsd,
-            volume24h = pair.candle.volume24h.takeIf { it > 0.0 } ?: existing.volume24h,
-            buys24h = pair.candle.buys24h.takeIf { it > 0 } ?: existing.buys24h,
-            sells24h = pair.candle.sells24h.takeIf { it > 0 } ?: existing.sells24h,
-            dexId = existing.dexId.ifBlank { pair.dexId },
-            pairAddress = existing.pairAddress.ifBlank { pair.pairAddress },
-            quoteAddress = existing.quoteAddress.ifBlank { pair.quoteAddress },
-            pairCreatedAtMs = existing.pairCreatedAtMs.takeIf { it > 0L } ?: pair.pairCreatedAt,
+                "DEXSCREENER_BASE_MINT_MARKET_CAP" else latest8752.mcapSource,
+            liquidityUsd = pair.liquidity.takeIf { it > 0.0 } ?: latest8752.liquidityUsd,
+            volume24h = pair.candle.volume24h.takeIf { it > 0.0 } ?: latest8752.volume24h,
+            buys24h = if (pair.txnsH24Observed) pair.candle.buys24h else latest8752.buys24h,
+            sells24h = if (pair.txnsH24Observed) pair.candle.sells24h else latest8752.sells24h,
+            dexId = latest8752.dexId.ifBlank { pair.dexId },
+            pairAddress = latest8752.pairAddress.ifBlank { pair.pairAddress },
+            quoteAddress = latest8752.quoteAddress.ifBlank { pair.quoteAddress },
+            pairCreatedAtMs = latest8752.pairCreatedAtMs.takeIf { it > 0L } ?: pair.pairCreatedAt,
             lastUpdatedMs = System.currentTimeMillis(),
         )
         return price
@@ -1707,7 +1735,10 @@ object DynamicAltTokenRegistry {
             pairAddress = pair.pairAddress, quoteAddress = pair.quoteAddress,
             pairCreatedAtMs = createdAt,
             price = pair.candle.priceUsd, mcap = pair.candle.marketCap, fdv = pair.fdv,
+            priceChange24h = pair.priceChangeH24.takeIf { it.isFinite() } ?: 0.0,
             priceObservedAtMs8372 = pair.candle.ts,
+            change24hObservedAtMs8752 = if (pair.priceChangeH24.isFinite()) pair.candle.ts else 0L,
+            txns24hObservedAtMs8752 = if (pair.txnsH24Observed) pair.candle.ts else 0L,
             liquidityUsd = pair.liquidity, volume24h = pair.candle.volume24h,
             buys24h = pair.candle.buys24h, sells24h = pair.candle.sells24h,
             ageHours = if (createdAt > 0L) ((System.currentTimeMillis() - createdAt).coerceAtLeast(0L) / 3_600_000.0) else 999.0,
@@ -1813,11 +1844,16 @@ object DynamicAltTokenRegistry {
                 val dexId = rel.optJSONObject("dex")?.optJSONObject("data")?.optString("id", "") ?: ""
                 val poolId = pool.optString("id", "").removePrefix("${network}_")
                 val tx = attrs.optJSONObject("transactions")?.optJSONObject("h24")
+                val change24h = attrs.optJSONObject("price_change_percentage")
+                    ?.optString("h24", "")?.toDoubleOrNull()?.takeIf { it.isFinite() }
+                val nowMs8752 = System.currentTimeMillis()
                 val tok = DynToken(
                     mint=token, tokenAddress=token, chainId=network, dexId=dexId,
                     symbol=symbol, name=name.ifBlank { symbol }, pairAddress=poolId, quoteAddress=quote,
                     pairCreatedAtMs=createdAt, price=price,
-                    priceChange24h=attrs.optJSONObject("price_change_percentage")?.optString("h24", "0")?.toDoubleOrNull() ?: 0.0,
+                    priceChange24h=change24h ?: 0.0,
+                    change24hObservedAtMs8752=if (change24h != null) nowMs8752 else 0L,
+                    txns24hObservedAtMs8752=if (tx?.let { it.has("buys") && it.has("sells") } == true) nowMs8752 else 0L,
                     mcap=attrs.optString("market_cap_usd", "0").toDoubleOrNull() ?: 0.0,
                     fdv=attrs.optString("fdv_usd", "0").toDoubleOrNull() ?: 0.0,
                     liquidityUsd=attrs.optString("reserve_in_usd", "0").toDoubleOrNull() ?: 0.0,
@@ -1866,6 +1902,8 @@ object DynamicAltTokenRegistry {
                         price         = price,
                         priceObservedAtMs8372 = try { java.time.Instant.parse(obj.optString("last_updated", "")).toEpochMilli() } catch (_: Throwable) { 0L },
                         priceChange24h= chg24h,
+                        change24hObservedAtMs8752 = if (obj.has("price_change_percentage_24h") && !obj.isNull("price_change_percentage_24h"))
+                            System.currentTimeMillis() else 0L,
                         mcap          = mcap,
                         volume24h     = vol,
                         source        = "cg_markets:p$page",
@@ -2058,6 +2096,7 @@ object DynamicAltTokenRegistry {
             rawTok6492.mcap <= 0.0 -> ""
             rawTok6492.source.startsWith("cg_") -> "COINGECKO_MARKET_CAP"
             rawTok6492.source.startsWith("dex_") -> "DEXSCREENER_BASE_MINT_MARKET_CAP"
+            rawTok6492.source.startsWith("geckoterminal_") -> "GECKOTERMINAL_MARKET_CAP"
             rawTok6492.source.contains("birdeye", true) -> "BIRDEYE_MARKET_CAP"
             else -> ""
         }
@@ -2082,14 +2121,22 @@ object DynamicAltTokenRegistry {
             registry[canonicalKey6544] = existing.copy(
                 price         = tok.price.takeIf { it > 0 } ?: existing.price,
                 priceObservedAtMs8372 = if (tok.price > 0.0) tok.priceObservedAtMs8372 else existing.priceObservedAtMs8372,
-                priceChange24h= tok.priceChange24h.takeIf { it != 0.0 } ?: existing.priceChange24h,
+                priceChange24h= if (tok.change24hObservedAtMs8752 > 0L &&
+                    tok.change24hObservedAtMs8752 >= existing.change24hObservedAtMs8752) tok.priceChange24h
+                    else tok.priceChange24h.takeIf { it != 0.0 } ?: existing.priceChange24h,
+                change24hObservedAtMs8752 = maxOf(tok.change24hObservedAtMs8752, existing.change24hObservedAtMs8752),
                 mcap          = tok.mcap.takeIf { tok.hasTrustedMarketCap6492 } ?: existing.mcap,
                 fdv           = tok.fdv.takeIf { it > 0 } ?: existing.fdv,
                 mcapSource    = tok.mcapSource.takeIf { tok.hasTrustedMarketCap6492 } ?: existing.mcapSource,
                 liquidityUsd  = tok.liquidityUsd.takeIf { it > 0 } ?: existing.liquidityUsd,
                 volume24h     = tok.volume24h.takeIf { it > 0 } ?: existing.volume24h,
-                buys24h       = tok.buys24h.takeIf { it > 0 } ?: existing.buys24h,
-                sells24h      = tok.sells24h.takeIf { it > 0 } ?: existing.sells24h,
+                buys24h       = if (tok.txns24hObservedAtMs8752 > 0L &&
+                    tok.txns24hObservedAtMs8752 >= existing.txns24hObservedAtMs8752) tok.buys24h
+                    else if (tok.txns24hObservedAtMs8752 == 0L) tok.buys24h.takeIf { it > 0 } ?: existing.buys24h else existing.buys24h,
+                sells24h      = if (tok.txns24hObservedAtMs8752 > 0L &&
+                    tok.txns24hObservedAtMs8752 >= existing.txns24hObservedAtMs8752) tok.sells24h
+                    else if (tok.txns24hObservedAtMs8752 == 0L) tok.sells24h.takeIf { it > 0 } ?: existing.sells24h else existing.sells24h,
+                txns24hObservedAtMs8752 = maxOf(tok.txns24hObservedAtMs8752, existing.txns24hObservedAtMs8752),
                 isTrending    = tok.isTrending || existing.isTrending,
                 trendingRank  = if (tok.trendingRank >= 0) tok.trendingRank else existing.trendingRank,
                 isBoosted     = tok.isBoosted || existing.isBoosted,
@@ -2107,14 +2154,22 @@ object DynamicAltTokenRegistry {
                 firstSeenMs = minOf(existing.firstSeenMs, tok.firstSeenMs),
                 price = tok.price.takeIf { it > 0.0 } ?: existing.price,
                 priceObservedAtMs8372 = if (tok.price > 0.0) tok.priceObservedAtMs8372 else existing.priceObservedAtMs8372,
-                priceChange24h = tok.priceChange24h.takeIf { it != 0.0 } ?: existing.priceChange24h,
+                priceChange24h = if (tok.change24hObservedAtMs8752 > 0L &&
+                    tok.change24hObservedAtMs8752 >= existing.change24hObservedAtMs8752) tok.priceChange24h
+                    else tok.priceChange24h.takeIf { it != 0.0 } ?: existing.priceChange24h,
+                change24hObservedAtMs8752 = maxOf(tok.change24hObservedAtMs8752, existing.change24hObservedAtMs8752),
                 mcap = tok.mcap.takeIf { tok.hasTrustedMarketCap6492 } ?: existing.mcap,
                 fdv = tok.fdv.takeIf { it > 0.0 } ?: existing.fdv,
                 mcapSource = tok.mcapSource.takeIf { tok.hasTrustedMarketCap6492 } ?: existing.mcapSource,
                 liquidityUsd = tok.liquidityUsd.takeIf { it > 0.0 } ?: existing.liquidityUsd,
                 volume24h = tok.volume24h.takeIf { it > 0.0 } ?: existing.volume24h,
-                buys24h = tok.buys24h.takeIf { it > 0 } ?: existing.buys24h,
-                sells24h = tok.sells24h.takeIf { it > 0 } ?: existing.sells24h,
+                buys24h = if (tok.txns24hObservedAtMs8752 > 0L &&
+                    tok.txns24hObservedAtMs8752 >= existing.txns24hObservedAtMs8752) tok.buys24h
+                    else if (tok.txns24hObservedAtMs8752 == 0L) tok.buys24h.takeIf { it > 0 } ?: existing.buys24h else existing.buys24h,
+                sells24h = if (tok.txns24hObservedAtMs8752 > 0L &&
+                    tok.txns24hObservedAtMs8752 >= existing.txns24hObservedAtMs8752) tok.sells24h
+                    else if (tok.txns24hObservedAtMs8752 == 0L) tok.sells24h.takeIf { it > 0 } ?: existing.sells24h else existing.sells24h,
+                txns24hObservedAtMs8752 = maxOf(tok.txns24hObservedAtMs8752, existing.txns24hObservedAtMs8752),
                 ageHours = tok.ageHours.takeIf { it > 0.0 } ?: existing.ageHours,
                 source = tok.source, isTrending = tok.isTrending || existing.isTrending,
                 trendingRank = if (tok.trendingRank >= 0) tok.trendingRank else existing.trendingRank,

@@ -83,4 +83,30 @@ class CryptoUniverseRouteResolverTest {
         assertEquals(CryptoUniverseDiagCodes.ROUTE_INSUFFICIENT_SOL, r.diagCode)
         assertTrue(!r.executable)
     }
+
+    @Test
+    fun a_solana_spot_token_named_sol_uses_its_exact_mint_not_a_symbol_shortcut() {
+        CryptoUniverseConfigStore.set(cfg())
+        val r = CryptoUniverseRouteResolver.resolve(
+            PerpsMarket.DYN, walletSolBalance = 5.0, sizeSol = 0.05,
+            assetSymbol6493 = "SOL",
+            targetMint6493 = "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN",
+            targetChainId6544 = "solana",
+        )
+        assertEquals(CryptoExecutionRoute.JUPITER_ROUTABLE, r.route)
+        assertEquals("JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN", r.mint)
+        assertTrue(r.executable)
+    }
+
+    @Test
+    fun native_sol_without_a_target_mint_is_not_a_fake_executable_buy() {
+        CryptoUniverseConfigStore.set(cfg())
+        val r = CryptoUniverseRouteResolver.resolve(
+            PerpsMarket.SOL, walletSolBalance = 5.0, sizeSol = 0.05,
+            assetSymbol6493 = "SOL", targetMint6493 = null,
+        )
+        assertEquals(CryptoExecutionRoute.PAPER_ONLY, r.route)
+        assertTrue(!r.executable)
+        assertTrue(r.mint == null)
+    }
 }
