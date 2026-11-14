@@ -355,9 +355,13 @@ object HeliusCurveTape8354 {
         // V5.0.8750 — the program-wide stream's continuity: a quiet curve's last price stands only while it has no gap
         if (source == Source8354.HELIUS_PROGRAM) try { com.lifecyclebot.engine.truth.QuietCurve8750.noteProgramPrint8750(nowMs) } catch (_: Throwable) {}
         val eventMs8748 = PumpSwapTape8307.eventMs8307(ev.timestampSec, nowMs)
-        com.lifecyclebot.engine.truth.LaunchHour8628.trade(mint, eventMs8748, sig, ev.isBuy, ev.sol, ev.tokens, priceSol, nowMs, SRC_HELIUS_CURVE_8354)
-        // V5.0.8748 — every decoded pump.fun print, before the care filter: the launch sniper watches the whole market.
-        try { com.lifecyclebot.engine.truth.LaunchSniper8748.onPrint8748(mint, eventMs8748, priceSol, ev.isBuy, nowMs, sig) } catch (_: Throwable) {}
+        // V5.0.8748 / 8750 — every decoded pump.fun print, before the care filter, becomes launch evidence (history + sniper)
+        // through the one witnessed route; the verdict travels with the print into the tape below.
+        val witness8750 = try {
+            com.lifecyclebot.engine.truth.TradeTape8100.launchEvidence8750(mint, priceSol, ev.sol, ev.tokens, ev.isBuy, SRC_HELIUS_CURVE_8354,
+                sig.trim(), eventMs8748, nowMs, com.lifecyclebot.engine.truth.PrintWitness8750.Basis.RESERVES)
+        } catch (_: Throwable) { com.lifecyclebot.engine.truth.PrintWitness8750.Verdict.UNWITNESSED }
+        if (witness8750 == com.lifecyclebot.engine.truth.PrintWitness8750.Verdict.OUT_OF_BAND) { malformed.incrementAndGet(); return false }
         if (!cares8354(mint, nowMs)) { dropped.incrementAndGet(); return false }
         val key = com.lifecyclebot.engine.truth.LaunchEvidence8136.dedupKey8136(mint, sig, ev.user, ev.isBuy, ev.sol, ev.virtualSol, ev.virtualTokens)
         if (!com.lifecyclebot.engine.truth.LaunchEvidence8136.noteSwap8136(mint, key)) { duplicates.incrementAndGet(); return false }
@@ -370,6 +374,7 @@ object HeliusCurveTape8354 {
                 pool = com.lifecyclebot.engine.truth.TradeTape8100.VENUE_CURVE_8285, signature = sig,
                 eventMs = PumpSwapTape8307.eventMs8307(ev.timestampSec, nowMs), recvMs = nowMs,
                 wallet = ev.user,
+                priceBasis8750 = com.lifecyclebot.engine.truth.PrintWitness8750.Basis.RESERVES, witness8750 = witness8750,
             )
         } catch (_: Throwable) { false }
         try { PumpFunWS.emitHeliusCurve8354(mint, priceSol, mcapSol, ev.isBuy, ev.user, ev.sol, ev.virtualSol) } catch (_: Throwable) {}

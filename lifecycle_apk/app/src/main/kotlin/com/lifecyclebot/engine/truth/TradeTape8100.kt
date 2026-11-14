@@ -76,10 +76,27 @@ object TradeTape8100 {
      * [mint] and side is refused here, whichever feed delivered it first; a trade without a signature cannot be matched
      * and is taped as delivered. Returns true when the print was taped.
      */
+    /**
+     * V5.0.8750 — the ONE route by which a print becomes launch evidence: the witness verdict, then (witnessed only, live-timed
+     * only) the launch history and the sniper. TradeTape8100.note8285 and HeliusCurveTape8354 (every program print, before its
+     * care filter) both use it; the verdict is returned so a print taken through it once is not judged twice.
+     */
+    fun launchEvidence8750(mint: String, priceSol: Double, sol: Double, tokenQty: Double, isBuy: Boolean, src: String, sig: String,
+                           eventMs: Long, recvMs: Long, basis: PrintWitness8750.Basis): PrintWitness8750.Verdict {
+        val v = PrintWitness8750.check8750(mint, priceSol, sol, tokenQty, if (eventMs > 0L) eventMs else recvMs, recvMs, basis)
+        if ((v == PrintWitness8750.Verdict.RESERVES || v == PrintWitness8750.Verdict.WITNESSED) && eventMs in 1L..recvMs) {
+            LaunchHour8628.trade(mint, eventMs, sig, isBuy, sol, tokenQty, priceSol, recvMs, src)
+            LaunchSniper8748.onPrint8748(mint, eventMs, priceSol, isBuy, recvMs, sig)   // V5.0.8748 — live prints only (it checks the lag)
+        }
+        return v
+    }
+
     fun note8285(
         mint: String, priceSol: Double, sol: Double, tokenQty: Double, isBuy: Boolean, source: String,
         pool: String = "", signature: String = "", eventMs: Long = 0L, recvMs: Long = System.currentTimeMillis(),
         wallet: String = "",
+        priceBasis8750: PrintWitness8750.Basis = PrintWitness8750.Basis.TRADE_RATIO,
+        witness8750: PrintWitness8750.Verdict? = null,
     ): Boolean {
         if (mint.isBlank() || !priceSol.isFinite() || priceSol <= 0.0) return false
         val src = source.ifBlank { "other" }
@@ -88,15 +105,11 @@ object TradeTape8100 {
         // the executed tape. Unknown wallets remain unknown; marks never enter.
         if (tokenQty.isFinite() && tokenQty > 0.0) com.lifecyclebot.engine.market.BuyerFlow8666.note(mint, wallet, sol, isBuy,
             if (eventMs > 0L) eventMs else recvMs, sig, recvMs)
-        // V5.0.8750 — every print is judged against an independent price witness: a disagreeing one never enters the tape,
-        // and only a witnessed one reaches the launch history and the sniper (label marks check it too)
-        val witness8750 = PrintWitness8750.check8750(mint, priceSol, sol, tokenQty, if (eventMs > 0L) eventMs else recvMs, recvMs)
-        if (witness8750 == PrintWitness8750.Verdict.OUT_OF_BAND) return false
-        val witnessed8750 = witness8750 == PrintWitness8750.Verdict.RESERVES || witness8750 == PrintWitness8750.Verdict.WITNESSED
-        if (witnessed8750 && eventMs in 1L..recvMs) {
-            LaunchHour8628.trade(mint, eventMs, sig, isBuy, sol, tokenQty, priceSol, recvMs, src)
-            LaunchSniper8748.onPrint8748(mint, eventMs, priceSol, isBuy, recvMs, sig)   // V5.0.8748 — live prints only (it checks the lag)
-        }
+        // V5.0.8750 — every print is judged against an independent price witness (launchEvidence8750, the one route): a
+        // disagreeing one never enters the tape; only a witnessed one reaches the launch history and the sniper. [witness8750]
+        // is the verdict a caller already took through that route for this very print (HeliusCurveTape8354, before its care filter).
+        val verdict8750 = witness8750 ?: launchEvidence8750(mint, priceSol, sol, tokenQty, isBuy, src, sig, eventMs, recvMs, priceBasis8750)
+        if (verdict8750 == PrintWitness8750.Verdict.OUT_OF_BAND) return false
         if (sig.isNotBlank()) {
             val prior = synchronized(seenSig8285) {
                 seenSig8285.putIfAbsent("$mint|$sig|$isBuy", src)

@@ -12,8 +12,8 @@ import java.util.concurrent.atomic.AtomicLong
  * the launch replay.
  *
  * Now every print is judged against a witness:
- *  - RESERVES: the caller's price is a reserves price (pump.fun curve virtual reserves, a pool-state price) and the print's
- *    own SOL / tokens agrees with it within [BAND]x — the two are computed from different fields;
+ *  - RESERVES: the caller DECLARES its price a reserves price ([Basis.RESERVES]: pump.fun curve virtual reserves) and the
+ *    print's own SOL / tokens agrees with it within [BAND]x (different fields of the same event), as does any independent reading;
  *  - WITNESSED: the price is the print's own ratio and an INDEPENDENT reading of the same coin agrees within [BAND]x: the
  *    curve account (CurveReserves7951), the pool's own vaults (OnChainDepth8038), or the last witnessed print, each no older
  *    than [REF_MAX_AGE_MS];
@@ -30,6 +30,13 @@ object PrintWitness8750 {
 
     enum class Verdict { RESERVES, WITNESSED, OUT_OF_BAND, UNWITNESSED }
 
+    /**
+     * V5.0.8750 (review of e0c6f3e) — where the caller's price came from, declared by the caller, never inferred from the
+     * numbers: RESERVES only for a price read from the venue's own reserves fields of the same event (pump.fun curve virtual
+     * reserves: HeliusCurveTape8354, PumpPortal curve frames); everything else is TRADE_RATIO and needs an independent reading.
+     */
+    enum class Basis { RESERVES, TRADE_RATIO }
+
     /** Pure: is [priceSol] this print's own SOL / tokens (true also when the print has no usable quantity)? */
     fun ownRatio8750(priceSol: Double, sol: Double, tokens: Double): Boolean =
         sol.isFinite() && sol > 0.0 && tokens.isFinite() && tokens > 0.0 && kotlin.math.abs(priceSol * tokens / sol - 1.0) < SAME_RATIO
@@ -40,18 +47,20 @@ object PrintWitness8750 {
         return m.isFinite() && m in (1.0 / BAND)..BAND
     }
 
-    /** Pure: the verdict on one print given an independent reference price [refSol] (null when none exists). */
-    fun verdict8750(priceSol: Double, sol: Double, tokens: Double, refSol: Double?): Verdict {
+    /**
+     * Pure: the verdict on one print of declared [basis] given an independent reference price [refSol] (null when none).
+     * A RESERVES price is cross-checked against its own trade's SOL / tokens (different fields of the same event: a decimal
+     * error in either shows) and against any independent reading; any other price must agree with an independent reading.
+     */
+    fun verdict8750(priceSol: Double, sol: Double, tokens: Double, refSol: Double?, basis: Basis = Basis.TRADE_RATIO): Verdict {
         if (!(priceSol > 0.0) || !priceSol.isFinite()) return Verdict.OUT_OF_BAND
-        val hasQty = sol.isFinite() && sol > 0.0 && tokens.isFinite() && tokens > 0.0
-        if (!ownRatio8750(priceSol, sol, tokens)) {
-            // a reserves / pool-state price: its own trade must agree with it, and so must any independent reading
+        if (refSol != null && !within(priceSol, refSol)) return Verdict.OUT_OF_BAND
+        if (basis == Basis.RESERVES) {
+            val hasQty = sol.isFinite() && sol > 0.0 && tokens.isFinite() && tokens > 0.0
             if (hasQty && !within(sol / tokens, priceSol)) return Verdict.OUT_OF_BAND
-            if (refSol != null && !within(priceSol, refSol)) return Verdict.OUT_OF_BAND
             return Verdict.RESERVES
         }
-        refSol ?: return Verdict.UNWITNESSED
-        return if (within(priceSol, refSol)) Verdict.WITNESSED else Verdict.OUT_OF_BAND
+        return if (refSol != null) Verdict.WITNESSED else Verdict.UNWITNESSED
     }
 
     private val lastWitnessed = ConcurrentHashMap<String, Pair<Double, Long>>()
@@ -82,8 +91,8 @@ object PrintWitness8750 {
      * entirely. Only RESERVES / WITNESSED prints reach the launch history, the sniper and the label marks; an UNWITNESSED one
      * stays in the in-memory tape (flow, candles) and asks for the coin's pool vaults. Never throws.
      */
-    fun check8750(mint: String, priceSol: Double, sol: Double, tokens: Double, atMs: Long, nowMs: Long): Verdict = try {
-        val v = verdict8750(priceSol, sol, tokens, reference8750(mint, nowMs))
+    fun check8750(mint: String, priceSol: Double, sol: Double, tokens: Double, atMs: Long, nowMs: Long, basis: Basis = Basis.TRADE_RATIO): Verdict = try {
+        val v = verdict8750(priceSol, sol, tokens, reference8750(mint, nowMs), basis)
         counts[v]?.incrementAndGet()
         when (v) {
             Verdict.RESERVES, Verdict.WITNESSED -> {
