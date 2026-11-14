@@ -21,48 +21,51 @@ import java.io.File
 class Aate8756SmartMoneyAndFastExitsTest {
     private fun src(p: String) = File("src/main/kotlin/com/lifecyclebot/$p").readText()
 
-    /** A launch printed every 10 s, all live buys of 0.5 SOL, [wallets] by print index ("" = unnamed). */
-    private fun path(prices: List<Double>, wallets: Map<Int, String>, sol: Double = 0.5): LaunchReplay8744.Path8748 {
+    // wallet ids (LaunchHour8628 hands the replay one id per distinct wallet; -1 = unnamed)
+    private val SNIPER = 0; private val W1 = 1; private val W2 = 2; private val LOSER = 3; private val S = 9
+
+    /** A launch printed every 10 s, all live buys of 0.5 SOL, [wallets] (ids) by print index. */
+    private fun path(prices: List<Double>, wallets: Map<Int, Int>, sol: Double = 0.5): LaunchReplay8744.Path8748 {
         val n = prices.size
         return LaunchReplay8744.clean8748(LongArray(n) { it * 10_000L }, prices.toDoubleArray(), BooleanArray(n) { true },
-            BooleanArray(n) { true }, DoubleArray(n) { sol }, Array(n) { wallets[it] ?: "" }, 1L)
+            BooleanArray(n) { true }, DoubleArray(n) { sol }, IntArray(n) { wallets[it] ?: -1 }, 1L)
     }
     private val rising = (0..60).map { 1.0e-7 * (1.0 + it * 0.1) }          // 7x over ten minutes
     private val dumping = (0..60).map { 1.0e-7 * Math.pow(0.95, it.toDouble()) }
 
     @Test fun aWalletIsGradedOnWhatFollowingItReturned() {
-        val up = path(rising, mapOf(1 to "W1"))
-        val down = path(dumping, mapOf(1 to "W1"))
+        val up = path(rising, mapOf(1 to W1))
+        val down = path(dumping, mapOf(1 to W1))
         assertTrue(SmartMoney8756.followNet8756(up, 1, 10_000L, 3.0)!! > 0.0)
         assertTrue(SmartMoney8756.followNet8756(down, 1, 10_000L, 3.0)!! < 0.0)
-        assertEquals(mapOf("W1" to 1), SmartMoney8756.firstBuys8756(up))
+        assertEquals(mapOf(W1 to 1), SmartMoney8756.firstBuys8756(up))
         // a dust buy is not a buy to follow
-        assertTrue(SmartMoney8756.firstBuys8756(path(rising, mapOf(1 to "W1"), sol = 0.01)).isEmpty())
+        assertTrue(SmartMoney8756.firstBuys8756(path(rising, mapOf(1 to W1), sol = 0.01)).isEmpty())
     }
 
     @Test fun snipersAndLosersAreNeverProven() {
         val launches = listOf(
-            path(rising, mapOf(0 to "SNIPER", 1 to "W1", 2 to "W2")),
-            path(rising, mapOf(0 to "SNIPER", 1 to "W1", 2 to "W2")),
-            path(dumping, mapOf(0 to "SNIPER", 1 to "LOSER")),
-            path(dumping, mapOf(1 to "LOSER")),
+            path(rising, mapOf(0 to SNIPER, 1 to W1, 2 to W2)),
+            path(rising, mapOf(0 to SNIPER, 1 to W1, 2 to W2)),
+            path(dumping, mapOf(0 to SNIPER, 1 to LOSER)),
+            path(dumping, mapOf(1 to LOSER)),
         )
         val acc = SmartMoney8756.fit8756(launches, 10_000L, 3.0)
-        assertEquals(2, acc["W1"]!!.n)
-        assertEquals(3, acc["SNIPER"]!!.snipes)   // its first buys were inside the first 3 s
+        assertEquals(2, acc[W1]!!.n)
+        assertEquals(3, acc[SNIPER]!!.snipes)   // its first buys were inside the first 3 s
         val proven = SmartMoney8756.provenSet8756(acc, Variant(2, 0.0, Mode.SINGLE, 1.0))
-        assertEquals(setOf("W1", "W2"), proven)   // the sniper made money on two of three, but snipers cannot be followed
+        assertEquals(setOf(W1, W2), proven)   // the sniper made money on two of three, but snipers cannot be followed
         assertTrue(SmartMoney8756.provenSet8756(acc, Variant(3, 0.0, Mode.SINGLE, 1.0)).isEmpty())
     }
 
     @Test fun theSignalFiresOnTheFirstProvenBuyOrOnTwoConverging() {
-        val x = path(rising, mapOf(0 to "S", 1 to "W1", 2 to "W2"))
-        assertEquals(1, SmartMoney8756.fireIndex8756(x, setOf("W1"), Variant(3, 0.0, Mode.SINGLE, 1.0)))
-        assertEquals(-1, SmartMoney8756.fireIndex8756(x, setOf("W1"), Variant(3, 0.0, Mode.CONVERGE, 1.0)))
-        assertEquals(2, SmartMoney8756.fireIndex8756(x, setOf("W1", "W2"), Variant(3, 0.0, Mode.CONVERGE, 1.0)))
+        val x = path(rising, mapOf(0 to S, 1 to W1, 2 to W2))
+        assertEquals(1, SmartMoney8756.fireIndex8756(x, setOf(W1), Variant(3, 0.0, Mode.SINGLE, 1.0)))
+        assertEquals(-1, SmartMoney8756.fireIndex8756(x, setOf(W1), Variant(3, 0.0, Mode.CONVERGE, 1.0)))
+        assertEquals(2, SmartMoney8756.fireIndex8756(x, setOf(W1, W2), Variant(3, 0.0, Mode.CONVERGE, 1.0)))
         // half of the buy SOL so far was bought in the first 3 s: over a 30 % sniper cap, the single-wallet signal waits
         assertEquals(0.5, SmartMoney8756.sniperShare8756(x, 1), 1e-12)
-        assertEquals(2, SmartMoney8756.fireIndex8756(x, setOf("W1", "W2"), Variant(3, 0.0, Mode.SINGLE, 0.4)))
+        assertEquals(2, SmartMoney8756.fireIndex8756(x, setOf(W1, W2), Variant(3, 0.0, Mode.SINGLE, 0.4)))
         assertEquals(-1, SmartMoney8756.fireIndex8756(x, emptySet(), Variant(3, 0.0, Mode.SINGLE, 1.0)))
     }
 
@@ -153,7 +156,7 @@ class Aate8756SmartMoneyAndFastExitsTest {
         assertTrue(book.contains("StopSlip8756.notePaper8756(p.exitLane, p.slipLevel8756, p.slipTrig8756, g, p.slipByPrint8756)"))
         val adm = src("engine/truth/CandidateAdmission8136.kt")
         assertTrue(adm.contains("?: SmartMoney8756.evidence8756(ts.mint, nowMs)\n"))
-        assertTrue(src("engine/truth/LaunchReplay8744.kt").contains("SmartMoney8756.evaluate8756(set, cost, need)"))
+        assertTrue(src("engine/truth/LaunchReplay8744.kt").contains("SmartMoney8756.evaluate8756(set, walletNames, cost, need)"))
     }
 
     @Test fun theScaleOutLadderIsGradedBesideTheDoctrine() {

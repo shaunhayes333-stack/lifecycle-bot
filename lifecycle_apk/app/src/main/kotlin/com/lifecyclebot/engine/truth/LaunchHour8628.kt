@@ -134,16 +134,19 @@ object LaunchHour8628 {
 
     internal fun forEachLaunch8744(now: Long, maxLaunches: Int, liveLagMs: Long,
                                    cb: (mint: String, t: LongArray, p: DoubleArray, buy: BooleanArray, live: BooleanArray) -> Unit) =
-        forEachLaunch8756(now, maxLaunches, liveLagMs) { r -> cb(r.mint, r.t, r.p, r.buy, r.live) }
+        forEachLaunch8756(now, maxLaunches, liveLagMs, ArrayList()) { r -> cb(r.mint, r.t, r.p, r.buy, r.live) }
 
     /**
      * V5.0.8756 — one stored launch with everything the replays grade: [bornMs] (wall clock), times from birth, prices,
-     * sides, live flags, SOL sizes (0 when unrecorded) and trader wallets ("" when the feed or an older row named none).
+     * sides, live flags, SOL sizes (0 when unrecorded) and trader wallets as ids into [walletNames] (-1 when the feed or an
+     * older row named none): one id per distinct wallet, so the paths never hold a string per print.
      */
     internal class Launch8756(val mint: String, val bornMs: Long, val t: LongArray, val p: DoubleArray, val buy: BooleanArray,
-                              val live: BooleanArray, val sol: DoubleArray, val wallet: Array<String>)
+                              val live: BooleanArray, val sol: DoubleArray, val wallet: IntArray)
 
-    internal fun forEachLaunch8756(now: Long, maxLaunches: Int, liveLagMs: Long, cb: (Launch8756) -> Unit) {
+    internal fun forEachLaunch8756(now: Long, maxLaunches: Int, liveLagMs: Long, walletNames: MutableList<String>, cb: (Launch8756) -> Unit) {
+        val ids = HashMap<String, Int>()
+        walletNames.forEachIndexed { i, w -> ids[w] = i }
         val path = AATEApp.appContextOrNull()?.getDatabasePath(NAME) ?: return
         if (!path.exists()) return
         SQLiteDatabase.openDatabase(path.path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
@@ -156,7 +159,7 @@ object LaunchHour8628 {
                 while (births.moveToNext()) {
                     val mint = births.getString(0); val born = births.getLong(1)
                     val ts = ArrayList<Long>(); val ps = ArrayList<Double>(); val bs = ArrayList<Boolean>(); val ls = ArrayList<Boolean>()
-                    val vs = ArrayList<Double>(); val ws = ArrayList<String>()
+                    val vs = ArrayList<Double>(); val ws = ArrayList<Int>()
                     db.rawQuery("SELECT $cols FROM trade WHERE m=? AND t BETWEEN ? AND ? ORDER BY t,s,side",
                         arrayOf(mint, born.toString(), (born + HOUR).toString())).use { c ->
                         while (c.moveToNext()) {
@@ -164,11 +167,12 @@ object LaunchHour8628 {
                             ts.add(t - born); ps.add(c.getDouble(1)); bs.add(c.getInt(2) == 1)
                             ls.add(!c.isNull(3) && c.getLong(3) - t in -5_000L..liveLagMs)
                             vs.add(if (c.isNull(4)) 0.0 else c.getDouble(4))
-                            ws.add(if (hasWallet && !c.isNull(5)) c.getString(5) else "")
+                            val w = if (hasWallet && !c.isNull(5)) c.getString(5) else ""
+                            ws.add(if (w.isBlank()) -1 else ids.getOrPut(w) { walletNames.add(w); walletNames.size - 1 })
                         }
                     }
                     if (ts.size >= PATH_MIN_PRINTS_8741) cb(Launch8756(mint, born, ts.toLongArray(), ps.toDoubleArray(), bs.toBooleanArray(),
-                        ls.toBooleanArray(), vs.toDoubleArray(), ws.toTypedArray()))
+                        ls.toBooleanArray(), vs.toDoubleArray(), ws.toIntArray()))
                 }
             }
         }

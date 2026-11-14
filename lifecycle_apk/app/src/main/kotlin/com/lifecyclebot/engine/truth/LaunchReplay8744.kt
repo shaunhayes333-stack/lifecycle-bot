@@ -94,17 +94,17 @@ object LaunchReplay8744 {
     }
 
     /** One launch's first hour with its spikes removed. */
-    /** V5.0.8756 — [sol] / [wallet] per print (SmartMoney8756), [bornMs] the launch's wall-clock birth; absent on old rows. */
+    /** V5.0.8756 — [sol] / [wallet] (an id, -1 = unnamed) per print (SmartMoney8756), [bornMs] the launch's wall-clock birth. */
     internal class Path8748(val t: LongArray, val p: DoubleArray, val buy: BooleanArray, val live: BooleanArray, val spikes: Int,
-                            val sol: DoubleArray? = null, val wallet: Array<String>? = null, val bornMs: Long = 0L)
+                            val sol: DoubleArray? = null, val wallet: IntArray? = null, val bornMs: Long = 0L)
 
     internal fun clean8748(t: LongArray, p: DoubleArray, buy: BooleanArray, live: BooleanArray?,
-                           sol: DoubleArray? = null, wallet: Array<String>? = null, bornMs: Long = 0L): Path8748 {
+                           sol: DoubleArray? = null, wallet: IntArray? = null, bornMs: Long = 0L): Path8748 {
         val drop = spikes8748(p)
         val keep = p.indices.filter { !drop[it] }
         return Path8748(LongArray(keep.size) { t[keep[it]] }, DoubleArray(keep.size) { p[keep[it]] },
             BooleanArray(keep.size) { buy[keep[it]] }, BooleanArray(keep.size) { live?.get(keep[it]) ?: true }, p.size - keep.size,
-            sol?.let { v -> DoubleArray(keep.size) { v[keep[it]] } }, wallet?.let { w -> Array(keep.size) { w[keep[it]] } }, bornMs)
+            sol?.let { v -> DoubleArray(keep.size) { v[keep[it]] } }, wallet?.let { w -> IntArray(keep.size) { w[keep[it]] } }, bornMs)
     }
 
     /** Pure: the first live print where the cap is reached with [minBuys] live buys in the 60 s before it; -1 when none. */
@@ -258,7 +258,8 @@ object LaunchReplay8744 {
                 if (!(solUsd > 0.0)) { status = "no SOL price"; return@execute }
                 val set = ArrayList<Path8748>()
                 var spikes = 0L; var liveN = 0
-                LaunchHour8628.forEachLaunch8756(nowMs, MAX_LAUNCHES, LIVE_LAG_MS_8748) { r ->
+                val walletNames = ArrayList<String>()
+                LaunchHour8628.forEachLaunch8756(nowMs, MAX_LAUNCHES, LIVE_LAG_MS_8748, walletNames) { r ->
                     val x = clean8748(r.t, r.p, r.buy, r.live, r.sol, r.wallet, r.bornMs); spikes += x.spikes
                     if (x.live.any { it }) liveN++
                     set.add(x)
@@ -268,7 +269,7 @@ object LaunchReplay8744 {
                 val need = try { LaunchSniper8748.requiredDelayMs8749() } catch (_: Throwable) { ARM_MIN_DELAY_MS_8748 }
                 last = res; proven = provenOf8748(res, need); shadow = shadowOf8748(res, need)
                 try { BaseFamily8754.evaluate8754(set, solUsd, cost, need) } catch (_: Throwable) {}   // V5.0.8754 the base family, same paths
-                try { SmartMoney8756.evaluate8756(set, cost, need) } catch (_: Throwable) {}            // V5.0.8756 the wallets, same paths
+                try { SmartMoney8756.evaluate8756(set, walletNames, cost, need) } catch (_: Throwable) {}            // V5.0.8756 the wallets, same paths
                 paths8755 = set; solUsd8755 = solUsd; cost8755 = cost
                 val births = try { LaunchHour8628.births8749(nowMs) } catch (_: Throwable) { -1 }
                 status = "ran births48h=$births launches>=20prints=${set.size} withLivePrints=$liveN needDelay=${need / 1000}s spikesDropped=$spikes solUsd=${"%.0f".format(solUsd)} cost=${"%.1f".format(cost)}%"

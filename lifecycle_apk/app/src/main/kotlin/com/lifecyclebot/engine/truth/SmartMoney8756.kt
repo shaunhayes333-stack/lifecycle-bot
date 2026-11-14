@@ -80,14 +80,14 @@ object SmartMoney8756 {
     }
 
     /** Pure: each wallet's first qualifying buy in [x] (live, sized >= [MIN_BUY_SOL], inside the follow window) as print index. */
-    internal fun firstBuys8756(x: Path8748): Map<String, Int> {
+    internal fun firstBuys8756(x: Path8748): Map<Int, Int> {
         val w = x.wallet ?: return emptyMap()
         val v = x.sol
-        val out = LinkedHashMap<String, Int>()
+        val out = LinkedHashMap<Int, Int>()
         for (i in x.t.indices) {
             if (x.t[i] > FOLLOW_WINDOW_MS) break
             val wallet = w[i]
-            if (!x.buy[i] || !x.live[i] || wallet.isBlank() || (v != null && v[i] < MIN_BUY_SOL)) continue
+            if (!x.buy[i] || !x.live[i] || wallet < 0 || (v != null && v[i] < MIN_BUY_SOL)) continue
             out.putIfAbsent(wallet, i)
         }
         return out
@@ -102,8 +102,8 @@ object SmartMoney8756 {
     }
 
     /** Pure: every wallet's follower record over [launches]. */
-    internal fun fit8756(launches: List<Path8748>, delayMs: Long, costPct: Double): HashMap<String, Acc> {
-        val acc = HashMap<String, Acc>()
+    internal fun fit8756(launches: List<Path8748>, delayMs: Long, costPct: Double): HashMap<Int, Acc> {
+        val acc = HashMap<Int, Acc>()
         for (x in launches) for ((w, i) in firstBuys8756(x)) {
             val net = followNet8756(x, i, delayMs, costPct) ?: continue
             val a = acc.getOrPut(w) { Acc() }
@@ -114,13 +114,13 @@ object SmartMoney8756 {
     }
 
     /** Pure: the wallets whose follower record clears [v]: n >= minWalletN, mean - z SE > 0, and not a sniper (most first buys <3 s). */
-    internal fun provenSet8756(acc: Map<String, Acc>, v: Variant): Set<String> = acc.entries.filter { (_, a) ->
+    internal fun provenSet8756(acc: Map<Int, Acc>, v: Variant): Set<Int> = acc.entries.filter { (_, a) ->
         a.n >= v.minWalletN && a.snipes * 2 < a.n && a.mean.isFinite() &&
             (if (v.z <= 0.0) a.mean > 0.0 else a.se.isFinite() && a.mean - v.z * a.se > 0.0)
     }.mapTo(HashSet()) { it.key }
 
     /** Pure: the print where [v] fires on [x] for wallets [proven] (SINGLE: the first proven buy; CONVERGE: a second distinct one within [CONVERGE_MS]); -1 = none. */
-    internal fun fireIndex8756(x: Path8748, proven: Set<String>, v: Variant): Int {
+    internal fun fireIndex8756(x: Path8748, proven: Set<Int>, v: Variant): Int {
         if (proven.isEmpty()) return -1
         val buys = firstBuys8756(x).entries.filter { it.key in proven }.map { it.value }.sorted()
         for ((k, i) in buys.withIndex()) {
@@ -136,7 +136,7 @@ object SmartMoney8756 {
     }
 
     /** Pure: [v]'s record on [launches] with [proven] wallets. */
-    internal fun grade8756(v: Variant, launches: List<Path8748>, proven: Set<String>, delayMs: Long, costPct: Double): Graded? {
+    internal fun grade8756(v: Variant, launches: List<Path8748>, proven: Set<Int>, delayMs: Long, costPct: Double): Graded? {
         val vals = launches.mapNotNull { x -> fireIndex8756(x, proven, v).takeIf { it >= 0 }?.let { followNet8756(x, it, delayMs, costPct) } }
         return stats8756(v, vals)
     }
@@ -170,9 +170,9 @@ object SmartMoney8756 {
     @Volatile private var status = "not-run"
     @Volatile private var restored = false
 
-    internal fun evaluate8756(set: List<Path8748>, costPct: Double, needDelayMs: Long) {
+    internal fun evaluate8756(set: List<Path8748>, walletNames: List<String>, costPct: Double, needDelayMs: Long) {
         restore8756()
-        val paths = set.filter { it.bornMs > 0L && it.wallet?.any { w -> w.isNotBlank() } == true }.sortedBy { it.bornMs }
+        val paths = set.filter { it.bornMs > 0L && it.wallet?.any { w -> w >= 0 } == true }.sortedBy { it.bornMs }
         if (paths.size < MIN_LAUNCHES) { status = "waiting launchesWithWallets=${paths.size}/$MIN_LAUNCHES (wallets are stored from 8756)"; return }
         val delay = maxOf(5_000L, needDelayMs)
         val a = paths.size * 6 / 10; val b = paths.size * 8 / 10
@@ -185,7 +185,7 @@ object SmartMoney8756 {
         val t = grade8756(pick.variant, testSet, provenSet8756(accTrainValid, pick.variant), delay, costPct)
         val accAll = fit8756(paths, delay, costPct)
         val liveSet = provenSet8756(accAll, pick.variant).sortedByDescending { w -> accAll[w]?.let { it.mean - (if (it.se.isFinite()) it.se else 0.0) } ?: -1e18 }
-            .take(MAX_LIVE_WALLETS).toHashSet()
+            .take(MAX_LIVE_WALLETS).mapNotNullTo(HashSet()) { walletNames.getOrNull(it) }
         chosen = pick.variant; test = t; armed = armed8756(t); live = liveSet
         status = "ran launches=${paths.size} wallets=${accAll.size} proven=${liveSet.size} delay=${delay / 1000}s valid{${line(pick)}}"
         save8756()

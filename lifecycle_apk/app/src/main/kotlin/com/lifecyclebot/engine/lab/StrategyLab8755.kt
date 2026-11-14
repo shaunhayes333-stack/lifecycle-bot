@@ -214,10 +214,13 @@ object StrategyLab8755 {
     private fun run(nowMs: Long) {
         val file = EdgeModel8537.datasetFile8755()
         if (file == null || !file.exists()) { status = "no dataset"; return }
-        val tail = java.util.ArrayDeque<String>(MAX_LINES)
-        file.useLines { seq -> seq.forEach { if (tail.size == MAX_LINES) tail.removeFirst(); tail.addLast(it) } }
+        // V5.0.8756 — each line is parsed as it is read and only the parsed row is kept (the tail of raw JSON strings held
+        // tens of MB at once on the phone's heap)
+        val tail = java.util.ArrayDeque<Row>(MAX_LINES)
+        file.useLines { seq -> seq.forEach { line -> row8755(line)?.let { if (tail.size == MAX_LINES) tail.removeFirst(); tail.addLast(it) } } }
         val seen = HashSet<String>()
-        val rows = tail.mapNotNull { row8755(it) }.sortedBy { it.t }.filter { seen.add("${it.lane}|${it.src}|${it.t / WINDOW_MS}|${it.f.contentHashCode()}") }
+        val rows = tail.sortedBy { it.t }.filter { seen.add("${it.lane}|${it.src}|${it.t / WINDOW_MS}|${it.f.contentHashCode()}") }
+        tail.clear()
         if (rows.size < 2_000) { status = "waiting rows=${rows.size}/2000"; return }
         val cut = (rows.size * DISCOVERY_SHARE).toInt()
         val disc = rows.subList(0, cut); val held = rows.subList(cut, rows.size)
