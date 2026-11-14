@@ -113,18 +113,33 @@ object LaunchReplay8744 {
 
     /** Pure: the net % of [rule] on [x] entered at trigger [trig]. */
     private fun run8748(x: Path8748, trig: Int, rule: Rule, costPct: Double): Double? {
+        val e = stateAt(x.t, trig, x.t[trig] + rule.delayMs)
+        val entry = x.p[e]
+        if (!(entry > 0.0)) return null
+        return exitNet8754(x, e, rule.ladder, rule.takeX, entry * (1.0 - rule.stopPct / 100.0), TIME_STOP_MS, costPct)
+    }
+
+    /** V5.0.8754 — the entry print for a trigger at [trig] after [delayMs]: where the curve stood then (BaseFamily8754 too). */
+    internal fun entryIndex8754(x: Path8748, trig: Int, delayMs: Long): Int = stateAt(x.t, trig, x.t[trig] + delayMs)
+
+    /**
+     * Pure: the net % of a position entered at print [e] of [x] and unwound by [ladder] ([takeX] its first rung for HALF_TRAIL
+     * and MOONBAG), with a hard stop at [stopPx] until the first rung, out at [timeStopMs] if it never reached +20 %; each sale
+     * fills where the curve stood [SELL_DELAY_MS_8748] after the print that triggered it. V5.0.8754: shared by the launch
+     * replay (stop = entry less the rule's stop %) and the base family (stop under the base's low).
+     */
+    internal fun exitNet8754(x: Path8748, e: Int, ladder: Ladder, takeX: Double, stopPx: Double, timeStopMs: Long, costPct: Double): Double? {
         val t = x.t; val p = x.p
-        val e = stateAt(t, trig, t[trig] + rule.delayMs)
         val entry = p[e]
         if (!(entry > 0.0)) return null
         fun fill(k: Int) = p[stateAt(t, k, t[k] + SELL_DELAY_MS_8748)] / entry - 1.0
         var held = 1.0; var banked = 0.0; var peak = entry; var tookFirst = false
-        val rungs = when (rule.ladder) {   // (multiple, fraction of the ORIGINAL position)
-            Ladder.HALF_TRAIL -> listOf(rule.takeX to 0.5)
+        val rungs = when (ladder) {   // (multiple, fraction of the ORIGINAL position)
+            Ladder.HALF_TRAIL -> listOf(takeX to 0.5)
             Ladder.DOCTRINE -> listOf(2.0 to 0.25, 5.0 to 0.18, 10.0 to 0.57 * 0.67)
-            Ladder.MOONBAG -> listOf(rule.takeX to 0.5, 10.0 to 0.3)
+            Ladder.MOONBAG -> listOf(takeX to 0.5, 10.0 to 0.3)
         }
-        val trailPct = when (rule.ladder) { Ladder.HALF_TRAIL -> TRAIL_PCT; Ladder.DOCTRINE -> 45.0; Ladder.MOONBAG -> 60.0 }
+        val trailPct = when (ladder) { Ladder.HALF_TRAIL -> TRAIL_PCT; Ladder.DOCTRINE -> 45.0; Ladder.MOONBAG -> 60.0 }
         var nextRung = 0
         for (k in e + 1 until t.size) {
             val px = p[k]
@@ -132,9 +147,9 @@ object LaunchReplay8744 {
             while (nextRung < rungs.size && px >= entry * rungs[nextRung].first * (1.0 - 1e-9)) {
                 val sell = minOf(rungs[nextRung].second, held); banked += sell * fill(k); held -= sell; nextRung++; tookFirst = true
             }
-            val stopHit = !tookFirst && px <= entry * (1.0 - rule.stopPct / 100.0)
+            val stopHit = !tookFirst && px <= stopPx
             val trailHit = tookFirst && px <= peak * (1.0 - trailPct / 100.0)
-            val timeHit = !tookFirst && t[k] - t[e] >= TIME_STOP_MS && peak < entry * 1.2
+            val timeHit = !tookFirst && t[k] - t[e] >= timeStopMs && peak < entry * 1.2
             if (stopHit || trailHit || timeHit || held <= 1e-9) { if (held > 1e-9) banked += held * fill(k); held = 0.0; break }
         }
         if (held > 0.0) banked += held * (p.last() / entry - 1.0)
@@ -227,6 +242,7 @@ object LaunchReplay8744 {
                 val res = evaluate8748(set, solUsd, cost)
                 val need = try { LaunchSniper8748.requiredDelayMs8749() } catch (_: Throwable) { ARM_MIN_DELAY_MS_8748 }
                 last = res; proven = provenOf8748(res, need); shadow = shadowOf8748(res, need)
+                try { BaseFamily8754.evaluate8754(set, solUsd, cost, need) } catch (_: Throwable) {}   // V5.0.8754 the base family, same paths
                 val births = try { LaunchHour8628.births8749(nowMs) } catch (_: Throwable) { -1 }
                 status = "ran births48h=$births launches>=20prints=${set.size} withLivePrints=$liveN needDelay=${need / 1000}s spikesDropped=$spikes solUsd=${"%.0f".format(solUsd)} cost=${"%.1f".format(cost)}%"
             } catch (t: Throwable) { status = "failed:${t.javaClass.simpleName}" } finally { running.set(false) }

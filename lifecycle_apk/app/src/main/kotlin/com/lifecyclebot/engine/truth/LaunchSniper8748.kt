@@ -32,9 +32,13 @@ object LaunchSniper8748 {
         val sigs = ArrayDeque<String>()
         var fired = false
         var lastSeen = 0L
+        // V5.0.8754 — the base family's trigger for this coin: the very code BaseFamily8754 graded, fed every print
+        var baseTrigger: BaseFamily8754.Trigger? = null
+        var base: BaseFamily8754.State? = null
     }
-    data class Fire(val mint: String, val atMs: Long, val ageMs: Long, val capUsd: Double, val result: LaunchReplay8744.Result, val armed: Boolean,
-                    val triggerEventMs: Long = atMs)
+    /** V5.0.8754 — a fire carries its rule's graded record (launch or base family), not one family's result type. */
+    data class Fire(val mint: String, val atMs: Long, val ageMs: Long, val capUsd: Double, val ruleId: String, val n: Int,
+                    val exTop3: Double, val exTop3Se: Double, val tenX: Double, val armed: Boolean, val triggerEventMs: Long = atMs)
 
     /**
      * V5.0.8749 §THE_LATENCY_THE_BOT_ACTUALLY_HAS — the owner's own launch export (968 launch paths, 582 seen from birth):
@@ -96,10 +100,13 @@ object LaunchSniper8748 {
             if (!com.lifecyclebot.network.PumpCurveKeys7269.isPumpMint8658(mint) || !(priceSol > 0.0) || !priceSol.isFinite()) return
             val lagS = (recvMs - eventMs).coerceAtLeast(0L) / 1_000L
             lagHist.incrementAndGet(LAG_EDGES_S.indexOfFirst { lagS < it }.let { if (it < 0) LAG_EDGES_S.size else it })
-            if (recvMs - eventMs !in -5_000L..LaunchReplay8744.LIVE_LAG_MS_8748) { latePrints.incrementAndGet(); return }
-            livePrints.incrementAndGet()
+            val live = recvMs - eventMs in -5_000L..LaunchReplay8744.LIVE_LAG_MS_8748
+            if (live) livePrints.incrementAndGet() else latePrints.incrementAndGet()
             val proven = LaunchReplay8744.proven8748()
-            val result = proven ?: LaunchReplay8744.shadow8748() ?: return
+            val result = proven ?: LaunchReplay8744.shadow8748()
+            val baseProven = BaseFamily8754.proven8754()
+            val baseRule = baseProven ?: BaseFamily8754.shadow8754()
+            if (result == null && baseRule == null) return
             var s = st[mint]
             if (s == null) {
                 val born = CanonicalTokenBirthTime7440.peekBirthMs8418(mint, eventMs)
@@ -111,17 +118,31 @@ object LaunchSniper8748 {
             val solUsd = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
             if (!(solUsd > 0.0)) return
             val cap = priceSol * 1.0e9 * solUsd
-            val fire = synchronized(s) {
-                if (s.fired) return
+            val fires = ArrayList<Fire>(2)
+            synchronized(s) {
                 if (sig.isNotBlank()) { if (sig in s.sigs) return; s.sigs.addLast(sig); if (s.sigs.size > 16) s.sigs.removeFirst() }
                 s.lastSeen = recvMs
-                if (isBuy) s.buys.addLast(eventMs)
-                while (s.buys.isNotEmpty() && s.buys.first() < eventMs - 60_000L) s.buys.removeFirst()
-                if (!triggers8748(result.rule, cap, s.buys.size)) return
-                s.fired = true
-                Fire(mint, recvMs, eventMs - s.bornMs, cap, result, armed = proven != null, triggerEventMs = eventMs)
+                // the launch family: live prints only, the cap / buys trigger
+                if (live && result != null && !s.fired) {
+                    if (isBuy) s.buys.addLast(eventMs)
+                    while (s.buys.isNotEmpty() && s.buys.first() < eventMs - 60_000L) s.buys.removeFirst()
+                    if (triggers8748(result.rule, cap, s.buys.size)) {
+                        s.fired = true
+                        fires.add(Fire(mint, recvMs, eventMs - s.bornMs, cap, result.rule.id, result.n, result.exTop3, result.exTop3Se, result.tenX,
+                            armed = proven != null, triggerEventMs = eventMs))
+                    }
+                }
+                // the base family: every print shapes its peak and window; only a live one can fire (as in the replay)
+                if (baseRule != null) {
+                    val tr = baseRule.rule.trigger
+                    if (s.baseTrigger != tr) { s.baseTrigger = tr; s.base = BaseFamily8754.State(tr) }
+                    val bs = s.base
+                    if (bs != null && !bs.fired && bs.onPrint(eventMs - s.bornMs, priceSol, isBuy, live, solUsd) != null)
+                        fires.add(Fire(mint, recvMs, eventMs - s.bornMs, cap, baseRule.rule.id, baseRule.n, baseRule.exTop3, baseRule.exTop3Se,
+                            baseRule.tenX, armed = baseProven != null, triggerEventMs = eventMs))
+                }
             }
-            onFire(fire)
+            fires.forEach { onFire(it) }
         } catch (_: Throwable) {}
     }
 
@@ -144,19 +165,21 @@ object LaunchSniper8748 {
     fun evidence8748(mint: String, nowMs: Long): CandidateAdmission8136.Evidence8136? {
         val f = fires[mint]?.takeIf { it.armed && nowMs - it.atMs in 0L..EVIDENCE_TTL_MS } ?: return null
         evidenceServed.incrementAndGet()
-        return CandidateAdmission8136.Evidence8136("LAUNCH_RULE_8748", f.result.rule.id, f.result.n, f.result.exTop3, f.result.exTop3Se,
-            runnerRate = f.result.tenX, netOfCost = true)
+        return CandidateAdmission8136.Evidence8136("LAUNCH_RULE_8748", f.ruleId, f.n, f.exTop3, f.exTop3Se,
+            runnerRate = f.tenX, netOfCost = true)
     }
 
     fun statusLine8748(): String {
         val p = LaunchReplay8744.proven8748(); val sh = LaunchReplay8744.shadow8748()
         val mode = when { p != null -> "ARMED on ${p.rule.id}"; sh != null -> "SHADOW on ${sh.rule.id}"; else -> "IDLE (no replay rule with n>=50 yet)" }
-        val lf = lastFire?.let { "${it.mint.take(6)} age=${it.ageMs / 1000}s cap=\$${"%.0f".format(it.capUsd)} ${if (it.armed) "armed" else "shadow"}" } ?: "-"
+        val bp = BaseFamily8754.proven8754(); val bsh = BaseFamily8754.shadow8754()
+        val baseMode = when { bp != null -> "ARMED on ${bp.rule.id}"; bsh != null -> "SHADOW on ${bsh.rule.id}"; else -> "IDLE" }
+        val lf = lastFire?.let { "${it.mint.take(6)} age=${it.ageMs / 1000}s cap=\$${"%.0f".format(it.capUsd)} ${if (it.armed) "armed" else "shadow"} ${it.ruleId.take(40)}" } ?: "-"
         val h = lagHistSnapshot()
         val lag = "p50=${quantileMs8749(h, LAG_EDGES_S, 0.5)?.div(1000) ?: "-"}s p75=${quantileMs8749(h, LAG_EDGES_S, 0.75)?.div(1000) ?: "-"}s " +
             "p90=${quantileMs8749(h, LAG_EDGES_S, 0.9)?.div(1000) ?: "-"}s"
         val landedLine = synchronized(landed) { if (landed.isEmpty()) "-" else "n${landed.size} p50=${landed.sorted()[landed.size / 2] / 1000}s" }
-        return "sniper8748[$mode needDelay=${requiredDelayMs8749() / 1000}s tapeLag{$lag} armedLanded{$landedLine} tracked=${st.size} livePrints=${livePrints.get()} latePrints=${latePrints.get()} noBirth=${unborn.get()} " +
+        return "sniper8748[launch:$mode base:$baseMode needDelay=${requiredDelayMs8749() / 1000}s tapeLag{$lag} armedLanded{$landedLine} tracked=${st.size} livePrints=${livePrints.get()} latePrints=${latePrints.get()} noBirth=${unborn.get()} " +
             "fires{shadow=${shadowFires.get()} armed=${armedFires.get()}} watchAdds=${watchAdds.get()} evidenceServed=${evidenceServed.get()} " +
             "lastFire=$lf rule=every live pump.fun print checked against the replay's own trigger; buys only through admission + every safety door]"
     }
