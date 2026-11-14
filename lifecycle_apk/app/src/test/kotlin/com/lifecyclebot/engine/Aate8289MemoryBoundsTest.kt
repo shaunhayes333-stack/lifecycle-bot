@@ -71,14 +71,15 @@ class Aate8289MemoryBoundsTest {
         val tape = TradeTape8100
         tape.resetForTest8100()
         // 9,000 mints with one signed print each: <= 400 tapes, <= 8,000 per-feed signed stamps
-        for (i in 0 until 9_000) tape.note8285(mint(i, "T"), 1e-6, 0.1, 100.0, i % 2 == 0, TradeTape8100.SRC_PUMPPORTAL_8285,
+        // V5.0.8750 — token quantities agree with the price (PrintWitness8750 refuses a print whose own SOL / tokens is 8x off)
+        for (i in 0 until 9_000) tape.note8285(mint(i, "T"), 1e-6, 0.1, 0.1 / 1e-6, i % 2 == 0, TradeTape8100.SRC_PUMPPORTAL_8285,
             pool = TradeTape8100.VENUE_CURVE_8285, signature = "S$i", recvMs = t0 + i)
         assertTrue("tapes ${tape.tapeMints8289()}", tape.tapeMints8289() <= 400)
         assertTrue("signed ${tape.lastSignedCount8289()}", tape.lastSignedCount8289() <= 8_000)
         // one busy mint, 25,000 signed prints: <= 800 prints on its tape, <= 30,000 signatures remembered
         val busy = mint(1, "BUSY")
         val busyAt = t0 + 10_000L
-        for (j in 0 until 25_000) tape.note8285(busy, 1e-6 * (1.0 + j % 7), 0.1, 100.0, j % 3 != 0, TradeTape8100.SRC_PUMPPORTAL_8285,
+        for (j in 0 until 25_000) tape.note8285(busy, 1e-6 * (1.0 + j % 7), 0.1, 0.1 / (1e-6 * (1.0 + j % 7)), j % 3 != 0, TradeTape8100.SRC_PUMPPORTAL_8285,
             pool = TradeTape8100.VENUE_CURVE_8285, signature = "B$j", recvMs = busyAt + j)
         val now = busyAt + 25_000L
         assertTrue(tape.prints8128(busy, now, 65L * 60_000L).size <= 800)

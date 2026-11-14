@@ -134,7 +134,8 @@ class Aate8285TapeProvidersTest {
         assertTrue(line, line.contains("priceOnly=5"))
         assertTrue(line, line.contains("executed=0"))
         // executed prints of the same venue are read alone for flow: the curve prints never dilute them
-        for (k in 0 until 6) tape.note8285(mint, 1.2e-6, if (k < 2) 3.0 else 0.5, 1.0, k < 2, "pumpportal",
+        // V5.0.8750 — a print's own SOL / tokens must agree with its price (PrintWitness8750): the token quantity is real now
+        for (k in 0 until 6) tape.note8285(mint, 1.2e-6, if (k < 2) 3.0 else 0.5, (if (k < 2) 3.0 else 0.5) / 1.21e-6, k < 2, "pumpportal",
             pool = TradeTape8100.VENUE_CURVE_8285, signature = "E$k", recvMs = now + k * 100L)
         val r2 = tape.read8100(mint, now + 1_000L)!!
         assertEquals(6.0 / 8.0 * 100.0, r2.bp!!, 1e-9)     // SOL-volume share: 6 of 8 SOL bought
