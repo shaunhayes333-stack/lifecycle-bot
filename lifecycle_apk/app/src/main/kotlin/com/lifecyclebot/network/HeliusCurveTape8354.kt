@@ -50,6 +50,14 @@ object HeliusCurveTape8354 {
     internal const val FALLBACK_MAX_MS_8354 = 4L * 60L * 60_000L
     internal const val ASK_TTL_MS_8354 = 10L * 60_000L
     private const val ASK_MAX_8354 = 64
+    // Historical REAL prints from program notifications, bounded independently of the 400-mint live trade tape.
+    private const val PRECARE_MINTS_8751 = 512
+    private const val PRECARE_PRINTS_PER_MINT_8751 = 32
+    private const val PRECARE_TTL_MS_8751 = 5L * 60_000L
+    private const val REHOME_PER_SYNC_8751 = 4
+    private const val PER_MINT_RETRY_MS_8751 = 20_000L
+    private const val PROGRAM_ACK_GRACE_MS_8751 = 15_000L
+    private const val PROGRAM_PRINT_IDLE_MS_8751 = 45_000L
     internal const val LEVEL_ENHANCED_8354 = 0
     internal const val LEVEL_LOGS_8354 = 1
     internal const val LEVEL_PER_MINT_8354 = 2
@@ -144,6 +152,12 @@ object HeliusCurveTape8354 {
     internal fun sharedLogsEligible8509(attached: Boolean, refusedUntilMs: Long, nowMs: Long): Boolean =
         attached && nowMs >= refusedUntilMs
 
+    /** A socket selected as transport is not proof that its trade subscription is delivering. */
+    internal fun needsPerMint8751(tr: Transport8354, selectedAgeMs: Long, acknowledged: Boolean, printIdleMs: Long): Boolean =
+        tr == Transport8354.NONE ||
+            (selectedAgeMs >= PROGRAM_ACK_GRACE_MS_8751 && !acknowledged) ||
+            (selectedAgeMs >= PROGRAM_PRINT_IDLE_MS_8751 && printIdleMs >= PROGRAM_PRINT_IDLE_MS_8751)
+
     // ── state ──
 
     @Volatile private var source = Source8354.OFF
@@ -151,6 +165,8 @@ object HeliusCurveTape8354 {
     @Volatile private var level = LEVEL_ENHANCED_8354
     @Volatile private var why = "-"
     @Volatile private var fallbackUntilMs = 0L
+    @Volatile private var transportSelectedAt8751 = 0L
+    @Volatile private var lastProgramPrintAt8751 = 0L
     @Volatile private var fallbackN = 0
     @Volatile private var minute = 0L
     @Volatile private var bytesLastMinute = 0L
@@ -167,8 +183,22 @@ object HeliusCurveTape8354 {
     private val failedTx = AtomicLong(0L)
     private val asks = AtomicLong(0L)
     private val perMintAsks = AtomicLong(0L)
+    private val fallbackRehomes8751 = AtomicLong(0L)
+    private val fallbackUnavailable8751 = AtomicLong(0L)
+    private val precareSaved8751 = AtomicLong(0L)
+    private val precareReplayed8751 = AtomicLong(0L)
+    private val precareEvicted8751 = AtomicLong(0L)
     private val stepDowns = AtomicLong(0L)
     private val askedAt = ConcurrentHashMap<String, Long>()
+    private val perMintAttemptAt8751 = ConcurrentHashMap<String, Long>()
+    private val perMintLastState8751 = ConcurrentHashMap<String, TapeState8386>()
+    private data class PrecarePrint8751(
+        val ev: ChainLaunchFeed8179.TradeEvent8179, val signature: String, val priceSol: Double,
+        val eventMs: Long, val receivedMs: Long,
+        val witness: com.lifecyclebot.engine.truth.PrintWitness8750.Verdict,
+    )
+    private val precare8751 = java.util.LinkedHashMap<String, ArrayDeque<PrecarePrint8751>>(128, 0.75f, true)
+    private val precareLock8751 = Any()
     @Volatile private var heldSet: Set<String> = emptySet()
     @Volatile private var nearSet: Set<String> = emptySet()
     @Volatile private var watch: ((String) -> Boolean)? = null
@@ -234,31 +264,84 @@ object HeliusCurveTape8354 {
         data class Delivering(val lastValidEventAt: Long): TapeState8386()
     }
     private val waiting8386 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    private fun needsFallback8751(nowMs: Long): Boolean {
+        val ack = when (transport) {
+            Transport8354.ENHANCED -> try { HeliusEnhancedWS.curveSubState8354() == "ACK" } catch (_: Throwable) { false }
+            Transport8354.LOGS -> logsSubId >= 0L
+            Transport8354.NONE -> false
+        }
+        val selectedAge = (nowMs - transportSelectedAt8751).coerceAtLeast(0L)
+        val idle = if (lastProgramPrintAt8751 > 0L) (nowMs - lastProgramPrintAt8751).coerceAtLeast(0L) else selectedAge
+        return needsPerMint8751(transport, selectedAge, ack, idle)
+    }
     internal fun freshEvent8386(eventAt: Long, requestedAt: Long, now: Long): Boolean =
         eventAt > 0 && eventAt >= requestedAt && now - eventAt in 0L..30_000L
 
     fun onValidEvent8386(mint: String, eventAt: Long, now: Long) {
         val after = waiting8386[mint] ?: return
         if (!freshEvent8386(eventAt, after, now) || !waiting8386.remove(mint, after)) return
+        perMintAttemptAt8751.remove(mint); perMintLastState8751.remove(mint)
         com.lifecyclebot.engine.HandoffReceiverTasks8153.onHydrated8343(mint, now)
+    }
+
+    /** Return a genuine per-mint ACK/QUEUED/UNAVAILABLE state, backed off so sync cannot churn subscriptions. */
+    private fun requestPerMint8751(mint: String, nowMs: Long, cb: (String) -> TapeState8386): TapeState8386 {
+        val at = perMintAttemptAt8751[mint]
+        if (at != null && nowMs - at in 0L until PER_MINT_RETRY_MS_8751)
+            return perMintLastState8751[mint] ?: TapeState8386.Unavailable("subscription_state_unknown")
+        perMintAttemptAt8751[mint] = nowMs
+        perMintAsks.incrementAndGet()
+        val result = try { cb(mint) } catch (_: Exception) { TapeState8386.Unavailable("subscription_error") }
+        perMintLastState8751[mint] = result
+        if (result is TapeState8386.Unavailable) fallbackUnavailable8751.incrementAndGet()
+        return result
+    }
+
+    /** Rehome queued asks when program transport is missing, unacknowledged, or not decoding.
+     * The existing adaptive socket enforces its independent subscription cap; no wider firehose is created. */
+    private fun rehomePending8751(nowMs: Long) {
+        if (!needsFallback8751(nowMs)) return
+        val cb = perMint ?: return
+        waiting8386.entries.removeIf { nowMs - it.value > ASK_TTL_MS_8354 }
+        perMintAttemptAt8751.keys.removeIf { !waiting8386.containsKey(it) }
+        perMintLastState8751.keys.removeIf { !waiting8386.containsKey(it) }
+        val pending = waiting8386.entries.filter { nowMs - it.value in 0L..ASK_TTL_MS_8354 }
+            .sortedWith(compareByDescending<Map.Entry<String, Long>> { it.key in heldSet }
+                .thenByDescending { it.key in nearSet }.thenByDescending { it.value })
+        var issued = 0
+        for (item in pending) {
+            if (issued >= REHOME_PER_SYNC_8751) break
+            val last = perMintAttemptAt8751[item.key]
+            if (last != null && nowMs - last in 0L until PER_MINT_RETRY_MS_8751) continue
+            issued++
+            fallbackRehomes8751.incrementAndGet()
+            requestPerMint8751(item.key, nowMs, cb)
+        }
     }
 
     fun askState8386(mint: String, nowMs: Long = System.currentTimeMillis()): TapeState8386 {
         if (!HeliusSolanaScope7819.isSolanaMint7819(mint)) return TapeState8386.Unavailable("invalid_mint")
         asks.incrementAndGet()
-        val last = com.lifecyclebot.engine.truth.TradeTape8100.latestValidEvent8386(mint)
-        if (freshEvent8386(last, 0L, nowMs)) return TapeState8386.Delivering(last)
         if (askedAt.size >= ASK_MAX_8354) {
             askedAt.entries.removeIf { nowMs - it.value > ASK_TTL_MS_8354 }
-            if (askedAt.size >= ASK_MAX_8354) askedAt.entries.minByOrNull { it.value }?.key?.let { askedAt.remove(it); waiting8386.remove(it) }
+            if (askedAt.size >= ASK_MAX_8354) askedAt.entries.minByOrNull { it.value }?.key?.let {
+                askedAt.remove(it); waiting8386.remove(it); perMintAttemptAt8751.remove(it); perMintLastState8751.remove(it)
+            }
         }
         waiting8386.entries.removeIf { nowMs - it.value > ASK_TTL_MS_8354 }
+        // Promotion retains subsequent live prints even when pre-care replay already provides a fresh observation.
         askedAt[mint] = nowMs
+        replayPrecare8751(mint, nowMs)
+        val last = com.lifecyclebot.engine.truth.TradeTape8100.latestValidEvent8386(mint)
+        if (freshEvent8386(last, 0L, nowMs)) {
+            waiting8386.remove(mint)
+            return TapeState8386.Delivering(last)
+        }
         waiting8386.putIfAbsent(mint, nowMs)
-        if (transport != Transport8354.NONE) return TapeState8386.Queued
+        if (!needsFallback8751(nowMs)) return TapeState8386.Queued
         val cb = perMint ?: return TapeState8386.Unavailable("no_socket_callback")
-        perMintAsks.incrementAndGet()
-        return try { cb(mint) } catch (_: Exception) { TapeState8386.Unavailable("subscription_error") }
+        return requestPerMint8751(mint, nowMs, cb)
     }
 
     /** Compatibility Boolean means DATA delivered, never a merely requested subscription. */
@@ -285,13 +368,15 @@ object HeliusCurveTape8354 {
             val sharedUp = sharedLogsEligible8509(HeliusSocketShare8191.attached8191(), logsRefusedUntilMs8509, nowMs)
             val (src, tr) = decide8354(pumpPortalOn, level, inHold, affordable, enhancedOk, sharedUp)
             why = fallbackWhy8354(src, pumpPortalOn, inHold, affordable, over, level, tr)
-            apply(src, tr)
+            apply(src, tr, nowMs)
+            rehomePending8751(nowMs)
         } catch (_: Throwable) {}
     }
 
-    private fun apply(src: Source8354, tr: Transport8354) {
+    private fun apply(src: Source8354, tr: Transport8354, nowMs: Long) {
         val changed = src != source || tr != transport
         source = src; transport = tr
+        if (changed) { transportSelectedAt8751 = nowMs; lastProgramPrintAt8751 = 0L }
         try { HeliusEnhancedWS.setCurveProgram8354(tr == Transport8354.ENHANCED) } catch (_: Throwable) {}
         setLogs(tr == Transport8354.LOGS)
         if (changed) {
@@ -318,7 +403,7 @@ object HeliusCurveTape8354 {
         val inHold = nowMs < fallbackUntilMs
         val (src, tr) = decide8354(pumpPortalOn, level, inHold, true, enhancedOk, HeliusSocketShare8191.attached8191())
         why = fallbackWhy8354(src, pumpPortalOn, inHold, true, false, level, tr)
-        apply(src, tr)
+        apply(src, tr, nowMs)
     }
 
     /** Bytes of one program-tape frame (either transport): the governor's clock. */
@@ -331,6 +416,45 @@ object HeliusCurveTape8354 {
     }
 
     // ── decoded trades ──
+
+    /** A bounded ring of actually decoded program prints, retaining the original chain and receipt timestamps. */
+    private fun bufferPrecare8751(ev: ChainLaunchFeed8179.TradeEvent8179, sig: String, priceSol: Double,
+                                  eventMs: Long, recvMs: Long, witness: com.lifecyclebot.engine.truth.PrintWitness8750.Verdict) {
+        synchronized(precareLock8751) {
+            val q = precare8751.getOrPut(ev.mint) { ArrayDeque() }
+            while (q.isNotEmpty() && recvMs - q.first().receivedMs > PRECARE_TTL_MS_8751) q.removeFirst()
+            if (sig.isNotBlank() && q.any { it.signature == sig && it.ev.isBuy == ev.isBuy }) return
+            q.addLast(PrecarePrint8751(ev, sig, priceSol, eventMs, recvMs, witness))
+            precareSaved8751.incrementAndGet()
+            while (q.size > PRECARE_PRINTS_PER_MINT_8751) { q.removeFirst(); precareEvicted8751.incrementAndGet() }
+            while (precare8751.size > PRECARE_MINTS_8751) {
+                val eldest = precare8751.keys.iterator().next()
+                precareEvicted8751.addAndGet(precare8751.remove(eldest)?.size?.toLong() ?: 0L)
+            }
+        }
+    }
+
+    /** Historical delivery updates the tape, not live marks, sniper triggers or subscription readiness. */
+    private fun replayPrecare8751(mint: String, nowMs: Long) {
+        val saved = synchronized(precareLock8751) { precare8751.remove(mint)?.toList() ?: emptyList() }
+        for (p in saved) {
+            if (nowMs - p.receivedMs !in 0L..PRECARE_TTL_MS_8751) continue
+            try {
+                val ev = p.ev
+                val key = com.lifecyclebot.engine.truth.LaunchEvidence8136.dedupKey8136(mint, p.signature,
+                    ev.user, ev.isBuy, ev.sol, ev.virtualSol, ev.virtualTokens)
+                if (!com.lifecyclebot.engine.truth.LaunchEvidence8136.noteSwap8136(mint, key)) continue
+                if (com.lifecyclebot.engine.truth.TradeTape8100.note8285(
+                        mint, p.priceSol, ev.sol, ev.tokens, ev.isBuy, SRC_HELIUS_CURVE_8354,
+                        pool = com.lifecyclebot.engine.truth.TradeTape8100.VENUE_CURVE_8285, signature = p.signature,
+                        eventMs = p.eventMs, recvMs = p.receivedMs, wallet = ev.user,
+                        priceBasis8750 = com.lifecyclebot.engine.truth.PrintWitness8750.Basis.RESERVES,
+                        witness8750 = p.witness, historyOnly8751 = true,
+                    )) precareReplayed8751.incrementAndGet()
+            } catch (_: Throwable) { /* a malformed old print cannot stop the new live feed */ }
+        }
+    }
+
 
     /**
      * One decoded pump.fun TradeEvent of transaction [sig]: filtered, then written exactly as a PumpPortal trade frame is.
@@ -362,7 +486,12 @@ object HeliusCurveTape8354 {
                 sig.trim(), eventMs8748, nowMs, com.lifecyclebot.engine.truth.PrintWitness8750.Basis.RESERVES)
         } catch (_: Throwable) { com.lifecyclebot.engine.truth.PrintWitness8750.Verdict.UNWITNESSED }
         if (witness8750 == com.lifecyclebot.engine.truth.PrintWitness8750.Verdict.OUT_OF_BAND) { malformed.incrementAndGet(); return false }
-        if (!cares8354(mint, nowMs)) { dropped.incrementAndGet(); return false }
+        if (source == Source8354.HELIUS_PROGRAM) lastProgramPrintAt8751 = nowMs
+        if (!cares8354(mint, nowMs)) {
+            bufferPrecare8751(ev, sig.trim(), priceSol, eventMs8748, nowMs, witness8750)
+            dropped.incrementAndGet(); return false
+        }
+        replayPrecare8751(mint, nowMs)
         val key = com.lifecyclebot.engine.truth.LaunchEvidence8136.dedupKey8136(mint, sig, ev.user, ev.isBuy, ev.sol, ev.virtualSol, ev.virtualTokens)
         if (!com.lifecyclebot.engine.truth.LaunchEvidence8136.noteSwap8136(mint, key)) { duplicates.incrementAndGet(); return false }
         kept.incrementAndGet()   // V5.0.8356 — a kept print is one that passed the dedup, not one that merely passed the filter
@@ -515,11 +644,15 @@ object HeliusCurveTape8354 {
      */
     fun statusLine8354(nowMs: Long = System.currentTimeMillis()): String {
         val holdLeftS = ((fallbackUntilMs - nowMs) / 1000L).coerceAtLeast(0L)
+        val bufferedMints = synchronized(precareLock8751) { precare8751.size }
         return "curveTape8354[source=${source.name} transport=${transport.name} level=$level " +
             "prints{helius=${heliusPrints.get()},pumpportal=${pumpPortalPrints.get()}} kept=${kept.get()} dropped=${dropped.get()} " +
+            "precare{mints=$bufferedMints,saved=${precareSaved8751.get()},replayed=${precareReplayed8751.get()},evicted=${precareEvicted8751.get()}} " +
             "bytes/min=${bytesLastMinute} bytesToday=${bytesToday.get()} credits=${"%.0f".format(programCreditsToday())} " +
             "fallback=$why holdLeftS=$holdLeftS stepDowns=${stepDowns.get()} frames=${frames.get()} failedTx=${failedTx.get()} " +
             "dup=${duplicates.get()} malformed=${malformed.get()} asks=${asks.get()} perMintAsks=${perMintAsks.get()} " +
+            "pending=${waiting8386.size} rehomes=${fallbackRehomes8751.get()} perMintUnavailable=${fallbackUnavailable8751.get()} " +
+            "programNeedsFallback=${needsFallback8751(nowMs)} " +
             "enhancedSub=${try { HeliusEnhancedWS.curveSubState8354() } catch (_: Throwable) { "-" }} logsSub=${if (logsSubId >= 0L) "ACK" else if (logsReqId >= 0) "PENDING" else "NONE"} " +
             "logsRetryInSec8509=${((logsRefusedUntilMs8509 - nowMs).coerceAtLeast(0L) / 1000L)}]"
     }
@@ -527,9 +660,14 @@ object HeliusCurveTape8354 {
     internal fun resetForTest8354() {
         source = Source8354.OFF; transport = Transport8354.NONE; level = LEVEL_ENHANCED_8354; why = "-"
         fallbackUntilMs = 0L; fallbackN = 0; minute = 0L; bytesLastMinute = 0L; day = 0L
+        transportSelectedAt8751 = 0L; lastProgramPrintAt8751 = 0L
         bytesMinute.set(0L); bytesToday.set(0L); heliusPrints.set(0L); pumpPortalPrints.set(0L); kept.set(0L); dropped.set(0L)
         duplicates.set(0L); malformed.set(0L); frames.set(0L); failedTx.set(0L); asks.set(0L); perMintAsks.set(0L); stepDowns.set(0L)
         askedAt.clear(); waiting8386.clear(); heldSet = emptySet(); nearSet = emptySet(); watch = null; perMint = null
+        fallbackRehomes8751.set(0L); fallbackUnavailable8751.set(0L)
+        precareSaved8751.set(0L); precareReplayed8751.set(0L); precareEvicted8751.set(0L)
+        perMintAttemptAt8751.clear(); perMintLastState8751.clear()
+        synchronized(precareLock8751) { precare8751.clear() }
         logsRefusedUntilMs8509 = 0L
     }
 }

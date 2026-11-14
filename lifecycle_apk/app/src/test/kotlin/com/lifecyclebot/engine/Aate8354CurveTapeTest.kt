@@ -197,6 +197,58 @@ class Aate8354CurveTapeTest {
         assertTrue(HeliusCurveTape8354.statusLine8354(t0).contains("source=HELIUS_PER_MINT"))
     }
 
+    @Test fun aSelectedProgramTransportWithoutAckOrPrintsNeedsPerMintFallback() {
+        val d = HeliusCurveTape8354
+        assertTrue(d.needsPerMint8751(Transport8354.NONE, 0L, false, 0L))
+        assertFalse(d.needsPerMint8751(Transport8354.ENHANCED, 10_000L, false, 10_000L))
+        assertTrue(d.needsPerMint8751(Transport8354.ENHANCED, 16_000L, false, 16_000L))
+        assertTrue(d.needsPerMint8751(Transport8354.LOGS, 50_000L, true, 46_000L))
+        assertFalse(d.needsPerMint8751(Transport8354.LOGS, 50_000L, true, 10_000L))
+    }
+
+    @Test fun queuedRequestsAreRehomedWhenProgramFallbackBecomesAvailable() {
+        assertTrue(HeliusCurveTape8354.askState8386(MINT, t0) is HeliusCurveTape8354.TapeState8386.Unavailable)
+        val asked = ArrayList<String>()
+        val cb: (String) -> HeliusCurveTape8354.TapeState8386 = { m ->
+            asked.add(m); HeliusCurveTape8354.TapeState8386.Queued
+        }
+        HeliusCurveTape8354.sync8354(setOf(MINT), emptyList(), t0 + 1_000L, { false }, cb)
+        assertEquals(listOf(MINT), asked)
+        assertTrue(HeliusCurveTape8354.statusLine8354(t0 + 1_000L).contains("rehomes=1"))
+        HeliusCurveTape8354.sync8354(setOf(MINT), emptyList(), t0 + 11_000L, { false }, cb)
+        assertEquals(1, asked.size)
+        HeliusCurveTape8354.sync8354(setOf(MINT), emptyList(), t0 + 22_000L, { false }, cb)
+        assertEquals(2, asked.size)
+    }
+
+    @Test fun preCareRealPrintsBecomeHistoricalBuyerFlowWithoutFiringLiveMarks() {
+        val ev = ChainLaunchFeed8179.decodeTradeEvent8179(tradeEventBytes(OTHER, true,
+            1_000_000_000L, 30_000_000_000_000L, 36_000_000_000L, 900_000_000_000_000L,
+            tsSec = t0 / 1000L))!!
+        var liveMarks = 0
+        TradeTape8100.setOnExecutedTrade { _, _ -> liveMarks++ }
+        for (i in 0 until 8) assertFalse(HeliusCurveTape8354.onTradeEvent8354(ev, "precared-$i", t0 + i * 1_000L))
+        assertTrue(TradeTape8100.prints8128(OTHER, t0 + 8_000L, 60_000L).isEmpty())
+        assertTrue(HeliusCurveTape8354.askState8386(OTHER, t0 + 8_000L) is HeliusCurveTape8354.TapeState8386.Delivering)
+        assertEquals(8, TradeTape8100.prints8128(OTHER, t0 + 8_000L, 60_000L).size)
+        assertTrue(HeliusCurveTape8354.statusLine8354(t0 + 8_000L).contains("replayed=8"))
+        assertEquals(0, liveMarks)
+        assertTrue(HeliusCurveTape8354.onTradeEvent8354(ev.copy(timestampSec = t0 / 1000L + 9),
+            "current-after-promotion", t0 + 9_000L))
+        assertEquals(9, TradeTape8100.prints8128(OTHER, t0 + 9_000L, 60_000L).size)
+        assertEquals(1, liveMarks)
+    }
+
+    @Test fun earlyPrintBufferKeepsOnlyTheNewest32RealTradesPerMint() {
+        val ev = ChainLaunchFeed8179.decodeTradeEvent8179(tradeEventBytes(OTHER, true,
+            1_000_000_000L, 30_000_000_000_000L, 36_000_000_000L, 900_000_000_000_000L,
+            tsSec = t0 / 1000L))!!
+        for (i in 0 until 40) HeliusCurveTape8354.onTradeEvent8354(ev, "bound-$i", t0 + i * 100L)
+        HeliusCurveTape8354.askState8386(OTHER, t0 + 5_000L)
+        assertEquals(32, TradeTape8100.prints8128(OTHER, t0 + 5_000L, 60_000L).size)
+        assertTrue(HeliusCurveTape8354.statusLine8354(t0 + 5_000L).contains("evicted=8"))
+    }
+
     @Test fun paidEnabledWithRejectedOrMissingKeyStillAsksTheRealHeliusTape() {
         assertTrue(PumpFunWS.setupNeedsHeliusFallback8646(paidEnabled = false, keyedCapability = false))
         assertTrue(PumpFunWS.setupNeedsHeliusFallback8646(paidEnabled = true, keyedCapability = false))

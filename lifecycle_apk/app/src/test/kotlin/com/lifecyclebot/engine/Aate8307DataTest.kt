@@ -156,10 +156,17 @@ class Aate8307DataTest {
         // Unknown pool: counted, not taped.
         assertEquals(0, PumpSwapTape8307.onProgramLogs8307("sigU", listOf("Program log: Instruction: Sell", line), now))
         val mint = "Kno8307aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaapump"
-        PumpSwapTape8307.notePoolMint8307(poolB58, mint)
+        assertTrue(TradeTape8100.prints8128(mint, now, 120_000L).isEmpty())
+        // An unverified market indexer hint cannot reprice unknown trades as SOL.
+        PumpSwapTape8307.notePoolMint8307(poolB58, mint, now + 2_000L)
+        assertTrue(TradeTape8100.prints8128(mint, now + 2_000L, 120_000L).isEmpty())
+        // Simulate PumpSwapPools8750 confirming the account owner, base mint and WSOL quote.
+        PumpSwapTape8307.notePoolMint8307(poolB58, mint, now + 3_000L, verifiedSolQuote8751 = true)
+        assertEquals(1, TradeTape8100.prints8128(mint, now + 3_000L, 120_000L).size)
+        assertTrue(PumpSwapTape8307.statusLine8307().contains("replayed=1"))
         assertEquals(1, PumpSwapTape8307.onProgramLogs8307("sigK", listOf("Program log: Instruction: Sell", line), now))
         val p = TradeTape8100.prints8128(mint, now, 120_000L)
-        assertEquals(1, p.size)
+        assertEquals(2, p.size)
         assertFalse(p[0].isBuy)
         assertEquals(poolB58, p[0].pool)
         assertEquals(0.1, p[0].sol, 1e-12)

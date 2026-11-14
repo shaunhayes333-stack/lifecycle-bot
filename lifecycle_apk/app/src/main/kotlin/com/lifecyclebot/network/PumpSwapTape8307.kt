@@ -22,6 +22,10 @@ import java.util.concurrent.atomic.AtomicLong
 object PumpSwapTape8307 {
     private const val SIG_CAP_8307 = 2_048
     private const val POOL_CAP_8307 = 4_000
+    // An asynchronous pool account lookup must not discard its first actual swaps.
+    private const val UNKNOWN_POOL_BUFFER_MAX_8751 = 256
+    private const val UNKNOWN_POOL_PRINT_MAX_8751 = 24
+    private const val UNKNOWN_POOL_TTL_MS_8751 = 2L * 60_000L
     private const val ZERO_KEY_8307 = "11111111111111111111111111111111"
 
     /** The pool and event time a decoded PumpSwap swap stated, for the print the same signature produces. */
@@ -31,6 +35,12 @@ object PumpSwapTape8307 {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, AmmPrint8307>?): Boolean = size > SIG_CAP_8307
     })
     private val poolMint = ConcurrentHashMap<String, String>()
+    private data class UnknownPrint8751(val ev: PumpSwapEvent8191, val sig: String, val receivedMs: Long)
+    private val unknownPoolLock8751 = Any()
+    private val unknownPoolPrints8751 = java.util.LinkedHashMap<String, ArrayDeque<UnknownPrint8751>>(64, 0.75f, true)
+    private val unknownBuffered8751 = AtomicLong()
+    private val unknownReplayed8751 = AtomicLong()
+    private val unknownEvicted8751 = AtomicLong()
 
     private val decoded = AtomicLong(0)
     private val joined = AtomicLong(0)
@@ -68,10 +78,12 @@ object PumpSwapTape8307 {
     }
 
     /** A pool whose base mint is observed (decoded for a watched mint, or a DexScreener pumpswap row). */
-    fun notePoolMint8307(pool: String, mint: String) {
+    fun notePoolMint8307(pool: String, mint: String, nowMs: Long = System.currentTimeMillis(), verifiedSolQuote8751: Boolean = false) {
         if (!realPool8307(pool) || mint.isBlank() || pool == mint) return
         if (poolMint.size > POOL_CAP_8307) poolMint.clear()
         poolMint[pool] = mint
+        // A DexScreener mapping is a hint. Only the on-chain owner/base/WSOL quote verification may backfill SOL trades.
+        if (verifiedSolQuote8751) replayUnknownPool8751(pool, mint, nowMs)
     }
 
     fun mintForPool8307(pool: String): String? = poolMint[pool]
@@ -88,6 +100,40 @@ object PumpSwapTape8307 {
         return out
     }
 
+    /** Preserve executed events while the pool's base/quote identity is being fetched, with bounded memory and age. */
+    private fun bufferUnknownPool8751(ev: PumpSwapEvent8191, sig: String, nowMs: Long) {
+        if (!(ev.sol.isFinite() && ev.sol > 0.0 && ev.tokens.isFinite() && ev.tokens > 0.0)) return
+        synchronized(unknownPoolLock8751) {
+            val q = unknownPoolPrints8751.getOrPut(ev.pool) { ArrayDeque() }
+            while (q.isNotEmpty() && nowMs - q.first().receivedMs > UNKNOWN_POOL_TTL_MS_8751) q.removeFirst()
+            if (sig.isNotBlank() && q.any { it.sig == sig && it.ev.isBuy == ev.isBuy }) return
+            q.addLast(UnknownPrint8751(ev, sig, nowMs))
+            unknownBuffered8751.incrementAndGet()
+            while (q.size > UNKNOWN_POOL_PRINT_MAX_8751) { q.removeFirst(); unknownEvicted8751.incrementAndGet() }
+            while (unknownPoolPrints8751.size > UNKNOWN_POOL_BUFFER_MAX_8751) {
+                val eldest = unknownPoolPrints8751.keys.iterator().next()
+                unknownEvicted8751.addAndGet(unknownPoolPrints8751.remove(eldest)?.size?.toLong() ?: 0L)
+            }
+        }
+    }
+
+    /** Only a verified WSOL-quoted PumpSwap pool may claim these historical signed swaps. */
+    private fun replayUnknownPool8751(pool: String, mint: String, nowMs: Long) {
+        val saved = synchronized(unknownPoolLock8751) { unknownPoolPrints8751.remove(pool)?.toList() ?: emptyList() }
+        for (p in saved) {
+            if (nowMs - p.receivedMs !in 0L..UNKNOWN_POOL_TTL_MS_8751) continue
+            try {
+                val ev = p.ev
+                if (com.lifecyclebot.engine.truth.TradeTape8100.note8285(
+                        mint, ev.sol / ev.tokens, ev.sol, ev.tokens, ev.isBuy,
+                        com.lifecyclebot.engine.truth.TradeTape8100.SRC_HELIUS_8169,
+                        pool = pool, signature = p.sig, eventMs = eventMs8307(ev.tsSec, p.receivedMs),
+                        recvMs = p.receivedMs, wallet = ev.user, historyOnly8751 = true,
+                    )) unknownReplayed8751.incrementAndGet()
+            } catch (_: Throwable) { /* a bad historical print cannot block new swaps */ }
+        }
+    }
+
     /**
      * ChainLaunchFeed8179 (PumpSwap program stream, a notification that was not a pool creation): tape each swap on a pool
      * whose mint is known. Returns the prints taped. Never throws.
@@ -97,7 +143,10 @@ object PumpSwapTape8307 {
         for (ev in swapsInLogs8307(logs)) {
             programSwaps.incrementAndGet()
             val mint = poolMint[ev.pool]
-            if (mint == null) { programUnknownPool.incrementAndGet(); PumpSwapPools8750.resolve8750(ev.pool); continue }   // V5.0.8750 read the pool's coin from chain
+            if (mint == null) {
+                bufferUnknownPool8751(ev, signature, nowMs)
+                programUnknownPool.incrementAndGet(); PumpSwapPools8750.resolve8750(ev.pool); continue
+            }   // V5.0.8750 read the pool's coin from chain
             if (!(ev.sol > 0.0 && ev.tokens > 0.0)) continue
             if (com.lifecyclebot.engine.truth.TradeTape8100.note8285(
                     mint, ev.sol / ev.tokens, ev.sol, ev.tokens, ev.isBuy, com.lifecyclebot.engine.truth.TradeTape8100.SRC_HELIUS_8169,
@@ -314,10 +363,13 @@ object PumpSwapTape8307 {
     fun statusLine8307(): String =
         "pumpSwapTape8307[decodedPerMint=${decoded.get()} pooledPrints=${joined.get()} programSwaps=${programSwaps.get()} " +
             "programTaped=${programTaped.get()} unknownPool=${programUnknownPool.get()} knownPools=${poolMint.size} ${PumpSwapPools8750.statusLine8750()} " +
+            "unknownBuffer{pools=${synchronized(unknownPoolLock8751) { unknownPoolPrints8751.size }},saved=${unknownBuffered8751.get()},replayed=${unknownReplayed8751.get()},evicted=${unknownEvicted8751.get()}} " +
             "focusPromoted=${focusPromoted.get()}] " + heliusLine8307()
 
     internal fun clearForTest8307() {
         bySig.clear(); poolMint.clear(); decoded.set(0); joined.set(0); programSwaps.set(0); programTaped.set(0)
         programUnknownPool.set(0); focusPromoted.set(0)
+        unknownBuffered8751.set(0); unknownReplayed8751.set(0); unknownEvicted8751.set(0)
+        synchronized(unknownPoolLock8751) { unknownPoolPrints8751.clear() }
     }
 }

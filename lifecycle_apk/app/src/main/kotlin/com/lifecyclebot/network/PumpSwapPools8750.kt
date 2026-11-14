@@ -88,7 +88,7 @@ object PumpSwapPools8750 {
             if (quote != PoolBalanceSwap8734.WSOL_8734) { unusable.add(pool); nonSolQuote.incrementAndGet(); continue }
             // the swap decoder reads the base at 6 decimals (pump.fun's); another token's decimals would scale its price
             if (!PumpCurveKeys7269.isPumpMint8658(base)) { unusable.add(pool); nonPumpBase.incrementAndGet(); continue }
-            PumpSwapTape8307.notePoolMint8307(pool, base)
+            PumpSwapTape8307.notePoolMint8307(pool, base, verifiedSolQuote8751 = true)
             mapped.incrementAndGet()
         }
         if (unusable.size > 20_000) unusable.clear()

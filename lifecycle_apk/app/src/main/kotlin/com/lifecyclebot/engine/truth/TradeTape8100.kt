@@ -97,6 +97,7 @@ object TradeTape8100 {
         wallet: String = "",
         priceBasis8750: PrintWitness8750.Basis = PrintWitness8750.Basis.TRADE_RATIO,
         witness8750: PrintWitness8750.Verdict? = null,
+        historyOnly8751: Boolean = false,
     ): Boolean {
         if (mint.isBlank() || !priceSol.isFinite() || priceSol <= 0.0) return false
         val src = source.ifBlank { "other" }
@@ -108,7 +109,10 @@ object TradeTape8100 {
         // V5.0.8750 — every print is judged against an independent price witness (launchEvidence8750, the one route): a
         // disagreeing one never enters the tape; only a witnessed one reaches the launch history and the sniper. [witness8750]
         // is the verdict a caller already took through that route for this very print (HeliusCurveTape8354, before its care filter).
-        val verdict8750 = witness8750 ?: launchEvidence8750(mint, priceSol, sol, tokenQty, isBuy, src, sig, eventMs, recvMs, priceBasis8750)
+        // Historic decoded prints fill data only. A late replay cannot awaken the launch sniper.
+        val verdict8750 = witness8750 ?: if (historyOnly8751)
+            PrintWitness8750.check8750(mint, priceSol, sol, tokenQty, if (eventMs > 0L) eventMs else recvMs, recvMs, priceBasis8750)
+        else launchEvidence8750(mint, priceSol, sol, tokenQty, isBuy, src, sig, eventMs, recvMs, priceBasis8750)
         if (verdict8750 == PrintWitness8750.Verdict.OUT_OF_BAND) return false
         if (sig.isNotBlank()) {
             val prior = synchronized(seenSig8285) {
@@ -134,8 +138,8 @@ object TradeTape8100 {
         add8169(mint, t, at, src)
         val q = tapes[mint]
         val newest = q != null && synchronized(q) { q.lastOrNull()?.atMs == t.atMs }
-        if (newest && freshExecutedMark(t, recvMs)) try { onExecutedTrade?.invoke(mint, t) } catch (_: Throwable) {}
-        if (eventKnown && sol.isFinite() && sol > 0 && tokenQty.isFinite() && tokenQty > 0)
+        if (!historyOnly8751 && newest && freshExecutedMark(t, recvMs)) try { onExecutedTrade?.invoke(mint, t) } catch (_: Throwable) {}
+        if (!historyOnly8751 && eventKnown && sol.isFinite() && sol > 0 && tokenQty.isFinite() && tokenQty > 0)
             com.lifecyclebot.network.HeliusCurveTape8354.onValidEvent8386(mint, eventMs, recvMs)
         return true
     }
