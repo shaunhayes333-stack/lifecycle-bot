@@ -73,6 +73,7 @@ object EdgeModel8537 {
     // Keep the pre-8658 curve-tainted sufficient statistics intact for inspection; never load them as authority.
     private const val MODEL_FILE = "edge_model_8722.bin"
     private const val REFUSAL_BLOCK_8715 = 8715
+    private const val KEEP_SPREAD_BLOCK_8750 = 8750
     private const val DATASET_FILE = "edge_dataset_8537.jsonl"
     // V5.0.8642 — the old binary included false-priced/seed-basis outcomes before 8617 started excluding them.
     // DIM alone cannot attest the model's evidence quality, so a validated epoch is now part of the format.
@@ -272,7 +273,7 @@ object EdgeModel8537 {
         var negN = 0; var negSum = 0.0
         // V5.0.8715 — the refusal record: what the coins it predicted to lose ([refN]) and the rest ([keepN]) went on to do.
         var refN = 0; var refSum = 0.0; var refSq = 0.0
-        var keepN = 0; var keepSum = 0.0
+        var keepN = 0; var keepSum = 0.0; var keepSq = 0.0   // V5.0.8750 keepSq: the kept cohort's own spread
         /** [pred] and [net] in the model's unit since 8722: the net % the lane banks ([managedTarget8722]). */
         fun add(pred: Double, net: Double) {
             allN++; allSum += net
@@ -280,11 +281,12 @@ object EdgeModel8537 {
             else if (pred < 0.0) { negN++; negSum += net }
             // the outcome is clipped as the model's own target is, so one runner cannot acquit a cohort
             val clipped = net.coerceIn(-100.0, REFUSAL_CLIP_PCT_8715)
-            if (pred < 0.0) { refN++; refSum += clipped; refSq += clipped * clipped } else { keepN++; keepSum += clipped }
+            if (pred < 0.0) { refN++; refSum += clipped; refSq += clipped * clipped } else { keepN++; keepSum += clipped; keepSq += clipped * clipped }
         }
         val refMean: Double get() = if (refN > 0) refSum / refN else Double.NaN
         val refSe: Double get() = if (refN > 1) kotlin.math.sqrt(((refSq / refN) - refMean * refMean).coerceAtLeast(0.0) / refN) else Double.POSITIVE_INFINITY
         val keepMean: Double get() = if (keepN > 0) keepSum / keepN else Double.NaN
+        val keepSe: Double get() = if (keepN > 1) kotlin.math.sqrt(((keepSq / keepN) - keepMean * keepMean).coerceAtLeast(0.0) / keepN) else Double.POSITIVE_INFINITY
         val selMean: Double get() = if (selN > 0) selSum / selN else Double.NaN
         val selSe: Double get() = if (selN > 1) kotlin.math.sqrt(((selSq / selN) - selMean * selMean).coerceAtLeast(0.0) / selN) else Double.POSITIVE_INFINITY
         val allMean: Double get() = if (allN > 0) allSum / allN else Double.NaN
@@ -305,9 +307,17 @@ object EdgeModel8537 {
      * off by the part that has nothing to find. The right to refuse is now earned on the refusal's own out-of-sample
      * record: [AUTH_MIN_N]+ coins it predicted to lose, proven losing (mean + SE < 0) and worse than the coins it kept.
      */
-    fun refusalAuthority8715(refN: Int, refMean: Double, refSe: Double, keepMean: Double): Boolean =
-        refN >= AUTH_MIN_N && refMean.isFinite() && refSe.isFinite() && refMean + refSe < 0.0 &&
-            (!keepMean.isFinite() || refMean < keepMean)
+    fun refusalAuthority8715(refN: Int, refMean: Double, refSe: Double, keepN: Int, keepMean: Double, keepSe: Double): Boolean =
+        refN >= AUTH_MIN_N && keepN >= AUTH_MIN_N && refMean.isFinite() && refSe.isFinite() && refMean + refSe < 0.0 &&
+            keepMean.isFinite() && keepSe.isFinite() && keepMean - refMean > SEPARATION_Z_8750 * kotlin.math.sqrt(refSe * refSe + keepSe * keepSe)
+
+    /**
+     * V5.0.8750 — the refusal must SEPARATE the coins it refuses from the coins it keeps, not merely be the worse of two losing
+     * groups. 8748 report: PROJECT_SNIPER refused -16.9 % ± 2.1 vs kept -16.1 % read REFUSES on a 0.8-point gap smaller than
+     * one standard error. Now the gap must exceed two standard errors of the difference, with [AUTH_MIN_N]+ coins on each side.
+     * A record saved before the kept cohort's spread was kept restarts its kept side (KEEP_SPREAD_BLOCK_8750).
+     */
+    private const val SEPARATION_Z_8750 = 2.0
     const val REFUSAL_CLIP_PCT_8715 = 200.0
 
     private val global = Ridge(DIM)
@@ -535,7 +545,7 @@ object EdgeModel8537 {
             }
             Verdict(p, p.isFinite() && o != null && authority(o.selN, o.selMean, o.selSe, o.allMean), key, trained,
                 o?.selN ?: 0, o?.selMean ?: Double.NaN, o?.selSe ?: Double.NaN, o?.allMean ?: Double.NaN,
-                refuses8715 = p.isFinite() && o != null && refusalAuthority8715(o.refN, o.refMean, o.refSe, o.keepMean))
+                refuses8715 = p.isFinite() && o != null && refusalAuthority8715(o.refN, o.refMean, o.refSe, o.keepN, o.keepMean, o.keepSe))
         }
     } catch (_: Throwable) { null }
 
@@ -656,6 +666,15 @@ object EdgeModel8537 {
                 oos[l]?.let { o -> o.refN = refN; o.refSum = refSum; o.refSq = refSq; o.keepN = keepN; o.keepSum = keepSum }
             }
         } catch (_: java.io.EOFException) {}
+        // V5.0.8750 — the kept cohort's spread; a file without it restarts every kept record (its separation is unknowable)
+        var spread8750 = false
+        try {
+            if (i.readInt() == KEEP_SPREAD_BLOCK_8750) {
+                repeat(i.readInt()) { val l = i.readUTF(); val sq = i.readDouble(); oos[l]?.keepSq = sq }
+                spread8750 = true
+            }
+        } catch (_: java.io.EOFException) {}
+        if (!spread8750) for (o in oos.values) { o.keepN = 0; o.keepSum = 0.0; o.keepSq = 0.0 }
         return true
     }
 
@@ -680,6 +699,7 @@ object EdgeModel8537 {
                     o.writeInt(REFUSAL_BLOCK_8715); o.writeInt(oos.size); for ((l, s) in oos) {
                         o.writeUTF(l); o.writeInt(s.refN); o.writeDouble(s.refSum); o.writeDouble(s.refSq); o.writeInt(s.keepN); o.writeDouble(s.keepSum)
                     }
+                    o.writeInt(KEEP_SPREAD_BLOCK_8750); o.writeInt(oos.size); for ((l, s) in oos) { o.writeUTF(l); o.writeDouble(s.keepSq) }
                 }
             }
             if (!tmp.renameTo(File(d, MODEL_FILE))) tmp.delete()
@@ -756,7 +776,7 @@ object EdgeModel8537 {
         val rows = lanes.joinToString(" · ") { l ->
             val o = oos[recordKey(l, activeModel(l))]; val r = byLane[l]
             val auth = o != null && authority(o.selN, o.selMean, o.selSe, o.allMean)
-            "$l[n${r?.count ?: 0} oosPicks=n${o?.selN ?: 0}/${pct(o?.selMean)}±${pct(o?.selSe)} all=${pct(o?.allMean)} avoid=${pct(o?.negMean)} refuse8715=n${o?.refN ?: 0}/${pct(o?.refMean)}±${pct(o?.refSe)}vsKept${pct(o?.keepMean)} ${if (auth) "AUTHORITY" else if (o != null && refusalAuthority8715(o.refN, o.refMean, o.refSe, o.keepMean)) "REFUSES" else "learning"}]"
+            "$l[n${r?.count ?: 0} oosPicks=n${o?.selN ?: 0}/${pct(o?.selMean)}±${pct(o?.selSe)} all=${pct(o?.allMean)} avoid=${pct(o?.negMean)} refuse8715=n${o?.refN ?: 0}/${pct(o?.refMean)}±${pct(o?.refSe)}vsKept=n${o?.keepN ?: 0}/${pct(o?.keepMean)}±${pct(o?.keepSe)} ${if (auth) "AUTHORITY" else if (o != null && refusalAuthority8715(o.refN, o.refMean, o.refSe, o.keepN, o.keepMean, o.keepSe)) "REFUSES" else "learning"}]"
         }
         "edge8537[trained=${global.count} learned=${learned.get()} cold=${skippedCold.get()} implausible8617=${implausible8617.get()} oldPredIgnored8642=${oldPredictionsIgnored8642.get()} replay8642=$replayStatus8642 minEdge=+${MIN_EDGE_PCT}% authBar=n$AUTH_MIN_N,mean-se>0,>lane] ${rows.ifBlank { "no labels yet" }}"
     }

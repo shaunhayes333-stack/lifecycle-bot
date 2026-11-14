@@ -22,18 +22,22 @@ class Aate8715AuditInversionsTest {
         EdgeModel8537.Verdict(p, authority, "SHITCOIN", 900L, 0, Double.NaN, Double.NaN, -8.0, refuses8715 = refuses)
 
     @Test fun theModelRefusesOnItsOwnRefusalRecord() {
-        // 30 coins predicted to lose, losing after one SE and worse than the kept coins
-        assertTrue(EdgeModel8537.refusalAuthority8715(30, -10.0, 1.0, -2.4))
-        assertFalse("too few", EdgeModel8537.refusalAuthority8715(29, -10.0, 1.0, -2.4))
-        assertFalse("not proven losing", EdgeModel8537.refusalAuthority8715(200, -1.0, 2.0, 5.0))
-        assertFalse("no worse than what it keeps", EdgeModel8537.refusalAuthority8715(200, -10.0, 1.0, -12.0))
+        // V5.0.8750 (supersedes the 4-argument rule): 30+ coins each side, the refused losing after one SE, and the gap to the
+        // kept coins beyond two standard errors of the difference
+        assertTrue(EdgeModel8537.refusalAuthority8715(30, -10.0, 1.0, 30, -2.4, 1.0))
+        assertFalse("too few refused", EdgeModel8537.refusalAuthority8715(29, -10.0, 1.0, 30, -2.4, 1.0))
+        assertFalse("too few kept", EdgeModel8537.refusalAuthority8715(30, -10.0, 1.0, 29, -2.4, 1.0))
+        assertFalse("not proven losing", EdgeModel8537.refusalAuthority8715(200, -1.0, 2.0, 200, 5.0, 1.0))
+        assertFalse("no worse than what it keeps", EdgeModel8537.refusalAuthority8715(200, -10.0, 1.0, 200, -12.0, 1.0))
+        // the 8748 report's PROJECT_SNIPER: -16.9 % ± 2.1 refused vs -16.1 % kept is not a separation
+        assertFalse("inside the noise", EdgeModel8537.refusalAuthority8715(400, -16.9, 2.1, 400, -16.1, 1.5))
         val o = EdgeModel8537.Oos()
-        repeat(40) { o.add(EdgeModel8537.target8567(-20.0), -15.0) }      // predicted to lose, lost
+        repeat(80) { o.add(EdgeModel8537.target8567(-20.0), -15.0) }      // predicted to lose, lost
         o.add(EdgeModel8537.target8567(-20.0), 7_000.0)                    // one runner cannot acquit the cohort
-        repeat(20) { o.add(EdgeModel8537.target8567(5.0), 0.0) }           // kept: flat
-        assertEquals(41, o.refN); assertEquals(20, o.keepN)
-        assertEquals((40 * -15.0 + EdgeModel8537.REFUSAL_CLIP_PCT_8715) / 41, o.refMean, 1e-9)
-        assertTrue(EdgeModel8537.refusalAuthority8715(o.refN, o.refMean, o.refSe, o.keepMean))
+        repeat(30) { o.add(EdgeModel8537.target8567(5.0), 0.0) }           // kept: flat
+        assertEquals(81, o.refN); assertEquals(30, o.keepN)
+        assertEquals((80 * -15.0 + EdgeModel8537.REFUSAL_CLIP_PCT_8715) / 81, o.refMean, 1e-9)
+        assertTrue(EdgeModel8537.refusalAuthority8715(o.refN, o.refMean, o.refSe, o.keepN, o.keepMean, o.keepSe))
         // the calls: a refusal needs either authority; a positive pick still needs the picks to have paid
         assertEquals(EdgeModel8537.Call.NEGATIVE, EdgeModel8537.callOf(verdict(-3.0, authority = false, refuses = true)))
         assertEquals(EdgeModel8537.Call.NONE, EdgeModel8537.callOf(verdict(-3.0, authority = false, refuses = false)))

@@ -352,6 +352,8 @@ object HeliusCurveTape8354 {
         // real SOL and liquidity tick of that coin (bounded store, 60-min TTL). 8471 dropped 1,828 of 2,368 decoded prints
         // and their reserves with them, while the labeler lost 1,519 marks for want of a source.
         try { com.lifecyclebot.engine.truth.CurveReserves7951.noteFrame7951(mint, ev.virtualSol, ev.virtualTokens) } catch (_: Throwable) {}
+        // V5.0.8750 — the program-wide stream's continuity: a quiet curve's last price stands only while it has no gap
+        if (source == Source8354.HELIUS_PROGRAM) try { com.lifecyclebot.engine.truth.QuietCurve8750.noteProgramPrint8750(nowMs) } catch (_: Throwable) {}
         val eventMs8748 = PumpSwapTape8307.eventMs8307(ev.timestampSec, nowMs)
         com.lifecyclebot.engine.truth.LaunchHour8628.trade(mint, eventMs8748, sig, ev.isBuy, ev.sol, ev.tokens, priceSol, nowMs, SRC_HELIUS_CURVE_8354)
         // V5.0.8748 — every decoded pump.fun print, before the care filter: the launch sniper watches the whole market.

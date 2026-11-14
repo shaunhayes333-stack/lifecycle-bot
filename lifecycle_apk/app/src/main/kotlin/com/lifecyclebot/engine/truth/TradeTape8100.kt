@@ -88,7 +88,12 @@ object TradeTape8100 {
         // the executed tape. Unknown wallets remain unknown; marks never enter.
         if (tokenQty.isFinite() && tokenQty > 0.0) com.lifecyclebot.engine.market.BuyerFlow8666.note(mint, wallet, sol, isBuy,
             if (eventMs > 0L) eventMs else recvMs, sig, recvMs)
-        if (eventMs in 1L..recvMs) {
+        // V5.0.8750 — every print is judged against an independent price witness: a disagreeing one never enters the tape,
+        // and only a witnessed one reaches the launch history and the sniper (label marks check it too)
+        val witness8750 = PrintWitness8750.check8750(mint, priceSol, sol, tokenQty, if (eventMs > 0L) eventMs else recvMs, recvMs)
+        if (witness8750 == PrintWitness8750.Verdict.OUT_OF_BAND) return false
+        val witnessed8750 = witness8750 == PrintWitness8750.Verdict.RESERVES || witness8750 == PrintWitness8750.Verdict.WITNESSED
+        if (witnessed8750 && eventMs in 1L..recvMs) {
             LaunchHour8628.trade(mint, eventMs, sig, isBuy, sol, tokenQty, priceSol, recvMs, src)
             LaunchSniper8748.onPrint8748(mint, eventMs, priceSol, isBuy, recvMs, sig)   // V5.0.8748 — live prints only (it checks the lag)
         }

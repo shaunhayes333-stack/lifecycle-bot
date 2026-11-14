@@ -97,7 +97,7 @@ object PumpSwapTape8307 {
         for (ev in swapsInLogs8307(logs)) {
             programSwaps.incrementAndGet()
             val mint = poolMint[ev.pool]
-            if (mint == null) { programUnknownPool.incrementAndGet(); continue }
+            if (mint == null) { programUnknownPool.incrementAndGet(); PumpSwapPools8750.resolve8750(ev.pool); continue }   // V5.0.8750 read the pool's coin from chain
             if (!(ev.sol > 0.0 && ev.tokens > 0.0)) continue
             if (com.lifecyclebot.engine.truth.TradeTape8100.note8285(
                     mint, ev.sol / ev.tokens, ev.sol, ev.tokens, ev.isBuy, com.lifecyclebot.engine.truth.TradeTape8100.SRC_HELIUS_8169,
@@ -313,7 +313,7 @@ object PumpSwapTape8307 {
 
     fun statusLine8307(): String =
         "pumpSwapTape8307[decodedPerMint=${decoded.get()} pooledPrints=${joined.get()} programSwaps=${programSwaps.get()} " +
-            "programTaped=${programTaped.get()} unknownPool=${programUnknownPool.get()} knownPools=${poolMint.size} " +
+            "programTaped=${programTaped.get()} unknownPool=${programUnknownPool.get()} knownPools=${poolMint.size} ${PumpSwapPools8750.statusLine8750()} " +
             "focusPromoted=${focusPromoted.get()}] " + heliusLine8307()
 
     internal fun clearForTest8307() {
