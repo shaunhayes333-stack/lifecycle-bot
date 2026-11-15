@@ -31,6 +31,10 @@
         <activity android:name=".ui.CryptoAltActivity" android:exported="true" tools:replace="android:exported" />
         <activity android:name=".ui.CurrencyActivity" android:exported="true" tools:replace="android:exported" />
         <activity android:name=".ui.ErrorLogActivity" android:exported="true" tools:replace="android:exported" />
+        <!-- 8799 — Hyperliquid is in the main manifest but was omitted from
+             this debug-only overlay. The 8418 screen smoke tried adb am start,
+             was denied by exported=false, and failed a healthy screen. -->
+        <activity android:name=".ui.HyperliquidActivity" android:exported="true" tools:replace="android:exported" />
         <activity android:name=".ui.InsiderWalletsActivity" android:exported="true" tools:replace="android:exported" />
         <activity android:name=".ui.JournalActivity" android:exported="true" tools:replace="android:exported" />
         <activity android:name=".ui.LabActivity" android:exported="true" tools:replace="android:exported" />
