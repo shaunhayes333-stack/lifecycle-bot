@@ -102,13 +102,14 @@ object GateOutcome8418 {
     // ── book ──
 
     /** ForwardReturnLabeler7731.book (60-minute grade): file [net] (% executable) under [gate] for [lane] and all lanes. */
-    fun book8418(gate: String, lane: String, net: Double, runner: Boolean, mint: String = "", nowMs: Long = System.currentTimeMillis()) {
+    fun book8418(gate: String, lane: String, net: Double, runner: Boolean, mint: String = "", nowMs: Long = System.currentTimeMillis(),
+                 allLanes8766: Boolean = true) {
         if (gate.isBlank() || !net.isFinite()) return
         load()
         // V5.0.8717 — the all-lanes record counts a coin once. One coin is judged by up to 17 lanes in the same minute
         // (52 % of the 8712 dataset's decisions are filed in four or more), and each lane's label was added to the gate's
         // all-lanes record: its n and its standard error read several times more evidence than there was coins.
-        val allLanes = mint.isBlank() || firstForCoin8717(gate, mint, nowMs)
+        val allLanes = allLanes8766 && (mint.isBlank() || firstForCoin8717(gate, mint, nowMs))   // V5.0.8766 — one horizon per all-lanes record
         for (k in listOfNotNull(gate.takeIf { allLanes }, key(gate, lane))) {
             if (!book.containsKey(k) && book.size >= MAX_KEYS_8418) continue
             val st = book.getOrPut(k) { Stat8418() }

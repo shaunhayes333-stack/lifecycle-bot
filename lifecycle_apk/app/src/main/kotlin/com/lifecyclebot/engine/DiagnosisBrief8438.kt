@@ -224,7 +224,7 @@ object DiagnosisBrief8438 {
             // V5.0.8439 — 8438: admitted +38.3% run16% vs refused -57.5% run35%: the refused side held MORE runners, which a
             // mean comparison hides (and a -57.5% mean with 35% runners is below what its own runners allow: a mixed book).
             val runnerConflict = separates && adm!!.runnerRate60 + 0.05 < ref!!.runnerRate60
-            sb.append("  C EDGE       forward 5-min executable net of what the bot saw: admitted[").append(stat(adm)).append("] refused[").append(stat(ref))
+            sb.append("  C EDGE       forward 5-min executable net of what the bot saw (hour lanes book their 15-min reads apart, 8766): admitted[").append(stat(adm)).append("] refused[").append(stat(ref))
                 .append("] -> ").append(when {
                     !coveredBoth8474 && adm != null && ref != null -> "UNRELIABLE: most labels lost (no verdict until coverage >= ${(MIN_COVERAGE_8474 * 100).toInt()}%)"
                     runnerConflict -> "CONFLICT means separate but the REFUSED side holds more runners"

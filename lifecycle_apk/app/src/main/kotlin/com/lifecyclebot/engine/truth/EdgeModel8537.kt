@@ -478,13 +478,20 @@ object EdgeModel8537 {
         // A spot position cannot lose more than the entire cost basis. Reject broken quote/basis
         // arithmetic from ALL learners; the log transform's -99.9% mathematical floor is not proof.
         if (!netPct.isFinite() || netPct < -100.0) return false
+        // V5.0.8766 — code audit (data P0-5): a $50 M coin was allowed +1,200 % in minutes with no witness. A coin of ten
+        // million or more is allowed +300 % unwitnessed (4x); a larger move needs the chain witness. The small-cap tiers stay:
+        // their artifacts were removed at the source (8657 non-pump curve frames, 8764 seed bases), and a fresh pump launch
+        // can 20x for real.
         val unwitnessedCap = when {
             !mcapUsd.isFinite() || mcapUsd <= 0.0 -> 400.0
             mcapUsd < 100_000.0 -> 5_000.0
-            else -> 1_200.0
+            mcapUsd < LARGE_CAP_USD_8766 -> 1_200.0
+            else -> LARGE_CAP_UNWITNESSED_PCT_8766
         }
         return netPct <= unwitnessedCap || (chainWitness && netPct <= 10_000.0)
     }
+    const val LARGE_CAP_USD_8766 = 10_000_000.0
+    const val LARGE_CAP_UNWITNESSED_PCT_8766 = 300.0
     private val implausible8617 = AtomicLong(0L)
 
     /** ForwardReturnLabeler7731.book (slot60): score the frozen prediction out of sample, THEN learn from the outcome. */

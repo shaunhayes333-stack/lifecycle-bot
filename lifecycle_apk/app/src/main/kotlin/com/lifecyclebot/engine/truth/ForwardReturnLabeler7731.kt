@@ -662,6 +662,19 @@ object ForwardReturnLabeler7731 {
     fun laneDecisionStats8094(lane: String): Pair<CellStat?, CellStat?> =
         cellStat(laneDecisionKey8094(lane, true)) to cellStat(laneDecisionKey8094(lane, false))
     private fun sourceKey(src: String) = "SRC|$src"
+
+    /**
+     * Pure (V5.0.8766 §ONE_HORIZON_PER_BOOK) — code audit (data P0-4): an hour lane's target (15 m for new observations) was
+     * booked into the 60 slot, the slot every cross-lane record reads as "5-minute": the admitted / refused aggregates (the
+     * brief's "forward 5-min executable net"), the source books and the gates' all-lanes records mixed 5 m and 15 m reads.
+     * A lane's own keys hold one horizon (its target), so they are unchanged; the cross-lane keys of an hour target are
+     * booked under their horizon ("AGG|ADMITTED@15M"), and the gate books its lane record only.
+     */
+    internal fun horizonScoped8766(keys: List<String>, horizon: Int, targetHorizonMs: Long): List<String> {
+        if (horizon != 60 || targetHorizonMs <= H60_MS_7731) return keys
+        val tag = "@${targetHorizonMs / 60_000L}M"
+        return keys.map { if (it == AGG_ADMITTED || it == AGG_REFUSED || it.startsWith("SRC|")) it + tag else it }
+    }
     /** V5.0.8539 — the main stack's ADMITTED cohort in [lane], executable: the yardstick the Cortex must beat (CortexVsStack8539). */
     fun laneAdmittedExecutable8539(lane: String): CellStat? = lane.trim().uppercase().let { executable8187(cellStat(laneDecisionKey8094(it, true)), it) }
     /** V5.0.8539 — lane x liquidity band at the decision: the record that opens or closes a lane's floor (LearnedLiquidityFloor8539). */
@@ -1358,7 +1371,7 @@ object ForwardReturnLabeler7731 {
         if (!eligible8386(o)) return
         // V5.0.8546 — every 5-minute meme label feeds the market regime (breadth: mean net, share rising)
         if (horizon == 60 && MemePaperTrader8544.memeLane8544(o.lane)) try { MemeRegime8546.note8546(System.currentTimeMillis(), net, gross) } catch (_: Throwable) {}
-        val keys = keysOf7928(o)
+        val keys = horizonScoped8766(keysOf7928(o), horizon, o.targetHorizon8521)
         val scales8410 = DoubleArray(keys.size)   // V5.0.8410 — the 60-slot decay each key had when this label was booked
         for ((i, k) in keys.withIndex()) {
             val t = tallyFor(k)
@@ -1373,7 +1386,8 @@ object ForwardReturnLabeler7731 {
             }
         }
         if (horizon == 60) o.tallyScales8410 = scales8410
-        if (horizon == 60 && o.gate8418.isNotEmpty()) try { GateOutcome8418.book8418(o.gate8418, o.lane, net, gross >= RUNNER_PCT_7731, o.mint) } catch (_: Throwable) {}  // V5.0.8418
+        val allLanes8766 = horizon != 60 || o.targetHorizon8521 <= H60_MS_7731   // V5.0.8766 — an hour target books its lane only
+        if (horizon == 60 && o.gate8418.isNotEmpty()) try { GateOutcome8418.book8418(o.gate8418, o.lane, net, gross >= RUNNER_PCT_7731, o.mint, allLanes8766 = allLanes8766) } catch (_: Throwable) {}  // V5.0.8418
         if (horizon == 60 && o.advisoryGate8715.isNotEmpty() && o.advisoryGate8715 != o.gate8418)
             try { GateOutcome8418.book8418(o.advisoryGate8715, o.lane, net, gross >= RUNNER_PCT_7731, o.mint) } catch (_: Throwable) {}
         when (horizon) { 15 -> booked15.incrementAndGet(); 60 -> booked60.incrementAndGet(); else -> booked240.incrementAndGet() }

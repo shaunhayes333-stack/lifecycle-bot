@@ -39,17 +39,37 @@ object QuietCurve8750 {
         !graduated && priceSol > 0.0 && priceSol * 1.0e9 < GRAD_GUARD_SOL && lastProgramMs > 0L && nowMs - lastProgramMs in 0L..GAP_MS &&
             continuousSince > 0L && continuousSince <= printMs + LAG_ALLOW_MS && printMs <= nowMs
 
-    /** ForwardReturnLabeler7731: the curve's standing price (SOL per token) and [nowMs], or null. */
+    /**
+     * V5.0.8766 §A_STANDING_PRICE_IS_READ_NOT_ASSUMED — code audit (data P0-1): the standing price was returned stamped
+     * [nowMs] and booked as chain-witnessed, but "the program stream saw every trade" was checked only globally (any print
+     * of any coin in 20 s); this coin's own gaps (logsSubscribe truncation, decode failures, OOM drops) all passed, and a
+     * flat read from its last print booked exactly -cost into every learner (identical nets across distinct mints). It now
+     * stands only when the coin's own curve ACCOUNT, read at or after the print ([accountConfirms8766]), holds the print's
+     * price, and it carries that read's own time.
+     */
+    private const val ACCOUNT_MAX_AGE_MS_8766 = 45_000L
+    private const val ACCOUNT_PRICE_TOLERANCE_8766 = 0.01
+    private val unconfirmed8766 = AtomicLong()
+
+    /** Pure: does a curve account read at [accountAtMs] (price [accountPriceSol]) confirm a print at [printMs] ([printPriceSol])? */
+    fun accountConfirms8766(printMs: Long, printPriceSol: Double, accountAtMs: Long, accountPriceSol: Double): Boolean =
+        accountAtMs >= printMs && printPriceSol.isFinite() && printPriceSol > 0.0 && accountPriceSol.isFinite() && accountPriceSol > 0.0 &&
+            kotlin.math.abs(accountPriceSol / printPriceSol - 1.0) <= ACCOUNT_PRICE_TOLERANCE_8766
+
+    /** ForwardReturnLabeler7731: the curve's standing price (SOL per token) and the confirming account read's time, or null. */
     fun mark8750(mint: String, nowMs: Long): Pair<Double, Long>? {
         if (!com.lifecyclebot.network.PumpCurveKeys7269.isPumpMint8658(mint)) return null
         val tp = TradeTape8100.lastPrint8360(mint) ?: return null
         if (!PrintWitness8750.witnessedPrint8750(mint, tp.second)) return null
         val grad = try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(mint) } catch (_: Throwable) { true }
         if (!stands8750(tp.second, tp.first, nowMs, lastProgramPrintMs, continuousSinceMs, grad)) return null
+        val acct = CurveReserves7951.accountObservation8522(mint, nowMs, ACCOUNT_MAX_AGE_MS_8766)
+        if (acct == null || !accountConfirms8766(tp.second, tp.first, acct.observedAtMs,
+                CurveReserves7951.priceSol7951(acct.virtualSol, acct.virtualTokens))) { unconfirmed8766.incrementAndGet(); return null }
         served.incrementAndGet()
-        return tp.first to nowMs
+        return tp.first to acct.observedAtMs
     }
 
-    fun statusLine8750(): String = "quietCurve8750[served=${served.get()} streamGaps=${gaps.get()} " +
+    fun statusLine8750(): String = "quietCurve8750[served=${served.get()} unconfirmed8766=${unconfirmed8766.get()} streamGaps=${gaps.get()} " +
         "continuousForS=${if (continuousSinceMs > 0L) (System.currentTimeMillis() - continuousSinceMs) / 1000 else 0}]"
 }
