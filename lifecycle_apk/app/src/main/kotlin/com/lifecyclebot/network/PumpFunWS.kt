@@ -1177,12 +1177,15 @@ object PumpFunWS {
      * priced as a pump.fun curve only when its pool is the pump curve ("" or "pump") AND the mint is a pump.fun mint.
      * Other launchpads' coins are priced by the venues that list them (DexScreener / Jupiter / pool vaults).
      */
-    /** V5.0.8773 — the create intake's own single thread (bounded queue; a full queue runs the work on the caller). */
-    private val createIntake8773 = java.util.concurrent.ThreadPoolExecutor(1, 1, 0L, java.util.concurrent.TimeUnit.MILLISECONDS,
-        java.util.concurrent.LinkedBlockingQueue<Runnable>(CREATE_QUEUE_8773),
-        { r -> Thread(r, "pumpportal-create-8773").apply { isDaemon = true } },
-        java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy())
     const val CREATE_QUEUE_8773 = 4_096
+
+    /** V5.0.8773 — the create intake's own single thread (bounded queue; a full queue runs the work on the caller). */
+    private val createIntake8773: java.util.concurrent.ThreadPoolExecutor by lazy {
+        java.util.concurrent.ThreadPoolExecutor(1, 1, 0L, java.util.concurrent.TimeUnit.MILLISECONDS,
+            java.util.concurrent.LinkedBlockingQueue<Runnable>(4_096),
+            java.util.concurrent.ThreadFactory { r -> Thread(r, "pumpportal-create-8773").apply { isDaemon = true } },
+            java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy())
+    }
 
     internal fun runCreateIntake8773(work: () -> Unit) {
         try {
