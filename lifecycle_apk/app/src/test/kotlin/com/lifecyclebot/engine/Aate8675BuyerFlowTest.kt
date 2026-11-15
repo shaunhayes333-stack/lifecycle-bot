@@ -40,11 +40,30 @@ class Aate8675BuyerFlowTest {
         BuyerFlow8666.note("mint", "erin", 1.0, true, now - 3_000, "e", now)
         assertFalse(BuyerFlow8666.read("mint", now)!!.sustainedDemand)
     }
-    @Test fun staleAndWalletlessObservationsNeverManufactureDemand() {
+    @Test fun staleAndWalletlessObservationsNeverManufactureBuyersButKeepSignedVolume() {
         BuyerFlow8666.note("mint", "alice", 1.0, true, now - 61_000, "old", now)
         BuyerFlow8666.note("mint", "", 1.0, true, now, "missing", now)
-        assertNull(BuyerFlow8666.read("mint", now))
+        val walletless = BuyerFlow8666.read("mint", now)!!
+        assertEquals(0, walletless.newBuyers15s)
+        assertEquals(0, walletless.distinctBuyers60s)
+        assertEquals(1.0, walletless.txPerMin, 0.0)
+        assertEquals(1.0, walletless.netSol60s, 0.0)
         BuyerFlow8666.note("mint", "alice", 1.0, true, now, "missing", now)
         assertEquals(1, BuyerFlow8666.read("mint", now)!!.newBuyers15s)
+        assertEquals(1.0, BuyerFlow8666.read("mint", now)!!.txPerMin, 0.0)
+    }
+
+    @Test fun signedWalletlessVolumeCanMeasureAccelerationButNotBuyerIdentity() {
+        BuyerFlow8666.note("walletless", "", 1.0, true, now - 25_000, "a", now)
+        BuyerFlow8666.note("walletless", "", 1.0, true, now - 20_000, "b", now)
+        BuyerFlow8666.note("walletless", "", 3.0, true, now - 3_000, "c", now)
+        BuyerFlow8666.note("walletless", "", 3.0, true, now - 1_000, "d", now)
+        val view = BuyerFlow8666.read("walletless", now)!!
+        assertEquals(0, view.newBuyers15s)
+        assertEquals(0, view.distinctBuyers60s)
+        assertEquals(4.0, view.txPerMin, 0.0)
+        assertEquals(100.0, view.volumeAccelScore, 0.0)
+        BuyerFlow8666.note("notSigned", "", 4.0, true, now, "", now)
+        assertNull(BuyerFlow8666.read("notSigned", now))
     }
 }

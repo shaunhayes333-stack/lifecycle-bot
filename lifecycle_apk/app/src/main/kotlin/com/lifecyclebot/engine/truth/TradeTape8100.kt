@@ -113,10 +113,6 @@ object TradeTape8100 {
         if (mint.isBlank() || !priceSol.isFinite() || priceSol <= 0.0) return false
         val src = source.ifBlank { "other" }
         val sig = signature.trim()
-        // All decoded providers publish buyer evidence at the same boundary as
-        // the executed tape. Unknown wallets remain unknown; marks never enter.
-        if (tokenQty.isFinite() && tokenQty > 0.0) com.lifecyclebot.engine.market.BuyerFlow8666.note(mint, wallet, sol, isBuy,
-            if (eventMs > 0L) eventMs else recvMs, sig, recvMs)
         // V5.0.8750 — every print is judged against an independent price witness (launchEvidence8750, the one route): a
         // disagreeing one never enters the tape; only a witnessed one reaches the launch history and the sniper. [witness8750]
         // is the verdict a caller already took through that route for this very print (HeliusCurveTape8354, before its care filter).
@@ -125,6 +121,12 @@ object TradeTape8100 {
             PrintWitness8750.check8750(mint, priceSol, sol, tokenQty, if (eventMs > 0L) eventMs else recvMs, recvMs, priceBasis8750)
         else launchEvidence8750(mint, priceSol, sol, tokenQty, isBuy, src, sig, eventMs, recvMs, priceBasis8750, wallet)
         if (verdict8750 == PrintWitness8750.Verdict.OUT_OF_BAND) return false
+        // Only a print that passed its independent price witness can populate
+        // the buyer/volume features. Earlier this ran BEFORE the witness and
+        // taught the predictor from out-of-band trades rejected by the tape.
+        // Signed walletless swaps contribute size/side, never fabricated buyers.
+        if (tokenQty.isFinite() && tokenQty > 0.0) com.lifecyclebot.engine.market.BuyerFlow8666.note(mint, wallet, sol, isBuy,
+            if (eventMs > 0L) eventMs else recvMs, sig, recvMs)
         if (sig.isNotBlank()) {
             val prior = synchronized(seenSig8285) {
                 seenSig8285.putIfAbsent("$mint|$sig|$isBuy", src)

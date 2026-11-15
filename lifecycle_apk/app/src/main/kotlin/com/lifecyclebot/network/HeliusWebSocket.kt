@@ -246,6 +246,22 @@ class HeliusWebSocket(
     @Volatile private var clientClosedSocket7819: WebSocket? = null
     private var reconnectDelay = 2_000L
     private val networkRetry = NetworkRetry("HeliusWS", maxRetries = 5, baseDelayMs = 2_000L, maxDelayMs = 30_000L, failureThreshold = 3, openDurationMs = 120_000L)
+    // An HTTP 429 on the WebSocket handshake is a provider credit/quota refusal, not a
+    // dropped mobile connection. Keep this deadline across network-change reconnects;
+    // otherwise reconnectIfStale7819 tears down the wait and hammers the same quota.
+    @Volatile private var quotaRetryAfterMs8790 = 0L
+    private var consecutiveQuota4298790 = 0
+
+    /** Pure provider-quota retry policy. A valid Retry-After is a minimum, not a substitute for backoff. */
+    internal fun quotaWaitMs8790(consecutive429: Int, retryAfterSeconds: Long?): Long {
+        val exponent = (consecutive429 - 1).coerceIn(0, 4)
+        val escalatingMs = (60_000L shl exponent).coerceAtMost(900_000L)
+        val headerMs = (retryAfterSeconds ?: 0L).coerceIn(0L, 3_600L) * 1_000L
+        return maxOf(escalatingMs, headerMs)
+    }
+
+    private fun quotaRemainingMs8790(nowMs: Long = System.currentTimeMillis()): Long =
+        (quotaRetryAfterMs8790 - nowMs).coerceAtLeast(0L)
 
     val isConnected get() = running && ws != null && openSocket7819 === ws
 
@@ -256,6 +272,11 @@ class HeliusWebSocket(
         }
         if (running) return
         running = true
+        if (quotaRemainingMs8790() > 0L) {
+            onLog("Helius: quota cooldown active — reconnect will resume after the provider backoff")
+            scheduleReconnect()
+            return
+        }
         if (networkRetry.isOpen) {
             onLog("Helius: circuit open — backing off after repeated failures")
             // V5.0.7807 — back off, don't die: running=true with no socket and no
@@ -326,6 +347,10 @@ class HeliusWebSocket(
      * dead socket into onFailure -> scheduleReconnect.
      */
     fun reconnectIfStale7819(reason: String) {
+        if (quotaRemainingMs8790() > 0L) {
+            HeliusSubscriptionTelemetry7807.noteReconnect7819("SKIPPED_QUOTA_COOLDOWN_$reason")
+            return
+        }
         val now7819 = System.currentTimeMillis()
         val open7819 = running && ws != null && openSocket7819 === ws
         if (open7819 && now7819 - lastInboundMs7819 <= HEALTHY_INBOUND_WINDOW_MS_7819) {
@@ -558,6 +583,8 @@ class HeliusWebSocket(
                 onLog("Helius WebSocket connected")
                 HeliusSocketShare8191.attach8191(webSocket)   // V5.0.8191 — ChainLaunchFeed8179's program streams share this socket
                 networkRetry.recordSuccess()
+                consecutiveQuota4298790 = 0
+                quotaRetryAfterMs8790 = 0L
                 reconnectDelay = 2_000L
                 reconnectScheduled7803.set(false)
 
@@ -614,10 +641,20 @@ class HeliusWebSocket(
                 ws = null
                 if (openSocket7819 === webSocket) openSocket7819 = null
                 if (!running) return
+                val httpCode8790 = response?.code ?: if (t.message.orEmpty().contains("429")) 429 else 0
                 HeliusSubscriptionTelemetry7807.noteReconnect7819(
-                    "FAILURE_" + (if (response != null) "HTTP${response.code}_" else "") + t.javaClass.simpleName,
+                    "FAILURE_" + (if (httpCode8790 > 0) "HTTP${httpCode8790}_" else "") + t.javaClass.simpleName,
                 )
-                onLog("Helius WS error: ${t.message?.take(60)} — reconnecting in ${reconnectDelay/1000}s")
+                if (httpCode8790 == 429) {
+                    consecutiveQuota4298790 = (consecutiveQuota4298790 + 1).coerceAtMost(16)
+                    val waitMs8790 = quotaWaitMs8790(consecutiveQuota4298790,
+                        response?.header("Retry-After")?.trim()?.toLongOrNull())
+                    quotaRetryAfterMs8790 = maxOf(quotaRetryAfterMs8790, System.currentTimeMillis() + waitMs8790)
+                    onLog("Helius WS quota/credits exhausted (HTTP 429) — retry in ${waitMs8790 / 1000}s, live swaps unavailable")
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HELIUS_WS_QUOTA_COOLDOWN_8790") } catch (_: Throwable) {}
+                } else {
+                    onLog("Helius WS error: ${t.message?.take(60)} — reconnecting in ${reconnectDelay/1000}s")
+                }
                 networkRetry.recordFailure()
                 scheduleReconnect()
             }
@@ -1059,11 +1096,13 @@ class HeliusWebSocket(
     private fun scheduleReconnect() {
         if (!running) return
         if (!reconnectScheduled7803.compareAndSet(false, true)) return
-        val delay = reconnectDelay
+        val delay = maxOf(reconnectDelay, quotaRemainingMs8790())
         reconnectDelay = (reconnectDelay * 2).coerceAtMost(30_000L)
         reconnectScheduler7803.schedule({
             reconnectScheduled7803.set(false)
-            if (running && ws == null) doConnect()
+            if (running && ws == null) {
+                if (quotaRemainingMs8790() > 0L) scheduleReconnect() else doConnect()
+            }
         }, delay, TimeUnit.MILLISECONDS)
     }
 }

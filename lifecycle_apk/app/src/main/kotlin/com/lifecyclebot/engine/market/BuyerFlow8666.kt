@@ -2,6 +2,7 @@ package com.lifecyclebot.engine.market
 
 import java.util.ArrayDeque
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * A short-lived view of actual swaps delivered to the unified trade path.
@@ -10,7 +11,8 @@ import java.util.concurrent.ConcurrentHashMap
  * late for first buyers, and a price-only curve update cannot identify a buyer at all.
  * This feed instead counts the wallets, sides and SOL sizes already present on the
  * live PumpPortal / Helius / validator trade callbacks, for any mint and any lane.
- * Unknown wallets and inferred curve trades are never manufactured as new buyers.
+ * A SIGNED, executed swap without a decoded wallet still proves size, side and
+ * volume, but never a unique or new buyer. Inferred curve marks are not swaps.
  *
  * This is observation only: it neither admits nor refuses an order, and never
  * changes quote, safety, wallet or exit authority.
@@ -24,7 +26,9 @@ object BuyerFlow8666 {
     private const val BUYER_MEMORY_MS = 5L * 60_000L
 
     internal data class Print(val atMs: Long, val wallet: String, val sol: Double, val buy: Boolean,
-                              val firstSeenBuyer: Boolean = true)
+                              val firstSeenBuyer: Boolean = true,
+                              /** Retained only on walletless prints so a richer duplicate can fill its identity. */
+                              val missingWalletSignature: String = "")
     private class MintWindow {
         val prints = ArrayDeque<Print>()
         val seenBuyerAtMs = LinkedHashMap<String, Long>()
@@ -48,22 +52,62 @@ object BuyerFlow8666 {
     )
 
     private val prints = ConcurrentHashMap<String, MintWindow>()
+    private val accepted8790 = AtomicLong(0L)
+    private val signedWalletless8790 = AtomicLong(0L)
+    private val walletRepaired8790 = AtomicLong(0L)
+    private val duplicate8790 = AtomicLong(0L)
+    private val stale8790 = AtomicLong(0L)
+    private val unsignedWalletless8790 = AtomicLong(0L)
+    private val freshReads8790 = AtomicLong(0L)
+    private val emptyReads8790 = AtomicLong(0L)
+
+    /** The next capture distinguishes an absent trade feed from an undecoded buyer address. */
+    fun statusLine8790(): String = "buyerFlow8790[accepted=${accepted8790.get()} walletlessSigned=${signedWalletless8790.get()} " +
+        "walletRecovered=${walletRepaired8790.get()} duplicates=${duplicate8790.get()} stale=${stale8790.get()} " +
+        "unsignedWalletless=${unsignedWalletless8790.get()} freshReads=${freshReads8790.get()} " +
+        "emptyReads=${emptyReads8790.get()} trackedMints=${prints.size}]"
 
     fun note(mint: String, wallet: String, sol: Double, buy: Boolean, nowMs: Long = System.currentTimeMillis(),
              signature: String = "", receivedAtMs: Long = nowMs) {
-        // The unified path also carries walletless curve-snapshot inferences. They are NOT executed buyer prints.
-        if (mint.isBlank() || wallet.isBlank() || !sol.isFinite() || sol <= 0.0 || nowMs <= 0L ||
-            receivedAtMs - nowMs !in 0L..WINDOW_MS) return
+        // A walletless signed swap is still measured trade volume; do not throw that
+        // evidence away because the provider omitted the trader identity. Unsigned
+        // AND walletless records are ambiguous and cannot prove an actual print.
+        if (mint.isBlank() || !sol.isFinite() || sol <= 0.0 || nowMs <= 0L) return
+        if (wallet.isBlank() && signature.isBlank()) { unsignedWalletless8790.incrementAndGet(); return }
+        if (receivedAtMs - nowMs !in 0L..WINDOW_MS) { stale8790.incrementAndGet(); return }
         val q = prints.computeIfAbsent(mint) { MintWindow() }
         synchronized(q) {
             // The same signed swap may arrive from several providers. A later
             // provider may supply the wallet omitted by the first; count it once.
             q.signatures.entries.removeAll { receivedAtMs - it.value > WINDOW_MS }
-            if (signature.isNotBlank() && q.signatures.putIfAbsent("$signature|$buy", receivedAtMs) != null) return
+            if (signature.isNotBlank() && q.signatures.putIfAbsent("$signature|$buy", receivedAtMs) != null) {
+                duplicate8790.incrementAndGet()
+                // The same signed swap may be decoded by a walletless backfill first,
+                // then by a program stream with a buyer address. Repair identity on
+                // the original row; do not double its volume or its transaction.
+                if (wallet.isNotBlank()) {
+                    val older = q.prints.firstOrNull { it.missingWalletSignature == signature && it.buy == buy && it.wallet.isBlank() }
+                    if (older != null) {
+                        val priorFirst = q.seenBuyerAtMs[wallet]
+                        val firstSeen = buy && (priorFirst == null || older.atMs < priorFirst)
+                        if (firstSeen) q.seenBuyerAtMs[wallet] = older.atMs
+                        val amended = q.prints.map {
+                            when {
+                                it === older -> it.copy(wallet = wallet, firstSeenBuyer = firstSeen, missingWalletSignature = "")
+                                firstSeen && it.wallet == wallet && it.buy -> it.copy(firstSeenBuyer = false)
+                                else -> it
+                            }
+                        }
+                        q.prints.clear(); q.prints.addAll(amended)
+                        walletRepaired8790.incrementAndGet()
+                    }
+                }
+                return
+            }
             while (q.signatures.size > MAX_PRINTS_PER_MINT * 2) q.signatures.remove(q.signatures.keys.first())
             q.seenBuyerAtMs.entries.removeAll { receivedAtMs - it.value > BUYER_MEMORY_MS }
-            val previousFirst = q.seenBuyerAtMs[wallet]
-            val firstSeen = buy && (previousFirst == null || nowMs < previousFirst)
+            val previousFirst = if (wallet.isNotBlank()) q.seenBuyerAtMs[wallet] else null
+            val firstSeen = buy && wallet.isNotBlank() && (previousFirst == null || nowMs < previousFirst)
             if (firstSeen) {
                 q.seenBuyerAtMs[wallet] = nowMs
                 // An older event can arrive after a newer buy from the same wallet.
@@ -74,7 +118,10 @@ object BuyerFlow8666 {
                 }
             }
             while (q.seenBuyerAtMs.size > MAX_KNOWN_WALLETS) q.seenBuyerAtMs.remove(q.seenBuyerAtMs.keys.first())
-            val row = Print(nowMs, wallet, sol, buy, firstSeen)
+            val row = Print(nowMs, wallet, sol, buy, firstSeen,
+                missingWalletSignature = if (wallet.isBlank()) signature else "")
+            accepted8790.incrementAndGet()
+            if (wallet.isBlank()) signedWalletless8790.incrementAndGet()
             if (q.prints.isEmpty() || q.prints.peekLast().atMs <= nowMs) q.prints.addLast(row)
             else {
                 val ordered = (q.prints.toList() + row).sortedBy { it.atMs }
@@ -93,9 +140,12 @@ object BuyerFlow8666 {
 
     /** A non-fetching, freshness-stamped read; null is genuinely unobserved. */
     fun read(mint: String, nowMs: Long = System.currentTimeMillis()): View? {
-        val q = prints[mint] ?: return null
+        val q = prints[mint]
+        if (q == null) { emptyReads8790.incrementAndGet(); return null }
         val observed = synchronized(q) { q.prints.toList() }
-        return calculate(observed, nowMs)
+        val view = calculate(observed, nowMs)
+        if (view == null) emptyReads8790.incrementAndGet() else freshReads8790.incrementAndGet()
+        return view
     }
 
     /** Pure window arithmetic, also used by executable regression tests. */
@@ -109,7 +159,7 @@ object BuyerFlow8666 {
         val span = (nowMs - recent.minOf { it.atMs }).coerceAtLeast(15_000L).coerceAtMost(WINDOW_MS)
         val recent15 = recent.filter { nowMs - it.atMs < 15_000L }
         val prior15 = recent.filter { nowMs - it.atMs in 15_000L..29_999L }
-        val newBuyers = buys.filter { it.firstSeenBuyer && nowMs - it.atMs in 0L..14_999L }
+        val newBuyers = buys.filter { it.firstSeenBuyer && it.wallet.isNotBlank() && nowMs - it.atMs in 0L..14_999L }
             .map { it.wallet }.distinct().size
         val total = recent.sumOf { it.sol }
         val bought = buys.sumOf { it.sol }
@@ -129,7 +179,7 @@ object BuyerFlow8666 {
             netSol60s = bought - sold,
             buyTx15s = recent15.count { it.buy },
             buyTxPrev15s = prior15.count { it.buy },
-            repeatBuyers60s = buys.groupingBy { it.wallet }.eachCount().count { it.value > 1 },
+            repeatBuyers60s = buys.filter { it.wallet.isNotBlank() }.groupingBy { it.wallet }.eachCount().count { it.value > 1 },
             txPerMin = recent.size.toDouble(), // actual swaps in the trailing minute
             volumeAccelScore = accel,
             // V5.0.8681 — "sustained" means demand present in BOTH windows, not "a seller appeared first". The old
@@ -143,5 +193,9 @@ object BuyerFlow8666 {
         )
     }
 
-    internal fun clearForTest() { prints.clear() }
+    internal fun clearForTest() {
+        prints.clear()
+        listOf(accepted8790, signedWalletless8790, walletRepaired8790, duplicate8790, stale8790,
+            unsignedWalletless8790, freshReads8790, emptyReads8790).forEach { it.set(0L) }
+    }
 }
