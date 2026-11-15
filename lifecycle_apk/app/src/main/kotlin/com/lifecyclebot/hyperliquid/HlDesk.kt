@@ -83,6 +83,7 @@ object HlDesk {
     fun ensureStarted(ctx: Context) {
         app = ctx.applicationContext
         if (!started.compareAndSet(false, true)) return
+        try { com.lifecyclebot.desks.DeskJournal8802.init(ctx.applicationContext.filesDir) } catch (_: Throwable) {}
         val t = Thread({
             restore()
             var running = true
@@ -266,6 +267,11 @@ object HlDesk {
             val delta = want - cur
             if (kotlin.math.abs(delta) < 1e-9) continue
             paperCash -= delta + kotlin.math.abs(delta) * HlCosts.costSide(coin)
+            // V5.0.8802 — the paper book's fills reach the desk's trade book too
+            try {
+                com.lifecyclebot.desks.DeskJournal8802.record(com.lifecyclebot.desks.DeskJournal8802.Fill(System.currentTimeMillis(),
+                    "HYPERLIQUID", "PAPER", coin, delta / m, m, kotlin.math.abs(delta) * HlCosts.costSide(coin), "DAILY"))
+            } catch (_: Throwable) {}
             val units = (paperUnits[coin] ?: 0.0) + delta / m
             if (kotlin.math.abs(units * m) < 1e-6) paperUnits.remove(coin) else paperUnits[coin] = units
         }

@@ -224,3 +224,26 @@ broken producer shows up by name.
 trees, learner columns, strategy lab). On a row recorded before epoch 8801, the price-shape columns (runup, pxPeak, dd,
 fromPeak, fromFirst, runupFromLow, volatility) read unknown, and labels plus every other column stand.
 `MODEL_EPOCH_8642` = 8801 rebuilds the ridge from the dataset under that rule.
+
+## 12. The desks (8802)
+
+Two desks trade outside the meme engine, each on its own thread, each graded by `HlBrain` (families chosen on the first half
+of the history, graded on the second, armed only when the second half's mean less one SE is above zero):
+
+| Desk | Instrument | History | Price and cost | Live route |
+|---|---|---|---|---|
+| `HlDesk` (8797) | Hyperliquid perps and HIP-3 markets, long/short, half-Kelly leverage | exchange daily candles and funding (`HlStore`) | order book walked at the desk's size (`HlCosts`) | `HlExecutor` (IOC limits, API wallet) |
+| `XsDesk` (8802) | Solana xStocks, **long or flat, 1x** (`HlBrain.evaluate(..., longOnly = true)`) | the token's own deepest pool, daily (GeckoTerminal, `XsApi.dailyBars`) | an executable Jupiter round trip each hour at the desk's size (`XsApi.roundTrip`) plus the 0.5 % app fee per side | `MarketsLiveExecutor` proof routes: canonical open on the token delta, close on the SOL proceeds |
+
+xStocks are Token-2022 tokens with a Scaled UI multiplier. Corporate actions fold into the multiplier; it is read from the
+mint (`XsApi.parseMint`) and shown in the report. The book is SOL in and SOL out, which the multiplier cannot change. The
+old tokenized "SHORT" (a SOL → USDC swap) and "spot-scale leverage" (more tokens bought with more capital) are refused by
+the executor. Shorts and leverage belong to Hyperliquid.
+
+**The trade book.** `DeskJournal8802` keeps every fill of both desks, paper and live, in USD, at average cost: open lots,
+realised, fees, round trips and wins, all in the report. It is deliberately not the SOL trade journal. That journal is the
+wallet's economics (hero balances, paper cash, the meme engine's capital and slots), and a USDC perps fill moves no SOL.
+xStocks live fills are wallet swaps, so they are ALSO canonical positions (lane `XSTOCKS`, asset class STOCK).
+
+**Pyth.** Hermes requires an API key since 26 Aug 2026 (`Authorization: Bearer`). `PythAuth8802` adds the owner's saved
+key to every Hermes call. Without a key it probes once every 30 min and never opens the SSE stream.

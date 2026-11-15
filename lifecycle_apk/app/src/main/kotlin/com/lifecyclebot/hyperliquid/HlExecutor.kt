@@ -70,6 +70,12 @@ object HlExecutor {
         return when (result) {
             is HlApi.OrderResult.Filled -> {
                 HlCosts.observeFill(a.name, isBuy, a.markPx, result.avgPx)
+                // V5.0.8802 — the desk's trade book (USD): every live fill, its exchange fee at the market's rate
+                try {
+                    com.lifecyclebot.desks.DeskJournal8802.record(com.lifecyclebot.desks.DeskJournal8802.Fill(now, "HYPERLIQUID",
+                        if (cfg.testnet) "TESTNET" else "LIVE", a.name, if (isBuy) result.totalSz else -result.totalSz, result.avgPx,
+                        result.totalSz * result.avgPx * HlCosts.feeOf(a.name), why, "oid=${result.oid}"))
+                } catch (_: Throwable) {}
                 note("$why $side ${a.name} ${HlWire.floatToWire(result.totalSz)} @ ${result.avgPx} (mark ${a.markPx})${if (reduceOnly) " reduceOnly" else ""}")
                 if (isBuy) result.totalSz else -result.totalSz
             }

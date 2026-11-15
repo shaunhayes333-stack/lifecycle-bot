@@ -6,7 +6,10 @@ import android.content.Context
  * V5.0.8797 — owner: "also retire what we cant trade". The Solana-side markets traders no longer open anything:
  *  - FOREX: no Solana route but EURC (every other pair had nowhere to trade live).
  *  - COMMODITIES: no Solana token for oil, gas or crops; commodities trade as HIP-3 perps on the Hyperliquid desk.
- *  - STOCKS: spot xStocks only (no shorts, no leverage), record n48 -3.6 %/trade; stocks trade as HIP-3 perps there.
+ *  - STOCKS: the legacy TokenizedStockTrader (record n48 -3.6 %/trade): its "SHORT" was a SOL -> USDC swap, its "3x" bought
+ *    three times the tokens, its price was the underlying's Pyth quote and its liquidity a hardcoded $10M. V5.0.8802: Solana
+ *    xStocks trade again on com.lifecyclebot.xstocks.XsDesk (long or flat, 1x, executable prices, their own history);
+ *    stock shorts and leverage are HIP-3 perps on the Hyperliquid desk.
  *  - METALS: spot PAXG / xStock metals only; gold and silver trade as HIP-3 perps there.
  *  - SOL PERPS (PerpsTraderAI via Flash.trade): decided on a 24 h change and RSI with no candle, funding or open-interest
  *    history; perps trade on the Hyperliquid desk (com.lifecyclebot.hyperliquid.HlDesk) with all three.
@@ -18,7 +21,7 @@ object RetiredMarkets8797 {
     val WHY: Map<String, String> = linkedMapOf(
         "FOREX" to "no Solana route",
         "COMMODITIES" to "no Solana token; HIP-3 on Hyperliquid",
-        "STOCKS" to "spot only, losing; HIP-3 on Hyperliquid",
+        "STOCKS" to "legacy trader (fake short and leverage, Pyth price); xStocks spot desk XsDesk 8802 and HIP-3 on Hyperliquid",
         "METALS" to "spot only; HIP-3 on Hyperliquid",
         "SOL_PERPS" to "no market history; Hyperliquid desk",
     )

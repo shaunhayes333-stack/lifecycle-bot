@@ -340,14 +340,18 @@ object PythOracle {
             return@withContext null
         }
         
+        // V5.0.8802 — Hermes needs an API key since 26 Aug 2026 (PythAuth8802)
+        if (!com.lifecyclebot.network.PythAuth8802.shouldCall()) return@withContext null
         try {
             val url = "$PYTH_HERMES_URL?ids[]=$feedId"
             val request = Request.Builder()
                 .url(url)
                 .addHeader("Accept", "application/json")
+                .let { com.lifecyclebot.network.PythAuth8802.apply(it) }
                 .build()
             
             val response = client.newCall(request).execute()
+            com.lifecyclebot.network.PythAuth8802.observe(response.code)
             val body = response.body?.string()
             
             if (body == null || !response.isSuccessful) {
@@ -450,6 +454,7 @@ object PythOracle {
         val feedIds = symbols.mapNotNull { PRICE_FEED_IDS[it] }
         if (feedIds.isEmpty()) return@withContext results
         
+        if (!com.lifecyclebot.network.PythAuth8802.shouldCall()) return@withContext results   // V5.0.8802
         try {
             val idsParam = feedIds.joinToString("&ids[]=", prefix = "ids[]=")
             val url = "$PYTH_HERMES_URL?$idsParam"
@@ -457,9 +462,11 @@ object PythOracle {
             val request = Request.Builder()
                 .url(url)
                 .addHeader("Accept", "application/json")
+                .let { com.lifecyclebot.network.PythAuth8802.apply(it) }
                 .build()
             
             val response = client.newCall(request).execute()
+            com.lifecyclebot.network.PythAuth8802.observe(response.code)
             val body = response.body?.string()
             
             if (body != null && response.isSuccessful) {

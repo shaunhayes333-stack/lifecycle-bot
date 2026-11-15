@@ -311,15 +311,25 @@ object HlBrain {
         return if (m > 0.0 && v > 0.0) 0.5 * m / v else 0.0
     }
 
-    /** Pure: choose on the first half, grade on the second, blend, arm, size; targets are the blend's weights today. */
-    fun evaluate(p: Panel, maxLeverage: Double): Evaluation {
+    /** Pure (V5.0.8802): a book that cannot short (spot) — each day's negative weights dropped, the rest scaled to gross 1. */
+    fun longOnly8802(w: Array<DoubleArray>): Array<DoubleArray> =
+        Array(w.size) { d -> normalised(DoubleArray(w[d].size) { c -> maxOf(0.0, w[d][c]) }) }
+
+    /**
+     * Pure: choose on the first half, grade on the second, blend, arm, size; targets are the blend's weights today.
+     * [longOnly] (V5.0.8802, the xStocks spot desk): every book is graded as it can actually be held — long or flat.
+     */
+    fun evaluate(p: Panel, maxLeverage: Double, longOnly: Boolean = false): Evaluation {
         val n = p.days
         if (p.coins.isEmpty() || n < 2 * MIN_TEST_DAYS) return Evaluation(n, emptyList(), emptyMap(), null, null, false, 0.0, 0.0, DoubleArray(p.coins.size))
         val half = n / 2
         val ds = design(p)
         val paths = HashMap<Strategy, Array<DoubleArray>>()
         val picks = GRID.mapNotNull { (family, grid) ->
-            val scored = grid.mapNotNull { s -> val w = path(p, s, ds); paths[s] = w; graded(s.id, p, w, 0, half)?.let { s to it } }
+            val scored = grid.mapNotNull { s ->
+                val w = path(p, s, ds).let { if (longOnly) longOnly8802(it) else it }
+                paths[s] = w; graded(s.id, p, w, 0, half)?.let { s to it }
+            }
             val best = scored.maxByOrNull { it.second.sharpe } ?: return@mapNotNull null
             Pick(family, best.first, best.second, graded(best.first.id, p, paths.getValue(best.first), half, n))
         }

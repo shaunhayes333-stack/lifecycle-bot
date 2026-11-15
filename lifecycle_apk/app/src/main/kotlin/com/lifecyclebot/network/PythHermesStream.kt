@@ -86,6 +86,8 @@ object PythHermesStream {
 
     private fun connect() {
         if (!running.get() || feedIds.isEmpty()) return
+        // V5.0.8802 — Hermes refuses unauthenticated clients since 26 Aug 2026: no key, no stream (no reconnect storm)
+        if (!PythAuth8802.hasKey()) { ErrorLogger.info(TAG, "Hermes SSE needs a Pyth API key (PythAuth8802) — not connecting"); return }
         val url = StringBuilder(BASE).append("?")
         feedIds.forEachIndexed { i, id ->
             if (i > 0) url.append("&")
@@ -97,6 +99,7 @@ object PythHermesStream {
         val req = Request.Builder()
             .url(url.toString())
             .header("Accept", "text/event-stream")
+            .let { PythAuth8802.apply(it) }
             .build()
         ErrorLogger.info(TAG, "🔌 connecting to Hermes SSE for ${feedIds.size} feeds (attempt ${reconnectAttempt.get() + 1})")
         eventSource = client?.let { EventSources.createFactory(it).newEventSource(req, listener) }
@@ -136,6 +139,7 @@ object PythHermesStream {
         }
 
         override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
+            response?.code?.let { PythAuth8802.observe(it) }   // V5.0.8802
             ErrorLogger.warn(TAG, "❌ SSE failure: ${t?.message?.take(100)} — will reconnect")
             scheduleReconnect()
         }

@@ -632,27 +632,12 @@ object MarketsLiveExecutor {
                         "Register a real Solana mint via TokenizedAssetRegistry.register() to enable live trading.")
                     null
                 } else if (leverage > 1.0) {
-                    // SPOT-SCALE: open a (sizeSol × leverage) SPOT position.
-                    val effectiveSpotSizeSol = sizeSol * leverage
-                    val walletSol = try { wallet.getSolBalance() } catch (_: Exception) { 0.0 }
-                    val rentReserveSol = 0.015 // tx fee + ATA rent + small buffer
-                    val needSol = effectiveSpotSizeSol + rentReserveSol + feeAmountSol
-                    if (walletSol < needSol) {
-                        ErrorLogger.warn(TAG,
-                            "⛔ SPOT-SCALE LEVERAGE rejected for ${market.symbol}: " +
-                            "${"%.1fx".format(leverage)} × ${"%.4f".format(sizeSol)} SOL margin = " +
-                            "${"%.4f".format(effectiveSpotSizeSol)} SOL principal needed, wallet has only " +
-                            "${"%.4f".format(walletSol)} SOL (need ${"%.4f".format(needSol)} incl. fees+rent). " +
-                            "Skipping — operator can reduce leverage or fund the wallet.")
-                        null
-                    } else {
-                        ErrorLogger.info(TAG,
-                            "⚡ SPOT-SCALE LEVERAGE: ${market.symbol} ${"%.1fx".format(leverage)} → " +
-                            "${"%.4f".format(effectiveSpotSizeSol)} SOL spot principal " +
-                            "(margin=${"%.4f".format(sizeSol)} SOL × ${"%.1fx".format(leverage)}). " +
-                            "Real economic exposure via Jupiter swap — no synthetic perps.")
-                        executeTokenizedAssetTrade(wallet, walletAddress, market, direction, effectiveSpotSizeSol, mint)
-                    }
+                    // V5.0.8802 (GPT's audit of 8800, verified): "spot-scale leverage" bought leverage x the tokens with
+                    // leverage x the capital — no margin, just a bigger spot position. A tokenized share is spot: 1x only.
+                    // Stock leverage is a HIP-3 perp on the Hyperliquid desk.
+                    ErrorLogger.warn(TAG, "⛔ ${market.symbol}: tokenized spot has no leverage (${"%.1fx".format(leverage)} refused)")
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TOKENIZED_SPOT_HAS_NO_LEVERAGE_8802") } catch (_: Throwable) {}
+                    null
                 } else {
                     // SPOT 1x — no scaling needed
                     executeTokenizedAssetTrade(wallet, walletAddress, market, direction, sizeSol, mint)
@@ -869,22 +854,12 @@ object MarketsLiveExecutor {
         sizeSol: Double,
         targetMint: String,
     ): String? {
-        // V5.9.600 BUG-3 FIX: SHORT via SOL→USDC bridge (same logic as tokenized assets).
+        // V5.0.8802 — a SOL -> USDC swap is not a short of this token (it bets against SOL): refused, as for tokenized
+        // shares. Crypto shorts are perps (Flash, Hyperliquid); CryptoAltTrader already keeps spot shorts as observations.
         if (direction == PerpsDirection.SHORT) {
-            ErrorLogger.info(TAG, "⬇️ SHORT ${market.symbol}: SOL→USDC bridge (bearish USD lock, ${sizeSol.fmt(4)} SOL)")
-            val shortUsd8418 = com.lifecyclebot.engine.SolUsd8418.liveUsdNotionalOrRefuse(sizeSol, "MARKETS_SHORT_BRIDGE") ?: return null
-            val balanceBefore = readTokenUi(wallet, USDC_MINT) ?: 0.0
-            val bridge = com.lifecyclebot.engine.UniversalBridgeEngine.prepareCapital(
-                wallet     = wallet,
-                targetMint = USDC_MINT,
-                sizeUsd    = shortUsd8418,
-            )
-            if (!bridge.success) {
-                ErrorLogger.warn(TAG, "⬇️ SHORT ${market.symbol} bridge failed: ${bridge.errorMsg}")
-                return null
-            }
-            val sig = bridge.swapTxSig ?: return null
-            return if (verifyBuyDelivered(wallet, USDC_MINT, balanceBefore, "${market.symbol}_SHORT")) sig else null
+            ErrorLogger.warn(TAG, "⛔ SHORT ${market.symbol}: spot cannot short (refused)")
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SPOT_CANNOT_SHORT_8802") } catch (_: Throwable) {}
+            return null
         }
         // V5.9.495z22 (item A): Mint Integrity Gate — refuse to swap into a
         // mint that doesn't pass the base58/symbol-tripwire check. Stops
@@ -1012,25 +987,13 @@ object MarketsLiveExecutor {
         sizeSol: Double,
         targetMint: String,
     ): String? {
-        // V5.9.600 BUG-3 FIX: SHORT via SOL→USDC bridge.
-        // Real bearish exposure on tokenized assets: we swap sizeSol of SOL into USDC
-        // (locking USD value). If the underlying asset falls, the trader's SOL-equivalent
-        // value rises when they exit (USDC→SOL). Honest, no synthetic multipliers.
+        // V5.0.8802 (GPT's audit of 8800, verified): the "SHORT" here swapped SOL into USDC — a bet against SOL, not against
+        // the share, so the trader's stock P&L and the wallet's real exposure diverged. A spot token cannot be shorted:
+        // refused. Stock shorts are HIP-3 perps on the Hyperliquid desk.
         if (direction == PerpsDirection.SHORT) {
-            ErrorLogger.info(TAG, "⬇️ SHORT ${market.symbol}: SOL→USDC bridge (bearish USD lock, ${sizeSol.fmt(4)} SOL)")
-            val shortUsd8418 = com.lifecyclebot.engine.SolUsd8418.liveUsdNotionalOrRefuse(sizeSol, "MARKETS_SHORT_BRIDGE") ?: return null
-            val balanceBefore = readTokenUi(wallet, USDC_MINT) ?: 0.0
-            val bridge = com.lifecyclebot.engine.UniversalBridgeEngine.prepareCapital(
-                wallet     = wallet,
-                targetMint = USDC_MINT,
-                sizeUsd    = shortUsd8418,
-            )
-            if (!bridge.success) {
-                ErrorLogger.warn(TAG, "⬇️ SHORT ${market.symbol} bridge failed: ${bridge.errorMsg}")
-                return null
-            }
-            val sig = bridge.swapTxSig ?: return null
-            return if (verifyBuyDelivered(wallet, USDC_MINT, balanceBefore, "${market.symbol}_SHORT")) sig else null
+            ErrorLogger.warn(TAG, "⛔ SHORT ${market.symbol}: a tokenized share cannot be shorted on spot (refused)")
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TOKENIZED_SPOT_CANNOT_SHORT_8802") } catch (_: Throwable) {}
+            return null
         }
         // V5.9.495z22 (item A): Mint Integrity Gate — same defense as SPOT crypto path.
         when (val gate = com.lifecyclebot.engine.execution.MintIntegrityGate.validatePreBuy(market.symbol, targetMint)) {
@@ -1854,8 +1817,7 @@ object MarketsLiveExecutor {
                     if (cryptoDiagClose) try { com.lifecyclebot.perps.crypto.CryptoUniverseForensics.logClosePhase("CU_CLOSE_TARGET_ABSENT", closeSymbol, targetMint, targetMint, SOL_MINT, null, null, false, "target token absent from wallet") } catch (_: Throwable) {}
                     return@withContext Pair(false, null)
                 }
-                val decimals = tokenData.second
-                val walletRaw = java.math.BigDecimal.valueOf(tokenData.first).movePointRight(decimals).toBigInteger()
+                val walletRaw = tokenData.raw   // V5.0.8802 — the wallet's own raw amount, never a double round trip
                 val canonicalRaw = canonicalPos6486.remainingQtyRaw
                 if (canonicalRaw <= java.math.BigInteger.ZERO || walletRaw < canonicalRaw) {
                     ErrorLogger.warn(TAG, "Canonical close quantity unavailable: positionId=$positionId canonical=$canonicalRaw wallet=$walletRaw")

@@ -144,14 +144,14 @@ object LiveReadinessChecker {
         // SOL price feed — lightest-weight Pyth call possible
         val url = "https://hermes.pyth.network/v2/updates/price/latest" +
             "?ids[]=0xef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d"
-        return httpPing(url)
+        return httpPing(url, pyth8802 = true)
     }
 
     /** V5.0.6976 — true when the last ping was answered by our own circuit. */
     @Volatile
     private var lastPingWasSynthetic: Boolean = false
 
-    private fun httpPing(url: String): Pair<Boolean, Long> {
+    private fun httpPing(url: String, pyth8802: Boolean = false): Pair<Boolean, Long> {
         val start = System.currentTimeMillis()
         return try {
             // V5.0.6976 — mark as a probe so HostCircuitInterceptor lets it through.
@@ -163,8 +163,10 @@ object LiveReadinessChecker {
             val req = Request.Builder()
                 .url(url)
                 .header(HostCircuitInterceptor.PROBE_HEADER_6976, "1")
+                .let { if (pyth8802) PythAuth8802.apply(it) else it }   // V5.0.8802 — Hermes needs the owner's key
                 .build()
             http.newCall(req).execute().use { r ->
+                if (pyth8802) PythAuth8802.observe(r.code)
                 val elapsed = System.currentTimeMillis() - start
                 lastPingWasSynthetic = try { HostCircuitInterceptor.isSyntheticBlock(r) } catch (_: Throwable) { false }
                 r.isSuccessful to elapsed
