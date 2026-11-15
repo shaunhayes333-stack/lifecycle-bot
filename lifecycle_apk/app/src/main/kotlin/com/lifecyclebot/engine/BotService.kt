@@ -17470,7 +17470,10 @@ class BotService : Service() {
                     val isPumpFun6912 = srcUpper6912.contains("PUMP_FUN") ||
                         srcUpper6912.contains("PUMP_PORTAL") ||
                         srcUpper6912.contains("PUMPFUN")
-                    if (isPumpFun6912 &&
+                    // V5.0.8782 — code audit (data P1-8): the source string seeded 6 decimals, immutably, for every mint
+                    // PumpPortal relays — other launchpads' coins and an xStocks token among them — and that value prices
+                    // the executable quotes. Only a pump.fun mint (always 6 decimals) is seeded; any other is chain-read.
+                    if (isPumpFun6912 && com.lifecyclebot.network.PumpCurveKeys7269.isPumpMint8658(mint) &&
                         com.lifecyclebot.engine.truth.MintDecimalsAuthority6392.get(mint) == null
                     ) {
                         com.lifecyclebot.engine.truth.MintDecimalsAuthority6392.resolveAndCache(mint, 6)
