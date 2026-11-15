@@ -42,6 +42,10 @@ object LabelEvidence8386 {
         // against a pool, a pair switch) is not proof of a rug unless the outcome mark is itself a chain read of the coin.
         if (ratio <= 0.1 && venuesDisagree8681(entry.venue, outcome.venue) && !independent8418(outcome))
             return "OBSERVED_ONLY_VENUE_MISMATCH_EXTREME"
+        // V5.0.8783 — code audit (data P1-3): the venue check covered only drops of 0.1x or worse, so every move between 0.1x
+        // and 10x could compare pool A's basis with pool B's (or an aggregator's) mark. Any move read on a different named
+        // venue than the entry needs the outcome to be a chain read of the coin itself (which also carries a migration through).
+        if (venuesDisagree8681(entry.venue, outcome.venue) && !independent8418(outcome)) return VENUE_MISMATCH_8783
         if (ratio <= 0.1) return "VALID_8386"
         // A >= 10x move needs both marks chain-provable ([independent8418]: curve account / curve tape print / parsed swap /
         // pool reserve read). A proof requirement, never a cap: a witnessed 100x / 1000x trains at its full value.
@@ -49,6 +53,8 @@ object LabelEvidence8386 {
         return "VALID_8386"
     }
     fun eligible(entry: LabelMark8386?, outcome: LabelMark8386?) = status(entry, outcome) == "VALID_8386"
+
+    const val VENUE_MISMATCH_8783 = "OBSERVED_ONLY_VENUE_MISMATCH_8783"
 
     /** Pure (V5.0.8681): both venues are named and differ (case-insensitive); an unnamed venue proves nothing either way. */
     fun venuesDisagree8681(a: String, b: String): Boolean {
