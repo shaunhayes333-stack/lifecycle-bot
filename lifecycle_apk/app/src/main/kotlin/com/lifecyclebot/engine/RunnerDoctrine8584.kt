@@ -117,15 +117,21 @@ object RunnerDoctrine8584 {
      * never under +5 % (unchanged: once armed, a winner is not given back to a loss). From 2x the 45 % give-back trail is
      * unchanged, and the two meet at 2x. The paper book runs the same line, so its record measures the change.
      */
+    private const val RAMP_FROM_8784 = 1.8
+
     fun lineWithStop8719(peakMult: Double, stopPct: Double): Double {
         val half = line8584(peakMult)
         if (!stopPct.isFinite() || stopPct <= 0.0) return half
         val withStop = peakMult * (1.0 - stopPct.coerceAtMost(95.0) / 100.0)
         // V5.0.8769 — code audit (exits F10): the line jumped at 2x for stops over 25 % (cost-widened runner stops reach 40 %):
         // at 1.99x it sat at +19..+42 %, at 2.00x at +50 %, so a position at +45 % whose peak ticked to 2x was sold at once.
-        // From 2x the stop-widened line runs on until the 45 % give-back passes it; the two now meet at 2x for every stop.
-        if (peakMult >= 2.0) return maxOf(0.55 * peakMult, minOf(1.5, withStop))
-        return maxOf(1.05, minOf(half, withStop))
+        // V5.0.8784 — the doctrine from 2x (the 1.5x floor, then the 45 % give-back) is unchanged; between 1.8x and 2x the
+        // stop-widened line rises evenly to it, so the two meet at 2x for every stop (8769 lowered the 2x floor instead).
+        if (peakMult >= 2.0) return half
+        val base = maxOf(1.05, minOf(half, withStop))
+        if (peakMult <= RAMP_FROM_8784) return base
+        val t = (peakMult - RAMP_FROM_8784) / (2.0 - RAMP_FROM_8784)
+        return minOf(half, base + (line8584(2.0) - base) * t).coerceAtLeast(base)
     }
 
     /** The stop distance (%) a position of [lane] carries: the lane's stop at its measured round trip; NaN when unreadable. */
