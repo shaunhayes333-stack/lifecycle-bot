@@ -38,6 +38,13 @@ class V5_0_6569AcceptanceTest {
         assertTrue(authority.contains("unexplained="))
     }
 
+    @Test fun xStocksDisabledSwitchIsReportedAsSuppressionNotMissingMarketData8791() {
+        val stock = src("perps/TokenizedStockTrader.kt")
+        assertTrue(stock.contains("rejectSummary = \"STOCK_RUNTIME_SUPPRESSED:\$reason\""))
+        assertTrue(stock.contains("if (isEnabled.get() && runtimeDisabledReason() == null)"))
+        assertTrue(stock.contains("TokenizedAssetRegistry.hasRealRoute(m.symbol)"))
+    }
+
     @Test fun advisor_domains_and_replay_rollback_cannot_mutate_strategy_from_integrity() {
         val advisor=src("engine/truth/AutoPipelineAdvisor6462.kt")
         assertTrue(advisor.contains("ADVISOR_CROSS_DOMAIN_MUTATION_BLOCKED_6569"))

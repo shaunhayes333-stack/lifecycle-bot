@@ -119,6 +119,20 @@ class DataOrchestrator(
         internal fun mtfRetryGap8521(frame: Frame8521, observed: Boolean): Long =
             if (observed) MultiTimeframeCharts8521.refreshGap8521(frame) else 30_000L
 
+        /**
+         * 8791: repair the missing 1m entry chart without increasing the refresh
+         * worker's four-request budget. The original higher-frame-only loop left
+         * a coin with an empty initial seed unable to regain closed 1m bars unless
+         * another component explicitly requested history. At most two slots go
+         * to held/near-decision one-minute gaps; unused slots remain available
+         * for 5m/15m/1h/4h. This does not synthesize bars or waive quality.
+         */
+        internal fun mtfSlotSplit8791(minuteDemand: Int, total: Int = 4): Pair<Int, Int> {
+            val budget = total.coerceAtLeast(0)
+            val minute = minOf(minuteDemand.coerceAtLeast(0), 2, budget)
+            return minute to (budget - minute)
+        }
+
         /** A nonempty stale/open/wrong-frame response cannot hide an independent usable source. */
         internal fun mtfEligibleRows8521(rows: List<Candle>, frame: Frame8521, nowMs: Long,
                                          source: String, pool: String = ""): List<Candle> {
@@ -142,8 +156,21 @@ class DataOrchestrator(
                 val tokens = synchronized(status.tokens) { status.tokens.values.toList() }
                 for (ts in tokens.filter { DataPipeline8191.seedPriority8191(it.mint, now) }.take(32))
                     MultiTimeframeCharts8521.refreshLocal8521(ts, now)
-                val jobs = tokens.asSequence()
-                    .filter { com.lifecyclebot.network.HeliusSolanaScope7819.isSolanaMint7819(it.mint) }
+                val solana = tokens.filter { com.lifecyclebot.network.HeliusSolanaScope7819.isSolanaMint7819(it.mint) }
+                // A one-minute gap on a held or near-decision coin is urgent for
+                // the pattern brains; ordinary background mints keep their
+                // initial seed and can wait. Priority is captured before sort.
+                val missingMinute8791 = solana.asSequence()
+                    .filter { DataPipeline8191.seedPriority8191(it.mint, now) }
+                    .filter { mtfDue8521(it, Frame8521.M1, now) }
+                    .map { ts -> Triple(ts to Frame8521.M1,
+                        if (ts.position.isOpen) 2 else 1,
+                        mtfAttempts8521["${ts.mint}|1m"] ?: 0L) }
+                    .toList()
+                    .sortedWith(compareByDescending<Triple<Pair<TokenState, Frame8521>, Int, Long>> { it.second }.thenBy { it.third })
+                val (minuteSlots8791, higherSlots8791) = mtfSlotSplit8791(missingMinute8791.size)
+                val minuteJobs8791 = missingMinute8791.take(minuteSlots8791).map { it.first }
+                val higherJobs8791 = solana.asSequence()
                     .flatMap { ts -> MultiTimeframeCharts8521.higherFrames8521.asSequence().map { ts to it } }
                     .filter { (ts, frame) -> mtfDue8521(ts, frame, now) }
                     // V5.0.8523 — 8522 RUNTIME_CRASH "Comparison method violates its general contract": the comparator read
@@ -154,8 +181,10 @@ class DataOrchestrator(
                         mtfAttempts8521["${ts.mint}|${frame.label}"] ?: 0L) }
                     .toList()
                     .sortedWith(compareByDescending<Triple<Pair<TokenState, Frame8521>, Int, Long>> { it.second }.thenBy { it.third })
-                    .take(4).map { it.first }
-                for ((ts, frame) in jobs) {
+                    .take(higherSlots8791).map { it.first }
+                if (minuteJobs8791.isNotEmpty())
+                    PipelineHealthCollector.labelInc("CHART_M1_REPAIR_SCHEDULED_8791")
+                for ((ts, frame) in minuteJobs8791 + higherJobs8791) {
                     try { refreshMtfFrame8521(ts, frame) }
                     catch (e: CancellationException) { throw e }
                     catch (_: Exception) { PipelineHealthCollector.labelInc("CHART_MTF_REFRESH_ERROR_8521") }

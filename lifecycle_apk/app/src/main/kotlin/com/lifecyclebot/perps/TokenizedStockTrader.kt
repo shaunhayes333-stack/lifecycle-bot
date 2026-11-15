@@ -615,6 +615,14 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         runtimeDisabledReason()?.let { reason ->
             isEnabled.set(false)
             isRunning.set(false)
+            // 8791: a disabled producer used to report STARTED=19 / SCAN_TICK=0
+            // with a blank reason in the cross-asset funnel. Record the owner
+            // switch/quarantine truth here; never silently auto-enable Markets
+            // or claim a data-source failure when the operator stopped it.
+            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.completeProducerWindow6569(
+                com.lifecyclebot.engine.truth.AssetClass.STOCK,
+                enabled = false, running = false, rejectSummary = "STOCK_RUNTIME_SUPPRESSED:$reason",
+            )
             try { com.lifecyclebot.engine.ForensicLogger.lifecycle("TRADER_SWITCH_SUPPRESSED", "trader=MARKETS_STOCKS reason=$reason stage=start") } catch (_: Throwable) {}
             ErrorLogger.info(TAG, "MARKETS_RUNTIME_DISABLED reason=$reason")
             return

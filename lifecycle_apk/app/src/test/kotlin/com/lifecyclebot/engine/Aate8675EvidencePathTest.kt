@@ -35,11 +35,19 @@ class Aate8675EvidencePathTest {
 
     @Test fun walletCanBeEnrichedWithoutDuplicatingTheSignedTrade() {
         assertTrue(trade("enrich", wallet = ""))
-        assertNull(BuyerFlow8666.read("evidenceMint", now))
+        // 8790: a signed walletless swap is real market volume, but its buyer
+        // identity and buy-share remain unknown until a matched wallet arrives.
+        val anonymous = BuyerFlow8666.read("evidenceMint", now)!!
+        assertEquals(0, anonymous.newBuyers15s)
+        assertEquals(0, anonymous.distinctBuyers60s)
+        assertTrue(anonymous.buySharePct.isNaN())
+        assertEquals(1.0, anonymous.netSol60s, 0.0)
+        assertFalse(anonymous.sustainedDemand)
         assertFalse(trade("enrich", wallet = "alice", source = "pumpswap"))
         assertEquals(1, BuyerFlow8666.read("evidenceMint", now)!!.newBuyers15s)
         assertFalse(trade("enrich", wallet = "alice", source = "validator"))
         assertEquals(1.0, BuyerFlow8666.read("evidenceMint", now)!!.txPerMin, 0.0)
+        assertEquals(1.0, BuyerFlow8666.read("evidenceMint", now)!!.netSol60s, 0.0)
     }
 
     @Test fun backfillAndUnknownAmountsCannotInventFreshDemand() {

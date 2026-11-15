@@ -125,13 +125,48 @@ object PositionDisplayTruth8078 {
 
     private val corroborationAskedAt8128 =java.util.concurrent.ConcurrentHashMap<String, Long>()
 
+    /**
+     * 8791: a suspect high used to spawn an UNBOUNDED OS thread per mint. During
+     * a broad shadow/label sweep this can queue hundreds of eight-source mark
+     * passes at once, starving the same observation pool live marks need.
+     * Protective inventory has its own small queue; speculative background
+     * corroboration can never consume its workers. A full queue is a missing
+     * observation, never permission to accept the disputed price.
+     */
+    internal fun newCorroborationPool8791(name: String, threads: Int, queue: Int): java.util.concurrent.ThreadPoolExecutor =
+        java.util.concurrent.ThreadPoolExecutor(
+            threads, threads, 30L, java.util.concurrent.TimeUnit.SECONDS,
+            java.util.concurrent.ArrayBlockingQueue<Runnable>(queue),
+            { r -> Thread(r, name).apply { isDaemon = true } },
+            java.util.concurrent.ThreadPoolExecutor.AbortPolicy(),
+        ).apply { allowCoreThreadTimeOut(true) }
+
+    private val heldCorroboration8791 = newCorroborationPool8791("peak-held-8791", 2, 8)
+    private val backgroundCorroboration8791 = newCorroborationPool8791("peak-background-8791", 1, 12)
+
     /** Ask every feed for this mint once (at most every 20 s), off the caller's thread. */
     private fun requestCorroboration8128(mint: String) {
         val now = System.currentTimeMillis()
-        if (now - (corroborationAskedAt8128[mint] ?: 0L) < 20_000L) return
-        corroborationAskedAt8128[mint] = now
+        var claimed8791 = false
+        corroborationAskedAt8128.compute(mint) { _, prior ->
+            if (prior == null || now - prior >= 20_000L) {
+                claimed8791 = true
+                now
+            } else prior
+        }
+        if (!claimed8791) return
         if (corroborationAskedAt8128.size > 500) corroborationAskedAt8128.entries.removeIf { now - it.value > 600_000L }
-        Thread({ try { com.lifecyclebot.network.ParallelMarkFanout7088.resolve7088(listOf(mint)) } catch (_: Throwable) {} }, "peak-corroborate-8128").start()
+        val held8791 = try { com.lifecyclebot.engine.HeldPositionSupervisor7246.isHeld(mint) } catch (_: Throwable) { false }
+        val pool8791 = if (held8791) heldCorroboration8791 else backgroundCorroboration8791
+        try {
+            pool8791.execute {
+                try { com.lifecyclebot.network.ParallelMarkFanout7088.resolve7088(listOf(mint)) } catch (_: Throwable) {}
+            }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
+                if (held8791) "PEAK_HELD_CORROBORATION_RETRYABLE_8791" else "PEAK_BACKGROUND_CORROBORATION_RETRYABLE_8791",
+            ) } catch (_: Throwable) {}
+        }
     }
 
     /** Net value of the actual quoted quantity, never a spot-price percentage applied to SOL basis. */

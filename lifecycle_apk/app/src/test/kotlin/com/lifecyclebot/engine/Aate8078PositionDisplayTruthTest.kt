@@ -2,8 +2,12 @@ package com.lifecyclebot.engine
 
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.TimeUnit
 
 /** V5.0.8078 — the Open Positions card and the detail sheet paint one basis and one mark. */
 class Aate8078PositionDisplayTruthTest {
@@ -39,5 +43,25 @@ class Aate8078PositionDisplayTruthTest {
         assertTrue(pop.contains("PositionDisplayTruth8078.view(t)"))
         assertTrue(pop.contains("current = view8078?.markUsd ?: t.ref"))
         assertTrue(pop.contains("qty = view8078?.qty ?: pos.qtyToken"))
+    }
+
+    @Test fun speculativePeakVerificationCannotSpawnUnboundedThreads8791() {
+        val pool = com.lifecyclebot.engine.truth.PositionDisplayTruth8078.newCorroborationPool8791("test-peak-8791", 1, 1)
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        try {
+            pool.execute { entered.countDown(); release.await(5, TimeUnit.SECONDS) }
+            assertTrue(entered.await(2, TimeUnit.SECONDS))
+            pool.execute { } // the single bounded queue slot
+            try {
+                pool.execute { }
+                fail("a third price-read task cannot fit one active worker and one queued slot")
+            } catch (_: RejectedExecutionException) { /* backlog is retryable, never a mark */ }
+            assertTrue(pool.poolSize <= 1)
+            assertTrue(pool.queue.size <= 1)
+        } finally {
+            release.countDown()
+            pool.shutdownNow()
+        }
     }
 }

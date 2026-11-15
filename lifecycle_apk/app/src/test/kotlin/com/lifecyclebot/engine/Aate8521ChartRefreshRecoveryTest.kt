@@ -20,6 +20,24 @@ class Aate8521ChartRefreshRecoveryTest {
         assertEquals(3_600_000L, DataOrchestrator.mtfRetryGap8521(Frame8521.H4, observed = true))
     }
 
+    @Test fun aMissingMinuteChartGetsPriorityWithoutExpandingTheNetworkBudget8791() {
+        assertEquals(0 to 4, DataOrchestrator.mtfSlotSplit8791(0))
+        assertEquals(1 to 3, DataOrchestrator.mtfSlotSplit8791(1))
+        assertEquals(2 to 2, DataOrchestrator.mtfSlotSplit8791(100))
+        assertEquals(2 to 0, DataOrchestrator.mtfSlotSplit8791(100, total = 2))
+        assertEquals(0 to 0, DataOrchestrator.mtfSlotSplit8791(-1, total = -1))
+        assertEquals(30_000L, DataOrchestrator.mtfRetryGap8521(Frame8521.M1, observed = false))
+        assertEquals(30_000L, DataOrchestrator.mtfRetryGap8521(Frame8521.M1, observed = true))
+    }
+
+    @Test fun minuteRepairStillRequiresClosedRealVenueBars8791() {
+        val frame = Frame8521.M1
+        val stale = bar(frame, now - 10 * frame.intervalMs)
+        val unfinished = bar(frame, now)
+        assertTrue(DataOrchestrator.mtfEligibleRows8521(listOf(stale, unfinished), frame, now, "keyless").isEmpty())
+        assertEquals(listOf(bar(frame)), DataOrchestrator.mtfEligibleRows8521(listOf(bar(frame)), frame, now, "keyless"))
+    }
+
     @Test fun staleOpenAndWrongFrameResponsesCannotSuppressTheNextSource() {
         val frame = Frame8521.H4
         val stale = bar(frame, now - 4 * frame.intervalMs)
