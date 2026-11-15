@@ -1,0 +1,37 @@
+package com.lifecyclebot.engine
+
+import com.lifecyclebot.engine.truth.CryptoSpotPaperBacking8788
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import java.io.File
+
+/** V5.0.8788 — owner: CRYPTO_SPOT live follows its own paper record, past the expectancy refusal only, bounded. */
+class Aate8788CryptoSpotPaperBackingTest {
+    @Test fun the_paper_record_backs_live_only_when_it_is_decisive_and_positive() {
+        // the console's record: W19 / L13 decisive, mean +2.3 %, +4.075 SOL
+        assertTrue(CryptoSpotPaperBacking8788.paperBacks8788(19, 13, 2.3, 4.075, 1.0))
+        assertFalse("fewer than 20 decisive closes", CryptoSpotPaperBacking8788.paperBacks8788(10, 5, 5.0, 1.0, 2.0))
+        assertFalse("a losing mean", CryptoSpotPaperBacking8788.paperBacks8788(19, 13, -0.5, 4.0, 1.0))
+        assertFalse("no profit-factor edge", CryptoSpotPaperBacking8788.paperBacks8788(19, 13, 2.3, 4.0, -0.2))
+        assertFalse(CryptoSpotPaperBacking8788.paperBacks8788(19, 13, Double.NaN, 4.0, 1.0))
+        assertTrue(CryptoSpotPaperBacking8788.lossStopHit8788(-0.1))
+        assertFalse(CryptoSpotPaperBacking8788.lossStopHit8788(-0.09))
+        assertFalse("other crypto lanes are not backed", CryptoSpotPaperBacking8788.backs8788("CRYPTO_ALT", 1_000L))
+    }
+
+    @Test fun it_replaces_only_the_expectancy_refusal() {
+        val c = File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalAssetEntryContract6551.kt").readText()
+        val hard = c.indexOf("if (candidate.hardSafetyReasons.isNotEmpty())")
+        val backing = c.indexOf("CryptoSpotPaperBacking8788.backs8788(candidate.evidence[\"lane8788\"]")
+        assertTrue("safety, route, toggle and wallet refuse first", hard in 0 until backing)
+        assertTrue(c.contains("!livePositiveEv7828 && !evRefusalInverted8094 && !paperBacked8788) {"))
+        assertTrue(File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText().contains("\"lane8788\" to candidate.selectedLane,"))
+        assertTrue(File("src/main/kotlin/com/lifecyclebot/engine/truth/LearningResetSweep7781.kt").readText().contains("CryptoSpotPaperBacking8788.load8788(app)"))
+        assertTrue(CryptoSpotPaperBacking8788.statusLine8788().startsWith("cryptoSpotPaperBacking8788[on="))
+        assertTrue(CryptoSpotPaperBacking8788.MAX_PER_HOUR_8788 <= 4)
+        assertTrue(CryptoSpotPaperBacking8788.REASON_8788.isNotBlank() && CryptoSpotPaperBacking8788.enabled8788)
+        assertTrue(CryptoSpotPaperBacking8788.LANE_8788 == "CRYPTO_SPOT" && CryptoSpotPaperBacking8788.MIN_DECISIVE_8788 == 20)
+        assertTrue(CryptoSpotPaperBacking8788.LOSS_STOP_SOL_8788 == 0.1)
+    }
+}

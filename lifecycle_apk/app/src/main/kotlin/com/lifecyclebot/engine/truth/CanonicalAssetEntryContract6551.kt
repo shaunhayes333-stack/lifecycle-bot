@@ -266,7 +266,12 @@ object CanonicalEntryAuthority6551 {
         if (evRefusalInverted8094 && !livePositiveEv7828) try {
             com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_EV_REFUSAL_INVERTED_NOT_BINDING_8094_${candidate.assetClass.tag}")
         } catch (_: Throwable) {}
-        if (candidate.mode.equals("LIVE", true) && !oracleHardSafety7287 && !livePositiveEv7828 && !evRefusalInverted8094) {
+        // V5.0.8788 — owner: a LIVE CRYPTO_SPOT candidate this refusal would stop is admitted when the lane's own paper record
+        // backs it (CryptoSpotPaperBacking8788: bounded per hour, automatic -0.1 SOL stop). Hard safety, route, toggle and wallet
+        // refusals ran above; the oracle's hard-safety verdict still binds.
+        val paperBacked8788 = candidate.mode.equals("LIVE", true) && !oracleHardSafety7287 && !livePositiveEv7828 && !evRefusalInverted8094 &&
+            try { CryptoSpotPaperBacking8788.backs8788(candidate.evidence["lane8788"], System.currentTimeMillis()) } catch (_: Throwable) { false }
+        if (candidate.mode.equals("LIVE", true) && !oracleHardSafety7287 && !livePositiveEv7828 && !evRefusalInverted8094 && !paperBacked8788) {
             try {
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_LIVE_NON_POSITIVE_EXPECTANCY_7828")
                 if (oracleDegenerate7828) com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_DEGENERATE_ORACLE_FWD_FALLBACK_7828")

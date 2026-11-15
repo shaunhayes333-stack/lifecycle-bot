@@ -3752,6 +3752,7 @@ object CryptoAltTrader {
                     "deskOverlays7803" to signal.deskOverlays7803.sorted().joinToString(","),
                     // Compatibility desk label; 7803 keeps every overlay resident.
                     "deskLane7391" to CryptoLaneDesk7391.laneFromReasons(signal.reasons).ifBlank { "NONE" },
+                    "lane8788" to candidate.selectedLane,   // V5.0.8788 — CRYPTO_SPOT / CRYPTO_ALT / CRYPTO_LEV, for the paper backing
                 ),
                 requestedSizeSol = finalSize, price = signal.price, liquidityUsd = candidate.liquidityUsd,
                 routeAvailable = paper7803 || candidate.executionAdapter == "CRYPTO_UNIVERSE_EXECUTOR",
