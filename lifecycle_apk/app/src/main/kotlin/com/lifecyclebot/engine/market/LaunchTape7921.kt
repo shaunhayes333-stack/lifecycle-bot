@@ -122,7 +122,7 @@ object LaunchTape7921 {
     fun onCreate(mint: String, symbol: String, name: String, nowMs: Long = System.currentTimeMillis()) {
         if (mint.isBlank()) return
         val born = try { com.lifecyclebot.network.PumpCurveKeys7269.createdAtMs7280(mint) } catch (_: Throwable) { null } ?: nowMs
-        val r = recs.computeIfAbsent(mint) { Rec(born) }
+        val r = recs.computeIfAbsent(mint) { births8798 = 0L to 0; Rec(born) }   // V5.0.8801 — a new birth recounts the rate
         r.symbol = symbol
         r.name = name
         if (recs.size > MAX_RECS) recs.entries.removeIf { nowMs - it.value.birthMs > TTL_MS }
@@ -137,7 +137,7 @@ object LaunchTape7921 {
             recs.entries.removeIf { nowMs - it.value.birthMs > TTL_MS }
             if (recs.size >= MAX_RECS) return false
         }
-        recs.putIfAbsent(mint, Rec(birthMs))
+        if (recs.putIfAbsent(mint, Rec(birthMs)) == null) births8798 = 0L to 0   // V5.0.8801 — a new birth recounts the rate
         return true
     }
 
