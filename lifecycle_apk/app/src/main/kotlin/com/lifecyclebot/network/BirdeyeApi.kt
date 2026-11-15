@@ -27,17 +27,23 @@ import java.util.concurrent.TimeUnit
  * is first added to the watchlist. This means the strategy has 100 real
  * candles immediately instead of waiting 14 minutes to accumulate them.
  */
+/** V5.0.8774 — the one HTTP client every instance shares (was built per instance; several callers build one per call). */
+private val BIRDEYE_HTTP_8774: OkHttpClient by lazy {
+    SharedHttpClient.builder()
+            .connectTimeout(5, TimeUnit.SECONDS)
+            // V5.9.1030 — readTimeout shrunk 12s → 4s. Same rationale as
+            // DexscreenerApi: a single wedged Birdeye socket can't be
+            // allowed to tie up a supervisor chunk worker past the 4.5s
+            // budget. Cached candle history makes a dropped fetch
+            // recoverable on the next cycle.
+            .readTimeout(4, TimeUnit.SECONDS)
+            .build()
+}
+
 class BirdeyeApi(private val apiKey: String = "") {
 
-    private val http = SharedHttpClient.builder()
-        .connectTimeout(5, TimeUnit.SECONDS)
-        // V5.9.1030 — readTimeout shrunk 12s → 4s. Same rationale as
-        // DexscreenerApi: a single wedged Birdeye socket can't be
-        // allowed to tie up a supervisor chunk worker past the 4.5s
-        // budget. Cached candle history makes a dropped fetch
-        // recoverable on the next cycle.
-        .readTimeout(4, TimeUnit.SECONDS)
-        .build()
+    // V5.0.8774 — code audit (discovery F16, F19): one client for every instance (callers build an instance per call).
+    private val http: OkHttpClient get() = BIRDEYE_HTTP_8774
 
     private val BASE = "https://public-api.birdeye.so"
 

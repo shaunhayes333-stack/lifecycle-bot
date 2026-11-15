@@ -49,6 +49,28 @@ data class PairInfo(
     val txnsH24Observed: Boolean = false,
 )
 
+/** V5.0.8774 — the one HTTP client every instance shares (was built per instance; several callers build one per call). */
+private val DEX_HTTP_8774: OkHttpClient by lazy {
+    SharedHttpClient.builder()
+            .connectTimeout(5, TimeUnit.SECONDS)
+            // V5.9.1030 — readTimeout shrunk 15s → 4s so a wedged DexScreener
+            // socket can't tie up a supervisor chunk worker past the 4.5s
+            // budget. Cache TTL of 45s + stale-tolerance of 135s mean any
+            // dropped fetch is recovered on the next cycle.
+            .readTimeout(4, TimeUnit.SECONDS)
+            // V5.9.1459 — HARD CALL CEILING on the per-token hot path. getBestPair() is
+            // the FIRST network hit inside processTokenCycle (BotService:~12995) and runs
+            // under the 8s supervisor worker budget. Without callTimeout, dispatcher
+            // queue-wait (48 workers vs maxRequestsPerHost) + connect + read could pin a
+            // worker past 8s → it times out but the wedged socket keeps its IO thread →
+            // IO-pool starvation cascade (session 9551671c: 526 worker_timeouts/10min,
+            // processed=0). callTimeout bounds the WHOLE call (incl. queue wait); 6s < 8s
+            // guarantees the worker is freed inside its lease. Cache TTL 45s + stale
+            // tolerance recovers any dropped fetch next cycle — no quality loss.
+            .callTimeout(6, TimeUnit.SECONDS)
+            .build()
+}
+
 class DexscreenerApi {
 
     // V5.0.7771 — provider bodies are untrusted. 5.0.7749 OOMd in JSONTokener
@@ -67,24 +89,8 @@ class DexscreenerApi {
         private val SHARED_PAIR_CACHE_8287 = java.util.concurrent.ConcurrentHashMap<String, CachedPair>()
     }
 
-    private val http = SharedHttpClient.builder()
-        .connectTimeout(5, TimeUnit.SECONDS)
-        // V5.9.1030 — readTimeout shrunk 15s → 4s so a wedged DexScreener
-        // socket can't tie up a supervisor chunk worker past the 4.5s
-        // budget. Cache TTL of 45s + stale-tolerance of 135s mean any
-        // dropped fetch is recovered on the next cycle.
-        .readTimeout(4, TimeUnit.SECONDS)
-        // V5.9.1459 — HARD CALL CEILING on the per-token hot path. getBestPair() is
-        // the FIRST network hit inside processTokenCycle (BotService:~12995) and runs
-        // under the 8s supervisor worker budget. Without callTimeout, dispatcher
-        // queue-wait (48 workers vs maxRequestsPerHost) + connect + read could pin a
-        // worker past 8s → it times out but the wedged socket keeps its IO thread →
-        // IO-pool starvation cascade (session 9551671c: 526 worker_timeouts/10min,
-        // processed=0). callTimeout bounds the WHOLE call (incl. queue wait); 6s < 8s
-        // guarantees the worker is freed inside its lease. Cache TTL 45s + stale
-        // tolerance recovers any dropped fetch next cycle — no quality loss.
-        .callTimeout(6, TimeUnit.SECONDS)
-        .build()
+    // V5.0.8774 — code audit (discovery F16, F19): one client for every instance (callers build an instance per call).
+    private val http: OkHttpClient get() = DEX_HTTP_8774
     
     // Simple cache for getBestPair results - avoids repeated API calls
     private data class CachedPair(val pair: PairInfo?, val timestamp: Long)
