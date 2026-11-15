@@ -7090,13 +7090,11 @@ class BotService : Service() {
                     "FILL_LOT_REALIZED_DIVERGES_FROM_LEDGER_6504",
                     "fillLotRealized=${"%.6f".format(fillLotRealized6504)} " +
                         "ledgerRealized=${"%.6f".format(currentLedger6504)} " +
-                        "delta=${"%.6f".format(delta6504)} action=overwrite_ledger_with_fill_lot_truth",
+                        "delta=${"%.6f".format(delta6504)} action=report_only_8765",
                 )
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FILL_LOT_REALIZED_DIVERGES_FROM_LEDGER_6504")
-                try {
-                    com.lifecyclebot.engine.truth.PaperAccountLedger6430
-                        .overrideRealizedFromFillLots6504(fillLotRealized6504)
-                } catch (_: Throwable) {}
+                // V5.0.8765 — code audit (accounting 2): no longer overwrites realised. The fill-lot rebuild is FIFO per mint,
+                // gross, unfiltered, and drops sells with no matching buy; it disagreed with every other formula on every boot.
             } else {
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FILL_LOT_REALIZED_MATCHES_LEDGER_6504")
             }

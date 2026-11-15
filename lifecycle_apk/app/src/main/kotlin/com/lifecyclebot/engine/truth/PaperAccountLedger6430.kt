@@ -738,10 +738,17 @@ object PaperAccountLedger6430 {
             return
         }
         val delta = projectionOpenCostSol - prior
-        if (kotlin.math.abs(delta) > 0.001) {
+        // V5.0.8765 §A_LOT_THAT_LEFT_THE_BOOKS_IS_A_LOSS — code audit (accounting 1): lowering open cost to the projections
+        // and then rebuilding cash from the identity (6505) refunded every quarantined or removed position AT COST — a rug
+        // that was quarantined became spendable cash. Open cost the projections no longer hold left the books without a
+        // sale: it is now written off as realised loss (open cost and realised fall together; cash does not move). Raising
+        // open cost (a projection the ledger never funded) is reported, never written.
+        if (delta < -0.001) {
             openCostBasisPico.set(toPico(projectionOpenCostSol))
+            realizedPnlPico.addAndGet(toPico(delta))
             recordMutation8674()
             persistCurrent6487()
+            try { PipelineHealthCollector.labelInc("PAPER_LEDGER_OPEN_COST_WRITTEN_OFF_8765") } catch (_: Throwable) {}
             try {
                 ForensicLogger.lifecycle(
                     "PAPER_LEDGER_OPEN_COST_RECONCILED_FROM_PROJECTIONS_6508",
@@ -751,31 +758,11 @@ object PaperAccountLedger6430 {
                 )
                 PipelineHealthCollector.labelInc("PAPER_LEDGER_OPEN_COST_RECONCILED_FROM_PROJECTIONS_6508")
             } catch (_: Throwable) {}
+        } else if (delta > 0.001) {
+            try { PipelineHealthCollector.labelInc("PAPER_LEDGER_OPEN_COST_BELOW_PROJECTIONS_REPORTED_8765") } catch (_: Throwable) {}
         } else {
             try { PipelineHealthCollector.labelInc("PAPER_LEDGER_OPEN_COST_MATCHES_PROJECTIONS_6508") } catch (_: Throwable) {}
         }
-    }
-
-    /**
-     * V5.0.6504 §10 — OVERRIDE realized from FillLotLedger6504 truth.
-     * Called from BotService.startBot when the fill-lot rebuild disagrees
-     * with the ledger by more than 0.001 SOL. Non-transactional (single
-     * atomic write); the ledger caller has already prepared to persist.
-     */
-    @Synchronized
-    fun overrideRealizedFromFillLots6504(fillLotRealizedSol: Double) {
-        val prior = fromPico(realizedPnlPico.get())
-        realizedPnlPico.set(toPico(fillLotRealizedSol))
-        recordMutation8674()
-        persistCurrent6487()
-        try {
-            ForensicLogger.lifecycle(
-                "PAPER_LEDGER_OVERRIDE_FROM_FILL_LOTS_6504",
-                "priorRealized=${"%.6f".format(prior)} rebuiltFromFillLots=${"%.6f".format(fillLotRealizedSol)} " +
-                    "delta=${"%.6f".format(fillLotRealizedSol - prior)}",
-            )
-            PipelineHealthCollector.labelInc("PAPER_LEDGER_OVERRIDE_FROM_FILL_LOTS_6504")
-        } catch (_: Throwable) {}
     }
 
     /**
@@ -822,25 +809,24 @@ object PaperAccountLedger6430 {
             } catch (_: Throwable) {}
             return prior
         }
+        // V5.0.8765 — code audit (accounting 2): report-only. Every ledger operation keeps the identity; a divergence means
+        // an input disagrees, and overwriting cash with the identity is how refunded basis became spendable (with 6508).
         if (kotlin.math.abs(delta) > 0.001) {
-            cashPico.set(toPico(recomputed))
-            recordMutation8674()
-            persistCurrent6487()
             try {
                 ForensicLogger.lifecycle(
-                    "PAPER_LEDGER_CASH_REBUILT_FROM_IDENTITY_6505",
+                    "PAPER_LEDGER_CASH_IDENTITY_DIVERGES_8765",
                     "starting=${"%.6f".format(starting)} realized=${"%.6f".format(realized)} " +
                         "fees=${"%.6f".format(fees)} openCost=${"%.6f".format(openCost)} " +
                         "priorCash=${"%.6f".format(prior)} rebuiltCash=${"%.6f".format(recomputed)} " +
-                        "delta=${"%.6f".format(delta)}",
+                        "delta=${"%.6f".format(delta)} action=report_only",
                 )
-                PipelineHealthCollector.labelInc("PAPER_LEDGER_CASH_REBUILT_FROM_IDENTITY_6505")
+                PipelineHealthCollector.labelInc("PAPER_LEDGER_CASH_IDENTITY_DIVERGES_8765")
             } catch (_: Throwable) {}
         } else {
             try { PipelineHealthCollector.labelInc("PAPER_LEDGER_CASH_IDENTITY_HEALTHY_6505") } catch (_: Throwable) {}
         }
         // V5.0.8169 — the canonical paper-cash projection follows the ledger (the one authority).
-        try { CanonicalPositionAuthority6441.setPaperCash(recomputed, "ledger_identity_rebuild_6505_8169") } catch (_: Throwable) {}
+        try { CanonicalPositionAuthority6441.setPaperCash(prior, "ledger_identity_rebuild_6505_8169") } catch (_: Throwable) {}
         return recomputed
     }
 
@@ -924,12 +910,12 @@ object PaperAccountLedger6430 {
             accepted++
         }
         val priorRealized = fromPico(realizedPnlPico.get())
-        realizedPnlPico.set(toPico(cleanSum))
-        recordMutation8674()
-        persistCurrent6487()
+        // V5.0.8765 — code audit (accounting 2): report-only. The rebuild dropped every event of a quarantined mint (their
+        // losses with their gains) and replaced realised on every boot; the journal replay (reconcileFromJournal6663) is the
+        // one writer of a reconciled paper account.
         try {
             ForensicLogger.lifecycle(
-                "PAPER_LEDGER_REBUILD_FROM_CANONICAL_6502",
+                "PAPER_LEDGER_REBUILD_FROM_CANONICAL_6502_REPORT_8765",
                 "priorRealized=${"%.4f".format(priorRealized)} rebuiltRealized=${"%.4f".format(cleanSum)} " +
                     "accepted=$accepted droppedInvariant=$droppedInvariant droppedHistorical=$droppedHistorical " +
                     "delta=${"%.4f".format(cleanSum - priorRealized)}",

@@ -869,6 +869,12 @@ object JournalEconomicReplay6619 {
      * deliberately removed by an earlier Stop/restart implementation.
      */
     @Synchronized
+    const val ORPHAN_WRITE_OFF_REASON_8765 = "ORPHANED_LOT_WRITTEN_OFF_8765"
+
+    /** Pure (V5.0.8765): a 6662 orphan row — the legacy refund or the 8765 write-off — is bookkeeping, not a sale. */
+    internal fun orphanRow8765(economicEventId: String): Boolean =
+        economicEventId.startsWith("PAPER6619:ORPHAN_REFUND:") || economicEventId.startsWith("PAPER6619:ORPHAN_WRITE_OFF_8765:")
+
     fun repairOrphanedOpenLots6662(): Int {
         repairConfirmedLiveJournals8422()
         val replay = replay()
@@ -927,12 +933,15 @@ object JournalEconomicReplay6619 {
                             canonical,
                         )
                     ) repaired++
-                } else {
+                    return@forEach
+                } else if (canonical.lifecycle != CanonicalPositionAuthority6441.Lifecycle.QUARANTINED) {
                     // V5.0.7367 — a journal-open lot whose canonical row is not CLOSED
                     // (OPEN/PARTIALLY_CLOSED with no quantity, PENDING_ENTRY) left no trace.
                     try { PipelineHealthCollector.labelInc("JOURNAL_OPEN_LOT_CANONICAL_NOT_CLOSED_7367_${canonical.lifecycle}") } catch (_: Throwable) {}
+                    return@forEach
                 }
-                return@forEach
+                // V5.0.8765 — a QUARANTINED paper lot is never sold (nothing tracks it again): it is written off below like a
+                // removed one, so the journal closes it and the canonical/journal quantity check stops blocking reconcile.
             }
             val positionBuys = buys[positionId].orEmpty()
             val seed = positionBuys.firstOrNull() ?: return@forEach
@@ -946,9 +955,13 @@ object JournalEconomicReplay6619 {
             // ledger stamp made every later pass skip them (7050). Keying the id on
             // the lot's CURRENT raw quantity and basis writes one correctly sized row
             // for a changed lot and stays idempotent for an unchanged one.
-            val eventId = "PAPER6619:ORPHAN_REFUND:$positionId:r$raw:b${(basis * 1e9).toLong()}"
+            // V5.0.8765 §A_LOT_THAT_LEFT_THE_BOOKS_IS_A_LOSS — code audit (accounting 1): this refunded the lot AT COST (proceeds =
+            // basis, zero PnL) so the journal agreed with a ledger identity rebuild that had refunded the same basis as cash: a
+            // removed or quarantined position, whatever it was worth, became cash. It is now a zero-proceeds loss (the
+            // canonical zero-proceeds row TradeHistoryStore accepts), and the ledger writes the same basis off (6508).
+            val eventId = "PAPER6619:ORPHAN_WRITE_OFF_8765:$positionId:r$raw:b${(basis * 1e9).toLong()}"
             val priorSells7367 = journalSellsByPosition7360[positionId].orEmpty()
-            if (priorSells7367.any { it.economicEventId.startsWith("PAPER6619:ORPHAN_REFUND:$positionId") && it.economicEventId != eventId }) {
+            if (priorSells7367.any { orphanRow8765(it.economicEventId) && it.economicEventId.contains(":$positionId:") && it.economicEventId != eventId }) {
                 try { PipelineHealthCollector.labelInc("JOURNAL_ORPHAN_REFUND_SUPERSEDED_7367") } catch (_: Throwable) {}
             }
             // A rejected earlier row still holds its SELL fill index; take the next one.
@@ -980,12 +993,11 @@ object JournalEconomicReplay6619 {
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("JOURNAL_ORPHAN_REFUND_REWRITE_UNLANDED_7371") } catch (_: Throwable) {}
             }
             TradeHistoryStore.recordTrade(Trade(
-                side = "SELL", mode = "paper", sol = basis,
-                price = seed.entryPriceSnapshot.takeIf { it.isFinite() && it > 0.0 }
-                    ?: seed.price.coerceAtLeast(0.000000000001),
+                side = "SELL", mode = "paper", sol = 0.0,
+                price = 0.0,
                 ts = System.currentTimeMillis(),
-                reason = "ORPHANED_STOP_LOT_REFUND_6662",
-                pnlSol = 0.0, pnlPct = 0.0, feeSol = 0.0, netPnlSol = 0.0,
+                reason = ORPHAN_WRITE_OFF_REASON_8765,
+                pnlSol = -basis, pnlPct = -100.0, feeSol = 0.0, netPnlSol = -basis,
                 tradingMode = seed.tradingMode, tradingModeEmoji = seed.tradingModeEmoji,
                 mint = seed.mint, proofState = "PAPER_SIMULATED",
                 positionId = positionId, entryTsMs = seed.entryTsMs.takeIf { it > 0L } ?: seed.ts,
@@ -997,15 +1009,15 @@ object JournalEconomicReplay6619 {
                 entryRawQty = positionBuys.fold(java.math.BigInteger.ZERO) { acc, row -> acc + row.entryRawQty },
                 canonicalConsumedRaw = raw, remainingRawQty = java.math.BigInteger.ZERO,
                 tokenDecimals = scale, soldCostBasisSol = basis,
-                grossProceedsSol = basis, economicEventId = eventId,
+                grossProceedsSol = 0.0, economicEventId = eventId,
                 partialSequence = nextSequence7367,
             ))
             repaired++
             try {
-                PipelineHealthCollector.labelInc("JOURNAL_ORPHAN_LOT_REFUNDED_6662")
+                PipelineHealthCollector.labelInc("JOURNAL_ORPHAN_LOT_WRITTEN_OFF_8765")
                 ForensicLogger.lifecycle(
-                    "JOURNAL_ORPHAN_LOT_REFUNDED_6662",
-                    "positionId=${positionId.take(24)} mint=${seed.mint.take(10)} basis=${"%.6f".format(basis)} action=durable_zero_pnl_terminal",
+                    "JOURNAL_ORPHAN_LOT_WRITTEN_OFF_8765",
+                    "positionId=${positionId.take(24)} mint=${seed.mint.take(10)} basis=${"%.6f".format(basis)} action=durable_zero_proceeds_loss",
                 )
             } catch (_: Throwable) {}
         }
@@ -1072,7 +1084,7 @@ object JournalEconomicReplay6619 {
         val receiptKeys = receipts.map { it.idempotencyKey }.toSet()
         // V5.0.7367 — a stale 6662 orphan refund the replay rejected is not a sale;
         // it must not block the receipt rebuild (the lot is still open because of it).
-        val journalSells = journalSells.filterNot { it.economicEventId.startsWith("PAPER6619:ORPHAN_REFUND:") }
+        val journalSells = journalSells.filterNot { orphanRow8765(it.economicEventId) }
         if (journalSells.any { it.economicEventId.isBlank() || it.economicEventId !in receiptKeys }) {
             return skip("JOURNAL_ROW_WITHOUT_RECEIPT")
         }
@@ -1162,7 +1174,7 @@ object JournalEconomicReplay6619 {
         // Wait out any real closing row still in flight before synthesising from canonical.
         if (!receiptSettled8579(pos.lastMutationMs, System.currentTimeMillis())) return skip("CANON_CLOSE_YOUNG_8585")
         // A terminal SELL already journalled owns this position's fill index; never write a second.
-        if (allJournalSells7367.any { it.side.equals("SELL", true) && !it.economicEventId.startsWith("PAPER6619:ORPHAN_REFUND:") }) {
+        if (allJournalSells7367.any { it.side.equals("SELL", true) && !orphanRow8765(it.economicEventId) }) {
             return skip("TERMINAL_ALREADY_JOURNALED")
         }
         val gross = pos.realizedProceedsSol.coerceAtLeast(0.0)

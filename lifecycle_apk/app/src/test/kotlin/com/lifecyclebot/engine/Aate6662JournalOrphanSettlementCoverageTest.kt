@@ -22,11 +22,12 @@ class Aate6662JournalOrphanSettlementCoverageTest {
         // truly orphaned lot (no canonical row) gets the zero-pnl refund below.
         assertTrue(repair.contains("if (canonical != null) {"))
         assertTrue(repair.indexOf("rebuildClosedLotFromReceipts7360(") > repair.indexOf("if (canonical != null) {"))
-        assertTrue(repair.indexOf("ORPHANED_STOP_LOT_REFUND_6662") > repair.indexOf("rebuildClosedLotFromReceipts7360("))
-        assertTrue(repair.contains("pnlSol = 0.0, pnlPct = 0.0, feeSol = 0.0, netPnlSol = 0.0"))
-        assertTrue(repair.contains("ORPHANED_STOP_LOT_REFUND_6662"))
+        // superseded by V5.0.8765 — a lot that left the books is a zero-proceeds loss, not a refund at cost;
+        // was: ORPHANED_STOP_LOT_REFUND_6662, pnlSol = 0.0 ... netPnlSol = 0.0, grossProceedsSol = basis.
+        assertTrue(repair.indexOf("reason = ORPHAN_WRITE_OFF_REASON_8765,") > repair.indexOf("rebuildClosedLotFromReceipts7360("))
+        assertTrue(repair.contains("pnlSol = -basis, pnlPct = -100.0, feeSol = 0.0, netPnlSol = -basis,"))
         assertTrue(repair.contains("soldCostBasisSol = basis"))
-        assertTrue(repair.contains("grossProceedsSol = basis"))
+        assertTrue(repair.contains("grossProceedsSol = 0.0, economicEventId = eventId,"))
         assertTrue(repair.contains("economicEventId = eventId"))
         assertTrue(repair.contains("PaperEconomicAtomicCommit6632.stampLedger"))
     }
