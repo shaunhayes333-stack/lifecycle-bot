@@ -1732,7 +1732,7 @@ object ForwardReturnLabeler7731 {
         // V5.0.8337 (FIX 2) — a flat mark (no price other than the entry ever seen) is a LOST mark, never a -cost label:
         // 8322 booked it first and flagged it after, so every lane / cell / shape / specialist book read "lost the round trip".
         var flat8322 = com.lifecyclebot.engine.cortex.CortexFlatMark8322.flatMark8322(gross0, o.peakPct, o.minPct7962)
-        if (flat8322 && liveMark8454(o.lastMark8386)) { flat8322 = false; flatLiveBooked8454.incrementAndGet() }   // V5.0.8454 — the market's own flat read
+        if (flat8322 && flatBookable8785(o.lastMark8386)) { flat8322 = false; flatLiveBooked8454.incrementAndGet() }   // V5.0.8454 — the market's own flat read
         val scalp8080 = captured7945(o, net0, gross0, longFamily8080 = false)
         val long8080 = captured7945(o, net0, gross0, longFamily8080 = true)
         val fam8080 = doubleArrayOf(scalp8080.first, scalp8080.second, long8080.first, long8080.second)
@@ -2029,7 +2029,7 @@ object ForwardReturnLabeler7731 {
 
     /** V5.0.8342 — the observation's mark at [grossPct] has never left its entry (8322's flat test, on the live peak / dip). */
     private fun flatMarkNow8342(o: Obs, grossPct: Double): Boolean =
-        com.lifecyclebot.engine.cortex.CortexFlatMark8322.flatMark8322(grossPct, o.peakPct, o.minPct7962) && !liveMark8454(o.lastMark8386)
+        com.lifecyclebot.engine.cortex.CortexFlatMark8322.flatMark8322(grossPct, o.peakPct, o.minPct7962) && !flatBookable8785(o.lastMark8386)
 
     // ── V5.0.8454 §A_FLAT_READ_FROM_THE_MARKET_IS_AN_OUTCOME ──
     // Owner, 2026-10-31: "there isn't meant to be a lost mark ever, missing data ever, a stale price a stale mark nothing.
@@ -2044,12 +2044,21 @@ object ForwardReturnLabeler7731 {
 
     /** Pure (V5.0.8454): did this mark observe the market itself (not a possibly reused token-state value)? */
     fun liveMark8454(source: String?, independent: Boolean): Boolean =
-        // superseded by V5.0.8775 — code audit (data P1-2): an off-watch answer is a provider snapshot with no trade time,
-        // stamped at receipt; an unchanged one is not a market read (a flat read from it is a lost mark, not -cost); was: OFFWATCH live.
-        independent || source?.startsWith("CURVE_") == true ||
+        independent || source == "OFFWATCH" || source?.startsWith("CURVE_") == true ||
             source == CROSS_ASSET_MARK_SOURCE_8571   // V5.0.8571 — the identity's own feed, at its own observation time
 
     private fun liveMark8454(m: LabelMark8386?): Boolean = m != null && liveMark8454(m.source, m.independentBasis)
+
+    /**
+     * Pure (V5.0.8786) — code audit (data P1-2): may an unchanged read from [source] book a flat (-cost) label? An off-watch
+     * answer is a provider snapshot with no trade time, stamped at receipt: an UNCHANGED one does not show the market stood
+     * still (a flat read from it is a lost mark, not -cost). It still counts as a fresh fetched price everywhere else
+     * (8776 removed it from [liveMark8454] wholesale and broke the lab exit price and the due-label lane).
+     */
+    fun flatBookable8785(source: String?, independent: Boolean): Boolean =
+        liveMark8454(source, independent) && (independent || source != "OFFWATCH")
+
+    private fun flatBookable8785(m: LabelMark8386?): Boolean = m != null && flatBookable8785(m.source, m.independentBasis)
 
     /** V5.0.8455 — a tracked coin's price path is refreshed at least this often between its horizons. */
     const val PATH_REFRESH_MS_8455 = 60_000L

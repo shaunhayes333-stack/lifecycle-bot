@@ -17,8 +17,7 @@ class Aate8454TrueFlatOutcomeTest {
     private val l = File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
 
     @Test fun onlyAMarketObservationCountsAsLive() {
-        // superseded by V5.0.8775 — an off-watch provider snapshot is not a live market read; was: assertTrue(liveMark8454("OFFWATCH", false)).
-        assertFalse(ForwardReturnLabeler7731.liveMark8454("OFFWATCH", false))
+        assertTrue(ForwardReturnLabeler7731.liveMark8454("OFFWATCH", false))
         assertTrue(ForwardReturnLabeler7731.liveMark8454("CURVE_ACCOUNT", false))
         assertTrue(ForwardReturnLabeler7731.liveMark8454("DEXSCREENER_WS", true))
         assertFalse("a token-state price may be a reused value", ForwardReturnLabeler7731.liveMark8454("TOKEN_STATE", false))
@@ -28,12 +27,13 @@ class Aate8454TrueFlatOutcomeTest {
     @Test fun aLiveFlatIsBookedAndATokenStateFlatWaitsForALiveFetch() {
         val sixty = l.substringAfter("private fun bookSixty7944(").substringBefore("// ── V5.0.7997 — PROGRESSIVE GRADING ──")
         val flat = sixty.indexOf("var flat8322 = com.lifecyclebot.engine.cortex.CortexFlatMark8322.flatMark8322(gross0, o.peakPct, o.minPct7962)")
-        val live = sixty.indexOf("if (flat8322 && liveMark8454(o.lastMark8386)) { flat8322 = false; flatLiveBooked8454.incrementAndGet() }")
+        // superseded by V5.0.8786 — the flat booking reads flatBookable8785 (an off-watch snapshot alone does not book -cost); was: liveMark8454(o.lastMark8386).
+        val live = sixty.indexOf("if (flat8322 && flatBookable8785(o.lastMark8386)) { flat8322 = false; flatLiveBooked8454.incrementAndGet() }")
         assertTrue(live > flat && live < sixty.indexOf("bookEntryTarget8521(o, net, gross, w8324, nowMs)"))
         val tick = l.substring(l.indexOf("private fun tickOnce8442("))
         val wait = tick.indexOf("flatAwaitingLive8454.incrementAndGet()")
         assertTrue("waits before the 5-minute slot is booked", wait in 0 until tick.indexOf("o.done60 = bookSixty7944(o, net, gross, nowMs)"))
         assertTrue(tick.contains("dueUnpriced7737.add(o.mint to com.lifecyclebot.engine.cortex.CortexLabelFeed8291.offWatchKey8291(0, o.atMs))"))
-        assertTrue(l.contains("CortexFlatMark8322.flatMark8322(grossPct, o.peakPct, o.minPct7962) && !liveMark8454(o.lastMark8386)"))
+        assertTrue(l.contains("CortexFlatMark8322.flatMark8322(grossPct, o.peakPct, o.minPct7962) && !flatBookable8785(o.lastMark8386)"))
     }
 }

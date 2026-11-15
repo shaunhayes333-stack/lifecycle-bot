@@ -4473,7 +4473,8 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4231: ShitCoin score expectancy must soft-shape instead of zero-size veto", shit.contains("SHITCOIN_EXPECTANCY_SOFT_SHAPE_4231") && shit.contains("intelligenceGateSizeMult4231 = minOf(intelligenceGateSizeMult4231, 0.35)"))
         assertTrue("V5.0.4231: ShitCoin BehaviorAI tilt must soft-shape instead of hard TILT_BLOCK", shit.contains("SHITCOIN_TILT_SOFT_SHAPE_4231") && !shit.contains("TILT_BLOCK: BehaviorAI tilt protection active — skipping entry"))
         assertTrue("V5.0.4231: ShitCoin SymbolicExitReasoner urgency must soft-shape instead of SYMBOLIC_VETO", shit.contains("SHITCOIN_SYMBOLIC_SOFT_SHAPE_4231") && !shit.contains("SYMBOLIC_VETO: exit urgency"))
-        assertTrue("V5.0.4231: ShitCoin intelligence soft shape must flow into returned position size", shit.contains("positionSol * dangerBucketSoftSize * intelligenceGateSizeMult4231"))
+        // superseded by V5.0.8770 — the learned product is one bounded shape (SizeShape8770); was: positionSol * dangerBucketSoftSize * intelligenceGateSizeMult4231.
+        assertTrue("V5.0.4231: ShitCoin intelligence soft shape must flow into returned position size", shit.contains("positionSol * com.lifecyclebot.engine.SizeShape8770.bounded8770(") && shit.contains("dangerBucketSoftSize * intelligenceGateSizeMult4231 * semanticEntrySizeMult4255"))
     }
 
     @Test

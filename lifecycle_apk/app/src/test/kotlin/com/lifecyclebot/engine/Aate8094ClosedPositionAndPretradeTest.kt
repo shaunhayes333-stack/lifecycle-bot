@@ -1118,7 +1118,8 @@ class Aate8094ClosedPositionAndPretradeTest {
     // upstream admit cannot re-buy a coin that just lost or is dumping.
     @Test fun rebuyLockoutGuardsTheBuyDoorNotOnlyTheEdgeGate() {
         val door = src("engine/PreTradeHardGate.kt")
-        assertTrue(door.contains("(try { RebuyLockout8019.refusal8019(mint, now) } catch (_: Throwable) { null })?.let { return block(ts, it, \"site=\$callSite\") }"))
+        // superseded by V5.0.8771 — a lockout check that throws refuses; was: catch (_: Throwable) { null }.
+        assertTrue(door.contains("(try { RebuyLockout8019.refusal8019(mint, now) } catch (_: Throwable) { \"REBUY_LOCKOUT_CHECK_FAILED_8771\" })?.let { return block(ts, it, \"site=\$callSite\") }"))
         assertTrue(door.indexOf("RebuyLockout8019.refusal8019") < door.indexOf("FreezeAuthorityHardBlock7238.evaluateLive"))
         assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("com.lifecyclebot.engine.RebuyLockout8019.refusal8019(ts.mint, nowMs)?.let { return it }"))
     }

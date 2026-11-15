@@ -16,8 +16,11 @@ class Aate8776PaperMarksTest {
         assertTrue(s.contains("PrintWitness8750.witnessedPrint8750(mint, print.second)"))
     }
 
-    @Test fun an_off_watch_snapshot_is_not_a_live_market_read() {
-        assertFalse(ForwardReturnLabeler7731.liveMark8454("OFFWATCH", false))
-        assertTrue("a chain witness still is", ForwardReturnLabeler7731.liveMark8454("OFFWATCH", true))
+    // superseded by V5.0.8786 — the off-watch rule is the flat-booking rule only (flatBookable8785); it is still a fresh price.
+    @Test fun an_unchanged_off_watch_snapshot_does_not_book_a_flat_label() {
+        assertTrue(ForwardReturnLabeler7731.liveMark8454("OFFWATCH", false))
+        assertFalse(ForwardReturnLabeler7731.flatBookable8785("OFFWATCH", false))
+        assertTrue("a chain witness still books", ForwardReturnLabeler7731.flatBookable8785("OFFWATCH", true))
+        assertTrue(ForwardReturnLabeler7731.flatBookable8785("CURVE_ACCOUNT", false))
     }
 }
