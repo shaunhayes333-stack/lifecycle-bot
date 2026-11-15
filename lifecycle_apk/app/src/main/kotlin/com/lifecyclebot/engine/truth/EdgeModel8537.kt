@@ -533,7 +533,7 @@ object EdgeModel8537 {
             else if (s.pred.isFinite()) oos.getOrPut(recordKey(s.raw.lane, s.modelKey)) { Oos() }.add(s.pred, y)
             else skippedCold.incrementAndGet()
             val x = if (s.modelEpoch == MODEL_EPOCH_8642 && s.x.size == DIM) s.x else vectorOf(s.raw)
-            global.learn(x, y)
+            if (onceAcrossLanes8776(s.mint, s.atMs)) global.learn(x, y)   // V5.0.8776 — one coin decision, once
             ownModel8722(s.raw.lane)?.learn(x, y)
         }
         val k = learned.incrementAndGet()
@@ -628,6 +628,18 @@ object EdgeModel8537 {
         return plausible8617(row.optDouble("mcap", Double.NaN), net, row.optBoolean("witness", false))
     }
 
+    /**
+     * V5.0.8776 §ONE_COIN_ONCE — code audit (data P1-10): one decision pass observes a coin in every lane at the same instant,
+     * and the global ridge learned it once per lane (up to 12x), so a single runner shrank the standard errors that gate
+     * authority. The global model learns each (mint, decision instant) once; a lane's own model still learns its own label.
+     */
+    private val globalSeen8776 = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+    internal fun onceAcrossLanes8776(mint: String, atMs: Long): Boolean {
+        if (mint.isBlank() || atMs <= 0L) return true
+        if (globalSeen8776.size > 200_000) globalSeen8776.clear()
+        return globalSeen8776.putIfAbsent("$mint|$atMs", true) == null
+    }
+
     /** One streaming replay, not readLines(): the 24 MB dataset cannot be copied wholesale onto Android's heap. */
     private fun replayDataset8642(file: File): Pair<Int, Int> {
         if (!file.isFile) return 0 to 0
@@ -644,7 +656,7 @@ object EdgeModel8537 {
                     d("newBuyers15s8666"), o.optBoolean("sustainedDemand"), o.optBoolean("marketReclaim"))
                 val x = vectorOf(r)
                 val y = managedTarget8722(r.lane, d("net"), r.costPct)
-                global.learn(x, y, solveNow = false)
+                if (onceAcrossLanes8776(o.optString("mint"), o.optLong("t", 0L))) global.learn(x, y, solveNow = false)   // V5.0.8776
                 ownModel8722(r.lane)?.learn(x, y, solveNow = false)
                 used++
             } catch (_: Throwable) { /* corrupted dataset row is excluded, never used as an outcome */ }

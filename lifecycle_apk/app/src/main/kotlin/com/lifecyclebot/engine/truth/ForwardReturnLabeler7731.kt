@@ -663,6 +663,16 @@ object ForwardReturnLabeler7731 {
         cellStat(laneDecisionKey8094(lane, true)) to cellStat(laneDecisionKey8094(lane, false))
     private fun sourceKey(src: String) = "SRC|$src"
 
+    private fun crossLaneKey8776(k: String) = k.startsWith(AGG_ADMITTED) || k.startsWith(AGG_REFUSED) || k.startsWith("SRC|")
+    private val crossLaneSeen8776 = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+
+    /** V5.0.8776 — is this the first label of (horizon, cross-lane key, coin decision)? Marks it seen. */
+    internal fun firstCrossLane8776(horizon: Int, key: String, mint: String, atMs: Long): Boolean {
+        if (mint.isBlank() || atMs <= 0L) return true
+        if (crossLaneSeen8776.size > 200_000) crossLaneSeen8776.clear()
+        return crossLaneSeen8776.putIfAbsent("$horizon|$key|$mint|$atMs", true) == null
+    }
+
     /**
      * Pure (V5.0.8766 §ONE_HORIZON_PER_BOOK) — code audit (data P0-4): an hour lane's target (15 m for new observations) was
      * booked into the 60 slot, the slot every cross-lane record reads as "5-minute": the admitted / refused aggregates (the
@@ -1376,6 +1386,9 @@ object ForwardReturnLabeler7731 {
         for ((i, k) in keys.withIndex()) {
             val t = tallyFor(k)
             scales8410[i] = synchronized(t) { t.logScale60 }
+            // V5.0.8776 — code audit (data P1-10): a cross-lane book (admitted / refused aggregate, source) counts one coin once
+            // per horizon, not once per lane that judged it (up to 12x, shrinking its standard error the same way).
+            if (crossLaneKey8776(k) && !firstCrossLane8776(horizon, k, o.mint, o.atMs)) continue
             synchronized(t) {
                 when (horizon) {
                     15 -> { t.n15 += 1; t.sum15 += net; if (net > 0.0) t.win15 += 1 }
