@@ -20,7 +20,7 @@ class Aate8812CryptoStartupTest {
     @Test fun theStartupRepairNeverWaitsPastItsBound() {
         val t = src("engine/truth/CanonicalPaperTransaction6486.kt").substringAfter("fun repairCryptoAtStartup8812(").substringBefore("fun repairCryptoHistory6659()")
         assertTrue(t.contains("if (lock.tryLock(waitMs, java.util.concurrent.TimeUnit.MILLISECONDS)) {"))
-        assertTrue(t.contains("Thread({ try { lock.withLock { work() } } catch (_: Throwable) {} }, \\"crypto-startup-repair-8812\\")"))
+        assertTrue(t.contains("Thread({ try { lock.withLock { work() } } catch (_: Throwable) {} }, \"crypto-startup-repair-8812\")"))
         val crypto = src("perps/CryptoAltTrader.kt").substringAfter("private fun rehydrateCanonicalPositions6647").substringBefore("private fun canonicalRecoveryMarket8521")
         assertTrue(!crypto.contains("CanonicalPaperTransaction6486.repairCryptoHistory6659()"))
         assertTrue(!crypto.contains("CanonicalPaperTransaction6486.ensureOpenProjection6659(cp)"))
