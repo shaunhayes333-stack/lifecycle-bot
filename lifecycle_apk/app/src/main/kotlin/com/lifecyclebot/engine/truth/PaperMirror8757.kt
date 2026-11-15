@@ -39,11 +39,20 @@ object PaperMirror8757 {
     private val admitTimes8758 = java.util.ArrayDeque<Long>()
     @Volatile private var stopCheckedAtMs8758 = 0L
 
-    /** Pure: is [reason] a refusal the mirror never overrides? */
-    fun hard8757(reason: String?): Boolean {
+    /**
+     * Is [reason] a refusal the mirror never overrides?
+     * V5.0.8763 §ONE_HARD_LIST — code audit (buy 4, 14): the mirror kept a third copy of the hard list, so at the gate it
+     * passed refusals the final gate treats as hard (FdgGate8365's markers, e.g. AUTHORITY, COST_REQUOTE, the eval-failed
+     * marker) and learned doors whose own graded record proves the coins they refuse lose (GateOutcome8418.doorProtects8715,
+     * e.g. CURVE_NOBODY_BOUGHT_8046 n61 -38.9 %). It now refuses the union: its own list, every FdgGate8365 hard marker, and
+     * any door that protects by record in [lane] (else in all lanes). What the owner chose to mirror past stays mirrored:
+     * learned doors whose record does not (yet) prove they protect - the edge model, cohort, setup and cell opinions.
+     */
+    fun hard8757(reason: String?, lane: String = ""): Boolean {
         if (reason.isNullOrBlank()) return true
         val r = reason.uppercase()
-        return HARD_8757.any { r.contains(it) }
+        if (HARD_8757.any { r.contains(it) } || FdgGate8365.hardSafety8392(r)) return true
+        return try { GateOutcome8418.doorProtects8715(r.removePrefix("CANDIDATE_ADMISSION_8136_"), lane) } catch (_: Throwable) { true }
     }
 
     /** Pure: the lane the mirror serves. */
@@ -108,7 +117,7 @@ object PaperMirror8757 {
      * same candidate and the refusal is not [hard8757]. Anything else passes through unchanged.
      */
     fun mirror8757(c: CandidateAdmission8136.Candidate8136, d: CandidateAdmission8136.Decision8136, nowMs: Long): CandidateAdmission8136.Decision8136 {
-        if (!enabled8757 || !c.live || d.admitted || !mirrorLane8757(c.lane) || hard8757(d.reason)) return d
+        if (!enabled8757 || !c.live || d.admitted || !mirrorLane8757(c.lane) || hard8757(d.reason, c.lane)) return d
         if (try { FdgGate8365.shadowOnly8393() } catch (_: Throwable) { true }) return d   // V5.0.8758 — never in a shadow rehearsal
         if (!c.costPct.isFinite() || c.costPct < 0.0 || stopped8757(nowMs)) return d
         // V5.0.8758 — the live price bar, not the paper book's 5-minute one.
@@ -143,8 +152,8 @@ object PaperMirror8757 {
     }
 
     /** LiveEdgeGate7877 (via LaneAuthority8577.advisoryAtGate8577): a mirrored admit is held only by a hard refusal. */
-    fun passesAtGate8757(reason: String?, admission: CandidateAdmission8136.Decision8136?): Boolean =
-        enabled8757 && admission?.reason == REASON_8757 && !hard8757(reason)
+    fun passesAtGate8757(reason: String?, admission: CandidateAdmission8136.Decision8136?, lane: String = "MOONSHOT"): Boolean =
+        enabled8757 && admission?.reason == REASON_8757 && !hard8757(reason, lane)
 
     fun statusLine8757(): String =
         "paperMirror8757[on=$enabled8757 lane=MOONSHOT mirrored=${mirrored8757.get()} stop=-${LOSS_STOP_SOL_8757}SOL tripped=$tripped8757]"
