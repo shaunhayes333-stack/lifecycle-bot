@@ -35,7 +35,7 @@ class Aate8623HonestPaperAndHeapTest {
         val paper = src("engine/truth/MemePaperTrader8544.kt")
         val tick = paper.substringAfter("fun tick8544(").substringBefore("private fun trigger8544(")
         assertTrue(tick.contains("wantMark8623(p.mint, nowMs)"))
-        assertTrue(paper.contains("KeylessMarks8359.noteWanted8359(mint, until)"))
+        assertTrue(paper.contains("KeylessMarks8359.noteBook8808(mint, until)"))   // V5.0.8808: the book's own class of the same keyless feed
         assertTrue(paper.contains("ForwardReturnLabeler7731.noteShadowWanted8442(mint, until)"))
     }
 

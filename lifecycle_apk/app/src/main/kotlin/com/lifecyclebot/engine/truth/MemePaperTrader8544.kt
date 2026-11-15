@@ -324,10 +324,16 @@ object MemePaperTrader8544 {
         wantedAt8623[mint] = nowMs
         if (wantedAt8623.size > 512) wantedAt8623.keys.retainAll(open.keys)
         val until = nowMs + LOST_MARK_MS_8544
-        try { KeylessMarks8359.noteWanted8359(mint, until) } catch (_: Throwable) {}
+        try { KeylessMarks8359.noteBook8808(mint, until) } catch (_: Throwable) {}   // V5.0.8808 — its own class: never evicted by a shadow ticket
         try { ForwardReturnLabeler7731.noteShadowWanted8442(mint, until) } catch (_: Throwable) {}
     }
     private const val WANT_EVERY_MS_8623 = 30_000L
+
+    /**
+     * V5.0.8808 — the book's open positions, newest first: BotService subscribes their bonding curves (CurveTicks7968) and
+     * pools (GradTicks8018) beside the wallet's held coins, so a paper stop is checked on every trade of the coin.
+     */
+    fun openMints8808(): List<String> = open.values.sortedByDescending { it.entryAtMs }.map { it.mint }
     private val wantedAt8623 = ConcurrentHashMap<String, Long>()
 
     /** Pure (V5.0.8699): is a paper exit a stop (live sends it as a protective exit)? */

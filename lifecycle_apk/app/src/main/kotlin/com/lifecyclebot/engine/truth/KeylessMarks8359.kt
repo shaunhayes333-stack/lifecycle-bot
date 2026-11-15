@@ -74,8 +74,49 @@ object KeylessMarks8359 {
         maybeTick8359(now)
     }
 
-    /** Is [mint] wanted by a shadow book now? */
-    fun isWanted8359(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean = (wanted[mint] ?: 0L) > nowMs
+    // V5.0.8808 §THE_PAPER_BOOK_PRICES_ITS_OWN_POSITIONS — 5.0.8802 device report: wanted=400, exactly [MAX_WANTED_8359], and
+    // 101 curve passes in 44 minutes at up to 40 curves a call, the longest-unmarked first. The paper meme book's ~40 open
+    // positions (the book the live mirror follows) shared those reads with ~400 shadow tickets and could be evicted with
+    // them at the cap, so a position was read once in several passes, if at all: ~800 of the book's closes were LOST_MARK at
+    // the entry price (the U8623 cohorts, each exactly -cost), and a stop was first SEEN 15-17 points under its level
+    // (stopSlip8756 level -> trig) — paper STOP closes of -23 % to -62 % on 4-25 % stops, -15.2 SOL in a book that lost 11.3.
+    // The book's positions are their own class: never evicted by a shadow ticket, read before every shadow and label mint.
+    private const val MAX_BOOK_8808 = 160
+    private val book8808 = ConcurrentHashMap<String, Long>()
+    private val bookNoted8808 = AtomicLong(0L)
+    private val bookCurveMarks8808 = AtomicLong(0L)
+
+    /**
+     * MemePaperTrader8544's call: its open position [mint] must be marked until [untilMs] (wall clock; a later call
+     * extends it, at most [MAX_HOLD_MS_8359] ahead). Starts a coverage pass when one is due.
+     */
+    fun noteBook8808(mint: String, untilMs: Long) {
+        val m = mint.trim()
+        if (m.length !in 32..44) return
+        val now = System.currentTimeMillis()
+        if (untilMs <= now) return
+        book8808.merge(m, minOf(untilMs, now + MAX_HOLD_MS_8359)) { a, b -> maxOf(a, b) }
+        bookNoted8808.incrementAndGet()
+        if (book8808.size > MAX_BOOK_8808) pruneBook8808(now)
+        maybeTick8359(now)
+    }
+
+    /** Is [mint] an open paper-book position asking for marks now? */
+    fun isBook8808(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean = (book8808[mint] ?: 0L) > nowMs
+
+    /** Pure: the book's mints first (their order), then the shadow books' not already listed. */
+    fun bookFirst8808(book: List<String>, shadow: List<String>): List<String> = priorityOrder8359(book, shadow, Int.MAX_VALUE)
+
+    private fun pruneBook8808(nowMs: Long) {
+        book8808.entries.removeIf { it.value <= nowMs }
+        if (book8808.size > MAX_BOOK_8808) {
+            book8808.entries.sortedBy { it.value }.take(book8808.size - MAX_BOOK_8808).forEach { book8808.remove(it.key, it.value) }
+        }
+    }
+
+    /** Is [mint] wanted by the paper book or a shadow book now? */
+    fun isWanted8359(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean =
+        (wanted[mint] ?: 0L) > nowMs || (book8808[mint] ?: 0L) > nowMs
 
     /**
      * V5.0.8418 — the forward labeler's call: an unpriced observation of [mint] must be priced before [windowEndMs] (wall
@@ -161,9 +202,11 @@ object KeylessMarks8359 {
     fun labelCounts8418(): LongArray = longArrayOf(labelNoted8418.get(), labelLaneQueued8418.get(), labelLaneMarks8418.get(),
         labelCurvePasses8418.get(), labelCurveMarks8418.get())
 
-    /** The wanted mints now, the longest-unmarked first. */
-    fun wantedMints8359(nowMs: Long = System.currentTimeMillis()): List<String> =
-        wanted.entries.filter { it.value > nowMs }.map { it.key }.sortedBy { lastCurveMarkMs[it] ?: 0L }
+    /** The wanted mints now: the paper book's open positions, then the shadow books', each the longest-unmarked first. */
+    fun wantedMints8359(nowMs: Long = System.currentTimeMillis()): List<String> = bookFirst8808(
+        book8808.entries.filter { it.value > nowMs }.map { it.key }.sortedBy { lastCurveMarkMs[it] ?: 0L },
+        wanted.entries.filter { it.value > nowMs }.map { it.key }.sortedBy { lastCurveMarkMs[it] ?: 0L },
+    )
 
     /** Pure: held mints first (their order), then wanted mints not already held, de-duplicated, at most [cap]. */
     fun priorityOrder8359(held: List<String>, wantedMints: List<String>, cap: Int): List<String> {
@@ -206,12 +249,13 @@ object KeylessMarks8359 {
             for (m in lab) labelCurveMarkMs8418[m] = now
             if (lab.isNotEmpty()) labelCurveMarks8418.addAndGet(lab.size.toLong())
         }
-        if (wanted.isEmpty()) return
+        if (wanted.isEmpty() && book8808.isEmpty()) return
         val mine = prices.filterKeys { com.lifecyclebot.network.PumpCurveKeys7269.isPumpMint8658(it) && isWanted8359(it, now) }
             .filterValues { it.isFinite() && it > 0.0 }
         if (mine.isEmpty()) return
         for (m in mine.keys) lastCurveMarkMs[m] = now
         curveMarks.addAndGet(mine.size.toLong())
+        bookCurveMarks8808.addAndGet(mine.keys.count { isBook8808(it, now) }.toLong())
         try { CandidateMarkFresh8094.applyMarks8359(mine, SOURCE_CURVE_8359) } catch (_: Throwable) {}
     }
 
@@ -231,6 +275,7 @@ object KeylessMarks8359 {
     private fun tick8359(nowMs: Long) {
         ticks.incrementAndGet()
         prune8359(nowMs)
+        pruneBook8808(nowMs)
         pruneLabel8418(nowMs)
         val labelCurveDue8418 = try { tickLabel8418(nowMs) } catch (_: Throwable) { false }
         // V5.0.8418 — one curve pass serves both sets (held, then shadow, then label curves: withWantedCurves8359).
@@ -300,20 +345,25 @@ object KeylessMarks8359 {
         if (wanted.size > MAX_WANTED_8359) {
             wanted.entries.sortedBy { it.value }.take((wanted.size - MAX_WANTED_8359).coerceAtLeast(0)).forEach { wanted.remove(it.key, it.value) }
         }
-        lastCurveMarkMs.keys.removeIf { !wanted.containsKey(it) }
+        lastCurveMarkMs.keys.removeIf { !wanted.containsKey(it) && !book8808.containsKey(it) }
     }
 
     /** keylessMarks8359[wanted=.. noted=.. ticks=.. laneQueued=.. curvePasses=.. curveMarks=..] */
     fun statusLine8359(nowMs: Long = System.currentTimeMillis()): String =
         "keylessMarks8359[wanted=${wanted.count { it.value > nowMs }} noted=${noted.get()} ticks=${ticks.get()} " +
-            "laneQueued=${laneQueued.get()} curvePasses=${curvePasses.get()} curveMarks=${curveMarks.get()}]"
+            "laneQueued=${laneQueued.get()} curvePasses=${curvePasses.get()} curveMarks=${curveMarks.get()} " +
+            "book8808{open=${book8808.count { it.value > nowMs }} noted=${bookNoted8808.get()} curveMarks=${bookCurveMarks8808.get()}}]"
 
     internal fun resetForTests8359() {
         wanted.clear(); lastCurveMarkMs.clear(); lastTickMs = 0L; running.set(false)
+        book8808.clear(); bookNoted8808.set(0L); bookCurveMarks8808.set(0L)
         noted.set(0L); ticks.set(0L); laneQueued.set(0L); curvePasses.set(0L); curveMarks.set(0L)
         labelWanted8418.clear(); labelLaneFailed8527.clear(); labelCurveMarkMs8418.clear()
         labelNoted8418.set(0L); labelLaneQueued8418.set(0L); labelLaneMarks8418.set(0L); labelCurveMarks8418.set(0L); labelCurvePasses8418.set(0L)
     }
+
+    /** V5.0.8808 test seam: register a paper-book mint without starting a pass. */
+    internal fun putBookForTests8808(mint: String, untilMs: Long) { book8808[mint] = untilMs }
 
     /** V5.0.8418 test seam: register a label mint without starting a pass. */
     internal fun putLabelWantedForTests8418(mint: String, untilMs: Long) { labelWanted8418[mint] = untilMs }

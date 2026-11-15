@@ -289,3 +289,22 @@ one-minute tape opens a paper ladder; its fire is admission evidence only once t
 Source of charts: `ChartSources7955`. Solana 1 m / 5 m candle jobs are fetched again under the key prefix `G8807`. The
 top 50 Solana meme coins by one-year gain (CoinGecko category list, found on GeckoTerminal by name) and the famous
 runners are served before every other download origin.
+
+## 15. The paper book prices its own positions (8808)
+
+The 5.0.8802 report, paper meme book by exit: trailing stops about +4.7 SOL (MOONSHOT +29 % a trade), hard stops about
+−15.2 SOL (stops of 4–25 % closing at −23 % to −62 %), and about 800 closes LOST_MARK at exactly −cost. The stop-slip
+line put the first sight of a breached stop 15–17 points under its level. The forward labeler priced the same kind of
+coins 96 % of the time, so the coins were not dead: the book was not being marked.
+
+Cause: the book asked for marks through the shadow books' set (`KeylessMarks8359.wanted`), which sat at its cap of 400
+and feeds 40 curves a read, longest-unmarked first.
+
+Now:
+- `KeylessMarks8359.noteBook8808`: the book's open positions are their own class, never evicted by a shadow ticket, and
+  read after the wallet's held coins and before every shadow and label mint (`wantedMints8359`, `bookFirst8808`).
+- `BotService` subscribes the book's open curves (`CurveTicks7968`) and pools (`GradTicks8018`) after the wallet's held
+  coins (`CurveShapeFeed8236.heldWithBook8808`), so a paper stop is checked on every trade of the coin.
+- The report's `keylessMarks8359[... book8808{open, noted, curveMarks}]` shows the class being served.
+
+The stop rule itself is unchanged (two observed marks, then the measured live sell latency).

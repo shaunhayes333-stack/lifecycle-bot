@@ -77,7 +77,7 @@ class Aate8018RunnerPlayTest {
         assertNull(GradTicks8018.vaults8018(pool, wsol))
         val b = src("engine/BotService.kt")
         // superseded by V5.0.8418 — the feed follows every held pool (any known venue), up to 60
-        assertTrue(b.contains("GradTicks8018.sync8018(openMints.take(60).toSet())"))
+        assertTrue(b.contains("GradTicks8018.sync8018(") && b.contains("heldWithBook8808(openMints.take(60).toSet(), paperOpen8808)"))
         // superseded by V5.0.8418 — the tick names its venue (PumpSwap keeps PUMPSWAP_VAULT_WS_8018 via sourceFor8418)
         assertTrue(b.contains("applyPumpTradeMark7278(mint, priceSol, 0.0, source8418, pool, liq8418)"))
     }

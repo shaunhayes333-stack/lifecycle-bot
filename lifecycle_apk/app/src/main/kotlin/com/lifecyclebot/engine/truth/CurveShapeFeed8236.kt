@@ -49,6 +49,15 @@ object CurveShapeFeed8236 {
         return out
     }
 
+    /** Pure (V5.0.8808): the wallet's held mints, then the paper book's open positions (newest first), at most [BOOK_MAX_8808] of those. */
+    fun heldWithBook8808(held: Set<String>, book: List<String>): Set<String> {
+        val out = LinkedHashSet<String>(held.filter { it.isNotBlank() })
+        var added = 0
+        for (m in book) { if (added >= BOOK_MAX_8808) break; if (m.isNotBlank() && out.add(m)) added++ }
+        return out
+    }
+    private const val BOOK_MAX_8808 = 40
+
     /** BotService open-position tick: the live subscription set for CurveTicks7968. */
     fun subscriptionSetNow8236(held: Set<String>, candidates: Collection<TokenState>, nowMs: Long): Set<String> {
         val set = subscriptionSet8236(

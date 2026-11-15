@@ -12604,12 +12604,21 @@ class BotService : Service() {
                     com.lifecyclebot.network.PumpFunWS.syncTradeSubscriptions7278(curveMints7278)
                     // V5.0.8236 — free curve ticks follow the held curves AND the freshest watched pump candidates, so a
                     // fresh coin's shape / change come from its own curve account instead of waiting on scanner polls.
+                    // V5.0.8808 — the paper book's open positions ride the same free curve ticks, after the wallet's held coins
+                    // and before the watched candidates: its stops were first seen 15-17 points under their level.
+                    val paperOpen8808 = try { com.lifecyclebot.engine.truth.MemePaperTrader8544.openMints8808() } catch (_: Throwable) { emptyList() }
                     com.lifecyclebot.network.CurveTicks7968.sync7968(
-                        com.lifecyclebot.engine.truth.CurveShapeFeed8236.subscriptionSetNow8236(curveMints7278, status.tokens.values, System.currentTimeMillis()),
+                        com.lifecyclebot.engine.truth.CurveShapeFeed8236.subscriptionSetNow8236(
+                            com.lifecyclebot.engine.truth.CurveShapeFeed8236.heldWithBook8808(curveMints7278, paperOpen8808), status.tokens.values, System.currentTimeMillis()),
                     )
                 } catch (_: Throwable) {}
                 // V5.0.8018 — held coins on a PumpSwap pool (graduated) get per-trade vault ticks.
-                try { com.lifecyclebot.network.GradTicks8018.sync8018(openMints.take(60).toSet()) } catch (_: Throwable) {}   // V5.0.8418 — every held pool, any known venue
+                // V5.0.8808 — and the paper book's open positions, after the wallet's.
+                try {
+                    val paperOpen8808 = try { com.lifecyclebot.engine.truth.MemePaperTrader8544.openMints8808() } catch (_: Throwable) { emptyList() }
+                    com.lifecyclebot.network.GradTicks8018.sync8018(
+                        com.lifecyclebot.engine.truth.CurveShapeFeed8236.heldWithBook8808(openMints.take(60).toSet(), paperOpen8808))   // V5.0.8418 — every held pool, any known venue
+                } catch (_: Throwable) {}
 
                 if (openMints.isEmpty()) {
                     try { PipelineHealthCollector.labelInc("OPEN_POS_TICK_SKIPPED_6983_NO_OPEN_POSITIONS") } catch (_: Throwable) {}

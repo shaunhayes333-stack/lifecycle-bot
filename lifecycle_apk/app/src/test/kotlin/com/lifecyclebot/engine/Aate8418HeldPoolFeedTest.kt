@@ -33,7 +33,7 @@ class Aate8418HeldPoolFeedTest {
         val b = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(b.contains("{ mint, priceSol, pool, source8418, quoteSol8418 ->"))
         assertTrue(b.contains("applyPumpTradeMark7278(mint, priceSol, 0.0, source8418, pool, liq8418)"))
-        assertTrue(b.contains("GradTicks8018.sync8018(openMints.take(60).toSet())"))
+        assertTrue(b.contains("GradTicks8018.sync8018(") && b.contains("heldWithBook8808(openMints.take(60).toSet(), paperOpen8808)"))
     }
 }
 
