@@ -19,8 +19,11 @@ import java.util.concurrent.ConcurrentHashMap
  *           stale price and critical facts still refuse). An ADMIT opens a paper position at the coin's OBSERVED mark
  *           (ShadowMark8360: tick / labeler / curve / tape / pool vaults, at most [ENTRY_MARK_MAX_AGE_MS_8544] old) that at
  *           least one independent read corroborates (PaperFillTruth8539). Nothing is opened on an unknown price or cost.
- *  SIZE   — [STAKE_SOL_8544] per trade from the book's own paper balance (starts at [START_BALANCE_SOL_8544]); at most
- *           [MAX_OPEN_8544] open, [MAX_OPEN_PER_LANE_8544] per lane, one per mint, [REOPEN_GAP_MS_8544] between entries.
+ *  SIZE   — [STAKE_SOL_8544] per trade; at most [MAX_OPEN_8544] open, [MAX_OPEN_PER_LANE_8544] per lane, one per mint,
+ *           [REOPEN_GAP_MS_8544] between entries. V5.0.8788: the book is a measuring instrument, so its own past losses never
+ *           stop it measuring. Its balance ([START_BALANCE_SOL_8544] plus the realised result, less open stakes) is reported
+ *           and may go negative; exposure is bounded by the slots alone. (8757: it lost 8.8 of 10 SOL, then refused 14,525
+ *           candidates for want of paper balance, and the paper MOONSHOT book the live mirror follows stopped growing its record.)
  *  EXITS  — the live levers of that lane: the stop live holds (ShadowAlign8366.liveStopLevel8366 — the lane stop widened
  *           past the round trip, the cost-armed break-even, a runner's green floor), the runner ladder on born-runner lanes
  *           (RunnerGrab7967.TIERS_7967) else the scalp ladder (SpikeCapture7943.TIERS), and the lane clock (10 min on a
@@ -97,23 +100,21 @@ object MemePaperTrader8544 {
     }
 
     /** Pure: may a new paper position open now? null = yes, else why not. */
-    fun roomFor8544(openTotal: Int, openInLane: Int, mintOpen: Boolean, sinceLastEntryMs: Long, balanceSol: Double): String? = when {
+    fun roomFor8544(openTotal: Int, openInLane: Int, mintOpen: Boolean, sinceLastEntryMs: Long): String? = when {
         mintOpen -> "MINT_OPEN"
         openTotal >= MAX_OPEN_8544 -> "BOOK_FULL"
         openInLane >= MAX_OPEN_PER_LANE_8544 -> "LANE_FULL"
         sinceLastEntryMs in 0L until REOPEN_GAP_MS_8544 -> "REOPEN_GAP"
-        balanceSol < STAKE_SOL_8544 -> "NO_PAPER_BALANCE"
         else -> null
     }
 
     /** Separate bounded family capacity, which never consumes the 40 ordinary paper strategy slots. */
     fun roomForFamily8644(openTotal: Int, openFamilies: Int, openInFamily: Int, mintOpen: Boolean,
-                           sinceLastEntryMs: Long, balanceSol: Double): String? = when {
+                           sinceLastEntryMs: Long): String? = when {
         mintOpen -> "MINT_OPEN"
         openTotal >= MAX_OPEN_8544 + MAX_FAMILY_OPEN_8644 || openFamilies >= MAX_FAMILY_OPEN_8644 -> "FAMILY_BOOK_FULL"
         openInFamily >= MAX_OPEN_PER_LANE_8544 -> "LANE_FULL"
         sinceLastEntryMs in 0L until REOPEN_GAP_MS_8544 -> "REOPEN_GAP"
-        balanceSol < STAKE_SOL_8544 -> "NO_PAPER_BALANCE"
         else -> null
     }
 
@@ -129,7 +130,7 @@ object MemePaperTrader8544 {
         restore8544()
         val lane = candidate.lane.trim().uppercase()
         val why = roomFor8544(ordinaryOpen8644(), open.values.count { it.lane == lane }, open.containsKey(ts.mint),
-            nowMs - (lastEntryAt[ts.mint] ?: Long.MIN_VALUE / 2), balanceSol)
+            nowMs - (lastEntryAt[ts.mint] ?: Long.MIN_VALUE / 2))
         if (why != null) { if (why != "MINT_OPEN") skip(why); return }
         val paper = CandidateAdmission8136.decide8136(candidate.copy(live = false, liveEdge8114 = null)) { false }
         if (paper.terminal != CandidateAdmission8136.Terminal8136.ADMIT) { skip("PAPER_REFUSED"); return }
@@ -156,8 +157,8 @@ object MemePaperTrader8544 {
         val since = nowMs - (lastEntryAt[p.mint] ?: Long.MIN_VALUE / 2)
         val inLane = open.values.count { it.lane == p.lane }
         val why = if (p.lane.startsWith(FAMILY_PREFIX_8546))
-            roomForFamily8644(open.size, familyOpen8644(), inLane, open.containsKey(p.mint), since, balanceSol)
-        else roomFor8544(ordinaryOpen8644(), inLane, open.containsKey(p.mint), since, balanceSol)
+            roomForFamily8644(open.size, familyOpen8644(), inLane, open.containsKey(p.mint), since)
+        else roomFor8544(ordinaryOpen8644(), inLane, open.containsKey(p.mint), since)
         if (why != null) return false
         open[p.mint] = p
         lastEntryAt[p.mint] = nowMs
@@ -510,7 +511,7 @@ object MemePaperTrader8544 {
         restore8544()
         val book = "$FAMILY_PREFIX_8546${signal.family.name}"
         val why = roomForFamily8644(open.size, familyOpen8644(), open.values.count { it.lane == book }, open.containsKey(ts.mint),
-            nowMs - (lastEntryAt[ts.mint] ?: Long.MIN_VALUE / 2), balanceSol)
+            nowMs - (lastEntryAt[ts.mint] ?: Long.MIN_VALUE / 2))
         if (why != null) { if (why != "MINT_OPEN") skip("FAMILY_$why"); return }
         val cost = try { NetEdge8030.entryCost8209(ts, signal.exitLane, STAKE_SOL_8544).costPct } catch (_: Throwable) { Double.NaN }
         if (!cost.isFinite() || cost < 0.0) { skip("FAMILY_COST_UNKNOWN"); return }

@@ -268,14 +268,62 @@ object LaunchReplay8744 {
                 val res = evaluate8748(set, solUsd, cost)
                 val need = try { LaunchSniper8748.requiredDelayMs8749() } catch (_: Throwable) { ARM_MIN_DELAY_MS_8748 }
                 last = res; proven = provenOf8748(res, need); shadow = shadowOf8748(res, need)
+                // V5.0.8788 — the ladders on the same launches as the rule the sniper watches (or the best graded one)
+                (shadow ?: res.firstOrNull { it.n >= MIN_N })?.rule?.let { base ->
+                    try { paired = pairedLadders8788(set, base, solUsd, cost); pairedBase = base } catch (_: Throwable) {}
+                }
                 try { BaseFamily8754.evaluate8754(set, solUsd, cost, need) } catch (_: Throwable) {}   // V5.0.8754 the base family, same paths
                 try { SmartMoney8756.evaluate8756(set, walletNames, cost, need) } catch (_: Throwable) {}            // V5.0.8756 the wallets, same paths
                 paths8755 = set; solUsd8755 = solUsd; cost8755 = cost
                 val births = try { LaunchHour8628.births8749(nowMs) } catch (_: Throwable) { -1 }
-                status = "ran births48h=$births launches>=20prints=${set.size} withLivePrints=$liveN needDelay=${need / 1000}s spikesDropped=$spikes solUsd=${"%.0f".format(solUsd)} cost=${"%.1f".format(cost)}%"
+                status = "ran births48h=$births launches>=3prints=${set.size} withLivePrints=$liveN needDelay=${need / 1000}s spikesDropped=$spikes solUsd=${"%.0f".format(solUsd)} cost=${"%.1f".format(cost)}%"
             } catch (t: Throwable) { status = "failed:${t.javaClass.simpleName}" } finally { running.set(false) }
         }
     }
+
+    /** V5.0.8788 — one ladder against DOCTRINE on the same launches: entries, mean per-launch difference (points), its SE. */
+    data class Paired8788(val ladder: Ladder, val n: Int, val meanDiff: Double, val se: Double) {
+        /** Beats (or loses to) DOCTRINE by more than two SEs of the paired difference, on at least [PROVEN_MIN_N_8748] launches. */
+        val verdict: String get() = when {
+            n < PROVEN_MIN_N_8748 || !se.isFinite() -> "thin"
+            meanDiff - 2.0 * se > 0.0 -> "BEATS_DOCTRINE"
+            meanDiff + 2.0 * se < 0.0 -> "WORSE"
+            else -> "same"
+        }
+    }
+
+    /**
+     * V5.0.8788 — pure: every ladder run on the SAME launches as [base] (its trigger, take, stop and delay), each compared with
+     * DOCTRINE launch by launch. Ranking ladders by their own ex-top-3 means compared different noise: 8757 read DOCTRINE
+     * -1.5 ± 5.2 against MOONBAG +9.4 ± 8.6 and could not say which exit keeps more. The paired difference cancels the coin
+     * (the 8757 launch export, offline: ladder differences of 0-3 points at ±1-1.5, none past two SEs).
+     */
+    internal fun pairedLadders8788(launches: List<Path8748>, base: Rule, solUsd: Double, costPct: Double): List<Paired8788> {
+        val diffs = Ladder.values().associateWith { ArrayList<Double>() }
+        for (x in launches) {
+            if (x.t.isEmpty()) continue
+            val trig = trigger8748(x, base.capUsd, base.minBuys, solUsd)
+            if (trig < 0) continue
+            val d = run8748(x, trig, base.copy(ladder = Ladder.DOCTRINE), costPct) ?: continue
+            for (l in Ladder.values()) if (l != Ladder.DOCTRINE) run8748(x, trig, base.copy(ladder = l), costPct)?.let { diffs.getValue(l).add(it - d) }
+        }
+        return diffs.filterKeys { it != Ladder.DOCTRINE }.map { (l, v) ->
+            if (v.size < 2) Paired8788(l, v.size, Double.NaN, Double.NaN) else {
+                val m = v.average(); val sd = kotlin.math.sqrt(v.sumOf { (it - m) * (it - m) } / (v.size - 1))
+                Paired8788(l, v.size, m, sd / kotlin.math.sqrt(v.size.toDouble()))
+            }
+        }
+    }
+
+    @Volatile private var paired: List<Paired8788> = emptyList()
+    @Volatile private var pairedBase: Rule? = null
+
+    /** V5.0.8788 — the last run's paired ladder comparison as a report line. */
+    internal fun pairedLine8788(): String = "pairedLadders{" + (pairedBase?.let { b ->
+        "on ${b.id.substringBefore(" ${b.ladder}")} +${b.delayMs / 1000}s vs DOCTRINE: " + paired.joinToString(" ") {
+            "${it.ladder}=${if (it.meanDiff.isFinite()) "%+.1f".format(it.meanDiff) else "-"}±${if (it.se.isFinite()) "%.1f".format(it.se) else "-"}/n${it.n}/${it.verdict}"
+        }
+    } ?: "-") + "}"
 
     /** V5.0.8756 — pure: each exit ladder's best rule (n >= MIN_N, by the ex-top-3 mean less its SE): which exit keeps more of a run. */
     internal fun ladderLine8756(results: List<Result>): String = "ladders{" + Ladder.values().joinToString(" ") { l ->
@@ -291,7 +339,7 @@ object LaunchReplay8744 {
     fun statusLine8744(): String {
         maybeRun8744()
         val top = last.take(5).joinToString(" · ") { line(it) }.ifBlank { "-" }
-        return "launchReplay8744[$status rules=${GRID.size} proven{${proven?.let { line(it) } ?: "none"}} ${ladderLine8756(last)} " +
+        return "launchReplay8744[$status rules=${GRID.size} proven{${proven?.let { line(it) } ?: "none"}} ${ladderLine8756(last)} ${pairedLine8788()} " +
             "shadow{${shadow?.let { line(it) } ?: "none"}} best{$top} rule=live prints only, spikes dropped, fills at the curve after " +
             "the latency, ranked by the mean without each rule's 3 best launches; proven = DOCTRINE ladder, >=${ARM_MIN_DELAY_MS_8748 / 1000}s, " +
             "n>=$PROVEN_MIN_N_8748, ex-top-3 mean - SE > 0]"

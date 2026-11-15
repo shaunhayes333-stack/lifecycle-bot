@@ -26,12 +26,13 @@ class Aate8544MemePaperTraderTest {
     }
 
     @Test fun theBookHasRoomRules() {
-        assertNull(MemePaperTrader8544.roomFor8544(0, 0, false, Long.MAX_VALUE / 4, 10.0))
-        assertEquals("MINT_OPEN", MemePaperTrader8544.roomFor8544(0, 0, true, Long.MAX_VALUE / 4, 10.0))
-        assertEquals("BOOK_FULL", MemePaperTrader8544.roomFor8544(MemePaperTrader8544.MAX_OPEN_8544, 0, false, Long.MAX_VALUE / 4, 10.0))
-        assertEquals("LANE_FULL", MemePaperTrader8544.roomFor8544(1, MemePaperTrader8544.MAX_OPEN_PER_LANE_8544, false, Long.MAX_VALUE / 4, 10.0))
-        assertEquals("REOPEN_GAP", MemePaperTrader8544.roomFor8544(1, 1, false, MemePaperTrader8544.REOPEN_GAP_MS_8544 - 1, 10.0))
-        assertEquals("NO_PAPER_BALANCE", MemePaperTrader8544.roomFor8544(1, 1, false, Long.MAX_VALUE / 4, MemePaperTrader8544.STAKE_SOL_8544 / 2))
+        assertNull(MemePaperTrader8544.roomFor8544(0, 0, false, Long.MAX_VALUE / 4))
+        assertEquals("MINT_OPEN", MemePaperTrader8544.roomFor8544(0, 0, true, Long.MAX_VALUE / 4))
+        assertEquals("BOOK_FULL", MemePaperTrader8544.roomFor8544(MemePaperTrader8544.MAX_OPEN_8544, 0, false, Long.MAX_VALUE / 4))
+        assertEquals("LANE_FULL", MemePaperTrader8544.roomFor8544(1, MemePaperTrader8544.MAX_OPEN_PER_LANE_8544, false, Long.MAX_VALUE / 4))
+        assertEquals("REOPEN_GAP", MemePaperTrader8544.roomFor8544(1, 1, false, MemePaperTrader8544.REOPEN_GAP_MS_8544 - 1))
+        // V5.0.8788 — a measuring book: its past losses never close it (only the slots bound its exposure)
+        assertFalse(trader.contains("NO_PAPER_BALANCE"))
         assertEquals(10.0, MemePaperTrader8544.START_BALANCE_SOL_8544, 0.0)
     }
 
@@ -40,13 +41,12 @@ class Aate8544MemePaperTraderTest {
         val family = MemePaperTrader8544.MAX_FAMILY_OPEN_8644
         val fresh = Long.MAX_VALUE / 4
         val room = MemePaperTrader8544::roomForFamily8644
-        assertNull("forty ordinary opens cannot starve an event family", room(ordinary, 0, 0, false, fresh, 5.0))
-        assertNull(room(ordinary + family - 1, family - 1, 2, false, fresh, 5.0))
-        assertEquals("FAMILY_BOOK_FULL", room(ordinary + family, family, 2, false, fresh, 5.0))
-        assertEquals("FAMILY_BOOK_FULL", room(family, family, 2, false, fresh, 5.0))
-        assertEquals("MINT_OPEN", room(ordinary, 0, 0, true, fresh, 5.0))
-        assertEquals("NO_PAPER_BALANCE", room(ordinary, 0, 0, false, fresh, 0.0))
-        assertEquals("BOOK_FULL", MemePaperTrader8544.roomFor8544(ordinary, 0, false, fresh, 5.0))
+        assertNull("forty ordinary opens cannot starve an event family", room(ordinary, 0, 0, false, fresh))
+        assertNull(room(ordinary + family - 1, family - 1, 2, false, fresh))
+        assertEquals("FAMILY_BOOK_FULL", room(ordinary + family, family, 2, false, fresh))
+        assertEquals("FAMILY_BOOK_FULL", room(family, family, 2, false, fresh))
+        assertEquals("MINT_OPEN", room(ordinary, 0, 0, true, fresh))
+        assertEquals("BOOK_FULL", MemePaperTrader8544.roomFor8544(ordinary, 0, false, fresh))
         assertTrue(trader.contains("roomForFamily8644(open.size, familyOpen8644()"))
     }
 

@@ -117,12 +117,6 @@ object LaunchHour8628 {
         }
     }
 
-    /**
-     * V5.0.8744 — LaunchReplay8744's read: each stored launch (born in the retention window, >= [PATH_MIN_PRINTS_8741]
-     * prints) with its first-hour prints in time order: times (ms from birth), prices (SOL/token), buy flags, and (V5.0.8748)
-     * whether each print reached this process live: received within [liveLagMs] of its chain time (rows from before 8748
-     * carry no receive time and are not live). Read-only.
-     */
     /** V5.0.8749 — launches born in the last 48 h (the replay's coverage denominator). Read-only; -1 when unreadable. */
     internal fun births8749(now: Long): Int {
         val ctx = AATEApp.appContextOrNull() ?: return -1
@@ -132,10 +126,6 @@ object LaunchHour8628 {
         }
     }
 
-    internal fun forEachLaunch8744(now: Long, maxLaunches: Int, liveLagMs: Long,
-                                   cb: (mint: String, t: LongArray, p: DoubleArray, buy: BooleanArray, live: BooleanArray) -> Unit) =
-        forEachLaunch8756(now, maxLaunches, liveLagMs, ArrayList()) { r -> cb(r.mint, r.t, r.p, r.buy, r.live) }
-
     /**
      * V5.0.8756 — one stored launch with everything the replays grade: [bornMs] (wall clock), times from birth, prices,
      * sides, live flags, SOL sizes (0 when unrecorded) and trader wallets as ids into [walletNames] (-1 when the feed or an
@@ -144,6 +134,17 @@ object LaunchHour8628 {
     internal class Launch8756(val mint: String, val bornMs: Long, val t: LongArray, val p: DoubleArray, val buy: BooleanArray,
                               val live: BooleanArray, val sol: DoubleArray, val wallet: IntArray)
 
+    /**
+     * V5.0.8744 — LaunchReplay8744's read: each stored launch born in the retention window with its first-hour prints in time
+     * order: times (ms from birth), prices (SOL/token), buy flags, and (V5.0.8748) whether each print reached this process
+     * live: received within [liveLagMs] of its chain time (rows from before 8748 carry no receive time and are not live).
+     * Read-only.
+     *
+     * V5.0.8788 — every launch with at least [REPLAY_MIN_PRINTS_8788] prints, not only those that went on to print
+     * [PATH_MIN_PRINTS_8741]: a hour-total filter is knowledge of the future. A rule that fired at its 15th buy on a coin
+     * that then died at 17 prints was dropped from its own record, so every launch rule (and the base family and smart
+     * money, graded on the same paths) was scored on survivors. The export keeps its 20-print floor.
+     */
     internal fun forEachLaunch8756(now: Long, maxLaunches: Int, liveLagMs: Long, walletNames: MutableList<String>, cb: (Launch8756) -> Unit) {
         val ids = HashMap<String, Int>()
         walletNames.forEachIndexed { i, w -> ids[w] = i }
@@ -171,7 +172,7 @@ object LaunchHour8628 {
                             ws.add(if (w.isBlank()) -1 else ids.getOrPut(w) { walletNames.add(w); walletNames.size - 1 })
                         }
                     }
-                    if (ts.size >= PATH_MIN_PRINTS_8741) cb(Launch8756(mint, born, ts.toLongArray(), ps.toDoubleArray(), bs.toBooleanArray(),
+                    if (ts.size >= REPLAY_MIN_PRINTS_8788) cb(Launch8756(mint, born, ts.toLongArray(), ps.toDoubleArray(), bs.toBooleanArray(),
                         ls.toBooleanArray(), vs.toDoubleArray(), ws.toIntArray()))
                 }
             }
@@ -179,6 +180,7 @@ object LaunchHour8628 {
     }
 
     private const val PATH_MIN_PRINTS_8741 = 20
+    private const val REPLAY_MIN_PRINTS_8788 = 3
     private const val BAR_MS_8741 = 10_000L
 
     /** One launch's first hour as 10-second bars: [secFromBirth, open, high, low, close, buys, sells, buySol, sellSol]. */
