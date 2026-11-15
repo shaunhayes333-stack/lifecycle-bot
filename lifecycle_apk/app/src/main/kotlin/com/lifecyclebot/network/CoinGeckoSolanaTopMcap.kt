@@ -162,6 +162,6 @@ class CoinGeckoSolanaTopMcap {
             .header("User-Agent", "AATE/5.0 (Solana trader)")
             .build()
         val resp = HealthAwareHttp.execute(http, req, host = "coingecko")
-        if (resp.isSuccessful) resp.body?.string() else null
+        resp.use { if (it.isSuccessful) it.body?.string() else null }   // V5.0.8773 — closed on every path
     } catch (_: Exception) { null }
 }

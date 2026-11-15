@@ -10568,7 +10568,8 @@ class GoldenTapeRegressionTest {
         // V5.0.8018 — the registry publish carries the trade mark's source parameter.
         assertTrue(bot.contains("source = source8018,") && bot.contains("source8018: String = \"PUMP_PORTAL_TRADE_WS_7278\""))
         assertTrue(bot.contains("PUMP_TRADE_MARK_REGISTRY_PUBLISHED_7279"))
-        assertTrue(ws.contains("onTradeCb?.invoke(mint, priceSol0, marketCapSol, true)"))
+        // superseded by V5.0.8773 — the create and its t=0 mark run on the create intake thread; was: onTradeCb?.invoke(mint, priceSol0, ...).
+        assertTrue(ws.contains("tradeCb8773?.invoke(mint, priceSol0, marketCapSol, true)"))
         assertTrue(ws.contains("PUMP_WS_FRAME_7279_"))
         assertTrue(ws.contains("PUMP_TRADE_SUBSCRIBED_MINTS_7279"))
 

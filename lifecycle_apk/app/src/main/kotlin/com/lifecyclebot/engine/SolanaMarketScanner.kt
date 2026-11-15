@@ -4583,6 +4583,7 @@ class SolanaMarketScanner(
 
             val resp = rugcheckHttp.newCall(request).execute()
             if (!resp.isSuccessful) {
+                resp.close()   // V5.0.8773 — code audit (discovery F6): an error response is closed
                 ErrorLogger.debug("Scanner", "Rugcheck API failed for ${mint.take(8)}, passing through")
                 return true
             }
@@ -4852,6 +4853,9 @@ class SolanaMarketScanner(
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SYNTHETIC_BLOCK_NOT_RECORDED_6976") } catch (_: Throwable) {}
         }
 
+        // V5.0.8773 — code audit (discovery F6): the error branches returned without closing the response, so every
+        // 429 / 403 / 5xx held a pooled connection and its body until GC. The response is closed on every path.
+        resp.use {
         if (resp.isSuccessful) {
             val body = resp.body?.string()
             if (body != null && (body.trim().startsWith("{") || body.trim().startsWith("["))) {
@@ -4869,6 +4873,7 @@ class SolanaMarketScanner(
                 else -> ErrorLogger.warn("Scanner", "[NETWORK] HTTP ${resp.code} from ${url.take(50)}")
             }
             null
+        }
         }
     } catch (e: java.net.SocketTimeoutException) {
         ErrorLogger.debug("Scanner", "[NETWORK/TIMEOUT] ${url.take(50)}")

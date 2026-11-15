@@ -1102,12 +1102,20 @@ object PumpFunWS {
                         createStreamObserved7432.set(true)
                         registerFreshLifecycle7420(mint)
                         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_CREATE_STREAM_ACTIVE_7432") } catch (_: Throwable) {}
-                        onNewTokenCb?.invoke(mint, symbol, name, marketCapSol)
-                        if (priceSol0.isFinite() && priceSol0 > 0.0) {
-                            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_CREATE_MARK_EMITTED_7279") } catch (_: Throwable) {}
-                            // V5.0.8136 — a mark only: the trade callback's side flag is ignored by its reader and this
-                            // emission never reaches the buyer tape (onTradeDetailCb7743 / TradeTape8100 get swaps only).
-                            onTradeCb?.invoke(mint, priceSol0, marketCapSol, true)
+                        // V5.0.8773 — code audit (discovery F5): the create intake (~1,000 lines, global monitors) ran on this
+                        // WebSocket reader thread, so while a scanner or the bot loop held the registry / token-map monitor every
+                        // frame queued behind it (creates and held-coin marks late). It runs on its own single thread, in order;
+                        // the create's mark follows its admission there. A full queue runs it here, as before (never dropped).
+                        val createCb8773 = onNewTokenCb
+                        val tradeCb8773 = onTradeCb
+                        runCreateIntake8773 {
+                            createCb8773?.invoke(mint, symbol, name, marketCapSol)
+                            if (priceSol0.isFinite() && priceSol0 > 0.0) {
+                                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_CREATE_MARK_EMITTED_7279") } catch (_: Throwable) {}
+                                // V5.0.8136 — a mark only: the trade callback's side flag is ignored by its reader and this
+                                // emission never reaches the buyer tape (onTradeDetailCb7743 / TradeTape8100 get swaps only).
+                                tradeCb8773?.invoke(mint, priceSol0, marketCapSol, true)
+                            }
                         }
                     }
                     txType == "migrate" || j.optString("event", "") == "migration" -> {
@@ -1169,6 +1177,21 @@ object PumpFunWS {
      * priced as a pump.fun curve only when its pool is the pump curve ("" or "pump") AND the mint is a pump.fun mint.
      * Other launchpads' coins are priced by the venues that list them (DexScreener / Jupiter / pool vaults).
      */
+    /** V5.0.8773 — the create intake's own single thread (bounded queue; a full queue runs the work on the caller). */
+    private val createIntake8773 = java.util.concurrent.ThreadPoolExecutor(1, 1, 0L, java.util.concurrent.TimeUnit.MILLISECONDS,
+        java.util.concurrent.LinkedBlockingQueue<Runnable>(CREATE_QUEUE_8773),
+        { r -> Thread(r, "pumpportal-create-8773").apply { isDaemon = true } },
+        java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy())
+    const val CREATE_QUEUE_8773 = 4_096
+
+    internal fun runCreateIntake8773(work: () -> Unit) {
+        try {
+            createIntake8773.execute {
+                try { work() } catch (t: Throwable) { try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMPPORTAL_CREATE_INTAKE_ERROR_8773") } catch (_: Throwable) {} }
+            }
+        } catch (_: Throwable) { try { work() } catch (_: Throwable) {} }
+    }
+
     internal fun pumpCurveFrame8657(pool: String, mint: String): Boolean {
         val p = pool.trim().lowercase()
         return (p.isEmpty() || p == "pump") && PumpCurveKeys7269.isPumpMint8658(mint)

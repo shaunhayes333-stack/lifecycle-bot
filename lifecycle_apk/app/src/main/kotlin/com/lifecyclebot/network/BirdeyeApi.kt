@@ -714,7 +714,7 @@ class BirdeyeApi(private val apiKey: String = "") {
                     resp.body?.string()
                 }
                 else -> null
-            }
+            }.also { try { resp.close() } catch (_: Throwable) {} }   // V5.0.8773 — code audit (discovery F6): closed on every path
         } catch (_: Exception) { null }
     }
 
