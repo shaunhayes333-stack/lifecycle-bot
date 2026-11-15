@@ -2196,7 +2196,10 @@ object ForwardReturnLabeler7731 {
         try {
             val px = priceFor(mint)
             val ts = com.lifecyclebot.engine.BotService.status.tokens[mint]
-            if (px != null && ts != null && ts.mint == mint && ts.lastPrice == px)
+            // V5.0.8764 — code audit (data P0-3): a seed held as the token-state price is not a mark. 8627 refused it as the
+            // decision's basis at observe(), but tick() adopted it as the basis (adoptBasis8418 / adoptLateBasis8524) and as the
+            // outcome mark through this candidate. It is re-stamped "now" on every intake sighting, so it passed every age check.
+            if (px != null && ts != null && ts.mint == mint && ts.lastPrice == px && !TokenFacts.seedPrice8559(ts.lastPriceSource))
                 candidates.add(LabelMark8386(mint, ts.lastPriceDex, px, ts.lastPriceUpdate, nowMs, "TOKEN_STATE"))
         } catch (_: Exception) {}
         // V5.0.8571 — a cross-asset identity (crypto desk, multi-chain meme pair) is priced by its own feed with that feed's

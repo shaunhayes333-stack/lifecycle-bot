@@ -192,8 +192,15 @@ object TokenFacts {
 
     const val SEED_YIELD_MS = 150_000L
 
-    /** Pure (V5.0.8559): a price derived from a cap / supply or a curve synthesis, not observed in a trade or a pool. */
-    fun seedPrice8559(source: String?): Boolean = source == "PUMP_FUN_BC_SYNTHETIC" || source == EntryBasisSeed7280.CHAIN_SUPPLY_CAP_SEED
+    /**
+     * Pure (V5.0.8559): a price derived from a cap / supply or a curve synthesis, not observed in a trade or a pool.
+     * V5.0.8764 — code audit (data P0-3): matched two exact labels and missed PUMP_FUN_SOURCE_NATIVE_MCAP_SEED_6401 (and any
+     * other synthetic label), which then escaped the seed-yield rule here and the label-basis rule (8627). Matched by kind.
+     */
+    fun seedPrice8559(source: String?): Boolean {
+        val s = source?.uppercase() ?: return false
+        return s.contains("SYNTHETIC") || s.contains("CAP_SEED")
+    }
 
     /** The price [ts] holds, as a fact: the store's, else its legacy fields read as one (null when it has no price). */
     fun priceFact(ts: TokenState): Fact? = ts.facts8551[Field.PRICE_USD]
