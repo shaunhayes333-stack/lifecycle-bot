@@ -33,7 +33,7 @@ class Aate8759StopAndTrailOrderTest {
     }
 
     @Test fun the_trail_prices_on_a_peak_two_marks_agree_on() {
-        assertEquals("a one-print phantom does not set the peak", 30.0, RunnerDoctrine8584.twoMarkPeak8759(30.0, 40.0, 12_105.0), 1e-9)
+        assertEquals("a one-print phantom does not set the peak: the two marks agree on +40 %", 40.0, RunnerDoctrine8584.twoMarkPeak8759(30.0, 40.0, 12_105.0), 1e-9)
         assertEquals(60.0, RunnerDoctrine8584.twoMarkPeak8759(30.0, 60.0, 65.0), 1e-9)
         val k = "pos8759"
         var at = 1_000L
