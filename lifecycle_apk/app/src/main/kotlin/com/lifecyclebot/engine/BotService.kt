@@ -32,7 +32,9 @@ class BotService : Service() {
     companion object {
         // V5.0.8450 — the loop's sleep bounds (seconds); see pollMs8450.
         const val POLL_MIN_S_8450 = 3
-        const val POLL_MAX_S_8450 = 8
+        // V5.0.8772 — code audit (discovery F3): 5 s, the BotConfig default (was 8: the tuned value sat at the clamp, so every
+        // price refresh, entry and label waited 8 s on a loop body of tens of ms).
+        const val POLL_MAX_S_8450 = 5
 
         /** Pure (V5.0.8450): the seconds the bot loop sleeps for a configured [pollSeconds]. */
         fun pollSecondsFor8450(pollSeconds: Int): Int = pollSeconds.coerceIn(POLL_MIN_S_8450, POLL_MAX_S_8450)

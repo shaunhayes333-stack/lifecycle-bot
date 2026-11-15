@@ -1480,7 +1480,11 @@ class SolanaMarketScanner(
         ErrorLogger.info("Scanner", "scanLoop() entered")
         while (isRunning) {
             val c = cfg()
-            val scanIntervalMs = maxOf(c.scanIntervalSecs * 1000L, 10_000L)
+            // V5.0.8772 — code audit (discovery F4): the LLM tuner could set scanIntervalSecs to 60 s and nothing clamped it
+            // (8756 log: 6 deep-scan batches in 333 s), so every non-WS feed arrived ~5x late. The interval is clamped to the
+            // designed cadence and run at a fixed rate: the batch's own duration is subtracted from the wait.
+            val scanIntervalMs = ScanCadence8772.scanIntervalMs8772(c.scanIntervalSecs)
+            val batchStart8772 = System.currentTimeMillis()
             ErrorLogger.debug("Scanner", "Scan interval: ${scanIntervalMs}ms")
 
             try {
@@ -1716,7 +1720,7 @@ class SolanaMarketScanner(
                 onLog("Scanner: ${e.message?.take(50)}")
             }
 
-            delay(scanIntervalMs)
+            delay(ScanCadence8772.fixedRateWaitMs8772(scanIntervalMs, System.currentTimeMillis() - batchStart8772))
         }
     }
 

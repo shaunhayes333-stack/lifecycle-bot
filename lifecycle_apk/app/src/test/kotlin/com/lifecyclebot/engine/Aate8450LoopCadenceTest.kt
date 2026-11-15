@@ -15,14 +15,16 @@ class Aate8450LoopCadenceTest {
     private fun src(p: String) = File("src/main/kotlin/com/lifecyclebot/$p").readText()
 
     @Test fun theLoopSleepsAtMostEightSeconds() {
-        assertEquals(8, BotService.pollSecondsFor8450(30))
+        // superseded by V5.0.8772 — the ceiling is 5 s; was: assertEquals(8, pollSecondsFor8450(30)).
+        assertEquals(5, BotService.pollSecondsFor8450(30))
         assertEquals(5, BotService.pollSecondsFor8450(5))
         assertEquals(3, BotService.pollSecondsFor8450(0))
         val bs = src("engine/BotService.kt")
         assertFalse(bs.contains("delay(cfg.pollSeconds * 1000L)"))
         assertEquals(2, Regex("delay\\(pollMs8450\\(cfg\\)\\)").findAll(bs).count())
         val tuner = src("engine/LlmParameterTuner.kt")
-        assertTrue(tuner.contains("min = 3.0, max = 8.0, maxStep = 5.0"))
+        // superseded by V5.0.8772 — the tuner ceiling is 5 s; was: "min = 3.0, max = 8.0, maxStep = 5.0".
+        assertTrue(tuner.contains("min = 3.0, max = 5.0, maxStep = 2.0"))
         assertTrue(LlmParameterTuner.isAllowedKey("pollSeconds"))
     }
 

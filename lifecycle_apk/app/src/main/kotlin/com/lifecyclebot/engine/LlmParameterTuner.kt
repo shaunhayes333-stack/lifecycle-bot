@@ -76,7 +76,7 @@ object LlmParameterTuner {
         "pollSeconds" to ParamSpec(
             { it.pollSeconds.toDouble() },
             { c, v -> c.copy(pollSeconds = v.toInt()) },
-            min = 3.0, max = 8.0, maxStep = 5.0
+            min = 3.0, max = 5.0, maxStep = 2.0   // V5.0.8772 — the loop clamps to 5 s (was max 8)
         ),
         // V5.0.8363 — slippageBps removed: it feeds partial-TP and orphan sells, and the advisor tightened it with a
         // forced agreement. Advisory-only now (AdvisorKeyAuthority8353.ADVISORY_ONLY_KEYS_8353), like 8353's keys.
@@ -145,7 +145,7 @@ object LlmParameterTuner {
         "scanIntervalSecs" to ParamSpec(
             { it.scanIntervalSecs.toDouble() },
             { c, v -> c.copy(scanIntervalSecs = v.toInt()) },
-            min = 3.0, max = 60.0, maxStep = 10.0
+            min = 10.0, max = 15.0, maxStep = 2.0   // V5.0.8772 — the scanner clamps to [10, 15] s (was 3..60)
         ),
         // 8365: minDiscoveryScore deliberately excluded. Its config value has no
         // decision-path consumer: changing it looks like learning in the advisor

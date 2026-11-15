@@ -10638,7 +10638,7 @@ This cannot be undone!
             smallBuySol           = etSmallBuy.text.toString().toDoubleOrNull() ?: 0.05,
             largeBuySol           = etLargeBuy.text.toString().toDoubleOrNull() ?: 0.10,
             slippageBps           = etSlippage.text.toString().toIntOrNull() ?: 200,
-            pollSeconds           = etPoll.text.toString().toIntOrNull() ?: 8,
+            pollSeconds           = etPoll.text.toString().toIntOrNull() ?: 5,   // V5.0.8772 — the BotConfig default (was 8)
             rpcUrl                = etRpc.text.toString().trim().ifBlank { "https://api.mainnet-beta.solana.com" },
             treasuryWalletAddress = etTreasuryWalletAddress.text.toString().trim(),
             telegramBotToken      = etTgBotToken.text.toString().trim(),

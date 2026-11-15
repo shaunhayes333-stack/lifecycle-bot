@@ -264,6 +264,32 @@ object GlobalTradeRegistry {
      * stays the first one, so a coin trending lists re-serve every few minutes ages out of the selector's 120 s fresh tier
      * and into the oldest-admission eviction order (WatchlistEviction8398) like any other coin.
      */
+    /**
+     * V5.0.8772 §AN_EVICTED_COIN_IS_NOT_NEW — code audit (discovery F1): LRU / ranker / stale eviction removed a coin and the
+     * next list still carrying it re-emitted it 30 s later as a NEW entry (addedAt = now, processCount = 0): back in the
+     * selector's fresh tier and protected from eviction for 5 minutes as "undecided", evicting a one-off launch in its place
+     * (log: WATCHLIST_LRU_EVICT_6287=30 in 333 s at the 200 cap). The 8631 fix (one admission time) held only while a coin
+     * stayed watched. A removed coin's first admission and evaluation count are remembered for [EVICTED_TTL_MS_8772].
+     */
+    const val EVICTED_TTL_MS_8772 = 45L * 60_000L
+    private const val EVICTED_CAP_8772 = 4_000
+    private val removed8772 = java.util.concurrent.ConcurrentHashMap<String, Triple<Long, Int, Long>>()
+
+    private fun rememberRemoved8772(entry: WatchlistEntry, now: Long = System.currentTimeMillis()) {
+        if (removed8772.size >= EVICTED_CAP_8772) removed8772.entries.removeIf { now - it.value.third > EVICTED_TTL_MS_8772 }
+        if (removed8772.size >= EVICTED_CAP_8772) return
+        val prior = removed8772[entry.mint]
+        removed8772[entry.mint] = Triple(minOf(entry.addedAt, prior?.first ?: Long.MAX_VALUE), maxOf(entry.processCount, prior?.second ?: 0), now)
+    }
+
+    /** The (first admission time, evaluation count) of [mint] if it was removed within the TTL, else null. */
+    internal fun recallRemoved8772(mint: String, now: Long): Pair<Long, Int>? {
+        val r = removed8772[mint] ?: return null
+        if (now - r.third > EVICTED_TTL_MS_8772) { removed8772.remove(mint, r); return null }
+        try { PipelineHealthCollector.labelInc("WATCHLIST_READMIT_KEEPS_FIRST_ADMISSION_8772") } catch (_: Throwable) {}
+        return r.first to r.second
+    }
+
     internal fun noteResighting8631(entry: WatchlistEntry, now: Long) {
         if (now > entry.lastSightedAt) entry.lastSightedAt = now
     }
@@ -582,7 +608,7 @@ object GlobalTradeRegistry {
             if (pool8398.protectedUndecided > 0) try { PipelineHealthCollector.labelInc("WATCHLIST_EVICT_UNDECIDED_PROTECTED_8398") } catch (_: Throwable) {}
             if (pool8398.protectedAwaitingData > 0) try { PipelineHealthCollector.labelInc("WATCHLIST_EVICT_AWAITING_DATA_PROTECTED_8399") } catch (_: Throwable) {}
             if (victim != null) {
-                watchlist.remove(victim.mint)
+                watchlist.remove(victim.mint)?.let { rememberRemoved8772(it) }
                 try {
                     ForensicLogger.lifecycle(
                         "WATCHLIST_LRU_EVICT_6287",
@@ -629,10 +655,13 @@ object GlobalTradeRegistry {
         }
 
         // Add to watchlist
+        // V5.0.8772 — a coin removed in the last [EVICTED_TTL_MS_8772] returns with its first admission time and its evaluation
+        // count, not as a brand-new coin (see [rememberRemoved8772]).
+        val returning8772 = recallRemoved8772(mint, now)
         watchlist[mint] = WatchlistEntry(
             mint = mint,
             symbol = symbol,
-            addedAt = now,
+            addedAt = returning8772?.first ?: now,
             addedBy = addedBy,
             source = source,
             initialMcap = initialMcap,
@@ -641,6 +670,7 @@ object GlobalTradeRegistry {
         ).also { entry ->
             entry.laneAffinity.addAll(laneAffinity.map { it.uppercase() })
             entry.toolAffinity.addAll(toolAffinity.map { it.uppercase() })
+            if (returning8772 != null) { entry.processCount = returning8772.second; entry.lastSightedAt = now }
         }
 
         // V5.0.6480 — admission is synchronized, so physical size can never
@@ -910,6 +940,7 @@ object GlobalTradeRegistry {
             return false
         }
         val entry = watchlist.remove(mint) ?: return false
+        rememberRemoved8772(entry)
         totalTokensRemoved.incrementAndGet()
         try {
             addToProbation(
@@ -1352,6 +1383,7 @@ object GlobalTradeRegistry {
         }
         val removed = watchlist.remove(mint)
         if (removed != null) {
+            rememberRemoved8772(removed)
             totalTokensRemoved.incrementAndGet()
             ErrorLogger.debug(TAG, "➖ Removed ${removed.symbol} | reason=$reason")
             return true
@@ -1445,7 +1477,7 @@ object GlobalTradeRegistry {
             // exit/SL logic will still see the safety verdict via
             // rejectedTokens, but the price-poll lane keeps the entry alive.
             if (!isMintHeldAnywhere(mint)) {
-                watchlist.remove(mint)
+                watchlist.remove(mint)?.let { rememberRemoved8772(it) }
             } else {
                 ErrorLogger.warn(TAG,
                     "🛡️ Safety/rug rejection recorded for HELD mint $symbol — watchlist entry PRESERVED for exit polling | reason=$reason")
@@ -1679,7 +1711,7 @@ object GlobalTradeRegistry {
             .minByOrNull { it.addedAt }
 
         if (oldest != null) {
-            watchlist.remove(oldest.mint)
+            watchlist.remove(oldest.mint)?.let { rememberRemoved8772(it) }
             totalTokensRemoved.incrementAndGet()
             ErrorLogger.debug(TAG, "🧹 Pruned ${oldest.symbol} (oldest, no position)")
             return true
