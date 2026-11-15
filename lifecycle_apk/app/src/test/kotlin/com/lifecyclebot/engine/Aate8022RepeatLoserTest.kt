@@ -41,6 +41,7 @@ class Aate8022RepeatLoserTest {
         RebuyLockout8019.onClose8019("WINNER8022", now - 30 * 60_000L, 40.0)
         RebuyLockout8019.onClose8019("WINNER8022", now - 20 * 60_000L, 12.0)
         assertNull(RebuyLockout8019.refusal8019("WINNER8022", now))
-        assertTrue(src("perps/CryptoAltTrader.kt").contains(".filter { !DynamicAltTokenRegistry.pumpMint8019(it.mint) || it.isStatic }  // V5.0.8022"))
+        // superseded by V5.0.8789 — owner: the crypto trader trades whatever it wants (cryptoMayTrade8789); was: !pumpMint8019(it.mint).
+        assertTrue(src("perps/CryptoAltTrader.kt").contains(".filter { DynamicAltTokenRegistry.cryptoMayTrade8789(it.mint) || it.isStatic }  // V5.0.8789 (was 8022)"))
     }
 }

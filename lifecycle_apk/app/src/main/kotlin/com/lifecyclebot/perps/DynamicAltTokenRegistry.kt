@@ -914,7 +914,7 @@ object DynamicAltTokenRegistry {
      *  then opportunityScore, then volume — every top-25 scan is guaranteed
      *  to include every currently-fresh token before falling through to
      *  established ranking. */
-    fun getBlendedOpportunityQueue6544(): List<DynToken> = registry.values.filter { !pumpMint8019(it.mint) || it.isStatic }.sortedWith(  // V5.0.8019
+    fun getBlendedOpportunityQueue6544(): List<DynToken> = registry.values.filter { cryptoMayTrade8789(it.mint) || it.isStatic }.sortedWith(  // V5.0.8789 (was 8019)
         compareByDescending<DynToken> { it.isFresh6544 }
             // V5.0.7244 — preserve fresh-first discovery, but within each
             // cohort spend scan slots on already-priced/routable evidence first.
@@ -2079,15 +2079,39 @@ object DynamicAltTokenRegistry {
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
 
-    /** Pure (V5.0.8019): a pump.fun mint (curve or graduate) belongs to the meme lanes, never the crypto universe. */
+    /** Pure (V5.0.8019): a pump.fun mint (curve or graduate). */
     fun pumpMint8019(mint: String): Boolean = mint.trim().endsWith("pump")
+
+    /**
+     * V5.0.8789 §THE_CRYPTO_TRADER_TRADES_WHAT_IT_WANTS — owner: "its meant to be trading what ever it wants. including tokens
+     * that the meme trader has open or looks at... we have to find edge somewhere". 8019 kept every pump.fun mint out of the
+     * crypto universe (8018: a wrong-feed price, $24.83 on a $0.0000032 coin, back when the universe merged identities by
+     * symbol; 8752 resolves by chain + mint). [openToMemeCoins8789] = true lets them in. Live still never doubles a coin
+     * another book holds (one wallet balance per coin: CryptoAltTrader's held skip).
+     */
+    @Volatile var openToMemeCoins8789: Boolean = true
+    fun cryptoMayTrade8789(mint: String): Boolean = openToMemeCoins8789 || !pumpMint8019(mint)
+
+    /**
+     * V5.0.8789 — a coin the meme side admits to its watchlist is offered to the crypto universe too (the crypto cycle refreshes
+     * its mark and its own brain qualifies it). No volume bar here (the meme intake has none at admission); a read pool is.
+     */
+    fun ingestMemeWatch8789(mint: String, symbol: String, liquidityUsd: Double): String? {
+        val m = mint.trim()
+        if (m.length < 32 || !openToMemeCoins8789 || !liquidityUsd.isFinite() || liquidityUsd <= 0.0) return null
+        val sym = symbol.uppercase().trim().ifBlank { m.take(8).uppercase() }
+        upsert(DynToken(mint = m, tokenAddress = m, chainId = "solana", symbol = sym, name = sym, price = 0.0,
+            liquidityUsd = liquidityUsd, volume24h = 0.0, ageHours = 0.0, source = "meme_watch_8789", sector = inferSector(sym)))
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_UNIVERSE_MEME_WATCH_INGEST_8789") } catch (_: Throwable) {}
+        return canonicalIdentity6544("solana", m)
+    }
 
     private fun upsert(rawTok6492: DynToken) {
         if (rawTok6492.mint.isBlank() || rawTok6492.symbol.isBlank()) return
         // V5.0.8019 — Solana isolation, enforced at the door: 8018's CRYPTO_ALT / CRYPTO_SPOT lanes bought
         // REELS, HXHZT27p and GjVpdj6W (pump.fun mints) with prices from the wrong feed ($24.83 on a
         // $0.0000032 coin) and double-bought coins the meme lanes had just sold. Static listings stay.
-        if (pumpMint8019(rawTok6492.mint) && registry[rawTok6492.canonicalIdentity6544]?.isStatic != true) {
+        if (!cryptoMayTrade8789(rawTok6492.mint) && registry[rawTok6492.canonicalIdentity6544]?.isStatic != true) {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_UNIVERSE_PUMP_MINT_REFUSED_8019") } catch (_: Throwable) {}
             return
         }

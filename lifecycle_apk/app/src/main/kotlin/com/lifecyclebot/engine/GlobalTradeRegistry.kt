@@ -672,6 +672,8 @@ object GlobalTradeRegistry {
             entry.toolAffinity.addAll(toolAffinity.map { it.uppercase() })
             if (returning8772 != null) { entry.processCount = returning8772.second; entry.lastSightedAt = now }
         }
+        // V5.0.8789 — owner: the crypto trader trades whatever it wants, including what the meme side looks at.
+        try { com.lifecyclebot.perps.DynamicAltTokenRegistry.ingestMemeWatch8789(mint, symbol, initialLiquidityUsd) } catch (_: Throwable) {}
 
         // V5.0.6480 — admission is synchronized, so physical size can never
         // pass the canonical cap between size-check, eviction, and insertion.

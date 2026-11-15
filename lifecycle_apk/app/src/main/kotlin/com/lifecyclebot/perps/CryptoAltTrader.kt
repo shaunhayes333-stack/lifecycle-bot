@@ -371,6 +371,14 @@ object CryptoAltTrader {
         } catch (_: Throwable) {}
     }
 
+    /** Pure (V5.0.8789): skip a coin in the discovery scan? Always when this desk holds it; in LIVE when any book holds it. */
+    fun heldSkip8789(paper: Boolean, anyBookHolds: Boolean, cryptoHolds: Boolean): Boolean = cryptoHolds || (!paper && anyBookHolds)
+
+    private fun cryptoHolds8789(identity: String, mint: String): Boolean = try {
+        positions.values.any { p -> p.closeTime == null && (p.dynMint.equals(mint, ignoreCase = true) ||
+            p.canonicalAssetKey.equals(identity, ignoreCase = true)) }
+    } catch (_: Throwable) { true }
+
     internal fun canonicalCryptoLane7251(isDynamic: Boolean, isSpot: Boolean): String = when {
         !isSpot -> "CRYPTO_LEV"
         isDynamic -> "CRYPTO_ALT"
@@ -1350,7 +1358,7 @@ object CryptoAltTrader {
         val residentKeys7823 = residentEntries7823.map { it.assetKey }.toSet()
         val residentTokens7823 = residentEntries7823
             .mapNotNull { DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(it.assetKey) }
-            .filter { !DynamicAltTokenRegistry.pumpMint8019(it.mint) || it.isStatic }  // V5.0.8022 — the resident channel too
+            .filter { DynamicAltTokenRegistry.cryptoMayTrade8789(it.mint) || it.isStatic }  // V5.0.8789 (was 8022) — the resident channel too
             .distinctBy { it.canonicalIdentity6544 }
             .sortedBy { cryptoResidentLastScanAt7823[it.canonicalIdentity6544] ?: 0L }
         val residentSelected7823 = residentTokens7823.take(
@@ -1415,8 +1423,13 @@ object CryptoAltTrader {
                 // V5.0.7246 — once this asset is canonically held it leaves the
                 // 4k+ Crypto Universe discovery rotation. monitorPositions() owns
                 // held pricing/exits; DynScan must spend its batch on NEW assets.
-                if (com.lifecyclebot.engine.HeldPositionSupervisor7246.isHeld(tok.canonicalIdentity6544) ||
-                    com.lifecyclebot.engine.HeldPositionSupervisor7246.isHeld(tok.mint)) {
+                // V5.0.8789 — owner: the crypto trader may trade coins the meme side holds. In PAPER it does (separate books).
+                // In LIVE a coin another book holds is still skipped: the wallet holds ONE balance per coin and a meme full
+                // exit sells the whole balance, so two live books in one coin would sell each other's tokens.
+                if (heldSkip8789(isPaperMode.get(),
+                        com.lifecyclebot.engine.HeldPositionSupervisor7246.isHeld(tok.canonicalIdentity6544) ||
+                            com.lifecyclebot.engine.HeldPositionSupervisor7246.isHeld(tok.mint),
+                        cryptoHolds8789(tok.canonicalIdentity6544, tok.mint))) {
                     try { PipelineHealthCollector.labelInc("CRYPTO_HELD_DISCOVERY_BYPASS_7246") } catch (_: Throwable) {}
                     continue
                 }

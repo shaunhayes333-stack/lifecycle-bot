@@ -59,7 +59,8 @@ class Aate7244CryptoUniverseAuthorityTest {
         assertTrue(queue.contains("it.price.isFinite() && it.price > 0.0"))
         assertTrue(queue.contains("it.liquidityUsd.isFinite() && it.liquidityUsd > 0.0"))
         // V5.0.8019 — the only filter is the pump-mint exclusion; nothing is dropped for being unpriced.
-        assertTrue(queue.contains("registry.values.filter { !pumpMint8019(it.mint) || it.isStatic }"))
+        // superseded by V5.0.8789 — owner: the crypto trader trades whatever it wants (cryptoMayTrade8789); was: !pumpMint8019(it.mint).
+        assertTrue(queue.contains("registry.values.filter { cryptoMayTrade8789(it.mint) || it.isStatic }"))
         assertFalse(queue.substringAfter(".sortedWith(").contains(".filter"))
     }
 }
