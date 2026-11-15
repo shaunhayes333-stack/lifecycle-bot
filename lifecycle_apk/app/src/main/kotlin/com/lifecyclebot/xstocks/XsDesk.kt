@@ -173,7 +173,8 @@ object XsDesk {
         val dir = app?.filesDir
         val ready = ArrayList<HlHistory>()
         val excl = LinkedHashMap<String, String>()
-        for (s in universe) {
+        for ((i, s) in universe.withIndex()) {
+            status = "loading history ${i + 1}/${universe.size}"   // V5.0.8805
             val h = history(s)
             fillBars(s, h, today)
             h.trim(today - HISTORY_DAYS - 30)
@@ -455,7 +456,7 @@ object XsDesk {
             "$s=${"%.2f".format(costSideOf(q, now) * 100)}%${if (now - q.atMs > QUOTE_MAX_AGE_MS) "(stale)" else ""}"
         }
         val held = livePositions()
-        return "xstocks8802[$status universe=${universe.size} graded=${panelSyms.size} excluded{${excluded.entries.take(10).joinToString(" ") { "${it.key}:${it.value}" }}} " +
+        return "xstocks8802[$status ${XsApi.line()} universe=${universe.size} graded=${panelSyms.size} excluded{${excluded.entries.take(10).joinToString(" ") { "${it.key}:${it.value}" }}} " +
             "history=${ev?.days ?: 0}d ${if (ev?.armed == true) "ARMED" else "SHADOW"} exposure=${"%.2f".format(ev?.leverage ?: 0.0)} " +
             "blend{train{${line(ev?.train)}} test{${line(ev?.test)}}} families{$picks} " +
             "targets{${targets.entries.sortedByDescending { it.value }.joinToString(" ") { "${it.key}${"%.0f".format(it.value * 100)}%" }.ifBlank { "flat" }}} " +

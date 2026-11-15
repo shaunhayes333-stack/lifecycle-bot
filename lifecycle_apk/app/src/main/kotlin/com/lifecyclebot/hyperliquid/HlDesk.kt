@@ -226,7 +226,8 @@ object HlDesk {
         val dir = app?.filesDir
         val ready = ArrayList<HlHistory>()
         val excl = LinkedHashMap(out)
-        for (coin in chosen) {
+        for ((i, coin) in chosen.withIndex()) {
+            status = "loading history ${i + 1}/${chosen.size}"   // V5.0.8805 — the first day reads ~30 coins' history
             val h = history(coin)
             fillCandles(h, today, now)
             if (h.bars.isNotEmpty()) fillFunding(h, today, now)

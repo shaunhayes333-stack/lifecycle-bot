@@ -135,9 +135,11 @@ object PrintWitness8750 {
 
     /** Pure: why [priceSol] cannot be this coin's price (null = it can). [anchorAgeMs] is how old [anchorCapUsd] is. */
     fun physicsRefusal8801(priceSol: Double, onActiveCurve: Boolean, supplyWhole: Double, solUsd: Double,
-                           anchorCapUsd: Double?, anchorAgeMs: Long = 0L): String? {
+                           anchorCapUsd: Double?, anchorAgeMs: Long = 0L, curveSupplyWhole: Double = supplyWhole): String? {
         if (!(priceSol > 0.0) || !priceSol.isFinite()) return "NOT_A_PRICE"
-        if (onActiveCurve && (priceSol * PUMP_SUPPLY !in CURVE_MIN_CAP_SOL..CURVE_MAX_CAP_SOL)) return "CURVE_PHYSICS"
+        // V5.0.8805 — the curve's cap is price x the coin's OWN supply: 8802 assumed 1e9 and refused 10,649 prints in 44 min,
+        // mayhem-mode coins (2e9 at launch) among them. An unknown supply is no judgement (the live curve still witnesses).
+        if (onActiveCurve && curveSupplyWhole > 0.0 && (priceSol * curveSupplyWhole !in CURVE_MIN_CAP_SOL..CURVE_MAX_CAP_SOL)) return "CURVE_PHYSICS"
         if (anchorCapUsd != null && anchorCapUsd > 0.0 && supplyWhole > 0.0 && solUsd > 0.0) {
             val r = priceSol * supplyWhole * solUsd / anchorCapUsd
             if (!r.isFinite() || r > anchorAllowance8801(anchorAgeMs)) return "MCAP_ANCHOR"
@@ -184,13 +186,19 @@ object PrintWitness8750 {
     private fun physics8801(mint: String, priceSol: Double, nowMs: Long): String? {
         val pump = try { com.lifecyclebot.network.PumpCurveKeys7269.isPumpMint8658(mint) } catch (_: Throwable) { false }
         val onCurve = pump && liveCurve8801(mint, nowMs) != null
-        val anchor = TokenFacts.anchorMcap8801(mint, nowMs, ANCHOR_MAX_AGE_MS)
-            ?: return physicsRefusal8801(priceSol, onCurve, Double.NaN, 0.0, null)
-        val supply = if (pump) PUMP_SUPPLY else try {
+        // the coin's verified supply (mint account / DAS), never an assumed one
+        val verified = (try { MintSupply8418.wholeOrZero8418(mint) } catch (_: Throwable) { 0.0 })
+        val fact = (try {
             com.lifecyclebot.engine.BotService.status.tokens[mint]?.let { TokenFacts.fact(it, TokenFacts.Field.SUPPLY_WHOLE)?.value }
-        } catch (_: Throwable) { null } ?: Double.NaN
+        } catch (_: Throwable) { null }) ?: 0.0
+        val known: Double? = if (verified > 0.0) verified else if (fact > 0.0) fact else null
+        val anchor = TokenFacts.anchorMcap8801(mint, nowMs, ANCHOR_MAX_AGE_MS)
+            ?: return physicsRefusal8801(priceSol, onCurve, Double.NaN, 0.0, null, curveSupplyWhole = known ?: Double.NaN)
+        // the anchor is one-sided (too HIGH only), so for a pump coin of unread supply 1e9 is the safe side: a 2e9 mayhem
+        // coin's cap reads half, never over its anchor
+        val supply = known ?: if (pump) PUMP_SUPPLY else Double.NaN
         val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
-        return physicsRefusal8801(priceSol, onCurve, supply, solUsd, anchor.value, nowMs - anchor.observedAtMs)
+        return physicsRefusal8801(priceSol, onCurve, supply, solUsd, anchor.value, nowMs - anchor.observedAtMs, curveSupplyWhole = known ?: Double.NaN)
     }
 
     private val refusedBy8801 = ConcurrentHashMap<String, AtomicLong>()

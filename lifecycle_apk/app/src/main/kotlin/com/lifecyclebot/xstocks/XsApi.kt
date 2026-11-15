@@ -27,11 +27,24 @@ object XsApi {
         SharedHttpClient.builder().connectTimeout(6, TimeUnit.SECONDS).readTimeout(10, TimeUnit.SECONDS).callTimeout(15, TimeUnit.SECONDS).build()
     }
 
+    // V5.0.8805 — 8802 on the device: every xStock NO_HISTORY and every cost "unquoted" with no reason shown. The reads now
+    // go through the app's host-health client like DynamicAltTokenRegistry's GeckoTerminal reads, and each outcome is counted.
+    private val geckoOk = java.util.concurrent.atomic.AtomicLong(); private val geckoFail = java.util.concurrent.atomic.AtomicLong()
+    private val quoteOk = java.util.concurrent.atomic.AtomicLong(); private val quoteFail = java.util.concurrent.atomic.AtomicLong()
+    @Volatile private var lastGecko = "-"
+    @Volatile private var lastQuote = "-"
+
     private fun get(url: String): String? = try {
-        http.newCall(Request.Builder().url(url).header("Accept", "application/json;version=20230302").build()).execute().use { r ->
-            if (r.isSuccessful) r.body?.string() else null
+        val req = Request.Builder().url(url).header("User-Agent", "lifecycle-bot-android/6.0")
+            .header("Accept", "application/json;version=20230302").build()
+        com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, "geckoterminal").use { r ->
+            val body = if (r.isSuccessful) r.body?.string() else null
+            if (body != null) geckoOk.incrementAndGet() else { geckoFail.incrementAndGet(); lastGecko = "http ${r.code}" }
+            body
         }
-    } catch (_: Throwable) { null }
+    } catch (t: Throwable) { geckoFail.incrementAndGet(); lastGecko = "${t.javaClass.simpleName}:${t.message?.take(60)}"; null }
+
+    fun line(): String = "api{gecko ok=${geckoOk.get()} fail=${geckoFail.get()} last=$lastGecko quotes ok=${quoteOk.get()} fail=${quoteFail.get()} last=$lastQuote}"
 
     data class Pool(val address: String, val reserveUsd: Double, val volume24hUsd: Double)
 
@@ -111,10 +124,11 @@ object XsApi {
     /** Quotes SOL -> [mint] for [lamports] and back; null when either leg has no route. */
     fun roundTrip(mint: String, lamports: Long): RoundTrip? = try {
         val buy = jupiter.getQuote(SOL_MINT, mint, lamports, 100)
-        if (buy.outAmount <= 0L) null
+        if (buy.outAmount <= 0L) { quoteFail.incrementAndGet(); lastQuote = "buy out=0"; null }
         else {
             val sell = jupiter.getQuote(mint, SOL_MINT, buy.outAmount, 100)
-            if (sell.outAmount <= 0L) null else RoundTrip(lamports, buy.outAmount, sell.outAmount, System.currentTimeMillis())
+            if (sell.outAmount <= 0L) { quoteFail.incrementAndGet(); lastQuote = "sell out=0"; null }
+            else { quoteOk.incrementAndGet(); RoundTrip(lamports, buy.outAmount, sell.outAmount, System.currentTimeMillis()) }
         }
-    } catch (_: Throwable) { null }
+    } catch (t: Throwable) { quoteFail.incrementAndGet(); lastQuote = "${t.javaClass.simpleName}:${t.message?.take(80)}"; null }
 }
