@@ -52,6 +52,41 @@ object PaperMirror8757 {
     /** Pure: has [realisedSol] since the first mirrored admit reached the automatic stop? */
     fun lossStopHit8757(realisedSol: Double): Boolean = realisedSol.isFinite() && realisedSol <= -LOSS_STOP_SOL_8757
 
+    /**
+     * V5.0.8761 §THE_MIRROR_STOP_HOLDS_ACROSS_RESTARTS — code audit (buy 3, accounting 9): the stop window and the tripped
+     * flag lived in memory, so every restart (the 8756 log's last crash was an OutOfMemoryError) re-armed the stop from
+     * zero; and only realised closes counted, so a book of open mirrored positions under water did not. Both are now
+     * persisted ([load8761], read at boot), and the stop counts open live MOONSHOT positions opened inside the window at
+     * their fresh executable mark ([openMarkSol8761]; no fresh mark adds nothing — no price is made up).
+     */
+    private const val PREFS_8761 = "aate_paper_mirror_8761"
+    @Volatile private var prefs8761: android.content.SharedPreferences? = null
+
+    /** Boot (LearningResetSweep7781.applyPendingAtBoot): read the persisted stop window and tripped flag. */
+    fun load8761(ctx: android.content.Context) {
+        val p = try { ctx.applicationContext.getSharedPreferences(PREFS_8761, android.content.Context.MODE_PRIVATE) } catch (_: Throwable) { return }
+        prefs8761 = p
+        startMs8757 = maxOf(startMs8757, p.getLong("start_ms", 0L))
+        tripped8757 = tripped8757 || p.getBoolean("tripped", false)
+    }
+
+    private fun persist8761() {
+        try { prefs8761?.edit()?.putLong("start_ms", startMs8757)?.putBoolean("tripped", tripped8757)?.apply() } catch (_: Throwable) {}
+    }
+
+    /** Pure: an open position's SOL gain or loss at [markPriceUsd]; 0 when the mark or the basis is unknown. */
+    fun openMarkSol8761(entryPriceUsd: Double, markPriceUsd: Double?, openCostSol: Double): Double =
+        if (markPriceUsd == null || !markPriceUsd.isFinite() || markPriceUsd <= 0.0 || !entryPriceUsd.isFinite() ||
+            entryPriceUsd <= 0.0 || !openCostSol.isFinite() || openCostSol <= 0.0) 0.0
+        else (markPriceUsd / entryPriceUsd - 1.0) * openCostSol
+
+    private fun openMirrorLaneSol8761(sinceMs: Long): Double = try {
+        CanonicalPositionAuthority6441.openPositions()
+            .filter { it.mode == "live" && mirrorLane8757(it.lane) && it.openedAtMs >= sinceMs }
+            .sumOf { openMarkSol8761(it.entryPriceUsd, MarkIdentityRepairAuthority7236.getExecutablePriceIfFresh7301(it.mint),
+                it.entryCostSol - it.soldCostBasisSol) }
+    } catch (_: Throwable) { 0.0 }
+
     private fun stopped8757(nowMs: Long): Boolean {
         if (tripped8757) return true
         if (startMs8757 <= 0L || nowMs - stopCheckedAtMs8758 < 60_000L) return false
@@ -60,8 +95,9 @@ object PaperMirror8757 {
             com.lifecyclebot.engine.LiveEntrySafetyHold.LiveConfidenceStats.byLane8280(startMs8757)
                 .filterKeys { mirrorLane8757(it) }.values.sumOf { it.expectancySol * it.canonicalN }
         } catch (_: Throwable) { 0.0 }
-        if (lossStopHit8757(realised)) {
+        if (lossStopHit8757(realised + openMirrorLaneSol8761(startMs8757))) {
             tripped8757 = true
+            persist8761()
             try { PipelineHealthCollector.labelInc("PAPER_MIRROR_LOSS_STOP_8757") } catch (_: Throwable) {}
         }
         return tripped8757
@@ -85,7 +121,7 @@ object PaperMirror8757 {
             return d
         }
         if (!rateRoom8758(nowMs)) { try { PipelineHealthCollector.labelInc("PAPER_MIRROR_RATE_CAP_8758") } catch (_: Throwable) {}; return d }
-        if (startMs8757 <= 0L) startMs8757 = nowMs
+        if (startMs8757 <= 0L) { startMs8757 = nowMs; persist8761() }
         mirrored8757.incrementAndGet()
         try { PipelineHealthCollector.labelInc("PAPER_MIRROR_ADMIT_8757_${d.reason.take(48)}") } catch (_: Throwable) {}
         return d.copy(terminal = CandidateAdmission8136.Terminal8136.ADMIT, reason = REASON_8757, specific = false,

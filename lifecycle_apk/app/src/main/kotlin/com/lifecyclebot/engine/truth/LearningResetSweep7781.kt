@@ -125,6 +125,7 @@ object LearningResetSweep7781 {
         val app = ctx.applicationContext
         // V5.0.8164 — every boot: learners must know the reset line before the journal reconciler replays closes.
         try { LearningEpoch8164.load8164(app) } catch (_: Throwable) {}
+        try { PaperMirror8757.load8761(app) } catch (_: Throwable) {}   // V5.0.8761 — the mirror's loss stop survives restarts (not a learning store)
         val marker = try { app.getSharedPreferences(MARKER_PREFS, Context.MODE_PRIVATE) } catch (_: Throwable) { return }
         if (!marker.getBoolean(KEY_PENDING, false)) return
         if (LearningEpoch8164.epochMs8164() <= 0L) try { LearningEpoch8164.mark8164(app) } catch (_: Throwable) {}
