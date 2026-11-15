@@ -23,6 +23,25 @@ import java.math.BigInteger
  * prices or RPC empty-map fallbacks here.
  */
 object SellFinalizationCoordinator {
+    /**
+     * V5.0.8760 §THE_LAST_SLICE_IS_BOOKED — code audit (accounting 3): the full-exit journal receipt used the ORIGINAL buy
+     * amount and cost as the pre-sell state (Executor's liveSell builds its intent from the entry metadata), so a final sell
+     * after any partial was recorded with remainingQty > 0 and partial = false, which the journal projection rejects. Live
+     * P&L, the governor and the paper mirror's loss stop counted a laddered position's profit-lock partials but never its
+     * final, usually losing, slice. The pre-sell state is now the canonical position's own (the snapshot taken before this
+     * sell is applied); a terminal sell closes everything that remained, so it takes the whole remaining cost.
+     */
+    fun preRemaining8760(partial: Boolean, soldRaw: java.math.BigInteger, canonicalRemainingRaw: java.math.BigInteger,
+                         fallbackRaw: java.math.BigInteger): java.math.BigInteger = when {
+        !partial && soldRaw.signum() > 0 -> soldRaw
+        canonicalRemainingRaw.signum() > 0 -> canonicalRemainingRaw.max(soldRaw)
+        else -> fallbackRaw
+    }
+
+    /** Pure (V5.0.8760): the cost still open before this sell, else [fallbackSol]. */
+    fun preRemainingCost8760(canonicalRemainingCostSol: Double, fallbackSol: Double): Double =
+        if (canonicalRemainingCostSol.isFinite() && canonicalRemainingCostSol > 0.0) canonicalRemainingCostSol else fallbackSol
+
 
     data class Result(
         val finalState: TxMetaSellFinalizer.FinalState,
@@ -300,8 +319,10 @@ object SellFinalizationCoordinator {
                         positionId = positionId, mint = intent.mint, symbol = intent.symbol,
                         idempotencyKey = idKey, partial = partial,
                         soldQty = actualConsumedRaw,
-                        preRemainingQty = intent.entryTokenRaw.takeIf { it.signum() > 0 } ?: intent.confirmedWalletRaw,
-                        preRemainingCostBasisSol = intent.entrySolSpent,
+                        // V5.0.8760 — the position as it stood before this sell (canonical), not the original buy.
+                        preRemainingQty = preRemaining8760(partial, actualConsumedRaw, canonicalPosition6522.remainingQtyRaw,
+                            intent.entryTokenRaw.takeIf { it.signum() > 0 } ?: intent.confirmedWalletRaw),
+                        preRemainingCostBasisSol = preRemainingCost8760(canonicalPosition6522.entryCostSol - canonicalPosition6522.soldCostBasisSol, intent.entrySolSpent),
                         grossProceedsSol = sellSolReceived, exitFeesSol = settlementFees8391,
                         solUsdAtExit = liveSolUsd8094(),
                         performanceFeeSol8391 = performanceFee8391,

@@ -811,12 +811,21 @@ object JournalEconomicReplay6619 {
 
     }
 
+    /**
+     * V5.0.8760 — a terminal (partial = false) receipt closes the position: nothing remains. Receipts written before 8760
+     * carried the original buy amount as the pre-sell state, so a final sell after partials read remainingQty > 0 and was
+     * rejected here forever (repairConfirmedLiveJournals8422 retried the same 64 rows each pass). Their cost allocation
+     * (cost x sold / original) is the proportional basis the partials also used, so they project as the close they were.
+     */
+    internal fun terminalRemainder8760(e: EconomicEventSchema6464.Sell): java.math.BigInteger =
+        if (e.partial) e.remainingQty else java.math.BigInteger.ZERO
+
     /** Pure projection. Requires a signed, confirmed receipt and the same canonical position, never a ticker/latest buy. */
     internal fun confirmedSellTrade8422(e: EconomicEventSchema6464.Sell, p: CanonicalPositionAuthority6441.Position): Trade? {
         if (e.mode != "live" || p.mode != "live" || e.confirmedSignature8422.isBlank() ||
             e.positionId != p.positionId || e.mint != p.mint || e.soldQty.signum() <= 0 ||
             e.remainingQty.signum() < 0 || e.soldQty + e.remainingQty > p.originalQtyRaw ||
-            e.partial != (e.remainingQty.signum() > 0) || p.quantityScale !in 0..18 ||
+            (e.partial && e.remainingQty.signum() <= 0) || p.quantityScale !in 0..18 ||   // V5.0.8760 — see terminalRemainder8760
             !p.entryPriceUsd.isFinite() || p.entryPriceUsd <= 0.0 ||
             !e.allocatedCostBasisSol.isFinite() || e.allocatedCostBasisSol <= 0.0 ||
             !e.grossProceedsSol.isFinite() || e.grossProceedsSol < 0.0 ||
@@ -834,8 +843,8 @@ object JournalEconomicReplay6619 {
             entryTsMs = p.openedAtMs, entryPriceSnapshot = p.entryPriceUsd,
             entryCostSol = e.allocatedCostBasisSol, soldCostBasisSol = e.allocatedCostBasisSol,
             entryQtyToken = p.originalQtyRaw.toBigDecimal().movePointLeft(p.quantityScale).toDouble(),
-            soldQtyToken = qty, remainingQtyToken = e.remainingQty.toBigDecimal().movePointLeft(p.quantityScale).toDouble(),
-            entryRawQty = p.originalQtyRaw, canonicalConsumedRaw = e.soldQty, remainingRawQty = e.remainingQty,
+            soldQtyToken = qty, remainingQtyToken = terminalRemainder8760(e).toBigDecimal().movePointLeft(p.quantityScale).toDouble(),
+            entryRawQty = p.originalQtyRaw, canonicalConsumedRaw = e.soldQty, remainingRawQty = terminalRemainder8760(e),
             entryDecimals = p.tokenDecimals, tokenDecimals = p.quantityScale,
             entryPriceSource = p.entryPriceSource, entryPoolAddress = p.entryPoolAddress,
             grossProceedsSol = e.grossProceedsSol, economicEventId = e.idempotencyKey)
