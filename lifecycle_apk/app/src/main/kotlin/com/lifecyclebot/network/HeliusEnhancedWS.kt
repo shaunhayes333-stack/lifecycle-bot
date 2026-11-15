@@ -149,6 +149,21 @@ object HeliusEnhancedWS {
         running && open && socketPresent
 
     /**
+     * A 429 at the WebSocket handshake can be a burst limit OR exhausted credits. A fixed 15-minute
+     * wait hid the owner's credit refill for the entire cooldown. Respect Retry-After when present;
+     * otherwise probe infrequently with a bounded exponential delay (1, 2, 4, 8, 15 minutes).
+     * The reconnect lease below ensures only one outstanding probe for each socket generation.
+     */
+    internal fun retry429DelayMs8797(failures: Long, retryAfter: String?): Long {
+        val serverMs = retryAfter?.trim()?.toLongOrNull()?.takeIf { it > 0L }?.let { s ->
+            if (s > 900L) 900_000L else s * 1000L
+        }
+        if (serverMs != null) return serverMs.coerceIn(15_000L, 900_000L)
+        val shift = (failures - 1L).coerceIn(0L, 4L).toInt()
+        return (60_000L shl shift).coerceAtMost(900_000L)
+    }
+
+    /**
      * A connected but unprobed socket may try its FIRST program subscription.
      * Previously capability=UNPROBED required another whale/tape ACK before
      * selecting the curve transport; when neither feed had an ACK, nothing
@@ -585,14 +600,9 @@ object HeliusEnhancedWS {
             val isRateLimited = code == 429 || msg.contains("429")
             val isAuthFatal = code == 403 || code == 401 || msg.contains("403") || msg.contains("401")
             if (isRateLimited) {
-                // V5.9.1184 — Helius 429 is a hard upstream quota signal, not a
-                // normal transient websocket close. Runtime 5.0.3145 showed Helius
-                // success=0%, 4xx=288 and reconnect attempt 29/30 every ~30s. That
-                // log churn steals IO/runtime budget while producing zero trade data.
-                // Back off long enough for the quota bucket to cool; fail-open because
-                // PumpPortal/Dex/Birdeye/scanner lanes continue independently.
-                ErrorLogger.warn(TAG, "🛑 RATE-LIMIT failure: ${msg.take(100)} — backing off 15min (Helius 429)")
-                scheduleReconnect(forceDelayMs = 900_000L)
+                val delay = retry429DelayMs8797(reconnectAttempt.get() + 1L, response?.header("Retry-After"))
+                ErrorLogger.warn(TAG, "🛑 Helius 429: ${msg.take(100)} — retry in ${delay / 1000L}s (credit-refill aware)")
+                scheduleReconnect(forceDelayMs = delay)
             } else if (isAuthFatal) {
                 ErrorLogger.warn(TAG, "🛑 AUTH-FATAL failure: ${msg.take(100)} — backing off 10min (rotate Helius key)")
                 scheduleReconnect(forceDelayMs = 600_000L)

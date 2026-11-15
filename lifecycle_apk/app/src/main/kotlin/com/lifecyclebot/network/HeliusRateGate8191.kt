@@ -29,6 +29,7 @@ object HeliusRateGate8191 {
     private const val MAX_WAIT_MS_8191 = 1_500L
     private const val DEFAULT_PAUSE_MS_8191 = 1_000L
     private const val MAX_PAUSE_MS_8191 = 30_000L
+    private const val MAX_QUOTA_RECHECK_MS_8798 = 600_000L
     const val RECOVER_EVERY_MS_8191 = 20_000L
 
     /**
@@ -47,9 +48,12 @@ object HeliusRateGate8191 {
         private var pausedUntilMs = 0L
         private var lastLimitMs = 0L
         private var lastRecoverMs = 0L
+        private var quotaRecheckAtMs8798 = 0L
+        private var consecutiveQuota4298798 = 0L
 
         @Synchronized fun rate8191(): Double = rate
         @Synchronized fun pausedUntil8191(): Long = pausedUntilMs
+        @Synchronized fun quotaRecheckAt8798(): Long = quotaRecheckAtMs8798
 
         private fun refill(nowMs: Long) {
             if (lastRefillMs == 0L) { lastRefillMs = nowMs; return }
@@ -74,7 +78,7 @@ object HeliusRateGate8191 {
                 tokens = (tokens - 1.0).coerceAtLeast(-maxOf(1.0, rate))
                 return 0L
             }
-            val pauseWait = (pausedUntilMs - nowMs).coerceAtLeast(0L)
+            val pauseWait = (maxOf(pausedUntilMs, quotaRecheckAtMs8798) - nowMs).coerceAtLeast(0L)
             val tokenWait = if (tokens >= 1.0) 0L else Math.ceil((1.0 - tokens) / rate * 1000.0).toLong()
             val wait = maxOf(pauseWait, tokenWait)
             if (wait > maxWaitMs) return -1L
@@ -91,6 +95,32 @@ object HeliusRateGate8191 {
             lastLimitMs = nowMs
             tokens = minOf(tokens, 0.0)
         }
+
+        /** A credits/compute-units 429 is a quota error, not evidence of an excessive RPS. */
+        @Synchronized fun onQuotaExhausted8798(nowMs: Long) {
+            consecutiveQuota4298798++
+            quotaRecheckAtMs8798 = maxOf(quotaRecheckAtMs8798,
+                nowMs + HeliusRateGate8191.quotaRecheckDelayMs8798(consecutiveQuota4298798).coerceAtMost(MAX_QUOTA_RECHECK_MS_8798))
+        }
+
+        @Synchronized fun onProviderSuccess8798() {
+            consecutiveQuota4298798 = 0L
+            quotaRecheckAtMs8798 = 0L
+        }
+    }
+
+    /** Credit refills are retried at 30s, 60s, 2m ... capped at 10m. */
+    internal fun quotaRecheckDelayMs8798(failures: Long): Long =
+        (30_000L shl (failures - 1L).coerceIn(0L, 5L).toInt()).coerceAtMost(MAX_QUOTA_RECHECK_MS_8798)
+
+    /** Inspect the provider's actual 429 message; an RPC credit quota is not a rate-limit signal. */
+    internal fun isProviderQuota4298798(code: Int, body: String): Boolean {
+        if (code != 429) return false
+        val b = body.lowercase()
+        return b.contains("compute units") || b.contains("compute credits") ||
+            b.contains("credits exhausted") || b.contains("credit quota") ||
+            b.contains("monthly quota") || b.contains("credit limit") ||
+            b.contains("exceeded its com") || b.contains("insufficient credits")
     }
 
     val rpc8191 = Bucket8191("rpc", initialRate = 8.0, minRate = 2.0, maxRate = 40.0)
@@ -102,6 +132,7 @@ object HeliusRateGate8191 {
     private val priorityCalls = AtomicLong(0L)
     private val limited = AtomicLong(0L)
     private val localCreditAnswers = AtomicLong(0L)
+    private val providerQuota4298798 = AtomicLong(0L)
     private val calls = AtomicLong(0L)
 
     /** Pure: which bucket a Helius host answers to; null = not paced (not Helius, or the Sender transaction relay). */
@@ -124,12 +155,18 @@ object HeliusRateGate8191 {
     internal fun noteCall8191() { calls.incrementAndGet() }
     internal fun noteLimited8191(b: Bucket8191, nowMs: Long, retryAfterSec: Long?) { limited.incrementAndGet(); b.onRateLimited8191(nowMs, retryAfterSec) }
     internal fun noteLocalCredit8191() { localCreditAnswers.incrementAndGet() }
+    internal fun noteQuota8798(b: Bucket8191, nowMs: Long) {
+        providerQuota4298798.incrementAndGet()
+        b.onQuotaExhausted8798(nowMs)
+    }
 
     fun statusLine8191(nowMs: Long = System.currentTimeMillis()): String =
         "heliusRps8191[calls=${calls.get()} priority=${priorityCalls.get()} waited=${waited.get()}/${waitedMs.get()}ms " +
-            "refusedLocal=${refused.get()} provider429=${limited.get()} localCreditAnswers=${localCreditAnswers.get()} " +
+            "refusedLocal=${refused.get()} provider429=${limited.get()} providerCredit429=${providerQuota4298798.get()} localCreditAnswers=${localCreditAnswers.get()} " +
             "rpcRate=${"%.1f".format(rpc8191.rate8191())}/s rpcPauseMs=${(rpc8191.pausedUntil8191() - nowMs).coerceAtLeast(0L)} " +
-            "enhancedRate=${"%.1f".format(enhanced8191.rate8191())}/s enhancedPauseMs=${(enhanced8191.pausedUntil8191() - nowMs).coerceAtLeast(0L)}]"
+            "rpcQuotaRecheckMs=${(rpc8191.quotaRecheckAt8798() - nowMs).coerceAtLeast(0L)} " +
+            "enhancedRate=${"%.1f".format(enhanced8191.rate8191())}/s enhancedPauseMs=${(enhanced8191.pausedUntil8191() - nowMs).coerceAtLeast(0L)} " +
+            "enhancedQuotaRecheckMs=${(enhanced8191.quotaRecheckAt8798() - nowMs).coerceAtLeast(0L)}]"
 }
 
 /**
@@ -164,11 +201,15 @@ object HeliusRateInterceptor8191 : Interceptor {
         }
         val resp = chain.proceed(req)
         if (resp.code == 429) {
-            if (HeliusRateGate8191.providerRateLimit8191(resp.code, resp.message)) {
+            val body = try { resp.peekBody(1_024L).string() } catch (_: Exception) { "" }
+            if (HeliusRateGate8191.isProviderQuota4298798(resp.code, body)) {
+                HeliusRateGate8191.noteQuota8798(bucket, System.currentTimeMillis())
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HELIUS_PROVIDER_CREDIT_QUOTA_8798") } catch (_: Throwable) {}
+            } else if (HeliusRateGate8191.providerRateLimit8191(resp.code, resp.message)) {
                 HeliusRateGate8191.noteLimited8191(bucket, System.currentTimeMillis(), HeliusRateGate8191.retryAfterSec8191(resp.header("Retry-After")))
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HELIUS_RPS_PROVIDER_429_8191") } catch (_: Throwable) {}
             } else HeliusRateGate8191.noteLocalCredit8191()
-        }
+        } else if (resp.isSuccessful) bucket.onProviderSuccess8798()
         return resp
     }
 }

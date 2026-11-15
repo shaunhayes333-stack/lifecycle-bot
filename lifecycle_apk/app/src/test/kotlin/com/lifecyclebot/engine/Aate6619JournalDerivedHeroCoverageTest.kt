@@ -124,6 +124,12 @@ class Aate6619JournalDerivedHeroCoverageTest {
         val auth = com.lifecyclebot.engine.truth.JournalEconomicAuthority6616
         ledger.resetForTest()
         auth.resetForTest()
+        // The 9k-test suite shares JVM singletons: old forensic parity and
+        // canonical-replay witnesses can belong to unrelated earlier tests.
+        // Reset those witnesses before testing an empty-journal initialization;
+        // production still refuses a genuinely mismatched durable journal.
+        com.lifecyclebot.engine.truth.ForensicReconciliation6635.resetForTest()
+        com.lifecyclebot.engine.truth.CanonicalPaperReplay6464.resetForTest()
         ledger.initialize(11.7647)
         // 8794: initialize() records its mutation revision synchronously,
         // while the expensive journal replay is coalesced onto a worker to
