@@ -143,12 +143,15 @@ object TokenMetricStageRouter {
         val hour = ts.lastPriceChange1h.takeIf { LaneInputTruth8236.fresh8491(ts.hourChangeObservedAtMs8506, now) }
             ?: com.lifecyclebot.engine.truth.PairFlow8169.peek8169(ts.mint)?.takeIf { LaneInputTruth8236.fresh8491(it.atMs, now) }?.chg1h ?: Double.NaN
         val pumpThenFade7425 = hour >= 80.0 && acute5m7425 <= -8.0
+        // V5.0.8775 §AN_UNREAD_BOOK_IS_NOT_A_BOOK — code audit (data P1-6): 8464 kept the 50 / 50 default out of RUG_PRONE but
+        // not out of the stage tests, so an unread book (bp 50 < 52) staged PEAK and DUMP (both at the n1300 cap in every lane
+        // in the 8756 log) and the same default passed midAccum's bp >= 50. Every buy / sell pressure test needs a read book.
         val peakExhaustion = (currentVsPeak >= 0.88 && runup >= 70.0 &&
-            (sp >= 52.0 || bp < 52.0 || hour >= 80.0)) || pumpThenFade7425
-        val dumping = acute5m7425 <= -18.0 || (dd >= 24.0 && (bp < 52.0 || sp >= 55.0))
+            ((bookObserved8464 && (sp >= 52.0 || bp < 52.0)) || hour >= 80.0)) || pumpThenFade7425
+        val dumping = acute5m7425 <= -18.0 || (dd >= 24.0 && bookObserved8464 && (bp < 52.0 || sp >= 55.0))
         val baseStart = (flow == null || flow.active) && ageMin <= 12.0 && runup <= 45.0 && dd <= 18.0 && bp >= 54.0 && sp <= 50.0 &&
             acute5m7425 > -8.0 && liq >= 3_000.0
-        val midAccum = currentVsPeak in 0.45..0.82 && dd in 8.0..35.0 && bp >= 50.0 && sp <= 54.0 && liq >= 8_000.0
+        val midAccum = currentVsPeak in 0.45..0.82 && dd in 8.0..35.0 && bookObserved8464 && bp >= 50.0 && sp <= 54.0 && liq >= 8_000.0
         val markup = currentVsPeak in 0.68..0.92 && runup in 25.0..120.0 && bp >= 55.0 && sp <= 50.0 && liq >= 6_000.0
         // V5.0.4076 — FRESH_LAUNCH stage. Operator P0: bot starves on
         // pump.fun firehose because the classifier requires price history

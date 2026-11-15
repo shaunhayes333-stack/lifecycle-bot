@@ -182,8 +182,6 @@ object GovernorRecovery6388 {
         }
     }
 
-    /** Section 11: Performance demotion using meaningful samples. */
-    @Synchronized
     const val PROBATION_BY_RECORD_8770 = "SOFT_TIGHT_PF_OR_STREAK_BREACH"
     /**
      * V5.0.8770 — a HOLD_PROBATION entered on this governor's own losing record; it lasts until [evaluatePromotion] releases
@@ -204,6 +202,8 @@ object GovernorRecovery6388 {
         try { prefs8770?.edit()?.putBoolean("probation_by_record", probationByRecord8770)?.apply() } catch (_: Throwable) {}
     }
 
+    /** Section 11: Performance demotion using meaningful samples. */
+    @Synchronized
     fun evaluateDemotion(e: RollingEvidence) {
         val s = currentState.get()
         val decisive5 = (e.rollingLast5Wins + e.rollingLast5Losses) >= 5
