@@ -35,8 +35,10 @@ class Aate8765NoRefundAtCostTest {
     @Test fun the_boot_rebuilds_only_report() {
         val ledger = File("src/main/kotlin/com/lifecyclebot/engine/truth/PaperAccountLedger6430.kt").readText()
         assertFalse(ledger.contains("fun overrideRealizedFromFillLots6504("))
+        // superseded by V5.0.8785 — the identity writes cash again (6508 now writes removed basis off as a loss, so it cannot
+        // refund it); was: assertFalse(cash.contains("cashPico.set(")).
         val cash = ledger.substringAfter("fun rebuildPaperCashFromIdentity6505(").substringBefore("\n    }\n")
-        assertFalse(cash.contains("cashPico.set("))
+        assertTrue(cash.contains("cashPico.set(toPico(recomputed))"))
         val realized = ledger.substringAfter("fun rebuildRealizedFromCanonicalEvents6502(").substringBefore("\n    }\n")
         assertFalse(realized.contains("realizedPnlPico.set("))
     }

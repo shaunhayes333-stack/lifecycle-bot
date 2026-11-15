@@ -809,24 +809,28 @@ object PaperAccountLedger6430 {
             } catch (_: Throwable) {}
             return prior
         }
-        // V5.0.8765 — code audit (accounting 2): report-only. Every ledger operation keeps the identity; a divergence means
-        // an input disagrees, and overwriting cash with the identity is how refunded basis became spendable (with 6508).
+        // superseded by V5.0.8785 — 8765 made this report-only; the 8768 smoke then held a 0.001 SOL cash drift the identity
+        // used to correct (acceptance CASH_DELTA). What made the identity refund quarantined basis was 6508 lowering open cost
+        // with no realised loss; 6508 now writes that basis off as a loss (8765), so the identity is safe to write again.
         if (kotlin.math.abs(delta) > 0.001) {
+            cashPico.set(toPico(recomputed))
+            recordMutation8674()
+            persistCurrent6487()
             try {
                 ForensicLogger.lifecycle(
-                    "PAPER_LEDGER_CASH_IDENTITY_DIVERGES_8765",
+                    "PAPER_LEDGER_CASH_REBUILT_FROM_IDENTITY_6505",
                     "starting=${"%.6f".format(starting)} realized=${"%.6f".format(realized)} " +
                         "fees=${"%.6f".format(fees)} openCost=${"%.6f".format(openCost)} " +
                         "priorCash=${"%.6f".format(prior)} rebuiltCash=${"%.6f".format(recomputed)} " +
-                        "delta=${"%.6f".format(delta)} action=report_only",
+                        "delta=${"%.6f".format(delta)}",
                 )
-                PipelineHealthCollector.labelInc("PAPER_LEDGER_CASH_IDENTITY_DIVERGES_8765")
+                PipelineHealthCollector.labelInc("PAPER_LEDGER_CASH_REBUILT_FROM_IDENTITY_6505")
             } catch (_: Throwable) {}
         } else {
             try { PipelineHealthCollector.labelInc("PAPER_LEDGER_CASH_IDENTITY_HEALTHY_6505") } catch (_: Throwable) {}
         }
         // V5.0.8169 — the canonical paper-cash projection follows the ledger (the one authority).
-        try { CanonicalPositionAuthority6441.setPaperCash(prior, "ledger_identity_rebuild_6505_8169") } catch (_: Throwable) {}
+        try { CanonicalPositionAuthority6441.setPaperCash(recomputed, "ledger_identity_rebuild_6505_8169") } catch (_: Throwable) {}
         return recomputed
     }
 
