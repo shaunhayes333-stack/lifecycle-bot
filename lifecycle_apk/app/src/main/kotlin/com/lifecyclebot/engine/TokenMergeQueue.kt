@@ -122,7 +122,12 @@ object TokenMergeQueue {
 
     /**
      * Enqueue a scanner discovery.
+     * V5.0.8779 — code audit (discovery F11): scanners, hunters, the crypto desk and the treasury feed call this concurrently;
+     * the check-then-put let two first sightings of one mint overwrite each other (the second source's evidence — what the
+     * merge exists to collect — was lost) and the scanners set (a LinkedHashSet) was mutated while the bot loop iterated it.
+     * Enqueue is one critical section and the set is concurrent.
      */
+    @Synchronized
     fun enqueue(
         mint: String,
         symbol: String,
@@ -217,7 +222,7 @@ object TokenMergeQueue {
                 volumeH1 = volumeH1,
                 firstSeenAt = now,
                 lastSeenAt = now,
-                scanners = mutableSetOf(scanner),
+                scanners = java.util.concurrent.ConcurrentHashMap.newKeySet<String>().apply { add(scanner) },   // V5.0.8779
                 firstScanner = scanner,
                 bestScanner = scanner,
                 confidence = initialConfidence,

@@ -26006,6 +26006,17 @@ if (hotExitHandledSweep) {
         try { com.lifecyclebot.engine.truth.PumpBandEntry8118.settleIntake8136(mint, admitted, status.tokens.containsKey(mint), ScannerHardRejectStore.isRejected(mint)) } catch (_: Throwable) {}
     }
 
+    /**
+     * V5.0.8779 — code audit (discovery F12): the supervisor normalises the mode (cfg.copy(paperMode = RuntimeModeAuthority))
+     * but the fast lane ran processTokenCycle — 84 reads of cfg.paperMode, live-funding gates among them — on the config it was
+     * handed: a raw ConfigStore read or the stream-wiring snapshot captured once at stream start. Each fast-lane pass reads the
+     * current config, with the runtime mode, the way the supervisor does.
+     */
+    private fun cycleCfg8779(fallback: BotConfig): BotConfig {
+        val c = try { ConfigStore.load(applicationContext) } catch (_: Throwable) { fallback }
+        return c.copy(paperMode = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { c.paperMode })
+    }
+
     private fun fastLaneEvaluate7277(mint: String, cfg: BotConfig, origin: String) {
         if (mint.isBlank() || !status.running) return
         if (!fastLaneOnce7277.add(mint)) return
@@ -26022,7 +26033,7 @@ if (hotExitHandledSweep) {
             try {
                 PipelineHealthCollector.labelInc("FAST_LANE_EVALUATED_7277")
                 PipelineHealthCollector.labelInc("FAST_LANE_EVALUATED_7277_$origin")
-                processTokenCycle(mint, cfg, wallet, t0)
+                processTokenCycle(mint, cycleCfg8779(cfg), wallet, t0)
                 fastLaneSemaphore7277.release()
                 held7925 = false
                 delay(1_500L)
@@ -26036,7 +26047,7 @@ if (hotExitHandledSweep) {
                 } catch (_: Throwable) { false }
                 if (status.running && !alreadyOpen7278 && fastLaneSemaphore7277.tryAcquire()) {
                     held7925 = true
-                    processTokenCycle(mint, cfg, wallet, System.currentTimeMillis())
+                    processTokenCycle(mint, cycleCfg8779(cfg), wallet, System.currentTimeMillis())
                 }
                 val ms = System.currentTimeMillis() - t0
                 ForensicLogger.lifecycle(

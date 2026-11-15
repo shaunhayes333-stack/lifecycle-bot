@@ -10467,7 +10467,8 @@ class GoldenTapeRegressionTest {
 
         // Fast lane: same cycle, on the event, bounded.
         assertTrue(bot.contains("private fun fastLaneEvaluate7277(mint: String, cfg: BotConfig, origin: String) {"))
-        assertTrue(bot.contains("processTokenCycle(mint, cfg, wallet, t0)"))
+        // superseded by V5.0.8779 — each fast-lane pass reads the current config with the runtime mode; was: processTokenCycle(mint, cfg, wallet, t0).
+        assertTrue(bot.contains("processTokenCycle(mint, cycleCfg8779(cfg), wallet, t0)"))
         assertTrue(bot.contains("private val fastLaneSemaphore7277 = java.util.concurrent.Semaphore(6)"))  // V5.0.7279: admits six
         assertTrue(bot.contains("fastLaneEvaluate7277(mint, liveCfg, \"PUMP_PORTAL_WS\")"))
         assertTrue(bot.contains("fastLaneEvaluate7277(mint, c, \"COPY_SIGNAL\")"))
