@@ -52,9 +52,11 @@ class Aate6659CryptoRoundTripReconciliationTest {
     fun `legacy cross asset positions are repaired idempotently without touching native solana`() {
         val rehydrate = crypto.substringAfter("private fun rehydrateCanonicalPositions6647")
             .substringBefore("private fun persistAltPositions")
-        assertTrue(rehydrate.contains("CanonicalPaperTransaction6486.ensureOpenProjection6659(cp)"))
-        assertTrue(rehydrate.contains("if (cp.mode.equals(\"paper\", true))"))
-        assertTrue(rehydrate.contains("CanonicalPaperTransaction6486.repairCryptoHistory6659()"))
+        // V5.0.8812 — the repair and each open paper position's projection run through repairCryptoAtStartup8812
+        assertTrue(rehydrate.contains("CanonicalPaperTransaction6486.repairCryptoAtStartup8812(canonicalOpen, 2_000L)"))
+        val startup8812 = transaction.substringAfter("fun repairCryptoAtStartup8812(").substringBefore("fun repairCryptoHistory6659()")
+        assertTrue(startup8812.contains("repairCryptoHistory6659()"))
+        assertTrue(startup8812.contains("open.filter { it.mode.equals(\"paper\", true) }.forEach { ensureOpenProjection6659(it) }"))
         assertTrue(transaction.contains("EconomicEventSchema6464.snapshot()"))
         assertTrue(transaction.contains("it.assetClass != AssetClass.SOLANA_TOKEN"))
         assertTrue(transaction.contains("PAPER_CANONICAL_HISTORY_REPROJECTED_6692"))

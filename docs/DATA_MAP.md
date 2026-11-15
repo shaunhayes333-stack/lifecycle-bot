@@ -366,3 +366,12 @@ scale-out ladder exit when stops fill near their level.
 
 `StrategyLab8755` now counts each coin once (`perCoin8811`) in discovery scores, held-out records and its brief — a
 coin was written once per lane that judged it, every cycle — and mines discovery sources as scopes beside lanes.
+
+## 19. Crypto startup does not wait on the journal reconciler (8812)
+
+CI runtime acceptance failed on 5.0.8805, 8809, the 8810 follow-up and 8811 with the same stall:
+`SERVICE_BOOTSTRAP_STALL_8144 phase=TRADER_CRYPTO_ALT_INIT_STARTING stalledMs=42369`, the crypto trader WAITING on
+`CanonicalPaperTransaction6486`'s lock while the startup reconcile pass (two journal replays, the cross-asset history
+repair, up to four 5 s journal boundaries) held it. `repairCryptoAtStartup8812` runs the crypto trader's startup repair
+(cross-asset history + each open paper crypto position's projection) only if the lock is free within 2 s; otherwise the
+same work runs on a background thread after the reconcile pass. Counter: `CRYPTO_STARTUP_REPAIR_DEFERRED_8812`.

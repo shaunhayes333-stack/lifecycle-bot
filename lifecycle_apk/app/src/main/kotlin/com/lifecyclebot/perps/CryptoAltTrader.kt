@@ -660,16 +660,13 @@ object CryptoAltTrader {
             }
             val canonicalOpen = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
                 .filter { it.assetClass == com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT }
-            // V5.0.6659 — recover both open and historical terminal Crypto
-            // events before the account reconciler reads the durable journal.
-            com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.repairCryptoHistory6659()
+            // V5.0.6659 — recover both open and historical terminal Crypto events (and project each open paper position from
+            // canonical truth, even when its optional local presentation row is unavailable).
+            // V5.0.8812 — without waiting on a startup reconcile pass that holds the paper transaction lock: then the same
+            // repair runs on a background thread (CanonicalPaperTransaction6486.repairCryptoAtStartup8812).
+            com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.repairCryptoAtStartup8812(canonicalOpen, 2_000L)
             var rehydratedCount = 0
             canonicalOpen.forEach { cp ->
-                // Repair accounting projection from canonical truth even if
-                // the optional local presentation row is unavailable.
-                if (cp.mode.equals("paper", true)) {
-                    com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.ensureOpenProjection6659(cp)
-                }
                 val persisted = stored.firstOrNull { it.id == cp.positionId && it.canonicalAssetKey == cp.mint &&
                     it.isPaper == cp.mode.equals("paper", true) }
                 val pos = restoreCanonicalPosition8521(cp, persisted)

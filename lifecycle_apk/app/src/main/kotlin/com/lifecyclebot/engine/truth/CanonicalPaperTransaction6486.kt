@@ -331,6 +331,32 @@ object CanonicalPaperTransaction6486 {
             .takeIf { it.isFinite() && it > 0.0 } ?: 0.0
     }
 
+    /**
+     * V5.0.8812 §STARTUP_DOES_NOT_WAIT_ON_THE_RECONCILER — CI runtime acceptance (5.0.8805, 8809, 8810 follow-up, 8811):
+     * SERVICE_BOOTSTRAP_STALL_8144 phase=TRADER_CRYPTO_ALT_INIT_STARTING stalled 42 s, the crypto trader's start WAITING at
+     * ensureOpenProjection6659's lock while the startup reconcile pass (reconcileJournalAuthority6663: two journal replays,
+     * this same history repair and up to four 5 s journal boundaries) held it; the app then failed its screen checks.
+     * The crypto trader's startup repair — the cross-asset history and the projection of each open paper crypto position —
+     * takes the lock only if it is free within [waitMs]. Otherwise the same work runs on a background thread that waits for
+     * the reconcile pass to finish, so the trader starts and the books are still repaired. Returns true when it ran here.
+     */
+    fun repairCryptoAtStartup8812(open: List<CanonicalPositionAuthority6441.Position>, waitMs: Long): Boolean {
+        fun work() {
+            repairCryptoHistory6659()
+            open.filter { it.mode.equals("paper", true) }.forEach { ensureOpenProjection6659(it) }
+        }
+        if (lock.tryLock(waitMs, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+            try { work() } finally { lock.unlock() }
+            return true
+        }
+        try { PipelineHealthCollector.labelInc("CRYPTO_STARTUP_REPAIR_DEFERRED_8812") } catch (_: Throwable) {}
+        try {
+            Thread({ try { lock.withLock { work() } } catch (_: Throwable) {} }, "crypto-startup-repair-8812")
+                .apply { isDaemon = true; priority = Thread.MIN_PRIORITY }.start()
+        } catch (_: Throwable) {}
+        return false
+    }
+
     fun repairCryptoHistory6659() {
         // V5.0.6697 — this is CROSS-ASSET history repair only. 6696 selected
         // every PAPER position, including SOLANA_TOKEN meme positions, and
