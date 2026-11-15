@@ -871,30 +871,6 @@
                     </LinearLayout>
 
                     <LinearLayout
-                        android:id="@+id/btnQuickMarkets"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:orientation="vertical"
-                        android:gravity="center"
-                        android:padding="7dp"
-                        android:background="@drawable/aate_nav_tile_bg"
-                        android:layout_marginEnd="6dp"
-                        android:clickable="true"
-                        android:focusable="true">
-                        <ImageView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:src="@drawable/aate_ic_markets"
-                            android:background="@drawable/aate_nav_icon_badge_bg"
-                            android:minWidth="42dp"
-                            android:minHeight="42dp"
-                            android:padding="8dp"
-                            android:contentDescription="Markets icon"/>
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Markets" android:textColor="@color/aate_amber" android:textSize="9sp"
-                            android:layout_marginTop="2dp"/>
-                    </LinearLayout>
-
-                    <LinearLayout
                         android:id="@+id/btnQuickLab"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
@@ -923,7 +899,8 @@
                             android:fontFamily="monospace"/>
                     </LinearLayout>
 
-                    <!-- V5.0.8795: Hyperliquid trend desk -->
+                    <!-- V5.0.8795 / 8797: Hyperliquid perps desk (replaces the retired Markets tile; the Markets
+                         screen stays reachable from the hero and crypto surfaces for wind-down and crypto alts) -->
                     <LinearLayout
                         android:id="@+id/btnQuickHyperliquid"
                         android:layout_width="0dp"

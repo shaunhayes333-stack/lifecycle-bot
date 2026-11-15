@@ -10933,11 +10933,7 @@ This cannot be undone!
             performHaptic()
         }
 
-        // V5.7.6: Multi-Asset Markets button → Opens dedicated trading UI
-        findViewById<View>(R.id.btnQuickMarkets)?.setOnClickListener {
-            startActivity(Intent(this, MultiAssetActivity::class.java))
-            performHaptic()
-        }
+        // V5.0.8797 — the Markets tile is retired with its traders (RetiredMarkets8797); its deck slot is the Hyperliquid desk.
 
         // V1.0: Crypto Alts tile (in meme modes row) → opens CryptoAltActivity
         findViewById<View>(R.id.btnQuickCryptoAlts)?.setOnClickListener {
