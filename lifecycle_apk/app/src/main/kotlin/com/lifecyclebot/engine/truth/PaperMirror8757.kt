@@ -31,7 +31,13 @@ object PaperMirror8757 {
         "DUPLICATE", "SINGLE_FLIGHT", "KILL_SWITCH", "HALT", "DEAD_LAUNCH", "EMPTY_CURVE", "ROUTE_MIN", "SIZE_NOT_EXECUTABLE",
         "QUARANT", "REBUY", "BIG_LOSER", "REPEAT_LOSER", "DATA_", "STALE", "EXECUTION_ECONOMICS", "EXECUTION_NET_NONPOSITIVE",
         "COST_", "_FAILED",
+        // V5.0.8758 — code audit: structural / executional refusals the mirror must never override.
+        "CURVE_NOBODY_BOUGHT", "AT_LAUNCH_CAP", "NET_EDGE", "PRICE_COLLAPSED", "BUY_DOOR_PROOF",
     )
+    /** V5.0.8758 — at most this many mirrored admits per rolling hour (open exposure bound while the stop reads closes). */
+    const val MAX_PER_HOUR_8758 = 4
+    private val admitTimes8758 = java.util.ArrayDeque<Long>()
+    @Volatile private var stopCheckedAtMs8758 = 0L
 
     /** Pure: is [reason] a refusal the mirror never overrides? */
     fun hard8757(reason: String?): Boolean {
@@ -46,9 +52,10 @@ object PaperMirror8757 {
     /** Pure: has [realisedSol] since the first mirrored admit reached the automatic stop? */
     fun lossStopHit8757(realisedSol: Double): Boolean = realisedSol.isFinite() && realisedSol <= -LOSS_STOP_SOL_8757
 
-    private fun stopped8757(): Boolean {
+    private fun stopped8757(nowMs: Long): Boolean {
         if (tripped8757) return true
-        if (startMs8757 <= 0L) return false
+        if (startMs8757 <= 0L || nowMs - stopCheckedAtMs8758 < 60_000L) return false
+        stopCheckedAtMs8758 = nowMs
         val realised = try {
             com.lifecyclebot.engine.LiveEntrySafetyHold.LiveConfidenceStats.byLane8280(startMs8757)
                 .filterKeys { mirrorLane8757(it) }.values.sumOf { it.expectancySol * it.canonicalN }
@@ -66,15 +73,37 @@ object PaperMirror8757 {
      */
     fun mirror8757(c: CandidateAdmission8136.Candidate8136, d: CandidateAdmission8136.Decision8136, nowMs: Long): CandidateAdmission8136.Decision8136 {
         if (!enabled8757 || !c.live || d.admitted || !mirrorLane8757(c.lane) || hard8757(d.reason)) return d
-        if (!c.costPct.isFinite() || c.costPct < 0.0 || stopped8757()) return d
+        if (try { FdgGate8365.shadowOnly8393() } catch (_: Throwable) { true }) return d   // V5.0.8758 — never in a shadow rehearsal
+        if (!c.costPct.isFinite() || c.costPct < 0.0 || stopped8757(nowMs)) return d
+        // V5.0.8758 — the live price bar, not the paper book's 5-minute one.
+        if (CandidateAdmission8136.priceStale8136(c.priceAgeMs, hotLaunch = false, live = true)) return d
         val paper = try { CandidateAdmission8136.decide8136(c.copy(live = false, liveEdge8114 = null)) { false } } catch (_: Throwable) { return d }
         if (paper.terminal != CandidateAdmission8136.Terminal8136.ADMIT) return d
+        // V5.0.8758 — the executable cost check binds on the mirrored admit: a finite net that clears the margin.
+        if (!economicsClear8758(paper.expectedNetPct, paper.costPct, paper.costMargin8391)) {
+            try { PipelineHealthCollector.labelInc("PAPER_MIRROR_ECONOMICS_REFUSED_8758") } catch (_: Throwable) {}
+            return d
+        }
+        if (!rateRoom8758(nowMs)) { try { PipelineHealthCollector.labelInc("PAPER_MIRROR_RATE_CAP_8758") } catch (_: Throwable) {}; return d }
         if (startMs8757 <= 0L) startMs8757 = nowMs
         mirrored8757.incrementAndGet()
         try { PipelineHealthCollector.labelInc("PAPER_MIRROR_ADMIT_8757_${d.reason.take(48)}") } catch (_: Throwable) {}
         return d.copy(terminal = CandidateAdmission8136.Terminal8136.ADMIT, reason = REASON_8757, specific = false,
             chosenSetup = paper.chosenSetup ?: d.chosenSetup, trace = d.trace + "paperMirror8757 liveRefusal=${d.reason}",
-            laneQualified8577 = true)
+            expectedNetPct = paper.expectedNetPct, costPct = paper.costPct, costSizeSol = paper.costSizeSol,
+            costBreakdown = paper.costBreakdown, costMargin8391 = paper.costMargin8391, laneQualified8577 = true)
+    }
+
+    /** Pure (V5.0.8758): a finite expected net whose gross clears [margin] x the round trip. */
+    fun economicsClear8758(expectedNetPct: Double, costPct: Double, margin: Double): Boolean =
+        expectedNetPct.isFinite() && costPct.isFinite() && costPct >= 0.0 &&
+            NetEdge8030.entryClears8030(expectedNetPct + costPct, costPct, margin)
+
+    @Synchronized private fun rateRoom8758(nowMs: Long): Boolean {
+        while (admitTimes8758.isNotEmpty() && nowMs - admitTimes8758.peekFirst() > 3_600_000L) admitTimes8758.pollFirst()
+        if (admitTimes8758.size >= MAX_PER_HOUR_8758) return false
+        admitTimes8758.addLast(nowMs)
+        return true
     }
 
     /** LiveEdgeGate7877 (via LaneAuthority8577.advisoryAtGate8577): a mirrored admit is held only by a hard refusal. */

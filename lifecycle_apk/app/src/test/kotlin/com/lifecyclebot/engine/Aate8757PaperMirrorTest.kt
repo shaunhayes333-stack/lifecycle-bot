@@ -40,4 +40,16 @@ class Aate8757PaperMirrorTest {
         assertTrue(auth.contains("(!binding8577(reason) || PaperMirror8757.passesAtGate8757(reason, admission))"))
         assertTrue(File("src/main/kotlin/com/lifecyclebot/engine/DiagnosisBrief8438.kt").readText().contains("PaperMirror8757.statusLine8757()"))
     }
+
+    @Test fun the_mirror_keeps_the_cost_check_the_price_bar_and_a_rate_cap() {
+        assertTrue(PaperMirror8757.economicsClear8758(10.0, 4.0, 1.5))
+        assertFalse("gross below 1.5x cost", PaperMirror8757.economicsClear8758(1.0, 4.0, 1.5))
+        assertFalse("unknown net", PaperMirror8757.economicsClear8758(Double.NaN, 4.0, 1.5))
+        org.junit.Assert.assertEquals(4, PaperMirror8757.MAX_PER_HOUR_8758)
+        for (hard in listOf("CURVE_NOBODY_BOUGHT_8046", "AT_LAUNCH_CAP", "NET_EDGE_BELOW_8030", "PRICE_COLLAPSED_ONCHAIN"))
+            assertTrue(hard, PaperMirror8757.hard8757(hard))
+        val src = File("src/main/kotlin/com/lifecyclebot/engine/truth/PaperMirror8757.kt").readText()
+        assertTrue(src.contains("if (CandidateAdmission8136.priceStale8136(c.priceAgeMs, hotLaunch = false, live = true)) return d"))
+        assertTrue(src.contains("if (try { FdgGate8365.shadowOnly8393() } catch (_: Throwable) { true }) return d"))
+    }
 }

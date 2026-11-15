@@ -46,7 +46,8 @@ class Aate8703WholeNetworkAndTicketsTest {
         val s = src("engine/truth/CandidateAdmission8136.kt")
         // superseded by V5.0.8757 — the paper-book mirror for live MOONSHOT runs after the buy-door proof; was:
         // `s.contains(".let { awaitBuyDoorProof8703(ts, candidate.live, it, nowMs, candidate.lane) }.also {")`.
-        assertTrue(s.contains(".let { awaitBuyDoorProof8703(ts, candidate.live, it, nowMs, candidate.lane) }\n            .let { PaperMirror8757.mirror8757(candidate, it, nowMs) }.also {"))
+        // superseded by V5.0.8758 — the mirror now runs BEFORE the buy-door proof, so a mirrored admit still waits on it.
+        assertTrue(s.indexOf(".let { PaperMirror8757.mirror8757(candidate, it, nowMs) }") in 0 until s.indexOf(".let { awaitBuyDoorProof8703(ts, candidate.live, it, nowMs, candidate.lane) }"))
         assertTrue(s.contains("if (!live || !d.admitted) return d"))
     }
 
