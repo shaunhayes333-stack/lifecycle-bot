@@ -30,21 +30,37 @@ object XsApi {
     // V5.0.8805 — 8802 on the device: every xStock NO_HISTORY and every cost "unquoted" with no reason shown. The reads now
     // go through the app's host-health client like DynamicAltTokenRegistry's GeckoTerminal reads, and each outcome is counted.
     private val geckoOk = java.util.concurrent.atomic.AtomicLong(); private val geckoFail = java.util.concurrent.atomic.AtomicLong()
+    // V5.0.8810 — 8809 on the device: gecko ok=2 fail=34 "http 503" while the GeckoTerminal health row showed 5xx=0. The 503s
+    // were the app's own refusals (a host lockout or the shared host budget, HostCircuitInterceptor.SYNTHETIC_HEADER_6969),
+    // counted as provider failures; the desk then marked the day evaluated with every stock NO_HISTORY. A refusal is now
+    // its own count and its own answer ([Read8810.local]), so the desk waits and asks again.
+    private val geckoLocal8810 = java.util.concurrent.atomic.AtomicLong()
     private val quoteOk = java.util.concurrent.atomic.AtomicLong(); private val quoteFail = java.util.concurrent.atomic.AtomicLong()
     @Volatile private var lastGecko = "-"
     @Volatile private var lastQuote = "-"
 
-    private fun get(url: String): String? = try {
+    /** One GeckoTerminal read: the body (null when none), and whether the app itself refused it before the wire. */
+    private class Read8810(val body: String?, val local: Boolean)
+
+    private fun read8810(url: String): Read8810 = try {
         val req = Request.Builder().url(url).header("User-Agent", "lifecycle-bot-android/6.0")
             .header("Accept", "application/json;version=20230302").build()
         com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, "geckoterminal").use { r ->
-            val body = if (r.isSuccessful) r.body?.string() else null
-            if (body != null) geckoOk.incrementAndGet() else { geckoFail.incrementAndGet(); lastGecko = "http ${r.code}" }
-            body
+            val local = r.header(com.lifecyclebot.network.HostCircuitInterceptor.SYNTHETIC_HEADER_6969) != null
+            val body = if (r.isSuccessful && !local) r.body?.string() else null
+            when {
+                body != null -> geckoOk.incrementAndGet()
+                local -> { geckoLocal8810.incrementAndGet(); lastGecko = "local ${r.code}" }
+                else -> { geckoFail.incrementAndGet(); lastGecko = "http ${r.code}" }
+            }
+            Read8810(body, local)
         }
-    } catch (t: Throwable) { geckoFail.incrementAndGet(); lastGecko = "${t.javaClass.simpleName}:${t.message?.take(60)}"; null }
+    } catch (t: Throwable) { geckoFail.incrementAndGet(); lastGecko = "${t.javaClass.simpleName}:${t.message?.take(60)}"; Read8810(null, false) }
 
-    fun line(): String = "api{gecko ok=${geckoOk.get()} fail=${geckoFail.get()} last=$lastGecko quotes ok=${quoteOk.get()} fail=${quoteFail.get()} last=$lastQuote}"
+    private fun get(url: String): String? = read8810(url).body
+
+    fun line(): String = "api{gecko ok=${geckoOk.get()} fail=${geckoFail.get()} localRefused8810=${geckoLocal8810.get()} last=$lastGecko " +
+        "quotes ok=${quoteOk.get()} fail=${quoteFail.get()} last=$lastQuote}"
 
     data class Pool(val address: String, val reserveUsd: Double, val volume24hUsd: Double)
 
@@ -64,6 +80,9 @@ object XsApi {
 
     fun pools(mint: String): List<Pool> = parsePools(get("$GECKO/tokens/$mint/pools?page=1"))
 
+    /** V5.0.8810 — [pools], or null when nothing answered (an empty list is an answer: no pool). */
+    fun poolsOrNull8810(mint: String): List<Pool>? = read8810("$GECKO/tokens/$mint/pools?page=1").body?.let { parsePools(it) }
+
     /** Pure: daily candles [day -> o, h, l, c, volume USD] of GeckoTerminal's ohlcv_list ([ts s, o, h, l, c, v], newest first). */
     fun parseDailyBars(body: String?): Map<Long, DoubleArray> {
         val list = try { JSONObject(body ?: return emptyMap()).optJSONObject("data")?.optJSONObject("attributes")?.optJSONArray("ohlcv_list") }
@@ -80,8 +99,11 @@ object XsApi {
     }
 
     /** The token's daily candles (USD, priced in the token itself on its deepest pool) for up to [limit] days. */
-    fun dailyBars(pool: String, mint: String, limit: Int = 1000): Map<Long, DoubleArray> =
-        parseDailyBars(get("$GECKO/pools/$pool/ohlcv/day?aggregate=1&limit=${limit.coerceIn(1, 1000)}&currency=usd&token=$mint"))
+    fun dailyBars(pool: String, mint: String, limit: Int = 1000): Map<Long, DoubleArray> = dailyBarsOrNull8810(pool, mint, limit) ?: emptyMap()
+
+    /** V5.0.8810 — [dailyBars], or null when nothing answered. */
+    fun dailyBarsOrNull8810(pool: String, mint: String, limit: Int = 1000): Map<Long, DoubleArray>? =
+        read8810("$GECKO/pools/$pool/ohlcv/day?aggregate=1&limit=${limit.coerceIn(1, 1000)}&currency=usd&token=$mint").body?.let { parseDailyBars(it) }
 
     data class MintInfo(val decimals: Int, val multiplier: Double)
 

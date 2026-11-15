@@ -72,6 +72,13 @@ object XsDesk {
     @Volatile private var panelSyms: List<String> = emptyList()
     @Volatile private var targets: Map<String, Double> = emptyMap()
     @Volatile private var lastEvalDay = -1L
+    // V5.0.8810 — a day whose history reads went unanswered is asked again, not marked evaluated (8809: every stock
+    // NO_HISTORY for the day after 34 of 36 reads were refused locally).
+    @Volatile private var historyRetryAt8810 = 0L
+    @Volatile private var historyUnanswered8810 = 0
+    @Volatile private var historyPasses8810 = 0
+    private const val HISTORY_RETRY_MS_8810 = 10L * 60_000L
+    private const val HISTORY_DEADLINE_MS_8810 = 6L * 60L * 60_000L
     @Volatile private var quotesAt = 0L
     @Volatile private var riskAt = 0L
 
@@ -123,7 +130,7 @@ object XsDesk {
         if (universe.isEmpty()) universe = universeOf(PerpsMarket.values().toList()) { TokenizedAssetRegistry.mintFor(it) }
         val today = epochDay(now)
         if (now - quotesAt >= QUOTE_EVERY_MS) refreshQuotes(now)
-        if (today != lastEvalDay && now - today * DAY_MS >= SETTLE_MS) daily(now, today)
+        if (today != lastEvalDay && now - today * DAY_MS >= SETTLE_MS && now >= historyRetryAt8810) daily(now, today)
         synchronized(lock) { paperDay(today) }
         if (now - riskAt >= RISK_EVERY_MS) { riskAt = now; liveRisk(now, today) }
         status = "ok"
@@ -158,31 +165,44 @@ object XsDesk {
 
     private fun history(s: Sym): HlHistory = histories.getOrPut(s.symbol) { app?.filesDir?.let { HlStore.load(it, s.coin) } ?: HlHistory(s.coin) }
 
-    private fun fillBars(s: Sym, h: HlHistory, today: Long) {
-        if (h.lastBarDay() >= today - 1) return
+    /** Brings [h] up to yesterday; false when a read went unanswered (true when current, or answered even if empty). */
+    private fun fillBars(s: Sym, h: HlHistory, today: Long): Boolean {
+        if (h.lastBarDay() >= today - 1) return true
         val cached = pools[s.symbol]
         val pool = if (cached != null && today - cached.second < POOL_REFRESH_DAYS) cached.first else {
             sleepQuietly(CALL_GAP_MS)
-            XsApi.pools(s.mint).firstOrNull()?.address?.also { pools[s.symbol] = it to today } ?: cached?.first ?: return
+            val found = XsApi.poolsOrNull8810(s.mint)
+            if (found == null && cached == null) return false                                         // unanswered, nothing known
+            found?.firstOrNull()?.address?.also { pools[s.symbol] = it to today } ?: cached?.first ?: return true   // answered: no pool
         }
         sleepQuietly(CALL_GAP_MS)
-        for ((d, b) in XsApi.dailyBars(pool, s.mint)) if (d < today) h.bars[d] = b      // a day still trading is not a bar
+        val bars = XsApi.dailyBarsOrNull8810(pool, s.mint) ?: return false
+        for ((d, b) in bars) if (d < today) h.bars[d] = b      // a day still trading is not a bar
+        return true
     }
+
+    /** Pure (V5.0.8810): ask the day's history again (not evaluate) when reads went unanswered and the deadline is ahead. */
+    internal fun historyRetry8810(unanswered: Int, sinceMidnightMs: Long): Boolean = unanswered > 0 && sinceMidnightMs < HISTORY_DEADLINE_MS_8810
 
     private fun daily(now: Long, today: Long) {
         val dir = app?.filesDir
         val ready = ArrayList<HlHistory>()
         val excl = LinkedHashMap<String, String>()
+        var unanswered = 0
         for ((i, s) in universe.withIndex()) {
             status = "loading history ${i + 1}/${universe.size}"   // V5.0.8805
             val h = history(s)
-            fillBars(s, h, today)
+            if (!fillBars(s, h, today)) unanswered++
             h.trim(today - HISTORY_DAYS - 30)
             if (dir != null) HlStore.save(dir, h)
             if (h.bars.size >= MIN_LISTED_DAYS) ready.add(h) else excl[s.symbol] = if (h.bars.isEmpty()) "NO_HISTORY" else "TOO_NEW_${h.bars.size}d"
         }
         excluded = excl
+        historyUnanswered8810 = unanswered
+        historyPasses8810++
+        if (historyRetry8810(unanswered, now - today * DAY_MS)) { historyRetryAt8810 = now + HISTORY_RETRY_MS_8810; return }
         lastEvalDay = today
+        historyPasses8810 = 0
         if (ready.isEmpty()) return
         val panel = HlDesk.panelOf(ready, today - 1, HISTORY_DAYS) { coin -> costSide(coin.removePrefix("xs:")) }
         val ev = HlBrain.evaluate(panel, 1.0, longOnly = true)
@@ -456,7 +476,8 @@ object XsDesk {
             "$s=${"%.2f".format(costSideOf(q, now) * 100)}%${if (now - q.atMs > QUOTE_MAX_AGE_MS) "(stale)" else ""}"
         }
         val held = livePositions()
-        return "xstocks8802[$status ${XsApi.line()} universe=${universe.size} graded=${panelSyms.size} excluded{${excluded.entries.take(10).joinToString(" ") { "${it.key}:${it.value}" }}} " +
+        return "xstocks8802[$status ${XsApi.line()} history8810{unanswered=$historyUnanswered8810 passesToday=$historyPasses8810 " +
+            "retryInS=${((historyRetryAt8810 - now) / 1000).coerceAtLeast(0)}} universe=${universe.size} graded=${panelSyms.size} excluded{${excluded.entries.take(10).joinToString(" ") { "${it.key}:${it.value}" }}} " +
             "history=${ev?.days ?: 0}d ${if (ev?.armed == true) "ARMED" else "SHADOW"} exposure=${"%.2f".format(ev?.leverage ?: 0.0)} " +
             "blend{train{${line(ev?.train)}} test{${line(ev?.test)}}} families{$picks} " +
             "targets{${targets.entries.sortedByDescending { it.value }.joinToString(" ") { "${it.key}${"%.0f".format(it.value * 100)}%" }.ifBlank { "flat" }}} " +

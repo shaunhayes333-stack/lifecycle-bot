@@ -340,3 +340,8 @@ one chart of that coin, on one background thread (queue 64; a full queue drops a
 level → first is the price already past the stop when first seen, first → trig is the two-mark confirmation, trig → fill
 is execution. The 5.0.8809 run showed EXPRESS stops set at −5 % triggering at −26 %, two of five on a tape print, so
 faster marks alone (8808) do not close it.
+
+xStocks (same build): 5.0.8809 showed `gecko ok=2 fail=34 last=http 503` while GeckoTerminal's health row had no 5xx —
+the 503s were the app's own refusals (host lockout / shared budget). `XsApi` now counts them as `localRefused8810`, and a
+day whose history reads went unanswered is asked again every 10 minutes for the first six hours (UTC) instead of being
+marked evaluated with every stock `NO_HISTORY`. Report: `history8810{unanswered, passesToday, retryInS}`.

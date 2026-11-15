@@ -3,6 +3,9 @@ package com.lifecyclebot.engine
 import com.lifecyclebot.engine.chart.Bar7950
 import com.lifecyclebot.engine.chart.ColourShape8807
 import com.lifecyclebot.engine.truth.StopSlip8756
+import com.lifecyclebot.xstocks.XsApi
+import com.lifecyclebot.xstocks.XsDesk
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -44,5 +47,17 @@ class Aate8810OwnChartsAndSlipTest {
         assertTrue(book.contains("else if (p.stopSeenAtMs8683 == 0L) { p.stopSeenAtMs8683 = p.lastAtMs; p.slipFirst8810 = g }"))
         assertTrue(File("../../docs/DATA_MAP.md").readText().contains("## 17. The bot's own charts teach the colour table"))
         StopSlip8756.resetForTest8756()
+    }
+
+    @Test fun anXStocksDayWhoseReadsWereRefusedIsAskedAgain() {
+        assertTrue("unanswered reads before the deadline: ask again", XsDesk.historyRetry8810(3, 60L * 60_000L))
+        assertFalse("every read answered: evaluate", XsDesk.historyRetry8810(0, 60L * 60_000L))
+        assertFalse("six hours into the day: evaluate with what answered", XsDesk.historyRetry8810(3, 7L * 60L * 60_000L))
+        assertTrue(XsApi.line().contains("localRefused8810="))
+        val api = src("xstocks/XsApi.kt")
+        assertTrue(api.contains("val local = r.header(com.lifecyclebot.network.HostCircuitInterceptor.SYNTHETIC_HEADER_6969) != null"))
+        val desk = src("xstocks/XsDesk.kt")
+        assertTrue(desk.contains("if (historyRetry8810(unanswered, now - today * DAY_MS)) { historyRetryAt8810 = now + HISTORY_RETRY_MS_8810; return }"))
+        assertTrue(desk.indexOf("historyRetryAt8810 = now + HISTORY_RETRY_MS_8810; return }") < desk.indexOf("        lastEvalDay = today\n        historyPasses8810 = 0"))
     }
 }
