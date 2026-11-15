@@ -68,6 +68,24 @@ object RetiredMarkets8797 {
         } catch (_: Throwable) {}
     }
 
+    @Volatile private var lastWatchMs = 0L
+
+    /**
+     * BotService's markets watchdog (both loops): a retired trader that still holds positions and has stopped is started
+     * again for its exits (entries stay off); one that holds nothing is never restarted. At most every 30 s.
+     */
+    fun watchdog(ctx: Context, nowMs: Long = System.currentTimeMillis()) {
+        if (nowMs - lastWatchMs < 30_000L) return
+        lastWatchMs = nowMs
+        disableEntries()
+        val held = holdings()
+        fun open(k: String) = held[k]?.let { it.first + it.second > 0 } == true
+        try { if (open("COMMODITIES") && !CommoditiesTrader.isHealthy()) CommoditiesTrader.start() } catch (_: Throwable) {}
+        try { if (open("METALS") && !MetalsTrader.isHealthy()) MetalsTrader.start() } catch (_: Throwable) {}
+        try { if (open("STOCKS") && !TokenizedStockTrader.isHealthy()) TokenizedStockTrader.start() } catch (_: Throwable) {}
+        try { if (open("SOL_PERPS") && !PerpsExecutionEngine.isHealthy()) PerpsExecutionEngine.start(ctx) } catch (_: Throwable) {}
+    }
+
     fun statusLine(): String = "retired8797[" + holdings().entries.joinToString(" ") { (k, v) -> "$k(${WHY[k]}) live=${v.first} paper=${v.second}" } +
         " windDown=${windDowns.ifBlank { "none" }} rule=no new entries; held positions run their own exits; FOREX positions close from Markets -> STOP]"
 }

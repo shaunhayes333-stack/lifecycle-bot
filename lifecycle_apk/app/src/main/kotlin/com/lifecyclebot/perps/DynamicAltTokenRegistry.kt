@@ -1715,6 +1715,19 @@ object DynamicAltTokenRegistry {
         return true
     }
 
+    /**
+     * V5.0.8800 — a held Solana token's mark read from its own pool vaults on chain (CryptoAltTrader.chainHeldMark8800),
+     * dated by the chain read's time. The crypto paper book held "plumber" at ~25x while every DEX feed for it was stale
+     * (5.0.8797 report: STALE_MARK_PROFIT_WITHHELD 1,656 times), so it could neither mark nor take the profit.
+     */
+    fun observeHeldMarkAt8800(identityOrAddress: String, priceUsd: Double, observedAtMs: Long): Boolean {
+        if (!priceUsd.isFinite() || priceUsd <= 0.0 || observedAtMs <= 0L) return false
+        val existing = registry[identityOrAddress] ?: getTokenByMint(identityOrAddress) ?: return false
+        if (existing.lastUpdatedMs > observedAtMs) return false          // a newer observation already stands
+        registry[existing.canonicalIdentity6544] = existing.copy(price = priceUsd, priceObservedAtMs8372 = observedAtMs, lastUpdatedMs = observedAtMs)
+        return true
+    }
+
     // ─── Discovery implementations ───────────────────────────────────────────
 
     private fun dynTokenFromPair6544(

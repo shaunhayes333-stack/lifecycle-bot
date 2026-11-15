@@ -17,8 +17,11 @@ class Aate7447TraderBootstrapIsolationTest {
         val step = src.substringAfter("val traderStep7447").substringBefore("canonicalBootstrapJob6515?.join()")
         assertTrue(step.contains("withTimeout(timeoutMs)"))
         assertTrue(step.contains("runInterruptible(kotlinx.coroutines.Dispatchers.IO)"))
-        listOf("PERPS", "STOCK", "COMMODITY", "METAL", "FOREX", "CRYPTO_ALT_INIT", "CRYPTO_ALT_START")
+        // V5.0.8797 — PERPS / STOCK / COMMODITY / METAL / FOREX are retired (RetiredMarkets8797): startup winds them down
+        // (exits only) instead of starting them; the crypto trader keeps its bounded steps.
+        listOf("CRYPTO_ALT_INIT", "CRYPTO_ALT_START")
             .forEach { assertTrue("missing bounded startup for $it", region.contains("traderStep7447(\"$it\"")) }
+        assertTrue(region.contains("com.lifecyclebot.perps.RetiredMarkets8797.windDown(applicationContext)"))
     }
 
     @Test fun timeout_or_failure_does_not_abort_remaining_trader_bootstrap() {

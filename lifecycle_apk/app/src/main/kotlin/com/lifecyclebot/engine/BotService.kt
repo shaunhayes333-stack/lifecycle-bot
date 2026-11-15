@@ -19227,44 +19227,14 @@ class BotService : Service() {
                 try { com.lifecyclebot.perps.ForexTrader.stop() } catch (_: Exception) {}
             }
 
-            // PerpsExecutionEngine watchdog — only when Markets toggle is ON
-            if (marketsLaneOn) {
-                val healthy = com.lifecyclebot.perps.PerpsExecutionEngine.isHealthy()
-                if (!healthy) {
-                    ErrorLogger.warn("BotService", "⚠️ PerpsExecutionEngine NOT HEALTHY (loop #$loopCount) — restarting…")
-                    addLog("⚡ Markets engine watchdog: engine unhealthy, restarting…")
-                    com.lifecyclebot.perps.PerpsExecutionEngine.stop()
-                    delay(500)
-                    com.lifecyclebot.perps.PerpsExecutionEngine.start(applicationContext)
-                    addLog("⚡ Markets engine restarted by watchdog")
-                }
-            }
+            // V5.0.8797 — the markets / perps traders are retired: only one still holding positions is kept alive
+            // (its exits only), never restarted for entries (RetiredMarkets8797.watchdog).
+            com.lifecyclebot.perps.RetiredMarkets8797.watchdog(applicationContext)
             // CryptoAltTrader watchdog — only if enabled (V5.9.345: exempt from kill-switch)
             if (cfg.cryptoAltsEnabled && !com.lifecyclebot.perps.CryptoAltTrader.isHealthy()) {
                 ErrorLogger.warn("BotService", "⚠️ CryptoAltTrader unhealthy (loop #$loopCount) — restarting…")
                 addLog("🪙 CryptoAlt watchdog: unhealthy, restarting…")
                 com.lifecyclebot.perps.CryptoAltTrader.start()
-            }
-            // TokenizedStockTrader watchdog — only if Markets+stocks enabled
-            if (marketsLaneOn && cfg.stocksEnabled && !com.lifecyclebot.perps.TokenizedStockTrader.isHealthy()) {
-                ErrorLogger.warn("BotService", "⚠️ TokenizedStockTrader unhealthy (loop #$loopCount) — restarting…")
-                addLog("📈 Stock trader watchdog: unhealthy, restarting…")
-                com.lifecyclebot.perps.TokenizedStockTrader.start()
-            }
-            // CommoditiesTrader watchdog — only if Markets+commodities enabled
-            if (marketsLaneOn && cfg.commoditiesEnabled && !com.lifecyclebot.perps.CommoditiesTrader.isHealthy()) {
-                ErrorLogger.warn("BotService", "⚠️ CommoditiesTrader unhealthy (loop #$loopCount) — restarting…")
-                com.lifecyclebot.perps.CommoditiesTrader.start()
-            }
-            // MetalsTrader watchdog — only if Markets+metals enabled
-            if (marketsLaneOn && cfg.metalsEnabled && !com.lifecyclebot.perps.MetalsTrader.isHealthy()) {
-                ErrorLogger.warn("BotService", "⚠️ MetalsTrader unhealthy (loop #$loopCount) — restarting…")
-                com.lifecyclebot.perps.MetalsTrader.start()
-            }
-            // ForexTrader watchdog — only if Markets+forex enabled
-            if (marketsLaneOn && cfg.forexEnabled && !com.lifecyclebot.perps.ForexTrader.isHealthy()) {
-                ErrorLogger.warn("BotService", "⚠️ ForexTrader unhealthy (loop #$loopCount) — restarting…")
-                com.lifecyclebot.perps.ForexTrader.start()
             }
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "Markets watchdog error: ${e.message}", e)
@@ -20513,40 +20483,12 @@ class BotService : Service() {
                         try { com.lifecyclebot.perps.PerpsExecutionEngine.stop() } catch (_: Exception) {}
                     }
 
-                    if (marketsEnabled && loopCount % 10 == 0) {
-                        val healthy = com.lifecyclebot.perps.PerpsExecutionEngine.isHealthy()
-                        if (!healthy) {
-                            ErrorLogger.warn("BotService", "⚠️ [meme-off] PerpsExecutionEngine unhealthy — restarting…")
-                            addLog("⚡ Markets engine watchdog (meme-off): restarting…")
-                            com.lifecyclebot.perps.PerpsExecutionEngine.stop()
-                            delay(500)
-                            com.lifecyclebot.perps.PerpsExecutionEngine.start(applicationContext)
-                        }
-                    }
+                    // V5.0.8797 — retired markets traders: exits-only wind-down (RetiredMarkets8797.watchdog).
+                    if (loopCount % 10 == 0) com.lifecyclebot.perps.RetiredMarkets8797.watchdog(applicationContext)
                     // CryptoAltTrader watchdog (meme-off) — only if enabled
                     if (loopCount % 10 == 0 && cfg.cryptoAltsEnabled && !com.lifecyclebot.perps.CryptoAltTrader.isHealthy()) {
                         ErrorLogger.warn("BotService", "⚠️ [meme-off] CryptoAltTrader unhealthy — restarting…")
                         com.lifecyclebot.perps.CryptoAltTrader.start()
-                    }
-                    // TokenizedStockTrader watchdog (meme-off) — only if stocks enabled
-                    if (marketsEnabled && cfg.stocksEnabled && loopCount % 10 == 0 && !com.lifecyclebot.perps.TokenizedStockTrader.isHealthy()) {
-                        ErrorLogger.warn("BotService", "⚠️ [meme-off] TokenizedStockTrader unhealthy — restarting…")
-                        com.lifecyclebot.perps.TokenizedStockTrader.start()
-                    }
-                    // CommoditiesTrader watchdog (meme-off) — only if commodities enabled
-                    if (marketsEnabled && cfg.commoditiesEnabled && loopCount % 10 == 0 && !com.lifecyclebot.perps.CommoditiesTrader.isHealthy()) {
-                        ErrorLogger.warn("BotService", "⚠️ [meme-off] CommoditiesTrader unhealthy — restarting…")
-                        com.lifecyclebot.perps.CommoditiesTrader.start()
-                    }
-                    // MetalsTrader watchdog (meme-off) — only if metals enabled
-                    if (marketsEnabled && cfg.metalsEnabled && loopCount % 10 == 0 && !com.lifecyclebot.perps.MetalsTrader.isHealthy()) {
-                        ErrorLogger.warn("BotService", "⚠️ [meme-off] MetalsTrader unhealthy — restarting…")
-                        com.lifecyclebot.perps.MetalsTrader.start()
-                    }
-                    // ForexTrader watchdog (meme-off) — only if forex enabled
-                    if (marketsEnabled && cfg.forexEnabled && loopCount % 10 == 0 && !com.lifecyclebot.perps.ForexTrader.isHealthy()) {
-                        ErrorLogger.warn("BotService", "⚠️ [meme-off] ForexTrader unhealthy — restarting…")
-                        com.lifecyclebot.perps.ForexTrader.start()
                     }
                 } catch (e: Exception) {
                     ErrorLogger.error("BotService", "Markets watchdog (meme-off) error: ${e.message}", e)

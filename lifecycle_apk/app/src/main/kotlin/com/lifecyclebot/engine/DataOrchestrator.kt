@@ -912,6 +912,11 @@ class DataOrchestrator(
      */
     fun onTradePrint7819(mint: String, priceSolPerToken: Double, executed: Boolean = true) {
         if (!priceSolPerToken.isFinite() || priceSolPerToken <= 0.0) return
+        // V5.0.8800 — a price far outside the coin's own recent prints sets no bar, peak or low (PrintWitness8750 consensus).
+        if (!com.lifecyclebot.engine.truth.PrintWitness8750.consensusAllows8800(mint, priceSolPerToken)) {
+            try { PipelineHealthCollector.labelInc("TRADE_PRINT_BAR_REFUSED_CONSENSUS_8800") } catch (_: Throwable) {}
+            return
+        }
         // V5.0.7921 — the launch tape keeps each launch's price path since birth.
         try { com.lifecyclebot.engine.market.LaunchTape7921.onPrice(mint, priceSolPerToken) } catch (_: Throwable) {}
         val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }

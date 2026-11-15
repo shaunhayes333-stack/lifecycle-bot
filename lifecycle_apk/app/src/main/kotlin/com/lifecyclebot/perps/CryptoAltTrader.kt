@@ -402,6 +402,36 @@ object CryptoAltTrader {
         return kotlin.math.abs(signalPrice - referencePrice) / referencePrice * 100.0
     }
 
+    /**
+     * V5.0.8800 — the mark of a held Solana token from its own pool vaults (OnChainDepth8038, at most 90 s old), or the
+     * coin's last witnessed executed print; recorded into the registry at the read's own time. Asks the vaults when there
+     * is no fresh read (served on a later tick). Null when neither exists.
+     */
+    private fun chainHeldMark8800(token: DynamicAltTokenRegistry.DynToken): Double? {
+        if (!token.chainId.equals("solana", true)) return null
+        val mint = token.mint.ifBlank { token.tokenAddress }.trim()
+        if (mint.length < 32) return null
+        val now = System.currentTimeMillis()
+        val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        if (!(solUsd > 0.0)) return null
+        val read = try { com.lifecyclebot.engine.truth.OnChainDepth8038.freshRead8198(mint, 90_000L, now) } catch (_: Throwable) { null }
+        var px = Double.NaN; var at = 0L
+        if (read != null) {
+            px = com.lifecyclebot.engine.truth.OnChainDepth8038.priceUsd8038(read.quoteSol, read.baseTokens, solUsd); at = read.atMs
+        } else {
+            try { com.lifecyclebot.engine.truth.OnChainDepth8038.requestMints8543(listOf(mint), 60_000L) } catch (_: Throwable) {}
+            val tp = try { com.lifecyclebot.engine.truth.TradeTape8100.lastPrint8360(mint) } catch (_: Throwable) { null }
+            if (tp != null && now - tp.second in 0L..60_000L &&
+                (try { com.lifecyclebot.engine.truth.PrintWitness8750.witnessedPrint8750(mint, tp.second) } catch (_: Throwable) { false })) {
+                px = tp.first * solUsd; at = tp.second
+            }
+        }
+        if (!px.isFinite() || px <= 0.0 || at <= 0L) return null
+        if (!DynamicAltTokenRegistry.observeHeldMarkAt8800(token.canonicalIdentity6544, px, at)) return null
+        try { PipelineHealthCollector.labelInc("CRYPTO_HELD_MARK_CHAIN_8800") } catch (_: Throwable) {}
+        return px
+    }
+
     private fun refreshDynamicMark7251(identity: String): DynamicAltTokenRegistry.HeldMarkRefresh7251 {
         val clean = identity.trim()
         if (clean.isBlank()) return DynamicAltTokenRegistry.HeldMarkRefresh7251(0.0, "", 0L, false)
@@ -4587,10 +4617,12 @@ object CryptoAltTrader {
                     } else {
                         DynamicAltTokenRegistry.heldMarkSnapshot7251(resolved.canonicalIdentity6544)
                     }
-                    val refreshedPrice = heldMark7251.price
+                    var refreshedPrice = heldMark7251.price
                     val exactIdentity7251 = heldMark7251.canonicalIdentity.equals(positionKey, true)
-                    if (!heldMark7251.freshObservation || !exactIdentity7251 ||
-                        !refreshedPrice.isFinite() || refreshedPrice <= 0.0) {
+                    var fresh8800 = heldMark7251.freshObservation && exactIdentity7251 && refreshedPrice.isFinite() && refreshedPrice > 0.0
+                    // V5.0.8800 — a stale DEX feed is not the end: a held Solana token is marked from its own pool on chain.
+                    if (!fresh8800) chainHeldMark8800(resolved!!)?.let { refreshedPrice = it; fresh8800 = true }
+                    if (!fresh8800) {
                         // V5.0.7413 — holdUntrustedDynamicPosition7245 already
                         // emits the canonical stale-held state at a 15s cadence.
                         // Do not emit a second per-tick stale label here.
