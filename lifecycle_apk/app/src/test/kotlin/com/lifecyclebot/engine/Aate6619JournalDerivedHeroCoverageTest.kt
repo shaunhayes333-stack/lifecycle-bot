@@ -133,6 +133,10 @@ class Aate6619JournalDerivedHeroCoverageTest {
         // V5.0.8803 — the replay memo (keyed by journal revision and starting cash) is a JVM singleton too: an earlier
         // test's replay at the same revision and 11.7647 start was served back here, and its result blocked the publish.
         com.lifecyclebot.engine.truth.JournalEconomicReplay6619.resetForTest()
+        // V5.0.8805 — still red on 8803: the reconciliation compares the journal with the canonical positions and economic
+        // events, which earlier tests in the same JVM leave open. An empty journal must meet an empty book.
+        com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.resetForTest()
+        com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635.resetForTest()
         ledger.initialize(11.7647)
         // 8794: initialize() records its mutation revision synchronously,
         // while the expensive journal replay is coalesced onto a worker to
@@ -143,6 +147,15 @@ class Aate6619JournalDerivedHeroCoverageTest {
         while (snap == null && System.currentTimeMillis() < deadline) {
             Thread.sleep(20L)
             snap = auth.currentSnapshot()
+        }
+        if (snap == null) {
+            // V5.0.8805 — say WHY nothing was published (the replay and reconciliation the worker would have gated on)
+            val r = try { com.lifecyclebot.engine.truth.JournalEconomicReplay6619.replay() } catch (t: Throwable) { null }
+            val d = try { com.lifecyclebot.engine.truth.ForensicReconciliation6635.deltas6647() } catch (t: Throwable) { null }
+            org.junit.Assert.fail("V5.0.6619: snapshot must be published after initialize() — replay{cash=${r?.cashSol} " +
+                "complete=${r?.totalsComplete6899} rows=${r?.paperRows} failures=${r?.invariantFailures?.take(4)}} " +
+                "recon{reconciled=${d?.reconciled} current=${d?.accountingCurrent8397} cashSide=${d?.cashSideReconciled8397} " +
+                "cash=${d?.cashSol} basis=${d?.basisSol} health=${d?.healthLine8397?.take(160)} incomplete=${d?.incompleteReceipts8397?.take(80)}}")
         }
         assertNotNull("V5.0.6619: snapshot must be published after initialize()", snap)
         assertEquals(
