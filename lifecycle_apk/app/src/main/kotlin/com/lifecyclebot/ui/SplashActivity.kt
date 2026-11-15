@@ -47,7 +47,13 @@ class SplashActivity : AppCompatActivity() {
         private const val SPLASH_DURATION      = 5000L
         private const val SPLASH_DURATION_FAST = 1500L  // V5.9.713: re-auth fast path (process was killed, not first open)
         private const val SCALE_DURATION       = 2000L
-        private const val PARTICLE_COUNT       = 30
+        // 8795: the 8793 Android device run timed out on a Splash focus
+        // transition while the process was at 147% CPU. Each particle uses
+        // five continuously restarting property animators; 30 particles
+        // meant 150 main-thread animated properties during a busy bootstrap.
+        // Keep the splash effect at a bounded 10 particles/50 properties so
+        // it cannot compete as aggressively with input dispatch and startup.
+        private const val PARTICLE_COUNT       = 10
         /** Set by SecurityActivity when returning from a background kill re-auth. */
         const val EXTRA_FAST_MODE = "extra_fast_mode"
     }
@@ -283,6 +289,13 @@ class SplashActivity : AppCompatActivity() {
         repeatingAnimators.forEach { it.cancel() }
         repeatingAnimators.clear()
         particleAnimators.clear()
+    }
+
+    override fun onPause() {
+        // An off-screen splash must not continue animating while the trader
+        // and the next activity are doing their startup work.
+        stopParticleAnimation()
+        super.onPause()
     }
 
     override fun onDestroy() {

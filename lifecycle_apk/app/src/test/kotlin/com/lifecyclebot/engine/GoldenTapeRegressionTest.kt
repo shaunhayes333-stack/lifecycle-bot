@@ -1010,7 +1010,10 @@ class GoldenTapeRegressionTest {
         assertTrue(store.contains("TRADE_ACCOUNTING_BULK_QUARANTINED"))
         assertTrue(store.contains("TRADE_ACCOUNTING_DB_INIT_FILTERED"))
         assertTrue(store.contains("TRADE_ACCOUNTING_PREFS_MIGRATION_FILTERED"))
-        assertTrue(store.contains("trades.filter { it.ts >= midnight && isValidAccountingTrade(it) }"))
+        // 8794: quarantine still applies to 24h rows, but outside the
+        // journal monitor. A source-level assertion must not require the
+        // now-unsafe in-lock `trades.filter` spelling.
+        assertTrue(store.contains("validationSnapshot8794().filter { it.ts >= midnight && isValidAccountingTrade(it) }"))
         assertFalse("invalid accounting rows must not still be persisted after warning", store.contains("PARTIAL_SELL_INVALID_ACCOUNTING mint="))
 
         val journal = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeJournal.kt").readText()
@@ -13280,7 +13283,8 @@ class GoldenTapeRegressionTest {
         val ths = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
         assertTrue(ths.contains("fun liveDecisive7706(): ModeDecisive7706 {"))
         assertTrue(ths.contains("fun rollingWinRatePctLive7706(n: Int): Double {"))
-        assertEquals(2, Regex(Regex.escape(".filter { isLiveRow7706(it) && isJournalSellLike(it.side) && isValidAccountingTrade(it) }")).findAll(ths).count())
+        assertEquals(2, Regex(Regex.escape("isLiveRow7706(it) && isJournalSellLike(it.side) && isValidAccountingTrade(it)")).findAll(ths).count())
+        assertTrue(ths.contains("private fun validationSnapshot8794(): List<Trade> = synchronized(lock) { ArrayList(trades) }"))
         val wr = java.io.File("src/main/kotlin/com/lifecyclebot/engine/WrRecoveryPartial.kt").readText()
         assertTrue(wr.contains("val liveScoped7706 = try { RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }"))
         assertTrue(wr.contains("if (liveDecisive7706 != null) com.lifecyclebot.engine.TradeHistoryStore.rollingWinRatePctLive7706(50)"))

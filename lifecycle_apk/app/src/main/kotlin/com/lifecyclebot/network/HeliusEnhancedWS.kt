@@ -37,8 +37,14 @@ object HeliusEnhancedWS {
 
     private val running = AtomicBoolean(false)
     private val reconnectAttempt = AtomicLong(0L)
+    private val reconnectPending8795 = AtomicBoolean(false)
+    private val lifecycleEpoch8795 = AtomicLong(0L)
     private val nextRpcId = AtomicLong(420L)
     @Volatile private var ws: WebSocket? = null
+    // 8795 — a non-null OkHttp WebSocket is not proof it is connected.
+    // onFailure/onClosed formerly left the dead socket object and ACK ids
+    // visible for the entire reconnect backoff (up to 15 min after a 429).
+    @Volatile private var socketOpen8795 = false
     @Volatile private var client: OkHttpClient? = null
     @Volatile private var apiKey: String = ""
     @Volatile private var watchedAccounts: List<String> = emptyList()
@@ -55,6 +61,8 @@ object HeliusEnhancedWS {
     @Volatile private var tapeSubId8307: Long = -1L
     @Volatile private var tapeReqId8307: Long = -1L
     @Volatile private var whaleReqId8307: Long = -1L
+    @Volatile private var tapeReqAtMs8795 = 0L
+    @Volatile private var whaleReqAtMs8795 = 0L
     @Volatile private var tapeSubscribedAtMs8307 = 0L
     @Volatile private var tapeRetryAtMs8794 = 0L
     @Volatile private var capability8307 = "UNPROBED"
@@ -78,8 +86,8 @@ object HeliusEnhancedWS {
         prevEmpty || nowMs - lastMs >= TAPE_RESUB_MIN_MS_8307
 
     fun capabilityLine8307(): String =
-        "enhancedWs=$capability8307 whaleSub=${if (subscriptionId >= 0) "ACK" else "NONE"} whaleAccounts=${watchedAccounts.size} " +
-            "tapeSub=${if (tapeSubId8307 >= 0) "ACK" else "NONE"} tapeMints=${tapeAccounts8307.size} tapeResubs=${tapeResubs8307.get()} lastError=$lastError8307 " +
+        "enhancedWs=$capability8307 socket=${if (connectedFeed8795(running.get(), socketOpen8795, ws != null)) "OPEN" else "DOWN"} whaleSub=${if (whaleSubLive8361()) "ACK" else if (whaleReqId8307 >= 0L && socketOpen8795) "PENDING" else "NONE"} whaleAccounts=${watchedAccounts.size} " +
+            "tapeSub=${if (socketOpen8795 && tapeSubId8307 >= 0L) "ACK" else if (tapeReqId8307 >= 0L && socketOpen8795) "PENDING" else "NONE"} tapeMints=${tapeAccounts8307.size} tapeResubs=${tapeResubs8307.get()} lastError=$lastError8307 " +
             "curveSub8354=${curveSubState8354()} curveRetryS8794=${((curveRetryAtMs8794 - System.currentTimeMillis()).coerceAtLeast(0L) / 1000L)} " +
             "tapeRetryS8794=${((tapeRetryAtMs8794 - System.currentTimeMillis()).coerceAtLeast(0L) / 1000L)}"
 
@@ -137,6 +145,9 @@ object HeliusEnhancedWS {
     internal fun enhancedCanProbe8794(capability: String): Boolean =
         capability == "OK" || capability == "UNPROBED"
 
+    internal fun connectedFeed8795(running: Boolean, open: Boolean, socketPresent: Boolean): Boolean =
+        running && open && socketPresent
+
     /**
      * A connected but unprobed socket may try its FIRST program subscription.
      * Previously capability=UNPROBED required another whale/tape ACK before
@@ -146,7 +157,7 @@ object HeliusEnhancedWS {
      */
     fun enhancedOk8354(): Boolean {
         recoverTransientCurveRefusal8794()
-        return running.get() && ws != null && enhancedCanProbe8794(capability8307) &&
+        return connectedFeed8795(running.get(), socketOpen8795, ws != null) && enhancedCanProbe8794(capability8307) &&
             curveRefused8354 == "-"
     }
 
@@ -161,7 +172,7 @@ object HeliusEnhancedWS {
     fun setCurveProgram8354(on: Boolean) {
         val was = curveWanted8354
         curveWanted8354 = on
-        val sock = ws ?: return
+        val sock = ws?.takeIf { socketOpen8795 } ?: return
         try {
             if (on && curveSubId8354 < 0L && curveReqId8354 < 0L) sendCurveSubscribe8354(sock)
             else if (!on && was) sendCurveUnsubscribe8354(sock)
@@ -214,10 +225,14 @@ object HeliusEnhancedWS {
      */
     fun updateTapeAccounts8307(accounts: List<String>, nowMs: Long = System.currentTimeMillis()) {
         val next = accounts.filter { it.isNotBlank() }.distinct().take(PumpSwapTape8307.TAPE_MAX_8307 + 8)
+        // This is invoked by the orchestrator every 10 seconds. A live socket
+        // with a lost whale ACK cannot otherwise recover: whale filters may
+        // remain unchanged indefinitely after the original request.
+        recoverMissingSubscriptionAcks8795(nowMs)
         if (next.toSet() == tapeAccounts8307.toSet() && (tapeSubId8307 >= 0 || next.isEmpty())) return
         if (!tapeResubDue8307(tapeAccounts8307.isEmpty(), tapeSubscribedAtMs8307, nowMs)) return
         tapeAccounts8307 = next
-        val sock = ws ?: return
+        val sock = ws?.takeIf { socketOpen8795 } ?: return
         try { sendTapeSubscribe8307(sock, nowMs) } catch (_: Throwable) {}
     }
 
@@ -234,8 +249,9 @@ object HeliusEnhancedWS {
         if (tapeAccounts8307.isEmpty()) return
         val id = nextRpcId.getAndIncrement()
         tapeReqId8307 = id
+        tapeReqAtMs8795 = nowMs
         tapeResubs8307.incrementAndGet()
-        socket.send(JSONObject().apply {
+        val queued8795 = socket.send(JSONObject().apply {
             put("jsonrpc", "2.0")
             put("id", id)
             put("method", "transactionSubscribe")
@@ -250,6 +266,34 @@ object HeliusEnhancedWS {
                 })
             })
         }.toString())
+        if (!queued8795) {
+            tapeReqId8307 = -1L
+            tapeReqAtMs8795 = 0L
+            tapeRetryAtMs8794 = nowMs + 60_000L
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HELIUS_TAPE_SEND_NOT_QUEUED_8795") } catch (_: Throwable) {}
+        }
+    }
+
+    /** A missing JSON-RPC ACK is not a live subscription. Re-probe at most
+     * once per 90 seconds, observing provider quota/plan backoff on the same
+     * connected socket, and ignore any late ACK from an expired request. */
+    private fun recoverMissingSubscriptionAcks8795(nowMs: Long) {
+        val sock = ws?.takeIf { connectedFeed8795(running.get(), socketOpen8795, true) } ?: return
+        if (capability8307 == "UNSUPPORTED_PLAN" || nowMs < tapeRetryAtMs8794) return
+        if (curveAckOverdue8794(whaleReqId8307, whaleReqAtMs8795, nowMs)) {
+            whaleReqId8307 = -1L
+            whaleReqAtMs8795 = 0L
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HELIUS_WHALE_ACK_TIMEOUT_8795") } catch (_: Throwable) {}
+        }
+        if (curveAckOverdue8794(tapeReqId8307, tapeReqAtMs8795, nowMs)) {
+            tapeReqId8307 = -1L
+            tapeReqAtMs8795 = 0L
+            tapeSubscribedAtMs8307 = 0L
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HELIUS_TAPE_ACK_TIMEOUT_8795") } catch (_: Throwable) {}
+        }
+        if (watchedAccounts.isNotEmpty() && subscriptionId < 0L && whaleReqId8307 < 0L) {
+            try { sendSubscribe(sock, nowMs) } catch (_: Throwable) {}
+        }
     }
 
     fun start(
@@ -265,16 +309,21 @@ object HeliusEnhancedWS {
             ErrorLogger.warn(TAG, "already running — start() ignored")
             return
         }
+        lifecycleEpoch8795.incrementAndGet()
+        reconnectPending8795.set(false)
         // An explicit stop/start (including after a credit refill or key change)
         // must re-probe the new socket. Old subscription IDs and sticky refusals
         // belong to the old connection, never the new one.
         capability8307 = "UNPROBED"
+        socketOpen8795 = false
         lastError8307 = "-"
         subscriptionId = -1L
         tapeSubId8307 = -1L
         tapeReqId8307 = -1L
+        tapeReqAtMs8795 = 0L
         tapeRetryAtMs8794 = 0L
         whaleReqId8307 = -1L
+        whaleReqAtMs8795 = 0L
         curveSubId8354 = -1L
         curveReqId8354 = -1L
         curveReqAtMs8794 = 0L
@@ -292,7 +341,7 @@ object HeliusEnhancedWS {
     }
 
     /** V5.0.8361 — the smart-money subscription (whales + alpha list) is acknowledged on an open socket. */
-    fun whaleSubLive8361(): Boolean = running.get() && ws != null && subscriptionId >= 0L
+    fun whaleSubLive8361(): Boolean = connectedFeed8795(running.get(), socketOpen8795, ws != null) && subscriptionId >= 0L
 
     /** V5.0.7277 — so a later discovery can tell whether to start or to update. */
     fun isRunning(): Boolean = running.get()
@@ -317,7 +366,7 @@ object HeliusEnhancedWS {
         watchedAccounts = next
         // Re-subscribe with new filter (Helius doesn't support live filter mutation
         // on an existing subscription — easiest is unsubscribe + subscribe).
-        ws?.let { sock ->
+        ws?.takeIf { socketOpen8795 }?.let { sock ->
             try {
                 if (subscriptionId >= 0) {
                     sock.send(JSONObject().apply {
@@ -336,6 +385,9 @@ object HeliusEnhancedWS {
 
     fun stop() {
         running.set(false)
+        lifecycleEpoch8795.incrementAndGet()
+        reconnectPending8795.set(false)
+        socketOpen8795 = false
         try { ws?.close(1000, "client stop") } catch (_: Exception) {}
         ws = null
         try { client?.dispatcher?.executorService?.shutdown() } catch (_: Exception) {}
@@ -345,13 +397,14 @@ object HeliusEnhancedWS {
 
     private fun connect() {
         if (!running.get()) return
+        socketOpen8795 = false
         val url = URL_TEMPLATE.format(apiKey)
         val req = Request.Builder().url(url).build()
         ErrorLogger.info(TAG, "🔌 connecting (attempt ${reconnectAttempt.get() + 1}, watching ${watchedAccounts.size} accounts)")
         ws = client?.newWebSocket(req, listener)
     }
 
-    private fun sendSubscribe(socket: WebSocket) {
+    private fun sendSubscribe(socket: WebSocket, nowMs: Long = System.currentTimeMillis()) {
         if (watchedAccounts.isEmpty()) return
         val params = JSONArray().apply {
             put(JSONObject().put("accountInclude", JSONArray(watchedAccounts)))
@@ -364,17 +417,26 @@ object HeliusEnhancedWS {
         }
         val whaleId8307 = nextRpcId.getAndIncrement()
         whaleReqId8307 = whaleId8307
+        whaleReqAtMs8795 = nowMs
         val req = JSONObject().apply {
             put("jsonrpc", "2.0")
             put("id", whaleId8307)
             put("method", "transactionSubscribe")
             put("params", params)
         }
-        socket.send(req.toString())
+        if (!socket.send(req.toString())) {
+            whaleReqId8307 = -1L
+            whaleReqAtMs8795 = 0L
+            tapeRetryAtMs8794 = nowMs + 60_000L
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HELIUS_WHALE_SEND_NOT_QUEUED_8795") } catch (_: Throwable) {}
+        }
     }
 
     private val listener = object : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) {
+            if (!running.get()) { try { webSocket.close(1000, "stopped") } catch (_: Throwable) {}; return }
+            if (ws !== webSocket) { try { webSocket.close(1000, "obsolete") } catch (_: Throwable) {}; return }
+            socketOpen8795 = true
             reconnectAttempt.set(0)
             ErrorLogger.info(TAG, "✅ connected — subscribing to ${watchedAccounts.size} whale wallets")
             sendSubscribe(webSocket)
@@ -385,6 +447,7 @@ object HeliusEnhancedWS {
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
+            if (!socketOpen8795 || ws !== webSocket) return
             // V5.0.8307 — the tape subscription's bytes are metered on their own stream (never the whale stream's share).
             val subId8354 = HeliusSocketShare8191.subscriptionId8191(text)
             val tape8307 = tapeSubId8307 >= 0 && subId8354 == tapeSubId8307
@@ -413,9 +476,9 @@ object HeliusEnhancedWS {
                     if (curveReqId8354 >= 0L && ackId8354 == curveReqId8354) {
                         curveSubId8354 = msg.getLong("result"); curveReqId8354 = -1L; curveReqAtMs8794 = 0L
                     } else if (tapeReqId8307 >= 0L && ackId8354 == tapeReqId8307) {
-                        tapeSubId8307 = msg.getLong("result"); tapeReqId8307 = -1L
+                        tapeSubId8307 = msg.getLong("result"); tapeReqId8307 = -1L; tapeReqAtMs8795 = 0L
                     } else if (whaleReqId8307 >= 0L && ackId8354 == whaleReqId8307) {
-                        subscriptionId = msg.getLong("result"); whaleReqId8307 = -1L
+                        subscriptionId = msg.getLong("result"); whaleReqId8307 = -1L; whaleReqAtMs8795 = 0L
                     } else {
                         // A delayed ACK for an expired request is not proof
                         // that the whale stream subscribed. Previously EVERY
@@ -449,8 +512,8 @@ object HeliusEnhancedWS {
                     val refusedId8794 = msg.optLong("id", -1L)
                     if ((tapeReqId8307 >= 0L && refusedId8794 == tapeReqId8307) ||
                         (whaleReqId8307 >= 0L && refusedId8794 == whaleReqId8307)) {
-                        if (refusedId8794 == tapeReqId8307) tapeReqId8307 = -1L
-                        if (refusedId8794 == whaleReqId8307) whaleReqId8307 = -1L
+                        if (refusedId8794 == tapeReqId8307) { tapeReqId8307 = -1L; tapeReqAtMs8795 = 0L }
+                        if (refusedId8794 == whaleReqId8307) { whaleReqId8307 = -1L; whaleReqAtMs8795 = 0L }
                         capability8307 = capabilityFromError8307(code8307, m8307)
                         if (retryableSubscriptionRefusal8794(code8307, m8307))
                             tapeRetryAtMs8794 = System.currentTimeMillis() + CURVE_RETRY_MS_8794
@@ -492,7 +555,12 @@ object HeliusEnhancedWS {
         }
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+            if (ws !== webSocket) return // obsolete connection must not clear the replacement's health.
+            socketOpen8795 = false
             subscriptionId = -1L   // V5.0.8361 — a dead socket holds no subscription (whaleSubLive8361 reads false)
+            tapeSubId8307 = -1L; tapeReqId8307 = -1L; whaleReqId8307 = -1L
+            tapeReqAtMs8795 = 0L; whaleReqAtMs8795 = 0L
+            curveSubId8354 = -1L; curveReqId8354 = -1L; curveReqAtMs8794 = 0L
             val msg = t.message ?: ""
             // V5.9.953 — auth-fatal detection. 403 Forbidden means the API
             // key is wrong/restricted; reconnecting every 30s for hours
@@ -535,13 +603,22 @@ object HeliusEnhancedWS {
         }
 
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+            if (ws !== webSocket) return
+            socketOpen8795 = false
             subscriptionId = -1L   // V5.0.8361
+            tapeSubId8307 = -1L; tapeReqId8307 = -1L; whaleReqId8307 = -1L
+            tapeReqAtMs8795 = 0L; whaleReqAtMs8795 = 0L
+            curveSubId8354 = -1L; curveReqId8354 = -1L; curveReqAtMs8794 = 0L
             if (running.get()) scheduleReconnect()
         }
     }
 
     private fun scheduleReconnect(forceDelayMs: Long = -1L) {
-        if (!running.get()) return
+        if (!running.get() || !reconnectPending8795.compareAndSet(false, true)) return
+        // onFailure followed by onClosed used to schedule two reconnects,
+        // doubling program subscriptions and wasting scarce Helius credits.
+        // An old delayed reconnect also must not re-open after stop/start.
+        val epoch8795 = lifecycleEpoch8795.get()
         val attempt = reconnectAttempt.incrementAndGet()
         val delayMs = if (forceDelayMs > 0L) {
             forceDelayMs
@@ -549,7 +626,12 @@ object HeliusEnhancedWS {
             (1000L * (1 shl (attempt.coerceAtMost(5).toInt()))).coerceAtMost(30_000L)
         }
         Thread {
-            try { Thread.sleep(delayMs) } catch (_: InterruptedException) { return@Thread }
+            try { Thread.sleep(delayMs) } catch (_: InterruptedException) {
+                reconnectPending8795.set(false)
+                return@Thread
+            }
+            if (!running.get() || lifecycleEpoch8795.get() != epoch8795) return@Thread
+            reconnectPending8795.set(false)
             connect()
         }.start()
     }

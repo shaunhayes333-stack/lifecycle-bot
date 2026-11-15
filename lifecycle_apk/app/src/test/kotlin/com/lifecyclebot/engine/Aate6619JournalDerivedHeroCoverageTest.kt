@@ -125,8 +125,16 @@ class Aate6619JournalDerivedHeroCoverageTest {
         ledger.resetForTest()
         auth.resetForTest()
         ledger.initialize(11.7647)
-        // initialize() emits INITIALIZE mutation which triggers publish.
-        val snap = auth.currentSnapshot()
+        // 8794: initialize() records its mutation revision synchronously,
+        // while the expensive journal replay is coalesced onto a worker to
+        // avoid the ledger -> journal lock inversion observed in the device.
+        // Verify eventual durable projection rather than same-thread replay.
+        val deadline = System.currentTimeMillis() + 5_000L
+        var snap = auth.currentSnapshot()
+        while (snap == null && System.currentTimeMillis() < deadline) {
+            Thread.sleep(20L)
+            snap = auth.currentSnapshot()
+        }
         assertNotNull("V5.0.6619: snapshot must be published after initialize()", snap)
         assertEquals(
             "V5.0.6619: initial snapshot cash must equal startingCash (via journal replay)",

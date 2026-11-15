@@ -97,7 +97,7 @@ class Aate6618MarketsToggleAndResetWalletCoverageTest {
         )
         assertTrue(
             "V5.0.6618: resetToFreshBalance6618 must notify journal authority so all heroes re-render",
-            ledgerSrc.contains("JournalEconomicAuthority6616.notifyEconomicMutation(\"RESET_6618\")")
+            ledgerSrc.contains("JournalEconomicAuthority6616.notifyEconomicMutationAsync8077(\"RESET_6618\")")
         )
         assertTrue(
             "V5.0.6618: resetToFreshBalance6618 must emit PAPER_WALLET_RESET_6618",

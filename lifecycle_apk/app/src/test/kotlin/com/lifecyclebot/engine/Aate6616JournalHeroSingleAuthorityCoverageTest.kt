@@ -135,15 +135,15 @@ class Aate6616JournalHeroSingleAuthorityCoverageTest {
         )
         assertTrue(
             "V5.0.6616: PaperAccountLedger6430.rollbackBuy must notify ROLLBACK_BUY mutation",
-            ledger.contains("JournalEconomicAuthority6616.notifyEconomicMutation(\"ROLLBACK_BUY\")")
+            ledger.contains("JournalEconomicAuthority6616.notifyEconomicMutationAsync8077(\"ROLLBACK_BUY\")")
         )
         assertTrue(
             "V5.0.6616: PaperAccountLedger6430.onPositionPurged must notify PURGE mutation",
-            ledger.contains("JournalEconomicAuthority6616.notifyEconomicMutation(\"PURGE\")")
+            ledger.contains("JournalEconomicAuthority6616.notifyEconomicMutationAsync8077(\"PURGE\")")
         )
         assertTrue(
             "V5.0.6616: PaperAccountLedger6430.initialize must notify INITIALIZE mutation",
-            ledger.contains("JournalEconomicAuthority6616.notifyEconomicMutation(\"INITIALIZE\")")
+            ledger.contains("JournalEconomicAuthority6616.notifyEconomicMutationAsync8077(\"INITIALIZE\")")
         )
         assertTrue(
             "V5.0.6616: durable restore path must forcePublish to attach UI to real balance on cold start",
