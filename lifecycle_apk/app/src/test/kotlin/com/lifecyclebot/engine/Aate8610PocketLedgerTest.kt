@@ -65,7 +65,8 @@ class Aate8610PocketLedgerTest {
         val e = File("src/main/kotlin/com/lifecyclebot/engine/truth/EdgeModel8537.kt").readText()
         assertTrue(e.contains("PocketLedger8610.learn8610(s, netPct)"))
         val a = File("src/main/kotlin/com/lifecyclebot/engine/truth/LaneAuthority8577.kt").readText()
-        assertTrue(a.contains("if (pocket != null) return if (pocket == PocketLedger8610.Call.PAYS) null"))
+        // superseded by V5.0.8770 — an unproven pocket is not a refusal; was: if (pocket == PocketLedger8610.Call.PAYS) null else ... POCKET_UNPROVEN_8610.
+        assertTrue(a.contains("if (pocket != null) return if (pocket == PocketLedger8610.Call.LOSES) POCKET_LOSES_8610 else null"))
         assertTrue("the paper aggregate is recorded without a second veto",
             a.contains("val resolved = withPaperPrior(d, paperLosing)"))
         assertTrue(a.contains("val r = applyLane8577(c, d, highRefusal8582)"))

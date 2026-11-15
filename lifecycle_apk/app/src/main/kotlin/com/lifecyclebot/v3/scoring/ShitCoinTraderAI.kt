@@ -1354,7 +1354,8 @@ object ShitCoinTraderAI {
         // execution authority and convert net-negative buckets into bounded
         // recovery probes instead of zero-size lane amputation.
         var intelligenceGateSizeMult4231 = 1.0
-        if (com.lifecyclebot.engine.ScoreExpectancyTracker.shouldReject("SHITCOIN", shitScore)) {
+        val scoreBucketShaped8770 = com.lifecyclebot.engine.ScoreExpectancyTracker.shouldReject("SHITCOIN", shitScore)
+        if (scoreBucketShaped8770) {
             val mean = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketMean("SHITCOIN", shitScore)
             val n = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketSamples("SHITCOIN", shitScore)
             intelligenceGateSizeMult4231 = minOf(intelligenceGateSizeMult4231, 0.35)
@@ -1524,7 +1525,9 @@ object ShitCoinTraderAI {
             }
         } catch (_: Throwable) { arbDeckSizeMult4334 = 1.0 }
         // V5.9.1329 / V5.0.4231 — apply learned soft-size multipliers.
-        positionSol = (positionSol * dangerBucketSoftSize * intelligenceGateSizeMult4231 * semanticEntrySizeMult4255 * ultimateEdgeSizeMult4324 * arbDeckSizeMult4334).coerceAtLeast(0.01)
+        // V5.0.8770 — one bounded learned shape (SizeShape8770), not a floored product of sequential multipliers.
+        positionSol = (positionSol * com.lifecyclebot.engine.SizeShape8770.bounded8770(
+            dangerBucketSoftSize * intelligenceGateSizeMult4231 * semanticEntrySizeMult4255 * ultimateEdgeSizeMult4324 * arbDeckSizeMult4334)).coerceAtLeast(0.01)
         if (pausedRecoveryProbe4314) {
             positionSol *= 0.35
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SHITCOIN_DAILY_LOSS_RECOVERY_PROBE_4314") } catch (_: Throwable) {}
@@ -1588,7 +1591,9 @@ object ShitCoinTraderAI {
         // full size while the anti-predictive S61+ band gets heavily trimmed.
         try {
             val calMult = com.lifecyclebot.engine.ScoreExpectancyTracker.calibrationSizeMult("SHITCOIN", shitScore)
-            if (calMult.isFinite() && calMult < 1.0) {
+            // V5.0.8770 — code audit (learning 3): the same score bucket already shaped this size above (shouldReject); it
+            // is read once, not twice.
+            if (calMult.isFinite() && calMult < 1.0 && !scoreBucketShaped8770) {
                 positionSol *= calMult
                 positionSol = positionSol.coerceAtLeast(0.02)
             }

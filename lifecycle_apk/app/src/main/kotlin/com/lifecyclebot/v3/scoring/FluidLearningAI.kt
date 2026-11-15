@@ -734,8 +734,11 @@ object FluidLearningAI {
                 val adaptiveFloor = if (totalTrades > EXPERT_PHASE_END) 0.70 else 0.65
                 when {
                     blendedWinRate >= 50 -> cappedBaseProgress                                              // On target — hold selectivity
-                    blendedWinRate < 20  -> (cappedBaseProgress + 0.05).coerceAtMost(MAX_LEARNING_PROGRESS)  // Very bad WR → tighten further
-                    blendedWinRate < 30  -> cappedBaseProgress                                              // Bad WR → hold, don't loosen
+                    // V5.0.8770 — code audit (learning 9): the <30 % earned ceiling (0.50) sat under the adaptive floor these two
+                    // branches skipped, so a 15 % WR bot read 0.55 and a 35 % one 0.65-0.70: a worse record loosened every gate
+                    // and re-enabled the bootstrap assist the 9.322 floor exists to keep off. Every branch now holds the floor.
+                    blendedWinRate < 20  -> (cappedBaseProgress + 0.05).coerceAtLeast(adaptiveFloor).coerceAtMost(MAX_LEARNING_PROGRESS)
+                    blendedWinRate < 30  -> cappedBaseProgress.coerceAtLeast(adaptiveFloor)
                     blendedWinRate < 40  -> (cappedBaseProgress - 0.05).coerceAtLeast(adaptiveFloor)        // Below average → tiny loosen (was -0.25)
                     blendedWinRate < 50  -> (cappedBaseProgress - 0.05).coerceAtLeast(adaptiveFloor + 0.05) // Slightly below → minor loosen
                     else -> cappedBaseProgress
@@ -745,7 +748,7 @@ object FluidLearningAI {
                 // Phase 1-2: Win rate speeds/slows learning progression
                 when {
                     blendedWinRate > 85 -> (cappedBaseProgress * 1.15).coerceAtMost(MAX_LEARNING_PROGRESS) // V5.9.184: >85% WR = elite, accelerate, capped
-                    blendedWinRate < 25 -> cappedBaseProgress * 0.80                       // V5.9.184: <25% is bad; slow gates — target 25-50% struggling
+                    // superseded by V5.0.8770 — code audit (learning 9): a losing record no longer loosens the gates; was: progress x 0.80 under 25 % WR.
                     else -> cappedBaseProgress
                 }
             }

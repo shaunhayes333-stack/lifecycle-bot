@@ -122,8 +122,11 @@ object GovernorRecovery6388 {
             return
         }
         // From BLOCKED / EXIT_ONLY → SOFT_TIGHT when governor is NOT hold.
+        // V5.0.8770 — an infrastructure fault or a restart (the state starts BLOCKED) does not launder a probation this
+        // governor entered on its own record: recovery returns to HOLD_PROBATION, not SOFT_TIGHT.
         if ((s == State.BLOCKED_INFRASTRUCTURE || s == State.EXIT_ONLY) && !governorHold) {
-            promote(State.SOFT_TIGHT, "INFRA_HEALTHY_GOVERNOR_ALLOW")
+            if (probationByRecord8770) promote(State.HOLD_PROBATION, "INFRA_HEALTHY_PROBATION_BY_RECORD_8770")
+            else promote(State.SOFT_TIGHT, "INFRA_HEALTHY_GOVERNOR_ALLOW")
             return
         }
         // A persisted HOLD_PROBATION must not outlive the performance state
@@ -131,7 +134,11 @@ object GovernorRecovery6388 {
         // to BASELINE because the verified sample is still immature, resume the
         // normal entry authority immediately. Physical/accounting faults above
         // still force EXIT_ONLY/BLOCKED before this branch can run.
-        if (s == State.HOLD_PROBATION && !governorHold) {
+        // V5.0.8770 §A_DEMOTION_IS_NOT_A_PROMOTION — code audit (learning 8): a probation this governor entered on its own
+        // losing record (SOFT_TIGHT -> HOLD_PROBATION on a PF / streak breach) was released to BASELINE — full size — on the
+        // next tick whenever the confidence governor was not HOLD: the demotion ended one level above where it began. That
+        // probation now leaves only through [evaluatePromotion] (clean evidence); one entered for any other cause is unchanged.
+        if (s == State.HOLD_PROBATION && !governorHold && !probationByRecord8770) {
             promote(State.BASELINE, "PERFORMANCE_GOVERNOR_BASELINE_SMALL_SAMPLE")
             return
         }
@@ -177,6 +184,26 @@ object GovernorRecovery6388 {
 
     /** Section 11: Performance demotion using meaningful samples. */
     @Synchronized
+    const val PROBATION_BY_RECORD_8770 = "SOFT_TIGHT_PF_OR_STREAK_BREACH"
+    /**
+     * V5.0.8770 — a HOLD_PROBATION entered on this governor's own losing record; it lasts until [evaluatePromotion] releases
+     * it on clean evidence, through infrastructure faults and restarts (persisted; read at boot by [load8770]).
+     */
+    @Volatile private var probationByRecord8770 = false
+    fun isProbationByRecord8770(): Boolean = probationByRecord8770
+    @Volatile private var prefs8770: android.content.SharedPreferences? = null
+
+    /** Boot (LearningResetSweep7781.applyPendingAtBoot): read the persisted probation. */
+    fun load8770(ctx: android.content.Context) {
+        val p = try { ctx.applicationContext.getSharedPreferences("aate_governor_recovery_8770", android.content.Context.MODE_PRIVATE) } catch (_: Throwable) { return }
+        prefs8770 = p
+        probationByRecord8770 = probationByRecord8770 || p.getBoolean("probation_by_record", false)
+    }
+
+    private fun persist8770() {
+        try { prefs8770?.edit()?.putBoolean("probation_by_record", probationByRecord8770)?.apply() } catch (_: Throwable) {}
+    }
+
     fun evaluateDemotion(e: RollingEvidence) {
         val s = currentState.get()
         val decisive5 = (e.rollingLast5Wins + e.rollingLast5Losses) >= 5
@@ -193,7 +220,7 @@ object GovernorRecovery6388 {
             State.SOFT_TIGHT -> {
                 if (decisive5 &&
                     (e.rollingLast5ProfitFactor < 0.60 || e.rollingLast5ExpectancySol < 0.0 || e.consecutiveLosses >= 3))
-                    demote(State.HOLD_PROBATION, "SOFT_TIGHT_PF_OR_STREAK_BREACH")
+                    demote(State.HOLD_PROBATION, PROBATION_BY_RECORD_8770)
             }
             else -> {}
         }
@@ -225,6 +252,7 @@ object GovernorRecovery6388 {
     private fun promote(next: State, reason: String) {
         val prior = currentState.getAndSet(next)
         stateEnteredAtMs.set(System.currentTimeMillis())
+        if (prior == State.HOLD_PROBATION && next != State.HOLD_PROBATION && probationByRecord8770) { probationByRecord8770 = false; persist8770() }
         lastPromotionReason = "from=${prior.name} to=${next.name} reason=$reason"
         try {
             com.lifecyclebot.engine.PipelineHealthCollector.labelInc("GOVERNOR_AUTO_PROMOTED_6388_${prior.name}_TO_${next.name}")
@@ -235,6 +263,7 @@ object GovernorRecovery6388 {
     private fun demote(next: State, reason: String) {
         val prior = currentState.getAndSet(next)
         stateEnteredAtMs.set(System.currentTimeMillis())
+        if (next == State.HOLD_PROBATION && reason == PROBATION_BY_RECORD_8770 && !probationByRecord8770) { probationByRecord8770 = true; persist8770() }
         lastDemotionReason = "from=${prior.name} to=${next.name} reason=$reason"
         try {
             com.lifecyclebot.engine.PipelineHealthCollector.labelInc("GOVERNOR_AUTO_DEMOTED_6388_${prior.name}_TO_${next.name}")
@@ -277,6 +306,7 @@ object GovernorRecovery6388 {
     }
 
     internal fun resetForTest(state: State = State.BLOCKED_INFRASTRUCTURE) {
+        probationByRecord8770 = false
         currentState.set(state); stateEnteredAtMs.set(System.currentTimeMillis())
         lastPromotionReason = ""; lastDemotionReason = ""
     }

@@ -60,7 +60,8 @@ object LaneAuthority8577 {
     // losing pocket is left to the paper book. The hard-coded 8609 EXPANDING rule is only the fallback before the seed.
     private fun liveCoinStateRefusal8609(lane: String, launchPhase: String?, pocket: PocketLedger8610.Call?): String? {
         val l = lane.trim().uppercase()
-        if (pocket != null) return if (pocket == PocketLedger8610.Call.PAYS) null else if (pocket == PocketLedger8610.Call.LOSES) POCKET_LOSES_8610 else POCKET_UNPROVEN_8610
+        // V5.0.8770 — code audit (learning 2): an unproven pocket is not a refusal (it was counted as one, advisory, since 8620).
+        if (pocket != null) return if (pocket == PocketLedger8610.Call.LOSES) POCKET_LOSES_8610 else null
         return if (coinStatePays8609(l, launchPhase)) null else COIN_STATE_8609
     }
 
@@ -222,8 +223,27 @@ object LaneAuthority8577 {
      * proven edge of its own (LiveEdgeGate7877.edge8114Live8538: proven setup / cell / kind, measured edge, runner forming,
      * shadow audit, chart BUY, Cortex strong).
      */
+    /**
+     * Pure (V5.0.8770 §A_CELL_VETO_BEATS_THE_LANE_NOT_ZERO) — code audit (learning 2): the cohort door compared its cell's mean
+     * with zero. In a market whose base rate is negative nearly every cell is below zero (log: marketCohort LOSING in almost
+     * every band; the door n259 PROTECTING), so it vetoed every candidate the lane picked whatever the lane's own record. It
+     * binds now only when the cohort does worse than the coins the lane keeps ([kept]: its admitted record) by more than two
+     * standard errors of the difference — the bar refusalAuthority8715 holds the edge model to. No kept record of 30, no veto.
+     */
+    fun cohortWorseThanKept8770(cohort: ForwardReturnLabeler7731.CellStat?, kept: ForwardReturnLabeler7731.CellStat?): Boolean {
+        if (cohort == null || kept == null || kept.n60 < 30) return false
+        val se = kotlin.math.hypot(cohort.stderr60Pct, kept.stderr60Pct)
+        return se.isFinite() && cohort.meanNet60Pct.isFinite() && kept.meanNet60Pct.isFinite() &&
+            cohort.meanNet60Pct < kept.meanNet60Pct - 2.0 * se
+    }
+
     private fun originLoses8703(ts: com.lifecyclebot.data.TokenState, lane: String, nowMs: Long): Boolean {
         val cohort = try { MarketCohort8701.provenLosing8703(ts) } catch (_: Throwable) { null } ?: return false
+        val kept8770 = try { ForwardReturnLabeler7731.laneDecisionStats8094(lane).first } catch (_: Throwable) { null }
+        if (!cohortWorseThanKept8770(try { ForwardReturnLabeler7731.laneStatFor7737(cohort) } catch (_: Throwable) { null }, kept8770)) {
+            try { PipelineHealthCollector.labelInc("ORIGIN_COHORT_NOT_WORSE_THAN_LANE_8770_$cohort") } catch (_: Throwable) {}
+            return false
+        }
         val ownEdge = try { LiveEdgeGate7877.edge8114Live8538(ts, lane, nowMs, ticket = false) } catch (_: Throwable) { null }
         try { PipelineHealthCollector.labelInc("ORIGIN_COHORT_LOSING_8703_${cohort}_${if (ownEdge != null) "OWN_EDGE_$ownEdge" else "REFUSED"}") } catch (_: Throwable) {}
         return ownEdge == null
