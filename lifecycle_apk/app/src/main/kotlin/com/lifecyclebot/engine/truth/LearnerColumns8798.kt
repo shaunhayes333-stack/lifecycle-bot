@@ -37,6 +37,8 @@ object LearnerColumns8798 {
         "smartBuyers5m", "venue", "solChg1h", "solChg24h", "launchRate10m", "hourUtc", "dow",
         // source ages (seconds since the source's own observation)
         "agePrice", "ageBp", "ageChg", "ageLiq", "ageHolders", "secsSincePrint",
+        // V5.0.8809 — what the owner reads in the header: Dex Paid (1 / 0) and minutes since it was paid
+        "dexPaid", "dexPaidAgeMin",
     )
     val SIZE: Int = NAMES.size
     private val INDEX: Map<String, Int> = NAMES.withIndex().associate { it.value to it.index }
@@ -111,6 +113,18 @@ object LearnerColumns8798 {
         put("ageLiq", ageSec(TokenFacts.fact(ts, TokenFacts.Field.LIQUIDITY_USD)?.observedAtMs, nowMs))
         put("ageHolders", ageSec(TokenFacts.holders8798(mint, nowMs)?.observedAtMs, nowMs))
         put("secsSincePrint", ageSec(try { TradeTape8100.lastPrint8360(mint)?.second } catch (_: Throwable) { null }, nowMs))
+        // V5.0.8809 — Dex Paid: asked for every coin a decision is made on (one paced keyless call), read once answered. The
+        // served pairs now also fill socials / boost when the frame's own peek had nothing yet.
+        try {
+            val src = com.lifecyclebot.network.DexScreenerSocialSource
+            src.wantOrders8809(mint, nowMs)
+            src.peek7895(mint)?.let { s ->
+                if (s.dexPaid >= 0) put("dexPaid", s.dexPaid.toDouble())
+                if (s.dexPaid == 1 && s.paidAtMs in 1L..nowMs) put("dexPaidAgeMin", (nowMs - s.paidAtMs) / 60_000.0)
+                INDEX["boost"]?.let { if (x[it].isNaN()) x[it] = s.boostTotal }
+                INDEX["socials"]?.let { if (x[it].isNaN()) x[it] = s.socialCount.toDouble() }
+            }
+        } catch (_: Throwable) {}
         note(x)
         return x
     }

@@ -346,6 +346,9 @@ class DexscreenerApi {
                 )
                 // V5.0.8169 — named birth witness: a pump mint's own curve pair is its birth, any other pool a floor.
                 com.lifecyclebot.engine.truth.AdmissionBirth8144.notePairCreated8169(baseAddr7385, p.optString("dexId", ""), p.optLong("pairCreatedAt", 0L))
+                // V5.0.8809 — the pair's own socials, websites and active boosts are an observation of the coin (0 is a reading)
+                DexScreenerSocialSource.observePair8809(baseAddr7385, socialsList.size + websitesList.size,
+                    p.optJSONObject("boosts")?.optDouble("active", 0.0) ?: 0.0)
             }
         } catch (_: Throwable) {}
         return PairInfo(

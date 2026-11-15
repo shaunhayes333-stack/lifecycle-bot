@@ -308,3 +308,21 @@ Now:
 - The report's `keylessMarks8359[... book8808{open, noted, curveMarks}]` shows the class being served.
 
 The stop rule itself is unchanged (two observed marks, then the measured live sell latency).
+
+## 16. Header context on every decision (8809)
+
+The owner reads Dex Paid, boosts and socials before the chart. The 5.0.8802 dataset carried `boost` / `socials` on 147
+of 60,792 rows, because `DexScreenerSocialSource` only knew three global lists (top boosts, latest profiles, takeovers).
+
+| Column | Source | Unknown reads |
+|---|---|---|
+| `socials`, `boost` | every DexScreener pair the bot is served (`DexscreenerApi.parsePair` → `observePair8809`): `info.socials` + `info.websites`, `boosts.active`; a coin with none reads 0 | NaN until a pair of the coin was served |
+| `dexPaid` | DexScreener orders endpoint, one keyless call per coin under decision, newest first, 1.5 s apart (`wantOrders8809`); 1 = an approved order, 0 = none | NaN until answered |
+| `dexPaidAgeMin` | minutes since the earliest approved order's payment | NaN when unpaid or unknown |
+
+Answers are cached: paid 6 h, unpaid 5 min, failed 2 min. The report's `Header context (§8809)` line counts pairs
+observed and orders asked / answered / paid / failed / dropped. These are dataset columns for the learners; no gate reads
+them directly.
+
+Not recorded yet: KOL count and top-10 holder share as GMGN shows them (GMGN has no public API). The bot's own nearest
+columns are `smartBuyers5m`, `top` (largest holder) and `bundle`.
