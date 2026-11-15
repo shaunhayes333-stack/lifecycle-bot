@@ -345,3 +345,24 @@ xStocks (same build): 5.0.8809 showed `gecko ok=2 fail=34 last=http 503` while G
 the 503s were the app's own refusals (host lockout / shared budget). `XsApi` now counts them as `localRefused8810`, and a
 day whose history reads went unanswered is asked again every 10 minutes for the first six hours (UTC) instead of being
 marked evaluated with every stock `NO_HISTORY`. Report: `history8810{unanswered, passesToday, retryInS}`.
+
+## 18. Mining entry setups from the datasets: what holds, and the lab counts coins (8811)
+
+Owner: "what about building new entry setups and strategies from the data we have?" Offline, on every edge dataset
+combined (165,265 rows, 17,649 coins, 9–15 Nov), one outcome per coin per decision minute (15-minute executable net):
+
+- Boosted trees and decision-tree leaves fitted on 9–13 Nov, graded on 14–15 Nov: the best 2 % made +0.6 % ±3.5; leaves
+  that paid +4.7 % / +7.5 % on discovery made −2.1 % / −6.0 % held out.
+- The lab's own miner, re-run with each coin counted once and discovery sources as scopes: no box was positive on
+  discovery after removing its three best coins and one standard error.
+- Phase, cap, age and source splits: every bucket negative in both periods except Meteora-found coins under $20k cap
+  (+21 % on 51 coins, +19 % on 32 held out) — carried by a few runners; without its three best coins it does not clear
+  the bar in either period. A pocket to watch, not a setup.
+- The tape and buyer-flow columns that carry the owner's read were on 104–629 of 27,223 decision moments (from 8801 on,
+  13 % of rows for buy share); `buyerFlow8790` read empty on 116,481 of 127,329 reads.
+
+The two things that do hold on the bot's own record: the BASE stage (+4 % to +5 % in four lanes, 15–17 % runners) and the
+scale-out ladder exit when stops fill near their level.
+
+`StrategyLab8755` now counts each coin once (`perCoin8811`) in discovery scores, held-out records and its brief — a
+coin was written once per lane that judged it, every cycle — and mines discovery sources as scopes beside lanes.

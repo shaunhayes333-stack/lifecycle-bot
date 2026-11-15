@@ -52,7 +52,7 @@ object StrategyLab8755 {
                     val runnerPct: Int = 95, val launch: LaunchReplay8744.Rule? = null, val base: BaseFamily8754.Rule? = null,
                     val scoreMin: Int = 0)
     data class Record(val n: Int, val mean: Double, val median: Double, val exTop3: Double, val se: Double, val tenX: Double)
-    class Row(val t: Long, val lane: String, val src: String, val net: Double, val f: DoubleArray)
+    class Row(val t: Long, val lane: String, val src: String, val net: Double, val f: DoubleArray, val mint: String = "")
 
     val FEATURES = listOf("liq", "mcap", "age", "runup", "dd", "bp", "chg5m", "chg1h", "top", "txVel", "turnover", "curve",
         "pxPeak", "cost", "volAccel", "v3", "newBuyers15s8666")
@@ -80,7 +80,21 @@ object StrategyLab8755 {
         if (!EdgeModel8537.plausible8617(d("mcap"), net, o.optBoolean("witness", false))) return null
         if (lane !in EdgeModel8537.LANES || !EdgeModel8537.replayAccept8642(o)) return null   // V5.0.8767 — the dataset's one acceptance rule
         val src = o.optString("src", "").split(',').firstOrNull()?.trim()?.uppercase().orEmpty().ifBlank { "UNKNOWN" }
-        return Row(o.optLong("t", 0L), lane, src, net.coerceAtMost(1_000.0), DoubleArray(FEATURES.size) { d(FEATURES[it]) })
+        return Row(o.optLong("t", 0L), lane, src, net.coerceAtMost(1_000.0), DoubleArray(FEATURES.size) { d(FEATURES[it]) }, o.optString("mint", ""))
+    }
+
+    /**
+     * Pure (V5.0.8811 §ONE_COIN_ONE_OUTCOME): the outcomes of [rows] (time order) with each coin counted once, at its first
+     * row. Every decision is written once per lane that judged it (up to a dozen rows of one coin at one moment) and a coin
+     * is judged again every cycle, so a record over rows counted the same coin many times: n overstated, SE understated,
+     * one runner counted as many. Offline on the six-day dataset (165,265 rows, 17,649 coins): every box the row-counting
+     * miner liked lost or was flat on the later days once each coin counted once. A row without a mint stands alone.
+     */
+    fun perCoin8811(rows: List<Row>): List<Double> {
+        val seen = HashSet<String>()
+        val out = ArrayList<Double>()
+        for (r in rows) if (r.mint.isBlank() || seen.add(r.mint)) out.add(r.net)
+        return out
     }
 
     /** Pure: the strategy's live feature vector for a decision (the dataset's field order). */
@@ -260,17 +274,21 @@ object StrategyLab8755 {
             val v = disc.map { it.f[i] }.filter { it.isFinite() }.sorted()
             if (v.size < 500) null else DoubleArray(6) { q -> v[((v.size - 1) * q / 5.0).toInt()] }
         }
+        // V5.0.8811 — a scope is a lane or a discovery source (the first feed that found the coin): where a coin came from is
+        // part of the owner's read and the report's discovery-source line, and the miner never searched it.
+        val sources = disc.groupBy { it.src }.filter { (_, v) -> perCoin8811(v).size >= MINE_MIN_N }.keys
+        val scopes = lanes.map { it to "ANY" } + sources.map { "ANY" to it }
         val singles = ArrayList<Pair<Spec, Double>>()
-        for (lane in lanes) {
-            val scope = if (lane == "ANY") disc else disc.filter { it.lane == lane }
+        for ((lane, source) in scopes) {
+            val scope = disc.filter { (lane == "ANY" || it.lane == lane) && (source == "ANY" || it.src == source) }
             for (i in FEATURES.indices) {
                 val e = edges[i] ?: continue
                 for (a in 0 until 5) for (b in a + 1..5) {
                     if (a == 0 && b == 5) continue
                     val lo = if (a == 0) Double.NEGATIVE_INFINITY else e[a]; val hi = if (b == 5) Double.POSITIVE_INFINITY else e[b]
-                    val acc = Acc(); for (r in scope) { val v = r.f[i]; if (v.isFinite() && v >= lo && v <= hi) acc.add(r.net) }
+                    val acc = Acc(); perCoin8811(scope.filter { val v = it.f[i]; v.isFinite() && v >= lo && v <= hi }).forEach { acc.add(it) }
                     minedTested.incrementAndGet()
-                    val sc = acc.score(); if (sc > 0.0) singles.add(Spec(Family.CELL, lane, conds = listOf(Cond(FEATURES[i], lo, hi))) to sc)
+                    val sc = acc.score(); if (sc > 0.0) singles.add(Spec(Family.CELL, lane, source, conds = listOf(Cond(FEATURES[i], lo, hi))) to sc)
                 }
             }
         }
@@ -278,14 +296,14 @@ object StrategyLab8755 {
         val pairs = ArrayList<Pair<Spec, Double>>()
         for (x in best.indices) for (y in x + 1 until best.size) {
             val s1 = best[x].first; val s2 = best[y].first
-            if (s1.lane != s2.lane || s1.conds[0].feature == s2.conds[0].feature) continue
-            val spec = Spec(Family.CELL, s1.lane, conds = s1.conds + s2.conds)
-            val acc = Acc(); for (r in disc) if (matches8755(spec, r.lane, r.src, r.f)) acc.add(r.net)
+            if (s1.lane != s2.lane || s1.source != s2.source || s1.conds[0].feature == s2.conds[0].feature) continue
+            val spec = Spec(Family.CELL, s1.lane, s1.source, conds = s1.conds + s2.conds)
+            val acc = Acc(); perCoin8811(disc.filter { matches8755(spec, it.lane, it.src, it.f) }).forEach { acc.add(it) }
             minedTested.incrementAndGet()
             val sc = acc.score(); if (sc > 0.0) pairs.add(spec to sc)
         }
         return (best + pairs).sortedByDescending { it.second }.take(30).map { (spec, sc) ->
-            Triple(spec, sc, record8755(held.filter { matches8755(spec, it.lane, it.src, it.f) }.map { it.net }))
+            Triple(spec, sc, record8755(perCoin8811(held.filter { matches8755(spec, it.lane, it.src, it.f) })))
         }
     }
 
@@ -307,7 +325,7 @@ object StrategyLab8755 {
             if (!passes8755(rec, Family.CELL)) continue
             val js = specJson8755(spec)
             if (js in existing) continue
-            val name = ("MINED " + spec.lane + " " + spec.conds.joinToString("&") { "${it.feature}${fmtRange(it)}" }).take(32)
+            val name = ("MINED " + (if (spec.source != "ANY") spec.source.take(12) else spec.lane) + " " + spec.conds.joinToString("&") { "${it.feature}${fmtRange(it)}" }).take(32)
             LlmLabStore.addStrategy(LabStrategy(id = LlmLabStore.newStrategyId(), name = name,
                 rationale = "Mined cell (8755): discovery-split box confirmed on held-out decisions".take(140), asset = LabAssetClass.MEME,
                 entryScoreMin = 0, entryRegime = "ANY", takeProfitPct = 100.0, stopLossPct = -30.0, maxHoldMins = 60, sizingSol = 0.05,
@@ -333,7 +351,7 @@ object StrategyLab8755 {
             if (s0.status == LabStrategyStatus.ARCHIVED || (s0.asset != LabAssetClass.MEME && s0.asset != LabAssetClass.ANY)) continue
             val spec = specOf8755(s0) ?: continue
             val rec: Record? = when (spec.family) {
-                Family.SCORE, Family.CELL -> record8755(held.filter { matches8755(spec, it.lane, it.src, it.f) }.map { it.net })
+                Family.SCORE, Family.CELL -> record8755(perCoin8811(held.filter { matches8755(spec, it.lane, it.src, it.f) }))   // V5.0.8811
                 Family.RUNNER -> head?.records?.get(spec.runnerPct)
                 Family.LAUNCH -> spec.launch?.let { r -> if (paths.isEmpty() || !(solUsd > 0.0)) null
                     else record8755(paths.mapNotNull { LaunchReplay8744.simulateRule8755(it, r, solUsd, cost) }) }
@@ -373,14 +391,14 @@ object StrategyLab8755 {
 
     private fun briefOf(disc: List<Row>, mined: List<Triple<Spec, Double, Record?>>): String {
         fun line(name: String, v: List<Row>): String {
-            val r = record8755(v.map { it.net }) ?: return "$name n${v.size}"
+            val r = record8755(perCoin8811(v)) ?: return "$name n${v.size}"   // V5.0.8811 — coins, not lane copies
             return "$name n${r.n} mean${"%+.1f".format(r.mean)}% exTop3${"%+.1f".format(r.exTop3)}% runners${"%.1f".format(100.0 * v.count { it.net >= RUNNER_NET } / v.size)}%"
         }
         val sb = StringBuilder()
         sb.append(line("ALL", disc)).append('\n')
         sb.append("BY LANE: ").append(disc.groupBy { it.lane }.entries.sortedByDescending { it.value.size }.take(8).joinToString(" | ") { line(it.key, it.value) }).append('\n')
         sb.append("BY SOURCE: ").append(disc.groupBy { it.src }.entries.sortedByDescending { it.value.size }.take(8).joinToString(" | ") { line(it.key, it.value) }).append('\n')
-        sb.append("BEST CELLS (discovery): ").append(mined.take(6).joinToString(" | ") { (s, sc, _) -> "${s.lane} ${s.conds.joinToString("&") { "${it.feature}${fmtRange(it)}" }} score${"%+.1f".format(sc)}" }).append('\n')
+        sb.append("BEST CELLS (discovery): ").append(mined.take(6).joinToString(" | ") { (s, sc, _) -> "${s.lane}${if (s.source != "ANY") "/" + s.source else ""} ${s.conds.joinToString("&") { "${it.feature}${fmtRange(it)}" }} score${"%+.1f".format(sc)}" }).append('\n')
         head?.let { h -> sb.append("RUNNER HEAD base rate ${"%.1f".format(h.baseRate * 100)}% (doubled in 15 min)\n") }
         sb.append("LAUNCH REPLAY: ").append(LaunchReplay8744.statusLine8744().substringAfter("best{").take(400)).append('\n')
         sb.append("BASE REPLAY: ").append(BaseFamily8754.statusLine8754().substringAfter("best{").take(400)).append('\n')
