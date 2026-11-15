@@ -11584,8 +11584,8 @@ class BotService : Service() {
                                 ErrorLogger.warn("BotService",
                                     "💀 STALE_PRICE_RUG_ESCAPE: ${ts.symbol} — no price for ${lastPriceAgeMs/1000}s (pos age ${posAgeMs/1000}s), all oracles dark, evidence(routeDead=$routeDead6854 balZero=$balanceZero6854 longDark=$longDark6854), force-exit")
                                 addLog("💀 STALE PRICE EXIT: ${ts.symbol} | no price ${lastPriceAgeMs/1000}s — oracles dark, rug evidence confirmed", ts.mint)
-                                executor.requestSell(ts = ts, reason = "STALE_PRICE_RUG_ESCAPE",
-                                    wallet = wallet, walletSol = effectiveBalance)
+                                // V5.0.8769 — code audit (exits F7): off the monitor thread, like the other rapid stops (8008).
+                                requestSellOffLoop7288(ts, "STALE_PRICE_RUG_ESCAPE", wallet, effectiveBalance)
                                 // V5.9.715-FIX: stale-price exits in paper mode are price-feed
                                 // noise, not real rugs. Catastrophe cooldown punished the same
                                 // mint for 30min, starving V3 via the loss_streak guard and
@@ -11820,8 +11820,8 @@ class BotService : Service() {
                                 ErrorLogger.warn("BotService",
                                     "💀 STALE_LIVE_PRICE_RUG_ESCAPE: ${ts.symbol} — lastPrice stale ${livePriceAgeMs/1000}s (since max(priceUpd,entry)), lastPnl=${"%.1f".format(lastKnownPnlPct)}%, oracles dark, force-exit (ONE intent)")
                                 addLog("💀 STALE LIVE PRICE EXIT: ${ts.symbol} | price frozen ${livePriceAgeMs/1000}s @ ${"%.1f".format(lastKnownPnlPct)}% — oracles dark, one exit intent", ts.mint)
-                                executor.requestSell(ts = ts, reason = "STALE_LIVE_PRICE_RUG_ESCAPE",
-                                    wallet = wallet, walletSol = effectiveBalance)
+                                // V5.0.8769 — code audit (exits F7): off the monitor thread, like the other rapid stops (8008).
+                                requestSellOffLoop7288(ts, "STALE_LIVE_PRICE_RUG_ESCAPE", wallet, effectiveBalance)
                                 // V5.9.1533 — do NOT seed catastrophe cooldown from a stale/dark
                                 // price (it is not a confirmed -100% loss). The controlled sell
                                 // drain + on-chain balance read will confirm the real outcome;
@@ -12009,11 +12009,8 @@ class BotService : Service() {
                             try { com.lifecyclebot.engine.sell.SellReconciler.requestUrgentTick("ZOMBIE_CATASTROPHE_PENDING_RETRY") } catch (_: Throwable) {}
                             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ZOMBIE_CATASTROPHE_PENDING_RETRY") } catch (_: Throwable) {}
                             try { com.lifecyclebot.engine.ForensicLogger.lifecycle("ZOMBIE_CATASTROPHE_PENDING_RETRY", "mint=${ts.mint.take(10)} symbol=${ts.symbol} ageMs=$posAgeForNet pnl=${pnlPct.toInt()} attempts=$zombieAttempts action=no_local_close_no_slot_release") } catch (_: Throwable) {}
-                            try {
-                                executor.requestSell(ts = ts, reason = "ZOMBIE_CATASTROPHE_PENDING_RETRY", wallet = wallet, walletSol = effectiveBalance)
-                            } catch (e: Throwable) {
-                                ErrorLogger.warn("BotService", "ZOMBIE_CATASTROPHE_PENDING_RETRY sell retry error: ${e.message?.take(50)}")
-                            }
+                            // V5.0.8769 — code audit (exits F7): the retry goes off the monitor thread (requestSellOffLoop7288 catches).
+                            requestSellOffLoop7288(ts, "ZOMBIE_CATASTROPHE_PENDING_RETRY", wallet, effectiveBalance)
                             continue
                         }
                         if (posAgeForNet > 60_000L && pnlPct <= -30.0 && ts.position.isOpen) {
@@ -12527,7 +12524,7 @@ class BotService : Service() {
                                         // never the whole position; runner lanes start at +100%.
                                         val capturePct4301 = MoonbagRunner7322.nextCaptureFraction(
                                             ts.position.positionId.ifBlank { ts.mint },
-                                            ts.position.tradingMode, pnlPct, tpPct,
+                                            ts.position.tradingMode, pnlPct, tpPct, ts.position.partialSoldPct,
                                         )
                                         if (capturePct4301 != null) {
                                         ErrorLogger.warn("BotService", "⚡ RAPID_INSTANT_PROFIT_CAPTURE_4301: ${ts.symbol} pnl=${pnlPct.toInt()}% tp=${tpPct.toInt()}% capture=${(capturePct4301*100).toInt()}%")
@@ -12541,7 +12538,7 @@ class BotService : Service() {
                                             wallet = wallet,
                                             walletBalance = effectiveBalance
                                         )
-                                        if (!partialReceipt6566.applied) continue
+                                        if (!partialReceipt6566.applied) { MoonbagRunner7322.releaseCaptureTier8769(ts.position.positionId.ifBlank { ts.mint }); continue }
                                         TradeStateMachine.startCooldown(ts.mint)
                                         continue
                                         }
@@ -12595,6 +12592,12 @@ class BotService : Service() {
                             // (ExitDoctrine8169.rapidHardFloorMag8169: the lane's earned floor, else 15 %) and, live, the same
                             // executable confirmation of the loss before it sells.
                             val laneFloor8743 = -(try { ExitDoctrine8169.rapidHardFloorMag8169(ts) } catch (_: Throwable) { -subFloor })
+                            // V5.0.8769 — code audit (exits F6, F7): the confirmation was asked for EVERY sub-trader position every
+                            // second, before the pnl test. It primes and resets the stop's shared await clock (so a real stop's 5 s
+                            // confirmation was cut to a random 0-5 s) and spends quotes on healthy positions. It is asked only below
+                            // the floor now, and the sell goes off the monitor thread, coalesced like RAPID_HARD_FLOOR on the same
+                            // TokenState (it sold inline, blocking every other position's stops for the length of a live sell).
+                            if (pnlPct > laneFloor8743) continue
                             val confirmed8743 = cfg.paperMode || (try {
                                 StopMarkConfirm8418.executableConfirms8419(ts, laneFloor8743)
                             } catch (_: Throwable) { true })
@@ -12602,10 +12605,7 @@ class BotService : Service() {
                                 ErrorLogger.warn("BotService",
                                     "🚨 RAPID_SUB_TRADER_HARD_FLOOR: $mint pnl=${pnlPct.toInt()}% — force-closing")
                                 addLog("🛑 SUB-TRADER RAPID STOP: $mint ${pnlPct.toInt()}%")
-                                try {
-                                    executor.requestSell(ts = ts, reason = "RAPID_SUB_TRADER_HARD_FLOOR",
-                                        wallet = wallet, walletSol = effectiveBalance)
-                                } catch (_: Throwable) {}
+                                requestSellOffLoop7288(ts, "RAPID_SUB_TRADER_HARD_FLOOR", wallet, effectiveBalance)
                             }
                         }
                     } catch (e: Exception) {
@@ -13482,7 +13482,11 @@ class BotService : Service() {
                                     // fluidStop7928 holds a runner's give-back room (break-even floor under
                                     // its arm peak). Only a plan that already banked its first target and
                                     // trails the rest under structure owns the lock.
-                                    val runnerLockDeferred7277 = planTrailsRemainder7935(ts)
+                                    // V5.0.8769 — code audit (exits F11): 8642 handed doctrine-lane profit to RunnerDoctrine8584 in the 500 ms
+                                    // monitor but missed this 1 Hz lock, which arms on +8..+25 % peaks (where the trail is not armed) and, gapped,
+                                    // sold a doctrine winner whole on one tick mark at pnl <= 0 (8622 984e63: lock "-5 %", fill +11 %).
+                                    val doctrineOwns8769 = try { RunnerDoctrine8584.profitTakingOwned8630(RunnerDoctrine8584.entryLane8630(ts)) } catch (_: Throwable) { false }
+                                    val runnerLockDeferred7277 = planTrailsRemainder7935(ts) || doctrineOwns8769
                                     val lockedFloor0 = if (runnerLockDeferred7277) Double.NaN else try {
                                         fluidStop7928(ts,
                                             modeDefaultStop = 20.0,

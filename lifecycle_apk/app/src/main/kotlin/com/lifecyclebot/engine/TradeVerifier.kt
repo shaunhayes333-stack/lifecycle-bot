@@ -91,6 +91,8 @@ object TradeVerifier {
             return false
         }
         activeSells[mint] = ActiveSell(sig, now, reason)
+        if (sigTrigger8769.size > 2_000) sigTrigger8769.entries.removeIf { now - it.value.second > 6 * 3_600_000L }
+        sigTrigger8769[sig] = reason to now
         SellBalanceProof8237.invalidate8237(mint)  // V5.0.8237 — a broadcast spends; the pre-sell balance is no longer proof
         return true
     }
@@ -99,6 +101,13 @@ object TradeVerifier {
     fun endSell(mint: String) { activeSells.remove(mint); SellBalanceProof8237.invalidate8237(mint) }
 
     fun activeSellSig(mint: String): String? = activeSells[mint]?.sig
+
+    /**
+     * V5.0.8769 — code audit (exits F12): the exit trigger a broadcast signature was sent for, kept after [endSell] (6 h,
+     * in memory) so a finality resume (Executor.resumeLiveSellFinalization7362) can book the rung that slice was.
+     */
+    private val sigTrigger8769 = ConcurrentHashMap<String, Pair<String, Long>>()
+    fun triggerForSig8769(sig: String): String? = sigTrigger8769[sig]?.first
 
     // ─────────────────────────────────────────────────────────────────────
     // Public verifier API

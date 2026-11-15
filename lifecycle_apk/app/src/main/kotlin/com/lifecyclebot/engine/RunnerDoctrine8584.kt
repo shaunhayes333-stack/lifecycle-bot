@@ -119,8 +119,13 @@ object RunnerDoctrine8584 {
      */
     fun lineWithStop8719(peakMult: Double, stopPct: Double): Double {
         val half = line8584(peakMult)
-        if (peakMult >= 2.0 || !stopPct.isFinite() || stopPct <= 0.0) return half
-        return maxOf(1.05, minOf(half, peakMult * (1.0 - stopPct.coerceAtMost(95.0) / 100.0)))
+        if (!stopPct.isFinite() || stopPct <= 0.0) return half
+        val withStop = peakMult * (1.0 - stopPct.coerceAtMost(95.0) / 100.0)
+        // V5.0.8769 — code audit (exits F10): the line jumped at 2x for stops over 25 % (cost-widened runner stops reach 40 %):
+        // at 1.99x it sat at +19..+42 %, at 2.00x at +50 %, so a position at +45 % whose peak ticked to 2x was sold at once.
+        // From 2x the stop-widened line runs on until the 45 % give-back passes it; the two now meet at 2x for every stop.
+        if (peakMult >= 2.0) return maxOf(0.55 * peakMult, minOf(1.5, withStop))
+        return maxOf(1.05, minOf(half, withStop))
     }
 
     /** The stop distance (%) a position of [lane] carries: the lane's stop at its measured round trip; NaN when unreadable. */

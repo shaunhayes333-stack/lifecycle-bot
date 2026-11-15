@@ -238,7 +238,8 @@ object SpikeCapture7943 {
         if (pos.entryPrice <= 0.0 || !priceUsd.isFinite() || priceUsd <= 0.0) return 0
         // V5.0.8144 — a lifecycle hold sells only its own takes (Executor refuses the rung at LifecycleHold8065.partialHeld8065);
         // on the print path the rung would only claim the arbitration ticket its own take needs.
-        if (try { LifecycleHold8065.holding8065(ts) } catch (_: Throwable) { false }) return 0
+        // V5.0.8769 — on a doctrine lane the doctrine ladder (TIERS_7967) is the hold's one ladder: its rungs are offered.
+        if (try { LifecycleHold8065.holding8065(ts) && !LifecycleHold8065.doctrineLadder8769(ts) } catch (_: Throwable) { false }) return 0
         val gross = (priceUsd / pos.entryPrice - 1.0) * 100.0
         // A basis in the wrong units reads as a 100,000% "spike"; that is not a price.
         if (gross > 100_000.0) return 0

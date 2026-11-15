@@ -48,7 +48,10 @@ object StopMarkConfirm8418 {
         if (StopFeed8327.chainMark8327(s)) return true
         if (CHAIN_8418.any { s.contains(it) }) return true
         if (s.contains("SYNTH") || s.contains("CAP_SEED") || s.contains("UNCORROBORATED") || s.contains("OBSERVATION") ||
-            s.contains("ORACLE_FALLBACK") || s.contains("CANDIDATE_REFRESH")) return false
+            s.contains("ORACLE_FALLBACK") || s.contains("CANDIDATE_REFRESH") ||
+            // V5.0.8769 — code audit (exits F8): the danger-zone refresh writes an aggregator price (DexScreener / Birdeye) with no
+            // pool, and lastPricePoolAddr keeps the previous mark's pool, so it read as this bag's own venue.
+            s.contains("DANGER_ZONE")) return false
         // a poll / stream print is on basis only when it names the position's own venue
         return entryPool.isNotBlank() && markPool.isNotBlank() && entryPool == markPool
     }

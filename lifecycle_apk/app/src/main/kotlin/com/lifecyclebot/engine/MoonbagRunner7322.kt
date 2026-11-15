@@ -101,11 +101,32 @@ object MoonbagRunner7322 {
         return funded
     }
 
-    fun bankedPeakFor(key: String): Double? = bankedPeak[key]
+    /**
+     * V5.0.8769 §A_BANK_IS_REMEMBERED — code audit (exits F13): the banked peak lived in memory and the whole map was cleared
+     * at 500 entries, so after a clear or a restart (OOM restarts are frequent) MOONBAG_BANK banked a second 60 %. A position
+     * whose canonical sold share (partialSoldPct, restored from the position) already covers this lane's bank is banked.
+     */
+    fun bankedPeakFor8769(ts: com.lifecyclebot.data.TokenState): Double? {
+        val key = ts.position.positionId.ifBlank { ts.mint }
+        bankedPeak[key]?.let { return it }
+        val sold = ts.position.partialSoldPct
+        return if (sold.isFinite() && sold / 100.0 >= bankFractionFor7791(ts.position.tradingMode) - 0.05)
+            ts.position.peakGainPct.takeIf { it.isFinite() } ?: 0.0 else null
+    }
+
+    private val latchedAt8769 = ConcurrentHashMap<String, Long>()
+
+    /** V5.0.8769 — evict the oldest tenth by latch time (was: clear every entry at 500, open positions included). */
+    private fun <V> evictOldest8769(m: ConcurrentHashMap<String, V>) {
+        if (m.size <= MAX_KEYS_8769) return
+        m.keys.sortedBy { latchedAt8769[it] ?: 0L }.take(MAX_KEYS_8769 / 10).forEach { m.remove(it) }
+    }
+    private const val MAX_KEYS_8769 = 2_000
 
     fun markBanked(key: String, peakPct: Double) {
         if (key.isBlank()) return
-        if (bankedPeak.size > 500) bankedPeak.clear()
+        latchedAt8769[key] = System.currentTimeMillis()
+        evictOldest8769(bankedPeak)
         bankedPeak[key] = peakPct
     }
 
@@ -125,13 +146,35 @@ object MoonbagRunner7322 {
      * The slice the rapid capture should sell now, or null when this tier was
      * already taken (or none crossed). Remembers the tier per position.
      */
-    fun nextCaptureFraction(key: String, lane: String, pnlPct: Double, tpPct: Double): Double? {
+    fun nextCaptureFraction(key: String, lane: String, pnlPct: Double, tpPct: Double, partialSoldPct: Double = Double.NaN): Double? {
         val idx = tierIndex(captureTiers(lane, tpPct), pnlPct)
         if (idx < 0) return null
-        val taken = captureTierTaken[key] ?: -1
+        // V5.0.8769 — after a restart the taken tiers come back from the position's canonical sold share (each slice sells
+        // CAPTURE_SLICE of what remains); other partials count too, which can only skip a slice, never sell one twice.
+        val taken = captureTierTaken[key] ?: seededTaken8769(partialSoldPct)
         if (idx <= taken) return null
-        if (captureTierTaken.size > 500) captureTierTaken.clear()
+        latchedAt8769[key] = System.currentTimeMillis()
+        evictOldest8769(captureTierTaken)
+        prevTaken8769[key] = taken
         captureTierTaken[key] = idx
         return CAPTURE_SLICE
+    }
+
+    private val prevTaken8769 = ConcurrentHashMap<String, Int>()
+
+    /** Pure (V5.0.8769): the capture tiers a position that has sold [partialSoldPct] % has already taken (-1 = none). */
+    fun seededTaken8769(partialSoldPct: Double): Int {
+        if (!partialSoldPct.isFinite() || partialSoldPct < 1.0) return -1
+        val remaining = (1.0 - partialSoldPct / 100.0).coerceIn(1e-9, 1.0)
+        return (kotlin.math.round(kotlin.math.ln(remaining) / kotlin.math.ln(1.0 - CAPTURE_SLICE)).toInt() - 1).coerceAtLeast(-1)
+    }
+
+    /**
+     * V5.0.8769 — code audit (exits F13): the tier was latched before the sale and a refused or failed slice lost it. The
+     * caller releases the latch when its sale did not apply.
+     */
+    fun releaseCaptureTier8769(key: String) {
+        val prev = prevTaken8769.remove(key) ?: return
+        if (prev < 0) captureTierTaken.remove(key) else captureTierTaken[key] = prev
     }
 }

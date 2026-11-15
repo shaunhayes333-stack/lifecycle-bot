@@ -3587,6 +3587,31 @@ class Executor(
      *  is drifting / reconciler is stalled. 0.05 SOL per operator spec. */
     private val LEDGER_DRIFT_MAX_LIVE_SOL: Double = 0.05
 
+    /**
+     * V5.0.8769 §A_RESUMED_SLICE_IS_THE_RUNG_IT_WAS — code audit (exits F12): a landed partial booked by the finality resume
+     * (LANDED_SELL_REMAINDER, reconciler zero-close) reached the journal but not the ladder: no bookSlice8153 /
+     * onConfirmedTake8076 / noteSliceFill8136 and a stale partialSoldPct, so the rung stayed unconfirmed, its tranche
+     * expired as retryable and the same rung or lifecycle take sold again. The resume now posts the same slice hooks as
+     * [commitVerifiedLiveSlice7835], under the trigger the signature was sent for (TradeVerifier.triggerForSig8769).
+     */
+    private fun resumedSlicePosted8769(ts: TokenState, mint: String, sig: String, positionId: String,
+                                       soldRaw: java.math.BigInteger, proceedsSol: Double, sliceCostSol: Double) {
+        try {
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(positionId)?.let { u ->
+                if (u.originalQtyRaw.signum() > 0) synchronized(ts) {
+                    ts.position = ts.position.copy(partialSoldPct = 100.0 * (1.0 - u.remainingQtyRaw.toDouble() / u.originalQtyRaw.toDouble()))
+                }
+            }
+        } catch (_: Throwable) {}
+        val trigger = TradeVerifier.triggerForSig8769(sig)
+        if (trigger.isNullOrBlank()) { try { PipelineHealthCollector.labelInc("RESUMED_SLICE_TRIGGER_UNKNOWN_8769") } catch (_: Throwable) {}; return }
+        try { LifecycleHold8065.onConfirmedTake8076(mint, ts.position.entryTime, trigger, sig, soldRaw) } catch (_: Throwable) {}
+        try { RunnerExitLive8136.noteSliceFill8136(trigger, proceedsSol, sliceCostSol) } catch (_: Throwable) {}
+        try { RunnerLive8153.bookSlice8153(ts, trigger, sig, soldRaw, proceedsSol, sliceCostSol) } catch (_: Throwable) {}
+        try { SpikeCapture7943.onConfirmedPartial8081(ts, trigger, soldRaw, alreadyCommitted8397 = true) } catch (_: Throwable) {}
+        try { PipelineHealthCollector.labelInc("RESUMED_SLICE_RUNG_BOOKED_8769") } catch (_: Throwable) {}
+    }
+
     private fun commitVerifiedLiveSlice7835(ts: TokenState, proof: TradeVerifier.SellResult, reason: String,
                                                receiptCapture8527: com.lifecyclebot.engine.truth.CanonicalPartialReceipt8527.Capture8527? = null): com.lifecyclebot.engine.sell.SellFinalizationCoordinator.Result? {
         if (proof.outcome != TradeVerifier.Outcome.LANDED || proof.mint != ts.mint ||
@@ -9107,7 +9132,7 @@ class Executor(
                 // V5.0.8468 — a fast contract lane banks a moonbag only once promoted (RunnerExitProfile7277.runnerExits8468).
                 val runnerLane7349 = try { RunnerTrail8419.runnerPosition8521(ts) } catch (_: Throwable) { false }
                 val runnerKey7349 = ts.position.positionId.ifBlank { ts.mint }
-                val runnerBanked7349 = runnerLane7349 && MoonbagRunner7322.bankedPeakFor(runnerKey7349) != null
+                val runnerBanked7349 = runnerLane7349 && MoonbagRunner7322.bankedPeakFor8769(ts) != null   // V5.0.8769
                 if (runnerBanked7349) {
                     try { MoonbagRunner7322.notePeak(runnerKey7349, bestPnl) } catch (_: Throwable) {}
                 }
@@ -23207,6 +23232,7 @@ class Executor(
                     else ts.position.copy(qtyToken = ui(walletRaw), costSol = (remainingCost - sliceCost).coerceAtLeast(0.0))
                 } catch (_: Throwable) {}
                 recordTrade(ts, trade)
+                if (!terminal) resumedSlicePosted8769(ts, mint, sig, canon.positionId, soldRaw, proceedsSol, sliceCost)
             } else {
                 TradeHistoryStore.recordTrade(trade)
             }
@@ -24230,6 +24256,18 @@ class Executor(
         requestPartialSellWithDelivery8527(ts, sellPercentage, reason, wallet, walletBalance, null, receipt6566)
     }
 
+    /** V5.0.8769 — a fraction-1.0 request at the partial door is a full exit: requestSell, with its receipt. */
+    private fun fullExitFromPartialDoor8769(ts: TokenState, reason: String, wallet: SolanaWallet?, walletBalance: Double,
+                                            delivery8527: com.lifecyclebot.engine.truth.CanonicalPartialReceipt8527.Delivery8527?,
+                                            receipt6566: ((PartialSellReceipt6566) -> Unit)?) {
+        val capture8769 = com.lifecyclebot.engine.truth.CanonicalPartialReceipt8527.Capture8527(delivery8527)
+        val full8769 = requestSell(ts, reason, wallet, walletBalance, receiptCapture8527 = capture8769)
+        val done8769 = full8769 in setOf(SellResult.CONFIRMED, SellResult.PAPER_CONFIRMED, SellResult.ALREADY_CLOSED)
+        receipt6566?.invoke(PartialSellReceipt6566(applied = done8769, terminal = done8769, authorityResult = full8769.name,
+            canonicalSlice8527 = capture8769.receipt))
+        try { PipelineHealthCollector.labelInc("PARTIAL_DOOR_FULL_EXIT_ROUTED_8769") } catch (_: Throwable) {}
+    }
+
     private fun requestPartialSellWithDelivery8527(
         ts: TokenState,
         sellPercentage: Double,
@@ -24242,6 +24280,11 @@ class Executor(
         // V5.0.8337 — the net-profit and uneconomic doors run BEFORE the share budget (which takes the arbiter ticket), so a
         // refused tranche never holds the position's ticket; they read the requested fraction.
         val requested8337 = sellPercentage.coerceIn(0.0, 1.0)
+        // V5.0.8769 §A_FULL_EXIT_IS_NOT_A_SLICE — code audit (exits F5): a fraction-1.0 request (the arbiter's full exits:
+        // SCALP_TIME_8351, STRUCTURE_BREAK_7962_*, LIFECYCLE_GREEN_FLOOR_8363_*) met every partial-only door first and, at any
+        // pnl under the +8 % partial floor, was dropped without a receipt and re-offered every 500 ms. A full exit goes to
+        // requestSell, whose own doors (the doctrine's FULL gate, basis, net edge, finality) are the ones a full exit answers to.
+        if (requested8337 >= 1.0 - 1e-9) { fullExitFromPartialDoor8769(ts, reason, wallet, walletBalance, delivery8527, receipt6566); return }
         // V5.0.8584 — a meme winner sells slices only on the doctrine ladder (+100 / +400 / +900 %) or below its line.
         if (runnerDoctrineHolds8584(ts, reason, "PARTIAL")) { receipt6566?.invoke(PartialSellReceipt6566(false)); return }
         // V5.0.8030 — a partial take-profit is profit-taking too: none below the round trip + 1%.
@@ -24398,17 +24441,18 @@ class Executor(
                 positionSizeSol = ts.position.costSol,
                 liquidityUsd = ts.lastLiquidityUsd.takeIf { it > 0.0 } ?: ts.position.entryLiquidityUsd,
             )
+            // V5.0.8769 — code audit (exits F5): the -15 % collapse ran after the +8 % floor check and could never fire.
+            if (pnlPct <= -15.0 && !isForcedCut) {
+                try { ForensicLogger.lifecycle("PARTIAL_COLLAPSED_TO_RISK_EXIT",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} pnl=${pnlPct.toInt()}% reqPct=${(pct*100).toInt()} reason=$reason") } catch (_: Throwable) {}
+                requestSell(ts, "PARTIAL_LADDER_COLLAPSED_RISK_EXIT_${pnlPct.toInt()}", wallet, walletBalance)
+                return
+            }
             if (pnlPct < partialFloor6920 && !isForcedCut) {
                 try { ForensicLogger.lifecycle("PARTIAL_BLOCKED_BELOW_BREAKEVEN",
                     "mint=${ts.mint.take(10)} symbol=${ts.symbol} pnl=${"%.2f".format(pnlPct)} floor=${"%.2f".format(partialFloor6920)} flatFloor=${LiveStrategyTuner.livePartialProfitFloorPct()} paper=$isPaper reqPct=${(pct*100).toInt()} reason=$reason action=hold_runner") } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("PARTIAL_BLOCKED_BELOW_BREAKEVEN") } catch (_: Throwable) {}
                 spikeRefused8337(reason, "BELOW_BREAKEVEN_8502")
-                return
-            }
-            if (pnlPct <= -15.0 && !isForcedCut) {
-                try { ForensicLogger.lifecycle("PARTIAL_COLLAPSED_TO_RISK_EXIT",
-                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} pnl=${pnlPct.toInt()}% reqPct=${(pct*100).toInt()} reason=$reason") } catch (_: Throwable) {}
-                requestSell(ts, "PARTIAL_LADDER_COLLAPSED_RISK_EXIT_${pnlPct.toInt()}", wallet, walletBalance)
                 return
             }
         }
@@ -25119,7 +25163,7 @@ class Executor(
         val mbPeak7322 = maxOf(ts.position.peakGainPct, if (mbPnl7322.isFinite()) mbPnl7322 else 0.0)
         MoonbagRunner7322.notePeak(mbKey7322, mbPeak7322)
         val mbLane7322 = ts.position.tradingMode
-        when (MoonbagRunner7322.decideFunded8144(ts, mbLane7322, requestReason, mbPnl7322, mbPeak7322, MoonbagRunner7322.bankedPeakFor(mbKey7322))) {  // V5.0.8144 — funded only
+        when (MoonbagRunner7322.decideFunded8144(ts, mbLane7322, requestReason, mbPnl7322, mbPeak7322, MoonbagRunner7322.bankedPeakFor8769(ts))) {  // V5.0.8144 — funded only
             MoonbagRunner7322.Action.BANK_PARTIAL -> {
                 val bankFraction7322=MoonbagRunner7322.bankFractionFor7791(mbLane7322)
                 val bank7322 = requestPartialSellConfirmed6566(
@@ -25187,11 +25231,10 @@ class Executor(
     private fun moonbagWouldAct7349(ts: TokenState, reason: String): Boolean = try {
         runnerDoctrineHolds8584(ts, reason, null) ||  // V5.0.8584 — paper reaches the doctrine through the moonbag gate
         run {
-        val key = ts.position.positionId.ifBlank { ts.mint }
         val px = ts.lastPrice.takeIf { it > 0.0 } ?: ts.position.entryPrice
         val pnl = if (ts.position.entryPrice > 0.0) ((px - ts.position.entryPrice) / ts.position.entryPrice) * 100.0 else Double.NaN
         val peak = maxOf(ts.position.peakGainPct, if (pnl.isFinite()) pnl else 0.0)
-        MoonbagRunner7322.decide(ts.position.tradingMode, reason, pnl, peak, MoonbagRunner7322.bankedPeakFor(key)) !=
+        MoonbagRunner7322.decide(ts.position.tradingMode, reason, pnl, peak, MoonbagRunner7322.bankedPeakFor8769(ts)) !=
             MoonbagRunner7322.Action.PASS
         }
     } catch (_: Throwable) { false }

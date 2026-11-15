@@ -297,9 +297,20 @@ object LifecycleHold8065 {
         return null
     }
 
+    /**
+     * V5.0.8769 §ONE_LADDER_ON_A_DOCTRINE_LANE — code audit (exits F4): a doctrine position promoted here at +100 % lost its
+     * ladder at the first rung. SpikeCapture stopped offering rungs to a hold, this door refused the rungs it did offer, and
+     * the hold's own LIFECYCLE_PROFIT_TAKE slices were held by the doctrine (now 2.0x sits above its 1.5x line). The
+     * +100 / +400 / +900 % rungs never sold. On a doctrine lane the doctrine ladder is the one ladder: its rungs pass this
+     * door, and the hold takes no profit slices of its own (its floors, give-backs and stops stay).
+     */
+    fun doctrineLadder8769(ts: TokenState): Boolean =
+        try { RunnerDoctrine8584.profitTakingOwned8630(RunnerDoctrine8584.entryLane8630(ts)) } catch (_: Throwable) { false }
+
     /** Executor.requestPartialSell: an ordinary slice (spike tier, ladder, lock) is not sold from a lifecycle hold. */
     fun partialHeld8065(ts: TokenState, reason: String): Boolean {
         if (!holding8065(ts) || passes8065(reason)) return false
+        if (reason.startsWith("SPIKE_CAPTURE_7943") && doctrineLadder8769(ts)) return false
         partialsHeld.incrementAndGet()
         return true
     }
@@ -341,7 +352,7 @@ object LifecycleHold8065 {
                 "LIFECYCLE_PROFIT_GIVEBACK_8065_${st.peak.toInt()}PK_${g.toInt()}PCT" to 1.0
             // V5.0.8363 — the hold's floor. V5.0.8370: max(owner 8337 3a rule, 8114 trail at 65 % of the peak price).
             GreenFloor8363.breachedFor8363(ts, g) -> "LIFECYCLE_GREEN_FLOOR_8363_${st.peak.toInt()}PK_${g.toInt()}PCT" to 1.0
-            fresh8136 && cumulativeTakeDue8079(g, st.taken) != null -> cumulativeTakeDue8079(g, st.taken)!!.let { (i, f) -> "LIFECYCLE_PROFIT_TAKE${i + 1}_8065_${g.toInt()}PCT" to f }
+            fresh8136 && !doctrineLadder8769(ts) && cumulativeTakeDue8079(g, st.taken) != null -> cumulativeTakeDue8079(g, st.taken)!!.let { (i, f) -> "LIFECYCLE_PROFIT_TAKE${i + 1}_8065_${g.toInt()}PCT" to f }
             st.taken == 0 && age >= SETTLE_MS && g < BASE_BROKE_RED_PCT && closedBarBroke(b, 16) ->
                 "LIFECYCLE_STOP_BASE_BROKE_8065_${g.toInt()}PCT" to 1.0
             st.taken >= 1 && (closedBarBroke(b, 24) || peakGiveback8065(st.peak, g)) ->
