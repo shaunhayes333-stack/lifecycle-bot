@@ -2031,7 +2031,9 @@ object ForwardReturnLabeler7731 {
 
     /** Pure (V5.0.8454): did this mark observe the market itself (not a possibly reused token-state value)? */
     fun liveMark8454(source: String?, independent: Boolean): Boolean =
-        independent || source == "OFFWATCH" || source?.startsWith("CURVE_") == true ||
+        // superseded by V5.0.8775 — code audit (data P1-2): an off-watch answer is a provider snapshot with no trade time,
+        // stamped at receipt; an unchanged one is not a market read (a flat read from it is a lost mark, not -cost); was: OFFWATCH live.
+        independent || source?.startsWith("CURVE_") == true ||
             source == CROSS_ASSET_MARK_SOURCE_8571   // V5.0.8571 — the identity's own feed, at its own observation time
 
     private fun liveMark8454(m: LabelMark8386?): Boolean = m != null && liveMark8454(m.source, m.independentBasis)

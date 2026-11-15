@@ -42,7 +42,9 @@ object ShadowMark8360 {
     fun observedTimed8372(ts: TokenState?, mint: String, nowMs: Long = System.currentTimeMillis()): Observation8372? {
         if (mint.isBlank()) return null
         val candidates = ArrayList<Observation8372>(4)
-        if (ts != null) candidates += Observation8372(ts.lastPrice, ts.lastPriceUpdate, SRC_TICK_8360)
+        // V5.0.8775 — code audit (data P1-7): the shadow and paper books (the paper MOONSHOT book the live mirror follows) were
+        // marked by an intake seed held as the tick price and by unwitnessed tape prints; the labeler refuses both. So do these.
+        if (ts != null && !TokenFacts.seedPrice8559(ts.lastPriceSource)) candidates += Observation8372(ts.lastPrice, ts.lastPriceUpdate, SRC_TICK_8360)
         try {
             ForwardReturnLabeler7731.observedMark8372(mint, nowMs)?.let {
                 candidates += Observation8372(it.first, it.second, SRC_LABELER_8360)
@@ -57,7 +59,7 @@ object ShadowMark8360 {
                 }
             } catch (_: Throwable) {}
             try {
-                TradeTape8100.lastPrint8360(mint)?.let {
+                TradeTape8100.lastPrint8360(mint)?.takeIf { PrintWitness8750.witnessedPrint8750(mint, it.second) }?.let {
                     candidates += Observation8372(it.first * solUsd, it.second, SRC_TAPE_8360)
                 }
             } catch (_: Throwable) {}
@@ -96,8 +98,9 @@ object ShadowMark8360 {
     /** The observed mark (USD per token) for [mint] and the source that priced it; [ts] may be null (no tick price). */
     fun observed8360(ts: TokenState?, mint: String, nowMs: Long = System.currentTimeMillis()): Pair<Double, String>? {
         if (mint.isBlank()) return null
-        val tickPx = ts?.lastPrice ?: 0.0
-        val tickAt = ts?.lastPriceUpdate ?: 0L
+        val seed8775 = ts != null && TokenFacts.seedPrice8559(ts.lastPriceSource)   // V5.0.8775 — a seed is not a tick mark
+        val tickPx = if (seed8775) 0.0 else ts?.lastPrice ?: 0.0
+        val tickAt = if (seed8775) 0L else ts?.lastPriceUpdate ?: 0L
         pick8360(tickPx, tickAt, null, null, null, 0L, nowMs)?.let { return it }
         return fallback8360(mint, nowMs)
     }
@@ -113,6 +116,7 @@ object ShadowMark8360 {
         val curve = if (curveSol.isFinite() && curveSol > 0.0) curveSol * solUsd else null
         pick8360(0.0, 0L, null, curve, null, 0L, nowMs)?.let { return it }
         val print = (try { TradeTape8100.lastPrint8360(mint) } catch (_: Throwable) { null }) ?: return null
+        if (!(try { PrintWitness8750.witnessedPrint8750(mint, print.second) } catch (_: Throwable) { false })) return null   // V5.0.8775
         return pick8360(0.0, 0L, null, null, print.first * solUsd, print.second, nowMs)
     }
 }

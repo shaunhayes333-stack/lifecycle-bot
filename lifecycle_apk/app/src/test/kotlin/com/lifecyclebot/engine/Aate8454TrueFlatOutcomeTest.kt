@@ -17,7 +17,8 @@ class Aate8454TrueFlatOutcomeTest {
     private val l = File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
 
     @Test fun onlyAMarketObservationCountsAsLive() {
-        assertTrue(ForwardReturnLabeler7731.liveMark8454("OFFWATCH", false))
+        // superseded by V5.0.8775 — an off-watch provider snapshot is not a live market read; was: assertTrue(liveMark8454("OFFWATCH", false)).
+        assertFalse(ForwardReturnLabeler7731.liveMark8454("OFFWATCH", false))
         assertTrue(ForwardReturnLabeler7731.liveMark8454("CURVE_ACCOUNT", false))
         assertTrue(ForwardReturnLabeler7731.liveMark8454("DEXSCREENER_WS", true))
         assertFalse("a token-state price may be a reused value", ForwardReturnLabeler7731.liveMark8454("TOKEN_STATE", false))
