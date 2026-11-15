@@ -167,9 +167,10 @@ object PaperAccountLedger6430 {
     /**
      * V5.0.7354 — cash + open cost WITHOUT the ledger monitor, for callers that
      * may run under the journal lock (the per-row accounting validator). Every
-     * @Synchronized mutation here replays the journal while holding this
-     * monitor, so a journal-side reader that also wanted the monitor deadlocked
-     * the bot loop in 5.0.7352/7353. Two atomic reads can straddle one mutation;
+     * @Synchronized mutation historically replayed the journal while holding
+     * this monitor; 8793/8794 moved all economic publication to the coalesced
+     * worker to keep the journal and ledger locks independent. Two atomic reads
+     * can straddle one mutation;
      * sizing ceilings tolerate that, the capital invariant still uses
      * [snapshotAtomic6643].
      */
@@ -188,10 +189,10 @@ object PaperAccountLedger6430 {
         treasuryPico.set(0L)
         opCount.set(0L)
         mutationRevision8674.incrementAndGet()
-        // V5.0.6616 — cold-start publishes a rev-0 economic snapshot so
-        //   hero binders never fall back to a stale SharedPreferences
-        //   value between initialize() and the first onBuy/onSell.
-        try { JournalEconomicAuthority6616.notifyEconomicMutation("INITIALIZE") } catch (_: Throwable) {}
+        // 8794 — never full-journal replay while the initialized ledger lock is
+        // held. The revision increments immediately; the snapshot publishes
+        // on the same coalesced worker as BUY, SELL and treasury mutations.
+        try { JournalEconomicAuthority6616.notifyEconomicMutationAsync8077("INITIALIZE") } catch (_: Throwable) {}
     }
 
     /**
@@ -247,8 +248,9 @@ object PaperAccountLedger6430 {
             )
             PipelineHealthCollector.labelInc("PAPER_WALLET_RESET_6618")
         } catch (_: Throwable) {}
-        // Journal authority MUST fan the reset out to the three heroes.
-        try { JournalEconomicAuthority6616.notifyEconomicMutation("RESET_6618") } catch (_: Throwable) {}
+        // The reset is already durable. Schedule its journal projection without
+        // blocking the reset handler/hero readers on the ledger monitor.
+        try { JournalEconomicAuthority6616.notifyEconomicMutationAsync8077("RESET_6618") } catch (_: Throwable) {}
     }
 
     fun canAffordBuy(costSol: Double, feeSol: Double = 0.0): Boolean {
@@ -347,8 +349,8 @@ object PaperAccountLedger6430 {
         recordMutation8674()
         persistCurrent6487()
         try { ForensicLogger.lifecycle("PAPER_BUY_ROLLED_BACK_6485", "cost=$costSol fee=$fee reason=${reason.take(100)}") } catch (_: Throwable) {}
-        // V5.0.6616 — rollback is a journal-visible mutation too.
-        try { JournalEconomicAuthority6616.notifyEconomicMutation("ROLLBACK_BUY") } catch (_: Throwable) {}
+        // 8794 — rollback remains journal-visible but its replay is off-lock.
+        try { JournalEconomicAuthority6616.notifyEconomicMutationAsync8077("ROLLBACK_BUY") } catch (_: Throwable) {}
         return true
     }
 
@@ -406,9 +408,8 @@ object PaperAccountLedger6430 {
             ForensicLogger.lifecycle("PAPER_ORPHAN_COST_RELEASED_6475", "source=$source released=$release before=$before after=${openCostBasisSol()}")
             PipelineHealthCollector.labelInc("PAPER_ORPHAN_COST_RELEASED_6475")
         } catch (_: Throwable) {}
-        // V5.0.6616 — orphan-cost release mutates open-cost basis, so
-        //   equity/openMV must refresh through the journal authority.
-        try { JournalEconomicAuthority6616.notifyEconomicMutation("PURGE") } catch (_: Throwable) {}
+        // 8794 — orphan-cost release refreshes equity/openMV off-lock.
+        try { JournalEconomicAuthority6616.notifyEconomicMutationAsync8077("PURGE") } catch (_: Throwable) {}
         return true
     }
 

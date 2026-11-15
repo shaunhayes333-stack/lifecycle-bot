@@ -1353,12 +1353,10 @@ object TradeHistoryStore {
         // must never reach UI totals, WR, avg win, lane tuners, or learning consumers.
         // recordTrade() now quarantines future invalid rows; this read filter protects
         // existing legacy rows already present in memory/SQLite before the fix.
-        return synchronized(lock) {
-            trades.asSequence()
+        return validationSnapshot8794().asSequence()
                 .map { CloseOutcomeLabelSanitizer.canonicalize(it, emit = false) }
                 .filter { isValidAccountingTrade(it) }
                 .toList()
-        }
     }
 
 
@@ -1787,14 +1785,14 @@ object TradeHistoryStore {
         // can change the result, so we stop. This turns a 10k locked scan into
         // a ~few-hundred-element scan in the common (window-filled) case,
         // killing the lock-hold time that was stalling the bot even after the
-        // off-thread move in 1342. We also snapshot the slice under the lock and
-        // do the arithmetic OUTSIDE it to minimise lock-hold further.
+        // off-thread move in 1342. V5.0.8794 copies the references under lock
+        // and runs even caller-supplied mode predicates OUTSIDE that monitor.
         val cap = window.coerceAtLeast(1)
         var lifetime = 0
         var winWins = 0
         var winCount = 0
-        synchronized(lock) {
-            val list = trades
+        run {
+            val list = validationSnapshot8794()
             var i = list.size - 1
             while (i >= 0) {
                 val t = list[i]
@@ -1836,10 +1834,9 @@ object TradeHistoryStore {
      */
     fun liveRowsForMint7370(mint: String): List<Trade> {
         if (mint.isBlank()) return emptyList()
-        val database = db ?: return synchronized(lock) {
-            trades.filter { it.mint == mint && it.mode.equals("live", true) && isValidAccountingTrade(it) }
+        val database = db ?: return validationSnapshot8794()
+            .filter { it.mint == mint && it.mode.equals("live", true) && isValidAccountingTrade(it) }
                 .sortedByDescending { it.ts }
-        }
         val out = mutableListOf<Trade>()
         try {
             database.query(TradeDbHelper.TABLE, null, "mint = ?", arrayOf(mint), null, null, "ts DESC").use { c ->
@@ -1886,10 +1883,9 @@ object TradeHistoryStore {
                 }
             }
         } catch (_: Throwable) {
-            return synchronized(lock) {
-                trades.filter { it.mint == mint && it.mode.equals("live", true) && isValidAccountingTrade(it) }
+            return validationSnapshot8794()
+                .filter { it.mint == mint && it.mode.equals("live", true) && isValidAccountingTrade(it) }
                     .sortedByDescending { it.ts }
-            }
         }
         return out
     }
@@ -1899,12 +1895,11 @@ object TradeHistoryStore {
         if (database == null) {
             // DB not open yet — fall back to in-memory list (may be empty on first open)
             ensureInitialized()
-            return synchronized(lock) {
-            trades.asSequence()
+            return validationSnapshot8794().asSequence()
                 .map { CloseOutcomeLabelSanitizer.canonicalize(it, emit = false) }
                 .filter { isValidAccountingTrade(it) }
+                .sortedByDescending { it.ts } // DB query uses ts DESC; recovery must have identical ordering.
                 .toList()
-        }
         }
         val loaded = mutableListOf<Trade>()
         try {
@@ -1962,12 +1957,11 @@ object TradeHistoryStore {
             // Fall back to in-memory list on any DB error, but still apply the
             // canonical accounting quarantine so legacy decimal-corrupt rows never
             // reappear in the journal/header.
-            return synchronized(lock) {
-            trades.asSequence()
+            return validationSnapshot8794().asSequence()
                 .map { CloseOutcomeLabelSanitizer.canonicalize(it, emit = false) }
                 .filter { isValidAccountingTrade(it) }
+                .sortedByDescending { it.ts }
                 .toList()
-        }
         }
         return loaded
     }
@@ -2075,7 +2069,9 @@ object TradeHistoryStore {
      * @return map of mint -> the opening BUY Trade row (latest BUY for that mint).
      */
     fun openMintsFromJournal(): Map<String, Trade> {
-        val rows = try { getAllTradesFromDb() } catch (_: Throwable) { synchronized(lock) { trades.filter { isValidAccountingTrade(it) }.toList() } }
+        val rows = try { getAllTradesFromDb() } catch (_: Throwable) {
+            validationSnapshot8794().filter { isValidAccountingTrade(it) }.sortedByDescending { it.ts }
+        }
         val latestSideSeen = HashMap<String, String>()   // mint -> latest side
         val openBuyRow = HashMap<String, Trade>()         // mint -> its latest BUY row
         for (t in rows) {  // already ts DESC (newest first)
@@ -2237,12 +2233,12 @@ object TradeHistoryStore {
 
     fun getTrades24h(): List<Trade> {
         val midnight = midnightTs()
-        return synchronized(lock) { trades.filter { it.ts >= midnight && isValidAccountingTrade(it) } }
+        return validationSnapshot8794().filter { it.ts >= midnight && isValidAccountingTrade(it) }
     }
 
     fun getSells24h(): List<Trade> {
         val midnight = midnightTs()
-        return synchronized(lock) { trades.filter { isJournalSellLike(it.side) && it.ts >= midnight && isValidAccountingTrade(it) } }
+        return validationSnapshot8794().filter { isJournalSellLike(it.side) && it.ts >= midnight && isValidAccountingTrade(it) }
     }
 
     // V5.0.6266 — MAIN-THREAD ANR FIX for getAllSells().
@@ -2281,6 +2277,11 @@ object TradeHistoryStore {
     // and CryptoAltActivity's main thread then waited for the ledger. Capture
     // a consistent immutable row slice under the journal monitor and perform
     // expensive canonical validation outside it, like validRowsHead7348.
+    // V5.0.8794 — never call accounting validators (which can read ledger/config)
+    // while holding the journal lock. Copy row references atomically; validate
+    // and sort only AFTER the lock is released, across all query entry points.
+    private fun validationSnapshot8794(): List<Trade> = synchronized(lock) { ArrayList(trades) }
+
     private fun computeAllSells(): List<Trade> {
         val copy = synchronized(lock) { ArrayList(trades) }
         return copy.filter { isJournalSellLike(it.side) && isValidAccountingTrade(it) }
@@ -2308,12 +2309,10 @@ object TradeHistoryStore {
 
     fun getRecentValidClosedForMode(mode: String, limit: Int = 50): List<Trade> {
         val norm = normalizeTradeModeName(mode)
-        return synchronized(lock) {
-            trades.asReversed().asSequence()
+        return validationSnapshot8794().asReversed().asSequence()
                 .filter { isJournalSellLike(it.side) && normalizeTradeModeName(it.tradingMode) == norm && isValidAccountingTrade(it) }
                 .take(limit.coerceAtLeast(1))
                 .toList()
-        }
     }
 
     fun getWinRate24h(): Int {
@@ -2369,11 +2368,11 @@ object TradeHistoryStore {
     }
 
     private fun computeRollingWinRatePct(n: Int): Double {
-        val sample = synchronized(lock) {
+        val sample = validationSnapshot8794().run {
             // Newest-first window of the most recent N sells.
             // V5.9.1346 — include PARTIAL_SELL closes (was == "SELL", dropped partials).
             // V5.0.3836 — same validity filter as canonical totals/readiness.
-            trades.asReversed().asSequence()
+            asReversed().asSequence()
                 .filter { isJournalSellLike(it.side) && isValidAccountingTrade(it) }
                 .take(n)
                 .toList()
@@ -2419,8 +2418,8 @@ object TradeHistoryStore {
             } catch (_: Throwable) {}
             return ModeDecisive7706(0, 0, 0)
         }
-        val sample = synchronized(lock) {
-            trades.filter { isLiveRow7706(it) && isJournalSellLike(it.side) && isValidAccountingTrade(it) }
+        val sample = validationSnapshot8794().filter {
+            isLiveRow7706(it) && isJournalSellLike(it.side) && isValidAccountingTrade(it)
         }
         val out = ModeDecisive7706(
             wins = sample.count { isWin(it) },
@@ -2453,8 +2452,8 @@ object TradeHistoryStore {
     }
 
     private fun computeRollingWinRatePctLive7706(n: Int): Double {
-        val sample = synchronized(lock) {
-            trades.asReversed().asSequence()
+        val sample = validationSnapshot8794().run {
+            asReversed().asSequence()
                 .filter { isLiveRow7706(it) && isJournalSellLike(it.side) && isValidAccountingTrade(it) }
                 .take(n)
                 .toList()
@@ -2486,8 +2485,8 @@ object TradeHistoryStore {
     }
 
     private fun computeRollingWinRatePctSlice(offset: Int, width: Int): Double {
-        val sample = synchronized(lock) {
-            trades.asReversed().asSequence()
+        val sample = validationSnapshot8794().run {
+            asReversed().asSequence()
                 // V5.9.1346 — include PARTIAL_SELL closes (was == "SELL").
                 // V5.0.3836 — same validity filter as canonical totals.
                 .filter { isJournalSellLike(it.side) && isValidAccountingTrade(it) }
@@ -2697,7 +2696,7 @@ object TradeHistoryStore {
         val totalCompleted = totalWins + totalLosses
         val totalClosed = lifetimeSells
 
-        val allSells       = synchronized(lock) { trades.filter { isJournalSellLike(it.side) && isValidAccountingTrade(it) } }
+        val allSells       = computeAllSells()
 
         val lifetimeWR    = if (totalCompleted > 0)
             totalWins * 100.0 / totalCompleted.toDouble() else 0.0
@@ -2749,7 +2748,7 @@ object TradeHistoryStore {
         (getJournalClosedTradeCount().toDouble() / targetTrades.coerceAtLeast(1).toDouble()).coerceIn(0.0, 1.0)
 
     fun getTopMode(): String? {
-        val t = synchronized(lock) { trades.filter { isValidAccountingTrade(it) } }
+        val t = validationSnapshot8794().filter { isValidAccountingTrade(it) }
         if (t.isEmpty()) return null
         return t.filter { it.tradingMode.isNotBlank() }
             .groupBy { it.tradingMode }
@@ -2762,7 +2761,7 @@ object TradeHistoryStore {
      * for this mode (caller should treat no-data as neutral).
      */
     fun getLaneWinRate(mode: String, minTrades: Int = 10): Double {
-        val t = synchronized(lock) { trades.filter { isValidAccountingTrade(it) } }
+        val t = validationSnapshot8794().filter { isValidAccountingTrade(it) }
         val modeTrades = t.filter { it.tradingMode.equals(mode, ignoreCase = true) && isJournalSellLike(it.side) }
         if (modeTrades.size < minTrades) return -1.0
         val wins = modeTrades.count { isWin(it) }
@@ -3147,8 +3146,8 @@ object TradeHistoryStore {
      */
     private fun seedTerminalLifetimeIfAbsent7205() {
         if (terminalSeeded7205) return
-        val terminal = synchronized(lock) {
-            trades.filter { isTerminalSell7205(it.side) && isValidAccountingTrade(it) }
+        val terminal = validationSnapshot8794().filter {
+            isTerminalSell7205(it.side) && isValidAccountingTrade(it)
         }
         lifetimeTerminalCloses7205    = terminal.size
         lifetimeTerminalWins7205      = terminal.count { isWin(it) }
@@ -3226,9 +3225,7 @@ object TradeHistoryStore {
     private fun isTerminalSell7205(side: String): Boolean = side.equals("SELL", ignoreCase = true)
 
     private fun backfillLifetimeFromTrades() {
-        val sells = synchronized(lock) {
-            trades.filter { isJournalSellLike(it.side) && isValidAccountingTrade(it) }
-        }
+        val sells = computeAllSells()
         if (sells.isEmpty()) return
         lifetimeSells          = sells.size
         lifetimeWins           = sells.count { isWin(it) }

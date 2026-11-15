@@ -56,6 +56,7 @@ object HeliusEnhancedWS {
     @Volatile private var tapeReqId8307: Long = -1L
     @Volatile private var whaleReqId8307: Long = -1L
     @Volatile private var tapeSubscribedAtMs8307 = 0L
+    @Volatile private var tapeRetryAtMs8794 = 0L
     @Volatile private var capability8307 = "UNPROBED"
     @Volatile private var lastError8307 = "-"
     private val tapeResubs8307 = AtomicLong(0L)
@@ -64,6 +65,10 @@ object HeliusEnhancedWS {
     /** Pure: the plan capability an Enhanced-WS JSON-RPC error states (UNSUPPORTED for a method / plan refusal, else ERROR). */
     internal fun capabilityFromError8307(code: Int, message: String): String {
         val m = message.lowercase()
+        // 8794: a provider message such as "monthly plan credits exhausted"
+        // contains "plan" but is NOT evidence that transactionSubscribe is
+        // unsupported. Misclassifying it permanently disabled tape re-subscribe.
+        if (retryableSubscriptionRefusal8794(code, message)) return "RETRYABLE_QUOTA"
         return if (code == -32601 || m.contains("not supported") || m.contains("not available") || m.contains("plan") ||
             m.contains("upgrade") || m.contains("method not found")) "UNSUPPORTED_PLAN" else "ERROR"
     }
@@ -75,16 +80,75 @@ object HeliusEnhancedWS {
     fun capabilityLine8307(): String =
         "enhancedWs=$capability8307 whaleSub=${if (subscriptionId >= 0) "ACK" else "NONE"} whaleAccounts=${watchedAccounts.size} " +
             "tapeSub=${if (tapeSubId8307 >= 0) "ACK" else "NONE"} tapeMints=${tapeAccounts8307.size} tapeResubs=${tapeResubs8307.get()} lastError=$lastError8307 " +
-            "curveSub8354=${curveSubState8354()}"
+            "curveSub8354=${curveSubState8354()} curveRetryS8794=${((curveRetryAtMs8794 - System.currentTimeMillis()).coerceAtLeast(0L) / 1000L)} " +
+            "tapeRetryS8794=${((tapeRetryAtMs8794 - System.currentTimeMillis()).coerceAtLeast(0L) / 1000L)}"
 
     // ── V5.0.8354 — ONE program-wide subscription on the pump.fun bonding-curve program (HeliusCurveTape8354) ──
     @Volatile private var curveWanted8354 = false
     @Volatile private var curveReqId8354 = -1L
     @Volatile private var curveSubId8354 = -1L
     @Volatile private var curveRefused8354 = "-"
+    @Volatile private var curveReqAtMs8794 = 0L
+    // 8794: subscription-level quota refusals do not close the websocket.
+    // Previously a 429 stuck in curveRefused8354 forever, even after the user
+    // replenished credits: the curve transport never re-probed. Keep permanent
+    // plan/invalid-request refusals parked, but retry transient provider faults.
+    @Volatile private var curveRetryAtMs8794 = 0L
+    private const val CURVE_RETRY_MS_8794 = 15L * 60_000L
 
-    /** The plan accepts Enhanced subscriptions on an open socket, and the program subscription was not refused. */
-    fun enhancedOk8354(): Boolean = running.get() && ws != null && capability8307 == "OK" && curveRefused8354 == "-"
+    internal fun retryableSubscriptionRefusal8794(code: Int, message: String): Boolean {
+        val m = message.lowercase()
+        return code == 429 || code == -32005 || code in 500..599 ||
+            m.contains("quota") || m.contains("credit") || m.contains("rate limit") ||
+            m.contains("too many requests") || m.contains("temporarily unavailable")
+    }
+
+    internal fun retryDue8794(untilMs: Long, nowMs: Long): Boolean =
+        untilMs > 0L && nowMs >= untilMs
+
+    /** Lost subscribe ACK must not leave a program stream PENDING forever. */
+    internal fun curveAckOverdue8794(requestId: Long, sentAtMs: Long, nowMs: Long): Boolean =
+        requestId >= 0L && sentAtMs > 0L && nowMs - sentAtMs >= 90_000L
+
+    private fun recoverTransientCurveRefusal8794(nowMs: Long = System.currentTimeMillis()) {
+        if (curveAckOverdue8794(curveReqId8354, curveReqAtMs8794, nowMs)) {
+            curveReqId8354 = -1L
+            curveReqAtMs8794 = 0L
+            curveRefused8354 = "ACK_TIMEOUT_8794"
+            curveRetryAtMs8794 = nowMs + 60_000L
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HELIUS_CURVE_ACK_TIMEOUT_8794") } catch (_: Throwable) {}
+        }
+        // A tape/whale 429 marks the entire enhanced capability retryable.
+        // Clearing only the curve-specific refusal is insufficient: when no
+        // tape account is queued there may never be another ACK to turn a
+        // RETRYABLE_QUOTA capability back into a probeable one.
+        if (capability8307 == "RETRYABLE_QUOTA" && retryDue8794(tapeRetryAtMs8794, nowMs)) {
+            capability8307 = "UNPROBED"
+            tapeRetryAtMs8794 = 0L
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HELIUS_WS_QUOTA_REPROBE_8794") } catch (_: Throwable) {}
+        }
+        if (retryDue8794(curveRetryAtMs8794, nowMs)) {
+            curveRetryAtMs8794 = 0L
+            curveRefused8354 = "-"
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HELIUS_CURVE_QUOTA_REPROBE_8794") } catch (_: Throwable) {}
+        }
+    }
+
+    internal fun enhancedCanProbe8794(capability: String): Boolean =
+        capability == "OK" || capability == "UNPROBED"
+
+    /**
+     * A connected but unprobed socket may try its FIRST program subscription.
+     * Previously capability=UNPROBED required another whale/tape ACK before
+     * selecting the curve transport; when neither feed had an ACK, nothing
+     * ever sent the request that could establish capability in the first place.
+     * Explicit plan and quota refusals remain excluded until recovered.
+     */
+    fun enhancedOk8354(): Boolean {
+        recoverTransientCurveRefusal8794()
+        return running.get() && ws != null && enhancedCanProbe8794(capability8307) &&
+            curveRefused8354 == "-"
+    }
 
     fun curveSubState8354(): String = when {
         curveSubId8354 >= 0L -> "ACK"
@@ -108,7 +172,8 @@ object HeliusEnhancedWS {
         if (capability8307 == "UNSUPPORTED_PLAN" || curveRefused8354 != "-") return
         val id = nextRpcId.getAndIncrement()
         curveReqId8354 = id
-        socket.send(JSONObject().apply {
+        curveReqAtMs8794 = System.currentTimeMillis()
+        val queued8794 = socket.send(JSONObject().apply {
             put("jsonrpc", "2.0")
             put("id", id)
             put("method", "transactionSubscribe")
@@ -123,12 +188,21 @@ object HeliusEnhancedWS {
                 })
             })
         }.toString())
+        // OkHttp returns false when a frame was never queued. An unacknowledged
+        // request ID otherwise leaves the program subscription PENDING forever.
+        if (!queued8794) {
+            curveReqId8354 = -1L
+            curveReqAtMs8794 = 0L
+            curveRefused8354 = "SOCKET_SEND_NOT_QUEUED_8794"
+            curveRetryAtMs8794 = System.currentTimeMillis() + 60_000L
+        }
     }
 
     private fun sendCurveUnsubscribe8354(socket: WebSocket) {
         val sub = curveSubId8354
         curveSubId8354 = -1L
         curveReqId8354 = -1L
+        curveReqAtMs8794 = 0L
         if (sub < 0L) return
         socket.send(JSONObject().put("jsonrpc", "2.0").put("id", nextRpcId.getAndIncrement())
             .put("method", "transactionUnsubscribe").put("params", JSONArray().put(sub)).toString())
@@ -149,6 +223,7 @@ object HeliusEnhancedWS {
 
     private fun sendTapeSubscribe8307(socket: WebSocket, nowMs: Long = System.currentTimeMillis()) {
         if (capability8307 == "UNSUPPORTED_PLAN") return
+        if (nowMs < tapeRetryAtMs8794) return // Quota refill retry, not a permanent plan refusal.
         if (tapeSubId8307 >= 0) {
             socket.send(JSONObject().put("jsonrpc", "2.0").put("id", nextRpcId.getAndIncrement())
                 .put("method", "transactionUnsubscribe").put("params", JSONArray().put(tapeSubId8307)).toString())
@@ -190,6 +265,21 @@ object HeliusEnhancedWS {
             ErrorLogger.warn(TAG, "already running — start() ignored")
             return
         }
+        // An explicit stop/start (including after a credit refill or key change)
+        // must re-probe the new socket. Old subscription IDs and sticky refusals
+        // belong to the old connection, never the new one.
+        capability8307 = "UNPROBED"
+        lastError8307 = "-"
+        subscriptionId = -1L
+        tapeSubId8307 = -1L
+        tapeReqId8307 = -1L
+        tapeRetryAtMs8794 = 0L
+        whaleReqId8307 = -1L
+        curveSubId8354 = -1L
+        curveReqId8354 = -1L
+        curveReqAtMs8794 = 0L
+        curveRefused8354 = "-"
+        curveRetryAtMs8794 = 0L
         apiKey = heliusApiKey
         requestedAccounts = watchAccounts.distinct()
         watchedAccounts = affordable7881(requestedAccounts)
@@ -290,7 +380,7 @@ object HeliusEnhancedWS {
             sendSubscribe(webSocket)
             tapeSubId8307 = -1L   // V5.0.8307 — a new socket: the tape subscription is sent again
             try { sendTapeSubscribe8307(webSocket) } catch (_: Throwable) {}
-            curveSubId8354 = -1L; curveReqId8354 = -1L   // V5.0.8354 — and the program subscription, when wanted
+            curveSubId8354 = -1L; curveReqId8354 = -1L; curveReqAtMs8794 = 0L   // V5.0.8354 — and the program subscription, when wanted
             if (curveWanted8354) try { sendCurveSubscribe8354(webSocket) } catch (_: Throwable) {}
         }
 
@@ -320,10 +410,21 @@ object HeliusEnhancedWS {
                     // V5.0.8307 — the tape subscription's ack is told apart by its request id.
                     // V5.0.8354 — and the program subscription's by its own.
                     val ackId8354 = msg.optLong("id", -1L)
-                    if (curveReqId8354 >= 0L && ackId8354 == curveReqId8354) { curveSubId8354 = msg.getLong("result"); curveReqId8354 = -1L }
-                    else if (tapeReqId8307 >= 0 && ackId8354 == tapeReqId8307) tapeSubId8307 = msg.getLong("result")
-                    else if (ackId8354 != tapeReqId8307 && ackId8354 != curveReqId8354) subscriptionId = msg.getLong("result")
+                    if (curveReqId8354 >= 0L && ackId8354 == curveReqId8354) {
+                        curveSubId8354 = msg.getLong("result"); curveReqId8354 = -1L; curveReqAtMs8794 = 0L
+                    } else if (tapeReqId8307 >= 0L && ackId8354 == tapeReqId8307) {
+                        tapeSubId8307 = msg.getLong("result"); tapeReqId8307 = -1L
+                    } else if (whaleReqId8307 >= 0L && ackId8354 == whaleReqId8307) {
+                        subscriptionId = msg.getLong("result"); whaleReqId8307 = -1L
+                    } else {
+                        // A delayed ACK for an expired request is not proof
+                        // that the whale stream subscribed. Previously EVERY
+                        // unmatched numeric result became subscriptionId.
+                        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HELIUS_STALE_SUB_ACK_8794") } catch (_: Throwable) {}
+                        return
+                    }
                     capability8307 = "OK"
+                    tapeRetryAtMs8794 = 0L
                     return
                 }
                 // V5.0.8307 — a refused subscribe names the plan capability (reported, and the tape is not re-sent).
@@ -336,10 +437,24 @@ object HeliusEnhancedWS {
                     if (curveReqId8354 >= 0L && msg.optLong("id", -1L) == curveReqId8354) {
                         curveRefused8354 = "$code8307:${m8307.take(32).replace(' ', '_')}"
                         curveReqId8354 = -1L
+                        curveReqAtMs8794 = 0L
+                        curveRetryAtMs8794 = if (retryableSubscriptionRefusal8794(code8307, m8307))
+                            System.currentTimeMillis() + CURVE_RETRY_MS_8794 else 0L
+                        if (curveRetryAtMs8794 > 0L) try {
+                            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HELIUS_CURVE_QUOTA_RETRY_SCHEDULED_8794")
+                        } catch (_: Throwable) {}
                         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CURVE_TAPE_ENHANCED_SUB_REFUSED_8354") } catch (_: Throwable) {}
                         return
                     }
-                    if (msg.optLong("id", -1L) == tapeReqId8307 || msg.optLong("id", -1L) == whaleReqId8307) capability8307 = capabilityFromError8307(code8307, m8307)
+                    val refusedId8794 = msg.optLong("id", -1L)
+                    if ((tapeReqId8307 >= 0L && refusedId8794 == tapeReqId8307) ||
+                        (whaleReqId8307 >= 0L && refusedId8794 == whaleReqId8307)) {
+                        if (refusedId8794 == tapeReqId8307) tapeReqId8307 = -1L
+                        if (refusedId8794 == whaleReqId8307) whaleReqId8307 = -1L
+                        capability8307 = capabilityFromError8307(code8307, m8307)
+                        if (retryableSubscriptionRefusal8794(code8307, m8307))
+                            tapeRetryAtMs8794 = System.currentTimeMillis() + CURVE_RETRY_MS_8794
+                    }
                     return
                 }
                 // Transaction notification
