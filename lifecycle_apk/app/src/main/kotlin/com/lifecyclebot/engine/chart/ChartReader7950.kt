@@ -74,6 +74,7 @@ object ChartReader7950 {
         if (mint.isBlank() || !(priceUsd > 0.0) || !priceUsd.isFinite() || atMs <= 0L) return
         try { StructureTracker7962.onPrice7962(mint, priceUsd, atMs) } catch (_: Throwable) {}   // V5.0.7962 — 15 s / 1 m swings
         try { com.lifecyclebot.engine.truth.TailHunter7996.onPrice7996(mint, priceUsd, atMs) } catch (_: Throwable) {}   // V5.0.7996 — ladder replays
+        ColourShape8807.onPrice8807(mint, priceUsd, atMs)   // V5.0.8807 — steps the coin's open colour-shape paper ladder (a no-op without one)
         val tape = tapes.computeIfAbsent(mint) { Tape() }
         synchronized(tape) {
             foldPrice7982(tape.bars, atMs / BUCKET_MS, priceUsd, atMs)
@@ -169,6 +170,7 @@ object ChartReader7950 {
         val f = ChartMotif7950.encode(bars, end) ?: return null
         val motif = ChartLibrary7950.query(f)
         val colorBuy = try { CandleColors7968.read7968(bars)?.buy == true } catch (_: Throwable) { false }  // V5.0.7968
+        if (!fine) ColourShape8807.onBars8807(mint, bars, nowMs)   // V5.0.8807 — colour runs against the shape, named candles and chart shapes, one-minute candles only
         val r = Read(motif, bars.size, ChartMotif7950.buyShare(bars, end), nowMs - tape.devSoldAtMs < DEV_SELL_WINDOW_MS, nowMs, tape.devSoldAtMs, colorBuy, fine)
         if (reads.size > 3_000) reads.clear()
         reads[mint] = r

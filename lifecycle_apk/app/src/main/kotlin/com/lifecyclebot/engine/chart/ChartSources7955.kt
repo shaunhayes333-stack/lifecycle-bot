@@ -251,10 +251,16 @@ object ChartSources7955 {
     fun familyAllowed7955(crypto: Boolean, cryptoMotifs: Long, memeMotifs: Long, memeIdle: Boolean): Boolean =
         !crypto || memeIdle || cryptoMotifs <= memeMotifs * 2 + 3_000L
 
-    /** Round-robin over discovery origins: one queue per origin, served in turn. */
+    private const val ORIGIN_TOP_YEAR_8807 = "g-top-1y"
+
+    /** Round-robin over discovery origins: one queue per origin, served in turn; a [prefer8807]red origin is served first. */
     class RoundRobin7955<T> {
         private val queues = LinkedHashMap<String, ArrayDeque<T>>()
+        private val first8807 = LinkedHashSet<String>()
         private var cursor = 0
+
+        /** V5.0.8807 — [origin]'s items are served before the round-robin whenever it has any. */
+        @Synchronized fun prefer8807(origin: String) { first8807 += origin }
 
         @Synchronized fun add(origin: String, item: T) { queues.getOrPut(origin) { ArrayDeque() }.addLast(item) }
 
@@ -263,6 +269,7 @@ object ChartSources7955 {
         @Synchronized fun clear() { queues.clear(); cursor = 0 }
 
         private fun headKey(): String? {
+            for (f in first8807) if (queues[f]?.isNotEmpty() == true) return f
             val keys = queues.keys.toList()
             if (keys.isEmpty()) return null
             for (k in keys.indices) {
@@ -295,7 +302,9 @@ object ChartSources7955 {
         val fallback: Job? = null, val parse: (String) -> Out,
     ) { var tries = 0; var localBlocks8144 = 0 }
 
-    private val queues: Map<String, RoundRobin7955<Job>> = PROVS.associate { it.id to RoundRobin7955<Job>() }
+    private val queues: Map<String, RoundRobin7955<Job>> = PROVS.associate {
+        it.id to RoundRobin7955<Job>().apply { prefer8807(ORIGIN_TOP_YEAR_8807); prefer8807("g-famous") }
+    }
     private val cryptoBases: MutableSet<String> = ConcurrentHashMap.newKeySet()
     private val pools: MutableSet<String> = ConcurrentHashMap.newKeySet()
     @Volatile private var done: MutableSet<String> = HashSet()
@@ -347,7 +356,10 @@ object ChartSources7955 {
     private fun geckoPool(network: String, address: String, origin: String, full: Boolean = false): List<Job> {
         if (address.isBlank() || !pools.add("$network|$address")) return emptyList()
         return (if (full) GECKO_FULL else GECKO_SHORT).map { (tf, agg) ->
-            Job("G|$network|$address|$tf$agg", GECKO, origin, sourceFor(network), "$GECKO_API/networks/$network/pools/$address/ohlcv/$tf?aggregate=$agg&limit=1000") {
+            // V5.0.8807 — Solana 1-minute and 5-minute charts are fetched once more under a new key: ColourShape8807 scores
+            // every candle of them by what a trade made, which the 40 stored fingerprints of an earlier download cannot give.
+            val gen = if (network == "solana" && tf == "minute" && agg <= 5) "G8807" else "G"
+            Job("$gen|$network|$address|$tf$agg", GECKO, origin, sourceFor(network), "$GECKO_API/networks/$network/pools/$address/ohlcv/$tf?aggregate=$agg&limit=1000") {
                 Out(ChartLibraryBuilder7950.parseGecko(JSONObject(it)))
             }
         }
@@ -537,6 +549,16 @@ object ChartSources7955 {
         pages("base", "networks/base/new_pools", 2, false, "g-base-new")
         pages("eth", "networks/eth/trending_pools", 2, false, "g-eth-trending")
         pages("eth", "networks/eth/new_pools", 1, false, "g-eth-new")
+        // V5.0.8807 — owner: "the top 50 performing sol coins of the last 12 months": CoinGecko's Solana meme list ranked by
+        // one-year gain, each found on Solana by name; these and the famous runners are served before every other origin.
+        out += listing(COINGECKO, ORIGIN_TOP_YEAR_8807, "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&category=solana-meme-coins" +
+            "&order=market_cap_desc&per_page=250&page=1&price_change_percentage=1y") { body ->
+            ColourShape8807.topByYear8807(JSONArray(body), 50).map { name ->
+                listing(GECKO, ORIGIN_TOP_YEAR_8807, "$GECKO_API/search/pools?query=${java.net.URLEncoder.encode(name, "UTF-8")}&network=solana") { b ->
+                    ChartParsers7955.geckoPools7955(JSONObject(b)).take(1).flatMap { geckoPool("solana", it, ORIGIN_TOP_YEAR_8807, true) }
+                }
+            }
+        }
         for (name in FAMOUS) out += listing(GECKO, "g-famous", "$GECKO_API/search/pools?query=$name&network=solana") { body ->
             ChartParsers7955.geckoPools7955(JSONObject(body)).take(1).flatMap { geckoPool("solana", it, "g-famous", true) }
         }
@@ -882,6 +904,9 @@ object ChartSources7955 {
         var motifs = 0
         if (out.bars.size > ChartMotif7950.WINDOW + ChartMotif7950.HORIZON + 2 && job.source >= 0) {
             motifs = ChartLibrary7950.ingestSeries(out.bars, job.source, 40)
+            // V5.0.8807 — a meme chart also teaches the colour-run / candle / chart-shape table, one outcome per chart per pattern
+            if (job.source == ChartLibrary7950.SRC_SOL_MEME || job.source == ChartLibrary7950.SRC_BSC_MEME)
+                ColourShape8807.learnSeries8807(job.key.substringBeforeLast('|'), out.bars)
             if (job.source == ChartLibrary7950.SRC_CRYPTO) cryptoMotifs.addAndGet(motifs.toLong()) else memeMotifs.addAndGet(motifs.toLong())
         }
         p.bars.addAndGet(out.bars.size.toLong())

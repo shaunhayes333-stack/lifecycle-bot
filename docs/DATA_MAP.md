@@ -264,3 +264,28 @@ Still open:
 - 1.5 % of lane rows from the same decision disagree on cap by more than 2×.
 - 263 same-coin cap readings jump more than 3× inside a minute.
 Each is counted for the report rather than guessed away.
+
+## 14. Candle colours, named candles and chart shapes, graded as trades (8807)
+
+The owner reads charts by the runs of green and red candles against the shape, and by the textbook candles and chart
+shapes. `CandleColors7968` already learned five-candle colour sequences, but alone (no shape), scored by a touch
+(+2 ATR before −1 ATR), mostly from the bot's own 15-second candles of minutes-old coins, and its setup had no graded
+trades. On 611 clean recorded launches, colour sequences chosen on the earlier two thirds made +1.2 % on the later third
+against a +1.4 % base.
+
+`ColourShape8807` keys every candle of every downloaded 1-minute and 5-minute meme chart three ways:
+
+| Key | Reads |
+|---|---|
+| `g1r4g4:G\|HU-` | the last three colour runs and their lengths, the newest candle, then zone in the last 30 candles (L/M/H), leg (U/D/F), run volume (V/v/-) |
+| `C:HAMMER\|LD` | a named candle (with its wicks) against the same zone and leg |
+| `P:DOUBLE_BOTTOM` | a named chart shape, from swing pivots, at the candle that breaks it |
+
+Each key is scored by what a trade entered there made on the scale-out ladder net of cost, one outcome per chart, in two
+halves of charts that share no coin. PROVEN = both halves n ≥ 12 and mean − 2 SE > 0. A proven key completing on a live
+one-minute tape opens a paper ladder; its fire is admission evidence only once the learner's own paper record is armed
+(`ManualRead8806.armed`). Bearish names are measured as buys, not shorted.
+
+Source of charts: `ChartSources7955`. Solana 1 m / 5 m candle jobs are fetched again under the key prefix `G8807`. The
+top 50 Solana meme coins by one-year gain (CoinGecko category list, found on GeckoTerminal by name) and the famous
+runners are served before every other download origin.
