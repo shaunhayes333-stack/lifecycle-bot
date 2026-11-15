@@ -368,6 +368,31 @@ object XsDesk {
         return "selling ${livePositions().size} xStocks positions; live switched off"
     }
 
+    /** V5.0.8804 — the Markets screen: every open paper and live xStocks position. */
+    fun positionRows8804(): List<DeskJournal8802.DeskRow> {
+        val rows = ArrayList<DeskJournal8802.DeskRow>()
+        synchronized(lock) {
+            for ((s, u) in paperUnits) rows.add(DeskJournal8802.DeskRow("XSTOCKS", "PAPER", s, u,
+                DeskJournal8802.lot("XSTOCKS", "PAPER", s)?.second ?: Double.NaN, mark(s)))
+        }
+        val sol = solUsd()
+        for (p in livePositions()) {
+            val units = p.remainingQtyRaw.toBigDecimal().movePointLeft(p.tokenDecimals).toDouble()
+            val avg = if (units > 0.0 && sol != null) (p.entryCostSol - p.soldCostBasisSol) * sol / units else Double.NaN
+            rows.add(DeskJournal8802.DeskRow("XSTOCKS", "LIVE", p.symbol, units, avg, mark(p.symbol), "desk:XSTOCKS:${p.positionId}"))
+        }
+        return rows
+    }
+
+    /** V5.0.8804 — the Markets screen's close button on one live xStocks position (sold for SOL now). */
+    fun closeLive8804(positionId: String): Boolean {
+        val p = livePositions().firstOrNull { it.positionId == positionId } ?: return false
+        close(p, "USER", System.currentTimeMillis())
+        return livePositions().none { it.positionId == positionId }
+    }
+
+    fun isRunning8804(): Boolean = started.get()
+
     // ── persistence ──
 
     private fun file(): File? = app?.filesDir?.let { File(it, FILE) }

@@ -10920,11 +10920,6 @@ This cannot be undone!
             performHaptic()
         }
 
-        // V5.7: Perps/Leverage Mode button → Shows Perps AI status
-        findViewById<View>(R.id.btnQuickPerps)?.setOnClickListener {
-            showPerpsModeDialog()
-            performHaptic()
-        }
 
         // V5.7.3: Tokenized Stocks button → Opens dedicated Markets UI
         // V5.7.6: Now navigates to MultiAssetActivity for proper Markets AI layers
@@ -10933,7 +10928,12 @@ This cannot be undone!
             performHaptic()
         }
 
-        // V5.0.8797 — the Markets tile is retired with its traders (RetiredMarkets8797); its deck slot is the Hyperliquid desk.
+        // V5.0.8804 — owner: "you turned off the whole market trader display, position display everything". The Markets tile
+        // is back: crypto alts, the xStocks and Hyperliquid desks' positions, and anything the retired traders still hold.
+        findViewById<View>(R.id.btnQuickMarkets)?.setOnClickListener {
+            startActivity(Intent(this, MultiAssetActivity::class.java))
+            performHaptic()
+        }
 
         // V1.0: Crypto Alts tile (in meme modes row) → opens CryptoAltActivity
         findViewById<View>(R.id.btnQuickCryptoAlts)?.setOnClickListener {
@@ -10947,8 +10947,8 @@ This cannot be undone!
             performHaptic()
         }
 
-        // V5.0.8795: Hyperliquid tile → opens HyperliquidActivity (the trend desk)
-        findViewById<View>(R.id.btnQuickHyperliquid)?.setOnClickListener {
+        // V5.0.8795 / 8804: the Hyperliquid & xStocks desks open from the Markets screen and from the Perps button
+        findViewById<View>(R.id.btnQuickPerps)?.setOnClickListener {
             startActivity(Intent(this, com.lifecyclebot.ui.HyperliquidActivity::class.java))
             performHaptic()
         }

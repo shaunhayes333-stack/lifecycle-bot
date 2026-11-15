@@ -113,6 +113,22 @@ object DeskJournal8802 {
         }
     }
 
+    /** (signed units, average USD price) of [symbol]'s open lot on [desk] in [mode], or null. */
+    fun lot(desk: String, mode: String, symbol: String): Pair<Double, Double>? =
+        synchronized(lock) { books["$desk|$mode"]?.lots?.get(symbol)?.let { it.qty to it.avg } }
+
+    /**
+     * V5.0.8804 — one open desk position as the Markets screen shows it: [units] signed (+ long, - short), [avgUsd] what it
+     * cost a unit, [markUsd] what a unit is worth now (NaN unknown); [id] closes it ("desk:XSTOCKS:<positionId>" for a live
+     * xStocks position, blank where the desk manages it alone).
+     */
+    data class DeskRow(val desk: String, val mode: String, val symbol: String, val units: Double, val avgUsd: Double,
+                       val markUsd: Double, val id: String = "") {
+        val valueUsd: Double get() = if (markUsd.isFinite()) abs(units) * markUsd else abs(units) * avgUsd
+        val pnlUsd: Double get() = if (markUsd.isFinite() && avgUsd > 0.0) units * (markUsd - avgUsd) else 0.0
+        val pnlPct: Double get() = if (markUsd.isFinite() && avgUsd > 0.0) (markUsd / avgUsd - 1.0) * 100.0 * sign(units) else 0.0
+    }
+
     fun recentLines(desk: String, n: Int = 20): List<String> = synchronized(lock) {
         recent.filter { it.desk == desk }.takeLast(n).asReversed().map { f ->
             java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.US).format(java.util.Date(f.atMs)) +

@@ -112,6 +112,7 @@ class Aate8795HyperliquidTest {
         assertTrue(src("engine/PipelineHealthCollector.kt").contains("com.lifecyclebot.hyperliquid.HlDesk.statusLine()"))
         assertTrue(src("ui/MainActivity.kt").contains("com.lifecyclebot.ui.HyperliquidActivity::class.java"))
         assertTrue(File("src/main/AndroidManifest.xml").readText().contains(".ui.HyperliquidActivity"))
-        assertTrue(File("src/main/res/layout/activity_main.xml").readText().contains("@+id/btnQuickHyperliquid"))
+        // superseded by V5.0.8804 — the Markets tile is back on the deck; the desk opens from the Markets screen and Perps button
+        assertTrue(src("ui/MultiAssetActivity.kt").contains("HyperliquidActivity::class.java"))
     }
 }

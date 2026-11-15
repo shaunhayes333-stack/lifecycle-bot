@@ -899,10 +899,10 @@
                             android:fontFamily="monospace"/>
                     </LinearLayout>
 
-                    <!-- V5.0.8795 / 8797: Hyperliquid perps desk (replaces the retired Markets tile; the Markets
-                         screen stays reachable from the hero and crypto surfaces for wind-down and crypto alts) -->
+                    <!-- V5.0.8804: Markets (crypto alts, xStocks, Hyperliquid perps, held legacy positions) — restored;
+                         the Hyperliquid and xStocks desks open from the Markets screen -->
                     <LinearLayout
-                        android:id="@+id/btnQuickHyperliquid"
+                        android:id="@+id/btnQuickMarkets"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
@@ -919,9 +919,9 @@
                             android:minWidth="42dp"
                             android:minHeight="42dp"
                             android:padding="8dp"
-                            android:contentDescription="Hyperliquid icon"/>
+                            android:contentDescription="Markets icon"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="HL Perps" android:textColor="@color/aate_amber" android:textSize="9sp"
+                            android:text="Markets" android:textColor="@color/aate_amber" android:textSize="9sp"
                             android:layout_marginTop="2dp"/>
                     </LinearLayout>
 

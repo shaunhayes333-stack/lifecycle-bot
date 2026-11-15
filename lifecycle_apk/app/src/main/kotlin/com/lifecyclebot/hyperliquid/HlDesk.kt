@@ -324,6 +324,7 @@ object HlDesk {
         val live = HlExecutor.read(base(cfg), cfg.account, dexesOf(universe + targets.keys)) ?: return
         val value = live.equity
         liveEquity = value
+        livePositions8804 = live.positions.mapValues { (c, p) -> p to (live.markets[c]?.markPx ?: Double.NaN) }
         liveDexEquity = live.accounts.mapValues { it.value.accountValue }
         if (!(value > 0.0)) return
         if (liveDay != today) { liveDay = today; liveDayStartValue = value; save() }
@@ -352,6 +353,7 @@ object HlDesk {
         val live = HlExecutor.read(base(cfg), cfg.account, dexesOf(universe + targets.keys)) ?: run { note("no answer from ${base(cfg)}"); return }
         liveEquity = live.equity
         liveDexEquity = live.accounts.mapValues { it.value.accountValue }
+        livePositions8804 = live.positions.mapValues { (c, p) -> p to (live.markets[c]?.markPx ?: Double.NaN) }
         val plans = HlRisk.plan(targets, ev.leverage, liveDexEquity, cfg.maxNotionalUsd, live.markets, vols)
         val unfunded = dexesOf(targets.keys).filter { !((liveDexEquity[it] ?: 0.0) > 0.0) }
         if (unfunded.isNotEmpty()) note("$why: HIP-3 dex ${unfunded.joinToString(",")} has no balance — its coins wait (move USDC to it on Hyperliquid)")
@@ -376,6 +378,24 @@ object HlDesk {
         }, "hl-flatten-8795").start()
         return "flattening every dex; live switched off"
     }
+
+    @Volatile private var livePositions8804: Map<String, Pair<HlApi.Position, Double>> = emptyMap()
+
+    /** V5.0.8804 — the Markets screen: every open paper and (last read) live position of the desk. */
+    fun positionRows8804(): List<com.lifecyclebot.desks.DeskJournal8802.DeskRow> {
+        val rows = ArrayList<com.lifecyclebot.desks.DeskJournal8802.DeskRow>()
+        synchronized(lock) {
+            for ((coin, u) in paperUnits) {
+                val avg = com.lifecyclebot.desks.DeskJournal8802.lot("HYPERLIQUID", "PAPER", coin)?.second ?: Double.NaN
+                rows.add(com.lifecyclebot.desks.DeskJournal8802.DeskRow("HYPERLIQUID", "PAPER", coin, u, avg, markOf(coin)))
+            }
+        }
+        for ((coin, pm) in livePositions8804) rows.add(com.lifecyclebot.desks.DeskJournal8802.DeskRow("HYPERLIQUID",
+            if (cfg()?.testnet == true) "TESTNET" else "LIVE", coin, pm.first.szi, pm.first.entryPx, pm.second))
+        return rows
+    }
+
+    fun isRunning8804(): Boolean = started.get()
 
     // ── persistence ──
 

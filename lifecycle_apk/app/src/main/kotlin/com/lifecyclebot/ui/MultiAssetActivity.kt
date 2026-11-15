@@ -375,6 +375,18 @@ class MultiAssetActivity : AppCompatActivity() {
         positionsContainer = findViewById(R.id.positionsContainer)
         tvNoPositions = findViewById(R.id.tvNoPositions)
         findViewById<View>(R.id.btnCloseAll).setOnClickListener { showCloseAllDialog() }
+        // V5.0.8804 — the Hyperliquid and xStocks desks: their positions show in the PERPS and STOCKS tabs here, and their
+        // settings, records and orders are one tap away.
+        try {
+            val parent = positionsContainer.parent as? android.view.ViewGroup
+            parent?.addView(TextView(this).apply {
+                text = "HYPERLIQUID PERPS & XSTOCKS DESKS  ›"
+                setTextColor(AateUi.TEXT); textSize = 11f; typeface = android.graphics.Typeface.MONOSPACE
+                setPadding(14, 14, 14, 14); setBackgroundResource(R.drawable.section_card_bg)
+                isClickable = true; isFocusable = true
+                setOnClickListener { startActivity(android.content.Intent(this@MultiAssetActivity, HyperliquidActivity::class.java)) }
+            }, parent.indexOfChild(positionsContainer))
+        } catch (_: Throwable) {}
         
         // Top Movers
         topMoversContainer = findViewById(R.id.topMoversContainer)
@@ -1414,7 +1426,8 @@ class MultiAssetActivity : AppCompatActivity() {
                 TokenizedStockTrader.getAllPositions().size +
                 CommoditiesTrader.getSpotPositions().size + CommoditiesTrader.getLeveragePositions().size +
                 MetalsTrader.getSpotPositions().size + MetalsTrader.getLeveragePositions().size +
-                ForexTrader.getSpotPositions().size + ForexTrader.getLeveragePositions().size
+                ForexTrader.getSpotPositions().size + ForexTrader.getLeveragePositions().size +
+                com.lifecyclebot.hyperliquid.HlDesk.positionRows8804().size + com.lifecyclebot.xstocks.XsDesk.positionRows8804().size   // V5.0.8804
         } catch (_: Exception) { 0 }
         tvActivePositions.text = positions.toString()
         
@@ -1823,6 +1836,9 @@ class MultiAssetActivity : AppCompatActivity() {
     private suspend fun closeDisplayedPosition8417(tab: AssetTab, id: String): Boolean =
         withContext(Dispatchers.IO) {
             if (id.isBlank()) return@withContext false
+            // V5.0.8804 — a live xStocks desk position sells for SOL through the desk; other desk rows the desk manages itself
+            if (id.startsWith("desk:XSTOCKS:")) return@withContext com.lifecyclebot.xstocks.XsDesk.closeLive8804(id.removePrefix("desk:XSTOCKS:"))
+            if (id.startsWith("desk:")) return@withContext false
             when (tab) {
                 AssetTab.PERPS -> if (PerpsTraderAI.getActivePositions().any { it.id == id }) {
                     PerpsExecutionEngine.manualClose(id) != null
@@ -2483,7 +2499,7 @@ class MultiAssetActivity : AppCompatActivity() {
         // Update dots based on engine running state
         try {
             dotStocks.setBackgroundResource(
-                if (TokenizedStockTrader.isRunning()) R.drawable.dot_green else R.drawable.dot_red
+                if (TokenizedStockTrader.isRunning() || com.lifecyclebot.xstocks.XsDesk.isRunning8804()) R.drawable.dot_green else R.drawable.dot_red
             )
             dotCommodities.setBackgroundResource(
                 if (CommoditiesTrader.isRunning()) R.drawable.dot_green else R.drawable.dot_red
@@ -2495,7 +2511,7 @@ class MultiAssetActivity : AppCompatActivity() {
                 if (ForexTrader.isRunning()) R.drawable.dot_green else R.drawable.dot_red
             )
             dotPerps.setBackgroundResource(
-                if (PerpsExecutionEngine.isRunning()) R.drawable.dot_green else R.drawable.dot_red
+                if (PerpsExecutionEngine.isRunning() || com.lifecyclebot.hyperliquid.HlDesk.isRunning8804()) R.drawable.dot_green else R.drawable.dot_red
             )
             dotCrypto?.setBackgroundResource(
                 if (CryptoAltTrader.isRunning()) R.drawable.dot_green else R.drawable.dot_red
@@ -2530,11 +2546,11 @@ class MultiAssetActivity : AppCompatActivity() {
     private fun getCurrentPositionCount(): Int {
         return try {
             when (currentTab) {
-                AssetTab.PERPS -> PerpsExecutionEngine.getActivePositions().size + TokenizedStockTrader.getAllPositions().count { it.market.isSolPerp }
-                AssetTab.STOCKS -> {
+                AssetTab.PERPS -> PerpsExecutionEngine.getActivePositions().size + TokenizedStockTrader.getAllPositions().count { it.market.isSolPerp } +
+                    com.lifecyclebot.hyperliquid.HlDesk.positionRows8804().size   // V5.0.8804
+                AssetTab.STOCKS -> com.lifecyclebot.xstocks.XsDesk.positionRows8804().size + (
                     if (showSpotOnly) TokenizedStockTrader.getSpotPositions().count { it.market.isStock }
-                    else TokenizedStockTrader.getLeveragePositions().count { it.market.isStock }
-                }
+                    else TokenizedStockTrader.getLeveragePositions().count { it.market.isStock })
                 AssetTab.COMMODITIES -> {
                     if (showSpotOnly) CommoditiesTrader.getSpotPositions().size
                     else CommoditiesTrader.getLeveragePositions().size
@@ -2602,6 +2618,23 @@ class MultiAssetActivity : AppCompatActivity() {
         } catch (_: Exception) { 0.0 }
     }
     
+    /** V5.0.8804 — the desks' open positions as Markets cards (USD, the desks' own currency). */
+    private fun deskInfos8804(rows: List<com.lifecyclebot.desks.DeskJournal8802.DeskRow>, solPrice: Double): List<PositionInfo> {
+        val sol = (if (solPrice > 0.0) solPrice else SOL_PRICE_USD).takeIf { it > 0.0 } ?: Double.NaN
+        fun px(v: Double) = if (v.isFinite() && v > 0.0) "$" + (if (v >= 100.0) "%.2f".format(v) else "%.4g".format(v)) else "-"
+        return rows.map { r ->
+            PositionInfo(
+                symbol = r.symbol.removePrefix("xs:"),
+                directionEmoji = if (r.units >= 0.0) PerpsDirection.LONG.emoji else PerpsDirection.SHORT.emoji,
+                typeLabel = "${if (r.desk == "HYPERLIQUID") "Hyperliquid" else "xStocks"} ${r.mode}",
+                entryPrice = px(r.avgUsd), currentPrice = px(r.markUsd),
+                pnl = if (sol.isFinite()) r.pnlUsd / sol else 0.0, pnlUsd = r.pnlUsd, pnlPct = r.pnlPct,
+                sizeSol = if (sol.isFinite()) r.valueUsd / sol else 0.0, sizeUsd = r.valueUsd, leverage = 1.0, id = r.id,
+                markPrice = if (r.markUsd.isFinite()) r.markUsd else 0.0,
+            )
+        }
+    }
+
     private fun getCurrentPositions(): List<PositionInfo> {
         // Get SOL price for USD conversion
         val solPrice = try {
@@ -2664,14 +2697,14 @@ class MultiAssetActivity : AppCompatActivity() {
                                 id = pos.id
                             )
                         }
-                    perpsPositions + cryptoFromTrader
+                    perpsPositions + cryptoFromTrader + deskInfos8804(com.lifecyclebot.hyperliquid.HlDesk.positionRows8804(), solPrice)
                 }
                 AssetTab.STOCKS -> {
                     val allStockPos = if (showSpotOnly) TokenizedStockTrader.getSpotPositions()
                                      else TokenizedStockTrader.getLeveragePositions()
                     // Filter: STOCKS tab only shows actual tokenized stocks, not crypto
                     val positions = allStockPos.filter { it.market.isStock }
-                    positions.map { pos ->
+                    deskInfos8804(com.lifecyclebot.xstocks.XsDesk.positionRows8804(), solPrice) + positions.map { pos ->
                         val livePrice = PerpsMarketDataFetcher.getCachedPrice(pos.market)?.price?.takeIf { it > 0 } ?: pos.currentPrice
                         // V5.7.8: Sync position price with live price before PnL calc
                         if (livePrice > 0 && livePrice != pos.currentPrice) pos.currentPrice = livePrice
