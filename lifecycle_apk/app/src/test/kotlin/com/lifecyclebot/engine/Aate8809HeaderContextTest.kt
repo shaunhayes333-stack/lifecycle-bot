@@ -53,6 +53,14 @@ class Aate8809HeaderContextTest {
         assertTrue(DexScreenerSocialSource.statusLine8809().contains("pairsObserved="))
     }
 
+    @Test fun theCacheIsTrimmedInBoundedWork() {
+        assertEquals(0, DexScreenerSocialSource.pruneCount8809(12_000, 12_000))
+        assertEquals("over the cap it drops to three quarters, so the next trim is thousands of writes away", 3_001, DexScreenerSocialSource.pruneCount8809(12_001, 12_000))
+        val source = src("network/DexScreenerSocialSource.kt")
+        assertTrue("at most one trim per gap, never one per write", source.contains("if (now - last < PRUNE_GAP_MS_8809 || !lastPruneMs8809.compareAndSet(last, now)) return"))
+        assertFalse(source.contains("if (cache.size > 4000) {"))
+    }
+
     @Test fun theColumnsReachTheDatasetAndTheReport() {
         assertTrue(LearnerColumns8798.NAMES.containsAll(listOf("dexPaid", "dexPaidAgeMin", "boost", "socials")))
         assertEquals("appended last: every earlier column keeps its place", listOf("dexPaid", "dexPaidAgeMin"), LearnerColumns8798.NAMES.takeLast(2))

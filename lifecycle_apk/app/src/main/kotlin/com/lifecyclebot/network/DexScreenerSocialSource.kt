@@ -248,10 +248,27 @@ object DexScreenerSocialSource {
         val now = System.currentTimeMillis()
         val cur = cache[mint] ?: Social(0.0, 0, false, now)
         cache[mint] = f(cur).copy(ts = now)
-        if (cache.size > 4000) {
-            val cutoff = now - 30 * 60_000L
-            cache.entries.removeIf { it.value.ts < cutoff }
-        }
+        if (cache.size > CACHE_MAX_8809) prune8809(now)
+    }
+
+    // V5.0.8809 — the cache now takes every served pair, so its trim is bounded work: the old trim scanned the whole map on
+    // EVERY write once it held 4,000 entries younger than 30 minutes (and removed none), which was harmless at three list
+    // polls per 90 s and is quadratic at thousands of pairs a minute. At most one trim per [PRUNE_GAP_MS_8809]; it drops
+    // what is older than 30 minutes, then the oldest entries down to three quarters of the cap.
+    private const val CACHE_MAX_8809 = 12_000
+    private const val PRUNE_GAP_MS_8809 = 20_000L
+    private val lastPruneMs8809 = java.util.concurrent.atomic.AtomicLong(0L)
+
+    /** Pure: how many of [size] entries a trim must drop to reach three quarters of [cap] (0 when under the cap). */
+    fun pruneCount8809(size: Int, cap: Int): Int = if (size > cap) size - cap * 3 / 4 else 0
+
+    private fun prune8809(now: Long) {
+        val last = lastPruneMs8809.get()
+        if (now - last < PRUNE_GAP_MS_8809 || !lastPruneMs8809.compareAndSet(last, now)) return
+        val cutoff = now - 30 * 60_000L
+        cache.entries.removeIf { it.value.ts < cutoff }
+        val drop = pruneCount8809(cache.size, CACHE_MAX_8809)
+        if (drop > 0) cache.entries.sortedBy { it.value.ts }.take(drop).forEach { cache.remove(it.key, it.value) }
     }
 
     private fun getArray(url: String): JSONArray? {
