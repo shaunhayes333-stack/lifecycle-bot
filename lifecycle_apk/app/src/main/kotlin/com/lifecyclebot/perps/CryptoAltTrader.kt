@@ -385,6 +385,23 @@ object CryptoAltTrader {
         else -> "CRYPTO_SPOT"
     }
 
+    /**
+     * 8792: a price can refute a signal only when it belongs to the very same
+     * asset and is a recent provenance-stamped observation. Dynamic coins all use
+     * PerpsMarket.DYN as a placeholder; its enum cache is NOT a per-coin price.
+     * A missing/stale comparison is unknown, not a synthetic matching quote;
+     * route, executable quote and hard-safety checks remain authoritative.
+     */
+    internal fun preSubmitSameAssetDiffPct8792(
+        signalPrice: Double, referencePrice: Double, observedAtMs: Long, nowMs: Long,
+        signalIdentity: String, referenceIdentity: String,
+    ): Double? {
+        if (signalIdentity.isBlank() || signalIdentity != referenceIdentity) return null
+        if (!signalPrice.isFinite() || signalPrice <= 0.0 || !referencePrice.isFinite() || referencePrice <= 0.0) return null
+        if (observedAtMs <= 0L || nowMs - observedAtMs !in 0L..120_000L) return null
+        return kotlin.math.abs(signalPrice - referencePrice) / referencePrice * 100.0
+    }
+
     private fun refreshDynamicMark7251(identity: String): DynamicAltTokenRegistry.HeldMarkRefresh7251 {
         val clean = identity.trim()
         if (clean.isBlank()) return DynamicAltTokenRegistry.HeldMarkRefresh7251(0.0, "", 0L, false)
@@ -3619,20 +3636,35 @@ object CryptoAltTrader {
         // Raw learned size is advisory; CanonicalSizingBridge6532 produces the
         // sealed executable notional. Pre-authority portfolio checks on raw size
         // were starving Crypto at candidate->submit.
-        val cachedPriceData = PerpsMarketDataFetcher.getCachedPrice(signal.market)
-        if (signal.price <= 0.0) {
+        if (!signal.price.isFinite() || signal.price <= 0.0) {
             terminalDisposition6613("PRE_SUBMIT_PRICE_ZERO", "PRE_SUBMIT")
             ErrorLogger.warn(TAG, "🪙 PRICE ZERO: ${mktSym} — REJECTING trade")
             return
         }
-        if (cachedPriceData != null && cachedPriceData.price > 0) {
-            val priceDiffPct = kotlin.math.abs(signal.price - cachedPriceData.price) / cachedPriceData.price * 100.0
-            if (priceDiffPct > 90.0) {
-                terminalDisposition6613("PRE_SUBMIT_PRICE_SANITY_${priceDiffPct.toInt()}", "PRE_SUBMIT")
-                ErrorLogger.warn(TAG, "🪙 PRICE SANITY FAIL: ${mktSym} signal=\$${signal.price} cached=\$${cachedPriceData.price} diff=${priceDiffPct.toInt()}% — REJECTING")
-                return
-            }
+        // V5.0.8792 — all dynamic assets have market=DYN. Comparing the signal
+        // of (say) an ETH contract with getCachedPrice(PerpsMarket.DYN) compared
+        // DIFFERENT coins, causing PRE_SUBMIT_PRICE_SANITY_99. The reference
+        // must be the chain+contract identity of this very dynamic signal.
+        val now8792 = System.currentTimeMillis()
+        val signalIdentity8792 = if (signal.isDynamic) signal.dynAssetKey.orEmpty() else signal.market.name
+        val sameAssetReference8792: Triple<String, Double, Long>? = if (signal.isDynamic) {
+            signal.dynAssetKey?.takeIf { it.isNotBlank() }
+                ?.let { DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(it) }
+                ?.let { Triple(it.canonicalIdentity6544, it.price, it.priceObservedAtMs8372) }
+        } else {
+            PerpsMarketDataFetcher.getCachedPrice(signal.market)?.let { Triple(it.market.name, it.price, it.lastUpdate) }
         }
+        val priceDiffPct8792 = sameAssetReference8792?.let {
+            preSubmitSameAssetDiffPct8792(signal.price, it.second, it.third, now8792, signalIdentity8792, it.first)
+        }
+        if (priceDiffPct8792 != null && priceDiffPct8792 > 90.0) {
+            terminalDisposition6613("PRE_SUBMIT_PRICE_SANITY_${priceDiffPct8792.toInt()}", "PRE_SUBMIT")
+            ErrorLogger.warn(TAG, "🪙 SAME-ASSET PRICE SANITY FAIL: ${mktSym} signal=\$${signal.price} reference=\$${sameAssetReference8792?.second} diff=${priceDiffPct8792.toInt()}% — REJECTING")
+            return
+        }
+        if (sameAssetReference8792 == null || priceDiffPct8792 == null) try {
+            PipelineHealthCollector.labelInc(if (signal.isDynamic) "CRYPTO_DYNAMIC_PRICE_REFERENCE_UNAVAILABLE_8792" else "CRYPTO_STATIC_PRICE_REFERENCE_STALE_8792")
+        } catch (_: Throwable) {}
 
         val tpPct = com.lifecyclebot.perps.crypto.brain.CryptoBrain.getTpPct(isSpot)
         // V5.0.6923 — CryptoBrain.laneExitVerdict had zero callers.
