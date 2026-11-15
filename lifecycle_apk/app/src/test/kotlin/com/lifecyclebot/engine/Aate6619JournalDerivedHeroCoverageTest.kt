@@ -137,6 +137,10 @@ class Aate6619JournalDerivedHeroCoverageTest {
         // events, which earlier tests in the same JVM leave open. An empty journal must meet an empty book.
         com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.resetForTest()
         com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635.resetForTest()
+        // V5.0.8805 — 8804's diagnosis: replay complete, reconciliation never coherent (accountingStatus=UNKNOWN). A paper
+        // fill an earlier test stamped on the ledger seconds ago, journal leg pending, reads as "ledger ahead of journal"
+        // (ledgerAheadOfJournal8685, 30 s grace) and holds every pass incoherent.
+        com.lifecyclebot.engine.truth.PaperEconomicAtomicCommit6632.resetForTest()
         ledger.initialize(11.7647)
         // 8794: initialize() records its mutation revision synchronously,
         // while the expensive journal replay is coalesced onto a worker to
@@ -152,7 +156,9 @@ class Aate6619JournalDerivedHeroCoverageTest {
             // V5.0.8805 — say WHY nothing was published (the replay and reconciliation the worker would have gated on)
             val r = try { com.lifecyclebot.engine.truth.JournalEconomicReplay6619.replay() } catch (t: Throwable) { null }
             val d = try { com.lifecyclebot.engine.truth.ForensicReconciliation6635.deltas6647() } catch (t: Throwable) { null }
-            org.junit.Assert.fail("V5.0.6619: snapshot must be published after initialize() — replay{cash=${r?.cashSol} " +
+            val ahead = try { com.lifecyclebot.engine.truth.PaperEconomicAtomicCommit6632.ledgerAheadOfJournal8685(System.currentTimeMillis(), 60_000L) } catch (t: Throwable) { null }
+            org.junit.Assert.fail("V5.0.6619: snapshot must be published after initialize() — ledgerAhead=$ahead journalRev=${r?.journalRevision8358} " +
+                "storeRev=${try { com.lifecyclebot.engine.TradeHistoryStore.journalRevision7343() } catch (t: Throwable) { -9 }} replay{cash=${r?.cashSol} " +
                 "complete=${r?.totalsComplete6899} rows=${r?.paperRows} failures=${r?.invariantFailures?.take(4)}} " +
                 "recon{reconciled=${d?.reconciled} current=${d?.accountingCurrent8397} cashSide=${d?.cashSideReconciled8397} " +
                 "cash=${d?.cashSol} basis=${d?.basisSol} health=${d?.healthLine8397?.take(160)} incomplete=${d?.incompleteReceipts8397?.take(80)}}")
