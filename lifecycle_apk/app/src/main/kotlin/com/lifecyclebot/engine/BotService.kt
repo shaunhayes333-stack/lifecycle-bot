@@ -19118,7 +19118,9 @@ class BotService : Service() {
                 append(e?.toolAffinity?.joinToString("|") ?: "")
             }.uppercase()
             return when {
-                tags.contains("DEXSCREENER") || tags.contains("DEX_SCREENER") || tags.contains("DEX_TREND") || tags.contains("DEX_GAIN") || tags.contains("DEX_BOOST") -> "DEX"
+                // V5.0.8781 — code audit (discovery F14): the 8633 name DEX_PROFILES is the DEX family, as the bandit scores it.
+                tags.contains("DEXSCREENER") || tags.contains("DEX_SCREENER") || tags.contains("DEX_TREND") || tags.contains("DEX_GAIN") || tags.contains("DEX_BOOST") ||
+                    tags.contains(SourceTruth8633.DEX_PROFILES_8633) -> "DEX"
                 tags.contains("COINGECKO") || tags.contains("COIN_GECKO") || tags.contains("GECKO") -> "COINGECKO"
                 tags.contains("COINMARKETCAP") || tags.contains("COIN_MARKET_CAP") || tags.contains("CMC") -> "CMC"
                 tags.contains("RAYDIUM") || tags.contains("METEORA") || tags.contains("ORCA") || tags.contains("JUPITER") || tags.contains("NEW_POOL") -> "RAYDIUM"

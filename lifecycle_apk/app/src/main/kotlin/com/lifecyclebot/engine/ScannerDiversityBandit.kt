@@ -19,7 +19,7 @@ object ScannerDiversityBandit {
         "DEX" to listOf("DEX_TRENDING", "DEX_GAINERS", "DEX_BOOSTED", "DEXSCREENER", "DEX_PROFILES"),  // V5.0.8633 — profiles feed
         "COINGECKO" to listOf("COINGECKO"),
         "CMC" to listOf("COINMARKETCAP", "CMC"),
-        "RAYDIUM" to listOf("RAYDIUM"),
+        "RAYDIUM" to listOf("RAYDIUM", "METEORA", "NEW_POOL"),  // V5.0.8781 — the selector's pool-launch family (BotService.bucketFor)
         "BIRDEYE" to listOf("BIRDEYE"),
         "SCANNER" to listOf("SCANNER_DIRECT", "SCANNER_", "NARRATIVE_SCAN"),
         "PUMP" to listOf("PUMP_FUN", "PUMP_PORTAL", "PUMP"),
