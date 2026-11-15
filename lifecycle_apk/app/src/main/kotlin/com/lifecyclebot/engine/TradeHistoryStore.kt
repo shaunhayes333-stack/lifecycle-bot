@@ -2275,8 +2275,16 @@ object TradeHistoryStore {
         return fresh
     }
 
-    private fun computeAllSells(): List<Trade> =
-        synchronized(lock) { trades.filter { isJournalSellLike(it.side) && isValidAccountingTrade(it) }.toList() }
+    // V5.0.8793 — ANR lock isolation. 8792 device trace: AATE-SideEffect-2
+    // held the journal monitor while validating every historical sell;
+    // AATE-ExitUnit-7809 waited for it while holding the paper-ledger monitor,
+    // and CryptoAltActivity's main thread then waited for the ledger. Capture
+    // a consistent immutable row slice under the journal monitor and perform
+    // expensive canonical validation outside it, like validRowsHead7348.
+    private fun computeAllSells(): List<Trade> {
+        val copy = synchronized(lock) { ArrayList(trades) }
+        return copy.filter { isJournalSellLike(it.side) && isValidAccountingTrade(it) }
+    }
 
     private fun scheduleAllSellsRefresh() {
         if (allSellsRefreshInFlight) return

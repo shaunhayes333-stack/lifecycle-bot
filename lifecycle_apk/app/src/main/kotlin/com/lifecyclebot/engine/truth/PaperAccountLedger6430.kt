@@ -650,7 +650,11 @@ object PaperAccountLedger6430 {
                     "treasury=${"%.6f".format(treasurySol7294())} reason=${reason.take(60)}",
             )
         } catch (_: Throwable) {}
-        try { JournalEconomicAuthority6616.notifyEconomicMutation("TREASURY_DEPOSIT_7294") } catch (_: Throwable) {}
+        // V5.0.8793 — do not synchronously replay the entire trade journal
+        // while holding this @Synchronized ledger monitor. The mutation and
+        // durable paper-state write are already complete; the coalesced,
+        // revisioned publisher performs the display replay off-thread.
+        try { JournalEconomicAuthority6616.notifyEconomicMutationAsync8077("TREASURY_DEPOSIT_7294") } catch (_: Throwable) {}
         return fromPico(p)
     }
 
@@ -675,7 +679,7 @@ object PaperAccountLedger6430 {
                     "treasury=${"%.6f".format(treasurySol7294())} reason=${reason.take(60)}",
             )
         } catch (_: Throwable) {}
-        try { JournalEconomicAuthority6616.notifyEconomicMutation("TREASURY_BACKFUND_7294") } catch (_: Throwable) {}
+        try { JournalEconomicAuthority6616.notifyEconomicMutationAsync8077("TREASURY_BACKFUND_7294") } catch (_: Throwable) {}
         return fromPico(p)
     }
 
