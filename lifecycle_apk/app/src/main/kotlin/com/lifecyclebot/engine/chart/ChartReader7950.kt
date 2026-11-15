@@ -118,12 +118,17 @@ object ChartReader7950 {
     }
 
     private fun trim(nowMs: Long) {
-        tapes.entries.filter { nowMs - it.value.lastMs > KEEP_MS }.forEach { tapes.remove(it.key, it.value) }
+        tapes.entries.filter { nowMs - it.value.lastMs > KEEP_MS }.forEach { if (tapes.remove(it.key, it.value)) retire8810(it.key, it.value) }
         if (tapes.size > MAX_MINTS) {
             // V5.0.8144 — down to 90% of the cap: trimming to the cap itself re-sorted every tape on each new mint.
             val target8144 = com.lifecyclebot.engine.MemoryBounds8144.trimTarget8144(MAX_MINTS)
-            tapes.entries.sortedBy { it.value.lastMs }.take(tapes.size - target8144).forEach { tapes.remove(it.key, it.value) }
+            tapes.entries.sortedBy { it.value.lastMs }.take(tapes.size - target8144).forEach { if (tapes.remove(it.key, it.value)) retire8810(it.key, it.value) }
         }
+    }
+
+    /** V5.0.8810 — a retired tape's whole one-minute chart teaches the colour / candle / chart-shape table (ColourShape8807). */
+    private fun retire8810(mint: String, tape: Tape) {
+        try { ColourShape8807.learnTape8810(mint, synchronized(tape) { toBars(tape.bars) }) } catch (_: Throwable) {}
     }
 
     /** One-minute candles for [mint], oldest first; gaps carry the last close forward. */
@@ -353,7 +358,7 @@ object ChartReader7950 {
         tapes.entries.sortedBy { it.value.lastMs }.asSequence()
             .filter { e -> !(try { isProtected(e.key) } catch (_: Throwable) { true }) }
             .take(excess)
-            .forEach { e -> if (tapes.remove(e.key, e.value)) { reads.remove(e.key); freed++ } }
+            .forEach { e -> if (tapes.remove(e.key, e.value)) { reads.remove(e.key); freed++; retire8810(e.key, e.value) } }
         val now = System.currentTimeMillis()
         short7955.entries.removeIf { now - it.value > 30L * 60_000L }
         return freed

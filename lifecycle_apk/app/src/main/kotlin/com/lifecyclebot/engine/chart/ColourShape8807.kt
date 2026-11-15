@@ -340,6 +340,47 @@ object ColourShape8807 {
         } catch (_: Throwable) { return 0 }
     }
 
+    // ── V5.0.8810 §THE_BOTS_OWN_CHARTS_TEACH_IT ──
+    // 5.0.8809 on the device, 20 minutes: charts=0. Every downloaded meme chart comes from GeckoTerminal, whose slot the live
+    // candle feed owns (chart sources: geckoterminal calls=32 ok=6 skips=110 queue=561) — at that pace the table would take
+    // days. The bot already draws its own one-minute charts of every coin it watches (ChartReader7950: 258 tapes, two hours
+    // each). When a tape is retired (quiet for two hours, or trimmed for room) its whole chart, future included, is scored
+    // here once, as one chart of its coin, on one background thread; nothing is downloaded.
+    private const val TAPE_QUEUE_8810 = 64
+    private val tapeQueue8810 = java.util.concurrent.ArrayBlockingQueue<Pair<String, List<Bar7950>>>(TAPE_QUEUE_8810)
+    private val tapeWorker8810 = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val tapesOffered8810 = AtomicLong(); private val tapesLearned8810 = AtomicLong(); private val tapesDropped8810 = AtomicLong()
+
+    /** ChartReader7950: [mint]'s one-minute tape is being retired; its chart is scored once, off the caller's thread. */
+    fun learnTape8810(mint: String, bars: List<Bar7950>) {
+        if (mint.isBlank() || bars.size < LOOK + MIN_FUTURE + 1) return
+        tapesOffered8810.incrementAndGet()
+        if (!tapeQueue8810.offer(mint to bars)) { tapesDropped8810.incrementAndGet(); return }
+        // the worker runs in the app; a unit test drains the queue itself (drainTapesForTest8810)
+        if ((try { com.lifecyclebot.AATEApp.appContextOrNull() } catch (_: Throwable) { null }) == null) return
+        if (!tapeWorker8810.compareAndSet(false, true)) return
+        try {
+            Thread({
+                // drain, release, and take the queue again if a tape arrived between the last poll and the release
+                do {
+                    try {
+                        while (true) {
+                            val (m, b) = tapeQueue8810.poll() ?: break
+                            if (learnSeries8807("LIVE|$m", b) > 0) tapesLearned8810.incrementAndGet()
+                        }
+                    } catch (_: Throwable) {} finally { tapeWorker8810.set(false) }
+                } while (tapeQueue8810.isNotEmpty() && tapeWorker8810.compareAndSet(false, true))
+            }, "colour-shape-tapes-8810").apply { isDaemon = true; priority = Thread.MIN_PRIORITY }.start()
+        } catch (_: Throwable) { tapeWorker8810.set(false) }
+    }
+
+    /** Test seam (V5.0.8810): score the queued tapes on the caller's thread. */
+    internal fun drainTapesForTest8810(): Int {
+        var n = 0
+        while (true) { val (m, b) = tapeQueue8810.poll() ?: break; if (learnSeries8807("LIVE|$m", b) > 0) { tapesLearned8810.incrementAndGet(); n++ } }
+        return n
+    }
+
     /** The proven key among [keys] whose weaker half pays most, with its halves; null when none is proven. */
     private fun lookup(keys: List<String>): Triple<String, Half, Half>? = synchronized(lock) {
         var best: Triple<String, Half, Half>? = null
@@ -487,7 +528,8 @@ object ColourShape8807 {
         val xs = liveOutcomes(); val half = xs.size / 2
         val e = ManualRead8806.record(xs.take(half)); val l = ManualRead8806.record(xs.drop(half))
         fun r(t: Triple<Int, Double, Double>) = "n${t.first}/${"%+.1f".format(t.second)}%±${if (t.third.isFinite()) "%.1f".format(t.third) else "-"}"
-        return "colourShape8807[charts=${charts.get()} windows=${windows.get()} coarserThan5m=${skippedCoarse.get()} keys=$keys proven[$provenRows] " +
+        return "colourShape8807[charts=${charts.get()} windows=${windows.get()} coarserThan5m=${skippedCoarse.get()} " +
+            "ownTapes8810{offered=${tapesOffered8810.get()} learned=${tapesLearned8810.get()} dropped=${tapesDropped8810.get()}} keys=$keys proven[$provenRows] " +
             "bestInBothHalves[$best] worstInBothHalves[$worst] chartShapes[$textbook] | live ${if (ManualRead8806.armed(xs)) "ARMED" else "SHADOW"} reads=${liveReads.get()} " +
             "open=${open.size} closed=${closed.get()} shadowFires=${shadowFires.get()} armedFires=${armedFires.get()} evidenceServed=${served.get()} " +
             "early=${r(e)} late=${r(l)} rule=key = last three colour runs with lengths:newest candle|zone in the last $LOOK candles (L/M/H), leg (U/D/F), " +
@@ -498,6 +540,7 @@ object ColourShape8807 {
     internal fun resetForTest8807() {
         synchronized(lock) { table.clear(); loaded = true }
         synchronized(live) { live.clear() }
+        tapeQueue8810.clear(); tapesOffered8810.set(0); tapesLearned8810.set(0); tapesDropped8810.set(0)
         open.clear(); lastBar.clear(); lastFire.clear(); fires.clear()
         charts.set(0); windows.set(0); skippedCoarse.set(0); liveReads.set(0); shadowFires.set(0); armedFires.set(0); served.set(0); closed.set(0)
     }

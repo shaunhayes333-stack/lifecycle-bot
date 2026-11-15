@@ -326,3 +326,17 @@ them directly.
 
 Not recorded yet: KOL count and top-10 holder share as GMGN shows them (GMGN has no public API). The bot's own nearest
 columns are `smartBuyers5m`, `top` (largest holder) and `bundle`.
+
+## 17. The bot's own charts teach the colour table; the stop slip splits its causes (8810)
+
+5.0.8809, 20 minutes on the device: `colourShape8807[charts=0]`. Every downloaded meme chart comes from GeckoTerminal,
+whose slot the live candle feed owns (`geckoterminal calls=32 ok=6 skips=110 queue=561`). The bot already keeps its own
+one-minute chart of every watched coin (`ChartReader7950`, two hours each). When a tape is retired (quiet for two hours,
+trimmed for room, or freed under memory pressure) its whole chart is scored once by `ColourShape8807.learnTape8810` as
+one chart of that coin, on one background thread (queue 64; a full queue drops and counts). Report:
+`ownTapes8810{offered, learned, dropped}`.
+
+`StopSlip8756` now records the gross at the FIRST mark under a paper stop as well as the trigger (the second mark):
+level → first is the price already past the stop when first seen, first → trig is the two-mark confirmation, trig → fill
+is execution. The 5.0.8809 run showed EXPRESS stops set at −5 % triggering at −26 %, two of five on a tape print, so
+faster marks alone (8808) do not close it.

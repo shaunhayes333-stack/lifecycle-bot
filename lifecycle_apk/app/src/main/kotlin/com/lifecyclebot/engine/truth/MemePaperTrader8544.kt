@@ -63,6 +63,8 @@ object MemePaperTrader8544 {
         var stopSeenAtMs8683 = 0L
         /** V5.0.8756 — the pending stop's level and trigger gross (%), and whether a tape print (not the sweep) triggered it. */
         var slipLevel8756 = Double.NaN; var slipTrig8756 = Double.NaN; var slipByPrint8756 = false
+        /** V5.0.8810 — the gross (%) at the first mark under the stop level (the trigger is the second). */
+        var slipFirst8810 = Double.NaN
     }
 
     /**
@@ -296,8 +298,8 @@ object MemePaperTrader8544 {
         val rung = rung8544(ladder, p.tiers, g)
         // V5.0.8683 — a breach must be seen on two observed marks (a wick is one print); a recovery clears it.
         val breached8683 = level.isFinite() && g <= level
-        if (!breached8683) p.stopSeenAtMs8683 = 0L
-        else if (p.stopSeenAtMs8683 == 0L) p.stopSeenAtMs8683 = p.lastAtMs
+        if (!breached8683) { p.stopSeenAtMs8683 = 0L; p.slipFirst8810 = Double.NaN }
+        else if (p.stopSeenAtMs8683 == 0L) { p.stopSeenAtMs8683 = p.lastAtMs; p.slipFirst8810 = g }
         when {
             breached8683 && paperStopConfirmed8683(p.stopSeenAtMs8683, p.lastAtMs, g) -> {
                 p.slipLevel8756 = level; p.slipTrig8756 = g; p.slipByPrint8756 = byPrint
@@ -346,8 +348,8 @@ object MemePaperTrader8544 {
 
     private fun fill8544(p: Pos8544, g: Double, nowMs: Long) {
         val why = p.exitWhy ?: return
-        if (stopExit8699(why) && p.slipTrig8756.isFinite()) StopSlip8756.notePaper8756(p.exitLane, p.slipLevel8756, p.slipTrig8756, g, p.slipByPrint8756)
-        p.slipLevel8756 = Double.NaN; p.slipTrig8756 = Double.NaN
+        if (stopExit8699(why) && p.slipTrig8756.isFinite()) StopSlip8756.notePaper8756(p.exitLane, p.slipLevel8756, p.slipTrig8756, g, p.slipByPrint8756, p.slipFirst8810)
+        p.slipLevel8756 = Double.NaN; p.slipTrig8756 = Double.NaN; p.slipFirst8810 = Double.NaN
         val sold = p.held * p.exitFraction.coerceIn(0.0, 1.0)
         // V5.0.8623 — a lost mark is no exit price: the unsold remainder is valued flat (entry), never at a stale last mark.
         p.banked += sold * (if (why == LOST_MARK_8623) 0.0 else g); p.held -= sold
