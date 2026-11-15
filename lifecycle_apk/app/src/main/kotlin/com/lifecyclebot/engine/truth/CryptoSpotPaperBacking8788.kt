@@ -31,9 +31,14 @@ object CryptoSpotPaperBacking8788 {
     @Volatile private var startMs8788 = 0L
     @Volatile private var tripped8788 = false
     @Volatile private var stopCheckedAtMs8788 = 0L
-    @Volatile private var recordAtMs8788 = 0L
-    @Volatile private var recordBacks8788 = false
-    @Volatile private var recordLine8788 = "-"
+    // V5.0.8806 — owner: "the crypto trader still isn't buying anything at all despite its own tactics showing decent returns
+    // in paper". The backing only ever answered lane CRYPTO_SPOT (static majors); every coin the crypto trader actually finds
+    // is a dynamic alt, lane CRYPTO_ALT, so on the 5.0.8802 report it was never even consulted (backed=0 record=-) while 176
+    // candidates died at LIVE_NON_POSITIVE_EXPECTANCY_7828. Each spot lane is now backed by ITS OWN paper record; the hourly
+    // cap and the -0.1 SOL automatic stop are shared across them. CRYPTO_LEV is never backed.
+    val BACKED_LANES_8806 = setOf(LANE_8788, "CRYPTO_ALT")
+    private class Rec8806 { @Volatile var atMs = 0L; @Volatile var backs = false; @Volatile var line = "-" }
+    private val records8806 = java.util.concurrent.ConcurrentHashMap<String, Rec8806>()
     private val backed8788 = AtomicLong(0L)
     private val admitTimes8788 = java.util.ArrayDeque<Long>()
     @Volatile private var prefs8788: android.content.SharedPreferences? = null
@@ -58,17 +63,18 @@ object CryptoSpotPaperBacking8788 {
         try { prefs8788?.edit()?.putLong("start_ms", startMs8788)?.putBoolean("tripped", tripped8788)?.apply() } catch (_: Throwable) {}
     }
 
-    private fun recordBacks8788(nowMs: Long): Boolean {
-        if (nowMs - recordAtMs8788 < 60_000L) return recordBacks8788
-        recordAtMs8788 = nowMs
+    private fun recordBacks8788(lane: String, nowMs: Long): Boolean {
+        val r = records8806.getOrPut(lane) { Rec8806() }
+        if (nowMs - r.atMs < 60_000L) return r.backs
+        r.atMs = nowMs
         val m = try {
             com.lifecyclebot.engine.StrategyTelemetry.computeLeaderboard(environment = "paper")
-                .firstOrNull { it.strategy.equals(LANE_8788, ignoreCase = true) }
+                .firstOrNull { it.strategy.equals(lane, ignoreCase = true) }
         } catch (_: Throwable) { null }
-        recordBacks8788 = m != null && paperBacks8788(m.wins, m.losses, m.meanPnlPct, m.totalSolPnl, m.pfExpectancyPp)
-        recordLine8788 = if (m == null) "none" else
+        r.backs = m != null && paperBacks8788(m.wins, m.losses, m.meanPnlPct, m.totalSolPnl, m.pfExpectancyPp)
+        r.line = if (m == null) "none" else
             "n${m.trades} W${m.wins}/L${m.losses} mean=${"%+.1f".format(m.meanPnlPct)}% sol=${"%+.3f".format(m.totalSolPnl)} pfEdge=${"%+.1f".format(m.pfExpectancyPp)}"
-        return recordBacks8788
+        return r.backs
     }
 
     private fun stopped8788(nowMs: Long): Boolean {
@@ -77,7 +83,7 @@ object CryptoSpotPaperBacking8788 {
         stopCheckedAtMs8788 = nowMs
         val realised = try {
             com.lifecyclebot.engine.LiveEntrySafetyHold.LiveConfidenceStats.byLane8280(startMs8788)
-                .filterKeys { it.trim().equals(LANE_8788, ignoreCase = true) }.values.sumOf { it.expectancySol * it.canonicalN }
+                .filterKeys { it.trim().uppercase() in BACKED_LANES_8806 }.values.sumOf { it.expectancySol * it.canonicalN }
         } catch (_: Throwable) { 0.0 }
         if (lossStopHit8788(realised)) {
             tripped8788 = true
@@ -99,8 +105,9 @@ object CryptoSpotPaperBacking8788 {
      * record back this candidate in [lane]? Consumes an hourly slot when it does.
      */
     fun backs8788(lane: String?, nowMs: Long): Boolean {
-        if (!enabled8788 || !lane.equals(LANE_8788, ignoreCase = true)) return false
-        if (stopped8788(nowMs) || !recordBacks8788(nowMs)) return false
+        val l = lane?.trim()?.uppercase() ?: return false
+        if (!enabled8788 || l !in BACKED_LANES_8806) return false
+        if (stopped8788(nowMs) || !recordBacks8788(l, nowMs)) return false
         if (!rateRoom8788(nowMs)) { try { PipelineHealthCollector.labelInc("CRYPTO_SPOT_PAPER_BACKING_RATE_CAP_8788") } catch (_: Throwable) {}; return false }
         if (startMs8788 <= 0L) { startMs8788 = nowMs; persist8788() }
         backed8788.incrementAndGet()
@@ -109,5 +116,5 @@ object CryptoSpotPaperBacking8788 {
     }
 
     fun statusLine8788(): String =
-        "cryptoSpotPaperBacking8788[on=$enabled8788 backed=${backed8788.get()} record=$recordLine8788 stop=-${LOSS_STOP_SOL_8788}SOL tripped=$tripped8788 maxPerHour=$MAX_PER_HOUR_8788]"
+        "cryptoSpotPaperBacking8788[on=$enabled8788 backed=${backed8788.get()} records{${BACKED_LANES_8806.joinToString(" ") { "$it=${records8806[it]?.line ?: "-"}" }}} stop=-${LOSS_STOP_SOL_8788}SOL tripped=$tripped8788 maxPerHour=$MAX_PER_HOUR_8788]"
 }

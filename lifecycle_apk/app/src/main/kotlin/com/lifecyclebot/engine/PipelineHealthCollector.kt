@@ -1595,6 +1595,7 @@ object PipelineHealthCollector {
         sb.append("  Smart money (§8756): ").append(try { com.lifecyclebot.engine.truth.SmartMoney8756.statusLine8756() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Stop slip (§8756): ").append(try { com.lifecyclebot.engine.truth.StopSlip8756.statusLine8756() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Hyperliquid (§8795): ").append(try { com.lifecyclebot.hyperliquid.HlDesk.statusLine() } catch (_: Throwable) { "unavailable" }).append("\n")
+        sb.append("  Manual read (§8806): ").append(try { com.lifecyclebot.engine.truth.ManualRead8806.statusLine8806() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  xStocks spot (§8802): ").append(try { com.lifecyclebot.xstocks.XsDesk.statusLine() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Desk trade book (§8802): ").append(try { com.lifecyclebot.desks.DeskJournal8802.statusLine() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Pyth (§8802): ").append(try { com.lifecyclebot.network.PythAuth8802.statusLine() } catch (_: Throwable) { "unavailable" }).append("\n")

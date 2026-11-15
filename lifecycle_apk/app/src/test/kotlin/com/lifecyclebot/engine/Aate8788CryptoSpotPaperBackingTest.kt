@@ -17,7 +17,9 @@ class Aate8788CryptoSpotPaperBackingTest {
         assertFalse(CryptoSpotPaperBacking8788.paperBacks8788(19, 13, Double.NaN, 4.0, 1.0))
         assertTrue(CryptoSpotPaperBacking8788.lossStopHit8788(-0.1))
         assertFalse(CryptoSpotPaperBacking8788.lossStopHit8788(-0.09))
-        assertFalse("other crypto lanes are not backed", CryptoSpotPaperBacking8788.backs8788("CRYPTO_ALT", 1_000L))
+        // superseded by V5.0.8806 — CRYPTO_ALT (every dynamic alt) is backed by its own paper record; leverage never is
+        assertFalse("leverage is never backed", CryptoSpotPaperBacking8788.backs8788("CRYPTO_LEV", 1_000L))
+        assertTrue("CRYPTO_ALT" in CryptoSpotPaperBacking8788.BACKED_LANES_8806 && "CRYPTO_LEV" !in CryptoSpotPaperBacking8788.BACKED_LANES_8806)
     }
 
     @Test fun it_replaces_only_the_expectancy_refusal() {

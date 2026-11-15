@@ -86,6 +86,7 @@ object TradeTape8100 {
         val v = PrintWitness8750.check8750(mint, priceSol, sol, tokenQty, if (eventMs > 0L) eventMs else recvMs, recvMs, basis, src, sig, wallet)
         if ((v == PrintWitness8750.Verdict.RESERVES || v == PrintWitness8750.Verdict.WITNESSED) && eventMs in 1L..recvMs) {
             LaunchHour8628.trade(mint, eventMs, sig, isBuy, sol, tokenQty, priceSol, recvMs, src, wallet)
+            ManualRead8806.onPrint8806(mint, eventMs, priceSol, isBuy, recvMs)   // V5.0.8806 — the owner's read, every witnessed print
             LaunchSniper8748.onPrint8748(mint, eventMs, priceSol, isBuy, recvMs, sig)   // V5.0.8748 — live prints only (it checks the lag)
             // V5.0.8756 — a witnessed print is also the fast exit's tick (the paper book stops on the print, not the next sweep)
             // and, with its wallet, the graded smart-money signal's input.

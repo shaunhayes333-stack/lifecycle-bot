@@ -1815,6 +1815,7 @@ object CandidateAdmission8136 {
             // V5.0.8748 — a coin the armed launch sniper fired on carries the replay rule's record as its market evidence
             // V5.0.8756 — then the graded smart-money signal (a proven wallet's / two converging wallets' buy, armed on its test record)
             marketCell8723 = PayingCell8723.evidence8723(ts, lane, nowMs) ?: LaunchSniper8748.evidence8748(ts.mint, nowMs)
+                ?: ManualRead8806.evidence8806(ts.mint, nowMs)   // V5.0.8806 — an ARMED pattern of the owner's read
                 ?: SmartMoney8756.evidence8756(ts.mint, nowMs)
                 ?: try { com.lifecyclebot.engine.lab.StrategyLab8755.evidence8755(ts, lane, nowMs) } catch (_: Throwable) { null },
             regimeCold8546 = live8290 && MemePaperTrader8544.memeLane8544(lane) &&
