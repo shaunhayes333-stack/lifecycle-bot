@@ -25,8 +25,8 @@ class Aate8746MindTest {
         assertNull(Mind8746.predict8746(Mind8746.features8746(5.0, 0.0, Double.NaN, Double.NaN)))
         for (i in 0 until 400) {
             val t = (i % 20 - 10).toDouble()
-            Mind8746.freeze8746("m$i", i.toLong(), Mind8746.features8746(t, 0.0, Double.NaN, Double.NaN))
-            Mind8746.learn8746("m$i", i.toLong(), 2.0 * t)
+            Mind8746.freeze8746("m$i", "MOONSHOT", i.toLong(), Mind8746.features8746(t, 0.0, Double.NaN, Double.NaN))
+            Mind8746.learn8746("m$i", "MOONSHOT", i.toLong(), 2.0 * t)
         }
         val hi = Mind8746.predict8746(Mind8746.features8746(8.0, 0.0, Double.NaN, Double.NaN))
         val lo = Mind8746.predict8746(Mind8746.features8746(-8.0, 0.0, Double.NaN, Double.NaN))
@@ -42,7 +42,8 @@ class Aate8746MindTest {
     @Test fun itIsWiredWhereEverythingAlreadyReads() {
         val edge = File("src/main/kotlin/com/lifecyclebot/engine/truth/EdgeModel8537.kt").readText()
         assertTrue(edge.contains("mind != null -> mind to Mind8746.KEY_8746"))
-        assertTrue(edge.contains("Mind8746.learn8746(s.mint, s.atMs, y)"))
+        // superseded by V5.0.8767 — the frozen voters are keyed by lane; was: Mind8746.learn8746(s.mint, s.atMs, y).
+        assertTrue(edge.contains("Mind8746.learn8746(s.mint, s.raw.lane, s.atMs, y)"))
         assertTrue(edge.contains("predict8737(raw, x, ts.mint, ts, freezeAtMs = nowMs)"))
         for (id in listOf("MIND_STACKED_PRED", "TREE_RANKER_PRED", "LLM_ANALYST_P_UP", "BRAIN_DISAGREEMENT_SSI"))
             assertNotNull(id, CortexVoters7885.edgesFor(id))

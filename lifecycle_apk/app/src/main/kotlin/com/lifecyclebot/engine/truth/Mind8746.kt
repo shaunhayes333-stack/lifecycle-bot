@@ -24,7 +24,7 @@ import java.util.concurrent.ConcurrentHashMap
  * only on its own out-of-sample record (EdgeModel8537.authority / refusalAuthority8715). Nothing else changes.
  */
 object Mind8746 {
-    const val KEY_8746 = "MIND8746"
+    const val KEY_8746 = "MIND8767"   // V5.0.8767 — its tree voter changed; its record restarts (was "MIND8746", kept on disk)
     private const val WARM_N = 300
     private const val DIM = 10
     private const val RIDGE_L = 8.0
@@ -106,6 +106,9 @@ object Mind8746 {
     }
 
     /** EdgeModel8537: the stacked prediction for these voters, or null while cold. */
+    /** V5.0.8767 — the mind answers (predict8746 is non-null) once it has learned [WARM_N] labels. */
+    fun warm8767(): Boolean { restore8749(); return w != null && n >= WARM_N }
+
     fun predict8746(f: DoubleArray): Double? {
         restore8749()
         val ww = w ?: return null
@@ -127,16 +130,40 @@ object Mind8746 {
     fun llmFor8746(mint: String, nowMs: Long): Double? = fresh(mint, nowMs)?.second?.takeIf { it[7] > 0.0 }?.let { it[6] / 100.0 + 0.5 }
     fun spreadFor8746(mint: String, nowMs: Long): Double? = fresh(mint, nowMs)?.second?.takeIf { it[9] > 0.0 }?.get(8)
 
-    /** EdgeModel8537.snapshot: freeze the voters of the decision on [mint] at [atMs]. */
-    fun freeze8746(mint: String, atMs: Long, f: DoubleArray) {
-        if (frozen.size >= MAX_FROZEN) frozen.keys.take(MAX_FROZEN / 10).forEach { frozen.remove(it) }
-        frozen["$mint|$atMs"] = f
+    /**
+     * V5.0.8767 §ONE_FROZEN_DECISION_PER_LANE — code audit (learning 4): the frozen voters were keyed "$mint|$atMs", and one
+     * decision pass observes every lane of a coin at the same instant, so lane B's freeze overwrote lane A's: the first label
+     * to land trained on another lane's features and every other lane's label found nothing. Eviction also dropped arbitrary
+     * keys (hash order), and the frozen voters were memory-only, so after a restart only short-horizon lanes taught the mind.
+     * Keyed by lane now, evicted oldest first, and carried with the labeler's checkpoint (EdgeModel8537.encodeSnap8571).
+     */
+    private fun frozenKey8767(mint: String, lane: String, atMs: Long) = "$mint|${lane.trim().uppercase()}|$atMs"
+
+    private fun evictOldest8767() {
+        if (frozen.size < MAX_FROZEN) return
+        frozen.keys.sortedBy { it.substringAfterLast('|').toLongOrNull() ?: 0L }.take(MAX_FROZEN / 10).forEach { frozen.remove(it) }
     }
 
-    /** EdgeModel8537.learn: the decision on [mint] at [atMs] produced [y] (managed target). */
-    fun learn8746(mint: String, atMs: Long, y: Double) {
+    /** EdgeModel8537.snapshot: freeze the voters of the decision on [mint] in [lane] at [atMs]. */
+    fun freeze8746(mint: String, lane: String, atMs: Long, f: DoubleArray) {
+        evictOldest8767()
+        frozen[frozenKey8767(mint, lane, atMs)] = f
+    }
+
+    /** EdgeModel8537.encodeSnap8571: the frozen voters of a pending decision, to persist with it. */
+    fun frozenFor8767(mint: String, lane: String, atMs: Long): DoubleArray? = frozen[frozenKey8767(mint, lane, atMs)]
+
+    /** EdgeModel8537.decodeSnap8571: a restored pending decision brings its frozen voters back. */
+    fun restoreFrozen8767(mint: String, lane: String, atMs: Long, f: DoubleArray) {
+        if (f.size != DIM) return
+        evictOldest8767()
+        frozen.putIfAbsent(frozenKey8767(mint, lane, atMs), f)
+    }
+
+    /** EdgeModel8537.learn: the decision on [mint] in [lane] at [atMs] produced [y] (managed target). */
+    fun learn8746(mint: String, lane: String, atMs: Long, y: Double) {
         restore8749()
-        val f = frozen.remove("$mint|$atMs") ?: return
+        val f = frozen.remove(frozenKey8767(mint, lane, atMs)) ?: return
         if (!y.isFinite()) return
         val yy = y.coerceIn(-100.0, 200.0)
         synchronized(this) {

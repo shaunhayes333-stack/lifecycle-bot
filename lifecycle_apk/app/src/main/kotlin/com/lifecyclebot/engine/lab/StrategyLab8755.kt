@@ -78,6 +78,7 @@ object StrategyLab8755 {
             lane.startsWith("PLANWAIT") || lane.startsWith("ORIGIN") || lane == "ALL_LAUNCHES") return null
         fun d(k: String) = if (o.isNull(k)) Double.NaN else o.optDouble(k, Double.NaN)
         if (!EdgeModel8537.plausible8617(d("mcap"), net, o.optBoolean("witness", false))) return null
+        if (lane !in EdgeModel8537.LANES || !EdgeModel8537.replayAccept8642(o)) return null   // V5.0.8767 — the dataset's one acceptance rule
         val src = o.optString("src", "").split(',').firstOrNull()?.trim()?.uppercase().orEmpty().ifBlank { "UNKNOWN" }
         return Row(o.optLong("t", 0L), lane, src, net.coerceAtMost(1_000.0), DoubleArray(FEATURES.size) { d(FEATURES[it]) })
     }

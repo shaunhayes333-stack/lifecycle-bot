@@ -25,7 +25,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * Hard safety, sellability (8736) and the LP rule are untouched.
  */
 object TreeRanker8737 {
-    const val KEY_8737 = "TREE8737"
+    const val KEY_8737 = "TREE8767"   // V5.0.8767 — a model trained on clean rows earns its own record (was "TREE8737", kept on disk)
     private const val TREES = 150
     private const val LR = 0.05
     private const val DEPTH = 4
@@ -114,6 +114,11 @@ object TreeRanker8737 {
                 lane.startsWith("PLANWAIT") || lane.startsWith("ORIGIN")) continue
             fun d(k: String) = if (o.isNull(k)) Double.NaN else o.optDouble(k, Double.NaN)
             if (!EdgeModel8537.plausible8617(d("mcap"), net, o.optBoolean("witness", false))) continue
+            // V5.0.8767 — code audit (learning 1, data P0-2): the tree trained on rows the edge model itself refuses — entries
+            // never buyable (fill=false: most fast meme coins), pre-8660 non-pump rows carrying pump.fun curve marks, 5 / 15 /
+            // legacy 60-minute targets mixed, and pseudo-lanes (PLANADMIT_ / CHASEMISS_). As Mind8746's dominant voter it held
+            // the live refusal authority. One acceptance rule for every learner of the dataset: replayAccept8642, real lanes only.
+            if (lane.uppercase() !in EdgeModel8537.LANES || !EdgeModel8537.replayAccept8642(o)) continue
             val mint = o.optString("mint", "")
             val cost = d("cost")
             val y = EdgeModel8537.managedTarget8722(lane.uppercase(), net, if (cost.isFinite()) cost else 0.0)

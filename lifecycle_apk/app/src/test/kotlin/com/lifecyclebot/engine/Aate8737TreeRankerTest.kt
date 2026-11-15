@@ -22,7 +22,8 @@ class Aate8737TreeRankerTest {
     }
 
     @Test fun aCoinWindowWeighsOneAcrossLanes() {
-        val line = { lane: String, net: Double -> """{"t":1000,"mint":"AbcPUMPpump","lane":"$lane","liq":20000,"mcap":40000,"age":3,"cost":2,"net":$net}""" }
+        // superseded by V5.0.8767 — training rows pass EdgeModel8537.replayAccept8642 (fill, horizon, venue scope); was: no fill / horizon fields.
+        val line = { lane: String, net: Double -> """{"t":1000,"mint":"AbcPUMPpump","lane":"$lane","fill":true,"horizonMs":${com.lifecyclebot.engine.truth.PocketLedger8610.targetHorizon(lane)},"liq":20000,"mcap":40000,"age":3,"cost":2,"net":$net}""" }
         val rows = TreeRanker8737.rowsOf8737(sequenceOf(line("CORE", 10.0), line("EXPRESS", 12.0), line("LPSTATE8725_PENDING", 50.0),
             """{"t":1000,"mint":"Other","lane":"CORE","net":null}"""))
         assertEquals(2, rows.size)

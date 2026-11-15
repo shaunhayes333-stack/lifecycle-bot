@@ -327,6 +327,13 @@ object EdgeModel8537 {
     /** V5.0.8722 — a lane the vector names keeps its own model; every other label (crypto, EVM, shadow tags) learns the global one. */
     private fun ownModel8722(l: String): Ridge? = if (l in LANES) byLane.getOrPut(l) { Ridge(DIM) } else null
     private fun activeModel(l: String) = if ((byLane[l]?.count ?: 0L) >= LANE_OWN_MIN_N) l else "GLOBAL"
+
+    /** V5.0.8767 — the model whose verdict [predict8737] returns for [l] now: the mind once warm, else the tree, else the ridge. */
+    private fun decidingKey8767(l: String): String = when {
+        try { Mind8746.warm8767() } catch (_: Throwable) { false } -> Mind8746.KEY_8746
+        TreeRanker8737.trainedRows8737() > 0L -> TreeRanker8737.KEY_8737
+        else -> activeModel(l)
+    }
     private val oos = HashMap<String, Oos>()
     private val learned = AtomicLong(0)
     private val skippedCold = AtomicLong(0)
@@ -358,6 +365,7 @@ object EdgeModel8537 {
         return org.json.JSONObject().put("raw", raw).put("pred", d8571(s.pred)).put("horizonMs", s.horizonMs)
             .put("modelEpoch", s.modelEpoch)
             .put("key", s.modelKey).put("at", s.atMs).put("mint", s.mint).put("admitted", s.admitted)
+            .also { o -> try { Mind8746.frozenFor8767(s.mint, r.lane, s.atMs)?.let { o.put("mind8767", org.json.JSONArray(it.map { v -> d8571(v) })) } } catch (_: Throwable) {} }
     }
 
     /** The feature vector is rebuilt from the frozen raw features ([vectorOf] is pure), so it is never stored. */
@@ -370,6 +378,9 @@ object EdgeModel8537 {
                 d8571(r, "volAccel"), d8571(r, "top"), r.optString("phase"), d8571(r, "v3"), d8571(r, "costPct"),
                 d8571(r, "holderVel"), d8571(r, "txVel"), d8571(r, "curve"), d8571(r, "turnover"), r.optInt("flags"),
                 d8571(r, "newBuyers15s8666"), r.optBoolean("sustainedDemand"), r.optBoolean("marketReclaim"))
+            j.optJSONArray("mind8767")?.let { a ->   // V5.0.8767 — the mind's frozen voters return with the pending decision
+                try { Mind8746.restoreFrozen8767(j.optString("mint"), raw.lane, j.optLong("at"), DoubleArray(a.length()) { a.optDouble(it, Double.NaN) }) } catch (_: Throwable) {}
+            }
             Snap(raw, vectorOf(raw), d8571(j, "pred"), j.optString("key"), j.optLong("at"), j.optString("mint"),
                 j.optBoolean("admitted"), j.optLong("horizonMs"), j.optInt("modelEpoch", 0))
         } catch (_: Throwable) { null }
@@ -408,7 +419,7 @@ object EdgeModel8537 {
         if (tree != null && tree >= 0.0) try { LlmAnalyst8746.request8746(raw, mint, now) } catch (_: Throwable) {}
         val llmP = try { LlmAnalyst8746.prob8746(mint, now) } catch (_: Throwable) { null }
         val f = Mind8746.features8746(tree ?: Double.NaN, ridge.first, cell ?: Double.NaN, llmP ?: Double.NaN)
-        if (freezeAtMs != null) try { Mind8746.freeze8746(mint, freezeAtMs, f) } catch (_: Throwable) {}
+        if (freezeAtMs != null) try { Mind8746.freeze8746(mint, raw.lane, freezeAtMs, f) } catch (_: Throwable) {}
         val mind = try { Mind8746.predict8746(f) } catch (_: Throwable) { null }
         try { Mind8746.note8746(mint, f, mind, now) } catch (_: Throwable) {}
         return when {
@@ -514,7 +525,7 @@ object EdgeModel8537 {
             return
         }
         val y = managedTarget8722(s.raw.lane, netPct, s.raw.costPct)
-        try { Mind8746.learn8746(s.mint, s.atMs, y) } catch (_: Throwable) {}   // V5.0.8746 — the mind learns the same label
+        try { Mind8746.learn8746(s.mint, s.raw.lane, s.atMs, y) } catch (_: Throwable) {}   // V5.0.8746 — the mind learns the same label
         synchronized(this) {
             // A pending observation from the old model can teach its verified outcome, but its prediction
             // was made under a contaminated model. It must never earn walk-forward authority in this epoch.
@@ -784,9 +795,12 @@ object EdgeModel8537 {
     fun statusLine(): String = synchronized(this.also { ensureLoaded() }) {
         val lanes = byLane.keys.toSortedSet()
         val rows = lanes.joinToString(" · ") { l ->
-            val o = oos[recordKey(l, activeModel(l))]; val r = byLane[l]
+            // V5.0.8767 — code audit (learning 5, buy 5): the line printed the ridge's record while the mind (or the tree)
+            // decided, so the record refusing live coins was invisible. It prints the deciding model's record, named.
+            val key8767 = decidingKey8767(l)
+            val o = oos[recordKey(l, key8767)]; val r = byLane[l]
             val auth = o != null && authority(o.selN, o.selMean, o.selSe, o.allMean)
-            "$l[n${r?.count ?: 0} oosPicks=n${o?.selN ?: 0}/${pct(o?.selMean)}±${pct(o?.selSe)} all=${pct(o?.allMean)} avoid=${pct(o?.negMean)} refuse8715=n${o?.refN ?: 0}/${pct(o?.refMean)}±${pct(o?.refSe)}vsKept=n${o?.keepN ?: 0}/${pct(o?.keepMean)}±${pct(o?.keepSe)} ${if (auth) "AUTHORITY" else if (o != null && refusalAuthority8715(o.refN, o.refMean, o.refSe, o.keepN, o.keepMean, o.keepSe)) "REFUSES" else "learning"}]"
+            "$l[by=$key8767 n${r?.count ?: 0} oosPicks=n${o?.selN ?: 0}/${pct(o?.selMean)}±${pct(o?.selSe)} all=${pct(o?.allMean)} avoid=${pct(o?.negMean)} refuse8715=n${o?.refN ?: 0}/${pct(o?.refMean)}±${pct(o?.refSe)}vsKept=n${o?.keepN ?: 0}/${pct(o?.keepMean)}±${pct(o?.keepSe)} ${if (auth) "AUTHORITY" else if (o != null && refusalAuthority8715(o.refN, o.refMean, o.refSe, o.keepN, o.keepMean, o.keepSe)) "REFUSES" else "learning"}]"
         }
         "edge8537[trained=${global.count} learned=${learned.get()} cold=${skippedCold.get()} implausible8617=${implausible8617.get()} oldPredIgnored8642=${oldPredictionsIgnored8642.get()} replay8642=$replayStatus8642 minEdge=+${MIN_EDGE_PCT}% authBar=n$AUTH_MIN_N,mean-se>0,>lane] ${rows.ifBlank { "no labels yet" }}"
     }

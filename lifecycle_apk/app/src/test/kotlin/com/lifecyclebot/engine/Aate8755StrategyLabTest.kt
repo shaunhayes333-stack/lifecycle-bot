@@ -21,7 +21,8 @@ import java.io.File
  */
 class Aate8755StrategyLabTest {
     private fun line(net: Double, txVel: Double, lane: String = "MOONSHOT") =
-        """{"t":1,"horizonMs":900000,"mint":"m","lane":"$lane","src":"MARKET_HUNT_SHITCOIN,X","liq":5000,"mcap":20000,"age":3,"runup":10,"txVel":$txVel,"v3":70,"net":$net}"""
+        // superseded by V5.0.8767 — lab rows pass EdgeModel8537.replayAccept8642; was: horizonMs 900000, no fill field.
+        """{"t":1,"horizonMs":${com.lifecyclebot.engine.truth.PocketLedger8610.targetHorizon(lane)},"fill":true,"mint":"m","lane":"$lane","src":"MARKET_HUNT_SHITCOIN,X","liq":5000,"mcap":20000,"age":3,"runup":10,"txVel":$txVel,"v3":70,"net":$net}"""
 
     @Test fun aDecisionRowCarriesItsFeaturesSourceAndCappedNet() {
         val r = StrategyLab8755.row8755(line(4_000.0, 7.0))!!
