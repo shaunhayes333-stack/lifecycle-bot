@@ -27,7 +27,8 @@ class Aate8706StopAndStageTruthTest {
     @Test fun oneRuleServesTheRequestPathAndTheSellTimeCheck() {
         val stop = File("src/main/kotlin/com/lifecyclebot/engine/StopMarkConfirm8418.kt").readText()
         assertTrue(stop.contains("val fires = unreadStopFires8706(first, nowMs, markPnlPct8706(ts), onVenue)"))
-        assertTrue(stop.contains("val fires = unreadStopFires8706(first, nowMs, markPnlPct8706(ts), markOnVenue8706(ts))"))
+        // superseded by V5.0.8759 — the sell-time check runs the request path's own breach clock; was: unreadStopFires8706(first, nowMs, markPnlPct8706(ts), markOnVenue8706(ts)).
+        assertTrue(stop.contains("val fires = !holdForVenueRead8631(ts, ts.position.positionId.ifBlank { ts.mint }, nowMs, stopDepthPct8489(reason) ?: impliedStopDepthPct8681(reason))"))
         assertTrue(stop.contains("if (ts.position.isPaperPosition || !priceLossStop8489(reason)) return true"))
         assertFalse(stop.contains("fun holdsAwaitingRead8631("))
         assertTrue(File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()

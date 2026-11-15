@@ -324,7 +324,7 @@ object StopMarkConfirm8418 {
                 val dec = com.lifecyclebot.engine.truth.MintDecimalsAuthority6392.get(ts.mint) ?: ts.tokenMap.decimals ?: 6
                 com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.requestExecutableQuote7301(ts.mint, dec, minGapMs = REASK_GAP_MS_8419)
             } catch (_: Throwable) {}
-            return holdForVenueRead8631(ts, key8631, nowMs)
+            return holdForVenueRead8631(ts, key8631, nowMs, stopDepthPct8489(reason) ?: impliedStopDepthPct8681(reason))
         }
         noReadSince8631.remove(key8631)
         val depth = stopDepthPct8489(reason) ?: impliedStopDepthPct8681(reason)
@@ -362,7 +362,35 @@ object StopMarkConfirm8418 {
     fun unreadStopFires8706(firstAskMs: Long, nowMs: Long, markPnlPct: Double, markOnVenue: Boolean): Boolean = when {
         markPnlPct.isFinite() && markPnlPct <= BYPASS_PCT_8418 -> true
         nowMs - firstAskMs in 0L until NO_READ_HOLD_MS_8631 -> false
+        nowMs - firstAskMs >= MAX_UNREAD_HOLD_MS_8759 -> true   // V5.0.8759 — the unread hold is bounded
         else -> markOnVenue
+    }
+
+    /**
+     * V5.0.8759 §AN_UNREAD_STOP_IS_HELD_FOR_A_BOUNDED_TIME — code audit (exits F1, F2). Three holes in the unread stop:
+     *   - the request path deleted its wait clock when the stop fired, so the sell-time check ([sellsWithoutRouteQuote8706])
+     *     started a fresh 6 s wait and held the stop it had just let through; the stops that sell from doSell directly
+     *     never started the clock at all. Both now share [holdForVenueRead8631], and a fired breach keeps its clock;
+     *   - a mark that is not the position's own venue was "never a sell" above -60 %, which re-opened the hole 8419 closed
+     *     (a -15 % stop held to -60 %). A breach left unread for [MAX_UNREAD_HOLD_MS_8759] now fires on its mark;
+     *   - the breach restarted whenever two asks were more than 3 s apart, and the risk clock (30 s) and the bot cycle
+     *     (~7.8 s) never ask that often, so their stops could never finish the wait. A breach now ends when a mark comes
+     *     back above the stop ([noteMark8759], the 500 ms monitor, by the same rule a venue read refutes a stop with); the
+     *     ask gap ([BREACH_GAP_MS_8712]) only covers the slowest asker.
+     */
+    const val MAX_UNREAD_HOLD_MS_8759 = 30_000L
+    private val breachDepth8759 = java.util.concurrent.ConcurrentHashMap<String, Double>()
+
+    /** Pure: does a mark at [markPnlPct] end a breach of a stop at [depthPct]? The same test a venue read refutes with. */
+    fun breachEnded8759(markPnlPct: Double, depthPct: Double?): Boolean = depthPct != null && venueRefutes8489(markPnlPct, depthPct)
+
+    /** BotService.evaluateRapidMonitorExit, every live mark: a mark back above a waiting stop's line ends that breach. */
+    fun noteMark8759(ts: TokenState, pnlPct: Double) {
+        val key = ts.position.positionId.ifBlank { ts.mint }
+        val depth = breachDepth8759[key] ?: return
+        if (!breachEnded8759(pnlPct, depth)) return
+        noReadSince8631.remove(key); lastUnreadAsk8712.remove(key); breachDepth8759.remove(key)
+        try { PipelineHealthCollector.labelInc("STOP_BREACH_ENDED_BY_MARK_8759") } catch (_: Throwable) {}
     }
 
     private fun markPnlPct8706(ts: TokenState): Double =
@@ -380,20 +408,21 @@ object StopMarkConfirm8418 {
      * unbroken breach: if the stop stopped asking for longer than [BREACH_GAP_MS_8712] (the price was back above its line),
      * the next ask starts a new wait.
      */
-    const val BREACH_GAP_MS_8712 = NO_READ_HOLD_MS_8631 / 2
+    const val BREACH_GAP_MS_8712 = 35_000L   // V5.0.8759 — above the slowest asker (the 30 s risk clock); was NO_READ_HOLD_MS_8631 / 2
     private val lastUnreadAsk8712 = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     /** Pure: when the breach now being asked about began, given its recorded [first] ask and the [lastAsk] before this one. */
     fun breachStart8712(first: Long?, lastAsk: Long?, nowMs: Long): Long =
         if (first == null || lastAsk == null || nowMs - lastAsk !in 0L..BREACH_GAP_MS_8712) nowMs else first
 
-    private fun holdForVenueRead8631(ts: TokenState, key: String, nowMs: Long): Boolean {
-        if (noReadSince8631.size > MAX_AWAITS_8419) { noReadSince8631.clear(); lastUnreadAsk8712.clear() }
+    private fun holdForVenueRead8631(ts: TokenState, key: String, nowMs: Long, depthPct: Double?): Boolean {
+        if (noReadSince8631.size > MAX_AWAITS_8419) { noReadSince8631.clear(); lastUnreadAsk8712.clear(); breachDepth8759.clear() }
         val first = breachStart8712(noReadSince8631[key], lastUnreadAsk8712.put(key, nowMs), nowMs)
         noReadSince8631[key] = first
+        if (depthPct != null) breachDepth8759[key] = depthPct
         val onVenue = markOnVenue8706(ts)
         val fires = unreadStopFires8706(first, nowMs, markPnlPct8706(ts), onVenue)
-        if (fires) noReadSince8631.remove(key)
+        // V5.0.8759 — a fired breach keeps its clock: the sell-time check reads the same wait (was: removed on fire).
         try {
             PipelineHealthCollector.labelInc(when {
                 fires -> "STOP_FIRED_NO_VENUE_READ_8631"
@@ -424,11 +453,11 @@ object StopMarkConfirm8418 {
             if (refutes) try { PipelineHealthCollector.labelInc("STOP_HELD_NO_QUOTE_READ_REFUTES_8728") } catch (_: Throwable) {}
             return !refutes
         }
-        val first = noReadSince8631[ts.position.positionId.ifBlank { ts.mint }] ?: nowMs
-        val fires = unreadStopFires8706(first, nowMs, markPnlPct8706(ts), markOnVenue8706(ts))
+        // V5.0.8759 — the request path's breach clock, shared; a stop that sells from doSell directly starts it here.
+        val fires = !holdForVenueRead8631(ts, ts.position.positionId.ifBlank { ts.mint }, nowMs, stopDepthPct8489(reason) ?: impliedStopDepthPct8681(reason))
         if (!fires) try { PipelineHealthCollector.labelInc("STOP_HELD_NO_ROUTE_QUOTE_OFF_VENUE_MARK_8706") } catch (_: Throwable) {}
         return fires
     }
 
-    internal fun resetForTest8419() { awaitSince8419.clear(); noReadSince8631.clear() }
+    internal fun resetForTest8419() { awaitSince8419.clear(); noReadSince8631.clear(); lastUnreadAsk8712.clear(); breachDepth8759.clear() }
 }

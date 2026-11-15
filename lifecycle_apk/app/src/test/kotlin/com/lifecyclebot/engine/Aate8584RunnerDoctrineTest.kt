@@ -119,6 +119,7 @@ class Aate8584RunnerDoctrineTest {
         assertTrue("actual distribution safety remains live", legacyPeak.contains("Verdict.DISTRIBUTION_EXIT"))
         assertTrue(rapid.contains("doctrineOwnsProfit8642 -> Double.NEGATIVE_INFINITY"))
         assertTrue(rapid.contains("val giveBackTrigger = !RunnerDoctrine8584.profitTakingOwned8630("))
-        assertTrue(rapid.contains("if (doctrineTrail8630(ts, pnlPct, peakGainPct, wallet, effectiveBalance)) return true"))
+        // superseded by V5.0.8759 — the trail runs after the stops, above the floor; was: if (doctrineTrail8630(ts, pnlPct, peakGainPct, wallet, effectiveBalance)) return true.
+        assertTrue(rapid.contains("if (aboveTheStops8759 && doctrineTrail8630(ts, pnlPct, peakGainPct, wallet, effectiveBalance)) return true"))
     }
 }

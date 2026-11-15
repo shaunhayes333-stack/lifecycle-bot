@@ -1673,26 +1673,30 @@ class BotService : Service() {
         try { com.lifecyclebot.engine.truth.ExploreShadow8347.flushOnStop8418() } catch (_: Throwable) {}   // V5.0.8418 — forced book flush on stop
     }
 
-    /** V5.0.8630 — RunnerDoctrine8584's trail, in the 500 ms monitor: a doctrine winner that falls to its line sells whole. */
+    /**
+     * V5.0.8630 — RunnerDoctrine8584's trail, in the 500 ms monitor: a doctrine winner that falls to its line sells whole.
+     * V5.0.8759 — it runs after the catastrophe and hard-floor stops (evaluateRapidMonitorExit), prices on the peak two
+     * marks agree on and needs two marks under the line (RunnerDoctrine8584.trailDue8759), and reports true only when a
+     * sell request was dispatched — a coalesced request no longer hides the exits after it.
+     */
     private fun doctrineTrail8630(ts: com.lifecyclebot.data.TokenState, pnlPct: Double, peakPct: Double,
                                   wallet: com.lifecyclebot.network.SolanaWallet?, balance: Double): Boolean {
         val lane = try { RunnerDoctrine8584.entryLane8630(ts) } catch (_: Throwable) { return false }
-        if (!RunnerDoctrine8584.trailBreached8630(lane, pnlPct, peakPct)) return false
+        if (!RunnerDoctrine8584.trailDue8759(ts.position.positionId.ifBlank { ts.mint }, lane, pnlPct, peakPct, ts.lastPriceUpdate)) return false
         try {
             PipelineHealthCollector.labelInc("RUNNER_DOCTRINE_TRAIL_8630_${RunnerDoctrine8584.foldLane8630(lane)}")
             ForensicLogger.lifecycle("RUNNER_DOCTRINE_TRAIL_8630", "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=$lane pnl=${pnlPct.toInt()} peak=${peakPct.toInt()}")
         } catch (_: Throwable) {}
-        requestSellOffLoop7288(ts, RunnerDoctrine8584.TRAIL_REASON_8630, wallet, balance)
-        TradeStateMachine.startCooldown(ts.mint)
-        return true
+        return requestSellOffLoop7288(ts, RunnerDoctrine8584.TRAIL_REASON_8630, wallet, balance).also { if (it) TradeStateMachine.startCooldown(ts.mint) }
     }
 
+    /** V5.0.8759 — true when a sell request was dispatched (false when coalesced behind one in flight, or not launched). */
     private fun requestSellOffLoop7288(
         ts: com.lifecyclebot.data.TokenState,
         reason: String,
         wallet: com.lifecyclebot.network.SolanaWallet?,
         walletSol: Double,
-    ) {
+    ): Boolean {
         val now = System.currentTimeMillis()
         val prior = offLoopSellsInFlight7288[ts.mint]
         // V5.0.7392 — a profit-lock sell may be re-requested after 10 s (a hung
@@ -1709,7 +1713,7 @@ class BotService : Service() {
         }
         if (prior != null && now - prior < retryMs7392) {
             try { PipelineHealthCollector.labelInc("TICK_SELL_OFF_LOOP_COALESCED_7288") } catch (_: Throwable) {}
-            return
+            return false
         }
         offLoopSellsInFlight7288[ts.mint] = now
         try {
@@ -1740,8 +1744,10 @@ class BotService : Service() {
                 }
             }
             try { PipelineHealthCollector.labelInc("TICK_SELL_DISPATCHED_OFF_LOOP_7288") } catch (_: Throwable) {}
+            return true
         } catch (_: Throwable) {
             offLoopSellsInFlight7288.remove(ts.mint, now)
+            return false
         }
     }
 
@@ -19484,7 +19490,7 @@ class BotService : Service() {
         val HARD_FLOOR_STOP_PCT_CONST = ExitDoctrine8169.rapidHardFloorMag8169(ts)  // V5.0.8169 — under the ordinary stop, 15..30%
         val catastropheThreshold = ExitDoctrine8169.rapidCatastrophePct8169(ts, getCatastropheThreshold(cfg.paperMode))  // V5.0.8169 — never above the hard floor / lifecycle floor
         val peakGainPct = ts.position.peakGainPct
-        if (doctrineTrail8630(ts, pnlPct, peakGainPct, wallet, effectiveBalance)) return true  // V5.0.8630 — the doctrine sells at its line
+        StopMarkConfirm8418.noteMark8759(ts, pnlPct)   // V5.0.8759 — a mark back above a waiting stop's line ends that breach
         val drawdownFromPeak = peakGainPct - pnlPct
         // V5.0.6836 §GIVE_BACK_WAS_FLAT_POINTS — drawdownFromPeak is in pnl POINTS, so
         // comparing it to a flat 25.0 made the trigger scale-blind: peak +30% fired on a
@@ -19579,6 +19585,11 @@ class BotService : Service() {
             TradeStateMachine.startCooldown(ts.mint)
             return true
         }
+        // V5.0.8759 — code audit (exits F3): the doctrine trail ran before the two stops above and returned true on every
+        // tick under its line, so a doctrine position below its hard floor never reached them. It now runs after them,
+        // above the floor only (below it the stops own the exit).
+        val aboveTheStops8759 = pnlPct > catastropheThreshold && pnlPct > -HARD_FLOOR_STOP_PCT_CONST
+        if (aboveTheStops8759 && doctrineTrail8630(ts, pnlPct, peakGainPct, wallet, effectiveBalance)) return true
 
         // V5.0.6080 — RUNNER LOCK MUST PRECEDE SETTLE-IN.
         // Runtime 6069 showed winners like $TANIMAL peak +272% → now +16% while

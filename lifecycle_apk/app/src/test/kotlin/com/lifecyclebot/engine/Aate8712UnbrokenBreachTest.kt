@@ -13,7 +13,8 @@ class Aate8712UnbrokenBreachTest {
         assertEquals("still asking: the same breach", t0, StopMarkConfirm8418.breachStart8712(t0, t0 + 1_000L, t0 + 2_000L))
         assertEquals("asked again right at the gap: the same breach", t0,
             StopMarkConfirm8418.breachStart8712(t0, t0 + 1_000L, t0 + 1_000L + StopMarkConfirm8418.BREACH_GAP_MS_8712))
-        val later = t0 + 9_000L
+        // superseded by V5.0.8759 — a recovered mark ends the breach (noteMark8759); the ask gap covers the slowest asker; was: later = t0 + 9_000L.
+        val later = t0 + 1_001L + StopMarkConfirm8418.BREACH_GAP_MS_8712
         assertEquals("the price came back and wicked again: a new wait", later, StopMarkConfirm8418.breachStart8712(t0, t0 + 1_000L, later))
         // so the wick that used to sell at once is held like any first ask
         assertTrue(!StopMarkConfirm8418.unreadStopFires8706(StopMarkConfirm8418.breachStart8712(t0, t0 + 1_000L, later), later, -16.0, markOnVenue = true))

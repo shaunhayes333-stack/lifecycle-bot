@@ -71,6 +71,40 @@ object RunnerDoctrine8584 {
     }
 
     /**
+     * V5.0.8759 §THE_TRAIL_SELLS_ON_TWO_MARKS — code audit (exits F9): the trail priced its line off the stored
+     * peakGainPct, which has held one-print phantom peaks (8642: "+12,105 %, realised -3 %"); one bad mark at or under
+     * the resulting line sold a runner whole. The trail now arms and prices on the highest gain two consecutive distinct
+     * marks agree on ([twoMarkPeak8759]), capped by the stored peak, and sells only when two consecutive distinct marks
+     * are at or under the line. A mark is distinct when its write time ([markAtMs]) changed; marks more than
+     * [TWO_MARK_WINDOW_MS_8759] apart do not pair.
+     */
+    const val TWO_MARK_WINDOW_MS_8759 = 30_000L
+    private class Trail8759(var prevPnl: Double, var prevMarkAt: Long, var peak: Double)
+    private val trail8759 = ConcurrentHashMap<String, Trail8759>()
+
+    /** Pure: the peak once a mark at [pnlPct] follows one at [prevPnl] — the lower of the two is what both agree on. */
+    fun twoMarkPeak8759(peak: Double, prevPnl: Double, pnlPct: Double): Double =
+        if (prevPnl.isFinite() && pnlPct.isFinite()) maxOf(peak, minOf(prevPnl, pnlPct)) else peak
+
+    /** BotService.doctrineTrail8630: is the trail due on position [key] at this mark? */
+    fun trailDue8759(key: String, lane: String?, pnlPct: Double, storedPeakPct: Double, markAtMs: Long): Boolean {
+        if (!rides8584(lane) || !pnlPct.isFinite()) return false
+        if (trail8759.size > 2_000) trail8759.clear()
+        val s = trail8759.getOrPut(key) { Trail8759(Double.NaN, 0L, Double.NEGATIVE_INFINITY) }
+        synchronized(s) {
+            if (markAtMs == s.prevMarkAt) return false   // the same mark again: nothing new to pair
+            val paired = s.prevPnl.isFinite() && markAtMs - s.prevMarkAt in 1L..TWO_MARK_WINDOW_MS_8759
+            val prev = s.prevPnl
+            if (paired) s.peak = twoMarkPeak8759(s.peak, prev, pnlPct)
+            s.prevPnl = pnlPct
+            s.prevMarkAt = markAtMs
+            if (!paired) return false
+            val peak = if (storedPeakPct.isFinite()) minOf(storedPeakPct, s.peak) else s.peak
+            return trailBreached8630(lane, pnlPct, peak) && trailBreached8630(lane, prev, peak)
+        }
+    }
+
+    /**
      * V5.0.8719 §A_WINNER_GETS_THE_ROOM_ITS_STOP_GAVE_IT — owner: "are we starting to narrow into the 4x and 10x runners".
      * 8712, 24 h: 60 coins went 4x+, live held 5 of them and sold every one early; no ladder rung has ever triggered
      * (runnerFunnel8331 rungTriggered=0). The session's two MOONSHOT winners: AJFnmp peaked about +31 % and was sold at

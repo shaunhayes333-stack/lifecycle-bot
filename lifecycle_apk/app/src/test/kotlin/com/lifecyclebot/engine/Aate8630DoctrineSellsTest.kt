@@ -44,8 +44,9 @@ class Aate8630DoctrineSellsTest {
 
     @Test fun the_wiring_reaches_every_door() {
         val bs = src("BotService.kt")
-        val rapid = bs.substringAfter("private suspend fun evaluateRapidMonitorExit(").substringBefore("val drawdownFromPeak = peakGainPct - pnlPct")
-        assertTrue(rapid.contains("if (doctrineTrail8630(ts, pnlPct, peakGainPct, wallet, effectiveBalance)) return true"))
+        // superseded by V5.0.8759 — the trail moved after the catastrophe and hard-floor stops; was: before val drawdownFromPeak, unconditional.
+        val rapid = bs.substringAfter("private suspend fun evaluateRapidMonitorExit(").substringBefore("if (giveBackTrigger) {")
+        assertTrue(rapid.indexOf("\"RAPID_HARD_FLOOR_STOP\"") in 0 until rapid.indexOf("if (aboveTheStops8759 && doctrineTrail8630(ts, pnlPct, peakGainPct, wallet, effectiveBalance)) return true"))
         assertTrue(bs.contains("requestSellOffLoop7288(ts, RunnerDoctrine8584.TRAIL_REASON_8630, wallet, balance)"))
         val ex = src("Executor.kt")
         for (head in listOf("fun checkProfitLock(ts: TokenState, wallet: SolanaWallet?, walletSol: Double): Boolean {",
