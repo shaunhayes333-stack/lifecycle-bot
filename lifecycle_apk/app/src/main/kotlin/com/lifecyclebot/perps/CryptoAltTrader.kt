@@ -858,7 +858,7 @@ object CryptoAltTrader {
             handedOff8045[mint] = now
             if (handedOff8045.size > 2_000) handedOff8045.entries.removeIf { now - it.value > 60L * 60_000L }
             com.lifecyclebot.engine.TokenMergeQueue.enqueue(
-                mint = mint, symbol = signal.marketSymbol.ifBlank { mint.take(6) }, scanner = "DEX_TRENDING",
+                mint = mint, symbol = signal.marketSymbol.ifBlank { mint.take(6) }, scanner = com.lifecyclebot.engine.SourceTruth8633.CRYPTO_DESK_HANDOFF_8779,
                 marketCapUsd = if (mcapUsd.isFinite()) mcapUsd else 0.0,
                 liquidityUsd = if (liquidityUsd.isFinite()) liquidityUsd else 0.0,
                 toolAffinity = setOf("CRYPTO_HANDOFF_8045"),

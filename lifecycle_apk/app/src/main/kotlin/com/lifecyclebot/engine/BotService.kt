@@ -9191,7 +9191,7 @@ class BotService : Service() {
                     val canonicalLane6287 = when {
                         srcU.contains("PUMP_FUN") || srcU.contains("PUMP_PORTAL") -> "MOONSHOT"
                         srcU.contains("RAYDIUM") -> "STANDARD"
-                        srcU.contains("GECKO") || srcU.contains("DEX_TRENDING") -> "BLUECHIP"
+                        srcU.contains("GECKO") || srcU.contains("DEX_TRENDING") || srcU.contains(SourceTruth8633.CRYPTO_DESK_HANDOFF_8779) -> "BLUECHIP"
                         srcU.contains("DEX_BOOSTED") -> "CASHGEN"
                         srcU.contains("COINGECKO_ESTABLISHED") -> "BLUECHIP"
                         w.phase.isNotBlank() && !w.phase.equals("UNKNOWN", true) -> w.phase.uppercase()
@@ -15819,7 +15819,8 @@ class BotService : Service() {
         // candidates from intake; boundedLanes still caps to 2 per token.
         if (tags.contains("PUMP") || tags.contains("PORTAL")) out += listOf("SHITCOIN", "PROJECT_SNIPER", "EXPRESS")
         if (tags.contains("RAYDIUM") || tags.contains("NEW_POOL")) out += listOf("MOONSHOT", "DIP_HUNTER", "CYCLIC")
-        if (tags.contains("DEX_BOOSTED") || tags.contains("DEX_TRENDING") || tags.contains("COINGECKO")) out += listOf("QUALITY", "TREASURY", "CASHGEN")
+        if (tags.contains("DEX_BOOSTED") || tags.contains("DEX_TRENDING") || tags.contains("COINGECKO") ||
+            tags.contains(SourceTruth8633.CRYPTO_DESK_HANDOFF_8779)) out += listOf("QUALITY", "TREASURY", "CASHGEN")   // V5.0.8779
         if (marketCapUsd in 75_000.0..1_000_000.0) out += "QUALITY"
         if (marketCapUsd >= 1_000_000.0 || liquidityUsd >= 75_000.0) out += "BLUECHIP"
         // V5.0.6016 — meme volume recovery via successful-lane source breadth.
@@ -26457,7 +26458,7 @@ if (hotExitHandledSweep) {
                 ts.source = when {
                     pair.url.contains("pump.fun") -> "PUMP_FUN_GRADUATE"
                     pair.url.contains("raydium") -> "RAYDIUM_NEW_POOL"
-                    else -> "DEX_TRENDING"
+                    else -> "UNKNOWN"   // V5.0.8779 — code audit (discovery F9): an unknown source is not fabricated as DEX_TRENDING
                 }
             }
             
@@ -28501,6 +28502,7 @@ if (hotExitHandledSweep) {
                             val bluechipSource = srcU.contains("BLUECHIP_WATCHLIST") ||
                                 srcU.contains("COINGECKO_TRENDING") ||
                                 srcU.contains("DEX_TRENDING") ||
+                                srcU.contains(SourceTruth8633.CRYPTO_DESK_HANDOFF_8779) ||
                                 srcU.contains("DEX_BOOSTED")
                             val establishedMetrics = ts.lastMcap >= TreasuryScannerFeed.MIN_TREASURY_MCAP &&
                                 ts.lastLiquidityUsd >= TreasuryScannerFeed.MIN_TREASURY_LIQUIDITY

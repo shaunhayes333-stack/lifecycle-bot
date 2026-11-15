@@ -166,7 +166,13 @@ object TradeLifecycle {
         var approvalCount: Int = 0,
     )
     
-    private val proposalTrackers = mutableMapOf<String, ProposalTracker>()
+    // V5.0.8779 — code audit (discovery F13): a plain HashMap written by 16 supervisor threads and never pruned (8440 converted
+    // the sibling map and missed this one). Concurrent now, and pruned of mints idle for an hour once it passes 4,000.
+    private val proposalTrackers = java.util.concurrent.ConcurrentHashMap<String, ProposalTracker>()
+    private fun pruneTrackers8779(nowMs: Long) {
+        if (proposalTrackers.size <= 4_000) return
+        proposalTrackers.entries.removeIf { nowMs - maxOf(it.value.lastProposalMs, it.value.lastApprovalMs) > 3_600_000L }
+    }
     // V5.9.159 — bootstrap volume boost: tighter cooldowns and 3× higher per-mint
     // quota while the bot is still learning. Old numbers were tuned for a mature
     // bot with real memory; at bootstrap they starve the scorer of training data.
@@ -201,6 +207,7 @@ object TradeLifecycle {
      */
     fun canPropose(mint: String): Pair<Boolean, String?> {
         val now = System.currentTimeMillis()
+        pruneTrackers8779(System.currentTimeMillis())
         val tracker = proposalTrackers.getOrPut(mint) { ProposalTracker() }
         val minIntervalMs = effectiveMinProposalIntervalMs()
         val maxPerWindow = effectiveMaxProposalsPerWindow()
@@ -269,6 +276,7 @@ object TradeLifecycle {
      */
     fun canApprove(mint: String): Pair<Boolean, String?> {
         val now = System.currentTimeMillis()
+        pruneTrackers8779(System.currentTimeMillis())
         val tracker = proposalTrackers.getOrPut(mint) { ProposalTracker() }
         
         // Check: Too soon since last approval?
@@ -285,6 +293,7 @@ object TradeLifecycle {
      */
     fun recordProposal(mint: String) {
         val now = System.currentTimeMillis()
+        pruneTrackers8779(System.currentTimeMillis())
         val tracker = proposalTrackers.getOrPut(mint) { ProposalTracker() }
         tracker.lastProposalMs = now
         tracker.proposalCount++
@@ -295,6 +304,7 @@ object TradeLifecycle {
      */
     fun recordApproval(mint: String) {
         val now = System.currentTimeMillis()
+        pruneTrackers8779(System.currentTimeMillis())
         val tracker = proposalTrackers.getOrPut(mint) { ProposalTracker() }
         tracker.lastApprovalMs = now
         tracker.approvalCount++

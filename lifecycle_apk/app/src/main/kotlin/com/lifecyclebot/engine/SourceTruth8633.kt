@@ -19,6 +19,12 @@ package com.lifecyclebot.engine
  */
 object SourceTruth8633 {
     /** DexScreener token-profiles/latest (paid profiles). */
+    /**
+     * V5.0.8779 — code audit (discovery F9): the crypto desk's Solana hand-offs entered meme intake as DEX_TRENDING (the 8633
+     * relabel missed the site) and became the largest pre-FDG source (SRC|DEX_TRENDING=422), graded under a DexScreener cell and
+     * first in the selector's DEX family. They carry their own name; they still route to the established lanes.
+     */
+    const val CRYPTO_DESK_HANDOFF_8779 = "CRYPTO_DESK_HANDOFF"
     const val DEX_PROFILES_8633 = "DEX_PROFILES"
     /** DexScreener token-boosts top + latest (paid boosts); the existing DEX_BOOSTED name is kept. */
     const val DEX_BOOSTS_8633 = "DEX_BOOSTED"
