@@ -80,7 +80,24 @@ object EdgeModel8537 {
     // V5.0.8660: 8657/8658 fixed non-pump PumpPortal frames priced with pump.fun's curve, but the 8650 model
     // remained loaded with those phantom 2,900% labels and reported CORE/TREASURY authority. A fresh model
     // must replay only venue-scoped rows and earn OOS authority again, never inherit the poisoned old OOS bar.
-    internal const val MODEL_EPOCH_8642 = 8722
+    // V5.0.8801: every row before 8801 read its run-up / peak / drawdown off a tape that took foreign pools' swaps
+    // (PumpSwapTape8307 guessed a pool's coin) and prints far off the coin's own market; the ridge is rebuilt from the
+    // dataset with those columns unknown on old rows ([column8801]) and earns its authority again.
+    internal const val MODEL_EPOCH_8642 = 8801
+    internal const val SHAPE_EPOCH_8801 = 8801
+    private val SHAPE_COLUMNS_8801 = setOf("runup", "pxPeak", "dd", "fromPeak", "fromFirst", "runupFromLow", "volatility")
+
+    /**
+     * Pure: one numeric column of a dataset row, as every learner of the dataset reads it (EdgeModel8537, TreeRanker8737,
+     * LearnerColumns8798, StrategyLab8755). A price-shape column of a row recorded before [SHAPE_EPOCH_8801] reads unknown:
+     * 15.7 % of the 5.0.8797 rows (235 of 950 coins) carried a price path > 2.5x off the coin's own cap, so an old
+     * "78-96 % under its peak" is not evidence. The label (net) and every non-price column stand.
+     */
+    internal fun column8801(o: org.json.JSONObject, key: String): Double {
+        if (!o.has(key) || o.isNull(key)) return Double.NaN
+        if (key in SHAPE_COLUMNS_8801 && o.optInt("modelEpoch", 0) < SHAPE_EPOCH_8801) return Double.NaN
+        return o.optDouble(key, Double.NaN)
+    }
     internal const val VENUE_SCOPE_EPOCH_8660 = 8660
     private val SOLANA_MINT_8660 = Regex("^[1-9A-HJ-NP-Za-km-z]{32,44}$")
     private fun unscopedSolana8661(mint: String, scopeEpoch: Int): Boolean =
@@ -654,7 +671,7 @@ object EdgeModel8537 {
             try {
                 val o = org.json.JSONObject(line)
                 if (!replayAccept8642(o)) return@forEachLine
-                fun d(k: String) = o.optDouble(k, Double.NaN)
+                fun d(k: String) = column8801(o, k)
                 val r = Raw(o.optString("lane").trim().uppercase(), o.optString("src"), d("liq"), d("mcap"), d("age"),
                     d("runup"), d("pxPeak"), d("dd"), d("bp"), d("chg5m"), d("chg1h"), d("volAccel"), d("top"),
                     o.optString("phase"), d("v3"), d("cost"), d("holderVel"), d("txVel"), d("curve"), d("turnover"), o.optInt("flags"),

@@ -55,7 +55,8 @@ class Aate8800PrintConsensusTest {
 
     @Test fun everyPricePathIsGuarded() {
         val w = src("engine/truth/PrintWitness8750.kt")
-        assertTrue(w.contains("if (v0 != Verdict.OUT_OF_BAND && !consensusAccepts8800(mint, priceSol, atMs, nowMs))"))
+        // superseded by V5.0.8801 — the consensus is told whether the print was witnessed, and by which trade
+        assertTrue(w.contains("!consensusAccepts8800(mint, priceSol, atMs, nowMs, witnessed = v0 != Verdict.UNWITNESSED, sig = sig, wallet = wallet)"))
         assertTrue(src("engine/DataOrchestrator.kt").contains("PrintWitness8750.consensusAllows8800(mint, priceSolPerToken)"))
         val crypto = src("perps/CryptoAltTrader.kt")
         assertTrue(crypto.contains("if (!fresh8800) chainHeldMark8800(resolved!!)"))

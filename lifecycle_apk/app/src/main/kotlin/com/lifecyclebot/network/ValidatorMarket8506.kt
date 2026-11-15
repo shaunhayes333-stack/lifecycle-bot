@@ -81,12 +81,13 @@ internal object ValidatorMarket8506 {
             val delta = SolanaSwapEvidence8506.deltas(tx, e.user)
             val matched = delta.filter { (m, q) -> m != ChainLaunchFeed8179.WSOL_8179 && (q > 0) == e.isBuy &&
                 abs(abs(q) - e.tokens) <= e.tokens * 0.000001 }.keys.singleOrNull()
-            val mint = PumpSwapTape8307.mintForPool8307(e.pool) ?: matched ?: continue
+            // V5.0.8801 — the pool's coin is the one chain proved; a balance match is only a hint that asks chain
+            val mint = PumpSwapTape8307.mintForPool8307(e.pool)
+            if (mint == null) { if (preview == null && matched != null) PumpSwapTape8307.notePoolMint8307(e.pool, matched); continue }
             if (matched != null && matched != mint) continue
             val wrap = delta[ChainLaunchFeed8179.WSOL_8179]
             val vaultMints = SolanaSwapEvidence8506.balances(tx, "postTokenBalances", e.pool).keys
             if (!(wrap != null && (wrap < 0) == e.isBuy) && !(ChainLaunchFeed8179.WSOL_8179 in vaultMints && mint in vaultMints)) continue
-            if (preview == null && matched != null) PumpSwapTape8307.notePoolMint8307(e.pool, mint)
             val ms = e.tsSec * 1000L
             if (ms <= 0 || now - ms !in 0L..15_000L) continue
             prints.add(KineticFlow8506.Swap(mint, "PUMPSWAP", sig, e.user, e.isBuy, e.sol, e.tokens, ms, slot, sourceTime = true) to e.pool)

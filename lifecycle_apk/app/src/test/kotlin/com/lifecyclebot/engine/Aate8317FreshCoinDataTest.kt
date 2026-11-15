@@ -284,7 +284,7 @@ class Aate8317DataHolesTest {
         assertTrue(deliver.indexOf("notePumpSwapPool8317(l)") in 0 until deliver.indexOf("if (seenMints.contains8179(l.mint))"))
         val note = feed.substringAfter("private fun notePumpSwapPool8317(").substringBefore("private fun recordBirth8179(")
         assertTrue(note.contains("if (l.venue != Venue8179.PUMPSWAP || l.pool.isBlank() || l.mint.isBlank()) return"))
-        assertTrue(note.contains("PumpSwapTape8307.notePoolMint8307(l.pool, l.mint)"))
+        assertTrue(note.contains("PumpSwapTape8307.notePoolMint8307(l.pool, l.mint, verifiedSolQuote8751 = proven8801)"))   // V5.0.8801
     }
 
     @Test fun aTapePrintStaysFreshForTheWholeBuyPressureWindow() {

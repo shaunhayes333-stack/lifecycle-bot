@@ -132,7 +132,7 @@ object TreeRanker8737 {
             val lane = o.optString("lane", "")
             if (!net.isFinite() || net < -100.0 || lane.startsWith("LPSTATE") || lane.startsWith("SETUP") ||
                 lane.startsWith("PLANWAIT") || lane.startsWith("ORIGIN")) continue
-            fun d(k: String) = if (o.isNull(k)) Double.NaN else o.optDouble(k, Double.NaN)
+            fun d(k: String) = EdgeModel8537.column8801(o, k)   // V5.0.8801 — old rows' price shape reads unknown
             if (!EdgeModel8537.plausible8617(d("mcap"), net, o.optBoolean("witness", false))) continue
             // V5.0.8767 — code audit (learning 1, data P0-2): the tree trained on rows the edge model itself refuses — entries
             // never buyable (fill=false: most fast meme coins), pre-8660 non-pump rows carrying pump.fun curve marks, 5 / 15 /

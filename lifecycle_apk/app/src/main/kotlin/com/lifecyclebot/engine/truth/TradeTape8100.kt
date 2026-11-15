@@ -83,7 +83,7 @@ object TradeTape8100 {
      */
     fun launchEvidence8750(mint: String, priceSol: Double, sol: Double, tokenQty: Double, isBuy: Boolean, src: String, sig: String,
                            eventMs: Long, recvMs: Long, basis: PrintWitness8750.Basis, wallet: String = ""): PrintWitness8750.Verdict {
-        val v = PrintWitness8750.check8750(mint, priceSol, sol, tokenQty, if (eventMs > 0L) eventMs else recvMs, recvMs, basis)
+        val v = PrintWitness8750.check8750(mint, priceSol, sol, tokenQty, if (eventMs > 0L) eventMs else recvMs, recvMs, basis, src, sig, wallet)
         if ((v == PrintWitness8750.Verdict.RESERVES || v == PrintWitness8750.Verdict.WITNESSED) && eventMs in 1L..recvMs) {
             LaunchHour8628.trade(mint, eventMs, sig, isBuy, sol, tokenQty, priceSol, recvMs, src, wallet)
             LaunchSniper8748.onPrint8748(mint, eventMs, priceSol, isBuy, recvMs, sig)   // V5.0.8748 — live prints only (it checks the lag)
@@ -118,7 +118,7 @@ object TradeTape8100 {
         // is the verdict a caller already took through that route for this very print (HeliusCurveTape8354, before its care filter).
         // Historic decoded prints fill data only. A late replay cannot awaken the launch sniper.
         val verdict8750 = witness8750 ?: if (historyOnly8751)
-            PrintWitness8750.check8750(mint, priceSol, sol, tokenQty, if (eventMs > 0L) eventMs else recvMs, recvMs, priceBasis8750)
+            PrintWitness8750.check8750(mint, priceSol, sol, tokenQty, if (eventMs > 0L) eventMs else recvMs, recvMs, priceBasis8750, src, sig, wallet)
         else launchEvidence8750(mint, priceSol, sol, tokenQty, isBuy, src, sig, eventMs, recvMs, priceBasis8750, wallet)
         if (verdict8750 == PrintWitness8750.Verdict.OUT_OF_BAND) return false
         // Only a print that passed its independent price witness can populate

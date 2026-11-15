@@ -76,7 +76,7 @@ object StrategyLab8755 {
         val lane = o.optString("lane", "").uppercase()
         if (!net.isFinite() || net < -100.0 || lane.isBlank() || lane.startsWith("LPSTATE") || lane.startsWith("SETUP") ||
             lane.startsWith("PLANWAIT") || lane.startsWith("ORIGIN") || lane == "ALL_LAUNCHES") return null
-        fun d(k: String) = if (o.isNull(k)) Double.NaN else o.optDouble(k, Double.NaN)
+        fun d(k: String) = EdgeModel8537.column8801(o, k)   // V5.0.8801 — old rows' price shape reads unknown
         if (!EdgeModel8537.plausible8617(d("mcap"), net, o.optBoolean("witness", false))) return null
         if (lane !in EdgeModel8537.LANES || !EdgeModel8537.replayAccept8642(o)) return null   // V5.0.8767 — the dataset's one acceptance rule
         val src = o.optString("src", "").split(',').firstOrNull()?.trim()?.uppercase().orEmpty().ifBlank { "UNKNOWN" }

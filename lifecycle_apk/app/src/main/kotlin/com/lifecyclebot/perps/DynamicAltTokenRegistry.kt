@@ -1667,10 +1667,19 @@ object DynamicAltTokenRegistry {
         return price
     }
 
+    /**
+     * Pure (V5.0.8801): when a row's PRICE was observed — its own observation stamp, else (a writer that observed it just
+     * now without a source clock: the fan-out, another authority) the row's write time. The write time alone is not the
+     * price's: a registry write that merged other fields, or a refresh that returned an old price, is not a new mark.
+     */
+    internal fun priceTime8801(priceObservedAtMs: Long, lastUpdatedMs: Long): Long =
+        if (priceObservedAtMs > 0L) priceObservedAtMs else lastUpdatedMs
+
     fun heldMarkSnapshot7251(identityOrAddress: String): HeldMarkRefresh7251 {
         val refreshed = registry[identityOrAddress] ?: getTokenByMint(identityOrAddress)
         val now = System.currentTimeMillis()
-        val observedAt = refreshed?.lastUpdatedMs ?: 0L
+        // V5.0.8801 (external review of 8800): freshness is the price's observation time, not the row's write time
+        val observedAt = refreshed?.let { priceTime8801(it.priceObservedAtMs8372, it.lastUpdatedMs) } ?: 0L
         val price = refreshed?.price?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
         val fresh = price > 0.0 && observedAt > 0L &&
             (now - observedAt).coerceAtLeast(0L) <= PRICE_TTL_MS
@@ -1723,8 +1732,10 @@ object DynamicAltTokenRegistry {
     fun observeHeldMarkAt8800(identityOrAddress: String, priceUsd: Double, observedAtMs: Long): Boolean {
         if (!priceUsd.isFinite() || priceUsd <= 0.0 || observedAtMs <= 0L) return false
         val existing = registry[identityOrAddress] ?: getTokenByMint(identityOrAddress) ?: return false
-        if (existing.lastUpdatedMs > observedAtMs) return false          // a newer observation already stands
-        registry[existing.canonicalIdentity6544] = existing.copy(price = priceUsd, priceObservedAtMs8372 = observedAtMs, lastUpdatedMs = observedAtMs)
+        // V5.0.8801 — a newer PRICE observation stands; a newer registry write (fields merged, an old price re-fetched) does not
+        if (priceTime8801(existing.priceObservedAtMs8372, existing.lastUpdatedMs) > observedAtMs) return false
+        registry[existing.canonicalIdentity6544] = existing.copy(price = priceUsd, priceObservedAtMs8372 = observedAtMs,
+            lastUpdatedMs = maxOf(existing.lastUpdatedMs, observedAtMs))
         return true
     }
 

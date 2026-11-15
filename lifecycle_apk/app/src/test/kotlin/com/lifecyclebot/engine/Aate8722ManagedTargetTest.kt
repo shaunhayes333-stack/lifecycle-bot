@@ -22,7 +22,8 @@ class Aate8722ManagedTargetTest {
         assertEquals("a +1.5 % prediction is a pick as it stands", 4, o.selN)
         val src = File("src/main/kotlin/com/lifecyclebot/engine/truth/EdgeModel8537.kt").readText()
         assertTrue(src.contains("val y = managedTarget8722(s.raw.lane, netPct, s.raw.costPct)"))
-        assertTrue(src.contains("internal const val MODEL_EPOCH_8642 = 8722"))
+        // superseded by V5.0.8801 — the epoch moved on again (old rows' price shape reads unknown); it never moves back
+        assertTrue(EdgeModel8537.MODEL_EPOCH_8642 >= 8722)
     }
 
     @Test fun aPairThatPaysOnlyTogetherIsLearned() {

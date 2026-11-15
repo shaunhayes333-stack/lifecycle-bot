@@ -898,17 +898,23 @@ class HeliusWebSocket(
         // V5.0.8191 — a graduated pump coin trades on PumpSwap, whose Buy/SellEvent carries no mint (the pool's base is
         // the subscribed mint); decoded only for a pump-migrated mint (base = the token, quote = WSOL) and only when the
         // swap's own price agrees with the pool reserves it reports (a layout mismatch never becomes a print).
+        // V5.0.8801 — a route through several pools carries several events; only the pool chain proved is this mint's
+        // (PumpSwapTape8307.mintForPool8307). Any other pool is a hint that asks chain, never a print of this mint.
+        var pumpSwapSeen8801 = false
         if (mint.endsWith("pump")) for (i in 0 until logs.length()) {
             val line = logs.optString(i, "")
             if (!line.startsWith("Program data: ")) continue
             val b = try { android.util.Base64.decode(line.removePrefix("Program data: ").trim(), android.util.Base64.DEFAULT) } catch (_: Throwable) { continue }
             val ev = PumpSwapEvents8191.decode8191(b) ?: continue
+            pumpSwapSeen8801 = true
+            if (PumpSwapTape8307.mintForPool8307(ev.pool) != mint) { PumpSwapTape8307.notePoolMint8307(ev.pool, mint); continue }
             noteDecoded8096(mint)
             HeliusSubscriptionTelemetry7807.pumpSwapDecoded8191.incrementAndGet()
             PumpSwapTape8307.noteDecoded8307(sig, mint, ev.pool, ev.tsSec)   // V5.0.8307 — the print keeps its pool and block time
             dispatchCallback7863(mint) { onSwap(mint, ev.isBuy, ev.sol, ev.tokens, ev.user, sig) }
             return
         }
+        if (pumpSwapSeen8801) { noteDecoded8096(mint); return }   // a decodable stream whose pool chain is still proving
 
         // Detect swap direction from log messages
         val logList = (0 until logs.length()).map { logs.optString(it, "") }

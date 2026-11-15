@@ -146,7 +146,8 @@ class Aate8307DataTest {
         assertEquals(TradeTape8100.SRC_HELIUS_8169, p[0].source)
         assertEquals(1_760_000_090_000L, p[0].atMs)
         assertEquals(0.5 / 2_000.0, p[0].priceSol, 1e-15)
-        assertEquals(mint, PumpSwapTape8307.mintForPool8307(poolB58))
+        // superseded by V5.0.8801 — a per-mint decode is a hint: only chain proof maps the pool to its coin
+        assertNull(PumpSwapTape8307.mintForPool8307(poolB58))
     }
 
     @Test fun programStreamSwapsOnAKnownPoolReachTheTapeAndUnknownPoolsAreNeverGuessed() {
@@ -289,7 +290,10 @@ class Aate8307DataTest {
             .put("transaction", org.json.JSONObject().put("message", org.json.JSONObject()
                 .put("accountKeys", org.json.JSONArray().put(org.json.JSONObject().put("pubkey", ammMint)))))
             .put("meta", org.json.JSONObject().put("err", org.json.JSONObject.NULL).put("logMessages", logs)))
-        assertEquals(2, PumpSwapTape8307.onEnhancedTx8307(result, setOf(curveMint, ammMint), now))
+        // superseded by V5.0.8801 — the PumpSwap swap's pool is not proven yet: it waits, it is never guessed onto a coin
+        assertEquals(1, PumpSwapTape8307.onEnhancedTx8307(result, setOf(curveMint, ammMint), now))
+        assertTrue(TradeTape8100.prints8128(ammMint, now, 120_000L).isEmpty())
+        PumpSwapTape8307.notePoolMint8307(poolB58, ammMint, now, verifiedSolQuote8751 = true)   // chain answers: replayed
         val c = TradeTape8100.prints8128(curveMint, now, 120_000L)
         assertEquals(1, c.size)
         assertEquals(TradeTape8100.VENUE_CURVE_8285, c[0].pool)

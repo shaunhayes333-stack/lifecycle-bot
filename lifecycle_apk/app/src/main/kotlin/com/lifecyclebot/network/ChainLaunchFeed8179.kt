@@ -859,7 +859,11 @@ object ChainLaunchFeed8179 {
      */
     private fun notePumpSwapPool8317(l: Launch8179) {
         if (l.venue != Venue8179.PUMPSWAP || l.pool.isBlank() || l.mint.isBlank()) return
-        try { PumpSwapTape8307.notePoolMint8307(l.pool, l.mint) } catch (_: Throwable) {}
+        // V5.0.8801 — the creation instruction is chain proof of the pool's base and quote: a wSOL-quoted pool of a pump.fun
+        // coin (the swap decoder's 6 decimals) maps at once; a USDC/USDT-quoted one would price the coin in dollars as SOL
+        // (~70x high) and is only a hint, which the pool account read then refuses.
+        val proven8801 = l.quoteMint == WSOL_8179 && PumpCurveKeys7269.isPumpMint8658(l.mint)
+        try { PumpSwapTape8307.notePoolMint8307(l.pool, l.mint, verifiedSolQuote8751 = proven8801) } catch (_: Throwable) {}
     }
 
     /** The chain's own witness of the launch: a direct birth only when this transaction created the mint, else a floor. */

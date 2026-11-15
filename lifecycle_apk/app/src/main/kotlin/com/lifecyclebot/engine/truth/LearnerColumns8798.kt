@@ -116,10 +116,7 @@ object LearnerColumns8798 {
     }
 
     /** Pure: the columns of one dataset row (JSON), by name; a row written before 8798 reads NaN for every column. */
-    fun fromRow(o: org.json.JSONObject): DoubleArray = DoubleArray(SIZE) { i ->
-        val k = NAMES[i]
-        if (!o.has(k) || o.isNull(k)) Double.NaN else o.optDouble(k, Double.NaN)
-    }
+    fun fromRow(o: org.json.JSONObject): DoubleArray = DoubleArray(SIZE) { i -> EdgeModel8537.column8801(o, NAMES[i]) }   // V5.0.8801
 
     /**
      * Pure: the observed columns as dataset JSON fields (",\"name\":value" each). An unobserved column is left out (a

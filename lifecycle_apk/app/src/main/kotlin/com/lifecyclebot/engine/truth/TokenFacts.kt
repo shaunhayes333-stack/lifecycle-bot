@@ -298,6 +298,7 @@ object TokenFacts {
         if (nonPumpCurveOffer8658(ts, source)) { count(refused, "${field.name}:NON_PUMP_CURVE_8658"); return false }
         if (!validFor(field, value)) { count(refused, "${field.name}:NOT_A_READING"); return false }
         val offered = Fact(value, source, rank, stampOf(rank, observedAtMs, nowMs))
+        if (field == Field.MCAP_USD) noteAnchorMcap8801(ts.mint, offered)
         synchronized(ts.facts8551) {
             val prior = snapshotFact(ts, field)
             val ok = if (offered.rank <= Rank.RESTORE) prior == null || prior.rank <= Rank.RESTORE
@@ -485,6 +486,32 @@ object TokenFacts {
         count(accepted, "GRADUATED:" + source.take(40))
         return flipped
     }
+
+    // ── PRICE ANCHOR (V5.0.8801, DATA_MAP §11) ────────────────────────────────────────────────────────────────────────
+
+    /**
+     * The market cap an INDEPENDENT source reported for a mint — a provider's figure for its main pair (DexScreener WS /
+     * pair poll, Birdeye overview, pump.fun's own API) or the active curve account — kept apart from the store's MCAP fact,
+     * which a print-derived cap (CHAIN_PRINT_X_SUPPLY) may hold. PrintWitness8750 checks every print against it: 15.7 % of
+     * the 5.0.8797 dataset's decisions (235 of 950 coins) carried a price path more than 2.5x away from the coin's own
+     * reported cap — "plumber" ran ~21x high for its whole first hour after graduation.
+     */
+    private val ANCHOR_SOURCES_8801 = setOf("DEXSCREENER_WS", "DEX_PAIR_POLL", "BIRDEYE_OVERVIEW", "PUMP_FUN_FRONTEND_API",
+        "PROVIDER_CAP_8533", "CURVE_RESERVES_7951")
+    private val anchorMcap8801 = ConcurrentHashMap<String, Fact>()
+
+    /** Pure: is [source] an independent cap (never one derived from the bot's own prints)? */
+    fun anchorSource8801(source: String): Boolean = source in ANCHOR_SOURCES_8801
+
+    private fun noteAnchorMcap8801(mint: String, f: Fact) {
+        if (!anchorSource8801(f.source) || f.rank <= Rank.RESTORE || !(f.value > 0.0) || f.observedAtMs <= 0L) return
+        anchorMcap8801.merge(mint, f) { old, new -> if (new.observedAtMs >= old.observedAtMs) new else old }
+        if (anchorMcap8801.size > 20_000) anchorMcap8801.entries.removeIf { System.currentTimeMillis() - it.value.observedAtMs > 30L * 60_000L }
+    }
+
+    /** The newest independent cap of [mint] no older than [maxAgeMs], or null. */
+    fun anchorMcap8801(mint: String, nowMs: Long, maxAgeMs: Long): Fact? =
+        anchorMcap8801[mint]?.takeIf { nowMs - it.observedAtMs in -5_000L..maxAgeMs }
 
     // ── HOLDERS (V5.0.8798, DATA_MAP §9) ───────────────────────────────────────────────────────────────────────────────
 

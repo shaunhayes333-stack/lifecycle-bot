@@ -41,6 +41,8 @@ object PumpSwapTape8307 {
     private val unknownBuffered8751 = AtomicLong()
     private val unknownReplayed8751 = AtomicLong()
     private val unknownEvicted8751 = AtomicLong()
+    private val poolHints8801 = AtomicLong()
+    private val poolHintConflicts8801 = AtomicLong()
 
     private val decoded = AtomicLong(0)
     private val joined = AtomicLong(0)
@@ -77,15 +79,35 @@ object PumpSwapTape8307 {
         return a
     }
 
-    /** A pool whose base mint is observed (decoded for a watched mint, or a DexScreener pumpswap row). */
+    /**
+     * A pool whose base mint is observed. V5.0.8801 §ONLY_CHAIN_MAPS_A_POOL — only chain proof maps a pool: the pool
+     * account read (PumpSwapPools8750: owned by PumpSwap, base a pump.fun coin, quoted in wSOL) or the pool-creation
+     * instruction itself quoted in wSOL ([verifiedSolQuote8751]). Anything else — a DexScreener row, a per-mint decode, a
+     * validator-transaction match — is a HINT: it asks chain for the pool and maps nothing. Until 8801 a hint mapped the pool
+     * at once and the parsed stream guessed "the one included coin the transaction touched", so a multi-hop route (coin A
+     * -> SOL -> coin B) put pool A's swaps on coin B's tape for good: a foreign price stream that agreed with itself (the
+     * consensus could not see it) and ran a coin ~21x high or ~7x low for an hour ("plumber", 9a13…pump).
+     */
     fun notePoolMint8307(pool: String, mint: String, nowMs: Long = System.currentTimeMillis(), verifiedSolQuote8751: Boolean = false) {
         if (!realPool8307(pool) || mint.isBlank() || pool == mint) return
-        if (poolMint.size > POOL_CAP_8307) poolMint.clear()
+        if (!verifiedSolQuote8751) {
+            val known = poolMint[pool]
+            if (known == null) { poolHints8801.incrementAndGet(); PumpSwapPools8750.resolve8750(pool) }
+            else if (known != mint) poolHintConflicts8801.incrementAndGet()   // chain already said otherwise: the hint is wrong
+            return
+        }
+        if (poolMint.size > POOL_CAP_8307) { poolMint.clear(); provenMints8801.clear() }
         poolMint[pool] = mint
-        // A DexScreener mapping is a hint. Only the on-chain owner/base/WSOL quote verification may backfill SOL trades.
-        if (verifiedSolQuote8751) replayUnknownPool8751(pool, mint, nowMs)
+        provenMints8801.add(mint)
+        replayUnknownPool8751(pool, mint, nowMs)
     }
 
+    private val provenMints8801 = ConcurrentHashMap.newKeySet<String>()
+
+    /** V5.0.8801 — chain proved [mint] a wSOL PumpSwap pool: its curve, migrated or not yet marked so, is no price reference. */
+    fun hasProvenPool8801(mint: String): Boolean = mint in provenMints8801
+
+    /** The coin chain proved [pool] trades (null: not proven yet). */
     fun mintForPool8307(pool: String): String? = poolMint[pool]
 
     /** Pure: the PumpSwap swaps in one transaction's logs, each with the pool it executed on. */
@@ -296,14 +318,17 @@ object PumpSwapTape8307 {
                         wallet = ev.user,
                     )) { n++; enhancedCurvePrints.incrementAndGet() }
             }
-            // PumpSwap: the event names its pool; the pool's mint is known, or it is the one included mint the transaction touched.
+            // PumpSwap: the event names its pool, never its coin. V5.0.8801 — the coin is the one chain proved for that pool;
+            // an unproven pool's swaps wait (bounded) while chain is asked, and replay once it answers. Never guessed.
             val amm = swapsInLogs8307(logs)
             if (amm.isNotEmpty()) {
-                val touched = keysOf8307(msg)
                 for (ev in amm) {
-                    val mint = poolMint[ev.pool]?.takeIf { it in included } ?: attributeMint8307(touched, included)
-                    if (mint == null) { enhancedUnattributed.incrementAndGet(); continue }
-                    notePoolMint8307(ev.pool, mint)
+                    val mint = poolMint[ev.pool]
+                    if (mint == null) {
+                        bufferUnknownPool8751(ev, sig, nowMs)
+                        enhancedUnattributed.incrementAndGet(); PumpSwapPools8750.resolve8750(ev.pool); continue
+                    }
+                    if (mint !in included || !(ev.sol > 0.0 && ev.tokens > 0.0)) continue
                     if (com.lifecyclebot.engine.truth.TradeTape8100.note8285(
                             mint, ev.sol / ev.tokens, ev.sol, ev.tokens, ev.isBuy, com.lifecyclebot.engine.truth.TradeTape8100.SRC_HELIUS_8169,
                             pool = ev.pool, signature = sig, eventMs = eventMs8307(ev.tsSec, nowMs), recvMs = nowMs,
@@ -362,12 +387,12 @@ object PumpSwapTape8307 {
 
     fun statusLine8307(): String =
         "pumpSwapTape8307[decodedPerMint=${decoded.get()} pooledPrints=${joined.get()} programSwaps=${programSwaps.get()} " +
-            "programTaped=${programTaped.get()} unknownPool=${programUnknownPool.get()} knownPools=${poolMint.size} ${PumpSwapPools8750.statusLine8750()} " +
+            "programTaped=${programTaped.get()} unknownPool=${programUnknownPool.get()} knownPools=${poolMint.size} hints8801=${poolHints8801.get()} hintConflicts8801=${poolHintConflicts8801.get()} ${PumpSwapPools8750.statusLine8750()} " +
             "unknownBuffer{pools=${synchronized(unknownPoolLock8751) { unknownPoolPrints8751.size }},saved=${unknownBuffered8751.get()},replayed=${unknownReplayed8751.get()},evicted=${unknownEvicted8751.get()}} " +
             "focusPromoted=${focusPromoted.get()}] " + heliusLine8307()
 
     internal fun clearForTest8307() {
-        bySig.clear(); poolMint.clear(); decoded.set(0); joined.set(0); programSwaps.set(0); programTaped.set(0)
+        bySig.clear(); poolMint.clear(); provenMints8801.clear(); poolHints8801.set(0); poolHintConflicts8801.set(0); decoded.set(0); joined.set(0); programSwaps.set(0); programTaped.set(0)
         programUnknownPool.set(0); focusPromoted.set(0)
         unknownBuffered8751.set(0); unknownReplayed8751.set(0); unknownEvicted8751.set(0)
         synchronized(unknownPoolLock8751) { unknownPoolPrints8751.clear() }

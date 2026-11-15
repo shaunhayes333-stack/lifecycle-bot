@@ -197,3 +197,30 @@ The launch tape (`LaunchTape7921`) is now fed by every decoded program-stream pr
 (`onProgramPrint8798`), so a launch's crowd, dev sell, peak and low exist from its birth; watched mints keep arriving
 through `DataOrchestrator` only. Its run from the low and distance from the peak fill the frame's shape when neither the
 candles nor the trade tape read one.
+
+## 11. Price integrity (8801)
+
+A price is only as good as the pool it came from. Three rules now hold for every print, in this order:
+
+1. **Only chain maps a pool to its coin** (`PumpSwapTape8307.notePoolMint8307`). A PumpSwap swap event names its pool,
+   never its coin. A pool maps only on chain proof: the pool account read by `PumpSwapPools8750` (owned by PumpSwap,
+   base a pump.fun coin, quoted in wSOL) or the pool-creation instruction quoted in wSOL. A DexScreener row, a per-mint
+   decode or a validator-transaction match is a hint: it asks chain and maps nothing. Swaps on an unproven pool wait in a
+   bounded buffer and replay once chain answers. Before 8801 the parsed stream guessed "the one included coin the
+   transaction touched", so a multi-hop route put a foreign pool's swaps on a coin's tape permanently. The per-mint stream
+   took the first PumpSwap event of a transaction as the subscribed coin's.
+2. **Physics** (`PrintWitness8750.physicsRefusal8801`). A coin on an active pump.fun curve prices between 20 and
+   1,000 SOL of cap (the curve runs about 28 to 410 SOL). Price × supply × SOL/USD may not sit more than 4× above the cap
+   an independent source reported in the last two minutes (`TokenFacts.anchorMcap8801`: DexScreener WS and pair poll,
+   Birdeye overview, pump.fun API, provider cap, curve account). The 4× allowance grows by another 4× for each minute of
+   the anchor's age. The anchor is one-sided on purpose: a crash must always reach the stops.
+3. **Consensus** (8800). A print must agree within 3× with the median of the coin's own last prints. Three agreeing
+   prints inside a minute re-price the coin.
+
+Every refusal is counted by feed and reason in the report (`printWitness8750[… refusedBy8801{SRC:REASON=n}]`), so a
+broken producer shows up by name.
+
+**Training hygiene.** `EdgeModel8537.column8801` is the one reader of a dataset column for every learner (edge ridge,
+trees, learner columns, strategy lab). On a row recorded before epoch 8801, the price-shape columns (runup, pxPeak, dd,
+fromPeak, fromFirst, runupFromLow, volatility) read unknown, and labels plus every other column stand.
+`MODEL_EPOCH_8642` = 8801 rebuilds the ridge from the dataset under that rule.
