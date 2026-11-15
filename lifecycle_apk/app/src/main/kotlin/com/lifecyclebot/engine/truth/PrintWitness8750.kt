@@ -166,6 +166,20 @@ object PrintWitness8750 {
         }
     } catch (_: Throwable) { null }
 
+    /** Pure (V5.0.8803): may a cap of [capUsd] be a pump coin's on a live curve ([onLiveCurve]) at [solUsd]? */
+    fun curveCapOk8803(capUsd: Double, solUsd: Double, onLiveCurve: Boolean): Boolean {
+        if (!onLiveCurve || !(capUsd > 0.0)) return true
+        val capSol = EconomicUnitInvariant7061.usdToSol(capUsd, solUsd)
+        return !capSol.isFinite() || capSol in CURVE_MIN_CAP_SOL..CURVE_MAX_CAP_SOL      // no SOL price: no judgement
+    }
+
+    /** TokenFacts (V5.0.8803): the market-cap fact obeys the same curve physics as every print. */
+    internal fun curveCapAllowed8803(mint: String, capUsd: Double, solUsd: Double, nowMs: Long): Boolean {
+        val pump = try { com.lifecyclebot.network.PumpCurveKeys7269.isPumpMint8658(mint) } catch (_: Throwable) { false }
+        if (!pump) return true
+        return curveCapOk8803(capUsd, solUsd, liveCurve8801(mint, nowMs) != null)
+    }
+
     /** The live inputs of [physicsRefusal8801] for [mint]. */
     private fun physics8801(mint: String, priceSol: Double, nowMs: Long): String? {
         val pump = try { com.lifecyclebot.network.PumpCurveKeys7269.isPumpMint8658(mint) } catch (_: Throwable) { false }

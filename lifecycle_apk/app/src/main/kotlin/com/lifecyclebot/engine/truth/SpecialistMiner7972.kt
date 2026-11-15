@@ -216,7 +216,7 @@ object SpecialistMiner7972 {
             // V5.0.7973 — the meme meta: curve progress (graduation play), copycat theme, livestream, King of the Hill.
             val meta = com.lifecyclebot.engine.market.MemeMeta7973
             val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
-            put("grad", if (ts.mint.endsWith("pump")) meta.gradBin7973(meta.curveProgress7973(mc, solUsd)) else "NA")
+            put("grad", if (ts.mint.endsWith("pump")) meta.gradBin7973(meta.curveProgress8803(ts.mint)) else "NA")   // V5.0.8803
             put("beta", if (try { meta.beta7973(ts.mint, ts.symbol, ts.name, nowMs) } catch (_: Throwable) { false }) "Y" else "N")
             put("live", if (try { meta.live7973(ts.mint, nowMs) || meta.koth7973(ts.mint, nowMs) } catch (_: Throwable) { false }) "Y" else "N")
             // V5.0.7979 — mayhem-mode coin: lets the labels find the GOOD mayhem combinations.

@@ -247,3 +247,20 @@ xStocks live fills are wallet swaps, so they are ALSO canonical positions (lane 
 
 **Pyth.** Hermes requires an API key since 26 Aug 2026 (`Authorization: Bearer`). `PythAuth8802` adds the owner's saved
 key to every Hermes call. Without a key it probes once every 30 min and never opens the SSE stream.
+
+## 13. Inferred values are not facts (8803)
+
+The 5.0.8797 dataset audit (56,583 rows, 6,526 coins) looked for values the bot derived and then stored as observations:
+
+| Value | What it was | Rows affected | Now |
+|---|---|---|---|
+| `curve` (bonding-curve progress) | the market cap inverted through the curve formula | 580 rows "graduated" under 5 min old; 2,081 at 0 % below the opening price | read from the curve itself (graduation, a proven PumpSwap pool, the live curve account), else unknown (`MemeMeta7973.curveProgress8803`) |
+| MCAP fact on a live pump curve | any writer, including print × supply and mark rescales | 2,081 rows below the curve's opening price (as low as $212) | refused outside 20–1,000 SOL of cap while the curve is live (`PrintWitness8750.curveCapAllowed8803`) |
+| labels with exit mark = entry mark | a feed that never moved, scored as an outcome | 4,553 labels (8.0 %; 3,490 fillable; 1,695 from Meteora pools), all exactly −cost | not an outcome for any learner (`EdgeModel8537.noNewPrice8803`, in `replayAccept8642` and the live learn path) |
+| `v3` | 0, the unscored default | 47 % of rows | unknown when V3 never scored the coin |
+
+Still open:
+- Only 1.7 % of labels are chain-witnessed.
+- 1.5 % of lane rows from the same decision disagree on cap by more than 2×.
+- 263 same-coin cap readings jump more than 3× inside a minute.
+Each is counted for the report rather than guessed away.

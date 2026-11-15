@@ -1019,10 +1019,8 @@ object LanePlaybook7907 {
                 val v = ts.history.lastOrNull()?.volumeH1 ?: Double.NaN
                 if (ts.lastMcap > 0.0 && v.isFinite() && v > 0.0) v / ts.lastMcap else Double.NaN
             } catch (_: Throwable) { Double.NaN },
-            curve7978 = try {
-                if (!ts.mint.endsWith("pump")) Double.NaN
-                else com.lifecyclebot.engine.market.MemeMeta7973.curveProgress7973(ts.lastMcap, com.lifecyclebot.engine.WalletManager.lastKnownSolPrice)
-            } catch (_: Throwable) { Double.NaN },
+            // V5.0.8803 — the curve's own state (graduation, proven pool, live account), never inverted from the market cap
+            curve7978 = try { com.lifecyclebot.engine.market.MemeMeta7973.curveProgress8803(ts.mint, nowMs) } catch (_: Throwable) { Double.NaN },
             live7978 = try {
                 com.lifecyclebot.engine.market.MemeMeta7973.live7973(ts.mint, nowMs) || com.lifecyclebot.engine.market.MemeMeta7973.koth7973(ts.mint, nowMs)
             } catch (_: Throwable) { false },

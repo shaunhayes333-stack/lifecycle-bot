@@ -130,6 +130,9 @@ class Aate6619JournalDerivedHeroCoverageTest {
         // production still refuses a genuinely mismatched durable journal.
         com.lifecyclebot.engine.truth.ForensicReconciliation6635.resetForTest()
         com.lifecyclebot.engine.truth.CanonicalPaperReplay6464.resetForTest()
+        // V5.0.8803 — the replay memo (keyed by journal revision and starting cash) is a JVM singleton too: an earlier
+        // test's replay at the same revision and 11.7647 start was served back here, and its result blocked the publish.
+        com.lifecyclebot.engine.truth.JournalEconomicReplay6619.resetForTest()
         ledger.initialize(11.7647)
         // 8794: initialize() records its mutation revision synchronously,
         // while the expensive journal replay is coalesced onto a worker to

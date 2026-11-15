@@ -297,6 +297,12 @@ object TokenFacts {
                       nowMs: Long = System.currentTimeMillis()): Boolean {
         if (nonPumpCurveOffer8658(ts, source)) { count(refused, "${field.name}:NON_PUMP_CURVE_8658"); return false }
         if (!validFor(field, value)) { count(refused, "${field.name}:NOT_A_READING"); return false }
+        // V5.0.8803 — a cap a live pump.fun curve cannot have (2,081 rows of the 5.0.8797 dataset held a cap below the
+        // curve's own opening price, as low as $212) is a unit or basis error, never a reading
+        if (field == Field.MCAP_USD && !PrintWitness8750.curveCapAllowed8803(ts.mint, value,
+                try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }, nowMs)) {
+            count(refused, "${field.name}:CURVE_PHYSICS_8803"); return false
+        }
         val offered = Fact(value, source, rank, stampOf(rank, observedAtMs, nowMs))
         if (field == Field.MCAP_USD) noteAnchorMcap8801(ts.mint, offered)
         synchronized(ts.facts8551) {

@@ -477,7 +477,8 @@ object EdgeModel8537 {
             runup = f?.runup ?: Double.NaN, pxPeak = f?.pxPeak ?: Double.NaN, dd = f?.dd ?: Double.NaN, bp = f?.bp ?: Double.NaN,
             chg5m = f?.chg5m ?: Double.NaN, chg1h = f?.chg1h ?: Double.NaN, volAccel = f?.volAccel ?: Double.NaN,
             top = f?.top ?: Double.NaN, phase = f?.launchPhase.orEmpty().ifBlank { phaseOf8553(f?.age ?: Double.NaN) },
-            v3 = (ts.lastV3Score?.toDouble() ?: ts.entryScore).takeIf { it.isFinite() } ?: Double.NaN, costPct = costPct,
+            // V5.0.8803 — a coin V3 never scored has no score (47 % of the 5.0.8797 rows read v3 = 0, the default)
+            v3 = (ts.lastV3Score?.toDouble() ?: ts.entryScore.takeIf { it != 0.0 })?.takeIf { it.isFinite() } ?: Double.NaN, costPct = costPct,
             holderVel = f?.holderVel7978 ?: Double.NaN, txVel = f?.txVelocity ?: Double.NaN, curve = f?.curve7978 ?: Double.NaN,
             turnover = f?.turnover7978 ?: Double.NaN,
             flags = if (f == null) 0 else flagsOf(f.expertEntry7962, f.live7978, f.beta7978, f.migrated8308, f.structureHlReclaim,
@@ -527,9 +528,24 @@ object EdgeModel8537 {
     const val LARGE_CAP_UNWITNESSED_PCT_8766 = 300.0
     private val implausible8617 = AtomicLong(0L)
 
+    /**
+     * Pure (V5.0.8803): a label whose exit mark IS its entry mark (gross exactly 0) with no chain print behind it saw no new
+     * price in its horizon — a feed that did not move, not a market that did. 8.0 % of the 5.0.8797 dataset's labels (4,553;
+     * 3,490 of them "fillable", 1,695 from Meteora pools) were exactly -cost this way: every one taught "this setup loses
+     * its cost". It is not an outcome; no learner takes it.
+     */
+    fun noNewPrice8803(netPct: Double, costPct: Double, witnessed: Boolean): Boolean =
+        !witnessed && netPct.isFinite() && costPct.isFinite() && kotlin.math.abs(netPct + costPct) <= 1e-6 * maxOf(1.0, kotlin.math.abs(costPct))
+    private val noNewPriceCount8803 = AtomicLong(0L)
+
     /** ForwardReturnLabeler7731.book (slot60): score the frozen prediction out of sample, THEN learn from the outcome. */
     fun learn(s: Snap, netPct: Double, chainWitness: Boolean = false) {
         if (!netPct.isFinite()) return
+        if (noNewPrice8803(netPct, s.raw.costPct, chainWitness)) {
+            noNewPriceCount8803.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("EDGE_LABEL_NO_NEW_PRICE_8803") } catch (_: Throwable) {}
+            return
+        }
         // An in-flight decision captured before the curve fix can arrive AFTER the new
         // model's first boot. Its stored prediction epoch identifies that old price basis;
         // never reintroduce its phantom outcome through the live learn path or pocket ledger.
@@ -647,6 +663,7 @@ object EdgeModel8537 {
         val horizon = row.optLong("horizonMs", 0L)
         if (lane.isBlank() || horizon <= 0L || horizon != PocketLedger8610.targetHorizon(lane)) return false
         val net = row.optDouble("net", Double.NaN)
+        if (noNewPrice8803(net, row.optDouble("cost", Double.NaN), row.optBoolean("witness", false))) return false   // V5.0.8803
         return plausible8617(row.optDouble("mcap", Double.NaN), net, row.optBoolean("witness", false))
     }
 
@@ -837,7 +854,7 @@ object EdgeModel8537 {
             val auth = o != null && authority(o.selN, o.selMean, o.selSe, o.allMean)
             "$l[by=$key8767 n${r?.count ?: 0} oosPicks=n${o?.selN ?: 0}/${pct(o?.selMean)}±${pct(o?.selSe)} all=${pct(o?.allMean)} avoid=${pct(o?.negMean)} refuse8715=n${o?.refN ?: 0}/${pct(o?.refMean)}±${pct(o?.refSe)}vsKept=n${o?.keepN ?: 0}/${pct(o?.keepMean)}±${pct(o?.keepSe)} ${if (auth) "AUTHORITY" else if (o != null && refusalAuthority8715(o.refN, o.refMean, o.refSe, o.keepN, o.keepMean, o.keepSe)) "REFUSES" else "learning"}]"
         }
-        "edge8537[trained=${global.count} learned=${learned.get()} cold=${skippedCold.get()} implausible8617=${implausible8617.get()} oldPredIgnored8642=${oldPredictionsIgnored8642.get()} replay8642=$replayStatus8642 minEdge=+${MIN_EDGE_PCT}% authBar=n$AUTH_MIN_N,mean-se>0,>lane] ${rows.ifBlank { "no labels yet" }}"
+        "edge8537[trained=${global.count} learned=${learned.get()} cold=${skippedCold.get()} implausible8617=${implausible8617.get()} noNewPrice8803=${noNewPriceCount8803.get()} oldPredIgnored8642=${oldPredictionsIgnored8642.get()} replay8642=$replayStatus8642 minEdge=+${MIN_EDGE_PCT}% authBar=n$AUTH_MIN_N,mean-se>0,>lane] ${rows.ifBlank { "no labels yet" }}"
     }
 
     private fun pct(v: Double?) = if (v != null && v.isFinite()) "%+.1f%%".format(v) else "-"

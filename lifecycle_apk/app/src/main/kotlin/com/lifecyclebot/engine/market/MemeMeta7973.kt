@@ -61,6 +61,29 @@ object MemeMeta7973 {
         return ((vSol - 30.0) / GRAD_REAL_SOL).coerceIn(0.0, 1.0)
     }
 
+    /**
+     * Pure (V5.0.8803): pump.fun bonding-curve progress from the CURVE — 1.0 when the coin is known graduated, the curve's
+     * real SOL over [GRAD_REAL_SOL] while a live reading exists, NaN otherwise. The 5.0.8797 dataset showed why the
+     * market-cap inversion ([curveProgress7973]) cannot be a fact: any wrong cap became a wrong curve — 580 rows read
+     * "graduated" at under 5 minutes old, 2,081 rows read 0 % with a cap below the curve's own opening price, and one coin
+     * went 100 % -> 57 % -> 0 % in 20 seconds.
+     */
+    fun curveProgressOf8803(graduated: Boolean, realSol: Double?): Double = when {
+        graduated -> 1.0
+        realSol != null && realSol.isFinite() && realSol >= 0.0 -> (realSol / GRAD_REAL_SOL).coerceIn(0.0, 1.0)
+        else -> Double.NaN
+    }
+
+    /** [mint]'s curve progress from chain facts (graduation, a proven PumpSwap pool, the live curve account); NaN unknown. */
+    fun curveProgress8803(mint: String, nowMs: Long = System.currentTimeMillis()): Double {
+        if (!com.lifecyclebot.network.PumpCurveKeys7269.isPumpMint8658(mint)) return Double.NaN
+        val graduated = try {
+            com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(mint) || com.lifecyclebot.network.PumpSwapTape8307.hasProvenPool8801(mint)
+        } catch (_: Throwable) { false }
+        val real = if (graduated) null else try { com.lifecyclebot.engine.truth.CurveReserves7951.realSolIfActive8046(mint, nowMs) } catch (_: Throwable) { null }
+        return curveProgressOf8803(graduated, real)
+    }
+
     /** Pure: the progress bin the miner reads. */
     fun gradBin7973(progress: Double): String = when {
         !progress.isFinite() -> "NA"
