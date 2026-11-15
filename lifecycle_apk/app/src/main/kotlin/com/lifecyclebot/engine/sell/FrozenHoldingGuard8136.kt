@@ -23,8 +23,10 @@ object FrozenHoldingGuard8136 {
     fun zeroFinalityAllowed8136(frozen: Boolean): Boolean = !frozen
 
     /** Live read of the parsed token-account state (fed by every wallet token read). */
+    // V5.0.8771 — code audit (static 3): an unreadable freeze state proves nothing either; it holds the wait (was: false,
+    // which let a zero read close a frozen holding as an empty wallet — the ghost exit this guard exists to stop).
     fun isFrozen8136(mint: String): Boolean =
-        try { com.lifecyclebot.engine.truth.WalletTokenAccountStateAuthority7253.isFrozen(mint) } catch (_: Throwable) { false }
+        try { com.lifecyclebot.engine.truth.WalletTokenAccountStateAuthority7253.isFrozen(mint) } catch (_: Throwable) { true }
 
     private val heldSince = ConcurrentHashMap<String, Long>()
 

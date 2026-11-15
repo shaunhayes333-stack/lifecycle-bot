@@ -14630,7 +14630,7 @@ class Executor(
         val gooseVerdict4129 = try {
             com.lifecyclebot.engine.PatternGoldenGoose.edge(ts.name, ts.symbol).verdict
         } catch (_: Throwable) { com.lifecyclebot.engine.TokenWinMemory.Verdict.NEUTRAL }
-        val rugBlacklisted4133 = try { com.lifecyclebot.engine.RugMintBlacklist.isBlacklisted(ts.mint) } catch (_: Throwable) { false }
+        val rugBlacklisted4133 = try { com.lifecyclebot.engine.RugMintBlacklist.isBlacklisted(ts.mint) } catch (_: Throwable) { true }   // V5.0.8771 — a safety check that throws refuses (code audit static 2)
         if (RuntimeModeAuthority.isLive() && rugBlacklisted4133) {
             try { ForensicLogger.lifecycle("RUG_BLACKLIST_VETO_V4133", "symbol=${ts.symbol} mint=${ts.mint.take(10)} lane=$laneTag goose=${gooseVerdict4129.name} blSize=${runCatching { com.lifecyclebot.engine.RugMintBlacklist.size() }.getOrDefault(-1)}") } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("RUG_BLACKLIST_VETO") } catch (_: Throwable) {}
@@ -19245,7 +19245,7 @@ class Executor(
             val laneTag4134 = laneRaw4134.uppercase()
 
             // (a) Rug-blacklist — non-negotiable, runs ahead of any pattern bypass.
-            val rugBL4134 = try { com.lifecyclebot.engine.RugMintBlacklist.isBlacklisted(ts.mint) } catch (_: Throwable) { false }
+            val rugBL4134 = try { com.lifecyclebot.engine.RugMintBlacklist.isBlacklisted(ts.mint) } catch (_: Throwable) { true }   // V5.0.8771 — a safety check that throws refuses (code audit static 2)
             if (rugBL4134) {
                 try { ForensicLogger.lifecycle("RUG_BLACKLIST_VETO_V4134", "symbol=${ts.symbol} mint=$mintShort4134 lane=$laneTag4134 path=liveBuy.enter") } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("RUG_BLACKLIST_VETO_LIVEBUY") } catch (_: Throwable) {}

@@ -8588,7 +8588,7 @@ class BotService : Service() {
                             //   2. PatternGoldenGoose catastrophic veto
                             //   3. ScannerLaneBridge.shouldRoute — proven-toxic (src→lane) pair
                             // None of these veto unknown tokens — they only block KNOWN bad.
-                            val v4132_rug = try { com.lifecyclebot.engine.RugMintBlacklist.isBlacklisted(identity.mint) } catch (_: Throwable) { false }
+                            val v4132_rug = try { com.lifecyclebot.engine.RugMintBlacklist.isBlacklisted(identity.mint) } catch (_: Throwable) { true }   // V5.0.8771 — a safety check that throws refuses (code audit static 2)
                             val v4132_gooseCata = try { com.lifecyclebot.engine.PatternGoldenGoose.isCatastrophic(name.ifBlank { identity.symbol }, identity.symbol) } catch (_: Throwable) { false }
                             val v4132_toxicPair = try { !com.lifecyclebot.engine.ScannerLaneBridge.shouldRoute(source.name, "MEME") } catch (_: Throwable) { false }
                             val v4132_veto = v4132_rug || v4132_gooseCata || v4132_toxicPair
@@ -15512,7 +15512,7 @@ class BotService : Service() {
             val successfulFeedLanes6014 = setOf("QUALITY", "MOONSHOT", "BLUECHIP", "CRYPTO", "MARKETS")
             val successfulFeedAffinity6014 = l in successfulFeedLanes6014 && (affinity.contains(l) || l.equals(primaryLane, ignoreCase = true))
             if (RuntimeModeAuthority.isLive() && successfulFeedAffinity6014) {
-                val paused6014 = try { LaneAutoPauseGuard.isPaused(l) } catch (_: Throwable) { false }
+                val paused6014 = try { LaneAutoPauseGuard.isPaused(l) } catch (_: Throwable) { true }   // V5.0.8771 — a safety check that throws refuses (code audit static 2)
                 val qualityProofRequired6014 = l in setOf("QUALITY", "BLUECHIP")
                 val qualityProofOk6014 = !qualityProofRequired6014 || qualityLaneProofOk(l)
                 if (paused6014) {
@@ -15627,7 +15627,7 @@ class BotService : Service() {
                 // LiveProbabilityEngine (V5.0.4596) is the safety net if
                 // any other path still slips through, but this closes the
                 // primary bypass channel.
-                val laneIsPaused4598 = try { LaneAutoPauseGuard.isPaused(l) } catch (_: Throwable) { false }
+                val laneIsPaused4598 = try { LaneAutoPauseGuard.isPaused(l) } catch (_: Throwable) { true }   // V5.0.8771 — a safety check that throws refuses (code audit static 2)
                 val allowed = canonicalDeskPrimary6599
                 if (laneIsPaused4598 && allowed) {
                     val pivot6483 = try { com.lifecyclebot.engine.learning.TacticSwitcher.rotateForLanePressure(l, ts.entryScore.toInt(), "owner_lane_pause").name } catch (_: Throwable) { "UNKNOWN" }
@@ -18833,7 +18833,7 @@ class BotService : Service() {
         // and re-enter naturally if they clear ban/quarantine; we only skip them
         // this cycle. Cheap O(n) set lookups, no network.
         val preLaneFiltered = otherMints.filter { mint ->
-            val banned = try { com.lifecyclebot.engine.BannedTokens.isBanned(mint) } catch (_: Throwable) { false }
+            val banned = try { com.lifecyclebot.engine.BannedTokens.isBanned(mint) } catch (_: Throwable) { true }   // V5.0.8771 — a safety check that throws refuses (code audit static 2)
             val quarantined = try { com.lifecyclebot.engine.QuarantineStore.isQuarantined(mint) } catch (_: Throwable) { false }
             val flatTokenBlacklisted = try {
                 val ts = status.tokens[mint]

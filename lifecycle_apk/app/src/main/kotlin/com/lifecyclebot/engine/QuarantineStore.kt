@@ -130,7 +130,7 @@ object QuarantineStore {
         val src = source.uppercase()
         val liqKnown = !liquidityUsd.isNaN()
         val mcapKnown = !marketCapUsd.isNaN()
-        val blacklisted = try { BannedTokens.isBanned(mint) } catch (_: Throwable) { false } ||
+        val blacklisted = try { BannedTokens.isBanned(mint) } catch (_: Throwable) { true } ||   // V5.0.8771 — fails closed
             try { TokenBlacklist.isBlocked(mint) } catch (_: Throwable) { false }
         if (blacklisted) return quarantine(mint, symbol, "BLACKLISTED_TOKEN")
 

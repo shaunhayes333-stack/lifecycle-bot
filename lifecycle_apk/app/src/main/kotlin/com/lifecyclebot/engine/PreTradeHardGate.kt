@@ -186,7 +186,8 @@ object PreTradeHardGate {
         if (QuarantineStore.isQuarantined(mint)) return block(ts, "EXACT_MINT_QUARANTINED", mint.take(12))
         // V5.0.8134 — rebuy / repeat-loser / falling-knife / big-loser lockout at the buy door, so no upstream admit
         // (chart BUY, specialist hand-off, runner ticket, top-up) re-buys a coin that just lost or is dumping.
-        (try { RebuyLockout8019.refusal8019(mint, now) } catch (_: Throwable) { null })?.let { return block(ts, it, "site=$callSite") }
+        // V5.0.8771 — code audit (static 2): a lockout check that throws refuses; it allowed the buy.
+        (try { RebuyLockout8019.refusal8019(mint, now) } catch (_: Throwable) { "REBUY_LOCKOUT_CHECK_FAILED_8771" })?.let { return block(ts, it, "site=$callSite") }
 
         // 8269: lastSafetyCheck is a scheduler timestamp, not proof that
         // the exact report used at broadcast is current. Never let an
