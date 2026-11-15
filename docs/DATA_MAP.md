@@ -170,3 +170,30 @@ The store is the one cache: every brain reads it, and every side cache a reader 
 facts (at most once a minute per mint; SQLite on the archive's own 60 s flush). The raw intake register no longer
 overwrites archived store values. A warm boot reads the archive back as RESTORE facts (time 0): an archive value is used
 until the first observation and never counts as one.
+
+## 9. Holders (8798)
+
+| | |
+|---|---|
+| **Slot** | `TokenFacts.holders8798(mint)` — the newest holder count of the mint with its source and observation time, and the one before it (keyed by mint: an answer may land before the mint has a row). |
+| **Write path** | `TokenFacts.writeHolders8798(mint, count, source, observedAtMs)` — older or same-time answers change nothing; an answer ≥ 60 s after the newest moves it to "previous". |
+| **Producers** | Jupiter search (`JupiterHolders8128`, `JUPITER_SEARCH_8128`; a coin under an hour old is asked every 2 min), the market sweep's Jupiter rows (`JUP_SWEEP_8798`), the Birdeye overview (`BIRDEYE_OVERVIEW`). |
+| **Readers** | `LanePlaybook7907.F.holders` (fact first, candle count second) and `F.holderVel7978` (`TokenFacts.holderVelocity8798`: the two facts 1–30 min apart; candle velocity second). |
+| **Why** | Before 8798 the count reached the learners only stamped on a candle from a 10-minute cache, so holder velocity read 99 % blank. |
+
+## 10. The learner columns (8798)
+
+`LearnerColumns8798.NAMES` is the one list of learner columns beyond `EdgeModel8537.Raw`'s core: every remaining fact of the
+playbook frame (launch tape, buyer flow, opportunity row, socials, creator, holders, narrative, insiders, bundles, LP lock,
+volatility, regime, chart flags), the evidence no column carried (proven smart-money buyers in 5 min, launch venue, SOL 1 h /
+24 h change, launches born in the last 10 min, hour and weekday, mint / freeze revoked, rugcheck score, first-block supply
+and buyers, the launch's own trade count / buy share / run from its low) and each source's **age** in seconds (price, buy
+pressure, change, liquidity, holders, last print). Extracted once per decision and frozen into `Raw.ext`; written to the
+edge dataset by name (unobserved columns are left out — a missing key reads NaN); read back by name
+(`LearnerColumns8798.fromRow`). `TreeRanker8737` trains on the core plus every column (stochastic boosting: half the rows
+and half the columns per tree). The brief's `learnerColumns8798[...]` line shows each column's live coverage.
+
+The launch tape (`LaunchTape7921`) is now fed by every decoded program-stream print of a mint no desk watches yet
+(`onProgramPrint8798`), so a launch's crowd, dev sell, peak and low exist from its birth; watched mints keep arriving
+through `DataOrchestrator` only. Its run from the low and distance from the peak fill the frame's shape when neither the
+candles nor the trade tape read one.

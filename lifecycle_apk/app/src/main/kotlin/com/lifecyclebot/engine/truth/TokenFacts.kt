@@ -486,6 +486,59 @@ object TokenFacts {
         return flipped
     }
 
+    // ── HOLDERS (V5.0.8798, DATA_MAP §9) ───────────────────────────────────────────────────────────────────────────────
+
+    /**
+     * The holder count is a fact with its own observation time, keyed by mint (a holder answer may land before the mint has
+     * a row). Before 8798 it reached the learners only stamped on a candle (DexscreenerApi copying JupiterHolders8128's
+     * cache onto the next poll's bar), so holder growth read 99 % blank: a cache refreshed every 10 minutes put the same
+     * count on consecutive candles, and the velocity needed two different candles five minutes apart. Producers now offer
+     * the count when their source answers, at the source's own time: Jupiter search (JupiterHolders8128), the market sweep's
+     * Jupiter rows, the Birdeye overview. The velocity is read between the newest fact and the one before it, when they are
+     * [HOLDER_MIN_GAP_MS_8798] .. [HOLDER_MAX_AGE_MS_8798] apart.
+     */
+    class HolderSeries8798 { var last: Fact? = null; var prev: Fact? = null }
+    private val holders8798 = ConcurrentHashMap<String, HolderSeries8798>()
+    private const val HOLDER_MIN_GAP_MS_8798 = 60_000L
+    const val HOLDER_MAX_AGE_MS_8798 = 30L * 60_000L
+    private const val HOLDER_MINTS_8798 = 6_000
+
+    /** Pure: the series after [offered] arrives — older or same-time offers change nothing; a gap moves the newest to prev. */
+    fun nextHolders8798(series: HolderSeries8798, offered: Fact): Boolean {
+        if (!(offered.value >= 1.0) || !offered.value.isFinite()) return false
+        val last = series.last
+        if (last != null && offered.observedAtMs <= last.observedAtMs) return false
+        if (last != null && offered.observedAtMs - last.observedAtMs >= HOLDER_MIN_GAP_MS_8798) series.prev = last
+        series.last = offered
+        return true
+    }
+
+    /** THE holder-count write: [holderCount] holders of [mint] observed at [observedAtMs] by [source]. */
+    fun writeHolders8798(mint: String, holderCount: Int, source: String, observedAtMs: Long, nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (mint.length < 32 || holderCount <= 0) return false
+        val f = Fact(holderCount.toDouble(), source, Rank.PROVIDER, stampOf(Rank.PROVIDER, observedAtMs, nowMs))
+        val s = holders8798.computeIfAbsent(mint) { HolderSeries8798() }
+        val ok = synchronized(s) { nextHolders8798(s, f) }
+        count(if (ok) accepted else refused, "HOLDERS:" + source.take(40))
+        if (holders8798.size > HOLDER_MINTS_8798) holders8798.entries.removeIf { e -> (e.value.last?.observedAtMs ?: 0L) < nowMs - HOLDER_MAX_AGE_MS_8798 }
+        return ok
+    }
+
+    /** The newest holder count of [mint], when no older than [HOLDER_MAX_AGE_MS_8798]. */
+    fun holders8798(mint: String, nowMs: Long = System.currentTimeMillis()): Fact? =
+        holders8798[mint]?.let { s -> synchronized(s) { s.last } }?.takeIf { nowMs - it.observedAtMs in 0L..HOLDER_MAX_AGE_MS_8798 }
+
+    /** Pure: holders gained per minute from [prev] to [last] (NaN without two facts in range). */
+    fun holderVelocity8798(prev: Fact?, last: Fact?, nowMs: Long): Double {
+        if (prev == null || last == null) return Double.NaN
+        val gap = last.observedAtMs - prev.observedAtMs
+        if (gap < HOLDER_MIN_GAP_MS_8798 || nowMs - prev.observedAtMs > HOLDER_MAX_AGE_MS_8798) return Double.NaN
+        return (last.value - prev.value) / (gap / 60_000.0)
+    }
+
+    fun holderVelocity8798(mint: String, nowMs: Long = System.currentTimeMillis()): Double =
+        holders8798[mint]?.let { s -> synchronized(s) { holderVelocity8798(s.prev, s.last, nowMs) } } ?: Double.NaN
+
     /** Pure: why [accepts] refused (for the brief). */
     fun refusal(prior: Fact?, offered: Fact): String = when {
         !isReading(offered.value) -> "NOT_A_READING"
@@ -506,7 +559,7 @@ object TokenFacts {
             "price accepted{${top(of("PRICE_USD", accepted))}} refused{${top(of("PRICE_USD", refused))}} " +
             "snapshot{" + Field.values().drop(2).joinToString(",") { f ->
                 "${f.name.lowercase().substringBefore("_pct").substringBefore("_usd")}=${of(f.name, accepted).values.sumOf { it.get() }}/${of(f.name, refused).values.sumOf { it.get() }}"
-            } + "} graduated{${top(of("GRADUATED", accepted))}} " +
+            } + "} graduated{${top(of("GRADUATED", accepted))}} holders8798{${top(of("HOLDERS", accepted))}/refused=${of("HOLDERS", refused).values.sumOf { it.get() }} mints=${holders8798.size}} " +
             "rule=newest wins; same time -> higher rank; weaker source waits out the hold (liq: chain 90s, else 30s; price/snapshot: chain 60s); restores fill only empty slots]"
     }
 }

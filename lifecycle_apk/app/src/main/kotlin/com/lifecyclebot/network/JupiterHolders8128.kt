@@ -54,31 +54,40 @@ object JupiterHolders8128 {
     }
 
     /** Pure: a mint may be asked again only [REFRESH_MS_8128] after its last ask, and the host only every 3 s. */
-    fun askDue8128(lastAskMs: Long?, lastAnyRequestMs: Long, nowMs: Long): Boolean =
-        (lastAskMs == null || nowMs - lastAskMs >= REFRESH_MS_8128) && nowMs - lastAnyRequestMs >= MIN_SPACING_MS_8128
+    fun askDue8128(lastAskMs: Long?, lastAnyRequestMs: Long, nowMs: Long, refreshMs: Long = REFRESH_MS_8128): Boolean =
+        (lastAskMs == null || nowMs - lastAskMs >= refreshMs) && nowMs - lastAnyRequestMs >= MIN_SPACING_MS_8128
 
     /**
      * [mint]'s holder count: the latest market sweep row first, else this cache. Never blocks; a mint
      * neither answers is asked in the background (paced as above) and served on a later call.
      */
-    fun holders8128(mint: String, nowMs: Long = System.currentTimeMillis()): Int? {
+    fun holders8128(mint: String, nowMs: Long = System.currentTimeMillis(), refreshMs: Long = REFRESH_MS_8128): Int? {
         if (mint.length < 32) return null
         val swept = try { com.lifecyclebot.engine.market.MarketSweep7297.holdersFor8128(mint, nowMs) } catch (_: Throwable) { null }
         if (swept != null) return swept
         val e = cache8128[mint]
-        if (e == null || nowMs - e.atMs >= REFRESH_MS_8128) requestAsync8128(mint, nowMs)
+        if (e == null || nowMs - e.atMs >= refreshMs) requestAsync8128(mint, nowMs, refreshMs)
         if (e == null || nowMs - e.atMs >= 3 * REFRESH_MS_8128) return null
         return e.holders
     }
 
-    private fun requestAsync8128(mint: String, nowMs: Long) {
-        if (!askDue8128(askedAt8128[mint], lastRequestAtMs8128, nowMs)) return
+    /**
+     * V5.0.8798 — a launch's holder count moves by the minute: LanePlaybook7907 asks a coin under an hour old every
+     * [YOUNG_REFRESH_MS_8798] (the host's 3 s spacing still bounds the total), so two counts minutes apart give its velocity.
+     */
+    const val YOUNG_REFRESH_MS_8798 = 2L * 60_000L
+
+    private fun requestAsync8128(mint: String, nowMs: Long, refreshMs: Long = REFRESH_MS_8128) {
+        if (!askDue8128(askedAt8128[mint], lastRequestAtMs8128, nowMs, refreshMs)) return
         askedAt8128[mint] = nowMs
         lastRequestAtMs8128 = nowMs
         try {
             worker8128.execute {
                 val h = parseHolders8128(get8128(SEARCH_URL_8128 + mint), mint)
-                cache8128[mint] = Entry8128(h, System.currentTimeMillis())
+                val at = System.currentTimeMillis()
+                cache8128[mint] = Entry8128(h, at)
+                // V5.0.8798 — every answer is a holder fact at its own time (the velocity reads two of them)
+                if (h != null) try { com.lifecyclebot.engine.truth.TokenFacts.writeHolders8798(mint, h, "JUPITER_SEARCH_8128", at) } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc(if (h == null) "JUP_HOLDERS_MISS_8128" else "JUP_HOLDERS_HIT_8128") } catch (_: Throwable) {}
             }
         } catch (_: Throwable) {

@@ -105,6 +105,8 @@ object EdgeModel8537 {
         val newBuyers15s8666: Double = Double.NaN,
         val sustainedDemand: Boolean = false,
         val marketReclaim: Boolean = false,
+        /** V5.0.8798 — every other learner column (LearnerColumns8798.NAMES order; empty for a row older than 8798). */
+        val ext: DoubleArray = DoubleArray(0),
     )
 
     /** Boolean facts the coin carried at the decision (bit flags in [Raw.flags]). */
@@ -362,6 +364,7 @@ object EdgeModel8537 {
             "newBuyers15s8666" to r.newBuyers15s8666,
         ).forEach { (k, v) -> raw.put(k, d8571(v)) }
         raw.put("sustainedDemand", r.sustainedDemand).put("marketReclaim", r.marketReclaim)
+        if (r.ext.size == LearnerColumns8798.SIZE) raw.put("ext8798", LearnerColumns8798.toJson(r.ext))
         return org.json.JSONObject().put("raw", raw).put("pred", d8571(s.pred)).put("horizonMs", s.horizonMs)
             .put("modelEpoch", s.modelEpoch)
             .put("key", s.modelKey).put("at", s.atMs).put("mint", s.mint).put("admitted", s.admitted)
@@ -377,7 +380,8 @@ object EdgeModel8537 {
                 d8571(r, "runup"), d8571(r, "pxPeak"), d8571(r, "dd"), d8571(r, "bp"), d8571(r, "chg5m"), d8571(r, "chg1h"),
                 d8571(r, "volAccel"), d8571(r, "top"), r.optString("phase"), d8571(r, "v3"), d8571(r, "costPct"),
                 d8571(r, "holderVel"), d8571(r, "txVel"), d8571(r, "curve"), d8571(r, "turnover"), r.optInt("flags"),
-                d8571(r, "newBuyers15s8666"), r.optBoolean("sustainedDemand"), r.optBoolean("marketReclaim"))
+                d8571(r, "newBuyers15s8666"), r.optBoolean("sustainedDemand"), r.optBoolean("marketReclaim"),
+                LearnerColumns8798.fromJson(r.optJSONObject("ext8798")))
             j.optJSONArray("mind8767")?.let { a ->   // V5.0.8767 — the mind's frozen voters return with the pending decision
                 try { Mind8746.restoreFrozen8767(j.optString("mint"), raw.lane, j.optLong("at"), DoubleArray(a.length()) { a.optDouble(it, Double.NaN) }) } catch (_: Throwable) {}
             }
@@ -463,6 +467,7 @@ object EdgeModel8537 {
                 f.secondWave7974, f.crowdForming),
             newBuyers15s8666 = f?.newBuyers15s8666 ?: Double.NaN,
             sustainedDemand = f?.sustainedDemand == true, marketReclaim = f?.marketReclaim == true,
+            ext = try { LearnerColumns8798.extract(ts, f, nowMs) } catch (_: Throwable) { DoubleArray(0) },
         )
     }
 
@@ -751,7 +756,8 @@ object EdgeModel8537 {
             "\"dd\":${n(r.dd)},\"bp\":${n(r.bp)},\"chg5m\":${n(r.chg5m)},\"chg1h\":${n(r.chg1h)},\"volAccel\":${n(r.volAccel)}," +
             "\"top\":${n(r.top)},\"holderVel\":${n(r.holderVel)},\"txVel\":${n(r.txVel)},\"curve\":${n(r.curve)},\"turnover\":${n(r.turnover)},\"newBuyers15s8666\":${n(r.newBuyers15s8666)},\"sustainedDemand\":${r.sustainedDemand},\"marketReclaim\":${r.marketReclaim}," +
             "\"flags\":${r.flags},\"phase\":\"${r.phase}\",\"v3\":${n(r.v3)},\"cost\":${n(r.costPct)},\"admitted\":${s.admitted}," +
-            "\"pred\":${n(s.pred)},\"model\":\"${s.modelKey}\",\"modelEpoch\":${s.modelEpoch},\"venueScopeEpoch\":$venueScope8661,\"net\":${n(net)},\"fill\":$filled,\"witness\":$witnessed,\"labelObservedAtMs\":${labelObservedAtMs ?: "null"}}"
+            "\"pred\":${n(s.pred)},\"model\":\"${s.modelKey}\",\"modelEpoch\":${s.modelEpoch},\"venueScopeEpoch\":$venueScope8661,\"net\":${n(net)},\"fill\":$filled,\"witness\":$witnessed,\"labelObservedAtMs\":${labelObservedAtMs ?: "null"}" +
+            LearnerColumns8798.toRow(r.ext) + "}"
     }
 
     /**

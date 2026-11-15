@@ -1,0 +1,193 @@
+package com.lifecyclebot.engine.truth
+
+import com.lifecyclebot.data.TokenState
+import com.lifecyclebot.engine.cortex.LanePlaybook7907
+import java.util.concurrent.atomic.AtomicLongArray
+
+/**
+ * V5.0.8798 §THE_LEARNERS_SEE_EVERYTHING — owner: "we need to capture every piece of data that the bot already is served,
+ * score, use, implement correctly". The playbook frame (LanePlaybook7907.F) already computed ~60 facts per coin from the
+ * one store (TokenFacts) and its producers' side caches — launch tape, buyer flow, market sweep, socials, creator history,
+ * narrative, insider, bundles, safety — but the learners (EdgeModel8537's dataset rows, TreeRanker8737) read 17-20 of them.
+ *
+ * This is the one column list beyond EdgeModel8537.Raw's core: every remaining fact of the frame, the evidence no column
+ * carried (proven smart-money buyers, launch venue, the SOL trend, the launch rate, time of day, mint / freeze / rugcheck /
+ * first-block safety, the launch's own trade count and buy share), and the AGE of each source (seconds since its last
+ * observation), so a stale reading is visible to the learner instead of passing as fresh. NaN is unobserved, never 0.
+ * Extracted once per decision ([extract], frozen into the decision's Raw), written to the dataset by name, read back by
+ * name ([fromRow]); the brief reports each column's live coverage ([statusLine8798]). Adding a column: append a name and
+ * its line in [extract] — the dataset, the tree and the coverage report follow.
+ */
+object LearnerColumns8798 {
+    val NAMES: List<String> = listOf(
+        // the launch tape and buyer flow (executed trades)
+        "tapeCrowd", "tapeNetSol", "buyersPerMin", "buyShare", "largestBuyer", "top3Buyers", "devSold", "fromPeak", "fromFirst",
+        "buyTx15s", "buyTxPrev15s", "repeatBuyers60s", "launchTrades", "launchBuyShare", "runupFromLow",
+        // the market sweep's opportunity row
+        "oppPct", "oppRs", "oppVolAccel", "oppTxAccel", "oppLiqDelta",
+        // socials, creator, holders, narrative, insiders, bundles
+        "boost", "socials", "cto", "devTokens", "devRugRate", "devRugger", "holders", "holderGrowth", "insider",
+        "narrHeat", "narrExhaust", "bundle",
+        // safety
+        "lpLock", "mintRevoked", "freezeRevoked", "rugScore", "firstBlockSupply", "firstBlockBuyers",
+        // chart and context facts
+        "volatility", "regime", "ladderProven", "hlReclaim", "secondWave", "colourBuy", "liveKoth", "beta", "migrated",
+        "expert", "crowdForming",
+        // evidence no column carried
+        "smartBuyers5m", "venue", "solChg1h", "solChg24h", "launchRate10m", "hourUtc", "dow",
+        // source ages (seconds since the source's own observation)
+        "agePrice", "ageBp", "ageChg", "ageLiq", "ageHolders", "secsSincePrint",
+    )
+    val SIZE: Int = NAMES.size
+    private val INDEX: Map<String, Int> = NAMES.withIndex().associate { it.value to it.index }
+    private val REGIMES = listOf("BULL_RIPPING", "NORMAL", "CHOP", "DUMP", "DEAD", "BOOTSTRAP")
+
+    private val seen = AtomicLongArray(SIZE)
+    private val finite = AtomicLongArray(SIZE)
+    @Volatile private var rows = 0L
+
+    private fun b(v: Boolean): Double = if (v) 1.0 else 0.0
+    private fun tri(v: Boolean?): Double = when (v) { true -> 1.0; false -> 0.0; null -> Double.NaN }
+    private fun nonNeg(v: Double): Double = if (v.isFinite() && v >= 0.0) v else Double.NaN
+    /** Pure: seconds from [stampMs] to [nowMs]; NaN when there is no stamp. */
+    fun ageSec(stampMs: Long?, nowMs: Long): Double =
+        if (stampMs == null || stampMs <= 0L || stampMs > nowMs + 5_000L) Double.NaN else maxOf(0.0, (nowMs - stampMs) / 1000.0)
+
+    /** Pure: the launch venue as a category (NaN when no field names one). */
+    fun venueOf(mint: String, venue: String, dexId: String, priceDex: String, migrated: Boolean): Double {
+        val s = "$venue|$dexId|$priceDex".uppercase()
+        return when {
+            mint.endsWith("pump") && !migrated -> 0.0                                    // the pump.fun bonding curve
+            s.contains("PUMPSWAP") || s.contains("PUMP_AMM") || s.contains("PUMPFUN_AMM") || (mint.endsWith("pump") && migrated) -> 1.0
+            s.contains("LAUNCHLAB") || s.contains("BONK") -> 2.0
+            s.contains("RAYDIUM") -> 3.0
+            s.contains("METEORA") || s.contains("DBC") || s.contains("DLMM") || s.contains("DAMM") -> 4.0
+            s.contains("ORCA") -> 5.0
+            s.replace("UNKNOWN", "").replace("|", "").isBlank() -> Double.NaN
+            else -> 6.0
+        }
+    }
+
+    /** The extra columns of [ts] at [nowMs], from the frame [f] already computed for the same decision. */
+    fun extract(ts: TokenState, f: LanePlaybook7907.F?, nowMs: Long): DoubleArray {
+        val x = DoubleArray(SIZE) { Double.NaN }
+        fun put(name: String, v: Double) { INDEX[name]?.let { x[it] = v } }
+        val mint = ts.mint
+        if (f != null) {
+            put("tapeCrowd", f.tapeCrowd); put("tapeNetSol", f.tapeNetSol); put("buyersPerMin", f.tapeBuyersPerMin)
+            put("buyShare", f.tapeBuyShare); put("largestBuyer", f.tapeLargest); put("top3Buyers", f.tapeTop3)
+            put("devSold", f.tapeDevSold); put("fromPeak", f.tapeFromPeak); put("fromFirst", f.tapeFromFirst)
+            put("buyTx15s", f.buyTx15s); put("buyTxPrev15s", f.buyTxPrev15s); put("repeatBuyers60s", f.repeatBuyers60s)
+            put("oppPct", f.oppPercentile); put("oppRs", f.oppRs); put("oppVolAccel", f.oppVolAccel); put("oppTxAccel", f.oppTxAccel)
+            put("oppLiqDelta", f.oppLiqDelta); put("boost", f.boost); put("socials", f.socials); put("cto", b(f.cto))
+            put("devTokens", f.devTokens); put("devRugRate", f.devRugRate); put("devRugger", b(f.devKnownRugger))
+            put("holders", f.holders); put("holderGrowth", f.holderGrowth); put("insider", f.insider)
+            put("narrHeat", f.narrativeHeat); put("narrExhaust", f.narrativeExhaustion); put("bundle", f.bundleLargest)
+            put("lpLock", f.lpLock); put("volatility", f.volatility)
+            put("regime", REGIMES.indexOf(f.regime).let { if (it < 0) Double.NaN else it.toDouble() })
+            put("ladderProven", b(f.launchLadderProven)); put("hlReclaim", b(f.structureHlReclaim)); put("secondWave", b(f.secondWave7974))
+            put("colourBuy", b(f.colourBuy7978)); put("liveKoth", b(f.live7978)); put("beta", b(f.beta7978)); put("migrated", b(f.migrated8308))
+            put("expert", b(f.expertEntry7962)); put("crowdForming", b(f.crowdForming))
+        }
+        try {
+            com.lifecyclebot.engine.market.LaunchTape7921.features(mint, nowMs)?.let { t ->
+                put("launchTrades", t.trades8287.toDouble()); put("launchBuyShare", t.bpAll8287); put("runupFromLow", t.runupFromLowPct8798)
+            }
+        } catch (_: Throwable) {}
+        val sf = ts.safety
+        put("mintRevoked", tri(sf.mintAuthorityDisabled)); put("freezeRevoked", tri(sf.freezeAuthorityDisabled))
+        put("rugScore", if (sf.rugcheckScore >= 0) sf.rugcheckScore.toDouble() else Double.NaN)
+        put("firstBlockSupply", nonNeg(sf.firstBlockSupplyPct)); put("firstBlockBuyers", if (sf.firstBlockBuyers >= 0) sf.firstBlockBuyers.toDouble() else Double.NaN)
+        put("smartBuyers5m", try { SmartMoney8756.provenBuyersKnown8798(mint, 5L * 60_000L, nowMs) } catch (_: Throwable) { Double.NaN })
+        put("venue", try { venueOf(mint, ts.tokenMap.venue, ts.tokenMap.dexId, ts.lastPriceDex, ts.tokenMap.migratedOrGraduated) } catch (_: Throwable) { Double.NaN })
+        val sol = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { Double.NaN }
+        SolTrend8798.note(sol, nowMs)
+        put("solChg1h", SolTrend8798.changePct(60, nowMs)); put("solChg24h", SolTrend8798.changePct(24 * 60, nowMs))
+        put("launchRate10m", try { com.lifecyclebot.engine.market.LaunchTape7921.birthsSince8798(10L * 60_000L, nowMs).toDouble() } catch (_: Throwable) { Double.NaN })
+        val cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC")).apply { timeInMillis = nowMs }
+        put("hourUtc", cal.get(java.util.Calendar.HOUR_OF_DAY).toDouble()); put("dow", cal.get(java.util.Calendar.DAY_OF_WEEK).toDouble())
+        put("agePrice", ageSec(ts.lastPriceUpdate, nowMs)); put("ageBp", ageSec(ts.buyPressureObservedAtMs8084, nowMs))
+        put("ageChg", ageSec(ts.priceChangeObservedAtMs8084, nowMs))
+        put("ageLiq", ageSec(TokenFacts.fact(ts, TokenFacts.Field.LIQUIDITY_USD)?.observedAtMs, nowMs))
+        put("ageHolders", ageSec(TokenFacts.holders8798(mint, nowMs)?.observedAtMs, nowMs))
+        put("secsSincePrint", ageSec(try { TradeTape8100.lastPrint8360(mint)?.second } catch (_: Throwable) { null }, nowMs))
+        note(x)
+        return x
+    }
+
+    /** Pure: the columns of one dataset row (JSON), by name; a row written before 8798 reads NaN for every column. */
+    fun fromRow(o: org.json.JSONObject): DoubleArray = DoubleArray(SIZE) { i ->
+        val k = NAMES[i]
+        if (!o.has(k) || o.isNull(k)) Double.NaN else o.optDouble(k, Double.NaN)
+    }
+
+    /**
+     * Pure: the observed columns as dataset JSON fields (",\"name\":value" each). An unobserved column is left out (a
+     * missing key reads NaN in [fromRow]), so the 60,000-row dataset grows only by what was actually seen.
+     */
+    fun toRow(x: DoubleArray): String {
+        if (x.size != SIZE) return ""
+        val sb = StringBuilder(SIZE * 12)
+        for (i in 0 until SIZE) {
+            val v = x[i]
+            if (v.isFinite()) sb.append(",\"").append(NAMES[i]).append("\":").append("%.5g".format(java.util.Locale.US, v))
+        }
+        return sb.toString()
+    }
+
+    /** Pure: the columns as a JSON object of strings (the pending-decision snapshot; NaN travels as "NaN"). */
+    fun toJson(x: DoubleArray): org.json.JSONObject = org.json.JSONObject().also { o -> if (x.size == SIZE) for (i in 0 until SIZE) o.put(NAMES[i], x[i].toString()) }
+
+    fun fromJson(o: org.json.JSONObject?): DoubleArray {
+        if (o == null) return DoubleArray(0)
+        return DoubleArray(SIZE) { i -> o.optString(NAMES[i]).toDoubleOrNull() ?: Double.NaN }
+    }
+
+    private fun note(x: DoubleArray) {
+        rows++
+        for (i in 0 until SIZE) { seen.incrementAndGet(i); if (x[i].isFinite()) finite.incrementAndGet(i) }
+    }
+
+    /** The brief: how many decisions carried each column (the lowest first). */
+    fun statusLine8798(): String {
+        if (rows == 0L) return "learnerColumns8798[no decisions yet]"
+        val pct = (0 until SIZE).map { i -> NAMES[i] to (if (seen.get(i) > 0) 100.0 * finite.get(i) / seen.get(i) else 0.0) }
+        val low = pct.sortedBy { it.second }
+        return "learnerColumns8798[decisions=$rows columns=$SIZE full=${pct.count { it.second >= 99.5 }} " +
+            "covered{${low.joinToString(" ") { "${it.first}:${"%.0f".format(it.second)}%" }}} rule=every frame fact + evidence + source " +
+            "age is a learner column; NaN = unobserved (never 0); the tree reads them all]"
+    }
+}
+
+/** V5.0.8798 — the SOL price trend the learners read (one sample a minute, 25 hours, from the bot's own SOL mark). */
+object SolTrend8798 {
+    private const val SLOTS = 25 * 60
+    private val px = DoubleArray(SLOTS) { Double.NaN }
+    private val minute = LongArray(SLOTS) { -1L }
+
+    @Synchronized fun note(priceUsd: Double, nowMs: Long) {
+        if (!(priceUsd > 0.0) || !priceUsd.isFinite()) return
+        val m = nowMs / 60_000L
+        val i = (m % SLOTS).toInt()
+        if (minute[i] == m) return
+        minute[i] = m; px[i] = priceUsd
+    }
+
+    /** The % change of SOL over the last [minutes] (NaN until a sample that old exists, within 5 minutes of it). */
+    @Synchronized fun changePct(minutes: Int, nowMs: Long): Double {
+        val m = nowMs / 60_000L
+        val now = latest(m, 0) ?: return Double.NaN
+        val then = latest(m - minutes, 5) ?: return Double.NaN
+        return (now / then - 1.0) * 100.0
+    }
+
+    private fun latest(m: Long, slack: Int): Double? {
+        for (k in 0..slack) {
+            val mm = m - k
+            if (mm < 0) return null
+            val i = (mm % SLOTS).toInt()
+            if (minute[i] == mm && px[i] > 0.0) return px[i]
+        }
+        return null
+    }
+}

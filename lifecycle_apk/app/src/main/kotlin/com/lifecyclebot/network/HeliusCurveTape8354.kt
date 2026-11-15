@@ -488,6 +488,9 @@ object HeliusCurveTape8354 {
         if (witness8750 == com.lifecyclebot.engine.truth.PrintWitness8750.Verdict.OUT_OF_BAND) { malformed.incrementAndGet(); return false }
         if (source == Source8354.HELIUS_PROGRAM) lastProgramPrintAt8751 = nowMs
         if (!cares8354(mint, nowMs)) {
+            // V5.0.8798 — an unwatched launch still builds its launch tape from birth (crowd, dev sell, peak, low): the
+            // learners and the launch promotion read it the moment a desk looks. Watched mints reach it via PumpFunWS only.
+            try { com.lifecyclebot.engine.market.LaunchTape7921.onProgramPrint8798(mint, ev.user, ev.sol, ev.isBuy, priceSol, eventMs8748) } catch (_: Throwable) {}
             bufferPrecare8751(ev, sig.trim(), priceSol, eventMs8748, nowMs, witness8750)
             dropped.incrementAndGet(); return false
         }

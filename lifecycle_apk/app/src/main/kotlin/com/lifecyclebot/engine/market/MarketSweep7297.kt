@@ -826,6 +826,10 @@ object MarketSweep7297 {
             if (createdMs > 0L) try {
                 com.lifecyclebot.engine.truth.PoolCreationTime7385.record(mint, createdMs, "JUP_FIRST_POOL_8094")
             } catch (_: Throwable) {}
+            // V5.0.8798 — the row's holder count is a holder fact at the sweep's own time (TokenFacts.writeHolders8798)
+            o.optInt("holderCount", 0).takeIf { it > 0 }?.let { h ->
+                try { com.lifecyclebot.engine.truth.TokenFacts.writeHolders8798(mint, h, "JUP_SWEEP_8798", now) } catch (_: Throwable) {}
+            }
             out += Row(
                 mint = mint,
                 symbol = o.optString("symbol", ""),

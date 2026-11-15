@@ -1600,6 +1600,7 @@ object PipelineHealthCollector {
         sb.append("  Quiet curve marks (§8750): ").append(try { com.lifecyclebot.engine.truth.QuietCurve8750.statusLine8750() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Launch sniper (§8748): ").append(try { com.lifecyclebot.engine.truth.LaunchSniper8748.statusLine8748() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Tree ranker (§8737): ").append(try { com.lifecyclebot.engine.truth.TreeRanker8737.statusLine8737() } catch (_: Throwable) { "unavailable" }).append("\n")
+        sb.append("  Learner columns (§8798): ").append(try { com.lifecyclebot.engine.truth.LearnerColumns8798.statusLine8798() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Explore live buys (§8733): ").append(try { com.lifecyclebot.engine.truth.ExploreLive8733.statusLine8733() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Paying-cell waits (§8732): ").append(try { com.lifecyclebot.engine.truth.LpStateRecord8725.waitLine8732() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Smart-money miner (§7277): ").append(try { SmartMoneyDiscovery7277.statusLine() } catch (_: Throwable) { "unavailable" }).append("\n")   // V5.0.8713

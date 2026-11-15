@@ -924,12 +924,24 @@ object LanePlaybook7907 {
         // age missing 7,174 times while the pool time was held as an unused "lower bound". First-seen time is never used.
         val age8531 = tradingAgeMin8531(nn(s?.ageMin),
             try { com.lifecyclebot.engine.truth.AdmissionBirth8144.poolFloorMs8417(ts.mint) } catch (_: Throwable) { null }, nowMs)
+        // V5.0.8798 — a launch's own executed prices since birth (LaunchTape7921, now fed by every program-stream print) are its
+        // shape when neither the candles nor the trade tape read one: run from its low, distance from its peak.
+        val launchShape8798 = if (!shapeKnown && tapeShape8100 == null) tape?.takeIf {
+            it.trades8287 >= 3 && it.runupFromLowPct8798.isFinite() && it.fromPeakPct.isFinite()
+        } else null
+        // V5.0.8798 — the holder count is a fact with its own time (TokenFacts.writeHolders8798); a launch under an hour old is
+        // asked every two minutes (paced, never blocking) so two counts give its velocity.
+        val holderFact8798 = try { com.lifecyclebot.engine.truth.TokenFacts.holders8798(ts.mint, nowMs) } catch (_: Throwable) { null }
+        if (age8531.isFinite() && age8531 < 60.0 && (holderFact8798 == null || nowMs - holderFact8798.observedAtMs >= com.lifecyclebot.network.JupiterHolders8128.YOUNG_REFRESH_MS_8798)) {
+            try { com.lifecyclebot.network.JupiterHolders8128.holders8128(ts.mint, nowMs, com.lifecyclebot.network.JupiterHolders8128.YOUNG_REFRESH_MS_8798) } catch (_: Throwable) {}
+        }
+        val holderVel8798 = try { com.lifecyclebot.engine.truth.TokenFacts.holderVelocity8798(ts.mint, nowMs) } catch (_: Throwable) { Double.NaN }
         try { com.lifecyclebot.engine.ProofDataFeatureCoverage8144.observe8144(ts.mint, nowMs, bp = bpKnown || tapeBp8100 != null || altBp8169 != null, chg = chgKnown || tapeChg8100 != null || altChg8169 != null, launchTape = tape != null, structure = shapeKnown || tapeShape8100 != null, context = !plan.isNullOrBlank() || !phase.isNullOrBlank() || opp != null, liquidity = liqObs == Obs8084.OBSERVED || altLiq8169 != null, birth = age8531.isFinite(), swaps = swaps8169) } catch (_: Throwable) {}
         return F(
             age = age8531,
-            runup = if (shapeKnown) nn(s?.runupFromLocalLowPct) else tapeShape8100?.runupPct ?: Double.NaN,
-            pxPeak = if (shapeKnown) pos(s?.currentVsPeak) else tapeShape8100?.vsPeak ?: Double.NaN,
-            dd = if (shapeKnown) nn(s?.drawdownFromPeakPct) else tapeShape8100?.ddPct ?: Double.NaN,
+            runup = if (shapeKnown) nn(s?.runupFromLocalLowPct) else tapeShape8100?.runupPct ?: launchShape8798?.runupFromLowPct8798 ?: Double.NaN,
+            pxPeak = if (shapeKnown) pos(s?.currentVsPeak) else tapeShape8100?.vsPeak ?: launchShape8798?.let { 1.0 + it.fromPeakPct / 100.0 } ?: Double.NaN,
+            dd = if (shapeKnown) nn(s?.drawdownFromPeakPct) else tapeShape8100?.ddPct ?: launchShape8798?.let { -it.fromPeakPct } ?: Double.NaN,
             bp = if (bpKnown) nn(bpRaw) else tapeBp8100 ?: altBp8169 ?: Double.NaN, liq = altLiq8169 ?: pos(s?.liquidityUsd), mcap = pos(s?.marketCapUsd),
             top = nn(s?.topHolderPct),
             chg5m = if (chgKnown) ts.lastPriceChange5m.takeIf { it.isFinite() } ?: Double.NaN else tapeChg8100?.first ?: altChg8169?.first ?: Double.NaN,
@@ -972,7 +984,7 @@ object LanePlaybook7907 {
             devTokens = creator?.takeIf { it.tokensCreated > 0 }?.tokensCreated?.toDouble() ?: Double.NaN,
             devRugRate = creator?.takeIf { it.tokensCreated > 0 }?.rugRate ?: Double.NaN,
             devKnownRugger = creator?.isKnownRugger == true,
-            holders = ts.history.lastOrNull()?.holderCount?.takeIf { it > 0 }?.toDouble() ?: Double.NaN,
+            holders = holderFact8798?.value ?: ts.history.lastOrNull()?.holderCount?.takeIf { it > 0 }?.toDouble() ?: Double.NaN,
             insider = try { com.lifecyclebot.v3.scoring.InsiderTrackerAI.accumulationScore7925(ts.mint).takeIf { it > 0 }?.toDouble() } catch (_: Throwable) { null } ?: Double.NaN,
             narrativeHeat = narrative?.narrativeHeat ?: Double.NaN,
             narrativeExhaustion = narrative?.themeExhaustion ?: Double.NaN,
@@ -996,7 +1008,7 @@ object LanePlaybook7907 {
                 secondWave7974(ts.lastExitTs, ts.lastExitPrice, ts.lastPrice, nowMs, ts.position.isOpen) &&
                     com.lifecyclebot.engine.chart.StructureTracker7962.hlReclaim7962(ts.mint, nowMs)
             } catch (_: Throwable) { false },
-            holderVel7978 = try {
+            holderVel7978 = if (holderVel8798.isFinite()) holderVel8798 else try {
                 val h = ts.history
                 val last = h.lastOrNull()
                 val then = h.lastOrNull { it.ts <= (last?.ts ?: 0L) - 5 * 60_000L && it.holderCount > 0 }
@@ -1023,7 +1035,7 @@ object LanePlaybook7907 {
         ).also { f ->
             f.obs8084 = mapOf("bp" to (if (tapeBp8100 != null || altBp8169 != null) Obs8084.OBSERVED else bpObs),
                 "chg" to (if (tapeChg8100 != null || altChg8169 != null) Obs8084.OBSERVED else chgObs),
-                "shape" to (if (tapeShape8100 != null) Obs8084.OBSERVED else shapeObs),
+                "shape" to (if (tapeShape8100 != null || launchShape8798 != null) Obs8084.OBSERVED else shapeObs),
                 "liq" to (if (altLiq8169 != null) Obs8084.OBSERVED else liqObs),
                 "age" to (if (f.age.isFinite()) Obs8084.OBSERVED else Obs8084.UNKNOWN),
                 "mcap" to (if (f.mcap.isFinite()) Obs8084.OBSERVED else Obs8084.UNKNOWN),

@@ -60,6 +60,8 @@ object LaunchTape7921 {
         // V5.0.8287 — the token's own trades since its witnessed birth (dev included) and their SOL-volume buy share
         // (NaN without a trade with size). A flow reading for a launch, from its own first trades.
         val trades8287: Int = 0, val bpAll8287: Double = Double.NaN,
+        // V5.0.8798 — the run from the launch's lowest executed price since birth to now (NaN before two prices)
+        val runupFromLowPct8798: Double = Double.NaN,
     )
 
     private class Rec(val birthMs: Long) {
@@ -75,6 +77,7 @@ object LaunchTape7921 {
         var firstPx = 0.0
         var lastPx = 0.0
         var peakPx = 0.0
+        var lowPx = 0.0           // V5.0.8798 — the lowest executed price since birth
         var promotedAtMs = 0L
         var checkpointed = false
         // V5.0.8165 — first-buyers promotion: when, at what price, the peak since, graded once.
@@ -190,6 +193,7 @@ object LaunchTape7921 {
         if (!priceSol.isFinite() || priceSol <= 0.0) return
         recs[mint]?.let { r -> synchronized(r) {
             if (r.firstPx <= 0.0) r.firstPx = priceSol; r.lastPx = priceSol; if (priceSol > r.peakPx) r.peakPx = priceSol
+            if (r.lowPx <= 0.0 || priceSol < r.lowPx) r.lowPx = priceSol
             if (r.earlyAtMs > 0L && priceSol > r.earlyPeakPx) r.earlyPeakPx = priceSol
         } }
         checkpoints[mint]?.let { c -> if (priceSol > c.peakPx) c.peakPx = priceSol }
@@ -247,11 +251,36 @@ object LaunchTape7921 {
                 heat = heatOf(crowd, ageMin, share, largest, r.devSold),
                 trades8287 = r.buys + r.sells,
                 bpAll8287 = if (r.buySolAll8287 + r.sellSol > 0.0) r.buySolAll8287 / (r.buySolAll8287 + r.sellSol) * 100.0 else Double.NaN,
+                runupFromLowPct8798 = if (r.lowPx > 0.0 && r.lastPx > 0.0 && r.peakPx > r.lowPx) (r.lastPx / r.lowPx - 1.0) * 100.0 else Double.NaN,
             )
         }
     }
 
     private fun binOf(heat: Double): Int = CortexLedger7885.binOf(HEAT_EDGES, heat)
+
+    /**
+     * V5.0.8798 — HeliusCurveTape8354: a decoded pump.fun print of a mint no desk watches yet. The program-wide stream sees
+     * every curve trade, but only watched mints reached this tape (through PumpFunWS's frame), so a launch's crowd, dev sell,
+     * peak and low existed only once someone was already watching it. Every print now builds its launch's tape from birth.
+     * Watched mints keep arriving through DataOrchestrator only (never both), so nothing is counted twice.
+     */
+    fun onProgramPrint8798(mint: String, wallet: String, sol: Double, isBuy: Boolean, priceSol: Double, nowMs: Long = System.currentTimeMillis()) {
+        onTrade(mint, wallet, sol, isBuy, nowMs)
+        onPrice(mint, priceSol)
+        inc("PROGRAM_PRINT_8798")
+    }
+
+    @Volatile private var births8798: Pair<Long, Int> = 0L to 0
+    @Volatile private var births8798Window = 0L
+
+    /** V5.0.8798 — launches witnessed born in the last [windowMs] (the market's launch rate), recounted at most every 30 s. */
+    fun birthsSince8798(windowMs: Long, nowMs: Long = System.currentTimeMillis()): Int {
+        val (at, n) = births8798
+        if (births8798Window == windowMs && nowMs - at in 0L..30_000L) return n
+        val c = recs.values.count { nowMs - it.birthMs in 0L..windowMs }
+        births8798 = nowMs to c; births8798Window = windowMs
+        return c
+    }
 
     /** V5.0.8287 — the trades the launch tape observed for [mint] since its witnessed birth; null = no launch record (unobserved). */
     fun observedTrades8287(mint: String, nowMs: Long = System.currentTimeMillis()): Int? {

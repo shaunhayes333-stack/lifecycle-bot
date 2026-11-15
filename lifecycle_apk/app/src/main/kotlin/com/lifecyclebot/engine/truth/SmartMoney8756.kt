@@ -266,6 +266,17 @@ object SmartMoney8756 {
         return synchronized(s) { s.buys.count { nowMs - it.first in 0L..windowMs } }
     }
 
+    /**
+     * V5.0.8798 — LearnerColumns8798: the proven buyers of [mint] in the last [windowMs] as a learner reading. 0 is a reading
+     * only while there is a proven set and a chosen variant to watch it (every proven wallet's buy is then recorded); before
+     * that the count is unobserved (NaN), not "nobody bought".
+     */
+    fun provenBuyersKnown8798(mint: String, windowMs: Long, nowMs: Long = System.currentTimeMillis()): Double {
+        restore8756()
+        if (live.isEmpty() || chosen == null) return Double.NaN
+        return provenBuyers8756(mint, windowMs, nowMs).toDouble()
+    }
+
     // ── persistence (the live wallets survive a restart; the record is re-graded every run) ──
 
     private fun file(): File? = AATEApp.appContextOrNull()?.filesDir?.let { File(it, FILE) }

@@ -39,9 +39,19 @@ object TreeRanker8737 {
     private const val WINDOW_MS = 15L * 60_000L
     private const val MAX_LINES_8737 = 25_000
 
-    /** Feature names, in vector order (the dataset's own keys; isPump and lane added). */
-    val FEATURES = listOf("liq", "mcap", "age", "runup", "dd", "bp", "chg5m", "chg1h", "top", "txVel", "turnover", "curve",
+    /** The core columns, in vector order (the dataset's own keys; isPump and lane added). */
+    private val CORE = listOf("liq", "mcap", "age", "runup", "dd", "bp", "chg5m", "chg1h", "top", "txVel", "turnover", "curve",
         "pxPeak", "cost", "volAccel", "isPump", "lane")
+    /**
+     * V5.0.8798 — feature names, in vector order: the core, then the dataset's other observed columns (holder velocity, new
+     * buyers) and every LearnerColumns8798 column. A row written before 8798 reads NaN for the new ones (the trees route
+     * an unobserved value down its own learned side).
+     */
+    val FEATURES: List<String> = CORE + listOf("holderVel", "newBuyers15s8666") + LearnerColumns8798.NAMES
+    /** V5.0.8798 — each tree grows on a random half of the rows and a random half of the columns (stochastic boosting): the
+     *  77-column fit costs what the 17-column one did, and no single noisy column dominates. */
+    private const val ROW_FRAC_8798 = 0.5
+    private const val COL_FRAC_8798 = 0.5
 
     class Tree(val feat: IntArray, val split: IntArray, val nanLeft: BooleanArray, val left: IntArray, val right: IntArray,
                val value: DoubleArray) {
@@ -66,10 +76,15 @@ object TreeRanker8737 {
     @Volatile private var lastStatus = "not-trained"
     private val exec = Executors.newSingleThreadExecutor { r -> Thread(r, "tree-ranker-8737").apply { isDaemon = true; priority = Thread.MIN_PRIORITY } }
 
-    /** Pure: the feature vector of a decision (NaN = unobserved). */
-    fun vectorOf(raw: EdgeModel8537.Raw, mint: String): DoubleArray = doubleArrayOf(
-        raw.liq, raw.mcap, raw.ageMin, raw.runup, raw.dd, raw.bp, raw.chg5m, raw.chg1h, raw.top, raw.txVel, raw.turnover,
-        raw.curve, raw.pxPeak, raw.costPct, raw.volAccel, if (mint.trim().endsWith("pump")) 1.0 else 0.0, laneIndex(raw.lane))
+    /** Pure: the feature vector of a decision (NaN = unobserved), in [FEATURES] order. */
+    fun vectorOf(raw: EdgeModel8537.Raw, mint: String): DoubleArray {
+        val core = doubleArrayOf(
+            raw.liq, raw.mcap, raw.ageMin, raw.runup, raw.dd, raw.bp, raw.chg5m, raw.chg1h, raw.top, raw.txVel, raw.turnover,
+            raw.curve, raw.pxPeak, raw.costPct, raw.volAccel, if (mint.trim().endsWith("pump")) 1.0 else 0.0, laneIndex(raw.lane),
+            raw.holderVel, raw.newBuyers15s8666)
+        val ext = if (raw.ext.size == LearnerColumns8798.SIZE) raw.ext else DoubleArray(LearnerColumns8798.SIZE) { Double.NaN }
+        return core + ext
+    }
 
     /** The ranker's prediction for [raw] of [mint] in the edge model's unit, or null while untrained. */
     fun predict8737(raw: EdgeModel8537.Raw, mint: String): Double? =
@@ -87,13 +102,18 @@ object TreeRanker8737 {
         exec.execute {
             try {
                 // V5.0.8740 — 8739 phone: training on 45,557 rows took 349 s of CPU on a loaded phone. The newest
-                // [MAX_LINES_8737] lines only (the market the bot trades now), streamed through a bounded tail.
-                val tail = java.util.ArrayDeque<String>(MAX_LINES_8737)
-                dataset.useLines { seq -> seq.forEach { if (tail.size == MAX_LINES_8737) tail.removeFirst(); tail.addLast(it) } }
-                val rows = rowsOf8737(tail.asSequence())
+                // [MAX_LINES_8737] lines only (the market the bot trades now).
+                // V5.0.8798 — counted first, then parsed straight into rows: the tail used to hold 25,000 JSON strings
+                // (~45 MB of heap, more with the wider rows) while it was parsed.
+                var total = 0
+                dataset.useLines { seq -> seq.forEach { _ -> total++ } }
+                val skip = (total - MAX_LINES_8737).coerceAtLeast(0)
+                var idx = 0
+                val rows = dataset.useLines { seq -> rowsOf8737(seq.filter { idx++ >= skip }) }
                 if (rows.size < MIN_ROWS) { lastStatus = "waiting rows=${rows.size}/$MIN_ROWS"; return@execute }
                 val t0 = System.currentTimeMillis()
-                model = train8737(rows.map { it.first }, rows.map { it.second }, rows.map { it.third }, System.currentTimeMillis())
+                model = train8737(rows.map { it.first }, rows.map { it.second }, rows.map { it.third }, System.currentTimeMillis(),
+                    rowFrac = ROW_FRAC_8798, colFrac = COL_FRAC_8798)
                 lastStatus = "trained rows=${rows.size} trees=$TREES ms=${System.currentTimeMillis() - t0}"
                 try { PipelineHealthCollector.labelInc("TREE_RANKER_TRAINED_8737") } catch (_: Throwable) {}
             } catch (t: Throwable) {
@@ -126,15 +146,20 @@ object TreeRanker8737 {
             if (!y.isFinite()) continue
             val x = doubleArrayOf(d("liq"), d("mcap"), d("age"), d("runup"), d("dd"), d("bp"), d("chg5m"), d("chg1h"), d("top"),
                 d("txVel"), d("turnover"), d("curve"), d("pxPeak"), cost, d("volAccel"),
-                if (mint.trim().endsWith("pump")) 1.0 else 0.0, laneIndex(lane))
+                if (mint.trim().endsWith("pump")) 1.0 else 0.0, laneIndex(lane), d("holderVel"), d("newBuyers15s8666")) +
+                LearnerColumns8798.fromRow(o)
             out.add(R(x, y, "$mint|${o.optLong("t", 0L) / WINDOW_MS}"))
         }
         val per = out.groupingBy { it.key }.eachCount()
         return out.map { Triple(it.x, it.y, 1.0 / (per[it.key] ?: 1)) }
     }
 
-    /** Pure: a boosted ensemble fitted to [xs] -> [ys] with sample weights [ws]. */
-    fun train8737(xs: List<DoubleArray>, ys: List<Double>, ws: List<Double>, atMs: Long, trees: Int = TREES): Model {
+    /**
+     * Pure: a boosted ensemble fitted to [xs] -> [ys] with sample weights [ws]. V5.0.8798: each tree may grow on a seeded
+     * random [rowFrac] of the rows and [colFrac] of the columns (1.0 = all, the deterministic fit).
+     */
+    fun train8737(xs: List<DoubleArray>, ys: List<Double>, ws: List<Double>, atMs: Long, trees: Int = TREES,
+                  rowFrac: Double = 1.0, colFrac: Double = 1.0): Model {
         val n = xs.size
         val nf = xs.first().size
         val edges = List(nf) { f -> edgesOf(xs.map { it[f] }) }
@@ -145,16 +170,20 @@ object TreeRanker8737 {
         val f = DoubleArray(n) { base }
         val out = ArrayList<Tree>(trees)
         val idx = IntArray(n) { it }
-        repeat(trees) {
+        val allFeats = IntArray(nf) { it }
+        repeat(trees) { k ->
             val g = DoubleArray(n) { ys[it] - f[it] }
-            val t = grow(bins, g, w, idx, nf)
+            val rnd = java.util.Random(8798L + k)
+            val rows = if (rowFrac >= 1.0) idx else idx.filter { rnd.nextDouble() < rowFrac }.toIntArray().takeIf { it.size >= 2 } ?: idx
+            val feats = if (colFrac >= 1.0) allFeats else allFeats.filter { rnd.nextDouble() < colFrac }.toIntArray().takeIf { it.isNotEmpty() } ?: allFeats
+            val t = grow(bins, g, w, rows, feats)
             out.add(t)
             for (i in 0 until n) f[i] += t.eval(bins[i])
         }
         return Model(base, edges, out, n, atMs)
     }
 
-    private fun grow(bins: Array<IntArray>, g: DoubleArray, w: DoubleArray, all: IntArray, nf: Int): Tree {
+    private fun grow(bins: Array<IntArray>, g: DoubleArray, w: DoubleArray, all: IntArray, feats: IntArray): Tree {
         val feat = ArrayList<Int>(); val split = ArrayList<Int>(); val nanL = ArrayList<Boolean>()
         val left = ArrayList<Int>(); val right = ArrayList<Int>(); val value = ArrayList<Double>()
         fun newNode(): Int { feat.add(-1); split.add(0); nanL.add(false); left.add(-1); right.add(-1); value.add(0.0); return feat.size - 1 }
@@ -167,7 +196,7 @@ object TreeRanker8737 {
             val parent = sg * sg / (sw + L2)
             var bestGain = 0.0; var bf = -1; var bs = 0; var bNanLeft = false
             val hg = DoubleArray(BINS + 1); val hw = DoubleArray(BINS + 1)
-            for (fi in 0 until nf) {
+            for (fi in feats) {
                 java.util.Arrays.fill(hg, 0.0); java.util.Arrays.fill(hw, 0.0)
                 for (i in rows) { val b = bins[i][fi]; hg[b] += g[i] * w[i]; hw[b] += w[i] }
                 var lg = 0.0; var lw = 0.0
@@ -213,6 +242,6 @@ object TreeRanker8737 {
     private fun laneIndex(lane: String): Double =
         EdgeModel8537.LANES.indexOf(lane.trim().uppercase()).takeIf { it >= 0 }?.toDouble() ?: Double.NaN
 
-    fun statusLine8737(): String = "tree8737[$lastStatus rows=${trainedRows8737()} key=$KEY_8737 " +
+    fun statusLine8737(): String = "tree8737[$lastStatus rows=${trainedRows8737()} features=${FEATURES.size} key=$KEY_8737 " +
         "rule=boosted trees on the bot's own labelled dataset; earns authority only on its own out-of-sample record]"
 }

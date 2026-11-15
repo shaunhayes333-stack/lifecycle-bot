@@ -157,6 +157,10 @@ class BirdeyeApi(private val apiKey: String = "") {
         val body = get("$BASE/defi/token_overview?address=$mint") ?: return null
         return try {
             val data = JSONObject(body).optJSONObject("data") ?: return null
+            // V5.0.8798 — the overview's holder count is a holder fact at the answer's time, whoever asked
+            data.optInt("holder", 0).takeIf { it > 0 }?.let { h ->
+                try { com.lifecyclebot.engine.truth.TokenFacts.writeHolders8798(mint, h, "BIRDEYE_OVERVIEW", System.currentTimeMillis()) } catch (_: Throwable) {}
+            }
             TokenOverview(
                 symbol        = data.optString("symbol", ""),
                 name          = data.optString("name",   ""),
