@@ -864,17 +864,17 @@ object JournalEconomicReplay6619 {
             .take(64).forEach { projectConfirmedSell8422(it) }
     }
 
-    /**
-     * V5.0.6662 — settle durable journal lots whose canonical position was
-     * deliberately removed by an earlier Stop/restart implementation.
-     */
-    @Synchronized
     const val ORPHAN_WRITE_OFF_REASON_8765 = "ORPHANED_LOT_WRITTEN_OFF_8765"
 
     /** Pure (V5.0.8765): a 6662 orphan row — the legacy refund or the 8765 write-off — is bookkeeping, not a sale. */
     internal fun orphanRow8765(economicEventId: String): Boolean =
         economicEventId.startsWith("PAPER6619:ORPHAN_REFUND:") || economicEventId.startsWith("PAPER6619:ORPHAN_WRITE_OFF_8765:")
 
+    /**
+     * V5.0.6662 — settle durable journal lots whose canonical position was
+     * deliberately removed by an earlier Stop/restart implementation.
+     */
+    @Synchronized
     fun repairOrphanedOpenLots6662(): Int {
         repairConfirmedLiveJournals8422()
         val replay = replay()
