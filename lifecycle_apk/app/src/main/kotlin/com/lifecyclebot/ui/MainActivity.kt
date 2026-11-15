@@ -10951,6 +10951,12 @@ This cannot be undone!
             performHaptic()
         }
 
+        // V5.0.8795: Hyperliquid tile → opens HyperliquidActivity (the trend desk)
+        findViewById<View>(R.id.btnQuickHyperliquid)?.setOnClickListener {
+            startActivity(Intent(this, com.lifecyclebot.ui.HyperliquidActivity::class.java))
+            performHaptic()
+        }
+
         // V1.0: "Open Full Crypto Alts Screen" button inside card → same
         cardCryptoAlts?.findViewById<android.view.View>(R.id.btnOpenCryptoAltsMarkets)?.setOnClickListener {
             startActivity(Intent(this, com.lifecyclebot.ui.CryptoAltActivity::class.java))

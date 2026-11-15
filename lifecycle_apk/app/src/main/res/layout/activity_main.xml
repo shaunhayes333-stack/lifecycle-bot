@@ -923,6 +923,31 @@
                             android:fontFamily="monospace"/>
                     </LinearLayout>
 
+                    <!-- V5.0.8795: Hyperliquid trend desk -->
+                    <LinearLayout
+                        android:id="@+id/btnQuickHyperliquid"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:padding="7dp"
+                        android:background="@drawable/aate_nav_tile_bg"
+                        android:layout_marginEnd="6dp"
+                        android:clickable="true"
+                        android:focusable="true">
+                        <ImageView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:src="@drawable/aate_ic_markets"
+                            android:background="@drawable/aate_nav_icon_badge_bg"
+                            android:minWidth="42dp"
+                            android:minHeight="42dp"
+                            android:padding="8dp"
+                            android:contentDescription="Hyperliquid icon"/>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="HL Perps" android:textColor="@color/aate_amber" android:textSize="9sp"
+                            android:layout_marginTop="2dp"/>
+                    </LinearLayout>
+
                     <LinearLayout
                         android:id="@+id/btnQuickPipeline"
                         android:layout_width="0dp"

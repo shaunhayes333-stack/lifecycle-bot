@@ -795,6 +795,8 @@ class BotService : Service() {
     // CoroutineTransformer StackOverflowError in release CI.
     private fun startSingletonRuntimeMonitors() {
         ensureSpecialistWorkers6647()
+        // V5.0.8795 — the Hyperliquid trend desk runs on its own low-priority thread (paper always; live only when allowed)
+        try { com.lifecyclebot.hyperliquid.HlDesk.ensureStarted(applicationContext) } catch (_: Throwable) {}
         // V5.0.7272 §THE_1HZ_LOOP_SHARED_THREE_THREADS_WITH_815_BLOCKING_CASCADES.
         //
         // 5.0.7271 at 352 s: hotTicks7270=48, OPEN_POS_TICK=44, ten of
