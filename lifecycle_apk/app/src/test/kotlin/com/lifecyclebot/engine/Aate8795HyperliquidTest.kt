@@ -5,7 +5,7 @@ import com.lifecyclebot.hyperliquid.HlDesk
 import com.lifecyclebot.hyperliquid.HlMsgPack
 import com.lifecyclebot.hyperliquid.HlSettings
 import com.lifecyclebot.hyperliquid.HlSigner
-import com.lifecyclebot.hyperliquid.HlTrend
+import com.lifecyclebot.hyperliquid.HlRisk
 import com.lifecyclebot.hyperliquid.HlWire
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -72,7 +72,7 @@ class Aate8795HyperliquidTest {
     @Test fun responsesParse() {
         val meta = """[{"universe":[{"name":"BTC","szDecimals":5,"maxLeverage":40},{"name":"OLD","szDecimals":0,"maxLeverage":3,"isDelisted":true},{"name":"ETH","szDecimals":4,"maxLeverage":25}]},
             [{"funding":"0.0000125","openInterest":"100.5","dayNtlVlm":"5000000000","markPx":"95000.0"},{"funding":"0","openInterest":"0","dayNtlVlm":"0","markPx":"1.0"},{"funding":"-0.00001","openInterest":"2000","dayNtlVlm":"2000000000","markPx":"3500.5"}]]"""
-        val a = HlApi.parseMetaAndCtxs(meta)
+        val a = HlApi.parseMetaAndCtxs(meta).assets
         assertEquals(listOf("BTC", "ETH"), a.map { it.name })
         assertEquals(2, a[1].index)                    // the asset index is the universe position, delisted rows included
         assertEquals(95_000.0, a[0].markPx, 0.0); assertEquals(-0.00001, a[1].fundingHourly, 1e-12)
@@ -86,27 +86,7 @@ class Aate8795HyperliquidTest {
         assertTrue(body.contains("\"nonce\":7") && body.contains("\"vaultAddress\":null") && body.contains("\"tif\":\"Ioc\""))
     }
 
-    private fun series(coin: String, drift: Double, n: Int = 400) = HlTrend.Series(coin,
-        DoubleArray(n) { d -> 100.0 * Math.exp(drift * d + 0.03 * Math.sin(d / 5.0)) }, DoubleArray(n))
-
-    @Test fun theTrendRuleAndItsHonestGrade() {
-        val up = series("UP", 0.004).close; val down = series("DN", -0.004).close
-        val l40 = HlTrend.Rule(40, HlTrend.Mode.LONG_SHORT)
-        assertEquals(1, HlTrend.signal(up, 300, l40))
-        assertEquals(-1, HlTrend.signal(down, 300, l40))
-        assertEquals(0, HlTrend.signal(down, 300, HlTrend.Rule(40, HlTrend.Mode.LONG_ONLY)))
-        assertEquals(0, HlTrend.signal(up, 10, l40))                         // not enough history
-        val w = HlTrend.weights(listOf(series("UP", 0.004), series("DN", -0.004)), 300, l40)
-        assertEquals(1.0, w.sumOf { Math.abs(it) }, 1e-9)                    // gross exposure 1, never leverage
-        assertTrue(w[0] > 0.0 && w[1] < 0.0)
-        val ev = HlTrend.evaluate(listOf(series("UP", 0.004), series("UP2", 0.003)))
-        assertTrue(ev.chosen != null && ev.test != null && ev.test!!.days >= HlTrend.MIN_TEST_DAYS)
-        assertTrue("a steady trend is armed", ev.armed)
-        // a flat market with costs never arms
-        val flat = HlTrend.evaluate(listOf(HlTrend.Series("FLAT", DoubleArray(400) { d -> 100.0 + 5.0 * Math.sin(d / 3.0) }, DoubleArray(400))))
-        assertFalse(flat.armed)
-        assertFalse(HlTrend.evaluate(listOf(series("SHORT", 0.004, 200))).armed)   // too little history to grade
-    }
+    // V5.0.8797: the trend rule moved into HlBrain (five families, graded in Aate8797HyperliquidDeskTest).
 
     @Test fun liveOnlyThroughSettingsReplayAndStop() {
         val ok = HlSettings.Config("0x14791697260e4c9a71f18484c9f997b308e59325", key, false, true, 50.0, 10.0)
@@ -116,15 +96,15 @@ class Aate8795HyperliquidTest {
         assertEquals("NO_ACCOUNT_ADDRESS", HlSettings.liveRefusal(ok.copy(account = "abc")))
         assertEquals("SETTINGS_UNREADABLE", HlSettings.liveRefusal(null))
         assertNull(HlDesk.liveGate(null, armed = true, killed = false))
-        assertEquals("REPLAY_NOT_ARMED", HlDesk.liveGate(null, armed = false, killed = false))
-        assertEquals("DAILY_STOP_HIT_SWITCH_LIVE_OFF_AND_ON", HlDesk.liveGate(null, armed = true, killed = true))
+        assertEquals("BRAIN_NOT_ARMED", HlDesk.liveGate(null, armed = false, killed = false))
+        assertEquals("STOP_HIT_SWITCH_LIVE_OFF_AND_ON", HlDesk.liveGate(null, armed = true, killed = true))
         assertEquals("LIVE_OFF", HlDesk.liveGate("LIVE_OFF", armed = true, killed = false))
         // orders: open, trim (reduce-only), close all, skip dust
-        assertEquals(Triple(true, 0.00052, false), HlDesk.orderFor(0.0, 50.0, 95_000.0, 5))
-        assertEquals(Triple(false, 0.0005, true), HlDesk.orderFor(0.001, 47.5, 95_000.0, 5))
-        assertEquals(Triple(true, 0.5, true), HlDesk.orderFor(-0.5, 0.0, 3_500.0, 4))
-        assertNull(HlDesk.orderFor(0.0005, 50.0, 95_000.0, 5))                // within the $11 minimum of target
-        assertNull(HlDesk.orderFor(0.0, 0.0, 95_000.0, 5))
+        assertEquals(Triple(true, 0.00052, false), HlRisk.orderFor(0.0, 50.0, 95_000.0, 5))
+        assertEquals(Triple(false, 0.0005, true), HlRisk.orderFor(0.001, 47.5, 95_000.0, 5))
+        assertEquals(Triple(true, 0.5, true), HlRisk.orderFor(-0.5, 0.0, 3_500.0, 4))
+        assertNull(HlRisk.orderFor(0.0005, 50.0, 95_000.0, 5))                // within the $11 minimum of target
+        assertNull(HlRisk.orderFor(0.0, 0.0, 95_000.0, 5))
     }
 
     @Test fun theDeskIsWiredIn() {

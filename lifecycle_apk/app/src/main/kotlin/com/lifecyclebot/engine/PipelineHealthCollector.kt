@@ -1595,6 +1595,7 @@ object PipelineHealthCollector {
         sb.append("  Smart money (§8756): ").append(try { com.lifecyclebot.engine.truth.SmartMoney8756.statusLine8756() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Stop slip (§8756): ").append(try { com.lifecyclebot.engine.truth.StopSlip8756.statusLine8756() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Hyperliquid (§8795): ").append(try { com.lifecyclebot.hyperliquid.HlDesk.statusLine() } catch (_: Throwable) { "unavailable" }).append("\n")
+        sb.append("  Retired markets (§8797): ").append(try { com.lifecyclebot.perps.RetiredMarkets8797.statusLine() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Print witness (§8750): ").append(try { com.lifecyclebot.engine.truth.PrintWitness8750.statusLine8750() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Quiet curve marks (§8750): ").append(try { com.lifecyclebot.engine.truth.QuietCurve8750.statusLine8750() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Launch sniper (§8748): ").append(try { com.lifecyclebot.engine.truth.LaunchSniper8748.statusLine8748() } catch (_: Throwable) { "unavailable" }).append("\n")

@@ -225,11 +225,8 @@ class BotService : Service() {
                 cfg = cfg, marketsKill = kill, marketsLaneOnFn = { isMarketsLaneEnabled(it) },
             )
             val marketsOn = plan.marketsLaneOn
-            try { com.lifecyclebot.perps.PerpsTraderAI.setEnabled(plan.perpsEffective) } catch (_: Exception) {}
-            try { com.lifecyclebot.perps.TokenizedStockTrader.setEnabled(plan.stocksEffective) } catch (_: Exception) {}
-            try { com.lifecyclebot.perps.CommoditiesTrader.setEnabled(plan.commoditiesEffective) } catch (_: Exception) {}
-            try { com.lifecyclebot.perps.MetalsTrader.setEnabled(plan.metalsEffective) } catch (_: Exception) {}
-            try { com.lifecyclebot.perps.ForexTrader.setEnabled(plan.forexEffective) } catch (_: Exception) {}
+            // V5.0.8797 — the Solana markets traders are retired (RetiredMarkets8797): their entries stay off.
+            com.lifecyclebot.perps.RetiredMarkets8797.disableEntries()
             // Stop PerpsExecutionEngine immediately when Markets master toggle is turned off
             if (!marketsOn) {
                 try {
@@ -4469,11 +4466,7 @@ class BotService : Service() {
             cfg = marketsStartCfg, marketsKill = marketsKill,
             marketsLaneOnFn = { isMarketsLaneEnabled(it) },
         )
-        com.lifecyclebot.perps.PerpsTraderAI.setEnabled(plan6526.perpsEffective)
-        com.lifecyclebot.perps.TokenizedStockTrader.setEnabled(plan6526.stocksEffective)
-        com.lifecyclebot.perps.CommoditiesTrader.setEnabled(plan6526.commoditiesEffective)
-        com.lifecyclebot.perps.MetalsTrader.setEnabled(plan6526.metalsEffective)
-        com.lifecyclebot.perps.ForexTrader.setEnabled(plan6526.forexEffective)
+        com.lifecyclebot.perps.RetiredMarkets8797.disableEntries()
         val cryptoUniverseOnAtStart = plan6526.cryptoUniverseOn
         com.lifecyclebot.perps.CryptoAltTrader.setEnabled(cryptoUniverseOnAtStart)
         try {
@@ -4543,125 +4536,13 @@ class BotService : Service() {
             } catch (_: Throwable) { /* logging is best-effort */ }
         }
 
-        if (plan6526.perpsEffective) {
-            // V5.9.600 BUG-1 FIX: PerpsTraderAI was never getting setLiveMode called.
-            // Sub-traders all get setLiveMode(!cfg.paperMode) below, but PerpsTraderAI
-            // only had setTradingMode(isPaper) and was never reached from BotService.
-            // Wire it the same way as every other trader so the live/paper flag is
-            // consistent with the global config.
-            try {
-                com.lifecyclebot.perps.PerpsTraderAI.setLiveMode(!cfg.paperMode)
-                ErrorLogger.info("BotService", "⚡ PerpsTraderAI mode: ${if (cfg.paperMode) "PAPER" else "LIVE"}")
-            } catch (e: Exception) {
-                ErrorLogger.warn("BotService", "PerpsTraderAI setLiveMode error: ${e.message}")
-            }
-            try {
-                check(traderStep7447("PERPS", 12_000L) {
-                    com.lifecyclebot.perps.PerpsExecutionEngine.start(applicationContext)
-                }) { "PERPS_START_NOT_READY_7447" }
-                ErrorLogger.info("BotService", "⚡ PerpsExecutionEngine STARTED - Fully Automatic Trading ACTIVE")
-                // V5.0.6538 §SOL_PERPS_PHASE_1_ONLINE — operator directive:
-                // "kick off Phase 1: enable SOL perps/leverage in paper mode
-                // now that correctness bundles are stable". SOL is already
-                // in PerpsMarket.isSolPerp and the SOL_MOMENTUM/SOL_SNIPER
-                // scanners are running unconditionally through
-                // PerpsMarketScanners.runAllScanners(). Emit an explicit
-                // paper-only affirmation so the operator can see the SOL
-                // perp lane is armed and observe the first scan tick.
-                try {
-                    val sol6538 = com.lifecyclebot.perps.PerpsMarket.SOL
-                    val paperBal6538 = try {
-                        com.lifecyclebot.perps.PerpsTraderAI.getBalance(true)
-                    } catch (_: Throwable) { 0.0 }
-                    val enabled6538 = try {
-                        com.lifecyclebot.perps.PerpsTraderAI.isEnabled()
-                    } catch (_: Throwable) { false }
-                    val paperMode6538 = try {
-                        com.lifecyclebot.perps.PerpsTraderAI.isPaperMode
-                    } catch (_: Throwable) { true }
-                    val laneEnabled6538 = try {
-                        com.lifecyclebot.data.ConfigStore.load(applicationContext).perpsEnabled
-                    } catch (_: Throwable) { true }
-                    com.lifecyclebot.engine.PipelineHealthCollector
-                        .labelInc("SOL_PERPS_PHASE_1_ONLINE_6538")
-                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                        "SOL_PERPS_PHASE_1_ONLINE_6538",
-                        "market=${sol6538.symbol} maxLeverage=${sol6538.maxLeverage}x " +
-                            "paperMode=$paperMode6538 perpsTraderEnabled=$enabled6538 " +
-                            "laneEnabled=$laneEnabled6538 paperWallet=${"%.4f".format(paperBal6538)}◎ " +
-                            "expected=SOL_MOMENTUM+SOL_SNIPER_scanner_ticks observed=engine_started " +
-                            "action=learn_in_paper_no_live_execution",
-                    )
-                    ErrorLogger.info(
-                        "BotService",
-                        "◎ SOL_PERPS_PHASE_1 ONLINE - market=SOL maxLev=${sol6538.maxLeverage}x paper=$paperMode6538 " +
-                            "enabled=$enabled6538 lane=$laneEnabled6538 bal=${"%.4f".format(paperBal6538)}◎",
-                    )
-                } catch (_: Throwable) {}
-            } catch (e: Exception) {
-                ErrorLogger.error("BotService", "PerpsExecutionEngine start error: ${e.message}", e)
-            }
-        }
-
-        // V5.7.5: Start TokenizedStockTrader - DEDICATED stock trading engine
-        if (plan6526.stocksEffective) {
-            try {
-                check(traderStep7447("STOCK", 12_000L) {
-                    com.lifecyclebot.perps.TokenizedStockTrader.init()
-                    com.lifecyclebot.perps.TokenizedStockTrader.setLiveMode(!cfg.paperMode)
-                    com.lifecyclebot.perps.TokenizedStockTrader.start()
-                }) { "STOCK_START_NOT_READY_7447" }
-                ErrorLogger.info("BotService", "📈 TRADER_GATE MARKETS/STOCKS enabled=true started=true")
-            } catch (e: Exception) {
-                ErrorLogger.error("BotService", "TokenizedStockTrader start error: ${e.message}", e)
-            }
-        } else {
-            // V5.9.776 — defence-in-depth: explicitly stop any stale instance
-            // and log the OFF state so operator can verify toggle isolation.
-            try { com.lifecyclebot.perps.TokenizedStockTrader.stop() } catch (_: Exception) {}
-            ErrorLogger.info("BotService", "📈 TRADER_GATE MARKETS/STOCKS enabled=false started=false (marketsLaneOn=$marketsLaneOn stocksEnabled=${marketsStartCfg.stocksEnabled})")
-        }
-
-        // V5.7.6: Start CommoditiesTrader - Energy & Agricultural commodities
-        if (plan6526.commoditiesEffective) {
-            try {
-                check(traderStep7447("COMMODITY", 12_000L) {
-                    com.lifecyclebot.perps.CommoditiesTrader.initialize()
-                    com.lifecyclebot.perps.CommoditiesTrader.setLiveMode(!cfg.paperMode)
-                    com.lifecyclebot.perps.CommoditiesTrader.start()
-                }) { "COMMODITY_START_NOT_READY_7447" }
-                ErrorLogger.info("BotService", "🛢️ CommoditiesTrader STARTED - Oil, Gas, Agriculture ACTIVE")
-            } catch (e: Exception) {
-                ErrorLogger.error("BotService", "CommoditiesTrader start error: ${e.message}", e)
-            }
-        }
-
-        // V5.7.6: Start MetalsTrader - Precious & Industrial metals
-        if (plan6526.metalsEffective) {
-            try {
-                check(traderStep7447("METAL", 12_000L) {
-                    com.lifecyclebot.perps.MetalsTrader.initialize(applicationContext)
-                    com.lifecyclebot.perps.MetalsTrader.setLiveMode(!cfg.paperMode)
-                    com.lifecyclebot.perps.MetalsTrader.start()
-                }) { "METAL_START_NOT_READY_7447" }
-                ErrorLogger.info("BotService", "🥇 MetalsTrader STARTED - Gold, Silver, Industrial Metals ACTIVE")
-            } catch (e: Exception) {
-                ErrorLogger.error("BotService", "MetalsTrader start error: ${e.message}", e)
-            }
-        }
-
-        // V5.7.6: Start ForexTrader - Currency pairs
-        if (plan6526.forexEffective) {
-            try {
-                check(traderStep7447("FOREX", 12_000L) {
-                    com.lifecyclebot.perps.ForexTrader.initialize(applicationContext)
-                    com.lifecyclebot.perps.ForexTrader.setLiveMode(!cfg.paperMode)
-                    com.lifecyclebot.perps.ForexTrader.start()
-                }) { "FOREX_START_NOT_READY_7447" }
-                ErrorLogger.info("BotService", "💱 ForexTrader STARTED - Major, Cross, EM Pairs ACTIVE")
-            } catch (e: Exception) {
-                ErrorLogger.error("BotService", "ForexTrader start error: ${e.message}", e)
-            }
+        // V5.0.8797 — owner: "also retire what we cant trade". SOL perps, stocks, commodities, metals and forex no longer
+        // start for entries; a retired trader still holding positions runs its exits until flat (RetiredMarkets8797).
+        // Perps, HIP-3 stocks / indices / metals / commodities trade on the Hyperliquid desk (HlDesk).
+        try {
+            com.lifecyclebot.perps.RetiredMarkets8797.windDown(applicationContext)
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "RetiredMarkets8797 wind-down error: ${e.message}", e)
         }
 
         // V5.7.3: Start PerpsAutoReplayLearner for CONTINUOUS learning
@@ -6762,13 +6643,7 @@ class BotService : Service() {
             )
             com.lifecyclebot.perps.CryptoAltTrader.setEnabled(startPlan6659d.cryptoUniverseOn)
             if (startPlan6659d.cryptoUniverseOn) com.lifecyclebot.perps.CryptoAltTrader.start()
-            if (recoveringPaperStop8521) {
-                if (startPlan6659d.stocksEffective) com.lifecyclebot.perps.TokenizedStockTrader.start()
-                if (startPlan6659d.commoditiesEffective) com.lifecyclebot.perps.CommoditiesTrader.start()
-                if (startPlan6659d.metalsEffective) com.lifecyclebot.perps.MetalsTrader.start()
-                if (startPlan6659d.forexEffective) com.lifecyclebot.perps.ForexTrader.start()
-                if (startPlan6659d.perpsEffective) com.lifecyclebot.perps.PerpsExecutionEngine.start(applicationContext)
-            }
+            if (recoveringPaperStop8521) com.lifecyclebot.perps.RetiredMarkets8797.windDown(applicationContext)
         } catch (t: Throwable) {
             try { ForensicLogger.lifecycle("CRYPTO_REARM_FAILED_6659D", "err=${t.message?.take(100)}") } catch (_: Throwable) {}
         }

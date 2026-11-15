@@ -111,4 +111,8 @@ object HlWire {
             )),
             "grouping" to "na",
         )
+
+    /** Pure: the SDK's update_leverage action (V5.0.8797): margin mode and leverage for one asset. */
+    fun updateLeverageAction(asset: Int, isCross: Boolean, leverage: Int): Map<String, Any?> =
+        linkedMapOf("type" to "updateLeverage", "asset" to asset, "isCross" to isCross, "leverage" to leverage)
 }

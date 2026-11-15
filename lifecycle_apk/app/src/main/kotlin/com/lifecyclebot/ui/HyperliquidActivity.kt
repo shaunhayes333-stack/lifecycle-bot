@@ -21,8 +21,9 @@ import com.lifecyclebot.hyperliquid.HlSettings
 import com.lifecyclebot.hyperliquid.HlSigner
 
 /**
- * V5.0.8795 — the owner's Hyperliquid screen: account, API wallet key, network, live switch, budget, daily stop, a
- * flatten button, and the desk's live status (replay record, paper book, live state, last orders).
+ * V5.0.8795 / 8797 — the owner's Hyperliquid screen: account, API wallet key, network, live switch, budget, daily stop,
+ * maximum leverage, drawdown stop, HIP-3 markets, a flatten button, and the desk's live status (universe, each family's
+ * record, the blend, leverage, costs, paper book, live state, last orders).
  */
 class HyperliquidActivity : AppCompatActivity() {
     private val ui = Handler(Looper.getMainLooper())
@@ -51,10 +52,12 @@ class HyperliquidActivity : AppCompatActivity() {
         HlDesk.ensureStarted(this)
         val saved = HlSettings.read(this)
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(40, 40, 40, 80) }
-        col.addView(label("Hyperliquid trend desk", 20f, true))
-        col.addView(label("Trades a trend book on the most-traded Hyperliquid perps. It always runs in paper; it trades real " +
-            "money only when Live is on, an API wallet key is set, and its replay is ARMED (proven on the half of the history it " +
-            "was not chosen on). Use an API wallet (app.hyperliquid.xyz/API): it can trade but never withdraw.", 12f))
+        col.addView(label("Hyperliquid perps desk", 20f, true))
+        col.addView(label("Trades Hyperliquid's most-traded perps and HIP-3 markets (stocks, indices, metals, commodities) with " +
+            "five strategy families and a learned model, each proven on the half of the history it was not chosen on. It always " +
+            "runs in paper; it trades real money only when Live is on, an API wallet key is set and the brain is ARMED. Leverage " +
+            "is half-Kelly of its own record, never above your maximum. Use an API wallet (app.hyperliquid.xyz/API): it can trade " +
+            "but never withdraw. HIP-3 markets use their own dex balance: move USDC to that dex on Hyperliquid to trade them live.", 12f))
 
         val account = field("Main account address (0x…)", InputType.TYPE_CLASS_TEXT).apply { setText(saved?.account.orEmpty()) }
         val key = field(if (saved?.agentKey.isNullOrBlank()) "API wallet private key (0x…)" else "API wallet key saved (leave blank to keep)",
@@ -66,12 +69,20 @@ class HyperliquidActivity : AppCompatActivity() {
             .apply { setText((saved?.maxNotionalUsd ?: HlSettings.DEFAULT_MAX_NOTIONAL_USD).toString()) }
         val stop = field("Daily loss stop, % of account", InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL)
             .apply { setText((saved?.dailyStopPct ?: HlSettings.DEFAULT_DAILY_STOP_PCT).toString()) }
+        val maxLev = field("Most leverage the brain may use (x)", InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL)
+            .apply { setText((saved?.maxLeverage ?: HlSettings.DEFAULT_MAX_LEVERAGE).toString()) }
+        val maxDd = field("Drawdown stop from the peak, %", InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL)
+            .apply { setText((saved?.maxDrawdownPct ?: HlSettings.DEFAULT_MAX_DRAWDOWN_PCT).toString()) }
+        val hip3 = SwitchCompat(this).apply { text = "HIP-3 markets (stocks, indices, metals, commodities)"; setTextColor(Color.WHITE); isChecked = saved?.hip3 ?: true }
 
         col.addView(label("Account", 13f, true)); col.addView(account)
         col.addView(label("API wallet", 13f, true)); col.addView(key); col.addView(agent)
         col.addView(testnet); col.addView(live)
         col.addView(label("Budget (USD)", 13f, true)); col.addView(cap)
         col.addView(label("Daily loss stop (%)", 13f, true)); col.addView(stop)
+        col.addView(label("Maximum leverage (x)", 13f, true)); col.addView(maxLev)
+        col.addView(label("Drawdown stop (%)", 13f, true)); col.addView(maxDd)
+        col.addView(hip3)
 
         val save = Button(this).apply { text = "Save" }
         save.setOnClickListener {
@@ -82,7 +93,9 @@ class HyperliquidActivity : AppCompatActivity() {
             val wasLive = HlSettings.read(this)?.live == true
             val c = HlSettings.Config(a, k, testnet.isChecked, live.isChecked,
                 cap.text.toString().toDoubleOrNull() ?: HlSettings.DEFAULT_MAX_NOTIONAL_USD,
-                (stop.text.toString().toDoubleOrNull() ?: HlSettings.DEFAULT_DAILY_STOP_PCT).coerceIn(1.0, 50.0))
+                (stop.text.toString().toDoubleOrNull() ?: HlSettings.DEFAULT_DAILY_STOP_PCT).coerceIn(1.0, 50.0),
+                (maxLev.text.toString().toDoubleOrNull() ?: HlSettings.DEFAULT_MAX_LEVERAGE).coerceIn(0.0, 10.0),
+                (maxDd.text.toString().toDoubleOrNull() ?: HlSettings.DEFAULT_MAX_DRAWDOWN_PCT).coerceIn(5.0, 90.0), hip3.isChecked)
             if (HlSettings.write(this, c)) {
                 if (c.live && !wasLive) HlDesk.clearKill()
                 key.setText("")
@@ -95,7 +108,7 @@ class HyperliquidActivity : AppCompatActivity() {
         val flatten = Button(this).apply { text = "Flatten all Hyperliquid positions" }
         flatten.setOnClickListener {
             AlertDialog.Builder(this).setTitle("Flatten Hyperliquid?")
-                .setMessage("Close every position on the account now and switch live trading off.")
+                .setMessage("Close every position on every Hyperliquid dex now and switch live trading off.")
                 .setPositiveButton("Flatten") { _, _ ->
                     Toast.makeText(this, HlDesk.flattenNow(), Toast.LENGTH_LONG).show()
                     live.isChecked = false

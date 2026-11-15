@@ -291,26 +291,9 @@ object PerpsExecutionEngine {
                             // resolved TraderRuntimePlan6526.effective flags so
                             // paperLearnEverything6533 is respected. Raw UI
                             // toggles gate LIVE only.
-                            val plan6542 = try {
-                                com.lifecyclebot.engine.truth.TraderRuntimePlan6526.from(
-                                    cfg = cfg,
-                                    marketsKill = false,
-                                    marketsLaneOnFn = { c -> c.marketsTraderEnabled },
-                                )
-                            } catch (_: Throwable) { null }
-                            scanResults.filter { r ->
-                                val m = r.signal?.market ?: return@filter true
-                                if (plan6542 != null) {
-                                    when {
-                                        m.isStock     -> plan6542.stocksEffective
-                                        m.isForex     -> plan6542.forexEffective
-                                        m.isCommodity -> plan6542.commoditiesEffective
-                                        m.isMetal     -> plan6542.metalsEffective
-                                        m.isCrypto    -> plan6542.perpsEffective
-                                        else          -> true
-                                    }
-                                } else true
-                            }.also { kept ->
+                            // V5.0.8797 — every market this engine scans is retired (RetiredMarkets8797):
+                            // none of its signals may become an entry, in paper or live.
+                            scanResults.filter { r -> r.signal?.market == null }.also { kept ->
                                 val dropped = scanResults.size - kept.size
                                 if (dropped > 0) {
                                     ErrorLogger.debug(TAG,

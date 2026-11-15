@@ -1432,7 +1432,8 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("CryptoAltTrader.setEnabled(cryptoUniverseOn"))
         assertTrue("V5.0.6526: Crypto Universe/Markets derivation now flows through TraderRuntimePlan6526",
             bot.contains("com.lifecyclebot.engine.truth.TraderRuntimePlan6526.from(") &&
-            bot.contains("plan6526.perpsEffective") &&
+            // V5.0.8797: the markets/perps lanes are retired; the plan no longer derives them, startup winds them down.
+            bot.contains("RetiredMarkets8797.windDown(") &&
             bot.contains("plan6526.cryptoUniverseOn"))
         // V5.0.7828 — CYCLIC joined MEME_SPECIALISTS_7828, so it is no longer excluded from the internal meme layers.
         assertTrue("V5.0.4155: internal meme authority must include all specialist lanes",

@@ -47,11 +47,10 @@ data class TraderRuntimePlan6526(
     // V5.0.6533 — PAPER_MODE=LEARN_EVERYTHING is resolved here once. Raw stale
     // sub-toggles cannot disagree with startup/reapply/watchdog authority.
     val paperLearnEverything6533: Boolean get() = paperMode && marketsLaneOn
-    val stocksEffective: Boolean get() = marketsLaneOn && (paperLearnEverything6533 || stocksOn) && !marketLanesQuarantined
-    val forexEffective: Boolean get() = marketsLaneOn && (paperLearnEverything6533 || forexOn) && !marketLanesQuarantined
-    val commoditiesEffective: Boolean get() = marketsLaneOn && (paperLearnEverything6533 || commoditiesOn)
-    val metalsEffective: Boolean get() = marketsLaneOn && (paperLearnEverything6533 || metalsOn)
-    val perpsEffective: Boolean get() = marketsLaneOn && (paperLearnEverything6533 || perpsOn)
+    // V5.0.8797 — owner: "also retire what we cant trade". Stocks, forex, commodities, metals and SOL perps are retired
+    // (com.lifecyclebot.perps.RetiredMarkets8797): the plan enables none of them and publishes neither MARKETS_STOCKS nor
+    // PERPS, in paper or live. Their markets trade on the Hyperliquid desk (HIP-3 stocks / indices / metals / commodities
+    // and Hyperliquid's own perps). The perpsOn / stocksOn / ... inputs are still read so a saved config parses.
 
     /** The canonical enabled set to publish to EnabledTraderAuthority. */
     fun enabledTraderSet(): Set<EnabledTraderAuthority.Trader> {
@@ -70,10 +69,6 @@ data class TraderRuntimePlan6526(
             s += EnabledTraderAuthority.Trader.PROJECT_SNIPER
         }
         if (cryptoUniverseOn) s += EnabledTraderAuthority.Trader.CRYPTO_ALT
-        if ((stocksEffective || commoditiesEffective || metalsEffective || forexEffective) && !marketLanesQuarantined) {
-            s += EnabledTraderAuthority.Trader.MARKETS_STOCKS
-        }
-        if (perpsEffective) s += EnabledTraderAuthority.Trader.PERPS
         // V5.0.6073 SHADOW ALWAYS-ON — shadow paper runs behind BOTH modes.
         s += EnabledTraderAuthority.Trader.SHADOW_PAPER
         return s.toSet()

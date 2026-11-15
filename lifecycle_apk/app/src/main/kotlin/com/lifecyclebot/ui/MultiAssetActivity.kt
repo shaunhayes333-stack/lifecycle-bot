@@ -239,6 +239,8 @@ class MultiAssetActivity : AppCompatActivity() {
         } catch (_: Exception) {}
         // V5.9.5: Init traders — each guards against double-init internally.
         // Safe to call every onCreate; they skip loadState if already running.
+        // V5.0.8797 — Stocks, Commodities, Metals, Forex and SOL perps are retired (RetiredMarkets8797): this screen
+        // no longer starts them; BotService winds down anything they still hold. Their markets trade on the Hyperliquid desk.
         try { TokenizedStockTrader.init() } catch (_: Exception) {}
         try { CryptoAltTrader.init(applicationContext) } catch (_: Exception) {}
         try { CommoditiesTrader.initContext(applicationContext) } catch (_: Exception) {}
@@ -258,12 +260,7 @@ class MultiAssetActivity : AppCompatActivity() {
                 val shouldStart = (mainBotRunning || wasRunning) && !userManuallyStopped
                 if (shouldStart) {
                     val cfg = com.lifecyclebot.data.ConfigStore.load(this@MultiAssetActivity)
-                    if (cfg.stocksEnabled)       TokenizedStockTrader.start()
-                    if (cfg.commoditiesEnabled)  CommoditiesTrader.start()
-                    if (cfg.metalsEnabled)       MetalsTrader.start()
-                    if (cfg.forexEnabled)        ForexTrader.start()
                     if (cfg.cryptoAltsEnabled)   CryptoAltTrader.start()
-                    if (cfg.perpsEnabled)        PerpsExecutionEngine.start(this@MultiAssetActivity)
                     marketsPrefs.edit().putBoolean("markets_was_running", true).apply()
                     try { checkAndRefreshBalance() } catch (_: Exception) {}
                     ErrorLogger.info(TAG, "V5.9.5 Markets auto-started on create: mainBot=$mainBotRunning wasRunning=$wasRunning")
@@ -298,12 +295,7 @@ class MultiAssetActivity : AppCompatActivity() {
                 if (shouldRun) {
                     val cfg = com.lifecyclebot.data.ConfigStore.load(this@MultiAssetActivity)
                     // start() is safe to call even if already running — it checks internally
-                    if (cfg.stocksEnabled)       TokenizedStockTrader.start()
-                    if (cfg.commoditiesEnabled)  CommoditiesTrader.start()
-                    if (cfg.metalsEnabled)       MetalsTrader.start()
-                    if (cfg.forexEnabled)        ForexTrader.start()
                     if (cfg.cryptoAltsEnabled)   CryptoAltTrader.start()
-                    if (cfg.perpsEnabled)        PerpsExecutionEngine.start(this@MultiAssetActivity)
                     marketsPrefs.edit().putBoolean("markets_was_running", true).apply()
                     try { checkAndRefreshBalance() } catch (_: Exception) {}
                     ErrorLogger.info(TAG, "V5.9.5 Markets start-on-resume: mainBot=$mainBotRunning wasRunning=$wasRunning")
@@ -636,12 +628,7 @@ class MultiAssetActivity : AppCompatActivity() {
                 
                 // Start all Markets traders (V5.7.7: respect individual sub-trader flags)
                 val startCfg = com.lifecyclebot.data.ConfigStore.load(this@MultiAssetActivity)
-                if (startCfg.stocksEnabled)      TokenizedStockTrader.start()
-                if (startCfg.commoditiesEnabled) CommoditiesTrader.start()
-                if (startCfg.metalsEnabled)      MetalsTrader.start()
-                if (startCfg.forexEnabled)       ForexTrader.start()
                 if (startCfg.cryptoAltsEnabled)  CryptoAltTrader.start()
-                if (startCfg.perpsEnabled)       PerpsExecutionEngine.start(this@MultiAssetActivity)
                 
                 marketsPrefs.edit().putBoolean("markets_was_running", true).apply()
                 withContext(Dispatchers.Main) {
@@ -709,12 +696,7 @@ class MultiAssetActivity : AppCompatActivity() {
             lifecycleScope.launch(Dispatchers.IO) {
                 try {
                     val followCfg = com.lifecyclebot.data.ConfigStore.load(this@MultiAssetActivity)
-                    if (followCfg.stocksEnabled)      TokenizedStockTrader.start()
-                    if (followCfg.commoditiesEnabled) CommoditiesTrader.start()
-                    if (followCfg.metalsEnabled)      MetalsTrader.start()
-                    if (followCfg.forexEnabled)       ForexTrader.start()
                     if (followCfg.cryptoAltsEnabled)  CryptoAltTrader.start()
-                    if (followCfg.perpsEnabled)       PerpsExecutionEngine.start(this@MultiAssetActivity)
                     try { checkAndRefreshBalance() } catch (_: Exception) {}
                 } catch (e: Exception) {
                     ErrorLogger.error(TAG, "Markets auto-start failed: ${e.message}", e)

@@ -8,59 +8,75 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * V5.0.8795 §HYPERLIQUID_TREND_DESK — runs the trend book (HlTrend) on Hyperliquid perps, separate from the meme engine.
+ * V5.0.8795 / V5.0.8797 §HYPERLIQUID_DESK — the bot's perps trader: Hyperliquid's own perps plus the HIP-3 builder markets
+ * (stocks, indices, metals, commodities), on its own background thread, separate from the meme engine. It replaces the
+ * retired Solana markets traders (RetiredMarkets8797).
  *
- * Every minute on its own background thread:
- *  - every 5 minutes: marks and funding for every perp (mainnet data, public, no key);
- *  - once per UTC day (5 minutes after midnight): the [UNIVERSE] most-traded perps, their daily candles over [HISTORY_DAYS]
- *    days and their hourly funding (cached on disk), the replay (choose on the first half, grade on the second), and the
- *    day's target weights;
- *  - the PAPER book always trades those targets at the marks (0.1 % per unit of weight traded, real hourly funding), so
- *    the rule keeps a forward record whatever live does;
- *  - LIVE trades them only when the owner's settings allow it (HlSettings.liveRefusal), the replay is ARMED, and the day's
- *    loss stop has not fired. Orders are IOC limits 1 % through the mark, total exposure at most min(account value,
- *    maxNotionalUsd), never leverage beyond 1x, positions it no longer wants closed reduce-only. The daily stop flattens
- *    everything and switches live off until the owner switches it on again.
+ * Every minute:
+ *  - every 5 minutes: every dex's live context (marks, funding, open interest, premium); open interest and premium are
+ *    recorded into each coin's history (the exchange keeps none) — HlStore;
+ *  - every hour: each universe coin's order book, measured at the desk's own order size — HlCosts;
+ *  - once per UTC day (5 minutes after midnight): the universe (the [N_MAIN] most-traded perps and the [N_HIP3] most-traded
+ *    HIP-3 markets, less what cannot be traded: open-interest cap, non-USDC collateral, too little history), each coin's
+ *    new daily candles and funding (incremental, cached on disk), the brain (HlBrain: five families, chosen on the first
+ *    half of the history, graded on the second, blended, armed, half-Kelly leverage), and the day's targets;
+ *  - the PAPER book always trades the blend at the marks (each coin's own cost, real hourly funding), so the desk keeps a
+ *    forward record whatever live does;
+ *  - LIVE trades it only when the owner's settings allow it, the brain is ARMED, and neither the daily stop nor the
+ *    drawdown stop has fired (HlRisk sizes it, HlExecutor sends it). Either stop flattens everything and switches live
+ *    off until the owner switches it on again.
  */
 object HlDesk {
-    private const val UNIVERSE = 12
+    private const val N_MAIN = 15
+    private const val N_HIP3 = 15
     private const val HISTORY_DAYS = 420
+    private const val MIN_LISTED_DAYS = 60
     private const val TICK_MS = 60_000L
     private const val MARK_EVERY_MS = 5L * 60_000L
+    private const val BOOK_EVERY_MS = 60L * 60_000L
+    private const val RISK_EVERY_MS = 5L * 60_000L
     private const val DAY_MS = 86_400_000L
     private const val SETTLE_MS = 5L * 60_000L
     private const val PAPER_START_USD = 1_000.0
-    private const val MIN_ORDER_USD = 11.0
-    private const val SLIP = 0.01
+    private const val CALL_GAP_MS = 3_000L
     private const val FUNDING_PAGE = 500
-    private const val FILE = "hl_desk_8795.json"
+    private const val FILE = "hl_desk_8797.json"
 
     @Volatile private var app: Context? = null
     private val started = AtomicBoolean(false)
     private val lock = Any()
 
     // market state
+    @Volatile private var dexNames: List<String> = listOf("")
     @Volatile private var marks: Map<String, HlApi.Asset> = emptyMap()
+    @Volatile private var collateral: Map<String, Int> = emptyMap()
     @Volatile private var marksAt = 0L
+    @Volatile private var booksAt = 0L
+    @Volatile private var riskAt = 0L
+    private val histories = ConcurrentHashMap<String, HlHistory>()
     @Volatile private var universe: List<String> = emptyList()
-    @Volatile private var evaluation: HlTrend.Evaluation? = null
+    @Volatile private var excluded: Map<String, String> = emptyMap()
+    @Volatile private var evaluation: HlBrain.Evaluation? = null
+    @Volatile private var panelCoins: List<String> = emptyList()
     @Volatile private var targets: Map<String, Double> = emptyMap()
+    @Volatile private var vols: Map<String, Double> = emptyMap()
     @Volatile private var lastEvalDay = -1L
-    @Volatile private var historyDays = 0
-    private val fundingDaily = ConcurrentHashMap<String, MutableMap<Long, Double>>()
 
     // paper book (USD)
     private var paperCash = PAPER_START_USD
     private val paperUnits = HashMap<String, Double>()
-    private val paperDays = ArrayList<Pair<Long, Double>>()   // (epoch day, equity at its first tick)
+    private val paperDays = ArrayList<Pair<Long, Double>>()
     private var paperFundingHour = -1L
 
     // live
     @Volatile private var killed = false
+    @Volatile private var killReason = ""
     @Volatile private var liveDay = -1L
     @Volatile private var liveDayStartValue = Double.NaN
+    @Volatile private var livePeak = Double.NaN
+    @Volatile private var liveEquity = Double.NaN
+    @Volatile private var liveDexEquity: Map<String, Double> = emptyMap()
     @Volatile private var lastLive = "-"
-    @Volatile private var lastNonce = 0L
     private val orderLog = ArrayDeque<String>()
     @Volatile private var status = "not started"
 
@@ -81,75 +97,156 @@ object HlDesk {
     }
 
     private fun epochDay(ms: Long): Long = Math.floorDiv(ms, DAY_MS)
+    private fun sleepQuietly(ms: Long) { try { Thread.sleep(ms) } catch (_: InterruptedException) {} }
+    private fun cfg(): HlSettings.Config? = app?.let { HlSettings.read(it) }
 
     private fun tick(now: Long) {
-        if (now - marksAt >= MARK_EVERY_MS) {
-            HlApi.metaAndCtxs(HlApi.MAINNET)?.let { list -> marks = list.associateBy { it.name }; marksAt = now }
-        }
         val today = epochDay(now)
-        if (today != lastEvalDay && now - today * DAY_MS >= SETTLE_MS && marks.isNotEmpty()) {
-            daily(now, today)
-        }
+        if (now - marksAt >= MARK_EVERY_MS) refreshMarks(now, today)
+        if (now - booksAt >= BOOK_EVERY_MS && universe.isNotEmpty() && marks.isNotEmpty()) refreshBooks(now)
+        if (today != lastEvalDay && now - today * DAY_MS >= SETTLE_MS && marks.isNotEmpty()) daily(now, today)
         synchronized(lock) { paperTick(now, today) }
-        liveTick(now, today)
+        if (now - riskAt >= RISK_EVERY_MS) { riskAt = now; liveRisk(now, today) }
         status = "ok"
     }
 
-    // ── daily: universe, history, replay, targets ──
+    // ── data ──
 
-    private fun daily(now: Long, today: Long) {
-        val top = marks.values.filter { it.dayNtlVlm.isFinite() && it.markPx > 0.0 }.sortedByDescending { it.dayNtlVlm }.take(UNIVERSE).map { it.name }
-        if (top.isEmpty()) return
-        val startMs = (today - HISTORY_DAYS) * DAY_MS
-        val closes = LinkedHashMap<String, Map<Long, Double>>()
-        for (coin in top) {
-            val cs = HlApi.candles(HlApi.MAINNET, coin, "1d", startMs, now) ?: continue
-            // completed days only: a candle whose day has not ended is still moving
-            closes[coin] = cs.filter { it.c > 0.0 && epochDay(it.t) < today }.associate { epochDay(it.t) to it.c }
-            fillFunding(coin, startMs, now)
-            sleepQuietly(1_200L)
+    private fun refreshMarks(now: Long, today: Long) {
+        val hip3 = cfg()?.hip3 != false
+        if (dexNames.size <= 1 || lastEvalDay != today) HlApi.perpDexs(HlApi.MAINNET)?.let { dexNames = it }
+        val all = HashMap<String, HlApi.Asset>()
+        val coll = HashMap<String, Int>()
+        for ((i, dex) in dexNames.withIndex()) {
+            if (i > 0 && !hip3) continue
+            val d = HlApi.metaAndCtxs(HlApi.MAINNET, dex, i) ?: continue
+            coll[dex] = d.collateralToken
+            for (a in d.assets) all[a.name] = a
+            if (i > 0) sleepQuietly(300L)
         }
-        if (closes.isEmpty()) return
-        val firstDay = closes.values.mapNotNull { it.keys.minOrNull() }.minOrNull() ?: return
-        val lastDay = today - 1
-        val n = (lastDay - firstDay + 1).toInt()
-        if (n < 2) return
-        val series = closes.map { (coin, byDay) ->
-            val f = fundingDaily[coin] ?: emptyMap<Long, Double>()
-            HlTrend.Series(coin, DoubleArray(n) { i -> byDay[firstDay + i] ?: Double.NaN }, DoubleArray(n) { i -> f[firstDay + i] ?: 0.0 })
+        if (all.isEmpty()) return
+        marks = all; collateral = coll; marksAt = now
+        for (coin in universe) {
+            val a = all[coin] ?: continue
+            histories[coin]?.observe(today, a.openInterest, a.markPx, a.premium)
         }
-        val ev = HlTrend.evaluate(series)
-        val w = ev.chosen?.let { HlTrend.weights(series, n - 1, it) }
-        evaluation = ev
-        universe = series.map { it.coin }
-        historyDays = n
-        targets = if (w == null) emptyMap() else series.withIndex().filter { w[it.index] != 0.0 }.associate { it.value.coin to w[it.index] }
-        lastEvalDay = today
-        synchronized(lock) { paperRebalance() }
-        liveRebalance("DAILY")
-        save()
     }
 
-    private fun fillFunding(coin: String, startMs: Long, now: Long) {
-        val have = fundingDaily.getOrPut(coin) { ConcurrentHashMap() }
-        var cursor = maxOf(startMs, ((have.keys.maxOrNull() ?: -1L) + 1L) * DAY_MS)
+    private fun bookSize(): Double {
+        val live = liveEquity.takeIf { it > 0.0 }
+        val lev = evaluation?.leverage?.takeIf { it > 0.0 } ?: 1.0
+        val gross = (live ?: synchronized(lock) { paperEquity() }) * lev
+        return maxOf(25.0, gross * 0.1)                       // a typical day's trade in one coin
+    }
+
+    private fun refreshBooks(now: Long) {
+        val size = bookSize()
+        for (coin in universe) {
+            HlApi.book(HlApi.MAINNET, coin)?.let { HlCosts.observeBook(coin, it, size) }
+            sleepQuietly(300L)
+        }
+        booksAt = now
+    }
+
+    private fun history(coin: String): HlHistory = histories.getOrPut(coin) { app?.filesDir?.let { HlStore.load(it, coin) } ?: HlHistory(coin) }
+
+    /** Pure: today's tradeable universe and why each other candidate is out. */
+    internal fun chooseUniverse(assets: Collection<HlApi.Asset>, collateral: Map<String, Int>, atCap: Set<String>,
+                                held: Set<String>, nMain: Int, nHip3: Int): Pair<List<String>, Map<String, String>> {
+        val out = LinkedHashMap<String, String>()
+        val ok = assets.sortedByDescending { if (it.dayNtlVlm.isFinite()) it.dayNtlVlm else 0.0 }.filter { a ->
+            val why = when {
+                !(a.markPx > 0.0) -> "NO_MARK"
+                (collateral[a.dex] ?: 0) != 0 -> "NON_USDC_COLLATERAL"
+                a.name in atCap -> "AT_OPEN_INTEREST_CAP"
+                !(a.dayNtlVlm > 0.0) -> "NO_VOLUME"
+                else -> null
+            }
+            if (why != null && a.dayNtlVlm > 0.0) out[a.name] = why
+            why == null
+        }
+        val main = ok.filter { it.dex.isEmpty() }.take(nMain).map { it.name }
+        val hip3 = ok.filter { it.dex.isNotEmpty() }.take(nHip3).map { it.name }
+        val chosen = (main + hip3 + held.filter { h -> assets.any { it.name == h } }).distinct()
+        return chosen to out.filterKeys { it !in chosen }
+    }
+
+    private fun fillCandles(h: HlHistory, today: Long, now: Long) {
+        val from = maxOf(h.lastBarDay() + 1, today - HISTORY_DAYS)
+        if (from >= today) return
+        val cs = HlApi.candles(HlApi.MAINNET, h.coin, "1d", from * DAY_MS, now) ?: return
+        for (c in cs) {
+            val d = epochDay(c.t)
+            if (d >= today || !(c.c > 0.0)) continue                 // a day that has not closed is still moving
+            h.bars[d] = doubleArrayOf(c.o, c.h, c.l, c.c, if (c.v.isFinite()) c.v * c.c else Double.NaN)
+        }
+        sleepQuietly(CALL_GAP_MS)
+    }
+
+    private fun fillFunding(h: HlHistory, today: Long, now: Long) {
+        if (h.fundingFromDay < 0L) h.fundingFromDay = if (h.bars.isNotEmpty()) h.bars.firstKey() else today - HISTORY_DAYS
+        var cursor = maxOf(h.fundingFromDay, h.lastFundingDay() + 1) * DAY_MS
         var pages = 0
-        while (cursor < now - DAY_MS / 2 && pages < 40) {
-            val rows = HlApi.fundingHistory(HlApi.MAINNET, coin, cursor, now) ?: break
+        while (cursor < today * DAY_MS && pages < 40) {
+            val rows = HlApi.fundingHistory(HlApi.MAINNET, h.coin, cursor, now) ?: break
             if (rows.isEmpty()) break
             val byDay = HashMap<Long, Double>()
             for (r in rows) if (r.rate.isFinite()) byDay[epochDay(r.time)] = (byDay[epochDay(r.time)] ?: 0.0) + r.rate
             // a full page may end mid-day: that day is read whole by the next page; today is never stored (still filling)
             val lastDay = epochDay(rows.last().time)
             val full = rows.size >= FUNDING_PAGE
-            for ((d, v) in byDay) if (d < epochDay(now) && (!full || d < lastDay)) have[d] = v
+            for ((d, v) in byDay) if (d < today && (!full || d < lastDay)) h.funding[d] = v
             cursor = if (full) lastDay * DAY_MS else now
             pages++
-            sleepQuietly(1_200L)
+            sleepQuietly(CALL_GAP_MS)
         }
     }
 
-    private fun sleepQuietly(ms: Long) { try { Thread.sleep(ms) } catch (_: InterruptedException) {} }
+    /** Pure: the aligned panel for [coins] over the [days] days ending [lastDay]. */
+    internal fun panelOf(coins: List<HlHistory>, lastDay: Long, days: Int, cost: (String) -> Double): HlBrain.Panel {
+        val first = lastDay - days + 1
+        fun arr(f: (HlHistory, Long) -> Double) = Array(coins.size) { c -> DoubleArray(days) { i -> f(coins[c], first + i) } }
+        return HlBrain.Panel(coins.map { it.coin }, first,
+            arr { h, d -> h.bars[d]?.get(3) ?: Double.NaN },
+            arr { h, d -> h.bars[d]?.get(4) ?: Double.NaN },
+            arr { h, d -> h.funding[d] ?: Double.NaN },
+            arr { h, d -> h.oi[d] ?: Double.NaN },
+            arr { h, d -> h.premium[d]?.let { if (it[1] > 0.0) it[0] / it[1] else Double.NaN } ?: Double.NaN },
+            DoubleArray(coins.size) { cost(coins[it].coin) })
+    }
+
+    private fun daily(now: Long, today: Long) {
+        val cfg = cfg()
+        val atCap = HashSet<String>()
+        for ((i, dex) in dexNames.withIndex()) if (i == 0 || cfg?.hip3 != false) HlApi.atOpenInterestCap(HlApi.MAINNET, dex)?.let { atCap += it }
+        val held = synchronized(lock) { paperUnits.keys.toSet() } + targets.keys
+        val (chosen, out) = chooseUniverse(marks.values, collateral, atCap, held, N_MAIN, if (cfg?.hip3 != false) N_HIP3 else 0)
+        if (chosen.isEmpty()) return
+        val dir = app?.filesDir
+        val ready = ArrayList<HlHistory>()
+        val excl = LinkedHashMap(out)
+        for (coin in chosen) {
+            val h = history(coin)
+            fillCandles(h, today, now)
+            if (h.bars.isNotEmpty()) fillFunding(h, today, now)
+            h.trim(today - HISTORY_DAYS - 30)
+            if (dir != null) HlStore.save(dir, h)
+            if (h.bars.size >= MIN_LISTED_DAYS) ready.add(h) else excl[coin] = "TOO_NEW_${h.bars.size}d"
+        }
+        universe = chosen
+        excluded = excl
+        if (ready.isEmpty()) { lastEvalDay = today; return }
+        val panel = panelOf(ready, today - 1, HISTORY_DAYS) { HlCosts.costSide(it) }
+        val ev = HlBrain.evaluate(panel, cfg?.maxLeverage ?: HlSettings.DEFAULT_MAX_LEVERAGE)
+        evaluation = ev
+        panelCoins = panel.coins
+        targets = panel.coins.withIndex().filter { ev.targets[it.index] != 0.0 }.associate { it.value to ev.targets[it.index] }
+        vols = panel.coins.withIndex().associate { (i, c) -> c to (panel.vol[i].lastOrNull() ?: Double.NaN) }
+        lastEvalDay = today
+        synchronized(lock) { paperRebalance() }
+        liveRebalance("DAILY", now)
+        save()
+    }
 
     // ── paper ──
 
@@ -160,14 +257,15 @@ object HlDesk {
     private fun paperRebalance() {
         val eq = paperEquity()
         if (!(eq > 0.0)) return
+        val lev = evaluation?.leverage?.takeIf { it > 0.0 } ?: 1.0
         for (coin in (targets.keys + paperUnits.keys).toSet()) {
             val m = markOf(coin)
             if (!m.isFinite()) continue
             val cur = (paperUnits[coin] ?: 0.0) * m
-            val want = (targets[coin] ?: 0.0) * eq
+            val want = (targets[coin] ?: 0.0) * eq * lev
             val delta = want - cur
             if (kotlin.math.abs(delta) < 1e-9) continue
-            paperCash -= delta + kotlin.math.abs(delta) * HlTrend.COST_SIDE
+            paperCash -= delta + kotlin.math.abs(delta) * HlCosts.costSide(coin)
             val units = (paperUnits[coin] ?: 0.0) + delta / m
             if (kotlin.math.abs(units * m) < 1e-6) paperUnits.remove(coin) else paperUnits[coin] = units
         }
@@ -198,110 +296,79 @@ object HlDesk {
     /** Pure: why live may not trade now, or null. */
     internal fun liveGate(settingsRefusal: String?, armed: Boolean, killed: Boolean): String? = when {
         settingsRefusal != null -> settingsRefusal
-        killed -> "DAILY_STOP_HIT_SWITCH_LIVE_OFF_AND_ON"
-        !armed -> "REPLAY_NOT_ARMED"
+        killed -> "STOP_HIT_SWITCH_LIVE_OFF_AND_ON"
+        !armed -> "BRAIN_NOT_ARMED"
         else -> null
     }
 
-    private fun liveTick(now: Long, today: Long) {
-        val ctx = app ?: return
-        val cfg = HlSettings.read(ctx)
-        if (HlSettings.liveRefusal(cfg) != null || cfg == null || killed) return
-        if (now % (5L * 60_000L) > TICK_MS) return            // the stop is checked every ~5 minutes
-        val base = if (cfg.testnet) HlApi.TESTNET else HlApi.MAINNET
-        val acct = HlApi.account(base, cfg.account) ?: return
-        if (!acct.accountValue.isFinite()) return
-        if (liveDay != today) { liveDay = today; liveDayStartValue = acct.accountValue; save() }
-        val start = liveDayStartValue
-        if (start > 0.0 && acct.accountValue < start * (1.0 - cfg.dailyStopPct / 100.0) && acct.positions.any { it.szi != 0.0 }) {
-            killed = true
-            note("DAILY STOP: value ${"%.2f".format(acct.accountValue)} < start ${"%.2f".format(start)} - ${cfg.dailyStopPct}% -> flatten, live off")
-            flatten(cfg, base, acct)
-            save()
-        }
+    /** Pure: which stop (if any) [value] breaks against the day's start and the account's peak. */
+    internal fun stopHit(value: Double, dayStart: Double, peak: Double, dailyStopPct: Double, maxDrawdownPct: Double): String? = when {
+        !(value > 0.0) -> null
+        dayStart > 0.0 && value < dayStart * (1.0 - dailyStopPct / 100.0) -> "DAILY_STOP"
+        peak > 0.0 && value < peak * (1.0 - maxDrawdownPct / 100.0) -> "DRAWDOWN_STOP"
+        else -> null
     }
 
-    private fun nextNonce(): Long = synchronized(lock) { maxOf(System.currentTimeMillis(), lastNonce + 1).also { lastNonce = it } }
+    private fun base(cfg: HlSettings.Config) = if (cfg.testnet) HlApi.TESTNET else HlApi.MAINNET
+    private fun dexesOf(coins: Collection<String>): Set<String> = coins.filter { it.contains(':') }.map { it.substringBefore(':') }.toSet()
+
+    private fun liveRisk(now: Long, today: Long) {
+        val cfg = cfg() ?: return
+        if (HlSettings.liveRefusal(cfg) != null || killed) return
+        val live = HlExecutor.read(base(cfg), cfg.account, dexesOf(universe + targets.keys)) ?: return
+        val value = live.equity
+        liveEquity = value
+        liveDexEquity = live.accounts.mapValues { it.value.accountValue }
+        if (!(value > 0.0)) return
+        if (liveDay != today) { liveDay = today; liveDayStartValue = value; save() }
+        if (!(livePeak >= value)) { livePeak = value; save() }
+        val hit = stopHit(value, liveDayStartValue, livePeak, cfg.dailyStopPct, cfg.maxDrawdownPct) ?: return
+        if (live.positions.isEmpty()) return
+        killed = true; killReason = hit
+        note("$hit: value ${"%.2f".format(value)} (day start ${"%.2f".format(liveDayStartValue)}, peak ${"%.2f".format(livePeak)}) -> flatten, live off")
+        HlExecutor.flatten(cfg, base(cfg), live, hit, now, ::note)
+        save()
+    }
 
     private fun note(s: String) {
         lastLive = s
         synchronized(orderLog) {
             orderLog.addLast(java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.US).format(java.util.Date()) + " " + s)
-            while (orderLog.size > 30) orderLog.removeFirst()
+            while (orderLog.size > 40) orderLog.removeFirst()
         }
     }
 
-    /** Pure: the order that moves a position of [curSz] units toward [targetUsd] at [mark], or null when none is needed. */
-    internal fun orderFor(curSz: Double, targetUsd: Double, mark: Double, szDecimals: Int): Triple<Boolean, Double, Boolean>? {
-        if (!(mark > 0.0)) return null
-        val curUsd = curSz * mark
-        if (targetUsd == 0.0) {
-            if (curSz == 0.0) return null
-            return Triple(curSz < 0.0, kotlin.math.abs(curSz), true)                 // close it all, reduce-only
-        }
-        val delta = targetUsd - curUsd
-        if (kotlin.math.abs(delta) < MIN_ORDER_USD) return null
-        val sz = HlWire.roundSz(kotlin.math.abs(delta) / mark, szDecimals)
-        if (!(sz > 0.0)) return null
-        val reduce = curSz != 0.0 && kotlin.math.sign(targetUsd) == kotlin.math.sign(curUsd) && kotlin.math.abs(targetUsd) < kotlin.math.abs(curUsd)
-        return Triple(delta > 0.0, sz, reduce)
+    private fun liveRebalance(why: String, now: Long) {
+        val cfg = cfg()
+        val ev = evaluation
+        val refusal = liveGate(HlSettings.liveRefusal(cfg), ev?.armed == true, killed)
+        if (refusal != null || cfg == null || ev == null) { lastLive = "not trading: $refusal"; return }
+        val live = HlExecutor.read(base(cfg), cfg.account, dexesOf(universe + targets.keys)) ?: run { note("no answer from ${base(cfg)}"); return }
+        liveEquity = live.equity
+        liveDexEquity = live.accounts.mapValues { it.value.accountValue }
+        val plans = HlRisk.plan(targets, ev.leverage, liveDexEquity, cfg.maxNotionalUsd, live.markets, vols)
+        val unfunded = dexesOf(targets.keys).filter { !((liveDexEquity[it] ?: 0.0) > 0.0) }
+        if (unfunded.isNotEmpty()) note("$why: HIP-3 dex ${unfunded.joinToString(",")} has no balance — its coins wait (move USDC to it on Hyperliquid)")
+        val sent = HlExecutor.rebalance(cfg, base(cfg), live, plans, why, now, ::note)
+        if (sent == 0) lastLive = "$why: on target (equity \$${"%.2f".format(live.equity)}, lev ${"%.2f".format(ev.leverage)}x)"
     }
 
-    private fun send(cfg: HlSettings.Config, base: String, asset: HlApi.Asset, isBuy: Boolean, sz: Double, reduceOnly: Boolean, why: String) {
-        val px = HlWire.roundPx(asset.markPx * (if (isBuy) 1.0 + SLIP else 1.0 - SLIP), asset.szDecimals)
-        if (!(px > 0.0)) return
-        val action = HlWire.orderAction(asset.index, isBuy, HlWire.floatToWire(px), HlWire.floatToWire(sz), reduceOnly)
-        val nonce = nextNonce()
-        val resp = try {
-            HlApi.exchange(base, action, nonce, HlSigner.signL1Action(action, nonce, cfg.agentKey, mainnet = !cfg.testnet))
-        } catch (e: Throwable) { "sign/send failed: ${e.javaClass.simpleName}" }
-        note("$why ${if (isBuy) "BUY" else "SELL"} ${asset.name} sz=${HlWire.floatToWire(sz)} px<=${HlWire.floatToWire(px)}${if (reduceOnly) " reduceOnly" else ""} -> ${(resp ?: "no answer").take(160)}")
-    }
+    /** HyperliquidActivity: the owner switched live back on after a stop. */
+    fun clearKill() { killed = false; killReason = ""; livePeak = Double.NaN; liveDay = -1L; save() }
 
-    private fun flatten(cfg: HlSettings.Config, base: String, acct: HlApi.Account) {
-        val metas = HlApi.metaAndCtxs(base)?.associateBy { it.name } ?: return
-        for (p in acct.positions) {
-            if (p.szi == 0.0) continue
-            val a = metas[p.coin] ?: continue
-            send(cfg, base, a, p.szi < 0.0, kotlin.math.abs(p.szi), true, "FLATTEN")
-        }
-    }
-
-    private fun liveRebalance(why: String) {
-        val ctx = app ?: return
-        val cfg = HlSettings.read(ctx)
-        val refusal = liveGate(HlSettings.liveRefusal(cfg), evaluation?.armed == true, killed)
-        if (refusal != null || cfg == null) { lastLive = "not trading: $refusal"; return }
-        val base = if (cfg.testnet) HlApi.TESTNET else HlApi.MAINNET
-        val metas = HlApi.metaAndCtxs(base)?.associateBy { it.name } ?: run { note("no market data from $base"); return }
-        val acct = HlApi.account(base, cfg.account) ?: run { note("no account answer for ${cfg.account.take(8)}"); return }
-        val budget = minOf(acct.accountValue, cfg.maxNotionalUsd)
-        if (!(budget > 0.0)) { note("no budget: account value ${acct.accountValue}"); return }
-        val held = acct.positions.associate { it.coin to it.szi }
-        // reduce first (frees margin), then add
-        val plan = (targets.keys + held.keys).toSet().mapNotNull { coin ->
-            val a = metas[coin] ?: return@mapNotNull null
-            val o = orderFor(held[coin] ?: 0.0, (targets[coin] ?: 0.0) * budget, a.markPx, a.szDecimals) ?: return@mapNotNull null
-            a to o
-        }.sortedByDescending { it.second.third }
-        for ((a, o) in plan) send(cfg, base, a, o.first, o.second, o.third, why)
-        if (plan.isEmpty()) lastLive = "$why: on target (budget \$${"%.2f".format(budget)})"
-    }
-
-    /** HyperliquidActivity: the owner switched live back on after a daily stop. */
-    fun clearKill() { killed = false; save() }
-
-    /** HyperliquidActivity: close every live position now (reduce-only), and switch live off. */
+    /** HyperliquidActivity: close every live position on every dex now (reduce-only), and switch live off. */
     fun flattenNow(): String {
         val ctx = app ?: return "not started"
         val cfg = HlSettings.read(ctx) ?: return "settings unreadable"
         if (!HlSigner.validKey(cfg.agentKey) || !HlSigner.validAddress(cfg.account)) return "no account or API wallet key"
-        Thread({
-            val base = if (cfg.testnet) HlApi.TESTNET else HlApi.MAINNET
-            HlApi.account(base, cfg.account)?.let { flatten(cfg, base, it) } ?: note("flatten: no account answer")
-        }, "hl-flatten-8795").start()
         HlSettings.write(ctx, cfg.copy(live = false, agentKey = ""))
-        return "flattening; live switched off"
+        Thread({
+            val base = base(cfg)
+            val names = HlApi.perpDexs(base)?.filter { it.isNotEmpty() }?.toSet() ?: emptySet()
+            HlExecutor.read(base, cfg.account, names)?.let { HlExecutor.flatten(cfg, base, it, "FLATTEN", System.currentTimeMillis(), ::note) }
+                ?: note("flatten: no account answer")
+        }, "hl-flatten-8795").start()
+        return "flattening every dex; live switched off"
     }
 
     // ── persistence ──
@@ -318,10 +385,10 @@ object HlDesk {
                 o.put("paperDays", JSONArray().also { a -> for ((d, e) in paperDays) a.put(JSONArray().put(d).put(e)) })
                 o.put("paperFundingHour", paperFundingHour)
             }
-            o.put("funding", JSONObject().also { fo ->
-                for ((coin, m) in fundingDaily) fo.put(coin, JSONObject().also { mo -> for ((d, v) in m) mo.put(d.toString(), v) })
-            })
-            o.put("killed", killed).put("liveDay", liveDay).put("liveDayStartValue", if (liveDayStartValue.isFinite()) liveDayStartValue else -1.0)
+            o.put("costs", HlCosts.toJson()).put("universe", JSONArray(universe))
+            o.put("killed", killed).put("killReason", killReason).put("liveDay", liveDay)
+                .put("liveDayStartValue", if (liveDayStartValue.isFinite()) liveDayStartValue else -1.0)
+                .put("livePeak", if (livePeak.isFinite()) livePeak else -1.0)
             val tmp = File(f.path + ".tmp")
             tmp.writeText(o.toString())
             tmp.renameTo(f)
@@ -338,42 +405,47 @@ object HlDesk {
                 o.optJSONArray("paperDays")?.let { a -> for (i in 0 until a.length()) { val p = a.getJSONArray(i); paperDays.add(p.getLong(0) to p.getDouble(1)) } }
                 paperFundingHour = o.optLong("paperFundingHour", -1L)
             }
-            o.optJSONObject("funding")?.let { fo ->
-                for (coin in fo.keys()) {
-                    val mo = fo.getJSONObject(coin)
-                    val m = ConcurrentHashMap<Long, Double>()
-                    for (d in mo.keys()) d.toLongOrNull()?.let { m[it] = mo.getDouble(d) }
-                    fundingDaily[coin] = m
-                }
-            }
+            HlCosts.restore(o.optJSONObject("costs"))
+            o.optJSONArray("universe")?.let { a -> universe = (0 until a.length()).map { a.getString(it) } }
             killed = o.optBoolean("killed", false)
+            killReason = o.optString("killReason", "")
             liveDay = o.optLong("liveDay", -1L)
             liveDayStartValue = o.optDouble("liveDayStartValue", -1.0).let { if (it > 0.0) it else Double.NaN }
+            livePeak = o.optDouble("livePeak", -1.0).let { if (it > 0.0) it else Double.NaN }
         } catch (_: Throwable) {}
     }
 
     // ── report ──
 
-    private fun line(r: HlTrend.Result?): String = r?.let {
-        "n${it.days}d mean${"%+.3f".format(it.meanPct)}±${"%.3f".format(it.sePct)}%/day sharpe${"%.2f".format(it.sharpe)} " +
-            "total${"%+.1f".format(it.totalPct)}% maxDD${"%.1f".format(it.maxDrawdownPct)}% held${"%.0f".format(it.exposure * 100)}%"
+    private fun line(r: HlBrain.Result?): String = r?.let {
+        "n${it.days}d ${"%+.3f".format(it.meanPct)}±${"%.3f".format(it.sePct)}%/d sh${"%.2f".format(it.sharpe)} " +
+            "tot${"%+.1f".format(it.totalPct)}% dd${"%.1f".format(it.maxDrawdownPct)}% turn${"%.2f".format(it.turnover)}"
     } ?: "-"
 
     fun statusLine(): String {
         val ev = evaluation
         val paper = synchronized(lock) {
-            val r = paperReturns()
-            val g = ev?.chosen?.let { HlTrend.grade(it, r) }
+            val g = HlBrain.grade("paper", paperReturns())
             "equity\$${"%.2f".format(paperEquity())} days=${paperDays.size} positions=${paperUnits.size}" + (g?.let { " record{${line(it)}}" } ?: "")
         }
-        val cfg = app?.let { HlSettings.read(it) }
+        val cfg = cfg()
         val gate = liveGate(HlSettings.liveRefusal(cfg), ev?.armed == true, killed)
-        return "hyperliquid8795[$status universe=${universe.size}{${universe.joinToString(",")}} history=${historyDays}d " +
-            "rule=${ev?.chosen?.id ?: "-"} ${if (ev?.armed == true) "ARMED" else "SHADOW"} train{${line(ev?.train)}} test{${line(ev?.test)}} " +
-            "targets{${targets.entries.joinToString(" ") { "${it.key}${"%+.0f".format(it.value * 100)}%" }.ifBlank { "flat" }}} " +
-            "paper{$paper} live{${gate ?: "ON"} net=${if (cfg?.testnet == true) "testnet" else "mainnet"} cap\$${cfg?.maxNotionalUsd ?: 0.0} " +
-            "last=${lastLive.take(160)}} rule=chosen on the first half of the history, graded on the second; armed = test >= " +
-            "${HlTrend.MIN_TEST_DAYS}d and mean - SE > 0; universe = today's most-traded perps (survivorship bias)]"
+        val picks = ev?.let { e -> e.picks.joinToString(" ") { p ->
+            "${p.family.name.lowercase()}=${p.chosen.id}[train{${line(p.train)}} test{${line(p.test)}}${e.blend[p.chosen]?.let { " w${"%.2f".format(it)}" } ?: ""}]"
+        } } ?: "-"
+        val nHip3 = universe.count { it.contains(':') }
+        return "hyperliquid8797[$status universe=${universe.size}(main ${universe.size - nHip3}, hip3 $nHip3){${universe.joinToString(",")}} " +
+            "graded=${panelCoins.size} excluded{${excluded.entries.take(12).joinToString(" ") { "${it.key}:${it.value}" }}} " +
+            "history=${ev?.days ?: 0}d ${if (ev?.armed == true) "ARMED" else "SHADOW"} lev=${"%.2f".format(ev?.leverage ?: 0.0)}x " +
+            "(halfKelly ${"%.2f".format(ev?.kelly ?: 0.0)}) blend{train{${line(ev?.train)}} test{${line(ev?.test)}}} families{$picks} " +
+            "targets{${targets.entries.sortedByDescending { kotlin.math.abs(it.value) }.joinToString(" ") { "${it.key}${"%+.0f".format(it.value * 100)}%" }.ifBlank { "flat" }}} " +
+            "costs{${universe.take(8).joinToString(" ") { HlCosts.line(it) }}} paper{$paper} " +
+            "live{${gate ?: "ON"}${if (killReason.isNotEmpty()) "($killReason)" else ""} net=${if (cfg?.testnet == true) "testnet" else "mainnet"} " +
+            "equity\$${if (liveEquity.isFinite()) "%.2f".format(liveEquity) else "-"} dexes{${liveDexEquity.entries.joinToString(" ") { "${it.key.ifEmpty { "main" }}=\$${"%.2f".format(it.value)}" }}} " +
+            "cap\$${cfg?.maxNotionalUsd ?: 0.0} maxLev=${cfg?.maxLeverage ?: 0.0} backoff=${HlExecutor.backoffLine(System.currentTimeMillis())} " +
+            "last=${lastLive.take(160)}} rule=each family chosen on the first half of the history and graded on the second; blend by " +
+            "first-half Sharpe; armed = second half >= ${HlBrain.MIN_TEST_DAYS}d and mean - SE > 0; leverage = half-Kelly of the weaker half; " +
+            "universe = today's most-traded markets (survivorship bias)]"
     }
 
     fun orderLogLines(): List<String> = synchronized(orderLog) { orderLog.toList().asReversed() }
