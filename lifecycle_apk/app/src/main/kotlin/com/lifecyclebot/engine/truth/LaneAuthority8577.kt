@@ -332,7 +332,8 @@ object LaneAuthority8577 {
     // V5.0.8604 — advisory for every ADMITTED LIVE candidate (the paper-equivalent admission), not only a specialist-qualified
     // one: the paper book buys generic-prior admits too, and the gate's learned doors are the layer it never had.
     fun advisoryAtGate8577(reason: String?, admission: CandidateAdmission8136.Decision8136?): Boolean =
-        enabled8577 && admission?.admitted == true && !reason.isNullOrBlank() && !binding8577(reason)
+        enabled8577 && admission?.admitted == true && !reason.isNullOrBlank() &&
+            (!binding8577(reason) || PaperMirror8757.passesAtGate8757(reason, admission))   // V5.0.8757
 
     private val advisory8577 = ConcurrentHashMap<String, AtomicLong>()
     private val admittedByLane8577 = ConcurrentHashMap<String, AtomicLong>()

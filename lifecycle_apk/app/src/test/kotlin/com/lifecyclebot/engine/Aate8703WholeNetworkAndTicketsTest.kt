@@ -44,7 +44,9 @@ class Aate8703WholeNetworkAndTicketsTest {
         assertTrue(d.trace.contains("missing=proof:SAFETY_REPORT_NOT_FRESH"))
         assertEquals(listOf("BUY_DOOR_PROOF_SAFETY_REPORT_NOT_FRESH"), CandidateAdmission8136.deferCauses8700(d.trace))
         val s = src("engine/truth/CandidateAdmission8136.kt")
-        assertTrue(s.contains(".let { awaitBuyDoorProof8703(ts, candidate.live, it, nowMs, candidate.lane) }.also {"))
+        // superseded by V5.0.8757 — the paper-book mirror for live MOONSHOT runs after the buy-door proof; was:
+        // `s.contains(".let { awaitBuyDoorProof8703(ts, candidate.live, it, nowMs, candidate.lane) }.also {")`.
+        assertTrue(s.contains(".let { awaitBuyDoorProof8703(ts, candidate.live, it, nowMs, candidate.lane) }\n            .let { PaperMirror8757.mirror8757(candidate, it, nowMs) }.also {"))
         assertTrue(s.contains("if (!live || !d.admitted) return d"))
     }
 

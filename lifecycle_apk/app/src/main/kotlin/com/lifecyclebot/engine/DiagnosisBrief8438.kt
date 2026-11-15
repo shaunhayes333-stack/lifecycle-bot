@@ -122,6 +122,7 @@ object DiagnosisBrief8438 {
             "\n               " + (try { com.lifecyclebot.engine.truth.MarketCohort8701.statusLine8701() } catch (_: Throwable) { "marketCohort8701[?]" }) +   // V5.0.8701
             " " + (try { com.lifecyclebot.engine.truth.MemePaperTrader8544.jumpLine8559() } catch (_: Throwable) { "markJumps8559{?}" }) +
             "\n               " + (try { com.lifecyclebot.engine.truth.LaneAuthority8577.statusLine8577() } catch (_: Throwable) { "laneAuthority8577[?]" }) +   // V5.0.8577
+            " " + (try { com.lifecyclebot.engine.truth.PaperMirror8757.statusLine8757() } catch (_: Throwable) { "paperMirror8757[?]" }) +   // V5.0.8757
             "\n               " + (try { RunnerDoctrine8584.statusLine8584() } catch (_: Throwable) { "runnerDoctrine8584[?]" })   // V5.0.8584
         // V5.0.8552 — the FDG's named zero sizes ride beside the funnel (kept out of the pure line)
         return paperFunnelLine8536(attempts, opened, notOpened, nonEconomic) + " " +
