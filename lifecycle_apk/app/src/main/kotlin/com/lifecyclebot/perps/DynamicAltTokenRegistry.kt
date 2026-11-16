@@ -867,8 +867,39 @@ object DynamicAltTokenRegistry {
     /** Compatibility metadata lookup. Raw addresses resolve only when unique across chains. */
     fun getTokenByMint(mint: String): DynToken? {
         registry[mint]?.let { return it }
-        val matches = registry.values.filter { it.tokenAddress == mint || it.mint == mint }
-        return matches.singleOrNull()
+        // V5.0.8818 — a miss used to scan and copy every row (494b46bb CPU sampler: getTokenByMint inside
+        // ConcurrentHashMap iteration was the largest trading-side frame, 2.4 % of all CPU stacks: meme mints are looked
+        // up here and are almost never rows). Rows are immutable and keyed by canonical id; an address -> key index is
+        // rebuilt when the row count changes or every [ADDRESS_INDEX_MAX_AGE_MS_8818]. A hit is checked against the live
+        // row (a replaced row rebuilds the index); two rows sharing an address stay ambiguous (null), as before.
+        val now = System.currentTimeMillis()
+        var idx = addressIndex8818(now, force = false)
+        var key = idx.map[mint] ?: return null
+        if (key == AMBIGUOUS_8818) return null
+        registry[key]?.takeIf { it.tokenAddress == mint || it.mint == mint }?.let { return it }
+        idx = addressIndex8818(now, force = true)
+        key = idx.map[mint] ?: return null
+        if (key == AMBIGUOUS_8818) return null
+        return registry[key]?.takeIf { it.tokenAddress == mint || it.mint == mint }
+    }
+
+    private class AddressIndex8818(val size: Int, val builtAt: Long, val map: HashMap<String, String>)
+    @Volatile private var addressIndex8818: AddressIndex8818? = null
+    private const val AMBIGUOUS_8818 = "\u0000AMBIGUOUS_8818"
+    private const val ADDRESS_INDEX_MAX_AGE_MS_8818 = 5_000L
+
+    private fun addressIndex8818(nowMs: Long, force: Boolean): AddressIndex8818 {
+        val cur = addressIndex8818
+        val size = registry.size
+        if (!force && cur != null && cur.size == size && nowMs - cur.builtAt < ADDRESS_INDEX_MAX_AGE_MS_8818) return cur
+        val m = HashMap<String, String>(size * 2 + 16)
+        fun put(address: String, key: String) {
+            if (address.isEmpty()) return
+            val was = m[address]
+            m[address] = if (was == null || was == key) key else AMBIGUOUS_8818
+        }
+        for ((k, t) in registry) { put(t.tokenAddress, k); put(t.mint, k) }
+        return AddressIndex8818(size, nowMs, m).also { addressIndex8818 = it }
     }
 
     /** Display/metadata lookup only. Ambiguous tickers return null. */

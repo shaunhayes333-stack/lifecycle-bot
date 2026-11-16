@@ -16,15 +16,16 @@ import java.util.concurrent.atomic.AtomicLong
  * bonding-curve trade, the PumpSwap tape every trade of its pools): 2,424 decoded prints were dropped in one 47-minute
  * report because no desk was watching those coins. This records them as one-minute candles (price in USD at the print's
  * SOL price, volume in SOL), every coin, bounded:
- *  - at most [MAX_MINTS] coins at a time, [MAX_BARS] candles each, primitive arrays (~11 KB a coin);
+ *  - at most [MAX_MINTS] coins at a time, [MAX_BARS] candles each, primitive arrays (~5 KB a coin);
  *  - a coin is handed to the learner once (ColourShape8807.learnTape8810) when it goes quiet for [IDLE_MS] or fills its
  *    [MAX_BARS] candles, and never recorded again (one coin, one chart);
- *  - a coin that is still printing when the store is full waits; a new coin is refused and counted.
+ *  - a full store retires its stalest coin (quiet [ROOM_IDLE_MS]) for a new one; when every coin is printing, the new one is
+ *    refused and counted (8818).
  * A minute without a print is a flat candle at the last close (zero volume). Nothing here trades or admits.
  */
 object OwnBars8816 {
     internal const val MAX_MINTS = 400
-    internal const val MAX_BARS = 240
+    internal const val MAX_BARS = 120
     internal const val IDLE_MS = 15L * 60_000L
     private const val SWEEP_MS = 30_000L
     private const val DONE_MAX = 50_000
@@ -83,8 +84,10 @@ object OwnBars8816 {
     fun onPrint8816(mint: String, eventMs: Long, priceSol: Double, sol: Double, nowMs: Long = System.currentTimeMillis()) {
         if (mint.isBlank() || eventMs <= 0L || !(priceSol > 0.0) || !priceSol.isFinite()) return
         try {
-            // USD, the unit ChartReader7950's candles and the learner's open paper ladders use for the same coin.
-            val solUsd = solUsdForTest8816.takeIf { it > 0.0 } ?: com.lifecyclebot.engine.truth.ShadowMark8360.solUsd8756(eventMs)
+            // USD, the unit ChartReader7950's candles and the learner's open paper ladders use for the same coin. The rate is
+            // read as of now (V5.0.8818): asked as of the print's own time, a rate observed after it was not "fresh" for it
+            // (494b46bb: noSolUsd=8,620 of 49k prints).
+            val solUsd = solUsdForTest8816.takeIf { it > 0.0 } ?: com.lifecyclebot.engine.truth.ShadowMark8360.solUsd8756(nowMs)
             if (!(solUsd > 0.0) || !solUsd.isFinite()) { noSolUsd.incrementAndGet(); return }
             val px = priceSol * solUsd
             prints.incrementAndGet()
@@ -93,7 +96,7 @@ object OwnBars8816 {
             if (nowMs - swept >= SWEEP_MS && lastSweep.compareAndSet(swept, nowMs)) sweep8816(nowMs)
             val t: Tape = tapes[mint] ?: run {
                 if (isDone(mint)) return
-                if (tapes.size >= MAX_MINTS) { refusedFull.incrementAndGet(); return }
+                if (tapes.size >= MAX_MINTS && !makeRoom8818(nowMs)) { refusedFull.incrementAndGet(); return }
                 tapes.computeIfAbsent(mint) { Tape(eventMs / MIN) }
             }
             var newCandle = false
@@ -112,6 +115,25 @@ object OwnBars8816 {
                 if (bars != null) { liveReads.incrementAndGet(); ColourShape8807.onBars8807(mint, bars, nowMs) }
             }
         } catch (_: Throwable) {}
+    }
+
+    // ── V5.0.8818 — the store must turn over ──
+    // 494b46bb (65 min): recording=372/400, handedToLearner=0, refusedFull=197. Slots stayed with coins that print every few
+    // minutes (never quiet for 15) while new coins were refused, and a coin trading for four hours was needed to fill 240
+    // candles. Now a full store retires its stalest coin (no print for [ROOM_IDLE_MS]) to make room, and a chart is handed
+    // over at [MAX_BARS] = 120 candles (two hours).
+    internal const val ROOM_IDLE_MS = 2L * 60_000L
+    private val evictedForRoom = AtomicLong(0L)
+
+    /** Retires the coin with the oldest last print when it has been quiet [ROOM_IDLE_MS]; true when a slot was freed. */
+    private fun makeRoom8818(nowMs: Long): Boolean {
+        var stalest: Map.Entry<String, Tape>? = null; var at = Long.MAX_VALUE
+        for (e in tapes.entries) { val lp = synchronized(e.value) { e.value.lastPrintMs }; if (lp < at) { at = lp; stalest = e } }
+        val s = stalest ?: return false
+        if (nowMs - at < ROOM_IDLE_MS) return false
+        evictedForRoom.incrementAndGet()
+        retire(s.key, s.value)
+        return tapes.size < MAX_MINTS
     }
 
     /** Hands every quiet tape to the learner (and frees its slot). */
@@ -133,10 +155,10 @@ object OwnBars8816 {
 
     fun statusLine8816(): String =
         "ownBars8816[recording=${tapes.size}/$MAX_MINTS prints=${prints.get()} handedToLearner=${handed.get()} tooShort=${tooShort.get()} " +
-            "refusedFull=${refusedFull.get()} liveReads=${liveReads.get()} noSolUsd=${noSolUsd.get()} rule=every witnessed print as 1-minute candles, one chart per coin when quiet ${IDLE_MS / MIN} min or ${MAX_BARS} candles]"
+            "refusedFull=${refusedFull.get()} evictedForRoom8818=${evictedForRoom.get()} liveReads=${liveReads.get()} noSolUsd=${noSolUsd.get()} rule=every witnessed print as 1-minute candles, one chart per coin when quiet ${IDLE_MS / MIN} min or ${MAX_BARS} candles]"
 
     @Volatile internal var solUsdForTest8816 = 0.0
 
-    internal fun resetForTest8816() { tapes.clear(); synchronized(done) { done.clear() }; prints.set(0); refusedFull.set(0); handed.set(0); tooShort.set(0); liveReads.set(0); noSolUsd.set(0); lastSweep.set(0) }
+    internal fun resetForTest8816() { tapes.clear(); synchronized(done) { done.clear() }; prints.set(0); refusedFull.set(0); handed.set(0); tooShort.set(0); liveReads.set(0); noSolUsd.set(0); evictedForRoom.set(0); lastSweep.set(0) }
     internal fun recordingForTest8816(): Int = tapes.size
 }

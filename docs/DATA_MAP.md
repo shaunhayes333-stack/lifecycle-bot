@@ -450,3 +450,21 @@ ordinary draw, 47 s of its schedstat waiting for a CPU, while the startup datase
 THREAD_PRIORITY_BACKGROUND and restores the thread's priority after; used by pocketLedgerSeed, payingCellSeed,
 managedBandsSeed, treeParse, treeTrain, edgeReplay, strategyLab and coingeckoCoinList. The Cortex snapshot / close commit
 keeps its priority (a close waits on it). Counter: `backgroundRuns8817` in the §8813 line.
+
+## 25. What the CPU sampler named; a close already carried; the chart store turns over (8818)
+
+Report 494b46bb (5.0.8817, 65 min, 199 GB allocated, GC blocking 1.9M ms):
+- `ErrorLogger.writeToDb` inside SQLite insert was the largest single frame (7.4 % of CPU stacks): one auto-committed
+  transaction per row into a table trimmed only at app start. Rows now queue and one runnable writes all queued rows in
+  one transaction (`flush8818`), the table is trimmed to 500 rows every 1,000 rows by id, the database uses WAL.
+  Report line `Error log writes (§8818)`.
+- `DynamicAltTokenRegistry.getTokenByMint` scanned and copied every row on each miss (2.4 %): an address -> key index,
+  rebuilt when the row count changes or every 5 s, each hit checked against the live row.
+- `ShadowCohortBook8397.decode` parsed with Kotlin's regex-screened toDoubleOrNull (2.2 %): `num8818` parses directly.
+- `TradeHistoryStore.normalizeTradeModeName` (regex per leaderboard row; also in the 8816 CI ANR trace): memoised.
+- Cortex close commits: 59 in 65 min, each re-encoding the graph (pending 9.9 MB, up to 240 s). A close whose receipt an
+  earlier snapshot already committed (`LearningPersistence.receiptCommitted8818`) skips its encode; counters
+  `closeCommits8818{encoded joined}` in the §8386 snapshot line.
+- `OwnBars8816` handed 0 charts (recording 372/400, refusedFull 197, noSolUsd 8,620): the SOL rate is read as of now, a
+  full store retires its stalest coin (quiet 2 min) for a new one (`evictedForRoom8818`), a chart is handed in at 120
+  candles.

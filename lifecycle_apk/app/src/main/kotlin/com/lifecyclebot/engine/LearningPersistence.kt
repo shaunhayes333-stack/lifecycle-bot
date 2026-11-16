@@ -417,6 +417,16 @@ object LearningPersistence {
 
     enum class Commit8090 { COMMITTED, ALREADY_COMMITTED, RETRY }
 
+    /**
+     * V5.0.8818 — is [receipt] already durable? The same indexed read [commitOnce8090] starts with, without a transaction or
+     * a write; false when the store is closed, on the main thread, or the read fails (the caller then commits as before).
+     */
+    fun receiptCommitted8818(receipt: String): Boolean {
+        val d = db ?: return false
+        if (Looper.getMainLooper()?.thread == Thread.currentThread()) return false
+        return try { d.rawQuery("SELECT 1 FROM kv WHERE tracker = 'BLOB' AND bucket = ?", arrayOf(receipt)).use { it.moveToFirst() } } catch (_: Exception) { false }
+    }
+
     /** A terminal reward and its receipt commit together. Never acknowledge an async or failed write. */
     fun commitOnce8090(receipt: String, blobs: Map<String, String>): Commit8090 {
         val d = db ?: return Commit8090.RETRY

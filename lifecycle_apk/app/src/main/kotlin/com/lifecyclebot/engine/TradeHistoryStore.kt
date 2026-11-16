@@ -770,7 +770,20 @@ object TradeHistoryStore {
     // V5.0.7346 — compiled once; this runs per row in every leaderboard groupBy.
     private val NON_ALNUM_7346 = Regex("[^A-Z0-9]")
 
+    // V5.0.8818 — the raw mode strings are a small closed set; 494b46bb's CPU sampler and the 8816 CI ANR trace both caught
+    // this regex inside StrategyTelemetry's leaderboard (trim + uppercase + regex replace for each of up to 2,500 rows, on
+    // every refresh whose journal revision moved). Each distinct raw string is normalised once and remembered (bounded).
+    private val normalizedModes8818 = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private const val NORMALIZED_MODES_MAX_8818 = 4_096
+
     fun normalizeTradeModeName(raw: String): String {
+        normalizedModes8818[raw]?.let { return it }
+        val v = normalizeTradeModeNameUncached8818(raw)
+        if (normalizedModes8818.size < NORMALIZED_MODES_MAX_8818) normalizedModes8818[raw] = v
+        return v
+    }
+
+    private fun normalizeTradeModeNameUncached8818(raw: String): String {
         val upper = raw.trim().uppercase().replace(NON_ALNUM_7346, "")
         return when {
             upper.isBlank() -> ""

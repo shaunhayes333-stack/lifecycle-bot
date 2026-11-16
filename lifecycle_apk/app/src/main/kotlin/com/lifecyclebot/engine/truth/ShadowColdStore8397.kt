@@ -160,10 +160,19 @@ internal class ShadowCohortBook8397(private val fields: Int, private val maxRows
     private fun decode(value: String?): List<DoubleArray> = value.orEmpty().lineSequence().flatMap { it.splitToSequence(';') }
         .mapNotNull { row ->
             val f = row.split(',')
-            val at = f.getOrNull(0)?.toDoubleOrNull(); val net = f.getOrNull(1)?.toDoubleOrNull()
+            val at = f.getOrNull(0)?.let(::num8818); val net = f.getOrNull(1)?.let(::num8818)
             if (at == null || net == null || !net.isFinite()) null
-            else DoubleArray(fields) { i -> f.getOrNull(i)?.toDoubleOrNull() ?: 0.0 }
+            else DoubleArray(fields) { i -> f.getOrNull(i)?.let(::num8818) ?: 0.0 }
         }.toList().takeLast(maxRows)
+
+    /**
+     * V5.0.8818 — Kotlin's toDoubleOrNull screens every string with a floating-point regex before parsing; the 494b46bb CPU
+     * sampler caught that regex under this decode (2.2 % of all CPU stacks: up to 300 rows x every field per cold read). The
+     * rows are this book's own compact numbers; parse directly, and a malformed field is null exactly as before.
+     */
+    private fun num8818(s: String): Double? =
+        if (s.isEmpty() || s[0].isWhitespace() || s[s.length - 1].isWhitespace()) null
+        else try { java.lang.Double.parseDouble(s) } catch (_: NumberFormatException) { null }
 
     private fun encode(rows: List<DoubleArray>): String = rows.joinToString(";") { ShadowPersist8355.compactRow8396(it) }
     private fun putHot(key: String, rows: List<DoubleArray>) {

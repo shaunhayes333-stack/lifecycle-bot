@@ -74,6 +74,7 @@ object ErrorLogger {
     fun init(context: Context) {
         if (db != null) return
         val helper = ErrorDbHelper(context)
+        try { helper.setWriteAheadLoggingEnabled(true) } catch (_: Throwable) {}   // V5.0.8818 — no journal sync per commit
         db = helper.writableDatabase
         sessionId = UUID.randomUUID().toString().take(8)
 
@@ -134,29 +135,80 @@ object ErrorLogger {
         if (level == Level.DEBUG) return
 
         val ts = System.currentTimeMillis()
-        val lvlName = level.name
-        val msg = message.take(1000)
-        val sid = sessionId
         pendingWrites.incrementAndGet()
-        handler.post {
-            try {
-                val tag = "AATE.$component"
+        queue8818.add(Pending8818(ts, level, component, message.take(1000), throwable, sessionId))
+        // V5.0.8818 — one flush runnable drains whatever has queued, in one transaction (see [flush8818]).
+        if (flushPosted8818.compareAndSet(false, true)) handler.post { flush8818(database) }
+    }
+
+    // ── V5.0.8818 §LOG_ROWS_IN_ONE_TRANSACTION ──
+    // 494b46bb (5.0.8817, 65 min): the CPU sampler's largest single frame was ErrorLogger.writeToDb inside SQLite's insert
+    // (7.4 % of all CPU stacks, 8 % with its thread), more than any trading code. Each INFO/WARN/ERROR row was its own
+    // auto-committed transaction (a journal write and sync per row) into a table trimmed to 500 rows only at app start, so
+    // during a session it grew without bound under three indexes. Rows now queue and one runnable on the log thread writes
+    // everything queued in a single transaction; the table is trimmed back to [MAX_LOGS] every [TRIM_EVERY_8818] rows by id
+    // (ids only grow); the database runs write-ahead logging. Same rows, same columns, same logcat lines.
+    private class Pending8818(val ts: Long, val level: Level, val component: String, val msg: String, val throwable: Throwable?, val sid: String)
+    private val queue8818 = java.util.concurrent.ConcurrentLinkedQueue<Pending8818>()
+    private val flushPosted8818 = java.util.concurrent.atomic.AtomicBoolean(false)
+    private const val TRIM_EVERY_8818 = 1_000
+    private const val BATCH_MAX_8818 = 500
+    private val rowsWritten8818 = AtomicLong(0L)
+    private val batches8818 = AtomicLong(0L)
+    private val trims8818 = AtomicLong(0L)
+    private var sinceTrim8818 = 0   // log thread only
+
+    private fun flush8818(database: SQLiteDatabase) {
+        flushPosted8818.set(false)
+        val batch = ArrayList<Pending8818>(minOf(BATCH_MAX_8818, 64))
+        while (batch.size < BATCH_MAX_8818) batch.add(queue8818.poll() ?: break)
+        if (batch.isEmpty()) return
+        try {
+            for (p in batch) {
+                val tag = "AATE.${p.component}"
                 try {
-                    when (level) {
-                        Level.DEBUG -> android.util.Log.d(tag, msg)
-                        Level.INFO -> android.util.Log.i(tag, msg)
-                        Level.WARN -> android.util.Log.w(tag, msg)
-                        Level.ERROR -> android.util.Log.e(tag, msg, throwable)
-                        Level.CRASH -> android.util.Log.e(tag, "CRASH: $msg", throwable)
+                    when (p.level) {
+                        Level.DEBUG -> android.util.Log.d(tag, p.msg)
+                        Level.INFO -> android.util.Log.i(tag, p.msg)
+                        Level.WARN -> android.util.Log.w(tag, p.msg)
+                        Level.ERROR -> android.util.Log.e(tag, p.msg, p.throwable)
+                        Level.CRASH -> android.util.Log.e(tag, "CRASH: ${p.msg}", p.throwable)
                     }
                 } catch (_: Throwable) {}
-                val stack = throwable?.stackTraceToString()?.take(2000)
-                writeToDb(database, ts, lvlName, component, msg, stack, sid)
-            } finally {
-                pendingWrites.decrementAndGet()
             }
+            try {
+                database.beginTransaction()
+                try {
+                    for (p in batch) writeToDb(database, p.ts, p.level.name, p.component, p.msg, p.throwable?.stackTraceToString()?.take(2000), p.sid)
+                    database.setTransactionSuccessful()
+                } finally { database.endTransaction() }
+                rowsWritten8818.addAndGet(batch.size.toLong()); batches8818.incrementAndGet()
+            } catch (e: Exception) {
+                android.util.Log.e("ErrorLogger", "Failed to log batch: ${e.message}")
+            }
+            sinceTrim8818 += batch.size
+            if (sinceTrim8818 >= TRIM_EVERY_8818) { sinceTrim8818 = 0; trim8818(database) }
+        } finally {
+            pendingWrites.addAndGet(-batch.size)
+            // more arrived than one batch holds, or while this one was written: drain again
+            if (!queue8818.isEmpty() && flushPosted8818.compareAndSet(false, true)) ioHandler?.post { flush8818(database) } ?: flushPosted8818.set(false)
         }
     }
+
+    /** Keeps the newest [MAX_LOGS] rows (ids are autoincrement, so the newest are the largest ids). */
+    private fun trim8818(database: SQLiteDatabase) {
+        try {
+            database.execSQL("DELETE FROM error_logs WHERE id <= (SELECT MAX(id) FROM error_logs) - $MAX_LOGS")
+            trims8818.incrementAndGet()
+        } catch (e: Exception) {
+            android.util.Log.e("ErrorLogger", "Failed to trim: ${e.message}")
+        }
+    }
+
+    /** Report line: rows written, transactions, trims, rows dropped under pressure, rows waiting. */
+    fun statusLine8818(): String =
+        "errorLog8818[rows=${rowsWritten8818.get()} transactions=${batches8818.get()} trims=${trims8818.get()} " +
+            "droppedUnderPressure=${droppedUnderPressure.get()} pending=${pendingWrites.get()} rule=queued rows written in one transaction, table kept to $MAX_LOGS rows]"
 
     private fun writeToDb(
         database: SQLiteDatabase,
@@ -167,19 +219,15 @@ object ErrorLogger {
         stack: String?,
         sid: String,
     ) {
-        try {
-            val values = ContentValues().apply {
-                put("timestamp", ts)
-                put("level", lvlName)
-                put("component", component)
-                put("message", msg)
-                put("stack_trace", stack)
-                put("session_id", sid)
-            }
-            database.insert("error_logs", null, values)
-        } catch (e: Exception) {
-            android.util.Log.e("ErrorLogger", "Failed to log: ${e.message}")
+        val values = ContentValues().apply {
+            put("timestamp", ts)
+            put("level", lvlName)
+            put("component", component)
+            put("message", msg)
+            put("stack_trace", stack)
+            put("session_id", sid)
         }
+        database.insert("error_logs", null, values)
     }
 
     // ── Query methods ─────────────────────────────────────────────────

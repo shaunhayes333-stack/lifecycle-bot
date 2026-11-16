@@ -655,7 +655,7 @@ object Cortex7885 {
 
     private fun assessWaitLine8324(): String {
         val n = assessWaitN8324.get()
-        return "snapshot8386[g=$snapshotGeneration8386 wait=${snapshotWaitMs8386}ms hold=${snapshotHoldMs8386}ms encode=${snapshotEncodeMs8386}ms db=${snapshotDbMs8386}ms parts8491=$snapshotParts8491] assessLockWait8324[mean=${if (n > 0) "%.1f".format(assessWaitNanos8324.get() / n / 1e6) else "-"}ms max=${"%.0f".format(assessWaitMaxNanos8324.get() / 1e6)}ms n=$n]"
+        return "snapshot8386[g=$snapshotGeneration8386 wait=${snapshotWaitMs8386}ms hold=${snapshotHoldMs8386}ms encode=${snapshotEncodeMs8386}ms db=${snapshotDbMs8386}ms parts8491=$snapshotParts8491 closeCommits8818{encoded=$closeCommitsEncoded8818 joined=$closeCommitsJoined8818}] assessLockWait8324[mean=${if (n > 0) "%.1f".format(assessWaitNanos8324.get() / n / 1e6) else "-"}ms max=${"%.0f".format(assessWaitMaxNanos8324.get() / 1e6)}ms n=$n]"
     }
 
     // ── V5.0.8291 §CORE_VOTERS — the voters seated in a lane are never abstained by the read budget ──
@@ -2617,6 +2617,8 @@ object Cortex7885 {
     @Volatile private var snapshotEncodeMs8386 = 0L
     @Volatile private var snapshotDbMs8386 = 0L
     @Volatile private var snapshotParts8491 = "-"
+    @Volatile private var closeCommitsJoined8818 = 0L    // written under persistLock8325
+    @Volatile private var closeCommitsEncoded8818 = 0L
 
     private fun snapshotEncoder8386(periodic: Boolean): (() -> MutableMap<String, String>)? {
         val started = System.nanoTime()
@@ -2690,6 +2692,18 @@ object Cortex7885 {
         // V5.0.8324 — never commit a snapshot of books that were not read from the store: a boot-replayed close racing the
         // store opening wrote the EMPTY ledger over the stored one (loaded is false until ensureLoaded has read it).
         if (!loaded) { inc("CORTEX_CLOSE_COMMIT_UNLOADED_REFUSED_8324"); return false }
+        // V5.0.8818 §A_CLOSE_ALREADY_CARRIED_JOINS_IT — 494b46bb: 59 close commits in 65 min, each re-encoding the whole graph
+        // (pending 9.9 MB, encode up to 240 s on a starved thread, 46.6 GB allocated while they ran), serialised on this lock.
+        // Every snapshot already writes the receipt of every close graded in memory but not yet committed
+        // (uncommittedCloseGrades8198), in the same transaction as the books holding its grade. A close that waited here
+        // while the commit before it ran is usually already durable: commitOnce8090 would answer ALREADY_COMMITTED after a
+        // full encode. Ask the store first (one indexed read) and skip the encode; a caller batch of extra blobs still commits.
+        if (additionalBlobs8372.isEmpty() && LearningPersistence.receiptCommitted8818(receipt)) {
+            closeCommitsJoined8818++
+            inc("CORTEX_CLOSE_COMMIT_JOINED_8818")
+            return true
+        }
+        closeCommitsEncoded8818++
         val encode = snapshotEncoder8386(periodic = false) ?: return false
         val blobs = HashMap(additionalBlobs8372)
         blobs.putAll(encode()) // the captured generation's receipts win over an older caller batch
