@@ -478,6 +478,12 @@ object LlmLabEngine {
         // V5.0.8825 — which way each signal points on this phone's own labels (SignalTruth8825), so a hypothesis is not built on
         // a burst reading the labels say marks the top
         val directions8825 = try { com.lifecyclebot.engine.truth.SignalTruth8825.promptLine8825() } catch (_: Throwable) { "" }
+        // V5.0.8826 — bring the owner's 300 handwritten hypotheses into the actual lab research prompt. This is *not* an
+        // entry classifier or a sixth live-authority family: the Lab must express a candidate in an existing typed family,
+        // observe its inputs and pass the same held-out after-cost bar before authority. Rotate families to avoid prompt bloat.
+        val bible8826 = try {
+            com.lifecyclebot.engine.truth.SignalBible300.researchBrief(System.currentTimeMillis() / CREATION_INTERVAL_MS)
+        } catch (_: Throwable) { "" }
         val prompt = """
 You are the AATE Lab strategist for Solana memecoins. Most new memecoins lose: in the evidence below the typical decision
 loses after costs and profit comes from a few runners. Propose ONE new hypothesis, different from those already graded,
@@ -490,6 +496,13 @@ ALREADY GRADED (held-out / replay):
 $honest8755
 
 $directions8825
+
+$bible8826
+
+The handwritten setups are RESEARCH IDEAS, not validated buy signals. Do not assume a positive buyer/volume reading predicts
+profit: the measured directions above take precedence. Express only a hypothesis that the available typed features and
+replay can genuinely grade. If a recipe needs unavailable wallet provenance, sell-route, event-time or venue facts, do not
+claim it is implemented. No new mandatory gates or live authority arise from this library.
 
 ANSWER WITH ONE OF THESE FAMILIES (preferred), plus name and rationale:
   {"name","rationale","family":"CELL","lane":"ANY|<LANE>","source":"ANY|<SOURCE>","conds":[{"f":"<feature>","lo":<num>,"hi":<num>}, ... up to 3]}

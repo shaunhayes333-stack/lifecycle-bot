@@ -94,6 +94,9 @@ jobs:
       - name: Kotlin nested block-comment balance
         run: python3 ci/comment_balance.py app/src
 
+      - name: Handwritten signal bible source parity
+        run: python3 ci/generate_signal_bible_300.py --check
+
       - name: Golden Tape literal static scan
         run: |
           python3 ci/golden_tape_literal_scan.py

@@ -66,6 +66,7 @@ production=(
   "$sources/cortex/LaneGradeHorizon8406.kt"
   "$sources/LaneHolds8418.kt"
   "$sources/RunnerExitProfile7277.kt"
+  "$sources/truth/SignalBible300.kt"
   "$sources/truth/RobustLabelRead8185.kt"
   "$sources/cortex/CortexLedger7885.kt"
   "$sources/cortex/CortexScoreboard7885.kt"
@@ -107,6 +108,7 @@ java -Xmx1536m -cp "$deps_dir/*" org.jetbrains.kotlin.cli.jvm.K2JVMCompiler \
   -jvm-target 17 -no-stdlib -no-reflect -classpath "$classpath:$output_dir/production.jar" \
   -Xfriend-paths="$output_dir/production.jar" -d "$output_dir/tests.jar" \
   "$tests/Aate8675BuyerFlowTest.kt" "$tests/Aate8528SetupTimingTest.kt" "$tests/Aate8528FluidFloorTest.kt" \
+  "$tests/Aate8826SignalBibleTest.kt" \
   "$script_dir/ScannerSourceBrainIntegrationTest.kt" \
   "$tests/Aate8076CortexRevisionTest.kt" "$tests/Aate8372CortexLearningTest.kt" \
   "$tests/Aate8372CortexCalibrationTest.kt" "$tests/Aate8372ShadowLearningTest.kt" \
@@ -122,6 +124,7 @@ java -cp "$output_dir/tests.jar:$output_dir/production.jar:$classpath" org.junit
   com.lifecyclebot.engine.Aate8675BuyerFlowTest \
   com.lifecyclebot.engine.Aate8528SetupTimingTest \
   com.lifecyclebot.engine.Aate8528FluidFloorTest \
+  com.lifecyclebot.engine.Aate8826SignalBibleTest \
   com.lifecyclebot.engine.Aate8076CortexRevisionTest \
   com.lifecyclebot.engine.Aate8372CortexLearningTest \
   com.lifecyclebot.engine.Aate8372CortexCalibrationTest \

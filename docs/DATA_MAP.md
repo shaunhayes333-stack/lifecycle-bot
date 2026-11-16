@@ -553,3 +553,20 @@ fed by `EdgeModel8537.learn` and its boot replay) and calls a direction only whe
 (`promptLine8825`). `LaunchReplay8744.attentionOf8825` names the best graded cumulative-family rule; `LaunchSniper8748`
 puts every coin meeting its trigger on the watchlist (`LAUNCH_SNIPER_WATCH_8825`, no evidence), so the decision loop and
 every learner see the $10k crossers before any rule is armed. Status `attention8825{on fires watchlistAdds}`.
+
+## 33. The owner's 300 handwritten setups reach the Lab as unproven research (8826)
+
+The owner's complete source is `docs/AATE_Meme_Signal_Bible_300.md`: 240 ON/OFF signal descriptions in 20 evidence
+families and 60 Trigger/Fail/Manage playbooks in 10 strategy families. `ci/generate_signal_bible_300.py` compiles every
+description into `SignalBible300.kt`, validates consecutive IDs and linked references, and rejects source/code drift in
+the main-branch APK workflow. It is a catalog of **hypotheses**, not 300 gates or 300 independently proven strategies.
+
+`LlmLabEngine` now presents a bounded rotating sample of six complete recipes per creation cycle to the existing
+`StrategyLab8755` hypothesis writer, *after* the measured age-specific `SignalTruth8825` direction evidence. The prompt
+requires a representable typed CELL/LAUNCH/BASE/RUNNER hypothesis, causal source coverage and held-out after-cost grading;
+unobserved parts of a recipe remain UNKNOWN and cannot be fabricated as a bullish signal. `SignalBible300.LIVE_AUTHORITY`
+is **false**. None of the handbook recipes directly touches `LanePlaybook7907`, the V3/V4 entry owners, FDG, position
+management or protective sells. This preserves the existing authority doctrine while giving the Lab a larger research
+menu. The report line `Handwritten signal research (§8826)` proves the catalog is linked into the APK, including its
+content hash and 240/60 coverage. Unit tests check definitions, traceability, research rotation and the absence of an
+entry-gate path. Do not report the recipes as validated or live until a distinct, audited implementation proves them.
