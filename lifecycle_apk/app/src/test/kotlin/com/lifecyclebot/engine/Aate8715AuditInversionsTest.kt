@@ -45,11 +45,13 @@ class Aate8715AuditInversionsTest {
         assertEquals(EdgeModel8537.Call.POSITIVE, EdgeModel8537.callOf(verdict(9.0, authority = true, refuses = false)))
     }
 
-    @Test fun aRefusalOnlyAuthorityBindsLiveAndLeavesPaperTrading() {
+    @Test fun aRefusalOnlyAuthorityBindsLiveAndPaperAlike() {
         val base = CandidateAdmission8136.Candidate8136("m8715", "SHITCOIN", null,
             expectedGrossPct = 20.0, costPct = 4.5, genericScore = 80.0, genericFloor = 15.0)
         val v = verdict(-12.0, authority = false, refuses = true)
-        assertEquals("paper keeps trading it", null, CandidateAdmission8136.edgeModelRefusal8537(base.copy(edge8537 = v), null, mutableListOf()))
+        // V5.0.8827 (supersedes 8715's live-only refusal): refused coins are still labelled, so paper rehearses what live does
+        assertEquals(CandidateAdmission8136.EDGE_MODEL_NEGATIVE_8537,
+            CandidateAdmission8136.edgeModelRefusal8537(base.copy(edge8537 = v), null, mutableListOf()))
         assertEquals(CandidateAdmission8136.EDGE_MODEL_NEGATIVE_8537,
             CandidateAdmission8136.edgeModelRefusal8537(base.copy(edge8537 = v, live = true), null, mutableListOf()))
         // with the picks proven too, it refuses in both books as before

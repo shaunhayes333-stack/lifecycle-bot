@@ -40,9 +40,9 @@ class Aate8825SignalTruthTest {
         assertEquals(4, SignalTruth8825.band8825(5_000.0)); assertEquals(-1, SignalTruth8825.band8825(Double.NaN))
         for (i in 0 until 200) {
             val burst = (i % 20).toDouble()
-            SignalTruth8825.note8825("Mint$i", 0.4, -2.0 * burst - 1.0) { k -> if (k == "buyTx15s") burst else Double.NaN }
+            SignalTruth8825.note8825("Mint$i", 0.4, -2.0 * burst - 1.0, null) { k -> if (k == "buyTx15s") burst else Double.NaN }
         }
-        SignalTruth8825.note8825("Mint7", 0.4, 500.0) { 99.0 }   // the same coin again in the same band: not counted
+        SignalTruth8825.note8825("Mint7", 0.4, 500.0, null) { 99.0 }   // the same coin again in the same band: not counted
         val r = SignalTruth8825.reads8825().first { it.signal == "buyTx15s" && it.band == "<1m" }
         assertEquals(200, r.n); assertEquals(Way.HIGHER_WORSE, r.way)
         assertTrue(SignalTruth8825.promptLine8825().contains("HIGHER IS WORSE: buyTx15s@<1m -1.00/-1.00 n200"))
@@ -66,8 +66,8 @@ class Aate8825SignalTruthTest {
 
     @Test fun everyLabelAndTheBootReplayFeedItAndItIsReported() {
         val em = src("engine/truth/EdgeModel8537.kt")
-        assertTrue(em.contains("SignalTruth8825.note8825(s.mint, s.raw.ageMin, netPct) { signal8825(s.raw, it) }"))
-        assertTrue(em.contains("SignalTruth8825.note8825(o.optString(\"mint\"), r.ageMin, d(\"net\")) { k -> d(k) }"))
+        assertTrue(em.contains("SignalTruth8825.note8825(s.mint, s.raw.ageMin, netPct, s.admitted)"))
+        assertTrue(em.contains("SignalTruth8825.note8825(o.optString(\"mint\"), r.ageMin, d(\"net\"), if (o.has(\"admitted\"))"))
         assertTrue(src("engine/PipelineHealthCollector.kt").contains("SignalTruth8825.statusLine8825()"))
         assertTrue(src("engine/lab/LlmLabEngine.kt").contains("\$directions8825"))
     }

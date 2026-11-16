@@ -23,12 +23,24 @@ import java.util.concurrent.atomic.AtomicLong
  * only when both halves agree past their own 95 % noise band (1.96 / sqrt(n - 1)); otherwise it is noise. The report
  * prints the table, and the strategy lab's prompt receives the agreed directions, so a proposed strategy is built on what
  * the labels say rather than on what a setup assumed.
+ *
+ * V5.0.8827 §WHAT_THE_BOT_CHOOSES_AGAINST_WHAT_PAYS — owner: "what else is wrong. backwards. inverted". The same rows carry
+ * the decision's verdict (admitted or refused at the final gate). The clean epoch, every decision (11,512): the admission
+ * favoured, in both halves, thirteen readings that predict a worse outcome — newBuyers15s (admission +0.17, outcome -0.27),
+ * runup (+0.14 / -0.17), runupFromLow, chg5m (+0.16 / -0.10), fromFirst (+0.21 / -0.16), launch and tape buy share,
+ * turnover, buyers per minute, tape net SOL and crowd — and disfavoured the bot's own score v3 (-0.10 / +0.13). It ignored the
+ * two strongest right-way facts: the edge model's prediction (admission +0.01, outcome +0.35) and age (+0.02 / +0.34).
+ * Each (signal, band) now also reads the admission's own direction on both halves; where the outcome and the admission
+ * each agree with themselves and point opposite ways the cell is INVERTED, where the outcome agrees and the admission is
+ * noise it is IGNORED. The report names both, so every backwards door shows up as a number, not a guess.
  */
 object SignalTruth8825 {
     /** The signals measured: the playbook's activity triggers, their dips and runs, and the survival facts beside them. */
     val SIGNALS: List<String> = listOf(
         "buyTx15s", "newBuyers15s8666", "txVel", "buyersPerMin", "tapeNetSol", "tapeCrowd", "repeatBuyers60s", "bp",
         "chg5m", "chg1h", "runup", "runupFromLow", "dd", "pxPeak", "fromPeak", "liq", "mcap", "top", "holders", "secsSincePrint",
+        // V5.0.8827 — the bot's own verdict inputs: its score, the learned prediction, age, and what the admission leaned on
+        "v3", "pred", "age", "fromFirst", "buyShare", "launchBuyShare", "turnover",
     )
     /** Age bands (minutes): under 1, 1-10, 10-60, 1-24 h, older. */
     private val BAND_EDGES_MIN = doubleArrayOf(1.0, 10.0, 60.0, 1_440.0)
@@ -38,12 +50,16 @@ object SignalTruth8825 {
 
     private class Ring {
         val v = FloatArray(RING); val y = FloatArray(RING)
+        val a = FloatArray(RING)   // V5.0.8827 — the verdict: 1 admitted, 0 refused, NaN unknown
         var n = 0; var next = 0
-        fun add(value: Double, net: Double) { v[next] = value.toFloat(); y[next] = net.toFloat(); next = (next + 1) % RING; if (n < RING) n++ }
-        /** Oldest first. */
-        fun ordered(): Pair<DoubleArray, DoubleArray> {
+        fun add(value: Double, net: Double, admitted: Double) {
+            v[next] = value.toFloat(); y[next] = net.toFloat(); a[next] = admitted.toFloat(); next = (next + 1) % RING; if (n < RING) n++
+        }
+        /** Oldest first: values, outcomes, verdicts. */
+        fun ordered(): Triple<DoubleArray, DoubleArray, DoubleArray> {
             val start = if (n < RING) 0 else next
-            return DoubleArray(n) { v[(start + it) % RING].toDouble() } to DoubleArray(n) { y[(start + it) % RING].toDouble() }
+            return Triple(DoubleArray(n) { v[(start + it) % RING].toDouble() }, DoubleArray(n) { y[(start + it) % RING].toDouble() },
+                DoubleArray(n) { a[(start + it) % RING].toDouble() })
         }
     }
     private val rings = Array(SIGNALS.size * BANDS.size) { Ring() }
@@ -85,7 +101,19 @@ object SignalTruth8825 {
     }
 
     enum class Way { HIGHER_BETTER, HIGHER_WORSE, NOISE, THIN }
-    data class Read(val signal: String, val band: String, val n: Int, val rhoOld: Double, val rhoNew: Double, val way: Way)
+    /** V5.0.8827 — the admission against the outcome: it leans the opposite way, ignores a real direction, or agrees. */
+    enum class Choice { INVERTED, IGNORED, ALIGNED, UNREAD }
+    data class Read(val signal: String, val band: String, val n: Int, val rhoOld: Double, val rhoNew: Double, val way: Way,
+                    val admitOld: Double = Double.NaN, val admitNew: Double = Double.NaN, val choice: Choice = Choice.UNREAD)
+
+    /** Pure: the admission's lean ([admitWay], read like an outcome: HIGHER_BETTER = admits more of it) against [outcome]. */
+    fun choice8827(outcome: Way, admitWay: Way): Choice = when {
+        outcome != Way.HIGHER_BETTER && outcome != Way.HIGHER_WORSE -> Choice.UNREAD
+        admitWay == Way.THIN -> Choice.UNREAD
+        admitWay == Way.NOISE -> Choice.IGNORED
+        admitWay == outcome -> Choice.ALIGNED
+        else -> Choice.INVERTED
+    }
 
     /** Pure: the direction both halves of [x] / [y] (oldest first) agree on past their own noise band. */
     fun way8825(x: DoubleArray, y: DoubleArray): Triple<Double, Double, Way> {
@@ -107,7 +135,7 @@ object SignalTruth8825 {
      * One labelled decision of [mint] at age [ageMin] (minutes), outcome [netPct]; [get] reads a signal by its dataset
      * column name (NaN = unobserved, never measured). EdgeModel8537.learn (live) and its boot replay (the clean dataset).
      */
-    fun note8825(mint: String, ageMin: Double, netPct: Double, get: (String) -> Double) {
+    fun note8825(mint: String, ageMin: Double, netPct: Double, admitted: Boolean?, get: (String) -> Double) {
         if (mint.isBlank() || !netPct.isFinite()) return
         val b = band8825(ageMin); if (b < 0) return
         val h = com.lifecyclebot.engine.chart.OwnBars8816.hash8816("$mint|$b").let { if (it == 0L) 1L else it }
@@ -117,7 +145,7 @@ object SignalTruth8825 {
             seen[slot] = h
             for (s in SIGNALS.indices) {
                 val v = try { get(SIGNALS[s]) } catch (_: Throwable) { Double.NaN }
-                if (v.isFinite()) rings[s * BANDS.size + b].add(v, netPct)
+                if (v.isFinite()) rings[s * BANDS.size + b].add(v, netPct, when (admitted) { true -> 1.0; false -> 0.0; null -> Double.NaN })
             }
         }
         noted.incrementAndGet()
@@ -128,9 +156,14 @@ object SignalTruth8825 {
         val out = ArrayList<Read>()
         val snaps = synchronized(rings) { rings.map { it.ordered() } }
         for (s in SIGNALS.indices) for (b in BANDS.indices) {
-            val (x, y) = snaps[s * BANDS.size + b]
+            val (x, y, adm) = snaps[s * BANDS.size + b]
             val (a, bb, w) = way8825(x, y)
-            out.add(Read(SIGNALS[s], BANDS[b], x.size, a, bb, w))
+            // the admission's lean, read on the rows whose verdict is known, oldest first like the outcome
+            val known = adm.indices.filter { adm[it].isFinite() }
+            val (aa, ab, aw0) = way8825(DoubleArray(known.size) { x[known[it]] }, DoubleArray(known.size) { adm[known[it]] })
+            // every verdict the same (nothing admitted, or everything) is no lean at all, not a blind spot
+            val aw = if (known.map { adm[it] }.distinct().size < 2) Way.THIN else aw0
+            out.add(Read(SIGNALS[s], BANDS[b], x.size, a, bb, w, aa, ab, choice8827(w, aw)))
         }
         return out.sortedWith(compareBy<Read> { it.way == Way.NOISE || it.way == Way.THIN }
             .thenByDescending { if (it.rhoOld.isFinite() && it.rhoNew.isFinite()) minOf(kotlin.math.abs(it.rhoOld), kotlin.math.abs(it.rhoNew)) else -1.0 })
@@ -146,6 +179,18 @@ object SignalTruth8825 {
         val better = agreed.filter { it.way == Way.HIGHER_BETTER }.take(12).joinToString(", ") { fmt(it) }
         return "MEASURED SIGNAL DIRECTIONS (this phone's labels, signal@age band, rank correlation older/newer half; both halves agree):\n" +
             "  HIGHER IS WORSE: ${worse.ifBlank { "-" }}\n  HIGHER IS BETTER: ${better.ifBlank { "-" }}"
+    }
+
+    private fun fmtChoice(r: Read) = "${r.signal}@${r.band} outcome ${"%+.2f".format(r.rhoOld)}/${"%+.2f".format(r.rhoNew)} admit ${"%+.2f".format(r.admitOld)}/${"%+.2f".format(r.admitNew)} n${r.n}"
+
+    /** V5.0.8827 — the admission's inversions and blind spots, strongest outcome first. */
+    fun choiceLine8827(): String {
+        val r = reads8825()
+        val inv = r.filter { it.choice == Choice.INVERTED }; val ign = r.filter { it.choice == Choice.IGNORED }
+        val ali = r.count { it.choice == Choice.ALIGNED }
+        return "choice8827[inverted=${inv.size}{${inv.take(10).joinToString(" | ") { fmtChoice(it) }.ifBlank { "-" }}} " +
+            "ignored=${ign.size}{${ign.take(8).joinToString(" | ") { fmtChoice(it) }.ifBlank { "-" }}} aligned=$ali " +
+            "rule=the admitted share read against the signal on both halves; INVERTED = it admits more of what does worse (or less of what does better)]"
     }
 
     fun statusLine8825(): String {

@@ -1018,19 +1018,43 @@ object CandidateAdmission8136 {
      * V5.0.8537 — the learned edge model (EdgeModel8537) refuses, in paper and live, a coin it expects to lose after cost once
      * its own out-of-sample picks in this lane have paid (authority). A candidate-specific supported record ([edge]) keeps the
      * coin unless the model expects it to lose more than a full round trip. Without authority the model decides nothing.
+     *
+     * V5.0.8827 §PAPER_REHEARSES_WHAT_LIVE_WOULD_DO — 8715 let a refusal earned on the refusal record bind live money only:
+     * "paper keeps trading those coins, which is what keeps the record honest". The record does not need them: every final
+     * verdict, admitted or refused, is observed by ForwardReturnLabeler7731 and its label feeds the same out-of-sample tally
+     * (EdgeModel8537.learn -> Oos.add). What paper trading them did was fill the paper book — whose lane records the live
+     * mirror follows — with coins live refuses. Clean epoch: 1,126 of the 1,432 admitted decisions carried a negative
+     * prediction and averaged -11.5 % (both halves negative, -8.6 / -14.6); the 306 it kept averaged +4.4 %. One rule now
+     * for both books. Every negative prediction the gate lets through is counted by why ([edgeLetThrough8827]).
      */
     internal fun edgeModelRefusal8537(c: Candidate8136, edge: Evidence8136?, trace: MutableList<String>): String? {
         val v = c.edge8537 ?: return null
         val call = EdgeModel8537.callOf(v)
         trace += "edge8537=${fmt8136(v.predPct)} model=${v.modelKey} oos=n${v.oosSelN}/${fmt8136(v.oosSelMeanPct)} call=$call"
-        if (call != EdgeModel8537.Call.NEGATIVE) return null
-        // V5.0.8715 — a refusal earned on the refusal record alone binds LIVE money; paper keeps trading those coins, which
-        // is what keeps the record honest.
-        if (!v.authority && !c.live) { trace += "edge8537RefusalLiveOnly8715"; return null }
-        if (edge != null && !(c.costPct.isFinite() && v.predPct <= -c.costPct)) { trace += "edge8537NegativeKeptBy=${edge.compact}"; return null }
+        if (call != EdgeModel8537.Call.NEGATIVE) {
+            if (v.predPct.isFinite() && v.predPct < 0.0) letThrough8827(if (c.live) "UNEARNED_LIVE" else "UNEARNED_PAPER", c.lane)
+            return null
+        }
+        if (edge != null && !(c.costPct.isFinite() && v.predPct <= -c.costPct)) {
+            trace += "edge8537NegativeKeptBy=${edge.compact}"; letThrough8827("KEPT_BY_${edge.kind}", c.lane); return null
+        }
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("${EDGE_MODEL_NEGATIVE_8537}_${c.lane.uppercase()}") } catch (_: Throwable) {}
+        refusedBy8827.incrementAndGet()
         return EDGE_MODEL_NEGATIVE_8537
     }
+
+    // V5.0.8827 — negative predictions the gate let through, by why and lane (a refusal not yet earned, or kept by evidence)
+    private val letThroughCounts8827 = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
+    private val refusedBy8827 = java.util.concurrent.atomic.AtomicLong(0L)
+    private fun letThrough8827(why: String, lane: String) {
+        val k = "$why:${lane.uppercase().take(16)}"
+        (letThroughCounts8827[k] ?: if (letThroughCounts8827.size >= 200) return else letThroughCounts8827.computeIfAbsent(k) { java.util.concurrent.atomic.AtomicLong(0L) }).incrementAndGet()
+    }
+
+    /** V5.0.8827 — the report: refusals made, and negative predictions let through by why. */
+    fun edgeLetThrough8827(): String = "edgeRefusal8827[refused=${refusedBy8827.get()} letThrough{" +
+        letThroughCounts8827.entries.sortedByDescending { it.value.get() }.take(12).joinToString(" ") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } +
+        "} rule=one refusal rule for paper and live once the lane's refusal record is earned; refused coins are still labelled]"
     const val LIVE_UNPROVEN_EDGE_8536 = "LIVE_UNPROVEN_EDGE_8536"
     const val SHEET_FAVOUR_8323 = "FAVOUR"
     const val SHEET_AVOID_8323 = "AVOID"

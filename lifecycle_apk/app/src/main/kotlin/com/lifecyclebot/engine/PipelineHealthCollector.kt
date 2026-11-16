@@ -1567,6 +1567,10 @@ object PipelineHealthCollector {
             try { com.lifecyclebot.engine.truth.NetEdge8030.gapLine8823() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Signal truth (§8825): ").append(
             try { com.lifecyclebot.engine.truth.SignalTruth8825.statusLine8825() } catch (_: Throwable) { "unavailable" }).append("\n")
+        sb.append("  Admission vs outcome (§8827): ").append(
+            try { com.lifecyclebot.engine.truth.SignalTruth8825.choiceLine8827() } catch (_: Throwable) { "unavailable" }).append("\n")
+        sb.append("  Edge refusal (§8827): ").append(
+            try { com.lifecyclebot.engine.truth.CandidateAdmission8136.edgeLetThrough8827() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Handwritten signal research (§8826): ").append(
             try { com.lifecyclebot.engine.truth.SignalBible300.statusLine() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Falling hour (§8418): ").append(

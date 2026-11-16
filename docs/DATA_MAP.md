@@ -570,3 +570,18 @@ management or protective sells. This preserves the existing authority doctrine w
 menu. The report line `Handwritten signal research (§8826)` proves the catalog is linked into the APK, including its
 content hash and 240/60 coverage. Unit tests check definitions, traceability, research rotation and the absence of an
 entry-gate path. Do not report the recipes as validated or live until a distinct, audited implementation proves them.
+
+## 34. What the bot chooses against what pays; one model refusal for both books (8827)
+
+Clean epoch, every final-gate verdict (11,512 decisions): the admission favoured, in both halves, thirteen readings that
+predict a worse 15-minute outcome (newBuyers15s, runup, runupFromLow, chg5m, fromFirst, buy shares, turnover, buyers per
+minute, tape net SOL and crowd) and disfavoured the bot's own score v3; it ignored the edge model's prediction (admission
++0.01, outcome +0.35) and age (+0.02 / +0.34). 1,126 of 1,432 admitted decisions carried a negative prediction (-11.5 %,
+both halves negative); the 306 it kept averaged +4.4 %.
+
+`SignalTruth8825` rings also hold the verdict (admitted 1 / refused 0); each (signal, band) reads the admission's lean on
+both halves and classes it INVERTED / IGNORED / ALIGNED against the outcome (`choice8827`, `choiceLine8827`; signals now
+include v3, pred, age, fromFirst, buy shares, turnover). `CandidateAdmission8136.edgeModelRefusal8537` binds paper and live
+alike once the lane's refusal record is earned (refused coins are still labelled, so the record stays honest); every
+negative prediction let through is counted by why (`edgeLetThrough8827`). Report lines `Admission vs outcome (§8827)` and
+`Edge refusal (§8827)`.
