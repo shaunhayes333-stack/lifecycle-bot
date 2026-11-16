@@ -610,3 +610,14 @@ meta.logMessages, which stay JSON). After a fallback hold the tape re-probes on 
 `failed: false`) when the plan has it, logs otherwise. `HeliusCurveTape8354` meters frames, bytes and failed transactions per
 transport (`perTransport8829{enhanced= logs=}`). `LaunchReplay8744.rulesFor8829` / `BaseFamily8754.evaluate8754` grade every
 DOCTRINE rule also at the required latency rounded up to 5 s (`atLatency8829`) when the grid lacks it.
+
+## 37. The entry cost's gap read is cheap and silent (8830)
+
+5.0.8823 and 8824 failed the runtime smoke on a SplashActivity ANR (app 158-160 % of the emulator's two cores, the main
+thread waiting on CPU); 8822 passed. 8823 added the band gap to `NetEdge8030.preTradeCostPct8329`, which every sizing and
+economics loop calls: per call it built the full band map, re-derived the lane's horizon and computed the stop through
+`FieldManual7715.stopPct8392`, whose STOP_WIDENED telemetry then counted cost reads as stops set. Now
+`PocketLedger8610.gapCostPct8823(lane, liq) { stop }` reads the liquidity band alone (`liqBand8830`, the band `bands8610`
+files), the lane's horizon prefix cached a minute per lane, and evaluates the stop only when a seeded band holds a record
+past N_MIN; the stop is `FieldManual7715.stopPctQuiet8830` (same value, no telemetry); the replay-fire exemption is read
+only when there is a gap.

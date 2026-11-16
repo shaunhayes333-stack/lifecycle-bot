@@ -21,7 +21,8 @@ class Aate8823GapCostTest {
 
     @Test fun theEntryCostCarriesItAndEachObservationCountsOnce() {
         val ne = src("engine/truth/NetEdge8030.kt").substringAfter("fun preTradeCostPct8329(").substringBefore("fun entryRefusal8030(")
-        assertTrue(ne.contains("PocketLedger8610.gapCostPct8823(lane, liquidityUsd, FieldManual7715.stopPct8392(lane, model))"))
+        // V5.0.8830 (supersedes the eager stop read): the stop is read lazily, without the stop-set telemetry
+        assertTrue(ne.contains("PocketLedger8610.gapCostPct8823(lane, liquidityUsd) { FieldManual7715.stopPctQuiet8830(lane, model) }"))
         assertTrue(ne.contains("?: return model + gap") && ne.contains("return maxOf(model, measured) + gap"))
         val pl = src("engine/truth/PocketLedger8610.kt")
         assertTrue(pl.contains("if (first) bands[\"liq\"]?.let { noteGap8823(horizon, it, net) }"))

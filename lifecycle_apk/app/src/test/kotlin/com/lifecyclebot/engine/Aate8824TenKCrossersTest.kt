@@ -75,7 +75,8 @@ class Aate8824TenKCrossersTest {
         assertFalse(LaunchSniper8748.armedWindow8824("", 1L))
         assertFalse(LaunchSniper8748.armedWindow8824("NoFireMint11111111111111111111111111111pump", 1L))
         val ne = src("engine/truth/NetEdge8030.kt").substringAfter("fun preTradeCostPct8329(").substringBefore("fun entryRefusal8030(")
-        assertTrue(ne.contains("val gap = if (gapExempt8824(mint, System.currentTimeMillis())) 0.0"))
+        // V5.0.8830: the exemption is read only when the band has a gap to exempt
+        assertTrue(ne.contains("val gap = if (banded > 0.0 && gapExempt8824(mint, System.currentTimeMillis())) 0.0 else banded"))
         assertTrue(src("engine/truth/NetEdge8030.kt").contains("replayFireExempt8824="))
         assertTrue(src("engine/truth/LaunchReplay8744.kt").contains("\${totalLine8824(last)} "))
     }

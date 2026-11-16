@@ -229,8 +229,12 @@ object NetEdge8030 {
         // V5.0.8824 — except on a coin inside an armed replay fire's window: that rule's record is its own net outcome on the
         // same trigger, dumps through the stop included, so the band's average gap would be charged twice
         // (LaunchSniper8748.armedWindow8824). The band gap of a $10k launch is the very cost the replay already measured.
-        val gap = if (gapExempt8824(mint, System.currentTimeMillis())) 0.0
-            else try { PocketLedger8610.gapCostPct8823(lane, liquidityUsd, FieldManual7715.stopPct8392(lane, model)) } catch (_: Throwable) { 0.0 }
+        // V5.0.8830 — this runs in every sizing and economics loop: the band record is looked up first and the stop is computed
+        // only when a seeded band has one (lazily, and without the STOP_WIDENED telemetry stopPct8392 counts per call); the
+        // replay-fire exemption is read only when there is a gap to exempt. 5.0.8823 and 8824 failed the runtime smoke on a
+        // SplashActivity ANR with the app at 158-160 % of the emulator's two cores and the main thread waiting on CPU.
+        val banded = try { PocketLedger8610.gapCostPct8823(lane, liquidityUsd) { FieldManual7715.stopPctQuiet8830(lane, model) } } catch (_: Throwable) { 0.0 }
+        val gap = if (banded > 0.0 && gapExempt8824(mint, System.currentTimeMillis())) 0.0 else banded
         if (gap > 0.0) gapCharged8823.incrementAndGet()
         // The admission reads the lane's MEASURED round trip (owner: "use measured cost per lane"). It went through
         // RoundTrip8418.markLift8418, a stub that always returns null, so entries were judged on the 3.78 % model while live

@@ -256,6 +256,17 @@ object FieldManual7715 {
 
     /** The stop [lane] actually trades at [costPct] round trip: max(mandate invalidation, 1.5 x cost), never over the cap. */
     fun stopPct8392(lane: String?, costPct: Double): Double {
+        val widened = stopPctQuiet8830(lane, costPct)
+        if (costPct.isFinite() && costPct > 0.0 && widened > mandateFor(lane).invalidationPct + 1e-9)
+            try { PipelineHealthCollector.labelInc("STOP_WIDENED_TO_COST_8392_${lane?.trim()?.uppercase().orEmpty().take(16)}") } catch (_: Throwable) {}
+        return widened
+    }
+
+    /**
+     * V5.0.8830 — [stopPct8392]'s value without its telemetry: for a caller that reads the stop to price something (the entry
+     * cost's gap, NetEdge8030.preTradeCostPct8329) rather than to set one, so STOP_WIDENED counts stops set, not cost reads.
+     */
+    fun stopPctQuiet8830(lane: String?, costPct: Double): Double {
         val mandate = mandateFor(lane)
         val m = mandate.invalidationPct
         if (!costPct.isFinite() || costPct <= 0.0) return m
@@ -264,9 +275,7 @@ object FieldManual7715 {
         // is the receipt-built trip once realised slippage is measured (CostLedger7962.laneCostPct7962, RoundTrip8418).
         val cap8418 = if (mandate.runner) STOP_CAP_PCT_8392 else nonRunnerCap8418(
             try { com.lifecyclebot.engine.cortex.StopLearner8040.learnedStop8040(lane.orEmpty()) } catch (_: Throwable) { null })
-        val widened = maxOf(m, STOP_COST_MULT_8392 * costPct).coerceAtMost(maxOf(m, cap8418))
-        if (widened > m + 1e-9) try { PipelineHealthCollector.labelInc("STOP_WIDENED_TO_COST_8392_${lane?.trim()?.uppercase().orEmpty().take(16)}") } catch (_: Throwable) {}
-        return widened
+        return maxOf(m, STOP_COST_MULT_8392 * costPct).coerceAtMost(maxOf(m, cap8418))
     }
 
     /** [stopPct8392] at the lane's measured round trip (CostLedger7962, else the base estimate) for callers without a size. */

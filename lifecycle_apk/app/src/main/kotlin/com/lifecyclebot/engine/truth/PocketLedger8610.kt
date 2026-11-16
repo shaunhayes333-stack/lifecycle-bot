@@ -44,12 +44,17 @@ object PocketLedger8610 {
     fun managed8610(net: Double): Double = minOf(net, 400.0)
 
     /** Pure: the banded features of an observation; an unobserved value is left out. */
+    /** V5.0.8830 — the liquidity band alone (the one [bands8610] files), for a reader that needs no other band. */
+    internal fun liqBand8830(liq: Double): String? = if (!liq.isFinite()) null else when {
+        liq < 2e3 -> "<2k"; liq < 1e4 -> "<10k"; liq < 5e4 -> "<50k"; liq < 2.5e5 -> "<250k"; else -> ">=250k"
+    }
+
     fun bands8610(liq: Double, mcap: Double, ageMin: Double, bp: Double, chg5m: Double, chg1h: Double, pxPeak: Double,
                   volAccel: Double, top: Double, phase: String): Map<String, String> {
         val b = LinkedHashMap<String, String>()
         if (phase.isNotBlank()) b["phase"] = phase.trim().uppercase()
         if (ageMin.isFinite()) b["age"] = when { ageMin < 1 -> "<1m"; ageMin < 5 -> "<5m"; ageMin < 30 -> "<30m"; ageMin < 180 -> "<3h"; ageMin < 1440 -> "<24h"; else -> ">=1d" }
-        if (liq.isFinite()) b["liq"] = when { liq < 2e3 -> "<2k"; liq < 1e4 -> "<10k"; liq < 5e4 -> "<50k"; liq < 2.5e5 -> "<250k"; else -> ">=250k" }
+        liqBand8830(liq)?.let { b["liq"] = it }
         if (mcap.isFinite()) b["mcap"] = when { mcap < 1e4 -> "<10k"; mcap < 5e4 -> "<50k"; mcap < 2.5e5 -> "<250k"; mcap < 2e6 -> "<2M"; else -> ">=2M" }
         if (bp.isFinite()) b["bp"] = when { bp < 45 -> "<45"; bp < 55 -> "<55"; bp < 65 -> "<65"; bp < 80 -> "<80"; else -> ">=80" }
         if (chg5m.isFinite()) b["chg5m"] = when { chg5m < -10 -> "<-10"; chg5m < -2 -> "<-2"; chg5m < 2 -> "<2"; chg5m < 10 -> "<10"; chg5m < 30 -> "<30"; else -> ">=30" }
@@ -162,12 +167,31 @@ object PocketLedger8610 {
     }
 
     /** The entry's gap cost (%) for [lane] at [liquidityUsd]: 0 until the ledger is seeded or the band is thin. */
-    fun gapCostPct8823(lane: String, liquidityUsd: Double, stopPct: Double): Double {
-        if (!ready || !liquidityUsd.isFinite() || liquidityUsd <= 0.0) return 0.0
-        val band = bands8610(liquidityUsd, Double.NaN, Double.NaN, Double.NaN, Double.NaN, Double.NaN, Double.NaN, Double.NaN, Double.NaN, "")["liq"] ?: return 0.0
-        val rec = gap8823["${targetHorizon(lane.trim().uppercase())}|$band"] ?: return 0.0
-        val g = synchronized(rec) { gapPct8823(rec.copyOf(), stopPct) }
+    fun gapCostPct8823(lane: String, liquidityUsd: Double, stopPct: Double): Double = gapCostPct8823(lane, liquidityUsd) { stopPct }
+
+    /**
+     * V5.0.8830 — the same, read for every entry-cost call: nothing is built until a seeded band of this liquidity holds a
+     * record past [N_MIN]; the lane's horizon prefix is cached a minute per lane; [stopPct] is evaluated only then.
+     */
+    fun gapCostPct8823(lane: String, liquidityUsd: Double, stopPct: () -> Double): Double {
+        if (!ready || gap8823.isEmpty() || !liquidityUsd.isFinite() || liquidityUsd <= 0.0) return 0.0
+        val band = liqBand8830(liquidityUsd) ?: return 0.0
+        val rec = gap8823[horizonPrefix8830(lane) + band] ?: return 0.0
+        val copy = synchronized(rec) { if (rec[0] < N_MIN) null else rec.copyOf() } ?: return 0.0
+        val g = gapPct8823(copy, stopPct())
         return if (g.isFinite()) g else 0.0
+    }
+
+    private class Prefix8830(val atMs: Long, val prefix: String)
+    private val prefix8830 = java.util.concurrent.ConcurrentHashMap<String, Prefix8830>()
+
+    /** "horizon|" for [lane], recomputed at most once a minute per lane string (a lane's target horizon can be regraded). */
+    private fun horizonPrefix8830(lane: String): String {
+        val now = System.currentTimeMillis()
+        prefix8830[lane]?.let { if (now - it.atMs in 0L..60_000L) return it.prefix }
+        val p = "${targetHorizon(lane.trim().uppercase())}|"
+        if (prefix8830.size < 256) prefix8830[lane] = Prefix8830(now, p)
+        return p
     }
 
     fun gapLine8823(): String = "gap8823[" + gap8823.entries.sortedBy { it.key }.joinToString(" ") { (k, v) ->
