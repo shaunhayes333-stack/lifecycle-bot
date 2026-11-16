@@ -621,3 +621,11 @@ economics loop calls: per call it built the full band map, re-derived the lane's
 files), the lane's horizon prefix cached a minute per lane, and evaluates the stop only when a seeded band holds a record
 past N_MIN; the stop is `FieldManual7715.stopPctQuiet8830` (same value, no telemetry); the replay-fire exemption is read
 only when there is a gap.
+
+## 38. The strategy lab's miner counts without copying (8831)
+
+5.0.8820 report: one strategyLab run allocated 25,125 MB (1,370 s). The miner re-filtered the discovery rows and re-hashed
+their mints (`perCoin8811`) for every box of every feature in every scope (~6,000 boxes). The runtime smoke kept failing on
+SplashActivity ANRs with the main thread SUSPENDED (GC) and the app at 164 % of two cores. `StrategyLab8755.CoinIndex8831`
+gives each row a coin id once; `accOver8831` walks a scope's row indices and counts each coin's first accepted row with a
+stamp array — the same per-coin semantics, no list or set per box. Scopes are index arrays built once per run.

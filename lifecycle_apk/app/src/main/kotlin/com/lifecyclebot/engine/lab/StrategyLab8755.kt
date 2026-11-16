@@ -268,6 +268,36 @@ object StrategyLab8755 {
         head = Head(model, thr, recs, ys.average())
     }
 
+    /**
+     * V5.0.8831 §THE_MINER_COUNTS_WITHOUT_COPYING — one coin's first row among [rows] (time order), without building the
+     * filtered list and the HashSet of mints that [perCoin8811] builds. 5.0.8820 report: strategyLab allocated 25,125 MB in one
+     * run (1,370 s); the miner re-filtered the discovery rows and re-hashed their mints for every box of every feature in
+     * every scope (~6,000 boxes). Garbage at that rate stops every thread for GC, the main one included: the runtime smoke
+     * failed on SplashActivity ANRs with the main thread suspended while the app ran at 164 % of two cores.
+     * [begin] starts a count; [first] is true once per coin per count. A row without a mint is its own coin (as [perCoin8811]).
+     */
+    internal class CoinIndex8831(rows: List<Row>) {
+        val coin = IntArray(rows.size)
+        private val seen: IntArray
+        private var stamp = 0
+        init {
+            val ids = HashMap<String, Int>()
+            var next = 0
+            for (k in rows.indices) { val m = rows[k].mint; coin[k] = if (m.isBlank()) next++ else ids.getOrPut(m) { next++ } }
+            seen = IntArray(next)
+        }
+        fun begin() { if (++stamp == Int.MAX_VALUE) { seen.fill(0); stamp = 1 } }
+        fun first(k: Int): Boolean { val c = coin[k]; if (seen[c] == stamp) return false; seen[c] = stamp; return true }
+    }
+
+    /** Pure (V5.0.8831): the per-coin accumulator of the rows [idx] of [rows] that [keep] accepts ([perCoin8811] semantics). */
+    internal fun accOver8831(rows: List<Row>, ix: CoinIndex8831, idx: IntArray, keep: (Row) -> Boolean): Acc {
+        ix.begin()
+        val acc = Acc()
+        for (k in idx) { val r = rows[k]; if (keep(r) && ix.first(k)) acc.add(r.net) }
+        return acc
+    }
+
     /** The miner: feature boxes (quintile ranges, single features then pairs) per lane scope; returns (spec, discovery score, held-out record). */
     private fun mine(disc: List<Row>, held: List<Row>): List<Triple<Spec, Double, Record?>> {
         val lanes = listOf("ANY") + disc.groupingBy { it.lane }.eachCount().filter { it.value >= 1_500 }.keys
@@ -279,15 +309,20 @@ object StrategyLab8755 {
         // part of the owner's read and the report's discovery-source line, and the miner never searched it.
         val sources = disc.groupBy { it.src }.filter { (_, v) -> perCoin8811(v).size >= MINE_MIN_N }.keys
         val scopes = lanes.map { it to "ANY" } + sources.map { "ANY" to it }
+        // V5.0.8831 — each scope's rows once, as indices; every box counts its coins on them without copying
+        val ix = CoinIndex8831(disc)
+        val scopeRows = scopes.associateWith { (lane, source) ->
+            disc.indices.filter { k -> (lane == "ANY" || disc[k].lane == lane) && (source == "ANY" || disc[k].src == source) }.toIntArray()
+        }
         val singles = ArrayList<Pair<Spec, Double>>()
         for ((lane, source) in scopes) {
-            val scope = disc.filter { (lane == "ANY" || it.lane == lane) && (source == "ANY" || it.src == source) }
+            val idx = scopeRows.getValue(lane to source)
             for (i in FEATURES.indices) {
                 val e = edges[i] ?: continue
                 for (a in 0 until 5) for (b in a + 1..5) {
                     if (a == 0 && b == 5) continue
                     val lo = if (a == 0) Double.NEGATIVE_INFINITY else e[a]; val hi = if (b == 5) Double.POSITIVE_INFINITY else e[b]
-                    val acc = Acc(); perCoin8811(scope.filter { val v = it.f[i]; v.isFinite() && v >= lo && v <= hi }).forEach { acc.add(it) }
+                    val acc = accOver8831(disc, ix, idx) { val v = it.f[i]; v.isFinite() && v >= lo && v <= hi }
                     minedTested.incrementAndGet()
                     val sc = acc.score(); if (sc > 0.0) singles.add(Spec(Family.CELL, lane, source, conds = listOf(Cond(FEATURES[i], lo, hi))) to sc)
                 }
@@ -299,7 +334,7 @@ object StrategyLab8755 {
             val s1 = best[x].first; val s2 = best[y].first
             if (s1.lane != s2.lane || s1.source != s2.source || s1.conds[0].feature == s2.conds[0].feature) continue
             val spec = Spec(Family.CELL, s1.lane, s1.source, conds = s1.conds + s2.conds)
-            val acc = Acc(); perCoin8811(disc.filter { matches8755(spec, it.lane, it.src, it.f) }).forEach { acc.add(it) }
+            val acc = accOver8831(disc, ix, scopeRows[s1.lane to s1.source] ?: disc.indices.toList().toIntArray()) { matches8755(spec, it.lane, it.src, it.f) }
             minedTested.incrementAndGet()
             val sc = acc.score(); if (sc > 0.0) pairs.add(spec to sc)
         }
