@@ -484,3 +484,11 @@ lot" (choice: clean rebuild, old tables archived). `CleanRebuild8819.armOnce8819
 The reset now also clears `edge_model_8722.bin` and `colour_shape_8816.json`. Untouched: wallet, keys, config, positions,
 fill / finality / idempotency ledgers, balances, journal, canonical economic records, safety facts, hard checks.
 Status: `cleanRebuild8819[...]` on the learning-reset line.
+
+## 27. A restore duplicate names its lots (8820)
+
+CI runtime acceptance on 5.0.8819 failed once on `duplicateMints=1 after restore` (first time in the recorded runtime
+history) and nothing said which positions made the duplicate. `CanonicalPaperTransaction6486.duplicateDetail8820` lists,
+per duplicate group, each open paper lot's lane / asset class / position id / open time / remaining quantity / lifecycle;
+it is appended to `DUPLICATE_SAME_MINT_INVENTORY_REPAIRED_6490` and, as `dupLots8820=`, to the
+`CANONICAL_BOOTSTRAP_READY_6515` line after the fields the device check reads.

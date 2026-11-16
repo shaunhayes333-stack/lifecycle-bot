@@ -981,7 +981,20 @@ object CanonicalPaperTransaction6486 {
         return close(positionId, mint, symbol, basis, pos.remainingQtyRaw, basis, 0.0,
             "REFUND:$reason", System.currentTimeMillis())
     }
-    data class DuplicateMintRepair6490(val duplicateMints: Int, val refundedLots: Int, val refundedBasisSol: Double, val failures: Int)
+    data class DuplicateMintRepair6490(val duplicateMints: Int, val refundedLots: Int, val refundedBasisSol: Double, val failures: Int,
+                                       val detail8820: String = "-")
+
+    /**
+     * V5.0.8820 — which lots a duplicate is made of (CI runtime acceptance on 5.0.8819 failed on duplicateMints=1 after a
+     * restore and nothing said which positions, lanes or opening paths they were): per group, each lot's lane, asset class,
+     * position id prefix, open time and remaining quantity. Pure; at most [maxGroups] groups.
+     */
+    internal fun duplicateDetail8820(groups: Collection<List<CanonicalPositionAuthority6441.Position>>, maxGroups: Int = 3): String =
+        if (groups.isEmpty()) "-" else groups.take(maxGroups).joinToString(" | ") { lots ->
+            lots.first().mint.take(10) + ":" + lots.sortedBy { it.openedAtMs }.joinToString(",") { p ->
+                "${p.lane}/${p.assetClass.tag}/${p.positionId.take(18)}/t${p.openedAtMs}/q${p.remainingQtyRaw}/${p.lifecycle}"
+            }
+        }
 
     fun refundDuplicateActiveMintLots6490(): DuplicateMintRepair6490 {
         val groups = CanonicalPositionAuthority6441.openPositions()
@@ -1014,8 +1027,8 @@ object CanonicalPaperTransaction6486 {
         }
         if (groups.isNotEmpty()) try {
             PipelineHealthCollector.labelInc("DUPLICATE_SAME_MINT_INVENTORY_REPAIRED_6490")
-            com.lifecyclebot.engine.ForensicLogger.lifecycle("DUPLICATE_SAME_MINT_INVENTORY_REPAIRED_6490", "duplicateMints=${groups.size} refundedLots=$refunded refundedBasis=${"%.6f".format(basisTotal)} failures=$failures")
+            com.lifecyclebot.engine.ForensicLogger.lifecycle("DUPLICATE_SAME_MINT_INVENTORY_REPAIRED_6490", "duplicateMints=${groups.size} refundedLots=$refunded refundedBasis=${"%.6f".format(basisTotal)} failures=$failures lots8820=${duplicateDetail8820(groups.values)}")
         } catch (_: Throwable) {}
-        return DuplicateMintRepair6490(groups.size, refunded, basisTotal, failures)
+        return DuplicateMintRepair6490(groups.size, refunded, basisTotal, failures, duplicateDetail8820(groups.values))
     }
 }

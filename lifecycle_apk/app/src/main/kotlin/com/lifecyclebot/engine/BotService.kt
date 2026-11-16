@@ -3617,7 +3617,7 @@ class BotService : Service() {
                     markCanonical7438("DONE")
                     canonicalBootstrapSucceeded6515 = true
                     try {
-                        ForensicLogger.lifecycle("CANONICAL_BOOTSTRAP_READY_6515", "events=${durableEconomicEvents6486.size} positions=${repairedPaperPositions6490.size} duplicateMints=${inventoryRepair6490.duplicateMints} durMs=${android.os.SystemClock.elapsedRealtime() - started6515} thread=${Thread.currentThread().name}")
+                        ForensicLogger.lifecycle("CANONICAL_BOOTSTRAP_READY_6515", "events=${durableEconomicEvents6486.size} positions=${repairedPaperPositions6490.size} duplicateMints=${inventoryRepair6490.duplicateMints} dupLots8820=${inventoryRepair6490.detail8820.replace(' ', '_')} durMs=${android.os.SystemClock.elapsedRealtime() - started6515} thread=${Thread.currentThread().name}")
                         PipelineHealthCollector.labelInc("CANONICAL_BOOTSTRAP_READY_6515")
                     } catch (_: Throwable) {}
                 } catch (t: Throwable) {
