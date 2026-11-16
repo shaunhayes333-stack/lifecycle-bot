@@ -207,7 +207,11 @@ object HeliusEnhancedWS {
                 put(JSONObject().put("accountInclude", JSONArray().put(HeliusCurveTape8354.PUMP_PROGRAM_8354)).put("vote", false).put("failed", false))
                 put(JSONObject().apply {
                     put("commitment", "processed")
-                    put("encoding", "jsonParsed")
+                    // V5.0.8829 — base64, not jsonParsed: the program tape reads only the signature, meta.err and meta.logMessages
+                    // (HeliusCurveTape8354.onEnhancedTx8354), which stay JSON either way; the parsed message and parsed inner
+                    // instructions were most of each frame. The 8820 run held the tape in its per-mint fallback (stepDowns=6)
+                    // while the day's Helius credits stood at 21 % of the plan: the bytes, not the credits, switched it off.
+                    put("encoding", "base64")
                     put("transactionDetails", "full")
                     put("showRewards", false)
                     put("maxSupportedTransactionVersion", 0)

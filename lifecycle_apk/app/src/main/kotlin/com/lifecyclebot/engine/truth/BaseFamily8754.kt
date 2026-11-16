@@ -104,7 +104,7 @@ object BaseFamily8754 {
     }
 
     /** Pure: the net % of every [GRID] rule on [x], keyed by rule (rules whose trigger never fired are absent). */
-    internal fun simulate8754(x: LaunchReplay8744.Path8748, solUsd: Double, costPct: Double): Map<Rule, Double> {
+    internal fun simulate8754(x: LaunchReplay8744.Path8748, solUsd: Double, costPct: Double, rules: List<Rule> = GRID): Map<Rule, Double> {
         val out = HashMap<Rule, Double>()
         for (tr in TRIGGERS) {
             val st = State(tr)
@@ -114,7 +114,7 @@ object BaseFamily8754 {
                 if (sp != null) { fireAt = i; stop = sp; break }
             }
             if (fireAt < 0) continue
-            for (r in GRID) if (r.trigger == tr) {
+            for (r in rules) if (r.trigger == tr) {
                 val e = LaunchReplay8744.entryIndex8754(x, fireAt, r.delayMs)
                 LaunchReplay8744.exitNet8754(x, e, r.ladder, 2.0, stop, TIME_STOP_MS, costPct)?.let { out[r] = it }
             }
@@ -149,7 +149,10 @@ object BaseFamily8754 {
     /** LaunchReplay8744's background run: grade the family on the same launch paths. */
     internal fun evaluate8754(set: List<LaunchReplay8744.Path8748>, solUsd: Double, costPct: Double, needDelayMs: Long) {
         val values = HashMap<Rule, ArrayList<Double>>()
-        for (x in set) for ((r, v) in simulate8754(x, solUsd, costPct)) values.getOrPut(r) { ArrayList() }.add(v)
+        // V5.0.8829 — the DOCTRINE rules are also graded at the required latency when the grid (2 / 10 / 30 s) lacks it
+        val rules = LaunchReplay8744.atLatency8829(GRID.map { it.delayMs }.toSet(), needDelayMs)?.let { d ->
+            GRID + GRID.filter { it.ladder == Ladder.DOCTRINE }.map { it.copy(delayMs = d) }.distinct() } ?: GRID
+        for (x in set) for ((r, v) in simulate8754(x, solUsd, costPct, rules)) values.getOrPut(r) { ArrayList() }.add(v)
         val res = values.mapNotNull { (r, v) -> grade8754(r, v) }
             .sortedWith(compareByDescending<Graded> { it.n >= MIN_N }.thenByDescending { (it.exTop3 - it.exTop3Se).takeIf { d -> d.isFinite() } ?: -1e18 })
         last = res

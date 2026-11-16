@@ -597,3 +597,16 @@ Proven = n >= 100, ex-top-3 mean - SE > 0, both halves positive; shadow = best u
 feeds every first-hour print (with its SOL size and wallet from `TradeTape8100.launchEvidence8750`) into the same tape
 (at most 1,000 coins); the proven signal's turn-on is an armed fire (watchlist + admission evidence). Report line
 `Signal replay (§8828)`; the strategy lab's prompt gets `labLine8828`.
+
+## 36. The program tape in compact frames; rules graded at the latency the bot has (8829)
+
+5.0.8820 report (6,510 s): the pump.fun program tape sat in its per-mint fallback (`BYTES_OVER_3MB_MIN`, stepDowns=6,
+failedTx=106,502 of 158,085 frames) while Helius credits stood at 21 % of the day; the PumpPortal stream was off on its 0.10
+SOL daily budget. Prints reached the bot for 1,073 of 27,930 births, the tape lag was p75 30 s, the required latency 38 s —
+beyond the replay grid's longest delay (30 s), so no launch or base rule could ever be proven or watched (sniper IDLE).
+
+`HeliusEnhancedWS.sendCurveSubscribe8354` asks for `encoding: base64` (the handler reads only signature, meta.err and
+meta.logMessages, which stay JSON). After a fallback hold the tape re-probes on the Enhanced socket (server-side
+`failed: false`) when the plan has it, logs otherwise. `HeliusCurveTape8354` meters frames, bytes and failed transactions per
+transport (`perTransport8829{enhanced= logs=}`). `LaunchReplay8744.rulesFor8829` / `BaseFamily8754.evaluate8754` grade every
+DOCTRINE rule also at the required latency rounded up to 5 s (`atLatency8829`) when the grid lacks it.

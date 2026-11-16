@@ -239,13 +239,32 @@ object LaunchReplay8744 {
         return Result(rule, s.size, m, se, share { it > 0.0 }, share { it >= 100.0 }, share { it >= 900.0 }, med, m3, se3, share { it >= 4_900.0 })
     }
 
+    /**
+     * V5.0.8829 §GRADED_AT_THE_LATENCY_THE_BOT_HAS — 5.0.8820 report: needDelay=38s (tape lag p75 30 s + decide-and-send).
+     * Every rule must be graded at or beyond the required latency to be proven or watched (provenOf8748 / shadowOf8748), and
+     * the grid's longest delay is 30 s: the sniper sat "IDLE (no replay rule with n>=50 yet)" on 313 graded launches, and
+     * the base family the same. Pure: the extra delay to grade at — the required latency rounded up to 5 s (so a rule's id
+     * holds between runs), or null when the grid already has it.
+     */
+    internal fun atLatency8829(gridDelays: Collection<Long>, needMs: Long): Long? {
+        if (needMs <= 0L) return null
+        val d = ((needMs + 4_999L) / 5_000L) * 5_000L
+        return if (d in gridDelays) null else d
+    }
+
+    /** V5.0.8829 — the grid plus every DOCTRINE rule (the only ladder that can be proven) at the required latency. */
+    internal fun rulesFor8829(needMs: Long): List<Rule> {
+        val d = atLatency8829(GRID.map { it.delayMs }.toSet(), needMs) ?: return GRID
+        return GRID + GRID.filter { it.ladder == Ladder.DOCTRINE }.map { it.copy(delayMs = d) }.distinct()
+    }
+
     /** Each rule's result over the launches, best first: n >= MIN_N, then the ex-top-3 mean less its SE. */
-    private fun evaluate8748(launches: List<Path8748>, solUsd: Double, costPct: Double): List<Result> {
+    private fun evaluate8748(launches: List<Path8748>, solUsd: Double, costPct: Double, rules: List<Rule> = GRID): List<Result> {
         val values = HashMap<Rule, ArrayList<Double>>()
-        val triggers = GRID.map { Triple(it.capUsd, it.minBuys, it.totalBuys) }.distinct()
+        val triggers = rules.map { Triple(it.capUsd, it.minBuys, it.totalBuys) }.distinct()
         for (x in launches) {
             val trig = triggers.associateWith { (c, b, tot) -> trigger8748(x, c, b, solUsd, tot) }
-            for (r in GRID) {
+            for (r in rules) {
                 val i = trig[Triple(r.capUsd, r.minBuys, r.totalBuys)] ?: -1
                 if (i >= 0) run8748(x, i, r, costPct)?.let { values.getOrPut(r) { ArrayList() }.add(it) }
             }
@@ -314,8 +333,8 @@ object LaunchReplay8744 {
                     try { com.lifecyclebot.engine.chart.ColourShape8807.learnLaunch8822(r.mint, r.bornMs, x.t, x.p, x.sol, nowMs) } catch (_: Throwable) {}
                 }
                 val cost = FieldManual7715.roundTripCostPct7766(SIZE_SOL_8748, SIZE_SOL_8748 * solUsd, 2.0 * CURVE_SOL_8748 * solUsd)
-                val res = evaluate8748(set, solUsd, cost)
                 val need = try { LaunchSniper8748.requiredDelayMs8749() } catch (_: Throwable) { ARM_MIN_DELAY_MS_8748 }
+                val res = evaluate8748(set, solUsd, cost, rulesFor8829(need))   // V5.0.8829 — and at the latency the bot has
                 last = res; proven = provenOf8748(res, need); shadow = shadowOf8748(res, need); attention = attentionOf8825(res)
                 // V5.0.8788 — the ladders on the same launches as the rule the sniper watches (or the best graded one)
                 (shadow ?: res.firstOrNull { it.n >= MIN_N })?.rule?.let { base ->

@@ -181,6 +181,9 @@ object HeliusCurveTape8354 {
     private val malformed = AtomicLong(0L)
     private val frames = AtomicLong(0L)
     private val failedTx = AtomicLong(0L)
+    // V5.0.8829 — each transport's own frames, bytes and failed transactions: which one is the lighter tape is measured
+    private val enhFrames8829 = AtomicLong(0L); private val enhBytes8829 = AtomicLong(0L); private val enhFailed8829 = AtomicLong(0L)
+    private val logsFrames8829 = AtomicLong(0L); private val logsBytes8829 = AtomicLong(0L); private val logsFailed8829 = AtomicLong(0L)
     private val asks = AtomicLong(0L)
     private val perMintAsks = AtomicLong(0L)
     private val fallbackRehomes8751 = AtomicLong(0L)
@@ -362,7 +365,13 @@ object HeliusCurveTape8354 {
             // V5.0.8399 — the program curve tape has its own byte governor (programAffordable8354): only the HARD day cap stops it.
             val over = try { com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.overHardBudget8399(nowMs) } catch (_: Throwable) { false }
             val inHold = nowMs < fallbackUntilMs
-            if (!inHold && fallbackUntilMs > 0L) { fallbackUntilMs = 0L; level = LEVEL_LOGS_8354 }   // the hold served: re-probe logs only
+            // the hold served: re-probe. V5.0.8829 — on the Enhanced socket when the plan has it: that subscription asks the server
+            // for successful transactions only ("failed": false), while every logs notification carries the failed ones too
+            // (5.0.8820 report: failedTx=106,502 of 158,085 program frames). Logs only when Enhanced is not available.
+            if (!inHold && fallbackUntilMs > 0L) {
+                fallbackUntilMs = 0L
+                level = if (try { HeliusEnhancedWS.enhancedOk8354() } catch (_: Throwable) { false }) LEVEL_ENHANCED_8354 else LEVEL_LOGS_8354
+            }
             val affordable = programAffordable8354(programCreditsToday(), bytesLastMinute, dayFraction(nowMs), over, budget = dailyCredits8731())
             val enhancedOk = try { HeliusEnhancedWS.enhancedOk8354() } catch (_: Throwable) { false }
             val sharedUp = sharedLogsEligible8509(HeliusSocketShare8191.attached8191(), logsRefusedUntilMs8509, nowMs)
@@ -406,11 +415,13 @@ object HeliusCurveTape8354 {
         apply(src, tr, nowMs)
     }
 
-    /** Bytes of one program-tape frame (either transport): the governor's clock. */
-    fun noteBytes8354(bytes: Int, nowMs: Long = System.currentTimeMillis()) {
+    /** Bytes of one program-tape frame (either transport): the governor's clock. V5.0.8829: [viaLogs] names the transport. */
+    fun noteBytes8354(bytes: Int, nowMs: Long = System.currentTimeMillis(), viaLogs: Boolean = false) {
         if (bytes <= 0) return
         rollClocks(nowMs)
         frames.incrementAndGet()
+        if (viaLogs) { logsFrames8829.incrementAndGet(); logsBytes8829.addAndGet(bytes.toLong()) }
+        else { enhFrames8829.incrementAndGet(); enhBytes8829.addAndGet(bytes.toLong()) }
         bytesToday.addAndGet(bytes.toLong())
         if (bytesMinute.addAndGet(bytes.toLong()) > highBytesPerMin8731(dailyCredits8731()) && transport != Transport8354.NONE) stepDownNow(nowMs)
     }
@@ -529,12 +540,15 @@ object HeliusCurveTape8354 {
 
     private fun isNull(o: Any?): Boolean = o == null || o == JSONObject.NULL
 
-    /** HeliusEnhancedWS: one transaction of the program subscription (parsed, full). Returns prints taped. Never throws. */
+    /**
+     * HeliusEnhancedWS: one transaction of the program subscription (full; V5.0.8829 base64-encoded: only the signature,
+     * meta.err and meta.logMessages are read, and those stay JSON). Returns prints taped. Never throws.
+     */
     fun onEnhancedTx8354(result: JSONObject, nowMs: Long = System.currentTimeMillis()): Int = try {
         val sig = result.optString("signature", "")
         val wrapper = result.optJSONObject("transaction")
         val meta = wrapper?.optJSONObject("meta") ?: result.optJSONObject("meta")
-        if (meta == null || sig.isBlank() || !isNull(meta.opt("err"))) { failedTx.incrementAndGet(); 0 }
+        if (meta == null || sig.isBlank() || !isNull(meta.opt("err"))) { failedTx.incrementAndGet(); enhFailed8829.incrementAndGet(); 0 }
         else {
             val arr = meta.optJSONArray("logMessages")
             val logs = ArrayList<String>(arr?.length() ?: 0)
@@ -548,7 +562,7 @@ object HeliusCurveTape8354 {
     /** The shared standard socket: one logsNotification of the program subscription. Returns prints taped. Never throws. */
     private fun onLogsNotification8354(value: JSONObject, nowMs: Long = System.currentTimeMillis()): Int = try {
         val sig = value.optString("signature", "")
-        if (sig.isBlank() || !isNull(value.opt("err"))) { failedTx.incrementAndGet(); 0 }
+        if (sig.isBlank() || !isNull(value.opt("err"))) { failedTx.incrementAndGet(); logsFailed8829.incrementAndGet(); 0 }
         else {
             val arr = value.optJSONArray("logs")
             val logs = ArrayList<String>(arr?.length() ?: 0)
@@ -629,7 +643,7 @@ object HeliusCurveTape8354 {
         if (sub < 0L) return false
         val sid = HeliusSocketShare8191.subscriptionId8191(text) ?: return false
         if (sid != sub) return false
-        noteBytes8354(text.length)
+        noteBytes8354(text.length, viaLogs = true)
         try {
             val o = NetParseGuard8305.parseObject8305("CURVE_TAPE_8354", text, NetParseGuard8305.FRAME_CAP_TX_8305)
             val value = o?.optJSONObject("params")?.optJSONObject("result")?.optJSONObject("value")
@@ -640,6 +654,10 @@ object HeliusCurveTape8354 {
     }
 
     // ── report ──
+
+    /** Pure (V5.0.8829): one transport's frames, mean frame size, and the share of its frames that were failed transactions. */
+    internal fun transportLine8829(frames: Long, bytes: Long, failed: Long, name: String): String =
+        if (frames <= 0L) "$name=-" else "$name=n$frames/${bytes / frames}B/failed${(100L * failed / frames)}%"
 
     /**
      * curveTape8354[source= transport= prints{helius=,pumpportal=} kept= dropped= bytes/min= credits= fallback=…]: which
@@ -653,6 +671,8 @@ object HeliusCurveTape8354 {
             "precare{mints=$bufferedMints,saved=${precareSaved8751.get()},replayed=${precareReplayed8751.get()},evicted=${precareEvicted8751.get()}} " +
             "bytes/min=${bytesLastMinute} bytesToday=${bytesToday.get()} credits=${"%.0f".format(programCreditsToday())} " +
             "fallback=$why holdLeftS=$holdLeftS stepDowns=${stepDowns.get()} frames=${frames.get()} failedTx=${failedTx.get()} " +
+            "perTransport8829{${transportLine8829(enhFrames8829.get(), enhBytes8829.get(), enhFailed8829.get(), "enhanced")} " +
+            "${transportLine8829(logsFrames8829.get(), logsBytes8829.get(), logsFailed8829.get(), "logs")}} " +
             "dup=${duplicates.get()} malformed=${malformed.get()} asks=${asks.get()} perMintAsks=${perMintAsks.get()} " +
             "pending=${waiting8386.size} rehomes=${fallbackRehomes8751.get()} perMintUnavailable=${fallbackUnavailable8751.get()} " +
             "programNeedsFallback=${needsFallback8751(nowMs)} " +
