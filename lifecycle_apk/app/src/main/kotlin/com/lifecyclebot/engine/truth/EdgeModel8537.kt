@@ -93,6 +93,14 @@ object EdgeModel8537 {
      * 15.7 % of the 5.0.8797 rows (235 of 950 coins) carried a price path > 2.5x off the coin's own cap, so an old
      * "78-96 % under its peak" is not evidence. The label (net) and every non-price column stand.
      */
+    /** V5.0.8825 — a decision's signal by its dataset column name (SignalTruth8825); NaN when the row never observed it. */
+    internal fun signal8825(r: Raw, k: String): Double = when (k) {
+        "liq" -> r.liq; "mcap" -> r.mcap; "age" -> r.ageMin; "runup" -> r.runup; "pxPeak" -> r.pxPeak; "dd" -> r.dd; "bp" -> r.bp
+        "chg5m" -> r.chg5m; "chg1h" -> r.chg1h; "top" -> r.top; "txVel" -> r.txVel; "turnover" -> r.turnover; "volAccel" -> r.volAccel
+        "newBuyers15s8666" -> r.newBuyers15s8666
+        else -> LearnerColumns8798.NAMES.indexOf(k).let { i -> if (i >= 0 && i < r.ext.size) r.ext[i] else Double.NaN }
+    }
+
     internal fun column8801(o: org.json.JSONObject, key: String): Double {
         if (!o.has(key) || o.isNull(key)) return Double.NaN
         if (key in SHAPE_COLUMNS_8801 && o.optInt("modelEpoch", 0) < SHAPE_EPOCH_8801) return Double.NaN
@@ -576,6 +584,7 @@ object EdgeModel8537 {
         }
         val k = learned.incrementAndGet()
         appendDataset(s, netPct, witnessed = chainWitness)   // retain independently provable multi-X outcomes
+        try { SignalTruth8825.note8825(s.mint, s.raw.ageMin, netPct) { signal8825(s.raw, it) } } catch (_: Throwable) {}   // V5.0.8825
         try { PocketLedger8610.learn8610(s, netPct) } catch (_: Throwable) {}   // V5.0.8610 — the learned pocket ledger
         try { ManagedBands8719.learn8719(s.raw.lane, s.raw.liq, s.raw.mcap, netPct, s.raw.costPct) } catch (_: Throwable) {}   // V5.0.8719 — the floors' record
         try { PayingCell8723.learn8723(s.mint, s.raw.lane, s.raw.ageMin, s.raw.liq, netPct, s.atMs) } catch (_: Throwable) {}   // V5.0.8723
@@ -700,6 +709,7 @@ object EdgeModel8537 {
                 val x = vectorOf(r)
                 val y = managedTarget8722(r.lane, d("net"), r.costPct)
                 if (onceAcrossLanes8776(o.optString("mint"), o.optLong("t", 0L))) global.learn(x, y, solveNow = false)   // V5.0.8776
+                try { SignalTruth8825.note8825(o.optString("mint"), r.ageMin, d("net")) { k -> d(k) } } catch (_: Throwable) {}   // V5.0.8825
                 ownModel8722(r.lane)?.learn(x, y, solveNow = false)
                 used++
             } catch (_: Throwable) { /* corrupted dataset row is excluded, never used as an outcome */ }

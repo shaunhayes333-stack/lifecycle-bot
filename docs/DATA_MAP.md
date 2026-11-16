@@ -538,3 +538,18 @@ latency, n >= 100, ex-top-3 mean - SE > 0). `LaunchSniper8748.St.totalBuys` feed
 `StrategyLab8755` stores `totalBuys` and the lab prompt offers it. An entry inside an armed fire's 120 s evidence window is
 not charged the band gap (`NetEdge8030.gapExempt8824`): the rule's record already is its net outcome on that trigger.
 Status `cumulative8824{best vsWindowOnly}` in the §8744 line, `replayFireExempt8824=` in the §8823 line.
+
+## 32. Which way each signal points, and the crossers in front of the loop (8825)
+
+Clean-epoch labels (1,734 coins, first decision each, 15-minute target): every buying-activity reading the playbook's
+hand setups trigger on predicts a WORSE outcome, in both halves (newBuyers15s -0.25/-0.26, buyTx15s -0.26/-0.15, txVel
+-0.18/-0.21, buyersPerMin, tapeNetSol, runupFromLow, dd); age, secsSincePrint and pxPeak point the other way. The learned
+edge model ranks the right way (Spearman +0.35) but its top decile is -3 %: the round trip. 973 of the 1,734 coins were
+under a $5k cap and 24 s old; 157 were $10-30k.
+
+`SignalTruth8825` keeps, per signal (20) and age band (5), the first labelled observation of each coin (ring of 200,
+fed by `EdgeModel8537.learn` and its boot replay) and calls a direction only when the older and newer halves both pass
+1.96/sqrt(n-1). Report line `Signal truth (§8825)`; the strategy lab's prompt receives the agreed directions
+(`promptLine8825`). `LaunchReplay8744.attentionOf8825` names the best graded cumulative-family rule; `LaunchSniper8748`
+puts every coin meeting its trigger on the watchlist (`LAUNCH_SNIPER_WATCH_8825`, no evidence), so the decision loop and
+every learner see the $10k crossers before any rule is armed. Status `attention8825{on fires watchlistAdds}`.

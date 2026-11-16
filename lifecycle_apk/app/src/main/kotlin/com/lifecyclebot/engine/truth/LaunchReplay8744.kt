@@ -263,6 +263,22 @@ object LaunchReplay8744 {
         it.rule.ladder == Ladder.DOCTRINE && it.rule.delayMs >= maxOf(ARM_MIN_DELAY_MS_8748, minDelayMs) && it.n >= MIN_N
     }
 
+    /**
+     * V5.0.8825 §THE_BOT_LOOKS_WHERE_THE_MONEY_IS — the clean-epoch decisions (1,734 coins in 12 h): 973 were under a $5k cap
+     * and 24 s old (median), fed by the new-token stream; 157 were $10-30k, and those a median 6 minutes old. The coins the
+     * owner trades (crossing $10k with buyers behind them) were barely in front of the decision loop, so no label, cell or
+     * learner ever measured them, and the sniper only puts a crosser on the watchlist once a rule is ARMED: before proof,
+     * nothing looks; without looking, nothing is proven. [attentionOf8825] names the best graded rule of the cumulative family
+     * (n >= MIN_N; the replay's own order); LaunchSniper8748 puts every coin meeting its TRIGGER on the watchlist to be
+     * decided on and labelled like any other. No evidence is served for it and it buys nothing by itself.
+     */
+    internal fun attentionOf8825(results: List<Result>): Result? = results.filter {
+        it.rule.totalBuys > 0 && it.n >= MIN_N && it.exTop3.isFinite() && it.exTop3Se.isFinite()
+    }.maxByOrNull { it.exTop3 - it.exTop3Se }
+    @Volatile private var attention: Result? = null
+    /** LaunchSniper8748: the trigger whose crossers are watched (V5.0.8825), or null before the family is graded. */
+    fun attention8825(): Result? = attention
+
     @Volatile private var last: List<Result> = emptyList()
     @Volatile private var proven: Result? = null
     @Volatile private var shadow: Result? = null
@@ -298,7 +314,7 @@ object LaunchReplay8744 {
                 val cost = FieldManual7715.roundTripCostPct7766(SIZE_SOL_8748, SIZE_SOL_8748 * solUsd, 2.0 * CURVE_SOL_8748 * solUsd)
                 val res = evaluate8748(set, solUsd, cost)
                 val need = try { LaunchSniper8748.requiredDelayMs8749() } catch (_: Throwable) { ARM_MIN_DELAY_MS_8748 }
-                last = res; proven = provenOf8748(res, need); shadow = shadowOf8748(res, need)
+                last = res; proven = provenOf8748(res, need); shadow = shadowOf8748(res, need); attention = attentionOf8825(res)
                 // V5.0.8788 — the ladders on the same launches as the rule the sniper watches (or the best graded one)
                 (shadow ?: res.firstOrNull { it.n >= MIN_N })?.rule?.let { base ->
                     try { paired = pairedLadders8788(set, base, solUsd, cost); pairedBase = base } catch (_: Throwable) {}

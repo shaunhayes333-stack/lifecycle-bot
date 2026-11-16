@@ -475,6 +475,9 @@ object LlmLabEngine {
         val evidence8755 = try { StrategyLab8755.brief8755() } catch (_: Throwable) { "" }
         val honest8755 = LlmLabStore.allStrategies().filter { it.honestAt8755 > 0L }.sortedByDescending { it.honestAt8755 }.take(8)
             .joinToString("\n") { s -> "- ${s.name}: ${s.spec8755.take(140)} graded n=${s.honestN8755} exTop3=${"%.1f".format(s.honestExTop3_8755)}%±${"%.1f".format(s.honestSe8755)} status=${s.status}" }
+        // V5.0.8825 — which way each signal points on this phone's own labels (SignalTruth8825), so a hypothesis is not built on
+        // a burst reading the labels say marks the top
+        val directions8825 = try { com.lifecyclebot.engine.truth.SignalTruth8825.promptLine8825() } catch (_: Throwable) { "" }
         val prompt = """
 You are the AATE Lab strategist for Solana memecoins. Most new memecoins lose: in the evidence below the typical decision
 loses after costs and profit comes from a few runners. Propose ONE new hypothesis, different from those already graded,
@@ -485,6 +488,8 @@ $evidence8755
 
 ALREADY GRADED (held-out / replay):
 $honest8755
+
+$directions8825
 
 ANSWER WITH ONE OF THESE FAMILIES (preferred), plus name and rationale:
   {"name","rationale","family":"CELL","lane":"ANY|<LANE>","source":"ANY|<SOURCE>","conds":[{"f":"<feature>","lo":<num>,"hi":<num>}, ... up to 3]}

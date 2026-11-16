@@ -19,6 +19,8 @@ import java.util.concurrent.atomic.AtomicLong
  *    rule's ex-top-3 mean and SE, net of cost). That evidence answers the generic data waits exactly as a proven paying
  *    cell does (8723 precedence); it never answers hard safety, rug structure, sellability (BuyRouteSafety8522), the
  *    economics at the quoted size or the lane's realised live losses.
+ *  - ATTENTION (V5.0.8825, LaunchReplay8744.attention8825 names the cumulative family's best graded trigger): a coin meeting
+ *    it is put on the watchlist so the decision loop judges and labels the $10k crossers, armed or not. No evidence.
  * Nothing here buys. Nothing here is a hand threshold: the cap, the buys, the ladder and the latency are the replay's.
  */
 object LaunchSniper8748 {
@@ -33,6 +35,7 @@ object LaunchSniper8748 {
         var totalBuys = 0
         val sigs = ArrayDeque<String>()
         var fired = false
+        var watched = false   // V5.0.8825 — put on the watchlist by the attention trigger
         var lastSeen = 0L
         // V5.0.8754 — the base family's trigger for this coin: the very code BaseFamily8754 graded, fed every print
         var baseTrigger: BaseFamily8754.Trigger? = null
@@ -112,7 +115,8 @@ object LaunchSniper8748 {
             val result = proven ?: LaunchReplay8744.shadow8748()
             val baseProven = BaseFamily8754.proven8754() ?: com.lifecyclebot.engine.lab.StrategyLab8755.baseProven8755()
             val baseRule = baseProven ?: BaseFamily8754.shadow8754()
-            if (result == null && baseRule == null) return
+            val attention = LaunchReplay8744.attention8825()?.rule   // V5.0.8825
+            if (result == null && baseRule == null && attention == null) return
             var s = st[mint]
             if (s == null) {
                 val born = CanonicalTokenBirthTime7440.peekBirthMs8418(mint, eventMs)
@@ -125,13 +129,19 @@ object LaunchSniper8748 {
             if (!(solUsd > 0.0)) return
             val cap = priceSol * 1.0e9 * solUsd
             val fires = ArrayList<Fire>(2)
+            var watch = false
             synchronized(s) {
                 if (sig.isNotBlank()) { if (sig in s.sigs) return; s.sigs.addLast(sig); if (s.sigs.size > 16) s.sigs.removeFirst() }
                 s.lastSeen = recvMs
-                // the launch family: live prints only, the cap / buys trigger
-                if (live && result != null && !s.fired) {
+                // the live buys (window and since first heard) feed both the launch rule and the attention trigger
+                if (live && ((result != null && !s.fired) || (attention != null && !s.watched))) {
                     if (isBuy) { s.buys.addLast(eventMs); s.totalBuys++ }
                     while (s.buys.isNotEmpty() && s.buys.first() < eventMs - 60_000L) s.buys.removeFirst()
+                }
+                // V5.0.8825 — the attention trigger: the coin goes in front of the decision loop, nothing more
+                if (live && attention != null && !s.watched && triggers8748(attention, cap, s.buys.size, s.totalBuys)) { s.watched = true; watch = true }
+                // the launch family: live prints only, the cap / buys trigger
+                if (live && result != null && !s.fired) {
                     if (triggers8748(result.rule, cap, s.buys.size, s.totalBuys)) {
                         s.fired = true
                         fires.add(Fire(mint, recvMs, eventMs - s.bornMs, cap, result.rule.id, result.n, result.exTop3, result.exTop3Se, result.tenX,
@@ -149,6 +159,21 @@ object LaunchSniper8748 {
                 }
             }
             fires.forEach { onFire(it) }
+            if (watch) watch8825(mint, cap, recvMs)
+        } catch (_: Throwable) {}
+    }
+
+    private val attentionFires = AtomicLong(); private val attentionAdds = AtomicLong()
+
+    /** V5.0.8825 — a crosser meeting the attention trigger: on the watchlist to be decided on and labelled (no evidence). */
+    private fun watch8825(mint: String, capUsd: Double, nowMs: Long) {
+        attentionFires.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("LAUNCH_SNIPER_ATTENTION_8825") } catch (_: Throwable) {}
+        try { com.lifecyclebot.network.HeliusCurveTape8354.ask8354(mint, nowMs) } catch (_: Throwable) {}
+        try {
+            val added = com.lifecyclebot.engine.GlobalTradeRegistry.addToWatchlist(mint, mint.take(6), "LAUNCH_SNIPER_WATCH_8825",
+                initialMcap = capUsd)
+            if (added.added) attentionAdds.incrementAndGet()
         } catch (_: Throwable) {}
     }
 
@@ -195,6 +220,7 @@ object LaunchSniper8748 {
         val landedLine = synchronized(landed) { if (landed.isEmpty()) "-" else "n${landed.size} p50=${landed.sorted()[landed.size / 2] / 1000}s" }
         return "sniper8748[launch:$mode base:$baseMode needDelay=${requiredDelayMs8749() / 1000}s tapeLag{$lag} armedLanded{$landedLine} tracked=${st.size} livePrints=${livePrints.get()} latePrints=${latePrints.get()} noBirth=${unborn.get()} " +
             "fires{shadow=${shadowFires.get()} armed=${armedFires.get()}} watchAdds=${watchAdds.get()} evidenceServed=${evidenceServed.get()} " +
+            "attention8825{on=${LaunchReplay8744.attention8825()?.rule?.id ?: "none"} fires=${attentionFires.get()} watchlistAdds=${attentionAdds.get()}} " +
             "lastFire=$lf rule=every live pump.fun print checked against the replay's own trigger; buys only through admission + every safety door]"
     }
 }
