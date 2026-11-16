@@ -57,7 +57,7 @@ class Aate8818CpuFixesTest {
         val reg = src("perps/DynamicAltTokenRegistry.kt").substringAfter("fun getTokenByMint(mint: String): DynToken? {").substringBefore("private class AddressIndex8818")
         assertTrue(!reg.contains("registry.values.filter") && reg.contains("addressIndex8818(now, force = true)"))
         val shadow = src("engine/truth/ShadowColdStore8397.kt").substringAfter("private fun decode(value: String?)").substringBefore("private fun encode(")
-        assertTrue(!shadow.contains("toDoubleOrNull") && shadow.contains("java.lang.Double.parseDouble(s)"))
+        assertTrue(!shadow.contains("?.toDoubleOrNull()") && shadow.contains("java.lang.Double.parseDouble(s)"))   // the KDoc names the old call; the code must not make it
         val cortex = src("engine/cortex/Cortex7885.kt").substringAfter("private fun durableCloseCommitLocked8325(").substringBefore("private const val WF_REFRESH_MS_8144")
         val joined = cortex.indexOf("if (additionalBlobs8372.isEmpty() && LearningPersistence.receiptCommitted8818(receipt)) {")
         assertTrue(joined in 0 until cortex.indexOf("val encode = snapshotEncoder8386(periodic = false) ?: return false"))
