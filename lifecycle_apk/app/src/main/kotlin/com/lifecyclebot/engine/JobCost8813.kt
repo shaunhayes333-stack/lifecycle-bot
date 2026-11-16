@@ -60,6 +60,35 @@ object JobCost8813 {
         }
     }
 
+    // ── V5.0.8817 §BATCH_JOBS_YIELD_TO_THE_SCREEN ──
+    // CI runtime acceptance on 5.0.8813 and 5.0.8816: SplashActivity ANR, the main thread RUNNABLE in an ordinary draw with
+    // 47 s of its schedstat spent waiting for a CPU (utm 10 s) while the startup dataset replays (pocket ledger, paying cell,
+    // managed bands, tree parse / train, edge replay — 1-5 GB and 8-24 s of CPU each, measured by this meter) ran at the
+    // default priority beside it. A batch replay is not time-critical; the screen and the trading loop are. Each runs at
+    // Android's background priority for its duration and the thread's own priority is restored after.
+
+    /** [measure8813] at Android's background thread priority for the job's duration (the previous priority restored). */
+    inline fun <T> measureBackground8817(name: String, block: () -> T): T {
+        val before = lowerPriority8817()
+        try { return measure8813(name, block) } finally { restorePriority8817(before) }
+    }
+
+    /** Lowers the calling thread to THREAD_PRIORITY_BACKGROUND; returns its previous priority (null when unknown). */
+    @PublishedApi internal fun lowerPriority8817(): Int? = try {
+        val tid = android.os.Process.myTid()
+        val was = android.os.Process.getThreadPriority(tid)
+        if (was < android.os.Process.THREAD_PRIORITY_BACKGROUND) android.os.Process.setThreadPriority(tid, android.os.Process.THREAD_PRIORITY_BACKGROUND)
+        backgroundRuns8817.incrementAndGet()
+        was
+    } catch (_: Throwable) { null }
+
+    @PublishedApi internal fun restorePriority8817(was: Int?) {
+        if (was == null) return
+        try { android.os.Process.setThreadPriority(android.os.Process.myTid(), was) } catch (_: Throwable) {}
+    }
+
+    @PublishedApi internal val backgroundRuns8817 = java.util.concurrent.atomic.AtomicLong(0L)
+
     /** The calling thread's CPU time (ns), -1 when unknown. Public for [measure8813]'s inlined body. */
     @PublishedApi internal fun cpuNow8813(): Long = threadCpuNs()
 
@@ -72,7 +101,7 @@ object JobCost8813 {
                 "last=${"%.0f".format(a.lastAllocMb)}MB/${a.lastWallMs}ms/cpu${a.lastCpuMs}ms max=${"%.0f".format(a.maxAllocMb)}MB/${a.maxWallMs}ms " +
                 "cpuTotal=${a.cpuMs / 1000}s")
         } }.sortedByDescending { it.second }
-        return "jobCost8813[" + (if (rows.isEmpty()) "no runs yet" else rows.joinToString(" | ") { it.third }) +
+        return "jobCost8813[backgroundRuns8817=${backgroundRuns8817.get()} " + (if (rows.isEmpty()) "no runs yet" else rows.joinToString(" | ") { it.third }) +
             " rule=per heavy job: process MB allocated while it ran (upper bound: other threads allocate too), wall ms, its own thread CPU]"
     }
 

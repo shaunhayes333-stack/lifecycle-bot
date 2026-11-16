@@ -133,7 +133,7 @@ class CoinGeckoSolanaTopMcap {
             // V5.0.8813 — the full coin list is ~4 MB (17,000+ coins, each with every chain's address): parsed as a JSONArray it
             // became tens of MB of objects on a heap the 8809 device ran at 280-512 MB of 512 (largest coingecko body 3.9 MB;
             // OutOfMemoryError after 2.5 h). Scanned in place, keeping only id -> Solana mint.
-            val map = com.lifecyclebot.engine.JobCost8813.measure8813("coingeckoCoinList") {
+            val map = com.lifecyclebot.engine.JobCost8813.measureBackground8817("coingeckoCoinList") {
                 val body = get("https://api.coingecko.com/api/v3/coins/list?include_platform=true") ?: return idToMintCache
                 idMintMap8813(body)
             }

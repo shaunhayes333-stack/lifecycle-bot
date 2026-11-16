@@ -222,7 +222,7 @@ object StrategyLab8755 {
         if (nowMs - lastRunMs < RUN_EVERY_MS || !running.compareAndSet(false, true)) return
         lastRunMs = nowMs
         exec.execute {
-            try { com.lifecyclebot.engine.JobCost8813.measure8813("strategyLab") { run(nowMs) } }   // V5.0.8813 — measured
+            try { com.lifecyclebot.engine.JobCost8813.measureBackground8817("strategyLab") { run(nowMs) } }   // V5.0.8813 — measured
             catch (t: Throwable) { status = "failed:${t.javaClass.simpleName}" } finally { running.set(false) }
         }
     }

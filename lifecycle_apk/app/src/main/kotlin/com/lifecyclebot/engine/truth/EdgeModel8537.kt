@@ -632,7 +632,7 @@ object EdgeModel8537 {
                     // No opaque pre-8617 sufficient statistics or OOS verdicts survive. Original file remains
                     // untouched until a clean replay is saved; the raw labelled dataset is never deleted.
                     clearModel8642()
-                    val (seen, used) = com.lifecyclebot.engine.JobCost8813.measure8813("edgeReplay") { replayDataset8642(File(f.parentFile, DATASET_FILE)) }
+                    val (seen, used) = com.lifecyclebot.engine.JobCost8813.measureBackground8817("edgeReplay") { replayDataset8642(File(f.parentFile, DATASET_FILE)) }
                     replayStatus8642 = "rebuilt:$used/$seen"
                     try { PipelineHealthCollector.labelInc("EDGE_MODEL_REPLAY_VERIFIED_8642") } catch (_: Throwable) {}
                 }

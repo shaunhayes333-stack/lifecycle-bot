@@ -189,7 +189,7 @@ object PocketLedger8610 {
         loading = true
         io.execute {
             try {
-                com.lifecyclebot.engine.JobCost8813.measure8813("pocketLedgerSeed") { seedFromDataset() }   // V5.0.8813 — measured
+                com.lifecyclebot.engine.JobCost8813.measureBackground8817("pocketLedgerSeed") { seedFromDataset() }   // V5.0.8813 — measured
                 ready = true
             } catch (_: Exception) {
                 PipelineHealthCollector.labelInc("POCKET_8610_LOAD_FAILED")

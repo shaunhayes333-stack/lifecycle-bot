@@ -105,7 +105,7 @@ object TreeRanker8737 {
                 // [MAX_LINES_8737] lines only (the market the bot trades now).
                 // V5.0.8798 — counted first, then parsed straight into rows: the tail used to hold 25,000 JSON strings
                 // (~45 MB of heap, more with the wider rows) while it was parsed.
-                val rows = com.lifecyclebot.engine.JobCost8813.measure8813("treeParse") {
+                val rows = com.lifecyclebot.engine.JobCost8813.measureBackground8817("treeParse") {
                     var total = 0
                     dataset.useLines { seq -> seq.forEach { _ -> total++ } }
                     val skip = (total - MAX_LINES_8737).coerceAtLeast(0)
@@ -114,7 +114,7 @@ object TreeRanker8737 {
                 }
                 if (rows.size < MIN_ROWS) { lastStatus = "waiting rows=${rows.size}/$MIN_ROWS"; return@execute }
                 val t0 = System.currentTimeMillis()
-                model = com.lifecyclebot.engine.JobCost8813.measure8813("treeTrain") {
+                model = com.lifecyclebot.engine.JobCost8813.measureBackground8817("treeTrain") {
                     train8737(rows.map { it.first }, rows.map { it.second }, rows.map { it.third }, System.currentTimeMillis(),
                         rowFrac = ROW_FRAC_8798, colFrac = COL_FRAC_8798)
                 }

@@ -441,3 +441,12 @@ Honest fill: `ColourShape8807.outcome8807` enters at the next candle's open (the
 closes); `ManualRead8806.Ladder` fills a stop or trail at the price seen when crossed, never better than its line. On the
 device's launch paths, buying at the signal's own price made +1.4 %, buying in the next 10 s bar -9.4 %. The table
 restarts in `colour_shape_8816.json` (the 44 charts scored under the old fill are dropped with `colour_shape_8807.json`).
+
+## 24. Batch replays yield to the screen (8817)
+
+CI runtime acceptance on 5.0.8813 and 5.0.8816 failed the same way: SplashActivity ANR with the main thread RUNNABLE in an
+ordinary draw, 47 s of its schedstat waiting for a CPU, while the startup dataset replays ran at default priority beside it
+(JobCost8813: 1-5 GB and 8-24 s of CPU each). `JobCost8813.measureBackground8817` runs a measured job at Android's
+THREAD_PRIORITY_BACKGROUND and restores the thread's priority after; used by pocketLedgerSeed, payingCellSeed,
+managedBandsSeed, treeParse, treeTrain, edgeReplay, strategyLab and coingeckoCoinList. The Cortex snapshot / close commit
+keeps its priority (a close waits on it). Counter: `backgroundRuns8817` in the §8813 line.

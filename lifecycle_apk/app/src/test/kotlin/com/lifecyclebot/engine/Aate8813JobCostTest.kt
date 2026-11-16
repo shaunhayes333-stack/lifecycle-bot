@@ -25,7 +25,7 @@ class Aate8813JobCostTest {
         assertEquals(7, JobCost8813.measure8813("inline") { 7 })
         try { JobCost8813.measure8813<Int>("throws") { error("boom") } } catch (_: IllegalStateException) {}
         val line = JobCost8813.statusLine8813()
-        assertTrue(line, line.startsWith("jobCost8813[big:runs2 allocMB=400 last=100MB/500ms/cpu2000ms max=300MB/1000ms cpuTotal=2s"))
+        assertTrue(line, line.startsWith("jobCost8813[backgroundRuns8817=") && line.contains(" big:runs2 allocMB=400 last=100MB/500ms/cpu2000ms max=300MB/1000ms cpuTotal=2s"))
         assertTrue("largest total first", line.indexOf("big:") < line.indexOf("small:"))
         assertTrue(line.contains("throws:runs1 failed1"))
         JobCost8813.resetForTest8813()
@@ -44,15 +44,17 @@ class Aate8813JobCostTest {
         assertTrue(CoinGeckoSolanaTopMcap.idMintMap8813("<html>rate limited</html>").isEmpty())
     }
 
+    // superseded by V5.0.8817 — the batch replays are measured at background priority (measureBackground8817); the Cortex
+    // close commit stays at its own priority.
     @Test fun theHeavyJobsAreMeasuredWhereTheyRun() {
         assertTrue(src("engine/cortex/Cortex7885.kt").contains("JobCost8813.measure8813(if (periodic) \"cortexSnapshot\" else \"cortexCloseCommit\")"))
         val tree = src("engine/truth/TreeRanker8737.kt")
-        assertTrue(tree.contains("JobCost8813.measure8813(\"treeParse\")") && tree.contains("JobCost8813.measure8813(\"treeTrain\")"))
-        assertTrue(src("engine/lab/StrategyLab8755.kt").contains("JobCost8813.measure8813(\"strategyLab\") { run(nowMs) }"))
-        assertTrue(src("engine/truth/ManagedBands8719.kt").contains("JobCost8813.measure8813(\"managedBandsSeed\") { seedFromDataset() }"))
-        assertTrue(src("engine/truth/PayingCell8723.kt").contains("JobCost8813.measure8813(\"payingCellSeed\") { seedFromDataset() }"))
-        assertTrue(src("engine/truth/PocketLedger8610.kt").contains("JobCost8813.measure8813(\"pocketLedgerSeed\") { seedFromDataset() }"))
-        assertTrue(src("engine/truth/EdgeModel8537.kt").contains("JobCost8813.measure8813(\"edgeReplay\")"))
+        assertTrue(tree.contains("JobCost8813.measureBackground8817(\"treeParse\")") && tree.contains("JobCost8813.measureBackground8817(\"treeTrain\")"))
+        assertTrue(src("engine/lab/StrategyLab8755.kt").contains("JobCost8813.measureBackground8817(\"strategyLab\") { run(nowMs) }"))
+        assertTrue(src("engine/truth/ManagedBands8719.kt").contains("JobCost8813.measureBackground8817(\"managedBandsSeed\") { seedFromDataset() }"))
+        assertTrue(src("engine/truth/PayingCell8723.kt").contains("JobCost8813.measureBackground8817(\"payingCellSeed\") { seedFromDataset() }"))
+        assertTrue(src("engine/truth/PocketLedger8610.kt").contains("JobCost8813.measureBackground8817(\"pocketLedgerSeed\") { seedFromDataset() }"))
+        assertTrue(src("engine/truth/EdgeModel8537.kt").contains("JobCost8813.measureBackground8817(\"edgeReplay\")"))
         assertTrue(src("network/CoinGeckoSolanaTopMcap.kt").contains("idMintMap8813(body)"))
         assertTrue(src("engine/PipelineHealthCollector.kt").contains("JobCost8813.statusLine8813()"))
         assertTrue(File("../../docs/DATA_MAP.md").readText().contains("## 20. What each heavy job costs (8813)"))
