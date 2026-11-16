@@ -107,11 +107,13 @@ object ManualRead8806 {
     class Ladder(val entry: Double, val atMs: Long) {
         private var left = 1.0; private var pnl = 0.0; private var peak = entry; private var took = 0
         fun step(t: Long, high: Double, low: Double, close: Double): Double? {
-            if (took == 0 && low <= entry * 0.80) return pnl + left * -20.0 - COST_PCT
+            // V5.0.8816 — a stop or trail fills at the price seen when it is crossed, never better than its line: a candle
+            // that gaps through closes at its close (5815972e paper stops: first seen 15 points past their level).
+            if (took == 0 && low <= entry * 0.80) return pnl + left * (minOf(0.80, close / entry) - 1.0) * 100.0 - COST_PCT
             if (high > peak) peak = high
             if (took == 0 && high >= entry * 1.5) { pnl += 50.0 / 3.0; left -= 1.0 / 3.0; took = 1 }
             if (took == 1 && high >= entry * 2.5) { pnl += 150.0 / 3.0; left -= 1.0 / 3.0; took = 2 }
-            if (took >= 1) { val line = maxOf(entry, peak * 0.65); if (low <= line) return pnl + left * (line / entry - 1.0) * 100.0 - COST_PCT }
+            if (took >= 1) { val line = maxOf(entry, peak * 0.65); if (low <= line) return pnl + left * (minOf(line, close) / entry - 1.0) * 100.0 - COST_PCT }
             if (took == 0 && t - atMs >= 600_000L && close < entry * 1.10) return pnl + left * (close / entry - 1.0) * 100.0 - COST_PCT
             return null
         }

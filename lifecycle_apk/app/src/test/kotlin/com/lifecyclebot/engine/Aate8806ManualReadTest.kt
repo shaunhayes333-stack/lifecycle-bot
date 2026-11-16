@@ -30,16 +30,18 @@ class Aate8806ManualReadTest {
     }
 
     @Test fun theLadderCutsScalesOutAndTrails() {
-        assertEquals(-23.5, ManualRead8806.Ladder(1.0, 0L).step(10_000L, 0.79, 0.79, 0.79)!!, 1e-9)          // the stop
+        assertEquals(-24.5, ManualRead8806.Ladder(1.0, 0L).step(10_000L, 0.79, 0.79, 0.79)!!, 1e-9)          // the stop, filled at the price seen (8816)
+        assertEquals(-23.5, ManualRead8806.Ladder(1.0, 0L).step(10_000L, 1.0, 0.79, 0.85)!!, 1e-9)           // a wick through it closes back above: the level
         assertEquals(1.5, ManualRead8806.Ladder(1.0, 0L).step(600_000L, 1.05, 1.05, 1.05)!!, 1e-9)           // ten flat minutes
         val l = ManualRead8806.Ladder(1.0, 0L)
         assertNull(l.step(10_000L, 1.5, 1.5, 1.5))                       // a third off at +50 %
         assertNull(l.step(20_000L, 2.5, 2.5, 2.5))                       // a third off at +150 %
         assertNull(l.step(30_000L, 2.0, 2.0, 2.0))                       // above the 35 % trail (1.625)
-        assertEquals(84.0, l.step(40_000L, 1.6, 1.6, 1.6)!!, 1e-6)       // 16.67 + 50 + a third of +62.5, less cost
+        assertEquals(50.0 / 3.0 + 50.0 + 20.0 - 3.5, l.step(40_000L, 1.6, 1.6, 1.6)!!, 1e-6)   // 16.67 + 50 + a third of +60 (seen under the 1.625 trail), less cost
         val giveBack = ManualRead8806.Ladder(1.0, 0L)
         assertNull(giveBack.step(10_000L, 1.5, 1.5, 1.5))
-        assertEquals("the rest never closes under entry", 16.0 + 2.0 / 3.0 - 3.5, giveBack.step(20_000L, 0.9, 0.9, 0.9)!!, 1e-6)
+        // superseded by V5.0.8816 — the floor is the line, not a guaranteed fill: a print seen under it fills where it was seen
+        assertEquals(50.0 / 3.0 + (2.0 / 3.0) * -10.0 - 3.5, giveBack.step(20_000L, 0.9, 0.9, 0.9)!!, 1e-6)
     }
 
     @Test fun aPatternIsArmedOnlyOnTheHalfItWasNotJudgedOn() {

@@ -66,8 +66,9 @@ class Aate8807ColourShapeTest {
 
     @Test fun aPatternIsScoredByWhatATradeMadeAndProvenOnlyInBothHalves() {
         val flat = List(30) { bar(it, 1.0, 1.0) }
-        assertEquals(-23.5, ColourShape8807.outcome8807(flat + bar(30, 1.0, 0.79) + List(10) { bar(31 + it, 0.79, 0.79) }, 29)!!, 1e-9)
-        assertEquals("ten flat candles is the stale exit", 1.5, ColourShape8807.outcome8807(flat + List(11) { bar(30 + it, 1.05, 1.05) }, 29)!!, 1e-9)
+        // superseded by V5.0.8816 — entry at the next candle's open; a stop fills at the price seen (here the -21 % close)
+        assertEquals(-24.5, ColourShape8807.outcome8807(flat + bar(30, 1.0, 0.79) + List(10) { bar(31 + it, 0.79, 0.79) }, 29)!!, 1e-9)
+        assertEquals("ten flat candles after the entry is the stale exit", -3.5, ColourShape8807.outcome8807(flat + List(11) { bar(30 + it, 1.05, 1.05) }, 29)!!, 1e-9)
         assertNull("no future, no outcome", ColourShape8807.outcome8807(flat + List(5) { bar(30 + it, 1.0, 1.0) }, 29))
         fun half(n: Int, lo: Double, hi: Double) = ColourShape8807.Half(n, n / 2 * (lo + hi), n / 2 * (lo * lo + hi * hi))
         assertTrue(ColourShape8807.proven8807(half(12, 8.0, 12.0), half(12, 8.0, 12.0)))

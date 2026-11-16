@@ -28,7 +28,7 @@ class Aate8810OwnChartsAndSlipTest {
         ColourShape8807.learnTape8810("TapeMint", bars)
         assertEquals(1, ColourShape8807.drainTapesForTest8810())
         val line = ColourShape8807.statusLine8807()
-        assertTrue(line, line.contains("charts=1 ") && line.contains("ownTapes8810{offered=1 learned=1 dropped=0}"))
+        assertTrue(line, line.contains("charts=1 ") && line.contains("ownTapes8810{offered=1 learned=1 dropped=0 duplicate8816=0}"))
         val reader = src("engine/chart/ChartReader7950.kt")
         assertTrue(reader.contains("ColourShape8807.learnTape8810(mint, synchronized(tape) { toBars(tape.bars) })"))
         assertTrue("quiet and capped tapes", reader.contains("if (tapes.remove(it.key, it.value)) retire8810(it.key, it.value)"))

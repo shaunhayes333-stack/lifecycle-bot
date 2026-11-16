@@ -422,3 +422,22 @@ waits count as io. Report line `CPU sample (§8815)`: largest shares of CPU stac
 `PocketLedger8610.cellKeys8815` returns the same keys as `keys8610(...).map { "$horizon|$it" }` but builds each composed
 string once and reuses it (the seed allocated 5.25 GB in 24 s composing ~200 throwaway strings per row). Used by the
 ledger's learning (`record`) and its live verdict (`verdict8610`). Cache bounded at 400k strings.
+
+## 23. The setups learn from every chart the bot sees; the honest fill (8816)
+
+Offline on every dataset (175,766 decisions, 19,109 coins, 9-16 Nov), no setup built on the decision snapshot held on
+later days once each coin counts once; the average decision fell from -1.8 % (9 Nov) to -9.4 % (16 Nov). The setups are
+rebuilt from the candles themselves (ColourShape8807, the owner's read), which had seen 44 charts in a day because
+downloaded meme charts arrive from GeckoTerminal at about one a minute.
+
+`OwnBars8816` records every witnessed print (`TradeTape8100.launchEvidence8750`: the Helius program tape decodes every
+pump.fun curve trade, the PumpSwap / PumpPortal tapes theirs) as one-minute USD candles: at most 400 coins, 240 candles
+each, primitive arrays. A coin quiet for 15 minutes, or full, is handed to `ColourShape8807.learnTape8810` once and never
+recorded again; the learner refuses a second chart of a coin (`duplicate8816`). When any key is proven, each closed candle
+of every recorded coin is read live (`onBars8807`: paper fires, ARMED evidence) and its prints step the open paper ladders.
+Status: `ownBars8816[recording prints handedToLearner tooShort refusedFull liveReads noSolUsd]` inside the §8807 line.
+
+Honest fill: `ColourShape8807.outcome8807` enters at the next candle's open (the read happens when the signal candle
+closes); `ManualRead8806.Ladder` fills a stop or trail at the price seen when crossed, never better than its line. On the
+device's launch paths, buying at the signal's own price made +1.4 %, buying in the next 10 s bar -9.4 %. The table
+restarts in `colour_shape_8816.json` (the 44 charts scored under the old fill are dropped with `colour_shape_8807.json`).
