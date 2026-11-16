@@ -410,3 +410,15 @@ done. Unavailable and the day under `SETUP_TOP_PCT_8814` (95 %) of frames: the c
 (`setupOverflow8814`). Launches still stop at 80 %, held coins keep everything above 95 %, the day's 0.10 SOL cap is unchanged.
 Status: `setup8814[overflowToPump unserved topPct]`; counter `PUMP_SETUP_OVERFLOW_8814`. `unserved` counts setup coins
 neither source could carry.
+
+## 22. Where the CPU goes; pocket cell keys built once (8815)
+
+Report 5815972e: 1.1-1.4 GB allocated per minute in steady state and GC blocking most of the run; the CPU table names the
+thread pool (DefaultDispatcher 32 s CPU/min, AATE-Entry 9 s, launch-replay 7 s) but not the code. `CpuSample8815` reads every
+RUNNABLE thread's stack once a second (started from `HeapLog8618.sample8618`, device only) and tallies the top app frame
+(with the library leaf, e.g. `<JSONTokener.nextValue>`) and the deepest app frame, per thread family; socket / file / poll
+waits count as io. Report line `CPU sample (§8815)`: largest shares of CPU stacks.
+
+`PocketLedger8610.cellKeys8815` returns the same keys as `keys8610(...).map { "$horizon|$it" }` but builds each composed
+string once and reuses it (the seed allocated 5.25 GB in 24 s composing ~200 throwaway strings per row). Used by the
+ledger's learning (`record`) and its live verdict (`verdict8610`). Cache bounded at 400k strings.

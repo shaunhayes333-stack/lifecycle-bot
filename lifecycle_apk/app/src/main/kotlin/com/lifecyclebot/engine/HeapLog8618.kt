@@ -30,6 +30,7 @@ object HeapLog8618 {
 
     /** MemoryGuard7977.refreshCensus8144 (guard thread): record one sample from the census just taken. */
     fun sample8618(rows: List<MemoryRegistry8144.Row8144>, nowMs: Long = System.currentTimeMillis()) {
+        try { CpuSample8815.ensureStarted8815() } catch (_: Throwable) {}   // V5.0.8815 — where the CPU goes (device only)
         try {
             val rt = Runtime.getRuntime()
             val stores = rows.associate { it.name to it.estBytes.coerceAtLeast(0L) }

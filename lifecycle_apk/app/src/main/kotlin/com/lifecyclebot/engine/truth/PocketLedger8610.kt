@@ -73,6 +73,47 @@ object PocketLedger8610 {
         return out
     }
 
+    // ── V5.0.8815 §CELL_KEYS_WITHOUT_GARBAGE ──
+    // 5815972e: the dataset seed allocated 5.25 GB in 24 s (72k rows): every observation composed ~100 cell keys from
+    // templates ("M|f=v", "f=v&g=w", "LANE|...") and then each again with "$horizon|" — ~200 new strings per row, all garbage
+    // after one map lookup — on the startup path that also ran the other dataset seeds. The keys are a small closed set (10
+    // banded features, a few values each, a pair of them, a scope, a horizon), so each composed string is built once and
+    // reused: the cell map's own key objects, looked up by the strings already held. Same keys, same order as [keys8610].
+    private val tokens8815 = ConcurrentHashMap<String, ConcurrentHashMap<String, String>>()
+    private val pairs8815 = ConcurrentHashMap<String, ConcurrentHashMap<String, String>>()
+    private val full8815 = ConcurrentHashMap<String, ConcurrentHashMap<String, String>>()
+    private const val KEY_CACHE_MAX_8815 = 400_000
+    private val keyCacheSize8815 = AtomicLong(0L)
+
+    private fun <K : Any> inner8815(m: ConcurrentHashMap<K, ConcurrentHashMap<String, String>>, k: K): ConcurrentHashMap<String, String> =
+        m[k] ?: ConcurrentHashMap<String, String>().let { m.putIfAbsent(k, it) ?: it }
+
+    private fun composed8815(m: ConcurrentHashMap<String, String>, k: String, a: String, sep: Char, b: String): String =
+        m[k] ?: (a + sep + b).let { built ->
+            if (keyCacheSize8815.incrementAndGet() > KEY_CACHE_MAX_8815) { tokens8815.clear(); pairs8815.clear(); full8815.clear(); keyCacheSize8815.set(0L) }
+            m.putIfAbsent(k, built) ?: built
+        }
+
+    /**
+     * The cell keys of an observation in [lane] at [horizon] — exactly `keys8610(lane, b).map { "$horizon|$it" }`, without the
+     * market-wide ("M|") keys when [market] is false — from the caches above.
+     */
+    internal fun cellKeys8815(horizon: Long, lane: String, b: Map<String, String>, market: Boolean): List<String> {
+        val l = lane.trim().uppercase()
+        val toks = ArrayList<String>(b.size)
+        for ((k, v) in b) toks += composed8815(inner8815(tokens8815, k), v, k, '=', v)
+        val m = inner8815(full8815, "$horizon|M"); val ln = inner8815(full8815, "$horizon|$l")
+        val hm = "$horizon|M"; val hl = "$horizon|$l"
+        val out = ArrayList<String>(toks.size + toks.size * toks.size)
+        if (market) for (t in toks) out += composed8815(m, t, hm, '|', t)
+        for (i in toks.indices) for (j in i + 1 until toks.size) {
+            val pair = composed8815(inner8815(pairs8815, toks[i]), toks[j], toks[i], '&', toks[j])
+            if (market) out += composed8815(m, pair, hm, '|', pair)
+            out += composed8815(ln, pair, hl, '|', pair)
+        }
+        return out
+    }
+
     private fun bandsOf(r: EdgeModel8537.Raw) =
         bands8610(r.liq, r.mcap, r.ageMin, r.bp, r.chg5m, r.chg1h, r.pxPeak, r.volAccel, r.top, r.phase)
 
@@ -90,8 +131,7 @@ object PocketLedger8610 {
         val first = lanes.isEmpty()
         if (!lanes.add(lane)) return
         if (recent.size > MAX_RECENT_OBSERVATIONS) recent.entries.iterator().run { next(); remove() }
-        val keys = keys8610(lane, bands).filter { first || !it.startsWith("M|") }
-        add(keys.map { "$horizon|$it" }, managed8610(net))
+        add(cellKeys8815(horizon, lane, bands, market = first), managed8610(net))   // V5.0.8815 — cached keys
         learned.incrementAndGet()
     }
 
@@ -137,7 +177,7 @@ object PocketLedger8610 {
         if (!ready) null else {
             val r = EdgeModel8537.rawFor8610(ts, lane, nowMs)
             val horizon = targetHorizon(r.lane)
-            val recs = keys8610(r.lane, bandsOf(r)).mapNotNull { k -> cells["$horizon|$k"]?.let { c -> synchronized(c) { doubleArrayOf(c.n, c.sum, c.sq) } } }
+            val recs = cellKeys8815(horizon, r.lane, bandsOf(r), market = true).mapNotNull { k -> cells[k]?.let { c -> synchronized(c) { doubleArrayOf(c.n, c.sum, c.sq) } } }
             callOf8610(recs).also { try { PipelineHealthCollector.labelInc("POCKET_8610_${it.name}") } catch (_: Throwable) {} }
         }
     } catch (_: Throwable) { null }
