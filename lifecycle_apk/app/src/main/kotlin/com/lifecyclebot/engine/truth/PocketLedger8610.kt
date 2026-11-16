@@ -132,8 +132,47 @@ object PocketLedger8610 {
         if (!lanes.add(lane)) return
         if (recent.size > MAX_RECENT_OBSERVATIONS) recent.entries.iterator().run { next(); remove() }
         add(cellKeys8815(horizon, lane, bands, market = first), managed8610(net))   // V5.0.8815 — cached keys
+        if (first) bands["liq"]?.let { noteGap8823(horizon, it, net) }                // V5.0.8823 — one observation, once
         learned.incrementAndGet()
     }
+
+    // ── V5.0.8823 §THE_DUMP_A_STOP_CANNOT_SAVE_IS_A_COST ──
+    // Owner: "why are we [not] making awesome money making trades". Clean-epoch labels (16 Nov 08:30 UTC on, 9,792 15-minute
+    // decisions, 1,521 coins): the median coin moved -0.6 % before costs and -3.7 % after; the 1,176 decisions that lost
+    // more than 50 % summed to the ENTIRE net loss of the set. They sit in the thin pools: under $10k liquidity 13-24 % of
+    // decisions lost more than half within 15 minutes (both halves of the window), from $50k up 0-7 %; and 679 of the 1,226
+    // ADMITTED decisions were in those bands at -15 % each. A dump that size is a gap: the stop fills where the price lands
+    // (paper STOP closes: EXPRESS -29 % and FAM_FOLLOW_SIZE -57 % on 15-25 % stops). The entry economics (move >= cost x
+    // margin) priced fees, slippage and impact, never that. Per horizon and liquidity band this ledger keeps, from the same
+    // labels as the cells: observations, those losing more than [DUMP_PCT_8823], and their summed loss. Its gap cost for a
+    // lane is the band's expected loss beyond the lane's stop on those dumps: (sumDumpLoss - dumps x stop) / n.
+    internal const val DUMP_PCT_8823 = 50.0
+    private val gap8823 = ConcurrentHashMap<String, DoubleArray>()   // "$horizon|$liqBand" -> [n, dumps, sumDumpLoss]
+
+    private fun noteGap8823(horizon: Long, liqBand: String, net: Double) {
+        if (!net.isFinite()) return
+        val v = gap8823.computeIfAbsent("$horizon|$liqBand") { DoubleArray(3) }
+        synchronized(v) { v[0] += 1.0; if (net <= -DUMP_PCT_8823) { v[1] += 1.0; v[2] += -net } }
+    }
+
+    /** Pure: the expected loss beyond a [stopPct] stop on the dumps of a band record [n, dumps, sumDumpLoss]; NaN when thin. */
+    internal fun gapPct8823(rec: DoubleArray, stopPct: Double): Double {
+        if (rec.size < 3 || rec[0] < N_MIN || !stopPct.isFinite()) return Double.NaN
+        return ((rec[2] - rec[1] * stopPct) / rec[0]).coerceAtLeast(0.0)
+    }
+
+    /** The entry's gap cost (%) for [lane] at [liquidityUsd]: 0 until the ledger is seeded or the band is thin. */
+    fun gapCostPct8823(lane: String, liquidityUsd: Double, stopPct: Double): Double {
+        if (!ready || !liquidityUsd.isFinite() || liquidityUsd <= 0.0) return 0.0
+        val band = bands8610(liquidityUsd, Double.NaN, Double.NaN, Double.NaN, Double.NaN, Double.NaN, Double.NaN, Double.NaN, Double.NaN, "")["liq"] ?: return 0.0
+        val rec = gap8823["${targetHorizon(lane.trim().uppercase())}|$band"] ?: return 0.0
+        val g = synchronized(rec) { gapPct8823(rec.copyOf(), stopPct) }
+        return if (g.isFinite()) g else 0.0
+    }
+
+    fun gapLine8823(): String = "gap8823[" + gap8823.entries.sortedBy { it.key }.joinToString(" ") { (k, v) ->
+        synchronized(v) { "$k:n${v[0].toInt()}/dump${if (v[0] > 0) "%.0f".format(100.0 * v[1] / v[0]) else "0"}%/sum${"%.0f".format(v[2])}" }
+    } + " rule=expected loss beyond the lane's stop on >=${DUMP_PCT_8823.toInt()}% dumps, per liquidity band, added to the entry cost]"
 
     private fun add(ks: List<String>, y: Double) {
         for (k in ks) {

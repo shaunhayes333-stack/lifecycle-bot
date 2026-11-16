@@ -224,16 +224,24 @@ object NetEdge8030 {
      */
     fun preTradeCostPct8329(lane: String, sizeSol: Double, liquidityUsd: Double, mint: String = "", mcapUsd: Double = 0.0): Double {
         val model = costPct8030(lane, sizeSol, liquidityUsd, mint, mcapUsd)
+        // V5.0.8823 — plus the measured loss beyond the stop on the dumps of this liquidity band (PocketLedger8610.gapCostPct8823):
+        // the entry must clear what a gap costs where gaps happen, not only the fees, slippage and impact of a clean trip.
+        val gap = try { PocketLedger8610.gapCostPct8823(lane, liquidityUsd, FieldManual7715.stopPct8392(lane, model)) } catch (_: Throwable) { 0.0 }
+        if (gap > 0.0) gapCharged8823.incrementAndGet()
         // The admission reads the lane's MEASURED round trip (owner: "use measured cost per lane"). It went through
         // RoundTrip8418.markLift8418, a stub that always returns null, so entries were judged on the 3.78 % model while live
         // trips measured 6.8-8.8 % (pipeline report). Exits and labels keep the coin's itemised trip ([costPct8030]).
-        val measured = (try { CostLedger7962.measuredMedianPct8329(lane, 2) } catch (_: Throwable) { null }) ?: return model
+        val measured = (try { CostLedger7962.measuredMedianPct8329(lane, 2) } catch (_: Throwable) { null }) ?: return model + gap
         if (measured > model) {
             measuredLifts8329.incrementAndGet()
             try { PipelineHealthCollector.labelInc("COST_TRUTH_MEASURED_LIFTS_MODEL_8329_${lane.uppercase().take(16)}") } catch (_: Throwable) {}
         }
-        return maxOf(model, measured)
+        return maxOf(model, measured) + gap
     }
+
+    private val gapCharged8823 = AtomicLong(0)
+    /** V5.0.8823 — entry costs that carried a band's gap cost, and the band ledger. */
+    fun gapLine8823(): String = "charged=${gapCharged8823.get()} " + (try { PocketLedger8610.gapLine8823() } catch (_: Throwable) { "gap8823[-]" })
 
     /** LiveEdgeGate7877 (live): the refusal when [lane]'s expected move is under 2x the round trip, else null. */
     fun entryRefusal8030(ts: TokenState, lane: String): String? {

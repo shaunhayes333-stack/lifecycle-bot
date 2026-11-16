@@ -1563,6 +1563,8 @@ object PipelineHealthCollector {
         sb.append("  Net edge (§8030): ").append(
             try { com.lifecyclebot.engine.truth.NetEdge8030.statusLine() } catch (_: Throwable) { "unavailable" }
         ).append("\n")
+        sb.append("  Gap cost (§8823): ").append(
+            try { com.lifecyclebot.engine.truth.NetEdge8030.gapLine8823() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Falling hour (§8418): ").append(
             try { com.lifecyclebot.engine.truth.FallingHourCohort8418.statusLine8418() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Unclassified refusals (§8051): ").append(

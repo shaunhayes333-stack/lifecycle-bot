@@ -514,3 +514,14 @@ charts: OwnBars8816 lives in memory and the run crashed after 2.7 h. `LaunchRepl
 (LaunchHour8628, 48 h, up to 6,000, spikes removed) every 30 minutes; each launch whose first hour is complete is passed
 to `ColourShape8807.learnLaunch8822`, built into one-minute candles (`minuteBars8822`) and learned once when it has
 LOOK + MIN_FUTURE + 1 candles. Status `launches8822{learned short}` in the §8807 line.
+
+## 30. The dump a stop cannot save is a cost (8823)
+
+Clean-epoch labels (from 16 Nov 08:30 UTC; 9,792 15-minute decisions, 1,521 coins): the median coin moved -0.6 % before
+costs, -3.7 % after; decisions losing more than 50 % summed to the whole net loss. Under $10k liquidity 13-24 % of
+decisions lost more than half in 15 minutes (both halves of the window), from $50k up 0-7 %; 679 of 1,226 admitted
+decisions were in those bands at -15 % each. `PocketLedger8610` keeps per horizon and liquidity band (its own bands) the
+observations, the dumps (net <= -50 %) and their summed loss, from the same labels as the cells (seed + live, one count
+per observation). `gapCostPct8823(lane, liquidity, stop)` = (sumDumpLoss - dumps x stop) / n (n >= 40, else 0), and
+`NetEdge8030.preTradeCostPct8329` adds it to every entry's cost (admission economics, live edge gate, promotion,
+runner grab, entry economics). Report line `Gap cost (§8823)`.
