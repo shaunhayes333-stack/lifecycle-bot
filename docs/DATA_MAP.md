@@ -585,3 +585,15 @@ include v3, pred, age, fromFirst, buy shares, turnover). `CandidateAdmission8136
 alike once the lane's refusal record is earned (refused coins are still labelled, so the record stays honest); every
 negative prediction let through is counted by why (`edgeLetThrough8827`). Report lines `Admission vs outcome (§8827)` and
 `Edge refusal (§8827)`.
+
+## 35. The owner's signals graded on the stored launches and traded only once proven (8828)
+
+`SignalTape8828` reads 15 SignalBible300 signals (S001 S003 S005 S006 S009 S010 S011 S012 S014 S016 S023 S049 S050 S051
+S052; five need buyer wallets) on one coin's prints as 10-second bars, evaluated when a bar closes; only a live closing
+print can turn one on, once per coin. `SignalReplay8828.grade8828` feeds every LaunchReplay8744 path through it (wallet ids,
+SOL sizes, live flags), enters each first turn-on at the bot's required latency and unwinds on DOCTRINE with 20 / 35 %
+stops (`exitNet8754`). Records: n, mean, SE, median, ex-top-3 mean and SE, win, 10x, half means by birth, median cap.
+Proven = n >= 100, ex-top-3 mean - SE > 0, both halves positive; shadow = best unproven with n >= 50. LaunchSniper8748
+feeds every first-hour print (with its SOL size and wallet from `TradeTape8100.launchEvidence8750`) into the same tape
+(at most 1,000 coins); the proven signal's turn-on is an armed fire (watchlist + admission evidence). Report line
+`Signal replay (§8828)`; the strategy lab's prompt gets `labLine8828`.

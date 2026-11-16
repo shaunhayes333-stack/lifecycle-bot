@@ -77,6 +77,8 @@ object LaunchReplay8744 {
     private const val CURVE_SOL_8748 = 35.0
     private const val TRAIL_PCT = 30.0
     private const val TIME_STOP_MS = 10L * 60_000L
+    /** V5.0.8828 — SignalReplay8828 unwinds the owner's signals on the same time stop. */
+    internal const val TIME_STOP_MS_8828 = TIME_STOP_MS
     private const val MIN_N = 50
     private const val RUN_EVERY_MS = 30L * 60_000L
     private const val MAX_LAUNCHES = 6_000
@@ -321,6 +323,7 @@ object LaunchReplay8744 {
                 }
                 try { BaseFamily8754.evaluate8754(set, solUsd, cost, need) } catch (_: Throwable) {}   // V5.0.8754 the base family, same paths
                 try { SmartMoney8756.evaluate8756(set, walletNames, cost, need) } catch (_: Throwable) {}            // V5.0.8756 the wallets, same paths
+                try { SignalReplay8828.evaluate8828(set, solUsd, cost, need) } catch (_: Throwable) {}              // V5.0.8828 the owner's signals, same paths
                 paths8755 = set; solUsd8755 = solUsd; cost8755 = cost
                 val births = try { LaunchHour8628.births8749(nowMs) } catch (_: Throwable) { -1 }
                 status = "ran births48h=$births launches>=3prints=${set.size} withLivePrints=$liveN needDelay=${need / 1000}s spikesDropped=$spikes solUsd=${"%.0f".format(solUsd)} cost=${"%.1f".format(cost)}%"

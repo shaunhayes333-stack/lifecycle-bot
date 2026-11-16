@@ -484,6 +484,9 @@ object LlmLabEngine {
         val bible8826 = try {
             com.lifecyclebot.engine.truth.SignalBible300.researchBrief(System.currentTimeMillis() / CREATION_INTERVAL_MS)
         } catch (_: Throwable) { "" }
+        // V5.0.8828 — the same signals as measured on this phone's launches (SignalReplay8828): the measurement, not the text,
+        // is what a hypothesis may lean on
+        val signals8828 = try { com.lifecyclebot.engine.truth.SignalReplay8828.labLine8828() } catch (_: Throwable) { "" }
         val prompt = """
 You are the AATE Lab strategist for Solana memecoins. Most new memecoins lose: in the evidence below the typical decision
 loses after costs and profit comes from a few runners. Propose ONE new hypothesis, different from those already graded,
@@ -498,6 +501,8 @@ $honest8755
 $directions8825
 
 $bible8826
+
+$signals8828
 
 The handwritten setups are RESEARCH IDEAS, not validated buy signals. Do not assume a positive buyer/volume reading predicts
 profit: the measured directions above take precedence. Express only a hypothesis that the available typed features and

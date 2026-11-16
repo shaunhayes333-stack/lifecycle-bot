@@ -19,6 +19,8 @@ import java.util.concurrent.atomic.AtomicLong
  *    rule's ex-top-3 mean and SE, net of cost). That evidence answers the generic data waits exactly as a proven paying
  *    cell does (8723 precedence); it never answers hard safety, rug structure, sellability (BuyRouteSafety8522), the
  *    economics at the quoted size or the lane's realised live losses.
+ *  - SIGNALS (V5.0.8828): the owner's signals (SignalTape8828) read on every first-hour coin's prints; the one SignalReplay8828
+ *    proved (or watches) fires like a launch rule — armed fires reach the watchlist and admission as evidence.
  *  - ATTENTION (V5.0.8825, LaunchReplay8744.attention8825 names the cumulative family's best graded trigger): a coin meeting
  *    it is put on the watchlist so the decision loop judges and labels the $10k crossers, armed or not. No evidence.
  * Nothing here buys. Nothing here is a hand threshold: the cap, the buys, the ladder and the latency are the replay's.
@@ -102,8 +104,11 @@ object LaunchSniper8748 {
     fun triggers8748(rule: LaunchReplay8744.Rule, capUsd: Double, buys60s: Int, totalBuys: Int = 0): Boolean =
         capUsd.isFinite() && capUsd >= rule.capUsd && buys60s >= rule.minBuys && totalBuys >= rule.totalBuys
 
-    /** One decoded print of [mint] (chain time [eventMs], received [recvMs], signature [sig]). Cheap; never throws. */
-    fun onPrint8748(mint: String, eventMs: Long, priceSol: Double, isBuy: Boolean, recvMs: Long, sig: String) {
+    /**
+     * One decoded print of [mint] (chain time [eventMs], received [recvMs], signature [sig]; V5.0.8828: its SOL size [sol]
+     * and the buyer / seller [wallet] when the feed names one). Cheap; never throws.
+     */
+    fun onPrint8748(mint: String, eventMs: Long, priceSol: Double, isBuy: Boolean, recvMs: Long, sig: String, sol: Double = 0.0, wallet: String = "") {
         try {
             if (!com.lifecyclebot.network.PumpCurveKeys7269.isPumpMint8658(mint) || !(priceSol > 0.0) || !priceSol.isFinite()) return
             val lagS = (recvMs - eventMs).coerceAtLeast(0L) / 1_000L
@@ -116,7 +121,9 @@ object LaunchSniper8748 {
             val baseProven = BaseFamily8754.proven8754() ?: com.lifecyclebot.engine.lab.StrategyLab8755.baseProven8755()
             val baseRule = baseProven ?: BaseFamily8754.shadow8754()
             val attention = LaunchReplay8744.attention8825()?.rule   // V5.0.8825
-            if (result == null && baseRule == null && attention == null) return
+            val signalProven = SignalReplay8828.proven8828()             // V5.0.8828 — the owner's signals, graded
+            val signal = signalProven ?: SignalReplay8828.shadow8828()
+            if (result == null && baseRule == null && attention == null && signal == null) return
             var s = st[mint]
             if (s == null) {
                 val born = CanonicalTokenBirthTime7440.peekBirthMs8418(mint, eventMs)
@@ -160,10 +167,34 @@ object LaunchSniper8748 {
             }
             fires.forEach { onFire(it) }
             if (watch) watch8825(mint, cap, recvMs)
+            if (signal != null) signalPrint8828(mint, s.bornMs, eventMs, priceSol, isBuy, sol, wallet, live, recvMs, cap, signal, signalProven != null)
         } catch (_: Throwable) {}
     }
 
     private val attentionFires = AtomicLong(); private val attentionAdds = AtomicLong()
+
+    // ── V5.0.8828 — the owner's signals, live: the same SignalTape8828 the replay graded, one per first-hour coin ──
+    private const val MAX_SIGNAL_TAPES_8828 = 1_000
+    private class SigTape(val bornMs: Long) { val tape = SignalTape8828(); @Volatile var lastMs = 0L }
+    private val sigTapes = ConcurrentHashMap<String, SigTape>()
+    private val signalFires = AtomicLong(); private val signalArmed = AtomicLong(); private val signalTapeFull = AtomicLong()
+
+    /** Feeds one print to [mint]'s signal tape; the graded signal turning on is a fire (armed when [armed]). */
+    private fun signalPrint8828(mint: String, bornMs: Long, eventMs: Long, priceSol: Double, isBuy: Boolean, sol: Double, wallet: String,
+                                live: Boolean, recvMs: Long, cap: Double, rec: SignalReplay8828.Rec, armed: Boolean) {
+        var st = sigTapes[mint]
+        if (st == null) {
+            if (sigTapes.size >= MAX_SIGNAL_TAPES_8828) sigTapes.entries.removeIf { recvMs - it.value.bornMs > HOUR || recvMs - it.value.lastMs > 10 * 60_000L }
+            if (sigTapes.size >= MAX_SIGNAL_TAPES_8828) { signalTapeFull.incrementAndGet(); return }
+            st = sigTapes.computeIfAbsent(mint) { SigTape(bornMs) }
+        }
+        st.lastMs = recvMs
+        val on = synchronized(st) { st.tape.onPrint(eventMs - st.bornMs, priceSol, isBuy, sol, SignalReplay8828.walletKey8828(wallet), live) }
+        if (rec.id !in on) return
+        signalFires.incrementAndGet(); if (armed) signalArmed.incrementAndGet()
+        onFire(Fire(mint, recvMs, eventMs - st.bornMs, cap, "SIGNAL8828:${rec.key}", rec.n, rec.exTop3, rec.exTop3Se, rec.tenX,
+            armed = armed, triggerEventMs = eventMs))
+    }
 
     /** V5.0.8825 — a crosser meeting the attention trigger: on the watchlist to be decided on and labelled (no evidence). */
     private fun watch8825(mint: String, capUsd: Double, nowMs: Long) {
@@ -221,6 +252,8 @@ object LaunchSniper8748 {
         return "sniper8748[launch:$mode base:$baseMode needDelay=${requiredDelayMs8749() / 1000}s tapeLag{$lag} armedLanded{$landedLine} tracked=${st.size} livePrints=${livePrints.get()} latePrints=${latePrints.get()} noBirth=${unborn.get()} " +
             "fires{shadow=${shadowFires.get()} armed=${armedFires.get()}} watchAdds=${watchAdds.get()} evidenceServed=${evidenceServed.get()} " +
             "attention8825{on=${LaunchReplay8744.attention8825()?.rule?.id ?: "none"} fires=${attentionFires.get()} watchlistAdds=${attentionAdds.get()}} " +
+            "signals8828{${SignalReplay8828.proven8828()?.let { "ARMED ${it.key}" } ?: SignalReplay8828.shadow8828()?.let { "SHADOW ${it.key}" } ?: "none"} " +
+            "tapes=${sigTapes.size}/$MAX_SIGNAL_TAPES_8828 fires=${signalFires.get()} armed=${signalArmed.get()} tapeFull=${signalTapeFull.get()}} " +
             "lastFire=$lf rule=every live pump.fun print checked against the replay's own trigger; buys only through admission + every safety door]"
     }
 }
