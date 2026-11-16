@@ -79,7 +79,10 @@ object LearningResetSweep7781 {
      */
     internal val LEARNING_DBS_7975: List<String> = listOf("learning_kv.db", "shadow_cold_8397.db")
     // V5.0.8169 — the learned lane stops are learning too (a reset left 5.0.8168's 5% BLUECHIP / QUALITY stops in force).
-    internal val LEARNING_FILES_7975: List<String> = listOf("specialists7972.bin", "specialists8064.bin", "specialists8076.bin", "specialists8521.bin", "specialists8527.bin", "specialists8663.bin", "runner_grab_7989.txt", "tail_hunter_7996.txt", "tail_hunter_birth_8527.txt", "stop_learner_8042.txt")
+    internal val LEARNING_FILES_7975: List<String> = listOf("specialists7972.bin", "specialists8064.bin", "specialists8076.bin", "specialists8521.bin", "specialists8527.bin", "specialists8663.bin", "runner_grab_7989.txt", "tail_hunter_7996.txt", "tail_hunter_birth_8527.txt", "stop_learner_8042.txt",
+        // V5.0.8819 — the edge model's sufficient statistics and the colour/shape setup table are learning too: a reset
+        // left the model's pre-reset weights in force (its replay is the dataset; the model file is only its cache).
+        "edge_model_8722.bin", "colour_shape_8816.json")
 
     @Volatile private var bootSweeps = 0
     @Volatile private var requestSweeps = 0
@@ -123,6 +126,8 @@ object LearningResetSweep7781 {
     /** Call first in Application.onCreate, before any learner loads. */
     fun applyPendingAtBoot(ctx: Context) {
         val app = ctx.applicationContext
+        // V5.0.8819 — once: archive every learning store, set the clean learning epoch, arm this reset (CleanRebuild8819).
+        try { CleanRebuild8819.armOnce8819(app) } catch (_: Throwable) {}
         // V5.0.8164 — every boot: learners must know the reset line before the journal reconciler replays closes.
         try { LearningEpoch8164.load8164(app) } catch (_: Throwable) {}
         try { PaperMirror8757.load8761(app) } catch (_: Throwable) {}
@@ -146,6 +151,14 @@ object LearningResetSweep7781 {
         ErrorLogger.info("LearningReset7781", "Reset completed at boot: ${LEARNING_PREFS_7781.size} stores cleared")
     }
 
+    /** V5.0.8819 — arm the boot reset without the in-process sweep (nothing has loaded yet; this boot completes it). */
+    internal fun armAtBoot8819(ctx: Context) {
+        try {
+            ctx.applicationContext.getSharedPreferences(MARKER_PREFS, Context.MODE_PRIVATE)
+                .edit().putBoolean(KEY_PENDING, true).commit()
+        } catch (_: Throwable) {}
+    }
+
     private fun wipe(app: Context) {
         for (name in LEARNING_PREFS_7781) {
             if (!ReconcileEvidenceStores8144.resettable8144(name)) continue // V5.0.8144 — evidence stores are not learning
@@ -155,5 +168,6 @@ object LearningResetSweep7781 {
     }
 
     fun statusLine(): String = "requests=$requestSweeps bootSweeps=$bootSweeps stores=${LEARNING_PREFS_7781.size}+db${LEARNING_DBS_7975.size}+files${LEARNING_FILES_7975.size}" +
-        (if (requestSweeps > 0 && bootSweeps == 0) " PENDING_RESTART(close and reopen AATE to finish the reset)" else "")
+        (if (requestSweeps > 0 && bootSweeps == 0) " PENDING_RESTART(close and reopen AATE to finish the reset)" else "") +
+        " " + (try { CleanRebuild8819.statusLine8819() } catch (_: Throwable) { "cleanRebuild8819[-]" })
 }

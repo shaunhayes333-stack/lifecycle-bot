@@ -658,6 +658,10 @@ object EdgeModel8537 {
         // learned authorities; keep their raw JSONL untouched. Other chains are unaffected.
         val mint8660 = row.optString("mint")
         if (mint8660.isBlank()) return false
+        // V5.0.8819 — the learning line applies to the dataset too: after a reset (or the clean rebuild) every learner that
+        // replays this file (edge model, trees, pockets, paying cells, managed bands, strategy lab) reads only rows
+        // recorded from the line on. Before, a reset re-seeded them from the whole file.
+        if (LearningEpoch8164.preEpoch8164(row.optLong("t", 0L))) return false
         if (unscopedSolana8661(mint8660, row.optInt("venueScopeEpoch", 0))) return false
         val lane = row.optString("lane")
         val horizon = row.optLong("horizonMs", 0L)

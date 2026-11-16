@@ -468,3 +468,19 @@ Report 494b46bb (5.0.8817, 65 min, 199 GB allocated, GC blocking 1.9M ms):
 - `OwnBars8816` handed 0 charts (recording 372/400, refusedFull 197, noSolUsd 8,620): the SOL rate is read as of now, a
   full store retires its stalest coin (quiet 2 min) for a new one (`evictedForRoom8818`), a chart is handed in at 120
   candles.
+
+## 26. The lot is remade from clean data (8819)
+
+Owner: "the setups were built off data with bugs. so they need to be remade. the lanes strategies hunters setups the
+lot" (choice: clean rebuild, old tables archived). `CleanRebuild8819.armOnce8819`, first thing in
+`LearningResetSweep7781.applyPendingAtBoot` (before any learner loads), once per install of version 8819:
+1. copies every learning store the full reset knows (LEARNING_PREFS_7781 prefs files, LEARNING_DBS_7975 with their
+   WAL / journal, LEARNING_FILES_7975) to `files/learning_archive_8819/{shared_prefs,databases,files}`;
+2. sets the learning epoch (`LearningEpoch8164.set8819`) to `CLEAN_FROM_MS_8819` = 2026-11-16 08:30 UTC (after the Helius
+   plan was restored): finalized closes before it never reach a learner, and `EdgeModel8537.replayAccept8642` (the one
+   dataset acceptance rule of the edge model, tree ranker, pocket ledger, paying cells, managed bands and strategy lab)
+   rejects rows recorded before it — which also fixes a reset re-seeding those learners from the whole file;
+3. arms the full reset, which completes in the same boot.
+The reset now also clears `edge_model_8722.bin` and `colour_shape_8816.json`. Untouched: wallet, keys, config, positions,
+fill / finality / idempotency ledgers, balances, journal, canonical economic records, safety facts, hard checks.
+Status: `cleanRebuild8819[...]` on the learning-reset line.

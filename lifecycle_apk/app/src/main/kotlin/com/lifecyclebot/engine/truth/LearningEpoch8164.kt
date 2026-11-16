@@ -40,6 +40,15 @@ object LearningEpoch8164 {
 
     fun epochMs8164(): Long = epochMs8164
 
+    /** V5.0.8819 — the clean rebuild sets the learning line to a fixed time (CleanRebuild8819.CLEAN_FROM_MS_8819), persisted. */
+    fun set8819(ctx: Context, epochMs: Long) {
+        epochMs8164 = epochMs
+        try {
+            ctx.applicationContext.getSharedPreferences(PREFS_8164, Context.MODE_PRIVATE)
+                .edit().putLong(KEY_EPOCH_8164, epochMs).commit()
+        } catch (_: Throwable) {}
+    }
+
     /** Pure: a close settled at [settledAtMs] predates the learning epoch [epochMs]. Unknown times are not judged. */
     fun preEpoch8164(settledAtMs: Long, epochMs: Long = epochMs8164): Boolean =
         epochMs > 0L && settledAtMs in 1 until epochMs
