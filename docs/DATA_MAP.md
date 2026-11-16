@@ -375,3 +375,25 @@ CI runtime acceptance failed on 5.0.8805, 8809, the 8810 follow-up and 8811 with
 repair, up to four 5 s journal boundaries) held it. `repairCryptoAtStartup8812` runs the crypto trader's startup repair
 (cross-asset history + each open paper crypto position's projection) only if the lock is free within 2 s; otherwise the
 same work runs on a background thread after the reconcile pass. Counter: `CRYPTO_STARTUP_REPAIR_DEFERRED_8812`.
+
+## 20. What each heavy job costs (8813)
+
+5.0.8809 on the device: an OutOfMemoryError after 2.5 h, then 1.4 GB/min allocated on a 512 MB heap, ~25 s of GC every
+two minutes, 330 MB the store census cannot name, a 4.9 s bot cycle, 22 % of forward labels priced. The heap log names the
+busy threads (tree-ranker, cortex-capture, cortex-persist, AATE-Entry) but not what one run of a heavy job costs.
+
+`JobCost8813.measure8813(name) { ... }` records per run: wall ms, the job thread's own CPU, and the MB the process
+allocated while it ran (ART `art.gc.bytes-allocated`; an upper bound, other threads allocate too). Report line
+`Job cost (§8813)`, largest total allocation first. Measured jobs:
+
+| Job | Where |
+|---|---|
+| `cortexSnapshot`, `cortexCloseCommit` | `Cortex7885.snapshotEncoder8386` (periodic save; every close commit encodes the full books) |
+| `treeParse`, `treeTrain` | `TreeRanker8737.maybeRetrain8737` (8809: one training ran 795 s) |
+| `strategyLab` | `StrategyLab8755` hourly run (reads the whole dataset) |
+| `managedBandsSeed`, `pocketLedgerSeed`, `payingCellSeed` | startup replays of the whole 48 MB dataset |
+| `edgeReplay` | `EdgeModel8537` model rebuild from the dataset |
+| `coingeckoCoinList` | `CoinGeckoSolanaTopMcap` id → mint map |
+
+`CoinGeckoSolanaTopMcap.idMintMap8813` scans the ~4 MB coin list in place for each coin's id and Solana address instead of
+building a 17,000-object JSON tree.

@@ -122,7 +122,7 @@ object ManagedBands8719 {
         if (ready || loading) return
         synchronized(this) { if (ready || loading) return; loading = true }
         io.execute {
-            try { seedFromDataset(); ready = true }
+            try { com.lifecyclebot.engine.JobCost8813.measure8813("managedBandsSeed") { seedFromDataset() }; ready = true }   // V5.0.8813 — measured
             catch (_: Throwable) { try { PipelineHealthCollector.labelInc("MANAGED_BANDS_8719_LOAD_FAILED") } catch (_: Throwable) {} }
             finally { loading = false }
         }

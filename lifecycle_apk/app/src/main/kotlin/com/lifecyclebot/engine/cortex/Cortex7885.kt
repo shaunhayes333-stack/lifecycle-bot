@@ -2648,7 +2648,7 @@ object Cortex7885 {
                 ids.filter { it.isNotBlank() }.forEach { receipts[TRAINING_RECEIPT_8372 + it] = "{\"kind\":\"$kind\"}" }
             }
             snapshotHoldMs8386 = (System.nanoTime() - acquired) / 1_000_000
-            val encode: () -> MutableMap<String, String> = {
+            val encode: () -> MutableMap<String, String> = { com.lifecyclebot.engine.JobCost8813.measure8813(if (periodic) "cortexSnapshot" else "cortexCloseCommit") {
                 val encodeAt = System.nanoTime()
                 val out = HashMap<String, String>()
                 out[PERSIST_KEY] = org.json.JSONObject().put("ledger", l.encode()).put("board", b.encode()).put("calibration", c.encode())
@@ -2676,7 +2676,7 @@ object Cortex7885 {
                     "grades=${(gradesAt8491 - pendAt8491) / 1_000_000}ms/${(out[GRADES_KEY_8144]?.length ?: 0) / 1024}KB${if (gradesEncoded8418 != null) "(inLock)" else ""} " +
                     "receipts=${receipts.size}"
                 out
-            }
+            } }   // V5.0.8813 — measured (JobCost8813)
             encode
         }
     }

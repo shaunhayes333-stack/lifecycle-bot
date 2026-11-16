@@ -1596,6 +1596,7 @@ object PipelineHealthCollector {
         sb.append("  Stop slip (§8756): ").append(try { com.lifecyclebot.engine.truth.StopSlip8756.statusLine8756() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Hyperliquid (§8795): ").append(try { com.lifecyclebot.hyperliquid.HlDesk.statusLine() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Manual read (§8806): ").append(try { com.lifecyclebot.engine.truth.ManualRead8806.statusLine8806() } catch (_: Throwable) { "unavailable" }).append("\n")
+        sb.append("  Job cost (§8813): ").append(try { JobCost8813.statusLine8813() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Header context (§8809): ").append(try { com.lifecyclebot.network.DexScreenerSocialSource.statusLine8809() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Colour and shape (§8807): ").append(try { com.lifecyclebot.engine.chart.ColourShape8807.statusLine8807() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  xStocks spot (§8802): ").append(try { com.lifecyclebot.xstocks.XsDesk.statusLine() } catch (_: Throwable) { "unavailable" }).append("\n")
