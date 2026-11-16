@@ -263,6 +263,8 @@ object LaunchReplay8744 {
                     val x = clean8748(r.t, r.p, r.buy, r.live, r.sol, r.wallet, r.bornMs); spikes += x.spikes
                     if (x.live.any { it }) liveN++
                     set.add(x)
+                    // V5.0.8822 — every completed launch hour is also one chart for the colour/shape setup learner
+                    try { com.lifecyclebot.engine.chart.ColourShape8807.learnLaunch8822(r.mint, r.bornMs, x.t, x.p, x.sol, nowMs) } catch (_: Throwable) {}
                 }
                 val cost = FieldManual7715.roundTripCostPct7766(SIZE_SOL_8748, SIZE_SOL_8748 * solUsd, 2.0 * CURVE_SOL_8748 * solUsd)
                 val res = evaluate8748(set, solUsd, cost)

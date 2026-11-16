@@ -357,6 +357,39 @@ object ColourShape8807 {
     private val tapeWorker8810 = java.util.concurrent.atomic.AtomicBoolean(false)
     private val tapesOffered8810 = AtomicLong(); private val tapesLearned8810 = AtomicLong(); private val tapesDropped8810 = AtomicLong()
     private val tapesDuplicate8816 = AtomicLong()
+    private val launchesLearned8822 = AtomicLong()
+    private val launchesShort8822 = AtomicLong()
+
+    // ── V5.0.8822 §EVERY_STORED_LAUNCH_IS_A_CHART ──
+    // Owner: "what about the set ups and strategies we were remaking?" The remade setups are this learner's: colour runs and
+    // shapes proven on coins they were not fitted on. In 5.0.8820 it had 21 charts — the own-bars recorder lives in memory,
+    // and the run crashed (OOM) after 2.7 h and restarted, so its tapes started over. The device already keeps 48 hours of
+    // every launch's first-hour prints (LaunchHour8628, read by LaunchReplay8744 every 30 minutes, spikes removed). Each
+    // completed launch hour long enough to read ([LOOK] + [MIN_FUTURE] + 1 one-minute candles) is now one chart, once.
+    /** Pure: [t] (ms from birth) and [p] (price) prints as one-minute candles from birth to the last print; volume from [sol]. */
+    internal fun minuteBars8822(t: LongArray, p: DoubleArray, sol: DoubleArray?, bornMs: Long): List<Bar7950> {
+        if (t.isEmpty() || t.size != p.size) return emptyList()
+        val tape = OwnBars8816.Tape(bornMs / 60_000L)
+        for (i in t.indices) {
+            val px = p[i]; if (!(px > 0.0) || !px.isFinite()) continue
+            val v = sol?.getOrNull(i)?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+            if (!tape.add((bornMs + t[i]) / 60_000L, px, v)) break
+        }
+        return tape.bars()
+    }
+
+    /** LaunchReplay8744's pass: one stored launch, learned once when its first hour is complete and long enough. */
+    fun learnLaunch8822(mint: String, bornMs: Long, t: LongArray, p: DoubleArray, sol: DoubleArray?, nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (mint.isBlank() || nowMs - bornMs < 65L * 60_000L) return false
+        val key = OwnBars8816.hash8816(mint)
+        if (synchronized(tapeCoins8816) { tapeCoins8816.containsKey(key) }) return false
+        val bars = minuteBars8822(t, p, sol, bornMs)
+        synchronized(tapeCoins8816) { tapeCoins8816[key] = true }
+        if (bars.size < LOOK + MIN_FUTURE + 1) { launchesShort8822.incrementAndGet(); return false }
+        val scored = learnSeries8807("LIVE|$mint", bars)
+        if (scored > 0) launchesLearned8822.incrementAndGet()
+        return scored > 0
+    }
     private val tapeCoins8816 = object : LinkedHashMap<Long, Boolean>(1_024, 0.75f, false) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, Boolean>?): Boolean = size > 50_000
     }
@@ -556,7 +589,7 @@ object ColourShape8807 {
         val e = ManualRead8806.record(xs.take(half)); val l = ManualRead8806.record(xs.drop(half))
         fun r(t: Triple<Int, Double, Double>) = "n${t.first}/${"%+.1f".format(t.second)}%±${if (t.third.isFinite()) "%.1f".format(t.third) else "-"}"
         return "colourShape8807[charts=${charts.get()} windows=${windows.get()} coarserThan5m=${skippedCoarse.get()} " +
-            "ownTapes8810{offered=${tapesOffered8810.get()} learned=${tapesLearned8810.get()} dropped=${tapesDropped8810.get()} duplicate8816=${tapesDuplicate8816.get()}} ${try { OwnBars8816.statusLine8816() } catch (_: Throwable) { "ownBars8816[-]" }} keys=$keys proven[$provenRows] " +
+            "ownTapes8810{offered=${tapesOffered8810.get()} learned=${tapesLearned8810.get()} dropped=${tapesDropped8810.get()} duplicate8816=${tapesDuplicate8816.get()}} launches8822{learned=${launchesLearned8822.get()} short=${launchesShort8822.get()}} ${try { OwnBars8816.statusLine8816() } catch (_: Throwable) { "ownBars8816[-]" }} keys=$keys proven[$provenRows] " +
             "bestInBothHalves[$best] worstInBothHalves[$worst] chartShapes[$textbook] | live ${if (ManualRead8806.armed(xs)) "ARMED" else "SHADOW"} reads=${liveReads.get()} " +
             "open=${open.size} closed=${closed.get()} shadowFires=${shadowFires.get()} armedFires=${armedFires.get()} evidenceServed=${served.get()} " +
             "early=${r(e)} late=${r(l)} rule=key = last three colour runs with lengths:newest candle|zone in the last $LOOK candles (L/M/H), leg (U/D/F), " +
@@ -568,7 +601,7 @@ object ColourShape8807 {
         synchronized(lock) { table.clear(); loaded = true }
         synchronized(live) { live.clear() }
         tapeQueue8810.clear(); tapesOffered8810.set(0); tapesLearned8810.set(0); tapesDropped8810.set(0)
-        tapesDuplicate8816.set(0); synchronized(tapeCoins8816) { tapeCoins8816.clear() }; provenCheckedAt8816 = 0L; anyProven8816 = false
+        tapesDuplicate8816.set(0); launchesLearned8822.set(0); launchesShort8822.set(0); synchronized(tapeCoins8816) { tapeCoins8816.clear() }; provenCheckedAt8816 = 0L; anyProven8816 = false
         open.clear(); lastBar.clear(); lastFire.clear(); fires.clear()
         charts.set(0); windows.set(0); skippedCoarse.set(0); liveReads.set(0); shadowFires.set(0); armedFires.set(0); served.set(0); closed.set(0)
     }

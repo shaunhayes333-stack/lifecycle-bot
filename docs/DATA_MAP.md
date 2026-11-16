@@ -506,3 +506,11 @@ observation under 30 s (`ShadowMark8360.observedOtherThan8821`); the answer is o
 ErrorLogger: the same run crashed OutOfMemoryError on ErrorLoggerIO (113,731 rows in 16 min; ERROR rows bypassed the
 pressure bound). A hard ceiling of 2,000 queued rows now holds for every level but CRASH (`droppedHard8821`), and the
 §8818 line lists the components offering the most rows (`top8821`).
+
+## 29. Every stored launch hour is a chart for the setup learner (8822)
+
+The remade setups are ColourShape8807's (colour runs and shapes, proven out of sample on the honest fill). 5.0.8820 had 21
+charts: OwnBars8816 lives in memory and the run crashed after 2.7 h. `LaunchReplay8744` already reads every stored launch
+(LaunchHour8628, 48 h, up to 6,000, spikes removed) every 30 minutes; each launch whose first hour is complete is passed
+to `ColourShape8807.learnLaunch8822`, built into one-minute candles (`minuteBars8822`) and learned once when it has
+LOOK + MIN_FUTURE + 1 candles. Status `launches8822{learned short}` in the §8807 line.
