@@ -151,68 +151,6 @@ class CoinGeckoSolanaTopMcap {
         }
     }
 
-    /**
-     * Pure (V5.0.8813): CoinGecko /coins/list?include_platform=true -> id to Solana mint, scanned without building the JSON
-     * tree. Only a coin's top-level "id" and its "platforms" object's "solana" string are read; anything else is skipped.
-     */
-    fun idMintMap8813(body: CharSequence): HashMap<String, String> {
-        val out = HashMap<String, String>(8192)
-        val n = body.length
-        var i = 0; var depth = 0
-        var key: String? = null
-        var id = ""; var mint = ""; var inPlatforms = false
-        val sb = StringBuilder()
-        fun readString(): String {           // at the opening quote; leaves i after the closing quote
-            sb.setLength(0); i++
-            while (i < n) {
-                val c = body[i]
-                if (c == '\\') {
-                    if (i + 1 >= n) { i++; break }
-                    when (val e = body[i + 1]) {
-                        'n' -> sb.append('\n'); 't' -> sb.append('\t'); 'r' -> sb.append('\r'); 'b' -> sb.append('\b'); 'f' -> sb.append('\u000C')
-                        'u' -> { if (i + 5 < n) { body.subSequence(i + 2, i + 6).toString().toIntOrNull(16)?.let { sb.append(it.toChar()) }; i += 4 } }
-                        else -> sb.append(e)
-                    }
-                    i += 2; continue
-                }
-                if (c == '"') { i++; break }
-                sb.append(c); i++
-            }
-            return sb.toString()
-        }
-        while (i < n) {
-            when (body[i]) {
-                '"' -> {
-                    val str = readString()
-                    var j = i
-                    while (j < n && body[j].isWhitespace()) j++
-                    if (j < n && body[j] == ':') { key = str; i = j + 1 }
-                    else {
-                        if (depth == 2 && key == "id") id = str
-                        else if (depth == 3 && inPlatforms && key == "solana") mint = str
-                        key = null
-                    }
-                }
-                '{' -> {
-                    val opening = depth
-                    depth++
-                    if (opening == 1) { id = ""; mint = ""; inPlatforms = false }
-                    else if (opening == 2 && key == "platforms") inPlatforms = true
-                    key = null; i++
-                }
-                '}' -> {
-                    if (depth == 3) inPlatforms = false
-                    if (depth == 2 && id.isNotBlank() && mint.length in 32..64) out[id] = mint
-                    depth--; key = null; i++
-                }
-                '[' -> { depth++; key = null; i++ }
-                ']' -> { depth--; key = null; i++ }
-                else -> i++
-            }
-        }
-        return out
-    }
-
     private fun get(url: String): String? = try {
         val req = Request.Builder().url(url)
             .header("Accept", "application/json")
@@ -221,4 +159,68 @@ class CoinGeckoSolanaTopMcap {
         val resp = HealthAwareHttp.execute(http, req, host = "coingecko")
         resp.use { if (it.isSuccessful) it.body?.string() else null }   // V5.0.8773 — closed on every path
     } catch (_: Exception) { null }
+
+    companion object {
+        /**
+         * Pure (V5.0.8813): CoinGecko /coins/list?include_platform=true -> id to Solana mint, scanned without building the JSON
+         * tree. Only a coin's top-level "id" and its "platforms" object's "solana" string are read; anything else is skipped.
+         */
+        fun idMintMap8813(body: CharSequence): HashMap<String, String> {
+            val out = HashMap<String, String>(8192)
+            val n = body.length
+            var i = 0; var depth = 0
+            var key: String? = null
+            var id = ""; var mint = ""; var inPlatforms = false
+            val sb = StringBuilder()
+            fun readString(): String {           // at the opening quote; leaves i after the closing quote
+                sb.setLength(0); i++
+                while (i < n) {
+                    val c = body[i]
+                    if (c == '\\') {
+                        if (i + 1 >= n) { i++; break }
+                        when (val e = body[i + 1]) {
+                            'n' -> sb.append('\n'); 't' -> sb.append('\t'); 'r' -> sb.append('\r'); 'b' -> sb.append('\b'); 'f' -> sb.append('\u000C')
+                            'u' -> { if (i + 5 < n) { body.subSequence(i + 2, i + 6).toString().toIntOrNull(16)?.let { sb.append(it.toChar()) }; i += 4 } }
+                            else -> sb.append(e)
+                        }
+                        i += 2; continue
+                    }
+                    if (c == '"') { i++; break }
+                    sb.append(c); i++
+                }
+                return sb.toString()
+            }
+            while (i < n) {
+                when (body[i]) {
+                    '"' -> {
+                        val str = readString()
+                        var j = i
+                        while (j < n && body[j].isWhitespace()) j++
+                        if (j < n && body[j] == ':') { key = str; i = j + 1 }
+                        else {
+                            if (depth == 2 && key == "id") id = str
+                            else if (depth == 3 && inPlatforms && key == "solana") mint = str
+                            key = null
+                        }
+                    }
+                    '{' -> {
+                        val opening = depth
+                        depth++
+                        if (opening == 1) { id = ""; mint = ""; inPlatforms = false }
+                        else if (opening == 2 && key == "platforms") inPlatforms = true
+                        key = null; i++
+                    }
+                    '}' -> {
+                        if (depth == 3) inPlatforms = false
+                        if (depth == 2 && id.isNotBlank() && mint.length in 32..64) out[id] = mint
+                        depth--; key = null; i++
+                    }
+                    '[' -> { depth++; key = null; i++ }
+                    ']' -> { depth--; key = null; i++ }
+                    else -> i++
+                }
+            }
+            return out
+        }
+    }
 }
