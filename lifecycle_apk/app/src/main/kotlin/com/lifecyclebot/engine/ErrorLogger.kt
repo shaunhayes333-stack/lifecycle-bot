@@ -68,6 +68,14 @@ object ErrorLogger {
     private val pendingWrites = AtomicInteger(0)
     private val droppedUnderPressure = AtomicLong(0L)
     private const val MAX_PENDING_WRITES = 300
+    private const val HARD_MAX_PENDING_8821 = 2_000
+    private val droppedHard8821 = AtomicLong(0L)
+    // V5.0.8821 — rows offered per component, so the report names what floods the log (bounded to 256 components).
+    private val byComponent8821 = java.util.concurrent.ConcurrentHashMap<String, AtomicLong>()
+    private fun noteComponent8821(component: String) {
+        val c = byComponent8821[component] ?: if (byComponent8821.size >= 256) return else byComponent8821.computeIfAbsent(component) { AtomicLong(0L) }
+        c.incrementAndGet()
+    }
 
     // ── Initialize ────────────────────────────────────────────────────
 
@@ -114,6 +122,14 @@ object ErrorLogger {
             droppedUnderPressure.incrementAndGet()
             return
         }
+        // V5.0.8821 — ERROR / CRASH rows bypass the pressure bound above, so a flood of them (each carrying a Throwable and its
+        // stack) could queue without limit: bc4c42e1 crashed with OutOfMemoryError on ErrorLoggerIO after 2.7 h while the log
+        // wrote 113,731 rows in 16 min. A hard ceiling holds for every level; a CRASH row still always queues.
+        if (pendingWrites.get() > HARD_MAX_PENDING_8821 && level != Level.CRASH) {
+            droppedHard8821.incrementAndGet()
+            return
+        }
+        noteComponent8821(component)
 
         // V5.9.476 — BATTERY-USE FIX: skip the SQLite write for DEBUG-level
         // logs.
@@ -208,7 +224,9 @@ object ErrorLogger {
     /** Report line: rows written, transactions, trims, rows dropped under pressure, rows waiting. */
     fun statusLine8818(): String =
         "errorLog8818[rows=${rowsWritten8818.get()} transactions=${batches8818.get()} trims=${trims8818.get()} " +
-            "droppedUnderPressure=${droppedUnderPressure.get()} pending=${pendingWrites.get()} rule=queued rows written in one transaction, table kept to $MAX_LOGS rows]"
+            "droppedUnderPressure=${droppedUnderPressure.get()} droppedHard8821=${droppedHard8821.get()} pending=${pendingWrites.get()} " +
+            "top8821=${byComponent8821.entries.map { it.key to it.value.get() }.sortedByDescending { it.second }.take(8).joinToString(",") { "${it.first}:${it.second}" }} " +
+            "rule=queued rows written in one transaction, table kept to $MAX_LOGS rows]"
 
     private fun writeToDb(
         database: SQLiteDatabase,

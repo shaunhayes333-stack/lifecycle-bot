@@ -327,6 +327,7 @@ object MemePaperTrader8544 {
         if (wantedAt8623.size > 512) wantedAt8623.keys.retainAll(open.keys)
         val until = nowMs + LOST_MARK_MS_8544
         try { KeylessMarks8359.noteBook8808(mint, until) } catch (_: Throwable) {}   // V5.0.8808 — its own class: never evicted by a shadow ticket
+        try { BookPrice8821.want8821(mint, until) } catch (_: Throwable) {}   // V5.0.8821 — Jupiter's price when nothing else observes it
         try { ForwardReturnLabeler7731.noteShadowWanted8442(mint, until) } catch (_: Throwable) {}
     }
     private const val WANT_EVERY_MS_8623 = 30_000L

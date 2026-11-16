@@ -158,6 +158,7 @@ object DataPipeline8191 {
             (try { com.lifecyclebot.network.KeylessRpc8359.statusLine8359() } catch (_: Throwable) { "rpcRoute8359 -" }) + " " +   // V5.0.8359
             (try { HeliusCadence8361.creditsLine8361() } catch (_: Throwable) { "creditsByCaller8361 -" }) + " " +   // V5.0.8361
             (try { com.lifecyclebot.engine.truth.KeylessMarks8359.statusLine8359() } catch (_: Throwable) { "keylessMarks8359 -" }) + " " +
+            (try { com.lifecyclebot.engine.truth.BookPrice8821.statusLine8821() } catch (_: Throwable) { "bookPrice8821 -" }) + " " +
             (try { com.lifecyclebot.network.PumpFunCandles8359.statusLine8359() } catch (_: Throwable) { "pumpCandles8359 -" })
 
     internal fun resetForTests8191() {

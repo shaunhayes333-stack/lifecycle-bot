@@ -492,3 +492,17 @@ history) and nothing said which positions made the duplicate. `CanonicalPaperTra
 per duplicate group, each open paper lot's lane / asset class / position id / open time / remaining quantity / lifecycle;
 it is appended to `DUPLICATE_SAME_MINT_INVENTORY_REPAIRED_6490` and, as `dupLots8820=`, to the
 `CANONICAL_BOOTSTRAP_READY_6515` line after the fields the device check reads.
+
+## 28. Every paper coin keeps a price; the log cannot flood the heap (8821)
+
+Report bc4c42e1 (5.0.8820 after the clean rebuild): the paper book closed most of its coins LOST_MARK (CASHGEN 254 of 483,
+EXPRESS 374 of 834, three of them past +100 % first). Its marks were tick / labeler / curve / tape / constant-product pool
+only: a graduated coin, a concentrated pool (DLMM, CLMM, Whirlpool) or a coin off the watchlist had none, and lane proof
+counts priced closes only — every lane was judged on its stopped losers. `BookPrice8821` asks Jupiter
+(`KeylessPriceSources6996.jupiterBatch`, keyed then keyless, 50 a call) every 20 s for the book's coins with no other
+observation under 30 s (`ShadowMark8360.observedOtherThan8821`); the answer is one more observation (`JUP`) in
+`ShadowMark8360.observedTimed8372`, aged and jump-guarded like the rest. Status `bookPrice8821[...]` in the data pipeline line.
+
+ErrorLogger: the same run crashed OutOfMemoryError on ErrorLoggerIO (113,731 rows in 16 min; ERROR rows bypassed the
+pressure bound). A hard ceiling of 2,000 queued rows now holds for every level but CRASH (`droppedHard8821`), and the
+§8818 line lists the components offering the most rows (`top8821`).

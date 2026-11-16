@@ -26,6 +26,18 @@ object ShadowMark8360 {
 
     private fun ok(px: Double?): Boolean = px != null && px.isFinite() && px > 0.0
 
+    /**
+     * V5.0.8821 — does [mint] have an observation within [maxAgeMs] from a source other than Jupiter (tick, labeler, curve,
+     * tape)? BookPrice8821 asks Jupiter only for the coins this answers false for. Cheap cache reads; no pool request.
+     */
+    fun observedOtherThan8821(mint: String, nowMs: Long, maxAgeMs: Long): Boolean {
+        fun fresh(at: Long) = at > 0L && nowMs - at in 0L..maxAgeMs
+        try { ForwardReturnLabeler7731.observedMark8372(mint, nowMs)?.let { if (fresh(it.second)) return true } } catch (_: Throwable) {}
+        try { CurveReserves7951.activeExitObservation(mint, nowMs, maxAgeMs)?.let { if (fresh(it.observedAtMs)) return true } } catch (_: Throwable) {}
+        try { TradeTape8100.lastPrint8360(mint)?.let { if (fresh(it.second) && PrintWitness8750.witnessedPrint8750(mint, it.second)) return true } } catch (_: Throwable) {}
+        return false
+    }
+
     /** Cached observation, not a newly invented mark at the time of this read. */
     data class Observation8372(val priceUsd: Double, val observedAtMs: Long, val source: String)
 
@@ -72,6 +84,8 @@ object ShadowMark8360 {
                 }
             } catch (_: Throwable) {}
         }
+        // V5.0.8821 — Jupiter's price for a coin no other source observes (graduated, concentrated pool, off the watchlist).
+        try { BookPrice8821.observation8821(mint, nowMs, MAX_AGE_MS_8360)?.let { candidates += it } } catch (_: Throwable) {}
         val best = candidates.filter { ok(it.priceUsd) && it.observedAtMs > 0L &&
             nowMs - it.observedAtMs in 0L..MAX_AGE_MS_8360 }.maxByOrNull { it.observedAtMs }
         // Nothing observed now: ask the pool's vaults so the next tick has a chain mark (bounded, de-duplicated by the reader).
