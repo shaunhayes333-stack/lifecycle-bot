@@ -525,3 +525,16 @@ observations, the dumps (net <= -50 %) and their summed loss, from the same labe
 per observation). `gapCostPct8823(lane, liquidity, stop)` = (sumDumpLoss - dumps x stop) / n (n >= 40, else 0), and
 `NetEdge8030.preTradeCostPct8329` adds it to every entry's cost (admission economics, live edge gate, promotion,
 runner grab, entry economics). Report line `Gap cost (§8823)`.
+
+## 31. The $10k crossers that keep going (8824)
+
+Owner: "focus in on the coins moving from 10k up ... grabbing 100-500% profits and getting out". The owner's launch export
+(2,354 clean launches, 645 crossed $10k): bought blind at the cross the best exit averaged -1.4 %; crossers that had
+printed >= 44 buys since birth (n163) averaged +13.5 % under the DOCTRINE ladder with a 35 % stop, positive in both halves.
+`LaunchReplay8744.Rule.totalBuys` is the live buys since birth before the cross; `trigger8748` counts it beside the 60 s
+window, `TOTAL_FAMILY_8824` (360 rules: $10k / $15k, 1 / 8 window buys, 25 / 45 / 80 total, 20 / 35 / 50 % stops,
+DOCTRINE / SCALE_OUT / HALF_TRAIL x3, 10 / 20 s latency) joins the grid and is proven under the same bar (DOCTRINE,
+latency, n >= 100, ex-top-3 mean - SE > 0). `LaunchSniper8748.St.totalBuys` feeds the same trigger live;
+`StrategyLab8755` stores `totalBuys` and the lab prompt offers it. An entry inside an armed fire's 120 s evidence window is
+not charged the band gap (`NetEdge8030.gapExempt8824`): the rule's record already is its net outcome on that trigger.
+Status `cumulative8824{best vsWindowOnly}` in the §8744 line, `replayFireExempt8824=` in the §8823 line.

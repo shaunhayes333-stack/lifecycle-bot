@@ -490,9 +490,10 @@ ANSWER WITH ONE OF THESE FAMILIES (preferred), plus name and rationale:
   {"name","rationale","family":"CELL","lane":"ANY|<LANE>","source":"ANY|<SOURCE>","conds":[{"f":"<feature>","lo":<num>,"hi":<num>}, ... up to 3]}
      features: liq mcap age(minutes) runup dd bp chg5m chg1h top txVel turnover curve pxPeak cost volAccel v3 newBuyers15s8666
   {"name","rationale","family":"BASE","peakCapUsd":5000..200000,"pullback":0.2..0.9,"baseWinMs":30000..900000,"maxRange":1.05..3,"minBuys":0..60,"mode":"IN_BASE|BREAKOUT","ladder":"DOCTRINE|HALF_TRAIL|MOONBAG","delayMs":10000..60000}
-  {"name","rationale","family":"LAUNCH","capUsd":3000..60000,"minBuys":1..60,"takeX":1.5..10,"stopPct":5..60,"ladder":"DOCTRINE|HALF_TRAIL|MOONBAG","delayMs":10000..60000}
+  {"name","rationale","family":"LAUNCH","capUsd":3000..60000,"minBuys":1..60,"totalBuys":0..500,"takeX":1.5..10,"stopPct":5..60,"ladder":"DOCTRINE|HALF_TRAIL|MOONBAG","delayMs":10000..60000}
   {"name","rationale","family":"RUNNER","pct":90|95|98}
 Only DOCTRINE-ladder LAUNCH / BASE rules at the bot's real latency can be traded live; others are graded for insight.
+  (LAUNCH: minBuys = live buys in the 60 s before the cap is crossed; totalBuys = live buys since birth before it.)
 
 LEGACY PAPER STRATEGIES (non-meme assets only) still use the old fields below.
 

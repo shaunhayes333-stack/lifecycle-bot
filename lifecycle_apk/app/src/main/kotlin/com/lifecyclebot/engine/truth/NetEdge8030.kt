@@ -226,7 +226,11 @@ object NetEdge8030 {
         val model = costPct8030(lane, sizeSol, liquidityUsd, mint, mcapUsd)
         // V5.0.8823 — plus the measured loss beyond the stop on the dumps of this liquidity band (PocketLedger8610.gapCostPct8823):
         // the entry must clear what a gap costs where gaps happen, not only the fees, slippage and impact of a clean trip.
-        val gap = try { PocketLedger8610.gapCostPct8823(lane, liquidityUsd, FieldManual7715.stopPct8392(lane, model)) } catch (_: Throwable) { 0.0 }
+        // V5.0.8824 — except on a coin inside an armed replay fire's window: that rule's record is its own net outcome on the
+        // same trigger, dumps through the stop included, so the band's average gap would be charged twice
+        // (LaunchSniper8748.armedWindow8824). The band gap of a $10k launch is the very cost the replay already measured.
+        val gap = if (gapExempt8824(mint, System.currentTimeMillis())) 0.0
+            else try { PocketLedger8610.gapCostPct8823(lane, liquidityUsd, FieldManual7715.stopPct8392(lane, model)) } catch (_: Throwable) { 0.0 }
         if (gap > 0.0) gapCharged8823.incrementAndGet()
         // The admission reads the lane's MEASURED round trip (owner: "use measured cost per lane"). It went through
         // RoundTrip8418.markLift8418, a stub that always returns null, so entries were judged on the 3.78 % model while live
@@ -240,8 +244,16 @@ object NetEdge8030 {
     }
 
     private val gapCharged8823 = AtomicLong(0)
+    private val gapExempted8824 = AtomicLong(0)
+
+    /** V5.0.8824 — true (and counted) when [mint] is inside an armed launch / base replay fire's evidence window. */
+    internal fun gapExempt8824(mint: String, nowMs: Long): Boolean {
+        val armed = try { LaunchSniper8748.armedWindow8824(mint, nowMs) } catch (_: Throwable) { false }
+        if (armed) gapExempted8824.incrementAndGet()
+        return armed
+    }
     /** V5.0.8823 — entry costs that carried a band's gap cost, and the band ledger. */
-    fun gapLine8823(): String = "charged=${gapCharged8823.get()} " + (try { PocketLedger8610.gapLine8823() } catch (_: Throwable) { "gap8823[-]" })
+    fun gapLine8823(): String = "charged=${gapCharged8823.get()} replayFireExempt8824=${gapExempted8824.get()} " + (try { PocketLedger8610.gapLine8823() } catch (_: Throwable) { "gap8823[-]" })
 
     /** LiveEdgeGate7877 (live): the refusal when [lane]'s expected move is under 2x the round trip, else null. */
     fun entryRefusal8030(ts: TokenState, lane: String): String? {

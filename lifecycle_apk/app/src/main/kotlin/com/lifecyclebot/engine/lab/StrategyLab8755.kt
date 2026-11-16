@@ -140,7 +140,7 @@ object StrategyLab8755 {
             Family.CELL -> o.put("conds", JSONArray().apply { s.conds.forEach { put(JSONObject().put("f", it.feature).put("lo", it.lo).put("hi", it.hi)) } })
             Family.RUNNER -> o.put("pct", s.runnerPct)
             Family.LAUNCH -> s.launch?.let { r -> o.put("capUsd", r.capUsd).put("minBuys", r.minBuys).put("takeX", r.takeX).put("stopPct", r.stopPct)
-                .put("ladder", r.ladder.name).put("delayMs", r.delayMs) }
+                .put("ladder", r.ladder.name).put("delayMs", r.delayMs).put("totalBuys", r.totalBuys) }   // V5.0.8824
             Family.BASE -> s.base?.let { r -> with(r.trigger) { o.put("peakCapUsd", minPeakCapUsd).put("pullback", pullback).put("baseWinMs", baseWinMs)
                 .put("maxRange", maxRange).put("minBuys", minBuys).put("mode", mode.name) }; o.put("ladder", r.ladder.name).put("delayMs", r.delayMs) }
         }
@@ -169,7 +169,7 @@ object StrategyLab8755 {
             Family.RUNNER -> Spec(fam, lane, source, runnerPct = o.optInt("pct", 95).let { p -> listOf(90, 95, 98).minByOrNull { kotlin.math.abs(it - p) } ?: 95 })
             Family.LAUNCH -> Spec(fam, launch = LaunchReplay8744.Rule(o.optDouble("capUsd", 10_000.0).coerceIn(3_000.0, 60_000.0),
                 o.optInt("minBuys", 8).coerceIn(1, 60), o.optDouble("takeX", 3.0).coerceIn(1.5, 10.0), o.optDouble("stopPct", 30.0).coerceIn(5.0, 60.0),
-                ladder(), delay))
+                ladder(), delay, o.optInt("totalBuys", 0).coerceIn(0, 500)))   // V5.0.8824 live buys since birth
             Family.BASE -> Spec(fam, base = BaseFamily8754.Rule(BaseFamily8754.Trigger(o.optDouble("peakCapUsd", 20_000.0).coerceIn(5_000.0, 200_000.0),
                 o.optDouble("pullback", 0.5).coerceIn(0.2, 0.9), o.optLong("baseWinMs", 120_000L).coerceIn(30_000L, 900_000L),
                 o.optDouble("maxRange", 1.4).coerceIn(1.05, 3.0), o.optInt("minBuys", 3).coerceIn(0, 60),

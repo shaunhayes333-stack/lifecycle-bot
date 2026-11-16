@@ -36,6 +36,7 @@ class Aate8744LaunchReplayTest {
         val tune = File("src/main/kotlin/com/lifecyclebot/engine/truth/TuningReport8618.kt").readText()
         assertTrue(tune.contains("tuning_8744.json") && tune.contains("save8744()") && tune.contains("restore8744()"))
         // V5.0.8749 (supersedes 8748's 486): 3 caps x 3 buys x 3 takes x 2 stops x 3 ladders x 5 entry latencies
-        assertTrue(LaunchReplay8744.GRID.size == 1080)   // V5.0.8756: the SCALE_OUT ladder (4 ladders)
+        // V5.0.8756: the SCALE_OUT ladder (4 ladders); V5.0.8824: plus the 360-rule cumulative-buys family
+        assertTrue(LaunchReplay8744.GRID.size == 1080 + 360)
     }
 }

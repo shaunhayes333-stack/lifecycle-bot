@@ -29,6 +29,8 @@ object LaunchSniper8748 {
 
     private class St(val bornMs: Long) {
         val buys = ArrayDeque<Long>()
+        // V5.0.8824 — the live buys since this coin was first heard (LaunchReplay8744.Rule.totalBuys)
+        var totalBuys = 0
         val sigs = ArrayDeque<String>()
         var fired = false
         var lastSeen = 0L
@@ -90,9 +92,12 @@ object LaunchSniper8748 {
     private val evidenceServed = AtomicLong()
     @Volatile private var lastFire: Fire? = null
 
-    /** Pure: does a coin at [capUsd] with [buys60s] live buys in the last minute meet [rule]'s trigger? */
-    fun triggers8748(rule: LaunchReplay8744.Rule, capUsd: Double, buys60s: Int): Boolean =
-        capUsd.isFinite() && capUsd >= rule.capUsd && buys60s >= rule.minBuys
+    /**
+     * Pure: does a coin at [capUsd] with [buys60s] live buys in the last minute and (V5.0.8824) [totalBuys] live buys since
+     * it was first heard meet [rule]'s trigger?
+     */
+    fun triggers8748(rule: LaunchReplay8744.Rule, capUsd: Double, buys60s: Int, totalBuys: Int = 0): Boolean =
+        capUsd.isFinite() && capUsd >= rule.capUsd && buys60s >= rule.minBuys && totalBuys >= rule.totalBuys
 
     /** One decoded print of [mint] (chain time [eventMs], received [recvMs], signature [sig]). Cheap; never throws. */
     fun onPrint8748(mint: String, eventMs: Long, priceSol: Double, isBuy: Boolean, recvMs: Long, sig: String) {
@@ -125,9 +130,9 @@ object LaunchSniper8748 {
                 s.lastSeen = recvMs
                 // the launch family: live prints only, the cap / buys trigger
                 if (live && result != null && !s.fired) {
-                    if (isBuy) s.buys.addLast(eventMs)
+                    if (isBuy) { s.buys.addLast(eventMs); s.totalBuys++ }
                     while (s.buys.isNotEmpty() && s.buys.first() < eventMs - 60_000L) s.buys.removeFirst()
-                    if (triggers8748(result.rule, cap, s.buys.size)) {
+                    if (triggers8748(result.rule, cap, s.buys.size, s.totalBuys)) {
                         s.fired = true
                         fires.add(Fire(mint, recvMs, eventMs - s.bornMs, cap, result.rule.id, result.n, result.exTop3, result.exTop3Se, result.tenX,
                             armed = proven != null, triggerEventMs = eventMs))
@@ -161,6 +166,14 @@ object LaunchSniper8748 {
             if (added.added) watchAdds.incrementAndGet()
         } catch (_: Throwable) {}
     }
+
+    /**
+     * V5.0.8824 — NetEdge8030.preTradeCostPct8329: is [mint] inside an armed fire's evidence window? Such an entry's record is
+     * the replay's own net outcome on the same trigger, every dump through the stop included, so the band's average gap
+     * (PocketLedger8610.gapCostPct8823) is not charged on top of it a second time. Pure read; counts nothing.
+     */
+    fun armedWindow8824(mint: String, nowMs: Long): Boolean =
+        mint.isNotBlank() && fires[mint]?.let { it.armed && nowMs - it.atMs in 0L..EVIDENCE_TTL_MS } == true
 
     /** CandidateAdmission8136: the armed fire on [mint] as market-cell evidence, or null. */
     fun evidence8748(mint: String, nowMs: Long): CandidateAdmission8136.Evidence8136? {

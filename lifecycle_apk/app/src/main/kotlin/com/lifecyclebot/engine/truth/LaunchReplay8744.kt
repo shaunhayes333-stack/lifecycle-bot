@@ -30,6 +30,17 @@ import java.util.concurrent.atomic.AtomicBoolean
  * strategy) and prints the median, the 2x / 10x / 50x shares beside it. [proven8748] names the rule LaunchSniper8748 may
  * trade: the bot's own exit ladder (DOCTRINE), a latency the bot can meet (>= [ARM_MIN_DELAY_MS_8748]), n >= [PROVEN_MIN_N_8748]
  * and the ex-top-3 mean clear of its own standard error.
+ *
+ * V5.0.8824 §THE_TEN_K_CROSSERS_THAT_KEEP_GOING — owner: "it has to focus in on the coins moving from 10k up in their market
+ * cap looking at grabbing 100-500% profits and getting out". The owner's launch export (2,354 clean launches, 645 of them
+ * crossed $10k) says which crossers: bought blind at the cross (next 10 s bar's high, 3.5 % cost) the best exit averaged
+ * -1.4 %; only 16 % of crossers went +100 % after entry. The crossers that had printed at least 44 buys since birth
+ * (n163) averaged +13.5 % under the bot's own DOCTRINE ladder with a 35 % stop, positive in both halves of the period
+ * (+18.2 / +8.9), +16.2 % for the best fixed take, positive in every quarter. The 60-second window the grid had (at most
+ * 15 buys) cannot see that: a coin with 44 buys over its life and 4 in the last minute is the one that keeps going. So a
+ * rule carries [Rule.totalBuys], the live buys printed since birth before the cross, and the grid grades a focused
+ * cumulative family ([TOTAL_FAMILY_8824]) on the same paths. Nothing is assumed from the export: the phone's own launches
+ * prove (or refuse) it under the same bar as every launch rule.
  */
 object LaunchReplay8744 {
     /**
@@ -46,8 +57,9 @@ object LaunchReplay8744 {
      */
     enum class Ladder { HALF_TRAIL, DOCTRINE, MOONBAG, SCALE_OUT }
     data class Rule(val capUsd: Double, val minBuys: Int, val takeX: Double, val stopPct: Double, val ladder: Ladder = Ladder.HALF_TRAIL,
-                    val delayMs: Long = 2_000L) {
-        val id: String get() = "cap\$${(capUsd / 1000).toInt()}k buys>=$minBuys tp${takeX.toInt()}x stop${stopPct.toInt()}% $ladder +${delayMs / 1000}s"
+                    val delayMs: Long = 2_000L, val totalBuys: Int = 0) {
+        val id: String get() = "cap\$${(capUsd / 1000).toInt()}k buys>=$minBuys${if (totalBuys > 0) " total>=$totalBuys" else ""} " +
+            "tp${takeX.toInt()}x stop${stopPct.toInt()}% $ladder +${delayMs / 1000}s"
     }
     data class Result(val rule: Rule, val n: Int, val mean: Double, val se: Double, val win: Double, val twoX: Double, val tenX: Double = 0.0,
                       val median: Double = Double.NaN, val exTop3: Double = Double.NaN, val exTop3Se: Double = Double.NaN,
@@ -72,10 +84,24 @@ object LaunchReplay8744 {
 
     /** V5.0.8749 — 5 s and 20 s join 2 / 10 / 30 s: the armed rule must match the latency the bot measures (LaunchSniper8748). */
     private val DELAYS_8749 = listOf(2_000L, 5_000L, 10_000L, 20_000L, 30_000L)
+    /**
+     * V5.0.8824 — the cumulative family: the $10k / $15k cross after 25 / 45 / 80 live buys since birth, still bought in the
+     * last minute (1 / 8), at the latencies the bot can meet; DOCTRINE and SCALE_OUT once (their rungs ignore the take),
+     * HALF_TRAIL at each take. 2 x 2 x 3 x 3 stops x 5 exits x 2 delays = 360 rules.
+     */
+    internal val TOTAL_FAMILY_8824: List<Rule> = buildList {
+        for (cap in listOf(10_000.0, 15_000.0)) for (b in listOf(1, 8)) for (tot in listOf(25, 45, 80))
+            for (st in listOf(20.0, 35.0, 50.0)) for (d in listOf(10_000L, 20_000L)) {
+                add(Rule(cap, b, 2.0, st, Ladder.DOCTRINE, d, tot))
+                add(Rule(cap, b, 2.0, st, Ladder.SCALE_OUT, d, tot))
+                for (tx in listOf(2.0, 3.0, 5.0)) add(Rule(cap, b, tx, st, Ladder.HALF_TRAIL, d, tot))
+            }
+    }
     val GRID: List<Rule> = buildList {
         for (cap in listOf(5_000.0, 10_000.0, 15_000.0)) for (b in listOf(3, 8, 15))
             for (tx in listOf(2.0, 3.0, 5.0)) for (st in listOf(20.0, 35.0)) for (l in Ladder.values())
                 for (d in DELAYS_8749) add(Rule(cap, b, tx, st, l, d))
+        addAll(TOTAL_FAMILY_8824)
     }
 
     /** Pure: the isolated spikes of a print series (true = drop): more than [SPIKE_X_8748] x off the prints on both sides. */
@@ -107,13 +133,16 @@ object LaunchReplay8744 {
             sol?.let { v -> DoubleArray(keep.size) { v[keep[it]] } }, wallet?.let { w -> IntArray(keep.size) { w[keep[it]] } }, bornMs)
     }
 
-    /** Pure: the first live print where the cap is reached with [minBuys] live buys in the 60 s before it; -1 when none. */
-    private fun trigger8748(x: Path8748, capUsd: Double, minBuys: Int, solUsd: Double): Int {
-        var j = 0; var buys = 0
+    /**
+     * Pure: the first live print where the cap is reached with [minBuys] live buys in the 60 s before it and (V5.0.8824)
+     * [totalBuys] live buys since the first print; -1 when none.
+     */
+    internal fun trigger8748(x: Path8748, capUsd: Double, minBuys: Int, solUsd: Double, totalBuys: Int = 0): Int {
+        var j = 0; var buys = 0; var total = 0
         for (i in x.t.indices) {
-            if (x.live[i] && x.buy[i]) buys++
+            if (x.live[i] && x.buy[i]) { buys++; total++ }
             while (x.t[j] < x.t[i] - 60_000L) { if (x.live[j] && x.buy[j]) buys--; j++ }
-            if (x.live[i] && x.p[i] * SUPPLY * solUsd >= capUsd && buys >= minBuys) return i
+            if (x.live[i] && x.p[i] * SUPPLY * solUsd >= capUsd && buys >= minBuys && total >= totalBuys) return i
         }
         return -1
     }
@@ -132,7 +161,7 @@ object LaunchReplay8744 {
     /** V5.0.8755 — StrategyLab8755: one launch rule (any parameters, not only the grid's) on one path, or null when it never fired. */
     internal fun simulateRule8755(x: Path8748, rule: Rule, solUsd: Double, costPct: Double): Double? {
         if (x.t.isEmpty()) return null
-        val trig = trigger8748(x, rule.capUsd, rule.minBuys, solUsd)
+        val trig = trigger8748(x, rule.capUsd, rule.minBuys, solUsd, rule.totalBuys)
         return if (trig < 0) null else run8748(x, trig, rule, costPct)
     }
 
@@ -188,7 +217,7 @@ object LaunchReplay8744 {
         if (t.isEmpty() || !(solUsd > 0.0)) return null
         val x = clean8748(t, p, buy, live)
         if (x.t.isEmpty()) return null
-        val trig = trigger8748(x, rule.capUsd, rule.minBuys, solUsd)
+        val trig = trigger8748(x, rule.capUsd, rule.minBuys, solUsd, rule.totalBuys)
         return if (trig < 0) null else run8748(x, trig, rule, costPct)
     }
 
@@ -211,11 +240,11 @@ object LaunchReplay8744 {
     /** Each rule's result over the launches, best first: n >= MIN_N, then the ex-top-3 mean less its SE. */
     private fun evaluate8748(launches: List<Path8748>, solUsd: Double, costPct: Double): List<Result> {
         val values = HashMap<Rule, ArrayList<Double>>()
-        val triggers = GRID.map { it.capUsd to it.minBuys }.distinct()
+        val triggers = GRID.map { Triple(it.capUsd, it.minBuys, it.totalBuys) }.distinct()
         for (x in launches) {
-            val trig = triggers.associateWith { (c, b) -> trigger8748(x, c, b, solUsd) }
+            val trig = triggers.associateWith { (c, b, tot) -> trigger8748(x, c, b, solUsd, tot) }
             for (r in GRID) {
-                val i = trig[r.capUsd to r.minBuys] ?: -1
+                val i = trig[Triple(r.capUsd, r.minBuys, r.totalBuys)] ?: -1
                 if (i >= 0) run8748(x, i, r, costPct)?.let { values.getOrPut(r) { ArrayList() }.add(it) }
             }
         }
@@ -304,7 +333,7 @@ object LaunchReplay8744 {
         val diffs = Ladder.values().associateWith { ArrayList<Double>() }
         for (x in launches) {
             if (x.t.isEmpty()) continue
-            val trig = trigger8748(x, base.capUsd, base.minBuys, solUsd)
+            val trig = trigger8748(x, base.capUsd, base.minBuys, solUsd, base.totalBuys)
             if (trig < 0) continue
             val d = run8748(x, trig, base.copy(ladder = Ladder.DOCTRINE), costPct) ?: continue
             for (l in Ladder.values()) if (l != Ladder.DOCTRINE) run8748(x, trig, base.copy(ladder = l), costPct)?.let { diffs.getValue(l).add(it - d) }
@@ -334,6 +363,17 @@ object LaunchReplay8744 {
         "$l=" + (b?.let { "exTop3${"%+.1f".format(it.exTop3)}±${"%.1f".format(it.exTop3Se)}%/10x+${"%.1f".format(it.tenX * 100)}%/n${it.n}" } ?: "-")
     } + "}"
 
+    /**
+     * V5.0.8824 — the cumulative family beside the window-only rules: the best graded rule (n >= MIN_N) of each, ranked by
+     * the ex-top-3 mean less its SE, so the report says which way of choosing the crossers holds on this phone's launches.
+     */
+    internal fun totalLine8824(results: List<Result>): String {
+        fun best(cum: Boolean) = results.filter { (it.rule.totalBuys > 0) == cum && it.n >= MIN_N && it.exTop3.isFinite() && it.exTop3Se.isFinite() }
+            .maxByOrNull { it.exTop3 - it.exTop3Se }
+        fun fmt(r: Result?) = r?.let { "${it.rule.id} n${it.n} mean${"%+.1f".format(it.mean)}% exTop3${"%+.1f".format(it.exTop3)}±${"%.1f".format(it.exTop3Se)}%" } ?: "-"
+        return "cumulative8824{best=${fmt(best(true))} vsWindowOnly=${fmt(best(false))}}"
+    }
+
     private fun line(r: Result): String =
         "${r.rule.id} n${r.n} med${"%+.0f".format(r.median)}% mean${"%+.0f".format(r.mean)}% exTop3${"%+.1f".format(r.exTop3)}±${"%.1f".format(r.exTop3Se)}% " +
             "win${(r.win * 100).toInt()}% 2x+${(r.twoX * 100).toInt()}% 10x+${"%.1f".format(r.tenX * 100)}% 50x+${"%.1f".format(r.fiftyX * 100)}%"
@@ -342,6 +382,7 @@ object LaunchReplay8744 {
         maybeRun8744()
         val top = last.take(5).joinToString(" · ") { line(it) }.ifBlank { "-" }
         return "launchReplay8744[$status rules=${GRID.size} proven{${proven?.let { line(it) } ?: "none"}} ${ladderLine8756(last)} ${pairedLine8788()} " +
+            "${totalLine8824(last)} " +
             "shadow{${shadow?.let { line(it) } ?: "none"}} best{$top} rule=live prints only, spikes dropped, fills at the curve after " +
             "the latency, ranked by the mean without each rule's 3 best launches; proven = DOCTRINE ladder, >=${ARM_MIN_DELAY_MS_8748 / 1000}s, " +
             "n>=$PROVEN_MIN_N_8748, ex-top-3 mean - SE > 0]"
