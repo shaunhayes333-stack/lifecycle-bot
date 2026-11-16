@@ -14,7 +14,8 @@ import xml.etree.ElementTree as ET
 
 PKG = "com.lifecyclebot.aate"
 TICK = re.compile(r"\[BOT_LOOP_TICK\]\s+n=(\d+)\s+watch=")
-BOOT = re.compile(r"CANONICAL_BOOTSTRAP_READY_6515\S*\s+events=(\d+)\s+positions=(\d+)\s+duplicateMints=(\d+)")
+# V5.0.8830 — the duplicate's lots (BotService dupLots8820=) ride along, so a FAIL names what was duplicated
+BOOT = re.compile(r"CANONICAL_BOOTSTRAP_READY_6515\S*\s+events=(\d+)\s+positions=(\d+)\s+duplicateMints=(\d+)(?:\s+dupLots8820=(\S+))?")
 DISPATCH = re.compile(r"PAPER_TICKET_DISPATCHED_6514\S*\s+attemptId=(\S+)")
 CRASH = [
     re.compile(r"FATAL EXCEPTION.*"),          # paired with the Process: line below
@@ -94,8 +95,11 @@ def bootstrap(text: str):
     m = list(BOOT.finditer(text))
     if not m:
         return None
-    e, p, d = (int(x) for x in m[-1].groups())
-    return {"events": e, "positions": p, "duplicateMints": d}
+    g = m[-1].groups()
+    out = {"events": int(g[0]), "positions": int(g[1]), "duplicateMints": int(g[2])}
+    if g[3]:
+        out["dupLots"] = g[3]
+    return out
 
 
 def report_verdict(report: str, require_restore: bool) -> tuple[bool, str]:

@@ -65,6 +65,8 @@ class Logs(unittest.TestCase):
     def test_bootstrap(self):
         line = "I/F: 🧬[LIFECYCLE] #4 CANONICAL_BOOTSTRAP_READY_6515  events=8192 positions=0 duplicateMints=0 durMs=12 thread=x"
         self.assertEqual(dc.bootstrap(line), {"events": 8192, "positions": 0, "duplicateMints": 0})
+        dup = "I/F: CANONICAL_BOOTSTRAP_READY_6515  events=8192 positions=63 duplicateMints=1 dupLots8820=ABC:PAPER:2x0.1 durMs=9 thread=x"
+        self.assertEqual(dc.bootstrap(dup), {"events": 8192, "positions": 63, "duplicateMints": 1, "dupLots": "ABC:PAPER:2x0.1"})
         self.assertIsNone(dc.bootstrap("nothing"))
 
     def test_report(self):
