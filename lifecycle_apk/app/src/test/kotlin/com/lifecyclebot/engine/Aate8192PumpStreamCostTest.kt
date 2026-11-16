@@ -48,7 +48,8 @@ class Aate8193PumpStreamBudgetSharedTest {
         // V5.0.8646: the daily PumpPortal budget still binds, but an exhausted paid budget
         // must route the same setup watch to the independently governed Helius tape.
         assertTrue(setup.contains("if (!meteredSubAllowed8193(mint, setup8317 = true)) {"))
-        assertTrue(setup.contains("return HeliusCurveTape8354.ask8354(mint, nowMs)"))
+        // superseded by V5.0.8814 — the setup asks Helius for its tape state; a coin Helius cannot carry may take the setup reserve.
+        assertTrue(setup.contains("val st = HeliusCurveTape8354.askState8386(mint, nowMs)"))
         assertTrue(setup.contains("setupNeedsHeliusFallback8646(tradeStreamEnabled8354, tradeStreamKeyed7284())"))
         val fresh = s.substringAfter("private fun registerFreshLifecycle7420(").substringBefore("lifecycleMints7420[mint] = now")
         assertTrue(fresh.contains("(framesByMint8192[mint]?.get() ?: 0L) >= LAUNCH_FRAME_CAP_8192"))

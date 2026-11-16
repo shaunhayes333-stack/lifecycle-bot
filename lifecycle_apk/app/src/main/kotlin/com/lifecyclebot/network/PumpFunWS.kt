@@ -390,6 +390,18 @@ object PumpFunWS {
     @Volatile private var tradeStreamEnabled8354: Boolean = TRADE_STREAM_DEFAULT_8354
     private val lifecycleSkippedOff8354 = AtomicLong(0L)
     private val setupRoutedHelius8354 = AtomicLong(0L)
+    // ── V5.0.8814 §A_SETUP_THE_OTHER_SOURCE_CANNOT_CARRY ──
+    // Launches stop subscribing at 80 % of the day's frames (launchSubAllowed8192) so the rest stays for coins the bot is
+    // deciding on and holding. Before 8814 a setup past that mark went to Helius only, so with Helius refusing (plan usage
+    // spent, socket 429) the reserved 20 % sat unused while every decision coin had no tape. Now: setups may use frames up to
+    // [SETUP_TOP_PCT_8814] % when Helius answered Unavailable for that coin; held coins keep everything above it.
+    internal const val SETUP_TOP_PCT_8814 = 95L
+    private val setupOverflow8814 = AtomicLong(0L)
+    private val setupUnserved8814 = AtomicLong(0L)
+
+    /** Pure: may a setup Helius could not carry ([heliusUnavailable]) take PumpPortal's keyed stream with [framesToday] streamed? */
+    internal fun setupOverflow8814(heliusUnavailable: Boolean, keyed: Boolean, framesToday: Long, budget: Long = DAILY_FRAME_BUDGET_8192): Boolean =
+        heliusUnavailable && keyed && framesToday < budget * SETUP_TOP_PCT_8814 / 100L
     private val markSource8354 = ThreadLocal<String>()
 
     /** ConfigStore load / save publish the persisted switch here. */
@@ -485,14 +497,27 @@ object PumpFunWS {
         if (setupNeedsHeliusFallback8646(tradeStreamEnabled8354, tradeStreamKeyed7284())) {
             setupRoutedHelius8354.incrementAndGet()
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_SETUP_HELIUS_FALLBACK_8646") } catch (_: Throwable) {}
-            return HeliusCurveTape8354.ask8354(mint, nowMs)
+            val st = HeliusCurveTape8354.askState8386(mint, nowMs)
+            if (st is HeliusCurveTape8354.TapeState8386.Unavailable) setupUnserved8814.incrementAndGet()   // V5.0.8814 — no source carries it
+            return st is HeliusCurveTape8354.TapeState8386.Delivering
         }
         setupRequested8191.incrementAndGet()
         // V5.0.8193 — the metered stream's budget governs setup watches too (one budget, one per-coin cap).
         if (!meteredSubAllowed8193(mint, setup8317 = true)) {
             // PumpPortal's daily cap must not silently disable the independently bounded Helius source.
             setupRoutedHelius8354.incrementAndGet()
-            return HeliusCurveTape8354.ask8354(mint, nowMs)
+            // V5.0.8814 — ...and Helius refusing the coin must not leave it with no tape at all (5815972e: Helius "max usage
+            // reached", 1,618 setups routed there, 1,758 per-mint asks unavailable, 0 PumpPortal trade subscriptions while 5.7k
+            // of the day's frames were still unspent). A setup Helius cannot carry takes PumpPortal's stream up to the
+            // setup mark; held coins keep everything above it.
+            val st = HeliusCurveTape8354.askState8386(mint, nowMs)
+            if (st is HeliusCurveTape8354.TapeState8386.Delivering) return true
+            if (!setupOverflow8814(st is HeliusCurveTape8354.TapeState8386.Unavailable, tradeStreamKeyed7284(), framesToday8192.get())) {
+                if (st is HeliusCurveTape8354.TapeState8386.Unavailable) setupUnserved8814.incrementAndGet()
+                return false
+            }
+            setupOverflow8814.incrementAndGet()
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_SETUP_OVERFLOW_8814") } catch (_: Throwable) {}
         }   // V5.0.8317 — a setup watch is exempt from the per-coin cap
         val drop = setupEvictions8191(setupMints8191, mint, nowMs, SETUP_MAX_8191, SETUP_TTL_MS_8191) { m -> lifecycleMints7420.containsKey(m) }
         for (m in drop) setupMints8191.remove(m)
@@ -542,6 +567,7 @@ object PumpFunWS {
             "running=${running.get()} socket=${if (ws != null) "open" else "none"} reconnects=${reconnectAttempt.get()} " +
             "tradeStream=${if (!tradeStreamEnabled8354) "OFF_8354" else if (tradeAuthDenied7432.get()) "AUTH_DENIED" else if (tokenTradeStreamActive7432()) "OBSERVED" else if (tradeStreamKeyed7284()) "KEYED_UNVERIFIED" else "NO_KEY_LAUNCHES_ONLY"} " +
             "off8354[lifecycleSkipped=${lifecycleSkippedOff8354.get()} setupRoutedHelius=${setupRoutedHelius8354.get()}] " +
+            "setup8814[overflowToPump=${setupOverflow8814.get()} unserved=${setupUnserved8814.get()} topPct=$SETUP_TOP_PCT_8814] " +
             "${try { HeliusCurveTape8354.statusLine8354() } catch (_: Throwable) { "curveTape8354[unavailable]" }} " +
             "${pumpSwapLine8307()} " +
             "PUMP_LIFECYCLE_STREAM_CAPABLE=${lifecycleStreamCapable7420()} " +

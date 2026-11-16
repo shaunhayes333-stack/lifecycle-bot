@@ -255,7 +255,8 @@ class Aate8354CurveTapeTest {
         assertFalse(PumpFunWS.setupNeedsHeliusFallback8646(paidEnabled = true, keyedCapability = true))
         val source = src("network/PumpFunWS.kt")
         assertTrue(source.contains("setupNeedsHeliusFallback8646(tradeStreamEnabled8354, tradeStreamKeyed7284())"))
-        assertTrue(source.contains("return HeliusCurveTape8354.ask8354(mint, nowMs)"))
+        // superseded by V5.0.8814 — the setup asks Helius for its tape state; a coin Helius cannot carry may take the setup reserve.
+        assertTrue(source.contains("val st = HeliusCurveTape8354.askState8386(mint, nowMs)"))
         assertTrue(source.contains("PUMP_SETUP_HELIUS_FALLBACK_8646"))
         assertTrue(source.contains("if (!meteredSubAllowed8193(mint, setup8317 = true)) {"))
     }

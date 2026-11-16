@@ -397,3 +397,16 @@ allocated while it ran (ART `art.gc.bytes-allocated`; an upper bound, other thre
 
 `CoinGeckoSolanaTopMcap.idMintMap8813` scans the ~4 MB coin list in place for each coin's id and Solana address instead of
 building a 17,000-object JSON tree.
+
+## 21. A setup coin Helius cannot carry takes PumpPortal's reserve (8814)
+
+Report 5815972e (5.0.8813): Helius answered "max usage reached" (helius / helius_curve 0 %, socket reconnects HTTP 429),
+so the curve tape had no transport (`perMintUnavailable=1758`). PumpPortal's day had 94,250 of 100,000 frames streamed;
+past the 80 % launch mark (`launchSubAllowed8192`) every setup watch went to Helius only (`setupRoutedHelius=1618`),
+leaving 0 trade subscriptions, 0 fresh buyer-flow reads and 0 sniper prints while the reserved frames sat unused.
+
+`PumpFunWS.watchForSetup8191` now asks Helius for the coin's tape state (`HeliusCurveTape8354.askState8386`). Delivering:
+done. Unavailable and the day under `SETUP_TOP_PCT_8814` (95 %) of frames: the coin takes PumpPortal's keyed stream
+(`setupOverflow8814`). Launches still stop at 80 %, held coins keep everything above 95 %, the day's 0.10 SOL cap is unchanged.
+Status: `setup8814[overflowToPump unserved topPct]`; counter `PUMP_SETUP_OVERFLOW_8814`. `unserved` counts setup coins
+neither source could carry.
