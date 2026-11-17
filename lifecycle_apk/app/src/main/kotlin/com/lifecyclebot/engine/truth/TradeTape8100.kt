@@ -194,6 +194,15 @@ object TradeTape8100 {
                 seenSig8285.putIfAbsent("$mint|$sig|$isBuy", src)
             }
             if (prior != null) {
+                // V5.0.8843 — 8841 moved BuyerFlow behind signature dedup and correctly stopped duplicate
+                // *volume*, but also lost the 8790 wallet-recovery contract: a walletless signed print
+                // followed by the same signed event with a decoded wallet stayed anonymous forever.
+                // BuyerFlow8666 owns signed-identity enrichment: calling it on a richer, independently
+                // price-checked duplicate only amends the ORIGINAL row's wallet, never counts another
+                // trade or another SOL. OUT_OF_BAND duplicates returned before reaching this guard.
+                if (wallet.isNotBlank() && tokenQty.isFinite() && tokenQty > 0.0 && sol.isFinite() && sol > 0.0)
+                    com.lifecyclebot.engine.market.BuyerFlow8666.note(mint, wallet, sol, isBuy,
+                        if (eventMs > 0L) eventMs else recvMs, sig, recvMs)
                 (if (prior == src) sameFeedDup8285 else crossFeedDup8285).incrementAndGet()
                 return false
             }

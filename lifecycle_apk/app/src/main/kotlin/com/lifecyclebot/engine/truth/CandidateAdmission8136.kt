@@ -1016,8 +1016,9 @@ object CandidateAdmission8136 {
 
     /**
      * V5.0.8537 — the learned edge model (EdgeModel8537) refuses, in paper and live, a coin it expects to lose after cost once
-     * its own out-of-sample picks in this lane have paid (authority). A candidate-specific supported record ([edge]) keeps the
-     * coin unless the model expects it to lose more than a full round trip. Without authority the model decides nothing.
+     * its own out-of-sample picks in this lane have paid (authority). A candidate-specific supported record ([edge]) must
+     * be judged on its own sample: the lane-wide model is not conditioned on the selected setup/cell and has no statistical
+     * authority to overturn the narrower positive after-cost record. Without authority the model decides nothing.
      *
      * V5.0.8827 §PAPER_REHEARSES_WHAT_LIVE_WOULD_DO — 8715 let a refusal earned on the refusal record bind live money only:
      * "paper keeps trading those coins, which is what keeps the record honest". The record does not need them: every final
@@ -1035,8 +1036,17 @@ object CandidateAdmission8136 {
             if (v.predPct.isFinite() && v.predPct < 0.0) letThrough8827(if (c.live) "UNEARNED_LIVE" else "UNEARNED_PAPER", c.lane)
             return null
         }
-        if (edge != null && !(c.costPct.isFinite() && v.predPct <= -c.costPct)) {
-            trace += "edge8537NegativeKeptBy=${edge.compact}"; letThrough8827("KEPT_BY_${edge.kind}", c.lane); return null
+        // V5.0.8843 §SPECIFIC_PROOF_BEATS_AGGREGATE_PREDICTION — 8840 refused 299 live decisions on an aggregate model;
+        // even a n60/mean+9±1% *selected* setup was vetoed when the aggregate prediction passed -roundTripCost.
+        // That compares different estimands, not two competing estimates of this setup's edge. The specific record has
+        // to pass the same earned, outlier-aware test as the admission decision. Safety, sellability, stale data, timing,
+        // structural loss and EXECUTION_ECONOMICS remain earlier independent authorities; none is bypassed here.
+        val localProof8843 = edge != null &&
+            (supported8136(edge, c.costPct) || (edge.kind == KIND_RUNNER_GRAB_8245 && grabSupported8245(edge)))
+        if (localProof8843) {
+            trace += "edge8537AggregateNegativeOutrankedBySpecific8843=${edge!!.compact}"
+            letThrough8827("SPECIFIC_PROOF_${edge.kind}", c.lane)
+            return null
         }
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("${EDGE_MODEL_NEGATIVE_8537}_${c.lane.uppercase()}") } catch (_: Throwable) {}
         refusedBy8827.incrementAndGet()

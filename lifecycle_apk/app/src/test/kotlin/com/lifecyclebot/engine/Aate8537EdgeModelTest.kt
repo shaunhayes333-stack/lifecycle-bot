@@ -223,12 +223,14 @@ class Aate8537EdgeModelTest {
         assertEquals(CandidateAdmission8136.EDGE_MODEL_PROVEN_8537, live.reason)
     }
 
-    @Test fun a_supported_record_keeps_a_mild_negative_but_not_a_loss_past_the_round_trip() {
+    @Test fun a_supported_record_outvotes_an_aggregate_negative_even_past_the_round_trip() {
         val supported = Evidence8136(CandidateAdmission8136.KIND_SETUP, "PULLBACK", 60, 9.0, 1.0)
         val c = base.copy(selectedSetup = "PULLBACK", setups = listOf(supported))
         assertEquals("SPECIFIC_EDGE_PROVEN_8136", CandidateAdmission8136.decide8136(c.copy(edge8537 = verdict(-2.0))).reason)
+        assertEquals("SPECIFIC_EDGE_PROVEN_8136", CandidateAdmission8136.decide8136(c.copy(edge8537 = verdict(-6.0))).reason)
+        val thin = Evidence8136(CandidateAdmission8136.KIND_SETUP, "PULLBACK", 2, 9.0, 1.0)
         assertEquals(CandidateAdmission8136.EDGE_MODEL_NEGATIVE_8537,
-            CandidateAdmission8136.decide8136(c.copy(edge8537 = verdict(-6.0))).reason)
+            CandidateAdmission8136.decide8136(c.copy(setups = listOf(thin), edge8537 = verdict(-6.0))).reason)
     }
 
     @Test fun wiring_labeler_candidate_live_proof_brief_and_export() {
