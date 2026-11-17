@@ -17288,14 +17288,6 @@ class Executor(
             // restart either rebuilt a ~SOL/USD-scaled entry or quarantined a
             // perfectly good fresh fill as a unit mismatch.
             val fillPrice6485 = effectivePrice
-            com.lifecyclebot.engine.truth.EconomicEventSchema6464.recordBuy(
-                mode = "paper", positionId = pid6485, mint = tradeId.mint,
-                symbol = ts.symbol.ifBlank { tradeId.symbol },
-                idempotencyKey = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.buyIdempotencyKey(pid6485),
-                executedCostSol = actualSol, entryFeesSol = fee6485,
-                filledQty = buyQtyRaw6485, fillPrice = fillPrice6485,
-                tokenDecimals = paperTokenDecimals6509, quantityScale = paperQuantityScale6514,
-            )
             // V5.0.6504 §1 — IMMUTABLE FILL LOT LEDGER. Persist the
             // canonical (mint, lotId=pid, side=BUY, qtyTokenRaw, lamports)
             // atomically so this fill is authoritative even after a
@@ -17372,6 +17364,20 @@ class Executor(
                 com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635.Store.TERMINAL_EXEC,
             ).forEach { com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635.markCommitted(entryFinalityId6497, it, "Executor.paperBuy.atomic6485") }
             try { PipelineHealthCollector.labelInc("PAPER_BUY_ATOMIC_COMMIT_6485") } catch (_: Throwable) {}
+            // V5.0.8836 — the durable BUY is a settlement fact, not a reservation.
+            // On 8835 the maintenance sweep raced an in-flight open; the
+            // rollback refunded cash/deleted the position, but an early BUY
+            // event persisted and restart replay resurrected the aborted lot.
+            // All rollback-capable proofs and commit stamps must finish BEFORE
+            // publishing an economic BUY to the durable replay source.
+            com.lifecyclebot.engine.truth.EconomicEventSchema6464.recordBuy(
+                mode = "paper", positionId = pid6485, mint = tradeId.mint,
+                symbol = ts.symbol.ifBlank { tradeId.symbol },
+                idempotencyKey = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.buyIdempotencyKey(pid6485),
+                executedCostSol = actualSol, entryFeesSol = fee6485,
+                filledQty = buyQtyRaw6485, fillPrice = fillPrice6485,
+                tokenDecimals = paperTokenDecimals6509, quantityScale = paperQuantityScale6514,
+            )
         } catch (t: Throwable) {
             rollbackPaperEntry6485("EXCEPTION_${t.javaClass.simpleName}")
             return

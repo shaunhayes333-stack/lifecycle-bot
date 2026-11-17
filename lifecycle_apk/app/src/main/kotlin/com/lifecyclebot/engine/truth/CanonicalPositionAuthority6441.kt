@@ -1687,16 +1687,42 @@ object CanonicalPositionAuthority6441 {
      * Callers must never treat these as open positions for capital,
      * lane, or slot counts. Exposed only for the sweep + audit.
      */
-    /** V5.0.6485 — purge paper lifecycle rows that have no funded lot. */
+    // V5.0.8836 — the paper executor promotes PENDING_ENTRY to OPEN before
+    // CanonicalLotQuantity6464.onBuyFilled. A maintenance sweep in that tiny
+    // interval must never remove a legitimate in-flight position. 8835's
+    // device run hit exactly this race: an OPEN QUALITY lot was purged, its
+    // debit rolled back, but an already-published BUY survived in the journal.
+    // The executor lease is 20s; one minute covers that settlement window
+    // without permanently preserving a genuinely unfunded orphan.
+    internal const val PAPER_ENTRY_SETTLEMENT_GRACE_MS_8836 = 60_000L
+
+    internal fun eligibleForUnfundedPaperHeal8836(p: Position, nowMs: Long): Boolean {
+        if (!p.positionId.startsWith("PAPER:") ||
+            p.lifecycle !in setOf(Lifecycle.PENDING_ENTRY, Lifecycle.OPEN)) return false
+        val ageMs = nowMs - p.lastMutationMs
+        if (p.mode.equals("paper", ignoreCase = true) && p.entryCostSol > 0.0 &&
+            ageMs >= 0L && ageMs <= PAPER_ENTRY_SETTLEMENT_GRACE_MS_8836) return false
+        return true
+    }
+
+    /** V5.0.6485/8836 — purge only settled, still-unfunded paper lifecycle rows. */
     fun healUnfundedPaperEntries6485(): List<Position> {
         lock.lock()
         try {
-            val victims = positions.values.filter { p ->
-                p.positionId.startsWith("PAPER:") &&
-                    p.lifecycle in setOf(Lifecycle.PENDING_ENTRY, Lifecycle.OPEN) &&
+            val now8836 = System.currentTimeMillis()
+            val candidates = positions.values.filter { p ->
+                eligibleForUnfundedPaperHeal8836(p, now8836) &&
                     !CanonicalLotQuantity6464.hasFundedOpenLot6485(p.positionId)
             }
-            victims.forEach { positions.remove(it.positionId) }
+            val victims = candidates.mapNotNull { p ->
+                // Lot settlement can complete concurrently with the scan;
+                // revalidate at deletion, and use identity-CAS so a newly
+                // promoted/replaced position is never removed from a stale read.
+                val current = positions[p.positionId] ?: return@mapNotNull null
+                if (!eligibleForUnfundedPaperHeal8836(current, System.currentTimeMillis()) ||
+                    CanonicalLotQuantity6464.hasFundedOpenLot6485(current.positionId)) return@mapNotNull null
+                if (positions.remove(current.positionId, current)) current else null
+            }
             if (victims.isNotEmpty()) try { PipelineHealthCollector.labelInc("UNFUNDED_PAPER_ENTRY_PURGED_6485") } catch (_: Throwable) {}
             return victims
         } finally { lock.unlock() }

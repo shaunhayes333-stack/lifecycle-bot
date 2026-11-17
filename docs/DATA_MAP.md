@@ -675,3 +675,26 @@ leave the default neutral values unstamped. The old `LiveEdgeGate` / wallet /
 canonical execution rules are unchanged. The 8834 regression tests now assert
 the fact store's rank, time, legacy mirrors and stale/zero-flow behavior, and
 the existing 8551–8553 tests forbid raw writes outside the store.
+
+## 41. Paper buy journal commit and unfunded sweep cannot race (8836)
+
+8835's full JVM tests and APK compilation passed, but the runtime device restart
+test observed one mint restored twice (QUALITY and CYCLIC). The device's own
+forensic timeline shows WHY: the QUALITY position opened at 08:18:17, the
+unfunded-position maintenance sweep removed that same OPEN lot while its buy
+was settling, and `positionDidOpen` consequently failed. The paper executor
+rolled back the ledger and position, but it had already written a durable BUY.
+Two minutes later CYCLIC opened the mint normally. A restart reconstructed the
+aborted QUALITY event as an OPEN lot beside the valid CYCLIC event.
+
+8836 repairs both producers, without suppressing duplicate detection or
+loosening the restart gate. `CanonicalPositionAuthority6441` will not purge
+recent, positive-cost PAPER PENDING/OPEN rows during the 60-second settlement
+grace (the executor buy lease is 20 seconds). It rechecks funded-lot state and
+position identity under its write lock before removing truly stale orphans.
+`Executor.paperBuy` publishes `EconomicEventSchema6464.recordBuy` only *after*
+the canonical position, actual funded lot, occupancy, canonical economic event,
+durable fill-lot proof and commit stamps have succeeded. A later rollback
+cannot leave an executable-but-aborted BUY in the durable replay journal.
+`Aate8836PaperSettlementRaceTest` covers the grace boundary and source-order
+invariants; no safety gate, fee, risk setting or live execution path changes.
