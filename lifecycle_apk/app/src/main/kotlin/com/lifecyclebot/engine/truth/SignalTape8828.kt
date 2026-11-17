@@ -86,7 +86,11 @@ class SignalTape8828 {
         val b = tMs / BAR_MS
         if (cIdx >= 0L && b < cIdx) return emptyList()            // a late print for a closed bar
         var on: List<String> = emptyList()
-        if (cIdx >= 0L && b > cIdx) { closeBar(); if (live) on = evaluate() }
+        // A bar's trigger must still be executable when it is discovered. If the next
+        // print arrives minutes later, the old closed bar is historical evidence, not
+        // a live opening-bid / momentum entry. The replay and live reader use this
+        // same rule; do not turn delayed historical momentum into a new BUY signal.
+        if (cIdx >= 0L && b > cIdx) { val adjacent = b == cIdx + 1L; closeBar(); if (live && adjacent) on = evaluate() }
         if (cIdx < 0L || b > cIdx) openBar(b, px)
         val f = px.toFloat()
         if (f > cH) cH = f

@@ -745,6 +745,10 @@ object CortexVoters7885 {
         "TOXIC_PATTERN", "CROSSTALK_CONF_BOOST", "CROSSTALK_SIZE", "CROSSTALK_CORRELATION", "CROSSTALK_EXIT_URGENCY",
         "CROSSTALK_PARTICIPANTS", "CROSSTALK_MEME_SHAPE", "ULTIMATE_EDGE_PWIN", "ULTIMATE_EDGE_EXP_PNL", "ULTIMATE_EDGE_OPPORTUNITY",
         "ULTIMATE_EDGE_REL_STRENGTH", "REGIME_FIT_LANE",
+        // V5.0.8837 — the Mind/Tree/LLM/SSI readers now own evidence per (mint,lane).
+        // These MUST be lane-dependent in both the 3 s memo and the 45 s slow-voter cache;
+        // otherwise the Cortex's cache reintroduces the exact cross-lane contamination.
+        "MIND_STACKED_PRED", "TREE_RANKER_PRED", "LLM_ANALYST_P_UP", "BRAIN_DISAGREEMENT_SSI",
     )
 
     const val MEMO_MS_8169 = 3_000L

@@ -446,11 +446,11 @@ object EdgeModel8537 {
         val ridge = predictLocked(x, raw.lane)
         val cell = cellCached8747(ts, raw.lane, now)
         if (tree != null && tree >= 0.0) try { LlmAnalyst8746.request8746(raw, mint, now) } catch (_: Throwable) {}
-        val llmP = try { LlmAnalyst8746.prob8746(mint, now) } catch (_: Throwable) { null }
+        val llmP = try { LlmAnalyst8746.prob8746(mint, raw.lane, now) } catch (_: Throwable) { null }
         val f = Mind8746.features8746(tree ?: Double.NaN, ridge.first, cell ?: Double.NaN, llmP ?: Double.NaN)
         if (freezeAtMs != null) try { Mind8746.freeze8746(mint, raw.lane, freezeAtMs, f) } catch (_: Throwable) {}
         val mind = try { Mind8746.predict8746(f) } catch (_: Throwable) { null }
-        try { Mind8746.note8746(mint, f, mind, now) } catch (_: Throwable) {}
+        try { Mind8746.note8746(mint, raw.lane, f, mind, now) } catch (_: Throwable) {}
         return when {
             mind != null -> mind to Mind8746.KEY_8746
             tree != null -> tree to TreeRanker8737.KEY_8737

@@ -59,12 +59,16 @@ object LearnerColumns8798 {
     fun venueOf(mint: String, venue: String, dexId: String, priceDex: String, migrated: Boolean): Double {
         val s = "$venue|$dexId|$priceDex".uppercase()
         return when {
-            mint.endsWith("pump") && !migrated -> 0.0                                    // the pump.fun bonding curve
-            s.contains("PUMPSWAP") || s.contains("PUMP_AMM") || s.contains("PUMPFUN_AMM") || (mint.endsWith("pump") && migrated) -> 1.0
+            // A pump-suffix mint may already trade on an AMM while its migration flag
+            // is still hydrating. The explicit observed trading venue outranks the
+            // mint suffix, otherwise the learner is told AMM prints are curve prints.
+            s.contains("PUMPSWAP") || s.contains("PUMP_AMM") || s.contains("PUMPFUN_AMM") -> 1.0
             s.contains("LAUNCHLAB") || s.contains("BONK") -> 2.0
             s.contains("RAYDIUM") -> 3.0
             s.contains("METEORA") || s.contains("DBC") || s.contains("DLMM") || s.contains("DAMM") -> 4.0
             s.contains("ORCA") -> 5.0
+            mint.endsWith("pump") && migrated -> 1.0                                 // migrated, but venue unknown
+            mint.endsWith("pump") && !migrated -> 0.0                                    // curve only when no observed AMM venue
             s.replace("UNKNOWN", "").replace("|", "").isBlank() -> Double.NaN
             else -> 6.0
         }

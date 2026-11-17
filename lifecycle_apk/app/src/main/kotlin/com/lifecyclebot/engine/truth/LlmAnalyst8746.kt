@@ -9,7 +9,7 @@ import java.util.concurrent.atomic.AtomicLong
  * V5.0.8746 §THE_LLM_ANALYST — owner: "proper llm powered ai". Until now an LLM only wrote the bot's inner monologue
  * (SentienceOrchestrator: "never an economic authority"). Here the owner's council (KeylessLlmClient: Groq / xAI Grok /
  * Gemini / OpenRouter / ...) reads a candidate's decision-time facts and states a probability that the coin is up by more
- * than the round trip in the next hour. That probability is ONE voter of Mind8746: it is frozen with the decision, graded on
+ * than the round trip at that lane's actual forward-label horizon. That probability is ONE voter of Mind8746: it is frozen with the decision, graded on
  * the forward label (Brier vs the base rate, in the mind's status) and weighted only by what the stacker learns it is worth.
  * Asked only for candidates the tree already rates non-negative, at most [MAX_PER_HOUR] calls an hour, cached [CACHE_MS].
  */
@@ -24,8 +24,14 @@ object LlmAnalyst8746 {
     @Volatile private var lastUnparsed = "-"
     private val exec = Executors.newSingleThreadExecutor { r -> Thread(r, "llm-analyst-8746").apply { isDaemon = true } }
 
-    /** The cached probability for [mint], or null. */
-    fun prob8746(mint: String, nowMs: Long): Double? = answers[mint]?.takeIf { nowMs - it.first in 0L..CACHE_MS }?.second
+    /** The prompt contains [EdgeModel8537.Raw.lane]; another lane is NOT the same assessment. */
+    internal fun answerKey8837(mint: String, lane: String): String = "$mint|${lane.trim().uppercase(java.util.Locale.ROOT)}"
+
+    internal fun cached8837(cache: Map<String, Pair<Long, Double>>, mint: String, lane: String, nowMs: Long): Double? =
+        cache[answerKey8837(mint, lane)]?.takeIf { nowMs - it.first in 0L..CACHE_MS }?.second
+
+    /** The cached lane-specific probability for [mint], or null. */
+    fun prob8746(mint: String, lane: String, nowMs: Long): Double? = cached8837(answers, mint, lane, nowMs)
 
     /**
      * Pure: the probability in an answer, or null. V5.0.8748 — 8747 phone: 40 of 60 answers unread. Models quote the number
@@ -48,23 +54,29 @@ object LlmAnalyst8746 {
     private fun facts8746(r: EdgeModel8537.Raw, mint: String): String = buildString {
         fun f(k: String, v: Double, d: Int = 1) { if (v.isFinite()) append("$k=").append("%.${d}f".format(v)).append("; ") }
         append("lane=${r.lane}; launchpad=${if (mint.endsWith("pump")) "pump.fun" else "other"}; ")
+        append("forward_label_horizon_min=${targetMinutes8837(r.lane)}; ")
         f("age_min", r.ageMin); f("mcap_usd", r.mcap, 0); f("pool_liquidity_usd", r.liq, 0); f("run_from_hour_low_pct", r.runup)
         f("drawdown_from_peak_pct", r.dd); f("buy_share_pct", r.bp); f("change_5m_pct", r.chg5m); f("change_1h_pct", r.chg1h)
         f("top_holder_pct", r.top); f("trades_per_min", r.txVel); f("bonding_curve_progress", r.curve, 2)
         f("turnover", r.turnover, 2); f("round_trip_cost_pct", r.costPct)
     }
 
+    /** The LLM is trained against the same 5/15-minute label as the mind, not an unrelated one-hour target. */
+    internal fun targetMinutes8837(lane: String): Long =
+        (PocketLedger8610.targetHorizon(lane) / 60_000L).coerceAtLeast(1L)
+
     /** EdgeModel8537: ask for [mint] in the background when allowed; never blocks. */
     fun request8746(r: EdgeModel8537.Raw, mint: String, nowMs: Long) {
-        if (prob8746(mint, nowMs) != null || !inflight.add(mint)) return
+        val key = answerKey8837(mint, r.lane)
+        if (prob8746(mint, r.lane, nowMs) != null || !inflight.add(key)) return
         synchronized(calls) {
             while (calls.isNotEmpty() && nowMs - calls.first() > 3_600_000L) calls.removeFirst()
-            if (calls.size >= MAX_PER_HOUR) { inflight.remove(mint); return }
+            if (calls.size >= MAX_PER_HOUR) { inflight.remove(key); return }
             calls.addLast(nowMs)
         }
         asked.incrementAndGet()
         val user = "Solana memecoin at decision time: ${facts8746(r, mint)}\nEstimate the probability that this coin's price is " +
-            "higher than now by more than the round-trip cost one hour from now. Answer ONLY JSON: {\"p_up\": 0.00-1.00, \"why\": \"<12 words\"}"
+            "higher than now by more than the round-trip cost ${targetMinutes8837(r.lane)} minutes from this decision. Answer ONLY JSON: {\"p_up\": 0.00-1.00, \"why\": \"<12 words\"}"
         try {
             exec.execute {
                 try {
@@ -72,14 +84,15 @@ object LlmAnalyst8746 {
                         "You are a disciplined crypto market analyst. Most new memecoins fall; be calibrated, not hopeful.", user, 160)
                     val p = parse8746(text)
                     when {
-                        p != null -> { answers[mint] = System.currentTimeMillis() to p; answered.incrementAndGet() }
+                        // The provider's completion time is not the age of the facts it assessed.
+                        p != null -> { answers[key] = nowMs to p; answered.incrementAndGet() }
                         text.isNullOrBlank() -> noAnswer.incrementAndGet()   // V5.0.8748 — no provider answered: not a parse failure
                         else -> { unparsed.incrementAndGet(); lastUnparsed = text.take(120).replace('\n', ' ') }
                     }
                     if (answers.size > 5_000) answers.entries.removeIf { System.currentTimeMillis() - it.value.first > CACHE_MS }
-                } catch (_: Throwable) { noAnswer.incrementAndGet() } finally { inflight.remove(mint) }
+                } catch (_: Throwable) { noAnswer.incrementAndGet() } finally { inflight.remove(key) }
             }
-        } catch (_: Throwable) { inflight.remove(mint) }
+        } catch (_: Throwable) { inflight.remove(key) }
         try { PipelineHealthCollector.labelInc("LLM_ANALYST_ASKED_8746") } catch (_: Throwable) {}
     }
 

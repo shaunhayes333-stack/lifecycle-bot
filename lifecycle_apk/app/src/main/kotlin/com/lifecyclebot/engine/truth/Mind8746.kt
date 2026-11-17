@@ -117,18 +117,28 @@ object Mind8746 {
         return s.takeIf { it.isFinite() }
     }
 
-    /** The latest reading per mint, for the Cortex's voters: (atMs, features, stacked prediction or NaN). */
+    /**
+     * The latest reading per mint AND strategy lane, for the Cortex's voters.
+     * A single launch is evaluated by many lanes; caching by mint alone let the last
+     * lane overwrite another lane's prediction and supplied cross-lane evidence to
+     * the Cortex even though the frozen forward labels were already lane-scoped.
+     */
     private val last = ConcurrentHashMap<String, Triple<Long, DoubleArray, Double>>()
-    fun note8746(mint: String, f: DoubleArray, pred: Double?, nowMs: Long) {
+    private fun readingKey8837(mint: String, lane: String) = "$mint|${lane.trim().uppercase(java.util.Locale.ROOT)}"
+    fun note8746(mint: String, lane: String, f: DoubleArray, pred: Double?, nowMs: Long) {
+        if (mint.isBlank() || lane.isBlank() || f.size != DIM || f.any { !it.isFinite() }) return
         if (last.size > 8_000) last.entries.removeIf { nowMs - it.value.first > 15 * 60_000L }
-        last[mint] = Triple(nowMs, f, pred ?: Double.NaN)
+        last.compute(readingKey8837(mint, lane)) { _, prev ->
+            if (prev != null && prev.first > nowMs) prev else Triple(nowMs, f.copyOf(), pred ?: Double.NaN)
+        }
     }
-    private fun fresh(mint: String, nowMs: Long) = last[mint]?.takeIf { nowMs - it.first in 0L..10 * 60_000L }
-    /** Cortex voters: the mind's prediction / the tree's / the LLM's probability / the voters' spread for [mint], or null. */
-    fun mindFor8746(mint: String, nowMs: Long): Double? = fresh(mint, nowMs)?.third?.takeIf { it.isFinite() }
-    fun treeFor8746(mint: String, nowMs: Long): Double? = fresh(mint, nowMs)?.second?.takeIf { it[2] > 0.0 }?.get(1)
-    fun llmFor8746(mint: String, nowMs: Long): Double? = fresh(mint, nowMs)?.second?.takeIf { it[7] > 0.0 }?.let { it[6] / 100.0 + 0.5 }
-    fun spreadFor8746(mint: String, nowMs: Long): Double? = fresh(mint, nowMs)?.second?.takeIf { it[9] > 0.0 }?.get(8)
+    private fun fresh(mint: String, lane: String, nowMs: Long) = last[readingKey8837(mint, lane)]
+        ?.takeIf { nowMs - it.first in 0L..10 * 60_000L }
+    /** Cortex voters: lane-bound mind, tree, LLM probability and spread. Unknown lanes abstain. */
+    fun mindFor8746(mint: String, lane: String, nowMs: Long): Double? = fresh(mint, lane, nowMs)?.third?.takeIf { it.isFinite() }
+    fun treeFor8746(mint: String, lane: String, nowMs: Long): Double? = fresh(mint, lane, nowMs)?.second?.takeIf { it[2] > 0.0 }?.get(1)
+    fun llmFor8746(mint: String, lane: String, nowMs: Long): Double? = fresh(mint, lane, nowMs)?.second?.takeIf { it[7] > 0.0 }?.let { it[6] / 100.0 + 0.5 }
+    fun spreadFor8746(mint: String, lane: String, nowMs: Long): Double? = fresh(mint, lane, nowMs)?.second?.takeIf { it[9] > 0.0 }?.get(8)
 
     /**
      * V5.0.8767 §ONE_FROZEN_DECISION_PER_LANE — code audit (learning 4): the frozen voters were keyed "$mint|$atMs", and one

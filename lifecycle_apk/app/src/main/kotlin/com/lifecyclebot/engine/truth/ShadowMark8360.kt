@@ -109,28 +109,13 @@ object ShadowMark8360 {
         return null
     }
 
-    /** The observed mark (USD per token) for [mint] and the source that priced it; [ts] may be null (no tick price). */
+    /**
+     * The observed mark for [mint] and its source. Both the entry and the periodic
+     * mark read now use the same timestamped resolver; the old reader prioritised
+     * an older tick and never considered a valid pool/Jupiter observation at all.
+     * Two price paths for the same shadow position manufactured inconsistent PnL.
+     */
     fun observed8360(ts: TokenState?, mint: String, nowMs: Long = System.currentTimeMillis()): Pair<Double, String>? {
-        if (mint.isBlank()) return null
-        val seed8775 = ts != null && TokenFacts.seedPrice8559(ts.lastPriceSource)   // V5.0.8775 — a seed is not a tick mark
-        val tickPx = if (seed8775) 0.0 else ts?.lastPrice ?: 0.0
-        val tickAt = if (seed8775) 0L else ts?.lastPriceUpdate ?: 0L
-        pick8360(tickPx, tickAt, null, null, null, 0L, nowMs)?.let { return it }
-        return fallback8360(mint, nowMs)
-    }
-
-    /** The observed mark without the tick price: labeler, curve, tape (EvidenceShadow8344's 8345 fallback, extended). */
-    private fun fallback8360(mint: String, nowMs: Long = System.currentTimeMillis()): Pair<Double, String>? {
-        if (mint.isBlank()) return null
-        val lab = try { ForwardReturnLabeler7731.markFor7948(mint, { null }, nowMs) } catch (_: Throwable) { null }
-        pick8360(0.0, 0L, lab, null, null, 0L, nowMs)?.let { return it }
-        val solUsd = try { com.lifecyclebot.engine.WalletManager.freshSolPrice8163(nowMs) } catch (_: Throwable) { 0.0 }
-        if (!(solUsd.isFinite() && solUsd > 0.0)) return null
-        val curveSol = try { CurveReserves7951.priceSolFor7951(mint, nowMs, MAX_AGE_MS_8360) } catch (_: Throwable) { 0.0 }
-        val curve = if (curveSol.isFinite() && curveSol > 0.0) curveSol * solUsd else null
-        pick8360(0.0, 0L, null, curve, null, 0L, nowMs)?.let { return it }
-        val print = (try { TradeTape8100.lastPrint8360(mint) } catch (_: Throwable) { null }) ?: return null
-        if (!(try { PrintWitness8750.witnessedPrint8750(mint, print.second) } catch (_: Throwable) { false })) return null   // V5.0.8775
-        return pick8360(0.0, 0L, null, null, print.first * solUsd, print.second, nowMs)
+        return observedTimed8372(ts, mint, nowMs)?.let { it.priceUsd to it.source }
     }
 }

@@ -145,6 +145,10 @@ object HeliusSwapCandles7819 {
         val cov1m = CandleCoverage8284.noteNeed8284(ts, nowMs)
         if (cov1m == CandleCoverage8284.Coverage8284.COVERED) { coveredSkips8284.incrementAndGet(); return }
         if (cov1m == CandleCoverage8284.Coverage8284.NOT_YET_POSSIBLE) { localTape8284(ts, nowMs, "young"); priceBars8287(ts, nowMs); return }
+        // Free observations are useful even when a venue address is not yet known, or an
+        // Enhanced-API retry is parked. Previously both branches returned before the
+        // cached pump.fun history could populate 1 m/5 m bars for a launch.
+        if (!heliusAfterFree8418(ts, nowMs, priority)) return
         val marketAddress = activeMarketAddress8269(ts) ?: run {
             noMarketAddress8269.incrementAndGet()
             localTape8284(ts, nowMs, "noMarket"); priceBars8287(ts, nowMs)
@@ -152,7 +156,7 @@ object HeliusSwapCandles7819 {
         }
         val next = nextAllowedMs[mint] ?: 0L
         if (nowMs < next) { localTape8284(ts, nowMs, "retryWait"); priceBars8287(ts, nowMs); return }
-        if (!heliusAfterFree8418(ts, nowMs, priority)) return   // V5.0.8418 — free sources first; Helius is the fallback
+        // V5.0.8418 — the free sources above ran before this paid fallback.
         // V5.0.8453 — the 100-credit Enhanced history read is for HELD positions only (their exits read the chart). 8450:
         // SWAP_CANDLES spent 109.7k of the day's 300k credits (near-decision coins claimed the decision reserve with a
         // priority lease) while the 1-credit safety-proof reads were refused. Everything else keeps the free bars above.
