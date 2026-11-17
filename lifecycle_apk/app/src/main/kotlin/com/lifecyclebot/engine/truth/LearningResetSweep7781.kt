@@ -82,7 +82,9 @@ object LearningResetSweep7781 {
     internal val LEARNING_FILES_7975: List<String> = listOf("specialists7972.bin", "specialists8064.bin", "specialists8076.bin", "specialists8521.bin", "specialists8527.bin", "specialists8663.bin", "runner_grab_7989.txt", "tail_hunter_7996.txt", "tail_hunter_birth_8527.txt", "stop_learner_8042.txt",
         // V5.0.8819 — the edge model's sufficient statistics and the colour/shape setup table are learning too: a reset
         // left the model's pre-reset weights in force (its replay is the dataset; the model file is only its cache).
-        "edge_model_8722.bin", "colour_shape_8816.json")
+        // V5.0.8842 — the old stacked-mind file was missed by the 8819 clean rebuild. Keep the legacy file
+        // in future archive/reset plans, and reset the new epoch-bound model alongside the other learners.
+        "edge_model_8722.bin", "colour_shape_8816.json", "mind_8746.json", "mind_8842.json")
 
     @Volatile private var bootSweeps = 0
     @Volatile private var requestSweeps = 0

@@ -558,6 +558,13 @@ object EdgeModel8537 {
     /** ForwardReturnLabeler7731.book (slot60): score the frozen prediction out of sample, THEN learn from the outcome. */
     fun learn(s: Snap, netPct: Double, chainWitness: Boolean = false) {
         if (!netPct.isFinite()) return
+        // V5.0.8842 — a pending label may arrive after a clean-learning reset. Its pre-reset timestamp and
+        // feature vector cannot re-teach a model that was rebuilt on the new, price-proven learning epoch.
+        if (LearningEpoch8164.preEpoch8164(s.atMs) || s.modelEpoch != MODEL_EPOCH_8642) {
+            oldPredictionsIgnored8642.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("EDGE_PRE_EPOCH_LABEL_IGNORED_8842") } catch (_: Throwable) {}
+            return
+        }
         if (noNewPrice8803(netPct, s.raw.costPct, chainWitness)) {
             noNewPriceCount8803.incrementAndGet()
             try { PipelineHealthCollector.labelInc("EDGE_LABEL_NO_NEW_PRICE_8803") } catch (_: Throwable) {}

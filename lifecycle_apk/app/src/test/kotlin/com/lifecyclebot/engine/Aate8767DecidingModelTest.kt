@@ -21,7 +21,7 @@ class Aate8767DecidingModelTest {
         assertEquals("another horizon", 0, TreeRanker8737.rowsOf8737(sequenceOf(row("MOONSHOT", true, 3_600_000L + 1L))).size)
         assertEquals("a pseudo-lane", 0, TreeRanker8737.rowsOf8737(sequenceOf(row("PLANADMIT_MOONSHOT", true))).size)
         assertEquals("TREE8767", TreeRanker8737.KEY_8737)
-        assertEquals("MIND8767", Mind8746.KEY_8746)
+        assertEquals("MIND8842", Mind8746.KEY_8746)
     }
 
     @Test fun one_lanes_frozen_voters_do_not_overwrite_anothers() {

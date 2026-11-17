@@ -24,7 +24,10 @@ import java.util.concurrent.ConcurrentHashMap
  * only on its own out-of-sample record (EdgeModel8537.authority / refusalAuthority8715). Nothing else changes.
  */
 object Mind8746 {
-    const val KEY_8746 = "MIND8767"   // V5.0.8767 — its tree voter changed; its record restarts (was "MIND8746", kept on disk)
+    // V5.0.8842 — the 8819 clean-rebuild reset left mind_8746.json untouched, so its 44k pre-clean lessons
+    // continued to dominate decisions while the edge model restarted on clean labels. A new prediction must
+    // earn its OWN out-of-sample authority, not inherit MIND8767's old refusal record.
+    const val KEY_8746 = "MIND8842"
     private const val WARM_N = 300
     private const val DIM = 10
     private const val RIDGE_L = 8.0
@@ -59,16 +62,20 @@ object Mind8746 {
      * reached authority. They are written to [FILE_8749] every [SAVE_EVERY_8749] lessons and read back once at first use.
      * (Frozen decisions still waiting for their label are not kept: a label that lands after a restart is simply missed.)
      */
-    private const val FILE_8749 = "mind_8746.json"
+    private const val FILE_8749 = "mind_8842.json"
     private const val SAVE_EVERY_8749 = 25L
     private val restored8749 = java.util.concurrent.atomic.AtomicBoolean(false)
 
     /** Pure: the persisted state as JSON. */
+    internal fun compatibleSavedEpoch8842(version: Int, modelEpoch: Int, savedLearningEpochMs: Long, activeLearningEpochMs: Long): Boolean =
+        version == 2 && modelEpoch == EdgeModel8537.MODEL_EPOCH_8642 && savedLearningEpochMs == activeLearningEpochMs
+
     internal fun toJson8749(xtx: Array<DoubleArray>, xty: DoubleArray, n: Long, agree: DoubleArray, disagree: DoubleArray,
-                            llm: DoubleArray, spreadMedian: Double): String {
+                            llm: DoubleArray, spreadMedian: Double, learningEpochMs: Long = LearningEpoch8164.epochMs8164()): String {
         fun arr(a: DoubleArray) = org.json.JSONArray().apply { a.forEach { put(if (it.isFinite()) it else 0.0) } }
         return org.json.JSONObject()
-            .put("v", 1).put("n", n).put("spreadMedian", if (spreadMedian.isFinite()) spreadMedian else null)
+            .put("v", 2).put("modelEpoch", EdgeModel8537.MODEL_EPOCH_8642).put("learningEpochMs", learningEpochMs)
+            .put("n", n).put("spreadMedian", if (spreadMedian.isFinite()) spreadMedian else null)
             .put("xtx", org.json.JSONArray().apply { xtx.forEach { put(arr(it)) } }).put("xty", arr(xty))
             .put("agree", arr(agree)).put("disagree", arr(disagree)).put("llm", arr(llm)).toString()
     }
@@ -80,6 +87,11 @@ object Mind8746 {
             val f = java.io.File(ctx.filesDir, FILE_8749)
             if (!f.exists()) return
             val j = org.json.JSONObject(f.readText())
+            if (!compatibleSavedEpoch8842(j.optInt("v", 0), j.optInt("modelEpoch", 0),
+                    j.optLong("learningEpochMs", -1L), LearningEpoch8164.epochMs8164())) {
+                try { PipelineHealthCollector.labelInc("MIND_STALE_EPOCH_DISCARDED_8842") } catch (_: Throwable) {}
+                return
+            }
             fun read(a: org.json.JSONArray?, into: DoubleArray) { if (a != null && a.length() == into.size) for (i in into.indices) into[i] = a.optDouble(i, 0.0) }
             synchronized(this) {
                 val m = j.optJSONArray("xtx")
