@@ -1041,11 +1041,12 @@ object CandidateAdmission8136 {
         // That compares different estimands, not two competing estimates of this setup's edge. The specific record has
         // to pass the same earned, outlier-aware test as the admission decision. Safety, sellability, stale data, timing,
         // structural loss and EXECUTION_ECONOMICS remain earlier independent authorities; none is bypassed here.
-        val localProof8843 = edge != null &&
-            (supported8136(edge, c.costPct) || (edge.kind == KIND_RUNNER_GRAB_8245 && grabSupported8245(edge)))
-        if (localProof8843) {
-            trace += "edge8537AggregateNegativeOutrankedBySpecific8843=${edge!!.compact}"
-            letThrough8827("SPECIFIC_PROOF_${edge.kind}", c.lane)
+        val localProof8843 = edge?.takeIf {
+            supported8136(it, c.costPct) || (it.kind == KIND_RUNNER_GRAB_8245 && grabSupported8245(it))
+        }
+        if (localProof8843 != null) {
+            trace += "edge8537AggregateNegativeOutrankedBySpecific8843=${localProof8843.compact}"
+            letThrough8827("SPECIFIC_PROOF_${localProof8843.kind}", c.lane)
             return null
         }
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("${EDGE_MODEL_NEGATIVE_8537}_${c.lane.uppercase()}") } catch (_: Throwable) {}

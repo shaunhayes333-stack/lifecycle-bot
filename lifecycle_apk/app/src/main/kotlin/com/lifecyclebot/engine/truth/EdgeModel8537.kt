@@ -708,15 +708,32 @@ object EdgeModel8537 {
         return globalSeen8776.putIfAbsent("$mint|$atMs", true) == null
     }
 
-    /** One streaming replay, not readLines(): the 24 MB dataset cannot be copied wholesale onto Android's heap. */
+    /**
+     * V5.0.8844 — replay the NEWEST rows within the dataset cap, not the first rows in the file.
+     * The 17 Nov export contained 61,087 lines; the previous `seen++ >= DATASET_MAX_LINES`
+     * discarded its last 1,087 rows, including 372 marked fillable and four labelled 500%+.
+     * An unfilled-heavy dataset can grow past the cap between trim milestones. Two sequential
+     * passes bound heap use without materialising 60,000 JSON strings or seeking by byte offset.
+     * The callback observes the last [maxRows] physical lines in their original order.
+     */
+    internal fun streamLatestDatasetRows8844(file: File, maxRows: Int = DATASET_MAX_LINES, consume: (String) -> Unit): Int {
+        require(maxRows > 0)
+        if (!file.isFile) return 0
+        val total = file.useLines { it.count() }
+        val skip = (total - maxRows).coerceAtLeast(0)
+        var index = 0
+        file.forEachLine { line -> if (index++ >= skip) consume(line) }
+        return total
+    }
+
+    /** One streaming replay, not readLines(): the dataset cannot be copied wholesale onto Android's heap. */
     private fun replayDataset8642(file: File): Pair<Int, Int> {
         if (!file.isFile) return 0 to 0
-        var seen = 0; var used = 0
-        file.forEachLine { line ->
-            if (seen++ >= DATASET_MAX_LINES) return@forEachLine
+        var used = 0
+        val seen = streamLatestDatasetRows8844(file) row8844@{ line ->
             try {
                 val o = org.json.JSONObject(line)
-                if (!replayAccept8642(o)) return@forEachLine
+                if (!replayAccept8642(o)) return@row8844
                 fun d(k: String) = column8801(o, k)
                 val r = Raw(o.optString("lane").trim().uppercase(), o.optString("src"), d("liq"), d("mcap"), d("age"),
                     d("runup"), d("pxPeak"), d("dd"), d("bp"), d("chg5m"), d("chg1h"), d("volAccel"), d("top"),
@@ -837,6 +854,9 @@ object EdgeModel8537 {
     }
     private val unfilled8546 = AtomicLong(0)
     private val lastTrimMilestone8642 = AtomicLong(0)
+    // V5.0.8844 — unfillable observations are exported too. Their volume can exceed the 60k replay cap
+    // without `learned` advancing, so physical writes must trigger the periodic bounded trim as well.
+    private val datasetAppends8844 = AtomicLong(0)
 
     private fun appendDataset(s: Snap, net: Double, filled: Boolean = true, witnessed: Boolean = false) {
         val line = try { datasetLine(s, net, filled, witnessed, System.currentTimeMillis()) } catch (_: Throwable) { return }
@@ -844,10 +864,12 @@ object EdgeModel8537 {
             try {
                 val f = File(dir() ?: return@execute, DATASET_FILE)
                 f.appendText(line + "\n")
-                // 8642: readLines() materialised 24+ MB of JSON and its objects during a heap-starved trading loop.
-                // Count/check once per 5k fresh labels; stream the retained tail on the model's single IO worker.
+                // Count/check every 5k physical appends, even when every new label is unfillable.
+                // Run on the model's single IO worker; stream the retained tail without readLines().
+                val physicalCheck8844 = datasetAppends8844.incrementAndGet() % 5_000L == 0L
                 val milestone = learned.get() / 5_000L
-                if (milestone > lastTrimMilestone8642.get() && lastTrimMilestone8642.getAndSet(milestone) < milestone) {
+                val learnedCheck8642 = milestone > lastTrimMilestone8642.get() && lastTrimMilestone8642.getAndSet(milestone) < milestone
+                if (physicalCheck8844 || learnedCheck8642) {
                     trimDataset8642(f)
                 }
             } catch (_: Throwable) {}
