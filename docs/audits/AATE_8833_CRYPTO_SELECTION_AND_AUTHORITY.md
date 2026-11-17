@@ -1,4 +1,6 @@
-# AATE 5.0.8832 — dynamic crypto selection and live-authority repair
+# AATE 5.0.8833 — dynamic crypto selection and live-authority repair
+
+The 8832 base change is completed by the 8833 discovery-time short-window provenance integration.
 
 ## Evidence and scope
 
@@ -10,8 +12,8 @@ Source: operator-supplied 2026-11-17 pipeline, 51,757-line edge JSONL and 642,72
 
 ## Root causes and code-level repairs
 
-1. **Five-minute provider fields discarded:** `DexscreenerApi.PairInfo` already parses m5 buys, sells, volume and price change, but `DynamicAltTokenRegistry` kept only h24. It now carries the m5 fields with their original pair observation clock. A missing field is unknown (`-1`/`NaN`), while a real zero stays zero. There is no invented unique-buyer count: provider m5 buys measure transactions, not distinct wallets.
-2. **Wrong token timing:** `CryptoAltTrader` used the older candidate price when a newer registry row existed, and scored the CryptoBrain *before* recording its current market observation. It now re-reads the registry price, records a source-dated tick first, then scores. `CryptoLaneDesk7391` rejects undated, duplicate, stale and out-of-order ticks; scan repetition cannot create fake 20-second bars.
+1. **Five-minute provider fields discarded:** `DexscreenerApi.PairInfo` already parses m5 buys, sells, volume and price change, but `DynamicAltTokenRegistry` kept only h24. It now carries the m5 fields with their original pair observation clock on **initial discovery**, both merge/upsert routes and subsequent bounded refresh. A newer observation wins; a delayed older pair or an undated metadata update cannot erase current flow. A missing field is unknown (`-1`/`NaN`), while a real zero stays zero. There is no invented unique-buyer count: provider m5 buys measure transactions, not distinct wallets.
+2. **Wrong token timing:** `CryptoAltTrader` used the older candidate price when a newer registry row existed, and scored the CryptoBrain *before* recording its current market observation. It now re-reads the registry price, records a source-dated tick first, then scores. Both discovery upsert paths and direct hydration also reject delayed source prices that would rewind an already newer price observation. `CryptoLaneDesk7391` rejects undated, duplicate, stale and out-of-order ticks; scan repetition cannot create fake 20-second bars.
 3. **Selecting yesterday's activity:** `CryptoShortWindow8832` requires recent provider evidence for buyer flow, price change and short-window volume. Dynamic score uses m5 momentum, m5 buy/sell imbalance and m5 volume acceleration against a weak day baseline; h24 is weak context only. `CryptoTacticEvidence8535` will not call stale h24 buyer pressure momentum. A genuinely sourced rising m5 leg can qualify an early/continuing candidate; an actual falling local tape takes precedence. The existing safety and finality paths are unchanged.
 4. **Missing signals not hydrated:** bounded registry hydration now requests evidence when short-window activity or price observations are missing, even if a cached display price or h24 data exists. It uses the existing 12-request/scan, 3-in-flight, 120s/token controls. DEX-routable chains share that budget; anonymous/statics and CoinGecko placeholders do not invoke a nonexistent DEX route. This is best-effort; provider outages still cause data deferrals.
 5. **Crypto spot falsely blocked twice:** `CanonicalEntryAuthority6551` first recognized a paper-backed exception to uncalibrated EV, then refused it at the later Oracle advisory check. Proven Oracle evidence and hard safety still bind; a supported inverted refusal can now advance past the redundant advisory test. Paper-backed permits reserve only after all other canonical gates and executable sizing; they consume the four/hour quota only on an immutable registered intent. Registration/conflict failure releases the permit. Hourly timestamps persist across restart.
@@ -23,7 +25,7 @@ Source: operator-supplied 2026-11-17 pipeline, 51,757-line edge JSONL and 642,72
 - A stale, undated, missing or seller-dominated m5 provider row cannot be interpreted as fresh buyers. A fresh source-observed m5 rise with current buy transactions may activate a momentum shape; a falling latest candle does not.
 - Paper-only streaks, bucket losses and tactic rotation cannot affect live entry grade, shadow recommendation, sizing, confidence, stops or TP maturity.
 - The spot paper exception cannot bypass hard safety, wallet/route restrictions, proven Oracle refusal, earned Cortex refusal, or executable-size checks. The exception is counted only when the exact canonical intent is registered and the four/hour limit remains enforced.
-- All new `Aate8832*` regressions are included in the GitHub release workflow's mandatory targeted unit group; existing `Aate7244`, `Aate7676`, `Aate8535`, `Aate8788`, and related source-contract assertions were updated for intentional mode provenance changes.
+- All new `Aate8832*` and `Aate8833*` regressions are included in the GitHub release workflow's mandatory targeted unit group; existing `Aate7244`, `Aate7676`, `Aate8535`, `Aate8788`, and related source-contract assertions were updated for intentional mode provenance changes.
 
 ## Deployment and post-build evidence needed
 

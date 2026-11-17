@@ -1682,9 +1682,18 @@ object DynamicAltTokenRegistry {
         // into the newest row rather than replacing freshly discovered data
         // with the pre-request snapshot.
         val latest8752 = registry[key] ?: existing
+        val newerPrice8833 = latest8752.price <= 0.0 ||
+            preferIncomingShortWindow8833(latest8752.priceObservedAtMs8372, pair.candle.ts)
+        // A cached pair can be older than a discovery/stream update. Neither
+        // a late HTTP reply nor an unrelated field refresh may roll back an
+        // already newer source-clocked five-minute snapshot.
+        val validPairM58833 = (pair.buysM5 >= 0 && pair.sellsM5 >= 0) ||
+            (pair.volumeM5.isFinite() && pair.volumeM5 >= 0.0) || pair.priceChangeM5.isFinite()
+        val newerPairM58833 = validPairM58833 && preferIncomingShortWindow8833(
+            latest8752.shortWindowObservedAtMs8832, pair.candle.ts)
         registry[key] = latest8752.copy(
-            price = price,
-            priceObservedAtMs8372 = pair.candle.ts,
+            price = if (newerPrice8833) price else latest8752.price,
+            priceObservedAtMs8372 = if (newerPrice8833) pair.candle.ts else latest8752.priceObservedAtMs8372,
             priceChange24h = pair.priceChangeH24.takeIf { it.isFinite() } ?: latest8752.priceChange24h,
             change24hObservedAtMs8752 = if (pair.priceChangeH24.isFinite())
                 System.currentTimeMillis() else latest8752.change24hObservedAtMs8752,
@@ -1701,20 +1710,22 @@ object DynamicAltTokenRegistry {
             // All fields on this row belong to the SAME pair observation.
             // Never refresh an old buy count's clock using a newer price-only
             // reply: missing fields lose their authority, not their meaning.
-            buys5m8832 = if (pair.buysM5 >= 0 && pair.sellsM5 >= 0) pair.buysM5 else -1,
-            sells5m8832 = if (pair.buysM5 >= 0 && pair.sellsM5 >= 0) pair.sellsM5 else -1,
-            volume5m8832 = pair.volumeM5.takeIf { it.isFinite() && it >= 0.0 } ?: Double.NaN,
-            change5mPct8832 = pair.priceChangeM5.takeIf { it.isFinite() } ?: Double.NaN,
-            shortWindowObservedAtMs8832 = if ((pair.buysM5 >= 0 && pair.sellsM5 >= 0) ||
-                (pair.volumeM5.isFinite() && pair.volumeM5 >= 0.0) || pair.priceChangeM5.isFinite())
-                pair.candle.ts else latest8752.shortWindowObservedAtMs8832,
+            buys5m8832 = if (!newerPairM58833) latest8752.buys5m8832
+                else if (pair.buysM5 >= 0 && pair.sellsM5 >= 0) pair.buysM5 else -1,
+            sells5m8832 = if (!newerPairM58833) latest8752.sells5m8832
+                else if (pair.buysM5 >= 0 && pair.sellsM5 >= 0) pair.sellsM5 else -1,
+            volume5m8832 = if (newerPairM58833) pair.volumeM5.takeIf { it.isFinite() && it >= 0.0 } ?: Double.NaN
+                else latest8752.volume5m8832,
+            change5mPct8832 = if (newerPairM58833) pair.priceChangeM5.takeIf { it.isFinite() } ?: Double.NaN
+                else latest8752.change5mPct8832,
+            shortWindowObservedAtMs8832 = if (newerPairM58833) pair.candle.ts else latest8752.shortWindowObservedAtMs8832,
             dexId = latest8752.dexId.ifBlank { pair.dexId },
             pairAddress = latest8752.pairAddress.ifBlank { pair.pairAddress },
             quoteAddress = latest8752.quoteAddress.ifBlank { pair.quoteAddress },
             pairCreatedAtMs = latest8752.pairCreatedAtMs.takeIf { it > 0L } ?: pair.pairCreatedAt,
             lastUpdatedMs = System.currentTimeMillis(),
         )
-        return price
+        return if (newerPrice8833) price else latest8752.price
     }
 
     /**
@@ -1724,6 +1735,10 @@ object DynamicAltTokenRegistry {
      */
     internal fun priceTime8801(priceObservedAtMs: Long, lastUpdatedMs: Long): Long =
         if (priceObservedAtMs > 0L) priceObservedAtMs else lastUpdatedMs
+
+    /** True only when a real newer market observation may replace an existing m5 snapshot. */
+    internal fun preferIncomingShortWindow8833(existingAtMs: Long, incomingAtMs: Long): Boolean =
+        incomingAtMs > 0L && incomingAtMs >= existingAtMs
 
     fun heldMarkSnapshot7251(identityOrAddress: String): HeldMarkRefresh7251 {
         val refreshed = registry[identityOrAddress] ?: getTokenByMint(identityOrAddress)
@@ -1813,6 +1828,13 @@ object DynamicAltTokenRegistry {
             priceObservedAtMs8372 = pair.candle.ts,
             change24hObservedAtMs8752 = if (pair.priceChangeH24.isFinite()) pair.candle.ts else 0L,
             txns24hObservedAtMs8752 = if (pair.txnsH24Observed) pair.candle.ts else 0L,
+            buys5m8832 = if (pair.buysM5 >= 0 && pair.sellsM5 >= 0) pair.buysM5 else -1,
+            sells5m8832 = if (pair.buysM5 >= 0 && pair.sellsM5 >= 0) pair.sellsM5 else -1,
+            volume5m8832 = pair.volumeM5.takeIf { it.isFinite() && it >= 0.0 } ?: Double.NaN,
+            change5mPct8832 = pair.priceChangeM5.takeIf { it.isFinite() } ?: Double.NaN,
+            shortWindowObservedAtMs8832 = if ((pair.buysM5 >= 0 && pair.sellsM5 >= 0) ||
+                (pair.volumeM5.isFinite() && pair.volumeM5 >= 0.0) || pair.priceChangeM5.isFinite())
+                pair.candle.ts else 0L,
             liquidityUsd = pair.liquidity, volume24h = pair.candle.volume24h,
             buys24h = pair.candle.buys24h, sells24h = pair.candle.sells24h,
             ageHours = if (createdAt > 0L) ((System.currentTimeMillis() - createdAt).coerceAtLeast(0L) / 3_600_000.0) else 999.0,
@@ -2208,6 +2230,14 @@ object DynamicAltTokenRegistry {
         // Symbol and bare token address cannot establish multichain identity.
         val canonicalKey6544 = tok.canonicalIdentity6544
         val existing = registry[canonicalKey6544]
+        val acceptIncomingPrice8833 = tok.price.isFinite() && tok.price > 0.0 &&
+            (existing == null || existing.price <= 0.0 || preferIncomingShortWindow8833(
+                existing.priceObservedAtMs8372, tok.priceObservedAtMs8372))
+        // DEX discovery carries source-observed m5 activity into the SAME
+        // registry row used by the crypto brain. A subsequent metadata-only
+        // upsert must not clear it or claim a later market observation.
+        val newestM58833 = if (existing == null || preferIncomingShortWindow8833(
+                existing.shortWindowObservedAtMs8832, tok.shortWindowObservedAtMs8832)) tok else existing
         if (tok.chainId.isNotBlank()) networksObserved6544.add(tok.chainId.lowercase())
         if (tok.dexId.isNotBlank()) dexesObserved6544.add(tok.dexId.lowercase())
         if (existing == null) {
@@ -2217,8 +2247,8 @@ object DynamicAltTokenRegistry {
         if (existing?.isStatic == true) {
             // Direct mint match — enrich static token
             registry[canonicalKey6544] = existing.copy(
-                price         = tok.price.takeIf { it > 0 } ?: existing.price,
-                priceObservedAtMs8372 = if (tok.price > 0.0) tok.priceObservedAtMs8372 else existing.priceObservedAtMs8372,
+                price         = if (acceptIncomingPrice8833) tok.price else existing.price,
+                priceObservedAtMs8372 = if (acceptIncomingPrice8833) tok.priceObservedAtMs8372 else existing.priceObservedAtMs8372,
                 priceChange24h= if (tok.change24hObservedAtMs8752 > 0L &&
                     tok.change24hObservedAtMs8752 >= existing.change24hObservedAtMs8752) tok.priceChange24h
                     else tok.priceChange24h.takeIf { it != 0.0 } ?: existing.priceChange24h,
@@ -2235,6 +2265,11 @@ object DynamicAltTokenRegistry {
                     tok.txns24hObservedAtMs8752 >= existing.txns24hObservedAtMs8752) tok.sells24h
                     else if (tok.txns24hObservedAtMs8752 == 0L) tok.sells24h.takeIf { it > 0 } ?: existing.sells24h else existing.sells24h,
                 txns24hObservedAtMs8752 = maxOf(tok.txns24hObservedAtMs8752, existing.txns24hObservedAtMs8752),
+                buys5m8832 = newestM58833.buys5m8832,
+                sells5m8832 = newestM58833.sells5m8832,
+                volume5m8832 = newestM58833.volume5m8832,
+                change5mPct8832 = newestM58833.change5mPct8832,
+                shortWindowObservedAtMs8832 = newestM58833.shortWindowObservedAtMs8832,
                 isTrending    = tok.isTrending || existing.isTrending,
                 trendingRank  = if (tok.trendingRank >= 0) tok.trendingRank else existing.trendingRank,
                 isBoosted     = tok.isBoosted || existing.isBoosted,
@@ -2250,8 +2285,8 @@ object DynamicAltTokenRegistry {
                 quoteAddress = tok.quoteAddress.ifBlank { existing.quoteAddress },
                 pairCreatedAtMs = tok.pairCreatedAtMs.takeIf { it > 0L } ?: existing.pairCreatedAtMs,
                 firstSeenMs = minOf(existing.firstSeenMs, tok.firstSeenMs),
-                price = tok.price.takeIf { it > 0.0 } ?: existing.price,
-                priceObservedAtMs8372 = if (tok.price > 0.0) tok.priceObservedAtMs8372 else existing.priceObservedAtMs8372,
+                price = if (acceptIncomingPrice8833) tok.price else existing.price,
+                priceObservedAtMs8372 = if (acceptIncomingPrice8833) tok.priceObservedAtMs8372 else existing.priceObservedAtMs8372,
                 priceChange24h = if (tok.change24hObservedAtMs8752 > 0L &&
                     tok.change24hObservedAtMs8752 >= existing.change24hObservedAtMs8752) tok.priceChange24h
                     else tok.priceChange24h.takeIf { it != 0.0 } ?: existing.priceChange24h,
@@ -2268,6 +2303,11 @@ object DynamicAltTokenRegistry {
                     tok.txns24hObservedAtMs8752 >= existing.txns24hObservedAtMs8752) tok.sells24h
                     else if (tok.txns24hObservedAtMs8752 == 0L) tok.sells24h.takeIf { it > 0 } ?: existing.sells24h else existing.sells24h,
                 txns24hObservedAtMs8752 = maxOf(tok.txns24hObservedAtMs8752, existing.txns24hObservedAtMs8752),
+                buys5m8832 = newestM58833.buys5m8832,
+                sells5m8832 = newestM58833.sells5m8832,
+                volume5m8832 = newestM58833.volume5m8832,
+                change5mPct8832 = newestM58833.change5mPct8832,
+                shortWindowObservedAtMs8832 = newestM58833.shortWindowObservedAtMs8832,
                 ageHours = tok.ageHours.takeIf { it > 0.0 } ?: existing.ageHours,
                 source = tok.source, isTrending = tok.isTrending || existing.isTrending,
                 trendingRank = if (tok.trendingRank >= 0) tok.trendingRank else existing.trendingRank,
