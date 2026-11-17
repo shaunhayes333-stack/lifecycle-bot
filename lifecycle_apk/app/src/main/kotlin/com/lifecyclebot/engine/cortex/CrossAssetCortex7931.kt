@@ -110,6 +110,58 @@ object CrossAssetCortex7931 {
     internal fun learningIdentity8372(c: CanonicalAssetEntryCandidate6551): String =
         keyOf(c.assetId, c.symbol, routedMint(c.assetClass, c.symbol))
 
+    /**
+     * V5.0.8834 — supply the canonical crypto decision with the same, source-
+     * dated evidence that CryptoBrain and CryptoLaneDesk used to elect it.
+     * The 8833 registry repair preserved this data, but tokenStateFor below
+     * rebuilt a price/market-cap-only TokenState at the final live gate. That
+     * made observed buyers, 5m movement and true price structure disappear
+     * just before LiveEdgeGate7877/CandidateAdmission8136 read them.
+     *
+     * A registry write time, 24h aggregate or cached scan cannot manufacture
+     * a current reading. Unknown/stale remains unobserved; no buy authority,
+     * risk threshold or source identity is changed by this bridge.
+     */
+    internal fun bridgeCryptoObservedContext8834(
+        ts: TokenState,
+        dyn: com.lifecyclebot.perps.DynamicAltTokenRegistry.DynToken,
+        candidatePrice: Double,
+        nowMs: Long,
+    ) {
+        val priceAt = com.lifecyclebot.engine.NativeDecisionEnrollment8372.observedPriceAt(
+            candidatePrice, dyn.price, dyn.priceObservedAtMs8372, nowMs,
+        )
+        ts.lastPriceUpdate = priceAt
+        ts.lastPriceSource = if (priceAt > 0L)
+            com.lifecyclebot.engine.NativeDecisionEnrollment8372.CRYPTO_DESK_PRICE_SOURCE else ""
+        ts.tokenMap.priceUsd = candidatePrice.takeIf { it.isFinite() && it > 0.0 }
+        ts.tokenMap.priceObservedAtMs7858 = priceAt
+        ts.tokenMap.liquidityUsd = ts.lastLiquidityUsd.takeIf { it.isFinite() && it > 0.0 }
+        ts.tokenMap.marketCap = ts.lastMcap.takeIf { it.isFinite() && it > 0.0 }
+
+        val recent = com.lifecyclebot.perps.CryptoShortWindow8832.from(
+            nowMs, dyn.shortWindowObservedAtMs8832, dyn.buys5m8832, dyn.sells5m8832,
+            dyn.volume5m8832, dyn.change5mPct8832,
+        )
+        ts.lastBuyPressurePct = if (recent.flowObserved) recent.buyPressurePct else 50.0
+        ts.lastSellPressurePct = if (recent.flowObserved) 100.0 - recent.buyPressurePct else 50.0
+        ts.buyPressureObservedAtMs8084 = if (recent.flowObserved) dyn.shortWindowObservedAtMs8832 else 0L
+        ts.lastPriceChange5m = recent.change5mPct ?: 0.0
+        ts.priceChangeObservedAtMs8084 = if (recent.change5mPct != null) dyn.shortWindowObservedAtMs8832 else 0L
+        ts.tokenMap.volume5mUsd = recent.volume5mUsd
+        ts.tokenMap.volume24hUsd = dyn.volume24h.takeIf { it.isFinite() && it > 0.0 }
+
+        // Only actual observed source ticks can form history. Keep their
+        // original timestamps and never include a tick newer than this
+        // candidate's own validated entry price.
+        if (priceAt > 0L) {
+            ts.history.addAll(
+                com.lifecyclebot.perps.CryptoLaneDesk7391.observedCandles8834(dyn.canonicalIdentity6544)
+                    .filter { it.ts in 1L..priceAt },
+            )
+        }
+    }
+
     /** The close side: map a canonical row's mint onto the captured identity. */
     fun normalizeCloseKey(mint: String): String {
         if (mint.isBlank()) return mint
@@ -175,6 +227,23 @@ object CrossAssetCortex7931 {
                 c.assetClass.isOffChainMarket || c.assetClass == AssetClass.PERPS -> OFF_CHAIN_LIQUIDITY_USD
                 else -> 0.0
             }
+        }
+        if (c.assetClass == AssetClass.CRYPTO_ALT && dyn8063 != null) {
+            bridgeCryptoObservedContext8834(ts, dyn8063, c.price, nowMs)
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
+                    if (ts.lastPriceUpdate > 0L) "CRYPTO_CANONICAL_PRICE_PROVEN_8834"
+                    else "CRYPTO_CANONICAL_PRICE_UNOBSERVED_8834",
+                )
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
+                    if (ts.buyPressureObservedAtMs8084 > 0L) "CRYPTO_CANONICAL_FLOW_PROVEN_8834"
+                    else "CRYPTO_CANONICAL_FLOW_UNOBSERVED_8834",
+                )
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
+                    if (ts.history.isNotEmpty()) "CRYPTO_CANONICAL_CANDLES_PROVEN_8834"
+                    else "CRYPTO_CANONICAL_CANDLES_UNOBSERVED_8834",
+                )
+            } catch (_: Throwable) {}
         }
         return ts to lane
     }

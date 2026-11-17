@@ -629,3 +629,28 @@ their mints (`perCoin8811`) for every box of every feature in every scope (~6,00
 SplashActivity ANRs with the main thread SUSPENDED (GC) and the app at 164 % of two cores. `StrategyLab8755.CoinIndex8831`
 gives each row a coin id once; `accOver8831` walks a scope's row indices and counts each coin's first accepted row with a
 stamp array — the same per-coin semantics, no list or set per box. Scopes are index arrays built once per run.
+
+## 39. Crypto's measured five-minute evidence reaches the canonical gate (8834)
+
+5.0.8833 (17 Nov) showed a crypto producer that was alive (`CRYPTO_ALT` candidate/submit=638/638), but
+the canonical gate blocked 638/638. Its source-level upstream repair preserves DexScreener's dated 5m
+buys/sells/volume/change in `DynamicAltTokenRegistry` and grades them in `CryptoAltTrader`, yet
+`CrossAssetCortex7931.tokenStateFor()` reconstructed a price/mcap/liquidity-only `TokenState` for
+`LiveEdgeGate7877`: it discarded the current 5m buyer pressure, movement, volume and the genuine
+CryptoLaneDesk price candles. It also restamped the candidate's price at gate evaluation time.
+
+`CrossAssetCortex7931.bridgeCryptoObservedContext8834` now carries the *same source-dated* 5m
+observations and genuine 8832 candle snapshot into the canonical `TokenState` before the existing
+live-edge gate judges the candidate. Source age is limited by `CryptoShortWindow8832.from` and
+`NativeDecisionEnrollment8372.observedPriceAt`. Stale/mismatched/absent observations remain
+unobserved; the bridge does **not** infer new buyers from 24h counts, backdate price proof,
+or create synthetic scan ticks. `CryptoLaneDesk7391.observedCandles8834` returns an immutable
+copy of the already-sampled candles, filtered to the candidate's verified price observation.
+`Aate8834CryptoCanonicalEvidenceTest` covers both evidence survival and stale/fabricated cases.
+
+This is an upstream information-loss repair, not a new gate or a blanket crypto override:
+the wallet, venue, hard safety, CanonicalEntryAuthority6551, LiveEdgeGate7877, expected-value,
+sizing, fee, pending-position and immutable intent requirements remain binding. Telemetry
+`CRYPTO_CANONICAL_{PRICE,FLOW,CANDLES}_{PROVEN,UNOBSERVED}_8834` shows what the live gate
+actually received. Passing tests proves data continuity, **not** profit or live trade approval;
+subsequent chain-finalised after-cost closes must demonstrate improvement.

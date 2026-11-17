@@ -103,6 +103,15 @@ object CryptoLaneDesk7391 {
     fun prices(identity: String): List<Double> =
         series[identity]?.let { q -> synchronized(q) { q.map { it.priceUsd } } } ?: emptyList()
 
+    /**
+     * V5.0.8834 — the canonical cross-asset gate must judge the SAME dated
+     * price history that qualified the crypto desk. A scanner refresh is not
+     * a candle; recordTick already enforces source timestamps and spacing.
+     * Return a snapshot, never a mutable reference to the resident deque.
+     */
+    internal fun observedCandles8834(identity: String): List<Candle> =
+        series[identity]?.let { q -> synchronized(q) { q.toList() } } ?: emptyList()
+
     /** The crypto token as the meme desk reads a token. */
     fun tokenState(
         identity: String, symbol: String, name: String, priceUsd: Double, marketCapUsd: Double,
