@@ -63,7 +63,9 @@ class Aate8809HeaderContextTest {
 
     @Test fun theColumnsReachTheDatasetAndTheReport() {
         assertTrue(LearnerColumns8798.NAMES.containsAll(listOf("dexPaid", "dexPaidAgeMin", "boost", "socials")))
-        assertEquals("appended last: every earlier column keeps its place", listOf("dexPaid", "dexPaidAgeMin"), LearnerColumns8798.NAMES.takeLast(2))
+        // V5.0.8840 appends its launch-fact columns after these two: every earlier column still keeps its place
+        val i = LearnerColumns8798.NAMES.indexOf("dexPaid")
+        assertEquals("appended in order, earlier columns unmoved", listOf("dexPaid", "dexPaidAgeMin", "creatorKnown"), LearnerColumns8798.NAMES.subList(i, i + 3))
         assertTrue(src("network/DexscreenerApi.kt").contains("DexScreenerSocialSource.observePair8809(baseAddr7385, socialsList.size + websitesList.size,"))
         assertTrue(src("engine/truth/LearnerColumns8798.kt").contains("src.wantOrders8809(mint, nowMs)"))
         assertTrue(src("engine/PipelineHealthCollector.kt").contains("DexScreenerSocialSource.statusLine8809()"))
