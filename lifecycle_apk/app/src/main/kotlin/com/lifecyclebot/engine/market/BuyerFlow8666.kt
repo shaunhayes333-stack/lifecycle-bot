@@ -148,6 +148,21 @@ object BuyerFlow8666 {
         return view
     }
 
+    /**
+     * V5.0.8845 — fresh signed-swap mints are eligible for the EARLY 60-second
+     * discovery pass even when TradeTape8100 has not accumulated six comparable
+     * 2/5-minute price-bearing prints. This is only a scanner priority list; it
+     * does not promote a 60-second observation into a five-minute flow fact.
+     * A timestamp from a stale provider is never eligible.
+     */
+    fun activeMints8845(nowMs: Long = System.currentTimeMillis(), limit: Int = 48): List<String> {
+        if (limit <= 0) return emptyList()
+        return prints.entries.mapNotNull { (mint, q) ->
+            val newest = synchronized(q) { q.prints.peekLast()?.atMs } ?: return@mapNotNull null
+            if (nowMs - newest in 0L..FRESH_MS) mint to newest else null
+        }.sortedByDescending { it.second }.take(limit).map { it.first }
+    }
+
     /** Pure window arithmetic, also used by executable regression tests. */
     internal fun calculate(rows: List<Print>, nowMs: Long): View? {
         val recent = rows.filter { nowMs - it.atMs in 0L..WINDOW_MS && it.sol.isFinite() && it.sol > 0.0 }

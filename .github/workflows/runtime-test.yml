@@ -89,13 +89,14 @@ jobs:
           path: |
             ~/.android/avd/*
             ~/.android/adb*
-          key: avd-api30-x86_64-googleapis
+          key: avd-api30-x86_64-googleapis-cores4
 
       - name: Create AVD snapshot for cache
         if: steps.avd-cache.outputs.cache-hit != 'true'
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 30
+          cores: 4
           arch: x86_64
           target: google_apis
           force-avd-creation: false
@@ -109,6 +110,12 @@ jobs:
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 30
+          # 8844: API 30 ran 23 screens on a two-core AVD while the live
+          # service had >100 loops and the largest 8192-event history seed.
+          # The app main thread was runnable but waited 44s to be scheduled,
+          # and XML inflate tripped an input ANR. Preserve every device and
+          # restart acceptance check; give the AVD realistic mobile cores.
+          cores: 4
           arch: x86_64
           target: google_apis
           force-avd-creation: false

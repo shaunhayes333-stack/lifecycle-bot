@@ -3,6 +3,7 @@ package com.lifecyclebot.engine.truth
 import com.lifecyclebot.data.Candle
 import com.lifecyclebot.data.TokenState
 import com.lifecyclebot.engine.PipelineHealthCollector
+import com.lifecyclebot.engine.market.BuyerFlow8666
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -39,7 +40,7 @@ object MemeStrategies8546 {
     // Preserve the older families' minute-scale evidence and learn this early episode separately.
     // V5.0.8692 — DIP_BUY_VOLUME and FOLLOW_SIZE: the expert playbook's dip-buy and follow-size entries (ExpertSetups8692).
     enum class Family8546 { PULLBACK_RECLAIM, BASE_BREAKOUT_FLOW, GRADUATION_RETEST, WALLET_CLUSTER, RANGE_LOW, EARLY_FLOW_RECLAIM,
-        DIP_BUY_VOLUME, FOLLOW_SIZE }
+        DIP_BUY_VOLUME, FOLLOW_SIZE, SIGNED_DEMAND_FORMING_8845 }
 
     data class Signal8546(val family: Family8546, val exitLane: String, val why: String)
 
@@ -178,7 +179,26 @@ object MemeStrategies8546 {
         Family8546.RANGE_LOW -> f.known && f.netSol5m > 0.0
         Family8546.EARLY_FLOW_RECLAIM -> f.known && f.buys2m >= 4 && f.netSol2m > 0.0 && f.buyShareSol2m >= 0.58
         // V5.0.8692 — a flush is a sell-off by definition and the size buys are the flow: neither needs a buy-share read.
-        Family8546.DIP_BUY_VOLUME, Family8546.FOLLOW_SIZE -> true
+        // SIGNED_DEMAND_FORMING is independently confirmed by BuyerFlow's *60-second*
+        // signed-swap observation. FlowRead's 2/5-minute fields must stay unknown.
+        Family8546.DIP_BUY_VOLUME, Family8546.FOLLOW_SIZE, Family8546.SIGNED_DEMAND_FORMING_8845 -> true
+    }
+
+    /**
+     * A pre-chart, signed-swap buyer formation hypothesis. These are *not*
+     * candles, not a 5-minute flow read, and not proof of a profitable trade.
+     * The forward-label cohort must independently demonstrate executable
+     * after-cost edge before its signal can be used by a live strategy.
+     */
+    fun signedDemandForming8845(flow: BuyerFlow8666.View?, ageMin: Double?): String? {
+        if (flow == null || ageMin == null || !ageMin.isFinite() || ageMin !in 0.0..15.0) return null
+        if (!flow.sustainedDemand || flow.distinctBuyers60s < 4 || flow.newBuyers15s < 2 ||
+            !flow.buySharePct.isFinite() || flow.buySharePct < 60.0 || flow.netSol60s <= 0.0 ||
+            flow.buyTxPrev15s < 2 || flow.buyTx15s <= flow.buyTxPrev15s ||
+            !flow.volumeAccelScore.isFinite() || flow.volumeAccelScore <= 0.0) return null
+        return "signed60s buyers=${flow.distinctBuyers60s} new15s=${flow.newBuyers15s} " +
+            "buyShare=${"%.0f".format(flow.buySharePct)}% accel=${"%.0f".format(flow.volumeAccelScore)} " +
+            "age=${"%.1f".format(ageMin)}m"
     }
 
     /** Pure (V5.0.8756): a follow-size signal stands only with at least one graded, proven wallet among the last minute's buyers. */
@@ -214,8 +234,10 @@ object MemeStrategies8546 {
         val m1 = try { MultiTimeframeCharts8521.snapshot8521(ts, MultiTimeframeCharts8521.Frame8521.M1, nowMs) }
             catch (_: Throwable) { note8644("M1_ERROR"); emptyList() }
         val flow = FlowRead8546.read8546(ts.mint, nowMs)
+        val signed60s8845 = BuyerFlow8666.read(ts.mint, nowMs)
         note8644(if (m1.size >= 9) "M1_READY" else if (m1.isEmpty()) "M1_EMPTY" else "M1_SHORT")
         note8644(if (flow.known) "FLOW_KNOWN" else "FLOW_UNKNOWN")
+        note8644(if (signed60s8845 != null) "SIGNED_60S_FRESH_8845" else "SIGNED_60S_MISSING_8845")
         val mcap = ts.lastMcap
         fun add(f: Family8546, why: String?) {
             if (why == null) return
@@ -234,6 +256,7 @@ object MemeStrategies8546 {
         // V5.0.8692 — the expert playbook's dip buy (closed 1m bars with real volume) and follow-size (executed prints).
         add(Family8546.DIP_BUY_VOLUME, ExpertSetups8692.dipBuyVolume8692(m1))
         val ageMin8692 = try { CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts, nowMs) } catch (_: Throwable) { null }
+        add(Family8546.SIGNED_DEMAND_FORMING_8845, signedDemandForming8845(signed60s8845, ageMin8692))
         // V5.0.8756 — follow size only where a PROVEN wallet is among the buyers (SmartMoney8756): a large buy in the first
         // minutes is a sniper or a bundle by default (8755 paper: FAM_FOLLOW_SIZE stops -60.8 % after 1.9 min).
         val proven8756 = try { SmartMoney8756.provenBuyers8756(ts.mint, 60_000L, nowMs) } catch (_: Throwable) { 0 }
@@ -292,6 +315,16 @@ object MemeStrategies8546 {
             if (tapeDone >= PRIORITY_TAPE_PER_TICK_8663) break
             val ts = tokens[mint] ?: continue
             if (evaluate(ts, true)) { done++; tapeDone++ }
+        }
+        // V5.0.8845: the signed stream contains fresh wallet/side/size evidence
+        // for many mints not yet present in the *price-bearing* TradeTape.
+        // Reserve only part of the normal evaluation budget for them; the
+        // existing tape and round-robin scanners keep their budgets intact.
+        var signedDone8845 = 0
+        for (mint in BuyerFlow8666.activeMints8845(nowMs, PRIORITY_TAPE_PER_TICK_8663)) {
+            if (signedDone8845 >= PRIORITY_TAPE_PER_TICK_8663 || done >= PER_TICK_8546) break
+            val ts = tokens[mint] ?: continue
+            if (evaluate(ts, true)) { done++; signedDone8845++ }
         }
         var i = cursor % all.size
         var visited = 0
@@ -355,7 +388,7 @@ object MemeStrategies8546 {
             "} paperProven{" + Family8546.values().filter { MemePaperTrader8544.familyProven8546(it.name) }.joinToString(",").ifBlank { "none yet" } +
             "} funnel8644{evaluated=${count8644("EVALUATED")} tapePriority8663=${count8644("TAPE_PRIORITY_EVALUATED_8663")} earlyLowLiq8663=${count8644("EARLY_EXECUTED_TAPE_PAPER_ELIGIBLE_8663")} skipped=price:${count8644("SKIP_PRICE")}/safety:${count8644("SKIP_HARD_BLOCK")}/liq:${count8644("SKIP_LIQUIDITY")}/chain:${count8644("SKIP_NON_SOLANA")} " +
             "m1=empty:${count8644("M1_EMPTY")}/short:${count8644("M1_SHORT")}/ready:${count8644("M1_READY")}/error:${count8644("M1_ERROR")} " +
-            "flow=known:${count8644("FLOW_KNOWN")}/unknown:${count8644("FLOW_UNKNOWN")} early=ready:${count8644("EARLY_PRINTS_READY_8650")}/short:${count8644("EARLY_PRINTS_SHORT_8650")} raw{" +
+            "flow=known:${count8644("FLOW_KNOWN")}/unknown:${count8644("FLOW_UNKNOWN")} signed60s=fresh:${count8644("SIGNED_60S_FRESH_8845")}/missing:${count8644("SIGNED_60S_MISSING_8845")} early=ready:${count8644("EARLY_PRINTS_READY_8650")}/short:${count8644("EARLY_PRINTS_SHORT_8650")} raw{" +
             Family8546.values().joinToString(",") { "${it.name}=${count8644("RAW_${it.name}")}/${count8644("FLOW_REFUSED_${it.name}")}noFlow" } +
             "} errors=${count8644("SIGNALS_ERROR")}}] " +
             MemeRegime8546.statusLine8546()

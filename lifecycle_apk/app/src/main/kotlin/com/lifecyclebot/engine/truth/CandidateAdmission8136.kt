@@ -310,6 +310,21 @@ object CandidateAdmission8136 {
     }
 
     /**
+     * Pure: an independently *fired*, after-cost measured setup can estimate
+     * its OWN gross move even when the generic chart heuristic is missing or
+     * lower. It cannot borrow a different strategy's edge, an aggregate cell,
+     * a paper P&L, a suspicious or thin label, or an unknown execution cost.
+     * The normal entryClears8030(cost, margin) check still follows.
+     */
+    internal fun grossFromSetupProof8845(nativeGross: Double, chosenSetup: String?, edge: Evidence8136?, costPct: Double): Double {
+        if (chosenSetup.isNullOrBlank() || edge?.kind != KIND_SETUP || edge.id != chosenSetup || !edge.netOfCost ||
+            !costPct.isFinite() || costPct < 0.0 || !supported8136(edge, costPct) ||
+            !edge.lowerPct.isFinite() || edge.lowerPct <= 0.0) return nativeGross
+        val measuredGross = edge.lowerPct + costPct
+        return if (!nativeGross.isFinite() || measuredGross > nativeGross) measuredGross else nativeGross
+    }
+
+    /**
      * Pure (V5.0.8324): [e] read for a LOSS test on a runner lane — its mean credited the runners its sample could plausibly
      * still be missing (CortexTailEv8324.missedRunnerPts8324). A record whose runner share is unknown, or no measured lane
      * premium, is returned unchanged. Never used by a support test.
@@ -764,16 +779,28 @@ object CandidateAdmission8136 {
         // Resolve the winning strategy before validating its executable economics.
         if (edge?.kind == KIND_SETUP && edge.id != chosen) chooseSetup(edge.id)
 
-        // V5.0.8171: an unformed optional chart has no gross-move forecast;
-        // that does NOT erase a statistically supported NET executable cohort.
-        // Translate only the conservative measured net lower bound back to gross
-        // using this candidate's KNOWN round-trip cost. Never use a prior, a
-        // thin positive, a hypothetical runner tail or an unknown cost.
-        // V5.0.8172 — only when the candidate's own move is unformed (no chart). A measured chart with an unmeasured
-        // ALTERNATIVE setup defers on economics: the alternative never borrows a move it was not measured on (8153).
+        // V5.0.8845: a supported, F I R E D setup's own after-cost record is a
+        // measured conservative gross forecast for THAT setup. The previous
+        // fallback needed both current and ORIGINAL setup's heuristic gross
+        // to be NaN. Consequently a valid alternative with n>=30 and mean-SE
+        // above cost was deferred if the original (rejected) setup had any
+        // heuristic forecast; and the same supported setup was refused on an
+        // inferior hand-estimated gross even when its measured lower bound
+        // cleared the executable margin. Different setup/cell/runner-grab
+        // records still cannot lend it a move. Cost, safety and sellability
+        // continue to bind independently below.
+        val setupGross8845 = grossFromSetupProof8845(decisionGross, chosen, edge, c.costPct)
+        if (setupGross8845.isFinite() && (!decisionGross.isFinite() || setupGross8845 > decisionGross)) {
+            trace += "grossFromOwnSetupProof8845=${fmt8136(setupGross8845)} nativeGross=${fmt8136(decisionGross)} " +
+                "netLower=${fmt8136(edge?.lowerPct ?: Double.NaN)}"
+            decisionGross = setupGross8845
+            net = if (c.costPct.isFinite()) decisionGross - c.costPct else Double.NaN
+        }
+        // Preserve 8171's existing no-forecast fallback for a measured, net-of-cost
+        // candidate cell/cohort when neither the chosen nor original classifier
+        // could estimate a gross move. 8845 extends *own-setup* proof only.
         if (!decisionGross.isFinite() && !c.expectedGrossPct.isFinite() && edge != null && edge.netOfCost &&
-            edge.lowerPct.isFinite() && edge.lowerPct > 0.0 &&
-            c.costPct.isFinite() && c.costPct >= 0.0) {
+            edge.lowerPct.isFinite() && edge.lowerPct > 0.0 && c.costPct.isFinite() && c.costPct >= 0.0) {
             decisionGross = edge.lowerPct + c.costPct
             net = edge.lowerPct
             trace += "grossFromProvenNetLower8171=${fmt8136(edge.lowerPct)} cost=${fmt8136(c.costPct)}"
