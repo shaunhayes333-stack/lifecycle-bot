@@ -654,3 +654,24 @@ sizing, fee, pending-position and immutable intent requirements remain binding. 
 `CRYPTO_CANONICAL_{PRICE,FLOW,CANDLES}_{PROVEN,UNOBSERVED}_8834` shows what the live gate
 actually received. Passing tests proves data continuity, **not** profit or live trade approval;
 subsequent chain-finalised after-cost closes must demonstrate improvement.
+
+## 40. Crypto canonical evidence respects the TokenFacts single writer (8835)
+
+The 8834 release APK compiled and its runtime smoke test passed, but three original
+`Aate8551TokenFactsTest`, `Aate8552PriceFactsTest` and `Aate8553DataBundleTest`
+source-contract tests failed. The 8834 bridge wrote raw price timestamps,
+liquidity, market cap and pressure/change directly into a newly created
+`TokenState` instead of offering them through `TokenFacts`, the application's
+sole market-data writer. The release gate correctly refused publication.
+
+8835 uses `TokenFacts.writePrice` only for the source-proven, price-matched
+provider observation. An unmatched or stale candidate price is a RESTORE fact
+at timestamp zero; it never acquires a fresh gate-evaluation clock. Candidate
+liquidity and registry market cap have no independent source observation clock
+here, so they are mirrored as RESTORE facts through `restoreLiquidity` and
+`restoreMcap`. Real fresh m5 buy/sell pressure and price movement enter as
+dated provider snapshot facts through `writeSnapshot`; missing observations
+leave the default neutral values unstamped. The old `LiveEdgeGate` / wallet /
+canonical execution rules are unchanged. The 8834 regression tests now assert
+the fact store's rank, time, legacy mirrors and stale/zero-flow behavior, and
+the existing 8551–8553 tests forbid raw writes outside the store.

@@ -1,6 +1,7 @@
 package com.lifecyclebot.engine.cortex
 
 import com.lifecyclebot.data.TokenState
+import com.lifecyclebot.engine.truth.TokenFacts
 import com.lifecyclebot.engine.truth.AssetClass
 import com.lifecyclebot.engine.truth.CanonicalAssetEntryCandidate6551
 import java.util.concurrent.ConcurrentHashMap
@@ -121,33 +122,49 @@ object CrossAssetCortex7931 {
      * A registry write time, 24h aggregate or cached scan cannot manufacture
      * a current reading. Unknown/stale remains unobserved; no buy authority,
      * risk threshold or source identity is changed by this bridge.
+     * V5.0.8835: TokenFacts owns every price, liquidity and snapshot write;
+     * the 8834 direct field mirrors violated its single-writer contract.
      */
     internal fun bridgeCryptoObservedContext8834(
         ts: TokenState,
         dyn: com.lifecyclebot.perps.DynamicAltTokenRegistry.DynToken,
         candidatePrice: Double,
+        candidateLiquidity: Double,
+        candidateMcap: Double,
         nowMs: Long,
     ) {
+        val facts = TokenFacts
+        val rank = TokenFacts.Rank
         val priceAt = com.lifecyclebot.engine.NativeDecisionEnrollment8372.observedPriceAt(
             candidatePrice, dyn.price, dyn.priceObservedAtMs8372, nowMs,
         )
-        ts.lastPriceUpdate = priceAt
-        ts.lastPriceSource = if (priceAt > 0L)
-            com.lifecyclebot.engine.NativeDecisionEnrollment8372.CRYPTO_DESK_PRICE_SOURCE else ""
-        ts.tokenMap.priceUsd = candidatePrice.takeIf { it.isFinite() && it > 0.0 }
-        ts.tokenMap.priceObservedAtMs7858 = priceAt
-        ts.tokenMap.liquidityUsd = ts.lastLiquidityUsd.takeIf { it.isFinite() && it > 0.0 }
-        ts.tokenMap.marketCap = ts.lastMcap.takeIf { it.isFinite() && it > 0.0 }
+        if (priceAt > 0L) {
+            facts.writePrice(ts, candidatePrice,
+                com.lifecyclebot.engine.NativeDecisionEnrollment8372.CRYPTO_DESK_PRICE_SOURCE,
+                rank.PROVIDER, priceAt, nowMs)
+        } else {
+            facts.restorePrice(ts, candidatePrice, "")
+        }
+        // Canonical candidates provide liquidity and registry cap as values,
+        // not independent observation clocks. Their mirrors are RESTORE facts,
+        // never freshly stamped provider reads at the gate's wall-clock time.
+        facts.restoreLiquidity(ts, candidateLiquidity, "CRYPTO_CANDIDATE_UNCLOCKED_8835")
+        facts.restoreMcap(ts, candidateMcap)
 
         val recent = com.lifecyclebot.perps.CryptoShortWindow8832.from(
             nowMs, dyn.shortWindowObservedAtMs8832, dyn.buys5m8832, dyn.sells5m8832,
             dyn.volume5m8832, dyn.change5mPct8832,
         )
-        ts.lastBuyPressurePct = if (recent.flowObserved) recent.buyPressurePct else 50.0
-        ts.lastSellPressurePct = if (recent.flowObserved) 100.0 - recent.buyPressurePct else 50.0
-        ts.buyPressureObservedAtMs8084 = if (recent.flowObserved) dyn.shortWindowObservedAtMs8832 else 0L
-        ts.lastPriceChange5m = recent.change5mPct ?: 0.0
-        ts.priceChangeObservedAtMs8084 = if (recent.change5mPct != null) dyn.shortWindowObservedAtMs8832 else 0L
+        if (recent.flowObserved) {
+            facts.writeSnapshot(ts, TokenFacts.Field.BUY_PRESSURE_PCT, recent.buyPressurePct,
+                "DEX_PAIR_M5_CRYPTO_8835", rank.PROVIDER, dyn.shortWindowObservedAtMs8832, nowMs)
+            facts.writeSnapshot(ts, TokenFacts.Field.SELL_PRESSURE_PCT, 100.0 - recent.buyPressurePct,
+                "DEX_PAIR_M5_CRYPTO_8835", rank.PROVIDER, dyn.shortWindowObservedAtMs8832, nowMs)
+        }
+        recent.change5mPct?.let { change ->
+            facts.writeSnapshot(ts, TokenFacts.Field.CHANGE_5M_PCT, change,
+                "DEX_PAIR_M5_CRYPTO_8835", rank.PROVIDER, dyn.shortWindowObservedAtMs8832, nowMs)
+        }
         ts.tokenMap.volume5mUsd = recent.volume5mUsd
         ts.tokenMap.volume24hUsd = dyn.volume24h.takeIf { it.isFinite() && it > 0.0 }
 
@@ -213,23 +230,30 @@ object CrossAssetCortex7931 {
         assets[key] = Asset(c.assetClass, c.symbol, c.assetId, nowMs,
             nativePriceProvenance8372 = assets[key]?.nativePriceProvenance8372 == true)
         val ts = TokenState(mint = key, symbol = c.symbol, name = c.symbol).apply {
-            lastPrice = c.price
-            lastPriceUpdate = nowMs
+            // The crypto registry's original observation clock is applied by
+            // TokenFacts below; never seed a false now-clock that can reject it.
+            if (c.assetClass != AssetClass.CRYPTO_ALT || dyn8063 == null) {
+                lastPrice = c.price
+                lastPriceUpdate = nowMs
+            }
             source = if (c.assetClass == AssetClass.CRYPTO_ALT)
                 "XC_${cryptoKind8063(c.symbol, dyn8063?.sector.orEmpty(), key)}_${capTier8063(mcap8063)}"
             else "XASSET_${c.assetClass.tag}_${c.source}".take(64)
             // V5.0.8063 — the coin's real age (pair creation) so the cell's age band means something; unknown stays unknown.
             addedToWatchlistAt = dyn8063?.pairCreatedAtMs?.takeIf { it in 1L..nowMs } ?: 0L
-            if (mcap8063 > 0.0) lastMcap = mcap8063
+            if (mcap8063 > 0.0 && (c.assetClass != AssetClass.CRYPTO_ALT || dyn8063 == null))
+                lastMcap = mcap8063
             entryScore = if (c.score.isFinite()) c.score else 0.0
-            lastLiquidityUsd = when {
-                c.liquidityUsd.isFinite() && c.liquidityUsd > 0.0 -> c.liquidityUsd
-                c.assetClass.isOffChainMarket || c.assetClass == AssetClass.PERPS -> OFF_CHAIN_LIQUIDITY_USD
-                else -> 0.0
+            if (c.assetClass != AssetClass.CRYPTO_ALT || dyn8063 == null) {
+                lastLiquidityUsd = when {
+                    c.liquidityUsd.isFinite() && c.liquidityUsd > 0.0 -> c.liquidityUsd
+                    c.assetClass.isOffChainMarket || c.assetClass == AssetClass.PERPS -> OFF_CHAIN_LIQUIDITY_USD
+                    else -> 0.0
+                }
             }
         }
         if (c.assetClass == AssetClass.CRYPTO_ALT && dyn8063 != null) {
-            bridgeCryptoObservedContext8834(ts, dyn8063, c.price, nowMs)
+            bridgeCryptoObservedContext8834(ts, dyn8063, c.price, c.liquidityUsd, mcap8063, nowMs)
             try {
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
                     if (ts.lastPriceUpdate > 0L) "CRYPTO_CANONICAL_PRICE_PROVEN_8834"
