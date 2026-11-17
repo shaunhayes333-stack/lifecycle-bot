@@ -1146,6 +1146,12 @@ object GlobalTradeRegistry {
             if (observedAtMs < entry.priceObservedAtMs8847) return false
             // A token discovered before price hydration needs its first real observation as a baseline.
             if (!entry.priceAtAdd.isFinite() || entry.priceAtAdd <= 0.0) entry.priceAtAdd = price
+            else if (price <= entry.priceAtAdd * 0.80) {
+                // 8848: a confirmed pullback resets the probation observation anchor; it does
+                // not permanently condemn the mint. A later recovery is a NEW setup.
+                entry.priceAtAdd = price
+                entry.promotionReason = "PULLBACK_REBASE_8848"
+            }
             entry.currentPrice = price
             entry.priceObservedAtMs8847 = observedAtMs
         }
@@ -1250,9 +1256,12 @@ object GlobalTradeRegistry {
                     continue
                 }
                 if (priceChange <= -20.0) {
-                    // Price down 20%+ = reject
-                    rejectFromProbation(mint, "PRICE_DUMP:${priceChange.toInt()}%")
-                    results.add(ProbationResult(mint, entry.symbol, "REJECTED", "PRICE_DUMP"))
+                    // 8848: an unconfirmed or falling price remains on probation. The accepted
+                    // market-fact writer rebases genuine pullbacks; neither case is a hard ban.
+                    if (entry.promotionReason != "PULLBACK_AWAIT_FRESH_MARK_8848") {
+                        entry.promotionReason = "PULLBACK_AWAIT_FRESH_MARK_8848"
+                        try { PipelineHealthCollector.labelInc("PROBATION_PULLBACK_RETAINED_8848") } catch (_: Throwable) {}
+                    }
                     continue
                 }
             }

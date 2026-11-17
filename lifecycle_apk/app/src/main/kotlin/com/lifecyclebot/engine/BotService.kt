@@ -17544,13 +17544,30 @@ class BotService : Service() {
                     addLog("✅ PROMOTED: ${result.symbol} | ${result.reason}", result.mint)
                     soundManager.playNewToken()
                     try {
+                        // 8848: a promotion must carry the LATEST accepted market facts, not
+                        // zero-valued intake fields from when this mint first entered probation.
+                        // Unknown remains unknown; no invented liquidity or cap is executable.
+                        val promotedTs8848 = status.tokens[result.mint]
+                        val promotedAt8848 = System.currentTimeMillis()
+                        val acceptedLiq8848 = promotedTs8848?.facts8551?.get(com.lifecyclebot.engine.truth.TokenFacts.Field.LIQUIDITY_USD)
+                        val acceptedCap8848 = promotedTs8848?.facts8551?.get(com.lifecyclebot.engine.truth.TokenFacts.Field.MCAP_USD)
+                        val currentLiq8848 = acceptedLiq8848?.takeIf {
+                            it.rank > com.lifecyclebot.engine.truth.TokenFacts.Rank.RESTORE &&
+                                promotedAt8848 - it.observedAtMs in 0L..120_000L && it.value.isFinite() && it.value > 0.0
+                        }?.value ?: result.initialLiquidity
+                        val currentMcap8848 = acceptedCap8848?.takeIf {
+                            it.rank > com.lifecyclebot.engine.truth.TokenFacts.Rank.RESTORE &&
+                                promotedAt8848 - it.observedAtMs in 0L..120_000L && it.value.isFinite() && it.value > 0.0
+                        }?.value ?: result.initialMcap
+                        if (currentLiq8848 != result.initialLiquidity || currentMcap8848 != result.initialMcap)
+                            try { PipelineHealthCollector.labelInc("PROBATION_PROMOTION_FRESH_FACTS_8848") } catch (_: Throwable) {}
                         admitProtectedMemeIntake(
                             mint = result.mint,
                             symbol = result.symbol,
                             name = result.symbol,
                             source = "PROBATION",
-                            marketCapUsd = result.initialMcap,
-                            liquidityUsd = result.initialLiquidity,
+                            marketCapUsd = currentMcap8848,
+                            liquidityUsd = currentLiq8848,
                             confidence = 50,
                             allSources = ScannerSourceTags8292.probationPromotionSources8292(result.source, result.addedBy),  // V5.0.8292
                             playSound = false,

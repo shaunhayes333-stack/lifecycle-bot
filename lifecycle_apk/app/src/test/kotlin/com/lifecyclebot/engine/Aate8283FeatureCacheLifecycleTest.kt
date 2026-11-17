@@ -133,8 +133,9 @@ class Aate8283FeatureCacheLifecycleTest {
         val rev = src("engine/truth/FeatureRevision8283.kt")
         assertFalse(rev.contains("invalidateUnsealedEvidence8253"))
         assertFalse(rev.contains("LaneExecutionCoordinator."))
-        val adm = src("engine/truth/CandidateAdmission8136.kt").substringAfter("fun evidenceArrived8252(").substringBefore("if (held8144.isEmpty()) return")
-        assertTrue(adm.contains("FeatureRevision8283.advance8283(mint, kinds8283 ?: FeatureRevision8283.kindsOf8283(features), nowMs)"))
+        val adm = src("engine/truth/CandidateAdmission8136.kt").substringAfter("fun evidenceArrived8252(").substringBefore("if (held8144.isEmpty() && !namedResumed8397) return")
+        assertTrue(adm.contains("val changedKinds8847 = kinds8283 ?: FeatureRevision8283.kindsOf8283(features)"))
+        assertTrue(adm.contains("FeatureRevision8283.advance8283(mint, changedKinds8847, nowMs)"))
         assertTrue(adm.contains("com.lifecyclebot.engine.LaneExecutionCoordinator.invalidateUnsealedEvidence8253(mint)"))
     }
 

@@ -109,6 +109,11 @@ class Aate8847TemporalPoolAndLaunchProofTest {
             registry.acceptProbationPrice8847(entry, 0.0003, now - 2_000L, now))
         assertFalse(registry.acceptProbationPrice8847(entry, 0.5, now - 30_000L, now))
         assertEquals(0.00108, entry.currentPrice, 1e-12)
+        val pullback = entry.copy()
+        assertTrue(registry.acceptProbationPrice8847(pullback, 0.0006, now, now))
+        assertEquals("a deep pullback becomes a recovery baseline", 0.0006, pullback.priceAtAdd, 1e-12)
+        assertTrue(registry.acceptProbationPrice8847(pullback, 0.00065, now + 3_000L, now + 3_000L))
+        assertTrue(registry.probationReadyForReview8847(pullback.copy(addedAt = now), now + 3_000L))
         val tokenFacts = File("src/main/kotlin/com/lifecyclebot/engine/truth/TokenFacts.kt").readText()
         assertTrue("canonical accepted price writes must actually update probation",
             tokenFacts.contains("GlobalTradeRegistry.updateProbationPrice(ts.mint, usd, offered.observedAtMs, nowMs)"))

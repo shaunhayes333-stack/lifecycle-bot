@@ -21,7 +21,8 @@ class Aate8772DiscoveryCadenceTest {
         assertTrue(GlobalTradeRegistry.EVICTED_TTL_MS_8772 >= 30L * 60_000L)
         val src = File("src/main/kotlin/com/lifecyclebot/engine/GlobalTradeRegistry.kt").readText()
         assertTrue(src.contains("addedAt = returning8772?.first ?: now,"))
-        assertTrue(src.contains("watchlist.remove(victim.mint)?.let { rememberRemoved8772(it) }"))
+        assertTrue("cap victim must remain discoverable through probation", src.contains("demoteWatchlistToProbation(victim.mint, \"CAP_ROTATION_8847\""))
+        assertTrue("retirement still remembers the prior admission", src.contains("rememberRemoved8772(entry)"))
         assertTrue(src.contains("watchlist.remove(oldest.mint)?.let { rememberRemoved8772(it) }"))
     }
 }
