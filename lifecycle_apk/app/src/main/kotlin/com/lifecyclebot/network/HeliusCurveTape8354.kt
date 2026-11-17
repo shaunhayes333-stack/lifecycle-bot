@@ -528,6 +528,22 @@ object HeliusCurveTape8354 {
         return taped
     }
 
+    internal const val CREATE_LINE_PREFIX_8840 = "Program data: G3KpTd7r"
+
+    /** V5.0.8840 — every pump.fun CreateEvent in one transaction's logs names its creator (LaunchFacts8840). */
+    internal fun creates8840(logs: List<String>, sig: String, nowMs: Long): Int {
+        var n = 0
+        for (line in logs) {
+            // the CreateEvent discriminator's first six bytes are "G3KpTd7r" in base64: no other line is decoded
+            if (!line.startsWith(CREATE_LINE_PREFIX_8840)) continue
+            val ev = try { ChainLaunchFeed8179.decodeCreateEventLine8840(line) } catch (_: Throwable) { null } ?: continue
+            if (!PumpCurveKeys7269.isPumpMint8658(ev.mint)) continue
+            try { com.lifecyclebot.engine.truth.LaunchFacts8840.onCreate8840(ev.mint, ev.user, sig.trim(), nowMs) } catch (_: Throwable) {}
+            n++
+        }
+        return n
+    }
+
     /** Pure: the TradeEvents in one transaction's log lines. */
     internal fun tradesInLogs8354(logs: List<String>): List<ChainLaunchFeed8179.TradeEvent8179> {
         val out = ArrayList<ChainLaunchFeed8179.TradeEvent8179>(2)
@@ -553,6 +569,7 @@ object HeliusCurveTape8354 {
             val arr = meta.optJSONArray("logMessages")
             val logs = ArrayList<String>(arr?.length() ?: 0)
             if (arr != null) for (i in 0 until arr.length()) logs.add(arr.optString(i, ""))
+            creates8840(logs, sig, nowMs)   // V5.0.8840 — the creator, before the create transaction's own buy is taped
             var n = 0
             for (ev in tradesInLogs8354(logs)) if (onTradeEvent8354(ev, sig, nowMs)) n++
             n
@@ -567,6 +584,7 @@ object HeliusCurveTape8354 {
             val arr = value.optJSONArray("logs")
             val logs = ArrayList<String>(arr?.length() ?: 0)
             if (arr != null) for (i in 0 until arr.length()) logs.add(arr.optString(i, ""))
+            creates8840(logs, sig, nowMs)   // V5.0.8840 — the creator, before the create transaction's own buy is taped
             var n = 0
             for (ev in tradesInLogs8354(logs)) if (onTradeEvent8354(ev, sig, nowMs)) n++
             n

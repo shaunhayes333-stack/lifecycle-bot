@@ -1601,6 +1601,7 @@ object PipelineHealthCollector {
         sb.append("  Outcome lessons (§8745): ").append(try { com.lifecyclebot.engine.truth.OutcomeLesson8745.statusLine8745() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Launch replay (§8744): ").append(try { com.lifecyclebot.engine.truth.LaunchReplay8744.statusLine8744() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Signal replay (§8828): ").append(try { com.lifecyclebot.engine.truth.SignalReplay8828.statusLine8828() } catch (_: Throwable) { "unavailable" }).append("\n")
+        sb.append("  Launch facts (§8840): ").append(try { com.lifecyclebot.engine.truth.LaunchFacts8840.statusLine8840() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Strategy lab (§8755): ").append(try { com.lifecyclebot.engine.lab.StrategyLab8755.statusLine8755() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Base replay (§8754): ").append(try { com.lifecyclebot.engine.truth.BaseFamily8754.statusLine8754() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Smart money (§8756): ").append(try { com.lifecyclebot.engine.truth.SmartMoney8756.statusLine8756() } catch (_: Throwable) { "unavailable" }).append("\n")

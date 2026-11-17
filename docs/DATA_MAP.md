@@ -707,3 +707,20 @@ n188-983 a lane), yet no lane held the refusal: 8750 also required 30 kept coins
 89 % of admitted 15-minute decisions carried a negative prediction (-9.5 %); the 676 with a prediction >= 0 averaged
 +3.9 % (per coin +1.8 % ± 1.9: flat, not proven). `EdgeModel8537.refusalAuthority8715` now holds when 30+ refused coins'
 mean is two SE below zero (`REFUSAL_Z_8839`); the kept side's record still decides the picks' authority.
+
+## 43. Who is behind the launch: creator, dev, bundle, snipers, holders (8840)
+
+5.0.8837 learner coverage: devTokens 0 %, devRugRate 0 %, insider 0 %, launch-tape wallet columns 14-22 %. Offline (3,180
+launches) price/flow/count features lifted the +50 %-before--30 % rate from 19 % to ~30 % out of sample; 41.6 % pays.
+
+`ChainLaunchFeed8179.decodeCreateEvent8840` decodes pump.fun's CreateEvent (discriminator sha256("event:CreateEvent")[0..8]
+= 27,114,169,77,222,235,99,118; name, symbol, uri as borsh strings, then mint, bonding_curve, user = creator).
+`HeliusCurveTape8354.creates8840` reads it from every program-tape transaction (lines prefixed "Program data: G3KpTd7r")
+before the transaction's trades; PumpPortal's create frame feeds the same call. `LaunchFacts8840.Fold8840` folds a launch's
+prints in chain order: creator initial buy (creation second), held, sold share (all / first 10 min), bundle (non-creator
+first buys in the creation second), snipers (within 2 s), top-1 / top-5 net holdings, distinct buyers — % of the 1e9
+supply. `DevHistory8840` keeps per creator the launches seen to retire, those reaching a $30k cap inside the hour, those the
+creator sold >= 90 % of inside 10 minutes (dev_history_8840.tsv). Live: `TradeTape8100.launchEvidence8750` feeds every
+witnessed print; LearnerColumns8798 gains 15 columns; SignalTruth8825 measures 9 of them. Export: LaunchHour8628 stores
+`creator(m,c,s,pl,pr,pd,t)` and writes one `FACTS_8840` row per launch with the facts at 15, 30, 60, 120, 300, 600 and
+1,800 s from birth (same Fold over the stored prints) and the creator's record as of birth. Report line `Launch facts (§8840)`.

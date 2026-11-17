@@ -411,6 +411,41 @@ object ChainLaunchFeed8179 {
         )
     }
 
+    /** V5.0.8840 — sha256("event:CreateEvent")[0..8] (pump.fun IDL). */
+    private val CREATE_EVENT_DISC_8840 = byteArrayOf(27, 114, 169.toByte(), 77, 222.toByte(), 235.toByte(), 99, 118)
+
+    /** V5.0.8840 — the leading fields of pump.fun's CreateEvent this bot reads. */
+    data class CreateEvent8840(val name: String, val symbol: String, val uri: String, val mint: String, val bondingCurve: String, val user: String)
+
+    /**
+     * Pure (V5.0.8840): pump.fun's CreateEvent — discriminator(8) name string, symbol string, uri string (borsh: u32
+     * little-endian length, UTF-8 bytes), mint pubkey(32), bonding_curve pubkey(32), user pubkey(32) [later fields not
+     * read]. `user` is the creator. Null for any other event, a short buffer or an implausible string length.
+     */
+    fun decodeCreateEvent8840(b: ByteArray): CreateEvent8840? {
+        if (b.size < 8 + 12 + 96) return null
+        for (i in 0 until 8) if (b[i] != CREATE_EVENT_DISC_8840[i]) return null
+        var off = 8
+        fun str(): String? {
+            if (off + 4 > b.size) return null
+            val len = (b[off].toInt() and 0xFF) or ((b[off + 1].toInt() and 0xFF) shl 8) or ((b[off + 2].toInt() and 0xFF) shl 16) or ((b[off + 3].toInt() and 0xFF) shl 24)
+            if (len < 0 || len > 1_000 || off + 4 + len > b.size) return null
+            val v = String(b, off + 4, len, Charsets.UTF_8); off += 4 + len; return v
+        }
+        val name = str() ?: return null; val symbol = str() ?: return null; val uri = str() ?: return null
+        if (off + 96 > b.size) return null
+        fun key(): String? = try { io.github.novacrypto.base58.Base58.base58Encode(b.copyOfRange(off, off + 32)).also { off += 32 } } catch (_: Throwable) { null }
+        val mint = key() ?: return null; val curve = key() ?: return null; val user = key() ?: return null
+        return CreateEvent8840(name, symbol, uri, mint, curve, user)
+    }
+
+    /** Pure (V5.0.8840): a "Program data: <base64>" log line decoded as a CreateEvent, or null. */
+    fun decodeCreateEventLine8840(line: String): CreateEvent8840? {
+        if (!line.startsWith("Program data: ")) return null
+        val bytes = try { java.util.Base64.getDecoder().decode(line.substring(14).trim()) } catch (_: Throwable) { return null }
+        return decodeCreateEvent8840(bytes)
+    }
+
     /** Pure: a "Program data: <base64>" log line decoded as a TradeEvent, or null. */
     fun decodeTradeEventLine8179(line: String): TradeEvent8179? {
         if (!line.startsWith("Program data: ")) return null

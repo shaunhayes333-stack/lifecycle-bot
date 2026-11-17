@@ -1088,6 +1088,12 @@ object PumpFunWS {
                                 mint, j.optString("traderPublicKey", "")
                             )
                         } catch (_: Throwable) {}
+                        // V5.0.8840 — the same creator and create transaction into the launch's chain facts
+                        try {
+                            com.lifecyclebot.engine.truth.LaunchFacts8840.onCreate8840(
+                                mint, j.optString("traderPublicKey", ""), j.optString("signature", "")
+                            )
+                        } catch (_: Throwable) {}
                         // V5.0.7269 — the curve address rides in this payload; keep
                         // it so the mark fan-out can read the curve from chain state
                         // when no aggregator lists the mint. Recorded before the

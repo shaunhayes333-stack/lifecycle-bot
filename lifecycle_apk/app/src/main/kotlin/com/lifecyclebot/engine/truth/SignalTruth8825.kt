@@ -41,6 +41,8 @@ object SignalTruth8825 {
         "chg5m", "chg1h", "runup", "runupFromLow", "dd", "pxPeak", "fromPeak", "liq", "mcap", "top", "holders", "secsSincePrint",
         // V5.0.8827 — the bot's own verdict inputs: its score, the learned prediction, age, and what the admission leaned on
         "v3", "pred", "age", "fromFirst", "buyShare", "launchBuyShare", "turnover",
+        // V5.0.8840 — who is behind the launch (LaunchFacts8840)
+        "devInitPct", "devHeldPct", "devSoldFrac", "bundlePct", "sniperPct", "top1Pct", "top5Pct", "uniqueBuyers", "devPriorLaunches",
     )
     /** Age bands (minutes): under 1, 1-10, 10-60, 1-24 h, older. */
     private val BAND_EDGES_MIN = doubleArrayOf(1.0, 10.0, 60.0, 1_440.0)

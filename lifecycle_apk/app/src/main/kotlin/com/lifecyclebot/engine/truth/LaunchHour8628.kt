@@ -61,6 +61,16 @@ object LaunchHour8628 {
             recvMs, src.take(24), wallet.trim().take(44))
     }
 
+    /**
+     * V5.0.8840 — who created [mint] (pump.fun's CreateEvent `user`) and in which transaction, with the creator's record as of
+     * this birth (LaunchFacts8840.DevHistory8840: launches seen, runners, dumps). Read back by the export's FACTS_8840 rows.
+     */
+    fun creator8840(mint: String, creator: String, createSig: String, priorLaunches: Int, priorRunners: Int, priorDumps: Int, at: Long) {
+        if (mint.length !in 32..44 || creator.isBlank()) return
+        record("INSERT OR IGNORE INTO creator(m,c,s,pl,pr,pd,t) VALUES(?,?,?,?,?,?,?)", mint, creator.trim().take(44), createSig.trim().take(100),
+            priorLaunches, priorRunners, priorDumps, at)
+    }
+
     fun observeDecision(ts: com.lifecyclebot.data.TokenState, lane: String, admit: Boolean, at: Long) {
         val born = CanonicalTokenBirthTime7440.peekBirthMs8418(ts.mint, at) ?: return
         if (at - born !in 0L..HOUR) return
@@ -98,6 +108,8 @@ object LaunchHour8628 {
                         try { execSQL("ALTER TABLE trade ADD COLUMN src TEXT") } catch (_: Exception) {}    // V5.0.8748 feed
                         try { execSQL("ALTER TABLE trade ADD COLUMN w TEXT") } catch (_: Exception) {}      // V5.0.8756 trader wallet
                         execSQL("CREATE TABLE IF NOT EXISTS decision(m TEXT,t INTEGER,l TEXT,k TEXT,a INTEGER,c REAL, PRIMARY KEY(m,t,l,k,a))")
+                        // V5.0.8840 — the launch's creator, create transaction and the creator's record at birth
+                        execSQL("CREATE TABLE IF NOT EXISTS creator(m TEXT PRIMARY KEY,c TEXT,s TEXT,pl INTEGER,pr INTEGER,pd INTEGER,t INTEGER)")
                     }.also { db = it }
                 }
                 store.beginTransactionNonExclusive()
@@ -109,6 +121,7 @@ object LaunchHour8628 {
                         store.execSQL("DELETE FROM birth WHERE b < ?", cutoff)
                         store.execSQL("DELETE FROM trade WHERE t < ?", cutoff)
                         store.execSQL("DELETE FROM decision WHERE t < ?", cutoff)
+                        store.execSQL("DELETE FROM creator WHERE t < ?", cutoff)
                         lastTrim = now
                     }
                     store.setTransactionSuccessful()
@@ -197,6 +210,38 @@ object LaunchHour8628 {
         return JSONObject().put("kind", "PATH_8741").put("mint", mint).put("birthMs", born).put("barSec", BAR_MS_8741 / 1000L).put("bars", arr)
     }
 
+    /** V5.0.8840 — the cut-offs (seconds from birth) at which the export states each launch's facts. */
+    internal val FACT_CUTS_8840 = longArrayOf(15, 30, 60, 120, 300, 600, 1_800)
+
+    /**
+     * V5.0.8840 — one launch's LaunchFacts8840 at each [FACT_CUTS_8840] second from birth: the same Fold the live columns
+     * use, over the stored prints (chain time, price, SOL, side, wallet, signature) in order; a cut-off sees only the prints
+     * at or before it. With the creator's record as of its birth.
+     */
+    private fun factsRow8840(db: SQLiteDatabase, mint: String, born: Long, until: Long, maxRow: Long): JSONObject? {
+        val hasCreator = db.rawQuery("SELECT name FROM sqlite_master WHERE type='table' AND name='creator'", null).use { it.moveToFirst() }
+        var creator = ""; var createSig = ""; var pl = 0; var pr = 0; var pd = 0
+        if (hasCreator) db.rawQuery("SELECT c,s,pl,pr,pd FROM creator WHERE m=?", arrayOf(mint)).use { c ->
+            if (c.moveToFirst()) { creator = c.getString(0) ?: ""; createSig = c.getString(1) ?: ""; pl = c.getInt(2); pr = c.getInt(3); pd = c.getInt(4) }
+        }
+        val hasWallet = db.rawQuery("PRAGMA table_info(trade)", null).use { c -> var f = false; while (c.moveToNext()) if (c.getString(1) == "w") f = true; f }
+        if (!hasWallet) return null
+        val fold = LaunchFacts8840.Fold8840(creator, createSig)
+        val cuts = org.json.JSONObject()
+        var k = 0
+        db.rawQuery("SELECT t,p,side,v,w,s FROM trade WHERE rowid <= $maxRow AND m=? AND t BETWEEN ? AND ? ORDER BY t,s,side",
+            arrayOf(mint, born.toString(), until.toString())).use { c ->
+            while (c.moveToNext()) {
+                val t = c.getLong(0)
+                while (k < FACT_CUTS_8840.size && t - born > FACT_CUTS_8840[k] * 1000L) { cuts.put(FACT_CUTS_8840[k].toString(), LaunchFacts8840.toJson8840(fold.snapshot())); k++ }
+                fold.add(t, c.getDouble(1), if (c.isNull(3)) 0.0 else c.getDouble(3), c.getInt(2) == 1, c.getString(4) ?: "", c.getString(5) ?: "")
+            }
+        }
+        while (k < FACT_CUTS_8840.size && until - born >= FACT_CUTS_8840[k] * 1000L) { cuts.put(FACT_CUTS_8840[k].toString(), LaunchFacts8840.toJson8840(fold.snapshot())); k++ }
+        return JSONObject().put("kind", "FACTS_8840").put("mint", mint).put("birthMs", born).put("creator", creator)
+            .put("devPriorLaunches", pl).put("devPriorRunners", pr).put("devPriorDumps", pd).put("cuts", cuts)
+    }
+
     /** Pure: fold one print at [offsetMs] from birth into its 10-second bar (open, high, low, close, buys, sells, buySol, sellSol). */
     internal fun bars8741(bars: java.util.TreeMap<Long, DoubleArray>, offsetMs: Long, px: Double, buy: Boolean, sol: Double) {
         if (!px.isFinite() || px <= 0.0 || offsetMs < 0L) return
@@ -280,6 +325,8 @@ object LaunchHour8628 {
                             // V5.0.8741 — the coin's first-hour PATH for an offline replay of entries and exits (owner: "see these
                             // developing at 10k ... even if it gets out at 40k 50k"): 10-second bars of every observed print.
                             if (prints.size >= PATH_MIN_PRINTS_8741) w.appendLine(pathRow8741(db, mint, born, minOf(now, end - 1L), limits[1]).toString())
+                            // V5.0.8840 — the launch's chain facts (creator, dev, bundle, snipers, holders) at fixed seconds from birth
+                            if (prints.size >= PATH_MIN_PRINTS_8741) try { factsRow8840(db, mint, born, minOf(now, end - 1L), limits[1])?.let { w.appendLine(it.toString()) } } catch (_: Exception) {}
                             db.rawQuery("SELECT t,l,k,a,c FROM decision d WHERE rowid <= ${limits[2]} AND m=? AND t BETWEEN ? AND ? AND (k!='UNATTRIBUTED' OR NOT EXISTS (SELECT 1 FROM decision x WHERE x.rowid <= ${limits[2]} AND x.m=d.m AND x.t=d.t AND x.l=d.l AND x.a=d.a AND x.k!='UNATTRIBUTED')) ORDER BY t", args).use { c ->
                                 while (c.moveToNext()) row(c.getLong(0), c.getString(1), c.getString(2), c.getInt(3), c.getDouble(4))
                             }

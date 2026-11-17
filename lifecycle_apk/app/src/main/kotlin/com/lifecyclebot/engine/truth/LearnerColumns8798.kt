@@ -39,6 +39,9 @@ object LearnerColumns8798 {
         "agePrice", "ageBp", "ageChg", "ageLiq", "ageHolders", "secsSincePrint",
         // V5.0.8809 — what the owner reads in the header: Dex Paid (1 / 0) and minutes since it was paid
         "dexPaid", "dexPaidAgeMin",
+        // V5.0.8840 — who is behind the launch, from the decoded pump.fun create and trade events (LaunchFacts8840)
+        "creatorKnown", "devInitPct", "devHeldPct", "devSoldFrac", "devSold10mFrac", "bundleBuyers", "bundlePct", "sniperBuyers",
+        "sniperPct", "top1Pct", "top5Pct", "uniqueBuyers", "devPriorLaunches", "devPriorRunnerRate", "devPriorDumpRate",
     )
     val SIZE: Int = NAMES.size
     private val INDEX: Map<String, Int> = NAMES.withIndex().associate { it.value to it.index }
@@ -127,6 +130,21 @@ object LearnerColumns8798 {
                 if (s.dexPaid == 1 && s.paidAtMs in 1L..nowMs) put("dexPaidAgeMin", (nowMs - s.paidAtMs) / 60_000.0)
                 INDEX["boost"]?.let { if (x[it].isNaN()) x[it] = s.boostTotal }
                 INDEX["socials"]?.let { if (x[it].isNaN()) x[it] = s.socialCount.toDouble() }
+            }
+        } catch (_: Throwable) {}
+        // V5.0.8840 — the launch's chain facts as of now, and its creator's record as of its birth (NaN when not observed)
+        try {
+            LaunchFacts8840.snapshot8840(mint)?.let { (fa, prior) ->
+                put("creatorKnown", b(fa.creatorKnown)); put("devInitPct", fa.devInitPct); put("devHeldPct", fa.devHeldPct)
+                put("devSoldFrac", fa.devSoldFrac); put("devSold10mFrac", fa.devSold10mFrac)
+                put("bundleBuyers", fa.bundleBuyers.toDouble()); put("bundlePct", fa.bundlePct)
+                put("sniperBuyers", fa.sniperBuyers.toDouble()); put("sniperPct", fa.sniperPct)
+                put("top1Pct", fa.top1Pct); put("top5Pct", fa.top5Pct); put("uniqueBuyers", fa.uniqueBuyers.toDouble())
+                if (fa.creatorKnown) {
+                    put("devPriorLaunches", prior.first.toDouble())
+                    put("devPriorRunnerRate", if (prior.first > 0) prior.second.toDouble() / prior.first else Double.NaN)
+                    put("devPriorDumpRate", if (prior.first > 0) prior.third.toDouble() / prior.first else Double.NaN)
+                }
             }
         } catch (_: Throwable) {}
         note(x)
