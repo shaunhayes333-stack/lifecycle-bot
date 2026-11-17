@@ -50,6 +50,45 @@ object TradeTape8100 {
         val source: String = "", val pool: String = "", val signature: String = "", val recvMs: Long = atMs,
         val tokenQty: Double = 0.0, val inferred: Boolean = false, val sourceTimeKnown8386: Boolean = false,
     )
+
+    // V5.0.8841: a signed swap is one event across Helius, PumpPortal and fallback feeds.
+    // The legacy signature guard in note8285 happens AFTER launch side effects, so
+    // duplicate prints could re-run chart, paper-exit, buyer and launch-fact logic.
+    // Hold a bounded identity claim per stripe; never claim a rejected first decode.
+    private const val LAUNCH_SIG_CAP_8841 = 30_000
+    private val launchSigLocks8841 = Array(128) { Any() }
+    private class Published8841(val priceSol: Double, val verdict: PrintWitness8750.Verdict)
+    private val launchPublished8841: MutableMap<String, Published8841> =
+        java.util.Collections.synchronizedMap(
+            object : java.util.LinkedHashMap<String, Published8841>(1024, 0.75f, true) {
+                override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Published8841>?): Boolean =
+                    size > LAUNCH_SIG_CAP_8841
+            },
+        )
+    private val launchPublishedCount8841 = AtomicLong()
+    private val launchDupCount8841 = AtomicLong()
+    private val launchConflictCount8841 = AtomicLong()
+    internal fun launchCounts8841(): Pair<Long, Long> = launchPublishedCount8841.get() to launchDupCount8841.get()
+    private fun launchKey8841(mint: String, sig: String, isBuy: Boolean): String? =
+        sig.trim().takeIf { it.isNotEmpty() }?.let { "$mint|$it|$isBuy" }
+    private fun launchStripe8841(key: String): Any =
+        launchSigLocks8841[(key.hashCode() and Int.MAX_VALUE) % launchSigLocks8841.size]
+    private fun sameSignedPrice8841(priceSol: Double, prior: Published8841): Boolean =
+        (priceSol / prior.priceSol).let { it.isFinite() && it in 0.95..1.05 }
+    private fun countDuplicate8841(priceSol: Double, prior: Published8841) {
+        launchDupCount8841.incrementAndGet()
+        if (!sameSignedPrice8841(priceSol, prior)) launchConflictCount8841.incrementAndGet()
+    }
+
+    /** Helius must not mutate reserves for a transaction another provider already published. */
+    internal fun duplicateSignedLaunch8841(mint: String, sig: String, isBuy: Boolean, priceSol: Double): Boolean {
+        val key = launchKey8841(mint, sig, isBuy) ?: return false
+        synchronized(launchStripe8841(key)) {
+            val prior = launchPublished8841[key] ?: return false
+            countDuplicate8841(priceSol, prior)
+            return true
+        }
+    }
     private val tapes = ConcurrentHashMap<String, ArrayDeque<Trade>>()
     private val notes = AtomicLong(0)
     private val reads = AtomicLong(0)
@@ -83,8 +122,29 @@ object TradeTape8100 {
      */
     fun launchEvidence8750(mint: String, priceSol: Double, sol: Double, tokenQty: Double, isBuy: Boolean, src: String, sig: String,
                            eventMs: Long, recvMs: Long, basis: PrintWitness8750.Basis, wallet: String = ""): PrintWitness8750.Verdict {
-        val v = PrintWitness8750.check8750(mint, priceSol, sol, tokenQty, if (eventMs > 0L) eventMs else recvMs, recvMs, basis, src, sig, wallet)
+        val key8841 = launchKey8841(mint, sig, isBuy)
+        var fresh8841 = key8841 == null
+        var v = PrintWitness8750.Verdict.UNWITNESSED
+        if (key8841 == null) {
+            v = PrintWitness8750.check8750(mint, priceSol, sol, tokenQty, if (eventMs > 0L) eventMs else recvMs, recvMs, basis, src, sig, wallet)
+        } else {
+            synchronized(launchStripe8841(key8841)) {
+                val prior = launchPublished8841[key8841]
+                if (prior != null) {
+                    v = if (sameSignedPrice8841(priceSol, prior)) prior.verdict else PrintWitness8750.Verdict.OUT_OF_BAND
+                    countDuplicate8841(priceSol, prior)
+                } else {
+                    v = PrintWitness8750.check8750(mint, priceSol, sol, tokenQty, if (eventMs > 0L) eventMs else recvMs, recvMs, basis, src, sig, wallet)
+                    if ((v == PrintWitness8750.Verdict.RESERVES || v == PrintWitness8750.Verdict.WITNESSED) && eventMs in 1L..recvMs) {
+                        launchPublished8841[key8841] = Published8841(priceSol, v)
+                        fresh8841 = true
+                    }
+                }
+            }
+        }
         if ((v == PrintWitness8750.Verdict.RESERVES || v == PrintWitness8750.Verdict.WITNESSED) && eventMs in 1L..recvMs) {
+          if (fresh8841) {
+            launchPublishedCount8841.incrementAndGet()
             LaunchHour8628.trade(mint, eventMs, sig, isBuy, sol, tokenQty, priceSol, recvMs, src, wallet)
             ManualRead8806.onPrint8806(mint, eventMs, priceSol, isBuy, recvMs)   // V5.0.8806 — the owner's read, every witnessed print
             com.lifecyclebot.engine.chart.OwnBars8816.onPrint8816(mint, eventMs, priceSol, sol, recvMs)   // V5.0.8816 — every coin's own chart
@@ -94,6 +154,7 @@ object TradeTape8100 {
             // and, with its wallet, the graded smart-money signal's input.
             try { MemePaperTrader8544.onPrint8756(mint, priceSol, eventMs) } catch (_: Throwable) {}
             if (wallet.isNotBlank()) try { SmartMoney8756.onPrint8756(mint, wallet, eventMs, isBuy, sol, recvMs) } catch (_: Throwable) {}
+          }
         }
         return v
     }
@@ -128,8 +189,6 @@ object TradeTape8100 {
         // the buyer/volume features. Earlier this ran BEFORE the witness and
         // taught the predictor from out-of-band trades rejected by the tape.
         // Signed walletless swaps contribute size/side, never fabricated buyers.
-        if (tokenQty.isFinite() && tokenQty > 0.0) com.lifecyclebot.engine.market.BuyerFlow8666.note(mint, wallet, sol, isBuy,
-            if (eventMs > 0L) eventMs else recvMs, sig, recvMs)
         if (sig.isNotBlank()) {
             val prior = synchronized(seenSig8285) {
                 seenSig8285.putIfAbsent("$mint|$sig|$isBuy", src)
@@ -142,6 +201,10 @@ object TradeTape8100 {
             // V5.0.8289 — hard cap: the 10 min TTL alone never held while every key was fresh.
             if (lastSigned8285.size > 8_000) MemoryBounds8289.capByAge8289(lastSigned8285, 8_000, 10L * 60_000L, recvMs) { it }
         } else unsigned8285.incrementAndGet()
+        // A duplicate must not also enter the buyer accumulator: the signature
+        // check above is authoritative for the complete event, not just the tape.
+        if (tokenQty.isFinite() && tokenQty > 0.0) com.lifecyclebot.engine.market.BuyerFlow8666.note(mint, wallet, sol, isBuy,
+            if (eventMs > 0L) eventMs else recvMs, sig, recvMs)
         val eventKnown = eventMs > 0L && eventMs <= recvMs + 5_000L
         val at = if (eventKnown) eventMs else recvMs
         if (eventKnown) noteLatency8285(src, (recvMs - eventMs).coerceAtLeast(0L))
@@ -480,6 +543,7 @@ object TradeTape8100 {
     fun statusLine8285(): String =
         "tape8285[executed=${executed8285.get()} priceOnly=${priceOnly8285.get()} curveInferredPriceOnly=${inferred8285.get()} " +
             "dupCrossFeed=${crossFeedDup8285.get()} dupSameFeed=${sameFeedDup8285.get()} unsigned=${unsigned8285.get()} " +
+            "launchUnique8841=${launchPublishedCount8841.get()} launchDup8841=${launchDupCount8841.get()} launchConflict8841=${launchConflictCount8841.get()} " +
             "venueSplitReads=${venueSplitReads8285.get()} latency{${latencyLine8285()}} noEventTs{" +
             noEventTs8285.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } + "}]"
 
@@ -500,7 +564,7 @@ object TradeTape8100 {
 
     /** Census estimate: retained trades, the signature dedup window, the per-feed signed stamps and the tape headers. */
     fun estBytes8289(): Long = tradeCount8289() * TRADE_BYTES_8289 + seenSigCount8289() * SEEN_SIG_BYTES_8289 +
-        lastSigned8285.size * 140L + tapes.size * 120L
+        launchPublished8841.size * (SEEN_SIG_BYTES_8289 + 24L) + lastSigned8285.size * 140L + tapes.size * 120L
 
     /**
      * Pressure trim. Always: a tape whose newest print is older than [KEEP_MS] (nothing reads it). HARD: unprotected
@@ -524,7 +588,10 @@ object TradeTape8100 {
             val trimmed8681 = synchronized(q) { var n = 0; while (q.size > keepPrints) { q.removeFirst(); freed++; n++ }; n }
             if (trimmed8681 > 0) bumpVersion8681(mint)
         }
-        if (hard) MemoryBounds8289.trimEldest8289(seenSig8285, if (critical) 5_000 else 10_000)
+        if (hard) {
+            MemoryBounds8289.trimEldest8289(seenSig8285, if (critical) 5_000 else 10_000)
+            MemoryBounds8289.trimEldest8289(launchPublished8841, if (critical) 5_000 else 10_000)
+        }
         MemoryBounds8289.capByAge8289(lastSigned8285, if (hard) 2_000 else 8_000, 10L * 60_000L, nowMs) { it }
         return freed
     }
@@ -541,6 +608,7 @@ object TradeTape8100 {
         onExecutedTrade = null
         tapes.clear(); notes.set(0); reads.set(0); filled.set(0); bySource8169.clear()
         seenSig8285.clear(); lastSigned8285.clear(); latency8285.clear(); noEventTs8285.clear()
+        launchPublished8841.clear(); launchPublishedCount8841.set(0); launchDupCount8841.set(0); launchConflictCount8841.set(0)
         crossFeedDup8285.set(0); sameFeedDup8285.set(0); unsigned8285.set(0); executed8285.set(0)
         priceOnly8285.set(0); inferred8285.set(0); venueSplitReads8285.set(0)
         readCache8681.clear(); tapeVersion8681.clear(); readCacheHits8681.set(0)

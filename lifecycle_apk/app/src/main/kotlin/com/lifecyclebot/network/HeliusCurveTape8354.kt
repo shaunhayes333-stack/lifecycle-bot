@@ -483,6 +483,17 @@ object HeliusCurveTape8354 {
         // individually finite reserves can overflow their ratio; such a frame must not hydrate a mint.
         val priceSol = ev.virtualSol / ev.virtualTokens
         if (!priceSol.isFinite() || priceSol <= 0.0) { malformed.incrementAndGet(); return false }
+        // V5.0.8841: the reserves and actual executed token quantity must agree
+        // BEFORE writing the new price as its own reference. Prevent a bad-decimal
+        // decode or a duplicate provider frame from poisoning the shared curve.
+        if (com.lifecyclebot.engine.truth.PrintWitness8750.verdict8750(
+                priceSol, ev.sol, ev.tokens, null, com.lifecyclebot.engine.truth.PrintWitness8750.Basis.RESERVES,
+            ) != com.lifecyclebot.engine.truth.PrintWitness8750.Verdict.RESERVES) {
+            malformed.incrementAndGet(); return false
+        }
+        if (com.lifecyclebot.engine.truth.TradeTape8100.duplicateSignedLaunch8841(mint, sig, ev.isBuy, priceSol)) {
+            duplicates.incrementAndGet(); return false
+        }
         // V5.0.8475 — the curve's reserves are written for EVERY decoded trade, before the care filter: they are the price,
         // real SOL and liquidity tick of that coin (bounded store, 60-min TTL). 8471 dropped 1,828 of 2,368 decoded prints
         // and their reserves with them, while the labeler lost 1,519 marks for want of a source.
@@ -520,8 +531,9 @@ object HeliusCurveTape8354 {
                 priceBasis8750 = com.lifecyclebot.engine.truth.PrintWitness8750.Basis.RESERVES, witness8750 = witness8750,
             )
         } catch (_: Throwable) { false }
-        try { PumpFunWS.emitHeliusCurve8354(mint, priceSol, mcapSol, ev.isBuy, ev.user, ev.sol, ev.virtualSol) } catch (_: Throwable) {}
         if (taped) {
+            // No second scanner/decision price for a signed print the tape refused.
+            try { PumpFunWS.emitHeliusCurve8354(mint, priceSol, mcapSol, ev.isBuy, ev.user, ev.sol, ev.virtualSol) } catch (_: Throwable) {}
             heliusPrints.incrementAndGet()
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc(if (ev.isBuy) "CURVE_TAPE_PRINT_BUY_8354" else "CURVE_TAPE_PRINT_SELL_8354") } catch (_: Throwable) {}
         }
