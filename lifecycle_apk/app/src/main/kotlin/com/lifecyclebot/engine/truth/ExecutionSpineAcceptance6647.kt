@@ -172,6 +172,13 @@ object ExecutionSpineAcceptanceWindow6647 {
     const val IN_FLIGHT_WAIT_GRACE_MS_8339 = 30_000L
     const val IN_FLIGHT_RETRY_MS_8339 = 5_000L
     private val inFlightWaitSinceMs8339 = java.util.concurrent.atomic.AtomicLong(0L)
+    // V5.0.8846 — the 8845 emulator caught a fresh 288 ms journal receipt at the
+    // exact end of an earlier 30 s stale-accounting wait. One *additional*,
+    // bounded 10 s retry permits this NEW transaction to finish and the
+    // reconciler to publish a current pass. It never accepts partial receipts.
+    // A permanently stale or unfinished account still fails at the deadline.
+    private const val NEW_RECEIPT_EDGE_WAIT_MS_8846 = 10_000L
+    private val newReceiptEdgeWaitSince8846 = java.util.concurrent.atomic.AtomicLong(0L)
     private val retryPending8339 = java.util.concurrent.atomic.AtomicBoolean(false)
     private val retryExecutor8339: java.util.concurrent.ScheduledExecutorService by lazy {
         java.util.concurrent.Executors.newSingleThreadScheduledExecutor { r ->
@@ -187,6 +194,23 @@ object ExecutionSpineAcceptanceWindow6647 {
     fun inFlightWaitDecision8339(waitSinceMs: Long, nowMs: Long, graceMs: Long = IN_FLIGHT_WAIT_GRACE_MS_8339): Pair<Long, Boolean> {
         val since = if (waitSinceMs <= 0L || waitSinceMs > nowMs) nowMs else waitSinceMs
         return since to (nowMs - since < graceMs)
+    }
+
+    /** Pure: an extra retry only for an actually observed, NEW canonical OPEN
+     * arriving at the spent 30 s boundary, then at most 10 s for its current
+     * accounting pass. Never treat its partial state as reconciled. */
+    internal fun edgeReceiptRetry8846(
+        accountingStale: Boolean, youngOnly: Boolean, oldestOpenMs: Long?,
+        since: java.util.concurrent.atomic.AtomicLong, nowMs: Long,
+    ): Boolean {
+        if (!accountingStale) return false
+        var began = since.get()
+        if (began == 0L) {
+            if (!youngOnly || oldestOpenMs == null || oldestOpenMs !in 0L..2_000L) return false
+            since.compareAndSet(0L, nowMs)
+            began = since.get()
+        }
+        return nowMs - began in 0L until NEW_RECEIPT_EDGE_WAIT_MS_8846
     }
 
     /** Reuse the existing window budget when accounting is stale or only young OPEN receipts remain.
@@ -211,6 +235,18 @@ object ExecutionSpineAcceptanceWindow6647 {
                     else "EXECUTION_SPINE_CLOSE_WAITS_IN_FLIGHT_RECEIPT_8322",
                 )
             } catch (_: Throwable) {}
+            return true
+        }
+        // V5.0.8846: the NEW 288 ms journal write observed in the 8845
+        // runtime test was unrelated to the receipt which started this wait.
+        // Check its true event age. Extend once, for at most two existing
+        // 5 s reticks; only a genuinely current, fully reconciled pass can OK.
+        val youngestBoundary8846 = if (onlyYoungOpen8397) try {
+            CanonicalEconomicEvent6635.openInFlightOnly8367(nowMs)?.oldestMs
+        } catch (_: Throwable) { null } else null
+        if (edgeReceiptRetry8846(stale8397, onlyYoungOpen8397, youngestBoundary8846,
+                newReceiptEdgeWaitSince8846, nowMs)) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXECUTION_SPINE_NEW_RECEIPT_EDGE_RETRY_8846") } catch (_: Throwable) {}
             return true
         }
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXECUTION_SPINE_IN_FLIGHT_WAIT_BOUNDED_8339") } catch (_: Throwable) {}
@@ -360,6 +396,7 @@ object ExecutionSpineAcceptanceWindow6647 {
         requestedCycle.set(-1L)
         maxStartDelayCycles.set(0L)
         inFlightWaitSinceMs8339.set(0L)  // V5.0.8339 — a new window starts with no in-flight wait
+        newReceiptEdgeWaitSince8846.set(0L)
     }
 
     /** V5.0.8367 — the naming input: only when the verdict is false and every unfinished receipt is OPEN. */
@@ -520,6 +557,7 @@ object ExecutionSpineAcceptanceWindow6647 {
             baseline = end
             maxStartDelayCycles.set(0L)
             inFlightWaitSinceMs8339.set(0L)  // V5.0.8339
+            newReceiptEdgeWaitSince8846.set(0L)
             if (result.passed) {
                 emitResult6735(
                     "EXECUTION_SPINE_ACCEPTANCE_6647_OK",
@@ -578,6 +616,7 @@ object ExecutionSpineAcceptanceWindow6647 {
             baseline = try { capture(nowMs) } catch (_: Throwable) { null }
             maxStartDelayCycles.set(0L)
             inFlightWaitSinceMs8339.set(0L)  // V5.0.8339
+            newReceiptEdgeWaitSince8846.set(0L)
             result
         } finally {
             closing6735.set(false)

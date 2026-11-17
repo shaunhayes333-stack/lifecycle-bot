@@ -7,7 +7,7 @@ import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 
-/** 8845: no phantom 5m flow, no borrowed strategy economics, and no thin evidence. */
+/** 8845/8846: no phantom five-minute flow and no inferred wallet identities. */
 class Aate8845SignedDemandAndDecisionTest {
     private val now = 1_800_000L
 
@@ -38,18 +38,24 @@ class Aate8845SignedDemandAndDecisionTest {
         assertFalse("old" in BuyerFlow8666.activeMints8845(now + 10_000L))
     }
 
-    private fun setup(n: Int = 50, mean: Double = 24.0, se: Double = 4.0, id: String = "RECLAIM") =
-        CandidateAdmission8136.Evidence8136(CandidateAdmission8136.KIND_SETUP, id, n, mean, se)
-
-    @Test fun sameSetupProvenNetOwnsItsGrossButHeuristicStillMustClearQuotedMargin() {
-        val proof = setup()
-        assertEquals(25.0, CandidateAdmission8136.grossFromSetupProof8845(5.0, "RECLAIM", proof, 5.0), 1e-8)
-        assertEquals(25.0, CandidateAdmission8136.grossFromSetupProof8845(Double.NaN, "RECLAIM", proof, 5.0), 1e-8)
-        assertEquals(70.0, CandidateAdmission8136.grossFromSetupProof8845(70.0, "RECLAIM", proof, 5.0), 1e-8)
-        assertEquals(5.0, CandidateAdmission8136.grossFromSetupProof8845(5.0, "OTHER", proof, 5.0), 1e-8)
-        assertEquals(5.0, CandidateAdmission8136.grossFromSetupProof8845(5.0, "RECLAIM", setup(n = 5), 5.0), 1e-8)
-        assertEquals(5.0, CandidateAdmission8136.grossFromSetupProof8845(5.0, "RECLAIM", proof.copy(suspect8290 = true), 5.0), 1e-8)
-        assertEquals(5.0, CandidateAdmission8136.grossFromSetupProof8845(5.0, "RECLAIM", proof.copy(kind = CandidateAdmission8136.KIND_CELL), 5.0), 1e-8)
-        assertTrue(CandidateAdmission8136.grossFromSetupProof8845(Double.NaN, "RECLAIM", proof, Double.NaN).isNaN())
+    @Test fun historicalProfitableSetupCannotReplaceItsWeakCurrentExecutableMove8846() {
+        val setup = CandidateAdmission8136.Evidence8136(
+            CandidateAdmission8136.KIND_SETUP, "B_SETUP", 40, 25.0, 3.0)
+        val c = CandidateAdmission8136.Candidate8136(
+            mint = "PROOF8846pump", lane = "SHITCOIN", selectedSetup = "A_SETUP",
+            priceAgeMs = 5_000L, expectedGrossPct = 30.0, costPct = 6.0,
+            downsidePct = 15.0, setups = listOf(
+                CandidateAdmission8136.Evidence8136(
+                    CandidateAdmission8136.KIND_SETUP, "A_SETUP", 40, -12.0, 2.0), setup),
+            expectedGrossBySetup = mapOf("A_SETUP" to 30.0, "B_SETUP" to 8.0),
+            genericScore = 12.0, genericFloor = 30.0,
+        )
+        val result = CandidateAdmission8136.decide8136(c)
+        assertEquals("B_SETUP", result.chosenSetup)
+        assertEquals("EXECUTION_ECONOMICS_8136", result.reason)
+        assertEquals(2.0, result.expectedNetPct, 1e-8)
+        assertEquals(CandidateAdmission8136.Terminal8136.DEFER_DATA,
+            CandidateAdmission8136.decide8136(c.copy(expectedGrossBySetup = emptyMap())).terminal)
     }
+
 }
