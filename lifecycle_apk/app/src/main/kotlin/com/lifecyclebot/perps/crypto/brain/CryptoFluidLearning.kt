@@ -41,6 +41,7 @@ object CryptoFluidLearning {
     private const val K_WINS         = "fl.wins"
     private const val K_LOSSES       = "fl.losses"
     private const val K_PAPER_PNL_AVG = "fl.paper.pnlAvg"
+    private const val K_LIVE_PNL_AVG_8832 = "fl.live.pnlAvg8832"
     private const val K_SCRATCHES_8535 = "fl.scratches"
     private const val K_OPENS_8535 = "fl.opens"
 
@@ -52,24 +53,32 @@ object CryptoFluidLearning {
     private val scratches8535 = AtomicInteger(0)
     private val opens8535     = AtomicInteger(0)
     @Volatile private var paperPnlEma: Double = 0.0    // exponential moving avg of pnl%
+    @Volatile private var livePnlEma8832: Double = 0.0
 
     enum class Maturity { BOOTSTRAP, LEARNING, VALIDATING, MATURING, READY }
 
-    fun maturity(): Maturity {
-        val n = tradesTotal.get()
-        return when {
+    private fun maturityForN8832(n: Int): Maturity = when {
             n < 250   -> Maturity.BOOTSTRAP
             n < 1_000 -> Maturity.LEARNING
             n < 2_500 -> Maturity.VALIDATING
             n < 4_500 -> Maturity.MATURING
             else      -> Maturity.READY
-        }
     }
+
+    /** Combined count remains a research dashboard number, never live authority. */
+    fun maturity(): Maturity = maturityForN8832(tradesTotal.get())
+
+    /** Paper settles paper maturity; only canonical live settlements mature live thresholds. */
+    fun maturityForMode8832(isPaper: Boolean): Maturity =
+        maturityForN8832(if (isPaper) tradesPaper.get() else tradesLive.get())
 
     fun progressPct(): Int {
         val n = tradesTotal.get().toDouble()
         return min(100, ((n / 4500.0) * 100).toInt())
     }
+
+    fun progressForMode8832(isPaper: Boolean): Int =
+        min(100, (((if (isPaper) tradesPaper.get() else tradesLive.get()) / 4500.0) * 100).toInt())
 
     fun tradeCount(): Int = tradesTotal.get()
     fun paperTradeCount(): Int = tradesPaper.get()
@@ -90,7 +99,7 @@ object CryptoFluidLearning {
     // the FULL universe out of the gate. Bootstrap floors dropped so a
     // 50-score signal admits at BOOTSTRAP (was 55) and matures up to 72
     // at READY. Conf floor dropped 50→42 at BOOTSTRAP.
-    fun getSpotScoreThreshold(): Int = when (maturity()) {
+    fun getSpotScoreThreshold(isPaper: Boolean = false): Int = when (maturityForMode8832(isPaper)) {
         Maturity.BOOTSTRAP -> 48
         Maturity.LEARNING -> 55
         Maturity.VALIDATING -> 62
@@ -98,7 +107,7 @@ object CryptoFluidLearning {
         Maturity.READY -> 72
     }
 
-    fun getSpotConfThreshold(): Int = when (maturity()) {
+    fun getSpotConfThreshold(isPaper: Boolean = false): Int = when (maturityForMode8832(isPaper)) {
         Maturity.BOOTSTRAP -> 42
         Maturity.LEARNING -> 50
         Maturity.VALIDATING -> 58
@@ -106,7 +115,7 @@ object CryptoFluidLearning {
         Maturity.READY -> 68
     }
 
-    fun getLevScoreThreshold(): Int = when (maturity()) {
+    fun getLevScoreThreshold(isPaper: Boolean = false): Int = when (maturityForMode8832(isPaper)) {
         Maturity.BOOTSTRAP -> 55
         Maturity.LEARNING -> 60
         Maturity.VALIDATING -> 65
@@ -114,7 +123,7 @@ object CryptoFluidLearning {
         Maturity.READY -> 76
     }
 
-    fun getLevConfThreshold(): Int = when (maturity()) {
+    fun getLevConfThreshold(isPaper: Boolean = false): Int = when (maturityForMode8832(isPaper)) {
         Maturity.BOOTSTRAP -> 48
         Maturity.LEARNING -> 55
         Maturity.VALIDATING -> 60
@@ -123,7 +132,7 @@ object CryptoFluidLearning {
     }
 
     // ── TP/SL ladder ──────────────────────────────────────────────────────────
-    fun getSpotTpPct(): Double = when (maturity()) {
+    fun getSpotTpPct(isPaper: Boolean = false): Double = when (maturityForMode8832(isPaper)) {
         Maturity.BOOTSTRAP -> 3.0
         Maturity.LEARNING -> 3.5
         Maturity.VALIDATING -> 4.0
@@ -131,7 +140,7 @@ object CryptoFluidLearning {
         Maturity.READY -> 5.5
     }
 
-    fun getLevTpPct(): Double = when (maturity()) {
+    fun getLevTpPct(isPaper: Boolean = false): Double = when (maturityForMode8832(isPaper)) {
         Maturity.BOOTSTRAP -> 4.0
         Maturity.LEARNING -> 4.75
         Maturity.VALIDATING -> 5.5
@@ -157,8 +166,8 @@ object CryptoFluidLearning {
      * Cross-learned confidence bump from BehaviorAI sentiment — modest boost
      * once paper PnL EMA stays positive across the maturity arc.
      */
-    fun getCrossLearnedConfidence(rawConf: Double): Double {
-        val mood = paperPnlEma
+    fun getCrossLearnedConfidence(rawConf: Double, isPaper: Boolean = false): Double {
+        val mood = if (isPaper) paperPnlEma else livePnlEma8832
         val bump = when {
             mood > 1.0 -> 4.0
             mood > 0.25 -> 2.0
@@ -183,10 +192,11 @@ object CryptoFluidLearning {
         paperPnlEma = paperPnlEma * 0.95 + pnlPct * 0.05
     }
 
-    fun recordLiveTrade(win: Boolean) {
+    fun recordLiveTrade(win: Boolean, pnlPct: Double = 0.0) {
         tradesTotal.incrementAndGet()
         tradesLive.incrementAndGet()
         if (win) wins.incrementAndGet() else losses.incrementAndGet()
+        if (pnlPct.isFinite()) livePnlEma8832 = livePnlEma8832 * 0.95 + pnlPct * 0.05
     }
 
     /** A settled close inside the scratch band: counted toward maturity and the paper EMA, never as a win or a loss. */
@@ -194,7 +204,7 @@ object CryptoFluidLearning {
         tradesTotal.incrementAndGet()
         scratches8535.incrementAndGet()
         if (isPaper) { tradesPaper.incrementAndGet(); if (pnlPct.isFinite()) paperPnlEma = paperPnlEma * 0.95 + pnlPct * 0.05 }
-        else tradesLive.incrementAndGet()
+        else { tradesLive.incrementAndGet(); if (pnlPct.isFinite()) livePnlEma8832 = livePnlEma8832 * 0.95 + pnlPct * 0.05 }
     }
 
     fun scratchCount8535(): Int = scratches8535.get()
@@ -210,6 +220,7 @@ object CryptoFluidLearning {
         scratches8535.set(state.getInt(K_SCRATCHES_8535, 0))
         opens8535.set(state.getInt(K_OPENS_8535, 0))
         paperPnlEma = state.getDouble(K_PAPER_PNL_AVG, 0.0)
+        livePnlEma8832 = state.getDouble(K_LIVE_PNL_AVG_8832, 0.0)
     }
 
     fun writeTo(state: CryptoBrainState, ed: SharedPreferences.Editor) {
@@ -221,6 +232,7 @@ object CryptoFluidLearning {
         ed.putInt(K_SCRATCHES_8535, scratches8535.get())
         ed.putInt(K_OPENS_8535, opens8535.get())
         ed.putLong("fl.paper.pnlAvg", java.lang.Double.doubleToRawLongBits(paperPnlEma))
+        ed.putLong(K_LIVE_PNL_AVG_8832, java.lang.Double.doubleToRawLongBits(livePnlEma8832))
     }
 
     fun summary(): String =

@@ -51,17 +51,21 @@ object CryptoBrain {
 
     // ── Maturity & thresholds ─────────────────────────────────────────────────
     fun maturity(): CryptoFluidLearning.Maturity = CryptoFluidLearning.maturity()
+    fun maturityForMode8832(isPaper: Boolean): CryptoFluidLearning.Maturity = CryptoFluidLearning.maturityForMode8832(isPaper)
     fun progressPct(): Int = CryptoFluidLearning.progressPct()
+    fun progressForMode8832(isPaper: Boolean): Int = CryptoFluidLearning.progressForMode8832(isPaper)
     fun tradeCount(): Int = CryptoFluidLearning.tradeCount()
+    fun liveTradeCount8832(): Int = CryptoFluidLearning.liveTradeCount()
+    fun paperTradeCount8832(): Int = CryptoFluidLearning.paperTradeCount()
     fun winRate(): Double = CryptoFluidLearning.winRate()
 
-    fun getSpotScoreFloor(): Int = CryptoFluidLearning.getSpotScoreThreshold()
-    fun getSpotConfFloor(): Int = CryptoFluidLearning.getSpotConfThreshold()
-    fun getLevScoreFloor(): Int = CryptoFluidLearning.getLevScoreThreshold()
-    fun getLevConfFloor(): Int = CryptoFluidLearning.getLevConfThreshold()
+    fun getSpotScoreFloor(isPaper: Boolean = false): Int = CryptoFluidLearning.getSpotScoreThreshold(isPaper)
+    fun getSpotConfFloor(isPaper: Boolean = false): Int = CryptoFluidLearning.getSpotConfThreshold(isPaper)
+    fun getLevScoreFloor(isPaper: Boolean = false): Int = CryptoFluidLearning.getLevScoreThreshold(isPaper)
+    fun getLevConfFloor(isPaper: Boolean = false): Int = CryptoFluidLearning.getLevConfThreshold(isPaper)
 
-    fun getTpPct(spot: Boolean): Double =
-        if (spot) CryptoFluidLearning.getSpotTpPct() else CryptoFluidLearning.getLevTpPct()
+    fun getTpPct(spot: Boolean, isPaper: Boolean = false): Double =
+        if (spot) CryptoFluidLearning.getSpotTpPct(isPaper) else CryptoFluidLearning.getLevTpPct(isPaper)
 
     fun getSlPct(spot: Boolean): Double =
         if (spot) CryptoFluidLearning.getSpotSlPct() else CryptoFluidLearning.getLevSlPct()
@@ -69,12 +73,12 @@ object CryptoBrain {
     fun getDynamicFluidStop(staticSl: Double, peakGainPct: Double): Double =
         CryptoFluidLearning.getDynamicFluidStop(staticSl, peakGainPct)
 
-    fun crossLearnedConfidence(rawConf: Double): Double =
-        CryptoFluidLearning.getCrossLearnedConfidence(rawConf)
+    fun crossLearnedConfidence(rawConf: Double, isPaper: Boolean = false): Double =
+        CryptoFluidLearning.getCrossLearnedConfidence(rawConf, isPaper)
 
     // ── Behaviour (sentiment + tilt) ──────────────────────────────────────────
-    fun scoreAdjustment(): Int = CryptoBehavior.getScoreAdjustment()
-    fun confidenceModifier(): Int = CryptoBehavior.getConfidenceModifier()
+    fun scoreAdjustment(isPaper: Boolean = false): Int = if (isPaper) 0 else CryptoBehavior.getScoreAdjustment()
+    fun confidenceModifier(isPaper: Boolean = false): Int = if (isPaper) 0 else CryptoBehavior.getConfidenceModifier()
     fun sentimentClassification(): String = CryptoBehavior.getSentimentClassification()
     fun isTiltProtectionActive(): Boolean = CryptoBehavior.isTiltProtectionActive()
 
@@ -82,9 +86,10 @@ object CryptoBrain {
      * Composite sizing multiplier — combines BehaviourAI sentiment nudge
      * AND LosingPatternMemory bucket-level dampener, both clamped 0.05x..1.4x.
      */
-    fun sizingMultiplier(tier: String, score: Int): Double {
-        val be = CryptoBehavior.getSizingMultiplier()
-        val lp = CryptoLosingPatternMemory.recommendedSizeMult(tier, score)
+    fun sizingMultiplier(tier: String, score: Int, isPaper: Boolean = false): Double {
+        // Live wallet sentiment does not belong to the paper execution model.
+        val be = if (isPaper) 1.0 else CryptoBehavior.getSizingMultiplier()
+        val lp = CryptoLosingPatternMemory.recommendedSizeMult(tier, score, isPaper)
         return (be * lp).coerceIn(0.05, 1.4)
     }
 
@@ -92,8 +97,8 @@ object CryptoBrain {
     fun shouldShadowOnly(tier: String, score: Int): Boolean =
         CryptoLosingPatternMemory.recommendedShadowOnly(tier, score)
 
-    fun activeTactic(tier: String, score: Int): CryptoTacticSwitcher.Tactic =
-        CryptoTacticSwitcher.activeTacticFor(tier, score)
+    fun activeTactic(tier: String, score: Int, isPaper: Boolean = false): CryptoTacticSwitcher.Tactic =
+        CryptoTacticSwitcher.activeTacticFor(tier, score, isPaper)
 
     fun laneExitVerdict(tier: String): CryptoLaneExitTuner.Verdict =
         CryptoLaneExitTuner.verdict(tier)
@@ -123,7 +128,7 @@ object CryptoBrain {
         // 1. Maturity counters — settled samples only; a scratch is settled but trains no direction
         when {
             kind8535 == CryptoOutcome8535.Kind.UNKNOWN -> {}
-            trainable -> if (isPaper) CryptoFluidLearning.recordPaperTrade(win, pnlPct) else CryptoFluidLearning.recordLiveTrade(win)
+            trainable -> if (isPaper) CryptoFluidLearning.recordPaperTrade(win, pnlPct) else CryptoFluidLearning.recordLiveTrade(win, pnlPct)
             else -> CryptoFluidLearning.recordScratch(isPaper, pnlPct)
         }
 
@@ -131,14 +136,14 @@ object CryptoBrain {
         CryptoBehavior.recordTrade(pnlPct, reason, symbol, isPaper)
 
         // 3. Bucket loss memory
-        CryptoLosingPatternMemory.record(tier, score, pnlPct)
+        CryptoLosingPatternMemory.record(tier, score, pnlPct, isPaper)
 
         // 4. Tactic rotation — trainable outcomes only, attributed to the tactic the position was entered under (§C09)
         if (trainable) CryptoTacticSwitcher.onOutcome(tier, score, win,
-            CryptoTacticSwitcher.Tactic.values().firstOrNull { it.name == tacticName8535.trim().uppercase() })
+            CryptoTacticSwitcher.Tactic.values().firstOrNull { it.name == tacticName8535.trim().uppercase() }, isPaper)
 
         // 5. Per-tier exit tuner
-        CryptoLaneExitTuner.recordClose(tier, pnlPct, pnlSol)
+        if (!isPaper) CryptoLaneExitTuner.recordClose(tier, pnlPct, pnlSol)
 
         // 6. Canonical reconciliation: the position was OPEN; un-bump and
         //    re-bucket into its final state. V5.0.4581 hardens old restored /

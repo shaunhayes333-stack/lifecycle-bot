@@ -18,7 +18,8 @@ import java.util.concurrent.ConcurrentHashMap
  * token fell through as CRYPTO_BRAIN_NO_ACTIONABLE_SIGNAL_7244.
  *
  * This desk presents a crypto token to the meme machinery as a TokenState:
- *  - a per-identity price series recorded at scan time (one candle per >= 20 s),
+ *  - a per-identity price series recorded only for independently dated price
+ *    observations (one candle per >= 20 s),
  *    marked synthetic because it carries no per-candle volume, so the pattern
  *    tools read price structure and keep volume patterns neutral (as 5.0.7389
  *    does for memes);
@@ -51,17 +52,34 @@ object CryptoLaneDesk7391 {
     private const val MIN_CANDLE_SPACING_MS = 20_000L
     private const val MAX_TRACKED = 6_000
     private val series = ConcurrentHashMap<String, ArrayDeque<Candle>>()
+    private val lastObservedAt8832 = ConcurrentHashMap<String, Long>()
 
-    /** Record one scan-time observation of [identity]; at most one candle per 20 s. */
-    fun recordTick(identity: String, priceUsd: Double, marketCapUsd: Double, volume24h: Double, buys24h: Int, sells24h: Int) {
-        if (identity.isBlank() || !priceUsd.isFinite() || priceUsd <= 0.0) return
-        if (series.size > MAX_TRACKED) series.clear()
+    /**
+     * V5.0.8832: a registry scan is not a market print. The prior method
+     * stamped System.currentTimeMillis() onto the same cached Dex price every
+     * scan, manufacturing four-candle bases, pullbacks and breakouts. Accept
+     * only a fresh source observation newer than the last dated price. Never
+     * promote an unclocked metadata refresh into price history.
+     */
+    fun recordTick(
+        identity: String, priceUsd: Double, marketCapUsd: Double, volume24h: Double,
+        buys24h: Int, sells24h: Int, observedAtMs: Long,
+        nowMs: Long = System.currentTimeMillis(),
+    ) {
+        if (identity.isBlank() || !priceUsd.isFinite() || priceUsd <= 0.0 ||
+            observedAtMs <= 0L || nowMs - observedAtMs !in 0L..120_000L) return
+        if (series.size > MAX_TRACKED) {
+            series.clear()
+            lastObservedAt8832.clear()
+        }
         val q = series.getOrPut(identity) { ArrayDeque(MAX_CANDLES) }
-        val now = System.currentTimeMillis()
         synchronized(q) {
             val last = q.lastOrNull()
-            if (last != null && now - last.ts < MIN_CANDLE_SPACING_MS) {
-                // Same bucket: widen its high/low with this observation.
+            if (observedAtMs <= (lastObservedAt8832[identity] ?: last?.ts ?: 0L)) return
+            lastObservedAt8832[identity] = observedAtMs
+            if (last != null && observedAtMs - last.ts < MIN_CANDLE_SPACING_MS) {
+                // A fixed bucket start prevents fast prints moving the 20 s
+                // window forever. The last observation clock is separate.
                 q.removeLast()
                 q.addLast(last.copy(
                     priceUsd = priceUsd,
@@ -71,7 +89,7 @@ object CryptoLaneDesk7391 {
                 return
             }
             q.addLast(Candle(
-                ts = now, priceUsd = priceUsd, marketCap = marketCapUsd.takeIf { it.isFinite() && it > 0.0 } ?: 0.0,
+                ts = observedAtMs, priceUsd = priceUsd, marketCap = marketCapUsd.takeIf { it.isFinite() && it > 0.0 } ?: 0.0,
                 volumeH1 = 0.0, volume24h = volume24h.takeIf { it.isFinite() && it > 0.0 } ?: 0.0,
                 buys24h = buys24h, sells24h = sells24h,
                 highUsd = priceUsd, lowUsd = priceUsd, openUsd = priceUsd,
@@ -91,6 +109,10 @@ object CryptoLaneDesk7391 {
         liquidityUsd: Double, buyPressurePct: Double, source: String, ageHours: Double,
         brainScore: Int, brainConfidence: Int,
         priceObservedAtMs8372: Long = 0L,
+        buyPressureObservedAtMs8832: Long = 0L,
+        change5mObservedAtMs8832: Long = 0L,
+        volume5mUsd8832: Double? = null,
+        change5mPct8832: Double? = null,
     ): TokenState {
         val ts = TokenState(mint = identity, symbol = symbol, name = name)
         ts.lastPrice = priceUsd
@@ -100,6 +122,14 @@ object CryptoLaneDesk7391 {
         ts.lastMcap = marketCapUsd.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
         ts.lastLiquidityUsd = liquidityUsd.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
         ts.lastBuyPressurePct = buyPressurePct.takeIf { it.isFinite() } ?: 50.0
+        ts.buyPressureObservedAtMs8084 = buyPressureObservedAtMs8832.takeIf {
+            System.currentTimeMillis() - it in 0L..120_000L
+        } ?: 0L
+        ts.tokenMap.volume5mUsd = volume5mUsd8832?.takeIf { it.isFinite() && it >= 0.0 }
+        ts.lastPriceChange5m = change5mPct8832?.takeIf { it.isFinite() } ?: 0.0
+        ts.priceChangeObservedAtMs8084 = if (change5mPct8832 != null)
+            change5mObservedAtMs8832.takeIf { System.currentTimeMillis() - it in 0L..120_000L } ?: 0L
+        else 0L
         ts.source = source
         // CryptoBrain is this asset's scorer, as V3 is the meme scorer.
         ts.entryScore = brainScore.toDouble().coerceIn(0.0, 100.0)

@@ -106,6 +106,10 @@ object CryptoBehavior {
      * PnL, streak, and tilt status.
      */
     fun recordTrade(pnlPct: Double, reason: String, symbol: String, isPaper: Boolean) {
+        // V5.0.8832: the paper simulator used to rewrite the LIVE mood,
+        // loss streak and tilt response. Its results remain in the isolated
+        // paper learning ledger, not in wallet-authorising sentiment.
+        if (isPaper) return
         // EMA on net PnL (alpha=0.10, ~10-trade memory).
         val cur = netPnl()
         setNetPnl(cur * 0.90 + pnlPct * 0.10)
@@ -140,9 +144,13 @@ object CryptoBehavior {
     }
 
     fun loadFrom(state: CryptoBrainState) {
-        setNetPnl(state.getDouble(K_NET, 0.0))
-        streak.set(state.getInt(K_STREAK, 0))
-        lastResult.set(state.getInt(K_LASTRESULT, 0))
+        val liveOnly8832 = state.getBoolean("cb.live_only_8832", false)
+        // An old mixed paper/live streak cannot be promoted as proof of a
+        // live loss. Preserve any already-armed cooling period (safety), but
+        // start a mode-pure live sentiment cohort on this one-time migration.
+        setNetPnl(if (liveOnly8832) state.getDouble(K_NET, 0.0) else 0.0)
+        streak.set(if (liveOnly8832) state.getInt(K_STREAK, 0) else 0)
+        lastResult.set(if (liveOnly8832) state.getInt(K_LASTRESULT, 0) else 0)
         tiltUntilMs = state.getLong(K_TILT_UNTIL, 0L)
     }
 
@@ -151,6 +159,7 @@ object CryptoBehavior {
         ed.putInt(K_STREAK, streak.get())
         ed.putInt(K_LASTRESULT, lastResult.get())
         ed.putLong(K_TILT_UNTIL, tiltUntilMs)
+        ed.putBoolean("cb.live_only_8832", true)
     }
 
     fun summary(): String =

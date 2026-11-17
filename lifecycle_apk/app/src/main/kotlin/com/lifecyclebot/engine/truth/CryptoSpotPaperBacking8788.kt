@@ -41,6 +41,11 @@ object CryptoSpotPaperBacking8788 {
     private val records8806 = java.util.concurrent.ConcurrentHashMap<String, Rec8806>()
     private val backed8788 = AtomicLong(0L)
     private val admitTimes8788 = java.util.ArrayDeque<Long>()
+    // A candidate clearing the EV exception is not yet an executable intent.
+    // Hold a short-lived permit while the *remaining* canonical gates and
+    // intent registration complete; only registered intents spend the quota.
+    private val pendingPermits8832 = linkedMapOf<String, Long>()
+    private const val PERMIT_TTL_MS_8832 = 90_000L
     @Volatile private var prefs8788: android.content.SharedPreferences? = null
 
     /** Pure: does a lane record of [wins] / [losses] decisive closes, [meanPct], [totalSol] and [pfEdgePp] back live entries? */
@@ -52,15 +57,26 @@ object CryptoSpotPaperBacking8788 {
     fun lossStopHit8788(realisedSol: Double): Boolean = realisedSol.isFinite() && realisedSol <= -LOSS_STOP_SOL_8788
 
     /** Boot (LearningResetSweep7781.applyPendingAtBoot): read the persisted window and trip. */
-    fun load8788(ctx: android.content.Context) {
+    @Synchronized fun load8788(ctx: android.content.Context) {
         val p = try { ctx.applicationContext.getSharedPreferences("aate_crypto_spot_backing_8788", android.content.Context.MODE_PRIVATE) } catch (_: Throwable) { return }
         prefs8788 = p
         startMs8788 = maxOf(startMs8788, p.getLong("start_ms", 0L))
         tripped8788 = tripped8788 || p.getBoolean("tripped", false)
+        // The hourly quota must not reset when Android restarts this process.
+        val now = System.currentTimeMillis()
+        p.getString("admitted_at_ms_8832", "").orEmpty().split(',')
+            .mapNotNull { it.toLongOrNull() }
+            .filter { it in (now - 3_600_000L)..now }
+            .forEach { if (it !in admitTimes8788) admitTimes8788.addLast(it) }
+        prunePermits8832(now)
     }
 
     private fun persist8788() {
-        try { prefs8788?.edit()?.putLong("start_ms", startMs8788)?.putBoolean("tripped", tripped8788)?.apply() } catch (_: Throwable) {}
+        try {
+            prefs8788?.edit()?.putLong("start_ms", startMs8788)
+                ?.putBoolean("tripped", tripped8788)
+                ?.putString("admitted_at_ms_8832", admitTimes8788.joinToString(","))?.apply()
+        } catch (_: Throwable) {}
     }
 
     private fun recordBacks8788(lane: String, nowMs: Long): Boolean {
@@ -93,28 +109,52 @@ object CryptoSpotPaperBacking8788 {
         return tripped8788
     }
 
-    @Synchronized private fun rateRoom8788(nowMs: Long): Boolean {
+    private fun prunePermits8832(nowMs: Long) {
         while (admitTimes8788.isNotEmpty() && nowMs - admitTimes8788.peekFirst() > 3_600_000L) admitTimes8788.pollFirst()
-        if (admitTimes8788.size >= MAX_PER_HOUR_8788) return false
-        admitTimes8788.addLast(nowMs)
-        return true
+        pendingPermits8832.entries.removeIf { (_, at) -> nowMs - at > PERMIT_TTL_MS_8832 }
     }
 
+    /** Pure regression seam: pending permits count, even before sealing. */
+    internal fun room8832(admitted: Int, pending: Int): Boolean =
+        admitted >= 0 && pending >= 0 && admitted + pending < MAX_PER_HOUR_8788
+
     /**
-     * CanonicalAssetEntryContract6551 (LIVE, at the LIVE_NON_POSITIVE_EXPECTANCY_7828 refusal only): does the CRYPTO_SPOT paper
-     * record back this candidate in [lane]? Consumes an hourly slot when it does.
+     * Read-only eligibility at the EV gate. An Oracle / Cortex / sizing refusal
+     * must not consume a live backing slot or masquerade as an approval.
      */
-    fun backs8788(lane: String?, nowMs: Long): Boolean {
+    @Synchronized fun backs8788(lane: String?, nowMs: Long): Boolean {
         val l = lane?.trim()?.uppercase() ?: return false
         if (!enabled8788 || l !in BACKED_LANES_8806) return false
         if (stopped8788(nowMs) || !recordBacks8788(l, nowMs)) return false
-        if (!rateRoom8788(nowMs)) { try { PipelineHealthCollector.labelInc("CRYPTO_SPOT_PAPER_BACKING_RATE_CAP_8788") } catch (_: Throwable) {}; return false }
-        if (startMs8788 <= 0L) { startMs8788 = nowMs; persist8788() }
+        prunePermits8832(nowMs)
+        return room8832(admitTimes8788.size, pendingPermits8832.size)
+    }
+
+    /** Reserve only once every *other* canonical gate, including sizing, passed. */
+    @Synchronized fun reserve8832(lane: String?, nowMs: Long, attemptId: String): Boolean {
+        if (attemptId.isBlank() || pendingPermits8832.containsKey(attemptId)) return false
+        if (!backs8788(lane, nowMs)) {
+            try { PipelineHealthCollector.labelInc("CRYPTO_SPOT_PAPER_BACKING_RATE_OR_PROOF_REFUSE_8832") } catch (_: Throwable) {}
+            return false
+        }
+        pendingPermits8832[attemptId] = nowMs
+        return true
+    }
+
+    /** Count an approval only after the exact immutable intent was registered. */
+    @Synchronized fun commit8832(attemptId: String): Boolean {
+        val reservedAt = pendingPermits8832.remove(attemptId) ?: return false
+        admitTimes8788.addLast(reservedAt)
+        if (startMs8788 <= 0L) startMs8788 = reservedAt
         backed8788.incrementAndGet()
+        persist8788()
         try { PipelineHealthCollector.labelInc("CRYPTO_SPOT_PAPER_BACKED_8788") } catch (_: Throwable) {}
         return true
     }
 
+    /** Registration failure releases its permit without counting an approval. */
+    @Synchronized fun release8832(attemptId: String) { pendingPermits8832.remove(attemptId) }
+
     fun statusLine8788(): String =
-        "cryptoSpotPaperBacking8788[on=$enabled8788 backed=${backed8788.get()} records{${BACKED_LANES_8806.joinToString(" ") { "$it=${records8806[it]?.line ?: "-"}" }}} stop=-${LOSS_STOP_SOL_8788}SOL tripped=$tripped8788 maxPerHour=$MAX_PER_HOUR_8788]"
+        "cryptoSpotPaperBacking8788[on=$enabled8788 backed=${backed8788.get()} reserved=${pendingPermits8832.size} hourly=${admitTimes8788.size} records{${BACKED_LANES_8806.joinToString(" ") { "$it=${records8806[it]?.line ?: "-"}" }}} stop=-${LOSS_STOP_SOL_8788}SOL tripped=$tripped8788 maxPerHour=$MAX_PER_HOUR_8788]"
 }

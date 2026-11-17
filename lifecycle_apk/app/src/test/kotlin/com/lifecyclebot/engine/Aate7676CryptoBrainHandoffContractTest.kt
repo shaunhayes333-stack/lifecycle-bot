@@ -10,9 +10,9 @@ class Aate7676CryptoBrainHandoffContractTest {
 
     @Test fun cryptoBrainCanProduceActionableSignalsWithoutIdentityLoss() {
         val s = trader()
-        assertTrue(s.contains("CryptoBrain.scoreAdjustment()"))
-        assertTrue(s.contains("CryptoBrain.confidenceModifier()"))
-        assertTrue(s.contains("CryptoBrain.activeTactic(tier, score)"))
+        assertTrue(s.contains("CryptoBrain.scoreAdjustment(paper7803)"))
+        assertTrue(s.contains("CryptoBrain.confidenceModifier(paper7803)"))
+        assertTrue(s.contains("CryptoBrain.activeTactic(tier, score, paper7803)"))
         assertTrue(s.contains("dynExecutableSignals.add(AltSignal("))
         assertTrue(s.contains("dynAssetKey = refreshed.canonicalIdentity6544"))
         assertTrue(s.contains("CRYPTO_FRESH_TAPE_WARMUP_7472"))

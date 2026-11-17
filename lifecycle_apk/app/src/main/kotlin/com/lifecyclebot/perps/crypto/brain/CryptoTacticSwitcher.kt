@@ -19,7 +19,7 @@ object CryptoTacticSwitcher {
     enum class Tactic { MOMENTUM, PULLBACK, BREAKOUT, MEAN_REVERT, LAB_PROPOSED }
 
     private data class Cell(
-        var tactic: Tactic = Tactic.MOMENTUM,
+        @Volatile var tactic: Tactic = Tactic.MOMENTUM,
         var losses: Int = 0,
         var lastRotateMs: Long = 0L,
         /** V5.0.8535 §C09 — outcomes of positions entered under a tactic the cell has since rotated away from. */
@@ -35,38 +35,43 @@ object CryptoTacticSwitcher {
     private const val LOSS_TRIGGER_FOR_ROTATE = 6
     private const val ROTATE_COOLDOWN_MS = 30L * 60_000L   // 30 min
 
-    private fun keyFor(tier: String, score: Int): String =
-        CryptoLosingPatternMemory.key(tier, score)
+    private fun keyFor(tier: String, score: Int, isPaper: Boolean = false): String =
+        "${if (isPaper) "PAPER" else "LIVE"}|${CryptoLosingPatternMemory.key(tier, score)}"
 
-    fun activeTacticFor(tier: String, score: Int): Tactic =
-        cells[keyFor(tier, score)]?.tactic ?: Tactic.MOMENTUM
+    fun activeTacticFor(tier: String, score: Int, isPaper: Boolean = false): Tactic =
+        cells[keyFor(tier, score, isPaper)]?.tactic ?: Tactic.MOMENTUM
 
     /**
      * Notify the switcher of a trade outcome. If a cell loses
      * [LOSS_TRIGGER_FOR_ROTATE] in a row (counter resets on a win), it
      * rotates to the next tactic in the cycle.
      */
-    fun onOutcome(tier: String, score: Int, win: Boolean, executed: Tactic? = null) {
-        val k = keyFor(tier, score)
+    fun onOutcome(tier: String, score: Int, win: Boolean, executed: Tactic? = null, isPaper: Boolean = false) {
+        val k = keyFor(tier, score, isPaper)
         val c = cells.getOrPut(k) { Cell() }
-        // V5.0.8535 §C09 — only the executed tactic's outcome trains the cell. superseded: every close rotated whatever tactic
-        // the cell held at close time (an older position's loss reset or rotated a newer tactic).
-        if (!attributable8535(c.tactic, executed)) {
-            if (win) c.staleWins++ else c.staleLosses++
-            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_TACTIC_OUTCOME_STALE_8535") } catch (_: Throwable) {}
-            return
-        }
-        if (executed == null) { c.unattributed++; try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_TACTIC_OUTCOME_UNATTRIBUTED_8535") } catch (_: Throwable) {} }
-        if (win) {
-            c.losses = 0
-            return
-        }
-        c.losses++
-        val now = System.currentTimeMillis()
-        if (c.losses >= LOSS_TRIGGER_FOR_ROTATE && now - c.lastRotateMs > ROTATE_COOLDOWN_MS) {
-            c.tactic = nextTactic(c.tactic)
-            c.lastRotateMs = now
-            c.losses = 0
+        synchronized(c) {
+            // V5.0.8535 §C09 — only the executed tactic's outcome trains the cell.
+            // An older position must not rotate a newer tactic on its close.
+            if (!attributable8535(c.tactic, executed)) {
+                if (win) c.staleWins++ else c.staleLosses++
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_TACTIC_OUTCOME_STALE_8535") } catch (_: Throwable) {}
+                return
+            }
+            if (executed == null) {
+                c.unattributed++
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_TACTIC_OUTCOME_UNATTRIBUTED_8535") } catch (_: Throwable) {}
+            }
+            if (win) {
+                c.losses = 0
+                return
+            }
+            c.losses++
+            val now = System.currentTimeMillis()
+            if (c.losses >= LOSS_TRIGGER_FOR_ROTATE && now - c.lastRotateMs > ROTATE_COOLDOWN_MS) {
+                c.tactic = nextTactic(c.tactic)
+                c.lastRotateMs = now
+                c.losses = 0
+            }
         }
     }
 
@@ -99,7 +104,10 @@ object CryptoTacticSwitcher {
             val obj = org.json.JSONObject(blob)
             for (k in obj.keys()) {
                 val o = obj.getJSONObject(k)
-                cells[k] = Cell(
+                // Legacy cells combined paper/live losses. Retain them for
+                // paper research but do not import them as live proof.
+                val scoped8832 = if (k.startsWith("LIVE|") || k.startsWith("PAPER|")) k else "PAPER|$k"
+                cells[scoped8832] = Cell(
                     tactic = runCatching { Tactic.valueOf(o.optString("t", "MOMENTUM")) }.getOrDefault(Tactic.MOMENTUM),
                     losses = o.optInt("l", 0),
                     lastRotateMs = o.optLong("r", 0L),

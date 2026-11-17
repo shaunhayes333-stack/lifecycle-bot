@@ -36,4 +36,27 @@ class Aate8788CryptoSpotPaperBackingTest {
         assertTrue(CryptoSpotPaperBacking8788.LANE_8788 == "CRYPTO_SPOT" && CryptoSpotPaperBacking8788.MIN_DECISIVE_8788 == 20)
         assertTrue(CryptoSpotPaperBacking8788.LOSS_STOP_SOL_8788 == 0.1)
     }
+
+    @Test fun backing_is_an_exception_to_both_advisory_ev_checks_and_counted_only_on_sealed_intents() {
+        val c = File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalAssetEntryContract6551.kt").readText()
+        val eligibility = c.indexOf("CryptoSpotPaperBacking8788.backs8788(candidate.evidence[\"lane8788\"]")
+        val oracle = c.indexOf("if (!advisoryPass7263 && !provenAdmit7287 && !provenNonBindingPass7391)")
+        val cortex = c.indexOf("CrossAssetCortex7931.liveRefusal(candidate)")
+        val executable = c.indexOf("if (!sizing.executable)")
+        val reserve = c.indexOf("CryptoSpotPaperBacking8788.reserve8832(")
+        val registered = c.indexOf("ExecutableOpenGate.registerCanonicalIntent6554(intent)")
+        val commit = c.indexOf("CryptoSpotPaperBacking8788.commit8832(attemptId)")
+        assertTrue("backing eligibility is read before the other admission gates", eligibility in 0 until oracle)
+        assertTrue("backed live candidates must not be refused by the redundant advisory EV check",
+            c.contains("paperBacked8788 || evRefusalInverted8094"))
+        assertTrue("quota is reserved only after Oracle, Cortex and executable sizing",
+            oracle < cortex && cortex < executable && executable < reserve)
+        assertTrue("quota is charged only after immutable registration", reserve < registered && registered < commit)
+        assertTrue("registration failure must release the quota", c.contains("CryptoSpotPaperBacking8788.release8832(attemptId)"))
+        assertTrue(CryptoSpotPaperBacking8788.room8832(0, 0))
+        assertTrue(CryptoSpotPaperBacking8788.room8832(3, 0))
+        assertFalse(CryptoSpotPaperBacking8788.room8832(3, 1))
+        assertFalse(CryptoSpotPaperBacking8788.room8832(4, 0))
+        assertFalse(CryptoSpotPaperBacking8788.room8832(0, 4))
+    }
 }

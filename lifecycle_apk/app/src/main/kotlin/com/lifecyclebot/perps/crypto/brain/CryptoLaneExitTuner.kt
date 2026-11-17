@@ -78,6 +78,9 @@ object CryptoLaneExitTuner {
 
     fun loadFrom(state: CryptoBrainState) {
         lanes.clear()
+        // Prior windows combined simulated paper exits with live exits and
+        // must not set a stop adjustment on canonical holdings after upgrade.
+        if (!state.getBoolean("let.live_only_8832", false)) return
         val blob = state.getString(K_BLOB, "")
         if (blob.isBlank()) return
         try {
@@ -110,5 +113,6 @@ object CryptoLaneExitTuner {
             obj.put(k, arr)
         }
         ed.putString(K_BLOB, obj.toString())
+        ed.putBoolean("let.live_only_8832", true)
     }
 }

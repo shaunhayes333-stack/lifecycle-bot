@@ -278,8 +278,14 @@ object CanonicalEntryAuthority6551 {
             } catch (_: Throwable) {}
             return blocked(candidate, venue, "LIVE_NON_POSITIVE_EXPECTANCY_7828")
         }
+        // V5.0.8832: 8788 was accepted above at the expectancy check, but
+        // silently refused again at the advisory Oracle gate. It also spent
+        // its four hourly exceptions *before* this later gate. Honour the
+        // already-evidenced paper exception only in advisory mode; proven
+        // Oracle refusals and hard safety retain their existing authority.
         val advisoryPass7263 = !oracleProven7263 && !oracleHardSafety7287 &&
-            (!candidate.mode.equals("LIVE", true) || livePositiveEv7828)
+            (!candidate.mode.equals("LIVE", true) || livePositiveEv7828 ||
+                paperBacked8788 || evRefusalInverted8094)
         if (advisoryPass7263) {
             try {
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_ORACLE_ADVISORY_PASS_7263")
@@ -456,6 +462,14 @@ object CanonicalEntryAuthority6551 {
         }
 
         val verdict = if (shaping.probe) "PROBE_ONLY" else "BUY"
+        // The exception must pass Oracle, Cortex, and executable sizing before
+        // spending the bounded quota. Hold a permit through intent registration
+        // so competing signal workers cannot exceed the shared hourly cap.
+        val backingReserved8832 = if (paperBacked8788) try {
+            CryptoSpotPaperBacking8788.reserve8832(candidate.evidence["lane8788"], System.currentTimeMillis(), attemptId)
+        } catch (_: Throwable) { false } else false
+        if (paperBacked8788 && !backingReserved8832)
+            return blocked(candidate, venue, "CRYPTO_PAPER_BACKING_CAP_OR_PROOF_CHANGED_8832")
         val sealedDecision6613 = ExecutionDecisionSnapshot6510.record(
             ExecutionDecisionSnapshot(
                 mint = candidate.assetId, candidateVersion = candidate.candidateVersion,
@@ -487,7 +501,10 @@ object CanonicalEntryAuthority6551 {
             spotScaleLeverage8418 = SpotScale8418.fromEvidence(candidate.evidence),
         )
         val registered = ExecutableOpenGate.registerCanonicalIntent6554(intent)
-            ?: return deferred(candidate, venue, "EXEC_INTENT_REGISTRATION_FAILED")
+            ?: run {
+                if (backingReserved8832) CryptoSpotPaperBacking8788.release8832(attemptId)
+                return deferred(candidate, venue, "EXEC_INTENT_REGISTRATION_FAILED")
+            }
         // A 6533 specialist may already have sealed this exact candidate.
         // Adopt it only when immutable identity and exact resolved size agree;
         // never mint a rival authority or silently debit a differently-sized lot.
@@ -495,8 +512,11 @@ object CanonicalEntryAuthority6551 {
             !registered.mode.equals(candidate.mode, true) ||
             kotlin.math.abs(registered.resolvedSize - sizing.finalSizeSol) > 1e-9 ||
             kotlin.math.abs(registered.spotScaleLeverage8418 - intent.spotScaleLeverage8418) > 1e-9) {   // V5.0.8418 — the SPOT multiple is part of the seal
+            if (backingReserved8832) CryptoSpotPaperBacking8788.release8832(attemptId)
             return blocked(candidate, venue, "UPSTREAM_INTENT_CONFLICT")
         }
+        if (backingReserved8832 && !CryptoSpotPaperBacking8788.commit8832(attemptId))
+            return blocked(candidate, venue, "CRYPTO_PAPER_BACKING_COMMIT_FAILED_8832")
         pending["${registered.mode}:${candidate.assetId}:${candidate.candidateVersion}"] = registered
         immutableIntentAttempts6647.add(registered.attemptId)
         CanonicalEntryAuthority6540.markAuthAllowFor6551(candidate.assetClass, candidate.symbol)

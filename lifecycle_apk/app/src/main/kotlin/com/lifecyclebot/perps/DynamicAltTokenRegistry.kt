@@ -89,6 +89,15 @@ object DynamicAltTokenRegistry {
         val lastUpdatedMs: Long = System.currentTimeMillis(),
         // Price provenance for learning only: metadata/logo refreshes must never refresh this clock.
         val priceObservedAtMs8372: Long = 0L,
+        // V5.0.8832 — DexScreener already supplies these rolling five-minute
+        // observations. Dropping them forced CryptoBrain to infer current
+        // buyers/volume/momentum from a 24-hour aggregate. -1 / NaN means
+        // UNOBSERVED, while a provider-reported zero remains an actual zero.
+        val buys5m8832: Int = -1,
+        val sells5m8832: Int = -1,
+        val volume5m8832: Double = Double.NaN,
+        val change5mPct8832: Double = Double.NaN,
+        val shortWindowObservedAtMs8832: Long = 0L,
     ) {
         val canonicalIdentity6544: String get() = canonicalIdentity6544(chainId, tokenAddress)
         val discoveryUrgency6544: String get() = when {
@@ -1689,6 +1698,16 @@ object DynamicAltTokenRegistry {
             volume24h = pair.candle.volume24h.takeIf { it > 0.0 } ?: latest8752.volume24h,
             buys24h = if (pair.txnsH24Observed) pair.candle.buys24h else latest8752.buys24h,
             sells24h = if (pair.txnsH24Observed) pair.candle.sells24h else latest8752.sells24h,
+            // All fields on this row belong to the SAME pair observation.
+            // Never refresh an old buy count's clock using a newer price-only
+            // reply: missing fields lose their authority, not their meaning.
+            buys5m8832 = if (pair.buysM5 >= 0 && pair.sellsM5 >= 0) pair.buysM5 else -1,
+            sells5m8832 = if (pair.buysM5 >= 0 && pair.sellsM5 >= 0) pair.sellsM5 else -1,
+            volume5m8832 = pair.volumeM5.takeIf { it.isFinite() && it >= 0.0 } ?: Double.NaN,
+            change5mPct8832 = pair.priceChangeM5.takeIf { it.isFinite() } ?: Double.NaN,
+            shortWindowObservedAtMs8832 = if ((pair.buysM5 >= 0 && pair.sellsM5 >= 0) ||
+                (pair.volumeM5.isFinite() && pair.volumeM5 >= 0.0) || pair.priceChangeM5.isFinite())
+                pair.candle.ts else latest8752.shortWindowObservedAtMs8832,
             dexId = latest8752.dexId.ifBlank { pair.dexId },
             pairAddress = latest8752.pairAddress.ifBlank { pair.pairAddress },
             quoteAddress = latest8752.quoteAddress.ifBlank { pair.quoteAddress },

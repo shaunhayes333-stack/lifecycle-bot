@@ -56,26 +56,33 @@ object CryptoLosingPatternMemory {
 
     fun key(tier: String, score: Int): String = "${tier.uppercase()}|${scoreBand(score)}"
 
-    fun record(tier: String, score: Int, pnlPct: Double) {
-        val k = key(tier, score)
+    // V5.0.8832: a paper loss is evidence about the paper execution model, not
+    // a proven live-loss bucket that may shrink or shadow the live trader.
+    private fun scopedKey8832(tier: String, score: Int, isPaper: Boolean): String =
+        "${if (isPaper) "PAPER" else "LIVE"}|${key(tier, score)}"
+
+    fun record(tier: String, score: Int, pnlPct: Double, isPaper: Boolean = false) {
+        val k = scopedKey8832(tier, score, isPaper)
         val b = buckets.getOrPut(k) { Bucket() }
         if (!pnlPct.isFinite()) return
-        when (CryptoOutcome8535.classify(pnlPct)) {
-            CryptoOutcome8535.Kind.NET_WIN -> { b.wins++; b.pnlSumTrainable += pnlPct }
-            CryptoOutcome8535.Kind.NET_LOSS -> { b.losses++; b.pnlSumTrainable += pnlPct }
-            else -> b.scratches++
+        synchronized(b) {
+            when (CryptoOutcome8535.classify(pnlPct)) {
+                CryptoOutcome8535.Kind.NET_WIN -> { b.wins++; b.pnlSumTrainable += pnlPct }
+                CryptoOutcome8535.Kind.NET_LOSS -> { b.losses++; b.pnlSumTrainable += pnlPct }
+                else -> b.scratches++
+            }
+            b.pnlSum += pnlPct
         }
-        b.pnlSum += pnlPct
     }
 
     /** V5.0.8535 — the bucket's counts for a test or report: [wins, losses, scratches, meanTrainable, meanAll]. */
-    internal fun snapshot8535(tier: String, score: Int): DoubleArray? = buckets[key(tier, score)]?.let {
+    internal fun snapshot8535(tier: String, score: Int, isPaper: Boolean = false): DoubleArray? = buckets[scopedKey8832(tier, score, isPaper)]?.let {
         doubleArrayOf(it.wins.toDouble(), it.losses.toDouble(), it.scratches.toDouble(), it.meanPnl(), it.meanPnlAll())
     }
 
     /** Multiplicative sizing nudge for the entry path. */
-    fun recommendedSizeMult(tier: String, score: Int): Double {
-        val b = buckets[key(tier, score)] ?: return 1.0
+    fun recommendedSizeMult(tier: String, score: Int, isPaper: Boolean = false): Double {
+        val b = buckets[scopedKey8832(tier, score, isPaper)] ?: return 1.0
         if (!b.isDangerous) return 1.0
         // Deeper bleed → smaller size, floor at 0.05x.
         val byPnl = (1.0 + (b.meanPnl() / 20.0)).coerceIn(0.05, 1.0)
@@ -84,8 +91,8 @@ object CryptoLosingPatternMemory {
     }
 
     /** True → route the LIVE entry to paper-mode shadow book. */
-    fun recommendedShadowOnly(tier: String, score: Int): Boolean {
-        val b = buckets[key(tier, score)] ?: return false
+    fun recommendedShadowOnly(tier: String, score: Int, isPaper: Boolean = false): Boolean {
+        val b = buckets[scopedKey8832(tier, score, isPaper)] ?: return false
         return b.isShadowOnly
     }
 
@@ -112,7 +119,10 @@ object CryptoLosingPatternMemory {
             for (k in obj.keys()) {
                 val o = obj.getJSONObject(k)
                 val p = o.optDouble("p", 0.0)
-                buckets[k] = Bucket(
+                // Pre-8832 state has no execution mode; it cannot earn live
+                // authority. Preserve it as research-only historical paper.
+                val scoped8832 = if (k.startsWith("LIVE|") || k.startsWith("PAPER|")) k else "PAPER|$k"
+                buckets[scoped8832] = Bucket(
                     wins = o.optInt("w", 0),
                     losses = o.optInt("l", 0),
                     pnlSum = p,

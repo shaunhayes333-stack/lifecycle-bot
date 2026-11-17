@@ -1273,18 +1273,18 @@ object CryptoAltTrader {
         volume24hUsd: Double,
         change24hPct: Double,
         buyPressurePct: Double,
-        buyersObserved8535: Boolean,
+        shortWindow8832: CryptoShortWindow8832.Evidence,
     ): DynamicCryptoDecision7244 {
         val paper7803 = authoritativePaperMode7425()
         DynamicAltTokenRegistry.markCryptoBrainReach7244(tok)
         val tier = dynamicCryptoTier7244(marketCapUsd)
-        val brainScoreAdj = try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.scoreAdjustment() } catch (_: Throwable) { 0 }
-        val brainConfAdj = try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.confidenceModifier() } catch (_: Throwable) { 0 }
+        val brainScoreAdj = try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.scoreAdjustment(paper7803) } catch (_: Throwable) { 0 }
+        val brainConfAdj = try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.confidenceModifier(paper7803) } catch (_: Throwable) { 0 }
 
         // V5.0.7403 — 24h change is context, not a prediction. Reward a
         // moderate trend, penalise exhaustion, and let actual buy/sell flow carry
         // more weight. The old linear formula made +20% already printed = +14 score.
-        val momentum = when {
+        val dayMomentum = when {
             change24hPct in 1.0..8.0 -> (change24hPct * 0.65).toInt().coerceAtMost(5)
             change24hPct > 25.0 -> -10
             change24hPct > 12.0 -> -4
@@ -1292,7 +1292,19 @@ object CryptoAltTrader {
             change24hPct < -5.0 -> -5
             else -> 0
         }
-        val flow = ((buyPressurePct - 50.0).coerceIn(-30.0, 30.0) * 0.48).toInt()
+        // Current five-minute flow/price observations own immediate direction.
+        // Historical 24h fields remain weak context, never buyer confirmation.
+        val recentChange8832 = shortWindow8832.change5mPct
+        val momentum = if (recentChange8832 != null) when {
+            recentChange8832 in 0.5..6.0 -> (recentChange8832 * 1.5).toInt().coerceAtMost(8)
+            recentChange8832 > 15.0 -> -10
+            recentChange8832 < -4.0 -> -10
+            recentChange8832 < -1.0 -> -5
+            else -> 0
+        } else dayMomentum.coerceIn(-8, 2)
+        val recentBp8832 = if (shortWindow8832.flowObserved) shortWindow8832.buyPressurePct else buyPressurePct
+        val flow = ((recentBp8832 - 50.0).coerceIn(-30.0, 30.0) *
+            (if (shortWindow8832.flowObserved) 0.55 else 0.12)).toInt()
         val liquidity = when {
             liquidityUsd >= 5_000_000.0 -> 10
             liquidityUsd >= 1_000_000.0 -> 8
@@ -1301,26 +1313,33 @@ object CryptoAltTrader {
             liquidityUsd > 0.0 -> 0
             else -> -8
         }
-        val activity = when {
-            volume24hUsd >= 10_000_000.0 -> 8
-            volume24hUsd >= 1_000_000.0 -> 6
-            volume24hUsd >= 250_000.0 -> 3
-            volume24hUsd > 0.0 -> 1
+        val v58832 = shortWindow8832.volume5mUsd
+        val accel8832 = shortWindow8832.volumeAccelerationVsDay(volume24hUsd)
+        val activity = if (v58832 != null) when {
+            v58832 >= 30_000.0 && (accel8832 ?: 0.0) >= 2.0 -> 8
+            v58832 >= 5_000.0 && (accel8832 ?: 0.0) >= 1.5 -> 6
+            v58832 >= 1_000.0 -> 3
+            v58832 >= 500.0 -> 1
+            else -> -5
+        } else when {
+            volume24hUsd >= 250_000.0 -> 1
+            volume24hUsd > 0.0 -> 0
             else -> -5
         }
         val discovery = (if (tok.isTrending) 2 else 0) + (if (tok.isBoosted) 1 else 0)
         val score = (48 + momentum + flow + liquidity + activity + discovery + brainScoreAdj).coerceIn(0, 100)
         val confidence = (42 +
             // Confidence comes from evidence quality, not how far price already moved.
-            kotlin.math.abs(buyPressurePct - 50.0).coerceIn(0.0, 30.0).toInt() / 2 +
+            (if (shortWindow8832.flowObserved) kotlin.math.abs(recentBp8832 - 50.0)
+             else 0.0).coerceIn(0.0, 30.0).toInt() / 2 +
             (if (liquidityUsd >= 50_000.0) 6 else if (liquidityUsd > 0.0) 2 else 0) +
-            (if (volume24hUsd >= 250_000.0) 4 else 0) +
+            (if (shortWindow8832.volumeActive5m && shortWindow8832.activeBuyerFlow) 4 else 0) +
             (if (change24hPct > 25.0 || change24hPct < -12.0) -8 else 0) +
             brainConfAdj
         ).coerceIn(0, 100)
 
-        val maturityScoreFloor7312 = try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.getSpotScoreFloor() } catch (_: Throwable) { 50 }
-        val maturityConfFloor7312 = try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.getSpotConfFloor() } catch (_: Throwable) { 40 }
+        val maturityScoreFloor7312 = try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.getSpotScoreFloor(paper7803) } catch (_: Throwable) { 50 }
+        val maturityConfFloor7312 = try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.getSpotConfFloor(paper7803) } catch (_: Throwable) { 40 }
         // V5.0.7312 — the maturity floors rise with trade COUNT (48/42 ->
         // 72/68) while this score has no learned term to rise with them;
         // confidence tops out near 42 + |chg| + |bp-50|/2 + 6, so past
@@ -1336,7 +1355,7 @@ object CryptoAltTrader {
         // telemetry. Use the local 20s CryptoLaneDesk tape for short-horizon
         // structure; never manufacture a tactic from repeated 24h snapshots.
         val tactic7443 = try {
-            com.lifecyclebot.perps.crypto.brain.CryptoBrain.activeTactic(tier, score)
+            com.lifecyclebot.perps.crypto.brain.CryptoBrain.activeTactic(tier, score, paper7803)
         } catch (_: Throwable) {
             com.lifecyclebot.perps.crypto.brain.CryptoTacticSwitcher.Tactic.MOMENTUM
         }
@@ -1346,7 +1365,8 @@ object CryptoAltTrader {
         // V5.0.8535 §C11 — the shapes take the buyer reading WITH its provenance: a zero-count row's default 50 confirms
         // nothing, and a shape that fires on price alone is graded down and named as such.
         val shape8535 = com.lifecyclebot.perps.crypto.brain.CryptoTacticEvidence8535.evaluate(
-            px7443, tok.price, buyPressurePct, buyersObserved8535, change24hPct, tok.isTrending,
+            px7443, tok.price, recentBp8832, shortWindow8832.activeBuyerFlow, change24hPct, tok.isTrending,
+            shortWindow8832.change5mPct,
         )
         val pullbackPct7443 = shape8535.pullbackPct
         val reboundPct7443 = shape8535.reboundPct
@@ -1364,8 +1384,11 @@ object CryptoAltTrader {
             " floor=" + scoreFloor + "/" + confFloor + " tactic=" + tactic7443.name +
             (if (shape8535.priceOnly) " PRICE_ONLY_8535" else "") +
             " pullback=" + "%.2f".format(pullbackPct7443) + " rebound=" + "%.2f".format(reboundPct7443) +
-            " chg=" + change24hPct + " bp=" + (if (buyersObserved8535) "%.1f".format(buyPressurePct) else "UNOBSERVED") +
-            " liq=" + liquidityUsd.toLong() + " vol=" + volume24hUsd.toLong()
+            " chg24h=" + change24hPct + " chg5m=" + (recentChange8832?.let { "%.1f".format(it) } ?: "UNOBSERVED") +
+            " buys5m=" + shortWindow8832.buys5m + " sells5m=" + shortWindow8832.sells5m +
+            " bp5m=" + (if (shortWindow8832.flowObserved) "%.1f".format(recentBp8832) else "UNOBSERVED") +
+            " vol5m=" + (v58832?.toLong() ?: -1L) + " volAccel=" + (accel8832?.let { "%.2f".format(it) } ?: "UNOBSERVED") +
+            " liq=" + liquidityUsd.toLong() + " vol24h=" + volume24hUsd.toLong()
         // V5.0.8535 §C09 — LAB_PROPOSED has no validated lab hypothesis id on this desk: the entry is recorded under the
         // predicate that actually fired, so its outcome trains that tactic and not an unidentifiable label.
         val executedTactic8535 = if (tactic7443 == com.lifecyclebot.perps.crypto.brain.CryptoTacticSwitcher.Tactic.LAB_PROPOSED)
@@ -1504,17 +1527,31 @@ object CryptoAltTrader {
                     }
                     PriceMissBackoff8717.notePriced(tok.canonicalIdentity6544)
                 }
-                val price   = priceNow
                 // Re-read the freshly hydrated row so downstream fields are current.
                 val refreshed = DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(tok.canonicalIdentity6544)
                     ?: DynamicAltTokenRegistry.getTokenByMint(tok.mint) ?: tok
+                val price = refreshed.price.takeIf { it.isFinite() && it > 0.0 } ?: priceNow
                 val hydrationNow8752 = System.currentTimeMillis()
                 val signalUnknown8752 = refreshed.buys24h + refreshed.sells24h == 0 &&
                     refreshed.priceChange24h == 0.0 &&
                     !com.lifecyclebot.engine.LaneInputTruth8236.fresh8491(refreshed.txns24hObservedAtMs8752, hydrationNow8752) &&
                     !com.lifecyclebot.engine.LaneInputTruth8236.fresh8491(refreshed.change24hObservedAtMs8752, hydrationNow8752)
-                if (signalUnknown8752 && refreshed.chainId.equals("solana", true) &&
-                    refreshed.volume24h > 0.0 && scheduledSignalHydrations8752 < CRYPTO_SIGNAL_HYDRATION_SCAN_BUDGET_8752 &&
+                // Hydrate missing five-minute buyer/volume/price evidence as
+                // well as missing 24h context. A cached price is not a dated
+                // market observation and cannot bootstrap a fake chart.
+                val shortWindowUnknown8832 = !CryptoShortWindow8832.from(
+                    hydrationNow8752, refreshed.shortWindowObservedAtMs8832,
+                    refreshed.buys5m8832, refreshed.sells5m8832,
+                    refreshed.volume5m8832, refreshed.change5mPct8832,
+                ).let { it.flowObserved && it.volume5mUsd != null && it.change5mPct != null }
+                val priceUndated8832 = com.lifecyclebot.engine.NativeDecisionEnrollment8372.observedPriceAt(
+                    price, refreshed.price, refreshed.priceObservedAtMs8372, hydrationNow8752) <= 0L
+                val dexRoutable8832 = refreshed.chainId.isNotBlank() &&
+                    refreshed.chainId !in setOf("unknown", "established") &&
+                    !refreshed.tokenAddress.startsWith("static:") && !refreshed.tokenAddress.startsWith("cg:")
+                if ((signalUnknown8752 || shortWindowUnknown8832 || priceUndated8832) &&
+                    dexRoutable8832 && (refreshed.volume24h > 0.0 || refreshed.volume5m8832 > 0.0) &&
+                    scheduledSignalHydrations8752 < CRYPTO_SIGNAL_HYDRATION_SCAN_BUDGET_8752 &&
                     cryptoSignalHydrationInFlight8752.size < CRYPTO_SIGNAL_HYDRATION_CONCURRENCY_8752 &&
                     hydrationNow8752 - (cryptoSignalHydrationAt8752[refreshed.canonicalIdentity6544] ?: 0L) >= CRYPTO_SIGNAL_HYDRATION_RETRY_MS_8752 &&
                     cryptoSignalHydrationInFlight8752.add(refreshed.canonicalIdentity6544)
@@ -1531,10 +1568,15 @@ object CryptoAltTrader {
                                 PipelineHealthCollector.labelInc("CRYPTO_SIGNAL_ENRICHMENT_ATTEMPT_8752")
                                 val enriched8752 = DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(identity8752)
                                 val observationNow8752 = System.currentTimeMillis()
-                                val filled8752 = enriched8752 != null && (
-                                    com.lifecyclebot.engine.LaneInputTruth8236.fresh8491(enriched8752.txns24hObservedAtMs8752, observationNow8752) ||
-                                    com.lifecyclebot.engine.LaneInputTruth8236.fresh8491(enriched8752.change24hObservedAtMs8752, observationNow8752)
-                                )
+                                val filled8752 = enriched8752 != null &&
+                                    CryptoShortWindow8832.from(
+                                        observationNow8752, enriched8752.shortWindowObservedAtMs8832,
+                                        enriched8752.buys5m8832, enriched8752.sells5m8832,
+                                        enriched8752.volume5m8832, enriched8752.change5mPct8832,
+                                    ).let { it.flowObserved && it.change5mPct != null && it.volume5mUsd != null } &&
+                                    com.lifecyclebot.engine.NativeDecisionEnrollment8372.observedPriceAt(
+                                        enriched8752.price, enriched8752.price, enriched8752.priceObservedAtMs8372,
+                                        observationNow8752) > 0L
                                 PipelineHealthCollector.labelInc(if (filled8752)
                                     "CRYPTO_SIGNAL_ENRICHMENT_FILLED_8752" else "CRYPTO_SIGNAL_ENRICHMENT_STILL_UNKNOWN_8752")
                             }
@@ -1601,12 +1643,6 @@ object CryptoAltTrader {
                     CrossMarketRegimeAI.updateMarketState(tok.mint, price, change, vol)
                 } catch (_: Exception) {}
 
-                // V5.0.7244 — dedicated CryptoBrain-owned dynamic candidate.
-                val cryptoDecision7244 = scoreDynamicCrypto7244(
-                    tok = refreshed, marketCapUsd = mcap, liquidityUsd = liq,
-                    volume24hUsd = vol, change24hPct = change, buyPressurePct = buyPct,
-                    buyersObserved8535 = buys24h7391 + sells24h7391 > 0,
-                )
                 // V5.0.7391 — the meme desk. Specialists judge their own mcap
                 // bands on the provider's market cap (as the meme lanes do);
                 // the trusted-only figure still owns CryptoBrain and BlueChip.
@@ -1620,15 +1656,47 @@ object CryptoAltTrader {
                     try { PipelineHealthCollector.labelInc("CRYPTO_DESK_BAND_MCAP_PROVIDER_7391") } catch (_: Throwable) {}
                 }
                 val deskIdentity7391 = refreshed.canonicalIdentity6544.ifBlank { refreshed.mint }
-                CryptoLaneDesk7391.recordTick(deskIdentity7391, price, bandMcap7391, vol, buys24h7391, sells24h7391)
+                // V5.0.8832 — read the *current* observed price into the desk
+                // BEFORE the brain grades its price shape. Previously grading
+                // happened first and could buy on the previous candle, while
+                // repeated cached registry reads forged new 20-second candles.
+                val decisionNow8832 = System.currentTimeMillis()
+                val priceObserved8832 = com.lifecyclebot.engine.NativeDecisionEnrollment8372.observedPriceAt(
+                    price, refreshed.price, refreshed.priceObservedAtMs8372, decisionNow8832)
+                CryptoLaneDesk7391.recordTick(
+                    deskIdentity7391, price, bandMcap7391, vol, buys24h7391, sells24h7391,
+                    observedAtMs = priceObserved8832, nowMs = decisionNow8832,
+                )
+                if (priceObserved8832 <= 0L) try {
+                    PipelineHealthCollector.labelInc("CRYPTO_DESK_UNDATED_PRICE_NOT_CHARTED_8832")
+                } catch (_: Throwable) {}
+                // V5.0.7244 — dedicated CryptoBrain-owned dynamic candidate.
+                // Buy transactions (not unique wallets) and five-minute
+                // volume from the same provider-dated pair own entry flow.
+                val shortWindow8832 = CryptoShortWindow8832.from(
+                    decisionNow8832, refreshed.shortWindowObservedAtMs8832,
+                    refreshed.buys5m8832, refreshed.sells5m8832,
+                    refreshed.volume5m8832, refreshed.change5mPct8832,
+                )
+                val cryptoDecision7244 = scoreDynamicCrypto7244(
+                    tok = refreshed, marketCapUsd = mcap, liquidityUsd = liq,
+                    volume24hUsd = vol, change24hPct = change, buyPressurePct = buyPct,
+                    shortWindow8832 = shortWindow8832,
+                )
                 val cryptoDeskTs7803 = CryptoLaneDesk7391.tokenState(
                     identity = deskIdentity7391, symbol = refreshed.symbol, name = refreshed.name,
                     priceUsd = price, marketCapUsd = bandMcap7391, liquidityUsd = liq,
-                    buyPressurePct = buyPct, source = refreshed.source,
+                    buyPressurePct = if (shortWindow8832.flowObserved) shortWindow8832.buyPressurePct else 50.0,
+                    source = refreshed.source,
                     ageHours = refreshed.discoveryAgeHours6544,
                     brainScore = cryptoDecision7244.score, brainConfidence = cryptoDecision7244.confidence,
-                    priceObservedAtMs8372 = com.lifecyclebot.engine.NativeDecisionEnrollment8372.observedPriceAt(
-                        price, refreshed.price, refreshed.priceObservedAtMs8372, System.currentTimeMillis()),
+                    priceObservedAtMs8372 = priceObserved8832,
+                    buyPressureObservedAtMs8832 = if (shortWindow8832.flowObserved)
+                        refreshed.shortWindowObservedAtMs8832 else 0L,
+                    change5mObservedAtMs8832 = if (shortWindow8832.change5mPct != null)
+                        refreshed.shortWindowObservedAtMs8832 else 0L,
+                    volume5mUsd8832 = shortWindow8832.volume5mUsd,
+                    change5mPct8832 = shortWindow8832.change5mPct,
                 )
                 val deskCandidates7803 = CryptoLaneDesk7391.qualifyAll7803(cryptoDeskTs7803)
                 val desk7391 = deskCandidates7803.maxByOrNull { it.conviction }
@@ -2226,12 +2294,15 @@ object CryptoAltTrader {
         // maturity + thresholds, AND the live funnel snapshot.
         try {
             val mode = if (scanPaper7803) "PAPER" else "LIVE"
-            val mat = com.lifecyclebot.perps.crypto.brain.CryptoBrain.maturity().name
-            val scoreFloor = com.lifecyclebot.perps.crypto.brain.CryptoBrain.getSpotScoreFloor()
-            val confFloor = com.lifecyclebot.perps.crypto.brain.CryptoBrain.getSpotConfFloor()
+            val mat = com.lifecyclebot.perps.crypto.brain.CryptoBrain.maturityForMode8832(scanPaper7803).name
+            val scoreFloor = com.lifecyclebot.perps.crypto.brain.CryptoBrain.getSpotScoreFloor(scanPaper7803)
+            val confFloor = com.lifecyclebot.perps.crypto.brain.CryptoBrain.getSpotConfFloor(scanPaper7803)
             val tilt = com.lifecyclebot.perps.crypto.brain.CryptoBrain.isTiltProtectionActive()
             val sentiment = com.lifecyclebot.perps.crypto.brain.CryptoBrain.sentimentClassification()
-            ErrorLogger.info(TAG, "🪙 SCAN_DIAG mode=$mode maturity=$mat thresh=$scoreFloor/$confFloor tilt=$tilt mood=$sentiment trades=${com.lifecyclebot.perps.crypto.brain.CryptoBrain.tradeCount()}")
+            ErrorLogger.info(TAG, "🪙 SCAN_DIAG mode=$mode maturity=$mat thresh=$scoreFloor/$confFloor tilt=$tilt mood=$sentiment " +
+                "settled[all=${com.lifecyclebot.perps.crypto.brain.CryptoBrain.tradeCount()} " +
+                "live=${com.lifecyclebot.perps.crypto.brain.CryptoBrain.liveTradeCount8832()} " +
+                "paper=${com.lifecyclebot.perps.crypto.brain.CryptoBrain.paperTradeCount8832()}]")
         } catch (_: Throwable) {}
 
         // All crypto markets that are NOT covered by the SOL perps engine.
@@ -2330,8 +2401,8 @@ object CryptoAltTrader {
                 com.lifecyclebot.perps.crypto.brain.CryptoFunnel.analyze(signal != null)
                 if (signal != null) {
                     // V5.9.1442 — Crypto isolated brain thresholds.
-                    val scoreThresh = com.lifecyclebot.perps.crypto.brain.CryptoBrain.getSpotScoreFloor()
-                    val confThresh  = com.lifecyclebot.perps.crypto.brain.CryptoBrain.getSpotConfFloor()
+                    val scoreThresh = com.lifecyclebot.perps.crypto.brain.CryptoBrain.getSpotScoreFloor(scanPaper7803)
+                    val confThresh  = com.lifecyclebot.perps.crypto.brain.CryptoBrain.getSpotConfFloor(scanPaper7803)
 
                     // V5.9.132: V3 IS THE GATE. Fluid score/conf gate is now
                     // only a preliminary sanity check — any signal with score≥45
@@ -2773,9 +2844,10 @@ object CryptoAltTrader {
 
         // ── Layer 7: Fluid Learning (V5.9.1442 — isolated crypto brain) ──────
         try {
-            val progress = com.lifecyclebot.perps.crypto.brain.CryptoBrain.progressPct()
+            val paperStatic8832 = authoritativePaperMode7425()
+            val progress = com.lifecyclebot.perps.crypto.brain.CryptoBrain.progressForMode8832(paperStatic8832)
             if (progress > 50) { confidence += 5; reasons.add("📚 Crypto Learning: $progress%") }
-            val crossBoost = com.lifecyclebot.perps.crypto.brain.CryptoBrain.crossLearnedConfidence(confidence.toDouble()) - confidence
+            val crossBoost = com.lifecyclebot.perps.crypto.brain.CryptoBrain.crossLearnedConfidence(confidence.toDouble(), paperStatic8832) - confidence
             if (crossBoost > 0) { confidence += crossBoost.toInt(); reasons.add("🔗 Cross-boost: +${crossBoost.toInt()}") }
         } catch (_: Exception) {}
 
@@ -3639,7 +3711,7 @@ object CryptoAltTrader {
         }
         val cryptoBrainSize7244 = try {
             com.lifecyclebot.perps.crypto.brain.CryptoBrain.sizingMultiplier(
-                cryptoTier7244, signal.score,
+                cryptoTier7244, signal.score, paper7803,
             )
         } catch (_: Throwable) { 1.0 }
         sizeSol *= cryptoBrainSize7244
@@ -3693,7 +3765,7 @@ object CryptoAltTrader {
             PipelineHealthCollector.labelInc(if (signal.isDynamic) "CRYPTO_DYNAMIC_PRICE_REFERENCE_UNAVAILABLE_8792" else "CRYPTO_STATIC_PRICE_REFERENCE_STALE_8792")
         } catch (_: Throwable) {}
 
-        val tpPct = com.lifecyclebot.perps.crypto.brain.CryptoBrain.getTpPct(isSpot)
+        val tpPct = com.lifecyclebot.perps.crypto.brain.CryptoBrain.getTpPct(isSpot, paper7803)
         // V5.0.6923 — CryptoBrain.laneExitVerdict had zero callers.
         //
         // The line below reads the crypto brain's LEARNED take-profit. The
@@ -4829,7 +4901,7 @@ object CryptoAltTrader {
                     spotPositions.remove(id)
                 }
 
-                val tpPct = com.lifecyclebot.perps.crypto.brain.CryptoBrain.getTpPct(updated.isSpot)
+                val tpPct = com.lifecyclebot.perps.crypto.brain.CryptoBrain.getTpPct(updated.isSpot, updated.isPaper)
 
                 // V5.9.9: FULLY AGENTIC EXIT — SymbolicExitReasoner evaluates every cycle
                 val holdSec = (System.currentTimeMillis() - updated.openTime) / 1000

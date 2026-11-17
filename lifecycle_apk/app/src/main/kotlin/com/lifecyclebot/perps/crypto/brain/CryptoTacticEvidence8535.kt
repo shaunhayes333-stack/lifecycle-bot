@@ -56,18 +56,35 @@ object CryptoTacticEvidence8535 {
         buyersObserved: Boolean,
         change24hPct: Double,
         isTrending: Boolean,
+        change5mPct: Double? = null,
     ): Shape {
         val px = prices.filter { it.isFinite() && it > 0.0 }.takeLast(8)
         val cur = px.lastOrNull() ?: fallbackPrice.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
         val prior = px.dropLast(1)
         val priorHigh = prior.maxOrNull() ?: cur
         val priorLow = prior.minOrNull() ?: cur
+        // V5.0.8832 — 24h buyer pressure alone is not momentum NOW. The old
+        // predicate returned true with no price tape (or a falling tape),
+        // buying mature coins off yesterday's activity. The caller's desk
+        // now supplies only genuinely dated market observations.
+        val immediatelyPrior = prior.lastOrNull()
+        val currentRising8832 = immediatelyPrior != null && cur > immediatelyPrior &&
+            (priorHigh <= 0.0 || cur >= priorHigh * 0.99)
+        // A single independent DEX observation can provide the five-minute
+        // direction before two 20-second candles exist. It is only actionable
+        // when its source-dated five-minute buyer flow corroborates it; once
+        // the local tape has two candles a falling latest candle wins.
+        val fiveMinuteRise8832 = change5mPct?.let { it in 0.5..8.0 } == true
+        val risingNow8832 = currentRising8832 || (px.size <= 1 && buyersObserved && fiveMinuteRise8832)
         val pullbackPct = if (priorHigh > 0.0 && cur > 0.0) ((priorHigh - cur) / priorHigh * 100.0).coerceAtLeast(0.0) else 0.0
         val reboundPct = if (priorLow > 0.0 && cur > 0.0) ((cur - priorLow) / priorLow * 100.0).coerceAtLeast(0.0) else 0.0
-        val notExtended = change24hPct <= 20.0 && change24hPct >= -8.0
+        // A 24h runner needn't be banned for already having run; require its
+        // CURRENT 5m leg to be measured, supported by buys, and not parabolic.
+        val notExtended = change24hPct in -8.0..20.0 ||
+            (change24hPct > 20.0 && buyersObserved && fiveMinuteRise8832)
         fun buyers(min: Double) = buyersObserved && buyPressurePct >= min
 
-        val momentum = notExtended && (
+        val momentum = risingNow8832 && notExtended && (
             buyers(56.0) ||
                 (change24hPct in 0.5..8.0 && buyers(52.0)) ||
                 (isTrending && buyers(58.0))

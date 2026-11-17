@@ -19,7 +19,7 @@ class Aate7443CryptoGenerationAndTacticTest {
 
     @Test fun crypto_tactic_switcher_is_consumed_by_entry_logic() {
         val s = src("perps/CryptoAltTrader.kt")
-        assertTrue(s.contains("CryptoBrain.activeTactic(tier, score)"))
+        assertTrue(s.contains("CryptoBrain.activeTactic(tier, score, paper7803)"))
         assertTrue(s.contains("CryptoLaneDesk7391.prices(tok.canonicalIdentity6544)"))
         // superseded: 8535 §C11 — the per-tactic shapes live in CryptoTacticEvidence8535; the trader consumes them via forTactic()
         val shapes = src("perps/crypto/brain/CryptoTacticEvidence8535.kt")

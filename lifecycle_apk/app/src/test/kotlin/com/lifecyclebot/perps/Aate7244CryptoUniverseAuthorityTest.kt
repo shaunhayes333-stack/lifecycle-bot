@@ -13,8 +13,8 @@ class Aate7244CryptoUniverseAuthorityTest {
         val registry = File("src/main/kotlin/com/lifecyclebot/perps/DynamicAltTokenRegistry.kt").readText()
 
         assertTrue(trader.contains("scoreDynamicCrypto7244"))
-        assertTrue(trader.contains("CryptoBrain.scoreAdjustment()"))
-        assertTrue(trader.contains("CryptoBrain.confidenceModifier()"))
+        assertTrue(trader.contains("CryptoBrain.scoreAdjustment(paper7803)"))
+        assertTrue(trader.contains("CryptoBrain.confidenceModifier(paper7803)"))
         assertTrue(trader.contains("CryptoBrain.sizingMultiplier"))
         assertTrue(trader.contains("CRYPTO_BRAIN_NATIVE_ACTIONABLE_7244"))
         assertTrue(trader.contains("cryptoBrainSignals="))
