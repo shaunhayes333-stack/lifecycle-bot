@@ -2208,7 +2208,7 @@ object ForwardReturnLabeler7731 {
             val solUsd = com.lifecyclebot.engine.WalletManager.labelSolPrice8580(nowMs)
             if (tp != null && !(solUsd.isFinite() && solUsd > 0.0)) noSolRate8508.incrementAndGet()
             // V5.0.8750 — only a witnessed print (PrintWitness8750) is a label mark: a self-priced decode could carry a unit error
-            if (tp != null && solUsd.isFinite() && solUsd > 0.0 && PrintWitness8750.witnessedPrint8750(mint, tp.second))
+            if (tp != null && solUsd.isFinite() && solUsd > 0.0 && PrintWitness8750.witnessedPrint8750(mint, tp.second, tp.first))
                 candidates.add(LabelMark8386(mint, "", tp.first * solUsd, tp.second, nowMs, TAPE_MARK_SOURCE_8475, independentBasis = true))
         } catch (_: Throwable) {}
         // V5.0.8750 — a quiet pump.fun curve still stands at its last witnessed print while the program stream has had no gap

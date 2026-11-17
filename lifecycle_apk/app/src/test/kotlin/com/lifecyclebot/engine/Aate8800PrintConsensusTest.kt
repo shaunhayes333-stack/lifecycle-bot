@@ -43,9 +43,9 @@ class Aate8800PrintConsensusTest {
         var p = 1.0
         repeat(40) { assertTrue("a steady run passes", PrintWitness8750.consensus8800(c, p, t)); p *= 1.08; t += 3_000L }
         assertTrue(p > 20.0)                                            // a 20x run, print by print
-        assertFalse(PrintWitness8750.consensus8800(c, p * 6.0, t))      // one stray print is refused ...
-        assertFalse(PrintWitness8750.consensus8800(c, p * 6.1, t + 1_000L))
-        assertTrue(PrintWitness8750.consensus8800(c, p * 6.2, t + 2_000L))   // ... three agreeing within a minute re-price the coin
+        assertFalse(PrintWitness8750.consensus8800(c, p * 6.0, t, sig = "shift1", wallet = "buyer1"))
+        assertFalse(PrintWitness8750.consensus8800(c, p * 6.1, t + 1_000L, sig = "shift2", wallet = "buyer2"))
+        assertTrue(PrintWitness8750.consensus8800(c, p * 6.2, t + 2_000L, sig = "shift3", wallet = "buyer3"))   // distinct witnessed trades confirm a venue re-price
         assertTrue(PrintWitness8750.consensus8800(c, p * 6.3, t + 3_000L))
         val d = PrintWitness8750.Consensus8800()
         for (i in 0 until 5) PrintWitness8750.consensus8800(d, 1.0, i * 1_000L)

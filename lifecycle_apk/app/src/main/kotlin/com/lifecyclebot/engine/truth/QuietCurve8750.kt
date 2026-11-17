@@ -60,7 +60,7 @@ object QuietCurve8750 {
     fun mark8750(mint: String, nowMs: Long): Pair<Double, Long>? {
         if (!com.lifecyclebot.network.PumpCurveKeys7269.isPumpMint8658(mint)) return null
         val tp = TradeTape8100.lastPrint8360(mint) ?: return null
-        if (!PrintWitness8750.witnessedPrint8750(mint, tp.second)) return null
+        if (!PrintWitness8750.witnessedPrint8750(mint, tp.second, tp.first)) return null
         val grad = try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(mint) } catch (_: Throwable) { true }
         if (!stands8750(tp.second, tp.first, nowMs, lastProgramPrintMs, continuousSinceMs, grad)) return null
         val acct = CurveReserves7951.accountObservation8522(mint, nowMs, ACCOUNT_MAX_AGE_MS_8766)

@@ -55,7 +55,7 @@ class Aate8750EvidenceIntegrityTest {
             .map { it.name }.filter { it != "LaunchHour8628.kt" && it != "LaunchSniper8748.kt" }.toList()
         assertEquals(listOf("TradeTape8100.kt"), feeders)
         val lab = File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
-        assertTrue(lab.contains("PrintWitness8750.witnessedPrint8750(mint, tp.second)"))
+        assertTrue(lab.contains("PrintWitness8750.witnessedPrint8750(mint, tp.second, tp.first)"))
     }
 
     @Test fun aPumpSwapPoolNamesItsCoinAtByte43() {

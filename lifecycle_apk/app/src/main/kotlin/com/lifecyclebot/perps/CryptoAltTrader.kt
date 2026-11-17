@@ -422,7 +422,7 @@ object CryptoAltTrader {
             try { com.lifecyclebot.engine.truth.OnChainDepth8038.requestMints8543(listOf(mint), 60_000L) } catch (_: Throwable) {}
             val tp = try { com.lifecyclebot.engine.truth.TradeTape8100.lastPrint8360(mint) } catch (_: Throwable) { null }
             if (tp != null && now - tp.second in 0L..60_000L &&
-                (try { com.lifecyclebot.engine.truth.PrintWitness8750.witnessedPrint8750(mint, tp.second) } catch (_: Throwable) { false })) {
+                (try { com.lifecyclebot.engine.truth.PrintWitness8750.witnessedPrint8750(mint, tp.second, tp.first) } catch (_: Throwable) { false })) {
                 px = tp.first * solUsd; at = tp.second
             }
         }

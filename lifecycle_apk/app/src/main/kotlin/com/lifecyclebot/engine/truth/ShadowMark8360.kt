@@ -34,7 +34,7 @@ object ShadowMark8360 {
         fun fresh(at: Long) = at > 0L && nowMs - at in 0L..maxAgeMs
         try { ForwardReturnLabeler7731.observedMark8372(mint, nowMs)?.let { if (fresh(it.second)) return true } } catch (_: Throwable) {}
         try { CurveReserves7951.activeExitObservation(mint, nowMs, maxAgeMs)?.let { if (fresh(it.observedAtMs)) return true } } catch (_: Throwable) {}
-        try { TradeTape8100.lastPrint8360(mint)?.let { if (fresh(it.second) && PrintWitness8750.witnessedPrint8750(mint, it.second)) return true } } catch (_: Throwable) {}
+        try { TradeTape8100.lastPrint8360(mint)?.let { if (fresh(it.second) && PrintWitness8750.witnessedPrint8750(mint, it.second, it.first)) return true } } catch (_: Throwable) {}
         return false
     }
 
@@ -71,7 +71,7 @@ object ShadowMark8360 {
                 }
             } catch (_: Throwable) {}
             try {
-                TradeTape8100.lastPrint8360(mint)?.takeIf { PrintWitness8750.witnessedPrint8750(mint, it.second) }?.let {
+                TradeTape8100.lastPrint8360(mint)?.takeIf { PrintWitness8750.witnessedPrint8750(mint, it.second, it.first) }?.let {
                     candidates += Observation8372(it.first * solUsd, it.second, SRC_TAPE_8360)
                 }
             } catch (_: Throwable) {}

@@ -69,15 +69,23 @@ object PrintWitness8750 {
         if (run.isEmpty()) return false
         val lo = run.minOf { it.px }; val hi = run.maxOf { it.px }
         if (!(hi > lo * (1.0 + DISTINCT_PRICE_8801))) return false            // a stuck or foreign quote, never a market
-        val sigs = run.map { it.sig }.filter { it.isNotBlank() }
-        if (sigs.size != sigs.distinct().size) return false                    // one transaction seen twice is one trade
-        if (run.all { it.wallet.isNotBlank() } && run.map { it.wallet }.distinct().size < 2) return false
+        // V5.0.8838 — 8801 only checked that NON-BLANK signatures were unique;
+        // three different anonymous quote values therefore passed as three
+        // independent on-chain trades. Without a signature there is NO proof
+        // that a stream's repeated observations are separate transactions.
+        val sigs = run.map { it.sig.trim() }
+        if (sigs.any { it.isBlank() } || sigs.distinct().size != run.size) return false
+        val namedWallets = run.map { it.wallet.trim() }.filter { it.isNotBlank() }
+        if (namedWallets.isNotEmpty() && namedWallets.distinct().size < 2) return false
         return true
     }
 
     /** Pure: the median of the prices in [prints] no older than [CONSENSUS_WINDOW_MS] before [atMs]; null under [CONSENSUS_MIN]. */
     fun median8800(prints: Collection<Pair<Double, Long>>, atMs: Long): Double? {
-        val xs = prints.filter { atMs - it.second <= CONSENSUS_WINDOW_MS && it.first > 0.0 }.map { it.first }.sorted()
+        // Event-time order matters: an already-seen FUTURE print cannot be a
+        // reference for a late event. The old one-sided age check admitted it.
+        val xs = prints.filter { atMs - it.second in 0L..CONSENSUS_WINDOW_MS && it.first.isFinite() && it.first > 0.0 }
+            .map { it.first }.sorted()
         if (xs.size < CONSENSUS_MIN) return null
         return if (xs.size % 2 == 1) xs[xs.size / 2] else (xs[xs.size / 2 - 1] + xs[xs.size / 2]) / 2.0
     }
@@ -324,8 +332,19 @@ object PrintWitness8750 {
         v
     } catch (_: Throwable) { Verdict.UNWITNESSED }
 
-    /** ForwardReturnLabeler7731: is the tape's print of [mint] at [atMs] a witnessed one (usable as a label mark)? */
-    fun witnessedPrint8750(mint: String, atMs: Long): Boolean = lastWitnessed[mint]?.second?.let { it >= atMs } == true
+    /**
+     * V5.0.8838 — proof belongs to this observed price AND event time, not any
+     * print earlier than the most recent witness. The old >= test allowed an
+     * UNWITNESSED tape row to become "witnessed" retroactively when a later
+     * unrelated price arrived. Callers with a price must bind both fields.
+     */
+    fun witnessedPrint8750(mint: String, atMs: Long, priceSol: Double): Boolean =
+        atMs > 0L && priceSol.isFinite() && priceSol > 0.0 &&
+            lastWitnessed[mint]?.let { it.second == atMs && it.first == priceSol } == true
+
+    /** Legacy timestamp-only API, conservative: only the exact newest witnessed event can qualify. */
+    fun witnessedPrint8750(mint: String, atMs: Long): Boolean =
+        atMs > 0L && lastWitnessed[mint]?.second == atMs
 
     fun statusLine8750(): String = "printWitness8750[" + Verdict.values().joinToString(" ") { "${it.name.lowercase()}=${counts[it]?.get() ?: 0}" } +
         " vaultAsks=${vaultAsks.get()} tracked=${lastWitnessed.size} refusedBy8801{${refusedBy8801.entries.sortedByDescending { it.value.get() }.take(14).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}} consensus8800[outliers=${outliers8800.get()} shifts=${shifts8800.get()} mints=${consensus.size}] " +
