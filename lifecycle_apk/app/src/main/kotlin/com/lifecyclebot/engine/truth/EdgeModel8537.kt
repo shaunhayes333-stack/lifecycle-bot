@@ -335,16 +335,25 @@ object EdgeModel8537 {
      * record: [AUTH_MIN_N]+ coins it predicted to lose, proven losing (mean + SE < 0) and worse than the coins it kept.
      */
     fun refusalAuthority8715(refN: Int, refMean: Double, refSe: Double, keepN: Int, keepMean: Double, keepSe: Double): Boolean =
-        refN >= AUTH_MIN_N && keepN >= AUTH_MIN_N && refMean.isFinite() && refSe.isFinite() && refMean + refSe < 0.0 &&
-            keepMean.isFinite() && keepSe.isFinite() && keepMean - refMean > SEPARATION_Z_8750 * kotlin.math.sqrt(refSe * refSe + keepSe * keepSe)
+        refN >= AUTH_MIN_N && refMean.isFinite() && refSe.isFinite() && refMean + REFUSAL_Z_8839 * refSe < 0.0
 
     /**
-     * V5.0.8750 — the refusal must SEPARATE the coins it refuses from the coins it keeps, not merely be the worse of two losing
-     * groups. 8748 report: PROJECT_SNIPER refused -16.9 % ± 2.1 vs kept -16.1 % read REFUSES on a 0.8-point gap smaller than
-     * one standard error. Now the gap must exceed two standard errors of the difference, with [AUTH_MIN_N]+ coins on each side.
-     * A record saved before the kept cohort's spread was kept restarts its kept side (KEEP_SPREAD_BLOCK_8750).
+     * V5.0.8839 §A_REFUSAL_IS_EARNED_BY_WHAT_IT_REFUSES — supersedes 8750's separation and the kept cohort. 5.0.8837 report
+     * (530 s after restart, the record restored): in EVERY lane the coins the model predicted to lose went on to lose —
+     * BLUECHIP -8.8 % ± 2.0 (n474), CASHGEN -10.3 ± 1.5 (n248), CORE -11.4 ± 1.5 (n983), EXPRESS -13.0 ± 1.8 (n850),
+     * MANIPULATED -12.3 ± 1.9 (n755), MOONSHOT -12.0 ± 1.7 (n864), PROJECT_SNIPER -17.9 ± 2.4 (n521), QUALITY -9.3 ± 1.8,
+     * SHITCOIN -12.2 ± 1.7 (n900), TREASURY -8.6 ± 2.1 — and not one lane held the refusal, because the model keeps so few
+     * coins (n0-15 a lane) that the kept side never reached [AUTH_MIN_N]. The gate counted 655 negative predictions bought
+     * (edgeRefusal8827 letThrough, all UNEARNED). The owner's dataset to 17 Nov (51,545 15-minute labels): 89 % of admitted
+     * decisions carried a negative prediction and averaged -9.5 %; the 676 admitted with a prediction >= 0 averaged +3.9 %.
+     * Declining a trade returns zero. A cohort proven to lose money (its mean two standard errors below zero, net of the
+     * round trip) is refused whatever the kept coins do; how well the kept coins pay is the PICKS' authority ([authority]),
+     * a separate question.
      */
-    private const val SEPARATION_Z_8750 = 2.0
+    private const val REFUSAL_Z_8839 = 2.0
+
+    // superseded by V5.0.8839 — 8750 required the refused coins to SEPARATE from the kept ones (two SE of the difference,
+    // AUTH_MIN_N each side). Two losing groups are both worth declining; the kept side's record still gates the picks.
     const val REFUSAL_CLIP_PCT_8715 = 200.0
 
     private val global = Ridge(DIM)

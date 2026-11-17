@@ -70,14 +70,15 @@ class Aate8750EvidenceIntegrityTest {
         assertTrue(tape.contains("programUnknownPool.incrementAndGet(); PumpSwapPools8750.resolve8750(ev.pool); continue"))
     }
 
-    @Test fun aRefusalMustSeparateFromWhatItKeeps() {
+    @Test fun aLosingCohortIsRefusedEvenWhenTheKeptOnesLoseToo() {
         // the 8748 report's PROJECT_SNIPER shape: refused -16.9 % (sd 20) vs kept -16.1 % (sd 15), 120 coins each
         val o = EdgeModel8537.Oos()
         repeat(60) { o.add(EdgeModel8537.target8567(-20.0), -36.9) }; repeat(60) { o.add(EdgeModel8537.target8567(-20.0), 3.1) }
         repeat(60) { o.add(EdgeModel8537.target8567(5.0), -31.1) }; repeat(60) { o.add(EdgeModel8537.target8567(5.0), -1.1) }
         assertEquals(-16.9, o.refMean, 1e-9); assertEquals(-16.1, o.keepMean, 1e-9)
         assertTrue(o.refMean + o.refSe < 0.0 && o.refMean < o.keepMean)   // 8715's rule said REFUSES
-        assertFalse(EdgeModel8537.refusalAuthority8715(o.refN, o.refMean, o.refSe, o.keepN, o.keepMean, o.keepSe))
+        // V5.0.8839 (supersedes 8750): -16.9 % over 120 coins is two SE below zero; declining them returns zero, not -16.9 %
+        assertTrue(EdgeModel8537.refusalAuthority8715(o.refN, o.refMean, o.refSe, o.keepN, o.keepMean, o.keepSe))
     }
 
     @Test fun aQuietCurveStandsAtItsLastPriceOnlyWhileTheStreamHasNoGap() {

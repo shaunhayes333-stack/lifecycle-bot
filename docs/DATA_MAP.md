@@ -698,3 +698,12 @@ durable fill-lot proof and commit stamps have succeeded. A later rollback
 cannot leave an executable-but-aborted BUY in the durable replay journal.
 `Aate8836PaperSettlementRaceTest` covers the grace boundary and source-order
 invariants; no safety gate, fee, risk setting or live execution path changes.
+
+## 42. The model's refusal is earned by what it refuses (8839)
+
+5.0.8837 report: in every lane the coins the edge model predicted to lose went on to lose (-8.6 % to -17.9 %, SE 1.5-2.8,
+n188-983 a lane), yet no lane held the refusal: 8750 also required 30 kept coins separated by two SE, and the model kept
+0-15 a lane. 655 negative predictions were bought (edgeRefusal8827 letThrough, all UNEARNED). Owner's dataset to 17 Nov:
+89 % of admitted 15-minute decisions carried a negative prediction (-9.5 %); the 676 with a prediction >= 0 averaged
++3.9 % (per coin +1.8 % ± 1.9: flat, not proven). `EdgeModel8537.refusalAuthority8715` now holds when 30+ refused coins'
+mean is two SE below zero (`REFUSAL_Z_8839`); the kept side's record still decides the picks' authority.

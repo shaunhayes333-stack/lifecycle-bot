@@ -22,15 +22,14 @@ class Aate8715AuditInversionsTest {
         EdgeModel8537.Verdict(p, authority, "SHITCOIN", 900L, 0, Double.NaN, Double.NaN, -8.0, refuses8715 = refuses)
 
     @Test fun theModelRefusesOnItsOwnRefusalRecord() {
-        // V5.0.8750 (supersedes the 4-argument rule): 30+ coins each side, the refused losing after one SE, and the gap to the
-        // kept coins beyond two standard errors of the difference
+        // V5.0.8839 (supersedes 8750's separation): 30+ refused coins whose mean is two SE below zero; the kept side is not asked
         assertTrue(EdgeModel8537.refusalAuthority8715(30, -10.0, 1.0, 30, -2.4, 1.0))
         assertFalse("too few refused", EdgeModel8537.refusalAuthority8715(29, -10.0, 1.0, 30, -2.4, 1.0))
-        assertFalse("too few kept", EdgeModel8537.refusalAuthority8715(30, -10.0, 1.0, 29, -2.4, 1.0))
+        assertTrue("the model kept almost nothing (5.0.8837: n0-15 kept a lane)", EdgeModel8537.refusalAuthority8715(474, -8.8, 2.0, 1, -0.4, Double.NaN))
         assertFalse("not proven losing", EdgeModel8537.refusalAuthority8715(200, -1.0, 2.0, 200, 5.0, 1.0))
-        assertFalse("no worse than what it keeps", EdgeModel8537.refusalAuthority8715(200, -10.0, 1.0, 200, -12.0, 1.0))
-        // the 8748 report's PROJECT_SNIPER: -16.9 % ± 2.1 refused vs -16.1 % kept is not a separation
-        assertFalse("inside the noise", EdgeModel8537.refusalAuthority8715(400, -16.9, 2.1, 400, -16.1, 1.5))
+        assertFalse("inside two SE of zero", EdgeModel8537.refusalAuthority8715(200, -3.0, 1.6, 0, Double.NaN, Double.NaN))
+        assertTrue("two losing groups: declining the refused one still returns more", EdgeModel8537.refusalAuthority8715(200, -10.0, 1.0, 200, -12.0, 1.0))
+        assertTrue(EdgeModel8537.refusalAuthority8715(400, -16.9, 2.1, 400, -16.1, 1.5))
         val o = EdgeModel8537.Oos()
         repeat(80) { o.add(EdgeModel8537.target8567(-20.0), -15.0) }      // predicted to lose, lost
         o.add(EdgeModel8537.target8567(-20.0), 7_000.0)                    // one runner cannot acquit the cohort
