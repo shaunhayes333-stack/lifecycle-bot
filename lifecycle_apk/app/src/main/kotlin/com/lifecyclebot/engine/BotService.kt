@@ -18811,6 +18811,21 @@ class BotService : Service() {
 
         // V5.9.961 stale eviction
         val staleEvict = mutableListOf<String>()
+        // 8847: an aged negative decision is not a permanent mint rejection. The cold
+        // tier must keep a path back to the hot watchlist when genuine market data changes.
+        fun demoteColdToProbation8847(mint: String, reason: String): Boolean {
+            val ts = status.tokens[mint]
+            val liq = ts?.lastLiquidityUsd?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+            val px = ts?.takeIf { it.lastPrice.isFinite() && it.lastPrice > 0.0 &&
+                it.lastPriceUpdate > 0L && nowMs - it.lastPriceUpdate in 0L..15_000L }?.lastPrice ?: 0.0
+            val demoted = try {
+                com.lifecyclebot.engine.GlobalTradeRegistry.demoteWatchlistToProbation(
+                    mint, reason, liq, 0, px, liq <= 0.0,
+                )
+            } catch (_: Throwable) { false }
+            if (demoted) try { PipelineHealthCollector.labelInc("WATCHLIST_IDLE_TO_PROBATION_8847") } catch (_: Throwable) {}
+            return demoted
+        }
         val coldFiltered = cold.filter { (mint, _) ->
             val entry = entriesByMint[mint] ?: return@filter true
             if (entry.processCount >= STALE_PROCESS_COUNT_THRESHOLD) {
@@ -18820,9 +18835,7 @@ class BotService : Service() {
         }
         if (staleEvict.isNotEmpty()) {
             staleEvict.forEach { mint ->
-                try {
-                    com.lifecyclebot.engine.GlobalTradeRegistry.removeFromWatchlist(mint, "STALE_PROCESS_COUNT")
-                } catch (_: Throwable) {}
+                demoteColdToProbation8847(mint, "STALE_PROCESS_COUNT")
             }
             try {
                 com.lifecyclebot.engine.ForensicLogger.lifecycle(
@@ -18849,9 +18862,7 @@ class BotService : Service() {
         }
         if (timeStaleEvict.isNotEmpty()) {
             timeStaleEvict.forEach { mint ->
-                try {
-                    com.lifecyclebot.engine.GlobalTradeRegistry.removeFromWatchlist(mint, "STALE_5MIN")
-                } catch (_: Throwable) {}
+                demoteColdToProbation8847(mint, "STALE_AGE")
             }
             try {
                 com.lifecyclebot.engine.ForensicLogger.lifecycle(
@@ -18894,9 +18905,7 @@ class BotService : Service() {
                 .sortedBy { it.second }
                 .take(excess)
             capEvict.forEach { (mint, _) ->
-                try {
-                    com.lifecyclebot.engine.GlobalTradeRegistry.removeFromWatchlist(mint, "CAP_${MAX_ACTIVE_WATCHLIST}")
-                } catch (_: Throwable) {}
+                demoteColdToProbation8847(mint, "CAP_${MAX_ACTIVE_WATCHLIST}")
             }
             if (capEvict.isNotEmpty()) {
                 try {

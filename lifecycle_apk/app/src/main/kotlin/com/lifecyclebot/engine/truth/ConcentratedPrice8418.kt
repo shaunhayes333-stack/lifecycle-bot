@@ -31,7 +31,7 @@ object ConcentratedPrice8418 {
     private val TWO_64: java.math.BigDecimal = java.math.BigDecimal(BigInteger.ONE.shiftLeft(64))
 
     /** A chain price: SOL per one whole coin, the program it was decoded from, and when it was observed. */
-    data class ChainPrice8418(val solPerCoin: Double, val source: String, val atMs: Long)
+    data class ChainPrice8418(val solPerCoin: Double, val source: String, val atMs: Long, val pool: String = "")
 
     // ── little-endian readers (pure) ──
 
@@ -139,9 +139,9 @@ object ConcentratedPrice8418 {
 
     private val prices = ConcurrentHashMap<String, ChainPrice8418>()
 
-    fun record8418(mint: String, solPerCoin: Double, owner: String, atMs: Long) {
+    fun record8418(mint: String, solPerCoin: Double, owner: String, atMs: Long, pool: String = "") {
         if (mint.isBlank() || !(solPerCoin.isFinite() && solPerCoin > 0.0)) return
-        prices[mint] = ChainPrice8418(solPerCoin, sourceOf8418(owner), atMs)
+        prices[mint] = ChainPrice8418(solPerCoin, sourceOf8418(owner), atMs, pool)
         if (prices.size > 3_000) prices.entries.sortedBy { it.value.atMs }.take(300).forEach { prices.remove(it.key) }
     }
 

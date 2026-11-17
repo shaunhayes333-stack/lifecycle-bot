@@ -39,6 +39,8 @@ object TicketRetry8327 {
         // V5.0.8498 — the per-mint buy lease is busy or backing off (non-terminal: liveBuy released nothing and bought
         // nothing). 5.0.8497 SHITCOIN dropped a sealed ticket on it; the retry re-runs liveBuy's own lease check.
         "BUY_LEASE_DEFERRED_8496",
+        // A contradictory but time-misaligned pool quote waits for a fresh same-pool read. Never buy on stale proof.
+        com.lifecyclebot.engine.truth.OnChainDepth8038.PRICE_CHAIN_REPRICE_PENDING_8847,
     )
 
     class Hold8327(val lane: String, val attemptId: String, val cause: String, val firstMs: Long, val holds: Int)

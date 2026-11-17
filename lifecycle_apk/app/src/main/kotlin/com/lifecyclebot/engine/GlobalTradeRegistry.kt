@@ -343,6 +343,9 @@ object GlobalTradeRegistry {
         var rcScore: Int = -1,              // Rugcheck score (-1 = not checked)
         var priceAtAdd: Double = 0.0,       // Track price to check if it holds
         var currentPrice: Double = 0.0,
+        // 8847: a probation observation is a time-stamped market fact, not a one-time intake guess.
+        // A later, older provider reply must never reverse an already accepted newer mark.
+        var priceObservedAtMs8847: Long = 0L,
         var promotionReason: String? = null,
     )
 
@@ -589,7 +592,8 @@ object GlobalTradeRegistry {
                 // while that ask is live (bounded): the fetch must be allowed to land on a coin that is still here.
                 awaitingData = { m ->
                     (try { com.lifecyclebot.engine.truth.CandidateAdmission8136.awaitingData8399(m, now) } catch (_: Throwable) { false }) ||
-                        (try { HandoffReceiverTasks8153.awaitingData8399(m, now) } catch (_: Throwable) { false })
+                        (try { HandoffReceiverTasks8153.awaitingData8399(m, now) } catch (_: Throwable) { false }) ||
+                        (try { MovingTokenRecheck8847.isRecentlyMoving8847(m, now) } catch (_: Throwable) { false })
                 },
             )
             // V5.0.8029 — pump.fun may hold at most half the hot watchlist: over that share, the victim is a pump.fun coin
@@ -608,11 +612,24 @@ object GlobalTradeRegistry {
             if (pool8398.protectedUndecided > 0) try { PipelineHealthCollector.labelInc("WATCHLIST_EVICT_UNDECIDED_PROTECTED_8398") } catch (_: Throwable) {}
             if (pool8398.protectedAwaitingData > 0) try { PipelineHealthCollector.labelInc("WATCHLIST_EVICT_AWAITING_DATA_PROTECTED_8399") } catch (_: Throwable) {}
             if (victim != null) {
-                watchlist.remove(victim.mint)?.let { rememberRemoved8772(it) }
+                // 8847: a cap victim is cold, not a terminal reject. Preserve mint, scanner affinity
+                // and original observation in the existing probation tier so a future confirmed price
+                // rise / new scanner brings it back. Removing it outright erased the re-evaluation route.
+                val observed = try { BotService.status.tokens[victim.mint] } catch (_: Throwable) { null }
+                val liq = observed?.lastLiquidityUsd?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+                val px = observed?.takeIf { it.lastPrice.isFinite() && it.lastPrice > 0.0 &&
+                    it.lastPriceUpdate > 0L && now - it.lastPriceUpdate in 0L..15_000L }?.lastPrice ?: 0.0
+                val demoted = demoteWatchlistToProbation(victim.mint, "CAP_ROTATION_8847", liq, 0, px, liq == 0.0)
+                if (!demoted) {
+                    // Race with an opened position: leave protected state untouched and bench the newcomer.
+                    return addToProbationOnly(mint, symbol, addedBy, source, initialMcap,
+                        initialLiquidityUsd, confidence, false, 0.0, laneAffinity, toolAffinity)
+                }
+                try { PipelineHealthCollector.labelInc("WATCHLIST_CAP_TO_PROBATION_8847") } catch (_: Throwable) {}
                 try {
                     ForensicLogger.lifecycle(
                         "WATCHLIST_LRU_EVICT_6287",
-                        "victim=${victim.symbol} mint=${victim.mint.take(10)} pc=${victim.processCount} ageMs=${now - victim.addedAt} cap=$MAX_WATCHLIST_SIZE size=${watchlist.size} incoming=$symbol protectedUndecided8398=${pool8398.protectedUndecided}"
+                        "victim=${victim.symbol} mint=${victim.mint.take(10)} pc=${victim.processCount} ageMs=${now - victim.addedAt} cap=$MAX_WATCHLIST_SIZE size=${watchlist.size} incoming=$symbol protectedUndecided8398=${pool8398.protectedUndecided} action=probation_retained_8847"
                     )
                     PipelineHealthCollector.labelInc("WATCHLIST_LRU_EVICT_6287")
                 } catch (_: Throwable) {}
@@ -942,9 +959,7 @@ object GlobalTradeRegistry {
             return false
         }
         val entry = watchlist.remove(mint) ?: return false
-        rememberRemoved8772(entry)
-        totalTokensRemoved.incrementAndGet()
-        try {
+        val transferred8847 = try {
             addToProbation(
                 mint = entry.mint,
                 symbol = entry.symbol,
@@ -959,9 +974,18 @@ object GlobalTradeRegistry {
                 laneAffinity = entry.laneAffinity,
                 toolAffinity = entry.toolAffinity,
             )
+            true
         } catch (t: Throwable) {
             ErrorLogger.debug(TAG, "probation demote add failed for ${entry.symbol}: ${t.message}")
+            false
         }
+        if (!transferred8847) {
+            // 8847: never lose the only copy of a candidate if the destination tier fails.
+            watchlist.putIfAbsent(mint, entry)
+            return false
+        }
+        rememberRemoved8772(entry)
+        totalTokensRemoved.incrementAndGet()
         ErrorLogger.info(TAG, "⏳ WATCHLIST→PROBATION: ${entry.symbol} | reason=$reason | processed=${entry.processCount} liq=$${liquidityUsd.toInt()}")
         return true
     }
@@ -1104,9 +1128,28 @@ object GlobalTradeRegistry {
     /**
      * V5.0: Update probation entry with price.
      */
-    fun updateProbationPrice(mint: String, price: Double) {
-        val entry = probation[mint] ?: return
-        entry.currentPrice = price
+    fun updateProbationPrice(mint: String, price: Double, observedAtMs: Long = System.currentTimeMillis(),
+                             nowMs: Long = System.currentTimeMillis()): Boolean {
+        val entry = probation[mint] ?: return false
+        if (!acceptProbationPrice8847(entry, price, observedAtMs, nowMs)) return false
+        try { PipelineHealthCollector.labelInc("PROBATION_PRICE_REFRESH_8847") } catch (_: Throwable) {}
+        return true
+    }
+
+    /** The mint's price watch is updated independently of BUY authority. Testable without a registry or network. */
+    internal fun acceptProbationPrice8847(entry: ProbationEntry, price: Double,
+                                          observedAtMs: Long, nowMs: Long): Boolean {
+        // Caller must have an ACCEPTED TokenFacts provider/chain observation, not a replay/cached mark.
+        if (!price.isFinite() || price <= 0.0 || observedAtMs <= 0L ||
+            nowMs - observedAtMs !in 0L..15_000L) return false
+        synchronized(entry) {
+            if (observedAtMs < entry.priceObservedAtMs8847) return false
+            // A token discovered before price hydration needs its first real observation as a baseline.
+            if (!entry.priceAtAdd.isFinite() || entry.priceAtAdd <= 0.0) entry.priceAtAdd = price
+            entry.currentPrice = price
+            entry.priceObservedAtMs8847 = observedAtMs
+        }
+        return true
     }
 
     /**
@@ -1192,8 +1235,10 @@ object GlobalTradeRegistry {
                 continue
             }
 
-            // Check minimum time
-            if (elapsed < PROBATION_MIN_TIME_MS) continue
+            // 8847: a genuinely MOVING early launch should reach the normal scanner/lane evaluators
+            // as soon as fresh provider/chain evidence confirms +5%; the 30s floor is for unproven
+            // singleton scanner intake, not a now-moving coin. This is WATCH promotion, never BUY.
+            if (!probationReadyForReview8847(entry, now)) continue
 
             // Check price action - promote if price held or increased
             if (entry.priceAtAdd > 0 && entry.currentPrice > 0) {
@@ -1228,6 +1273,14 @@ object GlobalTradeRegistry {
         }
 
         return results
+    }
+
+    /** Price proof may accelerate a review but never bypass the downstream V3/V4/FDG trade decision. */
+    internal fun probationReadyForReview8847(entry: ProbationEntry, nowMs: Long): Boolean {
+        if (nowMs - entry.addedAt >= PROBATION_MIN_TIME_MS) return true
+        return entry.priceAtAdd.isFinite() && entry.priceAtAdd > 0.0 &&
+            entry.currentPrice.isFinite() && entry.currentPrice >= entry.priceAtAdd * 1.05 &&
+            entry.priceObservedAtMs8847 > 0L && nowMs - entry.priceObservedAtMs8847 in 0L..15_000L
     }
 
     data class ProbationResult(

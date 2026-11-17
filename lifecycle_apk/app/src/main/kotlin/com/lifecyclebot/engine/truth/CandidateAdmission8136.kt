@@ -1251,13 +1251,17 @@ object CandidateAdmission8136 {
         if (mint.isBlank()) return
         // V5.0.8283 — the shared feature revision advances first: it is part of every lane's setup-cache identity
         // (LanePlaybook7907.inputKey8084), so the next evaluation rebuilds its setup classification on this evidence.
-        FeatureRevision8283.advance8283(mint, kinds8283 ?: FeatureRevision8283.kindsOf8283(features), nowMs)
+        val changedKinds8847 = kinds8283 ?: FeatureRevision8283.kindsOf8283(features)
+        FeatureRevision8283.advance8283(mint, changedKinds8847, nowMs)
         // Both readers cache decisions; waking only the defer scheduler leaves stale elections in place.
         // V5.0.8289 — allocation-free match: substringAfter copied every memo key on every evidence bump (a few hundred a
         // second since 8286's per-print bumps), a GC storm of its own.
         memos8153.keys.removeIf { memoForMint8289(it, mint) }
         StrategyElection8243.invalidateEvidence(mint)
         com.lifecyclebot.engine.LaneExecutionCoordinator.invalidateUnsealedEvidence8253(mint)
+        // 8847: new price / buyers can turn a past terminal NO into a fresh runner. The old wake path below only
+        // rescheduled DATA_DEFER; a negative *completed* prediction never got urgent re-assessment as the coin moved.
+        try { com.lifecyclebot.engine.MovingTokenRecheck8847.onEvidence8847(mint, changedKinds8847, nowMs) } catch (_: Throwable) {}
         // The FDG receipt may be waiting on this exact named transfer as well as on the general admission queue.
         val namedResumed8397 = com.lifecyclebot.engine.HandoffReceiverTasks8153.onEvidenceArrived8397(mint, features, nowMs)
         if (held8144.isEmpty() && !namedResumed8397) return

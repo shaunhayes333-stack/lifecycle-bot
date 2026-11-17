@@ -86,6 +86,10 @@ object TokenFacts {
 
     private val accepted = ConcurrentHashMap<String, AtomicLong>()   // "FIELD:source" -> accepted writes
     private val refused = ConcurrentHashMap<String, AtomicLong>()    // "FIELD:why" -> refused offers
+    private val UNTRUSTED_PROBATION_SOURCES_8847 = setOf(
+        "UNKNOWN", "FALLBACK", "SYNTHETIC", "CACHE_DEFAULT", "CACHE_TEMPLATE", "TOKEN_META_CACHE",
+        MarketDataProvenance6471.ARCHIVED_MARK_SOURCE_6908,
+    )
 
     private fun count(map: ConcurrentHashMap<String, AtomicLong>, key: String) {
         if (map.size >= 192 && !map.containsKey(key)) return
@@ -233,6 +237,15 @@ object TokenFacts {
         }
         count(accepted, "PRICE_USD:" + (source ?: "RESTORE").take(48))
         if (rank > Rank.RESTORE) archive(ts, nowMs)
+        // 8847: the probation pricing updater existed but had NO callers. Use the canonical
+        // accepted market-fact writer, not a scanner echo or an arbitrary model estimate, so a
+        // price which starts rising after discovery can actually graduate from probation.
+        // Provider/chain observations are sufficient to WATCH; V3/V4/FDG still own any BUY.
+        if (rank >= Rank.PROVIDER && !seedPrice8559(offered.source) &&
+            !MarketDataProvenance6471.isKnownStandaloneSentinelPrice6658(usd) &&
+            offered.source.uppercase() !in UNTRUSTED_PROBATION_SOURCES_8847) {
+            try { com.lifecyclebot.engine.GlobalTradeRegistry.updateProbationPrice(ts.mint, usd, offered.observedAtMs, nowMs) } catch (_: Throwable) {}
+        }
         if (rank > Rank.RESTORE) try { FeatureRevision8283.bumpThrottled8286(ts.mint, FeatureKind8283.PRICE, nowMs) } catch (_: Throwable) {}
         return true
     }

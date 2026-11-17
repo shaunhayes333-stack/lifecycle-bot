@@ -162,6 +162,9 @@ object LaunchPhaseAuthority7401 {
         else -> Long.MAX_VALUE to false
     }
 
+    /** A witnessed create / mint / pool origin is resolved birth proof, even without an aggregator birth row. */
+    fun birthHydrating8847(birthKnown8535: Boolean): Boolean = !birthKnown8535
+
     fun snapshot(ts: TokenState, nowMs: Long = System.currentTimeMillis(), provenAgeMs8535: Long? = null): Snapshot {
         val mintKey7408 = ts.mint
         if (mintKey7408.isNotBlank()) {
@@ -236,7 +239,7 @@ object LaunchPhaseAuthority7401 {
             (multiple == null || multiple < 1.5)
 
         val phase = when {
-            birth7440 == null -> Phase.METADATA_HYDRATING
+            birthHydrating8847(birthKnown8535) -> Phase.METADATA_HYDRATING
             // V5.0.7425 — direction outranks youth. A token down sharply in the
             // current 5m window, or materially below an already observed peak,
             // cannot be called EXPANDING merely because createMultiple is absent
@@ -250,7 +253,7 @@ object LaunchPhaseAuthority7401 {
             else -> Phase.MATURE_OR_UNKNOWN
         }
         // V5.0.8136 — provenance + the ordered lifecycle, beside (not inside) the legacy routing above.
-        val ext8136 = extras8136(ts, mintKey7408, nowMs, if (birth7440 != null) age else null, flow, multiple, phase)
+        val ext8136 = extras8136(ts, mintKey7408, nowMs, if (birthKnown8535) age else null, flow, multiple, phase)
 
         val reason = buildString {
             append("ageMs=").append(if (birthKnown8535) age else -1L)

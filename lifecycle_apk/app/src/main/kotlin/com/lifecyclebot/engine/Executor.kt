@@ -14074,9 +14074,12 @@ class Executor(
             ?: return false
         val result8385 = com.lifecyclebot.engine.truth.OnChainDepth8038.classifyPreflight8385(ts.mint, why, preflightAt8385)
         if (result8385 is com.lifecyclebot.engine.truth.OnChainDepth8038.Preflight8385.DataDefer) {
-            TicketRetry8327.noteReserveWait8385(attemptId8198, result8385)
+            val reserveWait8385 = com.lifecyclebot.engine.truth.OnChainDepth8038.reserveCause8385(result8385.reason) != null
+            if (reserveWait8385) TicketRetry8327.noteReserveWait8385(attemptId8198, result8385)
             liveBuyDeferred(ts, sol, result8385.reason, "attemptId=$attemptId8198 preSubmission=true")
-            com.lifecyclebot.engine.truth.OnChainDepth8038.needCurve8039(ts.mint, approved8385 = true)
+            if (reserveWait8385) com.lifecyclebot.engine.truth.OnChainDepth8038.needCurve8039(ts.mint, approved8385 = true)
+            else com.lifecyclebot.engine.truth.OnChainDepth8038.request8038(ts,
+                com.lifecyclebot.engine.truth.OnChainDepth8038.PRICE_SYNC_MAX_MS_8847)
         } else { lastLiveBuyStop8252[ts.mint] = why; emitLiveBuyFail(ts, sol, why, attemptId8198 = attemptId8198) }
         return true
     }

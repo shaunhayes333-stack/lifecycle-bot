@@ -56,6 +56,9 @@ object OnChainDepth8038 {
     private const val CONTRADICTION_MULT_8038 = 4.0
     private const val PRICE_DROP_TOLERANCE_8038 = 0.40
     private const val FRESH_MS = 90_000L
+    // A 90-second-old pool price is useful historical depth, not evidence that a current pump collapsed.
+    // The BUY door only compares two observations made within the same short market interval and venue.
+    internal const val PRICE_SYNC_MAX_MS_8847 = 5_000L
     private const val UNSUPPORTED_RETRY_MS = 30L * 60_000L
     private const val BLOCKING_TIMEOUT_S = 3L
     private val BASE58 = Regex("^[1-9A-HJ-NP-Za-km-z]{32,44}$")
@@ -149,6 +152,19 @@ object OnChainDepth8038 {
     fun priceCollapsed8038(buyPriceUsd: Double, chainPriceUsd: Double): Boolean =
         buyPriceUsd.isFinite() && chainPriceUsd.isFinite() && buyPriceUsd > 0.0 && chainPriceUsd > 0.0 &&
             chainPriceUsd < buyPriceUsd * (1.0 - PRICE_DROP_TOLERANCE_8038)
+
+    enum class PriceProof8847 { ALIGNED, STALE_OR_UNKNOWN, DIFFERENT_POOL }
+
+    /** Pure: two positive prices cannot prove a collapse unless the observations share a fresh time and pool. */
+    fun priceProof8847(markAtMs: Long, chainAtMs: Long, nowMs: Long, markPool: String?, chainPool: String?): PriceProof8847 {
+        val pool = markPool.orEmpty().trim()
+        if (pool.isNotBlank() && chainPool.orEmpty().trim().isNotBlank() && pool != chainPool?.trim())
+            return PriceProof8847.DIFFERENT_POOL
+        if (markAtMs <= 0L || chainAtMs <= 0L || nowMs - markAtMs !in 0L..PRICE_SYNC_MAX_MS_8847 ||
+            nowMs - chainAtMs !in 0L..PRICE_SYNC_MAX_MS_8847 ||
+            kotlin.math.abs(markAtMs - chainAtMs) > PRICE_SYNC_MAX_MS_8847) return PriceProof8847.STALE_OR_UNKNOWN
+        return PriceProof8847.ALIGNED
+    }
 
     // ── reads ──
 
@@ -450,7 +466,7 @@ object OnChainDepth8038 {
         val read = Read(p, sides.first, sides.second, observedAt)
         if (concentrated8418(owner8418)) {
             // V5.0.8418 — the spot price from pool state (layout-proved; tagged with its source), never the vault ratio.
-            if (priceInState8418(owner8418)) recordStatePrice8418(mint, owner8418, acctA, acctB, poolAcct, observedAt)
+            if (priceInState8418(owner8418)) recordStatePrice8418(mint, p, owner8418, acctA, acctB, poolAcct, observedAt)
             // V5.0.8418 — depth only: kept apart from [reads] so no price check or constant-product sell-out reads it.
             depthOnlyReads8418[mint] = read
             if (depthOnlyReads8418.size > 3_000) depthOnlyReads8418.entries.sortedBy { it.value.atMs }.take(300).forEach { depthOnlyReads8418.remove(it.key) }
@@ -469,7 +485,7 @@ object OnChainDepth8038 {
     }
 
     /** V5.0.8418 — decode and record the concentrated pool's spot price (ConcentratedPrice8418) from this same read. */
-    private fun recordStatePrice8418(mint: String, owner: String, acctA: JSONObject?, acctB: JSONObject?, poolAcct: JSONObject?, atMs: Long) {
+    private fun recordStatePrice8418(mint: String, pool: String, owner: String, acctA: JSONObject?, acctB: JSONObject?, poolAcct: JSONObject?, atMs: Long) {
         try {
             val data = accountData8418(poolAcct) ?: return
             val sideA = parsedSide(acctA) ?: return
@@ -480,7 +496,7 @@ object OnChainDepth8038 {
                 PipelineHealthCollector.labelInc("ONCHAIN_STATE_PRICE_LAYOUT_UNPROVEN_8418_${venueName8418(owner)}")
                 return
             }
-            ConcentratedPrice8418.record8418(mint, px, owner, atMs)
+            ConcentratedPrice8418.record8418(mint, px, owner, atMs, pool)
             PipelineHealthCollector.labelInc("ONCHAIN_STATE_PRICE_8418_${venueName8418(owner)}")
         } catch (_: Throwable) {}
     }
@@ -492,6 +508,7 @@ object OnChainDepth8038 {
     // Explicitly enumerated pre-submission data waits. No strategy or hard-risk refusal is recoverable here.
     const val STALE_RESERVES_8385 = "CURVE_RESERVES_STALE_DEFER_8174"
     const val UNVERIFIED_RESERVES_8385 = "CURVE_RESERVES_UNVERIFIED_DEFER_8253"
+    const val PRICE_CHAIN_REPRICE_PENDING_8847 = "PRICE_CHAIN_REPRICE_PENDING_8847"
     fun reserveCause8385(reason: String): String? = listOf(STALE_RESERVES_8385, UNVERIFIED_RESERVES_8385)
         .firstOrNull { cause -> reason.split(':').any { it == cause || it == "DEFERRED_$cause" } }
     sealed class Preflight8385 {
@@ -502,7 +519,20 @@ object OnChainDepth8038 {
     fun classifyPreflight8385(mint: String, reason: String?, nowMs: Long): Preflight8385 = when {
         reason == null -> Preflight8385.Ready
         reserveCause8385(reason) != null -> Preflight8385.DataDefer(reason, mint, nowMs, reason == UNVERIFIED_RESERVES_8385)
+        reason == PRICE_CHAIN_REPRICE_PENDING_8847 -> Preflight8385.DataDefer(reason, mint, nowMs, false)
         else -> Preflight8385.HardRefusal(reason)
+    }
+
+    /** Wait for independent fresh prices rather than hard-failing a buy on an old/mismatched pool observation. */
+    private fun priceReverify8847(ts: TokenState, proof: PriceProof8847, nowMs: Long): String {
+        try {
+            request8038(ts, PRICE_SYNC_MAX_MS_8847)
+            CandidateMarkFresh8094.ensureFresh8094(ts, nowMs)
+            PipelineHealthCollector.labelInc("LIVE_BUY_PRICE_REVERIFY_8847_${proof.name}")
+            com.lifecyclebot.engine.ForensicLogger.lifecycle("PRICE_CHAIN_REPRICE_PENDING_8847",
+                "mint=${ts.mint.take(10)} sym=${ts.symbol} reason=${proof.name} markAt=${ts.lastPriceUpdate} ageMs=${nowMs - ts.lastPriceUpdate} pool=${ts.lastPricePoolAddr.take(8)} action=refresh_then_retry_same_ticket")
+        } catch (_: Throwable) {}
+        return PRICE_CHAIN_REPRICE_PENDING_8847
     }
 
     fun buyRefusal8038(ts: TokenState, nowMs: Long = System.currentTimeMillis()): String? {
@@ -594,12 +624,18 @@ object OnChainDepth8038 {
             if (ts.lastLiquidityUsd > 0.0) PipelineHealthCollector.labelInc("BUY_DOOR_CURVE_DEPTH_READ_8045")
         } catch (_: Throwable) {}
         val read = fresh(ts.mint, nowMs) ?: pools(ts).takeIf { it.isNotEmpty() }?.let { fetch(ts.mint, it) }
+        // The pool RPC above can take seconds. Compare against the clock *after* it returns, not the
+        // entry-door timestamp captured before this and the other synchronous hydration work.
+        val compareNow8847 = System.currentTimeMillis()
         if (read == null) {
             // V5.0.8418 — a concentrated pool has no constant-product read, but its decoded spot price (pool state,
             // tagged with its source) checks the buy price the same way. Depth-only reads never refuse here.
             val cp8418 = ConcentratedPrice8418.fresh8418(ts.mint, FRESH_MS, nowMs)
             val cpUsd8418 = cp8418?.let { it.solPerCoin * solUsd() } ?: Double.NaN
             if (cp8418 != null && priceCollapsed8038(ts.lastPrice, cpUsd8418)) {
+                val proof8847 = priceProof8847(ts.lastPriceUpdate, cp8418.atMs, compareNow8847,
+                    ts.lastPricePoolAddr, cp8418.pool)
+                if (proof8847 != PriceProof8847.ALIGNED) return priceReverify8847(ts, proof8847, compareNow8847)
                 priceCollapsed.incrementAndGet()
                 lastRefusal8047 = "PRICE ${ts.symbol} src=${cp8418.source} chainPx=${"%.3g".format(cpUsd8418)} buyPx=${"%.3g".format(ts.lastPrice)}"
                 try {
@@ -619,7 +655,12 @@ object OnChainDepth8038 {
         // What the APIs claimed: the field, unless a chain read already replaced it (then the value it replaced).
         val apiUsd = maxOf(ts.lastLiquidityUsd.takeIf { it.isFinite() && it != chainUsd } ?: 0.0, apiBeforeChain[ts.mint] ?: 0.0,
             ts.tokenMap.liquidityUsd?.takeIf { it.isFinite() } ?: 0.0)
+        val proof8847 = priceProof8847(ts.lastPriceUpdate, read.atMs, compareNow8847, ts.lastPricePoolAddr, read.pool)
+        if (proof8847 != PriceProof8847.ALIGNED &&
+            (priceCollapsed8038(ts.lastPrice, chainPx) || liquidityContradicted8038(apiUsd, chainUsd)))
+            return priceReverify8847(ts, proof8847, compareNow8847)
         val why = when {
+            proof8847 != PriceProof8847.ALIGNED -> null // never infer a collapse from two different moments or pools
             liquidityContradicted8038(apiUsd, chainUsd) -> { liqContradicted.incrementAndGet(); "LIQUIDITY_CONTRADICTED_ONCHAIN_8038" }
             priceCollapsed8038(ts.lastPrice, chainPx) -> { priceCollapsed.incrementAndGet(); "PRICE_COLLAPSED_ONCHAIN_8038" }
             else -> null
@@ -627,12 +668,15 @@ object OnChainDepth8038 {
         // V5.0.8047 — the last refusal's numbers, so the diag shows whether the chain or the quote was wrong.
         if (why != null) lastRefusal8047 = "${if (why.startsWith("PRICE")) "PRICE" else "LIQ"} ${ts.symbol} pool=${read.pool.take(6)} " +
             "chainPx=${"%.3g".format(chainPx)} buyPx=${"%.3g".format(ts.lastPrice)} chainLiq=${"%.0f".format(chainUsd)} apiLiq=${"%.0f".format(apiUsd)}"
-        if (why == null) {
+        if (why == null && proof8847 == PriceProof8847.ALIGNED) {
             verified.incrementAndGet()
             if (chainUsd.isFinite() && chainUsd > 0.0) com.lifecyclebot.engine.HydrationReeval8343.writeTick8345(ts, chainUsd, "CHAIN_VERIFIED_8038", TokenFacts.Rank.CHAIN, read.atMs)  // V5.0.8345
+        } else if (why == null) {
+            unverified.incrementAndGet()
+            request8038(ts, PRICE_SYNC_MAX_MS_8847)
         }
         try {
-            PipelineHealthCollector.labelInc(why?.let { "LIVE_BUY_REFUSED_$it" } ?: "ONCHAIN_POOL_VERIFIED_8038")
+            PipelineHealthCollector.labelInc(why?.let { "LIVE_BUY_REFUSED_$it" } ?: if (proof8847 == PriceProof8847.ALIGNED) "ONCHAIN_POOL_VERIFIED_8038" else "ONCHAIN_PRICE_UNALIGNED_8847")
             com.lifecyclebot.engine.ForensicLogger.lifecycle(
                 why ?: "ONCHAIN_POOL_VERIFIED_8038",
                 "mint=${ts.mint.take(10)} sym=${ts.symbol} pool=${read.pool.take(8)} poolSol=${"%.2f".format(read.quoteSol)} chainLiq=${"%.0f".format(chainUsd)} apiLiq=${"%.0f".format(apiUsd)} chainPx=$chainPx buyPx=${ts.lastPrice}",
