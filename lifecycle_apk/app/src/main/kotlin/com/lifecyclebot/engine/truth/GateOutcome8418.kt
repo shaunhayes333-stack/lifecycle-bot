@@ -134,9 +134,58 @@ object GateOutcome8418 {
 
     fun noteAttached8418() { attached.incrementAndGet() }
 
+    /** Pure-ish (V5.0.8856): [k]'s followed record as a [Stat8418] once it holds [TrajectoryVerdict8855.GATE_MIN_N_8856], else null. */
+    internal fun followed8856(k: String): Stat8418? {
+        val a = try { TrajectoryVerdict8855.gateStat8856(k) } catch (_: Throwable) { null } ?: return null
+        if (a[0] < TrajectoryVerdict8855.GATE_MIN_N_8856) return null
+        return Stat8418().also { c -> c.n = a[0]; c.sum = a[1]; c.sumSq = a[2]; c.wins = a[3]; c.runners = a[4] }
+    }
+
+    private val coinFollowed8856 = ConcurrentHashMap<String, Long>()
+
+    /**
+     * V5.0.8856 — ForwardReturnLabeler7731.gradeTrajectory8851: the decision of [mint] in [lane] that [gate] ruled on (and
+     * [advisory], a door lane authority overrode) now holds [new]; it held [old] at its last filing (NaN = first filing).
+     * Files the lane's record always and the all-lanes record for one decision per coin and gate (the 8717 rule), decided
+     * at the first filing and carried in [flags] (bit 0 decided, bit 1 gate, bit 2 advisory) so every revision reaches the
+     * same records. Returns the flags to keep on the observation.
+     */
+    fun follow8856(gate: String, advisory: String, lane: String, mint: String, old: Double, new: Double, flags: Int, nowMs: Long): Int {
+        if (!new.isFinite()) return flags
+        val adv = advisory.takeIf { it.isNotEmpty() && it != gate }.orEmpty()
+        var f = flags
+        if ((f and 1) == 0) {
+            f = 1
+            if (gate.isNotEmpty() && firstFollowed8856(gate, mint, nowMs)) f = f or 2
+            if (adv.isNotEmpty() && firstFollowed8856(adv, mint, nowMs)) f = f or 4
+        }
+        val was = if ((flags and 1) == 0) Double.NaN else old
+        if (gate.isNotEmpty()) {
+            if ((f and 2) != 0) TrajectoryVerdict8855.reviseGate8856(gate, was, new)
+            TrajectoryVerdict8855.reviseGate8856(key(gate, lane), was, new)
+        }
+        if (adv.isNotEmpty()) {
+            if ((f and 4) != 0) TrajectoryVerdict8855.reviseGate8856(adv, was, new)
+            TrajectoryVerdict8855.reviseGate8856(key(adv, lane), was, new)
+        }
+        return f
+    }
+
+    private fun firstFollowed8856(gate: String, mint: String, nowMs: Long): Boolean {
+        if (mint.isBlank()) return true
+        if (coinFollowed8856.size > 8_000) coinFollowed8856.entries.removeIf { nowMs - it.value > COIN_WINDOW_MS_8717 }
+        val k = "$gate|$mint"
+        val last = coinFollowed8856[k]
+        if (last != null && nowMs - last in 0L until COIN_WINDOW_MS_8717) return false
+        coinFollowed8856[k] = nowMs
+        return true
+    }
+
     /** A copy of the record of [gate] (in [lane] when given), or null. */
     fun stat8418(gate: String, lane: String? = null): Stat8418? {
         load()
+        // V5.0.8856 — a gate that holds enough followed decisions is read on the followed clock (TrajectoryVerdict8855)
+        followed8856(if (lane == null) gate else key(gate, lane))?.let { return it }
         val st = book[if (lane == null) gate else key(gate, lane)] ?: return null
         return synchronized(st) { Stat8418().also { c -> c.n = st.n; c.sum = st.sum; c.sumSq = st.sumSq; c.wins = st.wins; c.runners = st.runners } }
     }
@@ -237,5 +286,5 @@ object GateOutcome8418 {
         } catch (_: Throwable) {}
     }
 
-    internal fun resetForTests8418() { coinSeen8717.clear(); book.clear(); booked.set(0); attached.set(0); loaded = true }
+    internal fun resetForTests8418() { coinSeen8717.clear(); coinFollowed8856.clear(); book.clear(); booked.set(0); attached.set(0); loaded = true }
 }

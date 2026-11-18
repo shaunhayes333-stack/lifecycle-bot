@@ -767,3 +767,27 @@ the first read through the lane's stop + round trip, `ManagedBands8719.managed87
   (`feedPeriodMs8855`, `DynamicAltTokenRegistry.PRICE_REFRESH_MS_8855` = 60 s): the 30 s meme bar made a 60 s-refreshed
   price stale half of every minute (deferCause CRYPTO_MOONSHOT|PRICE_STALE=40).
 Report lines: `Trajectory verdict (§8855)`, `Paper book repair (§8855)`.
+
+## 47. Probation watches the floor; gates on the followed clock; proof that accumulates (8856)
+
+5.0.8853 LIVE (5 min after start). Probation (`GlobalTradeRegistry`) was a 30-90 s timer with no price of its own; four of the
+six latest missed runners (+325 .. +463 %) got their lane verdict 4.7 - 26.7 s after birth with $3 - $7 in the curve; 22 + 9 of
+102 missed 4x runners were refused for liquidity / market cap; the 220-seat watchlist bounced 353 incoming coins and evicted 66.
+- `FloorWatch8856`: every witnessed pump.fun launch followed on the market-wide feed (`LaunchSniper8748.onPrint8748`) for its
+  first hour. The live print at `FLOOR_CAP_USD_8856` = $5,000 curve cap is the cross: `GlobalTradeRegistry.seatFloorCross8856`
+  (WATCHED / PROMOTED / ADDED; at the cap `WatchlistEviction8398.seatVictim8856` frees a seat: an under-floor resident first),
+  `HeliusCurveTape8354.ask8354`, and head of the next cycle (`HunterWindow8293` -> `targets8856`). A crosser keeps its seat
+  while at or above the floor and printing within one 15-min label (`holding8856`, eviction pool). A followed launch under
+  the floor is not timer-promoted (`floorWatched8856` in `processProbation`). `onDecision8856` (labeler `observe`) times
+  cross -> first verdict, the price move by then, and the first gate that ruled.
+- Gates: `TrajectoryVerdict8855.byGate` holds each buy-path gate's cohort (gate and gate@desk) at the decision's followed
+  outcome, revised at every later read (`GateOutcome8418.follow8856` from `gradeTrajectory8851`, once the gate can no longer
+  change at 120 s; Obs `gateNet8856`, `gateFlags8856`). `GateOutcome8418.stat8418` serves it in place of the first-grade
+  book from n >= 40, so `doorProtects8715`, `selectionGateRetired8696`, `structureBindsByRecord8755` and FdgGate8365's audit
+  read the followed clock. Their rules are unchanged.
+- Proof: `LaunchReplay8744.Forward8856` — the watched rule (`shadowOf8748`) is nominated when first named; every launch born
+  after that, once its hour is complete, is graded for it once and kept (`launch_forward_8856.json`, up to 12 nominees).
+  Proven on that record alone: DOCTRINE, the bot's latency, n >= 100, mean - 2 SE > 0, positive without its best launch
+  (`forwardProves8856`); `proven = provenOf8748 ?: forwardProven8856`. The 48 h record re-derived ~130 entries for the best
+  rule ($10k cross, 3 buys, +2 s: mean +15 %, win 40 %, 2x 13 %) and stripped its 3 best, so it could never arm.
+Report lines: `Floor watch (§8856)`, `gates8856{}` in `Trajectory verdict (§8855)`, `forward8856{}` in `Launch replay (§8744)`.

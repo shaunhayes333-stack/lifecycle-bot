@@ -62,6 +62,44 @@ object TrajectoryVerdict8855 {
 
     private val byLaneStage = ConcurrentHashMap<String, Tally>()
     private val byStage = ConcurrentHashMap<String, Cohort>()
+
+    /**
+     * V5.0.8856 §EVERY_GATE_IS_GRADED_ON_THE_FOLLOWED_CLOCK — owner: "you also did nothing about balancing out the fdg
+     * scoring, the decision stack grading or scoring to ensure we dont have an over choked, over refused, over stacked pile".
+     * Every buy-path gate already has a forward record of the coins it ruled on, and that record already decides whether
+     * the gate binds, stands down or is retired (GateOutcome8418: doorProtects8715, selectionGateRetired8696,
+     * structureBindsByRecord8755, FdgGate8365's audit). But GateOutcome8418.book8418 files a decision ONCE, at its first
+     * 5- or 15-minute label ("first grade only; later revisions of the label do not move this book"): a refused coin that
+     * runs for an hour never reaches the gate that refused it, so the whole stack was balanced on the clock the owner
+     * calls dumb. The same one-outcome-per-decision record now holds each gate's cohort (key: the gate, and gate@desk),
+     * revised at every later read; GateOutcome8418.stat8418 serves it in place of the first-grade book once a gate holds
+     * [GATE_MIN_N_8856] followed decisions, so every authority that reads a gate's record reads this one. Rules unchanged.
+     */
+    internal class GateCohort(var n: Int = 0, var sum: Double = 0.0, var sq: Double = 0.0, var wins: Int = 0, var runners: Int = 0) {
+        fun revise(old: Double, new: Double) {
+            if (old.isFinite()) { sum -= old; sq -= old * old; if (old > 0.0) wins--; if (old >= RUNNER_NET_PCT_8856) runners-- } else n++
+            sum += new; sq += new * new; if (new > 0.0) wins++; if (new >= RUNNER_NET_PCT_8856) runners++
+        }
+    }
+    /** The smallest record any gate authority reads (GateOutcome8418.protects8715 / refusesWinners8418: 40 graded). */
+    const val GATE_MIN_N_8856 = 40
+    private const val RUNNER_NET_PCT_8856 = 100.0
+    private const val MAX_GATE_KEYS_8856 = 600
+    private val byGate = ConcurrentHashMap<String, GateCohort>()
+
+    /** GateOutcome8418.follow8856: the decision filed under [key] moved from [old] (NaN = first filing) to [new]. */
+    fun reviseGate8856(key: String, old: Double, new: Double) {
+        if (key.isBlank() || !new.isFinite()) return
+        if (!byGate.containsKey(key) && byGate.size >= MAX_GATE_KEYS_8856) return
+        val c = byGate.getOrPut(key) { GateCohort() }
+        synchronized(c) { c.revise(old, new) }
+    }
+
+    /** [key]'s followed record as [n, sum, sumSq, wins, runners], or null when it has none. */
+    fun gateStat8856(key: String): DoubleArray? {
+        val c = byGate[key] ?: return null
+        return synchronized(c) { doubleArrayOf(c.n.toDouble(), c.sum, c.sq.coerceAtLeast(0.0), c.wins.coerceAtLeast(0).toDouble(), c.runners.coerceAtLeast(0).toDouble()) }
+    }
     private fun norm(s: String) = s.trim().uppercase().replace('|', '_').take(32)
     private fun key(lane: String, stage: String) = "${norm(lane)}|${norm(stage)}"
     /** The refusal record clips an outcome as EdgeModel8537's does, so one runner cannot acquit a cohort. */
@@ -129,6 +167,7 @@ object TrajectoryVerdict8855 {
         .put("laneStage", JSONObject().also { o -> byLaneStage.forEach { (k, t) -> synchronized(t) {
             o.put(k, JSONArray(listOf(t.refused.n, t.refused.sum, t.refused.sq, t.kept.n, t.kept.sum, t.kept.sq))) } } })
         .put("stage", JSONObject().also { o -> byStage.forEach { (k, c) -> synchronized(c) { o.put(k, JSONArray(listOf(c.n, c.sum, c.sq))) } } })
+        .put("gate", JSONObject().also { o -> byGate.forEach { (k, c) -> synchronized(c) { o.put(k, JSONArray(listOf(c.n, c.sum, c.sq, c.wins, c.runners))) } } })
         .toString()
 
     fun restore8855(raw: String?) {
@@ -147,6 +186,11 @@ object TrajectoryVerdict8855 {
             val a = o.optJSONArray(k) ?: continue
             if (ok(a.optInt(0), a.optDouble(1), a.optDouble(2))) byStage[k] = Cohort(a.optInt(0), a.optDouble(1), a.optDouble(2))
         } }
+        root.optJSONObject("gate")?.let { o -> for (k in o.keys()) {
+            val a = o.optJSONArray(k) ?: continue
+            if (byGate.size < MAX_GATE_KEYS_8856 && ok(a.optInt(0), a.optDouble(1), a.optDouble(2)) && a.optInt(3) in 0..a.optInt(0) && a.optInt(4) in 0..a.optInt(0))
+                byGate[k] = GateCohort(a.optInt(0), a.optDouble(1), a.optDouble(2), a.optInt(3), a.optInt(4))
+        } }
         meansAt = 0L
     }
 
@@ -163,9 +207,17 @@ object TrajectoryVerdict8855 {
                 "$k[refused=n${t.refused.n}/${pct(t.refused.mean)}%±${pct(t.refused.se).removePrefix("+")} kept=n${t.kept.n}/${pct(t.kept.mean)}% $who]"
             }
         }.ifBlank { "-" }
-        return "trajectoryVerdict8855[stages{$stages} doors{$doors} rule=one outcome per followed decision, revised at each read " +
-            "(1m/5m/15m, then 1h/4h/24h while it runs) under the lane's stop; a lane-stage with n>=${EdgeModel8537.AUTH_MIN_N} refused decides the model's refusal there]"
+        // V5.0.8856 — every gate's all-lane record on the followed clock (it is the one the authorities read from n>=40)
+        val gates = byGate.entries.filter { '@' !in it.key }.sortedByDescending { synchronized(it.value) { it.value.n } }.take(16).joinToString(" ") { (k, c) ->
+            synchronized(c) {
+                val mean = if (c.n > 0) c.sum / c.n else Double.NaN
+                "$k=n${c.n}/${pct(mean)}%/wr${if (c.n > 0) c.wins * 100 / c.n else 0}%/run${if (c.n > 0) c.runners * 100 / c.n else 0}%${if (c.n >= GATE_MIN_N_8856) "*" else ""}"
+            }
+        }.ifBlank { "-" }
+        return "trajectoryVerdict8855[stages{$stages} doors{$doors} gates8856{$gates} rule=one outcome per followed decision, revised at each read " +
+            "(1m/5m/15m, then 1h/4h/24h while it runs) under the lane's stop; a lane-stage with n>=${EdgeModel8537.AUTH_MIN_N} refused decides the model's refusal there; " +
+            "a gate marked * (n>=$GATE_MIN_N_8856) is judged on this record, not its first label]"
     }
 
-    internal fun resetForTest8855() { byLaneStage.clear(); byStage.clear(); stageCache.clear(); meansAt = 0L; meansCache = emptyMap() }
+    internal fun resetForTest8855() { byLaneStage.clear(); byStage.clear(); byGate.clear(); stageCache.clear(); meansAt = 0L; meansCache = emptyMap() }
 }

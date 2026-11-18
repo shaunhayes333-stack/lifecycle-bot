@@ -17,8 +17,12 @@ object HunterWindow8293 {
 
     /** BotService priority window: the hand-off targets plus the watched opportunity leaders among [all]. */
     fun windowTargets8293(all: Collection<String>, nowMs: Long = System.currentTimeMillis()): List<String> =
-        (HandoffPriority8190.windowTargets8190(all, nowMs) + MovingTokenRecheck8847.targets8847(all, nowMs) +
+        (HandoffPriority8190.windowTargets8190(all, nowMs) + floorCrossers8856(all, nowMs) + MovingTokenRecheck8847.targets8847(all, nowMs) +
             leaders8293(all, nowMs, 0L)).distinct()
+
+    /** V5.0.8856 — the coins that just crossed the floor (FloorWatch8856) ride the window and head the cycle slice. */
+    private fun floorCrossers8856(pool: Collection<String>, nowMs: Long): List<String> =
+        try { com.lifecyclebot.engine.truth.FloorWatch8856.targets8856(pool, nowMs) } catch (_: Throwable) { emptyList() }
 
     /** BotService.selectOrderedMintsForCycle: the due hand-off targets plus the leaders due a re-evaluation. */
     fun dueTargets8293(otherMints: List<String>, nowMs: Long = System.currentTimeMillis()): List<String> {
@@ -26,7 +30,9 @@ object HunterWindow8293 {
         val movers = MovingTokenRecheck8847.targets8847(otherMints, nowMs)
         if (leaders.isNotEmpty()) try { PipelineHealthCollector.labelAdd("OPPORTUNITY_TOP_CYCLE_SLOT_8293", leaders.size.toLong()) } catch (_: Throwable) {}
         if (movers.isNotEmpty()) try { PipelineHealthCollector.labelAdd("MOVING_TOKEN_CYCLE_SLOT_8847", movers.size.toLong()) } catch (_: Throwable) {}
-        return (HandoffPriority8190.dueTargets8190(otherMints, nowMs) + movers + leaders).distinct()
+        val crossers = floorCrossers8856(otherMints, nowMs)
+        if (crossers.isNotEmpty()) try { PipelineHealthCollector.labelAdd("FLOOR_CROSS_CYCLE_SLOT_8856", crossers.size.toLong()) } catch (_: Throwable) {}
+        return (HandoffPriority8190.dueTargets8190(otherMints, nowMs) + crossers + movers + leaders).distinct()
     }
 
     /**

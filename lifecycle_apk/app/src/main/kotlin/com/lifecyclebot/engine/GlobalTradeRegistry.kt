@@ -593,7 +593,9 @@ object GlobalTradeRegistry {
                 awaitingData = { m ->
                     (try { com.lifecyclebot.engine.truth.CandidateAdmission8136.awaitingData8399(m, now) } catch (_: Throwable) { false }) ||
                         (try { HandoffReceiverTasks8153.awaitingData8399(m, now) } catch (_: Throwable) { false }) ||
-                        (try { MovingTokenRecheck8847.isRecentlyMoving8847(m, now) } catch (_: Throwable) { false })
+                        (try { MovingTokenRecheck8847.isRecentlyMoving8847(m, now) } catch (_: Throwable) { false }) ||
+                        // V5.0.8856 — a coin that crossed the floor keeps its seat while it holds above it and prints
+                        (try { com.lifecyclebot.engine.truth.FloorWatch8856.holding8856(m, now) } catch (_: Throwable) { false })
                 },
             )
             // V5.0.8029 — pump.fun may hold at most half the hot watchlist: over that share, the victim is a pump.fun coin
@@ -1040,6 +1042,59 @@ object GlobalTradeRegistry {
         )
     }
 
+    private fun floorWatched8856(entry: ProbationEntry, mint: String, nowMs: Long): Boolean {
+        if (!(try { com.lifecyclebot.engine.truth.FloorWatch8856.underFloor8856(mint, nowMs) } catch (_: Throwable) { false })) return false
+        if (entry.promotionReason != FLOOR_WATCH_HELD_8856) {
+            entry.promotionReason = FLOOR_WATCH_HELD_8856
+            try { PipelineHealthCollector.labelInc("PROBATION_TIMEOUT_HELD_UNDER_FLOOR_8856") } catch (_: Throwable) {}
+        }
+        return true
+    }
+    private const val FLOOR_WATCH_HELD_8856 = "FLOOR_WATCH_UNDER_FLOOR_8856"
+    private const val FLOOR_CROSS_8856 = "FLOOR_CROSS_8856"
+
+    /**
+     * V5.0.8856 — FloorWatch8856: [mint] just printed at the floor. It is seated on the watchlist now: already there
+     * (WATCHED), promoted out of probation (PROMOTED) or added (ADDED). When the bench is at its cap a resident gives up
+     * its seat first (WatchlistEviction8398.seatVictim8856) and goes to probation exactly as a cap rotation victim does;
+     * NO_SEAT when none can. A held mint and a scanner hard reject are never seated. Seating only: nothing here buys.
+     */
+    @Synchronized
+    fun seatFloorCross8856(mint: String, capUsd: Double, nowMs: Long = System.currentTimeMillis()): String {
+        if (mint.isBlank() || mint.length < 30) return "INVALID"
+        if (watchlist.containsKey(mint)) return "WATCHED"
+        if (try { HeldPositionSupervisor7246.isHeld(mint) } catch (_: Throwable) { false }) return "HELD"
+        if (ScannerHardRejectStore.isRejected(mint)) return "HARD_REJECT"
+        if (watchlist.size >= MAX_WATCHLIST_SIZE) {
+            val open: Set<String> = try {
+                com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions().mapNotNull { it.mint.trim().takeIf { m -> m.isNotBlank() } }.toSet()
+            } catch (_: Throwable) { emptySet() }
+            val victim = WatchlistEviction8398.seatVictim8856(
+                watchlist.values.map { WatchlistEviction8398.Row(it.mint, it.source, it.addedAt, it.lastProcessedAt, it.processCount, it.mint in open) },
+                nowMs, mint,
+                underFloor = { m -> try { com.lifecyclebot.engine.truth.FloorWatch8856.underFloor8856(m, nowMs) } catch (_: Throwable) { false } },
+                holding = { m -> try { com.lifecyclebot.engine.truth.FloorWatch8856.holding8856(m, nowMs) } catch (_: Throwable) { false } },
+                awaitingData = { m ->
+                    (try { com.lifecyclebot.engine.truth.CandidateAdmission8136.awaitingData8399(m, nowMs) } catch (_: Throwable) { false }) ||
+                        (try { HandoffReceiverTasks8153.awaitingData8399(m, nowMs) } catch (_: Throwable) { false })
+                },
+            ) ?: return "NO_SEAT"
+            val observed = try { BotService.status.tokens[victim.mint] } catch (_: Throwable) { null }
+            val liq = observed?.lastLiquidityUsd?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+            val px = observed?.takeIf { it.lastPrice.isFinite() && it.lastPrice > 0.0 && it.lastPriceUpdate > 0L && nowMs - it.lastPriceUpdate in 0L..15_000L }?.lastPrice ?: 0.0
+            if (!demoteWatchlistToProbation(victim.mint, "FLOOR_CROSS_SEAT_8856", liq, 0, px, liq == 0.0)) return "NO_SEAT"
+            try { PipelineHealthCollector.labelInc("WATCHLIST_SEAT_GIVEN_TO_FLOOR_CROSS_8856") } catch (_: Throwable) {}
+        }
+        if (probation.containsKey(mint)) return if (promoteFromProbation(mint, FLOOR_CROSS_8856).added) "PROMOTED" else "REFUSED"
+        val r = addToWatchlist(mint, mint.take(6), FLOOR_CROSS_8856, initialMcap = capUsd)
+        return when {
+            r.added -> "ADDED"
+            // the source balance or a full, protected bench parked it: a crosser is promoted out at once
+            r.probation && probation.containsKey(mint) -> if (promoteFromProbation(mint, FLOOR_CROSS_8856).added) "PROMOTED" else "REFUSED"
+            else -> "REFUSED"
+        }
+    }
+
     /**
      * V5.0: Promote a token from probation to watchlist.
      */
@@ -1182,6 +1237,10 @@ object GlobalTradeRegistry {
             // tokens that timed out should be promoted to the watchlist
             // so V3/FDG can re-evaluate with full pipeline data instead
             // of being silently culled by an opaque 5-min cutoff.
+            // V5.0.8856 — a launch the floor watch is following under the floor is not promoted by the clock: the timer
+            // seated it on the hot bench with nothing in its curve, where every lane refused it for size and it took the
+            // seat of a coin that had crossed. FloorWatch8856 seats it on the print that takes it to the floor.
+            if (elapsed >= PROBATION_MAX_TIME_MS && floorWatched8856(entry, mint, now)) continue
             if (elapsed >= PROBATION_MAX_TIME_MS && !demotedAwaitingEvidence7819(entry, elapsed)) {
                 // V5.9.1328 — cold NO_PAIR mints are HELD (not auto-rejected) so
                 // they don't re-arrive as duplicates. See V5.9.1328 comment above.

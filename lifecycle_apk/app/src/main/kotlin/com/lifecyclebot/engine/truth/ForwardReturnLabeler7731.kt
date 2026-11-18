@@ -422,6 +422,9 @@ object ForwardReturnLabeler7731 {
         @Volatile var pred8855 = Double.NaN
         @Volatile var pathNet8855 = Double.NaN
         @Volatile var pathStopped8855 = false
+        /** V5.0.8856 — the outcome last filed on this decision's gate records, and which all-lanes records hold it (GateOutcome8418.follow8856). */
+        @Volatile var gateNet8856 = Double.NaN
+        @Volatile var gateFlags8856 = 0
         @Volatile var interimUnavailable8521 = false
         @Volatile var firstReadValid8521 = false
         /** V5.0.8418 — SpecialistMiner7972 booking stamps [boot, per combination] (a revision's remaining weight there). */
@@ -939,6 +942,7 @@ object ForwardReturnLabeler7731 {
             .put("trajectoryDone8851", org.json.JSONArray(o.trajectoryDone8851.toList()))
             .put("qualifiedLong8851", o.qualifiedLong8851)
             .put("pred8855", o.pred8855.toString()).put("pathNet8855", o.pathNet8855.toString()).put("pathStopped8855", o.pathStopped8855)
+            .put("gateNet8856", o.gateNet8856.toString()).put("gateFlags8856", o.gateFlags8856)
             .put("targetHorizon", o.targetHorizon8521).put("interimUnavailable", o.interimUnavailable8521)
             .put("firstReadValid", o.firstReadValid8521)
             .put("chase", o.chase8094).put("honest", o.honest8366)
@@ -968,6 +972,8 @@ object ForwardReturnLabeler7731 {
         o.pred8855 = e.optString("pred8855").toDoubleOrNull() ?: Double.NaN
         o.pathNet8855 = e.optString("pathNet8855").toDoubleOrNull() ?: Double.NaN
         o.pathStopped8855 = e.optBoolean("pathStopped8855")
+        o.gateNet8856 = e.optString("gateNet8856").toDoubleOrNull() ?: Double.NaN
+        o.gateFlags8856 = e.optInt("gateFlags8856")
         e.optJSONArray("trajectoryDone8851")?.let { a -> for (i in 0 until a.length()) {
             val h = a.optLong(i)
             if (h in TrajectoryGrades8851.HORIZONS) o.trajectoryDone8851.add(h)
@@ -1245,6 +1251,7 @@ object ForwardReturnLabeler7731 {
 
     fun observe(ts: TokenState, lane: String, admitted: Boolean, reason: String?, nowMs: Long = System.currentTimeMillis(), score: Int = -1, incumbent8506: Boolean? = null) {
         val l = lane.trim().uppercase().ifBlank { "UNKNOWN" }
+        try { FloorWatch8856.onDecision8856(ts.mint, admitted, reason, nowMs) } catch (_: Throwable) {}   // V5.0.8856 — cross -> first verdict
         // Capture the decision even when the forward labeler cannot establish an entry mark.
         try { LaunchHour8628.observeDecision(ts, l, admitted, nowMs) } catch (_: Exception) { PipelineHealthCollector.labelInc("LAUNCH_HOUR_DECISION_MISSING_8628") }
         val key = "${ts.mint}|$l"
@@ -1869,6 +1876,13 @@ object ForwardReturnLabeler7731 {
                 TrajectoryVerdict8855.revise8855(o.lane, stage8851, o.pred8855, o.pathNet8855, now8855)
                 o.pathNet8855 = now8855; o.pathStopped8855 = stopped8855
             }
+        }
+        // V5.0.8856 — the gate that ruled on this decision is graded on the same outcome, once the gate can no longer change
+        // (it attaches within GateOutcome8418.ATTACH_MAX_AGE_MS_8418) and whenever the outcome has moved since it was filed
+        if (o.pathNet8855.isFinite() && nowMs - o.atMs >= GateOutcome8418.ATTACH_MAX_AGE_MS_8418 && o.gateNet8856 != o.pathNet8855 &&
+            (o.gate8418.isNotEmpty() || o.advisoryGate8715.isNotEmpty())) {
+            o.gateFlags8856 = GateOutcome8418.follow8856(o.gate8418, o.advisoryGate8715, o.lane, o.mint, o.gateNet8856, o.pathNet8855, o.gateFlags8856, nowMs)
+            o.gateNet8856 = o.pathNet8855
         }
     }
 

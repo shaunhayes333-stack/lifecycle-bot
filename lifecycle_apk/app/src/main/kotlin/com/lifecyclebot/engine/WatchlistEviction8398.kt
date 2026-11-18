@@ -85,6 +85,21 @@ object WatchlistEviction8398 {
 
     internal const val RANK_SCAN_8738 = 24
 
+    /**
+     * V5.0.8856 §A_CROSSER_IS_SEATED — the seat a coin that just crossed the floor (FloorWatch8856) takes when the bench is
+     * full. 5.0.8853: 353 incoming coins in five minutes found every resident protected ([pool8398]: admitted under 60 s
+     * ago, touched under 30 s ago, or undecided) and were routed to probation; a crosser cannot wait there. Pure. Never an
+     * open position, a resident waiting on data it asked for, or another crosser still [holding] its seat. First the
+     * oldest resident that is itself a followed launch still [underFloor] (it returns to the floor watch, which seats it
+     * again on its own cross — nothing is lost); else the oldest resident past its undecided window. Null: no seat.
+     */
+    fun seatVictim8856(rows: Collection<Row>, now: Long, incomingMint: String, underFloor: (String) -> Boolean,
+                       holding: (String) -> Boolean, awaitingData: (String) -> Boolean): Row? {
+        val free = rows.filter { it.mint != incomingMint && !it.open && !holding(it.mint) && !awaitingData(it.mint) }
+        return free.filter { underFloor(it.mint) }.minByOrNull { it.addedAt }
+            ?: free.filter { !undecided8398(it, now) }.minByOrNull { it.addedAt }
+    }
+
     /** The victim: a pump.fun coin first while pump.fun holds over its share (V5.0.8029), else the oldest evictable. */
     fun victim8398(pool: Pool, pumpOverShare: Boolean, pumpFamily: (String) -> Boolean): Row? =
         (if (pumpOverShare) pool.evictable.firstOrNull { pumpFamily(it.source) } else null) ?: pool.evictable.firstOrNull()

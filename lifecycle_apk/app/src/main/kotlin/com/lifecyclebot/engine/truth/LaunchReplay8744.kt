@@ -322,6 +322,120 @@ object LaunchReplay8744 {
             it.exTop3.isFinite() && it.exTop3Se.isFinite() && it.exTop3 - it.exTop3Se > 0.0
     }.maxByOrNull { it.exTop3 - it.exTop3Se }
 
+    /**
+     * V5.0.8856 §PROOF_THAT_CAN_ACCUMULATE — 5.0.8853: the best rule the phone has graded on real prints (the $10k cross
+     * with 3 buys in the last minute, bought 2 s later, half at 2x) read mean +15 %, 40 % winners, 13 % doubling over 130
+     * launches; +13 % at 20 s. It can never be proven: the replay re-derives every record from LaunchHour8628's 48 hours
+     * (about 130 entries for that rule, however long the bot runs), and the bar strips each rule's three best launches —
+     * on a strategy whose profit IS its runners, of a sample that can never grow. And choosing the best of 1,500 rules on
+     * 130 launches flatters whichever is chosen, which is what the strip was guarding.
+     *
+     * The honest test of a chosen rule is what it does AFTER it was chosen. The rule the sniper watches ([shadowOf8748]) is
+     * NOMINATED when it is first named; from then on every launch born after the nomination, once its hour is complete, is
+     * graded for it exactly once and added to a record that is kept (launch_forward_8856.json) — no window, no re-derivation,
+     * nothing chosen with hindsight. A nominee is PROVEN on that record alone ([forwardProves8856]): the live ladder
+     * (DOCTRINE), a latency the bot has, [PROVEN_MIN_N_8748]+ entries, the mean two standard errors above zero, and still
+     * positive without its single best launch. Up to [MAX_NOMINEES_8856] nominees are followed; a rule named again keeps
+     * the record it has. The 48-hour proof ([provenOf8748]) stands beside it unchanged.
+     */
+    internal class Forward8856(val rule: Rule, val nominatedAtMs: Long) {
+        var n = 0; var sum = 0.0; var sq = 0.0; var best = Double.NEGATIVE_INFINITY; var wins = 0; var twoX = 0; var tenX = 0
+        var lastBornMs = nominatedAtMs
+        fun add(v: Double) { n++; sum += v; sq += v * v; if (v > best) best = v; if (v > 0.0) wins++; if (v >= 100.0) twoX++; if (v >= 900.0) tenX++ }
+        val mean: Double get() = if (n > 0) sum / n else Double.NaN
+        /** The standard error of the mean (sample variance). */
+        val se: Double get() = if (n > 1) kotlin.math.sqrt(((sq - n * mean * mean) / (n - 1)).coerceAtLeast(0.0) / n) else Double.NaN
+        val exBest: Double get() = if (n > 1) (sum - best) / (n - 1) else Double.NaN
+    }
+    private const val MAX_NOMINEES_8856 = 12
+    private const val HOUR_MS_8856 = 3_600_000L
+    private const val FORWARD_Z_8856 = 2.0
+    private val forward8856 = LinkedHashMap<String, Forward8856>()
+    @Volatile private var forwardRestored8856 = false
+
+    /** Pure: is [f]'s forward record proof at the required latency [minDelayMs]? */
+    internal fun forwardProves8856(f: Forward8856, minDelayMs: Long = ARM_MIN_DELAY_MS_8748): Boolean =
+        f.rule.ladder == Ladder.DOCTRINE && f.rule.delayMs >= maxOf(ARM_MIN_DELAY_MS_8748, minDelayMs) && f.n >= PROVEN_MIN_N_8748 &&
+            f.mean.isFinite() && f.se.isFinite() && f.mean - FORWARD_Z_8856 * f.se > 0.0 && f.exBest > 0.0
+
+    /** Names [rule] a nominee at [nowMs] unless it already is one; the nominee with the fewest entries makes room. */
+    @Synchronized internal fun nominate8856(rule: Rule, nowMs: Long) {
+        if (forward8856.containsKey(rule.id)) return
+        if (forward8856.size >= MAX_NOMINEES_8856) forward8856.entries.minByOrNull { it.value.n }?.key?.let { forward8856.remove(it) }
+        forward8856[rule.id] = Forward8856(rule, nowMs)
+    }
+
+    /**
+     * Grades every nominee on the launches of [launches] born after its last graded birth whose first hour is complete at
+     * [nowMs] — each launch once per nominee, whether or not the rule fired on it.
+     */
+    @Synchronized internal fun gradeForward8856(launches: List<Path8748>, solUsd: Double, costPct: Double, nowMs: Long) {
+        for (f in forward8856.values) {
+            var newest = f.lastBornMs
+            for (x in launches) {
+                if (x.bornMs <= f.lastBornMs || x.bornMs + HOUR_MS_8856 > nowMs) continue
+                if (x.bornMs > newest) newest = x.bornMs
+                simulateRule8755(x, f.rule, solUsd, costPct)?.let { f.add(it) }
+            }
+            f.lastBornMs = newest
+        }
+    }
+
+    /** The proven nominee with the highest lower bound, as the [Result] the sniper trades (its evidence: the mean without its best launch, and the SE). */
+    @Synchronized internal fun forwardProven8856(minDelayMs: Long = ARM_MIN_DELAY_MS_8748): Result? =
+        forward8856.values.filter { forwardProves8856(it, minDelayMs) }.maxByOrNull { it.mean - FORWARD_Z_8856 * it.se }?.let { f ->
+            Result(f.rule, f.n, f.mean, f.se, f.wins.toDouble() / f.n, f.twoX.toDouble() / f.n, f.tenX.toDouble() / f.n, Double.NaN, f.exBest, f.se)
+        }
+
+    private fun forwardFile8856(): java.io.File? = try {
+        com.lifecyclebot.AATEApp.appContextOrNull()?.filesDir?.let { java.io.File(it, "launch_forward_8856.json") }
+    } catch (_: Throwable) { null }
+
+    @Synchronized internal fun encodeForward8856(): String = org.json.JSONArray().also { a -> forward8856.values.forEach { f ->
+        a.put(org.json.JSONObject().put("cap", f.rule.capUsd).put("buys", f.rule.minBuys).put("takeX", f.rule.takeX).put("stop", f.rule.stopPct)
+            .put("ladder", f.rule.ladder.name).put("delay", f.rule.delayMs).put("total", f.rule.totalBuys).put("at", f.nominatedAtMs)
+            .put("n", f.n).put("sum", f.sum).put("sq", f.sq).put("best", if (f.best.isFinite()) f.best else 0.0).put("wins", f.wins)
+            .put("twoX", f.twoX).put("tenX", f.tenX).put("born", f.lastBornMs))
+    } }.toString()
+
+    @Synchronized internal fun decodeForward8856(raw: String?) {
+        if (raw.isNullOrBlank()) return
+        val a = org.json.JSONArray(raw)
+        for (i in 0 until a.length()) {
+            val o = a.optJSONObject(i) ?: continue
+            val ladder = try { Ladder.valueOf(o.optString("ladder")) } catch (_: Throwable) { continue }
+            val rule = Rule(o.optDouble("cap"), o.optInt("buys"), o.optDouble("takeX"), o.optDouble("stop"), ladder, o.optLong("delay"), o.optInt("total"))
+            val n = o.optInt("n"); val sum = o.optDouble("sum"); val sq = o.optDouble("sq")
+            if (!(rule.capUsd > 0.0) || n < 0 || !sum.isFinite() || !sq.isFinite() || sq < 0.0 || forward8856.size >= MAX_NOMINEES_8856) continue
+            forward8856[rule.id] = Forward8856(rule, o.optLong("at")).also { f ->
+                f.n = n; f.sum = sum; f.sq = sq; f.best = if (n > 0) o.optDouble("best") else Double.NEGATIVE_INFINITY
+                f.wins = o.optInt("wins").coerceIn(0, n); f.twoX = o.optInt("twoX").coerceIn(0, n); f.tenX = o.optInt("tenX").coerceIn(0, n)
+                f.lastBornMs = maxOf(o.optLong("born"), f.nominatedAtMs)
+            }
+        }
+    }
+
+    private fun restoreForward8856() {
+        if (forwardRestored8856) return
+        val f = forwardFile8856() ?: return
+        forwardRestored8856 = true
+        try { if (f.exists()) decodeForward8856(f.readText()) } catch (_: Throwable) {}
+    }
+
+    private fun saveForward8856() {
+        val f = forwardFile8856() ?: return
+        try { val tmp = java.io.File(f.parentFile, f.name + ".tmp"); tmp.writeText(encodeForward8856()); if (!tmp.renameTo(f)) tmp.delete() } catch (_: Throwable) {}
+    }
+
+    /** The report: every nominee's forward record, most entries first. */
+    @Synchronized internal fun forwardLine8856(): String = "forward8856{" + forward8856.values.sortedByDescending { it.n }.joinToString(" | ") { f ->
+        "${f.rule.id} n${f.n} mean${if (f.mean.isFinite()) "%+.1f".format(f.mean) else "-"}±${if (f.se.isFinite()) "%.1f".format(f.se) else "-"}% " +
+            "exBest${if (f.exBest.isFinite()) "%+.1f".format(f.exBest) else "-"}% win${if (f.n > 0) f.wins * 100 / f.n else 0}% 2x+${if (f.n > 0) f.twoX * 100 / f.n else 0}% " +
+            (if (forwardProves8856(f)) "PROVEN" else "watching")
+    }.ifBlank { "-" } + "}"
+
+    internal fun resetForwardForTest8856() = synchronized(this) { forward8856.clear(); forwardRestored8856 = true }
+
     /** Pure: the rule the sniper watches in shadow while none is proven: the best one it could trade, by the same order. */
     internal fun shadowOf8748(results: List<Result>, minDelayMs: Long = ARM_MIN_DELAY_MS_8748): Result? = results.firstOrNull {
         it.rule.ladder == Ladder.DOCTRINE && it.rule.delayMs >= maxOf(ARM_MIN_DELAY_MS_8748, minDelayMs) && it.n >= MIN_N
@@ -378,7 +492,10 @@ object LaunchReplay8744 {
                 val cost = FieldManual7715.roundTripCostPct7766(SIZE_SOL_8748, SIZE_SOL_8748 * solUsd, 2.0 * CURVE_SOL_8748 * solUsd)
                 val need = try { LaunchSniper8748.requiredDelayMs8749() } catch (_: Throwable) { ARM_MIN_DELAY_MS_8748 }
                 val res = evaluate8748(set, solUsd, cost, rulesFor8829(need))   // V5.0.8829 — and at the latency the bot has
-                last = res; proven = provenOf8748(res, need); shadow = shadowOf8748(res, need); attention = attentionOf8825(res)
+                last = res; shadow = shadowOf8748(res, need); attention = attentionOf8825(res)
+                // V5.0.8856 — the watched rule is graded forward, on launches born after it was named, with no window
+                try { restoreForward8856(); shadow?.rule?.let { nominate8856(it, nowMs) }; gradeForward8856(set, solUsd, cost, nowMs); saveForward8856() } catch (_: Throwable) {}
+                proven = provenOf8748(res, need) ?: forwardProven8856(need)
                 // V5.0.8788 — the ladders on the same launches as the rule the sniper watches (or the best graded one)
                 (shadow ?: res.firstOrNull { it.n >= MIN_N })?.rule?.let { base ->
                     try { paired = pairedLadders8788(set, base, solUsd, cost); pairedBase = base } catch (_: Throwable) {}
@@ -463,9 +580,10 @@ object LaunchReplay8744 {
         maybeRun8744()
         val top = last.take(5).joinToString(" · ") { line(it) }.ifBlank { "-" }
         return "launchReplay8744[$status rules=${GRID.size} proven{${proven?.let { line(it) } ?: "none"}} ${ladderLine8756(last)} ${pairedLine8788()} " +
-            "${totalLine8824(last)} " +
+            "${totalLine8824(last)} ${forwardLine8856()} " +
             "shadow{${shadow?.let { line(it) } ?: "none"}} best{$top} rule=live prints only, spikes dropped, fills at the curve after " +
             "the latency, ranked by the mean without each rule's 3 best launches; proven = DOCTRINE ladder, >=${ARM_MIN_DELAY_MS_8748 / 1000}s, " +
-            "n>=$PROVEN_MIN_N_8748, ex-top-3 mean - SE > 0]"
+            "n>=$PROVEN_MIN_N_8748, ex-top-3 mean - SE > 0 on the 48 h window, or the watched rule's forward record " +
+            "(launches born after it was named): mean - 2 SE > 0 and positive without its best launch]"
     }
 }

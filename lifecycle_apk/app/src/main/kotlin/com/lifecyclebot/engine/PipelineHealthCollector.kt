@@ -1602,6 +1602,7 @@ object PipelineHealthCollector {
         sb.append("  Launch replay (§8744): ").append(try { com.lifecyclebot.engine.truth.LaunchReplay8744.statusLine8744() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Signal replay (§8828): ").append(try { com.lifecyclebot.engine.truth.SignalReplay8828.statusLine8828() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Launch facts (§8840): ").append(try { com.lifecyclebot.engine.truth.LaunchFacts8840.statusLine8840() } catch (_: Throwable) { "unavailable" }).append("\n")
+        sb.append("  Floor watch (§8856): ").append(try { com.lifecyclebot.engine.truth.FloorWatch8856.statusLine8856() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Trajectory verdict (§8855): ").append(try { com.lifecyclebot.engine.truth.TrajectoryVerdict8855.statusLine8855() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Paper book repair (§8855): ").append(try { com.lifecyclebot.engine.truth.MemePaperTrader8544.repairLine8855() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Strategy lab (§8755): ").append(try { com.lifecyclebot.engine.lab.StrategyLab8755.statusLine8755() } catch (_: Throwable) { "unavailable" }).append("\n")
