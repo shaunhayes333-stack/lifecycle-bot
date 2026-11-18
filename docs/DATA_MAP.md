@@ -856,3 +856,18 @@ coin; `solSideAgrees` says whether the event's SOL amount is the curve-side amou
 | The creator's record (`LaunchFacts8840.DevHistory8840`) | already permanent: `dev_history_8840.tsv`, 50,000 creators, LRU | unchanged (only the per-launch creator rows in the tape database expire) |
 
 Not a learning store: no reset removes it. Report: `smartMoney8756[... walletLedger8860[wallets n>=3 n>=8 launchesArchived thisRun archivedTo atCap] ...]`.
+
+## 52. The runner model: the tape at the floor cross, kept rows, the whole stored tape, forward proof (8861)
+
+| Fact | Where it comes from | Where it goes |
+|---|---|---|
+| Every witnessed pump.fun print (price as stored, SOL, side, wallet, chain and receive time) | `TradeTape8100.launchEvidence8750`, beside `LaunchHour8628.trade` | live: `RunnerModel8861.onPrint8861` keeps a launch's live prints (first hour, at most 400) until its $5,000 cross and scores `features8861` there; replay: the same stored prints (`onLaunch8861`) |
+| The tape's shape at the cross — 24 readings (`FEATURES_8861`: prints per minute, buy and net SOL shares, unique / largest / top-3 / repeat buyers, first-3-seconds buy share, run-up from the low, 10 / 30 / 60 s returns and buy counts, transaction and volume acceleration, new buyers, sell share) | `features8861`, one pure function for live and replay | one ROW per crossing launch |
+| What buying the cross returned | `rowOf8861`: entered where the curve stood after the bot's latency, DOCTRINE ladder, 20 % stop, cost; `doubled8861` = twice the entry before the stop | graded on the whole stored tape: first hour plus `LaunchHour8628.tail8861` (prints up to 4 h from birth — no reader went past the hour before) |
+| The rows | written once the 4 h hold window is over | kept in `files/runner_rows_8861.bin` (12,000 rows; the tape itself lasts 48 h) |
+| The model | `TreeRanker8737.train8737` on doubled / not; the share it buys chosen on later rows (`choose8861`: oldest 60 % fit, next 20 % choose, newest 20 % read) | live score at the cross |
+| The proof | every new row is scored by the model fitted without it, only when its launch is newer than every row that model saw | `forward{picks … of every cross …}`, kept in the same file; ARMED by `proves8861` (n ≥ 100, mean − 2 SE > 0, positive without its best — the launch replay's forward bar) |
+| An armed pick | `evidence8861` (3 min) | `CandidateAdmission8136` market cell, after the smart-money evidence; safety, sellability, balance and economics unchanged |
+
+`parity{same differ otherCrossPrint}` compares the features the live path computed at a coin's cross with the row the replay
+later writes for it. Unarmed picks are counted (`shadowPicks`). Not a learning store: no reset removes the rows.

@@ -1870,6 +1870,7 @@ object CandidateAdmission8136 {
                 ?: ManualRead8806.evidence8806(ts.mint, nowMs)   // V5.0.8806 — an ARMED pattern of the owner's read
                 ?: com.lifecyclebot.engine.chart.ColourShape8807.evidence8807(ts.mint, nowMs)   // V5.0.8807 — a proven colour / candle / chart-shape pattern, armed on its own paper fires
                 ?: SmartMoney8756.evidence8756(ts.mint, nowMs)
+                ?: RunnerModel8861.evidence8861(ts.mint, nowMs)   // V5.0.8861 — the runner model's pick at the floor cross, armed on its forward record
                 ?: try { com.lifecyclebot.engine.lab.StrategyLab8755.evidence8755(ts, lane, nowMs) } catch (_: Throwable) { null },
             regimeCold8546 = live8290 && MemePaperTrader8544.memeLane8544(lane) &&
                 (try { MemeRegime8546.regime8546(nowMs) == MemeRegime8546.Regime8546.COLD } catch (_: Throwable) { false }),

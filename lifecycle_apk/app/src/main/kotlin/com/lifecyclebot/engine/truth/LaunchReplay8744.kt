@@ -82,8 +82,8 @@ object LaunchReplay8744 {
     /** A print received more than this after its chain time is a backfill: it never triggers an entry. */
     const val LIVE_LAG_MS_8748 = 15_000L
     /** The rule LaunchSniper8748 trades must hold at a latency the bot can meet (8 s loop + quote + send). */
-    private const val ARM_MIN_DELAY_MS_8748 = 10_000L
-    private const val PROVEN_MIN_N_8748 = 100
+    internal const val ARM_MIN_DELAY_MS_8748 = 10_000L
+    internal const val PROVEN_MIN_N_8748 = 100
     private const val SELL_DELAY_MS_8748 = 1_500L
     private const val SPIKE_X_8748 = 3.0
     /** The live entry size the cost is charged at (SOL) and a fresh curve's depth (virtual 30 SOL + a few real). */
@@ -96,7 +96,7 @@ object LaunchReplay8744 {
     private const val MIN_N = 50
     private const val RUN_EVERY_MS = 30L * 60_000L
     internal const val MAX_LAUNCHES = 6_000
-    private const val SUPPLY = 1.0e9
+    internal const val SUPPLY = 1.0e9
 
     /** V5.0.8749 — 5 s and 20 s join 2 / 10 / 30 s: the armed rule must match the latency the bot measures (LaunchSniper8748). */
     private val DELAYS_8749 = listOf(2_000L, 5_000L, 10_000L, 20_000L, 30_000L)
@@ -349,7 +349,7 @@ object LaunchReplay8744 {
     }
     private const val MAX_NOMINEES_8856 = 12
     private const val HOUR_MS_8856 = 3_600_000L
-    private const val FORWARD_Z_8856 = 2.0
+    internal const val FORWARD_Z_8856 = 2.0
     private val forward8856 = LinkedHashMap<String, Forward8856>()
     @Volatile private var forwardRestored8856 = false
 
@@ -486,6 +486,8 @@ object LaunchReplay8744 {
                     val x = clean8748(r.t, r.p, r.buy, r.live, r.sol, r.wallet, r.bornMs); spikes += x.spikes
                     if (x.live.any { it }) liveN++
                     set.add(x)
+                    // V5.0.8861 — a launch that crossed the floor and whose hold window is over becomes one kept row of the runner model
+                    try { RunnerModel8861.onLaunch8861(r, solUsd, nowMs) } catch (_: Throwable) {}
                     // V5.0.8822 — every completed launch hour is also one chart for the colour/shape setup learner
                     try { com.lifecyclebot.engine.chart.ColourShape8807.learnLaunch8822(r.mint, r.bornMs, x.t, x.p, x.sol, nowMs) } catch (_: Throwable) {}
                 }
@@ -503,6 +505,7 @@ object LaunchReplay8744 {
                 try { BaseFamily8754.evaluate8754(set, solUsd, cost, need) } catch (_: Throwable) {}   // V5.0.8754 the base family, same paths
                 try { SmartMoney8756.evaluate8756(set, walletNames, cost, need) } catch (_: Throwable) {}            // V5.0.8756 the wallets, same paths
                 try { SignalReplay8828.evaluate8828(set, solUsd, cost, need) } catch (_: Throwable) {}              // V5.0.8828 the owner's signals, same paths
+                try { RunnerModel8861.evaluate8861(cost, need, nowMs) } catch (_: Throwable) {}                       // V5.0.8861 the runner model, the same launches on their whole tape
                 paths8755 = set; solUsd8755 = solUsd; cost8755 = cost
                 val births = try { LaunchHour8628.births8749(nowMs) } catch (_: Throwable) { -1 }
                 status = "ran births48h=$births launches>=3prints=${set.size} withLivePrints=$liveN needDelay=${need / 1000}s spikesDropped=$spikes solUsd=${"%.0f".format(solUsd)} cost=${"%.1f".format(cost)}%"

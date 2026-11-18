@@ -192,6 +192,24 @@ object LaunchHour8628 {
         }
     }
 
+    /**
+     * V5.0.8861 — the prints of [mint] the tape holds AFTER its first hour, up to [toOffsetMs] from birth: times (ms from
+     * birth), prices and sides, in time order. The tape keeps every witnessed print for 48 h whatever the coin's age; every
+     * reader stopped at the hour, so a hold was always graded as sold at the hour's last print. Read-only.
+     */
+    internal fun tail8861(mint: String, bornMs: Long, toOffsetMs: Long): Triple<LongArray, DoubleArray, BooleanArray>? {
+        val path = AATEApp.appContextOrNull()?.getDatabasePath(NAME) ?: return null
+        if (!path.exists() || toOffsetMs <= HOUR) return null
+        val ts = ArrayList<Long>(); val ps = ArrayList<Double>(); val bs = ArrayList<Boolean>()
+        SQLiteDatabase.openDatabase(path.path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
+            db.rawQuery("SELECT t,p,side FROM trade WHERE m=? AND t > ? AND t <= ? ORDER BY t,s,side",
+                arrayOf(mint, (bornMs + HOUR).toString(), (bornMs + toOffsetMs).toString())).use { c ->
+                while (c.moveToNext()) { ts.add(c.getLong(0) - bornMs); ps.add(c.getDouble(1)); bs.add(c.getInt(2) == 1) }
+            }
+        }
+        return Triple(ts.toLongArray(), ps.toDoubleArray(), bs.toBooleanArray())
+    }
+
     private const val PATH_MIN_PRINTS_8741 = 20
     private const val REPLAY_MIN_PRINTS_8788 = 3
     private const val BAR_MS_8741 = 10_000L

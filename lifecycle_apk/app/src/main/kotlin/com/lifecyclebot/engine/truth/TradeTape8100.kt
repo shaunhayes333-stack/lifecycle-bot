@@ -146,6 +146,10 @@ object TradeTape8100 {
           if (fresh8841) {
             launchPublishedCount8841.incrementAndGet()
             LaunchHour8628.trade(mint, eventMs, sig, isBuy, sol, tokenQty, priceSol, recvMs, src, wallet)
+            // V5.0.8861 — the runner model reads the print exactly as the tape stores it (the stored price, a signed print only)
+            if (sig.isNotBlank()) LaunchHour8628.observedPrice8642(sol, tokenQty, priceSol)?.let { stored ->
+                RunnerModel8861.onPrint8861(mint, eventMs, recvMs, stored, sol, isBuy, wallet)
+            }
             ManualRead8806.onPrint8806(mint, eventMs, priceSol, isBuy, recvMs)   // V5.0.8806 — the owner's read, every witnessed print
             com.lifecyclebot.engine.chart.OwnBars8816.onPrint8816(mint, eventMs, priceSol, sol, recvMs)   // V5.0.8816 — every coin's own chart
             LaunchSniper8748.onPrint8748(mint, eventMs, priceSol, isBuy, recvMs, sig, sol, wallet)   // V5.0.8748 / 8828 — live prints only (it checks the lag)

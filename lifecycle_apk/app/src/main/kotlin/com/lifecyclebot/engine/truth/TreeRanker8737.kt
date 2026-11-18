@@ -29,7 +29,7 @@ object TreeRanker8737 {
     private const val TREES = 150
     private const val LR = 0.05
     private const val DEPTH = 4
-    private const val MIN_LEAF_W = 40.0
+    internal const val MIN_LEAF_W = 40.0
     private const val L2 = 1.0
     private const val BINS = 32
     private const val CLIP_LO = -60.0
