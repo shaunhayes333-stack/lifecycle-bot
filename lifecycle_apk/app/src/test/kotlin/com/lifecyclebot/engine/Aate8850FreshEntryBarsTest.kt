@@ -4,6 +4,7 @@ import com.lifecyclebot.engine.truth.MarkBars7948
 import com.lifecyclebot.engine.truth.TradePlan7739
 import org.junit.Assert.*
 import org.junit.Test
+import java.io.File
 
 /** Historical OHLCV must not hide the trade/mark evidence seen after it from a live entry. */
 class Aate8850FreshEntryBarsTest {
@@ -66,5 +67,17 @@ class Aate8850FreshEntryBarsTest {
         assertFalse(TradePlan7739.postDecisionMark8850(decision - 1_000L, decision, now))
         assertFalse(TradePlan7739.postDecisionMark8850(decision + 5_000L, decision, now))
         assertFalse(TradePlan7739.postDecisionMark8850(decision + 1_000L, decision, now + 40_000L))
+    }
+
+    @Test fun allThreeSolanaBuyBuildersObserveFreshStageBeforeBroadcast() {
+        val executor = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val jupiter = executor.substringAfter("private fun prepareJupiterBuy8090(").substringBefore("private fun buildBuyTxOrRaydium8089(")
+        val raydium = executor.substringAfter("private fun tryRaydiumBuy7325(").substringBefore("private fun tryPumpPortalBuy(")
+        val pump = executor.substringAfter("private fun tryPumpPortalBuy(")
+        assertTrue(jupiter.contains("TradePlan7739.preBroadcastStageRefusal8850("))
+        assertTrue(raydium.contains("TradePlan7739.preBroadcastStageRefusal8850("))
+        assertTrue(pump.contains("TradePlan7739.preBroadcastStageRefusal8850("))
+        assertTrue(jupiter.indexOf("preBroadcastStageRefusal8850") >= 0 &&
+            jupiter.lastIndexOf("LiveTradeLogStore.Phase.BUY_BROADCAST") > jupiter.indexOf("preBroadcastStageRefusal8850"))
     }
 }

@@ -18,8 +18,8 @@ reason to loosen profit/rug/liquidity rules.
 * **Entry only:** a sufficiently populated, fresh, executed-trade 15-second or minute
   series can replace an older historical chart. A stale, thin, price-only or
   not-actually-newer series cannot.
-* **Both live signing routes:** if a new observed mark arrives while a Jupiter or
-  Pump-first transaction is built, the current sell-dominance/reclaim stage is
+* **All three live signing routes:** if a new observed mark arrives while a Jupiter,
+  Pump-first or Raydium-fallback transaction is built, the current sell-dominance/reclaim stage is
   rechecked before broadcast. No new mark means no extra network call or wait.
 * **Exits unchanged:** historical completed bars still power structural exit trails;
   full on-chain finality, quote/fee validation, FDG, rug, stage and wallet authority

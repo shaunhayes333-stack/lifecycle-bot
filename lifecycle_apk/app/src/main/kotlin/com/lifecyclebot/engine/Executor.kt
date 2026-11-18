@@ -32338,6 +32338,9 @@ class Executor(
                 CostTrim8151.EST_SWAP_CU_8151) + tip8521).toDouble() / 1_000_000_000.0
             com.lifecyclebot.engine.truth.EntryEconomics8329.executableNetRefusal8521(
                 ts, intent8198, solAmount, floorPrice8521, fixed8521, "RAYDIUM_MIN_OUT")?.let { throw RouteEconomicsRefused(it) }
+            // V5.0.8850 — the fallback builder has the same last-second stage authority as Pump-first and Jupiter.
+            com.lifecyclebot.engine.truth.TradePlan7739.preBroadcastStageRefusal8850(
+                ts, maxOf(intent8198.createdAt, intent8198.executableMarkTimestampMs6613))?.let { throw RouteEconomicsRefused(it) }
             LiveTradeLogStore.log(
                 tradeKey, ts.mint, ts.symbol, "BUY",
                 LiveTradeLogStore.Phase.BUY_BROADCAST,
