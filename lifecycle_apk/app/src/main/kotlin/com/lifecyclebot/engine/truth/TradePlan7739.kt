@@ -166,19 +166,42 @@ object TradePlan7739 {
         // V5.0.7951 — the token's one-minute history seeds its mark tape at first sight, so
         // the bars outlive a provider re-seed clearing ts.history and (MarkBarsStore7951) a restart.
         if (hist.isNotEmpty()) try { MarkBars7948.seedBars7951(ts.mint, hist, nowMs) } catch (_: Throwable) {}
-        if (hist.size > MIN_BARS_7739) return hist
-        val merged = MarkBars7948.merge7948(hist, MarkBars7948.bars7948(ts.mint, nowMs, WINDOW_MS_7739), MIN_BARS_7739 + 1)
+        if (!entry8317 && hist.size > MIN_BARS_7739) return hist  // established exit trails retain provider OHLCV
+        val marks = MarkBars7948.bars7948(ts.mint, nowMs, WINDOW_MS_7739)
+        // V5.0.8850 — the entry checkpoint must not freeze at an old six-bar history and miss an unfolding sell-off.
+        // Completed provider minutes still win; observed marks update the forming minute and fill newer missing ones.
+        val merged = if (entry8317) MarkBars7948.mergeEntryFresh8850(hist, marks, nowMs)
+            else MarkBars7948.merge7948(hist, marks, MIN_BARS_7739 + 1)
         if (merged.size > hist.size) MarkBars7948.noteLent7948(merged.size - hist.size)
+        var localBars8850: List<Bar>? = null
+        if (entry8317) {
+            val age = ageMin8317(ts, nowMs)
+            // V5.0.8317's real 15-second swap bars are valuable precisely when a populated historical chart is now old.
+            // Prefer them only when they carry a genuinely NEWER executed print. Price-only observations never enter it.
+            val fromSwaps = preferExecutedEntryBars8850(merged, youngBars8317(ts.mint, nowMs, age), nowMs,
+                YOUNG_BAR_MS_8317 * 3L, minBars8317(age))
+            if (fromSwaps !== merged) return fromSwaps
+            localBars8850 = localTapeBars8136(ts.mint, nowMs, age)
+            val fromMinuteSwaps = preferExecutedEntryBars8850(merged, localBars8850, nowMs,
+                120_000L, minBars8317(age))
+            if (fromMinuteSwaps !== merged) return fromMinuteSwaps
+        }
         if (merged.size <= MIN_BARS_7739) {
             val age8317 = ageMin8317(ts, nowMs)
-            // V5.0.8317 — an ENTRY read of a launch-window coin: its own executed prints in 15-second bars (six bars ≈ 90 s)
-            // when they outnumber the one-minute series. Entry only: the exit trail keeps reading one-minute bars.
-            if (entry8317) youngBars8317(ts.mint, nowMs, age8317)?.takeIf { it.size > merged.size }?.let { return it }
             // V5.0.8136 — still short: the coin's own executed prints (LocalTapeBars8128, one source, traded minutes only —
             // V5.0.8317: as many as its age allows — no gap fill, no synthetic candle) when they read more minutes than history + marks.
-            localTapeBars8136(ts.mint, nowMs, age8317)?.takeIf { it.size > merged.size }?.let { return it }
+            (localBars8850 ?: localTapeBars8136(ts.mint, nowMs, age8317))?.takeIf { it.size > merged.size }?.let { return it }
         }
         return merged
+    }
+
+    /** Pure (8850): live executed trades replace an older entry chart, never the other way around. */
+    internal fun preferExecutedEntryBars8850(merged: List<Bar>, executed: List<Bar>?, nowMs: Long,
+                                             maxAgeMs: Long, minBars: Int): List<Bar> {
+        if (executed == null || executed.size < minBars.coerceAtLeast(3)) return merged
+        val latest = executed.lastOrNull()?.startMs ?: return merged
+        if (nowMs - latest !in 0L..maxAgeMs || latest <= (merged.lastOrNull()?.startMs ?: 0L)) return merged
+        return executed
     }
 
     /** V5.0.8136 — one-minute plan bars from the executed-trade tape (TradeTape8100) via LocalTapeBars8128, or null. */
@@ -427,6 +450,25 @@ object TradePlan7739 {
             "CHASING_THE_HIGH", "EXTENDED_PAST_BASE" -> read.why
             else -> null
         }
+    }
+
+    /** Pure (8850): the last on-chain/market mark is newer than the FDG decision and still fresh at signing time. */
+    internal fun postDecisionMark8850(lastMarkMs: Long, decisionAtMs: Long, nowMs: Long): Boolean =
+        lastMarkMs > decisionAtMs && nowMs - lastMarkMs in 0L..30_000L
+
+    /**
+     * The Jupiter and Pump-first signing doors: if the price tape UPDATED while an order was being built, check the
+     * current stage again against that observed tape. No new mark means no redundant veto; a changed, sell-dominated
+     * or failed-reclaim chart is a retryable WAIT, not a fabricated historical risk or an execution permission.
+     */
+    fun preBroadcastStageRefusal8850(ts: TokenState, decisionAtMs: Long, nowMs: Long = System.currentTimeMillis()): String? {
+        if (!postDecisionMark8850(ts.lastPriceUpdate, decisionAtMs, nowMs)) return null
+        val bars = barsFrom(ts, nowMs, entry8317 = true)
+        val read = readForEntry7837(ts, nowMs, bars)
+        val danger = currentStageWait8849(read, bars, tierFor(ts.lastMcap), minBars8317(ageMin8317(ts, nowMs)), nowMs)
+            ?: return null
+        try { PipelineHealthCollector.labelInc("PRE_BROADCAST_STAGE_WAIT_8850_$danger") } catch (_: Throwable) {}
+        return "PRE_BROADCAST_STAGE_WAIT_8850_$danger"
     }
 
     /** Pure: the best-paying setup the bars show, or the reason none is present. */

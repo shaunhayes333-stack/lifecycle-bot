@@ -31458,6 +31458,11 @@ class Executor(
         SizingQuoteRecheck8153.preBroadcastQuoteRefusal8167(ts, sol, executionQuote7688, intent8198 = intent8198)?.let { buyTerminalFail("BUY_TERMINAL_PRE_BROADCAST_ECONOMICS:$it"); return null }  // V5.0.8167 — final quote economics
         com.lifecyclebot.engine.truth.EntryEconomics8329.jupiterQuoteRefusal8329(ts, intent8198, effectiveSol, executionQuote7688)?.let { buyTerminalFail(it); return null }
         EntryContinuity8418.jupiterRefusal8418(ts, intent8198, jq7325, executionQuote7688, buyBaseSlippage)?.let { buyTerminalFail("BUY_TERMINAL_$it"); return null }  // V5.0.8418 — the exact approved decision
+        // V5.0.8850 — 8848 could buy the prior chart stage even after fresh prints showed a sell-off while quoting.
+        // In-memory only, and only when a NEW post-FDG mark exists; never delays an unchanged fast entry.
+        com.lifecyclebot.engine.truth.TradePlan7739.preBroadcastStageRefusal8850(
+            ts, maxOf(intent8198.createdAt, intent8198.executableMarkTimestampMs6613))
+            ?.let { buyTerminalFail("BUY_TERMINAL_$it"); return null }
 
         useJito = c.jitoEnabled && !executionQuote7688.isUltra
         jitoTip = effectiveJitoTipLamports(c, urgent = false)
@@ -32542,6 +32547,16 @@ class Executor(
                     LiveTradeLogStore.log(tradeKey, ts.mint, ts.symbol, "BUY", LiveTradeLogStore.Phase.BUY_FAILED,
                         "PUMP-FIRST final economics: $finalRefusal8521 — retry same ticket on quoted route", traderTag = traderTag)
                     return null
+                }
+                // Recheck only an actual NEW signed/market mark before the Pump-first signing door, like Jupiter.
+                finalIntent8521?.let { sealed8850 ->
+                    com.lifecyclebot.engine.truth.TradePlan7739.preBroadcastStageRefusal8850(
+                        ts, maxOf(sealed8850.createdAt, sealed8850.executableMarkTimestampMs6613))?.let {
+                        PipelineHealthCollector.labelInc(it)
+                        LiveTradeLogStore.log(tradeKey, ts.mint, ts.symbol, "BUY", LiveTradeLogStore.Phase.BUY_FAILED,
+                            "PUMP-FIRST updated-stage wait: $it", traderTag = traderTag)
+                        return null
+                    }
                 }
             }
             // V5.0.8169 — name the route actually used: the Sender envelope (when built) plus the parallel RPC fan-out

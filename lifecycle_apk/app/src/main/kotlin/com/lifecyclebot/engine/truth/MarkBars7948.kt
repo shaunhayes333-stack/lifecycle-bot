@@ -117,6 +117,25 @@ object MarkBars7948 {
         return byMinute.values.toList()
     }
 
+    /**
+     * V5.0.8850 — entry-stage reads must include the newest observed minute even if a historical provider already
+     * supplied six bars. [merge7948] intentionally stops at six for historical/exit use, but that silently hid live
+     * sell-offs from the 8849 entry-stage check. Completed provider bars retain priority; the forming minute belongs
+     * to the newer live mark tape. Missing newer minutes are filled by real observed marks, never synthetic candles.
+     */
+    fun mergeEntryFresh8850(history: List<TradePlan7739.Bar>, marks: List<TradePlan7739.Bar>, nowMs: Long): List<TradePlan7739.Bar> {
+        val byMinute = TreeMap<Long, TradePlan7739.Bar>()
+        for (b in marks) if (b.startMs > 0L && b.startMs <= nowMs && b.close.isFinite() && b.close > 0.0)
+            byMinute[b.startMs / BUCKET_MS] = b
+        val formingMinute = nowMs / BUCKET_MS
+        for (b in history) if (b.startMs > 0L && b.startMs <= nowMs) {
+            val minute = b.startMs / BUCKET_MS
+            // The history feed may carry an older forming-candle snapshot. Its OHLCV must not overwrite a later mark.
+            if (minute != formingMinute || minute !in byMinute) byMinute[minute] = b
+        }
+        return byMinute.values.toList()
+    }
+
     /** TradePlan7739: count a read that the mark tape lengthened. */
     fun noteLent7948(added: Int) {
         if (added <= 0) return
