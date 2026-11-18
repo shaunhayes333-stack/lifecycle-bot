@@ -51,9 +51,11 @@ class Aate8813JobCostTest {
         val tree = src("engine/truth/TreeRanker8737.kt")
         assertTrue(tree.contains("JobCost8813.measureBackground8817(\"treeParse\")") && tree.contains("JobCost8813.measureBackground8817(\"treeTrain\")"))
         assertTrue(src("engine/lab/StrategyLab8755.kt").contains("JobCost8813.measureBackground8817(\"strategyLab\") { run(nowMs) }"))
-        assertTrue(src("engine/truth/ManagedBands8719.kt").contains("JobCost8813.measureBackground8817(\"managedBandsSeed\") { seedFromDataset() }"))
-        assertTrue(src("engine/truth/PayingCell8723.kt").contains("JobCost8813.measureBackground8817(\"payingCellSeed\") { seedFromDataset() }"))
-        assertTrue(src("engine/truth/PocketLedger8610.kt").contains("JobCost8813.measureBackground8817(\"pocketLedgerSeed\") { seedFromDataset() }"))
+        // superseded by V5.0.8863 — the three ledgers' dataset replays are one measured job (DatasetReplay8863 "datasetSeed");
+        // each ledger's worker waits for it.
+        assertTrue(src("engine/truth/DatasetReplay8863.kt").contains("JobCost8813.measureBackground8817(\"datasetSeed\")"))
+        for (ledger in listOf("ManagedBands8719", "PayingCell8723", "PocketLedger8610"))
+            assertTrue(ledger, src("engine/truth/$ledger.kt").contains("ready = DatasetReplay8863.await8863()"))
         assertTrue(src("engine/truth/EdgeModel8537.kt").contains("JobCost8813.measureBackground8817(\"edgeReplay\")"))
         assertTrue(src("network/CoinGeckoSolanaTopMcap.kt").contains("idMintMap8813(body)"))
         assertTrue(src("engine/PipelineHealthCollector.kt").contains("JobCost8813.statusLine8813()"))

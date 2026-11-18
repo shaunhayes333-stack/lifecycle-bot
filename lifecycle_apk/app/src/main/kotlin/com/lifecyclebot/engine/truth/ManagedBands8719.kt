@@ -122,29 +122,30 @@ object ManagedBands8719 {
         if (ready || loading) return
         synchronized(this) { if (ready || loading) return; loading = true }
         io.execute {
-            try { com.lifecyclebot.engine.JobCost8813.measureBackground8817("managedBandsSeed") { seedFromDataset() }; ready = true }   // V5.0.8813 — measured
+            // V5.0.8863 — seeded by the one shared read of the dataset (DatasetReplay8863, job "datasetSeed"); this worker
+            // waits for it, so a live label queued behind it is filed after the replay.
+            try {
+                ready = DatasetReplay8863.await8863()
+                if (!ready) PipelineHealthCollector.labelInc("MANAGED_BANDS_8719_LOAD_FAILED")
+            }
             catch (_: Throwable) { try { PipelineHealthCollector.labelInc("MANAGED_BANDS_8719_LOAD_FAILED") } catch (_: Throwable) {} }
             finally { loading = false }
         }
     }
 
-    /** Replay the device's own labelled decisions (the dataset EdgeModel8537 exports), as PocketLedger8610 does. */
-    private fun seedFromDataset() {
-        val f = EdgeModel8537.datasetFile() ?: return
-        if (!f.exists()) return
-        fun d(o: JSONObject, k: String) = if (o.isNull(k)) Double.NaN else o.optDouble(k, Double.NaN)
-        val stops = HashMap<String, Double>()
-        f.forEachLine { line ->
-            try {
-                if (!line.contains("\"horizonMs\"")) return@forEachLine
-                val o = JSONObject(line)
-                if (!EdgeModel8537.replayAccept8642(o)) return@forEachLine
-                val net = d(o, "net"); if (!net.isFinite()) return@forEachLine
-                val lane = o.optString("lane").trim().uppercase(); if (lane.isBlank()) return@forEachLine
-                add(lane, d(o, "liq"), d(o, "mcap"), net, d(o, "cost"), stops.getOrPut(lane) { stopOf(lane) })
-            } catch (_: Throwable) {}
-        }
+    // each lane's stop, read once per replay (DatasetReplay8863 runs one pass at a time)
+    private val seedStops8863 = HashMap<String, Double>()
+
+    /** DatasetReplay8863: one accepted row of the device's own labelled decisions, as PocketLedger8610 takes it. */
+    internal fun seedRow8863(o: JSONObject) {
+        fun d(k: String) = if (o.isNull(k)) Double.NaN else o.optDouble(k, Double.NaN)
+        val net = d("net"); if (!net.isFinite()) return
+        val lane = o.optString("lane").trim().uppercase(); if (lane.isBlank()) return
+        add(lane, d("liq"), d("mcap"), net, d("cost"), seedStops8863.getOrPut(lane) { stopOf(lane) })
     }
+
+    /** DatasetReplay8863: the replay is over. */
+    internal fun seedDone8863() { seedStops8863.clear() }
 
     fun statusLine8719(): String {
         val proven = cells.entries.filter { (_, c) -> synchronized(c) { proven8719(c.n, c.sum, c.sq) } }

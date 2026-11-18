@@ -1618,6 +1618,8 @@ object PipelineHealthCollector {
         sb.append("  Job cost (§8813): ").append(try { JobCost8813.statusLine8813() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  CPU sample (§8815): ").append(try { CpuSample8815.statusLine8815() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Error log writes (§8818): ").append(try { ErrorLogger.statusLine8818() } catch (_: Throwable) { "unavailable" }).append("\n")
+        sb.append("  Forensic log (§8863): ").append(try { ForensicLogger.statusLine8863() } catch (_: Throwable) { "unavailable" }).append("\n")
+        sb.append("  Dataset seed (§8863): ").append(try { com.lifecyclebot.engine.truth.DatasetReplay8863.statusLine8863() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Header context (§8809): ").append(try { com.lifecyclebot.network.DexScreenerSocialSource.statusLine8809() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Colour and shape (§8807): ").append(try { com.lifecyclebot.engine.chart.ColourShape8807.statusLine8807() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  xStocks spot (§8802): ").append(try { com.lifecyclebot.xstocks.XsDesk.statusLine() } catch (_: Throwable) { "unavailable" }).append("\n")

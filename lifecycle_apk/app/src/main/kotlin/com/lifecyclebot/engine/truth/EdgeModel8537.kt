@@ -699,6 +699,80 @@ object EdgeModel8537 {
         return plausible8617(row.optDouble("mcap", Double.NaN), net, row.optBoolean("witness", false))
     }
 
+    // ── V5.0.8863 §A_ROW_ITS_OWN_TEXT_REFUSES_IS_NOT_PARSED ──
+    // Owner's phone on 5.0.8856, 185 s after start (report of 19 Nov 05:24, dataset export of the same minute, 57,955 rows,
+    // 80 MB): the job meter lists five passes over this one file inside the first three minutes — treeParse 5.6 s of CPU,
+    // pocketLedgerSeed 6.8 s, payingCellSeed 6.3 s, managedBandsSeed 6.7 s, strategyLab 3.6 s; the first four each ran for 14
+    // to 20 s of wall time, while the process allocated about 5.4 GB a minute and its collector thread used 22 s of CPU a
+    // minute. Every one of them builds a JSONObject for each line it reads and then asks [replayAccept8642], which refuses
+    // a row on its first facts: "fill" is false, or its decision time "t" is before the learning line. On that export
+    // 57,373 rows are before the line of 03:59 and 55 more are unfilled: 57,428 of 57,955 rows (99.1 %) were parsed only
+    // to be refused, by each reader that reached them. With no reset line the unfilled rows alone are 12,323 (21 %).
+    //
+    // [datasetLine] writes "t" first and both as bare literals, so those two facts are read from the line's text. The test
+    // answers true ONLY where replayAccept8642 would answer false for the object that line parses to (or the line does not
+    // parse at all, which every reader also skips); anything it is not certain of is parsed as before. Checked against
+    // every row of that export: 57,428 refused unparsed, none wrongly, none missed.
+    private const val T_PREFIX_8863 = "{\"t\":"
+    private const val T_KEY_8863 = "\"t\":"
+    private const val FILL_KEY_8863 = "\"fill\":"
+    /** 18 digits always fit a Long; a longer number is left to the parser. */
+    private const val T_MAX_DIGITS_8863 = 18
+
+    /**
+     * Pure: is [line] certain to be refused by [replayAccept8642], judged from its text alone?
+     *  - its first key is "t", written once, a plain decimal with no leading zero (the parser reads a leading zero as
+     *    octal) ending at a comma, and that time is before the learning line [epochMs]; or
+     *  - "fill" is written once, as the literal false, in a line with no nested object (so the key is the row's own).
+     * A quote inside a JSON string is always escaped, so neither key text can occur inside a value.
+     */
+    internal fun refusedUnparsed8863(line: String, epochMs: Long = LearningEpoch8164.epochMs8164()): Boolean {
+        val from = T_PREFIX_8863.length
+        if (line.startsWith(T_PREFIX_8863) && line.indexOf(T_KEY_8863, from) < 0) {
+            var i = from
+            var t = 0L
+            while (i < line.length && i - from < T_MAX_DIGITS_8863 && line[i] in '0'..'9') { t = t * 10L + (line[i] - '0'); i++ }
+            if (i > from && line[from] != '0' && i < line.length && line[i] == ',' && LearningEpoch8164.preEpoch8164(t, epochMs)) return true
+        }
+        val f = line.indexOf(FILL_KEY_8863)
+        return f >= 0 && line.startsWith("false", f + FILL_KEY_8863.length) && line.indexOf(FILL_KEY_8863, f + 1) < 0 && line.indexOf('{', 1) < 0
+    }
+
+    /**
+     * V5.0.8863 — the number of lines a line reader yields for [file], counted on its bytes: a line ends at \n, \r or \r\n
+     * and a last line without a terminator counts (java.io.BufferedReader.readLine's rule; neither byte occurs inside a
+     * UTF-8 multi-byte character). The readers that keep only the newest rows counted the file by decoding all 80 MB into
+     * 58,000 strings and dropping them.
+     */
+    internal fun countLines8863(file: File): Int {
+        if (!file.isFile) return 0
+        val lf = 10.toByte()   // \n
+        val cr = 13.toByte()   // \r
+        var lines = 0
+        var partial = false   // bytes read since the last terminator
+        var afterCr = false    // the previous byte was \r: a \n now belongs to the same terminator
+        val buf = ByteArray(1 shl 16)
+        file.inputStream().use { input ->
+            while (true) {
+                val n = input.read(buf)
+                if (n < 0) break
+                for (i in 0 until n) {
+                    val b = buf[i]
+                    if (b == lf) {
+                        if (!afterCr) lines++
+                        partial = false; afterCr = false
+                    } else if (b == cr) {
+                        lines++
+                        partial = false; afterCr = true
+                    } else {
+                        partial = true; afterCr = false
+                    }
+                }
+            }
+        }
+        return if (partial) lines + 1 else lines
+    }
+
     /**
      * V5.0.8776 §ONE_COIN_ONCE — code audit (data P1-10): one decision pass observes a coin in every lane at the same instant,
      * and the global ridge learned it once per lane (up to 12x), so a single runner shrank the standard errors that gate
@@ -722,7 +796,7 @@ object EdgeModel8537 {
     internal fun streamLatestDatasetRows8844(file: File, maxRows: Int = DATASET_MAX_LINES, consume: (String) -> Unit): Int {
         require(maxRows > 0)
         if (!file.isFile) return 0
-        val total = file.useLines { it.count() }
+        val total = countLines8863(file)   // V5.0.8863 — counted on the bytes, no string per line
         val skip = (total - maxRows).coerceAtLeast(0)
         var index = 0
         file.forEachLine { line -> if (index++ >= skip) consume(line) }
@@ -735,6 +809,7 @@ object EdgeModel8537 {
         var used = 0
         val seen = streamLatestDatasetRows8844(file) row8844@{ line ->
             try {
+                if (refusedUnparsed8863(line)) return@row8844   // V5.0.8863 — refused by its own text: no object built
                 val o = org.json.JSONObject(line)
                 if (!replayAccept8642(o)) return@row8844
                 fun d(k: String) = column8801(o, k)

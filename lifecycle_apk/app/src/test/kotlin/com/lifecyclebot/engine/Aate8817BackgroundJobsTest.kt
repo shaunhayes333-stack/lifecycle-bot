@@ -19,8 +19,9 @@ class Aate8817BackgroundJobsTest {
     }
 
     @Test fun theBatchReplaysYieldButTheCloseCommitDoesNot() {
-        for ((f, n) in listOf("engine/truth/PocketLedger8610.kt" to "pocketLedgerSeed", "engine/truth/PayingCell8723.kt" to "payingCellSeed",
-                "engine/truth/ManagedBands8719.kt" to "managedBandsSeed", "engine/truth/TreeRanker8737.kt" to "treeParse",
+        // superseded by V5.0.8863 — the pocket ledger, paying cells and managed bands are seeded by one read of the dataset
+        // (DatasetReplay8863, job "datasetSeed") in place of three jobs of their own; it yields the same way.
+        for ((f, n) in listOf("engine/truth/DatasetReplay8863.kt" to "datasetSeed", "engine/truth/TreeRanker8737.kt" to "treeParse",
                 "engine/truth/TreeRanker8737.kt" to "treeTrain", "engine/truth/EdgeModel8537.kt" to "edgeReplay",
                 "engine/lab/StrategyLab8755.kt" to "strategyLab", "network/CoinGeckoSolanaTopMcap.kt" to "coingeckoCoinList"))
             assertTrue("$f $n", src(f).contains("JobCost8813.measureBackground8817(\"$n\")"))

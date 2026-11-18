@@ -155,12 +155,31 @@ class SplashActivity : AppCompatActivity() {
         val splashMs   = if (isFastMode) SPLASH_DURATION_FAST else SPLASH_DURATION
         uiHandler.postDelayed({
             stopParticleAnimation()
-            startActivity(Intent(this, MainActivity::class.java))
+            startActivity(dashboardIntent8863())
             overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
             finish()
         }, splashMs)
     }
     
+    /**
+     * V5.0.8863 §THE_SPLASH_RETURNS_TO_THE_DASHBOARD_THAT_IS_THERE — runtime acceptance on 5.0.8854, 5.0.8860 and 5.0.8862:
+     * "ANR in com.lifecyclebot.aate (SplashActivity) ... Waited 5000ms for FocusEvent(hasFocus=false)", the process at
+     * 257-291 % CPU, the main thread inside a dashboard frame (TextView.onPreDraw -> makeNewLayout on 8860, the first
+     * draw's HardwareRenderer.setStopped on 8862). Each time the splash had been opened over a task that already held a
+     * MainActivity, and five seconds later the hand-off started the dashboard with a bare intent. MainActivity is a
+     * standard-mode activity, so a bare intent builds a SECOND one: the 7,050-line layout inflated, bound and laid out
+     * again on the main thread while the engine holds every core, which is the five seconds the system waited for. The
+     * first dashboard stayed underneath, stopped but alive with its whole view tree, and every further re-entry added
+     * another.
+     *
+     * CLEAR_TOP | SINGLE_TOP: when the task already holds a MainActivity, that one comes back (onNewIntent, onRestart,
+     * onResume — the path every return from another screen already takes) and nothing is inflated; when it holds none
+     * (first open), one is created exactly as before. A record left behind by a killed process is brought back the way
+     * Android restores any activity, in place of a second record stacked over it.
+     */
+    private fun dashboardIntent8863(): Intent =
+        Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+
     /**
      * Creates twinkling particles that flow from edges toward the center
      * like data streaming into the hivemind.

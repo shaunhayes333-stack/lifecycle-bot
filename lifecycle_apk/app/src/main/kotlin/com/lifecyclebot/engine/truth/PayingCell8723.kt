@@ -127,28 +127,24 @@ object PayingCell8723 {
         if (ready || loading) return
         synchronized(this) { if (ready || loading) return; loading = true }
         io.execute {
-            try { com.lifecyclebot.engine.JobCost8813.measureBackground8817("payingCellSeed") { seedFromDataset() }; ready = true }   // V5.0.8813 — measured
+            // V5.0.8863 — seeded by the one shared read of the dataset (DatasetReplay8863, job "datasetSeed"); this worker
+            // waits for it, so a live label queued behind it is filed after the replay.
+            try {
+                ready = DatasetReplay8863.await8863()
+                if (!ready) PipelineHealthCollector.labelInc("PAYING_CELL_8723_LOAD_FAILED")
+            }
             catch (_: Throwable) { try { PipelineHealthCollector.labelInc("PAYING_CELL_8723_LOAD_FAILED") } catch (_: Throwable) {} }
             finally { loading = false }
         }
     }
 
-    /** Replay the device's own labelled decisions (the dataset EdgeModel8537 exports), oldest first as they were written. */
-    private fun seedFromDataset() {
-        val f = EdgeModel8537.datasetFile() ?: return
-        if (!f.exists()) return
-        fun d(o: JSONObject, k: String) = if (o.isNull(k)) Double.NaN else o.optDouble(k, Double.NaN)
-        f.forEachLine { line ->
-            try {
-                if (!line.contains("\"horizonMs\"")) return@forEachLine
-                val o = JSONObject(line)
-                if (!EdgeModel8537.replayAccept8642(o)) return@forEachLine
-                val net = d(o, "net"); if (!net.isFinite()) return@forEachLine
-                val mint = o.optString("mint")
-                val key = key8723(o.optString("lane"), mint, d(o, "age"), d(o, "liq")) ?: return@forEachLine
-                add(mint, key, o.optLong("t", 0L), net)
-            } catch (_: Throwable) {}
-        }
+    /** DatasetReplay8863: one accepted row of the device's own labelled decisions, oldest first as they were written. */
+    internal fun seedRow8863(o: JSONObject) {
+        fun d(k: String) = if (o.isNull(k)) Double.NaN else o.optDouble(k, Double.NaN)
+        val net = d("net"); if (!net.isFinite()) return
+        val mint = o.optString("mint")
+        val key = key8723(o.optString("lane"), mint, d("age"), d("liq")) ?: return
+        add(mint, key, o.optLong("t", 0L), net)
     }
 
     fun statusLine8723(): String {

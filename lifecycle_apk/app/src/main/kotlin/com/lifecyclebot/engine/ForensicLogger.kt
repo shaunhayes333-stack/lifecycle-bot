@@ -434,6 +434,60 @@ object ForensicLogger {
         }
     }
 
+    // ── V5.0.8863 §A_FORENSIC_LINE_IS_NOT_AN_ERROR_LOG_ROW ──
+    // Owner's phone on 5.0.8856 (19 Nov 05:24, 185 s after start): errorLog8818 rows=58,917, of which FORENSIC 36,194 —
+    // 196 forensic lines a second, each inserted into the error log's SQLite table, which is trimmed to 500 rows every
+    // 1,000 written. Six rows in ten of that table were forensic lines, and at 318 rows a second in all it held between
+    // a second and a half and five seconds of history for its readers (the Error Log screen, DefectSweep8433's stored errors,
+    // AdvisorKeyAuthority8353's stored tuner rows). The log thread was 6.9 % of all CPU stacks. And a forensic line shared
+    // the table's pressure bound: with more than 300 rows queued it was dropped before it reached logcat, where runtime
+    // acceptance reads its markers (droppedUnderPressure=1,713 rows of all components in that session).
+    //
+    // A forensic line is written here, on this logger's own background thread: to logcat under the same tag (AATE.FORENSIC,
+    // INFO) with the same 1,000-character bound, and into a ring of the newest [TAIL_MAX_8863] lines that the forensic
+    // summary prints. It is never inserted into the error table. PipelineHealthCollector still counts every occurrence
+    // at the call site, as before.
+    internal const val TAIL_MAX_8863 = 400
+    private const val LINE_MAX_8863 = 1000
+    private class TailLine8863(val atMs: Long, val text: String)
+    private val ring8863 = java.util.ArrayDeque<TailLine8863>(TAIL_MAX_8863)   // guarded by itself
+    private val written8863 = AtomicLong(0L)
+
+    /** Pure apart from the ring: keep [text] as the newest tail line (the oldest leaves once [TAIL_MAX_8863] are held). */
+    internal fun keepTail8863(atMs: Long, text: String) {
+        synchronized(ring8863) {
+            while (ring8863.size >= TAIL_MAX_8863) ring8863.removeFirst()
+            ring8863.addLast(TailLine8863(atMs, text))
+        }
+    }
+
+    private fun write8863(line: String) {
+        val text = if (line.length > LINE_MAX_8863) line.substring(0, LINE_MAX_8863) else line
+        try { android.util.Log.i("AATE.FORENSIC", text) } catch (_: Throwable) {}
+        keepTail8863(System.currentTimeMillis(), text)
+        written8863.incrementAndGet()
+    }
+
+    /** The newest [n] forensic lines, oldest first, each as "HH:mm:ss.SSS line". */
+    fun tail8863(n: Int = TAIL_MAX_8863): List<String> {
+        val held = synchronized(ring8863) { ring8863.toList() }
+        val fmt = java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.US)
+        return held.takeLast(n.coerceAtLeast(0)).map { fmt.format(java.util.Date(it.atMs)) + " " + it.text }
+    }
+
+    /** The forensic summary's tail section. */
+    fun tailText8863(n: Int = TAIL_MAX_8863): String {
+        val lines = tail8863(n)
+        return "Forensic tail (§8863): newest ${lines.size} of ${written8863.get()} lines written this run, oldest first\n" +
+            (if (lines.isEmpty()) "  (none yet)" else lines.joinToString("\n") { "  $it" })
+    }
+
+    fun statusLine8863(): String =
+        "forensicLog8863[written=${written8863.get()} tail=${synchronized(ring8863) { ring8863.size }}/$TAIL_MAX_8863 waiting=${pending.get()} " +
+            "rule=a forensic line goes to logcat (AATE.FORENSIC) and this ring; the forensic summary prints the ring; none is stored in the error log]"
+
+    internal fun resetForTest8863() { synchronized(ring8863) { ring8863.clear() }; written8863.set(0L) }
+
     private val drainRunnable: Runnable = Runnable {
         try {
             // Low-volume transition receipts must survive both forensic and SQLite
@@ -445,7 +499,7 @@ object ForensicLogger {
             var drained = 0
             while (drained < BATCH_MAX_DRAIN) {
                 val next = eventQueue.pollFirst() ?: break
-                try { ErrorLogger.info("FORENSIC", next) } catch (_: Throwable) {}
+                write8863(next)   // V5.0.8863 — logcat and this logger's own tail; no longer a row in the error log's table
                 pending.decrementAndGet()
                 drained += 1
             }

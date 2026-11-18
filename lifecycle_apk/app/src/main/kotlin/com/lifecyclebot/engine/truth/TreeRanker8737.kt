@@ -105,9 +105,11 @@ object TreeRanker8737 {
                 // [MAX_LINES_8737] lines only (the market the bot trades now).
                 // V5.0.8798 — counted first, then parsed straight into rows: the tail used to hold 25,000 JSON strings
                 // (~45 MB of heap, more with the wider rows) while it was parsed.
+                // V5.0.8863 — the count is taken on the file's bytes (EdgeModel8537.countLines8863), and a row its own text
+                // refuses is not parsed (rowsOf8737): on the phone this job spent 5.6 s of CPU counting 57,955 lines and
+                // parsing the newest 25,000 of them to keep 409 rows.
                 val rows = com.lifecyclebot.engine.JobCost8813.measureBackground8817("treeParse") {
-                    var total = 0
-                    dataset.useLines { seq -> seq.forEach { _ -> total++ } }
+                    val total = EdgeModel8537.countLines8863(dataset)
                     val skip = (total - MAX_LINES_8737).coerceAtLeast(0)
                     var idx = 0
                     dataset.useLines { seq -> rowsOf8737(seq.filter { idx++ >= skip }) }
@@ -131,6 +133,7 @@ object TreeRanker8737 {
         class R(val x: DoubleArray, val y: Double, val key: String)
         val out = ArrayList<R>()
         for (line in lines) {
+            if (EdgeModel8537.refusedUnparsed8863(line)) continue   // V5.0.8863 — replayAccept8642 below would refuse it: no object built
             val o = try { org.json.JSONObject(line) } catch (_: Throwable) { continue }
             val net = o.optDouble("net", Double.NaN)
             val lane = o.optString("lane", "")

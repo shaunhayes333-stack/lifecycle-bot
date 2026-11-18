@@ -56,8 +56,12 @@ class Aate8610PocketLedgerTest {
         assertTrue(src.indexOf("if (!plausible8617(s.raw.mcap, netPct, chainWitness))") in 0 until src.indexOf("PocketLedger8610.learn8610(s, netPct)"))
         // Pocket replay now shares the model's complete validity predicate, including
         // venue-scoped evidence and plausible returns; it must not bypass either one.
+        // superseded by V5.0.8863 — the replay is DatasetReplay8863's one read; it asks the same predicate of every row
+        // before the pocket ledger (or any other ledger) is given it.
         val pocketSrc = File("src/main/kotlin/com/lifecyclebot/engine/truth/PocketLedger8610.kt").readText()
-        assertTrue(pocketSrc.contains("if (!EdgeModel8537.replayAccept8642(o)) return@forEachLine"))
+        val replaySrc = File("src/main/kotlin/com/lifecyclebot/engine/truth/DatasetReplay8863.kt").readText()
+        assertTrue(pocketSrc.contains("ready = DatasetReplay8863.await8863()"))
+        assertTrue(replaySrc.contains("{ o -> EdgeModel8537.replayAccept8642(o) }"))
         assertTrue(src.contains("return plausible8617(row.optDouble(\"mcap\", Double.NaN), net, row.optBoolean(\"witness\", false))"))
     }
 

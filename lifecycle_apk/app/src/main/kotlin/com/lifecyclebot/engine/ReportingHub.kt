@@ -771,6 +771,9 @@ object ReportingHub {
         } else {
             appendLine("  unavailable")
         }
+        appendLine()
+        // V5.0.8863 — the newest forensic lines, from ForensicLogger's own ring (they are no longer rows in the error log)
+        appendLine(safe("forensic_tail_8863") { ForensicLogger.tailText8863() })
     }
 
     private inline fun <T> safeSnapshot(block: () -> T): T? = try { block() } catch (_: Throwable) { null }

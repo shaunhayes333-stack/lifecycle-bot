@@ -71,6 +71,7 @@ object StrategyLab8755 {
 
     /** Pure: one labelled decision of the exported dataset, or null (unlabelled, synthetic lanes, implausible). */
     fun row8755(line: String): Row? {
+        if (EdgeModel8537.refusedUnparsed8863(line)) return null   // V5.0.8863 — replayAccept8642 below would refuse it: no object built
         val o = try { JSONObject(line) } catch (_: Throwable) { return null }
         val net = o.optDouble("net", Double.NaN)
         val lane = o.optString("lane", "").uppercase()

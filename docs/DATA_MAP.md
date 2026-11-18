@@ -887,3 +887,29 @@ the rest of the network; nothing on the phone said whether another install exist
 
 Wallet and creator records are not pooled: the hive's books are sums, and two installs that saw the same launch would
 count it twice. Report: `Hive runner rows (§8862)`; `runnerModel8861[... rowsFromOtherInstalls8862=n ...]`.
+
+## 54. The launch freeze and the start-up load (8863)
+
+**Measured.** Runtime acceptance, 5.0.8854 / 8860 / 8862: `ANR in com.lifecyclebot.aate (SplashActivity) ... Waited 5000ms
+for FocusEvent(hasFocus=false)`, process at 257-291 % CPU, main thread inside a dashboard frame. Owner's phone, 5.0.8856,
+185 s after start (19 Nov 05:24; dataset export of the same minute: 57,955 rows, 80 MB): job meter `treeParse cpu5624ms`,
+`pocketLedgerSeed cpu6782ms`, `payingCellSeed cpu6263ms`, `managedBandsSeed cpu6666ms`, `strategyLab cpu3570ms`;
+`errorLog8818[rows=58917 transactions=13643 ... top8821=FORENSIC:36194 ...]`; CPU sampler `ErrorLogger.flush8818
+<SQLiteConnection.nativeExecute> 3.3%`, log thread 6.9 % of all CPU stacks.
+
+| What was happening | Where | Now |
+|---|---|---|
+| The splash's hand-off started the dashboard with a bare intent: over a task that already held a `MainActivity` it built a second one (7,050-line layout) on the main thread | `SplashActivity.dashboardIntent8863` | `FLAG_ACTIVITY_CLEAR_TOP or FLAG_ACTIVITY_SINGLE_TOP`: the dashboard that is there comes back; one is created only when the task holds none |
+| Five passes over the labelled dataset in the first three minutes, each building a JSONObject for every line it read to have `replayAccept8642` refuse it (57,428 of 57,955 rows: before the learning line, or unfilled) | `EdgeModel8537.refusedUnparsed8863` | a row whose own text shows `"fill":false`, or a first key `"t"` before the learning line, is not parsed (edge replay, tree ranker, strategy lab, the ledgers); anything the text cannot prove is parsed as before |
+| Pocket ledger, paying cells and managed bands each read and parsed the same file on its own thread at the same time | `DatasetReplay8863.await8863` / `pass8863` | one read: each line parsed once, the rule asked once, the row given to the three ledgers in the order written; each ledger's worker waits for it, so live labels are still filed after the replay |
+| Readers that keep the newest rows counted the file by decoding every line | `EdgeModel8537.countLines8863` | counted on the bytes (`\n`, `\r`, `\r\n`; an unterminated last line counts) |
+| Every forensic line (196 a second) was inserted into the error log's SQLite table and shared its pressure bound | `ForensicLogger.write8863` | logcat (`AATE.FORENSIC`, as before) and a ring of the newest 400 lines printed by the forensic summary (`tailText8863`); never a table row |
+| 74 commits a second: the flush ran the moment a row arrived | `ErrorLogger.log` / `flush8818` | rows wait up to 250 ms for each other; an ERROR or CRASH row, or 128 waiting rows, is written at once |
+| One 500-row cap for every level: an ERROR left the table 500 to 1,500 INFO rows later | `ErrorLogger.trim8818` (also the start-up `cleanup`) | INFO rows among the newest 500 rows; the newest 500 WARN / ERROR / CRASH rows kept on their own |
+
+What is learned does not change: same rows, same acceptance rule, same order, same arithmetic. Report: `Dataset seed
+(§8863)` (`lines refusedUnparsed parsed accepted`), `Forensic log (§8863)`, `Error log writes (§8818)`; job meter
+`datasetSeed` in place of `pocketLedgerSeed` / `payingCellSeed` / `managedBandsSeed`.
+
+Not measured yet: the steady allocation (about 5.4 GB a minute; the collector thread's 22 s of CPU a minute) has no
+per-site attribution in the report.

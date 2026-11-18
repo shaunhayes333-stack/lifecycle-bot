@@ -151,10 +151,16 @@ object ErrorLogger {
         if (level == Level.DEBUG) return
 
         val ts = System.currentTimeMillis()
-        pendingWrites.incrementAndGet()
+        val queued = pendingWrites.incrementAndGet()
         queue8818.add(Pending8818(ts, level, component, message.take(1000), throwable, sessionId))
         // V5.0.8818 — one flush runnable drains whatever has queued, in one transaction (see [flush8818]).
-        if (flushPosted8818.compareAndSet(false, true)) handler.post { flush8818(database) }
+        // V5.0.8863 — an ERROR or CRASH row, or [FLUSH_NOW_ROWS_8863] rows waiting, is written at once; otherwise the rows
+        // of the next [FLUSH_WAIT_MS_8863] share one transaction (see §8863 below).
+        if (level == Level.ERROR || level == Level.CRASH || queued >= FLUSH_NOW_ROWS_8863) {
+            if (urgentPosted8863.compareAndSet(false, true)) handler.post { flush8818(database) }
+        } else if (flushPosted8818.compareAndSet(false, true)) {
+            handler.postDelayed({ flush8818(database) }, FLUSH_WAIT_MS_8863)
+        }
     }
 
     // ── V5.0.8818 §LOG_ROWS_IN_ONE_TRANSACTION ──
@@ -174,8 +180,22 @@ object ErrorLogger {
     private val trims8818 = AtomicLong(0L)
     private var sinceTrim8818 = 0   // log thread only
 
+    // ── V5.0.8863 §ONE_COMMIT_FOR_A_QUARTER_SECOND_OF_ROWS ──
+    // Owner's phone on 5.0.8856 (19 Nov 05:24, 185 s after start): rows=58,917 in transactions=13,643 — 4.3 rows a
+    // transaction, 74 commits a second. The CPU sampler's second-largest frame in the whole app was this flush inside
+    // SQLite's commit (ErrorLogger.flush8818 <SQLiteConnection.nativeExecute> 3.3 % of all CPU stacks; the log thread 6.9 %
+    // in all), because 8818's flush was posted the moment a row arrived, so it ran with whatever had queued in those
+    // microseconds, and re-posted itself at once while rows kept coming. A row now waits at most [FLUSH_WAIT_MS_8863] for
+    // the rows behind it; an ERROR or CRASH row, or [FLUSH_NOW_ROWS_8863] rows waiting (under half the 300-row pressure
+    // bound, so the wait ends long before a row could be dropped for it), is written at once. Same rows, same columns,
+    // same logcat lines.
+    private const val FLUSH_WAIT_MS_8863 = 250L
+    private const val FLUSH_NOW_ROWS_8863 = 128
+    private val urgentPosted8863 = java.util.concurrent.atomic.AtomicBoolean(false)
+
     private fun flush8818(database: SQLiteDatabase) {
         flushPosted8818.set(false)
+        urgentPosted8863.set(false)
         val batch = ArrayList<Pending8818>(minOf(BATCH_MAX_8818, 64))
         while (batch.size < BATCH_MAX_8818) batch.add(queue8818.poll() ?: break)
         if (batch.isEmpty()) return
@@ -206,15 +226,34 @@ object ErrorLogger {
             if (sinceTrim8818 >= TRIM_EVERY_8818) { sinceTrim8818 = 0; trim8818(database) }
         } finally {
             pendingWrites.addAndGet(-batch.size)
-            // more arrived than one batch holds, or while this one was written: drain again
-            if (!queue8818.isEmpty() && flushPosted8818.compareAndSet(false, true)) ioHandler?.post { flush8818(database) } ?: flushPosted8818.set(false)
+            // more arrived than one batch holds: drain again at once. Rows that arrived while this one was written wait for
+            // the rows behind them (V5.0.8863), unless a flush is already due.
+            if (!queue8818.isEmpty() && flushPosted8818.compareAndSet(false, true)) {
+                val h = ioHandler
+                if (h == null) flushPosted8818.set(false)
+                else if (batch.size >= BATCH_MAX_8818) h.post { flush8818(database) }
+                else h.postDelayed({ flush8818(database) }, FLUSH_WAIT_MS_8863)
+            }
         }
     }
 
-    /** Keeps the newest [MAX_LOGS] rows (ids are autoincrement, so the newest are the largest ids). */
+    /**
+     * Keeps the INFO rows among the newest [MAX_LOGS] rows and, counted on their own, the newest [MAX_LOGS] WARN / ERROR /
+     * CRASH rows (ids are autoincrement, so the newest are the largest ids).
+     *
+     * V5.0.8863 §AN_ERROR_OUTLIVES_THE_CHATTER — one cap for every level meant an ERROR left the table as soon as 500 to
+     * 1,500 INFO rows had followed it: at the 318 rows a second of the owner's phone (5.0.8856, 19 Nov 05:24) that is
+     * between a second and a half and five seconds. The Error Log screen's WARN and ERROR filters and DefectSweep8433
+     * (the stored errors behind the report's defect section) read what was left. INFO rows are trimmed as before; a WARN,
+     * ERROR or CRASH row leaves only when [MAX_LOGS] newer ones of those levels exist.
+     */
     private fun trim8818(database: SQLiteDatabase) {
         try {
-            database.execSQL("DELETE FROM error_logs WHERE id <= (SELECT MAX(id) FROM error_logs) - $MAX_LOGS")
+            database.execSQL("DELETE FROM error_logs WHERE id <= (SELECT MAX(id) FROM error_logs) - $MAX_LOGS AND level IN ('DEBUG','INFO')")
+            database.execSQL(
+                "DELETE FROM error_logs WHERE level NOT IN ('DEBUG','INFO') AND id <= COALESCE(" +
+                    "(SELECT id FROM error_logs WHERE level NOT IN ('DEBUG','INFO') ORDER BY id DESC LIMIT 1 OFFSET $MAX_LOGS), -1)"
+            )
             trims8818.incrementAndGet()
         } catch (e: Exception) {
             android.util.Log.e("ErrorLogger", "Failed to trim: ${e.message}")
@@ -226,7 +265,8 @@ object ErrorLogger {
         "errorLog8818[rows=${rowsWritten8818.get()} transactions=${batches8818.get()} trims=${trims8818.get()} " +
             "droppedUnderPressure=${droppedUnderPressure.get()} droppedHard8821=${droppedHard8821.get()} pending=${pendingWrites.get()} " +
             "top8821=${byComponent8821.entries.map { it.key to it.value.get() }.sortedByDescending { it.second }.take(8).joinToString(",") { "${it.first}:${it.second}" }} " +
-            "rule=queued rows written in one transaction, table kept to $MAX_LOGS rows]"
+            "rule=queued rows written in one transaction (rows wait up to ${FLUSH_WAIT_MS_8863}ms for each other; errors and $FLUSH_NOW_ROWS_8863 waiting rows at once), " +
+            "table kept to the newest $MAX_LOGS rows of INFO and, on their own, the newest $MAX_LOGS of WARN/ERROR/CRASH]"
 
     private fun writeToDb(
         database: SQLiteDatabase,
@@ -447,14 +487,9 @@ object ErrorLogger {
     fun cleanup() {
         val database = db ?: return
         val runner = Runnable {
-            try {
-                database.execSQL(
-                    "DELETE FROM error_logs WHERE id NOT IN " +
-                    "(SELECT id FROM error_logs ORDER BY timestamp DESC LIMIT $MAX_LOGS)"
-                )
-            } catch (e: Exception) {
-                android.util.Log.e("ErrorLogger", "Failed to cleanup: ${e.message}")
-            }
+            // V5.0.8863 — the start-up trim keeps what the running trim keeps (it cut every level to the newest 500 rows,
+            // so the last session's errors were gone at the next start).
+            trim8818(database)
         }
         // V5.9.36: never block caller thread on the DELETE query
         ioHandler?.post(runner) ?: runner.run()

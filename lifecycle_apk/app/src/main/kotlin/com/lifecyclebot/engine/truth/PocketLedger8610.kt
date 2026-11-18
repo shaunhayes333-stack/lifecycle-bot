@@ -30,7 +30,8 @@ object PocketLedger8610 {
     internal fun targetHorizon(lane: String): Long =
         com.lifecyclebot.engine.cortex.CortexForwardEpoch8521.run { targetHorizon(targetKind(lane)) }
 
-    // Accessed only on the single ledger worker, including dataset replay.
+    // The ledger worker files live labels; the dataset replay (DatasetReplay8863, V5.0.8863) files the stored ones from the
+    // thread that reads the file. One at a time, under this map's own lock.
     private val recent = LinkedHashMap<String, MutableSet<String>>()
 
     private class Cell { var n = 0.0; var sum = 0.0; var sq = 0.0 }
@@ -132,10 +133,13 @@ object PocketLedger8610 {
     private fun record(mint: String, at: Long, horizon: Long, lane: String, bands: Map<String, String>, net: Double) {
         if (mint.isBlank() || lane.isBlank() || at <= 0L || horizon <= 0L) return
         val id = "$mint|$at|$horizon"
-        val lanes = recent.getOrPut(id) { mutableSetOf() }
-        val first = lanes.isEmpty()
-        if (!lanes.add(lane)) return
-        if (recent.size > MAX_RECENT_OBSERVATIONS) recent.entries.iterator().run { next(); remove() }
+        val first = synchronized(recent) {
+            val lanes = recent.getOrPut(id) { mutableSetOf() }
+            val unseen = lanes.isEmpty()
+            if (!lanes.add(lane)) return
+            if (recent.size > MAX_RECENT_OBSERVATIONS) recent.entries.iterator().run { next(); remove() }
+            unseen
+        }
         add(cellKeys8815(horizon, lane, bands, market = first), managed8610(net))   // V5.0.8815 — cached keys
         if (first) bands["liq"]?.let { noteGap8823(horizon, it, net) }                // V5.0.8823 — one observation, once
         learned.incrementAndGet()
@@ -252,8 +256,11 @@ object PocketLedger8610 {
         loading = true
         io.execute {
             try {
-                com.lifecyclebot.engine.JobCost8813.measureBackground8817("pocketLedgerSeed") { seedFromDataset() }   // V5.0.8813 — measured
-                ready = true
+                // V5.0.8863 — the dataset is read once for this ledger, the paying cells and the managed bands
+                // (DatasetReplay8863, job "datasetSeed"). This worker waits for that read, so every live label queued behind
+                // it is still filed after the replay.
+                ready = DatasetReplay8863.await8863()
+                if (!ready) PipelineHealthCollector.labelInc("POCKET_8610_LOAD_FAILED")
             } catch (_: Exception) {
                 PipelineHealthCollector.labelInc("POCKET_8610_LOAD_FAILED")
             } finally {
@@ -262,26 +269,18 @@ object PocketLedger8610 {
         }
     }
 
-    /** Replay the device's own labelled decisions in time order (the dataset EdgeModel8537 exports). */
-    private fun seedFromDataset() {
-        val f = EdgeModel8537.datasetFile() ?: return
-        if (!f.exists()) return
-        fun d(o: JSONObject, k: String) = if (o.isNull(k)) Double.NaN else o.optDouble(k, Double.NaN)
-        f.forEachLine { line ->
-            try {
-                if (!line.contains("\"horizonMs\"")) return@forEachLine
-                val o = JSONObject(line)
-                // Share the model's exact venue/epoch/fillability/horizon proof. The old
-                // path replayed poisoned non-pump curve outcomes into the pocket cells even
-                // when the edge model discarded them, creating false paying pockets.
-                if (!EdgeModel8537.replayAccept8642(o)) return@forEachLine
-                val net = d(o, "net"); if (!net.isFinite()) return@forEachLine
-                val b = bands8610(d(o, "liq"), d(o, "mcap"), d(o, "age"), d(o, "bp"), d(o, "chg5m"), d(o, "chg1h"), d(o, "pxPeak"),
-                    d(o, "volAccel"), d(o, "top"), o.optString("phase"))
-                record(o.optString("mint"), o.optLong("t"), o.optLong("horizonMs"), o.optString("lane"), b, net)
-            } catch (_: Throwable) {}
-        }
-        try { PipelineHealthCollector.labelInc("POCKET_8610_SEEDED_FROM_DATASET") } catch (_: Throwable) {}
+    /**
+     * DatasetReplay8863: one row of the device's own labelled decisions (the dataset EdgeModel8537 exports), in the order
+     * written, already taken by EdgeModel8537.replayAccept8642 — the model's exact venue / epoch / fillability / horizon
+     * proof. The old path replayed poisoned non-pump curve outcomes into the pocket cells even when the edge model
+     * discarded them, creating false paying pockets.
+     */
+    internal fun seedRow8863(o: JSONObject) {
+        fun d(k: String) = if (o.isNull(k)) Double.NaN else o.optDouble(k, Double.NaN)
+        val net = d("net"); if (!net.isFinite()) return
+        val b = bands8610(d("liq"), d("mcap"), d("age"), d("bp"), d("chg5m"), d("chg1h"), d("pxPeak"),
+            d("volAccel"), d("top"), o.optString("phase"))
+        record(o.optString("mint"), o.optLong("t"), o.optLong("horizonMs"), o.optString("lane"), b, net)
     }
 
     /**

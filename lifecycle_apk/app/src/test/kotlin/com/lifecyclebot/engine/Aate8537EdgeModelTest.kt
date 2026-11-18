@@ -96,8 +96,11 @@ class Aate8537EdgeModelTest {
         EdgeModel8537.learn(priorFrozen, 3011.16)
         assertTrue("old in-flight phantom outcomes must not seed the live new model",
             EdgeModel8537.statusLine().contains("trained=0"))
+        // superseded by V5.0.8863 — the pocket ledger is seeded by DatasetReplay8863's one read, which asks the same rule
+        // of every row before any ledger sees it.
         assertTrue("the pocket learner must use the same clean forward replay eligibility",
-            src("engine/truth/PocketLedger8610.kt").contains("if (!EdgeModel8537.replayAccept8642(o)) return@forEachLine"))
+            src("engine/truth/DatasetReplay8863.kt").contains("{ o -> EdgeModel8537.replayAccept8642(o) }") &&
+                src("engine/truth/PocketLedger8610.kt").contains("ready = DatasetReplay8863.await8863()"))
         val forward = src("engine/truth/ForwardReturnLabeler7731.kt")
         assertTrue("the venue-scope guard must execute before the shared forward learner book",
             forward.indexOf("venueScopedForLearning8663(o.mint, o.edge8537?.modelEpoch)") in
