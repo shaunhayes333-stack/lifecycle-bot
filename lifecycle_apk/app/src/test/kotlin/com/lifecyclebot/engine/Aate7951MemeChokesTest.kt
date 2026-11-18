@@ -129,7 +129,11 @@ class Aate7951MemeChokesTest {
         assertEquals(rows[0].second, back[0].second)
         assertTrue(MarkBarsStore7951.decode7951("garbage\nMintC\tx,1,2\n", now).isEmpty())
         val plan = src("engine/truth/TradePlan7739.kt")
-        assertTrue(plan.indexOf("MarkBars7948.seedBars7951(ts.mint, hist, nowMs)") < plan.indexOf("if (hist.size > MIN_BARS_7739) return hist"))
+        // Seeding still precedes the historical-only fast path; entry reads intentionally no longer stop at six
+        // provider candles, because that hid newer live bars from the 8850 stage checkpoint.
+        assertTrue(plan.indexOf("MarkBars7948.seedBars7951(ts.mint, hist, nowMs)") <
+            plan.indexOf("if (!entry8317 && hist.size > MIN_BARS_7739) return hist"))
+        assertTrue(plan.contains("MarkBars7948.mergeEntryFresh8850(hist, marks, nowMs)"))
         assertTrue(src("engine/BotService.kt").contains("MarkBarsStore7951.start7951(applicationContext)"))
     }
 
