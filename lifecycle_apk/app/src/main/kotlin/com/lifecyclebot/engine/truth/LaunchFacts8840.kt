@@ -32,8 +32,10 @@ import java.util.concurrent.atomic.AtomicLong
 object LaunchFacts8840 {
     const val SUPPLY_TOKENS = 1.0e9
     private const val HOUR = 3_600_000L
-    private const val MAX_LIVE = 3_000
+    // V5.0.8853 — a launch is live for its first hour and ~600 are born an hour on pump.fun: 1,500 holds them with room
+    private const val MAX_LIVE = 1_500
     private const val MAX_WALLETS = 600
+    internal const val WALLET_SLOTS_8853 = 1_024
     private const val RUNNER_CAP_USD = 30_000.0
     private const val DUMP_SOLD_FRAC = 0.90
 
@@ -44,17 +46,55 @@ object LaunchFacts8840 {
         val top1Pct: Double, val top5Pct: Double, val uniqueBuyers: Int, val prints: Int,
     )
 
-    private class W(var bought: Double = 0.0, var sold: Double = 0.0, var firstBuyMs: Long = Long.MAX_VALUE, var firstTokens: Double = 0.0)
+    /** Pure (V5.0.8853): a wallet's 64-bit key (FNV-1a, OwnBars8816.hash8816); 0 is reserved for an empty slot. */
+    internal fun walletKey8853(wallet: String): Long = com.lifecyclebot.engine.chart.OwnBars8816.hash8816(wallet).let { if (it == 0L) 1L else it }
 
-    /** Pure fold of one launch's prints (chain ms, in order). Not thread-safe: the caller synchronizes. */
+    /**
+     * Pure fold of one launch's prints (chain ms, in order). Not thread-safe: the caller synchronizes.
+     *
+     * V5.0.8853 §A_LAUNCH_IN_PRIMITIVES — 8840 kept each launch's traders in a HashMap of wallet strings to boxed records:
+     * up to 3,000 live launches x 600 wallets, roughly 200 bytes a wallet (entry, record and the 44-character address).
+     * The wallets are now 64-bit keys in an open-addressed table of primitive arrays that grows from 32 slots to at most
+     * [WALLET_SLOTS_8853] (40 bytes a slot), the creator matched by the same key. Same definitions, same results.
+     */
     class Fold8840(val creator: String, val createSig: String) {
-        private val wallets = HashMap<String, W>()
+        private val creatorKey = if (creator.isBlank()) 0L else walletKey8853(creator)
+        private var keys = LongArray(32); private var bought = DoubleArray(32); private var sold = DoubleArray(32)
+        private var firstBuyMs = LongArray(32) { Long.MAX_VALUE }; private var firstTokens = DoubleArray(32)
+        private var used = 0
         private var createMs = Long.MIN_VALUE
         private var firstMs = Long.MIN_VALUE
         var peakPrice = 0.0; private set
         private var devBought = 0.0; private var devSold = 0.0; private var devSold10m = 0.0
         private var overflow = 0
         var prints = 0; private set
+
+        /** The slot of [key] (inserting it when there is room), or -1 when the table is full. */
+        private fun slot(key: Long, insert: Boolean): Int {
+            if (insert && (used + 1) * 10 > keys.size * 6 && keys.size < WALLET_SLOTS_8853) grow()
+            val mask = keys.size - 1
+            var i = ((key xor (key ushr 32)).toInt() and Int.MAX_VALUE) and mask
+            while (true) {
+                val k = keys[i]
+                if (k == key) return i
+                if (k == 0L) {
+                    if (!insert || used >= MAX_WALLETS) return -1
+                    keys[i] = key; used++; return i
+                }
+                i = (i + 1) and mask
+            }
+        }
+
+        private fun grow() {
+            val ok = keys; val ob = bought; val os = sold; val of = firstBuyMs; val ot = firstTokens
+            val n = ok.size * 2
+            keys = LongArray(n); bought = DoubleArray(n); sold = DoubleArray(n); firstBuyMs = LongArray(n) { Long.MAX_VALUE }; firstTokens = DoubleArray(n)
+            used = 0
+            for (j in ok.indices) if (ok[j] != 0L) {
+                val i = slot(ok[j], insert = true)
+                bought[i] = ob[j]; sold[i] = os[j]; firstBuyMs[i] = of[j]; firstTokens[i] = ot[j]
+            }
+        }
 
         /** One print: chain time [tMs], price (SOL / token), SOL size, side, trader [wallet] ("" unnamed), signature. */
         fun add(tMs: Long, priceSol: Double, sol: Double, buy: Boolean, wallet: String, sig: String) {
@@ -64,51 +104,54 @@ object LaunchFacts8840 {
             if (createMs == Long.MIN_VALUE && createSig.isNotBlank() && sig == createSig) createMs = tMs
             if (priceSol > peakPrice) peakPrice = priceSol
             val tokens = sol / priceSol
-            val isDev = creator.isNotBlank() && wallet == creator
+            if (wallet.isBlank()) return
+            val key = walletKey8853(wallet)
             val created = if (createMs != Long.MIN_VALUE) createMs else firstMs
-            if (isDev) {
+            if (creatorKey != 0L && key == creatorKey) {
                 if (buy) devBought += tokens else { devSold += tokens; if (tMs - created <= 600_000L) devSold10m += tokens }
             }
-            if (wallet.isBlank()) return
-            val w = wallets[wallet] ?: if (wallets.size >= MAX_WALLETS) { overflow++; return } else W().also { wallets[wallet] = it }
+            val i = slot(key, insert = true)
+            if (i < 0) { overflow++; return }
             if (buy) {
-                w.bought += tokens
-                if (w.firstBuyMs == Long.MAX_VALUE) { w.firstBuyMs = tMs; w.firstTokens = tokens }
-                else if (tMs / 1000L == w.firstBuyMs / 1000L) w.firstTokens += tokens   // the same chain second
-            } else w.sold += tokens
+                bought[i] += tokens
+                if (firstBuyMs[i] == Long.MAX_VALUE) { firstBuyMs[i] = tMs; firstTokens[i] = tokens }
+                else if (tMs / 1000L == firstBuyMs[i] / 1000L) firstTokens[i] += tokens   // the same chain second
+            } else sold[i] += tokens
         }
 
         fun snapshot(): Facts {
             val created = if (createMs != Long.MIN_VALUE) createMs else firstMs
             val createdSec = if (created == Long.MIN_VALUE) Long.MIN_VALUE else created / 1000L
             var bundleN = 0; var bundleTok = 0.0; var sniperN = 0; var sniperTok = 0.0; var buyers = 0
-            val held = ArrayList<Double>(wallets.size)
-            for ((addr, w) in wallets) {
-                if (w.bought > 0.0) buyers++
-                held.add(maxOf(0.0, w.bought - w.sold))
-                if (addr == creator || w.firstBuyMs == Long.MAX_VALUE || createdSec == Long.MIN_VALUE) continue
-                val sec = w.firstBuyMs / 1000L
-                if (sec == createdSec) { bundleN++; bundleTok += w.firstTokens }
-                if (sec - createdSec in 0L..2L) { sniperN++; sniperTok += w.firstTokens }
+            val held = DoubleArray(used); var h = 0
+            for (i in keys.indices) {
+                if (keys[i] == 0L) continue
+                if (bought[i] > 0.0) buyers++
+                held[h++] = maxOf(0.0, bought[i] - sold[i])
+                if (keys[i] == creatorKey || firstBuyMs[i] == Long.MAX_VALUE || createdSec == Long.MIN_VALUE) continue
+                val sec = firstBuyMs[i] / 1000L
+                if (sec == createdSec) { bundleN++; bundleTok += firstTokens[i] }
+                if (sec - createdSec in 0L..2L) { sniperN++; sniperTok += firstTokens[i] }
             }
             held.sortDescending()
             fun pct(tok: Double) = 100.0 * tok / SUPPLY_TOKENS
-            val dev = if (creator.isNotBlank()) wallets[creator] else null
+            val dev = if (creatorKey != 0L) slot(creatorKey, insert = false) else -1
             val devInit = when {
-                creator.isBlank() -> Double.NaN
-                dev == null || dev.firstBuyMs == Long.MAX_VALUE -> 0.0
-                createdSec != Long.MIN_VALUE && dev.firstBuyMs / 1000L == createdSec -> pct(dev.firstTokens)
+                creatorKey == 0L -> Double.NaN
+                dev < 0 || firstBuyMs[dev] == Long.MAX_VALUE -> 0.0
+                createdSec != Long.MIN_VALUE && firstBuyMs[dev] / 1000L == createdSec -> pct(firstTokens[dev])
                 else -> 0.0
             }
+            var top5 = 0.0; for (k in 0 until minOf(5, held.size)) top5 += held[k]
             return Facts(
-                creatorKnown = creator.isNotBlank(),
+                creatorKnown = creatorKey != 0L,
                 devInitPct = devInit,
-                devHeldPct = if (creator.isBlank()) Double.NaN else pct(maxOf(0.0, devBought - devSold)),
+                devHeldPct = if (creatorKey == 0L) Double.NaN else pct(maxOf(0.0, devBought - devSold)),
                 devSoldFrac = if (devBought > 0.0) (devSold / devBought).coerceAtMost(1.0) else Double.NaN,
                 devSold10mFrac = if (devBought > 0.0) (devSold10m / devBought).coerceAtMost(1.0) else Double.NaN,
                 bundleBuyers = bundleN, bundlePct = pct(bundleTok), sniperBuyers = sniperN, sniperPct = pct(sniperTok),
                 top1Pct = if (held.isEmpty()) Double.NaN else pct(held[0]),
-                top5Pct = if (held.isEmpty()) Double.NaN else pct(held.take(5).sum()),
+                top5Pct = if (held.isEmpty()) Double.NaN else pct(top5),
                 uniqueBuyers = buyers, prints = prints,
             )
         }

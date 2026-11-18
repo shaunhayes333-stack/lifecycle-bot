@@ -724,3 +724,12 @@ creator sold >= 90 % of inside 10 minutes (dev_history_8840.tsv). Live: `TradeTa
 witnessed print; LearnerColumns8798 gains 15 columns; SignalTruth8825 measures 9 of them. Export: LaunchHour8628 stores
 `creator(m,c,s,pl,pr,pd,t)` and writes one `FACTS_8840` row per launch with the facts at 15, 30, 60, 120, 300, 600 and
 1,800 s from birth (same Fold over the stored prints) and the creator's record as of birth. Report line `Launch facts (§8840)`.
+
+## 44. A launch's traders in primitive arrays (8853)
+
+8840's `LaunchFacts8840.Fold8840` held each launch's traders in a HashMap of wallet strings to boxed records (up to 3,000 live
+launches x 600 wallets, ~200 bytes a wallet). The 19 Nov report was the emergency fallback (full builder timed out at 8 s,
+anrHints=11, cycle max 43 s), so the heap could not be read; the store was a measurable risk regardless. Wallets are now
+64-bit keys (`walletKey8853`, FNV-1a) in an open-addressed table of primitive arrays that grows from 32 to
+`WALLET_SLOTS_8853` = 1,024 slots (40 bytes a slot); the creator is matched by key; live launches capped at 1,500. The
+facts are unchanged (Aate8853 checks them against a plain per-wallet count).
