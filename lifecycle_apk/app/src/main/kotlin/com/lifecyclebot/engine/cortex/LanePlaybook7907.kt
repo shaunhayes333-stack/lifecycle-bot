@@ -1685,7 +1685,11 @@ object LanePlaybook7907 {
                 fired.mapNotNull { id ->
                     val st = stat(lane, id)?.takeIf { it.n >= 1.0 }
                     val tm = if (st == null || band == TIMING_UNKNOWN_8094) null else timingBooks8094[lane]?.get("$id|$band")?.takeIf { it.n >= 1.0 }
-                    val early = com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.timingAdjustment8528(lane, id, band)
+                    // 8851: same fired setup at the SAME decision stage, from independently graded 1/5/15m marks.
+                    // Combined with 8528 sub-minute timing, bounded to ranking only (no profit proof or veto).
+                    val early = com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.timingAdjustment8528(
+                        lane, id, band, try { com.lifecyclebot.engine.TokenMetricStageRouter.snapshot(ts).stage.name }
+                        catch (_: Throwable) { "" })
                     if (st == null && early == 0.0) null else com.lifecyclebot.engine.truth.StrategyRank8153.Option8153(
                         id = id, n = st?.n?.toInt() ?: 0, meanPct = st?.mean() ?: Double.NaN,
                         sePct = if (st != null && st.n > 1.0) kotlin.math.sqrt(st.variance() / st.n) else Double.POSITIVE_INFINITY,

@@ -14801,8 +14801,27 @@ class BotService : Service() {
             if (huntClaim7297 != null) {
                 try { PipelineHealthCollector.labelInc("LANE_HUNT_7297_OWNER_$huntClaim7297") } catch (_: Throwable) {}
             }
+            // 8851: the native CORE ensemble is assessed from current, observed specialist votes.
+            // The earlier deskSheet-only consensus could disagree and then CORE, excluded from rescue,
+            // received no owner selections despite qualifying natively. Elect it only on a fresh,
+            // named, authoritative ensemble with CORE's existing identity/executable doors intact.
+            val nativeSnapshot8851 = cycleSheet8522.nativeSnapshot8522
+            val nativeCore8851 = nativeSnapshot8851?.opinions?.get("CORE")
+            val nativeCoreOwner8851 = CoreNativeDispatch8527.nativeConsensusOwner8851(
+                mintMatches = nativeSnapshot8851?.mint == ts.mint,
+                ageMs = System.currentTimeMillis() - (nativeSnapshot8851?.evaluatedAtMs ?: 0L),
+                eligible = nativeCore8851?.eligible == true,
+                authoritative = nativeCore8851?.authoritative == true,
+                reason = nativeCore8851?.reason.orEmpty(),
+                namedSetup = nativeCore8851?.firedSetup8535 != null,
+                laneAllowed = "CORE" in executableLanes7863 &&
+                    LaneEntryContract6342.isLaneIdentityEligible7252(ts, "CORE") &&
+                    cyclicPolicyAllows7809("CORE"),
+            )
+            if (nativeCoreOwner8851) try { PipelineHealthCollector.labelInc("CORE_NATIVE_CONSENSUS_OWNER_8851") } catch (_: Throwable) {}
             val roleFitPrimary6614 = when {
                 forced != null -> forced
+                nativeCoreOwner8851 -> "CORE"
                 ensembleCoreFit6614 -> "CORE"
                 strongestRole6614 != null -> strongestRole6614.lane
                 huntClaim7297 != null -> huntClaim7297

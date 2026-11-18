@@ -29,7 +29,7 @@ import java.util.concurrent.atomic.AtomicLong
 object LifecycleEvidence8189 {
 
     // V5.0.8695 — RUNNER_TICKET: a runner ticket (RunnerTicket8073) is held as its own contract says.
-    enum class Evidence8189 { PROVEN_PEAK, SEALED_RUNNER_PROVEN_SETUP, RUNNER_TICKET, UNPROVEN }
+    enum class Evidence8189 { PROVEN_PEAK, SEALED_RUNNER_PROVEN_SETUP, RUNNER_TICKET, FIRMING_RUNNER_8851, UNPROVEN }
 
     /** A hold that releases more than this many gross points below its first deferral is regret, not noise. */
     private const val REGRET_PP_8189 = 1.0
@@ -45,6 +45,19 @@ object LifecycleEvidence8189 {
         sealedRunner && setupProven -> Evidence8189.SEALED_RUNNER_PROVEN_SETUP
         else -> Evidence8189.UNPROVEN
     }
+
+    /**
+     * 8851: an already-sealed runner with an independently corroborated early lift and a FRESH,
+     * standing/firming structure need not wait for 30 historical labels on that exact setup
+     * before it can survive a routine scalp exit. This is transient evidence, NOT a permanent
+     * hold or a live-entry permission. On a reversal, stale mark, red move or lost continuation,
+     * it returns false; tier-1 risk exits and the existing loser/give-back releases still pass.
+     */
+    fun firmingRunner8851(sealed: Boolean, confirmedContinuation: Boolean, verifiedPeakPct: Double,
+                          liveGrossPct: Double, priceAgeMs: Long): Boolean =
+        sealed && confirmedContinuation && verifiedPeakPct.isFinite() && verifiedPeakPct in 25.0..100_000.0 &&
+            liveGrossPct.isFinite() && liveGrossPct >= 15.0 && liveGrossPct >= verifiedPeakPct * 0.75 &&
+            priceAgeMs in 0L..5_000L
 
     /** Pure: may a lifecycle hold apply to a position with this evidence? */
     fun holds8189(e: Evidence8189): Boolean = e != Evidence8189.UNPROVEN
@@ -78,7 +91,19 @@ object LifecycleEvidence8189 {
         // metrics collapsed, or that hits a tier-1 / structural exit.
         if (try { RunnerTicket8073.isTicket8073(ts.mint, nowMs) } catch (_: Throwable) { false }) return Evidence8189.RUNNER_TICKET
         if (!sealedRunner8189(ts)) return Evidence8189.UNPROVEN
-        return evidence8189(true, setupProven8189(ts, lane, nowMs), peak)
+        if (setupProven8189(ts, lane, nowMs)) return Evidence8189.SEALED_RUNNER_PROVEN_SETUP
+        // 8114 allowed runner-lane protection from entry. 8189 correctly removed it for unproven
+        // LOSERS, but also dropped a runner showing proven early lift and live standing structure.
+        // Restore the narrow firming window, not blanket lane-based -40% holds.
+        val gross = if (ts.position.entryPrice > 0.0 && ts.lastPrice > 0.0)
+            (ts.lastPrice / ts.position.entryPrice - 1.0) * 100.0 else Double.NaN
+        val sealed = try { RunnerLive8153.plan8153(ts) == RunnerPlan8153.Plan8153.RUNNER_SEALED } catch (_: Throwable) { false }
+        val continuing = try { RunnerLive8153.continuationConfirmed8153(ts) } catch (_: Throwable) { false }
+        if (firmingRunner8851(sealed, continuing, peak, gross, nowMs - ts.lastPriceUpdate)) {
+            try { PipelineHealthCollector.labelInc("LIFECYCLE_FIRMING_RUNNER_HELD_8851") } catch (_: Throwable) {}
+            return Evidence8189.FIRMING_RUNNER_8851
+        }
+        return Evidence8189.UNPROVEN
     }
 
     private fun sealedRunner8189(ts: TokenState): Boolean {

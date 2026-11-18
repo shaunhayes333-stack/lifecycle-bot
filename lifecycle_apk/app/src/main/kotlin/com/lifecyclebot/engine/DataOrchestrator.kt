@@ -1106,22 +1106,29 @@ class DataOrchestrator(
                 val dexPair6701 = ts.pairAddress.ifBlank {
                     ts.tokenMap.poolAddress.ifBlank { ts.tokenMap.pairAddress }
                 }
-                com.lifecyclebot.engine.truth.TokenFacts.writePrice(ts, priceUsd, "DEXSCREENER_WS", com.lifecyclebot.engine.truth.TokenFacts.Rank.PROVIDER, System.currentTimeMillis(),
+                val acceptedPrice8851 = com.lifecyclebot.engine.truth.TokenFacts.writePrice(ts, priceUsd, "DEXSCREENER_WS", com.lifecyclebot.engine.truth.TokenFacts.Rank.PROVIDER, System.currentTimeMillis(),
                     pool = dexPair6701, dex = ts.tokenMap.dexId.ifBlank { "DEXSCREENER" })  // V5.0.8552 — the one price write
+                // 8851: the local candle binner feeds both TokenState.history and MarkBars7948.
+                // It used to run even on a REJECTED provider quote, inventing stage-changing
+                // peaks and reversals against a newer, higher-rank chain price. Let it run
+                // only after this source has won the canonical price arbitration below.
                 com.lifecyclebot.engine.truth.TokenFacts.writeSnapshot(ts, com.lifecyclebot.engine.truth.TokenFacts.Field.MCAP_USD, mcap, "DEXSCREENER_WS", com.lifecyclebot.engine.truth.TokenFacts.Rank.PROVIDER, System.currentTimeMillis())   // V5.0.8553 — a 0 frame is no reading
                 // V5.0.7807 — a WS frame without a liquidity figure carries 0.0;
                 // that is DATA UNKNOWN, not a drained pool. Overwriting a real
                 // reading with it fed HARD_BLOCK_ZERO_LIQUIDITY and the
                 // liquidity-distress exit evidence (Field Manual L190).
                 if (LiquidityDepthAI.isLiquidityEvidence7807(liquidity)) HydrationReeval8343.writeTick8345(ts, liquidity, "DEXSCREENER_WS", com.lifecyclebot.engine.truth.TokenFacts.Rank.PROVIDER)  // V5.0.8345 — a first fill resumes the deferred hand-off task
-                // Keep the token-map observation coherent with the same stamped mark.
-                ts.tokenMap.priceUsd = priceUsd.takeIf { it.isFinite() && it > 0.0 }
-                ts.tokenMap.priceObservedAtMs7858 = ts.lastPriceUpdate
-                ts.tokenMap.poolAddress = dexPair6701
-                ts.tokenMap.pairAddress = ts.tokenMap.pairAddress.ifBlank { dexPair6701 }
-                ts.tokenMap.dexId = ts.lastPriceDex
-                ts.tokenMap.venue = ts.lastPriceDex
-                ts.tokenMap.updatedAtMs = ts.lastPriceUpdate
+                // V5.0.8851 — the old callback unconditionally rewrote tokenMap.priceUsd with a
+                // REJECTED lower-rank WS frame, while the canonical TokenFacts/TokenState mark stayed
+                // at the chain price. A false divergence could then drive the wrong stage/cap decision.
+                // The canonical writer above already mirrors accepted price and timestamp atomically.
+                if (acceptedPrice8851) {
+                    ts.tokenMap.poolAddress = dexPair6701
+                    ts.tokenMap.pairAddress = ts.tokenMap.pairAddress.ifBlank { dexPair6701 }
+                    ts.tokenMap.dexId = ts.lastPriceDex
+                    ts.tokenMap.venue = ts.lastPriceDex
+                    ts.tokenMap.updatedAtMs = ts.lastPriceUpdate
+                }
                 // V5.0.8084 — a 5m window with no trades is no reading: it used to overwrite a measured tape with the
                 // 50/50 default. Only a counted window writes (and stamps) pressure.
                 val wsAt8553 = System.currentTimeMillis()
@@ -1130,11 +1137,13 @@ class DataOrchestrator(
                     // V5.9.827 — wire previously-dropped distribution + hourly signals
                     com.lifecyclebot.engine.truth.TokenFacts.writeSnapshot(ts, com.lifecyclebot.engine.truth.TokenFacts.Field.SELL_PRESSURE_PCT, (sells5m.toDouble() / txns5m) * 100, "DEXSCREENER_WS", com.lifecyclebot.engine.truth.TokenFacts.Rank.PROVIDER, wsAt8553)
                 }
-                // V5.0.7425 — do not throw away the short-horizon direction.
-                // V5.0.8553 — superseded: both written even when NaN (the 1h one stamped with the price's time); a frame's
-                // changes are facts of the store at the frame's time, and a NaN is no reading
-                if (priceChange5m.isFinite()) com.lifecyclebot.engine.truth.TokenFacts.writeSnapshot(ts, com.lifecyclebot.engine.truth.TokenFacts.Field.CHANGE_5M_PCT, priceChange5m, "DEXSCREENER_WS", com.lifecyclebot.engine.truth.TokenFacts.Rank.PROVIDER, wsAt8553)
-                if (priceChange1h.isFinite()) com.lifecyclebot.engine.truth.TokenFacts.writeSnapshot(ts, com.lifecyclebot.engine.truth.TokenFacts.Field.CHANGE_1H_PCT, priceChange1h, "DEXSCREENER_WS", com.lifecyclebot.engine.truth.TokenFacts.Rank.PROVIDER, wsAt8553)
+                // These changes are measured against THIS provider's price. If a stronger mark
+                // rejected it, attaching its relative changes to the canonical price can also
+                // falsely stage an ignition/dump. Flow counts and depth remain independent facts.
+                if (acceptedPrice8851) {
+                    if (priceChange5m.isFinite()) com.lifecyclebot.engine.truth.TokenFacts.writeSnapshot(ts, com.lifecyclebot.engine.truth.TokenFacts.Field.CHANGE_5M_PCT, priceChange5m, "DEXSCREENER_WS", com.lifecyclebot.engine.truth.TokenFacts.Rank.PROVIDER, wsAt8553)
+                    if (priceChange1h.isFinite()) com.lifecyclebot.engine.truth.TokenFacts.writeSnapshot(ts, com.lifecyclebot.engine.truth.TokenFacts.Field.CHANGE_1H_PCT, priceChange1h, "DEXSCREENER_WS", com.lifecyclebot.engine.truth.TokenFacts.Rank.PROVIDER, wsAt8553)
+                }
                 
                 // Update volume scores in meta (copy with new values)
                 ts.meta = ts.meta.copy(
@@ -1150,15 +1159,20 @@ class DataOrchestrator(
 
                 // V5.0.7819 — a live websocket pair price is an observed tick,
                 // the same kind Executor.getActualPrice bins (WS_LIVE provenance).
-                try { com.lifecyclebot.engine.truth.LocalCandleSynthesis7055.note(ts, priceUsd, mcap) } catch (_: Throwable) {}
+                // A rejected provider quote must not appear in the candle history either: the
+                // stage router reads TokenState.history, while 7948 reads the independent bars.
+                if (acceptedPrice8851) try {
+                    com.lifecyclebot.engine.truth.LocalCandleSynthesis7055.note(ts, ts.lastPrice, mcap)
+                    PipelineHealthCollector.labelInc("ENTRY_LIVE_WS_BAR_8851")
+                } catch (_: Throwable) {}
 
                 // V5.0.7777 — feed the existing market sweep's bounded temporal
                 // opportunity tape. This is local/cache-only; no network call
                 // and no admission authority on the websocket hot path.
-                try {
+                if (acceptedPrice8851) try {
                     com.lifecyclebot.engine.market.MarketSweep7297.recordRealtime7777(
                         mint = ts.mint,
-                        priceUsd = priceUsd,
+                        priceUsd = ts.lastPrice,
                         mcapUsd = mcap,
                         liquidityUsd = liquidity,
                         buyPressurePct = ts.lastBuyPressurePct,

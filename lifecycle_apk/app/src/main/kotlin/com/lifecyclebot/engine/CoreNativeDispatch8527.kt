@@ -8,6 +8,19 @@ internal object CoreNativeDispatch8527 {
     fun hasNativeExecutor8527(lane: String): Boolean =
         lane.trim().uppercase().replace("BLUE_CHIP", "BLUECHIP").replace("SHITCOIN_EXPRESS", "EXPRESS") in nativeLanes8527
 
+    /**
+     * 8851: a fresh, named and qualified NATIVE CORE ensemble must be eligible to own
+     * the cycle. Before this, cycle ownership used only the older deskSheet hypothesis
+     * consensus, while the independent native CORE declared hundreds of READY opinions;
+     * those opinions were then silently shadowed because CORE cannot be a rescue lane.
+     * This is election authority only: the live CORE read, FDG, safety and route still bind.
+     */
+    fun nativeConsensusOwner8851(mintMatches: Boolean, ageMs: Long, eligible: Boolean,
+                                  authoritative: Boolean, reason: String, namedSetup: Boolean,
+                                  laneAllowed: Boolean): Boolean =
+        mintMatches && ageMs in 0L..5_000L && eligible && authoritative && namedSetup && laneAllowed &&
+            reason.startsWith("CORE_ENSEMBLE_")
+
     fun currentCore8527(
         primaryLane: String, snapshot: SpecialistBrainBridge7542.Snapshot?,
         currentSnapshot: SpecialistBrainBridge7542.Snapshot?, readyVersion: Long?,
