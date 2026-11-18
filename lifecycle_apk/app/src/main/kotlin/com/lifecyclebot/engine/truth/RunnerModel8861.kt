@@ -32,7 +32,8 @@ import java.util.concurrent.atomic.AtomicLong
  *    the newest 20 %.
  *  - PROOF: forward only. Every row that arrives is first scored by the model that was fitted WITHOUT it (and only when the
  *    launch is newer than every launch that model saw); the picks' returns are added to a record that is kept. The model
- *    is ARMED on that record alone, by the launch replay's own forward bar: [LaunchReplay8744.PROVEN_MIN_N_8748]+ picks, mean
+ *    is ARMED on that record alone (this install's own rows only — V5.0.8862: a row another install graded teaches the model
+ *    and never enters the record), by the launch replay's own forward bar: [LaunchReplay8744.PROVEN_MIN_N_8748]+ picks, mean
  *    [LaunchReplay8744.FORWARD_Z_8856] standard errors above zero, still positive without its best pick. All crossers are
  *    recorded beside the picks, so the lift is read against buying every cross.
  *  - LIVE: the same prints reach [onPrint8861] as they are stored (same price, time, size, side, wallet), so the features at
@@ -54,6 +55,8 @@ object RunnerModel8861 {
     private const val EVIDENCE_TTL_MS = 3L * 60_000L
     private const val FILE = "runner_rows_8861.bin"
     private const val MAGIC = 0x52_4D_38_36   // "RM86"
+    /** V5.0.8862 — the same file with each row's origin (this install's, or another's). */
+    private const val MAGIC_8862 = 0x52_4D_38_37
     private const val UNNAMED = Int.MIN_VALUE
     /** Two trees' worth of leaves on each side of a split: below this TreeRanker8737 cannot grow a depth-2 tree. */
     internal val MIN_TRAIN_ROWS_8861 = (4 * TreeRanker8737.MIN_LEAF_W).toInt()
@@ -66,7 +69,9 @@ object RunnerModel8861 {
         "largestBuyerShare", "top3BuyerShare", "repeatBuyerShare", "earlyBuyShare3s", "runupFromLow", "fromPeak",
         "ret10s", "ret30s", "ret60s", "buys10s", "buys30s", "buys60s", "txAccel", "volAccel", "newBuyers60s", "sellSolShare60s")
 
-    class Row(val mint: String, val bornMs: Long, val x: DoubleArray, val doubled: Boolean, val net: Double, val pastHour: Boolean)
+    /** [mine]: graded by this install from its own tape; false for a row another install graded (V5.0.8862, HiveRunnerRows8862). */
+    class Row(val mint: String, val bornMs: Long, val x: DoubleArray, val doubled: Boolean, val net: Double, val pastHour: Boolean,
+              val mine: Boolean = true)
 
     internal class Record { var n = 0; var sum = 0.0; var sq = 0.0; var best = Double.NEGATIVE_INFINITY; var wins = 0; var twoX = 0
         fun add(v: Double) { n++; sum += v; sq += v * v; if (v > best) best = v; if (v > 0.0) wins++; if (v >= 100.0) twoX++ }
@@ -197,6 +202,28 @@ object RunnerModel8861 {
     @Volatile private var armed = false
     @Volatile private var status = "not-run"
     private var lateRows = 0L; private var spikeCross = 0L; private var overflow = 0L; private var pastHourRows = 0L
+    private var fromHive = 0L
+    private val hiveInbox = ArrayList<Row>()
+
+    /** HiveRunnerRows8862: this install's own rows born after [afterBornMs], oldest first, at most [limit]. */
+    @Synchronized
+    internal fun ownRowsAfter8862(afterBornMs: Long, limit: Int): List<Row> {
+        load()
+        return rows.filter { it.mine && it.bornMs > afterBornMs }.sortedBy { it.bornMs }.take(limit)
+    }
+
+    /** HiveRunnerRows8862: rows another install graded, for launches this install has no row for. Returns how many were taken. */
+    @Synchronized
+    internal fun offerHive8862(rs: List<Row>): Int {
+        load()
+        var n = 0
+        for (r in rs) {
+            if (r.mine || r.x.size != FEATURES_8861.size || !r.net.isFinite() || r.mint in known || hiveInbox.any { it.mint == r.mint }) continue
+            if (hiveInbox.size >= MAX_ROWS) break
+            hiveInbox.add(r); n++
+        }
+        return n
+    }
     private var paritySame = 0L; private var parityDiffer = 0L; private var parityOtherCross = 0L
 
     /** The live prints of [r] (first hour, time order) up to and including its floor cross as compact arrays, or null when it never crossed. */
@@ -257,13 +284,18 @@ object RunnerModel8861 {
             }
         }
         candidates.clear()
+        // V5.0.8862 — rows other installs graded join here: they teach the model, they never enter the forward record
+        for (r in hiveInbox) if (r.mint !in known && fresh.none { it.mint == r.mint }) fresh.add(r)
+        hiveInbox.clear()
+        fresh.sortBy { it.bornMs }
         // after a restart the model is refitted from the kept rows first: it is the model the last run left, and saw none of [fresh]
         if (model == null) refit(nowMs)
         // forward: a fresh row newer than everything the fitted model saw is a pick the model made without it
         val m0 = model; val th0 = theta
         val newestSeen = rows.maxOfOrNull { it.bornMs } ?: 0L
         for (r in fresh) {
-            if (m0 != null && th0.isFinite() && r.bornMs > newestSeen) { everyCross.add(r.net); if (m0.predict(r.x) >= th0) picks.add(r.net) }
+            if (!r.mine) fromHive++
+            else if (m0 != null && th0.isFinite() && r.bornMs > newestSeen) { everyCross.add(r.net); if (m0.predict(r.x) >= th0) picks.add(r.net) }
             else if (m0 != null) lateRows++
             if (r.pastHour) pastHourRows++
             rows.add(r); known.add(r.mint)
@@ -372,15 +404,17 @@ object RunnerModel8861 {
     private fun file(): File? = AATEApp.appContextOrNull()?.filesDir?.let { File(it, FILE) }
 
     internal fun write8861(out: DataOutputStream, rs: List<Row>, pick: Record, all: Record) {
-        out.writeInt(MAGIC); out.writeInt(FEATURES_8861.size)
+        out.writeInt(MAGIC_8862); out.writeInt(FEATURES_8861.size)
         for (r in listOf(pick, all)) { out.writeInt(r.n); out.writeDouble(r.sum); out.writeDouble(r.sq); out.writeDouble(if (r.n > 0) r.best else 0.0); out.writeInt(r.wins); out.writeInt(r.twoX) }
         out.writeInt(rs.size)
-        for (r in rs) { out.writeUTF(r.mint); out.writeLong(r.bornMs); for (v in r.x) out.writeDouble(v); out.writeBoolean(r.doubled); out.writeDouble(r.net); out.writeBoolean(r.pastHour) }
+        for (r in rs) { out.writeUTF(r.mint); out.writeLong(r.bornMs); for (v in r.x) out.writeDouble(v); out.writeBoolean(r.doubled); out.writeDouble(r.net); out.writeBoolean(r.pastHour)
+            out.writeBoolean(r.mine) }
     }
 
     /** The inverse of [write8861]; null for a file that is not one, or one written with a different feature list (it is then started again). */
     internal fun read8861(inp: DataInputStream): Triple<List<Row>, Record, Record>? = try {
-        if (inp.readInt() != MAGIC || inp.readInt() != FEATURES_8861.size) null else {
+        val magic = inp.readInt()   // V5.0.8862 — a file 8861 wrote carries no origin: every row in it is this install's
+        if ((magic != MAGIC && magic != MAGIC_8862) || inp.readInt() != FEATURES_8861.size) null else {
             val recs = List(2) { Record().also { r -> r.n = inp.readInt(); r.sum = inp.readDouble(); r.sq = inp.readDouble()
                 r.best = inp.readDouble().let { b -> if (r.n > 0) b else Double.NEGATIVE_INFINITY }; r.wins = inp.readInt(); r.twoX = inp.readInt() } }
             val n = inp.readInt()
@@ -389,7 +423,8 @@ object RunnerModel8861 {
                 repeat(n) {
                     val mint = inp.readUTF(); val born = inp.readLong(); val x = DoubleArray(FEATURES_8861.size) { inp.readDouble() }
                     val doubled = inp.readBoolean(); val net = inp.readDouble(); val past = inp.readBoolean()
-                    if (mint.isNotBlank() && net.isFinite()) out.add(Row(mint, born, x, doubled, net, past))
+                    val mine = if (magic == MAGIC_8862) inp.readBoolean() else true
+                    if (mint.isNotBlank() && net.isFinite()) out.add(Row(mint, born, x, doubled, net, past, mine))
                 }
                 Triple(out, recs[0], recs[1])
             }
@@ -404,7 +439,7 @@ object RunnerModel8861 {
             val got = DataInputStream(f.inputStream().buffered()).use { read8861(it) } ?: return
             rows.clear(); rows.addAll(got.first); known.clear(); got.first.forEach { known.add(it.mint) }
             copy(got.second, picks); copy(got.third, everyCross)
-            pastHourRows = rows.count { it.pastHour }.toLong()
+            pastHourRows = rows.count { it.pastHour }.toLong(); fromHive = rows.count { !it.mine }.toLong()
         } catch (_: Throwable) {}
     }
 
@@ -422,7 +457,7 @@ object RunnerModel8861 {
     fun statusLine8861(): String {
         val (pl, al, rowsN) = synchronized(this) { Triple(line(picks), line(everyCross), rows.size) }
         return "runnerModel8861[$status ${if (armed) "ARMED" else "SHADOW"} model=${if (model != null) "fitted buys top ${((1.0 - quantile) * 100).toInt()}%" else "waiting rows=$rowsN/$MIN_TRAIN_ROWS_8861"} " +
-            "newestFifth{$testLine} forward{picks $pl of every cross $al} rowsGradedPastTheHour=$pastHourRows " +
+            "newestFifth{$testLine} forward{picks $pl of every cross $al} rowsGradedPastTheHour=$pastHourRows rowsFromOtherInstalls8862=$fromHive " +
             "live{crosses=${liveCrosses.get()} shadowPicks=${shadowPicks.get()} armedPicks=${armedPicks.get()} overflow=${liveOverflow.get()} evidenceServed=${served.get()}} " +
             "parity{same=$paritySame differ=$parityDiffer otherCrossPrint=$parityOtherCross} skipped{crossWasSpike=$spikeCross overflow=$overflow lateRows=$lateRows} " +
             "rule=tape features at the \$${FloorWatch8856.FLOOR_CAP_USD_8856.toInt()} cross -> doubled before a ${STOP_PCT_8861.toInt()}% stop; armed on the forward record only " +
@@ -435,6 +470,7 @@ object RunnerModel8861 {
         model = null; theta = Double.NaN; quantile = Double.NaN; armed = false; status = "not-run"; testLine = "-"
         bufs.clear(); fires.clear(); liveSeen.clear()
         lateRows = 0; spikeCross = 0; overflow = 0; pastHourRows = 0; paritySame = 0; parityDiffer = 0; parityOtherCross = 0
+        fromHive = 0; hiveInbox.clear()
         listOf(liveCrosses, shadowPicks, armedPicks, liveOverflow, served).forEach { it.set(0) }
     }
 

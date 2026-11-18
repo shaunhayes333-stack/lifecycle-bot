@@ -871,3 +871,19 @@ Not a learning store: no reset removes it. Report: `smartMoney8756[... walletLed
 
 `parity{same differ otherCrossPrint}` compares the features the live path computed at a coin's cross with the row the replay
 later writes for it. Unarmed picks are counted (`shadowPicks`). Not a learning store: no reset removes the rows.
+
+## 53. The hive both ways for the runner model: an install census and rows as a union (8862)
+
+**Measured (5.0.8856):** `sharedKeys=93916 mineUploaded=76876 specialistsFromHive=0 seatsInherited=0 runnerSignals[sent=0
+pulled=0]`. The hive's existing books (FRL, SPEC, PB, TAIL, CX, DEV, EXP) are already uploaded as deltas and read back as
+the rest of the network; nothing on the phone said whether another install exists.
+
+| Fact | Table (collective database) | Rule |
+|---|---|---|
+| This install is alive | `hive_installs_8862 (instance, build, updated_ms)` | upserted on every `HiveEdge8000.sync8000`; `otherInstalls7d` = other instances seen in 7 days |
+| A runner-model row (features at the floor cross, doubled, net, graded past the hour) | `hive_runner_rows_8861 (mint PRIMARY KEY, born, x, doubled, net, past, updated_ms, instance, build)` | `INSERT OR IGNORE`: the first install to grade a launch writes it — a union keyed by launch, never a sum |
+| Rows of launches this install did not grade | pulled (`instance != me`, 2,000 a sync) | `RunnerModel8861.offerHive8862` -> the next run; `mine=false`; they train the model and never enter the forward record |
+| What this install has sent / pulled | `files/runner_hive_8862.txt` (`sharedToBornMs|pullMs`) | own rows newer than the mark, oldest first |
+
+Wallet and creator records are not pooled: the hive's books are sums, and two installs that saw the same launch would
+count it twice. Report: `Hive runner rows (§8862)`; `runnerModel8861[... rowsFromOtherInstalls8862=n ...]`.

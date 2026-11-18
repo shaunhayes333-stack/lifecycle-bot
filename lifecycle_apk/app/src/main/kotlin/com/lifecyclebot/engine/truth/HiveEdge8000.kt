@@ -359,6 +359,8 @@ object HiveEdge8000 {
         save()
         // What the network proves becomes local authority.
         inherit()
+        // V5.0.8862 — the install census, and the runner model's rows (a union keyed by launch, not a sum)
+        try { HiveRunnerRows8862.sync8862(client, instanceId, now) } catch (_: Throwable) {}
         try { PipelineHealthCollector.labelInc("HIVE_EDGE_SYNC_8000") } catch (_: Throwable) {}
     }
 
