@@ -422,6 +422,8 @@ object ForwardReturnLabeler7731 {
         @Volatile var pred8855 = Double.NaN
         @Volatile var pathNet8855 = Double.NaN
         @Volatile var pathStopped8855 = false
+        /** V5.0.8859 — why a mark seen inside an open horizon window could not grade it (blank = no mark was seen in one). */
+        @Volatile var trajMiss8859 = ""
         /** V5.0.8856 — the outcome last filed on this decision's gate records, and which all-lanes records hold it (GateOutcome8418.follow8856). */
         @Volatile var gateNet8856 = Double.NaN
         @Volatile var gateFlags8856 = 0
@@ -1864,10 +1866,29 @@ object ForwardReturnLabeler7731 {
         val stage8851 = o.stage.ifBlank { "UNKNOWN" }
         val setup8851 = (o.timingPlan8528?.setup ?: o.setup7955).ifBlank { "UNCLASSIFIED" }
         val band8851 = (o.timingPlan8528?.band ?: o.trajectoryBand8851).ifBlank { "UNKNOWN" }
+        // V5.0.8859 — a mark that arrived inside an open window and still could not grade it names the reason it failed
+        if (mark != null && !eligible && TrajectoryGrades8851.HORIZONS.any { h ->
+                h !in o.trajectoryDone8851 && mark.observedAtMs - o.atMs in h..(h + graceFor7946(h)) })
+            o.trajMiss8859 = trajectoryMissCause8859(entryFill8521(o), liveMark8454(mark), LabelEvidence8386.eligible(o.basis8386.mark, mark),
+                o.basis8386.mark.observedAtMs <= o.atMs + TrajectoryGrades8851.FIFTEEN_MIN,
+                EdgeModel8537.plausible8617(o.entryMcap, net, witnessed), EdgeModel8537.venueScopedForLearning8663(o.mint, o.trajectoryVenueEpoch8851))
+        val doneBefore8859 = trajectoryDoneMask8859(o.trajectoryDone8851)
         val read8855 = trajectoryBook8851.observe(o.lane, stage8851, setup8851,
             band8851, o.trajectoryDone8851, o.atMs,
             o.basis8386.mark.observedAtMs, mark?.observedAtMs ?: 0L, nowMs, eligible, net,
             o.qualifiedLong8851, ::graceFor7946)
+        // V5.0.8859 — every horizon that just closed without a read is counted under its cause; a quiet one asks the curve
+        val closed8859 = trajectoryDoneMask8859(o.trajectoryDone8851) and doneBefore8859.inv()
+        if (closed8859 != 0) {
+            val cause = o.trajMiss8859.ifBlank { TRAJ_NO_MARK_8859 }
+            for (i in TrajectoryGrades8851.HORIZONS.indices) {
+                val h = TrajectoryGrades8851.HORIZONS[i]
+                if (closed8859 and (1 shl i) == 0 || h in read8855) continue
+                trajectoryMiss8859.computeIfAbsent(cause) { AtomicLong() }.incrementAndGet()
+                if (cause == TRAJ_NO_MARK_8859) try { CurveContinuity8859.noteQuietRead8859(o.mint, o.atMs + h) } catch (_: Throwable) {}
+            }
+            o.trajMiss8859 = ""
+        }
         // V5.0.8855 — one outcome per followed decision, revised on each newly observed read, under the lane's own stop
         if (read8855.isNotEmpty() && !o.pathStopped8855) {
             val stop = try { FieldManual7715.laneStopPct8392(o.lane.trim().uppercase()) } catch (_: Throwable) { Double.NaN }
@@ -1885,6 +1906,32 @@ object ForwardReturnLabeler7731 {
             o.gateNet8856 = o.pathNet8855
         }
     }
+
+    // ── V5.0.8859 — why trajectory reads close without a read ──
+    internal const val TRAJ_NO_MARK_8859 = "NO_MARK_IN_WINDOW"
+    private val trajectoryMiss8859 = ConcurrentHashMap<String, AtomicLong>()
+
+    /** Pure: which of TrajectoryGrades8851.HORIZONS are in [done], one bit each (no allocation: this runs for every pending decision). */
+    internal fun trajectoryDoneMask8859(done: Set<Long>): Int {
+        var m = 0
+        for (i in TrajectoryGrades8851.HORIZONS.indices) if (TrajectoryGrades8851.HORIZONS[i] in done) m = m or (1 shl i)
+        return m
+    }
+
+    /** Pure: the first requirement a mark inside a horizon window failed, in the order [gradeTrajectory8851] applies them. */
+    internal fun trajectoryMissCause8859(entryFilled: Boolean, liveMark: Boolean, basisEligible: Boolean, basisInTime: Boolean,
+                                         plausible: Boolean, venueScoped: Boolean): String = when {
+        !entryFilled -> "ENTRY_UNFILLED"
+        !liveMark -> "MARK_NOT_LIVE"
+        !basisEligible -> "BASIS_INELIGIBLE"
+        !basisInTime -> "BASIS_LATE"
+        !plausible -> "IMPLAUSIBLE"
+        !venueScoped -> "VENUE_UNSCOPED"
+        else -> "NET_UNREADABLE"
+    }
+
+    private fun trajectoryMissLine8859(): String =
+        "trajectoryMiss8859{" + trajectoryMiss8859.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } + "}"
 
     /** A fixed decision target contributes once; later observations remain available to path and exit learners. */
     private fun bookEntryTarget8521(o: Obs, net: Double, gross: Double, witness: Boolean, nowMs: Long) {
@@ -1911,7 +1958,9 @@ object ForwardReturnLabeler7731 {
         // 5-minute read still counts for the market regime's breadth and is written to the research dataset, flagged.
         if (eligible8386(o) && net.isFinite() && !o.bookedNet7997.isFinite() && !entryFill8521(o) && MemePaperTrader8544.memeLane8544(o.lane)) {
             try { MemeRegime8546.note8546(nowMs, net, gross) } catch (_: Throwable) {}
-            o.edge8537?.let { o.edge8537 = null; try { EdgeModel8537.recordUnfilled8546(it, net, witness) } catch (_: Throwable) {} }
+            o.edge8537?.let { o.edge8537 = null; try { EdgeModel8537.recordUnfilled8546(it, net, witness) } catch (_: Throwable) {}
+                // V5.0.8859 — would the curve's own proof of quiet have priced this entry (the instant a rebased buy fills)?
+                try { CurveContinuity8859.noteUnfilled8859(o.mint, o.atMs + REBASE_MIN_MS_8076) } catch (_: Throwable) {} }
         }
         if (!eligible8386(o) || !entryFill8521(o) || o.bookedNet7997.isFinite() || !net.isFinite() ||
             !horizonOpen7809((o.lastMark8386?.observedAtMs ?: 0L) - o.atMs, o.targetHorizon8521)) return
@@ -2537,7 +2586,7 @@ object ForwardReturnLabeler7731 {
         " " + DowntimeRecovery8430.statusLine8430() +   // V5.0.8430
         " " + LabelClock8442.statusLine8442() + " shadowWanted8442=${shadowWanted8442.size} pendingMints8475=${pendingMintCount8475()}" +   // V5.0.8442 / 8475
         " flat8454[awaitingLive=${flatAwaitingLive8454.get()} liveBooked=${flatLiveBooked8454.get()}]" +   // V5.0.8454
-        " downtimeUnobserved8505=${labelLostDowntime8505.get()} ${timingBook8528.line()} ${trajectoryBook8851.line()}" +   // V5.0.8505 / 8851
+        " downtimeUnobserved8505=${labelLostDowntime8505.get()} ${timingBook8528.line()} ${trajectoryBook8851.line()} ${trajectoryMissLine8859()}" +   // V5.0.8505 / 8851 / 8859
         " " + chargedCostLine8534() +   // V5.0.8534
         " " + coverageLine8535()   // V5.0.8535
 

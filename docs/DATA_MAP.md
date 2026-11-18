@@ -825,3 +825,20 @@ tail of a replay that restarted at every boot, not trades the learners never rec
 
 The file is finality evidence: no learning reset removes it. Report: `Finalized ID reconcile (§7423)` ends with
 `repairStore8858[held restoredAtStart recordedThisRun alreadyOnBus unreadable writeFailed replayComplete]`.
+
+## 50. Graded reads kept; the reason a read is missed; the curve's own proof of quiet (8859)
+
+**Measured.** 5.0.8853: `trajectory8851[... observed=45897 unavailable=35905 cells=4096]` with 13,321 graded reads held in
+the cells — the book was at its cap, evicting its first-created cells. Owner's export of 18 Nov: 55,812 labelled decisions,
+12,138 (22 %) recorded unfilled; 8,288 of those had no tape print at the decision, 6,656 were under ten minutes old.
+
+| Fact | Before | Now |
+|---|---|---|
+| `TrajectoryGrades8851.Book` at 4,096 cells | removed the first cell ever created | access order: removes the cell no read has reached for longest; `evicted8859=cells/reads` reported and persisted |
+| A horizon that closes without a read | one `unavailable` total | `trajectoryMiss8859{cause=n}`: `NO_MARK_IN_WINDOW`, or the first requirement an in-window mark failed (`ENTRY_UNFILLED`, `MARK_NOT_LIVE`, `BASIS_INELIGIBLE`, `BASIS_LATE`, `IMPLAUSIBLE`, `VENUE_UNSCOPED`) |
+| A pump.fun TradeEvent's reserves and token amount | reserves kept as the price (`CurveReserves7951`) | also compared with the previous print (`CurveContinuity8859.onFrame8859`, before the care filter): reserves before this trade equal to the reserves the last print left prove the curve stood there between them; stretches of 60 s or more are kept (8 a coin) |
+
+`CurveContinuity8859` is **measured only**: `wouldPrice{unfilledEntries=a/b quietReads=c/d}` counts the unfilled entries
+(asked when `EdgeModel8537.recordUnfilled8546` files one) and the no-mark horizon reads a proven stretch covers; a question
+about a time after the coin's newest print waits for its next print. `continuous / broken` is the stream's own gap rate per
+coin; `solSideAgrees` says whether the event's SOL amount is the curve-side amount. No label, fill or decision reads it.

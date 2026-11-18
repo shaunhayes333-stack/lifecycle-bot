@@ -498,6 +498,11 @@ object HeliusCurveTape8354 {
         // real SOL and liquidity tick of that coin (bounded store, 60-min TTL). 8471 dropped 1,828 of 2,368 decoded prints
         // and their reserves with them, while the labeler lost 1,519 marks for want of a source.
         try { com.lifecyclebot.engine.truth.CurveReserves7951.noteFrame7951(mint, ev.virtualSol, ev.virtualTokens) } catch (_: Throwable) {}
+        // V5.0.8859 — does this print start where the coin's last one ended? (the curve's own proof of a quiet stretch; measured)
+        try {
+            com.lifecyclebot.engine.truth.CurveContinuity8859.onFrame8859(mint, PumpSwapTape8307.eventMs8307(ev.timestampSec, nowMs),
+                ev.virtualSol, ev.virtualTokens, ev.sol, ev.tokens, ev.isBuy)
+        } catch (_: Throwable) {}
         // V5.0.8750 — the program-wide stream's continuity: a quiet curve's last price stands only while it has no gap
         if (source == Source8354.HELIUS_PROGRAM) try { com.lifecyclebot.engine.truth.QuietCurve8750.noteProgramPrint8750(nowMs) } catch (_: Throwable) {}
         val eventMs8748 = PumpSwapTape8307.eventMs8307(ev.timestampSec, nowMs)

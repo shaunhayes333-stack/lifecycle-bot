@@ -61,9 +61,15 @@ internal object TrajectoryGrades8851 {
         "${normalized(lane)}|${normalized(stage)}|${normalized(setup)}|${normalized(band)}|$horizon"
 
     class Book {
-        private val rows = LinkedHashMap<String, Stat>()
+        // V5.0.8859 — access order: at the cell cap the cell given up is the one no read has reached for the longest, not
+        // the first one ever created. 5.0.8853: cells=4096 (the cap), 13,321 graded reads held of 45,897 observed — the
+        // book was discarding its oldest cells, which are its most established ones, and regrowing them from zero.
+        private val rows = LinkedHashMap<String, Stat>(256, 0.75f, true)
         var observed: Long = 0; private set
         var unavailable: Long = 0; private set
+        /** V5.0.8859 — cells given up at the cap, and the graded reads they held. */
+        var evictedCells: Long = 0; private set
+        var evictedReads: Long = 0; private set
 
         /**
          * [done] is checkpointed on the exact episode alongside this book. An observation crossing
@@ -86,7 +92,10 @@ internal object TrajectoryGrades8851 {
                     Grade.OBSERVED -> {
                         if (lane.isNotBlank() && stage.isNotBlank() && setup.isNotBlank() && band.isNotBlank()) {
                             val k = key(lane, stage, setup, band, h)
-                            if (k !in rows && rows.size >= MAX_CELLS) rows.remove(rows.keys.first())
+                            if (k !in rows && rows.size >= MAX_CELLS) {
+                                val lru = rows.keys.first()
+                                rows.remove(lru)?.let { evictedCells++; evictedReads += it.n }
+                            }
                             rows.getOrPut(k) { Stat() }.add(netPct)
                             observed++
                         }
@@ -122,10 +131,11 @@ internal object TrajectoryGrades8851 {
             val n = HORIZONS.map { h -> rows.entries.filter { it.key.endsWith("|$h") }.sumOf { it.value.n } }
             return "trajectory8851[graded1m=${n[0]} graded5m=${n[1]} graded15m=${n[2]} " +
                 "qualified1h=${n[3]} qualified4h=${n[4]} qualified24h=${n[5]} " +
-                "observed=$observed unavailable=$unavailable cells=${rows.size}]"
+                "observed=$observed unavailable=$unavailable cells=${rows.size} evicted8859=$evictedCells/reads$evictedReads]"
         }
 
         @Synchronized fun encode(): String = JSONObject().put("observed", observed).put("unavailable", unavailable)
+            .put("evictedCells", evictedCells).put("evictedReads", evictedReads)
             .put("rows", JSONObject().also { out -> rows.forEach { (k, s) ->
                 out.put(k, JSONArray(listOf(s.n, s.mean, s.m2, s.wins)))
             } }).toString()
@@ -145,6 +155,8 @@ internal object TrajectoryGrades8851 {
             rows.clear(); rows.putAll(recovered)
             observed = root.optLong("observed").coerceAtLeast(0L)
             unavailable = root.optLong("unavailable").coerceAtLeast(0L)
+            evictedCells = root.optLong("evictedCells").coerceAtLeast(0L)
+            evictedReads = root.optLong("evictedReads").coerceAtLeast(0L)
         }
 
         /** Pure test seam for a fully graded cohort; not a live admission or trade decision. */
