@@ -48,9 +48,17 @@ object SmartMoney8756 {
         var n = 0; var mean = 0.0; var m2 = 0.0; var snipes = 0
         fun add(x: Double) { n++; val d = x - mean; mean += d / n; m2 += d * (x - mean) }
         val se: Double get() = if (n >= 2) kotlin.math.sqrt(m2 / (n - 1)) / kotlin.math.sqrt(n.toDouble()) else Double.NaN
+        /** V5.0.8860 — this record with the wallet's kept record [r] (launches older than the window, WalletLedger8860) added. */
+        fun with8860(r: WalletLedger8860.Rec?): Acc {
+            if (r == null || r.n <= 0) return this
+            val (nn, mm, ss) = WalletLedger8860.merged8860(n, mean, m2, r.n, r.mean, r.m2)
+            return Acc().also { it.n = nn; it.mean = mm; it.m2 = ss; it.snipes = snipes + r.snipes }
+        }
     }
 
     private const val SNIPER_MS = 3_000L
+    /** V5.0.8860 — WalletLedger8860 counts a sniped first buy by the same rule. */
+    internal const val SNIPER_MS_8860 = SNIPER_MS
     private const val CONVERGE_MS = 60_000L
     private const val FOLLOW_WINDOW_MS = 30L * 60_000L
     private const val STOP_FRACTION = 0.30
@@ -114,7 +122,7 @@ object SmartMoney8756 {
     }
 
     /** Pure: the wallets whose follower record clears [v]: n >= minWalletN, mean - z SE > 0, and not a sniper (most first buys <3 s). */
-    internal fun provenSet8756(acc: Map<Int, Acc>, v: Variant): Set<Int> = acc.entries.filter { (_, a) ->
+    internal fun <K> provenSet8756(acc: Map<K, Acc>, v: Variant): Set<K> = acc.entries.filter { (_, a) ->
         a.n >= v.minWalletN && a.snipes * 2 < a.n && a.mean.isFinite() &&
             (if (v.z <= 0.0) a.mean > 0.0 else a.se.isFinite() && a.mean - v.z * a.se > 0.0)
     }.mapTo(HashSet()) { it.key }
@@ -170,24 +178,37 @@ object SmartMoney8756 {
     @Volatile private var status = "not-run"
     @Volatile private var restored = false
 
-    internal fun evaluate8756(set: List<Path8748>, walletNames: List<String>, costPct: Double, needDelayMs: Long) {
+    internal fun evaluate8756(set: List<Path8748>, walletNames: List<String>, costPct: Double, needDelayMs: Long, nowMs: Long = System.currentTimeMillis()) {
         restore8756()
-        val paths = set.filter { it.bornMs > 0L && it.wallet?.any { w -> w >= 0 } == true }.sortedBy { it.bornMs }
-        if (paths.size < MIN_LAUNCHES) { status = "waiting launchesWithWallets=${paths.size}/$MIN_LAUNCHES (wallets are stored from 8756)"; return }
+        val all = set.filter { it.bornMs > 0L && it.wallet?.any { w -> w >= 0 } == true }.sortedBy { it.bornMs }
         val delay = maxOf(5_000L, needDelayMs)
+        // V5.0.8860 — a launch about to leave the tape is graded once into the kept ledger and left out of the window's own
+        // fit; a wallet's kept record (launches older than every launch in the window) is added to what the window says.
+        val cut = try { WalletLedger8860.archive8860(all, walletNames, nowMs, set.size >= LaunchReplay8744.MAX_LAUNCHES, delay, costPct) } catch (_: Throwable) { 0L }
+        val prior = try { WalletLedger8860.snapshot8860() } catch (_: Throwable) { emptyMap() }
+        val paths = all.filter { it.bornMs >= cut }
+        fun kept(acc: HashMap<Int, Acc>): Map<Int, Acc> =
+            if (prior.isEmpty()) acc else acc.mapValues { (w, rec) -> rec.with8860(walletNames.getOrNull(w)?.let { prior[it] }) }
+        if (paths.size < MIN_LAUNCHES) { status = "waiting launchesWithWallets=${paths.size}/$MIN_LAUNCHES (wallets are stored from 8756)"; return }
         val a = paths.size * 6 / 10; val b = paths.size * 8 / 10
         val train = paths.subList(0, a); val valid = paths.subList(a, b); val testSet = paths.subList(b, paths.size)
-        val accTrain = fit8756(train, delay, costPct)
+        val accTrain = kept(fit8756(train, delay, costPct))
         val validGrades = VARIANTS.mapNotNull { v -> grade8756(v, valid, provenSet8756(accTrain, v), delay, costPct) }
         val pick = choose8756(validGrades)
         if (pick == null) { status = "ran launches=${paths.size} wallets=${accTrain.size} no variant with n>=$MIN_N_VALID on validation"; chosen = null; armed = false; return }
-        val accTrainValid = fit8756(paths.subList(0, b), delay, costPct)
+        val accTrainValid = kept(fit8756(paths.subList(0, b), delay, costPct))
         val t = grade8756(pick.variant, testSet, provenSet8756(accTrainValid, pick.variant), delay, costPct)
-        val accAll = fit8756(paths, delay, costPct)
-        val liveSet = provenSet8756(accAll, pick.variant).sortedByDescending { w -> accAll[w]?.let { it.mean - (if (it.se.isFinite()) it.se else 0.0) } ?: -1e18 }
-            .take(MAX_LIVE_WALLETS).mapNotNullTo(HashSet()) { walletNames.getOrNull(it) }
+        // V5.0.8860 — every wallet the ledger or the window knows, by name: a wallet proven on its kept record fires when it buys again
+        val byName = HashMap<String, Acc>((prior.size + walletNames.size) * 2)
+        for ((name, r) in prior) byName[name] = Acc().with8860(r)
+        for ((w, rec) in fit8756(paths, delay, costPct)) { val name = walletNames.getOrNull(w) ?: continue; byName[name] = rec.with8860(prior[name]) }
+        val provenNames = provenSet8756(byName, pick.variant)
+        val liveSet = provenNames.sortedByDescending { w -> byName[w]?.let { it.mean - (if (it.se.isFinite()) it.se else 0.0) } ?: -1e18 }
+            .take(MAX_LIVE_WALLETS).toHashSet()
         chosen = pick.variant; test = t; armed = armed8756(t); live = liveSet
-        status = "ran launches=${paths.size} wallets=${accAll.size} proven=${liveSet.size} delay=${delay / 1000}s valid{${line(pick)}}"
+        val inWindow = HashSet(walletNames)
+        status = "ran launches=${paths.size} wallets=${byName.size} proven=${liveSet.size} provenOnKeptRecordOnly8860=${provenNames.count { it !in inWindow }} " +
+            "delay=${delay / 1000}s valid{${line(pick)}}"
         save8756()
     }
 
@@ -315,7 +336,7 @@ object SmartMoney8756 {
 
     fun statusLine8756(): String = "smartMoney8756[$status ${if (armed) "ARMED" else "SHADOW"} test{${test?.let { line(it) } ?: "-"}} " +
         "liveWallets=${live.size} provenBuys=${provenBuys.get()} fires{armed=${armedFires.get()} shadow=${shadowFires.get()}} " +
-        "watchAdds=${watchAdds.get()} evidenceServed=${served.get()} rule=wallets fitted on the oldest 60% of launches, variant chosen on the " +
+        "watchAdds=${watchAdds.get()} evidenceServed=${served.get()} ${WalletLedger8860.statusLine8860()} rule=wallets fitted on the oldest 60% of launches, variant chosen on the " +
         "next 20%, graded on the newest 20% (follower enters after the bot's latency, DOCTRINE exits, cost); armed = test n>=$PROVEN_MIN_N, ex-top-3 mean - SE > 0]"
 
     internal fun resetForTest8756() { st.clear(); fires.clear(); chosen = null; test = null; armed = false; live = emptySet(); restored = true }

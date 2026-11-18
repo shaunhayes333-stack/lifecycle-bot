@@ -95,7 +95,7 @@ object LaunchReplay8744 {
     internal const val TIME_STOP_MS_8828 = TIME_STOP_MS
     private const val MIN_N = 50
     private const val RUN_EVERY_MS = 30L * 60_000L
-    private const val MAX_LAUNCHES = 6_000
+    internal const val MAX_LAUNCHES = 6_000
     private const val SUPPLY = 1.0e9
 
     /** V5.0.8749 — 5 s and 20 s join 2 / 10 / 30 s: the armed rule must match the latency the bot measures (LaunchSniper8748). */

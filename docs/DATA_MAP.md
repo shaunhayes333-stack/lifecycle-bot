@@ -842,3 +842,17 @@ the cells — the book was at its cap, evicting its first-created cells. Owner's
 (asked when `EdgeModel8537.recordUnfilled8546` files one) and the no-mark horizon reads a proven stretch covers; a question
 about a time after the coin's newest print waits for its next print. `continuous / broken` is the stream's own gap rate per
 coin; `solSideAgrees` says whether the event's SOL amount is the curve-side amount. No label, fill or decision reads it.
+
+## 51. A wallet's record is kept past the tape (8860)
+
+**Measured (5.0.8853):** SmartMoney8756 graded 6,841 wallets and proved 15, every record re-derived on each run from the
+48 hours of launches `LaunchHour8628` holds. A wallet's record could not outlive the tape that taught it.
+
+| Fact | Before | Now |
+|---|---|---|
+| What following a wallet's first buy returned (n, mean, spread, snipes) | recomputed from the 48 h window each run | a launch about to leave the window (born > 44 h ago; or the oldest fifth when the replay is at its 6,000-launch cap; never inside its first 65 min) is graded once into `files/wallet_ledger_8860.bin` (`WalletLedger8860.archive8860`, 20,000 wallets, fewest-follows / longest-unseen out) and left out of the window's own fit |
+| The record SmartMoney8756 proves a wallet on | the window's | the window's plus the kept one (`Acc.with8860`), for the fit, the validation choice, the test grade and the live set — the ledger only holds launches older than every launch in the window, so the time order is unchanged |
+| A wallet proven on its kept record that has not bought in 48 h | forgotten | in the live set; fires when it buys again (`provenOnKeptRecordOnly8860`) |
+| The creator's record (`LaunchFacts8840.DevHistory8840`) | already permanent: `dev_history_8840.tsv`, 50,000 creators, LRU | unchanged (only the per-launch creator rows in the tape database expire) |
+
+Not a learning store: no reset removes it. Report: `smartMoney8756[... walletLedger8860[wallets n>=3 n>=8 launchesArchived thisRun archivedTo atCap] ...]`.
