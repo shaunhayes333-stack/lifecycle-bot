@@ -55,7 +55,21 @@ object LaunchReplay8744 {
      * on the same paths so the record, not an opinion, says which one keeps more of a runner; only DOCTRINE (what the live
      * exits run) can be proven for the sniper.
      */
-    enum class Ladder { HALF_TRAIL, DOCTRINE, MOONBAG, SCALE_OUT }
+    /**
+     * V5.0.8854 §THE_EXIT_THAT_MADE_MONEY — owner: "previously apks have made money. doubled the cash balance and worked fine
+     * 5.0.8096". APK 5.0.8096 (cddf86c17, profit factor 2.15, about 2.6x the balance) and 5.0.8114 (379ad2fa0, 32W/47L,
+     * 0.195 -> 0.434 SOL) held a MOONSHOT / QUALITY / BLUECHIP / CORE buy for its lifecycle FROM ENTRY (LifecycleHold8065):
+     * no tick stops, a -[LifecycleHold8065.FLOOR_PCT] % floor at any time, half at 2x then 30 % of the rest at 5x and at 10x
+     * ([LifecycleHold8065.ladder8071]), out on a 45 %-of-peak give-back after a +300 % peak ([LifecycleHold8065.peakGiveback8065]);
+     * its base and trend breaks run on 15-minute bars after two hours, beyond a launch hour. Since 8189 the hold needs
+     * runner evidence first, so a fresh buy takes the lane stop. LIFECYCLE is that exit, read from the hold's own constants
+     * and give-back so it cannot drift from it: its own floor whatever the rule's stop, no trail, no time stop, whatever is
+     * still held sold at the hour's last print. It is graded beside DOCTRINE on the same launches (pairedLadders8788), at
+     * the latency the bot has (rulesFor8829); it is measured, not traded (provenOf8748 stays DOCTRINE, the exit live runs).
+     * Offline (the owner's export, 1,088 $10k crossers with 15 buys, bought 30 s later) it read +7.0 % at the 10 s bar's
+     * close and -14 % at the bar's high: the bars cannot price the fill, the phone's prints can.
+     */
+    enum class Ladder { HALF_TRAIL, DOCTRINE, MOONBAG, SCALE_OUT, LIFECYCLE }
     data class Rule(val capUsd: Double, val minBuys: Int, val takeX: Double, val stopPct: Double, val ladder: Ladder = Ladder.HALF_TRAIL,
                     val delayMs: Long = 2_000L, val totalBuys: Int = 0) {
         val id: String get() = "cap\$${(capUsd / 1000).toInt()}k buys>=$minBuys${if (totalBuys > 0) " total>=$totalBuys" else ""} " +
@@ -99,11 +113,23 @@ object LaunchReplay8744 {
                 for (tx in listOf(2.0, 3.0, 5.0)) add(Rule(cap, b, tx, st, Ladder.HALF_TRAIL, d, tot))
             }
     }
+    /**
+     * V5.0.8854 — the 8096 exit on every trigger the grid has: window rules at each latency and the cumulative family at its
+     * latencies; it carries its own floor and rungs, so one rule per trigger and latency (3 x 3 x 5 + 2 x 2 x 3 x 2 = 69).
+     */
+    internal val LIFECYCLE_8854: List<Rule> = buildList {
+        val floor = com.lifecyclebot.engine.LifecycleHold8065.FLOOR_PCT
+        for (cap in listOf(5_000.0, 10_000.0, 15_000.0)) for (b in listOf(3, 8, 15)) for (d in DELAYS_8749)
+            add(Rule(cap, b, 2.0, floor, Ladder.LIFECYCLE, d))
+        for (cap in listOf(10_000.0, 15_000.0)) for (b in listOf(1, 8)) for (tot in listOf(25, 45, 80)) for (d in listOf(10_000L, 20_000L))
+            add(Rule(cap, b, 2.0, floor, Ladder.LIFECYCLE, d, tot))
+    }
     val GRID: List<Rule> = buildList {
         for (cap in listOf(5_000.0, 10_000.0, 15_000.0)) for (b in listOf(3, 8, 15))
-            for (tx in listOf(2.0, 3.0, 5.0)) for (st in listOf(20.0, 35.0)) for (l in Ladder.values())
+            for (tx in listOf(2.0, 3.0, 5.0)) for (st in listOf(20.0, 35.0)) for (l in Ladder.values()) if (l != Ladder.LIFECYCLE)
                 for (d in DELAYS_8749) add(Rule(cap, b, tx, st, l, d))
         addAll(TOTAL_FAMILY_8824)
+        addAll(LIFECYCLE_8854)
     }
 
     /** Pure: the isolated spikes of a print series (true = drop): more than [SPIKE_X_8748] x off the prints on both sides. */
@@ -176,6 +202,15 @@ object LaunchReplay8744 {
     internal fun entryIndex8754(x: Path8748, trig: Int, delayMs: Long): Int = stateAt(x.t, trig, x.t[trig] + delayMs)
 
     /**
+     * V5.0.8854 — LifecycleHold8065's takes as fractions of the ORIGINAL position: each take there sells a share of what is
+     * still held (half at +100 %, then 30 % of the rest at +400 % and at +900 %), so 0.5, 0.15, 0.105 of the original.
+     */
+    internal val LIFECYCLE_RUNGS_8854: List<Pair<Double, Double>> by lazy {
+        var left = 1.0
+        com.lifecyclebot.engine.LifecycleHold8065.ladder8071().map { (pct, share) -> val f = left * share; left -= f; (1.0 + pct / 100.0) to f }
+    }
+
+    /**
      * Pure: the net % of a position entered at print [e] of [x] and unwound by [ladder] ([takeX] its first rung for HALF_TRAIL
      * and MOONBAG), with a hard stop at [stopPx] until the first rung, out at [timeStopMs] if it never reached +20 %; each sale
      * fills where the curve stood [SELL_DELAY_MS_8748] after the print that triggered it. V5.0.8754: shared by the launch
@@ -187,13 +222,17 @@ object LaunchReplay8744 {
         if (!(entry > 0.0)) return null
         fun fill(k: Int) = p[stateAt(t, k, t[k] + SELL_DELAY_MS_8748)] / entry - 1.0
         var held = 1.0; var banked = 0.0; var peak = entry; var tookFirst = false
+        // V5.0.8854 — LIFECYCLE: the hold's own floor at any time, no trail, no time stop, the 45 %-of-peak give-back
+        val lifecycle = ladder == Ladder.LIFECYCLE
+        val floorPx = if (lifecycle) entry * (1.0 - com.lifecyclebot.engine.LifecycleHold8065.FLOOR_PCT / 100.0) else stopPx
         val rungs = when (ladder) {   // (multiple, fraction of the ORIGINAL position)
             Ladder.HALF_TRAIL -> listOf(takeX to 0.5)
             Ladder.DOCTRINE -> listOf(2.0 to 0.25, 5.0 to 0.18, 10.0 to 0.57 * 0.67)
             Ladder.MOONBAG -> listOf(takeX to 0.5, 10.0 to 0.3)
             Ladder.SCALE_OUT -> listOf(3.0 to 0.25, 6.0 to 0.25, 12.0 to 0.25)
+            Ladder.LIFECYCLE -> LIFECYCLE_RUNGS_8854
         }
-        val trailPct = when (ladder) { Ladder.HALF_TRAIL -> TRAIL_PCT; Ladder.DOCTRINE -> 45.0; Ladder.MOONBAG -> 60.0; Ladder.SCALE_OUT -> 50.0 }
+        val trailPct = when (ladder) { Ladder.HALF_TRAIL -> TRAIL_PCT; Ladder.DOCTRINE -> 45.0; Ladder.MOONBAG -> 60.0; Ladder.SCALE_OUT -> 50.0; Ladder.LIFECYCLE -> Double.NaN }
         var nextRung = 0
         for (k in e + 1 until t.size) {
             val px = p[k]
@@ -201,9 +240,10 @@ object LaunchReplay8744 {
             while (nextRung < rungs.size && px >= entry * rungs[nextRung].first * (1.0 - 1e-9)) {
                 val sell = minOf(rungs[nextRung].second, held); banked += sell * fill(k); held -= sell; nextRung++; tookFirst = true
             }
-            val stopHit = !tookFirst && px <= stopPx
-            val trailHit = tookFirst && px <= peak * (1.0 - trailPct / 100.0)
-            val timeHit = !tookFirst && t[k] - t[e] >= timeStopMs && peak < entry * 1.2
+            val stopHit = (lifecycle || !tookFirst) && px <= floorPx
+            val trailHit = if (lifecycle) com.lifecyclebot.engine.LifecycleHold8065.peakGiveback8065((peak / entry - 1.0) * 100.0, (px / entry - 1.0) * 100.0)
+                else tookFirst && px <= peak * (1.0 - trailPct / 100.0)
+            val timeHit = !lifecycle && !tookFirst && t[k] - t[e] >= timeStopMs && peak < entry * 1.2
             if (stopHit || trailHit || timeHit || held <= 1e-9) { if (held > 1e-9) banked += held * fill(k); held = 0.0; break }
         }
         if (held > 0.0) banked += held * (p.last() / entry - 1.0)
@@ -252,10 +292,13 @@ object LaunchReplay8744 {
         return if (d in gridDelays) null else d
     }
 
-    /** V5.0.8829 — the grid plus every DOCTRINE rule (the only ladder that can be proven) at the required latency. */
+    /**
+     * V5.0.8829 — the grid plus every DOCTRINE rule (the only ladder that can be proven) at the required latency.
+     * V5.0.8854 — and every LIFECYCLE rule: the 8096 exit is read at the latency the bot has, beside the one it trades.
+     */
     internal fun rulesFor8829(needMs: Long): List<Rule> {
         val d = atLatency8829(GRID.map { it.delayMs }.toSet(), needMs) ?: return GRID
-        return GRID + GRID.filter { it.ladder == Ladder.DOCTRINE }.map { it.copy(delayMs = d) }.distinct()
+        return GRID + GRID.filter { it.ladder == Ladder.DOCTRINE || it.ladder == Ladder.LIFECYCLE }.map { it.copy(delayMs = d) }.distinct()
     }
 
     /** Each rule's result over the launches, best first: n >= MIN_N, then the ex-top-3 mean less its SE. */

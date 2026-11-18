@@ -733,3 +733,17 @@ anrHints=11, cycle max 43 s), so the heap could not be read; the store was a mea
 64-bit keys (`walletKey8853`, FNV-1a) in an open-addressed table of primitive arrays that grows from 32 to
 `WALLET_SLOTS_8853` = 1,024 slots (40 bytes a slot); the creator is matched by key; live launches capped at 1,500. The
 facts are unchanged (Aate8853 checks them against a plain per-wallet count).
+
+## 45. The 8096 exit, graded in the launch replay (8854)
+
+APK 5.0.8096 (`cddf86c17`, PF 2.15, ~2.6x balance) and 5.0.8114 (`379ad2fa0`, 32W/47L, 0.195 -> 0.434 SOL) held a
+MOONSHOT / QUALITY / BLUECHIP / CORE buy from entry with `LifecycleHold8065`: -40 % floor at any time, half at 2x, 30 % of the
+rest at 5x and at 10x, the 45 %-of-peak give-back after +300 %, 15-minute base / trend breaks after two hours. Since 8189 the
+hold needs runner evidence first. `LaunchReplay8744.Ladder.LIFECYCLE` is that exit, built from the hold's own constants
+(`FLOOR_PCT`, `ladder8071`, `peakGiveback8065`): no trail, no time stop, the rest sold at the hour's last print. Graded on
+`LIFECYCLE_8854` (69 rules: every window trigger at every latency, the cumulative family at 10 / 20 s), at the required
+latency (`rulesFor8829`), in the base family (`BaseFamily8754.GRID`), and launch by launch against DOCTRINE
+(`pairedLadders8788`). Report: `ladders{… LIFECYCLE=…}` and `pairedLadders{… LIFECYCLE=±/n/verdict}` in `Launch replay (§8744)`.
+Measured only: `provenOf8748` stays DOCTRINE (the exit live runs). Offline on the owner's export (10 s bars), 1,088 $10k
+crossers with 15 buys bought 30 s later read +7.0 % at the bar's close and -14 % at the bar's high under this exit: bars
+cannot price the fill; the phone's prints can.

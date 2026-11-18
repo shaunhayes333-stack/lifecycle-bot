@@ -23,7 +23,9 @@ class Aate8829TapeAndLatencyTest {
         assertNull(LaunchReplay8744.atLatency8829(grid, 0L))
         val rules = LaunchReplay8744.rulesFor8829(38_000L)
         val extra = rules.drop(LaunchReplay8744.GRID.size)
-        assertTrue(extra.isNotEmpty() && extra.all { it.delayMs == 40_000L && it.ladder == Ladder.DOCTRINE })
+        // V5.0.8854: the 8096 LIFECYCLE exit is read at the required latency too (still only DOCTRINE can be proven)
+        assertTrue(extra.isNotEmpty() && extra.all { it.delayMs == 40_000L && (it.ladder == Ladder.DOCTRINE || it.ladder == Ladder.LIFECYCLE) })
+        assertTrue(extra.any { it.ladder == Ladder.LIFECYCLE })
         assertEquals(extra.size, extra.toSet().size)
         assertEquals(LaunchReplay8744.GRID, LaunchReplay8744.rulesFor8829(10_000L))
     }

@@ -30,7 +30,12 @@ class Aate8788PairedLaddersAndHonestBooksTest {
         val same = LaunchReplay8744.pairedLadders8788(List(150) { path(dump) }, base, 70.0, 3.0)
         assertEquals(Ladder.values().size - 1, same.size)
         for (p in same) {
-            assertEquals(150, p.n); assertEquals(0.0, p.meanDiff, 1e-9); assertEquals("same", p.verdict)
+            assertEquals(150, p.n)
+            // V5.0.8854 (supersedes "every ladder is DOCTRINE exactly"): LIFECYCLE carries its own -40 % floor, so on a dump it
+            // exits one print later than the rule's 35 % stop: 0.95^10 against 0.95^9 of the entry, every launch
+            if (p.ladder == Ladder.LIFECYCLE) {
+                assertEquals((Math.pow(0.95, 10.0) - Math.pow(0.95, 9.0)) * 100.0, p.meanDiff, 1e-6); assertEquals("WORSE", p.verdict)
+            } else { assertEquals(0.0, p.meanDiff, 1e-9); assertEquals("same", p.verdict) }
         }
         // the same runner every time: the difference is the same every launch, so it is decided (no noise left)
         val run = LaunchReplay8744.pairedLadders8788(List(120) { path(runner) }, base, 70.0, 3.0)
