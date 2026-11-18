@@ -5,6 +5,7 @@ import com.lifecyclebot.engine.truth.RunnerMetrics8853
 import com.lifecyclebot.engine.truth.RunnerRouteQuotes8853
 import com.lifecyclebot.engine.truth.RunnerStudy8852
 import org.junit.After
+import org.junit.Before
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -22,6 +23,7 @@ class Aate8853RunnerEvidenceTest {
         RunnerRouteQuotes8853.QuoteLeg(requested, received, input, output, solUsd,
             "metis", "pool_1", 0.5)
 
+    @Before fun startClean() = clear()
     @After fun clear() { study.resetForTest(); routes.resetForTest() }
 
     @Test fun routeQuoteRequiresSameBuyQuantityForSixHourSellAndNeverClaimsFill() {
@@ -117,7 +119,7 @@ class Aate8853RunnerEvidenceTest {
             val stamp = entry + i * 5L * 60_000L
             study.observe(mint, mark(mint, 8.0, stamp), stamp, metrics = metrics(stamp))
         }
-        val r = study.resultsForTest().single()
+        val r = study.resultsForTest().single { it.mint == mint }
         assertEquals(RunnerStudy8852.State.COMPLETE_MARK_ONLY, r.state)
         assertEquals(79.6, r.holdUsd10!!, 0.0001)
         assertEquals(29.6, r.metricsOnlyExitUsd10!!, 0.0001)
@@ -137,7 +139,7 @@ class Aate8853RunnerEvidenceTest {
             study.observe(mint, mark(mint, 5.0, stamp), stamp,
                 metrics = RunnerMetrics8853.Witness(stamp, hardSafety = false))
         }
-        val r = study.resultsForTest().single()
+        val r = study.resultsForTest().single { it.mint == mint }
         assertEquals("METRIC_PATH_INCOMPLETE", r.metricsExitReason)
         assertNull(r.metricsOnlyExitUsd10)
         assertEquals(0, r.metricsSamples)
