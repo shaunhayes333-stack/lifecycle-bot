@@ -744,6 +744,8 @@ object ForwardReturnLabeler7731 {
         prefs = p
         try { timingBook8528.restore(p.getString("setup_timing_8528", null)) } catch (_: Exception) { PipelineHealthCollector.labelInc("SETUP_TIMING_RESTORE_FAILED_8528") }
         try { trajectoryBook8851.restore(p.getString("trajectory_8851", null)) } catch (_: Exception) { PipelineHealthCollector.labelInc("TRAJECTORY_RESTORE_FAILED_8851") }
+        try { RunnerStudy8852.restore(p.getString("runner_study_8852", null)) }
+        catch (_: Exception) { PipelineHealthCollector.labelInc("RUNNER_STUDY_RESTORE_FAILED_8852") }
         val checkpoint8527 = modelledCheckpoint8527(p)
         pairedRestore8401 = checkpoint8527.paired
         try { com.lifecyclebot.engine.cortex.CrossAssetCortex7931.restorePriceIdentities8402(p.getString(PRICE_IDENTITIES_KEY_8402, null)) }
@@ -857,6 +859,8 @@ object ForwardReturnLabeler7731 {
                     .checkpointPriceIdentities8402(selected.mapTo(HashSet()) { it.mint }))
                 .putString("setup_timing_8528", timingBook8528.encode())
                 .putString("trajectory_8851", trajectoryBook8851.encode())
+                .also { editor -> try { editor.putString("runner_study_8852", RunnerStudy8852.encode()) }
+                    catch (_: Throwable) { PipelineHealthCollector.labelInc("RUNNER_STUDY_CHECKPOINT_FAILED_8852") } }
                 .putString(FRESH_KEY_8169, freshEnc8169).putLong(FRESH_EPOCH_KEY_8169, freshEpochMs8169)
                 .remove("cells").remove("pending").also { editor ->
                     // Same preference transaction removes the old pending row and its delivered tombstone.
@@ -3262,6 +3266,28 @@ object ForwardReturnLabeler7731 {
         }
         // V5.0.7931 — crypto-universe and Markets identities are priced by their own feeds.
         val priceFor: (String) -> Double? = { m -> priceFor0(m) ?: com.lifecyclebot.engine.cortex.CrossAssetCortex7931.priceFor(m, nowMs) }
+        // V5.0.8852 — the 256-mint native-READY research cohort is independent of
+        // the 5/15-minute decision book. No other discovered mint is six-hour
+        // tracked, and the only off-watch requests use the existing low-priority
+        // batch (never a new paid socket or an execution path).
+        try {
+            RunnerStudy8852.activeMints().forEach { mint ->
+                val mark = try { typedMark8386(mint, priceFor, nowMs) } catch (_: Throwable) { null }
+                if (liveMark8454(mark)) {
+                    val estimate = if (RunnerStudy8852.needsEntry(mint)) try {
+                        val depth = com.lifecyclebot.engine.BotService.status.tokens[mint]?.lastLiquidityUsd ?: 0.0
+                        FieldManual7715.labelCostPct8534(10.0, depth, mint)
+                    } catch (_: Throwable) { Double.NaN to false } else Double.NaN to false
+                    RunnerStudy8852.observe(mint, mark, nowMs, estimate.first, estimate.second)
+                }
+            }
+            RunnerStudy8852.matureMissing(nowMs)
+            RunnerStudy8852.dueRefresh(nowMs).forEach { mint ->
+                noteShadowWanted8442(mint, nowMs + 20_000L)
+            }
+        } catch (_: Throwable) {
+            try { PipelineHealthCollector.labelInc("RUNNER_STUDY_TICK_FAILED_8852") } catch (_: Throwable) {}
+        }
         startHorizonPricer8583()   // V5.0.8583 — idempotent; every open label window is priced on its own thread
         val freshUnpriced7737 = try { FreshLaunchSelector7737.tick({ m -> markFor(m, priceFor, nowMs) }, nowMs) } catch (_: Throwable) { emptyList() }
         drainTerminals8395()
@@ -3691,7 +3717,8 @@ object ForwardReturnLabeler7731 {
             "      worst60: ${worst.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }}\n" +
             "      kinds8063 best: ${kindBest.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none at n>=30" }} | worst: ${kindWorst.joinToString(" · ") { "${it.key}[${fmtStat(it)}]" }.ifBlank { "none" }}\n" +
             "      lanes60${com.lifecyclebot.engine.MetricTag8535.LANES60_8535.line()}: ${lanes.joinToString(" · ").ifBlank { "no labels yet" }}" +   // V5.0.8535 §P2-03
-            " | ${terminalStatus8401()} robust8185[cap=${RobustLabelRead8185.CAP_LABEL_PCT_8185.toInt()}% capGT1M=${RobustLabelRead8185.CAP_LARGE_CAP_PCT_8185.toInt()}% suspectReads=${RobustLabelRead8185.suspectReads8185()} tailReadRaw8322=${tailReadRaw8322.get()}]"
+            " | ${terminalStatus8401()} robust8185[cap=${RobustLabelRead8185.CAP_LABEL_PCT_8185.toInt()}% capGT1M=${RobustLabelRead8185.CAP_LARGE_CAP_PCT_8185.toInt()}% suspectReads=${RobustLabelRead8185.suspectReads8185()} tailReadRaw8322=${tailReadRaw8322.get()}]" +
+            "\n      ${RunnerStudy8852.line()}"
     }
 
     /** Called when the service stops: the table survives the restart. */

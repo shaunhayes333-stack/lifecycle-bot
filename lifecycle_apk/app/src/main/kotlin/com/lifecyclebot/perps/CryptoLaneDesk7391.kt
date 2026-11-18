@@ -209,9 +209,12 @@ object CryptoLaneDesk7391 {
             val cls = ModeRouter.classify(ts)
             val sheet = ToolkitSignalSheet.build(ts, cls)
             val move = try { MovementPatternSignal.from(ts).pattern } catch (_: Throwable) { "" }
-            val ranked = rankedHypotheses8851(sheet.deskHypotheses.values) {
-                LaneEntryContract6342.isLaneIdentityEligible7252(ts, it)
+            // Keep the live asset/lane eligibility veto at the desk boundary;
+            // the pure ranker also accepts a predicate for isolated tests.
+            val eligibleDesks = sheet.deskHypotheses.values.filter {
+                LaneEntryContract6342.isLaneIdentityEligible7252(ts, it.lane)
             }
+            val ranked = rankedHypotheses8851(eligibleDesks) { true }
 
             val voters = independentVoters8851(ranked)
             val out = ranked.map { h ->

@@ -1,6 +1,7 @@
 package com.lifecyclebot.engine.market
 
 import com.lifecyclebot.engine.PipelineHealthCollector
+import com.lifecyclebot.engine.truth.RunnerStudy8852
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -177,7 +178,16 @@ internal object SpecialistCandidateBooks7803 {
         return upsert(
             lane, mint, symbol, candidateVersion, State.READY,
             conviction, score, confidence, "TRADE_AUTHORIZER", reason,
-        )
+        ).also { ready ->
+            // Six-hour paper research follows the native READY cohort only; generic
+            // WATCHING / QUALIFIED discovery never consumes a long price slot.
+            if (ready?.state == State.READY) try {
+                RunnerStudy8852.nominate(mint, ready.lane, "MEME_NATIVE_READY:" + ready.reason,
+                    ready.conviction, ready.updatedAtMs)
+            } catch (_: Throwable) {
+                try { PipelineHealthCollector.labelInc("RUNNER_STUDY_NOMINATION_FAILED_8852") } catch (_: Throwable) {}
+            }
+        }
     }
 
     internal fun markLost(lane: String, mint: String, candidateVersion: Long, reason: String) {

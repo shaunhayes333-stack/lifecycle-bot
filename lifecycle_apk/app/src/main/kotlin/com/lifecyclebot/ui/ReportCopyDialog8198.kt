@@ -116,8 +116,16 @@ object ReportCopyDialog8198 {
                     finally { file.delete() }
                 } ?: "no launch observations yet"
             } catch (_: Exception) { "hour export failed" }
+            // V5.0.8852: a SMALL, selected READY-only six-hour learning cohort;
+            // keep it separate from the market-wide first-hour birth export.
+            val runnerStudy = if (where.startsWith("FAILED")) "" else try {
+                com.lifecyclebot.engine.truth.RunnerStudy8852.export(app.cacheDir, System.currentTimeMillis())?.let { file ->
+                    try { saveDataset(app, file, "aate_runner_study_8852_${System.currentTimeMillis()}.jsonl") ?: "runner-study export failed" }
+                    finally { file.delete() }
+                } ?: "no runner-study observations yet"
+            } catch (_: Exception) { "runner-study export failed" }
             activity.runOnUiThread {
-                Toast.makeText(app, if (where.startsWith("FAILED")) "Save failed ($where); use Share" else "Saved complete report (${fullText.length} chars) to $where" + (dataset8537?.let { " + $it" } ?: "") + " · $hour", Toast.LENGTH_LONG).show()
+                Toast.makeText(app, if (where.startsWith("FAILED")) "Save failed ($where); use Share" else "Saved complete report (${fullText.length} chars) to $where" + (dataset8537?.let { " + $it" } ?: "") + " · $hour · $runnerStudy", Toast.LENGTH_LONG).show()
             }
         }, "AATE-ReportSave-8381").start()
     }

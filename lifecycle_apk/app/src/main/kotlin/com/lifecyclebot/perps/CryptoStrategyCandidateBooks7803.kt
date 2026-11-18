@@ -1,6 +1,7 @@
 package com.lifecyclebot.perps
 
 import com.lifecyclebot.engine.PipelineHealthCollector
+import com.lifecyclebot.engine.truth.RunnerStudy8852
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -121,6 +122,14 @@ internal object CryptoStrategyCandidateBooks7803 {
 
     internal fun ready(assetKey:String,symbol:String,strategy:String,candidateVersion:Long,score:Int,confidence:Int,reason:String) =
         put(assetKey,symbol,strategy,candidateVersion,State.READY,score,confidence,reason)
+            .also { ready ->
+                if (ready?.state == State.READY) try {
+                    RunnerStudy8852.nominate(ready.assetKey, ready.strategy, "CRYPTO_READY:" + ready.reason,
+                        ready.conviction, ready.updatedAtMs)
+                } catch (_: Throwable) {
+                    try { PipelineHealthCollector.labelInc("RUNNER_STUDY_NOMINATION_FAILED_8852") } catch (_: Throwable) {}
+                }
+            }
 
     internal fun lose(assetKey:String,strategy:String,candidateVersion:Long,reason:String) {
         val k=key(strategy); val cur=books[k]?.get(assetKey) ?: return
