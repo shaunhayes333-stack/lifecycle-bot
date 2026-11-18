@@ -40,6 +40,43 @@ object CryptoLaneDesk7391 {
     )
     const val LANE_REASON_PREFIX = "LANE7391="
 
+    /**
+     * The cashflow desks are two distinct owners. Older crypto qualification silently
+     * rewrote CASHGEN to TREASURY before de-duplication, so a winning CASHGEN setup
+     * could never be elected under its own identity or labelled to its own learner.
+     * Keep one hypothesis per exact desk; the canonical execution arbiter still
+     * chooses only one owner for an asset.
+     */
+    internal fun rankedHypotheses8851(hypotheses: Collection<ToolkitSignalSheet.DeskHypothesis>,
+                                     eligible: (String) -> Boolean): List<ToolkitSignalSheet.DeskHypothesis> =
+        hypotheses.filter { it.lane.uppercase() in CRYPTO_DESK_LANES }
+            .filter { eligible(it.lane) }
+            .filter { !it.lane.equals("CORE", true) }
+            .sortedByDescending { it.conviction }
+            .distinctBy { it.lane.uppercase() }
+
+    /** Separate cashflow owners share a brain family and cannot fabricate two independent CORE votes. */
+    internal fun independentVoters8851(ranked: List<ToolkitSignalSheet.DeskHypothesis>) =
+        ranked.filter { it.conviction >= 45.0 }.distinctBy {
+            if (it.lane.uppercase() in setOf("CASHGEN", "TREASURY")) "CASHFLOW" else it.lane.uppercase()
+        }
+
+    /**
+     * The signal's specialist owns its lane; the top-scoring desk owns only its
+     * own setup. Never stamp e.g. a SHITCOIN signal with a winning CASHGEN
+     * hypothesis's setup, which then becomes a false learning/phase label.
+     * Missing same-lane evidence remains unnamed, not fabricated.
+     */
+    internal fun evidencedSignalReason8851(
+        signalLane: String, topDesk: Election, qualifiedDesks: List<Election>,
+    ): String {
+        val lane = signalLane.uppercase()
+        val matching = qualifiedDesks.firstOrNull { it.lane.equals(lane, ignoreCase = true) }
+        val setup = matching?.setup?.takeIf { it.isNotBlank() }?.let { " setup=$it" }.orEmpty()
+        val movement = matching?.movementPattern ?: topDesk.movementPattern
+        return "${LANE_REASON_PREFIX}$lane desk=${topDesk.lane.ifBlank { "NONE" }}$setup move=$movement"
+    }
+
     /** V5.0.8849: read the setup actually elected by the meme desk, not an
      * inferred quality grade from the score. Static CryptoBrain signals have
      * no desk evidence and rightly leave their entry phase unknown. */
@@ -172,21 +209,17 @@ object CryptoLaneDesk7391 {
             val cls = ModeRouter.classify(ts)
             val sheet = ToolkitSignalSheet.build(ts, cls)
             val move = try { MovementPatternSignal.from(ts).pattern } catch (_: Throwable) { "" }
-            val ranked = sheet.deskHypotheses.values
-                .filter { it.lane.uppercase() in CRYPTO_DESK_LANES }
-                .map { if (it.lane.equals("CASHGEN", true)) it.copy(lane = "TREASURY") else it }
-                .filter { LaneEntryContract6342.isLaneIdentityEligible7252(ts, it.lane) }
-                .filter { !it.lane.equals("CORE", true) }
-                .sortedByDescending { it.conviction }
-                .distinctBy { it.lane.uppercase() }
+            val ranked = rankedHypotheses8851(sheet.deskHypotheses.values) {
+                LaneEntryContract6342.isLaneIdentityEligible7252(ts, it)
+            }
 
+            val voters = independentVoters8851(ranked)
             val out = ranked.map { h ->
-                Election(h.lane.uppercase(), h.conviction, h.setup.name, move, ranked.count { it.conviction >= 45.0 })
+                Election(h.lane.uppercase(), h.conviction, h.setup.name, move, voters.size)
             }.toMutableList()
 
-            val voters = ranked.filter { it.conviction >= 45.0 }
-            val strongest = ranked.firstOrNull()
-            val second = ranked.getOrNull(1)
+            val strongest = voters.firstOrNull()
+            val second = voters.getOrNull(1)
             val coreFit = strongest != null && second != null && voters.size >= 2 &&
                 strongest.conviction < 75.0 &&
                 (strongest.conviction - second.conviction <= 10.0 || strongest.conviction < 65.0) &&

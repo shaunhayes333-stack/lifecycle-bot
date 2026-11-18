@@ -2076,7 +2076,9 @@ object CryptoAltTrader {
                     dynExecutableSignals[i7391] = s7391.copy(
                         score = if (manipDanger7391) (s7391.score - 40).coerceAtLeast(0) else s7391.score,
                         price = if (freshPrice7391 > 0.0) freshPrice7391 else s7391.price,
-                        reasons = s7391.reasons + "${CryptoLaneDesk7391.LANE_REASON_PREFIX}$lane7391 desk=${desk7391.lane.ifBlank { "NONE" }} setup=${desk7391.setup} move=${desk7391.movementPattern}",
+                        reasons = s7391.reasons + CryptoLaneDesk7391.evidencedSignalReason8851(
+                            lane7391, desk7391, deskCandidates7803,
+                        ),
                     )
                 }
                 if (dynExecutableSignals.size > executableSignalCountBefore6567) {
