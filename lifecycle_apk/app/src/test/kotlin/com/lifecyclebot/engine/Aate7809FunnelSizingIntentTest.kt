@@ -103,8 +103,10 @@ class Aate7809FunnelSizingIntentTest {
         val bot = src("engine/BotService.kt")
         val election = bot.substringAfter("private fun canonicalCycleLaneFor(").substringBefore("private fun sealedSpecialistAttempt7468(")
         // The helper definition now sits inside this slice; count call sites only.
-        // superseded by V5.0.8418 — the READY spine (LaneDispatch8418.spineLane8418) is a seventh call site and also asks the cyclic policy
-        assertEquals(7, Regex("(?<!fun )cyclicPolicyAllows7809\\(").findAll(election).count())
+        // 8418 added the READY spine; 8851 adds the CORE-native consensus owner
+        // whose election still requires the same cyclic policy. Every path must be checked.
+        assertEquals(8, Regex("(?<!fun )cyclicPolicyAllows7809\\(").findAll(election).count())
+        assertTrue(election.contains("cyclicPolicyAllows7809(\"CORE\")"))
         assertTrue(election.contains("laneEvaluationAllowed7951(ts, it, cyclePrimaryLane, cycleSheet8522) && cyclicPolicyAllows7809(it) }"))
         val helper = bot.substringAfter("private fun cyclicPolicyAllows7809(").substringBefore("private fun executionBookForLane6494(")
         assertTrue(helper.contains("CyclicTradeEngine.isEnabled()"))

@@ -53,7 +53,11 @@ class Aate8013GradingScheduleTest {
         assertTrue(f.contains("completeHour8397(key, o, net, gross, stop7997, horizonOpen7809(observedAge8521, hourTargetMs8592))"))   // V5.0.8592 — hour lanes complete at their 15m target
         assertTrue(hour.contains("val follow = !stop && keepRunning7997(o, gross)"))
         assertTrue(hour.contains("bookTwoForty7944(o, net, gross, deferExit8006 = follow)"))
-        assertTrue(hour.contains("if (!follow) pending.remove(key, o) else extended7997.incrementAndGet()"))
+        // 8851: qualifying continuation is now a block that also freezes ownership of
+        // the later 1h/4h/24h grades; the old one-line else no longer exists.
+        assertTrue(hour.contains("if (!follow) pending.remove(key, o) else {"))
+        assertTrue(hour.contains("o.qualifiedLong8851 = true"))
+        assertTrue(hour.contains("extended7997.incrementAndGet()"))
         assertTrue(f.contains("o.feats7972 = f[30].split('\\u0002').filter { it.isNotBlank() }"))
         val c = src("engine/cortex/Cortex7885.kt")
         assertTrue(c.contains("append(\",\\\"g8013\\\":\").append(garr.append(']'))"))

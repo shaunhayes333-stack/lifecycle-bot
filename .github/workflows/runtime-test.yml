@@ -82,28 +82,6 @@ jobs:
           sudo udevadm trigger --name-match=kvm
         working-directory: .
 
-      - name: AVD cache
-        uses: actions/cache@v4
-        id: avd-cache
-        with:
-          path: |
-            ~/.android/avd/*
-            ~/.android/adb*
-          key: avd-api30-x86_64-googleapis-cores4
-
-      - name: Create AVD snapshot for cache
-        if: steps.avd-cache.outputs.cache-hit != 'true'
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 30
-          cores: 4
-          arch: x86_64
-          target: google_apis
-          force-avd-creation: false
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          disable-animations: true
-          script: echo "Generated AVD snapshot for caching."
-
       - name: Build, install, run, capture logcat
         env:
           CAPTURE_SECONDS: ${{ github.event.inputs.capture_seconds || '180' }}
@@ -118,8 +96,11 @@ jobs:
           cores: 4
           arch: x86_64
           target: google_apis
-          force-avd-creation: false
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          # 8851: twice a cached AVD reported sys.boot_completed=1 without an
+          # Android input service, failing during the runner's unlock before AATE
+          # launched. Force a fresh cold boot and keep *all* device checks.
+          force-avd-creation: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           working-directory: .
           script: |

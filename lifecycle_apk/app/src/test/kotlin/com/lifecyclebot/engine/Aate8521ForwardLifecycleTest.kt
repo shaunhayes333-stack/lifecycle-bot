@@ -95,30 +95,33 @@ class Aate8521ForwardLifecycleTest {
     }
 
     @Suppress("UNCHECKED_CAST")
-    @Test fun missingInterimMarkCannotCancelAnyLanesFrozenHourTarget() {
+    @Test fun missingInterimMarkCannotCancelAnyLanesFrozenFifteenMinuteTarget() {
         val pending = get(runtime, "pending") as MutableMap<String, Any>
         val at = System.currentTimeMillis() - 600_000L
         val inserted = ArrayList<String>()
         try {
             for (lane in lanes) for (take in listOf(false, true)) {
                 val horizon = CortexForwardEpoch8521.targetHorizon(CortexForwardEpoch8521.targetKind(lane))
-                if (horizon != CortexForwardEpoch8521.HOUR_MS) continue   // V5.0.8592 — hour target is now 15m
+                if (horizon != CortexForwardEpoch8521.HOUR_MS) continue   // V5.0.8592 — hour-class target is now 15m
                 val mint = "interim-8521-$lane-$take"; val key = "$mint|$lane"
                 val obs = observation(mint, lane, take, at)
                 set(obs, "targetHorizon8521", horizon); set(obs, "rebased8076", true)
                 pending[key] = obs; inserted += key
                 assertEquals(false, call("expired8395", key, obs, null, at + 450_000L))
-                assertSame("$lane/$take still owns its original hour target", obs, pending[key])
+                assertSame("$lane/$take still owns its original 15m target", obs, pending[key])
                 assertEquals(true, get(obs, "done60"))
                 assertEquals(true, get(obs, "interimUnavailable8521"))
                 assertTrue("no interim return is fabricated", (get(obs, "bookedNet7997") as Double).isNaN())
-                assertEquals(at + 4_200_000L, call("deadline8395", obs))
-                val hour = mark(mint, at + 3_605_000L, 2.0)
+                // 8851 completion uses the per-observation frozen target, not the
+                // obsolete 60m horizon; 15m receives a 7.5m recovery grace.
+                assertEquals(900_000L, horizon)
+                assertEquals(at + horizon + 450_000L, call("deadline8395", obs))
+                val hour = mark(mint, at + horizon + 5_000L, 2.0)
                 set(obs, "lastMark8386", hour)
                 val proof = call("outcomeProof8395", obs, 97.0, 100.0,
                     ForwardReturnLabeler7731.revisionHorizon8521(hour.observedAtMs - at)) as CortexOutcomeProof8395
-                assertEquals(3_600_000L, proof.horizonMs)
-                assertEquals(at + 3_605_000L, proof.observedAtMs)
+                assertEquals(horizon, proof.horizonMs)
+                assertEquals(at + horizon + 5_000L, proof.observedAtMs)
                 assertEquals("$key|$at", proof.decisionId)
             }
             assertTrue("the real lane policy must include patient targets", inserted.isNotEmpty())
