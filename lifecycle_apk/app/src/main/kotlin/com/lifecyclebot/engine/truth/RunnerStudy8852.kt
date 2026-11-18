@@ -127,7 +127,7 @@ internal object RunnerStudy8852 {
     }
 
     /** $10 cost is a modelled round trip at the entry depth, NOT a $10 swap quote. */
-    fun markedUsd10(ratio: Double, costPct: Double): Double? =
+    private fun markedUsd10(ratio: Double, costPct: Double): Double? =
         if (ratio.isFinite() && ratio >= 0.0 && costPct.isFinite() && costPct in 0.0..100.0)
             (10.0 * ratio - costPct / 10.0).coerceAtLeast(0.0) else null
 
