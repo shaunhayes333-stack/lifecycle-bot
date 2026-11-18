@@ -14,6 +14,7 @@ import java.util.concurrent.ConcurrentHashMap
  * nominates a mint; discovery and generic QUALIFIED do not. One mint shares one watch
  * across lanes. This has NO live/paper position, entry permit, size or exit authority.
  * $10 values are observed MARK proxies, never executable quote proceeds.
+ * V5.0.8853's separate quote sidecar cannot upgrade a MARK result to a fill.
  */
 internal object RunnerStudy8852 {
     const val SIX_HOURS_MS = 6L * 3_600_000L
@@ -31,6 +32,8 @@ internal object RunnerStudy8852 {
         val priceOnlyExitUsd10: Double?, val exitReason: String, val maxGapMs: Long,
         val depthKnown: Boolean, val entryAtMs: Long?, val endAtMs: Long?,
         val entryUsdPerToken: Double?, val endUsdPerToken: Double?, val peakAtMs: Long?,
+        val metricsOnlyExitUsd10: Double? = null, val metricsExitReason: String = "UNAVAILABLE",
+        val metricsSamples: Int = 0, val metricsMaxGapMs: Long = 0L,
     )
 
     private class Episode(val mint: String, val lane: String, val selectedBy: String,
@@ -49,6 +52,16 @@ internal object RunnerStudy8852 {
         var costPct = Double.NaN
         var depthKnown = false
         var askedAt = 0L
+        var metricsSamples = 0
+        var metricsFirstAt = 0L
+        var metricsLastAt = 0L
+        var metricsMaxGapMs = 0L
+        var metricsJournalAt = 0L
+        var metricExitAt = 0L
+        var metricExitRatio = Double.NaN
+        var metricExitReason = ""
+        var entryMetricLiquidity = Double.NaN
+        var entryMetricPool = ""
         fun encode() = JSONObject().put("m", mint).put("l", lane).put("by", selectedBy)
             .put("t", selectedAt).put("c", conviction).put("lanes", lanes)
             .put("entry", entry?.json()).put("last", last?.json())
@@ -57,6 +70,11 @@ internal object RunnerStudy8852 {
             .put("rungs", rungMask).put("stop", stoppedBy).put("gap", maxGapMs)
             .put("marks", marks).put("cost", costPct.toString())
             .put("depth", depthKnown).put("asked", askedAt)
+            .put("mn", metricsSamples).put("mf", metricsFirstAt).put("ml", metricsLastAt)
+            .put("mg", metricsMaxGapMs).put("mj", metricsJournalAt)
+            .put("me", metricExitAt).put("mr", metricExitRatio.toString())
+            .put("mreason", metricExitReason).put("mliq", entryMetricLiquidity.toString())
+            .put("mpool", entryMetricPool)
     }
 
     private val active = ConcurrentHashMap<String, Episode>()
@@ -84,14 +102,15 @@ internal object RunnerStudy8852 {
         var selected: Int = 0, var complete: Int = 0, var unavailable: Int = 0,
         var priced: Int = 0, var markedSum10: Double = 0.0, var markedWins: Int = 0,
         var peaked4x: Int = 0, var denseReplay: Int = 0, var replaySum10: Double = 0.0,
+        var metricsReplay: Int = 0, var metricsSum10: Double = 0.0,
     ) {
         fun encode() = JSONArray(listOf(selected, complete, unavailable, priced, markedSum10,
-            markedWins, peaked4x, denseReplay, replaySum10))
+            markedWins, peaked4x, denseReplay, replaySum10, metricsReplay, metricsSum10))
         fun line(): String =
             "selected=" + selected + " 6h=" + complete + " unavailable=" + unavailable +
                 " priced=" + priced + " markMean10=" +
                 (if (priced > 0) "%.2f".format(markedSum10 / priced) else "-") +
-                " proxyN=" + denseReplay
+                " proxyN=" + denseReplay + " metricsN=" + metricsReplay
     }
     private val byLane = LinkedHashMap<String, Cell>()
     private var selected = 0L
@@ -122,6 +141,7 @@ internal object RunnerStudy8852 {
         active[mint] = Episode(mint, lane, source.take(96), nowMs, conviction)
         selected++
         byLane.getOrPut(lane) { Cell() }.selected++
+        try { RunnerRouteQuotes8853.nominate(mint, lane, nowMs) } catch (_: Throwable) {}
         try { PipelineHealthCollector.labelInc("RUNNER_STUDY_READY_8852") } catch (_: Throwable) {}
         return true
     }
@@ -151,7 +171,8 @@ internal object RunnerStudy8852 {
 
     /** Only source-fresh and independently attributable marks; a cached repeat is not a tick. */
     @Synchronized fun observe(mint: String, mark: LabelMark8386?, nowMs: Long,
-                               costPct10: Double = Double.NaN, depthKnown: Boolean = false) {
+                               costPct10: Double = Double.NaN, depthKnown: Boolean = false,
+                               metrics: RunnerMetrics8853.Witness? = null) {
         val e = active[mint] ?: return
         if (mark?.known() != true || nowMs - mark.observedAtMs !in 0L..45_000L ||
             mark.observedAtMs < e.selectedAt) return
@@ -161,6 +182,7 @@ internal object RunnerStudy8852 {
             if (costPct10.isFinite() && costPct10 in 0.0..100.0) {
                 e.costPct = costPct10; e.depthKnown = depthKnown
             }
+            observeMetrics(e, mark, metrics, 1.0)
             return
         }
         val entry = e.entry ?: return
@@ -173,6 +195,7 @@ internal object RunnerStudy8852 {
         e.maxGapMs = maxOf(e.maxGapMs, mark.observedAtMs - (e.last?.observedAtMs ?: entry.observedAtMs))
         e.last = mark; e.marks++
         if (ratio > e.peakRatio) { e.peakRatio = ratio; e.peakAtMs = mark.observedAtMs }
+        observeMetrics(e, mark, metrics, ratio)
         if (e.stoppedBy.isBlank()) {
             val s = step(ratio, e.peakRatio, e.remaining, e.bankedRatio, e.rungMask)
             e.remaining = s[0]; e.bankedRatio = s[1]; e.rungMask = s[2].toInt()
@@ -180,6 +203,33 @@ internal object RunnerStudy8852 {
                 if (ratio <= 0.65) "PRICE_STOP_35" else "PRICE_PEAK_GIVEBACK_35"
         }
         if (mark.observedAtMs >= target) finish(e, State.COMPLETE_MARK_ONLY, nowMs)
+    }
+
+    /** Actual timestamped input fields; candidate signal is a research benchmark, never a live exit. */
+    private fun observeMetrics(e: Episode, mark: LabelMark8386, w: RunnerMetrics8853.Witness?, ratio: Double) {
+        if (w?.usable() != true || w.atMs - mark.observedAtMs !in 0L..45_000L) return
+        val at = mark.observedAtMs
+        val entryAt = e.entry?.observedAtMs ?: return
+        if (at == entryAt && !e.entryMetricLiquidity.isFinite() && w.liquidityUsd != null) {
+            e.entryMetricLiquidity = w.liquidityUsd; e.entryMetricPool = w.liquidityPool
+        }
+        if (at > entryAt && e.metricExitAt == 0L) {
+            val signal = RunnerMetrics8853.candidateExit(w, ratio,
+                e.entryMetricLiquidity.takeIf { it.isFinite() }, e.entryMetricPool)
+            if (signal != null) { e.metricExitAt = at; e.metricExitRatio = ratio; e.metricExitReason = signal }
+        }
+        if (e.metricsJournalAt == 0L || at - e.metricsJournalAt >= 5L * 60_000L || e.metricExitAt == at) {
+            e.metricsJournalAt = at
+            appendEvidence8853(JSONObject().put("kind", "RUNNER_METRIC_WITNESS_8853")
+                .put("mint", e.mint).put("lane", e.lane).put("selectedMs", e.selectedAt)
+                .put("markMs", at).put("ratio", ratio).put("metrics", w.json())
+                .put("firstExitCandidate", if (e.metricExitAt == at) e.metricExitReason else JSONObject.NULL)
+                .put("liveExitAuthority", false))
+        }
+        if (!w.replayCoverage()) return
+        e.metricsMaxGapMs = maxOf(e.metricsMaxGapMs, at - (e.metricsLastAt.takeIf { it > 0L } ?: entryAt))
+        if (e.metricsFirstAt == 0L) e.metricsFirstAt = at
+        e.metricsLastAt = at; e.metricsSamples++
     }
 
     /** Missing pricing after the deadline stays UNAVAILABLE, never counted as a -100% loss. */
@@ -206,10 +256,19 @@ internal object RunnerStudy8852 {
         val peak = if (state == State.COMPLETE_MARK_ONLY) markedUsd10(e.peakRatio, e.costPct) else null
         val proxy = if (state == State.COMPLETE_MARK_ONLY && e.maxGapMs <= MAX_GAP_MS && e.marks >= 3)
             markedUsd10(e.bankedRatio + e.remaining * ratio, e.costPct) else null
+        val metricsDense = state == State.COMPLETE_MARK_ONLY && e.metricsSamples >= 3 &&
+            e.metricsFirstAt - (e.entry?.observedAtMs ?: 0L) in 0L..MAX_GAP_MS &&
+            (e.last?.observedAtMs ?: 0L) - e.metricsLastAt in 0L..MAX_GAP_MS &&
+            e.metricsMaxGapMs <= MAX_GAP_MS && e.maxGapMs <= MAX_GAP_MS
+        val metricsProxy = if (metricsDense)
+            markedUsd10(e.metricExitRatio.takeIf { e.metricExitAt > 0L && it.isFinite() } ?: ratio,
+                e.costPct) else null
         val r = Result(e.mint, e.lane, e.selectedBy, state, e.marks, hold, peak, proxy,
             e.stoppedBy.ifBlank { "HOLD_TO_6H" }, e.maxGapMs, e.depthKnown,
             e.entry?.observedAtMs, e.last?.observedAtMs, e.entry?.usd, e.last?.usd,
-            e.peakAtMs.takeIf { it > 0L })
+            e.peakAtMs.takeIf { it > 0L }, metricsProxy,
+            if (metricsDense) e.metricExitReason.ifBlank { "NO_OBSERVED_METRIC_EXIT_HOLD_6H" }
+            else "METRIC_PATH_INCOMPLETE", e.metricsSamples, e.metricsMaxGapMs)
         // The journal records every selected episode, even if pricing never
         // arrives; only priced, witnessed rows enter the paper-research cells.
         try {
@@ -232,13 +291,13 @@ internal object RunnerStudy8852 {
                 .put("peakMarkedUsd10", peak ?: JSONObject.NULL)
                 .put("priceOnlyProxyUsd10", proxy ?: JSONObject.NULL)
                 .put("priceOnlyProxyReason", r.exitReason)
+                .put("metricsOnlyExitMarkedUsd10", metricsProxy ?: JSONObject.NULL)
+                .put("metricsExitCandidateReason", r.metricsExitReason)
+                .put("metricSamples", e.metricsSamples).put("metricMaxGapMs", e.metricsMaxGapMs)
+                .put("firstMetricExitMs", e.metricExitAt.takeIf { it > 0L } ?: JSONObject.NULL)
                 .put("buyQuoteObserved", false).put("sellQuoteObserved", false)
                 .put("realizedWalletPnl", JSONObject.NULL)
-            if (AATEApp.appContextOrNull() != null) {
-                journalWorker
-                if (!journalQueue.offer(row.toString()))
-                    PipelineHealthCollector.labelInc("RUNNER_STUDY_JOURNAL_QUEUE_FULL_8852")
-            }
+            appendEvidence8853(row)
         } catch (_: Throwable) {}
         val cell = byLane.getOrPut(e.lane) { Cell() }
         if (state == State.COMPLETE_MARK_ONLY) cell.complete++ else cell.unavailable++
@@ -247,6 +306,7 @@ internal object RunnerStudy8852 {
             if (hold > 10.0) cell.markedWins++
             if (e.peakRatio >= 4.0) cell.peaked4x++
             if (proxy != null) { cell.denseReplay++; cell.replaySum10 += proxy }
+            if (metricsProxy != null) { cell.metricsReplay++; cell.metricsSum10 += metricsProxy }
         }
         recent.addLast(r)
         while (recent.size > MAX_RECENT) recent.removeFirst()
@@ -265,7 +325,20 @@ internal object RunnerStudy8852 {
                     " holdMarkedUsd10=" + (hold ?: "UNAVAILABLE") +
                     " peakMarkedUsd10=" + (peak ?: "UNAVAILABLE") +
                     " priceOnlyProxyUsd10=" + (proxy ?: "UNAVAILABLE") +
+                    " metricsOnlyProxyUsd10=" + (metricsProxy ?: "UNAVAILABLE") +
+                    " metricReason=" + r.metricsExitReason +
                     " buyQuote=NONE sellQuote=NONE liveFill=NONE")
+        } catch (_: Throwable) {}
+    }
+
+    /** Shared bounded append-only file, including independently dated route quotes and metric witnesses. */
+    internal fun appendEvidence8853(row: JSONObject) {
+        try {
+            if (AATEApp.appContextOrNull() != null) {
+                journalWorker
+                if (!journalQueue.offer(row.toString()))
+                    PipelineHealthCollector.labelInc("RUNNER_STUDY_JOURNAL_QUEUE_FULL_8852")
+            }
         } catch (_: Throwable) {}
     }
 
@@ -278,11 +351,13 @@ internal object RunnerStudy8852 {
 
     fun activeMints(): Set<String> = active.keys.toSet()
     fun needsEntry(mint: String): Boolean = active[mint]?.entry == null
+    fun wantsMark8853(mint: String, observedAtMs: Long): Boolean =
+        active[mint]?.let { observedAtMs > (it.last?.observedAtMs ?: 0L) } == true
     @Synchronized fun line(): String =
         "runnerStudy8852[ready=$selected active=" + active.size + "/$MAX_ACTIVE complete=$complete" +
             " missingEntry=$noEntry missingExit=$noExit capacity=$refusedCapacity" +
             " last=" + (recent.lastOrNull()?.let { it.lane + ":" + it.state.name + ":$" + (it.holdUsd10 ?: "-") } ?: "-") +
-            " markedOnly=NO_QUOTES] cells=" +
+            " markedOnly=NO_QUOTES shadowMetrics=NOT_LIVE_EXIT] " + RunnerRouteQuotes8853.line() + " cells=" +
             byLane.entries.sortedByDescending { it.value.complete }.take(8)
                 .joinToString(";") { it.key + "{" + it.value.line() + "}" }
 
@@ -298,7 +373,10 @@ internal object RunnerStudy8852 {
             .put("reason", r.exitReason).put("gap", r.maxGapMs).put("depth", r.depthKnown)
             .put("entryAt", r.entryAtMs ?: JSONObject.NULL).put("endAt", r.endAtMs ?: JSONObject.NULL)
             .put("entryPx", r.entryUsdPerToken ?: JSONObject.NULL).put("endPx", r.endUsdPerToken ?: JSONObject.NULL)
-            .put("peakAt", r.peakAtMs ?: JSONObject.NULL)) } }).toString()
+            .put("peakAt", r.peakAtMs ?: JSONObject.NULL)
+            .put("metricProxy", r.metricsOnlyExitUsd10 ?: JSONObject.NULL)
+            .put("metricReason", r.metricsExitReason).put("metricN", r.metricsSamples)
+            .put("metricGap", r.metricsMaxGapMs)) } }).toString()
 
     /** Save report: full durable result rows, plus today's unresolved READY cohort. */
     @Synchronized fun export(dir: File, nowMs: Long): File? {
@@ -310,13 +388,15 @@ internal object RunnerStudy8852 {
                     .put("nominated", selected).put("active", active.size)
                     .put("complete", complete).put("entryUnavailable", noEntry)
                     .put("exitUnavailable", noExit).put("capacityRefused", refusedCapacity)
-                    .put("liveAuthority", false).put("quoteBackedUsd10", false).toString())
+                    .put("liveAuthority", false).put("quoteBackedUsd10", false)
+                    .put("routeQuoteEvidence", "INDICATIVE_ONLY_8853").toString())
                 val original = File(app.filesDir, JOURNAL)
                 if (original.exists()) original.forEachLine { row -> w.appendLine(row) }
                 active.values.forEach { e ->
                     w.appendLine(JSONObject().put("kind", "RUNNER_STUDY_PENDING_8852")
                         .put("snapshotMs", nowMs).put("episode", e.encode()).toString())
                 }
+                RunnerRouteQuotes8853.pendingRows(nowMs).forEach { w.appendLine(it) }
             }
             return out
         } catch (e: Exception) { out.delete(); throw e }
@@ -341,9 +421,10 @@ internal object RunnerStudy8852 {
             j.optJSONObject("cells")?.let { cells ->
                 for (lane in cells.keys()) {
                     val a = cells.optJSONArray(lane) ?: continue
-                    if (byLane.size >= 64 || a.length() != 9) break
+                    if (byLane.size >= 64 || a.length() !in setOf(9, 11)) continue
                     val cell = Cell(a.optInt(0), a.optInt(1), a.optInt(2), a.optInt(3),
-                        a.optDouble(4), a.optInt(5), a.optInt(6), a.optInt(7), a.optDouble(8))
+                        a.optDouble(4), a.optInt(5), a.optInt(6), a.optInt(7), a.optDouble(8),
+                        a.optInt(9, 0), a.optDouble(10, 0.0))
                     if (cell.selected >= 0 && cell.complete >= 0 && cell.unavailable >= 0 &&
                         cell.priced >= 0 && cell.markedSum10.isFinite()) byLane.putIfAbsent(lane, cell)
                 }
@@ -363,6 +444,13 @@ internal object RunnerStudy8852 {
                 e.stoppedBy = x.optString("stop"); e.maxGapMs = x.optLong("gap")
                 e.marks = x.optInt("marks"); e.costPct = x.optString("cost").toDoubleOrNull() ?: Double.NaN
                 e.depthKnown = x.optBoolean("depth"); e.askedAt = x.optLong("asked")
+                e.metricsSamples = x.optInt("mn"); e.metricsFirstAt = x.optLong("mf")
+                e.metricsLastAt = x.optLong("ml"); e.metricsMaxGapMs = x.optLong("mg")
+                e.metricsJournalAt = x.optLong("mj"); e.metricExitAt = x.optLong("me")
+                e.metricExitRatio = x.optString("mr").toDoubleOrNull() ?: Double.NaN
+                e.metricExitReason = x.optString("mreason")
+                e.entryMetricLiquidity = x.optString("mliq").toDoubleOrNull() ?: Double.NaN
+                e.entryMetricPool = x.optString("mpool")
                 if (e.peakRatio.isFinite() && e.peakRatio >= 1.0 && e.remaining in 0.0..1.0 &&
                     e.bankedRatio.isFinite() && e.bankedRatio >= 0.0) active.putIfAbsent(mint, e)
             }
@@ -379,7 +467,10 @@ internal object RunnerStudy8852 {
                     x.optLong("endAt").takeIf { !x.isNull("endAt") },
                     x.optDouble("entryPx").takeIf { !x.isNull("entryPx") },
                     x.optDouble("endPx").takeIf { !x.isNull("endPx") },
-                    x.optLong("peakAt").takeIf { !x.isNull("peakAt") }))
+                    x.optLong("peakAt").takeIf { !x.isNull("peakAt") },
+                    x.optDouble("metricProxy").takeIf { !x.isNull("metricProxy") },
+                    x.optString("metricReason", "UNAVAILABLE"), x.optInt("metricN"),
+                    x.optLong("metricGap")))
             }
             while (recent.size > MAX_RECENT) recent.removeFirst()
             matureMissing(nowMs)

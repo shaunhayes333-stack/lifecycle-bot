@@ -746,6 +746,8 @@ object ForwardReturnLabeler7731 {
         try { trajectoryBook8851.restore(p.getString("trajectory_8851", null)) } catch (_: Exception) { PipelineHealthCollector.labelInc("TRAJECTORY_RESTORE_FAILED_8851") }
         try { RunnerStudy8852.restore(p.getString("runner_study_8852", null)) }
         catch (_: Exception) { PipelineHealthCollector.labelInc("RUNNER_STUDY_RESTORE_FAILED_8852") }
+        try { RunnerRouteQuotes8853.restore(p.getString("runner_routes_8853", null)) }
+        catch (_: Exception) { PipelineHealthCollector.labelInc("RUNNER_ROUTE_RESTORE_FAILED_8853") }
         val checkpoint8527 = modelledCheckpoint8527(p)
         pairedRestore8401 = checkpoint8527.paired
         try { com.lifecyclebot.engine.cortex.CrossAssetCortex7931.restorePriceIdentities8402(p.getString(PRICE_IDENTITIES_KEY_8402, null)) }
@@ -861,6 +863,8 @@ object ForwardReturnLabeler7731 {
                 .putString("trajectory_8851", trajectoryBook8851.encode())
                 .also { editor -> try { editor.putString("runner_study_8852", RunnerStudy8852.encode()) }
                     catch (_: Throwable) { PipelineHealthCollector.labelInc("RUNNER_STUDY_CHECKPOINT_FAILED_8852") } }
+                .also { editor -> try { editor.putString("runner_routes_8853", RunnerRouteQuotes8853.encode()) }
+                    catch (_: Throwable) { PipelineHealthCollector.labelInc("RUNNER_ROUTE_CHECKPOINT_FAILED_8853") } }
                 .putString(FRESH_KEY_8169, freshEnc8169).putLong(FRESH_EPOCH_KEY_8169, freshEpochMs8169)
                 .remove("cells").remove("pending").also { editor ->
                     // Same preference transaction removes the old pending row and its delivered tombstone.
@@ -3278,7 +3282,10 @@ object ForwardReturnLabeler7731 {
                         val depth = com.lifecyclebot.engine.BotService.status.tokens[mint]?.lastLiquidityUsd ?: 0.0
                         FieldManual7715.labelCostPct8534(10.0, depth, mint)
                     } catch (_: Throwable) { Double.NaN to false } else Double.NaN to false
-                    RunnerStudy8852.observe(mint, mark, nowMs, estimate.first, estimate.second)
+                    val metricWitness = if (RunnerStudy8852.wantsMark8853(mint, mark!!.observedAtMs)) try {
+                        RunnerMetrics8853.capture(mint, nowMs)
+                    } catch (_: Throwable) { null } else null
+                    RunnerStudy8852.observe(mint, mark, nowMs, estimate.first, estimate.second, metricWitness)
                 }
             }
             RunnerStudy8852.matureMissing(nowMs)
@@ -3288,6 +3295,9 @@ object ForwardReturnLabeler7731 {
         } catch (_: Throwable) {
             try { PipelineHealthCollector.labelInc("RUNNER_STUDY_TICK_FAILED_8852") } catch (_: Throwable) {}
         }
+        // Dedicated capped quote witness. Missing provider capacity never interrupts the price/metric study.
+        try { RunnerRouteQuotes8853.tick(nowMs) }
+        catch (_: Throwable) { try { PipelineHealthCollector.labelInc("RUNNER_ROUTE_TICK_FAILED_8853") } catch (_: Throwable) {} }
         startHorizonPricer8583()   // V5.0.8583 — idempotent; every open label window is priced on its own thread
         val freshUnpriced7737 = try { FreshLaunchSelector7737.tick({ m -> markFor(m, priceFor, nowMs) }, nowMs) } catch (_: Throwable) { emptyList() }
         drainTerminals8395()
