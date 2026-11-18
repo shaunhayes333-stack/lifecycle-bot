@@ -807,3 +807,21 @@ followed clock) and does not refuse while the lane's own record backs the entry 
 `CryptoSpotPaperBacking8788.backs8788`); the 8788 permit (4 an hour, -0.1 SOL stop) is reserved at the seal for those entries
 too. Paper is unchanged. Report line `Crypto signal engine (§8857)`: doors passed, refusals that stood, live closes of each
 engine.
+
+## 49. A repaired close is published once (8858)
+
+**Measured (5.0.8853, 315 s after start):** `reward_pop_mismatch closed=2770 bus=2459 missingFromBus=311`,
+`BUS_PUBLISH_FAILED=311`, `FINALIZED_BUS_DURABLE_REPAIR_7459=1247`, reconciler cursor 2188 of 2770. Twenty-six earlier
+reports show 1,362 to 1,622 repairs in every session; a 10,053 s session read `missing=0`. The 311 were the unfinished
+tail of a replay that restarted at every boot, not trades the learners never received.
+
+| Fact | Where it lived | What changed |
+|---|---|---|
+| A CLOSED position with a durable full SELL and no rich finality row (`final:`; 2,277 rows vs 2,770 closed) | published to the 6464 bus by `FinalizedLearningReconciler7423.repairDurableBusPublishFailures7459`, held only in `canonicalSeen` (memory) | the published envelope is appended to `files/finalized_repair_8858.jsonl` (`FinalizedRepairStore8858.record8858`, only when no rich row exists) |
+| The same closes at the next start | derived and published again, 128 per 30 s pass (~6.5 min), audit failing every run meanwhile | `CanonicalFinalityPersistence6486.initAndReplay` publishes them from the file straight after the rich rows (`restore8858`: one envelope per position, the first recorded, skipping what the bus holds); the reconciler's repair waits for that (`settled8858`, at most 90 s) |
+| A consumer's durable exclusion | hydrated once per consumer; a consumer registered while the ack store was loading hydrated empty (LearnerRewardBridge, LosingStreakReflex: 3,482 exclusions each per start) | `deliverOne6734` reads the durable exclusion (`hasExclusion8858`) beside the durable ACK |
+| The selection ring (`SelectionQualityAuthority6829`) | fed inside `publish()` from every replayed close, never met the 8164 reset line | a close settled before the learning epoch is not recorded |
+| A replayed close in `DecisionReasons8031.sell8031` | booked as a sell decision at the current price | only a close inside `ExitRegret7752.FRESH_CLOSE_MS_7752` is a decision made now |
+
+The file is finality evidence: no learning reset removes it. Report: `Finalized ID reconcile (§7423)` ends with
+`repairStore8858[held restoredAtStart recordedThisRun alreadyOnBus unreadable writeFailed replayComplete]`.

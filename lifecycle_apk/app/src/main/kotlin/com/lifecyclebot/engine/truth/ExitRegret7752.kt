@@ -32,7 +32,7 @@ object ExitRegret7752 {
     private const val HOLD_MS_7752 = 60L * 60_000L
     private const val MIN_AFTER_CLOSE_MS_7752 = 15L * 60_000L
     private const val LOST_GRACE_MS_7752 = 20L * 60_000L
-    private const val FRESH_CLOSE_MS_7752 = 10L * 60_000L
+    internal const val FRESH_CLOSE_MS_7752 = 10L * 60_000L
     private const val MARK_MAX_AGE_MS_7752 = 2L * 60_000L
     private const val FETCH_GAP_MS_7752 = 20_000L
     private const val PERSIST_KEY_7752 = "EXIT_REGRET_7752"

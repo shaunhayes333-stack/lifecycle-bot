@@ -47,6 +47,9 @@ object CanonicalFinalityPersistence6486 {
             events.forEach { CanonicalTradeFinalizedBus6450.publish(it) }
         } finally {
             replaying7387 = false
+            // V5.0.8858 — the closes the reconciler repaired in an earlier run are published again from their own durable
+            // file, after the rich rows and before the reconciler's first repair pass (FinalizedRepairStore8858).
+            try { FinalizedRepairStore8858.restore8858(context) } catch (_: Throwable) { FinalizedRepairStore8858.markReplayComplete8858() }
         }
         return events.size
     }
@@ -119,6 +122,16 @@ object CanonicalFinalityPersistence6486 {
         return prefs?.all?.asSequence()?.filter { it.key.startsWith(prefix) && it.value is String }
             ?.map { it.key.removePrefix(prefix) }?.toSet() ?: emptySet()
     }
+
+    /**
+     * V5.0.8858 — the durable exclusion read the bus makes before a delivery, beside [hasAck6486]. A consumer registered
+     * while the ack store was still loading hydrated an empty exclusion history (5.0.8853: the first two consumers
+     * BotService registers at start, LearnerRewardBridge and LosingStreakReflex, were each excluded again for all 3,482
+     * closes at every start while the other consumers were excluded 11 times).
+     */
+    fun hasExclusion8858(consumer: String, tradeId: String): Boolean =
+        if (migrated8094) excluded8094[consumer]?.containsKey(tradeId) == true
+        else prefs?.contains(EXCLUDED_PREFIX_6734 + consumer + ":" + tradeId) == true
 
     fun hasAck6486(consumer: String, positionId: String): Boolean =
         if (migrated8094) acks8094[consumer]?.contains(positionId) == true else prefs?.getBoolean(ACK_PREFIX_6697 + consumer + ":" + positionId, false) == true

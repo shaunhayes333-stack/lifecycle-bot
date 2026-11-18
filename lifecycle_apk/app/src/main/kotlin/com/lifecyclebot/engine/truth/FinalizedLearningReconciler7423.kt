@@ -172,6 +172,11 @@ object FinalizedLearningReconciler7423 {
     ): Int {
         if (limit <= 0) return 0
         val started7514 = System.currentTimeMillis()
+        // V5.0.8858 — the durable replay (rich finality rows, then the closes repaired in earlier runs) publishes first.
+        if (!FinalizedRepairStore8858.settled8858(started7514)) {
+            try { PipelineHealthCollector.labelInc("FINALIZED_BUS_REPAIR_AWAITS_REPLAY_8858") } catch (_: Throwable) {}
+            return 0
+        }
         val published = CanonicalFinalizedTradeBus6464.canonicalPositionIds7018()
         val repairableIds7544 = try {
             snapshot().missing.asSequence()
@@ -320,6 +325,9 @@ object FinalizedLearningReconciler7423 {
                 )
                 CanonicalFinalizedTradeBus6464.requestRetry6486()
                 repaired++
+                // V5.0.8858 — no rich finality row holds this close: the published envelope is kept, so the next start
+                // publishes this exact envelope once instead of deriving the repair again.
+                if (rich == null) try { FinalizedRepairStore8858.record8858(env) } catch (_: Throwable) {}
                 try {
                     PipelineHealthCollector.labelInc("FINALIZED_BUS_DURABLE_REPAIR_7459")
                     ForensicLogger.lifecycle(
@@ -344,6 +352,7 @@ object FinalizedLearningReconciler7423 {
         val by = s.missing.groupingBy { it.reason }.eachCount().entries.sortedBy { it.key.name }.joinToString(",") { "${it.key.name}=${it.value}" }
         val ids = s.missing.take(5).joinToString("|") { "${it.positionId.take(36)}:${it.reason.name}" }
         return "closed=${s.canonicalClosed} published=${s.finalizedPublished} missing=${s.missing.size} explicit=${s.explicitExcluded} unknown=${s.unexplained} by=[$by] ids=[$ids] ${repairCursorStatus7684()} " +
-            (try { ProtectiveBasisProof8308.statusLine8308() } catch (_: Throwable) { "protectiveProof8308[-]" })
+            (try { ProtectiveBasisProof8308.statusLine8308() } catch (_: Throwable) { "protectiveProof8308[-]" }) + " " +
+            (try { FinalizedRepairStore8858.statusLine8858() } catch (_: Throwable) { "repairStore8858[-]" })
     }
 }

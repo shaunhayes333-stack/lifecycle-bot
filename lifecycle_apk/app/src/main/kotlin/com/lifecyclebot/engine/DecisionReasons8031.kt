@@ -125,6 +125,9 @@ object DecisionReasons8031 {
     /** CanonicalFinalizedTradeBus6464: a close (live or paper) — graded by the price after it. */
     fun sell8031(env: com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.Envelope, nowMs: Long = System.currentTimeMillis()) {
         if (!env.terminal || env.mint.isBlank()) return
+        // V5.0.8858 — a close replayed at start (finality replay, repaired closes) is not a sell made now: it was graded as
+        // a decision at today's price for a trade that ended days ago. The same fresh-close window ExitRegret7752 keeps.
+        if (nowMs - env.atMs !in 0L..com.lifecyclebot.engine.truth.ExitRegret7752.FRESH_CLOSE_MS_7752) return
         val ts = try { BotService.status.tokens[env.mint] } catch (_: Throwable) { null } ?: return
         val px = mark(ts); if (!px.isFinite()) return
         add(env.mint, key8031(env.mode.equals("live", true), "SELL", "CLOSE", env.exitReason, env.lane), px, nowMs, runnerLane(env.lane))

@@ -287,7 +287,10 @@ object CanonicalFinalizedTradeBus6464 {
         //   V5.0.6831 additionally gates on EXPRESS exit-price integrity.
         //   Fail-silent.
         try {
-            if (finalLearningEligible6831 && env.lane.isNotBlank()) {
+            // V5.0.8858 — this ring is rebuilt from the replayed closes at every start and is fed here, not through the
+            // consumer bridge, so it never met the 8164 line: after RESET ALL LEARNING it kept raising intake floors on
+            // closes the reset had retired for every other learner. A close settled before the line is history here too.
+            if (finalLearningEligible6831 && env.lane.isNotBlank() && !LearningEpoch8164.preEpoch8164(env.atMs)) {
                 val won = env.realizedPnlSol > 0.0
                 SelectionQualityAuthority6829.recordTerminal(env.mode, env.lane, won, env.atMs)
             }
@@ -324,6 +327,11 @@ object CanonicalFinalizedTradeBus6464 {
         try {
             val acks = consumerAcks[name] ?: return
             if (isExcluded(name, env.tradeId)) return
+            // V5.0.8858 — an exclusion already on disk is terminal, exactly as a durable ACK is on the next line.
+            if (CanonicalFinalityPersistence6486.hasExclusion8858(name, env.tradeId)) {
+                if (consumerExcluded[name]?.add(env.tradeId) == true) consumerParityRevision7494.incrementAndGet()
+                return
+            }
             if (env.tradeId in acks || CanonicalFinalityPersistence6486.hasAck6486(name, env.tradeId)) {
                 acks.add(env.tradeId)
                 return
