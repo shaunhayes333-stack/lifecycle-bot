@@ -393,6 +393,21 @@ object CrossAssetCortex7931 {
         return try { com.lifecyclebot.engine.truth.LiveEdgeGate7877.liveRefusal(ts, lane, paper) } catch (_: Throwable) { null }
     }
 
+    /**
+     * V5.0.8857 — CryptoSignalEngine8857: does the live edge gate's refusal [reason] of [c] bind the crypto engine (an
+     * integrity refusal, or a data refusal resting on the executable minimum of the candidate's own admission)? A
+     * candidate the labeler cannot read binds.
+     */
+    fun refusalBinds8857(c: CanonicalAssetEntryCandidate6551, reason: String, nowMs: Long = System.currentTimeMillis()): Boolean =
+        com.lifecyclebot.engine.truth.CryptoSignalEngine8857.binds8857(reason) {
+            tokenStateFor(c, nowMs)?.let { (ts, lane) -> com.lifecyclebot.engine.truth.CandidateAdmission8136.assess8136(ts, lane, nowMs) }
+        }
+
+    /** V5.0.8857 — the playbook setup [c] is showing in its learning lane (LanePlaybook7907, the meme desk's own read), or "". */
+    fun firedSetup8857(c: CanonicalAssetEntryCandidate6551, nowMs: Long = System.currentTimeMillis()): String = try {
+        tokenStateFor(c, nowMs)?.let { (ts, lane) -> LanePlaybook7907.selectedSetup8094(ts, lane, nowMs) }.orEmpty()
+    } catch (_: Throwable) { "" }
+
     fun statusLine(): String = "tracked=${assets.size} stablesSkipped8063=${stablesSkipped8063.get()} byClass=" +
         assets.values.groupingBy { it.assetClass.tag }.eachCount().entries.joinToString(",") { "${it.key}=${it.value}" }.ifBlank { "-" } +
         // V5.0.7962 — everything but SOL: per chain gas, live/shadow, candidates, labels, cell EV (own diag line;

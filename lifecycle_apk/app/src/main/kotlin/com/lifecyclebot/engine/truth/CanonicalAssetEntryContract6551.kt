@@ -339,9 +339,25 @@ object CanonicalEntryAuthority6551 {
         // V5.0.7931 — the crypto universe and Markets meet the same live edge gate as
         // memecoins: Cortex refusal (once earned), proven-losing setups/stages/shapes and
         // measured cohorts. Unmeasured candidates still explore.
-        com.lifecyclebot.engine.cortex.CrossAssetCortex7931.liveRefusal(candidate)?.let {
-            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_EDGE_REFUSED_7931_${candidate.mode.uppercase()}_${candidate.assetClass.tag}") } catch (_: Throwable) {}
-            return blocked(candidate, venue, it)
+        // V5.0.8857 §TWO_ENGINES — the crypto trader is the simple engine: an integrity refusal of that gate binds it; a
+        // learned door of the meme stack is counted and filed on its own record but does not refuse a LIVE crypto entry its
+        // own lane record backs (CryptoSignalEngine8857; the 8788 hourly cap and loss stop are reserved at the seal below).
+        var signalEngine8857 = false
+        com.lifecyclebot.engine.cortex.CrossAssetCortex7931.liveRefusal(candidate)?.let { why ->
+            val now8857 = System.currentTimeMillis()
+            val integrity8857 = try { com.lifecyclebot.engine.cortex.CrossAssetCortex7931.refusalBinds8857(candidate, why, now8857) } catch (_: Throwable) { true }
+            if (CryptoSignalEngine8857.passes8857(candidate.mode.equals("LIVE", true), candidate.evidence["lane8788"], integrity8857, now8857)) {
+                signalEngine8857 = true
+                CryptoSignalEngine8857.noteAdvisory8857(
+                    com.lifecyclebot.engine.cortex.CrossAssetCortex7931.learningIdentity8372(candidate),
+                    com.lifecyclebot.engine.cortex.CrossAssetCortex7931.laneFor8107(candidate.assetClass, candidate.evidence["deskLane7391"]).orEmpty(),
+                    why, now8857, candidate.evidence["deskLane7391"].orEmpty(),
+                    com.lifecyclebot.engine.cortex.CrossAssetCortex7931.firedSetup8857(candidate, now8857))
+            } else {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_EDGE_REFUSED_7931_${candidate.mode.uppercase()}_${candidate.assetClass.tag}") } catch (_: Throwable) {}
+                if (candidate.mode.equals("LIVE", true)) CryptoSignalEngine8857.noteBound8857(why, integrity8857)
+                return blocked(candidate, venue, why)
+            }
         }
 
         val shaping = CanonicalAssetEntryShaping6551(
@@ -471,10 +487,10 @@ object CanonicalEntryAuthority6551 {
         // The exception must pass Oracle, Cortex, and executable sizing before
         // spending the bounded quota. Hold a permit through intent registration
         // so competing signal workers cannot exceed the shared hourly cap.
-        val backingReserved8832 = if (paperBacked8788) try {
+        val backingReserved8832 = if (paperBacked8788 || signalEngine8857) try {
             CryptoSpotPaperBacking8788.reserve8832(candidate.evidence["lane8788"], System.currentTimeMillis(), attemptId)
         } catch (_: Throwable) { false } else false
-        if (paperBacked8788 && !backingReserved8832)
+        if ((paperBacked8788 || signalEngine8857) && !backingReserved8832)
             return blocked(candidate, venue, "CRYPTO_PAPER_BACKING_CAP_OR_PROOF_CHANGED_8832")
         val sealedDecision6613 = ExecutionDecisionSnapshot6510.record(
             ExecutionDecisionSnapshot(

@@ -791,3 +791,19 @@ six latest missed runners (+325 .. +463 %) got their lane verdict 4.7 - 26.7 s a
   (`forwardProves8856`); `proven = provenOf8748 ?: forwardProven8856`. The 48 h record re-derived ~130 entries for the best
   rule ($10k cross, 3 buys, +2 s: mean +15 %, win 40 %, 2x 13 %) and stripped its 3 best, so it could never arm.
 Report lines: `Floor watch (§8856)`, `gates8856{}` in `Trajectory verdict (§8855)`, `forward8856{}` in `Launch replay (§8744)`.
+
+## 48. Two engines: the crypto trader as the simple signal engine (8857)
+
+5.0.8853 LIVE: CRYPTO_ALT paper record n655, W131/L174, +3.0 %/trade, +14.465 SOL; live funnel 139 candidates, 0 allowed
+(115 `DATA_INCOMPLETE_DEFER_8136`, the rest learned meme doors); `CryptoSpotPaperBacking8788` backed=0 because it answered only
+the expectancy refusal and the candidate then met the meme live edge gate (`CrossAssetCortex7931.liveRefusal` ->
+`LiveEdgeGate7877`). `CryptoSignalEngine8857`: at that gate in `CanonicalAssetEntryContract6551.submit`, a refusal binds a LIVE
+crypto candidate when it is integrity (`integrityReason8857`: safety, structure, sellability, LP rule, dead launch, identity /
+price basis, stale price, route, size, wallet / ledger / duplicates, the bot's own loss locks, the lane's realised live
+losses, kill switch, failed evaluations) or a data refusal resting on the executable minimum (`dataIntegrity8857` over the
+candidate's own `assess8136`: unknown cost, missing price, a critical fact unobserved; `CrossAssetCortex7931.refusalBinds8857`).
+Any other (learned) door is counted (`noteAdvisory8857`), filed on its own record (`noteOverriddenDoor8715`, graded on the
+followed clock) and does not refuse while the lane's own record backs the entry (`passes8857` ->
+`CryptoSpotPaperBacking8788.backs8788`); the 8788 permit (4 an hour, -0.1 SOL stop) is reserved at the seal for those entries
+too. Paper is unchanged. Report line `Crypto signal engine (§8857)`: doors passed, refusals that stood, live closes of each
+engine.
