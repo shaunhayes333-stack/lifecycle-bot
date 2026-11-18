@@ -616,6 +616,7 @@ object EdgeModel8537 {
         // V5.0.8747 — the voters (tree, paying cell, LLM cache, the mind) are read BEFORE the model lock; only the ridge
         // read inside predict8737 takes it (predictLocked). 8746 held the lock across the paying-cell feature read.
         val (p, key) = predict8737(raw, x, ts.mint, ts)
+        val stageAuthority8855 = try { TrajectoryVerdict8855.authority8855(raw.lane, TrajectoryVerdict8855.stageOf8855(ts, nowMs)) } catch (_: Throwable) { null }
         synchronized(this) {
             val o = oos[recordKey(raw.lane, key)]
             val trained = when (key) {
@@ -626,7 +627,9 @@ object EdgeModel8537 {
             }
             Verdict(p, p.isFinite() && o != null && authority(o.selN, o.selMean, o.selSe, o.allMean), key, trained,
                 o?.selN ?: 0, o?.selMean ?: Double.NaN, o?.selSe ?: Double.NaN, o?.allMean ?: Double.NaN,
-                refuses8715 = p.isFinite() && o != null && refusalAuthority8715(o.refN, o.refMean, o.refSe, o.keepN, o.keepMean, o.keepSe))
+                // V5.0.8855 — a lane-stage that has earned its own trajectory record decides the refusal there; the lane's
+                // single-read label record decides only until it has (TrajectoryVerdict8855.authority8855)
+                refuses8715 = p.isFinite() && (stageAuthority8855 ?: (o != null && refusalAuthority8715(o.refN, o.refMean, o.refSe, o.keepN, o.keepMean, o.keepSe))))
         }
     } catch (_: Throwable) { null }
 

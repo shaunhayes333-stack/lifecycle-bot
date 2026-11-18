@@ -262,6 +262,8 @@ object DynamicAltTokenRegistry {
     private const val ESTABLISHED_DISCOVERY_MS_6544 = 5 * 60_000L
     private const val DISCOVERY_TTL_MS = ESTABLISHED_DISCOVERY_MS_6544
     private const val PRICE_TTL_MS     = 60_000L
+    /** V5.0.8855 — the registry's price refresh period, read by admission's stale-price bar for the crypto desk. */
+    const val PRICE_REFRESH_MS_8855 = PRICE_TTL_MS
     // V5.0.6819: carry last-known-good price for up to 5 min when DEX or CoinGecko refresh
     // fails transiently (network hiccup, rate limit, blank chainId).  Must stay under
     // DYNAMIC_MARK_MAX_AGE_MS_6654 (10 min) so a genuinely dead feed still settles the position.

@@ -418,6 +418,10 @@ object ForwardReturnLabeler7731 {
         @Volatile var trajectoryVenueEpoch8851: Int? = null
         /** Long checkpoints are only learned for an actually qualified, retained survivor. */
         @Volatile var qualifiedLong8851 = false
+        /** V5.0.8855 — the model's prediction at the decision, and the outcome this decision holds so far (TrajectoryVerdict8855). */
+        @Volatile var pred8855 = Double.NaN
+        @Volatile var pathNet8855 = Double.NaN
+        @Volatile var pathStopped8855 = false
         @Volatile var interimUnavailable8521 = false
         @Volatile var firstReadValid8521 = false
         /** V5.0.8418 — SpecialistMiner7972 booking stamps [boot, per combination] (a revision's remaining weight there). */
@@ -744,6 +748,7 @@ object ForwardReturnLabeler7731 {
         prefs = p
         try { timingBook8528.restore(p.getString("setup_timing_8528", null)) } catch (_: Exception) { PipelineHealthCollector.labelInc("SETUP_TIMING_RESTORE_FAILED_8528") }
         try { trajectoryBook8851.restore(p.getString("trajectory_8851", null)) } catch (_: Exception) { PipelineHealthCollector.labelInc("TRAJECTORY_RESTORE_FAILED_8851") }
+        try { TrajectoryVerdict8855.restore8855(p.getString("trajectory_verdict_8855", null)) } catch (_: Exception) { PipelineHealthCollector.labelInc("TRAJECTORY_VERDICT_RESTORE_FAILED_8855") }
         try { RunnerStudy8852.restore(p.getString("runner_study_8852", null)) }
         catch (_: Exception) { PipelineHealthCollector.labelInc("RUNNER_STUDY_RESTORE_FAILED_8852") }
         try { RunnerRouteQuotes8853.restore(p.getString("runner_routes_8853", null)) }
@@ -861,6 +866,7 @@ object ForwardReturnLabeler7731 {
                     .checkpointPriceIdentities8402(selected.mapTo(HashSet()) { it.mint }))
                 .putString("setup_timing_8528", timingBook8528.encode())
                 .putString("trajectory_8851", trajectoryBook8851.encode())
+                .putString("trajectory_verdict_8855", TrajectoryVerdict8855.encode8855())
                 .also { editor -> try { editor.putString("runner_study_8852", RunnerStudy8852.encode()) }
                     catch (_: Throwable) { PipelineHealthCollector.labelInc("RUNNER_STUDY_CHECKPOINT_FAILED_8852") } }
                 .also { editor -> try { editor.putString("runner_routes_8853", RunnerRouteQuotes8853.encode()) }
@@ -932,6 +938,7 @@ object ForwardReturnLabeler7731 {
             .put("trajectoryVenueEpoch8851", o.trajectoryVenueEpoch8851 ?: 0)
             .put("trajectoryDone8851", org.json.JSONArray(o.trajectoryDone8851.toList()))
             .put("qualifiedLong8851", o.qualifiedLong8851)
+            .put("pred8855", o.pred8855.toString()).put("pathNet8855", o.pathNet8855.toString()).put("pathStopped8855", o.pathStopped8855)
             .put("targetHorizon", o.targetHorizon8521).put("interimUnavailable", o.interimUnavailable8521)
             .put("firstReadValid", o.firstReadValid8521)
             .put("chase", o.chase8094).put("honest", o.honest8366)
@@ -958,6 +965,9 @@ object ForwardReturnLabeler7731 {
         o.trajectoryBand8851 = e.optString("trajectoryBand8851")
         o.trajectoryVenueEpoch8851 = e.optInt("trajectoryVenueEpoch8851").takeIf { it > 0 }
         o.qualifiedLong8851 = e.optBoolean("qualifiedLong8851")
+        o.pred8855 = e.optString("pred8855").toDoubleOrNull() ?: Double.NaN
+        o.pathNet8855 = e.optString("pathNet8855").toDoubleOrNull() ?: Double.NaN
+        o.pathStopped8855 = e.optBoolean("pathStopped8855")
         e.optJSONArray("trajectoryDone8851")?.let { a -> for (i in 0 until a.length()) {
             val h = a.optLong(i)
             if (h in TrajectoryGrades8851.HORIZONS) o.trajectoryDone8851.add(h)
@@ -1364,6 +1374,7 @@ object ForwardReturnLabeler7731 {
                 it.expertAtDecision = try { com.lifecyclebot.engine.ExpertTraderKnowledge7813.freezeForLabel(ts, l, score8051, nowMs) } catch (_: Throwable) { null }
                 it.edge8537 = EdgeModel8537.snapshot(ts, l, cost.coerceIn(0.0, 60.0), admitted, nowMs)  // V5.0.8537
                 it.trajectoryVenueEpoch8851 = it.edge8537?.modelEpoch
+                it.pred8855 = it.edge8537?.pred ?: Double.NaN   // V5.0.8855 — kept after the label consumes the snapshot
                 it.liqUsd8539 = liq  // V5.0.8539
                 it.entryLiq7997 = if (ts.lastLiquidityUsd.isFinite() && ts.lastLiquidityUsd > 0.0) ts.lastLiquidityUsd else 0.0
                 it.kind8063 = try { kindOf8063(ts) } catch (_: Throwable) { "" }
@@ -1846,10 +1857,19 @@ object ForwardReturnLabeler7731 {
         val stage8851 = o.stage.ifBlank { "UNKNOWN" }
         val setup8851 = (o.timingPlan8528?.setup ?: o.setup7955).ifBlank { "UNCLASSIFIED" }
         val band8851 = (o.timingPlan8528?.band ?: o.trajectoryBand8851).ifBlank { "UNKNOWN" }
-        trajectoryBook8851.observe(o.lane, stage8851, setup8851,
+        val read8855 = trajectoryBook8851.observe(o.lane, stage8851, setup8851,
             band8851, o.trajectoryDone8851, o.atMs,
             o.basis8386.mark.observedAtMs, mark?.observedAtMs ?: 0L, nowMs, eligible, net,
             o.qualifiedLong8851, ::graceFor7946)
+        // V5.0.8855 — one outcome per followed decision, revised on each newly observed read, under the lane's own stop
+        if (read8855.isNotEmpty() && !o.pathStopped8855) {
+            val stop = try { FieldManual7715.laneStopPct8392(o.lane.trim().uppercase()) } catch (_: Throwable) { Double.NaN }
+            val (now8855, stopped8855) = TrajectoryVerdict8855.pathOutcome8855(false, o.pathNet8855, net, stop, o.costPct)
+            if (now8855.isFinite()) {
+                TrajectoryVerdict8855.revise8855(o.lane, stage8851, o.pred8855, o.pathNet8855, now8855)
+                o.pathNet8855 = now8855; o.pathStopped8855 = stopped8855
+            }
+        }
     }
 
     /** A fixed decision target contributes once; later observations remain available to path and exit learners. */

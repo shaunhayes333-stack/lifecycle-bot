@@ -425,9 +425,20 @@ object CandidateAdmission8136 {
         e != null && e.n in 1 until SUPPORT_MIN_N_8136 && e.meanPct.isFinite() && e.meanPct > 0.0
 
     /** Pure: is the price too old to trade on? A hot launch moves faster, so its bar is tighter. */
-    fun priceStale8136(priceAgeMs: Long, hotLaunch: Boolean, live: Boolean = false): Boolean =
-        priceAgeMs < 0L || priceAgeMs > (if (live) { if (hotLaunch) PriceAge8549.LIVE_HOT_STALE_MS_8549 else PriceAge8549.LIVE_STALE_MS_8549 }
+    fun priceStale8136(priceAgeMs: Long, hotLaunch: Boolean, live: Boolean = false, feedPeriodMs: Long = 0L): Boolean =
+        priceAgeMs < 0L || priceAgeMs > (if (live) { (if (hotLaunch) PriceAge8549.LIVE_HOT_STALE_MS_8549 else PriceAge8549.LIVE_STALE_MS_8549) + feedPeriodMs.coerceAtLeast(0L) }
             else if (hotLaunch) HOT_STALE_PRICE_MS_8136 else STALE_PRICE_MS_8136)   // V5.0.8549 — LIVE meme bars
+
+    /**
+     * V5.0.8855 §A_PRICE_IS_STALE_AGAINST_ITS_OWN_FEED — 5.0.8853: CRYPTO_ALT sent 139 live candidates, 0 allowed, 115 of them
+     * DATA_INCOMPLETE_DEFER (deferCause8700: CRYPTO_MOONSHOT|PRICE_STALE=40). The LIVE bar is 30 s, measured on meme coins
+     * that move 13 % between decision and fill (8549); the crypto desk's prices come from DynamicAltTokenRegistry, which
+     * refreshes each one every 60 s — so a crypto price was "stale" for half of every minute by construction, and no wait
+     * could cure it. A desk candidate's price is stale once it is older than its feed's own refresh period plus the bar.
+     * Pure: the refresh period of the feed behind [lane]'s prices (0 = a streamed meme price, the bar alone).
+     */
+    fun feedPeriodMs8855(lane: String): Long =
+        if (lane.trim().uppercase().startsWith("CRYPTO_")) com.lifecyclebot.perps.DynamicAltTokenRegistry.PRICE_REFRESH_MS_8855 else 0L
 
     /**
      * Shared across all twelve native specialists. Missing optional classifier inputs are NOT an execution-safety
@@ -456,7 +467,7 @@ object CandidateAdmission8136 {
             !c.nativeSetup8213.isNullOrBlank() &&
             !c.nativeSetup8213.equals("NONE", true) &&
             c.costPct.isFinite() && c.costPct > 0.0 &&
-            !priceStale8136(c.priceAgeMs, c.hotLaunch, c.live) &&
+            !priceStale8136(c.priceAgeMs, c.hotLaunch, c.live, feedPeriodMs8855(c.lane)) &&
             c.missingInputs.none(::criticalMissing8170) &&
             c.safetyRefusal == null && c.structuralRisk == null &&
             NetEdge8030.entryClears8030(gross, c.costPct, c.costMargin8391)
@@ -818,7 +829,7 @@ object CandidateAdmission8136 {
         //    with no supported evidence of its own (its setup cannot be judged yet).
         // V5.0.8283 — history the token is too young to have is recorded here, never waited for (LifecycleData8283).
         if (c.historyUnavailable8283.isNotEmpty()) trace += "historyUnavailable8283=${c.historyUnavailable8283.joinToString(",")} judgedOnLaunchEvidence"
-        val stale = priceStale8136(c.priceAgeMs, c.hotLaunch, c.live)
+        val stale = priceStale8136(c.priceAgeMs, c.hotLaunch, c.live, feedPeriodMs8855(c.lane))
         val criticalMissing8170 = c.missingInputs.filter(::criticalMissing8170)
         val nativeOptional8213 = c.missingInputs.isNotEmpty() && edge == null &&
             optionalNativeContextClears8213(c, decisionGross)
@@ -1398,7 +1409,7 @@ object CandidateAdmission8136 {
 
     /** Candidate price age affects admission only at the stale/fresh boundary. */
     private fun cacheIdentity8144(c: Candidate8136): Candidate8136 = c.copy(
-        priceAgeMs = if (priceStale8136(c.priceAgeMs, c.hotLaunch, c.live)) Long.MAX_VALUE else 0L,
+        priceAgeMs = if (priceStale8136(c.priceAgeMs, c.hotLaunch, c.live, feedPeriodMs8855(c.lane))) Long.MAX_VALUE else 0L,
         costBreakdown = "",   // V5.0.8209 — the numbers (costPct, costSizeSol) are identity; the prose is not
     )
 

@@ -747,3 +747,23 @@ latency (`rulesFor8829`), in the base family (`BaseFamily8754.GRID`), and launch
 Measured only: `provenOf8748` stays DOCTRINE (the exit live runs). Offline on the owner's export (10 s bars), 1,088 $10k
 crossers with 15 buys bought 30 s later read +7.0 % at the bar's close and -14 % at the bar's high under this exit: bars
 cannot price the fill; the phone's prints can.
+
+## 46. One grade on the clock the bot follows (8855)
+
+5.0.8853 LIVE: FDG 0 / 322; 179 were `EdgeModel8537`'s refusal, earned per LANE on one 5- or 15-minute label. Stage records in
+the same report: BASE +1.0 .. +4.4 % (12-15 % runners) in four lanes; LAUNCH -15.5 .. -22.5 %, PEAK ~-10 %, DUMP -13.7 .. -20 %.
+`TrajectoryVerdict8855` keeps ONE outcome per followed decision: `ForwardReturnLabeler7731.gradeTrajectory8851` revises it
+at each newly observed read (1 / 5 / 15 min, then 1 / 4 / 24 h while the coin is followed) with `pathOutcome8855` (stopped at
+the first read through the lane's stop + round trip, `ManagedBands8719.managed8719`; else the latest read). Obs carries
+`pred8855`, `pathNet8855`, `pathStopped8855` (checkpointed); tallies checkpoint as `trajectory_verdict_8855`.
+- Refusal: keyed lane|stage. With >= 30 refused decisions the lane-stage's own record decides `Verdict.refuses8715`
+  (`authority8855`, same test as `refusalAuthority8715`); below that the lane label record decides. One at a time.
+- Looking: `BotService` watchlist order spends the span of the hand freshness (350) + pump-source (160) boosts on the
+  stage's rank in the record (`stageShare8855`) once two stages are graded.
+- Paper book: `MemePaperTrader8544.entryBasisRefuted8855` voids a position whose entry two independent feeds refute before
+  any mark confirmed it (stake returned, not a close); `repair8855` removes stored lane rows whose mean close is beyond one
+  unconfirmed mark, with the SOL they added (5.0.8853: CORE n10 +24,099,805.8 %, +240,998 SOL).
+- Crypto: `CandidateAdmission8136.priceStale8136` adds the feed's refresh period for crypto-desk lanes
+  (`feedPeriodMs8855`, `DynamicAltTokenRegistry.PRICE_REFRESH_MS_8855` = 60 s): the 30 s meme bar made a 60 s-refreshed
+  price stale half of every minute (deferCause CRYPTO_MOONSHOT|PRICE_STALE=40).
+Report lines: `Trajectory verdict (§8855)`, `Paper book repair (§8855)`.

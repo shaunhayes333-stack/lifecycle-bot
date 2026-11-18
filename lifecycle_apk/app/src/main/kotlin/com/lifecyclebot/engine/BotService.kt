@@ -21775,7 +21775,16 @@ val prioritizedWatchlist = if (cfg.v3EngineEnabled && !watchlistPriorityBudgetBy
                 ts.source.contains("TREND", ignoreCase = true) -> 55.0
                 else -> 0.0
             }
-            priority += freshBoost + sourceBoost
+            // V5.0.8855 §LOOK_WHERE_THE_RECORD_PAYS — these two hand boosts (up to 350 + 160) put the newest pump coins at the
+            // head of every cycle: 5.0.8853 spent about five looks in six on LAUNCH / PEAK / DUMP stage coins (-10 .. -22 %)
+            // and one on BASE (+1.0 .. +4.4 %, 12-15 % runners). Once the trajectory record has graded two stages, the same
+            // span follows the coin's stage rank on that record (TrajectoryVerdict8855); until then the boosts stand.
+            val stageShare8855 = try {
+                com.lifecyclebot.engine.truth.TrajectoryVerdict8855.stageShare8855(
+                    com.lifecyclebot.engine.truth.TrajectoryVerdict8855.stageOf8855(ts, nowMs), nowMs)
+            } catch (_: Throwable) { null }
+            priority += if (stageShare8855 != null) stageShare8855 * com.lifecyclebot.engine.truth.TrajectoryVerdict8855.PRIORITY_SPAN_8855
+                else freshBoost + sourceBoost
 
             // Keep quality signals, but cap liquidity so giant older pools do
             // not starve fresh memes. Fluid sizing/learning remains untouched.

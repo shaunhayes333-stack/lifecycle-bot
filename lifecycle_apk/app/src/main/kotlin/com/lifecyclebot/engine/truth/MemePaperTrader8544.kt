@@ -273,8 +273,13 @@ object MemePaperTrader8544 {
     private fun step8756(p: Pos8544, seen: ShadowMark8360.Observation8372?, source: String, nowMs: Long,
                          stopLatency8699: Long, normalLatency8699: Long, byPrint: Boolean) { synchronized(p) {
         if (open[p.mint] !== p) return
-        val obs = seen?.takeIf { it.observedAtMs >= p.lastAtMs && it.priceUsd > 0.0 }
-            ?.takeIf { acceptMark8559("book:" + p.mint, p.lastPx, it.priceUsd, source) }
+        val read8855 = seen?.takeIf { it.observedAtMs >= p.lastAtMs && it.priceUsd > 0.0 }
+        // V5.0.8855 — two independent feeds agreeing on a price 20x off an entry no mark ever confirmed refute the ENTRY
+        if (read8855 != null) {
+            val held = heldJump8559["book:" + p.mint]
+            if (entryBasisRefuted8855(p.lastAtMs > p.entryAtMs, p.lastPx, read8855.priceUsd, held?.first, held?.second, source)) { void8855(p, nowMs); return }
+        }
+        val obs = read8855?.takeIf { acceptMark8559("book:" + p.mint, p.lastPx, it.priceUsd, source) }
         if (obs != null) { p.lastPx = obs.priceUsd; p.lastAtMs = obs.observedAtMs }
         val g = grossPct8544(p.entryPx, p.lastPx)
         if (!g.isFinite()) return
@@ -341,6 +346,63 @@ object MemePaperTrader8544 {
 
     /** Pure (V5.0.8699): is a paper exit a stop (live sends it as a protective exit)? */
     fun stopExit8699(why: String?): Boolean = why == "STOP" || why == "TRAIL_STOP"
+
+    /**
+     * V5.0.8855 §AN_ENTRY_TWO_FEEDS_REFUTE_IS_NOT_A_WIN — 5.0.8853: the book read balance 241,005.849 SOL, realised
+     * +240,996.049 SOL, CORE n10 +24,099,805.8 % (one close). The 8559 / 8560 guard holds a mark more than 20x off the last
+     * mark until a DIFFERENT feed agrees, then counts it in full. When the price that was wrong is the ENTRY (written off
+     * another basis), every honest feed agrees with every other, the "jump" is confirmed and the entry's error is booked as
+     * a win. Pure: no mark has been accepted since entry ([marked] false), the read is implausible against the entry and an
+     * independent feed already proposed the same price — the entry is what two feeds refute.
+     */
+    fun entryBasisRefuted8855(marked: Boolean, entryPx: Double, px: Double, heldJumpPx: Double?, heldSource: String?, source: String): Boolean =
+        !marked && !markPlausible8559(entryPx, px) && jumpConfirmed8559(heldJumpPx, heldSource, px, source)
+
+    private val voided8855 = java.util.concurrent.atomic.AtomicLong(0)
+    @Volatile private var repaired8855 = ""
+
+    /** The position never had a price: its stake returns, it is not a close and proves nothing about its lane. */
+    private fun void8855(p: Pos8544, nowMs: Long) {
+        synchronized(this) {
+            if (!open.remove(p.mint, p)) return
+            balanceSol += p.sizeSol
+            dirty = true
+        }
+        heldJump8559.remove("book:" + p.mint)
+        voided8855.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("MEME_PAPER_ENTRY_BASIS_VOID_8855_${p.lane}") } catch (_: Throwable) {}
+        save8544(nowMs, force = true)
+    }
+
+    /**
+     * Pure (V5.0.8855): is a lane row [v] ([n, wins, sumNet, sumPnlSol, ...]) one the mark guard could not have produced —
+     * its MEAN close further from entry than a single unconfirmed mark may move ([markPlausible8559])? Such a row holds a
+     * refuted-entry close booked before [entryBasisRefuted8855] existed.
+     */
+    fun rowImpossible8855(v: DoubleArray): Boolean =
+        v.size >= 4 && v[0] > 0.0 && (v[2] / v[0]).let { mean -> mean.isFinite() && mean > 0.0 && !markPlausible8559(1.0, 1.0 + mean / 100.0) }
+
+    /**
+     * The stored book's impossible rows are removed with exactly the SOL they added: the lane's row, its proof twins and
+     * its recent closes go, and the row's summed result leaves the balance and the realised total. Lost-mark rows are
+     * valued flat and cannot hold one. Runs once per restore, under the book's lock.
+     */
+    private fun repair8855() {
+        val bad = laneStats.entries.filter { (k, v) -> '|' !in k && rowImpossible8855(v) }.map { it.key to it.value[3] }
+        if (bad.isEmpty()) return
+        for ((lane, pnl) in bad) {
+            laneStats.remove(lane); laneStats.remove("$PRICED_PREFIX_8623$lane"); laneStats.remove("$PROOF_PREFIX_8572$lane")
+            if (pnl.isFinite()) { balanceSol -= pnl; realisedSol -= pnl }
+            recent.removeAll { it.lane == lane }
+        }
+        repaired8855 = bad.joinToString(",") { "${it.first}:${"%.3f".format(java.util.Locale.US, it.second)}SOL" }
+        dirty = true
+        try { PipelineHealthCollector.labelInc("MEME_PAPER_IMPOSSIBLE_ROW_REMOVED_8855") } catch (_: Throwable) {}
+    }
+
+    /** The report: positions voided on a refuted entry basis and the impossible rows removed at restore. */
+    fun repairLine8855(): String = "paperRepair8855[entryBasisVoided=${voided8855.get()} rowsRemoved{${repaired8855.ifBlank { "-" }}} " +
+        "rule=two independent feeds 20x off an entry no mark confirmed void the position; a lane row whose mean close is beyond one unconfirmed mark is removed with its SOL]"
 
     private fun trigger8544(p: Pos8544, why: String, fraction: Double, tier: Int, nowMs: Long) {
         p.exitWhy = why; p.exitAtMs = nowMs; p.exitFraction = fraction; p.exitTier = tier
@@ -438,6 +500,7 @@ object MemePaperTrader8544 {
                 }
                 val s = j.optJSONObject("laneStats")
                 s?.keys()?.forEach { k -> s.optJSONArray(k)?.let { a -> laneStats[k] = DoubleArray(STAT_FIELDS_8546) { i -> a.optDouble(i, 0.0).takeIf { it.isFinite() } ?: 0.0 } } }
+                repair8855()   // V5.0.8855
             } catch (_: Throwable) {}
         }
     }

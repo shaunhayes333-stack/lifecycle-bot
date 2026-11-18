@@ -73,7 +73,9 @@ internal object TrajectoryGrades8851 {
         @Synchronized fun observe(lane: String, stage: String, setup: String, band: String,
                                   done: MutableSet<Long>, decisionAt: Long, basisAt: Long, sourceAt: Long,
                                   nowMs: Long, eligible: Boolean, netPct: Double, followLong: Boolean,
-                                  grace: (Long) -> Long) {
+                                  grace: (Long) -> Long): List<Long> {
+            // V5.0.8855 — the horizons this call OBSERVED (TrajectoryVerdict8855 revises the decision's outcome on them)
+            var seen: ArrayList<Long>? = null
             for (h in HORIZONS) {
                 // Long-horizon outcomes are a qualified survivor cohort, never a universal
                 // all-token prior (or the disappearances would create survivorship bias).
@@ -89,11 +91,13 @@ internal object TrajectoryGrades8851 {
                             observed++
                         }
                         done.add(h)
+                        (seen ?: ArrayList<Long>(1).also { seen = it }).add(h)
                     }
                     Grade.UNAVAILABLE -> { unavailable++; done.add(h) }
                     Grade.WAIT -> Unit
                 }
             }
+            return seen ?: emptyList()
         }
 
         /**
