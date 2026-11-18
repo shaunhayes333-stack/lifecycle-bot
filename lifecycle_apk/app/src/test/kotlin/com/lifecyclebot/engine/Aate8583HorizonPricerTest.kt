@@ -39,16 +39,17 @@ class Aate8583HorizonPricerTest {
     }
 
     @Test fun an_imminent_1m_label_beats_an_older_60m_label_and_a_15m_runner_target_is_not_invisible() {
+        // Callable references require all parameters, including the new optional 8851 long-horizon checkpoint.
         val f = ForwardReturnLabeler7731::horizonDeadline8650
         val now = 5_000_000L
-        val hour = f(now - 61 * m, now, true, true, true, false, 60 * m)
-        val oneMinute = f(now - 90 * s, now, true, false, false, false, 15 * m)
+        val hour = f(now - 61 * m, now, true, true, true, false, 60 * m, -1L)
+        val oneMinute = f(now - 90 * s, now, true, false, false, false, 15 * m, -1L)
         assertTrue(hour != null && oneMinute != null && oneMinute < hour)
         assertEquals(listOf("YOUNG", "OLD"), ForwardReturnLabeler7731.hpDueMints8583(
             listOf("OLD" to hour!!, "YOUNG" to oneMinute!!), { null }, now, cap = 2))
-        assertTrue("a 15-minute runner needs its own priced target", f(now - 16 * m, now, true, true, true, false, 15 * m) != null)
+        assertTrue("a 15-minute runner needs its own priced target", f(now - 16 * m, now, true, true, true, false, 15 * m, -1L) != null)
         assertEquals("the same coin was not due for its old 60-minute slot yet", null,
-            f(now - 16 * m, now, true, true, true, false, 60 * m))
+            f(now - 16 * m, now, true, true, true, false, 60 * m, -1L))
     }
 
     @Test fun the_pricer_runs_from_the_tick_on_its_own_thread_and_publishes_inside_the_window() {
