@@ -3888,10 +3888,17 @@ object CryptoAltTrader {
                 mode = if (authoritativePaperMode7425()) "PAPER" else "LIVE",
                 direction = signal.direction.name, requestedVenue = candidate.venue,
                 adapter = candidate.executionAdapter, source = candidate.universe,
-                specialist = "CRYPTO", score = candidate.score.toDouble(), confidence = 1.0,
+                specialist = "CRYPTO", score = candidate.score.toDouble(),
+                // V5.0.8849 — the old literal 1.0 sized every crypto signal as
+                // maximum confidence, regardless of the qualified desk's actual
+                // 0..100 confidence. Preserve its execution owner and size floor.
+                confidence = (candidate.confidence.coerceIn(0, 100) / 100.0),
                 evidence = mapOf(
                     "upstreamConfidence" to candidate.confidence.toString(), "walletSol" to balance.toString(),
                     "strategy7803" to signal.strategy7803,
+                    // The selected desk's genuine setup, if present. Do not
+                    // manufacture quality or a chart phase from the display score.
+                    "edgePhase" to CryptoLaneDesk7391.observedSetup8849(signal.reasons).orEmpty(),
                     "laneRiskCapSol" to minOf(1.0, remainingExposure7835).toString(),
                     "deskOverlays7803" to signal.deskOverlays7803.sorted().joinToString(","),
                     // Compatibility desk label; 7803 keeps every overlay resident.

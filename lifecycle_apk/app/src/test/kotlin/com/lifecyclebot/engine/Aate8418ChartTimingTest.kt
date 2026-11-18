@@ -10,13 +10,16 @@ class Aate8418ChartTimingTest {
     @Test fun evidenceAdmitsReadTheChartFirst() {
         val plan = src("truth/TradePlan7739.kt")
         val body = plan.substringAfter("fun liveBlockReason(").substringBefore("private fun chartPlanRefusal8136(")
-        val read = body.indexOf("val read8418 = readForEntry7837(ts, nowMs)")
+        val bars = body.indexOf("val stageBars8849 = barsFrom(ts, nowMs, entry8317 = true)")
+        val read = body.indexOf("val read8418 = readForEntry7837(ts, nowMs, stageBars8849)")
+        val stage = body.indexOf("val currentStage8849 = currentStageWait8849(")
         val specificPlan = body.indexOf("if (specific8171?.admitted == true && optionalChartForAdmit(specific8171.specific, read8418.why)) {")
-        assertTrue("the chart is read before any evidence admit plans", read in 0 until specificPlan)
+        assertTrue("the same observed chart is read before both stage and evidence admits", bars in 0 until read && read < stage && stage < specificPlan)
+        assertTrue("a current sell-off or unretraced impulse must wait before the chart and evidence shortcuts",
+            body.indexOf("if (currentStage8849 != null)") in stage until specificPlan)
         assertTrue(body.contains("if (evidenceAdmit8418 && read8418.setup != null)"))
-        // superseded by V5.0.8419 — NO_PULLBACK_YET alone is not the owner's shape (true of every three-bar tape); the wait
-        // needs an unretraced impulse (TradePlan7739.unretracedImpulse8419), else the evidence admit stands as before 8418
-        assertTrue(body.contains("if (evidenceAdmit8418 && read8418.why == \"NO_PULLBACK_YET\" && unretracedImpulse8419(barsFrom(ts, nowMs, entry8317 = true), tierFor(ts.lastMcap)))"))
+        // 8849 centralises the 8419 unretraced-impulse rule before both alternate approvals.
+        assertTrue(plan.contains("if (read.why == \"NO_PULLBACK_YET\" && unretracedImpulse8419(bars, tier))"))
         assertTrue("the chart stop never widens past the graded lane stop", body.contains("val stop8419 = minOf(read8418.stopPct, gradedStopMag8094(lane))"))
     }
 

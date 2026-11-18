@@ -123,6 +123,16 @@ object CanonicalEntryAuthority6540 {
     }
 
     private val preSubmitReasons7835 = java.util.concurrent.ConcurrentHashMap<String, AtomicLong>()
+    // V5.0.8849 — 8848 had 164 crypto submissions and 164 FDG blocks, but its
+    // exported funnel erased every reason. Keep bounded, *class-specific*
+    // categories so the next run distinguishes unavailable routes, wallet
+    // limits, stage/EV refusals and actual canonical throughput regressions.
+    private val canonicalBlockReasons8849 = java.util.concurrent.ConcurrentHashMap<String, AtomicLong>()
+    internal fun canonicalBlockReasonKey8849(reason: String): String =
+        reason.substringBefore(':').substringBefore(',').trim().take(80).ifBlank { "UNSPECIFIED" }
+    private fun canonicalBlockSummary8849(assetClass: AssetClass): String = canonicalBlockReasons8849.entries
+        .filter { it.key.startsWith("${assetClass.tag}|") }.sortedByDescending { it.value.get() }.take(10)
+        .joinToString(",") { "${it.key.substringAfter('|')}=${it.value.get()}" }.ifBlank { "none" }
     fun markPreSubmitRefusal7835(assetClass: AssetClass, reason: String) {
         markProducerStage6569(assetClass, "PRE_SUBMIT_REFUSED")
         val key = "${assetClass.tag}|${reason.substringBefore(':').take(80)}"
@@ -165,7 +175,9 @@ object CanonicalEntryAuthority6540 {
     fun assetClassFunnelReport6567(): String = assetClassStats6567().joinToString("\n") { r ->
         "  ${r.assetClass.tag}: candidate=${r.candidates} submit=${r.submits} fdgAllow=${r.allows} " +
             "fdgBlock=${r.blocks} sized=${r.sized} intent=${r.intents} dispatch=${r.dispatches} dispatchReject=${r.dispatchRejects} pending=${r.pending} unexplained=${(r.intents-r.dispatches-r.dispatchRejects-r.pending).coerceAtLeast(0L)} open=${r.opens}"
-    } + "\nCrossAsset producer liveness 6569:\n" + producerLivenessReport6569()
+    } + "\nCrossAsset canonical block reasons 8849: " +
+        "CRYPTO_ALT{${canonicalBlockSummary8849(AssetClass.CRYPTO_ALT)}}\n" +
+        "CrossAsset producer liveness 6569:\n" + producerLivenessReport6569()
 
 
     /**
@@ -301,7 +313,15 @@ object CanonicalEntryAuthority6540 {
 
     internal fun markAuthAllowFor6551(assetClass: AssetClass, symbol: String) { bumpClass6567(assetClass, "ALLOW"); markAuthAllow(if (assetClass == AssetClass.PERPS) Venue.MARKETS_PERPS else if (assetClass == AssetClass.CRYPTO_ALT || assetClass == AssetClass.SOLANA_TOKEN) Venue.CRYPTO else Venue.MARKETS_SPOT, symbol) }
 
-    internal fun markAuthBlockFor6551(assetClass: AssetClass, symbol: String, reason: String) { bumpClass6567(assetClass, "BLOCK"); markAuthBlock(if (assetClass == AssetClass.PERPS) Venue.MARKETS_PERPS else if (assetClass == AssetClass.CRYPTO_ALT || assetClass == AssetClass.SOLANA_TOKEN) Venue.CRYPTO else Venue.MARKETS_SPOT, symbol, reason) }
+    internal fun markAuthBlockFor6551(assetClass: AssetClass, symbol: String, reason: String) {
+        bumpClass6567(assetClass, "BLOCK")
+        if (assetClass == AssetClass.CRYPTO_ALT) {
+            val key = "${assetClass.tag}|${canonicalBlockReasonKey8849(reason)}"
+            if (canonicalBlockReasons8849.containsKey(key) || canonicalBlockReasons8849.size < 128)
+                canonicalBlockReasons8849.computeIfAbsent(key) { AtomicLong() }.incrementAndGet()
+        }
+        markAuthBlock(if (assetClass == AssetClass.PERPS) Venue.MARKETS_PERPS else if (assetClass == AssetClass.CRYPTO_ALT || assetClass == AssetClass.SOLANA_TOKEN) Venue.CRYPTO else Venue.MARKETS_SPOT, symbol, reason)
+    }
 
     internal fun markIntentCreatedFor6551(assetClass: AssetClass, symbol: String, id: String) { bumpClass6567(assetClass, "INTENT"); markIntentCreated(if (assetClass == AssetClass.PERPS) Venue.MARKETS_PERPS else if (assetClass == AssetClass.CRYPTO_ALT || assetClass == AssetClass.SOLANA_TOKEN) Venue.CRYPTO else Venue.MARKETS_SPOT, symbol, id) }
 

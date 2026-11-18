@@ -87,6 +87,18 @@ object CrossAssetCortex7931 {
         return if (c == AssetClass.CRYPTO_ALT && d in CRYPTO_DESK_LANES_8107) "CRYPTO_$d" else laneFor(c)
     }
 
+    /**
+     * V5.0.8849 — the canonical execution owner can remain CRYPTO, but its
+     * predictive oracle must use the *elected desk's* learning lane. Before
+     * this, all crypto signals were forecast as untrained generic "CRYPTO"
+     * even while their outcome labels went to CRYPTO_MOONSHOT, CRYPTO_CORE,
+     * etc. Keep the sealed intent/dispatch owner unchanged.
+     */
+    fun forecastLane8849(c: CanonicalAssetEntryCandidate6551): String =
+        if (c.assetClass == AssetClass.CRYPTO_ALT)
+            laneFor8107(c.assetClass, c.evidence["deskLane7391"]) ?: c.assetClass.tag
+        else c.specialist.ifBlank { c.assetClass.tag }
+
     fun isCrossAssetLane(lane: String): Boolean {
         val l = lane.substringBefore('@').uppercase()
         // V5.0.7962 — the multi-chain meme lanes (EVM_BSC, EVM_BASE, ...) learn in their own lanes too.

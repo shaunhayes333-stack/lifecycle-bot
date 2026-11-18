@@ -158,6 +158,12 @@ object CanonicalEntryAuthority6551 {
                 ?: candidate.confidence
             (if (raw > 1.0) raw / 100.0 else raw).coerceIn(0.0, 1.0)
         } catch (_: Throwable) { 0.50 }
+        val predictionLane8849 = com.lifecyclebot.engine.cortex.CrossAssetCortex7931.forecastLane8849(candidate)
+        if (candidate.assetClass == AssetClass.CRYPTO_ALT) try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_FORECAST_LANE_8849_${predictionLane8849.take(24)}")
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc(if (candidate.evidence["edgePhase"].isNullOrBlank())
+                "CRYPTO_FORECAST_STAGE_UNKNOWN_8849" else "CRYPTO_FORECAST_STAGE_OBSERVED_8849")
+        } catch (_: Throwable) {}
         // V5.0.7813 — shared expert-trader doctrine for cross-asset
         // candidates when this asset has a real resident TokenState. CRYPTO_ALT
         // gets parity with the meme spine; stocks/forex/perps remain neutral
@@ -167,7 +173,7 @@ object CanonicalEntryAuthority6551 {
             if (ts7813 != null) {
                 com.lifecyclebot.engine.ExpertTraderKnowledge7813.captureDecision7813(
                     ts = ts7813,
-                    lane = candidate.specialist.ifBlank { candidate.assetClass.tag },
+                    lane = predictionLane8849,
                     source = candidate.source,
                     score = candidate.score.toInt().coerceIn(0, 100),
                     confidence = candidateConfidence7260,
@@ -177,7 +183,7 @@ object CanonicalEntryAuthority6551 {
 
         val oracle7259 = try {
             PredictiveEntryOracle6915.evaluate(
-                lane = candidate.specialist.ifBlank { candidate.assetClass.tag },
+                lane = predictionLane8849,
                 score = candidate.score.toInt().coerceIn(0, 100),
                 sourceFamily = candidate.source,
                 regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name }
@@ -226,7 +232,7 @@ object CanonicalEntryAuthority6551 {
         )
         val forwardFallback7828 = if (!oracleNumeric7838) try {
             com.lifecyclebot.engine.ForwardOutcomeModel.forecast(
-                candidate.specialist.ifBlank { candidate.assetClass.tag },
+                predictionLane8849,
                 candidate.score.toInt().coerceIn(0, 100),
                 candidate.evidence["setupQuality"].orEmpty().ifBlank { "U" },
                 try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "UNKNOWN" },

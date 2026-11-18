@@ -40,6 +40,15 @@ object CryptoLaneDesk7391 {
     )
     const val LANE_REASON_PREFIX = "LANE7391="
 
+    /** V5.0.8849: read the setup actually elected by the meme desk, not an
+     * inferred quality grade from the score. Static CryptoBrain signals have
+     * no desk evidence and rightly leave their entry phase unknown. */
+    fun observedSetup8849(reasons: List<String>): String? {
+        val handoff = reasons.firstOrNull { it.startsWith(LANE_REASON_PREFIX) } ?: return null
+        val setup = handoff.substringAfter(" setup=", "").substringBefore(' ').trim().uppercase()
+        return setup.takeIf { it.isNotEmpty() && it.length <= 48 && it.all { ch -> ch in 'A'..'Z' || ch in '0'..'9' || ch == '_' } }
+    }
+
     data class Election(
         val lane: String,
         val conviction: Double,

@@ -404,6 +404,31 @@ object TradePlan7739 {
         return (h / base - 1.0) * 100.0 >= tier.minImpulsePct
     }
 
+    /**
+     * V5.0.8849 — a measured-positive *past cohort* does not prove that the
+     * current mint is still in the same entry phase. In 8848, the generic
+     * positive-admit and chart-reader paths could both skip the timing check,
+     * and optionalChartForAdmit(specific=true) accepted even STILL_FALLING or
+     * PULLBACK_TOO_DEEP as LAUNCH_EARLY. These are observed entry-time dangers,
+     * not an extra learned-prior veto. A short/unread chart is NOT called a
+     * confirmed downtrend. A fresh sell-dominated 60 s tape is independently
+     * observable and needs no chart minimum.
+     */
+    internal fun currentStageWait8849(read: Read, bars: List<Bar>, tier: Tier, minBars: Int, nowMs: Long): String? {
+        if (read.why == "SELL_DOMINANT_TAPE") return "SELL_DOMINANT_TAPE"
+        if (bars.size < minBars || read.setup != null) return null
+        // Old chart bars cannot veto a newer setup. A closed minute can be
+        // 60-119 seconds old; anything older than two minutes needs a new read.
+        if (bars.last().startMs <= 0L || nowMs - bars.last().startMs !in 0L..120_000L) return null
+        if (read.why == "NO_PULLBACK_YET" && unretracedImpulse8419(bars, tier))
+            return "UNRETRACED_IMPULSE"
+        return when (read.why) {
+            "STILL_FALLING", "NOT_TURNING_UP", "NO_RECLAIM", "PULLBACK_TOO_DEEP",
+            "CHASING_THE_HIGH", "EXTENDED_PAST_BASE" -> read.why
+            else -> null
+        }
+    }
+
     /** Pure: the best-paying setup the bars show, or the reason none is present. */
     fun analyze(bars: List<Bar>, tier: Tier, chop: Boolean, buyTx: Int, sellTx: Int, minBars: Int = MIN_BARS_7739): Read {
         if (sellTx >= 3 && sellTx > buyTx) return Read(null, "SELL_DOMINANT_TAPE")
@@ -416,12 +441,16 @@ object TradePlan7739 {
 
     /** Shared current-data read for the field manual and entry planner. No
      * stored plan is reused, and a read alone never authorizes execution. */
-    fun readForEntry7837(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Read {
+    fun readForEntry7837(ts: TokenState, nowMs: Long = System.currentTimeMillis(), observedBars8849: List<Bar>? = null): Read {
         val lp = try { LaunchPhaseAuthority7401.snapshot(ts, nowMs) } catch (_: Throwable) { null }
         val chop = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name == "CHOP" } catch (_: Throwable) { false }
         // V5.0.8317 — a launch-window coin is read on the bars it can have: three, and 15 s bars from its own prints.
         val age8317 = ageMin8317(ts, nowMs)
-        return analyze(barsFrom(ts, nowMs, entry8317 = true), tierFor(ts.lastMcap), chop, lp?.buyTx60s ?: 0, lp?.sellTx60s ?: 0, minBars8317(age8317))
+        // The executor's current-stage checkpoint must judge the SAME bars as
+        // the setup read. Re-reading source/provider bars both costs time on
+        // the buy path and can turn one changing market into two decisions.
+        return analyze(observedBars8849 ?: barsFrom(ts, nowMs, entry8317 = true), tierFor(ts.lastMcap), chop,
+            lp?.buyTx60s ?: 0, lp?.sellTx60s ?: 0, minBars8317(age8317))
     }
 
     // ── entry ──
@@ -435,6 +464,25 @@ object TradePlan7739 {
         if (paper) return null
         // V5.0.8336 — the executor chokepoint holds an unproven lane out of LIVE too (chart BUYs and lanes outside 8114 mode).
         EvidenceHold8336.refusal8336(ts, lane, paper, nowMs, candidateVersion8397 = candidateVersion)?.let { return it }
+        // The 8848 evidence shortcut and 7950 chart-reader shortcut used to
+        // return before checking whether the CURRENT coin is actually turning
+        // up. Read once and apply the same observed timing fact to both paths.
+        // A WAIT is nonterminal: the 8847 fresh-movement recheck can try again
+        // as soon as the sell-off stabilises and a reclaim is observed.
+        val stageBars8849 = barsFrom(ts, nowMs, entry8317 = true)
+        val read8418 = readForEntry7837(ts, nowMs, stageBars8849)
+        val currentStage8849 = currentStageWait8849(read8418, stageBars8849, tierFor(ts.lastMcap), minBars8317(ageMin8317(ts, nowMs)), nowMs)
+        if (currentStage8849 != null) {
+            waited.incrementAndGet()
+            waitReasons.computeIfAbsent("CURRENT_STAGE_8849_$currentStage8849") { AtomicLong(0) }.incrementAndGet()
+            try {
+                PipelineHealthCollector.labelInc("PLAN_CURRENT_STAGE_WAIT_8849_$currentStage8849")
+                CandidateAdmission8136.noteVerdict8136("PLAN", "WAIT", "CURRENT_STAGE_$currentStage8849")
+                ForwardReturnLabeler7731.observe(ts, "PLANWAIT_STAGE_${currentStage8849.take(15)}", false,
+                    "NO_PLAN_WAIT_7739:CURRENT_STAGE_$currentStage8849", nowMs)
+            } catch (_: Throwable) {}
+            return "NO_PLAN_WAIT_7739:CURRENT_STAGE_$currentStage8849"
+        }
         // V5.0.7950 — the chart reader's BUY is the plan (hard safety still runs in the edge gate's chart path).
         // V5.0.8136 — the plan, not a pass around the edge gate: FinalDecisionGate runs LiveEdgeGate7877.liveRefusal before
         // this plan (liveEdgeBlock7877), but the executor chokepoint (sniper / native paths) asks only this function, so a
@@ -468,7 +516,6 @@ object TradePlan7739 {
         // stopped out inside a minute (SHITCOIN 48 s RAPID_CATASTROPHE_STOP, QUALITY 77 s RAPID_FLUID_STOP). The chart is read
         // first: a real setup plans on its own levels; an impulse with no pullback yet waits like any other plan; a tape too
         // young to read keeps the evidence admit.
-        val read8418 = readForEntry7837(ts, nowMs)
         // V5.0.8608 — any ADMIT counts, not only a "specific" one: since 8604 the admission is the paper book's decision and a
         // LANE_AUTHORITY_8577 admit is non-specific, so it fell through to the chart-setup waits below that paper never applies
         // (01:42 dump: FDG_NO_PLAN_WAIT_7739 MOONSHOT 356, SHITCOIN 90). The chart's own setup still sets the levels when read.
@@ -484,14 +531,8 @@ object TradePlan7739 {
             try { PipelineHealthCollector.labelInc("PLAN_EVIDENCE_ADMIT_ON_CHART_SETUP_8418_${st.name}") } catch (_: Throwable) {}
             return null
         }
-        // V5.0.8419 — the wait is for the owner's shape (unretracedImpulse8419), not for pullbackReclaim's NO_PULLBACK_YET,
-        // which at three bars is true of every tape and also names a decline from the first bar.
-        if (evidenceAdmit8418 && read8418.why == "NO_PULLBACK_YET" && unretracedImpulse8419(barsFrom(ts, nowMs, entry8317 = true), tierFor(ts.lastMcap))) {
-            waited.incrementAndGet()
-            waitReasons.computeIfAbsent("EVIDENCE_ADMIT_NO_PULLBACK_8418") { AtomicLong(0) }.incrementAndGet()
-            try { PipelineHealthCollector.labelInc("PLAN_WAIT_8418_EVIDENCE_ADMIT_NO_PULLBACK") } catch (_: Throwable) {}
-            return waitOrOverrule7757(ts, read8418.why, "NO_PLAN_WAIT_7739:NO_PULLBACK_YET_8418", nowMs, runner7878).also { notePlanWait8136(read8418.why, it) }
-        }
+        // V5.0.8849 — an actually unretraced impulse has already waited at the
+        // current-stage checkpoint, including the positive-evidence path.
         if (specific8171?.admitted == true && optionalChartForAdmit(specific8171.specific, read8418.why)) {
             plans[ts.mint] = Plan(Setup.LAUNCH_EARLY, -gradedStopMag8094(lane), LAUNCH_FIRST_TARGET_PCT_7742, LAUNCH_TARGET_PCT_7742, nowMs)
             admitted.computeIfAbsent(Setup.LAUNCH_EARLY) { AtomicLong(0) }.incrementAndGet()

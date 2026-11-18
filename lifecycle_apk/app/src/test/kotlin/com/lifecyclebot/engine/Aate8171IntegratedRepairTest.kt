@@ -100,14 +100,14 @@ class Aate8171IntegratedRepairTest {
 
     @Test fun aProvenCostClearingAdmissionGetsAPlanBeforeOptionalBarsWait() {
         val p = src("engine/truth/TradePlan7739.kt")
-        // V5.0.8392 — the plan reads the one canonical admission (or looks it up) before the bars wait
+        // 8849: observed current stage is assessed before the canonical positive
+        // admission can skip optional chart evidence. The admission is still
+        // read once and can plan a non-dumping launch with short bars.
         val start = p.indexOf("val specific8171 = candidateAdmission ?: try {")
-        // superseded by V5.0.8419 — 8418 renamed the chart read (`val read8418 = readForEntry7837(ts, nowMs)`, reused as
-        // `val read = read8418`) and this pin silently went to indexOf = -1; the admission is still read before the chart.
-        assertTrue(start in 0 until p.indexOf("val read8418 = readForEntry7837(ts, nowMs)"))
-        val wait = p.indexOf("val read8418 = readForEntry7837(ts, nowMs)")
+        val stage = p.indexOf("val currentStage8849 = currentStageWait8849(")
+        val wait = p.indexOf("val read8418 = readForEntry7837(ts, nowMs, stageBars8849)")
         assertTrue(start > 0)
-        assertTrue(start < wait)
+        assertTrue(wait in 0 until stage && stage < start)
         assertTrue(p.contains("if (specific8171?.admitted == true && optionalChartForAdmit(specific8171.specific, read8418.why)) {"))
         assertTrue(p.contains("PLAN_GRADED_EDGE_OPTIONAL_BARS_ADMIT_8171"))
         assertTrue(p.indexOf("LiveEdgeGate7877.liveRefusal(ts, lane, paper, nowMs, candidateVersion, candidateAdmission)?.let { return it }") in 0 until start)
