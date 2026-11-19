@@ -1479,3 +1479,34 @@ levers: its closes are also Cortex shadow outcomes, so it follows once that coup
 
 **Proof to read.** `evidenceShadow8344[... doctrine lanes (8878) ... breachWaits8878=..]`, closes labelled
 `EVIDENCE_SHADOW_CLOSE_8344_DOCTRINE_TRAIL_8878`, and the doctrine lanes' shadow means as the record turns over.
+
+## 68. The exploration book's runner leg trades the live doctrine (8879)
+
+**Owner, 20 Nov.** "the shadow trading engine is meant to basically be exactly the same as the live trader in all forms and
+functions". Plan W1, second step (8878 was the evidence shadow).
+
+**Before.** `ExploreShadow8347`'s RUNNER leg exited on the scalp tiers (+40 % sells 60 %), the give-back floor, the live
+fluid-stop level and, from +100 %, the lifecycle hold, on every lane. On the six doctrine lanes LIVE rides the runner
+doctrine, so this book (whose closes are also the Cortex's shadow outcomes and its variant / cohort books' records) was
+grading a doctrine lane's runners on an exit LIVE never takes. And both shadow books dropped, at restart, any position
+older than its lane clock unless it was in the lifecycle hold, so a doctrine-held runner (whose clock the doctrine holds)
+would have been lost on the first app restart after its clock ran.
+
+**Changed.**
+- On a doctrine lane (`RunnerDoctrine8584.rides8584`) the RUNNER leg exits by `doctrineLegWhy8879`, the same functions as
+  `EvidenceShadow8344.doctrineWhy8878`: the `TIERS_7967` rung on the gross (`MemePaperTrader8544.rung8544`), the doctrine
+  line `RunnerDoctrine8584.paperStopLevel8584` confirmed on a second observed mark (`paperStopConfirmed8683`; -60 % at once),
+  and the clock only where `RunnerDoctrine8584.holds8584` lets a time exit pass. Slices and full exits keep this book's
+  8394 fill contract (a new observation after the live sell latency).
+- `EvidenceShadow8344.doctrineHoldsClock8879(lane, peakPct)`: a doctrine lane at a +50 % peak or more (where `holds8584`
+  stops passing the clock). Such a position keeps the lifecycle hold's restore window in both books
+  (`EvidenceShadow8344.restoreOpen8417`, `ExploreShadow8347.restoreOpen8355`), and the leg's Cortex maturity horizon is the
+  hold's window (`step8347`); under the 8521 frozen targets that horizon does not move a forecast's due time.
+
+**Not changed.** The SCALP leg; every other lane's RUNNER leg; entries, costs, the cohort and variant books. A leg restored
+from before 8879 keeps its tier count from the old ladder (as 8878's positions do).
+
+**Test pin superseded.** `Aate8394FillContractTest.actualEvidenceShadowUsesFreshFillObservationAndRetainsPendingSale` drove
+a MOONSHOT evidence position to a +45 % scalp slice; MOONSHOT rides the doctrine since 8878, which leaves that position
+whole at +45 % and -5 %, so the same fill contract is now pinned on QUALITY, whose exits are unchanged.
+

@@ -104,6 +104,7 @@ object ExploreShadow8347 {
         var sellFraction8394 = 1.0
         var sellTier8394 = 0
         var sellTaken8394 = 0
+        var breachSeenAt8879 = 0L   // V5.0.8879 — the first observed mark at or under the doctrine level (0 = none)
     }
 
     private class Ticket8347(
@@ -305,7 +306,8 @@ object ExploreShadow8347 {
                 if (r == null) { drop += k; continue }
                 // the ticket's own window: the longest leg timeout plus the longest entry wait, then the lost-mark grace
                 // V5.0.8366 — a leg in the lifecycle hold has no clock (LifecycleHold8065): its ticket keeps the hold's window
-                val window = if (r.legs.any { it.hold8366 && !it.dead }) ShadowAlign8366.holdWindowMs8366()
+                val window = if (r.legs.any { !it.dead && (it.hold8366 ||   // V5.0.8879 — or a doctrine-held RUNNER leg
+                        (it.exit == Exit8347.RUNNER.name && EvidenceShadow8344.doctrineHoldsClock8879(r.lane, it.peak))) }) ShadowAlign8366.holdWindowMs8366()
                     else (if (r.runner) RUNNER_TIMEOUT_MS_8347 else OTHER_TIMEOUT_MS_8347) + PULLBACK_WAIT_MS_8347
                 if (ShadowPersist8355.expiredOnRestore8355(r.atMs, window, nowMs, LOST_MARK_MS_8347)) {
                     expiredOnRestore8355.incrementAndGet()
@@ -922,7 +924,9 @@ object ExploreShadow8347 {
     private fun step8347(t: Ticket8347, leg: Leg8347, px: Double?, lost: Boolean, nowMs: Long,
                          scalp8366: DoubleArray? = null, observedAtMs8372: Long = 0L) {
         if (t.cortex8372.owns8372(leg.entry.name, leg.exit.name)) {
-            val horizon = if (leg.hold8366) ShadowAlign8366.holdWindowMs8366() else if (leg.exit == Exit8347.SCALP) SCALP_TIMEOUT_MS_8347 else if (t.runner) RUNNER_TIMEOUT_MS_8347 else OTHER_TIMEOUT_MS_8347
+            // V5.0.8879 — a doctrine-held RUNNER leg has no clock, as a held one has none: its outcome is due in the hold's window
+            val noClock8879 = leg.hold8366 || (leg.exit == Exit8347.RUNNER && EvidenceShadow8344.doctrineHoldsClock8879(t.lane, leg.peak))
+            val horizon = if (noClock8879) ShadowAlign8366.holdWindowMs8366() else if (leg.exit == Exit8347.SCALP) SCALP_TIMEOUT_MS_8347 else if (t.runner) RUNNER_TIMEOUT_MS_8347 else OTHER_TIMEOUT_MS_8347
             com.lifecyclebot.engine.cortex.Cortex7885.shadowMaturity8394(t.mint, t.lane, t.atMs,
                 if (leg.hold8366) "TERMINAL_HOLD" else if (leg.exit == Exit8347.SCALP) "TERMINAL_SCALP" else "TERMINAL_RUNNER",
                 leg.entryAtMs + horizon)
@@ -989,6 +993,8 @@ object ExploreShadow8347 {
     }
 
     private fun runnerWhy8366(t: Ticket8347, leg: Leg8347, g: Double, px: Double?, lost: Boolean, nowMs: Long): String? {
+        // V5.0.8879 — on a doctrine lane the RUNNER leg is the live doctrine (as EvidenceShadow8344 since 8878)
+        if (try { com.lifecyclebot.engine.RunnerDoctrine8584.rides8584(t.lane) } catch (_: Throwable) { false }) return doctrineLegWhy8879(t, leg, g, px, lost, nowMs)
         if (!leg.hold8366 && px != null && ShadowAlign8366.holdPromotes8366(g, leg.peak)) { leg.hold8366 = true; t.force8355 = true }
         if (leg.hold8366) {
             val d = if (px != null) ShadowAlign8366.holdExit8366(g, leg.peak, leg.taken8366, nowMs - leg.entryAtMs, nowMs - leg.peakAt8366, t.costPct) else null
@@ -1019,6 +1025,33 @@ object ExploreShadow8347 {
             lost -> "LOST_MARK"
             else -> null
         }
+    }
+
+    /**
+     * V5.0.8879 §THE_EXPLORATION_RUNNER_LEG_IS_THE_DOCTRINE (plan W1) — owner: the shadow trader is "exactly the same as the
+     * live trader in all forms and functions". On a doctrine lane LIVE exits on the runner doctrine, so this book's RUNNER
+     * leg — whose closes are also the Cortex's shadow outcomes — exits by the doctrine's own functions, exactly as
+     * EvidenceShadow8344.doctrineWhy8878 does: the TIERS_7967 rung on the gross, RunnerDoctrine8584.paperStopLevel8584
+     * confirmed on a second observed mark, the clock only where RunnerDoctrine8584.holds8584 lets a time exit pass. A
+     * doctrine-held leg's outcome is due in the hold's window (step8347), and its ticket keeps that window on restore.
+     * Returns null after requesting a slice (the pending branch fills it after the live sell latency).
+     */
+    private fun doctrineLegWhy8879(t: Ticket8347, leg: Leg8347, g: Double, px: Double?, lost: Boolean, nowMs: Long): String? {
+        if (leg.held <= 0.0001) return "SOLD_OUT"
+        if (px != null) {
+            val level = com.lifecyclebot.engine.RunnerDoctrine8584.paperStopLevel8584(t.stopPct, leg.peak)
+            val breached = level.isFinite() && g <= level
+            if (!breached) leg.breachSeenAt8879 = 0L
+            else if (leg.breachSeenAt8879 == 0L) leg.breachSeenAt8879 = t.lastPxAtMs
+            if (breached && MemePaperTrader8544.paperStopConfirmed8683(leg.breachSeenAt8879, t.lastPxAtMs, g))
+                return if (leg.peak > 0.0 && level > -t.stopPct) EvidenceShadow8344.DOCTRINE_TRAIL_8878 else "STOP"
+            if (breached) return if (lost) "LOST_MARK" else null
+            val rung = MemePaperTrader8544.rung8544(com.lifecyclebot.engine.RunnerGrab7967.TIERS_7967, leg.tiers, g)
+            if (rung != null) { requestSlice8394(t, leg, rung.second, EvidenceShadow8344.DOCTRINE_RUNG_8878, nowMs, tier = rung.first); return null }
+        }
+        if (nowMs - leg.entryAtMs >= (if (t.runner) RUNNER_TIMEOUT_MS_8347 else OTHER_TIMEOUT_MS_8347) &&
+            !com.lifecyclebot.engine.RunnerDoctrine8584.holds8584(t.lane, "CLOCK_TIME", g, leg.peak, t.stopPct)) return "TIMEOUT"
+        return if (lost) "LOST_MARK" else null
     }
 
     /**

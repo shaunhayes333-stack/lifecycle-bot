@@ -144,8 +144,10 @@ class Aate8394FillContractTest {
     }
     @Test fun actualEvidenceShadowUsesFreshFillObservationAndRetainsPendingSale() {
         val cls=EvidenceShadow8344::class.java.declaredClasses.single { it.simpleName=="Pos8344" }
+        // superseded by V5.0.8879 — MOONSHOT exits on the runner doctrine since 8878 (no slice at +45 %; Aate8878ShadowDoctrineTest
+        // pins its rung fill). The fill contract this test owns is unchanged and pinned on QUALITY, whose exits are the scalp tiers.
         val p=cls.declaredConstructors.first { it.parameterCount==10 }.apply { isAccessible=true }
-            .newInstance("evidence8394","MOONSHOT",100.0,1000L,9.28,13.92,50.0,21600000L,false,8394)
+            .newInstance("evidence8394","QUALITY",100.0,1000L,9.28,13.92,50.0,21600000L,false,8394)
         val why=EvidenceShadow8344::class.java.declaredMethods.single { it.name=="why8366" }.apply { isAccessible=true }
         field(p,"lastPxAtMs").setLong(p,100000)
         why.invoke(EvidenceShadow8344,p,45.0,145.0,100000L)

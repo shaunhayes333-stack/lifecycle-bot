@@ -123,8 +123,10 @@ object EvidenceShadow8344 {
                 val episodeKey = episodeKey8417(r.mint, r.lane)
                 if (open.containsKey(episodeKey)) continue   // partial-init retry never erases the live in-memory episode
                 // V5.0.8366 — a position in the lifecycle hold has no clock: it keeps the hold's window
-                if (r.hold8366 && ShadowPersist8355.expiredOnRestore8355(r.atMs, ShadowAlign8366.holdWindowMs8366(), nowMs)) { drop += k; expiredOnRestore8355.incrementAndGet(); continue }
-                if (!r.hold8366 && ShadowPersist8355.expiredOnRestore8355(r.atMs, r.timeoutMs, nowMs)) { drop += k; expiredOnRestore8355.incrementAndGet(); continue }
+                // V5.0.8879 — so does a doctrine-lane position whose clock the doctrine holds ([doctrineHoldsClock8879])
+                val noClock8879 = r.hold8366 || doctrineHoldsClock8879(r.lane, r.peakPct)
+                if (noClock8879 && ShadowPersist8355.expiredOnRestore8355(r.atMs, ShadowAlign8366.holdWindowMs8366(), nowMs)) { drop += k; expiredOnRestore8355.incrementAndGet(); continue }
+                if (!noClock8879 && ShadowPersist8355.expiredOnRestore8355(r.atMs, r.timeoutMs, nowMs)) { drop += k; expiredOnRestore8355.incrementAndGet(); continue }
                 if (open.size >= MAX_OPEN_8344) { drop += k; continue }
                 val pos = Pos8344(r.mint, r.lane, r.entryPx, r.atMs, r.costPct, r.stopPct, r.armPct, r.timeoutMs, r.advisoryEntry8393, r.contractVersion8394)
                 pos.storageKey = k
@@ -531,6 +533,14 @@ object EvidenceShadow8344 {
             !com.lifecyclebot.engine.RunnerDoctrine8584.holds8584(p.lane, "CLOCK_TIME", g, p.peakPct, p.stopPct)) return "TIMEOUT"
         return if (lost) "LOST_MARK" else null
     }
+
+    /**
+     * V5.0.8879 — pure: does the doctrine hold the clock of a [lane] position whose peak was [peakPct]? A time exit passes
+     * only under a +50 % peak (RunnerDoctrine8584.holds8584); from there a shadow position runs until the doctrine sells it,
+     * so it keeps the lifecycle hold's restore window (8878 dropped such a position on restart once its lane clock had run).
+     */
+    internal fun doctrineHoldsClock8879(lane: String, peakPct: Double): Boolean =
+        (try { com.lifecyclebot.engine.RunnerDoctrine8584.rides8584(lane) } catch (_: Throwable) { false }) && peakPct.isFinite() && peakPct >= 50.0
 
     internal const val DOCTRINE_TRAIL_8878 = "DOCTRINE_TRAIL_8878"
     internal const val DOCTRINE_RUNG_8878 = "DOCTRINE_RUNG_8878"
