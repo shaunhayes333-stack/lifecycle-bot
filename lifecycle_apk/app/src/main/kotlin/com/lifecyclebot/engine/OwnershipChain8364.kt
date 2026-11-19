@@ -355,7 +355,11 @@ object OwnershipChain8364 {
         } catch (_: Throwable) {}
     }
 
-    private fun watched8869(mint: String): Boolean? = try { GlobalTradeRegistry.isWatching(mint) } catch (_: Throwable) { null }
+    // The bot cycle's universe is the registry watchlist (BotService falls back to the config list only while it is empty,
+    // so an empty registry says nothing about where a token went).
+    private fun watched8869(mint: String): Boolean? = try {
+        if (GlobalTradeRegistry.size() == 0) null else GlobalTradeRegistry.isWatching(mint)
+    } catch (_: Throwable) { null }
 
     /** V5.0.8869 — the crypto desk's stamps the meme chain did not book, by stage. Null when none. */
     fun cryptoDeskLine8869(): String? {
@@ -431,7 +435,9 @@ object OwnershipChain8364 {
     internal fun resetForTests8364() {
         synchronized(lock8364) {
             records8364.clear(); latestByLaneMint8364.clear(); lostExamples8528.clear(); lastSweepMs8364 = 0L
+            lanes8869.clear()
         }
+        cryptoDesk8869.clear()
         stepCounts8364.clear(); terminalCounts8364.clear(); lostCounts8364.clear(); lostClosure8528.clear(); versionCarried8364.set(0L)
     }
 }
