@@ -543,7 +543,13 @@ object LiveEdgeGate7877 {
         // coins through the same exits), so the shadow's broken absolute exits cancel out of it: 8680 MOONSHOT PULL/RUNN n83
         // +46.3% and PULL/SCAL n108 +42.4% (proven) against NOW/RUNN n170 -7.4% and NOW/SCAL n237 -0.9%, while live bought
         // nearHigh n16 -10.8% / atHigh n6 -25.4%. It delays a buy until the pullback; it never refuses the coin.
-        val wait = if (paper || laneWide || niche != null) null else try { ExploreShadow8347.liveEntryWait8347(ts, l, EvidenceHold8336.startMs8336, nowMs) } catch (_: Throwable) { null }
+        // V5.0.8869 — a candidate whose own record proves the buy now (a supported setup record, or the learned forecast's proven
+        // call) is not held for a lane-wide timing verdict: its proof is of this entry, the shadow's of the lane's average coin.
+        val ownProof8869 = (context.evaluatedAdmission ?: candidateAdmission).let { a ->
+            a != null && a.terminal == CandidateAdmission8136.Terminal8136.ADMIT && a.specific &&
+                (a.reason == "SPECIFIC_EDGE_PROVEN_8136" || a.reason == CandidateAdmission8136.EDGE_MODEL_PROVEN_8537)
+        }
+        val wait = if (paper || laneWide || niche != null || ownProof8869) null else try { ExploreShadow8347.liveEntryWait8347(ts, l, EvidenceHold8336.startMs8336, nowMs) } catch (_: Throwable) { null }
         if (laneWide) try {
             if (ExploreShadow8347.bestFor8351(l, EvidenceHold8336.startMs8336)?.dim != null) PipelineHealthCollector.labelInc("NICHE_PREFERENCE_NOT_VETO_8392_$l")
         } catch (_: Throwable) {}

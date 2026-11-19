@@ -1235,6 +1235,7 @@ object ExploreShadow8347 {
                     try {
                         val rev = books.laneRevision8418(l)   // read BEFORE the scan: a close landing mid-scan leaves it stale
                         choiceCache8351[cacheKey8394] = CachedChoice8418(System.currentTimeMillis(), rev, computeBest8351(l, sinceMs))
+                        relative8869[l] = computeRelative8869(l, sinceMs) ?: Entry8347.NOW   // V5.0.8869 (NOW = none)
                     }
                     catch (_: Throwable) {}
                     finally { choiceRefreshing8399.remove(cacheKey8394) }
@@ -1450,8 +1451,12 @@ object ExploreShadow8347 {
      */
     fun liveEntryWait8347(ts: TokenState, lane: String, sinceMs: Long, nowMs: Long = System.currentTimeMillis()): String? {
         // V5.0.8351 — the adopted choice (a variant or a niche) sets the entry; outside a niche nicheRefusal8351 already refused.
-        val entry = bestFor8351(lane, sinceMs)?.entry ?: return null
+        // V5.0.8869 — with no adopted choice, the relative verdict (a waiting entry proven better than buying now) sets it.
+        val best = bestFor8351(lane, sinceMs)
+        val relative = if (best == null) relative8869[canon(lane)]?.takeIf { it != Entry8347.NOW } else null
+        val entry = best?.entry ?: relative ?: return null
         if (entry == Entry8347.NOW) return null
+        val tag = if (relative != null) RELATIVE_8869 else "8347"
         val px = ts.lastPrice.takeIf { it.isFinite() && it > 0.0 } ?: return "ENTRY_TIMING_NO_MARK_8347"
         val key = "${ts.mint}|${canon(lane)}"
         waits[key]?.let { old ->
@@ -1467,11 +1472,63 @@ object ExploreShadow8347 {
         val ready = entryReady8394(entry, px, signal, age, java.lang.Double.longBitsToDouble(w[2]))
         val limit = if (entry == Entry8347.PULLBACK) PULLBACK_WAIT_MS_8347 else CONFIRM_WAIT_MS_8347
         if (ready) { waits.remove(key); waitsDirty8355 = true; return null }
-        if (age >= limit) { waits.remove(key); waitsDirty8355 = true; return "ENTRY_TIMING_EXPIRED_8347_$entry" }
+        if (age >= limit) { waits.remove(key); waitsDirty8355 = true; return "ENTRY_TIMING_EXPIRED_${tag}_$entry" }
         if (waits.size > 2_000) { waits.entries.removeIf { nowMs - it.value[0] > PULLBACK_WAIT_MS_8347 }; waitsDirty8355 = true }
-        try { PipelineHealthCollector.labelInc("ENTRY_TIMING_WAIT_8347_${canon(lane)}_$entry") } catch (_: Throwable) {}
-        return "ENTRY_TIMING_WAIT_8347_$entry"
+        try { PipelineHealthCollector.labelInc("ENTRY_TIMING_WAIT_${tag}_${canon(lane)}_$entry") } catch (_: Throwable) {}
+        return "ENTRY_TIMING_WAIT_${tag}_$entry"
     }
+
+    // ── V5.0.8869 §A_WAIT_PROVEN_BETTER_THAN_BUYING_NOW_IS_TAKEN ──
+    // Owner's 5.0.8864 report (15:21, 6.9 h), the shadow's entry styles on the same coins through the same exits:
+    //   MOONSHOT  NOW/RUNNER n300 -10.0 %   PULLBACK/RUNNER n135 -1.2 % (fill 26 %)   CONFIRM/RUNNER n153 -15.1 %
+    //   SHITCOIN  NOW/RUNNER n68 -17.8 %    PULLBACK/RUNNER n26 -3.1 % (fill 21 %)
+    //   CORE      NOW/SCALP n196 -6.8 %     PULLBACK/SCALP n91 +1.7 % (fill 44 %)
+    // and live runner admits: 82 bought the top, 20 gave it back, 18 won. The adopted choice needs an arm proven positive on
+    // its own (mean - 2 SE > +2 %), which no lane reached, so live bought now. A waiting entry is now also taken when it is
+    // proven better than buying now on the lane's own exit style: its per-signal lower bound (fill x (mean - 2 SE); an
+    // expired wait is no trade, 0) above buying now's upper bound (mean + 2 SE), each on 40+ closes — the same SE multiple and
+    // minimum every shadow arm is held to. It is relative, so the shadow's pessimistic absolute exits cancel out of it.
+
+    private const val RELATIVE_8869 = "RELATIVE_8869"
+    private val relative8869 = java.util.concurrent.ConcurrentHashMap<String, Entry8347>()
+
+    /** Pure: is waiting ([wait], fill rate [fill]) proven better per signal than buying now ([now])? */
+    fun waitBeatsNow8869(now: EvidenceHold8336.Proof8336, wait: EvidenceHold8336.Proof8336, fill: Double): Boolean {
+        if (now.n < MIN_N_8347 || wait.n < MIN_N_8347) return false
+        if (!now.meanPct.isFinite() || !now.sePct.isFinite() || !wait.meanPct.isFinite() || !wait.sePct.isFinite()) return false
+        val waitLower = fill.coerceIn(0.0, 1.0) * lowerBound8364(wait.meanPct, wait.sePct)
+        val nowUpper = now.meanPct + COHORT_SE_MULT_8351 * now.sePct
+        return waitLower > nowUpper
+    }
+
+    /** Pure: the margin by which waiting beats buying now per signal (the ranking among waiting entries). */
+    fun waitMargin8869(now: EvidenceHold8336.Proof8336, wait: EvidenceHold8336.Proof8336, fill: Double): Double =
+        fill.coerceIn(0.0, 1.0) * lowerBound8364(wait.meanPct, wait.sePct) - (now.meanPct + COHORT_SE_MULT_8351 * now.sePct)
+
+    /** The lane's exit style: a runner mandate rides (RUNNER), every other lane scalps. */
+    private fun exitOf8869(l: String): Exit8347 =
+        if (try { FieldManual7715.mandateFor(l).runner } catch (_: Throwable) { false }) Exit8347.RUNNER else Exit8347.SCALP
+
+    /** The waiting entry proven better than buying now in lane [l] (background, with computeBest8351), or null. */
+    private fun computeRelative8869(l: String, sinceMs: Long): Entry8347? {
+        val x = exitOf8869(l)
+        val now = variantProof8347(netsSince("$l|${Entry8347.NOW}|$x", sinceMs))
+        var best: Entry8347? = null
+        var bestMargin = Double.NEGATIVE_INFINITY
+        for (e in listOf(Entry8347.PULLBACK, Entry8347.CONFIRM)) {
+            val v = "$l|$e|$x"
+            val wait = variantProof8347(netsSince(v, sinceMs))
+            val fill = fillRateFor8364(v, sinceMs)
+            if (!waitBeatsNow8869(now, wait, fill)) continue
+            val m = waitMargin8869(now, wait, fill)
+            if (m > bestMargin) { bestMargin = m; best = e }
+        }
+        return best
+    }
+
+    /** "LANE=ENTRY" for every lane whose relative verdict takes a waiting entry, "-" when none. */
+    fun relativeLine8869(): String =
+        relative8869.entries.filter { it.value != Entry8347.NOW }.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value}" }.ifBlank { "-" }
 
     /** Pure: "KEY=n,..." sorted by count (desc) then key, "-" when empty. */
     fun countLine8360(m: Map<String, Long>): String =
@@ -1575,6 +1632,6 @@ object ExploreShadow8347 {
             "skipped{${countLine8360(skipped)}} evicted=${evicted8360.get()} ticked/loop=$lastTicked8360/$TICK_PER_LOOP_8360 " +
             "markSrc{${countLine8360(bySrc)}} wanted8360=${wantedCalls8360.get()} legsClosed=${closed.get()} legsUnfilled8364=${unfilledN8364.get()} full=${full.get()} " +
             "restored8355=${restored8355.get()} expiredOnRestore8355=${expiredOnRestore8355.get()} waitsRestored8355=${waitsRestored8355.get()} " +
-            "rejectSample=$REJECT_SAMPLE_PCT_8347% perLane<=$MAX_TICKETS_PER_LANE_8351 bar=n>=$MIN_N_8347,mean-1.5se>$MARGIN_PCT_8347%,pf>=$MIN_PF_8347 (* = proven) adopt8364=fill x (mean-2se), M:+${M_MARGIN_PT_8364}pt over other style, chase=${ShadowFill8364.MODEL_CHASE_PCT_8364}% model | $lanes]"
+            "relative8869{${relativeLine8869()}} rejectSample=$REJECT_SAMPLE_PCT_8347% perLane<=$MAX_TICKETS_PER_LANE_8351 bar=n>=$MIN_N_8347,mean-1.5se>$MARGIN_PCT_8347%,pf>=$MIN_PF_8347 (* = proven) adopt8364=fill x (mean-2se), M:+${M_MARGIN_PT_8364}pt over other style, chase=${ShadowFill8364.MODEL_CHASE_PCT_8364}% model | $lanes]"
     }
 }

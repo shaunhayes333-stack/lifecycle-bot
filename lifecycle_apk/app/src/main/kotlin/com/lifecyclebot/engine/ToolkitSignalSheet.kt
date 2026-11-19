@@ -1748,6 +1748,7 @@ object ToolkitSignalSheet {
 
     fun specialistCausalFunnel6600(): String = buildString {
         appendLine("===== MEME SPECIALIST CAUSAL FUNNEL =====")
+        OwnershipChain8364.cryptoDeskLine8869()?.let { appendLine(it) }   // V5.0.8869
         configuredMemeDesks6599.forEach { lane ->
             val s = com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.laneSnapshot6647(lane)
             fun n(stage: com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage) = s.counts[stage] ?: 0

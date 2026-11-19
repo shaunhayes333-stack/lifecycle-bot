@@ -8,8 +8,9 @@ import java.io.File
 class Aate8780FastLaneAndMergeTest {
     @Test fun the_fast_lane_reads_the_current_config_and_mode() {
         val bs = File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue(bs.contains("processTokenCycle(mint, cycleCfg8779(cfg), wallet, t0)"))
-        assertTrue(bs.contains("processTokenCycle(mint, cycleCfg8779(cfg), wallet, System.currentTimeMillis())"))
+        // superseded by V5.0.8869 — the cycle is called through its trace wrapper (processTokenCycleTraced8869), same arguments
+        assertTrue(bs.contains("processTokenCycleTraced8869(mint, cycleCfg8779(cfg), wallet, t0)"))
+        assertTrue(bs.contains("processTokenCycleTraced8869(mint, cycleCfg8779(cfg), wallet, System.currentTimeMillis())"))
         assertTrue(bs.contains("return c.copy(paperMode = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { c.paperMode })"))
     }
 

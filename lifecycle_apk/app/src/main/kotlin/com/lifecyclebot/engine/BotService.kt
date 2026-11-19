@@ -1096,12 +1096,16 @@ class BotService : Service() {
             (try { RunnerPlay8018.ticketActive8018(mint) } catch (_: Throwable) { false })
         // V5.0.8343 — or the grab lane admitted this mint for this lane on its own evidence (mandate refusals only, never safety).
         val grab8343 = mint.isNotBlank() && RunnerGrabLane8343.mandateRefusal8343(reason) && RunnerGrabLane8343.admitted8343(mint, lane)
-        val retired = runner8113 || grab8343 || SpecialistBrainBridge7542.doorRetires8105(lane, false, reason) { rule, l ->
+        // V5.0.8869 — or the forecast answered this lane's adaptable no on this coin in the fresh desk snapshot.
+        val edge8869 = mint.isNotBlank() && SpecialistBrainBridge7542.nativeRuleRetirable8048(reason) &&
+            SpecialistBrainBridge7542.edgeRetiredFor8869(mint, lane)
+        val retired = runner8113 || grab8343 || edge8869 || SpecialistBrainBridge7542.doorRetires8105(lane, false, reason) { rule, l ->
             com.lifecyclebot.engine.cortex.Cortex7885.vetoRefusesWinners8006(rule, l)
         }
         try {
             SpecialistOwnership7951.notePreIntent7951(lane, (if (retired) "LANE_VETO_RETIRED_8105_" else "LANE_") + DecisionReasons8031.rule8031(reason))
             if (retired) PipelineHealthCollector.labelInc("LANE_DOOR_VETO_RETIRED_8105_$lane")
+            if (edge8869) PipelineHealthCollector.labelInc("LANE_DOOR_EDGE_MODEL_8869_$lane")
         } catch (_: Throwable) {}
         return retired
     }
@@ -1144,8 +1148,15 @@ class BotService : Service() {
             discoverySource = ts.source, priceSource = ts.lastPriceSource, priceDex = ts.lastPriceDex,
             tokenAgeMinutes = ageMinutes, ownerLane = ownerLane,
         )
-        return NativeOpportunityDoor8522.cashflow8522(raw,
-            SpecialistBrainBridge7542.opportunityDecision8522(ts.mint, ownerLane, token = ts))
+        val choice = SpecialistBrainBridge7542.opportunityDecision8522(ts.mint, ownerLane, token = ts)
+        val door = NativeOpportunityDoor8522.cashflow8522(raw, choice)
+        // V5.0.8869 — the cashflow desks' adaptable no (momentum / buy pressure) answered by the forecast on this coin, as the
+        // meme desks' lane door does (laneDoor8105); an operator REFUSE still stands.
+        if (door.shouldEnter || choice?.action == NativeOpportunityPolicy8522.Action.REFUSE) return door
+        val edge8869 = SpecialistBrainBridge7542.nativeRuleRetirable8048(door.reason) && SpecialistBrainBridge7542.edgeRetiredFor8869(ts.mint, ownerLane)
+        if (!edge8869) return door
+        try { PipelineHealthCollector.labelInc("LANE_DOOR_EDGE_MODEL_8869_${ownerLane.uppercase()}") } catch (_: Throwable) {}
+        return NativeOpportunityDoor8522.cashflowAnswered8869(door, ownerLane)
     }
 
     /** Re-run the native specialist at the buy door, then apply only a fresh, same-candidate opportunity projection. */
@@ -14964,8 +14975,9 @@ class BotService : Service() {
      * the FDG; that loss now has a name on the lane's liveness row (any return path).
      */
     private fun shouldRunBuyLaneForCycle(ts: com.lifecyclebot.data.TokenState, lane: String, primaryLane: String,
-                                        cycleSheet8522: ToolkitSignalSheet.Sheet): Boolean =
-        LoadTelemetry8169.timedLaneGate8169(ts.mint, lane, primaryLane) { laneEvaluationAllowed7951(ts, lane, primaryLane, cycleSheet8522) }.also { allowed ->  // V5.0.8169 — gate time + skips by reason
+                                        cycleSheet8522: ToolkitSignalSheet.Sheet): Boolean {
+        cycleTrace8869.get()?.lanesReached = true   // V5.0.8869 — this cycle reached its lanes
+        return LoadTelemetry8169.timedLaneGate8169(ts.mint, lane, primaryLane) { laneEvaluationAllowed7951(ts, lane, primaryLane, cycleSheet8522) }.also { allowed ->  // V5.0.8169 — gate time + skips by reason
             if (!allowed) try { SpecialistOwnership7951.noteReadyNotEvaluated7951(lane, ts.mint, primaryLane) } catch (_: Throwable) {}
             // V5.0.8396 — a due hand-off receiver whose OWN lane cycle did not let it evaluate gets that gate as its named
             // terminal. 8395: GTA 6 Coin's MOONSHOT task ended SCHEDULED_NO_FDG_VERDICT / EXPIRED_NOT_EVALUATED with the
@@ -14975,6 +14987,7 @@ class BotService : Service() {
             if (!allowed) HandoffTaskRuntime8153.noteLaneCycleGate8396(ts.mint, lane,
                 (try { SpecialistElection8136.gateReasonOf8153(ts.mint, lane) } catch (_: Throwable) { null }) ?: "LANE_CYCLE_NOT_ALLOWED")
         }
+    }
 
     /**
      * Names a lane-cycle gate return that recorded nothing (8483: PRIMARY_GATED_UNNAMED=453). A counter only — never
@@ -23378,7 +23391,7 @@ if (hotExitHandledSweep) {
                             if (!status.running) return@async false
                             if (orchestrator?.shouldPoll(mint) == false) return@async false
                             val cycleCfg = cfg.copy(paperMode = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { cfg.paperMode })
-                            processTokenCycle(mint, cycleCfg, wallet, lastSuccessfulPollMs)
+                            processTokenCycleTraced8869(mint, cycleCfg, wallet, lastSuccessfulPollMs)
                             try { GlobalTradeRegistry.markProcessed(mint) } catch (_: Throwable) {}
                             true
                         } catch (ce: kotlinx.coroutines.CancellationException) {
@@ -24599,7 +24612,7 @@ if (hotExitHandledSweep) {
                         kotlinx.coroutines.runInterruptible(supervisorDispatcher6647) {
                             supervisorLeaseProgress6448(leaseId, "PROCESS_TOKEN_START")
                             val cycleCfg = cfg.copy(paperMode = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { cfg.paperMode })
-                            processTokenCycle(mint, cycleCfg, wallet, lastSuccessfulPollMs)
+                            processTokenCycleTraced8869(mint, cycleCfg, wallet, lastSuccessfulPollMs)
                             supervisorLeaseProgress6448(leaseId, "PROCESS_TOKEN_DONE")
                             try { GlobalTradeRegistry.markProcessed(mint) } catch (_: Throwable) {}
                         }
@@ -25921,7 +25934,7 @@ if (hotExitHandledSweep) {
             try {
                 PipelineHealthCollector.labelInc("FAST_LANE_EVALUATED_7277")
                 PipelineHealthCollector.labelInc("FAST_LANE_EVALUATED_7277_$origin")
-                processTokenCycle(mint, cycleCfg8779(cfg), wallet, t0)
+                processTokenCycleTraced8869(mint, cycleCfg8779(cfg), wallet, t0)
                 fastLaneSemaphore7277.release()
                 held7925 = false
                 delay(1_500L)
@@ -25935,7 +25948,7 @@ if (hotExitHandledSweep) {
                 } catch (_: Throwable) { false }
                 if (status.running && !alreadyOpen7278 && fastLaneSemaphore7277.tryAcquire()) {
                     held7925 = true
-                    processTokenCycle(mint, cycleCfg8779(cfg), wallet, System.currentTimeMillis())
+                    processTokenCycleTraced8869(mint, cycleCfg8779(cfg), wallet, System.currentTimeMillis())
                 }
                 val ms = System.currentTimeMillis() - t0
                 ForensicLogger.lifecycle(
@@ -27484,7 +27497,7 @@ if (hotExitHandledSweep) {
                     "mint=${identity.mint.take(10)} symbol=${identity.symbol} occupancy=$occupancy6494 mode=${if (cfg.paperMode) "PAPER" else "LIVE"} action=skip_entry_fanout_keep_exit_owner",
                 )
             } catch (_: Throwable) {}
-            return
+            return cycleExit8869("CANON_MINT_OCCUPIED")   // V5.0.8869
         }
     }
     // First read is after this cycle's real V3 score is published below, before any lane gate.
@@ -27513,7 +27526,7 @@ if (hotExitHandledSweep) {
             val toxicPause = com.lifecyclebot.engine.ToxicModeCircuitBreaker.currentEntryPause()
             if (toxicPause.active && !cfg.paperMode) {
                 if (com.lifecyclebot.engine.ToxicModeCircuitBreaker.emitExecutionStateBlockedIfDue(identity.symbol, "processTokenCycle.preLane")) {
-                    return
+                    return cycleExit8869("TOXIC_PAUSE")   // V5.0.8869
                 }
             } else if (toxicPause.active && cfg.paperMode) {
                 // V5.0.3907 — PAPER must keep learning/refilling during circuit pauses.
@@ -27529,7 +27542,7 @@ if (hotExitHandledSweep) {
     if (!ts.position.isOpen) {
         if (RuntimeConfigOverlay.isTradingPaused() || RuntimeConfigOverlay.isPreAuthDisabled()) {
             try { ForensicLogger.lifecycle("PREAUTH_BLOCK_RUNTIME_OVERLAY", "symbol=${identity.symbol} mint=${identity.mint.take(10)}") } catch (_: Throwable) {}
-            return
+            return cycleExit8869("RUNTIME_PAUSED")   // V5.0.8869
         }
     }
     
@@ -27551,7 +27564,7 @@ if (hotExitHandledSweep) {
     if (!canProposeEarly && !ts.position.isOpen) {
         // V5.0: Log why tokens are being skipped (for debugging)
         ErrorLogger.debug("BotService", "⏭️ SKIP: ${identity.symbol} | $dedupeReason")
-        return
+        return cycleExit8869("PROPOSE_DEDUPE")   // V5.0.8869
     }
     
     // ═══════════════════════════════════════════════════════════════════
@@ -27595,7 +27608,7 @@ if (hotExitHandledSweep) {
                         "mint=${identity.mint.take(10)} symbol=${identity.symbol}",
                     )
                 } catch (_: Throwable) {}
-                return
+                return cycleExit8869("CROSS_LANE_MINT_DEDUP")   // V5.0.8869
             }
         } catch (_: Throwable) {}
 
@@ -27611,7 +27624,7 @@ if (hotExitHandledSweep) {
                         "mint=${identity.mint.take(10)} symbol=${identity.symbol} root=$thisRoot",
                     )
                 } catch (_: Throwable) {}
-                return
+                return cycleExit8869("SYMBOL_FAMILY_DEDUP")   // V5.0.8869
             }
         } catch (_: Throwable) {}
     }
@@ -27621,7 +27634,7 @@ if (hotExitHandledSweep) {
     if (isFatalSuppression && !ts.position.isOpen) {
         val reason = DistributionFadeAvoider.checkRawStrategySuppression(identity.mint)
         ErrorLogger.info("BotService", "[FATAL] ${identity.symbol} | BLOCK | $reason")
-        return
+        return cycleExit8869("FATAL_SUPPRESSION")   // V5.0.8869
     }
     
     // ═══════════════════════════════════════════════════════════════════
@@ -27639,7 +27652,7 @@ if (hotExitHandledSweep) {
         val closedAgoMs = System.currentTimeMillis() - (BotService.recentlyClosedMs[ts.mint] ?: 0L)
         if (guardLvl >= 2 && closedAgoMs < BotService.RE_ENTRY_COOLDOWN_MS) {
             ErrorLogger.debug("BotService", "⏳ [COOLDOWN] ${identity.symbol} | SKIP | closed ${closedAgoMs/1000}s ago (min ${BotService.RE_ENTRY_COOLDOWN_MS/1000}s)")
-            return
+            return cycleExit8869("REENTRY_COOLDOWN")   // V5.0.8869
         }
 
         // V5.9.353: 1b. LOSS-STREAK BLOCK — refuse re-entry on a mint whose
@@ -27837,7 +27850,7 @@ if (hotExitHandledSweep) {
                 )
             } catch (_: Throwable) {}
             ErrorLogger.info("BotService", "🔄 RECOVERY REJECTED (canonical trunk pending): ${identity.symbol}")
-            return
+            return cycleExit8869("RECOVERY_REJECTED")   // V5.0.8869
         }
         
         // Calculate token age in minutes
@@ -28108,7 +28121,7 @@ if (hotExitHandledSweep) {
                                 )
                             } catch (_: Throwable) {}
                             ErrorLogger.debug("BotService", "🧯 V3_FATAL_EARLY_RETURN: ${ts.symbol} | ${result.reason}")
-                            return
+                            return cycleExit8869("V3_FATAL")   // V5.0.8869
                         }
                     }
                 }
@@ -28134,7 +28147,7 @@ if (hotExitHandledSweep) {
                             )
                         } catch (_: Throwable) {}
                         ErrorLogger.debug("BotService", "🧯 V3_BLOCKED_EARLY_RETURN: ${ts.symbol} | ${result.reason}")
-                        return
+                        return cycleExit8869("V3_BLOCKED")   // V5.0.8869
                     }
                 }
                 is com.lifecyclebot.v3.V3Decision.Execute -> {
@@ -28220,7 +28233,7 @@ if (hotExitHandledSweep) {
                         }
                         try { ForensicLogger.lifecycle("V3_REJECTED_TERMINAL_EARLY_RETURN", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${result.reason}") } catch (_: Throwable) {}
                         ErrorLogger.debug("BotService", "🧯 V3_REJECTED_TERMINAL_EARLY_RETURN: ${ts.symbol} | ${result.reason}")
-                        return
+                        return cycleExit8869("V3_REJECTED_TERMINAL")   // V5.0.8869
                     }
                 }
                 is com.lifecyclebot.v3.V3Decision.ShadowOnly -> {
@@ -28255,7 +28268,7 @@ if (hotExitHandledSweep) {
             // CORE only receives this path when the current native election belongs to CORE.
             // CYCLIC remains owned by its ring; specialist lanes retain their own blocks below.
             if (executeNativeCore8527(ts, cfg, wallet, lastSuccessfulPollMs, effectiveBalance,
-                    cyclePrimaryLane, cycleSheet8522, decision, canProposeEarly)) return
+                    cyclePrimaryLane, cycleSheet8522, decision, canProposeEarly)) return cycleExit8869("NATIVE_CORE_PATH")   // V5.0.8869
 
             // ═══════════════════════════════════════════════════════════════════
             // V3.3 FIX: Run Treasury Mode IMMEDIATELY after V3 decision
@@ -33675,6 +33688,28 @@ if (hotExitHandledSweep) {
             } catch (_: Throwable) {}
         }
     }
+    // ── V5.0.8869 §A_CYCLE_THAT_RETURNS_BEFORE_ITS_LANES_NAMES_ITS_GATE ──
+    // processTokenCycle returns before any lane runs on many paths (data, pauses, dedupes, V3 fatal / blocked / rejected)
+    // and named nothing on the candidates its token's native assessment had already offered (OwnershipChain8364): 8864
+    // lost MOONSHOT 285, EXPRESS 239, SHITCOIN 112, CORE 100 with no terminal. The cycle now carries a per-thread trace:
+    // a lane gate marks it reached; a named return records its gate; on exit, a cycle that reached no lane (or left by a
+    // named return) names its gate on every open, unjudged candidate of the token (onCycleExit8869). Bookkeeping only.
+    // The trace lives in a wrapper, never in processTokenCycle itself (oversized_method_budget_7809: a named return
+    // replaces its bare `return` with `return cycleExit8869(gate)`, nothing else is added to the method).
+    private class CycleTrace8869 { var lanesReached = false; var gate: String? = null }
+    private val cycleTrace8869 = ThreadLocal<CycleTrace8869?>()
+    private fun cycleExit8869(gate: String) { cycleTrace8869.get()?.gate = gate }
+    private fun processTokenCycleTraced8869(mint: String, cfg: BotConfig, wallet: SolanaWallet?, lastSuccessfulPollMs: Long) {
+        val prev = cycleTrace8869.get()
+        val trace = CycleTrace8869()
+        cycleTrace8869.set(trace)
+        try { processTokenCycle(mint, cfg, wallet, lastSuccessfulPollMs) } finally {
+            cycleTrace8869.set(prev)
+            val gate = trace.gate ?: if (trace.lanesReached) null else "RETURNED_BEFORE_LANES"
+            if (gate != null) OwnershipChain8364.onCycleExit8869(mint, gate)
+        }
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════
     // V4.0: TRADING LAYER READINESS FLAG
     // Prevents trading before all AI layers are initialized

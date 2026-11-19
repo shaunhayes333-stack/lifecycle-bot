@@ -108,7 +108,8 @@ object SpecialistBrainBridge7542 {
         val r = snapshot?.opinions?.get(lane.uppercase())?.reason
         // V5.0.8343 — a grab-lane admit (forming runner on its own evidence) is not held back by the generic score floor either.
         (opportunityDecision8522(mint, lane, snapshot)?.action == NativeOpportunityPolicy8522.Action.TAKE_CANDIDATE) ||
-            (r != null && (r.startsWith("NATIVE_VETO_RETIRED_8048") || r.startsWith(RunnerGrabLane8343.REASON_PREFIX_8343)))
+            (r != null && (r.startsWith("NATIVE_VETO_RETIRED_8048") || r.startsWith(RunnerGrabLane8343.REASON_PREFIX_8343) ||
+                r.startsWith(EDGE_RETIRED_PREFIX_8869)))   // V5.0.8869
     } catch (_: Throwable) { false }
 
     /** The immutable operator decision is shared by the elected sheet, lane door and generic soft-score floor. */
@@ -146,6 +147,37 @@ object SpecialistBrainBridge7542 {
     }
 
     fun nativeRuleRetirable8048(reason:String):Boolean = NativeLaneConstraints8521.mayAdapt8521(reason)
+
+    // ── V5.0.8869 §A_PROVEN_FORECAST_ANSWERS_A_LANE_PREFERENCE ──
+    // Owner's 19 Nov dataset (46,000 labelled coins, 15-minute net after cost), every meme lane on 1,000-5,000 coins: the
+    // busiest fifth by buys in the last 15 s loses -13 to -20 % against -4 to -8 % for the rest; the biggest run-up fifth
+    // -14 to -22 %; the learned forecast ranks the other way round from the tape (+0.19 to +0.28 rank correlation with the
+    // outcome) and its +10 % calls paid in every main lane (MOONSHOT n84 +11.8 %, EXPRESS n63 +20.9 %, SHITCOIN n78 +13.6 %,
+    // CORE n69 +21.3 %). The lanes' adaptable refusals ask for the tape that loses: EXPRESS NO_CONTINUATION 4,681 and
+    // WEAK_BUYS 1,356, SHITCOIN's score floor 2,217 (its refused coins +36.3 %, n31 on the veto audit), TREASURY
+    // WEAK_MOMENTUM 741, CASHGEN REJECTED_BUY 728 in the 15:21 session. 8048 retires such a rule for a whole lane once its
+    // refused coins are proven winners; this answers it for one coin, when the forecast for that coin in that lane is a
+    // proven call (EdgeModel8537.callOf POSITIVE: the lane's own conviction-tier or picks record). Only the refusals 8048
+    // may retire (never safety, rug, dev, liquidity, cap, age, data, lifecycle or lane scope); the FDG, the admission, the
+    // economics and the buy door still decide.
+    const val EDGE_RETIRED_PREFIX_8869 = "NATIVE_EDGE_MODEL_RETIRED_8869:"
+
+    /** Pure: may the forecast answer this native opinion? An authoritative, gradeable no on an adaptable rule. */
+    fun edgeMayAnswer8869(o: Opinion): Boolean =
+        !o.eligible && o.authoritative && o.gradeable && nativeRuleRetirable8048(o.reason)
+
+    /** Pure: the opinion the forecast's call makes of [o]: eligible on a POSITIVE call it may answer, else null (unchanged). */
+    fun edgeStandDown8869(o: Opinion, v: com.lifecyclebot.engine.truth.EdgeModel8537.Verdict?): Opinion? {
+        if (v == null || !edgeMayAnswer8869(o) || com.lifecyclebot.engine.truth.EdgeModel8537.callOf(v) != com.lifecyclebot.engine.truth.EdgeModel8537.Call.POSITIVE) return null
+        val pred = v.predPct
+        val tier = v.conviction8868.takeIf { it.isFinite() }?.let { "tier+${it.toInt()}" } ?: "picks"
+        return o.copy(eligible = true, reason = "$EDGE_RETIRED_PREFIX_8869${"%+.1f".format(pred)}%/$tier:${o.reason.take(48)}")
+    }
+
+    /** V5.0.8869 — this lane's native no on [mint] was answered by the forecast in the fresh desk snapshot. */
+    fun edgeRetiredFor8869(mint: String, lane: String): Boolean = try {
+        cachedSnapshot7650(mint)?.opinions?.get(lane.uppercase().replace("BLUE_CHIP", "BLUECHIP"))?.reason?.startsWith(EDGE_RETIRED_PREFIX_8869) == true
+    } catch (_: Throwable) { false }
     /** CORE is formed after the specialist veto review; only its own measured refusal can rescue it. */
     internal fun reviewCoreYield8077(o: Opinion, ownLaneProof: (String, String) -> Boolean): Opinion {
         // V5.0.8343 — CORE's own-ensemble refusal (no specialist took the coin) is audited the same way.
@@ -522,6 +554,16 @@ object SpecialistBrainBridge7542 {
             if (try { com.lifecyclebot.engine.cortex.Cortex7885.vetoRefusesWinners8006(rule, lane) } catch (_: Throwable) { false }) {
                 out[lane] = o.copy(eligible = true, reason = "NATIVE_VETO_RETIRED_8048:${o.reason.take(60)}")
                 try { PipelineHealthCollector.labelInc("NATIVE_VETO_RETIRED_8048_$lane") } catch (_: Throwable) {}
+            }
+        }
+        // V5.0.8869 — the learned forecast's proven call answers a lane's adaptable no for THIS coin (edgeStandDown8869).
+        if (!OwnershipChain8364.cryptoAssetKey8869(ts.mint)) {
+            val asked8869 = out.filterValues(::edgeMayAnswer8869).keys
+            val verdicts8869 = try { com.lifecyclebot.engine.truth.EdgeModel8537.quietVerdicts8869(ts, asked8869, now) } catch (_: Throwable) { emptyMap() }
+            for (lane in asked8869) {
+                val retired = out[lane]?.let { edgeStandDown8869(it, verdicts8869[lane]) } ?: continue
+                out[lane] = retired
+                try { PipelineHealthCollector.labelInc("NATIVE_EDGE_MODEL_RETIRED_8869_$lane") } catch (_: Throwable) {}
             }
         }
         // V5.0.8343 — the grab lane: a forming runner refused only on a lane MANDATE is re-asked on its own legs (hard safety,

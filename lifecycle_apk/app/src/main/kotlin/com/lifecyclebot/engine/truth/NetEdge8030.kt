@@ -369,6 +369,13 @@ object NetEdge8030 {
     fun entryCostPct8136(ts: TokenState, lane: String): Double =
         costPct8030(lane, entryTicket8151(), liquidity8037(ts), ts.mint, ts.lastMcap).also { lastEntryBreakdown8169 = lastBreakdown8169 }
 
+    /**
+     * V5.0.8869 — the round trip a lane would pay on this coin at the current entry ticket, for a forecast read before a
+     * candidate exists (EdgeModel8537.quietVerdict8869). It does not move the report's last entry breakdown.
+     */
+    fun previewCostPct8869(ts: TokenState, lane: String): Double =
+        costPct8030(lane, entryTicket8151(), liquidity8037(ts), ts.mint, ts.lastMcap)
+
     /** V5.0.8209 — the cost record of ONE quote: cost %, the size it priced (SOL), and its breakdown read on this thread. */
     data class EntryCost8209(val costPct: Double, val sizeSol: Double, val breakdown: String)
 

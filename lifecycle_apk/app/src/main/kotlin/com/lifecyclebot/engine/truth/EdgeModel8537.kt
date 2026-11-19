@@ -516,19 +516,20 @@ object EdgeModel8537 {
      * V5.0.8737 — the boosted-tree ranker predicts once it has trained on this device's dataset; its record key is its own,
      * so it earns authority from nothing on its own out-of-sample picks and refusals. Until then the ridge answers.
      */
-    private fun predict8737(raw: Raw, x: DoubleArray, mint: String, ts: TokenState? = null, freezeAtMs: Long? = null): Pair<Double, String> {
+    private fun predict8737(raw: Raw, x: DoubleArray, mint: String, ts: TokenState? = null, freezeAtMs: Long? = null,
+                            quiet8869: Boolean = false): Pair<Double, String> {
         val now = System.currentTimeMillis()
-        try { TreeRanker8737.maybeRetrain8737(dir()?.let { File(it, DATASET_FILE) }, now) } catch (_: Throwable) {}
+        if (!quiet8869) try { TreeRanker8737.maybeRetrain8737(dir()?.let { File(it, DATASET_FILE) }, now) } catch (_: Throwable) {}
         val tree = try { TreeRanker8737.predict8737(raw, mint) } catch (_: Throwable) { null }
         // V5.0.8746 — the mind: every voter, stacked; it answers only once it has learned (else tree / ridge as before).
         val ridge = predictLocked(x, raw.lane)
         val cell = cellCached8747(ts, raw.lane, now)
-        if (tree != null && tree >= 0.0) try { LlmAnalyst8746.request8746(raw, mint, now) } catch (_: Throwable) {}
+        if (!quiet8869 && tree != null && tree >= 0.0) try { LlmAnalyst8746.request8746(raw, mint, now) } catch (_: Throwable) {}
         val llmP = try { LlmAnalyst8746.prob8746(mint, raw.lane, now) } catch (_: Throwable) { null }
         val f = Mind8746.features8746(tree ?: Double.NaN, ridge.first, cell ?: Double.NaN, llmP ?: Double.NaN)
         if (freezeAtMs != null) try { Mind8746.freeze8746(mint, raw.lane, freezeAtMs, f) } catch (_: Throwable) {}
         val mind = try { Mind8746.predict8746(f) } catch (_: Throwable) { null }
-        try { Mind8746.note8746(mint, raw.lane, f, mind, now) } catch (_: Throwable) {}
+        if (!quiet8869) try { Mind8746.note8746(mint, raw.lane, f, mind, now) } catch (_: Throwable) {}
         return when {
             mind != null -> mind to Mind8746.KEY_8746
             tree != null -> tree to TreeRanker8737.KEY_8737
@@ -680,12 +681,35 @@ object EdgeModel8537 {
     /** The current verdict for [ts] in [laneRaw]: the prediction and whether this lane's model has earned authority. */
     fun verdict(ts: TokenState, laneRaw: String, costPct: Double, nowMs: Long = System.currentTimeMillis()): Verdict? = try {
         ensureLoaded()
-        val raw = rawOf(ts, laneRaw, costPct, nowMs)
+        verdictOfRaw8869(ts, rawOf(ts, laneRaw, costPct, nowMs), try { TrajectoryVerdict8855.stageOf8855(ts, nowMs) } catch (_: Throwable) { "UNKNOWN" }, quiet = false)
+    } catch (_: Throwable) { null }
+
+    /**
+     * V5.0.8869 — the same verdict for several lanes of one coin, read without the read's side effects (no tree retrain
+     * check, no analyst request, no mind note): for SpecialistBrainBridge7542, which asks it of every lane whose native brain
+     * said no on an adaptable rule. The coin's feature frame and stage are read once; each lane is costed at the current
+     * entry ticket. The admission still reads [verdict] for the lane it decides.
+     */
+    fun quietVerdicts8869(ts: TokenState, lanes: Collection<String>, nowMs: Long = System.currentTimeMillis()): Map<String, Verdict> {
+        if (lanes.isEmpty()) return emptyMap()
+        return try {
+            ensureLoaded()
+            val base = rawOf(ts, lanes.first(), Double.NaN, nowMs)
+            val stage = try { TrajectoryVerdict8855.stageOf8855(ts, nowMs) } catch (_: Throwable) { "UNKNOWN" }
+            val out = LinkedHashMap<String, Verdict>()
+            for (l in lanes) {
+                val cost = try { NetEdge8030.previewCostPct8869(ts, l) } catch (_: Throwable) { Double.NaN }
+                verdictOfRaw8869(ts, base.copy(lane = lane(l), costPct = cost), stage, quiet = true)?.let { out[l] = it }
+            }
+            out
+        } catch (_: Throwable) { emptyMap() }
+    }
+
+    private fun verdictOfRaw8869(ts: TokenState, raw: Raw, stage8865: String, quiet: Boolean): Verdict? = try {
         val x = vectorOf(raw)
         // V5.0.8747 — the voters (tree, paying cell, LLM cache, the mind) are read BEFORE the model lock; only the ridge
         // read inside predict8737 takes it (predictLocked). 8746 held the lock across the paying-cell feature read.
-        val (p, key) = predict8737(raw, x, ts.mint, ts)
-        val stage8865 = try { TrajectoryVerdict8855.stageOf8855(ts, nowMs) } catch (_: Throwable) { "UNKNOWN" }
+        val (p, key) = predict8737(raw, x, ts.mint, ts, quiet8869 = quiet)
         val stageAuthority8855 = try { TrajectoryVerdict8855.authority8855(raw.lane, stage8865) } catch (_: Throwable) { null }
         val stagePays8865 = try { TrajectoryVerdict8855.forecastLossPays8865(raw.lane, stage8865) } catch (_: Throwable) { null }
         synchronized(this) {

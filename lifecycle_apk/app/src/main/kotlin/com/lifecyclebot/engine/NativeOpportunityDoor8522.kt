@@ -33,6 +33,11 @@ object NativeOpportunityDoor8522 {
             stopLossPct = if (enter) sl(s.stopLossPct, p?.lane ?: "CASHGEN") else s.stopLossPct, reason = reason(s.reason, p, true))
     }
 
+    /** V5.0.8869 — a cashflow signal whose lane door stood its no down: the smallest native probe, the lane's own TP / SL. */
+    fun cashflowAnswered8869(s: CashGenerationAI.TreasurySignal, lane: String): CashGenerationAI.TreasurySignal =
+        s.copy(shouldEnter = true, positionSizeSol = proposal(s.positionSizeSol, true), takeProfitPct = tp(s.takeProfitPct, lane),
+            stopLossPct = sl(s.stopLossPct, lane))
+
     fun moonshot8522(s: MoonshotTraderAI.MoonshotScore, p: NativeOpportunityPolicy8522.Decision?): MoonshotTraderAI.MoonshotScore {
         val enter = eligible(s.eligible, s.rejectReason, p)
         return if (enter == s.eligible) s else s.copy(eligible = enter, suggestedSizeSol = proposal(s.suggestedSizeSol, enter),

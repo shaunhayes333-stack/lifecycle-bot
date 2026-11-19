@@ -162,7 +162,7 @@ SpecialistCausalInvariants6627	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/
 CellTail8303	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/engine/truth/CellTail8303.kt	False
 ChainHistoryMark8541	PROVIDER_BACKED_REVIEW	com/lifecyclebot/engine/truth/ChainHistoryMark8541.kt	False
 Council7740	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/truth/Council7740.kt	False
-EdgeModel8537	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/truth/EdgeModel8537.kt	False
+EdgeModel8537	REPRESENTED_BY_AGGREGATOR	com/lifecyclebot/engine/truth/EdgeModel8537.kt	False
 TraderLane	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/engine/truth/EntryAuthorityModels6398.kt	False
 ExpertSetups8692	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/engine/truth/ExpertSetups8692.kt	False
 FinalizedLearningReconciler7423	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/truth/FinalizedLearningReconciler7423.kt	False

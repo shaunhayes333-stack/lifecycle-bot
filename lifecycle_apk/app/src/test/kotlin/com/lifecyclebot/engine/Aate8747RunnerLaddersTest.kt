@@ -36,7 +36,8 @@ class Aate8747RunnerLaddersTest {
     @Test fun theVotersAreReadOutsideTheModelLock() {
         val edge = File("src/main/kotlin/com/lifecyclebot/engine/truth/EdgeModel8537.kt").readText()
         val verdict = edge.substringAfter("fun verdict(ts: TokenState").substringBefore("refuses8715 =")
-        assertTrue(verdict.indexOf("predict8737(raw, x, ts.mint, ts)") in 0 until verdict.indexOf("synchronized(this)"))
+        // superseded by V5.0.8869 — the verdict's body is verdictOfRaw8869 (shared with the quiet read); the voters still precede the lock
+        assertTrue(verdict.indexOf("predict8737(raw, x, ts.mint, ts, quiet8869 = quiet)") in 0 until verdict.indexOf("synchronized(this)"))
         assertTrue(edge.contains("val cell = cellCached8747(ts, raw.lane, now)"))
     }
 }

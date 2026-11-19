@@ -51,8 +51,37 @@ object OwnershipChain8364 {
     private val lostExamples8528 = ArrayDeque<Pair<String, String>>() // bounded, full candidate identity
     private val versionCarried8364 = AtomicLong(0L)
     private var lastSweepMs8364 = 0L
+    // V5.0.8869 — the lanes that hold records (a cycle exit looks the mint up in each), and the crypto desk's stamps kept off
+    private val lanes8869 = HashSet<String>()
+    private val cryptoDesk8869 = ConcurrentHashMap<String, AtomicLong>()
 
     // ── pure ──
+
+    // ── V5.0.8869 §A_CANDIDATE_LOST_BEFORE_A_DECISION_IS_NAMED ──
+    // Owner's 5.0.8864 report (19 Nov 15:21, 6.9 h LIVE) counted 8,885 candidates closed with no terminal: QUALITY 2,082,
+    // BLUECHIP 2,481, TREASURY 1,888, CYCLIC 1,370, CASHGEN 536, MANIPULATED 76 — lanes whose own brain fired 0 / 0 / 39 /
+    // 3 / 291 / 5 times — and MOONSHOT 285, EXPRESS 239, SHITCOIN 112, CORE 100. Every printed example in the first group
+    // is a crypto-desk asset key ("solana|<mint>"): ToolkitSignalSheet stamps the crypto desk's hypotheses QUALIFIED under
+    // the meme lane names they borrow, and the native assessment the same sheet runs offered them to the meme owners, but
+    // the crypto desk decides them on its own books (CryptoStrategyCandidateBooks7803) and no meme verdict ever comes. In
+    // the meme lanes the candidate was offered and its token's cycle returned before any lane ran (V3_FATAL_EARLY_RETURN
+    // 864, SYMBOL_FAMILY_DEDUP 155 in that session, among others), which named nothing on it. The same report's runner
+    // trace reads not_evaluated=0 of 200 runners: no runner was lost this way; the pile hid the losses that were real.
+    // A crypto-desk key is now counted on its own and opens no meme record; a cycle that returns before its lanes names its
+    // gate on the candidates it stranded; a candidate whose token left the watchlist closes as LEFT_WATCHLIST.
+
+    /** Pure: a crypto-desk asset key ("<chain>|<address>"), never a meme mint. */
+    fun cryptoAssetKey8869(mint: String): Boolean = mint.indexOf('|') > 0
+
+    /** Pure: the soft terminal a pre-lane cycle exit leaves on a candidate, or null when a better one stands. */
+    fun cycleExitTerminal8869(terminal: String, steps: Collection<Step8364>, softTerminal: String, gate: String): String? = when {
+        terminal.isNotBlank() || Step8364.FDG_ALLOW in steps || Step8364.FDG_BLOCK in steps -> null
+        softTerminal.startsWith("FDG_") -> null   // the FDG's own deferral names more than the cycle that did not reach it
+        else -> "NOT_EVALUATED_CYCLE_" + reasonKey8364(gate)
+    }
+
+    /** Pure: the closure cause of a record that expired: a token no longer watched left, a watched one idled. */
+    fun idleCause8869(watched: Boolean?): String = if (watched == false) "LEFT_WATCHLIST" else "IDLE_TTL"
 
     /**
      * Pure: the candidate identity of a desk-stage event id. "mint:version" (the qualified / pre-intent shape) and the
@@ -168,7 +197,7 @@ object OwnershipChain8364 {
             val c = e.value
             val over = records8364.size > MAX_RECORDS_8364
             if (!over && nowMs - c.touchedMs <= TTL_MS_8364) continue
-            close8364(c, if (over) "CAPACITY_EVICTION" else "IDLE_TTL", nowMs)
+            close8364(c, if (over) "CAPACITY_EVICTION" else idleCause8869(watched8869(c.mint)), nowMs)
             val lm = "${c.lane}|${c.mint}"
             if (latestByLaneMint8364[lm] == e.key) latestByLaneMint8364.remove(lm)
             it.remove()
@@ -194,6 +223,7 @@ object OwnershipChain8364 {
             }
         }
         if (!create) return null
+        lanes8869 += lane
         val c = Cand8364(lane, id.mint, id.version, nowMs)
         records8364[key] = c
         latestByLaneMint8364[lm] = key
@@ -212,6 +242,7 @@ object OwnershipChain8364 {
         try {
             val lane = lane8364(laneRaw)
             if (lane.isBlank() || mint.isBlank()) return
+            if (cryptoAssetKey8869(mint)) { bump8364(cryptoDesk8869, step.name); return }   // V5.0.8869
             synchronized(lock8364) {
                 sweep8364(nowMs)
                 val opens = step == Step8364.NATIVE_FIRED || step == Step8364.READY_FINAL || step == Step8364.OWNER_OFFERED
@@ -240,6 +271,7 @@ object OwnershipChain8364 {
                 else -> return
             }
             val id = parseCandidate8364(eventId) ?: return
+            if (cryptoAssetKey8869(id.mint)) { bump8364(cryptoDesk8869, step?.name ?: st); return }   // V5.0.8869
             val lane = lane8364(laneRaw)
             if (lane.isBlank()) return
             synchronized(lock8364) {
@@ -300,6 +332,36 @@ object OwnershipChain8364 {
                 c.softTerminal = "NOT_EVALUATED_" + reasonKey8364(why)
             }
         } catch (_: Throwable) {}
+    }
+
+    /**
+     * V5.0.8869 — BotService.processTokenCycle returned before any lane ran ([gate] names the return): each open record of
+     * [mint] with no FDG verdict carries it as a soft terminal. Its idle clock is not refreshed: a token whose cycle keeps
+     * returning still closes ten minutes after its last real stage, under the gate that stopped it.
+     */
+    fun onCycleExit8869(mint: String, gate: String) {
+        try {
+            if (mint.isBlank()) return
+            var stranded = false
+            synchronized(lock8364) {
+                for (lane in lanes8869) {
+                    val c = latestByLaneMint8364["$lane|$mint"]?.let { records8364[it] } ?: continue
+                    val t = cycleExitTerminal8869(c.terminal, c.steps, c.softTerminal, gate) ?: continue
+                    c.softTerminal = t
+                    stranded = true
+                }
+            }
+            if (stranded) try { PipelineHealthCollector.labelInc("CANDIDATE_CYCLE_EXIT_8869_${reasonKey8364(gate)}") } catch (_: Throwable) {}
+        } catch (_: Throwable) {}
+    }
+
+    private fun watched8869(mint: String): Boolean? = try { GlobalTradeRegistry.isWatching(mint) } catch (_: Throwable) { null }
+
+    /** V5.0.8869 — the crypto desk's stamps the meme chain did not book, by stage. Null when none. */
+    fun cryptoDeskLine8869(): String? {
+        if (cryptoDesk8869.isEmpty()) return null
+        return "chain8869 cryptoDeskNotBooked{" + cryptoDesk8869.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.get()}" } +
+            "} (crypto-desk asset keys: decided on the crypto desk's own books, never a meme-lane candidate)"
     }
 
     /** ToolkitSignalSheet: the lane's own native brain refused a candidate it had qualified (READY -> LOST). */

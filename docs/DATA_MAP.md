@@ -1212,3 +1212,53 @@ the realised-loss governor, the model's own negative call and the 8865 forecast-
 - Coins lost at QUALIFIED before admission (`IDLE_TTL`; 8864 report MOONSHOT 285, SHITCOIN 112 with no terminal) never
   reach this decision.
 - BLUECHIP and the crypto lanes have no tier that pays yet; PROJECT_SNIPER's forecasts lose at every strength.
+
+## 60. The forecast answers a lane's preference, and the timing wait binds (8869)
+
+**Measured.** Owner's edge dataset of 19 Nov (model epoch 8801, about 46,000 labelled coins, 15-minute net after cost,
+managed unit) and the 5.0.8864 report of 15:21 (6.9 h LIVE). Rank correlation of each signal with the outcome, every meme
+lane on 1,000-5,000 coins:
+
+| signal | MOONSHOT | SHITCOIN | EXPRESS | CORE | QUALITY | CASHGEN | CYCLIC |
+|---|---|---|---|---|---|---|---|
+| learned forecast | +0.21 | +0.23 | +0.22 | +0.19 | +0.20 | +0.24 | +0.26 |
+| buys in the last 15 s | -0.18 | -0.19 | -0.16 | -0.17 | -0.17 | -0.25 | -0.29 |
+| run-up from launch | -0.16 | -0.16 | -0.14 | -0.12 | -0.16 | -0.22 | -0.24 |
+| seconds since the last print | +0.23 | +0.27 | +0.25 | +0.22 | +0.23 | +0.28 | +0.30 |
+
+- The busiest fifth by buys in the last 15 s loses -13 to -20 % (MOONSHOT -13.8, SHITCOIN -17.6, EXPRESS -16.9) against
+  -4 to -8 % for the other four fifths; the biggest run-up fifth -14 to -22 %. Every fifth of every signal is negative after
+  cost; only the forecast's +5 / +10 % tiers are positive (§59).
+- The lanes' adaptable refusals ask for that tape: EXPRESS NO_CONTINUATION 4,681 and WEAK_BUYS 1,356, SHITCOIN
+  THRESHOLD_FAIL_SCORE 2,217 (veto audit: its refused coins +36.3 %, n31), TREASURY WEAK_MOMENTUM 741, CASHGEN REJECTED_BUY 728.
+- Cortex's ranking is inverted in 7 of 10 lanes (MOONSHOT top fifth -19.1 % / bottom +13.0 %, n156; STRONG n7 -36.6 %); it
+  holds no authority either way and STRONG is already neutral on a lane measured inverted, and its REFUSE bucket loses too
+  (MOONSHOT -3.3 %, EXPRESS -5.8 %, CORE -20.5 %), so turning it round would buy losers. Not changed.
+- The shadow's entry styles, same coins, same exits: MOONSHOT NOW/RUNNER n300 -10.0 % vs PULLBACK/RUNNER n135 -1.2 % (fill
+  26 %); SHITCOIN NOW/RUNNER n68 -17.8 % vs PULLBACK -3.1 %; CORE NOW/SCALP n196 -6.8 % vs PULLBACK/SCALP n91 +1.7 % (fill
+  44 %). No arm was positive on its own (mean - 2 SE > +2 %), so live bought now: runner admits 82 bought the top, 20 gave it
+  back, 18 won. The timing wait was an unlisted learned door, so 8577 made it advisory.
+- 8864 chain: 8,885 candidates closed with no terminal; every printed example in QUALITY / BLUECHIP / TREASURY / CYCLIC /
+  CASHGEN is a crypto-desk asset key ("solana|<mint>"); the meme lanes' were offered and their token's cycle returned
+  before its lanes (V3_FATAL_EARLY_RETURN 864, SYMBOL_FAMILY_DEDUP 155). The runner trace reads not_evaluated=0 of 200.
+
+**What 8869 does.**
+
+| Before | Now |
+|---|---|
+| a lane's adaptable no (momentum, continuation, buy pressure, score) stood unless 8048 retired the rule for the whole lane | for a coin the forecast has a proven call on in that lane (EdgeModel8537.callOf POSITIVE), it stands down: `NATIVE_EDGE_MODEL_RETIRED_8869:<forecast>/<tier>:<rule>`; the buy doors (laneDoor8105, the cashflow door) and the FDG score floor honour it. Never safety, rug, dev, liquidity, cap, age, data, lifecycle or lane scope; an operator REFUSE still stands |
+| — | the desk reads the forecast once per coin for the lanes that said such a no, without side effects (`quietVerdicts8869`: no analyst request, no retrain check, no mind note), each lane costed at the current ticket (`NetEdge8030.previewCostPct8869`) |
+| the timing wait came only from an arm proven positive on its own | also when a waiting entry is proven better than buying now on the lane's exit style: fill x (mean - 2 SE) above buying now's mean + 2 SE, 40+ closes each (`waitBeatsNow8869`), computed with the adopted choice (`relative8869{}` on the shadow line) |
+| the wait was advisory | `ENTRY_TIMING_WAIT_` / `ENTRY_TIMING_EXPIRED_` bind (LaneAuthority8577); a candidate admitted on its own proof (SPECIFIC_EDGE_PROVEN_8136, EDGE_MODEL_PROVEN_8537) is not held for the lane-wide verdict |
+| crypto-desk stamps opened meme-lane chain records | counted on their own (`chain8869 cryptoDeskNotBooked{}`) |
+| a candidate whose cycle returned before its lanes closed as IDLE_TTL with no name | the cycle's gate is named on it (`NOT_EVALUATED_CYCLE_<gate>`, through `processTokenCycleTraced8869`; a named return is `return cycleExit8869(gate)`, nothing added to processTokenCycle besides); a token no longer watched closes as LEFT_WATCHLIST |
+
+The owner chose the binding wait on 19 Nov ("together now") over 8683's "the shadow may unlock live, never restrict it": the
+verdict is relative (buying now against waiting on the same coins through the same exits), so the shadow's pessimistic
+absolute exits cancel out of it.
+
+**Not changed, and open.**
+
+- Cortex's voters weight the hot-tape reads; its authority stays earned on its own record.
+- The forecast has no skill on the crypto lanes (rank correlation +0.01 to +0.04).
+- PROJECT_SNIPER's forecasts lose at every strength; BLUECHIP and DIP_HUNTER have no paying tier.

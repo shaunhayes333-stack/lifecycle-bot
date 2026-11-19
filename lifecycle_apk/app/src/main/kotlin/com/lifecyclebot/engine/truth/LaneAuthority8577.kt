@@ -37,6 +37,10 @@ object LaneAuthority8577 {
         // mints were ticketed, refused PRETRADE_BIG_LOSER_8130 after the ticket, backed off and re-ticketed (56 BACKOFF_ENDS_TICKET).
         "BIG_LOSER", "REPEAT_LOSER", "LIVE_COIN_STATE_UNPAID", "LIVE_POCKET_",
         "DATA_", "STALE", "_FAILED", "GENERIC_SCORE_FLOOR",
+        // V5.0.8869 — the shadow's timing verdict delays a live buy until its entry (a pullback / a confirm) and drops a coin
+        // that never offers it inside the wait (no trade, as the verdict counts it). 8687 meant it to bind; as an unlisted
+        // learned door 8577 made it advisory, and live bought now (runner admits: 82 bought the top of 120).
+        "ENTRY_TIMING_WAIT_", "ENTRY_TIMING_EXPIRED_",
         // superseded by V5.0.8604 — 8582 re-bound "INTO_HIGH", "CHASING_SPIKE", "CHASE_EXTENDED", "NEAR_HIGH",
         // "MEME_BUYS_THE_HIGH_8582" here. LIVE now decides like the paper book beside it, which never had those doors and is
         // the profitable book; they are learned opinions (advisory, still counted on their own forward records), not walls.
