@@ -75,6 +75,8 @@ object LaunchHour8628 {
         val born = CanonicalTokenBirthTime7440.peekBirthMs8418(ts.mint, at) ?: return
         if (at - born !in 0L..HOUR) return
         birth(ts.mint, born)
+        // V5.0.8882 — the first lane decision's delay, split into birth->watchlist and watchlist->decision (measurement only)
+        try { DecisionLatency8882.note8882(ts.mint, ts.source, born, ts.addedToWatchlistAt, at) } catch (_: Throwable) {}
         val snapshot = com.lifecyclebot.engine.cortex.LanePlaybook7907.peekMatched8323(ts.mint, lane, at)
         val setups = snapshot?.let { (matched, chosen) -> (matched + listOfNotNull(chosen)).distinct() }
             ?: listOf("UNATTRIBUTED")

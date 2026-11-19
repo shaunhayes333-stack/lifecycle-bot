@@ -212,6 +212,7 @@ object DiagnosisBrief8438 {
             sb.append("               ").append(try { DecisionEpisode8535.funnelLine8876() } catch (_: Throwable) { "evidenceFunnel8876[read failed]" }).append('\n')  // V5.0.8876
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.ResearchRows8877.statusLine8877() } catch (_: Throwable) { "research8877[read failed]" }).append('\n')  // V5.0.8877
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.CurveCustody8881.statusLine8881() } catch (_: Throwable) { "curveCustody8881[read failed]" }).append('\n')  // V5.0.8881
+            sb.append("               ").append(try { com.lifecyclebot.engine.truth.DecisionLatency8882.statusLine8882() } catch (_: Throwable) { "decisionLatency8882[read failed]" }).append('\n')  // V5.0.8882
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.PocketLedger8610.statusLine8610() } catch (_: Throwable) { "pocket8610[read failed]" }).append('\n')  // V5.0.8610
             sb.append("               ").append(com.lifecyclebot.engine.cortex.Cortex7885.stackLine8539()).append('\n')  // V5.0.8539
         }

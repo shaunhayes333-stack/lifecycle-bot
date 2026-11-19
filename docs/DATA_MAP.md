@@ -1556,3 +1556,14 @@ sellability (8736), authority, holder and every other buy-door proof. USDC-quote
 **Read on the next report.** `curveCustody8881[asked proven byVenue{METEORA_DBC RAYDIUM_LAUNCHLAB} notCurve belowFloor
 vaultRefused rpcFailed]`, `lpState8725` PENDING falling for Meteora / LaunchLab coins, and live buys of those coins.
 
+## 71. Where a launch's first seconds go (8882)
+
+**Why.** The launch-hour replay of every export (20 Nov) under the live doctrine: bought at a launch's first print +13.7 %
+a trade, ten seconds later +1.7 %, thirty seconds later -7.5 %, sixty seconds later -8.9 % (paths with six bars or more,
+so optimistic). The first lane decision on a launch comes a median 41 s after its birth, 25 % within 10 s (37,410
+launches). Plan W9 (speed) starts by measuring where those seconds go.
+
+**Changed.** `truth.DecisionLatency8882`: at the first lane decision on a launch inside its first hour
+(`LaunchHour8628.observeDecision`), the delay is split into birth -> watchlist (`TokenState.addedToWatchlistAt`, "heard")
+and watchlist -> decision ("decide"), per discovery source (the first entry of `TokenState.source`), last 600 per source.
+The brief prints `decisionLatency8882[SOURCE{n heard50/90 decide50/90 within10s}]`. Measurement only.
