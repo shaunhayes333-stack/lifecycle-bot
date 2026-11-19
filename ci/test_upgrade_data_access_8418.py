@@ -38,8 +38,12 @@ class Listing(unittest.TestCase):
         self.assertEqual(out, {"databases/learning_kv.db", "databases/shadow_cold_8397.db"})
         self.assertEqual(ua.parse_listing_8418("databases", "run-as: package not debuggable: x"), set())
         # V5.0.8423 — a prefs commit in flight (<name>.xml.bak) is not a data file the upgrade must carry
+        # V5.0.8867 — a lone .bak is the file it backs up (Android restores it on the next open)
         self.assertEqual(ua.parse_listing_8418("shared_prefs", "a.xml\na.xml.bak\nperps_positions_stocks.xml.bak\n"),
-                         {"shared_prefs/a.xml"})
+                         {"shared_prefs/a.xml", "shared_prefs/perps_positions_stocks.xml"})
+        before = ua.parse_listing_8418("shared_prefs", "aate_rehearsal_8342.xml\n")
+        after = ua.parse_listing_8418("shared_prefs", "aate_rehearsal_8342.xml.bak\n")
+        self.assertEqual(before - after, set())
         self.assertEqual(ua.parse_listing_8418("databases", "ls: /data/data/x/databases: No such file or directory"), set())
 
 

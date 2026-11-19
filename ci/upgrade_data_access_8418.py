@@ -47,8 +47,12 @@ def parse_listing_8418(sub, listing):
         # V5.0.8423 — a SharedPreferences `<name>.xml.bak` is the backup Android keeps only for the duration of one commit
         # (deleted when the write lands): seeing one in a listing is a write in flight, not a data file the upgrade must
         # carry (8419 build: "upgrade install lost app data files: shared_prefs/canonical_entry_evidence_8093.xml.bak").
+        # V5.0.8867 — and it IS the file it backs up: a commit renames `<name>.xml` to `.bak` before writing, and Android
+        # restores the backup the next time the file is opened. A process stopped inside that window leaves only the `.bak`
+        # (8867 build: "lost app data files: shared_prefs/aate_rehearsal_8342.xml" after force-stop of the running 8866).
+        # Either spelling is the same data file.
         if name.endswith(".bak"):
-            continue
+            name = name[:-4]
         out.add(f"{sub}/{name}")
     return out
 
