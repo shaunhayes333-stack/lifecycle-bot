@@ -306,8 +306,9 @@ object ExploreShadow8347 {
                 if (r == null) { drop += k; continue }
                 // the ticket's own window: the longest leg timeout plus the longest entry wait, then the lost-mark grace
                 // V5.0.8366 — a leg in the lifecycle hold has no clock (LifecycleHold8065): its ticket keeps the hold's window
+                val lane8879 = r.lane   // read before the lambda: r is a var, so the lambda cannot smart-cast it
                 val window = if (r.legs.any { !it.dead && (it.hold8366 ||   // V5.0.8879 — or a doctrine-held RUNNER leg
-                        (it.exit == Exit8347.RUNNER.name && EvidenceShadow8344.doctrineHoldsClock8879(r.lane, it.peak))) }) ShadowAlign8366.holdWindowMs8366()
+                        (it.exit == Exit8347.RUNNER.name && EvidenceShadow8344.doctrineHoldsClock8879(lane8879, it.peak))) }) ShadowAlign8366.holdWindowMs8366()
                     else (if (r.runner) RUNNER_TIMEOUT_MS_8347 else OTHER_TIMEOUT_MS_8347) + PULLBACK_WAIT_MS_8347
                 if (ShadowPersist8355.expiredOnRestore8355(r.atMs, window, nowMs, LOST_MARK_MS_8347)) {
                     expiredOnRestore8355.incrementAndGet()

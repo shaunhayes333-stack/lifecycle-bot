@@ -95,7 +95,7 @@ class Aate8879ExploreDoctrineTest {
         assertTrue(ev.contains("if (noClock8879 && ShadowPersist8355.expiredOnRestore8355(r.atMs, ShadowAlign8366.holdWindowMs8366(), nowMs))"))
         assertTrue(ev.contains("if (!noClock8879 && ShadowPersist8355.expiredOnRestore8355(r.atMs, r.timeoutMs, nowMs))"))
         val ex = src("engine/truth/ExploreShadow8347.kt")
-        assertTrue(ex.contains("(it.exit == Exit8347.RUNNER.name && EvidenceShadow8344.doctrineHoldsClock8879(r.lane, it.peak))) }) ShadowAlign8366.holdWindowMs8366()"))
+        assertTrue(ex.contains("(it.exit == Exit8347.RUNNER.name && EvidenceShadow8344.doctrineHoldsClock8879(lane8879, it.peak))) }) ShadowAlign8366.holdWindowMs8366()"))
         assertTrue(ex.contains("val noClock8879 = leg.hold8366 || (leg.exit == Exit8347.RUNNER && EvidenceShadow8344.doctrineHoldsClock8879(t.lane, leg.peak))"))
         val runner = ex.substringAfter("private fun runnerWhy8366(").substringBefore("if (!leg.hold8366 && px != null")
         assertTrue("the doctrine decides first on a doctrine lane", runner.contains("return doctrineLegWhy8879(t, leg, g, px, lost, nowMs)"))

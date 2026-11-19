@@ -1510,3 +1510,9 @@ from before 8879 keeps its tier count from the old ladder (as 8878's positions d
 a MOONSHOT evidence position to a +45 % scalp slice; MOONSHOT rides the doctrine since 8878, which leaves that position
 whole at +45 % and -5 %, so the same fill contract is now pinned on QUALITY, whose exits are unchanged.
 
+## 69. 8879's restore window compiles (8880)
+
+8879 failed to compile: the exploration book's restore loop read `r.lane` inside the legs lambda, and `r` is a `var`
+there, so Kotlin cannot smart-cast it. The lane is now read once before the lambda (`lane8879`). Behaviour is 8879's
+(§68) unchanged.
+
