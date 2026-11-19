@@ -124,7 +124,10 @@ internal object CryptoStrategyCandidateBooks7803 {
         put(assetKey,symbol,strategy,candidateVersion,State.READY,score,confidence,reason)
             .also { ready ->
                 if (ready?.state == State.READY) try {
-                    RunnerStudy8852.nominate(ready.assetKey, ready.strategy, "CRYPTO_READY:" + ready.reason,
+                    // V5.0.8867 — the study is priced by the Solana labeler, which knows a coin by its mint: 502 of the 539
+                    // crypto nominations in the 19 Nov export were keyed "solana|<mint>" and never got an entry price.
+                    RunnerStudy8852.nominate(DynamicAltTokenRegistry.solanaMintOf8866(ready.assetKey) ?: ready.assetKey,
+                        ready.strategy, "CRYPTO_READY:" + ready.reason,
                         ready.conviction, ready.updatedAtMs)
                 } catch (_: Throwable) {
                     try { PipelineHealthCollector.labelInc("RUNNER_STUDY_NOMINATION_FAILED_8852") } catch (_: Throwable) {}

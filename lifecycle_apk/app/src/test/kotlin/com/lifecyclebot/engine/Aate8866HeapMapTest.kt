@@ -154,7 +154,8 @@ class Aate8866HeapMapTest {
         assertTrue(r.text, r.text.contains("static t.Holder.rows > java.lang.Object[]"))
         assertTrue(r.text, r.text.contains("byte[] < t.Row.payload < java.lang.Object[]"))
         assertTrue(r.text, r.text.contains("ROOT JAVA_FRAME"))
-        assertTrue(r.text, r.text.contains("(no holder found"))
+        // superseded by V5.0.8867 — an object nothing holds is garbage, named by the outermost object of what was dropped
+        assertTrue(r.text, r.text.contains("GARBAGE built and dropped, outermost: byte[]"))
     }
 
     @Test fun noValueLeavesTheDump() {

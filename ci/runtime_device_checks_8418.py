@@ -127,7 +127,11 @@ def heapmap_verdict(text: str) -> tuple[bool, str]:
     objects, classes, samples, mismatch = num("objects"), num("classes"), num("samples"), num("layoutMismatch")
     owners = [l for l in lines if re.match(r"\s+\S+MB\s+\S+%\s+n=\d+\s+static \S", l)]
     traced = re.search(r"([\d.]+)MB represented, ([\d.]+)MB traced", text)
-    frac = float(traced.group(2)) / float(traced.group(1)) if traced and float(traced.group(1)) > 0 else 0.0
+    # V5.0.8867 — the dump is taken without a collection first; garbage has no holder by definition, so the traced share
+    # is of what is still held
+    garbage = re.search(r"GARBAGE rows \(([\d.]+)MB sampled\)", text)
+    held = (float(traced.group(1)) - (float(garbage.group(1)) if garbage else 0.0)) if traced else 0.0
+    frac = float(traced.group(2)) / held if traced and held > 0 else 0.0
     detail = (f"status={status} objects={objects} classes={classes} samples={samples} layoutMismatch={mismatch} "
               f"staticOwners={len(owners)} traced={frac:.0%}" + (f" {stopped[:200]}" if stopped else ""))
     if status != "COMPLETE":

@@ -99,6 +99,12 @@ class Cli(unittest.TestCase):
         self.assertFalse(dc.heapmap_verdict(good.replace("120.0MB traced", "10.0MB traced"))[0])
         self.assertFalse(dc.heapmap_verdict(good.replace("objects=2100000", "objects=900"))[0])
         self.assertFalse(dc.heapmap_verdict("something else")[0])
+        # 8867: garbage is left out of the traced share's denominator
+        with_garbage = good.replace("160.0MB represented, 120.0MB traced", "300.0MB represented, 40.0MB traced") \
+            .replace("traced to a static field or a root) --\n", "traced to a static field or a root) --\n   GARBAGE rows (140.0MB sampled) are objects\n")
+        ok, detail = dc.heapmap_verdict(with_garbage)
+        self.assertTrue(ok, detail)
+        self.assertIn("traced=25%", detail)
 
     def test_record_enforce_and_dup(self):
         with tempfile.TemporaryDirectory() as d:

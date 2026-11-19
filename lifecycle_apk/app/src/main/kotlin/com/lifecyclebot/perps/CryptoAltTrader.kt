@@ -4893,8 +4893,11 @@ object CryptoAltTrader {
                         "🛑 TICK_HARD_FLOOR ${updated.marketSymbol} " +
                         "${"%.1f".format(tickPnl)}% ≤ -10.0% — immediate exit " +
                         "(peak=${"%.1f".format(updated.highestPnlPct)}% twoStrike=$priorStrike7264)")
-                    tickFloorStrike7264.remove(id)
+                    // V5.0.8867 — the second read confirmed it: the strike stands until the position is gone. Removing it before
+                    // the sale made every close that did not complete start over at "first read" (5.0.8866 phone:
+                    // CRYPTO_ALT_TICK_FLOOR_PHANTOM_DEFERRED_7264=66 in 11 minutes): a confirmed floor waited a tick per attempt.
                     closePosition(id, "TICK_HARD_FLOOR_${tickPnl.toInt()}PCT")
+                    if (!positions.containsKey(id)) tickFloorStrike7264.remove(id)
                     continue
                 } else {
                     tickFloorStrike7264.remove(id)
@@ -5225,6 +5228,7 @@ object CryptoAltTrader {
         leveragePositions.remove(positionId)
         liveCloseRetryAt8866.remove(positionId)
         heldEval8866.remove(positionId)
+        tickFloorStrike7264.remove(positionId)
         // V5.9.424 — drop momentum snapshot so the map stays bounded.
         momentumSnapshots.remove(positionId)
         // V5.9.432 — drop partial-ladder + trail state for this position.

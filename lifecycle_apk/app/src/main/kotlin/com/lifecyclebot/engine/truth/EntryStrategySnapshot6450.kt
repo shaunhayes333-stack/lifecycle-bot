@@ -111,6 +111,7 @@ object EntryStrategySnapshot6450 {
         // A missing Cortex tag stays unknown. Looking up the current mint classification
         // here could attach a later decision to an already executed position.
         flushPending8332()   // V5.0.8332 — a seal the store could not take earlier goes first
+        missAt8867.remove(snap.positionId)   // V5.0.8867 — this position is about to have an entry
         val restoredPrior6567 = lookup8332(snap.positionId)
         val prior = restoredPrior6567 ?: snapshots.putIfAbsent(snap.positionId, snap)
         if (prior != null) {
@@ -219,12 +220,39 @@ object EntryStrategySnapshot6450 {
 
     /** V5.0.8332 — the uncounted lookup (memory, then both durable copies). */
     private fun lookup8332(positionId: String): Snapshot? = snapshots[positionId] ?: restore6567(positionId)
+
+    // ── V5.0.8867 §A_POSITION_WITH_NO_ENTRY_IS_ASKED_ONCE ──
+    // 5.0.8866 phone, 11 minutes: entrySnap8332 readOk=2,779, missing=15,470. Every miss read both durable stores (the
+    // offloaded prefs and the learning database) again: about 23 disk reads a second for positions that have no entry
+    // snapshot (wallet-recovered inventory, other books). A durable copy is only ever written by [setEntry] / [migrate],
+    // which put it in memory first, so an answered "none" stands until one of them runs for that position or
+    // [MISS_TTL_MS_8867] passes. A miss while the store is not open or a read failed is not remembered.
+    private const val MISS_TTL_MS_8867 = 5 * 60_000L
+    private const val MISS_CAP_8867 = 20_000
+    private val missAt8867 = ConcurrentHashMap<String, Long>()
+    private val missServed8867 = AtomicLong(0L)
+
+    /** Pure: is a remembered miss at [missAtMs] still the answer at [nowMs]? */
+    internal fun missStands8867(missAtMs: Long?, nowMs: Long, ttlMs: Long = MISS_TTL_MS_8867): Boolean =
+        missAtMs != null && nowMs - missAtMs in 0L until ttlMs
+
     private fun restore6567(positionId: String): Snapshot? {
+        val now = System.currentTimeMillis()
+        if (missStands8867(missAt8867[positionId], now)) { missServed8867.incrementAndGet(); return null }
         return try {
         // Read the reset-proof canonical copy first; only legacy positions may
         // still exist exclusively in the learning database.
         val raw = LearningPersistence.loadImmutableExecutionEvidence8093(positionId)
-            ?: LearningPersistence.load(persistenceKey6567(positionId)) ?: return null
+            ?: LearningPersistence.load(persistenceKey6567(positionId))
+        if (raw == null) {
+            if (LearningPersistence.ready() && !LearningPersistence.readFailed8086(persistenceKey6567(positionId))) {
+                if (missAt8867.size >= MISS_CAP_8867) missAt8867.entries.removeIf { !missStands8867(it.value, now) }
+                if (missAt8867.size >= MISS_CAP_8867) missAt8867.clear()
+                missAt8867[positionId] = now
+            }
+            return null
+        }
+        missAt8867.remove(positionId)
         decodeSnapshot(raw, positionId).also { snapshots.putIfAbsent(positionId, it) }
     } catch (_: Throwable) { null }
     }
@@ -310,6 +338,7 @@ object EntryStrategySnapshot6450 {
     fun migrate(positionId: String, newLane: String, reason: String): Snapshot? {
         val cur = snapshot(positionId) ?: return null
         val next = cur.copy(entryLane = newLane)
+        missAt8867.remove(positionId)
         snapshots[positionId] = next
         persist6567(next)
         migrations.incrementAndGet()
@@ -338,6 +367,7 @@ object EntryStrategySnapshot6450 {
 
     fun statusLine(): String = "positions=${snapshots.size} writes=${writes.get()} " +
         "rejects=${rejects.get()} laneReassignAttempts=${laneChangeAttempts.get()} migrations=${migrations.get()} " +
+        "missRemembered8867=${missAt8867.size} missServed8867=${missServed8867.get()} " +
         EntrySnapPersist8332.statusLine8332() + " " + SpecialistDelivery8332.statusLine8332()
 }
 

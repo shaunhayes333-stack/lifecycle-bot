@@ -239,6 +239,8 @@ object HeapMapCore8866 {
         var count = 0L
         var bytes = 0L
         var isLinkage = false
+        /** V5.0.8867 — the class this one is nested in ("Map" for "Map$EntrySetView"), or -1. */
+        var outer = -1
     }
 
     private class Stop(val why: String) : RuntimeException(why)
@@ -360,6 +362,10 @@ object HeapMapCore8866 {
             if (term == 0) {
                 // a holder of the object's own class is a link in a chain (Node.next, Message.next), whatever it is called
                 if (r == 1 && holderClass == nodeClass[n]) r = 3
+                // V5.0.8867 — a view nested in the object's own class (Map$EntrySetView.map, HashMap$Values.this$0) points
+                // back at the map it was made from: the map's owner holds both. Phone 18:10: 31.6 MB of a ConcurrentHashMap's
+                // keys and values were filed under its own entry-set view, a loop with no owner.
+                if (r == 1 && holderClass >= 0 && nodeClass[n] >= 0 && classes[holderClass].outer == nodeClass[n]) r = 3
                 val existing = nodeOf.get(holderId)
                 if (existing == n) return
                 if (existing >= 0) r = if (r == 3) 4 else 2
@@ -584,6 +590,9 @@ object HeapMapCore8866 {
                 c.name = className8866(names[c.nameId] ?: "class@" + java.lang.Long.toHexString(c.id))
                 c.isLinkage = linkage8866(c.name)
             }
+            val byName = HashMap<String, Int>(classes.size * 2)
+            for (i in classes.indices) byName.putIfAbsent(classes[i].name, i)
+            for (c in classes) c.outer = outerOf8867(c.name)?.let { byName[it] } ?: -1
             val sampleEvery = maxOf(4096L, file.length() / maxOf(1, sampleTargets))
             progress("objects")
             pass(2, sampleEvery); passes++
@@ -600,7 +609,7 @@ object HeapMapCore8866 {
                 val start = nodes
                 for (k in 0 until n) {
                     val node = frontierFrom + k
-                    if (candRank[k].toInt() == 127) { nodeTerm[node] = terminal("(no holder found: unreachable, or held by the runtime)"); continue }
+                    if (candRank[k].toInt() == 127) { nodeTerm[node] = terminal(NO_HOLDER_8867); continue }
                     nodeVia[node] = candVia[k]
                     if (candTerm[k] != 0) { nodeTerm[node] = candTerm[k]; continue }
                     val existing = nodeOf.get(candHolder[k])
@@ -663,6 +672,7 @@ object HeapMapCore8866 {
             class Owner(var weight: Long, var n: Int) { val chains = HashMap<String, Chain>() }
             val owners = HashMap<String, Owner>()
             var resolvedBytes = 0L
+            var garbageBytes = 0L
             var sampledBytes = 0L
             val hops = ArrayList<String>(24)
             for (s in 0 until sampleCount) {
@@ -671,6 +681,7 @@ object HeapMapCore8866 {
                 var cur = s
                 var term = ""
                 var guard = 0
+                var top = s
                 while (true) {
                     val t = nodeTerm[cur]
                     val par = nodeParent[cur]
@@ -679,11 +690,19 @@ object HeapMapCore8866 {
                     // an array element is written as the array's class alone; a field as Class.field
                     hops.add(if (nodeVia[cur] == 0) hopName(par) else hopName(par) + "." + viaNames[nodeVia[cur]])
                     cur = par
+                    top = par
                 }
                 val w = nodeWeight[s]
                 sampledBytes += w
                 // the owner is the terminal and the hop beneath it: "static X.INSTANCE > X.rows"
-                val ownerLabel = if (term.startsWith("static ") && hops.size > 1) term + " > " + hops[hops.size - 1] else if (term.startsWith("(not resolved") && hops.size > 1) term + " last holder seen: " + hops[hops.size - 1] else term
+                val ownerLabel = when {
+                    term.startsWith("static ") && hops.size > 1 -> term + " > " + hops[hops.size - 1]
+                    term.startsWith("(not resolved") && hops.size > 1 -> term + " last holder seen: " + hops[hops.size - 1]
+                    // V5.0.8867 — garbage is named by the outermost object of its dropped structure: what was built and thrown away
+                    term == NO_HOLDER_8867 -> GARBAGE_8867 + hopName(top)
+                    else -> term
+                }
+                if (term == NO_HOLDER_8867) garbageBytes += w
                 if (term.startsWith("static ") || term.startsWith("ROOT ")) resolvedBytes += w
                 val o = owners.getOrPut(ownerLabel) { Owner(0L, 0) }
                 o.weight += w; o.n++
@@ -693,6 +712,8 @@ object HeapMapCore8866 {
             out.append("\n-- what holds the bytes (").append(sampleCount).append(" objects sampled by size; ")
                 .append(mb(sampledBytes)).append(" represented, ").append(mb(resolvedBytes)).append(" traced to a static field or a root) --\n")
             out.append("   read a chain right to left: the owner is on the right, the bytes are on the left\n")
+            out.append("   GARBAGE rows (").append(mb(garbageBytes))
+                .append(" sampled) are objects no longer reachable and not yet collected: what the app builds and throws away, named by the outermost object of each dropped structure\n")
             val scale = if (sampledBytes > 0L) bytes.toDouble() / sampledBytes else 1.0
             for ((label, o) in owners.entries.sortedByDescending { it.value.weight }.take(TOP_OWNERS)) {
                 val est = (o.weight * scale).toLong()
@@ -703,6 +724,16 @@ object HeapMapCore8866 {
             }
         }
         return Result(stopped.isEmpty(), out.toString(), objects, bytes, classes.size, sampleCount, stopped)
+    }
+
+    private const val NO_HOLDER_8867 = "(no holder found: unreachable, or held by the runtime)"
+    private const val GARBAGE_8867 = "GARBAGE built and dropped, outermost: "
+
+    /** Pure (V5.0.8867): the class a nested class is declared in ("a.B" for "a.B$C", "a.B$C" for "a.B$C$D"), or null. */
+    fun outerOf8867(name: String): String? {
+        if (name.endsWith("[]")) return null
+        val i = name.lastIndexOf('$')
+        return if (i > 0) name.substring(0, i) else null
     }
 
     /** Pure: the name of a GC root record. */

@@ -80,8 +80,9 @@ object HeapMap8866 {
                     line = "NOT_ENOUGH_DISK free=${free shr 20}MB need=${need shr 20}MB"
                 } else {
                     val startedAt = System.currentTimeMillis()
-                    phase = "collecting garbage"
-                    try { rt.gc() } catch (_: Throwable) {}
+                    // V5.0.8867 — no collection first: the garbage in the dump is what the app allocates and drops (5.0.8866
+                    // phone: 49 GB allocated in 11 minutes, 4-8 GB a minute), and the map names it by structure. Retained
+                    // owners are unchanged: garbage has no static or root holder.
                     val usedMb = (rt.totalMemory() - rt.freeMemory()) shr 20
                     val maxMb = rt.maxMemory() shr 20
                     val file = File(dir, "heap_$startedAt.hprof")
@@ -93,7 +94,7 @@ object HeapMap8866 {
                     val uptimeS = try { (android.os.SystemClock.elapsedRealtime() - android.os.Process.getStartElapsedRealtime()) / 1000L } catch (_: Throwable) { -1L }
                     val header = "AATE heap map (§8866) version=" + (try { com.lifecyclebot.BuildConfig.VERSION_NAME } catch (_: Throwable) { "?" }) +
                         " taken=" + SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date(startedAt)) +
-                        " uptimeS=" + uptimeS + " heapUsedMb=" + usedMb + " heapMaxMb=" + maxMb + " dumpMs=" + dumpMs + " why=" + why.take(24)
+                        " uptimeS=" + uptimeS + " heapUsedMb=" + usedMb + " heapMaxMb=" + maxMb + " dumpMs=" + dumpMs + " gcFirst=false why=" + why.take(24)
                     // the heap is on disk now: the caches may go, so the reader below has room in a heap that was full
                     try { MemoryGuard7977.emergencyTrim8305("HEAP_MAP_8866") } catch (_: Throwable) {}
                     val result = HeapMapCore8866.analyse8866(file, header) { phase = it }

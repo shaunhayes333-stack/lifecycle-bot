@@ -1128,3 +1128,44 @@ its first 90 lines under `HEAP MAP (§8866)`.
   (values planted in arrays and fields do not appear in the text; an unknown record or a cut file stops it by name);
   and on the CI emulator's real ART dump (device check `heap_map`: read to the end, layouts understood, holders traced,
   raw dump gone).
+
+## 58. What the phone's heap holds and what it throws away (8867)
+
+**Measured.** Owner's phone, 5.0.8866, LIVE, 19 Nov 18:10 (uptime 680 s), with the first phone memory map (taken 18:10:30,
+728 s up, 259 MB used, dump 7.6 s, read 23.4 s, status COMPLETE, 5,996,869 objects, 32,604 classes, layoutMismatch 0).
+
+- The three crypto holdings of §57 are gone: liveOpen 0/40, wallet 0.1311 -> 0.2184 SOL (+0.0873). The one sale in this
+  session's log (2xCd5q, 17:59:20) returned 0.0187; the remaining 0.0686 matches the three holdings at their 15:21 marks
+  (0.071). The sale lines themselves are before this report's start.
+- Allocation: `GC count=648 allocatedMB=49058` in 680 s (4-8 GB a minute in the timeline), blocking 185 s. The heap at
+  12 minutes: 271 MB in the app heap.
+- Owners the map traced (MB at 12 minutes): a ConcurrentHashMap of String keys and values 31.6 (owner hidden, see below);
+  `CortexTiming7900.ledger` 10.9; `Cortex7885.ledger` 10.1; `ForwardReturnLabeler7731.pending` 8.7;
+  `EntryStrategySnapshot6450.snapshots` 8.1; `Cortex7885.gradeBook8144` 7.9; `LearnerAttribution8418.ledgers` 6.6;
+  `EdgeModel8537.byLane` 5.5; `Cortex7885.graded8006` 5.1; `EconomicEventSchema6464.snapshotCache7499` 4.9;
+  `ChartLibrary7950.feats` 4.7; unreachable 13.8.
+- `entrySnap8332[readOk=2779, missing=15470]`: 15,470 lookups in 11 minutes of positions with no entry snapshot, each
+  reading both durable stores again.
+- `CRYPTO_ALT_TICK_FLOOR_PHANTOM_DEFERRED_7264=66` in 11 minutes.
+- Runner study export (`RUNNER_STUDY_8852`, 1,289 episodes): every crypto nomination, 539 of 539, ended
+  `ENTRY_UNAVAILABLE`; 502 of them were keyed `solana|<mint>`. Of the native-ready meme nominations: 115 complete, 337
+  entry unavailable, 298 exit unavailable. The 114 complete with a value: $10 held six hours ends at $8.66 (median $9.21);
+  its peak averages $13.09 (median $10.82); 10 of 114 reached 2x.
+
+**What 8867 does.**
+
+| Before | Now |
+|---|---|
+| a map's own view (`ConcurrentHashMap$EntrySetView.map`, `HashMap$Values.this$0`) was taken as the map's holder, so 31.6 MB read "held only by what it holds" | a holder nested in the object's own class is a link (`outerOf8867`): the map is filed under its real owner |
+| the dump was taken after a collection; garbage read "no holder found" | no collection first; garbage is printed as `GARBAGE built and dropped, outermost: <class>` with its chains, so the map shows what is allocated and thrown away, by structure. Retained owners are unchanged (garbage has no static or root holder). The CI check measures the traced share over what is still held |
+| crypto runner-study coins keyed `solana|<mint>`, unpriced by the Solana labeler | keyed by the mint (`solanaMintOf8866`); a non-Solana asset keeps its key |
+| a position with no entry snapshot re-read both durable stores on every lookup | an answered "none" stands for 5 minutes or until `setEntry` / `migrate` for that position (`missStands8867`); only an open store's answer is remembered; `missServed8867` counts the reads saved |
+| the crypto floor's two-read confirmation was removed before the sale, so each sale that did not complete waited for a fresh confirmation | the strike stands until the position is gone |
+
+**Not changed, and open.**
+
+- The 4-8 GB a minute is not attributed by this report. The next memory map names it by structure.
+- Cortex lane forecasts: most matured decisions have no outcome (MOONSHOT matured 763, missing 607; EXPRESS-family and
+  CORE similar), so every lane's positive authority is 0 by coverage. Not explained from this report.
+- Launch hour export: 2 % of rows carry an hour result (MOONSHOT admitted 592 of 25,332), so its means are a survivor
+  sample.
