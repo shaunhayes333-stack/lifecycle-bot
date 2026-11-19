@@ -420,6 +420,8 @@ object ForwardReturnLabeler7731 {
         @Volatile var qualifiedLong8851 = false
         /** V5.0.8855 — the model's prediction at the decision, and the outcome this decision holds so far (TrajectoryVerdict8855). */
         @Volatile var pred8855 = Double.NaN
+        /** V5.0.8877 — the V3 score at the decision, for the hour's research row (not checkpointed: NaN after a restart). */
+        @Volatile var v38877 = Double.NaN
         @Volatile var pathNet8855 = Double.NaN
         @Volatile var pathStopped8855 = false
         /** V5.0.8859 — why a mark seen inside an open horizon window could not grade it (blank = no mark was seen in one). */
@@ -1384,6 +1386,7 @@ object ForwardReturnLabeler7731 {
                 it.edge8537 = EdgeModel8537.snapshot(ts, l, cost.coerceIn(0.0, 60.0), admitted, nowMs)  // V5.0.8537
                 it.trajectoryVenueEpoch8851 = it.edge8537?.modelEpoch
                 it.pred8855 = it.edge8537?.pred ?: Double.NaN   // V5.0.8855 — kept after the label consumes the snapshot
+                it.v38877 = it.edge8537?.raw?.v3 ?: Double.NaN   // V5.0.8877 — for the hour's research row
                 it.liqUsd8539 = liq  // V5.0.8539
                 it.entryLiq7997 = if (ts.lastLiquidityUsd.isFinite() && ts.lastLiquidityUsd > 0.0) ts.lastLiquidityUsd else 0.0
                 it.kind8063 = try { kindOf8063(ts) } catch (_: Throwable) { "" }
@@ -2204,6 +2207,11 @@ object ForwardReturnLabeler7731 {
         // V5.0.8342 — a mark still flat at the hour (no price other than the entry ever seen) is a LOST mark here too, never a
         // -cost label: 8337 FIX 2 closed the 60 slot; this slot booked it (and its lane / stage late tallies) unchanged.
         if (flatMarkNow8342(o, gross0)) { flatMarks8322.incrementAndGet(); markLost(o); return true }
+        // V5.0.8877 (plan W8) — the hour read is also one research row: its own file, exported, read by no learner
+        try {
+            ResearchRows8877.note8877(ResearchRows8877.line8877(o.atMs, H240_MS_7731, o.mint, o.lane, o.admitted, o.stage, o.setup7955,
+                o.pred8855, o.v38877, o.entryMcap, o.liqUsd8539, o.costPct, net, gross, o.peakPct, o.heldPeak8071, o.minPct7962, o.reason7967))
+        } catch (_: Throwable) {}
         book(o, 240, net, gross)
         return true // Cortex's old onLabel(..., 240) was a no-op; the exact revision now owns delivery.
     }

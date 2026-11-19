@@ -1367,6 +1367,9 @@ old. About three in four already sat in a proven `PayingCell8723` cell when deci
   listed once, `LaneAuthority8577.answersPriors8874`), and the narrower refusals (the coin's own avoid shapes, the losing
   record of its setup) are read again.
 - LIVE: what the admission decided of each coin that carried the pocket is counted (`liveAdmission{...}`), never acted on.
+  Like every market-cell coin, a LIVE pocket coin is also probed at the buy door and filed under its LP state
+  (`LpStateRecord8725`: PROVEN / PENDING / LP_BLOCKED / OTHER_BLOCKED), so the record shows whether the LP-lock rule's
+  PENDING proof is what keeps these coins unbought (8731: 29 of 32 paying-cell coins were PENDING there).
 - The brief carries `agreement8874[...]`.
 
 **Not changed.** Hard safety, structure, sellability, the LP-lock rule, balance, executable economics, the FDG and every
@@ -1421,3 +1424,24 @@ The brief carries `evidenceFunnel8876[KIND{COINS=.. ADMIT=.. FDG_ALLOW=.. TICKET
 
 **Proof to read.** For each evidence kind, the step where COINS falls away and the commonest reason there: that is the
 next door to examine on its own graded record.
+
+## 66. Every decision is read at the hour (8877)
+
+**Owner, 20 Nov.** "its just aate doesn't trade past 5 minutes for some reason" / "there are 60,000% profit opportunities
+out there". Plan W8, first step.
+
+**Before.** Every meme learner is taught at the lane's 5- or 15-minute target; the edge dataset holds that one horizon.
+`ForwardReturnLabeler7731` already reads every eligible decision at 60 minutes (its "240" slot) with the peak and the
+highest level held for 20 s, but those reads reached only the lane and stage tallies, so no export could show which
+decisions became runners within the hour or whether an hour-graded learner would rank them differently.
+
+**Changed.** `ResearchRows8877`: each 60-minute read also writes one row (decision time, lane, admitted, stage, setup,
+forecast, V3 score, cap, pool, cost, the refusal it met, the hour's net and gross, peak, held peak and deepest dip) to
+`edge_research_8877.jsonl` on its own single-thread writer, trimmed to the newest 45,000 lines past 60,000. The report
+export saves it beside the edge dataset (`aate_edge_research_8877_<ms>.jsonl`). A lost mark writes nothing. The brief
+carries `research8877[written=..]`.
+
+**Not changed.** No learner reads it, and the edge dataset's 60,000-line window is untouched. The V3 score is kept on the
+observation for the row; it is not checkpointed, so a decision restored after a restart writes it as null.
+
+**Proof to read.** `research8877[written>0 failed=0]`, then the export: forecast and V3 against the hour's peak multiple.

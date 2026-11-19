@@ -144,6 +144,10 @@ object ReportCopyDialog8198 {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc(if (where.startsWith("FAILED")) "REPORT_SAVE_DOWNLOADS_FAIL_8381" else "REPORT_SAVE_DOWNLOADS_OK_8381") } catch (_: Throwable) {}
             // V5.0.8537 — the edge model's labelled dataset rides along, for the offline replay (ci/edge_replay_8537.py).
             val dataset8537 = if (where.startsWith("FAILED")) null else saveEdgeDataset8537(app)
+            // V5.0.8877 — every decision's 60-minute read (plan W8), beside the edge dataset
+            val research8877 = if (where.startsWith("FAILED")) null else com.lifecyclebot.engine.truth.ResearchRows8877.file8877()?.takeIf { it.exists() }?.let {
+                saveDataset(app, it, "aate_edge_research_8877_${System.currentTimeMillis()}.jsonl")
+            }
             val hour = if (where.startsWith("FAILED")) "" else try {
                 com.lifecyclebot.engine.truth.LaunchHour8628.export(app.cacheDir, System.currentTimeMillis())?.let { file ->
                     try { saveDataset(app, file, "aate_launch_hour_${System.currentTimeMillis()}.jsonl") ?: "hour export failed" }
@@ -159,7 +163,7 @@ object ReportCopyDialog8198 {
                 } ?: "no runner-study observations yet"
             } catch (_: Exception) { "runner-study export failed" }
             activity.runOnUiThread {
-                Toast.makeText(app, if (where.startsWith("FAILED")) "Save failed ($where); use Share" else "Saved complete report (${fullText.length} chars) to $where" + (dataset8537?.let { " + $it" } ?: "") + " · $hour · $runnerStudy", Toast.LENGTH_LONG).show()
+                Toast.makeText(app, if (where.startsWith("FAILED")) "Save failed ($where); use Share" else "Saved complete report (${fullText.length} chars) to $where" + (dataset8537?.let { " + $it" } ?: "") + (research8877?.let { " + $it" } ?: "") + " · $hour · $runnerStudy", Toast.LENGTH_LONG).show()
             }
         }, "AATE-ReportSave-8381").start()
     }
