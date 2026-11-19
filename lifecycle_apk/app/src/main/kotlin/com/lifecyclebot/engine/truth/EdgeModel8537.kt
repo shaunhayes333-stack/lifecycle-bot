@@ -657,6 +657,8 @@ object EdgeModel8537 {
             return
         }
         val y = managedTarget8722(s.raw.lane, netPct, s.raw.costPct)
+        // V5.0.8875 — the analyst's answer frozen with this decision, read before the mind consumes the frozen voters
+        val llmP8875 = try { LlmBands8875.frozenP8875(Mind8746.frozenFor8767(s.mint, s.raw.lane, s.atMs)) } catch (_: Throwable) { Double.NaN }
         try { Mind8746.learn8746(s.mint, s.raw.lane, s.atMs, y) } catch (_: Throwable) {}   // V5.0.8746 — the mind learns the same label
         synchronized(this) {
             // A pending observation from the old model can teach its verified outcome, but its prediction
@@ -669,12 +671,13 @@ object EdgeModel8537 {
             ownModel8722(s.raw.lane)?.learn(x, y)
         }
         val k = learned.incrementAndGet()
-        appendDataset(s, netPct, witnessed = chainWitness)   // retain independently provable multi-X outcomes
+        appendDataset(s, netPct, witnessed = chainWitness, llmP8875 = llmP8875)   // retain independently provable multi-X outcomes
         try { SignalTruth8825.note8825(s.mint, s.raw.ageMin, netPct, s.admitted) { k -> if (k == "pred") s.pred else signal8825(s.raw, k) } } catch (_: Throwable) {}   // V5.0.8825 / 8827
         try { PocketLedger8610.learn8610(s, netPct) } catch (_: Throwable) {}   // V5.0.8610 — the learned pocket ledger
         try { ManagedBands8719.learn8719(s.raw.lane, s.raw.liq, s.raw.mcap, netPct, s.raw.costPct) } catch (_: Throwable) {}   // V5.0.8719 — the floors' record
         try { PayingCell8723.learn8723(s.mint, s.raw.lane, s.raw.ageMin, s.raw.liq, netPct, s.atMs) } catch (_: Throwable) {}   // V5.0.8723
         try { AgreementPocket8874.learn8874(s.mint, s.raw.lane, s.raw.mcap, s.raw.v3, s.pred, netPct, s.atMs) } catch (_: Throwable) {}   // V5.0.8874
+        try { LlmBands8875.learn8875(s.mint, s.raw.lane, llmP8875, netPct, s.atMs) } catch (_: Throwable) {}   // V5.0.8875
         if (k % SAVE_EVERY == 0L) saveAsync()
         try { PipelineHealthCollector.labelInc("EDGE_MODEL_LEARNED_8537") } catch (_: Throwable) {}
     }
@@ -1085,7 +1088,8 @@ object EdgeModel8537 {
     }
 
     /** Pure: one dataset row (JSON) — the raw observation, the frozen prediction and the outcome. */
-    fun datasetLine(s: Snap, net: Double, filled: Boolean = true, witnessed: Boolean = false, labelObservedAtMs: Long? = null): String {
+    fun datasetLine(s: Snap, net: Double, filled: Boolean = true, witnessed: Boolean = false, labelObservedAtMs: Long? = null,
+                    llmP8875: Double = Double.NaN): String {
         fun n(v: Double) = if (v.isFinite()) "%.6g".format(java.util.Locale.US, v) else "null"
         val r = s.raw
         // The device may still be delivering decisions frozen on a PRE-fix APK. An 8661
@@ -1096,7 +1100,7 @@ object EdgeModel8537 {
             "\"dd\":${n(r.dd)},\"bp\":${n(r.bp)},\"chg5m\":${n(r.chg5m)},\"chg1h\":${n(r.chg1h)},\"volAccel\":${n(r.volAccel)}," +
             "\"top\":${n(r.top)},\"holderVel\":${n(r.holderVel)},\"txVel\":${n(r.txVel)},\"curve\":${n(r.curve)},\"turnover\":${n(r.turnover)},\"newBuyers15s8666\":${n(r.newBuyers15s8666)},\"sustainedDemand\":${r.sustainedDemand},\"marketReclaim\":${r.marketReclaim}," +
             "\"flags\":${r.flags},\"phase\":\"${r.phase}\",\"v3\":${n(r.v3)},\"cost\":${n(r.costPct)},\"admitted\":${s.admitted}," +
-            "\"pred\":${n(s.pred)},\"model\":\"${s.modelKey}\",\"modelEpoch\":${s.modelEpoch},\"venueScopeEpoch\":$venueScope8661,\"net\":${n(net)},\"fill\":$filled,\"witness\":$witnessed,\"labelObservedAtMs\":${labelObservedAtMs ?: "null"}" +
+            "\"pred\":${n(s.pred)},\"llmP\":${n(llmP8875)},\"model\":\"${s.modelKey}\",\"modelEpoch\":${s.modelEpoch},\"venueScopeEpoch\":$venueScope8661,\"net\":${n(net)},\"fill\":$filled,\"witness\":$witnessed,\"labelObservedAtMs\":${labelObservedAtMs ?: "null"}" +
             LearnerColumns8798.toRow(r.ext) + "}"
     }
 
@@ -1117,8 +1121,8 @@ object EdgeModel8537 {
     // without `learned` advancing, so physical writes must trigger the periodic bounded trim as well.
     private val datasetAppends8844 = AtomicLong(0)
 
-    private fun appendDataset(s: Snap, net: Double, filled: Boolean = true, witnessed: Boolean = false) {
-        val line = try { datasetLine(s, net, filled, witnessed, System.currentTimeMillis()) } catch (_: Throwable) { return }
+    private fun appendDataset(s: Snap, net: Double, filled: Boolean = true, witnessed: Boolean = false, llmP8875: Double = Double.NaN) {
+        val line = try { datasetLine(s, net, filled, witnessed, System.currentTimeMillis(), llmP8875) } catch (_: Throwable) { return }
         try { NetworkTier8873.note8873(s.mint, s.raw.ageMin, s.raw.mcap, LearnerColumns8798.valueOf8873(s.raw.ext, "venue"), net, filled) } catch (_: Throwable) {}   // V5.0.8873
         io.execute {
             try {

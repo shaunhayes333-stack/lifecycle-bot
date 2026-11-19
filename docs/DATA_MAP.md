@@ -1374,3 +1374,32 @@ later door. Sizing is the lane's own. No refusal was added.
 
 **Proof to read.** `agreement8874[ready=true lanes{MOONSHOT=n../+..%/run..%* ...} carried{...} liveAdmission{...}]`: which
 lanes are proven on the device's own data, how many coins carried it, and what the admission said of them in LIVE.
+
+## 64. The LLM analyst earns a seat on its own graded record (8875)
+
+**Owner, 20 Nov.** "the llms are fine. but they needs to be proving a much much bigger boost all round and should be
+helping a lot more than they do. especially live."
+
+**Before.** `LlmAnalyst8746` (the council's probability that the coin is up by more than the round trip at the lane's
+label horizon; at most 60 calls an hour, asked when the tree rates the coin non-negative, cached 15 minutes) was one input
+of the `Mind8746` stacker, graded only by a Brier score. However right it was, it could not admit a coin, and its answer
+was never written to the dataset, so no export could grade it.
+
+**Changed.**
+- `LlmBands8875`: every labelled decision that carried an answer files its outcome under its lane and the answer's quarter
+  of the probability scale (LLM0 < 0.25, LLM1, LLM2, LLM3 >= 0.75), by PayingCell8723's rules: one label per coin per 15
+  minutes, decay 0.995 a label, net as printed, gain kept to the pocket cap, proven at 30+ labels with mean - 2 SE > 0.
+  No band is picked by hand: whichever band of a lane proves to pay is the one that admits.
+- `EdgeModel8537.learn` reads the answer frozen with the decision (`Mind8746.frozenFor8767`, before the mind consumes it),
+  files it, and writes it into the dataset row as `"llmP"` (null when the analyst had not answered). The bands are seeded
+  from those rows at start (`DatasetReplay8863`, a fifth sink).
+- `CandidateAdmission8136`: a coin whose current answer sits in its lane's proven band carries that record as market-cell
+  evidence, after every earlier source; `LaneAuthority8577.answersPriors8874` lets it answer the lane-wide priors as a
+  paying cell does. The brief carries `llm8875[bands{...} carried{...}]`.
+
+**Not changed.** The analyst's prompt, call budget and providers; the mind's stacking and its own authority rule; hard
+safety, structure, sellability, the LP-lock rule, economics, the narrower losing records, FDG and sizing. Nothing is refused
+because of the LLM.
+
+**Proof to read.** `llm8875[...]`: each lane's bands with n, mean and runner share; a `*` marks a band that admits, and
+`carried{...}` counts the coins it carried. Every export from 8875 on carries `llmP`, so the analyst can be graded offline.

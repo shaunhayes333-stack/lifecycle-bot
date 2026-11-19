@@ -2108,7 +2108,9 @@ object CandidateAdmission8136 {
                 ?: RunnerModel8861.evidence8861(ts.mint, nowMs)   // V5.0.8861 — the runner model's pick at the floor cross, armed on its forward record
                 ?: try { com.lifecyclebot.engine.lab.StrategyLab8755.evidence8755(ts, lane, nowMs) } catch (_: Throwable) { null }
                 // V5.0.8874 — then the lane's proven agreement pocket (the V3 score and the forecast agree on an off-pump.fun $5k-$20k coin)
-                ?: AgreementPocket8874.evidence8874(ts, lane, edge8874?.predPct, nowMs),
+                ?: AgreementPocket8874.evidence8874(ts, lane, edge8874?.predPct, nowMs)
+                // V5.0.8875 — then the band of the LLM analyst's current answer, when that band has proven to pay in this lane
+                ?: LlmBands8875.evidence8875(ts, lane, nowMs),
             regimeCold8546 = live8290 && MemePaperTrader8544.memeLane8544(lane) &&
                 (try { MemeRegime8546.regime8546(nowMs) == MemeRegime8546.Regime8546.COLD } catch (_: Throwable) { false }),
             regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "" },

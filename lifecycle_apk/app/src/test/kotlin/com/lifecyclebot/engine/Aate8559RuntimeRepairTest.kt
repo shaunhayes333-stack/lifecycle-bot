@@ -195,7 +195,8 @@ class Aate8559RuntimeRepairTest {
         assertEquals(-9.53, e.target8567(-9.1), 0.05)
         val src8537 = src("engine/truth/EdgeModel8537.kt")
         assertFalse(src8537.contains("coerceIn(Y_MIN, Y_MAX)"))
-        assertTrue(src8537.contains("appendDataset(s, netPct, witnessed = chainWitness)"))
+        // superseded by V5.0.8875 — the row also carries the analyst's frozen answer
+        assertTrue(src8537.contains("appendDataset(s, netPct, witnessed = chainWitness, llmP8875 = llmP8875)"))
     }
 
     /** V5.0.8567 — fast meme coins' outcomes never trained: no mark inside the 5-60 s rebase window. */
