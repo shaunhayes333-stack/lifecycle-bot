@@ -2,7 +2,6 @@ package com.lifecyclebot.engine
 
 import com.lifecyclebot.data.TokenState
 import com.lifecyclebot.network.JupiterApi
-import com.lifecyclebot.network.PumpCurveKeys7269
 import com.lifecyclebot.network.SwapQuote
 import org.json.JSONArray
 import org.json.JSONObject
@@ -201,11 +200,13 @@ object BuyRouteSafety8522 {
         // Top-ups and route fallbacks have the same live prerequisite as the first buy.
         val (report, explore8735) = checkedReport(ts, route, callSite)
         val now = System.currentTimeMillis()
-        val active = !ts.tokenMap.migratedOrGraduated && LiquidityOwnership8522.activeCurveVerified(ts.mint, now)
-        val curve = if (active) try { PumpCurveKeys7269.canonicalCurveKey7392(ts.mint).orEmpty() } catch (_: Throwable) { "" } else ""
+        // V5.0.8881 — a pump.fun curve by its account read, else a Meteora DBC / Raydium LaunchLab curve by its own (CurveCustody8881)
+        val (active, curve) = LiquidityOwnership8522.activeCurve8881(ts.mint, ts.tokenMap.migratedOrGraduated, now)
         val verdict = assess(ts.mint, report, route, active, curve, TokenSafetyChecker.isWhitelisted(ts.mint), now,
             exploreLp8735 = explore8735)
         if (verdict.status != LiquidityOwnership8522.Status.PROVEN) {
+            // V5.0.8881 — a route pool the LP rule could not prove may be a Meteora DBC / Raydium LaunchLab curve: read its custody
+            if (!route.rfq) route.pools.forEach { pool -> try { com.lifecyclebot.engine.truth.CurveCustody8881.request8881(ts.mint, pool, now) } catch (_: Throwable) {} }
             if (verdict.status == LiquidityOwnership8522.Status.PENDING) {
                 try { SafetyRefreshQueue.request(ts.mint) } catch (_: Throwable) {}
                 try { SafetyProofPriority8310.noteDeferred8310(ts.mint, verdict.reason) } catch (_: Throwable) {}

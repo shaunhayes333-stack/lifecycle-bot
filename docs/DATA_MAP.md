@@ -1516,3 +1516,43 @@ whole at +45 % and -5 %, so the same fill contract is now pinned on QUALITY, who
 there, so Kotlin cannot smart-cast it. The lane is now read once before the lambda (`lane8879`). Behaviour is 8879's
 (§68) unchanged.
 
+## 70. Meteora DBC and Raydium LaunchLab curves are proven in custody (8881)
+
+**Owner.** "the meme trader isnt a pumpfun trader exclusively is a solana network trader. the full network" and "dont buy
+unlocked drain coins". Plan W9, first step.
+
+**Before.** The LP rule (`LiquidityOwnership8522`) exempts a coin still on its bonding curve, because a curve has no LP to
+pull: its quote sits in a vault only the curve program can move. The exemption needs a fresh read of the curve account,
+and only pump.fun curves were read (`CurveReserves7951`). A coin on a Meteora Dynamic Bonding Curve (Believe, Bags,
+Jupiter Studio and the other DBC launchpads) or a Raydium LaunchLab curve (bonk.fun) could never be proven, so it waited
+PENDING at the buy door, or was refused on a provider's "LP unlocked" finding, for its whole curve life. 8731: 29 of 32
+LIVE paying-cell coins were PENDING at the door (+36.3 % forward, 34 % runners). On the launch-hour exports, Meteora-sourced
+coins under five minutes made +5.3 % (n1645, 5.8 % ran 100 %+); pump.fun's made -15.7 %.
+
+**Changed.** `truth.CurveCustody8881` proves those two curves from their own accounts, never from a label:
+- the pool account is owned by the curve program, carries its Anchor discriminator, and names this coin as its base mint;
+- it is still a curve: DBC `is_migrated` = 0 and `migration_progress` = 0; LaunchLab `status` = 0 (funding) with a
+  wrapped-SOL quote mint;
+- its quote vault (jsonParsed) is an initialised wrapped-SOL token account owned by the program's vault authority PDA;
+- the SOL in custody (the smaller of the vault and the curve's own quote reserve) clears the curve exit floor (0.5 SOL,
+  the pump.fun curve's bar). The proof is good for 30 s, the pump.fun account proof's window.
+`LiquidityOwnership8522.activeCurve8881(mint, migrated, now)` gives (active, address): the pump.fun proof first, unchanged,
+then this one; never for a migrated coin. In `assess`, the pool at the proven curve's own address is that curve whatever
+the provider labels it. The hard gate (`PreTradeHardGate`) and the route check (`BuyRouteSafety8522`) use it, and ask for a
+custody read (async) of any pool they could not prove. `TokenSafetyChecker`'s "LP unlocked" overlay exempts such a curve as
+it exempts a pump.fun curve (7384); in LIVE it reads the custody before it builds the report so the two agree.
+
+**Layouts.** DBC VirtualPool (zero-copy, 416 bytes after the discriminator; meteora-sdk 0.7.0 `src/dbc.rs`): base_mint @136,
+quote_vault @200, quote_reserve @240, is_migrated @305, migration_progress @308; discriminator sha256("account:VirtualPool").
+LaunchLab PoolState (Borsh; raydium-launchlab-sdk 0.1.5 `idl.json`): status @17, real_quote @61, base_mint @205,
+quote_mint @237, quote_vault @301; discriminator [247,237,227,245,215,195,222,70]. Vault authorities from
+`OnChainHolderConcentration7379.VENUE_AUTHORITIES_8418`. A wrong offset fails the mint, discriminator or vault check, so a
+misread leaves a coin PENDING as before.
+
+**Not changed.** The 70 % lock rule for every ordinary pool; a provider's unlocked finding on an ordinary pool; a curve
+cannot excuse an unprotected ordinary pool beside it; the pump.fun local buy keeps its own pump-only proof (`Executor`);
+sellability (8736), authority, holder and every other buy-door proof. USDC-quoted curves are not read.
+
+**Read on the next report.** `curveCustody8881[asked proven byVenue{METEORA_DBC RAYDIUM_LAUNCHLAB} notCurve belowFloor
+vaultRefused rpcFailed]`, `lpState8725` PENDING falling for Meteora / LaunchLab coins, and live buys of those coins.
+

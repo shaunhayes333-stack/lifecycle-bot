@@ -92,9 +92,14 @@ class Aate8320CurveExitFloorTest {
         val g = src("engine/PreTradeHardGate.kt")
         assertTrue(g.contains("MIN_LIVE_LIQ_HARD_FLOOR_USD = 500.0"))
         // LIVE safety uses fresh account custody, then binds that proof to the selected pool.
-        assertTrue(g.contains("val curveExitSafe8319 = !ts.tokenMap.migratedOrGraduated && LiquidityOwnership8522.activeCurveVerified(mint, now)"))
+        // superseded by V5.0.8881 — the pump.fun account proof and its curve key now come from LiquidityOwnership8522.activeCurve8881,
+        // which also proves a Meteora DBC / Raydium LaunchLab curve from its own account (CurveCustody8881); never for a migrated coin.
+        assertTrue(g.contains("val (curveExitSafe8319, curveAddress8522) = LiquidityOwnership8522.activeCurve8881(mint, ts.tokenMap.migratedOrGraduated, now)"))
         assertFalse(g.contains("LaneAgeLiquidityTruth8140.activeCurveExitSafe8319(ts.mint)"))
-        assertTrue(g.contains("PumpCurveKeys7269.canonicalCurveKey7392(mint)"))
+        val active8881 = src("engine/LiquidityOwnership8522.kt").substringAfter("fun activeCurve8881(").substringBefore("/** Pure parsing.")
+        assertTrue(active8881.contains("if (migrated) return false to \"\""))
+        assertTrue(active8881.contains("if (activeCurveVerified(mint, nowMs))"))
+        assertTrue(active8881.contains("PumpCurveKeys7269.canonicalCurveKey7392(mint)"))
         assertTrue(g.contains("safety, selectedPool8522, curveExitSafe8319, TokenSafetyChecker.isWhitelisted(mint), curveAddress8522, now"))
         assertTrue(g.contains("val curveCustody8522 = ownership8522.reason == \"ACTIVE_CURVE_LP_NOT_APPLICABLE_8522\""))
         val ownership = src("engine/LiquidityOwnership8522.kt")

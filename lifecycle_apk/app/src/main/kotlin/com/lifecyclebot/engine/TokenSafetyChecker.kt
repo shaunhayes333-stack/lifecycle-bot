@@ -608,9 +608,16 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                 // authority. Hard-block it at the source; paper still learns.
                 // V5.0.7384 — liquidity on a pump.fun bonding curve is held by the
                 // program, not an LP a dev can pull; "LP unlocked" does not apply there.
+                // V5.0.8881 — and so is a Meteora DBC / Raydium LaunchLab curve proven from its own account and vault
+                // (CurveCustody8881). In LIVE a flagged coin with no pump.fun curve has its pool's custody read now, so this
+                // report and the proof agree; the pool at the curve's own address is the curve, whatever its label.
                 val onCurve7384 = try {
-                    lpOwnership8522.pools.none { !it.isCurve && it.depthUsd > 0.0 } &&
-                        LiquidityOwnership8522.activeCurveVerified(mint)
+                    if (lpUnlockedRisk && !isPaperMode && !LiquidityOwnership8522.activeCurveVerified(mint)) {
+                        val pool8881 = selectedPoolAddress8522.ifBlank { lpOwnership8522.pools.filter { it.depthUsd > 0.0 }.maxByOrNull { it.depthUsd }?.address.orEmpty() }
+                        if (pool8881.isNotBlank()) com.lifecyclebot.engine.truth.CurveCustody8881.prove8881(mint, pool8881)
+                    }
+                    val (curveOn8881, curveAt8881) = LiquidityOwnership8522.activeCurve8881(mint, false)
+                    curveOn8881 && lpOwnership8522.pools.none { !it.isCurve && it.address != curveAt8881 && it.depthUsd > 0.0 }
                 } catch (_: Throwable) { false }
                 if (onCurve7384) lpUnlockedRisk = false
                 if (lpUnlockedRisk && lpLockPct < 0.0) lpLockPct = 0.0

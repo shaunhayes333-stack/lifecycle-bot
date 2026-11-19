@@ -266,16 +266,18 @@ object PreTradeHardGate {
         if (!hasExecutionPool8522 && !safety.liqConfirmed && !tokenMapLiquidity.executable) pendingProofs.add("LIQUIDITY_PROOF_PENDING")
         // Actual curve-account reserves observed within 30 seconds can prove active
         // program custody; an inferred stream reserve or old venue label cannot.
-        val curveExitSafe8319 = !ts.tokenMap.migratedOrGraduated && LiquidityOwnership8522.activeCurveVerified(mint, now)
-        val curveAddress8522 = if (curveExitSafe8319) try {
-            com.lifecyclebot.network.PumpCurveKeys7269.canonicalCurveKey7392(mint).orEmpty()
-        } catch (_: Throwable) { "" } else ""
+        // superseded by V5.0.8881 — the curve is a pump.fun curve by its fresh account read (unchanged), else a Meteora DBC /
+        // Raydium LaunchLab curve proven from its own account and vault (CurveCustody8881); the address is that curve's own.
+        val (curveExitSafe8319, curveAddress8522) = LiquidityOwnership8522.activeCurve8881(mint, ts.tokenMap.migratedOrGraduated, now)
         val selectedPool8522 = selectedPoolAddressOverride8522 ?:
             ts.tokenMap.poolAddress.ifBlank { ts.lastPricePoolAddr.ifBlank { ts.pairAddress } }
         val ownership8522 = LiquidityOwnership8522.assess(
             safety, selectedPool8522, curveExitSafe8319, TokenSafetyChecker.isWhitelisted(mint), curveAddress8522, now,
             expectedMint = mint,
         )
+        // V5.0.8881 — a pool the LP rule could not prove may be a Meteora DBC / Raydium LaunchLab curve: read its custody (async)
+        if (ownership8522.status != LiquidityOwnership8522.Status.PROVEN && selectedPool8522.isNotBlank())
+            try { com.lifecyclebot.engine.truth.CurveCustody8881.request8881(mint, selectedPool8522, now) } catch (_: Throwable) {}
         when (ownership8522.status) {
             LiquidityOwnership8522.Status.BLOCKED -> return block(ts, ownership8522.reason, ownership8522.detail)
             LiquidityOwnership8522.Status.PENDING -> pendingProofs.add("${ownership8522.reason}:${ownership8522.detail}")

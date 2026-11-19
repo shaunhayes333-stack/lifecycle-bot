@@ -38,6 +38,19 @@ object LiquidityOwnership8522 {
         return real != null && real.isFinite() && real >= LaneAgeLiquidityTruth8140.CURVE_EXIT_MIN_REAL_SOL_8319
     }
 
+    /**
+     * V5.0.8881 — (active, address) of the bonding curve holding [mint]'s liquidity in program custody, for the LP rule: a
+     * pump.fun curve by its fresh account read ([activeCurveVerified], unchanged), else a Meteora DBC / Raydium LaunchLab curve
+     * proven from its own account and vault (truth.CurveCustody8881). Never active for a [migrated] coin.
+     */
+    fun activeCurve8881(mint: String, migrated: Boolean, nowMs: Long = System.currentTimeMillis()): Pair<Boolean, String> {
+        if (migrated) return false to ""
+        if (activeCurveVerified(mint, nowMs))
+            return true to (try { com.lifecyclebot.network.PumpCurveKeys7269.canonicalCurveKey7392(mint).orEmpty() } catch (_: Throwable) { "" })
+        val c = try { com.lifecyclebot.engine.truth.CurveCustody8881.custody8881(mint, nowMs) } catch (_: Throwable) { null }
+        return if (c != null) true to c.pool else false to ""
+    }
+
     /** Pure parsing. A response for another mint never contributes safety evidence. */
     fun parse(report: JSONObject?, requestedMint: String): Evidence {
         if (report == null || requestedMint.isBlank()) return Evidence()
@@ -115,13 +128,16 @@ object LiquidityOwnership8522 {
         val primary = evidence.pools.filter { it.depthUsd > 0.0 }.maxByOrNull { it.depthUsd }
         val selected = if (selectedPoolAddress.isBlank()) primary else
             evidence.pools.firstOrNull { it.address.isNotBlank() && it.address == selectedPoolAddress }
-        val ordinaryPrimary = primary?.takeUnless { it.isCurve }
-        val ordinarySelected = selected?.takeUnless { it.isCurve }
-        val curveOnlyEvidence = evidence.pools.none { !it.isCurve && it.depthUsd > 0.0 }
+        // V5.0.8881 — the pool at the verified curve's own address IS that curve, whatever a provider labels it (a Meteora DBC
+        // or Raydium LaunchLab curve is not "pump_fun"); the identity comes only from the account read, never from the label.
+        fun curve8881(p: Pool): Boolean = p.isCurve || (activeCurveVerified && activeCurveAddress.isNotBlank() && p.address == activeCurveAddress)
+        val ordinaryPrimary = primary?.takeUnless { curve8881(it) }
+        val ordinarySelected = selected?.takeUnless { curve8881(it) }
+        val curveOnlyEvidence = evidence.pools.none { !curve8881(it) && it.depthUsd > 0.0 }
         val selectedCurveIdentity = selectedPoolAddress.isBlank() ||
             (activeCurveAddress.isNotBlank() && selectedPoolAddress == activeCurveAddress)
         val curveExempt = activeCurveVerified && selectedCurveIdentity && ordinarySelected == null && ordinaryPrimary == null &&
-            (selected?.isCurve == true || curveOnlyEvidence)
+            (selected?.let { curve8881(it) } == true || curveOnlyEvidence)
 
         // Explicit adverse evidence always wins over a good numerical score or
         // a different pool. Curve custody is exempt only on actual curve proof.
@@ -150,7 +166,7 @@ object LiquidityOwnership8522 {
         if (!evidence.riskInventoryComplete || selected == null || selected.address.isBlank()) {
             return Result(Status.PENDING, "LP_OWNERSHIP_PROOF_PENDING_8522", "selected pool has no complete ownership proof; pool=$selectedPoolAddress")
         }
-        if (selected.isCurve) {
+        if (curve8881(selected)) {
             return Result(Status.PENDING, "LP_OWNERSHIP_PROOF_PENDING_8522", "curve label lacks current active-curve proof; pool=${selected.address}")
         }
         if (!selected.lockedPct.isFinite() || selected.lockedPct !in MIN_LOCKED_PCT..100.0) {
