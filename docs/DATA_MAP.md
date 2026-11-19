@@ -911,5 +911,25 @@ What is learned does not change: same rows, same acceptance rule, same order, sa
 (§8863)` (`lines refusedUnparsed parsed accepted`), `Forensic log (§8863)`, `Error log writes (§8818)`; job meter
 `datasetSeed` in place of `pocketLedgerSeed` / `payingCellSeed` / `managedBandsSeed`.
 
-Not measured yet: the steady allocation (about 5.4 GB a minute; the collector thread's 22 s of CPU a minute) has no
-per-site attribution in the report.
+Correction (8864): the 4.8-5.4 GB a minute of allocation and the collector thread's 22 s of CPU a minute in that report
+are its first three to four minutes after start, which include the five dataset passes above. It is not a steady-state
+figure; a report from fifteen minutes or more of uptime on 8863 or later is needed for that, and for per-site attribution.
+
+## 55. No reader waits for another reader's rebuild (8864)
+
+**Measured.** Runtime acceptance, 5.0.8863 (19 Nov 00:00:42): `ANR in com.lifecyclebot.aate (SplashActivity) ... Waited
+5001ms for FocusEvent(hasFocus=false)`, process at 261 % CPU, load average 32. The dashboard was the existing one
+(`Activity.performStart`: 8863's splash change held), and its main thread was `Blocked` at `ConfigStore.load` —
+`waiting to lock <0x0f336245> (a com.lifecyclebot.data.ConfigStore)` — called from `MainActivity.updateUi` inside the
+ON_START dispatch. The printed trace ended before the lock's holder.
+
+| What was happening | Where | Now |
+|---|---|---|
+| `ConfigStore.load` and `save` were `@Synchronized`, cache check included: every 2 s one of 166 call sites rebuilt the config (17 decrypted values, 137 preferences) inside the monitor and every other caller queued behind it | `SnapshotCache8864` (`ConfigStore.snapshot8864`) | a fresh snapshot is one volatile read; an aged one is rebuilt by the first caller that finds the store free, and a caller that finds it busy is given the held snapshot at once; with nothing held (first read) callers wait for the one build |
+| A save held the same monitor for its whole write | `ConfigStore.save` -> `SnapshotCache8864.write` | readers during the write are served the config from before it; then the snapshot is dropped, `RuntimeModeAuthority.publishConfig` runs, and the store is read again before `save` returns: no read that starts after the authority was told sees the old config |
+| The cache's age was wall-clock time | `SnapshotCache8864.clock` | the monotonic clock |
+| The dashboard's first render ran inside the activity's ON_START dispatch (a StateFlow hands a new collector its value at once), before the looper could return to the input channel | `MainActivity` render collector | `kotlinx.coroutines.yield()` first: start and resume complete, input is read, then the render |
+| A freeze on a lock printed 80 lines of monitors, not the holder | `ci/runtime_device_checks_8418.sh` `anr_evidence` | the whole stack of the thread holding the lock the main thread waits for |
+
+Report: `Config store (§8864)` — `builds lastBuildMs maxBuildMs by=<thread/prio> servedWhileBusy waitedWithNothingHeld
+writes`. `maxBuildMs` and `by` name the slowest rebuild and the thread that ran it.

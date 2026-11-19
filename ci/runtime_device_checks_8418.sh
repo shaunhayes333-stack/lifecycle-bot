@@ -92,6 +92,14 @@ anr_evidence() {  # crash_probe file
         adb shell "cat /data/anr/$f" > "$OUT/anr_trace.txt" 2>/dev/null || true
         echo "--- main thread ($f) ---"
         awk '/^"main"/{p=1} p{print; n++} p&&/^$/{exit} n>60{exit}' "$OUT/anr_trace.txt"
+        # V5.0.8864 — when the main thread is waiting for a lock, print the thread that holds it, whole. 5.0.8863 froze
+        # with the main thread "waiting to lock <...> (a ConfigStore)" and the 80-line list below ended before the holder.
+        local lock
+        lock=$(awk '/^"main"/{p=1} p&&/waiting to lock/{print; exit} p&&/^$/{exit}' "$OUT/anr_trace.txt" | grep -o '<0x[0-9a-f]*>' | head -1)
+        if [ -n "$lock" ]; then
+            echo "--- holder of $lock (the lock the main thread is waiting for) ---"
+            awk -v L="- locked $lock" 'BEGIN{RS=""} index($0, L){print; exit}' "$OUT/anr_trace.txt" | head -70
+        fi
         echo "--- threads holding or waiting on monitors ---"
         grep -B2 -A6 "waiting to lock\|- locked" "$OUT/anr_trace.txt" | head -80
     else

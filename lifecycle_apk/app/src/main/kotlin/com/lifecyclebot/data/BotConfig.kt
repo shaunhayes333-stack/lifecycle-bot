@@ -389,14 +389,19 @@ object ConfigStore {
     // With 16 call sites per 2.5s UI tick this stalled the main thread for 600-2000ms per frame.
     // 2s TTL: safe because BotViewModel polls config on IO thread every 2500ms;
     // settings changes call save() which calls invalidateCache() to flush immediately.
-    @Volatile private var cachedConfig: BotConfig? = null
-    @Volatile private var cachedConfigMs: Long = 0L
     private const val CONFIG_CACHE_MS = 2_000L
 
+    // V5.0.8864 — the cached config is a snapshot no reader queues for (SnapshotCache8864): load() and save() were
+    // @Synchronized on this object, cache check included, and 5.0.8863's launch freeze was the dashboard's main thread
+    // waiting on that monitor behind another thread's rebuild.
+    private val snapshot8864 = SnapshotCache8864<BotConfig>(CONFIG_CACHE_MS)
+
     fun invalidateCache() {
-        cachedConfig = null
-        cachedConfigMs = 0L
+        snapshot8864.invalidate()
     }
+
+    /** Report line: rebuilds, the slowest one and the thread that ran it, reads served while a rebuild or write was running. */
+    fun statusLine8864(): String = snapshot8864.statusLine("configStore8864")
 
     // ── V5.0.8462 — owner: "kill the smart money scan. put it in a toggle in settings". OFF by default. Kept out of BotConfig:
     // its synthetic default constructor is at 254 of the JVM's 255 parameter slots (7958 crossed it once: ClassFormatError).
@@ -484,9 +489,27 @@ object ConfigStore {
     internal fun keepSavedKey8286(saved: String, incoming: String, allowClear: Boolean): Boolean =
         incoming.isBlank() && saved.isNotBlank() && !allowClear
 
-    @Synchronized
+    /**
+     * V5.0.8864 — the write runs with the store held and readers are served the config from before it; when it has
+     * written, the snapshot is dropped, the mode authority is told, and the store is read again before save returns. A
+     * read that starts after save returns — or after the authority was told — sees what was saved, as it always did.
+     */
     fun save(ctx: Context, cfg: BotConfig) {
-        invalidateCache() // V5.9.706 — flush stale cache on write
+        snapshot8864.write(
+            change = { writeStores8864(ctx, cfg) },
+            reread = {
+                // V5.9.495z31 — publish authoritative paperMode/autoTrade to
+                // the RuntimeModeAuthority so every reader sees the same mode.
+                com.lifecyclebot.engine.RuntimeModeAuthority.publishConfig(
+                    paperMode = cfg.paperMode,
+                    autoTrade = cfg.autoTrade,
+                )
+                read8864(ctx)
+            },
+        )
+    }
+
+    private fun writeStores8864(ctx: Context, cfg: BotConfig) {
         secrets(ctx).edit().apply {
             putString("private_key_b58",     cfg.privateKeyB58)
             // V5.9.495z26 — treasury wallet private key (encrypted alongside trading key)
@@ -663,20 +686,18 @@ object ConfigStore {
             putBoolean("unified_scoring_mode",         cfg.unifiedScoringMode)
             apply()
         }
-        // V5.9.495z31 — publish authoritative paperMode/autoTrade to
-        // the RuntimeModeAuthority so every reader sees the same mode.
-        com.lifecyclebot.engine.RuntimeModeAuthority.publishConfig(
-            paperMode = cfg.paperMode,
-            autoTrade = cfg.autoTrade,
-        )
-
     }
 
-    @Synchronized
+    /**
+     * V5.9.706 — served from the cached config while it is fresh (avoids repeated AES-GCM decryption on the main thread).
+     * V5.0.8864 — and while another thread is rebuilding it or saving: no caller waits behind another caller's rebuild.
+     */
     fun load(ctx: Context): BotConfig {
-        // V5.9.706 — serve from cache if fresh (avoids repeated AES-GCM decryption on main thread)
-        val now = System.currentTimeMillis()
-        cachedConfig?.let { if (now - cachedConfigMs < CONFIG_CACHE_MS) return it }
+        return snapshot8864.fresh() ?: snapshot8864.get { read8864(ctx) }
+    }
+
+    /** Reads the whole config from the two stores. Runs with the snapshot's store held (one reader at a time). */
+    private fun read8864(ctx: Context): BotConfig {
         val p = prefs(ctx)
         val s = secrets(ctx)
         return BotConfig(
@@ -876,9 +897,7 @@ object ConfigStore {
             // V5.0.8354 — the persisted PumpPortal trade-stream switch reaches the socket (default OFF: paid per frame).
             try { com.lifecyclebot.network.PumpFunWS.noteTradeStreamConfig8354(it.pumpPortalTradeStreamEnabled) } catch (_: Throwable) {}
             loadSmartMoneyScan8462(ctx)   // V5.0.8462 — the smart-money scan switch (side setting, default OFF)
-            // V5.9.706 — cache for 2s to avoid repeated AES-GCM decryption on main thread
-            cachedConfig = it
-            cachedConfigMs = System.currentTimeMillis()
+            // V5.9.706 — kept for 2s to avoid repeated AES-GCM decryption on main thread (SnapshotCache8864 holds it)
         }
     }
 

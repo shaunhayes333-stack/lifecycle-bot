@@ -1212,6 +1212,14 @@ class MainActivity : AppCompatActivity() {
                 // repeatOnLifecycle cancels the collector at STOPPED, restarts
                 // at STARTED — only one collector ever alive.
                 repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+                    // V5.0.8864 — the first render waits for the lifecycle transaction to end. A StateFlow hands its
+                    // current value to a new collector at once, and this block starts inside the activity's ON_START
+                    // dispatch: on 5.0.8863 the whole dashboard render ran inside Activity.performStart (the freeze's
+                    // stack), before the looper could return to the window's input channel, so the splash's focus hand-
+                    // over was not acknowledged until the render finished. yield() posts the rest of this block to the
+                    // main looper: start and resume complete, input is read, then the dashboard renders (V5.9.1199 took
+                    // the render out of onResume for the same reason).
+                    kotlinx.coroutines.yield()
                     vm.ui.collect { state ->
                         updateUi(state)
                         // V5.9.1229 — runtime paint must never compete with the
