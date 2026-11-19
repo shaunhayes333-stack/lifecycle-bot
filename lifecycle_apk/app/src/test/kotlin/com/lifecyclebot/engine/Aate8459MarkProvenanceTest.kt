@@ -29,7 +29,7 @@ class Aate8459MarkProvenanceTest {
         assertFalse("a chain print 30 s old may be refreshed", CandidateMarkFresh8094.chainHeld8459("PUMP_CURVE_RPC", now - 30_000L, now))
         assertFalse("an aggregator price is not held", CandidateMarkFresh8094.chainHeld8459("DEXSCREENER_LANE_8287", now - 2_000L, now))
         assertFalse(CandidateMarkFresh8094.chainHeld8459("PUMP_CURVE_RPC", 0L, now))
-        val apply = src.substringAfter("private fun apply8094(").substringBefore("refreshed.incrementAndGet()")
+        val apply = src.substringAfter("internal fun applyMark8870(").substringBefore("private fun apply8094(")
         assertTrue("a chain-read batch (applyMarks8359) may still replace an older chain print",
             apply.contains("!com.lifecyclebot.engine.StopFeed8327.chainMark8327(source8359) &&"))
         assertTrue(apply.contains("if (ts.position.isOpen || fresher || suspect || chainHeld) false else {"))

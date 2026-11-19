@@ -2644,6 +2644,7 @@ class CryptoAltActivity : AppCompatActivity() {
                                 change24h = data.priceChange24hPct,
                                 mcap      = 0.0,
                                 vol24h    = data.volume24h,
+                                priceObservedAtMs8372 = data.lastUpdate,
                             )
                             // Update dialog UI
                             val livePrice     = data.price

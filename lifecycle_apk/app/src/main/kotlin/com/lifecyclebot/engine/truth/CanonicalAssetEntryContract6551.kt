@@ -25,6 +25,10 @@ data class CanonicalAssetEntryCandidate6551(
     val hardSafetyReasons: List<String> = emptyList(),
     val candidateVersion: Long,
     val diagnosticSignal: String = "UNKNOWN",
+    // Immutable source observation paired with price. An unrelated later registry write cannot date it.
+    val priceObservedAtMs8870: Long = 0L,
+    val priceSource8870: String = "",
+    val priceAssetId8870: String = "",
 )
 
 data class CanonicalAssetEntryShaping6551(
@@ -278,6 +282,8 @@ object CanonicalEntryAuthority6551 {
         val paperBacked8788 = candidate.mode.equals("LIVE", true) && !oracleHardSafety7287 && !livePositiveEv7828 && !evRefusalInverted8094 &&
             try { CryptoSpotPaperBacking8788.backs8788(candidate.evidence["lane8788"], System.currentTimeMillis()) } catch (_: Throwable) { false }
         if (candidate.mode.equals("LIVE", true) && !oracleHardSafety7287 && !livePositiveEv7828 && !evRefusalInverted8094 && !paperBacked8788) {
+            if (CryptoSpotPaperBacking8788.capacityWait8870(candidate.evidence["lane8788"], System.currentTimeMillis()))
+                return deferred(candidate, venue, "CRYPTO_PAPER_BACKING_CAPACITY_8870")
             try {
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_LIVE_NON_POSITIVE_EXPECTANCY_7828")
                 if (oracleDegenerate7828) com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_DEGENERATE_ORACLE_FWD_FALLBACK_7828")
@@ -354,6 +360,9 @@ object CanonicalEntryAuthority6551 {
                     why, now8857, candidate.evidence["deskLane7391"].orEmpty(),
                     com.lifecyclebot.engine.cortex.CrossAssetCortex7931.firedSetup8857(candidate, now8857))
             } else {
+                if (!integrity8857 && candidate.mode.equals("LIVE", true) &&
+                    CryptoSpotPaperBacking8788.capacityWait8870(candidate.evidence["lane8788"], now8857))
+                    return deferred(candidate, venue, "CRYPTO_PAPER_BACKING_CAPACITY_8870")
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_EDGE_REFUSED_7931_${candidate.mode.uppercase()}_${candidate.assetClass.tag}") } catch (_: Throwable) {}
                 if (candidate.mode.equals("LIVE", true)) CryptoSignalEngine8857.noteBound8857(why, integrity8857)
                 return blocked(candidate, venue, why)
@@ -490,8 +499,11 @@ object CanonicalEntryAuthority6551 {
         val backingReserved8832 = if (paperBacked8788 || signalEngine8857) try {
             CryptoSpotPaperBacking8788.reserve8832(candidate.evidence["lane8788"], System.currentTimeMillis(), attemptId)
         } catch (_: Throwable) { false } else false
-        if ((paperBacked8788 || signalEngine8857) && !backingReserved8832)
+        if ((paperBacked8788 || signalEngine8857) && !backingReserved8832) {
+            if (CryptoSpotPaperBacking8788.capacityWait8870(candidate.evidence["lane8788"], System.currentTimeMillis()))
+                return deferred(candidate, venue, "CRYPTO_PAPER_BACKING_CAPACITY_8870")
             return blocked(candidate, venue, "CRYPTO_PAPER_BACKING_CAP_OR_PROOF_CHANGED_8832")
+        }
         val sealedDecision6613 = ExecutionDecisionSnapshot6510.record(
             ExecutionDecisionSnapshot(
                 mint = candidate.assetId, candidateVersion = candidate.candidateVersion,

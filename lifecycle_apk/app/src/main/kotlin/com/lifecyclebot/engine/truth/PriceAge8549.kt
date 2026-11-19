@@ -24,6 +24,7 @@ object PriceAge8549 {
 
     private val buckets = longArrayOf(5_000L, 15_000L, 30_000L, 60_000L, 300_000L)
     private val counts = ConcurrentHashMap<String, LongArray>()   // lane -> [<=5s, <=15s, <=30s, <=60s, <=5m, older/unknown]
+    private val unknown8870 = ConcurrentHashMap<String, AtomicLong>()
     private val total = AtomicLong(0)
 
     /** Pure: the bucket index of [ageMs]. */
@@ -37,10 +38,14 @@ object PriceAge8549 {
     fun noteDecision8549(lane: String, priceAgeMs: Long) {
         val row = counts.getOrPut(lane.trim().uppercase()) { LongArray(buckets.size + 1) }
         synchronized(row) { row[bucket8549(priceAgeMs)]++ }
+        if (priceAgeMs == Long.MAX_VALUE || priceAgeMs < 0L)
+            unknown8870.computeIfAbsent(lane.trim().uppercase()) { AtomicLong() }.incrementAndGet()
         total.incrementAndGet()
     }
 
     fun statusLine8549(): String =
-        "decisionPriceAge8549[n=${total.get()} buckets=<=5s/15s/30s/60s/5m/older " + counts.entries.sortedByDescending { e -> e.value.sum() }
-            .take(8).joinToString(" ") { (l, r) -> "$l{${synchronized(r) { r.joinToString("/") }}}" } + "]"
+        "decisionPriceAge8549[n=${total.get()} buckets=<=5s/15s/30s/60s/5m/olderOrUnknown " + counts.entries.sortedByDescending { e -> e.value.sum() }
+            .take(8).joinToString(" ") { (l, r) -> "$l{${synchronized(r) { r.joinToString("/") }}}" } +
+            " unknown8870{" + unknown8870.entries.sortedByDescending { it.value.get() }.take(8)
+                .joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } + "}]"
 }

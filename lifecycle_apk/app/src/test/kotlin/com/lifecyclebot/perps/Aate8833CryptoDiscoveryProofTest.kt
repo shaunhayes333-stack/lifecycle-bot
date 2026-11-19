@@ -25,7 +25,8 @@ class Aate8833CryptoDiscoveryProofTest {
         assertTrue(discovery.contains("shortWindowObservedAtMs8832 = if ("))
         assertTrue("static and dynamic upserts both preserve provenance", upsert.split("shortWindowObservedAtMs8832 = newestM58833.shortWindowObservedAtMs8832").size >= 3)
         assertTrue("both upsert routes reject old observation prices", upsert.split("priceObservedAtMs8372 = if (acceptIncomingPrice8833)").size >= 3)
-        assertTrue("a late refresh must use the same timestamp preference", registry.contains("val newerPairM58833 = validPairM58833 && preferIncomingShortWindow8833("))
+        assertTrue("a late refresh must use the dated observation helper", registry.contains("val newerPairM58833 = validPairM58833 && newer8870("))
+        assertTrue("that helper must preserve the existing timestamp preference", registry.contains("preferIncomingShortWindow8833(existingAtMs, pairAt8870)"))
         assertTrue("a delayed HTTP pair cannot roll back a newer source price", registry.contains("price = if (newerPrice8833) price else latest8752.price"))
     }
 }

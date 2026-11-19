@@ -11,6 +11,10 @@ import org.json.JSONObject
 object BuyRouteSafety8522 {
     private const val MAX_QUOTE_AGE_MS = 30_000L
 
+    /** The existing final-send age policy; transport retries must not replace an observation's clock. */
+    internal fun quoteFresh8522(observedAtMs: Long, nowMs: Long): Boolean =
+        observedAtMs > 0L && nowMs - observedAtMs in 0L..MAX_QUOTE_AGE_MS
+
     data class Route(
         val inputMint: String,
         val outputMint: String,
@@ -109,7 +113,7 @@ object BuyRouteSafety8522 {
         if (report.mintAuthorityDisabled != true || report.freezeAuthorityDisabled != true)
             return pending("BUY_FINAL_AUTHORITY_PROOF_PENDING_8522", "mint and freeze authorities must both be proven revoked")
         if (route.invalid.isNotBlank()) return pending(route.invalid, "route=${route.source}")
-        if (route.observedAtMs <= 0L || nowMs - route.observedAtMs !in 0L..MAX_QUOTE_AGE_MS)
+        if (!quoteFresh8522(route.observedAtMs, nowMs))
             return pending("BUY_ROUTE_PROOF_STALE_8522", "route=${route.source} ageMs=${nowMs - route.observedAtMs}")
         if (route.pools.isEmpty() && !route.rfq)
             return pending("BUY_ROUTE_POOL_PROOF_PENDING_8522", "route=${route.source}")

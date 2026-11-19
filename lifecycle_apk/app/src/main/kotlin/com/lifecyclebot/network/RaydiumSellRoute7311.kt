@@ -46,7 +46,8 @@ object RaydiumSellRoute7311 {
     }
 
     data class Built(val transactions: List<String>, val outLamports: Long, val cuPrice: Long,
-                     val buyRoute8522: com.lifecyclebot.engine.BuyRouteSafety8522.Route? = null)
+                     val buyRoute8522: com.lifecyclebot.engine.BuyRouteSafety8522.Route? = null,
+                     val buyInputAmountRaw8870: Long = 0L)
 
     private fun get(url: String): JSONObject {
         val req = Request.Builder().url(url).get().build()
@@ -181,7 +182,8 @@ object RaydiumSellRoute7311 {
             )
         } catch (_: Throwable) {}
         return Built(txs, outRaw, cuPrice,
-            com.lifecyclebot.engine.BuyRouteSafety8522.raydium(quote, mint, quoteStarted8522))
+            com.lifecyclebot.engine.BuyRouteSafety8522.raydium(quote, mint, quoteStarted8522),
+            quote.optJSONObject("data")?.optString("inputAmount", "")?.toLongOrNull() ?: 0L)
     }
 
     /**
@@ -198,8 +200,10 @@ object RaydiumSellRoute7311 {
             } catch (_: Throwable) { null }
             // V5.0.8085 — every signed tx of the build carries the caller's (mint, side) intent; a sent-but-unconfirmed
             // throw stops the build (no further tx is signed against an unverified quantity) and reaches the caller.
-            if (intent8085 != null) SignedTxLedger8085.intend(intent8085)
             val send = {
+                // A freshness observer may defer without invoking send. Publish the thread-local intent only
+                // when this transaction is about to consume it, so a pooled IO thread cannot inherit an old BUY.
+                if (intent8085 != null) SignedTxLedger8085.intend(intent8085)
                 wallet.signAndSend(
                     env?.txBase64 ?: tx,
                     useJito = jitoEnabled && env == null,

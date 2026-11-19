@@ -17,7 +17,7 @@ class Aate8834CryptoCanonicalEvidenceTest {
     private val now = 1_800_000_000_000L
 
     @Test fun realFiveMinuteEvidenceAndDatedCandlesSurviveTheBridge() {
-        val mint = "aate8834-real-mint"
+        val mint = "Aate8834AAAAAAAAAAAAAAAAAAAAAAAAA"
         val token = DynamicAltTokenRegistry.DynToken(
             mint = mint, tokenAddress = mint, chainId = "solana", symbol = "UP", name = "UP",
             price = 1.12, priceObservedAtMs8372 = now - 2_000L,
@@ -57,7 +57,7 @@ class Aate8834CryptoCanonicalEvidenceTest {
 
     @Test fun staleActivityAndMismatchedPriceCannotBecomeObservedProof() {
         val token = DynamicAltTokenRegistry.DynToken(
-            mint = "aate8834-stale", tokenAddress = "aate8834-stale", chainId = "solana",
+            mint = "Aate8834BBBBBBBBBBBBBBBBBBBBBBBBB", tokenAddress = "Aate8834BBBBBBBBBBBBBBBBBBBBBBBBB", chainId = "solana",
             symbol = "STALE", name = "STALE", price = 2.0,
             priceObservedAtMs8372 = now - 180_000L,
             buys24h = 1_000, sells24h = 2, volume24h = 400_000.0,
@@ -91,7 +91,7 @@ class Aate8834CryptoCanonicalEvidenceTest {
 
     @Test fun sellerDominatedOrZeroFiveMinuteFlowIsNeverUpgradedToBullish() {
         val token = DynamicAltTokenRegistry.DynToken(
-            mint = "aate8834-selling", chainId = "solana", symbol = "DOWN", name = "DOWN",
+            mint = "Aate8834CCCCCCCCCCCCCCCCCCCCCCCCC", chainId = "solana", symbol = "DOWN", name = "DOWN",
             price = 1.0, priceObservedAtMs8372 = now - 500L,
             buys5m8832 = 3, sells5m8832 = 21, volume5m8832 = 9_000.0,
             change5mPct8832 = -2.1, shortWindowObservedAtMs8832 = now - 700L,
@@ -113,7 +113,8 @@ class Aate8834CryptoCanonicalEvidenceTest {
     @Test fun canonicalRouteStillUsesOriginalSafetyAndLiveEdgeAuthority() {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/cortex/CrossAssetCortex7931.kt").readText()
         val contract = File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalAssetEntryContract6551.kt").readText()
-        assertTrue(src.contains("bridgeCryptoObservedContext8834(ts, dyn8063, c.price, c.liquidityUsd, mcap8063, nowMs)"))
+        assertTrue(src.contains("bridgeCryptoObservedContext8834(ts, dyn8063, c.price, c.liquidityUsd, mcap8063, nowMs,"))
+        assertTrue(src.contains("c.priceObservedAtMs8870, c.priceSource8870, c.priceAssetId8870"))
         assertTrue(src.contains("LiveEdgeGate7877.liveRefusal(ts, lane, paper)"))
         assertTrue(contract.contains("if (candidate.hardSafetyReasons.isNotEmpty())"))
         assertTrue(contract.contains("if (!sizing.executable) return blocked"))

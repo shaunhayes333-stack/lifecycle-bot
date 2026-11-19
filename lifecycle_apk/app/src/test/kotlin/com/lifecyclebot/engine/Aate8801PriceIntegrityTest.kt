@@ -157,11 +157,11 @@ class Aate8801PriceIntegrityTest {
 
     @Test fun theCryptoBookDatesAMarkByWhenThePriceWasSeen() {
         assertEquals(1_000L, DynamicAltTokenRegistry.priceTime8801(1_000L, 9_000L))
-        assertEquals("a writer with no source clock observed it as it wrote", 9_000L, DynamicAltTokenRegistry.priceTime8801(0L, 9_000L))
+        assertEquals("8870: a metadata write cannot establish when an unknown price was observed", 0L, DynamicAltTokenRegistry.priceTime8801(0L, 9_000L))
         val reg = src("perps/DynamicAltTokenRegistry.kt")
         assertTrue(reg.contains("val observedAt = refreshed?.let { priceTime8801(it.priceObservedAtMs8372, it.lastUpdatedMs) } ?: 0L"))
         // superseded by V5.0.8866 — a row with no price has no observation that could stand
-        assertTrue(reg.contains("if (existing.price > 0.0 && priceTime8801(existing.priceObservedAtMs8372, existing.lastUpdatedMs) > observedAtMs) return false"))
+        assertTrue(reg.contains("if (latest.price > 0.0 && priceTime8801(latest.priceObservedAtMs8372, latest.lastUpdatedMs) > observedAtMs) latest"))
     }
 
     @Test fun oldRowsPriceShapeIsUnknownToEveryLearner() {

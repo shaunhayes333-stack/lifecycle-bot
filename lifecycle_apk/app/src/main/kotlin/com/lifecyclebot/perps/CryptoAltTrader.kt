@@ -894,6 +894,11 @@ object CryptoAltTrader {
         val strategy7803 : String = "CRYPTO_NATIVE",
         val deskOverlays7803: Set<String> = emptySet(),
         val candidateVersion7803: Long = 0L,
+        // The observation clock belongs to this exact price, not to the mutable registry row.
+        val priceObservedAtMs8870: Long = 0L,
+        val priceSource8870: String = "",
+        // Owns the exact evaluation lease; a later registry refresh cannot change which pass is released.
+        val evaluationOwner8870: DynamicAltTokenRegistry.DynToken? = null,
     ) {
         /** Real coin symbol — dynamic value when present, else the enum symbol. */
         val marketSymbol: String get() = dynSymbol ?: market.symbol
@@ -2129,15 +2134,21 @@ object CryptoAltTrader {
                 // tokens that produced a signal are re-priced now, so the signal and
                 // the basis come from one fresh observation.
                 var freshPrice7391 = 0.0
+                var priceObserved7391 = refreshed.priceObservedAtMs8372
                 if (dynExecutableSignals.size > executableSignalCountBefore6567 &&
-                    System.currentTimeMillis() - refreshed.lastUpdatedMs > 150_000L) {
+                    com.lifecyclebot.engine.NativeDecisionEnrollment8372.priceAge8870(
+                        refreshed.priceObservedAtMs8372, System.currentTimeMillis()) > LIVE_DECISION_REFRESH_TARGET_MS_8870) {
                     freshPrice7391 = try {
                         withContext(Dispatchers.IO) {
-                            DynamicAltTokenRegistry.refreshPriceForMintBlocking(refreshed.canonicalIdentity6544, forceRefresh = true)
+                            DynamicAltTokenRegistry.refreshPriceForMintBlocking(refreshed.canonicalIdentity6544,
+                                forceRefresh = true, maxCacheAgeMs8870 = LIVE_DECISION_REFRESH_TARGET_MS_8870)
                         }
                     } catch (_: Throwable) { 0.0 }
-                    val reobserved7391 = DynamicAltTokenRegistry.heldMarkSnapshot7251(refreshed.canonicalIdentity6544).freshObservation
-                    if (!reobserved7391) freshPrice7391 = 0.0
+                    val reobserved7391 = DynamicAltTokenRegistry.heldMarkSnapshot7251(refreshed.canonicalIdentity6544)
+                    if (freshPrice7391 == reobserved7391.price && decisionPriceUsable8870(
+                            reobserved7391.observedAtMs, System.currentTimeMillis())) {
+                        priceObserved7391 = reobserved7391.observedAtMs
+                    } else freshPrice7391 = 0.0
                     try {
                         PipelineHealthCollector.labelInc(
                             if (freshPrice7391 > 0.0) "CRYPTO_DESK_SIGNAL_REPRICED_7391" else "CRYPTO_DESK_SIGNAL_REPRICE_FAILED_7391",
@@ -2150,6 +2161,9 @@ object CryptoAltTrader {
                     dynExecutableSignals[i7391] = s7391.copy(
                         score = if (manipDanger7391) (s7391.score - 40).coerceAtLeast(0) else s7391.score,
                         price = if (freshPrice7391 > 0.0) freshPrice7391 else s7391.price,
+                        priceObservedAtMs8870 = priceObserved7391,
+                        priceSource8870 = "ALT_REGISTRY_OBSERVED_8870",
+                        evaluationOwner8870 = refreshed,
                         reasons = s7391.reasons + CryptoLaneDesk7391.evidencedSignalReason8851(
                             lane7391, desk7391, deskCandidates7803,
                         ),
@@ -2242,7 +2256,7 @@ object CryptoAltTrader {
                 .sortedWith(compareByDescending<AltSignal> { it.score + it.confidence }.thenByDescending { it.score })
                 .take(25)
             uniqueDynSignals6567.filterNot { it in topDyn }.forEach { observed ->
-                val observedTok6569 = observed.dynAssetKey?.let { DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(it) }
+                val observedTok6569 = observed.evaluationOwner8870 ?: observed.dynAssetKey?.let { DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(it) }
                     ?: observed.dynMint?.let { DynamicAltTokenRegistry.getTokenByMint(it) }
                 // V5.0.7400 — ranked-out is NOT terminal. 7399 violated the
                 // existing 6695 contract and retired candidates merely because
@@ -2254,14 +2268,14 @@ object CryptoAltTrader {
             for ((signalIndex6567, sig) in topDyn.withIndex()) {
                 if (activeModePositions7256(positions.values).size >= MAX_POSITIONS) {
                     topDyn.drop(signalIndex6567).forEach { capped ->
-                        val cappedTok6567 = capped.dynAssetKey?.let { DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(it) }
+                        val cappedTok6567 = capped.evaluationOwner8870 ?: capped.dynAssetKey?.let { DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(it) }
                             ?: capped.dynMint?.let { DynamicAltTokenRegistry.getTokenByMint(it) }
                         DynamicAltTokenRegistry.markEvaluationDisposition6567(cappedTok6567, "POSITION_CAP_REACHED")
                         drop8135("POSITION_CAP_REACHED")
                     }
                     break
                 }
-                val sharedTok6569 = sig.dynAssetKey?.let { DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(it) }
+                val sharedTok6569 = sig.evaluationOwner8870 ?: sig.dynAssetKey?.let { DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(it) }
                     ?: sig.dynMint?.let { DynamicAltTokenRegistry.getTokenByMint(it) }
                 // V5.0.7244 — do not stamp route truth before route resolution.
                 // The resolved candidate below is the only authority for routability.
@@ -2278,7 +2292,7 @@ object CryptoAltTrader {
                 try { ForensicLogger.lifecycle("CRYPTO_SIGNAL_SELECTED_6566", "symbol=${sig.marketSymbol} source=DYNAMIC_ALT score=${sig.score} confidence=${sig.confidence} mode=${if (isPaperMode.get()) "PAPER" else "LIVE"}") } catch (_: Throwable) {}
                 // V5.9.1472 — dedupe by real symbol so DYN coins aren't collapsed.
                 if (hasPositionSymbol(sig.marketSymbol)) {
-                    val openTok6567 = sig.dynAssetKey?.let { DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(it) }
+                    val openTok6567 = sig.evaluationOwner8870 ?: sig.dynAssetKey?.let { DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(it) }
                         ?: sig.dynMint?.let { DynamicAltTokenRegistry.getTokenByMint(it) }
                     DynamicAltTokenRegistry.markEvaluationDisposition6567(openTok6567, "POSITION_ALREADY_OPEN")
                     drop8135("POSITION_ALREADY_OPEN")
@@ -2295,7 +2309,7 @@ object CryptoAltTrader {
                 // route gates. Rejected candidates may be attempted/evaluated, but
                 // must never emit EXECUTE wording unless an open actually succeeds.
                 ErrorLogger.info(TAG, "🪙⚡ DynScan ATTEMPT: ${sig.marketSymbol} score=${sig.score} conf=${sig.confidence} ${if (dynSpot) "SPOT" else "${dynLev.toInt()}x"}")
-                val terminalTok6567 = sig.dynAssetKey?.let { DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(it) }
+                val terminalTok6567 = sig.evaluationOwner8870 ?: sig.dynAssetKey?.let { DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(it) }
                     ?: sig.dynMint?.let { DynamicAltTokenRegistry.getTokenByMint(it) }
                 try {
                     executeSignal(sig.copy(leverage = dynLev), isSpot = dynSpot)
@@ -3129,6 +3143,8 @@ object CryptoAltTrader {
             reasons        = reasons,
             layerVotes     = layerVotes,
             strategy7803   = "CRYPTO_STATIC_ANALYZE",
+            priceObservedAtMs8870 = data.lastUpdate,
+            priceSource8870 = "PERPS_MARKET_FEED_8870",
             candidateVersion7803 = CryptoCandidateRevision8535.of("CRYPTO_STATIC_ANALYZE", direction.name, data.price, change, score, confidence),   // V5.0.8535 §C07
         )
     }
@@ -3499,9 +3515,69 @@ object CryptoAltTrader {
      * rule 7252 applies to a missing quantity witness. Live fills are
      * untouched: their basis is the venue's fill.
      */
-    private suspend fun freshDynamicEntryBasis7275(signal: AltSignal, isSpot: Boolean): Pair<Double, String>? {
+    private data class EntryBasis8870(val price: Double, val source: String, val observedAtMs: Long)
+
+    internal const val LIVE_DECISION_REFRESH_TARGET_MS_8870 = 15_000L
+
+    internal fun decisionPriceUsable8870(observedAtMs: Long, nowMs: Long, lane: String = "CRYPTO_ALT", hotLaunch: Boolean = false): Boolean =
+        !com.lifecyclebot.engine.truth.CandidateAdmission8136.priceStale8136(
+            com.lifecyclebot.engine.NativeDecisionEnrollment8372.priceAge8870(observedAtMs, nowMs), hotLaunch, true,
+            com.lifecyclebot.engine.truth.CandidateAdmission8136.feedPeriodMs8855(lane))
+
+    /** A transient supply/capacity wait completes the pass, not the candidate's market thesis. */
+    internal fun retryableEntryWait8870(reason: String): Boolean =
+        reason == "CRYPTO_LIVE_PRICE_REFRESH_WAIT_8870" ||
+            reason == com.lifecyclebot.engine.CryptoLiveQuoteBoundary8870.WAIT_REASON ||
+            reason.startsWith("CANONICAL_DEFERRED:CRYPTO_PAPER_BACKING_CAPACITY_8870")
+
+    private suspend fun freshDynamicEntryBasis7275(signal: AltSignal, isSpot: Boolean,
+                                                   liveDecision8870: Boolean = false): EntryBasis8870? {
         val identity = try { cryptoAssetKey(signal, isSpot).trim() } catch (_: Throwable) { "" }
         if (identity.isBlank() || identity.startsWith("unresolved:") || identity.startsWith("perps:")) return null
+        val refreshTarget8870 = if (liveDecision8870) LIVE_DECISION_REFRESH_TARGET_MS_8870 else RECENT_BASIS_MS_7281
+        fun usable(snap: DynamicAltTokenRegistry.HeldMarkRefresh7251): Boolean =
+            DynamicAltTokenRegistry.sameAsset8866(snap.canonicalIdentity, identity) &&
+                snap.price.isFinite() && snap.price > 0.0 &&
+                (if (liveDecision8870) decisionPriceUsable8870(snap.observedAtMs, System.currentTimeMillis())
+                 else recentBasisUsable8091(snap.observedAtMs, System.currentTimeMillis()))
+        // A concurrent cache update must not erase a still-eligible nomination's paired receipt on a refresh miss.
+        // The existing feed-aware decision policy owns eligibility; no held-position or refresh-target limit is added.
+        var fallback8870: EntryBasis8870? = if (liveDecision8870 && signal.price.isFinite() && signal.price > 0.0 &&
+            signal.priceSource8870.isNotBlank() && decisionPriceUsable8870(signal.priceObservedAtMs8870, System.currentTimeMillis()))
+            EntryBasis8870(signal.price, signal.priceSource8870, signal.priceObservedAtMs8870) else null
+        fun retainNewer8870(observed: EntryBasis8870): EntryBasis8870 {
+            val previous = fallback8870
+            if (previous == null || observed.observedAtMs >= previous.observedAtMs) fallback8870 = observed
+            return fallback8870!!
+        }
+        suspend fun registryBasis8870(): EntryBasis8870? {
+            val cached8870 = try { DynamicAltTokenRegistry.heldMarkSnapshot7251(identity) } catch (_: Throwable) { null }
+            if (cached8870 != null && usable(cached8870)) {
+                try { PipelineHealthCollector.labelInc(if (!liveDecision8870)
+                    "CRYPTO_PAPER_ENTRY_BASIS_RECENT_7281" else "CRYPTO_LIVE_DECISION_PRICE_SHARED_8870") } catch (_: Throwable) {}
+                val observed = EntryBasis8870(cached8870.price, "ALT_REGISTRY_OBSERVED_8870", cached8870.observedAtMs)
+                if (com.lifecyclebot.engine.NativeDecisionEnrollment8372.priceAge8870(cached8870.observedAtMs, System.currentTimeMillis()) <= refreshTarget8870)
+                    return retainNewer8870(observed)
+                retainNewer8870(observed)
+            }
+            val refreshed8870 = try {
+                withContext(Dispatchers.IO) {
+                    DynamicAltTokenRegistry.refreshPriceForMintBlocking(identity, forceRefresh = true, maxCacheAgeMs8870 = refreshTarget8870)
+                    DynamicAltTokenRegistry.heldMarkSnapshot7251(identity)
+                }
+            } catch (_: Throwable) { null }
+            if (refreshed8870 != null && usable(refreshed8870)) {
+                val observed = EntryBasis8870(refreshed8870.price, "ALT_REGISTRY_FRESH_7251", refreshed8870.observedAtMs)
+                if (com.lifecyclebot.engine.NativeDecisionEnrollment8372.priceAge8870(refreshed8870.observedAtMs, System.currentTimeMillis()) <= refreshTarget8870)
+                    return retainNewer8870(observed)
+                retainNewer8870(observed)
+            }
+            return null
+        }
+        // Live decisions first consume the shared source-dated stream. Paper retains its existing contested-fanout check.
+        // Only actionable candidates request a current price; metadata cannot satisfy either clock.
+        if (liveDecision8870)
+            registryBasis8870()?.let { return it }
         val bareSolanaMint = identity.takeIf { it.startsWith("solana|") }?.removePrefix("solana|")?.trim().orEmpty()
         if (bareSolanaMint.isNotBlank()) {
             val fan = try {
@@ -3514,38 +3590,21 @@ object CryptoAltTrader {
                 try { PipelineHealthCollector.labelInc("CRYPTO_PAPER_ENTRY_BASIS_CONTESTED_7275") } catch (_: Throwable) {}
                 return null
             }
-            val px = fan?.priceUsd?.takeIf { it.isFinite() && it > 0.0 }
-            if (px != null) {
-                try { DynamicAltTokenRegistry.observeHeldMark7274(identity, px) } catch (_: Throwable) {}
-                return px to (if (fan!!.corroborated) "FANOUT_CORROBORATED_7088_x${fan.agreeingCount}" else "FANOUT_UNCORROBORATED_7088")
+            val px = fan?.takeIf { it.priceUsd.isFinite() && it.priceUsd > 0.0 &&
+                (if (liveDecision8870) decisionPriceUsable8870(it.observedAtMs8521, System.currentTimeMillis())
+                 else recentBasisUsable8091(it.observedAtMs8521, System.currentTimeMillis())) }?.priceUsd
+            if (fan != null && px != null) {
+                try { DynamicAltTokenRegistry.observeHeldMark7274(identity, px, fan.observedAtMs8521) } catch (_: Throwable) {}
+                return retainNewer8870(EntryBasis8870(px,
+                    if (fan.corroborated) "FANOUT_CORROBORATED_7088_x${fan.agreeingCount}" else "FANOUT_UNCORROBORATED_7088",
+                    fan.observedAtMs8521))
             }
         }
-        val snap = try {
-            withContext(Dispatchers.IO) { DynamicAltTokenRegistry.refreshHeldMark7251(identity) }
-        } catch (_: Throwable) { null }
-        if (snap != null && snap.freshObservation && snap.price.isFinite() && snap.price > 0.0 &&
-            recentBasisUsable8091(snap.observedAtMs, System.currentTimeMillis())) {
-            return snap.price to "ALT_REGISTRY_FRESH_7251"
-        }
-        // 8091: a scanner observation remains usable only within the same
-        // 60-second freshness window required by monitorPositions. The former
-        // three-minute fallback opened positions already unpriceable for exits.
-        // Preserve the observation age in the entry provenance.
-        if (snap != null && snap.price.isFinite() && snap.price > 0.0 && snap.observedAtMs > 0L) {
-            val ageMs7281 = (System.currentTimeMillis() - snap.observedAtMs).coerceAtLeast(0L)
-            if (recentBasisUsable8091(snap.observedAtMs, System.currentTimeMillis())) {
-                try {
-                    PipelineHealthCollector.labelInc("CRYPTO_PAPER_ENTRY_BASIS_RECENT_7281")
-                    ForensicLogger.lifecycle(
-                        "CRYPTO_PAPER_ENTRY_BASIS_RECENT_7281",
-                        "symbol=${signal.marketSymbol} asset=${identity.take(32)} price=${snap.price} ageMs=$ageMs7281 " +
-                            "action=recent_registry_observation_is_the_basis",
-                    )
-                } catch (_: Throwable) {}
-                return snap.price to "ALT_REGISTRY_RECENT_7281_${ageMs7281 / 1000}s"
-            }
-        }
-        return null
+        if (!liveDecision8870) registryBasis8870()?.let { return it }
+        // 15 seconds is a refresh target, not a new admission door. The existing feed-aware price policy still owns
+        // eligibility when a refresh is unavailable; the canonical gate independently applies its actual launch state.
+        return fallback8870?.takeIf { if (liveDecision8870) decisionPriceUsable8870(it.observedAtMs, System.currentTimeMillis())
+            else recentBasisUsable8091(it.observedAtMs, System.currentTimeMillis()) }
     }
 
     /** 8091: an entry basis must also be usable by the held-position exit monitor. */
@@ -3596,9 +3655,10 @@ object CryptoAltTrader {
         fun terminalDisposition6613(reason: String, rejectOwner7171: String = "THIS") {
             try {
                 val key = cryptoAssetKey(signal, isSpot)
-                DynamicAltTokenRegistry.markEvaluationDisposition6567(
-                    DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(key), reason,
-                )
+                val tok8870 = signal.evaluationOwner8870 ?: DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(key)
+                if (tok8870 != null && retryableEntryWait8870(reason))
+                    DynamicAltTokenRegistry.releaseEvaluationForRetry7418(tok8870, reason)
+                else DynamicAltTokenRegistry.markEvaluationDisposition6567(tok8870, reason)
                 when (rejectOwner7171) {
                     // The intent exists and the authority released it, which
                     // already stamped the reject through its own dedup.
@@ -3624,46 +3684,45 @@ object CryptoAltTrader {
                 }
             } catch (_: Throwable) {}
         }
-        // V5.0.7275 — a paper dynamic entry is based on a price observed now,
-        // not on the scan-time registry figure the signal carried. See
-        // freshDynamicEntryBasis7275. Everything below — TP/SL, the sealed
-        // candidate, the quantity witness, the canonical open — reads the
-        // shadowed signal, so the position's basis and its first mark come
-        // from the same moment.
-        val wantsFreshBasis7275 = paper7803 && signal.isDynamic
-        val basis7275: Pair<Double, String>? =
-            if (wantsFreshBasis7275) freshDynamicEntryBasis7275(signal, isSpot) else null
+        // A dynamic candidate carries one observed price/time/source through TP/SL and canonical admission.
+        // Paper uses that observation as its fill basis; live accounting still requires the confirmed venue fill.
+        val wantsFreshBasis7275 = signal.isDynamic
+        val basis7275: EntryBasis8870? =
+            if (wantsFreshBasis7275) freshDynamicEntryBasis7275(signal, isSpot,
+                liveDecision8870 = !paper7803) else null
         if (wantsFreshBasis7275 && basis7275 == null) {
-            terminalDisposition6613("CRYPTO_PAPER_ENTRY_BASIS_UNOBSERVED_7275", "PRE_SUBMIT")
+            val reason8870 = if (paper7803) "CRYPTO_PAPER_ENTRY_BASIS_UNOBSERVED_7275" else "CRYPTO_LIVE_PRICE_REFRESH_WAIT_8870"
+            terminalDisposition6613(reason8870, "PRE_SUBMIT")
             try {
-                PipelineHealthCollector.labelInc("CRYPTO_PAPER_ENTRY_BASIS_UNOBSERVED_7275")
+                PipelineHealthCollector.labelInc(reason8870)
                 ForensicLogger.lifecycle(
-                    "CRYPTO_PAPER_ENTRY_BASIS_UNOBSERVED_7275",
+                    reason8870,
                     "symbol=${signal.marketSymbol} asset=${cryptoAssetKey(signal, isSpot).take(32)} scanPrice=${signal.price} " +
                         "action=no_fresh_observation_no_basis_refuse_before_debit",
                 )
             } catch (_: Throwable) {}
             return
         }
-        val entryBasisSource7275 = basis7275?.second ?: "signal.price"
+        val entryBasisSource7275 = basis7275?.source ?: signal.priceSource8870.ifBlank { "signal.price" }
         @Suppress("NAME_SHADOWING")
         val signal = if (basis7275 != null) {
             val scanPx7275 = signal.price
-            val freshPx7275 = basis7275.first
+            val freshPx7275 = basis7275.price
             val movePct7275 = if (scanPx7275 > 0.0) (freshPx7275 / scanPx7275 - 1.0) * 100.0 else 0.0
             try {
-                PipelineHealthCollector.labelInc("CRYPTO_PAPER_ENTRY_BASIS_OBSERVED_7275")
+                PipelineHealthCollector.labelInc(if (paper7803) "CRYPTO_PAPER_ENTRY_BASIS_OBSERVED_7275" else "CRYPTO_LIVE_DECISION_PRICE_OBSERVED_8870")
                 if (kotlin.math.abs(movePct7275) >= 5.0) {
-                    PipelineHealthCollector.labelInc("CRYPTO_PAPER_ENTRY_BASIS_MOVED_FROM_SCAN_7275")
+                    PipelineHealthCollector.labelInc(if (paper7803) "CRYPTO_PAPER_ENTRY_BASIS_MOVED_FROM_SCAN_7275" else "CRYPTO_LIVE_DECISION_PRICE_MOVED_8870")
                     ForensicLogger.lifecycle(
-                        "CRYPTO_PAPER_ENTRY_BASIS_MOVED_FROM_SCAN_7275",
-                        "symbol=${signal.marketSymbol} scanPrice=$scanPx7275 fillPrice=$freshPx7275 " +
+                        if (paper7803) "CRYPTO_PAPER_ENTRY_BASIS_MOVED_FROM_SCAN_7275" else "CRYPTO_LIVE_DECISION_PRICE_MOVED_8870",
+                        "symbol=${signal.marketSymbol} scanPrice=$scanPx7275 observedPrice=$freshPx7275 " +
                             "movePct=${"%.1f".format(movePct7275)} src=$entryBasisSource7275 " +
-                            "action=basis_is_the_observed_fill_not_the_scan_row",
+                            "action=${if (paper7803) "paper_basis_uses_observed_price" else "decision_uses_observed_price_fill_still_requires_venue"}",
                     )
                 }
             } catch (_: Throwable) {}
-            signal.copy(price = freshPx7275)
+            signal.copy(price = freshPx7275, priceObservedAtMs8870 = basis7275.observedAtMs,
+                priceSource8870 = basis7275.source)
         } else signal
         // V5.9.1472 — DYNAMIC CRYPTO: resolve the REAL coin symbol once. For DYN
         // sentinel signals (arbitrary non-Solana coin) this is dynSymbol; for
@@ -3982,6 +4041,9 @@ object CryptoAltTrader {
                     "lane8788" to candidate.selectedLane,   // V5.0.8788 — CRYPTO_SPOT / CRYPTO_ALT / CRYPTO_LEV, for the paper backing
                 ),
                 requestedSizeSol = finalSize, price = signal.price, liquidityUsd = candidate.liquidityUsd,
+                priceObservedAtMs8870 = signal.priceObservedAtMs8870,
+                priceSource8870 = signal.priceSource8870,
+                priceAssetId8870 = cryptoAssetKey(signal, isSpot),
                 routeAvailable = paper7803 || candidate.executionAdapter == "CRYPTO_UNIVERSE_EXECUTOR",
                 hardSafetyReasons = candidate.hardNoReasons + listOfNotNull(
                     livePreflight7835.second,
@@ -4030,8 +4092,8 @@ object CryptoAltTrader {
             PipelineHealthCollector.labelInc("CRYPTO_POST_SEAL_DUPLICATE_GATE_ELIMINATED_7521")
         } catch (_: Throwable) {}
         try {
-            DynamicAltTokenRegistry.markEvaluationDisposition6567(
-                DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(candidate.assetKey),
+            DynamicAltTokenRegistry.markEvaluationProgress6570(
+                signal.evaluationOwner8870 ?: DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(candidate.assetKey),
                 "HANDED_TO_CANONICAL_AUTHORITY",
             )
         } catch (_: Throwable) {}
@@ -4237,6 +4299,8 @@ object CryptoAltTrader {
                 return
             }
             if (liveResult7434 is LiveCryptoOpenResult7434.Pending) {
+                try { DynamicAltTokenRegistry.markEvaluationDisposition6567(signal.evaluationOwner8870,
+                    "SIGNED_PENDING_WALLET_PROOF_8870") } catch (_: Throwable) {}
                 // Do not markConfirmed, create a synthetic CryptoAlt position, or
                 // learn from a signature without confirmed target-token quantity.
                 try {
@@ -4265,6 +4329,12 @@ object CryptoAltTrader {
                 } catch (_: Throwable) {}
                 return // Canonical dispatch remains pending, never an OPEN claim.
             }
+            if (liveResult7434 is LiveCryptoOpenResult7434.Deferred) {
+                com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markDeferred(canonicalCryptoIntent6565, liveResult7434.reason)
+                try { com.lifecyclebot.engine.LaneExecutionCoordinator.releaseIfPrimary(candidate.assetKey, "CRYPTO", liveResult7434.reason) } catch (_: Throwable) {}
+                terminalDisposition6613(liveResult7434.reason, "AUTHORITY")
+                return
+            }
             val liveFail7318 = (liveResult7434 as? LiveCryptoOpenResult7434.Failed)?.reason
             if (liveFail7318 != null) {
                 ErrorLogger.warn(TAG, "🔴 LIVE alt trade failed: ${mktSym} — position not recorded: $liveFail7318")
@@ -4285,6 +4355,8 @@ object CryptoAltTrader {
             ErrorLogger.info(TAG, "🪙 LIVE trade success: ${mktSym} (paper-sized ${canonicalFinalSize6570.fmt(4)}◎)")
         }
 
+        try { DynamicAltTokenRegistry.markEvaluationDisposition6567(signal.evaluationOwner8870,
+            "CANONICAL_OPEN_CONFIRMED_8870") } catch (_: Throwable) {}
         positions[position.id]         = position
         if (isSpot) spotPositions[position.id]     = position
         else        leveragePositions[position.id]  = position
@@ -4406,6 +4478,7 @@ object CryptoAltTrader {
     private sealed class LiveCryptoOpenResult7434 {
         data object Opened : LiveCryptoOpenResult7434()
         data class Pending(val signature: String, val mint: String, val proofState: String) : LiveCryptoOpenResult7434()
+        data class Deferred(val reason: String) : LiveCryptoOpenResult7434()
         data class Failed(val reason: String) : LiveCryptoOpenResult7434()
     }
 
@@ -4526,9 +4599,8 @@ object CryptoAltTrader {
                 }
                 is com.lifecyclebot.perps.crypto.CryptoUniverseExecutor.Outcome.VerifyPending -> {
                     try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_DISPATCH_TERMINAL_7432_VERIFY_PENDING") } catch (_: Throwable) {}
-                    // Signature is chain-confirmed; TX_PARSE_META / owner delta owns
-                    // promotion to FINAL_TOKEN_VERIFIED. Treat as accepted pending work,
-                    // not a failure and not eligible for duplicate resubmission.
+                    // A submitted signature may be unconfirmed or a setup-only step. TX_PARSE_META / owner delta
+                    // owns promotion to FINAL_TOKEN_VERIFIED; pending work cannot authorize duplicate resubmission.
                     ErrorLogger.info(TAG,
                         "🪙 VERIFY PENDING: ${signal.marketSymbol} tx=${outcome.txSig.take(16)} proof=${outcome.proofState}")
                     LiveCryptoOpenResult7434.Pending(outcome.txSig, outcome.mint, outcome.proofState)
@@ -4544,7 +4616,9 @@ object CryptoAltTrader {
                     ErrorLogger.info(TAG,
                         "🪙 ROUTE DEFERRED: ${signal.marketSymbol} → ${outcome.resolution.route} " +
                         "[${outcome.resolution.diagCode}] ${outcome.resolution.humanMessage}")
-                    LiveCryptoOpenResult7434.Failed("ROUTE_DEFERRED_${outcome.resolution.diagCode}:${outcome.resolution.humanMessage.take(100)}")
+                    if (outcome.resolution.diagCode == com.lifecyclebot.engine.CryptoLiveQuoteBoundary8870.WAIT_REASON)
+                        LiveCryptoOpenResult7434.Deferred(outcome.resolution.diagCode)
+                    else LiveCryptoOpenResult7434.Failed("ROUTE_DEFERRED_${outcome.resolution.diagCode}:${outcome.resolution.humanMessage.take(100)}")
                 }
                 is com.lifecyclebot.perps.crypto.CryptoUniverseExecutor.Outcome.ExecFailed -> {
                     LiveAttemptStats.record("CryptoAlt", LiveAttemptStats.Outcome.FAILED)
@@ -4778,7 +4852,8 @@ object CryptoAltTrader {
                     var markSource8866 = if (fresh8800) "CANONICAL_HELD" else "-"
                     var observedAt8866 = canonical8866?.second ?: 0L
                     if (!fresh8800) {
-                        val ageMs = (System.currentTimeMillis() - resolved.lastUpdatedMs).coerceAtLeast(0L)
+                        val ageMs = com.lifecyclebot.engine.NativeDecisionEnrollment8372.priceAge8870(
+                            resolved.priceObservedAtMs8372, System.currentTimeMillis())
                         val heldMark7251 = if (ageMs > 60_000L) {
                             refreshDynamicMark7251(resolved.canonicalIdentity6544)
                         } else {
@@ -6111,6 +6186,9 @@ object CryptoAltTrader {
                     reasons          = listOf("LLM chat: ${reason.take(80)}"),
                     layerVotes       = emptyMap(),
                     strategy7803     = "LLM_PROPOSED",
+                    priceObservedAtMs8870 = priceData?.takeIf { it.price == price }?.lastUpdate
+                        ?: PerpsMarketDataFetcher.getCachedPrice(market)?.takeIf { it.price == price }?.lastUpdate ?: 0L,
+                    priceSource8870 = "PERPS_MARKET_FEED_8870",
                     candidateVersion7803 = System.currentTimeMillis() / 30_000L,
                     // V5.0.7183 — this is dispatched with isSpot=true, so a
                     // 3x on the signal was already contradictory; it rode

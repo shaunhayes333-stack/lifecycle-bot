@@ -879,7 +879,12 @@ object CandidateAdmission8136 {
             val econMissing8418: List<String> = if (econKnown) emptyList()
                 else if (c.costPct.isFinite() && moveWaitChosen8418 == NetEdge8030.MOVE_WAIT_HISTORY_8418) listOf(StrategyMove8153.DEFER_FEATURE_8153)
                 else listOf("economics")
-            val missing = c.missingInputs + (if (stale) listOf("price") else emptyList()) + econMissing8418
+            // 8870: only the facts which actually caused this wait belong in its dependency list. Optional shape/tape
+            // gaps used to join a PRICE_STALE wait, consume fetch capacity and keep firstMissing alive after price arrived.
+            // They remain in the record, without becoming a second requirement that decide8136 never imposed.
+            val optionalMissing8870 = c.missingInputs.filterNot { it in criticalMissing8170 }
+            if (optionalMissing8870.isNotEmpty()) trace += "optionalUnobserved8170=${optionalMissing8870.joinToString(",")}"
+            val missing = (criticalMissing8170 + (if (stale) listOf("price") else emptyList()) + econMissing8418).distinct()
             trace += "missing=${missing.joinToString(",")}"
             if (criticalMissing8170.isNotEmpty()) trace += "criticalUnobserved8170=${criticalMissing8170.joinToString(",")}"
             return done(Terminal8136.DEFER_DATA, "DATA_INCOMPLETE_DEFER_8136", false, chosen)
@@ -1261,7 +1266,7 @@ object CandidateAdmission8136 {
     // ── bounded DATA_INCOMPLETE re-evaluation ──
 
     /** One mint's deferral window: first deferral and how many re-evaluations it has had. */
-    data class Defer8136(val firstMs: Long, val count: Int)
+    data class Defer8136(val firstMs: Long, val count: Int, val assessedAtMs8870: Long = firstMs)
 
     const val DEFER_WINDOW_MS_8136 = 10L * 60_000L
     const val DEFER_MAX_8136 = 40
@@ -1270,7 +1275,7 @@ object CandidateAdmission8136 {
     /** Pure: the next deferral state. A window older than [DEFER_RESET_MS_8136] starts over, so no deferral is permanent. */
     fun nextDefer8136(prev: Defer8136?, nowMs: Long): Defer8136 =
         if (prev == null || nowMs < prev.firstMs || nowMs - prev.firstMs >= DEFER_RESET_MS_8136) Defer8136(nowMs, 1)
-        else prev.copy(count = prev.count + 1)
+        else prev.copy(count = prev.count + 1, assessedAtMs8870 = maxOf(prev.assessedAtMs8870, nowMs))
 
     /** Pure: may this candidate still wait for its data ([DEFER_MAX_8136] re-evaluations inside [DEFER_WINDOW_MS_8136])? */
     fun deferOpen8136(s: Defer8136, nowMs: Long): Boolean =
@@ -1320,14 +1325,26 @@ object CandidateAdmission8136 {
 
     private class Held8144(
         val candidate: Candidate8136, val decision: Decision8136, val features: List<String>, val atMs: Long,
-        val candidateVersion: Long, val mode: String,
+        val candidateVersion: Long, val mode: String, val evidenceRevision8870: Long,
     )
 
     private val reevals8144 = ConcurrentHashMap<String, Reeval8144>()
     /** A cached verdict is valid only for the same candidate evidence and generation. */
-    private data class Memo8153(val atMs: Long, val candidate: Candidate8136, val decision: Decision8136)
+    private data class Memo8153(val atMs: Long, val candidate: Candidate8136, val decision: Decision8136, val evidenceRevision8870: Long)
     private val memos8153 = ConcurrentHashMap<String, Memo8153>()
     private const val MEMO_MS_8153 = 1_500L
+    /** [candidate] is the adapter's already-normalized cache identity; don't copy a full feature record a second time. */
+    internal fun memoDecision8870(key: String, candidate: Candidate8136, nowMs: Long): Decision8136? =
+        memos8153[key]?.takeIf { nowMs - it.atMs in 0L..MEMO_MS_8153 &&
+            it.evidenceRevision8870 == FeatureRevision8283.revision8283(candidate.mint) &&
+            it.candidate == candidate }?.decision
+
+    internal fun rememberMemo8870(key: String, candidate: Candidate8136, decision: Decision8136, nowMs: Long,
+                                 evidenceRevision: Long = FeatureRevision8283.revision8283(candidate.mint)) {
+        // A producer may advance the revision while an assessment is running, including its coalesced (no-wake) path.
+        // Keep the revision read before assessment; an older result cannot repopulate a freshly invalidated memo.
+        memos8153[key] = Memo8153(nowMs, candidate, decision, evidenceRevision)
+    }
     /** V5.0.8223 — the FDG snapshot prior (score, fluid floor, admission size) carried per candidate generation. */
     private data class SnapshotPrior8223(val score: Double, val floor: Double, val sizeSol: Double, val atMs: Long)
     private val snapshotPriors8223 = ConcurrentHashMap<String, SnapshotPrior8223>()
@@ -1403,12 +1420,21 @@ object CandidateAdmission8136 {
     }
 
     /**
-     * V5.0.8289 — pure, allocation-free: is memo key "mode|mint|lane|version" one of [mint]'s? Same rule as
-     * `key.substringAfter('|').startsWith("$mint|")` (a key without '|' is matched from its start).
+     * Allocation-free mint match for the legacy "mode|mint|lane|version" key and the actual policy-scoped keys.
+     * 8870: assess8136 inserts OUTSIDE or paper/shadow/basis between mode and mint. Matching only after the first pipe
+     * left those real decision memos intact when the exact price/flow they waited for arrived.
      */
     internal fun memoForMint8289(key: String, mint: String): Boolean {
         val i = key.indexOf('|')
-        val from = if (i < 0) 0 else i + 1
+        var from = if (i < 0) 0 else i + 1
+        if (key.startsWith("OUTSIDE|", from)) from += "OUTSIDE|".length
+        else if (key.startsWith("paper=", from)) {
+            val shadow = key.indexOf('|', from).takeIf { it >= 0 }?.plus(1) ?: return false
+            if (!key.startsWith("shadow=", shadow)) return false
+            val basis = key.indexOf('|', shadow).takeIf { it >= 0 }?.plus(1) ?: return false
+            if (!key.startsWith("basis=", basis)) return false
+            from = key.indexOf('|', basis).takeIf { it >= 0 }?.plus(1) ?: return false
+        }
         val end = from + mint.length
         return key.length > end && key[end] == '|' && key.startsWith(mint, from)
     }
@@ -1442,7 +1468,7 @@ object CandidateAdmission8136 {
     internal fun holdDeferForTest8252(mint: String, lane: String, features: List<String>, nowMs: Long) {
         scheduleDue8144(mint, features, nowMs)
         val c = Candidate8136(mint, lane, null, missingInputs = features)
-        held8144["$mint|$lane"] = Held8144(c, Decision8136(Terminal8136.DEFER_DATA, "DATA_INCOMPLETE_DEFER_8136", false, null, Double.NaN, listOf("missing=${features.joinToString(",")}")), features, nowMs, 1L, "LIVE")
+        held8144["$mint|$lane"] = Held8144(c, Decision8136(Terminal8136.DEFER_DATA, "DATA_INCOMPLETE_DEFER_8136", false, null, Double.NaN, listOf("missing=${features.joinToString(",")}")), features, nowMs, 1L, "LIVE", FeatureRevision8283.revision8283(mint))
     }
 
     private fun features8144(missing: List<String>): List<String> = missing.ifEmpty { listOf("core:UNKNOWN") }
@@ -1460,11 +1486,14 @@ object CandidateAdmission8136 {
     }
 
     /** The held DEFER_DATA decision for [mint] in [laneRaw] while none of its missing features is due yet, else null. */
-    private fun coalescedDefer8144(mint: String, laneRaw: String, candidate: Candidate8136, candidateVersion: Long,
+    internal fun coalescedDefer8144(mint: String, laneRaw: String, candidate: Candidate8136, candidateVersion: Long,
                                    mode: String, nowMs: Long): Decision8136? {
         val h = held8144["$mint|$laneRaw"] ?: return null
         if (nowMs - h.atMs !in 0L..REEVAL_MAX_MS_8144) return null
         if (h.candidateVersion != candidateVersion || h.mode != mode) return null
+        // Bulk/coalesced producers can advance evidence without a scheduler wake. Do not let this second cache
+        // return the old defer after the ordinary decision memo was correctly invalidated on that same revision.
+        if (h.evidenceRevision8870 != FeatureRevision8283.revision8283(mint)) return null
         // A data response, changed price/economics, changed strategy, or new label evidence invalidates the held defer.
         // Only reuse it when the exact evidence that produced it is still present.
         if (h.candidate != cacheIdentity8144(candidate)) return null
@@ -1475,7 +1504,7 @@ object CandidateAdmission8136 {
 
     /** Holds a DEFER_DATA decision (scheduling its features) and files the decision in the runner trace. */
     private fun noteDecision8144(mint: String, laneRaw: String, candidate: Candidate8136, d: Decision8136,
-                                 candidateVersion: Long, mode: String, nowMs: Long) {
+                                 candidateVersion: Long, mode: String, nowMs: Long, evidenceRevision8870: Long) {
         if (mint.isBlank()) return
         val key = "$mint|$laneRaw"
         if (d.terminal == Terminal8136.DEFER_DATA) {
@@ -1483,10 +1512,11 @@ object CandidateAdmission8136 {
             if (mode == "LIVE") deferCauses8700(d.trace).forEach { deferCauseCounts8700.computeIfAbsent("${candidate.lane}|$it") { AtomicLong(0) }.incrementAndGet() }
             scheduleDue8144(mint, f, nowMs)
             if (held8144.size > 4_000) held8144.entries.removeIf { nowMs - it.value.atMs > REEVAL_MAX_MS_8144 }
-            held8144[key] = Held8144(cacheIdentity8144(candidate), d, f, nowMs, candidateVersion, mode)
+            held8144[key] = Held8144(cacheIdentity8144(candidate), d, f, nowMs, candidateVersion, mode, evidenceRevision8870)
         } else {
             // V5.0.8283 — a held DATA defer decided again to a real terminal; "after evidence" when the revision advanced since.
             held8144.remove(key)?.let { h -> try { FeatureRevision8283.noteDeferResolved8283(FeatureRevision8283.advancedAt8283(mint) > h.atMs) } catch (_: Throwable) {} }
+            finishDataWait8870(mint, laneRaw, mode, d.terminal, assessedAtMs = nowMs)
         }
         if (d.admitted && d.trace.any { it.startsWith("nativeOptionalCleared8213=") }) try {
             PipelineHealthCollector.labelInc("ADMISSION_NATIVE_OPTIONAL_DATA_ADMITTED_8213_${candidate.lane}")
@@ -1507,7 +1537,7 @@ object CandidateAdmission8136 {
             AdmissionRunnerTrace8144.noteIdentity8153(mint, d.chosenSetup, d.basis)
         } catch (_: Throwable) {}
         if (memos8153.size > 4_000) memos8153.entries.removeIf { nowMs - it.value.atMs > MEMO_MS_8153 }
-        memos8153["$mode|$mint|${candidate.lane}|$candidateVersion"] = Memo8153(nowMs, cacheIdentity8144(candidate), d)
+        rememberMemo8870("$mode|$mint|${candidate.lane}|$candidateVersion", cacheIdentity8144(candidate), d, nowMs, evidenceRevision8870)
     }
 
     /** V5.0.8283 — FeatureFunnel8283: this lane's natively qualified and admitted unique candidates. */
@@ -1536,6 +1566,56 @@ object CandidateAdmission8136 {
         if (mint.isBlank()) return false
         val first = firstMissing8204[mint] ?: return false
         return first.isNotEmpty() && missingNow.map { it.trim() }.containsAll(first)
+    }
+
+    /** 8870: a data wait belongs to the desk and execution book that asked for it, across candidate refresh versions. */
+    enum class DataWaitOwner8870 { ADMISSION, MOVE }
+    private fun waitKey8870(mint: String, lane: String, mode: String, shadowOnly: Boolean, owner: DataWaitOwner8870): String =
+        "${mode.trim().uppercase()}|${if (shadowOnly) "SHADOW" else "AUTHORITY"}|${CanonicalLaneIdentity6506.canonical(lane).uppercase()}|${owner.name}|$mint"
+
+    internal fun dataWaitMode8870(): String = FdgGate8365.paperContext8393()?.let { if (it) "PAPER" else "LIVE" }
+        ?: (try { if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE" } catch (_: Throwable) { "UNKNOWN" })
+
+    fun deferBudgetForLane8870(mint: String, lane: String, mode: String, missing: List<String>,
+                              nowMs: Long = System.currentTimeMillis(), shadowOnly: Boolean = FdgGate8365.shadowOnly8393(),
+                              owner: DataWaitOwner8870 = DataWaitOwner8870.ADMISSION): Boolean =
+        deferBudgetForKey8870(mint, waitKey8870(mint, lane, mode, shadowOnly, owner), missing, nowMs)
+
+    fun deferUnansweredForLane8870(mint: String, lane: String, mode: String, missing: List<String>,
+                                  nowMs: Long = System.currentTimeMillis(), shadowOnly: Boolean = FdgGate8365.shadowOnly8393(),
+                                  owner: DataWaitOwner8870 = DataWaitOwner8870.ADMISSION): Boolean =
+        deferUnanswered8204(waitKey8870(mint, lane, mode, shadowOnly, owner), missing, nowMs)
+
+    /**
+     * A completed assessment ends its own wait. Without this, a fresh price could be judged and a later price gap still
+     * inherited the earlier spent ten-minute window, printing DATA_NEVER_ARRIVED until the thirty-minute reset.
+     * A notification, repeated DEFER, other lane or shadow assessment does not complete this execution book's wait.
+     */
+    internal fun finishDataWait8870(mint: String, lane: String, mode: String, terminal: Terminal8136,
+                                    shadowOnly: Boolean = FdgGate8365.shadowOnly8393(),
+                                    owner: DataWaitOwner8870 = DataWaitOwner8870.ADMISSION,
+                                    assessedAtMs: Long = System.currentTimeMillis()) {
+        if (terminal == Terminal8136.DEFER_DATA || mint.isBlank()) return
+        completeDataWait8870(mint, lane, mode, shadowOnly, owner, assessedAtMs)
+    }
+
+    /** Used by the measured-move reader when the fact it asked for is now observed, even if that move is too small. */
+    internal fun completeDataWait8870(mint: String, lane: String, mode: String,
+                                      shadowOnly: Boolean = FdgGate8365.shadowOnly8393(),
+                                      owner: DataWaitOwner8870 = DataWaitOwner8870.ADMISSION,
+                                      assessedAtMs: Long = System.currentTimeMillis()) {
+        val key = waitKey8870(mint, lane, mode, shadowOnly, owner)
+        var completed8870 = false
+        // Both pieces of the episode share this key's mutation lock. A new gap cannot install its dependency set
+        // between deleting the old timer and deleting the old dependencies, nor can an old read finish a newer gap.
+        defers8136.computeIfPresent(key) { _, waiting ->
+            if (assessedAtMs < waiting.assessedAtMs8870) waiting else {
+                firstMissing8204.remove(key)
+                completed8870 = true
+                null
+            }
+        }
+        if (completed8870) try { PipelineHealthCollector.labelInc("ADMISSION_DATA_WAIT_COMPLETED_8870") } catch (_: Throwable) {}
     }
 
     // ── V5.0.8418 §A_DEFER_ENDS — 8416: DATA_INCOMPLETE_DEFER 6,682 (MOONSHOT) + FETCH_NEVER_COMPLETED 2,127. 8229 kept every
@@ -1638,11 +1718,22 @@ object CandidateAdmission8136 {
     private fun deferTerminalLine8418(): String =
         "deferTerminal8418{" + deferTerminals8418.entries.sortedByDescending { it.value.get() }.take(10).joinToString(",") { "${it.key}=${it.value.get()}" } + "}"
 
-    fun deferBudgetFor8144(mint: String, missing: List<String>, nowMs: Long = System.currentTimeMillis()): Boolean {
-        if (mint.isNotBlank()) {
-            val prev = defers8136[mint]
-            val remaining = missing.map { it.trim() }.filter { it.isNotBlank() }.toSet()
-            val previousMissing = firstMissing8204[mint]
+    fun deferBudgetFor8144(mint: String, missing: List<String>, nowMs: Long = System.currentTimeMillis()): Boolean =
+        deferBudgetForKey8870(mint, mint, missing, nowMs)
+
+    private fun deferBudgetForKey8870(mint: String, waitKey: String, missing: List<String>, nowMs: Long): Boolean {
+        if (mint.isBlank()) return false
+        val remaining = missing.map { it.trim() }.filter { it.isNotBlank() }.toSet()
+        var coalesced8870 = false
+        var advanced8870 = false
+        val s = defers8136.compute(waitKey) { _, prev ->
+            // A delayed assessment may neither replace a newer dependency set nor restart its window as progress.
+            // A clock before the episode began retains the existing clock-reset rule in nextDefer8136.
+            if (prev != null && nowMs >= prev.firstMs && nowMs < prev.assessedAtMs8870) {
+                coalesced8870 = true
+                return@compute prev
+            }
+            val previousMissing = firstMissing8204[waitKey]
             // Reopen only after an actual missing fact is now present in the
             // assessed candidate. Repeated ticks/notifications cannot refill a budget.
             val remainingKinds = remaining.map { it.substringBefore(':').lowercase() }.toSet()
@@ -1650,20 +1741,30 @@ object CandidateAdmission8136 {
             val progressed = previousKinds != null && remainingKinds.size < previousKinds.size &&
                 previousKinds.containsAll(remainingKinds)
             if (prev == null || nowMs < prev.firstMs || nowMs - prev.firstMs >= DEFER_RESET_MS_8136 || progressed) {
-                firstMissing8204[mint] = remaining
+                firstMissing8204[waitKey] = remaining
                 if (progressed) {
-                    defers8136.remove(mint)
                     reevals8144.keys.removeIf { it.startsWith("$mint|") }
                 }
             }
-            if (firstMissing8204.size > 4096) firstMissing8204.keys.take(1024).forEach { firstMissing8204.remove(it) }
+            val current = if (progressed) null else prev
+            if (scheduleDue8144(mint, features8144(missing), nowMs) || current == null) {
+                advanced8870 = true
+                nextDefer8136(current, nowMs)
+            } else {
+                coalesced8870 = true
+                if (nowMs > current.assessedAtMs8870) current.copy(assessedAtMs8870 = nowMs) else current
+            }
+        } ?: return false
+        if (firstMissing8204.size > 4096) firstMissing8204.entries.take(1024).forEach { firstMissing8204.remove(it.key, it.value) }
+        if (defers8136.size > 4_000) defers8136.entries.removeIf { nowMs - it.value.firstMs >= DEFER_RESET_MS_8136 }
+        if (coalesced8870) {
+            coalesced8144.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("ADMISSION_REEVAL_COALESCED_8144") } catch (_: Throwable) {}
         }
-        if (mint.isBlank()) return false
-        if (scheduleDue8144(mint, features8144(missing), nowMs)) return deferBudget8136(mint, nowMs)
-        val s = defers8136[mint] ?: return deferBudget8136(mint, nowMs)
-        coalesced8144.incrementAndGet()
-        try { PipelineHealthCollector.labelInc("ADMISSION_REEVAL_COALESCED_8144") } catch (_: Throwable) {}
-        return deferOpen8136(s, nowMs)
+        val readAt8870 = if (nowMs >= s.firstMs) maxOf(nowMs, s.assessedAtMs8870) else nowMs
+        val open = deferOpen8136(s, readAt8870)
+        if (advanced8870 && !open) try { PipelineHealthCollector.labelInc("ADMISSION_DEFER_WINDOW_SPENT_8136") } catch (_: Throwable) {}
+        return open
     }
 
     // ── the ledger: counts per terminal admission reason ──
@@ -1768,6 +1869,7 @@ object CandidateAdmission8136 {
             try { PipelineHealthCollector.labelInc("ADMISSION_PRIOR_CARRIED_8223_$laneKey8223") } catch (_: Throwable) {}
         }
         val sizeForQuote8223 = if (admissionSize8212.isFinite() && admissionSize8212 > 0.0) admissionSize8212 else prior8223?.sizeSol ?: admissionSize8212
+        val evidenceRevision8870 = FeatureRevision8283.revision8283(ts.mint)
         val built = candidateFor8136(ts, laneRaw, nowMs, sizeForQuote8223)
         val rawCandidate = if (prior8223 != null) built.copy(genericScore = prior8223.score, genericFloor = prior8223.floor) else built
         val candidate = rawCandidate.copy(candidateVersion = version, live = mode == "LIVE")
@@ -1776,7 +1878,7 @@ object CandidateAdmission8136 {
         val policyMode8393 = "$mode|${FdgGate8365.policyKey8393()}"
         val key = "$policyMode8393|${ts.mint}|${candidate.lane}|$version"
         val identity = cacheIdentity8144(candidate)
-        val cached = memos8153[key]?.takeIf { nowMs - it.atMs in 0L..MEMO_MS_8153 && it.candidate == identity }?.decision
+        val cached = memoDecision8870(key, identity, nowMs)
         // V5.0.8577 — LIVE: the lane-qualified candidate's learned-door refusal is advisory (LaneAuthority8577.apply8577).
         // Share the strategy rules while preserving the actual execution mode for freshness, costs and paper exploration.
         cached ?: (if (FdgGate8365.policyKey8393() == "OUTSIDE") coalescedDefer8144(ts.mint, candidate.lane, identity, version, mode, nowMs) else null) ?: LaneAuthority8577.apply8577(candidate,
@@ -1788,7 +1890,7 @@ object CandidateAdmission8136 {
             .let { awaitBuyDoorProof8703(ts, candidate.live, it, nowMs, candidate.lane) }.also {   // V5.0.8758 — the proof wait runs on the mirror's output
             // A held shadow rehearsal must not publish an ADMIT into live sizing, strategy identity or the runner trace.
             if (!FdgGate8365.shadowOnly8393()) {
-                noteDecision8144(ts.mint, candidate.lane, candidate, it, version, mode, nowMs)
+                noteDecision8144(ts.mint, candidate.lane, candidate, it, version, mode, nowMs, evidenceRevision8870)
                 // V5.0.8535 §P2-01 — the admission's terminal joins the candidate's decision episode with its trace hash.
                 try { com.lifecyclebot.engine.DecisionEpisode8535.noteAdmission8535(candidate.lane, ts.mint, version, it.terminal.name, it.reason, it.chosenSetup, it.trace, nowMs) } catch (_: Throwable) {}
             }
@@ -1800,7 +1902,7 @@ object CandidateAdmission8136 {
             if (mode == "LIVE" && candidate.marketCell8723 != null && !FdgGate8365.shadowOnly8393()) LpStateRecord8725.noteAdmission8732(it.terminal.name, it.reason, it.trace)
             if (mode == "LIVE" && !FdgGate8365.shadowOnly8393()) try { MemePaperTrader8544.consider8544(ts, candidate, nowMs) } catch (_: Throwable) {}
             if (memos8153.size > 4_000) memos8153.entries.removeIf { e -> nowMs - e.value.atMs > MEMO_MS_8153 }
-            memos8153[key] = Memo8153(nowMs, identity, it)
+            rememberMemo8870(key, identity, it, nowMs, evidenceRevision8870)
         }
     } catch (_: Throwable) { null }
 

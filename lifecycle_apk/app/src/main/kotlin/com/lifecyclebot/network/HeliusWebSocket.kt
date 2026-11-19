@@ -1201,10 +1201,53 @@ internal object PumpSwapEvents8191 {
     }
 
     /**
+     * 8870: PumpSwap's appended virtual_quote_reserves is signed i128, not another SOL amount or a u64.
+     * The official pump_amm IDL puts it after four cashback/buyback u64s; BuyEvent also has an earlier Borsh
+     * ix_name string at 401, whereas SellEvent's fee tail starts at 360. Older complete event variants end before
+     * this append and mean zero. A partially present field is not an older version and cannot be guessed as zero.
+     */
+    internal fun virtualQuoteReserves8870(b: ByteArray, buy: Boolean): java.math.BigInteger? {
+        var at = if (buy) 401 else 360
+        if (b.size <= at) return java.math.BigInteger.ZERO // legacy common / creator / volume tails
+        if (buy) {
+            if (b.size - at < 4) return null
+            var nameLength = 0L
+            for (i in 0 until 4) nameLength = nameLength or ((b[at + i].toLong() and 0xFF) shl (8 * i))
+            at += 4
+            if (nameLength > b.size - at) return null
+            at += nameLength.toInt()
+        }
+        val feeTailBytes = b.size - at
+        if (feeTailBytes <= 32) return if (feeTailBytes % 8 == 0) java.math.BigInteger.ZERO else null
+        at += 32
+        if (b.size - at < 16) return null
+        val value = java.math.BigInteger(b.copyOfRange(at, at + 16).reversedArray())
+        // Known later appends: can_boost bool, base_supply u64, and three fee/reward u64s. EOF at a field
+        // boundary stays compatible with older revisions; a partial known field is malformed, future appends are ignored.
+        val after = b.size - at - 16
+        if (after > 0 && (b[at + 16].toInt() and 0xFF) !in 0..1) return null
+        if (after in 2..33 && (after - 1) % 8 != 0) return null
+        return value
+    }
+
+    internal fun effectiveQuoteReserves8870(b: ByteArray, buy: Boolean): Double? {
+        if (b.size < 184) return null
+        val virtual = virtualQuoteReserves8870(b, buy) ?: return null
+        // Add in integer base units first: subtracting signed fee reserves after Double conversion can lose the
+        // remaining balance (or turn a nonpositive result positive) near the u64 boundary.
+        val raw = java.math.BigInteger(1, b.copyOfRange(56, 64).reversedArray())
+        val effective = raw.add(virtual)
+        if (effective.signum() <= 0) return null
+        return effective.toDouble().takeIf { it.isFinite() && it > 0.0 }
+    }
+
+    /**
      * Pure (V5.0.8191): PumpSwap (pump AMM) BuyEvent / SellEvent — discriminator(8) timestamp i64, base amount u64, max/min
      * quote u64, user base / quote reserves u64 x2, pool base / quote reserves u64 x2, quote amount u64, lp fee bps, lp fee,
      * protocol fee bps, protocol fee, quote with/without lp fee, user quote amount (u64 each), pool(32), user(32). Null for
-     * any other event, a short buffer, or a swap whose own price is more than 25% from the pool reserves' price.
+     * any other event, a short buffer, or a swap whose own price is more than 25% from the effective pool reserves' price.
+     * Unit conversion is only for the existing verified wSOL/pump.fun pool domain. Callers must prove the pool's
+     * base/quote mapping before publishing; decoding alone does not prove either mint or its decimals.
      */
     fun decode8191(b: ByteArray): PumpSwapEvent8191? {
         if (b.size < 184) return null
@@ -1213,7 +1256,7 @@ internal object PumpSwapEvents8191 {
         if (!buy && !sell) return null
         val baseRaw = u64At8191(b, 16)
         val poolBase = u64At8191(b, 48)
-        val poolQuote = u64At8191(b, 56)
+        val poolQuote = effectiveQuoteReserves8870(b, buy) ?: return null
         val quoteRaw = u64At8191(b, 64)
         if (!(baseRaw > 0.0 && quoteRaw > 0.0 && poolBase > 0.0 && poolQuote > 0.0)) return null
         val px = quoteRaw / baseRaw

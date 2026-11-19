@@ -1,6 +1,7 @@
 package com.lifecyclebot.engine
 
 import com.lifecyclebot.network.KeylessRpc8359
+import com.lifecyclebot.network.SolanaTokenAmounts8870
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -174,35 +175,27 @@ object HeliusCadence8361 {
         val pre = meta.optJSONArray("preBalances") ?: JSONArray()
         val post = meta.optJSONArray("postBalances") ?: JSONArray()
         val fee = meta.optLong("fee", 0L).coerceAtLeast(0L)
-        val net = HashMap<String, HashMap<String, Double>>()
-        fun add(arr: JSONArray?, sign: Double) {
-            if (arr == null) return
-            for (i in 0 until arr.length()) {
-                val b = arr.optJSONObject(i) ?: continue
-                val owner = b.optString("owner", "")
-                val mint = b.optString("mint", "")
-                if (owner !in wallets || mint.isBlank()) continue
-                val amt = b.optJSONObject("uiTokenAmount")?.optDouble("uiAmount", 0.0) ?: 0.0
-                if (!amt.isFinite()) continue
-                val m = net.getOrPut(owner) { HashMap() }
-                m[mint] = (m[mint] ?: 0.0) + sign * amt
-            }
-        }
-        add(meta.optJSONArray("preTokenBalances"), -1.0)
-        add(meta.optJSONArray("postTokenBalances"), 1.0)
+        val preTokens = SolanaTokenAmounts8870.owners8870(meta.optJSONArray("preTokenBalances"), wallets) ?: return emptyList()
+        val postTokens = SolanaTokenAmounts8870.owners8870(meta.optJSONArray("postTokenBalances"), wallets) ?: return emptyList()
+        val tokenKeys = preTokens.keys + postTokens.keys
         val out = ArrayList<Swap8361>()
         for (w in wallets) {
-            val m = net[w] ?: continue
-            val moved = m.entries.filter { it.key != WSOL && it.key !in STABLES && abs(it.value) > 0.0 }
+            val m = tokenKeys.filter { it.first == w }.associate { key ->
+                key.second to SolanaTokenAmounts8870.delta8870(preTokens, postTokens, key)?.toDouble()
+            }
+            // An unread base-token row cannot prove that exactly one non-quote mint moved.
+            if (m.any { it.key != WSOL && it.key !in STABLES && it.value == null }) continue
+            val moved = m.entries.filter { it.key != WSOL && it.key !in STABLES && it.value?.let { v -> abs(v) > 0.0 } == true }
             if (moved.size != 1) continue
             val mint = moved[0].key
-            val tok = moved[0].value
+            val tok = moved[0].value ?: continue
             val buy = tok > 0.0
             val idx = keys.indexOf(w)
             val lamports = if (idx >= 0 && idx < pre.length() && idx < post.length()) post.optLong(idx, 0L) - pre.optLong(idx, 0L) else 0L
             val paidFee = if (idx == 0) fee else 0L
             val wsol = m[WSOL] ?: 0.0
-            val stable = STABLES.sumOf { m[it] ?: 0.0 }
+            // Unknown quote legs cannot contribute a fabricated notional; a measured SOL leg still stands.
+            val stable = if (STABLES.any { m.containsKey(it) && m[it] == null }) 0.0 else STABLES.sumOf { m[it] ?: 0.0 }
             val sol = if (buy) maxOf((-lamports - paidFee).toDouble() / 1e9, -wsol, 0.0) else maxOf((lamports + paidFee).toDouble() / 1e9, wsol, 0.0)
             val stableUsd = if (buy) maxOf(-stable, 0.0) else maxOf(stable, 0.0)
             if (sol < MIN_LEG_SOL_8361 && stableUsd <= 0.0) continue

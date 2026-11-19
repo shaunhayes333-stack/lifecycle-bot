@@ -57,9 +57,12 @@ class Aate8583HorizonPricerTest {
         assertTrue(lab.contains("startHorizonPricer8583()   // V5.0.8583"))
         val pass = lab.substringAfter("private fun horizonPass8583(").substringBefore("fun horizonPricerLine8583()")
         for (rung in listOf("ParallelMarkFanout7088.curvePrices7392(onCurve)", "batchPriceFetchTyped8087(chunk, LABEL_SLOT_WAIT_MS_8474",
-                "jupiterBatchPrices7737(chunk)", "OnChainDepth8038.chainPriceUsd8540(m, CHAIN_MARK_MAX_AGE_MS_8540)",
+                "jupiterBatchPrices7737(chunk)", "horizonVaultMark8870(m, read, solUsd, readAt)",
                 "noteOffWatchResponse(prices.filterValues { it.isFinite() && it > 0.0 }, System.currentTimeMillis())"))
             assertTrue(rung, pass.contains(rung))
+        assertTrue("vault reads start before a slow provider can hold the horizon worker",
+            pass.indexOf("OnChainDepth8038.requestMints8543(offCurve, CHAIN_MARK_MAX_AGE_MS_8540)") <
+                pass.indexOf("ParallelMarkFanout7088.curvePrices7392(onCurve)"))
         assertTrue(lab.contains("Thread({") && lab.contains("\"label-horizon-8583\""))
         assertTrue(lab.contains("\${horizonPricerLine8583()} \${labelMarksLine8418()}"))
     }

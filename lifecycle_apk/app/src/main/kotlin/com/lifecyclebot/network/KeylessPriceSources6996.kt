@@ -54,6 +54,22 @@ object KeylessPriceSources6996 {
     /** DefiLlama batches comfortably; keep well inside URL length limits. */
     private const val LLAMA_CHUNK = 40
 
+    data class PriceObservation8870(val priceUsd: Double, val observedAtMs: Long)
+
+    /** The API's timestamp is Unix seconds. HTTP completion is not a new observation of that price. */
+    internal fun parseLlamaObservation8870(o: JSONObject): PriceObservation8870? {
+        val price = o.optDouble("price", Double.NaN)
+        if (!price.isFinite() || price <= 0.0) return null
+        val conf = o.optDouble("confidence", 1.0)
+        if (conf.isFinite() && conf < 0.70) return null
+        val seconds = o.optLong("timestamp", 0L)
+        val at = if (seconds in 1L..(Long.MAX_VALUE / 1_000L)) seconds * 1_000L else 0L
+        return PriceObservation8870(price, at)
+    }
+
+    internal fun freshObservation8870(mark: PriceObservation8870, nowMs: Long, maxAgeMs: Long = 60_000L): Boolean =
+        com.lifecyclebot.engine.NativeDecisionEnrollment8372.priceAge8870(mark.observedAtMs, nowMs) <= maxAgeMs
+
     // V5.0.7400 — this batch source runs inside the held-position mark loop.
     // The shared client can wait tens of seconds on HTTP/2 response headers;
     // the 7399 PriceResolverFallback timeout did not cover this separate batch
@@ -78,9 +94,13 @@ object KeylessPriceSources6996 {
      * exit engine, because a bad mark triggers a real stop-loss and a missing
      * mark only delays one.
      */
-    fun defiLlamaBatch(mints: List<String>): Map<String, Double> {
+    fun defiLlamaBatch(mints: List<String>): Map<String, Double> =
+        defiLlamaObservations8870(mints).filterValues { freshObservation8870(it, System.currentTimeMillis()) }
+            .mapValues { it.value.priceUsd }
+
+    fun defiLlamaObservations8870(mints: List<String>): Map<String, PriceObservation8870> {
         if (mints.isEmpty()) return emptyMap()
-        val out = HashMap<String, Double>(mints.size)
+        val out = HashMap<String, PriceObservation8870>(mints.size)
         try {
             mints.chunked(LLAMA_CHUNK).forEach { chunk ->
                 val keys = chunk.joinToString(",") { "solana:$it" }
@@ -89,13 +109,8 @@ object KeylessPriceSources6996 {
                 val coins = JSONObject(body).optJSONObject("coins") ?: return@forEach
                 for (mint in chunk) {
                     val o = coins.optJSONObject("solana:$mint") ?: continue
-                    val price = o.optDouble("price", 0.0)
-                    if (!price.isFinite() || price <= 0.0) continue
-                    // Absent confidence is treated as acceptable; DefiLlama
-                    // omits it for many well-known assets.
-                    val conf = o.optDouble("confidence", 1.0)
-                    if (conf.isFinite() && conf < 0.70) continue
-                    out[mint] = price
+                    val mark = parseLlamaObservation8870(o) ?: continue
+                    out[mint] = mark
                 }
             }
         } catch (t: Throwable) {
@@ -157,13 +172,24 @@ object KeylessPriceSources6996 {
      * Callers pass the mints DexScreener did NOT answer for, so a healthy
      * DexScreener costs nothing here.
      */
-    fun fillMissing(missing: List<String>): Map<String, Double> {
+    fun fillMissing(missing: List<String>): Map<String, Double> =
+        fillMissingObservations8870(missing).mapValues { it.value.priceUsd }
+
+    fun fillMissingObservations8870(missing: List<String>, maxAgeMs8870: Long = 60_000L): Map<String, PriceObservation8870> {
         if (missing.isEmpty()) return emptyMap()
-        val out = HashMap<String, Double>(missing.size)
+        val out = HashMap<String, PriceObservation8870>(missing.size)
         try {
-            out.putAll(defiLlamaBatch(missing))
+            // The caller is the held-mark rescue reader, which already uses this age window. Old provider data
+            // stays dated at the adapter boundary and leaves this fallback slot available for a current answer.
+            out.putAll(defiLlamaObservations8870(missing).filterValues {
+                freshObservation8870(it, System.currentTimeMillis(), maxAgeMs8870)
+            })
             val still = missing.filter { it !in out.keys }
-            if (still.isNotEmpty()) out.putAll(jupiterBatch(still))
+            if (still.isNotEmpty()) {
+                // Price-v3 has no wall-clock field here: retain request-start time rather than the end of a later pass.
+                val requestAt8870 = System.currentTimeMillis()
+                out.putAll(jupiterBatch(still).mapValues { PriceObservation8870(it.value, requestAt8870) })
+            }
         } catch (_: Throwable) {}
         if (out.isNotEmpty()) {
             try {
@@ -207,6 +233,7 @@ object KeylessPriceSources6996 {
         "base" to "base",
         "bsc" to "bsc",
         "avax" to "avax",
+        "avalanche" to "avax",
         "arbitrum" to "arbitrum",
         "arb" to "arbitrum",
         "optimism" to "optimism",
@@ -221,27 +248,27 @@ object KeylessPriceSources6996 {
      * DefiLlama does not key, which is a wiring gap worth seeing rather than
      * guessing around.
      */
-    fun crossChainPrice(chainToken: String): Double {
+    fun crossChainPrice(chainToken: String): Double = crossChainObservation8870(chainToken)
+        ?.takeIf { freshObservation8870(it, System.currentTimeMillis()) }?.priceUsd ?: 0.0
+
+    fun crossChainObservation8870(chainToken: String): PriceObservation8870? {
         val parts = chainToken.split('|', ':', limit = 2)
-        if (parts.size != 2) return 0.0
+        if (parts.size != 2) return null
         val chain = LLAMA_CHAIN_ALIASES_7004[parts[0].trim().lowercase()] ?: run {
             try { PipelineHealthCollector.labelInc("KEYLESS_CROSSCHAIN_UNKNOWN_CHAIN_7004") } catch (_: Throwable) {}
-            return 0.0
+            return null
         }
         val addr = parts[1].trim()
-        if (addr.isBlank()) return 0.0
+        if (addr.isBlank()) return null
         return try {
-            val body = get("https://coins.llama.fi/prices/current/$chain:$addr", "defillama") ?: return 0.0
-            val o = JSONObject(body).optJSONObject("coins")?.optJSONObject("$chain:$addr") ?: return 0.0
-            val price = o.optDouble("price", 0.0)
-            if (!price.isFinite() || price <= 0.0) return 0.0
-            val conf = o.optDouble("confidence", 1.0)
-            if (conf.isFinite() && conf < 0.70) return 0.0
+            val body = get("https://coins.llama.fi/prices/current/$chain:$addr", "defillama") ?: return null
+            val o = JSONObject(body).optJSONObject("coins")?.optJSONObject("$chain:$addr") ?: return null
+            val mark = parseLlamaObservation8870(o) ?: return null
             try { PipelineHealthCollector.labelInc("KEYLESS_CROSSCHAIN_MARK_7004") } catch (_: Throwable) {}
-            price
+            mark
         } catch (t: Throwable) {
             ErrorLogger.debug(TAG, "crosschain price failed $chainToken: ${t.message?.take(120)}")
-            0.0
+            null
         }
     }
 

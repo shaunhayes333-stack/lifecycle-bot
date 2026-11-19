@@ -118,16 +118,36 @@ object CryptoSpotPaperBacking8788 {
     internal fun room8832(admitted: Int, pending: Int): Boolean =
         admitted >= 0 && pending >= 0 && admitted + pending < MAX_PER_HOUR_8788
 
+    internal enum class Availability8870 { READY, DISABLED_OR_WRONG_LANE, LOSS_STOP, RECORD_NOT_BACKING, CAPACITY }
+
+    /** Capacity is temporary scheduling state; it is not evidence that a signal's expectancy is negative. */
+    internal fun classifyAvailability8870(enabled: Boolean, eligibleLane: Boolean, stopped: Boolean,
+                                         recordBacks: Boolean, admitted: Int, pending: Int): Availability8870 = when {
+        !enabled || !eligibleLane -> Availability8870.DISABLED_OR_WRONG_LANE
+        stopped -> Availability8870.LOSS_STOP
+        !recordBacks -> Availability8870.RECORD_NOT_BACKING
+        !room8832(admitted, pending) -> Availability8870.CAPACITY
+        else -> Availability8870.READY
+    }
+
+    @Synchronized internal fun availability8870(lane: String?, nowMs: Long): Availability8870 {
+        val l = lane?.trim()?.uppercase().orEmpty()
+        if (!enabled8788 || l !in BACKED_LANES_8806) return Availability8870.DISABLED_OR_WRONG_LANE
+        if (stopped8788(nowMs)) return Availability8870.LOSS_STOP
+        val record = recordBacks8788(l, nowMs)
+        prunePermits8832(nowMs)
+        return classifyAvailability8870(true, true, false, record, admitTimes8788.size, pendingPermits8832.size)
+    }
+
+    fun capacityWait8870(lane: String?, nowMs: Long): Boolean =
+        availability8870(lane, nowMs) == Availability8870.CAPACITY
+
     /**
      * Read-only eligibility at the EV gate. An Oracle / Cortex / sizing refusal
      * must not consume a live backing slot or masquerade as an approval.
      */
     @Synchronized fun backs8788(lane: String?, nowMs: Long): Boolean {
-        val l = lane?.trim()?.uppercase() ?: return false
-        if (!enabled8788 || l !in BACKED_LANES_8806) return false
-        if (stopped8788(nowMs) || !recordBacks8788(l, nowMs)) return false
-        prunePermits8832(nowMs)
-        return room8832(admitTimes8788.size, pendingPermits8832.size)
+        return availability8870(lane, nowMs) == Availability8870.READY
     }
 
     /** Reserve only once every *other* canonical gate, including sizing, passed. */

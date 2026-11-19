@@ -298,8 +298,9 @@ class Aate8144AdmissionTest {
         // The features a deferral waits for are read back from its own trace.
         val d = c.decide8136(candidate(emptyList(), null).copy(missingInputs = listOf("shape:UNKNOWN"), priceAgeMs = Long.MAX_VALUE))
         assertEquals(Terminal8136.DEFER_DATA, d.terminal)
-        assertEquals(listOf("shape:UNKNOWN", "price"), c.missingOf8144(d))
-        assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("CandidateAdmission8136.deferBudgetFor8144(ts.mint, missing, nowMs)"))
+        assertEquals(listOf("price"), c.missingOf8144(d)) // 8870: optional shape is retained in trace, not a wait dependency.
+        assertTrue(d.trace.any { it == "optionalUnobserved8170=shape:UNKNOWN" })
+        assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("CandidateAdmission8136.deferBudgetForLane8870(ts.mint, l8059, waitMode8870, missing, nowMs)"))
         val admission = src("engine/truth/CandidateAdmission8136.kt")
         // superseded by V5.0.8577 — the decision passes through LaneAuthority8577.apply8577 (learned doors advisory for a lane-qualified LIVE coin).
         // V5.0.8650 — the existing proven candidate-local loss records are binding in that one decision, not a second gate.

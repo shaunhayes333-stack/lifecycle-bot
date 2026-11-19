@@ -144,12 +144,16 @@ object CrossAssetCortex7931 {
         candidateLiquidity: Double,
         candidateMcap: Double,
         nowMs: Long,
+        candidateObservedAtMs8870: Long = 0L,
+        candidatePriceSource8870: String = "",
+        candidatePriceAssetId8870: String = "",
+        maxPriceAgeMs8870: Long = PRICE_MAX_AGE_MS,
     ) {
         val facts = TokenFacts
         val rank = TokenFacts.Rank
-        val priceAt = com.lifecyclebot.engine.NativeDecisionEnrollment8372.observedPriceAt(
-            candidatePrice, dyn.price, dyn.priceObservedAtMs8372, nowMs,
-        )
+        val priceAt = candidateObservationAt8870(ts.mint, candidatePrice,
+            candidatePriceAssetId8870, candidateObservedAtMs8870, candidatePriceSource8870,
+            dyn.canonicalIdentity6544, dyn.price, dyn.priceObservedAtMs8372, nowMs, maxPriceAgeMs8870)
         if (priceAt > 0L) {
             facts.writePrice(ts, candidatePrice,
                 com.lifecyclebot.engine.NativeDecisionEnrollment8372.CRYPTO_DESK_PRICE_SOURCE,
@@ -189,6 +193,36 @@ object CrossAssetCortex7931 {
                     .filter { it.ts in 1L..priceAt },
             )
         }
+    }
+
+    /** A source-dated nomination stays dated when the live registry advances to its next tick. */
+    internal fun candidateObservationAt8870(assetId: String, price: Double,
+                                           observedAssetId: String, observedAtMs: Long, observedSource: String,
+                                           registryAssetId: String, registryPrice: Double, registryObservedAtMs: Long,
+                                           nowMs: Long, maxAgeMs: Long = PRICE_MAX_AGE_MS): Long {
+        val identity = com.lifecyclebot.perps.DynamicAltTokenRegistry
+        if (observedAtMs != 0L || observedSource.isNotBlank() || observedAssetId.isNotBlank()) {
+            if (observedSource.isBlank() || !identity.sameAsset8866(assetId, observedAssetId)) return 0L
+            return com.lifecyclebot.engine.NativeDecisionEnrollment8372.observedPriceAt(
+                price, price, observedAtMs, nowMs, maxAgeMs)
+        }
+        // Legacy callers can use only the exact registry price with its original clock and identity.
+        if (!identity.sameAsset8866(assetId, registryAssetId)) return 0L
+        return com.lifecyclebot.engine.NativeDecisionEnrollment8372.observedPriceAt(
+            price, registryPrice, registryObservedAtMs, nowMs, maxAgeMs)
+    }
+
+    /** Read the existing same-mint liquidity fact instead of discarding its provenance at the desk boundary. */
+    internal fun bridgeSharedLiquidity8870(ts: TokenState, shared: TokenState?, nowMs: Long, ageMin: Double): Boolean {
+        if (shared == null) return false
+        val mint = com.lifecyclebot.perps.DynamicAltTokenRegistry.solanaMintOf8866(ts.mint) ?: return false
+        if (com.lifecyclebot.perps.DynamicAltTokenRegistry.solanaMintOf8866(shared.mint) != mint) return false
+        val fact = TokenFacts.fact(shared, TokenFacts.Field.LIQUIDITY_USD) ?: return false
+        if (fact.rank <= TokenFacts.Rank.RESTORE || fact.source.isBlank()) return false
+        val sourceMaxAge = com.lifecyclebot.engine.truth.SetupFeatureResolver8169.maxEvidenceAge8170(ageMin)
+        val maxAge = if (fact.rank >= TokenFacts.Rank.CHAIN) minOf(sourceMaxAge, 90_000L) else sourceMaxAge
+        if (com.lifecyclebot.engine.NativeDecisionEnrollment8372.priceAge8870(fact.observedAtMs, nowMs) > maxAge) return false
+        return TokenFacts.writeLiquidity(ts, fact.value, fact.source, fact.rank, fact.observedAtMs, nowMs)
     }
 
     /** The close side: map a canonical row's mint onto the captured identity. */
@@ -244,9 +278,16 @@ object CrossAssetCortex7931 {
         val ts = TokenState(mint = key, symbol = c.symbol, name = c.symbol).apply {
             // The crypto registry's original observation clock is applied by
             // TokenFacts below; never seed a false now-clock that can reject it.
-            if (c.assetClass != AssetClass.CRYPTO_ALT || dyn8063 == null) {
+            if (c.assetClass != AssetClass.CRYPTO_ALT) {
                 lastPrice = c.price
                 lastPriceUpdate = nowMs
+            } else if (dyn8063 == null) {
+                val observedAt8870 = candidateObservationAt8870(key, c.price, c.priceAssetId8870,
+                    c.priceObservedAtMs8870, c.priceSource8870, "", 0.0, 0L, nowMs)
+                if (observedAt8870 > 0L) TokenFacts.writePrice(this, c.price,
+                    com.lifecyclebot.engine.NativeDecisionEnrollment8372.CRYPTO_DESK_PRICE_SOURCE,
+                    TokenFacts.Rank.PROVIDER, observedAt8870, nowMs)
+                else TokenFacts.restorePrice(this, c.price, "CRYPTO_UNDATED_8870")
             }
             source = if (c.assetClass == AssetClass.CRYPTO_ALT)
                 "XC_${cryptoKind8063(c.symbol, dyn8063?.sector.orEmpty(), key)}_${capTier8063(mcap8063)}"
@@ -265,7 +306,12 @@ object CrossAssetCortex7931 {
             }
         }
         if (c.assetClass == AssetClass.CRYPTO_ALT && dyn8063 != null) {
-            bridgeCryptoObservedContext8834(ts, dyn8063, c.price, c.liquidityUsd, mcap8063, nowMs)
+            bridgeCryptoObservedContext8834(ts, dyn8063, c.price, c.liquidityUsd, mcap8063, nowMs,
+                c.priceObservedAtMs8870, c.priceSource8870, c.priceAssetId8870)
+            bridgeSharedLiquidity8870(ts,
+                try { val rows = com.lifecyclebot.engine.BotService.status.tokens
+                    synchronized(rows) { rows[key] } } catch (_: Throwable) { null },
+                nowMs, dyn8063.discoveryAgeHours6544 * 60.0)
             try {
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
                     if (ts.lastPriceUpdate > 0L) "CRYPTO_CANONICAL_PRICE_PROVEN_8834"

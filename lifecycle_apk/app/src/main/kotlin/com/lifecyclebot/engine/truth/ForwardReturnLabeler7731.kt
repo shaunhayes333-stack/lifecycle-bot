@@ -2733,6 +2733,16 @@ object ForwardReturnLabeler7731 {
         open.sortedBy { it.second }.map { it.first }.distinct()
             .filter { m -> (lastRead(m) ?: 0L).let { nowMs - it >= HP_READ_GAP_MS_8583 } }.take(cap)
 
+    /** A cached vault answer keeps its observation time; finishing an HTTP rung is not a new chain observation. */
+    internal fun horizonVaultMark8870(mint: String, read: OnChainDepth8038.Read?, solUsd: Double,
+                                      nowMs: Long): LabelMark8386? {
+        if (mint.isBlank() || read == null || !OnChainDepth8038.usableRead(read, CHAIN_MARK_MAX_AGE_MS_8540, nowMs) ||
+            !solUsd.isFinite() || solUsd <= 0.0) return null
+        val px = OnChainDepth8038.priceUsd8038(read.quoteSol, read.baseTokens, solUsd)
+        if (!px.isFinite() || px <= 0.0) return null
+        return LabelMark8386(mint, read.pool, px, read.atMs, nowMs, VAULT_MARK_SOURCE_8571, independentBasis = true)
+    }
+
     private fun startHorizonPricer8583() {
         if (!hpRunning8583.compareAndSet(false, true)) return
         try {
@@ -2767,7 +2777,11 @@ object ForwardReturnLabeler7731 {
             counter.addAndGet(n.toLong())
             if (prices.isNotEmpty()) noteOffWatchResponse(prices.filterValues { it.isFinite() && it > 0.0 }, System.currentTimeMillis())
         }
-        val (onCurve, _) = splitOnCurve8418(due) { m -> onActiveCurve8418(m) }
+        val (onCurve, offCurve) = splitOnCurve8418(due) { m -> onActiveCurve8418(m) }
+        // 8870: request the independent vault read before any blocking provider rung. The old horizon worker
+        // queued it only after curve/Dex/Jupiter had finished, while the promised label window was already closing.
+        // The existing bounded depth worker publishes the answer for typedMark8386 even while HTTP is stalled.
+        if (offCurve.isNotEmpty()) try { OnChainDepth8038.requestMints8543(offCurve, CHAIN_MARK_MAX_AGE_MS_8540) } catch (_: Throwable) {}
         if (onCurve.isNotEmpty()) keep(try { com.lifecyclebot.network.ParallelMarkFanout7088.curvePrices7392(onCurve) } catch (_: Throwable) { emptyMap() }, hpCurve8583)
         for (chunk in due.filter { it !in got }.chunked(OFFWATCH_DEX_CHUNK_8405)) {
             val r = try { com.lifecyclebot.network.DexscreenerApi().batchPriceFetchTyped8087(chunk, LABEL_SLOT_WAIT_MS_8474, heldMarkTraffic = false) } catch (_: Throwable) { null }
@@ -2777,12 +2791,15 @@ object ForwardReturnLabeler7731 {
             keep(try { com.lifecyclebot.engine.sell.PriceResolverFallback.jupiterBatchPrices7737(chunk) } catch (_: Throwable) { emptyMap() }, hpJup8583)
         val rest = due.filter { it !in got }
         if (rest.isNotEmpty()) {
-            val chain = HashMap<String, Double>()
+            val readAt = System.currentTimeMillis()
+            val solUsd = com.lifecyclebot.engine.WalletManager.labelSolPrice8580(readAt)
             for (m in rest) {
-                val px = try { OnChainDepth8038.chainPriceUsd8540(m, CHAIN_MARK_MAX_AGE_MS_8540) } catch (_: Throwable) { Double.NaN }
-                if (px.isFinite() && px > 0.0) chain[m] = px
+                val read = try { OnChainDepth8038.freshRead8198(m, CHAIN_MARK_MAX_AGE_MS_8540, readAt) } catch (_: Throwable) { null }
+                val mark = horizonVaultMark8870(m, read, solUsd, readAt) ?: continue
+                got[m] = mark.usd
+                hpChain8583.incrementAndGet()
+                noteLaneMark8418(m, mark.usd, mark.observedAtMs)
             }
-            keep(chain, hpChain8583)
             val ask = rest.filter { it !in got }
             if (ask.isNotEmpty()) try { OnChainDepth8038.requestMints8543(ask, CHAIN_MARK_MAX_AGE_MS_8540) } catch (_: Throwable) {}
             hpUnpriced8583.addAndGet(ask.size.toLong())

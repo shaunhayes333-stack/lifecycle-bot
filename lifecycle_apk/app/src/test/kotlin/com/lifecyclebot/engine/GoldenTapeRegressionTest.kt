@@ -10269,13 +10269,13 @@ class GoldenTapeRegressionTest {
         val carryIdx = refreshBody.indexOf("val carried6819 = carryForwardPrice6819(existing, ageMs)")
         assertTrue(rescueIdx > 0 && carryIdx > rescueIdx)
         assertTrue(reg.contains("DYN_MARK_SOLANA_RESCUE_BEFORE_CARRY_7274"))
-        assertTrue(reg.contains("fun observeHeldMark7274(identityOrAddress: String, priceUsd: Double): Boolean {"))
+        assertTrue(reg.contains("fun observeHeldMark7274(identityOrAddress: String, priceUsd: Double, observedAtMs: Long = 0L): Boolean ="))
 
         // Router: solana| identity → single-mint fan-out, contested refused, stamped, registry told.
         assertTrue(router.contains("val solanaMint7274 = ts.mint.takeIf { it.startsWith(\"solana|\") }?.removePrefix(\"solana|\")?.trim().orEmpty()"))
         assertTrue(router.contains("ParallelMarkFanout7088.resolve7088(listOf(solanaMint7274))[solanaMint7274]"))
         assertTrue(router.contains("val contested7274 = fan7274 != null && fan7274.sourceCount >= 2 && !fan7274.corroborated"))
-        assertTrue(router.contains("DynamicAltTokenRegistry.observeHeldMark7274(ts.mint, px7274)"))
+        assertTrue(router.contains("DynamicAltTokenRegistry.observeHeldMark7274(ts.mint, px7274, fan7274.observedAtMs8521)"))
         assertTrue(router.contains("CROSS_ASSET_MARK_FROM_SOLANA_FANOUT_7274"))
         val fanIdx = router.indexOf("CROSS_ASSET_MARK_FROM_SOLANA_FANOUT_7274")
         val unroutableIdx = router.indexOf("emit(\"UNROUTABLE_SYMBOL\"")
@@ -10312,18 +10312,20 @@ class GoldenTapeRegressionTest {
         val alt = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
         val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
 
-        assertTrue(alt.contains("private suspend fun freshDynamicEntryBasis7275(signal: AltSignal, isSpot: Boolean): Pair<Double, String>? {"))
+        assertTrue(alt.contains("private suspend fun freshDynamicEntryBasis7275(signal: AltSignal, isSpot: Boolean,"))
+        assertTrue(alt.contains("private data class EntryBasis8870(val price: Double, val source: String, val observedAtMs: Long)"))
         assertTrue(alt.contains("val contested = fan != null && fan.sourceCount >= 2 && !fan.corroborated"))
         assertTrue(alt.contains("CRYPTO_PAPER_ENTRY_BASIS_CONTESTED_7275"))
-        assertTrue(alt.contains("DynamicAltTokenRegistry.refreshHeldMark7251(identity)"))
+        assertTrue(alt.contains("DynamicAltTokenRegistry.refreshPriceForMintBlocking(identity, forceRefresh = true, maxCacheAgeMs8870 = refreshTarget8870)"))
         // V5.0.8091 — the fresh observation must also sit inside the 60 s exit-pricing window.
-        assertTrue(alt.contains("if (snap != null && snap.freshObservation && snap.price.isFinite() && snap.price > 0.0 &&\n            recentBasisUsable8091(snap.observedAtMs, System.currentTimeMillis())) {"))
+        assertTrue(alt.contains("else recentBasisUsable8091(snap.observedAtMs, System.currentTimeMillis())"))
 
-        // Paper + dynamic only; refusal happens before the sealed candidate and before debit.
+        // Dynamic decisions in either mode retain an observed price; refusal precedes the sealed candidate and debit.
         // V5.0.7803 — paper mode is the authoritative per-signal read (paper7803).
-        assertTrue(alt.contains("val wantsFreshBasis7275 = paper7803 && signal.isDynamic"))
-        assertTrue(alt.contains("terminalDisposition6613(\"CRYPTO_PAPER_ENTRY_BASIS_UNOBSERVED_7275\", \"PRE_SUBMIT\")"))
-        assertTrue(alt.contains("signal.copy(price = freshPx7275)"))
+        assertTrue(alt.contains("val wantsFreshBasis7275 = signal.isDynamic"))
+        assertTrue(alt.contains("liveDecision8870 = !paper7803"))
+        assertTrue(alt.contains("val reason8870 = if (paper7803) \"CRYPTO_PAPER_ENTRY_BASIS_UNOBSERVED_7275\" else \"CRYPTO_LIVE_PRICE_REFRESH_WAIT_8870\""))
+        assertTrue(alt.contains("signal.copy(price = freshPx7275, priceObservedAtMs8870 = basis7275.observedAtMs,"))
         val execIdx = alt.indexOf("private suspend fun executeSignal(signal: AltSignal, isSpot: Boolean) {")
         val shadowIdx = alt.indexOf("val signal = if (basis7275 != null) {", execIdx)
         val mktSymIdx = alt.indexOf("val mktSym = signal.marketSymbol", execIdx)
@@ -10682,7 +10684,7 @@ class GoldenTapeRegressionTest {
 
         // 8091: an entry observation must remain usable by the exit monitor.
         assertTrue(alt.contains("private val RECENT_BASIS_MS_7281 = DYNAMIC_MARK_MAX_AGE_MS_6654"))
-        assertTrue(alt.contains("return snap.price to \"ALT_REGISTRY_RECENT_7281_\${ageMs7281 / 1000}s\""))
+        assertTrue(alt.contains("EntryBasis8870(cached8870.price, \"ALT_REGISTRY_OBSERVED_8870\", cached8870.observedAtMs)"))
         assertTrue(alt.contains("CRYPTO_PAPER_ENTRY_BASIS_RECENT_7281"))
 
         // Ladder: per-host labels, locked rungs skipped, six rungs.

@@ -114,17 +114,22 @@ class DexscreenerApi {
      * V5.0.6544 — chain-aware DexScreener hydration for Crypto Universe.
      * This does not change MemeTrader's Solana-specialized getBestPair(mint).
      */
-    fun getBestPair(chainId: String, tokenAddress: String): PairInfo? {
+    fun getBestPair(chainId: String, tokenAddress: String, maxCacheAgeMs8870: Long = CACHE_TTL_MS): PairInfo? {
         val chain = chainId.trim().lowercase()
         if (chain.isBlank() || tokenAddress.isBlank()) return null
-        return getBestPairInternal(chain, tokenAddress.trim(), allowDexPaprika = false)
+        return getBestPairInternal(chain, tokenAddress.trim(), allowDexPaprika = false, maxCacheAgeMs8870 = maxCacheAgeMs8870)
     }
 
-    private fun getBestPairInternal(chainId: String, tokenAddress: String, allowDexPaprika: Boolean): PairInfo? {
+    private fun getBestPairInternal(chainId: String, tokenAddress: String, allowDexPaprika: Boolean,
+                                   maxCacheAgeMs8870: Long = CACHE_TTL_MS): PairInfo? {
         val cacheKey = "$chainId|$tokenAddress"
         val cached = pairCache[cacheKey]
         val now = System.currentTimeMillis()
-        if (cached != null && now - cached.timestamp < CACHE_TTL_MS) return cached.pair
+        val cacheWindow8870 = maxCacheAgeMs8870.coerceIn(0L, CACHE_TTL_MS)
+        val strict8870 = cacheWindow8870 < CACHE_TTL_MS
+        val cachedAt8870 = if (strict8870) cached?.pair?.candle?.ts ?: 0L else cached?.timestamp ?: 0L
+        val cachedFresh8870 = cachedAt8870 > 0L && now - cachedAt8870 in 0L until cacheWindow8870
+        if (cached != null && cachedFresh8870) return cached.pair
 
         // V5.0.6894 §THE_DEAD_PROVIDER_WAS_FIRST_IN_LINE.
         //
@@ -150,12 +155,12 @@ class DexscreenerApi {
         // V5.0.8287 — a bulk Solana read (not held, not near a decision) with a recent answer joins the 30-mint batch lane
         // and is served the cached pair meanwhile, instead of spending a single call of the shared host budget.
         val prio8287 = if (chainId == "solana") prioHeader8287(tokenAddress) else "BULK"
-        if (chainId == "solana" && prio8287 == "BULK" && cached != null && now - cached.timestamp < CACHE_TTL_MS * 3) {
+        if (cacheWindow8870 == CACHE_TTL_MS && chainId == "solana" && prio8287 == "BULK" && cached != null && now - cached.timestamp < CACHE_TTL_MS * 3) {
             try { com.lifecyclebot.engine.DexBatchLane8287.enqueue8287(tokenAddress) } catch (_: Throwable) {}
             return cached.pair
         }
         if (cached != null && now - cached.timestamp < CACHE_TTL_MS * 3) {
-            if (!RateLimiter.allowRequest("dexscreener")) return cached.pair
+            if (!RateLimiter.allowRequest("dexscreener")) return if (strict8870 && !cachedFresh8870) null else cached.pair
         } else if (!RateLimiter.allowRequest("dexscreener")) return null
 
         val url = "https://api.dexscreener.com/token-pairs/v1/${encode(chainId)}/${encode(tokenAddress)}"
@@ -165,7 +170,9 @@ class DexscreenerApi {
             // V5.0.8287 — the shared host budget refused (or the host is locked): nothing was asked, so nothing is cached as
             // "no pair"; a Solana mint is answered by the batch lane instead.
             if (chainId == "solana") try { com.lifecyclebot.engine.DexBatchLane8287.enqueue8287(tokenAddress) } catch (_: Throwable) {}
-            return cached?.pair
+            // A decision asking for a live price must be able to reach its alternative feed. Returning an
+            // expired pair here would look like a successful refresh and suppress that existing fallback.
+            return if (strict8870 && !cachedFresh8870) null else cached?.pair
         }
         var best: JSONObject? = null
         if (body != null) {
@@ -376,7 +383,7 @@ class DexscreenerApi {
             priceChangeM5    = p.optJSONObject("priceChange")?.takeIf { it.has("m5") }?.optDouble("m5", Double.NaN) ?: Double.NaN,
             priceChangeH1    = p.optJSONObject("priceChange")?.takeIf { it.has("h1") }?.optDouble("h1", Double.NaN) ?: Double.NaN,
             priceChangeH24   = p.optJSONObject("priceChange")?.takeIf { it.has("h24") }?.optDouble("h24", Double.NaN) ?: Double.NaN,
-            txnsH24Observed  = h24?.let { it.has("buys") && it.has("sells") } == true,
+            txnsH24Observed  = h24?.let { it.optInt("buys", -1) >= 0 && it.optInt("sells", -1) >= 0 } == true,
         )
     }
 

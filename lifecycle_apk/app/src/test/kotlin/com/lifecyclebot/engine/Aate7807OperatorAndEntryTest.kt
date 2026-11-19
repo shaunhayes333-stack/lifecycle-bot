@@ -116,7 +116,7 @@ class Aate7807OperatorAndEntryTest {
         val b = bot.indexOf("V5.9.495z54c — extracted from botLoop()", a)
         assertTrue(a > 0 && b > a)
         val loop = bot.substring(a, b)
-        assertTrue(loop.contains("applyMarkRescue7807(openMints, solanaMints6970, missingBeforeKeyless6946Raw, priceMap, markSource6999)"))
+        assertTrue(loop.contains("applyMarkRescue7807(openMints, solanaMints6970, missingBeforeKeyless6946Raw, priceMap, markSource6999, markObservedAt8870)"))
         assertFalse(loop.contains("ParallelMarkFanout7088"))
         assertFalse(loop.contains("KeylessPriceSources6996"))
         assertFalse(loop.contains("PriceResolverFallback.resolve("))

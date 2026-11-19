@@ -67,16 +67,22 @@ object CrossAssetMarkRouter6530 {
             // ts.mint is `base|0xc06…`, `eth|0x4624…`. DefiLlama's coins API
             // keys on exactly that, and KeylessPriceSources6996 was already
             // calling it — for `solana:MINT` only.
-            val keylessPx7004 = try {
-                com.lifecyclebot.network.KeylessPriceSources6996.crossChainPrice(ts.mint)
-            } catch (_: Throwable) { 0.0 }
-            if (keylessPx7004.isFinite() && keylessPx7004 > 0.0) {
-                TokenFacts.writePrice(ts, keylessPx7004, "DEFILLAMA_CROSSCHAIN_7004", TokenFacts.Rank.PROVIDER, System.currentTimeMillis())  // V5.0.8552
+            val keylessMark8870 = try {
+                com.lifecyclebot.network.KeylessPriceSources6996.crossChainObservation8870(ts.mint)
+            } catch (_: Throwable) { null }
+            val keylessPx7004 = keylessMark8870?.priceUsd ?: 0.0
+            if (keylessPx7004.isFinite() && keylessPx7004 > 0.0 && keylessMark8870 != null &&
+                com.lifecyclebot.engine.NativeDecisionEnrollment8372.priceAge8870(keylessMark8870.observedAtMs,
+                    System.currentTimeMillis()) <= REGISTRY_MARK_MAX_AGE_MS_7178) {
+                val applied8870 = TokenFacts.writePrice(ts, keylessPx7004, "DEFILLAMA_CROSSCHAIN_7004",
+                    TokenFacts.Rank.PROVIDER, keylessMark8870.observedAtMs)
+                if (!applied8870) return false
                 try {
                     QuoteFreshnessGuard6452.note(
                         mint = ts.mint,
                         priceUsd = keylessPx7004,
                         source = QuoteFreshnessGuard6452.Provenance.REST_LIVE,
+                        quoteAgeMs = (System.currentTimeMillis() - keylessMark8870.observedAtMs).coerceAtLeast(0L),
                     )
                 } catch (_: Throwable) {}
 
@@ -125,10 +131,11 @@ object CrossAssetMarkRouter6530 {
                     .getTokenByCanonicalIdentity6544(ts.mint)
             } catch (_: Throwable) { null }
             val regPx7178 = regTok7178?.price ?: 0.0
-            val regAgeMs7178 = if (regTok7178 == null) Long.MAX_VALUE else
-                (System.currentTimeMillis() - regTok7178.lastUpdatedMs).coerceAtLeast(0L)
+            val regAt8870 = regTok7178?.priceObservedAtMs8372 ?: 0L
+            val regAgeMs7178 = com.lifecyclebot.engine.NativeDecisionEnrollment8372.priceAge8870(regAt8870, System.currentTimeMillis())
             if (regPx7178.isFinite() && regPx7178 > 0.0 && regAgeMs7178 <= REGISTRY_MARK_MAX_AGE_MS_7178) {
-                TokenFacts.writePrice(ts, regPx7178, "ALT_REGISTRY_7178", TokenFacts.Rank.PROVIDER, System.currentTimeMillis())  // V5.0.8552
+                val applied8870 = TokenFacts.writePrice(ts, regPx7178, "ALT_REGISTRY_7178", TokenFacts.Rank.PROVIDER, regAt8870)
+                if (!applied8870) return false
                 // Stamp, for the same reason V5.0.7010 had to stamp the branch
                 // above and V5.0.7175 the third path: the exit feed tests
                 // provenance, not ts.lastPrice. A mark committed without a
@@ -138,6 +145,7 @@ object CrossAssetMarkRouter6530 {
                         mint = ts.mint,
                         priceUsd = regPx7178,
                         source = QuoteFreshnessGuard6452.Provenance.REST_LIVE,
+                        quoteAgeMs = (System.currentTimeMillis() - regAt8870).coerceAtLeast(0L),
                     )
                     PipelineHealthCollector.labelInc("CROSS_ASSET_MARK_FROM_ALT_REGISTRY_7178")
                 } catch (_: Throwable) {}
@@ -185,18 +193,21 @@ object CrossAssetMarkRouter6530 {
                 } catch (_: Throwable) { null }
                 val contested7274 = fan7274 != null && fan7274.sourceCount >= 2 && !fan7274.corroborated
                 val px7274 = fan7274?.priceUsd?.takeIf { it.isFinite() && it > 0.0 && !contested7274 } ?: 0.0
-                if (px7274 > 0.0) {
+                if (px7274 > 0.0 && fan7274 != null &&
+                    com.lifecyclebot.engine.NativeDecisionEnrollment8372.priceAge8870(fan7274.observedAtMs8521, System.currentTimeMillis()) <= REGISTRY_MARK_MAX_AGE_MS_7178) {
                     val label7274 = if (fan7274!!.corroborated) "FANOUT_CORROBORATED_7088_x${fan7274.agreeingCount}" else "FANOUT_UNCORROBORATED_7088"
-                    TokenFacts.writePrice(ts, px7274, label7274, TokenFacts.Rank.PROVIDER, System.currentTimeMillis())  // V5.0.8552
+                    val applied8870 = TokenFacts.writePrice(ts, px7274, label7274, TokenFacts.Rank.PROVIDER, fan7274.observedAtMs8521)
+                    if (!applied8870) return false
                     try {
                         QuoteFreshnessGuard6452.note(
                             mint = ts.mint,
                             priceUsd = px7274,
                             source = QuoteFreshnessGuard6452.Provenance.REST_LIVE,
+                            quoteAgeMs = (System.currentTimeMillis() - fan7274.observedAtMs8521).coerceAtLeast(0L),
                             sourceCount7188 = fan7274.sourceCount,
                             agreeingCount7188 = fan7274.agreeingCount,
                         )
-                        com.lifecyclebot.perps.DynamicAltTokenRegistry.observeHeldMark7274(ts.mint, px7274)
+                        com.lifecyclebot.perps.DynamicAltTokenRegistry.observeHeldMark7274(ts.mint, px7274, fan7274.observedAtMs8521)
                         PipelineHealthCollector.labelInc("CROSS_ASSET_MARK_FROM_SOLANA_FANOUT_7274")
                     } catch (_: Throwable) {}
                     emit(
@@ -216,8 +227,10 @@ object CrossAssetMarkRouter6530 {
         }
         return try {
             val data = withContext(Dispatchers.IO) { PerpsMarketDataFetcher.getMarketData(market) }
-            if (data.price.isFinite() && data.price > 0.0) {
-                TokenFacts.writePrice(ts, data.price, "CrossAssetMarkRouter6530/${assetClass.tag}/${market.name}", TokenFacts.Rank.PROVIDER, System.currentTimeMillis())  // V5.0.8552
+            if (data.price.isFinite() && data.price > 0.0 &&
+                com.lifecyclebot.engine.NativeDecisionEnrollment8372.priceAge8870(data.lastUpdate, System.currentTimeMillis()) <= REGISTRY_MARK_MAX_AGE_MS_7178) {
+                val applied8870 = TokenFacts.writePrice(ts, data.price, "CrossAssetMarkRouter6530/${assetClass.tag}/${market.name}", TokenFacts.Rank.PROVIDER, data.lastUpdate)
+                if (!applied8870) return false
                 // V5.0.7010 §THE_OTHER_MARK_PATH_STILL_DID_NOT_STAMP.
                 //
                 // V5.0.6999 taught the SOLANA open-position loop to stamp
@@ -248,13 +261,14 @@ object CrossAssetMarkRouter6530 {
                         mint = ts.mint,
                         priceUsd = data.price,
                         source = QuoteFreshnessGuard6452.Provenance.REST_LIVE,
+                        quoteAgeMs = (System.currentTimeMillis() - data.lastUpdate).coerceAtLeast(0L),
                     )
                 } catch (_: Throwable) {}
 
                 emit("OK", assetClass, symbol, "price=${"%.6f".format(data.price)} market=${market.name}")
                 true
             } else {
-                emit("ZERO_PRICE", assetClass, symbol, "provider returned price=${data.price} market=${market.name}")
+                emit("STALE_OR_MISSING_PRICE", assetClass, symbol, "provider returned price=${data.price} observedAt=${data.lastUpdate} market=${market.name}")
                 false
             }
         } catch (e: Throwable) {

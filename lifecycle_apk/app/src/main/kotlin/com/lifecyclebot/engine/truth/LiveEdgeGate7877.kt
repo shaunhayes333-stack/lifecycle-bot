@@ -748,12 +748,13 @@ object LiveEdgeGate7877 {
                         try { com.lifecyclebot.engine.DataDeferFetch8180.request8180(ts, missing, nowMs) } catch (_: Throwable) {}
                         try { com.lifecyclebot.engine.cortex.LanePlaybook7907.requestEvidence8153(ts, missing.map { it.replace("liquidity:", "liq:") }, nowMs) } catch (_: Throwable) {}
                     }
-                    val budgetOpen8204 = CandidateAdmission8136.deferBudgetFor8144(ts.mint, missing, nowMs)
+                    val waitMode8870 = if (paper) "PAPER" else "LIVE"
+                    val budgetOpen8204 = CandidateAdmission8136.deferBudgetForLane8870(ts.mint, l8059, waitMode8870, missing, nowMs)
                     // V5.0.8204 — a deferral that exhausts its budget with the SAME inputs still missing was never answered by
                     // the fetch it requested: that is a provider/queue terminal, not the candidate's, and it is named so and
                     // re-requested once at LIVE priority (near-decision coin first) rather than left to expire quietly.
                     val conditionWait8435 = CandidateAdmission8136.conditionWait8435(d.reason)
-                    val unanswered8204 = !budgetOpen8204 && !conditionWait8435 && CandidateAdmission8136.deferUnanswered8204(ts.mint, missing, nowMs)
+                    val unanswered8204 = !budgetOpen8204 && !conditionWait8435 && CandidateAdmission8136.deferUnansweredForLane8870(ts.mint, l8059, waitMode8870, missing, nowMs)
                     if (unanswered8204) try {
                         PipelineHealthCollector.labelInc("DATA_DEFER_FETCH_NEVER_COMPLETED_8204")
                         missing.forEach { PipelineHealthCollector.labelInc("DATA_DEFER_FETCH_NEVER_COMPLETED_8204_" + it.substringBefore(':').take(16).uppercase()) }

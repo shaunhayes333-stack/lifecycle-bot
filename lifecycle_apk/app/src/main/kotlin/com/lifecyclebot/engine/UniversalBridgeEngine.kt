@@ -317,6 +317,7 @@ object UniversalBridgeEngine {
         sizeUsd: Double,
         sourceMint: String? = null,
         prevalidatedQuote7444: com.lifecyclebot.network.SwapQuote? = null,
+        cryptoBuyImpactLimit8870: Double? = null,
     ): BridgeResult = withContext(Dispatchers.IO) {
 
         // Step 1: scan wallet to find best source
@@ -348,7 +349,7 @@ object UniversalBridgeEngine {
         }
 
         // Step 3: if target == USDC, single hop source → USDC
-        if (targetMint == USDC_MINT) {
+        if (targetMint == USDC_MINT && cryptoBuyImpactLimit8870 == null) {
             return@withContext bridgeToUsdc(wallet, src, sizeUsd)
         }
 
@@ -429,6 +430,7 @@ object UniversalBridgeEngine {
             amountRaw   = sourceAmountRaw,
             slippageBps = 200,
             prevalidatedQuote7444 = proven7444,
+            cryptoBuyImpactLimit8870 = cryptoBuyImpactLimit8870,
         ) ?: run {
             bridgesFailed.incrementAndGet()
             com.lifecyclebot.engine.execution.ExecutionStatusRegistry.stamp(
@@ -669,6 +671,7 @@ object UniversalBridgeEngine {
         amountRaw: Long,
         slippageBps: Int,
         prevalidatedQuote7444: com.lifecyclebot.network.SwapQuote? = null,
+        cryptoBuyImpactLimit8870: Double? = null,
     ): JupiterSwapMeasurement7673? = withContext(Dispatchers.IO) {
         // V5.0.7326 — the crypto / markets swap now runs the meme pipeline:
         // execution scope (our own backoff can't refuse it), a BINDING quote
@@ -677,6 +680,8 @@ object UniversalBridgeEngine {
         // (senderCompatible), instead of a non-binding Ultra quote re-ordered
         // at build time and sent with no Sender, no Jito.
         com.lifecyclebot.network.ExitHttpScope7314.run {
+            if (cryptoBuyImpactLimit8870 != null) return@run executeCryptoBuySwap8870(
+                wallet, inputMint, outputMint, amountRaw, slippageBps, prevalidatedQuote7444, cryptoBuyImpactLimit8870)
             var supplied7444 = prevalidatedQuote7444?.takeIf {
                 it.inputMint == inputMint && it.outputMint == outputMint &&
                     it.inAmount == amountRaw && it.outAmount > 0L
@@ -746,6 +751,40 @@ object UniversalBridgeEngine {
             null
         }
     }
+
+    /** Crypto's exact unsigned quote may be refreshed once; confirmed/uncertain sends never return to this build loop. */
+    private fun executeCryptoBuySwap8870(
+        wallet: SolanaWallet, inputMint: String, outputMint: String, amountRaw: Long, slippageBps: Int,
+        initialQuote: com.lifecyclebot.network.SwapQuote?, impactLimit: Double,
+    ): JupiterSwapMeasurement7673? = CryptoLiveQuoteBoundary8870.execute(
+        request = CryptoLiveQuoteBoundary8870.Request(inputMint, outputMint, amountRaw, impactLimit),
+        initialQuote = initialQuote,
+        fetchQuote = { jupiter.getQuoteWithTaker(inputMint, outputMint, amountRaw, slippageBps, wallet.publicKeyB58) },
+        observe = { q -> CryptoLiveQuoteBoundary8870.Observation(q.inputMint, q.outputMint, q.inAmount,
+            q.outAmount, q.receivedAtMs8521, q.priceImpactPct) },
+        build = { q -> jupiter.buildSwapTx(q, wallet.publicKeyB58, senderTipLamports = SENDER_TIP_LAMPORTS_7326).also {
+            require(it.txBase64.isNotEmpty()) { "CRYPTO_BUY_BUILD_EMPTY_8870" }
+        } },
+        builtQuote = { built, _ -> built.executionQuote8521
+            ?: throw CryptoLiveQuoteBoundary8870.Wait("BUILT_QUOTE_UNPROVEN") },
+        send = { built, quote ->
+            try { PipelineHealthCollector.labelInc(
+                if (built.senderCompatible) "BRIDGE_SWAP_SENDER_ENVELOPE_7326" else "BRIDGE_SWAP_NO_SENDER_ENVELOPE_7326")
+            } catch (_: Throwable) {}
+            val signature = try {
+                wallet.signSendAndConfirm(
+                    txBase64 = built.txBase64, useJito = false, jitoTipLamports = 0,
+                    ultraRequestId = if (quote.isUltra) built.requestId else null,
+                    jupiterApiKey = "", isRfqRoute = built.isRfqRoute, senderCompatible = built.senderCompatible,
+                )
+            } catch (pending: SolanaWallet.SentButUnconfirmed7733) {
+                try { PipelineHealthCollector.labelInc("TX_SUBMIT_OUTCOME_UNKNOWN_ADOPTED_BRIDGE_SWAP_8085") } catch (_: Throwable) {}
+                pending.signature
+            }
+            signature?.takeIf { it.isNotBlank() }?.let { JupiterSwapMeasurement7673(it, quote.outAmount) }
+        },
+        onRefresh = { try { PipelineHealthCollector.labelInc("CRYPTO_UNSIGNED_QUOTE_REFRESH_8870") } catch (_: Throwable) {} },
+    )
 
     /**
      * Compatibility wrapper for recovery and legacy callers that only need the

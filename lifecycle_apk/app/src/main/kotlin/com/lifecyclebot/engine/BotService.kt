@@ -1777,7 +1777,8 @@ class BotService : Service() {
     // the tick applies only rescue marks younger than MARK_RESCUE_MAX_AGE_MS_7807
     // and never waits for one (Field Manual L240: stale quotes and latency
     // create adverse selection). No provider, cadence, cap or threshold changed.
-    private data class RescuedMark7807(val priceUsd: Double, val source: String, val atMs: Long)
+    private data class RescuedMark7807(val priceUsd: Double, val source: String, val atMs: Long,
+                                     val observedAtMs8870: Long = atMs)
     private val markRescueResults7807 = java.util.concurrent.ConcurrentHashMap<String, RescuedMark7807>()
     private val markRescueInFlight7807 = java.util.concurrent.atomic.AtomicBoolean(false)
     private val markRescueGen7807 = java.util.concurrent.atomic.AtomicLong(0L)
@@ -1941,19 +1942,22 @@ class BotService : Service() {
         missingRaw: List<String>,
         priceMap: HashMap<String, Double>,
         markSource6999: HashMap<String, String>,
+        markObservedAt8870: HashMap<String, Long>,
     ) {
         if (missingRaw.isEmpty()) return
         val now = System.currentTimeMillis()
         val applied = HashSet<String>()
         for (m in missingRaw) {
             val r = markRescueResults7807.remove(m) ?: continue
-            if (now - r.atMs > MARK_RESCUE_MAX_AGE_MS_7807) {
+            if (NativeDecisionEnrollment8372.priceAge8870(r.atMs, now) > MARK_RESCUE_MAX_AGE_MS_7807 ||
+                NativeDecisionEnrollment8372.priceAge8870(r.observedAtMs8870, now) > 60_000L) {
                 try { PipelineHealthCollector.labelInc("MARK_RESCUE_EXPIRED_7807") } catch (_: Throwable) {}
                 continue
             }
             if (!r.priceUsd.isFinite() || r.priceUsd <= 0.0) continue
             priceMap[m] = r.priceUsd
             markSource6999[m] = r.source
+            markObservedAt8870[m] = r.observedAtMs8870
             applied.add(m)
         }
         if (applied.isNotEmpty()) {
@@ -2003,6 +2007,7 @@ class BotService : Service() {
     ) {
         val priceMap = HashMap<String, Double>(priced)
         val markSource6999 = HashMap<String, String>()
+        val markObservedAt8870 = HashMap<String, Long>()
         val tickStartedAtMs6945 = System.currentTimeMillis()
         // V5.0.6996 §ONE_DEAD_PROVIDER_STOPPED_THE_WHOLE_BOT_TRADING.
         //
@@ -2065,6 +2070,9 @@ class BotService : Service() {
                     var corroborated7088 = 0
                     for ((m, mk) in fanout7088) {
                         if (!mk.priceUsd.isFinite() || mk.priceUsd <= 0.0) continue
+                        // This held-mark consumer already requires a <=60s observation. A stale answer must leave
+                        // the mint in the missing set so the remaining providers can still rescue it this pass.
+                        if (NativeDecisionEnrollment8372.priceAge8870(mk.observedAtMs8521, System.currentTimeMillis()) > 60_000L) continue
                         // V5.0.7273 §A_MEDIAN_OF_FEEDS_THAT_DISAGREE_IS_NOT_A_MARK.
                         //
                         // merge7088 returns the median when every feed answered
@@ -2086,6 +2094,7 @@ class BotService : Service() {
                             continue
                         }
                         priceMap[m] = mk.priceUsd
+                        markObservedAt8870[m] = mk.observedAtMs8521
                         // The source label carries the corroboration
                         // state so every downstream reader — and the
                         // operator reading a row — can tell a mark two
@@ -2113,11 +2122,13 @@ class BotService : Service() {
             markRescuePhase7807("keyless_batch")
             try {
                 val rescued6996 = com.lifecyclebot.network.KeylessPriceSources6996
-                    .fillMissing(missingBeforeKeyless6946)
+                    .fillMissingObservations8870(missingBeforeKeyless6946)
                 if (rescued6996.isNotEmpty()) {
-                    for ((m, p) in rescued6996) {
+                    for ((m, mark8870) in rescued6996) {
+                        val p = mark8870.priceUsd
                         if (p.isFinite() && p > 0.0) {
                             priceMap[m] = p
+                            markObservedAt8870[m] = mark8870.observedAtMs
                             markSource6999[m] = "KEYLESS_BATCH_6996"
                         }
                     }
@@ -2334,7 +2345,8 @@ class BotService : Service() {
         val doneAt7807 = System.currentTimeMillis()
         for ((m, src) in markSource6999) {
             val px = priceMap[m] ?: continue
-            if (px.isFinite() && px > 0.0) markRescueResults7807[m] = RescuedMark7807(px, src, doneAt7807)
+            if (px.isFinite() && px > 0.0) markRescueResults7807[m] =
+                RescuedMark7807(px, src, doneAt7807, markObservedAt8870[m] ?: doneAt7807)
         }
         try {
             PipelineHealthCollector.labelInc("MARK_RESCUE_PASS_7807")
@@ -12709,6 +12721,7 @@ class BotService : Service() {
                 // at the bottom of this loop for why that stopped the bot
                 // trading.
                 val markSource6999 = HashMap<String, String>(solanaMints6970.size)
+                val markObservedAt8870 = HashMap<String, Long>(solanaMints6970.size)
                 // V5.0.7392 — LOCKED VENUE FIRST. The token register sealed each
                 // position's venue at purchase: an un-graduated pump.fun token is
                 // priced from its bonding curve (chain state, PDA derived from the
@@ -12825,7 +12838,7 @@ class BotService : Service() {
                 // already-priced held position waited for its mark
                 // (OPEN_POS_TICK_GAP_SLOW_7270). It now runs on its own worker and
                 // its fresh marks are applied on the next tick (Field Manual L240).
-                applyMarkRescue7807(openMints, solanaMints6970, missingBeforeKeyless6946Raw, priceMap, markSource6999)
+                applyMarkRescue7807(openMints, solanaMints6970, missingBeforeKeyless6946Raw, priceMap, markSource6999, markObservedAt8870)
 
                 if (priceMap.isEmpty()) {
                     // Rate-limited or DS down. Don't bump lastPriceUpdate.
@@ -12980,6 +12993,7 @@ class BotService : Service() {
                     // were credited to DexScreener in every source-attribution
                     // readout. Record the provider that really replied.
                     val resolvedSource6999 = markSource6999[mint] ?: "DEXSCREENER_WS"
+                    val resolvedAt8870 = markObservedAt8870[mint] ?: now
                     // V5.0.7188 — this is the ONE path that actually knows how
                     // many independent feeds answered, because the fan-out
                     // encodes it in the label it wrote here
@@ -13004,21 +13018,12 @@ class BotService : Service() {
                             com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.recordLockedVenue7392(mint, priceUsd, resolvedSource6999)
                         } catch (_: Throwable) {}
                     }
-                    try {
-                        com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.note(
-                            mint = mint,
-                            priceUsd = priceUsd,
-                            source = com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.Provenance.REST_LIVE,
-                            sourceCount7188 = agreeing7188,
-                            agreeingCount7188 = agreeing7188,
-                        )
-                    } catch (_: Throwable) {}
-
                     // V5.0.8418 §A_POLL_NEVER_OVERWRITES_THE_CHAIN — a row on a chain feed keeps its tick; the poll is recorded only.
                     val chainFed8418 = ChainFedMarks8418.chainFed8418(mint, now)
                     if (chainFed8418) ChainFedMarks8418.pollSkipped8418()
                     synchronized(ts) {
-                        if (!chainFed8418) TokenFacts.writePrice(ts, priceUsd, resolvedSource6999, TokenFacts.Rank.PROVIDER, now)  // V5.0.8552
+                        if (!chainFed8418) com.lifecyclebot.engine.truth.ObservedPriceCommit8870.write(
+                            ts, priceUsd, resolvedSource6999, resolvedAt8870, agreeing7188, now)
                         // V5.0.7269 §THE_CAP_COMES_FROM_THE_STACK_TOO.
                         //
                         // ts.lastMcap was written only by DexScreener, Birdeye and

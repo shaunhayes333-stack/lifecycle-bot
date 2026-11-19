@@ -87,7 +87,7 @@ object DynamicAltTokenRegistry {
         val isStatic: Boolean = false,
         val sector: String = "",
         val lastUpdatedMs: Long = System.currentTimeMillis(),
-        // Price provenance for learning only: metadata/logo refreshes must never refresh this clock.
+        // Price provenance for decisions, exits and learning: metadata/logo refreshes never refresh this clock.
         val priceObservedAtMs8372: Long = 0L,
         // V5.0.8832 — DexScreener already supplies these rolling five-minute
         // observations. Dropping them forced CryptoBrain to infer current
@@ -1536,7 +1536,7 @@ object DynamicAltTokenRegistry {
                 if (!t.tokenAddress.startsWith("cg:")) continue
                 val id = t.tokenAddress.removePrefix("cg:").trim()
                 if (id.isBlank()) continue
-                val age = (now - t.lastUpdatedMs).coerceAtLeast(0L)
+                val age = com.lifecyclebot.engine.NativeDecisionEnrollment8372.priceAge8870(t.priceObservedAtMs8372, now)
                 if (t.price > 0.0 && age <= PRICE_TTL_MS) continue
                 ids.add(id)
             }
@@ -1669,7 +1669,7 @@ object DynamicAltTokenRegistry {
                 if (!t.chainId.trim().equals("solana", true)) continue
                 val a = t.tokenAddress.trim()
                 if (a.isBlank() || a.startsWith("cg:") || a.startsWith("static:")) continue
-                val age = (now - t.lastUpdatedMs).coerceAtLeast(0L)
+                val age = com.lifecyclebot.engine.NativeDecisionEnrollment8372.priceAge8870(t.priceObservedAtMs8372, now)
                 if (t.price > 0.0 && age <= PRICE_TTL_MS) continue
                 // V5.0.7171 — spend the batch on mints nobody has tried, not
                 // on the ones that just came back empty.
@@ -1692,13 +1692,9 @@ object DynamicAltTokenRegistry {
                     val px = mark.priceUsd
                     if (!px.isFinite() || px <= 0.0) continue
                     val tok = byAddress7167[mint] ?: continue
-                    registry[tok.canonicalIdentity6544] = tok.copy(
-                        price = px,
-                        // Fan-out currently supplies no source observation timestamp. Do not invent one for learning.
-                        priceObservedAtMs8372 = 0L,
-                        lastUpdatedMs = System.currentTimeMillis(),
-                    )
-                    repaired++
+                    // The fan-out has carried its observation clock since 8521. Dropping it here made a
+                    // successful live read become an unobserved price at the canonical admission boundary.
+                    if (observeHeldMarkAt8800(tok.canonicalIdentity6544, px, mark.observedAtMs8521)) repaired++
                 }
             }
             // V5.0.7171 — remember who answered and who did not. A mint that
@@ -1726,14 +1722,34 @@ object DynamicAltTokenRegistry {
 
     fun refreshPriceForMintBlocking(
         identityOrAddress: String, forceRefresh: Boolean = false, requireSignalInputs8752: Boolean = false,
+        maxCacheAgeMs8870: Long = if (forceRefresh) 15_000L else PRICE_TTL_MS,
     ): Double {
-        val existing = registry[identityOrAddress] ?: getTokenByMint(identityOrAddress) ?: return 0.0
-        val ageMs = (System.currentTimeMillis() - existing.lastUpdatedMs).coerceAtLeast(0L)
+        var existing = registry[identityOrAddress] ?: getTokenByMint(identityOrAddress) ?: return 0.0
+        val nowMs8870 = System.currentTimeMillis()
+        val maxAge8870 = maxCacheAgeMs8870.coerceIn(0L, PRICE_TTL_MS)
+        // The Solana stream already writes the shared fact store. Use that exact mint's dated observation
+        // before asking an HTTP provider; a metadata merge cannot make an older registry price win.
+        if (existing.chainId.equals("solana", true)) {
+            val shared8870 = try {
+                val rows = com.lifecyclebot.engine.BotService.status.tokens
+                val row = synchronized(rows) { rows[existing.tokenAddress] }
+                row?.let { com.lifecyclebot.engine.truth.TokenFacts.priceFact(it) }
+            } catch (_: Throwable) { null }
+            if (shared8870 != null && shared8870.rank >= com.lifecyclebot.engine.truth.TokenFacts.Rank.PROVIDER &&
+                !com.lifecyclebot.engine.truth.TokenFacts.seedPrice8559(shared8870.source) &&
+                !com.lifecyclebot.engine.truth.MarketDataProvenance6471.isKnownStandaloneSentinelPrice6658(shared8870.value) &&
+                com.lifecyclebot.engine.NativeDecisionEnrollment8372.observedPriceAt(
+                    shared8870.value, shared8870.value, shared8870.observedAtMs, nowMs8870, maxAge8870) > 0L) {
+                observeHeldMarkAt8800(existing.canonicalIdentity6544, shared8870.value, shared8870.observedAtMs)
+                existing = registry[existing.canonicalIdentity6544] ?: existing
+            }
+        }
+        val ageMs = com.lifecyclebot.engine.NativeDecisionEnrollment8372.priceAge8870(existing.priceObservedAtMs8372, nowMs8870)
         // A priced registry row may still have zero observed transactions AND
         // no price-change reading. A normal mark refresh can reuse its price;
         // a bounded crypto signal-hydration request must instead ask for the
         // provider's missing fields, even while that price is fresh.
-        if (existing.price > 0.0 && (!forceRefresh || (ageMs <= PRICE_TTL_MS && !requireSignalInputs8752))) return existing.price
+        if (existing.price.isFinite() && existing.price > 0.0 && ageMs <= maxAge8870 && !requireSignalInputs8752) return existing.price
         // V5.0.7164 — a CoinGecko identity has no DEX mint route, but it does
         // have a price; ask the source that issued the id. Only when that comes
         // back empty do we fall back to carrying the last known mark.
@@ -1754,7 +1770,7 @@ object DynamicAltTokenRegistry {
         if (chain.isBlank() || chain == "unknown" || chain == "established") {
             return carryForwardPrice6819(existing, ageMs)
         }
-        val pair = try { dex.getBestPair(chain, existing.tokenAddress) } catch (_: Exception) { null }
+        val pair = try { dex.getBestPair(chain, existing.tokenAddress, maxCacheAgeMs8870 = maxAge8870) } catch (_: Exception) { null }
         // V5.0.6819: transient DEX failure — carry last-known price rather than returning 0 after 60s.
         //
         // V5.0.7274 §A CARRIED NUMBER IS NOT AN OBSERVATION. On 5.0.7273 six
@@ -1784,37 +1800,48 @@ object DynamicAltTokenRegistry {
             return if (solanaChain7274) 0.0 else rescueSolanaPriceBlocking7167(existing)
         }
         val price = pair.candle.priceUsd
-        if (price <= 0.0) return rescueSolanaPriceBlocking7167(existing)
+        if (!price.isFinite() || price <= 0.0) return rescueSolanaPriceBlocking7167(existing)
         val key = existing.canonicalIdentity6544
         // The HTTP call can overlap discovery/upsert. Merge the fetched fields
         // into the newest row rather than replacing freshly discovered data
         // with the pre-request snapshot.
-        val latest8752 = registry[key] ?: existing
-        val newerPrice8833 = latest8752.price <= 0.0 ||
-            preferIncomingShortWindow8833(latest8752.priceObservedAtMs8372, pair.candle.ts)
+        registry.computeIfPresent(key) { _, latest8752 ->
+            mergePairObservation8870(latest8752, pair, System.currentTimeMillis())
+        }
+        return registry[key]?.price?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+    }
+
+    /** Every field keeps the clock of the pair that actually measured it, including cached h24 observations. */
+    internal fun mergePairObservation8870(latest8752: DynToken, pair: PairInfo, nowMs: Long): DynToken {
+        val pairAt8870 = pair.candle.ts.takeIf { it in 1L..nowMs } ?: 0L
+        fun newer8870(existingAtMs: Long) = pairAt8870 > 0L &&
+            (existingAtMs > nowMs || preferIncomingShortWindow8833(existingAtMs, pairAt8870))
+        val price = pair.candle.priceUsd
+        val newerPrice8833 = price.isFinite() && price > 0.0 && pairAt8870 > 0L &&
+            (latest8752.price <= 0.0 || newer8870(latest8752.priceObservedAtMs8372))
         // A cached pair can be older than a discovery/stream update. Neither
         // a late HTTP reply nor an unrelated field refresh may roll back an
         // already newer source-clocked five-minute snapshot.
         val validPairM58833 = (pair.buysM5 >= 0 && pair.sellsM5 >= 0) ||
             (pair.volumeM5.isFinite() && pair.volumeM5 >= 0.0) || pair.priceChangeM5.isFinite()
-        val newerPairM58833 = validPairM58833 && preferIncomingShortWindow8833(
-            latest8752.shortWindowObservedAtMs8832, pair.candle.ts)
-        registry[key] = latest8752.copy(
+        val newerPairM58833 = validPairM58833 && newer8870(latest8752.shortWindowObservedAtMs8832)
+        val newerChange248870 = pair.priceChangeH24.isFinite() && newer8870(latest8752.change24hObservedAtMs8752)
+        val newerTxns248870 = pair.txnsH24Observed && pair.candle.buys24h >= 0 && pair.candle.sells24h >= 0 &&
+            newer8870(latest8752.txns24hObservedAtMs8752)
+        return latest8752.copy(
             price = if (newerPrice8833) price else latest8752.price,
-            priceObservedAtMs8372 = if (newerPrice8833) pair.candle.ts else latest8752.priceObservedAtMs8372,
-            priceChange24h = pair.priceChangeH24.takeIf { it.isFinite() } ?: latest8752.priceChange24h,
-            change24hObservedAtMs8752 = if (pair.priceChangeH24.isFinite())
-                System.currentTimeMillis() else latest8752.change24hObservedAtMs8752,
-            txns24hObservedAtMs8752 = if (pair.txnsH24Observed)
-                System.currentTimeMillis() else latest8752.txns24hObservedAtMs8752,
+            priceObservedAtMs8372 = if (newerPrice8833) pairAt8870 else latest8752.priceObservedAtMs8372,
+            priceChange24h = if (newerChange248870) pair.priceChangeH24 else latest8752.priceChange24h,
+            change24hObservedAtMs8752 = if (newerChange248870) pairAt8870 else latest8752.change24hObservedAtMs8752,
+            txns24hObservedAtMs8752 = if (newerTxns248870) pairAt8870 else latest8752.txns24hObservedAtMs8752,
             mcap = pair.candle.marketCap.takeIf { it.isFinite() && it > 0.0 } ?: latest8752.mcap,
             fdv = pair.fdv.takeIf { it.isFinite() && it > 0.0 } ?: latest8752.fdv,
             mcapSource = if (pair.candle.marketCap.isFinite() && pair.candle.marketCap > 0.0)
                 "DEXSCREENER_BASE_MINT_MARKET_CAP" else latest8752.mcapSource,
             liquidityUsd = pair.liquidity.takeIf { it > 0.0 } ?: latest8752.liquidityUsd,
             volume24h = pair.candle.volume24h.takeIf { it > 0.0 } ?: latest8752.volume24h,
-            buys24h = if (pair.txnsH24Observed) pair.candle.buys24h else latest8752.buys24h,
-            sells24h = if (pair.txnsH24Observed) pair.candle.sells24h else latest8752.sells24h,
+            buys24h = if (newerTxns248870) pair.candle.buys24h else latest8752.buys24h,
+            sells24h = if (newerTxns248870) pair.candle.sells24h else latest8752.sells24h,
             // All fields on this row belong to the SAME pair observation.
             // Never refresh an old buy count's clock using a newer price-only
             // reply: missing fields lose their authority, not their meaning.
@@ -1826,23 +1853,22 @@ object DynamicAltTokenRegistry {
                 else latest8752.volume5m8832,
             change5mPct8832 = if (newerPairM58833) pair.priceChangeM5.takeIf { it.isFinite() } ?: Double.NaN
                 else latest8752.change5mPct8832,
-            shortWindowObservedAtMs8832 = if (newerPairM58833) pair.candle.ts else latest8752.shortWindowObservedAtMs8832,
+            shortWindowObservedAtMs8832 = if (newerPairM58833) pairAt8870 else latest8752.shortWindowObservedAtMs8832,
             dexId = latest8752.dexId.ifBlank { pair.dexId },
             pairAddress = latest8752.pairAddress.ifBlank { pair.pairAddress },
             quoteAddress = latest8752.quoteAddress.ifBlank { pair.quoteAddress },
             pairCreatedAtMs = latest8752.pairCreatedAtMs.takeIf { it > 0L } ?: pair.pairCreatedAt,
-            lastUpdatedMs = System.currentTimeMillis(),
+            lastUpdatedMs = nowMs,
         )
-        return if (newerPrice8833) price else latest8752.price
     }
 
     /**
-     * Pure (V5.0.8801): when a row's PRICE was observed — its own observation stamp, else (a writer that observed it just
-     * now without a source clock: the fan-out, another authority) the row's write time. The write time alone is not the
-     * price's: a registry write that merged other fields, or a refresh that returned an old price, is not a new mark.
+     * A row's price clock. 8870 removes the metadata-write fallback: unknown observation time stays unknown.
+     * The second argument remains for existing callers; fan-out and provider writers now preserve their own clock.
      */
+    @Suppress("UNUSED_PARAMETER")
     internal fun priceTime8801(priceObservedAtMs: Long, lastUpdatedMs: Long): Long =
-        if (priceObservedAtMs > 0L) priceObservedAtMs else lastUpdatedMs
+        priceObservedAtMs.takeIf { it > 0L } ?: 0L
 
     /** True only when a real newer market observation may replace an existing m5 snapshot. */
     internal fun preferIncomingShortWindow8833(existingAtMs: Long, incomingAtMs: Long): Boolean =
@@ -1854,8 +1880,7 @@ object DynamicAltTokenRegistry {
         // V5.0.8801 (external review of 8800): freshness is the price's observation time, not the row's write time
         val observedAt = refreshed?.let { priceTime8801(it.priceObservedAtMs8372, it.lastUpdatedMs) } ?: 0L
         val price = refreshed?.price?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
-        val fresh = price > 0.0 && observedAt > 0L &&
-            (now - observedAt).coerceAtLeast(0L) <= PRICE_TTL_MS
+        val fresh = price > 0.0 && com.lifecyclebot.engine.NativeDecisionEnrollment8372.priceAge8870(observedAt, now) <= PRICE_TTL_MS
         return HeldMarkRefresh7251(
             price = price,
             canonicalIdentity = refreshed?.canonicalIdentity6544.orEmpty(),
@@ -1886,16 +1911,8 @@ object DynamicAltTokenRegistry {
      * DexScreener success. Only a finite positive price for a known identity
      * is written; nothing is created and nothing is inferred.
      */
-    fun observeHeldMark7274(identityOrAddress: String, priceUsd: Double): Boolean {
-        if (!priceUsd.isFinite() || priceUsd <= 0.0) return false
-        val existing = registry[identityOrAddress] ?: getTokenByMint(identityOrAddress) ?: return false
-        registry[existing.canonicalIdentity6544] = existing.copy(
-            price = priceUsd,
-            priceObservedAtMs8372 = 0L,
-            lastUpdatedMs = System.currentTimeMillis(),
-        )
-        return true
-    }
+    fun observeHeldMark7274(identityOrAddress: String, priceUsd: Double, observedAtMs: Long = 0L): Boolean =
+        observeHeldMarkAt8800(identityOrAddress, priceUsd, observedAtMs)
 
     /**
      * V5.0.8800 — a held Solana token's mark read from its own pool vaults on chain (CryptoAltTrader.chainHeldMark8800),
@@ -1903,14 +1920,22 @@ object DynamicAltTokenRegistry {
      * (5.0.8797 report: STALE_MARK_PROFIT_WITHHELD 1,656 times), so it could neither mark nor take the profit.
      */
     fun observeHeldMarkAt8800(identityOrAddress: String, priceUsd: Double, observedAtMs: Long): Boolean {
-        if (!priceUsd.isFinite() || priceUsd <= 0.0 || observedAtMs <= 0L) return false
+        val nowMs8870 = System.currentTimeMillis()
+        if (!priceUsd.isFinite() || priceUsd <= 0.0 || observedAtMs !in 1L..nowMs8870) return false
         val existing = registry[identityOrAddress] ?: getTokenByMint(identityOrAddress) ?: return false
         // V5.0.8801 — a newer PRICE observation stands; a newer registry write (fields merged, an old price re-fetched) does not
         // V5.0.8866 — a row with no price has no observation to stand: its write time refused every mark dated before it
-        if (existing.price > 0.0 && priceTime8801(existing.priceObservedAtMs8372, existing.lastUpdatedMs) > observedAtMs) return false
-        registry[existing.canonicalIdentity6544] = existing.copy(price = priceUsd, priceObservedAtMs8372 = observedAtMs,
-            lastUpdatedMs = maxOf(existing.lastUpdatedMs, observedAtMs))
-        return true
+        var applied8870 = false
+        registry.computeIfPresent(existing.canonicalIdentity6544) { _, latest ->
+            val latestAt8870 = priceTime8801(latest.priceObservedAtMs8372, latest.lastUpdatedMs)
+            if (latest.price > 0.0 && latestAt8870 in 1L..nowMs8870 && latestAt8870 > observedAtMs) latest
+            else {
+                applied8870 = true
+                latest.copy(price = priceUsd, priceObservedAtMs8372 = observedAtMs,
+                    lastUpdatedMs = maxOf(latest.lastUpdatedMs, observedAtMs))
+            }
+        }
+        return applied8870
     }
 
     // ─── Discovery implementations ───────────────────────────────────────────
@@ -2027,51 +2052,81 @@ object DynamicAltTokenRegistry {
         val idx = kotlin.math.abs(geckoNetworkCursor6544.getAndIncrement()) % geckoNetworks6544.size
         val network = geckoNetworks6544[idx]
         val endpoint = if (newPools) "new_pools" else "trending_pools"
+        val requestedAt8870 = System.currentTimeMillis()
         val body = httpGet("https://api.geckoterminal.com/api/v2/networks/$network/$endpoint?page=1") ?: return
         try {
-            val data = JSONObject(body).optJSONArray("data") ?: return
-            var accepted = 0
-            for (i in 0 until minOf(data.length(), 40)) {
-                val pool = data.optJSONObject(i) ?: continue
-                val attrs = pool.optJSONObject("attributes") ?: continue
-                val rel = pool.optJSONObject("relationships") ?: continue
-                val baseId = rel.optJSONObject("base_token")?.optJSONObject("data")?.optString("id", "") ?: continue
-                val quoteId = rel.optJSONObject("quote_token")?.optJSONObject("data")?.optString("id", "") ?: ""
-                val token = baseId.removePrefix("${network}_")
-                val quote = quoteId.removePrefix("${network}_")
-                if (token.isBlank() || token == baseId) continue
-                val name = attrs.optString("name", "")
-                val symbol = name.substringBefore('/').trim().uppercase().ifBlank { token.take(8).uppercase() }
-                val price = attrs.optString("base_token_price_usd", "0").toDoubleOrNull() ?: 0.0
-                if (price <= 0.0) continue
-                val createdAt = try { java.time.Instant.parse(attrs.optString("pool_created_at", "")).toEpochMilli() } catch (_: Throwable) { 0L }
-                val ageHours = if (createdAt > 0L) ((System.currentTimeMillis() - createdAt).coerceAtLeast(0L) / 3_600_000.0) else 999.0
-                val dexId = rel.optJSONObject("dex")?.optJSONObject("data")?.optString("id", "") ?: ""
-                val poolId = pool.optString("id", "").removePrefix("${network}_")
-                val tx = attrs.optJSONObject("transactions")?.optJSONObject("h24")
-                val change24h = attrs.optJSONObject("price_change_percentage")
-                    ?.optString("h24", "")?.toDoubleOrNull()?.takeIf { it.isFinite() }
-                val nowMs8752 = System.currentTimeMillis()
-                val tok = DynToken(
-                    mint=token, tokenAddress=token, chainId=network, dexId=dexId,
-                    symbol=symbol, name=name.ifBlank { symbol }, pairAddress=poolId, quoteAddress=quote,
-                    pairCreatedAtMs=createdAt, price=price,
-                    priceChange24h=change24h ?: 0.0,
-                    change24hObservedAtMs8752=if (change24h != null) nowMs8752 else 0L,
-                    txns24hObservedAtMs8752=if (tx?.let { it.has("buys") && it.has("sells") } == true) nowMs8752 else 0L,
-                    mcap=attrs.optString("market_cap_usd", "0").toDoubleOrNull() ?: 0.0,
-                    fdv=attrs.optString("fdv_usd", "0").toDoubleOrNull() ?: 0.0,
-                    liquidityUsd=attrs.optString("reserve_in_usd", "0").toDoubleOrNull() ?: 0.0,
-                    volume24h=attrs.optJSONObject("volume_usd")?.optString("h24", "0")?.toDoubleOrNull() ?: 0.0,
-                    buys24h=tx?.optInt("buys", 0) ?: 0, sells24h=tx?.optInt("sells", 0) ?: 0,
-                    ageHours=ageHours, source=if (newPools) "geckoterminal_new" else "geckoterminal_trending",
-                    isTrending=!newPools, sector=inferSector(symbol),
-                )
-                upsert(tok)
-                accepted++
-            }
-            ErrorLogger.info(TAG, "GeckoTerminal $endpoint network=$network accepted=$accepted")
+            val rows = parseGeckoPools8870(body, network, newPools, requestedAt8870, System.currentTimeMillis())
+            rows.forEach(::upsert)
+            ErrorLogger.info(TAG, "GeckoTerminal $endpoint network=$network accepted=${rows.size}")
         } catch (e: Throwable) { ErrorLogger.warn(TAG, "GeckoTerminal $endpoint/$network: ${e.message}") }
+    }
+
+    /** A Gecko response is a USD observation, with provider-specific network names and independent missing fields. */
+    internal fun parseGeckoPools8870(body: String, network: String, newPools: Boolean,
+                                     observedAtMs: Long, nowMs: Long): List<DynToken> {
+        val data = try { JSONObject(body).optJSONArray("data") } catch (_: Throwable) { null } ?: return emptyList()
+        val providerNetwork = network.trim().lowercase()
+        if (providerNetwork.isBlank()) return emptyList()
+        // The registry's DEX refresh uses DexScreener's network name. Reuse the existing provider map:
+        // Gecko eth/polygon_pos/avax become ethereum/polygon/avalanche, matching DEX discovery identities.
+        val chain = com.lifecyclebot.perps.crypto.EvmSwapExecutor7962.chainFor7962(providerNetwork)?.dexScreenerId
+            ?: providerNetwork
+        val observedAt = observedAtMs.takeIf { it in 1L..nowMs } ?: 0L
+        fun number(row: JSONObject?, field: String): Double =
+            row?.optDouble(field, Double.NaN)?.takeIf { it.isFinite() } ?: Double.NaN
+        fun count(row: JSONObject?, field: String): Int {
+            val value = number(row, field)
+            return if (value in 0.0..Int.MAX_VALUE.toDouble() && value % 1.0 == 0.0) value.toInt() else -1
+        }
+        val rows = ArrayList<DynToken>()
+        for (i in 0 until minOf(data.length(), 40)) {
+            val pool = data.optJSONObject(i) ?: continue
+            val attrs = pool.optJSONObject("attributes") ?: continue
+            val rel = pool.optJSONObject("relationships") ?: continue
+            val baseId = rel.optJSONObject("base_token")?.optJSONObject("data")?.optString("id", "") ?: continue
+            if (!baseId.startsWith("${providerNetwork}_")) continue
+            val token = baseId.removePrefix("${providerNetwork}_").takeIf { it.isNotBlank() } ?: continue
+            val quoteId = rel.optJSONObject("quote_token")?.optJSONObject("data")?.optString("id", "").orEmpty()
+            val quote = quoteId.takeIf { it.startsWith("${providerNetwork}_") }?.removePrefix("${providerNetwork}_").orEmpty()
+            val price = number(attrs, "base_token_price_usd")
+            if (!price.isFinite() || price <= 0.0) continue
+            val name = attrs.optString("name", "")
+            val symbol = name.substringBefore('/').trim().uppercase().ifBlank { token.take(8).uppercase() }
+            val createdAt = try { java.time.Instant.parse(attrs.optString("pool_created_at", "")).toEpochMilli()
+                .takeIf { it in 1L..nowMs } ?: 0L } catch (_: Throwable) { 0L }
+            val ageHours = if (createdAt > 0L) (nowMs - createdAt) / 3_600_000.0 else 999.0
+            val transactions = attrs.optJSONObject("transactions")
+            val tx24 = transactions?.optJSONObject("h24")
+            val tx5 = transactions?.optJSONObject("m5")
+            val buys24 = count(tx24, "buys"); val sells24 = count(tx24, "sells")
+            val buys5 = count(tx5, "buys"); val sells5 = count(tx5, "sells")
+            val changes = attrs.optJSONObject("price_change_percentage")
+            val change24 = number(changes, "h24")
+            val change5 = number(changes, "m5")
+            val volumes = attrs.optJSONObject("volume_usd")
+            val volume5 = number(volumes, "m5").takeIf { it >= 0.0 } ?: Double.NaN
+            val m5Observed = (buys5 >= 0 && sells5 >= 0) || volume5.isFinite() || change5.isFinite()
+            rows += DynToken(
+                mint = token, tokenAddress = token, chainId = chain,
+                dexId = rel.optJSONObject("dex")?.optJSONObject("data")?.optString("id", "").orEmpty(),
+                symbol = symbol, name = name.ifBlank { symbol },
+                pairAddress = pool.optString("id", "").removePrefix("${providerNetwork}_"), quoteAddress = quote,
+                pairCreatedAtMs = createdAt, firstSeenMs = nowMs, price = price, priceObservedAtMs8372 = observedAt,
+                priceChange24h = change24.takeIf { it.isFinite() } ?: 0.0,
+                change24hObservedAtMs8752 = if (change24.isFinite()) observedAt else 0L,
+                txns24hObservedAtMs8752 = if (buys24 >= 0 && sells24 >= 0) observedAt else 0L,
+                mcap = number(attrs, "market_cap_usd").takeIf { it >= 0.0 } ?: 0.0,
+                fdv = number(attrs, "fdv_usd").takeIf { it >= 0.0 } ?: 0.0,
+                liquidityUsd = number(attrs, "reserve_in_usd").takeIf { it >= 0.0 } ?: 0.0,
+                volume24h = number(volumes, "h24").takeIf { it >= 0.0 } ?: 0.0,
+                buys24h = buys24.coerceAtLeast(0), sells24h = sells24.coerceAtLeast(0),
+                buys5m8832 = buys5, sells5m8832 = sells5, volume5m8832 = volume5, change5mPct8832 = change5,
+                shortWindowObservedAtMs8832 = if (m5Observed) observedAt else 0L,
+                ageHours = ageHours, source = if (newPools) "geckoterminal_new" else "geckoterminal_trending",
+                isTrending = !newPools, sector = inferSector(symbol), lastUpdatedMs = nowMs,
+            )
+        }
+        return rows
     }
 
     /** CoinGecko top 500 by volume — 5 pages × 100 tokens */
@@ -2330,101 +2385,116 @@ object DynamicAltTokenRegistry {
             else -> ""
         }
         // Unknown semantics are never promoted to market-cap truth.
+        val nowMs8870 = System.currentTimeMillis()
+        fun validClock8870(at: Long) = at.takeIf { it in 1L..nowMs8870 } ?: 0L
         val tok = rawTok6492.copy(
             mcap = rawTok6492.mcap.takeIf { inferredMcapSource6492.isNotBlank() && it.isFinite() && it > 0.0 } ?: 0.0,
             mcapSource = inferredMcapSource6492,
+            priceObservedAtMs8372 = validClock8870(rawTok6492.priceObservedAtMs8372),
+            change24hObservedAtMs8752 = validClock8870(rawTok6492.change24hObservedAtMs8752),
+            txns24hObservedAtMs8752 = validClock8870(rawTok6492.txns24hObservedAtMs8752),
+            shortWindowObservedAtMs8832 = validClock8870(rawTok6492.shortWindowObservedAtMs8832),
         )
 
         // V5.0.6544 — merge only by canonical chain+token identity.
         // Symbol and bare token address cannot establish multichain identity.
         val canonicalKey6544 = tok.canonicalIdentity6544
-        val existing = registry[canonicalKey6544]
-        val acceptIncomingPrice8833 = tok.price.isFinite() && tok.price > 0.0 &&
-            (existing == null || existing.price <= 0.0 || preferIncomingShortWindow8833(
-                existing.priceObservedAtMs8372, tok.priceObservedAtMs8372))
-        // DEX discovery carries source-observed m5 activity into the SAME
-        // registry row used by the crypto brain. A subsequent metadata-only
-        // upsert must not clear it or claim a later market observation.
-        val newestM58833 = if (existing == null || preferIncomingShortWindow8833(
-                existing.shortWindowObservedAtMs8832, tok.shortWindowObservedAtMs8832)) tok else existing
         if (tok.chainId.isNotBlank()) networksObserved6544.add(tok.chainId.lowercase())
         if (tok.dexId.isNotBlank()) dexesObserved6544.add(tok.dexId.lowercase())
-        if (existing == null) {
-            newDiscoveries6544.incrementAndGet()
-            if (tok.isFresh6544) freshPoolsDiscovered6544.incrementAndGet()
-        } else knownRefreshes6544.incrementAndGet()
-        if (existing?.isStatic == true) {
-            // Direct mint match — enrich static token
-            registry[canonicalKey6544] = existing.copy(
-                price         = if (acceptIncomingPrice8833) tok.price else existing.price,
-                priceObservedAtMs8372 = if (acceptIncomingPrice8833) tok.priceObservedAtMs8372 else existing.priceObservedAtMs8372,
-                priceChange24h= if (tok.change24hObservedAtMs8752 > 0L &&
-                    tok.change24hObservedAtMs8752 >= existing.change24hObservedAtMs8752) tok.priceChange24h
-                    else tok.priceChange24h.takeIf { it != 0.0 } ?: existing.priceChange24h,
-                change24hObservedAtMs8752 = maxOf(tok.change24hObservedAtMs8752, existing.change24hObservedAtMs8752),
-                mcap          = tok.mcap.takeIf { tok.hasTrustedMarketCap6492 } ?: existing.mcap,
-                fdv           = tok.fdv.takeIf { it > 0 } ?: existing.fdv,
-                mcapSource    = tok.mcapSource.takeIf { tok.hasTrustedMarketCap6492 } ?: existing.mcapSource,
-                liquidityUsd  = tok.liquidityUsd.takeIf { it > 0 } ?: existing.liquidityUsd,
-                volume24h     = tok.volume24h.takeIf { it > 0 } ?: existing.volume24h,
-                buys24h       = if (tok.txns24hObservedAtMs8752 > 0L &&
-                    tok.txns24hObservedAtMs8752 >= existing.txns24hObservedAtMs8752) tok.buys24h
-                    else if (tok.txns24hObservedAtMs8752 == 0L) tok.buys24h.takeIf { it > 0 } ?: existing.buys24h else existing.buys24h,
-                sells24h      = if (tok.txns24hObservedAtMs8752 > 0L &&
-                    tok.txns24hObservedAtMs8752 >= existing.txns24hObservedAtMs8752) tok.sells24h
-                    else if (tok.txns24hObservedAtMs8752 == 0L) tok.sells24h.takeIf { it > 0 } ?: existing.sells24h else existing.sells24h,
-                txns24hObservedAtMs8752 = maxOf(tok.txns24hObservedAtMs8752, existing.txns24hObservedAtMs8752),
-                buys5m8832 = newestM58833.buys5m8832,
-                sells5m8832 = newestM58833.sells5m8832,
-                volume5m8832 = newestM58833.volume5m8832,
-                change5mPct8832 = newestM58833.change5mPct8832,
-                shortWindowObservedAtMs8832 = newestM58833.shortWindowObservedAtMs8832,
-                isTrending    = tok.isTrending || existing.isTrending,
-                trendingRank  = if (tok.trendingRank >= 0) tok.trendingRank else existing.trendingRank,
-                isBoosted     = tok.isBoosted || existing.isBoosted,
-                logoUrl       = existing.logoUrl.ifBlank { tok.logoUrl },
-                lastUpdatedMs = System.currentTimeMillis(),
-            )
-        } else {
-            registry[canonicalKey6544] = if (existing == null) tok.copy(lastUpdatedMs = System.currentTimeMillis()) else existing.copy(
-                symbol = tok.symbol.ifBlank { existing.symbol }, name = tok.name.ifBlank { existing.name },
-                chainId = tok.chainId.ifBlank { existing.chainId }, tokenAddress = tok.tokenAddress.ifBlank { existing.tokenAddress },
-                dexId = tok.dexId.ifBlank { existing.dexId }, logoUrl = existing.logoUrl.ifBlank { tok.logoUrl },
-                pairAddress = tok.pairAddress.ifBlank { existing.pairAddress },
-                quoteAddress = tok.quoteAddress.ifBlank { existing.quoteAddress },
-                pairCreatedAtMs = tok.pairCreatedAtMs.takeIf { it > 0L } ?: existing.pairCreatedAtMs,
-                firstSeenMs = minOf(existing.firstSeenMs, tok.firstSeenMs),
-                price = if (acceptIncomingPrice8833) tok.price else existing.price,
-                priceObservedAtMs8372 = if (acceptIncomingPrice8833) tok.priceObservedAtMs8372 else existing.priceObservedAtMs8372,
-                priceChange24h = if (tok.change24hObservedAtMs8752 > 0L &&
-                    tok.change24hObservedAtMs8752 >= existing.change24hObservedAtMs8752) tok.priceChange24h
-                    else tok.priceChange24h.takeIf { it != 0.0 } ?: existing.priceChange24h,
-                change24hObservedAtMs8752 = maxOf(tok.change24hObservedAtMs8752, existing.change24hObservedAtMs8752),
-                mcap = tok.mcap.takeIf { tok.hasTrustedMarketCap6492 } ?: existing.mcap,
-                fdv = tok.fdv.takeIf { it > 0.0 } ?: existing.fdv,
-                mcapSource = tok.mcapSource.takeIf { tok.hasTrustedMarketCap6492 } ?: existing.mcapSource,
-                liquidityUsd = tok.liquidityUsd.takeIf { it > 0.0 } ?: existing.liquidityUsd,
-                volume24h = tok.volume24h.takeIf { it > 0.0 } ?: existing.volume24h,
-                buys24h = if (tok.txns24hObservedAtMs8752 > 0L &&
-                    tok.txns24hObservedAtMs8752 >= existing.txns24hObservedAtMs8752) tok.buys24h
-                    else if (tok.txns24hObservedAtMs8752 == 0L) tok.buys24h.takeIf { it > 0 } ?: existing.buys24h else existing.buys24h,
-                sells24h = if (tok.txns24hObservedAtMs8752 > 0L &&
-                    tok.txns24hObservedAtMs8752 >= existing.txns24hObservedAtMs8752) tok.sells24h
-                    else if (tok.txns24hObservedAtMs8752 == 0L) tok.sells24h.takeIf { it > 0 } ?: existing.sells24h else existing.sells24h,
-                txns24hObservedAtMs8752 = maxOf(tok.txns24hObservedAtMs8752, existing.txns24hObservedAtMs8752),
-                buys5m8832 = newestM58833.buys5m8832,
-                sells5m8832 = newestM58833.sells5m8832,
-                volume5m8832 = newestM58833.volume5m8832,
-                change5mPct8832 = newestM58833.change5mPct8832,
-                shortWindowObservedAtMs8832 = newestM58833.shortWindowObservedAtMs8832,
-                ageHours = tok.ageHours.takeIf { it > 0.0 } ?: existing.ageHours,
-                source = tok.source, isTrending = tok.isTrending || existing.isTrending,
-                trendingRank = if (tok.trendingRank >= 0) tok.trendingRank else existing.trendingRank,
-                isBoosted = tok.isBoosted || existing.isBoosted, sector = tok.sector.ifBlank { existing.sector },
-                lastUpdatedMs = System.currentTimeMillis(),
-            )
-            if (tok.symbol.isNotBlank()) indexSymbol6493(tok.symbol, canonicalKey6544)
+        // Read and merge while holding the same key as streamed marks and HTTP refreshes. A metadata upsert that
+        // waited behind a new market fact must not subsequently put its earlier snapshot back over that fact.
+        val stored8870 = registry.compute(canonicalKey6544) { _, existing ->
+            val acceptIncomingPrice8833 = tok.price.isFinite() && tok.price > 0.0 &&
+                (existing == null || existing.price <= 0.0 || preferIncomingShortWindow8833(
+                    existing.priceObservedAtMs8372, tok.priceObservedAtMs8372))
+            // DEX discovery carries source-observed m5 activity into the SAME
+            // registry row used by the crypto brain. A subsequent metadata-only
+            // upsert must not clear it or claim a later market observation.
+            val newestM58833 = if (existing == null || preferIncomingShortWindow8833(
+                    existing.shortWindowObservedAtMs8832, tok.shortWindowObservedAtMs8832)) tok else existing
+            if (existing == null) {
+                newDiscoveries6544.incrementAndGet()
+                if (tok.isFresh6544) freshPoolsDiscovered6544.incrementAndGet()
+            } else knownRefreshes6544.incrementAndGet()
+            if (existing?.isStatic == true) {
+                // Direct mint match — enrich static token
+                existing.copy(
+                    price         = if (acceptIncomingPrice8833) tok.price else existing.price,
+                    priceObservedAtMs8372 = if (acceptIncomingPrice8833) tok.priceObservedAtMs8372 else existing.priceObservedAtMs8372,
+                    priceChange24h= if (tok.change24hObservedAtMs8752 > 0L &&
+                        tok.change24hObservedAtMs8752 >= existing.change24hObservedAtMs8752) tok.priceChange24h
+                        else if (existing.change24hObservedAtMs8752 == 0L && tok.change24hObservedAtMs8752 == 0L)
+                            tok.priceChange24h.takeIf { it != 0.0 } ?: existing.priceChange24h else existing.priceChange24h,
+                    change24hObservedAtMs8752 = maxOf(tok.change24hObservedAtMs8752, existing.change24hObservedAtMs8752),
+                    mcap          = tok.mcap.takeIf { tok.hasTrustedMarketCap6492 } ?: existing.mcap,
+                    fdv           = tok.fdv.takeIf { it > 0 } ?: existing.fdv,
+                    mcapSource    = tok.mcapSource.takeIf { tok.hasTrustedMarketCap6492 } ?: existing.mcapSource,
+                    liquidityUsd  = tok.liquidityUsd.takeIf { it > 0 } ?: existing.liquidityUsd,
+                    volume24h     = tok.volume24h.takeIf { it > 0 } ?: existing.volume24h,
+                    buys24h       = if (tok.txns24hObservedAtMs8752 > 0L &&
+                        tok.txns24hObservedAtMs8752 >= existing.txns24hObservedAtMs8752) tok.buys24h
+                        else if (tok.txns24hObservedAtMs8752 == 0L && existing.txns24hObservedAtMs8752 == 0L)
+                            tok.buys24h.takeIf { it > 0 } ?: existing.buys24h else existing.buys24h,
+                    sells24h      = if (tok.txns24hObservedAtMs8752 > 0L &&
+                        tok.txns24hObservedAtMs8752 >= existing.txns24hObservedAtMs8752) tok.sells24h
+                        else if (tok.txns24hObservedAtMs8752 == 0L && existing.txns24hObservedAtMs8752 == 0L)
+                            tok.sells24h.takeIf { it > 0 } ?: existing.sells24h else existing.sells24h,
+                    txns24hObservedAtMs8752 = maxOf(tok.txns24hObservedAtMs8752, existing.txns24hObservedAtMs8752),
+                    buys5m8832 = newestM58833.buys5m8832,
+                    sells5m8832 = newestM58833.sells5m8832,
+                    volume5m8832 = newestM58833.volume5m8832,
+                    change5mPct8832 = newestM58833.change5mPct8832,
+                    shortWindowObservedAtMs8832 = newestM58833.shortWindowObservedAtMs8832,
+                    isTrending    = tok.isTrending || existing.isTrending,
+                    trendingRank  = if (tok.trendingRank >= 0) tok.trendingRank else existing.trendingRank,
+                    isBoosted     = tok.isBoosted || existing.isBoosted,
+                    logoUrl       = existing.logoUrl.ifBlank { tok.logoUrl },
+                    lastUpdatedMs = System.currentTimeMillis(),
+                )
+            } else {
+                if (existing == null) tok.copy(lastUpdatedMs = System.currentTimeMillis()) else existing.copy(
+                    symbol = tok.symbol.ifBlank { existing.symbol }, name = tok.name.ifBlank { existing.name },
+                    chainId = tok.chainId.ifBlank { existing.chainId }, tokenAddress = tok.tokenAddress.ifBlank { existing.tokenAddress },
+                    dexId = tok.dexId.ifBlank { existing.dexId }, logoUrl = existing.logoUrl.ifBlank { tok.logoUrl },
+                    pairAddress = tok.pairAddress.ifBlank { existing.pairAddress },
+                    quoteAddress = tok.quoteAddress.ifBlank { existing.quoteAddress },
+                    pairCreatedAtMs = tok.pairCreatedAtMs.takeIf { it > 0L } ?: existing.pairCreatedAtMs,
+                    firstSeenMs = minOf(existing.firstSeenMs, tok.firstSeenMs),
+                    price = if (acceptIncomingPrice8833) tok.price else existing.price,
+                    priceObservedAtMs8372 = if (acceptIncomingPrice8833) tok.priceObservedAtMs8372 else existing.priceObservedAtMs8372,
+                    priceChange24h = if (tok.change24hObservedAtMs8752 > 0L &&
+                        tok.change24hObservedAtMs8752 >= existing.change24hObservedAtMs8752) tok.priceChange24h
+                        else if (existing.change24hObservedAtMs8752 == 0L && tok.change24hObservedAtMs8752 == 0L)
+                            tok.priceChange24h.takeIf { it != 0.0 } ?: existing.priceChange24h else existing.priceChange24h,
+                    change24hObservedAtMs8752 = maxOf(tok.change24hObservedAtMs8752, existing.change24hObservedAtMs8752),
+                    mcap = tok.mcap.takeIf { tok.hasTrustedMarketCap6492 } ?: existing.mcap,
+                    fdv = tok.fdv.takeIf { it > 0.0 } ?: existing.fdv,
+                    mcapSource = tok.mcapSource.takeIf { tok.hasTrustedMarketCap6492 } ?: existing.mcapSource,
+                    liquidityUsd = tok.liquidityUsd.takeIf { it > 0.0 } ?: existing.liquidityUsd,
+                    volume24h = tok.volume24h.takeIf { it > 0.0 } ?: existing.volume24h,
+                    buys24h = if (tok.txns24hObservedAtMs8752 > 0L &&
+                        tok.txns24hObservedAtMs8752 >= existing.txns24hObservedAtMs8752) tok.buys24h
+                        else if (tok.txns24hObservedAtMs8752 == 0L && existing.txns24hObservedAtMs8752 == 0L)
+                            tok.buys24h.takeIf { it > 0 } ?: existing.buys24h else existing.buys24h,
+                    sells24h = if (tok.txns24hObservedAtMs8752 > 0L &&
+                        tok.txns24hObservedAtMs8752 >= existing.txns24hObservedAtMs8752) tok.sells24h
+                        else if (tok.txns24hObservedAtMs8752 == 0L && existing.txns24hObservedAtMs8752 == 0L)
+                            tok.sells24h.takeIf { it > 0 } ?: existing.sells24h else existing.sells24h,
+                    txns24hObservedAtMs8752 = maxOf(tok.txns24hObservedAtMs8752, existing.txns24hObservedAtMs8752),
+                    buys5m8832 = newestM58833.buys5m8832,
+                    sells5m8832 = newestM58833.sells5m8832,
+                    volume5m8832 = newestM58833.volume5m8832,
+                    change5mPct8832 = newestM58833.change5mPct8832,
+                    shortWindowObservedAtMs8832 = newestM58833.shortWindowObservedAtMs8832,
+                    ageHours = tok.ageHours.takeIf { it > 0.0 } ?: existing.ageHours,
+                    source = tok.source, isTrending = tok.isTrending || existing.isTrending,
+                    trendingRank = if (tok.trendingRank >= 0) tok.trendingRank else existing.trendingRank,
+                    isBoosted = tok.isBoosted || existing.isBoosted, sector = tok.sector.ifBlank { existing.sector },
+                    lastUpdatedMs = System.currentTimeMillis(),
+                )
+            }
         }
+        if (stored8870?.isStatic != true && tok.symbol.isNotBlank()) indexSymbol6493(tok.symbol, canonicalKey6544)
     }
 
     private fun meetsQualityGate(pair: PairInfo?): Boolean {

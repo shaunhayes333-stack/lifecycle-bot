@@ -24,6 +24,10 @@ internal object NativeDecisionEnrollment8372 {
         observedAtMs.takeIf { price.isFinite() && price > 0.0 && observedPrice == price &&
             it > 0L && nowMs - it in 0L..maxAgeMs } ?: 0L
 
+    /** 8870: freshness belongs to the price observation, never a metadata/cache write. */
+    fun priceAge8870(observedAtMs: Long, nowMs: Long): Long =
+        if (observedAtMs > 0L && observedAtMs <= nowMs) nowMs - observedAtMs else Long.MAX_VALUE
+
     fun rule(reason: String): String =
         reason.uppercase().replace(Regex("[^A-Z0-9_]+"), "_").split('_')
             .takeWhile { w -> w.isNotEmpty() && w.none { it.isDigit() } }.take(4).joinToString("_").ifBlank { "UNKNOWN" }

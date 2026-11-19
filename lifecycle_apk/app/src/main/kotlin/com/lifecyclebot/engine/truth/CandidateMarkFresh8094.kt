@@ -30,7 +30,9 @@ object CandidateMarkFresh8094 {
     private val batches = AtomicLong(0)
     private val pool = java.util.concurrent.ThreadPoolExecutor(0, 1, 30L, java.util.concurrent.TimeUnit.SECONDS,
         java.util.concurrent.SynchronousQueue<Runnable>(), { r -> Thread(r, "candidate-mark-8094").apply { isDaemon = true } },
-        java.util.concurrent.ThreadPoolExecutor.DiscardPolicy())
+        // Rejection must reach the catch below and release inFlight. DiscardPolicy could silently drop the
+        // next task between the prior task's finally and worker-idle, leaving every future refresh locked out.
+        java.util.concurrent.ThreadPoolExecutor.AbortPolicy())
 
     /** Pure: is this price missing or older than [FRESH_MS_8094]? */
     fun stale8094(lastPrice: Double, lastUpdateMs: Long, nowMs: Long): Boolean =
@@ -90,7 +92,8 @@ object CandidateMarkFresh8094 {
     }
 
     /** V5.0.8359 — chain-read marks (the bonding curve's own reserves) for wanted, not-held candidates. */
-    fun applyMarks8359(prices: Map<String, Double>, source: String) = apply8094(prices.filterValues { it.isFinite() && it > 0.0 }, source)
+    fun applyMarks8359(prices: Map<String, Double>, source: String) =
+        apply8094(prices.filterValues { it.isFinite() && it > 0.0 }, source, TokenFacts.Rank.CHAIN)
 
     /**
      * V5.0.8287 — DexBatchLane8287: one sent batch's answer. Candidates this refresh asked for are priced from it (the
@@ -126,25 +129,32 @@ object CandidateMarkFresh8094 {
     fun chainHeld8459(currentSource: String?, currentAtMs: Long, nowMs: Long): Boolean =
         currentAtMs > 0L && nowMs - currentAtMs in 0L until CHAIN_KEEP_MS_8459 && com.lifecyclebot.engine.StopFeed8327.chainMark8327(currentSource)
 
-    private fun apply8094(prices: Map<String, Double>, source8359: String = "JUPITER_CANDIDATE_REFRESH_8094") {
+    /** The same chain reader may replace its older observation immediately; an aggregator retains its weaker rank. */
+    internal fun applyMark8870(ts: TokenState, px: Double, source8359: String, rank8870: Int, at: Long): Boolean =
+        synchronized(ts) {
+            val fresher = ts.lastPriceUpdate > 0L && at - ts.lastPriceUpdate < 1_000L
+            val suspect = ts.lastPrice > 0.0 && ForwardReturnLabeler7731.basisSuspect7738(ts.lastPrice, px)
+            val chainHeld = !com.lifecyclebot.engine.StopFeed8327.chainMark8327(source8359) &&
+                chainHeld8459(ts.lastPriceSource, ts.lastPriceUpdate, at)
+            if (chainHeld) chainKept8459.incrementAndGet()
+            if (ts.position.isOpen || fresher || suspect || chainHeld) false else {
+                val oldPrice8870 = ts.lastPrice
+                val oldMcap8870 = ts.lastMcap
+                val kept8870 = TokenFacts.writePrice(ts, px, source8359, rank8870, at)
+                if (kept8870) TokenFacts.writeSnapshot(ts, TokenFacts.Field.MCAP_USD,
+                    rescaledMcap8094(oldMcap8870, oldPrice8870, px), "MARK_RESCALE_8094", TokenFacts.Rank.AGGREGATE, at)
+                kept8870
+            }
+        }
+
+    private fun apply8094(prices: Map<String, Double>, source8359: String = "JUPITER_CANDIDATE_REFRESH_8094",
+                          rank8870: Int = TokenFacts.Rank.PROVIDER) {
         if (prices.isEmpty()) return
         val tokens = com.lifecyclebot.engine.BotService.status.tokens
         val at = System.currentTimeMillis()
         for ((mint, px) in prices) {
             val ts = try { synchronized(tokens) { tokens[mint] } } catch (_: Throwable) { null } ?: continue
-            val applied = synchronized(ts) {
-                val fresher = ts.lastPriceUpdate > 0L && at - ts.lastPriceUpdate < 1_000L
-                val suspect = ts.lastPrice > 0.0 && ForwardReturnLabeler7731.basisSuspect7738(ts.lastPrice, px)
-                // V5.0.8459 — an aggregator price never replaces the coin's own chain print while that print is recent.
-                val chainHeld = !com.lifecyclebot.engine.StopFeed8327.chainMark8327(source8359) &&
-                    chainHeld8459(ts.lastPriceSource, ts.lastPriceUpdate, at)
-                if (chainHeld) chainKept8459.incrementAndGet()
-                if (ts.position.isOpen || fresher || suspect || chainHeld) false else {
-                    TokenFacts.writeSnapshot(ts, TokenFacts.Field.MCAP_USD, rescaledMcap8094(ts.lastMcap, ts.lastPrice, px), "MARK_RESCALE_8094", TokenFacts.Rank.AGGREGATE, at)
-                    TokenFacts.writePrice(ts, px, source8359, TokenFacts.Rank.PROVIDER, at)  // V5.0.8552
-                    true
-                }
-            }
+            val applied = applyMark8870(ts, px, source8359, rank8870, at)
             if (!applied) continue
             refreshed.incrementAndGet()
             // Entry repair: an aggregator price is never written into the mark bars — mixed-source ticks there

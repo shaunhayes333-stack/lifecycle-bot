@@ -146,11 +146,14 @@ object ParallelMarkFanout7088 {
     private val corroborated8128 = ConcurrentHashMap<String, Pair<Double, Long>>()
     private const val CORROBORATED_MAX_AGE_MS_8128 = 3L * 60_000L
 
-    private fun noteCorroborated8128(mint: String, priceUsd: Double) {
-        if (!priceUsd.isFinite() || priceUsd <= 0.0) return
-        corroborated8128[mint] = priceUsd to System.currentTimeMillis()
+    internal fun noteCorroborated8128(mint: String, priceUsd: Double, observedAtMs: Long,
+                                      nowMs: Long = System.currentTimeMillis()) {
+        if (!priceUsd.isFinite() || priceUsd <= 0.0 || observedAtMs !in 1L..nowMs) return
+        corroborated8128.compute(mint) { _, old ->
+            if (old != null && old.second > observedAtMs) old else priceUsd to observedAtMs
+        }
         if (corroborated8128.size > 3_000) {
-            val cut = System.currentTimeMillis() - CORROBORATED_MAX_AGE_MS_8128
+            val cut = nowMs - CORROBORATED_MAX_AGE_MS_8128
             corroborated8128.entries.removeIf { it.value.second < cut }
         }
     }
@@ -185,6 +188,7 @@ object ParallelMarkFanout7088 {
         // source name -> (mint -> price). Held/background parts merge immutable
         // result maps per source; the reader snapshots only returned real marks.
         val results = ConcurrentHashMap<String, Map<String, Double>>()
+        val providerClocks8870 = ConcurrentHashMap<String, Long>()
 
         fun sourceTasks8527(wanted: List<String>): List<Pair<String, () -> Map<String, Double>>> = listOf(
             // DexScreener is a CLASS, not an object — it is reached through an
@@ -206,7 +210,11 @@ object ParallelMarkFanout7088 {
                     acc
                 }
             },
-            "DEFILLAMA" to { safe { KeylessPriceSources6996.defiLlamaBatch(wanted) } },
+            "DEFILLAMA" to { safe {
+                val marks8870 = KeylessPriceSources6996.defiLlamaObservations8870(wanted)
+                for ((mint, mark) in marks8870) providerClocks8870[mint] = mark.observedAtMs
+                marks8870.mapValues { it.value.priceUsd }
+            } },
             "JUPITER" to { safe { KeylessPriceSources6996.jupiterBatch(wanted) } },
             "RAYDIUM" to { safe { raydiumBatch7088(wanted) } },
             "HELIUS_DAS" to { safe { heliusAssetBatch7088(wanted) } },
@@ -264,8 +272,10 @@ object ParallelMarkFanout7088 {
                 if (p.isFinite() && p > 0.0) quotes += name to p
             }
             if (quotes.isEmpty()) continue
-            out[mint] = merge7088(mint, quotes).copy(observedAtMs8521 = observedAtMs8521)
-                .also { m -> if (m.corroborated) noteCorroborated8128(mint, m.priceUsd) }
+            val sourceClocks8870 = if (quotes.any { it.first == "DEFILLAMA" })
+                mapOf("DEFILLAMA" to (providerClocks8870[mint] ?: 0L)) else emptyMap()
+            out[mint] = merge7088(mint, quotes, observedAtMs8521, sourceClocks8870)
+                .also { m -> if (m.corroborated) noteCorroborated8128(mint, m.priceUsd, m.observedAtMs8521) }
         }
 
         if (out.isNotEmpty()) {
@@ -280,13 +290,21 @@ object ParallelMarkFanout7088 {
         return out
     }
 
+    /** A provider's dated observation cannot be renewed by a fresh HTTP fan-out pass. */
+    internal fun mergedClock8870(passAtMs: Long, providerAtMs: Long?, nowMs: Long = passAtMs): Long =
+        if (providerAtMs == null) passAtMs else if (providerAtMs in 1L..nowMs) minOf(passAtMs, providerAtMs) else 0L
+
     /**
      * Agreement, not preference. See the class doc — no source outranks
      * another, because ranking is the inference that invented V5.0.7069's
      * 1211x.
      */
-    private fun merge7088(mint: String, quotes: List<Pair<String, Double>>): Mark7088 {
+    internal fun merge7088(mint: String, quotes: List<Pair<String, Double>>, passAtMs8870: Long = 0L,
+                           sourceClocks8870: Map<String, Long> = emptyMap(), nowMs8870: Long = System.currentTimeMillis()): Mark7088 {
         val names = quotes.joinToString("+") { it.first }
+        fun clock8870(contributors: List<Pair<String, Double>>): Long = contributors.minOfOrNull {
+            mergedClock8870(passAtMs8870, sourceClocks8870[it.first], nowMs8870)
+        } ?: 0L
         // V5.0.7392 — the bonding curve IS the market for an un-graduated pump.fun
         // token: every buy and sell executes against those reserves. A curve read
         // is chain state, not one opinion among feeds, so it stands alone.
@@ -295,19 +313,21 @@ object ParallelMarkFanout7088 {
             try { PipelineHealthCollector.labelInc("MARK_CURVE_CHAIN_STATE_AUTHORITATIVE_7392") } catch (_: Throwable) {}
             // agreeingCount 2: downstream readers that require two agreeing feeds
             // (cap rebuild, freshness guard) accept chain state as that proof.
-            return Mark7088(quotes[0].second, 1, 2, corroborated = true, spreadPct = 0.0, sources = names)
+            return Mark7088(quotes[0].second, 1, 2, corroborated = true, spreadPct = 0.0, sources = names,
+                observedAtMs8521 = clock8870(quotes))
         }
         if (quotes.size == 1) {
             single.incrementAndGet()
             try { PipelineHealthCollector.labelInc("MARK_SINGLE_SOURCE_UNCORROBORATED_7088") } catch (_: Throwable) {}
-            return Mark7088(quotes[0].second, 1, 1, corroborated = false, spreadPct = 0.0, sources = names)
+            return Mark7088(quotes[0].second, 1, 1, corroborated = false, spreadPct = 0.0, sources = names,
+                observedAtMs8521 = clock8870(quotes))
         }
 
         // Largest set of quotes that all sit within AGREE_TOLERANCE of one
         // candidate. O(n^2) over at most six values.
-        var best: List<Double> = emptyList()
+        var best: List<Pair<String, Double>> = emptyList()
         for ((_, anchor) in quotes) {
-            val cluster = quotes.map { it.second }.filter { v ->
+            val cluster = quotes.filter { (_, v) ->
                 val ratio = if (anchor > 0.0) v / anchor else 0.0
                 ratio in (1.0 - AGREE_TOLERANCE)..(1.0 + AGREE_TOLERANCE)
             }
@@ -319,7 +339,9 @@ object ParallelMarkFanout7088 {
 
         if (best.size >= 2) {
             corroborated.incrementAndGet()
-            return Mark7088(median(best), quotes.size, best.size, corroborated = true, spreadPct = spread * 100.0, sources = names)
+            // A rejected outlier remains visible in diagnostics, but it cannot date the independent agreeing cluster.
+            return Mark7088(median(best.map { it.second }), quotes.size, best.size, corroborated = true,
+                spreadPct = spread * 100.0, sources = names, observedAtMs8521 = clock8870(best))
         }
 
         // Everyone answered, nobody agrees. Report it loudly and hand back the
@@ -338,7 +360,8 @@ object ParallelMarkFanout7088 {
                 )
             }
         } catch (_: Throwable) {}
-        return Mark7088(median(all), quotes.size, 1, corroborated = false, spreadPct = spread * 100.0, sources = names)
+        return Mark7088(median(all), quotes.size, 1, corroborated = false, spreadPct = spread * 100.0, sources = names,
+            observedAtMs8521 = clock8870(quotes))
     }
 
     private fun median(values: List<Double>): Double {

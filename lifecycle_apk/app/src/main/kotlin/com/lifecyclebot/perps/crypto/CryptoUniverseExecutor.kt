@@ -24,14 +24,42 @@ import kotlinx.coroutines.CancellationException
  */
 object CryptoUniverseExecutor {
 
-    /** V5.0.7326 — Raydium SOL -> target buy, Helius Sender first. Null on any failure. */
+    /** Raydium SOL -> target submission, Helius Sender first. A signature still needs confirmation and wallet proof. */
     private fun tryRaydiumBuy7326(wallet: com.lifecyclebot.network.SolanaWallet, mint: String, lamports: Long): String? = try {
-        val built = com.lifecyclebot.network.RaydiumSellRoute7311.buildBuy(wallet, mint, lamports, SLIPPAGE_BPS * 2)
-        val sig = com.lifecyclebot.network.RaydiumSellRoute7311.sendBuilt(wallet, built, 200_000L, false, 0L,
-            intent8085 = com.lifecyclebot.network.SignedTxLedger8085.Intent(mint, "BUY", route = "CU_RAYDIUM"))
+        val sig = com.lifecyclebot.engine.CryptoLiveQuoteBoundary8870.execute(
+            request = com.lifecyclebot.engine.CryptoLiveQuoteBoundary8870.Request(SOL_MINT, mint, lamports),
+            initialQuote = null as com.lifecyclebot.network.RaydiumSellRoute7311.Built?,
+            fetchQuote = { com.lifecyclebot.network.RaydiumSellRoute7311.buildBuy(wallet, mint, lamports, SLIPPAGE_BPS * 2) },
+            observe = { built ->
+                val route = built.buyRoute8522
+                com.lifecyclebot.engine.CryptoLiveQuoteBoundary8870.Observation(
+                    route?.inputMint.orEmpty(), route?.outputMint.orEmpty(), built.buyInputAmountRaw8870,
+                    built.outLamports, route?.observedAtMs ?: 0L)
+            },
+            build = { it }, builtQuote = { built, _ -> built },
+            send = { built, _ ->
+                var completedSignature8870: String? = null
+                try {
+                    com.lifecyclebot.network.RaydiumSellRoute7311.sendBuilt(wallet, built, 200_000L, false, 0L,
+                        intent8085 = com.lifecyclebot.network.SignedTxLedger8085.Intent(mint, "BUY", route = "CU_RAYDIUM"),
+                        sendObserver8397 = { send ->
+                            if (!com.lifecyclebot.engine.BuyRouteSafety8522.quoteFresh8522(
+                                    built.buyRoute8522?.observedAtMs ?: 0L, System.currentTimeMillis()))
+                                throw com.lifecyclebot.engine.CryptoLiveQuoteBoundary8870.Wait("RAYDIUM_QUOTE_OUTLIVED_ENVELOPE")
+                            send().also { signature -> if (signature.isNotBlank()) completedSignature8870 = signature }
+                        })
+                } catch (pending: SolanaWallet.SentButUnconfirmed7733) {
+                    throw pending
+                } catch (error: Throwable) {
+                    // An ATA/setup transaction can precede the swap. Preserve that liability and never rebuild/replay it.
+                    completedSignature8870?.let { throw SolanaWallet.SentButUnconfirmed7733(it, error) }
+                    throw error
+                }
+            },
+        )
         try {
             com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
-                if (sig.isNullOrBlank()) "CU_RAYDIUM_BUY_FAILED_7326" else "CU_RAYDIUM_BUY_LANDED_7326",
+                if (sig.isNullOrBlank()) "CU_RAYDIUM_BUY_FAILED_7326" else "CU_RAYDIUM_BUY_SUBMITTED_PENDING_8870",
             )
         } catch (_: Throwable) {}
         sig?.takeIf { it.isNotBlank() }
@@ -39,6 +67,8 @@ object CryptoUniverseExecutor {
         // V5.0.8085 — possibly landed: the caller's VerifyPending wallet proof decides; never a second venue buy.
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TX_SUBMIT_OUTCOME_UNKNOWN_ADOPTED_CU_RAYDIUM_8085") } catch (_: Throwable) {}
         e.signature
+    } catch (wait: com.lifecyclebot.engine.CryptoLiveQuoteBoundary8870.Wait) {
+        throw wait
     } catch (e: Throwable) {
         if (e is CancellationException) throw e
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CU_RAYDIUM_BUY_FAILED_7326") } catch (_: Throwable) {}
@@ -250,9 +280,11 @@ object CryptoUniverseExecutor {
         } catch (t: Throwable) {
             // V5.0.7326 — Jupiter is not the only venue: try Raydium (Sender-first).
             if (direction == PerpsDirection.LONG) {
-                tryRaydiumBuy7326(wallet, mint, sizeLamports7326)?.let { raySig ->
-                    CryptoUniverseForensics.logPhase("CU_VERIFY_PENDING", symbol, mint, mint, "SOL", mint, "RAYDIUM_7326", SLIPPAGE_BPS, null, raySig, job.id, "Jupiter had no route; Raydium buy confirmed — awaiting wallet proof")
-                    return@runAwaited Outcome.VerifyPending(raySig, mint, resolution, "RAYDIUM_SIGNATURE_CONFIRMED_7326")
+                val raySignature8870 = try { tryRaydiumBuy7326(wallet, mint, sizeLamports7326) }
+                    catch (wait: com.lifecyclebot.engine.CryptoLiveQuoteBoundary8870.Wait) { return@runAwaited quoteWait8870(resolution, wait) }
+                raySignature8870?.let { raySig ->
+                    CryptoUniverseForensics.logPhase("CU_VERIFY_PENDING", symbol, mint, mint, "SOL", mint, "RAYDIUM_7326", SLIPPAGE_BPS, null, raySig, job.id, "Jupiter had no route; Raydium submitted — awaiting confirmation and wallet proof")
+                    return@runAwaited Outcome.VerifyPending(raySig, mint, resolution, "RAYDIUM_SUBMITTED_PENDING_PROOF_8870")
                 }
             }
             val paper = resolution.copy(
@@ -267,13 +299,18 @@ object CryptoUniverseExecutor {
         }
 
         val outputCheck = MintIntegrityGate.validateQuoteOutput(symbol, mint, routeQuote.outputMint)
-        if (outputCheck is MintIntegrityGate.Result.Reject || routeQuote.priceImpactPct > MAX_PRICE_IMPACT_PCT) {
-            val why = if (outputCheck is MintIntegrityGate.Result.Reject) outputCheck.reason else "priceImpact ${routeQuote.priceImpactPct}% > $MAX_PRICE_IMPACT_PCT%"
+        val routeIdentityMatches8870 = routeQuote.inputMint == SOL_MINT && routeQuote.inAmount == sizeLamports7326
+        if (outputCheck is MintIntegrityGate.Result.Reject || !routeIdentityMatches8870 || routeQuote.priceImpactPct > MAX_PRICE_IMPACT_PCT) {
+            val why = if (outputCheck is MintIntegrityGate.Result.Reject) outputCheck.reason
+                else if (!routeIdentityMatches8870) "Quote input mint/amount differs from the sealed SOL ticket"
+                else "priceImpact ${routeQuote.priceImpactPct}% > $MAX_PRICE_IMPACT_PCT%"
             // V5.0.7326 — a thin Jupiter route is not proof every venue is thin.
-            if (outputCheck !is MintIntegrityGate.Result.Reject && direction == PerpsDirection.LONG) {
-                tryRaydiumBuy7326(wallet, mint, sizeLamports7326)?.let { raySig ->
-                    CryptoUniverseForensics.logPhase("CU_VERIFY_PENDING", symbol, mint, mint, "SOL", mint, "RAYDIUM_7326", SLIPPAGE_BPS, null, raySig, job.id, "Jupiter impact too high; Raydium buy confirmed — awaiting wallet proof")
-                    return@runAwaited Outcome.VerifyPending(raySig, mint, resolution, "RAYDIUM_SIGNATURE_CONFIRMED_7326")
+            if (outputCheck !is MintIntegrityGate.Result.Reject && routeIdentityMatches8870 && direction == PerpsDirection.LONG) {
+                val raySignature8870 = try { tryRaydiumBuy7326(wallet, mint, sizeLamports7326) }
+                    catch (wait: com.lifecyclebot.engine.CryptoLiveQuoteBoundary8870.Wait) { return@runAwaited quoteWait8870(resolution, wait) }
+                raySignature8870?.let { raySig ->
+                    CryptoUniverseForensics.logPhase("CU_VERIFY_PENDING", symbol, mint, mint, "SOL", mint, "RAYDIUM_7326", SLIPPAGE_BPS, null, raySig, job.id, "Jupiter impact too high; Raydium submitted — awaiting confirmation and wallet proof")
+                    return@runAwaited Outcome.VerifyPending(raySig, mint, resolution, "RAYDIUM_SUBMITTED_PENDING_PROOF_8870")
                 }
             }
             val paper = resolution.copy(
@@ -313,10 +350,13 @@ object CryptoUniverseExecutor {
                 sizeUsd = sizeUsd,
                 sourceMint = UniversalBridgeEngine.SOL_MINT,
                 prevalidatedQuote7444 = routeQuote,
+                cryptoBuyImpactLimit8870 = MAX_PRICE_IMPACT_PCT,
             )
         } catch (ce: CancellationException) {
             CryptoUniverseForensics.logPhase("CU_TX_BUILD_FAILED", symbol, mint, mint, "CAPITAL_RAIL", mint, resolution.route.name, SLIPPAGE_BPS, routeQuote.priceImpactPct, null, job.id, "cancelled: ${ce.message}")
             throw ce
+        } catch (wait: com.lifecyclebot.engine.CryptoLiveQuoteBoundary8870.Wait) {
+            return@runAwaited quoteWait8870(resolution, wait)
         } catch (t: Throwable) {
             CryptoExecFailureTracker.recordFailure(symbol)
             CryptoUniverseForensics.logExecutionFailure(symbol, mint, CryptoUniverseDiagCodes.TX_BUILD_FAILED, t.message ?: "tx build threw", sizeSol)
@@ -437,6 +477,14 @@ object CryptoUniverseExecutor {
         try { com.lifecyclebot.engine.sell.LiveWalletReconciler.recordBuySignature(mint, sig) } catch (_: Throwable) {}
         CryptoExecFailureTracker.recordSuccess(symbol)
         Outcome.Executed(sig, mint, filledRaw, bridge.targetDecimals, bridge.proofState)
+    }
+
+    private fun quoteWait8870(resolution: CryptoUniverseRouteResolver.Resolution,
+                             wait: com.lifecyclebot.engine.CryptoLiveQuoteBoundary8870.Wait): Outcome.RouteDeferred {
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc(com.lifecyclebot.engine.CryptoLiveQuoteBoundary8870.WAIT_REASON) } catch (_: Throwable) {}
+        return Outcome.RouteDeferred(resolution.copy(
+            diagCode = com.lifecyclebot.engine.CryptoLiveQuoteBoundary8870.WAIT_REASON,
+            humanMessage = wait.detail, executable = false))
     }
 
     private fun readTokenUi(wallet: SolanaWallet, mint: String): Double? = try {

@@ -261,6 +261,7 @@ object NetEdge8030 {
 
     /** LiveEdgeGate7877 (live): the refusal when [lane]'s expected move is under 2x the round trip, else null. */
     fun entryRefusal8030(ts: TokenState, lane: String): String? {
+        val assessedAt8870 = System.currentTimeMillis()
         val mandate = try { FieldManual7715.mandateFor(lane).expectedGrossPct } catch (_: Throwable) { return null }
         // V5.0.8035 — owner: "why is it buying bonk ... wouldn't this be common sense everywhere". The lane's textbook
         // move (20% for quality / bluechip) let BLUECHIP buy BONK ($300M cap) whose hour moves 1-3%. Every lane now
@@ -271,8 +272,13 @@ object NetEdge8030 {
         // mandate capped by a dense range / the 1h change; a fresh launch with only a sparse range defers for evidence
         // (bounded, coalesced per mint) instead of being refused as slow on two candles (StrategyMove8153).
         val move = executableMove8153(ts, lane, mandate, cost)
+        val waitMode8870 = CandidateAdmission8136.dataWaitMode8870()
+        if (!StrategyMove8153.needsDefer8153(move, cost, margin8391(lane, entryTicket8151(), cost)) && move.expectedGrossPct.isFinite())
+            CandidateAdmission8136.completeDataWait8870(ts.mint, lane, waitMode8870,
+                owner = CandidateAdmission8136.DataWaitOwner8870.MOVE, assessedAtMs = assessedAt8870)
         if (StrategyMove8153.needsDefer8153(move, cost, margin8391(lane, entryTicket8151(), cost)) &&
-            CandidateAdmission8136.deferBudgetFor8144(ts.mint, listOf(StrategyMove8153.DEFER_FEATURE_8153))) {
+            CandidateAdmission8136.deferBudgetForLane8870(ts.mint, lane, waitMode8870, listOf(StrategyMove8153.DEFER_FEATURE_8153),
+                nowMs = assessedAt8870, owner = CandidateAdmission8136.DataWaitOwner8870.MOVE)) {
             historyDeferred8153.incrementAndGet()
             // The evidence the deferral waits for is asked for now: the candle seed and a forced poll (1h change, depth).
             try { com.lifecyclebot.engine.cortex.LanePlaybook7907.requestEvidence8153(ts, listOf("shape:HISTORY_SPARSE", "chg:UNOBSERVED", "liq:REFRESH")) } catch (_: Throwable) {}
@@ -463,8 +469,14 @@ object NetEdge8030 {
     }
 
     private fun scalpUnobserved8418(ts: TokenState, lane: String, realized: Double?, admission: CandidateAdmission8136.Decision8136?): String? {
+        val assessedAt8870 = System.currentTimeMillis()
+        val waitMode8870 = CandidateAdmission8136.dataWaitMode8870()
+        if (realized != null && realized.isFinite())
+            CandidateAdmission8136.completeDataWait8870(ts.mint, lane, waitMode8870,
+                owner = CandidateAdmission8136.DataWaitOwner8870.MOVE, assessedAtMs = assessedAt8870)
         val why = scalpWait8418(realized, admission) {
-            CandidateAdmission8136.deferBudgetFor8144(ts.mint, listOf(StrategyMove8153.DEFER_FEATURE_8153))
+            CandidateAdmission8136.deferBudgetForLane8870(ts.mint, lane, waitMode8870, listOf(StrategyMove8153.DEFER_FEATURE_8153),
+                nowMs = assessedAt8870, owner = CandidateAdmission8136.DataWaitOwner8870.MOVE)
         } ?: return null
         if (why == StrategyMove8153.DEFER_REASON_8153) {
             try { com.lifecyclebot.engine.cortex.LanePlaybook7907.requestEvidence8153(ts, listOf("shape:HISTORY_SPARSE", "chg:UNOBSERVED")) } catch (_: Throwable) {}
