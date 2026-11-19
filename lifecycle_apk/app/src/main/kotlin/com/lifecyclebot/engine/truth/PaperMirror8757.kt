@@ -23,6 +23,7 @@ object PaperMirror8757 {
     @Volatile private var startMs8757 = 0L
     @Volatile private var tripped8757 = false
     private val mirrored8757 = AtomicLong(0L)
+    private val bookLosing8865 = AtomicLong(0L)
 
     private val HARD_8757 = listOf(
         "SAFETY", "STRUCTURAL", "RUG", "FREEZE", "MINT_AUTH", "TOKEN_2022", "TOKEN2022", "T22_", "HOSTILE", "HONEYPOT", "SELLAB",
@@ -120,6 +121,16 @@ object PaperMirror8757 {
         if (!enabled8757 || !c.live || d.admitted || !mirrorLane8757(c.lane) || hard8757(d.reason, c.lane)) return d
         if (try { FdgGate8365.shadowOnly8393() } catch (_: Throwable) { true }) return d   // V5.0.8758 — never in a shadow rehearsal
         if (!c.costPct.isFinite() || c.costPct < 0.0 || stopped8757(nowMs)) return d
+        // V5.0.8865 §THE_MIRROR_FOLLOWS_A_BOOK_THAT_PAYS — the owner chose the mirror on a paper MOONSHOT book at n176 +7.9 %,
+        // PF 1.46. On 19 Nov (5.0.8862) that book's priced record read n43, 11 % wins, -22.9 % +/- 3.9, PF 0.06, and the
+        // mirror admitted 12 live candidates on its say-so in 127 minutes: its stop reads LIVE closes only. A book its own
+        // record proves losing (MemePaperTrader8544.laneProvenLosing8608: 30+ priced closes, mean + SE < 0, PF < 1) is not
+        // followed; it keeps trading on paper and is followed again the moment that record stops proving a loss.
+        if (try { MemePaperTrader8544.laneProvenLosing8608(c.lane) } catch (_: Throwable) { false }) {
+            bookLosing8865.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("PAPER_MIRROR_BOOK_PROVEN_LOSING_8865") } catch (_: Throwable) {}
+            return d
+        }
         // V5.0.8758 — the live price bar, not the paper book's 5-minute one.
         if (CandidateAdmission8136.priceStale8136(c.priceAgeMs, hotLaunch = false, live = true)) return d
         val paper = try { CandidateAdmission8136.decide8136(c.copy(live = false, liveEdge8114 = null)) { false } } catch (_: Throwable) { return d }
@@ -156,5 +167,6 @@ object PaperMirror8757 {
         enabled8757 && admission?.reason == REASON_8757 && !hard8757(reason, lane)
 
     fun statusLine8757(): String =
-        "paperMirror8757[on=$enabled8757 lane=MOONSHOT mirrored=${mirrored8757.get()} stop=-${LOSS_STOP_SOL_8757}SOL tripped=$tripped8757]"
+        "paperMirror8757[on=$enabled8757 lane=MOONSHOT mirrored=${mirrored8757.get()} stop=-${LOSS_STOP_SOL_8757}SOL tripped=$tripped8757 " +
+            "notFollowedBookProvenLosing8865=${bookLosing8865.get()}]"
 }

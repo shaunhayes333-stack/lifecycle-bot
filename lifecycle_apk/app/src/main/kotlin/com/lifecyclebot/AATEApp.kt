@@ -502,11 +502,15 @@ class AATEApp : Application() {
                     }
                 }
 
-                override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: android.os.Bundle?) {}
+                override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: android.os.Bundle?) {
+                    com.lifecyclebot.engine.ActivityCensus8865.noteCreated8865(activity.javaClass.simpleName)   // V5.0.8865
+                }
                 override fun onActivityResumed(activity: android.app.Activity) {}
                 override fun onActivityPaused(activity: android.app.Activity) {}
                 override fun onActivitySaveInstanceState(activity: android.app.Activity, outState: android.os.Bundle) {}
-                override fun onActivityDestroyed(activity: android.app.Activity) {}
+                override fun onActivityDestroyed(activity: android.app.Activity) {
+                    com.lifecyclebot.engine.ActivityCensus8865.noteDestroyed8865(activity.javaClass.simpleName)   // V5.0.8865
+                }
             })
             ErrorLogger.info("App", "Background runtime guard installed")
         } catch (e: Throwable) {

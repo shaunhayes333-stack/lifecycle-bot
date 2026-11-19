@@ -1016,6 +1016,8 @@ object CandidateAdmission8136 {
     private val VERIFIED_RECORD_DOORS_8650 = setOf(
         "SETUP_RECORD_LOSING_8136", "TIMING_ADVERSE_8136", "CELL_PROVEN_LOSING_8136",
         "SHEET_AVOID_8323", "EDGE_MODEL_NEGATIVE_8537",
+        // V5.0.8865 — a forecast loss beyond the lane's one position is the same model verdict, bound by the same rule
+        "EDGE_FORECAST_LOSS_SLOT_TAKEN_8865",
     )
     internal fun verifiedRecordDoor8650(reason: String): Boolean = reason in VERIFIED_RECORD_DOORS_8650
 
@@ -1026,6 +1028,7 @@ object CandidateAdmission8136 {
 
     const val EDGE_MODEL_NEGATIVE_8537 = "EDGE_MODEL_NEGATIVE_8537"
     const val EDGE_MODEL_PROVEN_8537 = "EDGE_MODEL_PROVEN_8537"
+    const val EDGE_FORECAST_LOSS_SLOT_TAKEN_8865 = "EDGE_FORECAST_LOSS_SLOT_TAKEN_8865"
 
     /**
      * V5.0.8537 — the learned edge model (EdgeModel8537) refuses, in paper and live, a coin it expects to lose after cost once
@@ -1046,17 +1049,14 @@ object CandidateAdmission8136 {
         val call = EdgeModel8537.callOf(v)
         trace += "edge8537=${fmt8136(v.predPct)} model=${v.modelKey} oos=n${v.oosSelN}/${fmt8136(v.oosSelMeanPct)} call=$call"
         if (call != EdgeModel8537.Call.NEGATIVE) {
-            if (v.predPct.isFinite() && v.predPct < 0.0) letThrough8827(if (c.live) "UNEARNED_LIVE" else "UNEARNED_PAPER", c.lane)
-            return null
+            return if (v.predPct.isFinite() && v.predPct < 0.0) unearnedForecastLoss8865(c, v, edge, trace) else null
         }
         // V5.0.8843 §SPECIFIC_PROOF_BEATS_AGGREGATE_PREDICTION — 8840 refused 299 live decisions on an aggregate model;
         // even a n60/mean+9±1% *selected* setup was vetoed when the aggregate prediction passed -roundTripCost.
         // That compares different estimands, not two competing estimates of this setup's edge. The specific record has
         // to pass the same earned, outlier-aware test as the admission decision. Safety, sellability, stale data, timing,
         // structural loss and EXECUTION_ECONOMICS remain earlier independent authorities; none is bypassed here.
-        val localProof8843 = edge?.takeIf {
-            supported8136(it, c.costPct) || (it.kind == KIND_RUNNER_GRAB_8245 && grabSupported8245(it))
-        }
+        val localProof8843 = specificProof8843(c, edge)
         if (localProof8843 != null) {
             trace += "edge8537AggregateNegativeOutrankedBySpecific8843=${localProof8843.compact}"
             letThrough8827("SPECIFIC_PROOF_${localProof8843.kind}", c.lane)
@@ -1067,6 +1067,81 @@ object CandidateAdmission8136 {
         return EDGE_MODEL_NEGATIVE_8537
     }
 
+    /** V5.0.8843 — the candidate's own record, supported after cost on its own sample (or a supported runner grab). */
+    private fun specificProof8843(c: Candidate8136, edge: Evidence8136?): Evidence8136? =
+        edge?.takeIf { supported8136(it, c.costPct) || (it.kind == KIND_RUNNER_GRAB_8245 && grabSupported8245(it)) }
+
+    /**
+     * V5.0.8865 §A_FORECAST_LOSS_TAKES_THE_LANES_ONE_POSITION — owner's phone on 5.0.8862, LIVE, 19 Nov: equity 0.2825 ->
+     * 0.2104 SOL (-25.5 %) in the 6.8 h since a learning reset, 9 closes, 1 win. The session's four buys (08:46-08:54; two
+     * MOONSHOT at BASE_START, two CORE at CONTROLLED_MARKUP, all NATIVE_QUALIFIED_ADMIT_8259) were each stopped out (-28.9,
+     * -19.2, -24.3, -18.1 % realised), and on the last labelled decision before each the model's forecast for the lane that
+     * bought was a loss (-6.2, -6.6, -6.5, -3.9 %). The gate counted what it did with such forecasts in those 127 minutes:
+     * refused 10,825, and let through for live as "UNEARNED_LIVE" MOONSHOT 959, EXPRESS 306, SHITCOIN 162, CORE 113. The
+     * refusal binds only where the coins forecast to lose are PROVEN losing (two standard errors, 8839; per lane-stage,
+     * 8855); everywhere short of that proof live bought them at open flow, as many at once as the wallet funded — the
+     * second MOONSHOT and the second CORE buy were made while the first was still open. On the dataset since the reset the
+     * admitted decisions with a forecast loss, each coin one vote, returned -7.6 % +/- 2.4 (305 coins); those forecast at
+     * zero or better +9.3 % +/- 10.1 (58 coins). Two earlier datasets read the same way (8715: 0.0 % against -18.7 %; 8839:
+     * +3.9 % against -9.5 %). (At the time of those four buys the forecast did not tell coins apart: -6 +/- 1 in every
+     * lane from the 08:42 restart to 09:05. From 09:10, with the tree model fitted, 11-44 % of forecasts were zero or better
+     * and the admitted forecast losses returned -8.6 % +/- 3.5 against +9.0 % +/- 9.9: TreeRanker8737's 8865 note.)
+     *
+     * A learned-negative RECORD already has a middle answer between open flow and a refusal: the lane's one position
+     * ([probe8429], directive #38 "size down, not halt"; the setup / sheet / cell / stage / timing records all use it). The
+     * model's forecast had none. It has the same one now:
+     *   forecast zero or better ......................... as before
+     *   forecast loss, refusal earned ................... refused, paper and live, as before (EDGE_MODEL_NEGATIVE_8537)
+     *   forecast loss, not earned, PAPER ................ traded, as before (the paper book is where it is tried)
+     *   forecast loss, not earned, LIVE:
+     *     the coins forecast to lose there have PAID .... as before: the forecast is wrong there on its own record
+     *                                                    (EdgeModel8537.forecastLossPays8865, mean - SE > 0 on 30+)
+     *     the candidate's own record is supported ....... as before (the 8843 rule of the earned refusal)
+     *     the lane holds no live position ............... bought, as the lane's one position
+     *     the lane already holds one .................... refused: [EDGE_FORECAST_LOSS_SLOT_TAKEN_8865]
+     * So a lane is never shut by a forecast (directive #37: nothing here waits for proof), and live money is no longer
+     * spent several positions deep on coins the bot's own model expects to lose. Nothing new is learned by spending it:
+     * every decision, refused or not, is followed and labelled (ForwardReturnLabeler7731), which is what moves the forecast,
+     * the refusal record and the record that answers it. The refusal is filed on its own forward record like every other
+     * door (GateOutcome8418) and stands aside by the one selection-gate rule once the coins it refused are proven to win
+     * (selectionGateRetired8696); until then it binds past lane authority as the earned refusal does
+     * ([VERIFIED_RECORD_DOORS_8650]).
+     */
+    private fun unearnedForecastLoss8865(c: Candidate8136, v: EdgeModel8537.Verdict, edge: Evidence8136?, trace: MutableList<String>): String? {
+        if (!c.live) { letThrough8827("UNEARNED_PAPER", c.lane); return null }
+        val proof = specificProof8843(c, edge)
+        return when (forecastLossPass8865(v.lossPays8865, proof != null, c.recordProbe8429)) {
+            ForecastLossPass8865.RECORD_PAYS -> { trace += "forecastLoss8865=recordPays"; letThrough8827("RECORD_PAYS_LIVE", c.lane); null }
+            ForecastLossPass8865.SPECIFIC_PROOF -> {
+                trace += "forecastLoss8865=specificProof ${proof?.compact ?: "-"}"
+                letThrough8827("SPECIFIC_PROOF_${proof?.kind ?: "-"}", c.lane); null
+            }
+            ForecastLossPass8865.LANE_SLOT -> { trace += "forecastLoss8865=lanesOnePosition"; letThrough8827("UNEARNED_LIVE_ONE_A_LANE", c.lane); null }
+            ForecastLossPass8865.NONE ->
+                // the one rule for every selection gate (8696): it stands aside once the coins it refused are proven to win
+                if (try { GateOutcome8418.selectionGateRetired8696("CANDIDATE_ADMISSION_8136_$EDGE_FORECAST_LOSS_SLOT_TAKEN_8865", c.lane) } catch (_: Throwable) { false }) {
+                    trace += "forecastLoss8865=doorRetiredByItsOwnRecord"; letThrough8827("DOOR_RETIRED_LIVE", c.lane); null
+                } else {
+                    trace += "forecastLoss8865=laneAlreadyHoldsOne"
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("${EDGE_FORECAST_LOSS_SLOT_TAKEN_8865}_${c.lane.uppercase()}") } catch (_: Throwable) {}
+                    slotTaken8865.incrementAndGet()
+                    EDGE_FORECAST_LOSS_SLOT_TAKEN_8865
+                }
+        }
+    }
+
+    /** V5.0.8865 — how a LIVE candidate carrying a forecast loss the record has not earned the right to refuse proceeds. */
+    enum class ForecastLossPass8865 { RECORD_PAYS, SPECIFIC_PROOF, LANE_SLOT, NONE }
+
+    /** Pure: the first that holds, strongest evidence first; [NONE] refuses. */
+    fun forecastLossPass8865(recordPays: Boolean, specificProof: Boolean, laneSlotOpen: Boolean): ForecastLossPass8865 = when {
+        recordPays -> ForecastLossPass8865.RECORD_PAYS
+        specificProof -> ForecastLossPass8865.SPECIFIC_PROOF
+        laneSlotOpen -> ForecastLossPass8865.LANE_SLOT
+        else -> ForecastLossPass8865.NONE
+    }
+    private val slotTaken8865 = java.util.concurrent.atomic.AtomicLong(0L)
+
     // V5.0.8827 — negative predictions the gate let through, by why and lane (a refusal not yet earned, or kept by evidence)
     private val letThroughCounts8827 = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
     private val refusedBy8827 = java.util.concurrent.atomic.AtomicLong(0L)
@@ -1076,9 +1151,10 @@ object CandidateAdmission8136 {
     }
 
     /** V5.0.8827 — the report: refusals made, and negative predictions let through by why. */
-    fun edgeLetThrough8827(): String = "edgeRefusal8827[refused=${refusedBy8827.get()} letThrough{" +
+    fun edgeLetThrough8827(): String = "edgeRefusal8827[refused=${refusedBy8827.get()} liveSlotTaken8865=${slotTaken8865.get()} letThrough{" +
         letThroughCounts8827.entries.sortedByDescending { it.value.get() }.take(12).joinToString(" ") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } +
-        "} rule=one refusal rule for paper and live once the lane's refusal record is earned; refused coins are still labelled]"
+        "} rule=one refusal rule for paper and live once the lane's refusal record is earned; a forecast loss short of that is traded on paper and " +
+        "takes the lane's one live position (8865); refused coins are still labelled]"
     const val LIVE_UNPROVEN_EDGE_8536 = "LIVE_UNPROVEN_EDGE_8536"
     const val SHEET_FAVOUR_8323 = "FAVOUR"
     const val SHEET_AVOID_8323 = "AVOID"

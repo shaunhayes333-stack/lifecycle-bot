@@ -121,6 +121,36 @@ object TuningReport8618 {
                 }
             }
         } catch (_: Throwable) {}
+        repair8865()
+    }
+
+    // ── V5.0.8865 §THE_STORED_REPORT_DROPS_THE_CLOSE_THE_BOOK_DROPPED — owner's phone, 19 Nov (5.0.8862):
+    // "CORE|LIVE_REFUSE:LIVE_STAGE_LOSES_8626 n=13 mean=+18538294.4% ... pnl=+240997.827SOL" and "CORE|CLOCK n=11 ...
+    // +240998.052SOL", beside a paper book whose own CORE record read n21 -11.7 % +/- 3.0. It is the refuted-entry close of
+    // 5.0.8853 (a position opened off another basis, "closed" at +24,099,805.8 %). 5.0.8855 stopped such a position being
+    // closed at all and removed the stored lane rows that held one (MemePaperTrader8544.rowImpossible8855: a row whose MEAN
+    // close is further from entry than a single unconfirmed mark may move) — from the book. This file had filed the same
+    // close under three cuts and kept it. The same rule now reads these rows when they are restored.
+
+    /** Pure: does a stored row ([n] closes, [wins], summed net %, summed SOL) hold a close the paper book's mark rule refutes? */
+    fun rowImpossible8865(n: Int, wins: Int, sumNetPct: Double, pnlSol: Double): Boolean =
+        MemePaperTrader8544.rowImpossible8855(doubleArrayOf(n.toDouble(), wins.toDouble(), sumNetPct, pnlSol))
+
+    @Volatile private var repaired8865 = ""
+
+    private fun repair8865() {
+        val gone = ArrayList<String>()
+        for (m in listOf(byVerdict, byExit, byState)) {
+            val stored = m.entries.iterator()
+            while (stored.hasNext()) {
+                val e = stored.next()
+                val a = e.value
+                if (synchronized(a) { rowImpossible8865(a.n, a.wins, a.sum, a.pnl) }) { gone += e.key; stored.remove() }
+            }
+        }
+        if (gone.isEmpty()) return
+        repaired8865 = "${gone.size}{" + gone.sorted().take(6).joinToString(",") + "}"
+        save8744()
     }
 
     private fun rows(m: ConcurrentHashMap<String, Agg>, title: String): String {
@@ -144,6 +174,7 @@ object TuningReport8618 {
         restore8744()
         append("  READ       paper trades every meme candidate the paper way; each close is filed by what LIVE decided on that same\n")
         append("             candidate. A LIVE_REFUSE row with a positive mean is a live gate costing money; a negative one is a gate saving it.\n")
+        if (repaired8865.isNotEmpty()) append("  REPAIRED   rows removed at restore, each holding a close the paper book's mark rule refutes (8865): ").append(repaired8865).append('\n')
         append(rows(byVerdict, "PAPER RESULT BY LIVE VERDICT (lane | live verdict on the same candidate)"))
         append(rows(byExit, "PAPER EXITS (lane | exit reason)"))
         append(rows(byState, "PAPER ENTRY STATE (lane | phase / age at entry)"))

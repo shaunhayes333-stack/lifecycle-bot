@@ -454,9 +454,20 @@ object RunnerModel8861 {
         } catch (_: Throwable) {}
     }
 
+    /**
+     * V5.0.8865 — pure: what a model that is not fitted waits for at [rowsN] rows. 5.0.8862 printed "waiting rows=252/160":
+     * the 160 is the bar for the TRAINING rows, the oldest six tenths ([refit]), which were 151. Past that bar the share to
+     * buy is chosen on the next fifth, where a share needs [MIN_N_VALID] picks ([choose8861]).
+     */
+    internal fun waitingFor8865(rowsN: Int): String {
+        val train = rowsN * 6 / 10
+        return if (train < MIN_TRAIN_ROWS_8861) "trainRows=$train/$MIN_TRAIN_ROWS_8861 (the oldest 60% of rows=$rowsN)"
+        else "picks<$MIN_N_VALID at every share on the validation fifth (${rowsN * 8 / 10 - train} of rows=$rowsN)"
+    }
+
     fun statusLine8861(): String {
         val (pl, al, rowsN) = synchronized(this) { Triple(line(picks), line(everyCross), rows.size) }
-        return "runnerModel8861[$status ${if (armed) "ARMED" else "SHADOW"} model=${if (model != null) "fitted buys top ${((1.0 - quantile) * 100).toInt()}%" else "waiting rows=$rowsN/$MIN_TRAIN_ROWS_8861"} " +
+        return "runnerModel8861[$status ${if (armed) "ARMED" else "SHADOW"} model=${if (model != null) "fitted buys top ${((1.0 - quantile) * 100).toInt()}%" else "waiting ${waitingFor8865(rowsN)}"} " +
             "newestFifth{$testLine} forward{picks $pl of every cross $al} rowsGradedPastTheHour=$pastHourRows rowsFromOtherInstalls8862=$fromHive " +
             "live{crosses=${liveCrosses.get()} shadowPicks=${shadowPicks.get()} armedPicks=${armedPicks.get()} overflow=${liveOverflow.get()} evidenceServed=${served.get()}} " +
             "parity{same=$paritySame differ=$parityDiffer otherCrossPrint=$parityOtherCross} skipped{crossWasSpike=$spikeCross overflow=$overflow lateRows=$lateRows} " +

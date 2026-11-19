@@ -94,6 +94,7 @@ object TreeRanker8737 {
 
     /** EdgeModel8537: retrain from [dataset] in the background when due. */
     fun maybeRetrain8737(dataset: File?, nowMs: Long) {
+        restore8865()
         if (dataset == null || !dataset.exists()) return
         val m = model
         if (m != null && nowMs - m.atMs < RETRAIN_MS) return
@@ -121,11 +122,117 @@ object TreeRanker8737 {
                         rowFrac = ROW_FRAC_8798, colFrac = COL_FRAC_8798)
                 }
                 lastStatus = "trained rows=${rows.size} trees=$TREES ms=${System.currentTimeMillis() - t0}"
+                save8865()
                 try { PipelineHealthCollector.labelInc("TREE_RANKER_TRAINED_8737") } catch (_: Throwable) {}
             } catch (t: Throwable) {
                 lastStatus = "train-failed:${t.javaClass.simpleName}"
             } finally { training.set(false) }
         }
+    }
+
+    // ── V5.0.8865 §THE_TRAINED_TREES_SURVIVE_A_RESTART ──────────────────────────────────────────────────────────────────
+    // Owner's dataset, 19 Nov (5.0.8862): after the 08:42 restart the forecast was -6 +/- 1 in every lane (none at zero or
+    // better) for 25 minutes, and the session's four live buys were made in them (08:46-08:54); from 09:10 it spread (10-25
+    // points, 11-44 % at zero or better). That spread arrived with this model's first fit of the session (job meter
+    // treeTrain:runs1). The fitted model lived only in this object: every restart began with none, then waited for a parse
+    // of the dataset and a fit — and that day, 5 h after a learning reset, for the 2,000 usable rows the fit needs (1,285 at
+    // 08:45; 2,152 at 09:05). The owner restarts with every build he installs.
+    // The fitted model is now written when it is trained and read back at the first use after a start. It is the same
+    // model the bot was deciding with before the restart; it is retrained on the same clock as before (its own training
+    // time is kept, so a model older than RETRAIN_MS is replaced by the first fit after the start). A file from another
+    // learning line (a reset), another model epoch or another feature list is refused: after a reset the trees are earned
+    // again from the first row, as before.
+
+    private const val FILE_8865 = "tree_model_8865.bin"
+    private const val MAGIC_8865 = 0x54523635
+    private const val MAX_TREES_8865 = 2_000
+    private val MAX_NODES_8865 = 1 shl (DEPTH + 1)   // a tree of depth DEPTH holds fewer nodes than this
+    private val restored8865 = AtomicBoolean(false)
+
+    /** Pure: [m] in the stored form, stamped with the learning line, model epoch and feature count it was fitted under. */
+    internal fun write8865(out: java.io.DataOutputStream, m: Model, modelEpoch: Int, learningEpochMs: Long) {
+        out.writeInt(MAGIC_8865); out.writeInt(modelEpoch); out.writeLong(learningEpochMs)
+        out.writeInt(m.edges.size); out.writeDouble(m.base); out.writeInt(m.rows); out.writeLong(m.atMs)
+        for (e in m.edges) { out.writeInt(e.size); for (v in e) out.writeDouble(v) }
+        out.writeInt(m.trees.size)
+        for (t in m.trees) {
+            out.writeInt(t.feat.size)
+            for (i in t.feat.indices) {
+                out.writeInt(t.feat[i]); out.writeInt(t.split[i]); out.writeBoolean(t.nanLeft[i])
+                out.writeInt(t.left[i]); out.writeInt(t.right[i]); out.writeDouble(t.value[i])
+            }
+        }
+        out.flush()
+    }
+
+    /**
+     * Pure: the stored model, or null when it is not one this build may decide with — a different [modelEpoch], learning
+     * line or [features] count, or a tree that is not well formed (every split's children lie after it, so [Tree.eval]
+     * ends; every number finite). Throws only what the stream throws on a short file.
+     */
+    internal fun read8865(inp: java.io.DataInputStream, features: Int, modelEpoch: Int, learningEpochMs: Long): Model? {
+        if (inp.readInt() != MAGIC_8865 || inp.readInt() != modelEpoch || inp.readLong() != learningEpochMs) return null
+        if (inp.readInt() != features) return null
+        val base = inp.readDouble(); val rows = inp.readInt(); val atMs = inp.readLong()
+        if (!base.isFinite() || rows <= 0) return null
+        val edges = ArrayList<DoubleArray>(features)
+        repeat(features) {
+            val len = inp.readInt()
+            if (len < 0 || len >= BINS) return null
+            val e = DoubleArray(len) { inp.readDouble() }
+            if (e.any { v -> !v.isFinite() }) return null
+            edges.add(e)
+        }
+        val nTrees = inp.readInt()
+        if (nTrees <= 0 || nTrees > MAX_TREES_8865) return null
+        val trees = ArrayList<Tree>(nTrees)
+        repeat(nTrees) {
+            val nodes = inp.readInt()
+            if (nodes <= 0 || nodes > MAX_NODES_8865) return null
+            val feat = IntArray(nodes); val split = IntArray(nodes); val nanLeft = BooleanArray(nodes)
+            val left = IntArray(nodes); val right = IntArray(nodes); val value = DoubleArray(nodes)
+            for (i in 0 until nodes) {
+                feat[i] = inp.readInt(); split[i] = inp.readInt(); nanLeft[i] = inp.readBoolean()
+                left[i] = inp.readInt(); right[i] = inp.readInt(); value[i] = inp.readDouble()
+                if (!value[i].isFinite()) return null
+                if (feat[i] >= 0) {
+                    if (feat[i] >= features || split[i] !in 0 until BINS || left[i] <= i || left[i] >= nodes || right[i] <= i || right[i] >= nodes) return null
+                } else if (feat[i] != -1) return null
+            }
+            trees.add(Tree(feat, split, nanLeft, left, right, value))
+        }
+        return Model(base, edges, trees, rows, atMs)
+    }
+
+    private fun file8865(): File? = try { com.lifecyclebot.AATEApp.appContextOrNull()?.filesDir?.let { File(it, FILE_8865) } } catch (_: Throwable) { null }
+
+    /** The tree thread, after a fit: the model is written beside the dataset (a temporary file, then renamed over the old one). */
+    private fun save8865() {
+        val m = model ?: return
+        try {
+            val f = file8865() ?: return
+            val tmp = File(f.path + ".tmp")
+            java.io.DataOutputStream(tmp.outputStream().buffered()).use { write8865(it, m, EdgeModel8537.MODEL_EPOCH_8642, LearningEpoch8164.epochMs8164()) }
+            if (!tmp.renameTo(f)) { f.delete(); tmp.renameTo(f) }
+        } catch (_: Throwable) { try { PipelineHealthCollector.labelInc("TREE_RANKER_SAVE_FAILED_8865") } catch (_: Throwable) {} }
+    }
+
+    /** Once a process, at the first use: the model of the last fit, when this build may decide with it. */
+    private fun restore8865() {
+        if (restored8865.get() || !restored8865.compareAndSet(false, true)) return
+        try {
+            val f = file8865() ?: run { restored8865.set(false); return }   // no application context yet: asked again
+            if (!f.exists()) return
+            val m = java.io.DataInputStream(f.inputStream().buffered()).use {
+                read8865(it, FEATURES.size, EdgeModel8537.MODEL_EPOCH_8642, LearningEpoch8164.epochMs8164())
+            }
+            if (m == null) { try { PipelineHealthCollector.labelInc("TREE_RANKER_SAVED_MODEL_REFUSED_8865") } catch (_: Throwable) {}; return }
+            if (model == null) {
+                model = m
+                lastStatus = "restored rows=${m.rows} trees=${m.trees.size} fittedMinAgo=${((System.currentTimeMillis() - m.atMs) / 60_000L).coerceAtLeast(0L)}"
+                try { PipelineHealthCollector.labelInc("TREE_RANKER_RESTORED_8865") } catch (_: Throwable) {}
+            }
+        } catch (_: Throwable) { try { PipelineHealthCollector.labelInc("TREE_RANKER_RESTORE_FAILED_8865") } catch (_: Throwable) {} }
     }
 
     /** Pure: (features, target, weight) of the exported dataset's labelled lines; one coin window weighs one in total. */
@@ -250,5 +357,6 @@ object TreeRanker8737 {
         EdgeModel8537.LANES.indexOf(lane.trim().uppercase()).takeIf { it >= 0 }?.toDouble() ?: Double.NaN
 
     fun statusLine8737(): String = "tree8737[$lastStatus rows=${trainedRows8737()} features=${FEATURES.size} key=$KEY_8737 " +
-        "rule=boosted trees on the bot's own labelled dataset; earns authority only on its own out-of-sample record]"
+        "rule=boosted trees on the bot's own labelled dataset; earns authority only on its own out-of-sample record; " +
+        "the fitted model is kept across a restart within one learning line (8865)]"
 }

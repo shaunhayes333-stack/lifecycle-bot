@@ -46,6 +46,17 @@ object HeapLog8618 {
         } catch (_: Throwable) {}
     }
 
+    /**
+     * V5.0.8865 — pure: the lowest of [usedMb] and the census at that same sample, or null with no finite sample. A sample
+     * is the heap in use at an arbitrary instant, garbage included; the lowest of many is the nearest any came to the
+     * moment after a collection, so it bounds the live set from above.
+     */
+    fun floor8865(usedMb: List<Double>, censusMb: List<Double>): Pair<Double, Double>? {
+        var at = -1
+        for (i in usedMb.indices) if (usedMb[i].isFinite() && usedMb[i] >= 0.0 && (at < 0 || usedMb[i] < usedMb[at])) at = i
+        return if (at < 0) null else usedMb[at] to (censusMb.getOrNull(at)?.takeIf { it.isFinite() } ?: 0.0)
+    }
+
     /** Pure: the stores ordered by growth from [from] to [to] (bytes), largest growth first. */
     fun growth8618(from: Map<String, Long>, to: Map<String, Long>, n: Int = 12): List<Pair<String, Long>> =
         to.map { (k, v) -> k to (v - (from[k] ?: 0L)) }.sortedByDescending { it.second }.take(n)
@@ -126,6 +137,7 @@ object HeapLog8618 {
                 .append(fam.take(12).joinToString(",") { "${it.key}:${it.value}" }).append('\n')
         } catch (_: Throwable) {}
         try { sb.append(cpuLine8622(nowMs)) } catch (_: Throwable) {}
+        sb.append("  SCREENS    ").append(try { ActivityCensus8865.statusLine8865() } catch (_: Throwable) { "unavailable" }).append('\n')   // V5.0.8865
         val snap = synchronized(samples) { samples.toList() }
         val first0 = first
         if (snap.isEmpty() || first0 == null) { sb.append("  TIMELINE   no census samples yet\n"); return sb.toString() }
@@ -142,6 +154,13 @@ object HeapLog8618 {
                 .append(" gcMs+").append(s.gcTimeMs - p.gcTimeMs).append(" blocking+").append(s.blockingGc - p.blockingGc)
                 .append(" alloc=").append(f(alloc)).append("MB/min")
                 .append(if (grower != null && grower.second > 0) " grew=${grower.first}+${grower.second / 1024}KB" else "").append('\n')
+        }
+        // V5.0.8865 — the lowest sample kept: with a collection finishing every couple of seconds, the heap just after one
+        floor8865(snap.map { it.usedMb }, snap.map { it.censusMb })?.let { (used, census) ->
+            sb.append("  FLOOR      lowest heap used in the ").append(snap.size).append(" samples kept (")
+                .append((snap.last().atMs - snap.first().atMs) / 60_000L).append("m): ").append(f(used)).append("MB, census then ")
+                .append(f(census)).append("MB (estimated), so at most ").append(f(used - census))
+                .append("MB is live outside the census; a higher 'unattributed' in a row includes garbage not yet collected\n")
         }
         val last = snap.last()
         val tenAgo = snap.lastOrNull { last.atMs - it.atMs >= 10 * 60_000L } ?: snap.first()

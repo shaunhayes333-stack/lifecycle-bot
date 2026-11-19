@@ -352,6 +352,15 @@ object EdgeModel8537 {
      */
     private const val REFUSAL_Z_8839 = 2.0
 
+    /**
+     * V5.0.8865 §A_FORECAST_LOSS_THE_RECORD_ANSWERS — pure: have the coins the model forecast to lose paid? The mirror of
+     * [authority] on the refusal record: [AUTH_MIN_N]+ of them, their mean one standard error above zero. Where that holds
+     * the forecast is wrong on its own record and decides nothing for live money (CandidateAdmission8136.edgeModelRefusal8537).
+     * It cannot hold together with [refusalAuthority8715] (mean two standard errors BELOW zero).
+     */
+    fun forecastLossPays8865(refN: Int, refMean: Double, refSe: Double): Boolean =
+        refN >= AUTH_MIN_N && refMean.isFinite() && refSe.isFinite() && refMean - refSe > 0.0
+
     // superseded by V5.0.8839 — 8750 required the refused coins to SEPARATE from the kept ones (two SE of the difference,
     // AUTH_MIN_N each side). Two losing groups are both worth declining; the kept side's record still gates the picks.
     const val REFUSAL_CLIP_PCT_8715 = 200.0
@@ -427,7 +436,9 @@ object EdgeModel8537 {
     data class Verdict(val predPct: Double, val authority: Boolean, val modelKey: String, val trainedN: Long,
                        val oosSelN: Int, val oosSelMeanPct: Double, val oosSelSePct: Double, val oosAllMeanPct: Double,
                        /** V5.0.8715 — the model's refusals have earned authority on their own record ([refusalAuthority8715]). */
-                       val refuses8715: Boolean = false)
+                       val refuses8715: Boolean = false,
+                       /** V5.0.8865 — the coins it forecast to lose here have paid on their own record ([forecastLossPays8865]). */
+                       val lossPays8865: Boolean = false)
 
     private fun lane(l: String) = l.trim().uppercase()
 
@@ -616,7 +627,9 @@ object EdgeModel8537 {
         // V5.0.8747 — the voters (tree, paying cell, LLM cache, the mind) are read BEFORE the model lock; only the ridge
         // read inside predict8737 takes it (predictLocked). 8746 held the lock across the paying-cell feature read.
         val (p, key) = predict8737(raw, x, ts.mint, ts)
-        val stageAuthority8855 = try { TrajectoryVerdict8855.authority8855(raw.lane, TrajectoryVerdict8855.stageOf8855(ts, nowMs)) } catch (_: Throwable) { null }
+        val stage8865 = try { TrajectoryVerdict8855.stageOf8855(ts, nowMs) } catch (_: Throwable) { "UNKNOWN" }
+        val stageAuthority8855 = try { TrajectoryVerdict8855.authority8855(raw.lane, stage8865) } catch (_: Throwable) { null }
+        val stagePays8865 = try { TrajectoryVerdict8855.forecastLossPays8865(raw.lane, stage8865) } catch (_: Throwable) { null }
         synchronized(this) {
             val o = oos[recordKey(raw.lane, key)]
             val trained = when (key) {
@@ -629,7 +642,9 @@ object EdgeModel8537 {
                 o?.selN ?: 0, o?.selMean ?: Double.NaN, o?.selSe ?: Double.NaN, o?.allMean ?: Double.NaN,
                 // V5.0.8855 — a lane-stage that has earned its own trajectory record decides the refusal there; the lane's
                 // single-read label record decides only until it has (TrajectoryVerdict8855.authority8855)
-                refuses8715 = p.isFinite() && (stageAuthority8855 ?: (o != null && refusalAuthority8715(o.refN, o.refMean, o.refSe, o.keepN, o.keepMean, o.keepSe))))
+                refuses8715 = p.isFinite() && (stageAuthority8855 ?: (o != null && refusalAuthority8715(o.refN, o.refMean, o.refSe, o.keepN, o.keepMean, o.keepSe))),
+                // V5.0.8865 — the same record, the other question: have the coins forecast to lose there paid?
+                lossPays8865 = p.isFinite() && (stagePays8865 ?: (o != null && forecastLossPays8865(o.refN, o.refMean, o.refSe))))
         }
     } catch (_: Throwable) { null }
 

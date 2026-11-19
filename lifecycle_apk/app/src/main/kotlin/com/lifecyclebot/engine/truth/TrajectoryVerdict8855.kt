@@ -131,6 +131,20 @@ object TrajectoryVerdict8855 {
         }
     }
 
+    /**
+     * V5.0.8865 — have the coins the model forecast to lose in [lane] at [stage] paid? null while this lane-stage holds fewer
+     * than [EdgeModel8537.AUTH_MIN_N] of them (the lane's label record answers, as it does for [authority8855]); else this
+     * record's own answer (EdgeModel8537.forecastLossPays8865).
+     */
+    fun forecastLossPays8865(lane: String, stage: String): Boolean? {
+        if (norm(stage) in UNGRADED) return null
+        val t = byLaneStage[key(lane, stage)] ?: return null
+        synchronized(t) {
+            if (t.refused.n < EdgeModel8537.AUTH_MIN_N) return null
+            return EdgeModel8537.forecastLossPays8865(t.refused.n, t.refused.mean, t.refused.se)
+        }
+    }
+
     /** Pure: [stage]'s place among the graded [means] (stage -> mean), best 1.0 .. worst 0.0; 0.5 ungraded; null under two graded. */
     fun shareOf8855(means: Map<String, Double>, stage: String): Double? {
         if (means.size < 2) return null
@@ -203,7 +217,8 @@ object TrajectoryVerdict8855 {
         val doors = byLaneStage.entries.sortedByDescending { synchronized(it.value) { it.value.refused.n } }.take(24).joinToString(" ") { (k, t) ->
             synchronized(t) {
                 val who = if (t.refused.n < EdgeModel8537.AUTH_MIN_N) "LANE_RECORD"
-                    else if (EdgeModel8537.refusalAuthority8715(t.refused.n, t.refused.mean, t.refused.se, t.kept.n, t.kept.mean, t.kept.se)) "REFUSES" else "STANDS_DOWN"
+                    else if (EdgeModel8537.refusalAuthority8715(t.refused.n, t.refused.mean, t.refused.se, t.kept.n, t.kept.mean, t.kept.se)) "REFUSES"
+                    else if (EdgeModel8537.forecastLossPays8865(t.refused.n, t.refused.mean, t.refused.se)) "PAYS" else "UNEARNED"
                 "$k[refused=n${t.refused.n}/${pct(t.refused.mean)}%±${pct(t.refused.se).removePrefix("+")} kept=n${t.kept.n}/${pct(t.kept.mean)}% $who]"
             }
         }.ifBlank { "-" }
@@ -215,7 +230,8 @@ object TrajectoryVerdict8855 {
             }
         }.ifBlank { "-" }
         return "trajectoryVerdict8855[stages{$stages} doors{$doors} gates8856{$gates} rule=one outcome per followed decision, revised at each read " +
-            "(1m/5m/15m, then 1h/4h/24h while it runs) under the lane's stop; a lane-stage with n>=${EdgeModel8537.AUTH_MIN_N} refused decides the model's refusal there; " +
+            "(1m/5m/15m, then 1h/4h/24h while it runs) under the lane's stop; a lane-stage with n>=${EdgeModel8537.AUTH_MIN_N} refused decides the model's refusal there " +
+            "(REFUSES: paper and live; PAYS: the forecast decides nothing; UNEARNED: paper trades it, live one position a lane, 8865); " +
             "a gate marked * (n>=$GATE_MIN_N_8856) is judged on this record, not its first label]"
     }
 

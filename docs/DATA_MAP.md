@@ -933,3 +933,88 @@ ON_START dispatch. The printed trace ended before the lock's holder.
 
 Report: `Config store (§8864)` — `builds lastBuildMs maxBuildMs by=<thread/prio> servedWhileBusy waitedWithNothingHeld
 writes`. `maxBuildMs` and `by` name the slowest rebuild and the thread that ran it.
+
+## 56. A forecast loss takes the lane's one live position (8865)
+
+**Measured.** Owner's phone, 5.0.8862, LIVE, 19 Nov 10:49 (uptime 7,642 s; 6.8 h after a learning reset), and the dataset
+export of the same hour (10,607 labelled rows since the reset, 1,488 coins).
+
+- Live equity 0.2825 -> 0.2104 SOL (-25.5 %); 9 closes, 1 win; 4 open.
+- The session's four buys, all `NATIVE_QUALIFIED_ADMIT_8259`:
+
+| Bought | Coin | Lane, stage | Forecast for that lane on the last labelled decision before it | Closed | Realised |
+|---|---|---|---|---|---|
+| 08:46:49 | Ffsmhb | MOONSHOT, BASE_START | -6.2 % | 09:08:51 `RAPID_HARD_FLOOR_STOP` | -28.9 % |
+| 08:52:30 | B2qjRY | MOONSHOT, BASE_START | -6.6 % | 09:12:14 `STRICT_SL_-15` | -19.2 % |
+| 08:52:47 | 4rYsDH | CORE, CONTROLLED_MARKUP | -6.5 % | 09:21:06 `STRICT_SL_-15` | -24.3 % |
+| 08:53:54 | FML39m | CORE, CONTROLLED_MARKUP | -3.9 % | 08:54:27 `RAPID_HARD_FLOOR_STOP` | -18.1 % |
+
+- `edgeRefusal8827[refused=10825 letThrough{UNEARNED_LIVE:MOONSHOT=959 ... EXPRESS=306 ... SHITCOIN=162 ... CORE=113 ...}]`:
+  the model's refusal binds where the coins it forecast to lose are proven losing (two standard errors; per lane-stage
+  from 30 of them). Short of that proof live bought them at open flow. The second MOONSHOT and the second CORE buy were
+  made while the first was open.
+- Dataset, admitted decisions, 15-minute label, one row per coin per 15 minutes (its best-forecast lane):
+  forecast loss n382 -5.1 % +/- 2.6, 2.4 % doubled; zero or better n60 +8.7 % +/- 9.8, 10 % doubled. Each coin one vote:
+  -7.6 % +/- 2.4 (305 coins) against +9.3 % +/- 10.1 (58 coins). The zero-or-better figure is not proven positive (its
+  median is -5.9 %; six coins carry the mean).
+- The forecast itself, by the dataset's own `pred` column: from its first value after the reset (04:47) to 08:10 it was
+  one slowly moving figure for every coin (-0.9 falling to -6.2 %; never more than five distinct values in five minutes;
+  07:35: 113 rows of 34 coins, one value). After the 08:42 restart it was -6 +/- 1 in every lane (none at zero or better)
+  to 09:05; from 09:10 it spread (10-25 points) and 11-44 % of forecasts were zero or better. All four buys (08:46-08:54)
+  were made while it did not tell coins apart. The spread of 09:10 arrived with the tree model's first fit of the session
+  (job meter `treeTrain:runs1`): it needs 2,000 usable labelled rows since the reset (1,285 at 08:45, 2,152 at 09:05) and
+  was kept in memory only, so every restart began without it. Not explained from this export: the previous session's
+  forecasts also spread between 08:15 and 08:35 (10-17 points in every lane), with 943-1,116 usable rows.
+- With the trees fitted (09:10 on; 828 coin-windows): admitted, forecast loss n153 -8.6 % +/- 3.5; zero or better n59
+  +9.0 % +/- 9.9; a forecast of +15 or more, n15, +35.2 % +/- 26.0 with 3 doubling. Every decision: loss n595 -8.2 % +/-
+  2.8; zero or better n233 -1.3 % +/- 3.2. Rank correlation of forecast and outcome 0.086.
+
+| Forecast, and what the record says of it | Paper | Live before | Live now |
+|---|---|---|---|
+| zero or better | traded | traded | traded |
+| loss; refusal earned (lane-stage or lane proven losing) | refused | refused | refused (`EDGE_MODEL_NEGATIVE_8537`) |
+| loss; the coins forecast to lose there have paid (30+, mean - SE > 0: `EdgeModel8537.forecastLossPays8865`) | traded | traded | traded |
+| loss; not earned; the candidate's own record supported (8843) | traded | traded | traded |
+| loss; not earned; the lane holds no live position | traded | traded | bought, as the lane's one position |
+| loss; not earned; the lane holds a live position | traded | bought | refused: `EDGE_FORECAST_LOSS_SLOT_TAKEN_8865` |
+
+The lane's one position is the existing probe slot (`LaneRealisedProbe8424.slotOpen8429`, `Candidate8136.recordProbe8429`)
+that the setup, sheet, cell, stage, tactic and timing records already use. The refusal is a verified-record door (lane
+authority does not reverse it), is filed on its own forward record (`GateOutcome8418`, key
+`ADMISSION8136_EDGE_FORECAST_LOSS_SLOT_TAKEN_8865`) and stands aside by `selectionGateRetired8696` once the coins it
+refused are proven to win. No lane is shut by it and nothing waits for proof (directive #37).
+
+**The trained trees survive a restart.** `TreeRanker8737.save8865` writes the fitted model (`files/tree_model_8865.bin`:
+the bin edges and 150 trees, stamped with the learning line, the model epoch and the feature count) after each fit;
+`restore8865` reads it at the first use after a start. It is the model the bot was deciding with before the restart and is
+retrained on the same two-hour clock. A file from another learning line (a reset), model epoch or feature list, or one
+holding a malformed tree, is refused (`TREE_RANKER_SAVED_MODEL_REFUSED_8865`): after a reset the trees are earned again
+from the first row. Report: `tree8737[restored rows=... trees=... fittedMinAgo=...]`.
+
+**The mirror.** `paperMirror8757[... mirrored=12 ... tripped=false]` while the book it mirrors read
+`P8623|MOONSHOT[n43 wr11% -22.9%±3.9 pf0.06]`. The mirror's stop reads live closes only. It now does not follow a book
+`MemePaperTrader8544.laneProvenLosing8608` proves losing (30+ priced closes, mean + SE < 0, PF < 1), and follows it again
+when that stops holding. Report: `notFollowedBookProvenLosing8865`.
+
+**The tuning report.** `CORE|LIVE_REFUSE:LIVE_STAGE_LOSES_8626 n=13 mean=+18538294.4% ... pnl=+240997.827SOL` is the
+refuted-entry close 8855 removed from the paper book; `tuning_8744.json` had kept it under three cuts. The same rule
+(`rowImpossible8855`) now removes such a row when the file is restored; the section prints `REPAIRED` when it has.
+
+**Memory, measured but not yet explained.** `heap=432/512MB ... censusMb=105 unattributedMb=327`; 3,632 collections
+taking 6,501 s of 7,642 s, 2,175 of them blocking (4,948 s); 2-7.7 GB allocated a minute; cycle 4,958 ms. That is
+5.0.8862: 8863 and 8864 (one dashboard, one dataset read, forensic lines out of the error table) are not in it. Two
+lines are added to the heap log so the next report says which it is:
+
+| Line | What it reads | What it settles |
+|---|---|---|
+| `SCREENS` (`ActivityCensus8865`) | per Activity class: alive now / most alive at once / created | whether a screen is alive more than once (the phone's stalls were at `MainActivity.onCreate` x4 and `VMDebug.countInstancesOfClass` x3) |
+| `FLOOR` (`HeapLog8618.floor8865`) | the lowest heap used among the samples kept, and the census at that sample | how much of "unattributed" is live and how much is garbage waiting for a collection |
+
+**Curve continuity (8859), result.** `curveContinuity8859[mints=1450 printPairs=48545 continuous=39862(82%) ...
+wouldPrice{unfilledEntries=0/1423 quietReads=17/8813 askedOffCurve=9352}]`: pricing an unfilled label from the pump.fun
+curve's own reserves would have priced none of 1,423 unfilled entries and 17 of 8,813 quiet reads; 9,352 of the questions
+were about coins that stream never printed. It stays a measurement and is not switched on.
+
+**Runner model (8861).** 252 rows, 33 doubled before the stop (13.1 %); not fitted. The line read `waiting rows=252/160`;
+the 160 is the bar for the training rows, the oldest six tenths, which were 151. It now prints that
+(`RunnerModel8861.waitingFor8865`). `hiveRunnerRows8862[otherInstalls7d=0 ...]`: this is the only install.
