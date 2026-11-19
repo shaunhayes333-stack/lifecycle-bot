@@ -1445,3 +1445,37 @@ carries `research8877[written=..]`.
 observation for the row; it is not checkpointed, so a decision restored after a restart writes it as null.
 
 **Proof to read.** `research8877[written>0 failed=0]`, then the export: forecast and V3 against the hour's peak multiple.
+
+## 67. The evidence shadow trades the live doctrine (8878)
+
+**Owner, 20 Nov.** "the shadow trading engine is meant to basically be exactly the same as the live trader in all forms and
+functions for the meme and crypto traders just building authority driving learning etc to unlock the lanes". Plan W1.
+
+**Before.** `EvidenceShadow8344` trades, in LIVE, every candidate the live decision admitted but a hold refused, and its
+record lifts LIVE admission vetoes and unlocks lanes (`EvidenceHold8336.laneWideProven8392`, `shadowProven8344`). On the six
+doctrine lanes (SHITCOIN, MOONSHOT, EXPRESS, PROJECT_SNIPER, MANIPULATED, DIP_HUNTER) LIVE exits on the runner doctrine,
+but this book sold them on the scalp tiers (+40 % sells 60 %, +120 % / +400 % sell 70 % of the rest), a give-back floor at
+40 % of the peak, and from +100 % the lifecycle hold's own ladder. A lane was judged on an exit it never trades: a runner
+live rides to 10x was booked here at the first +40 %. The meme paper book (8584) already ran the doctrine, but it is off in
+LIVE since 8872.
+
+**Changed.** On a doctrine lane (`RunnerDoctrine8584.rides8584`) the evidence shadow exits by the doctrine's own functions,
+as the meme paper book does:
+- the ladder rung on the gross: `MemePaperTrader8544.rung8544` over `RunnerGrab7967.TIERS_7967`;
+- the level `RunnerDoctrine8584.paperStopLevel8584` (the lane stop until the peak reaches +10 %, then the doctrine line),
+  with a breach confirmed on a second observed mark (`MemePaperTrader8544.paperStopConfirmed8683`; -60 % confirms at once);
+- the clock only where the doctrine lets a time exit pass (`RunnerDoctrine8584.holds8584`: peak under +50 %, or at/under
+  the line).
+A doctrine-lane position is no longer promoted into the lifecycle hold here. Fills keep this book's live sell latency. The
+status line names the doctrine exits and counts breaches waiting for their second mark (`breachWaits8878`).
+
+**Not changed.** Every other lane's exits; entries; costs; the 8394 close contract. A doctrine lane's record turns over to
+the doctrine's exits as new closes land (300 a lane) instead of being reset, so no lane that has proven re-locks. A position
+restored from before 8878 keeps its tier count from the old ladder. `ExploreShadow8347`'s RUNNER leg still uses the old
+levers: its closes are also Cortex shadow outcomes, so it follows once that coupling is checked.
+
+**Also.** `AgreementPocket8874.inPocket8874` now requires a Solana mint: the edge dataset also labels the EVM desks' coins
+(`bsc|0x...`), which were being filed under their CRYPTO lanes' pocket records.
+
+**Proof to read.** `evidenceShadow8344[... doctrine lanes (8878) ... breachWaits8878=..]`, closes labelled
+`EVIDENCE_SHADOW_CLOSE_8344_DOCTRINE_TRAIL_8878`, and the doctrine lanes' shadow means as the record turns over.

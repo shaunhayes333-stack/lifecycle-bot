@@ -55,7 +55,8 @@ object AgreementPocket8874 {
 
     /** Pure: is a coin minted at [mint], at [mcapUsd], with V3 score [v3] and forecast [predPct] (net %) in the pocket? */
     fun inPocket8874(mint: String, mcapUsd: Double, v3: Double, predPct: Double): Boolean =
-        mint.isNotBlank() && MarketCohort8701.origin8701(mint) == "OTHER" &&
+        // V5.0.8878 — a Solana mint: the dataset also labels the EVM desks' coins ("bsc|0x..."), which are not this pocket
+        com.lifecyclebot.network.HeliusSolanaScope7819.isSolanaMint7819(mint) && MarketCohort8701.origin8701(mint) == "OTHER" &&
             mcapUsd.isFinite() && mcapUsd >= MCAP_LO_USD_8874 && mcapUsd < MCAP_HI_USD_8874 &&
             v3.isFinite() && v3 >= V3_MIN_8874 && predPct.isFinite() && predPct >= FORECAST_MIN_PCT_8874
 

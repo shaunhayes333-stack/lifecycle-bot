@@ -73,6 +73,8 @@ object EvidenceShadow8344 {
         var sellFraction8394 = 1.0
         var sellTier8394 = 0
         var sellTaken8394 = 0
+        // V5.0.8878 — the first observed mark at or under the doctrine level (0 = none); a breach confirms on a later mark
+        var breachSeenAt8878 = 0L
     }
 
     // ── V5.0.8355 §SHADOW_EVIDENCE_SURVIVES_RESTARTS — the open book is persisted (its own prefs, the close book untouched):
@@ -449,8 +451,14 @@ object EvidenceShadow8344 {
             return pending
         }
         val runner = try { com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(p.lane) } catch (_: Throwable) { p.timeoutMs >= RUNNER_TIMEOUT_MS_8344 }
-        if (!p.hold8366 && fresh != null && ShadowAlign8366.holdPromotes8366(g, p.peakPct)) { p.hold8366 = true; p.dirty8355 = true }
-        val why: String? = if (p.hold8366) {
+        // V5.0.8878 — a doctrine lane's shadow exits as the live doctrine does ([doctrineWhy8878]); the lifecycle hold is not its exit
+        val doctrine8878 = try { com.lifecyclebot.engine.RunnerDoctrine8584.rides8584(p.lane) } catch (_: Throwable) { false }
+        if (!doctrine8878 && !p.hold8366 && fresh != null && ShadowAlign8366.holdPromotes8366(g, p.peakPct)) { p.hold8366 = true; p.dirty8355 = true }
+        val why: String? = if (doctrine8878) {
+            val d = doctrineWhy8878(p, g, fresh, lost, nowMs)
+            if (d == WAIT_8366) return d
+            d
+        } else if (p.hold8366) {
             val d = if (fresh != null) ShadowAlign8366.holdExit8366(g, p.peakPct, p.taken8366, nowMs - p.atMs, nowMs - p.peakAt8366, p.costPct) else null
             var full: String? = null
             if (d != null) {
@@ -488,6 +496,45 @@ object EvidenceShadow8344 {
         requestSlice8394(p, 1.0, why, nowMs)
         return WAIT_8366
     }
+
+    /**
+     * V5.0.8878 §THE_SHADOW_TRADES_THE_LIVE_DOCTRINE (plan W1) — owner, 20 Nov: "the shadow trading engine is meant to
+     * basically be exactly the same as the live trader in all forms and functions ... building authority driving learning etc
+     * to unlock the lanes". On the six doctrine lanes (RunnerDoctrine8584.rides8584) LIVE exits on the doctrine — the
+     * RunnerGrab7967.TIERS_7967 ladder on the gross and the doctrine line — while this book sold them on the scalp tiers
+     * (+40 % sells 60 %), a give-back floor at 40 % of the peak and, from +100 %, the lifecycle hold's own ladder. Its record
+     * lifts LIVE admission vetoes and unlocks lanes (EvidenceHold8336.laneWideProven8392 / shadowProven8344), so a lane was
+     * judged on an exit it never trades: a runner that live rides to 10x was booked here at the first +40 %.
+     *
+     * Now a doctrine lane's shadow position exits by the doctrine's own functions, as the meme paper book (8584) already does:
+     * the ladder rung on the gross ([MemePaperTrader8544.rung8544] over [com.lifecyclebot.engine.RunnerGrab7967.TIERS_7967]),
+     * the level [com.lifecyclebot.engine.RunnerDoctrine8584.paperStopLevel8584] (the lane stop until the peak reaches +10 %,
+     * then the doctrine line), a breach confirmed on a second observed mark ([MemePaperTrader8544.paperStopConfirmed8683]),
+     * and the clock only where the doctrine lets a time exit pass ([com.lifecyclebot.engine.RunnerDoctrine8584.holds8584]).
+     * Fills keep this book's live sell latency. Other lanes are unchanged. Closes keep the 8394 contract: the lane's record
+     * turns over to the doctrine's exits as new closes land (300 a lane), so no lane re-locks.
+     */
+    private fun doctrineWhy8878(p: Pos8344, g: Double, fresh: Double?, lost: Boolean, nowMs: Long): String? {
+        if (p.held <= 0.0001) return "SOLD_OUT"
+        if (fresh != null) {
+            val level = com.lifecyclebot.engine.RunnerDoctrine8584.paperStopLevel8584(p.stopPct, p.peakPct)
+            val breached = level.isFinite() && g <= level
+            if (!breached) p.breachSeenAt8878 = 0L
+            else if (p.breachSeenAt8878 == 0L) p.breachSeenAt8878 = p.lastPxAtMs
+            if (breached && MemePaperTrader8544.paperStopConfirmed8683(p.breachSeenAt8878, p.lastPxAtMs, g))
+                return if (p.peakPct > 0.0 && level > -p.stopPct) DOCTRINE_TRAIL_8878 else "STOP"
+            if (breached) { doctrineBreachWaits8878.incrementAndGet(); return if (lost) "LOST_MARK" else null }
+            val rung = MemePaperTrader8544.rung8544(com.lifecyclebot.engine.RunnerGrab7967.TIERS_7967, p.tiersHit, g)
+            if (rung != null) { requestSlice8394(p, rung.second, DOCTRINE_RUNG_8878, nowMs, tier = rung.first); return WAIT_8366 }
+        }
+        if (nowMs - p.atMs >= p.timeoutMs &&
+            !com.lifecyclebot.engine.RunnerDoctrine8584.holds8584(p.lane, "CLOCK_TIME", g, p.peakPct, p.stopPct)) return "TIMEOUT"
+        return if (lost) "LOST_MARK" else null
+    }
+
+    internal const val DOCTRINE_TRAIL_8878 = "DOCTRINE_TRAIL_8878"
+    internal const val DOCTRINE_RUNG_8878 = "DOCTRINE_RUNG_8878"
+    private val doctrineBreachWaits8878 = AtomicLong(0)
 
     private fun book8344(p: Pos8344, net: Double, why: String, nowMs: Long) {
         // V5.0.8419 §CLASSIFY_DONT_CLAMP — the book stores the close as it happened (ReturnMagnitude8419.bookedShadowValue8419);
@@ -555,7 +602,8 @@ object EvidenceShadow8344 {
         val (held, skipped, bySource) = gapCounts8345()  // V5.0.8345
         return "evidenceShadow8344[open=${open.size}/$MAX_OPEN_8344 ($openByLane) opened=${opened.get()} closed=${closedN.get()} full=${skippedFull.get()} " +
             "restored8355=${restored8355.get()} lostOnRestore8355=${lostOnRestore8355.get()} expiredOnRestore8355=${expiredOnRestore8355.get()} markWants8418=${wantCallsN8418.get()} ${tickErrorLine8418()} " +
-            "exits=lane stop+spike tiers+give-back floor+timeout cost=NetEdge8030 @${TICKET_SOL_8344}SOL | $lanes" +
+            "exits=lane stop+spike tiers+give-back floor+timeout; doctrine lanes (8878): TIERS_7967 rungs+doctrine line on two marks+held clock " +
+            "breachWaits8878=${doctrineBreachWaits8878.get()} cost=NetEdge8030 @${TICKET_SOL_8344}SOL | $lanes" +
             " holdRefused{${countLine8345(held)}} openedBy{${countLine8345(bySource)}} skipped{${countLine8345(skipped)}}" +
             " entryMark8360{${countLine8345(markSrc8360.mapValues { it.value.get() })}}" + recoveryLine8345(sinceMs, nowMs) + "]"
     }
