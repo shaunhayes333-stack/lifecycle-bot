@@ -128,6 +128,8 @@ object MemePaperTrader8544 {
      */
     fun consider8544(ts: TokenState, candidate: CandidateAdmission8136.Candidate8136, nowMs: Long) {
         if (!candidate.live || !memeLane8544(candidate.lane)) return
+        // V5.0.8872 — paper is off while LIVE runs (owner, 20 Nov): this book opens nothing; the shadow books measure instead
+        if (!com.lifecyclebot.engine.LiveNoPaper8184.paperEntryAllowed8184(SOURCE_8872)) return
         if (!com.lifecyclebot.network.HeliusSolanaScope7819.isSolanaMint7819(ts.mint)) return
         restore8544()
         val lane = candidate.lane.trim().uppercase()
@@ -235,6 +237,8 @@ object MemePaperTrader8544 {
     fun tick8544(tokens: Map<String, TokenState>, nowMs: Long = System.currentTimeMillis()) {
         restore8544()
         if (open.isEmpty()) { save8544(nowMs); return }
+        // V5.0.8872 — LIVE with paper off: every position this book still holds stands down before it asks for another mark
+        if (com.lifecyclebot.engine.LiveNoPaper8184.closeOutInLive8872()) { standDown8872(nowMs); return }
         // V5.0.8699 — a paper stop waits the latency LIVE's stops are measured at (the protective class), a take-profit the
         // normal class's. Every exit waited the normal class's never-measured 16 s prior, so a paper stop on a dumping coin
         // filled 16 s late: paper STOP -23 .. -37 % against live -5 .. -17 % on the same candidates (8689 tuning report).
@@ -360,6 +364,31 @@ object MemePaperTrader8544 {
 
     private val voided8855 = java.util.concurrent.atomic.AtomicLong(0)
     @Volatile private var repaired8855 = ""
+
+    private const val SOURCE_8872 = "MEME_PAPER_BOOK_8544"
+    private const val FAMILY_SOURCE_8872 = "MEME_FAMILY_PAPER_8546"
+    private val stoodDown8872 = java.util.concurrent.atomic.AtomicLong(0)
+
+    /**
+     * V5.0.8872 — the runtime is LIVE with paper off: each open position leaves the book the way a void does. Its stake
+     * returns and nothing is booked, because a close forced by the mode switch is not an exit of the lane's strategy and
+     * proves nothing about it. The book stops asking for marks for these coins.
+     */
+    private fun standDown8872(nowMs: Long) {
+        val leaving = synchronized(this) {
+            val all = open.values.toList()
+            for (p in all) if (open.remove(p.mint, p)) balanceSol += p.sizeSol
+            if (all.isNotEmpty()) dirty = true
+            all
+        }
+        for (p in leaving) {
+            heldJump8559.remove("book:" + p.mint)
+            wantedAt8623.remove(p.mint)
+            stoodDown8872.incrementAndGet()
+            try { com.lifecyclebot.engine.LiveNoPaper8184.noteQuietClose8184(SOURCE_8872) } catch (_: Throwable) {}
+        }
+        if (leaving.isNotEmpty()) save8544(nowMs, force = true)
+    }
 
     /** The position never had a price: its stake returns, it is not a close and proves nothing about its lane. */
     private fun void8855(p: Pos8544, nowMs: Long) {
@@ -580,6 +609,9 @@ object MemePaperTrader8544 {
      * signal's exit lane. Same fill rules as a lane entry: fresh corroborated observed mark, priced round trip, room in the book.
      */
     fun openFamily8546(ts: TokenState, signal: MemeStrategies8546.Signal8546, nowMs: Long) {
+        // V5.0.8872 — no family paper position while LIVE runs; the family signal itself is still graded on executable marks
+        // (MemeStrategies8546 files ForwardReturnLabeler7731 observations before calling here)
+        if (!com.lifecyclebot.engine.LiveNoPaper8184.paperEntryAllowed8184(FAMILY_SOURCE_8872)) return
         restore8544()
         val book = "$FAMILY_PREFIX_8546${signal.family.name}"
         val why = roomForFamily8644(open.size, familyOpen8644(), open.values.count { it.lane == book }, open.containsKey(ts.mint),
@@ -613,7 +645,9 @@ object MemePaperTrader8544 {
         val last = synchronized(this) { recent.toList().takeLast(6).reversed() }
             .joinToString(" · ") { "${it.lane}:${it.symbol.ifBlank { it.mint.take(6) }} ${"%+.1f".format(it.netPct)}% ${it.why}" }.ifBlank { "-" }
         val sk = skips.entries.sortedByDescending { it.value.get() }.take(6).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }
-        return "memePaper8544 (paper beside LIVE, separate book) balance=${"%.3f".format(balanceSol)}SOL realised=${"%+.3f".format(realisedSol)}SOL " +
-            "open{$openLine} closed: $lanes | last: $last | notOpened{$sk}"
+        val off8872 = try { com.lifecyclebot.engine.LiveNoPaper8184.closeOutInLive8872() } catch (_: Throwable) { false }
+        return "memePaper8544 (${if (off8872) "OFF in LIVE (8872): opens nothing" else "paper beside LIVE, separate book"}) " +
+            "balance=${"%.3f".format(balanceSol)}SOL realised=${"%+.3f".format(realisedSol)}SOL " +
+            "open{$openLine} stoodDown8872=${stoodDown8872.get()} closed: $lanes | last: $last | notOpened{$sk}"
     }
 }

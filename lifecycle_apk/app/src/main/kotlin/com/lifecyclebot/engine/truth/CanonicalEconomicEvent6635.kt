@@ -169,14 +169,19 @@ object CanonicalEconomicEvent6635 {
             return false
         }
         val prev = events.putIfAbsent(event.economicEventId, CommitState(event))
-        if (prev != null) {
+        // V5.0.8872 — the retry of a close whose earlier attempt was abandoned (8585) with nothing committed opens the same
+        // event id again: that attempt moved nothing, so the id is free. A half-committed, open or committed event stays a
+        // duplicate exactly as before.
+        val reopened8872 = prev != null && reopenable8872(prev) && events.replace(event.economicEventId, prev, CommitState(event))
+        if (prev != null && !reopened8872) {
             try { PipelineHealthCollector.labelInc("CANONICAL_EVENT_DUPLICATE_OPEN_6635") } catch (_: Throwable) {}
             return false
         }
+        if (reopened8872) try { PipelineHealthCollector.labelInc("CANONICAL_EVENT_REOPENED_AFTER_ABANDON_8872") } catch (_: Throwable) {}
         opened.incrementAndGet()
         receiptRevision8077.incrementAndGet()
         try {
-            byMint.computeIfAbsent(event.canonicalMint) { java.util.Collections.synchronizedList(mutableListOf()) }
+            if (!reopened8872) byMint.computeIfAbsent(event.canonicalMint) { java.util.Collections.synchronizedList(mutableListOf()) }
                 .add(event.economicEventId)
             if (event.side == Side.BUY) positionIndex[event.positionId] = event.economicEventId
             PipelineHealthCollector.labelInc("CANONICAL_EVENT_OPENED_6635")
@@ -293,6 +298,10 @@ object CanonicalEconomicEvent6635 {
      * An event with any store committed is a real half-commit and is NOT hidden: it stays for the witness. Returns true when
      * the event is now FAILED.
      */
+    /** V5.0.8872 — an event abandoned ([abandon8585]: FAILED) with no store committed holds nothing and may be opened again. */
+    private fun reopenable8872(state: CommitState): Boolean =
+        synchronized(state) { state.terminal == Terminal.FAILED && !state.anyCommitted() }
+
     fun abandon8585(economicEventId: String, reason: String): Boolean {
         val state = events[economicEventId] ?: return false
         val closed = synchronized(state) {

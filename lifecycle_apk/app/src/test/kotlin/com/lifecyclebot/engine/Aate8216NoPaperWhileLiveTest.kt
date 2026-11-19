@@ -10,7 +10,7 @@ import java.io.File
 class Aate8216NoPaperWhileLiveTest {
     @After fun back() {
         RuntimeModeAuthority.publishConfig(paperMode = true, autoTrade = false)
-        LiveNoPaper8184.enforced8184 = false
+        LiveNoPaper8184.enforced8184 = true   // V5.0.8872 — the runtime default
     }
 
     @Test fun ledgerOpensPaperBesideLiveWhileFreezeOff8336() {

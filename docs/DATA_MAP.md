@@ -1262,3 +1262,39 @@ absolute exits cancel out of it.
 - Cortex's voters weight the hot-tape reads; its authority stays earned on its own record.
 - The forecast has no skill on the crypto lanes (rank correlation +0.01 to +0.04).
 - PROJECT_SNIPER's forecasts lose at every strength; BLUECHIP and DIP_HUNTER have no paying tier.
+
+## 61. Paper is off while LIVE runs, and a failed paper close is retried (8872)
+
+**Owner, 20 Nov.** "paper is meant to turn off when live is running close out all trades and the shadow trader runs while
+live does! paper is dragging down live trading running at the same time" / "not just steering. having it running in the
+background plus the shadow trader plus the live trader is crazy" / "the llms are fine".
+
+**Measured (5.0.8869, one process: 03:29 PAPER report, 04:04 LIVE report).** At 04:04 LIVE: 93 canonical paper positions open
+(84 OPEN, 9 PARTIALLY_CLOSED), the meme paper book holding 5 at -3.766 SOL realised, the evidence shadow 0 of 120 opened.
+Mark pool rejections 9.0 a second (0.5 on 8864, 0.6 on 8866). Paper closes: 4,494 requested, 1,756 commits, 1,668 refused,
+about 100 closed, 1,084 emergency stale-state bypasses; every sampled refusal read `applied=false claimed=false`.
+
+**Changed.**
+- `LiveNoPaper8184.enforced8184` is true by default again (8336 had turned it off). The LLM books (LLM Lab open and manage,
+  crypto LLM desk) keep trading beside LIVE (`LLM_SOURCES_8872`). PAPER mode is untouched.
+- `closeOutInLive8872()`: LIVE with the freeze on. `BotService.ensureLivePaperCloseOut8872` (after the per-loop mode publish,
+  at most once a minute) closes every canonical paper lot through the durable operator-stop close (`closePaperStopIntent8521`:
+  Solana lots by `Executor.closePaperPositions8521`, markets and crypto desks by `PaperStopLifecycle8521.closeMarkets`) at
+  observed, authoritative marks only, retrying unpriced lots after 30 s doubling to 10 min until closed, PAPER or stop.
+- `MemePaperTrader8544` opens nothing in LIVE (lane and family entries), and `tick8544` stands every held position down: the
+  stake returns, nothing is booked, and the book stops asking for marks. A mode-switch exit is not a strategy exit.
+- The wedge: `CanonicalPaperTerminalBridge6469` took a fixed FULL_CLOSE claim and never gave it back. It now releases both
+  claims at the three exits where nothing has moved (event not opened, ledger basis refused, position mutation refused; the
+  existing `finally` already voids the unapplied fee assessment), and gives back an idempotency key whose terminal claim was
+  refused. `CanonicalEconomicEvent6635.openEvent` reopens an event abandoned (8585) with nothing committed, so the retry of
+  the same close can open its event id. Exits after the position mutation commits keep their claims.
+- `Executor` names the bridge reason in `CANONICAL_PAPER_SELL_COMMIT_6474` (`why=`) and in
+  `PAPER_ACCOUNTING_MUTATION_REJECTED`, with a counter per reason (`PAPER_CLOSE_REFUSED_8872_<reason>`).
+
+**Not changed.** The explore and evidence shadows, forward labels and the colour-shape learner's own measuring ladder keep
+running in LIVE. The paper mirror (8757) and the crypto spot paper backing (8788) only admit; with paper off their records
+freeze, and 8873 points them at the live twin's record. Live positions are never touched by the close-out.
+
+**Proof to read on the next LIVE report.** `Live no-paper (§8184)`: `closeOut8872[passes>=1 pending=0]`; canonical
+`paperCanonicalOpen=0`; `memePaper8544 (OFF in LIVE (8872): opens nothing)` with `open{-}`; mark pool rejections per second
+of uptime near the 8864 level; `PAPER_CLOSE_REFUSED_8872_*` names whatever still refuses a paper close.

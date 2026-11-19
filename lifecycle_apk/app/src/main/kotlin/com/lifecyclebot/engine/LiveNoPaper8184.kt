@@ -45,17 +45,40 @@ object LiveNoPaper8184 {
      * the 8184 freeze. The meme executor's own paperBuy stays blocked in LIVE by ExecutionRouteGuard (V5.0.3725, also in
      * 8114) — meme lanes learn in LIVE through the shadow path, unchanged.
      */
-    @Volatile var enforced8184: Boolean = false
+    /**
+     * V5.0.8872 §PAPER_OFF_WHILE_LIVE — owner (20 Nov, on the 04:04 LIVE report): "paper is meant to turn off when live is
+     * running close out all trades and the shadow trader runs while live does! paper is dragging down live trading running
+     * at the same time" / "not just steering. having it running in the background plus the shadow trader plus the live
+     * trader is crazy" / "the llms are fine". The 04:04 process (03:22 start in PAPER, then LIVE) held 93 canonical paper
+     * positions and 5 meme-book positions while LIVE, the mark pool refused 9 jobs a second (0.5 on 8864) and the evidence
+     * shadow opened 0 of 120. The freeze is on again by default; the LLM books ([LLM_SOURCES_8872]) keep their 8336 standing
+     * and trade beside LIVE. PAPER mode is untouched. Existing paper positions are no longer left frozen in LIVE: the canonical
+     * account closes them at observed marks (BotService.ensureLivePaperCloseOut8872 through the durable PaperStopLifecycle8521
+     * close) and the measuring books stand theirs down ([closeOutInLive8872]).
+     */
+    @Volatile var enforced8184: Boolean = true
+
+    /** V5.0.8872 — the LLM paper books (the LLM Lab sandbox, the crypto LLM desk): owner, 20 Nov: "the llms are fine". */
+    private val LLM_SOURCES_8872: Set<String> = setOf("LLM_LAB_PAPER_OPEN", "LLM_LAB", "CRYPTO_LLM_PAPER_BUY")
+
+    /** Pure (V5.0.8872): is [source] one of the LLM paper books that keep trading beside LIVE? */
+    private fun llmBook8872(source: String): Boolean = sourceKey8184(source) in LLM_SOURCES_8872
 
     /** True when the runtime authority is LIVE and the 8184 freeze is enforced. */
     private fun isLive8184(): Boolean = enforced8184 && RuntimeModeAuthority.isLive()
 
     /**
+     * V5.0.8872 — true while LIVE with the freeze on: a paper book that is not an LLM book closes out (the canonical
+     * account) or stands down (a measuring book) every position it still holds, and opens none.
+     */
+    fun closeOutInLive8872(): Boolean = isLive8184()
+
+    /**
      * V5.0.8184 — the one entry gate. False in LIVE while [enforced8184] (refusal counted under
-     * [source]); true in PAPER, and true in LIVE while the freeze is off (V5.0.8336).
+     * [source]); true in PAPER, and true in LIVE while the freeze is off (V5.0.8336). V5.0.8872: true for an LLM book.
      */
     fun paperEntryAllowed8184(source: String): Boolean {
-        if (!isLive8184()) return true
+        if (!isLive8184() || llmBook8872(source)) return true
         refusals8184.computeIfAbsent(sourceKey8184(source)) { AtomicLong(0L) }.incrementAndGet()
         try { PipelineHealthCollector.labelInc("LIVE_NO_PAPER_REFUSED_8184") } catch (_: Throwable) {}
         return false
@@ -63,12 +86,24 @@ object LiveNoPaper8184 {
 
     /**
      * V5.0.8184 — may an EXISTING paper position be managed (exit checks,
-     * paper closes, outcome hooks)? False in LIVE: the position stays frozen.
+     * paper closes, outcome hooks)? False in LIVE: the position stays frozen. V5.0.8872: an LLM book keeps managing.
      */
     fun paperManageAllowed8184(source: String): Boolean {
-        if (!isLive8184()) return true
+        if (!isLive8184() || llmBook8872(source)) return true
         frozenManageSkips8184.incrementAndGet()
         return false
+    }
+
+    private val closeOutRuns8872 = AtomicLong(0L)
+    @Volatile private var closeOutPending8872 = -1
+    @Volatile private var closeOutLastMs8872 = 0L
+
+    /** V5.0.8872 — one pass of the LIVE canonical paper close-out finished with [pending] lots still awaiting a mark. */
+    fun noteCloseOut8872(pending: Int, nowMs: Long = System.currentTimeMillis()) {
+        closeOutRuns8872.incrementAndGet()
+        closeOutPending8872 = pending
+        closeOutLastMs8872 = nowMs
+        try { PipelineHealthCollector.labelInc("LIVE_NO_PAPER_CLOSE_OUT_PASS_8872") } catch (_: Throwable) {}
     }
 
     /** V5.0.8184 — a paper position closed quietly (paper-only terminal) because the runtime is LIVE. */
@@ -110,7 +145,10 @@ object LiveNoPaper8184 {
             .append(if (live) " frozenLabPaper=" else " labPaperOpen=").append(labOpen)
             .append(" frozenManageSkips=").append(frozenManageSkips8184.get())
             .append(" quietClosed[total=").append(quietClosedTotal8184()).append(' ').append(fmt8184(quietClosed8184)).append(']')
-            .append(" rule=LIVE opens no paper position; existing paper rows hold no live slot, exposure or exit; labels stay on")
+            .append(" closeOut8872[passes=").append(closeOutRuns8872.get()).append(" pending=").append(closeOutPending8872)
+            .append(" lastAgoS=").append(if (closeOutLastMs8872 > 0L) (System.currentTimeMillis() - closeOutLastMs8872) / 1000L else -1L).append(']')
+            .append(" llmBooks8872=").append(LLM_SOURCES_8872.joinToString("/"))
+            .append(" rule=LIVE opens no paper position; existing paper closes out at observed marks (8872); LLM books trade beside LIVE; shadows and labels stay on")
             .toString()
     }
 
@@ -118,5 +156,6 @@ object LiveNoPaper8184 {
         refusals8184.clear()
         quietClosed8184.clear()
         frozenManageSkips8184.set(0L)
+        closeOutRuns8872.set(0L); closeOutPending8872 = -1; closeOutLastMs8872 = 0L
     }
 }

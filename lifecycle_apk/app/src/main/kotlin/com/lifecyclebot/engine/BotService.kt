@@ -39,6 +39,11 @@ class BotService : Service() {
         /** Pure (V5.0.8450): the seconds the bot loop sleeps for a configured [pollSeconds]. */
         fun pollSecondsFor8450(pollSeconds: Int): Int = pollSeconds.coerceIn(POLL_MIN_S_8450, POLL_MAX_S_8450)
 
+        // V5.0.8872 — LIVE paper close-out cadence: look once a minute; retry an unpriced lot after 30 s, doubling to 10 min.
+        private const val LIVE_PAPER_CHECK_MS_8872 = 60_000L
+        private const val LIVE_PAPER_FIRST_RETRY_MS_8872 = 30_000L
+        private const val LIVE_PAPER_MAX_RETRY_MS_8872 = 600_000L
+
         // V5.0.7884 — intake rug window bounds (Cortex Phase 0, Marks H1).
         private const val RUG_WINDOW_MAX_MS_7884 = 10L * 60_000L
         private const val RUG_NEWEST_MAX_AGE_MS_7884 = 120_000L
@@ -10137,6 +10142,44 @@ class BotService : Service() {
                 val remaining = try { PaperStopLifecycle8521.reconcile(applicationContext) } catch (_: Exception) { emptySet<String>() }
                 if (remaining.isEmpty()) break
                 closePaperStopIntent8521(requestCurrent = false, source = "observed_quote_retry")
+            }
+        }
+    }
+
+    private var livePaperCloseOutJob8872: kotlinx.coroutines.Job? = null
+    @Volatile private var livePaperCheckedAtMs8872 = 0L
+
+    /**
+     * V5.0.8872 §PAPER_CLOSES_OUT_IN_LIVE — owner, 20 Nov: "paper is meant to turn off when live is running close out all
+     * trades". Called once per loop after the mode is published; it looks at most once a minute. While the runtime is LIVE
+     * with the 8184 freeze on and any canonical paper lot is open (or a close request is still pending), one background job
+     * closes them through the same durable, observed-mark close an operator PAPER stop uses (PaperStopLifecycle8521: Solana
+     * lots via Executor.closePaperPositions8521, the markets and crypto desks via closeMarkets). A lot with no fresh,
+     * authoritative mark is never closed at an invented price: it stays requested and the job retries with a growing wait
+     * (30 s doubling to 10 min) until it closes, the runtime leaves LIVE, or the bot stops. Live positions are never touched.
+     */
+    private fun ensureLivePaperCloseOut8872(nowMs: Long = System.currentTimeMillis()) {
+        if (!status.running || stopInProgress || !LiveNoPaper8184.closeOutInLive8872()) return
+        if (livePaperCloseOutJob8872?.isActive == true) return
+        if (nowMs - livePaperCheckedAtMs8872 in 0L until LIVE_PAPER_CHECK_MS_8872) return
+        livePaperCheckedAtMs8872 = nowMs
+        val open = try {
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions().count { it.mode.equals("paper", true) }
+        } catch (_: Throwable) { 0 }
+        val pending = try { PaperStopLifecycle8521.pending(applicationContext).isNotEmpty() } catch (_: Exception) { false }
+        if (open == 0 && !pending) return
+        addLog("📴 LIVE: closing $open paper position(s) at observed marks — paper is off while live runs")
+        livePaperCloseOutJob8872 = scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            var waitMs = LIVE_PAPER_FIRST_RETRY_MS_8872
+            var first = true
+            while (status.running && !stopInProgress && LiveNoPaper8184.closeOutInLive8872()) {
+                closePaperStopIntent8521(requestCurrent = first, source = if (first) "LIVE_NO_PAPER_8872" else "LIVE_NO_PAPER_8872_RETRY")
+                first = false
+                val remaining = try { PaperStopLifecycle8521.reconcile(applicationContext) } catch (_: Exception) { emptySet<String>() }
+                LiveNoPaper8184.noteCloseOut8872(remaining.size)
+                if (remaining.isEmpty()) break
+                kotlinx.coroutines.delay(waitMs)
+                waitMs = (waitMs * 2L).coerceAtMost(LIVE_PAPER_MAX_RETRY_MS_8872)
             }
         }
     }
@@ -22239,6 +22282,7 @@ if (hotExitHandledSweep) {
             try { markProgress("POST_SUPERVISOR/CONFIG_RELOAD") } catch (_: Throwable) {}
             val loopCfg = ConfigStore.load(applicationContext)
             RuntimeModeAuthority.publishConfig(loopCfg.paperMode, loopCfg.autoTrade)
+            ensureLivePaperCloseOut8872()   // V5.0.8872 — LIVE closes out every canonical paper lot (owner, 20 Nov)
             // V5.9.1360 — P0.1 LIVE-MODE TRANSFER AUDIT. One diagnostic line per
             // loop tick whenever the UI has selected LIVE, so the live handoff is
             // never invisible: it prints the exact firstLiveBlocker (or NONE).

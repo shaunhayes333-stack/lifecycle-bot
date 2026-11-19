@@ -35,16 +35,17 @@ class Aate8184LiveNoPaperTest {
 
     @Before fun setUp() {
         LiveNoPaper8184.resetForTest8184()
-        LiveNoPaper8184.enforced8184 = true   // V5.0.8336 — these tests pin the freeze itself; it is off by default
+        LiveNoPaper8184.enforced8184 = true   // V5.0.8336 — these tests pin the freeze itself (V5.0.8872: on by default again)
     }
 
     @After fun tearDown() {
         RuntimeModeAuthority.publishRuntimeStart(paperMode = true, autoTrade = false)
         LiveNoPaper8184.resetForTest8184()
-        LiveNoPaper8184.enforced8184 = false
+        LiveNoPaper8184.enforced8184 = true   // V5.0.8872 — the runtime default
     }
 
-    @Test fun freeze_off_by_default_lets_paper_trade_beside_live_8336() {
+    // V5.0.8872 — superseded default: the freeze is on by default again (owner, 20 Nov); switched off it still behaves as 8336
+    @Test fun freeze_off_lets_paper_trade_beside_live_8336() {
         LiveNoPaper8184.enforced8184 = false
         RuntimeModeAuthority.publishRuntimeStart(paperMode = false, autoTrade = true)
         assertTrue(LiveNoPaper8184.paperEntryAllowed8184("LLM_LAB_PAPER_OPEN"))
@@ -60,7 +61,8 @@ class Aate8184LiveNoPaperTest {
         assertEquals(2L, LiveNoPaper8184.refusalCount8184("SRC_A"))
         assertEquals(1L, LiveNoPaper8184.refusalCount8184("SRC_B"))
         assertEquals(3L, LiveNoPaper8184.totalRefusals8184())
-        assertFalse(LiveNoPaper8184.paperManageAllowed8184("LLM_LAB"))
+        assertFalse(LiveNoPaper8184.paperManageAllowed8184("MULTICHAIN_7962"))
+        assertTrue("V5.0.8872 — the LLM books keep trading beside LIVE", LiveNoPaper8184.paperManageAllowed8184("LLM_LAB"))
         val line = LiveNoPaper8184.statusLine8184()
         assertTrue(line, line.startsWith("mode=LIVE"))
         assertTrue(line, line.contains("SRC_A=2") && line.contains("SRC_B=1") && line.contains("frozenCanonicalPaper="))

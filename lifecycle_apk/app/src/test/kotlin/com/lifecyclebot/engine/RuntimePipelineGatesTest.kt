@@ -6,6 +6,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.After
 import org.junit.Test
 
 /**
@@ -13,6 +14,12 @@ import org.junit.Test
  * gates introduced in this push.
  */
 class RuntimePipelineGatesTest {
+
+    // V5.0.8872 — the LIVE paper freeze is on by default: a test that publishes LIVE hands PAPER back, so no later test's
+    // paper open meets a LIVE runtime it never asked for.
+    @After fun restorePaperMode8872() {
+        RuntimeModeAuthority.publishRuntimeStart(paperMode = true, autoTrade = false)
+    }
 
     // ── RuntimeModeAuthority ──────────────────────────────────────
 

@@ -203,7 +203,7 @@ class Aate8871PlaybookDeliveryTest {
     @Test fun aFailedCheckpointCannotAcknowledgeAndRestartLearnsTheOriginalLossExactlyOnce() = Fixture().use { f ->
         val original = f.capture("failed-commit-8871")
         val proof = original.proof!!.copy(netPct = -4.0, grossPct = -1.0,
-            outcome = original.proof.outcome!!.copy(usd = original.proof.entry!!.usd * 0.99))
+            outcome = original.proof!!.outcome!!.copy(usd = original.proof!!.entry!!.usd * 0.99))
         val d = original.copy(net = -4.0, gross = -1.0, proof = proof)
         f.blockWrites.set(true)
         assertFalse(f.cortex.deliverForwardOutcome8404(d)); f.flush()
@@ -321,8 +321,8 @@ class Aate8871PlaybookDeliveryTest {
     @Test fun malformedUnfilledLateAndWrongEpisodeEvidenceCannotGradeASetup() = Fixture().use { f ->
         val changes = listOf<(ForwardOutcomeDelivery8404) -> ForwardOutcomeDelivery8404>(
             { it.copy(proof = it.proof!!.copy(entry = null)) },
-            { it.copy(proof = it.proof!!.copy(entry = it.proof.entry!!.copy(observedAtMs = it.atMs + 60_001L, readAtMs = it.atMs + 60_001L))) },
-            { it.copy(proof = it.proof!!.copy(outcome = it.proof.outcome!!.copy(mint = "different-asset"))) },
+            { it.copy(proof = it.proof!!.copy(entry = it.proof!!.entry!!.copy(observedAtMs = it.atMs + 60_001L, readAtMs = it.atMs + 60_001L))) },
+            { it.copy(proof = it.proof!!.copy(outcome = it.proof!!.outcome!!.copy(mint = "different-asset"))) },
             { it.copy(flat = true) },
             { it.copy(playbookPrediction8871 = "malformed") },
             { it.copy(playbookPrediction8871 = JSONObject(it.playbookPrediction8871!!).put("id", "different|EXPRESS|${it.atMs}").toString()) },
@@ -354,7 +354,7 @@ class Aate8871PlaybookDeliveryTest {
         val fiveAt = at + CortexForwardEpoch8521.SCALP_MS
         val five = target.copy(net = -3.0, gross = 0.0, flat = true, proof = target.proof!!.copy(
             horizonMs = CortexForwardEpoch8521.SCALP_MS, netPct = -3.0, grossPct = 0.0, observedAtMs = fiveAt,
-            outcome = target.proof.outcome!!.copy(usd = target.proof.entry!!.usd, observedAtMs = fiveAt, readAtMs = fiveAt)))
+            outcome = target.proof!!.outcome!!.copy(usd = target.proof!!.entry!!.usd, observedAtMs = fiveAt, readAtMs = fiveAt)))
         f.complete(five)
         assertNull(f.raw("QUALITY", "BASE_BREAKOUT"))
         assertNotNull(f.episodes.pending(target.mint, target.lane, at))

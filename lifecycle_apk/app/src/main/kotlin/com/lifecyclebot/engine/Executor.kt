@@ -26499,6 +26499,7 @@ class Executor(
         var treasuryShare = 0.0
 
         var canonicalPaperSellCommitted6474 = false
+        var paperBridgeWhy8872 = ""   // V5.0.8872 — the bridge's own refusal reason, named in the rejection row
         try {
             // V5.0.6474 — FULL paper SELL uses the same canonical reducer as partials.
             // This commits cash credit + openCost release + typed economic SELL +
@@ -26531,6 +26532,7 @@ class Executor(
                     reason.contains("data_quality", ignoreCase = true),
             )
             canonicalPaperSellCommitted6474 = close6474.applied
+            paperBridgeWhy8872 = close6474.reason
             if (canonicalPaperSellCommitted6474 && pnl > 0) {
                 treasuryShare = try {
                     if (pos.isTreasuryPosition || pos.tradingMode == "TREASURY") {
@@ -26606,7 +26608,7 @@ class Executor(
                 }
             }
             try {
-                ForensicLogger.lifecycle("CANONICAL_PAPER_SELL_COMMIT_6474", "mint=${tradeId.mint.take(10)} pid=${pid6474.take(18)} terminalId=$terminalId6474 applied=${close6474.applied} claimed=${close6474.terminalClaimed} bus=${close6474.busPublished} cash=${com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol().fmtSol()} openCost=${com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.openCostBasisSol().fmtSol()} reason=$reason")
+                ForensicLogger.lifecycle("CANONICAL_PAPER_SELL_COMMIT_6474", "mint=${tradeId.mint.take(10)} pid=${pid6474.take(18)} terminalId=$terminalId6474 applied=${close6474.applied} claimed=${close6474.terminalClaimed} bus=${close6474.busPublished} why=${close6474.reason} cash=${com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol().fmtSol()} openCost=${com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.openCostBasisSol().fmtSol()} reason=$reason")
                 PipelineHealthCollector.labelInc("CANONICAL_PAPER_SELL_COMMIT_6474")
                 PipelineHealthCollector.labelInc("CANONICAL_PAPER_CASH_CREDIT_6474")
             } catch (_: Throwable) {}
@@ -26619,8 +26621,9 @@ class Executor(
         }
         if (!canonicalPaperSellCommitted6474) {
             try {
-                ForensicLogger.lifecycle("PAPER_ACCOUNTING_MUTATION_REJECTED", "mint=${tradeId.mint.take(10)} reason=$reason action=no_successful_sell_journal")
+                ForensicLogger.lifecycle("PAPER_ACCOUNTING_MUTATION_REJECTED", "mint=${tradeId.mint.take(10)} reason=$reason why=$paperBridgeWhy8872 action=no_successful_sell_journal")
                 PipelineHealthCollector.labelInc("PAPER_ACCOUNTING_MUTATION_REJECTED")
+                PipelineHealthCollector.labelInc("PAPER_CLOSE_REFUSED_8872_${paperBridgeWhy8872.take(48).ifBlank { "UNKNOWN" }}")   // V5.0.8872
             } catch (_: Throwable) {}
             return SellResult.FAILED_FATAL
         }

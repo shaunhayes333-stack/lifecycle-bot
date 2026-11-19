@@ -95,9 +95,31 @@ object CanonicalPaperTerminalBridge6469 {
         )
         if (claim != TerminalMutationAuthority6466.ClaimResult.GRANTED) {
             duplicates.incrementAndGet()
+            // V5.0.8872 — the idempotency key this attempt just took holds nothing: give it back, so a later attempt meets
+            // the terminal authority's own answer instead of DUPLICATE_IGNORED forever
+            TerminalSellIdempotency6464.releaseFailed7835(idKey, positionId)
             return Claim(idKey, granted = false, reason = claim.name)
         }
         return Claim(idKey, granted = true, reason = "GRANTED")
+    }
+
+    private val claimsReleased8872 = java.util.concurrent.atomic.AtomicLong(0L)
+
+    /**
+     * V5.0.8872 §A_FAILED_PAPER_CLOSE_IS_RETRIED — 04:04 LIVE report: 1,756 paper full-close commits, 1,668 refused, 4,494
+     * close requests for about 100 closes. The FULL_CLOSE key is fixed per position and generation, so an attempt that took
+     * both claims and then failed before anything moved left them taken, and every retry read DUPLICATE_IGNORED. Called only
+     * at the three exits where nothing has moved (event not opened, ledger basis refused, position mutation refused): the
+     * event is abandoned or never opened and the `finally` below voids the unapplied fee assessment, so the next attempt
+     * starts clean at its own mark. The exits after the position mutation commits keep their claims (a release there would
+     * let the sale apply twice). The live path releases the same way (SellFinalizationCoordinator, 7835).
+     */
+    private fun releaseUnmovedClaim8872(idKey: String, positionId: String, generation: Long, terminal: Boolean) {
+        TerminalSellIdempotency6464.releaseFailed7835(idKey, positionId)
+        TerminalMutationAuthority6466.releaseFailed7835("paper", positionId, generation,
+            if (terminal) TerminalMutationAuthority6466.FULL_CLOSE_SEQUENCE_6522 else idKey.hashCode().toLong())
+        claimsReleased8872.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("PAPER_CLOSE_CLAIM_RELEASED_8872") } catch (_: Throwable) {}
     }
 
     /**
@@ -275,6 +297,7 @@ object CanonicalPaperTerminalBridge6469 {
         )
         if (!CanonicalEconomicEvent6635.openEvent(event6635)) {
             try { PipelineHealthCollector.labelInc("CANONICAL_PAPER_SELL_EVENT_OPEN_REJECTED_6641") } catch (_: Throwable) {}
+            releaseUnmovedClaim8872(claim.idKey, positionId, generation, terminal)   // V5.0.8872
             return Result(false, true, false, "CANONICAL_EVENT_OPEN_REJECTED")
         }
 
@@ -284,6 +307,7 @@ object CanonicalPaperTerminalBridge6469 {
             if (!PaperAccountLedger6430.canApplySell6486(soldCostBasisSol)) {
                 try { PipelineHealthCollector.labelInc("PAPER_TERMINAL_LEDGER_BASIS_REJECTED_6486") } catch (_: Throwable) {}
                 CanonicalEconomicEvent6635.abandon8585(sellSig, "LEDGER_BASIS_REJECTED")   // V5.0.8585 — nothing moved: the event is closed, not left open
+                releaseUnmovedClaim8872(claim.idKey, positionId, generation, terminal)   // V5.0.8872
                 return Result(false, true, false, "LEDGER_BASIS_REJECTED")
             }
             // V5.0.6486 — cash may move only after the canonical position
@@ -320,6 +344,7 @@ object CanonicalPaperTerminalBridge6469 {
             if (!positionApplied6486) {
                 try { PipelineHealthCollector.labelInc("CANONICAL_PAPER_SELL_POSITION_REJECTED_6486") } catch (_: Throwable) {}
                 CanonicalEconomicEvent6635.abandon8585(sellSig, "POSITION_MUTATION_REJECTED")   // V5.0.8585 — nothing moved: the event is closed, not left open
+                releaseUnmovedClaim8872(claim.idKey, positionId, generation, terminal)   // V5.0.8872
                 return Result(applied = false, terminalClaimed = true, busPublished = false, reason = "POSITION_MUTATION_REJECTED")
             }
             CanonicalEconomicEvent6635.markCommitted(sellSig, CanonicalEconomicEvent6635.Store.POSITION, "CanonicalPaperTerminalBridge6469")
