@@ -304,6 +304,42 @@ object CryptoAltTrader {
     private val heldMarkRefreshAt7251 = ConcurrentHashMap<String, Long>()
     private val heldMarkRefreshInFlight7251 = ConcurrentHashMap.newKeySet<String>()
     private val heldMarkLogAt7251 = ConcurrentHashMap<String, Long>()
+    // V5.0.8866 — what the monitor last did with each held position: evaluated on which mark, or held and why. The proof
+    // table prints it for the rows this trader owns (ownerProof8866), where the meme exit scheduler's latch used to stand.
+    private class HeldEval8866(val atMs: Long, val state: String, val source: String, val markAtMs: Long, val pnlPct: Double)
+    private val heldEval8866 = ConcurrentHashMap<String, HeldEval8866>()
+    private fun noteHeld8866(id: String, state: String, source: String, markAtMs: Long, pnlPct: Double) {
+        heldEval8866[id] = HeldEval8866(System.currentTimeMillis(), state, source, markAtMs, pnlPct)
+    }
+
+    private val liveCloseRetryAt8866 = ConcurrentHashMap<String, Long>()
+
+    /** Pure: a close the operator asked for (their own close of one position, or Stop). */
+    internal fun operatorClose8866(reason: String): Boolean = reason.startsWith("USER") || reason == "bot_shutdown"
+
+    /** Pure: is this close held until [retryAtMs]? Only a LIVE sale the trader itself decided, after one that was not confirmed. */
+    internal fun liveCloseSpaced8866(paper: Boolean, operator: Boolean, retryAtMs: Long, nowMs: Long): Boolean =
+        !paper && !operator && nowMs < retryAtMs
+
+    /** Pure: the proof table's owner field for a trader-owned row. */
+    internal fun ownerProofLine8866(evalAgeS: Long?, state: String, source: String, markAgeS: Long?, pnlPct: Double, recovery: Boolean): String {
+        if (evalAgeS == null) return "CRYPTO_ALT[never evaluated]"
+        val sb = StringBuilder("CRYPTO_ALT[eval=").append(evalAgeS).append("s ").append(state)
+        if (source != "-") sb.append(" mark=").append(source).append('/').append(markAgeS?.toString() ?: "-").append('s')
+        if (pnlPct.isFinite()) sb.append(" pnl=").append(String.format(java.util.Locale.US, "%+.1f", pnlPct)).append('%')
+        return sb.append(if (recovery) " plan=LEDGER_RECOVERY" else " plan=OWN").append(']').toString()
+    }
+
+    /** PositionProof8189: this trader's last evaluation of [positionId] (never evaluated when it holds no such position). */
+    fun ownerProof8866(positionId: String, nowMs: Long = System.currentTimeMillis()): String {
+        val e = heldEval8866[positionId]
+        val p = positions[positionId]
+        return ownerProofLine8866(
+            evalAgeS = e?.let { (nowMs - it.atMs).coerceAtLeast(0L) / 1000L }, state = e?.state ?: "-", source = e?.source ?: "-",
+            markAgeS = e?.markAtMs?.takeIf { it > 0L }?.let { (nowMs - it).coerceAtLeast(0L) / 1000L }, pnlPct = e?.pnlPct ?: Double.NaN,
+            recovery = p?.reasons?.any { it == "CANONICAL_CRYPTO_RECOVERY_7255" } == true,
+        )
+    }
     private val heldRefreshCoalescedEmitAt7413 = ConcurrentHashMap<String, Long>()
 
     /**
@@ -400,6 +436,39 @@ object CryptoAltTrader {
         if (!signalPrice.isFinite() || signalPrice <= 0.0 || !referencePrice.isFinite() || referencePrice <= 0.0) return null
         if (observedAtMs <= 0L || nowMs - observedAtMs !in 0L..120_000L) return null
         return kotlin.math.abs(signalPrice - referencePrice) / referencePrice * 100.0
+    }
+
+    /**
+     * Pure (V5.0.8866): the USD mark and its observation time a canonical held mark gives this exact mint, or null: another
+     * mint or base, units other than USD per token, a price that is not a positive number, or older than [maxAgeMs].
+     */
+    internal fun canonicalHeldUsd8866(
+        markMint: String, markBaseMint: String, mint: String, units: String, priceUsd: Double, atMs: Long, nowMs: Long, maxAgeMs: Long,
+    ): Pair<Double, Long>? {
+        if (mint.isBlank() || markMint != mint || markBaseMint != mint || units != "USD_PER_TOKEN") return null
+        if (!priceUsd.isFinite() || priceUsd <= 0.0 || atMs <= 0L) return null
+        if (nowMs - atMs !in 0L..maxAgeMs) return null
+        return priceUsd to atMs
+    }
+
+    /**
+     * V5.0.8866 — the canonical held mark of a Solana holding (CanonicalPriceMarkRegistry6522.heldRiskMark: the pool the
+     * register locked at purchase, refreshed every few seconds by HeldHotMarkAuthority7419 for every held row, this
+     * trader's included) is the position's mark, at its own time. 5.0.8864 report: the three live crypto holdings
+     * each had that mark 5 s old while this trader held them "stale" (CRYPTO_HELD_STALE_MARK_REFRESH_ONLY_7245=7,766,
+     * CRYPTO_HELD_MARK_CHAIN_8800=0). The mark and its time, or null when there is none for this mint.
+     */
+    private fun canonicalHeldMark8866(token: DynamicAltTokenRegistry.DynToken): Pair<Double, Long>? {
+        if (!token.chainId.equals("solana", true)) return null
+        val mint = token.mint.ifBlank { token.tokenAddress }.trim()
+        if (mint.length < 32) return null
+        val m = try { com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.heldRiskMark(mint) } catch (_: Throwable) { null } ?: return null
+        val usd = canonicalHeldUsd8866(m.mint, m.baseMint, mint, m.priceUnits7424, try { m.priceUsd.value.toDouble() } catch (_: Throwable) { Double.NaN },
+            m.timestampMs, System.currentTimeMillis(), DYNAMIC_MARK_MAX_AGE_MS_6654) ?: return null
+        // the registry row (what the screens read) is given the same mark; whether it keeps it does not decide the position's
+        try { DynamicAltTokenRegistry.observeHeldMarkAt8800(token.canonicalIdentity6544, usd.first, usd.second) } catch (_: Throwable) {}
+        try { PipelineHealthCollector.labelInc("CRYPTO_HELD_MARK_CANONICAL_8866") } catch (_: Throwable) {}
+        return usd
     }
 
     /**
@@ -667,7 +736,9 @@ object CryptoAltTrader {
             com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.repairCryptoAtStartup8812(canonicalOpen, 2_000L)
             var rehydratedCount = 0
             canonicalOpen.forEach { cp ->
-                val persisted = stored.firstOrNull { it.id == cp.positionId && it.canonicalAssetKey == cp.mint &&
+                // V5.0.8866 — the saved position is this ledger row's when the two name the same asset (sameAsset8866): a live
+                // row's bare mint never equalled the trader's "solana|<mint>", so its own stop, target and strategy were dropped
+                val persisted = stored.firstOrNull { it.id == cp.positionId && DynamicAltTokenRegistry.sameAsset8866(it.canonicalAssetKey, cp.mint) &&
                     it.isPaper == cp.mode.equals("paper", true) }
                 val pos = restoreCanonicalPosition8521(cp, persisted)
                 if (pos == null) {
@@ -684,7 +755,7 @@ object CryptoAltTrader {
             if (rehydratedCount > 0) {
                 ErrorLogger.info(TAG, "🪙 REHYDRATED $rehydratedCount canonical CryptoAlt positions by immutable positionId")
             }
-            val legacyUnmatched = stored.count { p -> canonicalOpen.none { it.positionId == p.id || it.mint == p.canonicalAssetKey } }
+            val legacyUnmatched = stored.count { p -> canonicalOpen.none { it.positionId == p.id || DynamicAltTokenRegistry.sameAsset8866(it.mint, p.canonicalAssetKey) } }
             if (legacyUnmatched > 0) {
                 try { ForensicLogger.lifecycle("CRYPTO_LEGACY_POSITION_HISTORY_RETAINED_6647", "unmatched=$legacyUnmatched action=no_delete_no_silent_migration") } catch (_: Throwable) {}
             }
@@ -715,7 +786,7 @@ object CryptoAltTrader {
             cp.remainingQtyRaw.signum() <= 0 || !remainingCost.isFinite() || remainingCost <= 0.0 ||
             !cp.entryPriceUsd.isFinite() || cp.entryPriceUsd <= 0.0) return null
         if (persisted != null) {
-            if (persisted.id != cp.positionId || persisted.canonicalAssetKey != cp.mint || persisted.isPaper != paper ||
+            if (persisted.id != cp.positionId || !DynamicAltTokenRegistry.sameAsset8866(persisted.canonicalAssetKey, cp.mint) || persisted.isPaper != paper ||
                 !persisted.leverage.isFinite() || persisted.leverage <= 0.0 ||
                 (persisted.isSpot && (persisted.direction != PerpsDirection.LONG || persisted.leverage != 1.0)) ||
                 (cp.lane.equals("CRYPTO_LEV", true) && persisted.isSpot)) return null
@@ -728,12 +799,13 @@ object CryptoAltTrader {
         val market = canonicalRecoveryMarket8521(cp)
         val dynamic = market == PerpsMarket.DYN
         val identity = if (dynamic) cp.mint else market.name
-        val observed = mark?.takeIf { it.canonicalIdentity == identity && it.price.isFinite() && it.price > 0.0 && it.observedAtMs > 0L }
+        val observed = mark?.takeIf { (it.canonicalIdentity == identity || DynamicAltTokenRegistry.sameAsset8866(it.canonicalIdentity, identity)) &&
+            it.price.isFinite() && it.price > 0.0 && it.observedAtMs > 0L }
         return AltPosition(
             id = cp.positionId, market = market, dynSymbol = if (dynamic) cp.symbol else null,
             dynName = if (dynamic) cp.symbol else null, dynMint = if (dynamic) cp.mint else null,
             direction = PerpsDirection.LONG, isSpot = true, isPaper = paper, canonicalAssetKey = cp.mint,
-            markAssetKey = observed?.canonicalIdentity.orEmpty(), markUpdatedAtMs = observed?.observedAtMs ?: 0L,
+            markAssetKey = if (observed != null) identity else "", markUpdatedAtMs = observed?.observedAtMs ?: 0L,
             entryPrice = cp.entryPriceUsd, currentPrice = observed?.price ?: 0.0, sizeSol = remainingCost, leverage = 1.0,
             takeProfitPrice = cp.entryPriceUsd * 1.06, stopLossPrice = cp.entryPriceUsd * 0.96,
             aiScore = 50, aiConfidence = 50, reasons = listOf("CANONICAL_CRYPTO_RECOVERY_7255", cp.entryPriceSource),
@@ -766,7 +838,9 @@ object CryptoAltTrader {
             if (!cp.entryPriceUsd.isFinite() || cp.entryPriceUsd <= 0.0 ||
                 !cp.entryCostSol.isFinite() || cp.entryCostSol <= 0.0
             ) continue
-            if (positions[cp.positionId]?.let { it.isPaper == activePaperMode && it.canonicalAssetKey == cp.mint } == true) continue
+            // V5.0.8866 — the trader's own position stands when it names this row's asset in either spelling. A live buy
+            // was projected over here within seconds of opening (its key "solana|<mint>" is not the ledger's "<mint>").
+            if (positions[cp.positionId]?.let { it.isPaper == activePaperMode && DynamicAltTokenRegistry.sameAsset8866(it.canonicalAssetKey, cp.mint) } == true) continue
 
             val market = canonicalRecoveryMarket8521(cp)
             val dynamic = market == PerpsMarket.DYN
@@ -1142,7 +1216,7 @@ object CryptoAltTrader {
                                 if (position.isDynamic) {
                                     val key = position.canonicalAssetKey.trim()
                                     val held = refreshDynamicMark7251(key)
-                                    if (held.freshObservation && held.canonicalIdentity.equals(key, true) &&
+                                    if (held.freshObservation && (held.canonicalIdentity.equals(key, true) || DynamicAltTokenRegistry.sameAsset8866(held.canonicalIdentity, key)) &&
                                         held.price.isFinite() && held.price > 0.0) Triple(held.price, key, held.observedAtMs) else null
                                 } else {
                                     val data = PerpsMarketDataFetcher.getMarketData(position.market)
@@ -4667,6 +4741,7 @@ object CryptoAltTrader {
         // V5.9.221: Evict stagnant/losing positions before checking each one
         evictStagnantAndLosers()
 
+        try { heldEval8866.keys.retainAll(positions.keys); liveCloseRetryAt8866.keys.retainAll(positions.keys) } catch (_: Throwable) {}
         for ((id, position) in positions.toMap()) {
             try {
                 // V5.0.6654 — never ask PerpsMarketDataFetcher for DYN.  DYN is
@@ -4674,39 +4749,66 @@ object CryptoAltTrader {
                 // enum-keyed cache can only return another asset's quote.
                 val markPrice: Double
                 val validatedMarkKey: String
+                var markSourceNow8866 = "FEED"
+                var markObservedAt8866 = 0L
                 if (position.isDynamic) {
                     val positionKey = position.canonicalAssetKey.trim()
-                    val resolved = DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(positionKey)
-                        ?: position.dynMint?.let { DynamicAltTokenRegistry.getTokenByMint(it) }
+                    // V5.0.8866 — a held position's asset is a registry row: found by the position's own key in either
+                    // spelling, re-created from that key when a restart cut it from the file (ensureHeld8866).
+                    val resolved = DynamicAltTokenRegistry.ensureHeld8866(positionKey, position.dynMint, position.marketSymbol)
                     val identityMatches = resolved != null && (
                         resolved.canonicalIdentity6544.equals(positionKey, true) ||
                         resolved.mint.equals(positionKey, true) ||
-                        resolved.tokenAddress.equals(positionKey, true)
+                        resolved.tokenAddress.equals(positionKey, true) ||
+                        DynamicAltTokenRegistry.sameAsset8866(resolved.canonicalIdentity6544, positionKey)
                     )
                     if (!identityMatches) {
                         try { PipelineHealthCollector.labelInc("CRYPTO_DYN_MARK_IDENTITY_REJECTED_6654") } catch (_: Throwable) {}
                         ErrorLogger.warn(TAG, "🪙 DYN MARK BLOCKED: ${position.marketSymbol} positionKey=${positionKey.take(28)} resolved=${resolved?.canonicalIdentity6544?.take(28)}")
                         holdUntrustedDynamicPosition7245(position, "IDENTITY_UNRESOLVED")
+                        noteHeld8866(id, "IDENTITY_UNRESOLVED", "-", 0L, Double.NaN)
                         continue
                     }
-                    val ageMs = (System.currentTimeMillis() - resolved!!.lastUpdatedMs).coerceAtLeast(0L)
-                    val heldMark7251 = if (ageMs > 60_000L) {
-                        refreshDynamicMark7251(resolved.canonicalIdentity6544)
-                    } else {
-                        DynamicAltTokenRegistry.heldMarkSnapshot7251(resolved.canonicalIdentity6544)
+                    // V5.0.8866 — a Solana holding is marked first from the canonical held mark (the pool the register locked
+                    // at purchase, a few seconds old for every held row). It is this mint's own source-dated price, so it is
+                    // taken as it stands; the registry's feeds and the chain read are asked only when there is none.
+                    val canonical8866 = canonicalHeldMark8866(resolved!!)
+                    var refreshedPrice = canonical8866?.first ?: 0.0
+                    var fresh8800 = canonical8866 != null
+                    var markSource8866 = if (fresh8800) "CANONICAL_HELD" else "-"
+                    var observedAt8866 = canonical8866?.second ?: 0L
+                    if (!fresh8800) {
+                        val ageMs = (System.currentTimeMillis() - resolved.lastUpdatedMs).coerceAtLeast(0L)
+                        val heldMark7251 = if (ageMs > 60_000L) {
+                            refreshDynamicMark7251(resolved.canonicalIdentity6544)
+                        } else {
+                            DynamicAltTokenRegistry.heldMarkSnapshot7251(resolved.canonicalIdentity6544)
+                        }
+                        refreshedPrice = heldMark7251.price
+                        observedAt8866 = heldMark7251.observedAtMs
+                        // "solana|<mint>" and "<mint>" are one asset (sameAsset8866): a live position rebuilt from the ledger
+                        // is keyed by the bare mint, and its own registry mark was refused here on every tick.
+                        val exactIdentity7251 = heldMark7251.canonicalIdentity.equals(positionKey, true) ||
+                            DynamicAltTokenRegistry.sameAsset8866(heldMark7251.canonicalIdentity, positionKey)
+                        fresh8800 = heldMark7251.freshObservation && exactIdentity7251 && refreshedPrice.isFinite() && refreshedPrice > 0.0
+                        if (fresh8800) markSource8866 = "REGISTRY"
                     }
-                    var refreshedPrice = heldMark7251.price
-                    val exactIdentity7251 = heldMark7251.canonicalIdentity.equals(positionKey, true)
-                    var fresh8800 = heldMark7251.freshObservation && exactIdentity7251 && refreshedPrice.isFinite() && refreshedPrice > 0.0
                     // V5.0.8800 — a stale DEX feed is not the end: a held Solana token is marked from its own pool on chain.
-                    if (!fresh8800) chainHeldMark8800(resolved!!)?.let { refreshedPrice = it; fresh8800 = true }
+                    if (!fresh8800) chainHeldMark8800(resolved)?.let {
+                        refreshedPrice = it; fresh8800 = true; markSource8866 = "CHAIN_8800"
+                        // the read's own time, by the row's identity (a bare-mint lookup goes through the address index)
+                        observedAt8866 = DynamicAltTokenRegistry.heldMarkSnapshot7251(resolved.canonicalIdentity6544).observedAtMs
+                    }
                     if (!fresh8800) {
                         // V5.0.7413 — holdUntrustedDynamicPosition7245 already
                         // emits the canonical stale-held state at a 15s cadence.
                         // Do not emit a second per-tick stale label here.
                         holdUntrustedDynamicPosition7245(position, "MARK_STALE_OR_MISSING")
+                        noteHeld8866(id, "MARK_STALE_OR_MISSING", "-", observedAt8866, Double.NaN)
                         continue
                     }
+                    markSourceNow8866 = markSource8866
+                    markObservedAt8866 = observedAt8866
                     markPrice = refreshedPrice
                     validatedMarkKey = position.canonicalAssetKey
                 } else {
@@ -4727,9 +4829,7 @@ object CryptoAltTrader {
                 val updated = position.copy(
                     currentPrice = markPrice,
                     markAssetKey = validatedMarkKey,
-                    markUpdatedAtMs = if (position.isDynamic) {
-                        DynamicAltTokenRegistry.heldMarkSnapshot7251(validatedMarkKey).observedAtMs
-                    } else System.currentTimeMillis(),
+                    markUpdatedAtMs = if (position.isDynamic) markObservedAt8866 else System.currentTimeMillis(),
                 )
                 // V5.0.6832 — advisory mark-freshness observation. Value-diff
                 // vs previous tick tells us whether this mark is genuinely
@@ -4757,6 +4857,7 @@ object CryptoAltTrader {
                 // beneath. This is the floor of the floor for crypto alts.
                 // ═══════════════════════════════════════════════════════════════
                 val tickPnl = updated.getPnlPct()
+                noteHeld8866(id, "EVALUATED", markSourceNow8866, updated.markUpdatedAtMs, tickPnl)
                 if (tickPnl <= -10.0) {
                     // V5.0.7264 §THE_MEME_FLOOR_HAD_A_PHANTOM_GUARD;_THIS_ONE_DID_NOT.
                     //
@@ -5059,11 +5160,16 @@ object CryptoAltTrader {
     private fun closePosition(positionId: String, reason: String) {
         val pos = positions[positionId] ?: return
         if (pos.isDynamic && !pos.hasTrustedMark()) {
+            noteHeld8866(pos.id, "CLOSE_DEFERRED_NO_TRUSTED_MARK", "-", pos.markUpdatedAtMs, Double.NaN)
             holdUntrustedDynamicPosition7245(pos, "CLOSE_REQUEST:${reason.take(80)}")
             try { PipelineHealthCollector.labelInc("CRYPTO_DYN_UNTRUSTED_CLOSE_BLOCKED_6654") } catch (_: Throwable) {}
             ErrorLogger.warn(TAG, "🪙 DYN CLOSE DEFERRED: ${pos.marketSymbol} has no fresh exact-identity mark; preserving position; reason=$reason")
             return
         }
+        // V5.0.8866 — a live sale that was not confirmed is asked again after the monitor's own refresh interval, never on
+        // the next 1 s tick (each ask is a route quote; the meme risk clock had sent 3,069 it could not complete). The
+        // operator's own close and Stop are never spaced.
+        if (liveCloseSpaced8866(pos.isPaper, operatorClose8866(reason), liveCloseRetryAt8866[pos.id] ?: 0L, System.currentTimeMillis())) return
         val mktSym = pos.marketSymbol
         val settlementPnl6486 = pos.getPnlSol()
         if (pos.isPaper) {
@@ -5080,7 +5186,7 @@ object CryptoAltTrader {
                 return
             }
         } else {
-            val closeSuccess6486 = try {
+            val close8866 = try {
                 kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
                     MarketsLiveExecutor.closeLivePositionProof6486(
                         positionId = pos.id,
@@ -5091,14 +5197,22 @@ object CryptoAltTrader {
                         cryptoSymbolOverride = mktSym,
                         exitReason = reason,
                         entryTactic = if (pos.isSpot) "SPOT" else "FLASH_PERPS",
-                    ).confirmed
+                    )
                 }
             } catch (e: Exception) {
                 ErrorLogger.warn(TAG, "Live close failed for $mktSym: ${e.message}")
-                false
+                null
             }
+            val closeSuccess6486 = close8866?.confirmed == true
             try { com.lifecyclebot.perps.crypto.brain.CryptoFunnel.close(closeSuccess6486) } catch (_: Throwable) {}
-            if (!closeSuccess6486) return
+            if (!closeSuccess6486) {
+                // V5.0.8866 — the sale that did not complete is named (the proof table and the label carry its own reason)
+                val why8866 = (close8866?.proofState ?: "EXCEPTION").take(48)
+                noteHeld8866(pos.id, "CLOSE_NOT_CONFIRMED:$why8866", "-", pos.markUpdatedAtMs, pos.getPnlPct())
+                liveCloseRetryAt8866[pos.id] = System.currentTimeMillis() + HELD_MARK_REFRESH_COOLDOWN_MS_7251
+                try { PipelineHealthCollector.labelInc("CRYPTO_LIVE_CLOSE_NOT_CONFIRMED_8866_" + why8866.substringBefore(':').replace(' ', '_')) } catch (_: Throwable) {}
+                return
+            }
         }
 
         // V5.0.6678 — PAPER CLOSE JOURNAL AUTHORITY CONVERGENCE.
@@ -5109,6 +5223,8 @@ object CryptoAltTrader {
         positions.remove(positionId)
         spotPositions.remove(positionId)
         leveragePositions.remove(positionId)
+        liveCloseRetryAt8866.remove(positionId)
+        heldEval8866.remove(positionId)
         // V5.9.424 — drop momentum snapshot so the map stays bounded.
         momentumSnapshots.remove(positionId)
         // V5.9.432 — drop partial-ladder + trail state for this position.

@@ -160,7 +160,8 @@ class Aate8801PriceIntegrityTest {
         assertEquals("a writer with no source clock observed it as it wrote", 9_000L, DynamicAltTokenRegistry.priceTime8801(0L, 9_000L))
         val reg = src("perps/DynamicAltTokenRegistry.kt")
         assertTrue(reg.contains("val observedAt = refreshed?.let { priceTime8801(it.priceObservedAtMs8372, it.lastUpdatedMs) } ?: 0L"))
-        assertTrue(reg.contains("if (priceTime8801(existing.priceObservedAtMs8372, existing.lastUpdatedMs) > observedAtMs) return false"))
+        // superseded by V5.0.8866 — a row with no price has no observation that could stand
+        assertTrue(reg.contains("if (existing.price > 0.0 && priceTime8801(existing.priceObservedAtMs8372, existing.lastUpdatedMs) > observedAtMs) return false"))
     }
 
     @Test fun oldRowsPriceShapeIsUnknownToEveryLearner() {

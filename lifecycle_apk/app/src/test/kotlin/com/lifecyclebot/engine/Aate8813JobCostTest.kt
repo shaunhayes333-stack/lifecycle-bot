@@ -49,7 +49,8 @@ class Aate8813JobCostTest {
     @Test fun theHeavyJobsAreMeasuredWhereTheyRun() {
         assertTrue(src("engine/cortex/Cortex7885.kt").contains("JobCost8813.measure8813(if (periodic) \"cortexSnapshot\" else \"cortexCloseCommit\")"))
         val tree = src("engine/truth/TreeRanker8737.kt")
-        assertTrue(tree.contains("JobCost8813.measureBackground8817(\"treeParse\")") && tree.contains("JobCost8813.measureBackground8817(\"treeTrain\")"))
+        // superseded by V5.0.8866 — the refit the forecast waits for is measured at a yielding priority outside the background CPU group
+        assertTrue(tree.contains("JobCost8813.measureYielding8866(\"treeParse\")") && tree.contains("JobCost8813.measureYielding8866(\"treeTrain\")"))
         assertTrue(src("engine/lab/StrategyLab8755.kt").contains("JobCost8813.measureBackground8817(\"strategyLab\") { run(nowMs) }"))
         // superseded by V5.0.8863 — the three ledgers' dataset replays are one measured job (DatasetReplay8863 "datasetSeed");
         // each ledger's worker waits for it.

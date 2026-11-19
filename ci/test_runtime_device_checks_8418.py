@@ -81,6 +81,25 @@ class Cli(unittest.TestCase):
     def run_cli(self, *args):
         return subprocess.run([sys.executable, str(HERE / "runtime_device_checks_8418.py"), *args], capture_output=True, text=True)
 
+    def test_heapmap(self):
+        good = ("AATE heap map (§8866) version=5.0.8866 taken=2026-11-19 16:00:00 uptimeS=600 heapUsedMb=180 heapMaxMb=512 dumpMs=2100 why=device-check\n"
+                "format=JAVA PROFILE 1.0.3 idSize=4 file=210.0MB status=COMPLETE passes=14 readMs=41000\n"
+                "objects=2100000 bytes=160.0MB classes=31000 samples=9000 layoutMismatch=0 unknownClass=0\n"
+                "heaps: app=160.0MB/2100000 zygote=20.0MB/300000\n\n"
+                "-- what holds the bytes (9000 objects sampled by size; 160.0MB represented, 120.0MB traced to a static field or a root) --\n"
+                "     38.2MB  23.9% n=2001   static com.lifecyclebot.engine.Foo.rows > java.util.ArrayList.elementData\n")
+        ok, detail = dc.heapmap_verdict(good)
+        self.assertTrue(ok, detail)
+        self.assertIn("staticOwners=1", detail)
+        stopped = good.replace("status=COMPLETE", "status=STOPPED").replace("objects=2100000", "stopped=unknown heap record 0x91 at offset 4096 (segment 0x1c)\nobjects=2100000")
+        ok, detail = dc.heapmap_verdict(stopped)
+        self.assertFalse(ok)
+        self.assertIn("0x91", detail)
+        self.assertFalse(dc.heapmap_verdict(good.replace("layoutMismatch=0", "layoutMismatch=400000"))[0])
+        self.assertFalse(dc.heapmap_verdict(good.replace("120.0MB traced", "10.0MB traced"))[0])
+        self.assertFalse(dc.heapmap_verdict(good.replace("objects=2100000", "objects=900"))[0])
+        self.assertFalse(dc.heapmap_verdict("something else")[0])
+
     def test_record_enforce_and_dup(self):
         with tempfile.TemporaryDirectory() as d:
             r = str(pathlib.Path(d, "r.json"))

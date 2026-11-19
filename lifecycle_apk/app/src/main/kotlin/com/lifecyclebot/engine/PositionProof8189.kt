@@ -114,7 +114,7 @@ object PositionProof8189 {
                 .append(" lineage=").append(lineage8189(p))
                 .append(" mark=").append(mark8189(p.mint, nowMs))
                 .append(" hold=").append(hold8189(p.mint))
-                .append(" protect=").append(protect8189(p.positionId))
+                .append(" protect=").append(protect8189(p, nowMs))
                 .append(" route=").append(route8189(p.mint, read?.second, p.mint in frozen, signed, nowMs))
         }
         val (compared, total) = coverage8189(buckets)
@@ -155,8 +155,13 @@ object PositionProof8189 {
         }
     }
 
-    private fun protect8189(positionId: String): String {
-        val l = try { com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450.latch(positionId) } catch (_: Throwable) { null }
+    private fun protect8189(p: CanonicalPositionAuthority6441.Position, nowMs: Long): String {
+        // V5.0.8866 — a CRYPTO_ALT row is protected by its trader's own monitor, not by the meme exit scheduler: what that
+        // monitor last did with it stands here (evaluated on which mark, or held and why).
+        if (CanonicalPositionAuthority6441.isCryptoAltTraderOwned8082(p)) {
+            return try { com.lifecyclebot.perps.CryptoAltTrader.ownerProof8866(p.positionId, nowMs) } catch (_: Throwable) { "CRYPTO_ALT[unread]" }
+        }
+        val l = try { com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450.latch(p.positionId) } catch (_: Throwable) { null }
         return l?.let { "LATCHED_${it.kind.name}" } ?: "ARMED"
     }
 

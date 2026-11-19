@@ -1199,6 +1199,16 @@ object CanonicalPositionAuthority6441 {
             AssetClass.fromPositionIdPrefix(p.positionId) == AssetClass.CRYPTO_ALT ||
             AssetClass.fromLane(p.lane) == AssetClass.CRYPTO_ALT
 
+    /**
+     * V5.0.8866 §THE_RISK_CLOCK_SOLD_WHAT_IT_DOES_NOT_OWN. A row the meme Executor's exit loops may sell: neither an
+     * off-chain market row nor a CRYPTO_ALT row (each has one exit owner, its trader). 8082 took CRYPTO_ALT rows out of the
+     * exit sweeps (BotService.solanaExitScope7819) and out of the Executor's own position lookup, but the independent risk
+     * clock still swept them: it latched a stop on the trader's row and dispatched it to the Executor, which could not
+     * find the position it had been told not to see. 5.0.8864 report, three live crypto holdings: PROTECTIVE_EXIT_REDISPATCH_7176
+     * 3,409, TERMINAL_SELL_UNKNOWN_POSITION_6454 3,069, sell spine outcomes ALREADY_CLOSED=3,060 against CLOSED=2.
+     */
+    fun isMemeExecutorExit8866(p: Position): Boolean = !isTraderOwnedOffChainMarket7819(p) && !isCryptoAltTraderOwned8082(p)
+
     internal fun exitScopeOf7809(rows: List<Position>): List<Position> {
         val open7809 = rows.filter { isOpenLifecycleWithQty6743(it) }
         val openMints7809 = open7809.mapTo(HashSet()) { it.mint }

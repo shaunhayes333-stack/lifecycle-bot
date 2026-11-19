@@ -83,6 +83,8 @@ object CanonicalRiskClock6454 {
     private val openReadFailures = AtomicLong(0L)
     private val budgetOverruns = AtomicLong(0L)
     private val deferredThisTick = AtomicLong(0L)
+    /** V5.0.8866 — rows of the active book this clock leaves to their own trader (off-chain markets, CRYPTO_ALT). */
+    private val traderOwned8866 = AtomicLong(0L)
     private val evaluatedPositions = AtomicLong(0L)
 
     fun start(riskTick: (positionId: String, mint: String) -> Unit) {
@@ -137,9 +139,12 @@ object CanonicalRiskClock6454 {
                     // scheduler is told how many rows THIS clock protects, so a
                     // stock-only book is not an armed stall; latch pruning below
                     // still sees the full set (Field Manual L186, L412).
-                    val riskScope7819 = open7213?.filterNot {
-                        CanonicalPositionAuthority6441.isTraderOwnedOffChainMarket7819(it)
+                    // V5.0.8866 — CRYPTO_ALT rows too: CryptoAltTrader's own 1 Hz monitor is their exit clock, and the
+                    // Executor this clock dispatches to cannot sell them (isMemeExecutorExit8866).
+                    val riskScope7819 = open7213?.filter {
+                        CanonicalPositionAuthority6441.isMemeExecutorExit8866(it)
                     }
+                    if (open7213 != null && riskScope7819 != null) traderOwned8866.set((open7213.size - riskScope7819.size).toLong())
                     try {
                         ProtectiveExitScheduler6450.serviceTick7213(
                             openPositionCount = riskScope7819?.size ?: -1,
@@ -231,6 +236,7 @@ object CanonicalRiskClock6454 {
         // how many positions the sweep actually visited, so it is here now.
         return "running=${running.get()} ticks=${ticks.get()} lastTick=$lastAgo cbFail=${callbackFailures.get()} " +
             "posEvals=${evaluatedPositions.get()} openReadFail=${openReadFailures.get()} " +
-            "budgetOverruns=${budgetOverruns.get()} deferred=${deferredThisTick.get()} cursor=${cursor.get()}"
+            "budgetOverruns=${budgetOverruns.get()} deferred=${deferredThisTick.get()} cursor=${cursor.get()} " +
+            "traderOwned8866=${traderOwned8866.get()}"
     }
 }

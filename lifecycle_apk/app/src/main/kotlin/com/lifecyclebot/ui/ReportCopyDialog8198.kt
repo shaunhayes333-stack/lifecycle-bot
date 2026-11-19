@@ -47,8 +47,42 @@ object ReportCopyDialog8198 {
             )
             .setPositiveButton("Share") { _, _ -> share(activity, fullText, fullFile, subject) }
             .setNeutralButton(if (trimmed) "Copy full" else "Done") { _, _ -> if (trimmed) copyPart8381(activity, parts, 0, fullText, fullFile, subject) }
-            .setNegativeButton("Save") { _, _ -> saveToDownloads8381(activity, fullText, fullFile, subject) }
+            .setNegativeButton("Save") { _, _ -> saveToDownloads8381(activity, fullText, fullFile, subject); offerHeapMap8866(activity) }
             .show()
+    }
+
+    /** Pure (V5.0.8866): what the memory-map offer says, with the heap as it stands. */
+    internal fun heapMapOffer8866(usedMb: Long, maxMb: Long): String =
+        "The report is being saved to Downloads/AATE.\n\n" +
+            "A memory map shows what is filling the heap (now $usedMb of $maxMb MB). Taking it stops the bot for up to a minute " +
+            "while the heap is written, then reads it in the background for a minute or two. Do it when no trade is in flight, " +
+            "and leave the screen alone until it says done.\n\n" +
+            "Only class names and sizes are kept. The raw dump never leaves the app and is deleted. The map is saved to " +
+            "Downloads/AATE and printed in the next report."
+
+    /**
+     * V5.0.8866 — after Save, the owner may also take a memory map (HeapMap8866). Never taken without this tap: the dump
+     * stops every thread of the app while it is written.
+     */
+    private fun offerHeapMap8866(activity: Activity) {
+        if (activity.isFinishing || activity.isDestroyed || com.lifecyclebot.engine.HeapMap8866.isRunning8866()) return
+        val rt = Runtime.getRuntime()
+        val app = activity.applicationContext
+        try {
+            AlertDialog.Builder(activity)
+                .setTitle("Memory map (optional)")
+                .setMessage(heapMapOffer8866((rt.totalMemory() - rt.freeMemory()) shr 20, rt.maxMemory() shr 20))
+                .setPositiveButton("Take memory map") { _, _ ->
+                    Toast.makeText(app, "Taking the memory map. The app will stop responding for a moment.", Toast.LENGTH_LONG).show()
+                    com.lifecyclebot.engine.HeapMap8866.start8866(app, "owner", save = { file, name -> saveDataset(app, file, name) }) { line ->
+                        android.os.Handler(android.os.Looper.getMainLooper()).post {
+                            try { Toast.makeText(app, "Memory map: $line", Toast.LENGTH_LONG).show() } catch (_: Throwable) {}
+                        }
+                    }
+                }
+                .setNegativeButton("Not now", null)
+                .show()
+        } catch (_: Throwable) {}
     }
 
     /** One clipboard part (chars). Each is far under the binder limit (UTF-16: ~200 KB) and pastes into chat / notes apps. */
@@ -137,7 +171,7 @@ object ReportCopyDialog8198 {
         return saveDataset(app, src, name)
     }
 
-    private fun saveDataset(app: android.content.Context, src: File, name: String): String? {
+    internal fun saveDataset(app: android.content.Context, src: File, name: String): String? {
       return try {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val values = ContentValues().apply {

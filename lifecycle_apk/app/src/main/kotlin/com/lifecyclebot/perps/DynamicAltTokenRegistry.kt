@@ -197,6 +197,85 @@ object DynamicAltTokenRegistry {
         return "$chain|$normalizedToken"
     }
 
+    // ─── V5.0.8866 §ONE_ASSET_TWO_SPELLINGS ───────────────────────────────────
+    // The crypto trader keys a position by this registry's identity ("solana|<mint>"). A LIVE buy is written to the
+    // canonical ledger under the mint the wallet holds ("<mint>"), a paper buy under the trader's key. Every comparison
+    // between the two was a string equality, so a live Solana position never matched its own ledger row: the trader's
+    // position was overwritten by a canonical recovery projection keyed by the bare mint (5.0.8864 report:
+    // CRYPTO_CANONICAL_POSITION_PROJECTED_7255=11), and from then on the registry's mark for "solana|<mint>" was not
+    // "exactly" the position's "<mint>", so no stop was evaluated and no close was allowed. ADCY, CRIME and Tomás were
+    // held for hours at -75 %, -44 % and -20 % under a -10 % floor. The two spellings of one Solana mint are one asset.
+    private const val BASE58_8866 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+
+    /** Pure: the Solana mint a position key or ledger mint names ("solana|<mint>" or the mint itself), else null. */
+    fun solanaMintOf8866(key: String): String? {
+        val k = key.trim()
+        val bare = when {
+            k.startsWith("solana|") -> k.substring(7)
+            k.indexOf('|') >= 0 || k.indexOf(':') >= 0 -> return null
+            else -> k
+        }
+        return bare.takeIf { it.length in 32..44 && it.all { c -> BASE58_8866.indexOf(c) >= 0 } }
+    }
+
+    /** Pure: do two keys name the same asset? The same string, or one Solana mint with and without its chain prefix. */
+    fun sameAsset8866(a: String, b: String): Boolean {
+        val x = a.trim()
+        val y = b.trim()
+        if (x.isEmpty() || y.isEmpty()) return false
+        if (x == y) return true
+        val mint = solanaMintOf8866(x) ?: return false
+        return mint == solanaMintOf8866(y)
+    }
+
+    /**
+     * Pure: the (chain, address) a held position's key names: a Solana mint in either spelling, or "chain|address" as
+     * written. Placeholders (static:, cg:, perps:, unresolved:) and unknown chains name none.
+     */
+    internal fun heldChainAddress8866(positionKey: String, dynMint: String?): Pair<String, String>? {
+        val k = positionKey.trim()
+        solanaMintOf8866(k)?.let { return "solana" to it }
+        val bar = k.indexOf('|')
+        if (bar > 0 && bar < k.length - 1 && k.indexOf(':') < 0) {
+            val chain = k.substring(0, bar).lowercase()
+            val address = k.substring(bar + 1)
+            if (chain != "unknown" && chain != "established" && chain != "coingecko" && address.length >= 20) return chain to address
+        }
+        return dynMint?.let { solanaMintOf8866(it) }?.let { "solana" to it }
+    }
+
+    /** Pure: is [tok] one of the held keys (lower-cased canonical ledger mints)? Either spelling of a Solana mint counts. */
+    internal fun isHeldRow8866(tok: DynToken, heldLower: Set<String>): Boolean {
+        if (heldLower.isEmpty()) return false
+        return sequenceOf(tok.canonicalIdentity6544, tok.tokenAddress, tok.mint)
+            .map { it.trim().lowercase() }
+            .any { it.isNotBlank() && it in heldLower }
+    }
+
+    /**
+     * Pure: the rows written to disk: statics and the most recently updated up to [cap], then every held row the cap cut.
+     * A held coin whose feeds went quiet was the oldest row in a universe of thousands, so it left the file and, after the
+     * next restart, the registry: the position's identity then resolved to nothing (IDENTITY_UNRESOLVED on every tick).
+     */
+    internal fun persistRows8866(rows: List<DynToken>, heldLower: Set<String>, cap: Int): List<DynToken> {
+        val sorted = rows.sortedWith(compareByDescending<DynToken> { it.isStatic }.thenByDescending { it.lastUpdatedMs })
+        if (sorted.size <= cap || heldLower.isEmpty()) return sorted.take(cap)
+        return sorted.take(cap) + sorted.drop(cap).filter { isHeldRow8866(it, heldLower) }
+    }
+
+    /** The canonical ledger's open crypto mints, lower-cased (both spellings of a Solana mint), read once per caller. */
+    private fun heldLedgerKeys8866(): Set<String> = try {
+        val out = HashSet<String>()
+        for (p in com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()) {
+            if (p.assetClass != com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT) continue
+            val m = p.mint.trim()
+            if (m.isBlank()) continue
+            out.add(m.lowercase())
+            solanaMintOf8866(m)?.let { out.add(it.lowercase()); out.add("solana|$it".lowercase()) }
+        }
+        out
+    } catch (_: Throwable) { emptySet() }
+
     // ─── State ────────────────────────────────────────────────────────────────
 
     private val registry     = ConcurrentHashMap<String, DynToken>(4096) // canonical mint/asset-id → row
@@ -565,9 +644,8 @@ object DynamicAltTokenRegistry {
         try {
             val file = java.io.File(ctx.filesDir, PERSIST_FILE)
             var n = 0
-            val rows8033 = registry.values.filter { !it.mint.startsWith("cg:") }
-                .sortedWith(compareByDescending<DynToken> { it.isStatic }.thenByDescending { it.lastUpdatedMs })
-                .take(MAX_PERSIST_ROWS_8033)
+            // V5.0.8866 — a held row is always written, whatever its age (persistRows8866)
+            val rows8033 = persistRows8866(registry.values.filter { !it.mint.startsWith("cg:") }, heldLedgerKeys8866(), MAX_PERSIST_ROWS_8033)
             file.bufferedWriter().use { w ->
               w.write("[")
               for (tok in rows8033) {
@@ -775,19 +853,11 @@ object DynamicAltTokenRegistry {
         var freshEvicted6547 = 0
         // V5.0.7245 — snapshot held crypto identities ONCE. Never perform a
         // canonical-position scan per registry row; this universe is 4k+ assets.
-        val heldCryptoKeys7245: Set<String> = try {
-            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
-                .asSequence()
-                .filter { it.assetClass == com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT }
-                .map { it.mint.trim().lowercase() }
-                .filter { it.isNotBlank() }
-                .toSet()
-        } catch (_: Throwable) { emptySet() }
+        // V5.0.8866 — one held set for eviction and for the file (heldLedgerKeys8866 / isHeldRow8866)
+        val heldCryptoKeys7245: Set<String> = heldLedgerKeys8866()
         registry.entries.removeIf { (_, tok) ->
             if (tok.isStatic) return@removeIf false
-            val held7245 = sequenceOf(tok.canonicalIdentity6544, tok.tokenAddress, tok.mint)
-                .map { it.trim().lowercase() }
-                .any { it.isNotBlank() && it in heldCryptoKeys7245 }
+            val held7245 = isHeldRow8866(tok, heldCryptoKeys7245)
             if (held7245) {
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_REGISTRY_HELD_STALE_PRESERVED_7245") } catch (_: Throwable) {}
                 return@removeIf false
@@ -892,6 +962,42 @@ object DynamicAltTokenRegistry {
         key = idx.map[mint] ?: return null
         if (key == AMBIGUOUS_8818) return null
         return registry[key]?.takeIf { it.tokenAddress == mint || it.mint == mint }
+    }
+
+    /**
+     * V5.0.8866 — the row of a HELD asset, by the position's own key: the key as written, the exact Solana identity of its
+     * mint (a bare mint is keyed "solana|<mint>" here), then the address index. Never a symbol.
+     */
+    fun heldToken8866(positionKey: String, dynMint: String?): DynToken? {
+        val k = positionKey.trim()
+        if (k.isNotEmpty()) registry[k]?.let { return it }
+        val mint = solanaMintOf8866(k) ?: dynMint?.let { solanaMintOf8866(it) }
+        if (mint != null) registry[canonicalIdentity6544("solana", mint)]?.let { return it }
+        return dynMint?.trim()?.takeIf { it.isNotEmpty() }?.let { getTokenByMint(it) }
+    }
+
+    /**
+     * V5.0.8866 — a held position's asset is a row. Returns it, creating a price-less row from the position's own chain and
+     * address when the registry has none (cut from the file by a restart, [persistRows8866]); nothing is inferred and the
+     * price stays 0 until a mark is observed. A key that names no chain and address (a placeholder) creates nothing.
+     */
+    fun ensureHeld8866(positionKey: String, dynMint: String?, symbol: String): DynToken? {
+        heldToken8866(positionKey, dynMint)?.let { return it }
+        val (chain, address) = heldChainAddress8866(positionKey, dynMint) ?: return null
+        val sym = symbol.uppercase().trim().ifBlank { address.take(8).uppercase() }
+        val seeded = DynToken(mint = address, tokenAddress = address, chainId = chain, symbol = sym, name = sym, price = 0.0,
+            source = "held_position_8866", sector = inferSector(sym))
+        val key = seeded.canonicalIdentity6544
+        if (registry.putIfAbsent(key, seeded) == null) {
+            indexSymbol6493(sym, key)
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_REGISTRY_HELD_SEEDED_8866") } catch (_: Throwable) {}
+            try {
+                com.lifecyclebot.engine.ForensicLogger.lifecycle("CRYPTO_REGISTRY_HELD_SEEDED_8866",
+                    "identity=${key.take(40)} symbol=$sym action=row_recreated_from_the_position")
+            } catch (_: Throwable) {}
+            scheduleSave()
+        }
+        return registry[key]
     }
 
     private class AddressIndex8818(val size: Int, val builtAt: Long, val map: HashMap<String, String>)
@@ -1800,7 +1906,8 @@ object DynamicAltTokenRegistry {
         if (!priceUsd.isFinite() || priceUsd <= 0.0 || observedAtMs <= 0L) return false
         val existing = registry[identityOrAddress] ?: getTokenByMint(identityOrAddress) ?: return false
         // V5.0.8801 — a newer PRICE observation stands; a newer registry write (fields merged, an old price re-fetched) does not
-        if (priceTime8801(existing.priceObservedAtMs8372, existing.lastUpdatedMs) > observedAtMs) return false
+        // V5.0.8866 — a row with no price has no observation to stand: its write time refused every mark dated before it
+        if (existing.price > 0.0 && priceTime8801(existing.priceObservedAtMs8372, existing.lastUpdatedMs) > observedAtMs) return false
         registry[existing.canonicalIdentity6544] = existing.copy(price = priceUsd, priceObservedAtMs8372 = observedAtMs,
             lastUpdatedMs = maxOf(existing.lastUpdatedMs, observedAtMs))
         return true

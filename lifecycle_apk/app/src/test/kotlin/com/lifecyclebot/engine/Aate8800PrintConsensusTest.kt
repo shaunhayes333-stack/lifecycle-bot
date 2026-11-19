@@ -59,7 +59,8 @@ class Aate8800PrintConsensusTest {
         assertTrue(w.contains("!consensusAccepts8800(mint, priceSol, atMs, nowMs, witnessed = v0 != Verdict.UNWITNESSED, sig = sig, wallet = wallet)"))
         assertTrue(src("engine/DataOrchestrator.kt").contains("PrintWitness8750.consensusAllows8800(mint, priceSolPerToken)"))
         val crypto = src("perps/CryptoAltTrader.kt")
-        assertTrue(crypto.contains("if (!fresh8800) chainHeldMark8800(resolved!!)"))
+        // superseded by V5.0.8866 — still the last source asked, after the canonical held mark and the registry's own
+        assertTrue(crypto.contains("if (!fresh8800) chainHeldMark8800(resolved)?.let {"))
         assertTrue(crypto.contains("DynamicAltTokenRegistry.observeHeldMarkAt8800(token.canonicalIdentity6544, px, at)"))
         val bot = src("engine/BotService.kt")
         assertTrue(bot.contains("com.lifecyclebot.perps.RetiredMarkets8797.watchdog(applicationContext)"))

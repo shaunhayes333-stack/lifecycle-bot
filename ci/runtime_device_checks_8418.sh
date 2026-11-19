@@ -12,6 +12,7 @@
 #   screens           every app activity (am start; debug overlay exports them) renders its own
 #                     layout ids / text, no crash/ANR, process survives
 #   report_pre        Pipeline report (UI copy button -> cache file) carries the §8324 store and 8355 lines
+#   heap_map          (8866, last) memory map on request: read to the end, holders traced, raw dump deleted
 #   restart           am force-stop -> relaunch -> UI Start: canonical bootstrap READY with
 #                     duplicateMints=0, persisted events not reset, no attemptId dispatched twice,
 #                     loop running, report shows the §8324 restore + 8355 shadow restore counters
@@ -337,6 +338,40 @@ pid=$(app_pid)
 [[ "$pid" =~ ^[0-9]+$ ]] || { rs_ok=0; rs_detail+="process not alive at end; "; }
 record restart "$([ $rs_ok -eq 1 ] && echo PASS || echo FAIL)" \
     "${rs_detail}start=$how boot=$boot persistedEvents=$EV_BEFORE->$EV_AFTER learning_kv=${LEARN_BEFORE:-absent}->${LEARN_AFTER:-absent} loops=$n $dd | $rd"
+echo "::endgroup::"
+
+# V5.0.8866 — last, so the dump's stop-the-world cannot touch the checks above: the debug build takes a memory map on
+# request (PipelineHealthActivity extra), reads it down to names and sizes, and deletes the raw dump.
+echo "::group::V5.0.8866 memory map: heap dump -> class names and sizes only"
+M=$(mark)
+PIDH=$(app_pid)
+adb shell am start -W -n "$PKG/com.lifecyclebot.ui.PipelineHealthActivity" --ez aate_heap_map_8866 true >/dev/null 2>&1 || true
+hm_ok=0; hm_detail="no HEAP_MAP_WRITTEN_8866 line within 480s"
+deadline=$((SECONDS + 480))
+while [ "$SECONDS" -lt "$deadline" ]; do
+    line=$(since "$M" | grep -o 'HEAP_MAP_WRITTEN_8866 path=.*' | tail -1 | tr -d '\r')
+    fail=$(since "$M" | grep -o 'HEAP_MAP_FAILED_8866 .*' | tail -1 | tr -d '\r')
+    if [ -n "$line" ]; then
+        path=$(echo "$line" | sed 's/^HEAP_MAP_WRITTEN_8866 path=//; s/ .*//')
+        if adb shell run-as "$PKG" cat "$path" > "$OUT/heap_map.txt" 2>/dev/null && [ -s "$OUT/heap_map.txt" ]; then
+            if hd=$(h heapmap "$OUT/heap_map.txt"); then hm_ok=1; fi
+            hm_detail="$hd"
+        else
+            hm_detail="map file unreadable: $path"
+        fi
+        break
+    fi
+    if [ -n "$fail" ]; then hm_detail="$fail"; break; fi
+    sleep 5
+done
+left=$(adb shell run-as "$PKG" ls cache/heapmap_8866 2>/dev/null | grep -c '\.hprof' || true)
+[ "${left:-0}" = "0" ] || { hm_ok=0; hm_detail+="; raw dump left on disk ($left file(s))"; }
+pid=$(app_pid)
+[ "$pid" = "$PIDH" ] || { hm_ok=0; hm_detail+="; process changed during the map: ${PIDH:-none} -> ${pid:-dead}"; }
+adb shell input keyevent KEYCODE_BACK
+record heap_map "$([ $hm_ok -eq 1 ] && echo PASS || echo FAIL)" "$hm_detail"
+echo "--- memory map (first 150 lines) ---"
+head -150 "$OUT/heap_map.txt" 2>/dev/null | cut -c1-260 || true
 echo "::endgroup::"
 
 cat "$RESULTS"

@@ -24,7 +24,8 @@ class Aate8033RegistryHeapTest {
     @Test fun altRegistryIsBoundedAndStreamed() {
         assertEquals(3_000, com.lifecyclebot.perps.DynamicAltTokenRegistry.MAX_PERSIST_ROWS_8033)
         val a = src("perps/DynamicAltTokenRegistry.kt")
-        assertTrue(a.contains(".take(MAX_PERSIST_ROWS_8033)"))
+        // superseded by V5.0.8866 — the same cap, then every held row it cut (persistRows8866)
+        assertTrue(a.contains("heldLedgerKeys8866(), MAX_PERSIST_ROWS_8033)") && a.contains("return sorted.take(cap) + sorted.drop(cap).filter { isHeldRow8866(it, heldLower) }"))
         assertFalse(a.contains("file.writeText(arr.toString())"))
         assertTrue(a.contains("ALT_REGISTRY_OVERSIZE_SET_ASIDE_8033"))
     }

@@ -59,7 +59,8 @@ class Aate7251AuthorityConvergenceTest {
             !registry.substringAfter("private fun carryForwardPrice6819").substringBefore("\n    }").contains("lastUpdatedMs"))
         // V5.0.8800 — the gate is now a positive freshness test; a stale feed may be replaced only by a CHAIN observation
         // of the held token's own pool (dated by the read), never by a carried number.
-        assertTrue(trader.contains("var fresh8800 = heldMark7251.freshObservation && exactIdentity7251"))
+        // superseded by V5.0.8866 — the same test, asked after the canonical held mark and with the identity in either spelling
+        assertTrue(trader.contains("fresh8800 = heldMark7251.freshObservation && exactIdentity7251 && refreshedPrice.isFinite() && refreshedPrice > 0.0"))
         assertTrue(trader.contains("markUpdatedAtMs = if (position.isDynamic)"))
         assertTrue(trader.contains("DYNAMIC_MARK_MAX_AGE_MS_6654 = 60_000L"))
         assertTrue(trader.contains("CRYPTO_HELD_MARK_REFRESH_COALESCED_7251"))

@@ -115,6 +115,32 @@ def report_verdict(report: str, require_restore: bool) -> tuple[bool, str]:
     return True, detail
 
 
+def heapmap_verdict(text: str) -> tuple[bool, str]:
+    """V5.0.8866 — the memory map HeapMap8866 wrote: read to the end, with objects, classes and holder chains."""
+    lines = text.splitlines()
+    if not lines or not lines[0].startswith("AATE heap map (§8866)"):
+        return False, "not a heap map: " + (lines[0][:120] if lines else "empty")
+    head = " ".join(lines[:6])
+    num = lambda k: int(m.group(1)) if (m := re.search(r"\b" + k + r"=(\d+)", head)) else -1
+    status = m.group(1) if (m := re.search(r"\bstatus=(\S+)", head)) else "?"
+    stopped = next((l for l in lines[:8] if l.startswith("stopped=")), "")
+    objects, classes, samples, mismatch = num("objects"), num("classes"), num("samples"), num("layoutMismatch")
+    owners = [l for l in lines if re.match(r"\s+\S+MB\s+\S+%\s+n=\d+\s+static \S", l)]
+    traced = re.search(r"([\d.]+)MB represented, ([\d.]+)MB traced", text)
+    frac = float(traced.group(2)) / float(traced.group(1)) if traced and float(traced.group(1)) > 0 else 0.0
+    detail = (f"status={status} objects={objects} classes={classes} samples={samples} layoutMismatch={mismatch} "
+              f"staticOwners={len(owners)} traced={frac:.0%}" + (f" {stopped[:200]}" if stopped else ""))
+    if status != "COMPLETE":
+        return False, detail
+    if objects < 50_000 or classes < 1_000 or samples < 500:
+        return False, "too little read: " + detail
+    if mismatch * 100 > objects:
+        return False, "instance layouts not understood: " + detail
+    if not owners or frac < 0.2:
+        return False, "holders not traced: " + detail
+    return True, detail
+
+
 def find_node(dump_xml: str, mode: str, value: str):
     """Center of the first enabled node whose resource-id ends with /value (mode=id) or whose text equals value."""
     try:
@@ -145,6 +171,7 @@ def main() -> int:
     s = sub.add_parser("bootstrap"); s.add_argument("log")
     s = sub.add_parser("dup-dispatch"); s.add_argument("before"); s.add_argument("after")
     s = sub.add_parser("report"); s.add_argument("report"); s.add_argument("--require-restore", action="store_true")
+    s = sub.add_parser("heapmap"); s.add_argument("map")
     s = sub.add_parser("record"); s.add_argument("results"); s.add_argument("check"); s.add_argument("status"); s.add_argument("detail")
     s = sub.add_parser("enforce"); s.add_argument("results"); s.add_argument("--require", nargs="+", required=True)
     a = p.parse_args()
@@ -183,6 +210,9 @@ def main() -> int:
         print(f"before={len(before)} redispatched={dup[:10]}"); return 1 if dup else 0
     if a.cmd == "report":
         ok, detail = report_verdict(read(a.report), a.require_restore)
+        print(detail); return 0 if ok else 1
+    if a.cmd == "heapmap":
+        ok, detail = heapmap_verdict(read(a.map))
         print(detail); return 0 if ok else 1
     if a.cmd == "record":
         path = pathlib.Path(a.results)

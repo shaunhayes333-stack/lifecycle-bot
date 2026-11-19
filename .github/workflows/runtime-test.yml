@@ -158,7 +158,7 @@ jobs:
           set -euo pipefail
           python3 ci/test_runtime_device_checks_8418.py
           python3 ci/runtime_device_checks_8418.py enforce "$GITHUB_WORKSPACE/device_checks_8418.json" \
-            --require background_home doze screens report_pre restart
+            --require background_home doze screens report_pre restart heap_map
 
       - uses: actions/upload-artifact@v4
         if: always()

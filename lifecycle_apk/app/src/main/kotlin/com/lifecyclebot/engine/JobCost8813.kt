@@ -73,6 +73,34 @@ object JobCost8813 {
         try { return measure8813(name, block) } finally { restorePriority8817(before) }
     }
 
+    // ── V5.0.8866 §A_JOB_THE_DECISION_WAITS_FOR_YIELDS_WITHOUT_STARVING ──
+    // Android puts a thread at nice >= 10 (THREAD_PRIORITY_BACKGROUND; Java priority below NORM) into the background CPU
+    // group. 5.0.8864, the tree ranker's refit, run there: treeParse 12.5 s of CPU in 2,522 s of wall, treeTrain 11.7 s in
+    // 1,533 s, and the forecast it feeds stayed flat (-10 %, nothing at zero or better) for the half hour after each start,
+    // so live admitted nothing. A job the trading decision waits for runs at nice 5: below every default thread, and in
+    // the process's own CPU group. Batch replays nothing waits for stay on [measureBackground8817].
+    const val YIELDING_NICE_8866 = 5
+
+    /** Pure: does Android schedule a thread at [nice] in the background CPU group? */
+    fun backgroundGroup8866(nice: Int): Boolean = nice >= android.os.Process.THREAD_PRIORITY_BACKGROUND
+
+    /** [measure8813] at nice [YIELDING_NICE_8866] for the job's duration (the previous priority restored). */
+    inline fun <T> measureYielding8866(name: String, block: () -> T): T {
+        val before = yieldingPriority8866()
+        try { return measure8813(name, block) } finally { restorePriority8817(before) }
+    }
+
+    /** Sets the calling thread to [YIELDING_NICE_8866]; returns its previous priority (null when unknown). */
+    @PublishedApi internal fun yieldingPriority8866(): Int? = try {
+        val tid = android.os.Process.myTid()
+        val was = android.os.Process.getThreadPriority(tid)
+        if (was != YIELDING_NICE_8866) android.os.Process.setThreadPriority(tid, YIELDING_NICE_8866)
+        yieldingRuns8866.incrementAndGet()
+        was
+    } catch (_: Throwable) { null }
+
+    @PublishedApi internal val yieldingRuns8866 = java.util.concurrent.atomic.AtomicLong(0L)
+
     /** Lowers the calling thread to THREAD_PRIORITY_BACKGROUND; returns its previous priority (null when unknown). */
     @PublishedApi internal fun lowerPriority8817(): Int? = try {
         val tid = android.os.Process.myTid()
@@ -101,7 +129,7 @@ object JobCost8813 {
                 "last=${"%.0f".format(a.lastAllocMb)}MB/${a.lastWallMs}ms/cpu${a.lastCpuMs}ms max=${"%.0f".format(a.maxAllocMb)}MB/${a.maxWallMs}ms " +
                 "cpuTotal=${a.cpuMs / 1000}s")
         } }.sortedByDescending { it.second }
-        return "jobCost8813[backgroundRuns8817=${backgroundRuns8817.get()} " + (if (rows.isEmpty()) "no runs yet" else rows.joinToString(" | ") { it.third }) +
+        return "jobCost8813[backgroundRuns8817=${backgroundRuns8817.get()} yieldingRuns8866=${yieldingRuns8866.get()} " + (if (rows.isEmpty()) "no runs yet" else rows.joinToString(" | ") { it.third }) +
             " rule=per heavy job: process MB allocated while it ran (upper bound: other threads allocate too), wall ms, its own thread CPU]"
     }
 

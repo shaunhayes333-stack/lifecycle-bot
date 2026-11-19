@@ -108,6 +108,15 @@ class PipelineHealthActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_pipeline_health)
 
+        // V5.0.8866 — the emulator device check asks for a memory map through this extra (ci/runtime_device_checks_8418.sh,
+        // check heap_map). Only a debuggable build honours it; the owner's route is the Save dialog (ReportCopyDialog8198).
+        try {
+            if (intent?.getBooleanExtra("aate_heap_map_8866", false) == true &&
+                (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
+                com.lifecyclebot.engine.HeapMap8866.start8866(applicationContext, "device-check", save = { _, _ -> null })
+            }
+        } catch (_: Throwable) {}
+
         // V5.9.1047 — bgThread now starts eagerly at class-field init
         // (above). The V5.9.1045 daemon pre-warm became redundant and
         // was removed. By the time we reach here the HandlerThread's

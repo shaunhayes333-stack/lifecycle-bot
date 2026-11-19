@@ -1727,6 +1727,9 @@ object PipelineHealthCollector {
         try { sb.append(com.lifecyclebot.engine.truth.PocketLedger8610.topPockets8618()) } catch (t: Throwable) { sb.append("  POCKETS FAILED ").append(t.javaClass.simpleName).append('\n') }
         sb.append("\n===== HEAP LOG (§8618) =====\n")
         try { sb.append(HeapLog8618.section8618()) } catch (t: Throwable) { sb.append("  HEAP LOG FAILED ").append(t.javaClass.simpleName).append('\n') }
+        // V5.0.8866 — what holds the heap, from the last memory map the owner took (HeapMap8866)
+        sb.append("\n===== HEAP MAP (§8866) — what holds the heap: classes by bytes, and the static field each sampled object hangs from =====\n")
+        try { sb.append(HeapMap8866.section8866()) } catch (t: Throwable) { sb.append("  HEAP MAP FAILED ").append(t.javaClass.simpleName).append('\n') }
     }
 
     private fun appendLaneScorecard8280(sb: StringBuilder) {

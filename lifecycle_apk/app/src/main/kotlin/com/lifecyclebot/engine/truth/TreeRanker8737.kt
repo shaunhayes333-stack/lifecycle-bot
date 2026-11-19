@@ -109,7 +109,7 @@ object TreeRanker8737 {
                 // V5.0.8863 — the count is taken on the file's bytes (EdgeModel8537.countLines8863), and a row its own text
                 // refuses is not parsed (rowsOf8737): on the phone this job spent 5.6 s of CPU counting 57,955 lines and
                 // parsing the newest 25,000 of them to keep 409 rows.
-                val rows = com.lifecyclebot.engine.JobCost8813.measureBackground8817("treeParse") {
+                val rows = com.lifecyclebot.engine.JobCost8813.measureYielding8866("treeParse") {
                     val total = EdgeModel8537.countLines8863(dataset)
                     val skip = (total - MAX_LINES_8737).coerceAtLeast(0)
                     var idx = 0
@@ -117,7 +117,7 @@ object TreeRanker8737 {
                 }
                 if (rows.size < MIN_ROWS) { lastStatus = "waiting rows=${rows.size}/$MIN_ROWS"; return@execute }
                 val t0 = System.currentTimeMillis()
-                model = com.lifecyclebot.engine.JobCost8813.measureBackground8817("treeTrain") {
+                model = com.lifecyclebot.engine.JobCost8813.measureYielding8866("treeTrain") {
                     train8737(rows.map { it.first }, rows.map { it.second }, rows.map { it.third }, System.currentTimeMillis(),
                         rowFrac = ROW_FRAC_8798, colFrac = COL_FRAC_8798)
                 }

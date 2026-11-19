@@ -1018,3 +1018,113 @@ were about coins that stream never printed. It stays a measurement and is not sw
 **Runner model (8861).** 252 rows, 33 doubled before the stop (13.1 %); not fitted. The line read `waiting rows=252/160`;
 the 160 is the bar for the training rows, the oldest six tenths, which were 151. It now prints that
 (`RunnerModel8861.waitingFor8865`). `hiveRunnerRows8862[otherInstalls7d=0 ...]`: this is the only install.
+
+## 57. A held crypto position is its trader's to mark and sell; what holds the heap (8866)
+
+**Measured.** Owner's phone, 5.0.8864, LIVE, 19 Nov 15:21 (uptime 13,153 s), SOL $74.52.
+
+Three live holdings, all bought by the crypto trader (`CRYPTO_ALT`) in the previous session, the proof table's own lines:
+
+| Coin | Tokens held | Cost | Canonical held mark (`LOCKED_VENUE_POOL_7392`, 5 s old) | Worth at that mark | Against cost |
+|---|---|---|---|---|---|
+| ADCY | 45,711 | 0.0425 SOL | $0.00001735 | 0.0106 SOL | -75 % |
+| CRIME | 29,648 | 0.0441 SOL | $0.00006186 | 0.0246 SOL | -44 % |
+| Tomás | 144,635 | 0.0445 SOL | $0.00001843 | 0.0358 SOL | -20 % |
+
+The report's equity (0.2621 SOL) counts them at cost; at their marks it is about 0.202. The trader's own floor is -10 %
+(`TICK_HARD_FLOOR`); none of the three was sold, by anyone, in 3 h 39 min.
+
+- The owner did not evaluate them. `CRYPTO_HELD_STALE_MARK_REFRESH_ONLY_7245` 7,766 (one per held position per 15 s:
+  about nine of the trader's eleven open positions, live and paper, for the whole session),
+  `CRYPTO_DYN_MARK_IDENTITY_REJECTED_6654` 50,520, `CRYPTO_HELD_MARK_CHAIN_8800` 0,
+  `CRYPTO_CANONICAL_POSITION_PROJECTED_7255` 11 (5 in the 10:49 session, in which the buys were made).
+- The meme side tried instead and could not. `PROTECTIVE_EXIT_REDISPATCH_7176` 3,409;
+  `TERMINAL_SELL_UNKNOWN_POSITION_6454` 3,069 = `LIVE_SELL_TERMINAL_RESERVE_REJECTED_6455` 3,069; sell spine emergency
+  outcomes `ALREADY_CLOSED=3060, CLOSED=2`; `protect=LATCHED_CATASTROPHE` (ADCY, CRIME), `LATCHED_STOP_LOSS` (Tomás).
+
+**Why, from the code.**
+
+1. *One asset, two spellings.* The trader keys a position by the registry identity, `solana|<mint>`
+   (`cryptoAssetKey`: `dynAssetKey` first). A live buy is written to the canonical ledger under the mint the wallet
+   holds, `<mint>` (`targetMint6493 = signal.dynMint`; the proof table prints `p.mint.take(8)` = `PKShUAph`,
+   `96WnzbBG`, `5ChyeKeH`). A paper buy is written under the trader's key, so paper never met this. Every comparison
+   between the two was a string equality:
+   - `syncCanonicalCryptoPositions7255` found the trader's own position "not this row's" and wrote a ledger recovery
+     projection over it (its stop, target, strategy and peak gone; keyed by the bare mint);
+   - `monitorPositions` then asked the registry for that position's mark and refused the answer on every tick,
+     because the mark's identity `solana|<mint>` was not "exactly" the position's `<mint>`;
+   - the on-chain fallback (8800) is written through the registry, which refuses a read older than the price time it
+     already holds (the row's last write, when its price has no clock of its own); it recorded none.
+   With no trusted mark the trader evaluates no stop and `closePosition` defers.
+2. *A held coin leaves the registry file.* The file keeps statics and the 3,000 most recently updated rows. A held
+   coin whose feeds went quiet is the oldest row of thousands; after the next restart it is not a row, the position's
+   identity resolves to nothing, and nothing recreated it (`refreshPriceForMintBlocking` returns 0 for an unknown
+   row). The 19 Nov 01:22 report names six paper positions held this way (`cause=IDENTITY_UNRESOLVED`; five
+   `asset=solana|...`, one `asset=base|0x...`).
+3. *The risk clock sold what it does not own.* 8082 gave `CRYPTO_ALT` rows one exit owner and took them out of the
+   exit sweeps and out of the Executor's own position lookup, but not out of the independent risk clock. The clock
+   latched their stops on the meme thresholds and dispatched them to the Executor, whose terminal reserve answers
+   `REJECTED_UNKNOWN` for a position it was told not to see; the scheduler asked again, for hours.
+
+Which of 1 and 2 held each of the three on a given tick the counters do not separate. Both end at the same line and
+both are closed.
+
+**What 8866 does.**
+
+| Before | Now |
+|---|---|
+| `solana|<mint>` and `<mint>` compared as strings | `DynamicAltTokenRegistry.sameAsset8866`: one Solana mint in either spelling is one asset (only Solana; nothing else is merged). Used by the rehydrate, the saved-position restore, the projection, the monitor's mark identity and the stop-time mark refresh. A live position keeps its own stop, target and strategy, in the session and across a restart |
+| a held coin missing from the registry: `IDENTITY_UNRESOLVED` for good | `ensureHeld8866`: found by the position's own key (the key, then the exact `solana|<mint>` identity, then the address index); when there is no row, one is created from the key's own chain and address, price 0. `persistRows8866` writes every held row whatever its age; eviction and the file share one held set |
+| mark: registry feeds, then the vault read | first the canonical held mark (`CanonicalPriceMarkRegistry6522.heldRiskMark`: this mint, this base, USD per token, at most 60 s old), taken at its own time; then the registry's own mark; then the vault read or witnessed print (8800). A price-less row no longer refuses a mark dated before its write |
+| the risk clock latched and dispatched `CRYPTO_ALT` rows to the Executor | `isMemeExecutorExit8866`: the clock sweeps what the Executor can sell. The trader's 1 Hz monitor is the exit clock of its own rows. The proof table's `protect=` prints, for those rows, what that monitor last did: `CRYPTO_ALT[eval=2s EVALUATED mark=CANONICAL_HELD/5s pnl=-74.9% plan=LEDGER_RECOVERY]`, or the reason it held |
+| a live sale that failed was asked again on the next 1 s tick, unnamed | named (`CLOSE_NOT_CONFIRMED:<the executor's own reason>`, label `CRYPTO_LIVE_CLOSE_NOT_CONFIRMED_8866_*`) and asked again after the monitor's refresh interval (15 s); the operator's own close and Stop are never spaced |
+
+**What happens on the first run.** The three positions are ledger recovery rows now (their own plans were
+overwritten in the earlier sessions and cannot be restored). They are marked on the first tick. CRIME and Tomás are
+below the -10 % floor and are sold on that tick; ADCY is below -50 % and needs a second consecutive read (the phantom
+guard, 7264), then is sold. About 0.07 SOL returns for 0.131 paid. Had the floor run when each first crossed it, the
+loss would have been near 0.013-0.02 SOL; the difference, about 0.04 SOL, is what the fault cost.
+
+**Not changed, and known.** The registry dates a price that came with no source clock by the row's last write, and a
+later merge that carries no price advances that write (8801's fallback). A position marked from the registry alone can
+therefore read an old price as fresh. Solana holdings no longer depend on it while the canonical held mark is alive;
+other chains still do.
+
+### The tree refit left the background CPU group
+
+`treeParse` 12.5 s of CPU in 2,522 s of wall, `treeTrain` 11.7 s in 1,533 s: the refit ran at Android's background
+priority (8817), which is nice 10 and the background CPU group, beside a process whose collector was running 86 % of
+the time. `JobCost8813.measureYielding8866` runs the two at nice 5: below every default thread, in the process's own
+group. The batch replays nothing waits for (dataset seed, edge replay, strategy lab, the CoinGecko list) stay on
+`measureBackground8817`. How much of the 25-42 minutes was the CPU group and how much the collector is not separable
+from this report; the next one prints the same two rows.
+
+### The memory map
+
+33 reports (5.0.8680-5.0.8864): the lowest heap in the timeline rises with uptime (120-230 MB in the first quarter
+hour, about 360 MB after two hours) while the census stays near 100 MB; at 3.6 h the heap was 462 of 512 MB,
+collections had run for 11,263 s of the 13,153 (blocking 9,761 s), the average cycle was 5.8 s and the exit scheduler
+missed its cadence 637 times. What accumulates is outside every store the census names.
+
+`HeapMap8866` (owner-requested only: Pipeline report > Save > Take memory map) writes a heap dump into the app's
+private cache, reads it with `HeapMapCore8866`, deletes it, and saves text to Downloads/AATE; the next report prints
+its first 90 lines under `HEAP MAP (§8866)`.
+
+- What it reads: per class, instances and shallow bytes (the app heap; the zygote and image heaps are listed and left
+  out). For a sample of objects taken by size (one per `file size / 20,000` bytes; anything bigger always), the chain
+  of holders, one hop per pass over the file, up to a static field or a GC root: `static X.y > X.rows` holds so many
+  MB of `byte[] < String.value < Row.json < Object[] < ArrayList.elementData`. A chain of same-class links
+  (`Node.next`, `Message.next`) is written once with its length; a list longer than the passes (18) is reported with
+  its node class and what the nodes carry, not its owner.
+- What leaves the phone: class names, field names, counts and sizes. The reader decodes no value: field data is only
+  probed at reference offsets, array and string contents are skipped by length. The raw dump holds the wallet's keys;
+  it is under `cache/heapmap_8866/`, deleted in a `finally` and again at every app start.
+- What it costs: every thread of the app stops while the runtime writes the heap (seconds to tens of seconds at
+  500 MB), then one thread reads the file for a minute or two. It needs free disk of 1.5 x the heap limit + 128 MB and
+  refuses by name without it.
+- Checked: against a real JVM heap dump with known holders (a 38.1 MB list of byte arrays read as 38.2 MB under
+  `static Holder.rows`; a map of 50,000 `long[64]` as 29.5 MB under its static field; a 7.6 MB thread local as
+  `ROOT JAVA_FRAME`; two 30,000-200,000 node linked lists reported unresolved, by node class); a synthetic ART-format dump in the unit test
+  (values planted in arrays and fields do not appear in the text; an unknown record or a cut file stops it by name);
+  and on the CI emulator's real ART dump (device check `heap_map`: read to the end, layouts understood, holders traced,
+  raw dump gone).
