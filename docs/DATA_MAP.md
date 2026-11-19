@@ -1403,3 +1403,21 @@ because of the LLM.
 
 **Proof to read.** `llm8875[...]`: each lane's bands with n, mean and runner share; a `*` marks a band that admits, and
 `carried{...}` counts the coins it carried. Every export from 8875 on carries `llmP`, so the analyst can be graded offline.
+
+## 65. Where the evidence coins go (8876)
+
+**Plan W10 (trace and report).** Owner: "there is no guessing". 8723-8875 give a coin admitting evidence when a record it
+sits in has proven to pay (a paying cell, the launch sniper's rule, a proven pattern, the runner model, the Lab, the
+agreement pocket, the LLM's band). The LIVE report could say how many coins carried each (`carried{...}`) and what the
+admission said of paying-cell coins (`payCell8732`), but not where any of them stopped after the admission.
+
+**Changed.** `DecisionEpisode8535` (the per-candidate join of native score, admission, FDG and chain stages) records the
+evidence kind the admission carried (`CandidateAdmission8136` passes `marketCell8723?.kind`) and counts each kind once per
+candidate at every step its coins reach: COINS, the admission's terminal (ADMIT / REFUSE / DEFER_DATA ...), FDG_ALLOW /
+FDG_BLOCK, then OWNER / INTENT / TICKET / EXEC / CLOSE from `OwnershipChain8364`, with the reasons of refusals and blocks.
+The brief carries `evidenceFunnel8876[KIND{COINS=.. ADMIT=.. FDG_ALLOW=.. TICKET=.. EXEC=.. why{..}} ...]`.
+
+**Not changed.** Counted, never acted on: no decision reads it.
+
+**Proof to read.** For each evidence kind, the step where COINS falls away and the commonest reason there: that is the
+next door to examine on its own graded record.

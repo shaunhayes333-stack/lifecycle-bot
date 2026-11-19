@@ -1894,7 +1894,8 @@ object CandidateAdmission8136 {
             if (!FdgGate8365.shadowOnly8393()) {
                 noteDecision8144(ts.mint, candidate.lane, candidate, it, version, mode, nowMs, evidenceRevision8870)
                 // V5.0.8535 §P2-01 — the admission's terminal joins the candidate's decision episode with its trace hash.
-                try { com.lifecyclebot.engine.DecisionEpisode8535.noteAdmission8535(candidate.lane, ts.mint, version, it.terminal.name, it.reason, it.chosenSetup, it.trace, nowMs) } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.DecisionEpisode8535.noteAdmission8535(candidate.lane, ts.mint, version, it.terminal.name, it.reason, it.chosenSetup, it.trace, nowMs,
+                    evidence8876 = candidate.marketCell8723?.kind.orEmpty()) } catch (_: Throwable) {}   // V5.0.8876 — the evidence funnel
             }
             // V5.0.8544 — a LIVE meme candidate is also decided the PAPER way for the separate paper book beside live
             // V5.0.8618 — the tuning report files the paper close under what LIVE decided on this same candidate.

@@ -267,7 +267,8 @@ class Aate8535StrategyAuthorityTest {
         assertTrue(oc.contains("DecisionEpisode8535.noteFdg8535(lane, mint, c.version, allow, reason, nowMs)"))
         assertTrue(oc.contains("DecisionEpisode8535.noteStage8535(lane, mint, c.version, step.name, nowMs)"))
         assertTrue("P1-16: the crypto desk's FDG refusal is counted by asset and reason", oc.contains("CRYPTO_FDG_REJECT_8535_\${mint.take(24)}_\${reasonKey8364(reason)}"))
-        assertTrue(File("src/main/kotlin/com/lifecyclebot/engine/truth/CandidateAdmission8136.kt").readText().contains("DecisionEpisode8535.noteAdmission8535(candidate.lane, ts.mint, version, it.terminal.name, it.reason, it.chosenSetup, it.trace, nowMs)"))
+        // superseded by V5.0.8876 — the same call also names the market-cell evidence the candidate carried (the evidence funnel)
+        assertTrue(File("src/main/kotlin/com/lifecyclebot/engine/truth/CandidateAdmission8136.kt").readText().contains("DecisionEpisode8535.noteAdmission8535(candidate.lane, ts.mint, version, it.terminal.name, it.reason, it.chosenSetup, it.trace, nowMs,\n                    evidence8876 = candidate.marketCell8723?.kind.orEmpty())"))
         assertTrue(File("src/main/kotlin/com/lifecyclebot/engine/SpecialistBrainBridge7542.kt").readText().contains("DecisionEpisode8535.noteNative8535(lane, s.mint, version, o.rawScore8535.toDouble()"))
         assertTrue(File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText().contains("DecisionEpisode8535.noteLabel8535(o.lane, o.mint, \"TERMINAL:\$why:\$cause8535\", nowMs)"))
         // P2-03: every published metric carries its tag
