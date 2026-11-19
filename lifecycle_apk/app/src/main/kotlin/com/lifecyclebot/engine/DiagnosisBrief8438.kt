@@ -207,6 +207,7 @@ object DiagnosisBrief8438 {
             sb.append("               ").append(paperFunnel8536()).append('\n')
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.EdgeModel8537.statusLine() } catch (_: Throwable) { "edge8537[read failed]" }).append('\n')  // V5.0.8537
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.NetworkTier8873.statusLine8873() } catch (_: Throwable) { "network8873[read failed]" }).append('\n')  // V5.0.8873
+            sb.append("               ").append(try { com.lifecyclebot.engine.truth.AgreementPocket8874.statusLine8874() } catch (_: Throwable) { "agreement8874[read failed]" }).append('\n')  // V5.0.8874
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.PocketLedger8610.statusLine8610() } catch (_: Throwable) { "pocket8610[read failed]" }).append('\n')  // V5.0.8610
             sb.append("               ").append(com.lifecyclebot.engine.cortex.Cortex7885.stackLine8539()).append('\n')  // V5.0.8539
         }

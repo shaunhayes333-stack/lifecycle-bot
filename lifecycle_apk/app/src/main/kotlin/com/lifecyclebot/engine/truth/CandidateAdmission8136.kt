@@ -1884,7 +1884,8 @@ object CandidateAdmission8136 {
         // Share the strategy rules while preserving the actual execution mode for freshness, costs and paper exploration.
         cached ?: (if (FdgGate8365.policyKey8393() == "OUTSIDE") coalescedDefer8144(ts.mint, candidate.lane, identity, version, mode, nowMs) else null) ?: LaneAuthority8577.apply8577(candidate,
             decide8136(candidate, ::verifiedRecordDoor8650),
-            if (candidate.live) LaneAuthority8577.memeEntryRefusal8626(ts, candidate.lane, candidate.stage, nowMs) else null,  // V5.0.8626
+            if (candidate.live) LaneAuthority8577.memeEntryRefusal8626(ts, candidate.lane, candidate.stage, nowMs,
+                pocket8874 = LaneAuthority8577.answersPriors8874(candidate.marketCell8723?.kind)) else null,  // V5.0.8626 / 8874
             launchPhase8609 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.features(ts, nowMs).launchPhase } catch (_: Throwable) { null },
             pocket8610 = if (candidate.live) PocketLedger8610.verdict8610(ts, candidate.lane, nowMs) else null)
             .let { PaperMirror8757.mirror8757(candidate, it, nowMs) }   // V5.0.8757 — owner: live MOONSHOT mirrors the paper book
@@ -1901,6 +1902,8 @@ object CandidateAdmission8136 {
             // V5.0.8725 — a coin in its lane's paying cell is filed by what the live buy door says of it (measured, never bought on).
             if (mode == "LIVE" && candidate.marketCell8723 != null && !FdgGate8365.shadowOnly8393()) LpStateRecord8725.note8725(ts, nowMs)
             if (mode == "LIVE" && candidate.marketCell8723 != null && !FdgGate8365.shadowOnly8393()) LpStateRecord8725.noteAdmission8732(it.terminal.name, it.reason, it.trace)
+            // V5.0.8874 — and a coin that carried the agreement pocket is counted by what the admission decided of it
+            if (mode == "LIVE" && candidate.marketCell8723?.kind == AgreementPocket8874.KIND_8874 && !FdgGate8365.shadowOnly8393()) AgreementPocket8874.noteAdmission8874(it.terminal.name, it.reason)
             if (mode == "LIVE" && !FdgGate8365.shadowOnly8393()) try { MemePaperTrader8544.consider8544(ts, candidate, nowMs) } catch (_: Throwable) {}
             if (memos8153.size > 4_000) memos8153.entries.removeIf { e -> nowMs - e.value.atMs > MEMO_MS_8153 }
             rememberMemo8870(key, identity, it, nowMs, evidenceRevision8870)
@@ -2087,12 +2090,14 @@ object CandidateAdmission8136 {
         // V5.0.8324 — a runner lane's loss tests read its tail pond (the Cortex grade book: hold-window objective, raw while plausible).
         val pond8324 = if (com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane))
             (try { com.lifecyclebot.engine.cortex.Cortex7885.tailPond8324(lane) } catch (_: Throwable) { null }) else null
+        // V5.0.8874 — the edge model's verdict is read once: the candidate carries it, and the agreement pocket reads its forecast.
+        val edge8874 = EdgeModel8537.verdict(ts, lane, cost8153, nowMs)
         return Candidate8136(
             mint = ts.mint,
             lane = lane,
             selectedSetup = selected,
             firedSetups8528 = try { pb.matchedSetups8083(ts, lane, nowMs).filter(::triggered8535).toSet() } catch (_: Throwable) { emptySet() },
-            edge8537 = EdgeModel8537.verdict(ts, lane, cost8153, nowMs),  // V5.0.8537
+            edge8537 = edge8874,  // V5.0.8537 (read once above, V5.0.8874)
             liveEdge8114 = if (live8290) LiveEdgeGate7877.edge8114Live8538(ts, lane, nowMs) else null,  // V5.0.8538
             // V5.0.8748 — a coin the armed launch sniper fired on carries the replay rule's record as its market evidence
             // V5.0.8756 — then the graded smart-money signal (a proven wallet's / two converging wallets' buy, armed on its test record)
@@ -2101,7 +2106,9 @@ object CandidateAdmission8136 {
                 ?: com.lifecyclebot.engine.chart.ColourShape8807.evidence8807(ts.mint, nowMs)   // V5.0.8807 — a proven colour / candle / chart-shape pattern, armed on its own paper fires
                 ?: SmartMoney8756.evidence8756(ts.mint, nowMs)
                 ?: RunnerModel8861.evidence8861(ts.mint, nowMs)   // V5.0.8861 — the runner model's pick at the floor cross, armed on its forward record
-                ?: try { com.lifecyclebot.engine.lab.StrategyLab8755.evidence8755(ts, lane, nowMs) } catch (_: Throwable) { null },
+                ?: try { com.lifecyclebot.engine.lab.StrategyLab8755.evidence8755(ts, lane, nowMs) } catch (_: Throwable) { null }
+                // V5.0.8874 — then the lane's proven agreement pocket (the V3 score and the forecast agree on an off-pump.fun $5k-$20k coin)
+                ?: AgreementPocket8874.evidence8874(ts, lane, edge8874?.predPct, nowMs),
             regimeCold8546 = live8290 && MemePaperTrader8544.memeLane8544(lane) &&
                 (try { MemeRegime8546.regime8546(nowMs) == MemeRegime8546.Regime8546.COLD } catch (_: Throwable) { false }),
             regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "" },

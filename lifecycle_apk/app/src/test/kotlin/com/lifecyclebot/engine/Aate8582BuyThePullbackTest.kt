@@ -45,7 +45,8 @@ class Aate8582BuyThePullbackTest {
         assertTrue("hard safety still binds", LaneAuthority8577.binding8577("RUG_PREFILTER_HARD_FAIL"))
         val adm = File("src/main/kotlin/com/lifecyclebot/engine/truth/CandidateAdmission8136.kt").readText()
         // V5.0.8626 — the read is back in the live admission (paper's profit was stale lost marks), with the coin's stage.
-        assertTrue(adm.contains("if (candidate.live) LaneAuthority8577.memeEntryRefusal8626(ts, candidate.lane, candidate.stage, nowMs) else null"))
+        // superseded by V5.0.8874 — the same read, told when the candidate carries its lane's agreement pocket
+        assertTrue(adm.contains("if (candidate.live) LaneAuthority8577.memeEntryRefusal8626(ts, candidate.lane, candidate.stage, nowMs,\n                pocket8874 = LaneAuthority8577.answersPriors8874(candidate.marketCell8723?.kind)) else null"))
         assertTrue(LaneAuthority8577.binding8577(LaneAuthority8577.MEME_BUYS_THE_HIGH_8582))
         assertTrue(LaneAuthority8577.binding8577(LaneAuthority8577.LIVE_STAGE_LOSES_8626))
     }

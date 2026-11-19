@@ -72,6 +72,7 @@ object DatasetReplay8863 {
         { o -> PocketLedger8610.seedRow8863(o) },
         { o -> PayingCell8723.seedRow8863(o) },
         { o -> ManagedBands8719.seedRow8863(o) },
+        { o -> AgreementPocket8874.seedRow8863(o) },   // V5.0.8874 — the agreement pocket's per-lane records
     )
 
     /**
@@ -109,7 +110,7 @@ object DatasetReplay8863 {
     fun statusLine8863(): String =
         "datasetSeed8863[$state lines=${counts.lines} refusedUnparsed=${counts.refusedUnparsed} parsed=${counts.parsed} " +
             "accepted=${counts.accepted} ledgers=${sinks.size} reads=${attempts.get()} failed=${failures.get()} wallMs=$wallMs " +
-            "rule=one read of the labelled dataset seeds the pocket ledger, paying cells and managed bands; a row its own text refuses is not parsed]"
+            "rule=one read of the labelled dataset seeds the pocket ledger, paying cells, managed bands and the agreement pocket (8874); a row its own text refuses is not parsed]"
 
     internal fun resetForTest8863() {
         synchronized(gate) { done = false; counts.lines = 0L; counts.refusedUnparsed = 0L; counts.parsed = 0L; counts.accepted = 0L }

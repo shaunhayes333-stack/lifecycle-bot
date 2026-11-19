@@ -146,12 +146,14 @@ object LaneAuthority8577 {
         com.lifecyclebot.engine.cortex.LaneCheatSheet8323.key8323(lane) in RUNNER_LANES_8627 && launchAgeMs != null && launchAgeMs > RUNNER_MAX_AGE_MS_8627
 
     /** CandidateAdmission8136.assess8136 (LIVE): the refusal of a meme entry at the high or at a losing stage, else null. */
-    fun memeEntryRefusal8626(ts: com.lifecyclebot.data.TokenState, lane: String, stage: String?, nowMs: Long): String? {
+    fun memeEntryRefusal8626(ts: com.lifecyclebot.data.TokenState, lane: String, stage: String?, nowMs: Long, pocket8874: Boolean = false): String? {
         val first8724 = memeEntryState8696(ts, lane, stage, nowMs) ?: return null
         // V5.0.8723 / 8724 — the lane's own record of the coin's market cell (PayingCell8723) answers the lane-wide and broader
         // entry-state priors ([CELL_ANSWERS_8724]). The coin's own chart shapes and the losing record of the setup it trades
         // as are narrower evidence: they are read again and still refuse.
-        val why = if (first8724 in CELL_ANSWERS_8724 && (try { PayingCell8723.pays8723(ts, lane, nowMs) } catch (_: Throwable) { false })) {
+        // V5.0.8874 — a coin carrying its lane's proven agreement pocket ([pocket8874], [answersPriors8874]) answers the same
+        // priors: the same per-lane, per-label proof over a narrower group of coins than the lane-wide and origin-wide records.
+        val why = if (first8724 in CELL_ANSWERS_8724 && (pocket8874 || (try { PayingCell8723.pays8723(ts, lane, nowMs) } catch (_: Throwable) { false }))) {
             try { PipelineHealthCollector.labelInc("${first8724}_ANSWERED_BY_MARKET_CELL_8724") } catch (_: Throwable) {}
             narrowerRefusal8724(ts, lane.trim().uppercase(), nowMs) ?: return null
         } else first8724
@@ -161,6 +163,15 @@ object LaneAuthority8577 {
         try { PipelineHealthCollector.labelInc("${why}_BOUND_8696") } catch (_: Throwable) {}
         return why
     }
+
+    /**
+     * V5.0.8874 — the market-cell evidence kinds, besides a paying cell, that answer the same priors: a per-lane record proven
+     * on its own labels over a narrower group of coins than the lane-wide and origin-wide records.
+     */
+    private val PRIOR_ANSWERING_KINDS_8874: Set<String> = setOf(AgreementPocket8874.KIND_8874)
+
+    /** Pure (V5.0.8874): does market-cell evidence of [kind] answer the lane-wide entry-state priors? */
+    fun answersPriors8874(kind: String?): Boolean = kind != null && kind in PRIOR_ANSWERING_KINDS_8874
 
     /** The entry-state doors a lane's paying market cell answers: priors over more coins than the cell holds. */
     private val CELL_ANSWERS_8724: Set<String> get() = setOf(LIVE_ORIGIN_COHORT_LOSES_8703, MEME_BUYS_THE_HIGH_8582, LIVE_STAGE_UNREAD_8711, LIVE_STAGE_LOSES_8626)

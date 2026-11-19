@@ -242,7 +242,8 @@ class Aate8537EdgeModelTest {
         assertTrue(lab.contains("o.edge8537?.let { o.edge8537 = null; EdgeModel8537.learn(it, net, witness) }"))
         assertTrue(lab.contains("EdgeModel8537.saveNow()"))
         val adm = src("engine/truth/CandidateAdmission8136.kt")
-        assertTrue(adm.contains("edge8537 = EdgeModel8537.verdict(ts, lane, cost8153, nowMs),"))
+        // superseded by V5.0.8874 — the verdict is read once (the agreement pocket reads its forecast) and the candidate carries it
+        assertTrue(adm.contains("val edge8874 = EdgeModel8537.verdict(ts, lane, cost8153, nowMs)") && adm.contains("edge8537 = edge8874,"))
         assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("admission.reason == CandidateAdmission8136.EDGE_MODEL_PROVEN_8537"))
         assertTrue(src("engine/DiagnosisBrief8438.kt").contains("EdgeModel8537.statusLine()"))
         assertTrue(src("ui/ReportCopyDialog8198.kt").contains("EdgeModel8537.datasetFile()"))

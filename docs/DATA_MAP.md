@@ -1339,3 +1339,38 @@ the crypto spot paper backing (8788) would follow the live twin in 8873 moves to
 **Proof to read.** `runnerDoctrine8584[... ladder=+100%:25/+400%:18/+900%:25/+2900%:25/+9900%:25/+29900%:22-of-remainder
 (8873)`; `runnerFunnel8331` rung stages for T4-T6; `network8873[tiers{...} venues{...} origin{...}]` with UNREAD falling as
 DexPools fills; `launchReplay8744` DOCTRINE rows graded on the new ladder.
+
+## 63. Where the score and the forecast agree, a lane admits on its own record (8874)
+
+**Owner, 20 Nov.** "please finish out the full list of work from our document please and remember this has to boost
+profits and return to capturing runners". The plan's first admit path: V3 x forecast agreement.
+
+**Measured (the owner's edge datasets, 9-19 Nov, 178,113 labelled decisions after `EdgeModel8537.replayAccept8642`'s own
+rules).** Coins not minted on pump.fun, at a $5k-$20k cap, with a V3 score of 23+ and a forecast of +10 %+, one label per
+coin per lane per 15 minutes, gain kept to the pocket cap: 611 lane labels, +35.2 % net each. Per lane (mean, mean less two
+standard errors): MANIPULATED n81 +40.5 (+23.8), CORE n71 +44.3 (+24.9), EXPRESS n70 +34.6 (+16.3), MOONSHOT n68 +36.2
+(+17.3), SHITCOIN n66 +40.1 (+20.8), CYCLIC n58 +36.7 (+14.9), QUALITY n47 +26.4 (+3.6), BLUECHIP n45 +30.9 (+8.0),
+TREASURY n35 +23.2 (+2.7); both halves positive in each; CASHGEN and PROJECT_SNIPER not yet proven. One coin per day:
+positive on all ten days. The same rule on pump.fun mints: n47, +0.8 %. Almost all of these coins are under five minutes
+old. About three in four already sat in a proven `PayingCell8723` cell when decided; the other quarter (141 lane labels,
++31.4 %) carried no admitting evidence.
+
+**Changed.**
+- `AgreementPocket8874`: PayingCell8723's machinery on that pocket. One record per lane (8724: a lane is authorised only by
+  its own labels, horizon and cost), decay 0.995 a label, net as printed with no stop assumed, proven at 30+ labels with
+  the mean above zero by two standard errors. Seeded by the one dataset read (`DatasetReplay8863`, a fourth sink) and filed
+  from every live label after the edge model's own learning rules (`EdgeModel8537.learn`).
+- `CandidateAdmission8136`: the edge verdict is read once (`edge8874`) and carried; the pocket is the LAST link of the
+  market-cell chain, so every earlier source keeps its precedence. A proven lane's pocket is market-cell evidence with a
+  paying cell's standing: it answers the generic unobserved-flow / unread-stage waits and the lane-wide priors
+  (`LaneAuthority8577.memeEntryRefusal8626(..., pocket8874)` reads it like `PayingCell8723.pays8723`; the kinds that may are
+  listed once, `LaneAuthority8577.answersPriors8874`), and the narrower refusals (the coin's own avoid shapes, the losing
+  record of its setup) are read again.
+- LIVE: what the admission decided of each coin that carried the pocket is counted (`liveAdmission{...}`), never acted on.
+- The brief carries `agreement8874[...]`.
+
+**Not changed.** Hard safety, structure, sellability, the LP-lock rule, balance, executable economics, the FDG and every
+later door. Sizing is the lane's own. No refusal was added.
+
+**Proof to read.** `agreement8874[ready=true lanes{MOONSHOT=n../+..%/run..%* ...} carried{...} liveAdmission{...}]`: which
+lanes are proven on the device's own data, how many coins carried it, and what the admission said of them in LIVE.

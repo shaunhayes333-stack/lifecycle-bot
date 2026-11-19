@@ -153,7 +153,8 @@ class Aate8577LaneAuthorityTest {
     @Test fun the_runtime_applies_it_at_the_admission_and_the_gate_and_the_doors_keep_learning() {
         val adm = File("src/main/kotlin/com/lifecyclebot/engine/truth/CandidateAdmission8136.kt").readText()
         // V5.0.8650 — the source retains the single judgment, including its measured candidate-local negatives.
-        assertTrue(adm.contains("LaneAuthority8577.apply8577(candidate,\n            decide8136(candidate, ::verifiedRecordDoor8650),\n            if (candidate.live) LaneAuthority8577.memeEntryRefusal8626(ts, candidate.lane, candidate.stage, nowMs) else null,  // V5.0.8626\n            launchPhase8609 = "))
+        // superseded by V5.0.8874 — the lane-authority read is told when the candidate carries its lane's agreement pocket.
+        assertTrue(adm.contains("LaneAuthority8577.apply8577(candidate,\n            decide8136(candidate, ::verifiedRecordDoor8650),\n            if (candidate.live) LaneAuthority8577.memeEntryRefusal8626(ts, candidate.lane, candidate.stage, nowMs,\n                pocket8874 = LaneAuthority8577.answersPriors8874(candidate.marketCell8723?.kind)) else null,  // V5.0.8626 / 8874\n            launchPhase8609 = "))
         val gate = File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveEdgeGate7877.kt").readText()
         val fn = gate.substringAfter("fun liveRefusal(").substringBefore("private fun unprovenLive8536(")
         assertTrue(fn.contains("val advisory8577 = !paper && LaneAuthority8577.advisoryAtGate8577(doors8577, admission8577)"))
