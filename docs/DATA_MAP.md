@@ -1169,3 +1169,46 @@ its first 90 lines under `HEAP MAP (§8866)`.
   CORE similar), so every lane's positive authority is 0 by coverage. Not explained from this report.
 - Launch hour export: 2 % of rows carry an hour result (MOONSHOT admitted 592 of 25,332), so its means are a survivor
   sample.
+
+## 59. A forecast judged at its own strength (8868)
+
+**Measured.** Owner's edge-dataset export of 19 Nov (`edge_dataset_8537`, model epoch 8801, deciding model `MIND8842`,
+filled rows, 15-minute labels). Outcome in the model's managed unit (stop at the row's own cost, clipped at +200 % as the
+refusal record is), grouped by the forecast frozen when the coin was decided:
+
+| lane | all | picks >= +1 % (the old authority) | >= +5 % | >= +10 % | >= +15 % |
+|---|---|---|---|---|---|
+| MOONSHOT | -6.9 % | n345 -1.7 +/- 2.3 | n164 +5.1 +/- 3.7 | n84 +11.8 +/- 5.8 | n44 +13.5 +/- 6.6 |
+| EXPRESS | -8.9 % | n260 +1.6 +/- 2.8 | n121 +8.6 +/- 4.8 | n63 +20.9 +/- 7.7 | n36 +20.8 +/- 9.5 |
+| SHITCOIN | -8.1 % | n360 +1.7 +/- 3.0 | n175 +6.2 +/- 4.0 | n78 +13.6 +/- 7.0 | n51 +18.5 +/- 8.0 |
+| CORE | -7.0 % | n367 +0.2 +/- 2.2 | n172 +4.4 +/- 3.8 | n69 +21.3 +/- 6.7 | n42 +31.8 +/- 7.9 |
+| QUALITY | -7.8 % | n261 -2.9 +/- 2.4 | n110 +2.6 +/- 4.7 | n47 +10.7 +/- 8.4 | n28 |
+| BLUECHIP | -7.4 % | n225 -1.5 +/- 2.4 | n101 +4.1 +/- 4.4 | n37 +6.3 +/- 7.6 | n22 |
+| PROJECT_SNIPER | -12.9 % | n101 -11.1 | n56 -11.4 | n36 -12.3 | n23 -19.7 |
+
+- A lane's forecast had authority only when all its picks from +1 % were proven (n >= 30, mean - SE > 0, above the lane's
+  average). Marginal +1 to +5 % calls diluted that pool, so none of the five main lanes could act on a +25 % forecast.
+- Between 14:51 and 15:22 the model forecast twelve coins at +17 to +44 %; every one paid (+6.8 to +120 %); live bought
+  none.
+- The model's call was read at admission step 6, after the flow / stage entry wait, the falling-hour defer and the
+  unknown-move data wait, each of which parks a coin before its proven call is seen.
+
+**What 8868 does.**
+
+| Before | Now |
+|---|---|
+| one out-of-sample record per lane and model: the picks from +1 % | also one record per conviction tier (+5 / +10 / +15 / +20 %), same unit, same +200 % clip, same bar; a forecast in a tier that has earned it is a POSITIVE call, read at the highest such tier it reached (`convictionTier8868`) |
+| — | the tiers persist as block 8868 of `edge_model_8722.bin`; a file written before them seeds them once from the dataset's own rows (`tierSeedRow8868`: accepted for learning, this model epoch, frozen forecast), status `convSeed8868=` |
+| a proven call was parked by `FLOW_UNOBSERVED` / `STAGE_UNRESOLVED` (a read the bot could not take) | it answers that read as the lane specialist does (`edgeModelProven8868`, `overriddenBy=EDGE_MODEL_8868`); an observed wait (dumping, rug-prone, no trigger) still meets its door |
+| with both moves unknown a proven call waited for economics | the call's proven lower bound is the move (`grossFromEdgeModelLower8868`, as 8171 does for a setup record); a known current move still wins (8846), and economics judges the bound as any move |
+| — | an unproven falling hour gives way to that move; a proven-losing falling hour still refuses |
+
+Unchanged: safety, structure, regime, stale price, every critical fact, execution economics, every learned-loss refusal,
+the realised-loss governor, the model's own negative call and the 8865 forecast-loss ladder. Status line per lane:
+`conv8868=5:n…/10:n…/15:n…/20:n…`, a tier with authority marked `*`.
+
+**Not changed, and open.**
+
+- Coins lost at QUALIFIED before admission (`IDLE_TTL`; 8864 report MOONSHOT 285, SHITCOIN 112 with no terminal) never
+  reach this decision.
+- BLUECHIP and the crypto lanes have no tier that pays yet; PROJECT_SNIPER's forecasts lose at every strength.

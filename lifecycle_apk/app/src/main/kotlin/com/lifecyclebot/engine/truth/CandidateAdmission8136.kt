@@ -525,6 +525,13 @@ object CandidateAdmission8136 {
                 nativePhaseWitness8528 = t == Terminal8136.ADMIT && setup == c.selectedSetup && nativePhaseWitness8528(c),
                 strategyClockWitness8535 = t == Terminal8136.ADMIT && setup == c.selectedSetup && strategyClockWitness8535(c))
 
+        // V5.0.8868 §A_PROVEN_FORECAST_IS_NOT_PARKED_ON_AN_OPTIONAL_READ — the learned model's proven call (its lane's
+        // picks, or since 8868 the conviction tier the forecast sits in) is candidate-specific evidence. It was read only at
+        // step 6, after the flow / stage wait, the falling-hour defer and the unknown-move data wait had parked the coin: on
+        // the owner's 19 Nov dataset twelve coins forecast at +17 to +44 % between 14:51 and 15:22 each paid (+6.8 to +120 %)
+        // and live bought none. Safety, structure, stale price, every critical fact, economics and every refusal still bind.
+        val edgePick8868 = EdgeModel8537.callOf(c.edge8537) == EdgeModel8537.Call.POSITIVE
+
         // 1. hard safety and structural selling risk: nothing overrides them.
         c.safetyRefusal?.let { trace += "safety=$it"; return done(Terminal8136.REFUSE, "SAFETY_REFUSED_8136", true, c.selectedSetup) }
         // V5.0.8546 — the regime master switch: in a COLD meme market (MemeRegime8546) LIVE opens nothing new. A door: its
@@ -609,12 +616,13 @@ object CandidateAdmission8136 {
             // per-coin tape is denied) no longer parks a coin its own lane brain has qualified: the read is optional for it.
             val specialist8539 = specialistQualified8539(c)
             if (missing != null && !fastTrack8520 && bestSetup == null && !carried8723) {
-                if (!specialist8539) {
+                if (!specialist8539 && !edgePick8868) {
                 trace += "entryWait8506=$wait"
                 trace += "missing=$missing"
                 return done(Terminal8136.DEFER_DATA, "DATA_INCOMPLETE_DEFER_8136", false, c.selectedSetup)
                 }
-                trace += "specialistQualified8539 optionalFlow=$missing"
+                if (specialist8539) trace += "specialistQualified8539 optionalFlow=$missing"
+                else trace += "edgeModelProven8868 optionalFlow=$missing"
             }
             if (missing != null && fastTrack8520) trace += "fastTrack8520=$wait executedTapeObserved; optionalStage=$missing"
             else if (missing != null) trace += "supportedSetup8521=${bestSetup?.id} optionalStage=$missing"
@@ -629,7 +637,10 @@ object CandidateAdmission8136 {
             // no-match (NO_PHASE_TRIGGER): 8538 run CASHGEN native 53/100 Y refused ENTRY_NO_PHASE_TRIGGER_8506 x308.
             val specialistAnswers8539 = specialist8539 && (missing != null || wait == "NO_PHASE_TRIGGER")
             if (specialistAnswers8539 && missing == null) trace += "specialistQualified8539 ownTrigger=${c.nativeSetup8213 ?: c.lane}"
-            if (!fastTrack8520 && !specialistAnswers8539 && !(paperExplore8539 && wait != "RUG_PRONE")) {
+            // V5.0.8868 — the model's proven call answers the same unobservable flow / stage read (a read the bot could not
+            // take, not an observation of the coin); an observed wait (dumping, rug-prone, no trigger) still meets its door.
+            val edgeAnswers8868 = edgePick8868 && missing != null
+            if (!fastTrack8520 && !specialistAnswers8539 && !edgeAnswers8868 && !(paperExplore8539 && wait != "RUG_PRONE")) {
                 // The original 8511 binding door remains unchanged for ordinary candidates.
                 if (supported8511 == null && !(carried8723 && wait != "RUG_PRONE") && !nativePhase8528 && !strategyClock8535 && doorBinds8393("ENTRY_${wait}_8506"))
                     return done(Terminal8136.REFUSE, "ENTRY_${wait}_8506", true, c.selectedSetup)
@@ -638,6 +649,7 @@ object CandidateAdmission8136 {
                 else if (supported8511 != null) "entryWait8506=$wait overriddenBy=${supported8511.id}"
                 else if (nativePhase8528) "entryWait8506=$wait observedSetup8528=${c.selectedSetup} nativeOpinionNotProvenEdge"
                 else if (strategyClock8535) "entryWait8506=$wait ownClock8535=${c.selectedSetup} nativeOpinionNotProvenEdge"
+                else if (edgeAnswers8868 && !specialistAnswers8539) "entryWait8506=$wait overriddenBy=EDGE_MODEL_8868"
                 else "entryWait8506=$wait doorAdvisory"
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
                 (if (supported8511 != null) "ENTRY_WAIT_SUPPORTED_SETUP_FALLTHROUGH_8511_" else "ENTRY_WAIT_DOOR_ADVISORY_8511_") + c.lane.uppercase()) } catch (_: Throwable) {}
@@ -791,6 +803,20 @@ object CandidateAdmission8136 {
             net = edge.lowerPct
             trace += "grossFromProvenNetLower8171=${fmt8136(edge.lowerPct)} cost=${fmt8136(c.costPct)}"
         }
+        // V5.0.8868 — the same fallback from the learned model's proven call when no setup record stands: both moves
+        // missing, the call POSITIVE, its record's lower bound above zero. A known current move still wins (8846 doctrine);
+        // the economics check below judges the proven bound exactly as it judges any move.
+        val modelLower8868 = EdgeModel8537.provenLower8868(c.edge8537)
+        var grossFromModel8868 = false
+        if (!decisionGross.isFinite() && !c.expectedGrossPct.isFinite() && edgePick8868 &&
+            modelLower8868.isFinite() && modelLower8868 > 0.0 && c.costPct.isFinite() && c.costPct >= 0.0) {
+            decisionGross = modelLower8868 + c.costPct
+            net = modelLower8868
+            grossFromModel8868 = true
+            trace += "grossFromEdgeModelLower8868=${fmt8136(modelLower8868)} cost=${fmt8136(c.costPct)} " +
+                "pred=${fmt8136(c.edge8537?.predPct ?: Double.NaN)} conviction=${fmt8136(c.edge8537?.conviction8868 ?: Double.NaN)}"
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EDGE_MODEL_GROSS_8868_${c.lane.uppercase()}") } catch (_: Throwable) {}
+        }
 
         // V5.0.8418 — the selected setup's move is NaN because its momentum lane's hour is FALLING and nothing supports a
         //    bounce: that is the coin's own observation, refused here by name. 8416: MOONSHOT DATA_INCOMPLETE_DEFER 6,682 — a
@@ -799,17 +825,23 @@ object CandidateAdmission8136 {
         // V5.0.8418 (phone run: 403 MOONSHOT refusals) — the refusal now needs its own evidence: the lane's falling-hour
         //    record proven losing after cost (FallingHourCohort8418). Unproven, the candidate DEFERS on the hour reading and
         //    is re-judged when the hour turns (the hour is part of its identity, so a held defer is not reused across it).
-        if (!decisionGross.isFinite() && moveWaitChosen8418 == NetEdge8030.MOVE_WAIT_FALLING_8418 && !paperExplore8539) {
+        // V5.0.8868 — a move supplied by the model's proven call still meets the falling hour's own proven-losing refusal;
+        //    only the unproven hour's wait (a defer, not evidence) gives way to it.
+        if ((!decisionGross.isFinite() || grossFromModel8868) && moveWaitChosen8418 == NetEdge8030.MOVE_WAIT_FALLING_8418 && !paperExplore8539) {
             val proof8418 = c.fallingHourProof8418
             if (FallingHourCohort8418.provenLosing8418(proof8418) && !probe8429(c, trace, FALLING_HOUR_PROVEN_LOSING_8418)) {
                 trace += "fallingHour8418 setup=${chosen ?: "-"} noSupportedStrategy provenLosing=${proof8418?.compact} cost=${fmt8136(c.costPct)}"
                 FallingHourCohort8418.noteDecision8418(c.lane, refused = true)
                 return done(Terminal8136.REFUSE, FALLING_HOUR_PROVEN_LOSING_8418, true, chosen)
             }
+            if (grossFromModel8868) {
+                trace += "fallingHour8418 setup=${chosen ?: "-"} unproven=${proof8418?.compact ?: "n0"} edgeModelProven8868"
+            } else {
             trace += "fallingHour8418 setup=${chosen ?: "-"} noSupportedStrategy unproven=${proof8418?.compact ?: "n0"} deferUntilHourTurns"
             trace += "missing=$FALLING_HOUR_WAIT_8418,economics"
             FallingHourCohort8418.noteDecision8418(c.lane, refused = false)
             return done(Terminal8136.DEFER_DATA, FALLING_HOUR_DEFER_8418, false, chosen)
+            }
         }
 
         // 4. execution economics: the expected executable move must clear NetEdge8030.EDGE_MULT x the round trip.
@@ -1047,7 +1079,8 @@ object CandidateAdmission8136 {
     internal fun edgeModelRefusal8537(c: Candidate8136, edge: Evidence8136?, trace: MutableList<String>): String? {
         val v = c.edge8537 ?: return null
         val call = EdgeModel8537.callOf(v)
-        trace += "edge8537=${fmt8136(v.predPct)} model=${v.modelKey} oos=n${v.oosSelN}/${fmt8136(v.oosSelMeanPct)} call=$call"
+        trace += "edge8537=${fmt8136(v.predPct)} model=${v.modelKey} oos=n${v.oosSelN}/${fmt8136(v.oosSelMeanPct)} call=$call" +
+            (if (v.conviction8868.isFinite()) " conviction8868=+${v.conviction8868.toInt()}%/lower=${fmt8136(v.convictionLower8868)}" else "")
         if (call != EdgeModel8537.Call.NEGATIVE) {
             return if (v.predPct.isFinite() && v.predPct < 0.0) unearnedForecastLoss8865(c, v, edge, trace) else null
         }

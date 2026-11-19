@@ -82,7 +82,8 @@ class Aate8865ForecastLossLadderTest {
         assertNull(TrajectoryVerdict8855.forecastLossPays8865("QUALITY", "BASE_START"))
         val em = src("engine/truth/EdgeModel8537.kt")
         assertTrue(em.contains("val stagePays8865 = try { TrajectoryVerdict8855.forecastLossPays8865(raw.lane, stage8865) } catch (_: Throwable) { null }"))
-        assertTrue(em.contains("lossPays8865 = p.isFinite() && (stagePays8865 ?: (o != null && forecastLossPays8865(o.refN, o.refMean, o.refSe))))"))
+        // superseded by V5.0.8868 — the verdict goes on to the conviction tier, so the line ends in a comma
+        assertTrue(em.contains("lossPays8865 = p.isFinite() && (stagePays8865 ?: (o != null && forecastLossPays8865(o.refN, o.refMean, o.refSe))),"))
     }
 
     @Test fun theStrongestEvidenceDecidesHowAnUnearnedForecastLossProceeds() {

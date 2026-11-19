@@ -301,6 +301,9 @@ object EdgeModel8537 {
         // V5.0.8715 — the refusal record: what the coins it predicted to lose ([refN]) and the rest ([keepN]) went on to do.
         var refN = 0; var refSum = 0.0; var refSq = 0.0
         var keepN = 0; var keepSum = 0.0; var keepSq = 0.0   // V5.0.8750 keepSq: the kept cohort's own spread
+        // V5.0.8868 — the picks at each conviction tier ([CONVICTION_TIERS_8868]), outcome clipped as the refusal record's is
+        val tierN = IntArray(CONVICTION_TIERS_8868.size); val tierSum = DoubleArray(CONVICTION_TIERS_8868.size)
+        val tierSq = DoubleArray(CONVICTION_TIERS_8868.size)
         /** [pred] and [net] in the model's unit since 8722: the net % the lane banks ([managedTarget8722]). */
         fun add(pred: Double, net: Double) {
             allN++; allSum += net
@@ -309,7 +312,19 @@ object EdgeModel8537 {
             // the outcome is clipped as the model's own target is, so one runner cannot acquit a cohort
             val clipped = net.coerceIn(-100.0, REFUSAL_CLIP_PCT_8715)
             if (pred < 0.0) { refN++; refSum += clipped; refSq += clipped * clipped } else { keepN++; keepSum += clipped; keepSq += clipped * clipped }
+            addTier8868(pred, net)
         }
+        /** V5.0.8868 — one outcome into every conviction tier its frozen prediction reached. */
+        fun addTier8868(pred: Double, net: Double) {
+            if (!pred.isFinite() || !net.isFinite()) return
+            val clipped = net.coerceIn(-100.0, REFUSAL_CLIP_PCT_8715)
+            for (i in CONVICTION_TIERS_8868.indices) if (pred >= CONVICTION_TIERS_8868[i]) {
+                tierN[i]++; tierSum[i] += clipped; tierSq[i] += clipped * clipped
+            }
+        }
+        fun tierMean8868(i: Int): Double = if (tierN[i] > 0) tierSum[i] / tierN[i] else Double.NaN
+        fun tierSe8868(i: Int): Double = if (tierN[i] > 1)
+            kotlin.math.sqrt(((tierSq[i] / tierN[i]) - tierMean8868(i).let { it * it }).coerceAtLeast(0.0) / tierN[i]) else Double.POSITIVE_INFINITY
         val refMean: Double get() = if (refN > 0) refSum / refN else Double.NaN
         val refSe: Double get() = if (refN > 1) kotlin.math.sqrt(((refSq / refN) - refMean * refMean).coerceAtLeast(0.0) / refN) else Double.POSITIVE_INFINITY
         val keepMean: Double get() = if (keepN > 0) keepSum / keepN else Double.NaN
@@ -318,6 +333,45 @@ object EdgeModel8537 {
         val selSe: Double get() = if (selN > 1) kotlin.math.sqrt(((selSq / selN) - selMean * selMean).coerceAtLeast(0.0) / selN) else Double.POSITIVE_INFINITY
         val allMean: Double get() = if (allN > 0) allSum / allN else Double.NaN
         val negMean: Double get() = if (negN > 0) negSum / negN else Double.NaN
+    }
+
+    // ── V5.0.8868 §A_CALL_IS_JUDGED_AT_ITS_OWN_STRENGTH ──
+    // Owner's dataset export of 19 Nov (model epoch 8801, deciding model MIND8842, filled rows, managed unit with the stop
+    // at each row's own cost, outcome clipped at +200 % as the refusal record is), by the forecast frozen at the decision:
+    //   lane      all     picks >= +1 %      >= +5 %            >= +10 %           >= +15 %
+    //   MOONSHOT  -6.9 %  n345 -1.7 +/- 2.3  n164 +5.1 +/- 3.7  n84 +11.8 +/- 5.8  n44 +13.5 +/- 6.6
+    //   EXPRESS   -8.9 %  n260 +1.6 +/- 2.8  n121 +8.6 +/- 4.8  n63 +20.9 +/- 7.7  n36 +20.8 +/- 9.5
+    //   SHITCOIN  -8.1 %  n360 +1.7 +/- 3.0  n175 +6.2 +/- 4.0  n78 +13.6 +/- 7.0  n51 +18.5 +/- 8.0
+    //   CORE      -7.0 %  n367 +0.2 +/- 2.2  n172 +4.4 +/- 3.8  n69 +21.3 +/- 6.7  n42 +31.8 +/- 7.9
+    //   QUALITY   -7.8 %  n261 -2.9 +/- 2.4  n110 +2.6 +/- 4.7  n47 +10.7 +/- 8.4  n28
+    //   PROJECT_SNIPER -12.9 %  n101 -11.1  n56 -11.4  n36 -12.3  (no tier pays: none earns)
+    // A lane's authority was judged only on all its picks from +1 %, so none of the five main lanes could act on a +25 %
+    // forecast. Between 14:51 and 15:22 the model forecast twelve coins at +17 to +44 %; every one paid (+6.8 to +120 %)
+    // and live bought none.
+    //
+    // The out-of-sample record is now also kept per conviction tier (the picks whose frozen forecast reached +5 / +10 / +15
+    // / +20 %), in the model's own unit and clipped as the refusal record is, so one runner cannot carry a tier. A forecast
+    // inside a tier that has earned the same bar as the lane's picks (30+, mean - SE > 0, above the lane's average) is a
+    // proven call, read at the highest such tier it reached (the narrowest proven record that holds it). The grid is where
+    // the record is read; which tier binds, and in which lane, is the device's own outcomes.
+    val CONVICTION_TIERS_8868 = doubleArrayOf(5.0, 10.0, 15.0, 20.0)
+    private const val CONVICTION_BLOCK_8868 = 8868
+
+    /** Pure: the highest conviction tier at or below [pred] whose record has earned authority, or NaN. */
+    fun convictionTier8868(pred: Double, n: IntArray, mean: DoubleArray, se: DoubleArray, allMean: Double): Double {
+        if (!pred.isFinite()) return Double.NaN
+        var tier = Double.NaN
+        for (i in CONVICTION_TIERS_8868.indices) {
+            if (pred < CONVICTION_TIERS_8868[i]) break
+            if (i < n.size && authority(n[i], mean[i], se[i], allMean)) tier = CONVICTION_TIERS_8868[i]
+        }
+        return tier
+    }
+
+    /** Pure: the proven lower bound (mean - SE) of [tier]'s record, or NaN. */
+    fun convictionLower8868(tier: Double, mean: DoubleArray, se: DoubleArray): Double {
+        val i = CONVICTION_TIERS_8868.indexOfFirst { it == tier }
+        return if (i < 0 || i >= mean.size || !mean[i].isFinite() || !se[i].isFinite()) Double.NaN else mean[i] - se[i]
     }
 
     /** Pure: has an out-of-sample record earned authority? Picks paid after one SE and beat the lane's average. */
@@ -438,7 +492,11 @@ object EdgeModel8537 {
                        /** V5.0.8715 — the model's refusals have earned authority on their own record ([refusalAuthority8715]). */
                        val refuses8715: Boolean = false,
                        /** V5.0.8865 — the coins it forecast to lose here have paid on their own record ([forecastLossPays8865]). */
-                       val lossPays8865: Boolean = false)
+                       val lossPays8865: Boolean = false,
+                       /** V5.0.8868 — the conviction tier this forecast sits in that has earned authority (NaN = none). */
+                       val conviction8868: Double = Double.NaN,
+                       /** V5.0.8868 — that tier's proven lower bound (mean - SE), in the model's net %. */
+                       val convictionLower8868: Double = Double.NaN)
 
     private fun lane(l: String) = l.trim().uppercase()
 
@@ -632,6 +690,7 @@ object EdgeModel8537 {
         val stagePays8865 = try { TrajectoryVerdict8855.forecastLossPays8865(raw.lane, stage8865) } catch (_: Throwable) { null }
         synchronized(this) {
             val o = oos[recordKey(raw.lane, key)]
+            val tier8868 = tierOf8868(p, o)
             val trained = when (key) {
                 TreeRanker8737.KEY_8737 -> TreeRanker8737.trainedRows8737()
                 Mind8746.KEY_8746 -> TreeRanker8737.trainedRows8737()
@@ -644,9 +703,25 @@ object EdgeModel8537 {
                 // single-read label record decides only until it has (TrajectoryVerdict8855.authority8855)
                 refuses8715 = p.isFinite() && (stageAuthority8855 ?: (o != null && refusalAuthority8715(o.refN, o.refMean, o.refSe, o.keepN, o.keepMean, o.keepSe))),
                 // V5.0.8865 — the same record, the other question: have the coins forecast to lose there paid?
-                lossPays8865 = p.isFinite() && (stagePays8865 ?: (o != null && forecastLossPays8865(o.refN, o.refMean, o.refSe))))
+                lossPays8865 = p.isFinite() && (stagePays8865 ?: (o != null && forecastLossPays8865(o.refN, o.refMean, o.refSe))),
+                conviction8868 = tier8868,
+                convictionLower8868 = if (o == null || !tier8868.isFinite()) Double.NaN else
+                    convictionLower8868(tier8868, DoubleArray(o.tierN.size) { o.tierMean8868(it) }, DoubleArray(o.tierN.size) { o.tierSe8868(it) }))
         }
     } catch (_: Throwable) { null }
+
+    /**
+     * Pure (V5.0.8868): the proven lower bound (mean - SE, the model's managed net %) of the record that makes [v] a
+     * POSITIVE call — its conviction tier when that is what proves it, else the lane's picks — or NaN when it is not one.
+     */
+    fun provenLower8868(v: Verdict?): Double {
+        if (v == null || callOf(v) != Call.POSITIVE) return Double.NaN
+        if (v.conviction8868.isFinite() && v.predPct >= v.conviction8868 && v.convictionLower8868.isFinite()) return v.convictionLower8868
+        return if (v.oosSelMeanPct.isFinite() && v.oosSelSePct.isFinite()) v.oosSelMeanPct - v.oosSelSePct else Double.NaN
+    }
+
+    private fun tierOf8868(p: Double, o: Oos?): Double = if (o == null) Double.NaN else
+        convictionTier8868(p, o.tierN, DoubleArray(o.tierN.size) { o.tierMean8868(it) }, DoubleArray(o.tierN.size) { o.tierSe8868(it) }, o.allMean)
 
     /** Pure: the decision a verdict supports — NEGATIVE refuses, POSITIVE is proven evidence, NONE decides nothing. */
     enum class Call { NEGATIVE, POSITIVE, NONE }
@@ -654,6 +729,8 @@ object EdgeModel8537 {
         v == null || !v.predPct.isFinite() -> Call.NONE
         v.predPct < 0.0 && (v.authority || v.refuses8715) -> Call.NEGATIVE
         v.authority && v.predPct >= MIN_EDGE_PCT -> Call.POSITIVE
+        // V5.0.8868 — or the forecast sits in a conviction tier that has earned the same bar on its own record
+        v.conviction8868.isFinite() && v.predPct >= v.conviction8868 -> Call.POSITIVE
         else -> Call.NONE
     }
 
@@ -678,9 +755,11 @@ object EdgeModel8537 {
                     val (seen, used) = com.lifecyclebot.engine.JobCost8813.measureBackground8817("edgeReplay") { replayDataset8642(File(f.parentFile, DATASET_FILE)) }
                     replayStatus8642 = "rebuilt:$used/$seen"
                     try { PipelineHealthCollector.labelInc("EDGE_MODEL_REPLAY_VERIFIED_8642") } catch (_: Throwable) {}
+                } else if (!conviction8868Loaded) {
+                    com.lifecyclebot.engine.JobCost8813.measureBackground8817("edgeConvictionSeed") { seedConviction8868(File(f.parentFile, DATASET_FILE)) }
                 }
                 loaded = true
-                if (!current) saveNow()
+                if (!current || convictionSeed8868.startsWith("seeded")) saveNow()
             } catch (_: Throwable) {
                 clearModel8642(); loaded = true; replayStatus8642 = "failed-cold"
                 try { PipelineHealthCollector.labelInc("EDGE_MODEL_LOAD_FAILED_8537") } catch (_: Throwable) {}
@@ -887,7 +966,63 @@ object EdgeModel8537 {
             }
         } catch (_: java.io.EOFException) {}
         if (!spread8750) for (o in oos.values) { o.keepN = 0; o.keepSum = 0.0; o.keepSq = 0.0 }
+        // V5.0.8868 — the conviction tiers; a file written before them is seeded from the dataset's frozen forecasts
+        conviction8868Loaded = false
+        try {
+            if (i.readInt() == CONVICTION_BLOCK_8868) {
+                val tiers = i.readInt()
+                repeat(i.readInt()) {
+                    val l = i.readUTF(); val o = oos[l]
+                    for (t in 0 until tiers) {
+                        val n = i.readInt(); val sum = i.readDouble(); val sq = i.readDouble()
+                        if (o != null && t < o.tierN.size) { o.tierN[t] = n; o.tierSum[t] = sum; o.tierSq[t] = sq }
+                    }
+                }
+                conviction8868Loaded = tiers == CONVICTION_TIERS_8868.size
+            }
+        } catch (_: java.io.EOFException) {}
         return true
+    }
+
+    @Volatile private var conviction8868Loaded = true
+    @Volatile private var convictionSeed8868 = "-"
+
+    /**
+     * Pure (V5.0.8868): one dataset row as a tier outcome for the record key it was forecast under — (key, frozen forecast,
+     * outcome in the model's unit) — or null: not accepted for learning, another model epoch, no frozen forecast.
+     */
+    internal fun tierSeedRow8868(o: org.json.JSONObject): Triple<String, Double, Double>? {
+        if (!replayAccept8642(o)) return null
+        if (o.optInt("modelEpoch", 0) != MODEL_EPOCH_8642) return null
+        val model = o.optString("model").trim()
+        val pred = o.optDouble("pred", Double.NaN)
+        val net = o.optDouble("net", Double.NaN)
+        val lane = o.optString("lane").trim().uppercase()
+        if (model.isEmpty() || lane.isEmpty() || !pred.isFinite() || !net.isFinite()) return null
+        return Triple(recordKey(lane, model), pred, managedTarget8722(lane, net, o.optDouble("cost", Double.NaN)))
+    }
+
+    /**
+     * V5.0.8868 — a model file from before the tiers starts them from the dataset: every accepted row of this model epoch
+     * since the learning line, its forecast frozen when it was decided and its outcome observed after. Those are the same
+     * pairs the live record adds (out of sample by construction); only the tiers are filled, the picks and refusal records
+     * already hold them.
+     */
+    private fun seedConviction8868(file: File) {
+        // a block from another tier grid was read only in part: the seed rebuilds every tier from nothing
+        for (o in oos.values) { o.tierN.fill(0); o.tierSum.fill(0.0); o.tierSq.fill(0.0) }
+        if (!file.isFile) { convictionSeed8868 = "no-dataset"; return }
+        var used = 0
+        val seen = streamLatestDatasetRows8844(file) row@{ line ->
+            try {
+                if (refusedUnparsed8863(line)) return@row
+                val r = tierSeedRow8868(org.json.JSONObject(line)) ?: return@row
+                oos.getOrPut(r.first) { Oos() }.addTier8868(r.second, r.third)
+                used++
+            } catch (_: Throwable) {}
+        }
+        convictionSeed8868 = "seeded:$used/$seen"
+        try { PipelineHealthCollector.labelInc("EDGE_CONVICTION_SEEDED_8868") } catch (_: Throwable) {}
     }
 
     private fun saveAsync() { io.execute { saveNow() } }
@@ -912,6 +1047,12 @@ object EdgeModel8537 {
                         o.writeUTF(l); o.writeInt(s.refN); o.writeDouble(s.refSum); o.writeDouble(s.refSq); o.writeInt(s.keepN); o.writeDouble(s.keepSum)
                     }
                     o.writeInt(KEEP_SPREAD_BLOCK_8750); o.writeInt(oos.size); for ((l, s) in oos) { o.writeUTF(l); o.writeDouble(s.keepSq) }
+                    // V5.0.8868 — the conviction tiers
+                    o.writeInt(CONVICTION_BLOCK_8868); o.writeInt(CONVICTION_TIERS_8868.size); o.writeInt(oos.size)
+                    for ((l, s) in oos) {
+                        o.writeUTF(l)
+                        for (t in CONVICTION_TIERS_8868.indices) { o.writeInt(s.tierN[t]); o.writeDouble(s.tierSum[t]); o.writeDouble(s.tierSq[t]) }
+                    }
                 }
             }
             if (!tmp.renameTo(File(d, MODEL_FILE))) tmp.delete()
@@ -997,12 +1138,18 @@ object EdgeModel8537 {
             val key8767 = decidingKey8767(l)
             val o = oos[recordKey(l, key8767)]; val r = byLane[l]
             val auth = o != null && authority(o.selN, o.selMean, o.selSe, o.allMean)
-            "$l[by=$key8767 n${r?.count ?: 0} oosPicks=n${o?.selN ?: 0}/${pct(o?.selMean)}±${pct(o?.selSe)} all=${pct(o?.allMean)} avoid=${pct(o?.negMean)} refuse8715=n${o?.refN ?: 0}/${pct(o?.refMean)}±${pct(o?.refSe)}vsKept=n${o?.keepN ?: 0}/${pct(o?.keepMean)}±${pct(o?.keepSe)} ${if (auth) "AUTHORITY" else if (o != null && refusalAuthority8715(o.refN, o.refMean, o.refSe, o.keepN, o.keepMean, o.keepSe)) "REFUSES" else "learning"}]"
+            "$l[by=$key8767 n${r?.count ?: 0} oosPicks=n${o?.selN ?: 0}/${pct(o?.selMean)}±${pct(o?.selSe)} all=${pct(o?.allMean)} avoid=${pct(o?.negMean)} refuse8715=n${o?.refN ?: 0}/${pct(o?.refMean)}±${pct(o?.refSe)}vsKept=n${o?.keepN ?: 0}/${pct(o?.keepMean)}±${pct(o?.keepSe)} conv8868=${convictionLine8868(o)} ${if (auth) "AUTHORITY" else if (o != null && refusalAuthority8715(o.refN, o.refMean, o.refSe, o.keepN, o.keepMean, o.keepSe)) "REFUSES" else "learning"}]"
         }
-        "edge8537[trained=${global.count} learned=${learned.get()} cold=${skippedCold.get()} implausible8617=${implausible8617.get()} noNewPrice8803=${noNewPriceCount8803.get()} oldPredIgnored8642=${oldPredictionsIgnored8642.get()} replay8642=$replayStatus8642 minEdge=+${MIN_EDGE_PCT}% authBar=n$AUTH_MIN_N,mean-se>0,>lane] ${rows.ifBlank { "no labels yet" }}"
+        "edge8537[trained=${global.count} learned=${learned.get()} cold=${skippedCold.get()} implausible8617=${implausible8617.get()} noNewPrice8803=${noNewPriceCount8803.get()} oldPredIgnored8642=${oldPredictionsIgnored8642.get()} replay8642=$replayStatus8642 convSeed8868=$convictionSeed8868 minEdge=+${MIN_EDGE_PCT}% authBar=n$AUTH_MIN_N,mean-se>0,>lane] ${rows.ifBlank { "no labels yet" }}"
     }
 
     private fun pct(v: Double?) = if (v != null && v.isFinite()) "%+.1f%%".format(v) else "-"
+
+    /** V5.0.8868 — each conviction tier's record, a tier that has earned authority marked with `*`. */
+    private fun convictionLine8868(o: Oos?): String = if (o == null) "-" else CONVICTION_TIERS_8868.indices.joinToString("/") { t ->
+        val ok = authority(o.tierN[t], o.tierMean8868(t), o.tierSe8868(t), o.allMean)
+        "${CONVICTION_TIERS_8868[t].toInt()}:n${o.tierN[t]}${pct(o.tierMean8868(t))}${if (ok) "*" else ""}"
+    }
 
     internal fun resetForTest8537() = synchronized(this) {
         byLane.clear(); oos.clear(); learned.set(0); skippedCold.set(0); loaded = true
