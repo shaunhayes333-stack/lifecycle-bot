@@ -23,7 +23,9 @@ class Aate8684CortexReturnTest {
         assertFalse(Cortex7885.voterGraphRetired8623(Cortex7885.graphMode8684(null)))
         assertTrue(Cortex7885.voterGraphBounded8644(Cortex7885.graphMode8684(null)))
         val c = src("engine/cortex/Cortex7885.kt")
-        assertTrue(c.contains("(reserveSample8644(nowMs) || (admitted && reserveAdmitted8684(nowMs)))"))
+        assertTrue(c.contains("(reserveSample8644() || (admitted && reserveAdmitted8684()))"))
+        assertTrue(c.contains("CortexSampleBudget8871(GRAPH_SAMPLE_GAP_MS_8644)"))
+        assertTrue(c.contains("CortexSampleBudget8871(ADMITTED_SAMPLE_GAP_MS_8684)"))
         assertTrue(c.contains("if (pending.size >= pendingCap8684()) { inc(\"PENDING_FULL\"); return }"))
         assertTrue("persisted pending stays capped", c.contains("private const val PENDING_PERSIST_MAX = 128"))
     }

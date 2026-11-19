@@ -9,6 +9,7 @@ data class ForwardOutcomeDelivery8404(
     val family: DoubleArray?, val flat: Boolean, val witness: Boolean,
     val proof: CortexOutcomeProof8395?, val frozenPrediction: String,
     val revision: Boolean = false, val previousNet: Double = net, val previousGross: Double = gross,
+    val playbookPrediction8871: String? = null,
 ) {
     val id: String get() = "$mint|$lane|$atMs"
     val deliveryId: String get() = if (revision) "$id|R|${proof?.observedAtMs}|${proof?.horizonMs}" else id
@@ -20,7 +21,8 @@ data class ForwardOutcomeDelivery8404(
             .put("net", net).put("gross", gross).put("family", family?.let { JSONArray(it.toList()) })
             .put("flat", flat).put("witness", witness).put("proof", proof?.encode8395())
             .put("prediction", frozenPrediction).put("revision", revision)
-            .put("previousNet", previousNet).put("previousGross", previousGross).toString()
+            .put("previousNet", previousNet).put("previousGross", previousGross)
+            .put("playbook8871", playbookPrediction8871).toString()
     }
     companion object {
         fun decode(raw: String): ForwardOutcomeDelivery8404 {
@@ -30,7 +32,8 @@ data class ForwardOutcomeDelivery8404(
                 j.getDouble("net"), j.getDouble("gross"), family, j.getBoolean("flat"), j.getBoolean("witness"),
                 j.optString("proof").takeIf { it.isNotBlank() }?.let { requireNotNull(CortexOutcomeProof8395.decode8395(it)) },
                 j.getString("prediction"), j.optBoolean("revision"), j.optDouble("previousNet", j.getDouble("net")),
-                j.optDouble("previousGross", j.getDouble("gross"))).also {
+                j.optDouble("previousGross", j.getDouble("gross")),
+                j.optString("playbook8871").takeIf { it.isNotBlank() && it != "null" }).also {
                 require(it.mint.isNotBlank() && it.lane.isNotBlank() && it.atMs > 0 && it.net.isFinite() && it.gross.isFinite())
                 require(it.family == null || it.family.all { value -> value.isFinite() })
                 require(it.proof == null || it.proof.decisionId == it.id)

@@ -125,7 +125,7 @@ class Aate8084SetupClassificationTest {
         val queued = c.substringAfter("private fun captureNow(").substringBefore("// ── V5.0.7920")
         assertFalse(queued.contains("assess(ts, labelLane, nowMs)"))
         // Raw family labels retain the frozen setup AND original observation identity across asynchronous delivery.
-        assertTrue(c.contains("LanePlaybook7907.onLabel(mint, labelLane, net8187, gross8187, fam8187, p.setup7961, decisionAtMs8372 = p.atMs)"))
+        assertTrue(c.contains("LanePlaybook7907.onLabel(mint, labelLane, net8187, gross8187, fam8187, p.setup7961, decisionAtMs8372 = p.atMs, admitted8871 = p.legacyAdmitted)"))
         val p = src("engine/cortex/LanePlaybook7907.kt")
         assertTrue(p.contains("\"#O=\${c.outcome.name}#V=\${c.featureVersion}\""))
         val on = p.substringAfter("fun onLabel(mint: String, labelLane: String").substringBefore("fun setupHoldsLong8080(")

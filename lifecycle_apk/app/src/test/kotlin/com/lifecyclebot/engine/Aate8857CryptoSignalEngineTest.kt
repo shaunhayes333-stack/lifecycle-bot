@@ -70,7 +70,7 @@ class Aate8857CryptoSignalEngineTest {
         assertTrue(c.contains("CryptoSignalEngine8857.passes8857(candidate.mode.equals(\"LIVE\", true), candidate.evidence[\"lane8788\"], integrity8857, now8857)"))
         assertTrue(c.contains("val backingReserved8832 = if (paperBacked8788 || signalEngine8857) try {"))
         assertTrue(c.contains("if ((paperBacked8788 || signalEngine8857) && !backingReserved8832)"))
-        assertTrue("an unreadable integrity check binds", c.contains("refusalBinds8857(candidate, why, now8857) } catch (_: Throwable) { true }"))
+        assertTrue("the same admission owns integrity, and an unreadable check binds", c.contains("refusalBinds8871(why, entryAssessment8871) } catch (_: Throwable) { true }"))
         assertTrue(src("engine/cortex/CrossAssetCortex7931.kt").contains("fun refusalBinds8857(c: CanonicalAssetEntryCandidate6551, reason: String"))
         assertTrue(src("engine/PipelineHealthCollector.kt").contains("Crypto signal engine (§8857): "))
         assertTrue(CandidateAdmission8136.feedPeriodMs8855("CRYPTO_ALT") > 0L)

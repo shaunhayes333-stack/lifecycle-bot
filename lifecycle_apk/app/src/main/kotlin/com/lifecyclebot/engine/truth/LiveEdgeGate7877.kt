@@ -490,7 +490,8 @@ object LiveEdgeGate7877 {
             com.lifecyclebot.engine.truth.NetEdge8030.entryClears8030(it.expectedNetPct + it.costPct, it.costPct, it.costMargin8391)
     } == true
 
-    private class EntryContext8392(val paper: Boolean) {
+    private class EntryContext8392(val paper: Boolean,
+                                   val reassess8871: (() -> CandidateAdmission8136.Decision8136?)? = null) {
         var assessment: Assessment8083? = null
         var evaluatedAdmission: CandidateAdmission8136.Decision8136? = null
     }
@@ -500,6 +501,8 @@ object LiveEdgeGate7877 {
     fun liveRefusal(
         ts: TokenState, lane: String, paper: Boolean, nowMs: Long = System.currentTimeMillis(), candidateVersion: Long = 0L,
         candidateAdmission: CandidateAdmission8136.Decision8136? = null,
+        reassess8871: (() -> CandidateAdmission8136.Decision8136?)? = null,
+        onAdmission8871: ((CandidateAdmission8136.Decision8136?) -> Unit)? = null,
     ): String? {
         val l = CanonicalLaneIdentity6506.desk8392(lane)
         val lanBasis = if (paper) null else try { FdgGate8365.holdBasis8365(l, nowMs) } catch (_: Throwable) { null }
@@ -517,8 +520,15 @@ object LiveEdgeGate7877 {
             (hold.startsWith("EVIDENCE_HOLD_8336_") || hold.contains("LANE_REALISED_LOSING"))
         val lockout = if (paper) null else com.lifecyclebot.engine.RebuyLockout8019.refusal8019(ts.mint, nowMs)
         val key = FdgGate8365.memoKey8365(ts.mint, l, candidateVersion, paper) + "|$basis|$hold|$lockout"
-        FdgGate8365.memoGet8365(key, nowMs, candidateAdmission)?.let { return it.second }
-        val context = EntryContext8392(paper)
+        // A verdict-only memo cannot return the different admission made inside a held/shadow policy. Ordinary callers
+        // retain their memo; an observing caller can reuse it only when the supplied LIVE admission is the one consumed.
+        if (onAdmission8871 == null || (candidateAdmission != null && !paper && !shadowOnly8393)) {
+            FdgGate8365.memoGet8365(key, nowMs, candidateAdmission)?.let {
+                onAdmission8871?.invoke(candidateAdmission)
+                return it.second
+            }
+        }
+        val context = EntryContext8392(paper, reassess8871)
         val previous = entryContext8392.get()
         entryContext8392.set(context)
         val result = try {
@@ -590,8 +600,15 @@ object LiveEdgeGate7877 {
         if (!paper && core == null && hold != null && final == hold)
             try { EvidenceShadow8344.open8344(ts, l, nowMs, advisoryEntry8393 = shadowOnly8393) } catch (_: Throwable) { PipelineHealthCollector.labelInc("EVIDENCE_SHADOW_OPEN_FAILED_8392") }
         if (paper && final == null) Rehearsal8339.notePaperAdmit8342(ts, l, result.second, nowMs)
+        onAdmission8871?.invoke(admission8577)
         return final
     }
+
+    /** A shadow rehearsal is decided under its own existing policy, with the caller's same immutable inputs. */
+    internal fun admissionForPolicy8871(supplied: CandidateAdmission8136.Decision8136?, paper: Boolean, shadow: Boolean,
+                                       reassess: () -> CandidateAdmission8136.Decision8136?): CandidateAdmission8136.Decision8136? =
+        if (supplied != null && !paper && !shadow) supplied
+        else (try { reassess() } catch (_: Throwable) { null }) ?: supplied
 
     /**
      * V5.0.8536 — null when this live candidate carries PROVEN evidence of its own: a candidate-specific supported record
@@ -725,9 +742,11 @@ object LiveEdgeGate7877 {
             // FDG's generic floor when candidate evidence is unchanged. Specific loss / safety / economics refusals are
             // terminal here; missing inputs remain a bounded data deferral; only a candidate-specific ADMIT clears a
             // generic edge prior. The measured-negative checks below remain binding.
-            val admission8136 = if (candidateAdmission != null && !paper && !FdgGate8365.shadowOnly8393()) candidateAdmission
-                else try { CandidateAdmission8136.assess8136(ts, l8059, nowMs, candidateVersion) } catch (_: Throwable) { null }
-                    ?: candidateAdmission
+            val admission8136 = admissionForPolicy8871(candidateAdmission, paper, FdgGate8365.shadowOnly8393()) {
+                val exactInputs8871 = entryContext8392.get()?.reassess8871
+                if (exactInputs8871 != null) exactInputs8871()
+                else CandidateAdmission8136.assess8136(ts, l8059, nowMs, candidateVersion)
+            }
             entryContext8392.get()?.evaluatedAdmission = admission8136
             resolvedAdmission = admission8136
             genericNative8211 = genericNativeClearsProvenOnly8211(admission8136)

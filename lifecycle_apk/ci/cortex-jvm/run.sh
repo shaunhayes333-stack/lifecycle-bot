@@ -59,6 +59,10 @@ production=(
   "$sources/truth/SetupTimingGrades8528.kt"
   "$sources/truth/EntryFloorEvidence8528.kt"
   "$sources/cortex/CortexLabelFeed8291.kt"
+  "$sources/cortex/CortexSampleBudget8871.kt"
+  "$sources/ObservedPriceIdentity8871.kt"
+  "$sources/cortex/LanePlaybookDecision8871.kt"
+  "$sources/cortex/ForwardOutcomeDelivery8404.kt"
   "$sources/truth/CanonicalLaneIdentity6506.kt"
   "$sources/truth/LabelEvidence8386.kt"
   "$sources/truth/LearningEpoch8164.kt"
@@ -109,6 +113,9 @@ java -Xmx1536m -cp "$deps_dir/*" org.jetbrains.kotlin.cli.jvm.K2JVMCompiler \
   -Xfriend-paths="$output_dir/production.jar" -d "$output_dir/tests.jar" \
   "$tests/Aate8675BuyerFlowTest.kt" "$tests/Aate8528SetupTimingTest.kt" "$tests/Aate8528FluidFloorTest.kt" \
   "$tests/Aate8826SignalBibleTest.kt" \
+  "$tests/Aate8871CortexSamplingTest.kt" \
+  "$tests/Aate8871FrozenPriceIdentityTest.kt" "$tests/Aate8871CortexProofIdentityTest.kt" \
+  "$tests/Aate8871PlaybookEpisodeClockTest.kt" \
   "$script_dir/ScannerSourceBrainIntegrationTest.kt" \
   "$tests/Aate8076CortexRevisionTest.kt" "$tests/Aate8372CortexLearningTest.kt" \
   "$tests/Aate8372CortexCalibrationTest.kt" "$tests/Aate8372ShadowLearningTest.kt" \
@@ -125,6 +132,10 @@ java -cp "$output_dir/tests.jar:$output_dir/production.jar:$classpath" org.junit
   com.lifecyclebot.engine.Aate8528SetupTimingTest \
   com.lifecyclebot.engine.Aate8528FluidFloorTest \
   com.lifecyclebot.engine.Aate8826SignalBibleTest \
+  com.lifecyclebot.engine.Aate8871CortexSamplingTest \
+  com.lifecyclebot.engine.Aate8871FrozenPriceIdentityTest \
+  com.lifecyclebot.engine.Aate8871CortexProofIdentityTest \
+  com.lifecyclebot.engine.Aate8871PlaybookEpisodeClockTest \
   com.lifecyclebot.engine.Aate8076CortexRevisionTest \
   com.lifecyclebot.engine.Aate8372CortexLearningTest \
   com.lifecyclebot.engine.Aate8372CortexCalibrationTest \

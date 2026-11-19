@@ -432,12 +432,40 @@ object CrossAssetCortex7931 {
         return true
     }
 
-    /** CanonicalEntryAuthority6551.submit: the live edge gate for a cross-asset entry (null = admit). */
-    fun liveRefusal(c: CanonicalAssetEntryCandidate6551): String? {
+    data class EntryAssessment8871(
+        val refusal: String?,
+        val admission: com.lifecyclebot.engine.truth.CandidateAdmission8136.Decision8136?,
+    )
+
+    /** The native generation/ticket survive policy assessment; integrity classification reads the gate's actual result. */
+    fun assessEntry8871(c: CanonicalAssetEntryCandidate6551,
+                        nowMs: Long = System.currentTimeMillis()): EntryAssessment8871 {
         val paper = c.mode.equals("PAPER", true)
-        val (ts, lane) = tokenStateFor(c) ?: return null
-        return try { com.lifecyclebot.engine.truth.LiveEdgeGate7877.liveRefusal(ts, lane, paper) } catch (_: Throwable) { null }
+        val (ts, lane) = tokenStateFor(c, nowMs) ?: return EntryAssessment8871(null, null)
+        if (c.assetClass != AssetClass.CRYPTO_ALT) return EntryAssessment8871(
+            try { com.lifecyclebot.engine.truth.LiveEdgeGate7877.liveRefusal(ts, lane, paper) } catch (_: Throwable) { null }, null)
+        val native = com.lifecyclebot.perps.CryptoNativeSignal8871.validate(c, nowMs)
+        val assess8871 = {
+            com.lifecyclebot.engine.truth.CandidateAdmission8136.assess8136(ts, lane, nowMs,
+                candidateVersion = c.candidateVersion, proposedSizeSol = c.requestedSizeSol,
+                cryptoNative8871 = native)
+        }
+        val admission = try {
+            com.lifecyclebot.engine.truth.FdgGate8365.inContext8365(ts, lane, null, paper) {
+                assess8871()
+            }
+        } catch (_: Throwable) { null }
+        var evaluated8871 = admission
+        val refusal = try {
+            com.lifecyclebot.engine.truth.LiveEdgeGate7877.liveRefusal(ts, lane, paper, nowMs,
+                candidateVersion = c.candidateVersion, candidateAdmission = admission,
+                reassess8871 = assess8871, onAdmission8871 = { evaluated8871 = it })
+        } catch (_: Throwable) { "CANONICAL_ENTRY_EVAL_FAILED_8392" }
+        return EntryAssessment8871(refusal, evaluated8871)
     }
+
+    /** Compatibility callers retain the ordinary refusal API. */
+    fun liveRefusal(c: CanonicalAssetEntryCandidate6551): String? = assessEntry8871(c).refusal
 
     /**
      * V5.0.8857 — CryptoSignalEngine8857: does the live edge gate's refusal [reason] of [c] bind the crypto engine (an
@@ -448,6 +476,10 @@ object CrossAssetCortex7931 {
         com.lifecyclebot.engine.truth.CryptoSignalEngine8857.binds8857(reason) {
             tokenStateFor(c, nowMs)?.let { (ts, lane) -> com.lifecyclebot.engine.truth.CandidateAdmission8136.assess8136(ts, lane, nowMs) }
         }
+
+    /** The canonical caller must classify the same immutable admission, never a second reconstruction of the token. */
+    internal fun refusalBinds8871(reason: String, assessment: EntryAssessment8871): Boolean =
+        com.lifecyclebot.engine.truth.CryptoSignalEngine8857.binds8857(reason) { assessment.admission }
 
     /** V5.0.8857 — the playbook setup [c] is showing in its learning lane (LanePlaybook7907, the meme desk's own read), or "". */
     fun firedSetup8857(c: CanonicalAssetEntryCandidate6551, nowMs: Long = System.currentTimeMillis()): String = try {

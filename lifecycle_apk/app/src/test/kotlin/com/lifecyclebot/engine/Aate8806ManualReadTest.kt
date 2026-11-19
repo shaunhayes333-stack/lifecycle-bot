@@ -64,7 +64,10 @@ class Aate8806ManualReadTest {
     @Test fun theCryptoAltLaneIsBackedByItsOwnPaperRecord() {
         assertEquals(setOf("CRYPTO_SPOT", "CRYPTO_ALT"), CryptoSpotPaperBacking8788.BACKED_LANES_8806)
         val b = src("engine/truth/CryptoSpotPaperBacking8788.kt")
-        assertTrue(b.contains("if (!enabled8788 || l !in BACKED_LANES_8806) return false"))
+        // 8870 names capacity separately; disabled/wrong-lane still cannot return backing readiness.
+        assertTrue(b.contains("if (!enabled8788 || l !in BACKED_LANES_8806) return Availability8870.DISABLED_OR_WRONG_LANE"))
+        assertTrue(b.contains("return availability8870(lane, nowMs) == Availability8870.READY"))
+        assertFalse(CryptoSpotPaperBacking8788.backs8788("CORE", System.currentTimeMillis()))
         assertTrue(b.contains(".firstOrNull { it.strategy.equals(lane, ignoreCase = true) }"))
     }
 }

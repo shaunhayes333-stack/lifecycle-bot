@@ -76,12 +76,15 @@ object HeliusPushSwapParser7277 {
                 else -> keys.add("")
             }
         }
+        val tokenBalances = SolanaTokenAmounts8870.pairedOwners8870(
+            meta.optJSONArray("preTokenBalances"), meta.optJSONArray("postTokenBalances"), watchedSet,
+        ) ?: return null
         return Parsed(
             keys,
             meta.optJSONArray("preBalances") ?: JSONArray(),
             meta.optJSONArray("postBalances") ?: JSONArray(),
-            SolanaTokenAmounts8870.owners8870(meta.optJSONArray("preTokenBalances"), watchedSet) ?: return null,
-            SolanaTokenAmounts8870.owners8870(meta.optJSONArray("postTokenBalances"), watchedSet) ?: return null,
+            tokenBalances.pre,
+            tokenBalances.post,
         )
     }
 

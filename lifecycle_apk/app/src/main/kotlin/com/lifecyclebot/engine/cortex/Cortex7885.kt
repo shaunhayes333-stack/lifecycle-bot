@@ -67,7 +67,7 @@ object Cortex7885 {
     private const val PERSIST_KEY = CortexForwardEpoch8521.BOOKS
     private const val LEGACY_PERSIST_KEY_7947 = "CORTEX_7885_V8064"
     private const val PERSIST_EVERY = 40
-    private const val MARK_STALE_MS = 180_000L
+    private const val MARK_STALE_MS = CortexLabelHygiene8144.DECISION_MARK_STALE_MS_8871
 
     class Assessment(
         val lane: String,
@@ -260,55 +260,47 @@ object Cortex7885 {
     // pre-decision evidence without running voters on the scanner thread.
     private const val GRAPH_SAMPLE_GAP_MS_8644 = 6_000L
     private const val PREWARM_SAMPLE_GAP_MS_8649 = 20_000L
-    private val lastSampleAt8644 = AtomicLong(0L)
-    private val lastPrewarmAt8649 = AtomicLong(0L)
+    private val sampleBudget8871 = CortexSampleBudget8871(GRAPH_SAMPLE_GAP_MS_8644)
+    private val prewarmBudget8871 = CortexSampleBudget8871(PREWARM_SAMPLE_GAP_MS_8649)
     /** One labelled capture per sampled graph read; repeated same-mint decisions retain their cheap playbook labels. */
     private val capturedSampleEpoch8644 = ConcurrentHashMap<String, Long>()
 
     /** At most ten fresh reads a minute globally; reused cached reads cost no additional graph work. */
     fun sampleDue8644(previousMs: Long, nowMs: Long): Boolean =
-        nowMs > 0L && (previousMs == 0L || nowMs < previousMs || nowMs - previousMs >= GRAPH_SAMPLE_GAP_MS_8644)
+        nowMs > 0L && (previousMs == 0L || (nowMs >= previousMs && nowMs - previousMs >= GRAPH_SAMPLE_GAP_MS_8644))
 
-    private fun reserveSample8644(nowMs: Long): Boolean {
+    private fun reserveSample8644(): Boolean {
         if (!BOUNDED_VOTER_GRAPH_8644) return true
-        repeat(8) {
-            val before = lastSampleAt8644.get()
-            if (!sampleDue8644(before, nowMs)) { inc("CORTEX_SAMPLE_QUOTA_8644"); return false }
-            if (lastSampleAt8644.compareAndSet(before, nowMs)) { inc("CORTEX_SAMPLE_GRANTED_8644"); return true }
+        return when (sampleBudget8871.claim()) {
+            CortexSampleBudget8871.Claim.GRANTED -> { inc("CORTEX_SAMPLE_GRANTED_8644"); true }
+            CortexSampleBudget8871.Claim.WAIT -> { inc("CORTEX_SAMPLE_QUOTA_8644"); false }
+            CortexSampleBudget8871.Claim.CONTENDED -> { inc("CORTEX_SAMPLE_CONTENTION_8644"); false }
         }
-        inc("CORTEX_SAMPLE_CONTENTION_8644")
-        return false
     }
 
     // V5.0.8684 — an ADMITTED decision (the ones that become trades) gets a graph read from its own small quota when the global
     // one is spent: 8680 bound 0 of 16 live closes to a Cortex decision record (binding8187 unmatched=16), so the Cortex could
     // never learn from a real fill. FDG allowed ~2.4 decisions a minute; one admitted read per [ADMITTED_SAMPLE_GAP_MS_8684].
     private const val ADMITTED_SAMPLE_GAP_MS_8684 = 2_000L
-    private val lastAdmittedSampleAt8684 = AtomicLong(0L)
+    private val admittedBudget8871 = CortexSampleBudget8871(ADMITTED_SAMPLE_GAP_MS_8684)
 
-    private fun reserveAdmitted8684(nowMs: Long): Boolean {
+    private fun reserveAdmitted8684(): Boolean {
         if (!BOUNDED_VOTER_GRAPH_8644) return true
-        val before = lastAdmittedSampleAt8684.get()
-        if (before != 0L && nowMs >= before && nowMs - before < ADMITTED_SAMPLE_GAP_MS_8684) { inc("CORTEX_ADMITTED_QUOTA_8684"); return false }
-        return lastAdmittedSampleAt8684.compareAndSet(before, nowMs).also { if (it) inc("CORTEX_ADMITTED_SAMPLE_GRANTED_8684") }
+        return when (admittedBudget8871.claim()) {
+            CortexSampleBudget8871.Claim.GRANTED -> { inc("CORTEX_ADMITTED_SAMPLE_GRANTED_8684"); true }
+            CortexSampleBudget8871.Claim.WAIT -> { inc("CORTEX_ADMITTED_QUOTA_8684"); false }
+            CortexSampleBudget8871.Claim.CONTENDED -> { inc("CORTEX_ADMITTED_CONTENTION_8871"); false }
+        }
     }
 
     /** Prewarm does not consume every graph slot ahead of real native decision captures. */
-    private fun reservePrewarm8649(nowMs: Long): Boolean {
+    private fun reservePrewarm8649(): Boolean {
         if (!BOUNDED_VOTER_GRAPH_8644) return true
-        repeat(8) {
-            val before = lastPrewarmAt8649.get()
-            if (before != 0L && nowMs >= before && nowMs - before < PREWARM_SAMPLE_GAP_MS_8649) {
-                inc("CORTEX_PREWARM_QUOTA_8649")
-                return false
-            }
-            if (lastPrewarmAt8649.compareAndSet(before, nowMs)) {
-                inc("CORTEX_PREWARM_GRANTED_8649")
-                return true
-            }
+        return when (prewarmBudget8871.claim()) {
+            CortexSampleBudget8871.Claim.GRANTED -> { inc("CORTEX_PREWARM_GRANTED_8649"); true }
+            CortexSampleBudget8871.Claim.WAIT -> { inc("CORTEX_PREWARM_QUOTA_8649"); false }
+            CortexSampleBudget8871.Claim.CONTENDED -> { inc("CORTEX_PREWARM_CONTENTION_8649"); false }
         }
-        inc("CORTEX_PREWARM_CONTENTION_8649")
-        return false
     }
 
     private fun claimCapture8644(key: String, assessedAtMs: Long, nowMs: Long): Boolean {
@@ -341,11 +333,21 @@ object Cortex7885 {
             if (opportunitySource8522 == null) { if (nowMs - it.atMs in 0L..maxCacheAgeMs8653) return it }
             else if (CortexOpportunityPolarity8522.currentInput8522(opportunitySource8522, it, nowMs)) return it
         }
-        if (!sampleReserved8644 && !reserveSample8644(nowMs)) return null
+        if (!sampleReserved8644 && !reserveSample8644()) return null
         // Only the explicitly frozen operator read can bind an opportunity action. Older learning-cache reads
         // remain valid learning observations, but were not captured under this source-identity contract.
         val source8522 = opportunitySource8522
         ensureLoaded()
+        // Freeze the input's own price clock before reading voters. A later, different registry quote
+        // cannot make the old snapshot fresh, and an observation after inputAtMs cannot enter this read.
+        val priceAt8871 = com.lifecyclebot.engine.ObservedPriceIdentity8871.observedAt(
+            com.lifecyclebot.engine.ObservedPriceIdentity8871.Observation(ts.mint, ts.lastPrice, ts.lastPriceUpdate),
+            inputAtMs8522,
+            try { com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(ts.mint)
+                ?.takeIf { it.priceUnits7424 == "USD_PER_TOKEN" }
+                ?.let { com.lifecyclebot.engine.ObservedPriceIdentity8871.Observation(
+                    it.canonicalAssetId7424, it.priceUsd.value.toDouble(), it.timestampMs) }
+            } catch (_: Throwable) { null })
         val t0 = System.nanoTime()
         val staticRaws = CortexVoters7885.withOriginalOpinions8522(ts.mint, source8522?.originalOpinions8522) {
             CortexVoters7885.readAll(ts, lane, nowMs, voterFailures, coreVoters8291(lane, nowMs))
@@ -387,12 +389,10 @@ object Cortex7885 {
         val calibrated = calibratedRead8372(runner, fused, locked8325.slope, locked8325.net8372, locked8325.executionOffset8404, locked8325.costFused8404)
         val ev8324 = if (runner) tailEvNow8324(lane, fused) else Double.NaN
         val bucket = bucketNow8418(lane, runner, calibrated, fused.runnerRate, ev8324, locked8325.net8372)
-        val registryAt = try { com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(ts.mint)?.timestampMs ?: 0L } catch (_: Throwable) { 0L }
-        val freshestAt = maxOf(ts.lastPriceUpdate, registryAt)
         // A queued/shared voter read or model-lock wait can cross the label's fill deadline. The assessment did not
         // exist at call-start: stamp its actual completion, so that waiting never masquerades as decision-time evidence.
         val readCompletedMs8522 = maxOf(nowMs, System.currentTimeMillis())
-        val priceAge = if (freshestAt > 0L) readCompletedMs8522 - freshestAt else Long.MAX_VALUE
+        val priceAge = if (priceAt8871 > 0L) readCompletedMs8522 - priceAt8871 else Long.MAX_VALUE
         val a = Assessment(lane, runner, raws, ids, edges, regime, fused, calibrated, bucket, raws.count { !it.isFinite() }, priceAge < 0L || priceAge > MARK_STALE_MS, readCompletedMs8522, prediction8076, ev8324,
             calibrationInput8372 = calibratedRead8325(runner, fused, 1.0), inputAtMs8522 = inputAtMs8522,
             opportunitySource8522 = source8522?.takeIf {
@@ -1107,8 +1107,8 @@ object Cortex7885 {
         // earn the very forward proof required to turn prewarm back on. A separate
         // three/minute prewarm ceiling leaves most graph slots for real captures.
         // This samples predictive evidence; it never grants live trade authority.
-        if (!reservePrewarm8649(nowMs)) return null
-        if (!reserveSample8644(nowMs)) return null
+        if (!reservePrewarm8649()) return null
+        if (!reserveSample8644()) return null
         // A job the full queue dropped never reaches its finally: a key may be
         // rescheduled after 30 s, so a dropped assessment cannot block a mint forever.
         val prev = scheduled.putIfAbsent(key, nowMs)
@@ -1233,7 +1233,7 @@ object Cortex7885 {
         val hot8644 = if (BOUNDED_VOTER_GRAPH_8644)
             assessCache[key8644]?.takeIf { nowMs - it.atMs in 0L..ASSESS_TTL_MS } else null
         val coldSampleReserved8649 = BOUNDED_VOTER_GRAPH_8644 && hot8644 == null &&
-            (reserveSample8644(nowMs) || (admitted && reserveAdmitted8684(nowMs)))   // V5.0.8684 — admitted decisions keep their own slot
+            (reserveSample8644() || (admitted && reserveAdmitted8684()))   // V5.0.8684 — admitted decisions keep their own slot
         val unsampled8644 = BOUNDED_VOTER_GRAPH_8644 &&
             (if (hot8644 == null) !coldSampleReserved8649
              else !claimCapture8644(key8644, hot8644.atMs, nowMs))
@@ -1242,7 +1242,8 @@ object Cortex7885 {
             val snap = try { LanePlaybook7907.decisionSnapshot8084(ts, labelLane, nowMs) } catch (_: Throwable) { null }
             val sel = try { LanePlaybook7907.selectedSetup8094(ts, labelLane, nowMs) } catch (_: Throwable) { null }
             val timing = try { LanePlaybook7907.timingBandOf8094(ts) } catch (_: Throwable) { LanePlaybook7907.TIMING_UNKNOWN_8094 }
-            try { LanePlaybook7907.capture(ts, labelLane, labelLane, nowMs, snap, sel, timing) } catch (_: Throwable) {}
+            try { LanePlaybook7907.capture(ts, labelLane, labelLane, nowMs, snap, sel, timing,
+                independent8871 = playbookDecision8871(ts, labelLane, admitted, nowMs, reason)) } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.freezeTiming8528(ts.mint, labelLane, nowMs, sel, timing) } catch (_: Throwable) {}
             if (unsampled8644) inc("CORTEX_PLAYBOOK_ONLY_UNSAMPLED_8644")
             return
@@ -1978,6 +1979,9 @@ object Cortex7885 {
 
     /** Called from the producer's durable outbox. A scheduling/in-memory grade is never an acknowledgement. */
     fun deliverForwardOutcome8404(d: ForwardOutcomeDelivery8404): Boolean {
+        // The independently captured setup has its own original and durable book receipt. Sampling the voter graph
+        // must not discard that qualified outcome, and an in-memory setup mutation is not an outbox acknowledgement.
+        if (!LanePlaybook7907.deliverIndependent8871(d)) return false
         if (VOTER_GRAPH_RETIRED_8623) {
             // Old outbox items can contain >26 MB frozen predictions. Never decode them to
             // discover that the voter graph was explicitly retired: ACK only after a durable
@@ -2186,7 +2190,7 @@ object Cortex7885 {
         val gross8187 = grossPct
         val fam8187 = fam8080
         if (netPct > cap8187) inc("LABEL_ABOVE_CAP_8322")
-        try { LanePlaybook7907.onLabel(mint, labelLane, net8187, gross8187, fam8187, p.setup7961, decisionAtMs8372 = p.atMs) } catch (_: Throwable) {}
+        try { LanePlaybook7907.onLabel(mint, labelLane, net8187, gross8187, fam8187, p.setup7961, decisionAtMs8372 = p.atMs, admitted8871 = p.legacyAdmitted) } catch (_: Throwable) {}
         gradeDecision8372(key, p, net8187, gross8187, witnessed8395)
         } finally { gradingForward8372.remove(id8372) }
     }
@@ -2734,6 +2738,28 @@ object Cortex7885 {
     private fun runnerHorizon8144(lane: String): Boolean =
         (try { com.lifecyclebot.engine.TradeExitContract8077.runnerFromEntryLane8104(lane, false) } catch (_: Throwable) { false }) || isRunner(lane) ||
             LaneGradeHorizon8406.hourGraded8406(lane)   // V5.0.8406
+
+    /** Cached decision facts only: an unsampled setup must not run or invent a Cortex voter prediction. */
+    private fun playbookDecision8871(ts: TokenState, labelLane: String, admitted: Boolean, nowMs: Long,
+                                     reason: String?): LanePlaybookDecision8871 {
+        val lane = canon(labelLane)
+        val opinion = try { SpecialistBrainBridge7542.cachedSnapshot7650(ts.mint)?.originalOpinions8522?.get(lane)
+            ?.takeIf { it.authoritative } } catch (_: Throwable) { null }
+        val executable = CortexLabelHygiene8144.counterfactualExecutable8372(admitted, reason,
+            opinion?.eligible, opinion?.gradeable, opinion?.reason) &&
+            CortexLabelHygiene8144.executableDecision8144(admitted, reason)
+        val price = ts.lastPrice
+        val registry = try { com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(ts.mint) } catch (_: Throwable) { null }
+        val priceAt = com.lifecyclebot.engine.ObservedPriceIdentity8871.observedAt(
+            com.lifecyclebot.engine.ObservedPriceIdentity8871.Observation(ts.mint, price, ts.lastPriceUpdate), nowMs,
+            registry?.let { com.lifecyclebot.engine.ObservedPriceIdentity8871.Observation(
+                it.mint, it.priceUsd.value.toDouble(), it.timestampMs) })
+        val stale = priceAt <= 0L || nowMs - priceAt !in 0L..MARK_STALE_MS
+        val cohort = try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.mcapBand(
+            com.lifecyclebot.engine.truth.TrustedMcap8019.mcap8019(ts)) } catch (_: Throwable) { "UNK" }
+        return LanePlaybookDecision8871("${ts.mint}|${labelLane.trim().uppercase()}|$nowMs", admitted, executable,
+            stale, latencyMeasured8144(lane), cohort, CortexForwardEpoch8521.targetKind(lane), price, priceAt)
+    }
 
     private fun decisionCtx8144(ts: TokenState, lane: String, admitted: Boolean, reason: String?, incumbent8506: Boolean? = null): DecisionCtx8144 {
         val timing = try { LanePlaybook7907.timingBandOf8094(ts) } catch (_: Throwable) { LanePlaybook7907.TIMING_UNKNOWN_8094 }
@@ -3463,7 +3489,7 @@ object Cortex7885 {
         }
         hourGrade8415?.let { (k, original, witnessed) ->
             try { LanePlaybook7907.onLabel(mint, labelLane, newNet, newGross, expectedSetup8084 = original.setup7961,
-                decisionAtMs8372 = original.atMs) } catch (_: Throwable) {}
+                decisionAtMs8372 = original.atMs, admitted8871 = original.legacyAdmitted) } catch (_: Throwable) {}
             gradeDecision8372(k, original, newNet, newGross, witnessed)
             inc("CORTEX_GRADED_AT_HOUR_8415")
             return

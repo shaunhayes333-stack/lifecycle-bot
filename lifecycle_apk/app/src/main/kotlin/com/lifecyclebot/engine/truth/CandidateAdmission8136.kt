@@ -1831,6 +1831,7 @@ object CandidateAdmission8136 {
          */
         genericScore: Double = Double.NaN, genericFloor: Double = Double.NaN,
         proposedSizeSol: Double = Double.NaN,   // V5.0.8209 — cost at THIS candidate's size; a material size change re-quotes (identity miss)
+        cryptoNative8871: com.lifecyclebot.perps.CryptoNativeSignal8871.Qualification? = null,
     ): Decision8136? = try {
         val mode = FdgGate8365.paperContext8393()?.let { if (it) "PAPER" else "LIVE" }
             ?: (try { if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE" } catch (_: Throwable) { "UNKNOWN" })
@@ -1872,7 +1873,7 @@ object CandidateAdmission8136 {
         val evidenceRevision8870 = FeatureRevision8283.revision8283(ts.mint)
         val built = candidateFor8136(ts, laneRaw, nowMs, sizeForQuote8223)
         val rawCandidate = if (prior8223 != null) built.copy(genericScore = prior8223.score, genericFloor = prior8223.floor) else built
-        val candidate = rawCandidate.copy(candidateVersion = version, live = mode == "LIVE")
+        val candidate = withCryptoNative8871(rawCandidate.copy(candidateVersion = version, live = mode == "LIVE"), cryptoNative8871, nowMs)
         try { PriceAge8549.noteDecision8549(candidate.lane, candidate.priceAgeMs) } catch (_: Throwable) {}   // V5.0.8549
         // Policy-scoped results never overwrite the ordinary LIVE admission cache or its defer budget.
         val policyMode8393 = "$mode|${FdgGate8365.policyKey8393()}"
@@ -1905,6 +1906,19 @@ object CandidateAdmission8136 {
             rememberMemo8870(key, identity, it, nowMs, evidenceRevision8870)
         }
     } catch (_: Throwable) { null }
+
+    /** An actual classic signal supplies only its native qualification and the floors it already passed.
+     * Current costs, expected move, price, safety, loss records and live edge remain the ordinary admission's inputs.
+     * This prior is never written to snapshotPriors8223, so an expired READY cannot leave permission behind.
+     */
+    internal fun withCryptoNative8871(c: Candidate8136,
+                                     q: com.lifecyclebot.perps.CryptoNativeSignal8871.Qualification?,
+                                     nowMs: Long): Candidate8136 {
+        if (q == null || !c.lane.startsWith("CRYPTO_") ||
+            !com.lifecyclebot.perps.CryptoNativeSignal8871.applies(q, c.mint, c.candidateVersion, nowMs)) return c
+        return c.copy(nativeQualified8213 = true, nativeSetup8213 = q.witness.strategy,
+            genericScore = q.witness.score.toDouble(), genericFloor = q.witness.scoreFloor.toDouble())
+    }
 
     /**
      * Pure (V5.0.8418): the number NetEdge8030.expectedGrossFor8153 gives for [m] — NaN while it waits (a sparse or falling
@@ -2061,8 +2075,13 @@ object CandidateAdmission8136 {
             else null
         val canonicalPrice = CanonicalPriceMarkRegistry6522.getFresh6734(
             ts.mint, CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE, nowMs)
-        val localAt = ts.lastPriceUpdate.takeIf { ts.lastPrice.isFinite() && ts.lastPrice > 0.0 && it in 1L..nowMs } ?: 0L
-        val observedAt = maxOf(localAt, canonicalPrice?.timestampMs?.takeIf { it <= nowMs } ?: 0L)
+        val observedAt = com.lifecyclebot.engine.ObservedPriceIdentity8871.observedAt(
+            com.lifecyclebot.engine.ObservedPriceIdentity8871.Observation(ts.mint, ts.lastPrice, ts.lastPriceUpdate),
+            nowMs,
+            canonicalPrice?.takeIf { it.priceUnits7424 == "USD_PER_TOKEN" }?.let {
+                com.lifecyclebot.engine.ObservedPriceIdentity8871.Observation(
+                    it.canonicalAssetId7424, it.priceUsd.value.toDouble(), it.timestampMs)
+            })
         val priceAge = if (observedAt > 0L) nowMs - observedAt else Long.MAX_VALUE
         val lifecycle8283 = try { pb.lifecycleSplit8283(ts, lane, nowMs) } catch (_: Throwable) { null }
         // V5.0.8324 — a runner lane's loss tests read its tail pond (the Cortex grade book: hold-window objective, raw while plausible).

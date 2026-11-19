@@ -29,6 +29,7 @@ data class CanonicalAssetEntryCandidate6551(
     val priceObservedAtMs8870: Long = 0L,
     val priceSource8870: String = "",
     val priceAssetId8870: String = "",
+    val cryptoNativeSignal8871: com.lifecyclebot.perps.CryptoNativeSignal8871.Witness? = null,
 )
 
 data class CanonicalAssetEntryShaping6551(
@@ -248,7 +249,7 @@ object CanonicalEntryAuthority6551 {
             CurrentCandidateExpectancy7832.estimate(
                 score = candidate.score.toInt().coerceIn(0, 100), candidateConfidence = candidateConfidence7260,
                 quality = candidate.evidence["setupQuality"].orEmpty(), edgePhase = candidate.evidence["edgePhase"].orEmpty(),
-                oraclePWin = oracle7259?.pWin,
+                oraclePWin = CurrentCandidateExpectancy7832.oracleProbability8871(oracleNumeric7838, oracle7259?.pWin),
                 expectedSlipPct = com.lifecyclebot.v3.scoring.ExecutionCostPredictorAI.expectedExtraSlipPct(candidate.liquidityUsd),
             )
         } catch (_: Throwable) { null } else null
@@ -257,12 +258,15 @@ object CanonicalEntryAuthority6551 {
             com.lifecyclebot.engine.PipelineHealthCollector.labelInc(if (currentCandidate7832.positive)
                 "CROSS_ASSET_CURRENT_CANDIDATE_EV_POSITIVE_7832" else "CROSS_ASSET_CURRENT_CANDIDATE_EV_REFUSED_7832")
         } catch (_: Throwable) {}
-        val liveExpectedPct7828 = when {
-            oracleNumeric7838 -> oracle7259?.expectancyPct
-            forwardResolved7828 -> forwardFallback7828?.expectedPnl
-            else -> CurrentCandidateExpectancy7832.admissionNetPct7838(currentCandidate7832)
-        }
+        val expectancy8871 = CurrentCandidateExpectancy7832.admissionEstimate8871(
+            oracleNumeric7838, oracle7259?.expectancyPct,
+            forwardResolved7828, forwardFallback7828?.expectedPnl, currentCandidate7832)
+        val liveExpectedPct7828 = expectancy8871.netPct
         val livePositiveEv7828 = liveExpectedPct7828?.isFinite() == true && liveExpectedPct7828 > 0.0
+        if (candidate.assetClass == AssetClass.CRYPTO_ALT) try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EV_BASIS_8871_${expectancy8871.basis.name}_" +
+                if (livePositiveEv7828) "POSITIVE" else "NOT_POSITIVE")
+        } catch (_: Throwable) {}
         // V5.0.8094 — owner: "the crypto trader picks no winners but runs at 150% average on rejected trades".
         // 8093 Cortex: CRYPTO_ALT refused +121% vs admitted -3.5%. The EV estimate here is not crypto-calibrated
         // (meme-built oracle, forward model, formula fallback); where this lane's own refused cohort measurably
@@ -287,6 +291,18 @@ object CanonicalEntryAuthority6551 {
             try {
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_LIVE_NON_POSITIVE_EXPECTANCY_7828")
                 if (oracleDegenerate7828) com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_DEGENERATE_ORACLE_FWD_FALLBACK_7828")
+                if (candidate.assetClass == AssetClass.CRYPTO_ALT) ForensicLogger.lifecycle(
+                    "CRYPTO_EXPECTANCY_BASIS_8871",
+                    "asset=${candidate.assetId.take(52)} version=${candidate.candidateVersion} lane=$predictionLane8849 " +
+                        "strategy=${candidate.evidence["strategy7803"].orEmpty()} basis=${expectancy8871.basis.name} " +
+                        "netPct=$liveExpectedPct7828 score=${candidate.score} confidence=$candidateConfidence7260 " +
+                        "quality=${candidate.evidence["setupQuality"].orEmpty()} phase=${candidate.evidence["edgePhase"].orEmpty()} " +
+                        "sizeSol=${candidate.requestedSizeSol} priceAt=${candidate.priceObservedAtMs8870} " +
+                        "oracleAuthority=$oracleNumeric7838 oracleReason=${oracle7259?.reason} oraclePWin=${oracle7259?.pWin} " +
+                        "forwardSource=${forwardFallback7828?.source} forwardN=${forwardFallback7828?.samples} " +
+                        "priorReason=${currentCandidate7832?.reason} priorPWin=${currentCandidate7832?.pWin} priorGross=${currentCandidate7832?.grossEdgePct} " +
+                        "priorSlip=${currentCandidate7832?.executionCostPct} priorNet=${currentCandidate7832?.netExpectancyPct}",
+                )
             } catch (_: Throwable) {}
             return blocked(candidate, venue, "LIVE_NON_POSITIVE_EXPECTANCY_7828")
         }
@@ -349,9 +365,10 @@ object CanonicalEntryAuthority6551 {
         // learned door of the meme stack is counted and filed on its own record but does not refuse a LIVE crypto entry its
         // own lane record backs (CryptoSignalEngine8857; the 8788 hourly cap and loss stop are reserved at the seal below).
         var signalEngine8857 = false
-        com.lifecyclebot.engine.cortex.CrossAssetCortex7931.liveRefusal(candidate)?.let { why ->
+        val entryAssessment8871 = com.lifecyclebot.engine.cortex.CrossAssetCortex7931.assessEntry8871(candidate)
+        entryAssessment8871.refusal?.let { why ->
             val now8857 = System.currentTimeMillis()
-            val integrity8857 = try { com.lifecyclebot.engine.cortex.CrossAssetCortex7931.refusalBinds8857(candidate, why, now8857) } catch (_: Throwable) { true }
+            val integrity8857 = try { com.lifecyclebot.engine.cortex.CrossAssetCortex7931.refusalBinds8871(why, entryAssessment8871) } catch (_: Throwable) { true }
             if (CryptoSignalEngine8857.passes8857(candidate.mode.equals("LIVE", true), candidate.evidence["lane8788"], integrity8857, now8857)) {
                 signalEngine8857 = true
                 CryptoSignalEngine8857.noteAdvisory8857(

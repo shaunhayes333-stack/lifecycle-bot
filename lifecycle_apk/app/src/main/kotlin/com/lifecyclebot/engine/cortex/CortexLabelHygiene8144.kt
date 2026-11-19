@@ -22,6 +22,8 @@ package com.lifecyclebot.engine.cortex
  * Every excluded label is still recorded as an OBSERVED grade record (CortexGradeBook8144) — nothing is discarded.
  */
 object CortexLabelHygiene8144 {
+    /** Shared with the original Cortex assessment; setup-only capture uses the same unchanged three-minute limit. */
+    const val DECISION_MARK_STALE_MS_8871 = 180_000L
     const val EPISODE_MS_8144 = 6L * 3_600_000L
     /** A runner-capable lane holds at most ~6 h (RunnerExitContract8136); every other lane exits inside the hour. */
     private const val EXEC_HORIZON_RUNNER_MS_8144 = 6L * 3_600_000L

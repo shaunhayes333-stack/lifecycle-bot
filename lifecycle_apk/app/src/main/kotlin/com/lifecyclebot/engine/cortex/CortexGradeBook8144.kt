@@ -7,15 +7,18 @@ data class CortexOutcomeProof8395(
     val entry: com.lifecyclebot.engine.truth.LabelMark8386? = null,
     val outcome: com.lifecyclebot.engine.truth.LabelMark8386? = null,
 ) {
+    /** Episode suffixes are lane and decision time; the asset itself may be chain-qualified ("base|0x..."). */
+    private fun decisionMint8871(): String = decisionId.substringBeforeLast('|').substringBeforeLast('|')
+
     internal fun matches8395(id: String, horizon: Long, at: Long, net: Double, gross: Double): Boolean =
         decisionId == id && horizonMs == horizon && observedAtMs == at && netPct.toBits() == net.toBits() && grossPct.toBits() == gross.toBits()
     internal fun sourceStamped8521(decisionAtMs: Long): Boolean = entry != null && outcome != null &&
-        entry.mint == decisionId.substringBefore('|') && outcome.observedAtMs == observedAtMs &&
+        entry.mint == decisionMint8871() && outcome.observedAtMs == observedAtMs &&
         entry.observedAtMs - decisionAtMs in 5_000L..60_000L &&
         com.lifecyclebot.engine.truth.LabelEvidence8386.eligible(entry, outcome)
     fun witnessed8395(): Boolean = entry != null && outcome != null &&
         com.lifecyclebot.engine.truth.LabelEvidence8386.independent8418(entry) && com.lifecyclebot.engine.truth.LabelEvidence8386.independent8418(outcome) &&
-        entry.mint == decisionId.substringBefore('|') && outcome.observedAtMs == observedAtMs &&
+        entry.mint == decisionMint8871() && outcome.observedAtMs == observedAtMs &&
         com.lifecyclebot.engine.truth.LabelEvidence8386.eligible(entry, outcome)
     internal fun encode8395(): String = org.json.JSONObject().put("id",decisionId).put("h",horizonMs).put("at",observedAtMs)
         .put("net",netPct).put("gross",grossPct).put("entry",entry?.json()).put("outcome",outcome?.json()).toString()
@@ -837,12 +840,12 @@ class CortexGradeBook8144(private val maxDecisions: Int = 8_000, private val max
     @Volatile var implausibleRefused8388: Long = 0L
         private set
 
-    private companion object {
+    companion object {
         /** V5.0.8388 — an unwitnessed executable label above this multiple of its cohort cap is a defect, not a return. */
-        const val IMPLAUSIBLE_CAP_MULT_8388 = 10.0
-        const val FS = '\u001F'
-        const val RS = '\u001E'
+        internal const val IMPLAUSIBLE_CAP_MULT_8388 = 10.0
+        private const val FS = '\u001F'
+        private const val RS = '\u001E'
         /** V5.0.8322 — the first executable label is booked five minutes after the decision. */
-        const val FIRST_LABEL_MS_8322 = 5L * 60_000L
+        private const val FIRST_LABEL_MS_8322 = 5L * 60_000L
     }
 }

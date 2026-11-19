@@ -5,7 +5,8 @@ import org.json.JSONObject
 
 /** Exact decision identities and original setup contribution weights; never a mint-only latest-outcome lookup. */
 class LaneSetupEpisodes8372(private val capacity: Int = 8_000) {
-    data class Pending(val id: String, val base: String, val lane: String, val atMs: Long, val tag: String, val timing: String?)
+    data class Pending(val id: String, val base: String, val lane: String, val atMs: Long, val tag: String, val timing: String?,
+                       val independent8871: LanePlaybookDecision8871? = null)
     data class Contribution(val stamp: Double, var net: Double, var gross: Double, val timingStamp: Double = Double.NaN)
     class Grade(val decision: Pending, val contributions: Map<String, Contribution>, var terminal: Boolean = false) {
         val primary: String get() = decision.tag.substringBefore(';').substringBefore('#')
@@ -15,6 +16,10 @@ class LaneSetupEpisodes8372(private val capacity: Int = 8_000) {
     private val inFlight = HashMap<String, Pending>()
     private val latest = HashMap<String, String>()
     private val grades = LinkedHashMap<String, Grade>()
+    private data class EpisodeClock8871(val decisionAtMs: Long, val retainedAtMs: Long)
+    private val episodeClocks8871 = HashMap<String, EpisodeClock8871>()
+    private var clockWatermark8871 = 0L
+    private var clockPrunedAt8871 = 0L
     private data class Observation(val id: String, val atMs: Long, var disposition: String? = null)
     private val observations = LinkedHashMap<String, Observation>()
     var evicted: Long = 0L
@@ -23,6 +28,7 @@ class LaneSetupEpisodes8372(private val capacity: Int = 8_000) {
         private set
 
     companion object {
+        private const val PENDING_RETENTION_MS_8871 = 90L * 60_000L
         fun key(mint: String, labelLane: String, atMs: Long): String? =
             if (mint.isBlank() || labelLane.isBlank() || atMs <= 0L) null else "$mint|${labelLane.trim().uppercase()}|$atMs"
     }
@@ -66,16 +72,19 @@ class LaneSetupEpisodes8372(private val capacity: Int = 8_000) {
     }
 
     @Synchronized
-    fun capture(mint: String, labelLane: String, atMs: Long, lane: String, tag: String, timing: String?): Boolean {
+    fun capture(mint: String, labelLane: String, atMs: Long, lane: String, tag: String, timing: String?,
+                independent8871: LanePlaybookDecision8871? = null): Boolean {
         val id = key(mint, labelLane, atMs) ?: return false
+        if (independent8871 != null && independent8871.decisionId != id) return false
         if (observations[id]?.disposition != null) return false
         if (lane.isBlank() || tag.isBlank() || pending.containsKey(id) || inFlight.containsKey(id) || grades.containsKey(id)) return false
         observe(mint, labelLane, atMs)
         val base = "$mint|${labelLane.trim().uppercase()}"
-        pending[id] = Pending(id, base, lane, atMs, tag, timing)
+        pending[id] = Pending(id, base, lane, atMs, tag, timing, independent8871)
         val oldLatest = latest[base]?.let { pending[it] }
         if (oldLatest == null || atMs >= oldLatest.atMs) latest[base] = id
         trimPending()
+        pruneEpisodeClocks8871(atMs)
         return pending.containsKey(id)
     }
 
@@ -85,20 +94,93 @@ class LaneSetupEpisodes8372(private val capacity: Int = 8_000) {
     @Synchronized fun pending(mint: String, labelLane: String, atMs: Long): Pending? = key(mint, labelLane, atMs)?.let { pending[it] }
     @Synchronized fun grade(mint: String, labelLane: String, atMs: Long): Grade? = key(mint, labelLane, atMs)?.let { grades[it] }
 
+    /** The durable producer owns this exact decision, including its original setup and eligibility. */
+    @Synchronized
+    fun freezeIndependent8871(mint: String, labelLane: String, atMs: Long): String? = key(mint, labelLane, atMs)?.let { id ->
+        (pending[id] ?: inFlight[id] ?: grades[id]?.decision)?.takeIf { it.independent8871 != null }?.let { encodePending(it).toString() }
+    }
+
+    /** Decode separately from restore: a malformed or cross-episode payload must never change held history. */
+    fun decodeIndependent8871(raw: String, mint: String, labelLane: String, atMs: Long, nowMs: Long): Pending? = try {
+        decodePending(JSONObject(raw), nowMs)?.takeIf {
+            it.id == key(mint, labelLane, atMs) && it.independent8871?.decisionId == it.id
+        }
+    } catch (_: Exception) { null }
+
+    @Synchronized
+    fun restoreIndependent8871(original: Pending): Boolean {
+        val existing = pending[original.id] ?: inFlight[original.id] ?: grades[original.id]?.decision
+        if (existing != null) return existing == original
+        if (observations[original.id]?.disposition != null) return true
+        pending[original.id] = original
+        observations.putIfAbsent(original.id, Observation(original.id, original.atMs))
+        val old = latest[original.base]?.let { pending[it] }
+        if (old == null || original.atMs >= old.atMs) latest[original.base] = original.id
+        trimPending()
+        return pending[original.id] == original
+    }
+
+    /** Same six-hour refusal-episode rule as the full graph, now shared by both routes into this setup book. */
+    @Synchronized
+    fun lastGradedAt8871(mint: String, labelLane: String): Long? {
+        val base = "$mint|${labelLane.trim().uppercase()}"
+        return episodeClocks8871[base]?.decisionAtMs
+    }
+
     @Synchronized
     fun take(mint: String, labelLane: String, atMs: Long): Pending? =
         key(mint, labelLane, atMs)?.let { id -> removePending(id)?.also { inFlight[id] = it } }
 
     @Synchronized
-    fun record(decision: Pending, contributions: Map<String, Contribution>): Boolean {
+    fun record(decision: Pending, contributions: Map<String, Contribution>, receivedAtMs8871: Long = decision.atMs): Boolean {
         if (contributions.isEmpty() || grades.containsKey(decision.id)) return false
         inFlight.remove(decision.id)
         observations.putIfAbsent(decision.id, Observation(decision.id, decision.atMs))
         grades[decision.id] = Grade(decision, contributions)
+        val previous = episodeClocks8871[decision.base]
+        episodeClocks8871[decision.base] = EpisodeClock8871(maxOf(previous?.decisionAtMs ?: 0L, decision.atMs),
+            maxOf(previous?.retainedAtMs ?: 0L, receivedAtMs8871, decision.atMs))
+        pruneEpisodeClocks8871(receivedAtMs8871)
         while (grades.size > capacity) {
             grades.entries.minByOrNull { it.value.decision.atMs }?.key?.let { grades.remove(it); evicted++ } ?: break
         }
         return grades.containsKey(decision.id)
+    }
+
+    /** Detail eviction cannot forget the existing refusal episode. Retention clocks never replace decision clocks. */
+    private fun pruneEpisodeClocks8871(nowMs: Long, force: Boolean = false) {
+        clockWatermark8871 = maxOf(clockWatermark8871, nowMs)
+        // Cleanup is not part of the hot capture cost for every lane of the same token.
+        if (!force && clockPrunedAt8871 > 0L && clockWatermark8871 - clockPrunedAt8871 < 60_000L) return
+        clockPrunedAt8871 = clockWatermark8871
+        val oldestPending = (pending.values.asSequence() + inFlight.values.asSequence())
+            .map { it.atMs }.filter { clockWatermark8871 - it in 0L..PENDING_RETENTION_MS_8871 }.minOrNull()
+        val anchor = minOf(clockWatermark8871, oldestPending ?: clockWatermark8871)
+        episodeClocks8871.entries.removeIf { anchor - it.value.retainedAtMs >= CortexLabelHygiene8144.EPISODE_MS_8144 }
+    }
+
+    @Synchronized
+    fun episodeClocksSnapshot8871(nowMs: Long): JSONObject {
+        pruneEpisodeClocks8871(nowMs, force = true)
+        return JSONObject().put("v8871", 1).put("rows", JSONObject().also { rows ->
+            episodeClocks8871.forEach { (base, clock) -> rows.put(base, JSONArray().put(clock.decisionAtMs).put(clock.retainedAtMs)) }
+        })
+    }
+
+    @Synchronized
+    fun restoreEpisodeClocks8871(root: JSONObject?, nowMs: Long) {
+        if (root?.optInt("v8871") == 1) root.optJSONObject("rows")?.let { rows ->
+            for (base in rows.keys()) {
+                val values = rows.optJSONArray(base) ?: continue
+                val at = values.optLong(0); val retained = values.optLong(1)
+                if (!base.contains('|') || at <= 0L || at > nowMs || retained < at || retained > nowMs) continue
+                val previous = episodeClocks8871[base]
+                episodeClocks8871[base] = EpisodeClock8871(maxOf(previous?.decisionAtMs ?: 0L, at),
+                    maxOf(previous?.retainedAtMs ?: 0L, retained))
+            }
+        }
+        // Old snapshots rebuild only the clocks justified by their retained grade details; no history is invented.
+        pruneEpisodeClocks8871(nowMs, force = true)
     }
 
     /** Replace an existing contribution at its ORIGINAL weight; a terminal selected exit is immutable to forward labels. */
@@ -183,7 +265,7 @@ class LaneSetupEpisodes8372(private val capacity: Int = 8_000) {
         val rows = root.optJSONArray("rows") ?: return
         for (i in 0 until rows.length()) {
             val p = decodePending(rows.optJSONObject(i), nowMs) ?: continue
-            if (nowMs - p.atMs > 90L * 60_000L || pending.containsKey(p.id) || grades.containsKey(p.id)) continue
+            if (nowMs - p.atMs > PENDING_RETENTION_MS_8871 || pending.containsKey(p.id) || grades.containsKey(p.id)) continue
             pending[p.id] = p
             observations.putIfAbsent(p.id, Observation(p.id, p.atMs))
             val old = latest[p.base]?.let { pending[it] }
@@ -213,14 +295,16 @@ class LaneSetupEpisodes8372(private val capacity: Int = 8_000) {
 
     private fun encodePending(p: Pending): JSONObject = JSONObject().put("id", p.id).put("base", p.base)
         .put("lane", p.lane).put("decisionAt", p.atMs).put("tag", p.tag)
-        .put("timing", p.timing ?: JSONObject.NULL)
+        .put("timing", p.timing ?: JSONObject.NULL).put("independent8871", p.independent8871?.json())
 
     private fun decodePending(row: JSONObject?, nowMs: Long): Pending? {
         if (row == null) return null
         val id = row.optString("id"); val base = row.optString("base"); val lane = row.optString("lane")
         val at = row.optLong("decisionAt"); val tag = row.optString("tag")
         if (base.isBlank() || lane.isBlank() || tag.isBlank() || at <= 0L || at > nowMs || id != "$base|$at") return null
-        return Pending(id, base, lane, at, tag, row.optString("timing").takeIf { it.isNotBlank() && it != "null" })
+        val independent = row.optJSONObject("independent8871")?.let { LanePlaybookDecision8871.decode(it) }
+        if (row.has("independent8871") && !row.isNull("independent8871") && independent?.decisionId != id) return null
+        return Pending(id, base, lane, at, tag, row.optString("timing").takeIf { it.isNotBlank() && it != "null" }, independent)
     }
 
     private fun removePending(id: String): Pending? {

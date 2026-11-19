@@ -160,8 +160,9 @@ class Aate8801PriceIntegrityTest {
         assertEquals("8870: a metadata write cannot establish when an unknown price was observed", 0L, DynamicAltTokenRegistry.priceTime8801(0L, 9_000L))
         val reg = src("perps/DynamicAltTokenRegistry.kt")
         assertTrue(reg.contains("val observedAt = refreshed?.let { priceTime8801(it.priceObservedAtMs8372, it.lastUpdatedMs) } ?: 0L"))
-        // superseded by V5.0.8866 — a row with no price has no observation that could stand
-        assertTrue(reg.contains("if (latest.price > 0.0 && priceTime8801(latest.priceObservedAtMs8372, latest.lastUpdatedMs) > observedAtMs) latest"))
+        // 8870: only a positive price with a real, nonfuture, newer observation may stand.
+        assertTrue(reg.contains("val latestAt8870 = priceTime8801(latest.priceObservedAtMs8372, latest.lastUpdatedMs)"))
+        assertTrue(reg.contains("if (latest.price > 0.0 && latestAt8870 in 1L..nowMs8870 && latestAt8870 > observedAtMs) latest"))
     }
 
     @Test fun oldRowsPriceShapeIsUnknownToEveryLearner() {

@@ -116,7 +116,7 @@ class Aate8153LearningTest {
         // superseded by V5.0.8322: a flat five-minute mark is observed only too.
         // superseded by V5.0.8395: an unaccepted outcome is observed only before any hygiene authority is read.
         assertTrue(on.indexOf("if (!accepted8395 || !hyg8144.authority || late8153 || lateRead8169 || flat) {") in 0 until on.indexOf(
-            "LanePlaybook7907.onLabel(mint, labelLane, net8187, gross8187, fam8187, p.setup7961, decisionAtMs8372 = p.atMs)"))
+            "LanePlaybook7907.onLabel(mint, labelLane, net8187, gross8187, fam8187, p.setup7961, decisionAtMs8372 = p.atMs, admitted8871 = p.legacyAdmitted)"))
         // A hygiene-excluded decision's revisions move its own observed record, not the older graded decision's books.
         // V5.0.8372 resolves the immutable episode directly; it no longer relies on a lane's latest observed-only marker.
         val rv = cx.substringAfter("fun reviseLabel8006(").substringBefore("private fun reviseModelsLocked8372(")

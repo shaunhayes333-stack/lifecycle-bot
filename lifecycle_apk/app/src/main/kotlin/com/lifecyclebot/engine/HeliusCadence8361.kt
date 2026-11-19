@@ -175,8 +175,15 @@ object HeliusCadence8361 {
         val pre = meta.optJSONArray("preBalances") ?: JSONArray()
         val post = meta.optJSONArray("postBalances") ?: JSONArray()
         val fee = meta.optLong("fee", 0L).coerceAtLeast(0L)
-        val preTokens = SolanaTokenAmounts8870.owners8870(meta.optJSONArray("preTokenBalances"), wallets) ?: return emptyList()
-        val postTokens = SolanaTokenAmounts8870.owners8870(meta.optJSONArray("postTokenBalances"), wallets) ?: return emptyList()
+        val tokenBalances = SolanaTokenAmounts8870.pairedOwners8870(
+            meta.optJSONArray("preTokenBalances"), meta.optJSONArray("postTokenBalances"), wallets,
+        ) ?: return emptyList()
+        val preTokens = tokenBalances.pre
+        val postTokens = tokenBalances.post
+        // An unowned base-token row may belong to any watched wallet. Keep this uncertainty in the exactly-one-mint
+        // proof without allocating a synthetic owner/mint entry for every wallet on the shared subscription.
+        if (preTokens.unreadMints.any { it != WSOL && it !in STABLES } ||
+            postTokens.unreadMints.any { it != WSOL && it !in STABLES }) return emptyList()
         val tokenKeys = preTokens.keys + postTokens.keys
         val out = ArrayList<Swap8361>()
         for (w in wallets) {

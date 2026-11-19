@@ -353,7 +353,7 @@ class Aate8144CortexTest {
         assertTrue(cx.contains("AateEntryIdentityBook8136.identity8136(env.positionId)"))
         val on = cx.substringAfter("fun onLabel(mint: String, labelLane: String").substringBefore("private fun sourceOutcome8372(")
         // Hygiene still precedes playbook learning; both delivery and removal are now scoped to the original episode.
-        assertTrue(on.indexOf("recordLabel8144(key, p, netPct, grossPct, lat8144, proof8395)") in 0 until on.indexOf("LanePlaybook7907.onLabel(mint, labelLane, net8187, gross8187, fam8187, p.setup7961, decisionAtMs8372 = p.atMs)"))
+        assertTrue(on.indexOf("recordLabel8144(key, p, netPct, grossPct, lat8144, proof8395)") in 0 until on.indexOf("LanePlaybook7907.onLabel(mint, labelLane, net8187, gross8187, fam8187, p.setup7961, decisionAtMs8372 = p.atMs, admitted8871 = p.legacyAdmitted)"))
         assertTrue(on.contains("LanePlaybook7907.dropPending8144(mint, labelLane, decisionAtMs8372 = p.atMs)"))
         val rv = cx.substringAfter("fun reviseLabel8006(").substringBefore("fun progressiveLine8006(")
         // superseded by V5.0.8395: the revision validates against its own proof before any model mutation.

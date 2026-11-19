@@ -3041,7 +3041,8 @@ object ForwardReturnLabeler7731 {
                     com.lifecyclebot.engine.cortex.ForwardOutcomeDelivery8404(o.mint, o.lane, o.atMs, net, gross,
                         family.copyOf(), flat, witness, proof, frozen, revision,
                         if (revision && o.bookedNet7997.isFinite()) o.bookedNet7997 else net,
-                        if (revision && o.bookedGross7997.isFinite()) o.bookedGross7997 else gross).encode()
+                        if (revision && o.bookedGross7997.isFinite()) o.bookedGross7997 else gross,
+                        com.lifecyclebot.engine.cortex.LanePlaybook7907.freezeIndependent8871(o.mint, o.lane, o.atMs)).encode()
                 }
             }, ::writeForward8404)
         } catch (_: Exception) { null }

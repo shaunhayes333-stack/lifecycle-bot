@@ -262,8 +262,13 @@ for A in "${SCREENS[@]}"; do
     [ "$pid" = "$PID0" ] || { passed=0; verdict="process died pid=$PID0->${pid:-none}"; }
     echo "screen $A: $([ $passed -eq 1 ] && echo PASS || echo FAIL) $verdict"
     if [ "$passed" -ne 1 ]; then sc_ok=0; sc_detail+="$A: $verdict; "; else sc_detail+="$A ok; "; fi
-    adb shell input keyevent KEYCODE_BACK
-    sleep 1
+    # Security/Splash hand over asynchronously. BACK here can reach the dashboard they just opened, with its pending
+    # input moving the task home after the next am start reports an already-running Main (8870 CI). The next explicit
+    # screen launch is the transition for these two screens; ordinary screens still exercise BACK as before.
+    case "$A" in
+        SecurityActivity|SplashActivity) ;;
+        *) adb shell input keyevent KEYCODE_BACK; sleep 1 ;;
+    esac
     [ "$pid" = "$PID0" ] || break
 done
 [ "${#SCREENS[@]}" -ge 10 ] || { sc_ok=0; sc_detail="only ${#SCREENS[@]} activities parsed from the manifest; $sc_detail"; }

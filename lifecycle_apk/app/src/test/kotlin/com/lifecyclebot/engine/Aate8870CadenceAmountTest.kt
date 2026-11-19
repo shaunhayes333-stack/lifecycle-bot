@@ -31,4 +31,42 @@ class Aate8870CadenceAmountTest {
         f.meta(closed).put("err", "BlockhashNotFound")
         assertTrue(HeliusCadence8361.swapsOf8361(closed, setOf(f.wallet), 7L).isEmpty())
     }
+
+    @Test fun cadenceDoesNotInventTradesWhenEitherPresentBalanceOmitsItsOwner() {
+        fun row(ownerKnown: Boolean) = f.row(f.text("100")).put("accountIndex", 1).also {
+            if (!ownerKnown) it.remove("owner")
+        }
+        val sale = f.push(listOf(row(true)), listOf(row(false)), 1_000_000_000L, 2_000_000_000L)
+        assertTrue(HeliusCadence8361.swapsOf8361(sale, setOf(f.wallet), 7L).isEmpty())
+        val buy = f.push(listOf(row(false)), listOf(row(true)))
+        assertTrue(HeliusCadence8361.swapsOf8361(buy, setOf(f.wallet), 7L).isEmpty())
+        val aggregation = f.push(listOf(row(true)),
+            listOf(f.row(f.text("40")).put("accountIndex", 1), row(false).put("accountIndex", 2)),
+            1_000_000_000L, 2_000_000_000L)
+        assertTrue(HeliusCadence8361.swapsOf8361(aggregation, setOf(f.wallet), 7L).isEmpty())
+    }
+
+    @Test fun cadenceKeepsAProvenNativeSolLegWhenOnlyStableOwnershipIsUnknown() {
+        val unknownStable = f.row(f.text("100"), f.usdc).put("accountIndex", 2).also { it.remove("owner") }
+        val nativeBuy = f.push(listOf(unknownStable), listOf(unknownStable, f.row(f.text("100")).put("accountIndex", 1)))
+        val buy = HeliusCadence8361.swapsOf8361(nativeBuy, setOf(f.wallet), 7L).single()
+        assertTrue(buy.isBuy)
+        assertEquals(f.mint, buy.mint)
+        assertEquals(1.0, buy.sol, 0.0)
+        assertEquals(0.0, buy.stableUsd, 0.0)
+        val unknownBase = f.row(f.text("100"), "OtherMint8870").put("accountIndex", 3).also { it.remove("owner") }
+        val multiplePossibleBases = f.push(listOf(unknownBase), listOf(unknownBase, f.row(f.text("100"))))
+        assertTrue("unknown base ownership cannot prove that exactly one base mint moved",
+            HeliusCadence8361.swapsOf8361(multiplePossibleBases, setOf(f.wallet), 7L).isEmpty())
+    }
+
+    @Test fun cadenceRetainsGenuineSaleToAnOwnerlessObservedZero() {
+        val before = f.row(f.raw("100000000", 6)).put("accountIndex", 1)
+        val after = f.row(f.raw("0", 6)).put("accountIndex", 1).also { it.remove("owner") }
+        val sale = f.push(listOf(before), listOf(after), 1_000_000_000L, 2_000_000_000L)
+        val swap = HeliusCadence8361.swapsOf8361(sale, setOf(f.wallet), 7L).single()
+        assertFalse(swap.isBuy)
+        assertEquals(100.0, swap.tokens, 0.0)
+        assertEquals(1.0, swap.sol, 0.0)
+    }
 }

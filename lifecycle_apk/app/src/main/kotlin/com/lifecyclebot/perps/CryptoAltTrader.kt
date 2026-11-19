@@ -899,6 +899,7 @@ object CryptoAltTrader {
         val priceSource8870: String = "",
         // Owns the exact evaluation lease; a later registry refresh cannot change which pass is released.
         val evaluationOwner8870: DynamicAltTokenRegistry.DynToken? = null,
+        val cryptoNativeSignal8871: CryptoNativeSignal8871.Witness? = null,
     ) {
         /** Real coin symbol — dynamic value when present, else the enum symbol. */
         val marketSymbol: String get() = dynSymbol ?: market.symbol
@@ -1310,6 +1311,8 @@ object CryptoAltTrader {
         val shadowOnlyLive: Boolean,
         val reason: String,
         val strategy7803: String,
+        val scoreFloor8871: Int,
+        val confidenceFloor8871: Int,
     )
 
     private fun dynamicCryptoTier7244(mcapUsd: Double): String = when {
@@ -1474,7 +1477,7 @@ object CryptoAltTrader {
             shape8535.fired() ?: tactic7443 else tactic7443
         return DynamicCryptoDecision7244(
             score, confidence8535, tier, actionableLong, shadowOnlyLive, reason,
-            executedTactic8535.name,
+            executedTactic8535.name, scoreFloor, confFloor,
         )
     }
     private suspend fun runDynamicTokenScan() = withContext(Dispatchers.Default) {
@@ -1811,6 +1814,11 @@ object CryptoAltTrader {
                         strategy7803 = cryptoDecision7244.strategy7803,
                         deskOverlays7803 = deskCandidates7803.map { "DESK_" + it.lane }.toSet(),
                         candidateVersion7803 = cryptoCv7803,
+                        cryptoNativeSignal8871 = CryptoNativeSignal8871.capture(
+                            deskIdentity7391, cryptoDecision7244.strategy7803, PerpsDirection.LONG.name, cryptoCv7803,
+                            cryptoDecision7244.score, cryptoDecision7244.scoreFloor8871,
+                            cryptoDecision7244.confidence, cryptoDecision7244.confidenceFloor8871,
+                            decisionNow8832, price, priceObserved8832),
                     ).also { resident ->
                         try {
                             CryptoStrategyCandidateBooks7803.ready(
@@ -3412,7 +3420,9 @@ object CryptoAltTrader {
             softWarnings = soft.distinct(),
             finalSize = finalSize,
             executionAdapter = adapter,
-            candidateVersion = LaneExecutionCoordinator.candidateVersionFor(cryptoAssetKey(signal, effectiveIsSpot6536)),
+            candidateVersion = CryptoNativeSignal8871.candidateVersion(signal.candidateVersion7803) {
+                LaneExecutionCoordinator.candidateVersionFor(cryptoAssetKey(signal, effectiveIsSpot6536))
+            },
         )
     }
 
@@ -4044,6 +4054,7 @@ object CryptoAltTrader {
                 priceObservedAtMs8870 = signal.priceObservedAtMs8870,
                 priceSource8870 = signal.priceSource8870,
                 priceAssetId8870 = cryptoAssetKey(signal, isSpot),
+                cryptoNativeSignal8871 = signal.cryptoNativeSignal8871,
                 routeAvailable = paper7803 || candidate.executionAdapter == "CRYPTO_UNIVERSE_EXECUTOR",
                 hardSafetyReasons = candidate.hardNoReasons + listOfNotNull(
                     livePreflight7835.second,

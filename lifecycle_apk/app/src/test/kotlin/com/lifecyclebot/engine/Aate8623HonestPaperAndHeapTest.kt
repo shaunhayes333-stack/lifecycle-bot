@@ -62,11 +62,13 @@ class Aate8623HonestPaperAndHeapTest {
         // The same bounded quota now permits one worker read every six seconds.
         assertFalse(Cortex7885.sampleDue8644(1_000L, 6_999L))
         assertTrue(Cortex7885.sampleDue8644(1_000L, 7_000L))
+        assertFalse("an older episode cannot rewind a sampling budget", Cortex7885.sampleDue8644(7_000L, 1_000L))
         val c = src("engine/cortex/Cortex7885.kt")
         val assess = c.substringAfter("fun assess(ts: TokenState, laneRaw: String").substringBefore("assessCache[key]?.let")
         assertTrue("scan release still runs first", assess.indexOf("noteScored8418") < assess.indexOf("if (VOTER_GRAPH_RETIRED_8623) return null"))
         val capture = c.substringAfter("fun capture(ts: TokenState, labelLane: String").substringBefore("val captureKey8397")
-        assertTrue("the playbook tag still belongs to every decision", capture.contains("LanePlaybook7907.capture(ts, labelLane, labelLane, nowMs, snap, sel, timing)"))
+        assertTrue("the playbook tag still belongs to every decision", capture.contains("LanePlaybook7907.capture(ts, labelLane, labelLane, nowMs, snap, sel, timing,"))
+        assertTrue("unsampled outcomes retain their own decision proof", capture.contains("independent8871 = playbookDecision8871(ts, labelLane, admitted, nowMs, reason)"))
         assertTrue(capture.contains("ForwardReturnLabeler7731.freezeTiming8528(ts.mint, labelLane, nowMs, sel, timing)"))
         assertTrue(capture.contains("VOTER_GRAPH_RETIRED_8623 || unsampled8644"))
         assertTrue("repeated decisions cannot multiply pending voter captures", capture.contains("claimCapture8644(key8644, hot8644.atMs, nowMs)"))
@@ -74,7 +76,7 @@ class Aate8623HonestPaperAndHeapTest {
         // Bounded prewarm restores frozen decisions without taking the capture budget.
         val schedule = c.substringAfter("private fun cachedOrSchedule(").substringBefore("private fun operatorSource8522(")
         assertFalse("a cold lane must be allowed to learn", schedule.contains("!provenOverStack8539(laneRaw)"))
-        assertTrue(schedule.indexOf("reservePrewarm8649(nowMs)") < schedule.indexOf("reserveSample8644(nowMs)"))
+        assertTrue(schedule.indexOf("reservePrewarm8649()") in 0 until schedule.indexOf("reserveSample8644()"))
         assertTrue(schedule.contains("val frozenPrewarm8649 = try { decisionSnapshots8522.capture(ts, nowMs) }"))
         assertTrue(schedule.contains("assess(frozenPrewarm8649, laneRaw, nowMs, nowMs, sampleReserved8644 = true)"))
         // V5.0.8649 — the sampled 331-voter graph must never run inline in the
@@ -82,7 +84,8 @@ class Aate8623HonestPaperAndHeapTest {
         // may read it after freezing the immutable decision input.
         assertFalse("a heavy voter assessment must not block a live decision", capture.contains("assess("))
         assertTrue(capture.contains("val coldSampleReserved8649 = BOUNDED_VOTER_GRAPH_8644"))
-        assertTrue(capture.contains("reserveSample8644(nowMs)"))
+        assertTrue(capture.contains("reserveSample8644()"))
+        assertFalse("decision timestamps do not control worker sampling", c.contains("reserveSample8644(nowMs)"))
         val prepare = c.substringAfter("val captureKey8397").substringBefore("private fun captureNow(")
         assertTrue("capture input is frozen before enqueue", prepare.contains("val frozen8273 = decisionSnapshots8522.capture(ts, nowMs)"))
         assertTrue("the cold capture uses the reserved bounded slot", prepare.contains("ticket8397, coldSampleReserved8649)"))

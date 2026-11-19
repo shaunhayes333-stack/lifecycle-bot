@@ -31,7 +31,7 @@ internal object CryptoStrategyCandidateBooks7803 {
 
     private const val WATCH_TTL_MS = 30L * 60_000L
     private const val QUALIFIED_TTL_MS = 5L * 60_000L
-    private const val READY_TTL_MS = 45_000L
+    internal const val READY_TTL_MS = 45_000L
     private const val MAX_PER_STRATEGY = 512
 
     private val books = ConcurrentHashMap<String, ConcurrentHashMap<String, Entry>>()

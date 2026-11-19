@@ -49,12 +49,9 @@ def crash_lines(text: str) -> list:
 
 def screen_layouts(src_main: pathlib.Path, activity: str) -> list:
     kt = src_main / "kotlin" / "com" / "lifecyclebot" / "ui" / f"{activity}.kt"
-    names = []
-    for act in HANDOVER.get(activity, [activity]):
-        path = kt.with_name(f"{act}.kt")
-        if path.exists():
-            names += re.findall(r"(?<!dialog\.)setContentView\(R\.layout\.(\w+)\)", path.read_text(errors="replace"))
-    return names
+    if not kt.exists():
+        return []
+    return re.findall(r"(?<!dialog\.)setContentView\(R\.layout\.(\w+)\)", kt.read_text(errors="replace"))
 
 
 def layout_ids(src_main: pathlib.Path, layouts: list) -> set:
@@ -79,7 +76,9 @@ def screen_verdict(dump_xml: str, focus: str, activity: str, src_main: pathlib.P
     if not nodes:
         return False, "no rendered node belongs to the app"
     seen = {n.get("resource-id", "").split(":id/")[-1] for n in nodes if ":id/" in n.get("resource-id", "")}
-    expected = layout_ids(src_main, screen_layouts(src_main, activity))
+    # Focus and the hierarchy are separate reads. During a handover an old splash dump can coexist with Main focus;
+    # accepting the union of both layouts passed that transition before the dashboard had actually rendered (8870 CI).
+    expected = layout_ids(src_main, screen_layouts(src_main, focused.group(1)))
     if expected:
         hit = sorted(seen & expected)
         if not hit:

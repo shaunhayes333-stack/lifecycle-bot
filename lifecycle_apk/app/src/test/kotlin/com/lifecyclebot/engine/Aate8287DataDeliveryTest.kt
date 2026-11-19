@@ -154,7 +154,8 @@ class Aate8287DataDeliveryTest {
         assertTrue(d.contains("pairCache[\"solana|\$mint\"] = CachedPair(pair, nowMs)"))
         // a bulk read with a recent answer joins the lane; a local refusal is never cached as "no pair"
         val best = d.substringAfter("private fun getBestPairInternal(").substringBefore("/** Search by query string")
-        assertTrue(best.contains("if (chainId == \"solana\" && prio8287 == \"BULK\" && cached != null && now - cached.timestamp < CACHE_TTL_MS * 3) {"))
+        // 8870: only the default cache policy may serve this batch fallback; actionable refreshes retain their stricter clock.
+        assertTrue(best.contains("if (cacheWindow8870 == CACHE_TTL_MS && chainId == \"solana\" && prio8287 == \"BULK\" && cached != null && now - cached.timestamp < CACHE_TTL_MS * 3) {"))
         assertTrue(best.contains("com.lifecyclebot.engine.DexBatchLane8287.enqueue8287(tokenAddress)"))
         assertTrue(best.indexOf("return cached?.pair") in 0 until best.indexOf("pairCache[cacheKey] = CachedPair(result"))
         // setup features: the orchestrator's pair fetch enqueues into the same lane

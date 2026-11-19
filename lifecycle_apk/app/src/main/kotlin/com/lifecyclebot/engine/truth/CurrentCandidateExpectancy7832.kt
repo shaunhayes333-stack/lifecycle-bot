@@ -27,6 +27,23 @@ object CurrentCandidateExpectancy7832 {
         available: Boolean, degenerate: Boolean, proven: Boolean, evidencedRefuse: Boolean,
     ): Boolean = available && !degenerate && (proven || evidencedRefuse)
 
+    /** An excluded oracle cannot regain positive or negative authority through the fallback's probability input. */
+    internal fun oracleProbability8871(numericAuthority: Boolean, pWin: Double?): Double? =
+        pWin?.takeIf { numericAuthority && it.isFinite() && it in 0.0..1.0 }
+
+    internal enum class Basis8871 { AUTHORITATIVE_ORACLE, TERMINAL_FORWARD, CURRENT_CANDIDATE_PRIOR, UNAVAILABLE }
+    internal data class AdmissionEstimate8871(val basis: Basis8871, val netPct: Double?)
+
+    /** The existing precedence, with its evidence source retained rather than calling every refusal a measured loss. */
+    internal fun admissionEstimate8871(oracleNumeric: Boolean, oracleNetPct: Double?,
+                                      forwardResolved: Boolean, forwardNetPct: Double?,
+                                      current: Estimate?): AdmissionEstimate8871 = when {
+        oracleNumeric -> AdmissionEstimate8871(Basis8871.AUTHORITATIVE_ORACLE, oracleNetPct)
+        forwardResolved -> AdmissionEstimate8871(Basis8871.TERMINAL_FORWARD, forwardNetPct)
+        current != null -> AdmissionEstimate8871(Basis8871.CURRENT_CANDIDATE_PRIOR, admissionNetPct7838(current))
+        else -> AdmissionEstimate8871(Basis8871.UNAVAILABLE, null)
+    }
+
     // Preserve the structural verdict as well as the arithmetic sign. A strong
     // score cannot turn an explicit WAIT or weak setup into live permission.
     fun admissionNetPct7838(estimate: Estimate?): Double? = estimate?.let {

@@ -40,6 +40,22 @@ class Screens(unittest.TestCase):
         d = dump(("com.lifecyclebot.aate", "com.lifecyclebot.aate:id/btnToggle", "Start Bot"))
         self.assertTrue(dc.screen_verdict(d, FOCUS % "MainActivity", "SplashActivity", SRC_MAIN)[0])
 
+    def test_handover_requires_the_focused_activity_to_have_rendered(self):
+        # 8870 artifact: Splash XML carried these IDs while a later focus read already named MainActivity.
+        splash = dump(("com.lifecyclebot.aate", "com.lifecyclebot.aate:id/ivSplashLogo", ""),
+                      ("com.lifecyclebot.aate", "com.lifecyclebot.aate:id/tvSplashTagline", "AATE"))
+        self.assertFalse(dc.screen_verdict(splash, FOCUS % "MainActivity", "SplashActivity", SRC_MAIN)[0])
+        self.assertTrue(dc.screen_verdict(splash, FOCUS % "SplashActivity", "SplashActivity", SRC_MAIN)[0])
+        main = dump(("com.lifecyclebot.aate", "com.lifecyclebot.aate:id/btnToggle", "Start Bot"))
+        self.assertFalse(dc.screen_verdict(main, FOCUS % "SplashActivity", "SplashActivity", SRC_MAIN)[0])
+        self.assertFalse(dc.screen_verdict(splash, FOCUS % "MainActivity", "MainActivity", SRC_MAIN)[0])
+        self.assertTrue(dc.screen_verdict(main, FOCUS % "MainActivity", "MainActivity", SRC_MAIN)[0])
+
+    def test_launcher_focus_never_counts_as_a_rendered_dashboard(self):
+        main = dump(("com.lifecyclebot.aate", "com.lifecyclebot.aate:id/btnToggle", "Start Bot"))
+        launcher = "mCurrentFocus=Window{3576e6a u0 com.google.android.apps.nexuslauncher/com.google.android.apps.nexuslauncher.NexusLauncherActivity}"
+        self.assertFalse(dc.screen_verdict(main, launcher, "MainActivity", SRC_MAIN)[0])
+
     def test_programmatic_screen_needs_text(self):
         self.assertTrue(dc.screen_verdict(dump(("com.lifecyclebot.aate", "", "Tuning")), FOCUS % "TuningActivity", "TuningActivity", SRC_MAIN)[0])
         self.assertFalse(dc.screen_verdict(dump(("com.lifecyclebot.aate", "", "")), FOCUS % "TuningActivity", "TuningActivity", SRC_MAIN)[0])

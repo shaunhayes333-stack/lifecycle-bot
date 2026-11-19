@@ -438,7 +438,8 @@ object LearnedAdmissionInputs6909 {
         val currentCandidate7832 = if (!oracleUsable7828 && unresolvedHistorical7832) try {
             CurrentCandidateExpectancy7832.estimate(
                 score = entryScore, candidateConfidence = candidateConfidenceHint,
-                quality = qualityHint, edgePhase = edgePhaseHint, oraclePWin = oracle6915?.pWin,
+                quality = qualityHint, edgePhase = edgePhaseHint,
+                oraclePWin = CurrentCandidateExpectancy7832.oracleProbability8871(oracleUsable7828, oracle6915?.pWin),
                 expectedSlipPct = com.lifecyclebot.v3.scoring.ExecutionCostPredictorAI.expectedExtraSlipPct(liquidityUsdHint6917),
             )
         } catch (_: Throwable) { null } else null
