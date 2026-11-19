@@ -2304,33 +2304,51 @@ object LanePlaybook7907 {
         val original = episodes8372.decodeIndependent8871(d.playbookPrediction8871 ?: return "NO_CAPTURE",
             d.mint, d.lane, d.atMs, System.currentTimeMillis()) ?: return "MALFORMED_OR_MISMATCHED_CAPTURE"
         if (original.lane != canon(d.lane)) return "LANE_IDENTITY_MISMATCH"
-        if (!episodes8372.restoreIndependent8871(original)) return "ORIGINAL_CAPTURE_CONFLICT"
+        if (!episodes8372.matchesIndependent8871(original)) return "ORIGINAL_CAPTURE_CONFLICT"
         if (episodes8372.grade(d.mint, d.lane, d.atMs) != null) return "EARLIER_SETUP_GRADE_PRESERVED"
         episodes8372.disposition(d.mint, d.lane, d.atMs)?.let { return it }
+        if (episodes8372.inFlight(d.mint, d.lane, d.atMs)) return null
         val context = original.independent8871 ?: return "NO_CAPTURE_PROOF"
         context.exclusion(d, System.currentTimeMillis())?.let { reason ->
             // A five-minute observation cannot consume a setup whose original target is fifteen minutes.
             // Retain every later-path observation as a disposition without relabelling the frozen target.
-            if (reason != "OUTSIDE_FROZEN_TARGET") dropPending8144(d.mint, d.lane, d.atMs)
+            if (reason != "OUTSIDE_FROZEN_TARGET" && !dropIndependent8871(d, original)) return null
             PipelineHealthCollector.labelInc("SETUP_INDEPENDENT_OBSERVED_ONLY_8871_$reason")
             return reason
         }
         if (CortexLabelHygiene8144.repeatInEpisode8144(context.admitted,
                 episodes8372.lastGradedAt8871(d.mint, d.lane), d.atMs)) {
-            dropPending8144(d.mint, d.lane, d.atMs)
+            if (!dropIndependent8871(d, original)) return null
             PipelineHealthCollector.labelInc("SETUP_INDEPENDENT_REPEAT_8871")
             return "REPEAT_EPISODE"
         }
-        val applied = applyLabel8871(d.mint, d.lane, d.net, d.gross, d.family, original.tag.substringBefore(';').substringBefore('#'),
-            d.atMs, false, context.admitted, durableIndependent8871 = true)
+        val leased = episodes8372.reserveIndependent8871(original) ?: return null
+        val applied = try {
+            applyLabel8871(d.mint, d.lane, d.net, d.gross, d.family, original.tag.substringBefore(';').substringBefore('#'),
+                d.atMs, false, context.admitted, durableIndependent8871 = true, leasedIndependent8871 = leased)
+        } finally {
+            episodes8372.releaseIndependent8871(leased)
+        }
         // A delayed contribution can be the oldest detail evicted immediately at capacity. The book mutation,
         // not residency of its optional detailed trace, determines the exact durable receipt.
         if (applied) {
             PipelineHealthCollector.labelInc("SETUP_INDEPENDENT_GRADED_8871")
             return "LEARNED_SETUP_ONLY"
         }
-        // A concurrent legacy callback may have taken this exact episode. Its mutation/disposition must finish first.
+        // A source-qualified capture with no selected setup still needs its explicit no-mutation disposition.
         return episodes8372.disposition(d.mint, d.lane, d.atMs)
+    }
+
+    /** Preserve the existing hygiene disposition even when the producer's original has left ordinary pending. */
+    private fun dropIndependent8871(d: ForwardOutcomeDelivery8404, original: LaneSetupEpisodes8372.Pending): Boolean {
+        val leased = episodes8372.reserveIndependent8871(original) ?: return false
+        return try {
+            episodes8372.dispose(d.mint, d.lane, d.atMs, "HYGIENE_EXCLUDED_8372").also { disposed ->
+                if (disposed) PipelineHealthCollector.labelInc("SETUP_EXACT_LABEL_HYGIENE_DROPPED_8372")
+            }
+        } finally {
+            episodes8372.releaseIndependent8871(leased)
+        }
     }
 
     private fun decisionTag8091(c: Classification8084): String? {
@@ -2394,15 +2412,19 @@ object LanePlaybook7907 {
     @Synchronized
     private fun applyLabel8871(mint: String, labelLane: String, netPct: Double, grossPct: Double, fam8080: DoubleArray?,
                                expectedSetup8084: String?, decisionAtMs8372: Long, selectedOnly8372: Boolean,
-                               admitted8871: Boolean?, durableIndependent8871: Boolean): Boolean {
+                               admitted8871: Boolean?, durableIndependent8871: Boolean,
+                               leasedIndependent8871: LaneSetupEpisodes8372.Pending? = null): Boolean {
         ensureLoaded()
         if (!netPct.isFinite()) return false
+        if (leasedIndependent8871 != null && (!durableIndependent8871 ||
+                leasedIndependent8871.id != LaneSetupEpisodes8372.key(mint, labelLane, decisionAtMs8372))) return false
         if (decisionAtMs8372 > 0L && admitted8871 == false && CortexLabelHygiene8144.repeatInEpisode8144(false,
                 episodes8372.lastGradedAt8871(mint, labelLane), decisionAtMs8372)) {
             dropPending8144(mint, labelLane, decisionAtMs8372)
             return false
         }
-        val exact8372 = if (decisionAtMs8372 > 0L) episodes8372.take(mint, labelLane, decisionAtMs8372) ?: return false else null
+        val exact8372 = leasedIndependent8871 ?: if (decisionAtMs8372 > 0L)
+            episodes8372.take(mint, labelLane, decisionAtMs8372) ?: return false else null
         val (lane, full) = exact8372?.let { it.lane to it.tag }
             ?: (pending.remove("$mint|${labelLane.trim().uppercase()}") ?: return false)
         // V5.0.8418 — one label per decision episode, across restarts (an exact episode carries its decision time).

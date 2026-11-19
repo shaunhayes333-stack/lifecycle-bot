@@ -242,6 +242,82 @@ class Aate8871PlaybookDeliveryTest {
         f.modelUntouched()
     }
 
+    @Test fun olderOwnedOutcomesLearnOnceWithoutDisplacingFullNewerPendingRows() {
+        for (admitted in listOf(false, true)) Fixture().use { f ->
+            f.capacity(2)
+            val at = System.currentTimeMillis() - 75L * 60_000L
+            val older = f.capture("owned-full-8871-$admitted", at = at, admitted = admitted)
+            f.capture(older.mint, setup = "NEWER_SETUP", at = at + 45L * 60_000L)
+            f.capture("other-full-8871-$admitted", setup = "OTHER_SETUP", at = at + 46L * 60_000L)
+            f.flush()
+            assertNull("the producer still owns the original after ordinary pending eviction",
+                f.episodes.pending(older.mint, older.lane, older.atMs))
+            val before = f.episodes.pendingSnapshot().toString()
+            val evictedBefore = f.episodes.evicted
+            f.blockWrites.set(true)
+            assertFalse(f.cortex.deliverForwardOutcome8404(older)); f.flush()
+            assertEquals(1.0, f.raw("EXPRESS", "BASE_BREAKOUT")!!.n, 0.0)
+            assertEquals(18.0, f.raw("EXPRESS", "BASE_BREAKOUT")!!.rawMean8187(), 0.0)
+            assertNull(f.receipt(older))
+            assertFalse(f.episodes.inFlight(older.mint, older.lane, older.atMs))
+            assertEquals(before, f.episodes.pendingSnapshot().toString())
+            assertFalse(f.cortex.deliverForwardOutcome8404(older)); f.flush()
+            assertEquals("retry cannot reapply either an admitted or refused original", 1.0,
+                f.raw("EXPRESS", "BASE_BREAKOUT")!!.n, 0.0)
+            f.blockWrites.set(false)
+            f.complete(older)
+            assertEquals("LEARNED_SETUP_ONLY", JSONObject(f.receipt(older)!!).getString("disposition"))
+            assertEquals(before, f.episodes.pendingSnapshot().toString())
+            assertEquals(evictedBefore, f.episodes.evicted)
+            assertNull(f.raw("EXPRESS", "NEWER_SETUP")); assertNull(f.raw("EXPRESS", "OTHER_SETUP"))
+            f.restartPlaybook()
+            assertTrue(f.cortex.deliverForwardOutcome8404(older))
+            assertEquals(1.0, f.raw("EXPRESS", "BASE_BREAKOUT")!!.n, 0.0)
+            assertEquals(before, f.episodes.pendingSnapshot().toString())
+            f.modelUntouched()
+        }
+    }
+
+    @Test fun conflictingOwnedCaptureIsRejectedWithoutConsumingTheHeldOriginal() = Fixture().use { f ->
+        val original = f.capture("owned-conflict-8871")
+        val before = f.episodes.pendingSnapshot().toString()
+        val conflict = original.copy(playbookPrediction8871 = JSONObject(original.playbookPrediction8871!!)
+            .put("tag", "WRONG_SETUP#O=MATCHED#V=8871").toString())
+        f.complete(conflict)
+        assertEquals("ORIGINAL_CAPTURE_CONFLICT", JSONObject(f.receipt(conflict)!!).getString("disposition"))
+        assertEquals(before, f.episodes.pendingSnapshot().toString())
+        assertNull(f.raw("EXPRESS", "BASE_BREAKOUT")); assertNull(f.raw("EXPRESS", "WRONG_SETUP"))
+        f.modelUntouched()
+    }
+
+    @Test fun anExistingInFlightLeaseKeepsItsOwnershipUntilItsCallbackFinishes() = Fixture().use { f ->
+        val d = f.capture("owned-inflight-8871")
+        val held = requireNotNull(f.episodes.take(d.mint, d.lane, d.atMs))
+        val before = f.episodes.pendingSnapshot().toString()
+        assertFalse(f.cortex.deliverForwardOutcome8404(d)); f.flush()
+        assertNull(f.receipt(d)); assertNull(f.raw("EXPRESS", "BASE_BREAKOUT"))
+        assertTrue(f.episodes.inFlight(d.mint, d.lane, d.atMs))
+        assertEquals(before, f.episodes.pendingSnapshot().toString())
+        assertEquals(held, f.episodes.decodeIndependent8871(d.playbookPrediction8871!!,
+            d.mint, d.lane, d.atMs, System.currentTimeMillis()))
+        f.modelUntouched()
+    }
+
+    @Test fun evictedOwnedHygieneExclusionsCannotBeRevivedByALaterDelivery() = Fixture().use { f ->
+        f.capacity(1)
+        val at = System.currentTimeMillis() - 60L * 60_000L
+        val original = f.capture("owned-excluded-8871", at = at)
+        f.capture("owned-newer-8871", setup = "NEWER_SETUP", at = at + 30L * 60_000L)
+        assertNull(f.episodes.pending(original.mint, original.lane, original.atMs))
+        val before = f.episodes.pendingSnapshot().toString()
+        f.complete(original.copy(flat = true))
+        assertEquals("HYGIENE_EXCLUDED_8372", f.episodes.disposition(original.mint, original.lane, original.atMs))
+        f.complete(original.copy(revision = true))
+        assertNull(f.raw("EXPRESS", "BASE_BREAKOUT"))
+        assertEquals(before, f.episodes.pendingSnapshot().toString())
+        f.modelUntouched()
+    }
+
     @Test fun malformedUnfilledLateAndWrongEpisodeEvidenceCannotGradeASetup() = Fixture().use { f ->
         val changes = listOf<(ForwardOutcomeDelivery8404) -> ForwardOutcomeDelivery8404>(
             { it.copy(proof = it.proof!!.copy(entry = null)) },

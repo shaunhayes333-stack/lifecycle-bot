@@ -107,17 +107,29 @@ class LaneSetupEpisodes8372(private val capacity: Int = 8_000) {
         }
     } catch (_: Exception) { null }
 
+    /** Validate an owned original without admitting it to the ordinary, capacity-limited pending queue. */
     @Synchronized
-    fun restoreIndependent8871(original: Pending): Boolean {
+    fun matchesIndependent8871(original: Pending): Boolean {
         val existing = pending[original.id] ?: inFlight[original.id] ?: grades[original.id]?.decision
-        if (existing != null) return existing == original
-        if (observations[original.id]?.disposition != null) return true
-        pending[original.id] = original
+        return existing == null || existing == original
+    }
+
+    /** The producer already owns this original. Reserve it only for the worker's immediate label application. */
+    @Synchronized
+    fun reserveIndependent8871(original: Pending): Pending? {
+        if (original.independent8871?.decisionId != original.id || !matchesIndependent8871(original) ||
+            inFlight.containsKey(original.id) || grades.containsKey(original.id) ||
+            observations[original.id]?.disposition != null) return null
+        val leased = removePending(original.id) ?: original
+        inFlight[original.id] = leased
         observations.putIfAbsent(original.id, Observation(original.id, original.atMs))
-        val old = latest[original.base]?.let { pending[it] }
-        if (old == null || original.atMs >= old.atMs) latest[original.base] = original.id
-        trimPending()
-        return pending[original.id] == original
+        return leased
+    }
+
+    /** A failed application remains owned by the durable producer; never remove another caller's lease. */
+    @Synchronized
+    fun releaseIndependent8871(leased: Pending) {
+        if (inFlight[leased.id] === leased) inFlight.remove(leased.id)
     }
 
     /** Same six-hour refusal-episode rule as the full graph, now shared by both routes into this setup book. */
