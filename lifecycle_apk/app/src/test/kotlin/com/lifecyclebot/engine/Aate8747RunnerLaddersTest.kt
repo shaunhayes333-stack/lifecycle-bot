@@ -23,7 +23,11 @@ class Aate8747RunnerLaddersTest {
         // a 50x peak, and the hour ends at 30x (+2900 %), 40 % under the peak.
         assertEquals(0.5 * 400.0 + 0.5 * 2900.0, net(Ladder.HALF_TRAIL), 1e-6)            // 30 % trail fires at the 40 % give-back
         assertEquals(0.5 * 400.0 + 0.3 * 900.0 + 0.2 * 2900.0, net(Ladder.MOONBAG), 1e-6)  // 60 % trail never fires
-        assertEquals(0.25 * 100.0 + 0.18 * 400.0 + 0.57 * 0.67 * 900.0 + 0.57 * 0.33 * 2900.0, net(Ladder.DOCTRINE), 1e-6)
+        // superseded by V5.0.8873 — DOCTRINE is the live ladder (each rung a share of the rest): 2x, 5x, 10x, then the 30x rung
+        // fills on the 50x print; 100x is never reached and the rest is sold at the hour's last print (30x).
+        val left5 = 0.75 * (1.0 - 0.18); val left10 = left5 * 0.75; val left30 = left10 * 0.75
+        assertEquals(0.25 * 100.0 + 0.75 * 0.18 * 400.0 + left5 * 0.25 * 900.0 + left10 * 0.25 * 4900.0 + left30 * 2900.0,
+            net(Ladder.DOCTRINE), 1e-6)
     }
 
     @Test fun exitReasonsAreFamilies() {

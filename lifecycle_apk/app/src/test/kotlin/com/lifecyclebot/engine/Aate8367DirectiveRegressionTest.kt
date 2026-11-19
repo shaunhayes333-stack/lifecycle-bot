@@ -109,7 +109,8 @@ class Aate8367DirectiveRegressionTest {
     @Test fun d07_runnerCaptureLaddersAndScalpTierUntilConfirmed() {
         assertEquals(listOf(40.0 to 0.60, 120.0 to 0.70, 400.0 to 0.70), SpikeCapture7943.TIERS)
         // V5.0.8644 — 25/18/67% of the remaining bag: bank stake by 5x, retain >=20% after 10x.
-        assertEquals(listOf(100.0 to 0.25, 400.0 to 0.18, 900.0 to 0.67), RunnerGrab7967.TIERS_7967)
+        // superseded by V5.0.8873 — the stake is still back by 5x; from 10x a quarter of the rest at 10x / 30x / 100x, 22 % at 300x.
+        assertEquals(listOf(100.0 to 0.25, 400.0 to 0.18, 900.0 to 0.25, 2_900.0 to 0.25, 9_900.0 to 0.25, 29_900.0 to 0.22), RunnerGrab7967.TIERS_7967)
         assertTrue(RunnerGrab7967.scalpTiersUntilConfirmed8337(true, false, false))
         assertTrue(RunnerGrab7967.scalpTiersUntilConfirmed8337(true, true, false))
         assertFalse(RunnerGrab7967.scalpTiersUntilConfirmed8337(true, true, true))

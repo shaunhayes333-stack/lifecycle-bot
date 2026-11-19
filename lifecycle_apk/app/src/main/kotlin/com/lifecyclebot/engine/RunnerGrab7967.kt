@@ -54,7 +54,23 @@ object RunnerGrab7967 {
     // 67 % final rung is not silently cut by the LIVE share-budget guard. The modeled gradual 10x/trail
     // whole-position capture is +514.695 % after tier slippage, or ~+509 % with 5 % trailing-fill slippage.
     // These are *potential* exit economics, NOT predicted live winners or executable fill guarantees.
-    val TIERS_7967: List<Pair<Double, Double>> = listOf(100.0 to 0.25, 400.0 to 0.18, 900.0 to 0.67)
+    // V5.0.8873 §THE_LADDER_RIDES_PAST_10X — owner, 20 Nov: "there are 60,000% profit opportunities out there. literally
+    // everyday" / "fuck 4x. I want it to look far far beyond that". The +900 % rung sold 67 % of what remained, so 80 % of the
+    // original bag was gone by 10x and only the 20 % moonbag saw 30x, 100x or 600x (the 8726 test recorded it: a 25x move
+    // banked about 8x). Measured on the owner's launch-hour exports (13 files, 12-20 Nov, 5,886 one-hour paths after the 8748
+    // spike rule and a unit-jump filter; two-close peaks; 5 % fill slip a rung): a unit held from the 10x rung on the doctrine
+    // trail was worth 1.87x what the rung sold it for (68 % of the 149 paths that reached 10x beat the rung; 1.77x and 66 %
+    // from 20x), and within the hour most of those paths were still running. The 2x and 5x rungs are unchanged — the stake
+    // is back by 5x (1.116x after slip), so everything above 5x is house money. From 10x the ladder sells a quarter of what
+    // remains at 10x, 30x and 100x and 22 % at 300x, leaving 20.24 % of the original, above RunnerExitContract8136's 20 %
+    // residual reserve (no rung is ever clamped), riding the unchanged 45 % doctrine trail. On the same paths: +13.3 % ->
+    // +17.1 % a position over all 5,886; better on 95 of the 129 paths that peaked at 10x or more (+1.72x a position); the
+    // worst 10x+ path 2.84x (was 5.15x). Straight run-ups that collapse (the 8726 replay): 10x 6.4 -> 5.2x, 30x 8.5 -> 11.7x,
+    // 100x 16.0 -> 28.5x, 300x 37.3 -> 63.9x, 600x 69.3 -> 95.7x. Widening the trail from 45 % to 60 % above 5x was measured
+    // on the same paths and moved nothing (1.94x vs 1.95x of the rung from 5x), so the trail is not touched.
+    val TIERS_7967: List<Pair<Double, Double>> = listOf(
+        100.0 to 0.25, 400.0 to 0.18, 900.0 to 0.25, 2_900.0 to 0.25, 9_900.0 to 0.25, 29_900.0 to 0.22,
+    )
 
     private val grabbed = ConcurrentHashMap<String, Long>()                  // mint -> first grab
     private val signals = ConcurrentHashMap<String, Pair<Double, Long>>()     // mint -> (px, at) awaiting grade

@@ -47,6 +47,8 @@ object LaunchReplay8744 {
      * V5.0.8747 — how the position is unwound (owner: "the bot should be able to hit 50x trades"):
      *  HALF_TRAIL  half at [Rule.takeX], the rest trailed 30 % from its peak;
      *  DOCTRINE    the bot's runner ladder today: 25 % at 2x, 18 % at 5x, 67 % of the rest at 10x, the rest trailed 45 %;
+     *              V5.0.8873: read from RunnerGrab7967.TIERS_7967 ([doctrineRungs8873]) — a quarter of the rest at 10x, 30x
+     *              and 100x, 22 % at 300x;
      *  MOONBAG     half at [Rule.takeX], 30 % at 10x, the last 20 % trailed 60 % from its peak (a 50x keeps a real bag).
      */
     /**
@@ -216,6 +218,16 @@ object LaunchReplay8744 {
      * fills where the curve stood [SELL_DELAY_MS_8748] after the print that triggered it. V5.0.8754: shared by the launch
      * replay (stop = entry less the rule's stop %) and the base family (stop under the base's low).
      */
+    /**
+     * V5.0.8873 — DOCTRINE is the live runner ladder itself (RunnerGrab7967.TIERS_7967, each rung a share of what remains),
+     * as (multiple, fraction of the ORIGINAL position). It was a hand copy (18 % of the original at 5x where live sells 18 %
+     * of the remainder, two thirds at 10x) and would not have followed the ladder past 10x.
+     */
+    internal fun doctrineRungs8873(): List<Pair<Double, Double>> {
+        var left = 1.0
+        return com.lifecyclebot.engine.RunnerGrab7967.TIERS_7967.map { (pct, f) -> val sell = left * f; left -= sell; (1.0 + pct / 100.0) to sell }
+    }
+
     internal fun exitNet8754(x: Path8748, e: Int, ladder: Ladder, takeX: Double, stopPx: Double, timeStopMs: Long, costPct: Double): Double? {
         val t = x.t; val p = x.p
         val entry = p[e]
@@ -227,7 +239,7 @@ object LaunchReplay8744 {
         val floorPx = if (lifecycle) entry * (1.0 - com.lifecyclebot.engine.LifecycleHold8065.FLOOR_PCT / 100.0) else stopPx
         val rungs = when (ladder) {   // (multiple, fraction of the ORIGINAL position)
             Ladder.HALF_TRAIL -> listOf(takeX to 0.5)
-            Ladder.DOCTRINE -> listOf(2.0 to 0.25, 5.0 to 0.18, 10.0 to 0.57 * 0.67)
+            Ladder.DOCTRINE -> doctrineRungs8873()
             Ladder.MOONBAG -> listOf(takeX to 0.5, 10.0 to 0.3)
             Ladder.SCALE_OUT -> listOf(3.0 to 0.25, 6.0 to 0.25, 12.0 to 0.25)
             Ladder.LIFECYCLE -> LIFECYCLE_RUNGS_8854

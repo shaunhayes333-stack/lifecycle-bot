@@ -58,9 +58,15 @@ object LearnerColumns8798 {
     fun ageSec(stampMs: Long?, nowMs: Long): Double =
         if (stampMs == null || stampMs <= 0L || stampMs > nowMs + 5_000L) Double.NaN else maxOf(0.0, (nowMs - stampMs) / 1000.0)
 
-    /** Pure: the launch venue as a category (NaN when no field names one). */
-    fun venueOf(mint: String, venue: String, dexId: String, priceDex: String, migrated: Boolean): Double {
-        val s = "$venue|$dexId|$priceDex".uppercase()
+    /**
+     * Pure: the launch venue as a category (NaN when no field names one).
+     * V5.0.8873 — [poolDex] is the DEX of the coin's chosen DexScreener data pool (DexPools8285): the edge dataset of
+     * 17-20 Nov read the venue of 92 % of the decisions on coins off pump.fun as unknown (12,025 NaN, and 946 "other" where
+     * a scanner stamped the chain, "solana", not the pool's DEX), and those coins carried the measured edge. A LetsBonk mint
+     * with no venue read is LaunchLab-born.
+     */
+    fun venueOf(mint: String, venue: String, dexId: String, priceDex: String, migrated: Boolean, poolDex: String = ""): Double {
+        val s = "$venue|$dexId|$priceDex|$poolDex".uppercase()
         return when {
             // A pump-suffix mint may already trade on an AMM while its migration flag
             // is still hydrating. The explicit observed trading venue outranks the
@@ -72,6 +78,7 @@ object LearnerColumns8798 {
             s.contains("ORCA") -> 5.0
             mint.endsWith("pump") && migrated -> 1.0                                 // migrated, but venue unknown
             mint.endsWith("pump") && !migrated -> 0.0                                    // curve only when no observed AMM venue
+            mint.endsWith("bonk") -> 2.0                                                 // V5.0.8873 — LetsBonk / LaunchLab mint, no venue read
             s.replace("UNKNOWN", "").replace("|", "").isBlank() -> Double.NaN
             else -> 6.0
         }
@@ -108,7 +115,8 @@ object LearnerColumns8798 {
         put("rugScore", if (sf.rugcheckScore >= 0) sf.rugcheckScore.toDouble() else Double.NaN)
         put("firstBlockSupply", nonNeg(sf.firstBlockSupplyPct)); put("firstBlockBuyers", if (sf.firstBlockBuyers >= 0) sf.firstBlockBuyers.toDouble() else Double.NaN)
         put("smartBuyers5m", try { SmartMoney8756.provenBuyersKnown8798(mint, 5L * 60_000L, nowMs) } catch (_: Throwable) { Double.NaN })
-        put("venue", try { venueOf(mint, ts.tokenMap.venue, ts.tokenMap.dexId, ts.lastPriceDex, ts.tokenMap.migratedOrGraduated) } catch (_: Throwable) { Double.NaN })
+        put("venue", try { venueOf(mint, ts.tokenMap.venue, ts.tokenMap.dexId, ts.lastPriceDex, ts.tokenMap.migratedOrGraduated,
+            poolDex = com.lifecyclebot.network.DexPools8285.dataPool8285(mint)?.dexId.orEmpty()) } catch (_: Throwable) { Double.NaN })   // V5.0.8873
         val sol = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { Double.NaN }
         SolTrend8798.note(sol, nowMs)
         put("solChg1h", SolTrend8798.changePct(60, nowMs)); put("solChg24h", SolTrend8798.changePct(24 * 60, nowMs))
@@ -167,6 +175,9 @@ object LearnerColumns8798 {
         }
         return sb.toString()
     }
+
+    /** V5.0.8873 — one named column of an extracted row (NaN when absent). */
+    fun valueOf8873(x: DoubleArray, name: String): Double = INDEX[name]?.takeIf { it < x.size }?.let { x[it] } ?: Double.NaN
 
     /** Pure: the columns as a JSON object of strings (the pending-decision snapshot; NaN travels as "NaN"). */
     fun toJson(x: DoubleArray): org.json.JSONObject = org.json.JSONObject().also { o -> if (x.size == SIZE) for (i in 0 until SIZE) o.put(NAMES[i], x[i].toString()) }

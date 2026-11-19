@@ -12,7 +12,8 @@ import java.util.concurrent.atomic.AtomicLong
  * Executor.requestPartialSellWithDelivery8527 for a slice), so no tuner, take-profit, partial ladder, tail bag or
  * peak-drawdown lock can shrink a winner again:
  *  - the ladder is RunnerGrab7967.TIERS_7967 (+100 % sells 25 %, +400 % sells 18 %, +900 % sells 67 % of what remains) for every meme
- *    position from entry;
+ *    position from entry; V5.0.8873: from 10x a quarter of what remains at 10x, 30x and 100x, 22 % at 300x, so a fifth
+ *    of the original rides the trail and the bag that sees 30x-600x is no longer sold at 10x;
  *  - any other profit exit is held while the price stays above the doctrine line: below a 2x peak the line keeps half the
  *    peak gain (never under +5 %), from a 2x peak it is a 45 % give-back trail of the multiple (never under 1.5x);
  *  - stops, safety, liquidity, rug, kill switch and every tier-1 emergency always pass, and nothing is held at or below
@@ -197,7 +198,8 @@ object RunnerDoctrine8584 {
     fun statusLine8584(): String {
         val top = held8584.entries.sortedByDescending { it.value.get() }.take(8)
             .joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }
-        return "runnerDoctrine8584[on=$enabled8584 held=${heldCount8584()} {$top} ladder=+100%:25/+400%:18/+900%:67-of-remainder " +
+        val ladder = RunnerGrab7967.TIERS_7967.joinToString("/") { (pct, f) -> "+${pct.toInt()}%:${(f * 100.0).toInt()}" }
+        return "runnerDoctrine8584[on=$enabled8584 held=${heldCount8584()} {$top} ladder=$ladder-of-remainder (8873) " +
             "line<2x=lower of half the peak gain and peak less the stop distance (>=+5%, 8719) >=2x=45% give-back (>=1.5x); stops/safety pass; tuner never shrinks meme exits]"
     }
 }

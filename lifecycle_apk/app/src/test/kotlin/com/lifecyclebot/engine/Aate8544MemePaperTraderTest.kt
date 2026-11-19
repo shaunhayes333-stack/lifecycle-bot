@@ -55,11 +55,13 @@ class Aate8544MemePaperTraderTest {
         val runner = RunnerGrab7967.TIERS_7967
         assertNull(MemePaperTrader8544.rung8544(runner, 0, 99.0))
         // V5.0.8644 — paper uses the same 25/18/67%-of-remainder ladder as live (unclamped by residual reserve).
+        // superseded by V5.0.8873 — the same live ladder, now six rungs (a quarter of the rest at 10x / 30x / 100x, 22 % at 300x).
         assertEquals(1 to 0.25, MemePaperTrader8544.rung8544(runner, 0, 100.0))
         val gap = MemePaperTrader8544.rung8544(runner, 0, 1_100.0)!!
         assertEquals(3, gap.first)
         assertEquals(SpikeCapture7943.crossedTierFraction8079(runner, 0, 3), gap.second, 1e-12)
-        assertNull("all rungs taken", MemePaperTrader8544.rung8544(runner, 3, 5_000.0))
+        assertEquals("a 50x print after three rungs takes the 30x rung", 4 to 0.25, MemePaperTrader8544.rung8544(runner, 3, 4_900.0))
+        assertNull("all rungs taken", MemePaperTrader8544.rung8544(runner, runner.size, 50_000.0))
         assertEquals(1 to 0.60, MemePaperTrader8544.rung8544(SpikeCapture7943.TIERS, 0, 40.0))
         assertEquals(50.0, MemePaperTrader8544.grossPct8544(1.0, 1.5), 1e-9)
         assertTrue(MemePaperTrader8544.grossPct8544(0.0, 1.5).isNaN())

@@ -157,7 +157,8 @@ class Aate8287DataDeliveryTest {
         // 8870: only the default cache policy may serve this batch fallback; actionable refreshes retain their stricter clock.
         assertTrue(best.contains("if (cacheWindow8870 == CACHE_TTL_MS && chainId == \"solana\" && prio8287 == \"BULK\" && cached != null && now - cached.timestamp < CACHE_TTL_MS * 3) {"))
         assertTrue(best.contains("com.lifecyclebot.engine.DexBatchLane8287.enqueue8287(tokenAddress)"))
-        assertTrue(best.indexOf("return cached?.pair") in 0 until best.indexOf("pairCache[cacheKey] = CachedPair(result"))
+        // superseded by 5.0.8870 — a strict (actionable) read that is not fresh returns null instead of the stale pair
+        assertTrue(best.indexOf("return if (strict8870 && !cachedFresh8870) null else cached?.pair") in 0 until best.indexOf("pairCache[cacheKey] = CachedPair(result"))
         // setup features: the orchestrator's pair fetch enqueues into the same lane
         assertTrue(src("engine/DataOrchestrator.kt").contains("private fun drainPairLane8285() = DexBatchLane8287.kick8287()"))
         // candidate marks: no second 30-mint reader on the host

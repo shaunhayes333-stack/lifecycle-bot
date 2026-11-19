@@ -40,7 +40,8 @@ class Aate7967RunnerGrabTest {
         assertFalse(RunnerGrab7967.deferrable7967("RUNNER_STRUCTURE_BREAK_7967_1M_300PCT", 300.0))
         // V5.0.8644 — preserve more inventory for 5x-10x runners; a separate 8584 test models the
         // actual remaining-position ladder and the minimum 20% original-budget moonbag.
-        assertEquals(listOf(100.0 to 0.25, 400.0 to 0.18, 900.0 to 0.67), RunnerGrab7967.TIERS_7967)
+        // superseded by V5.0.8873 — the ladder rides past 10x (Aate8873TailLadderTest).
+        assertEquals(listOf(100.0 to 0.25, 400.0 to 0.18, 900.0 to 0.25, 2_900.0 to 0.25, 9_900.0 to 0.25, 29_900.0 to 0.22), RunnerGrab7967.TIERS_7967)
     }
 
     @Test fun recordStandsDownWhenGrabsLose() {

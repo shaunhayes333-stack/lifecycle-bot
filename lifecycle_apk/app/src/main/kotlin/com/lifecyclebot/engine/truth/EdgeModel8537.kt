@@ -1118,6 +1118,7 @@ object EdgeModel8537 {
 
     private fun appendDataset(s: Snap, net: Double, filled: Boolean = true, witnessed: Boolean = false) {
         val line = try { datasetLine(s, net, filled, witnessed, System.currentTimeMillis()) } catch (_: Throwable) { return }
+        try { NetworkTier8873.note8873(s.mint, s.raw.ageMin, s.raw.mcap, LearnerColumns8798.valueOf8873(s.raw.ext, "venue"), net, filled) } catch (_: Throwable) {}   // V5.0.8873
         io.execute {
             try {
                 val f = File(dir() ?: return@execute, DATASET_FILE)

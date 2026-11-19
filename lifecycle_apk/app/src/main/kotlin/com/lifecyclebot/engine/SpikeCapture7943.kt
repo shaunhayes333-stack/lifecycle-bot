@@ -70,7 +70,9 @@ object SpikeCapture7943 {
     fun onConfirmedPartial8081(ts: TokenState, reason: String, consumedRaw: java.math.BigInteger, alreadyCommitted8397: Boolean = false) {
         if (consumedRaw.signum() <= 0) return
         val tier = RunnerLive8153.rungOf8153(reason)
-        if (tier !in 1..3) return
+        // V5.0.8873 — the runner ladder has six rungs (RunnerGrab7967.TIERS_7967); a chain-confirmed 30x, 100x or 300x slice
+        // confirms its tier like the first three.
+        if (tier !in 1..maxOf(TIERS.size, RunnerGrab7967.TIERS_7967.size)) return
         // V5.0.8153 — chain-verified consumption CONFIRMS the tier (idempotent: Executor.commitVerifiedLiveSlice7835 has
         // already confirmed it and booked the slice's proceeds once, RunnerLive8153.bookSlice8153).
         // commitVerifiedLiveSlice7835 already booked the original ladder and cleared pending. Recomputing

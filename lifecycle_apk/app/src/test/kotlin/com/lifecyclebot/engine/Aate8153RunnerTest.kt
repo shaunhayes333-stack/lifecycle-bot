@@ -140,7 +140,8 @@ class Aate8153RunnerTest {
             assertTrue(r.exits.none { it.startsWith("UNFILLED") })
             assertTrue(r.net > 0.0)
         }
-        assertEquals(listOf(1, 2, 3, 3), runs.map { it.runnerConfirmed })
+        // superseded by V5.0.8873 — the 51x run also takes the 30x rung (the ladder rides past 10x).
+        assertEquals(listOf(1, 2, 3, 4), runs.map { it.runnerConfirmed })
         assertTrue(runs[0].exits.last().startsWith("RUNNER_GREEN_FLOOR_8363"))
         for (r in runs.drop(1)) assertTrue(r.exits.last().startsWith("RUNNER_PEAK_CAPTURE_7980"))
         // A real residual rode each run to its peak (the 51x keeps at least the protected 20% of the original).

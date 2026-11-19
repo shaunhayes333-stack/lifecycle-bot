@@ -41,7 +41,8 @@ class Aate8788CryptoSpotPaperBackingTest {
         val c = File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalAssetEntryContract6551.kt").readText()
         val eligibility = c.indexOf("CryptoSpotPaperBacking8788.backs8788(candidate.evidence[\"lane8788\"]")
         val oracle = c.indexOf("if (!advisoryPass7263 && !provenAdmit7287 && !provenNonBindingPass7391)")
-        val cortex = c.indexOf("CrossAssetCortex7931.liveRefusal(candidate)")
+        // superseded by 5.0.8871 — the Cortex reads the entry once (assessEntry8871) and its refusal is taken from that assessment
+        val cortex = c.indexOf("CrossAssetCortex7931.assessEntry8871(candidate)")
         val executable = c.indexOf("if (!sizing.executable)")
         val reserve = c.indexOf("CryptoSpotPaperBacking8788.reserve8832(")
         val registered = c.indexOf("ExecutableOpenGate.registerCanonicalIntent6554(intent)")

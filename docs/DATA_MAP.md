@@ -1298,3 +1298,44 @@ freeze, and 8873 points them at the live twin's record. Live positions are never
 **Proof to read on the next LIVE report.** `Live no-paper (§8184)`: `closeOut8872[passes>=1 pending=0]`; canonical
 `paperCanonicalOpen=0`; `memePaper8544 (OFF in LIVE (8872): opens nothing)` with `open{-}`; mark pool rejections per second
 of uptime near the 8864 level; `PAPER_CLOSE_REFUSED_8872_*` names whatever still refuses a paper close.
+
+## 62. The runner ladder rides past 10x, and the whole network is measured (8873)
+
+**Owner, 20 Nov.** "there are 60,000% profit opportunities out there. literally everyday" / "fuck 4x. I want it to look far
+far beyond that" / "the meme trader isnt a pumpfun trader exclusively is a solana network trader. the full network".
+
+**Measured (the owner's 13 launch-hour exports, 12-20 Nov).** 5,886 one-hour paths after the 8748 spike rule and a unit-jump
+filter, two-close peaks, 5 % slip a rung: 1,514 reached 2x, 399 5x, 149 10x, 8 50x inside the hour. A unit held from the 10x
+rung on the 45 % doctrine trail was worth 1.87x what the rung sold it for (102 of 149 beat it), 1.77x from 20x (31 of 47);
+most of those paths were still running when the hour ended. Widening the trail from 45 % to 60 % above 5x moved nothing
+(1.94x vs 1.95x of the rung from 5x; the wider trail sold worse inside the hour), so the trail is unchanged. The +900 % rung
+was the cap: it sold two thirds of what remained, leaving 20 % of the original to see 30x-600x (the 8726 test: a 25x move
+banked about 8x).
+
+**Changed.**
+- `RunnerGrab7967.TIERS_7967`: +100 % sells 25 %, +400 % 18 % (unchanged: the stake is back by 5x, 1.116x after slip), then a
+  quarter of what remains at 10x, 30x and 100x and 22 % at 300x. 46 % of the original rides past 10x (was 20 %); 20.24 % rides
+  the trail after 300x, above the 8136 20 % residual reserve, so no rung is ever clamped. On the paths: +13.3 % -> +17.1 % a
+  position over all 5,886; better on 95 of the 129 paths that peaked at 10x+ (+1.72x a position); worst 10x+ path 2.84x (was
+  5.15x). Straight runs that collapse: 10x 6.4 -> 5.2x (the price), 30x 8.5 -> 11.7x, 100x 16.0 -> 28.5x, 300x 37.3 -> 63.9x,
+  600x 69.3 -> 95.7x. Every consumer reads the one list (SpikeCapture7943, RunnerFunnel8331, RunnerExitContract8136 replay,
+  RunnerReplay8153, MemePaperTrader8544, ForwardReturnLabeler7731 credit, RunnerPlan8153's first rung).
+- `SpikeCapture7943.onConfirmedPartial8081` confirms any rung of the longer ladder (it stopped at tier 3).
+- `LaunchReplay8744` DOCTRINE is the live ladder itself (`doctrineRungs8873`, shares of the original). It was a hand copy
+  that sold 18 % of the original at 5x (live sells 18 % of the remainder) and two thirds at 10x. Forward records of nominated
+  rules are kept: entries are unchanged and the exits differ only on paths past 5x.
+- `LearnerColumns8798.venueOf` also reads the chosen DexScreener data pool's DEX (`DexPools8285.dataPool8285`, in memory).
+  The 17-20 Nov dataset read the venue of 92 % of the off-pump.fun decisions as unknown (12,025 NaN, 946 "other" from the
+  chain stamp "solana"). A `...bonk` mint with nothing read is LaunchLab. The learners refit on rows that now carry the venue;
+  older rows keep NaN, which the trees treat as missing.
+- `NetworkTier8873` (report only, decides nothing): every labelled decision filed by tier (fresh < 1 h, young < 1 day, older
+  small, established = $1M+ or a day old and $100k+), venue family and mint origin, with attention share and mean outcome.
+  On the brief beside `edge8537`.
+
+**Not changed.** The 45 % give-back and its 1.5x floor, the sub-2x line (8719 / 8784), the two-mark trail (8759), stops,
+safety and every never-held exit. LifecycleHold8065's own ladder for its lanes. The 8872 note that the paper mirror (8757) and
+the crypto spot paper backing (8788) would follow the live twin in 8873 moves to the twin build.
+
+**Proof to read.** `runnerDoctrine8584[... ladder=+100%:25/+400%:18/+900%:25/+2900%:25/+9900%:25/+29900%:22-of-remainder
+(8873)`; `runnerFunnel8331` rung stages for T4-T6; `network8873[tiers{...} venues{...} origin{...}]` with UNREAD falling as
+DexPools fills; `launchReplay8744` DOCTRINE rows graded on the new ladder.

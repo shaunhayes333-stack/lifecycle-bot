@@ -55,10 +55,13 @@ class Aate8726BuyTraceAndRunnerReplayTest {
             val twentyFive = replay(ramp(1.0, 25.0) + ramp(25.0, 0.3))
             assertEquals("2x peak: a quarter sold at 2x, the rest at the 1.5x floor", 1.62, two, 0.05)
             assertTrue("5x peak banks 2.7x+ (55 % of the peak): $five", five in 2.7..3.1)
-            assertTrue("10x peak banks 6x+: $ten", ten in 6.0..6.8)
-            // KNOWN LIMIT: the +900 % rung sells two thirds of what is left, so a fifth of the position rides past 10x and
-            // a 25x move banks about 8x (a third of the peak). The ladder is not graded on anything larger than 10x.
-            assertTrue("25x peak banks about 8x: $twentyFive", twentyFive in 7.5..8.5)
+            // superseded by V5.0.8873 — the +900 % rung sold two thirds of what was left (10x banked 6.4x, 25x about 8x, a third
+            // of the peak). It now sells a quarter, and 30x / 100x / 300x take a quarter, a quarter and 22 %: a run that stops at
+            // exactly 10x banks 5.2x, a 25x banks 8.8x and a 100x 28.5x (was 16x).
+            assertTrue("10x peak banks 5x+: $ten", ten in 5.0..5.4)
+            assertTrue("25x peak banks about 8.8x: $twentyFive", twentyFive in 8.5..9.2)
+            val hundred = replay(ramp(1.0, 100.0, 200) + ramp(100.0, 0.3, 200))
+            assertTrue("100x peak banks about 28x: $hundred", hundred in 27.0..30.0)
             // a sub-2x winner keeps the room its stop gave it (8719): a +60 % peak that dips 30 % and recovers is still held
             val dipped = replay(ramp(1.0, 1.6) + ramp(1.6, 1.15) + ramp(1.15, 2.0) + ramp(2.0, 0.3))
             assertTrue("held through the dip to the 2x rung: $dipped", dipped > 1.5)
