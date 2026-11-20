@@ -218,26 +218,44 @@ object LaunchHour8628 {
     /**
      * V5.0.8888 — LaneExitGrade8888's read: each lane's FIRST decision on each launch born in the retention window, by mint
      * (one row per mint x lane, the earliest; the setup rows of one decision collapse). Read-only.
+     *
+     * V5.0.8894 — the 5.0.8889 and 5.0.8893 CPU census (§8815) put this read at the top of the app: 9.4 % and 8.9 % of every
+     * on-CPU stack, the launch-replay thread inside it in about 4 of every 10 samples. It sorted every decision row of 48 h
+     * (595,822 in the 20 Nov export) by mint, lane and time and made strings of each row, at start and every 30 minutes, for a
+     * grade that reads only the replayed launches. Now each of those launches is read by its own mint on the table's primary
+     * key (m,t,...): SQLite keeps the earliest row of each lane (MIN(t); with one min() the other columns come from that row)
+     * and returns one row per lane. The same first decisions, for the same launches; nothing else is read.
+     * superseded by V5.0.8894 — 8888 "SELECT m,l,t,a,c FROM decision WHERE t >= CAST(? AS INTEGER) ORDER BY m,l,t" over every mint.
      */
-    internal fun firstDecisions8888(now: Long): Map<String, List<Decision8888>> {
-        val out = HashMap<String, ArrayList<Decision8888>>()
+    internal fun firstDecisions8888(now: Long, mints: Collection<String>): Map<String, List<Decision8888>> {
+        val out = HashMap<String, List<Decision8888>>()
+        val want = mints.filter { it.isNotBlank() }.toHashSet()
+        if (want.isEmpty()) return out
         val path = AATEApp.appContextOrNull()?.getDatabasePath(NAME) ?: return out
         if (!path.exists()) return out
+        val started = System.nanoTime()
+        val since = (now - RETENTION).toString()
+        var lanes = 0
         SQLiteDatabase.openDatabase(path.path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
-            db.rawQuery("SELECT m,l,t,a,c FROM decision WHERE t >= CAST(? AS INTEGER) ORDER BY m,l,t",
-                arrayOf((now - RETENTION).toString())).use { c ->
-                var lastKey = ""
-                while (c.moveToNext()) {
-                    val mint = c.getString(0); val lane = c.getString(1)
-                    val key = "$mint|$lane"
-                    if (key == lastKey) continue
-                    lastKey = key
-                    out.getOrPut(mint) { ArrayList() }.add(Decision8888(lane, c.getLong(2), c.getInt(3) == 1, c.getDouble(4)))
+            for (mint in want) {
+                val list = ArrayList<Decision8888>(4)
+                db.rawQuery(FIRST_SQL_8894, arrayOf(mint, since)).use { c ->
+                    while (c.moveToNext()) list.add(Decision8888(c.getString(0), c.getLong(1), c.getInt(2) == 1, c.getDouble(3)))
                 }
+                if (list.isNotEmpty()) { out[mint] = list; lanes += list.size }
             }
         }
+        firstRead8894 = "mints=${want.size} withDecisions=${out.size} lanes=$lanes ms=${(System.nanoTime() - started) / 1_000_000L}"
         return out
     }
+
+    /** V5.0.8894 — one launch's first decision per lane, on the primary key (m,t,...): one row per lane, lane order. */
+    internal const val FIRST_SQL_8894 =
+        "SELECT l,MIN(t),a,c FROM decision WHERE m=? AND t >= CAST(? AS INTEGER) GROUP BY l ORDER BY l"
+
+    /** V5.0.8894 — the last first-decision read: launches asked, launches with decisions, lanes returned, wall ms. */
+    @Volatile internal var firstRead8894 = "-"
+        private set
 
     private const val PATH_MIN_PRINTS_8741 = 20
     private const val REPLAY_MIN_PRINTS_8788 = 3

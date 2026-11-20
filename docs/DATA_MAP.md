@@ -1819,3 +1819,31 @@ method names and sample times — no field or variable value. The brief line `cp
 8891 and 8892 failed one required test of their own: `Aate8891LabelStallTest` expected the reason it noted to be the first
 entry of `staleHour8891{...}`, but other tests of the same run had already counted stale hour reads, which sort first by count.
 The test now finds the reason anywhere in the braces. No app code changed: 8891's and 8892's behaviour (§80, §81) is unchanged.
+
+## 83. The phone or the gates (8894)
+
+**Why.** Owner, 20 Nov 18:08 on 5.0.8893 (10 minutes up): "its kinda dead hey. guessing fdg is blocking pretty much
+everything". The FDG admitted 0 of 554 decisions; on 5.0.8882 it admitted 1 of 1,942 (the DQKmfa buy), on 5.0.8862 11 of
+7,794 and on 5.0.8864 1 of 8,958, so 0 of 554 is what the 5.0.8882 rate predicts (0.3 admits). No meme buy gate changed in
+5.0.8883–5.0.8893; the crypto backing's trend cell (8886) read 10 cells and changed no answer (`backing{-} losing{-}
+reservedByCell=0`), the hourly cap of 4 binding as on 5.0.8882. What did change in those 10 minutes was the network: jupiter answered 5 % of its calls (150 transport
+failures), jupiter_price_keyed 10 % (112), dexscreener 67 % (58), raydium 68 % (55), helius 70 % (44), at 2–9x the latency of
+12:48; held-quantity quotes 0 of 260 (5.0.8882: 517 of 911); the wallet read failed long enough for 69 WALLET_BLIND_8074
+refusals. At 12:48 on 5.0.8889 every one of those hosts answered 100 %.
+
+The 5.0.8889 and 5.0.8893 CPU census (§8815) also put one of this session's own reads at the top of the app: 8888's
+`LaunchHour8628.firstDecisions8888` at 9.4 % and 8.9 % of every on-CPU stack. It sorted every decision row of 48 h
+(595,822 in the 20 Nov export) by mint, lane and time and made strings of each, at start and every 30 minutes, for a grade
+that reads only the replayed launches.
+
+**Changed.** `firstDecisions8888(now, mints)` reads only the launches the replay graded, each by its own mint on the decision
+table's primary key (m,t,l,k,a): `SELECT l,MIN(t),a,c FROM decision WHERE m=? AND t >= ? GROUP BY l ORDER BY l` — the
+earliest row of each lane (with one min(), SQLite takes the other columns from that row). Same first decisions, same
+values, for the same launches. `laneExits8888[...]` prints the read's cost as `read8894{mints withDecisions lanes ms}`.
+
+**Added (read-only).** `NetworkVerdict8894`: on the brief's A RUN section, `network8894[OK|PROVIDER|DEGRADED ...]` from
+ApiHealthMonitor's recent (decayed) counters. A host is failing on transport when at least 25 % of its last 20 or more
+calls got no answer at all; three or more distinct providers failing together is DEGRADED (the device's network, not a
+provider or a gate) and is ranked as a FAULT fix. Nothing trades on it.
+
+**Not changed.** Every gate, size, exit and the LP rule.

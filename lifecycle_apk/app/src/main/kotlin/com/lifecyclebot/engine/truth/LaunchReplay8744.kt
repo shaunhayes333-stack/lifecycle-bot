@@ -519,7 +519,7 @@ object LaunchReplay8744 {
                 try { SmartMoney8756.evaluate8756(set, walletNames, cost, need) } catch (_: Throwable) {}            // V5.0.8756 the wallets, same paths
                 try { SignalReplay8828.evaluate8828(set, solUsd, cost, need) } catch (_: Throwable) {}              // V5.0.8828 the owner's signals, same paths
                 try { RunnerModel8861.evaluate8861(cost, need, nowMs) } catch (_: Throwable) {}                       // V5.0.8861 the runner model, the same launches on their whole tape
-                try { LaneExitGrade8888.evaluate8888(set, mints8888, LaunchHour8628.firstDecisions8888(nowMs), nowMs) } catch (_: Throwable) {}  // V5.0.8888 each doctrine lane's give-back, same launches
+                try { LaneExitGrade8888.evaluate8888(set, mints8888, LaunchHour8628.firstDecisions8888(nowMs, mints8888), nowMs) } catch (_: Throwable) {}  // V5.0.8888 each doctrine lane's give-back, same launches (8894: read by mint)
                 paths8755 = set; solUsd8755 = solUsd; cost8755 = cost
                 val births = try { LaunchHour8628.births8749(nowMs) } catch (_: Throwable) { -1 }
                 status = "ran births48h=$births launches>=3prints=${set.size} withLivePrints=$liveN needDelay=${need / 1000}s spikesDropped=$spikes solUsd=${"%.0f".format(solUsd)} cost=${"%.1f".format(cost)}%"

@@ -77,8 +77,10 @@ class Aate8888LaneExitGradeTest {
     @Test fun theReplayGradesEveryDoctrineLanesFirstDecisionOnItsLaunch() {
         val replay = src("engine/truth/LaunchReplay8744.kt")
         assertTrue(replay.contains("set.add(x); mints8888.add(r.mint)"))
-        assertTrue(replay.contains("LaneExitGrade8888.evaluate8888(set, mints8888, LaunchHour8628.firstDecisions8888(nowMs), nowMs)"))
-        assertTrue(src("engine/truth/LaunchHour8628.kt").contains("SELECT m,l,t,a,c FROM decision WHERE t >= CAST(? AS INTEGER) ORDER BY m,l,t"))
+        // superseded by V5.0.8894 — the first decisions are read by the replayed launches' own mints on the primary key
+        // (8888 sorted every decision row of 48 h: the app's top CPU frame in 5.0.8889 / 5.0.8893); same rows, same values
+        assertTrue(replay.contains("LaneExitGrade8888.evaluate8888(set, mints8888, LaunchHour8628.firstDecisions8888(nowMs, mints8888), nowMs)"))
+        assertTrue(src("engine/truth/LaunchHour8628.kt").contains("SELECT l,MIN(t),a,c FROM decision WHERE m=? AND t >= CAST(? AS INTEGER) GROUP BY l ORDER BY l"))
         val g = src("engine/truth/LaneExitGrade8888.kt")
         assertTrue(g.contains("if (breached && MemePaperTrader8544.paperStopConfirmed8683(breachAt, t[k], g))"))
         assertTrue(g.contains("com.lifecyclebot.engine.RunnerDoctrine8584.paperStopLevel8584(stopPct, peak, keep)"))

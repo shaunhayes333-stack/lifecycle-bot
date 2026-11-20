@@ -180,7 +180,9 @@ object LaneExitGrade8888 {
             "${l.lane}{n${l.n} a${l.admitted} doctrine=${"%+.1f".format(l.doctrineMean)}% ex3=${"%+.1f".format(l.doctrineExTop3)} med=${"%+.1f".format(l.doctrineMedian)} $d}"
         }.ifBlank { "-" }
         val ago = if (lastRunMs > 0L) (System.currentTimeMillis() - lastRunMs) / 60_000L else -1L
-        return "laneExits8888[$status agoMin=$ago $lanes rule=each doctrine lane's first decision on each stored launch run on its own prints by the live doctrine " +
+        // V5.0.8894 — what the first-decision read cost (it was the app's top CPU frame in 5.0.8889 / 5.0.8893)
+        val read = try { LaunchHour8628.firstRead8894 } catch (_: Throwable) { "?" }
+        return "laneExits8888[$status agoMin=$ago read8894{$read} $lanes rule=each doctrine lane's first decision on each stored launch run on its own prints by the live doctrine " +
             "(shadow exits and fills, hour-end mark, own round trip); gb30 / gb60 = the line keeping 70 % / 40 % of a 2x+ peak, paired against gb45; " +
             "BETTER / WORSE past the margin deflated across lanes x shares, n>=${LaunchReplay8744.PROVEN_MIN_N_8748}; live unchanged]"
     }

@@ -190,6 +190,11 @@ object DiagnosisBrief8438 {
                 .append(if (oom) " lastCrash=OutOfMemoryError" else "").append(if (sick) " [FAULT runtime degraded]" else "").append('\n')
             if (sick) fixes += Fix8438(10_000.0, "FAULT",
                 "runtime degraded (heap ${"%.0f".format(heapPct)}%, cycle ${cycle}ms${if (oom) ", OutOfMemoryError" else ""}): every price, label and entry waits on the loop -> Memory guard (§7977) blobs8440 / census unattributedMb, the largest restored states")
+            // V5.0.8894 — 5.0.8893 read "dead" while five providers failed on transport at once: the phone's network, not the gates
+            val net8894 = NetworkVerdict8894.hosts8894()
+            sb.append("               ").append(NetworkVerdict8894.line8894(net8894)).append('\n')
+            if (NetworkVerdict8894.degraded8894(net8894)) fixes += Fix8438(9_000.0, "FAULT",
+                "device network degraded: several providers' calls get no answer at once -> prices, the wallet read and Jupiter quotes fail, so the gates defer (DATA_INCOMPLETE), the wallet goes blind (WALLET_BLIND_8074) and nothing can be quoted; check the phone's connection before reading any gate count")
         }
 
         val laneLive = try { LiveEntrySafetyHold.LiveConfidenceStats.byLane8280(0L) } catch (_: Throwable) { emptyMap() }
