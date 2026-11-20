@@ -127,6 +127,8 @@ class Aate8895SelectionTest {
                 o.indexOf("reportedLocked=\${report.lpLockPct}% required=\$MIN_LOCKED_PCT%") in 0 until o.indexOf("PoolLock8895.proves8895(chainLock8895,"))
         assertTrue(src("engine/PreTradeHardGate.kt").contains("chainLock8895 = try { com.lifecyclebot.engine.truth.PoolLock8895.proof8895(mint, selectedPool8522, now) } catch (_: Throwable) { null },"))
         assertTrue(src("engine/PreTradeHardGate.kt").contains("com.lifecyclebot.engine.truth.PoolLock8895.request8895(mint, selectedPool8522, now)"))
+        // V5.0.8896 — a chain-proven lock is re-read while it holds, so the 60 s proof does not lapse between looks
+        assertTrue(src("engine/PreTradeHardGate.kt").contains("ownership8522.reason == com.lifecyclebot.engine.truth.PoolLock8895.PROVEN_REASON_8895) && selectedPool8522.isNotBlank())"))
         assertTrue(src("engine/BuyRouteSafety8522.kt").contains("chainLock8895 = try { com.lifecyclebot.engine.truth.PoolLock8895.proof8895(mint, pool, nowMs) } catch (_: Throwable) { null })"))
         assertTrue("the unread-LP explore path stays off (owner, 8736 and 20 Nov)", src("engine/truth/ExploreLive8733.kt").contains("private const val ENABLED_8736 = false"))
         assertFalse("PoolLock8895 never blocks", src("engine/truth/PoolLock8895.kt").contains("Status.BLOCKED"))
@@ -145,7 +147,7 @@ class Aate8895SelectionTest {
         assertNotNull("proven on coins, carried by a meme lane with no record of its own", e)
         assertEquals(AgreementPocket8874.KIND_8874, e!!.kind)
         assertEquals(AgreementPocket8874.COIN_ID_8895, e.id)
-        assertTrue(CandidateAdmission8136.supported8136(e, 3.0))
+        assertTrue(com.lifecyclebot.engine.truth.CandidateAdmission8136.supported8136(e, 3.0))
         val losingLane = doubleArrayOf(40.0, -400.0, 40.0 * 100.0, 0.0)   // mean -10 %, no spread: proven losing
         assertTrue(AgreementPocket8874.losing8895(losingLane))
         assertNull("a lane whose own pocket record proves losing does not carry it", AgreementPocket8874.coinEvidenceOf8895("SHITCOIN", losingLane, r))
@@ -187,5 +189,6 @@ class Aate8895SelectionTest {
         assertTrue(line, line.contains("MARKET_CELL{COINS=1 DEFER_DATA=1 why{DEFER_DATA:DATA_INCOMPLETE_DEFER_8136=1} wait{PRICE_STALE=1}}"))
         assertTrue(src("engine/DiagnosisBrief8438.kt").contains("com.lifecyclebot.engine.truth.PoolLock8895.statusLine8895()"))
         assertTrue(File("../../docs/DATA_MAP.md").readText().contains("## 84. Selection, additive: the lock read on chain, the pocket on coins (8895)"))
+        assertTrue(File("../../docs/DATA_MAP.md").readText().contains("## 85. 8895's test compiles; a chain-proven lock stays fresh (8896)"))
     }
 }

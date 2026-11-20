@@ -1896,3 +1896,11 @@ reads the lock only from RugCheck.
    causes). Measurement only.
 
 **Not changed.** Every gate, size, exit, the LP-lock rule's 70 % bar, sellability, balance. Unlocked pools are not bought.
+
+## 85. 8895's test compiles; a chain-proven lock stays fresh (8896)
+
+8895's own test called `CandidateAdmission8136.supported8136` without its package (the class lives in engine.truth), so the
+unit-test compile failed and no test ran; the release APK itself had compiled. The reference is now qualified. One addition,
+from the 8895 impact review: a lock proven from the chain (`LP_LOCK_CHAIN_PROVEN_8895`) holds 60 s and was re-read only once
+it had lapsed, so a coin could be deferred for one look every minute while it was read again. PreTradeHardGate now also asks
+for a re-read while the chain proof holds (still at most once per pool every 30 s). Same reads, same rules; no gate changed.

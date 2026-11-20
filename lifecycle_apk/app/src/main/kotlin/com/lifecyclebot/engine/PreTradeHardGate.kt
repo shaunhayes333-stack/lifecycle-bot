@@ -282,7 +282,10 @@ object PreTradeHardGate {
             try { com.lifecyclebot.engine.truth.CurveCustody8881.request8881(mint, selectedPool8522, now) } catch (_: Throwable) {}
         // V5.0.8895 — and an unread LP proof on a Meteora DAMM v2 / DLMM pool: read its lock (async, the next look decides; the
         // admission probe asks too, as it asks the curve custody above, so the proof is in before a ticket is spent)
-        if (ownership8522.status == LiquidityOwnership8522.Status.PENDING && selectedPool8522.isNotBlank())
+        // V5.0.8896 — a lock the chain read proved is re-read while it holds (at most every 30 s), so the 60 s proof does not
+        // lapse between looks and defer the coin for one look while it is read again
+        if ((ownership8522.status == LiquidityOwnership8522.Status.PENDING ||
+                ownership8522.reason == com.lifecyclebot.engine.truth.PoolLock8895.PROVEN_REASON_8895) && selectedPool8522.isNotBlank())
             try { com.lifecyclebot.engine.truth.PoolLock8895.request8895(mint, selectedPool8522, now) } catch (_: Throwable) {}
         when (ownership8522.status) {
             LiquidityOwnership8522.Status.BLOCKED -> return block(ts, ownership8522.reason, ownership8522.detail)
