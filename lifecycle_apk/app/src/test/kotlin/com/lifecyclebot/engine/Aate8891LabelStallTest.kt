@@ -49,8 +49,11 @@ class Aate8891LabelStallTest {
         assertTrue(lab.contains("diag8891(o, System.currentTimeMillis())))"))
         assertTrue(lab.contains("if (o.lastPxAtMs > 0L && System.currentTimeMillis() - o.lastPxAtMs > MARK_MAX_AGE_MS_7731)"))
         ResearchRows8877.noteStale8891("OBSERVED_ONLY_VENUE_MISMATCH_8783")
-        assertTrue(ResearchRows8877.statusLine8877().contains("staleHour8891{OBSERVED_ONLY_VENUE_MISMATCH_8783="))
+        // V5.0.8893 — other tests in the same run may have counted stale reads first: the reason is listed, wherever it sorts
+        val line = ResearchRows8877.statusLine8877()
+        assertTrue(line, line.contains("staleHour8891{") && Regex("[{,]OBSERVED_ONLY_VENUE_MISMATCH_8783=\\d+").containsMatchIn(line))
         assertTrue(ResearchRows8877.statusLine8877().startsWith("research8877[written="))
         assertTrue(File("../../docs/DATA_MAP.md").readText().contains("## 80. Why an hour read stopped moving (8891)"))
+        assertTrue(File("../../docs/DATA_MAP.md").readText().contains("## 82. 8891's test reads the stale-hour line wherever its reason sorts (8893)"))
     }
 }

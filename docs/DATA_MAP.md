@@ -1813,3 +1813,9 @@ deleted from the app; a file left by a process that died mid-sample is deleted a
 method names and sample times — no field or variable value. The brief line `cpuSample8892[...]` names the last outcome.
 
 **Not changed.** Every trading path. The sample pauses the app's threads briefly at each sample; the interval keeps it short.
+
+## 82. 8891's test reads the stale-hour line wherever its reason sorts (8893)
+
+8891 and 8892 failed one required test of their own: `Aate8891LabelStallTest` expected the reason it noted to be the first
+entry of `staleHour8891{...}`, but other tests of the same run had already counted stale hour reads, which sort first by count.
+The test now finds the reason anywhere in the braces. No app code changed: 8891's and 8892's behaviour (§80, §81) is unchanged.
