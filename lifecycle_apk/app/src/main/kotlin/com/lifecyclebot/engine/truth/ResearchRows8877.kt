@@ -34,13 +34,15 @@ object ResearchRows8877 {
     /** Pure: one research row (JSON, NaN as null). */
     fun line8877(atMs: Long, horizonMs: Long, mint: String, lane: String, admitted: Boolean, stage: String, setup: String,
                  pred: Double, v3: Double, mcapUsd: Double, liqUsd: Double, costPct: Double, net: Double, gross: Double,
-                 peakPct: Double, heldPeakPct: Double, minPct: Double, reason: String): String {
+                 peakPct: Double, heldPeakPct: Double, minPct: Double, reason: String, diag: String = ""): String {
         fun n(v: Double) = if (v.isFinite()) "%.6g".format(java.util.Locale.US, v) else "null"
         fun s(v: String, max: Int) = v.replace("\\", "").replace("\"", "").take(max)
         return "{\"t\":$atMs,\"horizonMs\":$horizonMs,\"mint\":\"${s(mint, 44)}\",\"lane\":\"${s(lane, 32)}\",\"admitted\":$admitted," +
             "\"stage\":\"${s(stage, 32)}\",\"setup\":\"${s(setup, 40)}\",\"pred\":${n(pred)},\"v3\":${n(v3)},\"mcap\":${n(mcapUsd)}," +
             "\"liq\":${n(liqUsd)},\"cost\":${n(costPct)},\"net\":${n(net)},\"gross\":${n(gross)},\"peakPct\":${n(peakPct)}," +
-            "\"heldPeakPct\":${n(heldPeakPct)},\"minPct\":${n(minPct)},\"reason\":\"${s(reason, 80)}\"}"
+            "\"heldPeakPct\":${n(heldPeakPct)},\"minPct\":${n(minPct)},\"reason\":\"${s(reason, 80)}\"" +
+            // V5.0.8891 — the hour read's path diagnostics (ForwardReturnLabeler7731.diagJson8891), when the labeler gives them
+            (if (diag.startsWith("{") && diag.endsWith("}")) ",\"diag8891\":$diag}" else "}")
     }
 
     /** ForwardReturnLabeler7731.bookTwoForty7944: write one decision's hour read. Never blocks the labeler. */
@@ -68,8 +70,18 @@ object ResearchRows8877 {
         if (!tmp.renameTo(file)) tmp.delete()
     }
 
+    // V5.0.8891 — hour reads booked on a stale last mark, by the check that refused the marks after it (measurement only)
+    private val stale8891 = java.util.concurrent.ConcurrentHashMap<String, AtomicLong>()
+
+    /** ForwardReturnLabeler7731: one hour read whose last accepted mark was older than the labeler's price age bar. */
+    fun noteStale8891(lastRefusal: String) {
+        val k = lastRefusal.take(48)
+        (stale8891[k] ?: if (stale8891.size >= 24) stale8891.computeIfAbsent("OTHER") { AtomicLong() } else stale8891.computeIfAbsent(k) { AtomicLong() }).incrementAndGet()
+    }
+
     /** The brief: rows written this run and how long ago the last one landed. */
     fun statusLine8877(): String =
         "research8877[written=${written.get()} failed=${failed.get()} lastAgoS=${if (lastAtMs > 0L) (System.currentTimeMillis() - lastAtMs) / 1000L else -1L} " +
+            "staleHour8891{${stale8891.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}} " +
             "file=$FILE_8877 rule=every decision's 60-minute read with its peak, held peak and dip; its own file, no learner reads it]"
 }

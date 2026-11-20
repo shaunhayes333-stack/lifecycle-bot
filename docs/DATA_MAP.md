@@ -1781,3 +1781,21 @@ never made: mirrored=0, book proven losing 1,678 times; MOONSHOT live n3, all lo
 **Changed.** `bookLosing8883` = `stops8890(paperLosing, shadowN, shadowLosing)` = paper record proven losing, OR (LIVE with
 paper off, 30+ shadow closes, shadow proven losing). The paper book's own record decides exactly as in 5.0.8882; the shadow
 can only add a stop, never lift one.
+
+## 80. Why an hour read stopped moving (8891)
+
+**Found (owner's 20 Nov export).** At 11:00:36 eight lanes decided DQKmfa (the coin the doctrine sold at +102 / +402 /
++1,114 %). EXPRESS's hour read saw the run (peak +767.8 %, net +20.0 %); the other seven read peak +0.78 %, net −2.33 %: the
+price minutes after the decision. In that export, of 37 same-moment multi-lane decisions whose best read saw 2x+, 10 had a
+lane under half that multiple (37 of 214 rows). The hour read is the label the learners are taught.
+
+**Not yet changed.** The label rules (LabelEvidence8386 venue / extreme checks, the 8133 jump guard, the 8165 / 8337 curve
+checks) decide what the learners learn: no rule changes until the rows show which one froze these reads.
+
+**Added (measurement only).** Each ForwardReturnLabeler7731 observation counts the marks it refused at each check
+(`skips`: ELIGIBILITY, CACHE, COPY, CURVE_CONTRADICTED, CURVE_HELD, JUMP, INELIGIBLE), the marks it accepted, the last
+non-routine refusal's status, venue and source, its basis venue and source, how long before booking its last accepted mark
+was (`lastAcceptAgoS`) and how the hour was booked (`via`: TICK or RECOVERED:<source>). The hour's research row carries them
+as `diag8891`; no learner reads research rows. The brief's research line counts hour reads booked on a last mark older than
+the labeler's own 45 s price age bar, by that last refusal (`staleHour8891{...}`). Not persisted: a restored observation
+counts from its restore.

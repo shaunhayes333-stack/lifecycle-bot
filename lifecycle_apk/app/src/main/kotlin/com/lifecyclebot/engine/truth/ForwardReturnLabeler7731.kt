@@ -462,6 +462,17 @@ object ForwardReturnLabeler7731 {
         /** V5.0.7967 — the refusal reason at the decision (missed-runner audit). */
         @Volatile var reason7967: String = ""
         /**
+         * V5.0.8891 — measurement only (research rows): how many marks this observation refused at each check
+         * ([SKIP_NAMES_8891] order, [SKIP_COUNT_8891] of them), how many it accepted, the last refusal's status / venue / source, and how its hour was
+         * booked. Not persisted: a restored observation starts counting again.
+         */
+        val skips8891 = IntArray(SKIP_COUNT_8891)   // a const: an observation restored while the object initialises needs no other field
+        @Volatile var accepted8891 = 0
+        @Volatile var lastSkip8891 = ""
+        @Volatile var lastSkipVenue8891 = ""
+        @Volatile var lastSkipSource8891 = ""
+        @Volatile var via8891 = "TICK"
+        /**
          * V5.0.8071 — the highest gain the price HELD for [HELD_MS_8071] (every mark in a 20-second window at or above
          * it): a level a sell can actually land at. A one-print spike that reverts inside seconds never sets it.
          */
@@ -2210,7 +2221,11 @@ object ForwardReturnLabeler7731 {
         // V5.0.8877 (plan W8) — the hour read is also one research row: its own file, exported, read by no learner
         try {
             ResearchRows8877.note8877(ResearchRows8877.line8877(o.atMs, H240_MS_7731, o.mint, o.lane, o.admitted, o.stage, o.setup7955,
-                o.pred8855, o.v38877, o.entryMcap, o.liqUsd8539, o.costPct, net, gross, o.peakPct, o.heldPeak8071, o.minPct7962, o.reason7967))
+                o.pred8855, o.v38877, o.entryMcap, o.liqUsd8539, o.costPct, net, gross, o.peakPct, o.heldPeak8071, o.minPct7962, o.reason7967,
+                diag8891(o, System.currentTimeMillis())))
+            // V5.0.8891 — measurement: an hour booked on a last accepted mark older than this labeler's own price age bar
+            if (o.lastPxAtMs > 0L && System.currentTimeMillis() - o.lastPxAtMs > MARK_MAX_AGE_MS_7731)
+                ResearchRows8877.noteStale8891(o.lastSkip8891.ifBlank { "NONE_REFUSED" })
         } catch (_: Throwable) {}
         // V5.0.8884 (plan W8) — and the same decision is read again 4 h and 24 h after it, in the same file
         try {
@@ -3217,6 +3232,7 @@ object ForwardReturnLabeler7731 {
      * checkpoint. The hour uses the same tokenomics/exit-deferral decision as an on-time hour completion.
      */
     private fun recoveredHorizon8397(key: String, o: Obs, recovered: LabelMark8386, nowMs: Long) {
+        o.via8891 = "RECOVERED:" + recovered.source.take(24)   // V5.0.8891 — measurement: the hour came from a recovery read
         if (!entryFill8521(o)) {
             // A historical horizon cannot supply the earlier missing entry. Keep it observed-only through delivery/restart.
             o.rebased8076 = true
@@ -3339,6 +3355,38 @@ object ForwardReturnLabeler7731 {
         unavailable8395(key,o,"OBSERVATION_DEADLINE_${LabelEvidence8386.status(o.basis8386.mark,incoming)}",nowMs,
             DowntimeRecovery8430.downtime8430(deadline, bootMs8430))   // V5.0.8505
         return true
+    }
+
+    // ── V5.0.8891 — why an observation's path stopped moving (measurement only: the research rows carry it) ──
+    internal const val SKIP_COUNT_8891 = 7
+    internal val SKIP_NAMES_8891 = arrayOf("ELIGIBILITY", "CACHE", "COPY", "CURVE_CONTRADICTED", "CURVE_HELD", "JUMP", "INELIGIBLE")
+    private const val SKIP_ELIGIBILITY_8891 = 0
+    private const val SKIP_CACHE_8891 = 1
+    private const val SKIP_COPY_8891 = 2
+    private const val SKIP_CURVE_CONTRADICTED_8891 = 3
+    private const val SKIP_CURVE_HELD_8891 = 4
+    private const val SKIP_JUMP_8891 = 5
+    private const val SKIP_INELIGIBLE_8891 = 6
+
+    private fun skip8891(o: Obs, kind: Int, status: String, m: LabelMark8386) {
+        if (kind in o.skips8891.indices) o.skips8891[kind]++
+        // the cache / copy reads are ordinary and frequent: they are counted but do not name the last refusal
+        if (kind != SKIP_CACHE_8891 && kind != SKIP_COPY_8891) { o.lastSkip8891 = status; o.lastSkipVenue8891 = m.venue; o.lastSkipSource8891 = m.source }
+    }
+
+    /** Pure-ish (V5.0.8891): an observation's path diagnostics as one JSON object for its research row. */
+    private fun diag8891(o: Obs, nowMs: Long): String = diagJson8891(o.skips8891, o.accepted8891, o.lastSkip8891,
+        o.basis8386.mark.venue, o.basis8386.mark.source, o.lastSkipVenue8891, o.lastSkipSource8891,
+        if (o.lastPxAtMs > 0L) (nowMs - o.lastPxAtMs) / 1000L else -1L, o.via8891)
+
+    /** Pure (V5.0.8891): the diagnostics JSON (strings stripped of quotes and backslashes, bounded). */
+    internal fun diagJson8891(skips: IntArray, accepted: Int, lastSkip: String, basisVenue: String, basisSource: String,
+                              skipVenue: String, skipSource: String, lastAcceptAgoS: Long, via: String): String {
+        fun s(v: String, max: Int) = v.replace("\\", "").replace("\"", "").take(max)
+        val named = SKIP_NAMES_8891.indices.joinToString(",") { "\"${SKIP_NAMES_8891[it]}\":${skips.getOrElse(it) { 0 }}" }
+        return "{\"skips\":{$named},\"accepted\":$accepted,\"lastSkip\":\"${s(lastSkip, 48)}\",\"basisVenue\":\"${s(basisVenue, 48)}\"," +
+            "\"basisSource\":\"${s(basisSource, 40)}\",\"skipVenue\":\"${s(skipVenue, 48)}\",\"skipSource\":\"${s(skipSource, 40)}\"," +
+            "\"lastAcceptAgoS\":$lastAcceptAgoS,\"via\":\"${s(via, 40)}\"}"
     }
 
     /**
@@ -3478,16 +3526,19 @@ object ForwardReturnLabeler7731 {
             }
             // Validate against the original typed basis BEFORE a rebase can erase a decimals/units mismatch.
             if (!LabelEvidence8386.eligible(o.basis8386.mark,mark8386)) {
+                skip8891(o, SKIP_ELIGIBILITY_8891, LabelEvidence8386.status(o.basis8386.mark, mark8386), mark8386)
                 o.lastMark8386=mark8386
                 try { PipelineHealthCollector.labelInc("FORWARD_LABEL_${LabelEvidence8386.status(o.basis8386.mark,mark8386)}") } catch (_: Throwable) {}
                 continue
             }
+            if (mark8386.observedAtMs <= o.lastPxAtMs) skip8891(o, SKIP_CACHE_8891, "CACHE_READ", mark8386)   // V5.0.8891 — counted
             if (mark8386.observedAtMs <= o.lastPxAtMs) continue // a cache read is not a new path event
             // nor is a copy re-stamped with a new clock: a non-market mark repeating the last price observed nothing new
-            if (!liveMark8454(mark8386) && o.lastPxAtMs > 0L && px == o.lastPx) continue
+            if (!liveMark8454(mark8386) && o.lastPxAtMs > 0L && px == o.lastPx) { skip8891(o, SKIP_COPY_8891, "RESTAMPED_COPY", mark8386); continue }
             // V5.0.8167 — validate before rebasing or deleting the observation. The chain witness: a mark the coin's own active bonding curve contradicts is a basis error, not a
             // move. Rejecting it must leave the entry basis and rebase eligibility unchanged.
             if (curveContradicts8165(o.mint, px, nowMs, mark8386.observedAtMs)) {
+                skip8891(o, SKIP_CURVE_CONTRADICTED_8891, "CURVE_CONTRADICTED_8165", mark8386)
                 curveRefusedMark8165.incrementAndGet()
                 try { PipelineHealthCollector.labelInc("FORWARD_LABEL_MARK_CURVE_CONTRADICTED_8165") } catch (_: Throwable) {}
                 continue
@@ -3495,12 +3546,15 @@ object ForwardReturnLabeler7731 {
             // V5.0.8337 (10d) — a curve read more than 5 s from the mark that disagrees HOLDS the mark (the observation and its
             // basis untouched) until a newer curve read agrees or the read leaves the witness window; it is never dropped.
             if (curveHolds8337(o.mint, px, nowMs, mark8386.observedAtMs)) {
+                skip8891(o, SKIP_CURVE_HELD_8891, "CURVE_HELD_8337", mark8386)
                 curveHeldMark8337.incrementAndGet()
                 try { PipelineHealthCollector.labelInc("FORWARD_LABEL_MARK_CURVE_HELD_8337") } catch (_: Throwable) {}
                 continue
             }
             // V5.0.8167 — corroborate against the OLD basis; rebasing first hides a phantom jump.
-            if (!PositionDisplayTruth8078.highStepOk8133(o.mint, o.entryPrice, o.entryPrice * (1.0 + o.peakPct / 100.0), px, "FORWARD_LABEL")) continue
+            if (!PositionDisplayTruth8078.highStepOk8133(o.mint, o.entryPrice, o.entryPrice * (1.0 + o.peakPct / 100.0), px, "FORWARD_LABEL")) {
+                skip8891(o, SKIP_JUMP_8891, "UNCORROBORATED_JUMP_8133", mark8386); continue
+            }
             // V5.0.8076 — the label starts where a buy could actually land: the first mark 5-60 s after the decision.
             // V5.0.8094 — at the lane's MEASURED live fill latency (8094 SHITCOIN ~40 s), not the first mark 5 s out: a coin
             // that pumps between the decision and the fill was graded from a price live never gets, so setups graded
@@ -3533,6 +3587,7 @@ object ForwardReturnLabeler7731 {
             // Keep invalid observations for investigation; never turn missing proof into a loss or train on it.
             if (!eligible8386(o)) {
                 val status8386 = LabelEvidence8386.status(o.basis8386.mark, mark8386)
+                skip8891(o, SKIP_INELIGIBLE_8891, status8386, mark8386)
                 try { PipelineHealthCollector.labelInc("FORWARD_LABEL_$status8386") } catch (_: Exception) {}
                 if (status8386 == "OBSERVED_ONLY_UNWITNESSED_EXTREME") {
                     // V5.0.7738/8386 — an unwitnessed 10x jump is a basis question, not a move: drop it unbooked and
@@ -3545,6 +3600,7 @@ object ForwardReturnLabeler7731 {
             }
             val priorAccepted8395 = o.lastAcceptedMark8395
             o.lastAcceptedMark8395=mark8386
+            o.accepted8891++
             val gross = (px / o.entryPrice - 1.0) * 100.0
             noteWindowRelease8418(o, gross, mark8386.observedAtMs)   // V5.0.8418 — before the low is graded
             if (gross < o.minPct7962) { notePathLow8366(o, mark8386.observedAtMs, gross); o.minPct7962 = gross }  // V5.0.8366 — first mark past a stop

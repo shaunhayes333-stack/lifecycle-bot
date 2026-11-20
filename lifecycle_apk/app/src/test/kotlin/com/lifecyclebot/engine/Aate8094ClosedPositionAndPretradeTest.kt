@@ -1102,7 +1102,8 @@ class Aate8094ClosedPositionAndPretradeTest {
             "engine/ShadowLearningEngine.kt" to listOf("\"SHADOW_BLOCKED\")"),
             "v3/scoring/ProjectSniperAI.kt" to listOf("\"PROJECT_SNIPER\")"),
             "engine/truth/LaneShadowProof7307.kt" to listOf("\"LANE_SHADOW\")"),
-            "engine/truth/ForwardReturnLabeler7731.kt" to listOf("\"FORWARD_LABEL\")) continue"),
+            // superseded in part by V5.0.8891: the refused jump is also counted for the hour row's diagnostics before the skip
+            "engine/truth/ForwardReturnLabeler7731.kt" to listOf("\"FORWARD_LABEL\")) {\n                skip8891(o, SKIP_JUMP_8891, \"UNCORROBORATED_JUMP_8133\", mark8386); continue"),
             "engine/truth/TailHunter7996.kt" to listOf("\"TAIL_HUNTER\")"),
             "engine/market/TelegramCallSweeper7830.kt" to listOf("\"CALL_SWEEP\")"),
             "engine/BotService.kt" to listOf("\"UNIVERSAL_SWEEP\")"),
