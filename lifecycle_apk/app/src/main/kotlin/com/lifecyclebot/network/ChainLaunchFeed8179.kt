@@ -139,6 +139,18 @@ object ChainLaunchFeed8179 {
     private const val METEORA_DAMM_V2_8179 = "cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG"
     private const val METEORA_DBC_8179 = "dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN"
     const val PUMPSWAP_AMM_8179 = "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA"
+    /**
+     * V5.0.8885 (plan W11) — two more bonding-curve launchpads heard at birth. Moonshot (DEX Screener's, now Moonit):
+     * MoonCVVNZFSYkqNXP6bxHLPL6QQJiMagDL3qcqUQTrG (carbon-moonshot-decoder lib.rs PROGRAM_ID), new tokens by its
+     * "tokenMint" instruction (Bitquery Moonshot API's new-token filter: Method is "tokenMint"). Boop:
+     * boop8hVGQGqehUK2iVEMEnMrL5RbjywRzHKBmBE7ry4 (carbon-boop-decoder lib.rs PROGRAM_ID), new tokens by "create_token"
+     * (Bitquery Boop Fun API). Anchor logs an instruction as "Instruction: <PascalCase name>". Both curves hold their quote as
+     * native SOL, so there is no WSOL vault pair to read: the launch is the one mint the creation itself initialised
+     * ([NATIVE_SOL_CURVES_8885]).
+     */
+    internal const val MOONSHOT_8885 = "MoonCVVNZFSYkqNXP6bxHLPL6QQJiMagDL3qcqUQTrG"
+    internal const val BOOP_8885 = "boop8hVGQGqehUK2iVEMEnMrL5RbjywRzHKBmBE7ry4"
+    internal val NATIVE_SOL_CURVES_8885: Set<String> = setOf("MOONSHOT", "BOOP")
     /** Raydium SDK FEE_DESTINATION_ID (AMM v4 create-pool fee) and CREATE_CPMM_POOL_FEE_ACC: touched only by pool creation. */
     private const val RAYDIUM_V4_CREATE_FEE_8179 = "7YttLkHDoNj9wyDur5pM1ejNaAvT9X4eqaYcHQqtj2G5"
     private const val RAYDIUM_CPMM_CREATE_FEE_8179 = "DNXgeM9EiiaAbaWvwjHj9fQQLAX5ZsfHyvmYUNRAdNC8"
@@ -163,6 +175,8 @@ object ChainLaunchFeed8179 {
             "InitializeVirtualPoolWithSplToken", "InitializeVirtualPoolWithToken2022",
         )),
         Target8179("PUMPSWAP", PUMPSWAP_AMM_8179, PUMPSWAP_AMM_8179, Venue8179.PUMPSWAP, false, setOf("CreatePool")),
+        Target8179("MOONSHOT", MOONSHOT_8885, MOONSHOT_8885, Venue8179.OTHER, true, setOf("TokenMint")),   // V5.0.8885
+        Target8179("BOOP", BOOP_8885, BOOP_8885, Venue8179.OTHER, true, setOf("CreateToken")),             // V5.0.8885
     )
 
     /**
@@ -299,6 +313,11 @@ object ChainLaunchFeed8179 {
         return if (found.map { it.first }.distinct().size == 1) found.first() else null
     }
 
+    /** Pure (V5.0.8885): for a native-SOL curve target, (the one mint initialised in the creation, WSOL); null otherwise. */
+    internal fun nativeCurveMint8885(targetKey: String, initialised: Collection<String>): Pair<String, String>? =
+        if (targetKey in NATIVE_SOL_CURVES_8885 && initialised.size == 1 && initialised.first() !in QUOTE_MINTS_8179)
+            initialised.first() to WSOL_8179 else null
+
     /** Pure: (new mint, quote mint) from a pair, or null when neither or both are quote mints. */
     internal fun splitQuote8179(a: String, b: String): Pair<String, String>? {
         val aq = a in QUOTE_MINTS_8179
@@ -340,6 +359,8 @@ object ChainLaunchFeed8179 {
             break
         }
         if (pair == null) pair = vaultPairMint8179(post.map { it.mint to it.owner }, feePayer)
+        // V5.0.8885 — a native-SOL curve launchpad has no WSOL vault: its launch is the one mint the creation initialised
+        if (pair == null) pair = nativeCurveMint8885(t.key, inits)
         val (mint, quote) = pair ?: return null
         if (!HeliusSolanaScope7819.isSolanaMint7819(mint)) return null
         // The seeded quote reserve: the quote balance held by the same owner as the new mint's vault.

@@ -45,7 +45,8 @@ class Aate8179ChainLaunchFeedTest {
             "MET_DBC" to "Program log: Instruction: InitializeVirtualPoolWithToken2022",
             "PUMPSWAP" to "Program log: Instruction: CreatePool",
         )
-        assertEquals(8, f.TARGETS_8179.size)
+        // superseded by V5.0.8885 — Moonshot and Boop are heard at birth too (Aate8885LaunchpadsAtBirthTest)
+        assertEquals(10, f.TARGETS_8179.size)
         for ((key, line) in cases) {
             val tg = t(key)
             val logs = listOf(

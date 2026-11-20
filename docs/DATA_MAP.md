@@ -1631,3 +1631,24 @@ not known and are null. At most 30,000 decisions wait (oldest dropped); the list
 
 **Read on the next report.** `researchFollow8884[waiting4h waiting24h written unpriced late failed dropped]`, and rows
 with `horizonMs` 14400000 / 86400000 in the research export.
+
+## 74. Moonshot and Boop launches are heard at birth (8885)
+
+**Owner.** "the meme trader isnt a pumpfun trader exclusively is a solana network trader. the full network." Plan W11.
+
+**Before.** `ChainLaunchFeed8179` heard pool and curve creation on Raydium (v4, CPMM, LaunchLab), Meteora (DLMM, DAMM v1,
+DAMM v2, DBC) and PumpSwap; pump.fun creates come through PumpPortal and the validator feed. Moonshot and Boop launches
+reached the bot only once an indexer listed them.
+
+**Changed.** Two more targets, each matched only by its own program's creation log:
+- `MOONSHOT`: `MoonCVVNZFSYkqNXP6bxHLPL6QQJiMagDL3qcqUQTrG` (carbon-moonshot-decoder `PROGRAM_ID`), "Instruction: TokenMint"
+  (Bitquery's Moonshot new-token filter is Method "tokenMint").
+- `BOOP`: `boop8hVGQGqehUK2iVEMEnMrL5RbjywRzHKBmBE7ry4` (carbon-boop-decoder `PROGRAM_ID`), "Instruction: CreateToken"
+  (Bitquery's Boop create Method is "create_token"; Anchor logs an instruction by its PascalCase name).
+Both are curves (`curve = true`, venue OTHER). They hold their quote as native SOL, so no WSOL vault pair exists to read:
+after the layout and the vault-pair reads find nothing, `nativeCurveMint8885` takes the one mint the creation transaction
+initialised, quoted in SOL (never when two mints were initialised, never a quote mint). Their subscriptions mention the
+program id, so their buys arrive too; the feed's governor parks a stream that floods, as for every target.
+
+**Not changed.** Every existing target and its reads; the intake every launch enters (safety, LP rule, FDG, lanes).
+
