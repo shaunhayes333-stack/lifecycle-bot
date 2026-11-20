@@ -196,8 +196,9 @@ class Aate8865ForecastLossLadderTest {
         // superseded by V5.0.8883 — the book's record is read through bookLosing8883 (the lane's twin in LIVE with paper off,
         // the paper book's own record otherwise)
         val check = mirror.indexOf("if (try { bookLosing8883(c.lane) } catch (_: Throwable) { false }) {")
+        // superseded in part by V5.0.8890: the paper book's own record still decides first; the shadow can only add a stop
         assertTrue(src("engine/truth/PaperMirror8757.kt").substringAfter("internal fun bookLosing8883(").substringBefore("fun economicsClear8758(")
-            .contains("return MemePaperTrader8544.laneProvenLosing8608(lane)"))
+            .contains("val paperLosing = MemePaperTrader8544.laneProvenLosing8608(lane)"))
         assertTrue(check > mirror.indexOf("stopped8757(nowMs)) return d"))
         assertTrue("before the paper book's decision is asked for", check in 0 until mirror.indexOf("CandidateAdmission8136.decide8136(c.copy(live = false, liveEdge8114 = null))"))
         assertTrue(PaperMirror8757.statusLine8757().startsWith("paperMirror8757[on="))

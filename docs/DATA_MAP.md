@@ -1764,3 +1764,20 @@ grade is); launches the store has no lane decision on; lanes the doctrine does n
 8888 failed to compile: `LaneExitGrade8888.grade8888` found the doctrine's share with `DoubleArray.indexOf`, which this
 Kotlin does not offer for floating-point arrays. It is now `indexOfFirst { it == RunnerDoctrine8584.KEEP_8584 }` (the same
 exact comparison). Behaviour is 8888's (§77) unchanged.
+
+## 79. The mirror keeps 5.0.8882's stop (8890)
+
+**Owner.** "make sure we dont fuck with the behaviour thats made money!" (5.0.8882: DQKmfa on SHITCOIN sold +102 / +402 /
++1,114 % on the doctrine; 5.0.8889 live n10 PF 8.64, SHITCOIN n5 80 % PF 52).
+
+**Every change since 5.0.8882, checked against the meme live path.** 8883 crypto twin (crypto only); 8884 later reads
+(measurement); 8885 Moonshot / Boop births (more launches heard, judged by the unchanged lanes); 8886 trend cell (reads only
+`lane8788`, which meme candidates do not carry: their backing answers are unchanged); 8887 authority table and 8888 lane exit
+grade (measurement; RunnerDoctrine8584's line functions bit-identical by default). One change reached a meme live decision:
+8883's `PaperMirror8757.bookLosing8883` REPLACED the paper MOONSHOT book's record with the evidence shadow's once the shadow
+held 30 closes, so a shadow that stopped proving a loss would have switched the mirror back on (live MOONSHOT admits 5.0.8882
+never made: mirrored=0, book proven losing 1,678 times; MOONSHOT live n3, all losses).
+
+**Changed.** `bookLosing8883` = `stops8890(paperLosing, shadowN, shadowLosing)` = paper record proven losing, OR (LIVE with
+paper off, 30+ shadow closes, shadow proven losing). The paper book's own record decides exactly as in 5.0.8882; the shadow
+can only add a stop, never lift one.

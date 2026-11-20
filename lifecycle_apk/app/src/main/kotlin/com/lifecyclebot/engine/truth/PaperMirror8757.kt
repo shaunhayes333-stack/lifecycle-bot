@@ -152,17 +152,27 @@ object PaperMirror8757 {
 
     /**
      * V5.0.8883 (plan W1) — does the book the mirror follows prove, on its own record, that it loses? In LIVE with paper off
-     * the paper MOONSHOT book stands down (8872) and its record stops, so it could neither stop proving a loss nor start; the
-     * lane's twin — the evidence shadow, which trades the lane on the live doctrine since 8878 — is read in its place once it
-     * holds 30 closes, by the same test (MemePaperTrader8544.provenLosing8608). Until then, and in PAPER, the paper book's own.
+     * the paper MOONSHOT book stands down (8872) and its record stops; the lane's twin — the evidence shadow, which trades the
+     * lane on the live doctrine since 8878 — is read beside it once it holds 30 closes, by the same test
+     * (MemePaperTrader8544.provenLosing8608).
+     *
+     * V5.0.8890 — owner, 20 Nov, on the build that made money (5.0.8882: DQKmfa SHITCOIN +102 / +402 / +1,114 %, live PF 8.64):
+     * "make sure we dont fuck with the behaviour thats made money!". In 8883 the shadow's record REPLACED the paper book's, so
+     * a shadow that stopped proving a loss would have switched the mirror back on: LIVE MOONSHOT admits that 5.0.8882 never
+     * made (its mirror followed nothing: mirrored=0, book proven losing 1,678 times). The shadow now only adds a stop: the
+     * paper book's own record decides exactly as in 5.0.8882, and a shadow proven losing also stops the mirror.
      */
     internal fun bookLosing8883(lane: String): Boolean {
-        if (try { com.lifecyclebot.engine.LiveNoPaper8184.closeOutInLive8872() } catch (_: Throwable) { false }) {
-            val p = EvidenceShadow8344.proof8344(lane, EvidenceHold8336.startMs8336)
-            if (p.n >= 30) return MemePaperTrader8544.provenLosing8608(p.n, p.meanPct, p.sePct, p.pf)
-        }
-        return MemePaperTrader8544.laneProvenLosing8608(lane)
+        val paperLosing = MemePaperTrader8544.laneProvenLosing8608(lane)
+        if (paperLosing || !(try { com.lifecyclebot.engine.LiveNoPaper8184.closeOutInLive8872() } catch (_: Throwable) { false }))
+            return paperLosing
+        val p = EvidenceShadow8344.proof8344(lane, EvidenceHold8336.startMs8336)
+        return stops8890(paperLosing, p.n, MemePaperTrader8544.provenLosing8608(p.n, p.meanPct, p.sePct, p.pf))
     }
+
+    /** Pure (V5.0.8890): the mirror is stopped when the paper book proves a loss, or the shadow does — never lifted by the shadow. */
+    internal fun stops8890(paperLosing: Boolean, shadowN: Int, shadowLosing: Boolean): Boolean =
+        paperLosing || (shadowN >= 30 && shadowLosing)
 
     /** Pure (V5.0.8758): a finite expected net whose gross clears [margin] x the round trip. */
     fun economicsClear8758(expectedNetPct: Double, costPct: Double, margin: Double): Boolean =

@@ -122,7 +122,8 @@ class Aate8883CryptoTwinTest {
         assertTrue(backing.contains("com.lifecyclebot.engine.LiveNoPaper8184.closeOutInLive8872()"))
         assertTrue(backing.contains("val m = record8883(twin, paper)"))
         val mirror = src("engine/truth/PaperMirror8757.kt").substringAfter("internal fun bookLosing8883(").substringBefore("fun economicsClear8758(")
-        assertTrue(mirror.contains("if (p.n >= 30) return MemePaperTrader8544.provenLosing8608(p.n, p.meanPct, p.sePct, p.pf)"))
+        // superseded in part by V5.0.8890: the shadow's proof is read beside the paper book's, and can only add a stop
+        assertTrue(mirror.contains("return stops8890(paperLosing, p.n, MemePaperTrader8544.provenLosing8608(p.n, p.meanPct, p.sePct, p.pf))"))
         assertTrue(src("engine/DiagnosisBrief8438.kt").contains("CryptoTwin8883.statusLine8883()"))
         assertTrue(File("../../docs/DATA_MAP.md").readText().contains("## 72. The crypto twin (8883)"))
     }
