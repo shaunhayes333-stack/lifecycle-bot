@@ -1904,3 +1904,11 @@ unit-test compile failed and no test ran; the release APK itself had compiled. T
 from the 8895 impact review: a lock proven from the chain (`LP_LOCK_CHAIN_PROVEN_8895`) holds 60 s and was re-read only once
 it had lapsed, so a coin could be deferred for one look every minute while it was read again. PreTradeHardGate now also asks
 for a re-read while the chain proof holds (still at most once per pool every 30 s). Same reads, same rules; no gate changed.
+
+## 86. 8896 rebuilt: the smoke's accounting witness met a mid-read state change (8897)
+
+8896's unit tests passed; its runtime smoke failed the 120-second execution-spine witness with every accounting delta 0.000000
+(cash 9.519884 = 9.519884, realized 0.121216 = 0.121216, open cost 2.254 = 2.254, quantity 0) but `accountingCurrent=false`:
+ForensicReconciliation6635 counts a reconciliation as current only when the accounting state key is the same before and after
+the read, and the emulator's paper book closed a position during it (TICK_HARD_FLOOR at 09:59:02). 8895's smoke, on the same
+app code but one condition, passed that witness. The run cannot be re-run from here, so 8897 rebuilds 8896 unchanged.
