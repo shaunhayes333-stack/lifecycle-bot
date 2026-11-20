@@ -53,6 +53,11 @@ object CryptoSpotPaperBacking8788 {
         wins + losses >= MIN_DECISIVE_8788 && meanPct.isFinite() && meanPct > 0.0 &&
             totalSol.isFinite() && totalSol > 0.0 && pfEdgePp.isFinite() && pfEdgePp > 0.0
 
+    /** Pure (V5.0.8883): the record that backs — the [twin]'s once it holds MIN_DECISIVE decisive closes, else the [paper] record. */
+    internal fun record8883(twin: com.lifecyclebot.engine.StrategyTelemetry.StrategyMetric?,
+                            paper: com.lifecyclebot.engine.StrategyTelemetry.StrategyMetric?): com.lifecyclebot.engine.StrategyTelemetry.StrategyMetric? =
+        if (twin != null && twin.wins + twin.losses >= MIN_DECISIVE_8788) twin else paper
+
     /** Pure: has [realisedSol] since the first backed admit reached the automatic stop? */
     fun lossStopHit8788(realisedSol: Double): Boolean = realisedSol.isFinite() && realisedSol <= -LOSS_STOP_SOL_8788
 
@@ -83,12 +88,18 @@ object CryptoSpotPaperBacking8788 {
         val r = records8806.getOrPut(lane) { Rec8806() }
         if (nowMs - r.atMs < 60_000L) return r.backs
         r.atMs = nowMs
-        val m = try {
+        val paper = try {
             com.lifecyclebot.engine.StrategyTelemetry.computeLeaderboard(environment = "paper")
                 .firstOrNull { it.strategy.equals(lane, ignoreCase = true) }
         } catch (_: Throwable) { null }
+        // V5.0.8883 — LIVE with paper off (8872): the crypto twin's record (the live exits on every candidate the live decision
+        // opened or a learned door refused; CryptoTwin8883) backs once it holds MIN_DECISIVE decisive closes; until then the
+        // paper record as it stood when paper stopped.
+        val twin = if (try { com.lifecyclebot.engine.LiveNoPaper8184.closeOutInLive8872() } catch (_: Throwable) { false })
+            (try { com.lifecyclebot.perps.CryptoTwin8883.metric8883(lane) } catch (_: Throwable) { null }) else null
+        val m = record8883(twin, paper)
         r.backs = m != null && paperBacks8788(m.wins, m.losses, m.meanPnlPct, m.totalSolPnl, m.pfExpectancyPp)
-        r.line = if (m == null) "none" else
+        r.line = if (m == null) "none" else (if (m === twin) "twin " else "") +
             "n${m.trades} W${m.wins}/L${m.losses} mean=${"%+.1f".format(m.meanPnlPct)}% sol=${"%+.3f".format(m.totalSolPnl)} pfEdge=${"%+.1f".format(m.pfExpectancyPp)}"
         return r.backs
     }

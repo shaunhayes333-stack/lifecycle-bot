@@ -116,7 +116,9 @@ class Aate8867HeapOwnersTest {
 
     @Test fun aConfirmedFloorIsNotReconfirmedPerAttempt() {
         val t = src("perps/CryptoAltTrader.kt")
-        assertTrue(t.contains("closePosition(id, \"TICK_HARD_FLOOR_\${tickPnl.toInt()}PCT\")\n                    if (!positions.containsKey(id)) tickFloorStrike7264.remove(id)"))
+        // superseded by V5.0.8883 — the floor's close comes back from exitTick8883; the strike still stands until the position is gone
+        assertTrue(t.contains("closePosition(id, tick8883.reason)\n                        // V5.0.8867 — a confirmed floor's strike stands until the position is gone\n" +
+            "                        if (tick8883.kind == KIND_TICK_FLOOR_8883 && !positions.containsKey(id)) tickFloorStrike7264.remove(id)"))
         assertTrue(t.contains("heldEval8866.remove(positionId)\n        tickFloorStrike7264.remove(positionId)"))
         assertTrue(File("../../docs/DATA_MAP.md").readText().contains("## 58. What the phone's heap holds and what it throws away (8867)"))
     }

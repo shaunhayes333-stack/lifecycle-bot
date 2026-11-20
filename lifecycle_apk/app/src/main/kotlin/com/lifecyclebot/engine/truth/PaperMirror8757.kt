@@ -126,7 +126,7 @@ object PaperMirror8757 {
         // mirror admitted 12 live candidates on its say-so in 127 minutes: its stop reads LIVE closes only. A book its own
         // record proves losing (MemePaperTrader8544.laneProvenLosing8608: 30+ priced closes, mean + SE < 0, PF < 1) is not
         // followed; it keeps trading on paper and is followed again the moment that record stops proving a loss.
-        if (try { MemePaperTrader8544.laneProvenLosing8608(c.lane) } catch (_: Throwable) { false }) {
+        if (try { bookLosing8883(c.lane) } catch (_: Throwable) { false }) {
             bookLosing8865.incrementAndGet()
             try { PipelineHealthCollector.labelInc("PAPER_MIRROR_BOOK_PROVEN_LOSING_8865") } catch (_: Throwable) {}
             return d
@@ -148,6 +148,20 @@ object PaperMirror8757 {
             chosenSetup = paper.chosenSetup ?: d.chosenSetup, trace = d.trace + "paperMirror8757 liveRefusal=${d.reason}",
             expectedNetPct = paper.expectedNetPct, costPct = paper.costPct, costSizeSol = paper.costSizeSol,
             costBreakdown = paper.costBreakdown, costMargin8391 = paper.costMargin8391, laneQualified8577 = true)
+    }
+
+    /**
+     * V5.0.8883 (plan W1) — does the book the mirror follows prove, on its own record, that it loses? In LIVE with paper off
+     * the paper MOONSHOT book stands down (8872) and its record stops, so it could neither stop proving a loss nor start; the
+     * lane's twin — the evidence shadow, which trades the lane on the live doctrine since 8878 — is read in its place once it
+     * holds 30 closes, by the same test (MemePaperTrader8544.provenLosing8608). Until then, and in PAPER, the paper book's own.
+     */
+    internal fun bookLosing8883(lane: String): Boolean {
+        if (try { com.lifecyclebot.engine.LiveNoPaper8184.closeOutInLive8872() } catch (_: Throwable) { false }) {
+            val p = EvidenceShadow8344.proof8344(lane, EvidenceHold8336.startMs8336)
+            if (p.n >= 30) return MemePaperTrader8544.provenLosing8608(p.n, p.meanPct, p.sePct, p.pf)
+        }
+        return MemePaperTrader8544.laneProvenLosing8608(lane)
     }
 
     /** Pure (V5.0.8758): a finite expected net whose gross clears [margin] x the round trip. */

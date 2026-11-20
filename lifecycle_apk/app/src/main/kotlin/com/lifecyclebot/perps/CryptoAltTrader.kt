@@ -3623,6 +3623,58 @@ object CryptoAltTrader {
     internal fun recentBasisUsable8091(observedAtMs: Long, nowMs: Long): Boolean =
         observedAtMs > 0L && nowMs - observedAtMs in 0L..RECENT_BASIS_MS_7281
 
+    /**
+     * V5.0.8883 — the position executeSignal builds for a candidate: one construction for the live or paper position and the
+     * crypto twin's virtual one (CryptoTwin8883), so the twin carries exactly what the live book would have carried.
+     */
+    private fun entryPosition8883(id: String, signal: AltSignal, isSpot: Boolean, candidate: CryptoFinalBuyCandidate, mktSym: String,
+                                  sizeSol: Double, lev: Double, tp: Double, sl: Double, paper: Boolean): AltPosition {
+        val holdSetupQuality6663 = when {
+            signal.score >= 80 && signal.confidence >= 70 -> "A+"
+            signal.score >= 70 -> "A"
+            signal.score >= 55 -> "B"
+            else -> "C"
+        }
+        val holdRecommendation6663 = try {
+            com.lifecyclebot.v3.scoring.HoldTimeOptimizerAI.predict(
+                mint = candidate.assetKey,
+                symbol = mktSym,
+                setupQuality = holdSetupQuality6663,
+                liquidityUsd = candidate.liquidityUsd,
+                volatilityRegime = if (kotlin.math.abs(signal.priceChange24h) >= 15.0) "HIGH" else "NORMAL",
+                marketRegime = "NEUTRAL",
+                entryScore = signal.score,
+            )
+        } catch (_: Throwable) { null }
+        return AltPosition(
+            id             = id,
+            market         = signal.market,
+            dynSymbol      = signal.dynSymbol,
+            dynName        = signal.dynName,
+            dynEmoji       = signal.dynEmoji,
+            dynMint        = signal.dynMint,
+            direction      = signal.direction,
+            isSpot         = isSpot,
+            isPaper        = paper,
+            canonicalAssetKey = candidate.assetKey,
+            markAssetKey   = candidate.assetKey,
+            markUpdatedAtMs= System.currentTimeMillis(),
+            entryPrice     = signal.price,
+            currentPrice   = signal.price,
+            sizeSol        = sizeSol,
+            leverage       = lev,
+            takeProfitPrice= tp,
+            stopLossPrice  = sl,
+            aiScore        = signal.score,
+            aiConfidence   = signal.confidence,
+            reasons        = listOf("STRATEGY7803=" + signal.strategy7803) +
+                signal.deskOverlays7803.sorted().map { "OVERLAY7803=" + it } +
+                signal.reasons + "CRYPTO_CANDIDATE:${candidate.assetKey}",
+            holdSetupQuality = holdSetupQuality6663,
+            adaptiveMaxHoldSeconds = holdRecommendation6663?.maxSeconds?.coerceIn(60, 3_600) ?: 3_600,
+        )
+    }
+
     private suspend fun executeSignal(signal: AltSignal, isSpot: Boolean) {
         com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(
             com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT, "EXECUTION_SELECTED",
@@ -4077,6 +4129,13 @@ object CryptoAltTrader {
             is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Allowed -> canonicalCryptoAdmission6565.intent
             is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Probe -> canonicalCryptoAdmission6565.intent
             is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Blocked -> {
+                // V5.0.8883 — LIVE: a learned door's refusal (not an integrity one: those bind both engines) opens the twin of the
+                // position the live book would have opened (CryptoTwin8883), managed by the live exits with a virtual fill
+                if (!paper7803 && !com.lifecyclebot.engine.truth.CryptoSignalEngine8857.integrityReason8857(canonicalCryptoAdmission6565.reason))
+                    try {
+                        CryptoTwin8883.open8883(entryPosition8883("ALT:TWIN:${candidate.candidateVersion}:${System.currentTimeMillis()}",
+                            signal, isSpot, candidate, mktSym, finalSize, lev, tp8110, sl, false), candidate.selectedLane)
+                    } catch (_: Throwable) {}
                 // V5.0.8714 — a Solana coin the crypto desk does not take is still offered to the meme lanes (8045).
                 if (solanaCoinRefused8714(paper7803, signal.market == PerpsMarket.DYN, signal.dynChainId))
                     handOffSolanaToMeme8045(signal, candidate.liquidityUsd, candidate.marketCapUsd6493)
@@ -4126,50 +4185,11 @@ object CryptoAltTrader {
             terminalDisposition6613("LIVE_WALLET_LOCK_7835", "AUTHORITY")
             return
         }
-        val holdSetupQuality6663 = when {
-            signal.score >= 80 && signal.confidence >= 70 -> "A+"
-            signal.score >= 70 -> "A"
-            signal.score >= 55 -> "B"
-            else -> "C"
-        }
-        val holdRecommendation6663 = try {
-            com.lifecyclebot.v3.scoring.HoldTimeOptimizerAI.predict(
-                mint = candidate.assetKey,
-                symbol = mktSym,
-                setupQuality = holdSetupQuality6663,
-                liquidityUsd = candidate.liquidityUsd,
-                volatilityRegime = if (kotlin.math.abs(signal.priceChange24h) >= 15.0) "HIGH" else "NORMAL",
-                marketRegime = "NEUTRAL",
-                entryScore = signal.score,
-            )
-        } catch (_: Throwable) { null }
-        val position = AltPosition(
-            id             = "ALT:${canonicalCryptoIntent6565.attemptId}",
-            market         = signal.market,
-            dynSymbol      = signal.dynSymbol,
-            dynName        = signal.dynName,
-            dynEmoji       = signal.dynEmoji,
-            dynMint        = signal.dynMint,
-            direction      = signal.direction,
-            isSpot         = isSpot,
-            isPaper        = paper7803,
-            canonicalAssetKey = candidate.assetKey,
-            markAssetKey   = candidate.assetKey,
-            markUpdatedAtMs= System.currentTimeMillis(),
-            entryPrice     = signal.price,
-            currentPrice   = signal.price,
-            sizeSol        = canonicalFinalSize6570,
-            leverage       = lev,
-            takeProfitPrice= tp8110,
-            stopLossPrice  = sl,
-            aiScore        = signal.score,
-            aiConfidence   = signal.confidence,
-            reasons        = listOf("STRATEGY7803=" + signal.strategy7803) +
-                signal.deskOverlays7803.sorted().map { "OVERLAY7803=" + it } +
-                signal.reasons + "CRYPTO_CANDIDATE:${candidate.assetKey}",
-            holdSetupQuality = holdSetupQuality6663,
-            adaptiveMaxHoldSeconds = holdRecommendation6663?.maxSeconds?.coerceIn(60, 3_600) ?: 3_600,
-        )
+        // V5.0.8883 — one construction for the live / paper position and the crypto twin's (entryPosition8883)
+        val position = entryPosition8883("ALT:${canonicalCryptoIntent6565.attemptId}", signal, isSpot, candidate, mktSym,
+            canonicalFinalSize6570, lev, tp8110, sl, paper7803)
+        // V5.0.8883 — LIVE: the decision opened this position; its twin is managed by the same exits with a virtual fill
+        if (!paper7803) try { CryptoTwin8883.open8883(position, candidate.selectedLane) } catch (_: Throwable) {}
 
         // Note: totalTrades incremented at CLOSE, not open, for accurate win rate
 
@@ -4680,6 +4700,271 @@ object CryptoAltTrader {
     private val partialLadderHit = ConcurrentHashMap<String, Int>()      // id -> next rung index
     private val trailPeakPct     = ConcurrentHashMap<String, Double>()   // id -> peak pnl% seen
 
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.0.8883 §ONE_CRYPTO_EXIT (plan W1) — owner, 20 Nov: "the shadow trading engine is meant to basically be exactly the
+    // same as the live trader in all forms and functions for the meme and crypto traders". The crypto exits lived inline in
+    // the monitor loop, so nothing else could run them. They are lifted out unchanged — the same checks in the same order,
+    // the same reason strings, the same logs and labels — into [evict8883] (the eviction pass, read on the previous mark)
+    // and [exitTick8883] (the tick on a fresh mark). The live monitor calls them and acts on what they return exactly as it
+    // acted inline; CryptoTwin8883 calls the same two functions on its virtual positions.
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /** What the eviction pass decided: the next rung index, the peak it holds, the rung that fired (-1 none), the exit (null none). */
+    internal data class Evict8883(val rungIdx: Int, val trailPeak: Double, val rungFired: Int, val kind: String, val reason: String?)
+
+    /** Pure: the eviction pass on a position at [pnlPct] held [holdMs], with its rung index and trail peak so far. */
+    internal fun evict8883(pnlPct: Double, holdMs: Long, rungIdx0: Int, trailPeak0: Double?): Evict8883 {
+        // V5.9.432 partial-take ladder: one rung per pass, recorded for the trail (no sale)
+        val peak = if (trailPeak0 == null || pnlPct > trailPeak0) pnlPct else trailPeak0
+        var rungIdx = rungIdx0
+        var fired = -1
+        if (rungIdx < PARTIAL_LADDER_PCTS.size && peak >= PARTIAL_LADDER_PCTS[rungIdx]) { fired = rungIdx; rungIdx += 1 }
+        // V5.9.432 fluid trail: once a rung fired, protect 50 % of the peak gain
+        if (rungIdx > 0 && peak >= PARTIAL_LADDER_PCTS[0]) {
+            val trailFloor = peak * 0.5
+            if (pnlPct <= trailFloor && pnlPct < peak - 2.0)
+                return Evict8883(rungIdx, peak, fired, "FLUID_TRAIL",
+                    "FLUID_TRAIL_LOCK: peak=+${"%.1f".format(peak)}% → now=+${"%.1f".format(pnlPct)}% (50% floor)")
+        }
+        // V5.9.229: protect ANY winning position — even small gains deserve to run
+        if (pnlPct >= 1.0) return Evict8883(rungIdx, peak, fired, "", null)
+        return when {
+            holdMs >= DEADWEIGHT_HOLD_MS && Math.abs(pnlPct) <= DEADWEIGHT_MAX_PNL_PCT -> {
+                val label = if (pnlPct >= 0) "+${pnlPct.toInt()}%" else "${pnlPct.toInt()}%"
+                Evict8883(rungIdx, peak, fired, "DEADWEIGHT", "DEADWEIGHT: $label after ${holdMs/60000}min — freeing slot")
+            }
+            holdMs >= STAGNANT_MIN_HOLD_MS && Math.abs(pnlPct) <= STAGNANT_MAX_PNL_PCT ->
+                Evict8883(rungIdx, peak, fired, "STAGNANT", "STAGNANT: ${pnlPct.toInt()}% after ${holdMs/60000}min — no momentum")
+            holdMs >= LOSER_MIN_HOLD_MS && pnlPct <= LOSER_FAST_EXIT_PCT ->
+                Evict8883(rungIdx, peak, fired, "FAST_LOSER", "FAST_LOSER: ${pnlPct.toInt()}% after ${holdMs/60000}min — cut early")
+            else -> Evict8883(rungIdx, peak, fired, "", null)
+        }
+    }
+
+    internal enum class ExitAct8883 { NONE, HOLD, CLOSE, PARTIAL }
+
+    /** What one tick decided: the action, its reason (the exit reason the live book records), its kind, the floor's strike after it. */
+    internal data class ExitTick8883(val act: ExitAct8883, val reason: String, val kind: String, val strikeAfter: Boolean)
+
+    internal const val KIND_TICK_FLOOR_8883 = "TICK_HARD_FLOOR"
+
+    /** Where a tick's logs, labels and peak publication go: the live book's own (live), or nowhere (the twin). */
+    internal interface ExitSink8883 {
+        fun warn(msg: String)
+        fun label(name: String)
+        fun forensic(event: String, detail: String)
+        /** the tick raised [p]'s peak (V5.9.9): publish it where the book keeps its positions */
+        fun published(p: AltPosition)
+    }
+
+    private fun liveSink8883(id: String): ExitSink8883 = object : ExitSink8883 {
+        override fun warn(msg: String) { ErrorLogger.warn(TAG, msg) }
+        override fun label(name: String) { com.lifecyclebot.engine.PipelineHealthCollector.labelInc(name) }
+        override fun forensic(event: String, detail: String) { com.lifecyclebot.engine.ForensicLogger.lifecycle(event, detail) }
+        override fun published(p: AltPosition) {
+            positions[id] = p
+            if (p.isSpot) {
+                spotPositions[id] = p
+                leveragePositions.remove(id)
+            } else {
+                leveragePositions[id] = p
+                spotPositions.remove(id)
+            }
+        }
+    }
+
+    /**
+     * The tick on a fresh, validated mark ([updated] already carries it; [markPrice], [validatedMarkKey]): the -10 % floor
+     * (two reads under -50 %, [priorStrike7264]), the peak give-back lock, the desk lane's exits, the hard SL and TP, the peak
+     * (raised on [updated] itself), the adaptive hold, the symbolic exit reasoner, the fluid lock, the peak drawdown and the
+     * TP safety — the live monitor's checks in its order.
+     */
+    internal fun exitTick8883(id: String, updated: AltPosition, markPrice: Double, validatedMarkKey: String,
+                              priorStrike7264: Boolean, sink: ExitSink8883): ExitTick8883 {
+        val tickPnl = updated.getPnlPct()
+        if (tickPnl <= -10.0) {
+            // V5.0.7264 — a read under -50 % needs a second consecutive sub-floor read before it may fire; -10..-50 % fires
+            // on the first tick. V5.0.8867 — the strike stands until the position is gone.
+            val phantomRange7264 = tickPnl < -50.0
+            if (phantomRange7264 && !priorStrike7264) {
+                try {
+                    sink.label("CRYPTO_ALT_TICK_FLOOR_PHANTOM_DEFERRED_7264")
+                    sink.forensic(
+                        "CRYPTO_ALT_TICK_FLOOR_PHANTOM_DEFERRED_7264",
+                        "id=$id symbol=${updated.marketSymbol} entry=${updated.entryPrice} mark=$markPrice " +
+                            "pnl=${"%.1f".format(tickPnl)}% dynamic=${updated.isDynamic} markKey=$validatedMarkKey " +
+                            "action=second_consecutive_sub_floor_read_required",
+                    )
+                } catch (_: Throwable) {}
+                return ExitTick8883(ExitAct8883.HOLD, "", "TICK_FLOOR_PHANTOM", true)
+            }
+            sink.warn(
+                "🛑 TICK_HARD_FLOOR ${updated.marketSymbol} " +
+                "${"%.1f".format(tickPnl)}% ≤ -10.0% — immediate exit " +
+                "(peak=${"%.1f".format(updated.highestPnlPct)}% twoStrike=$priorStrike7264)")
+            return ExitTick8883(ExitAct8883.CLOSE, "TICK_HARD_FLOOR_${tickPnl.toInt()}PCT", KIND_TICK_FLOOR_8883, true)
+        }
+        // ─── Peak give-back trailing (lock big runners) ───
+        val tickPeak = if (updated.highestPnlPct > tickPnl) updated.highestPnlPct else tickPnl
+        val tickGiveBackRatio = when {
+            tickPeak >= 500.0 -> 0.30   // 5x+ : lock 70% of peak
+            tickPeak >= 200.0 -> 0.40   // 2x+ : lock 60% of peak
+            tickPeak >= 100.0 -> 0.50   // 1x+ : lock 50% of peak
+            tickPeak >=  30.0 -> 0.60   // +30%+ runners: lock 40%
+            else -> Double.NaN
+        }
+        if (!tickGiveBackRatio.isNaN()) {
+            val tickLockedFloor = tickPeak - (tickPeak * tickGiveBackRatio)
+            if (tickPnl < tickLockedFloor && tickPnl > 0.0) {
+                sink.warn(
+                    "🔒 TICK_PROFIT_LOCK ${updated.marketSymbol} " +
+                    "peak=${"%.1f".format(tickPeak)}% now=${"%.1f".format(tickPnl)}% " +
+                    "floor=${"%.1f".format(tickLockedFloor)}% — locking profit")
+                return ExitTick8883(ExitAct8883.CLOSE, "TICK_PROFIT_LOCK_peak${tickPeak.toInt()}_now${tickPnl.toInt()}", "TICK_PROFIT_LOCK", false)
+            }
+        }
+
+        // V5.0.7391 — the meme exit tools on crypto positions, keyed by the desk lane the position was opened under: the
+        // sliding give-back lock and the fluid profit floor, the MFE profit floor, and the runner lanes' early cut.
+        val deskLane7391 = specialistLaneFromReasons7803(updated.reasons)
+        if (deskLane7391.isNotBlank() && tickPnl.isFinite()) {
+            val ageMs7391 = (System.currentTimeMillis() - updated.openTime).coerceAtLeast(0L)
+            val fluidFloor7391 = try {
+                com.lifecyclebot.v3.scoring.FluidLearningAI.fluidProfitFloor(
+                    tickPeak, holdSeconds = ageMs7391 / 1000.0, lane = deskLane7391,
+                )
+            } catch (_: Throwable) { Double.NEGATIVE_INFINITY }
+            val why7391 = when {
+                com.lifecyclebot.engine.PeakDrawdownLock.shouldLock(tickPeak, tickPnl, deskLane7391) -> "PEAK_DRAWDOWN_LOCK"
+                com.lifecyclebot.engine.PeakDrawdownLock.shouldFloorLock(tickPeak, tickPnl) -> "MFE_PROFIT_FLOOR"
+                tickPnl < fluidFloor7391 -> "FLUID_PROFIT_FLOOR"
+                com.lifecyclebot.engine.RunnerExitProfile7277.earlyCut(deskLane7391, tickPnl, ageMs7391) -> "RUNNER_EARLY_CUT"
+                else -> ""
+            }
+            if (why7391.isNotEmpty()) {
+                try { sink.label("CRYPTO_DESK_EXIT_7391_$why7391") } catch (_: Throwable) {}
+                sink.warn(
+                    "🔒 DESK_EXIT_7391 ${updated.marketSymbol} lane=$deskLane7391 $why7391 " +
+                    "peak=${"%.1f".format(tickPeak)}% now=${"%.1f".format(tickPnl)}%")
+                return ExitTick8883(ExitAct8883.CLOSE, "DESK_${why7391}_${deskLane7391}_peak${tickPeak.toInt()}_now${tickPnl.toInt()}_7391", "DESK_EXIT", false)
+            }
+        }
+
+        // V5.9.272: HARD SL — fire before anything else if price crossed stop
+        val slPriceOk = updated.stopLossPrice > 0 && updated.entryPrice > 0
+        val tpPriceOk = updated.takeProfitPrice > 0 && updated.entryPrice > 0
+        if (slPriceOk) {
+            val hitSl = when (updated.direction) {
+                com.lifecyclebot.perps.PerpsDirection.LONG  -> markPrice <= updated.stopLossPrice
+                com.lifecyclebot.perps.PerpsDirection.SHORT -> markPrice >= updated.stopLossPrice
+            }
+            if (hitSl) return ExitTick8883(ExitAct8883.CLOSE,
+                "HARD_SL: price=${markPrice.fmt(6)} crossed SL=${updated.stopLossPrice.fmt(6)} (${updated.getPnlPct().let { if (it>=0) "+${"%.2f".format(it)}" else "${"%.2f".format(it)}" }}%)",
+                "HARD_SL", false)
+        }
+        // V5.9.272: HARD TP; V5.9.903 / V5.0.7329 — skipped for a runner already 1.5x past its TP (current PnL counts as peak)
+        if (tpPriceOk) {
+            val hitTp = when (updated.direction) {
+                com.lifecyclebot.perps.PerpsDirection.LONG  -> markPrice >= updated.takeProfitPrice
+                com.lifecyclebot.perps.PerpsDirection.SHORT -> markPrice <= updated.takeProfitPrice
+            }
+            val _tpImpliedPct = if (updated.entryPrice > 0.0) {
+                val raw = (kotlin.math.abs(updated.takeProfitPrice - updated.entryPrice) / updated.entryPrice) * 100.0 * updated.leverage
+                raw.coerceAtLeast(0.01)
+            } else 999.0
+            val _runnerProven = maxOf(updated.highestPnlPct, updated.getPnlPct()) >= _tpImpliedPct * 1.5
+            if (hitTp && !_runnerProven) return ExitTick8883(ExitAct8883.CLOSE,
+                "HARD_TP: price=${markPrice.fmt(6)} crossed TP=${updated.takeProfitPrice.fmt(6)} (+${"%.2f".format(updated.getPnlPct())}%)",
+                "HARD_TP", false)
+        }
+
+        // V5.9.9: Track peak PnL for trailing stop
+        val currentPnl = updated.getPnlPct()
+        if (currentPnl > updated.highestPnlPct) {
+            updated.highestPnlPct = currentPnl
+        }
+        sink.published(updated)
+
+        val tpPct = com.lifecyclebot.perps.crypto.brain.CryptoBrain.getTpPct(updated.isSpot, updated.isPaper)
+
+        // V5.9.9: FULLY AGENTIC EXIT — SymbolicExitReasoner evaluates every cycle
+        val holdSec = (System.currentTimeMillis() - updated.openTime) / 1000
+        val peakPnl = if (updated.highestPnlPct > updated.getPnlPct()) updated.highestPnlPct else updated.getPnlPct()
+
+        // V5.0.6663 — the learned hold horizon (one hour for legacy restores); V5.0.7332 — a running winner past its TP and
+        // holding half its peak is left to the trail / peak-drawdown exits.
+        val adaptiveMaxHold6663 = updated.adaptiveMaxHoldSeconds.takeIf { it > 0 } ?: 3_600
+        val pnlNow7332 = updated.getPnlPct()
+        val runningWinner7332 = tpPct > 0.0 && pnlNow7332 >= tpPct && pnlNow7332 >= peakPnl * 0.5
+        if (holdSec >= adaptiveMaxHold6663 && runningWinner7332) {
+            try { sink.label("CRYPTO_HOLD_MAX_DEFERRED_RUNNING_WINNER_7332") } catch (_: Throwable) {}
+        }
+        if (holdSec >= adaptiveMaxHold6663 && !runningWinner7332) return ExitTick8883(ExitAct8883.CLOSE,
+            "ADAPTIVE_HOLD_MAX_6663:${adaptiveMaxHold6663}s pnl=${"%.2f".format(updated.getPnlPct())}%", "ADAPTIVE_HOLD_MAX", false)
+
+        // Calculate price velocity (% change per minute over hold period)
+        val priceVelocity = if (holdSec > 30) updated.getPnlPct() / (holdSec / 60.0) else 0.0
+
+        val assessment = com.lifecyclebot.engine.SymbolicExitReasoner.assess(
+            currentPnlPct   = updated.getPnlPct(),
+            peakPnlPct      = peakPnl,
+            entryConfidence = updated.aiConfidence.toDouble(),
+            tradingMode     = strategyFromReasons7803(updated.reasons),
+            holdTimeSec     = holdSec,
+            priceVelocity   = priceVelocity,
+            volumeRatio     = 1.0
+        )
+
+        when (assessment.suggestedAction) {
+            com.lifecyclebot.engine.SymbolicExitReasoner.Action.EXIT ->
+                return ExitTick8883(ExitAct8883.CLOSE, "AI_EXIT: ${assessment.primarySignal} (conv=${"%.2f".format(assessment.conviction)})", "AI_EXIT", false)
+            com.lifecyclebot.engine.SymbolicExitReasoner.Action.PARTIAL ->
+                return ExitTick8883(ExitAct8883.PARTIAL, "AI_PARTIAL: ${assessment.primarySignal} (conv=${"%.2f".format(assessment.conviction)})", "AI_PARTIAL", false)
+            else -> {
+                // V5.9.118 fluid profit-floor lock; V5.9.358 alts peak-drawdown floor (peak >= 20 % and half of it given back,
+                // or peak >= 100 % and 35 points given back); V5.9.230 / V5.9.903 TP safety with its runner bypass.
+                val dynamicLock = try {
+                    com.lifecyclebot.v3.scoring.FluidLearningAI.getDynamicFluidStop(
+                        modeDefaultStop = 20.0,
+                        currentPnlPct = currentPnl,
+                        peakPnlPct = peakPnl,
+                        holdTimeSeconds = holdSec.toDouble(),
+                        volatility = 50.0,
+                    )
+                } catch (_: Exception) { Double.NEGATIVE_INFINITY }
+                val lockFired = dynamicLock > 0.0 && currentPnl <= dynamicLock
+                val peakDrawdownFired =
+                    (peakPnl >= 100.0 && (peakPnl - currentPnl) >= 35.0) ||
+                    (peakPnl >= 20.0 && currentPnl <= peakPnl * 0.5)
+                when {
+                    lockFired -> return ExitTick8883(ExitAct8883.CLOSE,
+                        "FLUID_LOCK: peak=+${peakPnl.toInt()}% now=+${currentPnl.toInt()}% lock=+${dynamicLock.toInt()}%", "FLUID_LOCK", false)
+                    peakDrawdownFired -> return ExitTick8883(ExitAct8883.CLOSE,
+                        "PEAK_DRAWDOWN: peak=+${peakPnl.toInt()}% now=+${currentPnl.toInt()}% (gave back ${(peakPnl - currentPnl).toInt()}%)", "PEAK_DRAWDOWN", false)
+                    (updated.shouldTakeProfit(tpPct * 2.5) && updated.highestPnlPct < tpPct * 3.0) -> return ExitTick8883(ExitAct8883.CLOSE,
+                        "TP_SAFETY: +${"%.2f".format(updated.getPnlPct())}% exceeded ${tpPct * 2.5}% peak=+${peakPnl.toInt()}%", "TP_SAFETY", false)
+                }
+            }
+        }
+        return ExitTick8883(ExitAct8883.NONE, "", "", false)
+    }
+
+    /**
+     * CryptoTwin8883: a fresh mark for a dynamic asset the book does not hold, read the way the monitor reads a held one when
+     * it has no canonical held mark — the registry row, refreshed when its price is over a minute old, by exact identity.
+     */
+    internal fun twinMark8883(identity: String): DynamicAltTokenRegistry.HeldMarkRefresh7251? {
+        val resolved = DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(identity) ?: return null
+        val ageMs = com.lifecyclebot.engine.NativeDecisionEnrollment8372.priceAge8870(resolved.priceObservedAtMs8372, System.currentTimeMillis())
+        val m = if (ageMs > 60_000L) refreshDynamicMark7251(resolved.canonicalIdentity6544)
+            else DynamicAltTokenRegistry.heldMarkSnapshot7251(resolved.canonicalIdentity6544)
+        val exact = m.canonicalIdentity.equals(identity, true) || DynamicAltTokenRegistry.sameAsset8866(m.canonicalIdentity, identity)
+        return m.takeIf { it.freshObservation && exact && it.price.isFinite() && it.price > 0.0 }
+    }
+
+    /** CryptoTwin8883: is the runtime the live one (the twin trades only beside LIVE)? */
+    internal fun liveRuntime8883(): Boolean = !authoritativePaperMode7425()
+
     private fun evictStagnantAndLosers() {
         val now = System.currentTimeMillis()
         for ((id, pos) in positions.toMap()) {
@@ -4689,68 +4974,21 @@ object CryptoAltTrader {
             val holdMs = now - pos.openTime
             val pnlPct = pos.getPnlPct()
 
-            // ── V5.9.432: PARTIAL-TAKE LADDER ────────────────────────────
-            // Fires on winners crossing 5 / 10 / 20 / 35% peak. Sells 25%
-            // of remaining qty per rung. Runs BEFORE any stagnant/loser
-            // check so wins lock in even if volatility is low.
-            try {
-                val peak = trailPeakPct.compute(id) { _, v ->
-                    if (v == null || pnlPct > v) pnlPct else v
-                } ?: pnlPct
-                val rungIdx = partialLadderHit[id] ?: 0
-                if (rungIdx < PARTIAL_LADDER_PCTS.size) {
-                    val rungPct = PARTIAL_LADDER_PCTS[rungIdx]
-                    if (peak >= rungPct) {
-                        partialLadderHit[id] = rungIdx + 1
-                        // Best-effort partial: if exchange/exec layer has a
-                        // partial-sell hook, use it; otherwise record the
-                        // rung hit for UI + trail purposes only. Trail lock
-                        // still protects the remainder.
-                        ErrorLogger.info(TAG,
-                            "🪙 🎯 PARTIAL_RUNG ${pos.market.symbol} @ +${"%.1f".format(peak)}% (rung ${rungIdx + 1}/${PARTIAL_LADDER_PCTS.size}, ${rungPct.toInt()}%)")
-                    }
-                }
-            } catch (_: Exception) {}
-
-            // ── V5.9.432: FLUID TRAIL (slides up with peak) ──────────────
-            // Once any partial rung has fired, protect 50% of the peak gain.
-            // If peak is +20% and price falls to +10%, exit. This lets real
-            // breakouts keep running past 35% (no cap), while sideways
-            // fakeouts that spike and fade get booked.
-            try {
-                val peak = trailPeakPct[id] ?: pnlPct
-                val rungHit = (partialLadderHit[id] ?: 0) > 0
-                if (rungHit && peak >= PARTIAL_LADDER_PCTS[0]) {
-                    val trailFloor = peak * 0.5
-                    if (pnlPct <= trailFloor && pnlPct < peak - 2.0) {
-                        closePosition(id,
-                            "FLUID_TRAIL_LOCK: peak=+${"%.1f".format(peak)}% → now=+${"%.1f".format(pnlPct)}% (50% floor)")
-                        ErrorLogger.info(TAG,
-                            "🪙 🔒 FLUID_TRAIL ${pos.market.symbol} peak+${peak.toInt()}% → +${pnlPct.toInt()}%")
-                        continue
-                    }
-                }
-            } catch (_: Exception) {}
-
-            // V5.9.229: protect ANY winning position — even small gains deserve to run
-            if (pnlPct >= 1.0) continue
-
-            when {
-                // V5.9.432 — DEADWEIGHT requires BOTH long hold AND flat PnL.
-                // A position up +2% at 60 min is not deadweight.
-                holdMs >= DEADWEIGHT_HOLD_MS && Math.abs(pnlPct) <= DEADWEIGHT_MAX_PNL_PCT -> {
-                    val label = if (pnlPct >= 0) "+${pnlPct.toInt()}%" else "${pnlPct.toInt()}%"
-                    closePosition(id, "DEADWEIGHT: $label after ${holdMs/60000}min — freeing slot")
-                    ErrorLogger.info(TAG, "🪙 ⏰ DEADWEIGHT evicted ${pos.market.symbol} ($label)")
-                }
-                holdMs >= STAGNANT_MIN_HOLD_MS && Math.abs(pnlPct) <= STAGNANT_MAX_PNL_PCT -> {
-                    closePosition(id, "STAGNANT: ${pnlPct.toInt()}% after ${holdMs/60000}min — no momentum")
-                    ErrorLogger.info(TAG, "🪙 😴 STAGNANT evicted ${pos.market.symbol} (${pnlPct.toInt()}%)")
-                }
-                holdMs >= LOSER_MIN_HOLD_MS && pnlPct <= LOSER_FAST_EXIT_PCT -> {
-                    closePosition(id, "FAST_LOSER: ${pnlPct.toInt()}% after ${holdMs/60000}min — cut early")
-                    ErrorLogger.info(TAG, "🪙 ✂️ FAST_LOSER evicted ${pos.market.symbol} (${pnlPct.toInt()}%)")
-                }
+            // V5.0.8883 — the pass's decision is evict8883 (shared with CryptoTwin8883); the book acts on it as it acted inline
+            val ev8883 = try { evict8883(pnlPct, holdMs, partialLadderHit[id] ?: 0, trailPeakPct[id]) } catch (_: Exception) { null } ?: continue
+            trailPeakPct[id] = ev8883.trailPeak
+            if (ev8883.rungFired >= 0) {
+                partialLadderHit[id] = ev8883.rungIdx
+                ErrorLogger.info(TAG,
+                    "🪙 🎯 PARTIAL_RUNG ${pos.market.symbol} @ +${"%.1f".format(ev8883.trailPeak)}% (rung ${ev8883.rungFired + 1}/${PARTIAL_LADDER_PCTS.size}, ${PARTIAL_LADDER_PCTS[ev8883.rungFired].toInt()}%)")
+            }
+            val why8883 = ev8883.reason ?: continue
+            closePosition(id, why8883)
+            when (ev8883.kind) {
+                "FLUID_TRAIL" -> ErrorLogger.info(TAG, "🪙 🔒 FLUID_TRAIL ${pos.market.symbol} peak+${ev8883.trailPeak.toInt()}% → +${pnlPct.toInt()}%")
+                "DEADWEIGHT" -> ErrorLogger.info(TAG, "🪙 ⏰ DEADWEIGHT evicted ${pos.market.symbol} (${if (pnlPct >= 0) "+${pnlPct.toInt()}%" else "${pnlPct.toInt()}%"})")
+                "STAGNANT" -> ErrorLogger.info(TAG, "🪙 😴 STAGNANT evicted ${pos.market.symbol} (${pnlPct.toInt()}%)")
+                "FAST_LOSER" -> ErrorLogger.info(TAG, "🪙 ✂️ FAST_LOSER evicted ${pos.market.symbol} (${pnlPct.toInt()}%)")
             }
         }
     }
@@ -4944,256 +5182,25 @@ object CryptoAltTrader {
                 // ═══════════════════════════════════════════════════════════════
                 val tickPnl = updated.getPnlPct()
                 noteHeld8866(id, "EVALUATED", markSourceNow8866, updated.markUpdatedAtMs, tickPnl)
-                if (tickPnl <= -10.0) {
-                    // V5.0.7264 §THE_MEME_FLOOR_HAD_A_PHANTOM_GUARD;_THIS_ONE_DID_NOT.
-                    //
-                    // Operator 5.0.7263, paper: CRYPTO_ALT "solana" closed
-                    // TICK_HARD_FLOOR_-98PCT — entry 0.000398, sold for 0.007 SOL
-                    // on a 0.49 SOL position. That single row was 75% of the
-                    // session's realised loss, beside STALE_PRICE_QUARANTINED
-                    // gainMultiple=2419 and METRICS_IDENTITY_BROKEN=81k on the
-                    // same book. BotService's meme tick floor has carried the
-                    // V5.9.1564 guard since 5.0.3671 for exactly this: a single
-                    // tick can read a stale or cross-identity mark and report
-                    // -96% on a token that is fine, so anything below -50% needs
-                    // a second consecutive sub-floor read before it may fire.
-                    // The -10% kill-switch itself is unchanged: a read between
-                    // -10% and -50% still closes on the first tick. Only the
-                    // phantom range waits one tick.
-                    val phantomRange7264 = tickPnl < -50.0
-                    val priorStrike7264 = tickFloorStrike7264[id] == true
-                    tickFloorStrike7264[id] = true
-                    if (phantomRange7264 && !priorStrike7264) {
-                        try {
-                            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_ALT_TICK_FLOOR_PHANTOM_DEFERRED_7264")
-                            com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                                "CRYPTO_ALT_TICK_FLOOR_PHANTOM_DEFERRED_7264",
-                                "id=$id symbol=${updated.marketSymbol} entry=${position.entryPrice} mark=$markPrice " +
-                                    "pnl=${"%.1f".format(tickPnl)}% dynamic=${position.isDynamic} markKey=$validatedMarkKey " +
-                                    "action=second_consecutive_sub_floor_read_required",
-                            )
-                        } catch (_: Throwable) {}
-                        continue
+                // V5.0.8883 — the tick's decision is exitTick8883 (shared with CryptoTwin8883): the same checks in the same order,
+                // the same reasons, logs and labels. The -10 % floor's strike is kept here and the book acts as it acted inline.
+                val tick8883 = exitTick8883(id, updated, markPrice, validatedMarkKey, tickFloorStrike7264[id] == true, liveSink8883(id))
+                if (tick8883.strikeAfter) tickFloorStrike7264[id] = true else tickFloorStrike7264.remove(id)
+                when (tick8883.act) {
+                    ExitAct8883.CLOSE -> {
+                        closePosition(id, tick8883.reason)
+                        // V5.0.8867 — a confirmed floor's strike stands until the position is gone
+                        if (tick8883.kind == KIND_TICK_FLOOR_8883 && !positions.containsKey(id)) tickFloorStrike7264.remove(id)
                     }
-                    ErrorLogger.warn(TAG,
-                        "🛑 TICK_HARD_FLOOR ${updated.marketSymbol} " +
-                        "${"%.1f".format(tickPnl)}% ≤ -10.0% — immediate exit " +
-                        "(peak=${"%.1f".format(updated.highestPnlPct)}% twoStrike=$priorStrike7264)")
-                    // V5.0.8867 — the second read confirmed it: the strike stands until the position is gone. Removing it before
-                    // the sale made every close that did not complete start over at "first read" (5.0.8866 phone:
-                    // CRYPTO_ALT_TICK_FLOOR_PHANTOM_DEFERRED_7264=66 in 11 minutes): a confirmed floor waited a tick per attempt.
-                    closePosition(id, "TICK_HARD_FLOOR_${tickPnl.toInt()}PCT")
-                    if (!positions.containsKey(id)) tickFloorStrike7264.remove(id)
-                    continue
-                } else {
-                    tickFloorStrike7264.remove(id)
-                }
-                // ─── Peak give-back trailing (lock big runners) ───
-                val tickPeak = if (updated.highestPnlPct > tickPnl) updated.highestPnlPct else tickPnl
-                var deskExited7391 = false
-                val tickGiveBackRatio = when {
-                    tickPeak >= 500.0 -> 0.30   // 5x+ : lock 70% of peak
-                    tickPeak >= 200.0 -> 0.40   // 2x+ : lock 60% of peak
-                    tickPeak >= 100.0 -> 0.50   // 1x+ : lock 50% of peak
-                    tickPeak >=  30.0 -> 0.60   // +30%+ runners: lock 40%
-                    else -> Double.NaN
-                }
-                if (!tickGiveBackRatio.isNaN()) {
-                    val tickLockedFloor = tickPeak - (tickPeak * tickGiveBackRatio)
-                    if (tickPnl < tickLockedFloor && tickPnl > 0.0) {
-                        ErrorLogger.warn(TAG,
-                            "🔒 TICK_PROFIT_LOCK ${updated.marketSymbol} " +
-                            "peak=${"%.1f".format(tickPeak)}% now=${"%.1f".format(tickPnl)}% " +
-                            "floor=${"%.1f".format(tickLockedFloor)}% — locking profit")
-                        closePosition(id, "TICK_PROFIT_LOCK_peak${tickPeak.toInt()}_now${tickPnl.toInt()}")
-                        continue
-                    }
-                }
-
-                // V5.0.7391 — the meme exit tools on crypto positions, keyed by the
-                // desk lane the position was opened under: the sliding give-back
-                // lock and the fluid profit floor (both arm from the start), the
-                // MFE profit floor, and the runner lanes' early cut. Crypto's own
-                // give-back table, hard SL/TP and fluid stop all still apply.
-                run {
-                    val deskLane7391 = specialistLaneFromReasons7803(updated.reasons)
-                    if (deskLane7391.isBlank() || !tickPnl.isFinite()) return@run
-                    val ageMs7391 = (System.currentTimeMillis() - updated.openTime).coerceAtLeast(0L)
-                    val fluidFloor7391 = try {
-                        com.lifecyclebot.v3.scoring.FluidLearningAI.fluidProfitFloor(
-                            tickPeak, holdSeconds = ageMs7391 / 1000.0, lane = deskLane7391,
-                        )
-                    } catch (_: Throwable) { Double.NEGATIVE_INFINITY }
-                    val why7391 = when {
-                        com.lifecyclebot.engine.PeakDrawdownLock.shouldLock(tickPeak, tickPnl, deskLane7391) -> "PEAK_DRAWDOWN_LOCK"
-                        com.lifecyclebot.engine.PeakDrawdownLock.shouldFloorLock(tickPeak, tickPnl) -> "MFE_PROFIT_FLOOR"
-                        tickPnl < fluidFloor7391 -> "FLUID_PROFIT_FLOOR"
-                        com.lifecyclebot.engine.RunnerExitProfile7277.earlyCut(deskLane7391, tickPnl, ageMs7391) -> "RUNNER_EARLY_CUT"
-                        else -> ""
-                    }
-                    if (why7391.isNotEmpty()) {
-                        try { PipelineHealthCollector.labelInc("CRYPTO_DESK_EXIT_7391_$why7391") } catch (_: Throwable) {}
-                        ErrorLogger.warn(TAG,
-                            "🔒 DESK_EXIT_7391 ${updated.marketSymbol} lane=$deskLane7391 $why7391 " +
-                            "peak=${"%.1f".format(tickPeak)}% now=${"%.1f".format(tickPnl)}%")
-                        closePosition(id, "DESK_${why7391}_${deskLane7391}_peak${tickPeak.toInt()}_now${tickPnl.toInt()}_7391")
-                        deskExited7391 = true
-                    }
-                }
-                if (deskExited7391) continue
-
-                // V5.9.272: HARD SL — fire before anything else if price crossed stop
-                val slPriceOk = updated.stopLossPrice > 0 && updated.entryPrice > 0
-                val tpPriceOk = updated.takeProfitPrice > 0 && updated.entryPrice > 0
-                if (slPriceOk) {
-                    val hitSl = when (updated.direction) {
-                        com.lifecyclebot.perps.PerpsDirection.LONG  -> markPrice <= updated.stopLossPrice
-                        com.lifecyclebot.perps.PerpsDirection.SHORT -> markPrice >= updated.stopLossPrice
-                    }
-                    if (hitSl) {
-                        closePosition(id, "HARD_SL: price=${markPrice.fmt(6)} crossed SL=${updated.stopLossPrice.fmt(6)} (${updated.getPnlPct().let { if (it>=0) "+${"%.2f".format(it)}" else "${"%.2f".format(it)}" }}%)")
-                        continue
-                    }
-                }
-                // V5.9.272: HARD TP — take profit immediately when price crosses target
-                // V5.9.903: RUNNER BYPASS — skip HARD_TP when the position has
-                // already been a proven runner past the TP price (peak gain
-                // >= 1.5x current PnL@TP). At that point FLUID_LOCK +
-                // PEAK_DRAWDOWN + trailing stop already manage exits cleanly,
-                // and forcing the full close at the original TP price during a
-                // pullback kneecaps every alts runner. Same doctrine as
-                // V5.9.899-902: runners must be allowed to run.
-                if (tpPriceOk) {
-                    val hitTp = when (updated.direction) {
-                        com.lifecyclebot.perps.PerpsDirection.LONG  -> markPrice >= updated.takeProfitPrice
-                        com.lifecyclebot.perps.PerpsDirection.SHORT -> markPrice <= updated.takeProfitPrice
-                    }
-                    // Compute implied TP% from entry vs tpPrice — used to detect
-                    // whether peakPnlPct has already exceeded TP territory by 1.5x.
-                    val _tpImpliedPct = if (updated.entryPrice > 0.0) {
-                        val raw = (kotlin.math.abs(updated.takeProfitPrice - updated.entryPrice) / updated.entryPrice) * 100.0 * updated.leverage
-                        raw.coerceAtLeast(0.01)
-                    } else 999.0
-                    // V5.0.7329 — the peak read here lagged the mark, so a tick that
-                    // gapped straight through TP (+67.7% against a ~+4% target on
-                    // 5.0.7324) closed the whole runner at the gap. The current PnL
-                    // counts as peak evidence too; the trail and peak-drawdown
-                    // exits own the position from there.
-                    val _runnerProven = maxOf(updated.highestPnlPct, updated.getPnlPct()) >= _tpImpliedPct * 1.5
-                    if (hitTp && !_runnerProven) {
-                        closePosition(id, "HARD_TP: price=${markPrice.fmt(6)} crossed TP=${updated.takeProfitPrice.fmt(6)} (+${"%.2f".format(updated.getPnlPct())}%)")
-                        continue
-                    }
-                }
-
-                // V5.9.9: Track peak PnL for trailing stop
-                val currentPnl = updated.getPnlPct()
-                if (currentPnl > updated.highestPnlPct) {
-                    updated.highestPnlPct = currentPnl
-                }
-                positions[id] = updated
-                if (updated.isSpot) {
-                    spotPositions[id] = updated
-                    leveragePositions.remove(id)
-                } else {
-                    leveragePositions[id] = updated
-                    spotPositions.remove(id)
-                }
-
-                val tpPct = com.lifecyclebot.perps.crypto.brain.CryptoBrain.getTpPct(updated.isSpot, updated.isPaper)
-
-                // V5.9.9: FULLY AGENTIC EXIT — SymbolicExitReasoner evaluates every cycle
-                val holdSec = (System.currentTimeMillis() - updated.openTime) / 1000
-                val peakPnl = if (updated.highestPnlPct > updated.getPnlPct()) updated.highestPnlPct else updated.getPnlPct()
-
-                // V5.0.6663 — Crypto previously registered no position with
-                // HoldTimeOptimizerAI and therefore ignored its learned exit
-                // horizon.  The fixed 45/60-minute cleanup only touched flat
-                // or losing positions, allowing small winners to occupy a slot
-                // indefinitely.  Every new position now carries its immutable
-                // entry-time recommendation; legacy restores retain a one-hour
-                // safety cap.
-                val adaptiveMaxHold6663 = updated.adaptiveMaxHoldSeconds.takeIf { it > 0 } ?: 3_600
-                // V5.0.7332 — the hold horizon frees capital from positions that
-                // are going nowhere. A position past its TP and still holding at
-                // least half its peak is running; the timer closing it caps the
-                // win, so it is left to the trail / peak-drawdown exits.
-                val pnlNow7332 = updated.getPnlPct()
-                val runningWinner7332 = tpPct > 0.0 && pnlNow7332 >= tpPct && pnlNow7332 >= peakPnl * 0.5
-                if (holdSec >= adaptiveMaxHold6663 && runningWinner7332) {
-                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_HOLD_MAX_DEFERRED_RUNNING_WINNER_7332") } catch (_: Throwable) {}
-                }
-                if (holdSec >= adaptiveMaxHold6663 && !runningWinner7332) {
-                    closePosition(id, "ADAPTIVE_HOLD_MAX_6663:${adaptiveMaxHold6663}s pnl=${"%.2f".format(updated.getPnlPct())}%")
-                    continue
-                }
-
-                // Calculate price velocity (% change per minute over hold period)
-                val priceVelocity = if (holdSec > 30) updated.getPnlPct() / (holdSec / 60.0) else 0.0
-
-                val assessment = com.lifecyclebot.engine.SymbolicExitReasoner.assess(
-                    currentPnlPct   = updated.getPnlPct(),
-                    peakPnlPct      = peakPnl,
-                    entryConfidence = updated.aiConfidence.toDouble(),
-                    tradingMode     = strategyFromReasons7803(updated.reasons),
-                    holdTimeSec     = holdSec,
-                    priceVelocity   = priceVelocity,
-                    volumeRatio     = 1.0
-                )
-
-                when (assessment.suggestedAction) {
-                    com.lifecyclebot.engine.SymbolicExitReasoner.Action.EXIT ->
-                        closePosition(id, "AI_EXIT: ${assessment.primarySignal} (conv=${"%.2f".format(assessment.conviction)})")
-                    com.lifecyclebot.engine.SymbolicExitReasoner.Action.PARTIAL ->
-                        partialPosition6566(id, "AI_PARTIAL: ${assessment.primarySignal} (conv=${"%.2f".format(assessment.conviction)})")
-                    else -> {
-                        // V5.9.118: FLUID PROFIT-FLOOR LOCK — same lock semantics
-                        // as the main meme trader so alts runners don't give back
-                        // huge gains. getDynamicFluidStop returns a POSITIVE
-                        // trailing stop level while in profit; exit fires when
-                        // currentPnl <= that level. Paired with a peak-drawdown
-                        // hard floor (>=35% give-back on peak>=100%).
-                        val dynamicLock = try {
-                            com.lifecyclebot.v3.scoring.FluidLearningAI.getDynamicFluidStop(
-                                modeDefaultStop = 20.0,
-                                currentPnlPct = currentPnl,
-                                peakPnlPct = peakPnl,
-                                holdTimeSeconds = holdSec.toDouble(),
-                                volatility = 50.0,
-                            )
-                        } catch (_: Exception) { Double.NEGATIVE_INFINITY }
-
-                        val lockFired = dynamicLock > 0.0 && currentPnl <= dynamicLock
-                        // V5.9.358 — Alts-only tighter peak-drawdown floor.
-                        // Was: only fired at peak >= 100% with 35pt give-back,
-                        // letting +27% peaks round-trip to -2% before any
-                        // protection. Now: any peak >= 20% is exit-locked
-                        // when current gain falls below half the peak
-                        // (i.e. given back 50% of the peak). Catches the
-                        // +27 → -2 round-trip class directly without
-                        // touching Meme or any other trader.
-                        val peakDrawdownFired =
-                            (peakPnl >= 100.0 && (peakPnl - currentPnl) >= 35.0) ||
-                            (peakPnl >= 20.0 && currentPnl <= peakPnl * 0.5)
-
-                        when {
-                            lockFired ->
-                                closePosition(id, "FLUID_LOCK: peak=+${peakPnl.toInt()}% now=+${currentPnl.toInt()}% lock=+${dynamicLock.toInt()}%")
-                            peakDrawdownFired ->
-                                closePosition(id, "PEAK_DRAWDOWN: peak=+${peakPnl.toInt()}% now=+${currentPnl.toInt()}% (gave back ${(peakPnl - currentPnl).toInt()}%)")
-                            // V5.9.903: TP_SAFETY runner bypass — skip when peak gain
-                            // has already proven the runner is past the safety cap.
-                            // Pre-fix: a position that peaked at +100% but pulled
-                            // back to +52% (mature TP*2.5=50% cap) got force-closed.
-                            // FLUID_LOCK + PEAK_DRAWDOWN are runner-aware and will
-                            // catch the giveback at the right moment.
-                            (updated.shouldTakeProfit(tpPct * 2.5) && updated.highestPnlPct < tpPct * 3.0) ->  // V5.9.230: 1.5→2.5x TP ceiling (bootstrap 8%×2.5=20%) | V5.9.903 runner bypass
-                                closePosition(id, "TP_SAFETY: +${"%.2f".format(updated.getPnlPct())}% exceeded ${tpPct * 2.5}% peak=+${peakPnl.toInt()}%")
-                        }
-                    }
+                    ExitAct8883.PARTIAL -> partialPosition6566(id, tick8883.reason)
+                    else -> Unit
                 }
             } catch (e: CancellationException) { throw e }
               catch (_: Exception) {}
+        }
+        // V5.0.8883 — the crypto twin, beside LIVE only, on the same exit functions; its own coroutine, never the live monitor's time
+        if (liveRuntime8883() && CryptoTwin8883.hasOpen8883()) scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try { CryptoTwin8883.tick8883() } catch (e: CancellationException) { throw e } catch (_: Throwable) {}
         }
     }
 

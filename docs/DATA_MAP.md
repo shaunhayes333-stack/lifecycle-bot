@@ -1567,3 +1567,47 @@ launches). Plan W9 (speed) starts by measuring where those seconds go.
 (`LaunchHour8628.observeDecision`), the delay is split into birth -> watchlist (`TokenState.addedToWatchlistAt`, "heard")
 and watchlist -> decision ("decide"), per discovery source (the first entry of `TokenState.source`), last 600 per source.
 The brief prints `decisionLatency8882[SOURCE{n heard50/90 decide50/90 within10s}]`. Measurement only.
+
+## 72. The crypto twin (8883)
+
+**Owner, 20 Nov.** "paper is meant to turn off when live is running close out all trades and the shadow trader runs while
+live does!" and "the shadow trading engine is meant to basically be exactly the same as the live trader in all forms and
+functions for the meme and crypto traders". Plan W1, crypto.
+
+**Before.** Since 8872 paper is off in LIVE, so the crypto lanes' own paper record (the record the owner chose to let them
+trade live on: `CryptoSpotPaperBacking8788`, 8806) stopped growing. It could no longer stop backing a lane that stops
+paying, nor start backing one that starts. The crypto exits lived inline in `CryptoAltTrader.monitorPositions` and its
+eviction pass, so no shadow could run them. The meme paper mirror (8757) likewise read a meme paper book that stands down
+in LIVE.
+
+**Changed.**
+- One crypto exit. The eviction pass's decision is `CryptoAltTrader.evict8883` and the tick's is
+  `CryptoAltTrader.exitTick8883`: the same checks in the same order (tick floor with its two reads under -50 %, the peak
+  give-back lock, the desk lane's exits, the hard SL and TP, the peak, the adaptive hold, the symbolic exit reasoner, the
+  fluid lock, the peak drawdown, the TP safety; the partial-take rung, the fluid trail, deadweight, stagnant, fast loser),
+  the same reason strings, logs and labels (through `ExitSink8883`). The live monitor calls them and acts as it acted
+  inline. The position a candidate gets is built once (`entryPosition8883`).
+- `perps.CryptoTwin8883`. Beside LIVE only, every crypto candidate the live decision opened, and every one a learned door
+  refused (not an integrity refusal, `CryptoSignalEngine8857.integrityReason8857`: those bind both engines), is held as a
+  virtual position with the live book's entry, size, TP, SL, leverage, reasons and learned hold. Each monitor pass, on its
+  own coroutine, it runs `evict8883` on the previous mark and `exitTick8883` on a fresh one, read as the monitor reads one
+  (`twinMark8883`: the registry row by exact identity, refreshed past a minute; a static market from its feed with the
+  spike guard). Partials are deferred, as LIVE defers them. A close is booked at the mark that fired it, gross, as the
+  paper book booked its closes. A twin with no fresh mark for 10 minutes is dropped, never booked. At most 60 open, one per
+  asset; the closes (400 per lane) persist, open twins do not.
+- The twin's record per lane is graded by the leaderboard's own computation, lifted out unchanged as
+  `StrategyTelemetry.metricOf8883`. `CryptoSpotPaperBacking8788` reads it in LIVE with paper off once it holds 20 decisive
+  closes (`record8883`); until then the paper record as it stood when paper stopped. The status line marks a twin record.
+- `PaperMirror8757.bookLosing8883`: in LIVE with paper off, the MOONSHOT book's losing test reads the lane's twin (the
+  evidence shadow, on the live doctrine since 8878) once it holds 30 closes; until then, and in PAPER, the paper book's own.
+
+**Not changed.** Every live exit, its order, reasons and side effects; live entries, sizing, the hourly cap and the
+-0.1 SOL stop of the backing; paper mode.
+
+**Read on the next report.** `cryptoTwin8883[open opened records{CRYPTO_ALT{...} CRYPTO_SPOT{...}} exits{...}]`, and
+`cryptoSpotPaperBacking8788 records{... twin n...}` once a lane's twin is decisive.
+
+**Test pins superseded.** `GoldenTapeRegressionTest` (7264 floor close, 7332 hold max) and `Aate8867HeapOwnersTest` read
+the floor close and the hold check where they now live (`exitTick8883`); `Aate8865ForecastLossLadderTest` reads the
+mirror's check through `bookLosing8883`.
+

@@ -232,7 +232,17 @@ object StrategyTelemetry {
                 if (norm.isBlank()) "STANDARD" else norm
             }
 
+        // V5.0.8883 — one implementation for every record graded this way (this leaderboard, the crypto twin CryptoTwin8883)
         return sellsByStrategy.map { (strategy, trades) ->
+            metricOf8883(strategy, trades.map { Row8883(it.pnlPct, it.pnlSol, it.sol, it.entryCostSol) })
+        }
+    }
+
+    /** V5.0.8883 — the fields of one closed row the strategy metric reads. */
+    internal data class Row8883(val pnlPct: Double, val pnlSol: Double, val sizeSol: Double, val entryCostSol: Double)
+
+    /** V5.0.8883 — the strategy metric of [trades]: the leaderboard's own computation, unchanged, lifted out so a twin record is graded by it. */
+    internal fun metricOf8883(strategy: String, trades: List<Row8883>): StrategyMetric {
             // V5.0.7764 — one outcome class for the whole bot (±0.5%).
             val wins = trades.count { com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.classifyReadonly(it.pnlPct) == com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.Class.WIN }
             val losses = trades.count { com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.classifyReadonly(it.pnlPct) == com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.Class.LOSS }
@@ -271,13 +281,13 @@ object StrategyTelemetry {
             // whose |pnlSol| exceeds 50x its position size — or whose size is
             // missing while pnlSol is huge — is excluded from the SOL total used for
             // learning. Counters surface how often this fires.
-            fun saneSol(t: com.lifecyclebot.data.Trade): Double? {
+            fun saneSol(t: Row8883): Double? {
                 val p = t.pnlSol
                 if (p.isNaN() || p.isInfinite()) {
                     try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PNL_UNIT_MISMATCH_REJECTED") } catch (_: Throwable) {}
                     return null
                 }
-                val size = t.sol.takeIf { it > 0.0 } ?: 0.0
+                val size = t.sizeSol.takeIf { it > 0.0 } ?: 0.0
                 // V5.9.1454 — DUAL-CEILING. The relative size*50 cap is defeated when
                 // the SIZE field itself is poisoned (e.g. foreign-domain rows like
                 // tokenized Stocks book a USD notional into t.sol, so cap=notional*50
@@ -310,7 +320,7 @@ object StrategyTelemetry {
             val lossPcts = trades.asSequence().map { sanePct(it.pnlPct) }.filter { it <= -2.0 }.toList()
             val avgWinPct = if (winPcts.isNotEmpty()) winPcts.sum() / winPcts.size else 0.0
             val avgLossPct = if (lossPcts.isNotEmpty()) lossPcts.sum() / lossPcts.size else 0.0
-            StrategyMetric(
+            return StrategyMetric(
                 strategy   = strategy,
                 trades     = trades.size,
                 wins       = wins,
@@ -323,7 +333,6 @@ object StrategyTelemetry {
                 avgWinPct = avgWinPct,
                 avgLossPct = avgLossPct,
             )
-        }
     }
 
 

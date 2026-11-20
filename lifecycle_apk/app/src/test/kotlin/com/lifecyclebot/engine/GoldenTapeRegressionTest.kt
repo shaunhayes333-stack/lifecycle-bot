@@ -9685,7 +9685,10 @@ class GoldenTapeRegressionTest {
         assertTrue(alt.contains("if (phantomRange7264 && !priorStrike7264) {"))
         assertTrue(alt.contains("CRYPTO_ALT_TICK_FLOOR_PHANTOM_DEFERRED_7264"))
         // The -10% kill-switch itself still fires on the first read.
-        assertTrue(alt.contains("closePosition(id, \"TICK_HARD_FLOOR_\${tickPnl.toInt()}PCT\")"))
+        // superseded by V5.0.8883 — the tick's decision is CryptoAltTrader.exitTick8883 (shared with the crypto twin); the floor
+        // still closes on the first read, and the live book closes on the reason it returns.
+        assertTrue(alt.contains("return ExitTick8883(ExitAct8883.CLOSE, \"TICK_HARD_FLOOR_\${tickPnl.toInt()}PCT\", KIND_TICK_FLOOR_8883, true)"))
+        assertTrue(alt.contains("closePosition(id, tick8883.reason)"))
 
         assertTrue(bot.contains("ExitSweepTiming7264.onSweep(total, positionsSeen, positionsEvaluated, positionsDeferred)"))
         assertTrue(bot.contains("ExitSweepTiming7264.onSlowPosition(posElapsed)"))
@@ -11665,7 +11668,8 @@ class GoldenTapeRegressionTest {
     fun V5_0_7332_the_hold_timer_does_not_close_a_running_winner() {
         val ca = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
         assertTrue(ca.contains("val runningWinner7332 = tpPct > 0.0 && pnlNow7332 >= tpPct && pnlNow7332 >= peakPnl * 0.5"))
-        assertTrue(ca.contains("if (holdSec >= adaptiveMaxHold6663 && !runningWinner7332) {"))
+        // superseded by V5.0.8883 — the check lives in CryptoAltTrader.exitTick8883, which returns the close
+        assertTrue(ca.contains("if (holdSec >= adaptiveMaxHold6663 && !runningWinner7332) return ExitTick8883(ExitAct8883.CLOSE,"))
     }
 
     @Test
