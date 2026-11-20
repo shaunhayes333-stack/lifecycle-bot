@@ -1941,3 +1941,23 @@ CURRENT pricing is poor. Read correctly, a band or cell that is itself covered (
 unchanged) and proven losing (20+ labels, mean + SE < 0) refuses again inside watch-first. The 20:53 report shows no
 watch-first event at all (the FDG refused first), so no buy that report saw would have changed. Nothing else reads the cross-lane
 lost counts: ScannerIntake8292 / LiveEdgeGate7877.sourceRefusal8536 read source n, mean, SE and the outlier flag only.
+
+## 88. What held the heap (8899)
+
+The 21 Nov 00:05 report (5.0.8898, 73 min) was "dead" for memory, not for the gates: the heap sat at 459 of 512 MB, ART's
+blocking collections ran 1,042 times for 3,620 s of 71 minutes (8894 at 41 min: 394 times), the bot loop fell from 31 to 17
+ticks a minute, 901 coin cycles ran out their 20-second budget, and the labeler priced 28 % of due marks (8894: 83 %), so the
+FDG deferred on stale prices. The owner's heap map at 01:08 (uptime 137 min, 454 MB used) names what holds it. Two holders
+keep data nobody reads:
+
+- `KeylessRpc8359.largestCache8359` — 15.3 MB of parsed getTokenLargestAccounts JSON. Answers live 60 s, but an expired entry
+  left the map only when the same mint was read again or the map reached its 4,000 cap, so it sat at the cap. `put8359` now
+  sweeps expired entries at most once per TTL (`sweepDue8899`). A served answer is unchanged: an expired one never was served.
+- `CanonicalFinalityPersistence6486.excluded8094` — 16.1 MB, one String object per excluded close for its reason. Reasons are
+  now interned at load and at record: equal text, so every reader (hasExclusion8858, excludedIds6734, the blob) is unchanged.
+
+Forensic impact: no gate, size, exit, ack or exclusion decision changes. Expected saving about 15 MB from the first (the cache
+holds about one TTL of answers) and a few MB from the second, of a 512 MB heap. The larger holders in the same map are the Cortex
+ledgers (CortexLedger7885$Stat 41.7 MB, 455,938 objects, 299,182 at 8889's start; CortexTiming7900 the largest) and the
+garbage of each Cortex snapshot encode (33.8 MB). They hold learning, so they are next, from the CPU sample that names the
+allocation, not from a guess.

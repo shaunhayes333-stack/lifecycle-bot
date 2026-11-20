@@ -172,13 +172,24 @@ object KeylessRpc8359 {
             if (nowMs - e.second !in 0L until ttlMs) { map.remove(mint); return null }
             return e
         }
+        /**
+         * V5.0.8899 §AN_EXPIRED_ANSWER_IS_NOT_KEPT — an expired entry was removed only when the same mint was read again or
+         * the map reached [cap]. getTokenLargestAccounts answers live 60 s, so the map sat at its 4,000 cap of parsed JSON:
+         * the 21 Nov 01:08 heap map (5.0.8898, uptime 137 min, heap 454 of 512 MB) traced 15.3 MB to largestCache8359. Expired
+         * entries are now swept at most once per [ttlMs] on a put; a served answer is unchanged (an expired one never was).
+         */
+        @Volatile private var sweptAt8899 = 0L
         fun put8359(mint: String, result: JSONObject, nowMs: Long) {
+            if (KeylessRpc8359.sweepDue8899(sweptAt8899, nowMs, ttlMs)) { sweptAt8899 = nowMs; map.entries.removeIf { nowMs - it.value.second !in 0L until ttlMs } }
             if (map.size >= cap) map.entries.removeIf { nowMs - it.value.second >= ttlMs }
             if (map.size >= cap) map.clear()
             map[mint] = result to nowMs
         }
         fun size8359(): Int = map.size
     }
+
+    /** Pure (V5.0.8899): is a sweep of expired cache entries due ([ttlMs] since the last, or the clock moved back)? */
+    internal fun sweepDue8899(sweptAtMs: Long, nowMs: Long, ttlMs: Long): Boolean = nowMs - sweptAtMs !in 0L until ttlMs
 
     private val governors = ConcurrentHashMap<String, Governor8359>()
     fun governor8359(host: String): Governor8359 = governors.computeIfAbsent(host) { Governor8359(limitFor8359(it)) }
