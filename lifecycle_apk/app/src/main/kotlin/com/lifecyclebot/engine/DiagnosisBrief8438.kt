@@ -239,6 +239,7 @@ object DiagnosisBrief8438 {
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.LaneExitGrade8888.statusLine8888() } catch (_: Throwable) { "laneExits8888[read failed]" }).append('\n')  // V5.0.8888
             sb.append("               ").append(try { CpuSample8892.statusLine8892() } catch (_: Throwable) { "cpuSample8892[read failed]" }).append('\n')  // V5.0.8892
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.CurveCustody8881.statusLine8881() } catch (_: Throwable) { "curveCustody8881[read failed]" }).append('\n')  // V5.0.8881
+            sb.append("               ").append(try { com.lifecyclebot.engine.cortex.LanePlaybook7907.checkpointLine8901() } catch (_: Throwable) { "playbookCheckpoint8901[read failed]" }).append('\n')  // V5.0.8901
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.PoolLock8895.statusLine8895() } catch (_: Throwable) { "poolLock8895[read failed]" })
                 .append(' ').append(try { com.lifecyclebot.engine.truth.LaneAuthority8577.residualLine8895() } catch (_: Throwable) { "residual8895{read failed}" }).append('\n')  // V5.0.8895
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.DecisionLatency8882.statusLine8882() } catch (_: Throwable) { "decisionLatency8882[read failed]" }).append('\n')  // V5.0.8882

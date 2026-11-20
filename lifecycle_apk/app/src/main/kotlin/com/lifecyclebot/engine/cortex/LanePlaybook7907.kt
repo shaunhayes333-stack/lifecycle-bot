@@ -2721,6 +2721,7 @@ object LanePlaybook7907 {
     /** V5.0.7930 — BotService.onDestroy: save now (graded state between periodic saves was lost on restart). */
     fun persistNow7930() {
         if (!loaded) return
+        checkpointUrgent8901 = true   // V5.0.8901 — a shutdown flush does not wait out the pace
         persist()
         lastPendingPersistMs = 0L
         persistPendingMaybe(System.currentTimeMillis())
@@ -2738,9 +2739,13 @@ object LanePlaybook7907 {
             checkpointWorker8372.execute {
                 try {
                     while (checkpointRequested8372.getAndSet(false)) {
+                        // V5.0.8901 — paced: requests that arrive inside the pace coalesce into the next save.
+                        awaitCheckpointPace8901()
                         // Never Main: the verified atomic save cannot defer this ordered snapshot.
                         try { saveCheckpoint8871() }
                         catch (_: Exception) { PipelineHealthCollector.labelInc("SETUP_CHECKPOINT_FAILED_8372") }
+                        lastCheckpointAtMs8901 = System.currentTimeMillis()
+                        checkpointSaves8901.incrementAndGet()
                     }
                 } finally {
                     checkpointRunning8372.set(false)
@@ -2754,6 +2759,39 @@ object LanePlaybook7907 {
         }
     }
 
+    // ── V5.0.8901 §ONE_SAVE_PER_PACE ──
+    // deliverIndependent8871 requested a checkpoint for every forward outcome, and the worker saved back to back: each save
+    // re-encodes every lane book, the 600 newest grades, the timing books and the episode sidecar (under this object's lock)
+    // to apply at most [FORWARD_BATCH_8871] deliveries. 21 Nov 02:09 CPU sample (5.0.8899, fresh start, heap 54 %):
+    // AatePlaybookCheckpoint8372 used 4.9 s of CPU in 30 s, LanePlaybookCheckpoint8372.save 4.0 s of it, while the
+    // collector (HeapTaskDaemon) used 14.8 s. A save now starts at most once per [CHECKPOINT_PACE_MS_8901]; what arrives in
+    // between waits in independentWaiting8871 (the producer already retains every unacknowledged delivery and re-delivers),
+    // and a shutdown flush (persistNow7930) skips the wait. What a save writes, and its atomicity, are unchanged.
+    internal const val CHECKPOINT_PACE_MS_8901 = 10_000L
+    /** One pace's worth of the producer's pass ([FORWARD_BATCH_8871] per second): a paced save drains what a pace brings. */
+    internal const val SAVE_BATCH_8901 = FORWARD_BATCH_8871 * 10   // 10 = CHECKPOINT_PACE_MS_8901 in seconds
+    private const val PACE_SLICE_MS_8901 = 250L
+    @Volatile private var lastCheckpointAtMs8901 = 0L
+    @Volatile private var checkpointUrgent8901 = false
+    private val checkpointSaves8901 = java.util.concurrent.atomic.AtomicLong(0L)
+
+    /** Pure (V5.0.8901): how long the next save waits: 0 for the first, an urgent one, or after the clock moved back. */
+    internal fun checkpointWaitMs8901(lastAtMs: Long, nowMs: Long, urgent: Boolean): Long =
+        if (urgent || lastAtMs <= 0L || nowMs < lastAtMs) 0L else (lastAtMs + CHECKPOINT_PACE_MS_8901 - nowMs).coerceAtLeast(0L)
+
+    private fun awaitCheckpointPace8901() {
+        while (true) {
+            val wait = checkpointWaitMs8901(lastCheckpointAtMs8901, System.currentTimeMillis(), checkpointUrgent8901)
+            if (wait <= 0L) break
+            try { Thread.sleep(minOf(wait, PACE_SLICE_MS_8901)) } catch (_: InterruptedException) { Thread.currentThread().interrupt(); break }
+        }
+        checkpointUrgent8901 = false
+    }
+
+    /** V5.0.8901 — the brief: saves since start and the backlog waiting for the next one. */
+    fun checkpointLine8901(): String =
+        "playbookCheckpoint8901[saves=${checkpointSaves8901.get()} waiting=${independentWaiting8871.size} paceS=${CHECKPOINT_PACE_MS_8901 / 1000}]"
+
     /** One ordered batch: selected setup contributions and their receipts survive or roll back together. */
     private fun saveCheckpoint8871() {
         var committed = false
@@ -2761,7 +2799,7 @@ object LanePlaybook7907 {
         checkpoints8372.save({
             // Do not reserve an unbounded second job queue; the producer already retains every unacknowledged value.
             val batch = if (independentReady8871.isEmpty())
-                independentWaiting8871.entries.sortedBy { it.value.atMs }.take(FORWARD_BATCH_8871) else emptyList()
+                independentWaiting8871.entries.sortedBy { it.value.atMs }.take(SAVE_BATCH_8901) else emptyList()
             for ((receipt, d) in batch) {
                 if (independentReady8871.containsKey(receipt)) continue
                 val saved = LearningPersistence.load(receipt)

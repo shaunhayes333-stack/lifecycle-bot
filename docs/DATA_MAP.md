@@ -1968,3 +1968,37 @@ allocation, not from a guess.
 'system-images;android-30;google_apis;x86_64'` failed ("Error reading Zip content from a SeekableByteChannel"), no emulator
 booted (adb: connection refused), and every later check reported NOT_RUN. The run cannot be re-run from here, so 8900 rebuilds
 8899 unchanged.
+
+## 90. Audit of 20-21 Nov, and the playbook save paced (8901)
+
+Owner, 21 Nov 02:59: "still blocked ... bought tokens that then it couldn't sell due to no liquidity ... has the new changes
+sent things backwards? picking the wrong tokens again?" Read from the four reports (20:53 on 8894, 00:05 / 01:08 on 8898, 02:09
+on 8899), the research files, the 01:08 heap map and the 02:09 CPU sample.
+
+**The unsellable token.** 蚂蚁 (PDXr5bCZnQ...) was held 160 minutes at 00:04 (STALE_FLAT_CULL_7353), so it was bought about
+21:24 on 20 Nov, on 5.0.8894, before 8895-8900 were installed. Its decision rows (edge research) read mcap $54k and pool
+liquidity $87k (POOL_RESERVES_VAULT_8571). By 00:05 its pool mark was 8.6e-07 with no sell quote: the liquidity was pulled after
+the buy. About 0.043 SOL lost.
+
+**What 8895-8900 bought or refused.** Live buys since 8895: 7uGMix (MOONSHOT 23:41, sold 23:47 at -1 %) and CYBERLEEK
+(CASHGEN 00:05, $2.5M cap). One buy refused at the route: TTWO, price impact 59.2 % > 3 % (the safety held). None of the new
+decision paths changed a buy or a refusal in these reports: poolLock8895 read 27 pools, 14 Meteora DAMM v2 UNLOCKED and 0
+locked, so it proved nothing; residual8895 never answered; no COINS_AGREE evidence was used; no watch-first event fired after
+8898's coverage read.
+
+**Why it went quiet.** FDG evaluations per minute: 8894 at 41 min 76 (13 allowed); 8898 at 73 min 12.5 (3 allowed), at 136
+min 8.4 (4 allowed); 8899 at 6 min 55. The share allowed per evaluation is unchanged (0.3-0.4 %); the number of evaluations
+fell six to nine times as the heap filled (§88). The deferral causes are the same as on 8894 (MOVE_UNREAD, ENTRY_WAIT_*,
+PRICE_STALE, FALLING_HOUR).
+
+**The CPU sample (02:09, 30 s, fresh start, heap 54 %).** 69 s of thread CPU: HeapTaskDaemon 14.8 s; the report save 14.4 s
+(LaunchHour8628.export, the owner's Save only); AATE-Entry 7.6 s (processTokenCycle: SpecialistBuild8522 / ToolkitSignalSheet
+election 3.6 s); AatePlaybookCheckpoint8372 4.9 s. The last runs all the time: deliverIndependent8871 requested a save for every
+forward outcome and the worker saved back to back, each save re-encoding every lane book, 600 grades, the timing books and the
+episode sidecar to apply at most 32 deliveries.
+
+**8901.** The playbook checkpoint starts a save at most once per 10 s (`CHECKPOINT_PACE_MS_8901`); requests inside the pace
+coalesce; each save applies up to 320 waiting deliveries (`SAVE_BATCH_8901`, the producer's 32 per pass for each second of the
+pace); a shutdown flush (persistNow7930) skips the wait. The brief prints `playbookCheckpoint8901[saves waiting paceS]`.
+Forensic impact: what a save writes, its atomicity and receipt order are unchanged; a delivery becomes durable up to 10 s
+later, and the producer re-delivers anything unacknowledged, as it already did for a save that failed.
