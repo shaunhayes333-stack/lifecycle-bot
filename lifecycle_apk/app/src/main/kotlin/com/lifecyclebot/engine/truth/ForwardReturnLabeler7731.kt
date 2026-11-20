@@ -701,6 +701,50 @@ object ForwardReturnLabeler7731 {
         return crossLaneSeen8776.putIfAbsent("$horizon|$key|$mint|$atMs", true) == null
     }
 
+    // ── V5.0.8898 §COVERAGE_IS_READ_NOW ──
+    // A cell's lost count fades only as new labels book, so a cohort that books slowly carries every earlier session's (and,
+    // before 8898, every extra lane's) losses for days. The brief and the book-wide coverage check (LiveEdgeGate7877
+    // .bookCovered8505, which 8505 meant as "the labeler's CURRENT pricing") read the recent share instead: each coin decision
+    // counted once as priced and once as lost at most, faded over the last [COVERAGE_WINDOW_8898] events per side. Under
+    // [COVERAGE_MIN_EVENTS_8898] events since start the lifetime tally is read, exactly as before.
+    private val lostSeen8898 = ConcurrentHashMap<String, Boolean>()
+
+    /** V5.0.8898 — is this the first lost mark of (cross-lane key, coin decision)? Marks it seen. */
+    internal fun firstLost8898(key: String, mint: String, atMs: Long): Boolean {
+        if (mint.isBlank() || atMs <= 0L) return true
+        if (lostSeen8898.size > 200_000) lostSeen8898.clear()
+        return lostSeen8898.putIfAbsent("$key|$mint|$atMs", true) == null
+    }
+
+    internal const val COVERAGE_WINDOW_8898 = 600.0
+    internal const val COVERAGE_MIN_EVENTS_8898 = 100L
+
+    /** V5.0.8898 — one side's recent priced / lost counts (faded) and its events since start. */
+    internal class Coverage8898 {
+        var priced = 0.0; var lost = 0.0; var events = 0L
+        /** Pure: one coin decision priced ([booked]) or lost. */
+        fun add(booked: Boolean) {
+            val k = 1.0 - 1.0 / COVERAGE_WINDOW_8898
+            priced = priced * k + (if (booked) 1.0 else 0.0); lost = lost * k + (if (booked) 0.0 else 1.0); events++
+        }
+        /** Pure: the priced share, or null under [COVERAGE_MIN_EVENTS_8898] events. */
+        fun share(): Double? = if (events < COVERAGE_MIN_EVENTS_8898 || priced + lost <= 0.0) null else priced / (priced + lost)
+    }
+
+    private val coverageAdmitted8898 = Coverage8898()
+    private val coverageRefused8898 = Coverage8898()
+
+    private fun noteCoverage8898(admitted: Boolean, booked: Boolean) {
+        val c = if (admitted) coverageAdmitted8898 else coverageRefused8898
+        synchronized(c) { c.add(booked) }
+    }
+
+    /** V5.0.8898 — the recent priced share of the admitted ([admitted]) or refused five-minute reads; null while too few. */
+    fun recentCoverage8898(admitted: Boolean): Double? = (if (admitted) coverageAdmitted8898 else coverageRefused8898).let { c -> synchronized(c) { c.share() } }
+
+    /** V5.0.8898 — events counted for that side since start. */
+    fun coverageEvents8898(admitted: Boolean): Long = (if (admitted) coverageAdmitted8898 else coverageRefused8898).let { c -> synchronized(c) { c.events } }
+
     /**
      * Pure (V5.0.8766 §ONE_HORIZON_PER_BOOK) — code audit (data P0-4): an hour lane's target (15 m for new observations) was
      * booked into the 60 slot, the slot every cross-lane record reads as "5-minute": the admitted / refused aggregates (the
@@ -1455,6 +1499,7 @@ object ForwardReturnLabeler7731 {
             // V5.0.8776 — code audit (data P1-10): a cross-lane book (admitted / refused aggregate, source) counts one coin once
             // per horizon, not once per lane that judged it (up to 12x, shrinking its standard error the same way).
             if (crossLaneKey8776(k) && !firstCrossLane8776(horizon, k, o.mint, o.atMs)) continue
+            if (horizon == 60 && (k == AGG_ADMITTED || k == AGG_REFUSED)) noteCoverage8898(k == AGG_ADMITTED, booked = true)  // V5.0.8898
             synchronized(t) {
                 when (horizon) {
                     15 -> { t.n15 += 1; t.sum15 += net; if (net > 0.0) t.win15 += 1 }
@@ -1526,7 +1571,13 @@ object ForwardReturnLabeler7731 {
     }
 
     private fun markLost(o: Obs) {
-        for (k in keysOf7928(o)) {
+        // V5.0.8898 §A_COIN_IS_LOST_ONCE — a lost mark is filed under the same keys, horizon and once-per-coin rule as a booked
+        // label (book(): horizonScoped8766, firstCrossLane8776). It was filed under the unscoped keys once per lane that judged
+        // the coin, while book() counts a coin once per cross-lane key: on 5.0.8894 (20 Nov 20:53) AGG|ADMITTED held n60=1300
+        // against lost=4269 (coverage 23 %) while the labeler priced 1941 of 2916 five-minute reads this session (67 %).
+        for (k in horizonScoped8766(keysOf7928(o), 60, o.targetHorizon8521)) {
+            if (crossLaneKey8776(k) && !firstLost8898(k, o.mint, o.atMs)) continue
+            if (k == AGG_ADMITTED || k == AGG_REFUSED) noteCoverage8898(k == AGG_ADMITTED, booked = false)
             val t = tallyFor(k)
             synchronized(t) { t.lost += 1 }
         }

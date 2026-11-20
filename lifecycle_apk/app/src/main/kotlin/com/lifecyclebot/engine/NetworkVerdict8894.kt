@@ -17,6 +17,14 @@ object NetworkVerdict8894 {
     internal const val MIN_CALLS_8894 = 20
     internal const val SHARE_8894 = 0.25
     internal const val PROVIDERS_8894 = 3
+    /**
+     * V5.0.8898 — the share of the providers in use that must fail together before the phone's network is blamed. 20 Nov 20:53
+     * (5.0.8894): helius-enhanced (55 % no answer, 4.8 s average), defillama (37 %) and the public Solana RPC (28 %) timed out
+     * while dexscreener, geckoterminal, groq, helius, helius_curve, the Meteora APIs and Jupiter's keyed price answered 90-100 %:
+     * three providers out of more than ten, each its own provider's timeouts, read as DEGRADED and raised a FAULT. At 17:57
+     * (5.0.8893) every provider in use failed (4 of 4).
+     */
+    internal const val ACTIVE_SHARE_8898 = 0.5
 
     /** One host's recent counters as ApiHealthMonitor holds them. */
     internal data class Host8894(val host: String, val ok: Int, val c4xx: Int, val c5xx: Int, val net: Int) {
@@ -32,18 +40,27 @@ object NetworkVerdict8894 {
     internal fun failing8894(hosts: List<Host8894>): List<Host8894> =
         hosts.filter { it.calls >= MIN_CALLS_8894 && it.netShare >= SHARE_8894 }.sortedByDescending { it.net }
 
-    /** Pure: several unrelated providers failing on transport together. */
-    internal fun degraded8894(hosts: List<Host8894>): Boolean =
-        failing8894(hosts).map { provider8894(it.host) }.distinct().size >= PROVIDERS_8894
+    /** Pure (V5.0.8898): the providers in use — any of their hosts made at least [MIN_CALLS_8894] recent calls. */
+    internal fun active8898(hosts: List<Host8894>): Int =
+        hosts.filter { it.calls >= MIN_CALLS_8894 }.map { provider8894(it.host) }.distinct().size
+
+    /**
+     * Pure: several unrelated providers failing on transport together. V5.0.8898 — and at least [ACTIVE_SHARE_8898] of the
+     * providers in use: a few providers timing out while the rest answer are those providers, not the phone.
+     */
+    internal fun degraded8894(hosts: List<Host8894>): Boolean {
+        val failing = failing8894(hosts).map { provider8894(it.host) }.distinct().size
+        return failing >= PROVIDERS_8894 && failing >= ACTIVE_SHARE_8898 * active8898(hosts)
+    }
 
     /** Pure: the brief's line for [hosts]. */
     internal fun line8894(hosts: List<Host8894>): String {
         val bad = failing8894(hosts)
         val providers = bad.map { provider8894(it.host) }.distinct().size
-        val verdict = if (providers >= PROVIDERS_8894) "DEGRADED" else if (bad.isEmpty()) "OK" else "PROVIDER"
+        val verdict = if (degraded8894(hosts)) "DEGRADED" else if (bad.isEmpty()) "OK" else "PROVIDER"
         val list = bad.take(6).joinToString(" · ") { "${it.host} net${it.net}/${it.calls} ${"%.0f".format(it.netShare * 100.0)}%" }.ifBlank { "-" }
-        return "network8894[$verdict failingProviders=$providers $list rule=a provider fails on transport when >=${(SHARE_8894 * 100).toInt()}% of " +
-            "its last >=$MIN_CALLS_8894 calls got no answer; $PROVIDERS_8894+ providers at once = the device's network, not a provider or a gate]"
+        return "network8894[$verdict failingProviders=$providers $list active8898=${active8898(hosts)} rule=a provider fails on transport when >=${(SHARE_8894 * 100).toInt()}% of " +
+            "its last >=$MIN_CALLS_8894 calls got no answer; $PROVIDERS_8894+ providers and >=${(ACTIVE_SHARE_8898 * 100).toInt()}% of those in use at once = the device's network, not a provider or a gate]"
     }
 
     /** ApiHealthMonitor's hosts now (recent, decayed counters). */

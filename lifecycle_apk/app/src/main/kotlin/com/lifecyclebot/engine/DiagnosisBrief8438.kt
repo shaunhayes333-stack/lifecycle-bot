@@ -154,6 +154,24 @@ object DiagnosisBrief8438 {
      * coins that stayed priced — the survivors. Below [MIN_COVERAGE_8474] the record is not a verdict.
      */
     fun covered8474(s: ForwardReturnLabeler7731.CellStat?): Boolean = s != null && s.resolvedShare >= MIN_COVERAGE_8474
+
+    /**
+     * V5.0.8898 — is the labeler pricing [admitted]'s (or the refused) five-minute reads now? The recent share
+     * (ForwardReturnLabeler7731.recentCoverage8898) once it has enough events, else the lifetime [tally] as before.
+     */
+    fun coveredNow8898(admitted: Boolean, tally: ForwardReturnLabeler7731.CellStat?): Boolean =
+        coveredNow8898(ForwardReturnLabeler7731.recentCoverage8898(admitted), tally)
+
+    /** Pure (V5.0.8898): the [recent] priced share decides once known; else the lifetime [tally]. */
+    fun coveredNow8898(recent: Double?, tally: ForwardReturnLabeler7731.CellStat?): Boolean =
+        recent?.let { it >= MIN_COVERAGE_8474 } ?: covered8474(tally)
+
+    /** V5.0.8898 — the brief's coverage note: recent share and events per side. */
+    private fun coverageNote8898(): String {
+        fun side(a: Boolean) = ForwardReturnLabeler7731.recentCoverage8898(a)?.let { "${(it * 100).toInt()}%" } ?: "-"
+        return "coverageNow8898{admitted=${side(true)}/n${ForwardReturnLabeler7731.coverageEvents8898(true)} " +
+            "refused=${side(false)}/n${ForwardReturnLabeler7731.coverageEvents8898(false)}}"
+    }
     const val MIN_COVERAGE_8474 = 0.5
 
     private inline fun section(sb: StringBuilder, name: String, body: () -> Unit) {
@@ -235,7 +253,8 @@ object DiagnosisBrief8438 {
             val adm = ForwardReturnLabeler7731.aggregate8438(true)
             val ref = ForwardReturnLabeler7731.aggregate8438(false)
             // V5.0.8474 — no verdict from a cohort whose labels were mostly lost (covered8474).
-            val coveredBoth8474 = covered8474(adm) && covered8474(ref)
+            // V5.0.8898 — read now (coveredNow8898): the tally's lost count held old sessions and one loss per lane per coin.
+            val coveredBoth8474 = coveredNow8898(true, adm) && coveredNow8898(false, ref)
             // V5.0.8715 — 8712 printed "admitted +28.8 % vs refused -12.1 % -> doors SEPARATE winners from losers" while the same
             // book's dataset had the admitted coin's median at -6.6 % against -3.5 % refused: the mean was a handful of
             // runners, each filed once per lane. The gap must clear its own noise and the admitted mean must not be tail-only.
@@ -253,9 +272,10 @@ object DiagnosisBrief8438 {
                     separates -> "doors SEPARATE winners from losers"
                     admTailOnly8715 -> "admitted mean is RUNNER-CARRIED (wr ${(adm!!.winRate60 * 100).toInt()}%): the median admitted coin loses; doors do NOT separate"
                     else -> "doors do NOT separate (or thin)"
-                }).append('\n')
+                }).append(' ').append(coverageNote8898()).append('\n')
             if (!coveredBoth8474 && adm != null && ref != null) fixes += Fix8438(10_000.0, "FAULT",
-                "label coverage too low to judge anything (admitted ${(adm.resolvedShare * 100).toInt()}%, refused ${(ref.resolvedShare * 100).toInt()}% priced): every Cortex / door / cell verdict reads survivors -> F LEARNING labelMarks8418 lost{noSource, late}, offWatch7737 limiterRetry8474")
+                "label coverage too low to judge anything (admitted ${((ForwardReturnLabeler7731.recentCoverage8898(true) ?: adm.resolvedShare) * 100).toInt()}%, " +
+                    "refused ${((ForwardReturnLabeler7731.recentCoverage8898(false) ?: ref.resolvedShare) * 100).toInt()}% priced): every Cortex / door / cell verdict reads survivors -> F LEARNING labelMarks8418 lost{noSource, late}, offWatch7737 limiterRetry8474")
             if (runnerConflict) fixes += Fix8438((ref!!.runnerRate60 - adm!!.runnerRate60) * 1000.0, "CONFLICT",
                 "refused coins run more often than admitted ones (run ${(ref.runnerRate60 * 100).toInt()}% vs ${(adm.runnerRate60 * 100).toInt()}%) -> the doors refuse runners at entry; D DOORS + Runner capture (§8017) funnel8297 name which")
             sb.append("               lane            fwd(n/mean/wr/run)          qualified fdg(allow/block) ticket exec | live closes | verdict\n")

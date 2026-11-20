@@ -1206,9 +1206,11 @@ object LiveEdgeGate7877 {
     @Volatile private var bookCoveredVal8505 = true
     fun bookCovered8505(nowMs: Long): Boolean {
         if (nowMs - bookCoveredAt8505 < 30_000L) return bookCoveredVal8505
+        // V5.0.8898 — the labeler's pricing NOW (DiagnosisBrief8438.coveredNow8898), as 8505 intended; the lifetime tally held
+        // earlier sessions' losses and, before 8898, one loss per lane per coin.
         val v = try {
-            com.lifecyclebot.engine.DiagnosisBrief8438.covered8474(ForwardReturnLabeler7731.aggregate8438(true)) &&
-                com.lifecyclebot.engine.DiagnosisBrief8438.covered8474(ForwardReturnLabeler7731.aggregate8438(false))
+            com.lifecyclebot.engine.DiagnosisBrief8438.coveredNow8898(true, ForwardReturnLabeler7731.aggregate8438(true)) &&
+                com.lifecyclebot.engine.DiagnosisBrief8438.coveredNow8898(false, ForwardReturnLabeler7731.aggregate8438(false))
         } catch (_: Throwable) { true }
         bookCoveredVal8505 = v; bookCoveredAt8505 = nowMs
         return v

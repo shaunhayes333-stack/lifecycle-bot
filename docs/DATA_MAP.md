@@ -1912,3 +1912,32 @@ for a re-read while the chain proof holds (still at most once per pool every 30 
 ForensicReconciliation6635 counts a reconciliation as current only when the accounting state key is the same before and after
 the read, and the emulator's paper book closed a position during it (TICK_HARD_FLOOR at 09:59:02). 8895's smoke, on the same
 app code but one condition, passed that witness. The run cannot be re-run from here, so 8897 rebuilds 8896 unchanged.
+
+## 87. Read the data right (8898)
+
+Two lines at the top of the 20:53 report (5.0.8894) were wrong about the data, and every later item reads them.
+
+**The network.** `network8894[DEGRADED failingProviders=3 ...]` and FIX #2 "device network degraded" were raised by three
+providers timing out: helius-enhanced (81 of 147 calls no answer, 4.8 s average), defillama (41 of 110) and the public Solana
+RPC (32 of 115). The other providers in use answered 90-100 %: dexscreener, geckoterminal, groq, helius, helius_curve, the
+Meteora APIs, Jupiter's keyed price and quote. Device-wide now also needs at least half of the providers in use
+(`active8898`, any host with 20+ recent calls) failing together: 3 of 9 reads PROVIDER; 17:57 on 5.0.8893 (4 of 4) stays DEGRADED.
+Impact: brief only (the test of 8894 still proves no gate, size or exit reads it).
+
+**Label coverage.** FIX #1 "label coverage too low (admitted 23 %, refused 35 %)" read AGG|ADMITTED n60=1300 lost=4269.
+The same report's labeler priced 1941 of 2916 five-minute reads this session (67 %) and 1739 of 1843 hour reads (94 %).
+Cause, from the code: `book()` counts a coin once per cross-lane key (AGG|*, SRC|*; 8776) and files an hour-target lane's read
+under its own horizon (AGG|ADMITTED@15M; 8766); `markLost()` did neither, so one coin lost by every lane that judged it added one
+loss per lane, under the five-minute key, against one booking. And a tally's lost count fades only as new labels book, so a
+slow cohort carries earlier sessions' losses. Now:
+- `markLost` files under `horizonScoped8766(...)` and counts a cross-lane key once per coin decision (`firstLost8898`).
+- `recentCoverage8898(admitted)`: each coin decision counted once priced / once lost at most, faded over the last 600 events per
+  side; the brief prints `coverageNow8898{admitted=..%/n.. refused=..%/n..}` on the C EDGE line.
+- The brief's verdict, its FIX text, and `LiveEdgeGate7877.bookCovered8505` read `coveredNow8898` — the recent share once it has
+  100 events, else the lifetime tally exactly as before.
+
+Impact, forensic: `bookCovered8505` was written (8505) to stand watch-first's band / cell verdicts down while the labeler's
+CURRENT pricing is poor. Read correctly, a band or cell that is itself covered (its own resolvedShare >= 50 %, per-lane keys,
+unchanged) and proven losing (20+ labels, mean + SE < 0) refuses again inside watch-first. The 20:53 report shows no
+watch-first event at all (the FDG refused first), so no buy that report saw would have changed. Nothing else reads the cross-lane
+lost counts: ScannerIntake8292 / LiveEdgeGate7877.sourceRefusal8536 read source n, mean, SE and the outlier flag only.
