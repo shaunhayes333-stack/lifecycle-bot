@@ -58,7 +58,10 @@ object ReportCopyDialog8198 {
             "while the heap is written, then reads it in the background for a minute or two. Do it when no trade is in flight, " +
             "and leave the screen alone until it says done.\n\n" +
             "Only class names and sizes are kept. The raw dump never leaves the app and is deleted. The map is saved to " +
-            "Downloads/AATE and printed in the next report."
+            "Downloads/AATE and printed in the next report.\n\n" +
+            // V5.0.8892
+            "CPU sample: ${com.lifecyclebot.engine.CpuSample8892.SECONDS_8892} s of the app's own method samples (method names and " +
+            "times only), saved to Downloads/AATE. The bot keeps trading while it runs, a little slower."
 
     /**
      * V5.0.8866 — after Save, the owner may also take a memory map (HeapMap8866). Never taken without this tap: the dump
@@ -81,6 +84,15 @@ object ReportCopyDialog8198 {
                     }
                 }
                 .setNegativeButton("Not now", null)
+                // V5.0.8892 — or ART's sampling profile: what the CPU (and so the allocation) is spent on, by method
+                .setNeutralButton("CPU sample (${com.lifecyclebot.engine.CpuSample8892.SECONDS_8892}s)") { _, _ ->
+                    Toast.makeText(app, "Sampling the app's CPU for ${com.lifecyclebot.engine.CpuSample8892.SECONDS_8892} s. Trading continues.", Toast.LENGTH_LONG).show()
+                    com.lifecyclebot.engine.CpuSample8892.start8892(app, save = { file, name -> saveDataset(app, file, name) }) { line ->
+                        android.os.Handler(android.os.Looper.getMainLooper()).post {
+                            try { Toast.makeText(app, "CPU sample: $line", Toast.LENGTH_LONG).show() } catch (_: Throwable) {}
+                        }
+                    }
+                }
                 .show()
         } catch (_: Throwable) {}
     }

@@ -214,6 +214,7 @@ object DiagnosisBrief8438 {
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.ResearchFollow8884.statusLine8884() } catch (_: Throwable) { "researchFollow8884[read failed]" }).append('\n')  // V5.0.8884
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.AuthorityTable8887.statusLine8887() } catch (_: Throwable) { "authority8887[read failed]" }).append('\n')  // V5.0.8887
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.LaneExitGrade8888.statusLine8888() } catch (_: Throwable) { "laneExits8888[read failed]" }).append('\n')  // V5.0.8888
+            sb.append("               ").append(try { CpuSample8892.statusLine8892() } catch (_: Throwable) { "cpuSample8892[read failed]" }).append('\n')  // V5.0.8892
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.CurveCustody8881.statusLine8881() } catch (_: Throwable) { "curveCustody8881[read failed]" }).append('\n')  // V5.0.8881
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.DecisionLatency8882.statusLine8882() } catch (_: Throwable) { "decisionLatency8882[read failed]" }).append('\n')  // V5.0.8882
             sb.append("               ").append(try { com.lifecyclebot.perps.CryptoTwin8883.statusLine8883() } catch (_: Throwable) { "cryptoTwin8883[read failed]" }).append('\n')  // V5.0.8883

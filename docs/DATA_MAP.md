@@ -1799,3 +1799,17 @@ was (`lastAcceptAgoS`) and how the hour was booked (`via`: TICK or RECOVERED:<so
 as `diag8891`; no learner reads research rows. The brief's research line counts hour reads booked on a last mark older than
 the labeler's own 45 s price age bar, by that last refusal (`staleHour8891{...}`). Not persisted: a restored observation
 counts from its restore.
+
+## 81. What the CPU is doing (8892)
+
+**Why.** 20 Nov: 5–7 GB allocated a minute from the first minutes, the collector on ~31 s of CPU a minute, cycle 3.5–5 s,
+heap at 100 % after 25 minutes on 5.0.8882. The heap map (§57, 8866) names what HOLDS the heap; the 8889 map (295 MB) caught
+16 MB of garbage — too little to name what churns it. JobCost8813 meters nine batch jobs, as an upper bound.
+
+**Added.** `CpuSample8892`: after a report Save, the memory-map dialog also offers "CPU sample (30s)". On that tap only:
+`android.os.Debug.startMethodTracingSampling(cache/cpu_sample_8892/cpu_<t>.trace, 32 MB, 20,000 µs)` for 30 s (ART samples
+every thread's stack every 20 ms), stopped in a `finally`, saved to Downloads/AATE as `aate_cpu_sample_8892_<t>.trace`, then
+deleted from the app; a file left by a process that died mid-sample is deleted at start. It holds thread names, class and
+method names and sample times — no field or variable value. The brief line `cpuSample8892[...]` names the last outcome.
+
+**Not changed.** Every trading path. The sample pauses the app's threads briefly at each sample; the interval keeps it short.
