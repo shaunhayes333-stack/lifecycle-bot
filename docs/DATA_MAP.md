@@ -1611,3 +1611,23 @@ in LIVE.
 the floor close and the hold check where they now live (`exitTick8883`); `Aate8865ForecastLossLadderTest` reads the
 mirror's check through `bookLosing8883`.
 
+## 73. Every decision is read again at 4 h and 24 h (8884)
+
+**Owner.** "there are 60,000% profit opportunities out there literally every day" and "fuck 4x. I want it to look far far
+beyond that". Plan W8.
+
+**Before.** 8877 wrote each decision's 60-minute read as a research row. The coins behind a day's 100x are still running
+long after the hour, and no record read them there.
+
+**Changed.** `truth.ResearchFollow8884`: each decision that wrote its hour row (`ForwardReturnLabeler7731.bookTwoForty7944`,
+never a flat / lost mark) waits for two more reads, 4 h and 24 h after the decision. Once a minute the due decisions are
+priced by the Jupiter price API (`lite-api.jup.ag/price/v3`, keyless, 50 mints a call, at most 4 calls a minute) in USD
+per token, the entry's own unit (`LabelMark8386`), and each read is written to the research file
+(`ResearchRows8877`, exported as `aate_edge_research_8877_*.jsonl`) with its `horizonMs`: the decision's facts, then net
+and gross against the decision's entry. A coin Jupiter cannot price is written with net null and reason
+`NO_PRICE_JUP_8884:`; a read more than 6 h past its horizon is marked `LATE_READ_8884:`. Peak and dip after the hour are
+not known and are null. At most 30,000 decisions wait (oldest dropped); the list survives restarts in
+`research_follow_8884.jsonl`. Measurement only.
+
+**Read on the next report.** `researchFollow8884[waiting4h waiting24h written unpriced late failed dropped]`, and rows
+with `horizonMs` 14400000 / 86400000 in the research export.

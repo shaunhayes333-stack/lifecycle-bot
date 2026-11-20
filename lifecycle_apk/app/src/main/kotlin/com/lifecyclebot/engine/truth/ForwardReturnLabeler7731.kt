@@ -2212,6 +2212,11 @@ object ForwardReturnLabeler7731 {
             ResearchRows8877.note8877(ResearchRows8877.line8877(o.atMs, H240_MS_7731, o.mint, o.lane, o.admitted, o.stage, o.setup7955,
                 o.pred8855, o.v38877, o.entryMcap, o.liqUsd8539, o.costPct, net, gross, o.peakPct, o.heldPeak8071, o.minPct7962, o.reason7967))
         } catch (_: Throwable) {}
+        // V5.0.8884 (plan W8) — and the same decision is read again 4 h and 24 h after it, in the same file
+        try {
+            ResearchFollow8884.note8884(o.atMs, o.mint, o.lane, o.admitted, o.stage, o.setup7955, o.pred8855, o.v38877,
+                o.entryMcap, o.liqUsd8539, o.costPct, o.entryPrice, o.reason7967)
+        } catch (_: Throwable) {}
         book(o, 240, net, gross)
         return true // Cortex's old onLabel(..., 240) was a no-op; the exact revision now owns delivery.
     }
