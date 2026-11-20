@@ -1692,3 +1692,37 @@ refusal; the lane rule; volume is recorded on the key and not graded on its own 
 
 **Brief.** `cryptoTrend8886[cells{...} horizonsRead{n0..n5} ...]` and `cryptoCells8886[read backing{...} losing{...}
 reservedByCell ...]`.
+
+## 76. The hourly authority table (8887)
+
+**Plan.** W2: "every hour, replays the last 48 h of decisions ... with no look-ahead and an embargo. It grades each door,
+score band, setup ... on ex-top-3 mean, median and halves, deflated for the number tried. It publishes one authority table."
+
+**Rows.** `edge_research_8877.jsonl` (ResearchRows8877): every meme decision's read at 1 h (8877) and again at 4 h and 24 h
+(8884), with the decision's lane, admitted flag, refusal, stage, setup, forecast, V3, cap and pool, and its net after the
+round trip. 8884's `LATE_READ` rows are not that horizon's read and are left out; its `NO_PRICE` rows stay in their cells as
+unpriced (net unknown).
+
+**Pass (`AuthorityTable8887`).** Ten minutes after the first research row of a run, then hourly, on its own thread
+(`JobCost8813` background job). Per horizon (1 h, 4 h, 24 h): decisions of the last 48 h whose read is in (`t + horizon <= now`:
+the embargo; only the line head is read for rows outside the window).
+
+**Cells, within each lane.** `lane=ALL`; `admitted=Y|N`; `door=<FdgGate8365.gateKey8392(reason)>` (refused rows); `stage`;
+`setup`; `v3|pred|mcap|liq = Q1..Q5` — quintiles of that lane's window, cut points published with the table.
+
+**Per cell.** n, unpriced, mean and median of the priced reads, the mean without the three best rows, the standard error,
+the earlier- and later-half means (decision order). Deflation: `k` = cells of the horizon with 20+ rows;
+`z = CryptoTrend8886.familyZ8886(k)` (Šidák on the one-SE confidence).
+
+**Verdicts.** PAYS: n >= 20, ex-top-3 mean − z·SE > 0 and both halves > 0, with every unpriced read counted as a total loss
+(−100 %). LOSES: 20+ priced reads, mean + z·SE < 0 and both halves < 0, on the priced reads alone. Otherwise UNPROVEN.
+Neither verdict can be flattered by a coin the price source could not price.
+
+**Published.** The brief line `authority8887[... 1h{rows graded z pays loses best[...] worst[...]} 4h{...} 24h{...}]`; the
+file `authority_table_8887.json` (every cell with 20+ rows, its stats and verdict, and the cut points), saved with the report
+beside the research rows; `AuthorityTable8887.verdict8887(horizon, lane, factor, value)` and `bandOf8887(...)` for the
+authority consumers. Nothing admits or refuses on it in this build.
+
+**Not covered.** Venue (the research row does not carry it); crypto decisions (they are graded on the crypto twin, §72/§75);
+the launch tapes and lab strategies keep their own replays (LaunchReplay8744, StrategyLab8755). A decision whose mark was
+lost writes no research row, so neither the table nor anything else books it.

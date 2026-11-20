@@ -45,6 +45,7 @@ object ResearchRows8877 {
 
     /** ForwardReturnLabeler7731.bookTwoForty7944: write one decision's hour read. Never blocks the labeler. */
     fun note8877(line: String, nowMs: Long = System.currentTimeMillis()) {
+        try { AuthorityTable8887.ensureStarted8887() } catch (_: Throwable) {}   // V5.0.8887 — the hourly authority table grades these rows
         io.execute {
             try {
                 val f = file8877() ?: return@execute
