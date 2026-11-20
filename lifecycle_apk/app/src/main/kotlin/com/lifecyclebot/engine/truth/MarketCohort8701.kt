@@ -106,6 +106,54 @@ object MarketCohort8701 {
         return if (LiveEdgeGate7877.cohortProvenLosing8703(stat)) cohort else null
     }
 
+    /**
+     * V5.0.8895 §LOOK_FIRST_WHERE_THE_COHORT_PAYS — owner, 20 Nov: "if it cant [find runners] then we are doing many things
+     * wrong even just at the hunter and scanner sources". The 17-20 Nov edge dataset, first decision per coin: pump.fun mints
+     * were 85 % of the coins the bot judged (5,644 coins, -8.4 %, 11 % won); not-pump.fun coins at a $5k-$20k cap made
+     * +18.1 % +-3.9 (284 coins, 57 % won); the PumpPortal feed brought 3,343 coins (96 % pump.fun) at -12.9 %. On the phone
+     * (5.0.8893) this very book read OTHER_FRESH 5K_20K n63 +31.7 %, 20K_100K n98 +34.5 % against PUMP_FRESH LT5K n1300
+     * -14.1 %. The watchlist order spent its span on the stage record (8855) and before that on hand freshness / pump-source
+     * boosts; where the coin was minted, its age and its pool — the split this book proves — was not in it.
+     * Now each coin's cohort is ranked among the cohorts graded on [EdgeModel8537.AUTH_MIN_N]+ labels by their own forward
+     * mean, and BotService adds that rank's share of the same span. It only orders the looks; nothing is refused, nothing is
+     * admitted, and a coin of an ungraded cohort sits in the middle. Read once per coin per 10 s, from the coin's own fields.
+     */
+    private const val SHARE_TTL_MS_8895 = 10_000L
+    @Volatile private var meansAt8895 = 0L
+    @Volatile private var means8895: Map<String, Double> = emptyMap()
+    private val cohortCache8895 = ConcurrentHashMap<String, Pair<Long, String>>()
+
+    /** Pure: [cohort]'s rank share (0 worst .. 1 best) among graded [means]; 0.5 when it is not graded; null under two graded. */
+    fun shareOf8895(means: Map<String, Double>, cohort: String): Double? {
+        if (means.size < 2) return null
+        val order = means.entries.sortedBy { it.value }.map { it.key }
+        val i = order.indexOf(cohort)
+        return if (i < 0) 0.5 else i.toDouble() / (order.size - 1)
+    }
+
+    private fun gradedMeans8895(nowMs: Long): Map<String, Double> {
+        if (nowMs - meansAt8895 in 0L until SHARE_TTL_MS_8895) return means8895
+        val m = HashMap<String, Double>()
+        for (o in ORIGINS_8701) for (fresh in listOf("", "FRESH_")) for (b in BANDS_8701) {
+            val k = "$PREFIX_8701${o}_$fresh$b"
+            val st = try { ForwardReturnLabeler7731.laneStatFor7737(k) } catch (_: Throwable) { null } ?: continue
+            if (st.n60 >= EdgeModel8537.AUTH_MIN_N && st.meanNet60Pct.isFinite()) m[k] = st.meanNet60Pct
+        }
+        means8895 = m; meansAt8895 = nowMs
+        return m
+    }
+
+    /** BotService's watchlist order: [ts]'s cohort's rank share among the graded cohorts, or null (not Solana / under two graded). */
+    fun cohortShare8895(ts: TokenState, nowMs: Long = System.currentTimeMillis()): Double? {
+        if (!solana(ts)) return null
+        val cohort = cohortCache8895[ts.mint]?.takeIf { nowMs - it.first in 0L until SHARE_TTL_MS_8895 }?.second
+            ?: cohortAt8717(ts.mint, ts.lastLiquidityUsd, ageMin8717(ts, nowMs)).also {
+                if (cohortCache8895.size > 4_000) cohortCache8895.clear()
+                cohortCache8895[ts.mint] = nowMs to it
+            }
+        return shareOf8895(gradedMeans8895(nowMs), cohort)
+    }
+
     fun statusLine8701(): String = "marketCohort8701[" + ORIGINS_8701.flatMap { o -> listOf(o to "", o to "FRESH_") }.joinToString(" | ") { (o, fresh) ->
         o + (if (fresh.isEmpty()) "" else "_FRESH") + "{" + BANDS_8701.joinToString(",") { b ->
             val s = try { ForwardReturnLabeler7731.laneStatFor7737("$PREFIX_8701${o}_$fresh$b") } catch (_: Throwable) { null }

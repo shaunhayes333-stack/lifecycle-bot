@@ -64,6 +64,9 @@ object DecisionEpisode8535 {
         if (evidence8876.isNotBlank()) e.evidence = evidence8876.take(32)
         reach8876(e, "COINS")
         reach8876(e, if (terminal == "ADMIT") "ADMIT" else terminal.take(16), if (terminal == "ADMIT") null else reason)
+        // V5.0.8895 — a data deferral of an evidence coin names what it waited for (the admission's own defer causes, 8700)
+        if (terminal == "DEFER_DATA" && e.evidence.isNotBlank() && e.reached8876.add("DEFER_CAUSES_8895"))
+            try { com.lifecyclebot.engine.truth.CandidateAdmission8136.deferCauses8700(trace).forEach { waitCause8895(e.evidence, it) } } catch (_: Throwable) {}
         e.admissionHash = hash8535(trace)
         if (!setup.isNullOrBlank() && e.firedSetup.isBlank()) e.firedSetup = setup
         e.touchedMs = nowMs; written.incrementAndGet()
@@ -111,7 +114,14 @@ object DecisionEpisode8535 {
      */
     private val FUNNEL_STAGES_8876 = setOf("OWNER", "INTENT", "TICKET", "EXEC", "CLOSE")
     private const val MAX_REASONS_8876 = 48
-    private class Funnel8876 { val steps = LinkedHashMap<String, Long>(); val why = HashMap<String, Long>() }
+    private class Funnel8876 { val steps = LinkedHashMap<String, Long>(); val why = HashMap<String, Long>(); val wait8895 = HashMap<String, Long>() }
+
+    /** V5.0.8895 — under this object's lock: one data-deferral cause of an evidence coin of [kind]. */
+    private fun waitCause8895(kind: String, cause: String) {
+        val f = funnels8876.getOrPut(kind) { Funnel8876() }
+        val k = cause.take(48)
+        if (f.wait8895.size < MAX_REASONS_8876 || f.wait8895.containsKey(k)) f.wait8895[k] = (f.wait8895[k] ?: 0L) + 1L
+    }
     private val funnels8876 = LinkedHashMap<String, Funnel8876>()
 
     /** Called under this object's lock: [e] reached [step] (and why, for a refusal or block). Counted once per episode. */
@@ -132,7 +142,9 @@ object DecisionEpisode8535 {
         val body = funnels8876.entries.sortedByDescending { it.value.steps["COINS"] ?: 0L }.joinToString(" ") { (kind, f) ->
             val steps = (order.filter { it in f.steps } + f.steps.keys.filter { it !in order }).joinToString(" ") { "$it=${f.steps[it]}" }
             val why = f.why.entries.sortedByDescending { it.value }.take(4).joinToString(",") { "${it.key}=${it.value}" }.ifBlank { "-" }
-            "$kind{$steps why{$why}}"
+            // V5.0.8895 — what its data deferrals waited for (price, move, cost, a buy-door proof, an entry wait ...)
+            val wait = f.wait8895.entries.sortedByDescending { it.value }.take(5).joinToString(",") { "${it.key}=${it.value}" }
+            "$kind{$steps why{$why}${if (wait.isBlank()) "" else " wait{$wait}"}}"
         }.ifBlank { "-" }
         return "evidenceFunnel8876[$body rule=coins that carried market-cell evidence, once per candidate at each step they reached]"
     }

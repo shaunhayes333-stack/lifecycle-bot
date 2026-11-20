@@ -21846,6 +21846,10 @@ val prioritizedWatchlist = if (cfg.v3EngineEnabled && !watchlistPriorityBudgetBy
             } catch (_: Throwable) { null }
             priority += if (stageShare8855 != null) stageShare8855 * com.lifecyclebot.engine.truth.TrajectoryVerdict8855.PRIORITY_SPAN_8855
                 else freshBoost + sourceBoost
+            // V5.0.8895 — and where the coin was minted, its age and its pool, ranked on that book's own forward record
+            // (MarketCohort8701.cohortShare8895): the same span again, so the cohorts that pay are looked at first. Order only.
+            val cohortShare8895 = try { com.lifecyclebot.engine.truth.MarketCohort8701.cohortShare8895(ts, nowMs) } catch (_: Throwable) { null }
+            if (cohortShare8895 != null) priority += cohortShare8895 * com.lifecyclebot.engine.truth.TrajectoryVerdict8855.PRIORITY_SPAN_8855
 
             // Keep quality signals, but cap liquidity so giant older pools do
             // not starve fresh memes. Fluid sizing/learning remains untouched.

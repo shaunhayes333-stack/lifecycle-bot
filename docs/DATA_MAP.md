@@ -1847,3 +1847,52 @@ calls got no answer at all; three or more distinct providers failing together is
 provider or a gate) and is ranked as a FAULT fix. Nothing trades on it.
 
 **Not changed.** Every gate, size, exit and the LP rule.
+
+## 84. Selection, additive: the lock read on chain, the pocket on coins (8895)
+
+**Why.** Owner, 20 Nov: "how do we improve the trade selection logic?? ... you have to stop saying it cant find runners";
+"every time you make a change you must forensically examine the impact of that change. it cant be a regression or another
+stacked gate". The 17-20 Nov edge dataset, first decision per coin, net after cost:
+
+| coins | n | mean | median | without top 3 | won |
+|---|---|---|---|---|---|
+| pump.fun mints (85 % of what the bot judged) | 5,644 | -8.4 % | -3.7 % | -10.6 % | 11 % |
+| not pump.fun, $5k-$20k cap | 284 | +18.1 % +-3.9 | +8.7 % | +14.9 % | 57 % |
+| same, V3 >= 23 and forecast >= +10 % (the agreement pocket) | 46 | +42.8 % +-10.2 | +30.7 % | +28.9 % | 80 % |
+
+None of the 46 was bought. On 5.0.8893: the 8874 pocket had carried no coin (its per-lane proof needs 30 labels; the
+largest lane held 25); paying-cell coins were decided DATA_INCOMPLETE_DEFER 305 times and LIVE_SETUP_LOSES_8714 72 times,
+admitted 0 times; all 46 pocket coins were under five minutes old, 42 with no LP reading and 4 under 70 %, and the LP rule
+reads the lock only from RugCheck.
+
+**Changed — each one only adds a yes the record or the chain proves; no refusal is added anywhere.**
+
+1. `PoolLock8895` reads the LP lock from the pool's own accounts. Meteora DAMM v2: `permanent_lock_liquidity / liquidity`
+   (pool.rs, Pool @360 / @552, 1,104 bytes + discriminator). Meteora DLMM: every position of the pair (program
+   discriminator + pair filter, extended positions included), locked when `lock_release_point` is past the chain clock +
+   24 h (slot or unix time by the pair's activation_type); the locked share is the smallest locked fraction of any bin.
+   `LiquidityOwnership8522.assess(..., chainLock8895)`: 70 %+ on the coin's selected pool turns an answer that would be
+   PENDING into PROVEN (`LP_LOCK_CHAIN_PROVEN_8895`). *Impact:* every BLOCKED is decided before it is consulted (a provider
+   report of unlocked liquidity, a pool under 70 %, the old report's number); an unlocked or unreadable pool stays PENDING;
+   PreTradeHardGate's on-chain RugCheck substitute (8471: mint revoked, holders read and under the fatal limit, an executable
+   exit, LP proven) can now complete for a fresh coin RugCheck has not indexed, as 8471 designed; the 8736 sell-back quote,
+   freeze / Token-2022 checks, holder distribution, depth and every other door are unchanged. The unread-LP explore path
+   (8733) stays off. Cost: one getAccountInfo per pending pool per 30 s (keyless first); DLMM adds the Clock and one or two
+   getProgramAccounts (Helius, 10 credits each); a pool of another program is not asked again for 30 minutes; one worker,
+   queue of 16.
+2. `AgreementPocket8874` coin record: the last 200 pocket coins, each held once at its WORST meme-lane label of its first
+   15 minutes, proven on the paying cell's bar (30 coins, mean - 2 SE > 0). A meme lane carries it when its own pocket
+   record is not proven losing. *Impact:* the same evidence kind with the same precedence as 8874 (it answers the lane-wide
+   priors 8724 lists); hard safety, LP lock, sellability, economics, avoid shapes and named setups still decide. On the
+   exported dataset from the phone's learning line the record holds 50 coins, +33.9 % at the worst lane, mean - 2 SE +17.0 %.
+3. `LaneAuthority8577.residualAnswered8895`: LIVE_SETUP_LOSES_8714 refusing a coin that carries proven pocket / paying-cell
+   evidence is answered when the losing "setup" is the lane's NO-SETUP cohort (NO_TRIGGER or OUTSIDE_ENVELOPE_8383 — every
+   coin of the lane that matched nothing). *Impact:* a named losing setup still refuses, the expert avoid shapes still refuse,
+   a coin without proven evidence is unchanged. Counted per lane and cohort (`residual8895{...}`).
+4. `MarketCohort8701.cohortShare8895`: the watchlist adds the coin's origin x age x pool cohort's rank among cohorts graded
+   on 30+ labels (its own forward record) times the same 510 span the stage record uses. *Impact:* order only — every coin is
+   still looked at; a coin of an ungraded cohort sits in the middle; read once per coin per 10 s from the coin's own fields.
+5. The evidence funnel (8876) names what an evidence coin's data deferral waited for (`wait{...}`, the admission's own 8700
+   causes). Measurement only.
+
+**Not changed.** Every gate, size, exit, the LP-lock rule's 70 % bar, sellability, balance. Unlocked pools are not bought.

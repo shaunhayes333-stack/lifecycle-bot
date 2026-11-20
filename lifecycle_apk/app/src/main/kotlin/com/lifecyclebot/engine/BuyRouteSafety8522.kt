@@ -120,7 +120,8 @@ object BuyRouteSafety8522 {
         var accepted: LiquidityOwnership8522.Result? = null
         for (pool in pools) {
             val proof = LiquidityOwnership8522.assess(report, pool, activeCurve, whitelisted,
-                curveAddress, nowMs, expectedMint = mint)
+                curveAddress, nowMs, expectedMint = mint,
+                chainLock8895 = try { com.lifecyclebot.engine.truth.PoolLock8895.proof8895(mint, pool, nowMs) } catch (_: Throwable) { null })   // V5.0.8895
             if (proof.status != LiquidityOwnership8522.Status.PROVEN) {
                 // V5.0.8735 — 8734 live: the one explore buy (ExploreLive8733) passed the buy door and was refused here,
                 // because this route check asked the same unread LP ownership to be PROVEN again. When the door's own
@@ -207,6 +208,9 @@ object BuyRouteSafety8522 {
         if (verdict.status != LiquidityOwnership8522.Status.PROVEN) {
             // V5.0.8881 — a route pool the LP rule could not prove may be a Meteora DBC / Raydium LaunchLab curve: read its custody
             if (!route.rfq) route.pools.forEach { pool -> try { com.lifecyclebot.engine.truth.CurveCustody8881.request8881(ts.mint, pool, now) } catch (_: Throwable) {} }
+            // V5.0.8895 — and an unread lock on a Meteora DAMM v2 / DLMM route pool is read from the pool's own accounts
+            if (!route.rfq && verdict.status == LiquidityOwnership8522.Status.PENDING)
+                route.pools.forEach { pool -> try { com.lifecyclebot.engine.truth.PoolLock8895.request8895(ts.mint, pool, now) } catch (_: Throwable) {} }
             if (verdict.status == LiquidityOwnership8522.Status.PENDING) {
                 try { SafetyRefreshQueue.request(ts.mint) } catch (_: Throwable) {}
                 try { SafetyProofPriority8310.noteDeferred8310(ts.mint, verdict.reason) } catch (_: Throwable) {}

@@ -118,6 +118,7 @@ object LiquidityOwnership8522 {
         activeCurveAddress: String = "",
         nowMs: Long = System.currentTimeMillis(),
         expectedMint: String = "",
+        chainLock8895: com.lifecyclebot.engine.truth.PoolLock8895.Lock8895? = null,
     ): Result {
         val evidence = report.lpOwnership8522
         val hasProviderEvidence = evidence.mint.isNotBlank() || evidence.riskInventoryComplete ||
@@ -158,6 +159,14 @@ object LiquidityOwnership8522 {
         }
         if (curveExempt) return Result(Status.PROVEN, "ACTIVE_CURVE_LP_NOT_APPLICABLE_8522", "fresh active curve reserves")
         if (whitelisted) return Result(Status.PROVEN, "VERIFIED_MAJOR_LP_POLICY_8522", "verified exact mint")
+        // V5.0.8895 — the selected pool's lock read from its own accounts (PoolLock8895: Meteora DAMM v2 permanent lock, DLMM
+        // positions locked 24 h+): 70 % or more answers what the provider report could not. Only an answer that would be
+        // PENDING below changes; every BLOCKED above still refuses, and an unlocked or unread pool stays PENDING.
+        val chainPool8895 = selected?.address?.takeIf { it.isNotBlank() } ?: selectedPoolAddress
+        if (chainLock8895 != null && com.lifecyclebot.engine.truth.PoolLock8895.proves8895(chainLock8895,
+                expectedMint.ifBlank { chainLock8895.mint }, chainPool8895, nowMs))
+            return Result(Status.PROVEN, com.lifecyclebot.engine.truth.PoolLock8895.PROVEN_REASON_8895,
+                "pool=$chainPool8895 venue=${chainLock8895.venue} locked=${"%.1f".format(chainLock8895.lockedPct)}% ${chainLock8895.detail}")
 
         val age = nowMs - report.checkedAt
         if (report.checkedAt <= 0L || age !in 0L..FRESH_MS) {

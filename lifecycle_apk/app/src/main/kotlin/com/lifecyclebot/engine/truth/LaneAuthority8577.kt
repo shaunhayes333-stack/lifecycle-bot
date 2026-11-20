@@ -157,6 +157,9 @@ object LaneAuthority8577 {
             try { PipelineHealthCollector.labelInc("${first8724}_ANSWERED_BY_MARKET_CELL_8724") } catch (_: Throwable) {}
             narrowerRefusal8724(ts, lane.trim().uppercase(), nowMs) ?: return null
         } else first8724
+        // V5.0.8895 — the no-setup cohort is the lane's residual, not a strategy: a coin carrying proven pocket evidence is answered
+        // there too ([residualAnswered8895]); a named losing setup and the expert avoid shapes still refuse.
+        if (why == LIVE_SETUP_LOSES_8714 && residualAnswered8895(ts, lane, nowMs, pocket8874)) return null
         // V5.0.8696 — every entry-state door is learned by the one rule: it stands aside once its own graded refusals prove
         // it refuses winners.
         if (GateOutcome8418.selectionGateRetired8696("CANDIDATE_ADMISSION_8136_$why", lane)) return null
@@ -175,6 +178,40 @@ object LaneAuthority8577 {
 
     /** The entry-state doors a lane's paying market cell answers: priors over more coins than the cell holds. */
     private val CELL_ANSWERS_8724: Set<String> get() = setOf(LIVE_ORIGIN_COHORT_LOSES_8703, MEME_BUYS_THE_HIGH_8582, LIVE_STAGE_UNREAD_8711, LIVE_STAGE_LOSES_8626)
+
+    /**
+     * V5.0.8895 §THE_RESIDUAL_COHORT_IS_NOT_A_STRATEGY — owner, 20 Nov: "how do we improve the trade selection logic??". On 5.0.8893
+     * the paying cell's coins were refused 72 times by LIVE_SETUP_LOSES_8714 (payCell8732 admission{...}) and bought 0 times.
+     * 8714 refuses the strategy a coin trades as when its lane record loses — and a coin no named setup fired trades as the
+     * lane's NO-SETUP cohort (NO_TRIGGER, or OUTSIDE_ENVELOPE_8383): every coin of the lane that matched nothing, the widest
+     * record there is. 8724 / 8874 already let a coin's proven paying cell or agreement pocket answer the lane-wide priors,
+     * because the cell is proven over a narrower group of coins than they are; the no-setup cohort is the same kind of prior.
+     * It is answered for a carried coin ([pocket8874], or the lane's paying cell); a NAMED losing setup still refuses, as do
+     * the expert avoid shapes, and every safety, LP, sellability and economics check after this is unchanged. Counted per
+     * lane and cohort so the next report says how often it decided.
+     */
+    private val RESIDUAL_COHORTS_8895: Set<String> = setOf(
+        com.lifecyclebot.engine.cortex.LanePlaybook7907.NO_TRIGGER, com.lifecyclebot.engine.cortex.LanePlaybook7907.OUTSIDE_ENVELOPE_8383)
+    private val residualCounts8895 = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
+
+    /** Pure: is [setup] a lane's no-setup cohort rather than a named strategy? */
+    fun residualCohort8895(setup: String?): Boolean = setup != null && setup in RESIDUAL_COHORTS_8895
+
+    private fun residualAnswered8895(ts: com.lifecyclebot.data.TokenState, lane: String, nowMs: Long, pocket8874: Boolean): Boolean {
+        val l = lane.trim().uppercase()
+        val setup = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.losingSetup8714(ts, l, nowMs) } catch (_: Throwable) { null }
+        if (!residualCohort8895(setup)) return false
+        if (!(pocket8874 || (try { PayingCell8723.pays8723(ts, lane, nowMs) } catch (_: Throwable) { false }))) return false
+        val k = "$l|$setup"
+        if (residualCounts8895.size < 64 || residualCounts8895.containsKey(k))
+            residualCounts8895.computeIfAbsent(k) { java.util.concurrent.atomic.AtomicLong(0L) }.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("LIVE_SETUP_LOSES_8714_RESIDUAL_ANSWERED_8895_$l") } catch (_: Throwable) {}
+        return true
+    }
+
+    /** Brief (V5.0.8895): how often a carried coin's losing no-setup cohort was answered, by lane and cohort. */
+    fun residualLine8895(): String = "residual8895{" + residualCounts8895.entries.sortedByDescending { it.value.get() }
+        .joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } + "}"
 
     /** The refusals narrower than a market cell: the coin's own avoid shape, else the losing record of the setup it trades as. */
     private fun narrowerRefusal8724(ts: com.lifecyclebot.data.TokenState, l: String, nowMs: Long): String? {

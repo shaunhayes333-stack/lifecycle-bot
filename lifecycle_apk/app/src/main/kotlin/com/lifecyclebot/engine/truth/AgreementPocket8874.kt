@@ -68,6 +68,7 @@ object AgreementPocket8874 {
         if (last != null && atMs >= last && atMs - last < REFILE_MS) return
         if (lastFiled.size > 20_000) lastFiled.entries.removeIf { atMs - it.value > REFILE_MS }
         lastFiled["$mint|$key"] = atMs
+        addCoin8895(mint, key.removeSuffix("_AGREE"), atMs, net)   // V5.0.8895 — and the coin record
         val y = PayingCell8723.outcome8723(net)
         val c = cells.getOrPut(key) { Cell() }
         synchronized(c) {
@@ -111,7 +112,8 @@ object AgreementPocket8874 {
             val raw = EdgeModel8537.rawFor8610(ts, lane, nowMs)
             val key = key8874(raw.lane)
             if (key == null || !inPocket8874(ts.mint, raw.mcap, raw.v3, pred)) null
-            else evidenceOf8874(key, recordOf(key))?.also { e -> served.computeIfAbsent(e.id) { AtomicLong(0L) }.incrementAndGet() }
+            else (evidenceOf8874(key, recordOf(key)) ?: coinEvidence8895(raw.lane, recordOf(key)))   // V5.0.8895 — then the coin record
+                ?.also { e -> served.computeIfAbsent(e.id) { AtomicLong(0L) }.incrementAndGet() }
         }
     } catch (_: Throwable) { null }
 
@@ -153,12 +155,88 @@ object AgreementPocket8874 {
             "${k.removeSuffix("_AGREE")}=n${r[0].toInt()}/${"%+.1f".format(r[1] / r[0])}%/run${(100.0 * r[3] / r[0]).toInt()}%${if (p) "*" else ""}" }.ifBlank { "-" }
         val used = served.entries.sortedBy { it.key }.joinToString(",") { "${it.key.removeSuffix("_AGREE")}=${it.value.get()}" }.ifBlank { "-" }
         val adm = admission.entries.sortedByDescending { it.value.get() }.take(8).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }
-        return "agreement8874[ready=$ready learned=${learned.get()} lanes{$recs} carried{$used} liveAdmission{$adm} " +
+        val coin = coinRecord8895()
+        val coinLine = if (coin[0] < 1.0) "n0" else "n${coin[0].toInt()}/${"%+.1f".format(coin[1] / coin[0])}%±${"%.1f".format(se8895(coin))}" +
+            "/run${(100.0 * coin[3] / coin[0]).toInt()}%${if (PayingCell8723.paying8723(coin[0], coin[1], coin[2])) "*" else ""}"
+        return "agreement8874[ready=$ready learned=${learned.get()} coins8895{$coinLine} lanes{$recs} carried{$used} liveAdmission{$adm} " +
             "rule=not pump.fun, cap \$5k-\$20k, V3>=${V3_MIN_8874.toInt()}, forecast>=+${FORECAST_MIN_PCT_8874.toInt()}%; per lane, one label per coin per 15 min, " +
-            "* = n>=${MIN_N.toInt()} mean-${PROOF_SE.toInt()}SE>0 (admits as market-cell evidence)]"
+            "* = n>=${MIN_N.toInt()} mean-${PROOF_SE.toInt()}SE>0 (admits as market-cell evidence); 8895: the last $COIN_WINDOW_8895 pocket coins, each at its " +
+            "worst meme-lane label, prove the pocket for every meme lane whose own pocket labels are not proven losing]"
     }
 
-    internal fun resetForTest8874() { cells.clear(); lastFiled.clear(); served.clear(); admission.clear(); learned.set(0L); ready = true }
+
+    // ── V5.0.8895 §THE_POCKET_IS_PROVEN_ON_COINS ──
+    // Owner, 20 Nov: "how do we improve the trade selection logic?? ... you have to stop saying it cant find runners". 8874's
+    // pocket had admitted no coin: its proof is per lane at 30 labels, and the same coins are split over 16 lane records — on
+    // 5.0.8893 the largest held 25 (MOONSHOT +42.7 %, MANIPULATED n24 +52.5 %, EXPRESS n22 +35.1 %, CORE n20 +61.5 % ...,
+    // carried{-}); the phone's dataset replay starts at its learning line, so it never caught up. Counted on COINS the same
+    // rule is already proven: 17-20 Nov edge dataset, first decision per coin, 46 coins at +42.8 % +-10.2 (median +30.7 %,
+    // 80 % won, +28.9 % without the best three), 3 of them lost half or more inside 15 minutes.
+    // The coin record: the last [COIN_WINDOW_8895] pocket coins, each held ONCE at its WORST meme-lane label (outcome8723:
+    // gain kept to the pocket cap, a total loss -100 %) among the labels of its first 15 minutes — the 8724 audit's point that
+    // one lane's outcome must not authorise another is met by giving every lane the outcome of the lane that did worst on
+    // that coin. It proves on the paying cell's own bar (30 coins, mean above zero by two SE). A meme lane carries it when its
+    // own per-lane pocket record has not been proven LOSING (30 labels, mean below zero by two SE); a lane whose own record
+    // proves first keeps using that one. It is the same evidence kind with the same precedence as before: every hard safety
+    // check, the LP-lock rule, sellability, executable economics, the coin's own avoid shapes and the named setup it trades as
+    // still decide. Nothing is refused here that was not refused before.
+    private const val COIN_WINDOW_8895 = 200
+    private const val COIN_REVISE_MS_8895 = 15L * 60_000L
+    const val COIN_ID_8895 = "COINS_AGREE"
+    private class Coin8895(val firstMs: Long, var worstNet: Double)
+    private val coins8895 = LinkedHashMap<String, Coin8895>()   // guarded by itself; oldest first
+
+    /** Pure: is [lane] a meme lane whose labels file the coin record (EdgeModel8537.LANES)? */
+    internal fun memeLane8895(lane: String): Boolean = lane.trim().uppercase() in EdgeModel8537.LANES
+
+    private fun addCoin8895(mint: String, lane: String, atMs: Long, net: Double) {
+        if (!memeLane8895(lane) || !net.isFinite()) return
+        synchronized(coins8895) {
+            val c = coins8895[mint]
+            if (c == null) {
+                coins8895[mint] = Coin8895(atMs, net)
+                while (coins8895.size > COIN_WINDOW_8895) coins8895.remove(coins8895.keys.first())
+            } else if (kotlin.math.abs(atMs - c.firstMs) < COIN_REVISE_MS_8895 && net < c.worstNet) c.worstNet = net
+        }
+    }
+
+    /** (n, sum, sum of squares, runners) of the coin record: each coin at its worst meme-lane label. */
+    internal fun coinRecord8895(): DoubleArray = synchronized(coins8895) {
+        var n = 0.0; var sum = 0.0; var sq = 0.0; var ran = 0.0
+        for (c in coins8895.values) {
+            val y = PayingCell8723.outcome8723(c.worstNet)
+            n += 1.0; sum += y; sq += y * y; if (c.worstNet >= 100.0) ran += 1.0
+        }
+        doubleArrayOf(n, sum, sq, ran)
+    }
+
+    private fun se8895(r: DoubleArray): Double {
+        if (r[0] < 2.0) return Double.NaN
+        val m = r[1] / r[0]
+        return kotlin.math.sqrt(((r[2] / r[0]) - m * m).coerceAtLeast(0.0) / r[0])
+    }
+
+    /** Pure: is a lane pocket record [r] (n, sum, sq, ...) proven LOSING — the mirror of PayingCell8723.paying8723? */
+    internal fun losing8895(r: DoubleArray?): Boolean {
+        if (r == null || r.size < 3 || !(r[0] >= MIN_N)) return false
+        val m = r[1] / r[0]
+        val se = kotlin.math.sqrt(((r[2] / r[0]) - m * m).coerceAtLeast(0.0) / r[0])
+        return m.isFinite() && se.isFinite() && m + PROOF_SE * se < 0.0
+    }
+
+    /** Pure: the coin record [coin] as [lane]'s evidence, given that lane's own pocket record [laneRecord]; null unless it proves. */
+    internal fun coinEvidenceOf8895(lane: String, laneRecord: DoubleArray?, coin: DoubleArray): CandidateAdmission8136.Evidence8136? {
+        if (!memeLane8895(lane) || losing8895(laneRecord) || !PayingCell8723.paying8723(coin[0], coin[1], coin[2])) return null
+        val m = coin[1] / coin[0]
+        return CandidateAdmission8136.Evidence8136(KIND_8874, COIN_ID_8895, coin[0].toInt(), m, PROOF_SE * se8895(coin), runnerRate = coin[3] / coin[0])
+    }
+
+    private fun coinEvidence8895(lane: String, laneRecord: DoubleArray?): CandidateAdmission8136.Evidence8136? =
+        if (!ready) null else coinEvidenceOf8895(lane, laneRecord, coinRecord8895())
+
+    internal fun addCoinForTest8895(lane: String, mint: String, net: Double, atMs: Long) = addCoin8895(mint, lane, atMs, net)
+
+    internal fun resetForTest8874() { cells.clear(); lastFiled.clear(); served.clear(); admission.clear(); learned.set(0L); ready = true; synchronized(coins8895) { coins8895.clear() } }
     internal fun addForTest8874(lane: String, mint: String, net: Double, atMs: Long) { add(mint, key8874(lane) ?: return, atMs, net) }
     internal fun recordForTest8874(lane: String): DoubleArray? = key8874(lane)?.let { recordOf(it) }
 }

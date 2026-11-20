@@ -274,10 +274,16 @@ object PreTradeHardGate {
         val ownership8522 = LiquidityOwnership8522.assess(
             safety, selectedPool8522, curveExitSafe8319, TokenSafetyChecker.isWhitelisted(mint), curveAddress8522, now,
             expectedMint = mint,
+            // V5.0.8895 — the selected pool's lock as read from its own accounts (only an unread LP proof can change)
+            chainLock8895 = try { com.lifecyclebot.engine.truth.PoolLock8895.proof8895(mint, selectedPool8522, now) } catch (_: Throwable) { null },
         )
         // V5.0.8881 — a pool the LP rule could not prove may be a Meteora DBC / Raydium LaunchLab curve: read its custody (async)
         if (ownership8522.status != LiquidityOwnership8522.Status.PROVEN && selectedPool8522.isNotBlank())
             try { com.lifecyclebot.engine.truth.CurveCustody8881.request8881(mint, selectedPool8522, now) } catch (_: Throwable) {}
+        // V5.0.8895 — and an unread LP proof on a Meteora DAMM v2 / DLMM pool: read its lock (async, the next look decides; the
+        // admission probe asks too, as it asks the curve custody above, so the proof is in before a ticket is spent)
+        if (ownership8522.status == LiquidityOwnership8522.Status.PENDING && selectedPool8522.isNotBlank())
+            try { com.lifecyclebot.engine.truth.PoolLock8895.request8895(mint, selectedPool8522, now) } catch (_: Throwable) {}
         when (ownership8522.status) {
             LiquidityOwnership8522.Status.BLOCKED -> return block(ts, ownership8522.reason, ownership8522.detail)
             LiquidityOwnership8522.Status.PENDING -> pendingProofs.add("${ownership8522.reason}:${ownership8522.detail}")
