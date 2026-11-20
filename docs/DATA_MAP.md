@@ -1997,8 +1997,11 @@ election 3.6 s); AatePlaybookCheckpoint8372 4.9 s. The last runs all the time: d
 forward outcome and the worker saved back to back, each save re-encoding every lane book, 600 grades, the timing books and the
 episode sidecar to apply at most 32 deliveries.
 
-**8901.** The playbook checkpoint starts a save at most once per 10 s (`CHECKPOINT_PACE_MS_8901`); requests inside the pace
-coalesce; each save applies up to 320 waiting deliveries (`SAVE_BATCH_8901`, the producer's 32 per pass for each second of the
-pace); a shutdown flush (persistNow7930) skips the wait. The brief prints `playbookCheckpoint8901[saves waiting paceS]`.
-Forensic impact: what a save writes, its atomicity and receipt order are unchanged; a delivery becomes durable up to 10 s
-later, and the producer re-delivers anything unacknowledged, as it already did for a save that failed.
+**8901.** The playbook checkpoint's next save waits four times the last save's measured cost, at most 10 s
+(`COST_MULT_8901`, `CHECKPOINT_PACE_MS_8901`; Cortex7885's 8652 measured-cost pace): requests inside the wait coalesce; each save
+applies up to 320 waiting deliveries (`SAVE_BATCH_8901`); a shutdown flush (persistNow7930) skips the wait. The brief prints
+`playbookCheckpoint8901[saves lastCostMs waiting]`. A first 8901 commit paced a fixed 10 s; its own CI failed nine
+Aate8871PlaybookDeliveryTest cases (their 10-second worker flush timed out behind the sleep), so the pace is measured instead:
+a save of a few ms waits a few ms, a 400 ms save leaves 1.6 s free. Forensic impact: what a save writes, its atomicity and receipt
+order are unchanged; a delivery becomes durable at most 10 s later, and the producer re-delivers anything unacknowledged, as it
+already did for a save that failed.
