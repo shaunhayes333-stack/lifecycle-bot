@@ -1961,3 +1961,10 @@ holds about one TTL of answers) and a few MB from the second, of a 512 MB heap. 
 ledgers (CortexLedger7885$Stat 41.7 MB, 455,938 objects, 299,182 at 8889's start; CortexTiming7900 the largest) and the
 garbage of each Cortex snapshot encode (33.8 MB). They hold learning, so they are next, from the CPU sample that names the
 allocation, not from a guess.
+
+## 89. 8899 rebuilt: the smoke runner's emulator image failed to download (8900)
+
+8899's build and unit tests passed. Its runtime smoke never started the app: the runner's `sdkmanager --install
+'system-images;android-30;google_apis;x86_64'` failed ("Error reading Zip content from a SeekableByteChannel"), no emulator
+booted (adb: connection refused), and every later check reported NOT_RUN. The run cannot be re-run from here, so 8900 rebuilds
+8899 unchanged.
