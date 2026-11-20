@@ -35,7 +35,8 @@ object CryptoTwin8883 {
     private const val LOST_MARK_MS_8883 = 10L * 60_000L
     private const val PREFS_8883 = "aate_crypto_twin_8883"
 
-    private class Twin(@Volatile var pos: CryptoAltTrader.AltPosition, val lane: String) {
+    // V5.0.8886 — [cell] is the trend cell the position's reasons carry (CryptoTrend8886); each close is filed under lane|cell too
+    private class Twin(@Volatile var pos: CryptoAltTrader.AltPosition, val lane: String, val cell: String? = null) {
         @Volatile var rungIdx = 0
         @Volatile var trailPeak: Double? = null
         @Volatile var strike = false
@@ -43,7 +44,7 @@ object CryptoTwin8883 {
     }
 
     private val open = ConcurrentHashMap<String, Twin>()                        // asset key -> twin
-    private val closes = ConcurrentHashMap<String, ArrayDeque<DoubleArray>>()   // lane -> (atMs, pnl %, size SOL)
+    private val closes = ConcurrentHashMap<String, ArrayDeque<DoubleArray>>()   // lane (or lane|cell, 8886) -> (atMs, pnl %, size SOL)
     private val byKind = ConcurrentHashMap<String, AtomicLong>()
     private val opened = AtomicLong(0L)
     private val duplicate = AtomicLong(0L)
@@ -70,7 +71,7 @@ object CryptoTwin8883 {
         if (open.containsKey(key)) { duplicate.incrementAndGet(); return }
         if (open.size >= MAX_OPEN_8883) { full.incrementAndGet(); return }
         val twin = p.copy(id = "TWIN8883:" + p.id, isPaper = false, currentPrice = p.entryPrice, highestPnlPct = 0.0)
-        if (open.putIfAbsent(key, Twin(twin, l)) == null) opened.incrementAndGet()
+        if (open.putIfAbsent(key, Twin(twin, l, CryptoTrend8886.cellOfReasons8886(p.reasons))) == null) opened.incrementAndGet()
     }
 
     fun hasOpen8883(): Boolean = open.isNotEmpty()
@@ -130,10 +131,12 @@ object CryptoTwin8883 {
         val pnl = at.getPnlPct()
         if (!pnl.isFinite()) { lost.incrementAndGet(); return }
         ensureLoaded8883()
-        val q = closes.computeIfAbsent(t.lane) { ArrayDeque() }
-        synchronized(q) {
-            q.addLast(doubleArrayOf(nowMs.toDouble(), pnl, at.sizeSol))
-            while (q.size > KEEP_CLOSES_8883) q.removeFirst()
+        for (k in listOfNotNull(t.lane, t.cell?.let { "${t.lane}$CELL_SEP_8886$it" })) {
+            val q = closes.computeIfAbsent(k) { ArrayDeque() }
+            synchronized(q) {
+                q.addLast(doubleArrayOf(nowMs.toDouble(), pnl, at.sizeSol))
+                while (q.size > KEEP_CLOSES_8883) q.removeFirst()
+            }
         }
         byKind.computeIfAbsent(kind.ifBlank { "OTHER" }) { AtomicLong(0L) }.incrementAndGet()
         persist8883()
@@ -149,6 +152,26 @@ object CryptoTwin8883 {
         val q = closes[lane.trim().uppercase()] ?: return null
         val rows = synchronized(q) { rows8883(q.toList()) }
         return if (rows.isEmpty()) null else StrategyTelemetry.metricOf8883(lane.trim().uppercase(), rows)
+    }
+
+    internal const val CELL_SEP_8886 = "|"
+
+    /** V5.0.8886 — the twin's record of [lane]'s trend [cell]: the leaderboard metric and its (n, mean, se, pf) proof; null with no close. */
+    fun cellRecord8886(lane: String, cell: String): Pair<StrategyTelemetry.StrategyMetric, DoubleArray>? {
+        ensureLoaded8883()
+        val k = lane.trim().uppercase() + CELL_SEP_8886 + cell.trim().uppercase()
+        val q = closes[k] ?: return null
+        val list = synchronized(q) { q.toList() }
+        if (list.isEmpty()) return null
+        return StrategyTelemetry.metricOf8883(k, rows8883(list)) to CryptoTrend8886.proof8886(list.map { it[1] })
+    }
+
+    /** V5.0.8886 — how many of [lane]'s cells are graded (hold the lane rule's decisive count): the family the cell margin holds for. */
+    fun gradedCells8886(lane: String): Int {
+        ensureLoaded8883()
+        val prefix = lane.trim().uppercase() + CELL_SEP_8886
+        return closes.keys.count { k -> k.startsWith(prefix) && cellRecord8886(lane, k.removePrefix(prefix))
+            ?.first?.let { it.wins + it.losses >= com.lifecyclebot.engine.truth.CryptoSpotPaperBacking8788.MIN_DECISIVE_8788 } == true }
     }
 
     private fun prefs8883(): android.content.SharedPreferences? = try {
@@ -189,13 +212,14 @@ object CryptoTwin8883 {
 
     /** Brief: open twins, the record per lane (n / decisive / mean / SOL) and how each twin left. */
     fun statusLine8883(): String {
-        val recs = closes.keys.sorted().joinToString(" ") { lane ->
+        val recs = closes.keys.filter { !it.contains(CELL_SEP_8886) }.sorted().joinToString(" ") { lane ->
             val m = metric8883(lane)
             if (m == null) "$lane=-" else "$lane{n=${m.trades} W${m.wins}/L${m.losses} mean=${"%+.1f".format(m.meanPnlPct)}% sol=${"%+.3f".format(m.totalSolPnl)} pfEdge=${"%+.1f".format(m.pfExpectancyPp)}}"
         }.ifBlank { "-" }
         val kinds = byKind.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }
+        val cells = closes.keys.count { it.contains(CELL_SEP_8886) }
         return "cryptoTwin8883[open=${open.size}/$MAX_OPEN_8883 opened=${opened.get()} dup=${duplicate.get()} full=${full.get()} lost=${lost.get()} " +
-            "records{$recs} exits{$kinds} rule=beside LIVE: every crypto candidate the live decision opened or a learned door refused, on the live exit functions, virtual fill, gross as the paper book]"
+            "records{$recs} cells8886=$cells exits{$kinds} rule=beside LIVE: every crypto candidate the live decision opened or a learned door refused, on the live exit functions, virtual fill, gross as the paper book]"
     }
 
     internal fun resetForTest8883() { open.clear(); closes.clear(); byKind.clear(); opened.set(0); duplicate.set(0); full.set(0); lost.set(0); loaded = true }

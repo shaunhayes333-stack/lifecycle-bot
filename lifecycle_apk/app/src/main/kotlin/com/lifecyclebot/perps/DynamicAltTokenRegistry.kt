@@ -98,6 +98,13 @@ object DynamicAltTokenRegistry {
         val volume5m8832: Double = Double.NaN,
         val change5mPct8832: Double = Double.NaN,
         val shortWindowObservedAtMs8832: Long = 0L,
+        // V5.0.8886 — the 1 h / 6 h / 7 d price changes of ONE provider observation (DexScreener pair h1 / h6, GeckoTerminal
+        // pool h1 / h6, CoinGecko markets 1h / 7d) under that observation's clock; NaN where the provider did not carry it.
+        // A newer observation replaces the whole set, as the five-minute set is replaced (CryptoTrend8886 reads it).
+        val change1hPct8886: Double = Double.NaN,
+        val change6hPct8886: Double = Double.NaN,
+        val change7dPct8886: Double = Double.NaN,
+        val trendObservedAtMs8886: Long = 0L,
     ) {
         val canonicalIdentity6544: String get() = canonicalIdentity6544(chainId, tokenAddress)
         val discoveryUrgency6544: String get() = when {
@@ -1828,7 +1835,16 @@ object DynamicAltTokenRegistry {
         val newerChange248870 = pair.priceChangeH24.isFinite() && newer8870(latest8752.change24hObservedAtMs8752)
         val newerTxns248870 = pair.txnsH24Observed && pair.candle.buys24h >= 0 && pair.candle.sells24h >= 0 &&
             newer8870(latest8752.txns24hObservedAtMs8752)
+        // V5.0.8886 — the pair's h1 / h6 set under the pair's clock; a newer pair replaces the whole set (7 d is not a pair field).
+        val newerPairTrend8886 = (pair.priceChangeH1.isFinite() || pair.priceChangeH6.isFinite()) &&
+            newer8870(latest8752.trendObservedAtMs8886)
         return latest8752.copy(
+            change1hPct8886 = if (newerPairTrend8886) pair.priceChangeH1.takeIf { it.isFinite() } ?: Double.NaN
+                else latest8752.change1hPct8886,
+            change6hPct8886 = if (newerPairTrend8886) pair.priceChangeH6.takeIf { it.isFinite() } ?: Double.NaN
+                else latest8752.change6hPct8886,
+            change7dPct8886 = if (newerPairTrend8886) Double.NaN else latest8752.change7dPct8886,
+            trendObservedAtMs8886 = if (newerPairTrend8886) pairAt8870 else latest8752.trendObservedAtMs8886,
             price = if (newerPrice8833) price else latest8752.price,
             priceObservedAtMs8372 = if (newerPrice8833) pairAt8870 else latest8752.priceObservedAtMs8372,
             priceChange24h = if (newerChange248870) pair.priceChangeH24 else latest8752.priceChange24h,
@@ -1969,6 +1985,9 @@ object DynamicAltTokenRegistry {
             shortWindowObservedAtMs8832 = if ((pair.buysM5 >= 0 && pair.sellsM5 >= 0) ||
                 (pair.volumeM5.isFinite() && pair.volumeM5 >= 0.0) || pair.priceChangeM5.isFinite())
                 pair.candle.ts else 0L,
+            change1hPct8886 = pair.priceChangeH1.takeIf { it.isFinite() } ?: Double.NaN,
+            change6hPct8886 = pair.priceChangeH6.takeIf { it.isFinite() } ?: Double.NaN,
+            trendObservedAtMs8886 = if (pair.priceChangeH1.isFinite() || pair.priceChangeH6.isFinite()) pair.candle.ts else 0L,
             liquidityUsd = pair.liquidity, volume24h = pair.candle.volume24h,
             buys24h = pair.candle.buys24h, sells24h = pair.candle.sells24h,
             ageHours = if (createdAt > 0L) ((System.currentTimeMillis() - createdAt).coerceAtLeast(0L) / 3_600_000.0) else 999.0,
@@ -2103,6 +2122,8 @@ object DynamicAltTokenRegistry {
             val changes = attrs.optJSONObject("price_change_percentage")
             val change24 = number(changes, "h24")
             val change5 = number(changes, "m5")
+            val change1 = number(changes, "h1")    // V5.0.8886 — the pool's h1 / h6 (GeckoTerminal: m5 m15 m30 h1 h6 h24)
+            val change6 = number(changes, "h6")
             val volumes = attrs.optJSONObject("volume_usd")
             val volume5 = number(volumes, "m5").takeIf { it >= 0.0 } ?: Double.NaN
             val m5Observed = (buys5 >= 0 && sells5 >= 0) || volume5.isFinite() || change5.isFinite()
@@ -2122,6 +2143,8 @@ object DynamicAltTokenRegistry {
                 buys24h = buys24.coerceAtLeast(0), sells24h = sells24.coerceAtLeast(0),
                 buys5m8832 = buys5, sells5m8832 = sells5, volume5m8832 = volume5, change5mPct8832 = change5,
                 shortWindowObservedAtMs8832 = if (m5Observed) observedAt else 0L,
+                change1hPct8886 = change1, change6hPct8886 = change6,
+                trendObservedAtMs8886 = if (change1.isFinite() || change6.isFinite()) observedAt else 0L,
                 ageHours = ageHours, source = if (newPools) "geckoterminal_new" else "geckoterminal_trending",
                 isTrending = !newPools, sector = inferSector(symbol), lastUpdatedMs = nowMs,
             )
@@ -2135,7 +2158,7 @@ object DynamicAltTokenRegistry {
         for (page in 1..5) {
             val url  = "https://api.coingecko.com/api/v3/coins/markets" +
                 "?vs_currency=usd&order=volume_desc&per_page=100&page=$page" +
-                "&sparkline=false&price_change_percentage=24h"
+                "&sparkline=false&price_change_percentage=1h,24h,7d"   // V5.0.8886 — adds the *_1h_ / *_7d_in_currency fields
             val body = httpGet(url) ?: break
             try {
                 val arr = JSONArray(body)
@@ -2149,6 +2172,10 @@ object DynamicAltTokenRegistry {
                     val mcap   = obj.optDouble("market_cap", 0.0)
                     val vol    = obj.optDouble("total_volume", 0.0)
                     val chg24h = obj.optDouble("price_change_percentage_24h", 0.0)
+                    // V5.0.8886 — the same row's 1 h and 7 d changes, under the row's own last_updated clock (unknown = 0, no authority)
+                    val chg1h8886 = obj.optDouble("price_change_percentage_1h_in_currency", Double.NaN)
+                    val chg7d8886 = obj.optDouble("price_change_percentage_7d_in_currency", Double.NaN)
+                    val updatedAt8886 = try { java.time.Instant.parse(obj.optString("last_updated", "")).toEpochMilli() } catch (_: Throwable) { 0L }
 
                     if (vol < MIN_VOL_24H) continue
                     val mint = "cg:$id"
@@ -2164,6 +2191,9 @@ object DynamicAltTokenRegistry {
                         priceChange24h= chg24h,
                         change24hObservedAtMs8752 = if (obj.has("price_change_percentage_24h") && !obj.isNull("price_change_percentage_24h"))
                             System.currentTimeMillis() else 0L,
+                        change1hPct8886 = chg1h8886.takeIf { it.isFinite() } ?: Double.NaN,
+                        change7dPct8886 = chg7d8886.takeIf { it.isFinite() } ?: Double.NaN,
+                        trendObservedAtMs8886 = if (chg1h8886.isFinite() || chg7d8886.isFinite()) updatedAt8886 else 0L,
                         mcap          = mcap,
                         volume24h     = vol,
                         source        = "cg_markets:p$page",
@@ -2394,6 +2424,7 @@ object DynamicAltTokenRegistry {
             change24hObservedAtMs8752 = validClock8870(rawTok6492.change24hObservedAtMs8752),
             txns24hObservedAtMs8752 = validClock8870(rawTok6492.txns24hObservedAtMs8752),
             shortWindowObservedAtMs8832 = validClock8870(rawTok6492.shortWindowObservedAtMs8832),
+            trendObservedAtMs8886 = validClock8870(rawTok6492.trendObservedAtMs8886),
         )
 
         // V5.0.6544 — merge only by canonical chain+token identity.
@@ -2412,6 +2443,9 @@ object DynamicAltTokenRegistry {
             // upsert must not clear it or claim a later market observation.
             val newestM58833 = if (existing == null || preferIncomingShortWindow8833(
                     existing.shortWindowObservedAtMs8832, tok.shortWindowObservedAtMs8832)) tok else existing
+            // V5.0.8886 — the 1 h / 6 h / 7 d set follows the same rule under its own clock
+            val newestTrend8886 = if (existing == null || preferIncomingShortWindow8833(
+                    existing.trendObservedAtMs8886, tok.trendObservedAtMs8886)) tok else existing
             if (existing == null) {
                 newDiscoveries6544.incrementAndGet()
                 if (tok.isFresh6544) freshPoolsDiscovered6544.incrementAndGet()
@@ -2445,6 +2479,10 @@ object DynamicAltTokenRegistry {
                     volume5m8832 = newestM58833.volume5m8832,
                     change5mPct8832 = newestM58833.change5mPct8832,
                     shortWindowObservedAtMs8832 = newestM58833.shortWindowObservedAtMs8832,
+                    change1hPct8886 = newestTrend8886.change1hPct8886,
+                    change6hPct8886 = newestTrend8886.change6hPct8886,
+                    change7dPct8886 = newestTrend8886.change7dPct8886,
+                    trendObservedAtMs8886 = newestTrend8886.trendObservedAtMs8886,
                     isTrending    = tok.isTrending || existing.isTrending,
                     trendingRank  = if (tok.trendingRank >= 0) tok.trendingRank else existing.trendingRank,
                     isBoosted     = tok.isBoosted || existing.isBoosted,
@@ -2486,6 +2524,10 @@ object DynamicAltTokenRegistry {
                     volume5m8832 = newestM58833.volume5m8832,
                     change5mPct8832 = newestM58833.change5mPct8832,
                     shortWindowObservedAtMs8832 = newestM58833.shortWindowObservedAtMs8832,
+                    change1hPct8886 = newestTrend8886.change1hPct8886,
+                    change6hPct8886 = newestTrend8886.change6hPct8886,
+                    change7dPct8886 = newestTrend8886.change7dPct8886,
+                    trendObservedAtMs8886 = newestTrend8886.trendObservedAtMs8886,
                     ageHours = tok.ageHours.takeIf { it > 0.0 } ?: existing.ageHours,
                     source = tok.source, isTrending = tok.isTrending || existing.isTrending,
                     trendingRank = if (tok.trendingRank >= 0) tok.trendingRank else existing.trendingRank,

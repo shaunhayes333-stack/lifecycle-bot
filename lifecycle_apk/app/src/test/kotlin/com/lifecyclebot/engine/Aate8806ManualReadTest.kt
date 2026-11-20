@@ -66,7 +66,8 @@ class Aate8806ManualReadTest {
         val b = src("engine/truth/CryptoSpotPaperBacking8788.kt")
         // 8870 names capacity separately; disabled/wrong-lane still cannot return backing readiness.
         assertTrue(b.contains("if (!enabled8788 || l !in BACKED_LANES_8806) return Availability8870.DISABLED_OR_WRONG_LANE"))
-        assertTrue(b.contains("return availability8870(lane, nowMs) == Availability8870.READY"))
+        // Superseded in part by V5.0.8886: the readiness also reads the candidate's trend cell (default none = the lane alone).
+        assertTrue(b.contains("return availability8870(lane, nowMs, cell) == Availability8870.READY"))
         assertFalse(CryptoSpotPaperBacking8788.backs8788("CORE", System.currentTimeMillis()))
         assertTrue(b.contains(".firstOrNull { it.strategy.equals(lane, ignoreCase = true) }"))
     }

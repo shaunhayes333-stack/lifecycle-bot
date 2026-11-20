@@ -3628,7 +3628,7 @@ object CryptoAltTrader {
      * crypto twin's virtual one (CryptoTwin8883), so the twin carries exactly what the live book would have carried.
      */
     private fun entryPosition8883(id: String, signal: AltSignal, isSpot: Boolean, candidate: CryptoFinalBuyCandidate, mktSym: String,
-                                  sizeSol: Double, lev: Double, tp: Double, sl: Double, paper: Boolean): AltPosition {
+                                  sizeSol: Double, lev: Double, tp: Double, sl: Double, paper: Boolean, trend8886: String = ""): AltPosition {
         val holdSetupQuality6663 = when {
             signal.score >= 80 && signal.confidence >= 70 -> "A+"
             signal.score >= 70 -> "A"
@@ -3669,7 +3669,9 @@ object CryptoAltTrader {
             aiConfidence   = signal.confidence,
             reasons        = listOf("STRATEGY7803=" + signal.strategy7803) +
                 signal.deskOverlays7803.sorted().map { "OVERLAY7803=" + it } +
-                signal.reasons + "CRYPTO_CANDIDATE:${candidate.assetKey}",
+                signal.reasons + "CRYPTO_CANDIDATE:${candidate.assetKey}" +
+                // V5.0.8886 — the candidate's trend key (CryptoTrend8886), so the twin files the close under lane|cell
+                listOfNotNull(trend8886.takeIf { it.isNotBlank() }?.let { CryptoTrend8886.TAG_8886 + it }),
             holdSetupQuality = holdSetupQuality6663,
             adaptiveMaxHoldSeconds = holdRecommendation6663?.maxSeconds?.coerceIn(60, 3_600) ?: 3_600,
         )
@@ -4076,6 +4078,13 @@ object CryptoAltTrader {
         } catch (_: Throwable) {}
         com.lifecyclebot.perps.crypto.brain.CryptoFunnel.preFdg(candidate.canEnterFdg)
         val disciplinePassed6647 = passesCryptoDiscipline6647(candidate)
+        // V5.0.8886 — the candidate's trend read (CryptoTrend8886) on its registry row as it stands now (each part under its own
+        // observation clock), else the row its evaluation owns: band over every measured horizon x five-minute flow x five-minute
+        // pace. The cell rides the evidence to the lane backing; the key rides the position.
+        val trend8886 = try {
+            CryptoTrend8886.read8886(DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(candidate.assetKey) ?: signal.evaluationOwner8870,
+                System.currentTimeMillis()).also { CryptoTrend8886.note8886(it) }
+        } catch (_: Throwable) { null }
         // Submission owns the refusal, sizing and seal. A selected candidate never
         // disappears behind a separate local sizing gate before this boundary.
         val canonicalCryptoAdmission6565 = com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.submit(
@@ -4101,6 +4110,7 @@ object CryptoAltTrader {
                     // Compatibility desk label; 7803 keeps every overlay resident.
                     "deskLane7391" to CryptoLaneDesk7391.laneFromReasons(signal.reasons).ifBlank { "NONE" },
                     "lane8788" to candidate.selectedLane,   // V5.0.8788 — CRYPTO_SPOT / CRYPTO_ALT / CRYPTO_LEV, for the paper backing
+                    CryptoTrend8886.EVIDENCE_8886 to trend8886?.cell.orEmpty(),   // V5.0.8886 — the trend cell, for the cell backing
                 ),
                 requestedSizeSol = finalSize, price = signal.price, liquidityUsd = candidate.liquidityUsd,
                 priceObservedAtMs8870 = signal.priceObservedAtMs8870,
@@ -4134,7 +4144,7 @@ object CryptoAltTrader {
                 if (!paper7803 && !com.lifecyclebot.engine.truth.CryptoSignalEngine8857.integrityReason8857(canonicalCryptoAdmission6565.reason))
                     try {
                         CryptoTwin8883.open8883(entryPosition8883("ALT:TWIN:${candidate.candidateVersion}:${System.currentTimeMillis()}",
-                            signal, isSpot, candidate, mktSym, finalSize, lev, tp8110, sl, false), candidate.selectedLane)
+                            signal, isSpot, candidate, mktSym, finalSize, lev, tp8110, sl, false, trend8886?.key.orEmpty()), candidate.selectedLane)
                     } catch (_: Throwable) {}
                 // V5.0.8714 — a Solana coin the crypto desk does not take is still offered to the meme lanes (8045).
                 if (solanaCoinRefused8714(paper7803, signal.market == PerpsMarket.DYN, signal.dynChainId))
@@ -4187,7 +4197,7 @@ object CryptoAltTrader {
         }
         // V5.0.8883 — one construction for the live / paper position and the crypto twin's (entryPosition8883)
         val position = entryPosition8883("ALT:${canonicalCryptoIntent6565.attemptId}", signal, isSpot, candidate, mktSym,
-            canonicalFinalSize6570, lev, tp8110, sl, paper7803)
+            canonicalFinalSize6570, lev, tp8110, sl, paper7803, trend8886?.key.orEmpty())
         // V5.0.8883 — LIVE: the decision opened this position; its twin is managed by the same exits with a virtual fill
         if (!paper7803) try { CryptoTwin8883.open8883(position, candidate.selectedLane) } catch (_: Throwable) {}
 

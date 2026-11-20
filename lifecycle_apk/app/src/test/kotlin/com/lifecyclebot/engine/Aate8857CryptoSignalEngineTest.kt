@@ -67,7 +67,8 @@ class Aate8857CryptoSignalEngineTest {
 
     @Test fun theContractAsksTheEngineAndReservesThePermit() {
         val c = src("engine/truth/CanonicalAssetEntryContract6551.kt")
-        assertTrue(c.contains("CryptoSignalEngine8857.passes8857(candidate.mode.equals(\"LIVE\", true), candidate.evidence[\"lane8788\"], integrity8857, now8857)"))
+        // Superseded in part by V5.0.8886: the candidate's trend cell is passed as well (read against its own twin record).
+        assertTrue(c.contains("CryptoSignalEngine8857.passes8857(candidate.mode.equals(\"LIVE\", true), candidate.evidence[\"lane8788\"], integrity8857, now8857,\n                    candidate.evidence[\"trend8886\"])"))
         assertTrue(c.contains("val backingReserved8832 = if (paperBacked8788 || signalEngine8857) try {"))
         assertTrue(c.contains("if ((paperBacked8788 || signalEngine8857) && !backingReserved8832)"))
         assertTrue("the same admission owns integrity, and an unreadable check binds", c.contains("refusalBinds8871(why, entryAssessment8871) } catch (_: Throwable) { true }"))

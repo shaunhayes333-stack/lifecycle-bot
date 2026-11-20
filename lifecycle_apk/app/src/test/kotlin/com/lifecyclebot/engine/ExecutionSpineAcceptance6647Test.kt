@@ -61,7 +61,10 @@ class ExecutionSpineAcceptance6647Test {
         assertTrue(bot.contains("CANONICAL_OPEN_ROUTED_DIRECT_TO_EXIT_6647"))
         assertFalse(crypto.contains("positionCounter"))
         assertFalse(crypto.contains("TradeAuthorizer.authorize("))
-        assertTrue(crypto.contains("id             = \"ALT:${'$'}{canonicalCryptoIntent6565.attemptId}\""))
+        // Superseded in part by V5.0.8883: the live position is built by the one construction the crypto twin shares
+        // (entryPosition8883); its id is still the canonical intent's attempt id, never a counter.
+        assertTrue(crypto.contains("val position = entryPosition8883(\"ALT:${'$'}{canonicalCryptoIntent6565.attemptId}\", signal, isSpot, candidate, mktSym,"))
+        assertTrue(crypto.contains("            id             = id,"))
         assertTrue(authorizer.contains("!finality.allowed || finality.shadowOnly"))
         assertFalse(replay.contains("gross - t.pnlSol"))
         assertFalse(replay.contains("if (openCost < 0.0) openCost = 0.0"))

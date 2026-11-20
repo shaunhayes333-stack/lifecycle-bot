@@ -47,6 +47,9 @@ data class PairInfo(
     // priced token with invented 0% momentum and unobserved buyer flow.
     val priceChangeH24: Double = Double.NaN,
     val txnsH24Observed: Boolean = false,
+    // V5.0.8886 — the pair's h6 price change (DexScreener pairs carry m5 / h1 / h6 / h24); NaN = absent. Last, so every
+    // positional construction stays source-compatible.
+    val priceChangeH6: Double = Double.NaN,
 )
 
 /** V5.0.8774 — the one HTTP client every instance shares (was built per instance; several callers build one per call). */
@@ -384,6 +387,7 @@ class DexscreenerApi {
             priceChangeH1    = p.optJSONObject("priceChange")?.takeIf { it.has("h1") }?.optDouble("h1", Double.NaN) ?: Double.NaN,
             priceChangeH24   = p.optJSONObject("priceChange")?.takeIf { it.has("h24") }?.optDouble("h24", Double.NaN) ?: Double.NaN,
             txnsH24Observed  = h24?.let { it.optInt("buys", -1) >= 0 && it.optInt("sells", -1) >= 0 } == true,
+            priceChangeH6    = p.optJSONObject("priceChange")?.takeIf { it.has("h6") }?.optDouble("h6", Double.NaN) ?: Double.NaN,
         )
     }
 

@@ -1652,3 +1652,43 @@ program id, so their buys arrive too; the feed's governor parks a stream that fl
 
 **Not changed.** Every existing target and its reads; the intake every launch enters (safety, LP rule, FDG, lanes).
 
+
+## 75. The crypto trend cell (8886)
+
+**Owner / plan.** W7: "keeps the classic signal engine. Adds a multi-horizon price and volume trend score for majors, with
+order-flow imbalance for entry timing. Twin coverage."
+
+**Before.** A crypto candidate carried its classic signal, its 24 h change and its five-minute set. The registry dropped
+the providers' 1 h / 6 h / 7 d changes at parse time, and nothing graded the crypto lanes by trend shape.
+
+**Data added (registry, `DynToken`).** `change1hPct8886`, `change6hPct8886`, `change7dPct8886` under one clock,
+`trendObservedAtMs8886` — the set of ONE provider observation; a newer observation replaces the whole set (the five-minute
+set's rule), an older one never rolls it back; NaN where the provider did not carry a value; not persisted (as the
+five-minute set). Sources: DexScreener pair `priceChange.h1` / `h6` (new `PairInfo.priceChangeH6`, parsed last so positional
+constructions stay valid); GeckoTerminal pool `price_change_percentage.h1` / `h6`; CoinGecko `/coins/markets` now asks
+`price_change_percentage=1h,24h,7d` and reads `price_change_percentage_1h_in_currency` / `_7d_in_currency` under the row's
+`last_updated` (unparseable = clock 0 = no authority).
+
+**The read (`CryptoTrend8886.read8886`).** On the candidate's registry row as it stands at submission (else the row its
+evaluation owns): horizons 5 m (CryptoShortWindow8832's own 120 s freshness), 1 h, 6 h, 24 h, 7 d, each counted while its age
+is at most half its horizon. Band: TU (< 2 read), T3 (all rising), T0 (all falling), T2 (more rising), T1 (otherwise). Flow:
+F1 / F0 / FU (five-minute buys vs sells). Volume: V1 / V0 / VU (five-minute volume vs the day's five-minute mean). Key =
+band + flow + volume; graded cell = band + flow.
+
+**Where it goes.** Evidence `trend8886` (the cell) on every crypto canonical candidate; reason `TREND8886=<key>` on the
+position the live book or the twin builds (entryPosition8883). The crypto twin files each close under its lane and under
+`lane|cell` (same 400-close window, same store).
+
+**What it decides.** `CryptoSpotPaperBacking8788.availability8870(lane, now, cell)`, in LIVE with paper off only:
+- a cell whose twin record passes the lane rule (`paperBacks8788`) AND whose mean exceeds `familyZ8886(k)` standard errors
+  backs its candidates where the lane record does not; `k` = the lane's cells holding 20+ decisive closes; `familyZ8886(k)`
+  is the z with Φ(z) = Φ(1)^(1/k) (Šidák: the codebase's one-SE confidence, held across the family; k = 1 is one SE);
+- a cell proven losing (`MemePaperTrader8544.provenLosing8608`: n ≥ 30, mean + SE < 0, PF < 1) withdraws the lane's backing
+  from its candidates;
+- otherwise the lane record decides, as before. The hourly cap (4) and the −0.1 SOL loss stop stay shared.
+
+**Not changed.** The classic signal engine, its scores and floors; every hard-safety, route, toggle, wallet and integrity
+refusal; the lane rule; volume is recorded on the key and not graded on its own yet.
+
+**Brief.** `cryptoTrend8886[cells{...} horizonsRead{n0..n5} ...]` and `cryptoCells8886[read backing{...} losing{...}
+reservedByCell ...]`.

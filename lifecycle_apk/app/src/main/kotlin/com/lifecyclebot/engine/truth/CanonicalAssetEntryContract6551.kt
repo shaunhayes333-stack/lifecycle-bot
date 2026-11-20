@@ -284,9 +284,9 @@ object CanonicalEntryAuthority6551 {
         // backs it (CryptoSpotPaperBacking8788: bounded per hour, automatic -0.1 SOL stop). Hard safety, route, toggle and wallet
         // refusals ran above; the oracle's hard-safety verdict still binds.
         val paperBacked8788 = candidate.mode.equals("LIVE", true) && !oracleHardSafety7287 && !livePositiveEv7828 && !evRefusalInverted8094 &&
-            try { CryptoSpotPaperBacking8788.backs8788(candidate.evidence["lane8788"], System.currentTimeMillis()) } catch (_: Throwable) { false }
+            try { CryptoSpotPaperBacking8788.backs8788(candidate.evidence["lane8788"], System.currentTimeMillis(), candidate.evidence["trend8886"]) } catch (_: Throwable) { false }
         if (candidate.mode.equals("LIVE", true) && !oracleHardSafety7287 && !livePositiveEv7828 && !evRefusalInverted8094 && !paperBacked8788) {
-            if (CryptoSpotPaperBacking8788.capacityWait8870(candidate.evidence["lane8788"], System.currentTimeMillis()))
+            if (CryptoSpotPaperBacking8788.capacityWait8870(candidate.evidence["lane8788"], System.currentTimeMillis(), candidate.evidence["trend8886"]))
                 return deferred(candidate, venue, "CRYPTO_PAPER_BACKING_CAPACITY_8870")
             try {
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_LIVE_NON_POSITIVE_EXPECTANCY_7828")
@@ -369,7 +369,8 @@ object CanonicalEntryAuthority6551 {
         entryAssessment8871.refusal?.let { why ->
             val now8857 = System.currentTimeMillis()
             val integrity8857 = try { com.lifecyclebot.engine.cortex.CrossAssetCortex7931.refusalBinds8871(why, entryAssessment8871) } catch (_: Throwable) { true }
-            if (CryptoSignalEngine8857.passes8857(candidate.mode.equals("LIVE", true), candidate.evidence["lane8788"], integrity8857, now8857)) {
+            if (CryptoSignalEngine8857.passes8857(candidate.mode.equals("LIVE", true), candidate.evidence["lane8788"], integrity8857, now8857,
+                    candidate.evidence["trend8886"])) {
                 signalEngine8857 = true
                 CryptoSignalEngine8857.noteAdvisory8857(
                     com.lifecyclebot.engine.cortex.CrossAssetCortex7931.learningIdentity8372(candidate),
@@ -378,7 +379,7 @@ object CanonicalEntryAuthority6551 {
                     com.lifecyclebot.engine.cortex.CrossAssetCortex7931.firedSetup8857(candidate, now8857))
             } else {
                 if (!integrity8857 && candidate.mode.equals("LIVE", true) &&
-                    CryptoSpotPaperBacking8788.capacityWait8870(candidate.evidence["lane8788"], now8857))
+                    CryptoSpotPaperBacking8788.capacityWait8870(candidate.evidence["lane8788"], now8857, candidate.evidence["trend8886"]))
                     return deferred(candidate, venue, "CRYPTO_PAPER_BACKING_CAPACITY_8870")
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_EDGE_REFUSED_7931_${candidate.mode.uppercase()}_${candidate.assetClass.tag}") } catch (_: Throwable) {}
                 if (candidate.mode.equals("LIVE", true)) CryptoSignalEngine8857.noteBound8857(why, integrity8857)
@@ -514,10 +515,10 @@ object CanonicalEntryAuthority6551 {
         // spending the bounded quota. Hold a permit through intent registration
         // so competing signal workers cannot exceed the shared hourly cap.
         val backingReserved8832 = if (paperBacked8788 || signalEngine8857) try {
-            CryptoSpotPaperBacking8788.reserve8832(candidate.evidence["lane8788"], System.currentTimeMillis(), attemptId)
+            CryptoSpotPaperBacking8788.reserve8832(candidate.evidence["lane8788"], System.currentTimeMillis(), attemptId, candidate.evidence["trend8886"])
         } catch (_: Throwable) { false } else false
         if ((paperBacked8788 || signalEngine8857) && !backingReserved8832) {
-            if (CryptoSpotPaperBacking8788.capacityWait8870(candidate.evidence["lane8788"], System.currentTimeMillis()))
+            if (CryptoSpotPaperBacking8788.capacityWait8870(candidate.evidence["lane8788"], System.currentTimeMillis(), candidate.evidence["trend8886"]))
                 return deferred(candidate, venue, "CRYPTO_PAPER_BACKING_CAPACITY_8870")
             return blocked(candidate, venue, "CRYPTO_PAPER_BACKING_CAP_OR_PROOF_CHANGED_8832")
         }
