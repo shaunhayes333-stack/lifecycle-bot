@@ -1758,3 +1758,9 @@ ex-top-3 / median net, and each share's difference ± SE, verdict and how many d
 
 **Not covered.** The prints after the first hour (a runner still held is marked at the hour's end, as every launch-replay
 grade is); launches the store has no lane decision on; lanes the doctrine does not own.
+
+## 78. 8888's lane exit grade compiles (8889)
+
+8888 failed to compile: `LaneExitGrade8888.grade8888` found the doctrine's share with `DoubleArray.indexOf`, which this
+Kotlin does not offer for floating-point arrays. It is now `indexOfFirst { it == RunnerDoctrine8584.KEEP_8584 }` (the same
+exact comparison). Behaviour is 8888's (§77) unchanged.

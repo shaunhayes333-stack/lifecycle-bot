@@ -98,7 +98,8 @@ object LaneExitGrade8888 {
 
     /** Pure: the per-lane grades of [rows], deflated across every lane x non-doctrine share holding [minN]+ decisions. */
     internal fun grade8888(rows: List<Graded8888>, minN: Int = LaunchReplay8744.PROVEN_MIN_N_8748): List<Lane8888> {
-        val doctrineIdx = KEEPS_8888.indexOf(com.lifecyclebot.engine.RunnerDoctrine8584.KEEP_8584)
+        // (floating-point arrays have no indexOf in this Kotlin: the doctrine's share is found by exact comparison)
+        val doctrineIdx = KEEPS_8888.indexOfFirst { it == com.lifecyclebot.engine.RunnerDoctrine8584.KEEP_8584 }
         val byLane = rows.groupBy { it.lane }
         val k = byLane.values.count { it.size >= minN } * (KEEPS_8888.size - 1)
         val z = com.lifecyclebot.perps.CryptoTrend8886.familyZ8886(k)

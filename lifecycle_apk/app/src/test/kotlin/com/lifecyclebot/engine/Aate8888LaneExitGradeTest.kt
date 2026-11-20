@@ -85,5 +85,7 @@ class Aate8888LaneExitGradeTest {
         assertTrue(g.contains("ShadowFill8364.laneEntryPx8364(x.p[e], d.lane)"))
         assertTrue(src("engine/DiagnosisBrief8438.kt").contains("com.lifecyclebot.engine.truth.LaneExitGrade8888.statusLine8888()"))
         assertTrue(File("../../docs/DATA_MAP.md").readText().contains("## 77. Each doctrine lane grades its own give-back (8888)"))
+        // V5.0.8889 — the doctrine's share is found by exact comparison (floating-point arrays have no indexOf here)
+        assertTrue(g.contains("val doctrineIdx = KEEPS_8888.indexOfFirst { it == com.lifecyclebot.engine.RunnerDoctrine8584.KEEP_8584 }"))
     }
 }
