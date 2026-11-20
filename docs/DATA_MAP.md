@@ -2005,3 +2005,17 @@ Aate8871PlaybookDeliveryTest cases (their 10-second worker flush timed out behin
 a save of a few ms waits a few ms, a 400 ms save leaves 1.6 s free. Forensic impact: what a save writes, its atomicity and receipt
 order are unchanged; a delivery becomes durable at most 10 s later, and the producer re-delivers anything unacknowledged, as it
 already did for a save that failed.
+
+## 91. 8902 rebuilt; a paper ledger/journal defect the smoke caught (8903)
+
+8902's build and every unit test passed (the 8871 playbook tests included). Its runtime smoke failed the execution-spine witness
+on a real paper-accounting divergence, not on 8902's change: at 18:01 on the emulator, paper position EYX45DKQCM took two
+partial sells whose journal commits each logged PAPER_ATOMIC_COMMIT_JOURNAL_DUPLICATE_6632; its full close was then refused by
+the ledger (LEDGER_REJECTED_QUARANTINED_CLOSE_6502 invariantBroken=true gross=0.118783 basis=0.064400
+action=refuse_cash_and_realized_mutation) while the journal wrote the lot's residual basis off
+(JOURNAL_TERMINAL_SELL_RESIDUAL_WRITTEN_OFF_6868 residualBasisSol=0.064400). From then on the ledger's open cost exceeded the
+journal's by exactly 0.0644 SOL (FORENSIC_OPEN_COST_DELTA_6635), and the witness reported openCostDelta=0.064400. Nothing 8895-8902
+changed touches PaperAccountLedger6430, TradeHistoryStore or the journal write-off (diff 8900..8902: LanePlaybook7907, its test,
+DiagnosisBrief8438's line, the docs). It needs a market sequence of partial sells on one paper lot, which 8900's smoke did not meet.
+The defect stands: a quarantined close leaves the ledger holding a basis the journal has written off. It is paper accounting only
+(live closes are chain-proven, §8041), and it is the next accounting item. 8903 rebuilds 8902 to re-run CI.
