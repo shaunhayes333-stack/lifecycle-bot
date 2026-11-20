@@ -1726,3 +1726,35 @@ authority consumers. Nothing admits or refuses on it in this build.
 **Not covered.** Venue (the research row does not carry it); crypto decisions (they are graded on the crypto twin, §72/§75);
 the launch tapes and lab strategies keep their own replays (LaunchReplay8744, StrategyLab8755). A decision whose mark was
 lost writes no research row, so neither the table nor anything else books it.
+
+## 77. Each doctrine lane grades its own give-back (8888)
+
+**Plan.** W5: "lane exits keep a runner's remainder, with learned give-back per lane graded hourly". The default stays the
+doctrine (RunnerGrab7967.TIERS_7967 rungs, a 45 % give-back from a 2x peak).
+
+**Data.** LaunchHour8628's store: every pump.fun launch's first-hour prints (48 h) and every lane decision on it. New read
+`firstDecisions8888(now)`: each lane's FIRST decision per launch (`SELECT m,l,t,a,c FROM decision WHERE t >= now-48h ORDER BY
+m,l,t`, earliest row per mint x lane): its time, admitted flag and the round trip it was priced at.
+
+**Grade (`LaneExitGrade8888`, inside every LaunchReplay8744 pass, 30 min).** For each doctrine lane's decision whose time
+falls inside its launch's stored prints (spikes removed, clean8748), the live doctrine is run on those prints exactly as the
+evidence shadow runs it (EvidenceShadow8344.doctrineWhy8878): entry at the decision's print plus the lane's measured chase
+(ShadowFill8364.laneEntryPx8364); the lane stop FieldManual7715.stopPct8392(lane, cost) in 3..40 %; level
+`RunnerDoctrine8584.paperStopLevel8584(stop, peak, keep)`, sold on a second print at or under it (or at once under −60 %);
+TIERS_7967 rungs on the gross (MemePaperTrader8544.rung8544), the clock not read on a rung's print; the lane clock
+(CortexLabelHygiene8144.horizonMsFor8468) only where RunnerDoctrine8584.holds8584 lets a time exit pass; each sale filled
+where the curve stood the live sell latency (ShadowAlign8366.sellLatencyMs8366) after its print, less the shadow's exit slip;
+whatever is held at the hour's last print marked there; less the decision's own round trip.
+
+**Shares.** `KEEPS_8888 = 0.70, 0.55 (doctrine), 0.40` of a 2x-plus peak (give-back 30 / 45 / 60 %). RunnerDoctrine8584's
+`line8584`, `lineWithStop8719` and `paperStopLevel8584` take the kept share as a parameter defaulting to `KEEP_8584 = 0.55`:
+every live call is unchanged bit for bit.
+
+**Verdicts.** Per lane, each other share's paired difference against the doctrine (mean, sample SE): BETTER when mean − z·SE
+> 0, WORSE when mean + z·SE < 0, otherwise SAME; n >= 100 (LaunchReplay8744.PROVEN_MIN_N_8748); z = CryptoTrend8886.familyZ8886
+over lanes graded x two shares. The brief line `laneExits8888[...]` prints, per lane, n, admitted, the doctrine's mean /
+ex-top-3 / median net, and each share's difference ± SE, verdict and how many decisions it changed.
+`provenKeep8888(lane)` names a BETTER share; nothing live reads it in this build.
+
+**Not covered.** The prints after the first hour (a runner still held is marked at the hour's end, as every launch-replay
+grade is); launches the store has no lane decision on; lanes the doctrine does not own.

@@ -4068,6 +4068,13 @@ object CryptoAltTrader {
         }
 
         val candidate = buildCryptoFinalBuyCandidate(signal, isSpot, finalSize)
+        // V5.0.8886 — the candidate's trend read (CryptoTrend8886) on its registry row as it stands now (each part under its own
+        // observation clock), else the row its evaluation owns: band over every measured horizon x five-minute flow x five-minute
+        // pace. The cell rides the evidence to the lane backing; the key rides the position.
+        val trend8886 = try {
+            CryptoTrend8886.read8886(DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(candidate.assetKey) ?: signal.evaluationOwner8870,
+                System.currentTimeMillis()).also { CryptoTrend8886.note8886(it) }
+        } catch (_: Throwable) { null }
         // V5.0.8110 — crypto lane parity phase 2: the take-profit follows the desk lane's exit family and never sits under cost.
         val tp8110 = laneTp8110(signal, isSpot, finalTp, finalSize, candidate.liquidityUsd) ?: tp
         try {
@@ -4078,13 +4085,6 @@ object CryptoAltTrader {
         } catch (_: Throwable) {}
         com.lifecyclebot.perps.crypto.brain.CryptoFunnel.preFdg(candidate.canEnterFdg)
         val disciplinePassed6647 = passesCryptoDiscipline6647(candidate)
-        // V5.0.8886 — the candidate's trend read (CryptoTrend8886) on its registry row as it stands now (each part under its own
-        // observation clock), else the row its evaluation owns: band over every measured horizon x five-minute flow x five-minute
-        // pace. The cell rides the evidence to the lane backing; the key rides the position.
-        val trend8886 = try {
-            CryptoTrend8886.read8886(DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(candidate.assetKey) ?: signal.evaluationOwner8870,
-                System.currentTimeMillis()).also { CryptoTrend8886.note8886(it) }
-        } catch (_: Throwable) { null }
         // Submission owns the refusal, sizing and seal. A selected candidate never
         // disappears behind a separate local sizing gate before this boundary.
         val canonicalCryptoAdmission6565 = com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.submit(

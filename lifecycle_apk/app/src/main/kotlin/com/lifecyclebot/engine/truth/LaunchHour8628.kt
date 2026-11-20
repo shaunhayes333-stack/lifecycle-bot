@@ -212,6 +212,33 @@ object LaunchHour8628 {
         return Triple(ts.toLongArray(), ps.toDoubleArray(), bs.toBooleanArray())
     }
 
+    /** V5.0.8888 — a lane's first decision on a launch: when (wall clock), admitted or not, and the round trip it was priced at. */
+    internal class Decision8888(val lane: String, val atMs: Long, val admitted: Boolean, val costPct: Double)
+
+    /**
+     * V5.0.8888 — LaneExitGrade8888's read: each lane's FIRST decision on each launch born in the retention window, by mint
+     * (one row per mint x lane, the earliest; the setup rows of one decision collapse). Read-only.
+     */
+    internal fun firstDecisions8888(now: Long): Map<String, List<Decision8888>> {
+        val out = HashMap<String, ArrayList<Decision8888>>()
+        val path = AATEApp.appContextOrNull()?.getDatabasePath(NAME) ?: return out
+        if (!path.exists()) return out
+        SQLiteDatabase.openDatabase(path.path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
+            db.rawQuery("SELECT m,l,t,a,c FROM decision WHERE t >= CAST(? AS INTEGER) ORDER BY m,l,t",
+                arrayOf((now - RETENTION).toString())).use { c ->
+                var lastKey = ""
+                while (c.moveToNext()) {
+                    val mint = c.getString(0); val lane = c.getString(1)
+                    val key = "$mint|$lane"
+                    if (key == lastKey) continue
+                    lastKey = key
+                    out.getOrPut(mint) { ArrayList() }.add(Decision8888(lane, c.getLong(2), c.getInt(3) == 1, c.getDouble(4)))
+                }
+            }
+        }
+        return out
+    }
+
     private const val PATH_MIN_PRINTS_8741 = 20
     private const val REPLAY_MIN_PRINTS_8788 = 3
     private const val BAR_MS_8741 = 10_000L

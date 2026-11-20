@@ -120,8 +120,8 @@ object RunnerDoctrine8584 {
      */
     private const val RAMP_FROM_8784 = 1.8
 
-    fun lineWithStop8719(peakMult: Double, stopPct: Double): Double {
-        val half = line8584(peakMult)
+    fun lineWithStop8719(peakMult: Double, stopPct: Double, keep: Double = KEEP_8584): Double {
+        val half = line8584(peakMult, keep)
         if (!stopPct.isFinite() || stopPct <= 0.0) return half
         val withStop = peakMult * (1.0 - stopPct.coerceAtMost(95.0) / 100.0)
         // V5.0.8769 — code audit (exits F10): the line jumped at 2x for stops over 25 % (cost-widened runner stops reach 40 %):
@@ -132,7 +132,7 @@ object RunnerDoctrine8584 {
         val base = maxOf(1.05, minOf(half, withStop))
         if (peakMult <= RAMP_FROM_8784) return base
         val t = (peakMult - RAMP_FROM_8784) / (2.0 - RAMP_FROM_8784)
-        return minOf(half, base + (line8584(2.0) - base) * t).coerceAtLeast(base)
+        return minOf(half, base + (line8584(2.0, keep) - base) * t).coerceAtLeast(base)
     }
 
     /** The stop distance (%) a position of [lane] carries: the lane's stop at its measured round trip; NaN when unreadable. */
@@ -152,9 +152,16 @@ object RunnerDoctrine8584 {
     /** Pure: does the position in [lane] ride the doctrine ladder from entry? */
     fun rides8584(lane: String?): Boolean = enabled8584 && memeLane8584(lane)
 
+    /**
+     * V5.0.8888 — the share of a 2x-plus peak multiple the line keeps (a 45 % give-back). The live doctrine always uses it;
+     * LaneExitGrade8888 grades other shares beside it on the same paths ([line8584] / [lineWithStop8719] / [paperStopLevel8584]
+     * take it as a parameter whose default is this, so every live call is unchanged, bit for bit).
+     */
+    const val KEEP_8584 = 0.55
+
     /** Pure: the price multiple a profit exit must fall to before it may sell, given the peak multiple [peakMult]. */
-    fun line8584(peakMult: Double): Double =
-        if (peakMult < 2.0) maxOf(1.05, 1.0 + 0.5 * (peakMult - 1.0)) else maxOf(1.5, peakMult * 0.55)
+    fun line8584(peakMult: Double, keep: Double = KEEP_8584): Double =
+        if (peakMult < 2.0) maxOf(1.05, 1.0 + 0.5 * (peakMult - 1.0)) else maxOf(1.5, peakMult * keep)
 
     /**
      * Pure: is the exit [reason] of a [lane] position at [pnlPct] (peak [peakPct]) held by the doctrine? The doctrine's own
@@ -177,8 +184,8 @@ object RunnerDoctrine8584 {
      * MemePaperTrader8544: the paper book's stop level (gross %) under the doctrine — the lane stop until the peak reaches
      * +10 %, then the doctrine line.
      */
-    fun paperStopLevel8584(stopPct: Double, peakPct: Double): Double =
-        if (peakPct.isFinite() && peakPct >= 10.0) (lineWithStop8719(1.0 + peakPct / 100.0, stopPct) - 1.0) * 100.0 else -stopPct
+    fun paperStopLevel8584(stopPct: Double, peakPct: Double, keep: Double = KEEP_8584): Double =
+        if (peakPct.isFinite() && peakPct >= 10.0) (lineWithStop8719(1.0 + peakPct / 100.0, stopPct, keep) - 1.0) * 100.0 else -stopPct
 
     /** LaneExitTuner: a meme lane's take-profit / stop multiplier may widen, never shrink. */
     fun tunerFloor8584(lane: String?, mult: Double): Double =

@@ -492,12 +492,13 @@ object LaunchReplay8744 {
                 val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
                 if (!(solUsd > 0.0)) { status = "no SOL price"; return@execute }
                 val set = ArrayList<Path8748>()
+                val mints8888 = ArrayList<String>()   // V5.0.8888 — the launch each path is, for the lane exit grade
                 var spikes = 0L; var liveN = 0
                 val walletNames = ArrayList<String>()
                 LaunchHour8628.forEachLaunch8756(nowMs, MAX_LAUNCHES, LIVE_LAG_MS_8748, walletNames) { r ->
                     val x = clean8748(r.t, r.p, r.buy, r.live, r.sol, r.wallet, r.bornMs); spikes += x.spikes
                     if (x.live.any { it }) liveN++
-                    set.add(x)
+                    set.add(x); mints8888.add(r.mint)
                     // V5.0.8861 — a launch that crossed the floor and whose hold window is over becomes one kept row of the runner model
                     try { RunnerModel8861.onLaunch8861(r, solUsd, nowMs) } catch (_: Throwable) {}
                     // V5.0.8822 — every completed launch hour is also one chart for the colour/shape setup learner
@@ -518,6 +519,7 @@ object LaunchReplay8744 {
                 try { SmartMoney8756.evaluate8756(set, walletNames, cost, need) } catch (_: Throwable) {}            // V5.0.8756 the wallets, same paths
                 try { SignalReplay8828.evaluate8828(set, solUsd, cost, need) } catch (_: Throwable) {}              // V5.0.8828 the owner's signals, same paths
                 try { RunnerModel8861.evaluate8861(cost, need, nowMs) } catch (_: Throwable) {}                       // V5.0.8861 the runner model, the same launches on their whole tape
+                try { LaneExitGrade8888.evaluate8888(set, mints8888, LaunchHour8628.firstDecisions8888(nowMs), nowMs) } catch (_: Throwable) {}  // V5.0.8888 each doctrine lane's give-back, same launches
                 paths8755 = set; solUsd8755 = solUsd; cost8755 = cost
                 val births = try { LaunchHour8628.births8749(nowMs) } catch (_: Throwable) { -1 }
                 status = "ran births48h=$births launches>=3prints=${set.size} withLivePrints=$liveN needDelay=${need / 1000}s spikesDropped=$spikes solUsd=${"%.0f".format(solUsd)} cost=${"%.1f".format(cost)}%"
