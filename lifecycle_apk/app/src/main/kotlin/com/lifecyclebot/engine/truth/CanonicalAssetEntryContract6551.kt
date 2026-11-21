@@ -90,6 +90,8 @@ object CanonicalEntryAuthority6551 {
             val expired = now - intent.createdAt > ttl7313
             if (expired) try {
                 val firstTerminal6647 = terminalByAttempt6647.putIfAbsent(intent.attemptId, "EXPIRED") == null
+                // V5.0.8931 — an intent that expired before it was ever dispatched filled nothing: its crypto backing slot back
+                if (firstTerminal6647 && intent.attemptId !in dispatchHistory6647) CryptoSpotPaperBacking8788.intentEnded8930(intent.attemptId, filled = false)
                 dispatchedAttempts6569.remove(intent.attemptId)
                 if (firstTerminal6647 && intent.attemptId !in dispatchHistory6647)
                     CanonicalEntryAuthority6540.markDispatchRejectFor6569(intentAssetClass6569(intent), intent.symbol, "PENDING_EXPIRED")
@@ -717,6 +719,7 @@ object CanonicalEntryAuthority6551 {
             }
         } catch (_: Throwable) {}
         pending.remove("${intent.mode}:${intent.mint}:${intent.candidateVersion}")
+        try { CryptoSpotPaperBacking8788.intentEnded8930(intent.attemptId, filled = true) } catch (_: Throwable) {}   // V5.0.8931
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_PENDING_CONFIRMED_RELEASE") } catch (_: Throwable) {}
         dispatchedAttempts6569.remove(intent.attemptId)
         try { AlphaLatencyTruth7451.markConfirmed(intent.mint) } catch (_: Throwable) {}
@@ -733,6 +736,9 @@ object CanonicalEntryAuthority6551 {
             return
         }
         val wasDispatched6647 = dispatchedAttempts6569.remove(intent.attemptId)
+        // V5.0.8931 — ended before any dispatch: nothing was sent, so nothing filled and the crypto backing slot comes back. A
+        // dispatched swap that failed keeps its slot (its transaction could still land).
+        if (!wasDispatched6647) try { CryptoSpotPaperBacking8788.intentEnded8930(intent.attemptId, filled = false) } catch (_: Throwable) {}
         if (!wasDispatched6647)
             CanonicalEntryAuthority6540.markDispatchRejectFor6569(intentAssetClass6569(intent), intent.symbol, "$state:$reason")
         else try {

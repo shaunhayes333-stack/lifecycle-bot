@@ -238,6 +238,8 @@ object CryptoSpotPaperBacking8788 {
     @Synchronized fun commit8832(attemptId: String): Boolean {
         val reservedAt = pendingPermits8832.remove(attemptId) ?: return false
         admitTimes8788.addLast(reservedAt)
+        if (committed8930.size >= 64) committed8930.remove(committed8930.keys.first())
+        committed8930[attemptId] = reservedAt
         if (startMs8788 <= 0L) startMs8788 = reservedAt
         backed8788.incrementAndGet()
         persist8788()
@@ -247,6 +249,31 @@ object CryptoSpotPaperBacking8788 {
 
     /** Registration failure releases its permit without counting an approval. */
     @Synchronized fun release8832(attemptId: String) { pendingPermits8832.remove(attemptId) }
+
+    // ── V5.0.8931 §AN_UNFILLED_ADMIT_GIVES_ITS_SLOT_BACK — 22 Nov 04:08: the hourly cap read hourly=4 at 21 minutes up with no live
+    // crypto position held and none opened this session (backed=0, live closes cryptoEngine=n0), and 248 candidates the
+    // CRYPTO_ALT record backs (twin n400 +2.9 %, pfEdge +2.7) waited on CRYPTO_PAPER_BACKING_CAPACITY_8870. A slot was spent
+    // when the intent was registered and kept for the hour whatever became of it. An admitted intent that ends before it was
+    // ever dispatched (failed, deferred, cancelled or expired: no transaction was sent) now gives its slot back; a confirmed
+    // fill, or a dispatched swap whatever its end, keeps it. The cap (4 an hour) and the -0.1 SOL stop are unchanged. ──
+    private val committed8930 = LinkedHashMap<String, Long>()   // attemptId -> the admit time it spent
+    private val refunded8930 = AtomicLong(0L)
+
+    /** CanonicalEntryAuthority6551: [attemptId]'s intent ended [filled] (true: the slot stays spent) or without a fill. */
+    @Synchronized fun intentEnded8930(attemptId: String, filled: Boolean) {
+        val at = committed8930.remove(attemptId) ?: return
+        if (filled) return
+        if (admitTimes8788.remove(at)) {
+            refunded8930.incrementAndGet()
+            persist8788()
+            try { PipelineHealthCollector.labelInc("CRYPTO_BACKING_SLOT_REFUNDED_UNFILLED_8930") } catch (_: Throwable) {}
+        }
+    }
+
+    internal fun refundedForTest8930(): Long = refunded8930.get()
+    @Synchronized internal fun committedForTest8930(attemptId: String, atMs: Long) { pendingPermits8832[attemptId] = atMs; commit8832(attemptId) }
+    @Synchronized internal fun clearForTest8930() { admitTimes8788.clear(); committed8930.clear(); pendingPermits8832.clear(); refunded8930.set(0L) }
+    internal fun admitsForTest8930(): Int = synchronized(this) { admitTimes8788.size }
 
     /** Brief (V5.0.8886): the cells read, which back, which are proven losing, and how often a cell changed the lane's answer. */
     fun cellStatusLine8886(): String {
@@ -260,5 +287,5 @@ object CryptoSpotPaperBacking8788 {
     }
 
     fun statusLine8788(): String =
-        "cryptoSpotPaperBacking8788[on=$enabled8788 backed=${backed8788.get()} reserved=${pendingPermits8832.size} hourly=${admitTimes8788.size} records{${BACKED_LANES_8806.joinToString(" ") { "$it=${records8806[it]?.line ?: "-"}" }}} stop=-${LOSS_STOP_SOL_8788}SOL tripped=$tripped8788 maxPerHour=$MAX_PER_HOUR_8788]"
+        "cryptoSpotPaperBacking8788[on=$enabled8788 backed=${backed8788.get()} reserved=${pendingPermits8832.size} hourly=${admitTimes8788.size} refundedUnfilled8930=${refunded8930.get()} records{${BACKED_LANES_8806.joinToString(" ") { "$it=${records8806[it]?.line ?: "-"}" }}} stop=-${LOSS_STOP_SOL_8788}SOL tripped=$tripped8788 maxPerHour=$MAX_PER_HOUR_8788]"
 }

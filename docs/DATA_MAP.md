@@ -2581,3 +2581,27 @@ wins, |pnl| <= 1000 %), and the clean hive ledger hive_edge_8076 (keys, builds, 
 carry pnl, hold, source, liquidity bucket and entry score, but no entry state (cap, origin, stage, forecast, flow), and were
 written by every build since before the 8028 / 8064 clean-hive resets; the count says how much there is before any edge is
 built on it.
+
+## 119. The crypto slot an unfilled intent spent (8931)
+
+Owner, 22 Nov 04:59: "dont abandon the current work. but crypto should be trading with its dual live trade models surely. add
+that investigation from the last data sent to the current work. add the meme trader to same checks".
+
+**Crypto (04:08 capture).** Both live paths were open: the CRYPTO_ALT record backs (cryptoSpotPaperBacking8788 CRYPTO_ALT =
+twin n400 W118/L190 +2.9 %, +0.109 SOL, pfEdge +2.7; the signal engine 8857 stood 194 on integrity doors). Of 521 CRYPTO_ALT
+candidates none was allowed: 248 waited on CRYPTO_PAPER_BACKING_CAPACITY_8870 — the 4-an-hour cap read hourly=4 at 21 minutes
+up, with no live crypto position held and none opened (backed=0, liveCloses cryptoEngine=n0). A slot was spent when the intent
+was registered (`commit8832`) and held for the hour whatever the intent became (price moved 22, price refresh wait 55, expiry,
+wallet lock ...). Now `CryptoSpotPaperBacking8788.intentEnded8930`: an admitted intent that ends before it was ever dispatched
+(CanonicalEntryAuthority6551 FAILED / DEFERRED / CANCELLED, or EXPIRED undispatched) gives its slot back
+(CRYPTO_BACKING_SLOT_REFUNDED_UNFILLED_8930, `refundedUnfilled8930=` on the line); a confirmed fill keeps it, and so does a
+dispatched swap whatever its end (its transaction could still land). Cap 4/hour and the -0.1 SOL stop unchanged. The rest of
+the refusals were integrity doors (BIG_LOSER 55, DATA_INCOMPLETE 79, DATA_NEVER_ARRIVED 44) and LIVE_NON_POSITIVE_EXPECTANCY
+41 on lanes not backed. 8929's sanitizer change takes the receipt-rebuilt rows out of the CRYPTO_SPOT paper record.
+
+**Meme, the same check (research rows 20-21 Nov, each coin x lane at its first hour read, cells n >= 40, ranked by mean - 2 SE):**
+the only refusal whose refused coins pay is LPSTATE8725_PENDING:DEFER_SAFETY_PROOF (n107, +20.3 % +-6.6, +14.7 % without the
+best three, 8 runs of +100 %) — the agreement pocket waiting on its LP proof, the path 8925-8929 work on. Every other door's
+refused coins lose at the hour (e.g. MOONSHOT NATIVE_MCAP_TOO_HIGH n120 -1.8 %, SHITCOIN NATIVE_TOO_OLD n327 -7.2 %), and the
+lane-admitted coins lose too (MOONSHOT n692 -4.7 %, SHITCOIN n390 -4.1 %, CORE n321 -2.1 %). The paper book's 44 runs of +100 %
+sit inside 5,640 closes netting -21.3 SOL (§117). With Helius restored the tape, buyer flow and the 9 meme families read again.
