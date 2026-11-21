@@ -234,6 +234,7 @@ object DiagnosisBrief8438 {
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.BasePocket8904.statusLine8904() } catch (_: Throwable) { "basePocket8904[read failed]" }).append('\n')  // V5.0.8904
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.LaunchpadMigration8911.statusLine8911() } catch (_: Throwable) { "migration8911[read failed]" }).append('\n')  // V5.0.8911
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.edgeTargetLine8915() } catch (_: Throwable) { "edgeTarget8915[read failed]" }).append('\n')  // V5.0.8915
+            sb.append("               ").append(try { com.lifecyclebot.engine.truth.EntryEconomics8329.line8918() } catch (_: Throwable) { "sendBoundary8918[read failed]" }).append('\n')  // V5.0.8918
             sb.append("               ").append(try { "cortexSeats8904[timing{${com.lifecyclebot.engine.cortex.CortexTiming7900.census8904()}} " +
                 "${com.lifecyclebot.engine.cortex.Cortex7885.census8904()} exit{${com.lifecyclebot.engine.cortex.CortexExit7897.census8904()}}]" } catch (_: Throwable) { "cortexSeats8904[read failed]" }).append('\n')  // V5.0.8904
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.LlmBands8875.statusLine8875() } catch (_: Throwable) { "llm8875[read failed]" }).append('\n')  // V5.0.8875

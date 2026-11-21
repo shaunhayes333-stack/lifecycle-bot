@@ -837,10 +837,25 @@ object CandidateAdmission8136 {
             if (grossFromModel8868) {
                 trace += "fallingHour8418 setup=${chosen ?: "-"} unproven=${proof8418?.compact ?: "n0"} edgeModelProven8868"
             } else {
+            if (carried8723) {
+                // V5.0.8918 — a proven market cell (8723: the base pocket, the agreement pocket) is a record of coins decided in
+                // every hour, falling ones included: the unproven falling hour's wait is not a question it leaves open. 21 Nov
+                // (5.0.8917): 8 of 34 base-pocket coins deferred DATA_DEFER_FALLING_HOUR_8418 on a record n73 lower +20.7 %.
+                trace += "fallingHour8418 setup=${chosen ?: "-"} unproven=${proof8418?.compact ?: "n0"} marketCellCarried8918"
+                // the move it answers with is the cell's own proven after-cost lower bound, exactly as the 8171 fallback does
+                if (!decisionGross.isFinite() && market8723 != null && market8723.lowerPct.isFinite() && market8723.lowerPct > 0.0 &&
+                    c.costPct.isFinite() && c.costPct >= 0.0) {
+                    decisionGross = market8723.lowerPct + c.costPct
+                    net = market8723.lowerPct
+                    trace += "grossFromMarketCellLower8918=${fmt8136(market8723.lowerPct)} cost=${fmt8136(c.costPct)}"
+                }
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FALLING_HOUR_ANSWERED_BY_MARKET_CELL_8918_${c.lane.uppercase()}") } catch (_: Throwable) {}
+            } else {
             trace += "fallingHour8418 setup=${chosen ?: "-"} noSupportedStrategy unproven=${proof8418?.compact ?: "n0"} deferUntilHourTurns"
             trace += "missing=$FALLING_HOUR_WAIT_8418,economics"
             FallingHourCohort8418.noteDecision8418(c.lane, refused = false)
             return done(Terminal8136.DEFER_DATA, FALLING_HOUR_DEFER_8418, false, chosen)
+            }
             }
         }
 

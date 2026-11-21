@@ -2281,3 +2281,29 @@ parseKlines8910 rightly refuses as no candle. 8911-8915 carried the same failure
 8916 built; one unit test failed: Aate8187CortexCompleteTest pinned the labeler's `Cortex7885.onLabelLost8187(... "BASIS" ...)` call,
 which 8915 removed on purpose (§103: an unwitnessed 10x mark is skipped, its observation kept; it books on a witnessed mark or ends
 through the durable unavailable terminal, which still releases Cortex). The pin now asserts the kept observation.
+
+## 106. The send judges the move (8918)
+
+Owner, 21 Nov 23:47 (report 23:11 on 5.0.8917, 24 min up): "still very very choked ... it was making money yesterday".
+
+**What the reports say.** Admissions per hour of uptime: 8894 (20 Nov 20:53) 47/h, 8898 (00:05) 21/h, 8898 (01:08) 14/h, 8900
+14/h, 8903 (13:48) 17/h, **8917 208/h** (84 in 24 min). The live record is still profitable (n21, PF 3.13, +0.0054 SOL/trade).
+The choke on 8917 is downstream of admission: FDG allowed 8, the executor made 4 buy attempts, 2 filled. Of the failed live
+buys (§8726 list): ENTRY_CHASE_DECISION_STALE x3 (DPRK, price 1-5 s old; the 45 s LIVE ticket had expired),
+ENTRY_CHASE_CONSUMED x3 (decision-to-send latency 11.5-19.7 s; MAYA expected 5.68 % cost 3.03 % moved 1.59 %; PUNANI 6.98 /
+3.43 / 1.86 %; DPRK SHITCOIN 19.11 % expected against 22.80 % cost), one safety hard block, one unproven LP proof. The base
+pocket (PROVEN n73 +31.9 % ±5.6 lower +20.7 % under the lane's exits; +22.9 % lower +8.8 % even held to the hour) carried 34
+coins: 2 admitted; DATA_DEFER_FALLING_HOUR_8418 deferred 8, EDGE_MODEL_NEGATIVE 8, SAFETY_REFUSED 9, safety report not fresh 5.
+
+**Changes.**
+- EntryEconomics8329.preBroadcastRefusal8329: a LIVE ticket past its 45 s life is still sent within `LATE_SEND_GRACE_MS_8918`
+  (75 s more) when the decision's mark is fresh; the re-quote check that follows measures the move since the decision against
+  the fresh executable price, which is the staleness that matters.
+- EntryEconomics8329.consumed8329: when the expected move would not clear the margin even unmoved, the move did not consume it
+  (the admission's EXECUTION_ECONOMICS_8136 approved those economics on its own proof); the send then refuses only when what
+  remains after the move is at or under the round trip. A true chase (cleared unmoved, consumed by the move), an exhausted
+  rally, a move over the cap and a cost above the expected move are refused as before.
+- CandidateAdmission8136: a proven market cell (8723 chain: the base pocket, the agreement pocket) answers the UNPROVEN
+  falling-hour wait (its record holds coins decided in every hour) with its own after-cost lower bound as the move, as the 8171
+  fallback does for a proven setup; a falling hour PROVEN losing still refuses.
+Counted: `sendBoundary8918[lateSent= admissionEconomicsStood=]`, FALLING_HOUR_ANSWERED_BY_MARKET_CELL_8918_<lane>.

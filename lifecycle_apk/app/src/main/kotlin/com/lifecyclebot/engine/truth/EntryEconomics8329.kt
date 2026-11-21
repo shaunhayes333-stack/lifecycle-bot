@@ -175,7 +175,15 @@ object EntryEconomics8329 {
         if (!expectedGrossPct.isFinite() || !costPct.isFinite()) return "ECONOMICS_UNAVAILABLE"
         val chase = movePct.coerceAtLeast(0.0)
         val remainingPct = (expectedGrossPct - chase) / (1.0 + chase / 100.0)
-        return if (NetEdge8030.entryClears8030(remainingPct, costPct, margin)) null else "EDGE_CONSUMED"
+        if (NetEdge8030.entryClears8030(remainingPct, costPct, margin)) return null
+        // V5.0.8918 §THE_SEND_JUDGES_THE_MOVE — when the expected move would not clear the margin even unmoved, it was not the
+        // move that consumed it: the admission approved these economics on its own proof (EXECUTION_ECONOMICS_8136 decided
+        // them). The send then binds what the move did: what remains must still beat the round trip. 21 Nov 23:01 (5.0.8917):
+        // MAYA CASHGEN expected 5.68 % cost 3.03 % refused EDGE_CONSUMED on a 1.59 % move.
+        if (!NetEdge8030.entryClears8030(expectedGrossPct, costPct, margin)) {
+            if (remainingPct > costPct) { admissionStood8918.incrementAndGet(); return null }
+        }
+        return "EDGE_CONSUMED"
     }
 
     /** Pure: the USD price one UI token costs at a quote of [outRaw] raw tokens for [inSol] SOL; NaN when unknown. */
@@ -197,6 +205,19 @@ object EntryEconomics8329 {
     fun lastChaseDetail8726(mint: String): String? = lastChase8726[mint]
 
     private class ChaseBook8329 { val checked = AtomicLong(0); val consumed = AtomicLong(0); val moves = ArrayDeque<Double>() }
+
+    /** V5.0.8918 — how long past a LIVE ticket's expiry the send may still go when the re-quote passes (ticket 45 s + 75 s). */
+    internal const val LATE_SEND_GRACE_MS_8918 = 75_000L
+    private val lateSent8918 = AtomicLong(0)
+    private val admissionStood8918 = AtomicLong(0)
+
+    /** Pure (V5.0.8918): may a ticket that expired at [expiresAtMs] still be sent at [nowMs] (re-quote pending)? */
+    fun lateSendAllowed8918(expiresAtMs: Long, nowMs: Long): Boolean = nowMs - expiresAtMs in 0L..LATE_SEND_GRACE_MS_8918
+
+    /** Brief: late sends and admissions whose static economics stood at the send. */
+    fun line8918(): String = "sendBoundary8918[lateSent=${lateSent8918.get()} admissionEconomicsStood=${admissionStood8918.get()} " +
+        "rule=an expired ticket is sent within ${LATE_SEND_GRACE_MS_8918 / 1000}s more when the re-quote passes; the send refuses a move that consumed the edge, " +
+        "not an admission's own economics (it still refuses a remaining move at or under cost)]"
     private val chase8329 = ConcurrentHashMap<String, ChaseBook8329>()
     private val consumedAt8329 = ConcurrentHashMap<String, Long>()
 
@@ -213,8 +234,12 @@ object EntryEconomics8329 {
         val book = chase8329.computeIfAbsent(lane) { ChaseBook8329() }
         val decisionPx = intent.executableMarkPriceUsd6613
         val observedAt = intent.executableMarkTimestampMs6613
+        // V5.0.8918 — a ticket past its 45 s life is still sent inside [LATE_SEND_GRACE_MS_8918] when the decision's own mark is
+        // fresh: the re-quote below measures the move since the decision against the fresh executable price, which is what
+        // "stale" protects. 21 Nov 22:49-22:53 (5.0.8917): DPRK refused DECISION_STALE three times with its price 1-5 s old.
         if (intent.mint != ts.mint || nowMs - observedAt !in 0L..DECISION_MAX_AGE_MS_8329 ||
-            nowMs >= intent.expiresAtMs6613) return "ENTRY_CHASE_DECISION_STALE_$lane"
+            (nowMs >= intent.expiresAtMs6613 && !lateSendAllowed8918(intent.expiresAtMs6613, nowMs))) return "ENTRY_CHASE_DECISION_STALE_$lane"
+        if (nowMs >= intent.expiresAtMs6613) { lateSent8918.incrementAndGet(); labelInc("ENTRY_CHASE_LATE_SEND_8918_$lane") }
         val px = quotePxUsd
         val move = quoteMovePct8329(decisionPx, px, impactPct) ?: return "ENTRY_CHASE_PRICE_INCOMPARABLE_$lane"
         if (consumedAt8329.containsKey(ts.mint) &&
