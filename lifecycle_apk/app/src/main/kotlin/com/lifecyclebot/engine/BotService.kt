@@ -10224,6 +10224,10 @@ class BotService : Service() {
             val solana = executor.closePaperPositions8521(tokens, targets)
             val markets = kotlinx.coroutines.runBlocking { PaperStopLifecycle8521.closeMarkets(targets) }
             val confirmed = solana.closedIds + markets.closedIds
+            try {   // V5.0.8932 — how far this pass's lots got
+                LiveNoPaper8184.noteCloseStages8932(targets.size, tokens.size, markets.requestedIds.size,
+                    (targets - tokens.keys - markets.requestedIds).size, solana.attemptedIds.size + markets.attemptedIds.size, confirmed.size)
+            } catch (_: Throwable) {}
             synchronized(status.tokens) {
                 status.tokens.values.filter { it.position.isPaperPosition && it.position.positionId in confirmed }
                     .forEach { it.position = Position() }

@@ -106,6 +106,18 @@ object LiveNoPaper8184 {
         try { PipelineHealthCollector.labelInc("LIVE_NO_PAPER_CLOSE_OUT_PASS_8872") } catch (_: Throwable) {}
     }
 
+    // ── V5.0.8932 §WHERE_THE_CLOSE_OUT_STOPS — 22 Nov 04:08: closeOut8872[passes=6 pending=100], no paper lot closed in 21 minutes,
+    // and the line could not say why. Each pass now records how far its lots got: requested; projected onto a Solana token
+    // (an owner the meme executor can sell); held by a markets trader; held by neither (no owner); with a fresh observed mark
+    // (attempted); closed. ──
+    @Volatile private var stages8932 = "-"
+
+    /** BotService.closePaperStopIntent8521: one pass's stage counts. */
+    fun noteCloseStages8932(requested: Int, solanaProjected: Int, marketsHeld: Int, noOwner: Int, attempted: Int, closed: Int) {
+        stages8932 = "requested=$requested solanaProjected=$solanaProjected marketsHeld=$marketsHeld noOwner=$noOwner " +
+            "freshMarkAttempted=$attempted closed=$closed"
+    }
+
     /** V5.0.8184 — a paper position closed quietly (paper-only terminal) because the runtime is LIVE. */
     fun noteQuietClose8184(source: String) {
         quietClosed8184.computeIfAbsent(sourceKey8184(source)) { AtomicLong(0L) }.incrementAndGet()
@@ -146,7 +158,8 @@ object LiveNoPaper8184 {
             .append(" frozenManageSkips=").append(frozenManageSkips8184.get())
             .append(" quietClosed[total=").append(quietClosedTotal8184()).append(' ').append(fmt8184(quietClosed8184)).append(']')
             .append(" closeOut8872[passes=").append(closeOutRuns8872.get()).append(" pending=").append(closeOutPending8872)
-            .append(" lastAgoS=").append(if (closeOutLastMs8872 > 0L) (System.currentTimeMillis() - closeOutLastMs8872) / 1000L else -1L).append(']')
+            .append(" lastAgoS=").append(if (closeOutLastMs8872 > 0L) (System.currentTimeMillis() - closeOutLastMs8872) / 1000L else -1L)
+            .append(" lastPass8932{").append(stages8932).append("}]")
             .append(" llmBooks8872=").append(LLM_SOURCES_8872.joinToString("/"))
             .append(" rule=LIVE opens no paper position; existing paper closes out at observed marks (8872); LLM books trade beside LIVE; shadows and labels stay on")
             .toString()

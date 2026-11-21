@@ -4577,11 +4577,13 @@ for legal compliance.
                 com.lifecyclebot.engine.WalletManager.getInstance(applicationContext).state.value.solBalance
             } catch (_: Throwable) { 0.0 }
             val hideForDrainedLive = !cfgNow.paperMode && liveSol < 0.001
-            // V5.9.495z17 — show both paper + live so toggling mode never hides positions.
-            val treasuryPositions = if (hideForDrainedLive) emptyList() else (
-                com.lifecyclebot.v3.scoring.CashGenerationAI.getPositionsForMode(true) +
-                com.lifecyclebot.v3.scoring.CashGenerationAI.getPositionsForMode(false)
-            )
+            // V5.0.8932 — owner, 22 Nov 05:11: "all these are paper positions displaying open in the live trader" (Treasury
+            // Scalps listed 1.61 SOL paper lots beside a 0.29 SOL live wallet). V5.9.495z17 showed both books so a mode toggle
+            // never hid a position; since 8872 paper does not run in LIVE (its lots are closed out, not traded), so this card
+            // shows the running mode's book only. Paper lots awaiting the LIVE close-out stay counted on the brief's
+            // closeOut8872 line, never shown as held here. In PAPER both books show (a live lot held is real money).
+            val treasuryPositions = if (hideForDrainedLive) emptyList() else
+                uiBook8932({ com.lifecyclebot.v3.scoring.CashGenerationAI.getPositionsForMode(true) }, { com.lifecyclebot.v3.scoring.CashGenerationAI.getPositionsForMode(false) })
             cardTreasuryPositions.visibility = if (treasuryPositions.isNotEmpty()) android.view.View.VISIBLE else android.view.View.GONE
             if (treasuryPositions.isNotEmpty()) {
                 val treasuryExposure = treasuryPositions.sumOf { it.entrySol }
@@ -4621,10 +4623,7 @@ for legal compliance.
         // ── V4.0: Blue Chip positions panel ─────────────────────────────────
         try {
             // V5.9.495z17 — show both paper + live so toggling mode never hides held positions.
-            val blueChipPositions = (
-                com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositionsForMode(true) +
-                com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositionsForMode(false)
-            )
+            val blueChipPositions = uiBook8932({ com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositionsForMode(true) }, { com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositionsForMode(false) })
             cardBlueChipPositions.visibility = if (blueChipPositions.isNotEmpty()) android.view.View.VISIBLE else android.view.View.GONE
             if (blueChipPositions.isNotEmpty()) {
                 val blueChipExposure = blueChipPositions.sumOf { it.entrySol }
@@ -4648,10 +4647,7 @@ for legal compliance.
         // ── Quality positions panel ───────────────────────────────────────
         try {
             // V5.9.495z17 — show both paper + live.
-            val qualityPositions = (
-                com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositionsForMode(true) +
-                com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositionsForMode(false)
-            )
+            val qualityPositions = uiBook8932({ com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositionsForMode(true) }, { com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositionsForMode(false) })
             cardQualityPositions.visibility = if (qualityPositions.isNotEmpty()) android.view.View.VISIBLE else android.view.View.GONE
             if (qualityPositions.isNotEmpty()) {
                 tvQualityExposure.setTextIfChanged("%.3f◎".format(qualityPositions.sumOf { it.entrySol }))
@@ -4671,10 +4667,7 @@ for legal compliance.
         // ── V4.0: ShitCoin positions panel ─────────────────────────────────
         try {
             // V5.9.495z17 — show both paper + live.
-            val shitCoinPositions = (
-                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositionsForMode(true) +
-                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositionsForMode(false)
-            )
+            val shitCoinPositions = uiBook8932({ com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositionsForMode(true) }, { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositionsForMode(false) })
             val shitCoinStats = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getStats()
             val showShitCoin = shitCoinPositions.isNotEmpty() || shitCoinStats.dailyTradeCount > 0
             cardShitCoinPositions.visibility = if (showShitCoin) android.view.View.VISIBLE else android.view.View.GONE
@@ -4923,10 +4916,7 @@ for legal compliance.
     // ── V5.2: Moonshot positions panel ────────────────────────────
         try {
             // V5.9.495z17 — show both paper + live so toggling mode never hides positions.
-            val moonshotPositions = (
-                com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositionsForMode(true) +
-                com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositionsForMode(false)
-            )
+            val moonshotPositions = uiBook8932({ com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositionsForMode(true) }, { com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositionsForMode(false) })
             val showMoonshot = moonshotPositions.isNotEmpty()
 
             cardMoonshotPositions.visibility = if (showMoonshot) android.view.View.VISIBLE else android.view.View.GONE
@@ -4964,11 +4954,8 @@ for legal compliance.
                 renderMoonshotPositions(moonshotPositions)
             }
 
-            // V5.2: Update Treasury+Moonshot side-by-side row
-            val treasuryPositions = (
-                com.lifecyclebot.v3.scoring.CashGenerationAI.getPositionsForMode(true) +
-                com.lifecyclebot.v3.scoring.CashGenerationAI.getPositionsForMode(false)
-            )
+            // V5.2: Update Treasury+Moonshot side-by-side row (V5.0.8932 — LIVE: the live book only)
+            val treasuryPositions = uiBook8932({ com.lifecyclebot.v3.scoring.CashGenerationAI.getPositionsForMode(true) }, { com.lifecyclebot.v3.scoring.CashGenerationAI.getPositionsForMode(false) })
             val showTreasuryMini = treasuryPositions.isNotEmpty()
             val showMoonshotMini = moonshotPositions.isNotEmpty()
 
@@ -5506,10 +5493,7 @@ for legal compliance.
             // the user toggles. Now we explicitly pull BOTH maps via
             // `getActivePositionsForMode()` so a held token always shows
             // regardless of paper/live toggle.
-            val shitCoinAll = (
-                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositionsForMode(true) +
-                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositionsForMode(false)
-            )
+            val shitCoinAll = uiBook8932({ com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositionsForMode(true) }, { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositionsForMode(false) })
             shitCoinAll.forEach {
                 upsert(it.mint, it.symbol, "SHITCOIN", "HIGH-RISK",
                     entryPrice = it.entryPrice, entrySol = it.entrySol,
@@ -5535,10 +5519,7 @@ for legal compliance.
         // cardBlueChipPositions card. Listing it both places was a
         // double-count (same mint rendered twice with same entry/size).
         try {
-            val moonshotAll = (
-                com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositionsForMode(true) +
-                com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositionsForMode(false)
-            )
+            val moonshotAll = uiBook8932({ com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositionsForMode(true) }, { com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositionsForMode(false) })
             moonshotAll.forEach {
                 upsert(it.mint, it.symbol, "MOONSHOT", "FRESH",
                     entryPrice = it.entryPrice, entrySol = it.entrySol,
@@ -5590,10 +5571,7 @@ for legal compliance.
         // overlap is unified-card vs dedicated lane-card, which is the
         // intended behaviour now. Dedicated cards remain untouched.
         try {
-            val blueChipAll = (
-                com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositionsForMode(true) +
-                com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositionsForMode(false)
-            )
+            val blueChipAll = uiBook8932({ com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositionsForMode(true) }, { com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositionsForMode(false) })
             blueChipAll.forEach {
                 upsert(it.mint, it.symbol, "BLUE_CHIP", "\uD83D\uDD37",
                     entryPrice = it.entryPrice, entrySol = it.entrySol,
@@ -5602,10 +5580,7 @@ for legal compliance.
             }
         } catch (_: Exception) {}
         try {
-            val treasuryAll = (
-                com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositionsForMode(true) +
-                com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositionsForMode(false)
-            )
+            val treasuryAll = uiBook8932({ com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositionsForMode(true) }, { com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositionsForMode(false) })
             treasuryAll.forEach {
                 val derivedPeak = if (it.entryPrice > 0.0 && it.highWaterMark > 0.0)
                     ((it.highWaterMark - it.entryPrice) / it.entryPrice * 100.0) else 0.0
@@ -5706,21 +5681,24 @@ for legal compliance.
             if (laneHeld > 0) " · lane cards below list their own rows." else ""
     }
 
+    /**
+     * V5.0.8932 — the lane books a card shows: in LIVE only the live book (paper does not run in LIVE since 8872; its lots are
+     * closed out, never held), in PAPER both (a live lot still held is real money and must stay visible).
+     */
+    private fun <T> uiBook8932(paper: () -> List<T>, live: () -> List<T>): List<T> {
+        val isLive = try { com.lifecyclebot.engine.RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }
+        return if (isLive) live() else paper() + live()
+    }
+
     private fun countLaneHeldPositions(unified: List<TokenState>): Int {
         val seen = unified.map { it.mint }.toMutableSet()
         var n = 0
         try {
-            val bc = (
-                com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositionsForMode(true) +
-                com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositionsForMode(false)
-            )
+            val bc = uiBook8932({ com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositionsForMode(true) }, { com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositionsForMode(false) })
             for (p in bc) if (p.mint !in seen) { seen.add(p.mint); n++ }
         } catch (_: Throwable) {}
         try {
-            val tre = (
-                com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositionsForMode(true) +
-                com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositionsForMode(false)
-            )
+            val tre = uiBook8932({ com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositionsForMode(true) }, { com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositionsForMode(false) })
             for (p in tre) if (p.mint.isNotBlank() && p.mint !in seen) { seen.add(p.mint); n++ }
         } catch (_: Throwable) {}
         return n

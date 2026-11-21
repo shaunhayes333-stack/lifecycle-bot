@@ -2605,3 +2605,22 @@ best three, 8 runs of +100 %) — the agreement pocket waiting on its LP proof, 
 refused coins lose at the hour (e.g. MOONSHOT NATIVE_MCAP_TOO_HIGH n120 -1.8 %, SHITCOIN NATIVE_TOO_OLD n327 -7.2 %), and the
 lane-admitted coins lose too (MOONSHOT n692 -4.7 %, SHITCOIN n390 -4.1 %, CORE n321 -2.1 %). The paper book's 44 runs of +100 %
 sit inside 5,640 closes netting -21.3 SOL (§117). With Helius restored the tape, buyer flow and the 9 meme families read again.
+
+## 120. Live shows the live book (8932)
+
+Owner, 22 Nov 05:11, with a screenshot of Treasury Scalps (1.61 SOL lots, 34.042 SOL exposure, beside a 0.29 SOL live wallet):
+"all these are paper positions displaying open in the live trader".
+
+**Why.** V5.9.495z17 made every lane card (Treasury, BlueChip, Quality, ShitCoin, Moonshot, the unified list and the lane
+count) show the paper book plus the live book, so a mode toggle never hid a held lot. Since 8872 paper does not run in LIVE:
+its lots are to be closed out at observed marks, not held. The 04:08 capture: frozenCanonicalPaper=96,
+closeOut8872[passes=6 pending=100] — not one closed in 21 minutes, and the line could not say why.
+
+**Changes.**
+- `MainActivity.uiBook8932`: in LIVE a card shows the live book only; in PAPER both books (a live lot still held is real money).
+  All ten paper+live sites and both Treasury sites go through it; the stop guard's held count still counts both books.
+- `LiveNoPaper8184.noteCloseStages8932` (from `BotService.closePaperStopIntent8521`): each close-out pass records how far its
+  lots got — requested, projected onto a Solana token the meme executor can sell, held by a markets trader, held by neither
+  (no owner), attempted with a fresh observed mark (Executor's 30 s authoritative-mark rule), closed — on the brief as
+  `closeOut8872[... lastPass8932{...}]`. The next capture says exactly where the 100 lots stop; the close-out rule itself is
+  unchanged (never closed on an unobserved price).
