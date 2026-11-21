@@ -31,7 +31,7 @@ class Aate8905BaseWatchCensusTest {
         val l = CortexLedger7885()
         l.seat("v1", "CORE", 5); l.seat("v1", "CORE@HOT", 5); l.seat("v2", "EXPRESS", 5)
         l.seat("v2", "EXPRESS", 5).bins[0].n = 3.0
-        assertEquals("seats=3 voters=2 lanes=2 regimes=1 regimeSeats=1 empty=2", l.census8904(this))
+        assertEquals("seats=3 voters=2 lanes=2 regimes=1 regimeSeats=1 empty=2 sidesMade8924=0/6", l.census8904(this))   // V5.0.8924 — and the sides made
         assertTrue(src("engine/DiagnosisBrief8438.kt").contains("cortexSeats8904[timing{"))
         assertTrue(File("../../docs/DATA_MAP.md").readText().contains("## 93. The base watch and the Cortex census (8905)"))
     }

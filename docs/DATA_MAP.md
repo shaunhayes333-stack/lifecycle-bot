@@ -2402,3 +2402,37 @@ and skips (`sourceTimeouts8924[...]`). Telemetry only: no source is timed or ski
 passes found the background mark pool's 24 / 36 queue full and the rejected jobs' coins went unpriced (labels and shadow marks
 lost). The workers stay 12 / 12; the queue holds 96 / 144 jobs, and a queued job past its pass's deadline still never reaches a
 provider (`task.scope.remainingMs()` before the call).
+
+## 113. The LP lock read on chain: DAMM v2 vesting, Raydium CPMM (8925)
+
+Owner, 22 Nov 01:06-01:11: "why aren't we simply reading the data we need on chain?", "rug check is good yeah?", "go".
+
+**Why.** On 21 Nov 23:11 the paying-cell coins the buy door left waiting on an unread LP proof paid +33.7 % (n94; +28.7 % and
++36.5 % in the two reports before), the proven ones -0.1 %. PoolLock8895 (§84) read 13 pools: every DAMM v2 pool UNLOCKED (8)
+and 5 of programs it did not read.
+
+**DAMM v2 vesting.** Meteora DBC graduates into DAMM v2 with `permanent_lock_position` and `lock_inner_position`
+(dynamic-bonding-curve migrate_damm_v2_initialize_pool.rs): a config's vested share is a schedule on the position. 8895 counted
+only the permanent part. When the permanent share is under 70 %, the pool's positions are read (getProgramAccounts on the DAMM v2
+program, Position discriminator, pool @8; damm-v2 state/position.rs: vested_liquidity @168, permanent_locked_liquidity @184,
+inner_vesting @312) and, for a position whose vested liquidity its own schedule does not explain, its external Vesting accounts
+(position @8, inner_vesting @40; at most 4). What a schedule holds at a point is its total less InnerVesting::
+get_max_unlocked_liquidity; the point is the pool's own clock (activation_type @480) 24 h past now, as DLMM locks are read.
+Locked share = (each position's permanent + what its schedules hold then, at most its remaining vested liquidity) / pool
+liquidity. Schedules are cached 5 minutes per pool (Helius getProgramAccounts is 10 credits).
+
+**Raydium CPMM** (where Raydium LaunchLab graduates). LP is burned (an SPL burn lowers the LP mint's supply; PoolState.lp_supply
+does not move) and LaunchLab's platform share is locked through Burn & Earn, held in the LP mint's token account of the lock
+authority 3f7GcQFG397GAaEnv51zR6tsTVihYRydnydDD1cXekxH (raydium-sdk-V2 makeCpmmLockInstruction: lockLpVault =
+ATA(lockAuthProgram, lpMint); a Burn & Earn lock has no withdraw). PoolState (packed, LEN 637): lp_mint @136, mints @168 / @200,
+lp_supply u64 @333. Locked share = ((lp_supply - LP mint supply) + LP the lock authority holds among the LP mint's 20 largest
+accounts) / lp_supply. Other lockers are not counted. The burned + locked amount only grows, so it is cached 5 minutes and read
+against a fresh lp_supply.
+
+**Unchanged.** >= 70 % turns an unread LP proof into PROVEN and nothing else; under 70 % or unreadable stays unproven and is not
+bought; a provider finding of unlocked liquidity still refuses; RugCheck stays a required proof. Raydium AMM v4, CLMM and Orca
+pools are not read yet (their LP lock still comes from RugCheck alone).
+
+**With 8924's test fixes.** 8924 built and passed the runtime smoke; two tests pinned lines it changed on purpose:
+Aate8891LabelStallTest (the hour row now passes `o.flow8924`, §112.1) and Aate8905BaseWatchCensusTest (the census now ends
+`sidesMade8924=made/possible`, §112.4). Both now expect the new lines. 8925 is the first build carrying §112 that can go green.

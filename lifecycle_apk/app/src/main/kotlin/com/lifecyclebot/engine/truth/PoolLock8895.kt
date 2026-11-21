@@ -69,6 +69,41 @@ object PoolLock8895 {
     private const val REREAD_MS_8895 = 30_000L
     private const val OTHER_RETRY_MS_8895 = 30L * 60_000L
     private const val TIMEOUT_S_8895 = 4L
+
+    // ── V5.0.8925 §THE_REST_OF_THE_LOCK_ON_CHAIN — owner, 22 Nov 01:06-01:11: "why aren't we simply reading the data we need on
+    //    chain?", "rug check is good yeah?", "go". 21 Nov 23:11: the paying-cell coins the buy door left waiting on an unread LP
+    //    proof paid +33.7 % (n94; +28.7 % / +36.5 % in the two reports before), the proven ones -0.1 %; this reader asked 13 pools
+    //    and found every DAMM v2 one UNLOCKED (8) and 5 of a program it did not read. Two exact gaps, from the programs' own source:
+    //  - Meteora DAMM v2 VESTING. Meteora DBC graduates a coin into DAMM v2 and locks its LP with `permanent_lock_position` AND
+    //    `lock_inner_position` (dynamic-bonding-curve migrate_damm_v2_initialize_pool.rs: a config's vested share is a vesting
+    //    schedule on the position itself). 8895 counted only the permanent part, so a pool vested past the hold read unlocked.
+    //    damm-v2 state/position.rs (INIT_SPACE 400) with the discriminator: pool @8, unlocked_liquidity u128 @152,
+    //    vested_liquidity @168, permanent_locked_liquidity @184, inner_vesting @312 (state/vesting.rs InnerVesting, 80 bytes:
+    //    cliff_point u64 +0, period_frequency u64 +8, cliff_unlock_liquidity u128 +16, liquidity_per_period u128 +32,
+    //    total_released_liquidity u128 +48, number_of_period u16 +64). An external Vesting account (176 + 8): position @8,
+    //    inner_vesting @40. What a schedule still holds at a point is its total less InnerVesting::get_max_unlocked_liquidity at
+    //    that point (0 before the cliff; the cliff amount plus whole periods after it); the point is the pool's own clock
+    //    (Pool activation_type @480: 0 slot, 1 timestamp) [LOCK_MARGIN_S_8895] past now, as DLMM's locks are read. Locked share
+    //    = (each position's permanent + what its schedules hold past the hold) / pool liquidity.
+    //  - Raydium CPMM, where Raydium LaunchLab graduates: the LP is burned (an SPL burn lowers the LP mint's supply; PoolState
+    //    .lp_supply does not move, raydium-cp-swap deposit.rs / withdraw.rs), and LaunchLab's platform share is locked through
+    //    Burn & Earn, which holds it in the LP mint's token account of the lock authority LOCK_CPMM_AUTH (raydium-sdk-V2
+    //    cpmm/instruction.ts makeCpmmLockInstruction: lockLpVault = ATA(lockAuthProgram, lpMint)); a Burn & Earn lock has no
+    //    withdraw. PoolState (packed, LEN 637): lp_mint @136, token_0_mint @168, token_1_mint @200, lp_supply u64 @333. Locked
+    //    share = ((lp_supply - mint supply) + LP held by the lock authority) / lp_supply; any other locker is not counted.
+    //  Unchanged: >= 70 % turns an unread LP proof into PROVEN and nothing else; a lower or unreadable read stays unproven and is
+    //  not bought; a provider's finding of unlocked liquidity still refuses; RugCheck stays required. ──
+    private const val CPMM_PROGRAM_8925 = "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C"
+    private const val CPMM_LOCK_AUTH_8925 = "3f7GcQFG397GAaEnv51zR6tsTVihYRydnydDD1cXekxH"
+    const val VENUE_CPMM_8925 = "RAYDIUM_CPMM"
+    internal val CPMM_POOL_DISC_8925 = intArrayOf(247, 237, 227, 245, 215, 195, 222, 70)         // sha256("account:PoolState")[0..8]
+    internal const val CPMM_POOL_SIZE_8925 = 637
+    internal val DAMM_V2_POSITION_DISC_8925 = intArrayOf(170, 188, 143, 228, 122, 64, 247, 208)   // sha256("account:Position")[0..8]
+    internal val DAMM_V2_VESTING_DISC_8925 = intArrayOf(100, 149, 66, 138, 95, 200, 128, 241)     // sha256("account:Vesting")[0..8]
+    internal const val DAMM_V2_POSITION_SIZE_8925 = 8 + 400
+    internal const val DAMM_V2_VESTING_SIZE_8925 = 8 + 176
+    private const val MAX_EXTERNAL_VESTING_READS_8925 = 4
+    private const val SCHEDULE_CACHE_MS_8925 = 5L * 60_000L
     private val QUOTES_8895 = setOf(OnChainDepth8038.WSOL, "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB")
 
     /** One read: [mint]'s [pool] on [venue] had [lockedPct] % of its liquidity locked at [atMs] ([detail] says how). */
@@ -112,6 +147,104 @@ object PoolLock8895 {
         val locked = uLe8895(data, 552, 16)
         if (liquidity.signum() <= 0 || locked > liquidity) return null
         return locked.multiply(BigInteger.valueOf(10_000L)).divide(liquidity).toDouble() / 100.0
+    }
+
+    /** V5.0.8925 — one DAMM v2 vesting schedule (InnerVesting). */
+    internal data class Vesting8925(val cliffPoint: Long, val periodFrequency: Long, val cliffUnlock: BigInteger,
+                                    val perPeriod: BigInteger, val released: BigInteger, val periods: Int)
+
+    /** V5.0.8925 — one DAMM v2 position: its permanent lock, remaining vested liquidity and its own schedule (null when empty). */
+    internal data class DammPosition8925(val address: String, val permanent: BigInteger, val vested: BigInteger, val inner: Vesting8925?)
+
+    /** Pure (V5.0.8925): the InnerVesting at [off] of [data]; null when every byte of it is zero (InnerVesting::is_empty). */
+    internal fun vesting8925(data: ByteArray, off: Int): Vesting8925? {
+        if (data.size < off + 80 || (off until off + 80).all { data[it].toInt() == 0 }) return null
+        val periods = (data[off + 64].toInt() and 0xFF) or ((data[off + 65].toInt() and 0xFF) shl 8)
+        return Vesting8925(u64Clamp8895(data, off), u64Clamp8895(data, off + 8), uLe8895(data, off + 16, 16),
+            uLe8895(data, off + 32, 16), uLe8895(data, off + 48, 16), periods)
+    }
+
+    /** Pure (V5.0.8925): what [v] still holds at [point] — its total less InnerVesting::get_max_unlocked_liquidity(point). */
+    internal fun heldAt8925(v: Vesting8925, point: Long): BigInteger {
+        val total = v.cliffUnlock.add(v.perPeriod.multiply(BigInteger.valueOf(v.periods.toLong())))
+        val unlocked = when {
+            point < v.cliffPoint -> BigInteger.ZERO
+            v.periodFrequency == 0L || v.perPeriod.signum() == 0 -> v.cliffUnlock
+            else -> {
+                val p = ((point - v.cliffPoint) / v.periodFrequency).coerceAtMost(v.periods.toLong())
+                v.cliffUnlock.add(BigInteger.valueOf(p).multiply(v.perPeriod))
+            }
+        }
+        return total.subtract(unlocked).max(BigInteger.ZERO)
+    }
+
+    /** Pure (V5.0.8925): what [v] has not yet released (its total less total_released_liquidity). */
+    internal fun remaining8925(v: Vesting8925): BigInteger =
+        v.cliffUnlock.add(v.perPeriod.multiply(BigInteger.valueOf(v.periods.toLong()))).subtract(v.released).max(BigInteger.ZERO)
+
+    /** Pure (V5.0.8925): a DAMM v2 Position account [data] of [pool] at [address]; null when it is not one. */
+    internal fun dammPosition8925(pool: String, address: String, data: ByteArray?): DammPosition8925? {
+        if (data == null || data.size < DAMM_V2_POSITION_SIZE_8925 || !disc(data, DAMM_V2_POSITION_DISC_8925)) return null
+        if (key(data, 8) != pool) return null
+        return DammPosition8925(address, uLe8895(data, 184, 16), uLe8895(data, 168, 16), vesting8925(data, 312))
+    }
+
+    /** Pure (V5.0.8925): an external DAMM v2 Vesting account [data] of [position]; null when it is not one. */
+    internal fun dammVesting8925(position: String, data: ByteArray?): Vesting8925? {
+        if (data == null || data.size < DAMM_V2_VESTING_SIZE_8925 || !disc(data, DAMM_V2_VESTING_DISC_8925)) return null
+        if (key(data, 8) != position) return null
+        return vesting8925(data, 40)
+    }
+
+    /**
+     * Pure (V5.0.8925): the share (%) of a DAMM v2 pool's [liquidity] that cannot leave before [point]: each position's permanent
+     * lock plus what its own and its [external] schedules (position address -> schedules) still hold then, never more than the
+     * position's remaining vested liquidity. Null for an empty pool or a sum past the pool's liquidity (a misread).
+     */
+    internal fun dammLockedPct8925(liquidity: BigInteger, positions: List<DammPosition8925>, external: Map<String, List<Vesting8925>>, point: Long): Double? {
+        if (liquidity.signum() <= 0) return null
+        var locked = BigInteger.ZERO
+        for (p in positions) {
+            var vestHeld = p.inner?.let { heldAt8925(it, point) } ?: BigInteger.ZERO
+            for (v in external[p.address].orEmpty()) vestHeld = vestHeld.add(heldAt8925(v, point))
+            locked = locked.add(p.permanent).add(vestHeld.min(p.vested))
+        }
+        if (locked > liquidity) return null
+        return locked.multiply(BigInteger.valueOf(10_000L)).divide(liquidity).toDouble() / 100.0
+    }
+
+    /** Pure (V5.0.8925): the activation type of a DAMM v2 pool account [data] (0 slot, 1 timestamp); null when not a pool. */
+    internal fun dammActivationType8925(data: ByteArray?): Int? {
+        if (data == null || data.size < DAMM_V2_SIZE_8895 || !disc(data, DAMM_V2_POOL_DISC_8895)) return null
+        val t = data[480].toInt() and 0xFF
+        return if (t == 0 || t == 1) t else null
+    }
+
+    /** Pure (V5.0.8925): (LP mint, lp_supply) of a Raydium CPMM PoolState [data] of [mint]; null when it is not one. */
+    internal fun cpmmPool8925(mint: String, data: ByteArray?): Pair<String, BigInteger>? {
+        if (data == null || data.size < CPMM_POOL_SIZE_8925 || !disc(data, CPMM_POOL_DISC_8925)) return null
+        if (!pairedWithQuote(mint, key(data, 168), key(data, 200))) return null
+        val lp = key(data, 136) ?: return null
+        return lp to uLe8895(data, 333, 8)
+    }
+
+    /** Pure (V5.0.8925): an SPL mint account's supply (u64 @36); null when it is too short. */
+    internal fun mintSupply8925(data: ByteArray?): BigInteger? = if (data == null || data.size < 82) null else uLe8895(data, 36, 8)
+
+    /** Pure (V5.0.8925): an SPL token account's (mint, owner, amount); null when it is too short. */
+    internal fun tokenAccount8925(data: ByteArray?): Triple<String, String, BigInteger>? {
+        if (data == null || data.size < 165) return null
+        return Triple(key(data, 0) ?: return null, key(data, 32) ?: return null, uLe8895(data, 64, 8))
+    }
+
+    /**
+     * Pure (V5.0.8925): a CPMM pool's locked share (%): LP burned (lp_supply less the LP mint's supply) plus LP the Burn & Earn
+     * authority holds, over lp_supply. Null for an empty pool, a mint supply past lp_supply, or a lock past the supply (misreads).
+     */
+    internal fun cpmmLockedPct8925(lpSupply: BigInteger, mintSupply: BigInteger, lockedInVault: BigInteger): Double? {
+        if (lpSupply.signum() <= 0 || mintSupply > lpSupply || lockedInVault.signum() < 0 || lockedInVault > mintSupply) return null
+        val locked = lpSupply.subtract(mintSupply).add(lockedInVault)
+        return locked.multiply(BigInteger.valueOf(10_000L)).divide(lpSupply).toDouble() / 100.0
     }
 
     /** Pure: the activation type of a DLMM LbPair account [data] of [mint] (0 slot, 1 timestamp); null when it is not one. */
@@ -214,8 +347,10 @@ object PoolLock8895 {
         when (owner) {
             DAMM_V2_PROGRAM_8895 -> {
                 val pct = dammV2LockedPct8895(mint, data) ?: run { other(pool, now); return }
-                store(Lock8895(mint, pool, VENUE_DAMM_V2_8895, pct, now, "permanent/liquidity"))
+                if (pct >= MIN_LOCKED_PCT_8895) store(Lock8895(mint, pool, VENUE_DAMM_V2_8895, pct, now, "permanent/liquidity"))
+                else readDammVesting8925(mint, pool, data!!, pct)   // V5.0.8925 — and what its positions' schedules hold past the hold
             }
+            CPMM_PROGRAM_8925 -> readCpmm8925(mint, pool, data)   // V5.0.8925
             DLMM_PROGRAM_8895 -> {
                 val type = dlmmActivationType8895(mint, data) ?: run { other(pool, now); return }
                 readDlmm(mint, pool, type)
@@ -252,8 +387,91 @@ object PoolLock8895 {
         store(Lock8895(mint, pool, VENUE_DLMM_8895, pct, System.currentTimeMillis(), "positions=${positions.size} locked=${positions.count { it.lockReleasePoint > minPoint }}"))
     }
 
-    private fun gpa(config: JSONObject): JSONArray? =
-        rpc("getProgramAccounts", JSONArray().put(DLMM_PROGRAM_8895).put(config))?.optJSONArray("value")
+    private class Schedules8925(val atMs: Long, val positions: List<DammPosition8925>, val external: Map<String, List<Vesting8925>>)
+    private val schedules8925 = ConcurrentHashMap<String, Schedules8925>()   // pool -> its positions' locks (vesting schedules change only by a new lock)
+    private class CpmmLocked8925(val atMs: Long, val lpMint: String, val burnedPlusVault: BigInteger)
+    private val cpmmLocked8925 = ConcurrentHashMap<String, CpmmLocked8925>()   // pool -> burned + Burn & Earn LP (only ever grows)
+
+    private fun clock8925(): Pair<Long, Long>? =
+        rpc("getAccountInfo", JSONArray().put(CLOCK_SYSVAR_8895).put(JSONObject().put("encoding", "base64").put("commitment", "confirmed")))
+            ?.optJSONObject("value")?.let { OnChainDepth8038.accountData8418(it) }?.takeIf { it.size >= 40 }
+            ?.let { u64Clamp8895(it, 0) to u64Clamp8895(it, 32) }
+
+    /** V5.0.8925 — a DAMM v2 pool under 70 % permanently locked: its positions' permanent and vesting locks, past the hold. */
+    private fun readDammVesting8925(mint: String, pool: String, poolData: ByteArray, permanentPct: Double) {
+        val type = dammActivationType8925(poolData) ?: run { store(Lock8895(mint, pool, VENUE_DAMM_V2_8895, permanentPct, System.currentTimeMillis(), "permanent/liquidity")); return }
+        val (slot, unixS) = clock8925() ?: run { rpcFailed.incrementAndGet(); return }
+        val point = minReleasePoint8895(type, slot, unixS)
+        val nowMs = System.currentTimeMillis()
+        val cached = schedules8925[pool]?.takeIf { nowMs - it.atMs in 0L until SCHEDULE_CACHE_MS_8925 }
+        val sched = cached ?: run {
+            val filters = JSONArray()
+                .put(JSONObject().put("dataSize", DAMM_V2_POSITION_SIZE_8925))
+                .put(JSONObject().put("memcmp", JSONObject().put("offset", 0).put("bytes", discBase58(DAMM_V2_POSITION_DISC_8925))))
+                .put(JSONObject().put("memcmp", JSONObject().put("offset", 8).put("bytes", pool)))
+            val rows = gpa(DAMM_V2_PROGRAM_8895, JSONObject().put("encoding", "base64").put("commitment", "confirmed").put("filters", filters))
+                ?: run { rpcFailed.incrementAndGet(); return }
+            if (rows.length() > MAX_POSITIONS_8895) {
+                tooMany.incrementAndGet()
+                store(Lock8895(mint, pool, VENUE_DAMM_V2_8895, permanentPct, System.currentTimeMillis(), "permanent/liquidity positions>${MAX_POSITIONS_8895}"))
+                return
+            }
+            val positions = (0 until rows.length()).mapNotNull { i ->
+                val r = rows.optJSONObject(i) ?: return@mapNotNull null
+                dammPosition8925(pool, r.optString("pubkey"), OnChainDepth8038.accountData8418(r.optJSONObject("account")))
+            }
+            if (positions.size != rows.length()) { rpcFailed.incrementAndGet(); return }
+            // a position whose vested liquidity its own schedule does not explain has external Vesting accounts: read those
+            val external = HashMap<String, List<Vesting8925>>()
+            for (p in positions.filter { pp -> pp.vested > (pp.inner?.let { remaining8925(it) } ?: BigInteger.ZERO) }.take(MAX_EXTERNAL_VESTING_READS_8925)) {
+                val vf = JSONArray()
+                    .put(JSONObject().put("dataSize", DAMM_V2_VESTING_SIZE_8925))
+                    .put(JSONObject().put("memcmp", JSONObject().put("offset", 0).put("bytes", discBase58(DAMM_V2_VESTING_DISC_8925))))
+                    .put(JSONObject().put("memcmp", JSONObject().put("offset", 8).put("bytes", p.address)))
+                val vr = gpa(DAMM_V2_PROGRAM_8895, JSONObject().put("encoding", "base64").put("commitment", "confirmed").put("filters", vf)) ?: continue
+                external[p.address] = (0 until vr.length()).mapNotNull { i -> dammVesting8925(p.address, OnChainDepth8038.accountData8418(vr.optJSONObject(i)?.optJSONObject("account"))) }
+            }
+            Schedules8925(nowMs, positions, external).also { schedules8925[pool] = it }
+        }
+        val pct = dammLockedPct8925(uLe8895(poolData, 360, 16), sched.positions, sched.external, point) ?: permanentPct
+        store(Lock8895(mint, pool, VENUE_DAMM_V2_8895, maxOf(pct, permanentPct), System.currentTimeMillis(),
+            "permanent+vesting past the hold positions=${sched.positions.size}"))
+    }
+
+    /** V5.0.8925 — a Raydium CPMM pool: LP burned plus LP held by the Burn & Earn authority, over lp_supply. */
+    private fun readCpmm8925(mint: String, pool: String, data: ByteArray?) {
+        val (lpMint, lpSupply) = cpmmPool8925(mint, data) ?: run { other(pool, System.currentTimeMillis()); return }
+        val nowMs = System.currentTimeMillis()
+        val cached = cpmmLocked8925[pool]?.takeIf { it.lpMint == lpMint && nowMs - it.atMs in 0L until SCHEDULE_CACHE_MS_8925 }
+        val lockedUnits = cached?.burnedPlusVault ?: run {
+            val supply = rpc("getAccountInfo", JSONArray().put(lpMint).put(JSONObject().put("encoding", "base64").put("commitment", "confirmed")))
+                ?.optJSONObject("value")?.let { mintSupply8925(OnChainDepth8038.accountData8418(it)) } ?: run { rpcFailed.incrementAndGet(); return }
+            val largest = rpc("getTokenLargestAccounts", JSONArray().put(lpMint).put(JSONObject().put("commitment", "confirmed")))
+                ?.optJSONArray("value") ?: run { rpcFailed.incrementAndGet(); return }
+            val addrs = JSONArray(); for (i in 0 until largest.length()) largest.optJSONObject(i)?.optString("address")?.takeIf { it.isNotBlank() }?.let { addrs.put(it) }
+            var vault = BigInteger.ZERO
+            if (addrs.length() > 0) {
+                val accts = rpc("getMultipleAccounts", JSONArray().put(addrs).put(JSONObject().put("encoding", "base64").put("commitment", "confirmed")))
+                    ?.optJSONArray("value") ?: run { rpcFailed.incrementAndGet(); return }
+                for (i in 0 until accts.length()) {
+                    val (m, owner, amount) = tokenAccount8925(accts.optJSONObject(i)?.let { OnChainDepth8038.accountData8418(it) }) ?: continue
+                    if (m == lpMint && owner == CPMM_LOCK_AUTH_8925) vault = vault.add(amount)
+                }
+            }
+            if (supply > lpSupply || vault > supply) { rpcFailed.incrementAndGet(); return }
+            lpSupply.subtract(supply).add(vault).also { cpmmLocked8925[pool] = CpmmLocked8925(nowMs, lpMint, it) }
+        }
+        // burned and locked LP only ever grow; fresh lp_supply carries every later deposit, so a cached amount is a lower bound
+        val pct = if (lpSupply.signum() <= 0 || lockedUnits > lpSupply) null
+            else lockedUnits.multiply(BigInteger.valueOf(10_000L)).divide(lpSupply).toDouble() / 100.0
+        if (pct == null) { rpcFailed.incrementAndGet(); return }
+        store(Lock8895(mint, pool, VENUE_CPMM_8925, pct, System.currentTimeMillis(), "burned+burnAndEarn/lp_supply"))
+    }
+
+    private fun gpa(config: JSONObject): JSONArray? = gpa(DLMM_PROGRAM_8895, config)
+
+    private fun gpa(program: String, config: JSONObject): JSONArray? =
+        rpc("getProgramAccounts", JSONArray().put(program).put(config))?.optJSONArray("value")
 
     private fun discBase58(d: IntArray): String =
         io.github.novacrypto.base58.Base58.base58Encode(ByteArray(8) { d[it].toByte() })
@@ -271,6 +489,8 @@ object PoolLock8895 {
         if (lastAsk.size > 4_000) lastAsk.entries.removeIf { nowMs - it.value > REREAD_MS_8895 }
         if (otherVenue.size > 8_000) otherVenue.entries.removeIf { nowMs - it.value > OTHER_RETRY_MS_8895 }
         if (locks.size > 2_000) locks.entries.removeIf { nowMs - it.value.atMs > PROOF_MS_8895 }
+        if (schedules8925.size > 500) schedules8925.entries.removeIf { nowMs - it.value.atMs > SCHEDULE_CACHE_MS_8925 }   // V5.0.8925
+        if (cpmmLocked8925.size > 500) cpmmLocked8925.entries.removeIf { nowMs - it.value.atMs > SCHEDULE_CACHE_MS_8925 }
     }
 
     private val exec: java.util.concurrent.ThreadPoolExecutor by lazy {
@@ -294,9 +514,10 @@ object PoolLock8895 {
     fun statusLine8895(): String =
         "poolLock8895[asked=${asked.get()} found{${outcome.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}} " +
             "notOurs=${notOurs.get()} tooManyPositions=${tooMany.get()} rpcFailed=${rpcFailed.get()} held=${locks.size} " +
-            "rule=Meteora DAMM v2 permanent lock / DLMM positions locked 24 h+ (smallest locked share of any bin), read on chain; >=70 % turns an " +
+            "rule=Meteora DAMM v2 permanent lock + vesting held past 24 h (8925) / DLMM positions locked 24 h+ (smallest locked share of any bin) / " +
+            "Raydium CPMM LP burned + Burn & Earn (8925), read on chain; >=70 % turns an " +
             "unread LP proof into PROVEN, nothing else changes; an unlocked or unreadable pool stays unproven and is not bought]"
 
     internal fun putForTest8895(l: Lock8895) { locks[l.pool] = l }
-    internal fun resetForTest8895() { locks.clear(); otherVenue.clear(); lastAsk.clear(); inFlight.clear(); outcome.clear() }
+    internal fun resetForTest8895() { schedules8925.clear(); cpmmLocked8925.clear(); locks.clear(); otherVenue.clear(); lastAsk.clear(); inFlight.clear(); outcome.clear() }
 }
