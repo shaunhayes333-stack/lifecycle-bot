@@ -25,6 +25,8 @@ object OnChainMintAuthorityProof7248 {
         val hostileExtension8123: String? = null,
         /** V5.0.8136 — a Token-2022 extension that is benign now but has a live authority that can change it. */
         val mutableExtension8136: String? = null,
+        /** V5.0.8928 — the mint is a classic SPL Token mint (Tokenkeg): no Token-2022 extension can exist on it. */
+        val classicToken8928: Boolean = false,
     )
 
     /** A missing parsed field is unknown, not a revoked authority. Only mint accounts can prove mint safety. */
@@ -40,7 +42,8 @@ object OnChainMintAuthorityProof7248 {
         val freezeAuth = info.opt("freezeAuthority")
         if (listOf(mintAuth, freezeAuth).any { it != JSONObject.NULL && (it !is String || it.isBlank()) }) return null
         return Proof(mintAuth == JSONObject.NULL, freezeAuth == JSONObject.NULL, provider,
-            hostileExtension8123(info.optJSONArray("extensions")), mutableExtension8136(info.optJSONArray("extensions")))
+            hostileExtension8123(info.optJSONArray("extensions")), mutableExtension8136(info.optJSONArray("extensions")),
+            classicToken8928 = owner == "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
     }
 
     /**

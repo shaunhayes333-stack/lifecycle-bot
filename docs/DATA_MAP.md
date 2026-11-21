@@ -2479,3 +2479,35 @@ and the canonical bridge, taking the ledger monitor from inside their work; it n
 
 8926 did not compile: BundleDetector's `rows8926(tx, mint)?.let { results += it; continue }` uses `continue` inside an inline
 lambda, experimental on Kotlin 1.9. It is a plain null check now; nothing else changed. 8927 is the first build of §114.
+
+## 116. The pocket, carefully (8928)
+
+Owner, 22 Nov 02:47-02:52: "bro you have so much data ... you can't build it?", then on the two options: "1 yup 2 it has to pass
+10k - 15k and actually show forward volume holder growth and more positive signs than negative. and if it does buy maybe be
+very very careful".
+
+**The data.** 20-22 Nov research rows (three exports, 38.9 h, 1,827 coins, one row per coin at its first decision, pool $100+):
+an exhaustive search of every one-, two- and three-feature cell (origin, cap, pool, stage, V3, forecast, pool/cap, lane,
+admitted), kept only when mean - 2 SE > 0 and both time halves positive, puts the same pocket at the top every time: not
+pump.fun, $5k-$20k, forecast +10 % or more (n108, +40.5 % +-7.5 at the hour; with a 25 % stop +46.3 %). By cap: $5k-$10k n22
++42.2 % with 4 pulled (-60 % or worse); $10k-$15k n29 +43.0 %, 1 pulled; $15k-$20k n56 +30.3 %, 4 pulled; $20k-$30k n21
++18.5 % (not proven). It is AgreementPocket8874's rule (§65); 59 of its coins were lane-ready and none was bought: they wait
+on an LP proof that does not come (lpState8725 PENDING n114 +31.6 %).
+
+**1 (yes).** The 70 % rule stands; 8925 / 8927 prove the lock on chain (DAMM v2 incl. vesting, CPMM, AMM v4).
+
+**2 (ExploreLive8733 back on, for this pocket only).** An UNREAD LP (never one reported unlocked or under the lock: those are
+BLOCKED before this) may be bought when all of these hold:
+- the agreement pocket at a cap of $10k (CAP_LO_USD_8928) up to its $20k ceiling, in a lane whose pocket record (or the coin
+  record) is proven, on that lane's own quiet forecast (`AgreementPocket8874.provenLaneFor8928`);
+- RugCheck has REPORTED: the explore path no longer stands in for it (PreTradeHardGate's chain substitute takes only a PROVEN
+  LP), and a report's findings (LP unlocked, single holder, top-10, unverified ...) refuse upstream as before;
+- a classic SPL Token mint (OnChainMintAuthorityProof7248 `classicToken8928`: owner Tokenkeg, no Token-2022 extension can
+  exist), mint and freeze revoked; every Jupiter buy still proves its exact tokens quote back to SOL first (8736);
+- forward flow and holders (`flowPasses8928`): buying rising (buy transactions this 15 s over the 15 s before, or volume
+  acceleration >= 55), holder count growing, and more positive signs than negative (`signs8928`: transactions rising /
+  falling, acceleration >= 55 / <= 45, buy share >= 55 % / <= 45 %, net SOL in the minute + / -, new buyers in 15 s >= 2 / 0,
+  holders growing / shrinking, sustained demand);
+- one explore position at a time, 6 a day, at most 0.05 SOL each; the LP-pull exit (§114) watches it from its first tick.
+The brief's `explore8733[... asked{...}]` names why each look was refused (BUDGET / NOT_IN_POCKET / NOT_CLASSIC_OR_AUTHORITY /
+FLOW_OR_HOLDERS) or ELIGIBLE.

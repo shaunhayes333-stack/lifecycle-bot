@@ -117,6 +117,24 @@ object AgreementPocket8874 {
         }
     } catch (_: Throwable) { null }
 
+    /**
+     * V5.0.8928 — ExploreLive8733: is [ts] in the pocket in a lane whose pocket record (or the coin record) is proven, at a
+     * cap of [capLoUsd] up to the pocket's ceiling? The forecast is each proven lane's own quiet verdict (no side effects).
+     * Returns that lane, or null.
+     */
+    fun provenLaneFor8928(ts: TokenState, capLoUsd: Double, nowMs: Long = System.currentTimeMillis()): String? = try {
+        val solana = try { com.lifecyclebot.network.HeliusSolanaScope7819.isSolanaMint7819(ts.mint) } catch (_: Throwable) { false }
+        if (!solana || MarketCohort8701.origin8701(ts.mint) != "OTHER") null else {
+            val base = EdgeModel8537.rawFor8610(ts, EdgeModel8537.LANES.first(), nowMs)
+            if (!base.mcap.isFinite() || base.mcap < capLoUsd || base.mcap >= MCAP_HI_USD_8874 || !(base.v3 >= V3_MIN_8874)) null else {
+                val coin = coinRecord8895()
+                val lanes = EdgeModel8537.LANES.filter { l -> key8874(l)?.let { evidenceOf8874(it, recordOf(it)) } != null || coinEvidenceOf8895(l, key8874(l)?.let { recordOf(it) }, coin) != null }
+                val v = EdgeModel8537.quietVerdicts8869(ts, lanes, nowMs)
+                lanes.firstOrNull { l -> v[l]?.predPct?.let { it.isFinite() && inPocket8874(ts.mint, base.mcap, base.v3, it) } == true }
+            }
+        }
+    } catch (_: Throwable) { null }
+
     /** CandidateAdmission8136 (LIVE): what the admission decided of a coin that carried the pocket — counted, never acted on. */
     fun noteAdmission8874(terminal: String, reason: String) {
         val k = "$terminal:${reason.take(48)}"

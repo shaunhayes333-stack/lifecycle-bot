@@ -35,6 +35,9 @@ class Aate8736NoBuyWithoutASellTest {
         val send = ex.indexOf("wallet.signSendAndConfirm(tx.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, tx.isRfqRoute, tx.senderCompatible)")
         assertTrue(sign in 0 until sell && sell < send)
         val explore = File("src/main/kotlin/com/lifecyclebot/engine/truth/ExploreLive8733.kt").readText()
-        assertTrue(explore.contains("private const val ENABLED_8736 = false") && explore.contains("if (!ENABLED_8736) return false"))
+        // superseded by V5.0.8928 (owner 22 Nov 02:52): back on for the agreement pocket only, with every Jupiter buy's sell
+        // already proven above (8736) and a classic SPL mint required on this path
+        assertTrue(explore.contains("private const val ENABLED_8736 = true") && explore.contains("if (!ENABLED_8736) return false"))
+        assertTrue(explore.contains("if (proof == null || !proof.classicToken8928 || !proof.mintAuthorityDisabled || !proof.freezeAuthorityDisabled)"))
     }
 }

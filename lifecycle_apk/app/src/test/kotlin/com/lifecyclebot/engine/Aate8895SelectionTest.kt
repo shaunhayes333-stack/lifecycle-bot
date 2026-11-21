@@ -130,7 +130,8 @@ class Aate8895SelectionTest {
         // V5.0.8896 — a chain-proven lock is re-read while it holds, so the 60 s proof does not lapse between looks
         assertTrue(src("engine/PreTradeHardGate.kt").contains("ownership8522.reason == com.lifecyclebot.engine.truth.PoolLock8895.PROVEN_REASON_8895) && selectedPool8522.isNotBlank())"))
         assertTrue(src("engine/BuyRouteSafety8522.kt").contains("chainLock8895 = try { com.lifecyclebot.engine.truth.PoolLock8895.proof8895(mint, pool, nowMs) } catch (_: Throwable) { null })"))
-        assertTrue("the unread-LP explore path stays off (owner, 8736 and 20 Nov)", src("engine/truth/ExploreLive8733.kt").contains("private const val ENABLED_8736 = false"))
+        // superseded by V5.0.8928 — owner 22 Nov 02:52: on again, only for the agreement pocket with flow, holders and RugCheck
+        assertTrue(src("engine/truth/ExploreLive8733.kt").contains("val lane = AgreementPocket8874.provenLaneFor8928(ts, CAP_LO_USD_8928, nowMs)"))
         assertFalse("PoolLock8895 never blocks", src("engine/truth/PoolLock8895.kt").contains("Status.BLOCKED"))
     }
 

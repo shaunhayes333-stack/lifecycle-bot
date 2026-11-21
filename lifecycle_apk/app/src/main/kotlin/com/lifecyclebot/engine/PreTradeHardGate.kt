@@ -368,7 +368,8 @@ object PreTradeHardGate {
             (try { com.lifecyclebot.engine.truth.ExploreLive8733.eligible8733(ts, now) } catch (_: Throwable) { false })
         val pending8471 = chainProvenRugcheckSubstitute8471(pendingProofs.distinct(), authorityMint8522 == true,
             holder8522.freshPct ?: -1.0, executableExit8522,
-            ownership8522.status == LiquidityOwnership8522.Status.PROVEN || explore8733)
+            // V5.0.8928 — the explore path never stands in for RugCheck: only a PROVEN LP lets the chain substitute it
+            ownership8522.status == LiquidityOwnership8522.Status.PROVEN)
         val pending8733 = if (explore8733) com.lifecyclebot.engine.truth.ExploreLive8733.relabel8733(pending8471) else pending8471
         return allowWithPendingProof(ts, pending8733, callSite)
     }

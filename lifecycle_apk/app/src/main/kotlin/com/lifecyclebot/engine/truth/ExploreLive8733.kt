@@ -34,10 +34,26 @@ object ExploreLive8733 {
      * landed (Cw1CLZ, 0.039 SOL) then failed every sell quote. No buy is let through on unread proofs again until a real
      * token->SOL sell is proven for the coin before the buy.
      */
-    private const val ENABLED_8736 = false
-    const val MAX_OPEN_8733 = 2
-    const val MAX_PER_DAY_8733 = 8
+    // ── V5.0.8928 §THE_POCKET_CAREFULLY — owner, 22 Nov 02:52, on the agreement pocket waiting on an unread LP proof: "1 yup
+    //    2 it has to pass 10k - 15k and actually show forward volume holder growth and more positive signs than negative. and
+    //    if it does buy maybe be very very careful". 20-22 Nov research rows, one row per coin at its first decision: not
+    //    pump.fun, forecast +10 % or more, cap $10k-$20k: n85, +34.6 % +-6.3 net at the hour (both halves positive), 5 of 85
+    //    fell 60 %+ (pulled), 7 doubled; $5k-$10k: n22 with 4 pulled, so the floor is $10k. Back ON, only for that pocket, and
+    //    only when every one of these holds (8736's reason for OFF answered by the third):
+    //  - the coin is in the agreement pocket (AgreementPocket8874: not pump.fun, V3 >= 23, a proven lane's forecast >= +10 %)
+    //    at a cap of [CAP_LO_USD_8928] up to the pocket's $20k ceiling;
+    //  - RugCheck has REPORTED (no chain substitute for it on this path) and its findings did not refuse; the LP is UNREAD,
+    //    never reported unlocked or under the lock (those are BLOCKED before this);
+    //  - the mint is a classic SPL Token mint (no Token-2022 extension can trap a sell), mint and freeze revoked;
+    //  - forward flow and holders: buying rising (buy transactions this 15 s over the 15 s before, or accelerating volume),
+    //    holder count growing, and more positive signs than negative ([signs8928]);
+    //  - one explore position at a time, [MAX_PER_DAY_8733] a day, at most [MAX_SOL_8733] SOL each; the LP-pull exit (8926)
+    //    watches it from the first tick. ──
+    private const val ENABLED_8736 = true
+    const val MAX_OPEN_8733 = 1
+    const val MAX_PER_DAY_8733 = 6
     private const val MAX_SOL_8733 = 0.05
+    internal const val CAP_LO_USD_8928 = 10_000.0
     private const val DAY_MS = 24L * 60L * 60_000L
 
     private val spent = ConcurrentHashMap<String, Long>()
@@ -55,14 +71,51 @@ object ExploreLive8733 {
     /** Pure: within the explore budget given [openNow] explore positions and [spentToday] explore buys today. */
     fun withinBudget8733(openNow: Int, spentToday: Int): Boolean = openNow < MAX_OPEN_8733 && spentToday < MAX_PER_DAY_8733
 
+    /**
+     * Pure (V5.0.8928): (positive, negative) signs of a coin's live flow [v] and holder growth [holderGrowth] (% over the
+     * last candles; null unread). Each sign counts once, positive or negative or neither:
+     * buy transactions this 15 s vs the 15 s before; volume acceleration (>= 55 / <= 45 of 100); buy share of trades
+     * (>= 55 % / <= 45 %); net SOL bought in the last minute (> 0 / < 0); new buyers in the last 15 s (>= 2 / 0);
+     * holders growing / shrinking; sustained demand (positive only).
+     */
+    internal fun signs8928(v: com.lifecyclebot.engine.market.BuyerFlow8666.View, holderGrowth: Double?): Pair<Int, Int> {
+        var pos = 0; var neg = 0
+        fun s(p: Boolean, n: Boolean) { if (p) pos++ else if (n) neg++ }
+        s(v.buyTx15s > v.buyTxPrev15s, v.buyTx15s < v.buyTxPrev15s)
+        s(v.volumeAccelScore >= 55.0, v.volumeAccelScore <= 45.0)
+        s(v.buySharePct >= 55.0, v.buySharePct <= 45.0)
+        s(v.netSol60s > 0.0, v.netSol60s < 0.0)
+        s(v.newBuyers15s >= 2, v.newBuyers15s == 0)
+        if (holderGrowth != null && holderGrowth.isFinite()) s(holderGrowth > 0.0, holderGrowth < 0.0)
+        if (v.sustainedDemand) pos++
+        return pos to neg
+    }
+
+    /** Pure (V5.0.8928): the owner's flow rule — buying rising, holders growing, and more positive signs than negative. */
+    internal fun flowPasses8928(v: com.lifecyclebot.engine.market.BuyerFlow8666.View?, holderGrowth: Double?): Boolean {
+        if (v == null || holderGrowth == null || !holderGrowth.isFinite() || holderGrowth <= 0.0) return false
+        val rising = v.buyTx15s > v.buyTxPrev15s || v.volumeAccelScore >= 55.0
+        val (pos, neg) = signs8928(v, holderGrowth)
+        return rising && pos > neg
+    }
+
     /** PreTradeHardGate: may [ts]'s unread LP ownership be bought at explore size now? */
     fun eligible8733(ts: TokenState, nowMs: Long): Boolean {
         if (!ENABLED_8736) return false
-        if (!withinBudget8733(openCount8733(), spentToday8733(nowMs))) return false
-        val cell = cellPaying8733(ts, nowMs) ?: return false
-        lastCell = cell
+        if (!withinBudget8733(openCount8733(), spentToday8733(nowMs))) { why8928("BUDGET"); return false }
+        val lane = AgreementPocket8874.provenLaneFor8928(ts, CAP_LO_USD_8928, nowMs) ?: run { why8928("NOT_IN_POCKET"); return false }
+        val proof = try { OnChainMintAuthorityProof7248.resolve(ts.mint, liveGate8094 = true) } catch (_: Throwable) { null }
+        if (proof == null || !proof.classicToken8928 || !proof.mintAuthorityDisabled || !proof.freezeAuthorityDisabled) { why8928("NOT_CLASSIC_OR_AUTHORITY"); return false }
+        val flow = try { com.lifecyclebot.engine.market.BuyerFlow8666.read(ts.mint, nowMs) } catch (_: Throwable) { null }
+        val holders = ts.holderGrowthRate.takeIf { ts.holderDataResolved && it.isFinite() }
+        if (!flowPasses8928(flow, holders)) { why8928("FLOW_OR_HOLDERS"); return false }
+        lastCell = "AGREE:$lane"
+        why8928("ELIGIBLE")
         return true
     }
+
+    private val why8928 = ConcurrentHashMap<String, AtomicLong>()
+    private fun why8928(k: String) { why8928.computeIfAbsent(k) { AtomicLong(0L) }.incrementAndGet() }
 
     /** Executor (live buy, explore verdict): the refusal of a buy of [sol], or null when it may go. */
     fun spendRefusal8733(sol: Double, nowMs: Long): String? = when {
@@ -78,10 +131,6 @@ object ExploreLive8733 {
         try { PipelineHealthCollector.labelInc("EXPLORE_LIVE_BUY_8733") } catch (_: Throwable) {}
     }
 
-    private fun cellPaying8733(ts: TokenState, nowMs: Long): String? = EdgeModel8537.LANES.firstNotNullOfOrNull { lane ->
-        try { PayingCell8723.evidence8723(ts, lane, nowMs)?.id } catch (_: Throwable) { null }
-    }
-
     private fun spentToday8733(nowMs: Long): Int = spent.values.count { nowMs - it in 0L..DAY_MS }
 
     private fun openCount8733(): Int = spent.keys.count { m ->
@@ -92,6 +141,8 @@ object ExploreLive8733 {
         val now = System.currentTimeMillis()
         return "explore8733[buys=${allowed.get()} today=${spentToday8733(now)}/$MAX_PER_DAY_8733 open=${openCount8733()}/$MAX_OPEN_8733 " +
             "maxSol=$MAX_SOL_8733 refusedSize=${refusedSize.get()} refusedBudget=${refusedBudget.get()} lastCell=${lastCell.ifBlank { "-" }} " +
-            "rule=unread LP (never unlocked/under-lock) in a paying cell, mint+freeze revoked, holders read, executable exit]"
+            "asked{${why8928.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}} " +
+            "rule=8928: unread LP (never unlocked/under-lock), RugCheck reported, agreement pocket at \$10k-\$20k, classic SPL mint, " +
+            "buying rising + holders growing + more positive signs than negative; 1 open, 6/day, <= 0.05 SOL; LP-pull exit armed]"
     }
 }
