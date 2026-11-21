@@ -2346,3 +2346,24 @@ outranking it.
 8918 built; Aate8418EntryContinuityTest pinned a ticket expiring at the send instant as ENTRY_CHASE_DECISION_STALE, which 8918
 changed on purpose (§106: a re-quoted grace of LATE_SEND_GRACE_MS_8918). The test now expects stale past the grace and the
 re-quote inside it. 8919-8921 carried the same failure; 8922 is the first build of §106-§109.
+
+## 111. A price no pool can hold is no basis (8923)
+
+Owner, 22 Nov 00:31-00:35: "what about coins that ran 1000% plus?", then "do 1 and 2 as well" (1: this fix; 2: study the real
+launch runners).
+
+**1. The bad basis (defect 10).** On the 20-22 Nov research rows 58 coins read 4x+ after the bot's first decision; 15 were
+decided at a cap under $1.5k (as low as $3-$80, pools $0-$9: no live pump.fun curve quotes under ~$2k at SOL $70), and others
+read +73,000 % to +192,000 % at 4 h / 24 h (a $2k coin at $400M). The decision price was not the coin's, and the Jupiter re-read
+against it booked a run that never happened (the same inflates the report's "runners missed"). Change: a decision on a pool
+under $100 (the bot's own minimum to buy) writes no hour research row and is not followed at 4 h / 24 h
+(`untradeable8923`); a follow-up re-read past 100x the decision price is booked unpriced as IMPLAUSIBLE_RATIO_8923
+(`implausible8923`), never as a return. Counted in the researchFollow8884 line.
+
+**2. The real launch runners (study, no code).** Fresh pump.fun decisions at a $1.5k-$10k cap on a pool of $100+, best read
+4x-100x within 24 h: 12 of 495 (2.4 %). At the decision they look like the rest: median V3 0 vs 0, edge forecast -15.1 % vs
+-16.3 %, cap $3,954 vs $3,321, pool $842 vs $676, cost 2.9 % vs 3.0 %; no setup id fires on them more often (FRESH_LAUNCH_MOMENTUM
+1/16, PEAK_RECLAIM 1/17, NO_TRIGGER 6/122); lane-admitted 7/228 (3.1 %) vs not admitted 5/267 (1.9 %). On 878 launch-cap
+decisions, buying every one with a -25 % stop and banking half the best run is -0.2 % ± 3.6 a trade. Nothing the research rows
+record at the decision tells a launch runner from the rest; the rows carry no buyer-flow fields (distinct buyers, buy share,
+signed demand), which is the next data hole to fill before a launch-runner setup can be graded.

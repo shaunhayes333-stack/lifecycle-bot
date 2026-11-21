@@ -2277,7 +2277,9 @@ object ForwardReturnLabeler7731 {
         // -cost label: 8337 FIX 2 closed the 60 slot; this slot booked it (and its lane / stage late tallies) unchanged.
         if (flatMarkNow8342(o, gross0)) { flatMarks8322.incrementAndGet(); markLost(o); return true }
         // V5.0.8877 (plan W8) — the hour read is also one research row: its own file, exported, read by no learner
-        try {
+        // V5.0.8923 — a decision on a pool no buyer could take (under ResearchFollow8884.MIN_POOL_USD_8923) is no research row:
+        // its "price" is not the coin's (20-22 Nov: decision caps of $3-$80 reading +73,000 % later).
+        if (ResearchFollow8884.tradeable8923(o.liqUsd8539)) try {
             ResearchRows8877.note8877(ResearchRows8877.line8877(o.atMs, H240_MS_7731, o.mint, o.lane, o.admitted, o.stage, o.setup7955,
                 o.pred8855, o.v38877, o.entryMcap, o.liqUsd8539, o.costPct, net, gross, o.peakPct, o.heldPeak8071, o.minPct7962, o.reason7967,
                 diag8891(o, System.currentTimeMillis())))

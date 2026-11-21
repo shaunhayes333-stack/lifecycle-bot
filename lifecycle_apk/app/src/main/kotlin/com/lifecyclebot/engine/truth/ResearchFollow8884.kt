@@ -50,6 +50,27 @@ object ResearchFollow8884 {
     private val late = AtomicLong(0L)
     private val failed = AtomicLong(0L)
     private val dropped = AtomicLong(0L)
+    private val untradeable8923 = AtomicLong(0L)
+    private val implausible8923 = AtomicLong(0L)
+
+    /**
+     * V5.0.8923 §A_PRICE_NO_POOL_CAN_HOLD_IS_NO_BASIS — owner, 22 Nov 00:31: "what about coins that ran 1000% plus?" On the
+     * 20-22 Nov research rows 58 coins read 4x+ after the first decision; 15 of them were decided at a cap under $1.5k (as
+     * low as $3-$80, pools $0-$9 — no live pump.fun curve quotes under ~$2k at SOL $70), and others read +73,000 % to
+     * +192,000 % at 4 h / 24 h (a $2k coin at $400M): the decision's price was not the coin's, and the Jupiter re-read
+     * against it booked a "run" that never happened. A decision on a pool under [MIN_POOL_USD_8923] (the bot's own minimum to
+     * buy at all) is not followed; a re-read past [MAX_RATIO_8923] times the decision price is booked unpriced as an
+     * implausible ratio, never as a return.
+     */
+    internal const val MIN_POOL_USD_8923 = 100.0
+    internal const val MAX_RATIO_8923 = 100.0
+
+    /** Pure: is a decision on a pool of [liqUsd] one a buyer could have taken (the pool is read and at least the minimum)? */
+    fun tradeable8923(liqUsd: Double): Boolean = !liqUsd.isFinite() || liqUsd >= MIN_POOL_USD_8923
+
+    /** Pure: is a re-read at [usd] against the decision's [entryUsd] a ratio a coin can have moved (at most [MAX_RATIO_8923]x)? */
+    fun plausible8923(entryUsd: Double, usd: Double): Boolean =
+        entryUsd.isFinite() && entryUsd > 0.0 && usd.isFinite() && usd > 0.0 && usd / entryUsd <= MAX_RATIO_8923
     @Volatile private var loaded = false
     @Volatile private var dirty = false
     @Volatile private var savedAtMs = 0L
@@ -96,6 +117,7 @@ object ResearchFollow8884 {
     fun note8884(atMs: Long, mint: String, lane: String, admitted: Boolean, stage: String, setup: String, pred: Double, v3: Double,
                  mcap: Double, liq: Double, cost: Double, entryUsd: Double, reason: String) {
         if (mint.isBlank() || !entryUsd.isFinite() || entryUsd <= 0.0) return
+        if (!tradeable8923(liq)) { untradeable8923.incrementAndGet(); return }   // V5.0.8923
         ensureStarted8884()
         val w = Wait8884(atMs, mint, lane, admitted, stage, setup, pred, v3, mcap, liq, cost, entryUsd, reason.take(80), 0)
         synchronized(pending) {
@@ -152,9 +174,12 @@ object ResearchFollow8884 {
                     val horizon = HORIZONS_8884[w.next]
                     val tooLate = nowMs - w.atMs > horizon + LATE_GRACE_MS_8884
                     val usd = priceOf8884(body, w.mint)
-                    val r = usd?.let { returns8884(w.entryUsd, it, w.cost) }
+                    val implausible = usd != null && !plausible8923(w.entryUsd, usd)   // V5.0.8923
+                    if (implausible) implausible8923.incrementAndGet()
+                    val r = usd?.takeIf { !implausible }?.let { returns8884(w.entryUsd, it, w.cost) }
                     val why = when {
                         tooLate -> "LATE_READ_8884:" + w.reason
+                        implausible -> "IMPLAUSIBLE_RATIO_8923:" + w.reason
                         r == null -> "NO_PRICE_JUP_8884:" + w.reason
                         else -> "JUP_8884:" + w.reason
                     }
@@ -195,7 +220,7 @@ object ResearchFollow8884 {
     fun statusLine8884(): String {
         val (h4, h24) = synchronized(pending) { pending.count { it.next == 0 } to pending.count { it.next == 1 } }
         return "researchFollow8884[waiting4h=$h4 waiting24h=$h24 written=${written.get()} unpriced=${unpriced.get()} late=${late.get()} " +
-            "failed=${failed.get()} dropped=${dropped.get()} rule=each hour row's decision read again at 4 h and 24 h (Jupiter price v3, USD per token), same file]"
+            "failed=${failed.get()} dropped=${dropped.get()} untradeable8923=${untradeable8923.get()} implausible8923=${implausible8923.get()} rule=each hour row's decision read again at 4 h and 24 h (Jupiter price v3, USD per token), same file]"
     }
 
     internal fun resetForTest8884() { synchronized(pending) { pending.clear() }; loaded = true; written.set(0); unpriced.set(0); late.set(0); dropped.set(0) }
