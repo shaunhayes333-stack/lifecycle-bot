@@ -26,12 +26,12 @@ data class LabelBasis8386(val mark: LabelMark8386, val capUsd: Double, val capDe
 }
 
 object LabelEvidence8386 {
-    /** V5.0.8911 — the venue rule asks LaunchpadMigration8911 whether a venue change is the coin's own proven migration. */
+    /** V5.0.8911 — the venue rule asks [migrationHook8911] whether a venue change is the coin's own proven migration. */
     fun status(entry: LabelMark8386?, outcome: LabelMark8386?): String = status(entry, outcome, null)
 
     /**
      * Pure when [migrated] is given (V5.0.8911): the status of [outcome] against [entry], where [migrated] says whether the coin's
-     * graduation is proven (null: ask LaunchpadMigration8911, which also asks a launchpad pool in the background).
+     * graduation is proven (null: ask [migrationHook8911], which also asks a launchpad pool in the background).
      */
     internal fun status(entry: LabelMark8386?, outcome: LabelMark8386?, migrated: Boolean?): String {
         if (entry == null || !entry.known()) return "OBSERVED_ONLY_UNKNOWN_BASIS"
@@ -55,11 +55,11 @@ object LabelEvidence8386 {
         // V5.0.8787 — only between two real venue identities (a pool address or the pump curve): a provider tag such as the
         // downtime-recovery candle's "ohlcv" names no venue and proves nothing either way.
         // V5.0.8911 — unless the venue change is the coin's own migration (graduation proven, the mark not on the pump.fun curve):
-        // the new pool's price is the coin's price, carried (LaunchpadMigration8911).
+        // the new pool's price is the coin's price, carried (LaunchpadMigration8911, through migrationHook8911).
         if (venueIdentity8787(entry.venue) && venueIdentity8787(outcome.venue) &&
             venuesDisagree8681(entry.venue, outcome.venue) && !independent8418(outcome) &&
-            !(if (migrated != null) LaunchpadMigration8911.carries8911(migrated, entry.venue, outcome.venue)
-              else try { LaunchpadMigration8911.carriesNow8911(entry, outcome) } catch (_: Throwable) { false })) return VENUE_MISMATCH_8783
+            !(if (migrated != null) migrationCarries8911(migrated, entry.venue, outcome.venue)
+              else try { migrationHook8911?.invoke(entry, outcome) == true } catch (_: Throwable) { false })) return VENUE_MISMATCH_8783
         if (ratio <= 0.1) return "VALID_8386"
         // A >= 10x move needs both marks chain-provable ([independent8418]: curve account / curve tape print / parsed swap /
         // pool reserve read). A proof requirement, never a cap: a witnessed 100x / 1000x trains at its full value.
@@ -69,6 +69,19 @@ object LabelEvidence8386 {
     fun eligible(entry: LabelMark8386?, outcome: LabelMark8386?) = status(entry, outcome) == "VALID_8386"
 
     const val VENUE_MISMATCH_8783 = "OBSERVED_ONLY_VENUE_MISMATCH_8783"
+
+    /**
+     * V5.0.8911 — the live migration read (LaunchpadMigration8911 installs it: is a venue change of these two marks the coin's
+     * proven migration?). Unset (a pure build, or before the labeler first ticks) nothing is carried: the 8783 rule as before.
+     */
+    @Volatile var migrationHook8911: ((LabelMark8386, LabelMark8386) -> Boolean)? = null
+
+    /**
+     * Pure (V5.0.8911): does a venue change between a decision mark on [entryVenue] and an outcome mark on [outcomeVenue] carry the
+     * coin's price, given whether its graduation is [migrated]? Only after a proven migration, and never onto the pump.fun curve.
+     */
+    fun migrationCarries8911(migrated: Boolean, entryVenue: String, outcomeVenue: String): Boolean =
+        migrated && entryVenue.isNotBlank() && !outcomeVenue.trim().equals("pump.curve", ignoreCase = true)
 
     /** Pure (V5.0.8787): does [venue] name a venue — a pool / pair address, or the pump.fun curve? */
     fun venueIdentity8787(venue: String): Boolean {

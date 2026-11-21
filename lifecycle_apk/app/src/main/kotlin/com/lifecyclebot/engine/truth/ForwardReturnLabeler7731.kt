@@ -3450,6 +3450,7 @@ object ForwardReturnLabeler7731 {
     private val ticking8442 = java.util.concurrent.atomic.AtomicBoolean(false)
 
     fun tick(priceFor0: (String) -> Double?, nowMs: Long = System.currentTimeMillis()) {
+        try { LaunchpadMigration8911.install8911() } catch (_: Throwable) {}   // V5.0.8911 — the venue rule reads migrations
         if (!ticking8442.compareAndSet(false, true)) {
             try { PipelineHealthCollector.labelInc("FORWARD_TICK_OVERLAP_SKIPPED_8442") } catch (_: Throwable) {}
             return

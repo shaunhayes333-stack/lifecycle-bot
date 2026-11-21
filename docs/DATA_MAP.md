@@ -2231,3 +2231,11 @@ step still needs the agreement; position highs and exits are unchanged.
 steps; records built on them (stage, cohort, pocket, lane, the base pocket's pump.fun record) re-grade from new rows. Counted as
 FORWARD_LABEL_DEAD_CURVE_8912 / FORWARD_LABEL_CHAIN_STEP_8912 and `deadCurve8912=` in the migration8911 line. Nothing is
 admitted by this change itself.
+
+## 101. 8911's compile fix (8913)
+
+8911 and 8912 did not build: the cortex JVM harness (ci/cortex-jvm/run.sh) compiles LabelEvidence8386 with 43 other pure files
+and no Android, and 8911 had LabelEvidence8386 call LaunchpadMigration8911 (which reads BotService, the RPC client and the curve
+store). LabelEvidence8386 is pure again: the carry rule (`migrationCarries8911`) lives there, and the live migration read is a hook
+(`migrationHook8911`) that LaunchpadMigration8911 installs on first use and that ForwardReturnLabeler7731.tick installs every
+pass. Unset, nothing is carried (the 8783 rule as before). Behaviour is otherwise exactly §99 and §100.

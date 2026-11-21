@@ -69,12 +69,16 @@ object LaunchpadMigration8911 {
         }
     }
 
-    /**
-     * Pure: does a venue change between a decision mark on [entryVenue] and an outcome mark on [outcomeVenue] carry the coin's
-     * price, given whether its graduation is [migrated]? Only after a proven migration, and never onto the pump.fun curve.
-     */
+    /** Pure: the carry rule (LabelEvidence8386.migrationCarries8911, kept beside the 8783 rule it relaxes). */
     fun carries8911(migrated: Boolean, entryVenue: String, outcomeVenue: String): Boolean =
-        migrated && entryVenue.isNotBlank() && !outcomeVenue.trim().equals("pump.curve", ignoreCase = true)
+        LabelEvidence8386.migrationCarries8911(migrated, entryVenue, outcomeVenue)
+
+    init { install8911() }
+
+    /** Install the live migration read into LabelEvidence8386 (ForwardReturnLabeler7731.tick, and on first use; idempotent). */
+    fun install8911() {
+        if (LabelEvidence8386.migrationHook8911 == null) LabelEvidence8386.migrationHook8911 = { e, o -> carriesNow8911(e, o) }
+    }
 
     // ── V5.0.8912: the dead curve ──
 

@@ -58,7 +58,9 @@ class Aate8911MigrationFollowTest {
 
     @Test fun wired() {
         val ev = File("src/main/kotlin/com/lifecyclebot/engine/truth/LabelEvidence8386.kt").readText()
-        assertTrue(ev.contains("else try { LaunchpadMigration8911.carriesNow8911(entry, outcome) } catch (_: Throwable) { false })) return VENUE_MISMATCH_8783"))
+        assertTrue(ev.contains("else try { migrationHook8911?.invoke(entry, outcome) == true } catch (_: Throwable) { false })) return VENUE_MISMATCH_8783"))
+        assertTrue("LabelEvidence stays pure (the cortex JVM harness compiles it alone)", !ev.contains("LaunchpadMigration8911."))
+        assertTrue(File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText().contains("try { LaunchpadMigration8911.install8911() } catch (_: Throwable) {}"))
         assertTrue(File("src/main/kotlin/com/lifecyclebot/engine/DiagnosisBrief8438.kt").readText().contains("LaunchpadMigration8911.statusLine8911()"))
         assertTrue(File("../../docs/DATA_MAP.md").readText().contains("## 99. Following a coin through its migration (8911)"))
     }
