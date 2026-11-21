@@ -317,7 +317,9 @@ class Aate8187CortexCompleteTest {
         // superseded by V5.0.8395: a gap is no longer a silent price-only loss; it reaches the one durable unavailable terminal.
         // V5.0.8451 — the 8449 batch call was withdrawn; the per-terminal durable call is back (pin restored)
         assertTrue(fl.contains("Cortex7885.observationUnavailable8395(j.getString(\"mint\"),j.getString(\"lane\"),j.getLong(\"at\"),j.getString(\"why\"))"))
-        assertTrue(fl.contains("Cortex7885.onLabelLost8187(o.mint, o.lane, \"BASIS\", decisionAtMs8371 = o.atMs)"))
+        // superseded by V5.0.8915 — an unwitnessed 10x mark no longer deletes its observation (nor releases Cortex as BASIS-lost):
+        // only the mark is skipped; the observation books on a witnessed mark or expires through the durable unavailable terminal above.
+        assertTrue(fl.contains("unwitnessedKept8915.incrementAndGet()"))
         // superseded by V5.0.8291 — the first-mark check is read once and ranked (CortexLabelFeed8291).
         assertTrue(fl.contains("val first8291 = firstMarkDue8187(o.rebased8076, o.lastPxAtMs, age)"))
         assertTrue(fl.contains("if (first8291) dueUnpriced7737.add("))

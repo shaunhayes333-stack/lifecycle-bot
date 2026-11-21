@@ -2275,3 +2275,9 @@ that 8910 extended with the candidate's strategy (now `availability8870(lane, no
 `candidate.evidence["trend8886"], candidate.evidence["strategy7803"])`); Aate8910's kline sample started at open time 0, which
 parseKlines8910 rightly refuses as no candle. 8911-8915 carried the same failures (and 8911-8914 never compiled: §101, §103), so
 8916 is the first build of the whole chain.
+
+## 105. 8916's test fix (8917)
+
+8916 built; one unit test failed: Aate8187CortexCompleteTest pinned the labeler's `Cortex7885.onLabelLost8187(... "BASIS" ...)` call,
+which 8915 removed on purpose (§103: an unwitnessed 10x mark is skipped, its observation kept; it books on a witnessed mark or ends
+through the durable unavailable terminal, which still releases Cortex). The pin now asserts the kept observation.
