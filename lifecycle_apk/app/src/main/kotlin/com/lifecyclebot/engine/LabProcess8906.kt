@@ -159,7 +159,7 @@ class LabProcess8906 : Service() {
          * In the trading process (LaunchReplay8744's own thread): BaseFamily8754's grading, run in the lab. Null when the lab did
          * not answer in [FAMILY_WAIT_MS_8906] — the caller then grades here, exactly as before 8906.
          */
-        fun baseFamily8906(set: List<com.lifecyclebot.engine.truth.LaunchReplay8744.Path8748>, solUsd: Double, costPct: Double,
+        internal fun baseFamily8906(set: List<com.lifecyclebot.engine.truth.LaunchReplay8744.Path8748>, solUsd: Double, costPct: Double,
                            needMs: Long): List<com.lifecyclebot.engine.truth.BaseFamily8754.Graded>? {
             val app = com.lifecyclebot.AATEApp.appContextOrNull() ?: return null
             sweep8906(app, System.currentTimeMillis())

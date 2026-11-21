@@ -2110,3 +2110,8 @@ does not answer in 90 s, or a rule index does not resolve, the replay thread gra
 ran: `baseFamily8754[... where8906=lab|here]`. Forensic impact: the proven / shadow rule and every graded number are the same
 function of the same paths (Aate8907 round-trips both files and compares the lab's rows with the local grade); the sniper reads
 them as before. The other replay families stay in the trading process for now.
+
+## 96. 8907's compile fix (8908)
+
+8907 failed to compile: LabProcess8906.baseFamily8906 was public and took List<LaunchReplay8744.Path8748>, an internal type.
+It is internal now (its only caller, BaseFamily8754, is in the module). 8908 carries 8906 and 8907 unchanged otherwise.
