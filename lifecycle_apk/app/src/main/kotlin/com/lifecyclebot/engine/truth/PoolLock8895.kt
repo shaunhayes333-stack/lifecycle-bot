@@ -94,6 +94,11 @@ object PoolLock8895 {
     //  Unchanged: >= 70 % turns an unread LP proof into PROVEN and nothing else; a lower or unreadable read stays unproven and is
     //  not bought; a provider's finding of unlocked liquidity still refuses; RugCheck stays required. ──
     private const val CPMM_PROGRAM_8925 = "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C"
+    // V5.0.8926 — Raydium AMM v4 (raydium-amm program/src/state.rs AmmInfo, repr(C, packed), 752 bytes): coin_vault_mint @400,
+    // pc_vault_mint @432, lp_mint @464, lp_amount u64 @720 (the LP outstanding; an SPL burn lowers the LP mint's supply only),
+    // so the burned share is (lp_amount - LP mint supply) / lp_amount, as CPMM's (its LP is burned, not Burn & Earn locked).
+    private const val AMM_V4_PROGRAM_8926 = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
+    private const val VENUE_AMM_V4_8926 = "RAYDIUM_AMM_V4"
     private const val CPMM_LOCK_AUTH_8925 = "3f7GcQFG397GAaEnv51zR6tsTVihYRydnydDD1cXekxH"
     const val VENUE_CPMM_8925 = "RAYDIUM_CPMM"
     internal val CPMM_POOL_DISC_8925 = intArrayOf(247, 237, 227, 245, 215, 195, 222, 70)         // sha256("account:PoolState")[0..8]
@@ -114,9 +119,9 @@ object PoolLock8895 {
 
     // ── pure ──
 
-    private fun disc(data: ByteArray, d: IntArray): Boolean = data.size >= 8 && (0 until 8).all { (data[it].toInt() and 0xFF) == d[it] }
+    internal fun disc(data: ByteArray, d: IntArray): Boolean = data.size >= 8 && (0 until 8).all { (data[it].toInt() and 0xFF) == d[it] }
 
-    private fun key(data: ByteArray, off: Int): String? =
+    internal fun key(data: ByteArray, off: Int): String? =
         if (data.size < off + 32) null
         else try { io.github.novacrypto.base58.Base58.base58Encode(data.copyOfRange(off, off + 32)) } catch (_: Throwable) { null }
 
@@ -136,7 +141,7 @@ object PoolLock8895 {
             ((data[off + 2].toInt() and 0xFF) shl 16) or ((data[off + 3].toInt() and 0xFF) shl 24)
 
     /** Pure: is the pair ([a], [b]) [mint] against a quote mint (wrapped SOL, USDC, USDT), in either order? */
-    private fun pairedWithQuote(mint: String, a: String?, b: String?): Boolean =
+    internal fun pairedWithQuote(mint: String, a: String?, b: String?): Boolean =
         (a == mint && b in QUOTES_8895) || (b == mint && a in QUOTES_8895)
 
     /** Pure: the permanently locked share (%) of a DAMM v2 pool account [data] of [mint]; null when it is not one. */
@@ -226,6 +231,14 @@ object PoolLock8895 {
         if (!pairedWithQuote(mint, key(data, 168), key(data, 200))) return null
         val lp = key(data, 136) ?: return null
         return lp to uLe8895(data, 333, 8)
+    }
+
+    /** Pure (V5.0.8926): (LP mint, lp_amount) of a Raydium AMM v4 AmmInfo [data] of [mint]; null when it is not one. */
+    internal fun ammV4Pool8926(mint: String, data: ByteArray?): Pair<String, BigInteger>? {
+        if (data == null || data.size != LpPull8926.AMM_V4_SIZE_8926) return null
+        if (!pairedWithQuote(mint, key(data, 400), key(data, 432))) return null
+        val lp = key(data, 464) ?: return null
+        return lp to uLe8895(data, 720, 8)
     }
 
     /** Pure (V5.0.8925): an SPL mint account's supply (u64 @36); null when it is too short. */
@@ -351,6 +364,7 @@ object PoolLock8895 {
                 else readDammVesting8925(mint, pool, data!!, pct)   // V5.0.8925 — and what its positions' schedules hold past the hold
             }
             CPMM_PROGRAM_8925 -> readCpmm8925(mint, pool, data)   // V5.0.8925
+            AMM_V4_PROGRAM_8926 -> readAmmV4_8926(mint, pool, data)   // V5.0.8926
             DLMM_PROGRAM_8895 -> {
                 val type = dlmmActivationType8895(mint, data) ?: run { other(pool, now); return }
                 readDlmm(mint, pool, type)
@@ -468,6 +482,15 @@ object PoolLock8895 {
         store(Lock8895(mint, pool, VENUE_CPMM_8925, pct, System.currentTimeMillis(), "burned+burnAndEarn/lp_supply"))
     }
 
+    /** V5.0.8926 — a Raydium AMM v4 pool: LP burned over lp_amount. */
+    private fun readAmmV4_8926(mint: String, pool: String, data: ByteArray?) {
+        val (lpMint, lpAmount) = ammV4Pool8926(mint, data) ?: run { other(pool, System.currentTimeMillis()); return }
+        val supply = rpc("getAccountInfo", JSONArray().put(lpMint).put(JSONObject().put("encoding", "base64").put("commitment", "confirmed")))
+            ?.optJSONObject("value")?.let { mintSupply8925(OnChainDepth8038.accountData8418(it)) } ?: run { rpcFailed.incrementAndGet(); return }
+        val pct = cpmmLockedPct8925(lpAmount, supply, BigInteger.ZERO) ?: run { rpcFailed.incrementAndGet(); return }
+        store(Lock8895(mint, pool, VENUE_AMM_V4_8926, pct, System.currentTimeMillis(), "burned/lp_amount"))
+    }
+
     private fun gpa(config: JSONObject): JSONArray? = gpa(DLMM_PROGRAM_8895, config)
 
     private fun gpa(program: String, config: JSONObject): JSONArray? =
@@ -515,7 +538,7 @@ object PoolLock8895 {
         "poolLock8895[asked=${asked.get()} found{${outcome.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}} " +
             "notOurs=${notOurs.get()} tooManyPositions=${tooMany.get()} rpcFailed=${rpcFailed.get()} held=${locks.size} " +
             "rule=Meteora DAMM v2 permanent lock + vesting held past 24 h (8925) / DLMM positions locked 24 h+ (smallest locked share of any bin) / " +
-            "Raydium CPMM LP burned + Burn & Earn (8925), read on chain; >=70 % turns an " +
+            "Raydium CPMM LP burned + Burn & Earn (8925) / Raydium AMM v4 LP burned (8926), read on chain; >=70 % turns an " +
             "unread LP proof into PROVEN, nothing else changes; an unlocked or unreadable pool stays unproven and is not bought]"
 
     internal fun putForTest8895(l: Lock8895) { locks[l.pool] = l }

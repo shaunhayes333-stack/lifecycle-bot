@@ -256,7 +256,7 @@ object CanonicalPaperTerminalBridge6469 {
             // V5.0.8924 — a refused terminal sale's basis stays open: remembered, and written off once exactly attributed
             if (terminal && why.startsWith("QUARANTINED")) try {
                 PaperAccountLedger6430.noteRefusedTerminal8924(positionId, mint, soldCostBasisSol, why)
-                PaperAccountLedger6430.sweepStranded8924()
+                PaperAccountLedger6430.requestSweep8926()   // V5.0.8926 — on its own thread
             } catch (_: Throwable) {}
             return Result(applied = false, terminalClaimed = false, busPublished = false, reason = "LEDGER_PRECHECK_8576_$why")
         }

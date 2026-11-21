@@ -984,6 +984,27 @@ class BotService : Service() {
     private val modeExitAttemptMs7744 = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     /**
+     * V5.0.8926 — owner, 22 Nov 02:09: "if it gets liq pulled im going to be very pissed of". The held coin's own pool is
+     * watched (LpPull8926: its liquidity units move only on an add or a withdrawal); 30 %+ pulled below the watched peak sells
+     * the whole position at once as an emergency stop (the reason carries LP_PULL and LIQ_DRAIN: ProtectiveExitClass7807,
+     * RunnerExitContract8136 and every hold rule read it as an emergency). One attempt per mint per 2 s rung.
+     */
+    private fun lpPullExit8926(ts: com.lifecyclebot.data.TokenState, wallet: com.lifecyclebot.network.SolanaWallet?, walletSol: Double) {
+        try {
+            if (!ts.position.isOpen) return
+            val pool = ts.tokenMap.poolAddress.ifBlank { ts.lastPricePoolAddr.ifBlank { ts.pairAddress } }
+            val drop = com.lifecyclebot.engine.truth.LpPull8926.check8926(ts.mint, pool) ?: return
+            val now = System.currentTimeMillis()
+            if (now - (modeExitAttemptMs7744[ts.mint] ?: 0L) < com.lifecyclebot.engine.sell.ProtectiveExitClass7807.emergencyRetryDelayMs(1)) return
+            modeExitAttemptMs7744[ts.mint] = now
+            val reason = "${com.lifecyclebot.engine.truth.LpPull8926.REASON_8926}_DROP${drop.toInt()}PCT"
+            PipelineHealthCollector.labelInc("LP_PULL_EXIT_ACTED_8926")
+            ForensicLogger.lifecycle("LP_PULL_EXIT_8926", "mint=${ts.mint.take(10)} symbol=${ts.symbol} pool=${pool.take(10)} dropPct=${drop.toInt()}")
+            if (requestSellOffLoop7288(ts, reason, wallet, walletSol)) com.lifecyclebot.engine.truth.LpPull8926.noteActed8926(pool)
+        } catch (_: Throwable) {}
+    }
+
+    /**
      * V5.0.7744 — ModeSpecificExits' per-trade-type exits (ignition failed,
      * liquidity draining, reversal reclaim failed, whale band broken, whale or
      * leader flow gone, post-graduation liquidity collapse, trend broken, learned
@@ -33641,6 +33662,8 @@ if (hotExitHandledSweep) {
             }
         }
         
+        lpPullExit8926(ts, wallet, effectiveBalance)   // V5.0.8926 — liquidity pulled from the held coin's pool: out at once
+
         // Get mode-specific exit recommendation
         val exitRec = try {
             ModeSpecificExits.getExitRecommendation(ts, positionTradeType, pnlPct, holdTimeMs)

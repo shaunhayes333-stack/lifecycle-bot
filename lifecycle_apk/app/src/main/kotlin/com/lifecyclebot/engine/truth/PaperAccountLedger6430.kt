@@ -442,9 +442,24 @@ object PaperAccountLedger6430 {
         return if (kotlin.math.abs(openCost - sum) <= 1e-6) sum else null
     }
 
+    private val sweepExec8926: java.util.concurrent.ThreadPoolExecutor by lazy {
+        java.util.concurrent.ThreadPoolExecutor(1, 1, 30L, java.util.concurrent.TimeUnit.SECONDS, java.util.concurrent.ArrayBlockingQueue<Runnable>(1),
+            { r -> Thread(r, "stranded-8924").apply { isDaemon = true } }, java.util.concurrent.ThreadPoolExecutor.DiscardPolicy())
+    }
+
+    /**
+     * V5.0.8926 — the sweep runs on its own thread, never on its caller's: the economic publish (JournalEconomicAuthority6616)
+     * and the canonical bridge called it inline, which took the ledger monitor from inside their own work (a lock-order
+     * hazard). With nothing refused it returns at once without touching the monitor.
+     */
+    fun requestSweep8926() {
+        if (refused8924.isEmpty()) return
+        try { sweepExec8926.execute { try { sweepStranded8924() } catch (_: Throwable) {} } } catch (_: Throwable) {}
+    }
+
     /** V5.0.8924 — write the stranded basis off when it is exactly attributed (see §STRANDED_BASIS); else only report. */
     @Synchronized
-    fun sweepStranded8924(): Boolean {
+    internal fun sweepStranded8924(): Boolean {
         if (refused8924.isEmpty()) return false
         val terminal = refused8924.entries.filter { (id, _) ->
             val p = try { CanonicalPositionAuthority6441.getPosition(id) } catch (_: Throwable) { null }

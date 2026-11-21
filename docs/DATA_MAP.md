@@ -2436,3 +2436,41 @@ pools are not read yet (their LP lock still comes from RugCheck alone).
 **With 8924's test fixes.** 8924 built and passed the runtime smoke; two tests pinned lines it changed on purpose:
 Aate8891LabelStallTest (the hour row now passes `o.flow8924`, §112.1) and Aate8905BaseWatchCensusTest (the census now ends
 `sidesMade8924=made/possible`, §112.4). Both now expect the new lines. 8925 is the first build carrying §112 that can go green.
+
+## 114. Liquidity pulled, we leave (8926)
+
+Owner, 22 Nov 01:39-02:14: "take the good ideas and create it as our own source code version", "go. if it gets liq pulled
+im going to be very pissed of", then "its been liq pulled 3 times".
+
+**The LP-pull exit (LpPull8926).** Nothing read a held coin's pool for liquidity leaving; a rug showed only later, as a price or
+depth collapse. A pool's liquidity units move only on an add or a withdrawal, never on a swap: Meteora DAMM v2 Pool.liquidity
+(u128 @360), Raydium CPMM PoolState.lp_supply (u64 @333), Raydium AMM v4 AmmInfo.lp_amount (u64 @720, 752-byte packed account,
+raydium-amm state.rs). Each held position's pool (tokenMap pool, else the price pool, else the pair) is read every 10 s
+(getAccountInfo, keyless first); the most units seen since watching began is the baseline. 30 % or more below it is liquidity
+pulled: BotService sells the whole position at once with `LP_PULL_LIQ_DRAIN_STOP_8926_DROP<n>PCT`, which ProtectiveExitClass7807
+classes as a structural emergency (2 s retry rung, never held by a plan, runner or minimum-hold rule). A 5 %+ withdrawal is
+counted and logged (LP_WITHDRAWAL_8926), never acted on below 30 %. A pool of another program (a pump.fun curve, DLMM, CLMM,
+Orca) is not watched and is re-asked after 30 minutes. Brief: `lpPull8926[...]` (and the counters LP_PULL_DETECTED_8926 /
+LP_PULL_EXIT_ACTED_8926).
+
+**Raydium AMM v4's lock.** PoolLock8895 reads a v4 pool's burned LP: (lp_amount - LP mint supply) / lp_amount, the same proof
+as CPMM's. 70 % still proves; less stays unproven.
+
+**Who bought is who paid (BundleDetector).** Each Helius token transfer was an acquisition by its receiver and a disposal by
+its sender, and the first block's totals summed both, so the bonding curve or pool paying buyers out read as the first block's
+biggest buyer, and a creator moving supply to a second wallet read as a buy. A transaction's balance changes now say it
+(idea: luizdcastro/bundled-core's signer-net buys, MIT; our own code on Helius's parsed rows): its fee payer and every account
+its SOL (or wrapped SOL) put the coin into bought, when the payer itself lost none of it; the payer's coin falling while its
+SOL rose is a sale; coin leaving the payer without SOL back is a transfer, neither. First-block totals count acquisitions only.
+
+**The crypto desk's RSI and MACD, textbook (owner 02:16: "do tbe rsi work as well").** PerpsAdvancedAI's RSI was the plain mean
+of the last 14 changes (Cutler's oscillator); it is now Wilder's (averages seeded on the first 14 changes, smoothed over every
+later one: `wilderAverages8926`), with its guards unchanged (50 under 28 points, 50 when flat, the one-directional ramp to
+95 / 5, the 5-95 clamp). Its MACD had no signal line (the comment said "simplified") and called a zero-line cross a signal
+cross; it is now MACD(12, 26) against its 9-period signal line (`macdSignal8926`): a cross is the MACD line crossing the signal
+line on the last point, BULLISH / BEARISH its side of it; with 26-33 points (no signal line yet) the MACD line's side of zero,
+never a cross. The idea's reference is ta4j / TA-Lib; the code is ours. The tick series it runs on is unchanged.
+
+**The stranded sweep off the caller's thread.** 8924's paper stranded-basis sweep (§112.2) ran inline in the economic publish
+and the canonical bridge, taking the ledger monitor from inside their work; it now runs on its own single thread
+(`requestSweep8926`) and returns at once when nothing is refused.

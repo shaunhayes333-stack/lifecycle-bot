@@ -253,6 +253,7 @@ object DiagnosisBrief8438 {
             sb.append("               ").append(try { com.lifecyclebot.perps.CryptoTwin8883.strategyLine8910() } catch (_: Throwable) { "twinStrategies8910[read failed]" }).append('\n')  // V5.0.8910
             sb.append("               ").append(try { com.lifecyclebot.perps.CryptoTwin8883.holdLine8924() } catch (_: Throwable) { "holdCap8924[read failed]" }).append('\n')  // V5.0.8924
             sb.append("               ").append(try { ScannerSourceCircuitBreaker6363.line8924() } catch (_: Throwable) { "sourceTimeouts8924[read failed]" }).append('\n')  // V5.0.8924
+            sb.append("               ").append(try { com.lifecyclebot.engine.truth.LpPull8926.statusLine8926() } catch (_: Throwable) { "lpPull8926[read failed]" }).append('\n')  // V5.0.8926
             sb.append("               ").append(try { com.lifecyclebot.perps.MajorSetups8910.statusLine8910() } catch (_: Throwable) { "majorSetups8910[read failed]" }).append('\n')  // V5.0.8910
             sb.append("               ").append(try { com.lifecyclebot.perps.CryptoTrend8886.statusLine8886() + " " +
                 com.lifecyclebot.engine.truth.CryptoSpotPaperBacking8788.cellStatusLine8886() } catch (_: Throwable) { "cryptoTrend8886[read failed]" }).append('\n')  // V5.0.8886

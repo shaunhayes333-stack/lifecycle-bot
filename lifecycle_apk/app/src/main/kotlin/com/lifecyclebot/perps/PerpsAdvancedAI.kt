@@ -245,17 +245,10 @@ object PerpsAdvancedAI {
         // was firing spurious SHORT signals on fresh feeds.
         if (prices.size < period * 2) return 50.0
 
-        var gains = 0.0
-        var losses = 0.0
-
-        for (i in 1..period) {
-            val change = prices[prices.size - i] - prices[prices.size - i - 1]
-            if (change > 0) gains += change
-            else losses += abs(change)
-        }
-
-        val avgGain = gains / period
-        val avgLoss = losses / period
+        // V5.0.8926 — Wilder's RSI (the textbook definition; ta4j / TA-Lib as the reference, our own code): averages seeded on
+        // the first [period] changes and smoothed over every later one. The plain mean of the last [period] changes it was is
+        // a different oscillator (Cutler's), noisier and not what an RSI-30/70 rule was written for. Guards below unchanged.
+        val (avgGain, avgLoss) = wilderAverages8926(prices, period) ?: return 50.0
 
         // V5.9.55: flat prices (no gains AND no losses) must return neutral 50,
         // not 95 — the avgLoss==0 check fired first and pinned all weekend/quiet
@@ -276,41 +269,58 @@ object PerpsAdvancedAI {
         return raw.coerceIn(5.0, 95.0)
     }
     
-    private fun calculateMACD(prices: List<Double>): MacdSignal {
+    /** Pure (V5.0.8926): Wilder's smoothed (average gain, average loss) over [prices] for [period]; null below period + 1 points. */
+    internal fun wilderAverages8926(prices: List<Double>, period: Int): Pair<Double, Double>? {
+        if (period <= 0 || prices.size < period + 1) return null
+        var gain = 0.0; var loss = 0.0
+        for (i in 1..period) { val d = prices[i] - prices[i - 1]; if (d > 0.0) gain += d else loss -= d }
+        var ag = gain / period; var al = loss / period
+        for (i in period + 1 until prices.size) {
+            val d = prices[i] - prices[i - 1]
+            ag = (ag * (period - 1) + (if (d > 0.0) d else 0.0)) / period
+            al = (al * (period - 1) + (if (d < 0.0) -d else 0.0)) / period
+        }
+        return ag to al
+    }
+
+    /** Pure (V5.0.8926): the EMA series of [xs] for [period], seeded on the first [period] values' mean (index period-1 on). */
+    internal fun emaSeries8926(xs: List<Double>, period: Int): List<Double> {
+        if (period <= 0 || xs.size < period) return emptyList()
+        val k = 2.0 / (period + 1)
+        val out = ArrayList<Double>(xs.size - period + 1)
+        var e = xs.take(period).average()
+        out.add(e)
+        for (i in period until xs.size) { e = (xs[i] - e) * k + e; out.add(e) }
+        return out
+    }
+
+    /**
+     * Pure (V5.0.8926): MACD(12, 26) against its 9-period signal line, the textbook definition: a cross is the MACD line
+     * crossing the SIGNAL line between the last two points; BULLISH / BEARISH is where it sits against it. The calculation
+     * it replaced had no signal line (its comment said "simplified") and called a zero-line cross a signal cross. With too few
+     * points for a signal line (under 34) the MACD line's side of zero is still told, never a cross.
+     */
+    internal fun macdSignal8926(prices: List<Double>): MacdSignal {
         if (prices.size < 26) return MacdSignal.NEUTRAL
-        
-        val ema12 = calculateEMA(prices, 12)
-        val ema26 = calculateEMA(prices, 26)
-        val macd = ema12 - ema26
-        
-        // Signal line (9-period EMA of MACD) - simplified
-        val prevEma12 = calculateEMA(prices.dropLast(1), 12)
-        val prevEma26 = calculateEMA(prices.dropLast(1), 26)
-        val prevMacd = prevEma12 - prevEma26
-        
+        val fast = emaSeries8926(prices, 12); val slow = emaSeries8926(prices, 26)
+        val macd = slow.indices.map { i -> fast[i + 14] - slow[i] }   // both aligned to the price index of slow's points
+        if (macd.size < 9 + 1) return when { macd.last() > 0.0 -> MacdSignal.BULLISH; macd.last() < 0.0 -> MacdSignal.BEARISH; else -> MacdSignal.NEUTRAL }
+        val signal = emaSeries8926(macd, 9)
+        val m1 = macd.last(); val m0 = macd[macd.size - 2]
+        val s1 = signal.last(); val s0 = signal[signal.size - 2]
         return when {
-            macd > 0 && prevMacd <= 0 -> MacdSignal.BULLISH_CROSS
-            macd < 0 && prevMacd >= 0 -> MacdSignal.BEARISH_CROSS
-            macd > 0 -> MacdSignal.BULLISH
-            macd < 0 -> MacdSignal.BEARISH
+            m1 > s1 && m0 <= s0 -> MacdSignal.BULLISH_CROSS
+            m1 < s1 && m0 >= s0 -> MacdSignal.BEARISH_CROSS
+            m1 > s1 -> MacdSignal.BULLISH
+            m1 < s1 -> MacdSignal.BEARISH
             else -> MacdSignal.NEUTRAL
         }
     }
-    
-    private fun calculateEMA(prices: List<Double>, period: Int): Double {
-        if (prices.isEmpty()) return 0.0
-        if (prices.size < period) return prices.average()
-        
-        val multiplier = 2.0 / (period + 1)
-        var ema = prices.take(period).average()
-        
-        for (i in period until prices.size) {
-            ema = (prices[i] - ema) * multiplier + ema
-        }
-        
-        return ema
-    }
-    
+
+    private fun calculateMACD(prices: List<Double>): MacdSignal = macdSignal8926(prices)   // V5.0.8926
+
+    // V5.0.8926 — calculateEMA (one EMA value) is superseded by emaSeries8926, which the MACD signal line needs.
+
     private fun calculateTrendStrength(prices: List<Double>): Double {
         if (prices.size < 10) return 50.0
         

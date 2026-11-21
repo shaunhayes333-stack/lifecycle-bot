@@ -188,6 +188,8 @@ object BundleDetector {
         UNKNOWN,
     }
 
+    private const val WSOL_8926 = "So11111111111111111111111111111111111111112"
+
     private data class TokenTx(
         val signature: String,
         val slot: Long,
@@ -254,7 +256,9 @@ object BundleDetector {
             return createUnknownAnalysis(mint, symbol, "No first-slot transfers found")
         }
 
-        val firstBlockWalletTotals = firstBlockTxs
+        // V5.0.8926 — what each wallet ACQUIRED in the first block: its outbound rows (the curve or pool paying out, a seller,
+        // a wallet sending tokens on) were summed in as if bought, so the curve itself read as the first block's biggest buyer
+        val firstBlockWalletTotals = firstBlockTxs.filter { !it.isOutboundFromWallet }
             .groupBy { it.wallet }
             .mapValues { (_, txs) -> txs.sumOf { max(0.0, it.tokenAmountRaw) } }
 
@@ -419,6 +423,8 @@ object BundleDetector {
                     val timestampSec = tx.optLong("timestamp", 0L)
                     val feePayer = tx.optString("feePayer", "")
 
+                    // V5.0.8926 — who bought is read from the balances the transaction moved (rows8926), not its transfers
+                    rows8926(tx, mint)?.let { results += it; continue }
                     val tokenTransfers = tx.optJSONArray("tokenTransfers") ?: continue
                     for (j in 0 until tokenTransfers.length()) {
                         val transfer = tokenTransfers.optJSONObject(j) ?: continue
@@ -464,6 +470,63 @@ object BundleDetector {
         } catch (e: Exception) {
             ErrorLogger.warn(TAG, "Failed to fetch transactions: ${e.message}")
             emptyList()
+        }
+    }
+
+    /**
+     * V5.0.8926 §WHO_BOUGHT_IS_WHO_PAID — owner, 22 Nov 01:39: "take the good ideas and create it as our own source code
+     * version" (the idea: luizdcastro/bundled-core's signer-net buys, MIT; this is our own code on Helius's parsed rows). Each
+     * transfer became an acquisition by whoever received it and a disposal by whoever sent it, so the bonding curve or pool
+     * paying a buyer out, a pool receiving a seller's tokens and a creator moving its supply to a second wallet all read as
+     * buys. A transaction's own balance changes say who bought: its fee payer (the wallet that signed and paid) and every
+     * account the payer's SOL put tokens into, when the payer itself lost none of the token (accountData
+     * tokenBalanceChanges, signed raw amounts). A sale is the payer's tokens falling while its SOL rose; tokens leaving the
+     * payer without SOL coming back are a transfer, neither. The curve and the pools never pay a fee, so they never buy.
+     * Null when the row carries no balance change of [mint] (the transfer reading is kept for such a row).
+     */
+    private fun rows8926(tx: org.json.JSONObject, mint: String): List<TokenTx>? {
+        val p = parsed8926(tx, mint) ?: return null
+        val slot = tx.optLong("slot", 0L); val sig = tx.optString("signature", ""); val ts = tx.optLong("timestamp", 0L)
+        return p.map { (wallet, amount, out) -> TokenTx(sig, slot, ts, wallet, amount, out) }
+    }
+
+    /** Pure (V5.0.8926): (wallet, amount, isSale) rows of one parsed Helius transaction [tx] for [mint]; null with no balance change of it. */
+    internal fun parsed8926(tx: org.json.JSONObject, mint: String): List<Triple<String, Double, Boolean>>? {
+        val accounts = tx.optJSONArray("accountData") ?: return null
+        val payer = tx.optString("feePayer", "")
+        val delta = HashMap<String, Double>()
+        var payerLamports = 0L
+        var seen = false
+        for (i in 0 until accounts.length()) {
+            val a = accounts.optJSONObject(i) ?: continue
+            if (a.optString("account") == payer) payerLamports += a.optLong("nativeBalanceChange", 0L)
+            val changes = a.optJSONArray("tokenBalanceChanges") ?: continue
+            for (j in 0 until changes.length()) {
+                val c = changes.optJSONObject(j) ?: continue
+                val cMint = c.optString("mint")
+                if (cMint != mint && cMint != WSOL_8926) continue
+                val raw = c.optJSONObject("rawTokenAmount") ?: continue
+                val amt = try { raw.optString("tokenAmount", "0").toBigDecimal().movePointLeft(raw.optInt("decimals", 0)).toDouble() } catch (_: Throwable) { continue }
+                val owner = c.optString("userAccount")
+                if (owner.isBlank()) continue
+                if (cMint == WSOL_8926) {   // wrapped SOL the payer spent or received counts as its SOL
+                    if (owner == payer) payerLamports += (amt * 1_000_000_000.0).toLong()
+                    continue
+                }
+                delta[owner] = (delta[owner] ?: 0.0) + amt
+                seen = true
+            }
+        }
+        if (!seen || payer.isBlank()) return null
+        val payerDelta = delta[payer] ?: 0.0
+        val fee = tx.optLong("fee", 0L)
+        return when {
+            // the payer's tokens fell while its SOL rose (beyond the fee it paid): a sale by the payer
+            payerDelta < 0.0 && payerLamports + fee > 0L -> listOf(Triple(payer, -payerDelta, true))
+            // the payer lost none of the token and its SOL fell past the fee: every account it put tokens into bought
+            payerDelta >= 0.0 && payerLamports + fee < 0L ->
+                delta.filter { it.value > 0.0 }.map { Triple(it.key, it.value, false) }
+            else -> emptyList()   // a transfer (or nothing of this token moved for value): neither a buy nor a sale
         }
     }
 
