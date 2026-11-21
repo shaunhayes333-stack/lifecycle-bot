@@ -2094,3 +2094,19 @@ model's retraining.
 
 8904 failed to compile (BasePocket8904.add: a synchronized block ending in an if without else, used as its value); 8905
 carried it. 8906 fixes it (the block ends in Unit), so 8906 carries 8904 and 8905.
+
+## 95. The lab process, stage 2: the base family (8907)
+
+Owner, 21 Nov 14:37: "do the next stage". LaunchReplay8744's 30-minute run grades ~8 families on the same launch paths, and
+their results feed the live sniper and the evidence chain in the trading process (BaseFamily8754, SmartMoney8756, SignalReplay8828,
+RunnerModel8861, LaneExitGrade8888, ColourShape8807, the forward grade) — each needs its own handoff, one at a time. The heaviest
+is first: the 04:38 CPU sample on 5.0.8900 put BaseFamily8754.simulate at 6.4 s of the 30 s, inside the replay thread's 9.5 s.
+
+`BaseFamily8754.evaluate8754` now asks the lab (LabProcess8906.baseFamily8906): the paths and the run's inputs (SOL price,
+cost, the bot's latency) are written as one binary file, streamed; the lab reads them, runs the same pure grade
+(`grade8906`, split out of evaluate8754 unchanged), and writes each graded rule as its index in `rules8906(need)` and its nine
+numbers; the trading process reads them back into the same Graded rows and sets last / proven / shadow as before. If the lab
+does not answer in 90 s, or a rule index does not resolve, the replay thread grades here exactly as before. The status says which
+ran: `baseFamily8754[... where8906=lab|here]`. Forensic impact: the proven / shadow rule and every graded number are the same
+function of the same paths (Aate8907 round-trips both files and compares the lab's rows with the local grade); the sniper reads
+them as before. The other replay families stay in the trading process for now.

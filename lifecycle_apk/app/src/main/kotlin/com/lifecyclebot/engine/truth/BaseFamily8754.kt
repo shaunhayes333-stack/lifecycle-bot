@@ -146,19 +146,29 @@ object BaseFamily8754 {
     fun proven8754(): Graded? = proven
     fun shadow8754(): Graded? = shadow
 
-    /** LaunchReplay8744's background run: grade the family on the same launch paths. */
-    internal fun evaluate8754(set: List<LaunchReplay8744.Path8748>, solUsd: Double, costPct: Double, needDelayMs: Long) {
-        val values = HashMap<Rule, ArrayList<Double>>()
+    /** Pure (V5.0.8906, from evaluate8754): the rules graded at [needDelayMs] — the grid, and DOCTRINE at that latency when the grid lacks it. */
+    internal fun rules8906(needDelayMs: Long): List<Rule> =
         // V5.0.8829 — the DOCTRINE rules are also graded at the required latency when the grid (2 / 10 / 30 s) lacks it
-        val rules = LaunchReplay8744.atLatency8829(GRID.map { it.delayMs }.toSet(), needDelayMs)?.let { d ->
+        LaunchReplay8744.atLatency8829(GRID.map { it.delayMs }.toSet(), needDelayMs)?.let { d ->
             GRID + GRID.filter { it.ladder == Ladder.DOCTRINE }.map { it.copy(delayMs = d) }.distinct() } ?: GRID
+
+    /** Pure (V5.0.8906, from evaluate8754): every rule graded on [set], best first. The lab process runs this. */
+    internal fun grade8906(set: List<LaunchReplay8744.Path8748>, solUsd: Double, costPct: Double, needDelayMs: Long): List<Graded> {
+        val values = HashMap<Rule, ArrayList<Double>>()
+        val rules = rules8906(needDelayMs)
         for (x in set) for ((r, v) in simulate8754(x, solUsd, costPct, rules)) values.getOrPut(r) { ArrayList() }.add(v)
-        val res = values.mapNotNull { (r, v) -> grade8754(r, v) }
+        return values.mapNotNull { (r, v) -> grade8754(r, v) }
             .sortedWith(compareByDescending<Graded> { it.n >= MIN_N }.thenByDescending { (it.exTop3 - it.exTop3Se).takeIf { d -> d.isFinite() } ?: -1e18 })
+    }
+
+    /** LaunchReplay8744's background run: grade the family on the same launch paths. V5.0.8906 — in the lab process when it answers. */
+    internal fun evaluate8754(set: List<LaunchReplay8744.Path8748>, solUsd: Double, costPct: Double, needDelayMs: Long) {
+        val lab8906 = try { com.lifecyclebot.engine.LabProcess8906.baseFamily8906(set, solUsd, costPct, needDelayMs) } catch (_: Throwable) { null }
+        val res = lab8906 ?: grade8906(set, solUsd, costPct, needDelayMs)
         last = res
         proven = provenOf8754(res, needDelayMs)
         shadow = res.firstOrNull { it.rule.ladder == Ladder.DOCTRINE && it.rule.delayMs >= maxOf(10_000L, needDelayMs) && it.n >= MIN_N }
-        status = "ran launches=${set.size} rulesWithEntries=${res.size}"
+        status = "ran launches=${set.size} rulesWithEntries=${res.size} where8906=${if (lab8906 != null) "lab" else "here"}"
     }
 
     private fun line(g: Graded): String =
