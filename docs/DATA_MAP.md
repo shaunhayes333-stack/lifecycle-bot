@@ -2239,3 +2239,9 @@ and no Android, and 8911 had LabelEvidence8386 call LaunchpadMigration8911 (whic
 store). LabelEvidence8386 is pure again: the carry rule (`migrationCarries8911`) lives there, and the live migration read is a hook
 (`migrationHook8911`) that LaunchpadMigration8911 installs on first use and that ForwardReturnLabeler7731.tick installs every
 pass. Unset, nothing is carried (the 8783 rule as before). Behaviour is otherwise exactly §99 and §100.
+
+## 102. 8913 rebuild (8914)
+
+8913's build stopped before compiling: the cortex JVM harness's compiler download (kotlin-compiler-embeddable-1.9.24.jar) returned
+HTTP 404 from the Maven mirror on that run (the same URL served 8911's run eight minutes earlier). No code change; CI reruns are
+not permitted, so this version is the rebuild.
