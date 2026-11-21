@@ -28,7 +28,7 @@ class Aate8918SendBoundaryTest {
 
     @Test fun theSecondsAreSplitMarkToSealAndSealToSend() {
         assertEquals("-", EntryEconomics8329.quantiles8919(emptyList()))
-        assertEquals("3.0/9.0s", EntryEconomics8329.quantiles8919(listOf(1_000L, 2_000L, 3_000L, 4_000L, 5_000L, 6_000L, 7_000L, 8_000L, 9_000L, 10_000L)))
+        assertEquals("5.0/9.0s", EntryEconomics8329.quantiles8919(listOf(1_000L, 2_000L, 3_000L, 4_000L, 5_000L, 6_000L, 7_000L, 8_000L, 9_000L, 10_000L)))
         assertTrue(File("src/main/kotlin/com/lifecyclebot/engine/truth/EntryEconomics8329.kt").readText().contains("noteTiming8919(observedAt, intent.createdAt, nowMs)"))
     }
 

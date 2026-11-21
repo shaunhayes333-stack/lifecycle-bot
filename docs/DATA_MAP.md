@@ -2318,3 +2318,8 @@ decisions on a mark older than 5 s. Each send now files the two parts — mark -
 seal -> send (the ticket waiting for the executor) — as p50/p90 over the last 64 sends in `sendBoundary8918[markToSeal8919=
 sealToSend8919=]`, so the next change is aimed at whichever part is slow instead of guessed. 8918's send-boundary fixes (late
 ticket grace, the send judging the move) are in this build.
+
+## 108. 8919's test fix (8920)
+
+Aate8918's quantile sample expected the 3rd of ten values as the median; quantiles8919 takes index (n-1) x p (the 5th: 5.0 s).
+The test now expects "5.0/9.0s". No code change.
