@@ -42,10 +42,19 @@ import java.util.concurrent.atomic.AtomicLong
  */
 object BasePocket8904 {
     const val KIND_8904 = "BASE_POCKET"
-    private const val ID_8904 = "BASE_OTHER_20K_100K"
-    private const val ID_PUMP_8910 = "BASE_PUMP_20K_100K"
+    private const val ID_8904 = "BASE_OTHER_5K_100K"     // V5.0.8921 — was BASE_OTHER_20K_100K (floor $20k)
+    private const val ID_PUMP_8910 = "BASE_PUMP_5K_100K"
     internal const val STAGE_8904 = "BASE_START"
-    internal const val LIQ_LO_USD_8904 = 20_000.0
+    /**
+     * V5.0.8921 §THE_BASE_PAYS_FROM_FIVE_THOUSAND — owner, 22 Nov 00:13 with the live journal: "why are we [not] repeating these
+     * big wins?!" The journal's 47 decisive live sells net +0.056 SOL, and one coin made it: DQKmfaSk (SHITCOIN, 20 Nov 11:03,
+     * off pump.fun, decided BASE_START, +355 % blended over three spike-capture partials, +0.164 SOL); the other 46 net -0.108.
+     * On the owner's 20-21 Nov research rows (each coin once, at its worst meme-lane hour read under the lane's exits, stop
+     * first), off-pump.fun BASE_START by pool: $5k-$20k n26 +29.8 % +- 7.7, lower +14.3 %, both halves positive (+25.5 / +34.0);
+     * $20k-$100k n60 +26.2 % lower +16.6 %; under $5k n39 +0.9 % (DQK's own $3.9k pool sat there: that pool size is not where
+     * it pays, the stage is). The floor is $5k: the $5k-$20k base pays as the $20k-$100k one does.
+     */
+    internal const val LIQ_LO_USD_8904 = 5_000.0
     internal const val LIQ_HI_USD_8904 = 100_000.0
     internal const val HORIZON_MS_8904 = 3_600_000L
     internal const val WINDOW_8904 = 200
@@ -200,7 +209,7 @@ object BasePocket8904 {
         val p = recordPump8910()
         return "basePocket8904[${tag(r)} ${rec(r)} hold8910{${rec(recordOf8910(coins, hold = true))}} pump8910{${tag(p)} ${rec(p)} " +
             "hold=${rec(recordOf8910(pumpCoins, hold = true))}} loaded=$ready learned=${learned.get()} served=${served.get()} " +
-            "rule=stage BASE_START, pool \$20k-\$100k, off pump.fun and pump.fun graded apart; each coin at its worst meme-lane HOUR read under " +
+            "rule=stage BASE_START, pool \$5k-\$100k (8921), off pump.fun and pump.fun graded apart; each coin at its worst meme-lane HOUR read under " +
             "the lane's own exits (stop first, then the doctrine line from +10 %; 8910); admits once 30+ coins and mean-2SE>0]"
     }
 

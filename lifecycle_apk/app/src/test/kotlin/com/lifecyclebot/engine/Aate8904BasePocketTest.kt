@@ -24,7 +24,8 @@ class Aate8904BasePocketTest {
         assertTrue(BasePocket8904.inPocket8904(other, "BASE_START", 50_000.0))
         assertFalse(BasePocket8904.inPocket8904(pump, "BASE_START", 50_000.0))
         assertFalse(BasePocket8904.inPocket8904(other, "DUMPING", 50_000.0))
-        assertFalse(BasePocket8904.inPocket8904(other, "BASE_START", 19_999.0))
+        assertFalse(BasePocket8904.inPocket8904(other, "BASE_START", 4_999.0))   // V5.0.8921 — the floor is $5k
+        assertTrue(BasePocket8904.inPocket8904(other, "BASE_START", 19_999.0))
         assertFalse(BasePocket8904.inPocket8904(other, "BASE_START", 100_000.0))
         val row = JSONObject("{\"t\":1795136269192,\"horizonMs\":3600000,\"mint\":\"$other\",\"lane\":\"EXPRESS\",\"stage\":\"BASE_START\",\"liq\":45000,\"net\":18.0}")
         assertNotNull(BasePocket8904.rowOf8904(row))

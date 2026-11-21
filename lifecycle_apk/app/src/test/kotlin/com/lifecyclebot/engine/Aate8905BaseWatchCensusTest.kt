@@ -20,7 +20,7 @@ class Aate8905BaseWatchCensusTest {
         assertTrue(BasePocket8904.watches8904(other, 45_000.0, 60_000L))
         assertFalse("after six hours", BasePocket8904.watches8904(other, 45_000.0, BasePocket8904.BASE_WATCH_MS_8904))
         assertFalse(BasePocket8904.watches8904("8KdKRqDWzDsrSrxo4mGA8e48KbG2JK9XgnVEFVXfpump", 45_000.0, 60_000L))
-        assertFalse(BasePocket8904.watches8904(other, 15_000.0, 60_000L))
+        assertFalse(BasePocket8904.watches8904(other, 4_000.0, 60_000L))   // V5.0.8921 — the floor is $5k
         assertFalse("pool unread", BasePocket8904.watches8904(other, Double.NaN, 60_000L))
         val bot = src("engine/BotService.kt")
         assertTrue(bot.contains("if (entry.processCount >= STALE_PROCESS_COUNT_THRESHOLD && !baseWatch8904(mint, entry.addedAt)) {"))

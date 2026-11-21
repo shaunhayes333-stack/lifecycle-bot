@@ -2323,3 +2323,20 @@ ticket grace, the send judging the move) are in this build.
 
 Aate8918's quantile sample expected the 3rd of ten values as the median; quantiles8919 takes index (n-1) x p (the 5th: 5.0 s).
 The test now expects "5.0/9.0s". No code change.
+
+## 109. The base pays from five thousand (8921)
+
+Owner, 22 Nov 00:13, with the live journal: "why are we [not] repeating these big wins?!" The journal (19-21 Nov): 47 decisive
+live sells, +0.056 SOL net — and one coin made all of it: DQKmfaSk (SHITCOIN, 20 Nov 11:03 Brisbane, off pump.fun, decided at
+BASE_START, $129k cap on a $3.9k pool), +0.164 SOL over three SPIKE_CAPTURE_7943 partials (T1 +102 %, T2 +402 %, T3 +1,114 %)
+and the close (+356 %). The other 46 sells: -0.108 SOL. The lanes' many small stops are the bleed; the runner is the edge.
+
+Where that runner lives, on the 20-21 Nov rows (each coin once at its worst meme-lane hour read under the lane's exits, stop
+first): off-pump.fun BASE_START by pool — $5k-$20k n26 +29.8 % ±7.7 lower +14.3 % (halves +25.5 / +34.0; held to the hour
++15.3 % ±12.0); $20k-$100k n60 +26.2 % lower +16.6 %; under $5k n39 +0.9 % (DQK's own pool size, which is not where it pays —
+the stage is). By cap: under $30k n80 +27.5 % lower +18.8 %; $100k-$300k n29 +1.6 %.
+
+Change: BasePocket8904's pool floor is $5k (was $20k); the record ids are BASE_OTHER_5K_100K / BASE_PUMP_5K_100K. The base watch
+(both stale demotions skip a coin that could base into the pocket) follows the same floor. Everything else in §92 / §98 stands:
+proof at 30+ coins and mean - 2 SE > 0, the lane's exits, and safety, sellability, the LP-lock rule and executable economics
+outranking it.
