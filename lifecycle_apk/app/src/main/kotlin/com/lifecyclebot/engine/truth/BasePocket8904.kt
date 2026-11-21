@@ -67,7 +67,10 @@ object BasePocket8904 {
                 coins[mint] = Coin(atMs, net)
                 while (coins.size > WINDOW_8904) coins.remove(coins.keys.first())
                 learned.incrementAndGet()
-            } else if (kotlin.math.abs(atMs - c.firstMs) < REVISE_MS_8904 && net < c.worstNet) c.worstNet = net
+            } else if (kotlin.math.abs(atMs - c.firstMs) < REVISE_MS_8904 && net < c.worstNet) {
+                c.worstNet = net
+            }
+            Unit
         }
     }
 

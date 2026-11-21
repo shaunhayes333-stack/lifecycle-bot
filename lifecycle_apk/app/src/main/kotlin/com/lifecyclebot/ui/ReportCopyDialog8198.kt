@@ -165,7 +165,8 @@ object ReportCopyDialog8198 {
                 saveDataset(app, it, "aate_authority_8887_${System.currentTimeMillis()}.json")
             }
             val hour = if (where.startsWith("FAILED")) "" else try {
-                com.lifecyclebot.engine.truth.LaunchHour8628.export(app.cacheDir, System.currentTimeMillis())?.let { file ->
+                // V5.0.8906 — exported in the lab process (its own heap); this process's export only if the lab did not answer
+                com.lifecyclebot.engine.LabProcess8906.launchHourExport8906(app)?.let { file ->
                     try { saveDataset(app, file, "aate_launch_hour_${System.currentTimeMillis()}.jsonl") ?: "hour export failed" }
                     finally { file.delete() }
                 } ?: "no launch observations yet"

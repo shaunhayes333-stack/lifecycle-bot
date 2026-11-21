@@ -2075,3 +2075,22 @@ voter|lane or voter|lane@regime, so the ledger grows with each new voter, lane o
 The brief now prints `cortexSeats8904[timing{...} main{...} LIVE{...} PAPER{...} exit{...}]` (seats, voters, lanes, regimes,
 regime seats, empty seats: a seat with nothing in it reads exactly like a missing one). The next report names the growth, and
 the fix goes there. Read-only.
+
+## 94. The lab process, stage 1 (8906)
+
+Owner, 21 Nov 14:21: "we cant move any thing into helps or co routines to reduce the memory" — "yees". A thread or coroutine
+shares the trading process's 512 MB heap; a second Android process has its own. `LabProcess8906` is that process
+(android:process=":lab8906"). AATEApp.onCreate returns at once there, before any sweep, crash mark, learning reset, memory
+guard, journal or bot start, so nothing that trades or writes trading state runs in it.
+
+Stage 1 moves the launch-hour export (the owner's Save; 02:09 CPU sample on 5.0.8899: LaunchHour8628.export 14.4 s of CPU in
+30 s, its garbage landing while the report is captured). The lab opens the database read-only (as the export always did) and
+writes the file under cacheDir/lab8906; the one in-process value the export prints, the unit-mismatch counter, travels in the
+intent. The trading process waits up to 120 s for the done marker, saves the file as before (LAB_8906_EXPORT_OK), and exports
+it itself if the lab does not answer (LAB_8906_EXPORT_FALLBACK); leftovers older than 10 minutes are swept. The runner-study
+export stays in the trading process: it reads RunnerRouteQuotes8853's in-memory pending rows, which need a file handoff first.
+Next stages, each with a file handoff: the 30-minute launch replay (9.5 s of CPU a run), the hourly strategy lab, the edge
+model's retraining.
+
+8904 failed to compile (BasePocket8904.add: a synchronized block ending in an if without else, used as its value); 8905
+carried it. 8906 fixes it (the block ends in Unit), so 8906 carries 8904 and 8905.

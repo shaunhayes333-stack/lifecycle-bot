@@ -347,7 +347,10 @@ object LaunchHour8628 {
     }
 
     /** Stream a consistent snapshot for Save report, including launches with no price or decision. */
-    fun export(dir: File, now: Long): File? {
+    /** V5.0.8906 — this process's count of rows refused for a unit mismatch, handed to the lab process's export. */
+    fun unitMismatchRejected8906(): Long = rejectedUnitMismatch8642.get()
+
+    fun export(dir: File, now: Long, unitMismatchRejected8906: Long = rejectedUnitMismatch8642.get()): File? {
         val path = AATEApp.appContextOrNull()?.getDatabasePath(NAME) ?: return null
         if (!path.exists()) return null
         val out = File.createTempFile("launch_hour_", ".jsonl", dir)
@@ -361,7 +364,7 @@ object LaunchHour8628 {
 
                 out.bufferedWriter().use { w ->
                     w.appendLine(JSONObject().put("exportMs", now).put("droppedThisProcess", dropped.get())
-                        .put("unitMismatchRejected8642", rejectedUnitMismatch8642.get()).toString())
+                        .put("unitMismatchRejected8642", unitMismatchRejected8906).toString())
                     db.rawQuery("SELECT m,min(b) FROM birth WHERE rowid <= ${limits[0]} GROUP BY m HAVING min(b)>=CAST(? AS INTEGER) ORDER BY min(b)",
                         arrayOf((now - RETENTION).toString())).use { births ->
                         while (births.moveToNext()) {

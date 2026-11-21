@@ -118,6 +118,11 @@
              Without this, some OEMs stop the foreground service on swipe even though
              the Android docs say foreground services are exempt. Being explicit wins.
              V5.9.707 -->
+        <!-- V5.0.8906: offline exports run in their own process, on their own heap, never the trading process's -->
+        <service
+            android:name=".engine.LabProcess8906"
+            android:exported="false"
+            android:process=":lab8906" />
         <service
             android:name=".engine.BotService"
             android:exported="false"
