@@ -91,9 +91,9 @@ class Aate8910MajorsPlaybookTest {
         assertEquals("EU", MajorSetups8910.session8910(8 * H))
         assertEquals("US", MajorSetups8910.session8910(14 * H))
         assertEquals("LATE", MajorSetups8910.session8910(22 * H))
-        val body = "[[0,\"100\",\"101\",\"99\",\"100.5\",\"12\",3599999,\"0\",5,\"7\",\"0\",\"0\"]," +
-            "[3600000,\"100.5\",\"102\",\"100\",\"101\",\"9\",7199999,\"0\",5,\"4\",\"0\",\"0\"]]"
-        val c = MajorTape8910.parseKlines8910(body, 5_000_000L)
+        val body = "[[3600000,\"100\",\"101\",\"99\",\"100.5\",\"12\",7199999,\"0\",5,\"7\",\"0\",\"0\"]," +
+            "[7200000,\"100.5\",\"102\",\"100\",\"101\",\"9\",10799999,\"0\",5,\"4\",\"0\",\"0\"]]"
+        val c = MajorTape8910.parseKlines8910(body, 8_000_000L)
         assertEquals("the hour still open is dropped", 1, c.size)
         assertEquals(7.0 / 12.0, c[0].buyShare, 1e-9)
         assertEquals(-0.0002, MajorTape8910.bybitFunding8910("{\"result\":{\"list\":[{\"fundingRate\":\"-0.0002\"}]}}")!!, 1e-12)

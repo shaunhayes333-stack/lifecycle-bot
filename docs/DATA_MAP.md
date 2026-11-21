@@ -2267,3 +2267,11 @@ truth and the build itself.
 - **Memory (defect 7, one cause).** CryptoTwin8883 rewrote every record into SharedPreferences on every close; with 8910's
   strategy / session / regime records that is up to ~250 strings per close through QueuedWork (the write-back queue the 3.5 h
   OutOfMemoryError died in). It now writes only the records the close changed.
+
+## 104. 8910's three test fixes (8916)
+
+8910 compiled; three unit tests failed, all in the tests, not the change: Aate8806 and Aate8857 pin the exact backing call lines
+that 8910 extended with the candidate's strategy (now `availability8870(lane, nowMs, cell, strategy)` and the contract's
+`candidate.evidence["trend8886"], candidate.evidence["strategy7803"])`); Aate8910's kline sample started at open time 0, which
+parseKlines8910 rightly refuses as no candle. 8911-8915 carried the same failures (and 8911-8914 never compiled: §101, §103), so
+8916 is the first build of the whole chain.
