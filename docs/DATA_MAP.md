@@ -2174,3 +2174,35 @@ The majors the SOL perps engine covers (BTC, ETH, BNB, XRP, ADA, DOGE, AVAX, DOT
 INJ, JUP, NEAR, PYTH, RAY, JTO, TAO) were excluded from the static alt scan, and that engine (PerpsTraderAI) has been retired
 since 8797 (RetiredMarkets8797: it opens nothing): no spot major had any path at all. They now get a setup-only pass (spot via their wrapped Solana
 mint; SOL itself excluded, the classic analyser not run on them).
+
+## 99. Following a coin through its migration (8911)
+
+Owner, 21 Nov 18:08: "it cant be grading the coins correctly. also do we correctly follow coins off bonding curve to main
+curve? meteora to raydium? pumpfun to pumpfun to dex?"
+
+**What was true.** Trading followed a pump.fun graduation (PumpPortal migration event, DEX WS migration and the curve account's
+complete flag all set TokenFacts.markGraduated; the sell route leaves the curve; a held coin is priced from its PumpSwap vaults,
+GradTicks8018). Grading did not: LabelEvidence8386's 8783 rule refuses a forward-label mark read on another named venue than
+the decision's unless the mark is a chain read, and only held coins get chain reads of the new pool. A coin graduating inside
+its graded hour stopped being followed at the migration. On the 20-21 Nov research rows (34,641 rows) 294 pump.fun hour reads
+and 33 others ended on OBSERVED_ONLY_VENUE_MISMATCH_8783. Meteora DBC (-> DAMM) and Raydium LaunchLab (-> CPMM) had no
+migration detector at all: CurveCustody8881 read their migration flags only to refuse a custody proof.
+
+Also measured on the same rows (reported, not changed here): 232 pump.fun hour reads ended on UNCORROBORATED_JUMP_8133 with a
+booked mean of +83 % (runs whose bigger prints were refused as unproven jumps), and 35 ended on CURVE_HELD_8337 with a median of
+-100 %. Both are the next grading items.
+
+**Change.** `LaunchpadMigration8911`: a venue change is the coin's own migration, and the new pool's mark is the coin's price,
+when its graduation is proven (`migrated8911`: the pump.fun graduation set, the row's migratedOrGraduated flag, or a launchpad
+read) and the mark is not on the pump.fun curve (a completed curve is no witness, 8165). On a venue refusal for a non-pump.fun
+coin whose decision venue is a pool address, that pool's account is read once (keyless public RPC, no Helius credits, one
+thread, bounded queue, each pool at most every 15 min): a DBC VirtualPool of the coin with is_migrated set, or a LaunchLab
+PoolState of the coin with status 2, sets TokenFacts.markGraduated (both graduation truths, so the router and curve readers
+agree too). Every other evidence rule stands: identity, units, decimals, time order; a <= 0.1x move on another venue still needs
+a chain read; a >= 10x move still needs both marks chain-witnessed. The rule lives in LabelEvidence8386.status, so the forward
+labels, the runner study and the Cortex grade book read migrations the same way.
+
+**Forensic impact.** Only marks that were refused as a venue mismatch change, and only for coins with a proven graduation: their
+hour (and 4 h / 24 h) reads now follow the coin on its new pool instead of stopping at the migration. Records built on those
+reads (stage, cohort, pocket, lane) grade graduated coins on what they did after graduating. Nothing is admitted by this change
+itself. Counted as `migration8911[carried= asked= found{DBC=,LAUNCHLAB=}]` in the brief.

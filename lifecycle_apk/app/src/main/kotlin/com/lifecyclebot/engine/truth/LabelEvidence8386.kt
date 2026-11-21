@@ -26,7 +26,14 @@ data class LabelBasis8386(val mark: LabelMark8386, val capUsd: Double, val capDe
 }
 
 object LabelEvidence8386 {
-    fun status(entry: LabelMark8386?, outcome: LabelMark8386?): String {
+    /** V5.0.8911 — the venue rule asks LaunchpadMigration8911 whether a venue change is the coin's own proven migration. */
+    fun status(entry: LabelMark8386?, outcome: LabelMark8386?): String = status(entry, outcome, null)
+
+    /**
+     * Pure when [migrated] is given (V5.0.8911): the status of [outcome] against [entry], where [migrated] says whether the coin's
+     * graduation is proven (null: ask LaunchpadMigration8911, which also asks a launchpad pool in the background).
+     */
+    internal fun status(entry: LabelMark8386?, outcome: LabelMark8386?, migrated: Boolean?): String {
         if (entry == null || !entry.known()) return "OBSERVED_ONLY_UNKNOWN_BASIS"
         // V5.0.8541 — a known entry with no priced outcome is a missing OUTCOME mark, not an unknown basis (8539:
         // LABEL_LOST_DEADLINE_UNKNOWN_BASIS_8187=328 counted provider silence at the horizon as a basis defect).
@@ -47,8 +54,12 @@ object LabelEvidence8386 {
         // venue than the entry needs the outcome to be a chain read of the coin itself (which also carries a migration through).
         // V5.0.8787 — only between two real venue identities (a pool address or the pump curve): a provider tag such as the
         // downtime-recovery candle's "ohlcv" names no venue and proves nothing either way.
+        // V5.0.8911 — unless the venue change is the coin's own migration (graduation proven, the mark not on the pump.fun curve):
+        // the new pool's price is the coin's price, carried (LaunchpadMigration8911).
         if (venueIdentity8787(entry.venue) && venueIdentity8787(outcome.venue) &&
-            venuesDisagree8681(entry.venue, outcome.venue) && !independent8418(outcome)) return VENUE_MISMATCH_8783
+            venuesDisagree8681(entry.venue, outcome.venue) && !independent8418(outcome) &&
+            !(if (migrated != null) LaunchpadMigration8911.carries8911(migrated, entry.venue, outcome.venue)
+              else try { LaunchpadMigration8911.carriesNow8911(entry, outcome) } catch (_: Throwable) { false })) return VENUE_MISMATCH_8783
         if (ratio <= 0.1) return "VALID_8386"
         // A >= 10x move needs both marks chain-provable ([independent8418]: curve account / curve tape print / parsed swap /
         // pool reserve read). A proof requirement, never a cap: a witnessed 100x / 1000x trains at its full value.
