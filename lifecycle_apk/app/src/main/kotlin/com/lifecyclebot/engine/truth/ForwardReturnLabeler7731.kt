@@ -2035,7 +2035,12 @@ object ForwardReturnLabeler7731 {
         // otherwise a restart can restore the incremented tally with an unbooked observation and add it a second time.
         o.bookedNet7997 = net; o.bookedGross7997 = gross; o.bookedWitness8324 = witness
         book(o, 60, net, gross, witness)
-        o.edge8537?.let { o.edge8537 = null; EdgeModel8537.learn(it, net, witness) }  // V5.0.8650 — preserve same-basis runner proof
+        // V5.0.8915 §LEARN_WHAT_THE_LANE_TRADES — a meme lane does not hold to the label: it sells at its stop and, from a +10 % held
+        // peak, on the doctrine line. The edge model learns that outcome (stop first, the order worst for the coin:
+        // BasePocket8904.doctrineNet8910 over this observation's own low and held peak), so EDGE_MODEL_NEGATIVE refuses what loses
+        // as traded, not what loses held. Every other book keeps the held net. Crypto and other lanes learn the held net, as before.
+        val edgeNet8915 = edgeTarget8915(o.lane, gross, o.minPct7962, o.heldPeak8071, o.costPct, net)
+        o.edge8537?.let { o.edge8537 = null; EdgeModel8537.learn(it, edgeNet8915, witness) }  // V5.0.8650 — preserve same-basis runner proof
         try { TradeShapeLearner7883.onLabel60(o.mint, o.lane, net, gross, o.atMs) } catch (_: Throwable) {}
         try { FallingHourCohort8418.onLabel60(o.mint, o.lane, net, gross) } catch (_: Throwable) {}
         teachForwardLearners8521(o, net, gross, nowMs)
@@ -2522,6 +2527,27 @@ object ForwardReturnLabeler7731 {
         typedMark8386(mint, priceFor, nowMs)?.usd
 
     private fun eligible8386(o: Obs): Boolean = LabelEvidence8386.eligible(o.basis8386.mark, o.lastMark8386)
+
+    private val edgeTargetsExit8915 = AtomicLong(0)
+    private val unwitnessedKept8915 = AtomicLong(0)
+    private val edgeTargetsTotal8915 = AtomicLong(0)
+
+    /**
+     * V5.0.8915 — the edge model's target for one booked label of [lane]: for a meme lane the net under the lane's own exits
+     * (BasePocket8904.doctrineNet8910 on the label's [gross], its low [minPct], held peak [heldPeakPct] and round trip [costPct]),
+     * capped as the held net is; otherwise the held [net]. Counted when the exits changed it.
+     */
+    internal fun edgeTarget8915(lane: String, gross: Double, minPct: Double, heldPeakPct: Double, costPct: Double, net: Double): Double {
+        if (!MemePaperTrader8544.memeLane8544(lane) || !net.isFinite()) return net
+        val y = BasePocket8904.doctrineNet8910(lane, gross, minPct, heldPeakPct, costPct, net).coerceAtMost(NET_CEILING_PCT_7738)
+        edgeTargetsTotal8915.incrementAndGet()
+        if (kotlin.math.abs(y - net) > 1e-9) edgeTargetsExit8915.incrementAndGet()
+        return if (y.isFinite()) y else net
+    }
+
+    /** Brief: how many meme labels the edge model learned under the lane's exits, and how many of them the exits changed. */
+    fun edgeTargetLine8915(): String = "edgeTarget8915[memeLabels=${edgeTargetsTotal8915.get()} changedByExits=${edgeTargetsExit8915.get()} " +
+        "unwitnessed10xKept=${unwitnessedKept8915.get()} rule=the edge model learns a meme label under the lane's own exits (stop first, then the doctrine line from +10 %); other books keep the held net; an unwitnessed 10x mark is skipped, its observation kept]"
 
     // ── V5.0.8475 — the mints with a forward label pending (for the Helius program tape's care filter) and the tape mark ──
     /** The source of a label mark taken from the coin's own trade tape (markFamily8418: TAPE). */
@@ -3656,11 +3682,14 @@ object ForwardReturnLabeler7731 {
                 skip8891(o, SKIP_INELIGIBLE_8891, status8386, mark8386)
                 try { PipelineHealthCollector.labelInc("FORWARD_LABEL_$status8386") } catch (_: Exception) {}
                 if (status8386 == "OBSERVED_ONLY_UNWITNESSED_EXTREME") {
-                    // V5.0.7738/8386 — an unwitnessed 10x jump is a basis question, not a move: drop it unbooked and
-                    // release the Cortex decision as BASIS-lost (never a loss sample, never a capped win).
+                    // V5.0.7738/8386 — an unwitnessed 10x jump is a basis question, not a move: never booked as a 10x.
+                    // superseded by V5.0.8915 — it dropped the whole observation unbooked ("pending.remove" + a BASIS loss to Cortex), so
+                    // the runners the bot most needs to grade vanished from every record. The mark alone is skipped now: the observation
+                    // stays pending, a later chain-witnessed mark books the run (8912: chain prints corroborate their own step), and
+                    // with none the label expires on its last accepted in-window mark like any other — a real basis error still never
+                    // books (its every later mark stays unwitnessed and the expiry finds no eligible mark).
                     basisSuspect7738.incrementAndGet()
-                    pending.remove(key, o)
-                    if (!o.done60) try { com.lifecyclebot.engine.cortex.Cortex7885.onLabelLost8187(o.mint, o.lane, "BASIS", decisionAtMs8371 = o.atMs) } catch (_: Throwable) {}
+                    unwitnessedKept8915.incrementAndGet()
                 }
                 continue
             }

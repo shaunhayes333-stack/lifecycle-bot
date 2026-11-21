@@ -37,8 +37,15 @@ for artifact in "${artifacts[@]}"; do
     mkdir -p -- "$deps_dir"
     temporary="$(mktemp "$deps_dir/.download.XXXXXX")"
     printf 'Fetching %s\n' "${artifact##*/}"
-    curl --fail --silent --show-error --location --retry 2 --connect-timeout 15 --max-time 300 \
-      "https://repo.maven.apache.org/maven2/$artifact" --output "$temporary"
+    # V5.0.8915 — Maven Central's CDN answered 404 for the compiler jar on two runs in a row (8913, 8914): try its other
+    # hostname and Google's Maven Central mirror before failing. Same coordinates; the zip test below still verifies the jar.
+    fetched=false
+    for mirror in https://repo.maven.apache.org/maven2 https://repo1.maven.org/maven2 https://maven-central.storage-download.googleapis.com/maven2; do
+      if curl --fail --silent --show-error --location --retry 2 --connect-timeout 15 --max-time 300 \
+        "$mirror/$artifact" --output "$temporary"; then fetched=true; break; fi
+      printf 'Mirror failed for %s: %s\n' "${artifact##*/}" "$mirror" >&2
+    done
+    if [[ "$fetched" != true ]]; then rm -f -- "$temporary"; exit 22; fi
     unzip -tq "$temporary" >/dev/null
     mv -- "$temporary" "$target"
   fi

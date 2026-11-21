@@ -2245,3 +2245,25 @@ pass. Unset, nothing is carried (the 8783 rule as before). Behaviour is otherwis
 8913's build stopped before compiling: the cortex JVM harness's compiler download (kotlin-compiler-embeddable-1.9.24.jar) returned
 HTTP 404 from the Maven mirror on that run (the same URL served 8911's run eight minutes earlier). No code change; CI reruns are
 not permitted, so this version is the rebuild.
+
+## 103. Learn what the lane trades (8915)
+
+Owner, 21 Nov 18:25: "fix all 12. bundle together as makes sense please" (the twelve defects listed at 18:24). This bundle: learning
+truth and the build itself.
+
+- **CI (8913 and 8914 never compiled):** Maven Central's CDN answered 404 for kotlin-compiler-embeddable-1.9.24.jar twice in a row
+  in ci/cortex-jvm/run.sh. The fetch now tries repo.maven.apache.org, repo1.maven.org, then Google's Maven Central mirror; the
+  zip test still verifies the jar.
+- **The edge model learned the wrong outcome (defect 1).** EdgeModel8537 learned a meme decision's held net, while the lanes sell at
+  their stop and on the doctrine line; on the 20-21 Nov rows the coins the lanes admitted off pump.fun read
+  +9.1 % (n86, lower bound +2.5 %) under the exits. ForwardReturnLabeler7731.edgeTarget8915: a meme lane's label is learned at
+  BasePocket8904.doctrineNet8910 over the observation's own low and held peak (stop first: the order worst for the coin); every
+  other book (setup, stage, cohort, lane records, research rows) keeps the held net; crypto lanes learn the held net. Forensic
+  impact: the model retrains forward (its own forgetting); EDGE_MODEL_NEGATIVE then refuses what loses as traded. Brief line
+  `edgeTarget8915[memeLabels= changedByExits=]`.
+- **The runners grading dropped (defect 3).** An unwitnessed 10x mark deleted its whole observation unbooked (and told Cortex
+  BASIS-lost). Now only the mark is skipped: the observation stays pending, a chain-witnessed mark books the run (8912), and with
+  none it expires on its last accepted in-window mark. A real basis error still never books. Counted `unwitnessed10xKept=`.
+- **Memory (defect 7, one cause).** CryptoTwin8883 rewrote every record into SharedPreferences on every close; with 8910's
+  strategy / session / regime records that is up to ~250 strings per close through QueuedWork (the write-back queue the 3.5 h
+  OutOfMemoryError died in). It now writes only the records the close changed.

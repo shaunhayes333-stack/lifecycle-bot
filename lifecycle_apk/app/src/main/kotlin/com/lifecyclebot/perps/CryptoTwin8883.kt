@@ -140,6 +140,7 @@ object CryptoTwin8883 {
         val pnl = at.getPnlPct()
         if (!pnl.isFinite()) { lost.incrementAndGet(); return }
         ensureLoaded8883()
+        val filed8915 = ArrayList<String>(8)
         for (k in listOfNotNull(t.lane, t.cell?.let { "${t.lane}$CELL_SEP_8886$it" }) + t.slices8910) {
             if (k.contains(STRATEGY_MARK_8910) && !closes.containsKey(k) && closes.keys.count { it.contains(STRATEGY_MARK_8910) } >= MAX_STRATEGY_KEYS_8910) continue
             val keep = when { !k.contains(STRATEGY_MARK_8910) -> KEEP_CLOSES_8883; k.contains('@') -> KEEP_SLICE_8910; else -> KEEP_STRATEGY_8910 }
@@ -148,9 +149,10 @@ object CryptoTwin8883 {
                 q.addLast(doubleArrayOf(nowMs.toDouble(), pnl, at.sizeSol))
                 while (q.size > keep) q.removeFirst()
             }
+            filed8915 += k
         }
         byKind.computeIfAbsent(kind.ifBlank { "OTHER" }) { AtomicLong(0L) }.incrementAndGet()
-        persist8883()
+        persist8883(filed8915)
     }
 
     /** Pure: the strategy rows of closes [(atMs, pnl %, size SOL)], as the paper book booked them (pnl SOL = size x pnl %). */
@@ -268,11 +270,16 @@ object CryptoTwin8883 {
         }
     }
 
-    private fun persist8883() {
+    /**
+     * V5.0.8915 — writes only the records [keys] this close changed. It rewrote every record on every close; with 8910's
+     * strategy / session / regime records that is up to ~250 strings of up to 200 closes each per close, queued on Android's
+     * SharedPreferences write-back (QueuedWork) — the queue the 3.5 h OutOfMemoryError died in.
+     */
+    private fun persist8883(keys: Collection<String>) {
         val p = prefs8883() ?: return
         try {
             val e = p.edit()
-            for ((lane, q) in closes) e.putString(lane, synchronized(q) { encode8883(q.toList()) })
+            for (k in keys) { val q = closes[k] ?: continue; e.putString(k, synchronized(q) { encode8883(q.toList()) }) }
             e.apply()
         } catch (_: Throwable) {}
     }
