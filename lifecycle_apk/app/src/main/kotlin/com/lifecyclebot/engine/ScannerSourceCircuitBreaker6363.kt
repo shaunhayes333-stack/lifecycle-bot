@@ -92,11 +92,46 @@ object ScannerSourceCircuitBreaker6363 {
     fun snapshot(): Map<String, Pair<Int, Long>> =
         state.mapValues { (_, s) -> s.consecutiveTimeouts to s.trippedUntilMs }
 
+    // ── V5.0.8924 §WHICH_SOURCE_TIMES_OUT — owner, 22 Nov 00:39: "do all 5 now" (bug 8, timeouts). 21 Nov 23:11: 339 scanner
+    //    source timeouts and 110 breaker trips in 24 minutes (each trip skips that source for a minute), with no record of WHICH
+    //    sources — the report names none. Each source now files its completed runs (count, mean and slowest duration), its
+    //    timeouts (and the scanner's enqueues while it ran — shared with the sources running beside it, as SCANNER_SOURCE_TIMEOUT's enq= — kept, not lost), and its trips, so the next report says
+    //    which feed the 5 s cut costs and what it delivered. Telemetry only: no source is skipped or timed differently. ──
+    private class Tally8924 { val done = AtomicLong(0L); val timeouts = AtomicLong(0L); val trips = AtomicLong(0L)
+        val durMsSum = AtomicLong(0L); val durMsMax = AtomicLong(0L); val enqOnTimeout = AtomicLong(0L); val skipped = AtomicLong(0L) }
+    private val tally8924 = ConcurrentHashMap<String, Tally8924>()
+    private const val MAX_SOURCES_8924 = 64
+    private fun tallyOf8924(name: String): Tally8924? =
+        tally8924[name] ?: if (tally8924.size >= MAX_SOURCES_8924) null else tally8924.computeIfAbsent(name) { Tally8924() }
+
+    fun noteDone8924(name: String, durMs: Long) {
+        val t = tallyOf8924(name) ?: return
+        t.done.incrementAndGet(); t.durMsSum.addAndGet(durMs.coerceAtLeast(0L)); t.durMsMax.accumulateAndGet(durMs) { a, b -> if (a > b) a else b }
+    }
+
+    fun noteTimeout8924(name: String, enqueuedBeforeCut: Long, tripped: Boolean) {
+        val t = tallyOf8924(name) ?: return
+        t.timeouts.incrementAndGet(); t.enqOnTimeout.addAndGet(enqueuedBeforeCut.coerceAtLeast(0L)); if (tripped) t.trips.incrementAndGet()
+    }
+
+    fun noteSkipped8924(name: String) { tallyOf8924(name)?.skipped?.incrementAndGet() }
+
+    /** Brief: the sources that timed out, worst first (timeouts / runs, mean and slowest completed run, trips, minutes skipped). */
+    fun line8924(): String {
+        val rows = tally8924.entries.filter { it.value.timeouts.get() > 0L }.sortedByDescending { it.value.timeouts.get() }.take(12)
+            .joinToString(" ") { (n, t) ->
+                val d = t.done.get()
+                "$n{to${t.timeouts.get()}/${d + t.timeouts.get()} mean${if (d > 0) t.durMsSum.get() / d else 0}ms max${t.durMsMax.get()}ms enqDuring${t.enqOnTimeout.get()} trips${t.trips.get()} skipped${t.skipped.get()}}"
+            }.ifBlank { "-" }
+        return "sourceTimeouts8924[sources=${tally8924.size} $rows rule=per source: timeouts of the 5 s cut, completed-run durations, trips (each skips the source 60 s)]"
+    }
+
     fun tripsTotal(): Long = trips.get()
     fun skipsTotal(): Long = skips.get()
 
     /** Test-only. Never wire to runtime. */
     fun reset() {
+        tally8924.clear()
         state.clear()
         trips.set(0L)
         skips.set(0L)

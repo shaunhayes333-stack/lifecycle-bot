@@ -124,6 +124,8 @@ object JournalEconomicAuthority6616 {
     }
 
     private fun publishMutation8077(kind: String, rev: Long) {
+        // V5.0.8924 — the coalesced economic pass (off the ledger lock) also settles a refused terminal sale's stranded basis
+        if (kind != "STRANDED_8924") try { PaperAccountLedger6430.sweepStranded8924() } catch (_: Throwable) {}
         // V5.0.6619 §JOURNAL_DERIVED_HERO_AUTHORITY — the three heroes
         //   are the journal's mirror. Compute cash/equity/realized from
         //   the durable journal rows directly (JournalEconomicReplay6619),

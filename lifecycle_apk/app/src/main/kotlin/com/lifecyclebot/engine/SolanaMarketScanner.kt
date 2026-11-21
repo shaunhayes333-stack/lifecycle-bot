@@ -1148,6 +1148,7 @@ class SolanaMarketScanner(
         // so it stops burning the batch budget. Auto-heals on first success.
         if (!ScannerSourceCircuitBreaker6363.shouldRun(name)) {
             try { PipelineHealthCollector.labelInc("SCANNER_SOURCE_CIRCUIT_BREAKER_SKIP_6363") } catch (_: Throwable) {}
+            try { ScannerSourceCircuitBreaker6363.noteSkipped8924(name) } catch (_: Throwable) {}   // V5.0.8924
             return
         }
         telemetrySourceAttempts++
@@ -1160,6 +1161,7 @@ class SolanaMarketScanner(
             telemetrySourceSuccesses++
             sourceTimeoutStreak.remove(name)  // V5.9.1497 — healthy → reset deprioritization
             ScannerSourceCircuitBreaker6363.onSuccess(name)  // V5.0.6363 — clear breaker on success
+            try { ScannerSourceCircuitBreaker6363.noteDone8924(name, System.currentTimeMillis() - startedAt) } catch (_: Throwable) {}   // V5.0.8924
             try {
                 ForensicLogger.lifecycle(
                     "SCANNER_SOURCE_DONE",
@@ -1172,6 +1174,7 @@ class SolanaMarketScanner(
             sourceTimeoutStreak[name] = streak
             // V5.0.6363 — feed the breaker; may trip after TRIP_THRESHOLD consecutive.
             val tripped = ScannerSourceCircuitBreaker6363.onTimeout(name)
+            try { ScannerSourceCircuitBreaker6363.noteTimeout8924(name, (telemetryEnqueued - enqBefore).toLong(), tripped) } catch (_: Throwable) {}   // V5.0.8924
             ErrorLogger.warn("Scanner", "$name timed out after ${SOURCE_SCAN_TIMEOUT_MS}ms (streak=$streak)")
             try { ForensicLogger.lifecycle("SCANNER_SOURCE_TIMEOUT", "name=$name raw=${telemetryRawScanned - rawBefore} enq=${telemetryEnqueued - enqBefore} durMs=${System.currentTimeMillis() - startedAt}") } catch (_: Throwable) {}
             if (tripped) {

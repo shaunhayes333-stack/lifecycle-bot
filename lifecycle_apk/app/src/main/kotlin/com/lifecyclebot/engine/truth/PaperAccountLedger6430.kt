@@ -413,6 +413,69 @@ object PaperAccountLedger6430 {
         return true
     }
 
+    // ── V5.0.8924 §STRANDED_BASIS — owner, 22 Nov 00:39: "do all 5 now" (bug 12, the paper ledger mismatch). A terminal sale
+    //    the quarantine refuses moves nothing (no phantom credit, 6502), so its basis stays in openCost; the canonical position
+    //    then goes terminal (QUARANTINED / CLOSED) and the journal books the residual as the loss it is, while the ledger keeps
+    //    it open forever (21 Nov 23:11: openCost=0.0064 against a replay of 0, paperReplay openCostΔ=-0.0064). Each refused
+    //    terminal sale is now remembered with its position and basis; once that position is terminal in the canonical store and
+    //    the refused basis is EXACTLY what the ledger holds open (|openCost − Σ refused| ≤ 1e-6, no receipt unpaired), the basis
+    //    is written off as a realised loss: openCost and realised move together, so starting + realised − fees == cash +
+    //    openCost still holds and no proceeds are credited. Any other shape is reported, never written off (no guessed lot). ──
+    private class Refused8924(val mint: String, val basisSol: Double, val why: String, val atMs: Long)
+    private val refused8924 = java.util.concurrent.ConcurrentHashMap<String, Refused8924>()
+    private val writtenOffPico8924 = AtomicLong(0L)
+    private val writeOffs8924 = AtomicLong(0L)
+    @Volatile private var lastSweep8924 = "-"
+    private const val MAX_REFUSED_8924 = 64
+
+    /** V5.0.8924 — the canonical bridge: a terminal sale of [positionId] refused for [why] with [basisSol] left open. */
+    fun noteRefusedTerminal8924(positionId: String, mint: String, basisSol: Double, why: String) {
+        if (positionId.isBlank() || !basisSol.isFinite() || basisSol <= 0.0) return
+        if (refused8924.size >= MAX_REFUSED_8924 && !refused8924.containsKey(positionId)) return
+        refused8924[positionId] = Refused8924(mint, basisSol, why, System.currentTimeMillis())
+    }
+
+    /** Pure (V5.0.8924): may [refusedTerminalBasis] (refused terminal sales of terminal positions) be written off an [openCost]? */
+    internal fun strandedWriteOff8924(openCost: Double, refusedTerminalBasis: List<Double>, unpaired: Boolean): Double? {
+        if (unpaired || !openCost.isFinite() || refusedTerminalBasis.isEmpty() || refusedTerminalBasis.any { !it.isFinite() || it <= 0.0 }) return null
+        val sum = refusedTerminalBasis.sum()
+        return if (kotlin.math.abs(openCost - sum) <= 1e-6) sum else null
+    }
+
+    /** V5.0.8924 — write the stranded basis off when it is exactly attributed (see §STRANDED_BASIS); else only report. */
+    @Synchronized
+    fun sweepStranded8924(): Boolean {
+        if (refused8924.isEmpty()) return false
+        val terminal = refused8924.entries.filter { (id, _) ->
+            val p = try { CanonicalPositionAuthority6441.getPosition(id) } catch (_: Throwable) { null }
+            p == null || p.lifecycle == CanonicalPositionAuthority6441.Lifecycle.QUARANTINED || p.lifecycle == CanonicalPositionAuthority6441.Lifecycle.CLOSED
+        }
+        val open = openCostBasisSol()
+        val unpaired = try { PaperEconomicAtomicCommit6632.hasUnpaired8674() } catch (_: Throwable) { true }
+        val off = strandedWriteOff8924(open, terminal.map { it.value.basisSol }, unpaired)
+        lastSweep8924 = "refused=${refused8924.size} terminal=${terminal.size} basis=${"%.6f".format(terminal.sumOf { it.value.basisSol })} openCost=${"%.6f".format(open)} " +
+            (if (off != null) "WROTE_OFF" else if (unpaired) "WAIT_UNPAIRED" else "UNATTRIBUTED_KEPT")
+        if (off == null) return false
+        openCostBasisPico.addAndGet(-toPico(off))
+        realizedPnlPico.addAndGet(-toPico(off))
+        writtenOffPico8924.addAndGet(toPico(off))
+        writeOffs8924.incrementAndGet()
+        for (e in terminal) refused8924.remove(e.key)
+        recordMutation8674()
+        persistCurrent6487()
+        try {
+            ForensicLogger.lifecycle("PAPER_LEDGER_STRANDED_BASIS_WRITTEN_OFF_8924",
+                "positions=${terminal.joinToString(",") { "${it.key.takeLast(24)}:${it.value.why}" }.take(300)} basis=${"%.6f".format(off)} action=openCost_and_realized_together_no_proceeds")
+            PipelineHealthCollector.labelInc("PAPER_LEDGER_STRANDED_BASIS_WRITTEN_OFF_8924")
+        } catch (_: Throwable) {}
+        try { JournalEconomicAuthority6616.notifyEconomicMutationAsync8077("STRANDED_8924") } catch (_: Throwable) {}
+        return true
+    }
+
+    fun strandedLine8924(): String =
+        "stranded8924[writeOffs=${writeOffs8924.get()} writtenOff=${"%.6f".format(fromPico(writtenOffPico8924.get()))} last{$lastSweep8924} " +
+            "rule=a refused terminal sale's basis is written off as a loss once its position is terminal and it is exactly the open cost]"
+
     @Synchronized
     /**
      * V5.0.8576 — the ledger's own economic refusal of a sale (not the mint quarantine), readable BEFORE any store moves.
@@ -962,5 +1025,10 @@ object PaperAccountLedger6430 {
         startingCashPico.set(0); cashPico.set(0); reservedCashPico.set(0)
         openCostBasisPico.set(0); realizedPnlPico.set(0); feesPico.set(0); opCount.set(0)
         treasuryPico.set(0)
+        refused8924.clear(); writtenOffPico8924.set(0L); writeOffs8924.set(0L); lastSweep8924 = "-"
+    }
+
+    internal fun setForTest8924(starting: Double, cash: Double, openCost: Double) {
+        startingCashPico.set(toPico(starting)); cashPico.set(toPico(cash)); openCostBasisPico.set(toPico(openCost))
     }
 }

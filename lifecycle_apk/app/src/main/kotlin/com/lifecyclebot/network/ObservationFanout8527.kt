@@ -32,7 +32,14 @@ internal object ObservationFanout8527 {
     // V5.0.8618 — the background pool is 12 source / 12 leaf workers with 24 / 36 queue slots (was 8 / 8, 16 / 24): 03:50 dump
     // MARK_FANOUT_RETRYABLE_SATURATION_8527=228 (price passes rejected outright, the coins left on stale marks) and
     // _DEADLINE_8527=260. Every job is a network wait, not CPU. The held-position pool keeps its own capacity.
-    private val background = Pools(sourceThreads = 12, leafThreads = 12, sourceQueue = 24, leafQueue = 36, prefix = "mark-background-8527")
+    // V5.0.8924 §QUEUE_DONT_DROP — 21 Nov 23:11 (5.0.8917, 24 min): MARK_FANOUT_RETRYABLE_SATURATION_8527 x13,804 (575 a minute;
+    // 228 in a whole earlier run): concurrent price passes (eight source jobs each) found the 24-slot queue full and every
+    // rejected job left its coins unpriced for that pass — the labels and shadow outcomes it would have priced were lost
+    // (FORWARD_LABEL_LOST_MARK, shadow marks lost). The workers stay 12 (no more provider concurrency); the queue holds 96
+    // source / 144 leaf jobs, so a job waits for a worker instead of being dropped. A queued job past its pass's 4 s deadline
+    // still never reaches a provider (ObservationHttpScope8527.remainingMs before the call), so a deep queue cannot turn
+    // into late calls. superseded: `sourceQueue = 24, leafQueue = 36`.
+    private val background = Pools(sourceThreads = 12, leafThreads = 12, sourceQueue = 96, leafQueue = 144, prefix = "mark-background-8527")
     private val protective = Pools(sourceQueue = 8, leafQueue = 12, prefix = "mark-held-8527")
 
     internal class Batch(

@@ -34,7 +34,7 @@ object ResearchRows8877 {
     /** Pure: one research row (JSON, NaN as null). */
     fun line8877(atMs: Long, horizonMs: Long, mint: String, lane: String, admitted: Boolean, stage: String, setup: String,
                  pred: Double, v3: Double, mcapUsd: Double, liqUsd: Double, costPct: Double, net: Double, gross: Double,
-                 peakPct: Double, heldPeakPct: Double, minPct: Double, reason: String, diag: String = ""): String {
+                 peakPct: Double, heldPeakPct: Double, minPct: Double, reason: String, diag: String = "", flow: String = ""): String {
         fun n(v: Double) = if (v.isFinite()) "%.6g".format(java.util.Locale.US, v) else "null"
         fun s(v: String, max: Int) = v.replace("\\", "").replace("\"", "").take(max)
         return "{\"t\":$atMs,\"horizonMs\":$horizonMs,\"mint\":\"${s(mint, 44)}\",\"lane\":\"${s(lane, 32)}\",\"admitted\":$admitted," +
@@ -42,7 +42,24 @@ object ResearchRows8877 {
             "\"liq\":${n(liqUsd)},\"cost\":${n(costPct)},\"net\":${n(net)},\"gross\":${n(gross)},\"peakPct\":${n(peakPct)}," +
             "\"heldPeakPct\":${n(heldPeakPct)},\"minPct\":${n(minPct)},\"reason\":\"${s(reason, 80)}\"" +
             // V5.0.8891 — the hour read's path diagnostics (ForwardReturnLabeler7731.diagJson8891), when the labeler gives them
-            (if (diag.startsWith("{") && diag.endsWith("}")) ",\"diag8891\":$diag}" else "}")
+            (if (diag.startsWith("{") && diag.endsWith("}")) ",\"diag8891\":$diag" else "") +
+            // V5.0.8924 — the buyer flow at the decision, when it was read
+            (if (flow.startsWith("{") && flow.endsWith("}")) ",\"flow8924\":$flow}" else "}")
+    }
+
+    /**
+     * V5.0.8924 §THE_RUNNER_STUDY_NEEDS_THE_BUYERS — owner, 22 Nov 00:39: "do all 5 now". The 8923 study found nothing in the
+     * research rows that tells a launch runner (12 of 495 fresh pump.fun decisions ran 4x-100x) from the rest — the rows had no
+     * buyer flow. Each hour row now carries the coin's buyer flow AT THE DECISION (BuyerFlow8666's 60 s window: distinct buyers,
+     * new buyers in 15 s, buyers a minute, buy share, net SOL, buy-count acceleration, repeat buyers, sustained demand), so the
+     * runner study and the authority table can grade them. Pure; "" when the flow was not read.
+     */
+    fun flowJson8924(v: com.lifecyclebot.engine.market.BuyerFlow8666.View?): String {
+        if (v == null) return ""
+        fun n(x: Double) = if (x.isFinite()) "%.4g".format(java.util.Locale.US, x) else "null"
+        return "{\"buyers60\":${v.distinctBuyers60s},\"new15\":${v.newBuyers15s},\"perMin\":${n(v.buyersPerMin)},\"buyShare\":${n(v.buySharePct)}," +
+            "\"netSol60\":${n(v.netSol60s)},\"buyTx15\":${v.buyTx15s},\"buyTxPrev15\":${v.buyTxPrev15s},\"repeat60\":${v.repeatBuyers60s}," +
+            "\"txPerMin\":${n(v.txPerMin)},\"accel\":${n(v.volumeAccelScore)},\"sustained\":${v.sustainedDemand}}"
     }
 
     /** ForwardReturnLabeler7731.bookTwoForty7944: write one decision's hour read. Never blocks the labeler. */

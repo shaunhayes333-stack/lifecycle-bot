@@ -3165,6 +3165,9 @@ object PipelineHealthCollector {
             sb.append("  Paper account ledger (§N):    ").append(
                 com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.statusLineFromLedger6604()
             ).append("\n")
+            sb.append("  Stranded basis (§8924):       ").append(
+                try { com.lifecyclebot.engine.truth.PaperAccountLedger6430.strandedLine8924() } catch (_: Throwable) { "stranded8924[read failed]" }
+            ).append("\n")
             val paperLedgerErr = com.lifecyclebot.engine.truth.PaperAccountLedger6430.assertInvariant()
             sb.append("  Paper capital conservation:   ").append(
                 if (paperLedgerErr == null) "✅ OK" else "🛑 $paperLedgerErr"

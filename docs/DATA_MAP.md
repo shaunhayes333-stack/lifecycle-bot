@@ -2367,3 +2367,38 @@ under $100 (the bot's own minimum to buy) writes no hour research row and is not
 decisions, buying every one with a -25 % stop and banking half the best run is -0.2 % ± 3.6 a trade. Nothing the research rows
 record at the decision tells a launch runner from the rest; the rows carry no buyer-flow fields (distinct buyers, buy share,
 signed demand), which is the next data hole to fill before a launch-runner setup can be graded.
+
+## 112. All five (8924)
+
+Owner, 22 Nov 00:39: "do all 5 now". One build, five changes, each additive (nothing is gated harder; nothing is removed).
+
+**1. Buyer flow on the research rows (the hole §111 named).** Each labeller observation reads `BuyerFlow8666.read(mint)` at the
+decision and the hour row carries it as `flow8924{buyers60,new15,perMin,buyShare,netSol60,buyTx15,buyTxPrev15,repeat60,txPerMin,
+accel,sustained}` (`ResearchRows8877.flowJson8924`). A coin with no prints writes no field. This is what a launch-runner setup can
+be graded on next; no decision reads it yet.
+
+**2. The stranded paper basis (bug 12).** A terminal paper sale refused by the quarantine (no phantom credit, 6502) left its
+basis in the ledger's openCost while the canonical position went terminal and the journal booked the loss (21 Nov 23:11:
+openCost 0.0064 against a replay of 0). The refused sale is remembered (position, basis, why); once that position is QUARANTINED
+or CLOSED and the refused basis is exactly the ledger's open cost (within 1e-6, no receipt unpaired), the basis is written off as
+a realised loss, openCost and realised together, so the identity holds and nothing is credited
+(`PaperAccountLedger6430.sweepStranded8924`, run on the bridge's refusal and on each coalesced economic pass). Any other shape
+is reported in `Stranded basis (§8924)` and kept. Paper only; the live book is untouched.
+
+**3. The crypto hour cap, graded (bug 4).** ADAPTIVE_HOLD_MAX was the twin's most common exit (40 of ~90). Each hold-max twin
+close is marked again an hour later with the twin's own mark; the pair (pnl at the cap, pnl an hour on) is filed per lane and
+persisted (`crypto_twin_hold_ext_8924`). Once a lane's extra hour is proven (30+ pairs, mean gain - 2 SE > 0,
+`CryptoTwin8883.holdExtends8924`) the desk's cap for that lane gains the hour (at most two hours); a setup's own hold (8910) is
+unchanged. Shown in `holdCap8924[...]`.
+
+**4. Memory and timeouts (bugs 7, 8).** A Cortex seat's above/below split is only filled when the voter is scored on it; the
+regime and all-lane seats (26,352 of 50,719 on 21 Nov 23:11) carried two empty Stats each. The sides are made on first write; a
+read of an unmade side reads an empty book, and the stored string of an unmade side is the empty book's, so persisted, restored
+and detached books read exactly as before (census: `sidesMade8924=made/possible`). The scanner's 339 source timeouts and 110
+breaker trips in 24 minutes named no source; each source now files its timeouts, completed-run mean and slowest durations, trips
+and skips (`sourceTimeouts8924[...]`). Telemetry only: no source is timed or skipped differently.
+
+**5. Lost labels and shadow outcomes (bugs 2, 11).** MARK_FANOUT_RETRYABLE_SATURATION_8527 ran 13,804 in 24 minutes: price
+passes found the background mark pool's 24 / 36 queue full and the rejected jobs' coins went unpriced (labels and shadow marks
+lost). The workers stay 12 / 12; the queue holds 96 / 144 jobs, and a queued job past its pass's deadline still never reaches a
+provider (`task.scope.remainingMs()` before the call).

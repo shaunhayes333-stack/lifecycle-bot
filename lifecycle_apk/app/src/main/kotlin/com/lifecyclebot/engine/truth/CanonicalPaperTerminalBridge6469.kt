@@ -253,6 +253,11 @@ object CanonicalPaperTerminalBridge6469 {
         PaperAccountLedger6430.sellRefusal8585(grossProceedsSol, soldCostBasisSol, feesSol, mint, positionId,
             canonicalBefore6522?.assetClass == AssetClass.SOLANA_TOKEN)?.let { why ->
             try { PipelineHealthCollector.labelInc("CANONICAL_PAPER_SELL_LEDGER_PRECHECK_8576_$why") } catch (_: Throwable) {}
+            // V5.0.8924 — a refused terminal sale's basis stays open: remembered, and written off once exactly attributed
+            if (terminal && why.startsWith("QUARANTINED")) try {
+                PaperAccountLedger6430.noteRefusedTerminal8924(positionId, mint, soldCostBasisSol, why)
+                PaperAccountLedger6430.sweepStranded8924()
+            } catch (_: Throwable) {}
             return Result(applied = false, terminalClaimed = false, busPublished = false, reason = "LEDGER_PRECHECK_8576_$why")
         }
         if (!SellQtyBoundaryClamp6427.canCommitRaw8576(positionId, soldQtyRaw)) {

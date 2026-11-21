@@ -3721,7 +3721,9 @@ object CryptoAltTrader {
                 listOfNotNull(trend8886.takeIf { it.isNotBlank() }?.let { CryptoTrend8886.TAG_8886 + it }),
             holdSetupQuality = holdSetupQuality6663,
             adaptiveMaxHoldSeconds = holdRecommendation6663?.maxSeconds?.coerceIn(60, 3_600).let { desk ->
-                signal.setupHoldSec8910.takeIf { it > 0 }?.coerceIn(60, 12 * 3_600) ?: desk ?: 3_600 },   // V5.0.8910 — a setup's own hold
+                signal.setupHoldSec8910.takeIf { it > 0 }?.coerceIn(60, 12 * 3_600) ?: desk ?: 3_600 }.let { cap ->   // V5.0.8910 — a setup's own hold
+                // V5.0.8924 — the lane's extra hour proven on the twin (CryptoTwin8883.holdExtends8924): the cap gains that hour
+                if (signal.setupHoldSec8910 <= 0 && CryptoTwin8883.holdExtends8924(candidate.selectedLane)) (cap + CryptoTwin8883.HOLD_EXT_SEC_8924).coerceAtMost(2 * 3_600) else cap },
         )
     }
 

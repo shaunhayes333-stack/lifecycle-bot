@@ -83,7 +83,7 @@ object CryptoTwin8883 {
         if (open.putIfAbsent(key, Twin(twin, l, CryptoTrend8886.cellOfReasons8886(p.reasons), slices8910(l, p.reasons, p.openTime))) == null) opened.incrementAndGet()
     }
 
-    fun hasOpen8883(): Boolean = open.isNotEmpty()
+    fun hasOpen8883(): Boolean = open.isNotEmpty() || ghosts8924.isNotEmpty()   // V5.0.8924 — a hold-max ghost is marked on the same pass
 
     /** CryptoAltTrader.monitorPositions (LIVE), on its own coroutine: one pass over every twin, one pass at a time. */
     suspend fun tick8883() {
@@ -91,6 +91,11 @@ object CryptoTwin8883 {
         try {
             for ((key, t) in open.entries.toList()) {
                 try { step8883(key, t, System.currentTimeMillis()) }
+                catch (e: CancellationException) { throw e }
+                catch (_: Throwable) {}
+            }
+            for ((key, g) in ghosts8924.entries.toList()) {   // V5.0.8924
+                try { stepGhost8924(key, g, System.currentTimeMillis()) }
                 catch (e: CancellationException) { throw e }
                 catch (_: Throwable) {}
             }
@@ -153,6 +158,92 @@ object CryptoTwin8883 {
         }
         byKind.computeIfAbsent(kind.ifBlank { "OTHER" }) { AtomicLong(0L) }.incrementAndGet()
         persist8883(filed8915)
+        // V5.0.8924 — a close on the one-hour hold cap is followed one more hour as a ghost: what holding on would have done
+        if (kind.contains("HOLD_MAX") && ghosts8924.size < MAX_GHOSTS_8924) ghosts8924.putIfAbsent(key, Ghost8924(t.lane, at, pnl, nowMs))
+    }
+
+    // ── V5.0.8924 §WHAT_THE_HOUR_CAP_COSTS — owner, 22 Nov 00:39: "do all 5 now". The desks' hold is capped at one hour
+    //    (adaptiveMaxHoldSeconds coerceIn(60, 3600)) and ADAPTIVE_HOLD_MAX is the twin's most common exit (40 of ~90 closes on
+    //    21 Nov 23:11). Whether the cap cuts trades that would have paid is now measured, not assumed: each hold-max close is
+    //    marked again [HOLD_EXT_MS_8924] later (the same mark the twin reads), and the pair (pnl at the cap, pnl an hour on)
+    //    is filed per lane. [holdExtends8924] is true once a lane's extra hour is PROVEN better (30+ pairs, mean gain minus
+    //    two standard errors above zero); the desk's cap then gains that hour for that lane (at most two hours, CryptoAltTrader). Unproven or
+    //    worse, the cap stays one hour. ──
+    internal const val HOLD_EXT_SEC_8924 = 3_600
+    internal const val HOLD_EXT_MS_8924 = HOLD_EXT_SEC_8924 * 1_000L
+    private const val MAX_GHOSTS_8924 = 60
+    private const val GHOST_GRACE_MS_8924 = 15L * 60_000L
+    private const val KEEP_PAIRS_8924 = 200
+    private class Ghost8924(val lane: String, val pos: CryptoAltTrader.AltPosition, val capPnl: Double, val atMs: Long)
+    private val ghosts8924 = java.util.concurrent.ConcurrentHashMap<String, Ghost8924>()
+    private val holdPairs8924 = java.util.concurrent.ConcurrentHashMap<String, ArrayDeque<DoubleArray>>()
+
+    private suspend fun stepGhost8924(key: String, g: Ghost8924, nowMs: Long) {
+        if (nowMs - g.atMs < HOLD_EXT_MS_8924) return
+        val mark = if (g.pos.isDynamic) CryptoAltTrader.twinMark8883(g.pos.canonicalAssetKey)?.price
+            else PerpsMarketDataFetcher.getMarketData(g.pos.market).price.takeIf { it.isFinite() && it > 0.0 && it / g.pos.entryPrice in 0.1..10.0 }
+        if (mark == null || !mark.isFinite() || mark <= 0.0) {
+            if (nowMs - g.atMs > HOLD_EXT_MS_8924 + GHOST_GRACE_MS_8924) ghosts8924.remove(key)   // no mark within the grace: no pair, never a guess
+            return
+        }
+        ghosts8924.remove(key)
+        val ext = g.pos.copy(currentPrice = mark).getPnlPct()
+        if (!ext.isFinite()) return
+        loadPairs8924()
+        val q = holdPairs8924.computeIfAbsent(g.lane) { ArrayDeque() }
+        val enc = synchronized(q) { q.addLast(doubleArrayOf(g.capPnl, ext)); while (q.size > KEEP_PAIRS_8924) q.removeFirst(); encodePairs8924(q.toList()) }
+        try { pairPrefs8924()?.edit()?.putString(g.lane, enc)?.apply() } catch (_: Throwable) {}   // its own file: the twin's records load every key of theirs
+    }
+
+    @Volatile private var pairsLoaded8924 = false
+    private fun pairPrefs8924(): android.content.SharedPreferences? = try {
+        com.lifecyclebot.AATEApp.appContextOrNull()?.getSharedPreferences(PAIR_PREFS_8924, android.content.Context.MODE_PRIVATE)
+    } catch (_: Throwable) { null }
+    private const val PAIR_PREFS_8924 = "crypto_twin_hold_ext_8924"
+
+    @Synchronized private fun loadPairs8924() {
+        if (pairsLoaded8924) return
+        pairsLoaded8924 = true
+        val p = pairPrefs8924() ?: return
+        for (k in p.all.keys) holdPairs8924.merge(k, ArrayDeque(decodePairs8924(p.getString(k, "")).takeLast(KEEP_PAIRS_8924))) { old, new -> ArrayDeque((new + old).takeLast(KEEP_PAIRS_8924)) }
+    }
+
+    /** Pure (V5.0.8924): a lane's hold pairs as stored ("cap,ext;..."). */
+    internal fun encodePairs8924(q: List<DoubleArray>): String = q.joinToString(";") { "${it[0]},${it[1]}" }
+
+    /** Pure (V5.0.8924): stored hold pairs; a malformed or non-finite entry is skipped. */
+    internal fun decodePairs8924(s: String?): List<DoubleArray> = s.orEmpty().split(';').mapNotNull { e ->
+        val f = e.split(',')
+        val a = f.getOrNull(0)?.toDoubleOrNull(); val b = f.getOrNull(1)?.toDoubleOrNull()
+        if (f.size != 2 || a == null || b == null || !a.isFinite() || !b.isFinite()) null else doubleArrayOf(a, b)
+    }
+
+    /** Pure (V5.0.8924): (n, mean gain of the extra hour, its standard error) over [pairs] of (pnl at the cap, pnl an hour on). */
+    internal fun holdGain8924(pairs: List<DoubleArray>): DoubleArray {
+        val d = pairs.map { it[1] - it[0] }
+        if (d.isEmpty()) return doubleArrayOf(0.0, Double.NaN, Double.NaN)
+        val m = d.average()
+        val se = if (d.size < 2) Double.NaN else kotlin.math.sqrt(d.sumOf { (it - m) * (it - m) } / (d.size - 1) / d.size)
+        return doubleArrayOf(d.size.toDouble(), m, se)
+    }
+
+    /** Pure (V5.0.8924): does a gain record (n, mean, se) prove the extra hour pays? */
+    internal fun extends8924(g: DoubleArray): Boolean = g[0] >= 30.0 && g[1].isFinite() && g[2].isFinite() && g[1] - 2.0 * g[2] > 0.0
+
+    /** V5.0.8924 — CryptoAltTrader: may [lane]'s desk hold two hours (its extra hour proven to pay on the twin)? */
+    fun holdExtends8924(lane: String?): Boolean = try {
+        loadPairs8924()
+        val q = lane?.let { holdPairs8924[it.trim().uppercase()] }
+        q != null && extends8924(holdGain8924(synchronized(q) { q.toList() }))
+    } catch (_: Throwable) { false }
+
+    fun holdLine8924(): String {
+        loadPairs8924()
+        val body = holdPairs8924.entries.sortedBy { it.key }.joinToString(" ") { (l, q) ->
+            val g = holdGain8924(synchronized(q) { q.toList() })
+            "$l{n${g[0].toInt()} extraHour${"%+.1f".format(g[1])}%±${"%.1f".format(g[2])}${if (extends8924(g)) " EXTENDS" else ""}}"
+        }.ifBlank { "-" }
+        return "holdCap8924[ghosts=${ghosts8924.size} $body rule=each hold-max twin close marked again 1 h on; a lane's cap becomes 2 h once the extra hour is proven (n30, mean-2SE>0)]"
     }
 
     /** Pure: the strategy rows of closes [(atMs, pnl %, size SOL)], as the paper book booked them (pnl SOL = size x pnl %). */
@@ -296,7 +387,12 @@ object CryptoTwin8883 {
             "records{$recs} cells8886=$cells exits{$kinds} rule=beside LIVE: every crypto candidate the live decision opened or a learned door refused, on the live exit functions, virtual fill, gross as the paper book]"
     }
 
-    internal fun resetForTest8883() { open.clear(); closes.clear(); byKind.clear(); opened.set(0); duplicate.set(0); full.set(0); lost.set(0); loaded = true }
+    internal fun addHoldPairForTest8924(lane: String, capPnl: Double, extPnl: Double) {
+        val q = holdPairs8924.computeIfAbsent(lane) { ArrayDeque() }; synchronized(q) { q.addLast(doubleArrayOf(capPnl, extPnl)) }
+    }
+
+    internal fun resetForTest8883() {
+        holdPairs8924.clear(); ghosts8924.clear(); pairsLoaded8924 = true; open.clear(); closes.clear(); byKind.clear(); opened.set(0); duplicate.set(0); full.set(0); lost.set(0); loaded = true }
     internal fun addCloseForTest8883(lane: String, atMs: Long, pnl: Double, size: Double) {
         closes.computeIfAbsent(lane) { ArrayDeque() }.addLast(doubleArrayOf(atMs.toDouble(), pnl, size))
     }
