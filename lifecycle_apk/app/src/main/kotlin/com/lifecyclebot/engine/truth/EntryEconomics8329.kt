@@ -211,11 +211,37 @@ object EntryEconomics8329 {
     private val lateSent8918 = AtomicLong(0)
     private val admissionStood8918 = AtomicLong(0)
 
+    // V5.0.8919 §WHERE_THE_SECONDS_GO — owner, 22 Nov 00:05: "fix it!!!" (the 11-20 s from decision to send). The chase detail
+    // measured only mark -> send. Each send now files the two parts: the decision's mark age when the ticket was sealed
+    // (mark -> seal: a decision made on an old price) and seal -> send (the ticket waiting for the executor), median and p90
+    // over the last [TIMING_RING_8919] sends, so the fix is aimed at the part that is slow.
+    private const val TIMING_RING_8919 = 64
+    private val markToSeal8919 = ArrayDeque<Long>()
+    private val sealToSend8919 = ArrayDeque<Long>()
+
+    private fun noteTiming8919(markAtMs: Long, sealedAtMs: Long, nowMs: Long) {
+        if (markAtMs <= 0L || sealedAtMs <= 0L) return
+        synchronized(markToSeal8919) {
+            markToSeal8919.addLast((sealedAtMs - markAtMs).coerceAtLeast(0L)); sealToSend8919.addLast((nowMs - sealedAtMs).coerceAtLeast(0L))
+            while (markToSeal8919.size > TIMING_RING_8919) markToSeal8919.removeFirst()
+            while (sealToSend8919.size > TIMING_RING_8919) sealToSend8919.removeFirst()
+        }
+    }
+
+    /** Pure (V5.0.8919): "p50/p90" seconds of [xs] (ms), or "-". */
+    fun quantiles8919(xs: List<Long>): String {
+        if (xs.isEmpty()) return "-"
+        val s = xs.sorted()
+        fun q(p: Double) = s[((s.size - 1) * p).toInt()] / 1000.0
+        return "%.1f/%.1fs".format(q(0.5), q(0.9))
+    }
+
     /** Pure (V5.0.8918): may a ticket that expired at [expiresAtMs] still be sent at [nowMs] (re-quote pending)? */
     fun lateSendAllowed8918(expiresAtMs: Long, nowMs: Long): Boolean = nowMs - expiresAtMs in 0L..LATE_SEND_GRACE_MS_8918
 
     /** Brief: late sends and admissions whose static economics stood at the send. */
     fun line8918(): String = "sendBoundary8918[lateSent=${lateSent8918.get()} admissionEconomicsStood=${admissionStood8918.get()} " +
+        synchronized(markToSeal8919) { "markToSeal8919=${quantiles8919(markToSeal8919.toList())} sealToSend8919=${quantiles8919(sealToSend8919.toList())} n=${markToSeal8919.size} " } +
         "rule=an expired ticket is sent within ${LATE_SEND_GRACE_MS_8918 / 1000}s more when the re-quote passes; the send refuses a move that consumed the edge, " +
         "not an admission's own economics (it still refuses a remaining move at or under cost)]"
     private val chase8329 = ConcurrentHashMap<String, ChaseBook8329>()
@@ -240,6 +266,7 @@ object EntryEconomics8329 {
         if (intent.mint != ts.mint || nowMs - observedAt !in 0L..DECISION_MAX_AGE_MS_8329 ||
             (nowMs >= intent.expiresAtMs6613 && !lateSendAllowed8918(intent.expiresAtMs6613, nowMs))) return "ENTRY_CHASE_DECISION_STALE_$lane"
         if (nowMs >= intent.expiresAtMs6613) { lateSent8918.incrementAndGet(); labelInc("ENTRY_CHASE_LATE_SEND_8918_$lane") }
+        noteTiming8919(observedAt, intent.createdAt, nowMs)
         val px = quotePxUsd
         val move = quoteMovePct8329(decisionPx, px, impactPct) ?: return "ENTRY_CHASE_PRICE_INCOMPARABLE_$lane"
         if (consumedAt8329.containsKey(ts.mint) &&

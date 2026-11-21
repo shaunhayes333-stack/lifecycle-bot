@@ -2307,3 +2307,14 @@ coins: 2 admitted; DATA_DEFER_FALLING_HOUR_8418 deferred 8, EDGE_MODEL_NEGATIVE 
   falling-hour wait (its record holds coins decided in every hour) with its own after-cost lower bound as the move, as the 8171
   fallback does for a proven setup; a falling hour PROVEN losing still refuses.
 Counted: `sendBoundary8918[lateSent= admissionEconomicsStood=]`, FALLING_HOUR_ANSWERED_BY_MARKET_CELL_8918_<lane>.
+
+## 107. Where the seconds go (8919)
+
+Owner, 22 Nov 00:05: "fix it!!!" — the 11-20 s between a decision's mark and the live send (8917's EDGE_CONSUMED buys moved
+1.6-1.9 % in that time). The chase detail only measured mark -> send. The CPU sample (23:11, 31.5 s) shows AATE-Entry-6647 at
+15.2 s of thread time inside processTokenCycle (SpecialistBrainBridge7542.evaluate 6.1 s, ToolkitSignalSheet 7.3 s,
+LanePlaybook7907.selectedSetup8094 5.0 s), and the decision price ages (decisionPriceAge8549) put about half of MOONSHOT's
+decisions on a mark older than 5 s. Each send now files the two parts — mark -> seal (the decision made on an old price) and
+seal -> send (the ticket waiting for the executor) — as p50/p90 over the last 64 sends in `sendBoundary8918[markToSeal8919=
+sealToSend8919=]`, so the next change is aimed at whichever part is slow instead of guessed. 8918's send-boundary fixes (late
+ticket grace, the send judging the move) are in this build.
