@@ -76,6 +76,40 @@ object LaunchpadMigration8911 {
     fun carries8911(migrated: Boolean, entryVenue: String, outcomeVenue: String): Boolean =
         migrated && entryVenue.isNotBlank() && !outcomeVenue.trim().equals("pump.curve", ignoreCase = true)
 
+    // ── V5.0.8912: the dead curve ──
+
+    /** pump.fun's curve completes near 85 real SOL (CurveReserves7951); 5 % over it allows for the SOL price moving between reads. */
+    private const val OFF_CURVE_REAL_SOL_8912 = 85.02 * 1.05
+
+    /**
+     * Pure (V5.0.8912): is a pump.fun price of [priceUsd] (USD per token) at SOL [solUsd] beyond anything an active curve can
+     * quote — by the curve's own invariant (CurveReserves7951.realSolFromPrice8418), more than the ~85 SOL it completes at?
+     */
+    fun offCurve8912(priceUsd: Double, solUsd: Double): Boolean =
+        priceUsd.isFinite() && priceUsd > 0.0 && solUsd.isFinite() && solUsd > 0.0 &&
+            CurveReserves7951.realSolFromPrice8418(EconomicUnitInvariant7061.usdToSol(priceUsd, solUsd)) > OFF_CURVE_REAL_SOL_8912
+
+    /** Pure (V5.0.8912): is [m] a read of the pump.fun curve itself (the curve account, a curve print, the curve RPC)? */
+    fun curveMark8912(m: LabelMark8386): Boolean {
+        val s = m.source.uppercase()
+        return m.venue.trim().equals("pump.curve", ignoreCase = true) || s == "CURVE_ACCOUNT" || s == "CURVE_FRAME" ||
+            s.contains("PUMP_CURVE_RPC") || s.contains("PUMP_PORTAL_TRADE_WS")
+    }
+
+    /**
+     * V5.0.8912 — ForwardReturnLabeler7731: is [mark] a curve read of a pump.fun coin that was already off its curve at the
+     * decision ([entryUsd] beyond the completion price) or whose graduation is proven? Such a curve no longer prices the coin.
+     */
+    fun deadCurve8912(mint: String, entryUsd: Double, mark: LabelMark8386): Boolean {
+        if (!curveMark8912(mark)) return false
+        if (!(try { com.lifecyclebot.network.PumpCurveKeys7269.isPumpMint8658(mint) } catch (_: Throwable) { false })) return false
+        val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        val dead = offCurve8912(entryUsd, solUsd) || migrated8911(mint)
+        if (dead) deadCurve.incrementAndGet()
+        return dead
+    }
+    private val deadCurve = AtomicLong(0L)
+
     // ── state ──
 
     /** Is [mint]'s graduation proven (pump.fun graduation set, the row's flag, or a launchpad migration read here)? */
@@ -144,7 +178,7 @@ object LaunchpadMigration8911 {
     /** Brief: marks carried through a migration, launchpad pools read and the migrations they proved. */
     fun statusLine8911(): String =
         "migration8911[carried=${carried.get()} asked=${asked.get()} found{${found.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}} " +
-            "rpcFailed=${rpcFailed.get()} known=${migratedAt.size} rule=a label mark on a new venue is the coin's own price once its graduation " +
+            "rpcFailed=${rpcFailed.get()} known=${migratedAt.size} deadCurve8912=${deadCurve.get()} rule=a label mark on a new venue is the coin's own price once its graduation " +
             "is proven (pump.fun graduation / DEX WS / curve complete; Meteora DBC is_migrated; LaunchLab status 2), never onto the dead pump.fun curve]"
 
     internal fun markForTest8911(mint: String) { migratedAt[mint] = 1L }

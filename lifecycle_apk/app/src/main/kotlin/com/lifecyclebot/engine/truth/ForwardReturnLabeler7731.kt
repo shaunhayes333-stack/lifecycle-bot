@@ -253,6 +253,8 @@ object ForwardReturnLabeler7731 {
         if (!(curveSol > 0.0)) return 0
         val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
         if (!(solUsd > 0.0)) return 0
+        // V5.0.8912 — a mark beyond the curve's completion price is a pool's price: the curve cannot witness (hold or contradict) it
+        if (LaunchpadMigration8911.offCurve8912(markUsd, solUsd)) return 0
         val curveAt = (try { CurveReserves7951.readingAtMs8173(mint) } catch (_: Throwable) { null }) ?: return 0
         return curveWitness8337(markUsd, curveSol * solUsd, markAtMs, curveAt)
     }
@@ -3588,6 +3590,13 @@ object ForwardReturnLabeler7731 {
             if (!liveMark8454(mark8386) && o.lastPxAtMs > 0L && px == o.lastPx) { skip8891(o, SKIP_COPY_8891, "RESTAMPED_COPY", mark8386); continue }
             // V5.0.8167 — validate before rebasing or deleting the observation. The chain witness: a mark the coin's own active bonding curve contradicts is a basis error, not a
             // move. Rejecting it must leave the entry basis and rebase eligibility unchanged.
+            // V5.0.8912 — a pump.fun curve read is no price of a coin already past the curve's completion price at its decision
+            // (it trades on its pool; the curve is dead): refused before it can book or witness (LaunchpadMigration8911.deadCurve8912)
+            if (LaunchpadMigration8911.deadCurve8912(o.mint, o.entryPrice, mark8386)) {
+                skip8891(o, SKIP_CURVE_CONTRADICTED_8891, "DEAD_CURVE_8912", mark8386)
+                try { PipelineHealthCollector.labelInc("FORWARD_LABEL_DEAD_CURVE_8912") } catch (_: Throwable) {}
+                continue
+            }
             if (curveContradicts8165(o.mint, px, nowMs, mark8386.observedAtMs)) {
                 skip8891(o, SKIP_CURVE_CONTRADICTED_8891, "CURVE_CONTRADICTED_8165", mark8386)
                 curveRefusedMark8165.incrementAndGet()
@@ -3603,7 +3612,12 @@ object ForwardReturnLabeler7731 {
                 continue
             }
             // V5.0.8167 — corroborate against the OLD basis; rebasing first hides a phantom jump.
-            if (!PositionDisplayTruth8078.highStepOk8133(o.mint, o.entryPrice, o.entryPrice * (1.0 + o.peakPct / 100.0), px, "FORWARD_LABEL")) {
+            // V5.0.8912 — a chain read of the coin's own price (curve account / curve print / pool vaults / parsed swap: an executed
+            // price, LabelEvidence8386.independent8418) is its own corroboration: the step is not refused as an unproven jump. A 10x
+            // still needs both marks chain-witnessed (LabelEvidence8386); an aggregator's step still needs the two-feed agreement.
+            val jumpHigh8912 = if (LabelEvidence8386.independent8418(mark8386)) Double.POSITIVE_INFINITY else o.entryPrice * (1.0 + o.peakPct / 100.0)
+            if (jumpHigh8912.isInfinite()) try { PipelineHealthCollector.labelInc("FORWARD_LABEL_CHAIN_STEP_8912") } catch (_: Throwable) {}
+            if (!PositionDisplayTruth8078.highStepOk8133(o.mint, o.entryPrice, jumpHigh8912, px, "FORWARD_LABEL")) {
                 skip8891(o, SKIP_JUMP_8891, "UNCORROBORATED_JUMP_8133", mark8386); continue
             }
             // V5.0.8076 — the label starts where a buy could actually land: the first mark 5-60 s after the decision.

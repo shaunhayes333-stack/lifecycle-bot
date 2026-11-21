@@ -2206,3 +2206,28 @@ labels, the runner study and the Cortex grade book read migrations the same way.
 hour (and 4 h / 24 h) reads now follow the coin on its new pool instead of stopping at the migration. Records built on those
 reads (stage, cohort, pocket, lane) grade graduated coins on what they did after graduating. Nothing is admitted by this change
 itself. Counted as `migration8911[carried= asked= found{DBC=,LAUNCHLAB=}]` in the brief.
+
+## 100. Grading truth: the dead curve and the chain-read step (8912)
+
+Owner, 21 Nov 18:16: "fix the other issues". The two grading defects §99 measured on the 20-21 Nov research rows:
+
+**The dead curve (35 hour reads, median -100 %).** Example HF6woTT9: decided at a $151k-$211k cap (past anything pump.fun's curve
+can quote: it completes near 85 real SOL, ~$53k at SOL $130), one accepted mark, -98 %, while the market's own price (OFFWATCH)
+was held by CURVE_HELD_8337 because a curve read disagreed with it. A curve read of a coin that has left its curve is not its
+price. Change: `LaunchpadMigration8911.offCurve8912` (pump.fun's own invariant, CurveReserves7951.realSolFromPrice8418 > 85.02 x 1.05);
+a curve-family mark (`curveMark8912`: venue pump.curve, CURVE_ACCOUNT, CURVE_FRAME, PUMP_CURVE_RPC, PUMP_PORTAL_TRADE_WS) of a
+pump.fun coin whose decision price is past completion, or whose graduation is proven, is refused as DEAD_CURVE_8912 before it can
+book, contradict or hold; and the curve witness (curveWitnessAt8337) does not hold or contradict a mark that is itself past
+completion (it is a pool's price).
+
+**The unproven jump (232 hour reads, booked mean +83 %).** PositionDisplayTruth8078.highStepOk8133 refuses a step that more than
+doubles the multiple past +100 % unless a two-feed aggregator price agrees within 25 %; on the pump.fun curve the aggregators lag
+or have no pair, so real runs were clipped at their last step. Change, in the forward labeler only: a mark that is a chain read
+of the coin's own price (LabelEvidence8386.independent8418: curve account / curve print / PumpPortal trade print / pool vaults /
+parsed swap — an executed price) is its own corroboration. A >= 10x move still needs both marks chain-witnessed; an aggregator's
+step still needs the agreement; position highs and exits are unchanged.
+
+**Forensic impact.** Hour / 4 h / 24 h reads of pump.fun coins no longer book dead-curve prices or lose their chain-printed run
+steps; records built on them (stage, cohort, pocket, lane, the base pocket's pump.fun record) re-grade from new rows. Counted as
+FORWARD_LABEL_DEAD_CURVE_8912 / FORWARD_LABEL_CHAIN_STEP_8912 and `deadCurve8912=` in the migration8911 line. Nothing is
+admitted by this change itself.
