@@ -2019,3 +2019,37 @@ changed touches PaperAccountLedger6430, TradeHistoryStore or the journal write-o
 DiagnosisBrief8438's line, the docs). It needs a market sequence of partial sells on one paper lot, which 8900's smoke did not meet.
 The defect stands: a quarantined close leaves the ledger holding a basis the journal has written off. It is paper accounting only
 (live closes are chain-proven, §8041), and it is the next accounting item. 8903 rebuilds 8902 to re-run CI.
+
+## 92. Audit of 21 Nov, and the base pocket (8904)
+
+Owner, 21 Nov 14:07: "do the suggested work and audit the data". The 13:48 report (5.0.8903, uptime 79 min), its research and
+authority files, and the earlier reports of the day.
+
+**8903 on the phone.** FDG evaluations 2,320 in 79 min (29 a minute; 8898 at 73 min 12.5, 8894 fresh 76); allowed 3. Heap 83 %
+(SOFT), average cycle 5.2 s. The run before it crashed at 3.5 h with OutOfMemoryError in android.app.QueuedWork (the
+SharedPreferences write-back queue). The playbook checkpoint saved 202 times in 79 min at 1.7 s a save (8901's pace: the next
+waits 4x that, so it now runs about a fifth of the time instead of continuously). Live: 20 closes in the governor window,
+profit factor 3.27, +0.0057 SOL a trade; wallet 0.2224 SOL; nothing open. Refusals: EDGE_MODEL_NEGATIVE 978, DATA_INCOMPLETE
+502, EXECUTION_ECONOMICS 377, SAFETY 133, LIVE_STAGE_LOSES 83.
+
+**What the refused coins did (hour reads, one per coin per hour, executable net after cost, 26.6 h, 4,833 reads).** BLUECHIP's
+MCAP_TOO_LOW refusals n786 -8.8 % at the hour (median -3.4 %), -14.8 % at four hours without the top three; LIQ_BAND refusals
+n193 -2.9 %. Off-pump.fun coins with a $5k-$20k pool n77 -5.6 % (four hours n34 -13.8 %), $20k-$100k n111 -4.5 %. By the stage
+at the decision: FRESH_LAUNCH n59 -20.8 %, DUMPING n259 -28.4 %, PEAK_EXHAUSTION n158 -14.0 %, MID_ACCUMULATION n47 -5.0 %,
+CONTROLLED_MARKUP n65 -9.9 %, unknown n1201 -6.8 %; BASE_START n164 +4.0 % (four hours n41 -38.3 %). The five-minute +6.5 % /
++31 % reads the brief prints for these cohorts fade inside the hour; opening those doors would have bought losing coins.
+
+**The one pocket that points up.** BASE_START, not minted on pump.fun, pool $20k-$100k: 51 coins, +18.3 % mean, +14.6 % median,
+68 % winners at the hour (pump.fun mints in that band n21 -14.7 %). Under the bot's own proof rule (each coin once at its worst
+meme-lane read, the gain kept to the pocket cap): n49, +13.3 % +- 8.6, both halves positive (+6.6 / +19.9), lower bound -3.9 %
+— not proven.
+
+**8904.** `BasePocket8904` keeps that record: filed from every hour research row as it is written (ResearchRows8877.note8877)
+and seeded from the device's research file, the newest 200 coins. Once proven (30+ coins, mean above zero by two standard
+errors) a coin in the pocket carries it as market-cell evidence (CandidateAdmission8136, after the agreement pocket, before the
+LLM band) with the agreement pocket's precedence: it answers the lane-wide priors (LaneAuthority8577.answersPriors8874) and the
+aggregate forecast (a specific record, 8843). Safety, structure, sellability, the LP-lock rule, executable economics, the
+coin's own chart shapes and the losing record of the setup it trades as still outrank it. The brief prints
+`basePocket8904[PROVEN|UNPROVEN n/mean±se/lower/run loaded learned served rule]`. Forensic impact: on the data it was chosen from
+it does not prove, so it buys nothing until the coins that follow tighten its record; then it admits only coins in the pocket.
+The pocket was chosen after looking at many cells, so its forward record (the coins after this build) is the one that counts.

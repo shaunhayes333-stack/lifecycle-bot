@@ -171,7 +171,8 @@ object LaneAuthority8577 {
      * V5.0.8874 — the market-cell evidence kinds, besides a paying cell, that answer the same priors: a per-lane record proven
      * on its own labels over a narrower group of coins than the lane-wide and origin-wide records.
      */
-    private val PRIOR_ANSWERING_KINDS_8874: Set<String> = setOf(AgreementPocket8874.KIND_8874, LlmBands8875.KIND_8875)   // V5.0.8875: the LLM's proven band
+    private val PRIOR_ANSWERING_KINDS_8874: Set<String> = setOf(AgreementPocket8874.KIND_8874, LlmBands8875.KIND_8875,   // V5.0.8875: the LLM's proven band
+        BasePocket8904.KIND_8904)   // V5.0.8904: the proven base pocket
 
     /** Pure (V5.0.8874): does market-cell evidence of [kind] answer the lane-wide entry-state priors? */
     fun answersPriors8874(kind: String?): Boolean = kind != null && kind in PRIOR_ANSWERING_KINDS_8874

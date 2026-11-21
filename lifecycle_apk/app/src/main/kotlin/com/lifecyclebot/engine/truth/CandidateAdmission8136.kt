@@ -2110,6 +2110,8 @@ object CandidateAdmission8136 {
                 ?: try { com.lifecyclebot.engine.lab.StrategyLab8755.evidence8755(ts, lane, nowMs) } catch (_: Throwable) { null }
                 // V5.0.8874 — then the lane's proven agreement pocket (the V3 score and the forecast agree on an off-pump.fun $5k-$20k coin)
                 ?: AgreementPocket8874.evidence8874(ts, lane, edge8874?.predPct, nowMs)
+                // V5.0.8904 — then the base pocket (off-pump.fun, BASE_START, $20k-$100k pool), once its hour record is proven
+                ?: BasePocket8904.evidence8904(ts, lane, nowMs)
                 // V5.0.8875 — then the band of the LLM analyst's current answer, when that band has proven to pay in this lane
                 ?: LlmBands8875.evidence8875(ts, lane, nowMs),
             regimeCold8546 = live8290 && MemePaperTrader8544.memeLane8544(lane) &&
