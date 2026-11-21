@@ -30,7 +30,9 @@ class Aate8418EntryContinuityTest {
         val decision = intent().copy(executableMarkTimestampMs6613 = now - 100L)
         fun checkChase(ticket: ExecutableOpenGate.ExecutionIntent, quote: Double): String? =
             com.lifecyclebot.engine.truth.EntryEconomics8329.preBroadcastRefusal8329(token, ticket, 0.04, quote, 0.0, "JUPITER", now)
-        assertEquals("ENTRY_CHASE_DECISION_STALE_QUALITY", checkChase(decision.copy(expiresAtMs6613 = now), 0.001))
+        // V5.0.8918 — an expired ticket keeps a re-quoted grace; past it, the decision is stale
+        assertEquals("ENTRY_CHASE_DECISION_STALE_QUALITY", checkChase(decision.copy(expiresAtMs6613 = now - com.lifecyclebot.engine.truth.EntryEconomics8329.LATE_SEND_GRACE_MS_8918 - 1L), 0.001))
+        assertTrue("inside the grace it goes on to the re-quote", checkChase(decision.copy(expiresAtMs6613 = now), 0.001) != "ENTRY_CHASE_DECISION_STALE_QUALITY")
         assertEquals("ENTRY_CHASE_DECISION_STALE_QUALITY", checkChase(decision.copy(mint = "other"), 0.001))
         assertEquals("ENTRY_CHASE_PRICE_INCOMPARABLE_QUALITY", checkChase(decision, 0.01))
     }

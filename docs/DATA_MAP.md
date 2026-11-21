@@ -2340,3 +2340,9 @@ Change: BasePocket8904's pool floor is $5k (was $20k); the record ids are BASE_O
 (both stale demotions skip a coin that could base into the pocket) follows the same floor. Everything else in §92 / §98 stands:
 proof at 30+ coins and mean - 2 SE > 0, the lane's exits, and safety, sellability, the LP-lock rule and executable economics
 outranking it.
+
+## 110. 8918's test fix (8922)
+
+8918 built; Aate8418EntryContinuityTest pinned a ticket expiring at the send instant as ENTRY_CHASE_DECISION_STALE, which 8918
+changed on purpose (§106: a re-quoted grace of LATE_SEND_GRACE_MS_8918). The test now expects stale past the grace and the
+re-quote inside it. 8919-8921 carried the same failure; 8922 is the first build of §106-§109.
