@@ -39,6 +39,8 @@ object CortexTiming7900 {
                          val raws: DoubleArray, val dip: Boolean, val mint: String, val px0: Double, val atMs: Long)
 
     private val ledger = CortexLedger7885()
+    /** V5.0.8904 — the brief's census of this ledger's seats. */
+    fun census8904(): String = ledger.census8904(this)
     private val dipBook = HashMap<String, CortexLedger7885.Stat>()
     /** V5.0.8309 — census: timing seat ledger + dip book (learning: counted, never trimmed). */
     fun ledgerBytes8309(): Long = ledger.estBytes8309().coerceAtLeast(0L) + (try { dipBook.size } catch (_: Throwable) { 0 }) * 200L

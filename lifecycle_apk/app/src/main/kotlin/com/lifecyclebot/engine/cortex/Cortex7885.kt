@@ -120,6 +120,10 @@ object Cortex7885 {
     private val board = CortexScoreboard7885()
     private val calibration = CortexCalibration7901()
     private val realLedgers = HashMap<String, CortexLedger7885>()   // mode -> outcome-truth ledger
+    /** V5.0.8904 — the brief's census of the assessment ledger's seats and each outcome-truth ledger's. */
+    fun census8904(): String = try {
+        synchronized(this) { "main{${ledger.census8904(this)}}" + realLedgers.entries.joinToString("") { (m, l) -> " $m{${l.census8904(this)}}" } }
+    } catch (_: Throwable) { "main{busy}" }
     /** V5.0.8309 — census: the voter seat ledger plus the per-mode outcome-truth ledgers (learning: counted, never trimmed). */
     fun ledgerBytes8309(): Long = ledger.estBytes8309().coerceAtLeast(0L) +
         (try { realLedgers.values.toList() } catch (_: Throwable) { emptyList() }).sumOf { it.estBytes8309().coerceAtLeast(0L) }

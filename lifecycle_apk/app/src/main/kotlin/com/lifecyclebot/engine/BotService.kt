@@ -18923,9 +18923,16 @@ class BotService : Service() {
             if (demoted) try { PipelineHealthCollector.labelInc("WATCHLIST_IDLE_TO_PROBATION_8847") } catch (_: Throwable) {}
             return demoted
         }
+        // V5.0.8904 — a coin the base pocket could buy stays hot: off pump.fun, a $20k-$100k pool, inside its first
+        // BASE_WATCH_MS_8904 on the watchlist (BasePocket8904.watches8904). Both stale demotions skip it, so it is still read
+        // when it bases (21 Nov hour reads: BASE_START off pump.fun $20k-$100k, 51 coins, median +14.6 %).
+        fun baseWatch8904(mint: String, addedAt: Long): Boolean = try {
+            com.lifecyclebot.engine.truth.BasePocket8904.watches8904(mint, status.tokens[mint]?.lastLiquidityUsd ?: Double.NaN, nowMs - addedAt)
+                .also { if (it) PipelineHealthCollector.labelInc("WATCHLIST_BASE_WATCH_KEPT_8904") }
+        } catch (_: Throwable) { false }
         val coldFiltered = cold.filter { (mint, _) ->
             val entry = entriesByMint[mint] ?: return@filter true
-            if (entry.processCount >= STALE_PROCESS_COUNT_THRESHOLD) {
+            if (entry.processCount >= STALE_PROCESS_COUNT_THRESHOLD && !baseWatch8904(mint, entry.addedAt)) {
                 staleEvict.add(mint)
                 false
             } else true
@@ -18952,7 +18959,7 @@ class BotService : Service() {
         val coldAfterTime = coldFiltered.filter { (mint, lastTouch) ->
             if (mint in forcedOpenMints) return@filter true
             val entry = entriesByMint[mint] ?: return@filter true
-            if (entry.processCount >= 1 && (nowMs - lastTouch) > STALE_AGE_MS) {
+            if (entry.processCount >= 1 && (nowMs - lastTouch) > STALE_AGE_MS && !baseWatch8904(mint, entry.addedAt)) {
                 timeStaleEvict.add(mint)
                 false
             } else true

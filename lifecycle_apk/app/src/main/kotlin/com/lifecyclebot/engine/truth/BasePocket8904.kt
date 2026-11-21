@@ -50,6 +50,14 @@ object BasePocket8904 {
         com.lifecyclebot.network.HeliusSolanaScope7819.isSolanaMint7819(mint) && MarketCohort8701.origin8701(mint) == "OTHER" &&
             stage.trim().equals(STAGE_8904, ignoreCase = true) && liqUsd.isFinite() && liqUsd >= LIQ_LO_USD_8904 && liqUsd < LIQ_HI_USD_8904
 
+    /** V5.0.8904 — how long a coin that could base into the pocket stays on the hot watchlist (both stale demotions skip it). */
+    internal const val BASE_WATCH_MS_8904 = 6L * 3_600_000L
+
+    /** Pure: should the watchlist keep a coin minted at [mint] with a pool of [liqUsd], on it for [onWatchMs], hot? */
+    fun watches8904(mint: String, liqUsd: Double, onWatchMs: Long): Boolean =
+        onWatchMs in 0L until BASE_WATCH_MS_8904 && com.lifecyclebot.network.HeliusSolanaScope7819.isSolanaMint7819(mint) &&
+            MarketCohort8701.origin8701(mint) == "OTHER" && liqUsd.isFinite() && liqUsd >= LIQ_LO_USD_8904 && liqUsd < LIQ_HI_USD_8904
+
     /** One hour read of a meme lane; a coin's reads within [REVISE_MS_8904] of its first keep the worst. */
     private fun add(mint: String, lane: String, atMs: Long, net: Double) {
         if (!AgreementPocket8874.memeLane8895(lane) || !net.isFinite()) return

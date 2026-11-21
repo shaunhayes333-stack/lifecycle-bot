@@ -2053,3 +2053,25 @@ coin's own chart shapes and the losing record of the setup it trades as still ou
 `basePocket8904[PROVEN|UNPROVEN n/mean±se/lower/run loaded learned served rule]`. Forensic impact: on the data it was chosen from
 it does not prove, so it buys nothing until the coins that follow tighten its record; then it admits only coins in the pocket.
 The pocket was chosen after looking at many cells, so its forward record (the coins after this build) is the one that counts.
+
+## 93. The base watch and the Cortex census (8905)
+
+Owner, 21 Nov 14:15: "do the next up now" — the memory crash, and keeping base candidates watched.
+
+**The base watch.** Coins left the hot watchlist by two stale demotions (13:48 report: WATCHLIST_STALE_EVICT_TIME 762,
+WATCHLIST_STALE_EVICT 108): 30 minutes untouched, or 96 cycles processed. A base forms after the launch and the dump, often
+later than that, so the base pocket's coins were read less (probation) by the time they based. A coin the pocket could buy —
+Solana mint, not pump.fun, a $20k-$100k pool — now skips both demotions for its first 6 hours on the watchlist
+(`BasePocket8904.watches8904`, counted WATCHLIST_BASE_WATCH_KEPT_8904). Impact: the 20-21 Nov hour rows hold about four such
+coins an hour, so the hot list keeps a few dozen more entries at most; the 500 hard cap, the banned / quarantine purge and
+every gate are unchanged; nothing is bought by being kept.
+
+**The memory crash.** The 13:48 report's previous run died at 3.5 h of OutOfMemoryError while android.app.QueuedWork wrote
+SharedPreferences (the allocation that failed was 24 bytes: the heap was full, the writer was only where it ran out). Its
+memory census: cortexLedgers8309 43.6 MB (the largest store, and growing: CortexLedger7885$Stat 299,182 objects at 8889's start,
+455,938 at 01:08), prefsMirror 12.9 MB, learnerAttribution 9.2 MB (bounded: 10k prior + 20k current per learner), exploreShadow
+7.1 MB, insiderTracker 6.2 MB, and 310 MB unattributed (mostly garbage between collections). A Cortex seat is keyed
+voter|lane or voter|lane@regime, so the ledger grows with each new voter, lane or regime — but which one is not in any report.
+The brief now prints `cortexSeats8904[timing{...} main{...} LIVE{...} PAPER{...} exit{...}]` (seats, voters, lanes, regimes,
+regime seats, empty seats: a seat with nothing in it reads exactly like a missing one). The next report names the growth, and
+the fix goes there. Read-only.

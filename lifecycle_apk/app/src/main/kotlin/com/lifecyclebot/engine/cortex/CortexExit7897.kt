@@ -115,6 +115,8 @@ object CortexExit7897 {
     }
 
     private val ledger = CortexLedger7885()
+    /** V5.0.8904 — the brief's census of this ledger's seats. */
+    fun census8904(): String = ledger.census8904(this)
     /** V5.0.8309 — census: exit seat ledger + lane books (learning: counted, never trimmed). */
     fun ledgerBytes8309(): Long = ledger.estBytes8309().coerceAtLeast(0L) + (try { books.size } catch (_: Throwable) { 0 }) * 1_200L + truthState8521.estimatedBytes()
     private val calibration = CortexCalibration7901()

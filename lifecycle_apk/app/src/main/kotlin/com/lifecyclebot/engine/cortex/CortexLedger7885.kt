@@ -376,6 +376,27 @@ class CortexLedger7885(
 
     fun lane(lane: String): Stat = lanes.getOrPut(lane) { newStat8187() }
 
+    /**
+     * V5.0.8904 §WHAT_THE_LEDGER_HOLDS — the 21 Nov 01:08 heap map: CortexLedger7885\$Stat 41.7 MB (455,938 objects; 299,182 at
+     * 8889's start), CortexTiming7900's ledger the largest; the report's census: cortexLedgers8309 43.6 MB. Seats are keyed
+     * voter|lane and voter|lane@regime, so the count grows with every new voter, lane or regime. The brief names which:
+     * seats, distinct voters, lanes and regimes, regime seats, and seats that hold nothing (every bin and both sides at n 0,
+     * nothing scored) — those read exactly like a missing seat. Read-only; [lock] is the owner's lock.
+     */
+    fun census8904(lock: Any): String = try {
+        synchronized(lock) {
+            var regimeSeats = 0; var empty = 0
+            val voters = HashSet<String>(); val laneSet = HashSet<String>(); val regimes = HashSet<String>()
+            for ((k, s) in seats) {
+                val voter = k.substringBefore('|'); val rest = k.substringAfter('|', "")
+                voters += voter; laneSet += rest.substringBefore('@')
+                if ('@' in rest) { regimeSeats++; regimes += rest.substringAfter('@') }
+                if (s.scored == 0 && s.above.n <= 0.0 && s.below.n <= 0.0 && s.bins.all { it.n <= 0.0 }) empty++
+            }
+            "seats=${seats.size} voters=${voters.size} lanes=${laneSet.size} regimes=${regimes.size} regimeSeats=$regimeSeats empty=$empty"
+        }
+    } catch (_: Throwable) { "seats=? (busy)" }
+
     fun seat(voterId: String, lane: String, binCount: Int): Seat =
         seats.getOrPut("$voterId|$lane") { newSeat8187(binCount) }.let { if (it.bins.size == binCount) it else newSeat8187(binCount).also { s -> seats["$voterId|$lane"] = s } }
 
