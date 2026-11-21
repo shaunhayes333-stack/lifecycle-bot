@@ -203,24 +203,43 @@ object ResearchFollow8884 {
         if (dirty && (due.isNotEmpty() || nowMs - savedAtMs >= 5L * 60_000L)) save8884(nowMs)
     }
 
-    private fun fetch8884(mints: List<String>): JSONObject? = try {
-        val req = Request.Builder().url(JUP_8884 + mints.joinToString(",")).header("User-Agent", "Mozilla/5.0").build()
-        // the app's health-aware path for Jupiter (its backoff and host circuit), as the registry's Jupiter reads use
-        com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, "jupiter").use { resp ->
-            if (!resp.isSuccessful) { failed.incrementAndGet(); null }
-            else resp.body?.string()?.let { JSONObject(it) }
-        }
-    } catch (_: Throwable) {
+    // V5.0.8934 — 22 Nov 04:08: waiting4h=15,213 waiting24h=7,918 written=0 failed=20 — every pass's call failed, so no 4 h or
+    // 24 h read was ever written and no lane could be judged past the hour (BLUECHIP holds up to 8 h). Two causes: the batch
+    // carried the crypto desks' non-Solana ids ("bsc|0x..."), and Price v3 refuses a whole batch with 400 for one such id
+    // (KeylessPriceSources6996's 8418 note); and only the keyless lite host was asked (sr 63 % on 8542, 5xx while the bot's
+    // other Jupiter reads ran). Now only Solana mints are asked (a non-Solana decision is written unpriced, as before), the
+    // app's Jupiter key buys the keyed host first, and the keyless host stays the fallback (calls8934{} on the line).
+    private val keyedOk8934 = AtomicLong(0L)
+    private val keylessOk8934 = AtomicLong(0L)
+    private val notSolana8934 = AtomicLong(0L)
+
+    private fun fetch8884(mints: List<String>): JSONObject? {
+        val ids = try { com.lifecyclebot.network.JupiterPriceIds8418.ids8418(mints, Int.MAX_VALUE) } catch (_: Throwable) { mints }
+        notSolana8934.addAndGet((mints.size - ids.size).coerceAtLeast(0).toLong())
+        if (ids.isEmpty()) return JSONObject()   // nothing Jupiter can price: the batch is written unpriced
+        val key = try { com.lifecyclebot.data.DefaultKeys.JUPITER } catch (_: Throwable) { "" }
+        if (key.isNotBlank()) read8934("https://api.jup.ag/price/v3?ids=" + ids.joinToString(","), "jupiter_price_keyed", key)?.let { keyedOk8934.incrementAndGet(); return it }
+        read8934(JUP_8884 + ids.joinToString(","), "jupiter", "")?.let { keylessOk8934.incrementAndGet(); return it }
         failed.incrementAndGet()
         try { PipelineHealthCollector.labelInc("RESEARCH_FOLLOW_8884_FETCH_FAILED") } catch (_: Throwable) {}
-        null
+        return null
     }
+
+    private fun read8934(url: String, host: String, key: String): JSONObject? = try {
+        val req = Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").header("Accept", "application/json")
+            .also { if (key.isNotBlank()) it.header("x-api-key", key) }.build()
+        // the app's health-aware path for Jupiter (its backoff and host circuit), as the registry's Jupiter reads use
+        com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host).use { resp ->
+            if (!resp.isSuccessful) null else resp.body?.string()?.let { JSONObject(it) }
+        }
+    } catch (_: Throwable) { null }
 
     /** Brief: decisions waiting per horizon, rows written, unpriced and late reads. */
     fun statusLine8884(): String {
         val (h4, h24) = synchronized(pending) { pending.count { it.next == 0 } to pending.count { it.next == 1 } }
         return "researchFollow8884[waiting4h=$h4 waiting24h=$h24 written=${written.get()} unpriced=${unpriced.get()} late=${late.get()} " +
-            "failed=${failed.get()} dropped=${dropped.get()} untradeable8923=${untradeable8923.get()} implausible8923=${implausible8923.get()} rule=each hour row's decision read again at 4 h and 24 h (Jupiter price v3, USD per token), same file]"
+            "failed=${failed.get()} dropped=${dropped.get()} untradeable8923=${untradeable8923.get()} implausible8923=${implausible8923.get()} " +
+            "calls8934{keyed=${keyedOk8934.get()} keyless=${keylessOk8934.get()} notSolanaIds=${notSolana8934.get()}} rule=each hour row's decision read again at 4 h and 24 h (Jupiter price v3, USD per token), same file]"
     }
 
     internal fun resetForTest8884() { synchronized(pending) { pending.clear() }; loaded = true; written.set(0); unpriced.set(0); late.set(0); dropped.set(0) }

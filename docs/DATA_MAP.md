@@ -2631,3 +2631,36 @@ closeOut8872[passes=6 pending=100] — not one closed in 21 minutes, and the lin
 8931 file involved): the status pin expects the slowest build to be the deliberately held rebuild, but the first build (the
 test thread's first call, with class loading) took 6 ms and the held rebuild 1 ms, so `by=` named the test thread. The test
 now holds the rebuild 50 ms before releasing it. No production code changes; 8929-8932 carry over unchanged.
+
+## 122. Each lane its own pocket (8934)
+
+Owner, 22 Nov 05:44: "are all of the specialists, traders, lanes being fed coins that can make money within their designed
+intent?", then 06:35: "fix it properly. that means all lanes specialists and traders".
+
+**Feeding.** The lane hunters already deal each lane coins in its own band (LaneHunter7297, 04:08 capture: SHITCOIN 0-500k,
+QUALITY 75k-1.0M, BLUECHIP 1.0M+, DIP_HUNTER 50k-5.0M, MOONSHOT 1k-500k, TREASURY / CASHGEN 1.0M-5.0M, EXPRESS 1k-300k,
+PROJECT_SNIPER 2k-500k, MANIPULATED 2k-300k, CYCLIC 10k-5.0M, CORE 1k-5.0M), and BLUECHIP evaluates only $1M+ (95 LANE_EVAL).
+The research rows hold every lane's verdict on every coin (labels for learning), not the lane's feed.
+
+**What pays inside each band (20-21 Nov research rows, each coin once per lane at its first read in the lane's band, at the
+lane's hold; single features and pairs of origin / stage / setup / V3 / forecast / pool / cap; proven = 30+ coins, both halves
+positive, mean without the best three > z SE, z = CryptoTrend8886.familyZ8886 over the lane's cells with 30+ coins):**
+CORE 7 (best off pump.fun + forecast >= +10 %: n98 +39.2 %, ex3 +33.7 %), MANIPULATED 6, SHITCOIN 4 (its LAUNCH_CONTINUATION
+setup at $10k-$20k n36 +48.6 %), MOONSHOT 4, EXPRESS 4, DIP_HUNTER 1 (off pump.fun, pool < $5k, n46 +8.1 %). None: QUALITY
+(n301 in band, -6.1 %), BLUECHIP (n123, -3.7 %), TREASURY / CASHGEN (n45, -6.5 %), PROJECT_SNIPER (n736), CYCLIC (n425), and
+every CRYPTO_* lane (CORE n1504 ... TREASURY n108).
+
+**Changes.**
+- `LanePocket8934`: that search on the device — seeded from the research file, filed from every row as written
+  (ResearchRows8877.note8877), mined hourly; one coin once per lane (first in-band read, last 3,000 coins per lane); BLUECHIP
+  read at 4 h (its 8 h hold), every other lane at 1 h (QUALITY 60 min, TREASURY / CASHGEN 45 min, the meme lanes within the hour).
+  A meme lane's coin inside one of its proven cells carries that cell as market-cell evidence in CandidateAdmission8136, after
+  the base pocket, and answers the same priors (LaneAuthority8577 PRIOR_ANSWERING_KINDS); hard safety, the LP-lock rule,
+  sellability, executable economics, avoid shapes and the losing setup record still decide; the size is the lane's own.
+  CRYPTO_* lanes are mined and printed only (their door is CanonicalAssetEntryContract6551 and their twin records).
+  `lanePocket8934[... coins{} proven{} served{}]` on the brief.
+- `ResearchFollow8884`: the 4 h / 24 h re-reads had written nothing (waiting4h=15,213, written=0, failed=20 of 20 passes):
+  batches carried non-Solana ids, which make Price v3 refuse the whole batch, and only the keyless host was asked. Now only
+  Solana ids are sent (JupiterPriceIds8418.ids8418; non-Solana decisions are written unpriced as before), the keyed host
+  (DefaultKeys.JUPITER) first, the keyless host as fallback; `calls8934{keyed keyless notSolanaIds}` on its line. Those rows
+  are what BLUECHIP's 4 h pocket and any longer-hold judgement read.
