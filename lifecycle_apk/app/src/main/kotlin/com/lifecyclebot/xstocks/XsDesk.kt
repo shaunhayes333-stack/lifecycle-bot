@@ -181,6 +181,16 @@ object XsDesk {
         return true
     }
 
+    /** V5.0.8930 — the panel's copy of [s]'s history: a stock's own bars with its share's before them; the stored [h] unchanged. */
+    private fun panelHistory8930(s: Sym, h: HlHistory, today: Long): HlHistory {
+        if (!s.market.isStock) return h
+        val fromDay = today - 1 - HISTORY_DAYS + 1
+        val bars = try { XsUnderlying8930.panelBars8930(s.symbol, h.bars, fromDay, today) } catch (_: Throwable) { h.bars }
+        if (bars === h.bars) return h
+        sleepQuietly(CALL_GAP_MS)
+        return HlHistory(h.coin).also { it.bars.putAll(bars) }
+    }
+
     /** Pure (V5.0.8810): ask the day's history again (not evaluate) when reads went unanswered and the deadline is ahead. */
     internal fun historyRetry8810(unanswered: Int, sinceMidnightMs: Long): Boolean = unanswered > 0 && sinceMidnightMs < HISTORY_DEADLINE_MS_8810
 
@@ -195,7 +205,9 @@ object XsDesk {
             if (!fillBars(s, h, today)) unanswered++
             h.trim(today - HISTORY_DAYS - 30)
             if (dir != null) HlStore.save(dir, h)
-            if (h.bars.size >= MIN_LISTED_DAYS) ready.add(h) else excl[s.symbol] = if (h.bars.isEmpty()) "NO_HISTORY" else "TOO_NEW_${h.bars.size}d"
+            // V5.0.8930 — listed on the token's own bars; graded on them with the share's history before them (XsUnderlying8930)
+            if (h.bars.size >= MIN_LISTED_DAYS) ready.add(panelHistory8930(s, h, today))
+            else excl[s.symbol] = if (h.bars.isEmpty()) "NO_HISTORY" else "TOO_NEW_${h.bars.size}d"
         }
         excluded = excl
         historyUnanswered8810 = unanswered
@@ -476,7 +488,7 @@ object XsDesk {
             "$s=${"%.2f".format(costSideOf(q, now) * 100)}%${if (now - q.atMs > QUOTE_MAX_AGE_MS) "(stale)" else ""}"
         }
         val held = livePositions()
-        return "xstocks8802[$status ${XsApi.line()} history8810{unanswered=$historyUnanswered8810 passesToday=$historyPasses8810 " +
+        return "xstocks8802[$status ${XsApi.line()} ${XsUnderlying8930.line8930()} history8810{unanswered=$historyUnanswered8810 passesToday=$historyPasses8810 " +
             "retryInS=${((historyRetryAt8810 - now) / 1000).coerceAtLeast(0)}} universe=${universe.size} graded=${panelSyms.size} excluded{${excluded.entries.take(10).joinToString(" ") { "${it.key}:${it.value}" }}} " +
             "history=${ev?.days ?: 0}d ${if (ev?.armed == true) "ARMED" else "SHADOW"} exposure=${"%.2f".format(ev?.leverage ?: 0.0)} " +
             "blend{train{${line(ev?.train)}} test{${line(ev?.test)}}} families{$picks} " +

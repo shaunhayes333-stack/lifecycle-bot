@@ -2556,3 +2556,28 @@ up included".
 consumedRaw / soldBasis / grossOut; 58 chain-proven rows kept, ForensicReconciler6377 11/11, journal coverage confirmed=1
 journaled=1). Partials carry their own consumed raw and allocated basis; top-ups extend the canonical lot (CanonicalPositionAuthority6441
 §TOP_UP_ATOMICITY). The hole was the paper receipt rebuild above.
+
+## 118. Shares before their tokens; the hive counted (8930)
+
+Owner, 22 Nov 04:53, on 8929's list: "1 fixed. 2 ok it takes time cool. but we also should have a huge database of trade
+data in the hive it could build edge off it the data is clean. 3 ok. 4 fix. 5 ok".
+
+**xStocks (4).** XsDesk grades on a 420-day panel, first half train, second half test (HlBrain.evaluate). The token's history
+is GeckoTerminal's, and its free API returns about the last six months of daily bars (CoinGecko changelog "extended
+historical data for onchain OHLCV": older is paid). The train half was empty: on the 04:08 capture every family read
+`train{n210d +0.000±0.000%/d ... turn0.00}`, no family earned in training, the blend stayed empty and the desk could not arm
+whatever its costs. `XsUnderlying8930`: an xStock is its share held 1:1, so before the token's first own bar the panel takes
+the share's split- and dividend-adjusted daily closes (Yahoo chart v8, range 2y, read at most once a day per ticker), set on
+the token's price level by the median token/share close ratio over their common days, only when there are 30+ common days and
+90 % of them lie within 2 % of that median (else NOT_TRACKING / SHORT_OVERLAP and the token's own bars alone). Spliced days
+carry no volume, a day the exchange was shut carries the last close, and the stored token history (HlStore) is never changed:
+the splice is the panel's copy (`XsDesk.panelHistory8930`), stocks only. Listing still needs 60 of the token's own days.
+`underlying8930[asked answered failed {SPLICED / NOT_TRACKING / SHORT_OVERLAP / NO_UNDERLYING / OWN_COVERS}]` on the
+xstocks8802 line. With 8929's trade-client quote retry, the cost each family is charged is the measured round trip again.
+
+**The hive (2).** `CollectiveLearning.hiveCensus8930`, hourly in the hive sync, read-only, on the brief as `hiveCensus8930[...]`:
+collective_trades (rows, installs, live, sells, rows with a mint, rows with |pnl| > 1000 %, span), its live sells (n, mean,
+wins, |pnl| <= 1000 %), and the clean hive ledger hive_edge_8076 (keys, builds, labels, first write). collective_trades rows
+carry pnl, hold, source, liquidity bucket and entry score, but no entry state (cap, origin, stage, forecast, flow), and were
+written by every build since before the 8028 / 8064 clean-hive resets; the count says how much there is before any edge is
+built on it.

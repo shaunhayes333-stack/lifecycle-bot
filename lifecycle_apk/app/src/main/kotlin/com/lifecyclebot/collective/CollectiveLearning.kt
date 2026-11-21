@@ -1567,6 +1567,40 @@ object CollectiveLearning {
         return 1
     }
 
+    // ── V5.0.8930 §WHAT_THE_HIVE_HOLDS — owner, 22 Nov 04:53: "we also should have a huge database of trade data in the hive it
+    // could build edge off it the data is clean". Before any edge is built on it, its size and shape are counted (hourly,
+    // read-only): collective_trades — rows, installs, live vs paper, sells, rows with a mint, the span, extreme pnl (|pnl| >
+    // 1000 %), and the live sells' mean and win share; the clean hive ledger (HiveEdge8000.EDGE_TABLE_8028) — keys, builds,
+    // labels. Nothing is changed or trusted by it. ──
+    @Volatile private var census8930 = "hiveCensus8930[not read yet]"
+    @Volatile private var censusAtMs8930 = 0L
+
+    fun hiveCensusLine8930(): String = census8930
+
+    private suspend fun hiveCensus8930() {
+        val now = System.currentTimeMillis()
+        if (now - censusAtMs8930 < 60L * 60_000L) return
+        val c = client ?: return
+        censusAtMs8930 = now
+        val t = c.query("SELECT COUNT(*) AS n, COUNT(DISTINCT instance_id) AS inst, " +
+            "SUM(CASE WHEN paper_mode = 0 THEN 1 ELSE 0 END) AS live, " +
+            "SUM(CASE WHEN UPPER(side) IN ('SELL','PARTIAL_SELL') THEN 1 ELSE 0 END) AS sells, " +
+            "SUM(CASE WHEN mint != '' THEN 1 ELSE 0 END) AS withMint, " +
+            "SUM(CASE WHEN ABS(pnl_pct) > 1000 THEN 1 ELSE 0 END) AS extreme, MIN(timestamp) AS t0, MAX(timestamp) AS t1 FROM collective_trades")
+        val l = c.query("SELECT COUNT(*) AS n, AVG(pnl_pct) AS mean, SUM(CASE WHEN pnl_pct > 0.5 THEN 1 ELSE 0 END) AS wins FROM collective_trades " +
+            "WHERE paper_mode = 0 AND UPPER(side) IN ('SELL','PARTIAL_SELL') AND ABS(pnl_pct) <= 1000")
+        val e = c.query("SELECT COUNT(*) AS n, COUNT(DISTINCT build) AS builds, SUM(n) AS labels, MIN(updated_ms) AS t0 FROM ${com.lifecyclebot.engine.truth.HiveEdge8000.EDGE_TABLE_8028}")
+        fun day(ms: Long) = if (ms > 0L) java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date(ms)) else "-"
+        val tr = t.rows.firstOrNull(); val lr = l.rows.firstOrNull(); val er = e.rows.firstOrNull()
+        val ln = parseInt(lr?.get("n"))
+        census8930 = "hiveCensus8930[trades{" + (if (t.success && tr != null) "rows=${parseInt(tr["n"])} installs=${parseInt(tr["inst"])} " +
+            "live=${parseInt(tr["live"])} sells=${parseInt(tr["sells"])} withMint=${parseInt(tr["withMint"])} extremePnl=${parseInt(tr["extreme"])} " +
+            "span=${day(parseLong(tr["t0"]))}..${day(parseLong(tr["t1"]))}" else "unread") + "} " +
+            "liveSells{" + (if (l.success && lr != null) "n=$ln mean=${"%+.1f".format(parseDouble(lr["mean"]))}% wins=${parseInt(lr["wins"])}" else "unread") + "} " +
+            "cleanHive{" + (if (e.success && er != null) "keys=${parseInt(er["n"])} builds=${parseInt(er["builds"])} labels=${parseLong(er["labels"])} since=${day(parseLong(er["t0"]))}" else "unread") + "} " +
+            "read=${java.text.SimpleDateFormat("HH:mm", java.util.Locale.US).format(java.util.Date(now))} rule=counted hourly, read-only; trades rows carry no entry state (cap, origin, stage, forecast, flow)]"
+    }
+
     suspend fun downloadAll() {
         if (!isEnabled()) return
 
@@ -1582,6 +1616,7 @@ object CollectiveLearning {
             saveCacheToPrefs()
 
             val activeInstances = countActiveInstances()
+            try { hiveCensus8930() } catch (_: Exception) {}   // V5.0.8930 — what the hive actually holds, counted
 
             Log.i(
                 TAG,
