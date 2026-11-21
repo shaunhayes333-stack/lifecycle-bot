@@ -60,7 +60,7 @@ object XsApi {
     private fun get(url: String): String? = read8810(url).body
 
     fun line(): String = "api{gecko ok=${geckoOk.get()} fail=${geckoFail.get()} localRefused8810=${geckoLocal8810.get()} last=$lastGecko " +
-        "quotes ok=${quoteOk.get()} fail=${quoteFail.get()} last=$lastQuote}"
+        "quotes ok=${quoteOk.get()} fail=${quoteFail.get()} retriedOnTradeClient8929=${quoteRetried8929.get()} last=$lastQuote}"
 
     data class Pool(val address: String, val reserveUsd: Double, val volume24hUsd: Double)
 
@@ -142,15 +142,32 @@ object XsApi {
     }
 
     private val jupiter by lazy { JupiterApi("", observationOnly7397 = true) }
+    // V5.0.8929 — 22 Nov 04:08: quotes ok=0 fail=35 ("Jupiter v6 quote exhausted adaptive fallbacks: Jupiter GET 503") on the
+    // observation client (short timeouts, no retry, shed under load) while the bot's trade quotes answered (transport 100 %).
+    // Every xStock then stayed "unquoted" at the 2 % placeholder per side and every strategy graded as losing. A failed
+    // observation round trip is asked once more on the trade-grade client (its timeouts and retries); a quote's numbers are
+    // the same either way.
+    private val tradeJupiter8929 by lazy { JupiterApi("") }
+    private val quoteRetried8929 = java.util.concurrent.atomic.AtomicLong()
+
+    private fun roundTripOn8929(api: JupiterApi, mint: String, lamports: Long): RoundTrip? {
+        val buy = api.getQuote(SOL_MINT, mint, lamports, 100)
+        if (buy.outAmount <= 0L) { lastQuote = "buy out=0"; return null }
+        val sell = api.getQuote(mint, SOL_MINT, buy.outAmount, 100)
+        if (sell.outAmount <= 0L) { lastQuote = "sell out=0"; return null }
+        return RoundTrip(lamports, buy.outAmount, sell.outAmount, System.currentTimeMillis())
+    }
 
     /** Quotes SOL -> [mint] for [lamports] and back; null when either leg has no route. */
-    fun roundTrip(mint: String, lamports: Long): RoundTrip? = try {
-        val buy = jupiter.getQuote(SOL_MINT, mint, lamports, 100)
-        if (buy.outAmount <= 0L) { quoteFail.incrementAndGet(); lastQuote = "buy out=0"; null }
-        else {
-            val sell = jupiter.getQuote(mint, SOL_MINT, buy.outAmount, 100)
-            if (sell.outAmount <= 0L) { quoteFail.incrementAndGet(); lastQuote = "sell out=0"; null }
-            else { quoteOk.incrementAndGet(); RoundTrip(lamports, buy.outAmount, sell.outAmount, System.currentTimeMillis()) }
+    fun roundTrip(mint: String, lamports: Long): RoundTrip? {
+        val first = try { roundTripOn8929(jupiter, mint, lamports) }
+            catch (t: Throwable) { lastQuote = "${t.javaClass.simpleName}:${t.message?.take(80)}"; null }
+        val q = first ?: run {
+            quoteRetried8929.incrementAndGet()
+            try { roundTripOn8929(tradeJupiter8929, mint, lamports) }
+            catch (t: Throwable) { lastQuote = "trade:${t.javaClass.simpleName}:${t.message?.take(80)}"; null }
         }
-    } catch (t: Throwable) { quoteFail.incrementAndGet(); lastQuote = "${t.javaClass.simpleName}:${t.message?.take(80)}"; null }
+        if (q == null) quoteFail.incrementAndGet() else quoteOk.incrementAndGet()
+        return q
+    }
 }

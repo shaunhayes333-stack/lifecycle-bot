@@ -1043,6 +1043,17 @@ object JournalEconomicReplay6619 {
      */
     const val REBUILD_RECEIPT_GRACE_MS_8579 = 90_000L
 
+    /**
+     * Pure (V5.0.8929): do receipts of [soldQty] raw tokens at [allocatedBasis] SOL of cost sell exactly an open lot of [openRaw]
+     * raw tokens and [openBasis] SOL? Tokens must match to the raw unit; cost within 1e-9 SOL or 0.01 % of the lot.
+     */
+    fun receiptsMatchLot8929(soldQty: List<java.math.BigInteger>, allocatedBasis: List<Double>, openRaw: java.math.BigInteger, openBasis: Double): Boolean {
+        if (soldQty.isEmpty() || openRaw.signum() <= 0 || !openBasis.isFinite() || openBasis <= 0.0) return false
+        if (soldQty.fold(java.math.BigInteger.ZERO) { a, b -> a + b } != openRaw) return false
+        val basis = allocatedBasis.sum()
+        return basis.isFinite() && kotlin.math.abs(basis - openBasis) <= maxOf(1e-9, openBasis * 1e-4)
+    }
+
     /** Pure (V5.0.8579): a terminal receipt old enough that its own journal row is not merely still on its way. */
     fun receiptSettled8579(receiptAtMs: Long, nowMs: Long): Boolean =
         receiptAtMs > 0L && nowMs - receiptAtMs >= REBUILD_RECEIPT_GRACE_MS_8579
@@ -1097,6 +1108,14 @@ object JournalEconomicReplay6619 {
         val gross = missing.sumOf { it.grossProceedsSol.coerceAtLeast(0.0) }
         val fees = missing.sumOf { it.exitFeesSol.coerceAtLeast(0.0) }
         if (!gross.isFinite() || !fees.isFinite()) return skip("NON_FINITE_RECEIPT")
+        // V5.0.8929 — the receipts rebuilt must be the sale of exactly this open lot: their tokens the lot's tokens and their
+        // allocated cost the lot's cost. Before 8929 the unjournaled receipts' proceeds were set against the lot's remaining
+        // basis whatever they had sold, so a lot of a few tokens could book a much larger sale's proceeds (22 Nov 04:08 rebuilt
+        // rows: 7GCihg 0.0171 SOL basis -> 0.218 SOL back, +1,174 %; CTg3Zg 0.0123 -> 0.165; 89dGsH 0.0303 -> 0.390), the
+        // "1000 %" paper crypto rows the CRYPTO_SPOT paper record then carried. A lot the receipts do not match exactly stays
+        // as it is, counted.
+        if (!receiptsMatchLot8929(missing.map { it.soldQty }, missing.map { it.allocatedCostBasisSol }, openRaw, openBasis))
+            return skip("RECEIPT_LOT_MISMATCH_8929")
         val pnl = gross - openBasis - fees
         val scale = seed.tokenDecimals.takeIf { it in 0..18 } ?: seed.entryDecimals.coerceIn(0, 18)
         val displayQty = try { openRaw.toBigDecimal().movePointLeft(scale).toDouble() } catch (_: Throwable) { 0.0 }

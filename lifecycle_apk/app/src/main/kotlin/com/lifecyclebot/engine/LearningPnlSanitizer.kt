@@ -81,6 +81,9 @@ object LearningPnlSanitizer {
 
     fun chainProvenPassed8041(): Long = chainProvenPassed8041.get()
 
+    /** V5.0.8929 — the reason a journal row rebuilt from the ledger's sale receipts carries. */
+    internal const val REBUILT_REASON_8929 = "JOURNAL_REBUILT_FROM_RECEIPT_7360"
+
     fun inspectTrade(t: Trade, context: String = "trade", emit: Boolean = true): Verdict =
         inspectTrade8167(t, context, emit, requireTrainableLabel = true)
 
@@ -93,6 +96,9 @@ object LearningPnlSanitizer {
     private fun inspectTrade8167(t: Trade, context: String, emit: Boolean, requireTrainableLabel: Boolean): Verdict {
         val side = t.side.uppercase()
         if (side != "SELL" && side != "PARTIAL_SELL") return Verdict(true, t.pnlPct)
+        // V5.0.8929 — a receipt rebuild (JournalEconomicReplay6619) is a journal repair carrying no exit price, and before 8929
+        // it could set a sale's proceeds against the wrong lot's basis: cash keeps it, no record or learner grades it.
+        if (requireTrainableLabel && t.reason == REBUILT_REASON_8929) return reject("RECEIPT_REBUILD_NOT_EVIDENCE_8929", t.pnlPct, context, emit = emit)
         if (t.entryCostSol <= 0.0 || !t.entryCostSol.isFinite()) return reject("MISSING_ENTRY_COST_BASIS", t.pnlPct, context, emit = emit)
         if (t.entryPriceSnapshot <= 0.0 || !t.entryPriceSnapshot.isFinite()) return reject("MISSING_ENTRY_PRICE_BASIS", t.pnlPct, context, emit = emit)
         // V5.0.8042 — the chain exemption skips the % checks only; a missing entry basis is not a % rule.

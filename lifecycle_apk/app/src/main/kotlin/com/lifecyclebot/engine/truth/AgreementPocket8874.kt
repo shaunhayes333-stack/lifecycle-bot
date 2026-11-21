@@ -128,7 +128,12 @@ object AgreementPocket8874 {
             val base = EdgeModel8537.rawFor8610(ts, EdgeModel8537.LANES.first(), nowMs)
             if (!base.mcap.isFinite() || base.mcap < capLoUsd || base.mcap >= MCAP_HI_USD_8874 || !(base.v3 >= V3_MIN_8874)) null else {
                 val coin = coinRecord8895()
-                val lanes = EdgeModel8537.LANES.filter { l -> key8874(l)?.let { evidenceOf8874(it, recordOf(it)) } != null || coinEvidenceOf8895(l, key8874(l)?.let { recordOf(it) }, coin) != null }
+                val research = researchRecord8929()   // V5.0.8929 — the research rows' coin record, which a learning reset leaves
+                val lanes = EdgeModel8537.LANES.filter { l ->
+                    val laneRec = key8874(l)?.let { recordOf(it) }
+                    key8874(l)?.let { evidenceOf8874(it, laneRec) } != null || coinEvidenceOf8895(l, laneRec, coin) != null ||
+                        coinEvidenceOf8895(l, laneRec, research) != null
+                }
                 val v = EdgeModel8537.quietVerdicts8869(ts, lanes, nowMs)
                 lanes.firstOrNull { l -> v[l]?.predPct?.let { it.isFinite() && inPocket8874(ts.mint, base.mcap, base.v3, it) } == true }
             }
@@ -176,7 +181,7 @@ object AgreementPocket8874 {
         val coin = coinRecord8895()
         val coinLine = if (coin[0] < 1.0) "n0" else "n${coin[0].toInt()}/${"%+.1f".format(coin[1] / coin[0])}%±${"%.1f".format(se8895(coin))}" +
             "/run${(100.0 * coin[3] / coin[0]).toInt()}%${if (PayingCell8723.paying8723(coin[0], coin[1], coin[2])) "*" else ""}"
-        return "agreement8874[ready=$ready learned=${learned.get()} coins8895{$coinLine} lanes{$recs} carried{$used} liveAdmission{$adm} " +
+        return "agreement8874[ready=$ready learned=${learned.get()} coins8895{$coinLine} ${researchLine8929()} lanes{$recs} carried{$used} liveAdmission{$adm} " +
             "rule=not pump.fun, cap \$5k-\$20k, V3>=${V3_MIN_8874.toInt()}, forecast>=+${FORECAST_MIN_PCT_8874.toInt()}%; per lane, one label per coin per 15 min, " +
             "* = n>=${MIN_N.toInt()} mean-${PROOF_SE.toInt()}SE>0 (admits as market-cell evidence); 8895: the last $COIN_WINDOW_8895 pocket coins, each at its " +
             "worst meme-lane label, prove the pocket for every meme lane whose own pocket labels are not proven losing]"
@@ -253,6 +258,91 @@ object AgreementPocket8874 {
         if (!ready) null else coinEvidenceOf8895(lane, laneRecord, coinRecord8895())
 
     internal fun addCoinForTest8895(lane: String, mint: String, net: Double, atMs: Long) = addCoin8895(mint, lane, atMs, net)
+
+    // ── V5.0.8929 §THE_POCKET_SURVIVES_A_RESET ──
+    // Owner, 22 Nov 04:12: "I reset learning to clear bad learnt data". The reset's learning line made the dataset replay refuse
+    // all 101,408 rows (datasetSeed8863 parsed=0), so every lane record and the 8895 coin record restarted at zero and 8928's
+    // careful path refused all 119 coins it saw as NOT_IN_POCKET. The research rows (ResearchRows8877: each decision's
+    // executable hour net, after cost) are observations, not learned weights, and the reset leaves them. On the owner's
+    // 20-21 Nov rows the pocket (not pump.fun, $5k-$20k, V3 >= 23, forecast >= +10 %, each coin once at its worst meme-lane
+    // hour read within 15 minutes of its first) is 62 coins at +40.8 % +-8.1 (lower bound +24.7 %; 20 Nov +33.7, 21 Nov +45.2).
+    // This is a third coin record built the 8895 way from those rows: seeded from the device's research file, filed from
+    // every hour row as it is written. It proves on the same bar (30 coins, mean above zero by two SE) and serves ONLY
+    // ExploreLive8733's careful path ([provenLaneFor8928]); the full-size admission (evidence8874) is unchanged.
+    private const val HOUR_MS_8929 = 3_600_000L
+    private val research8929 = LinkedHashMap<String, Coin8895>()   // guarded by itself; oldest first
+    @Volatile private var researchReady8929 = false
+    @Volatile private var researchLoading8929 = false
+    private val researchRows8929 = AtomicLong(0L)
+
+    /** Pure: one research row (ResearchRows8877.line8877) as the pocket's (mint, time, hour net), or null when not a pocket coin's meme-lane hour read. */
+    internal fun researchRow8929(o: JSONObject): Triple<String, Long, Double>? {
+        if (o.optLong("horizonMs", 0L) != HOUR_MS_8929) return null
+        fun d(k: String) = if (o.isNull(k)) Double.NaN else o.optDouble(k, Double.NaN)
+        val net = d("net")
+        val mint = o.optString("mint")
+        if (!net.isFinite() || !memeLane8895(o.optString("lane")) || !inPocket8874(mint, d("mcap"), d("v3"), d("pred"))) return null
+        return Triple(mint, o.optLong("t", 0L), net)
+    }
+
+    private fun addResearch8929(mint: String, atMs: Long, net: Double) {
+        researchRows8929.incrementAndGet()
+        synchronized(research8929) {
+            val c = research8929[mint]
+            if (c == null) {
+                research8929[mint] = Coin8895(atMs, net)
+                while (research8929.size > COIN_WINDOW_8895) research8929.remove(research8929.keys.first())
+            } else if (kotlin.math.abs(atMs - c.firstMs) < COIN_REVISE_MS_8895 && net < c.worstNet) c.worstNet = net
+        }
+    }
+
+    /** ResearchRows8877.note8877: every hour row as it is written (cheap text test first). */
+    fun learnLine8929(line: String) {
+        if (!line.contains("\"horizonMs\":3600000") || line.contains("\"pred\":null")) return
+        ensureResearch8929()
+        try { researchRow8929(JSONObject(line))?.let { (m, t, n) -> addResearch8929(m, t, n) } } catch (_: Throwable) {}
+    }
+
+    /** (n, sum, sum of squares, runners) of the research coin record; empty until the file has been read. */
+    internal fun researchRecord8929(): DoubleArray {
+        ensureResearch8929()
+        if (!researchReady8929) return doubleArrayOf(0.0, 0.0, 0.0, 0.0)
+        return synchronized(research8929) {
+            var n = 0.0; var sum = 0.0; var sq = 0.0; var ran = 0.0
+            for (c in research8929.values) {
+                val y = PayingCell8723.outcome8723(c.worstNet)
+                n += 1.0; sum += y; sq += y * y; if (c.worstNet >= 100.0) ran += 1.0
+            }
+            doubleArrayOf(n, sum, sq, ran)
+        }
+    }
+
+    /** Seed once from the device's research file, oldest first (streamed). */
+    private fun ensureResearch8929() {
+        if (researchReady8929 || researchLoading8929) return
+        synchronized(research8929) { if (researchReady8929 || researchLoading8929) return; researchLoading8929 = true }
+        io.execute {
+            try {
+                ResearchRows8877.file8877()?.takeIf { it.exists() }?.useLines { lines ->
+                    lines.forEach { l ->
+                        if (l.contains("\"horizonMs\":3600000") && !l.contains("\"pred\":null"))
+                            try { researchRow8929(JSONObject(l))?.let { (m, t, n) -> addResearch8929(m, t, n) } } catch (_: Throwable) {}
+                    }
+                }
+            } catch (_: Throwable) { try { PipelineHealthCollector.labelInc("AGREEMENT_RESEARCH_8929_LOAD_FAILED") } catch (_: Throwable) {} }
+            finally { researchReady8929 = true; researchLoading8929 = false }
+        }
+    }
+
+    private fun researchLine8929(): String {
+        val r = researchRecord8929()
+        return if (r[0] < 1.0) "research8929{${if (researchReady8929) "n0" else "loading"}}"
+        else "research8929{n${r[0].toInt()}/${"%+.1f".format(r[1] / r[0])}%±${"%.1f".format(se8895(r))}/run${(100.0 * r[3] / r[0]).toInt()}%" +
+            "${if (PayingCell8723.paying8723(r[0], r[1], r[2])) "*" else ""} rows=${researchRows8929.get()}}"
+    }
+
+    internal fun resetResearchForTest8929(ready: Boolean = true) { synchronized(research8929) { research8929.clear() }; researchReady8929 = ready; researchLoading8929 = false; researchRows8929.set(0L) }
+    internal fun addResearchForTest8929(mint: String, net: Double, atMs: Long) = addResearch8929(mint, atMs, net)
 
     internal fun resetForTest8874() { cells.clear(); lastFiled.clear(); served.clear(); admission.clear(); learned.set(0L); ready = true; synchronized(coins8895) { coins8895.clear() } }
     internal fun addForTest8874(lane: String, mint: String, net: Double, atMs: Long) { add(mint, key8874(lane) ?: return, atMs, net) }

@@ -2511,3 +2511,48 @@ BLOCKED before this) may be bought when all of these hold:
 - one explore position at a time, 6 a day, at most 0.05 SOL each; the LP-pull exit (§114) watches it from its first tick.
 The brief's `explore8733[... asked{...}]` names why each look was refused (BUDGET / NOT_IN_POCKET / NOT_CLASSIC_OR_AUTHORITY /
 FLOW_OR_HOLDERS) or ELIGIBLE.
+
+## 117. The tape is down (8929)
+
+Owner, 22 Nov 04:12-04:16: "still choked out to shit mate. paper traders hitting 1000% trades again tho. so why isn't the meme
+and crypto teaders. I reset learning to clear bad learnt data", then "theres no reason it cant be trading raydium x stocks",
+"we are actually forensically calculating the journal data with chain backed proof at time of buy and sells? partials and top
+up included".
+
+**What the 04:08 capture (5.0.8928, 21 min up) showed.**
+- Helius: every call "max usage reached", the socket refused 429 (chainLaunch8179, Helius WS subs serverTokenSubs=0, DAS 125/125
+  failed). The PumpPortal trade stream is off (paid per frame, §8354). So no executed print reached the bot (tape8285
+  executed=0, buyerFlow8790 accepted=0, emptyReads=268,660, memeFamilies funnel flow=known:0/unknown:5,596): every flow signal
+  was blind. An account matter (credits / key), not code.
+- The learning reset's line made the dataset replay refuse all 101,408 rows (datasetSeed8863 parsed=0); the agreement pocket
+  restarted at zero and 8928's path refused all 119 looks as NOT_IN_POCKET.
+- Paper (meme, every candidate the paper way, §8618): 5,640 closes, 44 runs of +100 % or more, net -21.3 SOL. The crypto paper
+  "1000 %" rows were JOURNAL_REBUILT_FROM_RECEIPT_7360 rows whose proceeds did not belong to the lot (7GCihg 0.0171 SOL basis
+  -> 0.218 back; CTg3Zg 0.0123 -> 0.165; 89dGsH 0.0303 -> 0.390), and the CRYPTO_SPOT paper record those rows carried
+  (n202, +25.2 %/trade) is the record CryptoSpotPaperBacking8788 reads while the twin's CRYPTO_SPOT (n39, -0.6 %) is too short.
+- xStocks (XsDesk, §8802, 24/7, no hours): quotes ok=0 fail=35 on the observation Jupiter client, so every stock was charged the
+  2 % unmeasured placeholder per side plus the 0.5 % app fee; every family graded losing and the desk stayed BRAIN_NOT_ARMED.
+
+**Changes.**
+- `AgreementPocket8874` research coin record (`research8929`): each pocket coin's hour research row (ResearchRows8877, which a
+  learning reset leaves), once per coin at its worst meme-lane read within 15 min of its first, last 200 coins; seeded from the
+  file, filed from every row written. On 20-21 Nov rows: 62 coins +40.8 % +-8.1 (lower bound +24.7 %). It serves only
+  `provenLaneFor8928` (the careful path); the full-size admission (`evidence8874`) is unchanged.
+- `ExploreLive8733`: with no BuyerFlow read the pool's own DexScreener counts decide (`pairFlowPasses8929`: an answer at most
+  120 s old; buys in the last 5 min above the pool's own earlier rate, h1 less m5 over min(age, 60) - 5 min; holders growing;
+  more positive signs than negative over transactions, buys, 5-min buy share, 5-min move, holders). A pool under 10 min old, or
+  one with no served creation time, never passes on counts. asked{} names NO_TAPE_NO_FRESH_POOL_COUNTS /
+  NO_TAPE_POOL_TOO_YOUNG_FOR_COUNTS / POOL_COUNTS_OR_HOLDERS / PASSED_ON_POOL_COUNTS_8929.
+- `JournalEconomicReplay6619` receipt rebuild: rebuilt only when the unjournaled receipts sell exactly the open lot (raw tokens
+  equal, allocated cost within 1e-9 SOL or 0.01 %, `receiptsMatchLot8929`); otherwise counted
+  JOURNAL_RECEIPT_REBUILD_SKIPPED_7360_RECEIPT_LOT_MISMATCH_8929 and left as it is.
+- `LearningPnlSanitizer.inspectTrade`: a JOURNAL_REBUILT_FROM_RECEIPT_7360 row is refused as RECEIPT_REBUILD_NOT_EVIDENCE_8929
+  for every record and learner (StrategyTelemetry leaderboard, so the CRYPTO_SPOT paper backing record; canonical learning;
+  compounding); the accounting check (`inspectAccountingTrade8167`) keeps it, so cash is unchanged.
+- `XsApi.roundTrip`: a failed observation round trip is asked once more on the trade-grade Jupiter client
+  (`retriedOnTradeClient8929=` on the xstocks8802 line).
+
+**The journal (owner's question).** Live rows are written from the finalised transaction (proof=LIVE_FINALIZED, the signature,
+consumedRaw / soldBasis / grossOut; 58 chain-proven rows kept, ForensicReconciler6377 11/11, journal coverage confirmed=1
+journaled=1). Partials carry their own consumed raw and allocated basis; top-ups extend the canonical lot (CanonicalPositionAuthority6441
+§TOP_UP_ATOMICITY). The hole was the paper receipt rebuild above.

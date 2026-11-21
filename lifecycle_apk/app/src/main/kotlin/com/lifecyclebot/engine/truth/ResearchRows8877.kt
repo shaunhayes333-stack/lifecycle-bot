@@ -66,6 +66,7 @@ object ResearchRows8877 {
     fun note8877(line: String, nowMs: Long = System.currentTimeMillis()) {
         try { AuthorityTable8887.ensureStarted8887() } catch (_: Throwable) {}   // V5.0.8887 — the hourly authority table grades these rows
         try { BasePocket8904.learnLine8904(line) } catch (_: Throwable) {}   // V5.0.8904 — and the base pocket files its hour reads
+        try { AgreementPocket8874.learnLine8929(line) } catch (_: Throwable) {}   // V5.0.8929 — and the agreement pocket's research coin record
         io.execute {
             try {
                 val f = file8877() ?: return@execute

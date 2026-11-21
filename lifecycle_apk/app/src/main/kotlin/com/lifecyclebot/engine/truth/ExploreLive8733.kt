@@ -99,6 +99,53 @@ object ExploreLive8733 {
         return rising && pos > neg
     }
 
+    // ── V5.0.8929 §THE_POOLS_OWN_COUNTS_WHEN_THE_TAPE_IS_DOWN — 22 Nov 04:08 capture: Helius answered "max usage reached" and
+    //    refused its socket (429), the PumpPortal trade stream is off (paid per frame), so the bot held no executed print at all
+    //    (tape8285 executed=0, buyerFlow8790 accepted=0, emptyReads=268,660) and [flowPasses8928] could never pass. With no
+    //    BuyerFlow read, the pool's own DexScreener counts decide instead (PairFlow8169, an answer at most
+    //    [PAIR_FRESH_MS_8929] old): buys and transactions in the last 5 minutes against the pool's own rate over the earlier
+    //    part of its hour (h1 less m5, over min(age, 60) - 5 minutes), the 5-minute buy share and price move, and holders.
+    //    A pool under [PAIR_MIN_AGE_MIN_8929] minutes old has no earlier rate to rise from: it never passes on counts. ──
+    internal const val PAIR_FRESH_MS_8929 = 120_000L
+    internal const val PAIR_MIN_AGE_MIN_8929 = 10.0
+
+    /** Pure (V5.0.8929): (rate per minute in the last 5 minutes, rate per minute over the earlier part of the hour) of [m5] / [h1] counts in a pool [ageMin] old; null when unknown. */
+    internal fun rates8929(m5: Int, h1: Int, ageMin: Double): Pair<Double, Double>? {
+        if (m5 < 0 || h1 < 0 || h1 < m5 || !ageMin.isFinite() || ageMin < PAIR_MIN_AGE_MIN_8929) return null
+        val earlierMin = minOf(ageMin, 60.0) - 5.0
+        if (earlierMin <= 0.0) return null
+        return (m5 / 5.0) to ((h1 - m5) / earlierMin)
+    }
+
+    /**
+     * Pure (V5.0.8929): (positive, negative) signs of a pool's DexScreener counts [f] [ageMin] old and [holderGrowth], each once:
+     * transactions rising / falling against the earlier rate; buys rising / falling; the 5-minute buy share (>= 55 % / <= 45 %);
+     * the 5-minute price move (> 0 / < 0); holders growing / shrinking. Null when the counts cannot be read.
+     */
+    internal fun pairSigns8929(f: PairFlow8169.Flow8169, ageMin: Double, holderGrowth: Double?): Pair<Int, Int>? {
+        if (f.buysM5 < 0 || f.sellsM5 < 0 || f.buysH1 < 0 || f.sellsH1 < 0) return null
+        val tx = rates8929(f.buysM5 + f.sellsM5, f.buysH1 + f.sellsH1, ageMin) ?: return null
+        val buys = rates8929(f.buysM5, f.buysH1, ageMin) ?: return null
+        var pos = 0; var neg = 0
+        fun s(p: Boolean, n: Boolean) { if (p) pos++ else if (n) neg++ }
+        s(tx.first > tx.second, tx.first < tx.second)
+        s(buys.first > buys.second, buys.first < buys.second)
+        val m5 = f.buysM5 + f.sellsM5
+        if (m5 > 0) { val share = 100.0 * f.buysM5 / m5; s(share >= 55.0, share <= 45.0) }
+        if (f.chg5m.isFinite()) s(f.chg5m > 0.0, f.chg5m < 0.0)
+        if (holderGrowth != null && holderGrowth.isFinite()) s(holderGrowth > 0.0, holderGrowth < 0.0)
+        return pos to neg
+    }
+
+    /** Pure (V5.0.8929): the owner's flow rule on the pool's counts — buying rising, holders growing, more positive signs than negative. */
+    internal fun pairFlowPasses8929(f: PairFlow8169.Flow8169?, ageMin: Double, holderGrowth: Double?, nowMs: Long): Boolean {
+        if (f == null || nowMs - f.atMs !in 0L..PAIR_FRESH_MS_8929) return false
+        if (holderGrowth == null || !holderGrowth.isFinite() || holderGrowth <= 0.0) return false
+        val buys = rates8929(f.buysM5, f.buysH1, ageMin) ?: return false
+        val (pos, neg) = pairSigns8929(f, ageMin, holderGrowth) ?: return false
+        return buys.first > buys.second && pos > neg
+    }
+
     /** PreTradeHardGate: may [ts]'s unread LP ownership be bought at explore size now? */
     fun eligible8733(ts: TokenState, nowMs: Long): Boolean {
         if (!ENABLED_8736) return false
@@ -108,7 +155,20 @@ object ExploreLive8733 {
         if (proof == null || !proof.classicToken8928 || !proof.mintAuthorityDisabled || !proof.freezeAuthorityDisabled) { why8928("NOT_CLASSIC_OR_AUTHORITY"); return false }
         val flow = try { com.lifecyclebot.engine.market.BuyerFlow8666.read(ts.mint, nowMs) } catch (_: Throwable) { null }
         val holders = ts.holderGrowthRate.takeIf { ts.holderDataResolved && it.isFinite() }
-        if (!flowPasses8928(flow, holders)) { why8928("FLOW_OR_HOLDERS"); return false }
+        if (flow != null) {
+            if (!flowPasses8928(flow, holders)) { why8928("FLOW_OR_HOLDERS"); return false }
+        } else {
+            // V5.0.8929 — no live tape for the coin: the pool's own counts decide
+            val pair = try { PairFlow8169.peek8169(ts.mint) } catch (_: Throwable) { null }
+            val created = pair?.pairCreatedAtMs8417?.takeIf { it > 0L } ?: 0L   // the pool's own creation time, as served
+            val ageMin = if (created > 0L) (nowMs - created) / 60_000.0 else Double.NaN
+            if (!pairFlowPasses8929(pair, ageMin, holders, nowMs)) {
+                why8928(if (pair == null || nowMs - pair.atMs !in 0L..PAIR_FRESH_MS_8929) "NO_TAPE_NO_FRESH_POOL_COUNTS"
+                    else if (!(ageMin >= PAIR_MIN_AGE_MIN_8929)) "NO_TAPE_POOL_TOO_YOUNG_FOR_COUNTS" else "POOL_COUNTS_OR_HOLDERS")
+                return false
+            }
+            why8928("PASSED_ON_POOL_COUNTS_8929")
+        }
         lastCell = "AGREE:$lane"
         why8928("ELIGIBLE")
         return true
@@ -143,6 +203,6 @@ object ExploreLive8733 {
             "maxSol=$MAX_SOL_8733 refusedSize=${refusedSize.get()} refusedBudget=${refusedBudget.get()} lastCell=${lastCell.ifBlank { "-" }} " +
             "asked{${why8928.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}} " +
             "rule=8928: unread LP (never unlocked/under-lock), RugCheck reported, agreement pocket at \$10k-\$20k, classic SPL mint, " +
-            "buying rising + holders growing + more positive signs than negative; 1 open, 6/day, <= 0.05 SOL; LP-pull exit armed]"
+            "buying rising + holders growing + more positive signs than negative (the live tape, else the pool's DexScreener counts, 8929); 1 open, 6/day, <= 0.05 SOL; LP-pull exit armed]"
     }
 }
