@@ -28,6 +28,14 @@ import java.util.concurrent.atomic.AtomicLong
  * (StrategyTelemetry.metricOf8883). In LIVE with paper off, CryptoSpotPaperBacking8788 reads it in place of the stopped paper
  * record once it holds 20 decisive closes; until then the paper record stands. The record survives restarts; open twins do
  * not (a restart drops them, counted).
+ *
+ * V5.0.8910 §EACH_STRATEGY_ITS_OWN_RECORD — owner, 21 Nov: "all 5 now please one build". Each close is also filed under the
+ * strategy the position was opened as (its STRATEGY7803 reason: a desk, the classic analyser, or a MajorSetups8910 setup) as
+ * lane|S=<strategy> ([strategyKey8910]), and, for the brief only, under that strategy by the UTC session it opened in and by
+ * BTC's regime at the open (lane|S=<strategy>@<session>, @BTC_<regime>). The strategy record is read by
+ * CryptoSpotPaperBacking8788 exactly as a trend cell's is (backs on its own proof, withdraws when proven losing); the session
+ * and regime records are graded and printed, they decide nothing yet. A strategy record keeps [KEEP_STRATEGY_8910] closes, a
+ * session / regime record [KEEP_SLICE_8910], and at most [MAX_STRATEGY_KEYS_8910] such keys are held.
  */
 object CryptoTwin8883 {
     private const val MAX_OPEN_8883 = 60
@@ -36,7 +44,8 @@ object CryptoTwin8883 {
     private const val PREFS_8883 = "aate_crypto_twin_8883"
 
     // V5.0.8886 — [cell] is the trend cell the position's reasons carry (CryptoTrend8886); each close is filed under lane|cell too
-    private class Twin(@Volatile var pos: CryptoAltTrader.AltPosition, val lane: String, val cell: String? = null) {
+    private class Twin(@Volatile var pos: CryptoAltTrader.AltPosition, val lane: String, val cell: String? = null,
+                       val slices8910: List<String> = emptyList()) {
         @Volatile var rungIdx = 0
         @Volatile var trailPeak: Double? = null
         @Volatile var strike = false
@@ -71,7 +80,7 @@ object CryptoTwin8883 {
         if (open.containsKey(key)) { duplicate.incrementAndGet(); return }
         if (open.size >= MAX_OPEN_8883) { full.incrementAndGet(); return }
         val twin = p.copy(id = "TWIN8883:" + p.id, isPaper = false, currentPrice = p.entryPrice, highestPnlPct = 0.0)
-        if (open.putIfAbsent(key, Twin(twin, l, CryptoTrend8886.cellOfReasons8886(p.reasons))) == null) opened.incrementAndGet()
+        if (open.putIfAbsent(key, Twin(twin, l, CryptoTrend8886.cellOfReasons8886(p.reasons), slices8910(l, p.reasons, p.openTime))) == null) opened.incrementAndGet()
     }
 
     fun hasOpen8883(): Boolean = open.isNotEmpty()
@@ -131,11 +140,13 @@ object CryptoTwin8883 {
         val pnl = at.getPnlPct()
         if (!pnl.isFinite()) { lost.incrementAndGet(); return }
         ensureLoaded8883()
-        for (k in listOfNotNull(t.lane, t.cell?.let { "${t.lane}$CELL_SEP_8886$it" })) {
+        for (k in listOfNotNull(t.lane, t.cell?.let { "${t.lane}$CELL_SEP_8886$it" }) + t.slices8910) {
+            if (k.contains(STRATEGY_MARK_8910) && !closes.containsKey(k) && closes.keys.count { it.contains(STRATEGY_MARK_8910) } >= MAX_STRATEGY_KEYS_8910) continue
+            val keep = when { !k.contains(STRATEGY_MARK_8910) -> KEEP_CLOSES_8883; k.contains('@') -> KEEP_SLICE_8910; else -> KEEP_STRATEGY_8910 }
             val q = closes.computeIfAbsent(k) { ArrayDeque() }
             synchronized(q) {
                 q.addLast(doubleArrayOf(nowMs.toDouble(), pnl, at.sizeSol))
-                while (q.size > KEEP_CLOSES_8883) q.removeFirst()
+                while (q.size > keep) q.removeFirst()
             }
         }
         byKind.computeIfAbsent(kind.ifBlank { "OTHER" }) { AtomicLong(0L) }.incrementAndGet()
@@ -156,6 +167,62 @@ object CryptoTwin8883 {
 
     internal const val CELL_SEP_8886 = "|"
 
+    // ── V5.0.8910: the strategy records ──
+    internal const val STRATEGY_MARK_8910 = "|S="
+    internal const val KEEP_STRATEGY_8910 = 200
+    internal const val KEEP_SLICE_8910 = 80
+    internal const val MAX_STRATEGY_KEYS_8910 = 240
+
+    /** Pure: the record key of [lane]'s [strategy] (upper-cased; ':' '|' '@' and spaces become '_'); null for a blank strategy. */
+    fun strategyKey8910(lane: String, strategy: String): String? {
+        val st = strategy.trim().uppercase().replace(Regex("[:|@ ]"), "_").take(48)
+        return if (st.isBlank() || lane.isBlank()) null else lane.trim().uppercase() + STRATEGY_MARK_8910 + st
+    }
+
+    /** Pure: the keys one close of [lane] is filed under for its strategy: the strategy, @session (of [openMs]) and @BTC_<regime>. */
+    internal fun slices8910(lane: String, reasons: List<String>, openMs: Long, regime: String? = null): List<String> {
+        val strategy = reasons.firstOrNull { it.startsWith("STRATEGY7803=") }?.removePrefix("STRATEGY7803=").orEmpty()
+        val base = strategyKey8910(lane, strategy) ?: return emptyList()
+        val session = reasons.firstOrNull { it.startsWith(MajorSetups8910.SESSION_TAG_8910) }?.removePrefix(MajorSetups8910.SESSION_TAG_8910)
+            ?: MajorSetups8910.session8910(if (openMs > 0L) openMs else System.currentTimeMillis())
+        val reg = reasons.firstOrNull { it.startsWith(MajorSetups8910.REGIME_TAG_8910) }?.removePrefix(MajorSetups8910.REGIME_TAG_8910)
+            ?: regime ?: MajorSetups8910.regimeNow8910()
+        return listOf(base, "$base@$session", "$base@BTC_$reg")
+    }
+
+    /** V5.0.8910 — the twin's record of [lane]'s [strategy]: the leaderboard metric and its (n, mean, se, pf) proof; null with no close. */
+    fun strategyRecord8910(lane: String, strategy: String): Pair<StrategyTelemetry.StrategyMetric, DoubleArray>? {
+        ensureLoaded8883()
+        val k = strategyKey8910(lane, strategy) ?: return null
+        val q = closes[k] ?: return null
+        val list = synchronized(q) { q.toList() }
+        if (list.isEmpty()) return null
+        return StrategyTelemetry.metricOf8883(k, rows8883(list)) to CryptoTrend8886.proof8886(list.map { it[1] })
+    }
+
+    /** V5.0.8910 — how many of [lane]'s strategies are graded (hold the lane rule's decisive count): the family their margin holds for. */
+    fun gradedStrategies8910(lane: String): Int {
+        ensureLoaded8883()
+        val prefix = lane.trim().uppercase() + STRATEGY_MARK_8910
+        return closes.keys.count { k -> k.startsWith(prefix) && !k.contains('@') && strategyRecord8910(lane, k.removePrefix(prefix))
+            ?.first?.let { it.wins + it.losses >= com.lifecyclebot.engine.truth.CryptoSpotPaperBacking8788.MIN_DECISIVE_8788 } == true }
+    }
+
+    /** V5.0.8910 — brief: each strategy record (n / W-L / mean / pf), session and regime slices, best first. */
+    fun strategyLine8910(): String {
+        val keys = closes.keys.filter { it.contains(STRATEGY_MARK_8910) }.sorted()
+        if (keys.isEmpty()) return "twinStrategies8910[-]"
+        val body = keys.mapNotNull { k ->
+            val q = closes[k] ?: return@mapNotNull null
+            val p = CryptoTrend8886.proof8886(synchronized(q) { q.toList() }.map { it[1] })
+            Triple(k, p, if (p[0] >= 1.0) p[1] else Double.NEGATIVE_INFINITY)
+        }.sortedByDescending { it.third }.take(24).joinToString(" ") { (k, p, _) ->
+            k.replace(STRATEGY_MARK_8910, ":") + "{n${p[0].toInt()} ${"%+.1f".format(p[1])}%±${"%.1f".format(p[2])} pf${"%.2f".format(p[3])}" +
+                (if (CryptoTrend8886.cellLosing8886(p)) " LOSING" else "") + "}"
+        }
+        return "twinStrategies8910[$body rule=each close by its STRATEGY7803, and by session / BTC regime at the open; a strategy backs live on its own record like a trend cell]"
+    }
+
     /** V5.0.8886 — the twin's record of [lane]'s trend [cell]: the leaderboard metric and its (n, mean, se, pf) proof; null with no close. */
     fun cellRecord8886(lane: String, cell: String): Pair<StrategyTelemetry.StrategyMetric, DoubleArray>? {
         ensureLoaded8883()
@@ -170,7 +237,7 @@ object CryptoTwin8883 {
     fun gradedCells8886(lane: String): Int {
         ensureLoaded8883()
         val prefix = lane.trim().uppercase() + CELL_SEP_8886
-        return closes.keys.count { k -> k.startsWith(prefix) && cellRecord8886(lane, k.removePrefix(prefix))
+        return closes.keys.count { k -> k.startsWith(prefix) && !k.contains(STRATEGY_MARK_8910) && cellRecord8886(lane, k.removePrefix(prefix))
             ?.first?.let { it.wins + it.losses >= com.lifecyclebot.engine.truth.CryptoSpotPaperBacking8788.MIN_DECISIVE_8788 } == true }
     }
 
@@ -217,7 +284,7 @@ object CryptoTwin8883 {
             if (m == null) "$lane=-" else "$lane{n=${m.trades} W${m.wins}/L${m.losses} mean=${"%+.1f".format(m.meanPnlPct)}% sol=${"%+.3f".format(m.totalSolPnl)} pfEdge=${"%+.1f".format(m.pfExpectancyPp)}}"
         }.ifBlank { "-" }
         val kinds = byKind.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }
-        val cells = closes.keys.count { it.contains(CELL_SEP_8886) }
+        val cells = closes.keys.count { it.contains(CELL_SEP_8886) && !it.contains(STRATEGY_MARK_8910) }
         return "cryptoTwin8883[open=${open.size}/$MAX_OPEN_8883 opened=${opened.get()} dup=${duplicate.get()} full=${full.get()} lost=${lost.get()} " +
             "records{$recs} cells8886=$cells exits{$kinds} rule=beside LIVE: every crypto candidate the live decision opened or a learned door refused, on the live exit functions, virtual fill, gross as the paper book]"
     }

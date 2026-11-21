@@ -247,6 +247,8 @@ object DiagnosisBrief8438 {
                 .append(' ').append(try { com.lifecyclebot.engine.truth.LaneAuthority8577.residualLine8895() } catch (_: Throwable) { "residual8895{read failed}" }).append('\n')  // V5.0.8895
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.DecisionLatency8882.statusLine8882() } catch (_: Throwable) { "decisionLatency8882[read failed]" }).append('\n')  // V5.0.8882
             sb.append("               ").append(try { com.lifecyclebot.perps.CryptoTwin8883.statusLine8883() } catch (_: Throwable) { "cryptoTwin8883[read failed]" }).append('\n')  // V5.0.8883
+            sb.append("               ").append(try { com.lifecyclebot.perps.CryptoTwin8883.strategyLine8910() } catch (_: Throwable) { "twinStrategies8910[read failed]" }).append('\n')  // V5.0.8910
+            sb.append("               ").append(try { com.lifecyclebot.perps.MajorSetups8910.statusLine8910() } catch (_: Throwable) { "majorSetups8910[read failed]" }).append('\n')  // V5.0.8910
             sb.append("               ").append(try { com.lifecyclebot.perps.CryptoTrend8886.statusLine8886() + " " +
                 com.lifecyclebot.engine.truth.CryptoSpotPaperBacking8788.cellStatusLine8886() } catch (_: Throwable) { "cryptoTrend8886[read failed]" }).append('\n')  // V5.0.8886
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.PocketLedger8610.statusLine8610() } catch (_: Throwable) { "pocket8610[read failed]" }).append('\n')  // V5.0.8610

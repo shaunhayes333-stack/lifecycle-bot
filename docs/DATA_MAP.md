@@ -2129,3 +2129,48 @@ The twin files every crypto close under lane|cell as before, so TR is graded fro
 only by its own record (cellBacks8886: the lane rule and the mean above the family-deflated margin) and withdraws backing when
 proven losing (cellLosing8886), like every cell. Forensic impact: a candidate that read T1 / T2 with that shape now reads TR; the
 T1 / T2 records keep their history and grade only the rest from here; nothing is bought until TR's own twin record backs it.
+
+## 98. The majors playbook, strategy records, and the base graded on its exits (8910)
+
+Owner, 21 Nov: "all 5 now please one build. again meme and crypto trader are choked ... we are now ignoring pumpfun completely
+which is wrong and the crypto trader should be seeing alot better trades same as the meme trader".
+
+**What the 21 Nov rows say (26.6 h, 34,641 research rows, each coin once at its worst meme-lane hour read).** Graded the way
+the lane actually exits — the lane stop if the hour's low reached it (taken first, the order worst for the coin), else the
+doctrine line from a +10 % held peak if the hour ended under it, else the hour:
+- off pump.fun, BASE_START, $20k-$100k pool: n41 +17.8 % ±5.7, lower bound +6.5 % (stop 10 %; +5.9 % at 8 %, +6.6 % at 15 %);
+  both halves positive (+13.2 / +22.2). Held to the hour (the 8904 record) it was +13.3 % ±8.6, lower -3.9 %: unproven.
+- pump.fun, every cut: all n1798 -6.1 %, admitted n199 -6.9 %, BASE_START n26 -3.4 %, FRESH_LAUNCH n108 -5.2 %, GE100K n80
+  -3.5 %. With an optimistic order (target first) the best pump.fun cut is still -1.3 %. The refusals of pump.fun coins on
+  these rows protected money; nothing here admits pump.fun coins today.
+
+**Meme (BasePocket8904).** The record files each hour row at `doctrineNet8910` (FieldManual7715.stopPctQuiet8830 at the row's
+cost; RunnerDoctrine8584.paperStopLevel8584), keeps the hold read beside it (`hold8910{}` in the brief), and the same base on
+pump.fun is its own record (`BASE_PUMP_20K_100K`, `pump8910{}`), filed and proven by the same rule and carried as the same
+market-cell evidence once proven. Forensic impact: the off-pump.fun record goes from unproven to proven on the owner's rows, so
+coins in the pocket that the native lanes already admit (SHITCOIN / MOONSHOT / EXPRESS / CORE: 127 of 289 pocket lane rows were
+NATIVE_READY) carry proven evidence that answers the lane-wide priors and the aggregate forecast (EDGE_MODEL_NEGATIVE); hard
+safety, sellability, the LP-lock rule, executable economics and the setup's own losing record still outrank it. The record is
+seeded from the device's research file, so it proves or fails on the device's own coins.
+
+**Crypto.** The data hole first: every PerpsMarketData producer synthesised the 24 h range and returned funding / OI as 0.0.
+`MajorTape8910` reads the majors' real hourly candles (data-api.binance.vision klines: OHLC, volume, taker-buy volume; every 5
+min, background thread, closed candles only) and, only while a tape shows a flush in its last 6 h, funding and the 4 h OI change
+(Bybit v5, then OKX v5 public data; unobserved stays null). `MajorSetups8910` (pure) reads five setups on it: capitulation
+reclaim (flush >= -1.5 % on >= 2x median volume, day >= 3 % off its high, higher low, reclaim of the last hour's high or the
+day's VWAP, buyers leading; stop under the flush low, target the breakdown level), funding / OI-flush reversal (the same with
+funding <= -0.01 % or OI -4 %), range low reclaim (48 h range >= 4 %, bottom quarter, higher low; target the middle), breakout
+retest (close above the prior 48 h high in the last 6 h, back within 0.5 %, holding; 2R), and RS rotation (BTC UP / RECLAIM, a
+top-3 leader >= +2 % ahead of BTC, green buyer-led hour above VWAP; 2R). Each needs its target >= 2x the round trip (1 % assumed)
+and >= 1.2R. A fired setup is a LONG spot candidate (strategy `MAJ8910_<NAME>`, its own stop / target / hold, score and
+confidence at the crypto brain's floors) beside the classic analyser's. The crypto twin files every close under
+lane|S=<strategy> and, for the brief, @session and @BTC_<regime>; CryptoSpotPaperBacking8788 reads a strategy record exactly
+like a trend cell (backs on its own proof, withdraws when proven losing; `effective8910`, equal to `effective8886` with no
+strategy read). Forensic impact: new candidates only; in LIVE they are refused on the learned expectancy door until their own
+strategy record backs, which opens the twin with the setup's levels; existing desks gain their own strategy records (a desk
+proven losing on its own twin record now withdraws the lane backing for that desk only). Network: at most ~36 kline calls per 5
+min to Binance's public mirror, derivatives calls only on flushes; no Helius credits.
+The majors the SOL perps engine covers (BTC, ETH, BNB, XRP, ADA, DOGE, AVAX, DOT, LINK, LTC, ATOM, UNI, ARB, OP, APT, SUI,
+INJ, JUP, NEAR, PYTH, RAY, JTO, TAO) were excluded from the static alt scan, and that engine (PerpsTraderAI) has been retired
+since 8797 (RetiredMarkets8797: it opens nothing): no spot major had any path at all. They now get a setup-only pass (spot via their wrapped Solana
+mint; SOL itself excluded, the classic analyser not run on them).

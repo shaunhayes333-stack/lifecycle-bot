@@ -128,6 +128,33 @@ object CryptoSpotPaperBacking8788 {
         return r.backs to r.losing
     }
 
+    // V5.0.8910 — the candidate's strategy (STRATEGY7803) on the twin's strategy record (CryptoTwin8883.strategyRecord8910)
+    private val strategies8910 = java.util.concurrent.ConcurrentHashMap<String, Cell8886>()
+    private val strategyBacked8910 = AtomicLong(0L)
+
+    /**
+     * Pure (V5.0.8910): the record that decides with a strategy read too — a proven-losing cell or strategy withdraws; else the
+     * lane's record, a backing cell or a backing strategy grants. With no strategy read it is [effective8886] exactly.
+     */
+    internal fun effective8910(laneBacks: Boolean, cellBacks: Boolean, cellLosing: Boolean, stratBacks: Boolean, stratLosing: Boolean): Boolean =
+        !stratLosing && (effective8886(laneBacks, cellBacks, cellLosing) || (stratBacks && !cellLosing))
+
+    /** (backs, losing) of [lane]'s [strategy] in LIVE with paper off; (false, false) with no strategy, no record or outside that mode. */
+    private fun strategyVerdict8910(lane: String, strategy: String?, nowMs: Long): Pair<Boolean, Boolean> {
+        val st = strategy ?: return false to false
+        val key = com.lifecyclebot.perps.CryptoTwin8883.strategyKey8910(lane, st) ?: return false to false
+        if (!(try { com.lifecyclebot.engine.LiveNoPaper8184.closeOutInLive8872() } catch (_: Throwable) { false })) return false to false
+        val r = strategies8910[key] ?: if (strategies8910.size >= 128) return false to false else strategies8910.getOrPut(key) { Cell8886() }
+        if (nowMs - r.atMs < 60_000L) return r.backs to r.losing
+        r.atMs = nowMs
+        val rec = try { com.lifecyclebot.perps.CryptoTwin8883.strategyRecord8910(lane, st) } catch (_: Throwable) { null }
+        val k = try { com.lifecyclebot.perps.CryptoTwin8883.gradedStrategies8910(lane) } catch (_: Throwable) { 0 }
+        r.backs = rec != null && com.lifecyclebot.perps.CryptoTrend8886.cellBacks8886(rec.first.wins, rec.first.losses,
+            rec.first.meanPnlPct, rec.first.totalSolPnl, rec.first.pfExpectancyPp, rec.second, k)
+        r.losing = rec != null && com.lifecyclebot.perps.CryptoTrend8886.cellLosing8886(rec.second)
+        return r.backs to r.losing
+    }
+
     private fun stopped8788(nowMs: Long): Boolean {
         if (tripped8788) return true
         if (startMs8788 <= 0L || nowMs - stopCheckedAtMs8788 < 60_000L) return false
@@ -165,7 +192,7 @@ object CryptoSpotPaperBacking8788 {
         else -> Availability8870.READY
     }
 
-    @Synchronized internal fun availability8870(lane: String?, nowMs: Long, cell: String? = null): Availability8870 {
+    @Synchronized internal fun availability8870(lane: String?, nowMs: Long, cell: String? = null, strategy: String? = null): Availability8870 {
         val l = lane?.trim()?.uppercase().orEmpty()
         if (!enabled8788 || l !in BACKED_LANES_8806) return Availability8870.DISABLED_OR_WRONG_LANE
         if (stopped8788(nowMs)) return Availability8870.LOSS_STOP
@@ -173,33 +200,37 @@ object CryptoSpotPaperBacking8788 {
         // V5.0.8886 — the candidate's trend cell (CryptoTrend8886) on its own twin record: a backing cell grants, a proven-losing
         // cell withdraws; the hourly cap and the loss stop stay shared
         val (cellBacks, cellLosing) = cellVerdict8886(l, cell, nowMs)
-        val record = effective8886(laneRecord, cellBacks, cellLosing)
+        val (stratBacks, stratLosing) = strategyVerdict8910(l, strategy, nowMs)   // V5.0.8910
+        val record = effective8910(laneRecord, cellBacks, cellLosing, stratBacks, stratLosing)
         prunePermits8832(nowMs)
         return classifyAvailability8870(true, true, false, record, admitTimes8788.size, pendingPermits8832.size)
     }
 
-    fun capacityWait8870(lane: String?, nowMs: Long, cell: String? = null): Boolean =
-        availability8870(lane, nowMs, cell) == Availability8870.CAPACITY
+    fun capacityWait8870(lane: String?, nowMs: Long, cell: String? = null, strategy: String? = null): Boolean =
+        availability8870(lane, nowMs, cell, strategy) == Availability8870.CAPACITY
 
     /**
      * Read-only eligibility at the EV gate. An Oracle / Cortex / sizing refusal
      * must not consume a live backing slot or masquerade as an approval.
      */
-    @Synchronized fun backs8788(lane: String?, nowMs: Long, cell: String? = null): Boolean {
-        return availability8870(lane, nowMs, cell) == Availability8870.READY
+    @Synchronized fun backs8788(lane: String?, nowMs: Long, cell: String? = null, strategy: String? = null): Boolean {
+        return availability8870(lane, nowMs, cell, strategy) == Availability8870.READY
     }
 
     /** Reserve only once every *other* canonical gate, including sizing, passed. */
-    @Synchronized fun reserve8832(lane: String?, nowMs: Long, attemptId: String, cell: String? = null): Boolean {
+    @Synchronized fun reserve8832(lane: String?, nowMs: Long, attemptId: String, cell: String? = null, strategy: String? = null): Boolean {
         if (attemptId.isBlank() || pendingPermits8832.containsKey(attemptId)) return false
-        if (!backs8788(lane, nowMs, cell)) {
+        if (!backs8788(lane, nowMs, cell, strategy)) {
             try { PipelineHealthCollector.labelInc("CRYPTO_SPOT_PAPER_BACKING_RATE_OR_PROOF_REFUSE_8832") } catch (_: Throwable) {}
             return false
         }
         pendingPermits8832[attemptId] = nowMs
         // V5.0.8886 — counted when the cell changed the lane's answer
         val l = lane?.trim()?.uppercase().orEmpty()
-        if (!recordBacks8788(l, nowMs)) cellBacked8886.incrementAndGet()
+        if (!recordBacks8788(l, nowMs)) {
+            val cellGrants = cellVerdict8886(l, cell, nowMs).first
+            if (cellGrants) cellBacked8886.incrementAndGet() else strategyBacked8910.incrementAndGet()
+        }
         return true
     }
 
@@ -221,7 +252,10 @@ object CryptoSpotPaperBacking8788 {
     fun cellStatusLine8886(): String {
         val backing = cells8886.entries.filter { it.value.backs }.map { it.key }.sorted().joinToString(",").ifBlank { "-" }
         val losing = cells8886.entries.filter { it.value.losing }.map { it.key }.sorted().joinToString(",").ifBlank { "-" }
+        val sBacking = strategies8910.entries.filter { it.value.backs }.map { it.key }.sorted().joinToString(",").ifBlank { "-" }
+        val sLosing = strategies8910.entries.filter { it.value.losing }.map { it.key }.sorted().joinToString(",").ifBlank { "-" }
         return "cryptoCells8886[read=${cells8886.size} backing{$backing} losing{$losing} reservedByCell=${cellBacked8886.get()} " +
+            "strategies8910{read=${strategies8910.size} backing{$sBacking} losing{$sLosing} reservedByStrategy=${strategyBacked8910.get()}} " +
             "rule=cell backs: lane rule + mean > family-deflated SE margin; cell withdraws: proven losing (n30, mean+se<0, pf<1)]"
     }
 

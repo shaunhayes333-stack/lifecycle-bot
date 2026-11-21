@@ -900,6 +900,10 @@ object CryptoAltTrader {
         // Owns the exact evaluation lease; a later registry refresh cannot change which pass is released.
         val evaluationOwner8870: DynamicAltTokenRegistry.DynToken? = null,
         val cryptoNativeSignal8871: CryptoNativeSignal8871.Witness? = null,
+        // V5.0.8910 — a majors setup's own levels and hold (MajorSetups8910); 0 = the desk's usual tp / sl / hold
+        val setupStop8910: Double = 0.0,
+        val setupTarget8910: Double = 0.0,
+        val setupHoldSec8910: Int = 0,
     ) {
         /** Real coin symbol — dynamic value when present, else the enum symbol. */
         val marketSymbol: String get() = dynSymbol ?: market.symbol
@@ -2496,6 +2500,9 @@ object CryptoAltTrader {
                 analyzed++
 
                 val signal = analyzeAlt(market, data)
+                // V5.0.8910 — the majors playbook on the real hourly tape (MajorSetups8910): a fired setup is its own candidate,
+                // a named strategy with its own stop, target and hold, beside whatever the classic analyser found
+                try { setupSignal8910(market, data)?.let { signals.add(it) } } catch (_: Throwable) {}
                 com.lifecyclebot.perps.crypto.brain.CryptoFunnel.analyze(signal != null)
                 if (signal != null) {
                     // V5.9.1442 — Crypto isolated brain thresholds.
@@ -2551,6 +2558,21 @@ object CryptoAltTrader {
             } catch (e: CancellationException) { throw e }
               catch (e: Exception) { ErrorLogger.error(TAG, "🪙 ${market.symbol} exception: ${e.message}", e) }
         }
+
+        // V5.0.8910 — the majors the SOL perps engine covers (BTC, ETH, BNB, XRP, ADA, DOGE, AVAX, DOT, LINK, ...) are left out of
+        // the scan above; that engine (PerpsTraderAI) is retired since 8797 (RetiredMarkets8797: it opens nothing), so no spot major
+        // had any path. The playbook's setups (MajorSetups8910) read them too, as spot through their
+        // wrapped Solana mints; SOL itself is the wallet's own coin and is not bought with SOL. The classic analyser is not run on them.
+        try {
+            for (market in PerpsMarket.values()) {
+                if (!market.isCrypto || !SOL_PERPS_SYMBOLS.contains(market.symbol) || market.symbol == "SOL" ||
+                    market.symbol !in MajorTape8910.MAJORS_8910 || hasPosition(market)) continue
+                if (!scanPaper7803 && com.lifecyclebot.perps.crypto.CryptoWrappedAssetMapper.resolveWrappedMint(market.symbol) == null) continue
+                val data = try { PerpsMarketDataFetcher.getMarketData(market) } catch (e: CancellationException) { throw e } catch (_: Exception) { null }
+                if (data == null || !(data.price > 0.0)) continue
+                setupSignal8910(market, data)?.let { signals.add(it); PipelineHealthCollector.labelInc("MAJOR_SETUP_8910_PERPS_MAJOR_SIGNAL") }
+            }
+        } catch (e: CancellationException) { throw e } catch (_: Exception) {}
 
         ErrorLogger.info(TAG, "🪙 Scan stats: analyzed=$analyzed | hasPos=$skippedPos | badPrice=$skippedPrice | signals=${signals.size}")
 
@@ -3158,6 +3180,31 @@ object CryptoAltTrader {
     }
 
 
+    /**
+     * V5.0.8910 — the candidate a fired majors setup makes (MajorSetups8910.setupFor8910 on [market]'s tape at [data]'s price):
+     * LONG spot, its strategy MAJ8910_<NAME>, its levels and hold, the session and BTC's regime on its reasons. Score and
+     * confidence sit at the crypto brain's own floors: the setup claims no quality the analyser did not see; what admits it in
+     * LIVE is its own twin record (CryptoSpotPaperBacking8788 by strategy).
+     */
+    private fun setupSignal8910(market: PerpsMarket, data: PerpsMarketData): AltSignal? {
+        if (!(data.price > 0.0)) return null
+        val now = System.currentTimeMillis()
+        val setup = MajorSetups8910.setupFor8910(market.symbol, data.price, now) ?: return null
+        val floorScore = try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.getSpotScoreFloor(isPaperMode.get()) } catch (_: Throwable) { 50 }
+        val floorConf = try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.getSpotConfFloor(isPaperMode.get()) } catch (_: Throwable) { 40 }
+        val reasons = listOf(
+            "${MajorSetups8910.SETUP_TAG_8910}${setup.name}", "${MajorSetups8910.SESSION_TAG_8910}${MajorSetups8910.session8910(now)}",
+            "${MajorSetups8910.REGIME_TAG_8910}${MajorSetups8910.regimeNow8910(now)}", "SETUP_WHY8910=${setup.why}")
+        try { ForensicLogger.lifecycle("MAJOR_SETUP_8910", "symbol=${market.symbol} setup=${setup.name} price=${data.price} stop=${setup.stop} target=${setup.target} why=${setup.why}") } catch (_: Throwable) {}
+        return AltSignal(
+            market = market, direction = PerpsDirection.LONG, score = floorScore.coerceIn(0, 100), confidence = floorConf.coerceIn(0, 100),
+            price = data.price, priceChange24h = data.priceChange24hPct, reasons = reasons, layerVotes = emptyMap(),
+            strategy7803 = setup.strategy, priceObservedAtMs8870 = data.lastUpdate, priceSource8870 = "PERPS_MARKET_FEED_8870",
+            candidateVersion7803 = CryptoCandidateRevision8535.of(setup.strategy, data.price, setup.stop, setup.target),
+            setupStop8910 = setup.stop, setupTarget8910 = setup.target, setupHoldSec8910 = setup.holdSec,
+        )
+    }
+
     private data class ExactAssetMetrics6493(
         val liquidityUsd: Double,
         val marketCapUsd: Double,
@@ -3673,7 +3720,8 @@ object CryptoAltTrader {
                 // V5.0.8886 — the candidate's trend key (CryptoTrend8886), so the twin files the close under lane|cell
                 listOfNotNull(trend8886.takeIf { it.isNotBlank() }?.let { CryptoTrend8886.TAG_8886 + it }),
             holdSetupQuality = holdSetupQuality6663,
-            adaptiveMaxHoldSeconds = holdRecommendation6663?.maxSeconds?.coerceIn(60, 3_600) ?: 3_600,
+            adaptiveMaxHoldSeconds = holdRecommendation6663?.maxSeconds?.coerceIn(60, 3_600).let { desk ->
+                signal.setupHoldSec8910.takeIf { it > 0 }?.coerceIn(60, 12 * 3_600) ?: desk ?: 3_600 },   // V5.0.8910 — a setup's own hold
         )
     }
 
@@ -4062,10 +4110,15 @@ object CryptoAltTrader {
         val slFloor = if (isSpot) 4.0 else 6.0
         val finalSl   = (slPctBase * slMult).coerceIn(slFloor, 15.0)
 
-        val (tp, sl) = when (signal.direction) {
+        val (tpDesk8910, slDesk8910) = when (signal.direction) {
             PerpsDirection.LONG  -> signal.price * (1 + finalTp / 100) to signal.price * (1 - finalSl / 100)
             PerpsDirection.SHORT -> signal.price * (1 - finalTp / 100) to signal.price * (1 + finalSl / 100)
         }
+        // V5.0.8910 — a majors setup trades at its own levels: stop under the flush / range / level, target at the breakdown / middle / 2R
+        val setupLevels8910 = signal.direction == PerpsDirection.LONG && signal.setupStop8910 > 0.0 && signal.setupStop8910 < signal.price &&
+            signal.setupTarget8910 > signal.price
+        val tp = if (setupLevels8910) signal.setupTarget8910 else tpDesk8910
+        val sl = if (setupLevels8910) signal.setupStop8910 else slDesk8910
 
         val candidate = buildCryptoFinalBuyCandidate(signal, isSpot, finalSize)
         // V5.0.8886 — the candidate's trend read (CryptoTrend8886) on its registry row as it stands now (each part under its own
@@ -4076,7 +4129,7 @@ object CryptoAltTrader {
                 System.currentTimeMillis()).also { CryptoTrend8886.note8886(it) }
         } catch (_: Throwable) { null }
         // V5.0.8110 — crypto lane parity phase 2: the take-profit follows the desk lane's exit family and never sits under cost.
-        val tp8110 = laneTp8110(signal, isSpot, finalTp, finalSize, candidate.liquidityUsd) ?: tp
+        val tp8110 = if (setupLevels8910) tp else laneTp8110(signal, isSpot, finalTp, finalSize, candidate.liquidityUsd) ?: tp
         try {
             PipelineHealthCollector.labelInc("CRYPTO_CANONICAL_PREFDG_HANDOFF_7810")
             if (candidate.preFdgVerdict == CryptoFinalBuyCandidate.PreFdgVerdict.BUY) {

@@ -130,8 +130,8 @@ class Aate8886CryptoTrendTest {
         assertNull(CryptoTwin8883.metric8883("CRYPTO_ALT"))
         assertTrue("cells are counted, not printed as lanes", CryptoTwin8883.statusLine8883().contains("records{-} cells8886=2"))
         val twin = src("perps/CryptoTwin8883.kt")
-        assertTrue(twin.contains("for (k in listOfNotNull(t.lane, t.cell?.let { \"\${t.lane}\$CELL_SEP_8886\$it\" }))"))
-        assertTrue(twin.contains("Twin(twin, l, CryptoTrend8886.cellOfReasons8886(p.reasons))"))
+        assertTrue(twin.contains("for (k in listOfNotNull(t.lane, t.cell?.let { \"\${t.lane}\$CELL_SEP_8886\$it\" }) + t.slices8910)"))   // V5.0.8910 — and the strategy keys
+        assertTrue(twin.contains("Twin(twin, l, CryptoTrend8886.cellOfReasons8886(p.reasons), slices8910(l, p.reasons, p.openTime))"))
     }
 
     @Test fun theCandidateCarriesItsCellToEveryBackingRead() {
@@ -145,9 +145,9 @@ class Aate8886CryptoTrendTest {
         assertEquals("backs, both capacity waits, the engine pass, the reserve and its wait", 6,
             Regex(Regex.escape("candidate.evidence[\"trend8886\"]")).findAll(contract).count())
         val backing = src("engine/truth/CryptoSpotPaperBacking8788.kt")
-        assertTrue(backing.contains("val record = effective8886(laneRecord, cellBacks, cellLosing)"))
+        assertTrue(backing.contains("val record = effective8910(laneRecord, cellBacks, cellLosing, stratBacks, stratLosing)"))   // V5.0.8910 — and the strategy
         assertTrue(backing.contains("if (!(try { com.lifecyclebot.engine.LiveNoPaper8184.closeOutInLive8872() } catch (_: Throwable) { false })) return false to false"))
-        assertTrue(src("engine/truth/CryptoSignalEngine8857.kt").contains("CryptoSpotPaperBacking8788.backs8788(lane, nowMs, cell)"))
+        assertTrue(src("engine/truth/CryptoSignalEngine8857.kt").contains("CryptoSpotPaperBacking8788.backs8788(lane, nowMs, cell, strategy)"))
         assertTrue(src("engine/DiagnosisBrief8438.kt").contains("CryptoSpotPaperBacking8788.cellStatusLine8886()"))
         assertTrue(File("../../docs/DATA_MAP.md").readText().contains("## 75. The crypto trend cell (8886)"))
     }

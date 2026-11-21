@@ -80,10 +80,11 @@ object CryptoSignalEngine8857 {
      * CanonicalAssetEntryContract6551.submit: may a LIVE crypto candidate of [lane] (CRYPTO_SPOT / CRYPTO_ALT) pass a meme
      * gate refusal that is not an integrity one ([integrity] false)? Only while the lane's own record backs it and its
      * hourly room and loss stop allow (CryptoSpotPaperBacking8788.backs8788; the permit is reserved at the seal). V5.0.8886 — [cell]
-     * is the candidate's trend cell (CryptoTrend8886), read against its own twin record by the backing.
+     * is the candidate's trend cell (CryptoTrend8886), read against its own twin record by the backing; V5.0.8910 — [strategy]
+     * its STRATEGY7803, read against the twin's strategy record the same way.
      */
-    fun passes8857(live: Boolean, lane: String?, integrity: Boolean, nowMs: Long, cell: String? = null): Boolean =
-        live && !integrity && (try { CryptoSpotPaperBacking8788.backs8788(lane, nowMs, cell) } catch (_: Throwable) { false })
+    fun passes8857(live: Boolean, lane: String?, integrity: Boolean, nowMs: Long, cell: String? = null, strategy: String? = null): Boolean =
+        live && !integrity && (try { CryptoSpotPaperBacking8788.backs8788(lane, nowMs, cell, strategy) } catch (_: Throwable) { false })
 
     private val advisory = ConcurrentHashMap<String, AtomicLong>()
     /** The desk signal behind each pass: the specialist lane CryptoLaneDesk7391 read from the signal's own reasons. */
