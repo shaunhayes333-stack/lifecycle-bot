@@ -2624,3 +2624,10 @@ closeOut8872[passes=6 pending=100] — not one closed in 21 minutes, and the lin
   (no owner), attempted with a fresh observed mark (Executor's 30 s authoritative-mark rule), closed — on the brief as
   `closeOut8872[... lastPass8932{...}]`. The next capture says exactly where the 100 lots stop; the close-out rule itself is
   unchanged (never closed on an unobserved price).
+
+## 121. A flaky slowest-build pin (8933)
+
+8931's CI build failed on `Aate8864NoReaderWaitsTest.aReaderIsNotQueuedBehindAnotherThreadsRebuild` (8864's snapshot cache, no
+8931 file involved): the status pin expects the slowest build to be the deliberately held rebuild, but the first build (the
+test thread's first call, with class loading) took 6 ms and the held rebuild 1 ms, so `by=` named the test thread. The test
+now holds the rebuild 50 ms before releasing it. No production code changes; 8929-8932 carry over unchanged.

@@ -65,6 +65,10 @@ class Aate8864NoReaderWaitsTest {
         assertEquals("old", c.get { built = true; "never" })
         assertFalse("a reader ran its own rebuild beside the one in progress", built)
         assertNull("the held snapshot is aged, and says so", c.fresh())
+        // V5.0.8933 — the held rebuild must outlast the first build it is compared with: on 8931's CI run the first build
+        // ("old", the test thread's first call, class loading included) took 6 ms and the held one 1 ms, so the slowest-build
+        // line named the test thread. Holding 50 ms keeps the test about what it measures.
+        Thread.sleep(50L)
         release.countDown()
         slow.join(10_000L)
         assertEquals("new", rebuilt.get())
