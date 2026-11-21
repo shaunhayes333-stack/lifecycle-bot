@@ -2115,3 +2115,17 @@ them as before. The other replay families stay in the trading process for now.
 
 8907 failed to compile: LabProcess8906.baseFamily8906 was public and took List<LaunchReplay8744.Path8748>, an internal type.
 It is internal now (its only caller, BaseFamily8754, is in the module). 8908 carries 8906 and 8907 unchanged otherwise.
+
+## 97. The reversal cell (8909)
+
+Owner, 21 Nov 17:28: "the market is down big today. there should be calculated buying opportunities on majors to capture
+reversals surely". The crypto twin at 13:48 (5.0.8903): CRYPTO_ALT n400 mean -1.4 % (pfEdge -3.1), CRYPTO_SPOT n24 -0.3 %;
+cells proven losing on CRYPTO_ALT: T1F0, T1F1, T1FU, T2F0, T2F1, T3FU; nothing backing. A reclaim after a down day had no cell of
+its own: CryptoTrend8886's band put it in T1 / T2 (mixed) with every other mixed reading, and T1F1 is proven losing (n49);
+T0F1 (all down, buyers leading) has 3 closes. So nothing in the bot's data says a reversal buy pays yet.
+
+`CryptoTrend8886.reversal8909`: 24 h read and below zero, 5 m and 1 h read and above zero → band TR (cells TRF1 / TRF0 / TRFU).
+The twin files every crypto close under lane|cell as before, so TR is graded from today's moves forward; it backs a candidate
+only by its own record (cellBacks8886: the lane rule and the mean above the family-deflated margin) and withdraws backing when
+proven losing (cellLosing8886), like every cell. Forensic impact: a candidate that read T1 / T2 with that shape now reads TR; the
+T1 / T2 records keep their history and grade only the rest from here; nothing is bought until TR's own twin record backs it.

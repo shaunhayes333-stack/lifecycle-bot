@@ -14,7 +14,7 @@ import java.util.concurrent.atomic.AtomicLong
  *  - horizons: 5 m (the row's five-minute set, under CryptoShortWindow8832's own freshness), 1 h and 6 h (DexScreener pair /
  *    GeckoTerminal pool), 24 h, and 7 d (CoinGecko markets, the majors' source). A reading counts while it still describes
  *    mostly the current window: its age is at most half its horizon ([current8886]). Nothing is filled in.
- *  - band ([band8886]): TU with fewer than two horizons read; T3 every read horizon rising; T0 every one falling; T2 more rising
+ *  - band ([band8886]): TU with fewer than two horizons read; TR the day down and the last 5 m and hour up (8909); T3 every read horizon rising; T0 every one falling; T2 more rising
  *    than falling; T1 otherwise.
  *  - flow ([flow8886]): F1 more buys than sells in the five-minute set, F0 not, FU unobserved.
  *  - volume ([volume8886]): V1 five-minute volume above the day's five-minute mean, V0 not, VU unknown.
@@ -47,6 +47,7 @@ object CryptoTrend8886 {
     fun band8886(changes: List<Double>): String {
         val seen = changes.filter { it.isFinite() }
         if (seen.size < 2) return "TU"
+        if (reversal8909(changes)) return "TR"
         val up = seen.count { it > 0.0 }
         val down = seen.count { it < 0.0 }
         return when {
@@ -56,6 +57,18 @@ object CryptoTrend8886 {
             else -> "T1"
         }
     }
+
+    /**
+     * Pure (V5.0.8909 §THE_REVERSAL_CELL) — the day down, the last five minutes and the last hour up: [changes] in read8886's
+     * order (5 m, 1 h, 6 h, 24 h, 7 d), 24 h read and below zero, 5 m and 1 h read and above. Owner, 21 Nov 17:28: "the market is
+     * down big today. there should be calculated buying opportunities on majors to capture reversals". The 13:48 twin read had no
+     * such cell: a reclaim after a down day fell in T1 (mixed) with every other mixed reading, and CRYPTO_ALT|T1F1 is proven
+     * losing (twin n49). TR is its own band, so the twin grades it (lane|TRF1 / TRF0 / TRFU) and it backs a candidate only by
+     * its own record (cellBacks8886), withdraws it when proven losing (cellLosing8886), exactly like every other cell.
+     */
+    fun reversal8909(changes: List<Double>): Boolean =
+        changes.size >= 4 && changes[3].isFinite() && changes[3] < 0.0 &&
+            changes[0].isFinite() && changes[0] > 0.0 && changes[1].isFinite() && changes[1] > 0.0
 
     /** Pure: who leads the five-minute set. */
     internal fun flow8886(ev: CryptoShortWindow8832.Evidence): String = when {
