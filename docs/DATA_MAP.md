@@ -2474,3 +2474,8 @@ never a cross. The idea's reference is ta4j / TA-Lib; the code is ours. The tick
 **The stranded sweep off the caller's thread.** 8924's paper stranded-basis sweep (§112.2) ran inline in the economic publish
 and the canonical bridge, taking the ledger monitor from inside their work; it now runs on its own single thread
 (`requestSweep8926`) and returns at once when nothing is refused.
+
+## 115. 8926's compile fix (8927)
+
+8926 did not compile: BundleDetector's `rows8926(tx, mint)?.let { results += it; continue }` uses `continue` inside an inline
+lambda, experimental on Kotlin 1.9. It is a plain null check now; nothing else changed. 8927 is the first build of §114.

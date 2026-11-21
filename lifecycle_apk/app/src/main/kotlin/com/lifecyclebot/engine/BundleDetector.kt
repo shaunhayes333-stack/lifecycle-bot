@@ -424,7 +424,8 @@ object BundleDetector {
                     val feePayer = tx.optString("feePayer", "")
 
                     // V5.0.8926 — who bought is read from the balances the transaction moved (rows8926), not its transfers
-                    rows8926(tx, mint)?.let { results += it; continue }
+                    val rows8926 = rows8926(tx, mint)
+                    if (rows8926 != null) { results += rows8926; continue }
                     val tokenTransfers = tx.optJSONArray("tokenTransfers") ?: continue
                     for (j in 0 until tokenTransfers.length()) {
                         val transfer = tokenTransfers.optJSONObject(j) ?: continue
