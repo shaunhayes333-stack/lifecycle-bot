@@ -2664,3 +2664,12 @@ every CRYPTO_* lane (CORE n1504 ... TREASURY n108).
   Solana ids are sent (JupiterPriceIds8418.ids8418; non-Solana decisions are written unpriced as before), the keyed host
   (DefaultKeys.JUPITER) first, the keyless host as fallback; `calls8934{keyed keyless notSolanaIds}` on its line. Those rows
   are what BLUECHIP's 4 h pocket and any longer-hold judgement read.
+
+## 123. The Tuning board off the main thread (8935)
+
+8934's unit tests all passed (Aate8934 included); its runtime smoke failed on the screen walk: "ANR in com.lifecyclebot.aate
+(TuningActivity) — Input dispatching timed out ... Waited 5001ms for FocusEvent", the app at 281 % CPU, load 32, the main thread
+idle at the dump. TuningActivity.renderAll ran StrategyTelemetry.computeLeaderboard() on the main thread every 4 s (the uncached
+path reads up to 2,500 closed trades and sanitises each), the one heavy read left on that thread after V5.9.1332 moved the lane
+replay off it. The leaderboard is now computed the same way: a daemon thread, at most every 12 s, renderAll reads the cached
+board. 8934's code ships unchanged in 8935.

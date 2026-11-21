@@ -64,10 +64,28 @@ class TuningActivity : Activity() {
         }.apply { isDaemon = true; name = "lane-replay-bg" }.start()
     }
 
+    // V5.0.8935 — the same structure for the per-lane leaderboard. 8934's CI screen walk recorded an ANR on this screen
+    // ("Input dispatching timed out", the app at 281 % CPU, load 32): renderAll ran StrategyTelemetry.computeLeaderboard() on
+    // the main thread every 4 s — its uncached path reads up to 2,500 closed trades and sanitises each. It is now computed
+    // on a daemon thread at most every 12 s and renderAll reads the cached board (empty until the first one lands).
+    @Volatile private var cachedBoard8935: List<com.lifecyclebot.engine.StrategyTelemetry.StrategyMetric>? = null
+    @Volatile private var cachedBoardAtMs8935: Long = 0L
+    private val boardInFlight8935 = java.util.concurrent.atomic.AtomicBoolean(false)
+    private fun refreshBoardAsync8935() {
+        if (System.currentTimeMillis() - cachedBoardAtMs8935 < 12_000L && cachedBoard8935 != null) return
+        if (!boardInFlight8935.compareAndSet(false, true)) return
+        Thread {
+            try { cachedBoard8935 = com.lifecyclebot.engine.StrategyTelemetry.computeLeaderboard() } catch (_: Throwable) {}
+            cachedBoardAtMs8935 = System.currentTimeMillis()
+            boardInFlight8935.set(false)
+        }.apply { isDaemon = true; name = "tuning-board-8935" }.start()
+    }
+
     private val refreshRunnable = object : Runnable {
         override fun run() {
             if (refreshing) {
                 refreshLaneReplayAsync()   // kick off-main compute; renderAll reads cache
+                refreshBoardAsync8935()   // V5.0.8935 — the leaderboard too
                 renderAll()
                 handler.postDelayed(this, 4_000L)
             }
@@ -120,8 +138,7 @@ class TuningActivity : Activity() {
         // ── 1. PER-LANE EXPECTANCY ─────────────────────────────────────
         addHeader("Per-Lane Expectancy", "n ≥ 5", AateUi.CYAN)
         try {
-            val rawBoard = com.lifecyclebot.engine.StrategyTelemetry.computeLeaderboard()
-                .sortedByDescending { it.meanPnlPct }
+            val rawBoard = (cachedBoard8935 ?: emptyList()).sortedByDescending { it.meanPnlPct }   // V5.0.8935 — computed off the main thread
             val board = rawBoard.filter { it.isStatisticallyMeaningful }
             val displayBoard = if (board.isEmpty()) rawBoard.take(12) else board
             if (displayBoard.isEmpty()) {
