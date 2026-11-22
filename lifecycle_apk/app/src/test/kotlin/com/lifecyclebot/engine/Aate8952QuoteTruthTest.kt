@@ -7,7 +7,6 @@ import com.lifecyclebot.network.QuoteTruth8952
 import io.github.novacrypto.base58.Base58
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -82,8 +81,10 @@ class Aate8952QuoteTruthTest {
         assertEquals(QuoteTruth8952.SOL, QuoteTruth8952.kind8952(""))
         assertEquals(QuoteTruth8952.OTHER, QuoteTruth8952.kind8952(user))
         assertEquals(-1, QuoteTruth8952.decimals8952(QuoteTruth8952.OTHER))
-        assertNull("an unknown quote's decimals are never guessed", ChainLaunchFeed8179.decodeTradeEvent8952(
-            event(0L, 1_000_000L, 0L, 775_000_000_000_000L, 0L, user, 1L, 1L, 0L)) { 1.0 })
+        val other = ChainLaunchFeed8179.decodeTradeEvent8952(event(1_000_000_000L, 1_000_000L, 31_000_000_000L, 775_000_000_000_000L, 0L, user, 1L, 1L, 0L)) { 1.0 }!!
+        assertEquals("an unnamed quote (or a moved layout) never silences the SOL tape", QuoteTruth8952.SOL, other.quote8952)
+        assertEquals(1.0, other.sol, 1e-12)
+        assertTrue(QuoteTruth8952.statusLine8952().contains("OTHER:unpriced=1"))
     }
 
     @Test fun theCreateEventNamesTheQuoteAtBirth() {

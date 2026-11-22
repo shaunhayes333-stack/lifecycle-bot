@@ -449,6 +449,9 @@ object ChainLaunchFeed8179 {
             return base.copy(sol = tail.quoteAmount / 1e9, virtualSol = tail.virtualQuote / 1e9,
                 realSol = tail.realQuote / 1e9, quoteMint8952 = tail.quoteMint)
         }
+        // a quote this build cannot name (a whitelisted quote-control mint, or a tail whose layout moved) is not proof the
+        // event is non-SOL: it reads as before and is counted, so one layout change can never silence the SOL tape
+        if (kind == QuoteTruth8952.OTHER) { QuoteTruth8952.noteQuote8952(kind, priced = false); return base }
         val dec = QuoteTruth8952.decimals8952(kind)
         val pxSol = if (dec < 0) Double.NaN else try { quoteSol8952(tail.quoteMint) } catch (_: Throwable) { Double.NaN }
         val priced = pxSol.isFinite() && pxSol > 0.0

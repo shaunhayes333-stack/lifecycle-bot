@@ -2982,3 +2982,10 @@ CI for 8949-8951 (Complete historical suite): five new failures, no compile erro
   the prior-answering set), Aate8950 (the stage router passes memeLifecycle since 8951).
 The 8949 runtime smoke failure was the forensic accounting witness (cash / open-cost delta 0.11 SOL); 8950 and 8951 passed
 the same runtime test, and the same witness failed and then passed on ade91d56b, so it is recorded as that witness's flake.
+
+## 142. An unnamed quote never silences the SOL tape (8954)
+
+8952 dropped a TradeEvent whose quote mint was neither SOL, USDC nor a pump.fun coin. If the event's variable-length middle
+(ix_name, shareholders) ever parses differently from the IDL this build read, that quote is noise, and dropping on it would
+have emptied the whole Helius curve tape. Such an event now reads exactly as before 8952 and is counted
+(quoteTruth8952 nonSol{OTHER:unpriced}); only a named USDC or pump.fun-coin quote is converted or dropped.
