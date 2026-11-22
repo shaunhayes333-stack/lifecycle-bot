@@ -3006,3 +3006,14 @@ map in 63 s, heap 218 MB). No crash, ANR or kill line; the process was the same;
 8955 did not compile (HeapMap8866.kt:103, "inferred type is () -> Any but Long was expected"): the new holder budget
 parameter came after the stage callback, so the caller's trailing lambda bound the budget. The budget now precedes the
 callback, and the caller passes the callback by name. Behaviour is 8955's.
+
+## §145 — 8957: a chain ping's answer re-runs the coin (owner, 23 Nov)
+
+Owner: "a one time chain ping to fill the data deferral gaps when required. no waiting for the loop to come back."
+ChainConfirm8950 asked the chain for each missing input at once, but only the stage read re-ran the coin when its answer
+landed. Price/depth, supply, authority, holders, LP and safety answers waited for the scan loop to return to the coin;
+EvidenceWait8948's direct re-run fired at 0 s and 1.5 s, before the async reads it had just queued could land.
+A LIVE decision, lane, evidence, stage or exec-gate defer that sends at least one ping now re-runs the coin's full
+pipeline at 2.5 s and 7 s (fast lane, deduplicated per coin and 20 s slot). Holds and exits keep their own loops.
+Pings still respect the 20 s per-(coin, input) gap. No rule, bar or gate changes. Status: chainConfirm8950[reruns8957=
+unmapped8957=] (unmapped counts defers whose missing names map to no chain read).

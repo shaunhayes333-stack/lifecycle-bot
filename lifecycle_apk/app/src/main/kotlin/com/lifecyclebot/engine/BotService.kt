@@ -10994,6 +10994,11 @@ class BotService : Service() {
             if (status.running && status.tokens.containsKey(mint))
                 fastLaneEvaluate7277(mint, ConfigStore.load(applicationContext), "EVIDENCE_WAIT_8948", onceKey = "$mint|8948|$slot")
         }
+        // V5.0.8957 — a coin whose missing inputs were pinged on chain runs its full pipeline when the answers land
+        com.lifecyclebot.engine.truth.ChainConfirm8950.answered8957 = { mint, onceKey ->
+            if (status.running && status.tokens.containsKey(mint))
+                fastLaneEvaluate7277(mint, ConfigStore.load(applicationContext), "CHAIN_ANSWER_8957", onceKey = onceKey)
+        }
         // V5.0.8950 — a coin whose UNKNOWN stage was read from the chain runs its full pipeline again at once
         com.lifecyclebot.engine.truth.StageRead8950.direct8950 = { mint, slot ->
             if (status.running && status.tokens.containsKey(mint))

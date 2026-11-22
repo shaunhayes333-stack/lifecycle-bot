@@ -69,7 +69,33 @@ object ChainConfirm8950 {
     /** [use] (DECISION / EVIDENCE / STAGE / HOLD / EXIT) of [ts] lacks [missing]: read each from the chain now (LIVE). */
     fun confirm8950(ts: TokenState, missing: Collection<String>, use: String, nowMs: Long = System.currentTimeMillis()) {
         if (ts.mint.length !in 32..44 || !live8950()) return
-        for (input in inputsOf8950(missing)) ask8950(ts, input, use, nowMs)
+        val inputs = inputsOf8950(missing)
+        if (inputs.isEmpty() && missing.isNotEmpty()) unmapped8957.incrementAndGet()
+        var askedAny = false
+        for (input in inputs) if (ask8950(ts, input, use, nowMs)) askedAny = true
+        if (askedAny && use.uppercase() in RERUN_USES_8957) rerun8957(ts.mint, nowMs)
+    }
+
+    /**
+     * V5.0.8957 §ANSWERED_NOT_LOOPED — owner: "a one time chain ping to fill the data deferral gaps when required. no
+     * waiting for the loop to come back." 8950 asked the chain at once but only the stage read re-ran the coin when its
+     * answer landed; price/depth, supply, authority, holders, LP and safety answers sat until the scan loop came back to
+     * the coin (EvidenceWait8948's own re-run fired at 0 s and 1.5 s, before the async reads it had just queued could land).
+     * One ping per (coin, input) per [GAP_MS_8950] now re-runs that coin's full pipeline once the reads have had time to
+     * land ([RERUN_AFTER_MS_8957]), each pass deduplicated per coin and slot. Every gate decides as before.
+     */
+    @Volatile var answered8957: ((mint: String, onceKey: String) -> Unit)? = null
+    internal val RERUN_USES_8957 = setOf("DECISION", "LANE", "EVIDENCE", "STAGE", "EXEC")
+    internal val RERUN_AFTER_MS_8957 = listOf(2_500L, 7_000L)
+    private val reruns8957 = AtomicLong(0L)
+    private val unmapped8957 = AtomicLong(0L)
+    internal fun rerun8957(mint: String, nowMs: Long) {
+        val slot = nowMs / GAP_MS_8950
+        for ((i, d) in RERUN_AFTER_MS_8957.withIndex()) try {
+            sched8951.schedule({
+                try { answered8957?.invoke(mint, "$mint|8957|$slot|$i"); reruns8957.incrementAndGet() } catch (_: Throwable) {}
+            }, d, java.util.concurrent.TimeUnit.MILLISECONDS)
+        } catch (_: Throwable) {}
     }
 
     /** A held position / exit known by its mint only: its token state, then [confirm8950]. */
@@ -78,9 +104,9 @@ object ChainConfirm8950 {
         confirm8950(ts, missing, use, nowMs)
     }
 
-    private fun ask8950(ts: TokenState, input: Input8950, use: String, nowMs: Long) {
+    private fun ask8950(ts: TokenState, input: Input8950, use: String, nowMs: Long): Boolean {
         val key = "${ts.mint}|${input.name}"
-        if (!due8950(lastAsk[key] ?: 0L, nowMs)) return
+        if (!due8950(lastAsk[key] ?: 0L, nowMs)) return false
         if (lastAsk.size > CAP_8950) lastAsk.entries.removeIf { nowMs - it.value > GAP_MS_8950 }
         lastAsk[key] = nowMs
         asks.computeIfAbsent("${use.take(12)}:${input.name}") { AtomicLong(0L) }.incrementAndGet()
@@ -100,6 +126,7 @@ object ChainConfirm8950 {
                 } catch (_: Throwable) {}
             }
         } catch (_: Throwable) {}
+        return true
     }
 
     private fun poolsOf8950(ts: TokenState): List<String> =
@@ -145,8 +172,8 @@ object ChainConfirm8950 {
     /** Brief: asks by use and input. */
     fun statusLine8950(): String =
         "chainConfirm8950[" + asks.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } +
-            " probation8951{curveAsked=${probationAsked8951.get()} promoted=${probationPromoted8951.get()} otherVenue=${probationOther8951.get()}}" +
+            " reruns8957=${reruns8957.get()} unmapped8957=${unmapped8957.get()} probation8951{curveAsked=${probationAsked8951.get()} promoted=${probationPromoted8951.get()} otherVenue=${probationOther8951.get()}}" +
             " rule=a LIVE decision, hold or exit missing an input reads it from the chain now (price/depth: curve or pool vaults; supply: the mint; " +
             "history/stage: the coin's swap history; authority; holders; LP lock; safety report), each (coin, input) at most every " +
-            "${GAP_MS_8950 / 1000}s; nothing decided here]"
+            "${GAP_MS_8950 / 1000}s, and the coin's pipeline re-runs when the answers land (2.5 s, 7 s); nothing decided here]"
 }
