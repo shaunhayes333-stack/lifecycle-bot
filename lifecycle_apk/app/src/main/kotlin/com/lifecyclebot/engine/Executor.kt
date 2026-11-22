@@ -25229,7 +25229,10 @@ class Executor(
         val px = ts.lastPrice.takeIf { it > 0.0 } ?: ts.position.entryPrice
         val pnl = if (ts.position.entryPrice > 0.0) ((px - ts.position.entryPrice) / ts.position.entryPrice) * 100.0 else Double.NaN
         val lane8630 = RunnerDoctrine8584.entryLane8630(ts)  // V5.0.8630 — the entry lane, folded
-        val held = RunnerDoctrine8584.holds8584(lane8630, reason, pnl, ts.position.peakGainPct)
+        // V5.0.8941 — a launch rider holds its profit exits above the lane stop until 10x; its time exit passes at the hour
+        val rider8941 = RunnerDoctrine8584.launchRider8941(ts)
+        val held = RunnerDoctrine8584.holds8584(lane8630, reason, pnl, ts.position.peakGainPct, rider8941 = rider8941,
+            heldMs8941 = if (ts.position.entryTime > 0L) System.currentTimeMillis() - ts.position.entryTime else 0L)
         if (held && door != null) {
             RunnerDoctrine8584.noteHeld8584(door, lane8630, reason)
             if (door == "FULL") com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.withdrawDeferred7809(ts.mint, ts.position.positionId)

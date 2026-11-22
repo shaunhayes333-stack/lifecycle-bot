@@ -54,6 +54,7 @@ class Aate8630DoctrineSellsTest {
             assertTrue(head, ex.substringAfter(head).take(200).contains("RunnerDoctrine8584.profitTakingOwned8630(RunnerDoctrine8584.entryLane8630(ts))) return false"))
         val gate = ex.substringAfter("private fun moonbagGate7322(").substringBefore("\n    }\n")
         assertTrue(gate.indexOf("RunnerDoctrine8584.ownExit8630(requestReason)) return null") in 0 until gate.indexOf("tailBagGate8034("))
-        assertTrue(ex.contains("val held = RunnerDoctrine8584.holds8584(lane8630, reason, pnl, ts.position.peakGainPct)"))
+        // V5.0.8941 — the same call, with the launch rider's hold (Aate8941)
+        assertTrue(ex.contains("val held = RunnerDoctrine8584.holds8584(lane8630, reason, pnl, ts.position.peakGainPct, rider8941 = rider8941,"))
     }
 }

@@ -257,6 +257,10 @@ object SpikeCapture7943 {
         val tiers = runnerTiers8153 ?: plan7955?.tiers?.takeIf { it.isNotEmpty() } ?: TIERS
         val reached = tierReached(gross, tiers)
         if (reached == 0) return 0
+        // V5.0.8941 — a launch rider on the doctrine ladder: the rungs below 10x wait, and its first sale is the 10x rung's own
+        val rider8941 = runnerTiers8153 === RunnerGrab7967.TIERS_7967 && RunnerDoctrine8584.launchRider8941(ts, now7955)
+        val riderFloor8941 = if (rider8941) RunnerDoctrine8584.riderRungFloor8941(tiers) else 0
+        if (reached <= riderFloor8941) return 0
         // V5.0.8153 — the rung lifecycle (RunnerRungBook8153): one pending tranche per position; while it is pending (a
         // sale in flight, or handed off inside its grace) no other request is made — no duplicate sell. A pending tranche
         // that never became a sale expires and is retryable; the CONFIRMED tier moves only on the chain-confirmed fill.
@@ -288,7 +292,7 @@ object SpikeCapture7943 {
         // V5.0.8136 — one residual share budget across the spike, runner, tail and lock ladders (RunnerExitLive8136):
         // a runner's residual is not sold by a ladder that overlaps another.
         // V5.0.8153 — a tier the budget refuses is REJECTED (backoff, retryable), never consumed.
-        val frac = RunnerExitLive8136.budget8136(ts, crossedTierFraction8079(tiers, done, reached), reason8153)
+        val frac = RunnerExitLive8136.budget8136(ts, crossedTierFraction8079(tiers, maxOf(done, riderFloor8941), reached), reason8153)
         if (frac <= 0.0) {
             RunnerLive8153.revert8153(ts, RunnerRungBook8153.Revert8153.REJECTED, now7955, MAX_REARMS_7944)
             if (runnerRung8331) RunnerFunnel8331.blocked8331("BUDGET_REFUSED", "$funnelKey8331|T$reached")

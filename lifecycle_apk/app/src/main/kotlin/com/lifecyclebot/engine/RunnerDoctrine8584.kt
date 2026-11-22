@@ -66,8 +66,9 @@ object RunnerDoctrine8584 {
     const val TRAIL_ARM_PEAK_PCT_8630 = 25.0
 
     /** Pure: has a doctrine position at [pnlPct] after a peak of [peakPct] fallen to its line? */
-    fun trailBreached8630(lane: String?, pnlPct: Double, peakPct: Double, stopPct: Double = stopFor8719(lane)): Boolean {
-        if (!rides8584(lane) || !pnlPct.isFinite() || !peakPct.isFinite() || peakPct < TRAIL_ARM_PEAK_PCT_8630) return false
+    fun trailBreached8630(lane: String?, pnlPct: Double, peakPct: Double, stopPct: Double = stopFor8719(lane),
+                          armPct: Double = TRAIL_ARM_PEAK_PCT_8630): Boolean {   // V5.0.8941 — a launch rider arms at 10x
+        if (!rides8584(lane) || !pnlPct.isFinite() || !peakPct.isFinite() || peakPct < armPct) return false
         return 1.0 + pnlPct / 100.0 <= lineWithStop8719(1.0 + peakPct / 100.0, stopPct)
     }
 
@@ -88,7 +89,8 @@ object RunnerDoctrine8584 {
         if (prevPnl.isFinite() && pnlPct.isFinite()) maxOf(peak, minOf(prevPnl, pnlPct)) else peak
 
     /** BotService.doctrineTrail8630: is the trail due on position [key] at this mark? */
-    fun trailDue8759(key: String, lane: String?, pnlPct: Double, storedPeakPct: Double, markAtMs: Long): Boolean {
+    fun trailDue8759(key: String, lane: String?, pnlPct: Double, storedPeakPct: Double, markAtMs: Long,
+                     armPct: Double = TRAIL_ARM_PEAK_PCT_8630): Boolean {
         if (!rides8584(lane) || !pnlPct.isFinite()) return false
         if (trail8759.size > 2_000) trail8759.clear()
         val s = trail8759.getOrPut(key) { Trail8759(Double.NaN, 0L, Double.NEGATIVE_INFINITY) }
@@ -101,7 +103,7 @@ object RunnerDoctrine8584 {
             s.prevMarkAt = markAtMs
             if (!paired) return false
             val peak = if (storedPeakPct.isFinite()) minOf(storedPeakPct, s.peak) else s.peak
-            return trailBreached8630(lane, pnlPct, peak) && trailBreached8630(lane, prev, peak)
+            return trailBreached8630(lane, pnlPct, peak, armPct = armPct) && trailBreached8630(lane, prev, peak, armPct = armPct)
         }
     }
 
@@ -167,7 +169,8 @@ object RunnerDoctrine8584 {
      * Pure: is the exit [reason] of a [lane] position at [pnlPct] (peak [peakPct]) held by the doctrine? The doctrine's own
      * ladder rungs (SPIKE_CAPTURE_7943) and every never-held exit pass; nothing at or below the line is held.
      */
-    fun holds8584(lane: String?, reason: String?, pnlPct: Double, peakPct: Double, stopPct: Double = stopFor8719(lane)): Boolean {
+    fun holds8584(lane: String?, reason: String?, pnlPct: Double, peakPct: Double, stopPct: Double = stopFor8719(lane),
+                  rider8941: Boolean = false, heldMs8941: Long = 0L): Boolean {
         if (!rides8584(lane) || reason.isNullOrBlank() || !pnlPct.isFinite()) return false
         if (ownExit8630(reason)) return false
         val r = reason.uppercase()
@@ -177,8 +180,56 @@ object RunnerDoctrine8584 {
         val now = 1.0 + pnlPct / 100.0
         val peak = 1.0 + maxOf(if (peakPct.isFinite()) peakPct else pnlPct, pnlPct) / 100.0
         if (peak < 1.5 && TIME_EXIT_8584.any { r.contains(it) }) return false
+        // V5.0.8941 — a launch rider below a 10x peak: every profit exit is held while the price is above the lane stop (the
+        // stop, every safety exit and the trail from 10x still sell); its time exit passes once the hour is up
+        if (rider8941 && stopPct.isFinite() && stopPct > 0.0 && peak < 1.0 + LAUNCH_RIDE_FROM_PCT_8941 / 100.0) {
+            if (heldMs8941 >= LAUNCH_HOUR_MS_8941 && TIME_EXIT_8584.any { r.contains(it) }) return false
+            return now > 1.0 - stopPct.coerceAtMost(95.0) / 100.0
+        }
         return now > lineWithStop8719(peak, stopPct)
     }
+
+    /**
+     * V5.0.8941 §LAUNCH_RUNNERS_RIDE — owner, 22 Nov 15:07: "your entire focus more the moment is now capturing these big
+     * winners as early as possible ... how to extract the maximum amount of profits from these runners". The device's own
+     * launch paths (13 launch-hour exports, 14-20 Nov: 9,688 pump.fun launches in 10 s bars; each entered at its 20th print,
+     * the moment the coin itself shows 20 prints, so no hindsight): 9.5 % of them ran 4x+ after entry and those made 166 %
+     * of all net; this doctrine as it runs live (rungs 25 % at 2x and 18 % at 5x of what remains, the trail armed at +25 %
+     * on the stop-widened line, a 25 % stop) against the same with its rungs and trail from 10x:
+     *   fill at the next bar, 3 % cost: +7.3 % -> +11.0 % (n8144; halves +8.5/+6.2 -> +14.5/+7.5)
+     *   20 s entry lag, 3 % cost:       +3.5 % -> +6.9 % (n6234; halves +4.1/+3.0 -> +9.0/+4.8)
+     *   20 s lag, 4 % cost, every sell a bar late at that bar's low, 3 % slip on rungs: -8.8 % -> -4.1 %
+     *     (halves -9.8/-7.7 -> -3.9/-4.4)
+     * A launch pulls back hard on its way to 4x-10x: the +25 % trail and the 2x / 5x rungs sell it on the way. Off-pump base
+     * coins are the other way round (the base pocket +37.6 % under these exits against +29.1 % held, n156), so only a
+     * launch rider changes: a pump.fun mint bought within [LAUNCH_ENTRY_MAX_MS_8941] of its resolved chain birth. Its rungs
+     * below 10x wait (SpikeCapture7943), its trail arms at 10x (BotService.doctrineTrail8630) on the doctrine's own line, its
+     * other profit exits are held above the lane stop below 10x and its time exit passes at the hour. The lane stop, every
+     * safety / rug / liquidity / LP-pull exit, the kill switch and every tier-1 emergency are unchanged. Unresolved birth:
+     * not a rider (the doctrine as before).
+     */
+    private const val LAUNCH_ENTRY_MAX_MS_8941 = 15L * 60_000L
+    const val LAUNCH_RIDE_FROM_PCT_8941 = 900.0
+    private const val LAUNCH_HOUR_MS_8941 = 60L * 60_000L
+
+    /** Pure (V5.0.8941): is a position on [mint] bought [entryAgeMs] after the coin's chain birth a launch rider? */
+    fun launchRider8941(mint: String, entryAgeMs: Long?): Boolean =
+        mint.trim().endsWith("pump", ignoreCase = true) && entryAgeMs != null && entryAgeMs in 0L..LAUNCH_ENTRY_MAX_MS_8941
+
+    /** V5.0.8941 — [ts]'s open position: is it a launch rider (its entry age read from the resolved chain birth)? */
+    fun launchRider8941(ts: com.lifecyclebot.data.TokenState, nowMs: Long = System.currentTimeMillis()): Boolean = try {
+        val entry = ts.position.entryTime
+        val ageMin = com.lifecyclebot.engine.truth.CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts, nowMs)
+        if (entry <= 0L || ageMin == null || !ageMin.isFinite()) false
+        else launchRider8941(ts.mint, entry - (nowMs - (ageMin * 60_000.0).toLong()))
+    } catch (_: Throwable) { false }
+
+    /** V5.0.8941 — the trail's arming peak for [ts]: 10x for a launch rider, else the doctrine's +25 %. */
+    fun trailArm8941(ts: com.lifecyclebot.data.TokenState): Double =
+        if (launchRider8941(ts)) LAUNCH_RIDE_FROM_PCT_8941 else TRAIL_ARM_PEAK_PCT_8630
+
+    /** V5.0.8941 — the rungs below 10x wait for a launch rider: the ladder index the rider's ladder counts from. */
+    fun riderRungFloor8941(tiers: List<Pair<Double, Double>>): Int = tiers.count { it.first < LAUNCH_RIDE_FROM_PCT_8941 }
 
     /**
      * MemePaperTrader8544: the paper book's stop level (gross %) under the doctrine — the lane stop until the peak reaches

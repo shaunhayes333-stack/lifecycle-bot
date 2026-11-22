@@ -2754,3 +2754,22 @@ Not changed, by its own record: the lane liquidity floor (NATIVE_LANE_LIQ_BELOW_
 Nov, meme lanes, one row per coin and lane, the hour's net): n3120 -17.1 % +-1.0, median -3.6 %, 16 % drained (min <= -80 %),
 1 % peaked 400 %+; under $2k pool n1791 -25.6 %, 25 % drained. The runners it turned away (FRIEND +5677 %, PENNY +2678 %, SB
 +1756 % on the 13:59 capture) are that 1 %; the floor protects.
+
+## 129. Launch runners ride (8941)
+
+Owner, 22 Nov 15:07: "your entire focus more the moment is now capturing these big winners as early as possible". Deep dive on
+every export (write-up: "AATE Runner Deep Dive — 22 Nov"). The launch-hour paths (13 exports, 14-20 Nov, 9,688 pump.fun
+launches in 10 s bars; each entered at its own 20th print, so the export's 20-print floor is no hindsight): 9.5 % ran 4x+ after
+entry and those made 166 % of all net. RunnerDoctrine8584 as it runs live (rungs 25 % at 2x, 18 % at 5x of what remains; the
+trail armed at +25 % on the stop-widened line; a 25 % stop) against the same with its rungs and its trail from 10x:
+next-bar fill, 3 % cost +7.3 % -> +11.0 % (n8144); 20 s entry lag +3.5 % -> +6.9 % (n6234); 20 s lag, 4 % cost, every sell a
+bar late at that bar's low, 3 % rung slip -8.8 % -> -4.1 %. Both halves agree in all three. Off-pump base coins pay more under
+the doctrine (base pocket +37.6 % against +29.1 % held), so they keep it.
+
+A launch rider = a pump.fun mint bought within 15 minutes of its resolved chain birth (CanonicalTokenBirthTime7440; an unresolved
+birth is not a rider). For a rider: SpikeCapture7943's rungs below 10x wait and its first sale is the 10x rung's own quarter
+(riderRungFloor8941); BotService.doctrineTrail8630 arms the trail at 10x (trailArm8941) on the doctrine's own line; Executor's
+doctrine hold (holds8584 rider8941) holds every other profit exit while the price is above the lane stop below a 10x peak, and
+lets its time exit pass once the hour is up (4 h reads of these coins fell about -69 %). Unchanged: the lane stop, every safety,
+rug, liquidity and LP-pull exit, the kill switch, tier-1 emergencies, every non-rider position. The paper book
+(MemePaperTrader8544) keeps the doctrine as it was: live leads.

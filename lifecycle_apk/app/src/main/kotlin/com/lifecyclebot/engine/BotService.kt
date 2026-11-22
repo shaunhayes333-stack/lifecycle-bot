@@ -1721,7 +1721,9 @@ class BotService : Service() {
     private fun doctrineTrail8630(ts: com.lifecyclebot.data.TokenState, pnlPct: Double, peakPct: Double,
                                   wallet: com.lifecyclebot.network.SolanaWallet?, balance: Double): Boolean {
         val lane = try { RunnerDoctrine8584.entryLane8630(ts) } catch (_: Throwable) { return false }
-        if (!RunnerDoctrine8584.trailDue8759(ts.position.positionId.ifBlank { ts.mint }, lane, pnlPct, peakPct, ts.lastPriceUpdate)) return false
+        // V5.0.8941 — a launch rider's trail arms at 10x (RunnerDoctrine8584.trailArm8941)
+        if (!RunnerDoctrine8584.trailDue8759(ts.position.positionId.ifBlank { ts.mint }, lane, pnlPct, peakPct, ts.lastPriceUpdate,
+                armPct = RunnerDoctrine8584.trailArm8941(ts))) return false
         try {
             PipelineHealthCollector.labelInc("RUNNER_DOCTRINE_TRAIL_8630_${RunnerDoctrine8584.foldLane8630(lane)}")
             ForensicLogger.lifecycle("RUNNER_DOCTRINE_TRAIL_8630", "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=$lane pnl=${pnlPct.toInt()} peak=${peakPct.toInt()}")
