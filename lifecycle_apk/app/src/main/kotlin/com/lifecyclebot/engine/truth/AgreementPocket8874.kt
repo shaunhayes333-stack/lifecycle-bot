@@ -143,10 +143,11 @@ object AgreementPocket8874 {
             else {
                 val coin = coinRecord8895()
                 val research = researchRecord8929()   // V5.0.8929 — the research rows' coin record, which a learning reset leaves
+                val books8947 = arrayOf(coinValues8947(), researchValues8947())   // V5.0.8947 — the same records, graded per coin
                 val lanes = EdgeModel8537.LANES.filter { l ->
                     val laneRec = key8874(l)?.let { recordOf(it) }
                     key8874(l)?.let { evidenceOf8874(it, laneRec) } != null || coinEvidenceOf8895(l, laneRec, coin) != null ||
-                        coinEvidenceOf8895(l, laneRec, research) != null
+                        coinEvidenceOf8895(l, laneRec, research) != null || cautious8947(l, laneRec, *books8947)
                 }
                 if (lanes.isEmpty()) null to "NO_LANE_EVIDENCE" else {
                     val v = EdgeModel8537.quietVerdicts8869(ts, lanes, nowMs)
@@ -200,7 +201,8 @@ object AgreementPocket8874 {
         val coin = coinRecord8895()
         val coinLine = if (coin[0] < 1.0) "n0" else "n${coin[0].toInt()}/${"%+.1f".format(coin[1] / coin[0])}%±${"%.1f".format(se8895(coin))}" +
             "/run${(100.0 * coin[3] / coin[0]).toInt()}%${if (PayingCell8723.paying8723(coin[0], coin[1], coin[2])) "*" else ""}"
-        return "agreement8874[ready=$ready learned=${learned.get()} coins8895{$coinLine} ${researchLine8929()} lanes{$recs} carried{$used} liveAdmission{$adm} " +
+        return "agreement8874[ready=$ready learned=${learned.get()} coins8895{$coinLine} ${researchLine8929()} " +
+            "proof8947{coins=${ProofBar8947.line8947(coinValues8947())} research=${ProofBar8947.line8947(researchValues8947())}} lanes{$recs} carried{$used} liveAdmission{$adm} " +
             "rule=not pump.fun, cap \$5k-\$20k, V3>=${V3_MIN_8874.toInt()}, forecast>=+${FORECAST_MIN_PCT_8874.toInt()}%; per lane, one label per coin per 15 min, " +
             "* = n>=${MIN_N.toInt()} mean-${PROOF_SE.toInt()}SE>0 (admits as market-cell evidence); 8895: the last $COIN_WINDOW_8895 pocket coins, each at its " +
             "worst meme-lane label, prove the pocket for every meme lane whose own pocket labels are not proven losing]"
@@ -274,7 +276,22 @@ object AgreementPocket8874 {
     }
 
     private fun coinEvidence8895(lane: String, laneRecord: DoubleArray?): CandidateAdmission8136.Evidence8136? =
-        if (!ready) null else coinEvidenceOf8895(lane, laneRecord, coinRecord8895())
+        if (!ready || ProofBar8947.tier8947(coinValues8947()) != ProofBar8947.FULL_8947) null   // V5.0.8947 — full size only on FULL
+        else coinEvidenceOf8895(lane, laneRecord, coinRecord8895())
+
+    /** V5.0.8947 — the coin record's outcomes, one per coin, oldest first (as [coinRecord8895] grades them). */
+    internal fun coinValues8947(): List<Double> = synchronized(coins8895) { coins8895.values.map { PayingCell8723.outcome8723(it.worstNet) } }
+
+    /** V5.0.8947 — the research coin record's outcomes, one per coin, oldest first; empty until the file has been read. */
+    internal fun researchValues8947(): List<Double> {
+        ensureResearch8929()
+        if (!researchReady8929) return emptyList()
+        return synchronized(research8929) { research8929.values.map { PayingCell8723.outcome8723(it.worstNet) } }
+    }
+
+    /** V5.0.8947 — Pure: [lane] may open the careful path on a per-coin record graded CAUTIOUS or better (20+ coins that hold). */
+    internal fun cautious8947(lane: String, laneRecord: DoubleArray?, vararg books: List<Double>): Boolean =
+        memeLane8895(lane) && !losing8895(laneRecord) && books.any { ProofBar8947.tier8947(it) >= ProofBar8947.CAUTIOUS_8947 }
 
     internal fun addCoinForTest8895(lane: String, mint: String, net: Double, atMs: Long) = addCoin8895(mint, lane, atMs, net)
 

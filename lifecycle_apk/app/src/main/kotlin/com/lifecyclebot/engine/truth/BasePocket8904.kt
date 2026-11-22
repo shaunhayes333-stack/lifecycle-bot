@@ -154,6 +154,9 @@ object BasePocket8904 {
         doubleArrayOf(n, sum, sq, ran)
     }
 
+    /** V5.0.8947 — a book's outcomes under the lane's exits, one per coin, oldest first (as [recordOf8910] grades them). */
+    private fun values8947(book: LinkedHashMap<String, Coin>): List<Double> = synchronized(book) { book.values.map { PayingCell8723.outcome8723(it.worstNet) } }
+
     /** V5.0.8910 — the pump.fun base's record, filed and graded the same way. */
     internal fun recordPump8910(): DoubleArray = recordOf8910(pumpCoins, hold = false)
 
@@ -176,6 +179,7 @@ object BasePocket8904 {
             val stage = try { com.lifecyclebot.engine.TokenMetricStageRouter.snapshot(ts).stage.name } catch (_: Throwable) { "" }
             val origin = pocketOf8910(ts.mint, stage, ts.lastLiquidityUsd)
             if (origin == null) null
+            else if (ProofBar8947.tier8947(values8947(if (origin == "PUMP") pumpCoins else coins)) != ProofBar8947.FULL_8947) null   // V5.0.8947
             else (if (origin == "PUMP") evidenceOf8904(lane, recordPump8910(), ID_PUMP_8910) else evidenceOf8904(lane, record8904()))?.also {
                 served.incrementAndGet()
                 try { PipelineHealthCollector.labelInc("BASE_POCKET_8904_EVIDENCE_${lane.uppercase()}") } catch (_: Throwable) {}
@@ -210,7 +214,8 @@ object BasePocket8904 {
         return "basePocket8904[${tag(r)} ${rec(r)} hold8910{${rec(recordOf8910(coins, hold = true))}} pump8910{${tag(p)} ${rec(p)} " +
             "hold=${rec(recordOf8910(pumpCoins, hold = true))}} loaded=$ready learned=${learned.get()} served=${served.get()} " +
             "rule=stage BASE_START, pool \$5k-\$100k (8921), off pump.fun and pump.fun graded apart; each coin at its worst meme-lane HOUR read under " +
-            "the lane's own exits (stop first, then the doctrine line from +10 %; 8910); admits once 30+ coins and mean-2SE>0]"
+            "the lane's own exits (stop first, then the doctrine line from +10 %; 8910); admits once 30+ coins and mean-2SE>0] " +
+            "proof8947{base=${ProofBar8947.line8947(values8947(coins))} pump=${ProofBar8947.line8947(values8947(pumpCoins))} full size needs FULL}"
     }
 
     internal fun resetForTest8904() { synchronized(coins) { coins.clear() }; synchronized(pumpCoins) { pumpCoins.clear() }; learned.set(0L); served.set(0L); ready = true }

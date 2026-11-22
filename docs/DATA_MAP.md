@@ -2831,3 +2831,18 @@ evidence, the +10 % forecast); every other check of the careful path stands (unr
 revoked, classic or clean Token-2022, the flow test, the LP-pull exit). At most 1 band position open and 8 band buys a day
 (withinBand8946), inside the path's 4 open / 30 a day and 0.05 SOL a buy; the executor's spendRefusal8733 holds a band coin to
 both. explore8733 shows band8946{today open floor} and asked{ELIGIBLE_BAND_8946, BAND_8946_BUDGET, NOT_IN_POCKET_BAND_*}.
+
+## 135. The proof bar is tiered (8947)
+
+Owner, 22 Nov: "is 30 trades too much or enough?" then "go ahead". ProofBar8947 grades a per-coin record (each coin's outcome
+once, oldest first) instead of counting to 30. HOLDS: mean above zero by two SE, still positive without the three best coins,
+and both halves (older, newer) positive on their own; the median is shown, not required, because a runner edge (most coins a
+small loss, one in ten a multiple) has a negative median. CAUTIOUS = holds on 20+ coins: opens ExploreLive8733's careful path
+only (its 0.05 SOL, 4 open / 30 a day; pocketVerdict8939 takes a meme lane whose pocket labels are not proven losing when the
+8895 coin record or the 8929 research record grades CAUTIOUS, beside the old bar). FULL = holds on 50+ coins with the newest
+20 positive: AgreementPocket8874's full-size coin evidence (coinEvidence8895) and BasePocket8904's evidence now also need FULL.
+Re-graded on every read: a record whose newest 20 turn negative drops to cautious. On the 22 Nov 20:00 research rows the careful
+pocket (83 coins) grades FULL (+21.6, lower +6.2, ex-top-3 +14.3, halves +25.1/+18.1, newest 20 +31.8) and its first 20 coins
+were already CAUTIOUS; the base pocket's first 20 (lower -2.1) were not. Running-sum cells (PayingCell8723, LlmBands8875, the
+per-lane agreement cells) cannot be graded per coin and keep the 30-coin bar. agreement8874 shows proof8947{coins research};
+basePocket8904 shows proof8947{base pump}.
