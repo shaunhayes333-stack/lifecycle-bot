@@ -3000,3 +3000,9 @@ map in 63 s, heap 218 MB). No crash, ANR or kill line; the process was the same;
   a slow read no longer leaves it on disk while a wait runs out (on the phone too).
 - Every stage is logged (HEAP_MAP_PHASE_8866: dumping, dumped dumpMs fileMb, classes, names, objects, holders N, with the
   elapsed ms); the device check names the last stage reached when no map line arrives.
+
+## 144. 8955's compile repaired (8956)
+
+8955 did not compile (HeapMap8866.kt:103, "inferred type is () -> Any but Long was expected"): the new holder budget
+parameter came after the stage callback, so the caller's trailing lambda bound the budget. The budget now precedes the
+callback, and the caller passes the callback by name. Behaviour is 8955's.

@@ -252,8 +252,8 @@ object HeapMapCore8866 {
      * Reads [file] and returns the map. [header] is printed first (the caller's own facts: version, heap, timing).
      * Never throws: a file it cannot read to the end returns what was counted with [Result.stopped] naming the place.
      */
-    fun analyse8866(file: File, header: String, sampleTargets: Int = 20_000, maxPasses: Int = 18, progress: (String) -> Unit = {},
-                    holderBudgetMs8955: Long = HOLDER_BUDGET_MS_8955): Result {
+    fun analyse8866(file: File, header: String, sampleTargets: Int = 20_000, maxPasses: Int = 18,
+                    holderBudgetMs8955: Long = HOLDER_BUDGET_MS_8955, progress: (String) -> Unit = {}): Result {
         val t0 = System.currentTimeMillis()
         var stopped = ""
         val classes = ArrayList<ClassInfo>(1 shl 15)

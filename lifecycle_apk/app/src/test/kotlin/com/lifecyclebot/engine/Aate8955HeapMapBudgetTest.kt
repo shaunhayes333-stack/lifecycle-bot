@@ -19,7 +19,8 @@ class Aate8955HeapMapBudgetTest {
         val map = src("engine/HeapMap8866.kt")
         assertTrue(map.contains("HEAP_MAP_PHASE_8866 dumping usedMb="))
         assertTrue(map.contains("HEAP_MAP_PHASE_8866 dumped dumpMs="))
-        assertTrue(map.contains("\"HEAP_MAP_PHASE_8866 \$it +\${System.currentTimeMillis() - t0}ms\""))
+        assertTrue(map.contains("\"HEAP_MAP_PHASE_8866 \$stage +\${System.currentTimeMillis() - t0}ms\""))
+        assertTrue("the stage callback is passed by name (a trailing lambda would bind the budget)", map.contains("analyse8866(file, header, progress = { stage ->"))
         assertTrue(File("../../ci/runtime_device_checks_8418.sh").readText().contains("hm_detail+=\"; last stage: \${lastphase:-none logged}\""))
     }
 }

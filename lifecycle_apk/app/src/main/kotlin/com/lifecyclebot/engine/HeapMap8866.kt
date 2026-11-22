@@ -100,10 +100,10 @@ object HeapMap8866 {
                         " uptimeS=" + uptimeS + " heapUsedMb=" + usedMb + " heapMaxMb=" + maxMb + " dumpMs=" + dumpMs + " gcFirst=false why=" + why.take(24)
                     // the heap is on disk now: the caches may go, so the reader below has room in a heap that was full
                     try { MemoryGuard7977.emergencyTrim8305("HEAP_MAP_8866") } catch (_: Throwable) {}
-                    val result = HeapMapCore8866.analyse8866(file, header) {
-                        phase = it
-                        try { android.util.Log.i("AATE_HEAPMAP", "HEAP_MAP_PHASE_8866 $it +${System.currentTimeMillis() - t0}ms") } catch (_: Throwable) {}
-                    }
+                    val result = HeapMapCore8866.analyse8866(file, header, progress = { stage ->
+                        phase = stage
+                        try { android.util.Log.i("AATE_HEAPMAP", "HEAP_MAP_PHASE_8866 $stage +${System.currentTimeMillis() - t0}ms") } catch (_: Throwable) {}
+                    })
                     try { file.delete() } catch (_: Throwable) {}
                     raw = null
                     val name = "aate_heapmap_8866_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date(startedAt)) + ".txt"
