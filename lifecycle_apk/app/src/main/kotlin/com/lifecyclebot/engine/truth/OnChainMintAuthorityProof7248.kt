@@ -27,7 +27,23 @@ object OnChainMintAuthorityProof7248 {
         val mutableExtension8136: String? = null,
         /** V5.0.8928 — the mint is a classic SPL Token mint (Tokenkeg): no Token-2022 extension can exist on it. */
         val classicToken8928: Boolean = false,
+        /** V5.0.8936 — the larger of a Token-2022 mint's older / newer transfer fee (bps); 0 when none. */
+        val transferFeeBps8936: Int = 0,
     )
+
+    /** Pure (V5.0.8936): the larger transfer fee (bps) a Token-2022 mint's jsonParsed [extensions] carry; 0 when none. */
+    internal fun transferFeeBps8936(extensions: org.json.JSONArray?): Int {
+        if (extensions == null) return 0
+        var bps = 0
+        for (i in 0 until extensions.length()) {
+            val e = extensions.optJSONObject(i) ?: continue
+            if (e.optString("extension", "") != "transferFeeConfig") continue
+            val st = e.optJSONObject("state") ?: continue
+            bps = maxOf(bps, st.optJSONObject("newerTransferFee")?.optInt("transferFeeBasisPoints", 0) ?: 0,
+                st.optJSONObject("olderTransferFee")?.optInt("transferFeeBasisPoints", 0) ?: 0)
+        }
+        return bps
+    }
 
     /** A missing parsed field is unknown, not a revoked authority. Only mint accounts can prove mint safety. */
     internal fun parseAccountProof8253(value: JSONObject, provider: String): Proof? {
@@ -43,7 +59,8 @@ object OnChainMintAuthorityProof7248 {
         if (listOf(mintAuth, freezeAuth).any { it != JSONObject.NULL && (it !is String || it.isBlank()) }) return null
         return Proof(mintAuth == JSONObject.NULL, freezeAuth == JSONObject.NULL, provider,
             hostileExtension8123(info.optJSONArray("extensions")), mutableExtension8136(info.optJSONArray("extensions")),
-            classicToken8928 = owner == "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
+            classicToken8928 = owner == "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+            transferFeeBps8936 = transferFeeBps8936(info.optJSONArray("extensions")))
     }
 
     /**

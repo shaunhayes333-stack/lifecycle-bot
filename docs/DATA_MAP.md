@@ -2673,3 +2673,15 @@ idle at the dump. TuningActivity.renderAll ran StrategyTelemetry.computeLeaderbo
 path reads up to 2,500 closed trades and sanitises each), the one heavy read left on that thread after V5.9.1332 moved the lane
 replay off it. The leaderboard is now computed the same way: a daemon thread, at most every 12 s, renderAll reads the cached
 board. 8934's code ships unchanged in 8935.
+
+## 124. Clean Token-2022 mints on the careful path (8936)
+
+22 Nov 13:59 capture (8932, 2.2 h up): the careful explore path (8928, agreement pocket at $10k-$20k) bought nothing; its top
+refusal was 8928's own classic-SPL requirement (252), ahead of NOT_IN_POCKET (229) and NO_TAPE_POOL_TOO_YOUNG (49). The owner
+never asked for classic SPL only, and many of the pocket's coins are Token-2022 mints with only metadata extensions.
+ExploreLive8733.tokenRefusal8936 now names each refusal: NO_MINT_PROOF, MINT_AUTHORITY_LIVE, FREEZE_AUTHORITY_LIVE, then — for a
+Token-2022 mint only — TOKEN2022_HOSTILE_EXTENSION (OnChainMintAuthorityProof7248.hostileExtension8123: permanent delegate,
+pause, transfer hook, frozen default state, non-transferable), TOKEN2022_MUTABLE_EXTENSION (mutableExtension8136: a live fee or
+hook authority) and TOKEN2022_TRANSFER_FEE (Proof.transferFeeBps8936 > 0, the larger of the older / newer fee). A classic SPL
+mint and a clean Token-2022 mint pass; mint and freeze authority must be revoked on both, as before. RugCheck, the LP rule, the
+pocket, the flow test, 1 open / 6 a day / 0.05 SOL and the LP-pull exit are unchanged. The reasons read in explore8733 asked{}.

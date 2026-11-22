@@ -146,13 +146,33 @@ object ExploreLive8733 {
         return buys.first > buys.second && pos > neg
     }
 
+    /**
+     * Pure (V5.0.8936): why [proof]'s token may not be bought on this path, or null when it may. 22 Nov 13:59 capture (8932, 2.2 h
+     * up): 252 of the path's refusals were 8928's classic-only mint refusal and it bought nothing that run. 8928 asked for a
+     * classic SPL mint, which the owner never asked for, and the agreement pocket's coins (off pump.fun: Meteora DBC, Bags,
+     * LaunchLab, the newer pump.fun mints) are often Token-2022 with only metadata extensions. Now a Token-2022 mint passes
+     * when the proof reads nothing that can trap a holder (OnChainMintAuthorityProof7248.hostileExtension8123: permanent
+     * delegate, pause, transfer hook, frozen default state, non-transferable), nothing a live authority can still change
+     * (mutableExtension8136), and no transfer fee at all; mint and freeze authority revoked as before. Each refusal is named.
+     */
+    internal fun tokenRefusal8936(proof: OnChainMintAuthorityProof7248.Proof?): String? = when {
+        proof == null -> "NO_MINT_PROOF"
+        !proof.mintAuthorityDisabled -> "MINT_AUTHORITY_LIVE"
+        !proof.freezeAuthorityDisabled -> "FREEZE_AUTHORITY_LIVE"
+        proof.classicToken8928 -> null
+        proof.hostileExtension8123 != null -> "TOKEN2022_HOSTILE_EXTENSION"
+        proof.mutableExtension8136 != null -> "TOKEN2022_MUTABLE_EXTENSION"
+        proof.transferFeeBps8936 > 0 -> "TOKEN2022_TRANSFER_FEE"
+        else -> null
+    }
+
     /** PreTradeHardGate: may [ts]'s unread LP ownership be bought at explore size now? */
     fun eligible8733(ts: TokenState, nowMs: Long): Boolean {
         if (!ENABLED_8736) return false
         if (!withinBudget8733(openCount8733(), spentToday8733(nowMs))) { why8928("BUDGET"); return false }
         val lane = AgreementPocket8874.provenLaneFor8928(ts, CAP_LO_USD_8928, nowMs) ?: run { why8928("NOT_IN_POCKET"); return false }
         val proof = try { OnChainMintAuthorityProof7248.resolve(ts.mint, liveGate8094 = true) } catch (_: Throwable) { null }
-        if (proof == null || !proof.classicToken8928 || !proof.mintAuthorityDisabled || !proof.freezeAuthorityDisabled) { why8928("NOT_CLASSIC_OR_AUTHORITY"); return false }
+        tokenRefusal8936(proof)?.let { why8928(it); return false }
         val flow = try { com.lifecyclebot.engine.market.BuyerFlow8666.read(ts.mint, nowMs) } catch (_: Throwable) { null }
         val holders = ts.holderGrowthRate.takeIf { ts.holderDataResolved && it.isFinite() }
         if (flow != null) {
@@ -202,7 +222,7 @@ object ExploreLive8733 {
         return "explore8733[buys=${allowed.get()} today=${spentToday8733(now)}/$MAX_PER_DAY_8733 open=${openCount8733()}/$MAX_OPEN_8733 " +
             "maxSol=$MAX_SOL_8733 refusedSize=${refusedSize.get()} refusedBudget=${refusedBudget.get()} lastCell=${lastCell.ifBlank { "-" }} " +
             "asked{${why8928.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}} " +
-            "rule=8928: unread LP (never unlocked/under-lock), RugCheck reported, agreement pocket at \$10k-\$20k, classic SPL mint, " +
+            "rule=8928: unread LP (never unlocked/under-lock), RugCheck reported, agreement pocket at \$10k-\$20k, mint + freeze revoked, a classic SPL or clean Token-2022 mint (8936), " +
             "buying rising + holders growing + more positive signs than negative (the live tape, else the pool's DexScreener counts, 8929); 1 open, 6/day, <= 0.05 SOL; LP-pull exit armed]"
     }
 }

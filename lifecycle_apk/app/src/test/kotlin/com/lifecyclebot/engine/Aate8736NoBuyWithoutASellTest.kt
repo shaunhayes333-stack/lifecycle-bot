@@ -36,8 +36,9 @@ class Aate8736NoBuyWithoutASellTest {
         assertTrue(sign in 0 until sell && sell < send)
         val explore = File("src/main/kotlin/com/lifecyclebot/engine/truth/ExploreLive8733.kt").readText()
         // superseded by V5.0.8928 (owner 22 Nov 02:52): back on for the agreement pocket only, with every Jupiter buy's sell
-        // already proven above (8736) and a classic SPL mint required on this path
+        // already proven above (8736); since V5.0.8936 a classic SPL or a clean Token-2022 mint (no trap, no mutable extension,
+        // no transfer fee), mint and freeze authority revoked
         assertTrue(explore.contains("private const val ENABLED_8736 = true") && explore.contains("if (!ENABLED_8736) return false"))
-        assertTrue(explore.contains("if (proof == null || !proof.classicToken8928 || !proof.mintAuthorityDisabled || !proof.freezeAuthorityDisabled)"))
+        assertTrue(explore.contains("tokenRefusal8936(proof)?.let { why8928(it); return false }"))
     }
 }
