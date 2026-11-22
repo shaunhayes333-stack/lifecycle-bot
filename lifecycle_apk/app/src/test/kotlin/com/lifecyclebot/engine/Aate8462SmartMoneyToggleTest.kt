@@ -70,6 +70,6 @@ class Aate8462SmartMoneyToggleTest {
         val ws = src("network/PumpFunWS.kt")
         assertTrue(ws.contains("tradeFramesSinceConnect8182.incrementAndGet()\n                        lastTradeFrameMs8462 = System.currentTimeMillis()"))
         // the curve tape's decoded trades carry the trader wallet to the whale tracker (emitHeliusCurve8354 -> detail callback)
-        assertTrue(tape.contains("PumpFunWS.emitHeliusCurve8354(mint, priceSol, mcapSol, ev.isBuy, ev.user, ev.sol, ev.virtualSol)"))
+        assertTrue(tape.contains("PumpFunWS.emitHeliusCurve8354(mint, priceSol, mcapSol, ev.isBuy, ev.user, ev.sol, vSolIn8952)"))   // V5.0.8952
     }
 }

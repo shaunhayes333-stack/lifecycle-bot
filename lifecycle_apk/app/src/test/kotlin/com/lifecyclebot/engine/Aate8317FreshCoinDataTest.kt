@@ -258,7 +258,7 @@ class Aate8317DataHolesTest {
         assertFalse(PumpFunWS.capBlocks8317(cap - 1, held = false, setupWatched = false))
         val ws = src("network/PumpFunWS.kt")
         val frame = ws.substringAfter("private fun noteTradeFrame8192(").substringBefore("fun costLine8192()")
-        assertTrue(frame.contains("if (!dropLaunch8317(held, setupWatched8191(mint, now), mintFrames, today)) return"))
+        assertTrue(frame.contains("if (!dropLaunch8317(held, setupWatched8191(mint, now) || deservingNow8952(mint, now), mintFrames, today)) return"))   // V5.0.8952
         val metered = ws.substringAfter("private fun meteredSubAllowed8193(").substringBefore("private fun registerFreshLifecycle7420(")
         assertTrue(metered.contains("capBlocks8317(framesByMint8192[mint]?.get() ?: 0L, mint in heldMints8192, setup8317 || setupWatched8191(mint, now))"))
         assertTrue(metered.contains("launchSubAllowed8192(framesToday8192.get())"))                 // the daily budget still binds

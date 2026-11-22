@@ -153,6 +153,8 @@ object CurveReserves7951 {
     private fun put(mint: String, vSol: Double, vTok: Double, real: Double, atMs: Long, accountObserved: Boolean): AcceptedObservation8385? {
         val m = mint.trim()
         if (!PumpCurveKeys7269.isPumpMint8658(m) || atMs <= 0L) return null
+        // V5.0.8952 — a curve quoted in USDC or another pump.fun coin is not a 30-SOL curve: its reserves are not lamports
+        if (com.lifecyclebot.network.QuoteTruth8952.nonSol8952(m)) { com.lifecyclebot.network.QuoteTruth8952.noteCurveRefused8952(); return null }
         if (rows.size >= MAX_MINTS && !rows.containsKey(m)) trim(atMs)
         val r = rows.computeIfAbsent(m) { Row(vSol, vTok, real, 0L, accountObserved) }
         val accepted = synchronized(r) {
@@ -174,8 +176,36 @@ object CurveReserves7951 {
         }
         try { com.lifecyclebot.engine.HydrationReeval8343.onCurveRead8343(m, real, atMs) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.TicketRetry8327.onReserveObserved8385(m, accepted.atMs, accepted.source, accepted.version) } catch (_: Throwable) {}
+        if (accountObserved) try { capFromCurve8952(m, vSol, vTok, atMs) } catch (_: Throwable) {}   // V5.0.8952
         return accepted
     }
+
+    /**
+     * V5.0.8952 §THE_CURVE_PRICES_ITS_OWN_CAP — owner, 23 Nov 00:14: "do all above now" (the cap the lanes read). Measured on
+     * the owner's 22 Nov dataset: 17,137 pump.fun reads with a live curve reading, the cap the lanes read against the cap the
+     * curve gives (pump.fun's invariant, real SOL from the curve progress, SOL $70): within 15 % on 62.2 %, 2x+ HIGH on 17.6 %,
+     * 1.15-2x high on 12.9 %, low on 7.3 %; on the first tenth of the curve only 57.0 % agreed. A coin on an active curve
+     * has its cap from the curve: an ACCOUNT read of the curve (the chain itself, not a relayed stream frame) writes the cap
+     * at CHAIN rank — the curve's spot price x the mint account's verified supply (MintSupply8418; unread supply: no write)
+     * — so for the chain hold (TokenFacts.PRICE_CHAIN_HOLD_MS) no provider's cap replaces it; at most once per
+     * [CAP_GAP_MS_8952] per coin, never for a graduated curve.
+     */
+    private const val CAP_GAP_MS_8952 = 2_000L
+    private val capAt8952 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val capWritten8952 = java.util.concurrent.atomic.AtomicLong(0L)
+    private fun capFromCurve8952(mint: String, vSol: Double, vTok: Double, atMs: Long) {
+        if (atMs - (capAt8952[mint] ?: 0L) < CAP_GAP_MS_8952) return
+        if (try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(mint) } catch (_: Throwable) { false }) return
+        val ts = try { com.lifecyclebot.engine.HandoffRoute8180.tokenFor8180(mint) } catch (_: Throwable) { null } ?: return
+        val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        val supply = try { MintSupply8418.wholeOrRequest8418(mint) } catch (_: Throwable) { 0.0 }
+        val mcap = mcapUsdFromCurve8399(vSol, vTok, solUsd, supply)
+        if (!mcap.isFinite() || mcap <= 0.0) return
+        if (capAt8952.size > 6_000) capAt8952.entries.removeIf { atMs - it.value > 10L * 60_000L }
+        capAt8952[mint] = atMs
+        if (TokenFacts.writeSnapshot(ts, TokenFacts.Field.MCAP_USD, mcap, "CURVE_CAP_8952", TokenFacts.Rank.CHAIN, atMs)) capWritten8952.incrementAndGet()
+    }
+    fun capWritten8952(): Long = capWritten8952.get()
 
     private fun trim(nowMs: Long) {
         rows.entries.removeIf { nowMs - it.value.atMs > CURVE_TTL_MS }

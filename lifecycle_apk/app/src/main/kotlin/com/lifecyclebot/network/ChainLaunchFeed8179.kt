@@ -122,6 +122,10 @@ object ChainLaunchFeed8179 {
         val virtualTokens: Double,
         val realSol: Double,
         val realTokens: Double,
+        /** V5.0.8952 — the curve's quote: "SOL", "USDC" or "PUMP" (a pump.fun coin); SOL-side fields are SOL either way. */
+        val quote8952: String = QuoteTruth8952.SOL,
+        /** V5.0.8952 — the quote mint the event named ("" for an event older than the quote-mint upgrade). */
+        val quoteMint8952: String = "",
     )
 
     const val WSOL_8179 = SolanaSwapEvidence8506.WSOL
@@ -411,14 +415,20 @@ object ChainLaunchFeed8179 {
      * Pure: pump.fun's TradeEvent — discriminator(8) mint(32) sol_amount u64 token_amount u64 is_buy u8 user(32)
      * timestamp i64 virtual_sol_reserves u64 virtual_token_reserves u64 [real_sol_reserves u64 real_token_reserves u64].
      * Null for any other event or a short buffer.
+     * V5.0.8952 — the quote-mint tail is read too ([QuoteTruth8952.tail8952]); a curve quoted in USDC or in another pump.fun
+     * coin has its quote-side amounts and reserves converted to SOL ([quoteSol8952]: SOL per whole quote unit, NaN when the
+     * quote has no price now). An unpriced non-SOL curve returns null: its amounts are not SOL and are never read as SOL.
      */
-    fun decodeTradeEvent8179(b: ByteArray): TradeEvent8179? {
+    fun decodeTradeEvent8179(b: ByteArray): TradeEvent8179? = decodeTradeEvent8952(b) { q -> QuoteTruth8952.quoteSolLive8952(q) }
+
+    /** Pure core of [decodeTradeEvent8179] with the quote pricer given. */
+    fun decodeTradeEvent8952(b: ByteArray, quoteSol8952: (String) -> Double): TradeEvent8179? {
         if (b.size < 113) return null
         for (i in 0 until 8) if (b[i] != TRADE_EVENT_DISC_8179[i]) return null
         val mint = try { io.github.novacrypto.base58.Base58.base58Encode(b.copyOfRange(8, 40)) } catch (_: Throwable) { return null }
         val user = try { io.github.novacrypto.base58.Base58.base58Encode(b.copyOfRange(57, 89)) } catch (_: Throwable) { "" }
         val hasReal = b.size >= 129
-        return TradeEvent8179(
+        val base = TradeEvent8179(
             mint = mint,
             sol = u64At8179(b, 40) / 1e9,
             tokens = u64At8179(b, 48) / 1e6,
@@ -430,13 +440,37 @@ object ChainLaunchFeed8179 {
             realSol = if (hasReal) u64At8179(b, 113) / 1e9 else Double.NaN,
             realTokens = if (hasReal) u64At8179(b, 121) / 1e6 else Double.NaN,
         )
+        val tail = QuoteTruth8952.tail8952(b) ?: return base.also { QuoteTruth8952.noteLayout8952(legacy = true) }
+        QuoteTruth8952.noteLayout8952(legacy = false)
+        val kind = QuoteTruth8952.kind8952(tail.quoteMint)
+        if (kind == QuoteTruth8952.SOL) {
+            // a SOL curve traded through the v2 instructions: the quote fields carry the lamports when the SOL fields do not
+            if (base.sol > 0.0 || !(tail.quoteAmount > 0.0)) return base.copy(quoteMint8952 = tail.quoteMint)
+            return base.copy(sol = tail.quoteAmount / 1e9, virtualSol = tail.virtualQuote / 1e9,
+                realSol = tail.realQuote / 1e9, quoteMint8952 = tail.quoteMint)
+        }
+        val dec = QuoteTruth8952.decimals8952(kind)
+        val pxSol = if (dec < 0) Double.NaN else try { quoteSol8952(tail.quoteMint) } catch (_: Throwable) { Double.NaN }
+        val priced = pxSol.isFinite() && pxSol > 0.0
+        QuoteTruth8952.noteQuote8952(kind, priced)
+        val unit = Math.pow(10.0, dec.coerceAtLeast(0).toDouble())
+        val out = if (!priced) null else base.copy(
+            sol = tail.quoteAmount / unit * pxSol,
+            virtualSol = tail.virtualQuote / unit * pxSol,
+            realSol = tail.realQuote / unit * pxSol,
+            quote8952 = kind, quoteMint8952 = tail.quoteMint,
+        )
+        QuoteTruth8952.noteNonSol8952(mint, kind, out?.let { it.virtualSol / it.virtualTokens } ?: Double.NaN)
+        return out
     }
 
     /** V5.0.8840 — sha256("event:CreateEvent")[0..8] (pump.fun IDL). */
     private val CREATE_EVENT_DISC_8840 = byteArrayOf(27, 114, 169.toByte(), 77, 222.toByte(), 235.toByte(), 99, 118)
 
     /** V5.0.8840 — the leading fields of pump.fun's CreateEvent this bot reads. */
-    data class CreateEvent8840(val name: String, val symbol: String, val uri: String, val mint: String, val bondingCurve: String, val user: String)
+    data class CreateEvent8840(val name: String, val symbol: String, val uri: String, val mint: String, val bondingCurve: String, val user: String,
+                              /** V5.0.8952 — the coin's quote mint at birth ("" when the event predates it). */
+                              val quoteMint8952: String = "")
 
     /**
      * Pure (V5.0.8840): pump.fun's CreateEvent — discriminator(8) name string, symbol string, uri string (borsh: u32
@@ -457,7 +491,11 @@ object ChainLaunchFeed8179 {
         if (off + 96 > b.size) return null
         fun key(): String? = try { io.github.novacrypto.base58.Base58.base58Encode(b.copyOfRange(off, off + 32)).also { off += 32 } } catch (_: Throwable) { null }
         val mint = key() ?: return null; val curve = key() ?: return null; val user = key() ?: return null
-        return CreateEvent8840(name, symbol, uri, mint, curve, user)
+        // V5.0.8952 — creator(32) timestamp, virtual_token, virtual_sol, real_token, total_supply (u64 x5) token_program(32)
+        // is_mayhem_mode u8 is_cashback_enabled u8, then quote_mint(32)
+        val q = off + 32 + 40 + 32 + 2
+        val quote = if (b.size >= q + 32) try { io.github.novacrypto.base58.Base58.base58Encode(b.copyOfRange(q, q + 32)) } catch (_: Throwable) { "" } else ""
+        return CreateEvent8840(name, symbol, uri, mint, curve, user, quote)
     }
 
     /** Pure (V5.0.8840): a "Program data: <base64>" log line decoded as a CreateEvent, or null. */

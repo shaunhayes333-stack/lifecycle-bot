@@ -297,6 +297,8 @@ object RunTape8293 {
             return false
         }
         evidence[mint] = run
+        // V5.0.8952 — a runner forming earns pump.fun's own per-trade stream (selective, budgeted; owner 23 Nov 00:31)
+        try { com.lifecyclebot.network.PumpFunWS.deserve8952(mint, "RUN_FORMING", nowMs) } catch (_: Throwable) {}
         val symbol = ts?.symbol?.takeIf { it.isNotBlank() } ?: mint.take(6)
         val mcap = ts?.lastMcap?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
         val launchAge = try { com.lifecyclebot.network.PumpCurveKeys7269.createdAtMs7280(mint)?.let { nowMs - it } } catch (_: Throwable) { null }

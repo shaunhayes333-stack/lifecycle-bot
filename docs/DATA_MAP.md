@@ -2940,3 +2940,33 @@ NATIVE_MCAP_UNHYDRATED_DEFER 262 + 230 + 144, DATA_INCOMPLETE_DEFER_8136 1,018, 
   and direction, before any change of the cap's authority.
 Not in this build: paper equity's stale last-good marks (STALE_MARK_PROFIT_WITHHELD_7160, paper positions), label marks for
 learning (1,284 of 1,744 unpriced), the crypto desks' own feeds.
+
+## 140. pump.fun read in its own units; the paid tape for deserving coins only (8952)
+
+Owner, 23 Nov 00:14: "do all above now" (the cap the lanes read); 00:18: "pumpfun can literally provide the data for pumpfun
+coins ... only subscribe to coins it genuinely thinks are deserving not a blanket open feed. deep learn the full pumpfun and
+pumpswap world"; 00:31: "add runner sensitive token streaming to the selective list". Sources read: pump-fun/pump-public-docs
+(README, CREATE_WITH_PUMP_COIN_QUOTE), the Pump Developer Updates channel (posts 32-48), the program IDLs as Helius parses them.
+- The cap from the curve (CurveReserves7951.capFromCurve8952): an account read of an active curve writes MCAP_USD at CHAIN
+  rank (curve price x verified mint supply x SOL/USD; source CURVE_CAP_8952, at most every 2 s). CapTruth8951's measured
+  disagreement (17.6 % of reads 2x+ high, 12.9 % 1.15-2x high, 7.3 % low) now asks the curve account for that coin.
+- Quote mints (QuoteTruth8952): since 21 May 2026 a pump.fun coin can be paired with USDC, and since the depth-1 / depth-2
+  releases with an earlier pump.fun coin. The TradeEvent's quote tail (quote_mint, quote_amount, virtual / real quote
+  reserves, after ix_name and shareholders) is decoded; a USDC curve's amounts are converted with SOL/USD, a pump-coin quote's
+  with that coin's own chain price; an unpriced quote is dropped, never read as lamports. The 30-SOL curve math
+  (CurveReserves7951) refuses a non-SOL curve; the CreateEvent's quote_mint marks one at birth; PumpPortal frames of a
+  non-SOL curve are not read as SOL. curveTape8354 shows quoteTruth8952{events{quoteLayout legacyLayout} nonSol{kind:priced}}
+  and malformed{reason=n} (ZERO_QUOTE / ZERO_TOKENS / ZERO_RESERVES / PRICE / EXEC_VS_RESERVES_<quote> / OUT_OF_BAND).
+- PumpSwap (PoolVirtualQuote8952): since 21 Jul 2026 a pool prices on vault + virtual_quote_reserves (i128, can be negative).
+  The events were decoded that way (8870); the vault-balance read (OnChainDepth8038) now adds the pool's latest virtual quote
+  from its own swap events. poolVirtualQuote8952{nonZero negative vaultReadsAdjusted vaultReadsNoEventYet}.
+- Selective paid tape (PumpFunWS.deserve8952): with the blanket switch off and a working key, LIVE only, PumpPortal's
+  per-trade stream carries HELD coins, armed LAUNCH_RULE fires (LaunchSniper8748), PROVEN_WAIT coins (EvidenceWait8948),
+  RUN_FORMING (RunTape8293, past safety and stand-down) and RUN_FOLLOWED (RunnerPlay8018) coins; at most 16 at once, 15 min
+  from the latest reason (held: while held), inside the persisted 100k-frame day budget (new ones stop at 80 %). A lapsed
+  coin is unsubscribed on its next frame. The Helius program tape keeps running beside it. selective8952[...] in the
+  PumpPortal status shows live / byReason / asked / subscribed / frames / released / skipped.
+- Checked, no change: AATE builds pump.fun trades through PumpPortal trade-local and Jupiter, which carry the fee-recipient
+  changes (new protocol recipients from 25 Nov); the per-trade price used for the tape already uses each event's reserves.
+Not in this build: the PumpSwap pool account's own virtual_quote_reserves offset (not published where it could be read); the
+vault-history price (ChainHistoryMark8541) still reads the raw vault ratio.

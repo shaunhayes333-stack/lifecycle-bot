@@ -170,6 +170,8 @@ object RunnerPlay8018 {
         }
         if (ts.safety.tier == SafetyTier.HARD_BLOCK) return
         if (try { MayhemMode7943.liveRefusal(ts, nowMs) } catch (_: Throwable) { null } != null) return
+        // V5.0.8952 — a followed coin confirming its run earns pump.fun's own per-trade stream (selective, budgeted)
+        try { com.lifecyclebot.network.PumpFunWS.deserve8952(mint, "RUN_FOLLOWED", nowMs) } catch (_: Throwable) {}
         val firming = RunnerGrab7967.runStandingNow8019(mint, nowMs)  // V5.0.8019 — firming or standing with buyers
         if (!confirmsRun8018(gross, runAgeMs, firming, ts.position.isOpen)) { if (!firming) notFirming.incrementAndGet(); return }
         if (armed.size > 2_000) { armed.entries.removeIf { nowMs - it.value > SEEN_MS }; windows8297.keys.retainAll(armed.keys); firstArmed8297.keys.retainAll(armed.keys); closedAt8297.keys.retainAll(armed.keys) }

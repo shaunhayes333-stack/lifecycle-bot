@@ -76,6 +76,7 @@ object EvidenceWait8948 {
         w.causes = causes.joinToString("+").take(48).ifBlank { "UNNAMED" }
         ask8948(ts, nowMs)
         try { ChainConfirm8950.confirm8950(ts, causes, "EVIDENCE", nowMs) } catch (_: Throwable) {}   // V5.0.8950 — each named input on chain
+        try { com.lifecyclebot.network.PumpFunWS.deserve8952(mint, "PROVEN_WAIT", nowMs) } catch (_: Throwable) {}   // V5.0.8952 — its own prints, live
         if (direct8948(w.directMs, nowMs)) {
             w.directMs = nowMs
             directs.incrementAndGet()

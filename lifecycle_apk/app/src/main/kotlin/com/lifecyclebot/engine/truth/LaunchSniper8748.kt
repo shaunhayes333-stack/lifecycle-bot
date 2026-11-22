@@ -272,6 +272,8 @@ object LaunchSniper8748 {
         } catch (_: Throwable) {}
         // V5.0.8949 — and the coin's full pipeline runs now, not when the loop's rotation reaches it
         try { onArmed8949?.let { it(f.mint); runs8949.incrementAndGet() } } catch (_: Throwable) {}
+        // V5.0.8952 — an armed fire earns the coin pump.fun's own per-trade stream (selective, budgeted)
+        try { com.lifecyclebot.network.PumpFunWS.deserve8952(f.mint, "LAUNCH_RULE") } catch (_: Throwable) {}
     }
 
     /**

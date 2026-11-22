@@ -463,7 +463,12 @@ object OnChainDepth8038 {
             unsupportedByVenue8418.computeIfAbsent(venueName8418(owner8418) + "_NOT_COIN_SOL") { AtomicLong(0) }.incrementAndGet()
             return Accept8418.NOT_COIN_SOL
         }
-        val read = Read(p, sides.first, sides.second, observedAt)
+        // V5.0.8952 — a PumpSwap pool prices on its effective quote (vault + virtual_quote_reserves, pump.fun 21 Jul 2026)
+        val quoteSol8952 = if (owner8418 == PUMP_AMM) com.lifecyclebot.network.PoolVirtualQuote8952.effectiveSol8952(p, sides.first) ?: run {
+            unsupportedByVenue8418.computeIfAbsent("PUMP_AMM_EFFECTIVE_QUOTE_NONPOSITIVE_8952") { AtomicLong(0) }.incrementAndGet()
+            return Accept8418.NOT_COIN_SOL
+        } else sides.first
+        val read = Read(p, quoteSol8952, sides.second, observedAt)
         if (concentrated8418(owner8418)) {
             // V5.0.8418 — the spot price from pool state (layout-proved; tagged with its source), never the vault ratio.
             if (priceInState8418(owner8418)) recordStatePrice8418(mint, p, owner8418, acctA, acctB, poolAcct, observedAt)
@@ -858,7 +863,7 @@ object OnChainDepth8038 {
         "emptyCurveRefused=${emptyCurveRefused8046.get()} launchCapRefused=${launchCapRefused8047.get()} earlyRefused8048=${earlyRefused8048.get()} last=[$lastRefusal8047] " +
             "poolDepthAsked=${poolDepthAsked8047.get()} curves[asked=${curveRequested.get()} read=${curveRead.get()} queued=${refresh8385.size}] verified=${verified.get()} unverified=${unverified.get()} refused[liquidity=${liqContradicted.get()} price=${priceCollapsed.get()}] " +
             "reads=${fetched.get()} failed=${failed.get()} pools=${vaultsOf.size} unsupportedPools=${unsupported.size} " +
-            "statePrices8418=${ConcentratedPrice8418.size8418()} batch8418[${PoolBatch8418.statusLine8418()}] unsupportedByVenue8418={${unsupportedByVenue8418.entries.sortedByDescending { it.value.get() }.take(8).joinToString(",") { "${it.key}=${it.value.get()}" }}} depthOnly8418=${depthOnlyReads8418.size} " +
+            "${com.lifecyclebot.network.PoolVirtualQuote8952.statusLine8952()} statePrices8418=${ConcentratedPrice8418.size8418()} batch8418[${PoolBatch8418.statusLine8418()}] unsupportedByVenue8418={${unsupportedByVenue8418.entries.sortedByDescending { it.value.get() }.take(8).joinToString(",") { "${it.key}=${it.value.get()}" }}} depthOnly8418=${depthOnlyReads8418.size} " +
             "venues=PumpSwap,RaydiumV4,RaydiumCPMM,RaydiumCLMM(depth),MeteoraDLMM(depth),MeteoraDAMMv2(depth),OrcaWhirlpool(depth) unknownDepth=MeteoraDAMMv1,other rule=refuse when API depth >=${CONTRADICTION_MULT_8038.toInt()}x chain or chain price ${(PRICE_DROP_TOLERANCE_8038 * 100).toInt()}%+ under the buy price"
 }
 

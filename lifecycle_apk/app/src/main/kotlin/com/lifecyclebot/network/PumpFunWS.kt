@@ -99,7 +99,7 @@ object PumpFunWS {
         (60_000L shl (denials - 1).coerceIn(0L, 4L).toInt()).coerceAtMost(AUTH_REPROBE_MS_8094)
 
     private fun maybeReprobeAuth8094(nowMs: Long = System.currentTimeMillis()) {
-        if (!tradeStreamEnabled8354) return   // V5.0.8354 — the metered stream is off: its denial is never re-probed
+        if (!tradeStreamEnabled8354 && !SELECTIVE_8952) return   // V5.0.8354 / 8952 — no metered stream wanted: never re-probed
         refreshKey8181(nowMs)
         if (apiKey7284.isBlank() || !authReprobeDue8094(tradeAuthDenied7432.get(), tradeAuthDeniedAtMs8094, nowMs,
                 reprobeDelayMs8182(authDenials8182.get()))) return
@@ -456,6 +456,116 @@ object PumpFunWS {
 
     private fun tradeStreamKeyed7284(): Boolean = tradeStreamEnabled8354 && apiKey7284.isNotBlank() && !tradeAuthDenied7432.get()   // V5.0.8354 — opt-in
 
+    // ── V5.0.8952 §THE_PAID_TAPE_GOES_TO_THE_COINS_THAT_EARN_IT ──
+    //
+    // Owner, 23 Nov 00:18 / 00:31: "pumpfun can literally provide the data for pumpfun coins ... it costs money so only
+    // subscribe to coins it genuinely thinks are deserving not a blanket open feed" and "add runner sensitive token streaming
+    // to the selective list. when it identifies a runner forming or is following one sub to the token". The blanket stream
+    // (every fresh launch, every setup ask) stays behind the 8354 switch. With the switch OFF and a working key, PumpPortal's
+    // per-trade stream (subscribeTokenTrade, metered 0.01 SOL per 10k frames) carries ONLY the coins that earned it:
+    //   HELD            a held pump.fun position (its exits read every print);
+    //   LAUNCH_RULE     an armed fire of the launch replay's proven rule (LaunchSniper8748);
+    //   PROVEN_WAIT     a proven-evidence coin waiting on its data (EvidenceWait8948);
+    //   RUN_FORMING     the run tape detected a runner forming (RunTape8293: base break or run, past safety and stand-down);
+    //   RUN_FOLLOWED    a coin the bot followed confirmed its run (RunnerPlay8018).
+    // At most [DESERVE_MAX_8952] at once (the eldest non-held reason leaves first), each for [DESERVE_TTL_MS_8952] from its
+    // latest reason (a held coin for as long as it is held), inside the persisted daily frame budget (new subscriptions stop
+    // at 80 %, held coins keep the rest). A lapsed coin is unsubscribed on its next frame. The Helius program tape is never
+    // stood down for this set (that needs the blanket switch): both tapes write, the dedup keys drop the second copy.
+    private const val SELECTIVE_8952 = true
+    private const val DESERVE_MAX_8952 = 16
+    private const val DESERVE_TTL_MS_8952 = 15L * 60_000L
+    private val deserving8952 = java.util.concurrent.ConcurrentHashMap<String, Pair<String, Long>>()   // mint -> (reason, at)
+    private val deserveAsked8952 = java.util.concurrent.ConcurrentHashMap<String, AtomicLong>()
+    private val deserveSubscribed8952 = java.util.concurrent.ConcurrentHashMap<String, AtomicLong>()
+    private val deserveFrames8952 = AtomicLong(0L)
+    private val deserveReleased8952 = AtomicLong(0L)
+    private val deserveSkippedBudget8952 = AtomicLong(0L)
+    private val deserveSkippedNoKey8952 = AtomicLong(0L)
+    private val deservePaper8952 = AtomicLong(0L)
+
+    /** Keyed for any metered use: the blanket switch, or the selective set (V5.0.8952). */
+    private fun keyedAny8952(): Boolean =
+        (tradeStreamEnabled8354 || SELECTIVE_8952) && apiKey7284.isNotBlank() && !tradeAuthDenied7432.get()
+
+    private fun selectiveKeyed8952(): Boolean = !tradeStreamEnabled8354 && SELECTIVE_8952 && apiKey7284.isNotBlank() && !tradeAuthDenied7432.get()
+
+    /** Pure: is a deserving entry taken at [atMs] still live at [nowMs] ([held] never lapses)? */
+    internal fun deservingLive8952(atMs: Long, nowMs: Long, held: Boolean): Boolean = held || (atMs > 0L && nowMs - atMs in 0L..DESERVE_TTL_MS_8952)
+
+    /** Pure: the deserving mints to release to admit [mint]: lapsed first, then the eldest non-held while over [cap]. */
+    internal fun deserveEvictions8952(set: Map<String, Long>, mint: String, nowMs: Long, cap: Int, held: (String) -> Boolean): List<String> {
+        val lapsed = set.filter { it.key != mint && !deservingLive8952(it.value, nowMs, held(it.key)) }.keys
+        val live = set.filter { it.key != mint && it.key !in lapsed }
+        val over = (live.size + (if (set.containsKey(mint)) 0 else 1) - cap).coerceAtLeast(0)
+        return lapsed.toList() + live.filter { !held(it.key) }.entries.sortedBy { it.value }.take(over).map { it.key }
+    }
+
+    private fun deservingNow8952(mint: String, nowMs: Long): Boolean =
+        deserving8952[mint]?.let { deservingLive8952(it.second, nowMs, mint in heldMints8192) } == true
+
+    private fun deservedFrame8952(mint: String) { if (deserving8952.containsKey(mint)) deserveFrames8952.incrementAndGet() }
+
+    /** A frame of a lapsed deserving coin (not held, setup-watched or a fresh lifecycle launch): it leaves the stream. */
+    private fun releaseDeserving8952(mint: String, nowMs: Long): Boolean {
+        val e = deserving8952[mint] ?: return false
+        if (deservingLive8952(e.second, nowMs, false)) return false
+        deserving8952.remove(mint)
+        if (setupWatched8191(mint, nowMs) || lifecycleMints7420.containsKey(mint)) return false
+        if (!tradeSubscriptions7278.remove(mint)) return false
+        try { ws?.send(JSONObject().put("method", "unsubscribeTokenTrade").put("keys", JSONArray().put(mint)).toString()) } catch (_: Throwable) {}
+        deserveReleased8952.incrementAndGet()
+        return true
+    }
+
+    /**
+     * [mint] earned PumpPortal's per-trade stream for [reason] (HELD / LAUNCH_RULE / PROVEN_WAIT / RUN_FORMING /
+     * RUN_FOLLOWED). True when it is on the stream after this call. Pump.fun coins only; never with the blanket switch on
+     * (that stream already carries them); never without a working key; never past the day's budget.
+     */
+    fun deserve8952(mint: String, reason: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        val m = mint.trim()
+        if (!PumpCurveKeys7269.isPumpMint8658(m) || QuoteTruth8952.nonSol8952(m)) return false
+        deserveAsked8952.computeIfAbsent(reason.take(16)) { AtomicLong(0L) }.incrementAndGet()
+        if (tradeStreamEnabled8354) return tradeSubscriptions7278.contains(m)
+        // paid data is spent on LIVE decisions only (paper never steers live, and never spends for it)
+        if (try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true }) { deservePaper8952.incrementAndGet(); return false }
+        if (!selectiveKeyed8952()) { deserveSkippedNoKey8952.incrementAndGet(); return false }
+        rollDay8192(nowMs)
+        val held = m in heldMints8192
+        if (!held && !launchSubAllowed8192(framesToday8192.get())) { deserveSkippedBudget8952.incrementAndGet(); return false }
+        val atMap = deserving8952.mapValues { it.value.second }
+        for (out in deserveEvictions8952(atMap, m, nowMs, DESERVE_MAX_8952) { it in heldMints8192 }) {
+            deserving8952.remove(out)
+            if (out in heldMints8192 || setupWatched8191(out, nowMs) || lifecycleMints7420.containsKey(out)) continue
+            if (tradeSubscriptions7278.remove(out)) {
+                try { ws?.send(JSONObject().put("method", "unsubscribeTokenTrade").put("keys", JSONArray().put(out)).toString()) } catch (_: Throwable) {}
+                deserveReleased8952.incrementAndGet()
+            }
+        }
+        // the newest reason renews the window (a held coin keeps HELD as its reason)
+        deserving8952[m] = (if (held) "HELD" else reason.take(16)) to nowMs
+        if (tradeSubscriptions7278.contains(m)) return true
+        if (admitForSubscribe8307(listOf(m), nowMs).isEmpty()) return false   // a migrated coin PumpPortal refuses: Helius carries it
+        if (!tradeSubscriptions7278.add(m)) return true
+        noteSubscribeFrame8307(listOf(m))
+        val sent = ws?.send(JSONObject().put("method", "subscribeTokenTrade").put("keys", JSONArray().put(m)).toString()) == true
+        if (sent) deserveSubscribed8952.computeIfAbsent(reason.take(16)) { AtomicLong(0L) }.incrementAndGet()
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc(if (sent) "PUMP_TRADE_DESERVED_8952_${reason.take(16)}" else "PUMP_TRADE_DESERVED_QUEUED_8952") } catch (_: Throwable) {}
+        return true   // a queued mint is sent by the next onOpen's re-arm
+    }
+
+    private fun selectiveLine8952(nowMs: Long = System.currentTimeMillis()): String {
+        val live = deserving8952.entries.filter { deservingLive8952(it.value.second, nowMs, it.key in heldMints8192) }
+        return "selective8952[on=${selectiveKeyed8952()} live=${live.size}/$DESERVE_MAX_8952 byReason{" +
+            live.groupingBy { it.value.first }.eachCount().entries.joinToString(",") { "${it.key}=${it.value}" }.ifBlank { "-" } +
+            "} asked{" + deserveAsked8952.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } +
+            "} subscribed{" + deserveSubscribed8952.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } +
+            "} frames=${deserveFrames8952.get()} released=${deserveReleased8952.get()} skippedBudget=${deserveSkippedBudget8952.get()} " +
+            "skippedNoKey=${deserveSkippedNoKey8952.get()} paperNotSpent=${deservePaper8952.get()} ttlMin=${DESERVE_TTL_MS_8952 / 60_000L} rule=with the blanket switch off, only " +
+            "held coins, armed launch-rule fires, proven-evidence waits, forming and followed runners take the paid per-trade stream]"
+    }
+
     // ── V5.0.8191 §THE_EVALUATED_COIN_GETS_THE_TAPE ──
     //
     // 5.0.8186: tape8169 held 9,768 prints (PumpPortal 9,263) while the setup features read swaps tape8100:NO_PRINTS
@@ -566,6 +676,7 @@ object PumpFunWS {
             "tradeFramesThisConnection8182=${tradeFramesSinceConnect8182.get()} tradeConfirmed8182=${if (tradeConfirmedAtMs8182 > 0L) "YES" else "NO"} " +
             "running=${running.get()} socket=${if (ws != null) "open" else "none"} reconnects=${reconnectAttempt.get()} " +
             "tradeStream=${if (!tradeStreamEnabled8354) "OFF_8354" else if (tradeAuthDenied7432.get()) "AUTH_DENIED" else if (tokenTradeStreamActive7432()) "OBSERVED" else if (tradeStreamKeyed7284()) "KEYED_UNVERIFIED" else "NO_KEY_LAUNCHES_ONLY"} " +
+            "${selectiveLine8952()} " +
             "off8354[lifecycleSkipped=${lifecycleSkippedOff8354.get()} setupRoutedHelius=${setupRoutedHelius8354.get()}] " +
             "setup8814[overflowToPump=${setupOverflow8814.get()} unserved=${setupUnserved8814.get()} topPct=$SETUP_TOP_PCT_8814] " +
             "${try { HeliusCurveTape8354.statusLine8354() } catch (_: Throwable) { "curveTape8354[unavailable]" }} " +
@@ -687,7 +798,10 @@ object PumpFunWS {
         if (framesByMint8192.size > 2_000) framesByMint8192.keys.retainAll(tradeSubscriptions7278 + heldMints8192)
         val mintFrames = framesByMint8192.computeIfAbsent(mint) { AtomicLong(0L) }.incrementAndGet()
         val held = mint in heldMints8192
-        if (!dropLaunch8317(held, setupWatched8191(mint, now), mintFrames, today)) return   // V5.0.8317 — setup watch exempt from the cap
+        deservedFrame8952(mint)
+        // V5.0.8952 — a selective (deserving) subscription leaves when its reason lapses
+        if (!held && !tradeStreamEnabled8354 && releaseDeserving8952(mint, now)) return
+        if (!dropLaunch8317(held, setupWatched8191(mint, now) || deservingNow8952(mint, now), mintFrames, today)) return   // V5.0.8317 / 8952 — setup watch and a deserving coin exempt from the cap
         if (today >= DAILY_FRAME_BUDGET_8192) {
             // Budget spent: everything but held positions leaves the stream until the UTC day rolls.
             val drop = (tradeSubscriptions7278 - heldMints8192).toList()
@@ -804,6 +918,8 @@ object PumpFunWS {
         // V5.0.8192 — held positions are exempt from the launch cap and the daily budget.
         heldMints8192.retainAll(wanted); heldMints8192.addAll(wanted)
         // V5.0.8354 — the metered stream is off: held mints are remembered (HeliusCurveTape8354's keep filter), no frame is built.
+        // V5.0.8952 — with the blanket switch off, a held pump.fun coin is the first coin that deserves the paid tape
+        if (!tradeStreamEnabled8354) for (m in wanted) try { deserve8952(m, "HELD") } catch (_: Throwable) {}
         if (!tradeStreamEnabled8354) { unsupportedTradeDemand7485.clear(); return }
 
         // V5.0.7485 — when token-trade capability is unavailable there is no
@@ -911,13 +1027,13 @@ object PumpFunWS {
     private fun connect() {
         if (!running.get()) return
         // V5.0.7284 — the key rides the connection URL, never a log line.
-        val url7284 = if (tradeStreamKeyed7284()) "$URL?api-key=${java.net.URLEncoder.encode(apiKey7284, "UTF-8")}" else URL
+        val url7284 = if (keyedAny8952()) "$URL?api-key=${java.net.URLEncoder.encode(apiKey7284, "UTF-8")}" else URL
         val req = Request.Builder().url(url7284).build()
         // V5.0.8182 — PumpPortal allows one connection: a socket being replaced is closed first, never left open beside it.
         ws?.let { old -> ws = null; try { old.close(1000, "replaced 8182") } catch (_: Throwable) {} }
         tradeFramesSinceConnect8182.set(0L)
-        connectedKeyed8094 = tradeStreamKeyed7284()
-        ErrorLogger.info(TAG, "🔌 connecting to $URL${if (tradeStreamKeyed7284()) " (keyed)" else ""} (attempt ${reconnectAttempt.get() + 1})")
+        connectedKeyed8094 = keyedAny8952()
+        ErrorLogger.info(TAG, "🔌 connecting to $URL${if (keyedAny8952()) " (keyed)" else ""} (attempt ${reconnectAttempt.get() + 1})")
         ws = client?.newWebSocket(req, listener)
     }
 
@@ -939,6 +1055,9 @@ object PumpFunWS {
             // V5.0.7278 — re-arm the held-mint trade stream after a reconnect.
             val held7278 = tradeSubscriptions7278.toList()
             if (held7278.isNotEmpty() && tradeStreamKeyed7284()) {
+                noteSubscribeFrame8307(held7278)
+                webSocket.send(JSONObject().put("method", "subscribeTokenTrade").put("keys", JSONArray(held7278)).toString())
+            } else if (held7278.isNotEmpty() && keyedAny8952()) {   // V5.0.8952 — the selective (deserving) set re-arms too
                 noteSubscribeFrame8307(held7278)
                 webSocket.send(JSONObject().put("method", "subscribeTokenTrade").put("keys", JSONArray(held7278)).toString())
             }
@@ -1018,6 +1137,9 @@ object PumpFunWS {
                         }
                         // V5.0.8657 — pump.fun curve math (vSol / vTok, the curve-account layout) only for a pump.fun curve frame.
                         if (!pumpCurveFrame8657(j.optString("pool", ""), mint)) { nonPumpCurveFrame8657("TRADE"); return }
+                        // V5.0.8952 — a curve quoted in USDC or another pump.fun coin: its frame's "SOL" fields are not lamports
+                        // (the program tape decodes and converts it from the event's own quote mint)
+                        if (QuoteTruth8952.nonSol8952(mint)) { nonPumpCurveFrame8657("NON_SOL_QUOTE_8952"); return }
                         try { PumpCurveKeys7269.remember(mint, j.optString("bondingCurveKey", "")) } catch (_: Throwable) {}
                         val vSol = j.optDouble("vSolInBondingCurve", 0.0)
                         val vTok = j.optDouble("vTokensInBondingCurve", 0.0)

@@ -477,19 +477,19 @@ object HeliusCurveTape8354 {
         if (!PumpCurveKeys7269.isPumpMint8658(mint)) { dropped.incrementAndGet(); return false }
         if (mint.isBlank() || !(ev.sol.isFinite() && ev.sol > 0.0 && ev.tokens.isFinite() && ev.tokens > 0.0 &&
                 ev.virtualSol.isFinite() && ev.virtualSol > 0.0 && ev.virtualTokens.isFinite() && ev.virtualTokens > 0.0)) {
-            malformed.incrementAndGet(); return false
+            bad8952(if (!(ev.sol > 0.0)) "ZERO_QUOTE" else if (!(ev.tokens > 0.0)) "ZERO_TOKENS" else "ZERO_RESERVES"); return false
         }
         // Validate the derived price before touching reserves or any voter-facing market evidence. Even two positive,
         // individually finite reserves can overflow their ratio; such a frame must not hydrate a mint.
         val priceSol = ev.virtualSol / ev.virtualTokens
-        if (!priceSol.isFinite() || priceSol <= 0.0) { malformed.incrementAndGet(); return false }
+        if (!priceSol.isFinite() || priceSol <= 0.0) { bad8952("PRICE"); return false }
         // V5.0.8841: the reserves and actual executed token quantity must agree
         // BEFORE writing the new price as its own reference. Prevent a bad-decimal
         // decode or a duplicate provider frame from poisoning the shared curve.
         if (com.lifecyclebot.engine.truth.PrintWitness8750.verdict8750(
                 priceSol, ev.sol, ev.tokens, null, com.lifecyclebot.engine.truth.PrintWitness8750.Basis.RESERVES,
             ) != com.lifecyclebot.engine.truth.PrintWitness8750.Verdict.RESERVES) {
-            malformed.incrementAndGet(); return false
+            bad8952("EXEC_VS_RESERVES_" + ev.quote8952); return false
         }
         if (com.lifecyclebot.engine.truth.TradeTape8100.duplicateSignedLaunch8841(mint, sig, ev.isBuy, priceSol)) {
             duplicates.incrementAndGet(); return false
@@ -512,7 +512,7 @@ object HeliusCurveTape8354 {
             com.lifecyclebot.engine.truth.TradeTape8100.launchEvidence8750(mint, priceSol, ev.sol, ev.tokens, ev.isBuy, SRC_HELIUS_CURVE_8354,
                 sig.trim(), eventMs8748, nowMs, com.lifecyclebot.engine.truth.PrintWitness8750.Basis.RESERVES, wallet = ev.user)
         } catch (_: Throwable) { com.lifecyclebot.engine.truth.PrintWitness8750.Verdict.UNWITNESSED }
-        if (witness8750 == com.lifecyclebot.engine.truth.PrintWitness8750.Verdict.OUT_OF_BAND) { malformed.incrementAndGet(); return false }
+        if (witness8750 == com.lifecyclebot.engine.truth.PrintWitness8750.Verdict.OUT_OF_BAND) { bad8952("OUT_OF_BAND"); return false }
         if (source == Source8354.HELIUS_PROGRAM) lastProgramPrintAt8751 = nowMs
         if (!cares8354(mint, nowMs)) {
             // V5.0.8798 — an unwatched launch still builds its launch tape from birth (crowd, dev sell, peak, low): the
@@ -538,7 +538,11 @@ object HeliusCurveTape8354 {
         } catch (_: Throwable) { false }
         if (taped) {
             // No second scanner/decision price for a signed print the tape refused.
-            try { PumpFunWS.emitHeliusCurve8354(mint, priceSol, mcapSol, ev.isBuy, ev.user, ev.sol, ev.virtualSol) } catch (_: Throwable) {}
+            // V5.0.8952 — a non-SOL curve's "SOL in the curve" is its real quote reserves in SOL over the 30-SOL convention the
+            // consumers subtract (they read raised = vSol - 30); its virtual reserves are not a 30-SOL curve's
+            val vSolIn8952 = if (ev.quote8952 == QuoteTruth8952.SOL) ev.virtualSol
+                else (if (ev.realSol.isFinite() && ev.realSol >= 0.0) ev.realSol else 0.0) + PumpFunWS.PUMP_INITIAL_VIRTUAL_SOL_7744
+            try { PumpFunWS.emitHeliusCurve8354(mint, priceSol, mcapSol, ev.isBuy, ev.user, ev.sol, vSolIn8952) } catch (_: Throwable) {}
             heliusPrints.incrementAndGet()
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc(if (ev.isBuy) "CURVE_TAPE_PRINT_BUY_8354" else "CURVE_TAPE_PRINT_SELL_8354") } catch (_: Throwable) {}
         }
@@ -555,6 +559,8 @@ object HeliusCurveTape8354 {
             if (!line.startsWith(CREATE_LINE_PREFIX_8840)) continue
             val ev = try { ChainLaunchFeed8179.decodeCreateEventLine8840(line) } catch (_: Throwable) { null } ?: continue
             if (!PumpCurveKeys7269.isPumpMint8658(ev.mint)) continue
+            // V5.0.8952 — a coin born on a USDC or pump.fun-coin quote is never read on the 30-SOL curve
+            QuoteTruth8952.kind8952(ev.quoteMint8952).let { k -> if (k != QuoteTruth8952.SOL) QuoteTruth8952.noteNonSol8952(ev.mint, k, Double.NaN, nowMs) }
             try { com.lifecyclebot.engine.truth.LaunchFacts8840.onCreate8840(ev.mint, ev.user, sig.trim(), nowMs) } catch (_: Throwable) {}
             n++
         }
@@ -698,6 +704,13 @@ object HeliusCurveTape8354 {
      * curveTape8354[source= transport= prints{helius=,pumpportal=} kept= dropped= bytes/min= credits= fallback=…]: which
      * feed carries the bonding-curve tape, what it kept and dropped, what it costs, and why it fell back.
      */
+    // V5.0.8952 — the 23:03 capture: malformed=5,473 of 41,323 frames, one number for every reason. Each refusal is named.
+    private val badWhy8952 = java.util.concurrent.ConcurrentHashMap<String, AtomicLong>()
+    private fun bad8952(why: String) {
+        malformed.incrementAndGet()
+        if (badWhy8952.size < 16 || badWhy8952.containsKey(why)) badWhy8952.computeIfAbsent(why) { AtomicLong(0L) }.incrementAndGet()
+    }
+
     fun statusLine8354(nowMs: Long = System.currentTimeMillis()): String {
         val holdLeftS = ((fallbackUntilMs - nowMs) / 1000L).coerceAtLeast(0L)
         val bufferedMints = synchronized(precareLock8751) { precare8751.size }
@@ -708,7 +721,8 @@ object HeliusCurveTape8354 {
             "fallback=$why holdLeftS=$holdLeftS stepDowns=${stepDowns.get()} frames=${frames.get()} failedTx=${failedTx.get()} " +
             "perTransport8829{${transportLine8829(enhFrames8829.get(), enhBytes8829.get(), enhFailed8829.get(), "enhanced")} " +
             "${transportLine8829(logsFrames8829.get(), logsBytes8829.get(), logsFailed8829.get(), "logs")}} " +
-            "dup=${duplicates.get()} malformed=${malformed.get()} asks=${asks.get()} perMintAsks=${perMintAsks.get()} " +
+            "dup=${duplicates.get()} malformed=${malformed.get()}{${badWhy8952.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }}} " +
+            "${QuoteTruth8952.statusLine8952()} asks=${asks.get()} perMintAsks=${perMintAsks.get()} " +
             "pending=${waiting8386.size} rehomes=${fallbackRehomes8751.get()} perMintUnavailable=${fallbackUnavailable8751.get()} " +
             "programNeedsFallback=${needsFallback8751(nowMs)} " +
             "enhancedSub=${try { HeliusEnhancedWS.curveSubState8354() } catch (_: Throwable) { "-" }} logsSub=${if (logsSubId >= 0L) "ACK" else if (logsReqId >= 0) "PENDING" else "NONE"} " +

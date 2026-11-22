@@ -1266,6 +1266,8 @@ internal object PumpSwapEvents8191 {
         val pool = try { io.github.novacrypto.base58.Base58.base58Encode(b.copyOfRange(120, 152)) } catch (_: Throwable) { "" }   // V5.0.8307
         var ts = 0L
         for (k in 7 downTo 0) ts = (ts shl 8) or (b[8 + k].toLong() and 0xFF)
+        // V5.0.8952 — the pool's virtual quote reserves as of this swap: the vault-balance price reads it (OnChainDepth8038)
+        try { virtualQuoteReserves8870(b, buy)?.let { PoolVirtualQuote8952.note8952(pool, it.toDouble()) } } catch (_: Throwable) {}
         return PumpSwapEvent8191(buy, quoteRaw / 1e9, baseRaw / 1e6, user, pool, if (ts > 0L) ts else 0L)
     }
 }

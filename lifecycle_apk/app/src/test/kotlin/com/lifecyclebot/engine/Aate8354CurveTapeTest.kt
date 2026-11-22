@@ -294,7 +294,7 @@ class Aate8354CurveTapeTest {
         val setup = ws.substringAfter("fun watchForSetup8191(").substringBefore("fun lifecycleStreamCapable7420()")
         assertTrue(setup.indexOf("if (!tradeStreamEnabled8354) { setupRoutedHelius8354.incrementAndGet(); return HeliusCurveTape8354.ask8354(mint, nowMs) }") < setup.indexOf("put(\"method\", \"subscribeTokenTrade\")"))
         val reprobe = ws.substringAfter("private fun maybeReprobeAuth8094(").substringBefore("refreshKey8181(nowMs)")
-        assertTrue(reprobe.contains("if (!tradeStreamEnabled8354) return"))
+        assertTrue(reprobe.contains("if (!tradeStreamEnabled8354 && !SELECTIVE_8952) return"))   // V5.0.8952 — or the selective set
         assertTrue(ws.contains("\"tradeStream=\${if (!tradeStreamEnabled8354) \"OFF_8354\" else if (tradeAuthDenied7432.get()) \"AUTH_DENIED\""))
         assertTrue(ws.contains("HeliusCurveTape8354.statusLine8354()"))
         // the create and migration streams stay on, unconditionally
@@ -337,7 +337,7 @@ class Aate8354CurveTapeTest {
         val c = src("network/HeliusCurveTape8354.kt")
         assertTrue(c.contains("CurveReserves7951.noteFrame7951(mint, ev.virtualSol, ev.virtualTokens)"))
         assertTrue(c.contains("LaunchEvidence8136.dedupKey8136(mint, sig, ev.user, ev.isBuy, ev.sol, ev.virtualSol, ev.virtualTokens)"))
-        assertTrue(c.contains("PumpFunWS.emitHeliusCurve8354(mint, priceSol, mcapSol, ev.isBuy, ev.user, ev.sol, ev.virtualSol)"))
+        assertTrue(c.contains("PumpFunWS.emitHeliusCurve8354(mint, priceSol, mcapSol, ev.isBuy, ev.user, ev.sol, vSolIn8952)"))   // V5.0.8952
         assertTrue(c.contains("mint, priceSol, ev.sol, ev.tokens, ev.isBuy, SRC_HELIUS_CURVE_8354,"))
         assertTrue(c.contains("pool = com.lifecyclebot.engine.truth.TradeTape8100.VENUE_CURVE_8285, signature = sig,"))
         // the frame path's reserve write carries the 8346 liquidity tick (CurveReserves7951 is the one writer both feeds share)

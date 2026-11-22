@@ -48,10 +48,13 @@ object CapTruth8951 {
         if (lastAt.size > 6_000) lastAt.entries.removeIf { nowMs - it.value > GAP_MS_8951 }
         lastAt[mint] = nowMs
         buckets.computeIfAbsent(b) { AtomicLong(0L) }.incrementAndGet()
+        // V5.0.8952 — a disagreement is settled by the chain: the curve account is read, and its cap is written (CurveReserves7951)
+        if (b != "agree<1.1x") try { OnChainDepth8038.needCurve8039(mint, nowMs) } catch (_: Throwable) {}
     }
 
     fun statusLine8951(): String =
         "capTruth8951[" + buckets.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } +
-            " rule=the cap the lanes read vs the chain's (active pump.fun curve price x verified mint supply), per coin every " +
-            "${GAP_MS_8951 / 1000}s; measured only, the lanes still read their cap]"
+            " curveCapWritten8952=${CurveReserves7951.capWritten8952()} rule=the cap the lanes read vs the chain's (active pump.fun " +
+            "curve price x verified mint supply), per coin every ${GAP_MS_8951 / 1000}s; a disagreement asks the curve account, whose " +
+            "read writes the cap at CHAIN rank (8952)]"
 }
