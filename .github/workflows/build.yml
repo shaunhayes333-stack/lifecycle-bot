@@ -476,6 +476,7 @@ jobs:
             --tests '*Aate8939*' \
             --tests '*Aate8940*' \
             --tests '*Aate8941*' \
+            --tests '*Aate8942*' \
             --tests '*Aate8528*' --tests '*Aate8527*' --tests '*Aate8331RunnerTest*' --tests '*Aate8337ExitsTest*' --tests '*PartialFinality6566Test*' --tests '*Aate7542NativeSpecialistAuthorityTest*' --tests '*Aate7677ExpressOwnershipContractTest*' --tests '*Aate7551NativeMomentumUnitNormalizationTest*' \
             --tests '*Aate8522*' \
             --tests '*Aate8521*' \

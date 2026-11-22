@@ -10974,6 +10974,12 @@ class BotService : Service() {
                 promoteHotLaunch7921(mint, symbol, name, streamGeneration)
             }
         } catch (_: Throwable) {}
+        // V5.0.8942 — a launch is run through the full pipeline again at its 20th, 40th and 80th witnessed print
+        com.lifecyclebot.engine.truth.LaunchPrints8942.listener8942 = { mint, n ->
+            if (status.running && status.tokens.containsKey(mint))
+                scope.launch(Dispatchers.IO) { fastLaneEvaluate7277(mint, ConfigStore.load(applicationContext), "LAUNCH_PRINTS_8942_$n", onceKey = "$mint|8942|$n") }
+            else com.lifecyclebot.engine.truth.LaunchPrints8942.noteNotWatched8942()
+        }
         // 1) PumpPortal WS — new pump.fun launches + migrations
         try {
             // V5.0.7278 — every trade on a held curve is a mark; see
@@ -26005,13 +26011,14 @@ if (hotExitHandledSweep) {
         return c.copy(paperMode = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { c.paperMode })
     }
 
-    private fun fastLaneEvaluate7277(mint: String, cfg: BotConfig, origin: String) {
+    // V5.0.8942 — [onceKey]: a print milestone keys its own fast lane (the create's 60 s key no longer swallows it)
+    private fun fastLaneEvaluate7277(mint: String, cfg: BotConfig, origin: String, onceKey: String = mint) {
         if (mint.isBlank() || !status.running) return
-        if (!fastLaneOnce7277.add(mint)) return
+        if (!fastLaneOnce7277.add(onceKey)) return
         scope.launch(Dispatchers.IO + CoroutineName("fast-lane-7277")) {
             if (!fastLaneSemaphore7277.tryAcquire()) {
                 try { PipelineHealthCollector.labelInc("FAST_LANE_SATURATED_7277") } catch (_: Throwable) {}
-                fastLaneOnce7277.remove(mint)
+                fastLaneOnce7277.remove(onceKey)
                 return@launch
             }
             val t0 = System.currentTimeMillis()
@@ -26047,7 +26054,7 @@ if (hotExitHandledSweep) {
                 ErrorLogger.debug("BotService", "fast lane ${mint.take(8)}: ${t.message?.take(100)}")
             } finally {
                 if (held7925) fastLaneSemaphore7277.release()
-                scope.launch(Dispatchers.IO) { delay(60_000L); fastLaneOnce7277.remove(mint) }
+                scope.launch(Dispatchers.IO) { delay(60_000L); fastLaneOnce7277.remove(onceKey) }
             }
         }
     }

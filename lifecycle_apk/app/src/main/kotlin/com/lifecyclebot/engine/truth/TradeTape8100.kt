@@ -146,6 +146,7 @@ object TradeTape8100 {
           if (fresh8841) {
             launchPublishedCount8841.incrementAndGet()
             LaunchHour8628.trade(mint, eventMs, sig, isBuy, sol, tokenQty, priceSol, recvMs, src, wallet)
+            LaunchPrints8942.onPrint8942(mint, eventMs)   // V5.0.8942 — the launch is re-read at its 20th / 40th / 80th print
             // V5.0.8861 — the runner model reads the print exactly as the tape stores it (the stored price, a signed print only)
             if (sig.isNotBlank()) LaunchHour8628.observedPrice8642(sol, tokenQty, priceSol)?.let { stored ->
                 RunnerModel8861.onPrint8861(mint, eventMs, recvMs, stored, sol, isBuy, wallet)

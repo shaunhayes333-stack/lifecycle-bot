@@ -2773,3 +2773,16 @@ doctrine hold (holds8584 rider8941) holds every other profit exit while the pric
 lets its time exit pass once the hour is up (4 h reads of these coins fell about -69 %). Unchanged: the lane stop, every safety,
 rug, liquidity and LP-pull exit, the kill switch, tier-1 emergencies, every non-rider position. The paper book
 (MemePaperTrader8544) keeps the doctrine as it was: live leads.
+
+## 130. The launch is read at its twentieth print (8942)
+
+Owner, 22 Nov 15:28: "keep going" (the deep dive's next step: entries at the 20th print). The launch-hour paths: a launch's
+20th print (20-40 s after birth for most) is where an entry pays best, and each 10 s later costs 2-4 points; the lanes' launch
+admits entered at a median 46-78 s. A PumpPortal create runs BotService.fastLaneEvaluate7277 at once, when the coin has a print
+or two, and that fast lane was then closed to the mint for 60 s; the coin waited for the main loop (5.8 s cycle on the 13:59
+capture; decisionLatency8882 PUMP_PORTAL_WS decide50/90 = 14/46 s).
+
+truth/LaunchPrints8942 counts each witnessed, live-timed pump.fun print (TradeTape8100.launchEvidence8750, the prints the export
+counts) from the launch's first; at its 20th, 40th and 80th within 15 minutes BotService runs the same full pipeline on it under
+its own fast-lane key (fastLaneEvaluate7277 onceKey "<mint>|8942|<n>"), when the coin is on the watchlist. No gate is bypassed;
+nothing here admits, sizes or trades. launchPrints8942[...] in the brief: fired per milestone, late (past 15 min), notWatched.
