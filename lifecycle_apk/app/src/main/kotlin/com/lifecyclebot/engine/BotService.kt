@@ -26810,20 +26810,20 @@ if (hotExitHandledSweep) {
             // mcap×0.1 estimated — not a historical liquidity proof. Crypto prices can
             // print -90% from pool migration, bad decimal basis, stale BC synthetic → DEX
             // basis switch, or indexer glitch. That is NOT enough to hard-blacklist.
-            // True rug learning/blacklist now requires real liquidity-collapse evidence
-            // from TokenSafetyChecker.checkLiquidityConflict plus a large price collapse.
-            // Price-only collapse becomes telemetry + safety-refresh request only.
+            // 8957: checkLiquidityConflict compares API readings; it does not prove chain state or pool continuity.
+            // A suspicious dual drop requests verification. Persistent learning/blacklisting additionally requires two
+            // decoded chain observations on the same pool, with fresh current evidence of both price and reserve loss.
+            // Incomplete proof stays telemetry + safety/account refresh; existing entry safety and exits still bind.
             if (olderPrice > 0 && recentPrice > 0) {
                 val priceDropPct = ((olderPrice - recentPrice) / olderPrice) * 100
                 val (liqConflict, liqConflictReason) = try {
                     safetyChecker.checkLiquidityConflict(mint, recentLiq)
                 } catch (_: Throwable) { false to "" }
-                val liqDropPct = Regex("""dropped\s+(\d+)%""", RegexOption.IGNORE_CASE)
-                    .find(liqConflictReason)?.groupValues?.getOrNull(1)?.toDoubleOrNull() ?: 0.0
-
-                val confirmedDualRug = priceDropPct >= 50.0 && liqConflict
-                val unconfirmedPriceCollapse = priceDropPct >= 80.0 && !liqConflict
-                if (confirmedDualRug) {
+                val suspiciousDualRug = priceDropPct >= 50.0 && liqConflict
+                val chainRug8957 = if (suspiciousDualRug)
+                    com.lifecyclebot.engine.truth.RugChainEvidence8957.proof(mint, pair.pairAddress, System.currentTimeMillis()) else null
+                val unconfirmedPriceCollapse = (priceDropPct >= 80.0 || suspiciousDualRug) && chainRug8957 == null
+                if (chainRug8957 != null) {
                     val ageHours = (System.currentTimeMillis() - (ts.addedToWatchlistAt)) / 3_600_000.0
                     val volumeSpike = recentCandles.sumOf { it.vol } > olderCandles.sumOf { it.vol } * 2
 
@@ -26849,16 +26849,17 @@ if (hotExitHandledSweep) {
                         creatorWallet = try {
                             OperatorRegistry.getDevWallet(mint)
                         } catch (_: Throwable) { null },
-                        liquidityDropPct = liqDropPct,
-                        priceDropPct = priceDropPct,
+                        liquidityDropPct = chainRug8957.liquidityDropPct,
+                        priceDropPct = chainRug8957.priceDropPct,
                         volumeSpikeBeforeRug = volumeSpike,
                         holderDumpDetected = ts.holderGrowthRate < -20,
                         timeFromLaunchHours = ageHours,
                     )
-                    addLog("🤖 AI RUG LEARNED: ${ts.symbol} | confirmed price -${priceDropPct.toInt()}% liqProof=$liqConflictReason | Pattern saved", mint)
-                    TokenBlacklist.block(mint, "CONFIRMED_RUG_COLLAPSE: price -${priceDropPct.toInt()}% liqProof=${liqConflictReason.take(96)} pool=${pair.pairAddress.take(12)}")
+                    addLog("🤖 AI RUG LEARNED: ${ts.symbol} | chain price -${chainRug8957.priceDropPct.toInt()}% chain liquidity -${chainRug8957.liquidityDropPct.toInt()}% | Pattern saved", mint)
+                    TokenBlacklist.block(mint, "CONFIRMED_RUG_COLLAPSE: SAME_POOL_CHAIN_8957 price -${chainRug8957.priceDropPct.toInt()}% liquidity -${chainRug8957.liquidityDropPct.toInt()}% pool=${pair.pairAddress.take(12)}")
                 } else if (unconfirmedPriceCollapse) {
                     try { SafetyRefreshQueue.request(mint) } catch (_: Throwable) {}
+                    try { com.lifecyclebot.engine.truth.ChainConfirm8950.confirm8950(ts, listOf("PRICE", "LIQUIDITY", "SAFETY"), "RUG_VERIFY") } catch (_: Throwable) {}
                     try { PipelineHealthCollector.labelInc("RUG_PRICE_COLLAPSE_UNCONFIRMED") } catch (_: Throwable) {}
                     try {
                         ForensicLogger.lifecycle(

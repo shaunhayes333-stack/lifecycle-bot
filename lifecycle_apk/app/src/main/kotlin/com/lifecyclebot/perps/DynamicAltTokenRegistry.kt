@@ -645,6 +645,31 @@ object DynamicAltTokenRegistry {
     }
 
     /** Synchronous save — fire-and-forget on caller thread. */
+    internal fun persistObservedWindows8957(o: JSONObject, tok: DynToken): JSONObject = o.apply {
+        fun finite(key: String, value: Double) { put(key, if (value.isFinite()) value else JSONObject.NULL) }
+        put("buys5m8832", tok.buys5m8832)
+        put("sells5m8832", tok.sells5m8832)
+        finite("volume5m8832", tok.volume5m8832)
+        finite("change5mPct8832", tok.change5mPct8832)
+        put("shortWindowObservedAtMs8832", tok.shortWindowObservedAtMs8832)
+        finite("change1hPct8886", tok.change1hPct8886)
+        finite("change6hPct8886", tok.change6hPct8886)
+        finite("change7dPct8886", tok.change7dPct8886)
+        put("trendObservedAtMs8886", tok.trendObservedAtMs8886)
+    }
+
+    /** Restore the provider's clocks unchanged. Restart never turns an old observation into a fresh one. */
+    internal fun restoreObservedWindows8957(o: JSONObject, tok: DynToken): DynToken = tok.copy(
+        buys5m8832 = o.optInt("buys5m8832", -1), sells5m8832 = o.optInt("sells5m8832", -1),
+        volume5m8832 = o.optDouble("volume5m8832", Double.NaN),
+        change5mPct8832 = o.optDouble("change5mPct8832", Double.NaN),
+        shortWindowObservedAtMs8832 = o.optLong("shortWindowObservedAtMs8832", 0L),
+        change1hPct8886 = o.optDouble("change1hPct8886", Double.NaN),
+        change6hPct8886 = o.optDouble("change6hPct8886", Double.NaN),
+        change7dPct8886 = o.optDouble("change7dPct8886", Double.NaN),
+        trendObservedAtMs8886 = o.optLong("trendObservedAtMs8886", 0L),
+    )
+
     @Synchronized
     private fun saveToDisk() {
         val ctx = appCtx ?: return
@@ -693,7 +718,7 @@ object DynamicAltTokenRegistry {
                     put("priceObservedAtMs8372", tok.priceObservedAtMs8372)
                 }
                 if (n > 0) w.write(",")
-                w.write(o.toString())
+                w.write(persistObservedWindows8957(o, tok).toString())
                 n++
               }
               w.write("]")
@@ -781,7 +806,7 @@ object DynamicAltTokenRegistry {
                 // V5.0.7490 — restore under the same canonical chain+token
                 // identity used by discovery/upsert. Bare mint keys created a
                 // second row for the same asset after the next live refresh.
-                registry[restoredKey6544] = tok
+                registry[restoredKey6544] = restoreObservedWindows8957(o, tok)
                 if (tok.symbol.isNotBlank()) indexSymbol6493(tok.symbol, restoredKey6544)
                 loaded++
             }
