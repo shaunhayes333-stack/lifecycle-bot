@@ -1911,6 +1911,8 @@ object CandidateAdmission8136 {
                 // V5.0.8535 §P2-01 — the admission's terminal joins the candidate's decision episode with its trace hash.
                 try { com.lifecyclebot.engine.DecisionEpisode8535.noteAdmission8535(candidate.lane, ts.mint, version, it.terminal.name, it.reason, it.chosenSetup, it.trace, nowMs,
                     evidence8876 = candidate.marketCell8723?.kind.orEmpty()) } catch (_: Throwable) {}   // V5.0.8876 — the evidence funnel
+                // V5.0.8948 — a LIVE evidence coin's data wait asks every live proof at once and rides the cycle until decided
+                if (mode == "LIVE") candidate.marketCell8723?.kind?.let { k -> try { EvidenceWait8948.note8948(ts, k, it.terminal.name, it.reason, deferCauses8700(it.trace), nowMs) } catch (_: Throwable) {} }
             }
             // V5.0.8544 — a LIVE meme candidate is also decided the PAPER way for the separate paper book beside live
             // V5.0.8618 — the tuning report files the paper close under what LIVE decided on this same candidate.

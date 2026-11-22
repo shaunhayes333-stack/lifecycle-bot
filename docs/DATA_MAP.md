@@ -2846,3 +2846,22 @@ pocket (83 coins) grades FULL (+21.6, lower +6.2, ex-top-3 +14.3, halves +25.1/+
 were already CAUTIOUS; the base pocket's first 20 (lower -2.1) were not. Running-sum cells (PayingCell8723, LlmBands8875, the
 per-lane agreement cells) cannot be graded per coin and keep the 30-coin bar. agreement8874 shows proof8947{coins research};
 basePocket8904 shows proof8947{base pump}.
+
+## 136. A proven coin's data wait is answered directly (8948)
+
+Owner, 22 Nov 23:21 "still badly choked" and 23:31 "we are deferring way too many trades when we could be just confirming the
+required information on chain with a direct request". The 23:03 capture (8947, LIVE, 31 min, 0 buys): LANE_POCKET 49 candidate
+episodes, all 49 DEFER_DATA (PRICE_STALE 26, buy-door critical proof 19, safety report not fresh 4), 0 admitted; paying-cell
+coins DEFER_DATA 142 against ADMIT 7; last trace an EXPRESS lane-pocket coin (origin=OTHER&stage=BASE_START n188 +26.5 %) at
+net +26.7 % deferred on a price past the 30 s bar with a safety report 167 s old (bar 120 s). The safety refresh ran only when
+the cycle reached the coin again (8.9 s cycles, heap 84-90 %), the price on the mark lane's own schedule, so the two proofs
+were never fresh together. Research rows, 24 h to 22:48: the base pocket (off pump.fun, BASE_START, pool $5k-$100k) 222 coins
+at +32.0 % mean / +19.8 % median an hour on, 199 lane-admitted, none bought.
+EvidenceWait8948: when CandidateAdmission8136 (LIVE) defers a coin carrying market-cell evidence on data, its proofs are
+requested directly at once: SafetyRefreshQueue (the next pass runs TokenSafetyChecker uncached: RugCheck and the chain's
+mint / freeze authority, holder and LP reads), the coin's own full pipeline pass now through BotService.fastLaneEvaluate7277
+(two passes 1.5 s apart, keyed per 20 s slot), a fresh price (CandidateMarkFresh8094) and the authority read
+(AuthorityProofPrefetch8136); at most one direct request per 20 s per coin. Between them the coin keeps a cycle slot
+(SafetyProofPriority8310.noteDeferred8310 and targets8948 through HandoffPriority8190) for up to 120 s. Every gate, bar and
+proof is unchanged; the same admission, buy door and FDG decide. evidenceWait8948 in the brief: waiting, noted, asked,
+direct, admitted (mean wait), refused{why}, expired{what was still missing}.

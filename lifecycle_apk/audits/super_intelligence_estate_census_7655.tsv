@@ -164,6 +164,7 @@ ChainHistoryMark8541	PROVIDER_BACKED_REVIEW	com/lifecyclebot/engine/truth/ChainH
 Council7740	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/truth/Council7740.kt	False
 EdgeModel8537	REPRESENTED_BY_AGGREGATOR	com/lifecyclebot/engine/truth/EdgeModel8537.kt	False
 TraderLane	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/engine/truth/EntryAuthorityModels6398.kt	False
+EvidenceWait8948	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/truth/EvidenceWait8948.kt	False
 ExpertSetups8692	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/engine/truth/ExpertSetups8692.kt	False
 FinalizedLearningReconciler7423	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/truth/FinalizedLearningReconciler7423.kt	False
 FinalizedRepairStore8858	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/truth/FinalizedRepairStore8858.kt	False

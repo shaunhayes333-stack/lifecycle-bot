@@ -239,6 +239,7 @@ object DiagnosisBrief8438 {
                 "${com.lifecyclebot.engine.cortex.Cortex7885.census8904()} exit{${com.lifecyclebot.engine.cortex.CortexExit7897.census8904()}}]" } catch (_: Throwable) { "cortexSeats8904[read failed]" }).append('\n')  // V5.0.8904
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.LlmBands8875.statusLine8875() } catch (_: Throwable) { "llm8875[read failed]" }).append('\n')  // V5.0.8875
             sb.append("               ").append(try { DecisionEpisode8535.funnelLine8876() } catch (_: Throwable) { "evidenceFunnel8876[read failed]" }).append('\n')  // V5.0.8876
+            sb.append("               ").append(try { com.lifecyclebot.engine.truth.EvidenceWait8948.statusLine8948() } catch (_: Throwable) { "evidenceWait8948[read failed]" }).append('\n')  // V5.0.8948
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.ResearchRows8877.statusLine8877() } catch (_: Throwable) { "research8877[read failed]" }).append('\n')  // V5.0.8877
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.ResearchFollow8884.statusLine8884() } catch (_: Throwable) { "researchFollow8884[read failed]" }).append('\n')  // V5.0.8884
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.AuthorityTable8887.statusLine8887() } catch (_: Throwable) { "authority8887[read failed]" }).append('\n')  // V5.0.8887

@@ -214,7 +214,8 @@ object HandoffPriority8190 {
         val tickets8297 = try { RunnerPlay8018.activeTicketTargets8297(nowMs) } catch (_: Throwable) { emptyList() }  // V5.0.8297 — a 3-min run ticket rides the next cycle
         val proof8310 = try { SafetyProofPriority8310.targets8310(nowMs) } catch (_: Throwable) { emptyList() }  // V5.0.8310 — a proof-deferred buy rides the next cycle
         val hydrated8343 = try { HydrationReeval8343.targets8343(nowMs) } catch (_: Throwable) { emptyList() }  // V5.0.8343 — a hydrated deferral rides the next cycle
-        return tasks + yields + tickets8297 + proof8310 + hydrated8343
+        val evidence8948 = try { com.lifecyclebot.engine.truth.EvidenceWait8948.targets8948(nowMs) } catch (_: Throwable) { emptyList() }  // V5.0.8948 — a proven coin's data wait rides the next cycles
+        return tasks + yields + tickets8297 + proof8310 + hydrated8343 + evidence8948
     }
 
     /**

@@ -10988,6 +10988,12 @@ class BotService : Service() {
                 scope.launch(Dispatchers.IO) { promoteHotLaunchNow7921(mint, sym8945, name8945, streamGeneration, source8945 = "LAUNCH_PRINTS_8942", onceKey8945 = "$mint|8942|$n") }
             }
         }
+        // V5.0.8948 — a proven coin's data wait is answered by a direct request: its own full pipeline pass now (the
+        // safety refresh it queued runs uncached in that pass), keyed per 20 s slot; every gate stands
+        com.lifecyclebot.engine.truth.EvidenceWait8948.direct8948 = { mint, slot ->
+            if (status.running && status.tokens.containsKey(mint))
+                fastLaneEvaluate7277(mint, ConfigStore.load(applicationContext), "EVIDENCE_WAIT_8948", onceKey = "$mint|8948|$slot")
+        }
         // 1) PumpPortal WS — new pump.fun launches + migrations
         try {
             // V5.0.7278 — every trade on a held curve is a mark; see

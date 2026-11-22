@@ -1,9 +1,9 @@
 {
-  "all_kotlin": 1915,
-  "intelligence_candidates": 297,
+  "all_kotlin": 1916,
+  "intelligence_candidates": 298,
   "classifications": {
     "BACKGROUND_RESEARCH_REVIEW": 5,
-    "CACHE_OR_READBACK_REVIEW": 83,
+    "CACHE_OR_READBACK_REVIEW": 84,
     "CANONICAL_LEARNING_INFRASTRUCTURE": 1,
     "CRYPTO_LEARNING_UPSTREAM": 1,
     "CRYPTO_NATIVE_UPSTREAM": 2,
