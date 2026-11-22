@@ -21,7 +21,7 @@ class Aate8939CarefulCohortTest {
         assertTrue(explore.contains("AgreementPocket8874.pocketVerdict8939(ts, CAP_LO_USD_8928, nowMs, requireV3 = false)"))
         assertTrue(explore.contains("why8928(\"NOT_IN_POCKET_\$pocketWhy8939\")"))
         assertTrue("the rest of the path is unchanged", explore.contains("tokenRefusal8936(proof)?.let { why8928(it); return false }") &&
-            explore.contains("const val MAX_OPEN_8733 = 1") && explore.contains("const val MAX_PER_DAY_8733 = 6") &&
+            explore.contains("const val MAX_OPEN_8733 = 4") && explore.contains("const val MAX_PER_DAY_8733 = 30") &&   // 8940
             explore.contains("private const val MAX_SOL_8733 = 0.05"))
         assertTrue(File("../../docs/DATA_MAP.md").readText().contains("## 127. The careful path takes its proven cohort (8939)"))
     }

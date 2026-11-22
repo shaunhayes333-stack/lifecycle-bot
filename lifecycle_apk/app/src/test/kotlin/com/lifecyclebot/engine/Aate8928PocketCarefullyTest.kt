@@ -31,7 +31,7 @@ class Aate8928PocketCarefullyTest {
         // rising but the rest leans negative: 3 negative (share, net, no new buyers) against 2 positive (tx, holders)
         assertEquals(2 to 3, ExploreLive8733.signs8928(v(accel = 50.0, share = 40.0, net = -0.5, new15 = 0), 4.0))
         assertFalse(ExploreLive8733.flowPasses8928(v(accel = 50.0, share = 40.0, net = -0.5, new15 = 0), 4.0))
-        assertEquals(1, ExploreLive8733.MAX_OPEN_8733)
+        assertEquals("superseded by V5.0.8940 (owner: \"release the kraken\")", 4, ExploreLive8733.MAX_OPEN_8733)
         assertEquals(10_000.0, ExploreLive8733.CAP_LO_USD_8928, 0.0)
     }
 

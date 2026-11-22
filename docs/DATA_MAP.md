@@ -2742,3 +2742,15 @@ pocket's own admission evidence (evidence8874) keeps V3 >= 23. Unchanged: unread
 only (never reported unlocked or under the lock), RugCheck reported, mint + freeze revoked, a classic or clean Token-2022 mint,
 the flow test, 1 open, 6 a day, 0.05 SOL, the LP-pull exit. Not known from the rows: which safety proof each PENDING coin waited
 on, so the share of the cohort this path can reach (it cannot buy a coin still waiting on RugCheck) is read from the next capture.
+
+## 128. The careful path takes all of its cohort (8940)
+
+Owner, 22 Nov 15:03: "release the kraken bro ffs. its meant to be a fucking money printer", answering whether to raise the
+careful path's caps. ExploreLive8733: MAX_OPEN_8733 1 -> 4, MAX_PER_DAY_8733 6 -> 30 (the 8939 cohort arrives at about 27 coins a
+day). Unchanged: at most 0.05 SOL a buy, unread LP only, RugCheck reported, mint + freeze revoked, classic or clean Token-2022,
+the flow test, the LP-pull exit, and every balance check on the shared wallet.
+
+Not changed, by its own record: the lane liquidity floor (NATIVE_LANE_LIQ_BELOW_FLOOR). Its refusals in the research rows (20-22
+Nov, meme lanes, one row per coin and lane, the hour's net): n3120 -17.1 % +-1.0, median -3.6 %, 16 % drained (min <= -80 %),
+1 % peaked 400 %+; under $2k pool n1791 -25.6 %, 25 % drained. The runners it turned away (FRIEND +5677 %, PENNY +2678 %, SB
++1756 % on the 13:59 capture) are that 1 %; the floor protects.

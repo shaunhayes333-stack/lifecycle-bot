@@ -49,9 +49,13 @@ object ExploreLive8733 {
     //    holder count growing, and more positive signs than negative ([signs8928]);
     //  - one explore position at a time, [MAX_PER_DAY_8733] a day, at most [MAX_SOL_8733] SOL each; the LP-pull exit (8926)
     //    watches it from the first tick. ──
+    // superseded by V5.0.8940 — owner, 22 Nov 15:03: "release the kraken bro ffs. its meant to be a fucking money printer",
+    // answering "the caps (1 open, 6 a day, 0.05 SOL) bind volume more than anything: raise them?". The proven cohort comes at
+    // about 27 coins a day (research rows, 8939: n46 in 1.7 days); 4 open and 30 a day take all of it. Each buy stays at most
+    // 0.05 SOL, and every safety, sellability and balance check, the flow test and the LP-pull exit are unchanged.
     private const val ENABLED_8736 = true
-    const val MAX_OPEN_8733 = 1
-    const val MAX_PER_DAY_8733 = 6
+    const val MAX_OPEN_8733 = 4
+    const val MAX_PER_DAY_8733 = 30
     private const val MAX_SOL_8733 = 0.05
     internal const val CAP_LO_USD_8928 = 10_000.0
     private const val DAY_MS = 24L * 60L * 60_000L
@@ -226,6 +230,6 @@ object ExploreLive8733 {
             "maxSol=$MAX_SOL_8733 refusedSize=${refusedSize.get()} refusedBudget=${refusedBudget.get()} lastCell=${lastCell.ifBlank { "-" }} " +
             "asked{${why8928.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}} " +
             "rule=8928: unread LP (never unlocked/under-lock), RugCheck reported, agreement pocket at \$10k-\$20k with a +10 %+ forecast, any V3 (8939), mint + freeze revoked, a classic SPL or clean Token-2022 mint (8936), " +
-            "buying rising + holders growing + more positive signs than negative (the live tape, else the pool's DexScreener counts, 8929); 1 open, 6/day, <= 0.05 SOL; LP-pull exit armed]"
+            "buying rising + holders growing + more positive signs than negative (the live tape, else the pool's DexScreener counts, 8929); 4 open, 30/day (8940), <= 0.05 SOL; LP-pull exit armed]"
     }
 }
