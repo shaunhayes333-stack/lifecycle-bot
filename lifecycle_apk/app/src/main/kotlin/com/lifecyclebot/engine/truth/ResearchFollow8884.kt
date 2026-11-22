@@ -5,6 +5,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
@@ -97,6 +98,11 @@ object ResearchFollow8884 {
     fun priceOf8884(body: JSONObject?, mint: String): Double? =
         body?.optJSONObject(mint)?.optDouble("usdPrice", Double.NaN)?.takeIf { it.isFinite() && it > 0.0 }
 
+    // V5.0.8945 — the 19:34 heap map: 30,039 waits held 9.5 MB, mostly their lane / stage / setup / reason strings, one copy
+    // each though a few hundred distinct values repeat; each such word is now held once (bounded, a full pool lets a word be)
+    private val words8945 = ConcurrentHashMap<String, String>()
+    internal fun word8945(s: String): String = if (words8945.size >= 4_000) s else (words8945.putIfAbsent(s, s) ?: s)
+
     internal fun encode8884(w: Wait8884): String = JSONObject().put("t", w.atMs).put("m", w.mint).put("l", w.lane).put("a", w.admitted)
         .put("st", w.stage).put("su", w.setup).put("p", num(w.pred)).put("v", num(w.v3)).put("mc", num(w.mcap)).put("lq", num(w.liq))
         .put("c", num(w.cost)).put("e", w.entryUsd).put("r", w.reason).put("n", w.next).toString()
@@ -106,8 +112,8 @@ object ResearchFollow8884 {
     internal fun decode8884(line: String): Wait8884? = try {
         val o = JSONObject(line)
         fun d(k: String) = if (o.isNull(k)) Double.NaN else o.optDouble(k, Double.NaN)
-        val w = Wait8884(o.getLong("t"), o.getString("m"), o.optString("l"), o.optBoolean("a"), o.optString("st"), o.optString("su"),
-            d("p"), d("v"), d("mc"), d("lq"), d("c"), o.getDouble("e"), o.optString("r"), o.optInt("n", 0))
+        val w = Wait8884(o.getLong("t"), o.getString("m"), word8945(o.optString("l")), o.optBoolean("a"), word8945(o.optString("st")),
+            word8945(o.optString("su")), d("p"), d("v"), d("mc"), d("lq"), d("c"), o.getDouble("e"), word8945(o.optString("r")), o.optInt("n", 0))
         w.takeIf { it.mint.isNotBlank() && it.entryUsd > 0.0 && it.next in HORIZONS_8884.indices }
     } catch (_: Throwable) { null }
 
@@ -119,7 +125,7 @@ object ResearchFollow8884 {
         if (mint.isBlank() || !entryUsd.isFinite() || entryUsd <= 0.0) return
         if (!tradeable8923(liq)) { untradeable8923.incrementAndGet(); return }   // V5.0.8923
         ensureStarted8884()
-        val w = Wait8884(atMs, mint, lane, admitted, stage, setup, pred, v3, mcap, liq, cost, entryUsd, reason.take(80), 0)
+        val w = Wait8884(atMs, mint, word8945(lane), admitted, word8945(stage), word8945(setup), pred, v3, mcap, liq, cost, entryUsd, word8945(reason.take(80)), 0)
         synchronized(pending) {
             pending.addLast(w)
             while (pending.size > MAX_PENDING_8884) { pending.pollFirst(); dropped.incrementAndGet() }
@@ -218,6 +224,7 @@ object ResearchFollow8884 {
         notSolana8934.addAndGet((mints.size - ids.size).coerceAtLeast(0).toLong())
         if (ids.isEmpty()) return JSONObject()   // nothing Jupiter can price: the batch is written unpriced
         val key = try { com.lifecyclebot.data.DefaultKeys.JUPITER } catch (_: Throwable) { "" }
+        if (key.isBlank()) why8945("jupiter_price_keyed", "NO_KEY")   // V5.0.8945
         if (key.isNotBlank()) read8934("https://api.jup.ag/price/v3?ids=" + ids.joinToString(","), "jupiter_price_keyed", key)?.let { keyedOk8934.incrementAndGet(); return it }
         read8934(JUP_8884 + ids.joinToString(","), "jupiter", "")?.let { keylessOk8934.incrementAndGet(); return it }
         failed.incrementAndGet()
@@ -230,16 +237,27 @@ object ResearchFollow8884 {
             .also { if (key.isNotBlank()) it.header("x-api-key", key) }.build()
         // the app's health-aware path for Jupiter (its backoff and host circuit), as the registry's Jupiter reads use
         com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host).use { resp ->
-            if (!resp.isSuccessful) null else resp.body?.string()?.let { JSONObject(it) }
+            if (!resp.isSuccessful) { why8945(host, "HTTP_${resp.code}"); null }
+            else resp.body?.string()?.let { JSONObject(it) } ?: run { why8945(host, "EMPTY_BODY"); null }
         }
-    } catch (_: Throwable) { null }
+    } catch (t: Throwable) { why8945(host, t.javaClass.simpleName.ifBlank { "EXCEPTION" }.take(32)); null }
+
+    // V5.0.8945 — 19:34 capture: failed=68 with calls8934{keyed=0 keyless=0}: every 4 h / 24 h read failed on both hosts and
+    // nothing said why (Jupiter's lite host is being rate-limited down to retirement, per its migration page). Each failed
+    // read is now counted by host and cause (HTTP status, empty body, or the exception's class), and whether a key was set.
+    private val why8945 = ConcurrentHashMap<String, AtomicLong>()
+    private fun why8945(host: String, cause: String) {
+        val k = "$host:$cause"
+        (why8945[k] ?: if (why8945.size >= 16) why8945.computeIfAbsent("OTHER") { AtomicLong(0L) } else why8945.computeIfAbsent(k) { AtomicLong(0L) }).incrementAndGet()
+    }
 
     /** Brief: decisions waiting per horizon, rows written, unpriced and late reads. */
     fun statusLine8884(): String {
         val (h4, h24) = synchronized(pending) { pending.count { it.next == 0 } to pending.count { it.next == 1 } }
         return "researchFollow8884[waiting4h=$h4 waiting24h=$h24 written=${written.get()} unpriced=${unpriced.get()} late=${late.get()} " +
             "failed=${failed.get()} dropped=${dropped.get()} untradeable8923=${untradeable8923.get()} implausible8923=${implausible8923.get()} " +
-            "calls8934{keyed=${keyedOk8934.get()} keyless=${keylessOk8934.get()} notSolanaIds=${notSolana8934.get()}} rule=each hour row's decision read again at 4 h and 24 h (Jupiter price v3, USD per token), same file]"
+            "calls8934{keyed=${keyedOk8934.get()} keyless=${keylessOk8934.get()} notSolanaIds=${notSolana8934.get()}} " +
+            "readFailed8945{${why8945.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}} rule=each hour row's decision read again at 4 h and 24 h (Jupiter price v3, USD per token), same file]"
     }
 
     internal fun resetForTest8884() { synchronized(pending) { pending.clear() }; loaded = true; written.set(0); unpriced.set(0); late.set(0); dropped.set(0) }

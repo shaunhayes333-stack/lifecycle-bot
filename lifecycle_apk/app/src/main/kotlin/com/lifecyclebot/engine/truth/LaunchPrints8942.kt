@@ -54,13 +54,17 @@ object LaunchPrints8942 {
         try { listener8942?.invoke(mint, n) } catch (_: Throwable) {}
     }
 
-    /** BotService: the milestone's coin had left the watchlist (nothing to evaluate). */
+    /** BotService: the milestone's coin was not on the watchlist; from 8945 it goes through the protected intake. */
     fun noteNotWatched8942() { notWatched.incrementAndGet() }
+
+    private val admitted8945 = AtomicLong(0L)
+    /** V5.0.8945 — BotService: an unwatched milestone launch the protected intake admitted. */
+    fun noteAdmitted8945() { admitted8945.incrementAndGet() }
 
     fun statusLine8942(): String =
         "launchPrints8942[tracked=${counts.size} fired{${MILESTONES_8942.joinToString(",") { "$it=${fired[it]?.get() ?: 0}" }}} " +
-            "late=${late.get()} notWatched=${notWatched.get()} rule=a pump.fun launch is run through the full pipeline at its 20th, 40th " +
+            "late=${late.get()} notWatched=${notWatched.get()} intakeAdmitted8945=${admitted8945.get()} rule=a pump.fun launch is run through the full pipeline at its 20th, 40th " +
             "and 80th witnessed print within 15 min of its first (the 20th-print entry paid best on the launch paths); no gate bypassed]"
 
-    internal fun resetForTest8942() { counts.clear(); fired.clear(); late.set(0L); notWatched.set(0L); listener8942 = null }
+    internal fun resetForTest8942() { counts.clear(); fired.clear(); late.set(0L); notWatched.set(0L); admitted8945.set(0L); listener8942 = null }
 }

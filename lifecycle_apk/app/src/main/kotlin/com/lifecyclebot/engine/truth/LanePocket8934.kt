@@ -59,7 +59,7 @@ object LanePocket8934 {
         return names.last()
     }
 
-    /** Pure: the seven features of a decision, as the research row records them. */
+    /** Pure: the seven features of a decision, as the research row records them (each feature word held once, 8945). */
     internal fun features8934(mint: String, stage: String, setup: String, v3: Double, pred: Double, liq: Double, mcap: Double): List<String> = listOf(
         "origin=" + MarketCohort8701.origin8701(mint),
         "stage=" + stage.ifBlank { "NA" },
@@ -68,7 +68,12 @@ object LanePocket8934 {
         "pred=" + bucket(pred, doubleArrayOf(-5.0, 0.0, 5.0, 10.0), arrayOf("<-5", "-5-0", "0-5", "5-10", "10+")),
         "liq=" + bucket(liq, doubleArrayOf(5e3, 2e4, 1e5, 5e5), arrayOf("<5k", "5-20k", "20-100k", "100-500k", "500k+")),
         "mcap=" + bucket(mcap, doubleArrayOf(1e4, 2e4, 1e5, 1e6), arrayOf("<10k", "10-20k", "20-100k", "100k-1M", "1M+")),
-    )
+    ).map { word8945(it) }
+
+    // V5.0.8945 — the 19:34 heap map: this pocket's books held 7.0 MB for 15,878 coins, nearly all of it seven freshly built
+    // feature strings per coin, though the features take a few hundred distinct values; each is now held once (bounded).
+    private val words8945 = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private fun word8945(s: String): String = if (words8945.size >= 2_000) s else (words8945.putIfAbsent(s, s) ?: s)
 
     /** Pure: every cell a feature list belongs to — each feature alone and each pair. */
     internal fun cellsOf8934(feats: List<String>): List<List<String>> {

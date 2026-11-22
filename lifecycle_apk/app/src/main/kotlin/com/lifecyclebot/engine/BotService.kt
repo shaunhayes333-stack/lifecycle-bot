@@ -10975,10 +10975,18 @@ class BotService : Service() {
             }
         } catch (_: Throwable) {}
         // V5.0.8942 — a launch is run through the full pipeline again at its 20th, 40th and 80th witnessed print
-        com.lifecyclebot.engine.truth.LaunchPrints8942.listener8942 = { mint, n ->
+        // V5.0.8945 — a milestone launch that is not on the watchlist (345 of 762 milestones on the 19:34 capture) goes through
+        // the same protected intake a heat promotion uses (admitProtectedMemeIntake: every intake gate), then the same fast lane
+        com.lifecyclebot.engine.truth.LaunchPrints8942.listener8942 = listener8942@{ mint, n ->
             if (status.running && status.tokens.containsKey(mint))
                 scope.launch(Dispatchers.IO) { fastLaneEvaluate7277(mint, ConfigStore.load(applicationContext), "LAUNCH_PRINTS_8942_$n", onceKey = "$mint|8942|$n") }
-            else com.lifecyclebot.engine.truth.LaunchPrints8942.noteNotWatched8942()
+            else if (status.running) {
+                com.lifecyclebot.engine.truth.LaunchPrints8942.noteNotWatched8942()
+                // once, at the 20th print: a launch the intake refuses then is not asked again at 40 / 80
+                if (n != 20) return@listener8942
+                val (sym8945, name8945) = com.lifecyclebot.engine.market.LaunchTape7921.symbolName8945(mint)
+                scope.launch(Dispatchers.IO) { promoteHotLaunchNow7921(mint, sym8945, name8945, streamGeneration, source8945 = "LAUNCH_PRINTS_8942", onceKey8945 = "$mint|8942|$n") }
+            }
         }
         // 1) PumpPortal WS — new pump.fun launches + migrations
         try {
@@ -25879,7 +25887,9 @@ if (hotExitHandledSweep) {
         scope.launch(Dispatchers.IO) { promoteHotLaunchNow7921(mint, symbol, name, streamGeneration) }
     }
 
-    private fun promoteHotLaunchNow7921(mint: String, symbol: String, name: String, streamGeneration: Long) {
+    // V5.0.8945 — [source8945] / [onceKey8945]: a print milestone's admission names itself and keys its own fast lane
+    private fun promoteHotLaunchNow7921(mint: String, symbol: String, name: String, streamGeneration: Long,
+                                        source8945: String = "LAUNCH_HEAT_7921", onceKey8945: String = mint) {
         try {
             val cfg = ConfigStore.load(applicationContext)
             if (!status.tokens.containsKey(mint)) {
@@ -25896,7 +25906,7 @@ if (hotExitHandledSweep) {
                     mint = mint,
                     symbol = symbol.ifBlank { mint.take(6) },
                     name = name.ifBlank { symbol },
-                    source = "LAUNCH_HEAT_7921",
+                    source = source8945,
                     marketCapUsd = capUsd8165,
                     liquidityUsd = liqUsd8165,
                     confidence = 45,
@@ -25904,8 +25914,10 @@ if (hotExitHandledSweep) {
                     expectedRuntimeGeneration = streamGeneration,
                 )
             }
-            PipelineHealthCollector.labelInc("LAUNCH_HEAT_7921_FAST_LANE")
-            fastLaneEvaluate7277(mint, cfg, "LAUNCH_HEAT_7921")
+            PipelineHealthCollector.labelInc("${source8945}_FAST_LANE")
+            if (source8945 != "LAUNCH_HEAT_7921" && status.tokens.containsKey(mint))
+                com.lifecyclebot.engine.truth.LaunchPrints8942.noteAdmitted8945()
+            fastLaneEvaluate7277(mint, cfg, source8945, onceKey = onceKey8945)
         } catch (_: Throwable) {}
     }
 

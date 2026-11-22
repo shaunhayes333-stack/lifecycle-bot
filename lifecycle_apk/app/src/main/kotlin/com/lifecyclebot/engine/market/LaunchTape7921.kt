@@ -341,6 +341,9 @@ object LaunchTape7921 {
     }
 
     /** V5.0.8165 — the tape's last executed price (SOL per token), or 0.0. */
+    /** V5.0.8945 — the launch's (symbol, name) from its create, blank when unheard. */
+    fun symbolName8945(mint: String): Pair<String, String> = recs[mint]?.let { r -> synchronized(r) { r.symbol to r.name } } ?: ("" to "")
+
     fun lastPriceSol8165(mint: String): Double = recs[mint]?.let { r -> synchronized(r) { r.lastPx } } ?: 0.0
 
     /** Heat without the full feature build (no sort) — for the eviction scan. */

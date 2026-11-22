@@ -2802,3 +2802,20 @@ safety8943{...}. Counted, never acted on.
 GoldenTapeRegressionTest.V5_0_7277_helius_leads_evidence_bar_fee_floor_runner_exits_fast_lane_and_smart_money asserted the old
 fastLaneEvaluate7277 signature. 8942 added `onceKey: String = mint` (its default keeps every older trigger's key), so the pin
 now reads the new signature, marked superseded. No code change; 8944 carries 8942 and 8943 as they are.
+
+## 133. The unwatched launch, the follow-up's failures, the repeated words (8945)
+
+19:34 capture (8944, 36 min up). launchPrints8942 fired at 417 milestones and found the coin off the watchlist 345 times, so
+most launches were never re-read at their 20th print. BotService's milestone listener now sends an unwatched launch, once at its
+20th print, through promoteHotLaunchNow7921 — the same protected intake a heat promotion uses (admitProtectedMemeIntake, every
+intake gate), with source LAUNCH_PRINTS_8942 and its own fast-lane key — then the same fast lane. A launch the intake refuses is
+not asked again at its 40th or 80th. launchPrints8942 counts intakeAdmitted8945. LaunchTape7921.symbolName8945 gives the create's
+symbol and name.
+
+researchFollow8884 showed failed=68 with calls8934{keyed=0 keyless=0}: no 4 h or 24 h read has been written, and nothing said
+why (Jupiter's migration page: the lite host's rate limit "will be reduced progressively until it is fully retired"). Each failed
+read is now counted by host and cause — HTTP status, empty body, the exception's class, or NO_KEY — as readFailed8945{...}.
+
+Heap map 19:34 (337 MB at 36 min): ResearchFollow8884.pending held 9.5 MB for 30,039 waits and LanePocket8934.books 7.0 MB for
+15,878 coins, mostly repeated words (lane, stage, setup, reason; seven feature strings per coin). Each such word is now held
+once (word8945, bounded pools). Nothing read or decided changes.
