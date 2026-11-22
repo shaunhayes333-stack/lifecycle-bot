@@ -152,7 +152,11 @@ object LiquidityOwnership8522 {
         val chainMint8937 = expectedMint.ifBlank { evidence.mint }
         fun chainProven8937(p: Pool): Boolean = p.address.isNotBlank() &&
             ((chainLock8895 != null && com.lifecyclebot.engine.truth.PoolLock8895.proves8895(chainLock8895, chainMint8937, p.address, nowMs)) ||
-                (try { com.lifecyclebot.engine.truth.PoolLock8895.proof8895(chainMint8937, p.address, nowMs) != null } catch (_: Throwable) { false }))
+                // V5.0.8938 — waived by the same 10-minute proof the safety report carries (8937 used the door's 60 s one here, so
+                // a pool proven 61 s .. 10 min ago passed the report and was BLOCKED at the door, where a block asks no re-read:
+                // stuck until the report itself asked again). Only PROVEN below still needs the fresh 60 s read; between the two
+                // the door answers PENDING, which re-reads the pool (PreTradeHardGate / BuyRouteSafety8522).
+                (try { com.lifecyclebot.engine.truth.PoolLock8895.reportProof8937(chainMint8937, p.address, nowMs) != null } catch (_: Throwable) { false }))
         val chainAll8937 = allDepthPoolsProven8937(evidence.pools.filterNot { curve8881(it) }) { chainProven8937(it) }
 
         // Explicit adverse evidence always wins over a good numerical score or

@@ -2716,3 +2716,13 @@ once per coin per 15 minutes, and read forward like every refused decision (rese
 lpState8725 LP_BLOCKED says whether what the rule keeps out drains or pays (8725 probed paying-cell coins only, which an
 LP-blocked coin never reaches: LP_BLOCKED was n0). (3) poolLock8895 counts providerCorrected8937{venue:band} (the provider
 under 70 % where the pool's own accounts prove it locked) and otherPrograms8937 (pools of venues not yet read: the next to add).
+
+## 126. The door waives on the report's proof (8938)
+
+A fault in 8937 found on review: TokenSafetyChecker let a chain-proven lock stand over the provider's lower figure for up to 10
+minutes (PoolLock8895.reportProof8937), but the buy door (LiquidityOwnership8522.chainProven8937) waived the provider's
+under-70 % pool only on its own 60 s proof. A pool proven 61 s to 10 minutes earlier passed the report and was BLOCKED
+(LP_LOCK_BELOW_REQUIRED_8522) at the door, and a block asks no re-read, so it stayed blocked until the report's own window
+lapsed and it asked again. The door now waives on the same 10-minute proof; PROVEN still needs the fresh 60 s read, so between
+the two the door answers LP_OWNERSHIP_PROOF_PENDING_8522, which re-reads the pool (PreTradeHardGate / BuyRouteSafety8522) and
+proves it on the next look. Past 10 minutes the provider's figure stands, as before 8937.
