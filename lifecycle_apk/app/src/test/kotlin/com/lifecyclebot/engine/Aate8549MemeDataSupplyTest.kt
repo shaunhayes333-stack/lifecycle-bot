@@ -70,7 +70,7 @@ class Aate8549MemeDataSupplyTest {
         assertTrue(h.contains("HELIUS_SWAP_CANDLES_LOCAL_BUDGET_"))
         assertTrue(HeliusSwapCandles7819.nearLeaseAvailable8549(HeliusSwapCandles7819.NEAR_LEASES_PER_HOUR_8549 - 1))
         assertFalse(HeliusSwapCandles7819.nearLeaseAvailable8549(HeliusSwapCandles7819.NEAR_LEASES_PER_HOUR_8549))
-        assertTrue("a near-decision lease is one page", h.contains("runJob(ts, marketAddress, key, credits, if (nearLease8549) 1 else MAX_PAGES)"))
+        assertTrue("a near-decision lease is one page", h.contains("runJob(ts, marketAddress, key, credits, if (nearLease8549 || onePage8950) 1 else MAX_PAGES)"))
     }
 
     @Test fun jupiterPriceUsesTheKeyedHostFirst() {

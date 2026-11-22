@@ -70,7 +70,7 @@ class Aate8934LanePocketTest {
         val adm = src("engine/truth/CandidateAdmission8136.kt")
         assertTrue(adm.contains("?: BasePocket8904.evidence8904(ts, lane, nowMs)\n                // V5.0.8934"))
         assertTrue(adm.contains("?: LanePocket8934.evidence8934(ts, lane, edge8874?.predPct, nowMs)"))
-        assertTrue(src("engine/truth/LaneAuthority8577.kt").contains("LanePocket8934.KIND_8934)"))
+        assertTrue(src("engine/truth/LaneAuthority8577.kt").contains("LanePocket8934.KIND_8934,"))
         assertTrue(src("engine/truth/ResearchRows8877.kt").contains("LanePocket8934.learnLine8934(line)"))
         val f = src("engine/truth/ResearchFollow8884.kt")
         assertTrue(f.contains("JupiterPriceIds8418.ids8418(mints, Int.MAX_VALUE)"))

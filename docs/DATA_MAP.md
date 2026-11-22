@@ -2970,3 +2970,15 @@ pumpswap world"; 00:31: "add runner sensitive token streaming to the selective l
   changes (new protocol recipients from 25 Nov); the per-trade price used for the tape already uses each event's reserves.
 Not in this build: the PumpSwap pool account's own virtual_quote_reserves offset (not published where it could be read); the
 vault-history price (ChainHistoryMark8541) still reads the raw vault ratio.
+
+## 141. The full suite repaired (8953)
+
+CI for 8949-8951 (Complete historical suite): five new failures, no compile error.
+- Aate8401DeliveryTest (behaviour, from 8949): a shadow key with nothing stored yet now stays hot after its first cold append
+  (it holds exactly that one row), so a reader sees it without a store round trip, as before 8949. Keys already stored keep
+  8949's text append without a decode.
+- Moved pins, same intent: Aate8439 (the birth hydrator's fourth per-rung health label: 8951's oldest-first read), Aate8549
+  (the one-page rule now also covers 8950's UNKNOWN-stage read), Aate8934 (LaunchSniper8748's kind follows LanePocket8934 in
+  the prior-answering set), Aate8950 (the stage router passes memeLifecycle since 8951).
+The 8949 runtime smoke failure was the forensic accounting witness (cash / open-cost delta 0.11 SOL); 8950 and 8951 passed
+the same runtime test, and the same witness failed and then passed on ade91d56b, so it is recorded as that witness's flake.

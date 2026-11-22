@@ -53,7 +53,7 @@ class Aate8950ChainConfirmTest {
     }
 
     @Test fun decisionsHoldsAndExitsAskTheChain() {
-        assertTrue(src("engine/TokenMetricStageRouter.kt").contains("com.lifecyclebot.engine.truth.StageRead8950.onStage8950(ts, s.stage.name, now)"))
+        assertTrue(src("engine/TokenMetricStageRouter.kt").contains("com.lifecyclebot.engine.truth.StageRead8950.onStage8950(ts, s.stage.name, now,"))
         assertTrue(src("engine/truth/LiveEdgeGate7877.kt").contains("if (!paper) try { ChainConfirm8950.confirm8950(ts, missing + CandidateAdmission8136.deferCauses8700(d.trace), \"DECISION\", nowMs) }"))
         assertTrue(src("engine/truth/EvidenceWait8948.kt").contains("ChainConfirm8950.confirm8950(ts, causes, \"EVIDENCE\", nowMs)"))
         assertTrue(src("engine/truth/MissingMarkExitVeto6835.kt").contains("ChainConfirm8950.confirmMint8950(mintKey, listOf(\"PRICE\"), \"EXIT\")"))

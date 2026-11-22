@@ -271,6 +271,8 @@ internal class ShadowCohortBook8397(private val fields: Int, private val maxRows
                     try { cold.read(k) } catch (failure: Exception) { throw ShadowStorageUnavailable8397(failure) }
                 } else null
                 payloads[k] = appendRow8949(raw, rowText, maxRows)
+                // V5.0.8952 — a key with nothing stored yet holds exactly this row: it is kept hot (one row, no decode)
+                if (raw.isNullOrEmpty()) hotRows[k] = listOf(row.copyOf())
             }
         }
         try {

@@ -18,7 +18,7 @@ class Aate8439OpenItemsTest {
     @Test fun birthReadsUseEachRungsOwnHealthLabel() {
         val h = src("engine/truth/TokenBirthHydrator7441.kt")
         assertFalse("no shared label on any birth read", h.contains("HealthAwareHttp.execute(http, req, host = \"solana_rpc\")"))
-        assertEquals(3, Regex("HealthAwareHttp\\.execute\\(http, req, host = rpcLabel8439\\(rpc\\)\\)").findAll(h).count())
+        assertEquals(4, Regex("HealthAwareHttp\\.execute\\(http, req, host = rpcLabel8439\\(rpc\\)\\)").findAll(h).count())   // V5.0.8951 — + the oldest-first birth read
         assertEquals("helius", com.lifecyclebot.network.KeylessRpc8359.label8359("https://mainnet.helius-rpc.com/?api-key=x"))
         assertEquals("rpc_api.mainnet-beta.solana.com", com.lifecyclebot.network.KeylessRpc8359.label8359("https://api.mainnet-beta.solana.com"))
     }
