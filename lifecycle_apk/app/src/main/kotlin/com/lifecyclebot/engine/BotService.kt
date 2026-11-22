@@ -10994,6 +10994,11 @@ class BotService : Service() {
             if (status.running && status.tokens.containsKey(mint))
                 fastLaneEvaluate7277(mint, ConfigStore.load(applicationContext), "EVIDENCE_WAIT_8948", onceKey = "$mint|8948|$slot")
         }
+        // V5.0.8950 — a coin whose UNKNOWN stage was read from the chain runs its full pipeline again at once
+        com.lifecyclebot.engine.truth.StageRead8950.direct8950 = { mint, slot ->
+            if (status.running && status.tokens.containsKey(mint))
+                fastLaneEvaluate7277(mint, ConfigStore.load(applicationContext), "STAGE_READ_8950", onceKey = "$mint|8950|$slot")
+        }
         // V5.0.8949 — an armed fire of the launch replay's proven rule runs the coin's full pipeline at once (a coin off the
         // watchlist through the protected intake first); every gate stands
         com.lifecyclebot.engine.truth.LaunchSniper8748.onArmed8949 = { mint ->

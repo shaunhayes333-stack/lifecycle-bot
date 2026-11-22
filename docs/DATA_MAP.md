@@ -2894,3 +2894,26 @@ cost breakdown's String.format (756 ms of a new Formatter + DecimalFormatSymbols
 (appendRow8949), with no decode or re-encode; decode parses rows in place with no string list or boxing (same rules: a row
 needs a parsed time and a finite net, a malformed other field reads 0.0); the breakdown digits use NetEdge8030.fixed8949
 (half-up, '.'); the regexes are compiled once. Records and decisions are unchanged.
+
+## 138. What a decision needs is confirmed on chain (8950)
+
+Owner, 22 Nov 23:53-23:57: "we are reading coins totally wrong ... anything flagged UNKNOWN must be confirmed on chain asap
+... that goes for everything data related. if we need it to make a trade decision, hold, exit appraisal, confirm it on
+chain". Research rows 21-22 Nov (37,658 hour reads): stage UNKNOWN on 64.0 % of meme-lane reads and 83.6 % of crypto-lane
+reads. Joined with the dataset's decision-time features (4,488 coins): the UNKNOWN coins lacked run-up / distance from peak /
+drawdown on 52 % of reads and 5 m / 1 h change or buy / sell split on ~30 %. Off pump.fun coins under 5 minutes old with no
+price path: 545 coins, +21.0 % mean, ex-top-3 +14.8 %, halves +13.0 / +29.0 an hour on. Lanes deciding the same coin in the
+same second read different caps on 1,240 of 7,968 decisions (2x+ on 64). Helius at 26 % of the day's budget; swap-history
+reads waited 20 s for free sources (FREE_GRACE 323) and were budget-skipped 164 times on the 23:03 capture.
+- StageRead8950: every LIVE TokenMetricStageRouter.snapshot that reads UNKNOWN asks the chain for the coin's own swap history
+  at once (HeliusSwapCandles7819: no free-source grace, the near-decision tier, one 100-credit page on SWAP_CANDLES' paced
+  share, never the priority lease), once per 60 s per coin; when the bars land the coin's full pipeline runs again
+  (fast lane STAGE_READ_8950) and the re-read stage is counted (restaged{}).
+- ChainConfirm8950: a LIVE decision (LiveEdgeGate7877's data defer, every candidate), a proven coin's wait (EvidenceWait8948),
+  an UNKNOWN stage, an exit appraisal without a mark (MissingMarkExitVeto6835) or a held position without a price
+  (SellReconciler) reads each missing input from the chain now: price / depth (curve reserves, pool vaults; OnChainDepth8038),
+  history / stage (StageRead8950), mint and freeze authority (AuthorityProofPrefetch8136), holder concentration
+  (OnChainHolderConcentration7379), LP lock (PoolLock8895 per named pool), safety report (SafetyProofPriority8310); each
+  (coin, input) at most every 20 s, off the caller's thread. No rule, bar or gate changes.
+The brief shows stageRead8950{unknownSeen chainAsked chainRead restaged{} candles} and chainConfirm8950{use:input=n}.
+Not yet: one cap / liquidity / stage reading per coin per moment shared by every lane (next).

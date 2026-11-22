@@ -766,6 +766,8 @@ object LiveEdgeGate7877 {
                         // V5.0.8180 — first, so the mapped inputs (price / economics / core -> liq / chg / shape / bp) take the per-mint request.
                         try { com.lifecyclebot.engine.DataDeferFetch8180.request8180(ts, missing, nowMs) } catch (_: Throwable) {}
                         try { com.lifecyclebot.engine.cortex.LanePlaybook7907.requestEvidence8153(ts, missing.map { it.replace("liquidity:", "liq:") }, nowMs) } catch (_: Throwable) {}
+                        // V5.0.8950 — and every input the wait names is read from the chain now (LIVE)
+                        if (!paper) try { ChainConfirm8950.confirm8950(ts, missing + CandidateAdmission8136.deferCauses8700(d.trace), "DECISION", nowMs) } catch (_: Throwable) {}
                     }
                     val waitMode8870 = if (paper) "PAPER" else "LIVE"
                     val budgetOpen8204 = CandidateAdmission8136.deferBudgetForLane8870(ts.mint, l8059, waitMode8870, missing, nowMs)

@@ -60,7 +60,12 @@ object TokenMetricStageRouter {
         return snapshot(ts, now, EntryFlow8506.provider(ts.mint, now))
     }
 
-    internal fun snapshot(ts: TokenState, now: Long, flow: EntryFlow8506?): Snapshot = try {
+    // V5.0.8950 — every LIVE reading that comes back UNKNOWN is confirmed on chain at once (StageRead8950)
+    internal fun snapshot(ts: TokenState, now: Long, flow: EntryFlow8506?): Snapshot = snapshotRead8950(ts, now, flow).also { s ->
+        try { com.lifecyclebot.engine.truth.StageRead8950.onStage8950(ts, s.stage.name, now) } catch (_: Throwable) {}
+    }
+
+    private fun snapshotRead8950(ts: TokenState, now: Long, flow: EntryFlow8506?): Snapshot = try {
         val hist = synchronized(ts.history) { ts.history.filter { it.priceUsd.isFinite() && it.priceUsd > 0.0 } }
         // V5.0.7401 — token age is launch age, not "time since AATE noticed it".
         // A trending token discovered after its pump used to reset to age=0 and

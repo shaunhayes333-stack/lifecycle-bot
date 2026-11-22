@@ -528,6 +528,8 @@ object SellReconciler {
         // about. Threshold = 2 ticks ≈ 20s without any DS pair update.
         val newStreak = (zeroPriceStreak[pos.mint] ?: 0) + 1
         zeroPriceStreak[pos.mint] = newStreak
+        // V5.0.8950 — a held position with no price reads it from the chain now (curve reserves / pool vaults)
+        if (newStreak >= 1) try { com.lifecyclebot.engine.truth.ChainConfirm8950.confirmMint8950(pos.mint, listOf("PRICE"), "HOLD") } catch (_: Throwable) {}
         if (newStreak == 2) {
             try {
                 ForensicLogger.lifecycle(

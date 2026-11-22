@@ -291,6 +291,8 @@ object MissingMarkExitVeto6835 {
     }
 
     private fun emitVeto(mintKey: String, exitReason: String, detail: String) {
+        // V5.0.8950 — an exit appraisal with no mark reads the price from the chain now (curve reserves / pool vaults)
+        try { ChainConfirm8950.confirmMint8950(mintKey, listOf("PRICE"), "EXIT") } catch (_: Throwable) {}
         try {
             PipelineHealthCollector.labelInc("EXIT_DEFERRED_MISSING_MARK_6835")
             PipelineHealthCollector.labelInc("EXIT_DEFERRED_MISSING_MARK_6835_${

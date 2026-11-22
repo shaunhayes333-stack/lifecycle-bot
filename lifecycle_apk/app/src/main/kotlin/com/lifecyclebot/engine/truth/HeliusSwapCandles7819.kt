@@ -176,8 +176,11 @@ object HeliusSwapCandles7819 {
         inFlight.add(mint)
         // V5.0.8549 — a near-decision coin gets a bounded priority lease: one page (100 credits), at most
         // [NEAR_LEASES_PER_HOUR_8549] an hour. 8542: without any lease its jobs were refused at the wire (147 local 429s).
-        val nearLease8549 = priority == PRIORITY_NEAR_DECISION_8284 && claimNearLease8549(nowMs)
+        // V5.0.8950 — an UNKNOWN reading's read is one 100-credit page on SWAP_CANDLES' paced share: never the priority lease
+        val onePage8950 = priority < PRIORITY_HELD_8284 && StageRead8950.pending8950(mint, nowMs)
+        val nearLease8549 = priority == PRIORITY_NEAR_DECISION_8284 && !onePage8950 && claimNearLease8549(nowMs)
         val credits = if (nearLease8549) HeliusCreditEconomy7881.reserve8386(HeliusCreditEconomy7881.Consumer.SWAP_CANDLES, 100.0, true, nowMs)
+            else if (onePage8950) HeliusCreditEconomy7881.reserve8386(HeliusCreditEconomy7881.Consumer.SWAP_CANDLES, 100.0, false, nowMs)
             else HeliusCreditEconomy7881.reserve8386(HeliusCreditEconomy7881.Consumer.SWAP_CANDLES,
             200.0, priority >= PRIORITY_HELD_8284, nowMs)  // V5.0.8541 — the lease is the held chart's alone
         if (credits == null) {
@@ -195,7 +198,7 @@ object HeliusSwapCandles7819 {
                     else if (!Thread.currentThread().isInterrupted && admission8386.start(mint, startedAt)) {
                         nextAllowedMs[mint] = startedAt + MINT_RETRY_MS
                         if (nextAllowedMs.size > 4_000) nextAllowedMs.entries.removeIf { it.value < startedAt }
-                        runJob(ts, marketAddress, key, credits, if (nearLease8549) 1 else MAX_PAGES)
+                        runJob(ts, marketAddress, key, credits, if (nearLease8549 || onePage8950) 1 else MAX_PAGES)
                     } else refusal8386("cancelled_before_start")
                 } catch (_: Exception) { refusal8386("worker_failure") }
                 finally {
@@ -222,7 +225,8 @@ object HeliusSwapCandles7819 {
     fun heliusCandlesAllowed8453(priority: Int): Boolean = priority >= PRIORITY_NEAR_DECISION_8284
 
     private fun heliusAfterFree8418(ts: TokenState, nowMs: Long, priority: Int): Boolean {
-        val firstAsk = HeliusCandleGate8418.firstAsk8418(ts.mint, nowMs)
+        // V5.0.8950 — an UNKNOWN reading is confirmed on chain now: no free-source grace
+        val firstAsk = if (StageRead8950.pending8950(ts.mint, nowMs)) 0L else HeliusCandleGate8418.firstAsk8418(ts.mint, nowMs)
         localTape8284(ts, nowMs, "free_first_8418"); priceBars8287(ts, nowMs)
         pumpFunBars8418(ts, nowMs)
         val covered = try {
@@ -253,6 +257,8 @@ object HeliusSwapCandles7819 {
     fun priority8284(mint: String, nowMs: Long = System.currentTimeMillis()): Int {
         val held = try { com.lifecyclebot.engine.HeldPositionSupervisor7246.isHeld(mint) } catch (_: Throwable) { false }
         if (held) return PRIORITY_HELD_8284
+        // V5.0.8950 — a coin whose stage read UNKNOWN (or a decision input asked of its history) is read on the near-decision tier
+        if (StageRead8950.pending8950(mint, nowMs)) return PRIORITY_NEAR_DECISION_8284
         val near = try { com.lifecyclebot.engine.DataPipeline8191.nearDecision8191(mint, nowMs) } catch (_: Throwable) { false }
         if (near) return PRIORITY_NEAR_DECISION_8284
         val handoff = try { AdmissionHandoff8144.handoffOf8144(mint, nowMs)?.open == true } catch (_: Throwable) { false }
@@ -275,6 +281,9 @@ object HeliusSwapCandles7819 {
         val perHour = when { priority >= PRIORITY_NEAR_DECISION_8284 -> MAX_JOBS_PER_HOUR; priority == PRIORITY_HANDOFF_8284 -> 360; else -> 0 }
         return lastMinute < perMin && lastHour < perHour
     }
+
+    /** V5.0.8950 — the candle reader's refusals (why a chain read did not start), for StageRead8950's line. */
+    fun refusalLine8950(): String = refused8386.entries.sortedByDescending { it.value.get() }.take(6).joinToString("/") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }
 
     /** V5.0.8284 — the integrator's hook (FeatureRevision bump, re-evaluation of waiting candidates): called with the mint after a merge added or replaced candles. */
     @Volatile var onCandlesMerged8284Listener: (String) -> Unit = {}
@@ -345,6 +354,7 @@ object HeliusSwapCandles7819 {
         try { CandleCoverage8284.noteArrived8284(ts, nowMs) } catch (_: Throwable) {}
         // V5.0.8284 FEATURE_ARRIVED_SHAPE(mint)
         try { onCandlesMerged8284Listener(ts.mint) } catch (_: Throwable) {}
+        try { StageRead8950.onMerged8950(ts.mint, nowMs) } catch (_: Throwable) {}   // V5.0.8950 — an UNKNOWN coin's pipeline runs again
     }
 
     private fun apiKey(nowMs: Long): String {
