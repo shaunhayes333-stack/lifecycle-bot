@@ -39,7 +39,8 @@ class Aate8733ExploreAndFairGradeTest {
         val lp = File("src/main/kotlin/com/lifecyclebot/engine/LiquidityOwnership8522.kt").readText()
         assertTrue(lp.contains("private const val MIN_LOCKED_PCT = 70.0") && lp.contains("LP_UNLOCKED_CONFIRMED_8522"))
         val ex = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue(ex.contains("ExploreLive8733.spendRefusal8733(sol, now8733)"))
+        // V5.0.8946 — the same call, with the coin's mint for the floor band's own limits
+        assertTrue(ex.contains("ExploreLive8733.spendRefusal8733(sol, now8733, ts.mint)"))
         assertTrue(ex.indexOf("ExploreLive8733.spendRefusal8733") < ex.indexOf("runShadowPaperBuy(ts, sol, score, quality, \"live_prebroadcast_observation\")"))
     }
 

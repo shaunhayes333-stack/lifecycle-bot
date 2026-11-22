@@ -58,6 +58,23 @@ object ExploreLive8733 {
     const val MAX_PER_DAY_8733 = 30
     private const val MAX_SOL_8733 = 0.05
     internal const val CAP_LO_USD_8928 = 10_000.0
+
+    // ── V5.0.8946 §THE_FLOOR_BAND_OPENS_CAUTIOUSLY — owner, 22 Nov 20:15: "open the floor band cautiously earlier", answering
+    //    "the careful path won't buy below a $10k cap ... open that band once it reaches 30 coins, or keep your $10k floor?".
+    //    The research rows (20-22 Nov, one row per coin, the hour's net): paying-cell coins left waiting on a safety proof with a
+    //    +10 %+ forecast at a $5k-$10k cap: n19 +59.6 % +-15.0, median +50.6 %, halves +62.1 / +57.4, ex-top-3 +35.7 %, 2 of
+    //    the 16 off pump.fun drained (min -100 %). Under 30 coins, so the band opens under its own tighter limits: a $5k-$10k
+    //    coin passes the same pocket test at its own floor (off pump.fun, a lane carrying the pocket's evidence, the +10 %
+    //    forecast), every other check of this path unchanged, and at most [BAND_MAX_OPEN_8946] such position open and
+    //    [BAND_MAX_PER_DAY_8946] such buys a day, inside the path's own 4 open / 30 a day and its 0.05 SOL a buy.
+    internal const val BAND_LO_USD_8946 = 5_000.0
+    internal const val BAND_MAX_OPEN_8946 = 1
+    internal const val BAND_MAX_PER_DAY_8946 = 8
+    private val band8946 = ConcurrentHashMap<String, Long>()   // band coins found eligible (mint -> when)
+    private val bandSpent8946 = ConcurrentHashMap<String, Long>()
+
+    /** Pure (V5.0.8946): may one more floor-band buy go, with [openNow] band positions open and [spentToday] band buys today? */
+    fun withinBand8946(openNow: Int, spentToday: Int): Boolean = openNow < BAND_MAX_OPEN_8946 && spentToday < BAND_MAX_PER_DAY_8946
     private const val DAY_MS = 24L * 60L * 60_000L
 
     private val spent = ConcurrentHashMap<String, Long>()
@@ -177,7 +194,18 @@ object ExploreLive8733 {
         // superseded by V5.0.8939 — the pocket's proven cohort without the coin's V3 (AgreementPocket8874.pocketVerdict8939); a
         // refusal names what it missed (NOT_IN_POCKET_ORIGIN / _CAP / _NO_LANE_EVIDENCE / _FORECAST)
         val (pocketLane8939, pocketWhy8939) = AgreementPocket8874.pocketVerdict8939(ts, CAP_LO_USD_8928, nowMs, requireV3 = false)
-        val lane = pocketLane8939 ?: run { why8928("NOT_IN_POCKET_$pocketWhy8939"); return false }
+        // V5.0.8946 — under the $10k floor, the same pocket test at the band's own $5k floor, under the band's own limits
+        var inBand8946 = false
+        val lane = pocketLane8939 ?: run {
+            if (pocketWhy8939 == "CAP") {
+                val (bandLane, bandWhy) = AgreementPocket8874.pocketVerdict8939(ts, BAND_LO_USD_8946, nowMs, requireV3 = false)
+                if (bandLane != null) {
+                    if (!withinBand8946(bandOpen8946(), bandToday8946(nowMs))) { why8928("BAND_8946_BUDGET"); return false }
+                    inBand8946 = true
+                    bandLane
+                } else { why8928("NOT_IN_POCKET_${if (bandWhy == "CAP") "CAP" else "BAND_$bandWhy"}"); return false }
+            } else { why8928("NOT_IN_POCKET_$pocketWhy8939"); return false }
+        }
         val proof = try { OnChainMintAuthorityProof7248.resolve(ts.mint, liveGate8094 = true) } catch (_: Throwable) { null }
         tokenRefusal8936(proof)?.let { why8928(it); return false }
         val flow = try { com.lifecyclebot.engine.market.BuyerFlow8666.read(ts.mint, nowMs) } catch (_: Throwable) { null }
@@ -196,22 +224,34 @@ object ExploreLive8733 {
             }
             why8928("PASSED_ON_POOL_COUNTS_8929")
         }
-        lastCell = "AGREE:$lane"
-        why8928("ELIGIBLE")
+        lastCell = (if (inBand8946) "BAND8946:" else "AGREE:") + lane
+        if (inBand8946) { band8946[ts.mint] = nowMs; why8928("ELIGIBLE_BAND_8946") } else { band8946.remove(ts.mint); why8928("ELIGIBLE") }
         return true
     }
 
     private val why8928 = ConcurrentHashMap<String, AtomicLong>()
     private fun why8928(k: String) { why8928.computeIfAbsent(k) { AtomicLong(0L) }.incrementAndGet() }
 
-    /** Executor (live buy, explore verdict): the refusal of a buy of [sol], or null when it may go. */
-    fun spendRefusal8733(sol: Double, nowMs: Long): String? = when {
+    /** Executor (live buy, explore verdict): the refusal of a buy of [sol] on [mint], or null when it may go. */
+    fun spendRefusal8733(sol: Double, nowMs: Long, mint: String = ""): String? = when {
         !(sol.isFinite() && sol > 0.0 && sol <= MAX_SOL_8733) -> { refusedSize.incrementAndGet(); "EXPLORE_SIZE_ABOVE_CAP_8733" }
         !withinBudget8733(openCount8733(), spentToday8733(nowMs)) -> { refusedBudget.incrementAndGet(); "EXPLORE_BUDGET_SPENT_8733" }
+        // V5.0.8946 — a floor-band coin also inside the band's own limits
+        bandCoin8946(mint, nowMs) && !withinBand8946(bandOpen8946(), bandToday8946(nowMs)) -> { refusedBudget.incrementAndGet(); "EXPLORE_BAND_8946_BUDGET_SPENT" }
         else -> null
     }
 
+    private fun bandCoin8946(mint: String, nowMs: Long): Boolean =
+        mint.isNotBlank() && band8946[mint]?.let { nowMs - it in 0L..10L * 60_000L } == true
+    private fun bandToday8946(nowMs: Long): Int = bandSpent8946.values.count { nowMs - it in 0L..DAY_MS }
+    private fun bandOpen8946(): Int = bandSpent8946.keys.count { m ->
+        try { BotService.status.tokens[m]?.position?.isOpen == true } catch (_: Throwable) { false }
+    }
+
     fun noteSpend8733(mint: String, nowMs: Long) {
+        if (bandCoin8946(mint, nowMs)) { bandSpent8946[mint] = nowMs; try { PipelineHealthCollector.labelInc("EXPLORE_BAND_BUY_8946") } catch (_: Throwable) {} }
+        bandSpent8946.entries.removeIf { nowMs - it.value > DAY_MS }
+        if (band8946.size > 500) band8946.entries.removeIf { nowMs - it.value > 10L * 60_000L }
         spent[mint] = nowMs
         allowed.incrementAndGet()
         spent.entries.removeIf { nowMs - it.value > DAY_MS }
@@ -227,9 +267,10 @@ object ExploreLive8733 {
     fun statusLine8733(): String {
         val now = System.currentTimeMillis()
         return "explore8733[buys=${allowed.get()} today=${spentToday8733(now)}/$MAX_PER_DAY_8733 open=${openCount8733()}/$MAX_OPEN_8733 " +
+            "band8946{today=${bandToday8946(now)}/$BAND_MAX_PER_DAY_8946 open=${bandOpen8946()}/$BAND_MAX_OPEN_8946 floor=\$5k} " +
             "maxSol=$MAX_SOL_8733 refusedSize=${refusedSize.get()} refusedBudget=${refusedBudget.get()} lastCell=${lastCell.ifBlank { "-" }} " +
             "asked{${why8928.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}} " +
-            "rule=8928: unread LP (never unlocked/under-lock), RugCheck reported, agreement pocket at \$10k-\$20k with a +10 %+ forecast, any V3 (8939), mint + freeze revoked, a classic SPL or clean Token-2022 mint (8936), " +
+            "rule=8928: unread LP (never unlocked/under-lock), RugCheck reported, agreement pocket at \$10k-\$20k (and \$5k-\$10k under its own 1 open / 8 a day, 8946) with a +10 %+ forecast, any V3 (8939), mint + freeze revoked, a classic SPL or clean Token-2022 mint (8936), " +
             "buying rising + holders growing + more positive signs than negative (the live tape, else the pool's DexScreener counts, 8929); 4 open, 30/day (8940), <= 0.05 SOL; LP-pull exit armed]"
     }
 }

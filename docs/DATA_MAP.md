@@ -2819,3 +2819,15 @@ read is now counted by host and cause — HTTP status, empty body, the exception
 Heap map 19:34 (337 MB at 36 min): ResearchFollow8884.pending held 9.5 MB for 30,039 waits and LanePocket8934.books 7.0 MB for
 15,878 coins, mostly repeated words (lane, stage, setup, reason; seven feature strings per coin). Each such word is now held
 once (word8945, bounded pools). Nothing read or decided changes.
+
+## 134. The floor band opens cautiously (8946)
+
+Owner, 22 Nov 20:15: "open the floor band cautiously earlier". The research rows (20-22 Nov, one row per coin, the hour's net):
+paying-cell coins the buy door left waiting on a safety proof, with a +10 %+ forecast at a $5k-$10k cap: n19 +59.6 % +-15.0,
+median +50.6 %, halves +62.1 / +57.4, ex-top-3 +35.7 %; 2 of the 16 off pump.fun drained (min -100 %). Under the bot's 30-coin
+bar, so the band opens under its own limits. ExploreLive8733.eligible8733: a coin the pocket refused only for its cap
+(pocketVerdict8939 "CAP") is asked the same pocket test at the band's $5k floor (off pump.fun, a lane carrying the pocket's
+evidence, the +10 % forecast); every other check of the careful path stands (unread LP only, RugCheck reported, mint + freeze
+revoked, classic or clean Token-2022, the flow test, the LP-pull exit). At most 1 band position open and 8 band buys a day
+(withinBand8946), inside the path's 4 open / 30 a day and 0.05 SOL a buy; the executor's spendRefusal8733 holds a band coin to
+both. explore8733 shows band8946{today open floor} and asked{ELIGIBLE_BAND_8946, BAND_8946_BUDGET, NOT_IN_POCKET_BAND_*}.

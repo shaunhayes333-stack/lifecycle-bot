@@ -20792,7 +20792,7 @@ class Executor(
         // V5.0.8733 — an explore verdict (unread LP in a paying cell) buys at explore size, inside the explore budget.
         if (liveExplore8733) {
             val now8733 = System.currentTimeMillis()
-            val why8733 = com.lifecyclebot.engine.truth.ExploreLive8733.spendRefusal8733(sol, now8733)
+            val why8733 = com.lifecyclebot.engine.truth.ExploreLive8733.spendRefusal8733(sol, now8733, ts.mint)   // V5.0.8946 — the band's own limits
             if (why8733 != null) {
                 pretradeFail8094(ts, sol, why8733)
                 buyTerminalFail("BUY_TERMINAL_NO_EXECUTABLE_ROUTE:PRETRADE_$why8733")
