@@ -541,6 +541,10 @@ object SpecialistBrainBridge7542 {
             val defer8535 = LaneInputTruth8236.eligibleOnUnobserved8535(lane, inputs8236, volumeObserved = measuredVolume != null) ?: continue
             out[lane] = o.copy(eligible = false, reason = defer8535, gradeable = false)
         }
+        // V5.0.8951 — a lane deferred on an unobserved input: that input is read from the chain now (LIVE)
+        if (out.values.any { it.reason.contains("_DEFER") }) try {
+            com.lifecyclebot.engine.truth.ChainConfirm8950.confirm8950(ts, LaneInputTruth8236.missing8951(inputs8236), "LANE")
+        } catch (_: Throwable) {}
         // V5.0.8348 — a momentum mandate that fired on an UNOBSERVED continuation defers (whatever buy pressure says); an
         // observed read below the bar refuses. Before the grab-lane review so the deferral is remembered for hydration.
         ContinuationRead8348.reviewMomentum8348(out, cont8348.observed, observedChange8491 != null || recentPrices.size >= 2 || cont8348.source == ContinuationRead8348.Source8348.FROM_TAPE)

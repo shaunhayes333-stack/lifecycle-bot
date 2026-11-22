@@ -16196,6 +16196,8 @@ class BotService : Service() {
             )
         } catch (_: Throwable) { null }
         IntakeUnknownTruth8418.count8418("INTAKE_LIQ_UNREAD_PROBATION_8418")
+        // V5.0.8951 — the unread reading is asked of the chain now (a pump.fun curve), and the coin promoted when it answers
+        if (added?.probation == true) try { com.lifecyclebot.engine.truth.ChainConfirm8950.probation8951(mint) } catch (_: Throwable) {}
         try {
             ForensicLogger.lifecycle(
                 "INTAKE_LIQ_UNREAD_PROBATION_8418",

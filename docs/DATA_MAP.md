@@ -2917,3 +2917,26 @@ reads waited 20 s for free sources (FREE_GRACE 323) and were budget-skipped 164 
   (coin, input) at most every 20 s, off the caller's thread. No rule, bar or gate changes.
 The brief shows stageRead8950{unknownSeen chainAsked chainRead restaged{} candles} and chainConfirm8950{use:input=n}.
 Not yet: one cap / liquidity / stage reading per coin per moment shared by every lane (next).
+
+## 139. The stack audit: confirm it on chain (8951)
+
+Owner, 23 Nov 00:03: "audit the full aate stack. apply this where it's going to fix issues"; 00:07: "you don't trade btc
+like a pump.fun launch coin ... they have lanes, traders, setups and strategies already built". The 23:03 capture's data
+waits, by count: TOKEN_BIRTH_HYDRATION_PENDING_7440 273,577 (birth walks launched 1,536, resolved 184, cooldownSkips
+19,426), RECOVERY_BIRTH_UNKNOWN_8168 12,843, TOKEN_MAP_PENDING 1,893, INTAKE_LIQ_UNREAD_PROBATION_8418 1,438,
+NATIVE_MCAP_UNHYDRATED_DEFER 262 + 230 + 144, DATA_INCOMPLETE_DEFER_8136 1,018, PRICE_STALE 420.
+- Birth (age, lifecycle, every launch window): TokenBirthHydrator7441 asks Helius getTransactionsForAddress OLDEST first
+  (signatures, succeeded, limit 1; Helius docs: signatures mode 10 credits) before any newest-first page walk; the row is
+  proven exactly as a walked one (InitializeMint / InitializeMint2 on this mint) and the walk runs as before when it is
+  not answered. birthHydrator7441 shows oldestFirst8951=found/asked.
+- Unread intake: a pump.fun coin parked in probation with liquidity and cap unread has its curve read from the chain at once
+  and is promoted onto the watchlist when the chain shows real SOL (ChainConfirm8950.probation8951; checks at 3 / 10 / 30 s).
+- Lane input defers (SpecialistBrainBridge7542, LaneInputTruth8236.missing8951): an unread cap asks the price and the mint's
+  supply (OnChainSupplyAuthority7075), unread momentum / history / buy pressure the coin's swap history.
+- Exec gate (ExecutableOpenGate TOKEN_MAP_PENDING): the unread pool's liquidity and the mint's supply are read on chain.
+- Established assets (TokenMetricStageRouter.memeLifecycle8951 = not isEstablished7306): an UNKNOWN meme stage on them is
+  not chased on chain; their own lanes and desks stage them (establishedLeftToTheirLanes8951).
+- CapTruth8951 (measured only): the cap the lanes read vs the chain's (active curve price x verified supply), ratio buckets
+  and direction, before any change of the cap's authority.
+Not in this build: paper equity's stale last-good marks (STALE_MARK_PROFIT_WITHHELD_7160, paper positions), label marks for
+learning (1,284 of 1,744 unpriced), the crypto desks' own feeds.

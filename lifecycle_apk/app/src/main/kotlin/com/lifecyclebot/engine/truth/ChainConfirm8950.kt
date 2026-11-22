@@ -31,7 +31,7 @@ object ChainConfirm8950 {
     private const val GAP_MS_8950 = 20_000L
     private const val CAP_8950 = 8_000
 
-    enum class Input8950 { PRICE_DEPTH, HISTORY, AUTHORITY, HOLDERS, LP, SAFETY }
+    enum class Input8950 { PRICE_DEPTH, HISTORY, AUTHORITY, HOLDERS, LP, SAFETY, SUPPLY }
 
     private val lastAsk = ConcurrentHashMap<String, Long>()   // "mint|input" -> last asked
     private val asks = ConcurrentHashMap<String, AtomicLong>()  // "use:input" -> count
@@ -48,6 +48,7 @@ object ChainConfirm8950 {
                 m in HISTORY_8950 || m.startsWith("ENTRY_WAIT_FLOW") || m.startsWith("ENTRY_WAIT_STAGE") -> out += Input8950.HISTORY
                 m == "MOVE" || m == "MOVE_UNREAD" -> { out += Input8950.PRICE_DEPTH; out += Input8950.HISTORY }
                 m.contains("AUTHORITY") || m.contains("FREEZE") -> out += Input8950.AUTHORITY
+                m == "SUPPLY" || m == "MCAP" || m.startsWith("MCAP_UNHYDRATED") || m == "DECIMALS" -> { out += Input8950.SUPPLY; out += Input8950.PRICE_DEPTH }
                 m.contains("HOLDER") -> { out += Input8950.HOLDERS; out += Input8950.SAFETY }
                 m.startsWith("LP") || m.contains("LP_OWNERSHIP") || m.contains("POOL_PROOF") -> out += Input8950.LP
                 m.startsWith("PROOF") || m.startsWith("BUY_DOOR_PROOF") || m.contains("SAFETY") || m.contains("RUGCHECK") || m.contains("CRITICAL_PROOF") ->
@@ -94,6 +95,7 @@ object ChainConfirm8950 {
                         Input8950.HOLDERS -> OnChainHolderConcentration7379.observation8522(mint, maxAgeMs = 60_000L)
                         Input8950.LP -> poolsOf8950(ts).forEach { PoolLock8895.request8895(mint, it) }
                         Input8950.SAFETY -> com.lifecyclebot.engine.SafetyProofPriority8310.noteDeferred8310(mint, "CHAIN_CONFIRM_8950")
+                        Input8950.SUPPLY -> OnChainSupplyAuthority7075.requestAsync7075(mint)   // V5.0.8951 — the mint account's supply and decimals
                     }
                 } catch (_: Throwable) {}
             }
@@ -104,10 +106,47 @@ object ChainConfirm8950 {
         listOf(ts.lastPricePoolAddr, ts.pairAddress, ts.tokenMap.poolAddress, ts.tokenMap.pairAddress)
             .map { it.trim() }.filter { it.length in 32..44 && it != ts.mint }.distinct()
 
+    /**
+     * V5.0.8951 §AN_UNREAD_INTAKE_IS_READ_NOT_PARKED — 23:03 capture: INTAKE_LIQ_UNREAD_PROBATION_8418 1,438. A coin that
+     * arrived with liquidity AND cap both unread was parked cold in probation until a later sighting or the probation
+     * clock. A pump.fun coin's depth is its bonding curve: its account is read from the chain at once
+     * (OnChainDepth8038.needCurve8039) and checked [PROBATION_CHECKS_MS_8951] later; once the chain shows real SOL in the
+     * curve (or its graduated pool) the coin is promoted onto the watchlist (GlobalTradeRegistry.promoteFromProbation),
+     * where every intake-to-FDG gate judges it on that reading. A real dust reading is still refused by those gates; a curve
+     * the chain does not answer stays in probation as before. Other venues are counted (their pool is named by the pair
+     * read the probation's next sighting asks for).
+     */
+    fun probation8951(mint: String, nowMs: Long = System.currentTimeMillis()) {
+        if (mint.length !in 32..44 || !live8950()) return
+        if (!com.lifecyclebot.network.PumpCurveKeys7269.isPumpMint8658(mint)) { probationOther8951.incrementAndGet(); return }
+        probationAsked8951.incrementAndGet()
+        try { OnChainDepth8038.needCurve8039(mint, nowMs) } catch (_: Throwable) {}
+        for (d in PROBATION_CHECKS_MS_8951) try {
+            sched8951.schedule({ probationCheck8951(mint) }, d, java.util.concurrent.TimeUnit.MILLISECONDS)
+        } catch (_: Throwable) {}
+    }
+
+    private fun probationCheck8951(mint: String) {
+        val sol = try { CurveReserves7951.liquiditySol7951(mint) } catch (_: Throwable) { 0.0 }
+        if (!promotes8951(sol)) return
+        val r = try { com.lifecyclebot.engine.GlobalTradeRegistry.promoteFromProbation(mint, "CHAIN_CURVE_READ_8951") } catch (_: Throwable) { null }
+        if (r?.added == true) probationPromoted8951.incrementAndGet()
+    }
+
+    /** Pure: [liquiditySol] read from the chain promotes a probation coin when it is a real reading. */
+    internal fun promotes8951(liquiditySol: Double): Boolean = liquiditySol.isFinite() && liquiditySol > 0.0
+
+    private val PROBATION_CHECKS_MS_8951 = listOf(3_000L, 10_000L, 30_000L)
+    private val sched8951 = Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "chain-probation-8951").apply { isDaemon = true } }
+    private val probationAsked8951 = AtomicLong(0L)
+    private val probationPromoted8951 = AtomicLong(0L)
+    private val probationOther8951 = AtomicLong(0L)
+
     /** Brief: asks by use and input. */
     fun statusLine8950(): String =
         "chainConfirm8950[" + asks.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } +
-            " rule=a LIVE decision, hold or exit missing an input reads it from the chain now (price/depth: curve or pool vaults; " +
+            " probation8951{curveAsked=${probationAsked8951.get()} promoted=${probationPromoted8951.get()} otherVenue=${probationOther8951.get()}}" +
+            " rule=a LIVE decision, hold or exit missing an input reads it from the chain now (price/depth: curve or pool vaults; supply: the mint; " +
             "history/stage: the coin's swap history; authority; holders; LP lock; safety report), each (coin, input) at most every " +
             "${GAP_MS_8950 / 1000}s; nothing decided here]"
 }

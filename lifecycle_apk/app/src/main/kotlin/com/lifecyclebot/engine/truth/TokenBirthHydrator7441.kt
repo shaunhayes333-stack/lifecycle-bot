@@ -34,6 +34,8 @@ object TokenBirthHydrator7441 {
         /** Signature paging completed; a missing transaction is retried without spending more history pages. */
         var historyComplete8527: Boolean = false,
         var historyRpc8527: String = "",
+        /** V5.0.8951 — the one oldest-first read was asked for this mint (it is not asked again; the page walk follows). */
+        var first8951: Boolean = false,
         @Volatile var lastTouchedMs: Long = System.currentTimeMillis(),
     )
     private val progress = ConcurrentHashMap<String, Progress>()
@@ -156,7 +158,7 @@ object TokenBirthHydrator7441 {
     fun statusLine7441(): String =
         "birthHydrator7441[requests=${requests8265.get()} launched=${launched8265.get()} busDropped=${busDropped8265.get()} " +
             "cooldownSkips=${cooldownSkips8265.get()} dropped8287=${dropped8287.get()} resolved=${resolved8265.get()} mintInitProven8418=${initProven8418.get()} unproven8418=${initUnproven8418.get()} noRpc=${noRpc8265.get()} noAnswer=${noAnswer8265.get()} " +
-            "inFlight=${inFlight.size} queued8509=${pool8287.queue.size} started8509=${started8509.get()} completed8509=${completed8509.get()} progress=${progress.size} cooling=${cooldownUntil.size} txOtherRung8509=${txFallbackFound8509.get()}/${txFallbackAsked8509.get()}] ${walkOutcomes8435()} ${txMissLine8717()} ${StoredBirth8418.statusLine8418()}"
+            "inFlight=${inFlight.size} queued8509=${pool8287.queue.size} started8509=${started8509.get()} completed8509=${completed8509.get()} progress=${progress.size} cooling=${cooldownUntil.size} txOtherRung8509=${txFallbackFound8509.get()}/${txFallbackAsked8509.get()} oldestFirst8951=${firstFound8951.get()}/${firstFound8951.get() + firstMissed8951.get()}] ${walkOutcomes8435()} ${txMissLine8717()} ${StoredBirth8418.statusLine8418()}"
 
     /**
      * V5.0.8435 — 8434: launched=1769 resolved=13, and where the other walks ended (another page owed, the page budget, a
@@ -308,6 +310,20 @@ object TokenBirthHydrator7441 {
                 try { PipelineHealthCollector.labelInc("TOKEN_BIRTH_PROOF_RETRY_8527") } catch (_: Throwable) {}
                 proveAndPublish8418(rpc, mint, ready)
             }) return
+        // V5.0.8951 — the mint's first successful transaction, read from the chain in ONE call before any page walk
+        if (!state.first8951) {
+            state.first8951 = true
+            val helius8951 = try { RuntimeProviderAuthority6685.configuredHeliusRpc() } catch (_: Throwable) { "" }
+            val first = if (helius8951.isBlank()) null else firstTx8951(helius8951, mint)
+            if (first != null) {
+                firstFound8951.incrementAndGet()
+                state.oldestOkSig8418 = first.first
+                if (first.second > 0L) state.oldestBlockMs = minOf(state.oldestBlockMs, first.second * 1000L)
+                proveAndPublish8418(helius8951, mint, state)
+                return
+            }
+            firstMissed8951.incrementAndGet()
+        }
         val rpcCandidates = RuntimeProviderAuthority6685.marketReadCandidates8359(null, "getSignaturesForAddress")   // V5.0.8359 — the birth walk is a market read: keyless first
         if (rpcCandidates.isEmpty()) {
             cooldownUntil[mint] = System.currentTimeMillis() + NO_RPC_COOLDOWN_MS
@@ -374,6 +390,45 @@ object TokenBirthHydrator7441 {
             PipelineHealthCollector.labelInc(if (anyRpcAnswered) "TOKEN_BIRTH_HYDRATE_CONTINUE_7441" else "TOKEN_BIRTH_HYDRATE_RPC_FAIL_7441")
         } catch (_: Throwable) {}
     }
+
+    /**
+     * V5.0.8951 §THE_BIRTH_IN_ONE_READ — owner, 23 Nov 00:03: "audit the full aate stack. apply this [confirm it on chain]
+     * where it's going to fix issues". The 23:03 capture: TOKEN_BIRTH_HYDRATION_PENDING_7440 273,577, birth walks launched
+     * 1,536 / resolved 184 (cooldownSkips 19,426, progress 277 walks still paging): a coin's age, and with it its lifecycle
+     * stage and every launch window, stayed unknown because the walk pages newest-first through up to 40 x 1,000 signatures
+     * to reach the first one. Helius getTransactionsForAddress returns them OLDEST first: one call, signatures only,
+     * succeeded only, limit 1, is the mint's first successful transaction (its creation). It is then proven exactly as a
+     * walked one is (proveAndPublish8418: the transaction must run InitializeMint / InitializeMint2 on this mint), so an
+     * unproven answer is still only a lower bound. The page walk runs as before when Helius is not configured or did not
+     * answer. ([firstFound8951] / [firstMissed8951] on the status line.)
+     */
+    private fun firstTx8951(rpc: String, mint: String): Pair<String, Long>? {
+        val opts = JSONObject().put("transactionDetails", "signatures").put("sortOrder", "asc").put("limit", 1)
+            .put("commitment", "confirmed").put("filters", JSONObject().put("status", "succeeded"))
+        val body = JSONObject().put("jsonrpc", "2.0").put("id", "birth8951").put("method", "getTransactionsForAddress")
+            .put("params", JSONArray().put(mint).put(opts))
+        val req = Request.Builder().url(rpc).header("Content-Type", "application/json")
+            .post(body.toString().toRequestBody("application/json".toMediaType())).build()
+        if (!com.lifecyclebot.network.KeylessRpc8359.beforeCall8359(rpc)) return null
+        return try {
+            HealthAwareHttp.execute(http, req, host = rpcLabel8439(rpc)).use { resp ->
+                com.lifecyclebot.network.KeylessRpc8359.afterCall8359(rpc, resp.code)
+                if (!resp.isSuccessful) return null
+                firstRow8951(JSONObject(resp.body?.string() ?: return null))
+            }
+        } catch (_: Throwable) { null }
+    }
+
+    /** Pure (V5.0.8951): the first row of a getTransactionsForAddress answer as (signature, blockTime seconds; 0 = none). */
+    internal fun firstRow8951(root: JSONObject?): Pair<String, Long>? {
+        val row = root?.optJSONObject("result")?.optJSONArray("data")?.optJSONObject(0) ?: return null
+        if (!row.isNull("err") && row.opt("err") != null) return null
+        val sig = row.optString("signature", "").trim()
+        if (sig.isBlank()) return null
+        return sig to row.optLong("blockTime", 0L).coerceAtLeast(0L)
+    }
+    private val firstFound8951 = java.util.concurrent.atomic.AtomicLong(0L)
+    private val firstMissed8951 = java.util.concurrent.atomic.AtomicLong(0L)
 
     private fun fetchPage(rpc: String, mint: String, before: String?): JSONArray? {
         val opts = JSONObject().put("limit", PAGE_LIMIT).put("commitment", "confirmed")

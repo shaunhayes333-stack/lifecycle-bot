@@ -62,7 +62,10 @@ object TokenMetricStageRouter {
 
     // V5.0.8950 — every LIVE reading that comes back UNKNOWN is confirmed on chain at once (StageRead8950)
     internal fun snapshot(ts: TokenState, now: Long, flow: EntryFlow8506?): Snapshot = snapshotRead8950(ts, now, flow).also { s ->
-        try { com.lifecyclebot.engine.truth.StageRead8950.onStage8950(ts, s.stage.name, now) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.truth.StageRead8950.onStage8950(ts, s.stage.name, now,
+            memeLifecycle = memeLifecycle8951(ts, s.marketCapUsd, s.liquidityUsd, s.ageMin)) } catch (_: Throwable) {}
+        if (try { !RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false })
+            try { com.lifecyclebot.engine.truth.CapTruth8951.observe8951(ts, s.marketCapUsd, now) } catch (_: Throwable) {}   // V5.0.8951 — measured
     }
 
     private fun snapshotRead8950(ts: TokenState, now: Long, flow: EntryFlow8506?): Snapshot = try {
@@ -239,6 +242,15 @@ object TokenMetricStageRouter {
      * used is what exists: an established-universe scanner source, or scale
      * no fresh launch reaches, with the watchlist clock kept as a third route.
      */
+    /**
+     * V5.0.8951 — owner, 23 Nov 00:07: "you don't trade btc like a pump.fun launch coin ... they have lanes, traders,
+     * setups and strategies already built". The meme lifecycle (FRESH_LAUNCH .. DUMPING) is the stage of a meme coin; an
+     * established asset (this router's own test, [isEstablished7306]) is staged and traded by its own lanes and desks, so
+     * an UNKNOWN meme stage on it is not a missing reading and is not chased on chain (StageRead8950).
+     */
+    internal fun memeLifecycle8951(ts: TokenState, mcap: Double, liq: Double, ageMin: Double): Boolean =
+        !isEstablished7306(ts, mcap, liq, ageMin)
+
     private fun isEstablished7306(ts: TokenState, mcap: Double, liq: Double, watchAgeMin: Double): Boolean {
         if (mcap < 5_000_000.0 || liq < 50_000.0) return false
         val src = ts.source.uppercase()

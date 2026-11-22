@@ -25,6 +25,18 @@ object LaneInputTruth8236 {
     const val V3_UNSCORED_DEFER = "NATIVE_V3_UNSCORED_DEFER_8236"
     const val CRYPTO_DEFER = "CRYPTO_INPUT_UNOBSERVED_DEFER_8236"
 
+    /**
+     * V5.0.8951 — Pure: the chain-readable inputs an [Inputs8236] lacks (ChainConfirm8950 names): an unread cap is a price
+     * and a supply; unread momentum / price history / buy pressure are the coin's own swap history. V3 is not a chain input.
+     */
+    fun missing8951(inp: Inputs8236): List<String> {
+        val out = ArrayList<String>(4)
+        if (!inp.mcap) { out += "PRICE"; out += "SUPPLY" }
+        if (!inp.momentum || !inp.priceHistory) out += "HISTORY"
+        if (!inp.buyPressure) out += "BP"
+        return out
+    }
+
     /** Which native inputs have actually been observed for a token (metadata, not value guesses). */
     data class Inputs8236(
         val mcap: Boolean,

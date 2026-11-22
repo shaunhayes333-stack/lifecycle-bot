@@ -39,6 +39,7 @@ object StageRead8950 {
     private val seen = AtomicLong(0L)
     private val asked = AtomicLong(0L)
     private val merged = AtomicLong(0L)
+    private val established8951 = AtomicLong(0L)
     private val restaged = ConcurrentHashMap<String, AtomicLong>()
     private val io = Executors.newSingleThreadExecutor { r -> Thread(r, "stage-read-8950").apply { isDaemon = true } }
 
@@ -52,12 +53,14 @@ object StageRead8950 {
     private fun live8950(): Boolean = try { !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
 
     /** TokenMetricStageRouter.snapshot: the stage [stage] was just read for [ts] (LIVE): an UNKNOWN asks the chain. */
-    fun onStage8950(ts: TokenState, stage: String, nowMs: Long = System.currentTimeMillis()) {
+    fun onStage8950(ts: TokenState, stage: String, nowMs: Long = System.currentTimeMillis(), memeLifecycle: Boolean = true) {
         val mint = ts.mint
         if (mint.length !in 32..44) return
         // a coin whose chain read landed: file what its stage now reads as (once)
         mergedAt.remove(mint)?.let { at -> if (nowMs - at in 0L..WINDOW_MS_8950) count8950(stage) }
         if (stage != "UNKNOWN" || !live8950()) return
+        // V5.0.8951 — an established asset is not a meme lifecycle: its own lanes and desks stage it
+        if (!memeLifecycle) { established8951.incrementAndGet(); return }
         seen.incrementAndGet()
         // the history read (and the price / depth read beside it) goes through the one chain-confirm router
         ChainConfirm8950.confirm8950(ts, listOf("STAGE", "PRICE"), "STAGE", nowMs)
@@ -67,6 +70,10 @@ object StageRead8950 {
     fun askChain8950(ts: TokenState, nowMs: Long = System.currentTimeMillis()) {
         val mint = ts.mint
         if (mint.length !in 32..44) return
+        // V5.0.8951 — a swap-history page of a deep established pool is seconds of its trading: its own desks read it
+        if (!com.lifecyclebot.engine.TokenMetricStageRouter.memeLifecycle8951(ts, ts.lastMcap, ts.lastLiquidityUsd, Double.NaN)) {
+            established8951.incrementAndGet(); return
+        }
         if (!askDue8950(askedAt[mint] ?: 0L, nowMs)) return
         if (askedAt.size > CAP_8950) askedAt.entries.removeIf { nowMs - it.value > WINDOW_MS_8950 }
         askedAt[mint] = nowMs
@@ -91,14 +98,14 @@ object StageRead8950 {
 
     /** Brief: UNKNOWN readings seen, chain reads asked, reads landed, and what the re-read stage became. */
     fun statusLine8950(): String =
-        "stageRead8950[unknownSeen=${seen.get()} chainAsked=${asked.get()} chainRead=${merged.get()} restaged{" +
+        "stageRead8950[unknownSeen=${seen.get()} chainAsked=${asked.get()} chainRead=${merged.get()} establishedLeftToTheirLanes8951=${established8951.get()} restaged{" +
             restaged.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } +
             "} candles=${try { HeliusSwapCandles7819.refusalLine8950() } catch (_: Throwable) { "-" }} rule=every LIVE UNKNOWN stage asks the " +
             "chain for the coin's own swap history at once (no free-source grace, one 100-credit page, near-decision budget tier, paced " +
             "share), once per ${ASK_GAP_MS_8950 / 1000}s per coin; when it lands the coin's pipeline runs again; no stage rule changes]"
 
     internal fun resetForTest8950() {
-        askedAt.clear(); mergedAt.clear(); seen.set(0L); asked.set(0L); merged.set(0L); restaged.clear()
+        askedAt.clear(); mergedAt.clear(); seen.set(0L); asked.set(0L); merged.set(0L); restaged.clear(); established8951.set(0L)
     }
 
     internal fun askForTest8950(mint: String, nowMs: Long) { askedAt[mint] = nowMs }

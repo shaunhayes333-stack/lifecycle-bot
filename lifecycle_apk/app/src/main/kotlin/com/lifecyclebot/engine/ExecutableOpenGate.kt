@@ -2618,7 +2618,7 @@ object ExecutableOpenGate {
         @Suppress("NAME_SHADOWING") val lane = com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(lane)
         @Suppress("NAME_SHADOWING") val electedLane6494 = com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(electedLane6494)
         expiredLaunch8510(mint, lane, mode, attemptId)?.let { return it }   // V5.0.8510
-        return canOpenExecutablePositionInternal(
+        return chainOnTokenMap8951(mint, mode, canOpenExecutablePositionInternal(
             mint = mint,
             symbol = symbol,
             rug = rugScore,
@@ -2634,7 +2634,7 @@ object ExecutableOpenGate {
             electedCandidateVersion6494 = electedCandidateVersion6494,
             electionId6494 = electionId6494,
             authorityVersion6494 = authorityVersion6494,
-        )
+        ))
     }
 
     fun canOpenExecutablePosition(
@@ -2968,7 +2968,7 @@ object ExecutableOpenGate {
             electedCandidateVersion6494 = electedCandidateVersion6494,
             electionId6494 = electionId6494,
             authorityVersion6494 = authorityVersion6494,
-        )
+        ).also { chainOnTokenMap8951(ts.mint, mode, it) }   // V5.0.8951
         // V5.0.8204 — a scheduled hand-off receiver whose attempt ends at a pre-FDG gate (lease, slot, exit-only, same-mint,
         // stall, V3 fatal, ...) gets THAT gate as its named terminal. 5.0.8202: tasks expired SCHEDULED_NO_FDG_VERDICT with
         // the receiver's true stopping gate unrecorded. An FDG verdict already settled the task first (no-op here).
@@ -3004,6 +3004,17 @@ object ExecutableOpenGate {
         try { PipelineHealthCollector.labelInc("EXPIRED_LAUNCH_8510_$modeUpper") } catch (_: Throwable) {}
         try { ForensicLogger.lifecycle("EXPIRED_LAUNCH", "attemptId=$attemptId mint=${mint.take(10)} lane=PROJECT_SNIPER mode=$modeUpper") } catch (_: Throwable) {}
         return OpenVerdict(false, "EXPIRED_LAUNCH lane=PROJECT_SNIPER mode=$modeUpper", logName = "EXPIRED_LAUNCH", attemptId = attemptId)
+    }
+
+    /**
+     * V5.0.8951 — a LIVE open deferred because the coin's pool is unread (LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP: TOKEN_MAP_PENDING
+     * 1,893 on the 23:03 capture) has that pool's liquidity and the mint's supply read from the chain now (ChainConfirm8950:
+     * curve reserves / pool vaults, the mint account). Outside the pinned gate method; the verdict is returned unchanged.
+     */
+    private fun chainOnTokenMap8951(mint: String, mode: String, v: OpenVerdict): OpenVerdict {
+        if (v.reason == "LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP" && mode.equals("LIVE", ignoreCase = true))
+            try { com.lifecyclebot.engine.truth.ChainConfirm8950.confirmMint8950(mint, listOf("LIQUIDITY", "SUPPLY"), "EXEC") } catch (_: Throwable) {}
+        return v
     }
 
     private fun canOpenExecutablePositionInternal(
