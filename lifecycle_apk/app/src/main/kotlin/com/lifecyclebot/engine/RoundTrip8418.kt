@@ -145,7 +145,7 @@ object RoundTrip8418 {
 
     /** Appended to NetEdge8030's breakdown: what the trip was priced on beyond the 8169 fields. */
     fun breakdownTail8418(slipRtPct: Double, impactRtPct: Double, markPct: Double?, receiptMeasured: Boolean): String {
-        fun p(v: Double) = if (v.isFinite()) "%.2f".format(v) else "-"
+        fun p(v: Double) = if (v.isFinite()) com.lifecyclebot.engine.truth.NetEdge8030.fixed8949(v, 2) else "-"
         return " rt8418[slipRt=${p(slipRtPct)}%(${if (RealisedSlip8418.sideMeasured8418("BUY") && RealisedSlip8418.sideMeasured8418("SELL")) "realised" else "allowance"}) " +
             "impactRt=${p(impactRtPct)}% markMeasured=${markPct?.let { p(it) } ?: "-"} markLift=${if (receiptMeasured) "off(receipts)" else "on"}]"
     }

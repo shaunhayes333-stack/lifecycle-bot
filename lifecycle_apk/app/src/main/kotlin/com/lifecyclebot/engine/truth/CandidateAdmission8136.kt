@@ -1913,6 +1913,8 @@ object CandidateAdmission8136 {
                     evidence8876 = candidate.marketCell8723?.kind.orEmpty()) } catch (_: Throwable) {}   // V5.0.8876 — the evidence funnel
                 // V5.0.8948 — a LIVE evidence coin's data wait asks every live proof at once and rides the cycle until decided
                 if (mode == "LIVE") candidate.marketCell8723?.kind?.let { k -> try { EvidenceWait8948.note8948(ts, k, it.terminal.name, it.reason, deferCauses8700(it.trace), nowMs) } catch (_: Throwable) {} }
+                // V5.0.8949 — an admitted armed launch-rule fire holds on the rule's own stop once bought
+                if (mode == "LIVE") candidate.marketCell8723?.kind?.let { k -> try { LaunchSniper8748.noteAdmission8949(ts.mint, k, it.terminal.name, nowMs) } catch (_: Throwable) {} }
             }
             // V5.0.8544 — a LIVE meme candidate is also decided the PAPER way for the separate paper book beside live
             // V5.0.8618 — the tuning report files the paper close under what LIVE decided on this same candidate.

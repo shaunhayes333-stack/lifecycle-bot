@@ -2865,3 +2865,32 @@ mint / freeze authority, holder and LP reads), the coin's own full pipeline pass
 (SafetyProofPriority8310.noteDeferred8310 and targets8948 through HandoffPriority8190) for up to 120 s. Every gate, bar and
 proof is unchanged; the same admission, buy door and FDG decide. evidenceWait8948 in the brief: waiting, noted, asked,
 direct, admitted (mean wait), refused{why}, expired{what was still missing}.
+
+## 137. The launch rule's fires are bought and held (8949)
+
+Owner, 22 Nov 23:43: "we need to be capturing the handful of runners on pump.fun first ... it has to buy them and hold them".
+The launch replay's proven rule on the 23:03 capture: cap$5k buys>=3 tp5x stop35% DOCTRINE +20s, n3104, mean +7.1 %,
+ex-top-3 +6.5 % +-2.2, 2x+ 7 %, 10x+ 0.3 %. Live: 28 armed fires in 31 min, 50 admission episodes, 1 admitted
+(SAFETY_REFUSED 21 of which top-holder concentration 25, DATA_INCOMPLETE 14 with a stale price 13, STRUCTURAL_RISK 8,
+LIVE_STAGE_LOSES 7, FDG_BLOCK 17). LaunchSniper8748:
+- an armed fire runs the coin's full pipeline at once (onArmed8949 -> BotService.fastLaneEvaluate7277, origin
+  LAUNCH_RULE_8949; a coin off the watchlist through promoteHotLaunchNow7921's protected intake first), not when the 8.9 s
+  loop's rotation reaches it (PUMP_PORTAL_WS decide p50 34 s against a rule graded at a 20 s entry);
+- LaneAuthority8577.PRIOR_ANSWERING_KINDS_8874 holds KIND_8748: the rule's narrower proven group answers the lane-wide entry
+  priors (LIVE_STAGE_LOSES_8626 on the LAUNCH stage, origin cohort, buys-the-high, stage unread) as the agreement pocket,
+  base pocket and lane pocket do; hard safety (top-holder 35 %, LP, authorities), structure, sellability, economics and the
+  coin's own shapes still refuse;
+- a position admitted on an armed fire (noteAdmission8949, entered within 10 min) holds on the rule's own graded stop,
+  kept inside the ordinary maximum of 25 % (StopAuthority7887 binding LAUNCH_RULE_8949; the hard floor 30 % and the
+  catastrophe line unchanged), where the lane's ordinary stop was SHITCOIN 8 % / EXPRESS 10 %; never tighter than before.
+sniper8748 shows runNow8949, admitted8949, heldOnRuleStop8949. Also in 8949: regexes compiled per call on hot paths
+(DefectSweep8433, PipelineHealthCollector, ForwardReturnLabeler7731, MemeMeta7973, NativeLaneConstraints8521; 742 ms of
+the 23:40 30 s CPU sample) are compiled once.
+Memory (owner 23:47 "do the memory work in the same build"): the 23:40 CPU sample (30.6 s) had HeapTaskDaemon (GC) at 18.2 s
+of CPU, 61 % of the sample. The app's own leading allocators: ShadowCohortBook8397's append path (each close read, decoded
+and re-encoded up to 300 rows per cohort key, about 17 % of app CPU: decode, boxed Double per field, encode, SQLite), the
+cost breakdown's String.format (756 ms of a new Formatter + DecimalFormatSymbols per cost call), regexes compiled per call
+(742 ms). Now: a key not held hot gets the new row appended to its stored text and trimmed to the last 300 rows
+(appendRow8949), with no decode or re-encode; decode parses rows in place with no string list or boxing (same rules: a row
+needs a parsed time and a finite net, a malformed other field reads 0.0); the breakdown digits use NetEdge8030.fixed8949
+(half-up, '.'); the regexes are compiled once. Records and decisions are unchanged.

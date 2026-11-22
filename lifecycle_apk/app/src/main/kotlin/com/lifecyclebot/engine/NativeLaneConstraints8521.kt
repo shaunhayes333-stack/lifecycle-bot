@@ -6,9 +6,11 @@ package com.lifecyclebot.engine
  * mandatory, nor transfer one desk's bounds to another desk's independent setup.
  */
 object NativeLaneConstraints8521 {
+    // V5.0.8949 — compiled once (22 Nov 23:40 CPU sample: Regex compiled per call on hot paths, 742 ms of 30 s)
+    private val RX8949_1 = Regex("[\\s-]+")
     enum class Kind { CAP, AGE, DATA, LIFECYCLE, SAFETY, LIQUIDITY, LANE_SCOPE }
 
-    private fun normalized(reason: String): String = reason.trim().uppercase().replace(Regex("[\\s-]+"), "_")
+    private fun normalized(reason: String): String = reason.trim().uppercase().replace(RX8949_1, "_")
 
     // These are adverse findings, not weak opportunity scores. Match named
     // families rather than every mention of holders/ownership: a sparse holder

@@ -26,6 +26,53 @@ import java.util.concurrent.atomic.AtomicLong
  * Nothing here buys. Nothing here is a hand threshold: the cap, the buys, the ladder and the latency are the replay's.
  */
 object LaunchSniper8748 {
+    const val KIND_8748 = "LAUNCH_RULE_8748"
+
+    /**
+     * V5.0.8949 §BUY_THE_RULES_FIRES_AND_HOLD_THEM — owner, 22 Nov 23:43: "we need to be capturing the handful of runners on
+     * pump.fun first ... we now know how to find them correctly it has to buy them and hold them. this is a directive."
+     * The replay's proven rule (23:03 capture: cap$5k buys>=3 tp5x stop35% DOCTRINE +20s, n3104, mean +7.1 %, ex-top-3
+     * +6.5 % +-2.2, 2x+ 7 %) fired armed 28 times in 31 minutes; its coins reached the admission 50 times and were admitted
+     * once. Three things stood between a fire and a held position:
+     *  - the fire only put the coin on the watchlist, so the decision waited for the 8.9 s loop's rotation (PUMP_PORTAL_WS
+     *    decide p50 34 s) on a rule graded at a 20 s entry: an armed fire now runs the coin's full pipeline at once
+     *    ([onArmed8949] -> BotService fast lane; a coin not watched goes through the protected intake first, every gate);
+     *  - the lane-wide entry priors (LIVE_STAGE_LOSES_8626 on the LAUNCH stage of every launch, the origin cohort, buys-the-
+     *    high, stage unread) refused the rule's narrower proven group (LaneAuthority8577.PRIOR_ANSWERING_KINDS_8874 now
+     *    holds [KIND_8748]); hard safety, structure, sellability, economics and the coin's own shapes still refuse;
+     *  - a bought fire was stopped on its lane's ordinary stop (SHITCOIN 8 %, EXPRESS 10 %) where the rule was graded at
+     *    35 %: its position now holds on the rule's own stop, kept inside the ordinary maximum (25 %; the hard floor 30 %
+     *    and the catastrophe line stay below it) ([ruleStopMag8949] -> StopAuthority7887).
+     */
+    @Volatile var onArmed8949: ((mint: String) -> Unit)? = null
+    private const val ENTRY_MATCH_MS_8949 = 10L * 60_000L
+    private const val ORDINARY_STOP_MAX_8949 = 25.0
+    private val admitted8949 = java.util.concurrent.ConcurrentHashMap<String, Pair<Double, Long>>()   // mint -> (rule stop %, admitted at)
+    private val runs8949 = java.util.concurrent.atomic.AtomicLong(0L)
+    private val admits8949 = java.util.concurrent.atomic.AtomicLong(0L)
+    private val held8949 = java.util.concurrent.atomic.AtomicLong(0L)
+
+    /** CandidateAdmission8136 (LIVE): a coin carrying an armed fire of the proven rule was ADMITTED: its position holds on the rule's stop. */
+    fun noteAdmission8949(mint: String, kind: String, terminal: String, nowMs: Long = System.currentTimeMillis()) {
+        if (kind != KIND_8748 || terminal != "ADMIT" || mint.isBlank()) return
+        val f = fires[mint]?.takeIf { it.armed && nowMs - it.atMs in 0L..EVIDENCE_TTL_MS } ?: return
+        val rule = LaunchReplay8744.proven8748()?.rule?.takeIf { it.id == f.ruleId } ?: return
+        if (admitted8949.size > 2_000) admitted8949.entries.removeIf { nowMs - it.value.second > ENTRY_MATCH_MS_8949 }
+        admitted8949[mint] = rule.stopPct to nowMs
+        admits8949.incrementAndGet()
+    }
+
+    /** Pure: the ordinary stop magnitude a position entered at [entryMs] holds when its rule (graded at [ruleStopPct]) was admitted at [admittedMs]. */
+    internal fun ruleStop8949(ruleStopPct: Double, admittedMs: Long, entryMs: Long): Double? =
+        if (!(ruleStopPct.isFinite() && ruleStopPct > 0.0) || entryMs - admittedMs !in -60_000L..ENTRY_MATCH_MS_8949) null
+        else ruleStopPct.coerceAtMost(ORDINARY_STOP_MAX_8949)
+
+    /** StopAuthority7887: the rule's stop for the position on [mint] entered at [entryMs], or null when it was not a rule fire. */
+    fun ruleStopMag8949(mint: String, entryMs: Long): Double? {
+        val (stop, at) = admitted8949[mint] ?: return null
+        return ruleStop8949(stop, at, entryMs)?.also { held8949.incrementAndGet() }
+    }
+
     /** How long a fire stands as admission evidence (the bot's loop must reach the coin within it). */
     private const val EVIDENCE_TTL_MS = 120_000L
     private const val MAX_TRACKED = 30_000
@@ -223,6 +270,8 @@ object LaunchSniper8748 {
                 initialMcap = f.capUsd)
             if (added.added) watchAdds.incrementAndGet()
         } catch (_: Throwable) {}
+        // V5.0.8949 — and the coin's full pipeline runs now, not when the loop's rotation reaches it
+        try { onArmed8949?.let { it(f.mint); runs8949.incrementAndGet() } } catch (_: Throwable) {}
     }
 
     /**
@@ -237,7 +286,7 @@ object LaunchSniper8748 {
     fun evidence8748(mint: String, nowMs: Long): CandidateAdmission8136.Evidence8136? {
         val f = fires[mint]?.takeIf { it.armed && nowMs - it.atMs in 0L..EVIDENCE_TTL_MS } ?: return null
         evidenceServed.incrementAndGet()
-        return CandidateAdmission8136.Evidence8136("LAUNCH_RULE_8748", f.ruleId, f.n, f.exTop3, f.exTop3Se,
+        return CandidateAdmission8136.Evidence8136(KIND_8748, f.ruleId, f.n, f.exTop3, f.exTop3Se,
             runnerRate = f.tenX, netOfCost = true)
     }
 
@@ -252,7 +301,7 @@ object LaunchSniper8748 {
             "p90=${quantileMs8749(h, LAG_EDGES_S, 0.9)?.div(1000) ?: "-"}s"
         val landedLine = synchronized(landed) { if (landed.isEmpty()) "-" else "n${landed.size} p50=${landed.sorted()[landed.size / 2] / 1000}s" }
         return "sniper8748[launch:$mode base:$baseMode needDelay=${requiredDelayMs8749() / 1000}s tapeLag{$lag} armedLanded{$landedLine} tracked=${st.size} livePrints=${livePrints.get()} latePrints=${latePrints.get()} noBirth=${unborn.get()} " +
-            "fires{shadow=${shadowFires.get()} armed=${armedFires.get()}} watchAdds=${watchAdds.get()} evidenceServed=${evidenceServed.get()} " +
+            "fires{shadow=${shadowFires.get()} armed=${armedFires.get()}} runNow8949=${runs8949.get()} admitted8949=${admits8949.get()} heldOnRuleStop8949=${held8949.get()} watchAdds=${watchAdds.get()} evidenceServed=${evidenceServed.get()} " +
             "attention8825{on=${LaunchReplay8744.attention8825()?.rule?.id ?: "none"} fires=${attentionFires.get()} watchlistAdds=${attentionAdds.get()}} " +
             "signals8828{${SignalReplay8828.proven8828()?.let { "ARMED ${it.key}" } ?: SignalReplay8828.shadow8828()?.let { "SHADOW ${it.key}" } ?: "none"} " +
             "tapes=${sigTapes.size}/$MAX_SIGNAL_TAPES_8828 fires=${signalFires.get()} armed=${signalArmed.get()} tapeFull=${signalTapeFull.get()}} " +

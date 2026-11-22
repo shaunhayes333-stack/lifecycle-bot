@@ -45,6 +45,15 @@ import java.util.concurrent.atomic.AtomicLong
  * concurrent collections.
  */
 object PipelineHealthCollector {
+    // V5.0.8949 — compiled once (22 Nov 23:40 CPU sample: Regex compiled per call on hot paths, 742 ms of 30 s)
+    private val RX8949_5 = Regex("(?:^|[\\s|])(?:mode|runtimeMode|execMode)=([A-Za-z_]+)")
+    private val RX8949_6 = Regex("prevCycleMs=(\\d+)")
+    private val RX8949_7 = Regex("src=([^ ]+)")
+    private val RX8949_8 = Regex("reason=([^ ]+)")
+    private val RX8949_1 = Regex("lane=([A-Z0-9_]+)")
+    private val RX8949_2 = Regex("path=([A-Z_]+)")
+    private val RX8949_3 = Regex("v3=([^ ]+)")
+    private val RX8949_4 = Regex("[^A-Z0-9_]")
 
     private fun startupRootCause8090(performanceCauses: List<String>): String {
         val failure = BotService.startFailure6517()
@@ -423,7 +432,7 @@ object PipelineHealthCollector {
     // ════════════════════════════════════════════════════════════════
 
     private fun extractModeFromText(text: String): String {
-        val m = Regex("(?:^|[\\s|])(?:mode|runtimeMode|execMode)=([A-Za-z_]+)").find(text)
+        val m = RX8949_5.find(text)
             ?.groupValues?.getOrNull(1)?.uppercase()
         return when (m) {
             "LIVE" -> "LIVE"
@@ -465,7 +474,7 @@ object PipelineHealthCollector {
     fun onPhase(phaseTag: String, symbol: String, fields: String) {
         if (!attached) return
         if (phaseTag == "LANE_EVAL") {
-            val lane = Regex("lane=([A-Z0-9_]+)").find(fields)?.groupValues?.getOrNull(1) ?: ""
+            val lane = RX8949_1.find(fields)?.groupValues?.getOrNull(1) ?: ""
             if (lane.isNotBlank() && RuntimeConfigOverlay.isLaneDisabled(lane)) {
                 bump(laneEvalSuppressedCounts, RuntimeConfigOverlay.normalizeLane(lane))
                 bump(labelCounts, "LANE_EVAL_SUPPRESSED_OVERLAY")
@@ -474,7 +483,7 @@ object PipelineHealthCollector {
             }
         }
         if (phaseTag == "FDG") {
-            val path = Regex("path=([A-Z_]+)").find(fields)?.groupValues?.getOrNull(1) ?: ""
+            val path = RX8949_2.find(fields)?.groupValues?.getOrNull(1) ?: ""
             if (path.isNotBlank() && RuntimeConfigOverlay.isLaneDisabled(path)) {
                 // V5.9.1110 — suppressed FDG is NOT active FDG. The 1108 leak audit
                 // showed active=97 and suppressed=97 because this method bumped the
@@ -497,14 +506,14 @@ object PipelineHealthCollector {
         if (phaseTag == "SCAN_CB" && fields.contains("BOT_LOOP_TICK")) {
             bump(labelCounts, "BOT_LOOP_TICK")
             // V5.9.915 — extract prevCycleMs and record cycle timing.
-            val m = Regex("prevCycleMs=(\\d+)").find(fields)
+            val m = RX8949_6.find(fields)
             if (m != null) {
                 m.groupValues[1].toLongOrNull()?.let { recordCycleMs(it) }
             }
         }
         // V5.9.915 — per-source intake bump for INTAKE phase events.
         if (phaseTag == "INTAKE" && symbol.isNotEmpty()) {
-            val srcMatch = Regex("src=([^ ]+)").find(fields)
+            val srcMatch = RX8949_7.find(fields)
             srcMatch?.groupValues?.get(1)?.let { bump(intakeBySource, it.take(40)) }
             bump(symbolIntakeCounts, symbol.take(20))
         }
@@ -513,7 +522,7 @@ object PipelineHealthCollector {
         // counters. These rows have no FDG/executor work and should not trigger
         // the fanout/leak audit or inflate LANE_EVAL by lane.
         if (phaseTag == "LANE_EVAL") {
-            val laneMatch = Regex("lane=([A-Z0-9_]+)").find(fields)
+            val laneMatch = RX8949_1.find(fields)
             laneMatch?.groupValues?.get(1)?.let { lane ->
                 if (shadowLaneEval4482) bump(laneEvalShadowReadOnlyCounts, lane)
                 else bump(laneEvalCounts, lane)
@@ -525,7 +534,7 @@ object PipelineHealthCollector {
     fun onGate(phaseTag: String, symbol: String, allow: Boolean, reason: String) {
         if (!attached) return
         if (phaseTag == "LANE_EVAL") {
-            val lane = Regex("lane=([A-Z0-9_]+)").find(reason)?.groupValues?.getOrNull(1) ?: ""
+            val lane = RX8949_1.find(reason)?.groupValues?.getOrNull(1) ?: ""
             if (lane.isNotBlank() && RuntimeConfigOverlay.isLaneDisabled(lane)) {
                 bump(laneEvalSuppressedCounts, RuntimeConfigOverlay.normalizeLane(lane))
                 bump(labelCounts, "LANE_EVAL_SUPPRESSED_OVERLAY")
@@ -537,7 +546,7 @@ object PipelineHealthCollector {
                 bump(labelCounts, "FDG_SUPPRESSED_RUNTIME_PAUSED")
                 return
             }
-            val path = Regex("path=([A-Z_]+)").find(reason)?.groupValues?.getOrNull(1) ?: ""
+            val path = RX8949_2.find(reason)?.groupValues?.getOrNull(1) ?: ""
             if (path.isNotBlank() && RuntimeConfigOverlay.isLaneDisabled(path)) {
                 // V5.9.1110 — disabled-lane FDG gate telemetry is suppressed-only,
                 // not active FDG. Keeps QUALITY-only leak audit truthful.
@@ -557,7 +566,7 @@ object PipelineHealthCollector {
         // the others emitted via gate() and slipped past the parser.
         if (phaseTag == "LANE_EVAL") {
             val shadowGateLaneEval6375 = reason.contains("no_fdg=true") || reason.contains("no_extra_fdg=true") || reason.contains("shadow=")
-            val laneMatch = Regex("lane=([A-Z0-9_]+)").find(reason)
+            val laneMatch = RX8949_1.find(reason)
             laneMatch?.groupValues?.get(1)?.let { lane ->
                 if (shadowGateLaneEval6375) bump(laneEvalShadowReadOnlyCounts, lane)
                 else bump(laneEvalCounts, lane)
@@ -744,8 +753,8 @@ object PipelineHealthCollector {
         // Falls back to v3Decision class name when reason is '(none)'.
         if (event == "REJECTED_FATAL_V3") {
             try {
-                val raw = Regex("reason=([^ ]+)").find(fields)?.groupValues?.get(1)
-                val cls = Regex("v3=([^ ]+)").find(fields)?.groupValues?.get(1) ?: "Unknown"
+                val raw = RX8949_8.find(fields)?.groupValues?.get(1)
+                val cls = RX8949_3.find(fields)?.groupValues?.get(1) ?: "Unknown"
                 val keyRaw = if (raw.isNullOrBlank() || raw == "(none)") cls else raw
                 // Normalise: keep only the first 2 colon-segments so
                 // 'V3:RUG_FATAL:HOLDER_X' collapses with 'V3:RUG_FATAL:HOLDER_Y'.
@@ -762,7 +771,7 @@ object PipelineHealthCollector {
         bump(labelCounts, "SNAP/$label")
         // V5.9.915 — also record cycle timing if this is a LOOP_TOP snapshot.
         if (label == "LOOP_TOP" || label == "BOT_LOOP_TICK") {
-            val m = Regex("prevCycleMs=(\\d+)").find(fields)
+            val m = RX8949_6.find(fields)
             if (m != null) m.groupValues[1].toLongOrNull()?.let { recordCycleMs(it) }
         }
         appendEvent(Event(System.currentTimeMillis(), "SNAP/$label", "", fields.take(220)))
@@ -837,7 +846,7 @@ object PipelineHealthCollector {
             // operator dump reveals which callers are passing unmapped
             // side values (BUY_PARTIAL, REBASE, ADMIT, etc.) allowing a
             // targeted repair in the next push instead of shooting blind.
-            try { bump(labelCounts, "PAPER_JOURNAL_SIDE_${sideUpper.take(24).replace(Regex("[^A-Z0-9_]"), "_")}") } catch (_: Throwable) {}
+            try { bump(labelCounts, "PAPER_JOURNAL_SIDE_${sideUpper.take(24).replace(RX8949_4, "_")}") } catch (_: Throwable) {}
             when (sideUpper) {
                 "BUY" -> {
                     execPaperBuyOk.incrementAndGet()

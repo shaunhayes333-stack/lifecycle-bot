@@ -10994,6 +10994,18 @@ class BotService : Service() {
             if (status.running && status.tokens.containsKey(mint))
                 fastLaneEvaluate7277(mint, ConfigStore.load(applicationContext), "EVIDENCE_WAIT_8948", onceKey = "$mint|8948|$slot")
         }
+        // V5.0.8949 — an armed fire of the launch replay's proven rule runs the coin's full pipeline at once (a coin off the
+        // watchlist through the protected intake first); every gate stands
+        com.lifecyclebot.engine.truth.LaunchSniper8748.onArmed8949 = { mint ->
+            if (status.running) {
+                if (status.tokens.containsKey(mint))
+                    fastLaneEvaluate7277(mint, ConfigStore.load(applicationContext), "LAUNCH_RULE_8949", onceKey = "$mint|8949")
+                else {
+                    val (sym8949, name8949) = com.lifecyclebot.engine.market.LaunchTape7921.symbolName8945(mint)
+                    scope.launch(Dispatchers.IO) { promoteHotLaunchNow7921(mint, sym8949, name8949, streamGeneration, source8945 = "LAUNCH_RULE_8949", onceKey8945 = "$mint|8949") }
+                }
+            }
+        }
         // 1) PumpPortal WS — new pump.fun launches + migrations
         try {
             // V5.0.7278 — every trade on a held curve is a mark; see
@@ -25921,7 +25933,7 @@ if (hotExitHandledSweep) {
                 )
             }
             PipelineHealthCollector.labelInc("${source8945}_FAST_LANE")
-            if (source8945 != "LAUNCH_HEAT_7921" && status.tokens.containsKey(mint))
+            if (source8945 == "LAUNCH_PRINTS_8942" && status.tokens.containsKey(mint))   // V5.0.8949 — the print milestones' own count
                 com.lifecyclebot.engine.truth.LaunchPrints8942.noteAdmitted8945()
             fastLaneEvaluate7277(mint, cfg, source8945, onceKey = onceKey8945)
         } catch (_: Throwable) {}

@@ -45,6 +45,8 @@ import java.util.concurrent.atomic.AtomicLong
  * [OFFWATCH_FETCH_GAP_MS_7737]); a dead token Jupiter no longer prices stays lost.
  */
 object ForwardReturnLabeler7731 {
+    // V5.0.8949 — compiled once (22 Nov 23:40 CPU sample: Regex compiled per call on hot paths, 742 ms of 30 s)
+    private val RX8949_1 = Regex("[^A-Z0-9_]")
 
     /**
      * V5.0.7946 — the read is FIVE minutes. Meme tokens spike and fade inside
@@ -1159,7 +1161,7 @@ object ForwardReturnLabeler7731 {
     fun sourceFamily(source: String): String {
         val first = source.split(',').firstOrNull()?.trim().orEmpty().uppercase()
         val stripped = first.removePrefix("SCANNER_DIRECT_").removePrefix("SCANNER_HEAL_").removePrefix("SCANNER_")
-        val clean = stripped.replace(Regex("[^A-Z0-9_]"), "_").trim('_')
+        val clean = stripped.replace(RX8949_1, "_").trim('_')
         return clean.ifBlank { "UNKNOWN" }.take(28)
     }
 

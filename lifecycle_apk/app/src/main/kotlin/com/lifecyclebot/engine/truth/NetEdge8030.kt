@@ -167,6 +167,13 @@ object NetEdge8030 {
         return maxOf(0.0, (roundTripPct - fixed) / 2.0)
     }
 
+    /**
+     * V5.0.8949 — Pure: [v] with [places] decimals, rounded half-up, '.' as the separator (as "%.Nf" prints in an English
+     * locale) without a Formatter; a non-finite value as Kotlin prints it.
+     */
+    fun fixed8949(v: Double, places: Int): String =
+        if (!v.isFinite()) v.toString() else java.math.BigDecimal.valueOf(v).setScale(places, java.math.RoundingMode.HALF_UP).toPlainString()
+
     /** V5.0.8169 — one priced round trip, per side: fees per side, the fixed leg, rent, slippage and impact halves. */
     private fun breakdown8169(lane: String, size: Double, liq: Double, componentModel: Boolean, impactRtPct: Double,
                               measured: Double?, usedPct: Double): String {
@@ -181,9 +188,11 @@ object NetEdge8030 {
         val appShift8418 = (com.lifecyclebot.engine.CostTrim8151.BUY_APP_FEE_PCT_8418 - com.lifecyclebot.engine.CostTrim8151.SELL_APP_FEE_PCT_8418) / 2.0
         val buySide = perSideFees + appShift8418 + fixedLegPct + slipHalf + impactHalf
         val sellSide = perSideFees - appShift8418 + fixedLegPct + slipHalf + impactHalf + (if (rentPct.isFinite()) rentPct else 0.0)
-        fun p(v: Double) = if (v.isFinite()) "%.2f".format(v) else "-"
-        return "lane=${lane.uppercase().take(14)} size=${"%.4f".format(size)} liq=${"%.0f".format(liq)} " +
-            "venue=${p(c[0])}+route=${p(c[1])}%/side app=buy${p(com.lifecyclebot.engine.CostTrim8151.BUY_APP_FEE_PCT_8418)}/sell${p(com.lifecyclebot.engine.CostTrim8151.SELL_APP_FEE_PCT_8418)}% fixedLeg=${"%.6f".format(c[3])}SOL(${p(fixedLegPct)}%) rent=${p(rentPct)}% " +
+        // V5.0.8949 — fixed8949, not String.format: the 23:40 CPU sample spent 756 ms of 30 s building a new Formatter and its
+        // DecimalFormatSymbols for these digits on every cost computation
+        fun p(v: Double) = if (v.isFinite()) fixed8949(v, 2) else "-"
+        return "lane=${lane.uppercase().take(14)} size=${fixed8949(size, 4)} liq=${fixed8949(liq, 0)} " +
+            "venue=${p(c[0])}+route=${p(c[1])}%/side app=buy${p(com.lifecyclebot.engine.CostTrim8151.BUY_APP_FEE_PCT_8418)}/sell${p(com.lifecyclebot.engine.CostTrim8151.SELL_APP_FEE_PCT_8418)}% fixedLeg=${fixed8949(c[3], 6)}SOL(${p(fixedLegPct)}%) rent=${p(rentPct)}% " +
             "slip=${p(slipHalf)}%/side impact=${p(impactHalf)}%/side buySide=${p(buySide)}% sellSide=${p(sellSide)}% " +
             "measured=${measured?.let { p(it) } ?: "-"} used=${p(usedPct)}%"
     }

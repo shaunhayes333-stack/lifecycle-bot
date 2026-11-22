@@ -157,22 +157,52 @@ internal class ShadowCohortBook8397(private val fields: Int, private val maxRows
         keyIndex.clear(); try { keyIndex.addAll(cold.keys()) } catch (failure: Exception) { throw ShadowStorageUnavailable8397(failure) }
     }
 
-    private fun decode(value: String?): List<DoubleArray> = value.orEmpty().lineSequence().flatMap { it.splitToSequence(';') }
-        .mapNotNull { row ->
-            val f = row.split(',')
-            val at = f.getOrNull(0)?.let(::num8818); val net = f.getOrNull(1)?.let(::num8818)
-            if (at == null || net == null || !net.isFinite()) null
-            else DoubleArray(fields) { i -> f.getOrNull(i)?.let(::num8818) ?: 0.0 }
-        }.toList().takeLast(maxRows)
+    /**
+     * V5.0.8949 — rows split on ';' and line breaks, fields on ',', each number parsed in place: no list of strings per row
+     * and no boxed Double per field (the 23:40 CPU sample: Double.valueOf 790 ms of 30 s under this decode). The rules are
+     * 8818's: a row needs a parsed time (field 0) and a finite net (field 1); a malformed other field reads 0.0; the last
+     * [maxRows] rows are kept.
+     */
+    private fun decode(value: String?): List<DoubleArray> {
+        val s = value.orEmpty()
+        val out = ArrayList<DoubleArray>()
+        var a = 0
+        while (a <= s.length) {
+            var b = a
+            while (b < s.length && s[b] != ';' && s[b] != '\n' && s[b] != '\r') b++
+            row8949(s, a, b)?.let { out.add(it) }
+            a = b + 1
+        }
+        return if (out.size > maxRows) ArrayList(out.subList(out.size - maxRows, out.size)) else out
+    }
+
+    /** One row s[from, to): null unless field 0 parses and field 1 parses finite. */
+    private fun row8949(s: String, from: Int, to: Int): DoubleArray? {
+        val out = DoubleArray(fields)
+        var i = 0; var a = from; var at = false; var net = false
+        while (true) {
+            var b = a
+            while (b < to && s[b] != ',') b++
+            var ok = true
+            val v = try { num8949(s, a, b) } catch (_: NumberFormatException) { ok = false; 0.0 }
+            if (i == 0) at = ok
+            if (i == 1) net = ok && v.isFinite()
+            if (i < fields && ok) out[i] = v
+            i++
+            if (b >= to) break
+            a = b + 1
+        }
+        return if (at && net) out else null
+    }
 
     /**
-     * V5.0.8818 — Kotlin's toDoubleOrNull screens every string with a floating-point regex before parsing; the 494b46bb CPU
-     * sampler caught that regex under this decode (2.2 % of all CPU stacks: up to 300 rows x every field per cold read). The
-     * rows are this book's own compact numbers; parse directly, and a malformed field is null exactly as before.
+     * V5.0.8818 — Kotlin's toDoubleOrNull screens every string with a floating-point regex before parsing; the rows are this
+     * book's own compact numbers, parsed directly; a blank or space-padded field is malformed exactly as before.
      */
-    private fun num8818(s: String): Double? =
-        if (s.isEmpty() || s[0].isWhitespace() || s[s.length - 1].isWhitespace()) null
-        else try { java.lang.Double.parseDouble(s) } catch (_: NumberFormatException) { null }
+    private fun num8949(s: String, from: Int, to: Int): Double {
+        if (to <= from || s[from].isWhitespace() || s[to - 1].isWhitespace()) throw NumberFormatException()
+        return java.lang.Double.parseDouble(s.substring(from, to))
+    }
 
     private fun encode(rows: List<DoubleArray>): String = rows.joinToString(";") { ShadowPersist8355.compactRow8396(it) }
     private fun putHot(key: String, rows: List<DoubleArray>) {
@@ -221,18 +251,39 @@ internal class ShadowCohortBook8397(private val fields: Int, private val maxRows
         if (cold == null) preAttachReceipts[event]?.let { return AppendResult(false, it.terminal.copyOf()) }
         if (cold == null && preAttachReceipts.size >= 1024) throw ShadowStorageUnavailable8397()
         if (cold == null && (hot.keys + keys).size > hotCapacity) throw ShadowStorageUnavailable8397()
-        val updated = keys.distinct().associateWith { k -> (get(k).orEmpty() + listOf(row.copyOf())).takeLast(maxRows) }
+        // V5.0.8949 — a key held hot is updated as rows (as before); a key held only in the store gets the new row appended
+        // to its stored text, trimmed to the last [maxRows] rows, without decoding and re-encoding the whole record. The
+        // 23:40 CPU sample: the append path's cold read + decode + encode of up to 300 rows per key per close was ~17 % of
+        // the app's own CPU and its garbage fed a GC that took 61 % of the CPU. Readers decode it as before when they ask.
+        val distinct = keys.distinct()
+        val hotRows = LinkedHashMap<String, List<DoubleArray>>()
+        val payloads = LinkedHashMap<String, String>()
+        val rowText = ShadowPersist8355.compactRow8396(row)
+        for (k in distinct) {
+            val held = hot[k]
+            if (cold == null || held != null) {
+                val rows = (held.orEmpty() + listOf(row.copyOf())).takeLast(maxRows)
+                hotRows[k] = rows
+                if (cold != null) payloads[k] = encode(rows)
+            } else {
+                val raw = if (k in keyIndex) {
+                    coldReads8398.incrementAndGet()
+                    try { cold.read(k) } catch (failure: Exception) { throw ShadowStorageUnavailable8397(failure) }
+                } else null
+                payloads[k] = appendRow8949(raw, rowText, maxRows)
+            }
+        }
         try {
             if (cold != null) {
-                val result = cold.appendReceipt(event, updated.mapValues { encode(it.value) }, terminal.joinToString(","))
+                val result = cold.appendReceipt(event, payloads, terminal.joinToString(","))
                 if (!result.inserted) return AppendResult(false, result.terminal.split(',').map { it.toDouble() }.toDoubleArray())
             }
         } catch (failure: Exception) { throw ShadowStorageUnavailable8397(failure) }
         revision8401++
-        for (k in updated.keys) laneRevisions8418[laneOfKey8418(k)] = revision8401
-        updated.forEach { (k, v) -> putHot(k, v) }
-        if (cold != null) keyIndex.addAll(updated.keys)
-        if (cold == null) preAttachReceipts[event] = Early(keys.distinct(), row.copyOf(), terminal.copyOf())
+        for (k in distinct) laneRevisions8418[laneOfKey8418(k)] = revision8401
+        hotRows.forEach { (k, v) -> putHot(k, v) }
+        if (cold != null) keyIndex.addAll(distinct)
+        if (cold == null) preAttachReceipts[event] = Early(distinct, row.copyOf(), terminal.copyOf())
         return AppendResult(true, terminal.copyOf())
     }
 
@@ -253,4 +304,20 @@ internal fun laneOfKey8418(key: String): String {
     if (k.startsWith("U|")) k = k.removePrefix("U|")
     if (k.startsWith("C|")) k = k.removePrefix("C|")
     return k.substringBefore('|').trim().uppercase()
+}
+
+/**
+ * V5.0.8949 — Pure: a stored record [raw] (rows split on ';' or line breaks) with [rowText] appended, keeping the last
+ * [maxRows] rows; the text of the kept rows is unchanged.
+ */
+internal fun appendRow8949(raw: String?, rowText: String, maxRows: Int): String {
+    val base = raw.orEmpty()
+    val joined = if (base.isBlank()) rowText else "$base;$rowText"
+    var rows = 1
+    for (ch in joined) if (ch == ';' || ch == '\n') rows++
+    if (rows <= maxRows) return joined
+    var drop = rows - maxRows
+    var i = 0
+    while (drop > 0 && i < joined.length) { val ch = joined[i]; if (ch == ';' || ch == '\n') drop--; i++ }
+    return joined.substring(i)
 }

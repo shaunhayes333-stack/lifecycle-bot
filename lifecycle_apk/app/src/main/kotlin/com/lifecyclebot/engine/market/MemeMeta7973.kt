@@ -38,6 +38,8 @@ import kotlin.math.sqrt
  * specialist, one that does not stays silent.
  */
 object MemeMeta7973 {
+    // V5.0.8949 — compiled once (22 Nov 23:40 CPU sample: Regex compiled per call on hot paths, 742 ms of 30 s)
+    private val RX8949_1 = Regex("[^a-z]+")
 
     private const val TAG = "MemeMeta7973"
     private const val K_OVER_SUPPLY = 32.19        // 30 SOL x 1.073e9 tokens / 1e9 supply
@@ -97,7 +99,7 @@ object MemeMeta7973 {
 
     /** Pure: a coin's theme words (lowercase letters, 3+ long, not filler). */
     fun words7973(symbol: String, name: String): Set<String> =
-        (symbol + " " + name).lowercase().split(Regex("[^a-z]+")).filter { it.length >= 3 && it !in STOP }.toSet()
+        (symbol + " " + name).lowercase().split(RX8949_1).filter { it.length >= 3 && it !in STOP }.toSet()
 
     // ── state ──
 

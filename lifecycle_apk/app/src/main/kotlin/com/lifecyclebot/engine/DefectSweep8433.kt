@@ -17,6 +17,10 @@ import java.util.concurrent.atomic.AtomicBoolean
  * first, the model's reading second, so a reviewer can verify every line against the evidence above it.
  */
 object DefectSweep8433 {
+    // V5.0.8949 — compiled once (22 Nov 23:40 CPU sample: Regex compiled per call on hot paths, 742 ms of 30 s)
+    private val RX8949_1 = Regex("[1-9A-HJ-NP-Za-km-z]{32,44}")
+    private val RX8949_2 = Regex("0x[0-9a-fA-F]+")
+    private val RX8949_3 = Regex("\\d+(\\.\\d+)?")
     const val SECTION_8433 = "Suspected defects (§8433)"
     private const val LLM_EVERY_MS_8433 = 10L * 60_000L
     private const val MAX_ROWS_8433 = 12
@@ -43,8 +47,8 @@ object DefectSweep8433 {
 
     /** Pure: a message with its numbers, mints and hashes normalised, so repeats of one defect group together. */
     fun signature8433(message: String): String =
-        message.replace(Regex("[1-9A-HJ-NP-Za-km-z]{32,44}"), "<mint>").replace(Regex("0x[0-9a-fA-F]+"), "<hex>")
-            .replace(Regex("\\d+(\\.\\d+)?"), "#").trim().take(72)
+        message.replace(RX8949_1, "<mint>").replace(RX8949_2, "<hex>")
+            .replace(RX8949_3, "#").trim().take(72)
 
     /** Pure: error entries (component, message, stack) grouped by in-app frame, else by component + message signature. */
     fun fromErrors8433(entries: List<Triple<String, String, String?>>): List<Defect8433> {

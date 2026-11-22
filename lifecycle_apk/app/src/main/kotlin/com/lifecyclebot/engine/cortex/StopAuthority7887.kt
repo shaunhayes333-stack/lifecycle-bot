@@ -95,6 +95,9 @@ object StopAuthority7887 {
         val src8418 = (if (learned != null) "WINNER_DIP" else base8418) + (if (chosen > (learned ?: composed0) + 1e-9) "+FLOOR" else "")
         // V5.0.8169 — and never inside the position's round trip + 2x its measured 1-minute range (ordinary noise).
         val out = try { com.lifecyclebot.engine.ExitDoctrine8169.noiseCostFloored8169(ts, lane, chosen) } catch (_: Throwable) { chosen }
+        // V5.0.8949 — a position the launch rule's armed fire was admitted into holds on the rule's own graded stop (<= 25 %)
+        val rule8949 = try { com.lifecyclebot.engine.truth.LaunchSniper8748.ruleStopMag8949(ts.mint, pos.entryTime) } catch (_: Throwable) { null }
+        if (rule8949 != null && rule8949 > out + 1e-9) return com.lifecyclebot.engine.ExitThresholds8418.Binding8418(rule8949, "LAUNCH_RULE_8949")
         return com.lifecyclebot.engine.ExitThresholds8418.Binding8418(out, if (out > chosen + 1e-9) "$src8418+NOISE" else src8418)
     }
 
