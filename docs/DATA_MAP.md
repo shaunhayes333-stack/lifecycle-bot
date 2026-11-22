@@ -2685,3 +2685,34 @@ pause, transfer hook, frozen default state, non-transferable), TOKEN2022_MUTABLE
 hook authority) and TOKEN2022_TRANSFER_FEE (Proof.transferFeeBps8936 > 0, the larger of the older / newer fee). A classic SPL
 mint and a clean Token-2022 mint pass; mint and freeze authority must be revoked on both, as before. RugCheck, the LP rule, the
 pocket, the flow test, 1 open / 6 a day / 0.05 SOL and the LP-pull exit are unchanged. The reasons read in explore8733 asked{}.
+
+## 125. The LP lock is the pool's own (8937)
+
+Owner, 22 Nov 14:24: "ive asked you to research the lp lock and come up with a smarter strategy". The 70 % rule stays; what
+changes is where its number comes from, and that its bind is measured.
+
+What the rule guards: an LP holder withdrawing. Pulling a share u of a constant-product pool and selling the withdrawn tokens
+into what is left leaves the price at (1 - u)^2 of where it was: 70 % locked still allows a -51 % worst case, 0 % locked -100 %.
+Where no LP can be withdrawn there is nothing to guard. By venue (sources: pump.fun docs and help centre; Meteora DBC docs and
+README; Raydium LaunchLab docs):
+- bonding curves (pump.fun, Raydium LaunchLab, Meteora DBC): no LP; the curve's custody is read on chain (8881) — unchanged.
+- PumpSwap, where every pump.fun coin graduates: the migration burns every LP token it mints ("liquidity cannot be removed
+  manually"). Read now on chain (PoolLock8895.readPumpSwap8937): burned share = (Pool.lp_supply @203 - LP mint supply) /
+  lp_supply; a later deposit's LP is its depositor's and counts as unlocked. Pump.fun mints were skipped by the reader before.
+- Raydium CPMM (LaunchLab graduates: LP burned or platform-locked through Burn & Earn) and AMM v4: read since 8925 / 8926.
+- Meteora DAMM v2 (DBC graduates): permanent + vested locks, which DBC configs split between claimable and locked LP — read
+  since 8895 / 8925. DLMM: locked positions (8895).
+- any pool someone made by hand: the drain risk the rule exists for. 70 % stays.
+
+Changes: (1) a pool proven 70 %+ locked from its own accounts counts at the proven figure over the provider's lower figure for
+the SAME pool, in TokenSafetyChecker (LiquidityOwnership8522.lockedAt8937; the report may carry a proof up to 10 minutes old,
+PoolLock8895.reportProof8937 — burned and permanent LP only grows) and at the buy door (LiquidityOwnership8522.chainProven8937,
+the door's own 60 s proof); the provider's named unlocked-LP finding is answered only when every pool with depth is so proven
+(allDepthPoolsProven8937). A provider figure under 70 % for a pool not yet read asks the chain now, and a newly proven lock
+re-makes the coin's safety report (SafetyRefreshQueue). The reader's lower figure never replaces the provider's (it counts no
+third-party locker), the reader never blocks, an unproven pool still refuses, RugCheck stays required. (2) Every LIVE coin whose
+only hard safety finding is the LP rule is filed at intake under LPSTATE8725_LP_BLOCKED by band (LT30, 30_70, UNLOCKED_FLAG),
+once per coin per 15 minutes, and read forward like every refused decision (research rows: net, peak, held peak, dip), so
+lpState8725 LP_BLOCKED says whether what the rule keeps out drains or pays (8725 probed paying-cell coins only, which an
+LP-blocked coin never reaches: LP_BLOCKED was n0). (3) poolLock8895 counts providerCorrected8937{venue:band} (the provider
+under 70 % where the pool's own accounts prove it locked) and otherPrograms8937 (pools of venues not yet read: the next to add).

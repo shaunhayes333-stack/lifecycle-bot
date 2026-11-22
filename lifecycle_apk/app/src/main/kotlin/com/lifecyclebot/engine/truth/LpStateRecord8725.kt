@@ -101,6 +101,49 @@ object LpStateRecord8725 {
     private fun top8732(m: ConcurrentHashMap<String, AtomicLong>): String =
         m.entries.sortedByDescending { it.value.get() }.take(8).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }
 
+    /**
+     * V5.0.8937 §WHAT_THE_LP_RULE_KEEPS_OUT_IS_FOLLOWED — owner, 22 Nov 14:24: "research the lp lock and come up with a smarter
+     * strategy"; his standing decision: the LP rule stays, "measure what LP-blocked coins go on to do first". The 8725 record
+     * probes only coins already in a lane's paying cell, which an LP-blocked coin never reaches (it is refused at intake,
+     * HardRugPreFilter: 319 in 2.2 h on the 13:59 capture), so its LP_BLOCKED state was never filed: n0. Now every LIVE coin
+     * whose ONLY hard safety finding is the LP rule is filed under LP_BLOCKED at intake, once per coin per 15 minutes, by its
+     * band: provider lock under 30 %, 30-70 %, or the named unlocked-LP overlay. The forward labeler reads each at 5 m .. 1 h
+     * (and 4 h / 24 h), with its peak and its deepest dip, so the record says whether the coins the rule keeps out drain or
+     * pay. Nothing is bought; the rule is unchanged.
+     */
+    fun noteLpBlocked8937(ts: TokenState, hardReasons: List<String>, nowMs: Long = System.currentTimeMillis()) {
+        val band = lpOnlyBand8937(hardReasons) ?: return
+        val key = "lp8937|${ts.mint}"
+        val last = lastFiled[key]
+        if (last != null && nowMs >= last && nowMs - last < REFILE_MS) return
+        if (lastFiled.size > 6_000) lastFiled.entries.removeIf { nowMs - it.value > REFILE_MS }
+        lastFiled[key] = nowMs
+        count8732(blocked8937, band)
+        PipelineHealthCollector.labelInc("${PREFIX_8725}LP_BLOCKED_INTAKE_8937_$band")
+        ForwardReturnLabeler7731.observe(ts, "${PREFIX_8725}LP_BLOCKED", false, "${PREFIX_8725}LP_BLOCKED:$band", nowMs)
+    }
+
+    /**
+     * Pure (V5.0.8937): the LP band when every one of [hardReasons] is the LP rule (TokenSafetyChecker's "LP only N% locked"
+     * bands and the live unlocked-LP overlay), else null — a coin also refused for anything else is not the LP rule's to measure.
+     */
+    fun lpOnlyBand8937(hardReasons: List<String>): String? {
+        if (hardReasons.isEmpty()) return null
+        var band: String? = null
+        for (r in hardReasons) {
+            val b = when {
+                r.startsWith("LP unlocked with low liquidity") -> "UNLOCKED_FLAG"
+                r.startsWith("LP only ") -> Regex("^LP only (\\d+)% locked").find(r)?.groupValues?.get(1)?.toIntOrNull()
+                    ?.let { if (it < 30) "LT30" else if (it < 70) "30_70" else null }
+                else -> null
+            } ?: return null
+            if (band == null || b == "LT30" || (b == "UNLOCKED_FLAG" && band == "30_70")) band = b
+        }
+        return band
+    }
+
+    private val blocked8937 = ConcurrentHashMap<String, AtomicLong>()
+
     /** V5.0.8732 — the second status line: which proofs the PENDING coins wait on and what the admission decided of them. */
     fun waitLine8732(): String = "payCell8732[waits{${top8732(waits8732)}} admission{${top8732(decisions8732)}}" +
         " lastWait=${lastWait8732.ifBlank { "-" }} lastTrace=${lastTrace8732.ifBlank { "-" }}]"
@@ -108,5 +151,6 @@ object LpStateRecord8725 {
     fun statusLine8725(): String = "lpState8725[" + STATES_8725.joinToString(" ") { st ->
         val s = try { ForwardReturnLabeler7731.laneStatFor7737("$PREFIX_8725$st") } catch (_: Throwable) { null }
         st + "=" + (if (s == null || s.n60 <= 0) "n0" else "n${s.n60}/${"%+.1f".format(s.meanNet60Pct)}%±${"%.1f".format(s.stderr60Pct)}/run${"%.0f".format(100.0 * s.runnerRate60)}%")
-    } + " rule=paying-cell coins by what the live buy door said, forward net; the door is unchanged]"
+    } + " intakeLpBlocked8937{${top8732(blocked8937)}}" +
+        " rule=paying-cell coins by what the live buy door said, forward net; from 8937 LP_BLOCKED also follows every LIVE coin only the LP rule refused at intake; the door is unchanged]"
 }

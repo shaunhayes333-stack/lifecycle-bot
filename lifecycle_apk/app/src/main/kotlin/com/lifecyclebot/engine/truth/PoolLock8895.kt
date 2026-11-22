@@ -45,6 +45,11 @@ import java.util.concurrent.atomic.AtomicLong
  * pool stays PENDING — exactly as before this file existed. Reads: keyless nodes first for accounts (KeylessRpc8359), Helius
  * for getProgramAccounts (10 credits); one in flight per pool, a pool re-read at most every [REREAD_MS_8895], a pool of
  * another program skipped for 30 minutes. Nothing here admits, sizes or trades.
+ *
+ * Superseded in part by V5.0.8937 (owner, 22 Nov 14:24: "a smarter strategy"): a pool this reader proves 70 %+ locked now
+ * stands over the provider's LOWER figure for that same pool (LiquidityOwnership8522.chainProven8937, TokenSafetyChecker
+ * lockedAt8937), and answers the provider's named unlocked finding when every pool with depth is so proven. Still: this reader
+ * never blocks, its lower figure never replaces the provider's (it counts no third-party locker), and 70 % is unchanged.
  */
 object PoolLock8895 {
     private const val DAMM_V2_PROGRAM_8895 = OnChainDepth8038.METEORA_DAMM_V2_8418
@@ -109,6 +114,20 @@ object PoolLock8895 {
     internal const val DAMM_V2_VESTING_SIZE_8925 = 8 + 176
     private const val MAX_EXTERNAL_VESTING_READS_8925 = 4
     private const val SCHEDULE_CACHE_MS_8925 = 5L * 60_000L
+    // ── V5.0.8937 §THE_LOCK_IS_THE_POOLS_OWN — owner, 22 Nov 14:24: "ive asked you to research the lp lock and come up with a
+    //    smarter strategy". PumpSwap, where every pump.fun coin graduates: pump.fun's migrate creates the canonical pool (index 0)
+    //    and burns every LP token it mints ("All LP tokens minted during migration are immediately burned" — pump-fun/
+    //    pump-public-docs, Migration to AMM; pump.fun help: "Liquidity cannot be removed manually"), so the migrated liquidity
+    //    can never be withdrawn; a later deposit mints LP its depositor may withdraw. Pool (pump_amm IDL, Anchor
+    //    sha256("account:Pool")): pool_bump u8 @8, index u16 @9, creator @11, base_mint @43, quote_mint @75, lp_mint @107,
+    //    pool_base_token_account @139, pool_quote_token_account @171 (the vault offsets OnChainDepth8038 already reads),
+    //    lp_supply u64 @203 (minted LP; an SPL burn lowers the LP mint's supply only). Burned share = (lp_supply - LP mint
+    //    supply) / lp_supply, as Raydium AMM v4's. Pump.fun mints were skipped here until now (8895 read Meteora only).
+    private const val PUMP_AMM_PROGRAM_8937 = OnChainDepth8038.PUMP_AMM
+    const val VENUE_PUMPSWAP_8937 = "PUMPSWAP"
+    internal const val PUMPSWAP_POOL_MIN_SIZE_8937 = 211
+    /** A lock the safety report may carry (burned / permanent LP only grows): up to 10 minutes old. */
+    internal const val REPORT_PROOF_MS_8937 = 10L * 60_000L
     private val QUOTES_8895 = setOf(OnChainDepth8038.WSOL, "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB")
 
     /** One read: [mint]'s [pool] on [venue] had [lockedPct] % of its liquidity locked at [atMs] ([detail] says how). */
@@ -241,6 +260,14 @@ object PoolLock8895 {
         return lp to uLe8895(data, 720, 8)
     }
 
+    /** Pure (V5.0.8937): (LP mint, lp_supply) of a PumpSwap Pool [data] of [mint]; null when it is not one. */
+    internal fun pumpSwapPool8937(mint: String, data: ByteArray?): Pair<String, BigInteger>? {
+        if (data == null || data.size < PUMPSWAP_POOL_MIN_SIZE_8937 || !disc(data, DAMM_V2_POOL_DISC_8895)) return null
+        if (!pairedWithQuote(mint, key(data, 43), key(data, 75))) return null
+        val lp = key(data, 107) ?: return null
+        return lp to uLe8895(data, 203, 8)
+    }
+
     /** Pure (V5.0.8925): an SPL mint account's supply (u64 @36); null when it is too short. */
     internal fun mintSupply8925(data: ByteArray?): BigInteger? = if (data == null || data.size < 82) null else uLe8895(data, 36, 8)
 
@@ -331,9 +358,33 @@ object PoolLock8895 {
     fun proof8895(mint: String, pool: String, nowMs: Long = System.currentTimeMillis()): Lock8895? =
         locks[pool.trim()]?.takeIf { proves8895(it, mint.trim(), pool.trim(), nowMs) }
 
+    /**
+     * V5.0.8937 — TokenSafetyChecker: [pool]'s read when it proves [mint] at least 70 % locked within [REPORT_PROOF_MS_8937].
+     * A burned or permanently locked share never shrinks except by new deposits, and a DLMM lock is read 24 h past now, so a
+     * report made from a read ten minutes old states what the pool still holds. The buy door keeps its own 60 s proof.
+     */
+    fun reportProof8937(mint: String, pool: String, nowMs: Long = System.currentTimeMillis()): Lock8895? {
+        val l = locks[pool.trim()] ?: return null
+        return l.takeIf { it.mint == mint.trim() && pool.isNotBlank() && it.lockedPct.isFinite() && it.lockedPct >= MIN_LOCKED_PCT_8895 &&
+            it.lockedPct <= 100.0 && nowMs - it.atMs in -5_000L..REPORT_PROOF_MS_8937 }
+    }
+
+    // V5.0.8937 — the provider reported a pool under 70 % that its own accounts prove locked, by venue (what RugCheck misreads)
+    private val corrected8937 = ConcurrentHashMap<String, AtomicLong>()
+    // V5.0.8937 — the programs of pools this reader does not read, so the next venue to add is named by the data
+    private val otherPrograms8937 = ConcurrentHashMap<String, AtomicLong>()
+
+    /** TokenSafetyChecker: the provider's [providerPct] for [pool] stood corrected by [lock] (counted once per call). */
+    fun noteCorrected8937(lock: Lock8895, providerPct: Double) {
+        val band = if (providerPct < 30.0) "lt30" else "lt70"
+        corrected8937.computeIfAbsent("${lock.venue}:$band") { AtomicLong(0L) }.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("LP_LOCK_PROVIDER_CORRECTED_8937_${lock.venue}") } catch (_: Throwable) {}
+    }
+
     private fun askable(mint: String, pool: String, nowMs: Long): Boolean {
         if (mint.isBlank() || pool.isBlank() || pool == mint) return false
-        if (try { com.lifecyclebot.network.PumpCurveKeys7269.isPumpMint8658(mint) } catch (_: Throwable) { false }) return false
+        // superseded by V5.0.8937 — a pump.fun mint is read too: its graduated PumpSwap pool is one this reader proves (its
+        // bonding curve is another program's account and is skipped for 30 minutes like any other)
         otherVenue[pool]?.let { if (nowMs - it in 0L until OTHER_RETRY_MS_8895) return false }
         lastAsk[pool]?.let { if (nowMs - it in 0L until REREAD_MS_8895) return false }
         return true
@@ -369,7 +420,8 @@ object PoolLock8895 {
                 val type = dlmmActivationType8895(mint, data) ?: run { other(pool, now); return }
                 readDlmm(mint, pool, type)
             }
-            else -> other(pool, now)
+            PUMP_AMM_PROGRAM_8937 -> readPumpSwap8937(mint, pool, data)   // V5.0.8937
+            else -> { other(pool, now); if (owner.isNotBlank()) countOther8937(owner) }
         }
     }
 
@@ -491,6 +543,21 @@ object PoolLock8895 {
         store(Lock8895(mint, pool, VENUE_AMM_V4_8926, pct, System.currentTimeMillis(), "burned/lp_amount"))
     }
 
+    /** V5.0.8937 — a PumpSwap pool: LP burned (the migrated LP all of it) over lp_supply. */
+    private fun readPumpSwap8937(mint: String, pool: String, data: ByteArray?) {
+        val (lpMint, lpSupply) = pumpSwapPool8937(mint, data) ?: run { other(pool, System.currentTimeMillis()); return }
+        val supply = rpc("getAccountInfo", JSONArray().put(lpMint).put(JSONObject().put("encoding", "base64").put("commitment", "confirmed")))
+            ?.optJSONObject("value")?.let { mintSupply8925(OnChainDepth8038.accountData8418(it)) } ?: run { rpcFailed.incrementAndGet(); return }
+        val pct = cpmmLockedPct8925(lpSupply, supply, BigInteger.ZERO) ?: run { rpcFailed.incrementAndGet(); return }
+        store(Lock8895(mint, pool, VENUE_PUMPSWAP_8937, pct, System.currentTimeMillis(), "burned/lp_supply"))
+    }
+
+    private fun countOther8937(program: String) {
+        val k = program.take(8)
+        (otherPrograms8937[k] ?: if (otherPrograms8937.size >= 16) otherPrograms8937.computeIfAbsent("OTHER") { AtomicLong(0L) }
+            else otherPrograms8937.computeIfAbsent(k) { AtomicLong(0L) }).incrementAndGet()
+    }
+
     private fun gpa(config: JSONObject): JSONArray? = gpa(DLMM_PROGRAM_8895, config)
 
     private fun gpa(program: String, config: JSONObject): JSONArray? =
@@ -500,8 +567,12 @@ object PoolLock8895 {
         io.github.novacrypto.base58.Base58.base58Encode(ByteArray(8) { d[it].toByte() })
 
     private fun store(l: Lock8895) {
-        locks[l.pool] = l
+        val before = locks.put(l.pool, l)
         val state = if (l.lockedPct >= MIN_LOCKED_PCT_8895) "LOCKED" else "UNLOCKED"
+        // V5.0.8937 — a lock newly proven re-makes the coin's safety report on its next pass, so a provider's lower figure for
+        // this pool stops standing as the report's LP lock (TokenSafetyChecker reads the proof); a re-read of a held lock does not
+        val wasLocked = before != null && before.mint == l.mint && before.lockedPct >= MIN_LOCKED_PCT_8895 && l.atMs - before.atMs in 0L..REPORT_PROOF_MS_8937
+        if (state == "LOCKED" && !wasLocked) try { com.lifecyclebot.engine.SafetyRefreshQueue.request(l.mint) } catch (_: Throwable) {}
         outcome.computeIfAbsent("${l.venue}:$state") { AtomicLong(0L) }.incrementAndGet()
         try { PipelineHealthCollector.labelInc("POOL_LOCK_8895_${l.venue}_$state") } catch (_: Throwable) {}
     }
@@ -537,10 +608,13 @@ object PoolLock8895 {
     fun statusLine8895(): String =
         "poolLock8895[asked=${asked.get()} found{${outcome.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}} " +
             "notOurs=${notOurs.get()} tooManyPositions=${tooMany.get()} rpcFailed=${rpcFailed.get()} held=${locks.size} " +
+            "providerCorrected8937{${corrected8937.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}} " +
+            "otherPrograms8937{${otherPrograms8937.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}} " +
             "rule=Meteora DAMM v2 permanent lock + vesting held past 24 h (8925) / DLMM positions locked 24 h+ (smallest locked share of any bin) / " +
-            "Raydium CPMM LP burned + Burn & Earn (8925) / Raydium AMM v4 LP burned (8926), read on chain; >=70 % turns an " +
-            "unread LP proof into PROVEN, nothing else changes; an unlocked or unreadable pool stays unproven and is not bought]"
+            "Raydium CPMM LP burned + Burn & Earn (8925) / Raydium AMM v4 LP burned (8926) / PumpSwap LP burned (8937), read on chain; " +
+            ">=70 % proves the pool's LP, and from 8937 stands over a provider's lower figure for that same pool; an unlocked or " +
+            "unreadable pool stays unproven and is not bought]"
 
     internal fun putForTest8895(l: Lock8895) { locks[l.pool] = l }
-    internal fun resetForTest8895() { schedules8925.clear(); cpmmLocked8925.clear(); locks.clear(); otherVenue.clear(); lastAsk.clear(); inFlight.clear(); outcome.clear() }
+    internal fun resetForTest8895() { corrected8937.clear(); otherPrograms8937.clear(); schedules8925.clear(); cpmmLocked8925.clear(); locks.clear(); otherVenue.clear(); lastAsk.clear(); inFlight.clear(); outcome.clear() }
 }

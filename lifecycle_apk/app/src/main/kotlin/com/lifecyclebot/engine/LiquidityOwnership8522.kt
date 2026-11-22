@@ -31,6 +31,14 @@ object LiquidityOwnership8522 {
     enum class Status { PROVEN, PENDING, BLOCKED }
     data class Result(val status: Status, val reason: String, val detail: String)
 
+    /** Pure (V5.0.8937): the lock a pool counts at — the provider's [providerPct], or its own accounts' proven [chainPct] when higher. */
+    fun lockedAt8937(providerPct: Double, chainPct: Double?): Double =
+        if (chainPct != null && chainPct.isFinite() && chainPct in MIN_LOCKED_PCT..100.0 && chainPct > providerPct) chainPct else providerPct
+
+    /** Pure (V5.0.8937): is every ordinary pool with depth among [pools] [proven] from its own accounts (and is there one)? */
+    fun allDepthPoolsProven8937(pools: List<Pool>, proven: (Pool) -> Boolean): Boolean =
+        pools.filter { !it.isCurve && it.depthUsd > 0.0 }.let { d -> d.isNotEmpty() && d.all(proven) }
+
     /** Account-origin reserve read, bounded by the existing 30-second execution window. */
     fun activeCurveVerified(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean {
         val real = try { com.lifecyclebot.engine.truth.CurveReserves7951.accountObservation8522(mint, nowMs)?.realSol }
@@ -139,14 +147,21 @@ object LiquidityOwnership8522 {
             (activeCurveAddress.isNotBlank() && selectedPoolAddress == activeCurveAddress)
         val curveExempt = activeCurveVerified && selectedCurveIdentity && ordinarySelected == null && ordinaryPrimary == null &&
             (selected?.let { curve8881(it) } == true || curveOnlyEvidence)
+        // V5.0.8937 — a pool proven 70 %+ locked from its own accounts (PoolLock8895) is not under the lock, whatever the
+        // provider's figure for it; the provider's named unlocked finding stands unless every pool with depth is so proven.
+        val chainMint8937 = expectedMint.ifBlank { evidence.mint }
+        fun chainProven8937(p: Pool): Boolean = p.address.isNotBlank() &&
+            ((chainLock8895 != null && com.lifecyclebot.engine.truth.PoolLock8895.proves8895(chainLock8895, chainMint8937, p.address, nowMs)) ||
+                (try { com.lifecyclebot.engine.truth.PoolLock8895.proof8895(chainMint8937, p.address, nowMs) != null } catch (_: Throwable) { false }))
+        val chainAll8937 = allDepthPoolsProven8937(evidence.pools.filterNot { curve8881(it) }) { chainProven8937(it) }
 
         // Explicit adverse evidence always wins over a good numerical score or
         // a different pool. Curve custody is exempt only on actual curve proof.
-        if (evidence.explicitUnlocked && !curveExempt) {
+        if (evidence.explicitUnlocked && !curveExempt && !chainAll8937) {
             return Result(Status.BLOCKED, "LP_UNLOCKED_CONFIRMED_8522", "provider reports unlocked liquidity; pool=$selectedPoolAddress")
         }
         val unsafePool = listOfNotNull(ordinaryPrimary, ordinarySelected).firstOrNull {
-            it.lockedPct.isFinite() && it.lockedPct >= 0.0 && it.lockedPct < MIN_LOCKED_PCT
+            it.lockedPct.isFinite() && it.lockedPct >= 0.0 && it.lockedPct < MIN_LOCKED_PCT && !chainProven8937(it)
         }
         if (unsafePool != null) {
             return Result(Status.BLOCKED, "LP_LOCK_BELOW_REQUIRED_8522",
@@ -154,7 +169,9 @@ object LiquidityOwnership8522 {
         }
         // Old/paper reports may carry the number without the new pool record.
         // Their adverse observation must not disappear at the live boundary.
-        if (!curveExempt && report.lpLockPct.isFinite() && report.lpLockPct >= 0.0 && report.lpLockPct < MIN_LOCKED_PCT) {
+        val reportPool8937 = selected ?: primary
+        if (!curveExempt && report.lpLockPct.isFinite() && report.lpLockPct >= 0.0 && report.lpLockPct < MIN_LOCKED_PCT &&
+            !(reportPool8937 != null && chainProven8937(reportPool8937)) && !chainAll8937) {
             return Result(Status.BLOCKED, "LP_LOCK_BELOW_REQUIRED_8522", "reportedLocked=${report.lpLockPct}% required=$MIN_LOCKED_PCT%")
         }
         if (curveExempt) return Result(Status.PROVEN, "ACTIVE_CURVE_LP_NOT_APPLICABLE_8522", "fresh active curve reserves")

@@ -12439,7 +12439,8 @@ class GoldenTapeRegressionTest {
         assertTrue(reg.contains("entry.initialMcap, entry.initialLiquidity)"))
         val safety = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TokenSafetyChecker.kt").readText()
         assertTrue(safety.contains("if (onCurve7384) lpUnlockedRisk = false"))
-        assertTrue(safety.contains("val locked = if (curveMarket7384) -1.0 else"))
+        // superseded by V5.0.8937 — the provider's figure keeps its curve rule; a chain-proven higher lock may stand over it
+        assertTrue(safety.contains("val providerLocked8937 = if (curveMarket7384) -1.0 else"))
         val v3 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/bridge/V3Adapter.kt").readText()
         assertTrue(v3.contains("TokenMapAuthority.observedLiquidityUsd(ts).coerceAtLeast(0.0)"))
         val rug = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HardRugPreFilter.kt").readText()

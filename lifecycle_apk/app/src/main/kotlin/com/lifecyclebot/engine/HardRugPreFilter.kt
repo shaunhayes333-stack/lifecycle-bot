@@ -466,6 +466,9 @@ object HardRugPreFilter {
             ErrorLogger.debug(TAG, "❌ ${ts.symbol} PRE-FILTER: ${result.reason} [${result.severity}]")
             // V5.0.8418 — HARD_RUG is counted by its own reason (and safety rule), so the report names what fired.
             try { IntakeUnknownTruth8418.noteHardRug8418(result.reason, ts.safety.hardBlockReasons.firstOrNull()) } catch (_: Throwable) {}
+            // V5.0.8937 — LIVE: a coin only the LP rule keeps out is followed forward, so the rule's bind is measured, not guessed
+            if (result.reason == "CONFIRMED_HARD_SAFETY_7828" && !(try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true }))
+                try { com.lifecyclebot.engine.truth.LpStateRecord8725.noteLpBlocked8937(ts, ts.safety.hardBlockReasons) } catch (_: Throwable) {}
         }
     }
 }

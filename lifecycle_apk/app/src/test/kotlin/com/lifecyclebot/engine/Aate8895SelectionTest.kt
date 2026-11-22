@@ -114,17 +114,22 @@ class Aate8895SelectionTest {
         assertEquals("another pool's lock proves nothing", LiquidityOwnership8522.Status.PENDING, assess(unread, lock80.copy(pool = other)).status)
         assertEquals("another coin's read proves nothing", LiquidityOwnership8522.Status.PENDING, assess(unread, lock80.copy(mint = other)).status)
         assertEquals("a read older than 60 s proves nothing", LiquidityOwnership8522.Status.PENDING, assess(unread, lock80.copy(atMs = now - 61_000L)).status)
-        assertEquals("a provider report of unlocked liquidity still refuses", LiquidityOwnership8522.Status.BLOCKED,
+        // superseded by V5.0.8937 (owner 22 Nov 14:24, "a smarter strategy"): the pool's own accounts proving 70 %+ locked stand over
+        // the provider's lower figure for that same pool, and answer its named unlocked finding when every pool with depth is
+        // so proven; an unread or unproven pool beside it still refuses (Aate8937)
+        assertEquals("the provider's unlocked finding is answered when every pool with depth is chain-proven", LiquidityOwnership8522.Status.PROVEN,
             assess(report(LiquidityOwnership8522.Pool(pool, "meteora_damm_v2", -1.0, 30_000.0), unlocked = true), lock80).status)
-        assertEquals("a provider's under-70 % reading still refuses", LiquidityOwnership8522.Status.BLOCKED,
+        assertEquals("a provider's under-70 % reading of a chain-proven pool no longer refuses", LiquidityOwnership8522.Status.PROVEN,
             assess(report(LiquidityOwnership8522.Pool(pool, "meteora_damm_v2", 40.0, 30_000.0)), lock80).status)
+        assertEquals("a provider's under-70 % reading of a pool the chain has not proven still refuses", LiquidityOwnership8522.Status.BLOCKED,
+            assess(report(LiquidityOwnership8522.Pool(pool, "meteora_damm_v2", 40.0, 30_000.0)), lock80.copy(lockedPct = 60.0)).status)
         PoolLock8895.putForTest8895(lock80)
         assertNotNull(PoolLock8895.proof8895(mint, pool, now))
         assertNull(PoolLock8895.proof8895(mint, pool, now + 70_000L))
         val o = src("engine/LiquidityOwnership8522.kt")
-        assertTrue("every BLOCKED is decided before the chain read is consulted",
-            o.indexOf("return Result(Status.BLOCKED, \"LP_UNLOCKED_CONFIRMED_8522\"") in 0 until o.indexOf("PoolLock8895.proves8895(chainLock8895,") &&
-                o.indexOf("reportedLocked=\${report.lpLockPct}% required=\$MIN_LOCKED_PCT%") in 0 until o.indexOf("PoolLock8895.proves8895(chainLock8895,"))
+        // superseded by V5.0.8937 — the blocks consult the chain proof of the pool they name (chainProven8937) before refusing
+        assertTrue(o.contains("if (evidence.explicitUnlocked && !curveExempt && !chainAll8937) {"))
+        assertTrue(o.contains("it.lockedPct < MIN_LOCKED_PCT && !chainProven8937(it)"))
         assertTrue(src("engine/PreTradeHardGate.kt").contains("chainLock8895 = try { com.lifecyclebot.engine.truth.PoolLock8895.proof8895(mint, selectedPool8522, now) } catch (_: Throwable) { null },"))
         assertTrue(src("engine/PreTradeHardGate.kt").contains("com.lifecyclebot.engine.truth.PoolLock8895.request8895(mint, selectedPool8522, now)"))
         // V5.0.8896 — a chain-proven lock is re-read while it holds, so the 60 s proof does not lapse between looks

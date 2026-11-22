@@ -500,6 +500,8 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         }
         val rugcheckObservedAtMs8522 = System.currentTimeMillis()
         val lpOwnership8522 = LiquidityOwnership8522.parse(rugcheck, mint)
+        val chainLocked8937 = chainLocks8937(mint, lpOwnership8522, isPaperMode)   // V5.0.8937 — the pools' own proven locks
+        val chainAll8937 = LiquidityOwnership8522.allDepthPoolsProven8937(lpOwnership8522.pools) { it.address in chainLocked8937 }
         // V5.0.8399 — the provider's RISK score becomes this ladder's SAFETY score in one place (RugcheckScore8399); a
         // `rugged: true` report is a confirmed rug whatever the score says.
         // V5.0.8418 — and only a complete report about THIS mint can confirm a rug from its score (reportSafety8418).
@@ -620,6 +622,11 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                     curveOn8881 && lpOwnership8522.pools.none { !it.isCurve && it.address != curveAt8881 && it.depthUsd > 0.0 }
                 } catch (_: Throwable) { false }
                 if (onCurve7384) lpUnlockedRisk = false
+                // V5.0.8937 — every pool with depth proven locked from its own accounts: the named unlocked finding is answered
+                if (chainAll8937 && lpUnlockedRisk) {
+                    lpUnlockedRisk = false
+                    try { PipelineHealthCollector.labelInc("LP_UNLOCKED_FLAG_ANSWERED_BY_CHAIN_8937") } catch (_: Throwable) {}
+                }
                 if (lpUnlockedRisk && lpLockPct < 0.0) lpLockPct = 0.0
                 val lpUnlockedRugCombo = lpUnlockedRisk &&
                     (lowLiquidityRisk || currentLiquidityUsd in 0.0..2_500.0) &&
@@ -706,14 +713,20 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                 // the lock UNKNOWN (soft penalty); the migrated AMM pool (pump_fun_amm,
                 // LP burned) is still read as reported.
                 val curveMarket7384 = market?.optString("marketType", "").orEmpty().equals("pump_fun", ignoreCase = true)
-                val locked = if (curveMarket7384) -1.0 else lp?.optDouble("lpLockedPct", -1.0) ?: -1.0
+                val providerLocked8937 = if (curveMarket7384) -1.0 else lp?.optDouble("lpLockedPct", -1.0) ?: -1.0
+                // V5.0.8937 — the market's pool proven from its own accounts counts at the proven figure when that is higher
+                val chain8937 = chainLocked8937[market?.let { m -> m.optString("pubkey", "").ifBlank { m.optString("address", "") } }.orEmpty()]
+                val locked = LiquidityOwnership8522.lockedAt8937(providerLocked8937, chain8937?.lockedPct)
+                if (chain8937 != null && locked > providerLocked8937 && providerLocked8937 < 70.0)
+                    try { com.lifecyclebot.engine.truth.PoolLock8895.noteCorrected8937(chain8937, providerLocked8937) } catch (_: Throwable) {}
                 if (curveMarket7384) {
                     try { PipelineHealthCollector.labelInc("LP_LOCK_CURVE_MARKET_UNKNOWN_7384") } catch (_: Throwable) {}
                 }
                 if (locked >= 0) {
                     // A numerical lock percentage from another/aggregated pool
                     // cannot erase the provider's named unlocked-LP finding.
-                    lpLockPct = if (lpOwnership8522.explicitUnlocked) minOf(lpLockPct.takeIf { it >= 0.0 } ?: 0.0, locked) else locked
+                    // V5.0.8937 — unless every pool with depth is proven locked from its own accounts
+                    lpLockPct = if (lpOwnership8522.explicitUnlocked && !chainAll8937) minOf(lpLockPct.takeIf { it >= 0.0 } ?: 0.0, locked) else locked
                 }
             }
 
@@ -1357,6 +1370,26 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                 "✅ SAFE$rc$ageStr"
             }
         }
+    }
+
+    /**
+     * V5.0.8937 §THE_LOCK_IS_THE_POOLS_OWN — LIVE: the provider's pools that their own accounts prove 70 %+ locked or burned
+     * (PoolLock8895: PumpSwap / Raydium AMM v4 + CPMM / Meteora DAMM v2 + DLMM), by address. Such a pool counts at that figure
+     * over the provider's lower one for the same pool; a pool the provider puts under 70 % (or any pool with depth under its
+     * named unlocked finding) that the chain has not proven is read now, and its proof re-makes this report
+     * (PoolLock8895.store). Only a higher, proven figure replaces the provider's: the reader counts burned / protocol-locked LP
+     * and no third-party locker, so its lower figure never blocks. Paper: none.
+     */
+    private fun chainLocks8937(mint: String, evidence: LiquidityOwnership8522.Evidence, isPaperMode: Boolean):
+        Map<String, com.lifecyclebot.engine.truth.PoolLock8895.Lock8895> {
+        if (isPaperMode) return emptyMap()
+        return try {
+            val ordinary = evidence.pools.filter { !it.isCurve && it.address.isNotBlank() }
+            val proven = ordinary.mapNotNull { p -> com.lifecyclebot.engine.truth.PoolLock8895.reportProof8937(mint, p.address)?.let { p.address to it } }.toMap()
+            ordinary.filter { it.address !in proven && (it.lockedPct in 0.0..69.999 || (evidence.explicitUnlocked && it.depthUsd > 0.0)) }
+                .forEach { com.lifecyclebot.engine.truth.PoolLock8895.request8895(mint, it.address) }
+            proven
+        } catch (_: Throwable) { emptyMap() }
     }
 
     /** V5.0.8471 — the HTTP status with the body (-1 when the call failed): RugCheck's not-indexed answer is a 400 / 404. */
