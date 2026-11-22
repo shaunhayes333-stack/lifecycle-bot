@@ -10476,7 +10476,8 @@ class GoldenTapeRegressionTest {
         assertTrue(runner.contains("const val MIN_PEAK_FOR_GIVEBACK_LOCK_PCT = 25.0"))
 
         // Fast lane: same cycle, on the event, bounded.
-        assertTrue(bot.contains("private fun fastLaneEvaluate7277(mint: String, cfg: BotConfig, origin: String) {"))
+        // superseded by V5.0.8942 — the same fast lane, keyed per print milestone ([onceKey] defaults to the mint)
+        assertTrue(bot.contains("private fun fastLaneEvaluate7277(mint: String, cfg: BotConfig, origin: String, onceKey: String = mint) {"))
         // superseded by V5.0.8779 — each fast-lane pass reads the current config with the runtime mode; was: processTokenCycle(mint, cfg, wallet, t0).
         // superseded by V5.0.8869 — through the cycle's trace wrapper, same arguments
         assertTrue(bot.contains("processTokenCycleTraced8869(mint, cycleCfg8779(cfg), wallet, t0)"))

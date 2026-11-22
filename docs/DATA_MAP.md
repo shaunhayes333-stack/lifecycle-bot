@@ -2795,3 +2795,10 @@ SAFETY_REFUSED_8136, so the next fix could not be chosen from the data. Decision
 admission's own trace names ("safety=HARD_BLOCK:<first reason>", or the live holder block), its numbers folded to N
 (safetyCause8943), once per evidence coin per candidate, and the brief's evidenceFunnel8876 prints it per evidence kind as
 safety8943{...}. Counted, never acted on.
+
+## 132. The fast lane's golden pin follows 8942 (8944)
+
+8942 and 8943 built and passed the runtime smoke, but their unit run failed one pin:
+GoldenTapeRegressionTest.V5_0_7277_helius_leads_evidence_bar_fee_floor_runner_exits_fast_lane_and_smart_money asserted the old
+fastLaneEvaluate7277 signature. 8942 added `onceKey: String = mint` (its default keeps every older trigger's key), so the pin
+now reads the new signature, marked superseded. No code change; 8944 carries 8942 and 8943 as they are.
