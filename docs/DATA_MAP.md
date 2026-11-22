@@ -2726,3 +2726,19 @@ under-70 % pool only on its own 60 s proof. A pool proven 61 s to 10 minutes ear
 lapsed and it asked again. The door now waives on the same 10-minute proof; PROVEN still needs the fresh 60 s read, so between
 the two the door answers LP_OWNERSHIP_PROOF_PENDING_8522, which re-reads the pool (PreTradeHardGate / BuyRouteSafety8522) and
 proves it on the next look. Past 10 minutes the provider's figure stands, as before 8937.
+
+## 127. The careful path takes its proven cohort (8939)
+
+Owner, 22 Nov 14:57: "where's the trade volume gone? where are the big winners????". The research rows (20-22 Nov, one row
+per coin, the hour's executable net): every lane's ADMITTED coins lose at the hour (MOONSHOT n765 -5.0 %, CORE n401 -3.4 %);
+the one refused cohort that pays is the paying-cell coins the buy door left waiting on a safety proof (LPSTATE8725_PENDING
+n107 +20.3 % +-6.6). Within it, a +10 %+ forecast at a $10k-$20k cap: n46 +44.2 % +-7.5, median +31.2 %, halves +42.2 / +46.2,
+ex-top-3 +34.9 %, 2 % drained (min <= -80 %); V3 >= 23 n24 +55.6 %, V3 under 23 n22 +31.8 % +-8.1. The careful path
+(ExploreLive8733, 8928) also asked the coin's V3 >= 23 through the agreement pocket's test, which halves its cohort.
+AgreementPocket8874.pocketVerdict8939 gives the pocket's verdict and what it missed (ORIGIN, CAP, V3, NO_LANE_EVIDENCE, FORECAST);
+the careful path asks it with requireV3 = false and names a miss as NOT_IN_POCKET_<why> in explore8733 asked{} (it was one
+NOT_IN_POCKET, 229 on the 13:59 capture). provenLaneFor8928, whose one caller was this path, is retired into it; the agreement
+pocket's own admission evidence (evidence8874) keeps V3 >= 23. Unchanged: unread LP
+only (never reported unlocked or under the lock), RugCheck reported, mint + freeze revoked, a classic or clean Token-2022 mint,
+the flow test, 1 open, 6 a day, 0.05 SOL, the LP-pull exit. Not known from the rows: which safety proof each PENDING coin waited
+on, so the share of the cohort this path can reach (it cannot buy a coin still waiting on RugCheck) is read from the next capture.

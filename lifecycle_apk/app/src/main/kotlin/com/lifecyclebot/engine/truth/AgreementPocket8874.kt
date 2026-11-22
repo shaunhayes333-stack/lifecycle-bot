@@ -122,11 +122,25 @@ object AgreementPocket8874 {
      * cap of [capLoUsd] up to the pocket's ceiling? The forecast is each proven lane's own quiet verdict (no side effects).
      * Returns that lane, or null.
      */
-    fun provenLaneFor8928(ts: TokenState, capLoUsd: Double, nowMs: Long = System.currentTimeMillis()): String? = try {
+    // superseded by V5.0.8939 — provenLaneFor8928 (its one caller the careful path) is pocketVerdict8939 below, which asks the
+    // coin's V3 only when told to and names a miss
+    /**
+     * V5.0.8939 §THE_CAREFUL_PATH_TAKES_ITS_PROVEN_COHORT — owner, 22 Nov 14:57: "where's the trade volume gone? where are the
+     * big winners????". The one refused cohort in the research rows that pays at the hour is the paying-cell coins the buy door
+     * left waiting on a safety proof (LPSTATE8725_PENDING, 20-22 Nov, one row per coin): n107 +20.3 % +-6.6; with a forecast
+     * of +10 % or more at a $10k-$20k cap n46 +44.2 % +-7.5, median +31.2 %, both halves positive (+42.2 / +46.2), ex-top-3
+     * +34.9 %, 2 % drained. The careful path (ExploreLive8733) also asked the agreement pocket's V3 >= 23 of the coin, which
+     * halves that cohort: V3 >= 23 n24 +55.6 %, V3 under 23 n22 +31.8 % +-8.1 — both pay. With [requireV3] false the coin's
+     * own V3 is not asked; the lane must still carry the pocket's proven evidence and the coin its forecast, cap and origin.
+     * Pure apart from the records; (lane or null, why not: ORIGIN / CAP / V3 / NO_LANE_EVIDENCE / FORECAST, else IN).
+     */
+    fun pocketVerdict8939(ts: TokenState, capLoUsd: Double, nowMs: Long = System.currentTimeMillis(), requireV3: Boolean = true): Pair<String?, String> = try {
         val solana = try { com.lifecyclebot.network.HeliusSolanaScope7819.isSolanaMint7819(ts.mint) } catch (_: Throwable) { false }
-        if (!solana || MarketCohort8701.origin8701(ts.mint) != "OTHER") null else {
+        if (!solana || MarketCohort8701.origin8701(ts.mint) != "OTHER") null to "ORIGIN" else {
             val base = EdgeModel8537.rawFor8610(ts, EdgeModel8537.LANES.first(), nowMs)
-            if (!base.mcap.isFinite() || base.mcap < capLoUsd || base.mcap >= MCAP_HI_USD_8874 || !(base.v3 >= V3_MIN_8874)) null else {
+            if (!base.mcap.isFinite() || base.mcap < capLoUsd || base.mcap >= MCAP_HI_USD_8874) null to "CAP"
+            else if (requireV3 && !(base.v3 >= V3_MIN_8874)) null to "V3"
+            else {
                 val coin = coinRecord8895()
                 val research = researchRecord8929()   // V5.0.8929 — the research rows' coin record, which a learning reset leaves
                 val lanes = EdgeModel8537.LANES.filter { l ->
@@ -134,11 +148,16 @@ object AgreementPocket8874 {
                     key8874(l)?.let { evidenceOf8874(it, laneRec) } != null || coinEvidenceOf8895(l, laneRec, coin) != null ||
                         coinEvidenceOf8895(l, laneRec, research) != null
                 }
-                val v = EdgeModel8537.quietVerdicts8869(ts, lanes, nowMs)
-                lanes.firstOrNull { l -> v[l]?.predPct?.let { it.isFinite() && inPocket8874(ts.mint, base.mcap, base.v3, it) } == true }
+                if (lanes.isEmpty()) null to "NO_LANE_EVIDENCE" else {
+                    val v = EdgeModel8537.quietVerdicts8869(ts, lanes, nowMs)
+                    // the pocket's own test of the coin, its V3 asked only when [requireV3]
+                    val lane = lanes.firstOrNull { l -> v[l]?.predPct?.let { it.isFinite() &&
+                        inPocket8874(ts.mint, base.mcap, if (requireV3) base.v3 else V3_MIN_8874, it) } == true }
+                    if (lane == null) null to "FORECAST" else lane to "IN"
+                }
             }
         }
-    } catch (_: Throwable) { null }
+    } catch (_: Throwable) { null to "ERROR" }
 
     /** CandidateAdmission8136 (LIVE): what the admission decided of a coin that carried the pocket — counted, never acted on. */
     fun noteAdmission8874(terminal: String, reason: String) {
@@ -268,7 +287,7 @@ object AgreementPocket8874 {
     // hour read within 15 minutes of its first) is 62 coins at +40.8 % +-8.1 (lower bound +24.7 %; 20 Nov +33.7, 21 Nov +45.2).
     // This is a third coin record built the 8895 way from those rows: seeded from the device's research file, filed from
     // every hour row as it is written. It proves on the same bar (30 coins, mean above zero by two SE) and serves ONLY
-    // ExploreLive8733's careful path ([provenLaneFor8928]); the full-size admission (evidence8874) is unchanged.
+    // ExploreLive8733's careful path ([pocketVerdict8939]); the full-size admission (evidence8874) is unchanged.
     private const val HOUR_MS_8929 = 3_600_000L
     private val research8929 = LinkedHashMap<String, Coin8895>()   // guarded by itself; oldest first
     @Volatile private var researchReady8929 = false

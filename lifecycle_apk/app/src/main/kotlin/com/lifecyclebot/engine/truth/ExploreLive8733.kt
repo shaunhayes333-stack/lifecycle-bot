@@ -170,7 +170,10 @@ object ExploreLive8733 {
     fun eligible8733(ts: TokenState, nowMs: Long): Boolean {
         if (!ENABLED_8736) return false
         if (!withinBudget8733(openCount8733(), spentToday8733(nowMs))) { why8928("BUDGET"); return false }
-        val lane = AgreementPocket8874.provenLaneFor8928(ts, CAP_LO_USD_8928, nowMs) ?: run { why8928("NOT_IN_POCKET"); return false }
+        // superseded by V5.0.8939 — the pocket's proven cohort without the coin's V3 (AgreementPocket8874.pocketVerdict8939); a
+        // refusal names what it missed (NOT_IN_POCKET_ORIGIN / _CAP / _NO_LANE_EVIDENCE / _FORECAST)
+        val (pocketLane8939, pocketWhy8939) = AgreementPocket8874.pocketVerdict8939(ts, CAP_LO_USD_8928, nowMs, requireV3 = false)
+        val lane = pocketLane8939 ?: run { why8928("NOT_IN_POCKET_$pocketWhy8939"); return false }
         val proof = try { OnChainMintAuthorityProof7248.resolve(ts.mint, liveGate8094 = true) } catch (_: Throwable) { null }
         tokenRefusal8936(proof)?.let { why8928(it); return false }
         val flow = try { com.lifecyclebot.engine.market.BuyerFlow8666.read(ts.mint, nowMs) } catch (_: Throwable) { null }
@@ -222,7 +225,7 @@ object ExploreLive8733 {
         return "explore8733[buys=${allowed.get()} today=${spentToday8733(now)}/$MAX_PER_DAY_8733 open=${openCount8733()}/$MAX_OPEN_8733 " +
             "maxSol=$MAX_SOL_8733 refusedSize=${refusedSize.get()} refusedBudget=${refusedBudget.get()} lastCell=${lastCell.ifBlank { "-" }} " +
             "asked{${why8928.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}} " +
-            "rule=8928: unread LP (never unlocked/under-lock), RugCheck reported, agreement pocket at \$10k-\$20k, mint + freeze revoked, a classic SPL or clean Token-2022 mint (8936), " +
+            "rule=8928: unread LP (never unlocked/under-lock), RugCheck reported, agreement pocket at \$10k-\$20k with a +10 %+ forecast, any V3 (8939), mint + freeze revoked, a classic SPL or clean Token-2022 mint (8936), " +
             "buying rising + holders growing + more positive signs than negative (the live tape, else the pool's DexScreener counts, 8929); 1 open, 6/day, <= 0.05 SOL; LP-pull exit armed]"
     }
 }

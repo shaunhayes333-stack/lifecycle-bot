@@ -136,7 +136,8 @@ class Aate8895SelectionTest {
         assertTrue(src("engine/PreTradeHardGate.kt").contains("ownership8522.reason == com.lifecyclebot.engine.truth.PoolLock8895.PROVEN_REASON_8895) && selectedPool8522.isNotBlank())"))
         assertTrue(src("engine/BuyRouteSafety8522.kt").contains("chainLock8895 = try { com.lifecyclebot.engine.truth.PoolLock8895.proof8895(mint, pool, nowMs) } catch (_: Throwable) { null })"))
         // superseded by V5.0.8928 — owner 22 Nov 02:52: on again, only for the agreement pocket with flow, holders and RugCheck
-        assertTrue(src("engine/truth/ExploreLive8733.kt").contains("val lane = AgreementPocket8874.provenLaneFor8928(ts, CAP_LO_USD_8928, nowMs)"))
+        // superseded by V5.0.8939 — the pocket's verdict without the coin's V3, its miss named (Aate8939)
+        assertTrue(src("engine/truth/ExploreLive8733.kt").contains("AgreementPocket8874.pocketVerdict8939(ts, CAP_LO_USD_8928, nowMs, requireV3 = false)"))
         assertFalse("PoolLock8895 never blocks", src("engine/truth/PoolLock8895.kt").contains("Status.BLOCKED"))
     }
 
