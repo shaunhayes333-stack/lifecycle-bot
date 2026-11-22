@@ -67,6 +67,10 @@ object DecisionEpisode8535 {
         // V5.0.8895 — a data deferral of an evidence coin names what it waited for (the admission's own defer causes, 8700)
         if (terminal == "DEFER_DATA" && e.evidence.isNotBlank() && e.reached8876.add("DEFER_CAUSES_8895"))
             try { com.lifecyclebot.engine.truth.CandidateAdmission8136.deferCauses8700(trace).forEach { waitCause8895(e.evidence, it) } } catch (_: Throwable) {}
+        // V5.0.8943 — a safety refusal of an evidence coin names the hard finding that refused it (the base pocket's 90 of 153
+        // on the 13:59 capture were one undivided SAFETY_REFUSED_8136)
+        if (reason == "SAFETY_REFUSED_8136" && e.evidence.isNotBlank() && e.reached8876.add("SAFETY_CAUSE_8943"))
+            safetyCause8943(trace)?.let { safetyCount8943(e.evidence, it) }
         e.admissionHash = hash8535(trace)
         if (!setup.isNullOrBlank() && e.firedSetup.isBlank()) e.firedSetup = setup
         e.touchedMs = nowMs; written.incrementAndGet()
@@ -114,7 +118,21 @@ object DecisionEpisode8535 {
      */
     private val FUNNEL_STAGES_8876 = setOf("OWNER", "INTENT", "TICKET", "EXEC", "CLOSE")
     private const val MAX_REASONS_8876 = 48
-    private class Funnel8876 { val steps = LinkedHashMap<String, Long>(); val why = HashMap<String, Long>(); val wait8895 = HashMap<String, Long>() }
+    private class Funnel8876 { val steps = LinkedHashMap<String, Long>(); val why = HashMap<String, Long>(); val wait8895 = HashMap<String, Long>()
+        val safety8943 = HashMap<String, Long>() }
+
+    /**
+     * Pure (V5.0.8943): the hard safety finding an admission trace names ("safety=HARD_BLOCK:LP only 0% locked — ..."), its
+     * numbers folded to N so one rule counts as one ("HARD_BLOCK:LP only N% locked"); null when the trace names none.
+     */
+    internal fun safetyCause8943(trace: List<String>): String? =
+        trace.firstOrNull { it.startsWith("safety=") }?.removePrefix("safety=")?.replace(Regex("\\d+"), "N")?.take(44)?.trim()?.ifBlank { null }
+
+    /** V5.0.8943 — under this object's lock: one safety refusal's finding for an evidence coin of [kind]. */
+    private fun safetyCount8943(kind: String, cause: String) {
+        val f = funnels8876.getOrPut(kind) { Funnel8876() }
+        if (f.safety8943.size < MAX_REASONS_8876 || f.safety8943.containsKey(cause)) f.safety8943[cause] = (f.safety8943[cause] ?: 0L) + 1L
+    }
 
     /** V5.0.8895 — under this object's lock: one data-deferral cause of an evidence coin of [kind]. */
     private fun waitCause8895(kind: String, cause: String) {
@@ -144,7 +162,9 @@ object DecisionEpisode8535 {
             val why = f.why.entries.sortedByDescending { it.value }.take(4).joinToString(",") { "${it.key}=${it.value}" }.ifBlank { "-" }
             // V5.0.8895 — what its data deferrals waited for (price, move, cost, a buy-door proof, an entry wait ...)
             val wait = f.wait8895.entries.sortedByDescending { it.value }.take(5).joinToString(",") { "${it.key}=${it.value}" }
-            "$kind{$steps why{$why}${if (wait.isBlank()) "" else " wait{$wait}"}}"
+            // V5.0.8943 — and which hard safety finding its safety refusals were
+            val safety = f.safety8943.entries.sortedByDescending { it.value }.take(5).joinToString(",") { "${it.key}=${it.value}" }
+            "$kind{$steps why{$why}${if (wait.isBlank()) "" else " wait{$wait}"}${if (safety.isBlank()) "" else " safety8943{$safety}"}}"
         }.ifBlank { "-" }
         return "evidenceFunnel8876[$body rule=coins that carried market-cell evidence, once per candidate at each step they reached]"
     }

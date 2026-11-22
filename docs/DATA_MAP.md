@@ -2786,3 +2786,12 @@ truth/LaunchPrints8942 counts each witnessed, live-timed pump.fun print (TradeTa
 counts) from the launch's first; at its 20th, 40th and 80th within 15 minutes BotService runs the same full pipeline on it under
 its own fast-lane key (fastLaneEvaluate7277 onceKey "<mint>|8942|<n>"), when the coin is on the watchlist. No gate is bypassed;
 nothing here admits, sizes or trades. launchPrints8942[...] in the brief: fired per milestone, late (past 15 min), notWatched.
+
+## 131. What refused the evidence coins (8943)
+
+The 13:59 capture's evidence funnel: the proven base pocket (off-pump BASE_START, $10k-$50k: +40.0 % at the hour, n163, the
+steadiest edge in the research rows) reached the buy door on 153 coins and was refused on 90 by one undivided
+SAFETY_REFUSED_8136, so the next fix could not be chosen from the data. DecisionEpisode8535 now reads the hard finding the
+admission's own trace names ("safety=HARD_BLOCK:<first reason>", or the live holder block), its numbers folded to N
+(safetyCause8943), once per evidence coin per candidate, and the brief's evidenceFunnel8876 prints it per evidence kind as
+safety8943{...}. Counted, never acted on.
