@@ -245,11 +245,15 @@ object HeapMapCore8866 {
 
     private class Stop(val why: String) : RuntimeException(why)
 
+    /** V5.0.8955 — holder tracing stops starting new levels after this long (the class / size / sample passes always run). */
+    internal const val HOLDER_BUDGET_MS_8955 = 180_000L
+
     /**
      * Reads [file] and returns the map. [header] is printed first (the caller's own facts: version, heap, timing).
      * Never throws: a file it cannot read to the end returns what was counted with [Result.stopped] naming the place.
      */
-    fun analyse8866(file: File, header: String, sampleTargets: Int = 20_000, maxPasses: Int = 18, progress: (String) -> Unit = {}): Result {
+    fun analyse8866(file: File, header: String, sampleTargets: Int = 20_000, maxPasses: Int = 18, progress: (String) -> Unit = {},
+                    holderBudgetMs8955: Long = HOLDER_BUDGET_MS_8955): Result {
         val t0 = System.currentTimeMillis()
         var stopped = ""
         val classes = ArrayList<ClassInfo>(1 shl 15)
@@ -267,6 +271,7 @@ object HeapMapCore8866 {
         var layoutMismatch = 0L
         var unknownClassInstances = 0L
         var passes = 0
+        var holderBudgetHitAt8955 = 0   // V5.0.8955 — the holder level the time budget stopped at (0 = not hit)
 
         // nodes of the holder forest (samples first)
         var nodeCap = 1 shl 15
@@ -599,6 +604,9 @@ object HeapMapCore8866 {
             sampleCount = nodes
             frontierFrom = 0; frontierTo = nodes; level = 0
             while (frontierTo > frontierFrom && passes < maxPasses + 3) {
+                // V5.0.8955 — each holder level is one more read of the whole dump; past the budget the levels already traced
+                // stand (as at maxPasses) and the raw dump is deleted now rather than when CI's or the owner's wait runs out
+                if (System.currentTimeMillis() - t0 >= holderBudgetMs8955) { holderBudgetHitAt8955 = level + 1; break }
                 val n = frontierTo - frontierFrom
                 candRank = ByteArray(n) { 127 }; candHolder = LongArray(n); candClass = IntArray(n); candVia = IntArray(n); candTerm = IntArray(n)
                 frontier.clear()
@@ -640,7 +648,8 @@ object HeapMapCore8866 {
         out.append(header.trimEnd()).append('\n')
         out.append("format=").append(format).append(" idSize=").append(idSize).append(" file=").append(mb(file.length()))
             .append(" status=").append(if (stopped.isEmpty()) "COMPLETE" else "STOPPED").append(" passes=").append(passes)
-            .append(" readMs=").append(System.currentTimeMillis() - t0).append('\n')
+            .append(" readMs=").append(System.currentTimeMillis() - t0)
+            .append(if (holderBudgetHitAt8955 > 0) " holderBudget8955=stoppedAtLevel$holderBudgetHitAt8955" else "").append('\n')
         if (stopped.isNotEmpty()) out.append("stopped=").append(stopped).append('\n')
         out.append("objects=").append(objects).append(" bytes=").append(mb(bytes)).append(" classes=").append(classes.size)
             .append(" samples=").append(sampleCount).append(" layoutMismatch=").append(layoutMismatch)

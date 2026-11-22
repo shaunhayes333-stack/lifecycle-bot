@@ -2989,3 +2989,14 @@ the same runtime test, and the same witness failed and then passed on ade91d56b,
 (ix_name, shareholders) ever parses differently from the IDL this build read, that quote is noise, and dropping on it would
 have emptied the whole Helius curve tape. Such an event now reads exactly as before 8952 and is counted
 (quoteTruth8952 nonSol{OTHER:unpriced}); only a named USDC or pump.fun-coin quote is converted or dropped.
+
+## 143. The memory map always reports (8955)
+
+8954's runtime check: "no HEAP_MAP_WRITTEN_8866 line within 480s; raw dump left on disk" (8953, minutes earlier: the whole
+map in 63 s, heap 218 MB). No crash, ANR or kill line; the process was the same; nothing said which stage the map had reached.
+- Holder tracing (each level one more read of the whole dump, up to 18) stops starting new levels after 180 s
+  (HeapMapCore8866.HOLDER_BUDGET_MS_8955); the levels already traced stand, as at the pass limit, and the header says
+  holderBudget8955=stoppedAtLevelN. The class, name and object passes always run. The raw dump is deleted on finishing, so
+  a slow read no longer leaves it on disk while a wait runs out (on the phone too).
+- Every stage is logged (HEAP_MAP_PHASE_8866: dumping, dumped dumpMs fileMb, classes, names, objects, holders N, with the
+  elapsed ms); the device check names the last stage reached when no map line arrives.

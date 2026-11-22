@@ -369,6 +369,11 @@ while [ "$SECONDS" -lt "$deadline" ]; do
     if [ -n "$fail" ]; then hm_detail="$fail"; break; fi
     sleep 5
 done
+# V5.0.8955 — a map that never reports says which stage it reached
+if [ $hm_ok -eq 0 ] && [ -z "${line:-}" ]; then
+    lastphase=$(since "$M" | grep -o 'HEAP_MAP_PHASE_8866 .*' | tail -1 | tr -d '\r' | cut -c1-160)
+    hm_detail+="; last stage: ${lastphase:-none logged}"
+fi
 left=$(adb shell run-as "$PKG" ls cache/heapmap_8866 2>/dev/null | grep -c '\.hprof' || true)
 [ "${left:-0}" = "0" ] || { hm_ok=0; hm_detail+="; raw dump left on disk ($left file(s))"; }
 pid=$(app_pid)

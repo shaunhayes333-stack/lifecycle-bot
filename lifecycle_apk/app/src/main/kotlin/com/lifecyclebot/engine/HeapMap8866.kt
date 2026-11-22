@@ -89,15 +89,21 @@ object HeapMap8866 {
                     raw = file
                     phase = "writing the heap (the app is stopped)"
                     val t0 = System.currentTimeMillis()
+                    try { android.util.Log.i("AATE_HEAPMAP", "HEAP_MAP_PHASE_8866 dumping usedMb=$usedMb maxMb=$maxMb") } catch (_: Throwable) {}
                     android.os.Debug.dumpHprofData(file.absolutePath)
                     val dumpMs = System.currentTimeMillis() - t0
+                    // V5.0.8955 — 8954's device check waited 480 s for a map with no line to say where it was; each stage is logged
+                    try { android.util.Log.i("AATE_HEAPMAP", "HEAP_MAP_PHASE_8866 dumped dumpMs=$dumpMs fileMb=${file.length() shr 20} usedMb=$usedMb") } catch (_: Throwable) {}
                     val uptimeS = try { (android.os.SystemClock.elapsedRealtime() - android.os.Process.getStartElapsedRealtime()) / 1000L } catch (_: Throwable) { -1L }
                     val header = "AATE heap map (§8866) version=" + (try { com.lifecyclebot.BuildConfig.VERSION_NAME } catch (_: Throwable) { "?" }) +
                         " taken=" + SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date(startedAt)) +
                         " uptimeS=" + uptimeS + " heapUsedMb=" + usedMb + " heapMaxMb=" + maxMb + " dumpMs=" + dumpMs + " gcFirst=false why=" + why.take(24)
                     // the heap is on disk now: the caches may go, so the reader below has room in a heap that was full
                     try { MemoryGuard7977.emergencyTrim8305("HEAP_MAP_8866") } catch (_: Throwable) {}
-                    val result = HeapMapCore8866.analyse8866(file, header) { phase = it }
+                    val result = HeapMapCore8866.analyse8866(file, header) {
+                        phase = it
+                        try { android.util.Log.i("AATE_HEAPMAP", "HEAP_MAP_PHASE_8866 $it +${System.currentTimeMillis() - t0}ms") } catch (_: Throwable) {}
+                    }
                     try { file.delete() } catch (_: Throwable) {}
                     raw = null
                     val name = "aate_heapmap_8866_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date(startedAt)) + ".txt"
