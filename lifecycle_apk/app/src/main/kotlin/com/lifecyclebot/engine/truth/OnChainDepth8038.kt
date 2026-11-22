@@ -472,6 +472,10 @@ object OnChainDepth8038 {
         if (concentrated8418(owner8418)) {
             // V5.0.8418 — the spot price from pool state (layout-proved; tagged with its source), never the vault ratio.
             if (priceInState8418(owner8418)) recordStatePrice8418(mint, p, owner8418, acctA, acctB, poolAcct, observedAt)
+            ConcentratedPrice8418.fresh8418(mint, 15_000L, observedAt)
+                ?.takeIf { it.pool == p && it.atMs == observedAt }?.let {
+                    RugChainEvidence8957.record(mint, p, it.solPerCoin, sides.first, observedAt)
+                }
             // V5.0.8418 — depth only: kept apart from [reads] so no price check or constant-product sell-out reads it.
             depthOnlyReads8418[mint] = read
             if (depthOnlyReads8418.size > 3_000) depthOnlyReads8418.entries.sortedBy { it.value.atMs }.take(300).forEach { depthOnlyReads8418.remove(it.key) }
@@ -482,6 +486,8 @@ object OnChainDepth8038 {
             return Accept8418.CONCENTRATED
         }
         reads[mint] = read
+        // Price uses the pool's effective reserves; liquidity removal uses the actual SOL vault, not virtual reserves.
+        RugChainEvidence8957.record(mint, p, read.quoteSol / read.baseTokens, sides.first, observedAt)
         CandidateAdmission8136.evidenceArrived8252(mint, setOf("liq", "liquidity"), read.atMs)
         try { com.lifecyclebot.engine.HydrationReeval8343.onDepthRead8343(mint, depthUsd8038(read.quoteSol, solUsd()), read.atMs) } catch (_: Throwable) {}  // V5.0.8343 — the vault answer ends a liquidity deferral
         if (reads.size > 3_000) reads.entries.sortedBy { it.value.atMs }.take(300).forEach { reads.remove(it.key) }
