@@ -41,7 +41,7 @@ object ChainConfirm8950 {
     fun inputsOf8950(missing: Collection<String>): Set<Input8950> {
         val out = LinkedHashSet<Input8950>()
         for (raw in missing) {
-            val m = raw.substringBefore(':').trim().uppercase()
+            val m = raw.substringBefore(':').trim().uppercase().removePrefix("CRITICAL_")
             when {
                 m.isEmpty() || m == "FALLING_HOUR" || m == "UNNAMED" -> {}
                 m in PRICE_8950 || m.startsWith("CRITICAL_LIQ") || m.startsWith("LIQ") -> out += Input8950.PRICE_DEPTH
@@ -57,7 +57,7 @@ object ChainConfirm8950 {
         }
         return out
     }
-    private val PRICE_8950 = setOf("PRICE", "PRICE_STALE", "ECONOMICS", "COST_UNKNOWN", "LIQUIDITY", "DEPTH", "CRITICAL_LIQUIDITY", "MARK", "NO_MARK")
+    private val PRICE_8950 = setOf("PRICE", "PRICE_STALE", "EXECUTABLE_PRICE", "ECONOMICS", "COST_UNKNOWN", "LIQUIDITY", "DEPTH", "MARK", "NO_MARK")
     private val HISTORY_8950 = setOf("SHAPE", "CHG", "BP", "SWAPS", "TAPE", "TAPE8100", "CORE", "BARS", "CANDLES", "HISTORY",
         "MOVE_HISTORY_SPARSE", "STAGE", "STAGE_UNRESOLVED", "FLOW_UNOBSERVED", "VOLACCEL", "OPP", "LAUNCHTAPE")
 
@@ -68,28 +68,39 @@ object ChainConfirm8950 {
 
     /** [use] (DECISION / EVIDENCE / STAGE / HOLD / EXIT) of [ts] lacks [missing]: read each from the chain now (LIVE). */
     fun confirm8950(ts: TokenState, missing: Collection<String>, use: String, nowMs: Long = System.currentTimeMillis()) {
-        if (ts.mint.length !in 32..44 || !live8950()) return
-        for (input in inputsOf8950(missing)) ask8950(ts, input, use, nowMs)
+        if (!live8950()) return
+        val mint = com.lifecyclebot.perps.DynamicAltTokenRegistry.solanaMintOf8866(ts.mint) ?: return
+        val local = if (mint == ts.mint) ts else ts.copy(mint = mint)
+        for (input in inputsOf8950(missing)) ask8950(local, input, use, nowMs)
     }
 
     /** A held position / exit known by its mint only: its token state, then [confirm8950]. */
     fun confirmMint8950(mint: String, missing: Collection<String>, use: String, nowMs: Long = System.currentTimeMillis()) {
-        val ts = try { com.lifecyclebot.engine.HandoffRoute8180.tokenFor8180(mint) } catch (_: Throwable) { null } ?: return
+        val bare = com.lifecyclebot.perps.DynamicAltTokenRegistry.solanaMintOf8866(mint) ?: return
+        // Ownership of a live holding must not depend on membership of the meme scanner's watchlist.
+        val ts = try { com.lifecyclebot.engine.HandoffRoute8180.tokenFor8180(bare) } catch (_: Throwable) { null }
+            ?: TokenState(mint = bare)
         confirm8950(ts, missing, use, nowMs)
     }
 
     private fun ask8950(ts: TokenState, input: Input8950, use: String, nowMs: Long) {
         val key = "${ts.mint}|${input.name}"
-        if (!due8950(lastAsk[key] ?: 0L, nowMs)) return
         if (lastAsk.size > CAP_8950) lastAsk.entries.removeIf { nowMs - it.value > GAP_MS_8950 }
-        lastAsk[key] = nowMs
+        var claimed = false
+        lastAsk.compute(key) { _, previous ->
+            if (due8950(previous ?: 0L, nowMs)) { claimed = true; nowMs } else previous
+        }
+        if (!claimed) return
         asks.computeIfAbsent("${use.take(12)}:${input.name}") { AtomicLong(0L) }.incrementAndGet()
         val mint = ts.mint
         try {
             io.execute {
                 try {
                     when (input) {
-                        Input8950.PRICE_DEPTH -> OnChainDepth8038.needDepth8047(ts, System.currentTimeMillis())
+                        Input8950.PRICE_DEPTH -> {
+                            OnChainDepth8038.needDepth8047(ts, System.currentTimeMillis())
+                            OnChainDepth8038.requestMint8540(mint)
+                        }
                         Input8950.HISTORY -> StageRead8950.askChain8950(ts, System.currentTimeMillis())
                         Input8950.AUTHORITY -> AuthorityProofPrefetch8136.prefetchIfLive8136(mint)
                         Input8950.HOLDERS -> OnChainHolderConcentration7379.observation8522(mint, maxAgeMs = 60_000L)

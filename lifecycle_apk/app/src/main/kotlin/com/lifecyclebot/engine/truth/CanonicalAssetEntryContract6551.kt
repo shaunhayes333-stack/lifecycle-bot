@@ -369,6 +369,10 @@ object CanonicalEntryAuthority6551 {
         var signalEngine8857 = false
         val entryAssessment8871 = com.lifecyclebot.engine.cortex.CrossAssetCortex7931.assessEntry8871(candidate)
         entryAssessment8871.refusal?.let { why ->
+            // Preserve the evaluated admission's data wait through the canonical boundary.
+            // The crypto owner releases its generation and refreshes the inputs; no intent is sealed.
+            if (entryAssessment8871.admission?.terminal == CandidateAdmission8136.Terminal8136.DEFER_DATA &&
+                DataWaitRecovery8957.isDataWait(why)) return deferred(candidate, venue, why)
             val now8857 = System.currentTimeMillis()
             val integrity8857 = try { com.lifecyclebot.engine.cortex.CrossAssetCortex7931.refusalBinds8871(why, entryAssessment8871) } catch (_: Throwable) { true }
             if (CryptoSignalEngine8857.passes8857(candidate.mode.equals("LIVE", true), candidate.evidence["lane8788"], integrity8857, now8857,

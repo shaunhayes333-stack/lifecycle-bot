@@ -3585,7 +3585,34 @@ object CryptoAltTrader {
     internal fun retryableEntryWait8870(reason: String): Boolean =
         reason == "CRYPTO_LIVE_PRICE_REFRESH_WAIT_8870" ||
             reason == com.lifecyclebot.engine.CryptoLiveQuoteBoundary8870.WAIT_REASON ||
+            com.lifecyclebot.engine.truth.DataWaitRecovery8957.retryableCanonical(reason) ||
             reason.startsWith("CANONICAL_DEFERRED:CRYPTO_PAPER_BACKING_CAPACITY_8870")
+
+    /** A nominated data wait uses the asset's own chain-qualified registry, including non-Solana desks.
+     * The shared hydration single-flight prevents scan and decision requests for the same asset racing.
+     * Solana account verification is separately requested by LiveEdgeGate/ChainConfirm8950.
+     * The next scan rebuilds the signal from the refreshed row; never execute the old signal here.
+     */
+    private fun refreshDeferredInputs8957(identity: String) {
+        val now = System.currentTimeMillis()
+        synchronized(cryptoSignalHydrationInFlight8752) {
+            if (cryptoSignalHydrationInFlight8752.size >= CRYPTO_SIGNAL_HYDRATION_CONCURRENCY_8752 ||
+                now - (cryptoSignalHydrationAt8752[identity] ?: 0L) < 20_000L ||
+                !cryptoSignalHydrationInFlight8752.add(identity)) return
+            cryptoSignalHydrationAt8752[identity] = now
+        }
+        scope.launch(Dispatchers.IO) {
+            try {
+                if (isRunning.get() && !com.lifecyclebot.engine.BotService.isShuttingDown) {
+                    DynamicAltTokenRegistry.refreshPriceForMintBlocking(identity, forceRefresh = true,
+                        requireSignalInputs8752 = true)
+                    PipelineHealthCollector.labelInc("CRYPTO_DATA_WAIT_REFRESH_ATTEMPTED_8957")
+                }
+            } catch (_: Exception) {
+                PipelineHealthCollector.labelInc("CRYPTO_DATA_WAIT_REFRESH_FAILED_8957")
+            } finally { cryptoSignalHydrationInFlight8752.remove(identity) }
+        }
+    }
 
     private suspend fun freshDynamicEntryBasis7275(signal: AltSignal, isSpot: Boolean,
                                                    liveDecision8870: Boolean = false): EntryBasis8870? {
@@ -4209,6 +4236,8 @@ object CryptoAltTrader {
             }
             is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Deferred -> {
                 terminalDisposition6613("CANONICAL_DEFERRED:${canonicalCryptoAdmission6565.reason}", "AUTHORITY")
+                if (com.lifecyclebot.engine.truth.DataWaitRecovery8957.isDataWait(canonicalCryptoAdmission6565.reason))
+                    refreshDeferredInputs8957(candidate.assetKey)
                 return
             }
         }

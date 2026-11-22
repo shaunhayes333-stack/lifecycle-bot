@@ -134,6 +134,8 @@ object LanePocket8934 {
 
     /** One research row into its lane's book: the lane's designed horizon only, inside the lane's hunt band (crypto lanes unbanded). */
     private fun file(o: JSONObject) {
+        // Historical files can contain numeric late marks written before 8957. Those are not four-hour evidence.
+        if (o.optString("reason").startsWith("LATE_READ_8884:")) return
         val lane = o.optString("lane").trim().uppercase()
         if (lane.isBlank() || lane.startsWith("LPSTATE") || lane.startsWith("SETUP") || lane.startsWith("PLANWAIT") || lane.startsWith("ORIGIN")) return
         if (o.optLong("horizonMs", 0L) != horizon8934(lane)) return
