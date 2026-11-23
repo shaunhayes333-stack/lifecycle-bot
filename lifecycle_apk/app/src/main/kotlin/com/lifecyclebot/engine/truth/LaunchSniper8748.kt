@@ -92,7 +92,8 @@ object LaunchSniper8748 {
     }
     /** V5.0.8754 — a fire carries its rule's graded record (launch or base family), not one family's result type. */
     data class Fire(val mint: String, val atMs: Long, val ageMs: Long, val capUsd: Double, val ruleId: String, val n: Int,
-                    val exTop3: Double, val exTop3Se: Double, val tenX: Double, val armed: Boolean, val triggerEventMs: Long = atMs)
+                    val exTop3: Double, val exTop3Se: Double, val tenX: Double, val armed: Boolean, val triggerEventMs: Long = atMs,
+                    val gradedDelayMs8968: Long = 0L)
 
     /**
      * V5.0.8749 §THE_LATENCY_THE_BOT_ACTUALLY_HAS — the owner's own launch export (968 launch paths, 582 seen from birth):
@@ -201,7 +202,7 @@ object LaunchSniper8748 {
                     if (triggers8748(result.rule, cap, s.buys.size, s.totalBuys)) {
                         s.fired = true
                         fires.add(Fire(mint, recvMs, eventMs - s.bornMs, cap, result.rule.id, result.n, result.exTop3, result.exTop3Se, result.tenX,
-                            armed = proven != null, triggerEventMs = eventMs))
+                            armed = proven != null, triggerEventMs = eventMs, gradedDelayMs8968 = result.rule.delayMs))
                     }
                 }
                 // the base family: every print shapes its peak and window; only a live one can fire (as in the replay)
@@ -211,7 +212,7 @@ object LaunchSniper8748 {
                     val bs = s.base
                     if (bs != null && !bs.fired && bs.onPrint(eventMs - s.bornMs, priceSol, isBuy, live, solUsd) != null)
                         fires.add(Fire(mint, recvMs, eventMs - s.bornMs, cap, baseRule.rule.id, baseRule.n, baseRule.exTop3, baseRule.exTop3Se,
-                            baseRule.tenX, armed = baseProven != null, triggerEventMs = eventMs))
+                            baseRule.tenX, armed = baseProven != null, triggerEventMs = eventMs, gradedDelayMs8968 = baseRule.rule.delayMs))
                 }
             }
             fires.forEach { onFire(it) }
@@ -298,7 +299,23 @@ object LaunchSniper8748 {
      */
     // Network delay spends the replay trigger's window; receipt must never restart the clock.
     internal fun liveFire8959(f: Fire, nowMs: Long): Boolean = f.armed && nowMs >= f.atMs &&
-        nowMs - minOf(f.triggerEventMs, f.atMs) in 0L..EVIDENCE_TTL_MS
+        nowMs - minOf(f.triggerEventMs, f.atMs) in 0L..window8968(f.gradedDelayMs8968)
+
+    /**
+     * V5.0.8968 §A_RULE_IS_TRADED_AT_THE_DELAY_IT_WAS_PROVEN_AT — live, 22-23 Nov (owner's export, 32 closes): every buy of a
+     * pump.fun coin under a $20k cap lost (10 of 10, -0.052 SOL, held 0.4-11 min), bought at $9.8k-$17.9k while the armed rule
+     * fires at a $5k cap; the $20k-$1M buys made +0.062 SOL (8 of 18 won). 8749's own finding: entering a launch 10 s after
+     * the trigger averaged +26..+50 %, 30 s after -4..-6 % (-23 % without the best three) — the delay IS the strategy — and
+     * the replay grades the rule at its own delay (+20 s), yet a fire stayed evidence for 120 s (EVIDENCE_TTL_MS), through
+     * every data wait and the 8948 evidence slot, so the coin was admitted at a delay the rule was never proven at. The
+     * bot's own decision reads agree (edge_research, 25 h, first decision per coin, pump.fun under $20k: n562 mean -17 %,
+     * median -21..-27 %, and still -8..-12 % under the rule's own stop 35 % / take 5x). A launch or base rule's fire is now
+     * evidence only for its graded delay; after that the coin is judged on its own record like any other. A signal rule
+     * (graded without a delay here) keeps the 120 s. Nothing is switched off: the rule still fires, arms, watches and
+     * learns, and a coin reached inside its delay trades exactly as before.
+     */
+    internal fun window8968(gradedDelayMs: Long): Long =
+        if (gradedDelayMs > 0L) minOf(gradedDelayMs, EVIDENCE_TTL_MS) else EVIDENCE_TTL_MS
 
     fun armedWindow8824(mint: String, nowMs: Long): Boolean =
         mint.isNotBlank() && fires[mint]?.let { liveFire8959(it, nowMs) } == true

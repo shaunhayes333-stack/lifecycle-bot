@@ -3135,3 +3135,20 @@ repeat after 2.9 s.
 - Seen, not changed here: SpecialistBuild8522 / ToolkitSignalSheet.build 4.0 s CPU (7.9 %), LanePlaybook7907.strategyPick8153
   1.7 s of its own CPU, CryptoLaneDesk7391.qualifyAll7803 1.9 s; DynamicAltTokenRegistry.rescueSolanaPriceBlocking7167 holds a
   worker 28 s of the 30 s (wall), the Telegram sentiment scrape 29 s (wall).
+
+## 153. A rule is traded at the delay it was proven at (8968)
+
+Owner's live export, 24 Nov 01:16 (32 closed live positions, 22-23 Nov): every pump.fun coin bought under a $20k cap lost —
+10 of 10, -0.052 SOL, held 0.4-11 min (rug backstop -10, scalp hard stop, tick floor, catastrophe line) — bought at $9.8k-$17.9k
+while the armed launch rule fires at a $5k cap. The $20k-$1M buys made +0.062 SOL (8 of 18 won); 22 Nov 8 of 13 won, 23 Nov
+2 of 19. Report: 15 W / 23 L, net -0.0196 SOL.
+- The bot's own decision reads agree (edge_research 24 Nov 00:07, 25 h, first decision per coin, 1 h): pump.fun under $5k
+  n302 mean -16.3 % median -21.2; $5k-$20k n260 -18.0 % median -26.5 (admitted n68 -27.8 %); still -8..-12 % under the rule's own
+  stop 35 % / take 5x, and only 1-2 % of them reach 5x inside the hour. Off pump.fun, $5k-$20k: n156 +25.3 % median +16.0
+  (admitted n88 +33.1 %, 75 % up).
+- 8749 had measured why: entering a launch 10 s after the trigger averaged +26..+50 %, 30 s after -4..-6 % (-23 % without the
+  best three). The replay grades the armed rule at its own delay (+20 s), but a fire stayed admission evidence for 120 s,
+  through every data wait and the 8948 evidence slot, so coins were admitted at delays the rule was never proven at.
+- LaunchSniper8748.window8968: a launch or base rule's fire is market-cell evidence only for its graded delay (capped at the
+  old 120 s); a signal rule (no graded delay) keeps 120 s. After the window the coin is judged on its own record like any
+  other. The rule still fires, arms, watches and learns; a coin reached inside its delay trades exactly as before.
