@@ -257,6 +257,21 @@ object LaunchSniper8748 {
         } catch (_: Throwable) {}
     }
 
+    // Four bounded waiters, never an extra running evaluation. Other origins retain immediate tryAcquire.
+    private val runnerWaiters8958 = java.util.concurrent.Semaphore(4)
+    internal suspend fun acquireFast8958(origin: String, permits: java.util.concurrent.Semaphore, valid: () -> Boolean): Boolean {
+        if (permits.tryAcquire()) return true
+        if (origin != "LAUNCH_RULE_8949" || !runnerWaiters8958.tryAcquire()) return false
+        try {
+            repeat(6) {
+                kotlinx.coroutines.delay(100L)
+                if (!valid()) return false
+                if (permits.tryAcquire()) return true
+            }
+            return false
+        } finally { runnerWaiters8958.release() }
+    }
+
     private fun onFire(f: Fire) {
         lastFire = f
         if (!f.armed) { shadowFires.incrementAndGet(); try { PipelineHealthCollector.labelInc("LAUNCH_SNIPER_SHADOW_FIRE_8748") } catch (_: Throwable) {}; return }

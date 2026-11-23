@@ -15869,4 +15869,11 @@ class GoldenTapeRegressionTest {
         }
         Aate8513SnapshotAllocationTest().overlappingPendingOwnersDetachOneFrozenEpisodeWithoutRepeatedGraphs()
     }
+    @Test fun V5_0_8958_runnerHandoffsPreserveIdentityAndCapacity() {
+        val crypto = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertFalse(crypto.contains("hasPositionSymbol(sig.marketSymbol)"))
+        assertTrue(crypto.contains("if (holdsAsset8958(cryptoAssetKey(sig,"))
+        assertTrue(bot.contains("LaunchSniper8748.acquireFast8958(origin, fastLaneSemaphore7277)"))
+    }
 }

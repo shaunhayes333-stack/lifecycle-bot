@@ -410,10 +410,11 @@ object CryptoAltTrader {
     /** Pure (V5.0.8789): skip a coin in the discovery scan? Always when this desk holds it; in LIVE when any book holds it. */
     fun heldSkip8789(paper: Boolean, anyBookHolds: Boolean, cryptoHolds: Boolean): Boolean = cryptoHolds || (!paper && anyBookHolds)
 
-    private fun cryptoHolds8789(identity: String, mint: String): Boolean = try {
-        positions.values.any { p -> p.closeTime == null && (p.dynMint.equals(mint, ignoreCase = true) ||
-            p.canonicalAssetKey.equals(identity, ignoreCase = true)) }
-    } catch (_: Throwable) { true }
+    internal fun holdsAsset8958(identity: String, paper: Boolean, rows: Collection<AltPosition>): Boolean =
+        rows.any { p -> p.closeTime == null && p.isPaper == paper &&
+            (DynamicAltTokenRegistry.sameAsset8866(p.canonicalAssetKey, identity) ||
+                (p.canonicalAssetKey.isBlank() && !p.dynMint.isNullOrBlank() &&
+                    (DynamicAltTokenRegistry.sameAsset8866(p.dynMint, identity) || p.dynMint == identity.substringAfterLast('|')))) }
 
     internal fun canonicalCryptoLane7251(isDynamic: Boolean, isSpot: Boolean): String = when {
         !isSpot -> "CRYPTO_LEV"
@@ -1582,7 +1583,7 @@ object CryptoAltTrader {
                 if (heldSkip8789(isPaperMode.get(),
                         com.lifecyclebot.engine.HeldPositionSupervisor7246.isHeld(tok.canonicalIdentity6544) ||
                             com.lifecyclebot.engine.HeldPositionSupervisor7246.isHeld(tok.mint),
-                        cryptoHolds8789(tok.canonicalIdentity6544, tok.mint))) {
+                        holdsAsset8958(tok.canonicalIdentity6544, isPaperMode.get(), positions.values))) {
                     try { PipelineHealthCollector.labelInc("CRYPTO_HELD_DISCOVERY_BYPASS_7246") } catch (_: Throwable) {}
                     continue
                 }
@@ -2302,8 +2303,8 @@ object CryptoAltTrader {
                     continue
                 }
                 try { ForensicLogger.lifecycle("CRYPTO_SIGNAL_SELECTED_6566", "symbol=${sig.marketSymbol} source=DYNAMIC_ALT score=${sig.score} confidence=${sig.confidence} mode=${if (isPaperMode.get()) "PAPER" else "LIVE"}") } catch (_: Throwable) {}
-                // V5.9.1472 — dedupe by real symbol so DYN coins aren't collapsed.
-                if (hasPositionSymbol(sig.marketSymbol)) {
+                // A ticker collision is not an open position in this contract.
+                if (holdsAsset8958(cryptoAssetKey(sig, sig.direction == PerpsDirection.LONG), authoritativePaperMode7425(), positions.values)) {
                     val openTok6567 = sig.evaluationOwner8870 ?: sig.dynAssetKey?.let { DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(it) }
                         ?: sig.dynMint?.let { DynamicAltTokenRegistry.getTokenByMint(it) }
                     DynamicAltTokenRegistry.markEvaluationDisposition6567(openTok6567, "POSITION_ALREADY_OPEN")
@@ -5019,11 +5020,12 @@ object CryptoAltTrader {
      * it has no canonical held mark — the registry row, refreshed when its price is over a minute old, by exact identity.
      */
     internal fun twinMark8883(identity: String): DynamicAltTokenRegistry.HeldMarkRefresh7251? {
-        val resolved = DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(identity) ?: return null
+        val resolved = DynamicAltTokenRegistry.heldToken8866(identity, null) ?: return null
+        if (!DynamicAltTokenRegistry.sameAsset8866(resolved.canonicalIdentity6544, identity)) return null
         val ageMs = com.lifecyclebot.engine.NativeDecisionEnrollment8372.priceAge8870(resolved.priceObservedAtMs8372, System.currentTimeMillis())
         val m = if (ageMs > 60_000L) refreshDynamicMark7251(resolved.canonicalIdentity6544)
             else DynamicAltTokenRegistry.heldMarkSnapshot7251(resolved.canonicalIdentity6544)
-        val exact = m.canonicalIdentity.equals(identity, true) || DynamicAltTokenRegistry.sameAsset8866(m.canonicalIdentity, identity)
+        val exact = DynamicAltTokenRegistry.sameAsset8866(m.canonicalIdentity, identity)
         return m.takeIf { it.freshObservation && exact && it.price.isFinite() && it.price > 0.0 }
     }
 

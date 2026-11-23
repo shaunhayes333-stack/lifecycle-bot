@@ -55,7 +55,9 @@ object HeldPositionSupervisor7246 {
         if (mintOrAssetKey.isBlank()) return false
         return try {
             currentModeOpenPositions().any {
-                it.mint.equals(mintOrAssetKey, ignoreCase = true)
+                if (DynamicAltTokenRegistry.solanaMintOf8866(mintOrAssetKey) != null)
+                    DynamicAltTokenRegistry.sameAsset8866(it.mint, mintOrAssetKey)
+                else it.mint.equals(mintOrAssetKey, ignoreCase = true)
             }
         } catch (_: Throwable) { false }
     }

@@ -3017,3 +3017,10 @@ A LIVE decision, lane, evidence, stage or exec-gate defer that sends at least on
 pipeline at 2.5 s and 7 s (fast lane, deduplicated per coin and 20 s slot). Holds and exits keep their own loops.
 Pings still respect the 20 s per-(coin, input) gap. No rule, bar or gate changes. Status: chainConfirm8950[reruns8957=
 unmapped8957=] (unmapped counts defers whose missing names map to no chain read).
+
+## 146. Runner dispatch and crypto candidate identity (8958)
+
+- Dynamic crypto discovery and the selected top-25 handoff now test open positions by asset and execution mode. A different contract using an open coin's display ticker is no longer labelled POSITION_ALREADY_OPEN. The same Solana mint, bare or chain-qualified, still blocks a duplicate. A legacy position without a key retains a conservative address check. Live cross-book protective inventory remains binding.
+- The crypto twin's mark and hold-extension paths use the registry's held-key resolution, then check exact identity before fetching and before accepting a fresh observation. A bare Solana mint can find its own chain-qualified row; no price or symbol fallback is introduced.
+- An armed LaunchSniper rule already on the watchlist can wait up to six 100ms intervals for one of the existing six evaluation slots. At most four signals wait, expiry and watch membership are rechecked, and non-rule events retain the original immediate admission. A launch rejected or parked before it has a watch row no longer consumes the fast-lane evaluation key. None of these events authorizes a buy.
+- Golden Tape: added source-boundary test V5_0_8958; existing six-permit and conditional second-pass pins remain unchanged. Runtime acceptance is separate: count decisions per armed fire, eligible crypto identities reaching canonical admission, twin marks and closes, independently of later safety/EV refusals. No claim about live net returns from these tests.

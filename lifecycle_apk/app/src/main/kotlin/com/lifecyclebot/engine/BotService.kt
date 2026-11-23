@@ -25944,6 +25944,10 @@ if (hotExitHandledSweep) {
                     expectedRuntimeGeneration = streamGeneration,
                 )
             }
+            if (!status.tokens.containsKey(mint)) {
+                PipelineHealthCollector.labelInc("${source8945}_NO_WATCH_ROW_8958")
+                return // do not consume the evaluation key for an unadmitted mint
+            }
             PipelineHealthCollector.labelInc("${source8945}_FAST_LANE")
             if (source8945 == "LAUNCH_PRINTS_8942" && status.tokens.containsKey(mint))   // V5.0.8949 — the print milestones' own count
                 com.lifecyclebot.engine.truth.LaunchPrints8942.noteAdmitted8945()
@@ -26058,7 +26062,13 @@ if (hotExitHandledSweep) {
         if (mint.isBlank() || !status.running) return
         if (!fastLaneOnce7277.add(onceKey)) return
         scope.launch(Dispatchers.IO + CoroutineName("fast-lane-7277")) {
-            if (!fastLaneSemaphore7277.tryAcquire()) {
+            val acquired8958 = try {
+                com.lifecyclebot.engine.truth.LaunchSniper8748.acquireFast8958(origin, fastLaneSemaphore7277) {
+                    status.running && status.tokens.containsKey(mint) &&
+                        com.lifecyclebot.engine.truth.LaunchSniper8748.armedWindow8824(mint, System.currentTimeMillis())
+                }
+            } catch (e: CancellationException) { fastLaneOnce7277.remove(onceKey); throw e }
+            if (!acquired8958) {
                 try { PipelineHealthCollector.labelInc("FAST_LANE_SATURATED_7277") } catch (_: Throwable) {}
                 fastLaneOnce7277.remove(onceKey)
                 return@launch
