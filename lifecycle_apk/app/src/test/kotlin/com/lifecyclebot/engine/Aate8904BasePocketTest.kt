@@ -56,8 +56,10 @@ class Aate8904BasePocketTest {
 
     @Test fun wiredAfterTheAgreementPocketAndAnsweringThePriors() {
         val adm = src("engine/truth/CandidateAdmission8136.kt")
-        val chain = adm.substringAfter("marketCell8723 = PayingCell8723.evidence8723(ts, lane, nowMs)").substringBefore("regimeCold8546 =")
-        assertTrue(chain.indexOf("?: BasePocket8904.evidence8904(ts, lane, nowMs)") in chain.indexOf("AgreementPocket8874.evidence8874(") until chain.indexOf("LlmBands8875.evidence8875("))
+        val chain = adm.substringAfter("marketCell8723 = selectMarketEvidence8961(", "").substringBefore("regimeCold8546 =")
+        val agreement = chain.indexOf("AgreementPocket8874.evidence8874(")
+        val base = chain.indexOf("BasePocket8904.evidence8904(ts, lane, nowMs)")
+        assertTrue(agreement >= 0 && base > agreement && base < chain.indexOf("LlmBands8875.evidence8875("))
         assertTrue(LaneAuthority8577.answersPriors8874(BasePocket8904.KIND_8904))
         assertTrue(src("engine/truth/ResearchRows8877.kt").contains("BasePocket8904.learnLine8904(line)"))
         assertTrue(src("engine/DiagnosisBrief8438.kt").contains("BasePocket8904.statusLine8904()"))

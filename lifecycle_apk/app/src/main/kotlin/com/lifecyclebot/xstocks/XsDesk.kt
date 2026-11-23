@@ -77,6 +77,14 @@ object XsDesk {
     @Volatile private var historyRetryAt8810 = 0L
     @Volatile private var historyUnanswered8810 = 0
     @Volatile private var historyPasses8810 = 0
+    @Volatile private var unansweredSymbols8961: Set<String> = emptySet()
+    private var panelDay8961 = -1L
+    private var evaluatedSymbols8961: Set<String> = emptySet()
+    @Volatile private var pocketResearchLine8961 = "xsPockets8961[researchOnly=true notRun noLiveAuthority]"
+    private var researchPanel8961: HlBrain.Panel? = null
+    private var researchCostSymbols8961: Set<String> = emptySet()
+    private var researchNextAttempt8961 = 0L
+    private var researchFailed8961 = false
     private const val HISTORY_RETRY_MS_8810 = 10L * 60_000L
     private const val HISTORY_DEADLINE_MS_8810 = 6L * 60L * 60_000L
     @Volatile private var quotesAt = 0L
@@ -129,11 +137,20 @@ object XsDesk {
     private fun tick(now: Long) {
         if (universe.isEmpty()) universe = universeOf(PerpsMarket.values().toList()) { TokenizedAssetRegistry.mintFor(it) }
         val today = epochDay(now)
+        serviceLiveRisk8957()
         if (now - quotesAt >= QUOTE_EVERY_MS) refreshQuotes(now)
         if (today != lastEvalDay && now - today * DAY_MS >= SETTLE_MS && now >= historyRetryAt8810) daily(now, today)
+        retryPocketResearch8961()
         synchronized(lock) { paperDay(today) }
-        if (now - riskAt >= RISK_EVERY_MS) { riskAt = now; liveRisk(now, today) }
+        serviceLiveRisk8957()
         status = "ok"
+    }
+
+    /** History/quote sweeps can take minutes. Service held risk between reads, using the actual current clock. */
+    private fun serviceLiveRisk8957() {
+        val now = System.currentTimeMillis()
+        if (now - riskAt < RISK_EVERY_MS) return
+        liveRisk(now, epochDay(now))
     }
 
     // ── data ──
@@ -147,9 +164,10 @@ object XsDesk {
         val held = heldSymbols()
         val want = universe.filter { panelSyms.isEmpty() || it.symbol in panelSyms || targets.containsKey(it.symbol) || it.symbol in held }
         val lamports = probeLamports()
-        for (s in want) {
+        for (s in want.sortedByDescending { it.symbol in held }) {
             if (mints[s.symbol] == null) XsApi.mintInfo(s.mint)?.let { mints[s.symbol] = it }
             XsApi.roundTrip(s.mint, lamports)?.let { quotes[s.symbol] = it }
+            serviceLiveRisk8957()
             sleepQuietly(CALL_GAP_MS)
         }
         quotesAt = now
@@ -198,32 +216,81 @@ object XsDesk {
         val dir = app?.filesDir
         val ready = ArrayList<HlHistory>()
         val excl = LinkedHashMap<String, String>()
+        val unansweredSyms = linkedSetOf<String>()
         var unanswered = 0
         for ((i, s) in universe.withIndex()) {
+            serviceLiveRisk8957()
             status = "loading history ${i + 1}/${universe.size}"   // V5.0.8805
             val h = history(s)
-            if (!fillBars(s, h, today)) unanswered++
+            val answered = fillBars(s, h, today)
+            if (!answered) { unanswered++; unansweredSyms.add(s.symbol) }
             h.trim(today - HISTORY_DAYS - 30)
             if (dir != null) HlStore.save(dir, h)
             // V5.0.8930 — listed on the token's own bars; graded on them with the share's history before them (XsUnderlying8930)
-            if (h.bars.size >= MIN_LISTED_DAYS) ready.add(panelHistory8930(s, h, today))
-            else excl[s.symbol] = if (h.bars.isEmpty()) "NO_HISTORY" else "TOO_NEW_${h.bars.size}d"
+            if (answered && h.bars.size >= MIN_LISTED_DAYS) ready.add(panelHistory8930(s, h, today))
+            else excl[s.symbol] = if (!answered) "HISTORY_UNANSWERED" else if (h.bars.isEmpty()) "NO_HISTORY" else "TOO_NEW_${h.bars.size}d"
         }
+        unansweredSymbols8961 = unansweredSyms
         excluded = excl
         historyUnanswered8810 = unanswered
         historyPasses8810++
-        if (historyRetry8810(unanswered, now - today * DAY_MS)) { historyRetryAt8810 = now + HISTORY_RETRY_MS_8810; return }
-        lastEvalDay = today
-        historyPasses8810 = 0
-        if (ready.isEmpty()) return
+        // A provider outage on startup is not a completed daily evaluation. Keep retrying after the six-hour deadline.
+        if (ready.isEmpty()) { historyRetryAt8810 = System.currentTimeMillis() + HISTORY_RETRY_MS_8810; return }
+        // Evaluate the current instruments even when another provider read is unanswered.
+        // Keep the incomplete pass retryable; it must not seal the whole desk until tomorrow.
+        if (unanswered == 0) { lastEvalDay = today; historyPasses8810 = 0 }
+        else historyRetryAt8810 = System.currentTimeMillis() + HISTORY_RETRY_MS_8810
+        val readySymbols = ready.map { it.coin.removePrefix("xs:") }.toSet()
+        if (!XsRecovery8961.needsEvaluation(today, readySymbols, panelDay8961, evaluatedSymbols8961)) return
         val panel = HlDesk.panelOf(ready, today - 1, HISTORY_DAYS) { coin -> costSide(coin.removePrefix("xs:")) }
         val ev = HlBrain.evaluate(panel, 1.0, longOnly = true)
         evaluation = ev
         panelSyms = panel.coins.map { it.removePrefix("xs:") }
         targets = panelSyms.withIndex().filter { ev.targets[it.index] > 0.0 }.associate { it.value to ev.targets[it.index] }
+        panelDay8961 = today
+        evaluatedSymbols8961 = readySymbols
         synchronized(lock) { paperRebalance(now) }
         liveRebalance("DAILY", now)
         save()
+        researchPockets8961(panel)
+    }
+
+    /** Research is refreshed with an actual changed daily panel; it never changes targets or the live gate. */
+    private fun researchPockets8961(panel: HlBrain.Panel) {
+        researchPanel8961 = panel
+        researchCostSymbols8961 = freshResearchCosts8961(panel, System.currentTimeMillis())
+        researchNextAttempt8961 = System.currentTimeMillis() + HISTORY_RETRY_MS_8810
+        researchFailed8961 = true
+        try {
+            val report = XsPocketResearch8961.analyze(panel, quotes.mapValues { it.value.atMs }, universe.size,
+                System.currentTimeMillis(), betweenChunks = { serviceLiveRisk8957() })
+            pocketResearchLine8961 = report.summary()
+            researchFailed8961 = false
+            app?.filesDir?.let { dir ->
+                val file = File(dir, "xs_pockets_8961.json")
+                val tmp = File(file.path + ".tmp")
+                tmp.writeText(report.json().put("summary", pocketResearchLine8961).toString())
+                if (!tmp.renameTo(file)) { pocketResearchLine8961 += " persistFailed"; researchFailed8961 = true }
+            }
+        } catch (e: Exception) {
+            researchFailed8961 = true
+            pocketResearchLine8961 = "xsPockets8961[researchOnly=true failed=${e.javaClass.simpleName} noLiveAuthority]"
+        }
+    }
+
+    private fun freshResearchCosts8961(panel: HlBrain.Panel, now: Long): Set<String> =
+        panel.coins.map { it.removePrefix("xs:") }.filterTo(linkedSetOf()) { symbol ->
+            quotes[symbol]?.let { now - it.atMs in 0L..QUOTE_MAX_AGE_MS && it.costSide.isFinite() } == true
+        }
+
+    /** A newly answered quote or a failed analysis retries research, independently of all trading/rebalance clocks. */
+    private fun retryPocketResearch8961() {
+        val p = researchPanel8961 ?: return
+        val now = System.currentTimeMillis()
+        if (!XsRecovery8961.researchDue(now, researchNextAttempt8961, researchFailed8961,
+                researchCostSymbols8961, freshResearchCosts8961(p, now))) return
+        val currentCosts = DoubleArray(p.coins.size) { costSide(p.coins[it].removePrefix("xs:")) }
+        researchPockets8961(HlBrain.Panel(p.coins, p.firstDay, p.close, p.volUsd, p.funding, p.oiUsd, p.premium, currentCosts))
     }
 
     // ── marks ──
@@ -250,12 +317,19 @@ object XsDesk {
     private fun paperRebalance(now: Long) {
         val eq = paperEquity()
         if (!(eq > 0.0)) return
+        // Keep unanswered holdings in place; only their remaining equity may be assigned to the answered panel.
+        val parked = paperUnits.filterKeys { it in unansweredSymbols8961 }.entries.sumOf { (s, units) ->
+            val price = mark(s)
+            if (!price.isFinite()) return
+            units * price
+        }
+        val available = (eq - parked).coerceAtLeast(0.0)
         val exposure = evaluation?.leverage?.takeIf { it > 0.0 } ?: 1.0
-        for (s in (targets.keys + paperUnits.keys).toSet()) {
+        for (s in XsRecovery8961.rebalanceSymbols(targets.keys, paperUnits.keys, unansweredSymbols8961)) {
             val m = mark(s)
             if (!m.isFinite()) continue
             val cur = (paperUnits[s] ?: 0.0) * m
-            val want = (targets[s] ?: 0.0) * eq * exposure
+            val want = (targets[s] ?: 0.0) * available * exposure
             val delta = want - cur
             if (abs(delta) < 1.0) continue                                     // under a dollar: not worth a swap
             val fee = abs(delta) * costSide(s)
@@ -290,6 +364,20 @@ object XsDesk {
         killed -> "STOP_HIT_SWITCH_LIVE_OFF_AND_ON"
         !armed -> "BRAIN_NOT_ARMED"
         else -> null
+    }
+
+    internal data class RebalanceActions8961(val closeSymbols: Set<String>, val entryRefusal: String?) {
+        val mayOpen: Boolean get() = entryRefusal == null
+    }
+
+    /** Losing entry support cannot strand an answered zero-target holding. Unknown history is still a wait. */
+    internal fun rebalanceActions8961(settingsRefusal: String?, evaluated: Boolean, armed: Boolean, killed: Boolean,
+                                     targets: Map<String, Double>, held: Set<String>, unanswered: Set<String>): RebalanceActions8961 {
+        if (settingsRefusal != null || !evaluated)
+            return RebalanceActions8961(emptySet(), settingsRefusal ?: "NO_EVALUATION")
+        val answered = XsRecovery8961.rebalanceSymbols(targets.keys, held, unanswered)
+        val close = held.filterTo(linkedSetOf()) { it in answered && (targets[it] ?: 0.0) <= 0.0 }
+        return RebalanceActions8961(close, liveGate(null, armed, killed))
     }
 
     /** Pure: which stop (if any) [nav] breaks against the day's start and the peak. */
@@ -364,19 +452,31 @@ object XsDesk {
     private fun liveRebalance(why: String, now: Long) {
         val cfg = cfg()
         val ev = evaluation
-        val refusal = liveGate(XsSettings.liveRefusal(cfg, hasWallet()), ev?.armed == true, killed)
-        if (refusal != null || cfg == null || ev == null) { lastLive = "not trading: $refusal"; return }
         val held = livePositions()
-        for (p in held) if ((targets[p.symbol] ?: 0.0) <= 0.0) close(p, why, now)
-        val sizes = openSizes(targets, ev.leverage, cfg.budgetSol, held.map { it.symbol }.toSet())
+        val actions = rebalanceActions8961(XsSettings.liveRefusal(cfg, hasWallet()), ev != null,
+            ev?.armed == true, killed, targets, held.map { it.symbol }.toSet(), unansweredSymbols8961)
+        for (p in held) if (p.symbol in actions.closeSymbols) close(p, why, now)
+        if (!actions.mayOpen || cfg == null || ev == null) { lastLive = "not opening: ${actions.entryRefusal}"; return }
+        // Re-read after closing: failed sells still own their capital and cannot finance a replacement position.
+        val retained = livePositions()
+        val committed = retained.sumOf { (it.entryCostSol - it.soldCostBasisSol).coerceAtLeast(0.0) }
+        val proposed = openSizes(targets, ev.leverage, cfg.budgetSol, retained.map { it.symbol }.toSet())
+        val sizes = XsRecovery8961.boundOpenSizes(proposed, cfg.budgetSol, committed, MIN_LIVE_SOL)
         for ((sym, size) in sizes) universe.firstOrNull { it.symbol == sym }?.let { open(it, size, why, now) }
         if (sizes.isEmpty()) lastLive = "$why: on target (${held.size} held, exposure ${"%.2f".format(ev.leverage)})"
     }
 
     private fun liveRisk(now: Long, today: Long) {
+        // A stop closes on confirmed fills. Failed sells remain owned and must be retried after the desk is killed.
+        if (killed) {
+            riskAt = now
+            for (p in livePositions()) close(p, killReason.ifBlank { "STOP_RETRY" }, now)
+            return
+        }
         val cfg = cfg() ?: return
-        if (killed || XsSettings.liveRefusal(cfg, hasWallet()) != null) return
+        if (XsSettings.liveRefusal(cfg, hasWallet()) != null) return
         val nav = nav(cfg.budgetSol) ?: return
+        riskAt = now
         lastNav = nav
         if (liveDay != today) { liveDay = today; dayStartNav = nav; save() }
         if (!(peakNav >= nav)) { peakNav = nav; save() }
@@ -450,6 +550,13 @@ object XsDesk {
 
     private fun restore() {
         try {
+            app?.filesDir?.let { File(it, "xs_pockets_8961.json") }?.takeIf { it.exists() }?.let {
+                val old = JSONObject(it.readText())
+                pocketResearchLine8961 = old.optString("summary", pocketResearchLine8961) +
+                    " restoredAtMs=${old.optLong("atMs", 0L)} needsRefresh"
+            }
+        } catch (_: Exception) {}
+        try {
             val f = file()?.takeIf { it.exists() } ?: return
             val o = JSONObject(f.readText())
             synchronized(lock) {
@@ -496,7 +603,8 @@ object XsDesk {
             "costSide{${costs.ifBlank { "unquoted" }}} scaledUi{${mints.entries.filter { it.value.multiplier != 1.0 }.joinToString(" ") { "${it.key}x${"%.4f".format(it.value.multiplier)}" }.ifBlank { "none" }}} " +
             "paper{$paper} live{${gate ?: "ON"}${if (killReason.isNotEmpty()) "($killReason)" else ""} held=${held.size}{${held.joinToString(",") { it.symbol }}} " +
             "budget=${cfg?.budgetSol ?: 0.0}SOL nav=${if (lastNav.isFinite()) "%.4f".format(lastNav) else "-"} realised=${"%+.4f".format(realisedSol)}SOL last=${lastLive.take(140)}} " +
-            "rule=long or flat, 1x; executable Jupiter round trip + 0.5% app fee per side; history = the token's own pool; armed = second half >= ${HlBrain.MIN_TEST_DAYS}d and mean - SE > 0; 24/7]"
+            "rule=long or flat, 1x; executable Jupiter round trip + 0.5% app fee per side; history = the token's own pool; armed = second half >= ${HlBrain.MIN_TEST_DAYS}d and mean - SE > 0; 24/7] " +
+            pocketResearchLine8961
     }
 
     fun orderLogLines(): List<String> = synchronized(orderLog) { orderLog.toList().asReversed() }

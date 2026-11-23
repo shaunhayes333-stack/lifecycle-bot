@@ -21,7 +21,7 @@ import kotlin.math.roundToInt
  */
 object ScannerSourceTags8292 {
     /** Intake pathways: never a discovery source, never a confirmation. */
-    val PATHWAY_TAGS_8292: Set<String> = setOf("SCANNER_DIRECT", "SCANNER_HEAL", "REGISTRY_DUPLICATE_HYDRATE")
+    val PATHWAY_TAGS_8292: Set<String> = setOf("SCANNER_DIRECT", "SCANNER_HEAL", "REGISTRY_DUPLICATE_HYDRATE", "LANE_POCKET_RECOVERY_8961")
 
     /** Feed wrappers / cohorts that are real provenance but never an independent second source. */
     // V5.0.8633 — the boot warmup re-seed is a pathway too: {WIN_MEMORY, HOT_CONVICTION_WARMUP_6282} is one memory, not two feeds.

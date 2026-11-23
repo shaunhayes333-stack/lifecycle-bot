@@ -82,12 +82,12 @@ class Aate8874AgreementPocketTest {
         assertTrue("filed after the label passed every learning rule",
             edge.indexOf("AgreementPocket8874.learn8874(") > edge.indexOf("if (!plausible8617(s.raw.mcap, netPct, chainWitness))"))
         val adm = src("engine/truth/CandidateAdmission8136.kt")
-        val chain = adm.substringAfter("marketCell8723 = PayingCell8723.evidence8723(ts, lane, nowMs)").substringBefore("regimeCold8546 =")
-        // superseded by V5.0.8875 — the LLM's proven answer band follows it; every earlier source still keeps its precedence
-        assertTrue("after every earlier market-cell source",
-            chain.contains("?: try { com.lifecyclebot.engine.lab.StrategyLab8755.evidence8755(ts, lane, nowMs) } catch (_: Throwable) { null }\n" +
-                "                // V5.0.8874 — then the lane's proven agreement pocket (the V3 score and the forecast agree on an off-pump.fun \$5k-\$20k coin)\n" +
-                "                ?: AgreementPocket8874.evidence8874(ts, lane, edge8874?.predPct, nowMs)\n"))
+        val chain = adm.substringAfter("marketCell8723 = selectMarketEvidence8961(", "").substringBefore("regimeCold8546 =")
+        // V5.0.8961 keeps precedence among supported proofs, without stopping at an unsupported earlier record.
+        val agreement = chain.indexOf("AgreementPocket8874.evidence8874(ts, lane, edge8874?.predPct, nowMs)")
+        for (provider in listOf("PayingCell8723", "LaunchSniper8748", "ManualRead8806", "ColourShape8807",
+            "SmartMoney8756", "RunnerModel8861", "StrategyLab8755"))
+            assertTrue("$provider precedes the agreement pocket", chain.indexOf("$provider.evidence") in 0 until agreement)
         assertTrue("the forecast it reads is the candidate's own verdict", adm.contains("val edge8874 = EdgeModel8537.verdict(ts, lane, cost8153, nowMs)"))
         val lane = src("engine/truth/LaneAuthority8577.kt").substringAfter("fun memeEntryRefusal8626(").substringBefore("\n    }\n")
         assertTrue(lane.contains("first8724 in CELL_ANSWERS_8724 && (pocket8874 || (try { PayingCell8723.pays8723(ts, lane, nowMs) }"))

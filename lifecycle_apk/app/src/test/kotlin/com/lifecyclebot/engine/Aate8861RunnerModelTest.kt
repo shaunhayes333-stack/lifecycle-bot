@@ -151,7 +151,9 @@ class Aate8861RunnerModelTest {
         val model = src("engine/truth/RunnerModel8861.kt")
         assertTrue(model.contains("LaunchHour8628.tail8861(c.r.mint, c.r.bornMs, HOLD_MS_8861)"))
         assertTrue("a pick is forward only when the launch is newer than every row the model saw", model.contains("if (m0 != null && th0.isFinite() && r.bornMs > newestSeen)"))
-        assertTrue(src("engine/truth/CandidateAdmission8136.kt").contains("?: RunnerModel8861.evidence8861(ts.mint, nowMs)"))
+        val providers = src("engine/truth/CandidateAdmission8136.kt")
+            .substringAfter("marketCell8723 = selectMarketEvidence8961(", "").substringBefore("regimeCold8546 =")
+        assertTrue(providers.contains("RunnerModel8861.evidence8861(ts.mint, nowMs)"))
         assertTrue(src("engine/PipelineHealthCollector.kt").contains("Runner model (§8861): "))
     }
 }

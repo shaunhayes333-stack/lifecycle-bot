@@ -78,7 +78,13 @@ object StageRead8950 {
         if (askedAt.size > CAP_8950) askedAt.entries.removeIf { nowMs - it.value > WINDOW_MS_8950 }
         askedAt[mint] = nowMs
         asked.incrementAndGet()
-        io.execute { try { HeliusSwapCandles7819.request7819(ts, System.currentTimeMillis()) } catch (_: Throwable) {} }
+        io.execute {
+            val accepted = try { HeliusSwapCandles7819.requestAccepted8961(ts, System.currentTimeMillis()) } catch (_: Throwable) { false }
+            if (!accepted) {
+                askedAt.remove(mint, nowMs)
+                ChainConfirm8950.historyNotScheduled8961(mint, nowMs)
+            }
+        }
     }
 
     /** HeliusSwapCandles7819: bars landed for [mint]; an asked UNKNOWN coin's pipeline runs again now. */

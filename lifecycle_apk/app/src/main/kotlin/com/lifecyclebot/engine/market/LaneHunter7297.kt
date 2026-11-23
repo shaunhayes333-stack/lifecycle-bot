@@ -306,6 +306,7 @@ object LaneHunter7297 {
     private fun claimKey7803(lane: String, mint: String) = "${lane.uppercase()}|$mint"
     private val hunted = ConcurrentHashMap<String, Long>()
     private val subscribed = AtomicBoolean(false)
+    private val pocketRecoveryTurn8961 = java.util.concurrent.atomic.AtomicInteger(0)
     @Volatile private var prefs: SharedPreferences? = null
 
     /** Pure: half-decade market-cap bucket (1k→6, 3.16k→7, 10k→8 …). */
@@ -507,6 +508,12 @@ object LaneHunter7297 {
         }.map { it.lane }
     }
 
+    /** These are unread inputs, not a lower liquidity floor or a relaxed momentum mandate. */
+    internal fun pocketInputMissing8961(lane: String, row: MarketSweep7297.Row): Boolean =
+        !row.liquidityUsd.isFinite() || row.liquidityUsd <= 0.0 ||
+            (lane in setOf("MOONSHOT", "EXPRESS", "MANIPULATED", "PROJECT_SNIPER", "DIP_HUNTER", "CYCLIC") &&
+                (!row.hourChangeObserved8417 || !row.priceChangeH1Pct.isFinite()))
+
     fun hunt(snap: MarketSweep7297.Snapshot): Map<String, List<MarketSweep7297.Row>> {
         ensureSubscribed()
         val byMint = snap.rows.associateBy { it.mint }
@@ -521,6 +528,8 @@ object LaneHunter7297 {
         }
         val waves = snap.rows.mapNotNull { r -> KineticFlow8506.current(r.mint, now8169)?.let { r.mint to it } }.toMap()
         val tests8293 = ArrayList<OpportunityRoute8293.LaneTest8293>()
+        val pocketReads8961 = HashMap<String, Map<String, com.lifecyclebot.engine.truth.PocketHunt8961.Match>>()
+        val pocketRecovery8961 = LinkedHashMap<String, List<String>>()
         val ranked = profiles.associate { p ->
             val (lo, hi) = fluidBand(HunterMandates8293.baseMin8293(p.lane, p.baseMin), p.baseMax, bucketStatsFor(p.lane))  // V5.0.8293 native floor
             val fits: (MarketSweep7297.Row) -> Boolean = {
@@ -532,6 +541,14 @@ object LaneHunter7297 {
             }.mapTo(HashSet()) { it.mint }
             val inBand8168 = snap.rows.filter { it.mcapUsd in lo..hi && it.mint !in nonMeme8169 }
             val eligible8168 = inBand8168.filter(fits)  // V5.0.8323 — the lane's mandate (age band, liquidity floor now)
+            // Consult the pocket before the mandate drops unread rows. Only request data here: eligibility is unchanged.
+            val matches8961 = inBand8168.associate { r -> r.mint to
+                com.lifecyclebot.engine.truth.LanePocket8934.huntMatch8961(p.lane, r.mint, r.liquidityUsd,
+                    r.mcapUsd, r.observedAtMs8169, now8169) }
+            pocketReads8961[p.lane] = matches8961
+            pocketRecovery8961[p.lane] = com.lifecyclebot.engine.truth.PocketHunt8961.recoveryPicks(
+                inBand8168.map { it.mint }, matches8961, eligible8168.mapTo(HashSet()) { it.mint },
+                inBand8168.filter { pocketInputMissing8961(p.lane, it) }.mapTo(HashSet()) { it.mint })
             p.lane to eligible8168
                 // Compute each expensive evidence/ranking multiplier exactly
                 // once per candidate, not O(n log n) times inside TimSort's
@@ -548,10 +565,18 @@ object LaneHunter7297 {
                 .map { it.first.mint }
                 // V5.0.8293 — opportunity leaders first, the lane's learned losing shapes last; escalated requeue cooldown last of all.
                 .let { order -> HunterShape8293.orderLive8293(p.lane, order, byMint, top8293) }
+                .let { order ->
+                    com.lifecyclebot.engine.truth.PocketHunt8961.prioritize(order, matches8961)
+                }
                 .let { order -> deliverableFirst8169(order) { m -> onCooldown8169(requeuedAt8169[m], now8169) || HuntDelivery8293.cooling8293(m, now8169) } }
                 .also { ranked8168 -> audit8168 += com.lifecyclebot.engine.BotImprovementReport8168.hunt(
                     p.lane, snap.rows, inBand8168.size, eligible8168.size,
                     ranked8168.take(PICKS_PER_LANE).mapNotNull { byMint[it] }) }
+        }
+        for (mint in com.lifecyclebot.engine.truth.PocketHunt8961.recoveryBudget(pocketRecovery8961, pocketRecoveryTurn8961.getAndIncrement())) {
+            byMint[mint]?.let { row -> PocketRecovery8961.request(row,
+                pocketRecovery8961.filterValues { mint in it }.keys, now8169) }
+            PipelineHealthCollector.labelInc("LANE_POCKET_HUNT_INPUT_REQUEST_8961")
         }
         com.lifecyclebot.engine.BotImprovementReport8168.publishHunts(audit8168, snap.atMs)
         // V5.0.7803 — DO NOT deal the market into mutually-exclusive hunter
@@ -565,10 +590,15 @@ object LaneHunter7297 {
         // the SAME mint; this is discovery ordering, never execution authority.
         val residentPicks7803 = ranked.mapValues { (lane, mints) ->
             // V5.0.8293 — fresh-first only among deliverable rows outside the lane's learned losing shapes.
-            HunterShape8293.deliveryPicks8293(mints, { mint ->
+            val back8961 = mints.take(HunterShape8293.DELIVERY_HEAD_8293).filterTo(HashSet()) { m ->
+                onCooldown8169(requeuedAt8169[m], now8169) || HuntDelivery8293.cooling8293(m, now8169) ||
+                    byMint[m]?.let { r -> HunterShape8293.losingShape8293(lane, r, HunterShape8293::live8293) } != null
+            }
+            val ordinary8961 = HunterShape8293.deliveryPicks8293(mints, { mint ->
                 try { BotService.status.tokens.containsKey(mint) } catch (_: Throwable) { false }
-            }, { m -> onCooldown8169(requeuedAt8169[m], now8169) || HuntDelivery8293.cooling8293(m, now8169) ||
-                byMint[m]?.let { r -> HunterShape8293.losingShape8293(lane, r, HunterShape8293::live8293) } != null }, PICKS_PER_LANE)
+            }, { it in back8961 }, PICKS_PER_LANE)
+            com.lifecyclebot.engine.truth.PocketHunt8961.deliveryPicks(mints.take(HunterShape8293.DELIVERY_HEAD_8293),
+                ordinary8961, pocketReads8961[lane].orEmpty(), back8961, PICKS_PER_LANE)
         }
         // V5.0.8535 §P0-10 — the DIP hunter's dated row (price, 1 h / 24 h change, venue) is the lane's history reference until
         // the bot's own tape exists; the bridge reads it as a lower-bound prior high, never as a 0 % dip.
@@ -589,6 +619,13 @@ object LaneHunter7297 {
                     if (lane == "PROJECT_SNIPER" && sniperPastWindowAtPublish8201(r.ageHours, snap.atMs, now)) {
                         try { PipelineHealthCollector.labelInc("LANE_HUNT_SNIPER_PAST_WINDOW_AT_PUBLISH_8201") } catch (_: Throwable) {}
                         return@forEach
+                    }
+                    pocketReads8961[lane]?.get(r.mint)?.takeIf {
+                        it != com.lifecyclebot.engine.truth.PocketHunt8961.Match.NONE
+                    }?.let { match ->
+                        PipelineHealthCollector.labelInc("LANE_POCKET_HUNT_8961_${lane}_${match.name}")
+                        if (match == com.lifecyclebot.engine.truth.PocketHunt8961.Match.NEEDS_READ)
+                            com.lifecyclebot.engine.truth.ChainConfirm8950.confirmMint8950(r.mint, listOf("PRICE", "HISTORY"), "LANE", now)
                     }
                     claims[claimKey7803(lane, r.mint)] = Claim(lane, r.mcapUsd, now)
                     try { SpecialistCandidateBooks7803.publishHunt(lane, r.mint, r.symbol, SOURCE_PREFIX + lane) } catch (_: Throwable) {}

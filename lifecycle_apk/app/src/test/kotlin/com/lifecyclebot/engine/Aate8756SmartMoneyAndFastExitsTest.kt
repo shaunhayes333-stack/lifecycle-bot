@@ -155,7 +155,8 @@ class Aate8756SmartMoneyAndFastExitsTest {
         assertTrue(tick.contains("step8756(p, obs, markSource8560(obs?.source.orEmpty(), tokens[p.mint]), nowMs, stopLatency8699, normalLatency8699, byPrint = false)"))
         assertTrue(book.contains("StopSlip8756.notePaper8756(p.exitLane, p.slipLevel8756, p.slipTrig8756, g, p.slipByPrint8756, p.slipFirst8810)"))   // V5.0.8810
         val adm = src("engine/truth/CandidateAdmission8136.kt")
-        assertTrue(adm.contains("?: SmartMoney8756.evidence8756(ts.mint, nowMs)\n"))
+        val providers = adm.substringAfter("marketCell8723 = selectMarketEvidence8961(", "").substringBefore("regimeCold8546 =")
+        assertTrue(providers.contains("SmartMoney8756.evidence8756(ts.mint, nowMs)"))
         assertTrue(src("engine/truth/LaunchReplay8744.kt").contains("SmartMoney8756.evaluate8756(set, walletNames, cost, need)"))
     }
 

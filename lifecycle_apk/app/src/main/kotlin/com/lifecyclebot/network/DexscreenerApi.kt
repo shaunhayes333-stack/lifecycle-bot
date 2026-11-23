@@ -722,6 +722,7 @@ object DexPools8285 {
 
     fun markChosen8285(mint: String, pair: String) {
         val prior = chosen.put(mint, pair)
+        try { com.lifecyclebot.engine.market.PocketRecovery8961.poolAvailable(mint, pair, System.currentTimeMillis()) } catch (_: Throwable) {}
         if (prior != null && prior != pair) switches8285.incrementAndGet()
         if (chosen.size > MAX_MINTS_8285) chosen.keys.retainAll(pools.keys)  // V5.0.8289 — a chosen pool only for a mint still held
     }

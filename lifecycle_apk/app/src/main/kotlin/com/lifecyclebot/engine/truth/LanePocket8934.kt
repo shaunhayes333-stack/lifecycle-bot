@@ -124,8 +124,10 @@ object LanePocket8934 {
     @Volatile private var minedAtMs = 0L
     @Volatile private var ready = false
     @Volatile private var loading = false
+    @Volatile private var loadNotBefore8961 = 0L
     private val rows = AtomicLong(0L)
     private val served = ConcurrentHashMap<String, AtomicLong>()
+    private val huntDecisions8961 = ConcurrentHashMap<String, PocketHunt8961.Observation>()
     private val io = Executors.newSingleThreadExecutor { r -> Thread(r, "lane-pocket-8934").apply { isDaemon = true; priority = Thread.MIN_PRIORITY } }
 
     private fun band(lane: String): Pair<Double, Double>? = try {
@@ -134,6 +136,8 @@ object LanePocket8934 {
 
     /** One research row into its lane's book: the lane's designed horizon only, inside the lane's hunt band (crypto lanes unbanded). */
     private fun file(o: JSONObject) {
+        // Historical files can contain numeric late marks written before 8957. Those are not four-hour evidence.
+        if (o.optString("reason").startsWith("LATE_READ_8884:")) return
         val lane = o.optString("lane").trim().uppercase()
         if (lane.isBlank() || lane.startsWith("LPSTATE") || lane.startsWith("SETUP") || lane.startsWith("PLANWAIT") || lane.startsWith("ORIGIN")) return
         if (o.optLong("horizonMs", 0L) != horizon8934(lane)) return
@@ -168,19 +172,36 @@ object LanePocket8934 {
     }
 
     private fun ensureLoaded() {
-        if (ready || loading) return
-        synchronized(this) { if (ready || loading) return; loading = true }
+        val now = System.currentTimeMillis()
+        if (ready || loading || now < loadNotBefore8961) return
+        val source = synchronized(this) {
+            if (ready || loading || now < loadNotBefore8961) return
+            val f = ResearchRows8877.file8877()
+            if (f == null || !f.isFile) { loadNotBefore8961 = now + 5_000L; return }
+            loading = true
+            f
+        }
         io.execute {
             try {
-                ResearchRows8877.file8877()?.takeIf { it.exists() }?.useLines { lines ->
-                    lines.forEach { l ->
-                        if (l.contains("\"horizonMs\":3600000") || l.contains("\"horizonMs\":14400000")) try { file(JSONObject(l)) } catch (_: Throwable) {}
-                    }
-                }
-            } catch (_: Throwable) { try { PipelineHealthCollector.labelInc("LANE_POCKET_8934_LOAD_FAILED") } catch (_: Throwable) {} }
-            finally { ready = true; loading = false }
-            mine(System.currentTimeMillis())
+                val loaded = loadFile8961(source)
+                ready = loaded
+                if (loaded) mine(System.currentTimeMillis()) else loadNotBefore8961 = System.currentTimeMillis() + 5_000L
+            } finally { loading = false }
         }
+    }
+
+    /** A missing context/file or failed read is retryable; an existing empty research file is a legitimate empty book. */
+    internal fun loadFile8961(source: java.io.File): Boolean = try {
+        if (!source.isFile) false else {
+            source.useLines { lines -> lines.forEach { l ->
+                if (l.contains("\"horizonMs\":3600000") || l.contains("\"horizonMs\":14400000"))
+                    try { file(JSONObject(l)) } catch (_: Throwable) {}
+            } }
+            true
+        }
+    } catch (_: Throwable) {
+        try { PipelineHealthCollector.labelInc("LANE_POCKET_8934_LOAD_FAILED") } catch (_: Throwable) {}
+        false
     }
 
     private fun mineIfDue(nowMs: Long) { if (nowMs - minedAtMs >= MINE_EVERY_MS_8934) mine(nowMs) }
@@ -220,6 +241,38 @@ object LanePocket8934 {
         } catch (_: Throwable) { return null }
     }
 
+    /** Every candidate assessment, regardless of which evidence source wins, supplies its already-computed forecast. */
+    fun noteHuntDecision8961(ts: TokenState, lane: String, stage: String, predPct: Double?, nowMs: Long) {
+        if (!PocketHunt8961.fresh(ts.lastPriceUpdate, nowMs)) return
+        val setup = try { com.lifecyclebot.engine.ExitProfile7955.entrySetup7955(ts, lane, nowMs) } catch (_: Throwable) { "" }
+        val v3 = ts.lastV3Score?.toDouble() ?: ts.entryScore.takeIf { it != 0.0 } ?: Double.NaN
+        rememberHuntDecision8961(lane, ts.mint, features8934(ts.mint, stage, setup, v3,
+            predPct ?: Double.NaN, Double.NaN, Double.NaN).toSet(), ts.lastPriceUpdate, nowMs)
+    }
+
+    internal fun rememberHuntDecision8961(lane: String, mint: String, features: Set<String>, observedAtMs: Long, nowMs: Long) {
+        if (!PocketHunt8961.fresh(observedAtMs, nowMs)) return
+        val key = "${lane.trim().uppercase()}|$mint"
+        if (huntDecisions8961.size >= 4_096 && !huntDecisions8961.containsKey(key)) {
+            huntDecisions8961.entries.removeIf { !PocketHunt8961.fresh(it.value.observedAtMs, nowMs) }
+            if (huntDecisions8961.size >= 4_096) return
+        }
+        huntDecisions8961[key] = PocketHunt8961.Observation(features, observedAtMs)
+    }
+
+    /** Read the lane's existing pocket book at discovery, including unresolved features for bounded hydration. */
+    fun huntMatch8961(lane: String, mint: String, liq: Double, mcap: Double, observedAtMs: Long,
+                      nowMs: Long): PocketHunt8961.Match {
+        ensureLoaded()
+        val cells = proven[lane.trim().uppercase()].orEmpty()
+        if (!ready || cells.isEmpty()) return PocketHunt8961.Match.NONE
+        val sweep = features8934(mint, "NA", "NA", Double.NaN, Double.NaN,
+            liq.takeIf { it > 0.0 } ?: Double.NaN, mcap.takeIf { it > 0.0 } ?: Double.NaN).toSet()
+        val observed = PocketHunt8961.withDecision(sweep, huntDecisions8961["${lane.trim().uppercase()}|$mint"], nowMs)
+        return cells.map { PocketHunt8961.match(it.conds, observed, observedAtMs, nowMs) }
+            .maxByOrNull { it.ordinal } ?: PocketHunt8961.Match.NONE
+    }
+
     fun statusLine8934(): String {
         val coins = books.entries.sortedBy { it.key }.joinToString(",") { (k, v) -> "$k=${synchronized(v) { v.size }}" }.ifBlank { "-" }
         val p = proven.entries.sortedBy { it.key }.joinToString(" ") { (k, v) ->
@@ -231,7 +284,7 @@ object LanePocket8934 {
             "both halves positive, mean without the best three > z SE (z deflated over the lane's cells); meme lanes carry it as market-cell evidence]"
     }
 
-    internal fun resetForTest8934() { books.clear(); proven = emptyMap(); served.clear(); rows.set(0L); ready = true; loading = false; minedAtMs = 0L }
+    internal fun resetForTest8934() { books.clear(); proven = emptyMap(); served.clear(); huntDecisions8961.clear(); rows.set(0L); ready = true; loading = false; loadNotBefore8961 = 0L; minedAtMs = 0L }
     internal fun fileForTest8934(o: JSONObject) = file(o)
     internal fun mineForTest8934() = mine(System.currentTimeMillis())
     internal fun provenForTest8934(lane: String): List<Cell8934> = proven[lane].orEmpty()

@@ -41,8 +41,9 @@ class Aate8788CryptoSpotPaperBackingTest {
         val c = File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalAssetEntryContract6551.kt").readText()
         val eligibility = c.indexOf("CryptoSpotPaperBacking8788.backs8788(candidate.evidence[\"lane8788\"]")
         val oracle = c.indexOf("if (!advisoryPass7263 && !provenAdmit7287 && !provenNonBindingPass7391)")
-        // superseded by 5.0.8871 — the Cortex reads the entry once (assessEntry8871) and its refusal is taken from that assessment
+        // V5.0.8961: assess once before heuristic expectancy, preserve data waits, then apply the same refusal before sizing.
         val cortex = c.indexOf("CrossAssetCortex7931.assessEntry8871(candidate)")
+        val cortexGate = c.indexOf("CrossAssetCortex7931.refusalBinds8871(why, entryAssessment8871)")
         val executable = c.indexOf("if (!sizing.executable)")
         val reserve = c.indexOf("CryptoSpotPaperBacking8788.reserve8832(")
         val registered = c.indexOf("ExecutableOpenGate.registerCanonicalIntent6554(intent)")
@@ -50,8 +51,11 @@ class Aate8788CryptoSpotPaperBackingTest {
         assertTrue("backing eligibility is read before the other admission gates", eligibility in 0 until oracle)
         assertTrue("backed live candidates must not be refused by the redundant advisory EV check",
             c.contains("paperBacked8788 || evRefusalInverted8094"))
-        assertTrue("quota is reserved only after Oracle, Cortex and executable sizing",
-            oracle < cortex && cortex < executable && executable < reserve)
+        assertTrue("the shared assessment precedes both admission gates", cortex in 0 until oracle && cortex < cortexGate)
+        assertTrue("the Cortex assessment is read exactly once",
+            c.split("CrossAssetCortex7931.assessEntry8871(candidate)").size == 2)
+        assertTrue("quota is reserved only after Oracle, Cortex refusal handling and executable sizing",
+            oracle in 0 until executable && cortexGate in 0 until executable && executable < reserve)
         assertTrue("quota is charged only after immutable registration", reserve < registered && registered < commit)
         assertTrue("registration failure must release the quota", c.contains("CryptoSpotPaperBacking8788.release8832(attemptId)"))
         assertTrue(CryptoSpotPaperBacking8788.room8832(0, 0))

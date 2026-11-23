@@ -41,7 +41,7 @@ object ChainConfirm8950 {
     fun inputsOf8950(missing: Collection<String>): Set<Input8950> {
         val out = LinkedHashSet<Input8950>()
         for (raw in missing) {
-            val m = raw.substringBefore(':').trim().uppercase()
+            val m = raw.substringBefore(':').trim().uppercase().removePrefix("CRITICAL_")
             when {
                 m.isEmpty() || m == "FALLING_HOUR" || m == "UNNAMED" -> {}
                 m in PRICE_8950 || m.startsWith("CRITICAL_LIQ") || m.startsWith("LIQ") -> out += Input8950.PRICE_DEPTH
@@ -57,7 +57,7 @@ object ChainConfirm8950 {
         }
         return out
     }
-    private val PRICE_8950 = setOf("PRICE", "PRICE_STALE", "ECONOMICS", "COST_UNKNOWN", "LIQUIDITY", "DEPTH", "CRITICAL_LIQUIDITY", "MARK", "NO_MARK")
+    private val PRICE_8950 = setOf("PRICE", "PRICE_STALE", "EXECUTABLE_PRICE", "ECONOMICS", "COST_UNKNOWN", "LIQUIDITY", "DEPTH", "MARK", "NO_MARK")
     private val HISTORY_8950 = setOf("SHAPE", "CHG", "BP", "SWAPS", "TAPE", "TAPE8100", "CORE", "BARS", "CANDLES", "HISTORY",
         "MOVE_HISTORY_SPARSE", "STAGE", "STAGE_UNRESOLVED", "FLOW_UNOBSERVED", "VOLACCEL", "OPP", "LAUNCHTAPE")
 
@@ -68,12 +68,14 @@ object ChainConfirm8950 {
 
     /** [use] (DECISION / EVIDENCE / STAGE / HOLD / EXIT) of [ts] lacks [missing]: read each from the chain now (LIVE). */
     fun confirm8950(ts: TokenState, missing: Collection<String>, use: String, nowMs: Long = System.currentTimeMillis()) {
-        if (ts.mint.length !in 32..44 || !live8950()) return
+        if (!live8950()) return
+        val mint = com.lifecyclebot.perps.DynamicAltTokenRegistry.solanaMintOf8866(ts.mint) ?: return
+        val local = if (mint == ts.mint) ts else ts.copy(mint = mint)
         val inputs = inputsOf8950(missing)
         if (inputs.isEmpty() && missing.isNotEmpty()) unmapped8957.incrementAndGet()
         var askedAny = false
-        for (input in inputs) if (ask8950(ts, input, use, nowMs)) askedAny = true
-        if (askedAny && use.uppercase() in RERUN_USES_8957 && needsTimedFallback8959(inputs)) rerun8957(ts.mint, nowMs)
+        for (input in inputs) if (ask8950(local, input, use, nowMs)) askedAny = true
+        if (askedAny && use.uppercase() in RERUN_USES_8957 && needsTimedFallback8959(inputs)) rerun8957(mint, nowMs)
     }
 
     /**
@@ -100,7 +102,10 @@ object ChainConfirm8950 {
 
     /** A held position / exit known by its mint only: its token state, then [confirm8950]. */
     fun confirmMint8950(mint: String, missing: Collection<String>, use: String, nowMs: Long = System.currentTimeMillis()) {
-        val ts = try { com.lifecyclebot.engine.HandoffRoute8180.tokenFor8180(mint) } catch (_: Throwable) { null } ?: return
+        val bare = com.lifecyclebot.perps.DynamicAltTokenRegistry.solanaMintOf8866(mint) ?: return
+        // Ownership of a live holding must not depend on membership of the meme scanner's watchlist.
+        val ts = try { com.lifecyclebot.engine.HandoffRoute8180.tokenFor8180(bare) } catch (_: Throwable) { null }
+            ?: TokenState(mint = bare)
         confirm8950(ts, missing, use, nowMs)
     }
 
@@ -128,6 +133,15 @@ object ChainConfirm8950 {
                 answered8957?.invoke(mint, "$mint|market8959|$asked")
                 marketAnswers8959.incrementAndGet()
             }
+        }
+    }
+
+    /** A worker/budget refusal is not an answered request. Retry through the same budgets after a short backoff. */
+    fun historyNotScheduled8961(mint: String, askedMs: Long) {
+        synchronized(lastAsk) {
+            val key = "$mint|${Input8950.HISTORY.name}"
+            val at = lastAsk[key] ?: return
+            if (at <= askedMs) lastAsk[key] = askedMs - GAP_MS_8950 + 5_000L
         }
     }
 

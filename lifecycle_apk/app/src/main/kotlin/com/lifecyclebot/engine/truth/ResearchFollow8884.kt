@@ -26,8 +26,8 @@ import java.util.concurrent.atomic.AtomicLong
  * sources, so a row carries its source; peak and dip between the hour and the read are not known and are written null.
  *
  * Bounds: at most [MAX_PENDING_8884] decisions waiting (oldest dropped), at most [CALLS_PER_PASS_8884] calls a minute. The
- * waiting list survives restarts (its own file, rewritten every five minutes and on each pass that changed it). Measurement
- * only: no learner reads these rows.
+ * waiting list survives restarts (its own file, rewritten every five minutes and on each pass that changed it).
+ * LanePocket8934 consumes valid rows at its declared horizon.
  */
 object ResearchFollow8884 {
     private const val FILE_8884 = "research_follow_8884.jsonl"
@@ -133,7 +133,8 @@ object ResearchFollow8884 {
         }
     }
 
-    @Synchronized private fun ensureStarted8884() {
+    /** Start at the bot heartbeat as well as on new work: persisted waits must not need a new hour outcome to resume. */
+    @Synchronized fun ensureStarted8884() {
         if (started) return
         started = true
         exec.scheduleWithFixedDelay({ try { pass8884(System.currentTimeMillis()) } catch (_: Throwable) { failed.incrementAndGet() } },
@@ -142,8 +143,8 @@ object ResearchFollow8884 {
 
     private fun load8884() {
         if (loaded) return
-        loaded = true
         val f = file8884() ?: return
+        loaded = true
         if (!f.exists()) return
         val restored = ArrayList<Wait8884>()
         try { f.forEachLine { l -> decode8884(l)?.let { restored += it } } } catch (_: Throwable) { failed.incrementAndGet() }
@@ -172,17 +173,20 @@ object ResearchFollow8884 {
         }
         if (due.isNotEmpty()) {
             for (batch in due.chunked(BATCH_8884)) {
-                val mints = batch.map { it.mint }.distinct()
-                val body = fetch8884(mints) ?: continue   // a failed call leaves its decisions waiting for the next pass
+                val mints = batch.filter { nowMs - it.atMs <= HORIZONS_8884[it.next] + LATE_GRACE_MS_8884 }.map { it.mint }.distinct()
+                // Expired horizons advance even during an outage, so they cannot monopolise every batch forever.
+                val body = if (mints.isEmpty()) JSONObject() else fetch8884(mints)
                 val done = HashSet<Wait8884>()
                 val again = ArrayList<Wait8884>()
                 for (w in batch) {
                     val horizon = HORIZONS_8884[w.next]
                     val tooLate = nowMs - w.atMs > horizon + LATE_GRACE_MS_8884
+                    if (!tooLate && body == null) continue   // a timely unanswered read stays pending
                     val usd = priceOf8884(body, w.mint)
                     val implausible = usd != null && !plausible8923(w.entryUsd, usd)   // V5.0.8923
                     if (implausible) implausible8923.incrementAndGet()
-                    val r = usd?.takeIf { !implausible }?.let { returns8884(w.entryUsd, it, w.cost) }
+                    // A late mark is not a return at the requested horizon. Never feed it to a horizon learner.
+                    val r = usd?.takeIf { !implausible && !tooLate }?.let { returns8884(w.entryUsd, it, w.cost) }
                     val why = when {
                         tooLate -> "LATE_READ_8884:" + w.reason
                         implausible -> "IMPLAUSIBLE_RATIO_8923:" + w.reason

@@ -155,6 +155,13 @@ object CryptoSpotPaperBacking8788 {
         return r.backs to r.losing
     }
 
+    /** Strategy selection uses its own measured record before the generic score; admission still rechecks all gates. */
+    @Synchronized fun strategyRank8961(lane: String, strategy: String, nowMs: Long = System.currentTimeMillis()): Int {
+        if (lane !in BACKED_LANES_8806) return 0
+        val (backs, losing) = strategyVerdict8910(lane, strategy, nowMs)
+        return PocketHunt8961.recordRank(backs, losing)
+    }
+
     private fun stopped8788(nowMs: Long): Boolean {
         if (tripped8788) return true
         if (startMs8788 <= 0L || nowMs - stopCheckedAtMs8788 < 60_000L) return false

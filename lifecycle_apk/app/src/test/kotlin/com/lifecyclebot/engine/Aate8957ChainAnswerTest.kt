@@ -63,7 +63,11 @@ class Aate8957ChainAnswerTest {
         assertEquals(setOf("DECISION", "LANE", "EVIDENCE", "STAGE", "EXEC"), ChainConfirm8950.RERUN_USES_8957)
         assertEquals(listOf(2_500L, 7_000L), ChainConfirm8950.RERUN_AFTER_MS_8957)
         val c = src("engine/truth/ChainConfirm8950.kt")
-        assertTrue(c.contains("if (askedAny && use.uppercase() in RERUN_USES_8957 && needsTimedFallback8959(inputs)) rerun8957(ts.mint, nowMs)"))
+        assertTrue("qualified Solana identities are resolved before scheduling",
+            c.contains("val mint = com.lifecyclebot.perps.DynamicAltTokenRegistry.solanaMintOf8866(ts.mint) ?: return"))
+        assertTrue(c.contains("val local = if (mint == ts.mint) ts else ts.copy(mint = mint)"))
+        assertTrue(c.contains("for (input in inputs) if (ask8950(local, input, use, nowMs)) askedAny = true"))
+        assertTrue(c.contains("if (askedAny && use.uppercase() in RERUN_USES_8957 && needsTimedFallback8959(inputs)) rerun8957(mint, nowMs)"))
         assertTrue("only a ping actually sent re-runs (the 20 s per-input gap still binds)", c.contains("if (!due) return false"))
         val b = src("engine/BotService.kt")
         assertTrue(b.contains("com.lifecyclebot.engine.truth.ChainConfirm8950.answered8957 = { mint, onceKey ->"))
