@@ -3351,3 +3351,23 @@ half at the line from +50 % +3.7 / +4.5 / +0.3 %, a +10 % floor from +50 % +3.8 
 +1.1 / +2.2 / -2.2 %.
 On these paths no profit lock below 10x beat the rider rule once fills lag; the measured cost of a lock is the runners it
 sells on their way to 4x-10x.
+
+## 165. A crypto coin's hour is its pool's hour (8980)
+
+Owner, 24 Nov 05:42: "dig into all of it please" (crypto: no trades). The 05:29 capture (5.0.8978, 11 min): CRYPTO_ALT
+canonical blocks DATA_INCOMPLETE_DEFER_8136=196, ROUTE_UNAVAILABLE=21, EXECUTION_ECONOMICS=15, LIVE_NON_POSITIVE_EXPECTANCY=12;
+on 5.0.8970 at 57 min DATA_INCOMPLETE=220 and DATA_NEVER_ARRIVED_8418=200 (waits that expired). The brief's deferCause8700
+showed only its top 12, all meme lanes, so no crypto cause was named.
+The cause in code: CrossAssetCortex7931.tokenStateFor builds a fresh TokenState for each crypto candidate. Its hour move
+(NetEdge8030.executableMove8153) reads that state's candles (CryptoLaneDesk7391.observedCandles8834: one per desk scan,
+in memory, none for the first 15 minutes after a start) and its hour change (LanePlaybook7907.resolvedChg1h8399). The bridge
+(bridgeCryptoObservedContext8834) wrote the pool's five-minute change but never its hour, although the registry holds it
+(DynToken.change1hPct8886 / trendObservedAtMs8886, DexScreener / GeckoTerminal h1, read by CryptoTrend8886). So:
+- the move had no hour: sparse candles defer (RANGE_SPARSE / HISTORY_UNOBSERVED -> DATA_INCOMPLETE, then DATA_NEVER_ARRIVED);
+- every chg1h setup read the 0.0 default as an observed flat hour (chgObs8084 keys on the five-minute stamp).
+8980: the bridge writes the pool's h1 as CHANGE_1H_PCT (PROVIDER rank, its own observation time) when the candidate's price
+is validated and the h1 is finite, above -100 % and under 15 minutes old (cryptoHourReadable8980); otherwise nothing, as
+before. A positive hour then prices the move (basis H1, the same expectedMove8035 every meme coin uses) and the economics
+test decides it; a falling hour on a momentum lane is the existing falling-hour wait.
+Brief: cryptoHour8980[bridged refused unread], and deferCause8700 now ends with crypto8980{...}, the crypto / EVM lanes' own
+top 10 causes.

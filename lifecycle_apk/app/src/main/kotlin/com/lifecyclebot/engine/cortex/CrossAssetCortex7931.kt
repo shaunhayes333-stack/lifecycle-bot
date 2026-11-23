@@ -181,6 +181,15 @@ object CrossAssetCortex7931 {
             facts.writeSnapshot(ts, TokenFacts.Field.CHANGE_5M_PCT, change,
                 "DEX_PAIR_M5_CRYPTO_8835", rank.PROVIDER, dyn.shortWindowObservedAtMs8832, nowMs)
         }
+        // V5.0.8980 — the pool's own provider-dated hour change (DexScreener / GeckoTerminal h1, CryptoTrend8886's read) is
+        // the hour a crypto coin is judged on. Without it a crypto TokenState read its hour as the 0.0 default, counted as
+        // observed through the five-minute stamp (LanePlaybook7907.chgObs8084): every chg1h setup was graded on a flat hour,
+        // and the expected move had no hour, only the desk's own candles (none for 15 minutes after a start).
+        if (priceAt > 0L && cryptoHourReadable8980(dyn.change1hPct8886, dyn.trendObservedAtMs8886, nowMs)) {
+            if (facts.writeSnapshot(ts, TokenFacts.Field.CHANGE_1H_PCT, dyn.change1hPct8886,
+                    "DEX_PAIR_H1_CRYPTO_8980", rank.PROVIDER, dyn.trendObservedAtMs8886, nowMs)) hourBridged8980.incrementAndGet()
+            else hourRefused8980.incrementAndGet()
+        } else hourUnread8980.incrementAndGet()
         ts.tokenMap.volume5mUsd = recent.volume5mUsd
         ts.tokenMap.volume24hUsd = dyn.volume24h.takeIf { it.isFinite() && it > 0.0 }
 
@@ -194,6 +203,21 @@ object CrossAssetCortex7931 {
             )
         }
     }
+
+    // ── V5.0.8980 — the crypto hour ──
+    private val hourBridged8980 = java.util.concurrent.atomic.AtomicLong(0L)
+    private val hourRefused8980 = java.util.concurrent.atomic.AtomicLong(0L)
+    private val hourUnread8980 = java.util.concurrent.atomic.AtomicLong(0L)
+
+    /** Pure: is a provider's hour change [chgPct] read at [observedAtMs] a usable hour now (finite, above -100 %, under 15 min old)? */
+    internal fun cryptoHourReadable8980(chgPct: Double, observedAtMs: Long, nowMs: Long): Boolean =
+        chgPct.isFinite() && chgPct > -100.0 && observedAtMs > 0L &&
+            nowMs - observedAtMs in 0L..LanePlaybook7907.OBS_FRESH_MS_8084
+
+    /** Brief: crypto candidates whose hour came from their pool's provider-dated h1, and those with none to read. */
+    fun hourLine8980(): String =
+        "cryptoHour8980[bridged=${hourBridged8980.get()} refused=${hourRefused8980.get()} unread=${hourUnread8980.get()} " +
+            "rule=a crypto candidate's hour is its pool's provider-dated h1 when it is under 15 min old; otherwise its desk candles alone]"
 
     /** A source-dated nomination stays dated when the live registry advances to its next tick. */
     internal fun candidateObservationAt8870(assetId: String, price: Double,

@@ -1832,7 +1832,13 @@ object CandidateAdmission8136 {
     }
 
     private fun deferCauseLine8700(): String =
-        "deferCause8700{" + deferCauseCounts8700.entries.sortedByDescending { it.value.get() }.take(12).joinToString(",") { "${it.key}=${it.value.get()}" } + "}"
+        "deferCause8700{" + deferCauseCounts8700.entries.sortedByDescending { it.value.get() }.take(12).joinToString(",") { "${it.key}=${it.value.get()}" } + "}" +
+            // V5.0.8980 — the crypto desk's own causes: the shared top 12 is all meme lanes, so crypto's 196 defers named nothing
+            " crypto8980{" + cryptoDeferCauses8980(deferCauseCounts8700.mapValues { it.value.get() }).joinToString(",") { "${it.first}=${it.second}" }.ifBlank { "-" } + "}"
+
+    /** Pure (V5.0.8980): the crypto lanes' defer causes ("lane|cause" keys), most first, at most 10. */
+    internal fun cryptoDeferCauses8980(counts: Map<String, Long>): List<Pair<String, Long>> =
+        counts.filterKeys { it.startsWith("CRYPTO_") || it.startsWith("EVM_") }.entries.sortedByDescending { it.value }.take(10).map { it.key to it.value }
 
     private fun deferTerminalLine8418(): String =
         "deferTerminal8418{" + deferTerminals8418.entries.sortedByDescending { it.value.get() }.take(10).joinToString(",") { "${it.key}=${it.value.get()}" } + "}"
