@@ -3316,3 +3316,38 @@ Android process has its own heap and its own garbage collector, so that work now
   follow runs in-process as before.
 - Brief: the lab's own researchFollow8884[...] line, then followLab8978[where sentIn buffered bufferDropped rowsOut
   rowsBack fellBack pingFailed channelFailed].
+
+## 164. The card shows the exit that fires (8979)
+
+Owner, 24 Nov 05:27 (tur, MOONSHOT, live): "profit locks aren't firing". The card read "STOP / LOCK: lock +60 %" at a +65 %
+peak while the position sat at +19.3 %. That lock was FluidLearningAI.getDynamicFluidStop at a 20 % default (the popout,
+the open-position card on both its build and reuse paths, and the "TARGET Peak · lock" badge), a number no exit of a meme
+position uses:
+- since 8630/8769 a meme lane's (RunnerDoctrine8584.MEME_LANES_8584) profit exits are the doctrine's; the tick's fluid lock
+  defers to it (BotService doctrineOwns8769), and the doctrine trail (BotService.doctrineTrail8630, in the rapid stop
+  monitor) sells at the doctrine line once the peak reaches +25 %: below 2x the lower of half the peak gain and the peak
+  less the lane's stop distance (never under +5 %), from 2x a 45 % give-back;
+- since 8941 a launch rider (a pump.fun mint bought within 15 minutes of its resolved birth) holds every profit exit above
+  its lane stop until a 10x peak, where its trail arms.
+The 05:29 capture (5.0.8978) shows it: tur was bought 05:24:26 in EXPRESS (a doctrine lane) at ageMin 6-7, liq $2.9k,
+mcap $11.3k — a launch rider; runnerDoctrine8584 held=198, of them FULL:MOONSHOT:RAPID=187 (the rapid monitor's profit exits,
+each held above the lane stop below 10x); it was sold 05:28:25 by THIN_LIQ_EARLY_RUG_BACKSTOP_-10 (never held) at +6.16 %.
+RunnerDoctrine8584.lockText8979 now gives every card the doctrine's own exit: "rides to 10x · SL x %" (a rider below 10x;
+MOONSHOT's tick stop MoonshotTraderAI.stopFor when it has one), "SL x % · trail from +25 %" (not yet armed), "trail +y %"
+(armed: the line the trail sells at). The fluid "trail z %" text is not shown for these positions. Lanes the doctrine does
+not own show what they showed before. Display only: no exit changes.
+
+The launch replay behind 8941 (13 launch-hour exports, 14-20 Nov, every pump.fun launch entered at its 20th print, 10 s
+bars; three fill regimes: next-bar fill 3 % cost / 20 s lag 3 % cost / 20 s lag 4 % cost with every sell a bar late at that
+bar's low), average result per trade:
+- live 8941 rider (stop 25, rungs and trail from 10x): +11.0 / +6.9 / -4.1 %
+- the card's kind of lock (peak less 5 points, all of it, from a +50 % peak): +5.8 / +1.0 / -10.8 %
+- the doctrine line from +25 %, all of it: +7.8 / +4.0 / -7.7 %; from +50 %: +8.4 / +4.0 / -7.7 %
+- banking a third / half / two thirds at the line from +50 %: +10.1 / +9.7 / +9.2 (ideal), +5.9 / +5.4 / +4.9 (lag),
+  -5.3 / -5.9 / -6.5 (harsh)
+- a floor at +5 % once the peak reached +50 %: +11.5 / +5.2 / -6.4 %
+Entered at tur's age (6 min after birth, n2898): ride +4.2 / +5.4 / +1.5 %, the line from +50 % +3.2 / +3.5 / -0.9 %,
+half at the line from +50 % +3.7 / +4.5 / +0.3 %, a +10 % floor from +50 % +3.8 / +4.8 / +0.4 %, the card's kind of lock
++1.1 / +2.2 / -2.2 %.
+On these paths no profit lock below 10x beat the rider rule once fills lag; the measured cost of a lock is the runners it
+sells on their way to 4x-10x.

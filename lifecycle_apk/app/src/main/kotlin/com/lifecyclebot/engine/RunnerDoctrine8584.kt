@@ -141,6 +141,38 @@ object RunnerDoctrine8584 {
     private fun stopFor8719(lane: String?): Double =
         try { com.lifecyclebot.engine.truth.FieldManual7715.laneStopPct8392(foldLane8630(lane)) } catch (_: Throwable) { Double.NaN }
 
+    /**
+     * V5.0.8979 §SHOW_THE_EXIT_THAT_FIRES — owner, 24 Nov 05:27 (tur, MOONSHOT live, peak +65 %, card "STOP / LOCK: lock +60 %",
+     * held at +19.3 %): "profit locks aren't firing". The card's lock was FluidLearningAI.getDynamicFluidStop at a 20 % default,
+     * a number no exit of a doctrine position uses: since 8630 a meme position's profit exits are the doctrine's (the tick's
+     * fluid lock defers to it, BotService doctrineOwns8769), and since 8941 a launch rider (a pump.fun mint bought within 15
+     * minutes of its birth) holds every profit exit above its lane stop until a 10x peak. The card now names the exit that
+     * fires: a rider below 10x "rides to 10x · SL x %", any other doctrine position below its +25 % arm "SL x % · trail from
+     * +25 %", and once armed "trail +y %", the doctrine line ([lineWithStop8719] on the lane's stop distance) the trail sells at.
+     * Pure; null when the doctrine does not own [lane]'s profit exits (the card shows what it showed before).
+     */
+    fun lockText8979(lane: String?, rider: Boolean, pnlPct: Double, peakPct: Double, stopPct: Double, laneStopPct: Double? = null): String? {
+        if (!rides8584(lane)) return null
+        val stopTxt = when {
+            laneStopPct != null && laneStopPct.isFinite() && laneStopPct < 0.0 -> "SL ${laneStopPct.toInt()}%"
+            stopPct.isFinite() && stopPct > 0.0 -> "SL -${stopPct.toInt()}%"
+            else -> "SL —"
+        }
+        val peak = listOf(peakPct, pnlPct).filter { it.isFinite() }.maxOrNull() ?: return stopTxt
+        val arm = if (rider) LAUNCH_RIDE_FROM_PCT_8941 else TRAIL_ARM_PEAK_PCT_8630
+        if (peak >= arm) return "trail +${((lineWithStop8719(1.0 + peak / 100.0, stopPct) - 1.0) * 100.0).toInt()}%"
+        return if (rider) "rides to 10x · $stopTxt" else "$stopTxt · trail from +${arm.toInt()}%"
+    }
+
+    /** V5.0.8979 — [ts]'s STOP / LOCK text under the doctrine at [pnlPct] / [peakPct]; null when the doctrine does not own it. */
+    fun lockText8979(ts: com.lifecyclebot.data.TokenState, pnlPct: Double, peakPct: Double): String? = try {
+        val lane = entryLane8630(ts)
+        if (!rides8584(lane)) null else {
+            val moonshotStop = if (foldLane8630(lane) == "MOONSHOT") try { com.lifecyclebot.v3.scoring.MoonshotTraderAI.stopFor(ts.mint) } catch (_: Throwable) { null } else null
+            lockText8979(lane, launchRider8941(ts), pnlPct, peakPct, stopFor8719(lane), moonshotStop)
+        }
+    } catch (_: Throwable) { null }
+
     /** Pure: is [reason] one of the doctrine's own exits (never held, deferred or banked as a partial by another door)? */
     fun ownExit8630(reason: String?): Boolean = reason?.trim()?.uppercase()?.startsWith("RUNNER_DOCTRINE_") == true
 

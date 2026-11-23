@@ -5736,6 +5736,10 @@ for legal compliance.
     private fun holdLockText8080(ts: com.lifecyclebot.data.TokenState): String? =
         try { com.lifecyclebot.engine.LifecycleHold8065.displayLock8080(ts)?.let { "hold lock +${it.first.toInt()}%" } } catch (_: Throwable) { null }
 
+    /** V5.0.8979 — the doctrine's own exit for a meme position (rider to 10x / stop / trail line); null when it does not own it. */
+    private fun doctrineLockText8979(ts: com.lifecyclebot.data.TokenState, gainPct: Double, peakPct: Double): String? =
+        com.lifecyclebot.engine.RunnerDoctrine8584.lockText8979(ts, gainPct, peakPct)
+
     private fun publishOpenLaneCounts7012(positions: List<TokenState>) {
         try {
             laneCounts7011 = positions.asSequence().filter { it.position.isOpen }
@@ -6199,11 +6203,12 @@ for legal compliance.
                     com.lifecyclebot.v3.scoring.FluidLearningAI.fluidTrailPct(gainPct)
                 } catch (_: Exception) { Double.NaN }
                 if (basisTrusted) run {
-                    val tpTxtR = when {
-                        !fluidTrailR.isNaN() && gainPct > 3.0 -> "trail ${fluidTrailR.toInt()}%"
+                    val doctrineR8979 = doctrineLockText8979(ts, gainPct, kotlin.math.max(pos.peakGainPct, gainPct))
+                    val tpTxtR = when {   // V5.0.8979 — a doctrine position's trail is its own line, not the fluid trail
+                        !fluidTrailR.isNaN() && gainPct > 3.0 && doctrineR8979 == null -> "trail ${fluidTrailR.toInt()}%"
                         else -> null
                     }
-                    val slTxtR = holdLockText8080(ts) ?: when { // V5.0.8080 card is a projection: never writes the canonical peak
+                    val slTxtR = holdLockText8080(ts) ?: doctrineR8979 ?: when { // V5.0.8080 card is a projection: never writes the canonical peak
                         !fluidStopR.isNaN() && fluidStopR > 0.0 -> "lock +${fluidStopR.toInt()}%"
                         !fluidStopR.isNaN() && fluidStopR < 0.0 -> "SL ${fluidStopR.toInt()}%"
                         else -> null
@@ -6579,14 +6584,15 @@ for legal compliance.
             }
 
             // Compose the display: live trail % + live fluid stop %.
-            val tpTxt: String? = if (basisTrusted) when {
+            val doctrine8979: String? = if (basisTrusted) doctrineLockText8979(ts, gainPct, kotlin.math.max(pos.peakGainPct, gainPct)) else null; val hold8080 = try { com.lifecyclebot.engine.LifecycleHold8065.displayLock8080(ts) } catch (_: Throwable) { null }
+            val tpTxt: String? = if (basisTrusted && doctrine8979 == null) when {   // V5.0.8979 — a doctrine position's trail is its own line
                 !fluidTrail.isNaN() && gainPct > 3.0 -> "trail ${fluidTrail.toInt()}%"
                 staticTp > 0                          -> "TP +${staticTp.toInt()}%"
                 else                                  -> null
             } else null
-            val hold8080 = try { com.lifecyclebot.engine.LifecycleHold8065.displayLock8080(ts) } catch (_: Throwable) { null }
             val slTxt: String? = if (basisTrusted) when {
                 hold8080 != null -> "hold lock +${hold8080.first.toInt()}%"
+                doctrine8979 != null -> doctrine8979   // V5.0.8979 — the doctrine's own exit, not the fluid lock
                 !fluidStop.isNaN() && fluidStop < 0.0 -> "SL ${fluidStop.toInt()}%"
                 !fluidStop.isNaN() && fluidStop > 0.0 -> "lock +${fluidStop.toInt()}%"
                 staticSl != 0.0                       -> "SL ${staticSl.toInt()}%"
@@ -6626,7 +6632,7 @@ for legal compliance.
                 val peakCol = if (pos.peakGainPct >= 100.0) 0xFFFACC15.toInt() else muted
                 right.addView(TextView(this).apply {
                     val peakTxt = "Peak +${pos.peakGainPct.toInt()}%"
-                    text = if (lockLevel != null) "TARGET $peakTxt · lock +${lockLevel.toInt()}%" else "TARGET $peakTxt"
+                    text = if (doctrine8979 != null) "TARGET $peakTxt · $doctrine8979" else if (lockLevel != null) "TARGET $peakTxt · lock +${lockLevel.toInt()}%" else "TARGET $peakTxt"   // V5.0.8979 — the doctrine's exit
                     textSize = resources.getDimension(R.dimen.card_badge_size) / resources.displayMetrics.scaledDensity
                     setTextColor(peakCol)
                     typeface = android.graphics.Typeface.MONOSPACE

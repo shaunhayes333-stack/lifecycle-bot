@@ -139,8 +139,11 @@ object MemePositionPopout {
         }
         // V5.0.8080 — a lifecycle hold swallows the fluid lock; show the exit that will actually fire.
         val hold8080 = try { com.lifecyclebot.engine.LifecycleHold8065.displayLock8080(t) } catch (_: Throwable) { null }
+        // V5.0.8979 — a doctrine position shows the doctrine's own exit (rider to 10x / stop / trail line), not the fluid lock
+        val doctrine8979 = if (canDisplayPnl) com.lifecyclebot.engine.RunnerDoctrine8584.lockText8979(t, pnlPct, peak) else null
         val stopTxt = when {
             hold8080 != null -> "hold lock +${hold8080.first.toInt()}%"
+            doctrine8979 != null -> doctrine8979
             stop.isNaN() -> "—"
             stop > 0.0 -> "lock +${stop.toInt()}%"
             stop < 0.0 -> "SL ${stop.toInt()}%"
