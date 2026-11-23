@@ -3276,3 +3276,19 @@ costed at the meme desk's last ticket (~0.043 SOL), not its own.
   6909 conviction, 7877 live edge, 8188 loss budget) and is skipped rather than bought at a size that cannot pay its fees.
 - NetEdge8030.entryCost8209: a crypto lane's admission is costed at the larger of its own ticket and 0.05 SOL.
 - CRYPTO_TICKET_LIFTED_8976 / LEFT_BELOW_MIN_8976 / AT_OR_ABOVE_MIN_8976 counters.
+
+## 162. The forward outbox is indexed (8977)
+
+Owner, 24 Nov 04:20 / 04:25: "we need to move things off the main stream that dont need to be on main stream" / "we were
+meant to stop the garbage before it starts". The 24 Nov 04:13 CPU sample on 5.0.8970 (30 s): ForwardReturnLabeler7731's
+tick 3.99 s, the labeler's largest cost and the app's top allocator:
+- completeHour8397 → bookTwoForty7944 → ForwardOutcomeOutbox8404.firstRevisionForHorizon8521, 1.88 s: every hour grade
+  walked every held row (capacity 18,000) and built a fresh "<episode>|R|" String per row;
+- drainForwardOutcomes8404 → ForwardOutcomeOutbox8404.drain, 1.62 s: every tick copied and sorted every key, then built
+  two more lists to rotate it.
+ForwardOutcomeOutbox8404 now keeps two indexes beside its rows, maintained by the only two places that add or remove one
+(hold8977 / drop8977): sorted8977 (the drain's key order; the batch is the keys after the cursor, then from the start, at
+most `limit` of them) and revisions8977 (each episode's revision ids in the order they were held). firstRevisionForHorizon8521,
+supersedeRevisions8418 and rowsFor8418 read the episode's own ids. Same rows, same order, same answers (Aate8977 runs a
+long random sequence against the pre-8977 outbox); nothing about what the Cortex learns or when changes. An episode or
+prefix that is not of the "<episode>|R|" form still takes the old scan.
