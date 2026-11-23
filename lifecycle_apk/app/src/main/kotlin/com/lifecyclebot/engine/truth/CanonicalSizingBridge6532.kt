@@ -191,7 +191,7 @@ object CanonicalSizingBridge6532 {
                     .routableCapacityPreflight7224(effectiveWalletSol6689, solUsd7828).routableMinSol
             else 0.0
         } catch (_: Throwable) { 0.0 } else 0.0
-        val effectiveMinSol7828 = maxOf(effectiveMinSol6542, liveRoutableMin7828)
+        val effectiveMinSol7828 = maxOf(effectiveMinSol6542, liveRoutableMin7828, NetEdge8030.cryptoMinTicketSol8976(assetClass == AssetClass.CRYPTO_ALT))
         if (liveRoutableMin7828 > effectiveMinSol6542) try {
             PipelineHealthCollector.labelInc("CANONICAL_LIVE_ROUTABLE_MIN_APPLIED_7828")
             PipelineHealthCollector.labelInc("CANONICAL_LIVE_ROUTABLE_MIN_APPLIED_7828_" + assetClass.tag)

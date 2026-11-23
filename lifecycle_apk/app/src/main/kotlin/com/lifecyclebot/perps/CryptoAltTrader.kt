@@ -155,6 +155,22 @@ object CryptoAltTrader {
     // base to 6% and let the existing exposure cap / route proof / wallet lock
     // act as safety; toxic strategy intelligence soft-shapes below instead of
     // amputating throughput.
+    /**
+     * V5.0.8976 — Pure: the crypto ticket asked for. The owner's minimum (NetEdge8030.CRYPTO_MIN_TICKET_SOL_8976, 0.05 SOL:
+     * fixed legs ~0.5 % instead of ~1.6 % at the 6 % base on a 0.26 SOL wallet), sizing-aware: a size at or above it is
+     * asked as sized; a smaller one is lifted to it only when the wallet holds [MAX_SHARE_8976]^-1 tickets AND the sizer
+     * wanted at least [LIFT_FROM_8976] of it (a trade its evidence shrank further is left small, and the canonical resolver's
+     * crypto minimum then skips it rather than buy a ticket that cannot pay its fees). Never above the minimum by this rule.
+     */
+    internal const val MAX_SHARE_8976 = 0.25
+    internal const val LIFT_FROM_8976 = 0.25
+    internal fun cryptoTicket8976(sizeSol: Double, balanceSol: Double): Double {
+        val min = com.lifecyclebot.engine.truth.NetEdge8030.CRYPTO_MIN_TICKET_SOL_8976
+        if (!(sizeSol.isFinite() && sizeSol > 0.0) || sizeSol >= min) return sizeSol
+        if (!(balanceSol.isFinite() && balanceSol * MAX_SHARE_8976 >= min)) return sizeSol
+        return if (sizeSol >= min * LIFT_FROM_8976) min else sizeSol
+    }
+
     private const val DEFAULT_SIZE_PCT      = 6.0           // V5.0.6095: 3→6% balance base; no more crypto-only micro treadmill
     private const val DEFAULT_LEVERAGE      = 3.0           // Default leverage (when not SPOT)
 
@@ -3999,6 +4015,10 @@ object CryptoAltTrader {
         } catch (_: Throwable) { 1.0 }
         sizeSol *= cryptoBrainSize7244
         try { PipelineHealthCollector.labelInc("CRYPTO_BRAIN_SIZE_APPLIED_7244") } catch (_: Throwable) {}
+        // V5.0.8976 — a ticket that can clear its fixed legs, asked for only when the wallet holds it (sizing-aware)
+        val asked8976 = sizeSol
+        sizeSol = cryptoTicket8976(sizeSol, balance)
+        try { PipelineHealthCollector.labelInc(if (sizeSol > asked8976) "CRYPTO_TICKET_LIFTED_8976" else if (asked8976 < com.lifecyclebot.engine.truth.NetEdge8030.CRYPTO_MIN_TICKET_SOL_8976) "CRYPTO_TICKET_LEFT_BELOW_MIN_8976" else "CRYPTO_TICKET_AT_OR_ABOVE_MIN_8976") } catch (_: Throwable) {}
 
         // V5.0.7400 — do not kill Crypto before canonical sizing.
         // The downstream requestedFinalSize already applies the anti-dust floor

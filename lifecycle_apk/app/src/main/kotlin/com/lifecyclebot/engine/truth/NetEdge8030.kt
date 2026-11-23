@@ -429,8 +429,24 @@ object NetEdge8030 {
             min <= p.safeShareCapSol && min <= p.tradeableSol) min else proposed
     }
 
+    /**
+     * V5.0.8976 §A_CRYPTO_TICKET_THAT_CAN_CLEAR_ITS_FIXED_LEGS — owner, 24 Nov 04:09: "its meant to be sizing aware. it can lift
+     * the min size to .05". The crypto desk sized 6 % of the balance times its conviction multipliers: on a 0.26 SOL wallet
+     * about 0.016 SOL, where the fixed legs alone (0.000253 SOL a round trip, roundTrip8418) were ~1.6 % — while established
+     * coins move ~0 % in an hour and +1.5-1.8 % in a day (§157), so no crypto trade could clear its own fees. The crypto lane's
+     * minimum executable ticket is now [CRYPTO_MIN_TICKET_SOL_8976] (fixed legs ~0.5 %). It is a MINIMUM handed to the
+     * canonical resolver (OrderSizeResolver6441), so it stays sizing-aware: a smaller request is lifted only when the fee-aware
+     * available cash AND the lane's risk cap fund it, never when the evidence shrank the trade (6909 conviction collapse,
+     * 7877 live edge) — then the trade is skipped, not taken at a size that cannot pay its fees. A larger request is honoured
+     * as asked. The crypto desk's admission is costed at the ticket it will trade at (the larger of its own and this one).
+     */
+    const val CRYPTO_MIN_TICKET_SOL_8976 = 0.05
+    fun cryptoMinTicketSol8976(crypto: Boolean): Double = if (crypto) CRYPTO_MIN_TICKET_SOL_8976 else 0.0
+    internal fun cryptoLane8976(lane: String): Boolean = lane.trim().uppercase().startsWith("CRYPTO")
+
     fun entryCost8209(ts: TokenState, lane: String, proposedSizeSol: Double = Double.NaN): EntryCost8209 {
-        val size = if (proposedSizeSol.isFinite() && proposedSizeSol > 0.0) proposedSizeSol else entryTicket8151()
+        val size0 = if (proposedSizeSol.isFinite() && proposedSizeSol > 0.0) proposedSizeSol else entryTicket8151()
+        val size = if (cryptoLane8976(lane)) maxOf(size0, CRYPTO_MIN_TICKET_SOL_8976) else size0   // V5.0.8976
         val cost = costPct8030(lane, size, liquidity8037(ts), ts.mint, ts.lastMcap)
         val bd = (tlBreakdown8209.get() ?: "COST_BREAKDOWN_UNAVAILABLE") +
             if (proposedSizeSol.isFinite() && proposedSizeSol > 0.0) " sizeAuthority=CANDIDATE" else " sizeAuthority=PREVIEW"

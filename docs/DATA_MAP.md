@@ -3260,3 +3260,19 @@ The runtime builds of 8972-8974 failed to compile: NetEdge8030 called RoundTrip8
 holds two objects and the pool-fee code sits in the second, RealisedSlip8418, beside noteQuote8418 (which Costs8369 already
 calls as RealisedSlip8418.noteQuote8418). NetEdge8030, the 8972 test and §157 now name RealisedSlip8418. Every other symbol
 added since 8970 (the last green build) was checked to resolve in its own object.
+
+## 161. A crypto ticket that can clear its fees (8976)
+
+Owner, 24 Nov 04:09: "its meant to be sizing aware. it can lift the min size to .05". The crypto desk asked 6 % of the balance
+times its conviction multipliers: on a 0.26 SOL wallet ~0.016 SOL, where the fixed legs alone (0.000253 SOL a round trip,
+roundTrip8418) were ~1.6 %; established coins move ~0 % in an hour and +1.5-1.8 % in a day (§157). Its admission was also
+costed at the meme desk's last ticket (~0.043 SOL), not its own.
+- CryptoAltTrader.cryptoTicket8976 (after the CryptoBrain size, before the canonical submit): an ask at or above 0.05 SOL
+  (NetEdge8030.CRYPTO_MIN_TICKET_SOL_8976; fixed legs ~0.5 %) is asked as sized; a smaller ask is lifted to 0.05 only when
+  the wallet holds four tickets (0.2 SOL+) and the sizer wanted at least a quarter of it. The lifted ask is the planned
+  size, so the stop's loss budget is judged on it.
+- CanonicalSizingBridge6532: the crypto desk's minimum executable is 0.05 SOL (live and paper alike). A smaller ask — one
+  its evidence shrank, or from a wallet too small to hold four tickets — then meets the resolver's own rules (fundability,
+  6909 conviction, 7877 live edge, 8188 loss budget) and is skipped rather than bought at a size that cannot pay its fees.
+- NetEdge8030.entryCost8209: a crypto lane's admission is costed at the larger of its own ticket and 0.05 SOL.
+- CRYPTO_TICKET_LIFTED_8976 / LEFT_BELOW_MIN_8976 / AT_OR_ABOVE_MIN_8976 counters.
