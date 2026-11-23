@@ -43,7 +43,20 @@ object ResearchFollow8884 {
         val atMs: Long, val mint: String, val lane: String, val admitted: Boolean, val stage: String, val setup: String,
         val pred: Double, val v3: Double, val mcap: Double, val liq: Double, val cost: Double, val entryUsd: Double,
         val reason: String, val next: Int,
-    )
+    ) {
+        // V5.0.8973 — the path since the decision: the highest and lowest sampled USD price and when it was last sampled.
+        // Outside the constructor, so equality (the pass's done set) never moves while a wait is held; copied by hand.
+        @Volatile var hiUsd8973: Double = Double.NaN
+        @Volatile var loUsd8973: Double = Double.NaN
+        @Volatile var sampledAtMs8973: Long = 0L
+        fun carry8973(to: Wait8884): Wait8884 { to.hiUsd8973 = hiUsd8973; to.loUsd8973 = loUsd8973; to.sampledAtMs8973 = sampledAtMs8973; return to }
+        fun see8973(usd: Double, atMs: Long) {
+            if (!(usd.isFinite() && usd > 0.0)) return
+            if (!(hiUsd8973 >= usd)) hiUsd8973 = usd
+            if (!(loUsd8973 <= usd)) loUsd8973 = usd
+            sampledAtMs8973 = atMs
+        }
+    }
 
     private val pending = java.util.ArrayDeque<Wait8884>()
     private val written = AtomicLong(0L)
@@ -105,7 +118,8 @@ object ResearchFollow8884 {
 
     internal fun encode8884(w: Wait8884): String = JSONObject().put("t", w.atMs).put("m", w.mint).put("l", w.lane).put("a", w.admitted)
         .put("st", w.stage).put("su", w.setup).put("p", num(w.pred)).put("v", num(w.v3)).put("mc", num(w.mcap)).put("lq", num(w.liq))
-        .put("c", num(w.cost)).put("e", w.entryUsd).put("r", w.reason).put("n", w.next).toString()
+        .put("c", num(w.cost)).put("e", w.entryUsd).put("r", w.reason).put("n", w.next)
+        .put("hi", num(w.hiUsd8973)).put("lo", num(w.loUsd8973)).put("ps", w.sampledAtMs8973).toString()
 
     private fun num(v: Double): Any = if (v.isFinite()) v else JSONObject.NULL
 
@@ -114,6 +128,7 @@ object ResearchFollow8884 {
         fun d(k: String) = if (o.isNull(k)) Double.NaN else o.optDouble(k, Double.NaN)
         val w = Wait8884(o.getLong("t"), o.getString("m"), word8945(o.optString("l")), o.optBoolean("a"), word8945(o.optString("st")),
             word8945(o.optString("su")), d("p"), d("v"), d("mc"), d("lq"), d("c"), o.getDouble("e"), word8945(o.optString("r")), o.optInt("n", 0))
+        w.hiUsd8973 = d("hi"); w.loUsd8973 = d("lo"); w.sampledAtMs8973 = o.optLong("ps", 0L)   // V5.0.8973 (absent before: NaN / 0)
         w.takeIf { it.mint.isNotBlank() && it.entryUsd > 0.0 && it.next in HORIZONS_8884.indices }
     } catch (_: Throwable) { null }
 
@@ -121,11 +136,15 @@ object ResearchFollow8884 {
 
     /** ForwardReturnLabeler7731.bookTwoForty7944: the decision that just wrote its hour row waits for its 4 h and 24 h reads. */
     fun note8884(atMs: Long, mint: String, lane: String, admitted: Boolean, stage: String, setup: String, pred: Double, v3: Double,
-                 mcap: Double, liq: Double, cost: Double, entryUsd: Double, reason: String) {
+                 mcap: Double, liq: Double, cost: Double, entryUsd: Double, reason: String,
+                 peakPct8973: Double = Double.NaN, minPct8973: Double = Double.NaN) {
         if (mint.isBlank() || !entryUsd.isFinite() || entryUsd <= 0.0) return
         if (!tradeable8923(liq)) { untradeable8923.incrementAndGet(); return }   // V5.0.8923
         ensureStarted8884()
         val w = Wait8884(atMs, mint, word8945(lane), admitted, word8945(stage), word8945(setup), pred, v3, mcap, liq, cost, entryUsd, word8945(reason.take(80)), 0)
+        // V5.0.8973 — the labeler's own high and low since the decision seed the path (gross % -> USD)
+        if (peakPct8973.isFinite()) w.see8973(entryUsd * (1.0 + peakPct8973 / 100.0), System.currentTimeMillis())
+        if (minPct8973.isFinite()) w.see8973(entryUsd * (1.0 + minPct8973 / 100.0), System.currentTimeMillis())
         synchronized(pending) {
             pending.addLast(w)
             while (pending.size > MAX_PENDING_8884) { pending.pollFirst(); dropped.incrementAndGet() }
@@ -168,6 +187,7 @@ object ResearchFollow8884 {
     /** One pass: the due decisions (oldest first), read in batches of [BATCH_8884], each read written as a research row. */
     private fun pass8884(nowMs: Long) {
         load8884()
+        try { samplePaths8973(nowMs) } catch (_: Throwable) { failed.incrementAndGet() }
         val due = synchronized(pending) {
             pending.filter { nowMs - it.atMs >= HORIZONS_8884[it.next] }.take(BATCH_8884 * CALLS_PER_PASS_8884)
         }
@@ -187,6 +207,9 @@ object ResearchFollow8884 {
                     if (implausible) implausible8923.incrementAndGet()
                     // A late mark is not a return at the requested horizon. Never feed it to a horizon learner.
                     val r = usd?.takeIf { !implausible && !tooLate }?.let { returns8884(w.entryUsd, it, w.cost) }
+                    // V5.0.8973 — the read price is a point of the path too; the row carries the path's high and low (gross %)
+                    if (usd != null && !implausible && !tooLate) w.see8973(usd, nowMs)
+                    val (peak8973, low8973) = pathPct8973(w.entryUsd, w.hiUsd8973, w.loUsd8973)
                     val why = when {
                         tooLate -> "LATE_READ_8884:" + w.reason
                         implausible -> "IMPLAUSIBLE_RATIO_8923:" + w.reason
@@ -197,11 +220,12 @@ object ResearchFollow8884 {
                     try {
                         ResearchRows8877.note8877(ResearchRows8877.line8877(w.atMs, horizon, w.mint, w.lane, w.admitted, w.stage, w.setup,
                             w.pred, w.v3, w.mcap, w.liq, w.cost, r?.first ?: Double.NaN, r?.second ?: Double.NaN,
-                            Double.NaN, Double.NaN, Double.NaN, why), nowMs)
+                            if (r != null) peak8973 else Double.NaN, if (r != null) peak8973 else Double.NaN,
+                            if (r != null) low8973 else Double.NaN, why), nowMs)
                         written.incrementAndGet()
                     } catch (_: Throwable) { failed.incrementAndGet() }
                     done += w
-                    if (w.next + 1 in HORIZONS_8884.indices) again += w.copy(next = w.next + 1)
+                    if (w.next + 1 in HORIZONS_8884.indices) again += w.carry8973(w.copy(next = w.next + 1))
                 }
                 synchronized(pending) {
                     pending.removeIf { it in done }
@@ -211,6 +235,49 @@ object ResearchFollow8884 {
             }
         }
         if (dirty && (due.isNotEmpty() || nowMs - savedAtMs >= 5L * 60_000L)) save8884(nowMs)
+    }
+
+    /**
+     * V5.0.8973 §THE_PATH_NOT_JUST_THE_END — owner, 24 Nov 02:50: the established and crypto lanes need their setups rebuilt.
+     * Their coins move over hours, not minutes, and the 4 h / 24 h reads recorded only the end price (peakPct / minPct null on
+     * every such row), so no stop, target or trail could be graded where they trade: the joined 24 Nov research could grade
+     * exits only at the hour, where in-band QUALITY / BLUECHIP sat at their round trip (-2.9 / -2.6 % medians). Every waiting
+     * decision's coin is now priced every [SAMPLE_GAP_MS_8973] (one Jupiter batch per [BATCH_8884] distinct coins, the
+     * longest-unsampled first, at most [SAMPLE_CALLS_8973] calls a pass), and the 4 h / 24 h row carries the path's high and
+     * low (gross % from the decision's price; heldPeakPct = the sampled high). The path is sampled, not tick-exact: a move
+     * inside 15 minutes is not seen, so a stop is graded on the sampled lows (stated, not hidden).
+     */
+    internal const val SAMPLE_GAP_MS_8973 = 15L * 60_000L
+    internal const val SAMPLE_CALLS_8973 = 6
+    private val sampled8973 = AtomicLong(0L)
+
+    /** Pure: the path's high and low as gross % from [entryUsd]; NaN when unsampled. */
+    internal fun pathPct8973(entryUsd: Double, hiUsd: Double, loUsd: Double): Pair<Double, Double> {
+        if (!(entryUsd.isFinite() && entryUsd > 0.0)) return Double.NaN to Double.NaN
+        val hi = if (hiUsd.isFinite() && hiUsd > 0.0) (hiUsd / entryUsd - 1.0) * 100.0 else Double.NaN
+        val lo = if (loUsd.isFinite() && loUsd > 0.0) (loUsd / entryUsd - 1.0) * 100.0 else Double.NaN
+        return hi to lo
+    }
+
+    private fun samplePaths8973(nowMs: Long) {
+        val byMint = LinkedHashMap<String, MutableList<Wait8884>>()
+        synchronized(pending) {
+            pending.filter { nowMs - it.sampledAtMs8973 >= SAMPLE_GAP_MS_8973 && nowMs - it.atMs < HORIZONS_8884.last() }
+                .sortedBy { it.sampledAtMs8973 }
+                .forEach { if (byMint.size < BATCH_8884 * SAMPLE_CALLS_8973 || byMint.containsKey(it.mint)) byMint.getOrPut(it.mint) { ArrayList() }.add(it) }
+        }
+        if (byMint.isEmpty()) return
+        for (chunk in byMint.keys.toList().chunked(BATCH_8884)) {
+            val body = fetch8884(chunk) ?: continue
+            for (m in chunk) {
+                val usd = priceOf8884(body, m)
+                for (w in byMint[m].orEmpty()) {
+                    if (usd != null && plausible8923(w.entryUsd, usd)) w.see8973(usd, nowMs) else w.sampledAtMs8973 = nowMs
+                }
+                if (usd != null) sampled8973.incrementAndGet()
+            }
+        }
+        dirty = true
     }
 
     // V5.0.8934 — 22 Nov 04:08: waiting4h=15,213 waiting24h=7,918 written=0 failed=20 — every pass's call failed, so no 4 h or
@@ -261,7 +328,7 @@ object ResearchFollow8884 {
         return "researchFollow8884[waiting4h=$h4 waiting24h=$h24 written=${written.get()} unpriced=${unpriced.get()} late=${late.get()} " +
             "failed=${failed.get()} dropped=${dropped.get()} untradeable8923=${untradeable8923.get()} implausible8923=${implausible8923.get()} " +
             "calls8934{keyed=${keyedOk8934.get()} keyless=${keylessOk8934.get()} notSolanaIds=${notSolana8934.get()}} " +
-            "readFailed8945{${why8945.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}} rule=each hour row's decision read again at 4 h and 24 h (Jupiter price v3, USD per token), same file]"
+            "pathSampled8973=${sampled8973.get()} readFailed8945{${why8945.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}} rule=each hour row's decision read again at 4 h and 24 h (Jupiter price v3, USD per token), its path sampled every 15 min (8973), same file]"
     }
 
     internal fun resetForTest8884() { synchronized(pending) { pending.clear() }; loaded = true; written.set(0); unpriced.set(0); late.set(0); dropped.set(0) }

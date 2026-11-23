@@ -3231,3 +3231,19 @@ low and close; each coin once per lane):
   outAmount); RoundTrip8418.poolFeePct8972 sums a single chain of hops (a split route, an unpriced fee mint or a missing
   field gives null and the model stays; floored 0.01 %, capped 5 %), filed per mint for 6 h, and a non-pump.fun pool is
   charged it. The pump.fun curve and PumpSwap keep their published schedule. venueFee8972[quoted modelled] in the cost line.
+
+## 158. The path, not just the end (8973)
+
+The established and crypto lanes trade coins that move over hours. Their research rows at 4 h and 24 h (ResearchFollow8884)
+held only the end price: peakPct / minPct / heldPeakPct null on every such row, so no stop, target or trail could be graded
+where those lanes actually move (§157: at the hour, in-band QUALITY / BLUECHIP medians sat at their round trip).
+- Each waiting decision now keeps its path: the highest and lowest plausible USD price seen since the decision, seeded with
+  the labeler's own hour high / low (ForwardReturnLabeler7731 bookTwoForty7944 -> note8884), then sampled every 15 minutes
+  (SAMPLE_GAP_MS_8973) — one Jupiter price batch per 50 distinct coins (a coin waiting in several lanes is asked once), the
+  longest-unsampled first, at most 6 calls a pass (a pass a minute) — and the read price itself.
+- The 4 h and 24 h rows carry it: peakPct = heldPeakPct = the path's high, minPct = its low, gross % from the decision's
+  price. It is carried from the 4 h wait to the 24 h wait and persisted with the wait (hi / lo / ps; a wait written before
+  8973 starts unsampled).
+- Sampled, not tick-exact: a move inside 15 minutes is not seen, so a stop is graded on sampled lows. Stated, not hidden.
+- pathSampled8973 in researchFollow8884. Next: the lane pocket miner grades the established and crypto lanes at 4 h / 24 h
+  under their own exits once a day of these rows exists.
