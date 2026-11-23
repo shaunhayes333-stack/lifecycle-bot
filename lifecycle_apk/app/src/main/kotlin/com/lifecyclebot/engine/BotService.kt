@@ -26083,6 +26083,8 @@ if (hotExitHandledSweep) {
                 processTokenCycleTraced8869(mint, cycleCfg8779(cfg), wallet, t0)
                 fastLaneSemaphore7277.release()
                 held7925 = false
+                // Market evidence has already landed. This pass is not a hydration probe.
+                if (origin == "CHAIN_ANSWER_8957" && onceKey.contains("|market8959|")) return@launch
                 delay(1_500L)
                 // V5.0.7278 — the second pass is for a token the first pass could
                 // only hydrate; when the first pass already opened it, a second

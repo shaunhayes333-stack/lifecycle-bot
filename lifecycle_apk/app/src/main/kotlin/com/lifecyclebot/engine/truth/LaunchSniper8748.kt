@@ -55,7 +55,7 @@ object LaunchSniper8748 {
     /** CandidateAdmission8136 (LIVE): a coin carrying an armed fire of the proven rule was ADMITTED: its position holds on the rule's stop. */
     fun noteAdmission8949(mint: String, kind: String, terminal: String, nowMs: Long = System.currentTimeMillis()) {
         if (kind != KIND_8748 || terminal != "ADMIT" || mint.isBlank()) return
-        val f = fires[mint]?.takeIf { it.armed && nowMs - it.atMs in 0L..EVIDENCE_TTL_MS } ?: return
+        val f = fires[mint]?.takeIf { liveFire8959(it, nowMs) } ?: return
         val rule = LaunchReplay8744.proven8748()?.rule?.takeIf { it.id == f.ruleId } ?: return
         if (admitted8949.size > 2_000) admitted8949.entries.removeIf { nowMs - it.value.second > ENTRY_MATCH_MS_8949 }
         admitted8949[mint] = rule.stopPct to nowMs
@@ -296,12 +296,16 @@ object LaunchSniper8748 {
      * the replay's own net outcome on the same trigger, every dump through the stop included, so the band's average gap
      * (PocketLedger8610.gapCostPct8823) is not charged on top of it a second time. Pure read; counts nothing.
      */
+    // Network delay spends the replay trigger's window; receipt must never restart the clock.
+    internal fun liveFire8959(f: Fire, nowMs: Long): Boolean = f.armed && nowMs >= f.atMs &&
+        nowMs - minOf(f.triggerEventMs, f.atMs) in 0L..EVIDENCE_TTL_MS
+
     fun armedWindow8824(mint: String, nowMs: Long): Boolean =
-        mint.isNotBlank() && fires[mint]?.let { it.armed && nowMs - it.atMs in 0L..EVIDENCE_TTL_MS } == true
+        mint.isNotBlank() && fires[mint]?.let { liveFire8959(it, nowMs) } == true
 
     /** CandidateAdmission8136: the armed fire on [mint] as market-cell evidence, or null. */
     fun evidence8748(mint: String, nowMs: Long): CandidateAdmission8136.Evidence8136? {
-        val f = fires[mint]?.takeIf { it.armed && nowMs - it.atMs in 0L..EVIDENCE_TTL_MS } ?: return null
+        val f = fires[mint]?.takeIf { liveFire8959(it, nowMs) } ?: return null
         evidenceServed.incrementAndGet()
         return CandidateAdmission8136.Evidence8136(KIND_8748, f.ruleId, f.n, f.exTop3, f.exTop3Se,
             runnerRate = f.tenX, netOfCost = true)

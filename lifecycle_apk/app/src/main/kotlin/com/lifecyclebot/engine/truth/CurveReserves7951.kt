@@ -177,6 +177,7 @@ object CurveReserves7951 {
         try { com.lifecyclebot.engine.HydrationReeval8343.onCurveRead8343(m, real, atMs) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.TicketRetry8327.onReserveObserved8385(m, accepted.atMs, accepted.source, accepted.version) } catch (_: Throwable) {}
         if (accountObserved) try { capFromCurve8952(m, vSol, vTok, atMs) } catch (_: Throwable) {}   // V5.0.8952
+        if (accountObserved && vSol.isFinite() && vSol > 0 && vTok.isFinite() && vTok > 0 && real.isFinite() && real >= 0) ChainConfirm8950.marketObserved8959(m, atMs)
         return accepted
     }
 

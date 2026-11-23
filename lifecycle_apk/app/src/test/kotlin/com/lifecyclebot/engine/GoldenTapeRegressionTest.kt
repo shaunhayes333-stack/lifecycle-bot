@@ -15869,6 +15869,16 @@ class GoldenTapeRegressionTest {
         }
         Aate8513SnapshotAllocationTest().overlappingPendingOwnersDetachOneFrozenEpisodeWithoutRepeatedGraphs()
     }
+    @org.junit.Test fun V5_0_8959_only_accepted_market_reads_reassess_an_entry() {
+        val dir = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth")
+        val depth = dir.resolve("OnChainDepth8038.kt").readText().substringAfter("internal fun accept8418(").substringBefore("private fun recordStatePrice8418")
+        val wake = "ChainConfirm8950.marketObserved8959(mint, observedAt)"
+        org.junit.Assert.assertTrue(depth.indexOf("depthOnlyReads8418[mint] = read") in 0 until depth.indexOf(wake))
+        org.junit.Assert.assertTrue(depth.indexOf("reads[mint] = read") in 0 until depth.lastIndexOf(wake))
+        val curve = dir.resolve("CurveReserves7951.kt").readText().substringBefore("ChainConfirm8950.marketObserved8959(m, atMs)")
+        org.junit.Assert.assertTrue(curve.lineSequence().last().contains("if (accountObserved &&"))
+    }
+
     @Test fun V5_0_8958_runnerHandoffsPreserveIdentityAndCapacity() {
         val crypto = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()

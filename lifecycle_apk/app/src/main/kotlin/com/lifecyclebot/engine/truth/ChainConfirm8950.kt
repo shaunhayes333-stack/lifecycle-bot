@@ -73,7 +73,7 @@ object ChainConfirm8950 {
         if (inputs.isEmpty() && missing.isNotEmpty()) unmapped8957.incrementAndGet()
         var askedAny = false
         for (input in inputs) if (ask8950(ts, input, use, nowMs)) askedAny = true
-        if (askedAny && use.uppercase() in RERUN_USES_8957) rerun8957(ts.mint, nowMs)
+        if (askedAny && use.uppercase() in RERUN_USES_8957 && needsTimedFallback8959(inputs)) rerun8957(ts.mint, nowMs)
     }
 
     /**
@@ -104,18 +104,51 @@ object ChainConfirm8950 {
         confirm8950(ts, missing, use, nowMs)
     }
 
+    // Pending entry assessments only. The observation's own clock must follow the ask.
+    internal fun needsTimedFallback8959(inputs: Set<Input8950>) = inputs.any {
+        it != Input8950.PRICE_DEPTH && it != Input8950.HISTORY
+    }
+    private val waitingDepth8959 = java.util.LinkedHashMap<String, Long>()
+    private val marketAnswers8959 = AtomicLong()
+    internal fun armDepth8959(mint: String, at: Long) = synchronized(waitingDepth8959) {
+        if (waitingDepth8959.size >= CAP_8950 && !waitingDepth8959.containsKey(mint))
+            waitingDepth8959.remove(waitingDepth8959.keys.first())
+        waitingDepth8959[mint] = at
+    }
+    internal fun claimDepth8959(mint: String, observed: Long, now: Long): Long? = synchronized(waitingDepth8959) {
+        val asked = waitingDepth8959[mint] ?: return@synchronized null
+        if (now - asked > GAP_MS_8950) { waitingDepth8959.remove(mint); return@synchronized null }
+        if (observed < asked || now - observed !in 0L..OnChainDepth8038.PRICE_SYNC_MAX_MS_8847) return@synchronized null
+        waitingDepth8959.remove(mint)
+    }
+    fun marketObserved8959(mint: String, observed: Long) {
+        val asked = claimDepth8959(mint, observed, System.currentTimeMillis()) ?: return
+        sched8951.execute {
+            if (live8950() && System.currentTimeMillis() - observed in 0L..OnChainDepth8038.PRICE_SYNC_MAX_MS_8847) {
+                answered8957?.invoke(mint, "$mint|market8959|$asked")
+                marketAnswers8959.incrementAndGet()
+            }
+        }
+    }
+
     private fun ask8950(ts: TokenState, input: Input8950, use: String, nowMs: Long): Boolean {
         val key = "${ts.mint}|${input.name}"
-        if (!due8950(lastAsk[key] ?: 0L, nowMs)) return false
-        if (lastAsk.size > CAP_8950) lastAsk.entries.removeIf { nowMs - it.value > GAP_MS_8950 }
-        lastAsk[key] = nowMs
+        synchronized(lastAsk) {
+            val prior = lastAsk[key] ?: 0L
+            val due = due8950(prior, nowMs)
+            if (input == Input8950.PRICE_DEPTH && use.uppercase() in RERUN_USES_8957 && due)
+                armDepth8959(ts.mint, nowMs)
+            if (!due) return false
+            if (lastAsk.size > CAP_8950) lastAsk.entries.removeIf { nowMs - it.value > GAP_MS_8950 }
+            lastAsk[key] = nowMs
+        }
         asks.computeIfAbsent("${use.take(12)}:${input.name}") { AtomicLong(0L) }.incrementAndGet()
         val mint = ts.mint
         try {
             io.execute {
                 try {
                     when (input) {
-                        Input8950.PRICE_DEPTH -> OnChainDepth8038.needDepth8047(ts, System.currentTimeMillis())
+                        Input8950.PRICE_DEPTH -> OnChainDepth8038.needDepth8047(ts, System.currentTimeMillis(), decisionPing8959 = use.uppercase() in RERUN_USES_8957)
                         Input8950.HISTORY -> StageRead8950.askChain8950(ts, System.currentTimeMillis())
                         Input8950.AUTHORITY -> AuthorityProofPrefetch8136.prefetchIfLive8136(mint)
                         Input8950.HOLDERS -> OnChainHolderConcentration7379.observation8522(mint, maxAgeMs = 60_000L)
@@ -172,7 +205,7 @@ object ChainConfirm8950 {
     /** Brief: asks by use and input. */
     fun statusLine8950(): String =
         "chainConfirm8950[" + asks.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } +
-            " reruns8957=${reruns8957.get()} unmapped8957=${unmapped8957.get()} probation8951{curveAsked=${probationAsked8951.get()} promoted=${probationPromoted8951.get()} otherVenue=${probationOther8951.get()}}" +
+            " marketAnswers8959=${marketAnswers8959.get()} reruns8957=${reruns8957.get()} unmapped8957=${unmapped8957.get()} probation8951{curveAsked=${probationAsked8951.get()} promoted=${probationPromoted8951.get()} otherVenue=${probationOther8951.get()}}" +
             " rule=a LIVE decision, hold or exit missing an input reads it from the chain now (price/depth: curve or pool vaults; supply: the mint; " +
             "history/stage: the coin's swap history; authority; holders; LP lock; safety report), each (coin, input) at most every " +
             "${GAP_MS_8950 / 1000}s, and the coin's pipeline re-runs when the answers land (2.5 s, 7 s); nothing decided here]"

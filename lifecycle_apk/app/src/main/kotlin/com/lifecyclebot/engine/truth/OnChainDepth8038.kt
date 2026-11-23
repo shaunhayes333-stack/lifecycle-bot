@@ -479,6 +479,7 @@ object OnChainDepth8038 {
             try { com.lifecyclebot.engine.HydrationReeval8343.onDepthRead8343(mint, depthUsd8038(read.quoteSol, solUsd()), read.atMs) } catch (_: Throwable) {}
             fetched.incrementAndGet()
             try { PipelineHealthCollector.labelInc("ONCHAIN_DEPTH_CONCENTRATED_READ_8418_${venueName8418(owner8418)}") } catch (_: Throwable) {}
+            ChainConfirm8950.marketObserved8959(mint, observedAt)
             return Accept8418.CONCENTRATED
         }
         reads[mint] = read
@@ -486,6 +487,7 @@ object OnChainDepth8038 {
         try { com.lifecyclebot.engine.HydrationReeval8343.onDepthRead8343(mint, depthUsd8038(read.quoteSol, solUsd()), read.atMs) } catch (_: Throwable) {}  // V5.0.8343 — the vault answer ends a liquidity deferral
         if (reads.size > 3_000) reads.entries.sortedBy { it.value.atMs }.take(300).forEach { reads.remove(it.key) }
         fetched.incrementAndGet()
+        ChainConfirm8950.marketObserved8959(mint, observedAt)
         return Accept8418.CONSTANT_PRODUCT
     }
 
@@ -734,7 +736,7 @@ object OnChainDepth8038 {
     private val poolDepthAsked8047 = AtomicLong(0)
 
     /** LiquidityTruth8037: [ts]'s depth is unknown — read its curve and, when it names a pool, the pool's vaults. */
-    fun needDepth8047(ts: TokenState, nowMs: Long = System.currentTimeMillis()) {
+    fun needDepth8047(ts: TokenState, nowMs: Long = System.currentTimeMillis(), decisionPing8959: Boolean = false) {
         val mint = ts.mint
         if (mint.isBlank()) return
         val graduated = try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(mint) } catch (_: Throwable) { false }
@@ -743,7 +745,7 @@ object OnChainDepth8038 {
             (try { com.lifecyclebot.network.PumpCurveKeys7269.keyFor(mint) } catch (_: Throwable) { null }) != null ||
             (try { CurveReserves7951.known7951(mint) } catch (_: Throwable) { false })
         if (!graduated && curveCoin) needCurve8039(mint, nowMs)
-        if (!curveDue8039(poolAsked8047[mint] ?: 0L, nowMs)) return
+        if (!decisionPing8959 && !curveDue8039(poolAsked8047[mint] ?: 0L, nowMs)) return
         if (pools(ts).isEmpty()) {
             // V5.0.8489 — a non-pump coin with no known pool: one batched pair read (30 mints a call) names its SOL pool.
             if (!curveCoin) try { com.lifecyclebot.engine.DexBatchLane8287.enqueue8287(mint) } catch (_: Throwable) {}
@@ -752,7 +754,7 @@ object OnChainDepth8038 {
         poolAsked8047[mint] = nowMs
         if (poolAsked8047.size > 6_000) poolAsked8047.entries.removeIf { nowMs - it.value > 10 * CURVE_RETRY_MS }
         poolDepthAsked8047.incrementAndGet()
-        request8038(ts)
+        request8038(ts, if (decisionPing8959) PRICE_SYNC_MAX_MS_8847 else FRESH_MS)
     }
 
     /** LiquidityTruth8037: [mint]'s depth is unknown — read its curve from the chain in the next batch. Returns immediately. */
