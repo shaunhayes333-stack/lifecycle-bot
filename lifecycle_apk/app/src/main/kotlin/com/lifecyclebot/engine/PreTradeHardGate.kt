@@ -96,12 +96,50 @@ object PreTradeHardGate {
     }
 
     /**
+     * V5.0.8960 §THE_READING_IS_AS_OLD_AS_ITS_TIMESTAMP — the owner, 23 Nov: "we are looking at the tokens at the wrong
+     * time". [topHolderPct8522] takes the max of the state reading and the report with no age on either, and the state
+     * reading carries no date at all (TokenFacts stamps TOP_HOLDER_PCT legacy(.., 0L)). So a launch-moment reading — a
+     * dev's opening bag, which is largest in the first seconds of a coin's life — hard-blocked the coin for the rest of
+     * its life: no fresher, better readout could ever clear it. The 8949 launch rule (n3104, +7.1 %, 10x+ 0.3 %) lost 25
+     * of 50 armed-fire episodes to exactly this block on the 23:03 capture.
+     *
+     * The adverse reading is now the freshest DATED evidence: a fresh report governs, a fresh dated state read is used
+     * when the report is not fresh, and only when neither is fresh does the old max stand. Undated state never overrides a
+     * fresher dated reading. [HolderProof8522.freshPct] is unchanged, so every deferral and every authorisation path
+     * behaves exactly as before: this decides only which reading the 35 % fatal is applied to.
+     */
+    internal fun holderProofDated8960(statePct: Double?, stateAtMs: Long, report: SafetyReport, nowMs: Long): HolderProof8522 {
+        val fresh = report.topHolderPct.takeIf {
+            it.isFinite() && it >= 0.0 && report.topHolderObservedAtMs8522 > 0L &&
+                nowMs - report.topHolderObservedAtMs8522 in 0L..SAFETY_FRESH_MS
+        }?.coerceAtMost(100.0)
+        val freshState = statePct?.takeIf {
+            it.isFinite() && it >= 0.0 && stateAtMs > 0L && nowMs - stateAtMs in 0L..SAFETY_FRESH_MS
+        }?.coerceAtMost(100.0)
+        val adverse = when {
+            freshState != null && fresh != null -> maxOf(freshState, fresh)
+            freshState != null -> freshState
+            fresh != null -> fresh
+            else -> topHolderPct8522(statePct, report.topHolderPct)
+        }
+        return HolderProof8522(adverse, fresh)
+    }
+
+    /** The coin's own dated holder evidence (TokenFacts), so the fatal is applied to a reading, not a memory. */
+    internal fun holderProof8960(ts: TokenState, report: SafetyReport, nowMs: Long): HolderProof8522 {
+        val fact = try {
+            com.lifecyclebot.engine.truth.TokenFacts.snapshotFact(ts, com.lifecyclebot.engine.truth.TokenFacts.Field.TOP_HOLDER_PCT)
+        } catch (_: Throwable) { null }
+        return holderProofDated8960(fact?.value ?: ts.topHolderPct, fact?.observedAtMs ?: 0L, report, nowMs)
+    }
+
+    /**
      * V5.0.8684 — the buy door's confirmed top-holder hard block, readable BEFORE a ticket is spent (CandidateAdmission8136).
      * 8680: PRETRADE_HARD_BLOCK_TOP_HOLDER_CONCENTRATION=24 — candidates admitted, FDG-allowed and ticketed, then refused here,
      * each one a dropped ticket and a lease backoff (BUY_LEASE_BACKOFF_ENDS_TICKET_8545). Same proof, same threshold.
      */
     fun holderBlock8684(ts: TokenState, nowMs: Long = System.currentTimeMillis()): String? =
-        if (holderProof8522(ts.topHolderPct, ts.safety, nowMs).adversePct >= TOP_HOLDER_FATAL_PCT) "TOP_HOLDER_CONCENTRATION" else null
+        if (holderProof8960(ts, ts.safety, nowMs).adversePct >= TOP_HOLDER_FATAL_PCT) "TOP_HOLDER_CONCENTRATION" else null
 
     /**
      * V5.0.8705 — the buy door, asked BEFORE a ticket is spent (CandidateAdmission8136). 8703 read three of the door's proof
@@ -312,7 +350,7 @@ object PreTradeHardGate {
             if (!probing8705()) try { ForensicLogger.lifecycle("BUY_GATE_DECISION", "mint=${ts.mint.take(10)} symbol=${ts.symbol} decision=PENALTY_ONLY reason=LOW_LIQUIDITY_SIZE_REDUCED source=PreTradeHardGate liveEligible=true") } catch (_: Throwable) {}
         }
 
-        val holder8522 = holderProof8522(ts.topHolderPct, safety, System.currentTimeMillis())
+        val holder8522 = holderProof8960(ts, safety, System.currentTimeMillis())   // V5.0.8960 — the freshest dated reading decides the fatal
         val topHolder = holder8522.adversePct
         // V5.0.7379 — a known top-10 concentration (rugcheck or on-chain) is resolved
         // holder data, whether or not a holder-count candle has arrived.

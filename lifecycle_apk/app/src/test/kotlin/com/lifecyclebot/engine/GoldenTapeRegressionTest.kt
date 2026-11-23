@@ -12362,7 +12362,7 @@ class GoldenTapeRegressionTest {
         assertTrue(holderRead.contains("topHolderObservedAtMs8522 = it.observedAtMs"))
         assertTrue(holderRead.contains("topHolderSource8522 = \"RPC_TOP10\""))
         val g = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PreTradeHardGate.kt").readText()
-        assertTrue(g.contains("val holder8522 = holderProof8522(ts.topHolderPct, safety, System.currentTimeMillis())"))
+        assertTrue(g.contains("val holder8522 = holderProof8960(ts, safety, System.currentTimeMillis())"))
         assertTrue(g.contains("if (!ts.holderDataResolved && holder8522.freshPct == null) pendingProofs.add(\"HOLDER_DATA_PENDING\")"))
         assertTrue(g.contains("if (holder8522.freshPct == null) pendingProofs.add(\"HOLDER_DATA_UNKNOWN\")"))
     }
