@@ -3028,3 +3028,22 @@ unmapped8957=] (unmapped counts defers whose missing names map to no chain read)
 ## 147. Entry assessment uses market time (8959)
 
 Launch fires carry both the trigger print time and the receipt time. The evidence, fast-lane eligibility and stop-plan admission now share the same 120-second expiry measured from the earlier clock. A late delivery cannot extend a replay signal's life. A LIVE price/depth defer uses the existing batched pool reader with the decision's five-second freshness requirement rather than the background 90-second cache and 60-second pool throttle. Its per-mint/input request remains deduplicated for twenty seconds. An accepted curve-account or vault observation matching an outstanding request wakes that mint's decision path once while fresh. Market-only waits set no reassessment timers. Mixed waits involving other providers retain timed fallback opportunities, never proof. This is not a safety bypass, a BUY or evidence of live profit.
+
+## 148. The fast lane belongs to the signals (8962)
+
+Report 23 Nov 22:07 (5.0.8961, LIVE, 37 min, 1 buy): FAST_LANE_EVALUATED_7277=537 against FAST_LANE_SATURATED_7277=4322. The
+six event slots that run a coin's pipeline when a signal fires were refused 89 % of the time. The demand was chain answers:
+8957 / 8959 listed the UNKNOWN-stage read among the uses whose price/depth answer re-runs the coin, and that read asks for
+133,531 unknown-stage sightings (chainConfirm8950 STAGE:PRICE_DEPTH=7276 against DECISION:PRICE_DEPTH=50; marketAnswers8959=4954,
+reruns8957=1802). The same flag let every stage ask read the pool past the 60 s gap. Coins nobody was deciding on took the slots
+and the chain reads from coins at the gate: launch prints fired 553 times, LANE_POCKET coins deferred 105 of 173 on data
+(PRICE_STALE 68), an admitted MOONSHOT buy reached the send 9.3 s and 52 s late and was refused as a consumed chase.
+
+- ChainConfirm8950.RERUN_USES_8957 = DECISION, LANE, EVIDENCE, EXEC. A stage read asks the chain as before at the ordinary
+  cadence; its history answer re-runs the coin through StageRead8950.direct8950 (unchanged since 8950).
+- FastLane8962: the chain-answer re-runs that remain hold at most 2 of the 6 slots; every other origin enters as before.
+- Brief line `fastLane8962[ran{origin=} noSlot{origin=} chainAnswerYielded=]`: the next report names who used and who lost a slot.
+
+No gate, bar, threshold, size or safety rule changes. Acceptance on the next live report: noSlot{} for LAUNCH_* / EVIDENCE_WAIT
+near zero, STAGE:PRICE_DEPTH a fraction of 7,276 per 37 min, buys start->broadcast and decide50/90 lower. Net returns are not
+claimed from tests.

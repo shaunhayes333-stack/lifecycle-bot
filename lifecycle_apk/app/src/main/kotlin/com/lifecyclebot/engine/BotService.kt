@@ -26103,13 +26103,17 @@ if (hotExitHandledSweep) {
         if (mint.isBlank() || !status.running) return
         if (!fastLaneOnce7277.add(onceKey)) return
         scope.launch(Dispatchers.IO + CoroutineName("fast-lane-7277")) {
+            // V5.0.8962 — chain-answer re-runs hold at most two of the six slots; the signals keep the rest
+            if (!com.lifecyclebot.engine.truth.FastLane8962.enter8962(origin)) { fastLaneOnce7277.remove(onceKey); return@launch }
             val acquired8958 = try {
                 com.lifecyclebot.engine.truth.LaunchSniper8748.acquireFast8958(origin, fastLaneSemaphore7277) {
                     status.running && status.tokens.containsKey(mint) &&
                         com.lifecyclebot.engine.truth.LaunchSniper8748.armedWindow8824(mint, System.currentTimeMillis())
                 }
-            } catch (e: CancellationException) { fastLaneOnce7277.remove(onceKey); throw e }
+            } catch (e: Throwable) { com.lifecyclebot.engine.truth.FastLane8962.leave8962(origin); fastLaneOnce7277.remove(onceKey); throw e }
+            com.lifecyclebot.engine.truth.FastLane8962.note8962(origin, acquired8958)
             if (!acquired8958) {
+                com.lifecyclebot.engine.truth.FastLane8962.leave8962(origin)
                 try { PipelineHealthCollector.labelInc("FAST_LANE_SATURATED_7277") } catch (_: Throwable) {}
                 fastLaneOnce7277.remove(onceKey)
                 return@launch
@@ -26148,6 +26152,7 @@ if (hotExitHandledSweep) {
                 if (t is kotlinx.coroutines.CancellationException) throw t
                 ErrorLogger.debug("BotService", "fast lane ${mint.take(8)}: ${t.message?.take(100)}")
             } finally {
+                com.lifecyclebot.engine.truth.FastLane8962.leave8962(origin)
                 if (held7925) fastLaneSemaphore7277.release()
                 scope.launch(Dispatchers.IO) { delay(60_000L); fastLaneOnce7277.remove(onceKey) }
             }

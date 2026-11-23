@@ -87,7 +87,9 @@ object ChainConfirm8950 {
      * land ([RERUN_AFTER_MS_8957]), each pass deduplicated per coin and slot. Every gate decides as before.
      */
     @Volatile var answered8957: ((mint: String, onceKey: String) -> Unit)? = null
-    internal val RERUN_USES_8957 = setOf("DECISION", "LANE", "EVIDENCE", "STAGE", "EXEC")
+    // V5.0.8962 — a stage read is not a decision ping: STAGE left this set (its 7,276 price/depth answers in 37 min took the
+    // fast lane from the signals; FastLane8962). Its history answer still re-runs the coin through StageRead8950.direct8950.
+    internal val RERUN_USES_8957 = setOf("DECISION", "LANE", "EVIDENCE", "EXEC")
     internal val RERUN_AFTER_MS_8957 = listOf(2_500L, 7_000L)
     private val reruns8957 = AtomicLong(0L)
     private val unmapped8957 = AtomicLong(0L)

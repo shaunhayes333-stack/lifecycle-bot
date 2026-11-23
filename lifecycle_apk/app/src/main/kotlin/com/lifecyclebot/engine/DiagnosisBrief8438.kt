@@ -242,6 +242,7 @@ object DiagnosisBrief8438 {
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.EvidenceWait8948.statusLine8948() } catch (_: Throwable) { "evidenceWait8948[read failed]" }).append('\n')  // V5.0.8948
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.StageRead8950.statusLine8950() } catch (_: Throwable) { "stageRead8950[read failed]" }).append('\n')  // V5.0.8950
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.ChainConfirm8950.statusLine8950() } catch (_: Throwable) { "chainConfirm8950[read failed]" }).append('\n')  // V5.0.8950
+            sb.append("               ").append(try { com.lifecyclebot.engine.truth.FastLane8962.statusLine8962() } catch (_: Throwable) { "fastLane8962[read failed]" }).append('\n')  // V5.0.8962
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.CapTruth8951.statusLine8951() } catch (_: Throwable) { "capTruth8951[read failed]" }).append('\n')  // V5.0.8951
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.ResearchRows8877.statusLine8877() } catch (_: Throwable) { "research8877[read failed]" }).append('\n')  // V5.0.8877
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.ResearchFollow8884.statusLine8884() } catch (_: Throwable) { "researchFollow8884[read failed]" }).append('\n')  // V5.0.8884

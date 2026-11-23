@@ -60,7 +60,7 @@ class Aate8957ChainAnswerTest {
     }
 
     @Test fun decisionDefersAreReRunButHoldsAndExitsKeepTheirOwnLoops() {
-        assertEquals(setOf("DECISION", "LANE", "EVIDENCE", "STAGE", "EXEC"), ChainConfirm8950.RERUN_USES_8957)
+        assertEquals(setOf("DECISION", "LANE", "EVIDENCE", "EXEC"), ChainConfirm8950.RERUN_USES_8957)   // V5.0.8962: a stage read is not a decision ping
         assertEquals(listOf(2_500L, 7_000L), ChainConfirm8950.RERUN_AFTER_MS_8957)
         val c = src("engine/truth/ChainConfirm8950.kt")
         assertTrue("qualified Solana identities are resolved before scheduling",

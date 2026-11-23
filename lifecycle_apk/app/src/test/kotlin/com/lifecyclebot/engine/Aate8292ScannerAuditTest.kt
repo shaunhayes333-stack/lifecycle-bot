@@ -29,7 +29,8 @@ class Aate8292ScannerAuditTest {
         assertEquals("DEX_TRENDING", ScannerSourceTags8292.canonicalCompound8292("DEX_TRENDING,REGISTRY_DUPLICATE_HYDRATE"))
         assertEquals("", ScannerSourceTags8292.canonicalCompound8292("SCANNER_DIRECT"))
         assertEquals("PROBATION,PUMP_FUN_NEW", ScannerSourceTags8292.canonicalCompound8292("PROBATION,PUMP_FUN_NEW"))
-        assertEquals(setOf("SCANNER_DIRECT", "SCANNER_HEAL", "REGISTRY_DUPLICATE_HYDRATE"), ScannerSourceTags8292.PATHWAY_TAGS_8292)
+        assertEquals(setOf("SCANNER_DIRECT", "SCANNER_HEAL", "REGISTRY_DUPLICATE_HYDRATE", "LANE_POCKET_RECOVERY_8961"), ScannerSourceTags8292.PATHWAY_TAGS_8292)
+        assertTrue("8961: a pocket recovery re-admits a known coin; it is never a second source", ScannerSourceTags8292.isPathwayTag8292("LANE_POCKET_RECOVERY_8961"))
     }
 
     @Test fun aPathwayOrWrapperIsNotASecondSource() {

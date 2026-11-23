@@ -9146,7 +9146,9 @@ class GoldenTapeRegressionTest {
         assertTrue("6569 intent conservation is explicit", authority.contains("dispatchReject=") && authority.contains("pending=") && authority.contains("unexplained="))
         assertTrue("6569 three-window producer liveness fault", authority.contains("MARKET_CLASS_LIVENESS_FAULT") && authority.contains("zero.get() >= 3L"))
         assertTrue("6569 specialist silence observes through shared authority", crypto.contains("CRYPTO_SPECIALIST_SILENCE_OBSERVATION_ONLY_7244") && crypto.contains("DynamicAltTokenRegistry.markFdgReach6544(") && !crypto.contains("""markEvaluationDisposition6567(refreshed, "NO_ACTIONABLE_SPECIALIST_SIGNAL")"""))
-        assertTrue("6569 bounded Crypto shared-intelligence work", crypto.contains(".take(25)"))
+        assertTrue("6569 bounded Crypto shared-intelligence work",   // V5.0.8961 moved the bound of 25 into the record-first ordering
+            crypto.contains("val topDyn = CryptoSignalPriority8961.order(uniqueDynSignals6567, 25,") &&
+                java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoSignalPriority8961.kt").readText().contains(".take(limit.coerceAtLeast(0))"))
         assertTrue("6569 advisor causal-domain isolation", advisor.contains("ADVISOR_CROSS_DOMAIN_MUTATION_BLOCKED_6569") && advisor.contains("REPLAY_DRIVEN_ENTRY_COOLDOWN_ROLLED_BACK_6569") && !advisor.contains("""Candidate("entryCooldownSec", +3.0"""))
         assertTrue("6569 leveraged terminal proceeds and quarantine", crypto.contains("sol              = (pos.sizeSol + pnlSol).coerceAtLeast(0.0)") && paper.contains("LEVERAGED_TERMINAL_ARITHMETIC_DIVERGENCE_6569") && paper.contains("PaperLearningEligibility6519.record"))
     }
