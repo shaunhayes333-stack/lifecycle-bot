@@ -1094,7 +1094,7 @@ object DynamicAltTokenRegistry {
      *  then opportunityScore, then volume — every top-25 scan is guaranteed
      *  to include every currently-fresh token before falling through to
      *  established ranking. */
-    fun getBlendedOpportunityQueue6544(): List<DynToken> = registry.values.filter { cryptoMayTrade8789(it.mint) || it.isStatic }.sortedWith(  // V5.0.8789 (was 8019)
+    fun getBlendedOpportunityQueue6544(): List<DynToken> = registry.values.filter { (cryptoMayTrade8789(it.mint) || it.isStatic) && cryptoAsset8970(it) }.sortedWith(  // V5.0.8789 (was 8019); 8970: the crypto trader's own assets
         compareByDescending<DynToken> { it.isFresh6544 }
             // V5.0.7244 — preserve fresh-first discovery, but within each
             // cohort spend scan slots on already-priced/routable evidence first.
@@ -1699,6 +1699,7 @@ object DynamicAltTokenRegistry {
             for (t in registry.values) {
                 if (mints.size >= SOL_RESCUE_MAX_MINTS_7167) break
                 if (!t.chainId.trim().equals("solana", true)) continue
+                if (!cryptoAsset8970(t)) continue   // V5.0.8970 — a meme coin's mark is the meme trader's to read, not this batch's
                 val a = t.tokenAddress.trim()
                 if (a.isBlank() || a.startsWith("cg:") || a.startsWith("static:")) continue
                 val age = com.lifecyclebot.engine.NativeDecisionEnrollment8372.priceAge8870(t.priceObservedAtMs8372, now)
@@ -2376,6 +2377,8 @@ object DynamicAltTokenRegistry {
         if (m.length < 32) return null
         if (!liquidityUsd.isFinite() || liquidityUsd < MIN_LIQ_USD) return null
         if (!volume24hUsd.isFinite() || volume24hUsd < MIN_VOL_24H) return null
+        // V5.0.8970 — a hunted Solana coin joins the crypto universe only once it reads established (a day old, $100k+ pool)
+        if (!(ageHours.isFinite() && ageHours >= 24.0 && liquidityUsd >= 100_000.0)) { universeRefused8970.incrementAndGet(); return null }
         val sym = symbol.uppercase().trim().ifBlank { m.take(8).uppercase() }
         upsert(
             DynToken(
@@ -2408,12 +2411,65 @@ object DynamicAltTokenRegistry {
     fun cryptoMayTrade8789(mint: String): Boolean = openToMemeCoins8789 || !pumpMint8019(mint)
 
     /**
+     * V5.0.8970 §EACH_TRADER_SCANS_ITS_OWN_ASSETS — owner, 24 Nov 02:16: "you flipped the scanners the wrong way. meme trader is
+     * solana network in its entirety plus sol stable coins. the crypto trader is sol stable coins and everything else considered
+     * crypto. markets is stocks, leverage trades, real stocks the defi markets gold silver etc"; and (asked): established
+     * Solana majors (JUP, RAY, JTO, PYTH, BONK, WIF, FARTCOIN, LSTs) are the crypto trader's; xStocks and gold / silver go to
+     * Markets, wrapped BTC / ETH and other-chain crypto to crypto. 8789 had opened the crypto universe to every coin the meme
+     * side watched or hunted, so the crypto desks spent their scans on meme coins (edge_research 24 Nov: 684 of CRYPTO_CORE's
+     * 1,394 coins were pump.fun mints, median cap $41k-$172k, judged at a crypto cost and hold).
+     * The crypto trader's universe is now: its curated majors (static listings, wrapped BTC / ETH among them), coins of another
+     * chain, stablecoins, and an ESTABLISHED Solana coin (NetworkTier8873's tier, the one the brief already reads: $1 M+ cap,
+     * or a day old and $100 k+) — never a Markets asset (TokenizedAssetRegistry: xStocks, PAXG gold, silver). A coin it
+     * already holds is always managed. Every other Solana coin is the meme trader's.
+     */
+    fun cryptoAsset8970(tok: DynToken, held: Boolean = false): Boolean {
+        if (held) return true
+        if (tokenizedMarketsMint8970(tok.mint) || tokenizedMarketsMint8970(tok.tokenAddress)) return false
+        if (tok.isStatic) return true
+        if (tok.chainId.isNotBlank() && !tok.chainId.equals("solana", ignoreCase = true)) return true
+        if (inferSector(tok.symbol) == "Stablecoin") return true
+        val cap = if (tok.mcap > 0.0) tok.mcap else tok.fdv
+        val ageMin = tok.discoveryAgeHours6544 * 60.0
+        return establishedSolana8970(ageMin, cap, tok.pairCreatedAtMs > 0L || tok.ageHours > 0.0)
+    }
+
+    /** Pure (V5.0.8970): an established Solana coin by NetworkTier8873's tier; an unknown age counts only through the $1 M cap. */
+    internal fun establishedSolana8970(ageMin: Double, capUsd: Double, ageKnown: Boolean): Boolean =
+        com.lifecyclebot.engine.truth.NetworkTier8873.tierOf8873(if (ageKnown) ageMin else Double.NaN, capUsd) ==
+            com.lifecyclebot.engine.truth.NetworkTier8873.Tier8873.ESTABLISHED
+
+    // the Markets mint set, rebuilt at most once a minute (this test runs over the whole universe every scan)
+    @Volatile private var marketsMints8970: Set<String> = emptySet()
+    @Volatile private var marketsMintsAtMs8970 = 0L
+    private fun tokenizedMarketsMint8970(mint: String): Boolean {
+        if (mint.isBlank()) return false
+        val now = System.currentTimeMillis()
+        if (now - marketsMintsAtMs8970 !in 0L..60_000L) {
+            marketsMints8970 = try { TokenizedAssetRegistry.allMints() } catch (_: Throwable) { marketsMints8970 }
+            marketsMintsAtMs8970 = now
+        }
+        return mint in marketsMints8970
+    }
+
+    private val universeRefused8970 = java.util.concurrent.atomic.AtomicLong(0L)
+    fun universeLine8970(): String {
+        val all = registry.values
+        val crypto = all.count { cryptoAsset8970(it) }
+        return "cryptoUniverse8970[crypto=$crypto memeLeftToMemeTrader=${all.size - crypto} ingestRefused=${universeRefused8970.get()} " +
+            "rule=crypto = curated majors, other chains, stablecoins, established Solana coins (\$1M+ cap, or a day old and \$100k+); " +
+            "xStocks / gold / silver are Markets'; every other Solana coin is the meme trader's]"
+    }
+
+    /**
      * V5.0.8789 — a coin the meme side admits to its watchlist is offered to the crypto universe too (the crypto cycle refreshes
      * its mark and its own brain qualifies it). No volume bar here (the meme intake has none at admission); a read pool is.
      */
     fun ingestMemeWatch8789(mint: String, symbol: String, liquidityUsd: Double): String? {
         val m = mint.trim()
         if (m.length < 32 || !openToMemeCoins8789 || !liquidityUsd.isFinite() || liquidityUsd <= 0.0) return null
+        // V5.0.8970 — a coin the meme side admits is a meme coin until it reads established: only a $100k+ pool can be one
+        if (liquidityUsd < 100_000.0) { universeRefused8970.incrementAndGet(); return null }
         val sym = symbol.uppercase().trim().ifBlank { m.take(8).uppercase() }
         upsert(DynToken(mint = m, tokenAddress = m, chainId = "solana", symbol = sym, name = sym, price = 0.0,
             liquidityUsd = liquidityUsd, volume24h = 0.0, ageHours = 0.0, source = "meme_watch_8789", sector = inferSector(sym)))

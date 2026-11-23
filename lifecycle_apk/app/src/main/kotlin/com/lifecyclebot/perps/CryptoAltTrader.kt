@@ -1512,7 +1512,7 @@ object CryptoAltTrader {
         val residentKeys7823 = residentEntries7823.map { it.assetKey }.toSet()
         val residentTokens7823 = residentEntries7823
             .mapNotNull { DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(it.assetKey) }
-            .filter { DynamicAltTokenRegistry.cryptoMayTrade8789(it.mint) || it.isStatic }  // V5.0.8789 (was 8022) — the resident channel too
+            .filter { (DynamicAltTokenRegistry.cryptoMayTrade8789(it.mint) || it.isStatic) && DynamicAltTokenRegistry.cryptoAsset8970(it) }  // V5.0.8789 (was 8022) — the resident channel too; 8970: its own assets
             .distinctBy { it.canonicalIdentity6544 }
             .sortedBy { cryptoResidentLastScanAt7823[it.canonicalIdentity6544] ?: 0L }
         val residentSelected7823 = residentTokens7823.take(

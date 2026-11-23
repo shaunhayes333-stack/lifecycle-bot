@@ -83,7 +83,8 @@ class Aate8019TruthGuardsTest {
         assertFalse(DynamicAltTokenRegistry.pumpMint8019("So11111111111111111111111111111111111111112"))
         val r = src("perps/DynamicAltTokenRegistry.kt")
         // superseded by V5.0.8789 — owner: the crypto trader trades whatever it wants (cryptoMayTrade8789); was: !pumpMint8019(it.mint).
-        assertTrue(r.contains("registry.values.filter { cryptoMayTrade8789(it.mint) || it.isStatic }"))
+        // superseded by V5.0.8970 — owner: the crypto trader scans its own assets (cryptoAsset8970).
+        assertTrue(r.contains("registry.values.filter { (cryptoMayTrade8789(it.mint) || it.isStatic) && cryptoAsset8970(it) }"))
         assertTrue(r.contains("CRYPTO_UNIVERSE_PUMP_MINT_REFUSED_8019"))
         assertTrue(RebuyLockout8019.locked8019(100_000L, ticket = false))
         assertFalse(RebuyLockout8019.locked8019(100_000L, ticket = true))

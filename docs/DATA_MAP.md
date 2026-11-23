@@ -3168,3 +3168,22 @@ counts every skipped read by cohort (§153 for why the pump.fun small-pool cohor
   position; and never the DECISION, EVIDENCE, EXIT, HOLD, EXEC or RUG_VERIFY reads. Nothing here refuses a buy; the cheap
   price marks the labels learn from are not chain-confirm reads and are unchanged.
 - discoverySkipped8969{use:cohort=n} in the brief.
+
+## 155. Each trader scans its own assets (8970)
+
+Owner, 24 Nov 02:16: "you flipped the scanners the wrong way. meme trader is solana network in its entirety plus sol stable
+coins. the crypto trader is sol stable coins and everything else considered crypto. markets is stocks, leverage trades, real
+stocks the defi markets gold silver etc"; asked, he placed established Solana majors (JUP, RAY, JTO, PYTH, BONK, WIF,
+FARTCOIN, LSTs) with the crypto trader, xStocks and gold / silver with Markets, wrapped BTC / ETH and other-chain crypto
+with crypto. (This replaces 8789's "the crypto trader trades whatever it wants, including what the meme side watches".)
+- Measured: 8789 offered every coin the meme side watched (ingestMemeWatch8789) or hunted (ingestMarketHunt7807) to the
+  crypto universe, so its desks spent their scans on meme coins — edge_research 24 Nov: 684 of CRYPTO_CORE's 1,394 coins
+  were pump.fun mints, median cap $41k-$172k, judged at a 2.6 % crypto cost and a crypto hold.
+- DynamicAltTokenRegistry.cryptoAsset8970: the crypto trader's universe is its curated majors (static listings, wrapped BTC /
+  ETH among them), any other chain's coin, stablecoins, and an established Solana coin (NetworkTier8873's tier: $1 M+ cap,
+  or a day old and $100 k+; an unknown age counts only through the $1 M cap). A Markets asset (TokenizedAssetRegistry:
+  xStocks, PAXG, silver) is never the crypto trader's. A coin the desk already holds is always managed.
+- Applied where the crypto trader picks: the blended queue (which also feeds its fresh channel) and the resident channel;
+  where it draws: the SOL mark-rescue batch no longer fetches meme coins' prices; and where it ingests: a meme-watch coin
+  only from a $100 k+ pool, a hunted coin only once a day old with a $100 k+ pool.
+- The meme stack is unchanged. cryptoUniverse8970[crypto memeLeftToMemeTrader ingestRefused] in the brief.
