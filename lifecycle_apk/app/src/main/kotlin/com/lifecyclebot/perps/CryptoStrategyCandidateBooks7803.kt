@@ -154,7 +154,8 @@ internal object CryptoStrategyCandidateBooks7803 {
             }
         }.sortedByDescending { it.conviction }
 
-    internal fun bestReady(assetKey:String,candidateVersion:Long): Entry? = readyFor(assetKey,candidateVersion).firstOrNull()
+    internal fun bestReady(assetKey:String,candidateVersion:Long, recordRank: (Entry) -> Int = { 0 }): Entry? =
+        readyFor(assetKey,candidateVersion).maxWithOrNull(compareBy<Entry> { recordRank(it) }.thenBy { it.conviction })
 
     /**
      * V5.0.7823 — resident discovery must be consumed by CryptoAltTrader, not

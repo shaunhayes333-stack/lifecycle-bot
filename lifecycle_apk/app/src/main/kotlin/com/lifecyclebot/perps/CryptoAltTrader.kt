@@ -2255,7 +2255,9 @@ object CryptoAltTrader {
                             }
                         } catch (_: Throwable) {}
                     }
-                    val ready7803 = CryptoStrategyCandidateBooks7803.bestReady(assetKey7803, cv7803)
+                    val ready7803 = CryptoStrategyCandidateBooks7803.bestReady(assetKey7803, cv7803) {
+                        com.lifecyclebot.engine.truth.CryptoSpotPaperBacking8788.strategyRank8961("CRYPTO_ALT", it.strategy)
+                    }
                     val executableRows7803 = rows.filter {
                         it.direction == PerpsDirection.LONG || LEVERAGE_VENUE_AVAILABLE_7183
                     }
@@ -2266,7 +2268,9 @@ object CryptoAltTrader {
             // V5.0.6569 — specialist thresholds are features for the shared
             // authority, not a terminal pre-V3 gate. Rank continuously and bound work.
             val topDyn = uniqueDynSignals6567
-                .sortedWith(compareByDescending<AltSignal> { it.score + it.confidence }.thenByDescending { it.score })
+                .sortedWith(compareByDescending<AltSignal> {
+                    com.lifecyclebot.engine.truth.CryptoSpotPaperBacking8788.strategyRank8961("CRYPTO_ALT", it.strategy7803)
+                }.thenByDescending { it.score + it.confidence }.thenByDescending { it.score })
                 .take(25)
             uniqueDynSignals6567.filterNot { it in topDyn }.forEach { observed ->
                 val observedTok6569 = observed.evaluationOwner8870 ?: observed.dynAssetKey?.let { DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(it) }
@@ -3586,7 +3590,34 @@ object CryptoAltTrader {
     internal fun retryableEntryWait8870(reason: String): Boolean =
         reason == "CRYPTO_LIVE_PRICE_REFRESH_WAIT_8870" ||
             reason == com.lifecyclebot.engine.CryptoLiveQuoteBoundary8870.WAIT_REASON ||
+            com.lifecyclebot.engine.truth.DataWaitRecovery8957.retryableCanonical(reason) ||
             reason.startsWith("CANONICAL_DEFERRED:CRYPTO_PAPER_BACKING_CAPACITY_8870")
+
+    /** A nominated data wait uses the asset's own chain-qualified registry, including non-Solana desks.
+     * The shared hydration single-flight prevents scan and decision requests for the same asset racing.
+     * Solana account verification is separately requested by LiveEdgeGate/ChainConfirm8950.
+     * The next scan rebuilds the signal from the refreshed row; never execute the old signal here.
+     */
+    private fun refreshDeferredInputs8957(identity: String) {
+        val now = System.currentTimeMillis()
+        synchronized(cryptoSignalHydrationInFlight8752) {
+            if (cryptoSignalHydrationInFlight8752.size >= CRYPTO_SIGNAL_HYDRATION_CONCURRENCY_8752 ||
+                now - (cryptoSignalHydrationAt8752[identity] ?: 0L) < 20_000L ||
+                !cryptoSignalHydrationInFlight8752.add(identity)) return
+            cryptoSignalHydrationAt8752[identity] = now
+        }
+        scope.launch(Dispatchers.IO) {
+            try {
+                if (isRunning.get() && !com.lifecyclebot.engine.BotService.isShuttingDown) {
+                    DynamicAltTokenRegistry.refreshPriceForMintBlocking(identity, forceRefresh = true,
+                        requireSignalInputs8752 = true)
+                    PipelineHealthCollector.labelInc("CRYPTO_DATA_WAIT_REFRESH_ATTEMPTED_8957")
+                }
+            } catch (_: Exception) {
+                PipelineHealthCollector.labelInc("CRYPTO_DATA_WAIT_REFRESH_FAILED_8957")
+            } finally { cryptoSignalHydrationInFlight8752.remove(identity) }
+        }
+    }
 
     private suspend fun freshDynamicEntryBasis7275(signal: AltSignal, isSpot: Boolean,
                                                    liveDecision8870: Boolean = false): EntryBasis8870? {
@@ -4210,6 +4241,8 @@ object CryptoAltTrader {
             }
             is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Deferred -> {
                 terminalDisposition6613("CANONICAL_DEFERRED:${canonicalCryptoAdmission6565.reason}", "AUTHORITY")
+                if (com.lifecyclebot.engine.truth.DataWaitRecovery8957.isDataWait(canonicalCryptoAdmission6565.reason))
+                    refreshDeferredInputs8957(candidate.assetKey)
                 return
             }
         }

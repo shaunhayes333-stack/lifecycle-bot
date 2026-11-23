@@ -521,6 +521,7 @@ object LaneHunter7297 {
         }
         val waves = snap.rows.mapNotNull { r -> KineticFlow8506.current(r.mint, now8169)?.let { r.mint to it } }.toMap()
         val tests8293 = ArrayList<OpportunityRoute8293.LaneTest8293>()
+        val pocketReads8961 = HashMap<String, Map<String, com.lifecyclebot.engine.truth.PocketHunt8961.Match>>()
         val ranked = profiles.associate { p ->
             val (lo, hi) = fluidBand(HunterMandates8293.baseMin8293(p.lane, p.baseMin), p.baseMax, bucketStatsFor(p.lane))  // V5.0.8293 native floor
             val fits: (MarketSweep7297.Row) -> Boolean = {
@@ -548,6 +549,13 @@ object LaneHunter7297 {
                 .map { it.first.mint }
                 // V5.0.8293 — opportunity leaders first, the lane's learned losing shapes last; escalated requeue cooldown last of all.
                 .let { order -> HunterShape8293.orderLive8293(p.lane, order, byMint, top8293) }
+                .let { order ->
+                    val matches = eligible8168.associate { r -> r.mint to
+                        com.lifecyclebot.engine.truth.LanePocket8934.huntMatch8961(p.lane, r.mint, r.liquidityUsd,
+                            r.mcapUsd, r.observedAtMs8169, now8169) }
+                    pocketReads8961[p.lane] = matches
+                    com.lifecyclebot.engine.truth.PocketHunt8961.prioritize(order, matches)
+                }
                 .let { order -> deliverableFirst8169(order) { m -> onCooldown8169(requeuedAt8169[m], now8169) || HuntDelivery8293.cooling8293(m, now8169) } }
                 .also { ranked8168 -> audit8168 += com.lifecyclebot.engine.BotImprovementReport8168.hunt(
                     p.lane, snap.rows, inBand8168.size, eligible8168.size,
@@ -589,6 +597,13 @@ object LaneHunter7297 {
                     if (lane == "PROJECT_SNIPER" && sniperPastWindowAtPublish8201(r.ageHours, snap.atMs, now)) {
                         try { PipelineHealthCollector.labelInc("LANE_HUNT_SNIPER_PAST_WINDOW_AT_PUBLISH_8201") } catch (_: Throwable) {}
                         return@forEach
+                    }
+                    pocketReads8961[lane]?.get(r.mint)?.takeIf {
+                        it != com.lifecyclebot.engine.truth.PocketHunt8961.Match.NONE
+                    }?.let { match ->
+                        PipelineHealthCollector.labelInc("LANE_POCKET_HUNT_8961_${lane}_${match.name}")
+                        if (match == com.lifecyclebot.engine.truth.PocketHunt8961.Match.NEEDS_READ)
+                            com.lifecyclebot.engine.truth.ChainConfirm8950.confirmMint8950(r.mint, listOf("PRICE", "HISTORY"), "LANE", now)
                     }
                     claims[claimKey7803(lane, r.mint)] = Claim(lane, r.mcapUsd, now)
                     try { SpecialistCandidateBooks7803.publishHunt(lane, r.mint, r.symbol, SOURCE_PREFIX + lane) } catch (_: Throwable) {}

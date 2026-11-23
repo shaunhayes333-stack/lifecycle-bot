@@ -129,11 +129,19 @@ object XsDesk {
     private fun tick(now: Long) {
         if (universe.isEmpty()) universe = universeOf(PerpsMarket.values().toList()) { TokenizedAssetRegistry.mintFor(it) }
         val today = epochDay(now)
+        serviceLiveRisk8957()
         if (now - quotesAt >= QUOTE_EVERY_MS) refreshQuotes(now)
         if (today != lastEvalDay && now - today * DAY_MS >= SETTLE_MS && now >= historyRetryAt8810) daily(now, today)
         synchronized(lock) { paperDay(today) }
-        if (now - riskAt >= RISK_EVERY_MS) { riskAt = now; liveRisk(now, today) }
+        serviceLiveRisk8957()
         status = "ok"
+    }
+
+    /** History/quote sweeps can take minutes. Service held risk between reads, using the actual current clock. */
+    private fun serviceLiveRisk8957() {
+        val now = System.currentTimeMillis()
+        if (now - riskAt < RISK_EVERY_MS) return
+        liveRisk(now, epochDay(now))
     }
 
     // ── data ──
@@ -147,9 +155,10 @@ object XsDesk {
         val held = heldSymbols()
         val want = universe.filter { panelSyms.isEmpty() || it.symbol in panelSyms || targets.containsKey(it.symbol) || it.symbol in held }
         val lamports = probeLamports()
-        for (s in want) {
+        for (s in want.sortedByDescending { it.symbol in held }) {
             if (mints[s.symbol] == null) XsApi.mintInfo(s.mint)?.let { mints[s.symbol] = it }
             XsApi.roundTrip(s.mint, lamports)?.let { quotes[s.symbol] = it }
+            serviceLiveRisk8957()
             sleepQuietly(CALL_GAP_MS)
         }
         quotesAt = now
@@ -200,22 +209,26 @@ object XsDesk {
         val excl = LinkedHashMap<String, String>()
         var unanswered = 0
         for ((i, s) in universe.withIndex()) {
+            serviceLiveRisk8957()
             status = "loading history ${i + 1}/${universe.size}"   // V5.0.8805
             val h = history(s)
-            if (!fillBars(s, h, today)) unanswered++
+            val answered = fillBars(s, h, today)
+            if (!answered) unanswered++
             h.trim(today - HISTORY_DAYS - 30)
             if (dir != null) HlStore.save(dir, h)
             // V5.0.8930 — listed on the token's own bars; graded on them with the share's history before them (XsUnderlying8930)
-            if (h.bars.size >= MIN_LISTED_DAYS) ready.add(panelHistory8930(s, h, today))
+            if (answered && h.bars.size >= MIN_LISTED_DAYS) ready.add(panelHistory8930(s, h, today))
             else excl[s.symbol] = if (h.bars.isEmpty()) "NO_HISTORY" else "TOO_NEW_${h.bars.size}d"
         }
         excluded = excl
         historyUnanswered8810 = unanswered
         historyPasses8810++
-        if (historyRetry8810(unanswered, now - today * DAY_MS)) { historyRetryAt8810 = now + HISTORY_RETRY_MS_8810; return }
-        lastEvalDay = today
-        historyPasses8810 = 0
-        if (ready.isEmpty()) return
+        // A provider outage on startup is not a completed daily evaluation. Keep retrying after the six-hour deadline.
+        if (ready.isEmpty()) { historyRetryAt8810 = System.currentTimeMillis() + HISTORY_RETRY_MS_8810; return }
+        // Evaluate the current instruments even when another provider read is unanswered.
+        // Keep the incomplete pass retryable; it must not seal the whole desk until tomorrow.
+        if (unanswered == 0) { lastEvalDay = today; historyPasses8810 = 0 }
+        else historyRetryAt8810 = System.currentTimeMillis() + HISTORY_RETRY_MS_8810
         val panel = HlDesk.panelOf(ready, today - 1, HISTORY_DAYS) { coin -> costSide(coin.removePrefix("xs:")) }
         val ev = HlBrain.evaluate(panel, 1.0, longOnly = true)
         evaluation = ev
@@ -374,9 +387,16 @@ object XsDesk {
     }
 
     private fun liveRisk(now: Long, today: Long) {
+        // A stop closes on confirmed fills. Failed sells remain owned and must be retried after the desk is killed.
+        if (killed) {
+            riskAt = now
+            for (p in livePositions()) close(p, killReason.ifBlank { "STOP_RETRY" }, now)
+            return
+        }
         val cfg = cfg() ?: return
-        if (killed || XsSettings.liveRefusal(cfg, hasWallet()) != null) return
+        if (XsSettings.liveRefusal(cfg, hasWallet()) != null) return
         val nav = nav(cfg.budgetSol) ?: return
+        riskAt = now
         lastNav = nav
         if (liveDay != today) { liveDay = today; dayStartNav = nav; save() }
         if (!(peakNav >= nav)) { peakNav = nav; save() }

@@ -134,6 +134,8 @@ object LanePocket8934 {
 
     /** One research row into its lane's book: the lane's designed horizon only, inside the lane's hunt band (crypto lanes unbanded). */
     private fun file(o: JSONObject) {
+        // Historical files can contain numeric late marks written before 8957. Those are not four-hour evidence.
+        if (o.optString("reason").startsWith("LATE_READ_8884:")) return
         val lane = o.optString("lane").trim().uppercase()
         if (lane.isBlank() || lane.startsWith("LPSTATE") || lane.startsWith("SETUP") || lane.startsWith("PLANWAIT") || lane.startsWith("ORIGIN")) return
         if (o.optLong("horizonMs", 0L) != horizon8934(lane)) return
@@ -218,6 +220,18 @@ object LanePocket8934 {
             served.computeIfAbsent(l) { AtomicLong(0L) }.incrementAndGet()
             return CandidateAdmission8136.Evidence8136(KIND_8934, "LANE8934:$l:${c.id}", c.n, c.mean, c.z * c.se, runnerRate = c.runRate)
         } catch (_: Throwable) { return null }
+    }
+
+    /** Read the lane's existing pocket book at discovery, including unresolved features for bounded hydration. */
+    fun huntMatch8961(lane: String, mint: String, liq: Double, mcap: Double, observedAtMs: Long,
+                      nowMs: Long): PocketHunt8961.Match {
+        ensureLoaded()
+        val cells = proven[lane.trim().uppercase()].orEmpty()
+        if (!ready || cells.isEmpty()) return PocketHunt8961.Match.NONE
+        val observed = features8934(mint, "NA", "NA", Double.NaN, Double.NaN,
+            liq.takeIf { it > 0.0 } ?: Double.NaN, mcap.takeIf { it > 0.0 } ?: Double.NaN).toSet()
+        return cells.map { PocketHunt8961.match(it.conds, observed, observedAtMs, nowMs) }
+            .maxByOrNull { it.ordinal } ?: PocketHunt8961.Match.NONE
     }
 
     fun statusLine8934(): String {

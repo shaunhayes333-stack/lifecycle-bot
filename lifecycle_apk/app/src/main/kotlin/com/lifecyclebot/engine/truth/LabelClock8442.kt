@@ -33,6 +33,7 @@ object LabelClock8442 {
     /** BotService's learning-tick dispatch: the loop is alive. Starts the clock on the first beat. */
     fun noteLoop8442(nowMs: Long = System.currentTimeMillis()) {
         lastLoopAtMs = nowMs
+        ResearchFollow8884.ensureStarted8884()
         if (started.compareAndSet(false, true)) try {
             exec.scheduleWithFixedDelay({ beat8442() }, PERIOD_MS_8442, PERIOD_MS_8442, TimeUnit.MILLISECONDS)
         } catch (_: Throwable) { started.set(false) }

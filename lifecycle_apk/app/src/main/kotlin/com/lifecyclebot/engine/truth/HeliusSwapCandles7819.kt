@@ -136,32 +136,37 @@ object HeliusSwapCandles7819 {
      * the work runs on a daemon thread and its bars land in ts.history.
      */
     fun request7819(ts: TokenState, nowMs: Long = System.currentTimeMillis()) {
+        requestAccepted8961(ts, nowMs)
+    }
+
+    /** Report scheduling acceptance so a busy worker cannot consume the stage read's full retry window. */
+    fun requestAccepted8961(ts: TokenState, nowMs: Long): Boolean {
         val mint = ts.mint
-        if (!com.lifecyclebot.network.HeliusSolanaScope7819.isSolanaMint7819(mint)) return // V5.0.7819 HeliusScope — Solana mints only (Field Manual L186)
+        if (!com.lifecyclebot.network.HeliusSolanaScope7819.isSolanaMint7819(mint)) return false // V5.0.7819 HeliusScope — Solana mints only (Field Manual L186)
         // V5.0.8284 — 1 m coverage (not the bar count, not the active timeframe) decides; a held or 4 h token's bars go to
         // the compatible 1 m store (CandleCoverage8284.merge8284). Too young for 1 m bars: its own observed trades only.
-        if (inFlight.contains(mint)) { refusal8386("duplicate"); return }
+        if (inFlight.contains(mint)) { refusal8386("duplicate"); return true }
         val priority = priority8284(mint, nowMs)
         val cov1m = CandleCoverage8284.noteNeed8284(ts, nowMs)
-        if (cov1m == CandleCoverage8284.Coverage8284.COVERED) { coveredSkips8284.incrementAndGet(); return }
-        if (cov1m == CandleCoverage8284.Coverage8284.NOT_YET_POSSIBLE) { localTape8284(ts, nowMs, "young"); priceBars8287(ts, nowMs); return }
+        if (cov1m == CandleCoverage8284.Coverage8284.COVERED) { coveredSkips8284.incrementAndGet(); return false }
+        if (cov1m == CandleCoverage8284.Coverage8284.NOT_YET_POSSIBLE) { localTape8284(ts, nowMs, "young"); priceBars8287(ts, nowMs); return false }
         // Free observations are useful even when a venue address is not yet known, or an
         // Enhanced-API retry is parked. Previously both branches returned before the
         // cached pump.fun history could populate 1 m/5 m bars for a launch.
-        if (!heliusAfterFree8418(ts, nowMs, priority)) return
+        if (!heliusAfterFree8418(ts, nowMs, priority)) return false
         val marketAddress = activeMarketAddress8269(ts) ?: run {
             noMarketAddress8269.incrementAndGet()
             localTape8284(ts, nowMs, "noMarket"); priceBars8287(ts, nowMs)
-            return
+            return false
         }
         val next = nextAllowedMs[mint] ?: 0L
-        if (nowMs < next) { localTape8284(ts, nowMs, "retryWait"); priceBars8287(ts, nowMs); return }
+        if (nowMs < next) { localTape8284(ts, nowMs, "retryWait"); priceBars8287(ts, nowMs); return false }
         // V5.0.8418 — the free sources above ran before this paid fallback.
         // V5.0.8453 — the 100-credit Enhanced history read is for HELD positions only (their exits read the chart). 8450:
         // SWAP_CANDLES spent 109.7k of the day's 300k credits (near-decision coins claimed the decision reserve with a
         // priority lease) while the 1-credit safety-proof reads were refused. Everything else keeps the free bars above.
         // V5.0.8541 — near-decision coins too, on SWAP_CANDLES' own paced share (no priority lease; held only).
-        if (!heliusCandlesAllowed8453(priority)) { refusal8386("not_held_8453"); return }
+        if (!heliusCandlesAllowed8453(priority)) { refusal8386("not_held_8453"); return false }
         requests.incrementAndGet()
         // V5.0.7881 — up to two 100-credit pages per job (288k credits/day at the old
         // 60/h cap); now also paced on the economy's SWAP_CANDLES share.
@@ -171,7 +176,7 @@ object HeliusSwapCandles7819 {
         if (reservation != "reserved") {
             refusal8386(reservation); budgetSkips.incrementAndGet()
             localTape8284(ts, nowMs, reservation); priceBars8287(ts, nowMs)
-            return
+            return false
         }
         inFlight.add(mint)
         // V5.0.8549 — a near-decision coin gets a bounded priority lease: one page (100 credits), at most
@@ -187,9 +192,9 @@ object HeliusSwapCandles7819 {
             refusal8386("credit_pacing"); budgetSkips.incrementAndGet()
             inFlight.remove(mint); admission8386.finish(mint)
             localTape8284(ts, nowMs, "credit_pacing"); priceBars8287(ts, nowMs)
-            return
+            return false
         }
-        try {
+        return try {
             Thread({
                 try {
                     val startedAt = System.currentTimeMillis()
@@ -206,10 +211,12 @@ object HeliusSwapCandles7819 {
                     inFlight.remove(mint); admission8386.finish(mint)
                 }
             }, "helius-candles-7819").apply { isDaemon = true }.start()
+            true
         } catch (_: Exception) {
             refusal8386("worker_start_failed")
             HeliusCreditEconomy7881.finish8386(credits)
             inFlight.remove(mint); admission8386.finish(mint)
+            false
         }
     }
 

@@ -160,6 +160,12 @@ object CanonicalEntryAuthority6551 {
         // the same evidence-backed positive forecast before sizing or intent
         // sealing. Missing/degenerate/thin evidence stays available to shadow
         // learners but cannot spend canonical capital.
+        val entryAssessment8871 = com.lifecyclebot.engine.cortex.CrossAssetCortex7931.assessEntry8871(candidate)
+        entryAssessment8871.refusal?.let { why ->
+            if (entryAssessment8871.admission?.terminal == CandidateAdmission8136.Terminal8136.DEFER_DATA &&
+                DataWaitRecovery8957.isDataWait(why)) return deferred(candidate, venue, why)
+        }
+
         val candidateConfidence7260 = try {
             val raw = candidate.evidence["upstreamConfidence"]?.toDoubleOrNull()
                 ?: candidate.confidence
@@ -367,7 +373,6 @@ object CanonicalEntryAuthority6551 {
         // learned door of the meme stack is counted and filed on its own record but does not refuse a LIVE crypto entry its
         // own lane record backs (CryptoSignalEngine8857; the 8788 hourly cap and loss stop are reserved at the seal below).
         var signalEngine8857 = false
-        val entryAssessment8871 = com.lifecyclebot.engine.cortex.CrossAssetCortex7931.assessEntry8871(candidate)
         entryAssessment8871.refusal?.let { why ->
             val now8857 = System.currentTimeMillis()
             val integrity8857 = try { com.lifecyclebot.engine.cortex.CrossAssetCortex7931.refusalBinds8871(why, entryAssessment8871) } catch (_: Throwable) { true }
