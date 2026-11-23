@@ -26,7 +26,7 @@ class Aate8980CryptoHourTest {
     )
 
     @Test fun aFreshProviderHourIsTheCandidatesHour() {
-        val mint = "Aate8980AAAAAAAAAAAAAAAAAAAAAAAAA"
+        val mint = "Aate898HourAAAAAAAAAAAAAAAAAAAAAA"
         val state = TokenState(mint = mint, symbol = "HR", name = "HR")
         CrossAssetCortex7931.bridgeCryptoObservedContext8834(state, token(mint, 4.2, now - 60_000L), 2.0, 50_000.0, 900_000.0, now)
         assertEquals(4.2, state.lastPriceChange1h, 1e-9)
@@ -36,11 +36,11 @@ class Aate8980CryptoHourTest {
     }
 
     @Test fun aStaleOrMissingHourWritesNothing() {
-        val stale = TokenState(mint = "Aate8980BBBBBBBBBBBBBBBBBBBBBBBBB", symbol = "HR", name = "HR")
+        val stale = TokenState(mint = "Aate898HourBBBBBBBBBBBBBBBBBBBBBB", symbol = "HR", name = "HR")
         CrossAssetCortex7931.bridgeCryptoObservedContext8834(stale, token(stale.mint, 4.2, now - 20L * 60_000L), 2.0, 50_000.0, 900_000.0, now)
         assertNull(TokenFacts.snapshotFact(stale, TokenFacts.Field.CHANGE_1H_PCT))
         assertEquals(0L, stale.hourChangeObservedAtMs8506)
-        val none = TokenState(mint = "Aate8980CCCCCCCCCCCCCCCCCCCCCCCCC", symbol = "HR", name = "HR")
+        val none = TokenState(mint = "Aate898HourCCCCCCCCCCCCCCCCCCCCCC", symbol = "HR", name = "HR")
         CrossAssetCortex7931.bridgeCryptoObservedContext8834(none, token(none.mint, Double.NaN, 0L), 2.0, 50_000.0, 900_000.0, now)
         assertNull(TokenFacts.snapshotFact(none, TokenFacts.Field.CHANGE_1H_PCT))
     }
@@ -66,5 +66,6 @@ class Aate8980CryptoHourTest {
         assertTrue(File("src/main/kotlin/com/lifecyclebot/engine/DiagnosisBrief8438.kt").readText().contains("CrossAssetCortex7931.hourLine8980()"))
         assertTrue(File("src/main/kotlin/com/lifecyclebot/engine/truth/CandidateAdmission8136.kt").readText().contains("\" crypto8980{\""))
         assertTrue(File("../../docs/DATA_MAP.md").readText().contains("## 165. A crypto coin's hour is its pool's hour (8980)"))
+        assertTrue(File("../../docs/DATA_MAP.md").readText().contains("## 166. 8980's test on a real mint (8981)"))
     }
 }

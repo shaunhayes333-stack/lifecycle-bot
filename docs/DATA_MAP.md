@@ -3371,3 +3371,10 @@ before. A positive hour then prices the move (basis H1, the same expectedMove803
 test decides it; a falling hour on a momentum lane is the existing falling-hour wait.
 Brief: cryptoHour8980[bridged refused unread], and deferCause8700 now ends with crypto8980{...}, the crypto / EVM lanes' own
 top 10 causes.
+
+## 166. 8980's test on a real mint (8981)
+
+8980's CI failed one test only (Aate8980CryptoHourTest.aFreshProviderHourIsTheCandidatesHour: expected 4.2, was 0.0): its
+test mints held a "0", which is not base58, so DynamicAltTokenRegistry.solanaMintOf8866 refused them and the candidate's
+price was never validated (priceAt 0), exactly as the production bridge refuses an invalid mint. The test now uses valid
+base58 mints; no production code changed.
