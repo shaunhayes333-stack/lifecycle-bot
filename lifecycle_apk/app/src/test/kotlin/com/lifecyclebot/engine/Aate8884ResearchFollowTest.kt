@@ -52,7 +52,7 @@ class Aate8884ResearchFollowTest {
             book.indexOf("ResearchFollow8884.note8884("))
         val follow = src("engine/truth/ResearchFollow8884.kt")
         assertTrue(follow.contains("https://lite-api.jup.ag/price/v3?ids="))
-        assertTrue(follow.contains("ResearchRows8877.note8877(ResearchRows8877.line8877(w.atMs, horizon, w.mint"))
+        assertTrue(follow.contains("emit8978(ResearchRows8877.line8877(w.atMs, horizon, w.mint"))   // V5.0.8978 — filed here, or by the trading process from the lab
         assertTrue(src("engine/DiagnosisBrief8438.kt").contains("ResearchFollow8884.statusLine8884()"))
         assertTrue(File("../../docs/DATA_MAP.md").readText().contains("## 73. Every decision is read again at 4 h and 24 h (8884)"))
     }

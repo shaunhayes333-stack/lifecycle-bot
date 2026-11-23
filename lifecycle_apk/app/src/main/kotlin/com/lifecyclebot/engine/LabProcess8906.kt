@@ -28,11 +28,19 @@ class LabProcess8906 : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val kind = intent?.getStringExtra(EXTRA_KIND_8906).orEmpty()
+        // V5.0.8978 — the research follow-up runs here; the service stays started while it does (no stopSelf)
+        if (kind == KIND_FOLLOW_8978) {
+            try { com.lifecyclebot.engine.truth.ResearchFollow8884.startInLab8978() } catch (_: Throwable) {}
+            return START_NOT_STICKY
+        }
         val token = intent?.getStringExtra(EXTRA_TOKEN_8906).orEmpty()
         val unit = intent?.getLongExtra(EXTRA_UNIT_8906, 0L) ?: 0L
         val inPath = intent?.getStringExtra(EXTRA_IN_8906).orEmpty()
         Thread({
-            try { run8906(applicationContext, kind, token, unit, inPath) } finally { try { stopSelf(startId) } catch (_: Throwable) {} }
+            try { run8906(applicationContext, kind, token, unit, inPath) } finally {
+                // V5.0.8978 — a finished job does not stop the service while the research follow-up runs in this process
+                try { if (!com.lifecyclebot.engine.truth.ResearchFollow8884.labFollowing8978()) stopSelf(startId) } catch (_: Throwable) {}
+            }
         }, "lab8906").start()
         return START_NOT_STICKY
     }
@@ -41,6 +49,7 @@ class LabProcess8906 : Service() {
         internal const val PROCESS_SUFFIX_8906 = ":lab8906"
         internal const val KIND_LAUNCH_HOUR_8906 = "LAUNCH_HOUR"
         internal const val KIND_BASE_FAMILY_8906 = "BASE_FAMILY"
+        internal const val KIND_FOLLOW_8978 = "FOLLOW_8978"
         private const val EXTRA_IN_8906 = "in8906"
         internal const val FAMILY_WAIT_MS_8906 = 90_000L
         private const val EXTRA_KIND_8906 = "kind8906"
@@ -49,6 +58,14 @@ class LabProcess8906 : Service() {
         internal const val WAIT_MS_8906 = 120_000L
         internal const val NONE_8906 = "NONE"
         internal const val FAIL_8906 = "FAIL"
+
+        /**
+         * V5.0.8978 — the trading process, each minute: ask Android to start (or keep) the research follow-up in the lab. False
+         * when the ask was refused; ResearchFollow8884 follows in the trading process if the lab never reports.
+         */
+        internal fun pingFollow8978(ctx: Context): Boolean = try {
+            ctx.startService(Intent(ctx, LabProcess8906::class.java).putExtra(EXTRA_KIND_8906, KIND_FOLLOW_8978)) != null
+        } catch (_: Throwable) { false }
 
         /** Is this process the lab? (Application.getProcessName from API 28; /proc/self/cmdline before.) */
         fun isLabProcess8906(ctx: Context): Boolean = try {

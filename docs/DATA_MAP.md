@@ -3292,3 +3292,27 @@ most `limit` of them) and revisions8977 (each episode's revision ids in the orde
 supersedeRevisions8418 and rowsFor8418 read the episode's own ids. Same rows, same order, same answers (Aate8977 runs a
 long random sequence against the pre-8977 outbox); nothing about what the Cortex learns or when changes. An episode or
 prefix that is not of the "<episode>|R|" form still takes the old scan.
+
+## 163. The research follow-up runs in the lab (8978)
+
+Owner, 24 Nov 04:20: "we need to move things off the main stream that dont need to be on main stream". ResearchFollow8884
+(§73, the 4 h / 24 h re-reads and, since §158, the 15-minute path samples) decides no trade, yet it ran in the trading
+process: up to 30,000 waits held (9.5 MB on the 23 Nov 19:34 heap map), the whole list re-encoded as JSON and rewritten about
+once a minute (any pass that read a coin or sampled a path marks it dirty), and every Jupiter answer parsed there. An
+Android process has its own heap and its own garbage collector, so that work now runs in LabProcess8906's process
+(":lab8906", 8906/8907), and its garbage no longer stops the trading threads.
+- Trading process: ResearchFollow8884.note8884 writes the wait as one line (encode8884) into a small buffer; each minute
+  the buffer is written as one file filesDir/lab8978/follow_in_<ms>_<seq>.rows (written whole, then renamed). The same tick
+  files every finished research row the lab sent back (follow_out_*.rows, oldest first, each file deleted once read, so a
+  row is filed at most once) through ResearchRows8877.note8877 — the pockets (Base/Agreement/Lane), the authority table and
+  edge_research_8877.jsonl see the same rows as before — and asks Android to keep the lab following
+  (LabProcess8906.pingFollow8978; a killed lab restarts on the next ask).
+- Lab process (kind FOLLOW_8978): ResearchFollow8884.startInLab8978 runs the unchanged pass (load, path samples, due reads,
+  the same file research_follow_8884.jsonl) every minute, after taking in the waits sent; rows go to follow_out files; its
+  status line goes to follow_status_8978.txt. The service is not stopped while the follow runs.
+- Fallback: if the lab writes nothing for 10 minutes (FALLBACK_MS_8978) the trading process marks itself owner for the run
+  (the lab then neither passes nor saves), loads the lab's saved waits plus the unsent ones, and follows itself exactly as
+  before 8978 (RESEARCH_FOLLOW_LAB_FALLBACK_8978). Each app start tries the lab again. Without an app (unit tests) the
+  follow runs in-process as before.
+- Brief: the lab's own researchFollow8884[...] line, then followLab8978[where sentIn buffered bufferDropped rowsOut
+  rowsBack fellBack pingFailed channelFailed].

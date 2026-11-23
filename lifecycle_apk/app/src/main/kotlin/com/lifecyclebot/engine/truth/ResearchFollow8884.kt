@@ -145,6 +145,7 @@ object ResearchFollow8884 {
         // V5.0.8973 — the labeler's own high and low since the decision seed the path (gross % -> USD)
         if (peakPct8973.isFinite()) w.see8973(entryUsd * (1.0 + peakPct8973 / 100.0), System.currentTimeMillis())
         if (minPct8973.isFinite()) w.see8973(entryUsd * (1.0 + minPct8973 / 100.0), System.currentTimeMillis())
+        if (labMode8978) { buffer8978(encode8884(w)); return }   // V5.0.8978 — the lab holds the waits, not this process
         synchronized(pending) {
             pending.addLast(w)
             while (pending.size > MAX_PENDING_8884) { pending.pollFirst(); dropped.incrementAndGet() }
@@ -154,9 +155,16 @@ object ResearchFollow8884 {
 
     /** Start at the bot heartbeat as well as on new work: persisted waits must not need a new hour outcome to resume. */
     @Synchronized fun ensureStarted8884() {
-        if (started) return
+        if (started || labRole8978) return
         started = true
-        exec.scheduleWithFixedDelay({ try { pass8884(System.currentTimeMillis()) } catch (_: Throwable) { failed.incrementAndGet() } },
+        // V5.0.8978 — in the app, the lab process follows; the trading process sends the waits and takes the rows back
+        labMode8978 = labWanted8978()
+        if (labMode8978) {
+            labSinceMs8978 = System.currentTimeMillis()
+            try { dir8978()?.let { File(it, OWNER_TRADER_8978).delete() } } catch (_: Throwable) {}
+            try { exec.execute { ping8978() } } catch (_: Throwable) {}
+        }
+        exec.scheduleWithFixedDelay({ try { tick8978(System.currentTimeMillis()) } catch (_: Throwable) { failed.incrementAndGet() } },
             60L, 60L, TimeUnit.SECONDS)
     }
 
@@ -174,6 +182,7 @@ object ResearchFollow8884 {
     }
 
     private fun save8884(nowMs: Long) {
+        if (labRole8978 && traderOwns8978()) return   // V5.0.8978 — the trading process took the follow back: its file now
         val f = file8884() ?: return
         val snapshot = synchronized(pending) { dirty = false; ArrayList(pending) }
         try {
@@ -218,7 +227,7 @@ object ResearchFollow8884 {
                     }
                     if (tooLate) late.incrementAndGet() else if (r == null) unpriced.incrementAndGet()
                     try {
-                        ResearchRows8877.note8877(ResearchRows8877.line8877(w.atMs, horizon, w.mint, w.lane, w.admitted, w.stage, w.setup,
+                        emit8978(ResearchRows8877.line8877(w.atMs, horizon, w.mint, w.lane, w.admitted, w.stage, w.setup,
                             w.pred, w.v3, w.mcap, w.liq, w.cost, r?.first ?: Double.NaN, r?.second ?: Double.NaN,
                             if (r != null) peak8973 else Double.NaN, if (r != null) peak8973 else Double.NaN,
                             if (r != null) low8973 else Double.NaN, why), nowMs)
@@ -324,12 +333,198 @@ object ResearchFollow8884 {
 
     /** Brief: decisions waiting per horizon, rows written, unpriced and late reads. */
     fun statusLine8884(): String {
+        if (labMode8978) {   // V5.0.8978 — the lab's own line (it writes it each pass), then this process's channel
+            val lab = try { dir8978()?.let { File(it, STATUS_8978) }?.takeIf { it.exists() }?.readText()?.trim() } catch (_: Throwable) { null }
+            return (lab?.takeIf { it.isNotBlank() } ?: "researchFollow8884[lab not reporting yet]") + " " + channelLine8978()
+        }
+        return ownLine8884() + " " + channelLine8978()
+    }
+
+    private fun ownLine8884(): String {
         val (h4, h24) = synchronized(pending) { pending.count { it.next == 0 } to pending.count { it.next == 1 } }
         return "researchFollow8884[waiting4h=$h4 waiting24h=$h24 written=${written.get()} unpriced=${unpriced.get()} late=${late.get()} " +
             "failed=${failed.get()} dropped=${dropped.get()} untradeable8923=${untradeable8923.get()} implausible8923=${implausible8923.get()} " +
             "calls8934{keyed=${keyedOk8934.get()} keyless=${keylessOk8934.get()} notSolanaIds=${notSolana8934.get()}} " +
             "pathSampled8973=${sampled8973.get()} readFailed8945{${why8945.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}} rule=each hour row's decision read again at 4 h and 24 h (Jupiter price v3, USD per token), its path sampled every 15 min (8973), same file]"
     }
+
+    // ── V5.0.8978 §THE_FOLLOW_RUNS_IN_THE_LAB ──
+    // Owner, 24 Nov 04:20: "we need to move things off the main stream that dont need to be on main stream". The follow-up is
+    // research: it decides no trade. It held up to 30,000 waits (9.5 MB, 19:34 heap map), rewrote all of them as JSON about
+    // once a minute (a pass that read anything or sampled a path marks the list dirty) and parsed every Jupiter answer, all in
+    // the trading process. Now LabProcess8906's process (android:process=":lab8906", its own heap and its own garbage
+    // collector) holds the waits, reads Jupiter and writes the rows; the trading process keeps only what it must:
+    //  - a decision's wait is one line in a small buffer, written each minute as one file (lab8978/follow_in_*.rows, written
+    //    whole then renamed, so the lab never reads half a file);
+    //  - the lab answers with the finished research rows (lab8978/follow_out_*.rows) and the trading process files each one
+    //    through ResearchRows8877.note8877 exactly as before, so the pockets, the authority table and the research file see
+    //    the same rows; a row file is deleted once read (a row is filed at most once);
+    //  - each minute the trading process asks Android to keep the lab's follow running (a killed lab restarts on the next ask;
+    //    the waits are in the lab's file, as they were in this process's);
+    //  - if the lab has not reported for [FALLBACK_MS_8978] (it cannot start, or keeps dying) this process takes the follow
+    //    back for the rest of the run: it marks itself owner (the lab then stops writing), loads the waits the lab saved and
+    //    the ones not yet sent, and follows here exactly as before 8978. Unit tests (no app) follow here as before.
+    internal const val LAB_DIR_8978 = "lab8978"
+    internal const val IN_PREFIX_8978 = "follow_in_"
+    internal const val OUT_PREFIX_8978 = "follow_out_"
+    internal const val ROWS_SUFFIX_8978 = ".rows"
+    private const val STATUS_8978 = "follow_status_8978.txt"
+    private const val OWNER_TRADER_8978 = "follow_owner_trader_8978"
+    internal const val FALLBACK_MS_8978 = 10L * 60_000L
+    private const val MAX_BUFFER_8978 = 5_000
+    private const val MAX_OUT_8978 = 20_000
+
+    @Volatile private var labMode8978 = false   // the trading process: the lab follows
+    @Volatile private var labRole8978 = false   // the lab process: this process follows
+    @Volatile private var labSinceMs8978 = 0L
+    private val inBuffer8978 = ArrayList<String>()
+    private val outBuffer8978 = ArrayList<String>()
+    private val seq8978 = AtomicLong(0L)
+    private val sentIn8978 = AtomicLong(0L)
+    private val bufferDropped8978 = AtomicLong(0L)
+    private val rowsBack8978 = AtomicLong(0L)
+    private val rowsOut8978 = AtomicLong(0L)
+    private val fellBack8978 = AtomicLong(0L)
+    private val pingFailed8978 = AtomicLong(0L)
+    private val channelFailed8978 = AtomicLong(0L)
+
+    private fun dir8978(): File? = try {
+        com.lifecyclebot.AATEApp.appContextOrNull()?.filesDir?.let { File(it, LAB_DIR_8978).apply { mkdirs() } }
+    } catch (_: Throwable) { null }
+
+    private fun labWanted8978(): Boolean = try {
+        val ctx = com.lifecyclebot.AATEApp.appContextOrNull()
+        ctx != null && !com.lifecyclebot.engine.LabProcess8906.isLabProcess8906(ctx)
+    } catch (_: Throwable) { false }
+
+    private fun traderOwns8978(): Boolean = try { dir8978()?.let { File(it, OWNER_TRADER_8978).exists() } == true } catch (_: Throwable) { false }
+
+    /** Pure: write [lines] as one file "<prefix><ms>_<seq>.rows" in [dir] (whole, then renamed). */
+    internal fun writeAtomic8978(dir: File, prefix: String, lines: List<String>, nowMs: Long, seq: Long): Boolean = try {
+        val name = prefix + nowMs + "_" + seq.toString().padStart(9, '0') + ROWS_SUFFIX_8978
+        val tmp = File(dir, "$name.tmp")
+        tmp.bufferedWriter().use { out -> for (l in lines) { out.write(l); out.write("\n") } }
+        val dest = File(dir, name)
+        tmp.renameTo(dest) || run { tmp.delete(); false }
+    } catch (_: Throwable) { false }
+
+    /** Pure: every finished "<prefix>*.rows" file in [dir], oldest first, read and deleted; their lines in order. */
+    internal fun takeFiles8978(dir: File, prefix: String): List<String> {
+        val files = (dir.listFiles() ?: return emptyList()).filter { it.name.startsWith(prefix) && it.name.endsWith(ROWS_SUFFIX_8978) }
+            .sortedBy { it.name }
+        val out = ArrayList<String>()
+        for (f in files) {
+            val lines = try { f.readLines() } catch (_: Throwable) { continue }
+            if (!f.delete()) continue   // a file that cannot be deleted is not filed (it would be filed twice)
+            for (l in lines) if (l.isNotBlank()) out.add(l)
+        }
+        return out
+    }
+
+    /** Pure: has the lab been silent too long — nothing written since the later of the ask and its last report? */
+    internal fun fellSilent8978(nowMs: Long, sinceMs: Long, reportedAtMs: Long): Boolean = nowMs - maxOf(sinceMs, reportedAtMs) > FALLBACK_MS_8978
+
+    private fun buffer8978(line: String) {
+        synchronized(inBuffer8978) {
+            inBuffer8978.add(line)
+            while (inBuffer8978.size > MAX_BUFFER_8978) { inBuffer8978.removeAt(0); bufferDropped8978.incrementAndGet() }
+        }
+    }
+
+    /** One research row: filed here (the trading process), or held for the trading process (the lab). */
+    private fun emit8978(line: String, nowMs: Long) {
+        if (!labRole8978) { ResearchRows8877.note8877(line, nowMs); return }
+        synchronized(outBuffer8978) {
+            outBuffer8978.add(line)
+            while (outBuffer8978.size > MAX_OUT_8978) { outBuffer8978.removeAt(0); channelFailed8978.incrementAndGet() }
+        }
+    }
+
+    private fun ping8978() {
+        val ok = try { com.lifecyclebot.AATEApp.appContextOrNull()?.let { com.lifecyclebot.engine.LabProcess8906.pingFollow8978(it) } == true } catch (_: Throwable) { false }
+        if (!ok) pingFailed8978.incrementAndGet()
+    }
+
+    /** The trading process, each minute: file the lab's rows; send the waits; keep the lab following, or follow here. */
+    private fun tick8978(nowMs: Long) {
+        dir8978()?.let { dir ->
+            for (line in takeFiles8978(dir, OUT_PREFIX_8978)) {
+                try { ResearchRows8877.note8877(line, nowMs); rowsBack8978.incrementAndGet() } catch (_: Throwable) { failed.incrementAndGet() }
+            }
+        }
+        if (labMode8978) {
+            val dir = dir8978()
+            val lines = synchronized(inBuffer8978) { ArrayList(inBuffer8978).also { inBuffer8978.clear() } }
+            if (lines.isNotEmpty()) {
+                if (dir != null && writeAtomic8978(dir, IN_PREFIX_8978, lines, nowMs, seq8978.incrementAndGet())) sentIn8978.addAndGet(lines.size.toLong())
+                else { channelFailed8978.incrementAndGet(); synchronized(inBuffer8978) { inBuffer8978.addAll(0, lines) } }
+            }
+            val reported = try { dir?.let { File(it, STATUS_8978).lastModified() } ?: 0L } catch (_: Throwable) { 0L }
+            if (!fellSilent8978(nowMs, labSinceMs8978, reported)) { ping8978(); return }
+            fallBack8978(nowMs)
+        }
+        // a wait buffered while this process was taking the follow back is followed here too
+        ingest8978(synchronized(inBuffer8978) { ArrayList(inBuffer8978).also { inBuffer8978.clear() } })
+        pass8884(nowMs)
+    }
+
+    /** The lab never reported: this process follows for the rest of the run, from the lab's saved waits and the unsent ones. */
+    private fun fallBack8978(nowMs: Long) {
+        labMode8978 = false
+        fellBack8978.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("RESEARCH_FOLLOW_LAB_FALLBACK_8978") } catch (_: Throwable) {}
+        val dir = dir8978()
+        try { dir?.let { File(it, OWNER_TRADER_8978).writeText(nowMs.toString()) } } catch (_: Throwable) {}
+        load8884()
+        val lines = (dir?.let { takeFiles8978(it, IN_PREFIX_8978) } ?: emptyList()) +
+            synchronized(inBuffer8978) { ArrayList(inBuffer8978).also { inBuffer8978.clear() } }
+        ingest8978(lines)
+    }
+
+    private fun ingest8978(lines: List<String>) {
+        if (lines.isEmpty()) return
+        val ws = lines.mapNotNull { decode8884(it) }
+        synchronized(pending) {
+            for (w in ws) pending.addLast(w)
+            while (pending.size > MAX_PENDING_8884) { pending.pollFirst(); dropped.incrementAndGet() }
+            dirty = true
+        }
+    }
+
+    /** The lab process (LabProcess8906, kind FOLLOW): start following here. Idempotent. */
+    @Synchronized fun startInLab8978() {
+        if (labRole8978 || started) return
+        labRole8978 = true
+        exec.scheduleWithFixedDelay({ try { labPass8978(System.currentTimeMillis()) } catch (_: Throwable) { failed.incrementAndGet() } },
+            0L, 60L, TimeUnit.SECONDS)
+    }
+
+    /** Is this process the lab's follower? (LabProcess8906 keeps its service started while it is.) */
+    fun labFollowing8978(): Boolean = labRole8978
+
+    private fun labPass8978(nowMs: Long) {
+        val dir = dir8978() ?: return
+        if (traderOwns8978()) return   // the trading process took the follow back for this run
+        load8884()
+        ingest8978(takeFiles8978(dir, IN_PREFIX_8978))
+        pass8884(nowMs)
+        val rows = synchronized(outBuffer8978) { ArrayList(outBuffer8978).also { outBuffer8978.clear() } }
+        if (rows.isNotEmpty()) {
+            if (writeAtomic8978(dir, OUT_PREFIX_8978, rows, nowMs, seq8978.incrementAndGet())) rowsOut8978.addAndGet(rows.size.toLong())
+            else { channelFailed8978.incrementAndGet(); synchronized(outBuffer8978) { outBuffer8978.addAll(0, rows) } }
+        }
+        try {
+            val tmp = File(dir, "$STATUS_8978.tmp"); tmp.writeText(ownLine8884() + " " + channelLine8978())
+            if (!tmp.renameTo(File(dir, STATUS_8978))) tmp.delete()
+        } catch (_: Throwable) {}
+    }
+
+    /** Brief: where the follow runs and what crossed between the two processes. */
+    internal fun channelLine8978(): String =
+        "followLab8978[where=${when { labRole8978 -> "labProcess"; labMode8978 -> "lab"; fellBack8978.get() > 0 -> "here(fellBack)"; else -> "here" }} " +
+            "sentIn=${sentIn8978.get()} buffered=${synchronized(inBuffer8978) { inBuffer8978.size }} bufferDropped=${bufferDropped8978.get()} " +
+            "rowsOut=${rowsOut8978.get()} rowsBack=${rowsBack8978.get()} fellBack=${fellBack8978.get()} pingFailed=${pingFailed8978.get()} " +
+            "channelFailed=${channelFailed8978.get()}]"
 
     internal fun resetForTest8884() { synchronized(pending) { pending.clear() }; loaded = true; written.set(0); unpriced.set(0); late.set(0); dropped.set(0) }
     internal fun pendingForTest8884(): List<Wait8884> = synchronized(pending) { ArrayList(pending) }
