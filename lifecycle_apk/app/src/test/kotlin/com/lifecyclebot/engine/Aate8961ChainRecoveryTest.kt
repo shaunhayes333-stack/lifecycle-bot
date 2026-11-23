@@ -26,7 +26,7 @@ class Aate8961ChainRecoveryTest {
         var reads = 0
         assertTrue(PocketRecovery8961.startPoolRead8961(p, pool, 11_000L, 7L) {
             reads++
-            assertEquals(pool, p.token.lastPricePoolAddr)
+            assertTrue("a selected pool does not prove the sweep price's venue", p.token.lastPricePoolAddr.isBlank())
             assertEquals(pool, p.token.tokenMap.poolAddress)
             assertEquals(pool, p.token.tokenMap.pairAddress)
         })

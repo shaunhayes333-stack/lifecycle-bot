@@ -64,7 +64,7 @@ object PocketRecovery8961 {
                                    read: () -> Unit): Boolean {
         if (pool.isBlank() || pool == p.token.mint || nowMs - p.askedAtMs !in 0L..TTL_MS ||
             p.generation != generation || !p.poolReadStarted.compareAndSet(false, true)) return false
-        p.token.lastPricePoolAddr = pool
+        // This locates the read; it does not prove that the earlier aggregate price came from this pool.
         p.token.tokenMap.poolAddress = pool
         p.token.tokenMap.pairAddress = pool
         try {
@@ -122,11 +122,10 @@ object PocketRecovery8961 {
         return p
     }
 
-    /** After protected intake accepted, copy only observed facts and the shared, quality-tagged candles. */
-    fun applyAnswered(p: Pending, target: TokenState, nowMs: Long) {
+    /** Protected intake uses these facts before publishing the row; copying never re-dates an observation. */
+    fun applyObservedFacts8961(p: Pending, target: TokenState, nowMs: Long) {
         if (target.mint != p.token.mint) return
         val from = p.token
-        if (target.lastPricePoolAddr.isBlank()) target.lastPricePoolAddr = from.lastPricePoolAddr
         if (target.tokenMap.poolAddress.isBlank()) target.tokenMap.poolAddress = from.tokenMap.poolAddress
         if (target.tokenMap.pairAddress.isBlank()) target.tokenMap.pairAddress = from.tokenMap.pairAddress
         for ((field, fact) in from.facts8551) {
@@ -138,8 +137,15 @@ object PocketRecovery8961 {
                 else -> TokenFacts.writeSnapshot(target, field, fact.value, fact.source, fact.rank, fact.observedAtMs, nowMs)
             }
         }
+        target.laneAffinity.addAll(p.lanes)
+    }
+
+    /** After protected intake accepted, merge the answered observations and shared, quality-tagged candles. */
+    fun applyAnswered(p: Pending, target: TokenState, nowMs: Long) {
+        if (target.mint != p.token.mint) return
+        applyObservedFacts8961(p, target, nowMs)
+        val from = p.token
         for ((quality, bars) in CandleCoverage8284.oneMinuteBars8284(target.mint).groupBy(CandleCoverage8284::qualityOf8284))
             CandleCoverage8284.merge8284(target, bars, quality, "POCKET_CHAIN_READ_8961", from.lastPricePoolAddr, nowMs)
-        target.laneAffinity.addAll(p.lanes)
     }
 }

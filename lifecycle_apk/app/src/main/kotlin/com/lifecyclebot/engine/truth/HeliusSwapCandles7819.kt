@@ -117,12 +117,16 @@ object HeliusSwapCandles7819 {
         return if (graduated) valid(pool) else valid(curve) ?: valid(pool)
     }
 
+    /** A late-discovered venue belongs to the token map; it need not have supplied the held price. */
+    internal fun historyPool8961(ts: TokenState): String =
+        listOf(ts.pairAddress, ts.lastPricePoolAddr, ts.tokenMap.poolAddress, ts.tokenMap.pairAddress)
+            .firstOrNull { it != ts.mint && com.lifecyclebot.network.HeliusSolanaScope7819.isSolanaMint7819(it) }
+            .orEmpty()
+
     private fun activeMarketAddress8269(ts: TokenState): String? {
         val mint = ts.mint
         val graduated = try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(mint) } catch (_: Throwable) { false }
-        val pool = listOf(ts.pairAddress, ts.lastPricePoolAddr).firstOrNull {
-            it != mint && com.lifecyclebot.network.HeliusSolanaScope7819.isSolanaMint7819(it)
-        }.orEmpty()
+        val pool = historyPool8961(ts)
         val remembered = try { com.lifecyclebot.network.PumpCurveKeys7269.keyFor(mint) } catch (_: Throwable) { null }
         val pumpCurve = if (!graduated && (mint.endsWith("pump", ignoreCase = true) || remembered != null)) {
             try { com.lifecyclebot.network.PumpCurveKeys7269.canonicalCurveKey7392(mint) } catch (_: Throwable) { null }

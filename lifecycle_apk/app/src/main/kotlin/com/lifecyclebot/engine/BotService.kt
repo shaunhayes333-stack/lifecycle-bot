@@ -16229,6 +16229,76 @@ class BotService : Service() {
             (inferIntakeToolAffinity(source, sources, mcapUsd, liquidityUsd) + claims?.tools.orEmpty())
     }
 
+    // Archive facts remain time-zero restores; recovered observations retain their own price identity.
+    private fun restoreIntakeArchive8961(
+        fresh: com.lifecyclebot.data.TokenState,
+        cached: com.lifecyclebot.engine.TokenMetaCache.Entry?,
+        hiveForIntake: com.lifecyclebot.collective.CollectiveLearning.SharedTokenMint?,
+        preserveObservedPrice8961: Boolean,
+    ) {
+        if (cached != null) {
+            // Warm slow-moving snapshot fields. These are SAFE
+            // to seed because every fresh tick will overwrite
+            // them; they only matter for the first few seconds
+            // post-boot when the scanner hasn't ticked yet.
+            TokenFacts.restorePrice(fresh, cached.lastPrice, null)  // V5.0.8552 — a restore fact (time 0)
+            TokenFacts.restoreMcap(fresh, cached.lastMcap)
+            TokenFacts.restoreLiquidity(fresh, cached.lastLiquidityUsd, "META_CACHE_RESTORE")  // V5.0.8551
+            TokenFacts.restoreFdv(fresh, cached.lastFdv)
+            if (!preserveObservedPrice8961 && cached.lastPriceDex.isNotBlank()) fresh.lastPriceDex = cached.lastPriceDex
+            if (!preserveObservedPrice8961 && cached.lastPricePoolAddr.isNotBlank()) fresh.lastPricePoolAddr = cached.lastPricePoolAddr
+            if (cached.decimals >= 0) fresh.tokenMap.decimals = cached.decimals
+            // V5.0.6908 §A_RESTORED_PRICE_IS_NOT_A_LIVE_PRICE.
+            //
+            // Operator directive: "price and things that move
+            // should always be checked in a live state if being
+            // interacted with by aate."
+            //
+            // This line used to copy the ARCHIVED PROVIDER NAME
+            // onto the fresh TokenState — e.g. a price read from
+            // SQLite arrived wearing "DEXSCREENER_PAIR_POLL".
+            // That laundered the archive's identity into a live
+            // provider's, and every authority downstream reads
+            // the source string to decide what the number is
+            // worth: MarketDataProvenance6471 saw a legitimate
+            // provider and returned AUTHORITATIVE, which under
+            // §6658 is enough to seal a canonical paper entry.
+            // So a price of unknown age off local disk could
+            // become an immutable entry basis — the precise
+            // failure the 6471 mandate names ("cache-template
+            // price MUST carry provenance=NON_AUTHORITATIVE").
+            //
+            // The number still seeds the row so the UI is not
+            // blank for the first seconds after boot, but it now
+            // says where it came from. lastPriceUpdate stays 0 so
+            // every freshness window also treats it as unproven,
+            // and the first real tick overwrites both fields.
+            // Archived pool/dex/decimals are untouched: those are
+            // immutable facts about the token, not moving values.
+            if (!preserveObservedPrice8961 && cached.lastPrice > 0.0) {
+                fresh.lastPriceSource = com.lifecyclebot.engine.truth.MarketDataProvenance6471.ARCHIVED_MARK_SOURCE_6908
+            } else if (!preserveObservedPrice8961 && cached.lastPriceSource.isNotBlank()) {
+                fresh.lastPriceSource = cached.lastPriceSource
+            }
+        }
+        if (cached == null && hiveForIntake != null) {
+            TokenFacts.restoreMcap(fresh, hiveForIntake.lastMcapUsd)
+            TokenFacts.restoreLiquidity(fresh, hiveForIntake.lastLiquidityUsd, "HIVE_RESTORE")  // V5.0.8551
+            if (!preserveObservedPrice8961 && hiveForIntake.pairDex.isNotBlank()) fresh.lastPriceDex = hiveForIntake.pairDex
+            if (hiveForIntake.tokenDecimals >= 0) fresh.tokenMap.decimals = hiveForIntake.tokenDecimals
+            // V5.0.6908 — hive metadata is another instance's
+            // archive, so it is archival by definition and is
+            // labelled the same way. It never carries a price at
+            // all (the shared table has no price column), only
+            // mcap/liquidity context, so labelling the source
+            // here purely prevents a peer's provider name from
+            // standing in as local live proof.
+            if (!preserveObservedPrice8961 && hiveForIntake.lastPriceSource.isNotBlank()) {
+                fresh.lastPriceSource = com.lifecyclebot.engine.truth.MarketDataProvenance6471.ARCHIVED_MARK_SOURCE_6908
+            }
+        }
+    }
+
     private fun admitProtectedMemeIntake(
         mint: String,
         symbol: String,
@@ -16243,7 +16313,9 @@ class BotService : Service() {
         operatorLog: Boolean = false,
         expectedRuntimeGeneration: Long? = null,
         claims8394: IntakeClaims8394? = null,
+        recovery8961: com.lifecyclebot.engine.market.PocketRecovery8961.Pending? = null,
     ): Boolean {
+        if (recovery8961 != null && recovery8961.token.mint != mint) return false
         claims8394?.noteBirth8394(mint)
         // V5.0.6548 §P0-C — background pipeline instrumentation. Every
         // successful intake admit call must record an INTAKE progress
@@ -16764,8 +16836,11 @@ class BotService : Service() {
                 synchronized(status.tokens) {
                     status.tokens[mint]?.let { existing ->
                         // V5.0.8345 — the max-take write goes through the hydration hook (a first fill resumes the deferred task).
-                        if (HydrationReeval8343.intakeLiquidity8345(existing, liquidityUsd)) tokenEvidenceImproved7475 = true
-                        if (trustedMarketCapUsd6492 > 0.0 && trustedMarketCapUsd6492 != existing.lastMcap) {  // V5.0.8418 — newer replaces, up or down
+                        if (recovery8961 != null) {
+                            com.lifecyclebot.engine.market.PocketRecovery8961.applyObservedFacts8961(recovery8961, existing, nowMs)
+                            tokenEvidenceImproved7475 = true
+                        } else if (HydrationReeval8343.intakeLiquidity8345(existing, liquidityUsd)) tokenEvidenceImproved7475 = true
+                        if (recovery8961 == null && trustedMarketCapUsd6492 > 0.0 && trustedMarketCapUsd6492 != existing.lastMcap) {  // V5.0.8418 — newer replaces, up or down
                             com.lifecyclebot.engine.truth.TokenFacts.writeSnapshot(existing, com.lifecyclebot.engine.truth.TokenFacts.Field.MCAP_USD, trustedMarketCapUsd6492, "INTAKE", com.lifecyclebot.engine.truth.TokenFacts.Rank.AGGREGATE, System.currentTimeMillis())
                             tokenEvidenceImproved7475 = true
                         }
@@ -16811,7 +16886,7 @@ class BotService : Service() {
             } else if (cnt == 1) {
                 try { ForensicLogger.lifecycle("INTAKE_DEDUPE_DROP", "mint=${mint.take(10)} symbol=${symbol.ifBlank { mint.take(6) }} src=$source ageMs=${nowMs - prevAt}") } catch (_: Throwable) {}
             }
-            if (!promoted6566) return true
+            if (!promoted6566 && (recovery8961 == null || status.tokens.containsKey(mint))) return true
             // Promotion crossed probation→hot: continue once through canonical
             // hydration so the newly-qualified mint cannot remain projection-only.
         }
@@ -17084,78 +17159,24 @@ class BotService : Service() {
                         mint = mint,
                         symbol = symbol.ifBlank { cached?.symbol?.takeIf { it.isNotBlank() } ?: hiveForIntake?.symbol?.takeIf { it.isNotBlank() } ?: mint.take(6) },
                         name = name.ifBlank { cached?.name?.takeIf { it.isNotBlank() } ?: hiveForIntake?.name?.takeIf { it.isNotBlank() } ?: symbol.ifBlank { mint.take(6) } },
-                        pairAddress = cached?.pairAddress?.takeIf { it.isNotBlank() } ?: hiveForIntake?.pairAddress ?: "",
+                        pairAddress = recovery8961?.token?.tokenMap?.poolAddress?.takeIf { it.isNotBlank() }
+                            ?: cached?.pairAddress?.takeIf { it.isNotBlank() } ?: hiveForIntake?.pairAddress ?: "",
                         pairUrl = cached?.pairUrl?.takeIf { it.isNotBlank() } ?: hiveForIntake?.pairUrl ?: "",
                         candleTimeframeMinutes = 1,
                         source = joinedSources.ifBlank { hiveForIntake?.source ?: "" },
                         logoUrl = cached?.logoUrl?.takeIf { it.isNotBlank() } ?: hiveForIntake?.logoUrl ?: "",
                     ).also { fresh ->
+                        // The scalars above are intake checks, not new observations. Seed the dated facts before
+                        // publication and before first-sight work can resume a deferred candidate.
+                        recovery8961?.let { com.lifecyclebot.engine.market.PocketRecovery8961.applyObservedFacts8961(it, fresh, nowMs) }
                         IntakeFirstSight8317.firstSight8317(fresh, laneAffinity, toolAffinity)  // V5.0.8317 — affinities + chain depth read + near-decision
-                        if (cached != null) {
-                            // Warm slow-moving snapshot fields. These are SAFE
-                            // to seed because every fresh tick will overwrite
-                            // them; they only matter for the first few seconds
-                            // post-boot when the scanner hasn't ticked yet.
-                            TokenFacts.restorePrice(fresh, cached.lastPrice, null)  // V5.0.8552 — a restore fact (time 0)
-                            TokenFacts.restoreMcap(fresh, cached.lastMcap)
-                            TokenFacts.restoreLiquidity(fresh, cached.lastLiquidityUsd, "META_CACHE_RESTORE")  // V5.0.8551
-                            TokenFacts.restoreFdv(fresh, cached.lastFdv)
-                            if (cached.lastPriceDex.isNotBlank()) fresh.lastPriceDex = cached.lastPriceDex
-                            if (cached.lastPricePoolAddr.isNotBlank()) fresh.lastPricePoolAddr = cached.lastPricePoolAddr
-                            if (cached.decimals >= 0) fresh.tokenMap.decimals = cached.decimals
-                            // V5.0.6908 §A_RESTORED_PRICE_IS_NOT_A_LIVE_PRICE.
-                            //
-                            // Operator directive: "price and things that move
-                            // should always be checked in a live state if being
-                            // interacted with by aate."
-                            //
-                            // This line used to copy the ARCHIVED PROVIDER NAME
-                            // onto the fresh TokenState — e.g. a price read from
-                            // SQLite arrived wearing "DEXSCREENER_PAIR_POLL".
-                            // That laundered the archive's identity into a live
-                            // provider's, and every authority downstream reads
-                            // the source string to decide what the number is
-                            // worth: MarketDataProvenance6471 saw a legitimate
-                            // provider and returned AUTHORITATIVE, which under
-                            // §6658 is enough to seal a canonical paper entry.
-                            // So a price of unknown age off local disk could
-                            // become an immutable entry basis — the precise
-                            // failure the 6471 mandate names ("cache-template
-                            // price MUST carry provenance=NON_AUTHORITATIVE").
-                            //
-                            // The number still seeds the row so the UI is not
-                            // blank for the first seconds after boot, but it now
-                            // says where it came from. lastPriceUpdate stays 0 so
-                            // every freshness window also treats it as unproven,
-                            // and the first real tick overwrites both fields.
-                            // Archived pool/dex/decimals are untouched: those are
-                            // immutable facts about the token, not moving values.
-                            if (cached.lastPrice > 0.0) {
-                                fresh.lastPriceSource = com.lifecyclebot.engine.truth.MarketDataProvenance6471.ARCHIVED_MARK_SOURCE_6908
-                            } else if (cached.lastPriceSource.isNotBlank()) {
-                                fresh.lastPriceSource = cached.lastPriceSource
-                            }
-                        }
-                        if (cached == null && hiveForIntake != null) {
-                            TokenFacts.restoreMcap(fresh, hiveForIntake.lastMcapUsd)
-                            TokenFacts.restoreLiquidity(fresh, hiveForIntake.lastLiquidityUsd, "HIVE_RESTORE")  // V5.0.8551
-                            if (hiveForIntake.pairDex.isNotBlank()) fresh.lastPriceDex = hiveForIntake.pairDex
-                            if (hiveForIntake.tokenDecimals >= 0) fresh.tokenMap.decimals = hiveForIntake.tokenDecimals
-                            // V5.0.6908 — hive metadata is another instance's
-                            // archive, so it is archival by definition and is
-                            // labelled the same way. It never carries a price at
-                            // all (the shared table has no price column), only
-                            // mcap/liquidity context, so labelling the source
-                            // here purely prevents a peer's provider name from
-                            // standing in as local live proof.
-                            if (hiveForIntake.lastPriceSource.isNotBlank()) {
-                                fresh.lastPriceSource = com.lifecyclebot.engine.truth.MarketDataProvenance6471.ARCHIVED_MARK_SOURCE_6908
-                            }
-                        }
+                        restoreIntakeArchive8961(fresh, cached, hiveForIntake, recovery8961 != null)
                     }
                 }
                 // symbol/name are immutable identity fields on TokenState; the
                 // getOrPut initializer above is the authority for first hydrate.
+                // A concurrent intake may have published first; offer our dated facts through the normal arbitration.
+                recovery8961?.let { com.lifecyclebot.engine.market.PocketRecovery8961.applyObservedFacts8961(it, ts, nowMs) }
                 // V5.9.1193 — if the token already existed in runtime, use the
                 // same cache hit to fill only empty/stale metadata fields. Fresh
                 // scanner values below still win via max-take semantics.
@@ -17168,15 +17189,15 @@ class BotService : Service() {
                     TokenFacts.restoreMcap(ts, cachedForIntake.lastMcap)
                     TokenFacts.restoreLiquidity(ts, cachedForIntake.lastLiquidityUsd, "META_CACHE_RESTORE")  // V5.0.8551
                     TokenFacts.restoreFdv(ts, cachedForIntake.lastFdv)
-                    if (ts.lastPriceDex.isBlank() && cachedForIntake.lastPriceDex.isNotBlank()) ts.lastPriceDex = cachedForIntake.lastPriceDex
-                    if (ts.lastPricePoolAddr.isBlank() && cachedForIntake.lastPricePoolAddr.isNotBlank()) ts.lastPricePoolAddr = cachedForIntake.lastPricePoolAddr
-                    if (ts.lastPriceSource.isBlank() && cachedForIntake.lastPriceSource.isNotBlank()) ts.lastPriceSource = cachedForIntake.lastPriceSource
+                    if (recovery8961 == null && ts.lastPriceDex.isBlank() && cachedForIntake.lastPriceDex.isNotBlank()) ts.lastPriceDex = cachedForIntake.lastPriceDex
+                    if (recovery8961 == null && ts.lastPricePoolAddr.isBlank() && cachedForIntake.lastPricePoolAddr.isNotBlank()) ts.lastPricePoolAddr = cachedForIntake.lastPricePoolAddr
+                    if (recovery8961 == null && ts.lastPriceSource.isBlank() && cachedForIntake.lastPriceSource.isNotBlank()) ts.lastPriceSource = cachedForIntake.lastPriceSource
                 } else if (hiveForIntake != null) {
                     if (ts.logoUrl.isBlank() && hiveForIntake.logoUrl.isNotBlank()) ts.logoUrl = hiveForIntake.logoUrl
                     TokenFacts.restoreMcap(ts, hiveForIntake.lastMcapUsd)
                     TokenFacts.restoreLiquidity(ts, hiveForIntake.lastLiquidityUsd, "HIVE_RESTORE")  // V5.0.8551
-                    if (ts.lastPriceDex.isBlank() && hiveForIntake.pairDex.isNotBlank()) ts.lastPriceDex = hiveForIntake.pairDex
-                    if (ts.lastPriceSource.isBlank() && hiveForIntake.lastPriceSource.isNotBlank()) ts.lastPriceSource = hiveForIntake.lastPriceSource
+                    if (recovery8961 == null && ts.lastPriceDex.isBlank() && hiveForIntake.pairDex.isNotBlank()) ts.lastPriceDex = hiveForIntake.pairDex
+                    if (recovery8961 == null && ts.lastPriceSource.isBlank() && hiveForIntake.lastPriceSource.isNotBlank()) ts.lastPriceSource = hiveForIntake.lastPriceSource
                     if (hiveForIntake.socialCount > 0 || hiveForIntake.coingeckoId.isNotBlank()) {
                         com.lifecyclebot.engine.BirdeyeMetaDataProvider.seedFromHive(
                             mint = ts.mint,
@@ -17200,12 +17221,18 @@ class BotService : Service() {
                 // liquidity from any source (DexScreener/Raydium) always
                 // wins over older Pump-portal/WS seeds.
                 // V5.0.8345 — written through the hydration hook: a first fill resumes the mint's deferred hand-off task.
-                HydrationReeval8343.intakeLiquidity8345(ts, liquidityUsd)
+                if (recovery8961 == null) HydrationReeval8343.intakeLiquidity8345(ts, liquidityUsd)
                 // V5.9.769 max-take of the source's cap, then V5.0.8400 §CAPTURED_WITH_THE_TOKEN_AT_DISCOVERY: a row admitted
                 // without a cap / depth is capped from the curve's reserves, independent price x supply, or the curve
                 // invariant, and its depth hydrated; failing all, the chain read is queued now, not after a specialist
                 // has deferred it (DiscoveryCapture8400.captureAtIntake8400 — kept out of this ART-pinned method).
-                com.lifecyclebot.engine.truth.DiscoveryCapture8400.captureAtIntake8400(ts, source, trustedMarketCapUsd6492)
+                if (recovery8961 == null) {
+                    com.lifecyclebot.engine.truth.DiscoveryCapture8400.captureAtIntake8400(ts, source, trustedMarketCapUsd6492)
+                } else {
+                    // Resolve only from dated evidence; the generic intake helper also seeds inferred history.
+                    com.lifecyclebot.engine.truth.DiscoveryCapture8400.captureMcap8400(ts, "POCKET_RECOVERY_8961")
+                    try { com.lifecyclebot.engine.DexBatchLane8287.enqueue8287(mint) } catch (_: Throwable) {}
+                }
                 // V5.0.7077 §LOCK THE FACTS IN AT DISCOVERY, NOT AT THE TRADE.
                 //
                 // Operator: "if we cant lock in full data integrity at
@@ -17350,7 +17377,7 @@ class BotService : Service() {
                         com.lifecyclebot.engine.truth.OnChainSupplyAuthority7075.requestAsync7075(mint)
                     } catch (_: Throwable) {}
                 }
-                if (trustedMarketCapUsd6492 > 0.0 && ts.lastPrice <= 0.0 && seedPrice7089 > 0.0) {
+                if (recovery8961 == null && trustedMarketCapUsd6492 > 0.0 && ts.lastPrice <= 0.0 && seedPrice7089 > 0.0) {
                     if (!isPumpMint7089) {
                         try {
                             PipelineHealthCollector.labelInc("INTAKE_PRICE_SEEDED_FROM_CHAIN_SUPPLY_7089")
@@ -17383,7 +17410,7 @@ class BotService : Service() {
                     // unrealized on a 0.22 SOL ticket. The two cases are named apart.
                     TokenFacts.writePrice(ts, seedPrice7089, if (isPumpMint7089) "PUMP_FUN_BC_SYNTHETIC" else com.lifecyclebot.engine.truth.EntryBasisSeed7280.CHAIN_SUPPLY_CAP_SEED,
                         TokenFacts.Rank.AGGREGATE, System.currentTimeMillis(), dex = if (isPumpMint7089) "PUMP_FUN" else "CAP_OVER_CHAIN_SUPPLY")  // V5.0.8552
-                } else if (trustedMarketCapUsd6492 > 0.0 &&
+                } else if (recovery8961 == null && trustedMarketCapUsd6492 > 0.0 &&
                     (ts.lastPriceSource == "PUMP_FUN_BC_SYNTHETIC" || ts.lastPriceSource == com.lifecyclebot.engine.truth.EntryBasisSeed7280.CHAIN_SUPPLY_CAP_SEED)
                 ) {
                     // V5.9.1328 — ROOT FIX F: Synthetic price refresh.
@@ -17440,7 +17467,7 @@ class BotService : Service() {
                 if (confidence > 0 && ts.entryScore <= 0.0) {
                     ts.entryScore = confidence.toDouble()
                 }
-                if (volumeH1 > 0.0 && ts.history.isEmpty()) {
+                if (recovery8961 == null && volumeH1 > 0.0 && ts.history.isEmpty()) {
                     val seedPrice = if (ts.lastPrice > 0) ts.lastPrice else 0.0
                     val seedMcap = if (ts.lastMcap > 0) ts.lastMcap else trustedMarketCapUsd6492
                     val seedCandle = com.lifecyclebot.data.Candle(
@@ -17463,7 +17490,7 @@ class BotService : Service() {
                 // non-empty history list immediately rather than waiting for
                 // the next DexScreener tick. seedPrice is now non-zero thanks
                 // to the mcap/1B fallback above, so the candle is meaningful.
-                if (ts.history.isEmpty() && ts.lastPrice > 0.0) {
+                if (recovery8961 == null && ts.history.isEmpty() && ts.lastPrice > 0.0) {
                     val seedCandle = com.lifecyclebot.data.Candle(
                         ts = System.currentTimeMillis(),
                         priceUsd = ts.lastPrice,
@@ -25927,7 +25954,8 @@ if (hotExitHandledSweep) {
         val ts = recovery.token
         if (!status.tokens.containsKey(mint)) admitProtectedMemeIntake(mint, ts.symbol, ts.name,
             source = "LANE_POCKET_RECOVERY_8961", marketCapUsd = ts.lastMcap, liquidityUsd = ts.lastLiquidityUsd,
-            volumeH1 = recovery.row.volumeH1Usd, expectedRuntimeGeneration = generation)
+            volumeH1 = recovery.row.volumeH1Usd, allSources = recovery.row.providers.ifEmpty { setOf(SourceTruth8633.MARKET_SWEEP_8633) },
+            expectedRuntimeGeneration = generation, recovery8961 = recovery)
         status.tokens[mint]?.let { com.lifecyclebot.engine.market.PocketRecovery8961.applyAnswered(recovery, it, now) }
     }
 
