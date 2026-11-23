@@ -135,7 +135,8 @@ class Aate8868ConvictionTest {
         val w = CandidateAdmission8136.decide8136(falling.copy(edge8537 = unproven))
         assertEquals(CandidateAdmission8136.FALLING_HOUR_DEFER_8418, w.reason)
         val a = src("engine/truth/CandidateAdmission8136.kt")
-        assertTrue(a.contains("if ((!decisionGross.isFinite() || grossFromModel8868) && moveWaitChosen8418 == NetEdge8030.MOVE_WAIT_FALLING_8418 && !paperExplore8539) {"))
+        // V5.0.8965: a cell-priced move (grossFromCell8965) meets the same falling-hour block.
+        assertTrue(a.contains("if ((!decisionGross.isFinite() || grossFromModel8868 || grossFromCell8965) && moveWaitChosen8418 == NetEdge8030.MOVE_WAIT_FALLING_8418 && !paperExplore8539) {"))
         // the proven-losing refusal sits before the model's way through
         assertTrue(a.indexOf("return done(Terminal8136.REFUSE, FALLING_HOUR_PROVEN_LOSING_8418, true, chosen)") <
             a.indexOf("trace += \"fallingHour8418 setup=\${chosen ?: \"-\"} unproven=\${proof8418?.compact ?: \"n0\"} edgeModelProven8868\""))

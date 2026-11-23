@@ -3103,6 +3103,12 @@ had no move to judge and the coin waited until its slot expired.
   cell-priced move). Safety, structure, the setup's own losing record, the cheat sheet, the lane's losing cell, timing,
   realised losses and the economics check itself are unchanged.
 - cellGross8965[lane=count] in the brief.
+- Correction (8966, from 8965's own CI): the 8171 fallback already prices a carried coin from its cell whenever the cell is the
+  admission's strongest net-of-cost record, so 8965 adds only the remaining cases (a stronger gross record chosen as the
+  edge). It is kept out wherever the edge assembly keeps the cell out (the lane's own cell record losing). The field's
+  MOVE_HISTORY_SPARSE expiries therefore have a reason not yet measured; 8966 names it on every such defer
+  (cellMoveGap8966: CELL_UNSUPPORTED_RAW / CELL_BELOW_LIVE_SHORTFALL / LANE_CELL_LOSING / EDGE_NOT_NET / OTHER) and the brief
+  shows it as cellGross8965[... stillWaiting8966{lane:why=n}].
 - Research, 25 h of decision reads (edge_research 24 Nov 00:07, first decision per coin, 1 h): meme BASE_START n170 coins
   +25.8 % median +16.0 win 67 % (halves +27.5 / +22.8); off pump.fun n152 +30.9 %; cap $5k-$20k n101 +35.2 % median +39.6 win
   77 %. Every other stage loses (UNKNOWN -7.6 %, FRESH_LAUNCH -20.1 %, PEAK -7.7 % median -22.5, DUMPING -23.2 %). The same coins

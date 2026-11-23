@@ -840,7 +840,8 @@ object CandidateAdmission8136 {
         // waits 4 of 8), on a record of n130 +42.1 % lower +31.5 %. A known current move still wins (8846 doctrine) and the
         // falling hour's proven-losing refusal below still binds; the economics check judges this bound like any move.
         var grossFromCell8965 = false
-        if (!decisionGross.isFinite() && !c.expectedGrossPct.isFinite() && market8723 != null &&
+        // 8966: never where the edge assembly keeps the cell out (the lane's own cell record losing).
+        if (!decisionGross.isFinite() && !c.expectedGrossPct.isFinite() && market8723 != null && !losing8136(cellLoss) &&
             market8723.lowerPct.isFinite() && market8723.lowerPct > 0.0 && c.costPct.isFinite() && c.costPct >= 0.0) {
             // a net-of-cost record's bound is a net; a gross record's bound is already the gross move (never counted twice)
             decisionGross = if (market8723.netOfCost) market8723.lowerPct + c.costPct else market8723.lowerPct
@@ -934,6 +935,12 @@ object CandidateAdmission8136 {
             val missing = (criticalMissing8170 + (if (stale) listOf("price") else emptyList()) + econMissing8418).distinct()
             trace += "missing=${missing.joinToString(",")}"
             if (criticalMissing8170.isNotEmpty()) trace += "criticalUnobserved8170=${criticalMissing8170.joinToString(",")}"
+            // V5.0.8966 — a coin that carried market-cell evidence and still waits on its move names why its cell gave none.
+            if (!econKnown && c.marketCell8723 != null) {
+                val why8966 = cellMoveGap8966(c.marketCell8723, market8723, losing8136(cellLoss), edge, c.costPct)
+                trace += "cellMoveGap8966=$why8966"
+                noteCellGap8966(c.lane, why8966)
+            }
             return done(Terminal8136.DEFER_DATA, "DATA_INCOMPLETE_DEFER_8136", false, chosen)
         }
         // A price/route/cost-proven candidate with POSITIVE candidate-specific graded
@@ -1749,9 +1756,33 @@ object CandidateAdmission8136 {
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKET_CELL_GROSS_8965_$k") } catch (_: Throwable) {}
     }
 
+    /**
+     * V5.0.8966 — pure: why a coin carrying market-cell evidence [raw] still has no move. 8965 found the 8171 fallback already
+     * prices such a coin from its cell when the cell is the admission's strongest net record, so the field's MOVE_HISTORY_SPARSE
+     * expiries (evidenceWait8948) have a reason that is not yet measured. Named, never guessed:
+     * CELL_UNSUPPORTED_RAW (the cell does not clear its own support test at this cost), CELL_BELOW_LIVE_SHORTFALL (supported
+     * raw, not past the lane's realised live shortfall), LANE_CELL_LOSING (the lane's own cell record is losing, so the market
+     * cell is kept out of the edge), EDGE_NOT_NET (a stronger gross record was chosen as the edge), OTHER.
+     */
+    internal fun cellMoveGap8966(raw: Evidence8136?, carried: Evidence8136?, laneCellLosing: Boolean, edge: Evidence8136?, costPct: Double): String = when {
+        raw == null -> "NO_CELL"
+        !supported8136(raw, costPct) -> "CELL_UNSUPPORTED_RAW"
+        carried == null -> "CELL_BELOW_LIVE_SHORTFALL"
+        laneCellLosing -> "LANE_CELL_LOSING"
+        edge != null && !edge.netOfCost -> "EDGE_NOT_NET"
+        else -> "OTHER"
+    }
+
+    private val cellGap8966 = ConcurrentHashMap<String, AtomicLong>()
+    private fun noteCellGap8966(lane: String, why: String) {
+        val k = lane.uppercase().take(24) + ":" + why
+        if (cellGap8966.size < 96 || cellGap8966.containsKey(k)) cellGap8966.computeIfAbsent(k) { AtomicLong(0L) }.incrementAndGet()
+    }
+
     /** V5.0.8965 status: how often a pocket coin's unread move was priced by its pocket. */
     fun cellGrossLine8965(): String =
         "cellGross8965[" + cellGross8965.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } +
+            " stillWaiting8966{" + cellGap8966.entries.sortedByDescending { it.value.get() }.take(12).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } + "}" +
             " rule=a coin carried by a proven market cell (base / agreement / lane pocket) whose own move is unread (history " +
             "sparse, move unread) takes the cell's after-cost lower bound as its move; a known current move wins; the falling " +
             "hour's proven-losing refusal and every other door still bind]"
