@@ -126,6 +126,7 @@ object LanePocket8934 {
     @Volatile private var loading = false
     @Volatile private var loadNotBefore8961 = 0L
     private val rows = AtomicLong(0L)
+    private val exitsGraded8971 = AtomicLong(0L)
     private val served = ConcurrentHashMap<String, AtomicLong>()
     private val huntDecisions8961 = ConcurrentHashMap<String, PocketHunt8961.Observation>()
     private val io = Executors.newSingleThreadExecutor { r -> Thread(r, "lane-pocket-8934").apply { isDaemon = true; priority = Thread.MIN_PRIORITY } }
@@ -151,7 +152,14 @@ object LanePocket8934 {
         }
         val mint = o.optString("mint")
         if (mint.isBlank()) return
-        val coin = Coin8934(o.optLong("t", 0L), features8934(mint, o.optString("stage"), o.optString("setup"), d("v3"), d("pred"), d("liq"), mcap), net)
+        // V5.0.8971 — a meme lane's coin is graded under the lane's own exits (stop first, then the doctrine line from +10 %),
+        // exactly as the base pocket grades its coins (BasePocket8904.doctrineNet8910); a row without its low / peak read keeps
+        // the hour's net. 24 Nov research (27.4 h): proven cells CORE 9 -> 28, MOONSHOT 15 -> 27, SHITCOIN 22 -> 28,
+        // EXPRESS 15 -> 28, MANIPULATED 12 -> 27; every other lane none either way. Crypto lanes keep the held net.
+        val graded = if (lane.startsWith("CRYPTO_")) net
+            else BasePocket8904.doctrineNet8910(lane, d("gross"), d("minPct"), d("heldPeakPct"), d("cost"), net)
+        if (graded != net) exitsGraded8971.incrementAndGet()
+        val coin = Coin8934(o.optLong("t", 0L), features8934(mint, o.optString("stage"), o.optString("setup"), d("v3"), d("pred"), d("liq"), mcap), graded)
         val book = books.getOrPut(lane) { LinkedHashMap() }
         synchronized(book) {
             if (book.containsKey(mint)) return
@@ -279,8 +287,8 @@ object LanePocket8934 {
             if (v.isEmpty()) "$k=none" else "$k=${v.size}[${v.first().id} n${v.first().n} ${"%+.1f".format(v.first().mean)}% ex3${"%+.1f".format(v.first().exTop3)} z${"%.2f".format(v.first().z)}]"
         }.ifBlank { "-" }
         val used = served.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }
-        return "lanePocket8934[ready=$ready rows=${rows.get()} coins{$coins} proven{$p} served{$used} minedAgoMin=${if (minedAtMs > 0L) (System.currentTimeMillis() - minedAtMs) / 60_000L else -1L} " +
-            "rule=each lane's own in-band coins at its designed hold (BLUECHIP 4 h, others 1 h), one coin once; a single feature or a pair proves at 30+ coins, " +
+        return "lanePocket8934[ready=$ready rows=${rows.get()} exitsGraded8971=${exitsGraded8971.get()} coins{$coins} proven{$p} served{$used} minedAgoMin=${if (minedAtMs > 0L) (System.currentTimeMillis() - minedAtMs) / 60_000L else -1L} " +
+            "rule=each lane's own in-band coins at its designed hold (BLUECHIP 4 h, others 1 h) under the lane's own exits (8971), one coin once; a single feature or a pair proves at 30+ coins, " +
             "both halves positive, mean without the best three > z SE (z deflated over the lane's cells); meme lanes carry it as market-cell evidence]"
     }
 

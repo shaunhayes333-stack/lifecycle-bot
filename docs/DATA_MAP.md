@@ -3187,3 +3187,26 @@ with crypto. (This replaces 8789's "the crypto trader trades whatever it wants, 
   where it draws: the SOL mark-rescue batch no longer fetches meme coins' prices; and where it ingests: a meme-watch coin
   only from a $100 k+ pool, a hunted coin only once a day old with a $100 k+ pool.
 - The meme stack is unchanged. cryptoUniverse8970[crypto memeLeftToMemeTrader ingestRefused] in the brief.
+
+## 156. Every pocket graded under its lane's exits (8971)
+
+Owner, 24 Nov 02:41: "the latest build still has a wall of gates and vetos stopping the good trades getting to buys ... all the
+lanes across both traders are meant to have tailored set ups to suit their pockets". 5.0.8968 capture (02:19, 10 min).
+- Lane pockets: LanePocket8934 graded every lane's coins on the raw held hour. Research (edge_research 24 Nov 02:39, 27.4 h,
+  each coin once per lane, the miner's own rules: single features and pairs, 30+ coins, both halves positive, mean without the
+  best three past the family-deflated z) — proven cells, held hour -> under the lane's own exits: CORE 9 -> 28, MOONSHOT
+  15 -> 27, SHITCOIN 22 -> 28, EXPRESS 15 -> 28, MANIPULATED 12 -> 27 (best: off pump.fun & forecast +10 %+ n92-99 +49..+54 %,
+  ex-top-3 +42..+48; BASE_START & forecast +10 %+; SHITCOIN's LAUNCH_CONTINUATION & forecast +10 %+ n42 +61 %). The coin is
+  now filed at its net under the lane's exits (BasePocket8904.doctrineNet8910: the stop first, then the doctrine line from
+  +10 %, else the hour, less the round trip), as the base pocket already is. A row without its low / peak read keeps the
+  hour's net; crypto lanes keep the held net. exitsGraded8971 in lanePocket8934.
+- Not proven, either way, in this file: QUALITY, BLUECHIP, CYCLIC, DIP_HUNTER, PROJECT_SNIPER, TREASURY, CASHGEN and every
+  CRYPTO_* lane, at 1 h, 4 h and 24 h (established meme lanes lose: QUALITY 24 h n1,205 -19 %; crypto lanes' medians sit at
+  -2.7..-3 %, their own round trip — the coins barely moved and the fee is the loss). Nothing is printed as proven for them.
+- A proven pocket answers the lane's own cell prior: pocket coins' moves were withheld because the lane's cell record was
+  losing (stillWaiting8966 MOONSHOT 13, CRYPTO_EXPRESS 8, CRYPTO_MOONSHOT 5) and pocket coins refused CELL_PROVEN_LOSING_8136
+  (LANE_POCKET 8, FDG 6). The cell (source x lane x cap x age) is a lane-wide prior that names no strategy (8240); an
+  agreement / base / lane pocket is proven over a narrower group, so it answers it as 8724 / 8874 already let it answer the
+  origin cohort, buys-the-high and stage priors: no CELL_PROVEN_LOSING refusal, the cell is not kept out of the edge, and the
+  8965 fallback may price it. The launch rule's fire is not included (its live record 0 of 10, §153). Safety, structure, the
+  selected setup's own losing record, timing, economics and realised losses still decide. pocketAnswersCell8971 in the brief.

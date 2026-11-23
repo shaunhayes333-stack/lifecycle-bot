@@ -598,6 +598,8 @@ object CandidateAdmission8136 {
         // losing cell or the lane's realised live losses: measured evidence about this strategy outranks it.
         val market8723 = LiveAdmissionProof8290.shift8290(c.marketCell8723, c.liveShortfall8290)?.takeIf { supported8136(it, c.costPct) }
         val carried8723 = market8723 != null
+        // V5.0.8971 — a proven pocket (agreement / base / lane pocket) answers the lane's own cell prior: see [POCKET_KINDS_8971].
+        val pocketAnswersCell8971 = market8723 != null && market8723.kind in POCKET_KINDS_8971
         if (carried8723) {
             trace += "marketCell8723=${market8723?.compact}"
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKET_CELL_PAYS_8723_${c.lane.uppercase()}") } catch (_: Throwable) {}
@@ -726,7 +728,10 @@ object CandidateAdmission8136 {
         // independently been blocking the same unclassified tokens on STAGE|LANE|UNKNOWN.
         val stageLoss = if (c.stage.equals("UNKNOWN", ignoreCase = true)) null
             else if (c.lossEpochAware8169) c.stageLoss8169 else c.stageRecord  // V5.0.8325 — own labels (no tail credit)
-        if (provenLosing8136(cellLoss) && doorBinds8393("CELL_PROVEN_LOSING_8136")) {
+        if (provenLosing8136(cellLoss) && pocketAnswersCell8971) {
+            trace += "cellLosing=${cellLoss?.compact} answeredByPocket8971=${market8723?.compact}"
+            notePocketCell8971(c.lane, "CELL_PROVEN_LOSING")
+        } else if (provenLosing8136(cellLoss) && doorBinds8393("CELL_PROVEN_LOSING_8136")) {
             // V5.0.8240 — the cell (source|lane|mcap|age) is a lane-wide prior over every coin of that shape, exactly like
             //    the stage record below: it names no strategy. 8241 runner ledger: MONPAD +30584% and KimWhale +2962% were
             //    MISSED(CELL_PROVEN_LOSING) while a SUPPORTED setup (n, mean - SE and timing band clearing cost — the
@@ -794,7 +799,7 @@ object CandidateAdmission8136 {
             // V5.0.8290 — the Cortex cohort is read past the same realised shortfall as every other label record.
             LiveAdmissionProof8290.shift8290(c.cortexStrong8200, c.liveShortfall8290)?.takeIf { supported8136(it, c.costPct) && !losing8136(cellLoss) },  // V5.0.8200
             LiveAdmissionProof8290.shift8290(c.runnerGrab8245, c.liveShortfall8290)?.takeIf { grabSupported8245(it) && !losing8136(cellLoss) },   // V5.0.8245 / 8316
-            market8723?.takeIf { !losing8136(cellLoss) })   // V5.0.8723
+            market8723?.takeIf { !losing8136(cellLoss) || pocketAnswersCell8971 })   // V5.0.8723; 8971: a proven pocket answers the cell
             .maxByOrNull { it.lowerPct }
         if (edge?.kind == KIND_RUNNER_GRAB_8245) {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ADMISSION_EDGE_RUNNER_GRAB_8245") } catch (_: Throwable) {}
@@ -841,7 +846,7 @@ object CandidateAdmission8136 {
         // falling hour's proven-losing refusal below still binds; the economics check judges this bound like any move.
         var grossFromCell8965 = false
         // 8966: never where the edge assembly keeps the cell out (the lane's own cell record losing).
-        if (!decisionGross.isFinite() && !c.expectedGrossPct.isFinite() && market8723 != null && !losing8136(cellLoss) &&
+        if (!decisionGross.isFinite() && !c.expectedGrossPct.isFinite() && market8723 != null && (!losing8136(cellLoss) || pocketAnswersCell8971) &&
             market8723.lowerPct.isFinite() && market8723.lowerPct > 0.0 && c.costPct.isFinite() && c.costPct >= 0.0) {
             // a net-of-cost record's bound is a net; a gross record's bound is already the gross move (never counted twice)
             decisionGross = if (market8723.netOfCost) market8723.lowerPct + c.costPct else market8723.lowerPct
@@ -1778,6 +1783,27 @@ object CandidateAdmission8136 {
         val k = lane.uppercase().take(24) + ":" + why
         if (cellGap8966.size < 96 || cellGap8966.containsKey(k)) cellGap8966.computeIfAbsent(k) { AtomicLong(0L) }.incrementAndGet()
     }
+
+    /**
+     * V5.0.8971 §A_PROVEN_POCKET_ANSWERS_THE_LANES_CELL_PRIOR — owner, 24 Nov 02:41: "the latest build still has a wall of gates
+     * and vetos stopping the good trades getting to buys". 5.0.8968, 10 min: pocket coins' moves withheld because the lane's
+     * cell record was losing (stillWaiting8966 MOONSHOT 13, CRYPTO_EXPRESS 8, CRYPTO_MOONSHOT 5) and pocket coins refused
+     * CELL_PROVEN_LOSING_8136 (LANE_POCKET 8, FDG 6). The cell (source x lane x cap x age) is a lane-wide prior over every coin
+     * of that shape and names no strategy (8240); a proven pocket is a record of a narrower group (30+ coins, both halves,
+     * mean without the best three past the family-deflated margin, graded under the lane's own exits), so it answers that
+     * prior exactly as 8724 / 8874 let it answer the origin cohort, buys-the-high and the stage priors. The launch rule's
+     * fire (LaunchSniper8748) is not in this set: its live record is 0 of 10 (8968). Safety, structure, the selected setup's
+     * own losing record, timing, economics and realised live losses all still decide.
+     */
+    internal val POCKET_KINDS_8971: Set<String> = setOf(AgreementPocket8874.KIND_8874, BasePocket8904.KIND_8904, LanePocket8934.KIND_8934)
+    private val pocketCell8971 = ConcurrentHashMap<String, AtomicLong>()
+    private fun notePocketCell8971(lane: String, door: String) {
+        val k = lane.uppercase().take(24) + ":" + door
+        if (pocketCell8971.size < 64 || pocketCell8971.containsKey(k)) pocketCell8971.computeIfAbsent(k) { AtomicLong(0L) }.incrementAndGet()
+    }
+    fun pocketCellLine8971(): String = "pocketAnswersCell8971{" + pocketCell8971.entries.sortedByDescending { it.value.get() }
+        .joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } +
+        " rule=a proven agreement / base / lane pocket answers the lane's own cell prior (refusal and edge exclusion); not the launch rule}"
 
     /** V5.0.8965 status: how often a pocket coin's unread move was priced by its pocket. */
     fun cellGrossLine8965(): String =
