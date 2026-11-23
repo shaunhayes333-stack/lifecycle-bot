@@ -3228,7 +3228,7 @@ low and close; each coin once per lane):
 - This build: the cost. NetEdge8030.componentsPct8151 charged every non-pump.fun pool a flat 0.25 % a side
   (PaperVenueCost7287 AMM_FEE_PCT) while the deep Orca / Raydium CLMM / Meteora pools these lanes trade charge 0.01-0.05 %.
   Every Jupiter quote names each hop's fee (routePlan[].swapInfo.feeAmount in feeMint units, beside its inAmount /
-  outAmount); RoundTrip8418.poolFeePct8972 sums a single chain of hops (a split route, an unpriced fee mint or a missing
+  outAmount); RealisedSlip8418.poolFeePct8972 sums a single chain of hops (a split route, an unpriced fee mint or a missing
   field gives null and the model stays; floored 0.01 %, capped 5 %), filed per mint for 6 h, and a non-pump.fun pool is
   charged it. The pump.fun curve and PumpSwap keep their published schedule. venueFee8972[quoted modelled] in the cost line.
 
@@ -3253,3 +3253,10 @@ where those lanes actually move (§157: at the hour, in-band QUALITY / BLUECHIP 
 8971's CI: two source pins (Aate8723PayingCellTest, Aate8965PocketMoveTest) still named the edge-exclusion and fallback
 lines as they were before a proven pocket could answer the lane's own cell prior. Both now name the 8971 lines; the paying
 cell (8723) itself is not a POCKET_KINDS_8971 kind and is still kept out of the edge on a losing lane cell. No code change.
+
+## 160. 8972's pool fee called on the wrong object (8975)
+
+The runtime builds of 8972-8974 failed to compile: NetEdge8030 called RoundTrip8418.quotedPoolFeePct8972, but RoundTrip8418.kt
+holds two objects and the pool-fee code sits in the second, RealisedSlip8418, beside noteQuote8418 (which Costs8369 already
+calls as RealisedSlip8418.noteQuote8418). NetEdge8030, the 8972 test and §157 now name RealisedSlip8418. Every other symbol
+added since 8970 (the last green build) was checked to resolve in its own object.

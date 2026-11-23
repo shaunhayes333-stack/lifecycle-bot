@@ -206,10 +206,10 @@ object NetEdge8030 {
      */
     private fun componentsPct8151(sizeSol: Double, mint: String, liquidityUsd: Double, mcapUsd: Double): Double {
         val venueModel8972 = if (mint.isBlank()) 0.25 else PaperVenueCost7287.venueFeePct(mint, liquidityUsd, mcapUsd)
-        // V5.0.8972 — a non-pump.fun pool is charged the fee its own quote names (RoundTrip8418.poolFeePct8972); the pump.fun
+        // V5.0.8972 — a non-pump.fun pool is charged the fee its own quote names (RealisedSlip8418.poolFeePct8972); the pump.fun
         // curve and PumpSwap keep their published schedule (creator fee by cap), which the model already prices exactly.
         val quoted8972 = if (mint.isBlank() || PaperVenueCost7287.venue(mint, liquidityUsd) != PaperVenueCost7287.Venue.AMM) null
-            else try { com.lifecyclebot.engine.RoundTrip8418.quotedPoolFeePct8972(mint) } catch (_: Throwable) { null }
+            else try { com.lifecyclebot.engine.RealisedSlip8418.quotedPoolFeePct8972(mint) } catch (_: Throwable) { null }
         if (quoted8972 != null) venueQuoted8972.incrementAndGet() else if (mint.isNotBlank()) venueModelled8972.incrementAndGet()
         val venuePct = quoted8972 ?: venueModel8972
         // V5.0.8337 — the route fee follows the ROUTE a pump mint takes (PumpPortal), not the venue the depth classifies.
