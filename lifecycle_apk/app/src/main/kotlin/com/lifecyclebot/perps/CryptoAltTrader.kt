@@ -2267,11 +2267,10 @@ object CryptoAltTrader {
                 }
             // V5.0.6569 — specialist thresholds are features for the shared
             // authority, not a terminal pre-V3 gate. Rank continuously and bound work.
-            val topDyn = uniqueDynSignals6567
-                .sortedWith(compareByDescending<AltSignal> {
+            val topDyn = CryptoSignalPriority8961.order(uniqueDynSignals6567, 25,
+                recordRank = {
                     com.lifecyclebot.engine.truth.CryptoSpotPaperBacking8788.strategyRank8961("CRYPTO_ALT", it.strategy7803)
-                }.thenByDescending { it.score + it.confidence }.thenByDescending { it.score })
-                .take(25)
+                }, score = { it.score + it.confidence }, confidence = { it.score })
             uniqueDynSignals6567.filterNot { it in topDyn }.forEach { observed ->
                 val observedTok6569 = observed.evaluationOwner8870 ?: observed.dynAssetKey?.let { DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(it) }
                     ?: observed.dynMint?.let { DynamicAltTokenRegistry.getTokenByMint(it) }
@@ -2592,7 +2591,10 @@ object CryptoAltTrader {
             CrossTalkFusionEngine.fuse()
         } catch (_: Exception) {}
 
-        val topSignals = signals.sortedByDescending { it.score }.take(50)  // V5.9.128: raised from 5 → 50 so the bot actually uses the full alt universe
+        // Static spot and majors also compete on their own strategy record. Dynamic ALT records never rank this lane.
+        val topSignals = CryptoSignalPriority8961.order(signals, 50,
+            recordRank = { com.lifecyclebot.engine.truth.CryptoSpotPaperBacking8788.strategyRank8961("CRYPTO_SPOT", it.strategy7803) },
+            score = { it.score }, confidence = { it.confidence })
 
         // V5.9.130: FULL V3 STACK — run every signal through UnifiedScorer so the
         // alt trader gets the SAME 41 AI layers + AITrustNetwork + 14 V5.9.123

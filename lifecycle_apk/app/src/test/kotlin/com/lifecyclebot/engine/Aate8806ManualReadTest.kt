@@ -56,7 +56,9 @@ class Aate8806ManualReadTest {
 
     @Test fun theReadIsWiredToTheTapeAdmissionAndReport() {
         assertTrue(src("engine/truth/TradeTape8100.kt").contains("ManualRead8806.onPrint8806(mint, eventMs, priceSol, isBuy, recvMs)"))
-        assertTrue(src("engine/truth/CandidateAdmission8136.kt").contains("?: ManualRead8806.evidence8806(ts.mint, nowMs)"))
+        val providers = src("engine/truth/CandidateAdmission8136.kt")
+            .substringAfter("marketCell8723 = selectMarketEvidence8961(", "").substringBefore("regimeCold8546 =")
+        assertTrue(providers.contains("ManualRead8806.evidence8806(ts.mint, nowMs)"))
         assertTrue(src("engine/PipelineHealthCollector.kt").contains("ManualRead8806.statusLine8806()"))
         assertTrue(ManualRead8806.statusLine8806().contains("SHADOW"))
     }

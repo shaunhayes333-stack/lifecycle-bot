@@ -57,7 +57,8 @@ class Aate8930SharesAndHiveTest {
 
     @Test fun theDeskGradesOnTheSplicedCopyAndTheHiveIsCounted() {
         val desk = src("xstocks/XsDesk.kt")
-        assertTrue(desk.contains("if (h.bars.size >= MIN_LISTED_DAYS) ready.add(panelHistory8930(s, h, today))"))
+        assertTrue("only answered instruments with enough listed history enter the spliced panel",
+            desk.contains("if (answered && h.bars.size >= MIN_LISTED_DAYS) ready.add(panelHistory8930(s, h, today))"))
         assertTrue("the stored history is never changed", desk.contains("return HlHistory(h.coin).also { it.bars.putAll(bars) }"))
         assertTrue(src("collective/CollectiveLearning.kt").contains("try { hiveCensus8930() } catch (_: Exception) {}"))
         assertTrue(src("engine/DiagnosisBrief8438.kt").contains("CollectiveLearning.hiveCensusLine8930()"))

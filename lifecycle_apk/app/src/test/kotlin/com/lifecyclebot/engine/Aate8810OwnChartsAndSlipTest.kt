@@ -57,7 +57,14 @@ class Aate8810OwnChartsAndSlipTest {
         val api = src("xstocks/XsApi.kt")
         assertTrue(api.contains("val local = r.header(com.lifecyclebot.network.HostCircuitInterceptor.SYNTHETIC_HEADER_6969) != null"))
         val desk = src("xstocks/XsDesk.kt")
-        assertTrue(desk.contains("if (historyRetry8810(unanswered, now - today * DAY_MS)) { historyRetryAt8810 = now + HISTORY_RETRY_MS_8810; return }"))
-        assertTrue(desk.indexOf("historyRetryAt8810 = now + HISTORY_RETRY_MS_8810; return }") < desk.indexOf("        lastEvalDay = today\n        historyPasses8810 = 0"))
+        val daily = desk.substringAfter("private fun daily(now: Long, today: Long)", "").substringBefore("// ── marks")
+        assertTrue("an empty startup panel remains retryable even after the former six-hour deadline",
+            daily.contains("if (ready.isEmpty()) { historyRetryAt8810 = System.currentTimeMillis() + HISTORY_RETRY_MS_8810; return }"))
+        assertTrue("only a fully answered pass seals the day's evaluation",
+            daily.contains("if (unanswered == 0) { lastEvalDay = today; historyPasses8810 = 0 }"))
+        assertTrue("incomplete passes retry while the answered panel is still evaluated",
+            daily.contains("else historyRetryAt8810 = System.currentTimeMillis() + HISTORY_RETRY_MS_8810"))
+        assertTrue(daily.indexOf("else historyRetryAt8810 =") in 0 until daily.indexOf("val panel = HlDesk.panelOf(ready,"))
+        assertFalse("an unanswered peer cannot defer the ready instruments", daily.contains("historyRetry8810(unanswered,"))
     }
 }

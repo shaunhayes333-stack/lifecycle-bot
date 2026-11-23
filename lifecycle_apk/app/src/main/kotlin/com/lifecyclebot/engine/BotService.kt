@@ -10996,11 +10996,13 @@ class BotService : Service() {
         }
         // V5.0.8957 — a coin whose missing inputs were pinged on chain runs its full pipeline when the answers land
         com.lifecyclebot.engine.truth.ChainConfirm8950.answered8957 = { mint, onceKey ->
+            if (status.running) recoverPocketDiscovery8961(mint, false, streamGeneration)
             if (status.running && status.tokens.containsKey(mint))
                 fastLaneEvaluate7277(mint, ConfigStore.load(applicationContext), "CHAIN_ANSWER_8957", onceKey = onceKey)
         }
         // V5.0.8950 — a coin whose UNKNOWN stage was read from the chain runs its full pipeline again at once
         com.lifecyclebot.engine.truth.StageRead8950.direct8950 = { mint, slot ->
+            if (status.running) recoverPocketDiscovery8961(mint, true, streamGeneration)
             if (status.running && status.tokens.containsKey(mint))
                 fastLaneEvaluate7277(mint, ConfigStore.load(applicationContext), "STAGE_READ_8950", onceKey = "$mint|8950|$slot")
         }
@@ -25918,6 +25920,17 @@ if (hotExitHandledSweep) {
     }
 
     // V5.0.8945 — [source8945] / [onceKey8945]: a print milestone's admission names itself and keys its own fast lane
+    private fun recoverPocketDiscovery8961(mint: String, historyAnswered: Boolean, generation: Long) {
+        if (!BotRuntimeController.isLiveGeneration(generation)) return
+        val now = System.currentTimeMillis()
+        val recovery = com.lifecyclebot.engine.market.PocketRecovery8961.takeAnswered(mint, historyAnswered, generation, now) ?: return
+        val ts = recovery.token
+        if (!status.tokens.containsKey(mint)) admitProtectedMemeIntake(mint, ts.symbol, ts.name,
+            source = "LANE_POCKET_RECOVERY_8961", marketCapUsd = ts.lastMcap, liquidityUsd = ts.lastLiquidityUsd,
+            volumeH1 = recovery.row.volumeH1Usd, expectedRuntimeGeneration = generation)
+        status.tokens[mint]?.let { com.lifecyclebot.engine.market.PocketRecovery8961.applyAnswered(recovery, it, now) }
+    }
+
     private fun promoteHotLaunchNow7921(mint: String, symbol: String, name: String, streamGeneration: Long,
                                         source8945: String = "LAUNCH_HEAT_7921", onceKey8945: String = mint) {
         try {

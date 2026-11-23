@@ -311,8 +311,18 @@ object CandidateAdmission8136 {
 
     /** An unsupported earlier provider must not hide a later supported pocket. Preserve provider precedence among valid proofs. */
     internal fun selectMarketEvidence8961(records: List<Evidence8136>, shortfall: Double, cost: Double): Evidence8136? =
-        records.firstOrNull { supported8136(LiveAdmissionProof8290.shift8290(it, shortfall), cost) }
-            ?: records.firstOrNull()
+        selectMarketEvidence8961(records.asSequence(), shortfall, cost)
+
+    /** Read each provider at most once and stop at the first supported proof. Later readers may load books and count reads. */
+    internal fun selectMarketEvidence8961(records: Sequence<Evidence8136?>, shortfall: Double, cost: Double): Evidence8136? {
+        var first: Evidence8136? = null
+        for (record in records) {
+            if (record == null) continue
+            if (first == null) first = record
+            if (supported8136(LiveAdmissionProof8290.shift8290(record, shortfall), cost)) return record
+        }
+        return first
+    }
 
     /**
      * Pure (V5.0.8324): [e] read for a LOSS test on a runner lane — its mean credited the runners its sample could plausibly
@@ -2117,6 +2127,7 @@ object CandidateAdmission8136 {
             (try { com.lifecyclebot.engine.cortex.Cortex7885.tailPond8324(lane) } catch (_: Throwable) { null }) else null
         // V5.0.8874 — the edge model's verdict is read once: the candidate carries it, and the agreement pocket reads its forecast.
         val edge8874 = EdgeModel8537.verdict(ts, lane, cost8153, nowMs)
+        LanePocket8934.noteHuntDecision8961(ts, lane, fit?.stage?.name.orEmpty(), edge8874?.predPct, nowMs)
         return Candidate8136(
             mint = ts.mint,
             lane = lane,
@@ -2126,19 +2137,19 @@ object CandidateAdmission8136 {
             liveEdge8114 = if (live8290) LiveEdgeGate7877.edge8114Live8538(ts, lane, nowMs) else null,  // V5.0.8538
             // V5.0.8748 — a coin the armed launch sniper fired on carries the replay rule's record as its market evidence
             // V5.0.8756 — then the graded smart-money signal (a proven wallet's / two converging wallets' buy, armed on its test record)
-            marketCell8723 = selectMarketEvidence8961(listOfNotNull(
-                PayingCell8723.evidence8723(ts, lane, nowMs),
-                LaunchSniper8748.evidence8748(ts.mint, nowMs),
-                ManualRead8806.evidence8806(ts.mint, nowMs),
-                com.lifecyclebot.engine.chart.ColourShape8807.evidence8807(ts.mint, nowMs),
-                SmartMoney8756.evidence8756(ts.mint, nowMs),
-                RunnerModel8861.evidence8861(ts.mint, nowMs),
-                try { com.lifecyclebot.engine.lab.StrategyLab8755.evidence8755(ts, lane, nowMs) } catch (_: Throwable) { null },
-                AgreementPocket8874.evidence8874(ts, lane, edge8874?.predPct, nowMs),
-                BasePocket8904.evidence8904(ts, lane, nowMs),
-                LanePocket8934.evidence8934(ts, lane, edge8874?.predPct, nowMs),
-                LlmBands8875.evidence8875(ts, lane, nowMs),
-            ), extra8290, cost8153),
+            marketCell8723 = selectMarketEvidence8961(sequence {
+                yield(PayingCell8723.evidence8723(ts, lane, nowMs))
+                yield(LaunchSniper8748.evidence8748(ts.mint, nowMs))
+                yield(ManualRead8806.evidence8806(ts.mint, nowMs))
+                yield(com.lifecyclebot.engine.chart.ColourShape8807.evidence8807(ts.mint, nowMs))
+                yield(SmartMoney8756.evidence8756(ts.mint, nowMs))
+                yield(RunnerModel8861.evidence8861(ts.mint, nowMs))
+                yield(try { com.lifecyclebot.engine.lab.StrategyLab8755.evidence8755(ts, lane, nowMs) } catch (_: Throwable) { null })
+                yield(AgreementPocket8874.evidence8874(ts, lane, edge8874?.predPct, nowMs))
+                yield(BasePocket8904.evidence8904(ts, lane, nowMs))
+                yield(LanePocket8934.evidence8934(ts, lane, edge8874?.predPct, nowMs))
+                yield(LlmBands8875.evidence8875(ts, lane, nowMs))
+            }, extra8290, cost8153),
             regimeCold8546 = live8290 && MemePaperTrader8544.memeLane8544(lane) &&
                 (try { MemeRegime8546.regime8546(nowMs) == MemeRegime8546.Regime8546.COLD } catch (_: Throwable) { false }),
             regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "" },
