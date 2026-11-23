@@ -3152,3 +3152,19 @@ while the armed launch rule fires at a $5k cap. The $20k-$1M buys made +0.062 SO
 - LaunchSniper8748.window8968: a launch or base rule's fire is market-cell evidence only for its graded delay (capped at the
   old 120 s); a signal rule (no graded delay) keeps 120 s. After the window the coin is judged on its own record like any
   other. The rule still fires, arms, watches and learns; a coin reached inside its delay trades exactly as before.
+
+## 154. What cannot be traded is not drawn from the chain (8969)
+
+Owner, 24 Nov 02:11: "if we know what the garbage is wouldn't it be smarter to not generate it or not draw it on chain?"
+23 Nov 23:47 (5.0.8962, 7.7 min): the stage read saw 126,407 UNKNOWN readings, asked the chain 3,632 times, 30 answers landed,
+and they restaged 20 UNKNOWN / 5 DUMPING / 1 FRESH_LAUNCH / 1 NO_SETUP: no base found. The lane reads added HISTORY 1,344,
+PRICE_DEPTH 1,064, SUPPLY 1,002. A swap-history page is 100 credits, and every answer is parsed into short-lived objects; the
+24 Nov CPU sample priced the collector at 21 % of all CPU. Which cohorts those reads went to was not counted; the brief now
+counts every skipped read by cohort (§153 for why the pump.fun small-pool cohorts are the expected ones).
+- ChainConfirm8950.confirm8950: a DISCOVERY read (uses STAGE and LANE) is skipped for a coin whose own origin x pool x age
+  cohort (MarketCohort8701) is CLEARLY losing on the bot's forward record — clearlyLosing8969: n100+, 75 %+ resolved, mean
+  + 2 SE below zero (stricter than the 8703 door's one SE). The record is live: a cohort that stops losing is read again.
+- Never skipped: a coin inside an armed rule fire's window, a pocket recovery (PocketRecovery8961, watched or not), a held
+  position; and never the DECISION, EVIDENCE, EXIT, HOLD, EXEC or RUG_VERIFY reads. Nothing here refuses a buy; the cheap
+  price marks the labels learn from are not chain-confirm reads and are unchanged.
+- discoverySkipped8969{use:cohort=n} in the brief.

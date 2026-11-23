@@ -94,6 +94,25 @@ object MarketCohort8701 {
     }
 
     /**
+     * V5.0.8969 — ChainConfirm8950: [ts]'s cohort when its own forward record is CLEARLY losing (n100+, 75 %+ resolved,
+     * mean + 2 SE below zero — a stricter bar than the 8703 door's one SE, because a skipped read is a coin left unseen).
+     * Reads the coin's held pool depth only (no fetch, no write); an unread pool is never judged.
+     */
+    fun clearlyLosing8969(ts: TokenState, nowMs: Long): String? {
+        if (!solana(ts)) return null
+        val liq = ts.lastLiquidityUsd
+        if (!(liq.isFinite() && liq > 0.0)) return null
+        val cohort = cohortAt8717(ts.mint, liq, ageMin8717(ts, nowMs))
+        val stat = try { ForwardReturnLabeler7731.laneStatFor7737(cohort) } catch (_: Throwable) { null }
+        return if (clearlyLosingStat8969(stat)) cohort else null
+    }
+
+    /** Pure (V5.0.8969). */
+    internal fun clearlyLosingStat8969(stat: ForwardReturnLabeler7731.CellStat?): Boolean =
+        stat != null && stat.n60 >= 100 && stat.resolvedShare >= 0.75 && stat.stderr60Pct.isFinite() &&
+            stat.meanNet60Pct.isFinite() && stat.meanNet60Pct + 2.0 * stat.stderr60Pct < 0.0
+
+    /**
      * V5.0.8703 — LaneAuthority8577: [ts]'s cohort when its own forward record is proven LOSING, else null. Live capital is
      * steered by the same record that can grant an edge: a coin from a cohort the bot has watched lose 100+ times (net of
      * cost, at executable marks) is bought LIVE only on proven evidence of its own. The record is live — a cohort that

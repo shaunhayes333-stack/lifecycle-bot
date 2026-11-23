@@ -242,6 +242,7 @@ object DiagnosisBrief8438 {
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.EvidenceWait8948.statusLine8948() } catch (_: Throwable) { "evidenceWait8948[read failed]" }).append('\n')  // V5.0.8948
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.StageRead8950.statusLine8950() } catch (_: Throwable) { "stageRead8950[read failed]" }).append('\n')  // V5.0.8950
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.ChainConfirm8950.statusLine8950() } catch (_: Throwable) { "chainConfirm8950[read failed]" }).append('\n')  // V5.0.8950
+            sb.append("               ").append(try { com.lifecyclebot.engine.truth.ChainConfirm8950.skipLine8969() } catch (_: Throwable) { "discoverySkipped8969[read failed]" }).append('\n')  // V5.0.8969
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.ChainPrice8963.statusLine8963() } catch (_: Throwable) { "chainPrice8963[read failed]" }).append('\n')  // V5.0.8963
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.HoldSupport8964.statusLine8964() } catch (_: Throwable) { "holdSupport8964[read failed]" }).append('\n')  // V5.0.8964
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.CandidateAdmission8136.cellGrossLine8965() } catch (_: Throwable) { "cellGross8965[read failed]" }).append('\n')  // V5.0.8965

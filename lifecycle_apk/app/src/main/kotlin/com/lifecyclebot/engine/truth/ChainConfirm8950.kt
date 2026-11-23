@@ -71,12 +71,48 @@ object ChainConfirm8950 {
         if (!live8950()) return
         val mint = com.lifecyclebot.perps.DynamicAltTokenRegistry.solanaMintOf8866(ts.mint) ?: return
         val local = if (mint == ts.mint) ts else ts.copy(mint = mint)
+        // V5.0.8969 — a discovery read is not spent on a coin its own cohort's record says cannot be traded
+        if (use.uppercase() in DISCOVERY_USES_8969) {
+            val skip = skip8969(use,
+                cohortLosing = try { MarketCohort8701.clearlyLosing8969(local, nowMs) } catch (_: Throwable) { null },
+                armed = try { LaunchSniper8748.armedWindow8824(mint, nowMs) } catch (_: Throwable) { false },
+                pocket = try { com.lifecyclebot.engine.market.PocketRecovery8961.pending8969(mint) } catch (_: Throwable) { false },
+                held = try { CanonicalPositionAuthority6441.hasOpenMint(mint) } catch (_: Throwable) { false })
+            if (skip != null) { noteSkip8969(use, skip); return }
+        }
         val inputs = inputsOf8950(missing)
         if (inputs.isEmpty() && missing.isNotEmpty()) unmapped8957.incrementAndGet()
         var askedAny = false
         for (input in inputs) if (ask8950(local, input, use, nowMs)) askedAny = true
         if (askedAny && use.uppercase() in RERUN_USES_8957 && needsTimedFallback8959(inputs)) rerun8957(mint, nowMs)
     }
+
+    /**
+     * V5.0.8969 §DO_NOT_DRAW_WHAT_CANNOT_BE_TRADED — owner, 24 Nov 02:11: "if we know what the garbage is wouldn't it be smarter
+     * to not generate it or not draw it on chain?" 23 Nov 23:47 (5.0.8962, 7.7 min): the stage read asked the chain 3,632 times
+     * for 126,407 UNKNOWN readings, 30 answers landed, and they restaged 20 UNKNOWN / 5 DUMPING / 1 FRESH_LAUNCH / 1 NO_SETUP —
+     * no base found; with the lane reads (HISTORY 1,344, PRICE_DEPTH 1,064, SUPPLY 1,002) that is ~10k discovery reads (a
+     * swap-history page is 100 credits), each parsed into short-lived objects the collector then spends 21 % of the CPU on.
+     * A discovery read (STAGE, LANE) now skips a coin whose own origin x pool x age cohort is CLEARLY losing on the bot's
+     * forward record (MarketCohort8701.clearlyLosing8969: n100+, 75 %+ resolved, mean + 2 SE < 0 — the record is live: a
+     * cohort that stops losing is read again), unless the coin holds an armed rule fire, is a pocket recovery, or is held.
+     * Decision, evidence, exit, hold, execution and rug-verify reads are never skipped; nothing here refuses a buy.
+     */
+    internal val DISCOVERY_USES_8969 = setOf("STAGE", "LANE")
+    private val skipped8969 = ConcurrentHashMap<String, AtomicLong>()
+
+    /** Pure: the cohort a discovery read of this coin is skipped for, or null when it is read. */
+    internal fun skip8969(use: String, cohortLosing: String?, armed: Boolean, pocket: Boolean, held: Boolean): String? =
+        if (use.uppercase() !in DISCOVERY_USES_8969 || armed || pocket || held) null else cohortLosing
+
+    private fun noteSkip8969(use: String, cohort: String) {
+        val k = use.uppercase() + ":" + cohort.removePrefix("ORIGIN8701_")
+        if (skipped8969.size < 64 || skipped8969.containsKey(k)) skipped8969.computeIfAbsent(k) { AtomicLong(0L) }.incrementAndGet()
+    }
+
+    fun skipLine8969(): String = "discoverySkipped8969{" + skipped8969.entries.sortedByDescending { it.value.get() }.take(12)
+        .joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } +
+        " rule=STAGE / LANE chain reads skip a coin whose cohort is clearly losing (n100+, mean+2SE<0), unless armed, pocket or held}"
 
     /**
      * V5.0.8957 §ANSWERED_NOT_LOOPED — owner: "a one time chain ping to fill the data deferral gaps when required. no

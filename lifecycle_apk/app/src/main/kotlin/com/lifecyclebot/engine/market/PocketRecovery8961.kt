@@ -26,9 +26,16 @@ object PocketRecovery8961 {
         generation == currentGeneration && askedAtMs > 0L && nowMs - askedAtMs in 0L..TTL_MS &&
             sourceAtMs >= askedAtMs && sourceAtMs <= nowMs && nowMs - sourceAtMs <= 15_000L
 
+    /** V5.0.8969 — ChainConfirm8950: a pocket coin waiting on its discovery read is always read. */
+    fun pending8969(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean =
+        pending.containsKey(mint) || (requested8969[mint]?.let { nowMs - it in 0L..TTL_MS } == true)
+    private val requested8969 = ConcurrentHashMap<String, Long>()
+
     /** Never inserts a token into the watchlist or publishes a specialist claim. The original row clocks remain intact. */
     fun request(row: MarketSweep7297.Row, lanes: Set<String>, nowMs: Long) {
         if (!live() || !PocketHunt8961.fresh(row.observedAtMs8169, nowMs)) return
+        if (requested8969.size > 256) requested8969.entries.removeIf { nowMs - it.value !in 0L..TTL_MS }
+        requested8969[row.mint] = nowMs   // V5.0.8969 — a watched pocket coin is read too
         val watched = HandoffRoute8180.tokenFor8180(row.mint)
         val generation = BotRuntimeController.currentGeneration()
         val pool = com.lifecyclebot.network.DexPools8285.chosen8285(row.mint)?.takeIf { it != row.mint }.orEmpty()
