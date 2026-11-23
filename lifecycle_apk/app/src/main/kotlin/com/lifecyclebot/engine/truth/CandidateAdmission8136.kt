@@ -832,6 +832,23 @@ object CandidateAdmission8136 {
                 "pred=${fmt8136(c.edge8537?.predPct ?: Double.NaN)} conviction=${fmt8136(c.edge8537?.conviction8868 ?: Double.NaN)}"
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EDGE_MODEL_GROSS_8868_${c.lane.uppercase()}") } catch (_: Throwable) {}
         }
+        // V5.0.8965 §A_POCKET_COIN_IS_PRICED_BY_ITS_POCKET — the same fallback from the proven market cell that carries this coin
+        // (8723: the base pocket, the agreement pocket, the lane pocket), exactly as 8918 already does for an unproven falling
+        // hour: both moves missing, the cell's after-cost lower bound (past the live shortfall) above zero. A pocket coin is
+        // young by definition, so its own move history is what it cannot have yet: 23 Nov 23:47 (5.0.8962) the top reason a
+        // pocket coin expired unadmitted was MOVE_HISTORY_SPARSE (evidenceWait8948 expired 10, MOVE_UNREAD 3; BASE_POCKET
+        // waits 4 of 8), on a record of n130 +42.1 % lower +31.5 %. A known current move still wins (8846 doctrine) and the
+        // falling hour's proven-losing refusal below still binds; the economics check judges this bound like any move.
+        var grossFromCell8965 = false
+        if (!decisionGross.isFinite() && !c.expectedGrossPct.isFinite() && market8723 != null &&
+            market8723.lowerPct.isFinite() && market8723.lowerPct > 0.0 && c.costPct.isFinite() && c.costPct >= 0.0) {
+            // a net-of-cost record's bound is a net; a gross record's bound is already the gross move (never counted twice)
+            decisionGross = if (market8723.netOfCost) market8723.lowerPct + c.costPct else market8723.lowerPct
+            net = decisionGross - c.costPct
+            grossFromCell8965 = true
+            trace += "grossFromMarketCellLower8965=${fmt8136(market8723.lowerPct)} cost=${fmt8136(c.costPct)} cell=${market8723.compact}"
+            noteCellGross8965(c.lane)
+        }
 
         // V5.0.8418 — the selected setup's move is NaN because its momentum lane's hour is FALLING and nothing supports a
         //    bounce: that is the coin's own observation, refused here by name. 8416: MOONSHOT DATA_INCOMPLETE_DEFER 6,682 — a
@@ -842,7 +859,7 @@ object CandidateAdmission8136 {
         //    is re-judged when the hour turns (the hour is part of its identity, so a held defer is not reused across it).
         // V5.0.8868 — a move supplied by the model's proven call still meets the falling hour's own proven-losing refusal;
         //    only the unproven hour's wait (a defer, not evidence) gives way to it.
-        if ((!decisionGross.isFinite() || grossFromModel8868) && moveWaitChosen8418 == NetEdge8030.MOVE_WAIT_FALLING_8418 && !paperExplore8539) {
+        if ((!decisionGross.isFinite() || grossFromModel8868 || grossFromCell8965) && moveWaitChosen8418 == NetEdge8030.MOVE_WAIT_FALLING_8418 && !paperExplore8539) {
             val proof8418 = c.fallingHourProof8418
             if (FallingHourCohort8418.provenLosing8418(proof8418) && !probe8429(c, trace, FALLING_HOUR_PROVEN_LOSING_8418)) {
                 trace += "fallingHour8418 setup=${chosen ?: "-"} noSupportedStrategy provenLosing=${proof8418?.compact} cost=${fmt8136(c.costPct)}"
@@ -1723,6 +1740,21 @@ object CandidateAdmission8136 {
     // no count of which wait produced them (a stage / flow read, a stale price, an unread move, an unknown cost, a critical
     // fact). Each fresh defer is counted once under every cause its own trace names.
     private val deferCauseCounts8700 = ConcurrentHashMap<String, AtomicLong>()
+
+    // V5.0.8965 — pocket coins whose unread move was answered by their proven market cell's lower bound, by lane.
+    private val cellGross8965 = ConcurrentHashMap<String, AtomicLong>()
+    private fun noteCellGross8965(lane: String) {
+        val k = lane.uppercase().take(24)
+        if (cellGross8965.size < 64 || cellGross8965.containsKey(k)) cellGross8965.computeIfAbsent(k) { AtomicLong(0L) }.incrementAndGet()
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKET_CELL_GROSS_8965_$k") } catch (_: Throwable) {}
+    }
+
+    /** V5.0.8965 status: how often a pocket coin's unread move was priced by its pocket. */
+    fun cellGrossLine8965(): String =
+        "cellGross8965[" + cellGross8965.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } +
+            " rule=a coin carried by a proven market cell (base / agreement / lane pocket) whose own move is unread (history " +
+            "sparse, move unread) takes the cell's after-cost lower bound as its move; a known current move wins; the falling " +
+            "hour's proven-losing refusal and every other door still bind]"
 
     /** Pure: the causes a DEFER_DATA decision's [trace] names. Optional gaps listed beside a cause are not causes. */
     internal fun deferCauses8700(trace: List<String>): List<String> {

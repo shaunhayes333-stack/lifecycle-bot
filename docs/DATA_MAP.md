@@ -3088,3 +3088,26 @@ underwater-time stop).
 - Operational, safety and price exits are never time exits here (reconcile, manual, sweep, dust, retry, rug, emergency,
   catastrophic, integrity, liquidity, sell-dominant, dump, hard / strict / stop-loss, trail, take-profit, ladder, rung).
 - holdSupport8964[held{book:why} released{book}] in the brief.
+
+## 151. A pocket coin is priced by its pocket (8965)
+
+23 Nov 23:47 (5.0.8962, 7.7 min, full data set): LANE_POCKET 137 coins -> 114 DEFER_DATA -> 5 tickets; the top reason a pocket
+coin expired unadmitted in evidenceWait8948 was MOVE_HISTORY_SPARSE (10, MOVE_UNREAD 3), and 4 of the 8 BASE_POCKET waits.
+A pocket coin is young by definition: its own move history is what it cannot have yet, so the admission's economics test
+had no move to judge and the coin waited until its slot expired.
+- CandidateAdmission8136.decide8136: when both moves are missing (the selected setup's current move and the original), a coin
+  carried by a proven market cell (8723: base pocket, agreement pocket, lane pocket; supported past the live shortfall)
+  takes the cell's lower bound as its move — the same contract 8171 (a setup record), 8868 (the model's proven call) and 8918
+  (the unproven falling hour) already use. A net-of-cost bound adds the cost back; a gross bound is the gross.
+- A known current move still wins (8846). The falling hour's proven-losing refusal still binds (its block now also runs for a
+  cell-priced move). Safety, structure, the setup's own losing record, the cheat sheet, the lane's losing cell, timing,
+  realised losses and the economics check itself are unchanged.
+- cellGross8965[lane=count] in the brief.
+- Research, 25 h of decision reads (edge_research 24 Nov 00:07, first decision per coin, 1 h): meme BASE_START n170 coins
+  +25.8 % median +16.0 win 67 % (halves +27.5 / +22.8); off pump.fun n152 +30.9 %; cap $5k-$20k n101 +35.2 % median +39.6 win
+  77 %. Every other stage loses (UNKNOWN -7.6 %, FRESH_LAUNCH -20.1 %, PEAK -7.7 % median -22.5, DUMPING -23.2 %). The same coins
+  held to 4 h / 24 h lose (-35 % / -47 %): the edge is the first hour, under the lane's exits.
+- Crypto desks, same file: their CRYPTO_CORE / SHITCOIN / MOONSHOT / EXPRESS rows are mostly pump.fun coins (684 of 1,394
+  CRYPTO_CORE coins; median cap $41k-$172k) read at a crypto 2.6 % cost; on established coins ($1M+, $100k+ liquidity) the
+  gross move is ~0 at 1 h, +1.5 % median at 24 h ($100M+: +1.8 % median, 76 % up, n25, one day) — under the round trip at a
+  0.0273 SOL ticket, where the fixed legs alone are ~1.8 %. Not changed here.
