@@ -1569,7 +1569,14 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                 // (45min negative) still fire — those protect from real risk.
                 val marketOpen = isStockMarketOpen()
                 var timeExited = false
-                when {
+                // V5.0.8964 — every clock exit below reassesses first: a stock whose own fresh marks support holding stays
+                try { com.lifecyclebot.engine.truth.HoldSupport8964.noteMark8964("XS|$id", data.price) } catch (_: Throwable) {}
+                val holdSupported8964 = holdSec > 1800 && try {
+                    com.lifecyclebot.engine.truth.HoldSupport8964.holdKeyed8964("XS|$id", "XSTOCK", data.price, data.lastUpdate,
+                        pnlPct, peakPnl, if (position.direction == PerpsDirection.SHORT) -1 else 1)
+                } catch (_: Throwable) { false }
+                if (holdSupported8964) try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("XSTOCK_TIME_EXIT_HELD_SUPPORTED_8964") } catch (_: Throwable) {}
+                if (!holdSupported8964) when {
                     holdSec >= (position.adaptiveMaxHoldSeconds.takeIf { it > 0 } ?: 7_200) -> {
                         val maxHold = position.adaptiveMaxHoldSeconds.takeIf { it > 0 } ?: 7_200
                         closePosition(id, "ADAPTIVE_HOLD_MAX_6663:${maxHold}s pnl=${"%.2f".format(pnlPct)}%")

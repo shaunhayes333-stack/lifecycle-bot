@@ -11672,7 +11672,8 @@ class GoldenTapeRegressionTest {
         val ca = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
         assertTrue(ca.contains("val runningWinner7332 = tpPct > 0.0 && pnlNow7332 >= tpPct && pnlNow7332 >= peakPnl * 0.5"))
         // superseded by V5.0.8883 — the check lives in CryptoAltTrader.exitTick8883, which returns the close
-        assertTrue(ca.contains("if (holdSec >= adaptiveMaxHold6663 && !runningWinner7332) return ExitTick8883(ExitAct8883.CLOSE,"))
+        // superseded by V5.0.8964 — the hour also reassesses the position's own marks before it closes (HoldSupport8964)
+        assertTrue(ca.contains("if (holdSec >= adaptiveMaxHold6663 && !runningWinner7332 && !holdSupported8964) return ExitTick8883(ExitAct8883.CLOSE,"))
     }
 
     @Test

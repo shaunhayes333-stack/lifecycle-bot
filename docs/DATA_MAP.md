@@ -3070,3 +3070,21 @@ LANE_POCKET 211 coins -> 11 tickets -> 3 executions; MOONSHOT 14 tickets -> 0 ex
   one-hour hold; under exits (stop / take bracket, stop counted first) the same pocket proves in every meme lane — BASE_START
   off pump.fun, forecast +25 % or more, cap $5k-$20k, liquidity $20k-$100k (e.g. SHITCOIN BASE_START & OTHER n231 +14.0 %,
   ex-top-3 +13.7, halves +17.2 / +13.0 at -20 % / +40 %). No crypto lane pocket proved at the hour.
+
+## 150. A clock is a prompt to reassess, not a sell (8964)
+
+Owner, 23 Nov 23:38: "nothing should be force closed if the token metrics, volume etc support holding". Field Manual §10:
+"Time exit: if the expected move does not occur within the strategy's horizon, reassess or close." The stack closed on the
+clock alone: the crypto desks' one-hour ADAPTIVE_HOLD_MAX (13 of the twin's 18 exits on 23 Nov 22:58), the xStocks 2 h cap /
+45 min loss cut / 30 min flat flush, and every meme time exit reaching the sell door (classifyExit TIME, hold-max, timeout,
+underwater-time stop).
+- HoldSupport8964.supports8964 (pure): a time exit holds only on fresh metrics with two signs agreeing — in profit: not
+  rolled over (keeps half its peak gain), last 15 min flat or up, and the last hour up / buyers >= 50 % / rolling hour volume
+  held at >= half its level 30 min ago, none reading against; under water: last 15 min up and (last hour up or buyers 55 %+).
+  Unread data is never support.
+- Meme: the sell door (after the net-profit hold, before the exit is classified) reads the coin's own 1 m candles, buy
+  pressure and rolling volume. Crypto desks and xStocks: a mark ring per position (one point per 30 s, three hours) gives
+  the 15 min and 1 h moves (a short's gain is the price falling).
+- Operational, safety and price exits are never time exits here (reconcile, manual, sweep, dust, retry, rug, emergency,
+  catastrophic, integrity, liquidity, sell-dominant, dump, hard / strict / stop-loss, trail, take-profit, ladder, rung).
+- holdSupport8964[held{book:why} released{book}] in the brief.

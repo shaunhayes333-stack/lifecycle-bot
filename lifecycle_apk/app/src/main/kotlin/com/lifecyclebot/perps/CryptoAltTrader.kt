@@ -5000,7 +5000,14 @@ object CryptoAltTrader {
         if (holdSec >= adaptiveMaxHold6663 && runningWinner7332) {
             try { sink.label("CRYPTO_HOLD_MAX_DEFERRED_RUNNING_WINNER_7332") } catch (_: Throwable) {}
         }
-        if (holdSec >= adaptiveMaxHold6663 && !runningWinner7332) return ExitTick8883(ExitAct8883.CLOSE,
+        // V5.0.8964 — the hour is a prompt to reassess: a position whose own marks support holding is not closed on the clock
+        try { com.lifecyclebot.engine.truth.HoldSupport8964.noteMark8964("ALT|$id", markPrice) } catch (_: Throwable) {}
+        val holdSupported8964 = holdSec >= adaptiveMaxHold6663 && !runningWinner7332 && try {
+            com.lifecyclebot.engine.truth.HoldSupport8964.holdKeyed8964("ALT|$id", "CRYPTO", markPrice, System.currentTimeMillis(),
+                pnlNow7332, peakPnl, if (updated.direction == com.lifecyclebot.perps.PerpsDirection.SHORT) -1 else 1)
+        } catch (_: Throwable) { false }
+        if (holdSupported8964) try { sink.label("CRYPTO_HOLD_MAX_HELD_SUPPORTED_8964") } catch (_: Throwable) {}
+        if (holdSec >= adaptiveMaxHold6663 && !runningWinner7332 && !holdSupported8964) return ExitTick8883(ExitAct8883.CLOSE,
             "ADAPTIVE_HOLD_MAX_6663:${adaptiveMaxHold6663}s pnl=${"%.2f".format(updated.getPnlPct())}%", "ADAPTIVE_HOLD_MAX", false)
 
         // Calculate price velocity (% change per minute over hold period)

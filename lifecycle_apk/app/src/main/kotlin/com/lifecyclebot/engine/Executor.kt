@@ -23819,6 +23819,13 @@ class Executor(
             try { com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.withdrawDeferred7809(ts.mint, ts.position.positionId) } catch (_: Throwable) {}
             return SellResult.FAILED_RETRYABLE
         }
+        // V5.0.8964 — a time exit reassesses first: a coin whose own fresh metrics support holding is not sold on the clock
+        // (HoldSupport8964; stops, safety, target and trail exits are not time exits and never reach this hold).
+        if (try { com.lifecyclebot.engine.truth.HoldSupport8964.holdMeme8964(ts, reason) } catch (_: Throwable) { false }) {
+            try { DecisionReasons8031.hold8031(ts, "HOLD_SUPPORTED_8964", reason) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.withdrawDeferred7809(ts.mint, ts.position.positionId) } catch (_: Throwable) {}
+            return SellResult.FAILED_RETRYABLE
+        }
         // V5.0.7715 — §10 exit discipline: every exit request is classified
         // (structural / integrity / target / time / regime / operational) so
         // the report shows what kind of exits the book is taking, per mode.
