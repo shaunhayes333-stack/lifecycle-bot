@@ -3247,3 +3247,9 @@ where those lanes actually move (§157: at the hour, in-band QUALITY / BLUECHIP 
 - Sampled, not tick-exact: a move inside 15 minutes is not seen, so a stop is graded on sampled lows. Stated, not hidden.
 - pathSampled8973 in researchFollow8884. Next: the lane pocket miner grades the established and crypto lanes at 4 h / 24 h
   under their own exits once a day of these rows exists.
+
+## 159. 8971's two pinned strings (8974)
+
+8971's CI: two source pins (Aate8723PayingCellTest, Aate8965PocketMoveTest) still named the edge-exclusion and fallback
+lines as they were before a proven pocket could answer the lane's own cell prior. Both now name the 8971 lines; the paying
+cell (8723) itself is not a POCKET_KINDS_8971 kind and is still kept out of the edge on a losing lane cell. No code change.

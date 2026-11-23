@@ -48,7 +48,8 @@ class Aate8965PocketMoveTest {
         assertTrue(d.trace.joinToString("\n"), d.trace.contains("cellMoveGap8966=CELL_UNSUPPORTED_RAW"))
         val src = File("src/main/kotlin/com/lifecyclebot/engine/truth/CandidateAdmission8136.kt").readText()
         assertTrue(src.contains("decisionGross = if (market8723.netOfCost) market8723.lowerPct + c.costPct else market8723.lowerPct"))
-        assertTrue(src.contains("market8723 != null && !losing8136(cellLoss) &&"))
+        // V5.0.8971: kept out on a losing lane cell unless the cell is a proven pocket (POCKET_KINDS_8971)
+        assertTrue(src.contains("market8723 != null && (!losing8136(cellLoss) || pocketAnswersCell8971) &&"))
     }
 
     @Test fun theStillWaitingReasonsAreNamedNotGuessed() {
