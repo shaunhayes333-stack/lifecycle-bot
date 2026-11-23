@@ -2771,11 +2771,20 @@ object LanePlaybook7907 {
     // and a shutdown flush (persistNow7930) skips the wait. What a save writes, and its atomicity, are unchanged.
     // The pace is the last save's own cost times [COST_MULT_8901], capped at [CHECKPOINT_PACE_MS_8901] (Cortex7885's 8652
     // measured-cost pace): a save that takes 400 ms leaves 1.6 s free before the next; a save of a few ms waits a few ms.
-    internal const val CHECKPOINT_PACE_MS_8901 = 10_000L
-    internal const val COST_MULT_8901 = 4L
+    // superseded by V5.0.8966: 10_000L / 4L. 24 Nov 00:39 CPU sample (5.0.8965 era, 30 s, 51 s CPU across threads): the
+    // collector (HeapTaskDaemon) used 10.9 s (21 %); the save thread 4.1 s, LanePlaybookCheckpoint8372.save 2.9 s of it, and
+    // checkpoint8372's JSON build was 2.3 s of the 6.7 s of string / JSON / collection CPU the app spent anywhere (the largest
+    // single allocator), re-encoding every lane book under this object's lock about every 7 s (a 724 ms save waited 2.9 s).
+    // A save now uses at most ~5 % of its thread (19x its cost), a real book (a save of HEAVY_SAVE_MS_8966+) waits at least
+    // MIN_HEAVY_PACE_MS_8966, at most 60 s; a shutdown flush still skips the wait and the producer still retains and
+    // re-delivers every unacknowledged outcome, so nothing is lost by saving less often.
+    internal const val CHECKPOINT_PACE_MS_8901 = 60_000L
+    internal const val COST_MULT_8901 = 19L
+    internal const val HEAVY_SAVE_MS_8966 = 100L
+    internal const val MIN_HEAVY_PACE_MS_8966 = 30_000L
     @Volatile private var lastCheckpointCostMs8901 = 0L
     /** The longest pace's worth of the producer's pass ([FORWARD_BATCH_8871] per second): a paced save drains what a pace brings. */
-    internal const val SAVE_BATCH_8901 = FORWARD_BATCH_8871 * 10   // 10 = CHECKPOINT_PACE_MS_8901 in seconds
+    internal const val SAVE_BATCH_8901 = FORWARD_BATCH_8871 * 60   // a pace's worth: 60 = CHECKPOINT_PACE_MS_8901 in seconds (8966; was 10)
     private const val PACE_SLICE_MS_8901 = 250L
     @Volatile private var lastCheckpointAtMs8901 = 0L
     @Volatile private var checkpointUrgent8901 = false
@@ -2787,7 +2796,9 @@ object LanePlaybook7907 {
      */
     internal fun checkpointWaitMs8901(lastAtMs: Long, lastCostMs: Long, nowMs: Long, urgent: Boolean): Long {
         if (urgent || lastAtMs <= 0L || nowMs < lastAtMs) return 0L
-        val gap = (lastCostMs.coerceAtLeast(0L) * COST_MULT_8901).coerceAtMost(CHECKPOINT_PACE_MS_8901)
+        val cost = lastCostMs.coerceAtLeast(0L)
+        val byCost = cost * COST_MULT_8901
+        val gap = (if (cost >= HEAVY_SAVE_MS_8966) maxOf(byCost, MIN_HEAVY_PACE_MS_8966) else byCost).coerceAtMost(CHECKPOINT_PACE_MS_8901)
         return (lastAtMs + gap - nowMs).coerceAtLeast(0L)
     }
 
@@ -2803,7 +2814,7 @@ object LanePlaybook7907 {
     /** V5.0.8901 — the brief: saves since start and the backlog waiting for the next one. */
     fun checkpointLine8901(): String =
         "playbookCheckpoint8901[saves=${checkpointSaves8901.get()} lastCostMs=$lastCheckpointCostMs8901 waiting=${independentWaiting8871.size} " +
-            "rule=next save waits ${COST_MULT_8901}x the last save's cost, at most ${CHECKPOINT_PACE_MS_8901 / 1000}s]"
+            "rule=next save waits ${COST_MULT_8901}x the last save's cost (a save of ${HEAVY_SAVE_MS_8966}ms+ at least ${MIN_HEAVY_PACE_MS_8966 / 1000}s), at most ${CHECKPOINT_PACE_MS_8901 / 1000}s; a shutdown flush never waits (8966)]"
 
     /** One ordered batch: selected setup contributions and their receipts survive or roll back together. */
     private fun saveCheckpoint8871() {

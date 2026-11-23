@@ -3111,3 +3111,21 @@ had no move to judge and the coin waited until its slot expired.
   CRYPTO_CORE coins; median cap $41k-$172k) read at a crypto 2.6 % cost; on established coins ($1M+, $100k+ liquidity) the
   gross move is ~0 at 1 h, +1.5 % median at 24 h ($100M+: +1.8 % median, 76 % up, n25, one day) — under the round trip at a
   0.0273 SOL ticket, where the fixed legs alone are ~1.8 %. Not changed here.
+
+## 152. The playbook save is paced to its weight (8966)
+
+24 Nov 00:39 CPU sample (30 s, ART sampling every 20 ms, method names and times only): 51.0 s of thread CPU, of which the
+collector (HeapTaskDaemon) 10.9 s (21 %) — the memory churn, priced. Of the app's own string / JSON / collection CPU (6.7 s,
+attributed to the nearest app frame), LanePlaybook7907.checkpoint8372 was 2.3 s plus 0.35 s sorting the 600 grades: the largest
+single allocator. Each save re-encodes every lane book, the timing books, the forward outcomes and the episode sidecar as one
+JSON string, inside the playbook's own lock (every evaluate / record call waits on it); the 8901 pace let a 724 ms save
+repeat after 2.9 s.
+- checkpointWaitMs8901: the next save waits 19x the last save's cost (~5 % of its thread); a real book (a save of 100 ms+)
+  waits at least 30 s; 60 s at most. A light save (a unit test's) still waits only its cost x19; a shutdown flush
+  (persistNow7930) and the first save never wait. Each save drains a pace's deliveries (SAVE_BATCH_8901 = 32 x 60).
+- Nothing is lost by saving less often: the forward-outcome producer retains and re-delivers every unacknowledged outcome
+  (8871), and what a save writes and its verified atomic commit are unchanged.
+- Expected: the save's allocation and lock time fall about 4x (30 s instead of ~7 s between saves).
+- Seen, not changed here: SpecialistBuild8522 / ToolkitSignalSheet.build 4.0 s CPU (7.9 %), LanePlaybook7907.strategyPick8153
+  1.7 s of its own CPU, CryptoLaneDesk7391.qualifyAll7803 1.9 s; DynamicAltTokenRegistry.rescueSolanaPriceBlocking7167 holds a
+  worker 28 s of the 30 s (wall), the Telegram sentiment scrape 29 s (wall).

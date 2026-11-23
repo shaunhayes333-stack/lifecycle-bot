@@ -11,18 +11,17 @@ import java.io.File
  * thread). A save now starts at most once per pace; a shutdown flush does not wait; each save drains a pace of deliveries.
  */
 class Aate8901PacedCheckpointTest {
-    @Test fun theNextSaveWaitsFourTimesTheLastSavesCostAtMostTenSeconds() {
+    // superseded by V5.0.8966 (x4 / 10 s / 320): a save waits 19x its cost, a heavy save (100 ms+) at least 30 s, at most 60 s.
+    @Test fun theNextSaveWaitsItsPaceAndAFlushNever() {
         val cap = LanePlaybook7907.CHECKPOINT_PACE_MS_8901
-        assertEquals(10_000L, cap)
-        assertEquals(4L, LanePlaybook7907.COST_MULT_8901)
+        assertEquals(60_000L, cap)
+        assertEquals(19L, LanePlaybook7907.COST_MULT_8901)
         assertEquals("first save never waits", 0L, LanePlaybook7907.checkpointWaitMs8901(0L, 500L, 5_000L, false))
-        assertEquals("a 400 ms save leaves 1.6 s free", 1_600L, LanePlaybook7907.checkpointWaitMs8901(100_000L, 400L, 100_000L, false))
-        assertEquals(600L, LanePlaybook7907.checkpointWaitMs8901(100_000L, 400L, 101_000L, false))
-        assertEquals("a cheap save (a unit test's) waits only its cost x4", 20L, LanePlaybook7907.checkpointWaitMs8901(100_000L, 5L, 100_000L, false))
+        assertEquals("a cheap save (a unit test's) waits only its cost x19", 95L, LanePlaybook7907.checkpointWaitMs8901(100_000L, 5L, 100_000L, false))
         assertEquals("capped", cap, LanePlaybook7907.checkpointWaitMs8901(100_000L, 9_000L, 100_000L, false))
         assertEquals("a shutdown flush skips the pace", 0L, LanePlaybook7907.checkpointWaitMs8901(100_000L, 9_000L, 100_001L, true))
         assertEquals("clock moved back", 0L, LanePlaybook7907.checkpointWaitMs8901(100_000L, 400L, 99_000L, false))
-        assertEquals("the longest pace of the producer's 32-per-pass", 320, LanePlaybook7907.SAVE_BATCH_8901)
+        assertEquals("the longest pace of the producer's 32-per-pass", 1_920, LanePlaybook7907.SAVE_BATCH_8901)
     }
 
     @Test fun theWorkerWaitsAndTheFlushIsUrgent() {
