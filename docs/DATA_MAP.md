@@ -3210,3 +3210,24 @@ lanes across both traders are meant to have tailored set ups to suit their pocke
   origin cohort, buys-the-high and stage priors: no CELL_PROVEN_LOSING refusal, the cell is not kept out of the edge, and the
   8965 fallback may price it. The launch rule's fire is not included (its live record 0 of 10, §153). Safety, structure, the
   selected setup's own losing record, timing, economics and realised losses still decide. pocketAnswersCell8971 in the brief.
+
+## 157. The pool fee is the quote's (8972)
+
+Owner, 24 Nov 02:50: the established and crypto lanes "need a complete reassessment and rebuild ... theres money to be made
+everywhere". Joined research (edge dataset x edge research, 13,650 decisions with the coin's chart state AND the hour's peak,
+low and close; each coin once per lane):
+- Under each lane's OWN exits (its stop, then the doctrine line from +10 %) every coin these lanes decided on averaged:
+  QUALITY n721 +4.6 %, BLUECHIP n617 +5.2 %, CYCLIC n349 +5.0 % (medians -3.5..-6.4: runner-carried). Their base-forming
+  coins not minted on pump.fun paid: QUALITY n32 +23.7 % (median +6.1, 59 % up), BLUECHIP n31 +22.2 % (+6.0, 70 %), CYCLIC n26
+  +38.2 % (+17.7, 73 %) — but those are $16k-$118k coins, outside QUALITY's $75k-$1M and BLUECHIP's $1M+ bands.
+- Inside their own bands they lose to cost: QUALITY n175 -1.7 % (median -2.9), BLUECHIP n91 -1.9 % (median -2.6); TREASURY /
+  CASHGEN n21-23 (too thin); a coin a week old moves less than the round trip in an hour. Crypto lanes: medians -2.7..-3 %,
+  their own round trip, at every horizon.
+- The 4 h and 24 h reads (ResearchFollow8884) record only the end price — no peak or low — so no exit can be graded at the
+  horizons where established and crypto coins actually move. That is the next data step.
+- This build: the cost. NetEdge8030.componentsPct8151 charged every non-pump.fun pool a flat 0.25 % a side
+  (PaperVenueCost7287 AMM_FEE_PCT) while the deep Orca / Raydium CLMM / Meteora pools these lanes trade charge 0.01-0.05 %.
+  Every Jupiter quote names each hop's fee (routePlan[].swapInfo.feeAmount in feeMint units, beside its inAmount /
+  outAmount); RoundTrip8418.poolFeePct8972 sums a single chain of hops (a split route, an unpriced fee mint or a missing
+  field gives null and the model stays; floored 0.01 %, capped 5 %), filed per mint for 6 h, and a non-pump.fun pool is
+  charged it. The pump.fun curve and PumpSwap keep their published schedule. venueFee8972[quoted modelled] in the cost line.

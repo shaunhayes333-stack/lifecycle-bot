@@ -422,6 +422,7 @@ object Costs8369 {
             "senderFallback=${senderFallbacks8369.get()} capFailing{jup=${capFailingNow8369(false)},pump=${capFailingNow8369(true)}} " +
             // V5.0.8463 — the second figure is the mark gap (market drift + friction on the lane's past trips), not a cost the
             // coin is charged: every coin is priced on its own itemised trip (route, venue, ticket, depth, realised slippage).
-            "modelVsMarkGap8463{${mvm.ifBlank { "-" }}}] " + (try { RoundTrip8418.statusLine8418() } catch (_: Throwable) { "roundTrip8418=-" })
+            "modelVsMarkGap8463{${mvm.ifBlank { "-" }}}] " + (try { RoundTrip8418.statusLine8418() } catch (_: Throwable) { "roundTrip8418=-" }) + " " +
+            (try { com.lifecyclebot.engine.truth.NetEdge8030.venueFeeLine8972() } catch (_: Throwable) { "venueFee8972=-" })
     }
 }

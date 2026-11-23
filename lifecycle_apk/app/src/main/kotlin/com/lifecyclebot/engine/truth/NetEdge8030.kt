@@ -205,7 +205,13 @@ object NetEdge8030 {
      * reclaimer could not take back. Slippage allowance and impact are added by [costPct8030].
      */
     private fun componentsPct8151(sizeSol: Double, mint: String, liquidityUsd: Double, mcapUsd: Double): Double {
-        val venuePct = if (mint.isBlank()) 0.25 else PaperVenueCost7287.venueFeePct(mint, liquidityUsd, mcapUsd)
+        val venueModel8972 = if (mint.isBlank()) 0.25 else PaperVenueCost7287.venueFeePct(mint, liquidityUsd, mcapUsd)
+        // V5.0.8972 — a non-pump.fun pool is charged the fee its own quote names (RoundTrip8418.poolFeePct8972); the pump.fun
+        // curve and PumpSwap keep their published schedule (creator fee by cap), which the model already prices exactly.
+        val quoted8972 = if (mint.isBlank() || PaperVenueCost7287.venue(mint, liquidityUsd) != PaperVenueCost7287.Venue.AMM) null
+            else try { com.lifecyclebot.engine.RoundTrip8418.quotedPoolFeePct8972(mint) } catch (_: Throwable) { null }
+        if (quoted8972 != null) venueQuoted8972.incrementAndGet() else if (mint.isNotBlank()) venueModelled8972.incrementAndGet()
+        val venuePct = quoted8972 ?: venueModel8972
         // V5.0.8337 — the route fee follows the ROUTE a pump mint takes (PumpPortal), not the venue the depth classifies.
         // superseded by V5.0.8369 — "is a pump mint" is not the route: a curve buy goes Jupiter when Jupiter quotes it, and the
         // exit's first route follows the venue (Costs8369.modelRouteFeePctPerSide8369: buy route + sell route, per side).
@@ -224,6 +230,11 @@ object NetEdge8030 {
     }
 
     private val measuredLifts8329 = AtomicLong(0)
+    private val venueQuoted8972 = AtomicLong(0)
+    private val venueModelled8972 = AtomicLong(0)
+    /** V5.0.8972 brief: how many trips were priced on the quote's own pool fee vs the venue model. */
+    fun venueFeeLine8972(): String = "venueFee8972[quoted=${venueQuoted8972.get()} modelled=${venueModelled8972.get()} " +
+        "rule=a non-pump.fun pool is charged the pool fee its own Jupiter quote names (6 h); pump.fun curve / PumpSwap keep their schedule]"
 
     /**
      * V5.0.8329 §COST_TRUTH — the PRE-TRADE round trip: [costPct8030] (model, or the 8-trade measured cost) lifted to the

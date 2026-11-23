@@ -252,8 +252,59 @@ object RealisedSlip8418 {
         val outA = amount8418(json.opt("outAmount") ?: json.opt("outputAmount")) ?: return
         val imp = com.lifecyclebot.network.JupiterImpact8730.pctPoints8730(json, absent = Double.NaN)   // V5.0.8730
         quotes[key] = Quote8418(inA, outA, imp, nowMs)
+        // V5.0.8972 — the route's own pool fee, per side, from the quote's hops
+        try {
+            val mint = key.substringBefore('|')
+            poolFeePct8972(json.optJSONArray("routePlan"))?.let { f ->
+                if (poolFees8972.size > 2_048 && !poolFees8972.containsKey(mint)) poolFees8972.entries.removeIf { nowMs - it.value.second > POOL_FEE_TTL_MS_8972 }
+                poolFees8972[mint] = f to nowMs
+                quotedFee8972.incrementAndGet()
+            }
+        } catch (_: Throwable) {}
         if (quotes.size > 1024) quotes.entries.removeIf { nowMs - it.value.atMs > QUOTE_MATCH_MS_8418 }
     }
+
+    /**
+     * V5.0.8972 §THE_POOL_FEE_IS_THE_QUOTE'S — owner, 24 Nov 02:50: established and crypto lanes need a rebuild; the 24 Nov
+     * reads put their medians at their own round trip (QUALITY in band -2.9 %, BLUECHIP -2.6 %, crypto lanes -2.7..-3 %) —
+     * the coins barely moved and the cost was the loss. Of that trip, the venue fee was a flat 0.25 % a side for every
+     * non-pump.fun pool (PaperVenueCost7287 AMM_FEE_PCT), while the deep pools these lanes trade charge 0.01-0.05 % on
+     * Orca / Raydium CLMM / Meteora. Every Jupiter quote names each hop's pool fee (routePlan[].swapInfo.feeAmount in
+     * feeMint units, beside the hop's inAmount / outAmount): the route's fee, percent per side, is that sum over a single
+     * chain of hops. A split route (a hop under 100 %), an unpriced fee mint or a missing field gives null (the model stays).
+     */
+    internal fun poolFeePct8972(routePlan: org.json.JSONArray?): Double? {
+        if (routePlan == null || routePlan.length() == 0) return null
+        var pct = 0.0
+        for (i in 0 until routePlan.length()) {
+            val row = routePlan.optJSONObject(i) ?: return null
+            val share = row.optDouble("percent", 100.0)
+            if (share.isFinite() && share < 100.0) return null
+            val hop = row.optJSONObject("swapInfo") ?: row
+            val fee = hop.optString("feeAmount", "").toDoubleOrNull() ?: return null
+            val inA = hop.optString("inAmount", "").toDoubleOrNull() ?: return null
+            val outA = hop.optString("outAmount", "").toDoubleOrNull() ?: return null
+            val feeMint = hop.optString("feeMint")
+            val f = when {
+                fee < 0.0 || inA <= 0.0 || outA <= 0.0 -> return null
+                feeMint == hop.optString("inputMint") -> fee / inA
+                feeMint == hop.optString("outputMint") -> fee / (outA + fee)
+                else -> return null
+            }
+            pct += f * 100.0
+        }
+        return pct.takeIf { it.isFinite() }?.coerceIn(POOL_FEE_FLOOR_PCT_8972, POOL_FEE_CAP_PCT_8972)
+    }
+
+    internal const val POOL_FEE_TTL_MS_8972 = 6L * 3_600_000L     // a pool's fee rate does not move with its price
+    internal const val POOL_FEE_FLOOR_PCT_8972 = 0.01
+    internal const val POOL_FEE_CAP_PCT_8972 = 5.0
+    private val poolFees8972 = ConcurrentHashMap<String, Pair<Double, Long>>()
+    private val quotedFee8972 = AtomicLong(0L)
+
+    /** NetEdge8030: [mint]'s quoted pool fee per side (percent), or null when no quote in [POOL_FEE_TTL_MS_8972] named it. */
+    fun quotedPoolFeePct8972(mint: String, nowMs: Long = System.currentTimeMillis()): Double? =
+        poolFees8972[mint]?.takeIf { nowMs - it.second in 0L..POOL_FEE_TTL_MS_8972 }?.first
 
     /** RoundTrip8418.impactLive8418: the fresh BUY quote of [mint] (null when none in the last minute). */
     internal fun freshBuyQuote8418(mint: String, nowMs: Long): Quote8418? =
