@@ -3047,3 +3047,26 @@ and the chain reads from coins at the gate: launch prints fired 553 times, LANE_
 No gate, bar, threshold, size or safety rule changes. Acceptance on the next live report: noSlot{} for LAUNCH_* / EVIDENCE_WAIT
 near zero, STAGE:PRICE_DEPTH a fraction of 7,276 per 37 min, buys start->broadcast and decide50/90 lower. Net returns are not
 claimed from tests.
+
+## 149. The proven pockets reach execution (8963)
+
+Report 23 Nov 22:58 (5.0.8961, LIVE, 38 min, wallet 0.26 SOL): the proven pockets were found (agreement pocket coins FULL
+n148 +38.0%, base pocket PROVEN n129 +42.5%, lane pockets CORE / EXPRESS / MANIPULATED) and almost none were bought —
+LANE_POCKET 211 coins -> 11 tickets -> 3 executions; MOONSHOT 14 tickets -> 0 executions, SHITCOIN 15 -> 3.
+- Tickets lost after the ticket: COOLDOWN_FEEDBACK_IDENTITY_DRIFT_REVALIDATE_6715=21 (a causal revalidation, whose own
+  purpose is to decide the coin again, then locked (mint, lane) for 15 s under the cooldown table's default), causal
+  blocks 5, BUY_TERMINAL_LIQUIDITY_BELOW_EXIT_SAFE 7 (kept: exit safety). A _REVALIDATE_6715 block now has no cooldown,
+  as 7219 / 7255 / 7321 found for their deferrals; the block itself is unchanged. Each lane drift is counted
+  CAUSAL_LANE_DRIFT_8963_<stamped>_TO_<executing> so the next report names its cause.
+- Pocket coins' first data wait was PRICE_STALE (LANE_POCKET 70, LAB 30, BASE 10): ChainConfirm8950 asked the chain and the
+  chain answered, but the curve-account and vault reads wrote liquidity only. ChainPrice8963: an active curve's account
+  read and a constant-product vault read (PumpSwap once its virtual quote reserves are known; never a concentrated venue)
+  write their price through TokenFacts at CHAIN rank and their own time when newer than the coin's, and wake the coin's
+  waiting decisions when its price had gone stale. chainPrice8963[written{CURVE,VAULT} wokeStale notNewer].
+- Measured, not changed here: heap 88-100 % with blocking GC 1,680 s of 2,317 s uptime (allocated 102 GB in 38 min, live
+  floor 43 MB): the cycle (7.3 s avg, 55 s max), the safety-report refresh (24 expiries) and the buy path (4.8 s) all wait on
+  it. The allocator is not in the census; the next CPU sample names it.
+- Research (22 Nov dataset, 59,196 rows, 29,437 lane-coins, 51.7 h): no two-factor pocket in any lane pays on the raw
+  one-hour hold; under exits (stop / take bracket, stop counted first) the same pocket proves in every meme lane — BASE_START
+  off pump.fun, forecast +25 % or more, cap $5k-$20k, liquidity $20k-$100k (e.g. SHITCOIN BASE_START & OTHER n231 +14.0 %,
+  ex-top-3 +13.7, halves +17.2 / +13.0 at -20 % / +40 %). No crypto lane pocket proved at the hour.

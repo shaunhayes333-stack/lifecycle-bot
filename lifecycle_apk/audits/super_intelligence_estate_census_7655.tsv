@@ -162,7 +162,9 @@ SpecialistCausalInvariants6627	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/
 CellTail8303	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/engine/truth/CellTail8303.kt	False
 ChainConfirm8950	REPRESENTED_BY_AGGREGATOR	com/lifecyclebot/engine/truth/ChainConfirm8950.kt	False
 ChainHistoryMark8541	PROVIDER_BACKED_REVIEW	com/lifecyclebot/engine/truth/ChainHistoryMark8541.kt	False
+ChainPrice8963	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/truth/ChainPrice8963.kt	False
 Council7740	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/truth/Council7740.kt	False
+DataWaitRecovery8957	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/engine/truth/DataWaitRecovery8957.kt	False
 EdgeModel8537	REPRESENTED_BY_AGGREGATOR	com/lifecyclebot/engine/truth/EdgeModel8537.kt	False
 TraderLane	UNCLASSIFIED_INTELLIGENCE_REVIEW	com/lifecyclebot/engine/truth/EntryAuthorityModels6398.kt	False
 EvidenceWait8948	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/truth/EvidenceWait8948.kt	False
@@ -199,6 +201,7 @@ PostLearningOffloader6450	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/truth
 PredictiveEntryOracle6915	SUPER_UPSTREAM_ROOT	com/lifecyclebot/engine/truth/PredictiveEntryOracle6915.kt	False
 ProviderDomainCircuits6411	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/truth/ProviderDomainCircuits6411.kt	False
 RiskExitPriorityDomain6461	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/truth/RiskExitPriorityDomain6461.kt	False
+RugChainEvidence8957	SAFETY_SOVEREIGN_REVIEW	com/lifecyclebot/engine/truth/RugChainEvidence8957.kt	False
 RunnerModel8861	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/truth/RunnerModel8861.kt	False
 ScannerCanonicalDedupe6411	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/truth/ScannerCanonicalDedupe6411.kt	False
 ScannerHeatPublisher6398	CACHE_OR_READBACK_REVIEW	com/lifecyclebot/engine/truth/ScannerHeatPublisher6398.kt	False

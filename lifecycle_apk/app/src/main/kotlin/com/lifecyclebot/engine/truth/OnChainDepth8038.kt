@@ -487,6 +487,13 @@ object OnChainDepth8038 {
             return Accept8418.CONCENTRATED
         }
         reads[mint] = read
+        // V5.0.8963 — a constant-product vault read is the pool's price: written when newer than the coin's (ChainPrice8963)
+        if (owner8418 == PUMP_AMM && !com.lifecyclebot.network.PoolVirtualQuote8952.known8952(p)) {
+            unsupportedByVenue8418.computeIfAbsent("PUMP_AMM_PRICE_AWAITS_VIRTUAL_QUOTE_8963") { AtomicLong(0) }.incrementAndGet()
+        } else if (owner8418 == PUMP_AMM || com.lifecyclebot.network.GradTicks8018.vaultRatioPrices8419(owner8418)) try {
+            ChainPrice8963.publish8963(mint, priceUsd8038(read.quoteSol, read.baseTokens, solUsd()),
+                ChainPrice8963.VAULT_SOURCE_8963 + venueName8418(owner8418), observedAt, pool = p)
+        } catch (_: Throwable) {}
         // Price uses the pool's effective reserves; liquidity removal uses the actual SOL vault, not virtual reserves.
         RugChainEvidence8957.record(mint, p, read.quoteSol / read.baseTokens, sides.first, observedAt)
         CandidateAdmission8136.evidenceArrived8252(mint, setOf("liq", "liquidity"), read.atMs)

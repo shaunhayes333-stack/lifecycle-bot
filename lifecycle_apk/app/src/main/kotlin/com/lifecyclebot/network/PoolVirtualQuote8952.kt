@@ -49,6 +49,9 @@ object PoolVirtualQuote8952 {
         return e
     }
 
+    /** V5.0.8963 — has a swap event of [pool] named its virtual quote reserves (its vault price is then exact)? */
+    fun known8952(pool: String): Boolean = byPool.containsKey(pool)
+
     fun statusLine8952(): String =
         "poolVirtualQuote8952[pools=${byPool.size} eventNotes=${notes.get()} nonZero=${nonZero.get()} negative=${negative.get()} " +
             "vaultReadsAdjusted=${applied.get()} vaultReadsNoEventYet=${unknown.get()} refusedNonPositive=${refused.get()} " +

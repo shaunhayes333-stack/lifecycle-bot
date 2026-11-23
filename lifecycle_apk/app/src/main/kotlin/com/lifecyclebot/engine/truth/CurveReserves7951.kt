@@ -177,6 +177,7 @@ object CurveReserves7951 {
         try { com.lifecyclebot.engine.HydrationReeval8343.onCurveRead8343(m, real, atMs) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.TicketRetry8327.onReserveObserved8385(m, accepted.atMs, accepted.source, accepted.version) } catch (_: Throwable) {}
         if (accountObserved) try { capFromCurve8952(m, vSol, vTok, atMs) } catch (_: Throwable) {}   // V5.0.8952
+        if (accountObserved) try { priceFromCurve8963(m, vSol, vTok, atMs) } catch (_: Throwable) {}   // V5.0.8963
         if (accountObserved && vSol.isFinite() && vSol > 0 && vTok.isFinite() && vTok > 0 && real.isFinite() && real >= 0) ChainConfirm8950.marketObserved8959(m, atMs)
         return accepted
     }
@@ -207,6 +208,15 @@ object CurveReserves7951 {
         if (TokenFacts.writeSnapshot(ts, TokenFacts.Field.MCAP_USD, mcap, "CURVE_CAP_8952", TokenFacts.Rank.CHAIN, atMs)) capWritten8952.incrementAndGet()
     }
     fun capWritten8952(): Long = capWritten8952.get()
+
+    /** V5.0.8963 — an active curve's account read is its price (virtual SOL / virtual tokens x SOL/USD): ChainPrice8963. */
+    private fun priceFromCurve8963(mint: String, vSol: Double, vTok: Double, atMs: Long) {
+        if (!(vSol > 0.0 && vTok > 0.0)) return
+        if (try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(mint) } catch (_: Throwable) { false }) return
+        val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        if (!(solUsd > 0.0)) return
+        ChainPrice8963.publish8963(mint, priceSol7951(vSol, vTok) * solUsd, ChainPrice8963.CURVE_SOURCE_8963, atMs)
+    }
 
     private fun trim(nowMs: Long) {
         rows.entries.removeIf { nowMs - it.value.atMs > CURVE_TTL_MS }

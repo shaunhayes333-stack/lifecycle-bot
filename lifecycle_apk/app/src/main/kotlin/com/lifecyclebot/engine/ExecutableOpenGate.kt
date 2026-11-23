@@ -1749,6 +1749,11 @@ object ExecutableOpenGate {
             // V5.0.7321 — the per-version dedup is already a shadow block; a
             // 15s (mint, lane) cooldown on top also refused the NEXT version.
             r.contains("ONE_EXECUTABLE_BUY_PER_MINT_VERSION") -> 0L
+            // V5.0.8963 — report 23 Nov 22:58: a causal REVALIDATE (6715) invalidates the candidate so the next pass decides
+            // it again, and then this table locked (mint, lane) for 15 s: COOLDOWN_FEEDBACK_IDENTITY_DRIFT_REVALIDATE_6715=21,
+            // the largest drop after a ticket (MOONSHOT 14 tickets -> 0 executions, SHITCOIN 15 -> 3). A revalidation must
+            // come back on the next pass, as 7219 / 7255 / 7321 found for their deferrals; the block itself stands.
+            r.contains("_REVALIDATE_6715") -> 0L
             log.contains("FDG") -> 30_000L
             else -> 15_000L
         }
