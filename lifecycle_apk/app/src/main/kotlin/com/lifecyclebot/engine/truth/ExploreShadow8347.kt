@@ -1154,7 +1154,8 @@ object ExploreShadow8347 {
         try { PipelineHealthCollector.labelInc("EXPLORE_SHADOW_CLOSE_8347_${leg.exit}_$why") } catch (_: Throwable) {}
         // V5.0.8366 — the leg that models a live position (native, entered NOW, on the lane's live exit style) feeds the alignment pairs
         if (t.kind8360 == KIND_NATIVE_8360 && leg.entry == Entry8347.NOW && why != ShadowAlign8366.UNLANDED_WHY_8366) try {
-            val liveExit = liveExitStyle8351(t.lane, EvidenceHold8336.startMs8336) ?: Exit8347.RUNNER
+            // V5.0.8984 — a live position trades the lane doctrine whatever the shadow chose (ScalpExit8351.liveScalp8984)
+            val liveExit = if (ScalpExit8351.liveScalp8984(liveExitStyle8351(t.lane, EvidenceHold8336.startMs8336) == Exit8347.SCALP)) Exit8347.SCALP else Exit8347.RUNNER
             if (leg.exit == liveExit) ShadowAlign8366.noteShadow8366("EXPLORE", t.lane, t.mint, leg.entryAtMs, net, nowMs)
         } catch (_: Throwable) {}
         // Tactics learn from the variant closest to how live enters and exits; native rejects do not attribute a tactic.

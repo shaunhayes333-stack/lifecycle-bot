@@ -3426,3 +3426,32 @@ those same tallies are negative in every meme lane (-3.7 % to -7.9 %); the means
   booked coins; its research record now carries the lost ones.
 Expect fewer proven pockets once the lost coins are filed: a pocket stays proven only if it pays with its dead coins
 counted. Brief: researchFollow8884[... lostHour8983{noted priced unpriced} ...].
+
+## 169. The shadow does not choose live exits (8984)
+
+Owner, 24 Nov 13:50: "its gone from 50% winrate now down to 21% and losing money where it was making money".
+The live journal (every trade export, meme lanes, LIVE closes per position):
+- 22 Nov to 23 Nov 01:00 (5.0.8932-8954): 15 closes, 8 won, +0.087 SOL. The winners were the lane doctrine's exits: spike
+  capture (GTA6 +113 %, SANTA +164 % / +294 %, KYC +95 %), trailing stops (+28 %, +14 %), the green floor (+16 %).
+- 23-24 Nov (5.0.8955-8978): 36 closes, 4 won, -0.148 SOL. Exits: SCALP_* 15 (1 won; SCALP_HARD_STOP 11 of 11 lost,
+  -0.048 SOL), thin-pool backstop 6 (1 won), hard floors 4, catastrophic 3.
+- The turn is the hour the explore shadow adopted SCALP (ExploreShadow8347.bestFor8351, read lane-wide by
+  liveExitStyle8351): MOONSHOT adopt=- at 22 Nov 19:34, PULLBACK/SCALP on the niche M:MC_LT10K at 23 Nov 01:32, NOW/SCALP on
+  S:FRESH_DEEP_POOL_8720 from 24 Nov 05:29; EXPRESS NOW/SCALP from 23 Nov 22:58; both still adopted at 24 Nov 12:16. One
+  niche's shadow record moved every live position of the lane onto the scalp ladder (+20 % half, +40 % all, 10-minute clock,
+  a stop at 0.6 x the lane stop): the +100 %-+400 % captures that made 22 Nov are impossible on it. The same shadow book read
+  MOONSHOT NOW/SCALP n300 -9.9 % and EXPRESS NOW/SCALP n300 -3.6 % lane-wide.
+- Market regime (memeRegime8546) was NEUTRAL with a -2 % to -13 % 45-minute mean in both periods.
+
+Change: ScalpExit8351.liveScalp8984 — the shadow's SCALP choice is advisory on a LIVE position, as 8683 made its entry
+choices: counted (SCALP_EXIT_ADVISORY_8984_<lane>, scalpAdvisory8984[...] in the brief), never traded; the position keeps the
+lane doctrine (RunnerDoctrine8584, spike capture, trails), which is what the position card (8979) already shows. The ladder,
+its stop (8363) and its rung book are unchanged and still trade the paper book (MemePaperTrader8544) and the shadow's SCALP
+legs. The shadow's live-modelling leg (ShadowAlign8366 pairs) now reads the exit live trades (RUNNER).
+
+Measured, not changed here: entries moved down the cap range (22 Nov: 8 of 9 MOONSHOT / EXPRESS buys at $100k+; 23-24 Nov:
+14 of 36 meme buys under $30k, 1 won, -0.061 SOL), carried by the lane pockets (served MOONSHOT 41 at 23 Nov 01:32, 1,290
+at 24 Nov 05:29). The pockets' proven cells are almost all origin=OTHER (off pump.fun) at the hour; on the 24 Nov 02:41
+research rows, off-pump.fun BASE_START coins read at both 1 h and 4 h were unpriced by Jupiter at 4 h in 663 of 802 cases
+(pump.fun: 0 of 248). 8983 counts an unpriced read as a dead coin; the next day of rows says whether those pockets still
+prove.

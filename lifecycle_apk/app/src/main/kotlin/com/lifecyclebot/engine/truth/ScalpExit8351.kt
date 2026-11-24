@@ -11,12 +11,41 @@ import java.util.concurrent.ConcurrentHashMap
  * round trip), and a 10-minute clock. Every other lane keeps the lane doctrine. The decision is fixed per position at its
  * first mark (a lane that changes its choice mid-hold does not change this position's exit).
  * Offered through the per-tick arbitration (ExitTruthArbiterLive8144.Tick8144), so protective exits still outrank it.
+ * superseded by V5.0.8984 — the shadow's choice no longer moves a LIVE position onto this ladder ([liveScalp8984]); the
+ * ladder itself is unchanged and still trades the paper book and the shadow's SCALP legs.
  */
 object ScalpExit8351 {
     const val TP1_PCT_8351 = 20.0   // 8485: was 15
     const val TP2_PCT_8351 = 40.0   // 8485: was 30
     const val FLOOR_ARM_PCT_8351 = 10.0
     const val CLOCK_MS_8351 = 10 * 60_000L
+
+    /**
+     * V5.0.8984 §THE_SHADOW_DOES_NOT_CHOOSE_LIVE_EXITS — owner, 24 Nov 13:50: "its gone from 50% winrate now down to 21% and losing
+     * money where it was making money". The live journal, meme lanes, 22 Nov to 23 Nov 01:00: 15 closes, 8 won, +0.087 SOL, the
+     * money made by the lane doctrine's exits (spike capture past +100 %, trailing stops, the green floor); 23-24 Nov: 36
+     * closes, 4 won, -0.148 SOL. The turn is the hour the explore shadow adopted SCALP: MOONSHOT between the 22 Nov 19:34 and
+     * 23 Nov 01:32 captures (PULLBACK/SCALP on the M:MC_LT10K niche), EXPRESS by 23 Nov 22:58 (NOW/SCALP on
+     * S:FRESH_DEEP_POOL_8720), both still adopted at 24 Nov 12:16. A niche choice switched every live position of the lane to
+     * the scalp ladder: 15 scalp exits, 1 won; SCALP_HARD_STOP 11 of 11 lost (-0.048 SOL); the ladder sells everything by +40 %
+     * or 10 minutes, so the +100 %-+400 % spike captures that made 22 Nov could not happen. The shadow book that chose it read
+     * MOONSHOT NOW/SCALP n300 -9.9 % and EXPRESS NOW/SCALP n300 -3.6 % lane-wide. 8683 already made the shadow's entry choices
+     * advisory on LIVE ("the shadow book trades absolutely terribly and that's helping steer live"); its exit choice is too.
+     */
+    internal fun liveScalp8984(@Suppress("UNUSED_PARAMETER") shadowChoseScalp: Boolean): Boolean = false
+
+    private val advisory8984 = ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
+
+    private fun noteAdvisory8984(lane: String) {
+        val l = lane.uppercase()
+        advisory8984.computeIfAbsent(l) { java.util.concurrent.atomic.AtomicLong(0L) }.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("SCALP_EXIT_ADVISORY_8984_$l") } catch (_: Throwable) {}
+    }
+
+    /** Brief: the live positions whose lane the shadow had on SCALP, kept on the lane doctrine instead. */
+    fun advisoryLine8984(): String = "scalpAdvisory8984[" +
+        advisory8984.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } +
+        " rule=the shadow's SCALP choice is counted on LIVE, never traded (8683); live keeps the lane doctrine]"
 
     private class State8351(val scalp: Boolean, val costPct: Double, val stopPct: Double,
                             val noise1mPct8363: Double = Double.NaN, val chasePct8363: Double = 0.0)
@@ -45,7 +74,11 @@ object ScalpExit8351 {
         val key = "${ts.mint}|${pos.entryTime}"
         val st = states.getOrPut(key) {
             val lane = pos.tradingMode.ifBlank { "UNKNOWN" }
-            val scalp = try { ExploreShadow8347.liveExitStyle8351(lane, EvidenceHold8336.startMs8336) == ExploreShadow8347.Exit8347.SCALP } catch (_: Throwable) { false }
+            val shadowScalp8984 = try { ExploreShadow8347.liveExitStyle8351(lane, EvidenceHold8336.startMs8336) == ExploreShadow8347.Exit8347.SCALP } catch (_: Throwable) { false }
+            // V5.0.8984 — the shadow's SCALP choice is advisory on a LIVE position (8683's rule for the shadow's entry choices):
+            // counted, never traded. The position keeps the lane doctrine. Paper (MemePaperTrader8544) still trades it.
+            val scalp = liveScalp8984(shadowScalp8984)
+            if (shadowScalp8984) noteAdvisory8984(lane)
             val liq = try { LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) { ts.lastLiquidityUsd }
             val cost = try { NetEdge8030.costPct8030(lane, pos.costSol, liq, ts.mint, ts.lastMcap) } catch (_: Throwable) { 7.0 }
             val stop = try { FieldManual7715.stopPct8392(lane, cost) } catch (_: Throwable) { 10.0 }   // V5.0.8392 — never inside the round trip
