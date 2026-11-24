@@ -29,9 +29,29 @@ class SignalTape8828 {
         private const val COHORT_MS = 20_000L
         private const val SECOND_WAVE_END_MS = 60_000L
 
-        /** The signals this tape expresses (SignalBible300 ids). */
+        /**
+         * V5.0.8994 §THE_BASE_BREAKOUT_ON_THE_LAUNCH_TAPE — owner, 24 Nov 23:53: "there are real clean multiple hundreds to
+         * thousand % trades we are ignoring even the 30% to 200% trades should be bread and butter". The owner's 25 Nov
+         * launch-hour export (3,302 pump.fun launches, 22-24 Nov, 10-second bars): of the launches still printing at 30 s,
+         * 54 % later peaked +30 % or more, 31 % +100 %, 8.7 % +400 %. Bought blind on those bars with the runner line the
+         * result was fill-decided (+27.7 % mean with fills at the line, -8.7 % with every fill at the bar's worst price,
+         * 42 % winners). One chart shape held up under both: a base (the coin's bars of the prior 180 s inside a narrow
+         * range), broken by a bar that closes above it on buying. 16 parameter settings around it all kept both halves of
+         * the launches positive, 54-74 % winners; the wide setting n226, mean +20.4 %, +13.3 % without the best three,
+         * halves +20.5 / +20.3, 57 % winners (worst-price fills +0.2 %); the tight one n82, +25.7 %, halves +16.0 / +34.9,
+         * 65 % winners (worst-price fills +4.6 %). MemeStrategies8546.BASE_BREAKOUT_FLOW reads the same shape on 8-20
+         * closed ONE-MINUTE bars, which a launch does not have (its funnel on the 23:24 capture: m1 empty 2,123, short 419,
+         * ready 77), and trades paper only. Here the shape is read on the launch's own 10-second print bars, and it is a
+         * signal like the others: SignalReplay8828 grades it on this phone's stored launch hours with the replay's fills
+         * and latency, and only a PROVEN record arms it. Those offline figures are bars, not prints: the phone's grade decides.
+         */
+        const val BASE_WIDE_8994 = "B8994W"
+        const val BASE_TIGHT_8994 = "B8994T"
+        private const val BASE_LOOK_BARS_8994 = 18L
+
+        /** The signals this tape expresses (SignalBible300 ids, and the base breakout's two settings). */
         val IDS: List<String> = listOf("S001", "S003", "S005", "S006", "S009", "S010", "S011", "S012", "S014", "S016", "S023",
-            "S049", "S050", "S051", "S052")
+            "S049", "S050", "S051", "S052", BASE_WIDE_8994, BASE_TIGHT_8994)
         /** Those that need the buyer's wallet. */
         val WALLET_IDS: Set<String> = setOf("S001", "S003", "S005", "S010", "S014")
     }
@@ -191,7 +211,34 @@ class SignalTape8828 {
         // S052 Momentum after consolidation — six bars inside 10 %, then a close above them on net SOL buying
         "S052" -> n >= 7 && (1..6).maxOf { h(it) }.let { top -> (1..6).minOf { l(it) }.let { low ->
             low > 0.0 && top / low - 1.0 < 0.10 && c(0) > top && buySol(0) > sellSol(0) } }
+        // V5.0.8994 — a base broken on buying, on the launch's own 10 s bars: wide (>= 60 s old, >= 3 base bars inside 35 %,
+        // close >= 2 % over the base, the bar's buy SOL >= the base's mean bar volume, buys >= 55 % of the bar's SOL) and
+        // tight (>= 90 s, >= 4 bars inside 25 %, >= 3 % over, buy SOL >= 1.5x, buys >= 65 %)
+        BASE_WIDE_8994 -> baseBreakout8994(minIdx = 6L, minBars = 3, rangeMax = 0.35, overMin = 0.02, volX = 1.0, shareMin = 0.55)
+        BASE_TIGHT_8994 -> baseBreakout8994(minIdx = 9L, minBars = 4, rangeMax = 0.25, overMin = 0.03, volX = 1.5, shareMin = 0.65)
         else -> false
+    }
+
+    /**
+     * V5.0.8994 — the newest closed bar breaks its base: the bars of the [BASE_LOOK_BARS_8994] bar slots before it (180 s;
+     * only bars that printed exist) number at least [minBars] and sit inside [rangeMax]; the bar closes at least [overMin]
+     * above their high; its buy SOL is at least [volX] times their mean bar volume and at least [shareMin] of its own.
+     */
+    private fun baseBreakout8994(minIdx: Long, minBars: Int, rangeMax: Double, overMin: Double, volX: Double, shareMin: Double): Boolean {
+        if (n < minBars + 1 || idx(0) < minIdx) return false
+        val from = idx(0) - BASE_LOOK_BARS_8994
+        var bars = 0; var top = 0.0; var low = Double.MAX_VALUE; var vol = 0.0
+        var b = 1
+        while (b < n && idx(b) >= from) {
+            bars++
+            if (h(b) > top) top = h(b)
+            if (l(b) < low) low = l(b)
+            vol += buySol(b) + sellSol(b)
+            b++
+        }
+        if (bars < minBars || !(low > 0.0) || top / low - 1.0 > rangeMax) return false
+        val barVol = buySol(0) + sellSol(0)
+        return c(0) >= top * (1.0 + overMin) && buySol(0) >= volX * (vol / bars) && barVol > 0.0 && buySol(0) / barVol >= shareMin
     }
 
     /** S051 on the ring, oldest to newest: a swing high is above its older neighbour and not below its newer one (confirmed). */

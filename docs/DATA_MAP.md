@@ -3656,3 +3656,29 @@ The asks ride the existing batchers and credit economy (PoolBatch8418, HeliusCre
 AuthorityTable8887 reads a CHAIN_8993 row as the same reason. Brief: chainRead8993[asked priced unpriced implausible
 holding overflow]. Stated limits: the chain read is up to two minutes past the horizon; a held row is in memory only; the
 15-minute path samples between reads are still Jupiter's; a coin whose pool the bot never learned stays unpriced.
+
+## 179. The base breakout on the launch tape (8994)
+
+Owner, 24 Nov 23:53: "there are real clean multiple hundreds to thousand % trades we are ignoring even the 30% to 200%
+trades should be bread and butter for aate". The LP-lock rule stays (owner: "we got drained 5 times").
+Measured, clean coins only (LP locked 70 %+ or on the pump.fun curve):
+- research hour rows: 1,125 clean coins, 190 peaked +30 %+ inside an hour of a decision; 132 of them lane-admitted. Held to
+  the hour the clean coins lose (-11.5 % mean), so the learned doors refuse the movers with the rest.
+- edge dataset (36,656 meme decisions, 15 min): 14,431 one- and two-feature cells on clean coins, none proves.
+- launch-hour export, 25 Nov (3,302 pump.fun launches, 10 s bars): of launches printing at 30 s, 54 % later peaked +30 %,
+  31 % +100 %, 8.7 % +400 %. Fixed targets lose (TP +30 % / stop 20 %: -1.7 %, 36 % winners); letting winners run pays
+  (TP +200 % / stop 20 %: +13.1 % +- 1.3, both days positive, 22 % winners); every result flips sign on worst-price fills.
+- shapes on those bars (runner line, 2.9 % cost): pullback reclaim +0.1 %, higher-low push +6.4 %, V reclaim +9.2 %, all
+  negative on worst-price fills. Base breakout: 16 settings, both halves positive in all, 54-74 % winners; wide n226
+  +20.4 % (ex-3 +13.3, halves +20.5 / +20.3, 57 % winners, worst fills +0.2 %); tight n82 +25.7 % (65 %, worst +4.6 %).
+What was not tied in: MemeStrategies8546.BASE_BREAKOUT_FLOW reads this shape on 8-20 closed one-minute bars (a launch has
+none: m1 empty 2,123 / short 419 / ready 77 on the 23:24 capture) and is paper-only, and paper is off in LIVE.
+Change: SignalTape8828 gains B8994W and B8994T (baseBreakout8994 on the tape's 10 s print bars). Path: every pump.fun print
+-> LaunchSniper8748.signalPrint8828 -> SignalTape8828.onPrint -> a fire; SignalReplay8828 grades both on the phone's stored
+launch hours at the bot's latency with the replay's fills (stops 20 % / 35 %, DOCTRINE ladder) and arms one only when
+PROVEN (n >= 100, ex-top-3 mean - SE > 0, both halves positive); an armed fire runs the coin's pipeline at once and is
+LAUNCH_RULE-class evidence through admission and every safety door. No gate added or loosened. Brief: signalReplay8828
+[... B8994W / B8994T ...], launchSniper8748 signals8828{ARMED|SHADOW ...}.
+Stated: the offline figures are 10 s bars, two days, one market; the phone's print-level grade decides, and the same replay
+graded the owner's other 15 signals at -8 % to -28 % ex-top-3 on 24 Nov.
+
