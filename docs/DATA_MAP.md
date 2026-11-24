@@ -3703,3 +3703,27 @@ Stated: a virtual fill is the print's price (no own impact); the ladder's partia
 are followed; a coin the bot hears rarely makes few bars. Crypto is not covered: the desk has hourly candles, not prints,
 and its own breakout setups (majorSetups8910) are graded on the twin.
 
+## 181. The thin-pool backstop asks the venue (8996)
+
+Owner, 25 Nov 02:32: "cuts trades waaaay to quickly. fires in and out". The live journal since the scalp fix (8984), 11
+closes: 6 inside 100 s. Three sold far above the level their stop names:
+| time | coin | exit | held | filled |
+|---|---|---|---|---|
+| 25 Nov 01:15 | DE6jZSwe MOONSHOT | THIN_LIQ_EARLY_RUG_BACKSTOP_-10 | 31 s | -2.2 % |
+| 24 Nov 20:53 | BWtNaVHG MOONSHOT | RAPID_HARD_FLOOR_STOP | 97 s | +9.7 % |
+| 25 Nov 01:52 | Hb4kF1Ly EXPRESS | RUNNER_STRUCTURE_BREAK_7967_1M_0PCT | 89 s | price +1.8 % (-3.3 % net) |
+Cause of the first: Executor's thin-pool backstop fires when the worst of the position's marks reads -10 % / -15 % and the
+pool reads under $5k: a price reading. StopMarkConfirm8418.priceLossStop8489 excluded any reason containing "RUG", so this
+stop skipped stopRefutedByVenue8489 / sellsWithoutRouteQuote8706 and one bad mark sold the bag. Change: reasons starting
+THIN_LIQ_EARLY_RUG_BACKSTOP are price-loss stops; the venue read decides as for every other stop (refuted above half the
+depth -> hold and re-ask; unread -> 6 s, own-venue mark, 30 s bound, at once from -60 %). Rug, drain, LP-pull and dev-dump
+exits are unchanged. The second predates 8986 (PumpSwap vault-only pricing, fixed there). The third is one instance: the
+runner's 1-minute structure break has no gain condition (the 15 s one needs +50 %); left as it is, stated.
+Measured on the launch-hour export with a latency-true fill (a level seen at a bar's close fills at the next bar's close):
+- stop width barely moves the result on launches: runner line, stop 5 % +12.0 %, 10 % +12.8 %, 20 % +13.4 %, 25 % +14.1 %
+  (SE 2.5); 60-75 % of launch trades close inside 120 s at every width (median hold 40-60 s) because most launches die
+  fast. Fast exits on losers are this market; a false trigger is the fault.
+- CORRECTION to §179: with that fill the base breakout (wide) is +3.4 % +- 5.9 at a 20 % stop, ex-top-3 -3.9 %, halves
+  -3.4 / +10.4, 31 % winners. §179's +20.4 % / 57 % winners filled stops at the line itself. It is not shown to beat buying
+  the launch blind (+13.4 %, halves +10.0 / +17.0, 29 % winners). B8994 / 8995 stay unarmed until the phone proves them.
+

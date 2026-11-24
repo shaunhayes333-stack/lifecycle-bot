@@ -249,9 +249,20 @@ object StopMarkConfirm8418 {
     private const val VENUE_STOP_READ_MAX_AGE_MS_8489 = 8_000L   // held reads are topped up past 8 s (HeldHotMarkAuthority7419)
     private val STOP_PCT_8489 = Regex("-(\\d+(?:\\.\\d+)?)")
 
+    internal const val THIN_POOL_BACKSTOP_8996 = "THIN_LIQ_EARLY_RUG_BACKSTOP"
+
     /** Pure: is [reason] a price-driven loss stop (not a rug / drain / freeze / liquidity / manual exit)? */
     fun priceLossStop8489(reason: String): Boolean {
         val r = reason.uppercase()
+        // V5.0.8996 §THE_THIN_POOL_BACKSTOP_IS_A_PRICE_STOP — owner, 25 Nov 02:32: "cuts trades waaaay to quickly. fires in and
+        // out". Live, 25 Nov 01:15: DE6jZSwe (MOONSHOT) sold on THIN_LIQ_EARLY_RUG_BACKSTOP_-10 31 s after the buy and filled
+        // at -2.2 %: its trigger is "the WORST of the position's marks reads -10 % (or -15 %) while the pool reads under $5k"
+        // (Executor), a price reading and nothing else, yet the word RUG in its name sent it past this check as a rug exit, so
+        // one bad mark sold the bag with no read of its own pool. It is a price stop: it asks the venue like every other
+        // (a fresh pool / curve read better than half its depth holds it and asks again; an unread one waits the same 6 s
+        // and fires on a mark of its own venue, 30 s at most, at once from -60 %). A real drain is confirmed by that same
+        // read; the liquidity-pull, drain, rug and dev-dump exits are other reasons and are not touched.
+        if (r.startsWith(THIN_POOL_BACKSTOP_8996)) return true
         if (r.contains("RUG") || r.contains("DRAIN") || r.contains("FREEZE") || r.contains("FROZEN") || r.contains("LIQUIDITY") ||
             r.contains("HONEYPOT") || r.contains("DEV_DUMP") || r.contains("DEV_SELL") || r.contains("MANUAL") || r.contains("KILL") ||
             r.contains("SHUTDOWN") || r.contains("CANNOT_SELL") || r.contains("LP_") || r.contains("MINT_AUTH")) return false
