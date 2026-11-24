@@ -3524,3 +3524,21 @@ on a non-pump coin with no pool to read — still named by the batched pair read
 
 Measured, not changed: of the base pocket's coins with a 4 h read, 98 % had no Jupiter price (n469) — the pocket is proven
 at the hour only; 8964 (a clock prompts a reassessment, never a forced sell) stands, so no hour exit is added here.
+
+## 172. The armed runner pick answers the lane priors (8987)
+
+Owner, 24 Nov 22:14: "where's the runner capture gone???? ... tokens and coins moving thousands of percent a day and we still
+entirely ignore those". Research rows to 24 Nov, one decision per coin per 10 min, read at 4 h with an unpriced read counted
+-100 % (n3,435): mean -19.2 %, 2.6 % at 2x+, 1.2 % at 4x+. The 4x+ coins sit in pump.fun coins under a $5k cap (stage
+UNKNOWN n228: +37.3 % mean, 6.6 % 2x+, 5.3 % 4x+; DUMPING <5k n133: +15.7 %, 4.5 % 4x+); every cohort from $5k up is negative
+at 4 h and 24 h; off-pump BASE_START is 93-98 % unpriced at 4 h. The runner capture is therefore the launch floor:
+RunnerModel8861 (the $5,000 cross) and the launch rule (8748).
+21:27 capture: runnerModel8861 ARMED, forward picks n1984 +13.5 % +/- 3.5 (2x+ 9 %), live crosses 59, armed picks 38;
+evidence funnel RUNNER_MODEL_8861 COINS=184 ADMIT=2 REFUSE=165 (STRUCTURAL_RISK 37, LIVE_STAGE_LOSES_8626 36, SAFETY 26 —
+top-holder concentration) DEFER_DATA=54 (PRICE_STALE 54: 8986) EXEC=0.
+
+Change: RunnerModel8861.KIND_8861 joins LaneAuthority8577.PRIOR_ANSWERING_KINDS_8874, so an armed pick answers the lane-wide
+entry-state priors (LIVE_STAGE_LOSES_8626, LIVE_STAGE_UNREAD_8711, LIVE_ORIGIN_COHORT_LOSES_8703, MEME_BUYS_THE_HIGH_8582, the
+residual cohort) exactly as the pockets (8874 / 8904 / 8934) and the launch rule (8949) do. The evidence is served only while
+the model is armed. Unchanged: safety, RUG_PRONE structure, economics, the buy door, a named losing setup, LP rule, RugCheck.
+The bought pick is a launch rider (8941) and its door answers for its live closes (LiveDiscipline8985).

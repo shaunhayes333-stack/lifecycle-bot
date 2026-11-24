@@ -174,7 +174,23 @@ object LaneAuthority8577 {
     private val PRIOR_ANSWERING_KINDS_8874: Set<String> = setOf(AgreementPocket8874.KIND_8874, LlmBands8875.KIND_8875,   // V5.0.8875: the LLM's proven band
         BasePocket8904.KIND_8904,   // V5.0.8904: the proven base pocket
         LanePocket8934.KIND_8934,   // V5.0.8934: the lane's own proven in-band cell
-        LaunchSniper8748.KIND_8748) // V5.0.8949: the launch replay's proven rule, armed on this coin's own prints
+        LaunchSniper8748.KIND_8748, // V5.0.8949: the launch replay's proven rule, armed on this coin's own prints
+        RunnerModel8861.KIND_8861)  // V5.0.8987: the runner model's armed pick (the note below)
+
+    /*
+     * V5.0.8987 §THE_ARMED_RUNNER_PICK_ANSWERS_THE_LANE_PRIORS — owner, 24 Nov 22:14: "where's the runner capture gone????
+     * theres still heaps of tokens and coins moving thousands of percent a day and we still entirely ignore those". The
+     * research rows to 24 Nov (3,435 decisions read at 4 h, an unpriced read counted -100 %): 1.2 % of everything the bot
+     * saw was 4x+ four hours on, and the cohort that holds them is pump.fun coins under a $5k cap (n228, +37.3 % mean,
+     * 5.3 % at 4x+) — the launch floor, where RunnerModel8861 picks (tape features at the $5,000 cross -> doubled before a
+     * 20 % stop). That model was ARMED on its own forward record (picks n1984 +13.5 % +/- 3.5, 2x+ 9 %; every cross n5683
+     * +5.5 %) and in 103 min made 38 armed picks: of the 184 candidate episodes carrying them 2 were admitted and none
+     * bought — 36 refused LIVE_STAGE_LOSES_8626, the lane-wide record of the launch stage, which the pick is a proven
+     * narrower group of (8874 gave the pockets that standing and left the model without it; 8949 gave it to the launch
+     * rule). The armed pick now answers the same entry-state priors the pockets do. It is served only while the model is
+     * armed (n>=100, mean - 2 SE > 0, positive without its best pick). Safety, structure (RUG_PRONE), economics, the buy
+     * door and a NAMED losing setup still refuse it.
+     */
 
     /** Pure (V5.0.8874): does market-cell evidence of [kind] answer the lane-wide entry-state priors? */
     fun answersPriors8874(kind: String?): Boolean = kind != null && kind in PRIOR_ANSWERING_KINDS_8874

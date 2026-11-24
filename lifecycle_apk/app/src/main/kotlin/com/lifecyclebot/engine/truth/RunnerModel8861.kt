@@ -390,12 +390,15 @@ object RunnerModel8861 {
         } catch (_: Throwable) {}
     }
 
+    /** V5.0.8987 — the evidence kind an armed pick carries (LaneAuthority8577 reads it). */
+    const val KIND_8861 = "RUNNER_MODEL_8861"
+
     /** CandidateAdmission8136: the armed pick on [mint] as market-cell evidence — the forward record without its best pick — or null. */
     fun evidence8861(mint: String, nowMs: Long): CandidateAdmission8136.Evidence8136? {
         fires[mint]?.takeIf { nowMs - it.atMs in 0L..EVIDENCE_TTL_MS } ?: return null
         val rec = synchronized(this) { if (!armed) return null; Triple(picks.n, picks.exBest, picks.se) to picks.twoX.toDouble() / maxOf(1, picks.n) }
         served.incrementAndGet()
-        return CandidateAdmission8136.Evidence8136("RUNNER_MODEL_8861", "floor cross, score in the top ${((1.0 - quantile) * 100).toInt()}%",
+        return CandidateAdmission8136.Evidence8136(KIND_8861, "floor cross, score in the top ${((1.0 - quantile) * 100).toInt()}%",
             rec.first.first, rec.first.second, rec.first.third, runnerRate = rec.second, netOfCost = true)
     }
 
