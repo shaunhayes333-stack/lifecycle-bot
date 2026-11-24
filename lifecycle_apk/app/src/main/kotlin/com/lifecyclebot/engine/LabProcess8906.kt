@@ -50,6 +50,8 @@ class LabProcess8906 : Service() {
         internal const val KIND_LAUNCH_HOUR_8906 = "LAUNCH_HOUR"
         internal const val KIND_BASE_FAMILY_8906 = "BASE_FAMILY"
         internal const val KIND_FOLLOW_8978 = "FOLLOW_8978"
+        internal const val KIND_HEAP_MAP_8982 = "HEAP_MAP_8982"
+        internal const val HEAP_WAIT_MS_8982 = 8L * 60_000L
         private const val EXTRA_IN_8906 = "in8906"
         internal const val FAMILY_WAIT_MS_8906 = 90_000L
         private const val EXTRA_KIND_8906 = "kind8906"
@@ -99,10 +101,68 @@ class LabProcess8906 : Service() {
                 when (kind) {
                     KIND_LAUNCH_HOUR_8906 -> com.lifecyclebot.engine.truth.LaunchHour8628.export(dir8906(ctx), System.currentTimeMillis(), unit)?.absolutePath ?: NONE_8906
                     KIND_BASE_FAMILY_8906 -> familyJob8906(ctx, inPath, token)
+                    KIND_HEAP_MAP_8982 -> heapMapJob8982(ctx, inPath, token)
                     else -> FAIL_8906
                 }
             } catch (_: Throwable) { FAIL_8906 }
             try { File(marker.path + ".tmp").apply { writeText(result) }.renameTo(marker) } catch (_: Throwable) {}
+        }
+
+        // ── V5.0.8982: the memory map is read here (HeapMap8866 §THE_MAP_TAKES_ITSELF) ──
+
+        /** Pure: the line a lab map job leaves beside its text: complete|objects|bytes|classes|samples|stopped. */
+        internal fun statsLine8982(r: HeapMapCore8866.Result): String =
+            listOf(if (r.complete) "1" else "0", r.objects.toString(), r.bytes.toString(), r.classes.toString(), r.samples.toString(),
+                r.stopped.replace('\n', ' ').replace('|', '/').take(120)).joinToString("|")
+
+        /** Pure: [statsLine8982] read back around the map's [mapText]; null when the line is not one. */
+        internal fun readStats8982(line: String, mapText: String): HeapMapCore8866.Result? {
+            val p = line.trim().split('|', limit = 6)
+            if (p.size < 6) return null
+            return HeapMapCore8866.Result(p[0] == "1", mapText, p[1].toLongOrNull() ?: return null, p[2].toLongOrNull() ?: return null,
+                p[3].toIntOrNull() ?: return null, p[4].toIntOrNull() ?: return null, p[5])
+        }
+
+        /** In the lab: read the dump at [inPath] into the map (class names, field names, sizes only); the dump is deleted. */
+        private fun heapMapJob8982(ctx: Context, inPath: String, token: String): String {
+            val raw = File(inPath)
+            try {
+                if (!raw.exists()) return FAIL_8906
+                val header = File(dir8906(ctx), "$token.header").takeIf { it.exists() }?.readText() ?: return FAIL_8906
+                val r = HeapMapCore8866.analyse8866(raw, header)
+                val out = File(dir8906(ctx), "$token.map")
+                out.writeText(r.text)
+                File(dir8906(ctx), "$token.stats").writeText(statsLine8982(r))
+                return out.absolutePath
+            } finally { try { raw.delete() } catch (_: Throwable) {} }
+        }
+
+        /**
+         * In the trading process (the map's own thread): the dump at [raw] read in the lab. Null when the lab did not answer in
+         * [HEAP_WAIT_MS_8982]; the caller then deletes the dump (an automatic map) or reads it here (the owner's, as before).
+         */
+        internal fun heapMap8982(app: Context, raw: File, header: String): HeapMapCore8866.Result? {
+            sweep8906(app, System.currentTimeMillis())
+            val token = "hm_${System.currentTimeMillis()}_${(Math.random() * 1e9).toLong()}"
+            val headerFile = File(dir8906(app), "$token.header")
+            val marker = File(dir8906(app), "$token.done")
+            try {
+                headerFile.writeText(header)
+                val started = app.startService(Intent(app, LabProcess8906::class.java).putExtra(EXTRA_KIND_8906, KIND_HEAP_MAP_8982)
+                    .putExtra(EXTRA_TOKEN_8906, token).putExtra(EXTRA_IN_8906, raw.absolutePath)) != null
+                if (!started) return null
+                val until = System.currentTimeMillis() + HEAP_WAIT_MS_8982
+                while (System.currentTimeMillis() < until && !marker.exists()) { try { Thread.sleep(500L) } catch (_: InterruptedException) { break } }
+                if (!marker.exists()) return null
+                val (handled, file) = readMarker8906(marker.readText())
+                if (!handled || file == null) return null
+                val stats = File(dir8906(app), "$token.stats")
+                return try { readStats8982(stats.readText(), file.readText()) } finally { file.delete(); stats.delete() }
+            } catch (_: Throwable) { return null }
+            finally {
+                try { headerFile.delete() } catch (_: Throwable) {}
+                try { marker.delete() } catch (_: Throwable) {}
+            }
         }
 
         // ── stage 2: BaseFamily8754's grading (04:38 CPU sample on 5.0.8900: BaseFamily8754.simulate 6.4 s of 30 s) ──

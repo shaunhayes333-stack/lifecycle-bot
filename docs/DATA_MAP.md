@@ -3378,3 +3378,24 @@ top 10 causes.
 test mints held a "0", which is not base58, so DynamicAltTokenRegistry.solanaMintOf8866 refused them and the candidate's
 price was never validated (priceAt 0), exactly as the production bridge refuses an invalid mint. The test now uses valid
 base58 mints; no production code changed.
+
+## 167. The heap maps itself before it runs out (8982)
+
+Owner, 24 Nov 12:11: "nope. much worse". The 11:52 capture is 5.0.8978 (8979-8981 not yet installed), 278 s after a
+restart: 5.0.8978 died of OutOfMemoryError at 3 h 22 min (HeliusCallbacks7863: a 32-byte allocation, heap at its 512 MB
+limit), and its last live close before that was 09:01 (2 h 47 min with no trade while the heap filled). Today's live closes
+05:19-09:01: 2 wins in 18, mostly SCALP_HARD_STOP_8351 / THIN_LIQ_EARLY_RUG_BACKSTOP / tick floors on MOONSHOT.
+Every heap map so far was taken by hand inside two hours (259-454 MB); none shows what holds the heap at the limit. The
+named holders in the eight maps are flat over time (cortex ledgers 10-16 MB, finality exclusions 10-17 MB, grade book
+6-9 MB); what grows is the unattributed part ("no holder found" 78 MB at 101 min, loops 39-59 MB) and garbage.
+8982:
+- MemoryGuard7977.noteHardTrimOutcome8144: a hard trim that freed nothing calls HeapMap8866.maybeAuto8982(fracAfter);
+  autoDue8982 = not taken this run, uptime >= 30 min, heap still >= 85 %. The map is taken once a run ("auto-pressure"),
+  saved to Downloads/AATE like the owner's, and kept in app storage, so the next report's HEAP MAP section carries it
+  after the process dies.
+- Every map (the owner's too) is read in the lab process (LabProcess8906 kind HEAP_MAP_8982: the dump path and header go
+  over, the map text and a stats line come back; the lab deletes the dump it read). If the lab does not answer in 8 min,
+  the owner's map is read here as before; an automatic one is deleted unread (LAB_NO_ANSWER_8982), never read in a full
+  trading heap. The raw dump stays a secret exactly as in 8866: private cache, deleted in a finally and at every start.
+- Taking the dump stops the app (8.3 s at 320 MB on 24 Nov 05:29): once a run, on a heap already collecting most of each
+  second. Brief: heapMapAuto8982[taken readInLab] under the HEAP MAP section.

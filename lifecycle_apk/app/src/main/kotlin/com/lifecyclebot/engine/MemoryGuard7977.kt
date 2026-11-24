@@ -300,6 +300,8 @@ object MemoryGuard7977 {
                     "unfreed8144=[${MemoryRegistry8144.unfreed8144(lastTrim8144, censusRows8144).joinToString(",")}] ${sizes()}",
             )
         } catch (_: Throwable) {}
+        // V5.0.8982 — a trim that frees nothing at 85 %+ is the heap the OutOfMemoryError comes from: map it once this run
+        try { HeapMap8866.maybeAuto8982(fracAfter) } catch (_: Throwable) {}
     }
 
     // ── V5.0.8144 — the store registry and the census ──

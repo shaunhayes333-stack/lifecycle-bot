@@ -9,7 +9,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * V5.0.8866 — the memory map: an opt-in heap dump, read on the phone down to class names, field names and sizes
- * (HeapMapCore8866), saved as text. The owner asks for it from the report's Save dialog; nothing takes it by itself.
+ * (HeapMapCore8866), saved as text. The owner asks for it from the report's Save dialog; since 8982 the run also takes one
+ * map by itself when a hard trim frees nothing at 85 %+ ([maybeAuto8982]), read in the lab process.
  *
  * The raw dump holds every byte of the heap, the wallet's keys included, so it is handled as a secret:
  *   - written only under the app's private cache directory (never shared storage, never backed up);
@@ -63,7 +64,7 @@ object HeapMap8866 {
      * Takes the map on its own thread. [onDone] receives one line (where it was saved, or why it was not) on that thread.
      * False when one is already running.
      */
-    fun start8866(app: Context, why: String, save: (File, String) -> String?, onDone: (String) -> Unit = {}): Boolean {
+    fun start8866(app: Context, why: String, save: (File, String) -> String?, auto8982: Boolean = false, onDone: (String) -> Unit = {}): Boolean {
         if (!running.compareAndSet(false, true)) { onDone("a memory map is already being taken"); return false }
         phase = "starting"
         Thread({
@@ -98,14 +99,27 @@ object HeapMap8866 {
                     val header = "AATE heap map (§8866) version=" + (try { com.lifecyclebot.BuildConfig.VERSION_NAME } catch (_: Throwable) { "?" }) +
                         " taken=" + SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date(startedAt)) +
                         " uptimeS=" + uptimeS + " heapUsedMb=" + usedMb + " heapMaxMb=" + maxMb + " dumpMs=" + dumpMs + " gcFirst=false why=" + why.take(24)
-                    // the heap is on disk now: the caches may go, so the reader below has room in a heap that was full
-                    try { MemoryGuard7977.emergencyTrim8305("HEAP_MAP_8866") } catch (_: Throwable) {}
-                    val result = HeapMapCore8866.analyse8866(file, header, progress = { stage ->
-                        phase = stage
-                        try { android.util.Log.i("AATE_HEAPMAP", "HEAP_MAP_PHASE_8866 $stage +${System.currentTimeMillis() - t0}ms") } catch (_: Throwable) {}
-                    })
+                    // V5.0.8982 — the reader needs room for a 400+ MB file's tables: it runs in the lab process (its own heap),
+                    // not in a trading heap that was full enough to need the map. The lab deletes the dump when it has read it.
+                    phase = "reading the map in the lab process"
+                    var result = try { LabProcess8906.heapMap8982(app, file, header) } catch (_: Throwable) { null }
+                    if (result != null) readInLab8982.incrementAndGet()
+                    if (result == null && !auto8982) {
+                        // the owner's map when the lab did not answer: read here, as before 8982
+                        // the heap is on disk now: the caches may go, so the reader below has room in a heap that was full
+                        try { MemoryGuard7977.emergencyTrim8305("HEAP_MAP_8866") } catch (_: Throwable) {}
+                        result = HeapMapCore8866.analyse8866(file, header, progress = { stage ->
+                            phase = stage
+                            try { android.util.Log.i("AATE_HEAPMAP", "HEAP_MAP_PHASE_8866 $stage +${System.currentTimeMillis() - t0}ms") } catch (_: Throwable) {}
+                        })
+                    }
                     try { file.delete() } catch (_: Throwable) {}
                     raw = null
+                    if (result == null) {
+                        line = "LAB_NO_ANSWER_8982 (an automatic map is never read in the trading process) dumpMs=$dumpMs"
+                        try { PipelineHealthCollector.labelInc("HEAP_MAP_LAB_NO_ANSWER_8982") } catch (_: Throwable) {}
+                        return@Thread
+                    }
                     val name = "aate_heapmap_8866_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date(startedAt)) + ".txt"
                     val out = File(app.filesDir, LAST)
                     out.writeText(result.text)
@@ -134,6 +148,37 @@ object HeapMap8866 {
         return true
     }
 
+    // ── V5.0.8982 §THE_MAP_TAKES_ITSELF ──
+    // Owner, 24 Nov 12:11 ("nope. much worse"): 5.0.8978 died of OutOfMemoryError at 3 h 22 min (HeliusCallbacks7863, a 32-byte
+    // allocation with the heap at its 512 MB limit) and traded nothing for its last 2 h 47 min. Every map so far was taken by
+    // hand in the first two hours (259-454 MB), so none shows what holds the heap when it runs out. When a hard trim frees
+    // nothing ([MemoryGuard7977], heap still 85 %+ a tick later) after 30 minutes of uptime, the map is taken once in that run
+    // and read in the lab; its text is kept in app storage, so the next report carries it even after the process dies.
+    // Taking it stops the app for the dump (8.3 s at 320 MB, 24 Nov 05:29): once a run, on a heap that is already spending
+    // most of each second collecting.
+    internal const val AUTO_MIN_UPTIME_MS_8982 = 30L * 60_000L
+    internal const val AUTO_FRAC_8982 = 0.85
+    private val autoTaken8982 = AtomicBoolean(false)
+    private val readInLab8982 = java.util.concurrent.atomic.AtomicLong(0L)
+
+    /** Pure: is an automatic map due — after [uptimeMs] of the run, a hard trim that left the heap at [fracAfter], none taken yet? */
+    internal fun autoDue8982(uptimeMs: Long, fracAfter: Double, takenThisRun: Boolean): Boolean =
+        !takenThisRun && uptimeMs >= AUTO_MIN_UPTIME_MS_8982 && fracAfter.isFinite() && fracAfter >= AUTO_FRAC_8982
+
+    /** MemoryGuard7977, after a hard trim that freed nothing: take the run's one automatic map when it is due. */
+    fun maybeAuto8982(fracAfter: Double) {
+        val app = com.lifecyclebot.AATEApp.appContextOrNull() ?: return
+        val uptime = try { android.os.SystemClock.elapsedRealtime() - android.os.Process.getStartElapsedRealtime() } catch (_: Throwable) { return }
+        if (!autoDue8982(uptime, fracAfter, autoTaken8982.get()) || !autoTaken8982.compareAndSet(false, true)) return
+        try { PipelineHealthCollector.labelInc("HEAP_MAP_AUTO_8982") } catch (_: Throwable) {}
+        // saved to Downloads/AATE like the owner's map (only class names, field names and sizes)
+        start8866(app, "auto-pressure", save = { file, name -> com.lifecyclebot.ui.ReportCopyDialog8198.saveDataset(app, file, name) }, auto8982 = true)
+    }
+
+    /** Brief: the automatic map's state. */
+    fun autoLine8982(): String = "heapMapAuto8982[taken=${autoTaken8982.get()} readInLab=${readInLab8982.get()} " +
+        "rule=once a run, when a hard trim leaves the heap at 85 %+ after 30 min; read in the lab process; kept for the next report]"
+
     /** The pipeline report's HEAP MAP section. */
     fun section8866(nowMs: Long = System.currentTimeMillis()): String {
         if (running.get()) return "  being taken now: $phase\n"
@@ -145,6 +190,6 @@ object HeapMap8866 {
                 try { text = f.readText(); at = f.lastModified(); lastText = text; lastAtMs = at } catch (_: Throwable) {}
             }
         }
-        return reportBlock8866(text, at, nowMs, lastStatus)
+        return reportBlock8866(text, at, nowMs, lastStatus) + "  " + autoLine8982() + "\n"   // V5.0.8982
     }
 }
