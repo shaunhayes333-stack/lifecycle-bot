@@ -122,7 +122,9 @@ class Aate8418PoolPriceBatchTest {
         assertNull("never a constant-product read (no CP sell-out)", OnChainDepth8038.freshRead8198(mint, 90_000L, 2_000L))
         assertNull("stale price is not served", ConcentratedPrice8418.fresh8418(mint, 90_000L, 200_000L))
         assertEquals(listOf("vA", "vB", "ClmmPool8418"), OnChainDepth8038.readKeys8418("vA" to "vB", "ClmmPool8418", OnChainDepth8038.RAYDIUM_CLMM_8418))
-        assertEquals(listOf("vA", "vB"), OnChainDepth8038.readKeys8418("vA" to "vB", "P", OnChainDepth8038.PUMP_AMM))
+        // superseded by V5.0.8986 — a PumpSwap read carries its pool account (virtual quote reserves); was listOf("vA", "vB")
+        assertEquals(listOf("vA", "vB", "P"), OnChainDepth8038.readKeys8418("vA" to "vB", "P", OnChainDepth8038.PUMP_AMM))
+        assertEquals(listOf("vA", "vB"), OnChainDepth8038.readKeys8418("vA" to "vB", "P", OnChainDepth8038.RAYDIUM_CPMM))
         assertTrue(OnChainDepth8038.priceInState8418(OnChainDepth8038.METEORA_DLMM_8418))
         assertFalse("DAMM v2 stays depth only", OnChainDepth8038.priceInState8418(OnChainDepth8038.METEORA_DAMM_V2_8418))
     }

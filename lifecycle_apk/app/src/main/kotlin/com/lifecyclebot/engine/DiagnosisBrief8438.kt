@@ -265,6 +265,7 @@ object DiagnosisBrief8438 {
             sb.append("               ").append(try { com.lifecyclebot.engine.cortex.CrossAssetCortex7931.hourLine8980() } catch (_: Throwable) { "cryptoHour8980[read failed]" }).append('\n')  // V5.0.8980
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.ScalpExit8351.advisoryLine8984() } catch (_: Throwable) { "scalpAdvisory8984[read failed]" }).append('\n')  // V5.0.8984
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.LiveDiscipline8985.line8985() } catch (_: Throwable) { "liveDiscipline8985[read failed]" }).append('\n')  // V5.0.8985
+            sb.append("               ").append(try { com.lifecyclebot.engine.truth.OnChainDepth8038.line8986() } catch (_: Throwable) { "chainReprice8986[read failed]" }).append('\n')  // V5.0.8986
             sb.append("               ").append(try { com.lifecyclebot.perps.CryptoTwin8883.strategyLine8910() } catch (_: Throwable) { "twinStrategies8910[read failed]" }).append('\n')  // V5.0.8910
             sb.append("               ").append(try { com.lifecyclebot.perps.CryptoTwin8883.holdLine8924() } catch (_: Throwable) { "holdCap8924[read failed]" }).append('\n')  // V5.0.8924
             sb.append("               ").append(try { ScannerSourceCircuitBreaker6363.line8924() } catch (_: Throwable) { "sourceTimeouts8924[read failed]" }).append('\n')  // V5.0.8924

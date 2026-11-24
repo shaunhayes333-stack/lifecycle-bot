@@ -62,7 +62,18 @@ object ChainConfirm8950 {
         "MOVE_HISTORY_SPARSE", "STAGE", "STAGE_UNRESOLVED", "FLOW_UNOBSERVED", "VOLACCEL", "OPP", "LAUNCHTAPE")
 
     /** Pure: may [input] be asked for a coin last asked at [lastMs] (0 = never)? */
-    internal fun due8950(lastMs: Long, nowMs: Long): Boolean = lastMs <= 0L || nowMs - lastMs >= GAP_MS_8950
+    internal fun due8950(lastMs: Long, nowMs: Long, gapMs: Long = GAP_MS_8950): Boolean = lastMs <= 0L || nowMs - lastMs >= gapMs
+
+    /**
+     * V5.0.8986 §A_PRICE_IS_REREAD_INSIDE_ITS_OWN_STALENESS_BAR — a LIVE price is stale after 15 s on a hot launch and 30 s
+     * otherwise (PriceAge8549), and a (coin, input) could be asked once per 20 s: a hot coin priced at t was stale from
+     * t+15 s and could not be read again until t+20 s, on every pass. The price/depth read of a decision-path use
+     * (DECISION / LANE / EVIDENCE / EXEC) may now be asked every [PRICE_GAP_MS_8986], under the shortest bar; the vault
+     * read itself is skipped while one under 5 s old exists (OnChainDepth8038.PRICE_SYNC_MAX_MS_8847). Other inputs keep 20 s.
+     */
+    internal const val PRICE_GAP_MS_8986 = 10_000L
+    internal fun gapFor8986(input: Input8950, use: String): Long =
+        if (input == Input8950.PRICE_DEPTH && use.uppercase() in RERUN_USES_8957) PRICE_GAP_MS_8986 else GAP_MS_8950
 
     private fun live8950(): Boolean = try { !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
 
@@ -187,7 +198,7 @@ object ChainConfirm8950 {
         val key = "${ts.mint}|${input.name}"
         synchronized(lastAsk) {
             val prior = lastAsk[key] ?: 0L
-            val due = due8950(prior, nowMs)
+            val due = due8950(prior, nowMs, gapFor8986(input, use))
             if (input == Input8950.PRICE_DEPTH && use.uppercase() in RERUN_USES_8957 && due)
                 armDepth8959(ts.mint, nowMs)
             if (!due) return false

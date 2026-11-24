@@ -113,7 +113,11 @@ object SizingQuoteRecheck8153 {
         val sealedKnown = seal.impactOneWayPct.isFinite() && seal.impactOneWayPct >= 0.0
         val sealedImpact = if (sealedKnown) seal.impactOneWayPct else 0.0
         val budget = if (sealedKnown) impactBudgetPct8153(sealedImpact) else MAX_ONE_WAY_IMPACT_PCT_8153
-        if (impact.isFinite() && impact > budget + 1e-9) return "PRE_BROADCAST_IMPACT_BEYOND_SEALED_BUDGET_8153"
+        // V5.0.8986 — the provider's impact field refuses only when the quote's own amounts do not contradict it
+        if (impact.isFinite() && impact > budget + 1e-9) {
+            if (!impactContradicted8986(seal.priceUsd, executionPriceUsd, budget)) return "PRE_BROADCAST_IMPACT_BEYOND_SEALED_BUDGET_8153"
+            contradicted8986.incrementAndGet()
+        }
         // Only a worsening counts: a cheaper fill is not credited against the sealed evidence.
         val extraRoundTrip = if (impact.isFinite()) 2.0 * (impact - sealedImpact).coerceAtLeast(0.0) else 0.0
         val costFresh = (if (seal.costPct.isFinite()) seal.costPct.coerceAtLeast(0.0) else 0.0) + extraRoundTrip
@@ -131,6 +135,25 @@ object SizingQuoteRecheck8153 {
         }
         return null
     }
+
+    /**
+     * V5.0.8986 §THE_QUOTE_S_OWN_AMOUNTS_ANSWER_ITS_IMPACT_FIELD — the 21:27 capture (5.0.8984): of 10 pre-broadcast checks
+     * 3 were refused PRE_BROADCAST_IMPACT_BEYOND_SEALED_BUDGET_8153 (RTM, pool $47,208; Trenchers $8,862;
+     * MANLET $8,931), on tickets of 0.04-0.07 SOL; 3 buys landed in 103 min. The impact read is the provider's declared field
+     * (JupiterImpact8730: `priceImpact` points, else `priceImpactPct` x 100 — two fields, two units). The quote's own
+     * amounts state what the buy pays: in lamports / out tokens, against the price the size was sealed on. When that
+     * executable price is no more than the impact budget above the sealed price, everything between seal and fill —
+     * market move, pool impact and fees together — is inside the budget, so the impact alone cannot be beyond it: the
+     * field is contradicted by the quote it came with and does not refuse. A quote with no comparable sealed price, or one
+     * priced beyond the budget, refuses exactly as before; the fresh impact still raises the round-trip cost in the
+     * net-EV check below. Pure.
+     */
+    fun impactContradicted8986(sealPriceUsd: Double, executionPriceUsd: Double, budgetPct: Double): Boolean {
+        if (!(sealPriceUsd.isFinite() && sealPriceUsd > 0.0) || !(executionPriceUsd.isFinite() && executionPriceUsd > 0.0) || !budgetPct.isFinite()) return false
+        return (executionPriceUsd / sealPriceUsd - 1.0) * 100.0 <= budgetPct
+    }
+    private val contradicted8986 = AtomicLong(0)
+    @Volatile private var lastRefusal8986 = "-"
 
     // ── runtime ──
 
@@ -173,11 +196,14 @@ object SizingQuoteRecheck8153 {
                     "sealGross=${s?.expectedGrossPct?.let { "%.2f".format(it) } ?: "-"} sealTarget=${s?.firstTargetPct?.let { "%.1f".format(it) } ?: "-"} " +
                     "drift=${"%.2f".format(adverseDriftPct8153(s?.priceUsd ?: 0.0, priceNowUsd))}")
         } catch (_: Throwable) {}
+        // V5.0.8986 — the report carries the last refusal's own numbers (the forensic line is not in the pipeline report)
+        lastRefusal8986 = "${mint.take(8)}:$r impact=${"%.2f".format(freshImpactPct)}% sealImpact=${observed8198?.impactOneWayPct?.let { "%.2f".format(it) } ?: "-"}% " +
+            "quoteVsSeal=${observed8198?.priceUsd?.takeIf { it > 0.0 && executionPriceUsd.isFinite() }?.let { "%+.2f".format((executionPriceUsd / it - 1.0) * 100.0) } ?: "-"}%"
         if (observed8198 != null) sealed.remove(key8198(mint, intent8198?.canonicalLane.orEmpty()), observed8198)
         if (intent8198 != null) WalletCapacitySeal7868.release(mint, attemptId = intent8198.attemptId)
         return r
     }
 
     fun statusLine8153(): String =
-        "preBroadcastChecks=${checks.get()} refused=[${refusals.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "none" }}] sealed=${sealed.size}"
+        "preBroadcastChecks=${checks.get()} refused=[${refusals.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "none" }}] sealed=${sealed.size} impactFieldContradictedByQuote8986=${contradicted8986.get()} lastRefusal8986[$lastRefusal8986]"
 }

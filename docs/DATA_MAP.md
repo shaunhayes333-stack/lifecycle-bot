@@ -3487,3 +3487,40 @@ Measured, not changed: 3 of 66 live loss stops sold in profit (MANDY +20.0 %, tu
 RAPID_HARD_FLOOR_STOP after the exit quote refuted the same breach twice, SIGNAL_INVALIDATED_QUOTE_8521); crypto twins
 CRYPTO_ALT n400 -2.4 %, CRYPTO_SPOT n400 -0.2 %, the Hyperliquid paper desk 222 trips, 60 won, net -$84.50 — their own records
 keep them off live.
+
+## 171. A chain read is a price on every venue it can prove (8986)
+
+Owner, 24 Nov 21:57 / 22:02: "last night this morning the bot was finding hundreds of good trading pockets that showed great
+profits" ... "its also meant to reprice on chain immediately when ever needed ... go further". The 21:27 capture (5.0.8984):
+- The pockets are there (pocket8610 paying 1,868 -> 2,797 cells since 23 Nov; base pocket n137 +35.0 %; agreement n178
+  +42.7 %; on the research rows the base pocket's coins read +43.0 % mean, 80 % up, n487 at the hour) and their coins do not
+  become trades: LANE_POCKET 244 coins -> 50 admitted -> 7 FDG-allowed -> 7 tickets -> 1 buy; RUNNER_MODEL 184 -> 2 -> 0;
+  LAB_STRATEGY 137 -> 1 -> 0; AGREEMENT 13 -> 0.
+- Their first wait is PRICE_STALE (LANE_POCKET 89 of 146 waits; all lanes: MOONSHOT 611, SHITCOIN 456, EXPRESS 387, CORE 234).
+  The chain is asked every time (ChainConfirm8950) and answers a price only where 8963 writes one: curve account 47,120,
+  PumpSwap vault 1,429, Raydium CPMM 385. A PumpSwap vault read was withheld 3,406 times
+  (PUMP_AMM_PRICE_AWAITS_VIRTUAL_QUOTE_8963: the pool's virtual quote reserves were known from heard swap events only, 173
+  pools), and no concentrated venue (Meteora DLMM, Raydium CLMM, Orca Whirlpool) wrote a price at all, although 8418 decodes
+  their state price for the buy door.
+- Tickets: 3 of 10 pre-broadcast checks refused PRE_BROADCAST_IMPACT_BEYOND_SEALED_BUDGET_8153 on 0.04-0.07 SOL buys into
+  pools of $8.9k-$47k.
+
+Changes:
+1. OnChainDepth8038: a PumpSwap vault read carries its pool account (readKeys8418) and pumpVirtualQuote8986 decodes
+   virtual_quote_reserves from it (pump-fun/pump-public-docs idl/pump_amm.json, 21 Nov 2026: Pool disc
+   [241,154,109,4,17,177,109,188], i128 LE @245; a shorter legacy account reads 0), noted to PoolVirtualQuote8952 before the
+   read is priced: every PumpSwap read prices on effective reserves and writes its price; the stop's venue check
+   (reserveVerdict8485) reads the same effective reserves.
+2. A concentrated pool's decoded state price (ConcentratedPrice8418, layout-proved) is written as the coin's price through
+   ChainPrice8963 (source CHAIN_STATE_READ_8986_<venue>, CHAIN rank, the read's time, the pool on it).
+3. ChainConfirm8950.gapFor8986: a decision-path price/depth read (DECISION / LANE / EVIDENCE / EXEC) may be asked every 10 s
+   (was 20 s against a 15 s hot-launch staleness bar); other inputs keep 20 s.
+4. SizingQuoteRecheck8153.impactContradicted8986: the provider's impact field refuses only when the quote's own amounts do
+   not contradict it (executable price within the impact budget of the sealed price = market move + impact + fees inside
+   the budget). The fresh impact still raises the round trip in the net-EV check. statusLine8153 carries the last refusal's
+   numbers (impact, sealed impact, quote vs seal).
+Brief: chainReprice8986[...], chainPrice8963 written{STATE=...}; counter CHAIN_REPRICE_NO_KNOWN_POOL_8986 (a decision ping
+on a non-pump coin with no pool to read — still named by the batched pair read).
+
+Measured, not changed: of the base pocket's coins with a 4 h read, 98 % had no Jupiter price (n469) — the pocket is proven
+at the hour only; 8964 (a clock prompts a reassessment, never a forced sell) stands, so no hour exit is added here.

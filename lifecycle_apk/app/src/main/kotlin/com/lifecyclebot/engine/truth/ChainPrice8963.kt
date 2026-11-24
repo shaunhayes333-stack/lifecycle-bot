@@ -20,12 +20,16 @@ import java.util.concurrent.atomic.AtomicLong
  *    quoted in USDC or another coin never reaches here, QuoteTruth8952);
  *  - a constant-product pool's vault read (PumpSwap only once its virtual quote reserves are known, PoolVirtualQuote8952;
  *    Raydium v4 / CPMM). A concentrated venue's vault ratio is depth, never a price, and never writes here.
+ *  - V5.0.8986: a concentrated pool's own state price (CLMM / Whirlpool sqrt price, DLMM active bin; ConcentratedPrice8418,
+ *    layout-proved against the vaults' mints and decimals). 8418 decoded it for the buy door and the rug evidence only.
  * When the coin's price had gone stale, its waiting decisions are woken (CandidateAdmission8136.evidenceArrived8252,
  * "price"). No gate, threshold or verdict changes: the same staleness rule now meets the chain's answer.
  */
 object ChainPrice8963 {
     const val CURVE_SOURCE_8963 = "CURVE_ACCOUNT_7951_PRICE_8963"
     const val VAULT_SOURCE_8963 = "CHAIN_VAULT_READ_8963_"
+    /** V5.0.8986 — a concentrated pool's decoded state price (Raydium CLMM / Orca Whirlpool sqrt price, Meteora DLMM active bin). */
+    const val STATE_SOURCE_8986 = "CHAIN_STATE_READ_8986_"
     private val written = ConcurrentHashMap<String, AtomicLong>()
     private val woke = AtomicLong(0L)
     private val notNewer = AtomicLong(0L)
@@ -49,7 +53,7 @@ object ChainPrice8963 {
             synchronized(ts) { TokenFacts.writePrice(ts, usd, source, TokenFacts.Rank.CHAIN, observedAtMs, nowMs, pool = pool) }
         } catch (_: Throwable) { false }
         if (!ok) { refused.incrementAndGet(); return false }
-        val key = if (source.startsWith(VAULT_SOURCE_8963)) "VAULT" else "CURVE"
+        val key = if (source.startsWith(VAULT_SOURCE_8963)) "VAULT" else if (source.startsWith(STATE_SOURCE_8986)) "STATE" else "CURVE"
         written.computeIfAbsent(key) { AtomicLong(0L) }.incrementAndGet()
         if (wasStale8963(heldAt, nowMs)) {
             woke.incrementAndGet()
@@ -60,7 +64,7 @@ object ChainPrice8963 {
 
     fun statusLine8963(): String =
         "chainPrice8963[written{" + written.entries.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } +
-            "} wokeStale=${woke.get()} notNewer=${notNewer.get()} refusedByAuthority=${refused.get()} rule=a curve account or " +
-            "constant-product vault read writes its price (CHAIN rank, its own time) when newer than the coin's; a stale coin's " +
+            "} wokeStale=${woke.get()} notNewer=${notNewer.get()} refusedByAuthority=${refused.get()} rule=a curve account, a " +
+            "constant-product vault read or a concentrated pool's state price (8986) writes its price (CHAIN rank, its own time) when newer than the coin's; a stale coin's " +
             "waiting decisions are woken]"
 }

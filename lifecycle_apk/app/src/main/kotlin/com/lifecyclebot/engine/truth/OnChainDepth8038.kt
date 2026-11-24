@@ -369,7 +369,36 @@ object OnChainDepth8038 {
      * whose spot price lives in pool state (ConcentratedPrice8418).
      */
     internal fun readKeys8418(vaults: Pair<String, String>, poolAddr: String, owner: String): List<String> =
-        if (priceInState8418(owner)) listOf(vaults.first, vaults.second, poolAddr) else listOf(vaults.first, vaults.second)
+        // V5.0.8986 — a PumpSwap pool's own account rides every vault read: its virtual quote reserves are part of its price
+        if (priceInState8418(owner) || owner == PUMP_AMM) listOf(vaults.first, vaults.second, poolAddr) else listOf(vaults.first, vaults.second)
+
+    /**
+     * V5.0.8986 §THE_POOL_ACCOUNT_NAMES_ITS_OWN_VIRTUAL_QUOTE — owner, 24 Nov 22:02: "its also meant to reprice on chain
+     * immediately when ever needed". The 21:27 capture (5.0.8984, 103 min): PRICE_STALE was the first wait of every meme lane
+     * (MOONSHOT 611, SHITCOIN 456, EXPRESS 387, CORE 234) and of the pockets' coins (LANE_POCKET 89 of 146 waits); the
+     * chain was asked each time, and a PumpSwap vault read wrote a price 1,429 times and was withheld 3,406 times
+     * (PUMP_AMM_PRICE_AWAITS_VIRTUAL_QUOTE_8963): 8952 took a pool's virtual quote reserves from its swap events only,
+     * so a pool with no event heard yet (173 pools known) could not be priced, and the stop's venue check priced it on the
+     * vault ratio alone. pump-fun/pump-public-docs (idl/pump_amm.json, 21 Nov 2026) publishes the Pool account: disc 8
+     * [241,154,109,4,17,177,109,188], pool_bump u8, index u16, creator, base_mint, quote_mint, lp_mint, base vault @139,
+     * quote vault @171, lp_supply u64 @203, coin_creator @211, is_mayhem_mode @243, is_cashback_coin @244,
+     * virtual_quote_reserves i128 @245 (signed, little-endian; docs/NEGATIVE_VIRTUAL_QUOTE_RESERVES.md: "pools written
+     * before the field existed are shorter than the current layout; read a missing virtual_quote_reserves as 0").
+     * Pure: that field from a Pool account's bytes; null when [data] is not a Pool account.
+     */
+    internal fun pumpVirtualQuote8986(data: ByteArray): java.math.BigInteger? {
+        if (data.size < 8 || !PUMP_POOL_DISC_8986.indices.all { data[it] == PUMP_POOL_DISC_8986[it] }) return null
+        if (data.size < VIRTUAL_QUOTE_OFFSET_8986 + 16) return java.math.BigInteger.ZERO
+        val be = ByteArray(16) { data[VIRTUAL_QUOTE_OFFSET_8986 + 15 - it] }   // little-endian two's complement -> big-endian
+        return java.math.BigInteger(be)
+    }
+    private val PUMP_POOL_DISC_8986 = byteArrayOf(241.toByte(), 154.toByte(), 109, 4, 17, 177.toByte(), 109, 188.toByte())
+    private const val VIRTUAL_QUOTE_OFFSET_8986 = 245
+    private val poolAccountVirtual8986 = AtomicLong(0)
+    private val statePricePublished8986 = AtomicLong(0)
+    fun line8986(): String = "chainReprice8986[pumpSwapPoolAccountVirtualQuote=${poolAccountVirtual8986.get()} statePricePublished=${statePricePublished8986.get()} " +
+        "rule=a PumpSwap vault read carries its pool account (virtual_quote_reserves @245, pump_amm IDL) so every read prices on effective reserves; " +
+        "a CLMM / Whirlpool / DLMM pool's decoded state price is written as the coin's price (CHAIN rank, the read's time)]"
 
     /** V5.0.8418 — venues whose spot price is decoded from the pool account (CLMM sqrt, Whirlpool sqrt, DLMM bin). */
     internal fun priceInState8418(owner: String): Boolean =
@@ -463,6 +492,13 @@ object OnChainDepth8038 {
             unsupportedByVenue8418.computeIfAbsent(venueName8418(owner8418) + "_NOT_COIN_SOL") { AtomicLong(0) }.incrementAndGet()
             return Accept8418.NOT_COIN_SOL
         }
+        // V5.0.8986 — the pool account read with these vaults names its virtual quote reserves now (not only a heard swap)
+        if (owner8418 == PUMP_AMM) try {
+            accountData8418(poolAcct)?.let { pumpVirtualQuote8986(it) }?.let {
+                com.lifecyclebot.network.PoolVirtualQuote8952.note8952(p, it.toDouble(), observedAt)
+                poolAccountVirtual8986.incrementAndGet()
+            }
+        } catch (_: Throwable) {}
         // V5.0.8952 — a PumpSwap pool prices on its effective quote (vault + virtual_quote_reserves, pump.fun 21 Jul 2026)
         val quoteSol8952 = if (owner8418 == PUMP_AMM) com.lifecyclebot.network.PoolVirtualQuote8952.effectiveSol8952(p, sides.first) ?: run {
             unsupportedByVenue8418.computeIfAbsent("PUMP_AMM_EFFECTIVE_QUOTE_NONPOSITIVE_8952") { AtomicLong(0) }.incrementAndGet()
@@ -475,6 +511,11 @@ object OnChainDepth8038 {
             ConcentratedPrice8418.fresh8418(mint, 15_000L, observedAt)
                 ?.takeIf { it.pool == p && it.atMs == observedAt }?.let {
                     RugChainEvidence8957.record(mint, p, it.solPerCoin, sides.first, observedAt)
+                    // V5.0.8986 — the pool's own decoded state price (sqrt price / active bin, layout-proved) is the coin's price
+                    try {
+                        if (ChainPrice8963.publish8963(mint, it.solPerCoin * solUsd(), ChainPrice8963.STATE_SOURCE_8986 + venueName8418(owner8418), observedAt, pool = p))
+                            statePricePublished8986.incrementAndGet()
+                    } catch (_: Throwable) {}
                 }
             // V5.0.8418 — depth only: kept apart from [reads] so no price check or constant-product sell-out reads it.
             depthOnlyReads8418[mint] = read
@@ -762,6 +803,7 @@ object OnChainDepth8038 {
         if (pools(ts).isEmpty()) {
             // V5.0.8489 — a non-pump coin with no known pool: one batched pair read (30 mints a call) names its SOL pool.
             if (!curveCoin) try { com.lifecyclebot.engine.DexBatchLane8287.enqueue8287(mint) } catch (_: Throwable) {}
+            if (decisionPing8959 && !curveCoin) try { PipelineHealthCollector.labelInc("CHAIN_REPRICE_NO_KNOWN_POOL_8986") } catch (_: Throwable) {}   // V5.0.8986 — counted: a decision's price with no pool to read
             return
         }
         poolAsked8047[mint] = nowMs
