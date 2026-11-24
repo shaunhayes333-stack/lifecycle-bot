@@ -2516,6 +2516,10 @@ object ForwardReturnLabeler7731 {
                     independentBasis = true))
             }
         } catch (_: Throwable) {}
+        // V5.0.8989 — a concentrated pool's own decoded state price (CLMM / Whirlpool sqrt price, DLMM bin) is a chain mark too
+        try {
+            stateMark8989(mint, com.lifecyclebot.engine.WalletManager.labelSolPrice8580(nowMs), nowMs, MARK_MAX_AGE_MS_7731)?.let { candidates.add(it) }
+        } catch (_: Throwable) {}
         // A bare loop price has no timestamp. It may only reuse the matching state observation, never this read's clock.
         try {
             val px = priceFor(mint)
@@ -2859,6 +2863,28 @@ object ForwardReturnLabeler7731 {
         open.sortedBy { it.second }.map { it.first }.distinct()
             .filter { m -> (lastRead(m) ?: 0L).let { nowMs - it >= HP_READ_GAP_MS_8583 } }.take(cap)
 
+    /**
+     * V5.0.8989 §A_LABEL_IS_MARKED_ON_EVERY_VENUE_THE_CHAIN_PROVES — owner, 24 Nov 22:14: "it has everything already built for
+     * self evolution and rediscovery its just not tied in correctly". 21:27 capture (5.0.8984): label marks due 2,902,
+     * priced 436 (15 %), noSource 619, late 1,572; Cortex assessed 746, graded 9; FORWARD_LABEL_LOST_MARK_7731 2,211 —
+     * every learner (Cortex seats, playbooks, the edge model, the pockets' rows) is fed by these marks. The chain rung
+     * priced a label only from a constant-product vault read ([horizonVaultMark8870], freshRead8198); a coin on a
+     * concentrated venue (Meteora DLMM, Raydium CLMM, Orca Whirlpool) has no such read, although OnChainDepth8038 decodes
+     * its pool's state price on the same request (ConcentratedPrice8418, layout-proved). That decoded price, at its own
+     * observation time, is now a chain mark for the tick's candidates and the horizon pricer's chain rung.
+     */
+    const val STATE_MARK_SOURCE_8989 = "POOL_STATE_PRICE_8989"
+    private val stateMarks8989 = AtomicLong(0)
+    internal fun stateMark8989(mint: String, solUsd: Double, nowMs: Long, maxAgeMs: Long = CHAIN_MARK_MAX_AGE_MS_8540): LabelMark8386? {
+        if (mint.isBlank() || !solUsd.isFinite() || solUsd <= 0.0) return null
+        val cp = ConcentratedPrice8418.fresh8418(mint, maxAgeMs, nowMs) ?: return null
+        val px = cp.solPerCoin * solUsd
+        if (!px.isFinite() || px <= 0.0) return null
+        stateMarks8989.incrementAndGet()
+        return LabelMark8386(mint, cp.pool, px, cp.atMs, nowMs, STATE_MARK_SOURCE_8989, independentBasis = true)
+    }
+    private fun stateMarkLine8989(): String = "stateMarks8989=${stateMarks8989.get()}"
+
     /** A cached vault answer keeps its observation time; finishing an HTTP rung is not a new chain observation. */
     internal fun horizonVaultMark8870(mint: String, read: OnChainDepth8038.Read?, solUsd: Double,
                                       nowMs: Long): LabelMark8386? {
@@ -2921,7 +2947,7 @@ object ForwardReturnLabeler7731 {
             val solUsd = com.lifecyclebot.engine.WalletManager.labelSolPrice8580(readAt)
             for (m in rest) {
                 val read = try { OnChainDepth8038.freshRead8198(m, CHAIN_MARK_MAX_AGE_MS_8540, readAt) } catch (_: Throwable) { null }
-                val mark = horizonVaultMark8870(m, read, solUsd, readAt) ?: continue
+                val mark = horizonVaultMark8870(m, read, solUsd, readAt) ?: stateMark8989(m, solUsd, readAt) ?: continue   // V5.0.8989
                 got[m] = mark.usd
                 hpChain8583.incrementAndGet()
                 noteLaneMark8418(m, mark.usd, mark.observedAtMs)
@@ -2935,7 +2961,7 @@ object ForwardReturnLabeler7731 {
 
     fun horizonPricerLine8583(): String =
         "horizonPricer8583[running=${hpRunning8583.get()} passes=${hpPasses8583.get()} asked=${hpAsked8583.get()} " +
-            "priced{curve=${hpCurve8583.get()} dex=${hpDex8583.get()} jup=${hpJup8583.get()} chain=${hpChain8583.get()}} unpriced=${hpUnpriced8583.get()}]"
+            "priced{curve=${hpCurve8583.get()} dex=${hpDex8583.get()} jup=${hpJup8583.get()} chain=${hpChain8583.get()}} unpriced=${hpUnpriced8583.get()} ${stateMarkLine8989()}]"
 
     private fun fetchOffWatchMarks7737(due: List<String>, nowMs: Long) {
         if (due.isEmpty() || nowMs - offWatchLastFetchMs7737 < OFFWATCH_FETCH_GAP_MS_7737) return

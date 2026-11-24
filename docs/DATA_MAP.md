@@ -3559,3 +3559,21 @@ pinned size (size cap, micro probes) and paper are untouched; depth / impact cap
 unchanged. It scales with the wallet through the doctrine's share (the larger of 1/20 and the cost-clearing share).
 Brief: Concentration doctrine ... memeBase8988[lifted=.. payingDoorSized=..]. Risk note: at this wallet one ticket is 23 %
 of tradeable, so four fill it; a door proven losing on live is held to one probe by 8985.
+
+## 174. A label is marked on every venue the chain proves (8989)
+
+Owner, 24 Nov 22:14: "it has everything already built for self evolution and rediscovery its just not tied in correctly."
+Audit of the 21:27 capture (5.0.8984), what feeds what:
+- Forward labels feed every learner (Cortex seats, lane playbooks, the edge model, the research rows the pockets mine):
+  label marks due 2,902, priced 436 (15 %), noSource 619, late 1,572; Cortex assessed 746, graded 9;
+  FORWARD_LABEL_LOST_MARK_7731 2,211. The chain rung marked a label only from a constant-product vault read; a PumpSwap
+  read was unpriced until a swap was heard (8986) and a concentrated venue never marked one.
+- Live closes fed the setup book (never reaching n) and a read-only door ledger: tied to the admission doors in 8985
+  (probe discipline) and to size in 8988 (a paying door sizes up).
+- The proven evidence (pockets, launch rule, armed runner model) was refused by the lane-wide priors it is a narrower proof
+  of, and waited on a price the chain had already answered: 8986, 8987.
+Change here: ConcentratedPrice8418's decoded state price (Raydium CLMM / Orca Whirlpool sqrt price, Meteora DLMM bin, read
+with the pool's vaults) is a label mark at its own observation time — ForwardReturnLabeler7731.stateMark8989 in the tick's
+candidates and the horizon pricer's chain rung, OnChainDepth8038.statePriceUsd8989 behind chainPriceUsd8540 (the off-watch
+batch). Source POOL_STATE_PRICE_8989; counted on horizonPricer8583 (stateMarks8989). No gate reads it; more labels are
+graded on the venues the pockets' coins trade on.

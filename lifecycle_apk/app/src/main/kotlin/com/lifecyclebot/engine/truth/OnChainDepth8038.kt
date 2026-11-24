@@ -336,11 +336,19 @@ object OnChainDepth8038 {
 
     /**
      * V5.0.8540 — [mint]'s price from its own pool's vaults (SOL vault / coin vault x SOL/USD) read at most [maxAgeMs] ago,
-     * else NaN. Concentrated venues are depth-only (their vault ratio is not the price) and never answer here. Never requests.
+     * else NaN. A concentrated venue's vault ratio is not its price; since 8989 it answers with its decoded state price. Never requests.
      */
     fun chainPriceUsd8540(mint: String, maxAgeMs: Long, nowMs: Long = System.currentTimeMillis()): Double {
-        val r = freshRead8198(mint, maxAgeMs, nowMs) ?: return Double.NaN
+        // V5.0.8989 — a concentrated venue answers with its pool's decoded state price (never its vault ratio)
+        val r = freshRead8198(mint, maxAgeMs, nowMs) ?: return statePriceUsd8989(mint, maxAgeMs, nowMs)
         val px = priceUsd8038(r.quoteSol, r.baseTokens, solUsd())
+        return if (px.isFinite() && px > 0.0) px else Double.NaN
+    }
+
+    /** V5.0.8989 — [mint]'s concentrated pool state price (ConcentratedPrice8418) x SOL/USD, read at most [maxAgeMs] ago, else NaN. */
+    internal fun statePriceUsd8989(mint: String, maxAgeMs: Long, nowMs: Long = System.currentTimeMillis()): Double {
+        val cp = ConcentratedPrice8418.fresh8418(mint, maxAgeMs, nowMs) ?: return Double.NaN
+        val px = cp.solPerCoin * solUsd()
         return if (px.isFinite() && px > 0.0) px else Double.NaN
     }
 
