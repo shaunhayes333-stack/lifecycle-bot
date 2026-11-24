@@ -185,17 +185,24 @@ object LanePocket8934 {
         val source = synchronized(this) {
             if (ready || loading || now < loadNotBefore8961) return
             val f = ResearchRows8877.file8877()
-            if (f == null || !f.isFile) { loadNotBefore8961 = now + 5_000L; return }
+            if (f == null || (!f.isFile && seeded8990)) { loadNotBefore8961 = now + 5_000L; return }
             loading = true
             f
         }
         io.execute {
             try {
-                val loaded = loadFile8961(source)
+                // V5.0.8990 — the shipped rows first (once); with no device file yet they are the book
+                val seedRows = if (!seeded8990) { seeded8990 = true; ResearchRows8877.forEachSeedLine8990 { l -> fileLine8990(l) } } else 0
+                val loaded = if (source.isFile) loadFile8961(source) else seedRows > 0
                 ready = loaded
                 if (loaded) mine(System.currentTimeMillis()) else loadNotBefore8961 = System.currentTimeMillis() + 5_000L
             } finally { loading = false }
         }
+    }
+
+    @Volatile private var seeded8990 = false
+    private fun fileLine8990(l: String) {
+        if (l.contains("\"horizonMs\":3600000") || l.contains("\"horizonMs\":14400000")) try { file(JSONObject(l)) } catch (_: Throwable) {}
     }
 
     /** A missing context/file or failed read is retryable; an existing empty research file is a legitimate empty book. */

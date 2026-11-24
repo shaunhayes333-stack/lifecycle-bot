@@ -48,6 +48,35 @@ object ResearchRows8877 {
         return if (o.optString("reason").startsWith(UNPRICED_PREFIX_8983)) UNPRICED_NET_8983 else Double.NaN
     }
 
+    /**
+     * V5.0.8990 §THE_PROVEN_POCKETS_SHIP_WITH_THE_BUILD — owner, 24 Nov 22:14: "the proven pockets. shouldn't they become from
+     * trade one spec logic once nailed down?? remember we want a bot that starts super super smart and very good at
+     * trading then just gets better and better over time." The pockets (lane, base, agreement) are mined from this file's
+     * hour rows; the file lives on the device, so an install with no file — a new phone, cleared data — starts with no
+     * pocket and needs a day of its own rows before one proves. The owner's own rows (13,022 hour reads of the meme and
+     * hour lanes, 22-24 Nov 2026, the diagnostics dropped) now ship in the build ([SEED_ASSET_8990], gzip line JSON, the
+     * same row format). Each pocket reads them first, then the device's file: the same miners, the same proof bars, and
+     * every window keeps its newest coins, so the device's own rows join and then displace the shipped ones. A shipped
+     * pocket is evidence like any other: every gate still decides, and its door answers for its live closes (8985).
+     */
+    const val SEED_ASSET_8990 = "research_seed_8990.jsonl.gz"
+    private val seedLines8990 = AtomicLong(0)
+
+    /** Each line of the shipped seed to [each]; the lines read (0 when the asset or the context is missing). */
+    fun forEachSeedLine8990(open: () -> java.io.InputStream? = { com.lifecyclebot.AATEApp.appContextOrNull()?.assets?.open(SEED_ASSET_8990) },
+                            each: (String) -> Unit): Int {
+        var n = 0
+        try {
+            val raw = open() ?: return 0
+            java.util.zip.GZIPInputStream(raw, 64 * 1024).bufferedReader(Charsets.UTF_8).useLines { lines ->
+                lines.forEach { l -> if (l.isNotBlank()) { n++; try { each(l) } catch (_: Throwable) {} } }
+            }
+        } catch (_: Throwable) { try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("RESEARCH_SEED_8990_READ_FAILED") } catch (_: Throwable) {} }
+        seedLines8990.addAndGet(n.toLong())
+        return n
+    }
+    fun seedLine8990(): String = "researchSeed8990[linesRead=${seedLines8990.get()} asset=$SEED_ASSET_8990 rule=the shipped hour rows are read by each pocket before the device's own file; the device's rows displace them as its windows fill]"
+
     fun file8877(): File? = try { com.lifecyclebot.AATEApp.appContextOrNull()?.filesDir?.let { File(it, FILE_8877) } } catch (_: Throwable) { null }
 
     /** Pure: one research row (JSON, NaN as null). */

@@ -3577,3 +3577,19 @@ with the pool's vaults) is a label mark at its own observation time — ForwardR
 candidates and the horizon pricer's chain rung, OnChainDepth8038.statePriceUsd8989 behind chainPriceUsd8540 (the off-watch
 batch). Source POOL_STATE_PRICE_8989; counted on horizonPricer8583 (stateMarks8989). No gate reads it; more labels are
 graded on the venues the pockets' coins trade on.
+
+## 175. The proven pockets ship with the build (8990)
+
+Owner, 24 Nov 22:14: "the proven pockets. shouldn't they become from trade one spec logic once nailed down?? ... a bot that
+starts super super smart and very good at trading then just gets better and better over time."
+The three pockets (LanePocket8934, BasePocket8904, AgreementPocket8874) are mined from the research hour rows in
+files/edge_research_8877.jsonl. That file is on the device: it survives an update, so the owner's phone restarts with its
+pockets, but an install with no file (a new phone, cleared data) starts with none and needs about a day of its own rows.
+Change: assets/research_seed_8990.jsonl.gz — the owner's 13,022 hour rows of the meme and hour lanes, decisions 22 Nov 04:38
+to 24 Nov, diagnostics dropped, the same line format (640 KB). ResearchRows8877.forEachSeedLine8990 streams it; each pocket
+reads it before the device's file (LanePocket8934: with no device file yet the seed alone makes the book ready). Same
+miners, same proof bars (time-split halves, mean - SE, the 8983 unpriced-read rule). Windows keep their newest coins (lane
+3,000 a lane, base and agreement 200), so the device's own rows join and then displace the shipped ones.
+Brief: researchSeed8990[linesRead=...]. Limits, stated: the seed is two days of one market; a shipped pocket is evidence
+through the same gates, and its door answers for its live closes (LiveDiscipline8985). On the same rows the base pocket's
+coins were unpriced by Jupiter at 4 h in 98 % of cases (§171): it is an hour-horizon pocket.

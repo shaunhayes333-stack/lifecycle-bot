@@ -193,6 +193,11 @@ object BasePocket8904 {
         synchronized(this) { if (ready || loading) return; loading = true }
         io.execute {
             try {
+                // V5.0.8990 — the shipped rows first, then the device's own (the window keeps the newest coins)
+                ResearchRows8877.forEachSeedLine8990 { l ->
+                    if (l.contains("\"stage\":\"$STAGE_8904\"") && l.contains("\"horizonMs\":$HORIZON_MS_8904"))
+                        try { rowOf8904(JSONObject(l))?.let { r -> add(r.mint, r.lane, r.atMs, r.net, r.hold) } } catch (_: Throwable) {}
+                }
                 ResearchRows8877.file8877()?.takeIf { it.exists() }?.useLines { lines ->
                     lines.forEach { l ->
                         if (l.contains("\"stage\":\"$STAGE_8904\"") && l.contains("\"horizonMs\":$HORIZON_MS_8904"))

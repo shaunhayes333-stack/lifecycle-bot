@@ -359,6 +359,11 @@ object AgreementPocket8874 {
         synchronized(research8929) { if (researchReady8929 || researchLoading8929) return; researchLoading8929 = true }
         io.execute {
             try {
+                // V5.0.8990 — the shipped rows first, then the device's own (the window keeps the newest coins)
+                ResearchRows8877.forEachSeedLine8990 { l ->
+                    if (l.contains("\"horizonMs\":3600000") && !l.contains("\"pred\":null"))
+                        try { researchRow8929(JSONObject(l))?.let { (m, t, n) -> addResearch8929(m, t, n) } } catch (_: Throwable) {}
+                }
                 ResearchRows8877.file8877()?.takeIf { it.exists() }?.useLines { lines ->
                     lines.forEach { l ->
                         if (l.contains("\"horizonMs\":3600000") && !l.contains("\"pred\":null"))
