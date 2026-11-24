@@ -143,7 +143,7 @@ object LanePocket8934 {
         if (lane.isBlank() || lane.startsWith("LPSTATE") || lane.startsWith("SETUP") || lane.startsWith("PLANWAIT") || lane.startsWith("ORIGIN")) return
         if (o.optLong("horizonMs", 0L) != horizon8934(lane)) return
         fun d(k: String) = if (o.isNull(k)) Double.NaN else o.optDouble(k, Double.NaN)
-        val net = d("net")
+        val net = ResearchRows8877.rowNet8983(o)   // V5.0.8983 — an unpriced read is a dead coin, not a missing row
         val mcap = d("mcap")
         if (!net.isFinite()) return
         if (!lane.startsWith("CRYPTO_")) {

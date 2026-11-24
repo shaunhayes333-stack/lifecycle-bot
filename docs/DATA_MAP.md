@@ -3399,3 +3399,30 @@ named holders in the eight maps are flat over time (cortex ledgers 10-16 MB, fin
   trading heap. The raw dump stays a secret exactly as in 8866: private cache, deleted in a finally and at every start.
 - Taking the dump stops the app (8.3 s at 320 MB on 24 Nov 05:29): once a run, on a heap already collecting most of each
   second. Brief: heapMapAuto8982[taken readInLab] under the HEAP MAP section.
+
+## 168. A dead coin is a research row (8983)
+
+Owner, 24 Nov 12:11: "nope. much worse". Live closes 05:19-09:01: 2 wins in 18. The admissions behind them: runnerAdmits8297
+byDoor MOONSHOT|SPECIFIC_EDGE_PROVEN_8136 n18 w4 -6.7 %, SHITCOIN n7 w0 -10.3 %; the proven pockets they rest on read
++44 % to +51 % at the hour (lanePocket8934 EXPRESS stage=BASE_START&pred=10+ n83 +48.5 %, MOONSHOT n85 +49.9 %).
+The 11:52 authority table (c4efc95a) shows why the two disagree: its 1 h cells hold **0 unpriced reads in every lane**
+(MOONSHOT n1158, EXPRESS n901, CORE n1264, SHITCOIN n1042, MANIPULATED n773) against 9 % at 4 h and 15 % at 24 h, while the
+labeler's own hour tallies lost 26-28 % of meme decisions (lanes60: MOONSHOT lost=340 of 1300, EXPRESS 356, CORE 353,
+MANIPULATED 369; crypto lanes 22-62 %). ForwardReturnLabeler7731 wrote the hour row only for a decision it could price at
+the hour: a flat mark returned before ResearchRows8877.note8877 (bookTwoForty7944), and a window released without its hour
+read (the pending sweep) only tallied the loss; neither started the 4 h / 24 h wait. Every pocket (LanePocket8934,
+BasePocket8904, AgreementPocket8874's research rows) was mined on the coins still priced an hour later. The hour medians in
+those same tallies are negative in every meme lane (-3.7 % to -7.9 %); the means are carried by runners.
+8983:
+- both lost paths call ForwardReturnLabeler7731.lostHour8983 -> ResearchFollow8884.noteLostHour8983: the decision waits
+  for the hour (Wait8884.hour8983, encoded "h1"; a wait saved before 8983 is a 4 h wait), is read by Jupiter like every
+  4 h / 24 h read, writes its hour row (reason tagged LOSTMARK8983/), then waits for 4 h and 24 h as usual. Only pools a
+  buyer could take (tradeable8923). The read is taken when the loss is noticed (at or after the hour), not at the hour's
+  exact second; that is stated in the row's tag.
+- ResearchRows8877.rowNet8983: a pocket reads a row's net, or -100 % for an unpriced read (NO_PRICE_JUP_8884: Jupiter cannot
+  price the coin: nothing could be sold), the convention the authority table already uses for its PAYS verdict. Late reads
+  stay out. LanePocket8934.file, BasePocket8904.rowOf8904 and AgreementPocket8874.researchRow8929 use it.
+- AgreementPocket8874's label record (coins8895, from the labeler's booked labels) is unchanged and still holds only the
+  booked coins; its research record now carries the lost ones.
+Expect fewer proven pockets once the lost coins are filed: a pocket stays proven only if it pays with its dead coins
+counted. Brief: researchFollow8884[... lostHour8983{noted priced unpriced} ...].

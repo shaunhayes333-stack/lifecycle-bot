@@ -43,6 +43,8 @@ object ResearchFollow8884 {
         val atMs: Long, val mint: String, val lane: String, val admitted: Boolean, val stage: String, val setup: String,
         val pred: Double, val v3: Double, val mcap: Double, val liq: Double, val cost: Double, val entryUsd: Double,
         val reason: String, val next: Int,
+        /** V5.0.8983 — a lost-mark decision: its first read is the hour (then 4 h and 24 h as usual). */
+        val hour8983: Boolean = false,
     ) {
         // V5.0.8973 — the path since the decision: the highest and lowest sampled USD price and when it was last sampled.
         // Outside the constructor, so equality (the pass's done set) never moves while a wait is held; copied by hand.
@@ -98,6 +100,30 @@ object ResearchFollow8884 {
 
     private fun file8884(): File? = try { com.lifecyclebot.AATEApp.appContextOrNull()?.filesDir?.let { File(it, FILE_8884) } } catch (_: Throwable) { null }
 
+    // ── V5.0.8983 §A_DEAD_COIN_IS_A_ROW (ResearchRows8877) ──
+    internal const val HOUR_MS_8983 = 3_600_000L
+    internal const val LOST_TAG_8983 = "LOSTMARK8983/"
+    private val lostHourNoted8983 = AtomicLong(0L)
+    private val lostHourPriced8983 = AtomicLong(0L)
+    private val lostHourUnpriced8983 = AtomicLong(0L)
+
+    /** Pure: the horizon a wait is read at next: the hour for a lost mark's first read, else its 4 h / 24 h slot. */
+    internal fun horizonOf8983(w: Wait8884): Long = if (w.hour8983) HOUR_MS_8983 else HORIZONS_8884[w.next]
+
+    /**
+     * ForwardReturnLabeler7731: a decision whose mark was lost (no hour row) is read at the hour by Jupiter, then at 4 h and
+     * 24 h. A coin Jupiter prices writes its real hour row; one it cannot price writes NO_PRICE (a dead coin for a pocket).
+     */
+    fun noteLostHour8983(atMs: Long, mint: String, lane: String, admitted: Boolean, stage: String, setup: String, pred: Double, v3: Double,
+                         mcap: Double, liq: Double, cost: Double, entryUsd: Double, reason: String) {
+        lostHourNoted8983.incrementAndGet()
+        note8884(atMs, mint, lane, admitted, stage, setup, pred, v3, mcap, liq, cost, entryUsd, reason, hour8983 = true)
+    }
+
+    /** Brief: the lost marks sent to the hour read and what the read found. */
+    internal fun lostHourLine8983(): String = "lostHour8983{noted=${lostHourNoted8983.get()} priced=${lostHourPriced8983.get()} " +
+        "unpriced=${lostHourUnpriced8983.get()}}"
+
     // ── pure ──
 
     /** Pure: (net, gross) % of a read at [usd] against [entryUsd] less the round trip [cost]; null when either price is unusable. */
@@ -119,7 +145,7 @@ object ResearchFollow8884 {
     internal fun encode8884(w: Wait8884): String = JSONObject().put("t", w.atMs).put("m", w.mint).put("l", w.lane).put("a", w.admitted)
         .put("st", w.stage).put("su", w.setup).put("p", num(w.pred)).put("v", num(w.v3)).put("mc", num(w.mcap)).put("lq", num(w.liq))
         .put("c", num(w.cost)).put("e", w.entryUsd).put("r", w.reason).put("n", w.next)
-        .put("hi", num(w.hiUsd8973)).put("lo", num(w.loUsd8973)).put("ps", w.sampledAtMs8973).toString()
+        .put("hi", num(w.hiUsd8973)).put("lo", num(w.loUsd8973)).put("ps", w.sampledAtMs8973).put("h1", w.hour8983).toString()
 
     private fun num(v: Double): Any = if (v.isFinite()) v else JSONObject.NULL
 
@@ -127,7 +153,8 @@ object ResearchFollow8884 {
         val o = JSONObject(line)
         fun d(k: String) = if (o.isNull(k)) Double.NaN else o.optDouble(k, Double.NaN)
         val w = Wait8884(o.getLong("t"), o.getString("m"), word8945(o.optString("l")), o.optBoolean("a"), word8945(o.optString("st")),
-            word8945(o.optString("su")), d("p"), d("v"), d("mc"), d("lq"), d("c"), o.getDouble("e"), word8945(o.optString("r")), o.optInt("n", 0))
+            word8945(o.optString("su")), d("p"), d("v"), d("mc"), d("lq"), d("c"), o.getDouble("e"), word8945(o.optString("r")), o.optInt("n", 0),
+            hour8983 = o.optBoolean("h1", false))   // V5.0.8983 (absent before: false)
         w.hiUsd8973 = d("hi"); w.loUsd8973 = d("lo"); w.sampledAtMs8973 = o.optLong("ps", 0L)   // V5.0.8973 (absent before: NaN / 0)
         w.takeIf { it.mint.isNotBlank() && it.entryUsd > 0.0 && it.next in HORIZONS_8884.indices }
     } catch (_: Throwable) { null }
@@ -137,11 +164,12 @@ object ResearchFollow8884 {
     /** ForwardReturnLabeler7731.bookTwoForty7944: the decision that just wrote its hour row waits for its 4 h and 24 h reads. */
     fun note8884(atMs: Long, mint: String, lane: String, admitted: Boolean, stage: String, setup: String, pred: Double, v3: Double,
                  mcap: Double, liq: Double, cost: Double, entryUsd: Double, reason: String,
-                 peakPct8973: Double = Double.NaN, minPct8973: Double = Double.NaN) {
+                 peakPct8973: Double = Double.NaN, minPct8973: Double = Double.NaN, hour8983: Boolean = false) {
         if (mint.isBlank() || !entryUsd.isFinite() || entryUsd <= 0.0) return
         if (!tradeable8923(liq)) { untradeable8923.incrementAndGet(); return }   // V5.0.8923
         ensureStarted8884()
-        val w = Wait8884(atMs, mint, word8945(lane), admitted, word8945(stage), word8945(setup), pred, v3, mcap, liq, cost, entryUsd, word8945(reason.take(80)), 0)
+        val w = Wait8884(atMs, mint, word8945(lane), admitted, word8945(stage), word8945(setup), pred, v3, mcap, liq, cost, entryUsd,
+            word8945(if (hour8983) LOST_TAG_8983 + reason.take(64) else reason.take(80)), 0, hour8983)
         // V5.0.8973 — the labeler's own high and low since the decision seed the path (gross % -> USD)
         if (peakPct8973.isFinite()) w.see8973(entryUsd * (1.0 + peakPct8973 / 100.0), System.currentTimeMillis())
         if (minPct8973.isFinite()) w.see8973(entryUsd * (1.0 + minPct8973 / 100.0), System.currentTimeMillis())
@@ -198,17 +226,17 @@ object ResearchFollow8884 {
         load8884()
         try { samplePaths8973(nowMs) } catch (_: Throwable) { failed.incrementAndGet() }
         val due = synchronized(pending) {
-            pending.filter { nowMs - it.atMs >= HORIZONS_8884[it.next] }.take(BATCH_8884 * CALLS_PER_PASS_8884)
+            pending.filter { nowMs - it.atMs >= horizonOf8983(it) }.take(BATCH_8884 * CALLS_PER_PASS_8884)
         }
         if (due.isNotEmpty()) {
             for (batch in due.chunked(BATCH_8884)) {
-                val mints = batch.filter { nowMs - it.atMs <= HORIZONS_8884[it.next] + LATE_GRACE_MS_8884 }.map { it.mint }.distinct()
+                val mints = batch.filter { nowMs - it.atMs <= horizonOf8983(it) + LATE_GRACE_MS_8884 }.map { it.mint }.distinct()
                 // Expired horizons advance even during an outage, so they cannot monopolise every batch forever.
                 val body = if (mints.isEmpty()) JSONObject() else fetch8884(mints)
                 val done = HashSet<Wait8884>()
                 val again = ArrayList<Wait8884>()
                 for (w in batch) {
-                    val horizon = HORIZONS_8884[w.next]
+                    val horizon = horizonOf8983(w)
                     val tooLate = nowMs - w.atMs > horizon + LATE_GRACE_MS_8884
                     if (!tooLate && body == null) continue   // a timely unanswered read stays pending
                     val usd = priceOf8884(body, w.mint)
@@ -226,6 +254,7 @@ object ResearchFollow8884 {
                         else -> "JUP_8884:" + w.reason
                     }
                     if (tooLate) late.incrementAndGet() else if (r == null) unpriced.incrementAndGet()
+                    if (w.hour8983 && !tooLate) (if (r == null) lostHourUnpriced8983 else lostHourPriced8983).incrementAndGet()
                     try {
                         emit8978(ResearchRows8877.line8877(w.atMs, horizon, w.mint, w.lane, w.admitted, w.stage, w.setup,
                             w.pred, w.v3, w.mcap, w.liq, w.cost, r?.first ?: Double.NaN, r?.second ?: Double.NaN,
@@ -234,7 +263,9 @@ object ResearchFollow8884 {
                         written.incrementAndGet()
                     } catch (_: Throwable) { failed.incrementAndGet() }
                     done += w
-                    if (w.next + 1 in HORIZONS_8884.indices) again += w.carry8973(w.copy(next = w.next + 1))
+                    // V5.0.8983 — a lost mark's hour read is followed by its 4 h and 24 h reads like every other decision
+                    if (w.hour8983) again += w.carry8973(w.copy(hour8983 = false))
+                    else if (w.next + 1 in HORIZONS_8884.indices) again += w.carry8973(w.copy(next = w.next + 1))
                 }
                 synchronized(pending) {
                     pending.removeIf { it in done }
@@ -345,7 +376,7 @@ object ResearchFollow8884 {
         return "researchFollow8884[waiting4h=$h4 waiting24h=$h24 written=${written.get()} unpriced=${unpriced.get()} late=${late.get()} " +
             "failed=${failed.get()} dropped=${dropped.get()} untradeable8923=${untradeable8923.get()} implausible8923=${implausible8923.get()} " +
             "calls8934{keyed=${keyedOk8934.get()} keyless=${keylessOk8934.get()} notSolanaIds=${notSolana8934.get()}} " +
-            "pathSampled8973=${sampled8973.get()} readFailed8945{${why8945.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}} rule=each hour row's decision read again at 4 h and 24 h (Jupiter price v3, USD per token), its path sampled every 15 min (8973), same file]"
+            "pathSampled8973=${sampled8973.get()} ${lostHourLine8983()} readFailed8945{${why8945.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}} rule=each hour row's decision read again at 4 h and 24 h (Jupiter price v3, USD per token), its path sampled every 15 min (8973), same file]"
     }
 
     // ── V5.0.8978 §THE_FOLLOW_RUNS_IN_THE_LAB ──

@@ -48,7 +48,7 @@ class Aate8884ResearchFollowTest {
         fun src(p: String) = File("src/main/kotlin/com/lifecyclebot/$p").readText()
         val book = src("engine/truth/ForwardReturnLabeler7731.kt").substringAfter("private fun bookTwoForty7944(").substringBefore("private fun flatMarkNow8342(")
         assertTrue(book.indexOf("ResearchFollow8884.note8884(o.atMs, o.mint, o.lane") > book.indexOf("ResearchRows8877.note8877("))
-        assertTrue("never for a flat (lost) mark", book.indexOf("if (flatMarkNow8342(o, gross0)) { flatMarks8322.incrementAndGet(); markLost(o); return true }") <
+        assertTrue("never for a flat (lost) mark", book.indexOf("if (flatMarkNow8342(o, gross0)) { flatMarks8322.incrementAndGet(); markLost(o); lostHour8983(o); return true }") <
             book.indexOf("ResearchFollow8884.note8884("))
         val follow = src("engine/truth/ResearchFollow8884.kt")
         assertTrue(follow.contains("https://lite-api.jup.ag/price/v3?ids="))

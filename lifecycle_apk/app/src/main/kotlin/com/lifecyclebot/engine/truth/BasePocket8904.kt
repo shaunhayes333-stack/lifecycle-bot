@@ -126,7 +126,7 @@ object BasePocket8904 {
     internal fun rowOf8904(o: JSONObject): Row8910? {
         if (o.optLong("horizonMs", 0L) != HORIZON_MS_8904) return null
         fun d(k: String) = if (o.isNull(k)) Double.NaN else o.optDouble(k, Double.NaN)
-        val net = d("net")
+        val net = ResearchRows8877.rowNet8983(o)   // V5.0.8983 — an unpriced read is a dead coin, not a missing row
         val mint = o.optString("mint")
         if (!net.isFinite() || pocketOf8910(mint, o.optString("stage"), d("liq")) == null) return null
         val lane = o.optString("lane")

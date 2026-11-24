@@ -17,7 +17,8 @@ import java.util.concurrent.atomic.AtomicLong
  * forecast, V3 score, cap, pool, cost, the refusal it met) beside the hour's net and gross, its peak, the highest level held
  * and the deepest dip — to its own file, exported beside the edge dataset. Its own file and its own line budget: the edge
  * dataset's 60,000-line window, which every learner trains on, is not spent on it, and no learner reads it. A decision whose
- * mark never moved (a lost mark) writes nothing, as it books nothing.
+ * mark never moved (a lost mark) writes nothing here, as it books nothing; since 8983 ResearchFollow8884 reads it at the
+ * hour instead and writes its row (priced, or NO_PRICE).
  */
 object ResearchRows8877 {
     const val FILE_8877 = "edge_research_8877.jsonl"
@@ -28,6 +29,24 @@ object ResearchRows8877 {
     private val failed = AtomicLong(0L)
     @Volatile private var lastAtMs = 0L
     private val io = Executors.newSingleThreadExecutor { r -> Thread(r, "research8877").apply { isDaemon = true } }
+
+    // ── V5.0.8983 §A_DEAD_COIN_IS_A_ROW ──
+    // Owner, 24 Nov 12:11: "nope. much worse". The 11:52 capture: the authority table's 1 h cells held 0 unpriced reads in
+    // every lane (MOONSHOT n1158, EXPRESS n901, CORE n1264) against 9 % at 4 h and 15 % at 24 h, while the labeler's own
+    // hour tallies lost 26-28 % of meme decisions (lanes60 MOONSHOT lost=340 of 1300, EXPRESS 356, CORE 353, MANIPULATED 369):
+    // a decision whose mark was lost wrote no hour row (ForwardReturnLabeler7731 returned before note8877) and no 4 h / 24 h
+    // wait. Every pocket was therefore mined on the coins that were still priced an hour later. Since 8983 such a decision is
+    // read at the hour by ResearchFollow8884 (Jupiter); a coin Jupiter cannot price writes a NO_PRICE row, and a pocket counts
+    // that row as the authority table already does for its PAYS verdict: everything lost ([UNPRICED_NET_8983]).
+    private const val UNPRICED_NET_8983 = -100.0
+    private const val UNPRICED_PREFIX_8983 = "NO_PRICE_JUP_8884:"
+
+    /** Pure: a research row's net for a pocket: its net, [UNPRICED_NET_8983] for an unpriced read, else NaN (not a reading). */
+    fun rowNet8983(o: org.json.JSONObject): Double {
+        val net = if (o.isNull("net")) Double.NaN else o.optDouble("net", Double.NaN)
+        if (net.isFinite()) return net
+        return if (o.optString("reason").startsWith(UNPRICED_PREFIX_8983)) UNPRICED_NET_8983 else Double.NaN
+    }
 
     fun file8877(): File? = try { com.lifecyclebot.AATEApp.appContextOrNull()?.filesDir?.let { File(it, FILE_8877) } } catch (_: Throwable) { null }
 

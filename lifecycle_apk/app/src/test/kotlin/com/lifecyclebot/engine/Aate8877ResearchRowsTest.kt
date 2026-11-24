@@ -34,7 +34,7 @@ class Aate8877ResearchRowsTest {
         val lab = src("engine/truth/ForwardReturnLabeler7731.kt")
         val fn = lab.substringAfter("private fun bookTwoForty7944(").substringBefore("private fun flatMarkNow8342(")
         val write = fn.indexOf("ResearchRows8877.note8877(ResearchRows8877.line8877(o.atMs, H240_MS_7731, o.mint, o.lane, o.admitted,")
-        assertTrue("after the lost-mark return", write > fn.indexOf("if (flatMarkNow8342(o, gross0)) { flatMarks8322.incrementAndGet(); markLost(o); return true }"))
+        assertTrue("after the lost-mark return", write > fn.indexOf("if (flatMarkNow8342(o, gross0)) { flatMarks8322.incrementAndGet(); markLost(o); lostHour8983(o); return true }"))
         assertTrue("before the hour books", write in 0 until fn.indexOf("book(o, 240, net, gross)"))
         assertTrue(lab.contains("it.v38877 = it.edge8537?.raw?.v3 ?: Double.NaN"))
         assertTrue(src("ui/ReportCopyDialog8198.kt").contains("saveDataset(app, it, \"aate_edge_research_8877_\${System.currentTimeMillis()}.jsonl\")"))

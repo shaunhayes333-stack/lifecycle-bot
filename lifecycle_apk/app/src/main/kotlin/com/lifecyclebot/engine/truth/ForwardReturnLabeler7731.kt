@@ -1576,6 +1576,19 @@ object ForwardReturnLabeler7731 {
         syncEpoch8169()
     }
 
+    /**
+     * V5.0.8983 §A_DEAD_COIN_IS_A_ROW (ResearchRows8877) — a decision that ends its hour without a booked read writes no hour
+     * row and starts no 4 h / 24 h wait; 26-28 % of meme decisions on 24 Nov 11:52. It is handed to ResearchFollow8884, which
+     * reads the coin at the hour (Jupiter) and writes the row, priced or NO_PRICE. Only the pools a buyer could take (8923).
+     */
+    private fun lostHour8983(o: Obs) {
+        if (!ResearchFollow8884.tradeable8923(o.liqUsd8539)) return
+        try {
+            ResearchFollow8884.noteLostHour8983(o.atMs, o.mint, o.lane, o.admitted, o.stage, o.setup7955, o.pred8855, o.v38877,
+                o.entryMcap, o.liqUsd8539, o.costPct, o.entryPrice, o.reason7967)
+        } catch (_: Throwable) {}
+    }
+
     private fun markLost(o: Obs) {
         // V5.0.8898 §A_COIN_IS_LOST_ONCE — a lost mark is filed under the same keys, horizon and once-per-coin rule as a booked
         // label (book(): horizonScoped8766, firstCrossLane8776). It was filed under the unscoped keys once per lane that judged
@@ -2279,7 +2292,7 @@ object ForwardReturnLabeler7731 {
         if (deferExit8006) o.exitDeferred8006 = true else exitSample8006(o, gross0)
         // V5.0.8342 — a mark still flat at the hour (no price other than the entry ever seen) is a LOST mark here too, never a
         // -cost label: 8337 FIX 2 closed the 60 slot; this slot booked it (and its lane / stage late tallies) unchanged.
-        if (flatMarkNow8342(o, gross0)) { flatMarks8322.incrementAndGet(); markLost(o); return true }
+        if (flatMarkNow8342(o, gross0)) { flatMarks8322.incrementAndGet(); markLost(o); lostHour8983(o); return true }
         // V5.0.8877 (plan W8) — the hour read is also one research row: its own file, exported, read by no learner
         // V5.0.8923 — a decision on a pool no buyer could take (under ResearchFollow8884.MIN_POOL_USD_8923) is no research row:
         // its "price" is not the coin's (20-22 Nov: decision caps of $3-$80 reading +73,000 % later).
@@ -3225,6 +3238,7 @@ object ForwardReturnLabeler7731 {
             try { PipelineHealthCollector.labelInc("FORWARD_LABEL_DOWNTIME_UNOBSERVED_8505") } catch (_: Throwable) {}
         } else if (released8505) {
             markLost(o)
+            lostHour8983(o)   // V5.0.8983 — no hour row was written: the hour is read by Jupiter instead
             // V5.0.8418 — noSource: no source ever priced it; late: marks were seen, none accepted inside the window.
             val late8474 = com.lifecyclebot.engine.cortex.CortexLabelFeed8291.lostLate8418(o.lateMark8418, o.lastAcceptedMark8395 != null, o.lastMark8386 != null)
             if (late8474) labelLostLate8418.incrementAndGet() else labelLostNoSource8418.incrementAndGet()
