@@ -112,7 +112,7 @@ object ResearchFollow8884 {
 
     /**
      * ForwardReturnLabeler7731: a decision whose mark was lost (no hour row) is read at the hour by Jupiter, then at 4 h and
-     * 24 h. A coin Jupiter prices writes its real hour row; one it cannot price writes NO_PRICE (a dead coin for a pocket).
+     * 24 h. A coin Jupiter prices writes its real hour row; one it cannot price is asked of the chain once (8993), then writes NO_PRICE (unknown, 8992).
      */
     fun noteLostHour8983(atMs: Long, mint: String, lane: String, admitted: Boolean, stage: String, setup: String, pred: Double, v3: Double,
                          mcap: Double, liq: Double, cost: Double, entryUsd: Double, reason: String) {
@@ -256,10 +256,12 @@ object ResearchFollow8884 {
                     if (tooLate) late.incrementAndGet() else if (r == null) unpriced.incrementAndGet()
                     if (w.hour8983 && !tooLate) (if (r == null) lostHourUnpriced8983 else lostHourPriced8983).incrementAndGet()
                     try {
-                        emit8978(ResearchRows8877.line8877(w.atMs, horizon, w.mint, w.lane, w.admitted, w.stage, w.setup,
+                        val row8993 = ResearchRows8877.line8877(w.atMs, horizon, w.mint, w.lane, w.admitted, w.stage, w.setup,
                             w.pred, w.v3, w.mcap, w.liq, w.cost, r?.first ?: Double.NaN, r?.second ?: Double.NaN,
                             if (r != null) peak8973 else Double.NaN, if (r != null) peak8973 else Double.NaN,
-                            if (r != null) low8973 else Double.NaN, why), nowMs)
+                            if (r != null) low8973 else Double.NaN, why)
+                        // V5.0.8993 — a read Jupiter could not price carries what the chain's answer needs to finish it
+                        emit8978(if (r == null && !tooLate && !implausible) carry8993(row8993, w.entryUsd, peak8973, low8973) else row8993, nowMs)
                         written.incrementAndGet()
                     } catch (_: Throwable) { failed.incrementAndGet() }
                     done += w
@@ -366,9 +368,9 @@ object ResearchFollow8884 {
     fun statusLine8884(): String {
         if (labMode8978) {   // V5.0.8978 — the lab's own line (it writes it each pass), then this process's channel
             val lab = try { dir8978()?.let { File(it, STATUS_8978) }?.takeIf { it.exists() }?.readText()?.trim() } catch (_: Throwable) { null }
-            return (lab?.takeIf { it.isNotBlank() } ?: "researchFollow8884[lab not reporting yet]") + " " + channelLine8978()
+            return (lab?.takeIf { it.isNotBlank() } ?: "researchFollow8884[lab not reporting yet]") + " " + channelLine8978() + " " + chainLine8993()
         }
-        return ownLine8884() + " " + channelLine8978()
+        return ownLine8884() + " " + channelLine8978() + " " + chainLine8993()
     }
 
     private fun ownLine8884(): String {
@@ -464,7 +466,7 @@ object ResearchFollow8884 {
 
     /** One research row: filed here (the trading process), or held for the trading process (the lab). */
     private fun emit8978(line: String, nowMs: Long) {
-        if (!labRole8978) { ResearchRows8877.note8877(line, nowMs); return }
+        if (!labRole8978) { file8993(line, nowMs); return }
         synchronized(outBuffer8978) {
             outBuffer8978.add(line)
             while (outBuffer8978.size > MAX_OUT_8978) { outBuffer8978.removeAt(0); channelFailed8978.incrementAndGet() }
@@ -480,9 +482,10 @@ object ResearchFollow8884 {
     private fun tick8978(nowMs: Long) {
         dir8978()?.let { dir ->
             for (line in takeFiles8978(dir, OUT_PREFIX_8978)) {
-                try { ResearchRows8877.note8877(line, nowMs); rowsBack8978.incrementAndGet() } catch (_: Throwable) { failed.incrementAndGet() }
+                try { file8993(line, nowMs); rowsBack8978.incrementAndGet() } catch (_: Throwable) { failed.incrementAndGet() }
             }
         }
+        try { settle8993(nowMs) } catch (_: Throwable) { failed.incrementAndGet() }   // V5.0.8993 — the chain's answers to last minute's asks
         if (labMode8978) {
             val dir = dir8978()
             val lines = synchronized(inBuffer8978) { ArrayList(inBuffer8978).also { inBuffer8978.clear() } }
@@ -556,6 +559,115 @@ object ResearchFollow8884 {
             "sentIn=${sentIn8978.get()} buffered=${synchronized(inBuffer8978) { inBuffer8978.size }} bufferDropped=${bufferDropped8978.get()} " +
             "rowsOut=${rowsOut8978.get()} rowsBack=${rowsBack8978.get()} fellBack=${fellBack8978.get()} pingFailed=${pingFailed8978.get()} " +
             "channelFailed=${channelFailed8978.get()}]"
+
+    /**
+     * V5.0.8993 §THE_CHAIN_PRICES_WHAT_JUPITER_CANNOT — owner, 24 Nov 23:43: "we have helius and other sources we can reprice
+     * off. a one time chain confirmation when needed is authorised". The 23:24 research file: Jupiter could not price about
+     * 79 % of the pockets' own cohort (off-pump, v3 >= 35) at the read, about 9 % elsewhere; since 8992 such a read is
+     * unknown, which leaves a pocket proving on the coins Jupiter happens to cover. A coin's price is on the chain whatever
+     * an aggregator lists: its pump.fun curve account, its pool's vaults, its concentrated pool's state.
+     * So a row Jupiter left unpriced is held by the trading process (which knows the coin's pools; the lab does not), the
+     * chain is asked once for that coin ([ChainConfirm8950.confirmMint8950], use RESEARCH: the curve or the pool read, on
+     * the same credit economy as every other ask), and at the next minute's tick the answer finishes the row
+     * ([CHAIN_PREFIX_8993], net and gross from the chain price against the decision's price, less the same cost). A coin the
+     * chain cannot answer inside [WAIT_MS_8993] is written unpriced, as before. One ask per read, never a retry loop.
+     * Stated: the chain read lands up to two minutes after the horizon; a held row lives in memory (a process death inside
+     * those two minutes loses it); the 15-minute path samples are still Jupiter's.
+     */
+    internal const val CHAIN_PREFIX_8993 = "CHAIN_8993:"
+    private const val UNPRICED_PREFIX_8993 = "NO_PRICE_JUP_8884:"
+    internal const val WAIT_MS_8993 = 110_000L
+    private const val CHAIN_AGE_MS_8993 = 180_000L
+    private const val MAX_PARKED_8993 = 2_000
+    private class Parked8993(val line: String, val mint: String, val atMs: Long)
+    private val parked8993 = ArrayList<Parked8993>()
+    private val chainAsked8993 = AtomicLong(0L)
+    private val chainPriced8993 = AtomicLong(0L)
+    private val chainUnpriced8993 = AtomicLong(0L)
+    private val chainImplausible8993 = AtomicLong(0L)
+    private val chainOverflow8993 = AtomicLong(0L)
+
+    /** Pure: [row] (an unpriced read) with the decision's USD price and its sampled path (gross %), for the chain's answer. */
+    internal fun carry8993(row: String, entryUsd: Double, peakPct: Double, lowPct: Double): String {
+        if (!row.endsWith("}") || !(entryUsd.isFinite() && entryUsd > 0.0)) return row
+        fun n(v: Double) = if (v.isFinite()) "%.9g".format(java.util.Locale.US, v) else "null"
+        return row.dropLast(1) + ",\"e8993\":${n(entryUsd)},\"pk8993\":${n(peakPct)},\"lo8993\":${n(lowPct)}}"
+    }
+
+    /** Pure: is [line] an unpriced read the chain can still finish (it carries the decision's price)? */
+    internal fun wantsChain8993(line: String): Boolean =
+        line.contains("\"reason\":\"$UNPRICED_PREFIX_8993") && line.contains("\"e8993\":") && !line.contains("\"e8993\":null")
+
+    /** Pure: [line] finished with the chain's [usd]; null when the price is unusable or the ratio is not one a coin can have moved. */
+    internal fun finish8993(line: String, usd: Double): String? {
+        val o = try { JSONObject(line) } catch (_: Throwable) { return null }
+        fun d(k: String) = if (o.isNull(k)) Double.NaN else o.optDouble(k, Double.NaN)
+        val entry = d("e8993")
+        if (!plausible8923(entry, usd)) return null
+        val r = returns8884(entry, usd, d("cost")) ?: return null
+        val peak = listOf(d("pk8993"), r.second).filter { it.isFinite() }.maxOrNull() ?: r.second
+        val low = listOf(d("lo8993"), r.second).filter { it.isFinite() }.minOrNull() ?: r.second
+        return ResearchRows8877.line8877(o.optLong("t", 0L), o.optLong("horizonMs", 0L), o.optString("mint"), o.optString("lane"),
+            o.optBoolean("admitted"), o.optString("stage"), o.optString("setup"), d("pred"), d("v3"), d("mcap"), d("liq"), d("cost"),
+            r.first, r.second, peak, peak, low, CHAIN_PREFIX_8993 + o.optString("reason").removePrefix(UNPRICED_PREFIX_8993))
+    }
+
+    /** [mint]'s USD price as the chain last answered inside [CHAIN_AGE_MS_8993]: its pool (vaults or state), else its active curve. */
+    private fun chainUsd8993(mint: String, nowMs: Long): Double {
+        val pool = try { OnChainDepth8038.chainPriceUsd8540(mint, CHAIN_AGE_MS_8993, nowMs) } catch (_: Throwable) { Double.NaN }
+        if (pool.isFinite() && pool > 0.0) return pool
+        val sol = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        val curve = try { CurveReserves7951.priceSolFor7951(mint, nowMs, CHAIN_AGE_MS_8993) } catch (_: Throwable) { 0.0 }
+        return if (curve.isFinite() && curve > 0.0 && sol.isFinite() && sol > 0.0) curve * sol else Double.NaN
+    }
+
+    private fun askChain8993(mint: String, nowMs: Long) {
+        chainAsked8993.incrementAndGet()
+        try { ChainConfirm8950.confirmMint8950(mint, listOf("PRICE"), "RESEARCH", nowMs) } catch (_: Throwable) {}
+        try { OnChainDepth8038.requestMint8540(mint, CHAIN_AGE_MS_8993) } catch (_: Throwable) {}   // the pools known by the mint alone
+        try { OnChainDepth8038.needCurve8039(mint, nowMs) } catch (_: Throwable) {}   // a pump.fun coin's curve account (no-op off pump.fun)
+    }
+
+    /** The trading process's row sink: a row the chain can still price is held and asked once; every other row is filed. */
+    internal fun file8993(line: String, nowMs: Long, ask: (String, Long) -> Unit = ::askChain8993) {
+        if (!wantsChain8993(line)) { ResearchRows8877.note8877(line, nowMs); return }
+        val mint = try { JSONObject(line).optString("mint") } catch (_: Throwable) { "" }
+        val full = synchronized(parked8993) { parked8993.size >= MAX_PARKED_8993 }
+        if (mint.isBlank() || full) {
+            if (full) chainOverflow8993.incrementAndGet()
+            chainUnpriced8993.incrementAndGet(); ResearchRows8877.note8877(line, nowMs); return
+        }
+        synchronized(parked8993) { parked8993.add(Parked8993(line, mint, nowMs)) }
+        ask(mint, nowMs)
+    }
+
+    /** Each tick: a held row whose coin the chain has answered is finished and filed; one past [WAIT_MS_8993] is filed unpriced. */
+    internal fun settle8993(nowMs: Long, price: (String, Long) -> Double = ::chainUsd8993) {
+        val held = synchronized(parked8993) { ArrayList(parked8993) }
+        if (held.isEmpty()) return
+        val done = ArrayList<Parked8993>()
+        for (p in held) {
+            val usd = price(p.mint, nowMs)
+            val expired = nowMs - p.atMs >= WAIT_MS_8993
+            if (!(usd.isFinite() && usd > 0.0) && !expired) continue
+            val finished = if (usd.isFinite() && usd > 0.0) finish8993(p.line, usd) else null
+            if (finished != null) chainPriced8993.incrementAndGet()
+            else { if (usd.isFinite() && usd > 0.0) chainImplausible8993.incrementAndGet(); chainUnpriced8993.incrementAndGet() }
+            try { ResearchRows8877.note8877(finished ?: p.line, nowMs) } catch (_: Throwable) { failed.incrementAndGet() }
+            done += p
+        }
+        if (done.isNotEmpty()) synchronized(parked8993) { parked8993.removeAll(done.toSet()) }
+    }
+
+    /** Brief: the reads Jupiter left unpriced and what the chain made of them. */
+    internal fun chainLine8993(): String =
+        "chainRead8993[asked=${chainAsked8993.get()} priced=${chainPriced8993.get()} unpriced=${chainUnpriced8993.get()} " +
+            "implausible=${chainImplausible8993.get()} holding=${synchronized(parked8993) { parked8993.size }} overflow=${chainOverflow8993.get()}]"
+
+    internal fun resetForTest8993() {
+        synchronized(parked8993) { parked8993.clear() }
+        chainAsked8993.set(0L); chainPriced8993.set(0L); chainUnpriced8993.set(0L); chainImplausible8993.set(0L); chainOverflow8993.set(0L)
+    }
 
     internal fun resetForTest8884() { synchronized(pending) { pending.clear() }; loaded = true; written.set(0); unpriced.set(0); late.set(0); dropped.set(0) }
     internal fun pendingForTest8884(): List<Wait8884> = synchronized(pending) { ArrayList(pending) }

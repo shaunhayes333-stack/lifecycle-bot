@@ -3639,3 +3639,20 @@ Corrections to earlier sections: §168's "a pocket stays proven only if it pays 
 rest on the same imputation. What stands: 4 h and 24 h prove nothing on priced reads; what does not: that unpriced means
 dead. Limit, stated: priced-only reads can flatter a cohort if the unpriced coins did worse; the fix for that is pricing
 them from the chain (the hour mark does since 8989: ForwardReturnLabeler7731.stateMark8989), not a guess of -100.
+
+## 178. The chain prices what Jupiter cannot (8993)
+
+Owner, 24 Nov 23:43: "we have helius and other sources we can reprice off. a one time chain confirmation when needed is
+authorised". §177 left an unpriced read unknown; on the 23:24 file that is about 79 % of the pockets' own cohort, so a
+pocket proved on the coins Jupiter covers. A coin's price is on the chain whatever an aggregator lists.
+Path: ResearchFollow8884.pass8884 (lab process, Jupiter price v3) writes a NO_PRICE row -> it now carries the decision's
+USD price and sampled path (e8993, pk8993, lo8993) -> the trading process's sink file8993 holds it and asks the chain once:
+ChainConfirm8950.confirmMint8950(use RESEARCH, PRICE), OnChainDepth8038.requestMint8540 (pools known by the mint),
+needCurve8039 (pump.fun curve) -> the next minute's tick (settle8993) reads OnChainDepth8038.chainPriceUsd8540 (vaults, or
+a concentrated pool's state price) else CurveReserves7951.priceSolFor7951 x SOL/USD, answers at most 180 s old ->
+finish8993 writes the row with net / gross against the decision's price less the same cost, reason "CHAIN_8993:<reason>".
+No answer inside 110 s, or a ratio over 100x (plausible8923): the row is written unpriced as before.
+The asks ride the existing batchers and credit economy (PoolBatch8418, HeliusCreditEconomy7881); at most 2,000 rows held.
+AuthorityTable8887 reads a CHAIN_8993 row as the same reason. Brief: chainRead8993[asked priced unpriced implausible
+holding overflow]. Stated limits: the chain read is up to two minutes past the horizon; a held row is in memory only; the
+15-minute path samples between reads are still Jupiter's; a coin whose pool the bot never learned stays unpriced.

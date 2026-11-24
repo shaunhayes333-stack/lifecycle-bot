@@ -84,6 +84,7 @@ object AuthorityTable8887 {
         val reason = when {
             unpriced -> raw.removePrefix(UNPRICED_8887)
             raw.startsWith(PRICED_8887) -> raw.removePrefix(PRICED_8887)
+            raw.startsWith(ResearchFollow8884.CHAIN_PREFIX_8993) -> raw.removePrefix(ResearchFollow8884.CHAIN_PREFIX_8993)   // V5.0.8993 — the same read, priced by the chain
             else -> raw
         }
         return Row8887(o.optLong("t", 0L), o.optLong("horizonMs", 0L), lane,

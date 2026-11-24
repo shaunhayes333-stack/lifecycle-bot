@@ -51,9 +51,10 @@ class Aate8978FollowInLabTest {
     @Test fun wired() {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/truth/ResearchFollow8884.kt").readText()
         assertTrue(src.contains("if (labMode8978) { buffer8978(encode8884(w)); return }"))
-        assertTrue(src.contains("if (!labRole8978) { ResearchRows8877.note8877(line, nowMs); return }"))
+        // superseded by V5.0.8993: the trading process files through file8993 (an unpriced read is asked of the chain once)
+        assertTrue(src.contains("if (!labRole8978) { file8993(line, nowMs); return }"))
         assertTrue(src.contains("if (labRole8978 && traderOwns8978()) return"))
-        assertTrue(src.contains("try { ResearchRows8877.note8877(line, nowMs); rowsBack8978.incrementAndGet() }"))
+        assertTrue(src.contains("try { file8993(line, nowMs); rowsBack8978.incrementAndGet() }"))
         val lab = File("src/main/kotlin/com/lifecyclebot/engine/LabProcess8906.kt").readText()
         assertTrue(lab.contains("if (kind == KIND_FOLLOW_8978) {"))
         assertTrue(lab.contains("if (!com.lifecyclebot.engine.truth.ResearchFollow8884.labFollowing8978()) stopSelf(startId)"))
