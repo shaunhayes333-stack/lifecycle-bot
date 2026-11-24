@@ -3542,3 +3542,20 @@ entry-state priors (LIVE_STAGE_LOSES_8626, LIVE_STAGE_UNREAD_8711, LIVE_ORIGIN_C
 residual cohort) exactly as the pockets (8874 / 8904 / 8934) and the launch rule (8949) do. The evidence is served only while
 the model is armed. Unchanged: safety, RUG_PRONE structure, economics, the buy door, a named losing setup, LP rule, RugCheck.
 The bought pick is a launch rider (8941) and its door answers for its live closes (LiveDiscipline8985).
+
+## 173. The base meme ticket is the cost-clearing ticket (8988)
+
+Owner, 24 Nov 22:14: "increase the base meme coin trade size as you see fit. obviously still scales with wallet size."
+21:27 capture (5.0.8984): wallet 0.2773 SOL; LiveConcentrationDoctrine7697 positionSol=0.0626 (8714's cost-clearing ticket,
+23 % of tradeable), routableMin=0.0428; order size resolver req=0.03240 -> final=0.04280 OK_LIVE_ROUTABLE_MIN_PROMOTED_7841;
+binding ROUTE_MIN_PROMOTED=15 of 18 opens; tickets sent 0.044-0.068 SOL. The fixed round trip (0.0016 SOL) is 3.7 % of a
+0.0428 ticket and 2.6 % of a 0.0626 one.
+
+Change: FinalDecisionGate's canonical notional (6552) passes its shaped size through
+LiveConcentrationDoctrine7697.baseFloored8988: a LIVE meme ticket is not shaped below the doctrine's position; a candidate
+whose admission door is proven PAYING on its own live closes (LiveDiscipline8985.doorPaying8988: n>=6, mean - SE > 0) takes
+1.25x of it. Bounded by the FDG ceiling (0.5 SOL), MAX_SHARE_7697 (half the wallet), MAX_POSITION_SOL_7697; an absolutely
+pinned size (size cap, micro probes) and paper are untouched; depth / impact caps, cash and slot limits downstream are
+unchanged. It scales with the wallet through the doctrine's share (the larger of 1/20 and the cost-clearing share).
+Brief: Concentration doctrine ... memeBase8988[lifted=.. payingDoorSized=..]. Risk note: at this wallet one ticket is 23 %
+of tradeable, so four fill it; a door proven losing on live is held to one probe by 8985.

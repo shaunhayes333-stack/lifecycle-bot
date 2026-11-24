@@ -6255,6 +6255,8 @@ object FinalDecisionGate {
                 finalSize = beforeCanonical6552
                 tags.add("canonical_respected_absolute_pin_6827")
             }
+            // V5.0.8988 — a LIVE meme ticket is not shaped below the doctrine's cost-clearing position (a paying door: 1.25x)
+            finalSize = com.lifecyclebot.engine.truth.LiveConcentrationDoctrine7697.baseFloored8988(finalSize, specialistLane?.trim()?.takeIf { it.isNotBlank() } ?: laneName, ts.mint, config.paperMode, sizePinnedAbsolute6827, absoluteCeiling6827)
             checks.add(GateCheck("canonical_notional_6552", true,
                 "one bounded composite shape raw=${rawShape6552.format(3)} bounded=${boundedShape6552.format(3)} " +
                     "size ${beforeCanonical6552.format(4)}→${finalSize.format(4)}"))

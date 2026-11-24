@@ -240,6 +240,53 @@ object LiveConcentrationDoctrine7697 {
     fun fixedCostSharePct7731(positionSol: Double, fixedRoundTripSol: Double = fixedRoundTripSolNow8714()): Double =
         if (positionSol.isFinite() && positionSol > 0.0) fixedRoundTripSol / positionSol * 100.0 else Double.NaN
 
+    /**
+     * V5.0.8988 §THE_BASE_MEME_TICKET_IS_THE_COST_CLEARING_TICKET — owner, 24 Nov 22:14: "increase the base meme coin trade
+     * size as you see fit. obviously still scales with wallet size". 21:27 capture (5.0.8984, wallet 0.2773 SOL): this
+     * doctrine's position was 0.0626 SOL (8714: the ticket whose fixed round trip fits inside the net buffer) and no live
+     * buy was sent at it. The size that reached the resolver was 0.0324 (req=0.03240: 0.52x the position, inside FDG's
+     * one bounded shape, 6552: 0.35-1.50x times the 8083 losing-lane prior 0.6), under the routable minimum, and the resolver lifted it to 0.0428: 15 of 18
+     * opens ROUTE_MIN_PROMOTED; tickets sent 0.044-0.068 SOL. The route minimum is the smallest ticket a DEX will route,
+     * so the two fixed legs take the largest share of it (0.0016 SOL = 3.7 % of 0.0428 against 2.6 % of 0.0626) — the
+     * cost 8714 sized the base ticket to clear.
+     * A LIVE meme ticket is now never shaped below the doctrine's position; the shape may still raise it (to 1.5x). A
+     * candidate whose admission door is proven PAYING on its own live closes (LiveDiscipline8985: n>=6, mean - SE > 0)
+     * takes [PAYING_DOOR_MULT_8988] x the base: live money sizes up what live money has proven. A door proven losing is
+     * already held to one probe position (8985), so the lane prior's shrink is not what bounds its risk. Unchanged: an
+     * absolute pin (size cap, micro probe), the FDG ceiling, MAX_SHARE_7697 of the wallet, the depth / impact caps and
+     * the cash and slot limits downstream. Scales with the wallet through [share] (1/20 once that clears the costs).
+     */
+    const val PAYING_DOOR_MULT_8988 = 1.25
+    private val baseLifted8988 = AtomicLong(0)
+    private val payingSized8988 = AtomicLong(0)
+
+    /** Pure: the ticket for a shaped [sizeSol] given the doctrine [baseSol], a paying door, the wallet and the ceiling. */
+    fun baseFloorFor8988(sizeSol: Double, baseSol: Double, payingDoor: Boolean, tradeableSol: Double, ceilingSol: Double): Double {
+        if (!(sizeSol.isFinite() && sizeSol > 0.0) || !(baseSol.isFinite() && baseSol > 0.0)) return sizeSol
+        val cap = minOf(if (ceilingSol.isFinite() && ceilingSol > 0.0) ceilingSol else Double.MAX_VALUE,
+            if (tradeableSol.isFinite() && tradeableSol > 0.0) tradeableSol * MAX_SHARE_7697 else Double.MAX_VALUE, MAX_POSITION_SOL_7697)
+        val target = baseSol * (if (payingDoor) PAYING_DOOR_MULT_8988 else 1.0)
+        return maxOf(sizeSol, minOf(target, cap))
+    }
+
+    /** FinalDecisionGate (the canonical notional): a LIVE meme ticket after its shape, floored at the doctrine's position. */
+    fun baseFloored8988(sizeSol: Double, lane: String, mint: String, paper: Boolean, pinned: Boolean, ceilingSol: Double): Double {
+        if (paper || pinned || !(sizeSol.isFinite() && sizeSol > 0.0)) return sizeSol
+        return try {
+            if (!com.lifecyclebot.engine.TokenMetricStageRouter.memeEntry8506(lane.trim().uppercase(), mint)) return sizeSol
+            val t = liveTradeableSol()
+            val base = positionSol(t, routableMinNow7706(t))
+            val paying = LiveDiscipline8985.doorPaying8988(mint)
+            val out = baseFloorFor8988(sizeSol, base, paying, t, ceilingSol)
+            if (out > sizeSol + 1e-9) {
+                baseLifted8988.incrementAndGet()
+                if (paying) payingSized8988.incrementAndGet()
+                try { PipelineHealthCollector.labelInc(if (paying) "LIVE_MEME_PAYING_DOOR_TICKET_8988" else "LIVE_MEME_BASE_TICKET_8988") } catch (_: Throwable) {}
+            }
+            out
+        } catch (_: Throwable) { sizeSol }
+    }
+
     fun statusLine(): String {
         val t = liveTradeableSol()
         val rm = routableMinNow7706(t)
@@ -248,7 +295,7 @@ object LiveConcentrationDoctrine7697 {
             "fixedCostShare7731=${"%.1f".format(fixedCostSharePct7731(pos7731))}% " +
             "liveOpen=${liveOpenCount()} tradeable=${"%.4f".format(t)} " +
             "slotRefusals=${slotRefusals.get()} convictionAllow=${convictionAllows.get()} convictionRefused=${convictionRefusals.get()} " +
-            "floorApplied=${floorApplied.get()}" +
+            "floorApplied=${floorApplied.get()} memeBase8988[lifted=${baseLifted8988.get()} payingDoorSized=${payingSized8988.get()} x$PAYING_DOOR_MULT_8988]" +
             (if (lastRefusal.isNotBlank()) " last=[$lastRefusal]" else "") +
             " read=fewer_larger_higher_conviction_live_entries_exits_untouched"
     }

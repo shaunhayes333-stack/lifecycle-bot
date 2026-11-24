@@ -129,6 +129,14 @@ object LiveDiscipline8985 {
         return d
     }
 
+    /** V5.0.8988 — is the door that [mint]'s newest LIVE admission was noted under proven PAYING on its own live closes? */
+    fun doorPaying8988(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        val p = pending[mint]?.split('\u0001') ?: return false
+        val fine = p.getOrNull(0) ?: return false
+        val coarse = p.getOrNull(1) ?: return false
+        return provenPaying8985(windowOf(judgedKey8985(fine, coarse, nowMs), nowMs))
+    }
+
     private fun notePending8985(mint: String, fine: String, coarse: String, nowMs: Long) {
         if (mint.isBlank()) return
         pending[mint] = "$fine\u0001$coarse\u0001$nowMs"
