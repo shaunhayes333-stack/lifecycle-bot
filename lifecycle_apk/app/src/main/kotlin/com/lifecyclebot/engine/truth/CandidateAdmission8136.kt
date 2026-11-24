@@ -2014,7 +2014,8 @@ object CandidateAdmission8136 {
             launchPhase8609 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.features(ts, nowMs).launchPhase } catch (_: Throwable) { null },
             pocket8610 = if (candidate.live) PocketLedger8610.verdict8610(ts, candidate.lane, nowMs) else null)
             .let { PaperMirror8757.mirror8757(candidate, it, nowMs) }   // V5.0.8757 — owner: live MOONSHOT mirrors the paper book
-            .let { awaitBuyDoorProof8703(ts, candidate.live, it, nowMs, candidate.lane) }.also {   // V5.0.8758 — the proof wait runs on the mirror's output
+            .let { awaitBuyDoorProof8703(ts, candidate.live, it, nowMs, candidate.lane) }   // V5.0.8758 — the proof wait runs on the mirror's output
+            .let { LiveDiscipline8985.discipline8985(candidate, it, nowMs) }.also {   // V5.0.8985 — the door answers for its live money
             // A held shadow rehearsal must not publish an ADMIT into live sizing, strategy identity or the runner trace.
             if (!FdgGate8365.shadowOnly8393()) {
                 noteDecision8144(ts.mint, candidate.lane, candidate, it, version, mode, nowMs, evidenceRevision8870)

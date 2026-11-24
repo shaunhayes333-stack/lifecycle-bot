@@ -206,8 +206,41 @@ object ReportCopyDialog8198 {
             val dir = File(app.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "AATE").apply { mkdirs() }
             src.copyTo(File(dir, name), overwrite = true)
         }
-        name
+        // V5.0.8985 — a dataset too big to upload is saved beside itself compressed, too
+        if (src.length() > GZIP_OVER_BYTES_8985) saveGzip8985(app, src, name)?.let { "$name + $it" } ?: name else name
       } catch (_: Throwable) { try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EDGE_DATASET_SAVE_FAIL_8537") } catch (_: Throwable) {}; null }
+    }
+
+    /**
+     * V5.0.8985 §A_DATASET_THAT_CAN_BE_SENT — owner, 24 Nov 21:44: "the launch hour doc is over 200mb. some of the other reports
+     * are 75mb etc but hard to upload". The 27.8 MB research rows uploaded; the 75 MB and 200 MB files did not. Line JSON
+     * compresses roughly ten to one, so every dataset over [GZIP_OVER_BYTES_8985] is also written as "<name>.gz" (gzip, the
+     * same lines) next to the plain file in Downloads/AATE. The plain file is unchanged; the .gz is the one to upload.
+     */
+    internal const val GZIP_OVER_BYTES_8985 = 24L * 1024L * 1024L
+
+    /** Pure (V5.0.8985): [src] gzip-compressed into [out]; the bytes read. */
+    internal fun gzipTo8985(src: File, out: java.io.OutputStream): Long =
+        java.util.zip.GZIPOutputStream(out, 64 * 1024).use { gz -> src.inputStream().use { it.copyTo(gz, 64 * 1024) } }
+
+    private fun saveGzip8985(app: android.content.Context, src: File, name: String): String? {
+        val gzName = "$name.gz"
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val values = ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, gzName)
+                    put(MediaStore.MediaColumns.MIME_TYPE, "application/gzip")
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/AATE")
+                }
+                val uri = app.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return null
+                app.contentResolver.openOutputStream(uri)?.let { gzipTo8985(src, it) } ?: return null
+            } else {
+                val dir = File(app.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "AATE").apply { mkdirs() }
+                gzipTo8985(src, File(dir, gzName).outputStream())
+            }
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("DATASET_GZIP_SAVED_8985") } catch (_: Throwable) {}
+            gzName
+        } catch (_: Throwable) { try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("DATASET_GZIP_FAIL_8985") } catch (_: Throwable) {}; null }
     }
 
     fun share(activity: Activity, fullText: String, fullFile: File?, subject: String) {

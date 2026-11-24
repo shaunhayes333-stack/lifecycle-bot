@@ -3455,3 +3455,35 @@ at 24 Nov 05:29). The pockets' proven cells are almost all origin=OTHER (off pum
 research rows, off-pump.fun BASE_START coins read at both 1 h and 4 h were unpriced by Jupiter at 4 h in 663 of 802 cases
 (pump.fun: 0 of 248). 8983 counts an unpriced read as a dead coin; the next day of rows says whether those pockets still
 prove.
+
+## 170. The door answers for its live money (8985)
+
+Owner, 24 Nov 21:44: "trades are only sparse. win sizes are tiny. crypto nothing stocks etc nothing ... how does the bot
+interpret this data in a live state and then tune off it?? self discovery and tuning learning and self discipline are an
+inherent part of what aate is." The 21:27 capture (5.0.8984, 103 min):
+- Live window 69 closes, 19 won, PF 0.59. Paper book filed by what LIVE decided on the same candidate: LIVE_ADMIT negative in
+  every meme lane (MOONSHOT n35 -9.5 %, SHITCOIN n5 -22.8 %, EXPRESS n4 -33.2 %, CASHGEN n48 -7.0 %, TREASURY n10 -7.6 %;
+  CORE n10 +4.7 % the exception).
+- The learners that admit live (lane pockets, base pocket, agreement, lane triggers: SHITCOIN PROVEN admits=1334, EXPRESS
+  1221) prove themselves on labels and research rows. The live money of what they admit was graded (EntryReceipt8500 byDoor,
+  read-only) and the only live-close refusal, LiveTruth8064's setup book (6 h, n>=5), never reached n on any setup:
+  setupRefused=0 at 11:52 and 21:27.
+- Cortex grading is starved (label marks priced 436 of 2902, graded 9 of 746) and FDG blocked most qualified coins
+  (MOONSHOT 7/249, EXPRESS 1/262, SHITCOIN 0/182); the door table reads those refusals PROTECTING (refused cohorts' forward
+  means -1.3 % to -13.7 %).
+
+Change (LiveDiscipline8985): every LIVE admission is filed under its door — lane + admission reason, and the market-cell
+evidence it carried (NATIVE when none) — the landed buy (EntryReceipt8500.onLiveBuy8500) holds that door, and the position's
+canonical finalized close (honest era) files its realised net under both. A door is judged on its last 20 live closes within
+72 h (the fine door once it holds 6, else lane + reason): n>=6 and mean + SE < 0 = PROVEN_LOSING. Such a door keeps exactly one
+live position open (the probe, LIVE_DOOR_PROBE_8985_*); another admission through it while the probe is open is refused,
+specific, as LIVE_DOOR_PROVEN_LOSING_8985. It re-opens by itself when its closes stop proving a loss. A door with
+mean - SE > 0 is named PAYING. Paper and shadow rehearsals are untouched. Brief: liveDiscipline8985[...].
+
+Datasets: every dataset over 24 MB is also saved as "<name>.gz" (the same lines, gzip) beside the plain file in
+Downloads/AATE (ReportCopyDialog8198.saveGzip8985): the launch-hour export (~200 MB) and the 75 MB files can be uploaded.
+
+Measured, not changed: 3 of 66 live loss stops sold in profit (MANDY +20.0 %, tur +6.2 %, Trencher +9.7 % on
+RAPID_HARD_FLOOR_STOP after the exit quote refuted the same breach twice, SIGNAL_INVALIDATED_QUOTE_8521); crypto twins
+CRYPTO_ALT n400 -2.4 %, CRYPTO_SPOT n400 -0.2 %, the Hyperliquid paper desk 222 trips, 60 won, net -$84.50 — their own records
+keep them off live.

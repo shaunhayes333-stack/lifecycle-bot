@@ -87,6 +87,7 @@ object EntryReceipt8500 {
             val key = if (positionId.isNotBlank()) PID_8510 + positionId else mint
             if (terminals8522[key]?.disposition == "GRADED") return
             open.putIfAbsent(key, receipt) // a replay cannot replace the landed attempt's original evidence
+            try { LiveDiscipline8985.onLiveBuy8985(mint, receipt.lane, receipt.door, nowMs) } catch (_: Throwable) {}   // V5.0.8985
             if (epochMs8510 <= 0L || nowMs < epochMs8510) epochMs8510 = nowMs
             if (open.size > 500) open.entries.removeIf { nowMs - it.value.atMs > 7 * 24 * 3_600_000L }
             PipelineHealthCollector.labelInc("ENTRY_RECEIPT_8500_CUT")
