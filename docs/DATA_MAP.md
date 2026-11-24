@@ -3593,3 +3593,27 @@ miners, same proof bars (time-split halves, mean - SE, the 8983 unpriced-read ru
 Brief: researchSeed8990[linesRead=...]. Limits, stated: the seed is two days of one market; a shipped pocket is evidence
 through the same gates, and its door answers for its live closes (LiveDiscipline8985). On the same rows the base pocket's
 coins were unpriced by Jupiter at 4 h in 98 % of cases (§171): it is an hour-horizon pocket.
+
+## 176. A pocket's range is every horizon it proves at (8991)
+
+Owner, 24 Nov 23:00: "we need to extend the time range of the pockets where appropriate please". Measured on the 24 Nov
+research export (64,519 lines) with the lane pocket's own rule (30+ coins, both time halves positive, mean without the
+best three > z SE, z deflated over the lane's cells; held net, an unpriced read -100 %, gain cap +400 %):
+
+| horizon | lanes with a proven cell | lane means |
+|---|---|---|
+| 1 h | MOONSHOT 1 (origin=OTHER&v3=35+ n127 +26.6 %), CORE 1, EXPRESS 2, MANIPULATED 3 | -8 % to -17 % |
+| 4 h | none in any lane | -29 % to -46 % |
+| 24 h | none in any lane | -27 % to -51 % |
+
+The hour-proven off-pump cohort (off pump.fun, v3 35+ or BASE_START; n202, +25.4 % at 1 h): at 4 h 158 unpriced, the 44
+priced -9.2 % mean / -4.9 % median. No pocket is extended on today's evidence.
+Two ranges were short and are extended:
+1. Data span: ResearchRows8877 kept 45,000-60,000 lines, set when a decision wrote one row; with the 4 h and 24 h rows the
+   file spanned 2.3 days, so every pocket saw two days and a 24 h row had a day of history. Now 180,000-210,000 lines
+   (about a week, ~90 MB on the device; the export is also saved gzip-compressed since 8985).
+2. Horizon: LanePocket8934 files each non-crypto lane's 4 h and 24 h reads in their own books ("LANE@4h", "LANE@24h") and
+   mines them hourly by the same rule. A coin in no cell of the lane's own hold that sits in a cell proven at a longer
+   horizon carries it as LANE_POCKET evidence, id "LANE8934:<LANE>@<h>:<cell>". Brief: lanePocket8934 ... extended8991{...}.
+Unchanged: the hour cells and their grading under the lane's exits (8971), base and agreement pockets (hour), every gate,
+and a held position's clock (a time exit holds only on the coin's own live metrics, HoldSupport8964).

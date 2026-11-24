@@ -22,8 +22,10 @@ import java.util.concurrent.atomic.AtomicLong
  */
 object ResearchRows8877 {
     const val FILE_8877 = "edge_research_8877.jsonl"
-    private const val MAX_LINES_8877 = 60_000
-    private const val KEEP_LINES_8877 = 45_000
+    // V5.0.8991 — about a week (was 60,000 / 45,000, set when a decision wrote one row; with its 4 h and 24 h rows the
+    // file spanned 2.3 days: the 24 Nov export held 64,519 lines for decisions 22 Nov 04:38 - 24 Nov). ~28,000 lines a day.
+    private const val MAX_LINES_8877 = 210_000
+    private const val KEEP_LINES_8877 = 180_000
     private const val CHECK_EVERY_8877 = 5_000L
     private val written = AtomicLong(0L)
     private val failed = AtomicLong(0L)

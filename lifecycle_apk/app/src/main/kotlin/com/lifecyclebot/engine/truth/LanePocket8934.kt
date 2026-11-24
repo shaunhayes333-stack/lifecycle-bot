@@ -117,6 +117,58 @@ object LanePocket8934 {
         return out.sortedByDescending { it.exTop3 - it.z * it.se }
     }
 
+    /**
+     * V5.0.8991 §A_POCKET_S_RANGE_IS_EVERY_HORIZON_IT_PROVES_AT — owner, 24 Nov 23:00: "we need to extend the time range of
+     * the pockets where appropriate". Two ranges were short. (1) The data: the research file kept 45,000-60,000 lines, set
+     * when it held one hour row a decision; since 8884 each decision also writes its 4 h and 24 h rows, so the file — and
+     * every pocket mined from it — spanned 2.3 days (the 24 Nov export: 64,519 lines, decisions 22 Nov 04:38 to 24 Nov),
+     * and a 24 h row had at most a day of history behind it (ResearchRows8877 now keeps about a week). (2) The horizon:
+     * a meme lane was mined at 1 h only, though its 4 h and 24 h reads are in the same file. Each lane is now mined at
+     * every longer horizon too ([EXT_HORIZONS_8991]) on the held net, an unpriced read counted -100 % (8983), by the same
+     * rule ([mine8934]: 30+ coins, both time halves positive, the mean without its best three > z SE). A coin in no
+     * hour cell that sits in a cell proven at a longer horizon carries that cell as its evidence, named with its horizon.
+     * Measured on the 24 Nov rows by this rule: 1 h proves cells in MOONSHOT, CORE, EXPRESS and MANIPULATED; 4 h and 24 h
+     * prove none in any lane (lane means -30 % to -46 % at 4 h; the hour-proven off-pump cohort n202 reads +25.4 % at
+     * 1 h, then 158 unpriced and the 44 priced -9.2 % at 4 h). So nothing is extended today on the evidence; the range
+     * extends by itself, per lane and cell, when a longer horizon proves. A held position's clock is unchanged: a time exit
+     * already holds only on the coin's own live metrics (HoldSupport8964).
+     */
+    internal val EXT_HORIZONS_8991 = longArrayOf(H4_8934, 24L * 3_600_000L)
+    private val extBooks8991 = ConcurrentHashMap<String, LinkedHashMap<String, Coin8934>>()   // "LANE@4h" -> mint -> its first in-band read
+    @Volatile private var provenExt8991: Map<String, List<Cell8934>> = emptyMap()
+    private val servedExt8991 = AtomicLong(0L)
+
+    /** Pure: the book of [lane]'s reads at [horizonMs] ("MOONSHOT@4h"). */
+    internal fun extKey8991(lane: String, horizonMs: Long): String = "${lane.trim().uppercase()}@${horizonMs / 3_600_000L}h"
+
+    /** Pure: is [horizonMs] a longer horizon [lane] is also mined at? (Never a crypto lane: they are read by their own twins.) */
+    internal fun extended8991(lane: String, horizonMs: Long): Boolean {
+        val l = lane.trim().uppercase()
+        return !l.startsWith("CRYPTO_") && horizonMs > horizon8934(l) && EXT_HORIZONS_8991.any { it == horizonMs }
+    }
+
+    /** Pure: is [line] a research row any book here files (the hour, 4 h or 24 h read)? */
+    internal fun wanted8991(line: String): Boolean =
+        line.contains("\"horizonMs\":3600000") || line.contains("\"horizonMs\":14400000") || line.contains("\"horizonMs\":86400000")
+
+    private fun fileExt8991(o: JSONObject, lane: String, horizonMs: Long) {
+        val net = ResearchRows8877.rowNet8983(o)
+        if (!net.isFinite()) return
+        fun d(k: String) = if (o.isNull(k)) Double.NaN else o.optDouble(k, Double.NaN)
+        val mcap = d("mcap")
+        val (lo, hi) = band(lane) ?: return
+        if (!inBand8934(mcap, lo, hi)) return
+        val mint = o.optString("mint")
+        if (mint.isBlank()) return
+        val coin = Coin8934(o.optLong("t", 0L), features8934(mint, o.optString("stage"), o.optString("setup"), d("v3"), d("pred"), d("liq"), mcap), net)
+        val book = extBooks8991.getOrPut(extKey8991(lane, horizonMs)) { LinkedHashMap() }
+        synchronized(book) {
+            if (book.containsKey(mint)) return
+            book[mint] = coin
+            while (book.size > MAX_COINS_8934) book.remove(book.keys.first())
+        }
+    }
+
     // ── state ──
 
     private val books = ConcurrentHashMap<String, LinkedHashMap<String, Coin8934>>()   // lane -> mint -> its first in-band read
@@ -141,7 +193,8 @@ object LanePocket8934 {
         if (o.optString("reason").startsWith("LATE_READ_8884:")) return
         val lane = o.optString("lane").trim().uppercase()
         if (lane.isBlank() || lane.startsWith("LPSTATE") || lane.startsWith("SETUP") || lane.startsWith("PLANWAIT") || lane.startsWith("ORIGIN")) return
-        if (o.optLong("horizonMs", 0L) != horizon8934(lane)) return
+        val h8991 = o.optLong("horizonMs", 0L)
+        if (h8991 != horizon8934(lane)) { if (extended8991(lane, h8991)) fileExt8991(o, lane, h8991); return }   // V5.0.8991
         fun d(k: String) = if (o.isNull(k)) Double.NaN else o.optDouble(k, Double.NaN)
         val net = ResearchRows8877.rowNet8983(o)   // V5.0.8983 — an unpriced read is a dead coin, not a missing row
         val mcap = d("mcap")
@@ -171,7 +224,7 @@ object LanePocket8934 {
 
     /** ResearchRows8877.note8877: every row as it is written (cheap text test first). */
     fun learnLine8934(line: String) {
-        if (!line.contains("\"horizonMs\":3600000") && !line.contains("\"horizonMs\":14400000")) return
+        if (!wanted8991(line)) return
         ensureLoaded()
         io.execute {
             try { file(JSONObject(line)) } catch (_: Throwable) {}
@@ -202,14 +255,14 @@ object LanePocket8934 {
 
     @Volatile private var seeded8990 = false
     private fun fileLine8990(l: String) {
-        if (l.contains("\"horizonMs\":3600000") || l.contains("\"horizonMs\":14400000")) try { file(JSONObject(l)) } catch (_: Throwable) {}
+        if (wanted8991(l)) try { file(JSONObject(l)) } catch (_: Throwable) {}
     }
 
     /** A missing context/file or failed read is retryable; an existing empty research file is a legitimate empty book. */
     internal fun loadFile8961(source: java.io.File): Boolean = try {
         if (!source.isFile) false else {
             source.useLines { lines -> lines.forEach { l ->
-                if (l.contains("\"horizonMs\":3600000") || l.contains("\"horizonMs\":14400000"))
+                if (wanted8991(l))
                     try { file(JSONObject(l)) } catch (_: Throwable) {}
             } }
             true
@@ -231,6 +284,14 @@ object LanePocket8934 {
             out[lane] = try { mine8934(coins, split) } catch (_: Throwable) { emptyList() }
         }
         proven = out
+        // V5.0.8991 — and each lane's longer horizons, by the same rule on the held net
+        val ext = HashMap<String, List<Cell8934>>()
+        for ((key, book) in extBooks8991) {
+            val coins = synchronized(book) { book.values.sortedBy { it.atMs } }
+            if (coins.size < MIN_COINS_8934) continue
+            ext[key] = try { mine8934(coins, coins[coins.size / 2].atMs) } catch (_: Throwable) { emptyList() }
+        }
+        provenExt8991 = ext
     }
 
     /**
@@ -242,7 +303,8 @@ object LanePocket8934 {
             ensureLoaded()
             val l = lane.trim().uppercase()
             val cells = proven[l]
-            if (!ready || cells.isNullOrEmpty() || l.startsWith("CRYPTO_")) return null
+            val ext = EXT_HORIZONS_8991.flatMap { h -> provenExt8991[extKey8991(l, h)].orEmpty().map { it to h } }   // V5.0.8991
+            if (!ready || (cells.isNullOrEmpty() && ext.isEmpty()) || l.startsWith("CRYPTO_")) return null
             val (lo, hi) = band(l) ?: return null
             if (!inBand8934(ts.lastMcap, lo, hi)) return null
             val raw = EdgeModel8537.rawFor8610(ts, l, nowMs)
@@ -250,7 +312,12 @@ object LanePocket8934 {
             val setup = try { com.lifecyclebot.engine.ExitProfile7955.entrySetup7955(ts, l, nowMs) } catch (_: Throwable) { "" }
             val liq = (try { LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) { ts.lastLiquidityUsd }).let { if (it.isFinite()) it else 0.0 }
             val feats = features8934(ts.mint, stage, setup, raw.v3, predPct ?: Double.NaN, liq, ts.lastMcap).toSet()
-            val c = cells.firstOrNull { feats.containsAll(it.conds) } ?: return null
+            val c = cells.orEmpty().firstOrNull { feats.containsAll(it.conds) } ?: run {
+                // V5.0.8991 — in no cell of the lane's own hold: a cell proven at a longer horizon is its evidence, named with it
+                val (e, h) = ext.firstOrNull { feats.containsAll(it.first.conds) } ?: return null
+                servedExt8991.incrementAndGet()
+                return CandidateAdmission8136.Evidence8136(KIND_8934, "LANE8934:${extKey8991(l, h)}:${e.id}", e.n, e.mean, e.z * e.se, runnerRate = e.runRate)
+            }
             served.computeIfAbsent(l) { AtomicLong(0L) }.incrementAndGet()
             return CandidateAdmission8136.Evidence8136(KIND_8934, "LANE8934:$l:${c.id}", c.n, c.mean, c.z * c.se, runnerRate = c.runRate)
         } catch (_: Throwable) { return null }
@@ -294,12 +361,18 @@ object LanePocket8934 {
             if (v.isEmpty()) "$k=none" else "$k=${v.size}[${v.first().id} n${v.first().n} ${"%+.1f".format(v.first().mean)}% ex3${"%+.1f".format(v.first().exTop3)} z${"%.2f".format(v.first().z)}]"
         }.ifBlank { "-" }
         val used = served.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }
-        return "lanePocket8934[ready=$ready rows=${rows.get()} exitsGraded8971=${exitsGraded8971.get()} coins{$coins} proven{$p} served{$used} minedAgoMin=${if (minedAtMs > 0L) (System.currentTimeMillis() - minedAtMs) / 60_000L else -1L} " +
+        // V5.0.8991 — the longer horizons: coins filed and cells proven per "LANE@4h" / "LANE@24h"
+        val extLine = extBooks8991.entries.sortedBy { it.key }.joinToString(",") { (k, v) ->
+            val pr = provenExt8991[k].orEmpty()
+            "$k=${synchronized(v) { v.size }}" + (if (pr.isEmpty()) "" else "/proven${pr.size}[${pr.first().id} n${pr.first().n} ${"%+.1f".format(pr.first().mean)}%]")
+        }.ifBlank { "-" }
+        return "lanePocket8934[ready=$ready rows=${rows.get()} exitsGraded8971=${exitsGraded8971.get()} coins{$coins} proven{$p} served{$used} extended8991{$extLine servedExt=${servedExt8991.get()}} minedAgoMin=${if (minedAtMs > 0L) (System.currentTimeMillis() - minedAtMs) / 60_000L else -1L} " +
             "rule=each lane's own in-band coins at its designed hold (BLUECHIP 4 h, others 1 h) under the lane's own exits (8971), one coin once; a single feature or a pair proves at 30+ coins, " +
             "both halves positive, mean without the best three > z SE (z deflated over the lane's cells); meme lanes carry it as market-cell evidence]"
     }
 
-    internal fun resetForTest8934() { books.clear(); proven = emptyMap(); served.clear(); huntDecisions8961.clear(); rows.set(0L); ready = true; loading = false; loadNotBefore8961 = 0L; minedAtMs = 0L }
+    internal fun provenExtForTest8991(lane: String, horizonMs: Long): List<Cell8934> = provenExt8991[extKey8991(lane, horizonMs)].orEmpty()
+    internal fun resetForTest8934() { extBooks8991.clear(); provenExt8991 = emptyMap(); servedExt8991.set(0L); books.clear(); proven = emptyMap(); served.clear(); huntDecisions8961.clear(); rows.set(0L); ready = true; loading = false; loadNotBefore8961 = 0L; minedAtMs = 0L }
     internal fun fileForTest8934(o: JSONObject) = file(o)
     internal fun mineForTest8934() = mine(System.currentTimeMillis())
     internal fun provenForTest8934(lane: String): List<Cell8934> = proven[lane].orEmpty()
