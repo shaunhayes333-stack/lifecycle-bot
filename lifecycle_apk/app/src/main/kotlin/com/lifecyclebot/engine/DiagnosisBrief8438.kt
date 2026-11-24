@@ -269,6 +269,7 @@ object DiagnosisBrief8438 {
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.ResearchRows8877.seedLine8990() } catch (_: Throwable) { "researchSeed8990[read failed]" }).append('\n')  // V5.0.8990
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.ResearchRows8877.unpricedLine8992() } catch (_: Throwable) { "researchUnpriced8992[read failed]" }).append('\n')  // V5.0.8992
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.BaseBreakout8995.statusLine8995() } catch (_: Throwable) { "baseBreakout8995[read failed]" }).append('\n')  // V5.0.8995
+            sb.append("               ").append(try { com.lifecyclebot.engine.truth.PoolLock8895.spreadLine8997() + " " + com.lifecyclebot.engine.truth.LpStateRecord8725.spreadLine8997() } catch (_: Throwable) { "poolSpread8997[read failed]" }).append('\n')  // V5.0.8997
             sb.append("               ").append(try { com.lifecyclebot.perps.CryptoTwin8883.strategyLine8910() } catch (_: Throwable) { "twinStrategies8910[read failed]" }).append('\n')  // V5.0.8910
             sb.append("               ").append(try { com.lifecyclebot.perps.CryptoTwin8883.holdLine8924() } catch (_: Throwable) { "holdCap8924[read failed]" }).append('\n')  // V5.0.8924
             sb.append("               ").append(try { ScannerSourceCircuitBreaker6363.line8924() } catch (_: Throwable) { "sourceTimeouts8924[read failed]" }).append('\n')  // V5.0.8924

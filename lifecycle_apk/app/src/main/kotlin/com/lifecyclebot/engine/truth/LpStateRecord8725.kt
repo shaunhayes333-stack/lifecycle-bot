@@ -116,11 +116,23 @@ object LpStateRecord8725 {
         val key = "lp8937|${ts.mint}"
         val last = lastFiled[key]
         if (last != null && nowMs >= last && nowMs - last < REFILE_MS) return
+        // V5.0.8997 — who holds the coin's pool (PoolLock8895.spreadFor8997) is part of the label: the read is asked on the
+        // first look and the label is filed on the next one with what it found, [SPREAD_WAIT_MS_8997] at most (then UNREAD)
+        val pool8997 = listOf(ts.lastPricePoolAddr, ts.pairAddress).map { it.trim() }.firstOrNull { it.length in 32..44 && it != ts.mint }
+        val spread8997 = pool8997?.let { try { PoolLock8895.spreadFor8997(ts.mint, it, nowMs) } catch (_: Throwable) { null } }
+        if (pool8997 != null && spread8997 == null) {
+            if (spreadWait8997.size > 4_000) spreadWait8997.entries.removeIf { nowMs - it.value > REFILE_MS }
+            val first = spreadWait8997.putIfAbsent(key, nowMs) ?: nowMs
+            if (nowMs - first in 0L until SPREAD_WAIT_MS_8997) return
+        }
+        spreadWait8997.remove(key)
+        val cls8997 = spread8997?.cls ?: "UNREAD"
         if (lastFiled.size > 6_000) lastFiled.entries.removeIf { nowMs - it.value > REFILE_MS }
         lastFiled[key] = nowMs
         count8732(blocked8937, band)
+        count8732(blockedSpread8997, cls8997)
         PipelineHealthCollector.labelInc("${PREFIX_8725}LP_BLOCKED_INTAKE_8937_$band")
-        ForwardReturnLabeler7731.observe(ts, "${PREFIX_8725}LP_BLOCKED", false, "${PREFIX_8725}LP_BLOCKED:$band", nowMs)
+        ForwardReturnLabeler7731.observe(ts, "${PREFIX_8725}LP_BLOCKED", false, "${PREFIX_8725}LP_BLOCKED:$band/$cls8997", nowMs)
     }
 
     /**
@@ -143,6 +155,13 @@ object LpStateRecord8725 {
     }
 
     private val blocked8937 = ConcurrentHashMap<String, AtomicLong>()
+    // V5.0.8997 — the LP-blocked coins by who holds their pool, and the coins waiting for that read
+    private val blockedSpread8997 = ConcurrentHashMap<String, AtomicLong>()
+    private val spreadWait8997 = ConcurrentHashMap<String, Long>()
+    internal const val SPREAD_WAIT_MS_8997 = 20_000L
+
+    /** Brief (V5.0.8997): LP-blocked coins filed, by the class of their pool's holders. */
+    fun spreadLine8997(): String = "lpBlockedSpread8997{${top8732(blockedSpread8997)}}"
 
     /** V5.0.8732 — the second status line: which proofs the PENDING coins wait on and what the admission decided of them. */
     fun waitLine8732(): String = "payCell8732[waits{${top8732(waits8732)}} admission{${top8732(decisions8732)}}" +

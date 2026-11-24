@@ -3727,3 +3727,32 @@ Measured on the launch-hour export with a latency-true fill (a level seen at a b
   -3.4 / +10.4, 31 % winners. §179's +20.4 % / 57 % winners filled stops at the line itself. It is not shown to beat buying
   the launch blind (+13.4 %, halves +10.0 / +17.0, 29 % winners). B8994 / 8995 stay unarmed until the phone proves them.
 
+## 182. Who holds the pool (8997)
+
+Owner, 25 Nov 03:54: "it was making great trades on friday ... ive now chased that behaviour for 4 days"; 04:06: "approve".
+What the journals in this chat show (builds and live windows from every capture):
+| capture | build | live window |
+|---|---|---|
+| Fri 20 Nov 11:22-20:53 | 8882-8894 | PF 5.9-8.6, expectancy +0.009..+0.0145 SOL |
+| Sat 21 - Sun 22 02:17 | 8898-8923 | PF 2.8-3.8 |
+| Sun 22 13:59-23:03 | 8932-8947 | 13 W / 8 L, PF 4.41 |
+| Mon 23 22:58 | 8961 | 15 W / 26 L, PF 0.90 (19 closes, 2 wins since 01:32) |
+| Wed 25 03:51 | 8996 | 20 W / 59 L, PF 0.56 |
+Friday's result is one trade: INU (DQKmfaSk), SHITCOIN, bought 11:03:59 at a $129k cap, 0.0426 SOL; SPIKE_CAPTURE_7943
+banked +98 % (3 min), +404 % (6 min), +927 % (11 min), the rest closed +355 %: +0.164 SOL. The other 16 closes that day lost.
+INU: off pump.fun, stage BASE_START, pool $3,918, LP lock unread. The paying-cell LP record: PENDING n63 +37.0 % (20 Nov),
+n84 +28.7 % (21 Nov), n185 +39.8 % (22 Nov), LP_BLOCKED n0 on all three. PoolLock8895 (8895 Fri 19:10, 8925, 8937 Sun
+14:38) then read those pools: METEORA_DLMM:UNLOCKED 131 of 143 (24 Nov), LP_BLOCKED n193 +30.3 %, PENDING +10.7 %. The
+cohort that paid is the one the LP rule now refuses, because its lock can now be read and is not there.
+Change (measure only): PoolLock8895.spreadFor8997 -> readSpread8997 reads a DLMM pool's positions with their owners
+(PositionV2 owner @40) and its bin arrays (BinArray lb_pair @24, bins @56 x 144, amount_x @0 / amount_y @8; LbPair
+token_x_mint @88 / token_y_mint @120; offsets computed from MeteoraAg/dlmm-sdk idls/dlmm.json) and gives the largest share
+of the pool's quote side one wallet can remove (unlocked positions; per bin, its shares over the bin's shares).
+LpStateRecord8725.noteLpBlocked8937 files each LP-blocked coin as "LPSTATE8725_LP_BLOCKED:<band>/<class>" with class SPREAD
+(3+ owners, none over 30 %), CONCENTRATED, ONE_HOLDER (70 %+), NO_QUOTE or UNREAD (not DLMM, over 24 positions, or no answer
+in 20 s). The forward labeler follows them and AuthorityTable8887 grades each class as its own door cell.
+Brief: poolSpread8997[read{...}] lpBlockedSpread8997{...}. Two getProgramAccounts a pool, only for LP-blocked coins, a read
+kept 10 minutes. Nothing is bought; LiquidityOwnership8522 and the 70 % rule are unchanged.
+Stated: distinct wallets are not proven distinct people (the owner's objection of 20 Nov); DAMM v2 positions are held by
+NFT and are not read here; whether SPREAD pools pay and survive is what the next captures will say.
+
