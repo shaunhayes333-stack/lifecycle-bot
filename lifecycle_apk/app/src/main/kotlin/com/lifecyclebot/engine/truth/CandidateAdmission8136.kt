@@ -2240,6 +2240,7 @@ object CandidateAdmission8136 {
                 yield(com.lifecyclebot.engine.chart.ColourShape8807.evidence8807(ts.mint, nowMs))
                 yield(SmartMoney8756.evidence8756(ts.mint, nowMs))
                 yield(RunnerModel8861.evidence8861(ts.mint, nowMs))
+                yield(BaseBreakout8995.evidence8995(ts.mint, nowMs))   // V5.0.8995 — an armed base breakout past the first hour
                 yield(try { com.lifecyclebot.engine.lab.StrategyLab8755.evidence8755(ts, lane, nowMs) } catch (_: Throwable) { null })
                 yield(AgreementPocket8874.evidence8874(ts, lane, edge8874?.predPct, nowMs))
                 yield(BasePocket8904.evidence8904(ts, lane, nowMs))

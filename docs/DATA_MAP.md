@@ -3682,3 +3682,24 @@ LAUNCH_RULE-class evidence through admission and every safety door. No gate adde
 Stated: the offline figures are 10 s bars, two days, one market; the phone's print-level grade decides, and the same replay
 graded the owner's other 15 signals at -8 % to -28 % ex-top-3 on 24 Nov.
 
+## 180. The base breakout past the first hour (8995)
+
+Owner, 25 Nov 01:40: "do that now bro" — the base breakout for graduated and off-pump coins, not only launches.
+No offline figure exists for these coins: the exports hold print bars for a launch's first hour only, and nothing on the
+phone stores an older coin's prints, so there is no replay. The shape is therefore proven FORWARD on the phone.
+Path: every witnessed print (TradeTape8100.launchEvidence8750: pump.fun curve, PumpSwap pools, the DEX feeds) ->
+BaseBreakout8995.onPrint8995 (a pump.fun curve coin inside its first hour is left to the launch tape, §179) -> the coin's
+SignalTape8828 (10 s bars from the first print heard; B8994W / B8994T) -> a fire opens a VIRTUAL position: entered at the
+first print after LaunchSniper8748.requiredDelayMs8749, held on the runner line (stop 20 %; from +10 % the lower of half the
+peak gain and the peak less the stop distance, never under +5 %; from +100 % a 45 % give-back), filled at the crossing
+print, closed at 60 min or after 10 min without a print, net of FieldManual7715.roundTripCostPct7766 -> the close is filed
+under "<CURVE|PUMPSWAP|OTHER>|<setting>" (last 400, persisted as BASE_BREAKOUT_8995) -> graded by SignalReplay8828.stats8828:
+PROVEN at n >= 100, ex-top-3 mean - SE > 0, both halves positive.
+Only a PROVEN record arms: its fire adds the coin to the watchlist, runs its pipeline (LaunchSniper8748.onArmed8949) and is
+market-cell evidence BASE_BREAKOUT_8995 for 120 s (CandidateAdmission8136; LaneAuthority8577.PRIOR_ANSWERING_KINDS_8874).
+Hard safety, the LP-lock rule, structure, sellability and economics are untouched; nothing here buys.
+Brief: baseBreakout8995[coins prints fires armedFires open closes records{...}].
+Stated: a virtual fill is the print's price (no own impact); the ladder's partial sales are not modelled; at most 600 coins
+are followed; a coin the bot hears rarely makes few bars. Crypto is not covered: the desk has hourly candles, not prints,
+and its own breakout setups (majorSetups8910) are graded on the twin.
+

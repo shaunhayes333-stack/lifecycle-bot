@@ -175,7 +175,8 @@ object LaneAuthority8577 {
         BasePocket8904.KIND_8904,   // V5.0.8904: the proven base pocket
         LanePocket8934.KIND_8934,   // V5.0.8934: the lane's own proven in-band cell
         LaunchSniper8748.KIND_8748, // V5.0.8949: the launch replay's proven rule, armed on this coin's own prints
-        RunnerModel8861.KIND_8861)  // V5.0.8987: the runner model's armed pick (the note below)
+        RunnerModel8861.KIND_8861,  // V5.0.8987: the runner model's armed pick (the note below)
+        BaseBreakout8995.KIND_8995) // V5.0.8995: the base breakout armed on its own forward record for the coin's venue class
 
     /*
      * V5.0.8987 §THE_ARMED_RUNNER_PICK_ANSWERS_THE_LANE_PRIORS — owner, 24 Nov 22:14: "where's the runner capture gone????
