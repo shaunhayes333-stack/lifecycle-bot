@@ -196,7 +196,7 @@ object LanePocket8934 {
         val h8991 = o.optLong("horizonMs", 0L)
         if (h8991 != horizon8934(lane)) { if (extended8991(lane, h8991)) fileExt8991(o, lane, h8991); return }   // V5.0.8991
         fun d(k: String) = if (o.isNull(k)) Double.NaN else o.optDouble(k, Double.NaN)
-        val net = ResearchRows8877.rowNet8983(o)   // V5.0.8983 — an unpriced read is a dead coin, not a missing row
+        val net = ResearchRows8877.rowNet8983(o)   // V5.0.8983 row reader; V5.0.8992 — an unpriced read is unknown, not filed
         val mcap = d("mcap")
         if (!net.isFinite()) return
         if (!lane.startsWith("CRYPTO_")) {

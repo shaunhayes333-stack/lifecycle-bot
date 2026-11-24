@@ -41,7 +41,13 @@ class Aate8990ResearchSeedTest {
 
     @Test fun aMissingAssetReadsNothing() {
         assertEquals(0, ResearchRows8877.forEachSeedLine8990(open = { null }) { throw IllegalStateException("never called") })
-        assertEquals(0, ResearchRows8877.forEachSeedLine8990(open = { "not gzip".byteInputStream() }) { })
+        // V5.0.8992 — a plain-text stream is read as it is (the reader goes by the stream's own magic); was 0 for "not gzip"
+        assertEquals(2, ResearchRows8877.forEachSeedLine8990(open = { "{\"a\":1}\n{\"a\":2}\n".byteInputStream() }) { })
+        assertEquals(0, ResearchRows8877.forEachSeedLine8990(open = { ByteArray(0).inputStream() }) { })
+        assertEquals("research_seed_8990.bin", ResearchRows8877.SEED_ASSET_8990)
+        assertTrue(ResearchRows8877.seedLine8990().contains(" last=ok "))
+        assertEquals(0, ResearchRows8877.forEachSeedLine8990(open = { throw java.io.FileNotFoundException("gone") }) { })
+        assertTrue(ResearchRows8877.seedLine8990().contains(" last=FAILED FileNotFoundException: gone"))
         assertTrue(ResearchRows8877.seedLine8990().startsWith("researchSeed8990[linesRead="))
     }
 

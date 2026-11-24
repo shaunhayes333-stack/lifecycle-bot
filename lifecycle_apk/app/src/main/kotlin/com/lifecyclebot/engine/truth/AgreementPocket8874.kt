@@ -315,7 +315,7 @@ object AgreementPocket8874 {
     internal fun researchRow8929(o: JSONObject): Triple<String, Long, Double>? {
         if (o.optLong("horizonMs", 0L) != HOUR_MS_8929) return null
         fun d(k: String) = if (o.isNull(k)) Double.NaN else o.optDouble(k, Double.NaN)
-        val net = ResearchRows8877.rowNet8983(o)   // V5.0.8983 — an unpriced read is a dead coin, not a missing row
+        val net = ResearchRows8877.rowNet8983(o)   // V5.0.8983 row reader; V5.0.8992 — an unpriced read is unknown, not filed
         val mint = o.optString("mint")
         if (!net.isFinite() || !memeLane8895(o.optString("lane")) || !inPocket8874(mint, d("mcap"), d("v3"), d("pred"))) return null
         return Triple(mint, o.optLong("t", 0L), net)

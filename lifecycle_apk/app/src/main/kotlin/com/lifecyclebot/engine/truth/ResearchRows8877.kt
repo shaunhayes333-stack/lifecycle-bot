@@ -40,15 +40,29 @@ object ResearchRows8877 {
     // wait. Every pocket was therefore mined on the coins that were still priced an hour later. Since 8983 such a decision is
     // read at the hour by ResearchFollow8884 (Jupiter); a coin Jupiter cannot price writes a NO_PRICE row, and a pocket counts
     // that row as the authority table already does for its PAYS verdict: everything lost ([UNPRICED_NET_8983]).
-    private const val UNPRICED_NET_8983 = -100.0
+    //
+    // V5.0.8992 §AN_UNPRICED_READ_IS_NOT_A_LOSS — the 23:24 capture on 5.0.8990: every lane pocket read "proven{… none}",
+    // the base pocket's proof NONE, the agreement pocket's research NONE. Measured on that capture's research file, the
+    // cohort the pockets are made of (off-pump, v3 >= 35, decided since 24 Nov): 74 rows the labeler priced itself, mean
+    // +25.1 % (69 % up); 46 lost-mark rows Jupiter did price, mean +165.9 %, median +2.2 % (57 % up); 169 lost-mark rows
+    // Jupiter could not price. Jupiter failed on about 79 % of that cohort against about 9 % elsewhere, and the lost-mark
+    // rows it did price were not dead: the failure is Jupiter's coverage of young pools, and 8983 scored each one as the
+    // whole stake lost, which buried every pocket. An unpriced read is therefore what it is — no reading: it is not filed
+    // by any pocket. The row is still written and still counted ([unpricedSeen8992]), so the gap stays visible, and the
+    // read itself is now asked of the chain first where a pool is known (ForwardReturnLabeler7731.stateMark8989).
     private const val UNPRICED_PREFIX_8983 = "NO_PRICE_JUP_8884:"
+    private val unpricedSeen8992 = AtomicLong(0L)
 
-    /** Pure: a research row's net for a pocket: its net, [UNPRICED_NET_8983] for an unpriced read, else NaN (not a reading). */
+    /** Pure: a research row's net for a pocket: its net, else NaN (not a reading — an unpriced or late read is unknown). */
     fun rowNet8983(o: org.json.JSONObject): Double {
         val net = if (o.isNull("net")) Double.NaN else o.optDouble("net", Double.NaN)
         if (net.isFinite()) return net
-        return if (o.optString("reason").startsWith(UNPRICED_PREFIX_8983)) UNPRICED_NET_8983 else Double.NaN
+        if (o.optString("reason").startsWith(UNPRICED_PREFIX_8983)) unpricedSeen8992.incrementAndGet()
+        return Double.NaN
     }
+
+    /** One line: unpriced reads the pockets met and did not file (each mine pass re-reads the file, so this is a running tally). */
+    fun unpricedLine8992(): String = "researchUnpriced8992[notFiled=${unpricedSeen8992.get()} rule=UNKNOWN_NOT_MINUS_100]"
 
     /**
      * V5.0.8990 §THE_PROVEN_POCKETS_SHIP_WITH_THE_BUILD — owner, 24 Nov 22:14: "the proven pockets. shouldn't they become from
@@ -61,23 +75,44 @@ object ResearchRows8877 {
      * every window keeps its newest coins, so the device's own rows join and then displace the shipped ones. A shipped
      * pocket is evidence like any other: every gate still decides, and its door answers for its live closes (8985).
      */
-    const val SEED_ASSET_8990 = "research_seed_8990.jsonl.gz"
+    // V5.0.8992 — the 23:24 capture (5.0.8990): researchSeed8990[linesRead=0]. The asset was named ".jsonl.gz"; the read
+    // failed without a trace (its counter is not a report line). The asset is now a ".bin" (the same gzip bytes: no build
+    // step treats that extension), the reader accepts gzip or plain lines by the stream's own magic, and the report line
+    // names how the last read ended.
+    const val SEED_ASSET_8990 = "research_seed_8990.bin"
     private val seedLines8990 = AtomicLong(0)
+    @Volatile private var seedLast8992 = "not read yet"
+
+    /** Pure (V5.0.8992): [raw] as text lines — gunzipped when it starts with the gzip magic (1f 8b), else as it is. */
+    internal fun seedReader8992(raw: java.io.InputStream): java.io.BufferedReader {
+        val pb = java.io.PushbackInputStream(java.io.BufferedInputStream(raw, 64 * 1024), 2)
+        val head = ByteArray(2)
+        var got = 0
+        while (got < 2) { val k = pb.read(head, got, 2 - got); if (k <= 0) break; got += k }
+        if (got > 0) pb.unread(head, 0, got)
+        val gz = got == 2 && head[0] == 0x1f.toByte() && head[1] == 0x8b.toByte()
+        return (if (gz) java.util.zip.GZIPInputStream(pb, 64 * 1024) else pb).bufferedReader(Charsets.UTF_8)
+    }
 
     /** Each line of the shipped seed to [each]; the lines read (0 when the asset or the context is missing). */
     fun forEachSeedLine8990(open: () -> java.io.InputStream? = { com.lifecyclebot.AATEApp.appContextOrNull()?.assets?.open(SEED_ASSET_8990) },
                             each: (String) -> Unit): Int {
         var n = 0
         try {
-            val raw = open() ?: return 0
-            java.util.zip.GZIPInputStream(raw, 64 * 1024).bufferedReader(Charsets.UTF_8).useLines { lines ->
+            val raw = open()
+            if (raw == null) { seedLast8992 = "no app context"; return 0 }
+            seedReader8992(raw).useLines { lines ->
                 lines.forEach { l -> if (l.isNotBlank()) { n++; try { each(l) } catch (_: Throwable) {} } }
             }
-        } catch (_: Throwable) { try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("RESEARCH_SEED_8990_READ_FAILED") } catch (_: Throwable) {} }
+            seedLast8992 = "ok"
+        } catch (t: Throwable) {
+            seedLast8992 = "FAILED ${t.javaClass.simpleName}: ${t.message.orEmpty().take(60)} after $n lines"
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("RESEARCH_SEED_8990_READ_FAILED") } catch (_: Throwable) {}
+        }
         seedLines8990.addAndGet(n.toLong())
         return n
     }
-    fun seedLine8990(): String = "researchSeed8990[linesRead=${seedLines8990.get()} asset=$SEED_ASSET_8990 rule=the shipped hour rows are read by each pocket before the device's own file; the device's rows displace them as its windows fill]"
+    fun seedLine8990(): String = "researchSeed8990[linesRead=${seedLines8990.get()} last=$seedLast8992 asset=$SEED_ASSET_8990 rule=the shipped hour rows are read by each pocket before the device's own file; the device's rows displace them as its windows fill]"
 
     fun file8877(): File? = try { com.lifecyclebot.AATEApp.appContextOrNull()?.filesDir?.let { File(it, FILE_8877) } } catch (_: Throwable) { null }
 

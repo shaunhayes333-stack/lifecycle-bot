@@ -3585,7 +3585,7 @@ starts super super smart and very good at trading then just gets better and bett
 The three pockets (LanePocket8934, BasePocket8904, AgreementPocket8874) are mined from the research hour rows in
 files/edge_research_8877.jsonl. That file is on the device: it survives an update, so the owner's phone restarts with its
 pockets, but an install with no file (a new phone, cleared data) starts with none and needs about a day of its own rows.
-Change: assets/research_seed_8990.jsonl.gz — the owner's 13,022 hour rows of the meme and hour lanes, decisions 22 Nov 04:38
+Change: assets/research_seed_8990.bin (named .jsonl.gz until 8992, §177) — the owner's 13,022 hour rows of the meme and hour lanes, decisions 22 Nov 04:38
 to 24 Nov, diagnostics dropped, the same line format (640 KB). ResearchRows8877.forEachSeedLine8990 streams it; each pocket
 reads it before the device's file (LanePocket8934: with no device file yet the seed alone makes the book ready). Same
 miners, same proof bars (time-split halves, mean - SE, the 8983 unpriced-read rule). Windows keep their newest coins (lane
@@ -3617,3 +3617,25 @@ Two ranges were short and are extended:
    horizon carries it as LANE_POCKET evidence, id "LANE8934:<LANE>@<h>:<cell>". Brief: lanePocket8934 ... extended8991{...}.
 Unchanged: the hour cells and their grading under the lane's exits (8971), base and agreement pockets (hour), every gate,
 and a held position's clock (a time exit holds only on the coin's own live metrics, HoldSupport8964).
+
+## 177. An unpriced read is not a loss (8992)
+
+The 23:24 capture on 5.0.8990 (705 s up): every lane pocket "proven{... none}", base pocket proof NONE (halves +38.4 / -1.9),
+agreement research NONE, researchSeed8990[linesRead=0]. Two causes, both this session's own changes:
+1. §168 (8983) scored a read Jupiter could not price as -100 %. Measured on that capture's research file, the pockets' own
+   cohort (off-pump, v3 >= 35, decided since 24 Nov): 74 rows the labeler priced, mean +25.1 % (69 % up); 46 lost-mark rows
+   Jupiter did price, mean +165.9 %, median +2.2 % (57 % up); 169 lost-mark rows Jupiter could not price. Jupiter fails on
+   about 79 % of this cohort against about 9 % elsewhere: coverage of young pools, not death. The -100 buried every pocket.
+   Change: ResearchRows8877.rowNet8983 returns NaN for an unpriced read — not filed by any pocket; counted in
+   researchUnpriced8992[notFiled=...]. Offline, the same file with the lane rule and unpriced reads unfiled: at 1 h
+   CORE 11 proven cells, MOONSHOT 10, EXPRESS 10, MANIPULATED 11, SHITCOIN 6 (best: origin=OTHER&stage=BASE_START n98-118,
+   +38 % to +45 %, +29 % to +35 % without the best three, 8-9 % at 2x+, 2-4 % dead); QUALITY, CYCLIC, CASHGEN, TREASURY 0.
+   At 4 h and 24 h no lane proves a cell on priced reads either (lane means -23 % to -39 %).
+2. The seed asset read 0 lines on the device. It is renamed research_seed_8990.bin (no build step treats it as an
+   archive), the reader goes by the stream's own first two bytes (gzip or plain), and the line reports the last read:
+   researchSeed8990[linesRead=N last=ok | FAILED <exception> | no app context].
+Corrections to earlier sections: §168's "a pocket stays proven only if it pays with its dead coins counted", §171's and
+§175's "unpriced at 4 h in 98 %" as evidence the coins were dead, and §176's table (computed with unpriced = -100 %) all
+rest on the same imputation. What stands: 4 h and 24 h prove nothing on priced reads; what does not: that unpriced means
+dead. Limit, stated: priced-only reads can flatter a cohort if the unpriced coins did worse; the fix for that is pricing
+them from the chain (the hour mark does since 8989: ForwardReturnLabeler7731.stateMark8989), not a guess of -100.

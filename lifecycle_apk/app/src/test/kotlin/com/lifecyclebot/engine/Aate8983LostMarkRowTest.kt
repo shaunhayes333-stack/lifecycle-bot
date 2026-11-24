@@ -19,7 +19,8 @@ class Aate8983LostMarkRowTest {
 
     @Test fun aRowsNetForAPocket() {
         assertEquals(12.5, ResearchRows8877.rowNet8983(JSONObject().put("net", 12.5).put("reason", "JUP_8884:x")), 1e-9)
-        assertEquals(-100.0, ResearchRows8877.rowNet8983(JSONObject().put("net", JSONObject.NULL).put("reason", "NO_PRICE_JUP_8884:LOSTMARK8983/x")), 1e-9)
+        // superseded by V5.0.8992: an unpriced read was -100.0 here; it is no reading (Jupiter's coverage, not the coin's death)
+        assertTrue(ResearchRows8877.rowNet8983(JSONObject().put("net", JSONObject.NULL).put("reason", "NO_PRICE_JUP_8884:LOSTMARK8983/x")).isNaN())
         assertTrue("a late read is not a reading", ResearchRows8877.rowNet8983(JSONObject().put("net", JSONObject.NULL).put("reason", "LATE_READ_8884:x")).isNaN())
         assertTrue(ResearchRows8877.rowNet8983(JSONObject()).isNaN())
     }

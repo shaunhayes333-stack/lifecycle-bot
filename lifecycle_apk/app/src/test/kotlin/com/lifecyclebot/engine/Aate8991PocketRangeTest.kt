@@ -10,7 +10,7 @@ import java.io.File
 
 /**
  * V5.0.8991 — a lane is mined at its own hold and at every longer horizon in the research file, by the same rule; a longer
- * horizon proves only on its own held reads (an unpriced read is -100 %); the research file keeps about a week.
+ * horizon proves only on its own held reads (an unpriced read is no reading, V5.0.8992); the research file keeps about a week.
  */
 class Aate8991PocketRangeTest {
     private val h4 = 14_400_000L
@@ -35,14 +35,14 @@ class Aate8991PocketRangeTest {
         LanePocket8934.resetForTest8934()
         // 40 coins that still pay four hours on, across both halves of the window
         for (i in 1..40) LanePocket8934.fileForTest8934(row("MOONSHOT", h4, "m4h$i", i.toLong(), 30.0))
-        // 40 coins unpriced a day on: each counts -100 %
+        // 40 coins unpriced a day on: no reading, not filed (superseded by V5.0.8992 — each counted -100 % before)
         for (i in 1..40) LanePocket8934.fileForTest8934(row("MOONSHOT", h24, "m24h$i", i.toLong(), null))
         LanePocket8934.mineForTest8934()
         assertTrue(LanePocket8934.provenExtForTest8991("MOONSHOT", h4).isNotEmpty())
-        assertTrue("dead coins prove nothing", LanePocket8934.provenExtForTest8991("MOONSHOT", h24).isEmpty())
+        assertTrue("unpriced reads prove nothing", LanePocket8934.provenExtForTest8991("MOONSHOT", h24).isEmpty())
         assertTrue("the hour book is not fed by longer reads", LanePocket8934.provenForTest8934("MOONSHOT").isEmpty())
         val line = LanePocket8934.statusLine8934()
-        assertTrue(line, line.contains("extended8991{MOONSHOT@24h=40,MOONSHOT@4h=40/proven"))
+        assertTrue(line, line.contains("extended8991{MOONSHOT@4h=40/proven"))
         assertTrue(line, line.contains("coins{-}"))
         LanePocket8934.resetForTest8934()
     }
