@@ -131,6 +131,12 @@ object PaperMirror8757 {
             try { PipelineHealthCollector.labelInc("PAPER_MIRROR_BOOK_PROVEN_LOSING_8865") } catch (_: Throwable) {}
             return d
         }
+        // V5.0.9018 — the paper record that corresponds to THIS override is the paper trades on coins this same live door
+        // refuses. When those prove a loss, the book's say-so is no reason to pass the door (never widens the mirror).
+        if (try { PaperCorrespondence9018.doorProvenLosing9018(c.lane, d.reason) } catch (_: Throwable) { false }) {
+            try { PipelineHealthCollector.labelInc("PAPER_MIRROR_DOOR_OWN_PAPER_RECORD_LOSING_9018") } catch (_: Throwable) {}
+            return d
+        }
         // V5.0.8758 — the live price bar, not the paper book's 5-minute one.
         if (CandidateAdmission8136.priceStale8136(c.priceAgeMs, hotLaunch = false, live = true)) return d
         val paper = try { CandidateAdmission8136.decide8136(c.copy(live = false, liveEdge8114 = null)) { false } } catch (_: Throwable) { return d }

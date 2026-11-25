@@ -127,6 +127,7 @@ object DiagnosisBrief8438 {
             "\n               " + (try { RunnerDoctrine8584.statusLine8584() } catch (_: Throwable) { "runnerDoctrine8584[?]" }) +   // V5.0.8584
             "\n               " + (try { DegenHarvest9011.statusLine9011() } catch (_: Throwable) { "degenHarvest9011[?]" }) +   // V5.0.9011
             "\n               " + (try { com.lifecyclebot.engine.truth.PaperRetire9017.statusLine9017() } catch (_: Throwable) { "paperRetire9017[?]" }) +   // V5.0.9017
+            "\n               " + (try { com.lifecyclebot.engine.truth.PaperCorrespondence9018.statusLine9018() } catch (_: Throwable) { "paperCorrespondence9018[?]" }) +   // V5.0.9018
             " " + (try { ForwardReturnLabeler7731.deskSetupLine9013() } catch (_: Throwable) { "cryptoDeskSetups9013=?" })   // V5.0.9013
         // V5.0.8552 — the FDG's named zero sizes ride beside the funnel (kept out of the pure line)
         return paperFunnelLine8536(attempts, opened, notOpened, nonEconomic) + " " +

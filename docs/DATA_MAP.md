@@ -4388,3 +4388,48 @@ cover was consumed by another lot's sale, its value is not recovered — the led
 apart, and crediting proceeds for a lot the ledger does not carry would invent cash. (c) Why the event history rebuilds
 lots the ledger no longer carries (invalidQuarantined=1,140 sell rows excluded from the ledger replay; carry residue) is
 not repaired here: new residue is retired as it appears, not prevented.
+
+## §203 — V5.0.9018: PaperCorrespondence9018, paper teaches live only where live would have traded
+
+**Why.** Owner, 25 Nov 21:10: take from paper only what corresponds to live trading; what is learnt from paper must not
+distort live; paper still gives patterns and hold lengths and should help find pockets.
+
+**Measured** (TUNING §8618: the paper meme book beside LIVE, each close filed by LIVE's verdict on the same coin).
+
+| Live's verdict on the coin paper traded | closes | mean | SOL | runners (>= +100 %) |
+|---|---|---|---|---|
+| admitted (corresponds to live) | 119 | -7.1 % | -0.84 | 0 |
+| refused | 4,267 | -4.6 % | -19.83 | 34 |
+| never judged | 61 | +21.5 % | +1.31 | 1 |
+
+| Door in front of paper's money | closes | mean | runners |
+|---|---|---|---|
+| EXPRESS behind EXECUTION_ECONOMICS_8136 | 274 | +16.6 % | 4 |
+| SHITCOIN behind DATA_INCOMPLETE_DEFER_8136 | 295 | +4.0 % | 5 |
+| CORE behind DATA_INCOMPLETE_DEFER_8136 | 66 | +7.5 % | 2 |
+| MOONSHOT behind the learned doors the mirror overrides (edge, stage, cohort, high, setup, cell) | ~320 | about -12 % | 1 |
+
+Those records carry no spread, so none of the rows above is a proof. The record stopped on 20 Nov (the paper meme book is
+off in LIVE, 8872); a PAPER-mode trade carried no live verdict at all.
+
+**What changed.** `engine/truth/PaperCorrespondence9018.kt`.
+- PAPER mode, `CandidateAdmission8136.assess8136`: a candidate the paper decision admits is rebuilt with live's inputs
+  (`candidateFor8136(liveOverride9018 = true)`) and decided the live way (`decide8136` with its record doors). The stamp
+  `WOULD_ADMIT` / `WOULD_REFUSE:<door>`, the coin's age band and the chosen setup stay on the coin until it closes. It is a
+  what-if of the admission's core decision: the lane-authority, mirror and discipline layers above it are not replayed.
+- `RunnerCapture8017.onClose8017`: each terminal PAPER close is filed per lane by its stamp, and by class x age band and
+  class x setup: n, mean, SE, wins, runners, two alternating-day halves, mean hold of winners and of losers.
+- The corresponding record of a lane is its `WOULD_ADMIT` closes (`proof9018(lane)`).
+- `PaperMirror8757.mirror8757`: a learned door is not overridden when the paper trades on coins that same door refuses
+  prove a loss (`doorProvenLosing9018`: n >= 30, mean + 2 SE < 0). Narrowing only.
+- Pockets are hypotheses: a door, age band or setup proven positive on paper (n >= 30, mean - 2 SE > 0, both day halves
+  positive) is listed. No live decision reads it; a pocket is still served only by its research-row proof (LanePocket8934).
+- Status: `paperCorrespondence9018[closes= liveWouldAdmit= liveWouldRefuse= unread= corresponding{} doorsProvenLosing{}
+  mirrorHeldByDoor= pocketHypotheses{} holds{} stamped= awaitingClose=]`.
+
+**Not changed.** Every live gate; the paper decision; the mirror's own stops; the crypto twin's backing (it grades live
+exits already, but pools live-opened and door-refused candidates in one record — not split here); the learners that train
+on PAPER-mode closes (which of them a live decision reads was not audited in this build).
+
+**Limits.** A crypto desk's paper close carries no stamp (its admission is not `assess8136`): filed UNREAD, holds only.
+The record starts empty on this build: 30 closes per cell before any proof.

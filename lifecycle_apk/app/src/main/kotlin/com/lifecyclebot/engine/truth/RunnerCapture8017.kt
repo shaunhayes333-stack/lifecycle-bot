@@ -208,6 +208,8 @@ object RunnerCapture8017 {
         try { EntryReceipt8500.onLiveClose8500(env.mint, env.mode, env.terminal, env.realizedReturnPct, env.mfePct, env.positionId, env.atMs, env.holdingTimeMs, env.lane, env.assetClassTag) } catch (_: Throwable) {}  // V5.0.8522
         // V5.0.9011 — the harvest ledger: every live position whose own peak reached +200 %, what it banked and what sold it
         try { com.lifecyclebot.engine.DegenHarvest9011.onClose9011(env.mode, env.terminal, env.positionId, env.exitReason, env.realizedReturnPct, env.mfePct, env.holdingTimeMs) } catch (_: Throwable) {}
+        // V5.0.9018 — a terminal PAPER close is filed by what the LIVE decision said of the same candidate
+        try { PaperCorrespondence9018.onClose9018(env.mode, env.terminal, env.mint, env.lane, env.realizedReturnPct, env.holdingTimeMs, env.atMs) } catch (_: Throwable) {}
         val r = runs[env.mint] ?: return
         if (!r.closed(env)) return
         if (!r.peakInHold) try { PipelineHealthCollector.labelInc("RUNNER_PEAK_OUTSIDE_HOLD_8237") } catch (_: Throwable) {}

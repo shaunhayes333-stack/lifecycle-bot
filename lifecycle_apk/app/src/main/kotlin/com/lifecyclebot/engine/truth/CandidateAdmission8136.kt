@@ -2053,6 +2053,16 @@ object CandidateAdmission8136 {
             // V5.0.8544 — a LIVE meme candidate is also decided the PAPER way for the separate paper book beside live
             // V5.0.8618 — the tuning report files the paper close under what LIVE decided on this same candidate.
             if (mode == "LIVE") try { TuningReport8618.noteLiveVerdict8618(ts.mint, candidate.lane, it.admitted, it.reason, nowMs) } catch (_: Throwable) {}
+            // V5.0.9018 — PAPER mode: a candidate the paper decision admits is also decided the LIVE way (same coin, live's
+            // inputs), so its paper close can be filed by whether live would have taken it. A what-if: nothing is bought on it.
+            if (mode != "LIVE" && it.admitted && !FdgGate8365.shadowOnly8393()) try {
+                val built9018 = candidateFor8136(ts, laneRaw, nowMs, sizeForQuote8223, liveOverride9018 = true)
+                val live9018 = withCryptoNative8871((if (prior8223 != null) built9018.copy(genericScore = prior8223.score, genericFloor = prior8223.floor) else built9018)
+                    .copy(candidateVersion = version, live = true), cryptoNative8871, nowMs)
+                val whatIf9018 = decide8136(live9018, ::verifiedRecordDoor8650)
+                PaperCorrespondence9018.noteAdmission9018(ts.mint, candidate.lane, whatIf9018.admitted, whatIf9018.reason,
+                    AgeProof9001.ageOf9004(ts, nowMs), it.chosenSetup ?: candidate.selectedSetup, nowMs)
+            } catch (_: Throwable) {}
             // V5.0.8725 — a coin in its lane's paying cell is filed by what the live buy door says of it (measured, never bought on).
             if (mode == "LIVE" && candidate.marketCell8723 != null && !FdgGate8365.shadowOnly8393()) LpStateRecord8725.note8725(ts, nowMs)
             if (mode == "LIVE" && candidate.marketCell8723 != null && !FdgGate8365.shadowOnly8393()) LpStateRecord8725.noteAdmission8732(it.terminal.name, it.reason, it.trace)
@@ -2092,12 +2102,14 @@ object CandidateAdmission8136 {
     } catch (_: Throwable) { null }
 
     /** Builds the candidate record from the playbook, forward labels, net-edge cost model and safety report. */
-    internal fun candidateFor8136(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis(), proposedSizeSol: Double = Double.NaN): Candidate8136 {
+    internal fun candidateFor8136(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis(), proposedSizeSol: Double = Double.NaN,
+                                  liveOverride9018: Boolean? = null): Candidate8136 {
         val lane = CanonicalLaneIdentity6506.canonical(laneRaw).uppercase().ifBlank { laneRaw.trim().uppercase() }
         // V5.0.8290 — LIVE: the lane's realised shortfall (LiveAdmissionProof8290) travels on the record as liveShortfall8290.
         // V5.0.8316 — the records below are built RAW; Candidate8136's shifted twins (setupsProof8290 ...) carry the shortfall
         //    to the support tests only. 8290 shifted them here, so the loss tests read manufactured losses (SETUP_RECORD_LOSING 407).
-        val live8290 = try { !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
+        // V5.0.9018 — a PAPER-mode what-if builds the same candidate with LIVE's inputs (PaperCorrespondence9018)
+        val live8290 = liveOverride9018 ?: (try { !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false })
         val extra8290 = if (live8290) (try { LiveAdmissionProof8290.laneExtra8290(lane, nowMs) } catch (_: Throwable) { 0.0 }) else 0.0
         val nativeOpinion8213 = try {
             com.lifecyclebot.engine.SpecialistBrainBridge7542.cachedSnapshot7650(ts.mint)
