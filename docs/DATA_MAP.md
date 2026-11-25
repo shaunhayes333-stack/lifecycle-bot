@@ -4597,3 +4597,25 @@ Owner, 26 Nov 01:35: "why aren't we buying the big winners". 5.0.9020: 53 coins 
 - lane floors / score bars: `NATIVE_LANE_LIQ_BELOW_FLOOR` 133-140 a lane, `NATIVE_SCORE` 172, `NATIVE_MCAP_TOO_LOW`,
   `NATIVE_PHASE_HANDOFF` 261 (hand-off: emitted 78, arrived at the gate 12);
 - admitted, not sent: the one FDG pass sized to 0 (`RISK_SIZE_BELOW_EXECUTABLE_MINIMUM_7835`, `CAPITAL_ONLY_NO_WALLET=1`).
+
+## §209 — V5.0.9024: a candidate that did not buy does not hold its lane's probe slot
+
+5.0.9023, LIVE, 16.5 min, wallet 0.2070 SOL, liveOpen=0. `modelPicks9022{ADMITTED_PAST:EXECUTION_ECONOMICS_8136=119,
+ADMITTED=103, ADMITTED_PAST:CELL_PROVEN_LOSING_8136=33, GATE_PASSED:CHASING_SPIKE_8065=13, ...}`. Gate allows: MOONSHOT 9 of
+373 (4 tickets, 2 buys), EXPRESS 3 of 312 (1 ticket, 0), CORE 1 of 22, SHITCOIN 0 of 152. `LiveRiskPolicy7807 opens=17
+refused=RISK_SIZE_BELOW_EXECUTABLE_MINIMUM_7835=18`.
+
+**Defect.** `LaneRealisedProbe8424.claim8424` is taken at `LiveEdgeGate7877.liveRefusal` (FinalDecisionGate line ~1277); the
+gate's later checks and `resolveExecutableSize7835` (line ~6365) run after it; nothing released the claim. A lane with a
+losing realised record (SHITCOIN n7, EXPRESS n9, MOONSHOT n39) was therefore "occupied" for 90 s by every candidate that
+passed the edge gate and was then refused or sized to zero. Evidence: SHITCOIN allowed 0, bought 0, no live position open,
+7 candidates ended `LANE_REALISED_LOSING_PROBE_OCCUPIED_8424`; MOONSHOT 11, EXPRESS 14; 91 pocket-evidence coins.
+
+**Fix.** `release9024(lane, mint)` on a gate verdict that is not a buy (`SpecialistOwnership7951.onFdgVerdict7951`);
+`releaseLane9024(lane)` when a sealed ticket ends unexecuted (`TicketExec8304.onDrop8304`). `laneProbe8424[...
+releasedUnbought9024=]`, label `LANE_REALISED_PROBE_RELEASED_9024`. One probe at a time is unchanged.
+
+**Not changed — the owner's decision.** `RISK_SIZE_BELOW_EXECUTABLE_MINIMUM_7835` x18: the smallest routable ticket is
+0.0434-0.0446 SOL (21 % of a 0.2070 SOL wallet) and the per-trade loss cap for a wallet at or under 0.25 SOL is 8 %
+(`LiveRiskPolicy7807.hardPerTradeRiskCapFrac`), so a plan whose stop plus cost exceeds ~37 % cannot be sized. Under
+~0.245 SOL the 40 % runner stop no longer fits.

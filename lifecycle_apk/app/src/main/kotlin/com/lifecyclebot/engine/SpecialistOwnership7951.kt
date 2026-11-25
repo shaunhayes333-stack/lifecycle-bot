@@ -225,6 +225,8 @@ object SpecialistOwnership7951 {
         val receipt8397 = FdgReceipt8397.outcome(shouldTrade, blockReason)
         // An FDG attempt can be deferred. The same typed meaning reaches the election, task and ledger.
         noteFdgVerdict8136(mint, lane, candidateVersion, shouldTrade, blockReason, nowMs)
+        // V5.0.9024 — a candidate the gate did not send to a buy stops holding its lane's one probe slot
+        if (!shouldTrade) try { com.lifecyclebot.engine.truth.LaneRealisedProbe8424.release9024(lane, mint, blockReason) } catch (_: Throwable) {}
         try { HandoffReceiverTasks8153.onFdgVerdict8153(mint, lane7951(lane), shouldTrade, blockReason, nowMs, candidateVersion, receipt8397) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.truth.AdmissionHandoff8144.onFdgVerdict8144(mint, lane, shouldTrade, blockReason, nowMs, receipt8397, candidateVersion) } catch (_: Throwable) {}
         OwnershipChain8364.onFdgVerdict8364(lane, mint, candidateVersion, shouldTrade, blockReason, nowMs)  // V5.0.8364 — the candidate's FDG verdict on its chain

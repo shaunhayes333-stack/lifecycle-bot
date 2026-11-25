@@ -88,6 +88,7 @@ object TicketExec8304 {
         if (attemptId.isNotBlank() && ticketed8304.remove("$mode|$l|$attemptId") != null) b.dropped.incrementAndGet()
         if (attemptId.isNotBlank()) try { TicketRetry8327.onTerminal8327(attemptId) } catch (_: Throwable) {}  // V5.0.8327
         try { TicketCause8330.onDrop8330(l, reason) } catch (_: Throwable) {}  // V5.0.8330 — LIVE_BUY_NOT_OPENED cause split per lane
+        try { com.lifecyclebot.engine.truth.LaneRealisedProbe8424.releaseLane9024(l) } catch (_: Throwable) {}   // V5.0.9024 — a buy that did not open frees the lane
         try { PipelineHealthCollector.labelInc("TICKET_DROPPED_8304_$l") } catch (_: Throwable) {}
     }
 

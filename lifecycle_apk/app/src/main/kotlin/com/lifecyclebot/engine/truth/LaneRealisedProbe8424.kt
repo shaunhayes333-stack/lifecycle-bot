@@ -131,12 +131,53 @@ object LaneRealisedProbe8424 {
         } catch (_: Throwable) {}
     }
 
+    /**
+     * V5.0.9024 §A_CANDIDATE_THAT_DID_NOT_BUY_DOES_NOT_HOLD_THE_LANE — owner, 26 Nov 03:56: "trading is still very choked
+     * out". The claim is taken when LiveEdgeGate7877 admits the coin (FinalDecisionGate, early); the gate's later checks and
+     * its sizing run after it, and nothing ever released the claim ("a failed buy frees it" was the comment, not the code).
+     * 5.0.9023, LIVE, 16.5 min, liveOpen=0: SHITCOIN — gate allowed 0 of 152, bought 0 — still ended 7 candidates on
+     * LANE_REALISED_LOSING_PROBE_OCCUPIED; MOONSHOT 11, EXPRESS 14; 91 pocket-evidence coins in all; 18 gate passes were then
+     * sized to zero (RISK_SIZE_BELOW_EXECUTABLE_MINIMUM_7835), each holding its lane for [CLAIM_MS_8424]. A claim now ends
+     * when its own candidate's gate verdict is not a buy ([release9024], SpecialistOwnership7951.onFdgVerdict7951) or its
+     * sealed ticket ends unexecuted ([releaseLane9024], TicketExec8304.onDrop8304). One probe at a time is unchanged: an
+     * open position occupies the lane, and a live admission still claims it.
+     */
+    fun release9024(lane: String, mint: String, reason: String? = null): Boolean {
+        if (lane.isBlank() || mint.isBlank() || !releasable9024(reason)) return false
+        var freed = false
+        for (k in setOf(lane, try { CanonicalLaneIdentity6506.desk8392(lane) } catch (_: Throwable) { lane })) {
+            val c = claims[k] ?: continue
+            if (c.mint == mint && claims.remove(k, c)) freed = true
+        }
+        if (freed) {
+            released9024.incrementAndGet()
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LANE_REALISED_PROBE_RELEASED_9024") } catch (_: Throwable) {}
+        }
+        return freed
+    }
+
+    /** Pure: a verdict that only says the coin's own buy is already under way does not end its claim. */
+    fun releasable9024(reason: String?): Boolean {
+        val r = reason?.uppercase() ?: return true
+        return listOf("IN_FLIGHT", "INFLIGHT", "DUPLICATE", "ALREADY_", "LEASE", "TICKET_", "POSITION_OPEN", "PENDING_BUY").none { r.contains(it) }
+    }
+
+    /** The lane's sealed ticket ended unexecuted: its claim (whichever coin's) ends with it. */
+    fun releaseLane9024(lane: String): Boolean {
+        if (lane.isBlank()) return false
+        var freed = false
+        for (k in setOf(lane, try { CanonicalLaneIdentity6506.desk8392(lane) } catch (_: Throwable) { lane })) if (claims.remove(k) != null) freed = true
+        if (freed) released9024.incrementAndGet()
+        return freed
+    }
+    private val released9024 = AtomicLong(0)
+
     fun statusLine8424(nowMs: Long = System.currentTimeMillis()): String {
         val live = claims.entries.filter { nowMs - it.value.atMs in 0L until CLAIM_MS_8424 }
             .joinToString(",") { "${it.key}:${it.value.mint.take(6)}" }.ifBlank { "-" }
-        return "laneProbe8424[admitted=${probes.get()} occupied=${occupied.get()} provenWaits=${provenWaits.get()} claims=$live " +
+        return "laneProbe8424[admitted=${probes.get()} occupied=${occupied.get()} provenWaits=${provenWaits.get()} claims=$live releasedUnbought9024=${released9024.get()} " +
             "rule=losing lane probes 1 at a time at the small stake; proven(n>=$PROVEN_MIN_N_8424,mean+2se<0) every ${PROVEN_PROBE_GAP_MS_8424 / 3_600_000L}h]"
     }
 
-    internal fun resetForTests8424() { claims.clear(); probes.set(0); occupied.set(0); provenWaits.set(0) }
+    internal fun resetForTests8424() { claims.clear(); probes.set(0); occupied.set(0); provenWaits.set(0); released9024.set(0) }
 }
