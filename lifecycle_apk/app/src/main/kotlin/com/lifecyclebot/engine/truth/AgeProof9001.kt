@@ -142,9 +142,13 @@ object AgeProof9001 {
             }.joinToString(" ")
             "$l[all=n${all?.first ?: 0}/${"%+.1f".format(all?.second ?: 0.0)}% $bands]"
         }.ifBlank { "-" }
-        return "ageProof9001{$body rule=admitted labels, capped +${LABEL_CAP_PCT_9001.toInt()}%; gap = lane mean - (band mean + SE), " +
+        return "ageProof9001{seed9005=$seed9005 $body rule=admitted labels, capped +${LABEL_CAP_PCT_9001.toInt()}%; gap = lane mean - (band mean + SE), " +
             "off setup / timing / Cortex / runner-grab records at the support tests; cell and pockets unshifted; n>=$MIN_LANE_N_9001 lane, >=$MIN_BAND_N_9001 band}"
     }
 
-    internal fun resetForTest9001() { cells.clear() }
+    @Volatile private var seed9005 = "pending"
+    /** EdgeModel8537: how the record was filled at start (seeded:used/seen, replayed, no-dataset, failed). */
+    fun noteSeed9005(status: String) { seed9005 = status }
+
+    internal fun resetForTest9001() { cells.clear(); seed9005 = "pending" }
 }

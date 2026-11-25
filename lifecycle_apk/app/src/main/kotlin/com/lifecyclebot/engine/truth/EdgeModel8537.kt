@@ -786,6 +786,9 @@ object EdgeModel8537 {
                 } else if (!conviction8868Loaded) {
                     com.lifecyclebot.engine.JobCost8813.measureBackground8817("edgeConvictionSeed") { seedConviction8868(File(f.parentFile, DATASET_FILE)) }
                 }
+                // V5.0.9005 — the age record is memory only and the replay above runs only when the model is rebuilt
+                // ("replay8642=not-needed" on the 18:23 capture left it at 8 labels), so it is read from the dataset on its own
+                if (current) { val ds9005 = File(f.parentFile, DATASET_FILE); io.execute { seedAgeProof9005(ds9005) } } else AgeProof9001.noteSeed9005("replayed")
                 loaded = true
                 if (!current || convictionSeed8868.startsWith("seeded")) saveNow()
             } catch (_: Throwable) {
@@ -1052,6 +1055,25 @@ object EdgeModel8537 {
         }
         convictionSeed8868 = "seeded:$used/$seen"
         try { PipelineHealthCollector.labelInc("EDGE_CONVICTION_SEEDED_8868") } catch (_: Throwable) {}
+    }
+
+    /** V5.0.9005 — one background read of the labelled dataset into AgeProof9001 (the same rows the replay accepts). */
+    private fun seedAgeProof9005(file: File) {
+        if (!file.isFile) { AgeProof9001.noteSeed9005("no-dataset"); return }
+        var used = 0
+        val seen = try {
+            streamLatestDatasetRows8844(file) row@{ line ->
+                try {
+                    if (refusedUnparsed8863(line)) return@row
+                    val o = org.json.JSONObject(line)
+                    if (!replayAccept8642(o) || !o.optBoolean("admitted")) return@row
+                    AgeProof9001.note9001(o.optString("lane"), column8801(o, "age"), column8801(o, "net"), true, true)
+                    used++
+                } catch (_: Throwable) {}
+            }
+        } catch (_: Throwable) { -1 }
+        AgeProof9001.noteSeed9005(if (seen < 0) "failed" else "seeded:$used/$seen")
+        try { PipelineHealthCollector.labelInc("AGE_PROOF_SEEDED_9005") } catch (_: Throwable) {}
     }
 
     private fun saveAsync() { io.execute { saveNow() } }

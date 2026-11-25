@@ -3965,3 +3965,33 @@ time, as before. Stake is unchanged (a lane without a positive realised record s
 a fresh band can cost before its own record holds it is three small-stake closes. Label LANE_SHUT_NOT_AT_THIS_AGE_9004_<lane>.
 Hard safety, the LP rule, economics, data and every record door are untouched. The lane-wide read used by the evidence
 hold (no coin named) is unchanged.
+
+## 190. The age record is filled at every start (9005)
+
+Fault in 9001, found on the first 9004 capture (25 Nov 18:23, uptime 817 s): `ageProof9001{CRYPTO_CASHGEN[all=n4] CASHGEN
+[all=n4]}` and `edge8537[... replay8642=not-needed]`. AgeProof9001 is memory only and 9001 filled it from the dataset
+replay, which runs only when the edge model has to be rebuilt. On an ordinary start it began empty and saw 8 labels in 13
+minutes, so the 9001 gap, the 9003 pocket rule and the label branch of 9004 (all need 100+ labels in a band) did nothing on
+the device, and would have done nothing after any restart. Section 186's "built from ... the dataset replay at start" was
+wrong.
+
+Change: on a start that does not replay, EdgeModel8537 reads the labelled dataset once on its own background thread into
+AgeProof9001 (seedAgeProof9005: the rows the replay accepts, admitted only). The report line starts `seed9005=` with
+seeded:used/seen, replayed, no-dataset, failed or pending.
+
+What the device's own dataset gives when read this way (export 18:23, 62,192 rows; admitted, filled, capped +300 %):
+
+| lane | under 15 min | 15-60 min | 1-24 h | over 24 h |
+|---|---|---|---|---|
+| MOONSHOT (n 1,662, +6.0 %) | n600 +19.1 +- 2.7 pays | n111 -0.3 +- 4.5 | n306 -0.4 +- 2.0, gap 4.4 | n633 -2.0 +- 0.7 loses, gap 7.3 |
+| EXPRESS (n 1,487, +7.4 %) | n879 +13.6 +- 2.0 pays | n94 | n159 -2.4 +- 1.8 loses, gap 8.0 | n343 -2.3 +- 0.8 loses, gap 9.0 |
+| SHITCOIN (n 790, +13.6 %) | n655 +16.3 +- 2.6 pays | n59 | n76 | - |
+| CORE (n 625, +7.4 %) | n313 +15.6 +- 3.4 pays | n49 | n79 | n182 -1.7 +- 1.1 loses, gap 8.0 |
+| CASHGEN (n 330) | - | - | n42 | n270 -2.4 +- 0.3 loses |
+| CYCLIC (n 148) | - | - | - | n148 -2.4 +- 0.9 loses |
+| CRYPTO_MOONSHOT (n 439) | n39 | n52 | n91 | n205 -3.9 +- 1.4 loses |
+
+Same capture, other readings: the launch rule landed its first live buy (sniper8748 armedLanded{n1 p50=16s}; funnel
+LAUNCH_RULE_8748 COINS=21 ADMIT=3 FDG_ALLOW=2 TICKET=1 EXEC=1), and 18 of its 21 coins were refused by the hard holder
+rule (top-10 wallets 35 %+ of supply). The holder read excludes the curve and venue vaults by program
+(OnChainHolderConcentration7379); the 12 verdict lines in the 22-25 Nov captures are all complete reads. Not changed.
