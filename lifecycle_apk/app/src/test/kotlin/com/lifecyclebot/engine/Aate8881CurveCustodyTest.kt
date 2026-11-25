@@ -144,7 +144,7 @@ class Aate8881CurveCustodyTest {
         assertTrue(safety.contains("if (onCurve7384) lpUnlockedRisk = false"))
         val executor = src("engine/Executor.kt")
         assertTrue("the pump.fun local buy keeps its own pump-only proof",
-            executor.contains("val curve8522 = if (!ts.tokenMap.migratedOrGraduated && LiquidityOwnership8522.activeCurveVerified(ts.mint))"))
+            executor.contains("val curve8522 = if (!ts.tokenMap.migratedOrGraduated && LiquidityOwnership8522.pumpCurveLive9007(ts.mint))"))   // superseded by V5.0.9007
         assertTrue(src("engine/DiagnosisBrief8438.kt").contains("CurveCustody8881.statusLine8881()"))
         assertTrue(File("../../docs/DATA_MAP.md").readText().contains("## 70. Meteora DBC and Raydium LaunchLab curves are proven in custody (8881)"))
     }

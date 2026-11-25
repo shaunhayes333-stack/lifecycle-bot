@@ -98,7 +98,7 @@ class Aate8320CurveExitFloorTest {
         assertFalse(g.contains("LaneAgeLiquidityTruth8140.activeCurveExitSafe8319(ts.mint)"))
         val active8881 = src("engine/LiquidityOwnership8522.kt").substringAfter("fun activeCurve8881(").substringBefore("/** Pure parsing.")
         assertTrue(active8881.contains("if (migrated) return false to \"\""))
-        assertTrue(active8881.contains("if (activeCurveVerified(mint, nowMs))"))
+        assertTrue(active8881.contains("if (pumpCurveLive9007(mint, nowMs))"))   // superseded by V5.0.9007: the account read, or the program's own stream
         assertTrue(active8881.contains("PumpCurveKeys7269.canonicalCurveKey7392(mint)"))
         assertTrue(g.contains("safety, selectedPool8522, curveExitSafe8319, TokenSafetyChecker.isWhitelisted(mint), curveAddress8522, now"))
         assertTrue(g.contains("val curveCustody8522 = ownership8522.reason == \"ACTIVE_CURVE_LP_NOT_APPLICABLE_8522\""))

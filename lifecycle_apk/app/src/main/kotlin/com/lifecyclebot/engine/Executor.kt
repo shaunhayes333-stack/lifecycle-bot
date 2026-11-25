@@ -8701,6 +8701,19 @@ class Executor(
         return false
     }
 
+    /**
+     * V5.0.9007 — the loss (%, negative) at which the lane hard cap sells: -15 for MANIPULATED / SHITCOIN / EXPRESS, no cap
+     * for any other lane; and for a position bought on an armed launch rule, that rule's own stop (LaunchSniper8748, the
+     * stop its record was graded at). The first live launch-rule buy (Gzz8Cz, 25 Nov 18:11, EXPRESS) was sold by this cap
+     * 52 s in at -7.6 %; on the launch hours the same entries make +14.0 % under a 15 % stop and +20.1 % under the 35 % one.
+     */
+    private fun laneHardCap9007(ts: TokenState, laneName: String): Double {
+        if (laneName != "MANIPULATED" && laneName != "SHITCOIN" && laneName != "EXPRESS") return Double.NEGATIVE_INFINITY
+        val rule = try { com.lifecyclebot.engine.truth.LaunchSniper8748.ruleStopMag8949(ts.mint, ts.position.entryTime) } catch (_: Throwable) { null }
+        if (rule != null && rule > 15.0) { try { PipelineHealthCollector.labelInc("LANE_HARD_CAP_HOLDS_RULE_STOP_9007") } catch (_: Throwable) {}; return -rule }
+        return -15.0
+    }
+
     /** V5.0.9000 — true (and counted) when the coin's ACTIVE pump.fun curve was read fresh: it has no LP to pull. */
     private fun onActiveCurve9000(mint: String): Boolean {
         val on = try { com.lifecyclebot.engine.truth.CurveReserves7951.realSolIfActive8046(mint) != null } catch (_: Throwable) { false }
@@ -9257,10 +9270,7 @@ class Executor(
                 val laneName = try {
                     ts.position.tradingMode.uppercase()
                 } catch (_: Throwable) { "" }
-                val isCatastrophicLane = laneName == "MANIPULATED" ||
-                    laneName == "SHITCOIN" ||
-                    laneName == "EXPRESS"
-                if (isCatastrophicLane && worstPnl <= -15.0) {
+                if (worstPnl <= laneHardCap9007(ts, laneName)) {
                     try {
                         ForensicLogger.lifecycle(
                             "LANE_HARD_15PCT_SL",
@@ -32445,7 +32455,7 @@ class Executor(
             // The local API returns a transaction without an AMM quote/pool identity. Use its
             // explicit curve selector only with actual fresh curve-account evidence. Ordinary
             // AMMs continue through Jupiter/Raydium, whose selected pools can be verified.
-            val curve8522 = if (!ts.tokenMap.migratedOrGraduated && LiquidityOwnership8522.activeCurveVerified(ts.mint))
+            val curve8522 = if (!ts.tokenMap.migratedOrGraduated && LiquidityOwnership8522.pumpCurveLive9007(ts.mint))
                 try { com.lifecyclebot.network.PumpCurveKeys7269.canonicalCurveKey7392(ts.mint).orEmpty() }
                 catch (_: Throwable) { "" } else ""
             if (curve8522.isBlank()) {

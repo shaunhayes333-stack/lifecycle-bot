@@ -614,7 +614,7 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                 // (CurveCustody8881). In LIVE a flagged coin with no pump.fun curve has its pool's custody read now, so this
                 // report and the proof agree; the pool at the curve's own address is the curve, whatever its label.
                 val onCurve7384 = try {
-                    if (lpUnlockedRisk && !isPaperMode && !LiquidityOwnership8522.activeCurveVerified(mint)) {
+                    if (lpUnlockedRisk && !isPaperMode && !LiquidityOwnership8522.pumpCurveLive9007(mint)) {
                         val pool8881 = selectedPoolAddress8522.ifBlank { lpOwnership8522.pools.filter { it.depthUsd > 0.0 }.maxByOrNull { it.depthUsd }?.address.orEmpty() }
                         if (pool8881.isNotBlank()) com.lifecyclebot.engine.truth.CurveCustody8881.prove8881(mint, pool8881)
                     }

@@ -49,9 +49,30 @@ class SignalTape8828 {
         const val BASE_TIGHT_8994 = "B8994T"
         private const val BASE_LOOK_BARS_8994 = 18L
 
+        /**
+         * V5.0.9007 §BOUGHT_AT_ITS_OPEN_NOT_AFTER_ITS_PUMP — owner, 25 Nov 18:41: "we should be at the point of hitting 500%
+         * trades winning and better consistently ... the tokens and trades are there". They are. On the owner's launch-hour
+         * exports (4,344 pump.fun launches, 22-25 Nov, 10-second bars; decided at 20 s, filled one bar later, 3 % cost, 3 %
+         * exit slip, the DOCTRINE ladder with a 35 % stop): a launch bought 20-30 s old peaks +500 % or more inside the hour
+         * 6.5 % of the time. What separates the ones worth buying is where the price stands against its own first print:
+         *   still within +15 % of its first print, 8+ prints: n 1,344, +16.1 % +- 4.8 a trade, halves +17.2 / +14.9,
+         *     1.9 % of trades (26) realise +500 % or more, 7.8 % realise +100 %; median -7 % (it is bought near the curve's
+         *     floor, so most losers lose little);
+         *   already +40 % or more over its first print, 8+ prints: n 711, +4.9 % (halves -1.1 / +11.2): the top;
+         *   the armed rule's shape (cap >= $5k with 3+ buys): n 865, +9.6 % (halves +6.6 / +12.1), median -39.9 %.
+         * The same entries decided at 60 s: n 878, +10.4 % (halves +10.6 / +10.1). So two settings join the tape: the launch
+         * with 8+ prints still within +15 % of its first print when its 20-40 s bar closes, and when its 60-80 s bar closes.
+         * Bars are not prints: SignalReplay8828 grades both on this phone's stored launch hours with the replay's fills and
+         * the bot's latency, and only a PROVEN record arms one.
+         */
+        const val AT_OPEN_20S_9007 = "O9007A"
+        const val AT_OPEN_60S_9007 = "O9007B"
+        private const val AT_OPEN_MAX_OVER_9007 = 1.15
+        private const val AT_OPEN_MIN_PRINTS_9007 = 8
+
         /** The signals this tape expresses (SignalBible300 ids, and the base breakout's two settings). */
         val IDS: List<String> = listOf("S001", "S003", "S005", "S006", "S009", "S010", "S011", "S012", "S014", "S016", "S023",
-            "S049", "S050", "S051", "S052", BASE_WIDE_8994, BASE_TIGHT_8994)
+            "S049", "S050", "S051", "S052", BASE_WIDE_8994, BASE_TIGHT_8994, AT_OPEN_20S_9007, AT_OPEN_60S_9007)
         /** Those that need the buyer's wallet. */
         val WALLET_IDS: Set<String> = setOf("S001", "S003", "S005", "S010", "S014")
     }
@@ -76,6 +97,7 @@ class SignalTape8828 {
     private var h30 = Float.NaN; private var broke30 = false
     private var maxHigh = Float.NaN; private var prevMaxHigh = Float.NaN
     private var walletsKnown = false
+    private var first9007 = Float.NaN   // V5.0.9007 — the launch's first print
     private val fired = BooleanArray(IDS.size)
 
     private fun ri(back: Int): Int = ((head - 1 - back) % RING + RING) % RING
@@ -113,6 +135,7 @@ class SignalTape8828 {
         if (cIdx >= 0L && b > cIdx) { val adjacent = b == cIdx + 1L; closeBar(); if (live && adjacent) on = evaluate() }
         if (cIdx < 0L || b > cIdx) openBar(b, px)
         val f = px.toFloat()
+        if (first9007.isNaN()) first9007 = f
         if (f > cH) cH = f
         if (f < cL) cL = f
         cC = f
@@ -216,7 +239,20 @@ class SignalTape8828 {
         // tight (>= 90 s, >= 4 bars inside 25 %, >= 3 % over, buy SOL >= 1.5x, buys >= 65 %)
         BASE_WIDE_8994 -> baseBreakout8994(minIdx = 6L, minBars = 3, rangeMax = 0.35, overMin = 0.02, volX = 1.0, shareMin = 0.55)
         BASE_TIGHT_8994 -> baseBreakout8994(minIdx = 9L, minBars = 4, rangeMax = 0.25, overMin = 0.03, volX = 1.5, shareMin = 0.65)
+        AT_OPEN_20S_9007 -> atOpen9007(1L, 3L)
+        AT_OPEN_60S_9007 -> atOpen9007(5L, 7L)
         else -> false
+    }
+
+    /**
+     * V5.0.9007 — the newest closed bar is one of bars [fromIdx]..[toIdx] (10 s each from birth), the launch has printed
+     * [AT_OPEN_MIN_PRINTS_9007]+ times and that bar closed no more than +15 % over the launch's first print.
+     */
+    private fun atOpen9007(fromIdx: Long, toIdx: Long): Boolean {
+        if (n == 0 || idx(0) !in fromIdx..toIdx || !(first9007 > 0f)) return false
+        var prints = 0
+        for (b in 0 until n) prints += buys(b) + sells(b)
+        return prints >= AT_OPEN_MIN_PRINTS_9007 && c(0) <= first9007.toDouble() * AT_OPEN_MAX_OVER_9007
     }
 
     /**

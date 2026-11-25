@@ -4041,3 +4041,58 @@ Changes:
   METEORA_DLMM:UNLOCKED on 85 selected pools in the same capture: the pool the safety report blames is a different pool
   from the one the gate selects. Which program those pools belong to is what the next capture will say.
 9001 and 9003 are unchanged: they act only on bands that lose on priced decisions, where the unpriced share is ordinary.
+
+## 192. Bought at its open, and a pump.fun curve has no LP to pull (9007)
+
+Owner, 25 Nov 18:41: "we should be at the point of hitting 500% trades winning and better consistently. especially from the
+meme traders. the tokens and trades are there". 18:45: "all pumpfun coins have locked liq. unless mayhem mode."
+
+Source: the two launch-hour exports merged (aate_launch_hour 1795528357263 and 1795595748529): 4,344 pump.fun launches born
+22 Nov 13:27 to 25 Nov 08:23 UTC, each with its first hour in 10-second bars and its launch facts. Method: decide when the
+bar at T closes, fill at the next bar's close (10-20 s later), 3 % round-trip cost, 3 % slip on every exit, a stop or trail
+breached inside a bar fills at the line or the bar's open if lower, peaks counted on closes only. "DOCTRINE" = the live
+ladder (25 % at 2x, 18 % of the rest at 5x, 25 % at 10x ...), 35 % stop until the first rung, 45 % trail after it, out at 10
+minutes if it never reached +20 %. Halves = older / newer launches.
+
+The +500 % trades exist: of launches still printing, the price 20 s after birth is followed by a peak of +500 % or more
+inside the hour in 6.5 % (206 of 3,157), +900 % or more in 2.5 %; from 60 s 5.0 %; from 300 s 2.9 %; from 600 s 2.4 %.
+
+Decided at 20 s, every input known at the decision (a path exists only for a launch with 3+ prints, so 3+ prints by the
+decision is required - without it the cell holds launches chosen by their future):
+
+| entry | n (per day) | mean +- SE | halves | median | realise +100 % | realise +500 % |
+|---|---|---|---|---|---|---|
+| every launch with 3+ prints, whole position trailed 35 % from +100 % | 2,778 (992) | +10.6 +- 3.2 | +9.0 / +12.3 | -21.2 | 7.6 % | 1.7 % (47) |
+| 8+ prints, within +15 % of its first print, DOCTRINE | 1,344 (480) | +16.1 +- 4.8 | +17.2 / +14.9 | -7.3 | 7.8 % | 1.9 % (26) |
+| the same, bundle and sniper share both under 3 %, DOCTRINE | 1,053 (376) | +20.1 +- 5.8 | +19.7 / +20.5 | -6.0 | 8.8 % | 2.1 % (22) |
+| the same, bundle or sniper share 3 %+ | 291 | +1.7 +- 7.0 | +6.6 / -2.2 | -12.8 | 4.1 % | 1.4 % |
+| 8+ prints, already +40 % over its first print | 711 | +4.9 +- 5.6 | -1.1 / +11.2 | -39.9 | 7.2 % | 1.5 % |
+| the armed rule's shape (cap >= $5k, 3+ buys), DOCTRINE | 865 | +9.6 +- 5.0 | +6.6 / +12.1 | -39.9 | 9.0 % | 2.7 % |
+
+The clean at-its-open cell without its best 1 % of trades: +5.9 %; without its best 5 trades +12.5 % (whole-position trail).
+By day (whole-position trail, clean cell): 22 Nov +17.8 % n517, 23 Nov +20.8 % n475, 24 Nov +43.8 % n374, 25 Nov +18.2 % n183.
+74 % of its trades lose; the result is the 8-9 % that double and the 2 % that go +500 %. Filled later than one bar: 20-30 s
++12.5 %, 40-50 s +10.8 %, 70-80 s +10.1 %. Decided at 60 s instead (tape only): n 878, +10.4 %, halves +10.6 / +10.1.
+
+Exits on the clean at-its-open cell (n 1,053): DOCTRINE with its 10-minute time stop +20.1 %; without the time stop +20.7 %;
+whole position trailed 35 % from +100 % +22.0 % (25 trades at +500 %); DOCTRINE under the lane's 15 % stop +14.0 %.
+
+What live did with the first launch-rule buy it ever landed (18:23 capture): Gzz8Cz, EXPRESS, bought 18:11:30 at a $30,269
+cap (the rule fires at $5k), sold 18:12:22 by LANE_HARD_15PCT_SL_EXPRESS at -7.6 %. The lane cap, not the rule's 35 % stop
+(StopAuthority7887 holds the ordinary stop on the rule's figure; the lane cap in Executor did not ask).
+
+Changes:
+1. SignalTape8828 gains two settings, O9007A and O9007B: the launch has printed 8+ times and its bar closing at 20-40 s
+   (A) or 60-80 s (B) closed no more than +15 % over the launch's first print. Like every tape signal they are graded by
+   SignalReplay8828 on this phone's stored launch hours, on prints, at the bot's latency, under DOCTRINE, and trade only
+   when PROVEN (n >= 100, the mean without the three best above its SE, both halves positive), through admission and
+   every safety door. The bundle / sniper filter is not on the tape yet (LaunchFacts8840 holds both live).
+2. The lane hard cap (-15 % on MANIPULATED / SHITCOIN / EXPRESS) holds an armed launch rule's own stop for a position
+   bought on that rule (LaunchSniper8748.ruleStopMag8949), label LANE_HARD_CAP_HOLDS_RULE_STOP_9007. Every other position
+   keeps -15 %.
+3. A pump.fun curve is live for the LP rule when the pump.fun program's own trade / create stream showed it trading inside
+   30 s (CurveReserves7951.freshRealSol9007), not only when an RPC account read did: not graduated, 0.5+ SOL real, chain
+   supply not in the Mayhem band. The mint suffix alone proves nothing (it can be ground); the program trading it does.
+   Used by the buy door (LiquidityOwnership8522.activeCurve8881), the safety report's unlocked-LP flag and the direct curve
+   buy. Label PUMP_CURVE_PROVEN_BY_PROGRAM_STREAM_9007. In the research rows 7 pump.fun coins were LP-blocked and 373 sat
+   PENDING on a safety proof against 318 and 482 off pump.fun.

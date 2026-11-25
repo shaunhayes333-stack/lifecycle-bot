@@ -285,6 +285,18 @@ object CurveReserves7951 {
         return r.realSol.takeIf { it.isFinite() && it >= 0.0 }
     }
 
+    /**
+     * V5.0.9007 — the real SOL in [mint]'s ACTIVE pump.fun curve from a reading (a pump.fun program trade / create frame or
+     * an account read) at most [maxAgeMs] old; null when there is none, it is older, or the coin graduated.
+     */
+    fun freshRealSol9007(mint: String, nowMs: Long, maxAgeMs: Long = 30_000L): Double? {
+        if (!PumpCurveKeys7269.isPumpMint8658(mint)) return null
+        val r = rows[mint.trim()] ?: return null
+        if (nowMs - r.atMs !in -5_000L..maxAgeMs) return null
+        if (try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(mint) } catch (_: Throwable) { true }) return null
+        return r.realSol.takeIf { it.isFinite() && it >= 0.0 }
+    }
+
     /** A fresh account read, distinct from virtual-reserve arithmetic on a stream frame. */
     fun accountRealSol8253(mint: String, nowMs: Long): Double? {
         if (!PumpCurveKeys7269.isPumpMint8658(mint)) return null

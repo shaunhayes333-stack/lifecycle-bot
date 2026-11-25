@@ -47,13 +47,39 @@ object LiquidityOwnership8522 {
     }
 
     /**
+     * V5.0.9007 §A_PUMP_FUN_COIN_HAS_NO_LP_TO_PULL — owner, 25 Nov 18:45: "all pumpfun coins have locked liq. unless mayhem
+     * mode. all tokens ending in pump have locked liq." On its curve a pump.fun coin's liquidity is in the program's custody;
+     * at migration the pool's LP is burned. The suffix alone is not the proof (four characters can be ground on any mint):
+     * the proof is the pump.fun program trading it now. A curve reading at most 30 s old that came from the program's own
+     * trade / create stream (PumpPortal, the Helius program tape) — not only an account read — shows the curve exists and is
+     * live under that program. Until now only an account read inside 30 s counted ([activeCurveVerified]), so a launch
+     * seconds old, whose curve had been seen trading but not yet read by RPC, answered LP-proof PENDING and was passed over
+     * while it waited. Not for a graduated coin, a curve under [LaneAgeLiquidityTruth8140.CURVE_EXIT_MIN_REAL_SOL_8319]
+     * real SOL, or a Mayhem coin (chain supply in the Mayhem band; MayhemMode7943 also refuses those on its own).
+     */
+    fun pumpCurveByStream9007(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        val real = try { com.lifecyclebot.engine.truth.CurveReserves7951.freshRealSol9007(mint, nowMs) } catch (_: Throwable) { null } ?: return false
+        if (real < LaneAgeLiquidityTruth8140.CURVE_EXIT_MIN_REAL_SOL_8319) return false
+        val supply = try { com.lifecyclebot.engine.truth.OnChainSupplyAuthority7075.supplyOf7075(mint) } catch (_: Throwable) { 0.0 }
+        return !(supply > 0.0 && MayhemMode7943.mayhemSupply(supply))
+    }
+
+    /** V5.0.9007 — [mint]'s pump.fun curve is live: by a fresh account read, or by the program's own stream. */
+    fun pumpCurveLive9007(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (activeCurveVerified(mint, nowMs)) return true
+        if (!pumpCurveByStream9007(mint, nowMs)) return false
+        try { PipelineHealthCollector.labelInc("PUMP_CURVE_PROVEN_BY_PROGRAM_STREAM_9007") } catch (_: Throwable) {}
+        return true
+    }
+
+    /**
      * V5.0.8881 — (active, address) of the bonding curve holding [mint]'s liquidity in program custody, for the LP rule: a
      * pump.fun curve by its fresh account read ([activeCurveVerified], unchanged), else a Meteora DBC / Raydium LaunchLab curve
      * proven from its own account and vault (truth.CurveCustody8881). Never active for a [migrated] coin.
      */
     fun activeCurve8881(mint: String, migrated: Boolean, nowMs: Long = System.currentTimeMillis()): Pair<Boolean, String> {
         if (migrated) return false to ""
-        if (activeCurveVerified(mint, nowMs))
+        if (pumpCurveLive9007(mint, nowMs))
             return true to (try { com.lifecyclebot.network.PumpCurveKeys7269.canonicalCurveKey7392(mint).orEmpty() } catch (_: Throwable) { "" })
         val c = try { com.lifecyclebot.engine.truth.CurveCustody8881.custody8881(mint, nowMs) } catch (_: Throwable) { null }
         return if (c != null) true to c.pool else false to ""
