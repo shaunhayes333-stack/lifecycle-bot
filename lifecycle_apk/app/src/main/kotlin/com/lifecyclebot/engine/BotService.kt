@@ -10226,6 +10226,34 @@ class BotService : Service() {
             val solana = executor.closePaperPositions8521(tokens, targets)
             val markets = kotlinx.coroutines.runBlocking { PaperStopLifecycle8521.closeMarkets(targets) }
             val confirmed = solana.closedIds + markets.closedIds
+            // V5.0.9017 — a requested lot this pass could not even attempt (no desk holds it, or no source gave a price a
+            // holder could sell at) is counted; once that has lasted (PaperRetire9017) it leaves the books. A lot that was
+            // attempted and refused is judged where it was refused (the terminal bridge's callers).
+            val attempted9017 = solana.attemptedIds + markets.attemptedIds
+            val noOwner9017 = targets - tokens.keys - markets.requestedIds - confirmed
+            val noPrice9017 = (tokens.keys + markets.requestedIds) - attempted9017 - confirmed
+            val retired9017 = try {
+                com.lifecyclebot.engine.truth.PaperRetire9017.noteUnsold9017(noOwner9017, attempted9017, "NO_OWNER_9017") +
+                    com.lifecyclebot.engine.truth.PaperRetire9017.noteUnsold9017(noPrice9017, emptySet(), "NO_OBSERVED_PRICE_9017")
+            } catch (_: Throwable) { emptySet<String>() }
+            // every requested lot the canonical book has ended by now: closed, or retired here or by a refused sale
+            val ended9017 = targets.filterTo(HashSet()) { try { PaperStopLifecycle8521.confirmedClosed(it) } catch (_: Throwable) { false } } - confirmed
+            if (ended9017.isNotEmpty()) {
+                val held9017 = synchronized(status.tokens) {
+                    status.tokens.values.filter { it.position.isPaperPosition && it.position.positionId in ended9017 }
+                }
+                held9017.forEach { ts ->
+                    // a lot retired on this pass was never attempted, so nothing has cleaned up after it yet; one retired by
+                    // a refused sale was cleaned up where it was refused, on the Stop's own snapshot of the token
+                    if (ts.position.positionId in retired9017) {
+                        try { executor.dropRetiredPaper9017(ts, ts.position.positionId) } catch (_: Throwable) {}
+                    } else {
+                        ts.position = Position()
+                    }
+                }
+                try { com.lifecyclebot.perps.CryptoAltTrader.pruneTerminalPaper9017() } catch (_: Throwable) {}
+                addLog("🧹 PAPER: ${ended9017.size} lot(s) nobody could sell left the books (${retired9017.size} on this pass); nothing booked")
+            }
             try {   // V5.0.8932 — how far this pass's lots got
                 LiveNoPaper8184.noteCloseStages8932(targets.size, tokens.size, markets.requestedIds.size,
                     (targets - tokens.keys - markets.requestedIds).size, solana.attemptedIds.size + markets.attemptedIds.size, confirmed.size)

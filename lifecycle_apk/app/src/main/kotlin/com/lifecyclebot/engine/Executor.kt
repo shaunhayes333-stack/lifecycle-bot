@@ -25912,6 +25912,44 @@ class Executor(
     // freshness check; doSell passes its already-checked reason so a bounded
     // MARK_UNTRUSTED_6882 release is not re-evaluated. Kept in paperSell (not
     // a renamed wrapper) so the ART method budget pin still applies.
+    /**
+     * V5.0.9017 — a terminal paper sale of [positionId] was refused for [why]: counted by reason (PaperRetire9017); true when
+     * that refusal has persisted and the lot was retired — its reservation is settled and its local copy dropped.
+     */
+    @androidx.annotation.Keep
+    private fun retiredOnRefusal9017(ts: TokenState, positionId: String, why: String): Boolean {
+        val retired = try { com.lifecyclebot.engine.truth.PaperRetire9017.onTerminalRefused9017(positionId, why) } catch (_: Throwable) { false }
+        if (!retired) return false
+        try { com.lifecyclebot.engine.truth.PositionStateLedger6454.confirmTerminalSell(positionId) } catch (_: Throwable) {}
+        dropRetiredPaper9017(ts, positionId)
+        return true
+    }
+
+    /**
+     * V5.0.9017 — a retired paper lot's local copy is dropped: the token's position, its persistence row, its close state,
+     * its wallet-lock size, its trade authorisation and its lane ghosts — the local cleanup a confirmed Stop close does
+     * (8521), with no trade recorded and nothing taught.
+     */
+    fun dropRetiredPaper9017(ts: TokenState, positionId: String) {
+        val cost9017 = try { ts.position.costSol } catch (_: Throwable) { 0.0 }
+        val shared9017 = try { PaperStopLaneRegistry8521.sharedTrackingReleased8521(positionId) } catch (_: Throwable) { false }
+        if (shared9017) {
+            try { GlobalTradeRegistry.closePosition(ts.mint) } catch (_: Exception) {}
+            try { EmergentGuardrails.unregisterPosition(ts.mint) } catch (_: Exception) {}
+            try { com.lifecyclebot.v4.meta.PortfolioHeatAI.removePosition(ts.mint) } catch (_: Throwable) {}
+        }
+        ts.position = Position()
+        try { PositionPersistence.removePosition(ts.mint, positionId, expectedPaper8521 = true) } catch (_: Exception) {}
+        try { PaperPositionCloseAuthority.markClosed("PAPER", ts.mint, ts.symbol, "RETIRED_UNSELLABLE_9017") } catch (_: Throwable) {}
+        try { WalletPositionLock.recordClose("Meme", cost9017) } catch (_: Exception) {}
+        try { TradeAuthorizer.releasePosition(ts.mint, "RETIRED_UNSELLABLE_9017", isPaperMode = true) } catch (_: Exception) {}
+        try { PaperStopLaneRegistry8521.retire(positionId) } catch (_: Exception) {}
+        try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "RETIRED_UNSELLABLE_9017") } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.HostWalletTokenTracker.clearSellInFlight(ts.mint, "RETIRED_UNSELLABLE_9017") } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.sell.SellExecutionLocks.forceRelease(ts.mint) } catch (_: Throwable) {}
+        onLog("🧹 PAPER lot left the books: ${ts.symbol} (nobody could sell it; nothing booked, nothing learned)", ts.mint)
+    }
+
     private fun reconcileCanonicalClosedPaper7836(ts: TokenState, reason: String): Boolean {
         if (!PaperTerminalProjectionConvergence6509.canonicalClosedNoActive(ts.mint)) return false
         PaperTerminalProjectionConvergence6509.converge(ts.mint, ts.symbol, "CANONICAL_ALREADY_CLOSED_6509:$reason", 0)
@@ -26673,6 +26711,10 @@ class Executor(
                 PipelineHealthCollector.labelInc("PAPER_ACCOUNTING_MUTATION_REJECTED")
                 PipelineHealthCollector.labelInc("PAPER_CLOSE_REFUSED_8872_${paperBridgeWhy8872.take(48).ifBlank { "UNKNOWN" }}")   // V5.0.8872
             } catch (_: Throwable) {}
+            // V5.0.9017 — the refusal is counted by reason; a lot the books refuse every time, for long enough, leaves them
+            // (PaperRetire9017): its local copy is dropped here and the exit stops asking.
+            // (kept out of this frame: paperSell's own frame is at ART's limit, see paperSellMarkRefusal7858)
+            if (retiredOnRefusal9017(ts, terminalPid6455, paperBridgeWhy8872)) return SellResult.ALREADY_CLOSED
             return SellResult.FAILED_FATAL
         }
         // V5.0.6628 §5 CANONICAL_CLOSE_JOURNAL_ATOMICITY (operator directive Feb 2026:

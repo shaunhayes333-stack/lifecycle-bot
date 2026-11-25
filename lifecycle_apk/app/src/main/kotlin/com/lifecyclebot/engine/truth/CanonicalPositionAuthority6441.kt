@@ -908,6 +908,62 @@ object CanonicalPositionAuthority6441 {
         } finally { lock.unlock() }
     }
 
+    /**
+     * V5.0.9017 — a PAPER lot nobody can sell leaves the books (PaperRetire9017): QUARANTINED with nothing remaining. No
+     * proceeds, no cash, no realised figure is written — the paper ledger is the one authority for paper money and settles
+     * whatever open cost it still holds for the lot by its own rules (8924 / 8765). Returns the lot as it stood, or null
+     * when it was not an open paper lot.
+     */
+    fun retireUnsellablePaper9017(positionId: String, why: String, nowMs: Long = System.currentTimeMillis()): Position? {
+        lock.lock()
+        try {
+            val pos = positions[positionId] ?: return null
+            if (!pos.mode.equals("paper", ignoreCase = true) ||
+                pos.lifecycle !in setOf(Lifecycle.OPEN, Lifecycle.PARTIALLY_CLOSED)) return null
+            positions[positionId] = pos.copy(
+                remainingQtyRaw = BigInteger.ZERO,
+                lifecycle = Lifecycle.QUARANTINED,
+                quarantineReason = (PaperRetire9017.REASON_PREFIX_9017 + why).take(120),
+                lastMutationMs = nowMs,
+            )
+            quarantines.incrementAndGet()
+            muts.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("CANONICAL_REVISION_BUMP_RETIRE_9017") } catch (_: Throwable) {}
+            try { LockedEntryMetrics6634.unlock6634(positionId, "RETIRED_UNSELLABLE_9017") } catch (_: Throwable) {}
+            return pos
+        } finally { lock.unlock() }
+    }
+
+    /**
+     * V5.0.9017 — the retired lots of [retired] that are open again in the book (the paper book is rebuilt from its event
+     * history at every start) are retired again: same id, and for a lot restored from its own BUY event the same open time.
+     * Caller holds [lock] (the rebuild) or nothing (a later pass); returns how many it retired.
+     */
+    internal fun applyRetired9017(retired: Collection<PaperRetire9017.Retired>, nowMs: Long = System.currentTimeMillis()): Int {
+        if (retired.isEmpty()) return 0
+        lock.lock()
+        try {
+            var n = 0
+            for (r in retired) {
+                val pos = positions[r.positionId] ?: continue
+                if (!pos.mode.equals("paper", ignoreCase = true) ||
+                    pos.lifecycle !in setOf(Lifecycle.OPEN, Lifecycle.PARTIALLY_CLOSED)) continue
+                // a carry lot is netted where it is restored (its id is rebuilt with whatever is left of the mint's carry)
+                if (PaperRetire9017.carryId9017(r.positionId) || pos.openedAtMs != r.openedAtMs) continue
+                positions[r.positionId] = pos.copy(
+                    remainingQtyRaw = BigInteger.ZERO, lifecycle = Lifecycle.QUARANTINED,
+                    quarantineReason = (PaperRetire9017.REASON_PREFIX_9017 + r.why).take(120), lastMutationMs = nowMs,
+                )
+                n++
+            }
+            if (n > 0) {
+                muts.incrementAndGet()
+                try { PipelineHealthCollector.labelInc("PAPER_RETIRED_REAPPLIED_AFTER_REBUILD_9017") } catch (_: Throwable) {}
+            }
+            return n
+        } finally { lock.unlock() }
+    }
+
     fun quarantine(positionId: String, reason: String) {
         lock.lock()
         try {
@@ -981,8 +1037,9 @@ object CanonicalPositionAuthority6441 {
         lock.lock()
         try {
             val closed = positions[positionId] ?: return false
-            if (!closed.mode.equals("paper", true) || closed.lifecycle != Lifecycle.CLOSED ||
-                closed.remainingQtyRaw.signum() != 0) return false
+            // V5.0.9017 — a retired paper lot (quarantined, nothing remaining) is terminal in the same sense
+            if (!closed.mode.equals("paper", true) || closed.remainingQtyRaw.signum() != 0 ||
+                (closed.lifecycle != Lifecycle.CLOSED && !PaperRetire9017.isRetired9017(closed))) return false
             // This is a destructive-cleanup permission, not a cached dashboard view.
             // Quarantine does not prove zero holdings; a pending LIVE buy may not have
             // its quantity yet. Neither can be cleared by another mode's PAPER exit.
@@ -2034,9 +2091,20 @@ object CanonicalPositionAuthority6441 {
             // the bounded event window. 6489 restored it into paper capital but
             // omitted it here, producing openCost>0 with zero paper positions.
             val carry6492 = try { EconomicEventSchema6464.replayCarry6489() } catch (_: Throwable) { null }
-            carry6492?.perMintQty?.forEach { (mint, qtyRaw) ->
-                val carryCost = carry6492.perMintCostSol[mint] ?: 0.0
-                if (mint.isBlank() || qtyRaw <= BigInteger.ZERO || !carryCost.isFinite() || carryCost <= 0.0) return@forEach
+            carry6492?.perMintQty?.forEach { (mint, carryQtyRaw9017) ->
+                val carryCostRaw9017 = carry6492.perMintCostSol[mint] ?: 0.0
+                if (mint.isBlank() || carryQtyRaw9017 <= BigInteger.ZERO || !carryCostRaw9017.isFinite() || carryCostRaw9017 <= 0.0) return@forEach
+                // V5.0.9017 — what was retired of this mint's carry is not restored, and never merged into a new position
+                val net9017 = try {
+                    val gone = PaperRetire9017.retiredCarry9017(mint)
+                    PaperRetire9017.netCarry9017(carryQtyRaw9017, carryCostRaw9017, gone.first, gone.second)
+                } catch (_: Throwable) { carryQtyRaw9017 to carryCostRaw9017 }
+                if (net9017 == null) {
+                    try { PipelineHealthCollector.labelInc("CANONICAL_CARRY_RETIRED_NOT_RESTORED_9017") } catch (_: Throwable) {}
+                    return@forEach
+                }
+                val qtyRaw = net9017.first
+                val carryCost = net9017.second
                 val existing = positions.values.firstOrNull {
                     it.mode == "paper" && it.mint == mint &&
                         it.lifecycle in setOf(Lifecycle.OPEN, Lifecycle.PARTIALLY_CLOSED) && it.remainingQtyRaw > BigInteger.ZERO
@@ -2107,6 +2175,9 @@ object CanonicalPositionAuthority6441 {
                     try { PipelineHealthCollector.labelInc("CANONICAL_CARRY_POSITION_RESTORED_6492") } catch (_: Throwable) {}
                 }
             }
+            // V5.0.9017 — a lot retired in an earlier run was rebuilt from its BUY event above: it is retired again here,
+            // before any projection (state ledger, quantity boundary, occupancy) is built from the open set.
+            try { applyRetired9017(PaperRetire9017.retiredSnapshot9017()) } catch (_: Throwable) {}
             // PositionStateLedger is terminal-CAS projection only. Rebuild it
             // from canonical lifecycle; it may never invent independent opens.
             val canonicalOpen6519 = positions.values.filter {

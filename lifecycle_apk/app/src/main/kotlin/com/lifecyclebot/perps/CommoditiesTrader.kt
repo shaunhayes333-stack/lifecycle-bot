@@ -938,6 +938,12 @@ if (signal.tradeType == TradeType.SPOT) {
                 terminalSequence = System.currentTimeMillis(),
             )
             if (!canonicalClose6486.applied) {
+                // V5.0.9017 — only a lot already terminal in the canonical book (closed, or retired as unsellable) loses its copy here
+                if (com.lifecyclebot.engine.PaperStopLifecycle8521.confirmedClosed(position.id)) {
+                    spotPositions.remove(position.id)
+                    leveragePositions.remove(position.id)
+                    persistCommodityPositions()
+                }
                 ErrorLogger.warn(TAG, "PAPER CLOSE REJECTED: ${position.market.symbol} ${canonicalClose6486.reason}")
                 return
             }

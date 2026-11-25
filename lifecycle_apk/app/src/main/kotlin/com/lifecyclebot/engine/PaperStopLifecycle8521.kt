@@ -89,8 +89,10 @@ object PaperStopLifecycle8521 {
     internal fun terminalMatches8521(
         p: CanonicalPositionAuthority6441.Position?, mint: String, assetClass: String,
     ): Boolean = p != null && p.mode.equals("paper", true) && p.mint == mint &&
-        p.assetClass.name == assetClass && p.lifecycle == CanonicalPositionAuthority6441.Lifecycle.CLOSED &&
-        p.remainingQtyRaw.signum() == 0
+        p.assetClass.name == assetClass && p.remainingQtyRaw.signum() == 0 &&
+        // V5.0.9017 — a lot retired as unsellable (quarantined, nothing remaining) has left the books: the request is met
+        (p.lifecycle == CanonicalPositionAuthority6441.Lifecycle.CLOSED ||
+            com.lifecyclebot.engine.truth.PaperRetire9017.isRetired9017(p))
 
     fun confirmedClosed(positionId: String): Boolean = CanonicalPositionAuthority6441.getPosition(positionId)
         ?.let { terminalMatches8521(it, it.mint, it.assetClass.name) } == true

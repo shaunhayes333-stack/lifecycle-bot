@@ -4332,3 +4332,59 @@ the poll is doing the work.
 
 **Not changed.** `narrHeat` / `narrExhaust` and `NarrativeFlowAI` (a different scale and source), every gate, every lane, the
 older `DexScreenerWebSocket` (io.dexscreener.com price socket, off since 7381).
+
+## §202 — V5.0.9017: PaperRetire9017, a paper lot nobody can sell leaves the books
+
+**Why.** Owner, 25 Nov 20:45 (screenshot: "Bot Stopped — 119 paper close(s) awaiting an observed fill", 115 open): "the paper
+crypto trader has over a hundred stuck positions burning data".
+
+**Measured.**
+
+| | |
+|---|---|
+| Close-out passes, 22-25 Nov (builds 8978-9004) | pending 100 -> 101 -> 106 -> 113 -> 118; `closed=0` on every pass |
+| Last pass (18:23) | requested=118 solanaProjected=86 marketsHeld=11 noOwner=21 freshMarkAttempted=3 closed=0 |
+| 13 min of the 18:23 capture | PAPER_SELL_START 161, PAPER_ACCOUNTING_MUTATION_REJECTED 161, PAPER_CLOSE_RETRY_ATTEMPTED 282 |
+| Where a sale stops | before the terminal claim: latch claimed=0, quantity boundary rejects=0, unit invariant 29 of 942, no quarantine sweep -> the paper ledger's pre-check |
+| The ledger | open cost 0.0373 SOL against 114 open canonical lots whose cost sums to 974 SOL (refused: OPEN_COST_EXCEEDS_FUNDED_CAPITAL_8169; 132 SOL / 88 lots on 20 Nov) |
+| One sampled lot (20 Nov) | RED, bought 6 Nov, -94.6 %, held 19,308 min, close refused every 0.3-3 s |
+| What it costs beside the live book | PAPER_MARK_UNPRICED_6508 7,488; mark fan-out saturated 573 times; MARK_REPAIR_FAILED 263 |
+
+Since 8765 the ledger's open cost is never raised to a projection it did not fund, and the canonical paper book is rebuilt
+from its event history (and its carry) at every start, so a lot the ledger no longer carries comes back open at each start
+and is refused forever. The per-reason refusal label (8872) was written but sits in the report's truncated label list.
+
+**Three kinds of stuck lot, none with a way out:** (1) the books refuse its terminal sale every time; (2) no source gives a
+price a holder could sell at, so a Stop / LIVE close-out never attempts it; (3) no desk owns it, so nobody can attempt it.
+
+**What changed.** `engine/truth/PaperRetire9017.kt`. Such a lot leaves the books: canonical lifecycle QUARANTINED, nothing
+remaining, reason `RETIRED_UNSELLABLE_9017:<why>` (`CanonicalPositionAuthority6441.retireUnsellablePaper9017`) — the end a
+frozen live holding reaches (8141) and the state 8765 names. No proceeds, no cash, no realised figure, no trade row; the
+position is learning-quarantined. The ledger settles any open cost it still holds for it by its own rules (8924 at once
+for a quarantine refusal, 8765 at the next start).
+
+| Kind | When | Where it is judged |
+|---|---|---|
+| 1 refused | the same lot's terminal sale refused structurally 3+ times over 10 min (`LEDGER_PRECHECK_8576_*`, `ECONOMIC_UNIT_*`, `CANONICAL_QTY_*`, `SELL_QTY_*`; never a claim another close holds or a mid-commit failure) | `Executor.paperSell` and `CanonicalPaperTransaction6486.close` (every desk), `onTerminalRefused9017` |
+| 2 no price, 3 no owner | under a durable close request, unattempted on 6+ passes spanning 60 min of this process trying | `BotService.closePaperStopIntent8521`, `noteUnsold9017` |
+
+- Durable: the retired ids (and, for a `PAPER:CARRY6492:<mint>` lot, the retired quantity and cost of the mint's carry) are
+  kept (`paper_retired_9017`). `rebuildPaperFromEvents6486` nets the retired carry where the carry is restored (so it is
+  never merged into a new position on the same coin) and retires the rebuilt lots again before any projection is built.
+- A Stop's request for a retired lot is met (`PaperStopLifecycle8521.terminalMatches8521`); shared mint tracking may be
+  released for it (`canReleaseSharedTrackingAfterPaperClose8521`).
+- Local copies are dropped: the token's position, persistence row, close state, wallet-lock size, authorisation and lane
+  ghosts (`Executor.dropRetiredPaper9017`); `CryptoAltTrader.pruneTerminalPaper9017` and its close path; the commodities,
+  metals and forex desks on a refused close of an already-terminal lot (stocks did this already).
+- Status: `paperRetire9017[retired{everKept= thisRun= by{}} refusedSales{byReason{} lotsTracked=} unattempted{lotsTracked=} oldestTracked=]`
+  in the brief — the refusal reasons that the truncated label list hid.
+
+**Not changed.** The ledger's refusals, the unit and quantity checks, the 30-second observed-mark rule for a Stop, how a
+sellable lot is sold, LIVE positions.
+
+**Known limits.** (a) Which pre-check reason refuses each lot was not in any capture (truncated labels); the first capture
+on this build names them in `refusedSales{byReason{}}`. (b) A retired lot books nothing: if a lot was really funded and its
+cover was consumed by another lot's sale, its value is not recovered — the ledger has no per-lot record to tell the two
+apart, and crediting proceeds for a lot the ledger does not carry would invent cash. (c) Why the event history rebuilds
+lots the ledger no longer carries (invalidQuarantined=1,140 sell rows excluded from the ledger replay; carry residue) is
+not repaired here: new residue is retired as it appears, not prevented.

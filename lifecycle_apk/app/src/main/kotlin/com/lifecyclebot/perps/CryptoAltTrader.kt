@@ -1292,7 +1292,33 @@ object CryptoAltTrader {
         persistAltPositions()
     }
 
+    /** V5.0.9017 — the local copy of a paper lot the canonical book has already ended (closed, or retired as unsellable). */
+    private fun dropTerminalLocal9017(pos: AltPosition) {
+        positions.remove(pos.id)
+        spotPositions.remove(pos.id)
+        leveragePositions.remove(pos.id)
+        liveCloseRetryAt8866.remove(pos.id)
+        heldEval8866.remove(pos.id)
+        tickFloorStrike7264.remove(pos.id)
+        momentumSnapshots.remove(pos.id)
+        partialLadderHit.remove(pos.id)
+        trailPeakPct.remove(pos.id)
+        try {
+            com.lifecyclebot.engine.CryptoPositionState.release(pos.marketSymbol, com.lifecyclebot.engine.CryptoPositionState.Bucket.PAPER)
+        } catch (_: Throwable) {}
+        try { PipelineHealthCollector.labelInc("CRYPTO_PAPER_LOCAL_DROPPED_TERMINAL_9017") } catch (_: Throwable) {}
+    }
+
+    /** V5.0.9017 — every local paper position whose canonical lot has ended is dropped; returns how many. */
+    fun pruneTerminalPaper9017(): Int {
+        val gone = positions.values.filter { it.isPaper && com.lifecyclebot.engine.PaperStopLifecycle8521.confirmedClosed(it.id) }
+        gone.forEach { dropTerminalLocal9017(it) }
+        if (gone.isNotEmpty()) persistAltPositions()
+        return gone.size
+    }
+
     suspend fun closePaperPositions8521(targetIds: Set<String>): com.lifecyclebot.engine.PaperStopLifecycle8521.CloseResult {
+        try { pruneTerminalPaper9017() } catch (_: Throwable) {}
         syncCanonicalCryptoPositions7255()
         val requested = positions.values.filter { it.isPaper && it.id in targetIds }.mapTo(linkedSetOf()) { it.id }
         withContext(Dispatchers.IO) { refreshMarksForStop7298(requested, paperOnly = true) }
@@ -5384,6 +5410,11 @@ object CryptoAltTrader {
 
     private fun closePosition(positionId: String, reason: String) {
         val pos = positions[positionId] ?: return
+        // V5.0.9017 — a paper lot the canonical book has already ended (closed, or retired as unsellable) has nothing to close
+        if (pos.isPaper && com.lifecyclebot.engine.PaperStopLifecycle8521.confirmedClosed(pos.id)) {
+            dropTerminalLocal9017(pos); persistAltPositions()
+            return
+        }
         if (pos.isDynamic && !pos.hasTrustedMark()) {
             noteHeld8866(pos.id, "CLOSE_DEFERRED_NO_TRUSTED_MARK", "-", pos.markUpdatedAtMs, Double.NaN)
             holdUntrustedDynamicPosition7245(pos, "CLOSE_REQUEST:${reason.take(80)}")
@@ -5407,6 +5438,8 @@ object CryptoAltTrader {
                 leveragedReturnPct6569 = pos.getPnlPct(),
             )
             if (!canonicalClose6486.applied) {
+                // V5.0.9017 — only a lot already terminal in the canonical book (closed, or retired as unsellable) loses its copy here
+                if (com.lifecyclebot.engine.PaperStopLifecycle8521.confirmedClosed(pos.id)) { dropTerminalLocal9017(pos); persistAltPositions() }
                 ErrorLogger.warn(TAG, "PAPER CLOSE REJECTED: $mktSym ${canonicalClose6486.reason}")
                 return
             }

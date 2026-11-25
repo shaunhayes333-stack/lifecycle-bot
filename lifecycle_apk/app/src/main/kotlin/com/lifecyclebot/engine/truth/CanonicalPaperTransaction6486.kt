@@ -890,7 +890,12 @@ object CanonicalPaperTransaction6486 {
             terminal = terminal, directPositionMutation6486 = true,
             exitPriceUsd7032 = observedMark, basisDerivedProceeds8083 = true,
         )
-        if (!r.applied) return@withLock Result(false, positionId, r.reason)
+        if (!r.applied) {
+            // V5.0.9017 — a terminal sale the books refuse every time is counted by reason, and the lot retired once it persists
+            if (terminal) try { PaperRetire9017.onTerminalRefused9017(positionId, r.reason) } catch (_: Throwable) {}
+            return@withLock Result(false, positionId, r.reason)
+        }
+        if (terminal) try { PaperRetire9017.onTerminalApplied9017(positionId) } catch (_: Throwable) {}
         recordCloseProjection6659(pos, r, exitReason, terminal, observedMark)
         if (terminal) CanonicalMintOccupancyRegistry6464.markClosed("paper", mint)
         try { PipelineHealthCollector.labelInc(if (terminal) "PAPER_TRANSACTION_CLOSE_COMMITTED_6486" else "PAPER_TRANSACTION_PARTIAL_COMMITTED_6486") } catch (_: Throwable) {}
