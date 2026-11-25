@@ -4096,3 +4096,28 @@ Changes:
    Used by the buy door (LiquidityOwnership8522.activeCurve8881), the safety report's unlocked-LP flag and the direct curve
    buy. Label PUMP_CURVE_PROVEN_BY_PROGRAM_STREAM_9007. In the research rows 7 pump.fun coins were LP-blocked and 373 sat
    PENDING on a safety proof against 318 and 482 off pump.fun.
+
+## 193. Not already taken by its first seconds (9008)
+
+Same launch-hour study as section 192. The at-its-open entries (8+ prints, within +15 % of the first print, decided at 20 s,
+DOCTRINE) by the launch's bundle and sniper share (LaunchFacts8840: tokens first bought in the creation second / within two
+seconds of it by wallets other than the creator, % of supply):
+
+| both under 3 % | n 1,053 | +20.1 % +- 5.8 | halves +19.7 / +20.5 | 8.8 % at +100 % | 2.1 % at +500 % |
+| either 3 % or more | n 291 | +1.7 % +- 7.0 | halves +6.6 / -2.2 | 4.1 % | 1.4 % |
+
+At 40 s: +16.2 % against -5.8 %. At 60 s: +14.4 % against -3.4 %. All launches at 20 s by sniper share: under 0.5 % +15.4 %
+(n 1,766); 0.5-3 % +16.5 %; 3-10 % -2.5 %; 10-25 % -2.7 %; 25 %+ -10.4 %. By bundle share: 25 %+ -22.0 % (n 64).
+
+Changes:
+1. SignalTape8828 reads the share itself: tokens bought in the launch's first three seconds by any wallet other than the
+   one behind the first print, over 1e9. Two more settings, O9008A / O9008B: the at-its-open settings with that share
+   under 3 %. They need the buyers' wallets (WALLET_IDS). The tape's definition is not LaunchFacts8840's to the letter
+   (first print's wallet for the creator; every early buy, not only a wallet's first), so the figures above are the reason
+   to grade it, not its grade: SignalReplay8828 grades it on this phone's prints and only a PROVEN record arms it.
+2. A position bought on a proven tape signal's fire holds the stop that signal's record was graded at
+   (LaunchSniper8748.noteAdmission8949 matched only the cap-cross rule; a signal's position took the lane's stop). The
+   ordinary-stop ceiling (ORDINARY_STOP_MAX_8949) is unchanged.
+3. evidenceFunnel8876 prints, per evidence kind, the final gate's own block reasons (`fdg9008{...}`, top 8): the top four
+   reasons it printed were always the admission's refusals, so what stopped an ADMITTED pocket or launch coin at the
+   gate could not be read (12:01 capture: pocket coins 321 admitted, 35 allowed).

@@ -70,11 +70,28 @@ class SignalTape8828 {
         private const val AT_OPEN_MAX_OVER_9007 = 1.15
         private const val AT_OPEN_MIN_PRINTS_9007 = 8
 
+        /**
+         * V5.0.9008 §AND_NOT_ALREADY_TAKEN_BY_ITS_FIRST_SECONDS — the same launch-hour study: the at-its-open entries split
+         * on who bought in the launch's first seconds. Bundle and sniper share both under 3 % of supply (LaunchFacts8840:
+         * wallets other than the creator whose first buy is in the creation second / within two seconds of it): n 1,053,
+         * +20.1 % +- 5.8, halves +19.7 / +20.5, 2.1 % of trades at +500 %. Either at 3 % or more: n 291, +1.7 % +- 7.0,
+         * halves +6.6 / -2.2. The tape reads it on its own prints so the replay and the live tape grade one definition: the
+         * tokens bought in the launch's first three seconds by any wallet other than the one behind its first print (the
+         * creator's own buy rides the create transaction), as a share of pump.fun's 1e9 supply. The two settings below are
+         * the at-its-open settings with that share under 3 %; they need the buyers' wallets.
+         */
+        const val AT_OPEN_CLEAN_20S_9008 = "O9008A"
+        const val AT_OPEN_CLEAN_60S_9008 = "O9008B"
+        private const val EARLY_WINDOW_MS_9008 = 3_000L
+        private const val EARLY_MAX_PCT_9008 = 3.0
+        private const val SUPPLY_9008 = 1.0e9
+
         /** The signals this tape expresses (SignalBible300 ids, and the base breakout's two settings). */
         val IDS: List<String> = listOf("S001", "S003", "S005", "S006", "S009", "S010", "S011", "S012", "S014", "S016", "S023",
-            "S049", "S050", "S051", "S052", BASE_WIDE_8994, BASE_TIGHT_8994, AT_OPEN_20S_9007, AT_OPEN_60S_9007)
+            "S049", "S050", "S051", "S052", BASE_WIDE_8994, BASE_TIGHT_8994, AT_OPEN_20S_9007, AT_OPEN_60S_9007,
+            AT_OPEN_CLEAN_20S_9008, AT_OPEN_CLEAN_60S_9008)
         /** Those that need the buyer's wallet. */
-        val WALLET_IDS: Set<String> = setOf("S001", "S003", "S005", "S010", "S014")
+        val WALLET_IDS: Set<String> = setOf("S001", "S003", "S005", "S010", "S014", AT_OPEN_CLEAN_20S_9008, AT_OPEN_CLEAN_60S_9008)
     }
 
     // ── closed bars, a ring; back = 0 is the newest ──
@@ -98,6 +115,8 @@ class SignalTape8828 {
     private var maxHigh = Float.NaN; private var prevMaxHigh = Float.NaN
     private var walletsKnown = false
     private var first9007 = Float.NaN   // V5.0.9007 — the launch's first print
+    private var firstWallet9008 = Long.MIN_VALUE; private var firstSeen9008 = false   // V5.0.9008 — the wallet behind the first print
+    private var earlyTokens9008 = 0.0   // tokens bought in the first three seconds by any other wallet
     private val fired = BooleanArray(IDS.size)
 
     private fun ri(back: Int): Int = ((head - 1 - back) % RING + RING) % RING
@@ -136,6 +155,8 @@ class SignalTape8828 {
         if (cIdx < 0L || b > cIdx) openBar(b, px)
         val f = px.toFloat()
         if (first9007.isNaN()) first9007 = f
+        if (!firstSeen9008) { firstSeen9008 = true; firstWallet9008 = if (buy && wallet >= 0L) wallet else Long.MIN_VALUE }
+        else if (buy && wallet >= 0L && tMs < EARLY_WINDOW_MS_9008 && wallet != firstWallet9008 && sol.isFinite() && sol > 0.0) earlyTokens9008 += sol / px
         if (f > cH) cH = f
         if (f < cL) cL = f
         cC = f
@@ -241,6 +262,8 @@ class SignalTape8828 {
         BASE_TIGHT_8994 -> baseBreakout8994(minIdx = 9L, minBars = 4, rangeMax = 0.25, overMin = 0.03, volX = 1.5, shareMin = 0.65)
         AT_OPEN_20S_9007 -> atOpen9007(1L, 3L)
         AT_OPEN_60S_9007 -> atOpen9007(5L, 7L)
+        AT_OPEN_CLEAN_20S_9008 -> atOpen9007(1L, 3L) && earlyPct9008() < EARLY_MAX_PCT_9008
+        AT_OPEN_CLEAN_60S_9008 -> atOpen9007(5L, 7L) && earlyPct9008() < EARLY_MAX_PCT_9008
         else -> false
     }
 
@@ -248,6 +271,9 @@ class SignalTape8828 {
      * V5.0.9007 — the newest closed bar is one of bars [fromIdx]..[toIdx] (10 s each from birth), the launch has printed
      * [AT_OPEN_MIN_PRINTS_9007]+ times and that bar closed no more than +15 % over the launch's first print.
      */
+    /** V5.0.9008 — the share of supply (%) taken in the first three seconds by wallets other than the first print's. */
+    internal fun earlyPct9008(): Double = 100.0 * earlyTokens9008 / SUPPLY_9008
+
     private fun atOpen9007(fromIdx: Long, toIdx: Long): Boolean {
         if (n == 0 || idx(0) !in fromIdx..toIdx || !(first9007 > 0f)) return false
         var prints = 0

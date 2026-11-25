@@ -164,7 +164,11 @@ object DecisionEpisode8535 {
             val wait = f.wait8895.entries.sortedByDescending { it.value }.take(5).joinToString(",") { "${it.key}=${it.value}" }
             // V5.0.8943 — and which hard safety finding its safety refusals were
             val safety = f.safety8943.entries.sortedByDescending { it.value }.take(5).joinToString(",") { "${it.key}=${it.value}" }
-            "$kind{$steps why{$why}${if (wait.isBlank()) "" else " wait{$wait}"}${if (safety.isBlank()) "" else " safety8943{$safety}"}}"
+            // V5.0.9008 — the final gate's own blocks, apart from the admission's refusals that crowd the top four
+            val fdg = f.why.entries.filter { it.key.startsWith("FDG_BLOCK:") }.sortedByDescending { it.value }.take(8)
+                .joinToString(",") { "${it.key.removePrefix("FDG_BLOCK:")}=${it.value}" }
+            "$kind{$steps why{$why}${if (wait.isBlank()) "" else " wait{$wait}"}${if (safety.isBlank()) "" else " safety8943{$safety}"}" +
+                "${if (fdg.isBlank()) "" else " fdg9008{$fdg}"}}"
         }.ifBlank { "-" }
         return "evidenceFunnel8876[$body rule=coins that carried market-cell evidence, once per candidate at each step they reached]"
     }

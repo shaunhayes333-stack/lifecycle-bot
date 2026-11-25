@@ -56,11 +56,18 @@ object LaunchSniper8748 {
     fun noteAdmission8949(mint: String, kind: String, terminal: String, nowMs: Long = System.currentTimeMillis()) {
         if (kind != KIND_8748 || terminal != "ADMIT" || mint.isBlank()) return
         val f = fires[mint]?.takeIf { liveFire8959(it, nowMs) } ?: return
-        val rule = LaunchReplay8744.proven8748()?.rule?.takeIf { it.id == f.ruleId } ?: return
+        // V5.0.9008 — a proven tape signal's fire holds the stop its record was graded at, as the launch rule's does: until
+        // now only the cap-cross rule matched here, so a position bought on a signal took the lane's stop instead
+        val stop9008 = LaunchReplay8744.proven8748()?.rule?.takeIf { it.id == f.ruleId }?.stopPct
+            ?: signalStop9008(f.ruleId, SignalReplay8828.proven8828()) ?: return
         if (admitted8949.size > 2_000) admitted8949.entries.removeIf { nowMs - it.value.second > ENTRY_MATCH_MS_8949 }
-        admitted8949[mint] = rule.stopPct to nowMs
+        admitted8949[mint] = stop9008 to nowMs
         admits8949.incrementAndGet()
     }
+
+    /** Pure: the graded stop of the proven tape signal [rec] when [ruleId] is its fire ("SIGNAL8828:<id> stop<N>%"), else null. */
+    internal fun signalStop9008(ruleId: String, rec: SignalReplay8828.Rec?): Double? =
+        rec?.takeIf { ruleId == "SIGNAL8828:${it.key}" }?.stopPct
 
     /** Pure: the ordinary stop magnitude a position entered at [entryMs] holds when its rule (graded at [ruleStopPct]) was admitted at [admittedMs]. */
     internal fun ruleStop8949(ruleStopPct: Double, admittedMs: Long, entryMs: Long): Double? =
