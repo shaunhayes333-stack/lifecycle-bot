@@ -37,7 +37,8 @@ class Aate8757PaperMirrorTest {
         val other = mirrored.copy(reason = "NATIVE_QUALIFIED_ADMIT_8259")
         assertFalse(PaperMirror8757.passesAtGate8757("LIVE_ORIGIN_COHORT_LOSES_8703", other))
         val auth = File("src/main/kotlin/com/lifecyclebot/engine/truth/LaneAuthority8577.kt").readText()
-        assertTrue(auth.contains("(!binding8577(reason) || PaperMirror8757.passesAtGate8757(reason, admission))"))
+        // superseded by V5.0.9022: a model pick's learned short-term refusal is advisory at the gate too
+        assertTrue(auth.contains("(!binding8577(reason) || PaperMirror8757.passesAtGate8757(reason, admission) || pickPassesAtGate9022(reason, admission))"))
         assertTrue(File("src/main/kotlin/com/lifecyclebot/engine/DiagnosisBrief8438.kt").readText().contains("PaperMirror8757.statusLine8757()"))
     }
 

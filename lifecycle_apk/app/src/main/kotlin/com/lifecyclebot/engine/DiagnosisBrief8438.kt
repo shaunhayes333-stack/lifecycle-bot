@@ -129,6 +129,7 @@ object DiagnosisBrief8438 {
             "\n               " + (try { com.lifecyclebot.engine.truth.PaperRetire9017.statusLine9017() } catch (_: Throwable) { "paperRetire9017[?]" }) +   // V5.0.9017
             "\n               " + (try { com.lifecyclebot.engine.truth.PaperCorrespondence9018.statusLine9018() } catch (_: Throwable) { "paperCorrespondence9018[?]" }) +   // V5.0.9018
             "\n               " + (try { com.lifecyclebot.engine.truth.NamedTraders9020.statusLine9020() } catch (_: Throwable) { "namedTraders9020[?]" }) +   // V5.0.9020
+            "\n               " + (try { com.lifecyclebot.engine.truth.LaneAuthority8577.pickLine9022() } catch (_: Throwable) { "modelPicks9022[?]" }) +   // V5.0.9022
             " " + (try { ForwardReturnLabeler7731.deskSetupLine9013() } catch (_: Throwable) { "cryptoDeskSetups9013=?" })   // V5.0.9013
         // V5.0.8552 — the FDG's named zero sizes ride beside the funnel (kept out of the pure line)
         return paperFunnelLine8536(attempts, opened, notOpened, nonEconomic) + " " +

@@ -387,9 +387,86 @@ object LaneAuthority8577 {
         return r.copy(trace = r.trace + "advisory8620=$why coinState8609=${launchPhase8609 ?: "-"}")
     }
 
-    private fun applyLane8577(c: CandidateAdmission8136.Candidate8136, d: CandidateAdmission8136.Decision8136,
+    // ── V5.0.9022 §THE_MODELS_PICK_IS_BOUGHT ─────────────────────────────────────────────────────────────────────────────
+    // Owner, 26 Nov 01:07: "the model has to buy the winning trades". 5.0.9020 research rows, pump.fun mints, one worst read
+    // per coin-hour, under an approximation of the bot's own exits: forecast >= +5 % n473 +18.6 % +/- 14.4 with 8.0 % reaching
+    // +100 % and 2.1 % +400 %; forecast < 0 n2257 +0.4 % +/- 3.1 with 3.6 % / 0.5 %. The model finds where the runners are —
+    // and its picks met the same learned short-term refusals as every other candidate (24 h: ~110 pump.fun coins picked, 0
+    // bought in the capture's session). A pick is a LIVE candidate the model calls POSITIVE (its own out-of-sample authority,
+    // or an earned conviction tier) with a forecast of [PICK_MIN_PRED_PCT_9022]+. For a pick the learned short-term
+    // refusals ([PICK_ADVISORY_9022]: the coin's own move against cost, setup / cell / timing / stage records, the lane's
+    // probe slot, watch-first, the chase door) are carried as advisory, at the admission and at the gate. Everything else
+    // binds as before: safety, structural risk, the buy-the-high refusal, critical data, LP / RugCheck / holder / authority
+    // proofs at the door, the kill switch, sizing and the wallet. Inside the noise on the record above — the owner's call;
+    // every pick is counted by what happened to it ([pickLine9022]).
+    const val PICK_MIN_PRED_PCT_9022 = 5.0
+    const val PICK_TRACE_9022 = "modelPick9022"
+    private val PICK_ADVISORY_9022 = listOf(
+        "EXECUTION_ECONOMICS_8136", "EXECUTION_NET_NONPOSITIVE_8629", "SHEET_AVOID_8323", "CELL_PROVEN_LOSING_8136",
+        "SETUP_RECORD_LOSING_8136", "LIVE_SETUP_LOSES_8714", "LIVE_STAGE_LOSES_8626", "TIMING_ADVERSE_8136",
+        "TIMING_RECORD_NEGATIVE_8094", "PICKED_SETUP_RECORD_NEGATIVE_8094", "TACTIC_RECORD_LOSING_8094",
+        "NET_EDGE_COIN_TOO_SLOW_8035", "NET_EDGE_SCALP_COIN_TOO_FLAT_8054", "LANE_REALISED_LOSING_PROBE_OCCUPIED_8424",
+        "LANE_REALISED_LOSING_PROVEN_PROBE_WAIT_8424", "WATCH_FIRST_7994", "CELL_PROOF_NEGATIVE_7731",
+        "STAGE_PROVEN_LOSING_7928", "LIVE_SOURCE_PROVEN_LOSING_8536", "CHASING_SPIKE_8065", "LIVE_NON_POSITIVE_EXPECTANCY_7828",
+        "BIG_LOSER_8130", "EDGE_7877",
+    )
+    private val PICK_NEVER_9022 = listOf("SAFETY", "STRUCTURAL_RISK", "MEME_BUYS_THE_HIGH", "DATA_INCOMPLETE", "RUG", "LP_", "HOLDER", "KILL_SWITCH")
+
+    /** Pure: is [c] a pick — LIVE, the model's POSITIVE call, a forecast of [PICK_MIN_PRED_PCT_9022]+? */
+    fun modelPick9022(c: CandidateAdmission8136.Candidate8136): Boolean =
+        c.live && EdgeModel8537.callOf(c.edge8537) == EdgeModel8537.Call.POSITIVE && (c.edge8537?.predPct ?: Double.NaN) >= PICK_MIN_PRED_PCT_9022
+
+    /** Pure: is [reason] a learned short-term refusal a pick is not stopped by? */
+    fun pickAdvisory9022(reason: String?): Boolean {
+        if (reason.isNullOrBlank()) return false
+        val r = reason.uppercase()
+        return PICK_NEVER_9022.none { r.contains(it) } && PICK_ADVISORY_9022.any { r.contains(it) }
+    }
+
+    /** LiveEdgeGate7877: the gate's learned refusal [reason] does not stop an admitted pick; counted either way. */
+    fun pickPassesAtGate9022(reason: String?, admission: CandidateAdmission8136.Decision8136?): Boolean {
+        if (admission == null || admission.trace.none { it.startsWith(PICK_TRACE_9022) }) return false
+        val pass = pickAdvisory9022(reason)
+        notePick9022(if (pass) "GATE_PASSED" else "GATE_STOPPED", reason)
+        return pass
+    }
+
+    private val picks9022 = ConcurrentHashMap<String, AtomicLong>()
+    private val lastPicks9022 = java.util.concurrent.ConcurrentLinkedDeque<String>()
+    private fun notePick9022(outcome: String, reason: String?) {
+        val why = (reason ?: "").removePrefix("CANDIDATE_ADMISSION_8136_").substringBefore(':').take(44)
+        picks9022.computeIfAbsent(if (why.isBlank()) outcome else "$outcome:$why") { AtomicLong() }.incrementAndGet()
+    }
+
+    /** The decision a pick leaves the admission with: its learned short-term refusal carried as advisory; marked for the gate. */
+    internal fun pickDecision9022(c: CandidateAdmission8136.Candidate8136, d: CandidateAdmission8136.Decision8136): CandidateAdmission8136.Decision8136 {
+        if (!modelPick9022(c)) return d
+        val pred = c.edge8537?.predPct ?: return d
+        val net = if (d.expectedNetPct.isFinite()) maxOf(d.expectedNetPct, pred) else pred
+        val out = when {
+            d.admitted -> { notePick9022("ADMITTED", null); d.copy(expectedNetPct = net, trace = d.trace + "$PICK_TRACE_9022 pred=$pred") }
+            pickAdvisory9022(d.reason) -> {
+                notePick9022("ADMITTED_PAST", d.reason)
+                d.copy(terminal = CandidateAdmission8136.Terminal8136.ADMIT, reason = CandidateAdmission8136.EDGE_MODEL_PROVEN_8537,
+                    specific = true, expectedNetPct = net, trace = d.trace + "$PICK_TRACE_9022 pred=$pred advisory=${d.reason}")
+            }
+            else -> { notePick9022("STOPPED", d.reason); d }
+        }
+        lastPicks9022.addLast("${c.mint.take(6)}|${c.lane}|${"%+.0f".format(pred)}|${if (out.admitted) "ADMIT" else d.reason.take(28)}")
+        while (lastPicks9022.size > 8) lastPicks9022.pollFirst()
+        return out
+    }
+
+    /** Brief: what happened to the model's picks this session, by outcome and refusal, and the last eight. */
+    fun pickLine9022(): String =
+        "modelPicks9022[min=+${PICK_MIN_PRED_PCT_9022.toInt()}% {" + picks9022.entries.sortedByDescending { it.value.get() }.take(14)
+            .joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } + "} last{" + lastPicks9022.joinToString(" ").ifBlank { "-" } +
+            "} rule=a LIVE model pick is not stopped by a learned short-term refusal at the admission or the gate; safety, structure, the high, critical data, the door's proofs and sizing bind; counted per decision, not per coin]"
+
+    private fun applyLane8577(c: CandidateAdmission8136.Candidate8136, d0: CandidateAdmission8136.Decision8136,
                               highRefusal8582: String?): CandidateAdmission8136.Decision8136 {
-        if (!enabled8577 || !c.live) return d
+        if (!enabled8577 || !c.live) return d0
+        val d = pickDecision9022(c, d0)   // V5.0.9022
         val qualified = CandidateAdmission8136.specialistQualified8539(c)
         val costKnown = c.costPct.isFinite() && c.costPct >= 0.0
         if (!d.admitted && bindingAdmission8577(d, costKnown)) return d.copy(laneQualified8577 = qualified)
@@ -425,7 +502,7 @@ object LaneAuthority8577 {
     // one: the paper book buys generic-prior admits too, and the gate's learned doors are the layer it never had.
     fun advisoryAtGate8577(reason: String?, admission: CandidateAdmission8136.Decision8136?): Boolean =
         enabled8577 && admission?.admitted == true && !reason.isNullOrBlank() &&
-            (!binding8577(reason) || PaperMirror8757.passesAtGate8757(reason, admission))   // V5.0.8757
+            (!binding8577(reason) || PaperMirror8757.passesAtGate8757(reason, admission) || pickPassesAtGate9022(reason, admission))   // V5.0.8757, V5.0.9022
 
     private val advisory8577 = ConcurrentHashMap<String, AtomicLong>()
     private val admittedByLane8577 = ConcurrentHashMap<String, AtomicLong>()

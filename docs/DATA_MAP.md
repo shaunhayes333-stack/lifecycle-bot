@@ -4554,3 +4554,28 @@ before the peak, 55 % of a 2x+ peak kept, the line from +10 %) -0.3 % +/- 2.6. W
 +3.8 +/- 2.0; cap $100k+ n861 -4.3 +/- 0.5 (0.6 % reach +100 %). The model's forecast ranks the runner rate under exits
 (forecast < 0: 0.5 % reach +400 %), so its refusal authority is left as it is. Live exits: of 45 positions that reached
 +200 %, 5 kept it and 30 closed on the hard stop (degenHarvest9011) — the next build.
+
+## §207 — V5.0.9022: the model's pick is bought
+
+Owner, 26 Nov 01:07: "the model has to buy the winning trades". The 5.0.9020 research rows (§206) show the edge model's
+forecast finds where the runners are on pump.fun under the bot's exits (forecast >= +5 %: n473 +18.6 % +/- 14.4, 8.0 %
+reach +100 %, 2.1 % +400 %; forecast < 0: n2257 +0.4 % +/- 3.1, 3.6 % / 0.5 %) — inside the noise, the owner's call. In the
+last 24 h about 110 pump.fun coins carried such a forecast; the capture's session bought none.
+
+`LaneAuthority8577` (the one place a learned door is made advisory or binding):
+
+- `modelPick9022(c)`: LIVE, `EdgeModel8537.callOf` POSITIVE (the lane's own out-of-sample authority, or an earned conviction
+  tier), forecast >= `PICK_MIN_PRED_PCT_9022` (+5 %).
+- `pickDecision9022` (in `applyLane8577`, before the lane rules): a pick refused by a learned short-term door
+  (`PICK_ADVISORY_9022`: the coin's own move against cost, setup / cell / timing / stage records, sheet-avoid) leaves the
+  admission ADMIT `EDGE_MODEL_PROVEN_8537` with that door in its trace; its expected net is the forecast (what sizing reads).
+  Every pick's decision carries the trace mark `modelPick9022`.
+- `pickPassesAtGate9022` (in `advisoryAtGate8577`): the gate's learned refusals (timing record, lane probe slot, coin too
+  slow, watch-first, cell / stage proof, chase door, live source record) do not stop a marked pick.
+- Still binding for a pick: SAFETY_REFUSED, STRUCTURAL_RISK, MEME_BUYS_THE_HIGH (checked after the conversion), critical
+  DATA_INCOMPLETE, the model's own negative call, and everything outside this class — LP / RugCheck / holder / authority
+  proofs at the door, the kill switch, sizing, the wallet, the send.
+
+Report: `modelPicks9022[min=+5% {ADMITTED= ADMITTED_PAST:<door>= STOPPED:<door>= GATE_PASSED:<door>= GATE_STOPPED:<door>=}
+last{mint|lane|forecast|outcome x8}]` on the diagnosis brief (counted per decision, not per coin). A pick that passes both and
+is not bought was stopped at the door's proofs, sizing or the send — the lines for those are unchanged.
