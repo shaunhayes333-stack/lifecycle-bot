@@ -45,7 +45,10 @@ class Aate9022ModelPickTest {
     }
 
     @Test fun whatProtectsTheWalletStillStopsAPick() {
-        for (r in listOf("SAFETY_REFUSED_8136", "STRUCTURAL_RISK_8136", "MEME_BUYS_THE_HIGH_8582", "DATA_INCOMPLETE_DEFER_8136",
+        // superseded by V5.0.9023: STRUCTURAL_RISK_8136 (stage RUG_PRONE, a selection judgement) is advisory for a pick
+        assertTrue(LaneAuthority8577.pickAdvisory9022("STRUCTURAL_RISK_8136"))
+        assertTrue(LaneAuthority8577.pickDecision9022(cand(30.0), refused("STRUCTURAL_RISK_8136")).admitted)
+        for (r in listOf("SAFETY_REFUSED_8136", "RUGCHECK_PENDING_OR_UNKNOWN", "MEME_BUYS_THE_HIGH_8582", "DATA_INCOMPLETE_DEFER_8136",
             "EDGE_MODEL_NEGATIVE_8537", "KILL_SWITCH_7835:MAX_DRAWDOWN", "LP_LOCK_BELOW_REQUIRED_8522", "TOP_HOLDER_CONCENTRATION")) {
             assertFalse(r, LaneAuthority8577.pickAdvisory9022(r))
             val d = LaneAuthority8577.pickDecision9022(cand(30.0), refused(r))

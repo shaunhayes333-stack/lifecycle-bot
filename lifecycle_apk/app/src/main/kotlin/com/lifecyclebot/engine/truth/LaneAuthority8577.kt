@@ -409,8 +409,11 @@ object LaneAuthority8577 {
         "LANE_REALISED_LOSING_PROVEN_PROBE_WAIT_8424", "WATCH_FIRST_7994", "CELL_PROOF_NEGATIVE_7731",
         "STAGE_PROVEN_LOSING_7928", "LIVE_SOURCE_PROVEN_LOSING_8536", "CHASING_SPIKE_8065", "LIVE_NON_POSITIVE_EXPECTANCY_7828",
         "BIG_LOSER_8130", "EDGE_7877",
+        // V5.0.9023 — the structural-risk judgement (stage RUG_PRONE: a selection judgement, the largest wrong refusal of
+        // runners on the 5.0.9020 trace) is advisory for a pick; "STAGE_RUG_PRONE" is its own why-text, not a RugCheck result.
+        "STRUCTURAL_RISK_8136",
     )
-    private val PICK_NEVER_9022 = listOf("SAFETY", "STRUCTURAL_RISK", "MEME_BUYS_THE_HIGH", "DATA_INCOMPLETE", "RUG", "LP_", "HOLDER", "KILL_SWITCH")
+    private val PICK_NEVER_9022 = listOf("SAFETY", "MEME_BUYS_THE_HIGH", "DATA_INCOMPLETE", "RUGCHECK", "RUG_DRAIN", "HONEYPOT", "LP_", "HOLDER", "KILL_SWITCH")
 
     /** Pure: is [c] a pick — LIVE, the model's POSITIVE call, a forecast of [PICK_MIN_PRED_PCT_9022]+? */
     fun modelPick9022(c: CandidateAdmission8136.Candidate8136): Boolean =

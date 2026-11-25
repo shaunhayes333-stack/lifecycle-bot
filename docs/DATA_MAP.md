@@ -4579,3 +4579,21 @@ last 24 h about 110 pump.fun coins carried such a forecast; the capture's sessio
 Report: `modelPicks9022[min=+5% {ADMITTED= ADMITTED_PAST:<door>= STOPPED:<door>= GATE_PASSED:<door>= GATE_STOPPED:<door>=}
 last{mint|lane|forecast|outcome x8}]` on the diagnosis brief (counted per decision, not per coin). A pick that passes both and
 is not bought was stopped at the door's proofs, sizing or the send — the lines for those are unchanged.
+
+## §208 — V5.0.9023: the structural-risk judgement binds only while it is not refusing the runners
+
+Owner, 26 Nov 01:35: "why aren't we buying the big winners". 5.0.9020: 53 coins went 4x+ in 24 h, 1 held. Runner trace
+(200): 130 not yet runners at the decision, 53 wrongly refused — STRUCTURAL_RISK_8136 15, LP-blocked 11 — 11 bought.
+
+- `GateOutcome8418.structureBinds9023`: on a mature record (40+) the judgement (stage RUG_PRONE; a selection judgement,
+  not RugCheck / authorities / LP / sellability) binds only when its refused coins are proven losing on the mean AND fewer
+  than 5 % of them ran (+100 %). A thin record binds as before.
+- `LaneAuthority8577`: STRUCTURAL_RISK_8136 is advisory for a model pick (supersedes §207's "still binding" for that one).
+
+**Pinned, not fixed here** (same capture):
+- re-judging: `floorWatch8856[followed=29 noBirth=375 crossed=8 admitted=0 firstRefusal{SHADOW_NOT_PRIMARY_8029=4,...}]` —
+  the watch that re-judges a launch when it crosses the floor follows only launches whose birth it witnessed (29 of 404),
+  and half the crosses were first turned away as not the primary lane;
+- lane floors / score bars: `NATIVE_LANE_LIQ_BELOW_FLOOR` 133-140 a lane, `NATIVE_SCORE` 172, `NATIVE_MCAP_TOO_LOW`,
+  `NATIVE_PHASE_HANDOFF` 261 (hand-off: emitted 78, arrived at the gate 12);
+- admitted, not sent: the one FDG pass sized to 0 (`RISK_SIZE_BELOW_EXECUTABLE_MINIMUM_7835`, `CAPITAL_ONLY_NO_WALLET=1`).

@@ -217,10 +217,22 @@ object GateOutcome8418 {
         val gate = FdgGate8365.gateKey8392(reason)
         val st = stat8418(gate, lane)?.takeIf { it.n >= 40.0 } ?: stat8418(gate) ?: return true
         if (st.n < 40.0) return true
-        val binds = st.mean() + st.se() < 0.0
+        val binds = structureBinds9023(st.n, st.mean(), st.se(), st.runners)
         if (!binds) try { PipelineHealthCollector.labelInc("STRUCTURAL_RISK_RELEASED_BY_RECORD_8755") } catch (_: Throwable) {}
         return binds
     }
+
+    /**
+     * V5.0.9023 §A_DOOR_THAT_REFUSES_RUNNERS_IS_NOT_PROTECTING — owner, 26 Nov 01:35: "why aren't we buying the big winners".
+     * 5.0.9020 runner trace (200 runners): 53 wrongly refused, the structural-risk judgement (stage RUG_PRONE — valuation air,
+     * a thin-liquidity run-up; not the safety door) the largest cause at 15. Its record bound it on the mean alone
+     * (mean + SE < 0), and a mean is negative for any cohort of small coins while the runners sit in its tail. Pure: it
+     * binds on a mature record only when the mean proves a loss AND fewer than [STRUCTURE_RUNNER_SHARE_9023] of what it
+     * refused went on to run (+100 %). RugCheck, authorities, LP and sellability are the safety door, untouched.
+     */
+    const val STRUCTURE_RUNNER_SHARE_9023 = 0.05
+    fun structureBinds9023(n: Double, mean: Double, se: Double, runners: Double): Boolean =
+        n > 0.0 && mean.isFinite() && se.isFinite() && mean + se < 0.0 && (runners / n) < STRUCTURE_RUNNER_SHARE_9023
 
     /** FdgGate8365: does [reason]'s own lane record of graded refusals prove it refuses winners (100+, robust)? */
     fun retiresAt100_8418(reason: String, lane: String): Boolean {
