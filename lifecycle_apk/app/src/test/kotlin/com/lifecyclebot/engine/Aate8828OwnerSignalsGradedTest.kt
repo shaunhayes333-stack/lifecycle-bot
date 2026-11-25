@@ -19,7 +19,8 @@ class Aate8828OwnerSignalsGradedTest {
         assertEquals(emptyList<String>(), t.onPrint(1_000, 1e-7, true, 0.5, 11, true))
         assertEquals(emptyList<String>(), t.onPrint(5_000, 1e-7, true, 0.5, 12, true))
         assertEquals(emptyList<String>(), t.onPrint(9_000, 1e-7, true, 0.5, 13, true))
-        assertEquals("the bar closes on the next bar's print", listOf("S001"), t.onPrint(12_000, 1.1e-7, true, 0.5, 14, true))
+        // superseded by V5.0.9025 — three buys within 1.5x of the first print is also the quiet open (O9025A), on the same close
+        assertEquals("the bar closes on the next bar's print", listOf("S001", SignalTape8828.QUIET_OPEN_9025), t.onPrint(12_000, 1.1e-7, true, 0.5, 14, true))
         // once per coin
         assertFalse("S001" in t.onPrint(25_000, 1.2e-7, true, 0.5, 15, true))
         // a backfilled closing print never triggers; the next live one may
